@@ -3,8 +3,9 @@
 Guards: maker shadow tape v0.2 record stream and day bundle (docs/operations/maker-shadow-runner.md, Tape v0.2
   record stream): receipt-time stamping with the mid-minute book refresh (no capture gap under an advancing
   clock), the recorder fault boundary (transactional trade state, coded faults that survive the seal
-  scrubber, stream open, durable-only counters, coded bundle refusals, gap sources), the trade baseline across the UTC day roll and the Gamma/reward/book-venue
-  allowlists; round trip against the vendored replay-v2 reader contract
+  scrubber, stream open, durable-only counters, coded bundle refusals, gap sources written first and
+  atomically), the trade baseline across the UTC day roll and the Gamma/reward/book-venue allowlists;
+  round trip against the vendored replay-v2 reader contract
   (tests/maker_core/fixtures/replay_v2_reader_contract.py, pinned to build-line 2d8cccb13).
 """
 from dataclasses import replace
@@ -653,3 +654,29 @@ def test_runs_without_a_record_stream_are_named_as_gap_sources(tmp_path):
     assert gaps == {"schema_version": GAPS_SCHEMA, "day": DAY, "bundle": "bundle.json",
                     "runs_without_record_stream": [gap]}
     assert reader.StreamBundle(path.parent).conditions  # the replay reader still opens the day
+
+
+def test_gaps_json_is_written_first_and_atomically_and_a_rerun_fills_it_in(tmp_path, monkeypatch):
+    from maker_core.shadow import records as records_module
+    runner, _, _, clock = recording_rig(tmp_path)
+    record_run(tmp_path, runner, clock, 2)
+    root, folder = tmp_path / "tapes", day_directory(tmp_path / "tapes", DAY)
+
+    def failing_replace(source, target):
+        raise OSError(28, "fixture: no space left")
+    monkeypatch.setattr(records_module, "os", types.SimpleNamespace(fsync=records_module.os.fsync,
+                                                                    getpid=records_module.os.getpid,
+                                                                    replace=failing_replace))
+    with pytest.raises(OSError):
+        bundle_day(root, DAY, clock=lambda: AFTER_DAY)
+    assert sorted(p.name for p in folder.iterdir() if not p.name.endswith((".jsonl", ".seal.json"))) == []
+    monkeypatch.undo()
+    path, manifest = bundle_day(root, DAY, clock=lambda: AFTER_DAY)
+    bundle_bytes = path.read_bytes()
+    assert manifest["gaps"] == []
+    assert json.loads((folder / "gaps.json").read_bytes())["runs_without_record_stream"] == []
+    (folder / "gaps.json").unlink()  # a bundle without its gaps file (a crash before N10): filled in, not refused
+    path, manifest = bundle_day(root, DAY, clock=lambda: AFTER_DAY + timedelta(hours=1))
+    assert path.read_bytes() == bundle_bytes and (folder / "gaps.json").is_file() and manifest["gaps"] == []
+    with pytest.raises(FileExistsError):
+        bundle_day(root, DAY, clock=lambda: AFTER_DAY)

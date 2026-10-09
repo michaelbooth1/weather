@@ -226,7 +226,9 @@ payload payload_sha256 source_hashes`), fsynced per batch, then a create-only
   quotes tape sealed without a record stream (`records_stream_error`, for example
   `open:<Error>`) are explicit gap sources: `records.stream_gaps`, the summary's
   `stream_gaps`, the CLI's `gaps`, and `records/<day>/gaps.json` beside the bundle (the
-  bundle format admits no extra field). A stream batch advances its sequence and kind counts
+  bundle format admits no extra field). `gaps.json` is written first, atomically (temp file
+  and rename), then the create-only `bundle.json`; a re-run fills in a missing `gaps.json`
+  beside an existing bundle instead of refusing `bundle_exists`. A stream batch advances its sequence and kind counts
   only after its bytes are fsynced, so a failed batch never leaves a sequence gap in an `ok`
   seal.
 - Size and replay limits: the Defender's synthetic 12-band day (decision-time stamping) was

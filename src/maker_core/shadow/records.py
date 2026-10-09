@@ -38,7 +38,7 @@ import os
 from pathlib import Path
 import re
 
-from maker_core.evidence.journal import canonical_bytes, digest, plain, write_new
+from maker_core.evidence.journal import SecretGuard, canonical_bytes, digest, plain, write_new
 
 BUNDLE_FORMAT = "maker_core.replay.bundle.v0.2"
 STREAM_SEAL_SCHEMA = "maker_core.shadow_records_seal.v0.1"
@@ -759,8 +759,9 @@ def bundle_day(root, day, *, clock):
     or malformed seal, a stream that differs from its seal, a condition without a registry market id, or a
     condition whose market identity differs between runs, each with a coded ``ValueError``. Create-only.
     Runs that sealed their quotes tape without a stream (``stream_gaps``) are named in ``gaps.json`` beside
-    the bundle (schema ``GAPS_SCHEMA``; the bundle format itself admits no extra field) and returned under
-    the manifest's ``gaps`` key by ``bundle_day`` only. Read the day with ``Limits(**SHADOW_REPLAY_LIMITS)``.
+    the bundle (schema ``GAPS_SCHEMA``; the bundle format itself admits no extra field), written first and
+    atomically; a re-run fills it in when ``bundle.json`` exists without it. They are also returned under the
+    manifest's ``gaps`` key by ``bundle_day`` only. Read the day with ``Limits(**SHADOW_REPLAY_LIMITS)``.
     """
     start = datetime.combine(date.fromisoformat(day), datetime.min.time(), tzinfo=timezone.utc)
     end, sealed_at = start + timedelta(days=1), clock()
@@ -797,13 +798,33 @@ def bundle_day(root, day, *, clock):
                     for s in seals]}
     gaps = stream_gaps(root, day)
     path = day_directory(root, day) / "bundle.json"
+    gaps_path = path.with_name("gaps.json")
+    if path.exists() and gaps_path.exists():
+        raise FileExistsError(str(path))
+    # gaps.json first, atomically (a temp file renamed over it), then the create-only bundle.json: a bundle
+    # never exists without its gap sources, and a re-run after a failure in between fills gaps.json in.
+    _replace_json(gaps_path, {"schema_version": GAPS_SCHEMA, "day": day, "bundle": path.name,
+                              "runs_without_record_stream": gaps})
+    if path.exists():
+        return path, dict(json.loads(path.read_bytes()), gaps=gaps)
     write_new(path, manifest)
-    write_new(path.with_name("gaps.json"), {"schema_version": GAPS_SCHEMA, "day": day, "bundle": path.name,
-                                             "runs_without_record_stream": gaps})
     return path, dict(manifest, gaps=gaps)
 
 
-__all__ = ["BOOK_VENUE_KEYS", "BUNDLE_FORMAT", "COVERAGE_SECONDS", "GAPS_SCHEMA", "RawRecorder", "RecordStream", "RecordingReads",
-           "SHADOW_REPLAY_LIMITS", "STREAM_SEAL_SCHEMA", "bundle_day", "day_active_intervals", "day_directory",
-           "fault_list", "gamma_market_projection", "group_id", "next_sequence", "records_summary", "reward_projection", "stream_gaps",
-           "stream_name", "verify_stream"]
+def _replace_json(path, value):
+    """Write ``value`` to ``path`` atomically: a fsynced temp file beside it, renamed over it."""
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        with temporary.open("wb") as handle:
+            handle.write(canonical_bytes(SecretGuard().clean(value)))
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+__all__ = ["BOOK_VENUE_KEYS", "BUNDLE_FORMAT", "COVERAGE_SECONDS", "GAPS_SCHEMA", "RawRecorder", "RecordStream",
+           "RecordingReads", "SHADOW_REPLAY_LIMITS", "STREAM_SEAL_SCHEMA", "bundle_day", "day_active_intervals",
+           "day_directory", "fault_list", "gamma_market_projection", "group_id", "next_sequence", "records_summary",
+           "reward_projection", "stream_gaps", "stream_name", "verify_stream"]
