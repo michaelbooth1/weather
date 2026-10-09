@@ -665,3 +665,45 @@ def test_n5_http_error_with_fp_none_is_sanitized_on_every_311_patch(build):
     assert token not in error.filename and REDACTED in error.filename
     assert token not in str(error) and token not in repr(error)
     assert token not in _rendered(error)
+
+
+def _fp_none_http_error(build, url):
+    import urllib.error
+
+    if build == "constructor":
+        return urllib.error.HTTPError(url, 503, "busy", {}, None)
+    error = _pre_3_11_2_http_error(url, 503, "busy", {})
+    with pytest.raises(KeyError):  # precondition: the host's 3.11.0 failure mode is real here
+        getattr(error, "response", None)
+    return error
+
+
+@pytest.mark.parametrize("build", ["constructor", "pre_3_11_2"])
+def test_failure_class_for_fp_none_http_error_does_not_raise(build):
+    from weather.sources.wu_history import TRANSIENT_FAILURE
+
+    error = _fp_none_http_error(build, "https://api.example.invalid/v1/x/historical.json?units=e")
+
+    assert failure_class_for_exception(error) == TRANSIENT_FAILURE
+    assert failure_class_for_exception(error, page_backed=True) == TRANSIENT_FAILURE
+
+
+@pytest.mark.parametrize("build", ["constructor", "pre_3_11_2"])
+def test_write_fetch_error_records_fp_none_http_error(build, tmp_path):
+    import datetime as dt
+    import json as _json
+
+    from weather.sources.wu_history import TRANSIENT_FAILURE, WundergroundHistoryStore
+
+    error = _fp_none_http_error(build, "https://api.example.invalid/v1/x/historical.json?units=e")
+    store = WundergroundHistoryStore(tmp_path, station_icao="KXYZ", history_id="KXYZ:9:US")
+    day = dt.date(2026, 1, 5)
+
+    row = store.write_fetch_error(day, day, error)
+
+    assert row["failure_class"] == TRANSIENT_FAILURE
+    assert row["status_code"] is None and row["url"] is None
+    assert row["treated_as_source_unavailable"] is False
+    assert "HTTP Error 503" in row["error"]
+    logged = [_json.loads(line) for line in store.error_log_path.read_text(encoding="utf-8").splitlines()]
+    assert logged[-1] == row

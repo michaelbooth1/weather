@@ -231,7 +231,7 @@ def _redact_opaque(arg):
     return arg
 
 
-def _safe_attr(obj, name):
+def safe_attr(obj, name):
     """``getattr(obj, name, None)`` that never raises.
 
     ``getattr`` with a default only swallows AttributeError. CPython < 3.11.2 builds
@@ -247,7 +247,7 @@ def _safe_attr(obj, name):
 
 
 def _redact_text_attr(obj, name):
-    value = _safe_attr(obj, name)
+    value = safe_attr(obj, name)
     if isinstance(value, str):
         redacted = redact_wu_secrets(value)
     elif isinstance(value, bytes):
@@ -268,7 +268,7 @@ def _redact_headers_in_place(headers):
     False leaves it to the fixed placeholder (not a headers object, or a token
     survives somewhere else, such as a payload).
     """
-    if not all(callable(_safe_attr(headers, name)) for name in ("items", "get_all", "__delitem__", "__setitem__")):
+    if not all(callable(safe_attr(headers, name)) for name in ("items", "get_all", "__delitem__", "__setitem__")):
         return False
     try:
         items = list(headers.items())
@@ -337,21 +337,21 @@ def _sanitize_one(exc, seen):
     for name in _TEXT_ATTRS:
         _redact_text_attr(exc, name)
     _redact_instance_attrs(exc, seen, depth)
-    notes = _safe_attr(exc, "__notes__")
+    notes = safe_attr(exc, "__notes__")
     if isinstance(notes, list):
         try:
             exc.__notes__ = [redact_wu_secrets(note) if isinstance(note, str) else note for note in notes]
         except Exception:  # noqa: BLE001
             pass
     for holder_name in ("request", "response"):
-        holder = _safe_attr(exc, holder_name)
+        holder = safe_attr(exc, holder_name)
         if holder is not None:
             _redact_text_attr(holder, "url")
-    for inner in _safe_attr(exc, "exceptions") or ():
+    for inner in safe_attr(exc, "exceptions") or ():
         if isinstance(inner, BaseException):
             _queue(seen, inner)
     # urllib3 keeps the wrapped failure on ``reason``; requests keeps it in args.
-    reason = _safe_attr(exc, "reason")
+    reason = safe_attr(exc, "reason")
     if isinstance(reason, BaseException):
         _queue(seen, reason)
     _queue(seen, exc.__cause__)
