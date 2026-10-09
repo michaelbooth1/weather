@@ -67,14 +67,15 @@ def measure(name, fn, *, repeats, clock, journal, guard, failures, cadence=0):
     return latency(times), results
 
 
-def run_preflight():
+def run_preflight(*, root=None, select=None, profile=None):
+    """root/select/profile default to RE-1; the live-fill calibration pilot passes its own (lfc_cli)."""
     if not sys.stdin.isatty():
         raise RuntimeError('owner_terminal_required')
     from weather.market.re1_transport import load_owner_credentials, build_client, OwnerVenue, json_read, GEOBLOCK, RPC
     from polymarket._internal.actions.rewards import build_get_orders_scoring_request
     from polymarket.errors import UserInputError
     clock, guard = WallClock(), SecretGuard()
-    directory = campaign_root() / ('preflight-' + clock.now().strftime('%Y%m%dT%H%M%S%fZ'))
+    directory = (campaign_root() if root is None else Path(root)) / ('preflight-' + clock.now().strftime('%Y%m%dT%H%M%S%fZ'))
     journal = GuardedJournal(directory / 'journal.jsonl', clock=clock.now, scope={'purpose': 'preflight'},
                              mode='preflight', guard=guard)
     failures, stats = [], {}
@@ -110,7 +111,8 @@ def run_preflight():
             wallet_reader = OwnerVenue(client, fields, guard, readonly=True, preflight=True)
             balances = wallet_reader.balances()
             journal.record('selection_wallet', balances=balances)
-            table = Re1PublicBooks().selection(available_collateral=balances['available_collateral'])
+            table = (Re1PublicBooks().selection(available_collateral=balances['available_collateral']) if select is None
+                     else select(balances))
             write_new(directory / 'selection.json', guard.clean(table))
             if not table['selected_condition_id']:
                 best = max(table['rows'], key=lambda row: row['predicted_360_minutes']
@@ -129,11 +131,12 @@ def run_preflight():
                 raise RuntimeError('no_qualifying_band')
             selected = next(r for r in table['rows'] if r['condition_id'] == table['selected_condition_id'])
             from weather.market.re1_sizing import session_caps
-            _, reserve_cap = session_caps(selected['quote']['size'], table['available_collateral'])
+            _, reserve_cap = (session_caps(selected['quote']['size'], table['available_collateral']) if profile is None
+                              else profile.venue_ceiling(selected['quote']['size']))
             phase = 'user_stream_readiness'
             venue = OwnerVenue(client, fields, guard, condition=selected['condition_id'], tokens=selected['token_ids'],
                                directory=directory, readonly=True, preflight=True,
-                               size=selected['quote']['size'], reserve_cap=reserve_cap)
+                               size=selected['quote']['size'], reserve_cap=reserve_cap, profile=profile)
             venue.set_journal(journal)
             venue.start()
             journal.record('preflight_step', step='user_stream_readiness', status='PASS')

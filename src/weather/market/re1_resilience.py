@@ -81,6 +81,7 @@ class HeartbeatLoop:
         self.main_tick = self.started = clock.monotonic()
         self.last_ack, self.next_send = None, self.started
         self.failure = None
+        self.sends_dropped = False  # live-fill calibration session-0 run 0d only (lfc_pilot); never set by RE-1
         self.stopped = Event()
         self.thread = None
 
@@ -99,7 +100,7 @@ class HeartbeatLoop:
             self.failure = 'heartbeat_stale'
             self.stopped.set()
             return
-        if now < self.next_send:
+        if now < self.next_send or self.sends_dropped:
             return
         self.next_send = now + 1
         try:
@@ -144,6 +145,10 @@ class HeartbeatLoop:
             raise HoldEnd(self.failure)
         if self.clock.monotonic() - (self.last_ack if self.last_ack is not None else self.started) >= 8:
             raise HoldEnd('heartbeat_stale')
+
+    def drop_sends(self):
+        """Stop sending heartbeats while the stale checks keep running, so the venue cancels server-side."""
+        self.sends_dropped = True
 
     def stop(self):
         self.stopped.set()

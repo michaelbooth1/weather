@@ -27,16 +27,19 @@ LOCATION_ORDER = ('los-angeles', 'seattle', 'san-francisco', 'denver')
 
 
 def select_table(universe, *, now, complete=True, source_records=(), available_collateral=None,
-                 treatment=None, headroom=None):
+                 treatment=None, ledger=None, held_conditions=None):
     """Rank frozen tomorrow bands, or the explicit 84h local T+0/1/2 treatment.
 
-    treatment=LFC-40 is the live-fill calibration pilot: the same frozen rule, one fixed 40-share size, the band
-    reserve bounded by the worst-case-ledger headroom instead of the RE-1 wallet ceiling.
+    treatment=LFC-40 is the live-fill calibration campaign (signed pre-registration section 3): the same frozen rule
+    at one fixed 40-share size; the band must pass the L gate (ledger = {'L', 'L_resting'}) and the cash rule, and no
+    condition of its event may be held in the T-40 baseline (held_conditions; rows carry event_condition_ids).
     """
     current = utc(now)
     if treatment is not None:
-        if treatment != LFC.TREATMENT or available_collateral is None or headroom is None:
-            raise ValueError('pilot treatment requires cash and ledger headroom')
+        if (treatment != LFC.TREATMENT or available_collateral is None or not isinstance(ledger, dict)
+                or held_conditions is None):
+            raise ValueError('pilot treatment requires cash, ledger figures and the baseline conditions')
+        held = {str(c).lower() for c in held_conditions}
     elif available_collateral is not None:
         reserve_budget(available_collateral)
     target = (current.date() + timedelta(days=1)).isoformat()
@@ -68,9 +71,17 @@ def select_table(universe, *, now, complete=True, source_records=(), available_c
                 if (band['snapshot'].get('condition_id') != condition or
                         list(band['snapshot'].get('token_ids', ())) != list(band['token_ids'])):
                     raise QuoteRefused('public_scope_or_freshness')
+                if treatment is not None:
+                    event_conditions = {str(c).lower() for c in band['event_condition_ids']}
+                    if condition.lower() not in event_conditions:
+                        raise QuoteRefused('event_conditions_incomplete')
+                    if event_conditions & held:
+                        raise QuoteRefused('event_position_in_baseline')
                 quote = (sized_quote(band['snapshot'], available_collateral) if treatment is None else
-                         pilot_quote(band['snapshot'], size=LFC.PILOT_SIZE, headroom=headroom,
-                                     available_collateral=available_collateral, budget=LFC.BUDGET_PUSD))
+                         pilot_quote(band['snapshot'], size=LFC.PILOT_SIZE, l_total=ledger['L'],
+                                     l_resting=ledger['L_resting'], available_collateral=available_collateral,
+                                     budget=LFC.BUDGET_PUSD, share_range=LFC.SHARE_MANY_RANGE,
+                                     leg_range=(LFC.PER_LEG_PRICE_FLOOR, LFC.PER_LEG_PRICE_CEILING)))
                 # Owner 2026-09-24 (92a): require existing displayed YES-book depth of at least max(75, size) on each
                 # side within the reward max spread of the adjusted midpoint; an empty book pays the same reward at
                 # any size, so size there buys only fill exposure.
@@ -97,7 +108,9 @@ def select_table(universe, *, now, complete=True, source_records=(), available_c
     survivors = sorted((r for r in rows if r['eligible']), key=rank)
     if treatment is not None:
         fields = {'size_treatment': treatment, 'available_collateral': str(_decimal(available_collateral)),
-                  'pilot_headroom_pusd': str(_decimal(headroom)), 'pilot_size': str(LFC.PILOT_SIZE)}
+                  'campaign_L_pusd': str(_decimal(ledger['L'])),
+                  'campaign_L_resting_pusd': str(_decimal(ledger['L_resting'])),
+                  'baseline_position_conditions': sorted(held), 'pilot_size': str(LFC.PILOT_SIZE)}
     else:
         fields = {} if available_collateral is None else {
             'size_treatment': 'RE-1-84h', 'available_collateral': str(_decimal(available_collateral)),
@@ -125,7 +138,9 @@ def validate_selection(table, *, expected_sha256, condition_id, token_ids, now, 
     rebuilt = select_table(original, now=table['created_at_utc'], complete=True, source_records=table['source_records'],
                            available_collateral=table.get('available_collateral'),
                            treatment=LFC.TREATMENT if pilot else None,
-                           headroom=table.get('pilot_headroom_pusd') if pilot else None)
+                           ledger={'L': table['campaign_L_pusd'], 'L_resting': table['campaign_L_resting_pusd']}
+                           if pilot else None,
+                           held_conditions=table['baseline_position_conditions'] if pilot else None)
     if rebuilt != table:
         raise ValueError('selection ranking does not reproduce the frozen rule')
     selected = next(row for row in table['rows'] if row['condition_id'] == condition_id)
@@ -242,7 +257,7 @@ class PublicBooks:
                     'reward_rate_per_day': str(rate),
                     'tick': str(books[0]['tick_size']), 'post_only_available': True}}
 
-    def selection(self, *, available_collateral=None, treatment=None, headroom=None):
+    def selection(self, *, available_collateral=None, treatment=None, ledger=None, held_conditions=None):
         assert_no_ambient_market_registry_override()
         if available_collateral is not None and treatment is None:
             reserve_budget(available_collateral)
@@ -274,8 +289,12 @@ class PublicBooks:
                             or _decimal(reward['rewards_max_spread']) < 3):
                         continue
                     snapshot = self.snapshot(condition, tokens, reward=reward)
-                    universe.append({'market_id': market_id, 'market_timezone': REGISTRY[market_id].timezone,
-                                     'target_date': target.isoformat(), 'condition_id': condition,
-                                     'token_ids': tokens, 'snapshot': snapshot, 'event_slug': slug})
+                    row = {'market_id': market_id, 'market_timezone': REGISTRY[market_id].timezone,
+                           'target_date': target.isoformat(), 'condition_id': condition,
+                           'token_ids': tokens, 'snapshot': snapshot, 'event_slug': slug}
+                    if treatment is not None:
+                        row['event_condition_ids'] = sorted(str(b.get('conditionId')) for b in event['markets'])
+                    universe.append(row)
         return select_table(universe, now=self.clock(), source_records=self.records,
-                            available_collateral=available_collateral, treatment=treatment, headroom=headroom)
+                            available_collateral=available_collateral, treatment=treatment, ledger=ledger,
+                            held_conditions=held_conditions)

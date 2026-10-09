@@ -72,11 +72,13 @@ class GuardedJournal(HoldJournal):
             super().record(event, **self.guard.clean(fields))
 
 
-def observe(snapshot, prices, size=SIZE, sizes=SIZES):
+def observe(snapshot, prices, size=SIZE, sizes=SIZES, *, reward_terms=True, window=(1, 3)):
     """84b scoring: hold prices may drift; drift requests a re-quote, not exit.
 
 Reuse the estimator formulas; do not invoke 80b's hold-only re-pricing gates.
 True touch remains a separate submit safety check. Plain mid is sensitivity.
+reward_terms=False and window are the live-fill calibration session-0 mode only (unrewarded market, 5c offset):
+the reward-term exits and the reward-share estimate are skipped and the mid uses every displayed level.
 """
     size = number(size)
     if size not in sizes:
@@ -84,9 +86,9 @@ True touch remains a separate submit safety check. Plain mid is sensitivity.
     values = snapshot['quote_inputs']
     minimum, maximum, rate = (number(values[k]) for k in
         ('reward_min_size', 'reward_max_spread_cents', 'reward_rate_per_day'))
-    if minimum > size:
+    if reward_terms and minimum > size:
         raise HoldEnd('reward_minimum')
-    if minimum <= 0 or maximum <= 0 or rate < 40:
+    if reward_terms and (minimum <= 0 or maximum <= 0 or rate < 40):
         raise HoldEnd('reward_rate_or_terms')
     sides = ('yes_bids', 'yes_asks', 'no_bids', 'no_asks')
     if any(not values[k] for k in sides):
@@ -117,21 +119,22 @@ True touch remains a separate submit safety check. Plain mid is sensitivity.
                       for d in ((at - yes) * 100, (1 - at - no) * 100)), float(at))
         return share_of(own, sum(scores) / 2), share_of(own, q_min(*scores, float(at)))
 
-    many, single = shares(mid)
-    plain_many, _ = shares(plain)
+    many, single = shares(mid) if reward_terms else (0.0, 0.0)
+    plain_many, _ = shares(plain) if reward_terms else (0.0, 0.0)
     distances = [(mid - yes) * 100, (1 - mid - no) * 100]
+    low, high = map(number, window)
     return {'adjusted_mid': str(mid), 'plain_mid': str(plain),
             'visible_two_sided': visible, 'share_many': many, 'share_single': single,
             'share_many_plain_mid': plain_many,
             'per_minute_many': float(rate) / 1440 * many,
             'per_minute_single': float(rate) / 1440 * single,
             'per_minute_many_plain_mid': float(rate) / 1440 * plain_many,
-            'requote_legs': [i for i, d in enumerate(distances) if not 1 <= d <= 3]}
+            'requote_legs': [i for i, d in enumerate(distances) if not low <= d <= high]}
 
 
-def replacement_price(mid, leg):
+def replacement_price(mid, leg, offset=Decimal('.015')):
     value = number(mid) if leg == 0 else 1 - number(mid)
-    return ((value - Decimal('.015')) / Decimal('.01')).to_integral_value(rounding=ROUND_FLOOR) * Decimal('.01')
+    return ((value - number(offset)) / Decimal('.01')).to_integral_value(rounding=ROUND_FLOOR) * Decimal('.01')
 
 
 def filled(row):
@@ -148,6 +151,24 @@ class Session:
     TREATMENT = 'RE-1-84h'
     PROTOCOL = 'RE-1M-attended-84c'
     BAND_CEILING = Decimal(75)
+    REWARD_TERMS = True  # session-0 mode of the calibration campaign skips only the reward-terms check
+    OFFSET = Decimal('.015')
+    REQUOTE_WINDOW = (Decimal(1), Decimal(3))
+
+    def observe_snapshot(self, snapshot):
+        return observe(snapshot, self.prices, self.size, self.SIZES, reward_terms=self.REWARD_TERMS,
+                       window=self.REQUOTE_WINDOW)
+
+    def before_first_post(self):
+        """Called after the opening check and before the first submit (selection/exclusion records)."""
+
+    def positions_mean_fill(self, positions):
+        """RE-1 runs on a fresh wallet: any condition position after cleanup is our fill."""
+        return bool(positions)
+
+    def initial_positions_ok(self, rows):
+        """RE-1 runs on a fresh wallet: any position refuses the session."""
+        return rows == []
 
     def session_seconds(self, realtime_rehearsal):
         return 900 if realtime_rehearsal else SECONDS
@@ -438,10 +459,11 @@ class Session:
         self.journal.record('submit_market_snapshot', snapshot=snapshot)
         self.market_time = self.clock.monotonic()
         values = snapshot['quote_inputs']
-        if ((number(values['reward_min_size']) > size if self.sized else number(values['reward_min_size']) != SIZE)
-                or number(values['reward_rate_per_day']) < 40):
+        if self.REWARD_TERMS and ((number(values['reward_min_size']) > size if self.sized
+                                   else number(values['reward_min_size']) != SIZE)
+                                  or number(values['reward_rate_per_day']) < 40):
             raise HoldEnd('reward_terms')
-        observe(snapshot, self.prices, self.size, self.SIZES)
+        self.observe_snapshot(snapshot)
         rule = snapshot['rules'][self.tokens[leg]]
         if number(rule['tick_size']) != Decimal('.01') or number(rule['min_order_size']) > size or number(rule['fee_rate_bps']) < 0:
             raise HoldEnd('market_rules')
@@ -568,7 +590,7 @@ class Session:
                     self.evidence_failed = True
             positions = recover('terminal_positions', self.venue.positions)
             retain('terminal_positions', rows=positions)
-            if positions:
+            if self.positions_mean_fill(positions):
                 self.fill_seen = True
             self.inventory_proven = True
         except BaseException:
@@ -602,13 +624,14 @@ class Session:
             if self.required('initial_open_orders', self.venue.open_orders, checkpoint=False) != []:
                 raise HoldEnd('initial_open_orders')
             self.empty_account_proven = True
-            if self.required('initial_positions', self.venue.positions, checkpoint=False) != []:
+            if not self.initial_positions_ok(self.required('initial_positions', self.venue.positions, checkpoint=False)):
                 raise HoldEnd('initial_positions')
             balances = self.required('initial_balances', self.venue.balances, checkpoint=False)
             if not self.initial_capital_ok(balances):
                 raise HoldEnd('available_collateral')
             self.freshness.started = self.market_time = self.clock.monotonic()
             self.opening_check()
+            self.before_first_post()
             self.submit(0, self.prices[0])
             self.submit(1, self.prices[1])
             self.after_open()
@@ -634,7 +657,7 @@ class Session:
                     self.market_time = self.clock.monotonic()
                     self.terms_changed |= any(snapshot['quote_inputs'][k] != self.initial_terms[k] for k in
                         ('reward_min_size', 'reward_rate_per_day', 'reward_max_spread_cents'))
-                    observation = observe(snapshot, self.prices, self.size, self.SIZES)
+                    observation = self.observe_snapshot(snapshot)
                     self.minute_extra(snapshot)
                     self.control()
                     if self.clock.monotonic() >= next_accrual:
@@ -662,7 +685,7 @@ class Session:
                     # mixed old/new pair can exceed the capital cap even
                     # though the new treatment pair is within it.
                     for leg in observation['requote_legs']:
-                        self.prices[leg] = replacement_price(observation['adjusted_mid'], leg)
+                        self.prices[leg] = replacement_price(observation['adjusted_mid'], leg, self.OFFSET)
                     for leg in observation['requote_legs']:
                         self.submit(leg, self.prices[leg])
                 self.clock.sleep(min(1, max(0, stop_at - self.clock.monotonic())))

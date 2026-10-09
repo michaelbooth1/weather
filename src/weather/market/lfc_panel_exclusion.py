@@ -1,124 +1,120 @@
-"""Mechanical panel exclusion of the band-days carrying the live-fill calibration pilot's own orders.
+"""Mechanical panel exclusion for the live-fill calibration campaign (signed pre-registration section 4).
 
-Design section 4: our resting legs enter the public books and absorb prints, so every (band, day) that carried one
-of our orders must be dropped from the desk-study decision panel, the replay-v2 panel and shadow scoring before
-any panel read. This module derives that set from the session journals alone (never from a panel) and offers one
-function the panel selectors call.
+Rule: exclude every band-day (C', D) where C' is any condition in the same event as a condition that carried a
+campaign order and D is a local quote date on which a campaign order rested. It applies to every registration whose
+panel overlaps the campaign (desk study, v2 or shadow parity, later candidate exams), whether or not the session
+filled. Session 0 adds no exclusion (its market is outside every panel by construction).
 
-Integration point: the desk-study / v2 panel selectors (maker_shadow_panel, EMBARGOED_UTC_DAYS) are NOT on this
-branch (codex/re1-wallet-200-20260923). Their selectors must call `exclude_band_days(rows, load_exclusions(path))`
-on the candidate quote-minute rows before any aggregate is read. A band is a condition id, and a condition belongs
-to exactly one event date, so the default mode drops every row of a band that carried our orders.
+Mechanics: before the first post the session script appends the would-be exclusions for the selected band and date
+to `panel_exclusions.jsonl` in the campaign root, one JSON line with exactly the signed fields `event_slug`,
+`condition_ids` (every condition of the event), `local_quote_date`, `session_id` and `appended_utc`, and records the
+line's SHA-256 in the session `journal.jsonl`. When a session window spans more than one local date of the market's
+timezone, one line per date is written (so a T+1/T+2 band of a far-east market is never under-excluded).
+
+Integration point: the desk-study, v2 and shadow panel selectors are NOT on this branch
+(codex/re1-wallet-200-20260923). Each must call `drop_excluded(rows, load_panel_exclusions(path), ...)` on its
+candidate rows before any outcome is read; this module never reads a panel.
 """
 from __future__ import annotations
 
 import argparse
 from datetime import timedelta
+import hashlib
 import json
+import os
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
-from weather.market.mm_stage2_hold import canonical_bytes, digest, utc, write_new
+from weather.market.mm_stage2_hold import canonical_bytes, utc, write_new
 
-EXCLUSION_SCHEMA = 'lfc_panel_exclusion_v0.1'
-_ORDER_EVENTS = {'submit_request', 'submit_response'}
-
-
-def _rows(path):
-    return [json.loads(line) for line in Path(path).read_bytes().splitlines() if line.strip()]
+EXCLUSION_FILE = 'panel_exclusions.jsonl'
+FIELDS = ('appended_utc', 'condition_ids', 'event_slug', 'local_quote_date', 'session_id')
 
 
-def session_band_days(directory):
-    """One record per session directory whose journal shows at least one submit; None otherwise.
-
-    The window runs from the first submit request to the last journal row (cleanup and terminal reads included),
-    so every UTC day on which one of our orders could have rested is covered.
-    """
-    directory = Path(directory)
-    journal = directory / 'journal.jsonl'
-    rows = _rows(journal)
-    if not rows or rows[0].get('event') != 'opened':
-        raise ValueError('journal_without_opening_row: ' + str(journal))
-    submits = [r for r in rows if r.get('event') in _ORDER_EVENTS]
-    if not submits:
-        return None
-    scope = rows[0]['scope']
-    first, last = utc(submits[0]['recorded_at_utc']), utc(rows[-1]['recorded_at_utc'])
-    if rows[-1].get('event') != 'terminal':
-        # A crashed session: our orders may have rested until the GTD expiry at the fixed end plus 60 s.
-        last = max(last, utc(scope['end_at_utc']) + timedelta(seconds=60))
-    days, day = [], first.date()
-    while day <= last.date():
-        days.append(day.isoformat())
-        day += timedelta(days=1)
-    market_id = event_date = event_slug = None
-    selection = directory / 'selection.json'
-    if selection.exists():
-        table = json.loads(selection.read_bytes())
-        row = next((r for r in table.get('rows', ()) if r.get('condition_id') == scope['condition_id']), {})
-        market_id, event_date, event_slug = row.get('market_id'), row.get('target_date'), row.get('event_slug')
-    return {'condition_id': scope['condition_id'], 'token_ids': list(scope['token_ids']), 'market_id': market_id,
-            'event_date': event_date, 'event_slug': event_slug, 'utc_days': days,
-            'first_order_at_utc': first.isoformat(), 'last_activity_at_utc': last.isoformat(),
-            'session_directory': directory.name, 'session_id': scope.get('session_id')}
+def local_quote_dates(start, end, timezone_name, *, gtd_seconds=60):
+    """Every local date of the market's timezone on which an order of the session could rest (to GTD expiry)."""
+    zone = ZoneInfo(timezone_name)
+    first = utc(start).astimezone(zone).date()
+    last = (utc(end) + timedelta(seconds=gtd_seconds)).astimezone(zone).date()
+    if last < first:
+        raise ValueError('exclusion_window_inverted')
+    return [(first + timedelta(days=d)).isoformat() for d in range((last - first).days + 1)]
 
 
-def band_days(root):
-    """All band-days carrying our orders, from every session directory under the pilot root."""
-    records = []
-    for journal in sorted(Path(root).glob('*/journal.jsonl')):
-        if journal.parent.name.startswith('preflight-'):
-            continue
-        record = session_band_days(journal.parent)
-        if record is not None:
-            records.append(record)
-    return records
+def exclusion_lines(*, event_slug, condition_ids, session_id, start, end, timezone_name, appended):
+    conditions = sorted({str(c) for c in condition_ids})
+    if not event_slug or not conditions or not session_id:
+        raise ValueError('exclusion_incomplete')
+    return [{'event_slug': str(event_slug), 'condition_ids': conditions, 'local_quote_date': day,
+             'session_id': str(session_id), 'appended_utc': utc(appended).isoformat()}
+            for day in local_quote_dates(start, end, timezone_name)]
 
 
-def exclusion_payload(records):
-    pairs = sorted({(r['condition_id'], d) for r in records for d in r['utc_days']})
-    body = {'schema_version': EXCLUSION_SCHEMA, 'kind': 'lfc_panel_exclusion', 'records': records,
-            'band_utc_days': [list(p) for p in pairs],
-            'band_event_dates': sorted({(r['condition_id'], r['event_date']) for r in records if r['event_date']})}
-    body['band_event_dates'] = [list(p) for p in body['band_event_dates']]
-    return {**body, 'sha256': digest(body)}
+def append_exclusions(root, lines):
+    """Append the lines (fsynced) and return each line's SHA-256 over its exact bytes. Raises on any failure."""
+    path = Path(root) / EXCLUSION_FILE
+    encoded = [canonical_bytes(line) for line in lines]
+    for line in lines:
+        if tuple(sorted(line)) != FIELDS:
+            raise ValueError('exclusion_fields')
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        existing = path.read_bytes()
+        if existing and not existing.endswith(b'\n'):
+            raise ValueError('exclusion_file_truncated')
+    with path.open('ab') as handle:
+        for raw in encoded:
+            handle.write(raw)
+        handle.flush()
+        os.fsync(handle.fileno())
+    return [hashlib.sha256(raw).hexdigest() for raw in encoded]
 
 
-def load_exclusions(path):
-    payload = json.loads(Path(path).read_bytes())
-    body = {k: v for k, v in payload.items() if k != 'sha256'}
-    if payload.get('schema_version') != EXCLUSION_SCHEMA or digest(body) != payload.get('sha256'):
-        raise ValueError('exclusion file schema or digest differs')
-    return payload
+def load_panel_exclusions(path):
+    """Every line, validated; a malformed file refuses (selectors must not read a panel without it)."""
+    raw = Path(path).read_bytes()
+    if raw and not raw.endswith(b'\n'):
+        raise ValueError('exclusion_file_truncated')
+    lines = []
+    for line in raw.splitlines():
+        if not line.strip():
+            raise ValueError('exclusion_blank_line')
+        value = json.loads(line)
+        if (not isinstance(value, dict) or tuple(sorted(value)) != FIELDS or not isinstance(value['condition_ids'], list)
+                or not value['condition_ids']):
+            raise ValueError('exclusion_line_shape')
+        lines.append(value)
+    return lines
 
 
-def exclude_band_days(rows, exclusions, *, condition_key='condition_id', day_key='utc_day', mode='band'):
-    """Split panel rows into (kept, dropped). mode='band' drops every row of a band that carried our orders
-    (default, conservative); mode='band_utc_day' drops only the rows on the UTC days our orders could rest."""
-    if mode not in {'band', 'band_utc_day'}:
-        raise ValueError('exclusion mode')
-    bands = {c for c, _ in exclusions['band_utc_days']}
-    pairs = {(c, d) for c, d in exclusions['band_utc_days']}
+def excluded_band_days(lines):
+    return {(str(c).lower(), line['local_quote_date']) for line in lines for c in line['condition_ids']}
+
+
+def excluded_conditions(lines):
+    return {str(c).lower() for line in lines for c in line['condition_ids']}
+
+
+def drop_excluded(rows, lines, *, condition_key='condition_id', date_key='local_quote_date'):
+    """Split panel rows into (kept, dropped) by the excluded (condition, local quote date) band-days."""
+    excluded = excluded_band_days(lines)
     kept, dropped = [], []
     for row in rows:
-        condition = str(row[condition_key]).lower()
-        hit = (condition in {b.lower() for b in bands} if mode == 'band' else
-               (condition, str(row[day_key])[:10]) in {(c.lower(), d) for c, d in pairs})
-        (dropped if hit else kept).append(row)
+        day = str(row[date_key])[:10]
+        (dropped if (str(row[condition_key]).lower(), day) in excluded else kept).append(row)
     return kept, dropped
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description='Emit the band-days carrying the pilot\'s own orders.')
-    parser.add_argument('--root', type=Path, help='pilot campaign root (default: the fixed Windows token root)')
+    parser = argparse.ArgumentParser(description='Summarise panel_exclusions.jsonl as excluded band-days.')
+    parser.add_argument('--exclusions', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args(argv)
-    if args.root is None:
-        from weather.market.lfc_pilot import pilot_root
-        args.root = pilot_root()
-    payload = exclusion_payload(band_days(args.root))
-    write_new(args.output, payload)
-    print(canonical_bytes({'output': str(args.output), 'sha256': payload['sha256'],
-                           'bands': len({r['condition_id'] for r in payload['records']})}).decode().strip())
+    lines = load_panel_exclusions(args.exclusions)
+    payload = {'source_sha256': hashlib.sha256(args.exclusions.read_bytes()).hexdigest(), 'lines': len(lines),
+               'band_days': [list(pair) for pair in sorted(excluded_band_days(lines))]}
+    sha = write_new(args.output, payload)
+    print(json.dumps({'output': str(args.output), 'sha256': sha, 'band_days': len(payload['band_days'])}))
     return 0
 
 

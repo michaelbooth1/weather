@@ -1438,4 +1438,28 @@ RECENT_REGISTERED_SCHEMAS = (
         "active",
         "Create-only encrypted Drive upload proof; independent download remains separately required.",
     ),
+    SchemaSpec(
+        "lfc_ledger", "lfc_ledger_v0.1", "weather.market.lfc_ledger", "active",
+        "Append-only hash-chained history of the live-fill calibration campaign loss ledger L.",
+    ),
+    SchemaSpec(
+        "lfc_baseline", "lfc_baseline_v0.1", "weather.market.lfc_ledger", "active",
+        "Read-only T-24h/T-40min wallet baseline excluding pre-existing positions from L.",
+    ),
+    SchemaSpec(
+        "lfc_journal", "lfc_journal_v0.1", "weather.market.lfc_pilot", "active",
+        "Additive campaign events (L gate, selection, panel exclusion, queue-ahead, foreign order) in the RE-1 journal.",
+    ),
+    SchemaSpec(
+        "lfc_l_ledger", "lfc_l_ledger_v0.1", "weather.market.lfc_ledger", "active",
+        "l_ledger.json snapshot of the campaign L figures, rewritten from the verified ledger history.",
+    ),
+    SchemaSpec(
+        "lfc_session_end", "lfc_session_end_v0.1", "weather.market.lfc_pilot", "active",
+        "Per-session end record: reason, L figures, open orders, our fills and the owner notification.",
+    ),
+    SchemaSpec(
+        "lfc_analysis", "lfc_analysis_v0.1", "weather.market.lfc_analysis", "active",
+        "Descriptive pilot fill and markout summary; never a decision gate by itself.",
+    ),
 )

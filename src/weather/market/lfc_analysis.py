@@ -2,7 +2,7 @@
 
 Inputs are normalized JSONL files (one object per line):
   legs       {order_id, token_id, condition_id, price, size, placed_at_utc, ended_at_utc,
-              fills: [{at_utc, size}], queue_ahead: [{at_utc, visible_at_price, own_size}]}
+              fills: [{at_utc, size}], queue_ahead: [{at_utc, visible_at_price, own_size, phase}]}
              (extract_legs builds these from the session journals)
   prints     {token_id, price, size, at_utc}            public prints (88a `last_trade_price` events, normalize_88a_print)
   mids       {token_id, at_utc, mid}                     88a two-sided mids
@@ -79,7 +79,7 @@ def extract_legs(journal_path):
                 order.append(oid)
         elif event == 'lfc_queue_ahead' and row.get('order_id') in legs:
             legs[row['order_id']]['queue_ahead'].append({'at_utc': at, 'visible_at_price': row.get('visible_at_price'),
-                                                         'own_size': row.get('own_size')})
+                                                         'own_size': row.get('own_size'), 'phase': row.get('phase')})
         elif event in {'cancel_response', 'cleanup_cancel_response', 'cleanup_cancel_ours_response'}:
             oid = str(row.get('order_id') or (row.get('request') or {}).get('order_id') or '')
             if oid in legs and legs[oid]['ended_at_utc'] is None:
@@ -113,10 +113,9 @@ def _queue_at(leg, at):
     if not rows:
         return None
     last = rows[-1]
-    # Visible size at our level excluding our own resting size once we are in the book.
-    visible = _d(last['visible_at_price'])
-    own = _d(last.get('own_size') or 0) if last is not rows[0] or len(rows) > 1 else Decimal(0)
-    return max(Decimal(0), visible - own)
+    # The placement snapshot predates our order; later book snapshots include our own resting size.
+    own = Decimal(0) if last.get('phase') == 'placement' else _d(last.get('own_size') or 0)
+    return max(Decimal(0), _d(last['visible_at_price']) - own)
 
 
 def _bucket(value):
@@ -124,7 +123,7 @@ def _bucket(value):
         return 'unknown'
     for low, high in QUEUE_BUCKETS:
         if value >= low and (high is None or value <= high):
-            return f'{low.normalize()}-{high.normalize() if high is not None else "inf"}'
+            return f'{low:f}-{high:f}' if high is not None else f'{low:f}-inf'
     return 'unknown'
 
 
