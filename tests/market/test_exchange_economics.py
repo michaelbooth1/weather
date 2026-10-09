@@ -431,7 +431,7 @@ def test_collect_global_snapshot_binds_gamma_identity_fee_schedule_and_current_r
         assert target == TARGET_DATE
         return selected, []
 
-    monkeypatch.setattr(exchange_economics, "_event_rows_for_global_snapshot", select_events)
+    monkeypatch.setattr(exchange_economics, "event_rows_for_global_snapshot", select_events)
 
     def fake_fetch(url, *, timeout_seconds):
         del timeout_seconds

@@ -1,4 +1,7 @@
-"""Interrupted refreshes cannot expose mixed registry/event generations."""
+"""Interrupted refreshes cannot expose mixed registry/event generations.
+
+Guards: location config generation atomicity and economics reader compatibility.
+"""
 
 from pathlib import Path
 
@@ -282,7 +285,7 @@ def test_windows_permission_retry_reuses_staged_bytes_and_cleans_exhaustion(
 
 def test_metadata_only_capture_and_economics_readers_accept_additive_envelope(tmp_path):
     from weather.market.execution_tape_capture import load_market_day_seeds
-    from weather.market.exchange_economics import _event_rows_for_global_snapshot
+    from weather.market.exchange_economics import event_rows_for_global_snapshot
     from weather.market.location_config import build_generation_metadata
     from weather.market.market_config import config_for_date
 
@@ -317,9 +320,9 @@ def test_metadata_only_capture_and_economics_readers_accept_additive_envelope(tm
     assert len(seeds) == 1
     assert seeds[0].event_slug == slug
     assert seeds[0].asset_ids == ("101", "102")
-    baseline = _event_rows_for_global_snapshot(event_payload, target)
+    baseline = event_rows_for_global_snapshot(event_payload, target)
     assert baseline[0]
-    assert _event_rows_for_global_snapshot(bound, target) == baseline
+    assert event_rows_for_global_snapshot(bound, target) == baseline
 
 
 def test_registry_edit_after_envelope_commit_is_preserved(tmp_path, monkeypatch):

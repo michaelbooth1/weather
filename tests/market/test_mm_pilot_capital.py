@@ -1,4 +1,7 @@
-"""Capital allocation regressions; all balances and identities are fixtures."""
+"""Capital allocation regressions; all balances and identities are fixtures.
+
+Guards: mm_pilot_capital allocation and capital-scope limits.
+"""
 from decimal import Decimal
 
 import pytest

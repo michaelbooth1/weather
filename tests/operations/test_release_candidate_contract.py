@@ -1764,7 +1764,7 @@ def _semantic_inventory(candidate):
 
 
 def test_candidate_freezes_exact_generation_buffers_despite_projection_drift(tmp_path):
-    from weather.release_artifacts import _verify_semantic_contract_after_inventory
+    from weather.release_artifacts import verify_semantic_contract_after_inventory
 
     paths = _fixture(tmp_path)
     pair = _bound_location_fixture(paths)
@@ -1773,7 +1773,7 @@ def test_candidate_freezes_exact_generation_buffers_despite_projection_drift(tmp
     assert frozen["location_config_pair"] == pair.identity()
     assert (paths["candidate"] / SEMANTIC_PATHS["locations_config"]).read_bytes() == pair.registry_bytes
     assert (paths["candidate"] / SEMANTIC_PATHS["location_market_events_config"]).read_bytes() == pair.metadata_bytes
-    verified = _verify_semantic_contract_after_inventory(
+    verified = verify_semantic_contract_after_inventory(
         paths["candidate"], _semantic_inventory(paths["candidate"]),
     )
     assert verified["location_config_pair"] == pair.identity()
@@ -1782,7 +1782,7 @@ def test_candidate_freezes_exact_generation_buffers_despite_projection_drift(tmp
 @pytest.mark.parametrize("verifier", ["candidate", "release"])
 def test_both_semantic_verifiers_reject_a_rehashed_mixed_config_pair(tmp_path, verifier):
     from weather.release_artifacts import (
-        ReleaseArtifactVerificationError, _verify_semantic_contract_after_inventory,
+        ReleaseArtifactVerificationError, verify_semantic_contract_after_inventory,
     )
 
     paths = _fixture(tmp_path)
@@ -1802,13 +1802,13 @@ def test_both_semantic_verifiers_reject_a_rehashed_mixed_config_pair(tmp_path, v
         if verifier == "candidate":
             verify_candidate_semantic_contract(candidate)
         else:
-            _verify_semantic_contract_after_inventory(candidate, _semantic_inventory(candidate))
+            verify_semantic_contract_after_inventory(candidate, _semantic_inventory(candidate))
 
 
 @pytest.mark.parametrize("verifier", ["candidate", "release"])
 def test_both_semantic_verifiers_reject_changed_declared_generation_identity(tmp_path, verifier):
     from weather.release_artifacts import (
-        ReleaseArtifactVerificationError, _verify_semantic_contract_after_inventory,
+        ReleaseArtifactVerificationError, verify_semantic_contract_after_inventory,
     )
 
     paths = _fixture(tmp_path)
@@ -1823,4 +1823,4 @@ def test_both_semantic_verifiers_reject_changed_declared_generation_identity(tmp
         if verifier == "candidate":
             verify_candidate_semantic_contract(candidate)
         else:
-            _verify_semantic_contract_after_inventory(candidate, _semantic_inventory(candidate))
+            verify_semantic_contract_after_inventory(candidate, _semantic_inventory(candidate))

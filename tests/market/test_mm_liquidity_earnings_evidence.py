@@ -1,4 +1,7 @@
-"""Daily earnings are scoped accrual observations, never wallet payments."""
+"""Daily earnings are scoped accrual observations, never wallet payments.
+
+Guards: liquidity earnings stay scoped accrual observations, never wallet payments.
+"""
 
 import base64
 from copy import deepcopy

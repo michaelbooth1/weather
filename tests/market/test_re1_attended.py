@@ -1,4 +1,7 @@
-"""RE-1M submit limits, reference arithmetic, and unconditional cleanup."""
+"""RE-1M submit limits, reference arithmetic, and unconditional cleanup.
+
+Guards: RE-1 attended session submit limits, reference arithmetic, cleanup and main-loop liveness.
+"""
 from copy import deepcopy
 from datetime import timedelta
 from decimal import Decimal
@@ -56,7 +59,7 @@ def test_cancel_wait_keeps_the_main_loop_alive(tmp_path):
     session, venue, clock = setup(tmp_path)
     oid = session.submit(0, session.prices[0])
     ticks = []
-    session.heartbeat_loop = SimpleNamespace(tick=lambda: ticks.append(clock.seconds), stop=lambda: None)
+    session.heartbeat_loop = SimpleNamespace(tick=lambda: ticks.append(clock.seconds), stop=lambda: None, threaded=True)
     real_open, stale, reads = venue.open_orders, venue.open_orders(), {'n': 0}
     def open_orders():
         reads['n'] += 1

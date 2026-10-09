@@ -27,7 +27,7 @@ from weather.market.mm_geographic_eligibility import (
     validate_geographic_eligibility_receipt,
 )
 from weather.market.mm_live_lifecycle_probe import (
-    _canonical_hash as lifecycle_payload_sha256,
+    canonical_hash as lifecycle_payload_sha256,
     verify_stage1_user_stream_journal,
 )
 from weather.market.mm_live_envelope import STAGE2_HOLD_V1

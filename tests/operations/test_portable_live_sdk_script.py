@@ -41,6 +41,7 @@ def test_portable_live_sdk_script_is_thin_offline_current_user_entrypoint():
     os.name != "nt" or shutil.which("powershell.exe") is None,
     reason="requires Windows PowerShell native Python argument transport",
 )
+@pytest.mark.spawns
 def test_sdk_audit_bootstrap_reaches_isolated_module_with_exact_arguments(tmp_path):
     repo = tmp_path / "repository with spaces"
     scripts = repo / "scripts" / "ops"

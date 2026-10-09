@@ -539,7 +539,7 @@ def _required_decimal(value, label):
     return number
 
 
-def _value(payload, *names):
+def sdk_field_value(payload, *names):
     for name in names:
         if isinstance(payload, dict):
             value = payload.get(name)
@@ -550,16 +550,16 @@ def _value(payload, *names):
     return None
 
 
-def _plain_sdk_value(value):
+def plain_sdk_value(value):
     """Normalize typed SDK models without retaining private client state."""
 
     model_dump = getattr(value, "model_dump", None)
     if callable(model_dump):
         return model_dump(mode="json", by_alias=False)
     if isinstance(value, dict):
-        return {key: _plain_sdk_value(item) for key, item in value.items()}
+        return {key: plain_sdk_value(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
-        return [_plain_sdk_value(item) for item in value]
+        return [plain_sdk_value(item) for item in value]
     if isinstance(value, Decimal):
         return str(value)
     return value
@@ -569,13 +569,13 @@ def _paginator_items(paginator):
     iterator = getattr(paginator, "iter_items", None)
     if not callable(iterator):
         raise RuntimeError("official SDK did not return the required paginator")
-    return [_plain_sdk_value(item) for item in iterator()]
+    return [plain_sdk_value(item) for item in iterator()]
 
 
 def _level_prices(levels):
     prices = []
     for level in levels or []:
-        raw = _value(level, "price")
+        raw = sdk_field_value(level, "price")
         try:
             price = Decimal(str(raw))
         except (InvalidOperation, TypeError, ValueError):
@@ -932,14 +932,14 @@ class OfficialPolymarketGlobalAdapter:
     def _balance_allowance_snapshot(self):
         if self._balance_allowance is None:
             observed = self.client.get_balance_allowance(asset_type="COLLATERAL")
-            self._balance_allowance = _plain_sdk_value(observed or {})
+            self._balance_allowance = plain_sdk_value(observed or {})
         return self._balance_allowance
 
     def refresh_balance_allowance(self):
         """Return one new authenticated collateral snapshot without using cache."""
 
         observed = self.client.get_balance_allowance(asset_type="COLLATERAL")
-        payload = _plain_sdk_value(observed or {})
+        payload = plain_sdk_value(observed or {})
         if not isinstance(payload, dict):
             raise RuntimeError("current collateral balance/allowance response is invalid")
         self._balance_allowance = payload
@@ -1049,20 +1049,20 @@ class OfficialPolymarketGlobalAdapter:
         if self.market_rule_reader is None:
             raise RuntimeError("market-rules refresh requires public endpoint cross-checks")
         book = self.client.get_order_book(token_id=self.token_id)
-        observed_token = str(_value(book, "asset_id", "asset", "token_id") or "").strip()
+        observed_token = str(sdk_field_value(book, "asset_id", "asset", "token_id") or "").strip()
         observed_condition = str(
-            _value(book, "market", "condition_id", "conditionId") or ""
+            sdk_field_value(book, "market", "condition_id", "conditionId") or ""
         ).strip().lower()
         if observed_token != self.token_id:
             raise RuntimeError("order-book token differs from the adapter's single allowed token")
         if observed_condition != self.condition_id:
             raise RuntimeError("order-book condition differs from the adapter's exact condition")
         min_order_size = _required_decimal(
-            _value(book, "min_order_size", "minimum_order_size"),
+            sdk_field_value(book, "min_order_size", "minimum_order_size"),
             "current min order size",
         )
         book_tick_size = _required_decimal(
-            _value(book, "tick_size", "minimum_tick_size"),
+            sdk_field_value(book, "tick_size", "minimum_tick_size"),
             "current book tick size",
         )
         endpoints = self.market_rule_reader()
@@ -1074,7 +1074,7 @@ class OfficialPolymarketGlobalAdapter:
         )
         if book_tick_size != endpoint_tick_size:
             raise RuntimeError("order-book and tick-size endpoint values disagree")
-        neg_risk = _value(book, "neg_risk", "negRisk")
+        neg_risk = sdk_field_value(book, "neg_risk", "negRisk")
         if not isinstance(neg_risk, bool):
             raise RuntimeError("current order book does not declare neg-risk state")
         if endpoints.get("neg_risk") is not neg_risk:
@@ -1085,8 +1085,8 @@ class OfficialPolymarketGlobalAdapter:
             raise RuntimeError("current fee-rate endpoint value is invalid") from exc
         if not fee_rate_bps.is_finite() or fee_rate_bps < 0:
             raise RuntimeError("current fee-rate endpoint value is invalid")
-        bid_prices = _level_prices(_value(book, "bids") or [])
-        ask_prices = _level_prices(_value(book, "asks") or [])
+        bid_prices = _level_prices(sdk_field_value(book, "bids") or [])
+        ask_prices = _level_prices(sdk_field_value(book, "asks") or [])
         self._market_rules = {
             "token_id": self.token_id,
             "condition_id": self.condition_id,
@@ -1128,20 +1128,20 @@ class OfficialPolymarketGlobalAdapter:
     ):
         """Validate public signed-order identity and return a redacted proof."""
 
-        signer = str(_value(signed_order, "signer") or "").strip().lower()
-        maker = str(_value(signed_order, "maker") or "").strip().lower()
+        signer = str(sdk_field_value(signed_order, "signer") or "").strip().lower()
+        maker = str(sdk_field_value(signed_order, "maker") or "").strip().lower()
         signed_token = str(
-            _value(signed_order, "tokenId", "token_id", "asset_id") or ""
+            sdk_field_value(signed_order, "tokenId", "token_id", "asset_id") or ""
         ).strip()
-        signed_signature_type = _value(
+        signed_signature_type = sdk_field_value(
             signed_order,
             "signatureType",
             "signature_type",
         )
-        signature = str(_value(signed_order, "signature") or "").strip()
+        signature = str(sdk_field_value(signed_order, "signature") or "").strip()
         client_signer = str(getattr(self.client, "signer", "") or "").strip().lower()
-        post_only = _value(signed_order, "post_only", "postOnly")
-        order_type = str(_value(signed_order, "order_type", "orderType") or "").upper()
+        post_only = sdk_field_value(signed_order, "post_only", "postOnly")
+        order_type = str(sdk_field_value(signed_order, "order_type", "orderType") or "").upper()
         try:
             signed_signature_type = int(signed_signature_type)
         except (TypeError, ValueError) as exc:
@@ -1458,11 +1458,11 @@ class OfficialPolymarketGlobalAdapter:
                 self._probe["emergency_cancel_error"] = type(cancel_exc).__name__
             raise
         self._probe["post_only_order_attempted"] = True
-        order_id = _value(response, "orderID", "order_id")
-        status = str(_value(response, "status") or "").lower()
-        successful = _value(response, "ok", "success") is True
-        trade_ids = _value(response, "tradeIDs", "trade_ids") or []
-        transaction_hashes = _value(
+        order_id = sdk_field_value(response, "orderID", "order_id")
+        status = str(sdk_field_value(response, "status") or "").lower()
+        successful = sdk_field_value(response, "ok", "success") is True
+        trade_ids = sdk_field_value(response, "tradeIDs", "trade_ids") or []
+        transaction_hashes = sdk_field_value(
             response,
             "transactionsHashes",
             "transactions_hashes",
@@ -1476,10 +1476,10 @@ class OfficialPolymarketGlobalAdapter:
             raise RuntimeError(
                 "post-only placement did not return an execution-free live order; cancel-all sent"
             )
-        return _plain_sdk_value(response)
+        return plain_sdk_value(response)
 
     def get_order(self, order_id):
-        return _plain_sdk_value(self.client.get_order(order_id=str(order_id)))
+        return plain_sdk_value(self.client.get_order(order_id=str(order_id)))
 
     def account_trades(self):
         return _paginator_items(self.client.list_account_trades(
@@ -1488,7 +1488,7 @@ class OfficialPolymarketGlobalAdapter:
         ))
 
     def cancel_order(self, order_id):
-        return _plain_sdk_value(self.client.cancel_order(order_id=str(order_id)))
+        return plain_sdk_value(self.client.cancel_order(order_id=str(order_id)))
 
     def cancel_all(self):
         response = self.client.cancel_all()
@@ -1510,9 +1510,9 @@ class OfficialPolymarketGlobalAdapter:
             # A rejected second submit can trigger this emergency cancellation
             # before the hold controller enters its own final cancel/reconcile.
             self._probe["stage2_cancel_acknowledgment"] = {
-                "response": _plain_sdk_value(response),
+                "response": plain_sdk_value(response),
                 "checked_at_utc": self.utc_clock().astimezone(timezone.utc).isoformat(),
                 "profile_sha256": self.envelope.sha256,
                 "maker_address": self.maker_address, "condition_id": self.condition_id,
             }
-        return _plain_sdk_value(response)
+        return plain_sdk_value(response)

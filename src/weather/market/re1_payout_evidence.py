@@ -12,7 +12,7 @@ import re
 from urllib.request import Request, urlopen
 
 from weather.market.mm_exchange_reports import INCENTIVE_CASH_ASSET, PAID_INCENTIVE_EVIDENCE_SCHEMA
-from weather.market.mm_official_adapter import _plain_sdk_value
+from weather.market.mm_official_adapter import plain_sdk_value
 from weather.market.mm_stage2_hold import canonical_bytes, digest, utc, write_new
 from weather.market.re1_evidence import ATTEMPT_CAP, campaign_root, load_prediction, payout_verdict
 from weather.market import re1_transport
@@ -116,7 +116,7 @@ def read_pages(paginator, journal, path):
         require(type(page.has_more) is bool and page.has_more == (page.next_cursor is not None), 'pagination_shape')
         require(page.next_cursor not in cursors, 'pagination_cycle')
         cursors.add(page.next_cursor)
-        rows.extend((row, journal.last_response_hash(path)) for row in _plain_sdk_value(page.items))
+        rows.extend((row, journal.last_response_hash(path)) for row in plain_sdk_value(page.items))
         require(len(rows) <= MAX_ROWS, 'row_budget')
         terminal = not page.has_more
     require(terminal, 'pagination_terminal_missing')
@@ -178,7 +178,7 @@ def collect_accruals(venue, scope, journal, clock):
         rows = read_pages(venue.client.list_user_earnings_for_day(date=day), journal, '/rewards/user')
         retained['rows'] = [r for r, _ in rows]
         retained['market_configurations'] = condition_configurations(scope['condition_id'], journal=journal)
-        totals = _plain_sdk_value(venue.client.get_total_earnings_for_user_for_day(date=day))
+        totals = plain_sdk_value(venue.client.get_total_earnings_for_user_for_day(date=day))
         retained['total_earnings'] = totals
         require(len(totals) <= MAX_ROWS, 'earnings_total_budget')
         provenance = journal.last_response_hash('/rewards/user/total')
@@ -512,7 +512,7 @@ class PolygonReads:
         raw = json.dumps(payload, separators=(',', ':')).encode()
         self.journal.record('rpc_request', request=payload, url=RPC, sha256=sha(raw), hash_basis='transmitted_json_bytes')
         request = Request(RPC, data=raw, method='POST', headers={'Content-Type': 'application/json', 'Accept': 'application/json',
-                                                                'User-Agent': re1_transport._user_agent()})
+                                                                'User-Agent': re1_transport.re1_user_agent()})
         with self.opener(request, timeout=10) as response:
             body = response.read(MAX_BYTES + 1)
             self.journal.record('rpc_response', id=self.count, status=response.status, length=len(body), sha256=sha(body))

@@ -1,3 +1,7 @@
+"""Live pilot envelopes and their policy wiring.
+
+Guards: mm_live_envelope STAGE1/STAGE2 limits and their use by policy defaults and the official adapter.
+"""
 from dataclasses import FrozenInstanceError, asdict, replace
 from datetime import datetime, timezone
 import hashlib

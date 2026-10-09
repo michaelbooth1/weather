@@ -1,4 +1,7 @@
-"""84h wallet sizing and exact confirmation, entirely synthetic and offline."""
+"""84h wallet sizing and exact confirmation, entirely synthetic and offline.
+
+Guards: RE-1 84h wallet sizing and exact confirmation.
+"""
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal

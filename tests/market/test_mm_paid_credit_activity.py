@@ -1,4 +1,7 @@
-"""Behavioral fixtures for supplied activity/Polygon receipt evidence joins."""
+"""Behavioral fixtures for supplied activity/Polygon receipt evidence joins.
+
+Guards: mm_paid_credit_activity receipt joins over supplied fixtures.
+"""
 
 from copy import deepcopy
 from datetime import datetime

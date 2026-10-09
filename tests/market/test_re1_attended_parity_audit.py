@@ -1,4 +1,7 @@
-"""Mission 84b parity against the outcome-blind corrected JavaScript reference."""
+"""Mission 84b parity against the outcome-blind corrected JavaScript reference.
+
+Guards: RE-1 mission 84b parity with the corrected JavaScript reference.
+"""
 
 from decimal import Decimal
 import hashlib

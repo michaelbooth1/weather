@@ -137,14 +137,14 @@ def verify_prediction_journal(prediction, journal_path):
                 or zeroes[0]['cleanup_elapsed_seconds'] > PROFILE.cleanup_seconds)):
         raise ValueError('terminal cleanup lacks acknowledged evidence')
     for cancel in cancellation:
-        canceled = _cancel_ack_ids(cancel['response'])
+        canceled = cancel_ack_ids(cancel['response'])
         for proof in cancel.get('prior_acknowledgments', []):
             if (proof['profile_sha256'] != PROFILE.sha256
                     or proof['maker_address'] != prediction['scope']['maker_address']
                     or proof['condition_id'] != prediction['condition_id']
                     or not utc(rows[0]['recorded_at_utc']) <= utc(proof['checked_at_utc']) <= utc(cancel['recorded_at_utc'])):
                 raise ValueError('emergency cancel acknowledgment scope differs')
-            canceled.update(_cancel_ack_ids(proof['response']))
+            canceled.update(cancel_ack_ids(proof['response']))
         terminal = cancel['terminal_orders']
         if (len(terminal) != len(acknowledgments)
                 or {_order_id(r) for r in terminal} != {r['order_id'] for r in acknowledgments}
@@ -236,7 +236,7 @@ def _order_id(row):
     return str(row.get("id") or row.get("order_id") or row.get("orderID") or row.get("lifecycle_key") or "")
 
 
-def _cancel_ack_ids(response):
+def cancel_ack_ids(response):
     canceled = response.get('canceled') if isinstance(response, dict) else None
     if (not isinstance(canceled, list) or response.get('not_canceled')
             or any(not isinstance(oid, str) or not oid for oid in canceled)
@@ -245,7 +245,7 @@ def _cancel_ack_ids(response):
     return set(canceled)
 
 
-def _exact_open_orders(rows, expected, *, maker, condition):
+def exact_open_orders(rows, expected, *, maker, condition):
     if not isinstance(rows, list) or len(rows) != len(expected):
         raise HoldEnd("unexpected_open_orders")
     seen = set()
@@ -409,7 +409,7 @@ def run_hold_session(
     try:
         record('proposal', snapshot=initial_public)
         control_tick()
-        _exact_open_orders(adapters[0].open_orders(), {}, maker=adapters[0].maker_address, condition=scope['condition_id'])
+        exact_open_orders(adapters[0].open_orders(), {}, maker=adapters[0].maker_address, condition=scope['condition_id'])
         positions, evidence = _verified_exact_positions(adapters[0])
         if positions:
             raise HoldEnd("initial_positions")
@@ -421,7 +421,7 @@ def run_hold_session(
             control_tick()
             if index:
                 _check_fills(adapters, expected, checkpoint=control_tick)
-                _exact_open_orders(adapters[0].open_orders(), expected, maker=adapters[0].maker_address, condition=scope['condition_id'])
+                exact_open_orders(adapters[0].open_orders(), expected, maker=adapters[0].maker_address, condition=scope['condition_id'])
             rules = adapter.refresh_market_rules()
             candidate_rules = initial_public["rules"][adapter.token_id]
             if (rules["neg_risk"] is not candidate_rules["neg_risk"]
@@ -450,7 +450,7 @@ def run_hold_session(
             account_due = mono() >= next_account
             _check_fills(adapters, expected, check_rest=account_due, checkpoint=control_tick)
             if account_due:
-                _exact_open_orders(adapters[0].open_orders(), expected, maker=adapters[0].maker_address, condition=scope['condition_id'])
+                exact_open_orders(adapters[0].open_orders(), expected, maker=adapters[0].maker_address, condition=scope['condition_id'])
                 next_account = mono() + 1
             if mono() >= next_public:
                 requested_at = mono()
@@ -507,13 +507,13 @@ def run_hold_session(
             remaining = adapters[0].open_orders()
             if remaining or not isinstance(response, dict) or response.get("not_canceled"):
                 raise RuntimeError("explicit cancellation did not reconcile")
-            canceled = _cancel_ack_ids(response)
+            canceled = cancel_ack_ids(response)
             for proof in prior_acks:
                 if (proof['profile_sha256'] != PROFILE.sha256 or proof['maker_address'] != scope['maker_address']
                         or proof['condition_id'] != scope['condition_id']
                         or not start <= utc(proof['checked_at_utc']) <= utc(wall())):
                     raise RuntimeError('emergency cancellation belongs to another session')
-                canceled.update(_cancel_ack_ids(proof['response']))
+                canceled.update(cancel_ack_ids(proof['response']))
             terminal = []
             for oid, (token, _, _) in expected.items():
                 adapter = adapters[tokens.index(token)]

@@ -1,3 +1,7 @@
+"""Operator trading monitor reporting.
+
+Guards: the Control Room operator monitor's evidence, session and trading readers.
+"""
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json

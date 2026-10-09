@@ -1,3 +1,7 @@
+"""Offline Reward Simulator view.
+
+Guards: the offline, hypothetical Reward Simulator page (docs/operations/liquidity-reward-simulator.md); no live reads.
+"""
 from unittest.mock import patch
 
 from streamlit.testing.v1 import AppTest

@@ -1,4 +1,7 @@
-"""Stage 2 manifest and grants use actual validators over inert public fixtures."""
+"""Stage 2 manifest and grants use actual validators over inert public fixtures.
+
+Guards: Stage-2 manifest and grant sealing through the real validators.
+"""
 from datetime import datetime, timedelta, timezone
 import json
 import os

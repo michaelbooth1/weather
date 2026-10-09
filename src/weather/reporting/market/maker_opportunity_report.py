@@ -69,7 +69,7 @@ def _source_qualifiers(rules):
     }
 
 
-def _share_increment(rule_text, tick):
+def share_increment(rule_text, tick):
     text = re.sub(r"[\x60*]", "", rule_text)
     rows = re.findall(r"^[ \t]*\|\s*([0-9]+(?:\.[0-9]+)?)\s*\|\s*([0-9]+)\s*\|\s*([0-9]+)\s*\|\s*([0-9]+)\s*\|\s*$", text, re.MULTILINE)
     selected = [int(size) for price, _, size, _ in rows if number(price, "documented_tick") == tick]
@@ -95,7 +95,7 @@ def _diagnostic_plans(row, rules, as_of, *, order_cap, wallet_cap, cleanup):
     asset = "eip155:137/erc20:" + PUSD_COLLATERAL_PROXY_ADDRESS
     minimum = max(books["YES"]["minimum_shares"], number(reward["rewards_min_size"], "reward_minimum", positive=True))
     # The captured precision table must qualify this exact current book tick.
-    increment = _share_increment(rules[ORDER_RULE_URL]["text"], books["YES"]["tick"])
+    increment = share_increment(rules[ORDER_RULE_URL]["text"], books["YES"]["tick"])
     quantity = minimum.quantize(increment, rounding=ROUND_CEILING)
     if type(row["market"].get("acceptingOrders")) is not bool:
         raise ValueError("gamma:accepting_orders_unqualified")

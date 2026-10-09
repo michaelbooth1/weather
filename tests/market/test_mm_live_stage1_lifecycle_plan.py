@@ -1,3 +1,7 @@
+"""Stage-1 lifecycle plan.
+
+Guards: the Stage-1 lifecycle plan over location and market config fixtures.
+"""
 from __future__ import annotations
 
 import hashlib

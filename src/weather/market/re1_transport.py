@@ -22,7 +22,7 @@ from urllib.error import HTTPError
 from urllib.parse import urlsplit
 
 from weather.market.mm_official_adapter import (
-    OfficialPolymarketGlobalAdapter, _plain_sdk_value, fetch_current_positions,
+    OfficialPolymarketGlobalAdapter, plain_sdk_value, fetch_current_positions,
     normalize_official_user_event, require_official_clob_version,
 )
 from weather.market.mm_official_transport import (
@@ -55,7 +55,7 @@ class Re1Heartbeat(OfficialHeartbeatSender):
         signature = build_l2_hmac_signature(secret=self._api_secret, timestamp=timestamp,
                                            method='POST', path=path, body=body)
         request = Request(HOST + path, data=body.encode(), method='POST', headers={
-            'Content-Type': 'application/json', 'Accept': 'application/json', 'User-Agent': _user_agent(),
+            'Content-Type': 'application/json', 'Accept': 'application/json', 'User-Agent': re1_user_agent(),
             'POLY_ADDRESS': self._signer_address, 'POLY_API_KEY': self._api_key,
             'POLY_PASSPHRASE': self._api_passphrase, 'POLY_SIGNATURE': signature,
             'POLY_TIMESTAMP': str(timestamp)})
@@ -111,7 +111,7 @@ def load_owner_credentials(mode):
 
 
 @lru_cache(maxsize=1)
-def _user_agent():
+def re1_user_agent():
     from weather.market.re1_owner_checks import code_identity
     return 'weather-re1-attended/' + code_identity()[:9]
 
@@ -120,7 +120,7 @@ def json_read(url, *, body=None, timeout=2, journal=None):
     assert_no_ambient_proxy_configuration()
     request = Request(url, data=None if body is None else json.dumps(body).encode(),
                       headers={'Accept': 'application/json', 'Content-Type': 'application/json',
-                               'User-Agent': _user_agent()})
+                               'User-Agent': re1_user_agent()})
     if journal is not None:
         payload = request.data or b''
         raw_request = request.get_method().encode() + b'\n' + request.selector.encode() + b'\n' + payload
@@ -287,7 +287,7 @@ def bounded_rows(paginator):
         if len(cursors) >= 50 or page.next_cursor is not None and page.next_cursor in cursors:
             raise RuntimeError('pagination_budget')
         cursors.add(page.next_cursor)
-        rows.extend(_plain_sdk_value(page.items))
+        rows.extend(plain_sdk_value(page.items))
         if len(rows) > 25000:
             raise RuntimeError('row_budget')
     return rows
@@ -428,8 +428,8 @@ class OwnerVenue:
             raise RuntimeError('condition_required')
         return {'day': day, 'rows': bounded_rows(self.client.list_user_earnings_for_day(date=day)),
                 'market_configurations': condition_configurations(self.condition, journal=getattr(self, 'journal', None)),
-                'total_earnings': _plain_sdk_value(self.client.get_total_earnings_for_user_for_day(date=day)),
-                'percentages': _plain_sdk_value(self.client.get_reward_percentages()), 'payment_verified': False}
+                'total_earnings': plain_sdk_value(self.client.get_total_earnings_for_user_for_day(date=day)),
+                'percentages': plain_sdk_value(self.client.get_reward_percentages()), 'payment_verified': False}
     def balances(self):
         assets = {}
         for i, asset in enumerate(ASSETS):
@@ -464,7 +464,7 @@ class OwnerVenue:
         checkpoint()
         # Signing can fetch SDK metadata. Re-read the actual token ask after
         # signing so those reads cannot make the submit-time touch stale.
-        book = _plain_sdk_value(self.client.get_order_book(token_id=request['token_id']))
+        book = plain_sdk_value(self.client.get_order_book(token_id=request['token_id']))
         if hasattr(self, 'journal'):
             self.journal.record('signed_order_book', book=book)
         if (book['token_id'] != request['token_id'] or book['market'] != self.condition or
@@ -473,13 +473,13 @@ class OwnerVenue:
         # No place_limit_order/allowance recovery or retry: one raw post only.
         if hasattr(self, 'before_post'):
             self.before_post(request)
-        return _plain_sdk_value(self.client.post_order(signed))
+        return plain_sdk_value(self.client.post_order(signed))
     def cancel(self, oid):
         if self.readonly: raise RuntimeError('read_only')
         return self.adapter.cancel_order(oid)
     def cancel_all(self):
         if self.readonly: raise RuntimeError('read_only')
-        return _plain_sdk_value(self.client.cancel_all())
+        return plain_sdk_value(self.client.cancel_all())
     def close(self):
         try:
             if self.stream is not None: self.stream.stop()

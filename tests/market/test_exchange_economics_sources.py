@@ -1,4 +1,7 @@
-"""Public economics capture must not turn partial responses into campaign absence."""
+"""Public economics capture must not turn partial responses into campaign absence.
+
+Guards: exchange_economics_sources response evidence and budget checks feeding the economics gate.
+"""
 
 import base64
 from copy import deepcopy
@@ -289,7 +292,7 @@ def test_incomplete_rewards_collection_cannot_replace_existing_snapshot(tmp_path
     metadata_path = tmp_path / "events.json"
     metadata_path.write_text('{"locations": []}', encoding="utf-8")
     event_slug = "highest-temperature-in-toronto-on-june-24-2026"
-    monkeypatch.setattr(core, "_event_rows_for_global_snapshot", lambda *_: ([{
+    monkeypatch.setattr(core, "event_rows_for_global_snapshot", lambda *_: ([{
         "location_id": "toronto", "event_date": TARGET, "event_slug": event_slug,
         "registry_markets": [],
     }], []))

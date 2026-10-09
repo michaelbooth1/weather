@@ -15,6 +15,7 @@ from weather import execution_host
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows session API")
+@pytest.mark.spawns
 def test_execution_session_matches_windows_process_metadata():
     observed = execution_host.current_execution_session_id()
     result = subprocess.run(

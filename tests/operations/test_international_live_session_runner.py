@@ -14,7 +14,7 @@ import pytest
 
 from weather.market import mm_geographic_eligibility as geography
 from weather.market.mm_live_bootstrap import load_platform_bootstrap_gate
-from weather.market.mm_live_lifecycle_probe import _canonical_hash
+from weather.market.mm_live_lifecycle_probe import canonical_hash
 from weather.market.market_config import config_for_date
 from weather.operations import international_live_time_window as time_window
 from weather.operations import international_live_session_runner as runner
@@ -582,7 +582,7 @@ def write_execution(
                 "candidate_plan_sha256": sha(candidate_path),
                 "candidate_semantic_plan_sha256": candidate_payload["plan_sha256"],
                 "bootstrap_schema_version": "mm_platform_bootstrap_v0.6",
-                "bootstrap_sha256": _canonical_hash(bootstrap_gate),
+                "bootstrap_sha256": canonical_hash(bootstrap_gate),
                 "heartbeat_acknowledged": True,
                 "submit_boundary_heartbeat_acknowledged": True,
                 "submit_boundary_market_rules_verified": True,

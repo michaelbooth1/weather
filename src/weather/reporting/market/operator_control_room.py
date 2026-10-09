@@ -14,6 +14,8 @@ from weather.paths import data_path
 from weather.reporting.market.operator_evidence import checked_local_path, evidence_timestamp, freshness, parse_timestamp, read_artifact
 from weather.schema_registry import schema_version
 
+READINESS_SCHEMA_FAMILY = "mm_live_readiness_v"
+
 
 INTERNATIONAL_PLATFORM = "polymarket_global"
 RUNS_ROOT = data_path("mm_runs")
@@ -305,7 +307,9 @@ def evaluate_control_room(control, operations, *, now=None):
     )
     readiness_ok = (
         readiness_current
-        and readiness.get("schema_version") == schema_version("mm_live_readiness")
+        # The readiness producer and its registry entry were retired on master (f2b32c17e); only archived
+        # receipts of that family exist, and the target-date binding above keeps them from passing today.
+        and str(readiness.get("schema_version") or "").startswith(READINESS_SCHEMA_FAMILY)
         and run_binding
         and readiness.get("status") == "PASS"
         and readiness.get("live_capital_permission") is False

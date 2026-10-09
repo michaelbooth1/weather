@@ -1,4 +1,7 @@
-"""Native band interpretation agrees from serving through settlement and replay."""
+"""Native band interpretation agrees from serving through settlement and replay.
+
+Guards: native-unit band semantics from serving through settlement and replay (AGENTS.md native settlement unit).
+"""
 
 import csv
 import io

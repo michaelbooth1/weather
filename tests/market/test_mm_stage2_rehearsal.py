@@ -1,3 +1,7 @@
+"""Stage-2 rehearsal.
+
+Guards: mm_stage2_rehearsal parity with hold and selection (fakes only).
+"""
 import pytest
 
 from tests.market.test_mm_stage2_selection import universe

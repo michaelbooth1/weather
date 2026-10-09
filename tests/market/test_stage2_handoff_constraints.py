@@ -1,4 +1,7 @@
-"""Cheapest falsifiers for mission 09-80a; no client or credential is opened."""
+"""Cheapest falsifiers for mission 09-80a; no client or credential is opened.
+
+Guards: mission 09-80a handoff constraints on pilot capital.
+"""
 
 from decimal import Decimal
 

@@ -47,7 +47,7 @@ def _utc_iso():
     return datetime.now(timezone.utc).isoformat()
 
 
-def _canonical_hash(payload):
+def canonical_hash(payload):
     encoded = json.dumps(
         payload,
         sort_keys=True,
@@ -197,7 +197,7 @@ def _validate_terminal_rest_order(order, *, order_id, adapter):
         "order_id": str(order_id),
         "status": status,
         "size_matched": str(matched),
-        "response_sha256": _canonical_hash(order),
+        "response_sha256": canonical_hash(order),
     }
 
 
@@ -372,7 +372,7 @@ def _action_time_collateral_snapshot(adapter, bootstrap_gate):
     return {
         "balance_usdc": balance_usdc,
         "allowance_usdc": allowance_usdc,
-        "sha256": _canonical_hash(normalized),
+        "sha256": canonical_hash(normalized),
     }
 
 
@@ -518,7 +518,7 @@ def execute_stage1_lifecycle_probe(
     sleep = sleeper or time.sleep
     poll_interval = max(0.01, float(poll_interval_seconds))
     journal = LifecycleProbeJournal(journal_path)
-    bootstrap_hash = _canonical_hash(bootstrap_gate)
+    bootstrap_hash = canonical_hash(bootstrap_gate)
     journal.record(
         "probe_authorized",
         platform="polymarket_global",
@@ -1387,7 +1387,7 @@ def build_stage1_lifecycle_bundle(bootstrap_gate, cancel_all_result, dead_man_re
         or bootstrap_gate.get("schema_version") != BOOTSTRAP_SCHEMA_VERSION
     ):
         raise RuntimeError("Stage 1 lifecycle bundle requires a passing bootstrap gate")
-    bootstrap_sha256 = _canonical_hash(bootstrap_gate)
+    bootstrap_sha256 = canonical_hash(bootstrap_gate)
     results = {
         "cancel_all": dict(cancel_all_result or {}),
         "dead_man": dict(dead_man_result or {}),
@@ -1578,5 +1578,5 @@ def build_stage1_lifecycle_bundle(bootstrap_gate, cancel_all_result, dead_man_re
         },
         "secret_values_redacted": True,
     }
-    payload["bundle_sha256"] = _canonical_hash(payload)
+    payload["bundle_sha256"] = canonical_hash(payload)
     return payload

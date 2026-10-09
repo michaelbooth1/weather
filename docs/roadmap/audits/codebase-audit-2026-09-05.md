@@ -204,7 +204,7 @@ not a Celsius/Fahrenheit conversion problem.
 
 Source: [model presentation](../../../src/weather/model/model_presentation.py),
 lines 152–183; [ledger parser](../../../src/weather/backtesting/settlement_ledger.py),
-line 570; [paper parser and outcome](../../../src/weather/market/mm_paper_scoring.py),
+line 570; paper parser and outcome (`src/weather/market/mm_paper_scoring.py`, retired on master),
 lines 207–240 and 1802; [settlement IO](../../../src/weather/backtesting/settlement_io.py),
 line 59.
 

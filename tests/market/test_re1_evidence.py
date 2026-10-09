@@ -1,4 +1,7 @@
-"""Persistent attempt limits and frozen evidence are independent of CLI flags."""
+"""Persistent attempt limits and frozen evidence are independent of CLI flags.
+
+Guards: RE-1 persistent attempt limits and frozen evidence.
+"""
 from datetime import timedelta
 import json
 import os

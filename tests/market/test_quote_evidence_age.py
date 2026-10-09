@@ -1,4 +1,7 @@
-"""Invalid timestamps and old research cannot silently qualify paper quotes."""
+"""Invalid timestamps and old research cannot silently qualify paper quotes.
+
+Guards: quote evidence age: invalid timestamps and old research cannot qualify paper quotes (mm_policy).
+"""
 
 import json
 

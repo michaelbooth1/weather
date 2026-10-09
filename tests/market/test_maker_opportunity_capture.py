@@ -1,3 +1,7 @@
+"""Maker opportunity capture and report inputs.
+
+Guards: maker_opportunity_capture/report share and reward-input arithmetic over fixtures.
+"""
 from __future__ import annotations
 
 import base64
@@ -245,13 +249,13 @@ def test_file_bound_is_enforced_before_packet_parsing(tmp_path):
 
 def test_indented_captured_order_precision_table():
     from decimal import Decimal
-    from weather.reporting.market.maker_opportunity_report import _share_increment
+    from weather.reporting.market.maker_opportunity_report import share_increment
     # Retained public place-orders.md SHA-256 a3426c3ac3c04c96a4e988009cd6e603d22622a31e1b3c02a453ce3ac22d7563.
     table = "        | Tick size | Price decimals | Size decimals | Amount decimals |\n        | --------- | -------------: | ------------: | --------------: |\n        | `0.1`     |              1 |             2 |               3 |\n        | `0.01`    |              2 |             2 |               4 |\n        | `0.005`   |              3 |             2 |               5 |\n        | `0.0025`  |              4 |             2 |               6 |\n        | `0.001`   |              3 |             2 |               5 |\n        | `0.0001`  |              4 |             2 |               6 |"
-    assert _share_increment(table, Decimal("0.01")) == Decimal(".01")
-    assert _share_increment(table, Decimal("0.0025")) == Decimal(".01")
+    assert share_increment(table, Decimal("0.01")) == Decimal(".01")
+    assert share_increment(table, Decimal("0.0025")) == Decimal(".01")
     with pytest.raises(ValueError, match="selected_tick_missing_or_ambiguous"):
-        _share_increment(table + "\n        | 0.01 | 2 | 3 | 4 |", Decimal("0.01"))
+        share_increment(table + "\n        | 0.01 | 2 | 3 | 4 |", Decimal("0.01"))
 
 def test_different_reward_asset_does_not_become_pusd_profit():
     packet = fixture_packet()

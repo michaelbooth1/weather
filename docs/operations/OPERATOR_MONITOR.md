@@ -65,7 +65,10 @@ The portable host receipt already carries `checked_at_utc`.
   are required for exchange/accounting and portable receipts.
 - A copied historical result stays historical. Neither a zero count nor a finished
   session proves current account exposure. Unknown values render as an em dash.
-- The general checklist requires the readiness producer's schema, passing gates,
+- The general checklist requires the readiness producer's schema family
+  (`mm_live_readiness_v*`; the producer and its registry entry are retired, so
+  only archived receipts exist and the target-date binding keeps them from
+  passing), passing gates,
   no blockers, false live-capital permission and exact run binding (including
   its `inputs.latest_run_folder` identity). Economics uses the canonical content
   validator and the same current/accepted/drift bindings as candidate admission.

@@ -15,10 +15,10 @@ from threading import RLock
 
 from weather.market.mm_stage2_hold import (
     HoldEnd, HoldJournal, canonical_bytes, digest, utc, write_new,
-    _exact_open_orders, _cancel_ack_ids, _order_id,
+    exact_open_orders, cancel_ack_ids, _order_id,
 )
 from weather.market.mm_stage2_selection import validate_selection
-from weather.market.mm_official_adapter import _value
+from weather.market.mm_official_adapter import sdk_field_value
 from weather.market.re1_resilience import Freshness, HeartbeatLoop, retry_read, transient
 from weather.market.reward_quote import QuoteRefused, _decimal as number, _levels
 from weather.market.reward_share_estimate import order_score, q_min, share_of, side_score
@@ -139,7 +139,7 @@ def replacement_price(mid, leg, offset=Decimal('.015')):
 
 def filled(row):
     return (number(row.get('size_matched', 0)) > 0 or bool(row.get('associate_trades')) or
-            str(_value(row, 'status', 'official_order_status') or '').upper() == 'MATCHED')
+            str(sdk_field_value(row, 'status', 'official_order_status') or '').upper() == 'MATCHED')
 
 
 class Session:
@@ -214,7 +214,7 @@ class Session:
     def cancel_remaining(self):
         """Account-wide cancel-all; True only when acknowledged."""
         response = self._recover('cleanup_cancel_all', self.venue.cancel_all)
-        _cancel_ack_ids(response)
+        cancel_ack_ids(response)
         self._retain('cleanup_cancel_all_response', response=response)
         return True
 
@@ -396,7 +396,7 @@ class Session:
                 self.fill_seen = True
                 self.journal.record('fill', user_event=event)
                 raise HoldEnd('fill')
-            status = _value(event, 'status', 'official_order_status')
+            status = sdk_field_value(event, 'status', 'official_order_status')
             if _order_id(event) in self.active and _order_id(event) != canceling and status and str(status).upper() != 'LIVE':
                 raise HoldEnd('order_no_longer_resting')
 
@@ -447,7 +447,7 @@ class Session:
             self._alive()
             self.clock.sleep(1)
             rows = self.required('open_orders', self.venue.open_orders)
-        _exact_open_orders(rows, expected, maker=self.venue.maker, condition=self.condition)
+        exact_open_orders(rows, expected, maker=self.venue.maker, condition=self.condition)
         if len(rows) >= 2 or any(i == leg for i, _ in self.active.values()):
             raise HoldEnd('open_order_cap')
         # Fresh public reads are immediately adjacent to signing, never a
@@ -482,24 +482,24 @@ class Session:
             if transient(exc):
                 raise HoldEnd('submit_transport_ambiguous') from None
             raise
-        oid = str(_value(response, 'id', 'order_id', 'orderID') or '')
+        oid = str(sdk_field_value(response, 'id', 'order_id', 'orderID') or '')
         if oid:
             self.known[oid] = leg
             self.active[oid] = (leg, price)
             self.order_created[oid] = self.clock.monotonic()
             write_new(self.directory / f'submit-{self.posts}.ack.json', {'order_id': oid})
             self.posted(oid, leg, price)
-        if _value(response, 'trade_ids', 'tradeIDs') or response.get('status') == 'matched':
+        if sdk_field_value(response, 'trade_ids', 'tradeIDs') or response.get('status') == 'matched':
             self.fill_seen = True
             raise HoldEnd('fill')
-        if not oid or _value(response, 'ok', 'success') is not True or response.get('status') != 'live':
+        if not oid or sdk_field_value(response, 'ok', 'success') is not True or response.get('status') != 'live':
             raise HoldEnd('submit_acknowledgment')
         self.sample('scoring', lambda: self.venue.scoring(list(self.active)))
         return oid
 
     def cancel_leg(self, oid):
         response = self.required('cancel', lambda: self.venue.cancel(oid), checkpoint=False, order_id=oid)
-        if oid not in _cancel_ack_ids(response):
+        if oid not in cancel_ack_ids(response):
             raise HoldEnd('cancel_acknowledgment')
         row = self.required('cancel_order_read', lambda: self.venue.order(oid), checkpoint=False)
         if filled(row):

@@ -1,4 +1,7 @@
-"""Synthetic offline receipts; these fixtures are not observed account evidence."""
+"""Synthetic offline receipts; these fixtures are not observed account evidence.
+
+Guards: paid-incentive reconciliation schema and offline receipt rules.
+"""
 
 from copy import deepcopy
 from decimal import localcontext

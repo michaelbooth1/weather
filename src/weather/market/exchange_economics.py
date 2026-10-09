@@ -320,7 +320,7 @@ def _fetch_global_rule_documents(fetch_text, *, timeout_seconds):
     return documents
 
 
-def _event_rows_for_global_snapshot(event_metadata, target_date):
+def event_rows_for_global_snapshot(event_metadata, target_date):
     from weather.market.market_registry import all_specs
 
     target_text = _target_text(target_date)
@@ -443,7 +443,7 @@ def collect_global_snapshot_payload(
         event_metadata = None
     if event_metadata is None:
         raise ValueError(f"invalid or missing event metadata: {event_metadata_path}")
-    event_rows, missing_locations = _event_rows_for_global_snapshot(event_metadata, target_text)
+    event_rows, missing_locations = event_rows_for_global_snapshot(event_metadata, target_text)
     if not event_rows:
         raise ValueError(f"event metadata has no active configured weather events on/after {target_text}")
     if missing_locations:

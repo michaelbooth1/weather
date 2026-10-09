@@ -1,4 +1,7 @@
-"""Cheap numerical-control fixtures; no historical data, artifacts or fitting."""
+"""Cheap numerical-control fixtures; no historical data, artifacts or fitting.
+
+Guards: replay fidelity numerical controls and worker release binding.
+"""
 
 import csv
 import json

@@ -189,7 +189,9 @@ def test_control_room_populates_results_and_flags_unresolved_session(mock_load):
                     }},
     }
     with mock.patch("app.views.control_room._load_monitor_extras", return_value=extras):
-        at = AppTest.from_file("app/streamlit_app.py").run()
+        at = AppTest.from_file("app/streamlit_app.py")
+        at.query_params["market"] = "control"  # the Owner Cockpit is the default page
+        at.run()
     assert not at.exception
     text = _visible_text(at)
     assert "OUTCOME UNKNOWN" in text
@@ -218,7 +220,9 @@ def test_control_failure_preserves_independent_panels(mock_load, failure):
     mock_load.return_value = (_control_fixture(), operations)
     if failure == "collector_error":
         mock_load.side_effect = ValueError("fixture collector failure")
-    at = AppTest.from_file("app/streamlit_app.py").run()
+    at = AppTest.from_file("app/streamlit_app.py")
+    at.query_params["market"] = "control"  # the Owner Cockpit is the default page
+    at.run()
     assert not at.exception
     text = _visible_text(at)
     assert "Prepare the attended lifecycle test" in text

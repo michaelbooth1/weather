@@ -113,6 +113,11 @@ EXPECTED_SHARDS = {
             "tests/operations/test_cold_snapshot_nightly_status_race.py",
             "tests/operations/test_wu_token_scan_junction.py",
             "tests/market/test_order_journal.py",
+            "tests/market/test_re1_evidence.py",
+            "tests/operations/test_execution_host.py",
+            "tests/operations/test_portable_live_sdk_script.py",
+            "tests/operations/test_stage2_host_schema.py",
+            "tests/operations/test_stage2_session_sealing.py",
         ],
     ),
     "windows-lane-b": (

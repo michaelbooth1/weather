@@ -15,11 +15,14 @@ def _text(value, fallback="Unknown"):
     return fallback if value in (None, "") else str(value)
 
 
-def _timestamp(value):
+def utc_timestamp_label(value):
     if not value:
         return "not recorded"
     try:
         parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            # A naive evidence time is already UTC; never read it as host-local time.
+            parsed = parsed.replace(tzinfo=timezone.utc)
         return parsed.astimezone(timezone.utc).strftime("%b %d, %H:%M:%S UTC")
     except ValueError:
         return "invalid timestamp"
@@ -82,7 +85,7 @@ def _health_panel(evaluation, portable):
         st.metric("Portable executor", portable_label or "UNKNOWN")
         if portable.get("recorded_status"):
             st.write(f"Recorded check: {portable['recorded_status']}")
-        st.caption(f"Observed {_timestamp(portable['observed_at'])}" if portable.get("observed_at") else portable.get("detail") or "No observation available.")
+        st.caption(f"Observed {utc_timestamp_label(portable['observed_at'])}" if portable.get("observed_at") else portable.get("detail") or "No observation available.")
     with st.expander("Host details and alerts"):
         if host:
             st.write(f"Free disk: {_text(host.get('disk_free_gb'))} GiB · Free memory: {_text(host.get('ram_free_gb'))} GiB")
@@ -116,7 +119,7 @@ def _session_panel(session):
             else:
                 st.write(stage["state"])
             st.caption(stage["detail"])
-            st.caption(_timestamp(stage.get("observed_at")))
+            st.caption(utc_timestamp_label(stage.get("observed_at")))
             result = stage.get("result") or {}
             if result:
                 st.write(f"Recorded order: {_text(result.get('order_id'))}")
@@ -182,7 +185,7 @@ def _activity_panel(session, project):
         events = session.get("events") or []
         if events:
             st.dataframe(arrow_safe_dataframe([
-                {"When": _timestamp(row.get("recorded_at_utc")), "Stage": row.get("stage"),
+                {"When": utc_timestamp_label(row.get("recorded_at_utc")), "Stage": row.get("stage"),
                  "Event": row.get("event_type"), "Order": row.get("order_id")}
                 for row in events
             ]), hide_index=True, width="stretch")

@@ -1,4 +1,7 @@
-"""84g: complementary fills and the dated owner-approved payout interpretation."""
+"""84g: complementary fills and the dated owner-approved payout interpretation.
+
+Guards: RE-1 addendum 84g complementary fills and payout interpretation.
+"""
 from copy import deepcopy
 import json
 from types import SimpleNamespace

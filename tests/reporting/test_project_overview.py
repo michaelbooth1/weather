@@ -1,3 +1,7 @@
+"""Project overview reporting.
+
+Guards: project_overview roadmap and status summary.
+"""
 from unittest import mock
 
 import pytest

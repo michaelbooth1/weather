@@ -1,3 +1,7 @@
+"""Attended live-session attendance contract.
+
+Guards: mm_live_attendance attendance rules for attended Stage-2 sessions.
+"""
 import pytest
 
 from weather.market.mm_live_attendance import confirm_attended_session, session_confirmation_literal

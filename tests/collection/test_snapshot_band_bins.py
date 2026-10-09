@@ -1,4 +1,7 @@
-"""Sidecar reconstruction preserves the recorded native band contract."""
+"""Sidecar reconstruction preserves the recorded native band contract.
+
+Guards: snapshot sidecar band-bin reconstruction for captured-input replay.
+"""
 
 from copy import deepcopy
 from datetime import datetime, timezone

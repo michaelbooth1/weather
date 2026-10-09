@@ -1,3 +1,7 @@
+"""Stage-2 hold controller.
+
+Guards: mm_stage2_hold order, cancel and cleanup rules under the STAGE2_HOLD envelope (fakes only).
+"""
 from datetime import timedelta
 import hashlib
 import json

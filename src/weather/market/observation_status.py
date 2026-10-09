@@ -3,9 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from weather.paths import data_path
-from weather.market.value_helpers import age_seconds
 from weather.market.live_observation_normalization import normalized_high_for_market
-from weather.time import utc_now
+from weather.time import evidence_age_seconds, utc_now
 DEFAULT_OBSERVATION_STATUS = data_path() / "snapshots" / "observation_trigger_status.json"
 from weather.market.quote_policy_defaults import DEFAULT_POLICY_CONFIG
 
@@ -23,7 +22,7 @@ def load_observation_status(path=DEFAULT_OBSERVATION_STATUS, now=None, config=No
             "reason": "missing observation watcher status",
         }
     payload = json.loads(path.read_text(encoding="utf-8-sig"))
-    watcher_age = age_seconds(payload.get("last_heartbeat"), now)
+    watcher_age = evidence_age_seconds(now, timestamp=payload.get("last_heartbeat"))
     consecutive_errors = int(payload.get("consecutive_errors") or 0)
     fresh = (
         watcher_age is not None

@@ -1,4 +1,7 @@
-"""SDK 0.6 response fixtures through its actual parsers; no key or authentication."""
+"""SDK 0.6 response fixtures through its actual parsers; no key or authentication.
+
+Guards: mm_stage2_rewards SDK 0.6 reward parsing through the real adapter.
+"""
 from copy import deepcopy
 from datetime import datetime, timezone
 import hashlib
@@ -88,7 +91,7 @@ def test_official_scoring_and_earnings_parsers_retain_exact_body(tmp_path):
 
 def test_stage2_sdk_timeout_and_two_order_cancel_use_actual_transport():
     from weather.market.mm_stage2_entrypoint import configure_hold_transport_timeouts
-    from weather.market.mm_official_adapter import _plain_sdk_value
+    from weather.market.mm_official_adapter import plain_sdk_value
     client, fixture_http, _calls = sdk_fixture()
     import httpx
     from polymarket.clients._transport import SyncTransport
@@ -104,7 +107,7 @@ def test_stage2_sdk_timeout_and_two_order_cancel_use_actual_transport():
     try:
         configure_hold_transport_timeouts(client)
         assert calls == []
-        response = _plain_sdk_value(client.cancel_all())
+        response = plain_sdk_value(client.cancel_all())
         assert response == {'canceled': ['one', 'two'], 'not_canceled': {}}
         assert calls == [('DELETE', '/cancel-all', dict.fromkeys(('connect', 'read', 'write', 'pool'), 0.5))]
     finally:

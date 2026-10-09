@@ -1,4 +1,7 @@
-"""Identical optional-grant shape in Python and PowerShell; never an actual grant."""
+"""Identical optional-grant shape in Python and PowerShell; never an actual grant.
+
+Guards: Python/PowerShell parity of the optional Stage-2 assignment shape.
+"""
 import json
 import os
 import subprocess
@@ -10,6 +13,7 @@ from weather.execution_host import load_execution_host_assignment, ExecutionHost
 
 
 @pytest.mark.parametrize('fault', [None, 'unassigned', 'extra', 'profile', 'hash', 'day', 'expiry', 'naive', 'null'])
+@pytest.mark.spawns
 def test_assignment_readers_agree_on_optional_stage2_shape(tmp_path, fault):
     # Synthetic installation and principal; no State of Play grant exists.
     grant = {'profile_id': 'stage2_hold_v1', 'profile_sha256': 'd' * 64,

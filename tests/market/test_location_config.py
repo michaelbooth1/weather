@@ -1,4 +1,7 @@
-"""Generation readers preserve exact bytes and reject incomplete bindings."""
+"""Generation readers preserve exact bytes and reject incomplete bindings.
+
+Guards: location_config generation readers: exact bytes and complete bindings.
+"""
 
 from dataclasses import FrozenInstanceError
 from pathlib import Path

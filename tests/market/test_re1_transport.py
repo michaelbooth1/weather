@@ -1,4 +1,7 @@
-"""Pinned SDK models at the attended transport boundary; no real signing/network."""
+"""Pinned SDK models at the attended transport boundary; no real signing/network.
+
+Guards: RE-1 attended transport boundary over pinned SDK models (no signing or network).
+"""
 from dataclasses import replace
 from types import SimpleNamespace
 from decimal import Decimal
@@ -27,10 +30,10 @@ def test_undecodable_order_read_is_transient_and_other_errors_are_not():
 
 @pytest.fixture(autouse=True)
 def clear_user_agent_cache():
-    from weather.market.re1_transport import _user_agent
-    _user_agent.cache_clear()
+    from weather.market.re1_transport import re1_user_agent
+    re1_user_agent.cache_clear()
     yield
-    _user_agent.cache_clear()
+    re1_user_agent.cache_clear()
 
 
 def reward_payload(rows=None):

@@ -1,3 +1,7 @@
+"""Stage-0 live scope.
+
+Guards: the Stage-0 live market scope over location_config fixtures.
+"""
 from __future__ import annotations
 
 import hashlib

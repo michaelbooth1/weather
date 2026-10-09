@@ -1,4 +1,7 @@
-"""Owner-only command flow with injected credentials/client; never real auth."""
+"""Owner-only command flow with injected credentials/client; never real auth.
+
+Guards: RE-1 owner-only command flow with injected credentials/client (never real auth).
+"""
 from contextlib import nullcontext
 from types import SimpleNamespace
 import json

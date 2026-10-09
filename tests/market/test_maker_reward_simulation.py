@@ -1,3 +1,7 @@
+"""Maker reward simulation over fixtures.
+
+Guards: maker_opportunity_capture reward simulation arithmetic (offline, hypothetical).
+"""
 from dataclasses import replace
 from decimal import Decimal, localcontext
 import hashlib

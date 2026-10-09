@@ -1,4 +1,7 @@
-"""Retained child facts produced by the real controller over fake transports."""
+"""Retained child facts produced by the real controller over fake transports.
+
+Guards: Stage-2 child evidence retained by the real controller over fake transports.
+"""
 from datetime import timedelta
 import hashlib
 import json

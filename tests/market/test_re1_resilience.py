@@ -1,4 +1,7 @@
-"""Fake-clock outage budgets, campaign recovery, and retained seeded six-hour proof."""
+"""Fake-clock outage budgets, campaign recovery, and retained seeded six-hour proof.
+
+Guards: RE-1 outage budgets, campaign recovery and the retained six-hour proof.
+"""
 from datetime import timedelta
 import hashlib
 import json

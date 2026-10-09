@@ -1,4 +1,7 @@
-"""Legacy CSV upper cells preserve native settlement-band evidence."""
+"""Legacy CSV upper cells preserve native settlement-band evidence.
+
+Guards: settlement ledger native-band upper endpoints, including the NaN upper-cell fix.
+"""
 
 import csv
 import io

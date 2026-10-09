@@ -529,7 +529,7 @@ def _point_in_time_route_selection(route: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def _verify_semantic_contract_after_inventory(
+def verify_semantic_contract_after_inventory(
     release_dir: Path,
     inventory: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any] | None:
@@ -973,7 +973,7 @@ def verify_release(
         validate_release_id(str(rollback_target))
     _validate_runtime_versions(manifest["runtime_versions"])
     validate_code_runtime_alignment(code, identity)
-    semantic_contract = _verify_semantic_contract_after_inventory(release_dir, inventory)
+    semantic_contract = verify_semantic_contract_after_inventory(release_dir, inventory)
 
     if check_runtime:
         current_versions = dict(

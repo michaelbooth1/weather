@@ -56,7 +56,7 @@ def _control_fixture():
                 "generated_at_utc": "2026-08-15T14:05:00+00:00",
                 "target_date": TARGET_DATE,
                 "status": "PASS",
-                "schema_version": schema_version("mm_live_readiness"),
+                "schema_version": "mm_live_readiness_v0.3",
                 "inputs": {"latest_run_folder": f"data/mm_runs/{TARGET_DATE}/pilot-1"},
                 "gates": [{"gate_id": "fixture", "ok": True}],
                 "live_capital_permission": False,

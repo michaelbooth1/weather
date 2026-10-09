@@ -42,40 +42,18 @@ def non_utc_local_zone(monkeypatch):
     time.tzset()
 
 
-def _control_room_page():
-    # Runs as an AppTest script: imports stay inside. Every timestamp the page labels is set here.
-    from unittest import mock as page_mock
-
-    from app.views import control_room
-
-    control = {
-        "run": {"available": True, "path": "run", "recorded_at": None, "payload": {}},
-        "readiness": {
-            "available": True,
-            "path": "readiness.json",
-            "recorded_at": "2026-08-15T14:05:00",
-            "payload": {"generated_at_utc": "2026-08-15T14:05:00+02:00"},
-        },
-        "platform_verification": {"available": True, "path": "pv.json", "recorded_at": "", "payload": {}},
-    }
-    with page_mock.patch.object(control_room, "_load_control_room_snapshot", return_value=(control, {})):
-        control_room.render_control_room_page()
-
-
 def test_control_room_timestamp_labels_are_utc(non_utc_local_zone):
-    app_test = AppTest.from_function(_control_room_page, default_timeout=30)
-    app_test.run()
-    assert not app_test.exception
-    tables = [frame.value.to_dict("records") for frame in app_test.dataframe]
-    generated = [row["Value"] for table in tables for row in table if row.get("Metric") == "Generated"]
-    recorded = {row["Artifact"]: row["Recorded"] for table in tables for row in table if "Artifact" in row}
+    from app.views.control_room import utc_timestamp_label
+
     # An offset timestamp is converted to UTC.
-    assert generated == ["2026-08-15 12:05 UTC"]
+    assert utc_timestamp_label("2026-08-15T14:05:00+02:00") == "Aug 15, 12:05:00 UTC"
+    assert utc_timestamp_label("2026-08-15T12:05:00Z") == "Aug 15, 12:05:00 UTC"
     # A naive timestamp is already UTC; it must not be shifted by the host's local zone.
-    assert recorded["readiness"] == "2026-08-15 14:05 UTC"
-    # Missing and empty timestamps both read "not recorded".
-    assert recorded["run"] == "not recorded"
-    assert recorded["platform_verification"] == "not recorded"
+    assert utc_timestamp_label("2026-08-15T14:05:00") == "Aug 15, 14:05:00 UTC"
+    # Missing and empty timestamps both read "not recorded"; garbage is named, never guessed.
+    assert utc_timestamp_label(None) == "not recorded"
+    assert utc_timestamp_label("") == "not recorded"
+    assert utc_timestamp_label("yesterday") == "invalid timestamp"
 
 
 def _run_router(params):

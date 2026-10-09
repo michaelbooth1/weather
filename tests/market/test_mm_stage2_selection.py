@@ -1,3 +1,7 @@
+"""Stage-2 market selection.
+
+Guards: mm_stage2_selection eligibility and ranking over registry fixtures.
+"""
 from copy import deepcopy
 from datetime import timedelta
 

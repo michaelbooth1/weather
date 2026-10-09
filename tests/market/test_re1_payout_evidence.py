@@ -1,4 +1,7 @@
-"""SDK models and closed RPC transports exercise the reviewed RE-1 producer rule."""
+"""SDK models and closed RPC transports exercise the reviewed RE-1 producer rule.
+
+Guards: RE-1 payout evidence producer rule over SDK models and closed transports.
+"""
 from copy import deepcopy
 from ast import literal_eval
 from datetime import timedelta
@@ -70,7 +73,7 @@ def sdk_venue(*, fail=None, guard=None):
             def geturl(self): return request.full_url
         return Reply(reply.content)
     patcher.setattr(transport, 'urlopen', public_open)
-    patcher.setattr(transport, '_user_agent', lambda: 'weather-re1-attended/123456789')
+    patcher.setattr(transport, 're1_user_agent', lambda: 'weather-re1-attended/123456789')
     class ReadsOnly:
         _ctx = ctx
         def __getattr__(self, name):

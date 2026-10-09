@@ -1,3 +1,7 @@
+"""Reward-eligible quote construction.
+
+Guards: reward_quote pricing and reward share estimate arithmetic.
+"""
 from decimal import Decimal
 
 import pytest
