@@ -19,7 +19,7 @@ import json
 from pathlib import Path
 import re
 
-from maker_core.shadow.admission import EMBARGOED_UTC_DAYS, embargo_reason  # re-exported; windows live in core
+from maker_core.shadow.admission import EMBARGOED_UTC_DAYS, embargo_reason, utc_day  # windows live in core
 from weather.market.maker_evidence_store import SCHEMA, decode_body
 
 MID_MAX_AGE = timedelta(seconds=120)
@@ -38,6 +38,10 @@ class MakerEvidencePanel:
     """Book mids and trade prints for the requested assets on one sealed 88a UTC day."""
 
     def __init__(self, root, day, assets):
+        # The reader guards itself: an embargoed or non-canonical day is refused before any path is built.
+        day = utc_day(day)
+        if embargo_reason(day):
+            raise ValueError("embargoed_utc_day")
         self.root, self.day = Path(root), day
         self.assets = {str(a) for a in assets}
         self.samples = {a: [] for a in self.assets}
