@@ -107,12 +107,14 @@ only; no decision, P&L or base-pass prefix digest changes.
   TZPATH, so local midnights do not depend on the machine. The run binding records the tzdata version, its IANA
   release and the SHA-256 of each zone file the run used. A different installed tzdata refuses the run
   (`tzdata_version_unpinned`), and so does an imported `tzdata` module that is not the installed distribution's
-  (its `__version__` or file location differs; `tzdata_package_mismatch`).
+  (its `__version__` differs, or its file is not in the distribution's package directory; a sourceless `.pyc`-only
+  install is accepted; `tzdata_package_mismatch`).
 - **Run binding (T2):** `pipeline.run_passes` copies the zone map once and binds the refresh flag (always on;
   `day_roll.NO_REFRESH` is refused), the exact market-to-zone map, its SHA-256 and its source, the tzdata block and
-  a SHA-256 of the run's own days, provenance, input hashes, markets and report configuration into `run_binding`,
+  a SHA-256 of the run's own days, provenance, input hashes, markets, report configuration and the zone map it
+  actually drove with (kept as `Run.time_zones`, with its source) into `run_binding`,
   with a SHA-256 over all of them, and the report carries it. The report refuses a run without that binding, with
-  another run's binding, with the refresh off, with an altered map or with a tzdata block that differs from the one
+  another run's binding (also one from a run with the same inputs driven with another map), with the refresh off, with an altered map or with a tzdata block that differs from the one
   it recomputes from the zone bytes it loads. A scored (non-fixture) report also requires the full source that
   `execution_manifest.market_time_zones` records (builder, `registry_checked`, inventory and registry digests).
   This stops accidental misuse: a run that bypasses `run_passes`, passes a hand-made zone map or reuses a binding
@@ -269,7 +271,7 @@ reconciliation.
   fields and the Clarification 2 diagnostics.
 - **Run binding** (owner T1(a)/T2(a), 2026-10-09): the day-roll refresh flag, the market-to-zone map with its
   SHA-256 and source, the pinned tzdata version with its zone-file SHA-256s, and the SHA-256 of the run's days,
-  input hashes, markets and configuration, plus one SHA-256 over all of them (§3, after C13). The report refuses a
+  input hashes, markets, configuration and driven zone map, plus one SHA-256 over all of them (§3, after C13). The report refuses a
   run without it or with another run's binding.
 - **Sidecar** (under its own ceiling, hash-bound in the receipt): the merged run-length excluded intervals and a
   decision-stream SHA-256 per engine pass. No estimator reads it.

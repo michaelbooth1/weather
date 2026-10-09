@@ -64,12 +64,14 @@ def tzdata_package():
 
     Refuses ``tzdata_unavailable`` when either is missing, ``tzdata_version_unpinned`` when the metadata version
     is not ``TZDATA_VERSION``, and ``tzdata_package_mismatch`` when the module's own ``__version__`` differs from
-    the metadata or its ``__file__`` is not the one that distribution installed (a shadowing ``tzdata`` directory
-    earlier on ``sys.path``). Zone bytes are read through this module object only, so the bytes, the version and
-    the IANA release all come from the one package the metadata describes. Not cached: every call re-checks."""
+    the metadata or its ``__file__`` is not in the package directory that distribution installed (a shadowing
+    ``tzdata`` directory earlier on ``sys.path``). The directories are compared, not ``__init__.py``, so a sourceless
+    install whose ``__file__`` is ``__init__.pyc`` is accepted (Delta-1 finding 3). Zone bytes are read through this
+    module object only, so the bytes, the version and the IANA release all come from the one package the metadata
+    describes. Not cached: every call re-checks."""
     try:
         version = importlib.metadata.version("tzdata")
-        location = importlib.metadata.distribution("tzdata").locate_file("tzdata/__init__.py")
+        location = importlib.metadata.distribution("tzdata").locate_file("tzdata")
         import tzdata
     except (importlib.metadata.PackageNotFoundError, ModuleNotFoundError) as exc:
         raise BundleError("tzdata_unavailable") from exc
@@ -78,7 +80,7 @@ def tzdata_package():
     if getattr(tzdata, "__version__", None) != version:
         raise BundleError("tzdata_package_mismatch")
     try:
-        same = Path(tzdata.__file__).resolve() == Path(location).resolve()
+        same = Path(tzdata.__file__).resolve().parent == Path(location).resolve()
     except (TypeError, OSError):
         same = False
     if not same:

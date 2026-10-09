@@ -106,9 +106,10 @@ class Run:
     markets: dict
     trials: list  # (bound, round, calendar fraction, Pass); passes kept only when ``config.keep``
     binding: dict | None = None  # ``run_binding``: set only by ``run_passes``; ``report.build_report`` requires it
+    time_zones: object = None  # the ``snapshot_zones`` copy every ``drive`` of this run used (Delta-1 finding 2)
 
 
-RUN_BINDING_FORMAT = "maker_core.replay.v2.run_binding.v0.2"
+RUN_BINDING_FORMAT = "maker_core.replay.v2.run_binding.v0.3"  # v0.3: run inputs bind the driven zone map
 CALLER_ZONE_MAP = dict(builder="caller", registry_checked=False)
 REGISTERED_SOURCE_FIELDS = frozenset({"builder", "registry_checked", "inventory_sha256", "registry_sha256"})
 BINDING_FIELDS = frozenset({"format", "day_roll_refresh", "time_zones", "time_zones_sha256", "time_zones_source",
@@ -135,13 +136,20 @@ def snapshot_zones(time_zones):
     return MappingProxyType(dict(sorted(dict(time_zones).items())))
 
 
-def run_inputs(plan, markets, config) -> dict:
+def _zone_source(time_zones) -> dict:
+    from maker_core.replay.bundle import RegisteredZones
+    return dict(time_zones.source) if isinstance(time_zones, RegisteredZones) else dict(CALLER_ZONE_MAP)
+
+
+def run_inputs(plan, markets, config, time_zones) -> dict:
     """What a binding is tied to (Defender F1): each day's date, provenance and input hashes, the condition ->
-    market map and the report configuration (``report._config``: no ``debug``, ``keep``, policy or bound)."""
+    market map, the report configuration (``report._config``: no ``debug``, ``keep``, policy or bound) and the zone
+    map the run actually drove with, with its source (Delta-1 finding 2: ``Run.time_zones``)."""
     from maker_core.replay.v2.report import _config
     return dict(days=[[d.day.isoformat(), d.provenance, dict(sorted(dict(d.input_hashes).items()))]
                       for d in plan.days],
-                markets=[[c, m] for c, m in sorted(markets.items())], configuration=_config(config))
+                markets=[[c, m] for c, m in sorted(markets.items())], configuration=_config(config),
+                time_zones=_zone_pairs(time_zones), time_zones_source=_zone_source(time_zones))
 
 
 def run_binding(time_zones, plan, markets, config) -> dict:
@@ -153,19 +161,19 @@ def run_binding(time_zones, plan, markets, config) -> dict:
       ``registry_checked``, inventory and registry digests), or ``builder="caller"`` for any other mapping;
     - ``tzdata``: ``bundle.tzdata_binding`` of those zones (pinned version, IANA release, zone-file shas); a
       tzdata other than ``bundle.TZDATA_VERSION`` refuses ``tzdata_version_unpinned``;
-    - ``run_inputs_sha256``: the digest of ``run_inputs(plan, markets, config)``, so the binding belongs to this
-      run's days, provenance, input hashes, markets and configuration and to no other (Defender F1).
+    - ``run_inputs_sha256``: the digest of ``run_inputs(plan, markets, config, time_zones)``, so the binding
+      belongs to this run's days, provenance, input hashes, markets, configuration and driven zone map and to no
+      other (Defender F1; Delta-1 finding 2).
 
     ``sha256`` is the digest of every other field. It binds no decision: the decision and P&L digests are
     unchanged by it."""
-    from maker_core.replay.bundle import RegisteredZones, tzdata_binding
+    from maker_core.replay.bundle import tzdata_binding
     time_zones = snapshot_zones(time_zones)
     pairs = _zone_pairs(time_zones)
-    source = dict(time_zones.source) if isinstance(time_zones, RegisteredZones) else dict(CALLER_ZONE_MAP)
     body = dict(format=RUN_BINDING_FORMAT, day_roll_refresh=True, time_zones=dict(pairs),
-                time_zones_sha256=digest(pairs), time_zones_source=source,
+                time_zones_sha256=digest(pairs), time_zones_source=_zone_source(time_zones),
                 tzdata=tzdata_binding(zone for _, zone in pairs),
-                run_inputs_sha256=digest(run_inputs(plan, markets, config)))
+                run_inputs_sha256=digest(run_inputs(plan, markets, config, time_zones)))
     return dict(body, sha256=digest(body))
 
 
@@ -182,9 +190,12 @@ def verify_run_binding(run, config, *, scored) -> dict:
     """Refuse a run whose binding is missing, altered, another run's, refresh-off, on another tzdata or, when
     ``scored``, not from the registry.
 
-    - The binding must be internally consistent (its ``sha256`` and ``time_zones_sha256``), and its
-      ``run_inputs_sha256`` must equal ``run_inputs`` recomputed from this run's own plan and markets and the
-      report's ``config`` (``run_binding_run_mismatch``): a binding copied from another run refuses.
+    - The binding must be internally consistent (its ``sha256`` and ``time_zones_sha256``). Its ``time_zones``
+      and ``time_zones_source`` must be those of the zone map this run drove with (``Run.time_zones``), and its
+      ``run_inputs_sha256`` must equal ``run_inputs`` recomputed from this run's own plan, markets and driven map
+      and the report's ``config`` (``run_binding_run_mismatch``): a binding copied from another run refuses, also
+      from a run with the same inputs driven with another map (Delta-1 finding 2). A run with no driven map
+      recorded refuses ``run_binding_required``.
     - Its ``tzdata`` block must equal ``bundle.tzdata_binding`` recomputed here from the zone bytes this process
       loads: version, IANA release, ``tzpath_used=False`` and every zone-file sha (``run_binding_tzdata_mismatch``).
     - ``scored`` is true for every report that is not FIXTURE_ONLY: such a run needs the full ``market_time_zones``
@@ -198,11 +209,16 @@ def verify_run_binding(run, config, *, scored) -> dict:
     if (not isinstance(binding, dict) or binding.get("format") != RUN_BINDING_FORMAT or set(binding) != BINDING_FIELDS
             or not isinstance(binding["time_zones"], dict) or not isinstance(binding["tzdata"], dict)):
         raise BundleError("run_binding_required")
+    driven = getattr(run, "time_zones", None)
+    if driven is None:
+        raise BundleError("run_binding_required")
     if binding["sha256"] != digest({k: v for k, v in binding.items() if k != "sha256"}):
         raise BundleError("run_binding_digest_mismatch")
     if binding["time_zones_sha256"] != digest(_zone_pairs(binding["time_zones"])):
         raise BundleError("run_binding_digest_mismatch")
-    if binding["run_inputs_sha256"] != digest(run_inputs(run.plan, run.markets, config)):
+    if binding["time_zones"] != dict(_zone_pairs(driven)) or binding["time_zones_source"] != _zone_source(driven):
+        raise BundleError("run_binding_run_mismatch")
+    if binding["run_inputs_sha256"] != digest(run_inputs(run.plan, run.markets, config, driven)):
         raise BundleError("run_binding_run_mismatch")
     if binding["day_roll_refresh"] is not True:
         raise BundleError("day_roll_refresh_required")
@@ -223,7 +239,7 @@ def run_passes(sources, config, *, time_zones, engine=EngineV2, progress=lambda 
     ``time_zones`` (market_id -> IANA zone) is required: it drives the local-midnight refresh (``lockstep.drive``).
     A scored run takes it from ``execution_manifest.market_time_zones`` (the validated universe inventory) and
     may not turn the refresh off: ``day_roll.NO_REFRESH`` is refused here (``day_roll_refresh_required``). The map
-    is copied once at entry (``snapshot_zones``); only that copy is bound and driven.
+    is copied once at entry (``snapshot_zones``); only that copy is bound, driven and kept as ``Run.time_zones``.
 
     Binding (owner T2(a), 2026-10-09): before any engine work, ``run_binding`` records the refresh flag, the zone
     map, its sha and its source, the pinned tzdata (T1(a)) and the digest of this run's plan, markets and
@@ -282,7 +298,7 @@ def run_passes(sources, config, *, time_zones, engine=EngineV2, progress=lambda 
         passes[bound]["clock_only"] = best
         matches[bound] = state.summary(len(best.engine.config.clock_pulls))
         matches[bound]["selected_windows_sha256"] = _windows_digest(best.engine.config.clock_pulls)
-    return Run(plan, books, passes, matches, markets, log, binding)
+    return Run(plan, books, passes, matches, markets, log, binding, time_zones)
 
 
 def _windows_digest(windows):

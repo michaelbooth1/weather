@@ -64,8 +64,9 @@ by the pinned package's `zones` file and loaded from its bytes, never from the p
 `lockstep.drive` and exists only for that re-run; `pipeline.run_passes` refuses it (`day_roll_refresh_required`).
 `run_passes` copies the zone map once at entry and records `Run.binding` (owner T2(a); `pipeline.run_binding`):
 the refresh flag, the zone map, its sha and its source (`market_time_zones` or `caller`), the tzdata version with
-the sha of each zone file used, and a digest of the run's own days, provenance, input hashes, markets and report
-configuration. `report.build_report` refuses a run without that binding or with another run's binding, recomputes
+the sha of each zone file used, and a digest of the run's own days, provenance, input hashes, markets, report
+configuration and the zone map it drove with (kept as `Run.time_zones`). `report.build_report` refuses a run
+without that binding or with another run's binding (also from a same-input run driven with another map), recomputes
 the tzdata block from the zone bytes it loads, and for a non-fixture report requires the full `market_time_zones`
 source (builder, `registry_checked`, inventory and registry digests). That stops accidental misuse (a run driven
 around `run_passes`, a hand-made map, a reused binding); it is an integrity check, not proof against deliberate

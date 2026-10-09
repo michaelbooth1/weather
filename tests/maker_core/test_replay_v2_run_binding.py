@@ -8,7 +8,9 @@ Guards: owner decisions T1(a) (tzdata pinned, scored runs use only it, version a
 (refresh flag, zone map sha and its source bound into the run digest) and T3(a) (``registered=`` required in
 ``execution_manifest.market_time_zones``), registration C13, Delta Defender c70581325 notes N2 and N3, and
 GATELOGIC-T1T3 Defender 4f3ca7c03 findings F1-F6 (binding tied to the run, full registry source, tzdata block
-recomputed from the one installed package, zone-map snapshot, mutants M1cov/M2ver/M3any).
+recomputed from the one installed package, zone-map snapshot, mutants M1cov/M2ver/M3any), and GATELOGIC-T1T3
+delta review 1 at a66a5b492 (findings 1-3: mutants D2markets/D4hashes/D6fields, the driven zone map bound into the
+run inputs, the package-directory tzdata check for a sourceless install).
 """
 from dataclasses import replace
 from datetime import date, datetime, timezone
@@ -27,7 +29,8 @@ from maker_core.replay.bundle import TZDATA_VERSION, BundleError, RegisteredZone
 from maker_core.replay.v2 import pipeline
 from maker_core.replay.v2.kernel import V2Config
 from maker_core.replay.v2.lockstep import run_plan
-from maker_core.replay.v2.pipeline import RUN_BINDING_FORMAT, run_binding, run_passes, verify_run_binding
+from maker_core.replay.v2.pipeline import (RUN_BINDING_FORMAT, run_binding, run_inputs, run_passes,
+                                           verify_run_binding)
 from maker_core.replay.v2.report import build_report
 from tools.research.maker_replay_v2.dense import DenseDay
 from tools.research.maker_replay_v2.sources import FIXTURE_ZONES, materialize
@@ -75,6 +78,18 @@ def rebind(binding, **changes):
     body = {k: v for k, v in binding.items() if k != "sha256"}
     body.update(changes)
     return dict(body, sha256=digest(body))
+
+
+def forge(run, time_zones, config=CONFIG, **changes):
+    """``run`` relabelled as driven with ``time_zones``, its binding rewritten to match with EVERY digest recomputed
+    (zone map, its sha, source, tzdata block, run inputs): a deliberate forgery, used to reach one later guard."""
+    pairs = [[m, z] for m, z in sorted(dict(time_zones).items())]
+    source = dict(time_zones.source) if isinstance(time_zones, RegisteredZones) else dict(pipeline.CALLER_ZONE_MAP)
+    body = dict(time_zones=dict(pairs), time_zones_sha256=digest(pairs), time_zones_source=source,
+                tzdata=bundle.tzdata_binding(z for _, z in pairs),
+                run_inputs_sha256=digest(run_inputs(run.plan, run.markets, config, time_zones)))
+    body.update(changes)
+    return replace(run, binding=rebind(run.binding, **body), time_zones=time_zones)
 
 
 # -- T1(a): tzdata is pinned, loaded only from the package, and bound ------------------------------------------
@@ -277,10 +292,8 @@ def test_a_binding_without_one_of_the_run_markets_is_refused():
     run = small_run()
     dropped = sorted(set(run.markets.values()))[0]
     zones = {m: z for m, z in run.binding["time_zones"].items() if m != dropped}
-    forged = rebind(run.binding, time_zones=zones, time_zones_sha256=digest([[m, z] for m, z in sorted(zones.items())]),
-                    tzdata=bundle.tzdata_binding(zones.values()))
     with pytest.raises(BundleError, match="market_time_zone_unknown"):
-        build_report(replace(run, binding=forged), CONFIG, replicates=100)
+        build_report(forge(run, zones), CONFIG, replicates=100)
 
 
 def test_a_report_refuses_a_binding_recorded_under_another_tzdata_version():
@@ -339,8 +352,7 @@ def test_a_scored_report_refuses_an_incomplete_or_rewritten_source(source):
         build_report(forged, CONFIG, replicates=100)
     caller = small_run(provenance="sealed")  # the caller map's source rewritten, every digest recomputed
     with pytest.raises(BundleError, match="run_binding_unregistered_zone_map"):
-        build_report(replace(caller, binding=rebind(caller.binding, time_zones_source=source)), CONFIG,
-                     replicates=100)
+        build_report(forge(caller, RegisteredZones(FIXTURE_ZONES, source)), CONFIG, replicates=100)
 
 
 def test_the_execution_manifest_source_is_accepted_for_a_scored_report(tmp_path):
@@ -429,3 +441,149 @@ def test_run_passes_binds_and_drives_one_snapshot_of_the_zone_map(monkeypatch):
     assert all(z is seen[0] and dict(z) == dict(FIXTURE_ZONES) for z in seen)
     with pytest.raises(TypeError):
         seen[0][first] = "UTC"
+
+
+# -- Delta review 1 finding 1: every run input is bound (mutants D2markets, D4hashes, D6fields) -----------------
+def _other_bound_market(run, condition):
+    return next(m for m in sorted(run.binding["time_zones"]) if m != run.markets[condition])
+
+
+def test_a_condition_remapped_to_another_bound_market_after_binding_is_refused():
+    """Kills D2markets (``run_inputs`` drops the condition -> market map): only one condition's market changes, to
+    another market the bound zone map covers."""
+    run = small_run(registered(FIXTURE_ZONES))
+    condition = sorted(run.markets)[0]
+    markets = {**run.markets, condition: _other_bound_market(run, condition)}
+    with pytest.raises(BundleError, match="run_binding_run_mismatch"):
+        build_report(replace(run, markets=markets), CONFIG, replicates=100)
+    report, _ = build_report(run, CONFIG, replicates=100)
+    assert report["status"] == "FIXTURE_ONLY"
+
+
+def test_a_run_whose_markets_change_after_binding_is_refused():
+    """A condition dropped from ``run.markets`` after binding (every market left is still covered by the map)."""
+    run = small_run(registered(FIXTURE_ZONES))
+    markets = dict(run.markets)
+    markets.pop(sorted(markets)[-1])
+    with pytest.raises(BundleError, match="run_binding_run_mismatch"):
+        build_report(replace(run, markets=markets), CONFIG, replicates=100)
+
+
+def test_a_plan_day_whose_input_hashes_change_after_binding_is_refused():
+    """Kills D4hashes (``run_inputs`` drops ``input_hashes``): only one day's input hashes change."""
+    run = small_run(registered(FIXTURE_ZONES), "sealed")
+    day = run.plan.days[0]
+    hashes = dict(day.input_hashes)
+    assert hashes, "the fixture day must bind input hashes"
+    key = sorted(hashes)[0]
+    hashes[key] = "e" * 64 if hashes[key] == "f" * 64 else "f" * 64
+    plan = replace(run.plan, days=(replace(day, input_hashes=hashes),) + tuple(run.plan.days[1:]))
+    with pytest.raises(BundleError, match="run_binding_run_mismatch"):
+        build_report(replace(run, plan=plan), CONFIG, replicates=100)
+    report, _ = build_report(run, CONFIG, replicates=100)
+    assert report["status"] == "PRE_REGISTERED_REPLAY"
+
+
+def test_a_binding_with_an_extra_or_missing_field_is_refused():
+    """Kills D6fields (the exact ``BINDING_FIELDS`` check deleted): the outer sha is recomputed over the change."""
+    run = small_run()
+    with pytest.raises(BundleError, match="run_binding_required"):
+        build_report(replace(run, binding=rebind(run.binding, extra=1)), CONFIG, replicates=100)
+    short = {k: v for k, v in run.binding.items() if k not in ("day_roll_refresh", "sha256")}
+    with pytest.raises(BundleError, match="run_binding_required"):
+        build_report(replace(run, binding=dict(short, sha256=digest(short))), CONFIG, replicates=100)
+
+
+# -- Delta review 1 finding 2: the zone map the run drove with is on ``Run`` and in the run inputs ---------------
+KIRITIMATI = {market: "Pacific/Kiritimati" for market in FIXTURE_ZONES}
+
+
+def test_run_keeps_the_snapshot_it_drove_with(monkeypatch):
+    seen = []
+    real = pipeline.drive
+
+    def spy(sources, engines, *, time_zones, **kw):
+        seen.append(time_zones)
+        return real(sources, engines, time_zones=time_zones, **kw)
+    monkeypatch.setattr(pipeline, "drive", spy)
+    run = run_passes([day_source()], CONFIG, time_zones=registered(FIXTURE_ZONES))
+    assert seen and all(z is run.time_zones for z in seen)
+    assert isinstance(run.time_zones, RegisteredZones) and dict(run.time_zones) == dict(FIXTURE_ZONES)
+    assert run.binding["run_inputs_sha256"] == digest(run_inputs(run.plan, run.markets, CONFIG, run.time_zones))
+
+
+def test_a_binding_grafted_from_a_same_inputs_run_with_another_zone_map_is_refused():
+    """The delta reviewer's copy-binding scenario: run B (same sealed day, markets and config as run A) is driven
+    with a hand-made map. On its own it refuses as unregistered; with A's registered binding grafted on it must not
+    become a PRE_REGISTERED_REPLAY."""
+    a = small_run(registered(FIXTURE_ZONES), "sealed")
+    b = small_run(KIRITIMATI, "sealed")
+    assert run_inputs(a.plan, a.markets, CONFIG, {}) == run_inputs(b.plan, b.markets, CONFIG, {})  # same inputs
+    with pytest.raises(BundleError, match="run_binding_unregistered_zone_map"):
+        build_report(b, CONFIG, replicates=100)
+    with pytest.raises(BundleError, match="run_binding_run_mismatch"):
+        build_report(replace(b, binding=a.binding), CONFIG, replicates=100)
+    report, _ = build_report(a, CONFIG, replicates=100)
+    assert report["status"] == "PRE_REGISTERED_REPLAY"
+
+
+def test_a_registered_run_driven_with_another_map_cannot_keep_its_binding():
+    """The graft the other way round: A's binding stays while ``Run.time_zones`` is another map, or the same zones
+    under another registry source."""
+    a = small_run(registered(FIXTURE_ZONES), "sealed")
+    with pytest.raises(BundleError, match="run_binding_run_mismatch"):
+        build_report(replace(a, time_zones=registered(KIRITIMATI)), CONFIG, replicates=100)
+    other_source = RegisteredZones(FIXTURE_ZONES, dict(a.time_zones.source, inventory_sha256="2" * 64))
+    with pytest.raises(BundleError, match="run_binding_run_mismatch"):
+        build_report(replace(a, time_zones=other_source), CONFIG, replicates=100)
+
+
+def test_the_binding_map_must_be_the_driven_map_even_with_every_binding_digest_recomputed():
+    """Only the binding's map is rewritten (its sha, tzdata block and outer sha recomputed; run inputs kept): the
+    driven map on ``Run`` still disagrees, so the report refuses. Kills dropping the direct map comparison."""
+    run = small_run()
+    pairs = [[m, z] for m, z in sorted(KIRITIMATI.items())]
+    forged = rebind(run.binding, time_zones=dict(pairs), time_zones_sha256=digest(pairs),
+                    tzdata=bundle.tzdata_binding(KIRITIMATI.values()))
+    with pytest.raises(BundleError, match="run_binding_run_mismatch"):
+        build_report(replace(run, binding=forged), CONFIG, replicates=100)
+
+
+def test_the_run_inputs_digest_covers_the_driven_map():
+    """``Run.time_zones`` and the binding's map are relabelled consistently, but ``run_inputs_sha256`` is the
+    original run's: the run-input digest must still refuse. Kills dropping the map from ``run_inputs``."""
+    run = small_run()
+    with pytest.raises(BundleError, match="run_binding_run_mismatch"):
+        build_report(forge(run, KIRITIMATI, run_inputs_sha256=run.binding["run_inputs_sha256"]), CONFIG,
+                     replicates=100)
+    report, _ = build_report(forge(run, KIRITIMATI), CONFIG, replicates=100)  # a full forgery passes (disclosed)
+    assert report["status"] == "FIXTURE_ONLY"
+
+
+def test_a_run_without_its_driven_map_yields_no_report():
+    with pytest.raises(BundleError, match="run_binding_required"):
+        build_report(replace(small_run(), time_zones=None), CONFIG, replicates=100)
+
+
+# -- Delta review 1 finding 3: the tzdata location check compares package directories ----------------------------
+def test_a_sourceless_tzdata_install_is_accepted(monkeypatch):
+    """A .pyc-only (``compileall -b``) install: ``__file__`` is ``tzdata/__init__.pyc`` in the installed package
+    directory. The package is accepted and the binding still builds."""
+    import tzdata
+    installed = Path(importlib.metadata.distribution("tzdata").locate_file("tzdata"))
+    monkeypatch.setattr(tzdata, "__file__", str(installed / "__init__.pyc"))
+    assert bundle.tzdata_package() is tzdata
+    assert bundle.tzdata_binding(["UTC"])["version"] == TZDATA_VERSION
+
+
+@pytest.mark.parametrize("where", ["sibling", "nested", "none"])
+def test_a_tzdata_module_outside_the_installed_package_directory_is_refused(monkeypatch, tmp_path, where):
+    """Shadowing stays refused with the directory check: a module file in another ``tzdata`` directory, in a
+    subdirectory of the installed one, or with no ``__file__`` (a namespace package)."""
+    import tzdata
+    installed = Path(importlib.metadata.distribution("tzdata").locate_file("tzdata"))
+    file = dict(sibling=str(tmp_path / "tzdata" / "__init__.pyc"),
+                nested=str(installed / "zoneinfo" / "__init__.py"), none=None)[where]
+    monkeypatch.setattr(tzdata, "__file__", file)
+    with pytest.raises(BundleError, match="tzdata_package_mismatch"):
+        bundle.tzdata_package()
