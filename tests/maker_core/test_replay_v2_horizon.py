@@ -232,22 +232,21 @@ def test_mutant_descriptor_at_the_window_start_ignored_is_caught(tmp_path, monke
 
 
 def test_a_gap_day_in_the_panel_carries_the_last_lead_across_it(tmp_path, monkeypatch):
-    """Defender N1, CURRENT behaviour pinned, and an OPEN OWNER ITEM against registration C13.
+    """Defender N1: the behaviour the owner ruled for registration C13 (Q2 N1 (a), 2026-10-09: carry the last lead).
 
     The panel has 11-17 and 11-19 but not 11-18. ``DayRoll`` derives descriptors only at local midnights inside the
     days it is driven over, so the Tokyo midnights of 11-18 15:00Z (true lead 0) and 11-19 15:00Z (lead -1) are
     never derived: the band keeps the captured lead 1 and stays active all of 11-19, where the true local lead is 0
     and then -1. The engine reads the same carried lead (manifest and engine agree), so this is not a manifest/engine
-    split; it is a C13 gap. Candidate fixes for the owner: a catch-up derived item at the first instant after a gap,
-    or ``run_plan`` refusing non-contiguous panel days. Until the owner rules, this test pins today's behaviour so any
-    change to it is deliberate."""
+    split. The owner ruled (a): carry the last lead across the gap (no catch-up item, no refusal of non-contiguous
+    days). This test pins that ruling so any change to it is deliberate."""
     monkeypatch.setattr(execution_manifest, "SETTLEMENT_DATE", date(2026, 11, 30))
     windows, excluded = manifest_case(
         tmp_path, date(2026, 11, 19), [(utc(2026, 11, 17, 16), 1)],  # 11-18 01:00 Tokyo: lead 1
         [date(2026, 11, 17), date(2026, 11, 19)], zone=TOKYO)
     assert [(w["date"], w["start"], w["end"]) for w in windows] == [
         ("2026-11-17", iso(2026, 11, 17, 16), iso(2026, 11, 18)),
-        ("2026-11-19", iso(2026, 11, 19), iso(2026, 11, 19, 5)),  # true lead 0 then -1: carried lead 1 (owner item)
+        ("2026-11-19", iso(2026, 11, 19), iso(2026, 11, 19, 5)),  # true lead 0 then -1: carried lead 1 (owner N1 (a))
         ("2026-11-19", iso(2026, 11, 19, 8), iso(2026, 11, 20))]
     assert [(e["date"], e["reason"], e["start"], e["end"]) for e in excluded] == [
         ("2026-11-17", "missing_descriptor", iso(2026, 11, 17), iso(2026, 11, 17, 16))]

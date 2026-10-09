@@ -170,10 +170,10 @@ convention. Also unchanged: the shared portfolio carried across all dates, never
 - The v1 exam's manifest output changes: `build_manifest` and `verify_manifest` now emit and check the clause intervals
   and the new exclusion rows, so a v1 manifest rebuilt with this code differs from one built before C15. This is
   acceptable only because the v1 exam is closed NOT EXECUTED; no signed v1 result depends on the old intervals.
-- Open owner item against C13 (not changed by C15): a panel with a missing day carries the last lead across it,
-  because derived descriptors are produced only at local midnights inside the days driven. Manifest and engine agree
-  (both read the same carried lead), but a band can stay active at a true lead of 0 or below after the gap. A test pins
-  today's behaviour; candidate fixes are a catch-up derived descriptor after a gap or refusing non-contiguous days.
+- Decided against C13 (owner Q2 N1 (a), 2026-10-09; not changed by C15): a panel with a missing day carries the
+  last lead across it, because derived descriptors are produced only at local midnights inside the days driven.
+  Manifest and engine agree (both read the same carried lead); a band can stay active at a true lead of 0 or below
+  after the gap, and that is the ruled behaviour. A test pins it.
 - The inventory lists every discovered condition with its exclusion reason: `HORIZON_OUTSIDE_1_2`
   (`horizon_outside_1_2` in the manifest), `MISSING_DESCRIPTOR` (`missing_descriptor`), `MAINTENANCE_UTC`,
   `TARGET_AFTER_PANEL`, `OWNER_EXCLUDED_PRIOR_READ`, plus every coverage reason.
