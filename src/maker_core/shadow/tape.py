@@ -6,6 +6,11 @@ file SHA-256. Each ``minute`` record carries, per condition, the exact policy
 inputs (projection invertible to the same ``DecisionInputs``), the decision, the
 guard outcome of every would-quote leg and the hypothetical resting legs.
 It records proposals, never orders. Paths are explicit caller inputs.
+
+Schema v0.2 (``TAPE_SCHEMA``) adds, when a ``RawRecorder`` is attached, a per-day record stream of the raw
+public replies in replay-bundle row format (``maker_core.shadow.records``); each minute record carries a
+``raw`` block with its sequence range, and the seal binds the stream's seal. Seals are computed streaming
+(one line in memory). ``sealed_tapes`` reads v0.1 and v0.2 tapes.
 """
 from dataclasses import fields
 from datetime import datetime
@@ -15,13 +20,19 @@ import json
 from pathlib import Path
 import secrets
 
-from maker_core.contracts import InfoEvent, MarketDescriptor, OutcomeView, Unavailable
-from maker_core.evidence.journal import Journal, plain, verify_journal, write_new
+from maker_core.contracts import InfoEvent, MarketDescriptor, OutcomeView, Unavailable, utc_time
+from maker_core.evidence.journal import (SCHEMA_VERSION as JOURNAL_SCHEMA, Journal, canonical_bytes, plain,
+                                         verify_journal, write_new)
 from maker_core.quoting.policy import (Book, DecisionInputs, ExposureLimit, Portfolio, QuoteLeg,
                                        RewardTerms, blind_re1, informed_v0)
+from maker_core.shadow.records import RecordStream, stream_name
 
-TAPE_SCHEMA = "maker_core.shadow_tape.v0.1"
-SEAL_SCHEMA = "maker_core.shadow_tape_seal.v0.1"
+TAPE_SCHEMA = "maker_core.shadow_tape.v0.2"
+SEAL_SCHEMA = "maker_core.shadow_tape_seal.v0.2"
+TAPE_SCHEMA_V01 = "maker_core.shadow_tape.v0.1"
+SEAL_SCHEMA_V01 = "maker_core.shadow_tape_seal.v0.1"
+TAPE_SCHEMAS = (TAPE_SCHEMA_V01, TAPE_SCHEMA)
+SEAL_SCHEMAS = {SEAL_SCHEMA_V01: TAPE_SCHEMA_V01, SEAL_SCHEMA: TAPE_SCHEMA}
 PROFILES = {p.name: p for p in (informed_v0, blind_re1)}
 D = Decimal
 
@@ -115,20 +126,72 @@ def decision_projection(decision):
     return plain(decision)
 
 
-class TapeWriter:
-    """One journal per UTC day for this run; a day roll writes terminal + seal, then opens the next day."""
+def seal_digest(path):
+    """Streaming journal verification and seal values: the checks of ``verify_journal``, one line in memory.
 
-    def __init__(self, directory, *, clock, scope, run_id=None):
-        self.directory, self.clock = Path(directory), clock
+    Returns ``sha256``, ``bytes``, ``records`` and ``final_line_sha256``; raises on a broken chain, a missing
+    opening or terminal record, or records after the terminal.
+    """
+    sha, size, count, previous, last, final, events = hashlib.sha256(), 0, 0, None, None, None, [None, None]
+    with Path(path).open("rb") as handle:
+        for line in handle:
+            if not line.endswith(b"\n"):
+                raise ValueError("journal chain or clock differs")
+            row = json.loads(line)
+            when = datetime.fromisoformat(row["recorded_at_utc"])
+            utc_time(when)
+            if (canonical_bytes(row) != line or row["sequence"] != count
+                    or row["previous_sha256"] != previous or row["schema_version"] != JOURNAL_SCHEMA
+                    or row["kind"] != "journal" or (last is not None and when < last)):
+                raise ValueError("journal chain or clock differs")
+            if count == 0:
+                events[0] = row["event"]
+            elif events[1] == "terminal":
+                raise ValueError("records after terminal")
+            events[1] = row["event"]
+            sha.update(line)
+            size += len(line)
+            final = previous = hashlib.sha256(line).hexdigest()
+            last, count = when, count + 1
+    if not count or events[0] != "opened":
+        raise ValueError("missing opening record")
+    if events[1] != "terminal":
+        raise ValueError("missing terminal record")
+    return {"sha256": sha.hexdigest(), "bytes": size, "records": count, "final_line_sha256": final}
+
+
+class TapeWriter:
+    """One journal per UTC day for this run; a day roll writes terminal + seal, then opens the next day.
+
+    With ``recorder`` (a ``records.RawRecorder``) each day also gets a record stream: every ``minute`` record
+    first appends its raw records, ``poll`` takes the mid-minute refresh (trade poll and both books again),
+    and ``close`` seals the stream before the journal's terminal record, so the terminal and the seal bind it.
+    The recorder is behind a fault boundary: any exception while opening the stream, or building or writing
+    records, is recorded as a coded fault and never reaches the runner. A failed batch's trade state is
+    rolled back (its prints are polled again) and its not-OK trade coverage starts at the batch's earliest
+    poll receipt. A stream that cannot be opened leaves the day without one (``records_stream_error``).
+    """
+
+    def __init__(self, directory, *, clock, scope, run_id=None, recorder=None):
+        self.directory, self.clock, self.recorder = Path(directory), clock, recorder
         self.scope = dict(scope, tape_schema=TAPE_SCHEMA)
         self.run_id = run_id or clock().strftime("%Y%m%dT%H%M%SZ") + "-" + secrets.token_hex(4)
-        self.journal, self.day, self.minutes = None, None, 0
+        self.journal, self.day, self.minutes, self.stream, self.open_error = None, None, 0, None, None
         self.sealed = []
 
     def _open(self, day):
         path = self.directory / f"{day}-{self.run_id}.tape.jsonl"
-        self.journal = Journal(path, clock=self.clock, scope=dict(self.scope, utc_day=day, run_id=self.run_id),
-                               mode="public_shadow")
+        self.open_error = None
+        if self.recorder is not None:
+            try:
+                self.stream = RecordStream(self.directory, day, self.run_id)
+            except Exception as error:  # noqa: BLE001 - e.g. an unreadable earlier seal: no stream today
+                self.stream, self.open_error = None, "open:" + type(error).__name__
+        relative = None if self.stream is None else f"records/{day}/{stream_name(day, self.run_id)}"
+        self.journal = Journal(path, clock=self.clock, mode="public_shadow",
+                               scope=dict(self.scope, utc_day=day, run_id=self.run_id, records_stream=relative,
+                                          **({} if self.open_error is None
+                                             else {"records_stream_error": self.open_error})))
         self.day, self.minutes = day, 0
 
     def _roll(self, day):
@@ -143,19 +206,63 @@ class TapeWriter:
         self._roll(minute_utc.date().isoformat())
         if event == "minute":
             self.minutes += 1
+            if self.stream is not None:
+                payload["raw"] = self._guarded("minute", lambda: self.recorder.minute(self.stream, payload))
+            elif self.recorder is not None:
+                self._abort()  # no stream today: drop the recorder's polls so they never accumulate
+                payload["raw"] = {"broken": self.open_error}
         return self.journal.record(event, minute_utc=minute_utc, **payload)
+
+    def _abort(self):
+        """Roll back the recorder's failed batch; the not-OK coverage instant (earliest poll receipt)."""
+        try:
+            at = self.recorder.abort()
+        except Exception:  # noqa: BLE001 - a fault path must not raise
+            at = None
+        return self.clock() if at is None else at
+
+    def _guarded(self, stage, build):
+        """Build and write record entries; a fault costs raw records (coded on the stream), never the run."""
+        stream = self.stream
+        try:
+            entries = build()
+        except Exception as error:  # noqa: BLE001 - the recorder must never stop the runner
+            return stream.fault(f"{stage}:{type(error).__name__}", self._abort())
+        try:
+            result = stream.write(entries)
+        except Exception as error:  # noqa: BLE001 - an fsync/disk fault marks the stream, the run goes on
+            return stream.fault(f"write:{type(error).__name__}", self._abort())
+        self.recorder.commit()
+        return result
+
+    def poll(self, condition_ids):
+        """Mid-minute refresh into the current day's record stream; None without a recorder."""
+        if self.recorder is None:
+            return None
+        if self.stream is None:
+            self._abort()
+            return None
+        return self._guarded("between", lambda: self.recorder.between(self.stream, condition_ids))
 
     def close(self, reason):
         if self.journal is None:
             return None
-        journal, path = self.journal, self.journal.path
-        journal.record("terminal", reason=reason, minutes=self.minutes)
+        journal, path, stream_seal, stream_error = self.journal, self.journal.path, None, self.open_error
+        if self.stream is not None:
+            stream, self.stream = self.stream, None
+            try:
+                stream_seal = stream.close()
+            except Exception as error:  # noqa: BLE001 - the journal is sealed even if the stream seal fails
+                stream_error = "records_seal:" + type(error).__name__
+        journal.record("terminal", reason=reason, minutes=self.minutes,
+                       **({} if stream_seal is None else {"records": stream_seal}),
+                       **({} if stream_error is None else {"records_error": stream_error}))
         journal.close()
-        raw = path.read_bytes()
-        rows = verify_journal(path)
+        bound = None if stream_seal is None else {k: stream_seal[k]
+                                                  for k in ("stream", "status", "sha256", "bytes", "records")}
         seal = {"schema_version": SEAL_SCHEMA, "tape": path.name, "utc_day": self.day, "run_id": self.run_id,
-                "sha256": hashlib.sha256(raw).hexdigest(), "bytes": len(raw), "records": len(rows),
-                "final_line_sha256": hashlib.sha256(raw.splitlines(keepends=True)[-1]).hexdigest()}
+                **seal_digest(path), "records_stream": bound,
+                **({} if stream_error is None else {"records_stream_error": stream_error})}
         write_new(path.with_name(path.name.replace(".tape.jsonl", ".seal.json")), seal)
         self.sealed.append(seal)
         self.journal = None
@@ -163,7 +270,7 @@ class TapeWriter:
 
 
 def sealed_tapes(directory, day):
-    """Verified rows of every sealed tape of ``day``; unsealed tapes are listed, never read."""
+    """Verified rows of every sealed tape of ``day`` (v0.1 or v0.2); unsealed tapes are listed, never read."""
     directory, tapes, unsealed = Path(directory), [], []
     for path in sorted(directory.glob(f"{day}-*.tape.jsonl")):
         seal_path = path.with_name(path.name.replace(".tape.jsonl", ".seal.json"))
@@ -171,14 +278,18 @@ def sealed_tapes(directory, day):
             unsealed.append(path.name)
             continue
         seal = json.loads(seal_path.read_bytes())
-        if seal.get("schema_version") != SEAL_SCHEMA or seal.get("tape") != path.name or seal.get("utc_day") != day:
+        if (seal.get("schema_version") not in SEAL_SCHEMAS or seal.get("tape") != path.name
+                or seal.get("utc_day") != day):
             raise ValueError("tape_seal_mismatch")
         rows = verify_journal(path, expected_digest=seal["sha256"])
-        if rows[0]["scope"].get("tape_schema") != TAPE_SCHEMA:
+        schema = rows[0]["scope"].get("tape_schema")
+        if schema != SEAL_SCHEMAS[seal["schema_version"]]:
             raise ValueError("unsupported_tape_schema")
-        tapes.append({"tape": path.name, "sha256": seal["sha256"], "rows": rows})
+        tapes.append({"tape": path.name, "sha256": seal["sha256"], "rows": rows, "tape_schema": schema,
+                      "records_stream": seal.get("records_stream")})
     return tapes, unsealed
 
 
-__all__ = ["SEAL_SCHEMA", "TAPE_SCHEMA", "TapeWriter", "decision_projection", "inputs_from",
-           "inputs_projection", "market_projection", "sealed_tapes"]
+__all__ = ["SEAL_SCHEMA", "SEAL_SCHEMAS", "SEAL_SCHEMA_V01", "TAPE_SCHEMA", "TAPE_SCHEMAS", "TAPE_SCHEMA_V01",
+           "TapeWriter", "decision_projection", "inputs_from", "inputs_projection", "market_projection",
+           "seal_digest", "sealed_tapes"]
