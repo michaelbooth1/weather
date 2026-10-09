@@ -56,13 +56,38 @@ def sha256(raw: bytes) -> str:
 # requirements.txt pin the same version; ``tests/maker_core/test_replay_v2_run_binding.py`` checks it), never from
 # the platform's TZPATH, and the version plus the sha of the zone files actually used bind into the v2 run binding.
 TZDATA_VERSION = "2026.3"
+ZONE_MAP_BUILDER = "maker_core.replay.execution_manifest.market_time_zones"  # ``RegisteredZones.source["builder"]``
+
+
+def tzdata_package():
+    """The imported ``tzdata`` module, checked against the installed distribution's metadata (owner T1(a)).
+
+    Refuses ``tzdata_unavailable`` when either is missing, ``tzdata_version_unpinned`` when the metadata version
+    is not ``TZDATA_VERSION``, and ``tzdata_package_mismatch`` when the module's own ``__version__`` differs from
+    the metadata or its ``__file__`` is not the one that distribution installed (a shadowing ``tzdata`` directory
+    earlier on ``sys.path``). Zone bytes are read through this module object only, so the bytes, the version and
+    the IANA release all come from the one package the metadata describes. Not cached: every call re-checks."""
+    try:
+        version = importlib.metadata.version("tzdata")
+        location = importlib.metadata.distribution("tzdata").locate_file("tzdata/__init__.py")
+        import tzdata
+    except (importlib.metadata.PackageNotFoundError, ModuleNotFoundError) as exc:
+        raise BundleError("tzdata_unavailable") from exc
+    if version != TZDATA_VERSION:
+        raise BundleError("tzdata_version_unpinned")
+    if getattr(tzdata, "__version__", None) != version:
+        raise BundleError("tzdata_package_mismatch")
+    try:
+        same = Path(tzdata.__file__).resolve() == Path(location).resolve()
+    except (TypeError, OSError):
+        same = False
+    if not same:
+        raise BundleError("tzdata_package_mismatch")
+    return tzdata
 
 
 def _tzdata():
-    try:
-        return importlib.resources.files("tzdata")
-    except ModuleNotFoundError as exc:
-        raise BundleError("tzdata_unavailable") from exc
+    return importlib.resources.files(tzdata_package())
 
 
 @lru_cache(maxsize=1)
@@ -114,7 +139,8 @@ class RegisteredZones(Mapping):
     Built only by ``execution_manifest.market_time_zones`` after the inventory and registry checks; ``source``
     records that builder and the digests of the inventory and registry it checked, and the v2 run binding
     (``pipeline.run_binding``) copies it into the run digest. A hand-made mapping has no ``source`` and binds as
-    ``builder="caller"``, which a scored (non-synthetic) report refuses. Hashes bind provenance; they do not stop
+    ``builder="caller"``, which a scored (non-synthetic) report refuses, as it refuses any source that is not the
+    full record (``ZONE_MAP_BUILDER``, ``registry_checked`` and both digests). Hashes bind provenance; they do not stop
     a caller from constructing this class by hand, so a verifier recomputes it from the bound inventory and registry.
     """
 
@@ -140,16 +166,12 @@ class RegisteredZones(Mapping):
 def tzdata_binding(names) -> dict:
     """T1(a): the pinned tzdata version, its IANA release and the sha of the zone files ``names`` resolve to.
 
-    Refuses ``tzdata_version_unpinned`` when the installed package is not ``TZDATA_VERSION``."""
-    try:
-        version = importlib.metadata.version("tzdata")
-    except importlib.metadata.PackageNotFoundError as exc:
-        raise BundleError("tzdata_unavailable") from exc
-    if version != TZDATA_VERSION:
-        raise BundleError("tzdata_version_unpinned")
-    import tzdata
+    Refuses as ``tzdata_package`` does (unpinned version, or a module that is not the installed distribution's).
+    The zone-file shas are over ``zone_file_bytes``, the same cached bytes ``pinned_zone`` loads, so they cover
+    exactly the bytes the run used. ``pipeline.verify_run_binding`` recomputes this block at report time."""
+    tzdata = tzdata_package()
     files = [[name, sha256(zone_file_bytes(time_zone(name).key))] for name in sorted(set(names))]
-    return dict(package="tzdata", version=version, iana_version=tzdata.IANA_VERSION, tzpath_used=False,
+    return dict(package="tzdata", version=tzdata.__version__, iana_version=tzdata.IANA_VERSION, tzpath_used=False,
                 zone_files=files, zone_files_sha256=sha256(canonical_bytes(files)))
 
 

@@ -168,7 +168,7 @@ def build_report(run, config, *, replicates=2000, seed=20260926, registration_ha
     from maker_core.replay.v2.pipeline import verify_run_binding
     plan, books, passes, matches, markets = run.plan, run.books, run.passes, run.matches, run.markets
     fixture_only = all(d.provenance == "synthetic" for d in plan.days)
-    run_binding = verify_run_binding(run, scored=not fixture_only)  # owner T2(a): no binding, no report
+    run_binding = verify_run_binding(run, config, scored=not fixture_only)  # owner T2(a): no binding, no report
     sidecar = Sidecar(sidecar_path)
     try:
         sidecar.write(dict(kind="header", format=SIDECAR_FORMAT, days=[d.day.isoformat() for d in plan.days]))

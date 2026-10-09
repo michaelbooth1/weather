@@ -62,10 +62,14 @@ Zone names are strict and zone data is the pinned `tzdata` only (owner T1(a); `b
 by the pinned package's `zones` file and loaded from its bytes, never from the platform's TZPATH, else
 `unknown_time_zone`). Fictional markets use `sources.FIXTURE_ZONES`. `day_roll.NO_REFRESH` turns the refresh off in
 `lockstep.drive` and exists only for that re-run; `pipeline.run_passes` refuses it (`day_roll_refresh_required`).
-`run_passes` records `Run.binding` (owner T2(a); `pipeline.run_binding`): the refresh flag, the zone map, its sha
-and its source (`market_time_zones` or `caller`), and the tzdata version with the sha of each zone file used.
-`report.build_report` refuses a run without that binding, and a non-fixture report refuses a `caller` map, so a run
-driven around `run_passes` or with a hand-made map yields no scored report. For
+`run_passes` copies the zone map once at entry and records `Run.binding` (owner T2(a); `pipeline.run_binding`):
+the refresh flag, the zone map, its sha and its source (`market_time_zones` or `caller`), the tzdata version with
+the sha of each zone file used, and a digest of the run's own days, provenance, input hashes, markets and report
+configuration. `report.build_report` refuses a run without that binding or with another run's binding, recomputes
+the tzdata block from the zone bytes it loads, and for a non-fixture report requires the full `market_time_zones`
+source (builder, `registry_checked`, inventory and registry digests). That stops accidental misuse (a run driven
+around `run_passes`, a hand-made map, a reused binding); it is an integrity check, not proof against deliberate
+forgery, since a caller can construct a `RegisteredZones` with a made-up source. For
 `maker_replay_universe.universe()` inventories the registry check is close to a tautology (both sides read
 `BUILTIN_SPECS`); it catches a tampered or hand-built inventory, not a wrong registry entry.
 Run it through the workstation queue only: `python -m tools.research.maker_replay_v2.attribution OUT.json`.

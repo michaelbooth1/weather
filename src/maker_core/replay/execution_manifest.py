@@ -7,7 +7,8 @@ import time
 
 from maker_core.evidence.journal import digest, plain
 from maker_core.replay import authorization
-from maker_core.replay.bundle import BundleError, Limits, RegisteredZones, _Reader, sha256, time_zone, timestamp
+from maker_core.replay.bundle import (ZONE_MAP_BUILDER, BundleError, Limits, RegisteredZones, _Reader, sha256, time_zone,
+                                      timestamp)
 from maker_core.replay import ceilings as ceiling_rule
 from maker_core.replay.calibration import calibrate
 from maker_core.replay.engine import ReplayConfig
@@ -26,7 +27,6 @@ FROZEN_CONFIG = dict(policy="informed-v0", initial_cash="100", band_cap="100", o
                      wallet_cap="100", event_cap="100", factor_cap="100", max_book_gap_seconds=60,
                      fill_bound="strictly_through", clock_pulls=())
 CEILING_FIELDS = {"max_input_bytes", "max_records", "max_seconds", "max_output_bytes", "max_memory_bytes"}
-ZONE_MAP_BUILDER = "maker_core.replay.execution_manifest.market_time_zones"
 HURDLES = dict(primary_fill_bound="strictly_through", primary_metric="modeled_net_k1",
                economic_baselines=["blind_re1", "no_quote"], economic_lower_bound_strictly_above=0,
                quote_dates=14, min_dates=10, min_markets=10, min_valid_replicates=100,
