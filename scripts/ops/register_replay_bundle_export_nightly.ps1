@@ -7,6 +7,9 @@
 # Start slots (owner decision 2026-10-09): 00:35 (50-minute Scheduler limit) or 04:10, after the 01:00-04:00 quiet
 # merge window (45-minute limit, so the backstop fires by 04:55, before the 05:00 tiering). The runner clamps its
 # own budget to end by 04:54:45 at any start, so a 04:10 run gets about 44 minutes, not 45.
+# DST (DST-C1/OD28): the trigger is a local wall-clock daily trigger (unzoned StartBoundary) built and read back
+# through scheduled_task_local_trigger.ps1 beside this script, so either slot fires at the same Toronto time in EDT
+# and EST; a zoned (fixed-offset) read-back is refused. Pin that helper's SHA-256 with this registrar's.
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
     [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
@@ -58,6 +61,7 @@ $runner = Join-Path $RepoRoot 'scripts\ops\replay_bundle_export_nightly.ps1'
 if ((Get-FileHash -LiteralPath $runner -Algorithm SHA256).Hash.ToLowerInvariant() -cne $ExpectedRunnerSha256) {
     throw 'nightly runner hash mismatch'
 }
+. (Join-Path $PSScriptRoot 'scheduled_task_local_trigger.ps1')
 $limitMinutes = @{ '00:35' = 50; '04:10' = 45 }[$At]
 if (-not $PSCmdlet.ShouldProcess($taskName,
         "Register daily $At export with a $limitMinutes-minute limit; pin modules $ExpectedModuleSha256")) { return }
@@ -75,7 +79,7 @@ $tokens = @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Fil
     '-MinAvailableMiB', [string]$MinAvailableMiB)
 $arguments = ConvertTo-ScheduledTaskArgumentString -Tokens $tokens
 $action = New-ScheduledTaskAction -Execute $powerShell -Argument $arguments -WorkingDirectory $RepoRoot
-$trigger = New-ScheduledTaskTrigger -Daily -At $At
+$trigger = New-WeatherLocalDailyTrigger -At $At
 $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -Hidden -WakeToRun `
     -ExecutionTimeLimit (New-TimeSpan -Minutes $limitMinutes) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
 $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType S4U -RunLevel Limited
@@ -91,7 +95,7 @@ if ($task.TaskPath -ne '\' -or $task.State -eq 'Disabled' -or
     $actions[0].Arguments -cne $arguments -or $actions[0].WorkingDirectory -ine $RepoRoot -or
     $triggers.Count -ne 1 -or $triggers[0].CimClass.CimClassName -ne 'MSFT_TaskDailyTrigger' -or
     $triggers[0].DaysInterval -ne 1 -or -not $triggers[0].Enabled -or
-    ([datetime]$triggers[0].StartBoundary).ToString('HH:mm') -ne $At -or
+    -not (Test-WeatherLocalDailyStartBoundary -StartBoundary ([string]$triggers[0].StartBoundary) -At $At) -or
     -not [string]::IsNullOrWhiteSpace([string]$triggers[0].Repetition.Interval) -or
     $task.Settings.StartWhenAvailable -or $task.Settings.ExecutionTimeLimit -ne "PT${limitMinutes}M" -or
     $task.Settings.MultipleInstances -ne 'IgnoreNew' -or -not $task.Settings.Hidden -or

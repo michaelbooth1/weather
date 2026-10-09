@@ -398,7 +398,7 @@ automatic catch-up.
 `-ExpectedModuleSha256` (from `python -P -B -m weather.market.maker_replay_night_v02 module-hash` with
 `PYTHONPATH=<deploy>\src`), `-ExpectedRunnerSha256`, `-ProductionRoot` and `-MinAvailableMiB`. Its `-RepoRoot`
 is the deploy tree and is passed to the runner as `-DeployRoot`; pass it explicitly, because its `$PSScriptRoot`
-default has the same `-File` defect. `-WhatIf` checks paths, disjointness and the runner hash only, not the module
+default has the same `-File` defect. `-WhatIf` checks paths, disjointness, the runner hash and that the trigger helper loads, not the module
 hash, the time zone or the host assignment. It refuses equal or
 nested deploy and production trees. Use `-WhatIf` first: it checks the runner pin without touching Scheduler and names
 the slot and its limit. Registration binds one daily `-At` slot, S4U/Limited current user, IgnoreNew and no
@@ -410,7 +410,13 @@ StartWhenAvailable, with a per-slot Scheduler ceiling:
   unchanged: it clamps a 04:10 start to its own 04:54:45 stop, so the child gets about 2,655 seconds, not 2,700, and
   teardown and lease release finish before the backstop.
 
-Any other slot is refused at parameter binding. It
+Any other slot is refused at parameter binding. The trigger is DST-stable local wall-clock time (DST-C1/OD28): the
+registrar dot-sources `scheduled_task_local_trigger.ps1` from its own folder, builds the trigger with
+`New-WeatherLocalDailyTrigger` (an unzoned `yyyy-MM-ddTHH:mm:ss` StartBoundary) and reads it back with
+`Test-WeatherLocalDailyStartBoundary`, which refuses any `Z` or `+hh:mm`/`-hh:mm` suffix. Either slot therefore fires at
+the same Toronto time in EDT and EST, and a registration made before 2026-11-01 needs no OD28 re-registration. That
+helper is part of the registration pin set: hash it with the registrar from the same deploy tree, because the
+registrar does not check it. It
 reads back the complete action, principal, trigger, slot ceiling and safety settings. The runner is pinned by its own hash and the
 exporter's module-closure hash, not by a Git tip; a change to any imported exporter module stops the export until the
 registrar is re-run with reviewed pins. Registration and production qualification belong to the production operator;
