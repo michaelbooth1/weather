@@ -19,9 +19,10 @@ New-ReplayExportLimitedJob (commit cap, BelowNormal). A __file__ probe first pro
 <Wt>. Child budget = min(step cap, 04:45 Toronto - now); hard stop of the whole Job tree at 04:50. An unproved
 teardown (of the child Job or of the import probe Job) poisons the lease, writes the step.json and exits 9.
 Leased steps first require <Prod>\scripts\ops\status.ps1 -Json to show no capture DOWN / ERRORING / AT_RISK
-flag (exit 10 otherwise). Device (\\?\, \\.\) and UNC paths are refused. Each step writes
-<Root>\receipts\<stamp>-<step>.step.json.
-Nothing here is counted toward any gate. It never writes under <Prod>.
+flag and no 'streak checker failed to run' flag (exit 10 otherwise; fail closed). Device (\\?\, \\.\) and
+UNC paths are refused. Each step writes <Root>\receipts\<stamp>-<step>.step.json.
+Nothing here is counted toward any gate. Its own writes stay under <Root>; the only write under <Prod> is the
+status.ps1 capture-health check, which appends <Prod>\data\alerts\disk_free_trail.jsonl as any operator run does.
 #>
 [CmdletBinding()]
 param(
@@ -182,7 +183,7 @@ function Assert-CaptureHealthy {
     if ($null -eq $health -or -not ($health.PSObject.Properties.Name -contains 'flags')) {
         Stop-Step 'status.ps1 -Json carried no flags field; refusing'
     }
-    $bad = @(@($health.flags) | Where-Object { [string]$_ -match 'capture loop (DOWN|ERRORING)|capture AT_RISK' })
+    $bad = @(@($health.flags) | Where-Object { [string]$_ -match 'capture loop (DOWN|ERRORING)|capture AT_RISK|streak checker failed to run' })
     if ($bad.Count) { Stop-Step ('capture is not healthy: ' + ($bad -join '; ')) }
 }
 

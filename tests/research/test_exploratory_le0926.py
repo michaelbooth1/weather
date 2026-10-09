@@ -696,12 +696,16 @@ def _np(**fields):
      "aggregate_value_not_allowed"),                                               # base64 id as a value
     (_np(exclusions={"MHhhYmNkZWYwMTIzNDU2Nzg5": 1}), "aggregate_key_not_allowed"),   # base64 id as a key
     (_np(exclusions={"MHHHQUJDREVG": 1}), "aggregate_key_not_allowed"),               # upper-case base64 key
-    ({"at_price": {"matched_clock": {"selected_windows_sha256": "ab" * 12}}},
-     "aggregate_value_not_allowed"),                                               # truncated 24-hex id
+    ({"at_price": {"matched_clock": {"selected_windows": "ab" * 12}}},
+     "aggregate_number_refused"),                                                  # truncated 24-hex id
     ({"at_price": {"matched_clock": {"status": "\uff41\uff42" * 32}}},
      "aggregate_value_not_allowed"),                                               # fullwidth hex
-    ({"at_price": {"matched_clock": {"selected_windows_sha256": "\uff41" * 64}}},
-     "aggregate_value_not_allowed"),                                               # fullwidth hex in a sha slot
+    ({"at_price": {"matched_clock": {"interpretation": "\uff41" * 64}}},
+     "aggregate_value_not_allowed"),                                               # fullwidth hex in a text slot
+    # the Defender's D1 channels of 4c059c9f4
+    (_np(exclusions={"HABCDEF0123_H456789AB_HCDEF0123": 1}), "aggregate_key_not_allowed"),  # hex id as a code
+    (_np(exclusions={"NYC_SEPT28_HIGHEST": 1}), "aggregate_key_not_allowed"),     # city and date as a code
+    (_np(exclusions={"MFRGGZDFMZTWQ2LK_ONSWG4TF": 1}), "aggregate_key_not_allowed"),  # base32 as a code
     (_np(per_day={f"t{i}": {"fills": i} for i in range(1440)}), "aggregate_dict_too_large"),  # packed series
     (_np(per_day={"2026-09-25": {"fills": 1}, "10:00": {"fills": 2}}), "aggregate_key_not_allowed"),
     ({"at_price": {"matched_clock": {"status": "Highest temperature in NYC on September 26?"}}},
@@ -858,3 +862,152 @@ def test_host_runner_text_carries_the_round_two_controls():
     for step in ("snapshot", "seal"):
         assert re.search(step + r" +=\s*@\{ Lease = \$false; Job = 512MB; Seconds = 600;", text)
     assert "exit (Invoke-ExploratoryChild $Step $tokens $null)" in text
+
+
+
+# -- round 3 (Defender delta 4c059c9f4: D1, D2, D3, D5) ----------------------------------------------------------
+def test_exclusion_codes_are_exactly_what_the_v2_sources_emit():
+    from maker_core.replay.bundle import KINDS
+    root = Path(ex.__file__).resolve().parents[3] / "src" / "maker_core" / "replay"
+    emitted = set()
+    for name in ("v2/kernel.py", "re1_counterfactual.py"):
+        text = (root / name).read_text(encoding="utf-8")
+        emitted |= set(re.findall(r"""exclude\(at, cid, ["']([A-Z0-9_]+)["']""", text))
+        emitted |= set(re.findall(r"""reason=["']([A-Z0-9_]+)["']""", text))
+    emitted.discard("INVALID_")  # the "INVALID_" + kind prefix, asserted separately below
+    assert emitted and emitted <= ex.EXCLUSION_CODES
+    assert ex.EXCLUSION_CODES == {"INVALID_" + k.upper() for k in KINDS} | emitted
+    assert '"INVALID_" + kind.upper()' in (root / "v2" / "kernel.py").read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("reason", ["x" + "ab" * 31 + "c", "highest_temperature_in_nyc_on_september_28_2026",
+                                    "receipt_missing_nyc"])
+def test_aggregate_refuses_a_dropped_day_reason_outside_the_verify_codes(capsys, stage, reason):
+    verify_path, manifest = _aggregate_inputs(stage, {"at_price": {"no_quote": {"fills": 1}}})
+    report = json.loads(verify_path.read_text())
+    report["days_dropped"] = [dict(day="2026-09-25", reason=reason)]
+    raw = json.dumps(report).encode()
+    verify_path.write_bytes(raw)
+    run = stage / "runs" / "h1.0" / "EXPLORATORY-run.json"
+    value = json.loads(run.read_text())
+    value["verify_sha256"] = hashlib.sha256(raw).hexdigest()
+    run.write_text(json.dumps(value))
+    out = stage / "receipts" / "EXPLORATORY-aggregate.json"
+    code, result = run_cli(capsys, "aggregate", "--run-root", stage / "runs", "--verify", verify_path,
+                           "--input-manifest", manifest, "--out", out)
+    assert (code, result["reason"]) == (ex.EXIT_AGGREGATE_REFUSED, "aggregate_value_not_allowed")
+    assert not out.exists()
+
+
+def test_drop_reasons_are_the_codes_verify_emits():
+    text = Path(ex.__file__).read_text(encoding="utf-8")
+    assert ex.DROP_REASONS == {"receipt_missing", "receipt_not_sealed", "receipt_day_mismatch",
+                               "not_in_trailing_contiguous_block"}
+    assert not re.search(r"""return None, ["']""", text) and 'reason="' not in text.split("def cmd_verify")[1][:1500]
+
+
+def test_aggregate_drops_the_engine_window_digest_and_binds_every_sha(capsys, stage):
+    windows = dict(status="MATCHED", selected_windows=3, selected_windows_sha256="c" * 64)
+    verify_path, manifest = _aggregate_inputs(stage, {"at_price": {"matched_clock": windows}})
+    out = stage / "receipts" / "EXPLORATORY-aggregate.json"
+    code, result = run_cli(capsys, "aggregate", "--run-root", stage / "runs", "--verify", verify_path,
+                           "--input-manifest", manifest, "--out", out)
+    assert code == 0, result
+    aggregate = json.loads(out.read_text())
+    assert aggregate["results"]["h1.0"]["at_price"]["matched_clock"] == dict(status="MATCHED", selected_windows=3)
+    assert "c" * 64 not in out.read_text()
+    run_sha = hashlib.sha256((stage / "runs" / "h1.0" / "EXPLORATORY-run.json").read_bytes()).hexdigest()
+    assert aggregate["runs"] == [dict(hazard_per_minute="1.0", run_sha256=run_sha)]
+    assert aggregate["verify_sha256"] == hashlib.sha256(verify_path.read_bytes()).hexdigest()
+    assert aggregate["input_manifest_sha256"] == hashlib.sha256(manifest.read_bytes()).hexdigest()
+    shas = {k for k in aggregate if k.endswith("_sha256")} | {"runs[].run_sha256"}
+    assert shas == set(ex.AGGREGATE_SHA_FIELDS)
+
+
+@pytest.mark.parametrize("field, value", [("verify_sha256", "d" * 64), ("input_manifest_sha256", "d" * 64),
+                                          ("module_sha256", "d" * 64),
+                                          ("runs", [dict(hazard_per_minute="1.0", run_sha256="d" * 64)])])
+def test_aggregate_sha_fields_must_be_the_hashes_it_computed(field, value):
+    good = dict(verify_sha256="a" * 64, input_manifest_sha256="b" * 64, module_sha256="e" * 64,
+                runs=[dict(hazard_per_minute="1.0", run_sha256="f" * 64)])
+    ex._check_aggregate_shas(good, "a" * 64, "b" * 64, {"1.0": "f" * 64}, ["e" * 64])
+    with pytest.raises(ex.Refusal) as caught:
+        ex._check_aggregate_shas(dict(good, **{field: value}), "a" * 64, "b" * 64, {"1.0": "f" * 64}, ["e" * 64])
+    assert caught.value.code == "aggregate_sha_not_bound"
+
+
+@pytest.mark.parametrize("value", ["ab" * 12, "\uff41" * 64, "C" * 64])
+def test_run_schema_keeps_a_strict_window_digest(value):
+    with pytest.raises(ex.Refusal):
+        ex.check_schema(dict(selected_windows_sha256=value), ex._MATCH)
+
+
+def test_run_refuses_a_result_outside_the_schema_before_writing(capsys, stage, monkeypatch):
+    """Kills M22: ``cmd_run`` must check its own result (exit 5) and write nothing."""
+    _stage_dense(stage)
+    assert verify(capsys, stage, "2026-09-26")[0] == 0
+    monkeypatch.setattr(ex, "MARKOUT_NOTE", "a free-text note naming a market")
+    out = stage / "runs" / "h1.0"
+    code, result = run_cli(capsys, "run", "--bundle-root", stage / "bundles", "--day", "2026-09-26",
+                           "--hazard-per-minute", "1.0", "--verify", stage / "receipts" / "EXPLORATORY-verify.json",
+                           "--out", out)
+    assert (code, result["reason"]) == (ex.EXIT_AGGREGATE_REFUSED, "aggregate_value_not_allowed")
+    assert not out.exists()
+
+
+@pytest.mark.parametrize("value, node", [
+    (["2026-09-23"] * 5, ("list", ("day",), 4)),                                    # kills M23 (list cap)
+    (["1.0", "0.1", "0.01", "1.0"], ("list", ("enum", frozenset({"1.0", "0.1", "0.01"})), 3)),
+])
+def test_list_length_cap(value, node):
+    with pytest.raises(ex.Refusal) as caught:
+        ex.check_schema(value, node)
+    assert caught.value.code == "aggregate_series_refused"
+    ex.check_schema(value[:node[2]], node)
+
+
+@pytest.mark.parametrize("value, const", [(0, False), (0.0, False), (None, False), ("False", False), (1, True),
+                                          (b"EXPLORATORY", "EXPLORATORY")])
+def test_const_requires_the_exact_type(value, const):
+    """Kills M28: ``counted: 0`` is not ``counted: false``."""
+    with pytest.raises(ex.Refusal):
+        ex.check_schema(value, ("const", const))
+    ex.check_schema(const, ("const", const))
+
+
+def test_aggregate_refuses_counted_zero_in_the_schema():
+    with pytest.raises(ex.Refusal):
+        ex.check_schema(dict(counted=0), ("dict", {"counted": ("const", False)}))
+
+
+class _FakePass:
+    def __init__(self, rows):
+        self._rows = rows
+        self.engine = type("E", (), dict(fills=[], settlements={}, states={}, decision_count=len(rows),
+                                         cash=D(0), summary=lambda self: {"exclusions": {}}))()
+
+    def band_days(self, books, markets):
+        return self._rows
+
+
+def _row(day, quotes):
+    return {"date": day, "covered_seconds": "60", "pulled_seconds": "0", "quotes": quotes, "fills": 0,
+            "modeled_net_k1": None, "reward_k1": D(0), "reward_k05": D(0), "nominal_rebate": D(0)}
+
+
+def test_a_quote_at_the_cutoff_instant_never_becomes_a_day_key():
+    """D5: a QUOTE or timer at exactly 2026-09-27T00:00Z opens a 09-27 band-day row; it is dropped, coded."""
+    rows = [_row("2026-09-26", 2), _row("2026-09-27", 1)]
+    run = type("R", (), dict(passes={"at_price": {"no_quote": _FakePass(rows)}}, books=None, markets={},
+                             matches={}))()
+    out = ex.summarize(run)["at_price"]["no_quote"]
+    assert set(out["per_day"]) == {"2026-09-26"}
+    assert out["band_days_dropped_outside_window"] == 1
+    assert out["band_days"] == 1 and out["band_days_quoted"] == 1
+    ex.check_schema(ex.round_numbers(ex.to_plain(out)), ex._POLICY)
+
+
+def test_host_runner_capture_gate_fails_closed_when_the_streak_checker_did_not_run():
+    text = HOST.read_text(encoding="utf-8")
+    assert "capture loop (DOWN|ERRORING)|capture AT_RISK|streak checker failed to run" in text
+    assert "never writes under <Prod>" not in text and "disk_free_trail.jsonl" in text

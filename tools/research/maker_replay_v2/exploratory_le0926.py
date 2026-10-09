@@ -19,7 +19,12 @@ Guards
 - **Aggregate (and the run output):** an allowlist of exactly the keys and value shapes ``summarize`` emits.
   Any other key, any free-text string, any int or float of magnitude >= 1e12, any float with more than 12
   significant digits, any dict over 64 keys, any list over the schema's length or an output over 256 KiB is
-  refused (exit 5). Run outputs round every float to 10 significant digits before the check.
+  refused (exit 5). Run outputs round every float to 10 significant digits before the check. Exclusion
+  reasons and dropped-day reasons are closed enums of the codes v2 and ``verify`` emit. The aggregate's sha
+  fields are only hashes it computed itself from the files it read, plus the receipts' exporter module hash
+  (pinned field set; the engine's ``selected_windows_sha256`` stays in the host-only run output).
+- Band-day rows dated outside 2026-09-23..26 (a timer or decision at exactly 2026-09-27T00:00Z) are dropped
+  from every summed field and counted in ``band_days_dropped_outside_window``; they never become a day key.
 - Markouts on fills within one horizon of the cutoff read the last book before it (stale, biased toward 0);
   no book at or after the cutoff is ever read. Every run and aggregate carries that note.
 
@@ -42,6 +47,7 @@ import statistics
 import sys
 
 from maker_core.replay import export_gate
+from maker_core.replay.bundle import KINDS as BUNDLE_KINDS
 from maker_core.replay.bundle import BundleError, HOST_MAX_BYTES, HOST_MAX_RECORDS, HOST_MAX_SECONDS, Limits, timestamp
 
 UTC = timezone.utc
@@ -414,17 +420,22 @@ def verify_record(record, stats, targets, start, end):
     stats.see(kind, captured, event)
 
 
+DROP_RECEIPT_MISSING, DROP_RECEIPT_NOT_SEALED = "receipt_missing", "receipt_not_sealed"
+DROP_RECEIPT_DAY_MISMATCH, DROP_NOT_TRAILING = "receipt_day_mismatch", "not_in_trailing_contiguous_block"
+DROP_REASONS = frozenset({DROP_RECEIPT_MISSING, DROP_RECEIPT_NOT_SEALED, DROP_RECEIPT_DAY_MISMATCH, DROP_NOT_TRAILING})
+
+
 def verify_day(root, day):
     """(entry, dropped_reason) for one day under the export root."""
     folder = Path(root) / day.isoformat()
     receipt_path = folder / "receipt.json"
     if not receipt_path.is_file():
-        return None, "receipt_missing"
+        return None, DROP_RECEIPT_MISSING
     receipt, receipt_sha = read_json(receipt_path, 16 * 1024**2)
     if not isinstance(receipt, dict) or receipt.get("status") != "SEALED":
-        return None, "receipt_not_sealed"
+        return None, DROP_RECEIPT_NOT_SEALED
     if receipt.get("day") != day.isoformat():
-        return None, "receipt_day_mismatch"
+        return None, DROP_RECEIPT_DAY_MISMATCH
     stats = _Stats()
     for name in _receipt_time_breaches(receipt):
         stats.breach("exporter_untimestamped_coverage_nonzero", "receipt")
@@ -489,7 +500,7 @@ def cmd_verify(args):
     sealed = [date.fromisoformat(d) for d in per_day]
     used = trailing_block(sealed)
     for day in sorted(set(sealed) - set(used)):
-        dropped.append(dict(day=day.isoformat(), reason="not_in_trailing_contiguous_block"))
+        dropped.append(dict(day=day.isoformat(), reason=DROP_NOT_TRAILING))
     status = "BREACH" if breaches else "PASS" if used else "NO_DAYS"
     result = dict(label=LABEL, counted=False, cutoff_utc_exclusive=EXPLORATORY_CUTOFF, status=status,
                   days_requested=[d.isoformat() for d in days], days_used=[d.isoformat() for d in used],
@@ -618,6 +629,13 @@ def _quantiles(values):
     return dict(n=len(values), mean=sum(values) / len(values), q1=q[0], median=q[1], q3=q[2])
 
 
+def _window_rows(rows):
+    """(rows dated 2026-09-23..26, count of others). A QUOTE or timer at exactly the cutoff instant would
+    otherwise open a 2026-09-27 band-day row; it carries no pre-cutoff information and is dropped, coded."""
+    kept = [r for r in rows if _window_day(r["date"])]
+    return kept, len(rows) - len(kept)
+
+
 def summarize(run):
     """Per fill bound x policy: counts and sums only (no identifiers, prices or series)."""
     from maker_core.replay.score import HORIZONS
@@ -626,7 +644,7 @@ def summarize(run):
     for bound, policies in run.passes.items():
         out[bound] = {}
         for policy, p in policies.items():
-            rows = p.band_days(run.books, run.markets)
+            rows, outside = _window_rows(p.band_days(run.books, run.markets))
             engine = p.engine
             covered = sum((Decimal(r["covered_seconds"]) for r in rows), Decimal(0))
             pulled = sum((Decimal(r["pulled_seconds"]) for r in rows), Decimal(0))
@@ -671,7 +689,8 @@ def summarize(run):
                 rewards=dict(k1=sum((r["reward_k1"] for r in rows), Decimal(0)),
                              k05=sum((r["reward_k05"] for r in rows), Decimal(0)),
                              nominal_rebate=sum((r["nominal_rebate"] for r in rows), Decimal(0))),
-                exclusions=summary["exclusions"], final_cash=engine.cash, per_day=per_day)
+                exclusions=summary["exclusions"], final_cash=engine.cash, per_day=per_day,
+                band_days_dropped_outside_window=outside)
         out[bound]["matched_clock"] = run.matches.get(bound)
     return out
 
@@ -728,6 +747,11 @@ MATCH_INTERPRETATION = "ex-post exposure-matched clock control; no return optimi
 BOUND_KEYS = ("strictly_through", "at_price")  # == maker_core.replay.fill_model.BOUNDS (tested)
 HORIZON_KEYS = ("0s", "1m", "5m", "30m")  # "0s" plus maker_core.replay.score.HORIZONS (tested)
 
+# The v2 exclusion reasons: kernel ``INVALID_<KIND>`` per bundle record kind, the trade and print checks, and
+# blind RE-1's transport assumption (tests tie this to the emitting sources).
+EXCLUSION_CODES = frozenset({"INVALID_" + k.upper() for k in BUNDLE_KINDS}
+                            | {"INVALID_TRADE", "PRINT_PREDATES_ORDER", "RE1_TRANSPORT_ASSUMED"})
+
 _N, _I = ("num",), ("int",)
 _SHA, _PIN = ("re", re.compile(r"[0-9a-f]{64}")), ("re", re.compile(r"[0-9a-f]{40}"))
 _DAY = ("day",)
@@ -742,27 +766,35 @@ _POLICY = ("dict", {
     "settled_subset": ("dict", {"fills": _I, "net_pnl": _N, "band_days_modeled_net_k1": _I, "modeled_net_k1": _N}),
     "unsettled_at_cutoff": ("dict", {"conditions": _I, "lots": _I, "exposure": _N}),
     "rewards": ("dict", {"k1": _N, "k05": _N, "nominal_rebate": _N}),
-    "exclusions": ("map", ("re", re.compile(r"[A-Z][A-Z0-9]{1,23}(_[A-Z][A-Z0-9]{1,23}){1,5}")), _I, 32),
+    "exclusions": ("map", ("enum", EXCLUSION_CODES), _I, len(EXCLUSION_CODES)),
     "final_cash": _N,
     "per_day": ("map", _DAY, ("dict", {"band_days": _I, "band_days_quoted": _I, "fills": _I, "quotes": _I}), 4),
+    "band_days_dropped_outside_window": _I,
 })
-_MATCH = ("dict", {
+_MATCH_FIELDS = {
     "status": ("enum", frozenset({"MATCHED", "UNMATCHED"})), "target": _N, "actual": _N, "tolerance": _N,
     "absolute_error": _N, "attempts": _I, "calendar_prefix_fraction": _N, "selected_windows": _I,
-    "interpretation": ("enum", frozenset({MATCH_INTERPRETATION})), "selected_windows_sha256": _SHA,
-})
+    "interpretation": ("enum", frozenset({MATCH_INTERPRETATION})),
+}
+# The engine's window digest cannot be re-derived by the aggregate, so it stays in the host-only run output.
+_MATCH = ("dict", {**_MATCH_FIELDS, "selected_windows_sha256": _SHA})
+_MATCH_AGGREGATE = ("dict", _MATCH_FIELDS)
 _RESULTS = ("dict", {b: ("dict", {**{p: _POLICY for p in POLICIES}, "matched_clock": _MATCH}) for b in BOUND_KEYS})
+_RESULTS_AGGREGATE = ("dict", {b: ("dict", {**{p: _POLICY for p in POLICIES}, "matched_clock": _MATCH_AGGREGATE})
+                               for b in BOUND_KEYS})
 _COMMON = {"label": ("const", LABEL), "counted": ("const", False), "cutoff_utc_exclusive": ("const", CUTOFF_TEXT),
            "pin": _PIN, "verify_sha256": _SHA, "days_used": ("list", _DAY, 4),
            "hazard_grid": ("list", _HAZARD, len(HAZARD_GRID)), "markout_note": ("const", MARKOUT_NOTE)}
 RUN_SCHEMA = ("dict", {**_COMMON, "hazard_per_minute": _HAZARD, "market_count": _I, "results": _RESULTS})
 AGGREGATE_SCHEMA = ("dict", {
     **_COMMON, "module_sha256": _SHA, "module_sha256_distinct": _I, "input_manifest_sha256": _SHA,
-    "days_dropped": ("list", ("dict", {"day": _DAY, "reason": ("re", re.compile(r"[a-z][a-z0-9_]{0,63}"))}), 4),
+    "days_dropped": ("list", ("dict", {"day": _DAY, "reason": ("enum", DROP_REASONS)}), 4),
     "hazards_missing": ("list", _HAZARD, len(HAZARD_GRID)),
     "runs": ("list", ("dict", {"hazard_per_minute": _HAZARD, "run_sha256": _SHA}), len(HAZARD_GRID)),
-    "heading": ("const", HEADING), "results": ("dict", {"h" + h: _RESULTS for h in HAZARD_GRID}),
+    "heading": ("const", HEADING), "results": ("dict", {"h" + h: _RESULTS_AGGREGATE for h in HAZARD_GRID}),
 })
+# Every *_sha256 in the aggregate: (field path, where its value comes from). Checked after the schema.
+AGGREGATE_SHA_FIELDS = ("verify_sha256", "input_manifest_sha256", "module_sha256", "runs[].run_sha256")
 
 
 def _aggregate_refuse(code, where):
@@ -836,6 +868,27 @@ def check_schema(value, node, where="$"):
         raise AssertionError(kind)
 
 
+def _strip_window_digests(results):
+    if not isinstance(results, dict):
+        return results
+    out = {}
+    for bound, policies in results.items():
+        out[bound] = policies
+        if isinstance(policies, dict) and isinstance(policies.get("matched_clock"), dict):
+            out[bound] = dict(policies, matched_clock={k: v for k, v in policies["matched_clock"].items()
+                                                       if k != "selected_windows_sha256"})
+    return out
+
+
+def _check_aggregate_shas(result, verify_sha, manifest_sha, run_shas, modules):
+    """Each sha field must be a hash this process computed from a file it read (or the receipts' module hash)."""
+    expected_runs = [dict(hazard_per_minute=h, run_sha256=run_shas[h]) for h in HAZARD_GRID if h in run_shas]
+    module = modules[0] if len(modules) == 1 else None
+    if (result.get("verify_sha256") != verify_sha or result.get("input_manifest_sha256") != manifest_sha
+            or result.get("runs") != expected_runs or result.get("module_sha256") != module):
+        _aggregate_refuse("aggregate_sha_not_bound", "$")
+
+
 def round_numbers(value):
     """Every float to ``OUTPUT_SIGNIFICANT_DIGITS`` significant digits (the allowlist refuses longer ones)."""
     if isinstance(value, dict):
@@ -881,9 +934,10 @@ def cmd_aggregate(args):
                   hazard_grid=list(HAZARD_GRID), hazards_missing=[h for h in HAZARD_GRID if h not in runs],
                   runs=[dict(hazard_per_minute=h, run_sha256=runs[h][1]) for h in HAZARD_GRID if h in runs],
                   heading=HEADING, markout_note=MARKOUT_NOTE,
-                  results={"h" + h: runs[h][0]["results"] for h in HAZARD_GRID if h in runs})
+                  results={"h" + h: _strip_window_digests(runs[h][0]["results"]) for h in HAZARD_GRID if h in runs})
     result = to_plain(result)
     check_schema(result, AGGREGATE_SCHEMA)
+    _check_aggregate_shas(result, verify_sha, manifest_sha, {h: v[1] for h, v in runs.items()}, modules)
     raw = (json.dumps(result, sort_keys=True, indent=1) + "\n").encode()
     if len(raw) > AGGREGATE_MAX_BYTES:
         refuse("aggregate_too_large", EXIT_AGGREGATE_REFUSED)
