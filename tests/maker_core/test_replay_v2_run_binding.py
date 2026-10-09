@@ -95,8 +95,9 @@ def test_zones_come_only_from_the_pinned_tzdata_not_the_platform_tzpath(hostile_
         time_zone("Mars/Olympus_Mons")  # listed by the platform TZPATH, not by the pinned tzdata
 
 
-def test_mutant_platform_tzpath_lookup_is_caught(monkeypatch, hostile_tzpath):
+def test_mutant_platform_tzpath_lookup_is_caught(hostile_tzpath, monkeypatch):
     """Mutant T1-M1 ``platform_tzpath``: ``pinned_zone`` goes back to ``ZoneInfo(name)`` (TZPATH first)."""
+    # ``hostile_tzpath`` is set up first so ``monkeypatch`` restores ``pinned_zone`` before its teardown clears caches.
     monkeypatch.setattr(bundle, "pinned_zone", zoneinfo.ZoneInfo)
     with pytest.raises(AssertionError):
         test_zones_come_only_from_the_pinned_tzdata_not_the_platform_tzpath(None)
