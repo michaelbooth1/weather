@@ -220,6 +220,15 @@ payload payload_sha256 source_hashes`), fsynced per batch, then a create-only
   recorded minute, one coverage group per condition) after the UTC day has closed.
   `records.day_active_intervals` gives the per-run windows for `stream_source(...,
   active_intervals=...)`; `records.records_summary` is the scorer's verified read.
+  Refusals are coded (`ValueError` codes listed in `records.py`, including
+  `record_stream_seal_unreadable` for a corrupt seal and `record_stream_unreadable`); the CLI
+  prints `{"refused": <code>, "utc_day": ...}` and exits 2, never a traceback. Runs whose
+  quotes tape sealed without a record stream (`records_stream_error`, for example
+  `open:<Error>`) are explicit gap sources: `records.stream_gaps`, the summary's
+  `stream_gaps`, the CLI's `gaps`, and `records/<day>/gaps.json` beside the bundle (the
+  bundle format admits no extra field). A stream batch advances its sequence and kind counts
+  only after its bytes are fsynced, so a failed batch never leaves a sequence gap in an `ok`
+  seal.
 - Size and replay limits: the Defender's synthetic 12-band day (decision-time stamping) was
   about 121 k records and 104 MB of record stream plus 62 MB of quotes tape. The mid-minute
   book refresh adds one book record per band-minute (about 5 KB at those depths), an estimated

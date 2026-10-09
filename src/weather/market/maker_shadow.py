@@ -353,11 +353,18 @@ def bundle(args):
     tape_root = Path(args.tape_root) if args.tape_root else DEFAULT_ROOT / "tapes"
     try:
         path, manifest = bundle_day(tape_root, day, clock=lambda: datetime.now(timezone.utc))
+        summary = records_summary(tape_root, day)
     except FileExistsError:
         print(json.dumps({"refused": "bundle_exists", "utc_day": day}))
         return 2
+    except ValueError as error:  # coded refusals (records.bundle_day); never a traceback
+        print(json.dumps({"refused": str(error), "utc_day": day}))
+        return 2
+    except OSError as error:
+        print(json.dumps({"refused": "io_error:" + type(error).__name__, "utc_day": day}))
+        return 2
     print(json.dumps({"bundle": str(path), "utc_day": day, "streams": len(manifest["streams"]),
-                      "conditions": len(manifest["conditions"]), "records": records_summary(tape_root, day)}))
+                      "conditions": len(manifest["conditions"]), "gaps": manifest["gaps"], "records": summary}))
     return 0
 
 

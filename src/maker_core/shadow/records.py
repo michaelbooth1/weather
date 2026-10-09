@@ -42,6 +42,8 @@ from maker_core.evidence.journal import canonical_bytes, digest, plain, write_ne
 
 BUNDLE_FORMAT = "maker_core.replay.bundle.v0.2"
 STREAM_SEAL_SCHEMA = "maker_core.shadow_records_seal.v0.1"
+GAPS_SCHEMA = "maker_core.shadow_bundle_gaps.v0.1"
+SEAL_FIELDS = ("stream", "utc_day", "status", "sha256", "bytes", "records", "kinds", "dropped", "conditions")
 COVERAGE_SECONDS = 60  # The replay decoder's cap on a coverage record's validity.
 TRADE_CLOCK_SKEW = timedelta(seconds=5)  # The replay decoder's bound on venue time after capture.
 TRADES_PAGE = 500  # ``public_feed.TRADES_LIMIT``: a full page cannot prove continuity.
@@ -272,58 +274,67 @@ class RecordStream:
 
     # -- writing ----------------------------------------------------------------------------------------
     def write(self, entries):
-        """Append ``(at, owner, kind, payload, sources, group)`` entries in captured order; return a summary."""
+        """Append ``(at, owner, kind, payload, sources, group)`` entries in captured order; return a summary.
+
+        The batch is built on local state and the stream's sequence, clock and counters advance only after its
+        bytes are written and fsynced: an error while building leaves the stream unchanged (nothing written),
+        and an error while writing marks it broken (the file may hold part of the batch).
+        """
         if self.broken:
             return {"stream": self.path.name, "first_sequence": None, "last_sequence": None, "records": 0,
                     "dropped": {}, "broken": self.broken}
         rank = {kind: i for i, kind in enumerate(KIND_ORDER)}
         ordered = sorted(enumerate(entries), key=lambda e: (e[1][0], rank.get(e[1][2], 99), e[0]))
-        chunks, first, dropped = [], None, {k: 0 for k in self.dropped}
+        chunks, rows, dropped = [], [], {k: 0 for k in self.dropped}
+        sequence, last_at, described = self.sequence, self.last_at, set(self.described)
         for _, (at, owner, kind, payload, sources, group) in ordered:
             if not self.start <= at < self.start + timedelta(days=1):
                 dropped["outside_day"] += 1
                 continue
-            if self.last_at is not None and at < self.last_at:
+            if last_at is not None and at < last_at:
                 dropped["out_of_order"] += 1
                 continue
-            if group and self.groups.get(owner) not in self.described:
+            if group and self.groups.get(owner) not in described:
                 dropped["undescribed_group"] += 1  # The reader expands a group only over seen members.
                 continue
-            if self.sequence > MAX_SEQUENCE:
+            if sequence > MAX_SEQUENCE:
                 raise ValueError("record_sequence_cap")
-            raw = canonical_bytes(_row(self.sequence, at, owner, kind, payload, sources, group=group))
+            condition = None if group else self.conditions[owner]  # an unregistered owner fails before writing
+            raw = canonical_bytes(_row(sequence, at, owner, kind, payload, sources, group=group))
             if len(raw) > MAX_LINE_BYTES:
                 dropped["oversize"] += 1
                 continue
             chunks.append(raw)
-            first = self.sequence if first is None else first
-            self.first_sequence = self.sequence if self.first_sequence is None else self.first_sequence
-            self.last_sequence, self.last_at = self.sequence, at
-            self.sequence += 1
-            self.kinds[kind] = self.kinds.get(kind, 0) + 1
+            rows.append((sequence, at, kind, condition))
+            last_at, sequence = at, sequence + 1
             if kind == "descriptor":
-                self.described.add(owner)
-            if not group:
-                minute = at.replace(second=0, microsecond=0)
-                entry = self.conditions[owner]
-                entry["first_minute"] = min(entry["first_minute"], minute.isoformat())
-                entry["last_minute"] = max(entry["last_minute"], minute.isoformat())
+                described.add(owner)
         if chunks:
             blob = b"".join(chunks)
             try:
                 self.handle.write(blob)
                 self.handle.flush()
                 os.fsync(self.handle.fileno())
-            except OSError as error:  # The file may now hold part of the batch: sealed broken, never bundled.
+            except Exception as error:  # The file may now hold part of the batch: sealed broken, never bundled.
                 self.broken = "write:" + type(error).__name__
                 raise
             self.sha.update(blob)
             self.bytes += len(blob)
             self.records += len(chunks)
+        for number, at, kind, condition in rows:  # durable: commit the batch's sequence, clock and counters
+            self.first_sequence = number if self.first_sequence is None else self.first_sequence
+            self.last_sequence = number
+            self.kinds[kind] = self.kinds.get(kind, 0) + 1
+            if condition is not None:
+                minute = at.replace(second=0, microsecond=0).isoformat()
+                condition["first_minute"] = min(condition["first_minute"], minute)
+                condition["last_minute"] = max(condition["last_minute"], minute)
+        self.sequence, self.last_at, self.described = sequence, last_at, described
         for key, value in dropped.items():
             self.dropped[key] += value
+        first = rows[0][0] if rows else None
         return {"stream": self.path.name, "first_sequence": first,
-                "last_sequence": None if first is None else first + len(chunks) - 1, "records": len(chunks),
+                "last_sequence": None if first is None else rows[-1][0], "records": len(chunks),
                 "dropped": {k: v for k, v in dropped.items() if v}}
 
     def count_fault(self, code, n=1):
@@ -647,6 +658,21 @@ class RawRecorder:
 
 
 # -- day bundle and read paths ---------------------------------------------------------------------------
+# Every refusal below is a ``ValueError`` whose message is a stable code (the bundle CLI prints it as
+# ``{"refused": code}``): utc_day_not_closed, unsealed_record_stream, broken_record_stream,
+# no_sealed_record_stream, record_stream_seal_unreadable, record_stream_seal_mismatch, record_stream_unreadable,
+# record_stream_differs_from_seal, tape_seal_unreadable, condition_without_market_id,
+# condition_identity_differs_between_runs.
+def _read_json(path, code):
+    try:
+        value = json.loads(path.read_bytes())
+    except (OSError, ValueError):
+        raise ValueError(code) from None
+    if not isinstance(value, dict):
+        raise ValueError(code)
+    return value
+
+
 def _stream_seals(root, day):
     folder, seals, unsealed = day_directory(root, day), [], []
     for path in sorted(folder.glob(f"{day}-*-records.jsonl")):
@@ -654,18 +680,33 @@ def _stream_seals(root, day):
         if not seal_path.is_file():
             unsealed.append(path.name)
             continue
-        seal = json.loads(seal_path.read_bytes())
+        seal = _read_json(seal_path, "record_stream_seal_unreadable")
         if (seal.get("schema_version") != STREAM_SEAL_SCHEMA or seal.get("stream") != path.name
-                or seal.get("utc_day") != day):
+                or seal.get("utc_day") != day or any(k not in seal for k in SEAL_FIELDS)):
             raise ValueError("record_stream_seal_mismatch")
         seals.append(seal)
     return seals, unsealed
 
 
+def stream_gaps(root, day):
+    """Runs of ``day`` whose quotes tape sealed without a record stream (it could not be opened, or sealing
+    it failed): explicit gap sources, ``[{run_id, tape, reason}]``. Their minutes have no raw records."""
+    gaps = []
+    for path in sorted(Path(root).glob(f"{day}-*.seal.json")):
+        seal = _read_json(path, "tape_seal_unreadable")
+        if seal.get("utc_day") == day and seal.get("records_stream") is None and seal.get("records_stream_error"):
+            gaps.append({"run_id": seal.get("run_id"), "tape": seal.get("tape"),
+                         "reason": seal["records_stream_error"]})
+    return gaps
+
+
 def verify_stream(root, seal):
     """Re-hash one sealed stream in bounded chunks and count its records; raises on any difference."""
     path = day_directory(root, seal["utc_day"]) / seal["stream"]
-    sha, size, lines = _file_digest(path)
+    try:
+        sha, size, lines = _file_digest(path)
+    except OSError:
+        raise ValueError("record_stream_unreadable") from None
     if sha != seal["sha256"] or size != seal["bytes"] or lines != seal["records"]:
         raise ValueError("record_stream_differs_from_seal")
     return path
@@ -680,7 +721,8 @@ def records_summary(root, day):
         for kind, count in seal["kinds"].items():
             kinds[kind] = kinds.get(kind, 0) + count
     return {"streams": [{"stream": s["stream"], "sha256": s["sha256"], "records": s["records"]} for s in seals],
-            "unsealed_streams": unsealed, "records": sum(s["records"] for s in seals),
+            "unsealed_streams": unsealed, "stream_gaps": stream_gaps(root, day),
+            "records": sum(s["records"] for s in seals),
             "broken_streams": [s["stream"] for s in seals if s.get("status") != "ok"],
             "faults": _summed_faults(seals),
             "kinds": dict(sorted(kinds.items())),
@@ -713,9 +755,12 @@ def day_active_intervals(root, day):
 def bundle_day(root, day, *, clock):
     """Write ``records/<day>/bundle.json`` (bundle v0.2) over the day's sealed streams, after the day closes.
 
-    Refuses an open day, an unsealed stream, a stream sealed ``broken`` (a failed file write), a stream that
-    differs from its seal, a condition without a registry market id, or a condition whose market identity
-    differs between runs. Create-only. Read the day with ``Limits(**SHADOW_REPLAY_LIMITS)``.
+    Refuses an open day, an unsealed stream, a stream sealed ``broken`` (a failed file write), an unreadable
+    or malformed seal, a stream that differs from its seal, a condition without a registry market id, or a
+    condition whose market identity differs between runs, each with a coded ``ValueError``. Create-only.
+    Runs that sealed their quotes tape without a stream (``stream_gaps``) are named in ``gaps.json`` beside
+    the bundle (schema ``GAPS_SCHEMA``; the bundle format itself admits no extra field) and returned under
+    the manifest's ``gaps`` key by ``bundle_day`` only. Read the day with ``Limits(**SHADOW_REPLAY_LIMITS)``.
     """
     start = datetime.combine(date.fromisoformat(day), datetime.min.time(), tzinfo=timezone.utc)
     end, sealed_at = start + timedelta(days=1), clock()
@@ -750,12 +795,15 @@ def bundle_day(root, day, *, clock):
         "coverage_groups": [{"group_id": group_id(cid), "condition_ids": [cid]} for cid in sorted(conditions)],
         "streams": [{"path": s["stream"], "sha256": s["sha256"], "bytes": s["bytes"], "records": s["records"]}
                     for s in seals]}
+    gaps = stream_gaps(root, day)
     path = day_directory(root, day) / "bundle.json"
     write_new(path, manifest)
-    return path, manifest
+    write_new(path.with_name("gaps.json"), {"schema_version": GAPS_SCHEMA, "day": day, "bundle": path.name,
+                                             "runs_without_record_stream": gaps})
+    return path, dict(manifest, gaps=gaps)
 
 
-__all__ = ["BOOK_VENUE_KEYS", "BUNDLE_FORMAT", "COVERAGE_SECONDS", "RawRecorder", "RecordStream", "RecordingReads",
+__all__ = ["BOOK_VENUE_KEYS", "BUNDLE_FORMAT", "COVERAGE_SECONDS", "GAPS_SCHEMA", "RawRecorder", "RecordStream", "RecordingReads",
            "SHADOW_REPLAY_LIMITS", "STREAM_SEAL_SCHEMA", "bundle_day", "day_active_intervals", "day_directory",
-           "fault_list", "gamma_market_projection", "group_id", "next_sequence", "records_summary", "reward_projection",
+           "fault_list", "gamma_market_projection", "group_id", "next_sequence", "records_summary", "reward_projection", "stream_gaps",
            "stream_name", "verify_stream"]

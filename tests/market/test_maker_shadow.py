@@ -287,7 +287,15 @@ def test_offline_run_writes_record_stream_and_bundle_day_cli(tmp_path, capsys):
     assert kinds == {"plugin_input", "descriptor", "book", "terms", "outcome_view", "info_event", "coverage"}
     manifest = json.loads((bundle.root / "bundle.json").read_text())
     assert manifest["conditions"][0]["market_id"] == "nyc"
+    assert printed["gaps"] == []
     assert maker_shadow.main(["bundle-day", "--day", NOW.date().isoformat(), "--tape-root", str(root)]) == 2
+    capsys.readouterr()
+    (bundle.root / "bundle.json").unlink()
+    seal = next(bundle.root.glob("*-records.seal.json"))
+    seal.write_bytes(b"{not json")  # a coded refusal on stdout, never a traceback
+    assert maker_shadow.main(["bundle-day", "--day", NOW.date().isoformat(), "--tape-root", str(root)]) == 2
+    assert json.loads(capsys.readouterr().out) == {"refused": "record_stream_seal_unreadable",
+                                                   "utc_day": NOW.date().isoformat()}
 
 
 def test_rediscovery_is_due_at_each_market_local_midnight():

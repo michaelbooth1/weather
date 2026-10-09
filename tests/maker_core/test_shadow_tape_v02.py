@@ -3,7 +3,7 @@
 Guards: maker shadow tape v0.2 record stream and day bundle (docs/operations/maker-shadow-runner.md, Tape v0.2
   record stream): receipt-time stamping with the mid-minute book refresh (no capture gap under an advancing
   clock), the recorder fault boundary (transactional trade state, coded faults that survive the seal
-  scrubber, stream open), the trade baseline across the UTC day roll and the Gamma/reward/book-venue
+  scrubber, stream open, durable-only counters, coded bundle refusals, gap sources), the trade baseline across the UTC day roll and the Gamma/reward/book-venue
   allowlists; round trip against the vendored replay-v2 reader contract
   (tests/maker_core/fixtures/replay_v2_reader_contract.py, pinned to build-line 2d8cccb13).
 """
@@ -19,9 +19,10 @@ import pytest
 
 from maker_core.evidence.journal import verify_journal
 from maker_core.shadow import tape
-from maker_core.shadow.records import (BOOK_VENUE_KEYS, BUNDLE_FORMAT, SHADOW_REPLAY_LIMITS, RawRecorder,
-                                       RecordingReads, RecordStream, bundle_day, day_active_intervals, day_directory,
-                                       gamma_market_projection, group_id, records_summary, reward_projection)
+from maker_core.shadow.records import (BOOK_VENUE_KEYS, BUNDLE_FORMAT, GAPS_SCHEMA, SHADOW_REPLAY_LIMITS,
+                                       RawRecorder, RecordingReads, RecordStream, bundle_day, day_active_intervals,
+                                       day_directory, gamma_market_projection, group_id, records_summary,
+                                       reward_projection)
 from maker_core.shadow.runner import book_from_public
 from maker_core.shadow.score import score_day
 from maker_core.shadow.tape import (SEAL_SCHEMA, SEAL_SCHEMA_V01, TAPE_SCHEMA, TAPE_SCHEMA_V01, TapeWriter,
@@ -564,3 +565,91 @@ def test_record_stream_open_failure_never_stops_the_runner(tmp_path):
     assert [r["raw"] for r in rows if r["event"] == "minute"] == [{"broken": "open:JSONDecodeError"}] * 2
     assert seal["records_stream"] is None and seal["records_stream_error"] == "open:JSONDecodeError"
     assert reads.polls == {}
+
+
+def stream_lines(stream):
+    return [json.loads(line) for line in stream.path.read_bytes().splitlines()]
+
+
+def test_a_failed_batch_leaves_no_sequence_gap_or_miscounted_kinds(tmp_path):
+    sources, at = {"fixture": "0" * 64}, lambda s: NOW + timedelta(seconds=s)
+    stream = RecordStream(tmp_path, DAY, "x")
+    stream.register(CONDITION, market_id="m", domain_id="weather")
+    stream.write([(at(0), CONDITION, "descriptor", {"a": 1}, sources, False)])
+    with pytest.raises(ValueError):  # the second row cannot be encoded: nothing of the batch is written
+        stream.write([(at(1), CONDITION, "book", {"b": 1}, sources, False),
+                      (at(2), CONDITION, "book", {"b": float("nan")}, sources, False)])
+    assert stream.broken is None and (stream.sequence, stream.kinds) == (1, {"descriptor": 1})
+    stream.write([(at(3), CONDITION, "book", {"b": 2}, sources, False)])
+    seal = stream.close()
+    lines = stream_lines(stream)
+    assert seal["status"] == "ok" and [r["sequence"] for r in lines] == [0, 1] == [seal["first_sequence"],
+                                                                                   seal["last_sequence"]]
+    assert seal["kinds"] == {"descriptor": 1, "book": 1} and seal["records"] == len(lines) == 2
+
+    class FailingHandle:  # any error while writing, not only OSError
+        def __init__(self, handle):
+            self.handle = handle
+
+        def write(self, blob):
+            self.handle.write(blob[:7])  # part of the batch reaches the file
+            raise RuntimeError("fixture: write failed")
+
+        def __getattr__(self, name):
+            return getattr(self.handle, name)
+
+    stream = RecordStream(tmp_path, DAY, "y")
+    stream.register(CONDITION, market_id="m", domain_id="weather")
+    stream.write([(at(10), CONDITION, "descriptor", {"a": 1}, sources, False)])
+    real, stream.handle = stream.handle, FailingHandle(stream.handle)
+    with pytest.raises(RuntimeError):
+        stream.write([(at(11), CONDITION, "book", {"b": 3}, sources, False)])
+    assert (stream.last_sequence, stream.kinds, stream.records) == (2, {"descriptor": 1}, 1)
+    stream.handle = real
+    seal = stream.close()
+    assert (seal["status"], seal["broken_reason"]) == ("broken", "write:RuntimeError")
+    assert seal["kinds"] == {"descriptor": 1} and seal["last_sequence"] == 2
+
+
+def test_bundle_refusals_are_coded(tmp_path):
+    runner, _, _, clock = recording_rig(tmp_path)
+    record_run(tmp_path, runner, clock, 2)
+    root = tmp_path / "tapes"
+    seal_path = next(day_directory(root, DAY).glob("*-records.seal.json"))
+    good = seal_path.read_bytes()
+    for corrupt, code in ((b"{not json", "record_stream_seal_unreadable"), (b"[]", "record_stream_seal_unreadable")):
+        seal_path.write_bytes(corrupt)
+        with pytest.raises(ValueError, match=f"^{code}$"):
+            records_summary(root, DAY)
+        with pytest.raises(ValueError, match=f"^{code}$"):
+            bundle_day(root, DAY, clock=lambda: AFTER_DAY)
+    seal_path.write_bytes(json.dumps({k: v for k, v in json.loads(good).items() if k != "kinds"}).encode())
+    with pytest.raises(ValueError, match="^record_stream_seal_mismatch$"):
+        bundle_day(root, DAY, clock=lambda: AFTER_DAY)
+    seal_path.write_bytes(good)
+    stream = day_directory(root, DAY) / json.loads(good)["stream"]
+    stream.rename(stream.with_suffix(".moved"))
+    stream.mkdir()  # listed, but cannot be read as a file
+    with pytest.raises(ValueError, match="^record_stream_unreadable$"):
+        records_summary(root, DAY)
+
+
+def test_runs_without_a_record_stream_are_named_as_gap_sources(tmp_path):
+    runner, _, _, clock = recording_rig(tmp_path)
+    record_run(tmp_path, runner, clock, 2, run_id="r1")
+    folder = day_directory(tmp_path / "tapes", DAY)
+    unreadable = folder / f"{DAY}-old-records.seal.json"  # the next run cannot open its stream
+    (folder / f"{DAY}-old-records.jsonl").write_bytes(b"")
+    unreadable.write_bytes(b"{not json")
+    _, seal = record_run(tmp_path, runner, clock, 2, run_id="r2", start=NOW + timedelta(minutes=10))
+    assert seal["records_stream_error"] == "open:JSONDecodeError"
+    unreadable.unlink()
+    (folder / f"{DAY}-old-records.jsonl").unlink()
+    gap = {"run_id": "r2", "tape": f"{DAY}-r2.tape.jsonl", "reason": "open:JSONDecodeError"}
+    assert records_summary(tmp_path / "tapes", DAY)["stream_gaps"] == [gap]
+    path, manifest = bundle_day(tmp_path / "tapes", DAY, clock=lambda: AFTER_DAY)
+    assert manifest["gaps"] == [gap] and "gaps" not in json.loads(path.read_bytes())
+    gaps = json.loads((path.parent / "gaps.json").read_bytes())
+    assert gaps == {"schema_version": GAPS_SCHEMA, "day": DAY, "bundle": "bundle.json",
+                    "runs_without_record_stream": [gap]}
+    assert reader.StreamBundle(path.parent).conditions  # the replay reader still opens the day
