@@ -820,3 +820,167 @@ def test_receipt_evidence_accounts_once_when_holder_never_writes_manifest(tmp_pa
                 "nyc": {"forecast_payload_storage": conflicting},
             }
         )
+
+
+def _claim_open_failing(monkeypatch, failures):
+    """Make exclusive claim creates raise PermissionError ``failures`` times."""
+
+    real_open = os.open
+    denied = []
+
+    def fake_open(path, flags, *args, **kwargs):
+        if flags & os.O_EXCL and str(path).endswith(".claim"):
+            if failures is None or len(denied) < failures:
+                denied.append(str(path))
+                raise PermissionError(13, "Permission denied", str(path))
+        return real_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(fanout_module.os, "open", fake_open)
+    return denied
+
+
+def test_windows_claim_denial_is_retried_as_contention(tmp_path, monkeypatch):
+    monkeypatch.setattr(fanout_module, "_WINDOWS_CLAIM_DENIAL_IS_CONTENTION", True)
+    denied = _claim_open_failing(monkeypatch, 3)
+    coordinator = CrossProcessMarketInvariantFetchFanout(
+        tmp_path / "shared-cas", wait_timeout_seconds=5, poll_seconds=0.001,
+    )
+    calls = []
+
+    def fetch():
+        calls.append("holder")
+        return dict(FETCH_VALUE)
+
+    result = _fetch(coordinator, fetch)
+
+    assert len(denied) == 3
+    assert calls == ["holder"]
+    assert result.fetched is True
+    assert result.wait_timed_out is False
+    assert result.coordination_status == "cross_process_holder_published"
+    assert not list((tmp_path / "shared-cas").rglob("*.claim"))
+    assert len(list((tmp_path / "shared-cas").rglob("*.receipt.json"))) == 1
+
+
+def test_persistent_windows_claim_denial_is_raised_without_fetch(
+    tmp_path, monkeypatch,
+):
+    monkeypatch.setattr(fanout_module, "_WINDOWS_CLAIM_DENIAL_IS_CONTENTION", True)
+    denied = _claim_open_failing(monkeypatch, None)
+    clock = [0.0]
+
+    def sleep(seconds):
+        clock[0] += seconds
+
+    coordinator = CrossProcessMarketInvariantFetchFanout(
+        tmp_path / "shared-cas",
+        wait_timeout_seconds=1.0,
+        poll_seconds=0.25,
+        monotonic_fn=lambda: clock[0],
+        sleep_fn=sleep,
+    )
+    calls = []
+
+    with pytest.raises(PermissionError):
+        _fetch(coordinator, lambda: calls.append("fetch") or dict(FETCH_VALUE))
+
+    # Bounded by the existing wait budget: attempts at t=0, .25, .5, .75, 1.0.
+    assert len(denied) == 5
+    assert calls == []
+    assert not list((tmp_path / "shared-cas").rglob("*.claim"))
+    assert not list((tmp_path / "shared-cas").rglob("*.receipt.json"))
+
+
+def test_posix_claim_permission_error_is_raised_immediately(tmp_path, monkeypatch):
+    monkeypatch.setattr(fanout_module, "_WINDOWS_CLAIM_DENIAL_IS_CONTENTION", False)
+    denied = _claim_open_failing(monkeypatch, None)
+    coordinator = CrossProcessMarketInvariantFetchFanout(
+        tmp_path / "shared-cas", wait_timeout_seconds=5, poll_seconds=0.001,
+    )
+    calls = []
+
+    with pytest.raises(PermissionError):
+        _fetch(coordinator, lambda: calls.append("fetch") or dict(FETCH_VALUE))
+
+    assert len(denied) == 1
+    assert calls == []
+
+
+_RACE_WORKER = r"""
+import json, sys, time
+from weather.collection.forecast_payload_fetch_fanout import (
+    CrossProcessMarketInvariantFetchFanout,
+)
+root, value_path, request_key, cycle_key, rounds, start_at = sys.argv[1:7]
+value = json.loads(open(value_path, encoding="utf-8").read())
+coordinator = CrossProcessMarketInvariantFetchFanout(
+    root, wait_timeout_seconds=60, poll_seconds=0.001,
+)
+while time.time() < float(start_at):
+    time.sleep(0.001)
+outcomes = []
+for index in range(int(rounds)):
+    try:
+        result = coordinator.fetch(
+            source="nbm_probabilistic_tmax",
+            request_key=request_key,
+            cycle_key=cycle_key,
+            scope_key=f"race-{index}",
+            fetch_fn=lambda: dict(value),
+        )
+        outcomes.append([index, result.coordination_status, None])
+    except Exception as exc:
+        outcomes.append([index, None, f"{type(exc).__name__}: {exc}"])
+print(json.dumps(outcomes))
+"""
+
+
+def test_real_processes_racing_on_each_claim_get_one_holder_and_no_denial(tmp_path):
+    """Three OS processes race on fresh claims, as the fleet's workers do.
+
+    On Windows the holder's claim delete races a follower's exclusive create;
+    before claim denials were treated as contention this leaked PermissionError
+    in most runs of this test.
+    """
+
+    import subprocess
+    import sys
+    import time
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parents[2]
+    root = tmp_path / "shared-cas"
+    value_path = tmp_path / "fetch-value.json"
+    value_path.write_text(json.dumps(FETCH_VALUE), encoding="utf-8")
+    rounds = 120
+    start_at = time.time() + 3.0
+    workers = [
+        subprocess.Popen(
+            [
+                sys.executable, "-c", _RACE_WORKER, str(root), str(value_path),
+                REQUEST_KEY, CYCLE_KEY, str(rounds), str(start_at),
+            ],
+            cwd=tmp_path,
+            env=dict(os.environ, PYTHONPATH=str(repo_root / "src")),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        for _ in range(3)
+    ]
+    outputs = []
+    for worker in workers:
+        stdout, stderr = worker.communicate(timeout=120)
+        assert worker.returncode == 0, stderr
+        outputs.append(json.loads(stdout))
+
+    errors = [outcome for output in outputs for outcome in output if outcome[2]]
+    assert errors == []
+    for index in range(rounds):
+        statuses = sorted(output[index][1] for output in outputs)
+        assert statuses == [
+            "cross_process_holder_published",
+            "cross_process_receipt_reused",
+            "cross_process_receipt_reused",
+        ], (index, statuses)
+    assert not list(root.rglob("*.claim"))
