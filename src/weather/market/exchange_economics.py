@@ -223,29 +223,59 @@ def _normalized_rule_text(value):
 # Contracts-page matchers. Wording is tolerated (a docs rewrite, first failing
 # refresh 2026-10-06, moved
 # "Chain ID: 137" to "chain ID `137`" and "CollateralToken (proxy)" to
-# "CollateralToken proxy"); the VALUES stay exact: chain 137 in the Polygon
-# sentence, and the first address after every pUSD proxy label must be
-# the pinned pUSD collateral proxy.
+# "CollateralToken proxy"); the VALUES stay exact: chain 137 must be the first
+# chain id after "Polygon" in the same sentence (a sentence ends at a period
+# followed by whitespace), and every 0x value on each pUSD proxy label's own
+# row, visible text and link target alike, must be the pinned pUSD collateral
+# proxy. Only the pre-2026-10-06 shape (label line, then a line holding only
+# the address) may put the address on the adjacent line.
+_SENTENCE_CHAR = r"(?:[^.]|\.(?!\s))"
+_CHAIN_ID = r"chain[\s_-]?id"
 _POLYGON_CHAIN_ID_137 = re.compile(
-    r"polygon[^.]{0,60}?chain id[\s:`(]*137(?![0-9])"
+    rf"polygon(?:(?!{_CHAIN_ID}){_SENTENCE_CHAR}){{0,120}}"
+    rf"{_CHAIN_ID}[\s:`(*_=|\u2013\u2014-]*137(?![0-9])"
 )
 _PUSD_PROXY_LABEL = re.compile(
-    r"pusd[^a-z0-9]{0,5}collateraltoken\s*(?:\(proxy\)|proxy)"
+    r"pusd[^a-z0-9]{0,5}collateral\s?token\s*(?:\(proxy\)|proxy)"
 )
-_EVM_ADDRESS = re.compile(r"0x[0-9a-f]{40}(?![0-9a-f])")
+_EVM_ADDRESS = re.compile(r"(?<![0-9a-z])0x[0-9a-f]{40}(?![0-9a-f])")
+# Any 0x-prefixed run, however malformed: a label's row may carry nothing but
+# the pinned address.
+_ANY_HEX_VALUE = re.compile(r"0x[0-9a-z]*")
+_BARE_ADDRESS_LINE = re.compile(r"`?(0x[0-9a-f]{40})`?")
 
 
 def _polygon_chain_id_137(text):
     return _POLYGON_CHAIN_ID_137.search(text) is not None
 
 
-def _pusd_proxy_label_binds_address(text):
-    labels = list(_PUSD_PROXY_LABEL.finditer(text))
-    if not labels:
+def _pusd_proxy_label_binds_address(source_text):
+    lines = [
+        _normalized_rule_text(line) for line in str(source_text or "").splitlines()
+    ]
+    label_lines = [
+        index
+        for index, line in enumerate(lines)
+        for _label in _PUSD_PROXY_LABEL.finditer(line)
+    ]
+    if not label_lines:
         return False
-    for label in labels:
-        address = _EVM_ADDRESS.search(text, label.end())
-        if address is None or address.group(0) != PUSD_COLLATERAL_PROXY_ADDRESS:
+    # A label split across lines would escape the per-row check: fail closed.
+    whole = _normalized_rule_text(source_text)
+    if len(_PUSD_PROXY_LABEL.findall(whole)) != len(label_lines):
+        return False
+    for index in label_lines:
+        row = lines[index]
+        values = _ANY_HEX_VALUE.findall(row)
+        if values:
+            if _EVM_ADDRESS.search(row) is None or any(
+                value != PUSD_COLLATERAL_PROXY_ADDRESS for value in values
+            ):
+                return False
+            continue
+        following = lines[index + 1] if index + 1 < len(lines) else ""
+        bare = _BARE_ADDRESS_LINE.fullmatch(following)
+        if bare is None or bare.group(1) != PUSD_COLLATERAL_PROXY_ADDRESS:
             return False
     return True
 
@@ -320,7 +350,7 @@ def _rule_document_semantic_checks(canonical_url, source_text):
     if canonical_url.endswith("/resources/contracts"):
         return {
             "polygon_mainnet": _polygon_chain_id_137(text),
-            "pusd_collateral_proxy": _pusd_proxy_label_binds_address(text),
+            "pusd_collateral_proxy": _pusd_proxy_label_binds_address(source_text),
         }
     return {"recognized_rule_document": False}
 

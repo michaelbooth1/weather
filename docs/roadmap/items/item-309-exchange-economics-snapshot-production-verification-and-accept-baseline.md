@@ -161,8 +161,10 @@ official rule pages on 2026-10-09 showed that five pages pass every check. Only
 No value changed: chain 137, the pUSD proxy address, the 0.05 weather fee, the
 25% rebate share and the 1 pUSD minimum are all still published. The fix on
 branch `claude/econ-contracts-matcher-20261009` accepts both wordings and stays
-strict on values: chain id 137 must appear in a Polygon sentence, and the first
-address after every pUSD CollateralToken proxy label must equal the pinned proxy
-address. Rule-document hashes are not part of the snapshot hash or the drift
+strict on values: 137 must be the first chain id after "Polygon" in the same
+sentence, and every 0x value on each pUSD CollateralToken proxy label's own row
+(visible text and link target) must equal the pinned proxy address; only the
+old label-then-address-line shape may carry the address on the adjacent line
+(review fix round 1, 2026-10-09). Rule-document hashes are not part of the snapshot hash or the drift
 comparison, so the changed page hash needs no baseline re-acceptance. The
 explicit-acceptance checkbox above is unaffected.
