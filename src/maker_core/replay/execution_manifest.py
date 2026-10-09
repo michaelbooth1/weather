@@ -137,8 +137,9 @@ def active_intervals(bundles, inventory, *, check=lambda: None):
     Exclusions: every whole-condition exclusion as before (``settlement_only``, ``target_after_settlement_only``),
     plus each envelope run outside the clause with ``start``/``end`` and reason ``horizon_outside_1_2`` (a
     descriptor holds a lead other than 1 or 2) or ``missing_descriptor`` (no valid descriptor yet). Those minutes
-    are inactive, so they are exclusions, never NO_QUOTE minutes. The maintenance window stays declared by
-    ``maintenance_utc`` and is not repeated here."""
+    are inactive, so they are exclusions, never NO_QUOTE minutes. Exclusion takes precedence over maintenance: an
+    exclusion row spans any 05:00-08:00 UTC minutes inside its run, and the maintenance split applies only to the
+    eligible runs. The maintenance window stays declared by ``maintenance_utc`` and is not repeated here."""
     from maker_core.replay.v2 import horizon
     from maker_core.replay.v2.lockstep import bundle_source
 

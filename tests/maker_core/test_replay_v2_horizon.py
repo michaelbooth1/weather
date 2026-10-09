@@ -25,7 +25,7 @@ from .fixtures.replay_bundle import seal
 from .fixtures.replay_scenario import Scenario
 
 UTC = timezone.utc
-NY, TOKYO = "America/New_York", "Asia/Tokyo"
+NY, TOKYO, CHATHAM = "America/New_York", "Asia/Tokyo", "Pacific/Chatham"
 CONFIG = V2Config(hazard_per_minute=.001, debug=True, keep=True)
 
 
@@ -83,11 +83,12 @@ def test_runs_split_the_envelope_by_the_latest_descriptor():
 
 # -- A band built row by row (Scenario payload shapes, one condition ID across days) ---------------------------
 class Band:
-    """One NYC condition for ``target`` across several fictional UTC days."""
+    """One condition (NYC by default) for ``target`` across several fictional UTC days."""
 
-    def __init__(self, target, cid="nyc-band", market="nyc"):
-        self.target, self.cid, self.market = target, cid, market
-        close = datetime.combine(target + timedelta(days=1), datetime.min.time(), tzinfo=time_zone(NY)).astimezone(UTC)
+    def __init__(self, target, cid="nyc-band", market="nyc", zone=NY):
+        self.target, self.cid, self.market, self.zone = target, cid, market, zone
+        close = datetime.combine(target + timedelta(days=1), datetime.min.time(), tzinfo=time_zone(zone))
+        close = close.astimezone(UTC)
         base = Scenario(day=target, markets=(market,), minutes=1).descriptors[market]
         self.desc = replace(base, condition_id=cid, close_at_utc=close, settle_at_utc=close + timedelta(minutes=1))
         self.days = {}
@@ -133,7 +134,7 @@ class Band:
 
     def inventory(self):
         return [dict(condition_id=self.cid, market_id=self.market, domain_id="fictional",
-                     target_date=self.target.isoformat(), local_timezone=NY)]
+                     target_date=self.target.isoformat(), local_timezone=self.zone)]
 
 
 def test_day_windows_follow_captured_and_derived_descriptors_and_agree_with_the_lead_window():
@@ -154,8 +155,8 @@ def test_day_windows_follow_captured_and_derived_descriptors_and_agree_with_the_
 
 
 # -- execution_manifest.active_intervals ---------------------------------------------------------------------
-def manifest_case(tmp_path, target, captures, days):
-    band = Band(target)
+def manifest_case(tmp_path, target, captures, days, zone=NY):
+    band = Band(target, zone=zone)
     for at, lead in captures:
         band.descriptor(at, lead)
     for day in days:
@@ -204,6 +205,52 @@ def test_mutant_whole_envelope_intervals_are_caught(tmp_path, monkeypatch):
     monkeypatch.setattr(horizon, "runs", lambda timeline, start, end: [(start, end, None)] if start < end else [])
     with pytest.raises(AssertionError):
         test_active_intervals_end_at_local_midnight_across_the_fall_back_night(tmp_path, monkeypatch)
+
+
+def test_a_descriptor_exactly_at_the_window_start_holds_from_that_instant(tmp_path, monkeypatch):
+    """Defender N6: Chatham (UTC+13:45 in November) captured exactly at 00:00Z must count at the envelope start."""
+    monkeypatch.setattr(execution_manifest, "SETTLEMENT_DATE", date(2026, 11, 30))
+    windows, excluded = manifest_case(
+        tmp_path, date(2026, 11, 22), [(utc(2026, 11, 20), 2)],  # 11-20 13:45 local: lead 2; lead 1 from 10:15Z
+        [date(2026, 11, 20)], zone=CHATHAM)
+    assert [(w["start"], w["end"]) for w in windows] == [
+        (iso(2026, 11, 20), iso(2026, 11, 20, 5)), (iso(2026, 11, 20, 8), iso(2026, 11, 21))]
+    assert excluded == []
+
+
+def test_mutant_descriptor_at_the_window_start_ignored_is_caught(tmp_path, monkeypatch):
+    def strict(timeline, at):  # the Defender's ``_state`` mutant: only entries strictly before ``at``
+        seen, value = False, None
+        for when, horizon_days in timeline:
+            if when >= at:
+                break
+            seen, value = True, horizon_days
+        return seen, value
+    monkeypatch.setattr(horizon, "_state", strict)
+    with pytest.raises(AssertionError):
+        test_a_descriptor_exactly_at_the_window_start_holds_from_that_instant(tmp_path, monkeypatch)
+
+
+def test_a_gap_day_in_the_panel_carries_the_last_lead_across_it(tmp_path, monkeypatch):
+    """Defender N1, CURRENT behaviour pinned, and an OPEN OWNER ITEM against registration C13.
+
+    The panel has 11-17 and 11-19 but not 11-18. ``DayRoll`` derives descriptors only at local midnights inside the
+    days it is driven over, so the Tokyo midnights of 11-18 15:00Z (true lead 0) and 11-19 15:00Z (lead -1) are
+    never derived: the band keeps the captured lead 1 and stays active all of 11-19, where the true local lead is 0
+    and then -1. The engine reads the same carried lead (manifest and engine agree), so this is not a manifest/engine
+    split; it is a C13 gap. Candidate fixes for the owner: a catch-up derived item at the first instant after a gap,
+    or ``run_plan`` refusing non-contiguous panel days. Until the owner rules, this test pins today's behaviour so any
+    change to it is deliberate."""
+    monkeypatch.setattr(execution_manifest, "SETTLEMENT_DATE", date(2026, 11, 30))
+    windows, excluded = manifest_case(
+        tmp_path, date(2026, 11, 19), [(utc(2026, 11, 17, 16), 1)],  # 11-18 01:00 Tokyo: lead 1
+        [date(2026, 11, 17), date(2026, 11, 19)], zone=TOKYO)
+    assert [(w["date"], w["start"], w["end"]) for w in windows] == [
+        ("2026-11-17", iso(2026, 11, 17, 16), iso(2026, 11, 18)),
+        ("2026-11-19", iso(2026, 11, 19), iso(2026, 11, 19, 5)),  # true lead 0 then -1: carried lead 1 (owner item)
+        ("2026-11-19", iso(2026, 11, 19, 8), iso(2026, 11, 20))]
+    assert [(e["date"], e["reason"], e["start"], e["end"]) for e in excluded] == [
+        ("2026-11-17", "missing_descriptor", iso(2026, 11, 17), iso(2026, 11, 17, 16))]
 
 
 # -- the engine: withdrawal at the interval end, and the blind RE-1 gate ------------------------------------------
@@ -263,13 +310,36 @@ def test_mutant_blind_gate_removed_is_caught(monkeypatch):
 
 
 # -- attribution: Q2 is its own class A8, against W1+W2+F3 -------------------------------------------------------
+CUT = (utc(2026, 11, 1, 3, 50), utc(2026, 11, 1, 3, 55))  # dense-11-01-dst: NYC and Toronto read lead 1 here
+
+
+def cut_windows(sources, low=CUT[0], high=CUT[1]):
+    """A window cut the clause does not ask for: [low, high) removed where the engine still reads lead 1."""
+    out = []
+    for s in sources:
+        p = s.plan
+        windows = {cid: tuple((x, y) for a, b in spans for x, y in ((a, min(b, low)), (max(a, high), b)) if x < y)
+                   for cid, spans in p.windows.items()}
+        out.append(DaySource(DayPlan(p.day, p.conditions, MappingProxyType(windows), p.groups, p.provenance,
+                                     p.input_hashes, p.declared), s.records))
+    return out
+
+
+def verdicts(result):
+    return {c["attribution"]["verdict"] for passes in result.values() for c in passes.values()}
+
+
 def test_q2_attributes_every_changed_decision_to_a8_or_its_cascade():
     from tools.research.maker_replay_v2 import attribution
+    # Negative control first (Defender M1): a cut where the engine reads lead 1 is not the clause, so it must FAIL.
+    control = attribution.report_q2(["dense-11-01-dst"], windows=cut_windows)
+    assert "FAIL_A8_CUT_NOT_THE_CLAUSE" in verdicts(control), control
     result = attribution.report_q2()
     print("Q2_ATTRIBUTION_JSON " + json.dumps(result, sort_keys=True, default=str))
     cells = {(f, k): c["attribution"] for f, passes in result.items() for k, c in passes.items()}
     assert {c["verdict"] for c in cells.values()} == {"PASS"}, {k: c for k, c in cells.items() if c["verdict"] != "PASS"}
     assert all(set(c["classes"]) <= {"A8"} for c in cells.values()), cells
+    assert all(c["clause_violations"] == c["unexplained_cuts"] == 0 for c in cells.values()), cells
     dst = [c for (f, _), c in cells.items() if f == "dense-11-01-dst"]
     assert sum(c["changed_decisions"] for c in dst) > 0  # NYC and Toronto leave lead 1 at 04:00Z in the window
     assert any(cells["dense-11-01-dst", f"blind_re1/{b}"]["classes"].get("A8") for b in ("strictly_through", "at_price"))
@@ -299,3 +369,35 @@ def test_mutant_a8_change_without_its_class_fails_the_re_run(monkeypatch):
     post = attribution.run(attribution.horizon_sources(sources, zones), "Q2", zones)
     verdicts = {attribution.attribute(base[k][0], post[k][0])["verdict"] for k in post}
     assert verdicts - {"PASS"}, verdicts
+
+
+# -- the Defender's three M1 mutants: each must make the A8 re-run FAIL -------------------------------------------
+def test_mutant_a8_predicate_always_true_is_caught(monkeypatch):
+    """A8 labelling every tick in the post run (self-labelling) must not pass: the negative control catches it."""
+    from tools.research.maker_replay_v2 import attribution
+    original = attribution.attributing
+
+    def vacuous(engine, q2=False):
+        cls = original(engine, q2=q2)
+        cls.outside_clause = lambda self, cid, at: q2
+        return cls
+    monkeypatch.setattr(attribution, "attributing", vacuous)
+    with pytest.raises(AssertionError):
+        test_q2_attributes_every_changed_decision_to_a8_or_its_cascade()
+
+
+def test_mutant_utc_zone_windows_fail_the_re_run(monkeypatch):
+    """Clause windows cut at UTC midnight while the engine rolls at the NYC midnight: the band stays active at
+    engine lead 0, so the clause is not applied and the re-run must FAIL."""
+    from tools.research.maker_replay_v2 import attribution
+    original = horizon.timelines
+    monkeypatch.setattr(horizon, "timelines", lambda sources, zones: original(sources, {m: "UTC" for m in zones}))
+    result = attribution.report_q2(["dense-11-01-dst"])
+    assert "FAIL_A8_CLAUSE_NOT_APPLIED" in verdicts(result), result
+
+
+def test_mutant_eligible_leads_zero_one_two_fail_the_re_run(monkeypatch):
+    from tools.research.maker_replay_v2 import attribution
+    monkeypatch.setattr(horizon, "ELIGIBLE", (0, 1, 2))
+    result = attribution.report_q2(["dense-11-01-dst"])
+    assert "FAIL_A8_CLAUSE_NOT_APPLIED" in verdicts(result), result

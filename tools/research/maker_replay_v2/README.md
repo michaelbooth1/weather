@@ -71,7 +71,16 @@ Owner ruling Q2(a) (2026-10-08; registration C15) adds class **A8** to `attribut
 fixture day's condition windows by the §4 horizon clause (`maker_core.replay.v2.horizon.day_windows`, the same
 captured-or-derived descriptor timeline the engine reads), and the `Q2` variant is `all` plus the blind RE-1 horizon
 gate (`Kernel.blind_horizons`, `HORIZON_NOT_ELIGIBLE`). `report_q2()` attributes `Q2` on the clause windows against
-`all` on the envelope windows; every changed decision must be A8 (outside the clause window inside the envelope, or a
-blind gate pull) or a cascade from one. The module's `__main__` writes both `rulings` (A1-A6 against `frozen`) and
+`all` on the envelope windows; every changed decision must be A8 or a cascade from one. A8 is not self-labelling
+(Defender M1, 2026-10-08): a decision is A8 only when the condition is outside the clause window inside the
+envelope **and** the post engine's own horizon read at that instant (its latest captured or derived descriptor) is
+missing or not in `A8_LEADS` = (1, 2), a literal independent of `horizon.py`; a blind gate pull is A8 under the same
+horizon test. Two further checks fail the re-run: a post decision taken while the engine's horizon is outside 1..2,
+other than the interval-end `CANCEL OUTSIDE_ACTIVE_INTERVAL` (`FAIL_A8_CLAUSE_NOT_APPLIED`), and a post wake cut out
+of its window while the engine reads 1..2 (`FAIL_A8_CUT_NOT_THE_CLAUSE`). Both are needed because rule 3 counts every
+change after the first direct one as cascade. `tests/maker_core/test_replay_v2_horizon.py` runs a negative control
+(a 5-minute cut at engine lead 1) and shows the re-run fails for an always-true A8 predicate, UTC-zone clause windows,
+and an eligible set of (0, 1, 2). The A8 fixtures show zero quote, fill and cash deltas; the value effects of Q2 rest
+on the hand-built engine tests in that module, not on these fixtures. The module's `__main__` writes both `rulings` (A1-A6 against `frozen`) and
 `q2_against_all`. `frozen` and the other variants run with the blind gate off, so the pinned prefix digests are
 unchanged.

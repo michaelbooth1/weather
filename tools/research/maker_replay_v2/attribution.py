@@ -9,14 +9,21 @@ cascade, or the re-run fails:
 - **A5** (W2): a same-instant replacement decided on the public book instead of the pre-cancel book;
 - **A6** (F3): the horizon read differs from the latest captured descriptor's because a derived local-midnight
   descriptor precedes it. (A7, the reopen class, does not arise: this engine applies no reopen records.)
-- **A8** (Q2(a), owner 2026-10-08; its own class, not A6): the registration §4 horizon clause. Either the condition
-  is outside its active interval at t only because the latest captured or derived descriptor holds a lead other
-  than 1 or 2 (``maker_core.replay.v2.horizon``; the interval ends at local midnight and the legs are withdrawn
-  there, and a later wake inside the old envelope is not decided at all; a base decision with no post wake at an
-  instant where the condition is outside its clause window, such as the base's window-start
-  ``MISSING_DESCRIPTOR`` pull, is A8 too: ``absent_a8``), or blind RE-1 is refused by its new
-  horizon gate (``HORIZON_NOT_ELIGIBLE``, ``Kernel.blind_horizons``). A8 is attributed against ``all``
-  (W1+W2+F3), not against ``frozen``: Q2 is a change on top of the three 2026-10-07 rulings and needs the refresh.
+- **A8** (Q2(a), owner 2026-10-08; its own class, not A6): the registration §4 horizon clause. A decision at t
+  is directly A8 only when **both** hold: the condition is outside its post-run window but inside its envelope (the
+  base run's window), **and** the post engine's own horizon read at t (its latest descriptor, captured or derived,
+  from ``lockstep.drive``/``DayRoll`` with the real zones) is missing or not in ``A8_LEADS`` = (1, 2), a literal
+  independent of ``horizon.ELIGIBLE``. So a window cut where the engine reads lead 1 or 2 is not A8 and fails the
+  re-run (Defender M1, 2026-10-08: A8 was self-labelling). Cases: the interval ends at local midnight and the legs
+  are withdrawn there; a later wake inside the old envelope is not decided at all; a base decision with no post
+  wake (e.g. the base's window-start ``MISSING_DESCRIPTOR`` pull) is A8 by the same test (``absent_a8``); blind
+  RE-1 refused by its gate (``HORIZON_NOT_ELIGIBLE``). Completeness: in the post run, any decision recorded while
+  the engine's horizon is missing or outside (1, 2), other than the interval-end ``CANCEL OUTSIDE_ACTIVE_INTERVAL``,
+  means the clause was not applied (``FAIL_A8_CLAUSE_NOT_APPLIED``); soundness: a post wake outside the window but
+  inside the envelope while the engine reads lead 1 or 2 is a cut the clause does not ask for
+  (``FAIL_A8_CUT_NOT_THE_CLAUSE``). Both are needed because rule 3 treats every change after the first direct one
+  as cascade, so a mislabelled cut later in the day would otherwise hide behind an earlier genuine A8. A8 is
+  attributed against ``all`` (W1+W2+F3), not against ``frozen``: Q2 is a change on top of the 2026-10-07 rulings.
 
 Variants (``VARIANTS``) switch each ruling on alone and all together; ``frozen`` reproduces the engine before
 the rulings (T1 decision book, T2 replacement book, no refresh, no blind horizon gate) and is pinned to the pre-fix
@@ -76,6 +83,7 @@ def variant(engine, name):
     return Variant
 
 
+A8_LEADS = (1, 2)  # registration §4: leads 1 and 2; a literal, deliberately not ``horizon.ELIGIBLE``
 VARIANTS = {"frozen": False, "W1": False, "W2": False, "F3": True, "all": True, "Q2": True}  # name -> refresh
 
 
@@ -88,8 +96,8 @@ def attributing(engine, q2=False):
     """``engine`` that runs the direct check (rule 1) at every ``decide()`` and records each decision's inputs.
 
     With ``q2`` the base is ``all`` (same books and refresh), so the book and horizon checks are off and the direct
-    check is A8's: a tick at which the condition is inside its envelope (``active_from``/``active_until``, the base
-    run's window) but outside its horizon-clause window, or a blind RE-1 ``HORIZON_NOT_ELIGIBLE`` pull."""
+    check is A8's (``outside_clause``: outside the post window, inside the envelope, and the engine's own horizon
+    missing or not in ``A8_LEADS``), plus the clause-completeness check in ``record_decision``."""
     from maker_core.replay.v2 import kernel as k
 
     class Attributing(engine):
@@ -98,18 +106,21 @@ def attributing(engine, q2=False):
             self.direct, self.classes = [], Counter()
             self.captured, self.derived_shas = {}, set()
             self.inputs, self._pending = [], None
-            self.envelope = {}
+            self.envelope, self.horizons, self.clause_violations, self.unexplained_cuts = {}, {}, [], []
             for day in self.plan.days:
                 for c in day.conditions:
                     self.envelope.setdefault(c.condition_id, []).append((c.active_from, c.active_until))
 
         def tick(self, cid, at):
-            if q2 and self.outside_clause(cid, at):
-                self._record(cid, ("A8",))
+            if q2 and not self.active(cid, at) and self.in_envelope(cid, at):
+                if self.outside_clause(cid, at):
+                    self._record(cid, ("A8",))
+                else:  # a cut inside the envelope where the engine reads lead 1 or 2: not the clause
+                    self.unexplained_cuts.append((at, cid, self.engine_horizon(cid, at)))
             super().tick(cid, at)
 
         def pull(self, cid, at, reason):
-            if q2 and reason == "HORIZON_NOT_ELIGIBLE":
+            if q2 and reason == "HORIZON_NOT_ELIGIBLE" and self.engine_horizon(cid, at) not in A8_LEADS:
                 self._record(cid, ("A8",))
             super().pull(cid, at, reason)
 
@@ -119,6 +130,8 @@ def attributing(engine, q2=False):
 
         def ingest(self, cid, kind, payload_sha, value, error, at):
             super().ingest(cid, kind, payload_sha, value, error, at)
+            if kind == "descriptor":  # the engine's own horizon read, captured or derived (None when invalid)
+                self.horizons.setdefault(cid, []).append((at, None if error is not None else value.horizon_days))
             if kind == "descriptor" and error is None and payload_sha not in self.derived_shas:
                 self.captured[cid] = value.horizon_days
 
@@ -126,9 +139,23 @@ def attributing(engine, q2=False):
             self.direct.append((self.now if at is None else at, cid, classes))
             self.classes.update(classes)
 
+        def engine_horizon(self, cid, at):
+            """The engine's horizon read at ``at``: its latest descriptor at or before ``at`` (None if missing)."""
+            value = None
+            for when, horizon_days in self.horizons.get(cid, ()):
+                if when > at:
+                    break
+                value = horizon_days
+            return value
+
+        def in_envelope(self, cid, at):
+            return any(a <= at < b for a, b in self.envelope.get(cid, ()))
+
         def outside_clause(self, cid, at):
-            """A8's direct condition: inside the envelope (the base's window) but outside the clause window."""
-            return not self.active(cid, at) and any(a <= at < b for a, b in self.envelope.get(cid, ()))
+            """A8's direct condition: outside the post window, inside the envelope (the base's window), and the
+            engine's own horizon at ``at`` missing or not in ``A8_LEADS`` (independent of ``horizon.py``)."""
+            return (not self.active(cid, at) and self.in_envelope(cid, at)
+                    and self.engine_horizon(cid, at) not in A8_LEADS)
 
         def absent_a8(self, base):
             """A base decision with no post wake at all is A8 when the post condition is outside its clause window
@@ -172,6 +199,9 @@ def attributing(engine, q2=False):
             return post
 
         def record_decision(self, cid, at, decision):
+            if (q2 and self.engine_horizon(cid, at) not in A8_LEADS
+                    and (decision.action, decision.reasons) != ("CANCEL", ("OUTSIDE_ACTIVE_INTERVAL",))):
+                self.clause_violations.append((at, cid, decision.action, decision.reasons))
             self.inputs.append(self._pending)
             self._pending = None
             super().record_decision(cid, at, decision)
@@ -266,14 +296,18 @@ def attribute(base, post):
     direct = sorted((at, cid) for at, cid, _ in post.direct)
     direct_at = {(at, cid) for at, cid in direct}
     unattributed = post.classes.get("UNATTRIBUTED", 0)
+    violations = len(getattr(post, "clause_violations", ()))
+    cuts = len(getattr(post, "unexplained_cuts", ()))
     first = changed[0] if changed else None
     first_direct = first is None or (first[0], first[1]) in direct_at
     cascade = sum(1 for key in changed if not direct or direct[0][0] > key[0])
-    verdict = ("FAIL_RULE1_UNATTRIBUTED" if unattributed else "FAIL_RULE2_DETERMINISM" if determinism
+    verdict = ("FAIL_A8_CLAUSE_NOT_APPLIED" if violations else "FAIL_A8_CUT_NOT_THE_CLAUSE" if cuts
+               else "FAIL_RULE1_UNATTRIBUTED" if unattributed else "FAIL_RULE2_DETERMINISM" if determinism
                else "FAIL_RULE3_FIRST_NOT_DIRECT" if not first_direct else "FAIL_RULE3_CASCADE" if cascade
                else "PASS")
     return dict(verdict=verdict, changed_decisions=len(changed), direct_checks=len(post.direct),
-                classes=dict(sorted(post.classes.items())),
+                classes=dict(sorted(post.classes.items())), clause_violations=violations,
+                unexplained_cuts=cuts,
                 first_difference=None if first is None else [first[0].isoformat(), first[1], first[2]])
 
 
@@ -322,14 +356,18 @@ def report(names=None, variants=("W1", "W2", "F3", "all")):
     return out
 
 
-def report_q2(names=None):
-    """A8: ``Q2`` on horizon-clause windows against ``all`` on the envelope windows, per fixture and pass."""
+def report_q2(names=None, windows=None):
+    """A8: ``Q2`` on horizon-clause windows against ``all`` on the envelope windows, per fixture and pass.
+
+    ``windows`` (sources -> sources) transforms the clause sources first; the tests use it for negative controls
+    (a window cut where the engine reads lead 1 or 2 must FAIL)."""
     table, zones = fixtures()
     out = {}
     for fixture in names or table:
         sources = table[fixture]()
         base = run(sources, "all", zones)
-        post = run(horizon_sources(sources, zones), "Q2", zones)
+        clause = horizon_sources(sources, zones)
+        post = run(clause if windows is None else windows(clause), "Q2", zones)
         for key, (engine, _) in post.items():
             engine.absent_a8(base[key][0])
         out[fixture] = {f"{p}/{b}": dict(attribution=attribute(base[b, p][0], post[b, p][0]),
