@@ -264,3 +264,27 @@ def test_tape_opening_scope_carries_code_identity_and_score_surfaces_it(tmp_path
     assert report["tapes"][0]["git_commit"] == "c" * 40 and report["tapes"][0]["git_dirty"] is False
     assert report["code"] == {"git_commits": ["c" * 40], "tapes": 1, "dirty_tapes": 0, "unbound_tapes": 0}
     assert printed["code"] == report["code"]
+
+
+def test_offline_run_writes_record_stream_and_bundle_day_cli(tmp_path, capsys):
+    from maker_core.shadow.records import day_directory
+    from tests.maker_core.fixtures import replay_v2_reader_contract as reader
+    prints = [data_print(YES, NOW + timedelta(seconds=20), "0.48", 30)]
+    tapes = run_offline(tmp_path, minutes=3, prints=prints)
+    capsys.readouterr()
+    rows = [json.loads(line) for line in tapes[0].read_text().splitlines()]
+    run_id = rows[0]["scope"]["run_id"]
+    assert rows[0]["scope"]["records_stream"] == f"records/{NOW.date()}/{NOW.date()}-{run_id}-records.jsonl"
+    assert [r["raw"]["records"] > 0 for r in rows if r["event"] == "minute"] == [True, True, True]
+    root = tmp_path / "tapes"
+    assert maker_shadow.main(["bundle-day", "--day", NOW.date().isoformat(), "--tape-root", str(root)]) == 0
+    printed = json.loads(capsys.readouterr().out)
+    assert printed["streams"] == 1 and printed["conditions"] == 1 and printed["records"]["unsealed_streams"] == []
+    bundle = reader.StreamBundle(day_directory(root, NOW.date().isoformat()))
+    assert bundle.conditions and set(bundle.groups) == {"cov-" + CONDITION[2:26]}
+    kinds = {r.kind for r in bundle.records()}
+    # The static fixture serves its one print from the first poll, so it is the trade baseline, never a trade.
+    assert kinds == {"plugin_input", "descriptor", "book", "terms", "outcome_view", "info_event", "coverage"}
+    manifest = json.loads((bundle.root / "bundle.json").read_text())
+    assert manifest["conditions"][0]["market_id"] == "nyc"
+    assert maker_shadow.main(["bundle-day", "--day", NOW.date().isoformat(), "--tape-root", str(root)]) == 2

@@ -4,7 +4,9 @@
 minute reads both-token CLOB books and CLOB reward terms, runs ``informed_v0``
 through ``maker_core.shadow.runner`` (every would-quote leg through the #180
 ``OrderGate``) and appends a minute record to a daily sealed tape under
-``data/maker_shadow/tapes``. ``score`` checks a closed, non-embargoed UTC day's
+``data/maker_shadow/tapes``, plus (tape v0.2) a record stream of the raw public
+replies it read, in replay-bundle row format; ``bundle-day`` writes a closed day's
+replay-v2 ``bundle.json`` over those streams. ``score`` checks a closed, non-embargoed UTC day's
 sealed tapes against the sealed 88a capture of that day. International
 Polymarket public reads only; no credential, order client or scheduled task.
 Contract: docs/operations/maker-shadow-runner.md.
@@ -28,6 +30,7 @@ from maker_core.evidence.journal import digest, write_new
 from maker_core.runtime.guard import OrderGate
 from maker_core.runtime.portfolio_io import read_json
 from maker_core.shadow.paper import FILL_RULES, PAPER_CAMPAIGN, PaperLedger
+from maker_core.shadow.records import RawRecorder, RecordingReads, bundle_day, records_summary
 from maker_core.shadow.runner import ShadowCancelPort, ShadowMarket, ShadowRunner
 from maker_core.shadow.score import score_day
 from maker_core.shadow.tape import PROFILES, TapeWriter, sealed_tapes
@@ -47,6 +50,7 @@ PAPER_KEYS = ("starting_cash_pusd", "bleed_limit_pusd", "fill_rule")
 
 
 GIT_TIMEOUT_SECONDS = 60
+MID_MINUTE_POLL = timedelta(seconds=30)  # Keeps 60 s trade coverage continuous between minute polls.
 
 
 def code_identity(root=REPO_ROOT):
@@ -199,6 +203,12 @@ def discover(feed, specs, now_utc, *, horizons, max_conditions):
     return chosen, record
 
 
+def slug_market_ids(specs, now_utc, horizons):
+    """Event slug -> registry market id for the slugs ``discover`` asks for (the record stream's market id)."""
+    return {event_slug_for_date(now_utc.astimezone(spec.tz).date() + timedelta(days=h), spec.id): spec.id
+            for spec in specs for h in horizons}
+
+
 def unavailable_fair_value(descriptor, now_utc):
     """The weather maker plugin is not on master: v0 shadow quotes blind width (grade-none caps)."""
     return Unavailable("weather_fair_value_provider_not_integrated", now_utc)
@@ -239,7 +249,7 @@ def run(args):
         mode = "offline_fixture"
     else:
         transport, clock, mode = UrllibTransport(), (lambda: datetime.now(timezone.utc)), "public_shadow"
-    feed = PublicFeed(transport)
+    feed = RecordingReads(PublicFeed(transport), clock)  # Raw replies are kept for the v0.2 record stream.
     runner = build_runner(config, feed, clock)
     specs = [s for s in all_specs() if config["markets"] is None or s.id in config["markets"]]
     out = Path(args.output_root) if args.output_root else DEFAULT_ROOT / "tapes"
@@ -249,13 +259,19 @@ def run(args):
              "hazard_per_minute": config["hazard_per_minute"], "adverse_markout": config["adverse_markout"],
              "caps": config["caps"], "paper": config["paper"], "guard_book": "paper_campaign_book",
              **code_identity()}
-    writer = TapeWriter(out, clock=clock, scope=scope)
-    markets, discovered_at, done, reason, last = [], None, 0, "completed", None
+    market_ids = {}
+    writer = TapeWriter(out, clock=clock, scope=scope, recorder=RawRecorder(feed, market_id=market_ids.get))
+    markets, discovered_at, done, reason, last, mid_poll = [], None, 0, "completed", None, None
     try:
         while not args.minutes or done < args.minutes:
             minute = clock().replace(second=0, microsecond=0)
             if minute == last:
-                time.sleep(max(0.0, (minute + timedelta(minutes=1) - clock()).total_seconds()))
+                if mid_poll is not None and clock() >= mid_poll:
+                    mid_poll = None
+                    writer.poll([m.descriptor.condition_id for m in markets])
+                    continue
+                wake = mid_poll or minute + timedelta(minutes=1)
+                time.sleep(max(0.0, (wake - clock()).total_seconds()))
                 continue
             if args.stop_file and Path(args.stop_file).exists():
                 reason = "stop_file"
@@ -264,14 +280,16 @@ def run(args):
             if discovered_at is None or minute - discovered_at[0] >= timedelta(minutes=config["rediscover_minutes"]) \
                     or utc_day != discovered_at[1]:
                 try:
+                    market_ids.update(slug_market_ids(specs, minute, config["horizons"]))
                     markets, universe = discover(feed, specs, minute, horizons=config["horizons"],
                                                  max_conditions=config["max_conditions"])
                     writer.record("universe", minute, **universe)
                 except Exception as error:  # Keep the previous universe; the failure is on the tape.
                     writer.record("universe_error", minute, error=type(error).__name__)
                 discovered_at = (minute, utc_day)
+            feed.poll([m.descriptor.condition_id for m in markets])  # Served once to the paper-fill read.
             writer.record("minute", minute, **runner.step(minute, markets))
-            done, last = done + 1, minute
+            done, last, mid_poll = done + 1, minute, minute + MID_MINUTE_POLL
             if mode == "offline_fixture":
                 clock.now = minute + timedelta(minutes=1)
     except KeyboardInterrupt:
@@ -309,6 +327,20 @@ def score(args):
     return 0
 
 
+def bundle(args):
+    """Write a closed UTC day's replay-v2 ``bundle.json`` over its sealed record streams (create-only)."""
+    day = date.fromisoformat(args.day).isoformat()
+    tape_root = Path(args.tape_root) if args.tape_root else DEFAULT_ROOT / "tapes"
+    try:
+        path, manifest = bundle_day(tape_root, day, clock=lambda: datetime.now(timezone.utc))
+    except FileExistsError:
+        print(json.dumps({"refused": "bundle_exists", "utc_day": day}))
+        return 2
+    print(json.dumps({"bundle": str(path), "utc_day": day, "streams": len(manifest["streams"]),
+                      "conditions": len(manifest["conditions"]), "records": records_summary(tape_root, day)}))
+    return 0
+
+
 def parser():
     p = argparse.ArgumentParser(prog="python -m weather.market.maker_shadow", description=__doc__.split("\n")[0])
     sub = p.add_subparsers(dest="command", required=True)
@@ -323,13 +355,16 @@ def parser():
     s.add_argument("--tape-root", help="tape directory (default data/maker_shadow/tapes)")
     s.add_argument("--maker-evidence-root", help="88a root holding <day>/<segment>/ (default data/maker_evidence)")
     s.add_argument("--out", help="new report path (default data/maker_shadow/scores/<day>-<hash>.json)")
+    b = sub.add_parser("bundle-day", help="replay-v2 bundle.json over a closed UTC day's sealed record streams")
+    b.add_argument("--day", required=True, help="closed UTC day YYYY-MM-DD")
+    b.add_argument("--tape-root", help="tape directory (default data/maker_shadow/tapes)")
     return p
 
 
 def main(argv=None):
     args = parser().parse_args(argv)
     try:
-        return run(args) if args.command == "run" else score(args)
+        return {"run": run, "score": score, "bundle-day": bundle}[args.command](args)
     except ValueError as error:
         print(json.dumps({"refused": str(error)}), file=sys.stderr)
         return 2
