@@ -7,7 +7,10 @@ a local list. A PAUSE/HALT cancel-all intent withdraws every hypothetical leg.
 In shadow mode the guard evaluates a ``PaperLedger`` (shadow campaign book):
 declared starting cash plus the runner's own simulated fills of its resting
 legs from public prints under a desk-study fill rule; no wallet is read. The
-hypothetical quoting caps are separate config values. Contract: docs/operations/maker-shadow-runner.md.
+hypothetical quoting caps are separate config values. ``decide`` reads the
+decision book: the public book with the runner's resting paper legs on it,
+built by ``maker_core.quoting.book.compose_book``, the same function the replay
+v2 kernel imports (engine ruling W1(a); OD23). Contract: docs/operations/maker-shadow-runner.md.
 """
 from dataclasses import dataclass, replace
 from datetime import datetime
@@ -16,6 +19,7 @@ from typing import Callable, Mapping, Protocol
 
 from maker_core.contracts import MarketDescriptor, OutcomeView, Unavailable
 from maker_core.evidence.journal import digest, plain
+from maker_core.quoting.book import compose_book, own_size_moves_mid
 from maker_core.quoting.policy import Book, DecisionInputs, Portfolio, RewardTerms, decide
 from maker_core.runtime.guard import ALLOW, GatedPlacement, GuardRefused, OrderGate
 from maker_core.shadow.paper import PaperLedger, fill_legs, parse_prints
@@ -129,6 +133,7 @@ class ShadowRunner:
         if not isinstance(self.placement, GatedPlacement):
             raise TypeError("gated_placement_required")
         self.resting, self.placed_at, self.previous_view = {}, {}, {}
+        self.own_mid = {"books_with_own_legs": 0, "mid_differs": 0}
         self.minute_intents, self.events, self.assets, self.print_since, self.filled = [], {}, {}, {}, set()
         cancel_port.listeners.append(self._withdraw_all)
 
@@ -183,6 +188,7 @@ class ShadowRunner:
     def step(self, minute_utc, markets):
         """Evaluate every market once; return the ``minute`` tape payload."""
         self.minute_intents = []
+        self.own_mid = {"books_with_own_legs": 0, "mid_differs": 0}
         self.events.update({m.descriptor.condition_id: m.descriptor.event_id for m in markets})
         paper = self._simulate_fills() if self.paper is not None else None
         current = {m.descriptor.condition_id for m in markets}
@@ -202,6 +208,7 @@ class ShadowRunner:
         for market in sorted(markets, key=lambda m: m.descriptor.condition_id):
             record["conditions"].append(self._condition(market, wallet))
         record["cancel_all"] = list(self.minute_intents)
+        record["own_size_mid"] = dict(self.own_mid)  # OD23 diagnostic, counts only
         record["resting_after"] = {cid: plain(legs) for cid, legs in sorted(self.resting.items())}
         self.filled = set()
         return record
@@ -242,20 +249,25 @@ class ShadowRunner:
             if self.paper is not None:
                 self.paper.mark(d.outcome_tokens["YES"], d.condition_id, book.yes_bids, book.yes_asks, received)
                 self.paper.mark(d.outcome_tokens["NO"], d.condition_id, book.no_bids, book.no_asks, received)
+            existing = self.resting.get(d.condition_id, ())
+            decision_book = compose_book(book, existing)  # marks and fills read the public book above
         except Exception as error:  # Unreadable public input: recorded, never quoted on.
             self.resting.pop(d.condition_id, None)
             row["unevaluated"] = "public_input_unavailable:" + type(error).__name__
             return row
         terms, terms_reason = terms_from_public(reward, received)
+        if existing and terms is not None:
+            self.own_mid["books_with_own_legs"] += 1
+            self.own_mid["mid_differs"] += own_size_moves_mid(book, decision_book, terms.min_size)
         now = self.clock()
         view = self.fair_value(descriptor, now)
         if not isinstance(view, (OutcomeView, Unavailable)):
             raise TypeError("fair_value_provider_contract")
         inputs = DecisionInputs(
-            market=descriptor, now=now, book=book, terms=terms, fair_value=view,
+            market=descriptor, now=now, book=decision_book, terms=terms, fair_value=view,
             portfolio=self._portfolio(descriptor), horizon_days=market.horizon_days, profile=self.profile,
             hazard_per_minute=self.hazard, adverse_markout=self.adverse,
-            existing=self.resting.get(d.condition_id, ()), fill_seen=d.condition_id in self.filled,
+            existing=existing, fill_seen=d.condition_id in self.filled,
             last_requote_at=self.placed_at.get(d.condition_id),
             previous_fair_value=self.previous_view.get(d.condition_id))
         decision = decide(inputs)

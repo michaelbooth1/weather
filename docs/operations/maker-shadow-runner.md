@@ -49,6 +49,16 @@ what it **would** quote. It never places, cancels or signs anything:
   latches exactly as for a live runtime; only the owner's latch command clears it.
   The paper book belongs to one run (a restart starts a fresh book; the latch
   persists). Quoting caps are separate hypothetical config values.
+- **Decision book.** `decide()` reads the public book with the runner's resting
+  paper legs on it, composed by `maker_core.quoting.book.compose_book`, the same
+  function the replay v2 kernel imports (engine ruling W1(a)): each leg on its own
+  bid array and mirrored at `1 - p` on the complement's ask array, levels created
+  and sizes summed. Per OD23 (signed 2026-10-08), own size stays in the qualified
+  mid and is removed only from competing score and displayed depth. The taped
+  `inputs.book` is this decision book (it is the public book plus `inputs.existing`,
+  so the public book is recoverable); paper marks and fills read the public book.
+  Each minute records `own_size_mid`: how many decision books carried own legs and
+  how many of those had a qualified mid that differs with own size removed.
 - **Fair value.** The weather maker plugin is not on master, so the weather
   composition passes `Unavailable("weather_fair_value_provider_not_integrated")`:
   `informed-v0` then quotes the blind width with grade-`none` size caps. The
@@ -119,7 +129,7 @@ day and run: `<day>-<run>.tape.jsonl`, a `maker_core.evidence.journal` chain
 | --- | --- |
 | `opened` | Scope: mode (`public_shadow` / `offline_fixture`), profile, config and guard-policy digests, caps, fill bound, fair-value source, UTC day, run id; code identity `git_commit` / `git_dirty` / `git_error` (below) |
 | `universe` / `universe_error` | Selected conditions, candidates, cap drops, refusal counts, missing events |
-| `minute` | `minute_utc`; minute guard decision; guard-book digest; `paper` (fill rule, this minute's simulated fills, print gaps, paper cash, P&L, status, bleed state, held-mark age); per condition: identity, `outcomes` (YES/NO asset ids), exact policy `inputs`, `decision`, per-leg `gate` outcome (`ALLOW`/`PAUSE`/`HALT`/`REFUSED_AT_REDEEM`, `placed`), venue timestamps; `cancel_all` intents; `resting_after` |
+| `minute` | `minute_utc`; minute guard decision; guard-book digest; `paper` (fill rule, this minute's simulated fills, print gaps, paper cash, P&L, status, bleed state, held-mark age); per condition: identity, `outcomes` (YES/NO asset ids), exact policy `inputs`, `decision`, per-leg `gate` outcome (`ALLOW`/`PAUSE`/`HALT`/`REFUSED_AT_REDEEM`, `placed`), venue timestamps; `cancel_all` intents; `resting_after`; `own_size_mid` (OD23 diagnostic counts: `books_with_own_legs`, `mid_differs`) |
 | `terminal` | End reason and minute count |
 
 `inputs` is an exact projection: `maker_core.shadow.tape.inputs_from` rebuilds the
