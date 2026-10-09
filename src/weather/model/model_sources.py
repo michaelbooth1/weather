@@ -103,6 +103,9 @@ TORONTO_OFFICIAL_SOURCE_LATE_DAY_HOUR = 15
 # parser/normalizer code that turned a provider response into the source data
 # retained by SnapshotStore; provider-native issue/run/schema fields remain in
 # the payload itself.
+METAR_KEYING_OBS_TIME = "obs_time"
+METAR_KEYING_REPORT_TIME = "report_time"
+
 SOURCE_PAYLOAD_CONTRACTS = {
     "local_history": ("local-history-parser-v1", "local-history-payload-v1"),
     "wu_history": ("wu-history-parser-v1", "wu-history-payload-v1"),
@@ -110,7 +113,7 @@ SOURCE_PAYLOAD_CONTRACTS = {
     "eccc_citypage": ("eccc-citypage-parser-v1", "eccc-citypage-payload-v1"),
     "eccc_swob": ("eccc-swob-parser-v3", "eccc-swob-payload-v1"),
     "eccc_gem": ("eccc-gem-parser-v1", "eccc-gem-payload-v1"),
-    "metar": ("metar-parser-v3", "metar-payload-v1"),
+    "metar": ("metar-parser-v4", "metar-payload-v1"),
     "weather_forecast": ("weather-forecast-parser-v1", "weather-forecast-payload-v1"),
     "open_meteo": ("open-meteo-parser-v1", "open-meteo-payload-v1"),
     "open_meteo_air_quality": (
@@ -1309,23 +1312,49 @@ class SourceFetchMixin:
             .get("en"),
         }
 
-    def parse_metar_payload(self, payload):
-        """Normalize a captured AviationWeather payload without fetching it."""
+    def parse_metar_payload(self, payload, *, keying=METAR_KEYING_OBS_TIME):
+        """Normalize a captured AviationWeather payload without fetching it.
 
-        rows = []
-        for row in payload or []:
-            report_time = self.parse_utc_time(row.get("reportTime"))
-            if report_time is None or report_time.date() != self.target_date:
+        ``keying`` is the served ``obs_time`` (``metar-parser-v4``) unless a
+        read-only replay asks for ``report_time``, which reproduces the
+        retired ``metar-parser-v3`` keying and ordering for comparison only.
+        """
+
+        if keying not in (METAR_KEYING_OBS_TIME, METAR_KEYING_REPORT_TIME):
+            raise ValueError(f"unknown METAR keying: {keying}")
+        legacy = keying == METAR_KEYING_REPORT_TIME
+        keyed_rows = []
+        for index, row in enumerate(payload or []):
+            if legacy:
+                row_time = self.parse_utc_time(row.get("reportTime"))
+                time_basis = "report_time"
+            else:
+                row_time, time_basis = self.metar_row_time(row)
+            obs_time_utc = self.metar_obs_time_utc(row.get("obsTime"))
+            if row_time is None or row_time.date() != self.target_date:
                 continue
             temp_native = self.spec.c_to_native(self.to_number(row.get("temp")))
             dewpoint_native = self.spec.c_to_native(self.to_number(row.get("dewp")))
             wind_speed_native = self.metar_wind_to_artifact_units(row.get("wspd"))
             wind_gust_native = self.metar_wind_to_artifact_units(row.get("wgst"))
             humidity = self.to_number(row.get("rh") or row.get("humidity"))
-            rows.append({
-                "time": report_time.strftime("%H:%M"),
-                "datetime": report_time.isoformat(),
+            # Order by the absolute instant, not the local ISO string: on the
+            # fall-back DST day "01:15-05:00" is later than "01:30-04:00".
+            # Ties on the instant (duplicates, a COR beside its original) order by
+            # reportTime, then payload order, so the result is deterministic.
+            sort_key = (
+                (row_time.isoformat(), index)
+                if legacy
+                else (row_time.astimezone(timezone.utc), str(row.get("reportTime") or ""), index)
+            )
+            keyed_rows.append((sort_key, {
+                "time": row_time.strftime("%H:%M"),
+                "datetime": row_time.isoformat(),
                 "report_time": row.get("reportTime"),
+                "obs_time": obs_time_utc.isoformat().replace("+00:00", "Z")
+                if obs_time_utc is not None
+                else None,
+                "row_time_basis": time_basis,
                 "station_id": row.get("icaoId") or self.spec.icao,
                 "temp_native": temp_native,
                 "temp_c": temp_native,
@@ -1346,9 +1375,47 @@ class SourceFetchMixin:
                 "gust_kmh": wind_gust_native,
                 "cover": row.get("cover"),
                 "raw": row.get("rawOb"),
-            })
-        rows.sort(key=lambda item: item.get("datetime") or "")
-        return rows
+            }))
+        keyed_rows.sort(key=lambda item: item[0])
+        return [item for _, item in keyed_rows]
+
+    def metar_obs_time_utc(self, value):
+        """Return AWC ``obsTime`` (epoch seconds or ISO text) as a UTC datetime."""
+
+        if value is None or isinstance(value, bool) or value == "":
+            return None
+        if isinstance(value, (int, float)) or str(value).strip().lstrip("-").isdigit():
+            try:
+                return datetime.fromtimestamp(float(value), tz=timezone.utc)
+            except (OverflowError, OSError, ValueError):
+                return None
+        try:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            return None
+        return parsed.astimezone(timezone.utc)
+
+    def metar_row_time(self, row):
+        """Key one AWC row on its observation time (``metar-parser-v4``).
+
+        AWC ``reportTime`` is the nominal hour for a routine METAR (a 23:51
+        observation carries reportTime 00:00 of the next day), so keying on it
+        moved the last report of each local day into the next day. ``obsTime``
+        is the observation instant, which is also the IEM ``valid`` key used by
+        the training history. SPECI reports have reportTime == obsTime; COR
+        reports keep their original observation time. ``reportTime`` is used
+        only when ``obsTime`` is absent, and the basis is recorded per row.
+        """
+
+        obs_time = self.metar_obs_time_utc(row.get("obsTime"))
+        if obs_time is not None:
+            return obs_time.astimezone(self.spec.tz), "obs_time"
+        report_time = self.parse_utc_time(row.get("reportTime"))
+        if report_time is not None:
+            return report_time, "report_time_fallback"
+        return None, None
 
     def fetch_metar(self):
         url = "https://aviationweather.gov/api/data/metar"
@@ -1358,7 +1425,12 @@ class SourceFetchMixin:
             "hours": self.metar_query_hours(),
         }
         payload = self.get_json(url, params)
-        rows = self.parse_metar_payload(payload)
+        return {"url": url, **self.metar_data_from_payload(payload)}
+
+    def metar_data_from_payload(self, payload, *, keying=METAR_KEYING_OBS_TIME):
+        """The served METAR source block derived from one AWC payload."""
+
+        rows = self.parse_metar_payload(payload, keying=keying)
         latest = rows[-1] if rows else {}
         temp_native = self.row_temp_native(latest)
         dewpoint_native = self.row_dewpoint_native(latest)
@@ -1368,7 +1440,6 @@ class SourceFetchMixin:
             for row in rows
         ])
         return {
-            "url": url,
             "station_id": self.spec.icao,
             "raw_payload": payload,
             "rows": rows,

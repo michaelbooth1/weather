@@ -77,6 +77,7 @@ jobs:
               tests/operations/test_integration_phase_output.py
               tests/operations/test_health_watchdog_script.py
               tests/operations/test_dst_audit_powershell_20261007.py
+              tests/operations/test_watchdog_classify_drift.py
               tests/operations/test_bounded_worktree_test_suite_script.py
               tests/operations/test_workstation_pregate_script.py
               tests/operations/test_reconciler_surface.py
@@ -110,6 +111,7 @@ jobs:
               tests/operations/test_storage_inventory_scope.py
               tests/operations/test_cold_snapshot_nightly_status_race.py
               tests/operations/test_wu_token_scan_junction.py
+              tests/market/test_order_journal.py
             # Ratchets run once in CI: portable ones in ci.yml's audit job, the
             # windows_native ones here (tests/operations/test_ci_ratchet_selection.py).
             mark: not ratchet or windows_native
@@ -143,6 +145,7 @@ jobs:
               tests/operations/test_thin_ensure.py
               tests/operations/test_scheduled_task_local_daily_triggers.py
               tests/operations/test_exchange_economics_refresh_script.py
+              tests/operations/test_reset_daily_trigger_local.py
             mark: ''
           - shard: reconciler-1
             split_file: test_production_baseline_reconciler_execution.py

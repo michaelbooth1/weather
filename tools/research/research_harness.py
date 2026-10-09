@@ -158,6 +158,11 @@ SCRIPT_INVENTORY = {
         "smoke": "compile_main_guard",
         "notes": "-09-78a estimand power and sign analysis; candidate closed unpowered.",
     },
+    "maker_replay_v2_h1_cut.py": {
+        "status": "fixture-only",
+        "smoke": "compile_main_guard",
+        "notes": "Maker replay v2 H1 oracle-handout cut/rebind (gate spec v3.4); workstation only.",
+    },
 }
 
 
