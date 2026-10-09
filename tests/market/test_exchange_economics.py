@@ -464,8 +464,7 @@ def test_contracts_page_proxy_label_must_bind_the_pinned_address():
     text = CONTRACTS_NEW_WORDING.replace(
         f"| pUSD CollateralToken proxy | [`{PUSD_PROXY}`]"
         f"(https://polygonscan.com/address/{PUSD_PROXY}) |",
-        "| pUSD CollateralToken proxy | `0xCe84E053301A82937F90ee2C2c1889cAb1db25dE` |
-"
+        "| pUSD CollateralToken proxy | `0xCe84E053301A82937F90ee2C2c1889cAb1db25dE` |\n"
         f"| Other | `{PUSD_PROXY}` |",
     )
     assert exchange_economics.PUSD_COLLATERAL_PROXY_ADDRESS in text.lower()
