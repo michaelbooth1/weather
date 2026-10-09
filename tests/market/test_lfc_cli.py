@@ -11,6 +11,8 @@ order and the start refusal while an intent is unresolved (F-5), the bounded 5 x
 re-read at reconcile and the bounded trade reads (F-6), and the preflight ledger state (F-10).
 Fix round 2 (delta review 2026-10-09): every sub-run except 0e passes only with its band posted (N-1), adoption
 tolerates a truncated unterminated last journal line (N-6), and the 0g manual-trading-paused printout.
+N-10: session0-attest records the 0c journal's last row time and the helper-zero UTC time in pass.json and refuses an
+owner-typed 0c stopwatch below their gap; missing, unparseable or non-UTC timestamps refuse.
 """
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -33,6 +35,8 @@ from weather.market.lfc_pilot import PilotProfile
 MAKER = '0x' + 'a' * 40
 NOW = datetime(2026, 10, 20, 17, tzinfo=timezone.utc)
 S0_NOW = datetime(2026, 10, 12, 17, tzinfo=timezone.utc)
+LAST_0C_ROW = '2026-10-20T16:00:00+00:00'  # fictional; the 0c journal's last row (the crash)
+HELPER_ZERO = '2026-10-20T16:00:03Z'  # fictional; the open-order helper read 0 three seconds later (N-10)
 
 
 def ledger_with_baselines(tmp_path, *, now=NOW, t24=True):
@@ -49,7 +53,15 @@ def pass_session0(ledger, *, reason='fixed_end', cleanup_ok=True, run='0a', post
     acknowledgement). Default: 'band' for every run except 0e, which posts nothing."""
     posted = posted or ('none' if run == '0e' else 'band')
     sid = f'S0{run[1]}-x{len(ledger.sessions)}'
-    ledger.record('session_start', session_id=sid, counted=False, session_number=0, session0_run=run)
+    extra = {}
+    if run == '0c':  # delta review N-10: the 0c journal whose last row time session0-attest records
+        extra['directory'] = 'session0-runs/' + sid
+        journal = ledger.path.parent / extra['directory'] / 'journal.jsonl'
+        journal.parent.mkdir(parents=True)
+        rows = (('opened', '2026-10-20T15:58:00+00:00'), ('lfc_l_gate', LAST_0C_ROW))
+        journal.write_bytes(b''.join(json.dumps({'sequence': n, 'event': event, 'recorded_at_utc': at}).encode()
+                                     + b'\n' for n, (event, at) in enumerate(rows)))
+    ledger.record('session_start', session_id=sid, counted=False, session_number=0, session0_run=run, **extra)
     legs = {'none': 0, 'one': 1, 'band': 2, 'intent': 2}[posted]
     for n, token in enumerate(('t-yes', 't-no')[:legs], 1):
         key = f'{sid}:{n}'
@@ -67,7 +79,8 @@ def pass_all_session0(ledger, root, *, s0_2='12.5', skip=None, attest=True):
         if run != skip:
             pass_session0(ledger, reason=reasons[0], run=run)
     if attest and skip is None:
-        session0_attest(root, ledger, s0_2_seconds=s0_2, phrase='attest session0 test', now=NOW)
+        session0_attest(root, ledger, s0_2_seconds=s0_2, helper_zero_utc=HELPER_ZERO, phrase='attest session0 test',
+                        now=NOW)
 
 
 def gates(ledger, tmp_path, *, now=NOW, profile=None, open_orders=(), positions=()):
@@ -102,7 +115,7 @@ def test_session0_pass_needs_every_required_sub_run_not_only_0a(tmp_path):
         pass_all_session0(ledger, root, skip=run)
         assert session0_mechanical(ledger) == [run]
         with pytest.raises(RuntimeError, match='session0_runs_missing_' + run):
-            session0_attest(root, ledger, s0_2_seconds='5', phrase='x', now=NOW)
+            session0_attest(root, ledger, s0_2_seconds='5', helper_zero_utc=HELPER_ZERO, phrase='x', now=NOW)
         assert not session0_passed(ledger, root=root) and 'session0_not_passed' in gates(ledger, root)
 
 
@@ -131,10 +144,10 @@ def test_session0_every_run_but_0e_passes_only_with_its_band_posted(tmp_path):
     pass_session0(ledger, reason='foreign_open_order', run='0b', posted='none')
     assert session0_mechanical(ledger) == ['0b']
     with pytest.raises(RuntimeError, match='session0_runs_missing_0b'):
-        session0_attest(tmp_path, ledger, s0_2_seconds='5', phrase='x', now=NOW)
+        session0_attest(tmp_path, ledger, s0_2_seconds='5', helper_zero_utc=HELPER_ZERO, phrase='x', now=NOW)
     pass_session0(ledger, reason='foreign_open_order', run='0b')
     assert session0_mechanical(ledger) == [] and set(session0_runs_passed(ledger)) == set(LFC.SESSION0_PASS_REASONS)
-    session0_attest(tmp_path, ledger, s0_2_seconds='5', phrase='x', now=NOW)
+    session0_attest(tmp_path, ledger, s0_2_seconds='5', helper_zero_utc=HELPER_ZERO, phrase='x', now=NOW)
     body = json.loads((tmp_path / 'session0' / 'pass.json').read_bytes())
     assert body['sessions']['0b'] == [sid for sid, s in ledger.sessions.items()
                                       if s['start'].get('session0_run') == '0b'][-1]
@@ -148,11 +161,11 @@ def test_session0_attestation_binds_the_ledger_and_s0_2_on_0c_at_most_20_seconds
     assert session0_attestation(tmp_path, ledger) == ['session0_attestation_missing']
     assert not session0_passed(ledger, root=tmp_path)
     with pytest.raises(RuntimeError, match='session0_s0_2_above_20_seconds'):
-        session0_attest(tmp_path, ledger, s0_2_seconds='20.5', phrase='x', now=NOW)
-    session0_attest(tmp_path, ledger, s0_2_seconds='20', phrase='x', now=NOW)
+        session0_attest(tmp_path, ledger, s0_2_seconds='20.5', helper_zero_utc=HELPER_ZERO, phrase='x', now=NOW)
+    session0_attest(tmp_path, ledger, s0_2_seconds='20', helper_zero_utc=HELPER_ZERO, phrase='x', now=NOW)
     assert session0_passed(ledger, root=tmp_path)
     with pytest.raises(FileExistsError):
-        session0_attest(tmp_path, ledger, s0_2_seconds='3', phrase='x', now=NOW)
+        session0_attest(tmp_path, ledger, s0_2_seconds='3', helper_zero_utc=HELPER_ZERO, phrase='x', now=NOW)
     path = tmp_path / 'session0' / 'pass.json'
     body = json.loads(path.read_bytes())
     assert body['schema_version'] == 'lfc_session0_pass_v0.1' and body['ledger_previous_sha256'] == ledger.previous
@@ -469,9 +482,96 @@ def test_wallet_verify_command_reads_only_the_three_reader_routes(tmp_path, caps
     assert run_wallet_verify(parser().parse_args(['wallet-verify', '--since', '5']), reader=broken, root=tmp_path) == 1
 
 
+def journal_0c(ledger):
+    sid = [s for s, v in ledger.sessions.items() if v['start'].get('session0_run') == '0c'][-1]
+    return ledger.path.parent / ledger.sessions[sid]['start']['directory'] / 'journal.jsonl'
+
+
+def test_session0_attest_records_both_0c_timestamps_and_refuses_a_stopwatch_below_their_gap(tmp_path):
+    # Delta review N-10: the 0c stopwatch is owner-typed; pass.json records the last 0c journal row time and the
+    # UTC time the helper read 0, and S0-2 may not be below their difference.
+    ledger = ledger_with_baselines(tmp_path)
+    pass_all_session0(ledger, tmp_path, attest=False)
+    path = tmp_path / 'session0' / 'pass.json'
+    for seconds, zero in (('2.999', HELPER_ZERO), ('0', HELPER_ZERO), ('3.4', '2026-10-20T16:00:03.5+00:00')):
+        with pytest.raises(RuntimeError, match='^session0_s0_2_below_timestamp_gap$'):
+            session0_attest(tmp_path, ledger, s0_2_seconds=seconds, helper_zero_utc=zero, phrase='x', now=NOW)
+        assert not path.exists()
+    _, body = session0_attest(tmp_path, ledger, s0_2_seconds='3', helper_zero_utc=HELPER_ZERO, phrase='x', now=NOW)
+    assert body['s0_2_0c_last_journal_row_utc'] == '2026-10-20T16:00:00+00:00'
+    assert body['s0_2_0c_helper_zero_utc'] == '2026-10-20T16:00:03+00:00'
+    assert json.loads(path.read_bytes()) == body and session0_attestation(tmp_path, ledger) == []
+    assert session0_passed(ledger, root=tmp_path)
+
+
+@pytest.mark.parametrize('zero', ['', '   ', None, 'not-a-time', '2026-10-20T16:00:03', '2026-10-20T18:00:03+02:00',
+                                  '2026-10-20T15:59:59Z', '16:00:03Z'])
+def test_session0_attest_refuses_a_missing_unparseable_or_non_utc_helper_time(tmp_path, zero):
+    ledger = ledger_with_baselines(tmp_path)
+    pass_all_session0(ledger, tmp_path, attest=False)
+    with pytest.raises(RuntimeError, match='^session0_s0_2_timestamps_invalid$'):
+        session0_attest(tmp_path, ledger, s0_2_seconds='12', helper_zero_utc=zero, phrase='x', now=NOW)
+    assert not (tmp_path / 'session0' / 'pass.json').exists()
+
+
+@pytest.mark.parametrize('journal', [
+    None, b'', b'{"recorded_at_utc": "2026-10-20T16:00:00+00:00"}\n{"event": "x"}\n',
+    b'{"recorded_at_utc": "2026-10-20T16:00:00"}\n', b'{"recorded_at_utc": "garbage"}\n',
+    b'["2026-10-20T16:00:00+00:00"]\n',
+    b'{"recorded_at_utc": "2026-10-20T15:00:00+00:00"}\nnot json\n{"recorded_at_utc": "2026-10-20T16:00:00+00:00"}\n'])
+def test_session0_attest_refuses_a_missing_or_unreadable_0c_journal_time(tmp_path, journal):
+    ledger = ledger_with_baselines(tmp_path)
+    pass_all_session0(ledger, tmp_path, attest=False)
+    if journal is None:
+        journal_0c(ledger).unlink()
+    else:
+        journal_0c(ledger).write_bytes(journal)
+    with pytest.raises(RuntimeError, match='^session0_s0_2_timestamps_invalid$'):
+        session0_attest(tmp_path, ledger, s0_2_seconds='12', helper_zero_utc=HELPER_ZERO, phrase='x', now=NOW)
+    assert not (tmp_path / 'session0' / 'pass.json').exists()
+
+
+def test_session0_attest_tolerates_only_a_truncated_last_0c_journal_line(tmp_path):
+    # N-6 again: the 0c kill may cut the last line mid-write; the last complete row is the recorded time.
+    ledger = ledger_with_baselines(tmp_path)
+    pass_all_session0(ledger, tmp_path, attest=False)
+    journal = journal_0c(ledger)
+    journal.write_bytes(journal.read_bytes() + b'{"recorded_at_utc": "2026-10-20T16:00:0')
+    _, body = session0_attest(tmp_path, ledger, s0_2_seconds='3', helper_zero_utc=HELPER_ZERO, phrase='x', now=NOW)
+    assert body['s0_2_0c_last_journal_row_utc'] == LAST_0C_ROW
+
+
+def test_session0_attestation_refuses_a_pass_json_whose_0c_timestamps_do_not_hold(tmp_path):
+    ledger = ledger_with_baselines(tmp_path)
+    pass_all_session0(ledger, tmp_path)
+    path = tmp_path / 'session0' / 'pass.json'
+    body = json.loads(path.read_bytes())
+    assert session0_attestation(tmp_path, ledger) == []
+    for change, code in (({'s0_2_seconds_0c': '2'}, 'session0_s0_2_below_timestamp_gap'),
+                         ({'s0_2_0c_helper_zero_utc': '2026-10-20T16:00:13+00:00'},
+                          'session0_s0_2_below_timestamp_gap'),
+                         ({'s0_2_0c_helper_zero_utc': None}, 'session0_s0_2_timestamps_invalid'),
+                         ({'s0_2_0c_helper_zero_utc': 'garbage'}, 'session0_s0_2_timestamps_invalid'),
+                         ({'s0_2_0c_last_journal_row_utc': None}, 'session0_s0_2_timestamps_invalid'),
+                         ({'s0_2_0c_last_journal_row_utc': '2026-10-20T15:59:59+00:00'},
+                          'session0_s0_2_timestamps_invalid')):
+        path.write_text(json.dumps({**body, **change}))
+        assert code in session0_attestation(tmp_path, ledger) and not session0_passed(ledger, root=tmp_path)
+    for field in ('s0_2_0c_last_journal_row_utc', 's0_2_0c_helper_zero_utc'):
+        path.write_text(json.dumps({k: v for k, v in body.items() if k != field}))
+        assert 'session0_s0_2_timestamps_invalid' in session0_attestation(tmp_path, ledger)
+    path.write_text(json.dumps(body))
+    assert session0_attestation(tmp_path, ledger) == []
+    journal_0c(ledger).unlink()  # the recorded journal time must stay checkable: fail closed
+    assert session0_attestation(tmp_path, ledger) == ['session0_s0_2_timestamps_invalid']
+
+
 def test_session0_attest_command_shape():
-    args = parser().parse_args(['session0-attest', '--s0-2-seconds', '12.5'])
+    args = parser().parse_args(['session0-attest', '--s0-2-seconds', '12.5', '--s0-2-helper-zero-utc', HELPER_ZERO])
     assert args.s0_2_seconds == '12.5' or str(args.s0_2_seconds) == '12.5'
+    assert args.s0_2_helper_zero_utc == HELPER_ZERO
+    with pytest.raises(SystemExit):
+        parser().parse_args(['session0-attest', '--s0-2-seconds', '12.5'])
 
 
 # ----- fix round 1: PARTIAL positions read (review F-4) -------------------------------------------------------------

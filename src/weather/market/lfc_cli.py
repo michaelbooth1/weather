@@ -14,8 +14,11 @@ Governed by the owner-signed pre-registration and session-0 spec (2026-10-09, re
                                     positions outside our tokens unchanged against the T-40 min baseline
     reconcile                       read-only order and trade reads -> ledger; closes a crashed session, writes its
                                     session_end.json and raises the notification (S0 run 0c)
-    session0-attest --s0-2-seconds S owner attestation session0/pass.json (once): every required sub-run passed in the
-                                    ledger, S0-2 on 0c <= 20 s; bound to the current ledger row (review F-1)
+    session0-attest --s0-2-seconds S --s0-2-helper-zero-utc T
+                                    owner attestation session0/pass.json (once): every required sub-run passed in the
+                                    ledger, S0-2 on 0c <= 20 s; bound to the current ledger row (review F-1). Records
+                                    the 0c journal's last row time and the UTC time T the open-order helper read 0;
+                                    S may not be below their difference (delta review N-10)
     cancel-ours                     cancel OUR open orders only (ids from the ledger); never a foreign order
     exclusions --output F           band-days of panel_exclusions.jsonl (weather.market.lfc_panel_exclusion)
 
@@ -35,7 +38,7 @@ Session-0 runbook notes (DRAFT clarification C5; delta review 2026-10-09):
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 import hashlib
 import json
@@ -85,6 +88,8 @@ def parser():
     attest = modes.add_parser('session0-attest')
     attest.add_argument('--s0-2-seconds', required=True,
                         help='S0-2 measured on run 0c (seconds from the crash to zero open orders); must be <= 20')
+    attest.add_argument('--s0-2-helper-zero-utc', required=True,
+                        help='run 0c: UTC time the open-order helper read 0, ISO 8601 with Z or +00:00 (N-10)')
     modes.add_parser('cancel-ours')
     exclusions = modes.add_parser('exclusions')
     exclusions.add_argument('--output', type=Path, required=True)
@@ -140,6 +145,51 @@ def session0_mechanical(ledger):
     return sorted(run for run in LFC.SESSION0_PASS_REASONS if run not in passed)
 
 
+def _utc_timestamp(value):
+    """Delta review N-10: an ISO 8601 string with an explicit UTC offset (Z or +00:00), else None (fail closed)."""
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.strip().replace('Z', '+00:00'))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None and parsed.utcoffset() == timedelta(0) else None
+
+
+def session0_0c_last_journal_utc(root, ledger, session_id):
+    """Delta review N-10: recorded_at_utc of the last complete row in the 0c session's journal (normalised UTC
+    ISO 8601), tolerating only a truncated unterminated last line (N-6); None if missing or unreadable."""
+    session = ledger.sessions.get(session_id) if isinstance(session_id, str) else None
+    if session is None or not session['start'].get('directory'):
+        return None
+    try:
+        data = (Path(root) / session['start']['directory'] / 'journal.jsonl').read_bytes()
+    except OSError:
+        return None
+    lines, last = data.splitlines(), None
+    for number, line in enumerate(lines):
+        try:
+            last = json.loads(line)
+        except ValueError:
+            if number == len(lines) - 1 and not data.endswith(b'\n'):
+                break
+            return None
+    stamp = _utc_timestamp(last.get('recorded_at_utc')) if isinstance(last, dict) else None
+    return stamp.isoformat() if stamp is not None else None
+
+
+def session0_s0_2_timestamps(seconds, last_journal_row_utc, helper_zero_utc):
+    """Delta review N-10 refusals: both 0c timestamps explicit UTC with the helper's zero not before the last journal
+    row, and the owner-typed S0-2 not below their difference."""
+    start, zero = _utc_timestamp(last_journal_row_utc), _utc_timestamp(helper_zero_utc)
+    if start is None or zero is None or zero < start:
+        return ['session0_s0_2_timestamps_invalid']
+    gap = zero - start
+    if seconds < Decimal((gap.days * 86400 + gap.seconds) * 1000000 + gap.microseconds) / 1000000:
+        return ['session0_s0_2_below_timestamp_gap']
+    return []
+
+
 def session0_attestation(root, ledger):
     """Refusals of the owner attestation session0/pass.json (empty = valid): it names one passing session per
     required sub-run, is bound to a ledger row at or after all of their session_end rows, and records S0-2 measured
@@ -164,6 +214,10 @@ def session0_attestation(root, ledger):
         seconds = Decimal(str(body['s0_2_seconds_0c']))
         if not seconds.is_finite() or not 0 <= seconds <= LFC.SESSION0_S0_2_MAX_SECONDS:
             refusals.append('session0_s0_2_above_20_seconds')
+        refusals += session0_s0_2_timestamps(seconds, body.get('s0_2_0c_last_journal_row_utc'),
+                                             body.get('s0_2_0c_helper_zero_utc'))
+        if session0_0c_last_journal_utc(root, ledger, named.get('0c')) != body.get('s0_2_0c_last_journal_row_utc'):
+            refusals.append('session0_s0_2_timestamps_invalid')
     except (KeyError, TypeError, ValueError, AttributeError, InvalidOperation):
         refusals.append('session0_attestation_unreadable')
     return sorted(set(refusals))
@@ -843,21 +897,28 @@ def run_reconcile():
         venue.close()
 
 
-def session0_attest(root, ledger, *, s0_2_seconds, phrase, now):
+def session0_attest(root, ledger, *, s0_2_seconds, helper_zero_utc, phrase, now):
     """Write session0/pass.json once (never overwritten). Refuses unless every required sub-run passed in the
-    ledger and S0-2 on 0c is at most 20 s; the owner judges S0-1..S0-8 by the verify commands before typing."""
+    ledger and S0-2 on 0c is at most 20 s and not below the 0c last-journal-row to helper-zero gap (N-10); the owner
+    judges S0-1..S0-8 by the verify commands before typing."""
     missing = session0_mechanical(ledger)
     if missing:
         raise RuntimeError('session0_runs_missing_' + '_'.join(missing))
     seconds = Decimal(str(s0_2_seconds))
     if not seconds.is_finite() or not 0 <= seconds <= LFC.SESSION0_S0_2_MAX_SECONDS:
         raise RuntimeError('session0_s0_2_above_20_seconds')
+    sessions = {run: ids[-1][0] for run, ids in session0_runs_passed(ledger).items()
+                if run in LFC.SESSION0_PASS_REASONS}
+    last_row = session0_0c_last_journal_utc(root, ledger, sessions['0c'])
+    zero = _utc_timestamp(helper_zero_utc)
+    refused = session0_s0_2_timestamps(seconds, last_row, helper_zero_utc)
+    if refused:
+        raise RuntimeError(refused[0])
     sequence = len(ledger.rows) - 1
     body = {'schema_version': SESSION0_PASS_SCHEMA, 'kind': 'lfc_session0_pass', 'attested_at_utc': utc(now).isoformat(),
             'ledger_sequence': sequence, 'ledger_previous_sha256': ledger.previous, 's0_2_seconds_0c': str(seconds),
-            'sessions': {run: ids[-1][0] for run, ids in session0_runs_passed(ledger).items()
-                         if run in LFC.SESSION0_PASS_REASONS},
-            'owner_phrase': phrase}
+            's0_2_0c_last_journal_row_utc': last_row, 's0_2_0c_helper_zero_utc': zero.isoformat(),
+            'sessions': sessions, 'owner_phrase': phrase}
     path = Path(root) / SESSION0_PASS_FILE
     path.parent.mkdir(parents=True, exist_ok=True)
     return write_new(path, body), body
@@ -871,12 +932,16 @@ def run_session0_attest(args, *, reader=input):
         raise RuntimeError('owner_terminal_required')
     phrase = 'attest session0 ' + str(ledger.previous)[:6]
     guard = SecretGuard()
-    guard.print({'runs': session0_runs_passed(ledger), 's0_2_seconds_0c': args.s0_2_seconds,
+    runs = session0_runs_passed(ledger)
+    guard.print({'runs': runs, 's0_2_seconds_0c': args.s0_2_seconds,
+                 's0_2_0c_last_journal_row_utc': session0_0c_last_journal_utc(root, ledger, runs['0c'][-1][0])
+                 if runs.get('0c') else None, 's0_2_0c_helper_zero_utc': args.s0_2_helper_zero_utc,
                  'ledger_previous_sha256': ledger.previous})
     guard.print('Type: ' + phrase)
     if ' '.join(str(reader()).lower().split()) != phrase:
         raise RuntimeError('owner_confirmation_refused')
-    sha, body = session0_attest(root, ledger, s0_2_seconds=args.s0_2_seconds, phrase=phrase, now=_now())
+    sha, body = session0_attest(root, ledger, s0_2_seconds=args.s0_2_seconds,
+                                helper_zero_utc=args.s0_2_helper_zero_utc, phrase=phrase, now=_now())
     guard.print({'status': 'ATTESTED', 'file': str(root / SESSION0_PASS_FILE), 'sha256': sha})
     return 0
 
