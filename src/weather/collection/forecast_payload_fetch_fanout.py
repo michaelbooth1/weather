@@ -13,6 +13,7 @@ from __future__ import annotations
 import errno
 import hashlib
 import json
+import logging
 import os
 import stat
 import time
@@ -62,6 +63,34 @@ class _ClaimDenied(Exception):
     def __init__(self, error: PermissionError):
         super().__init__(str(error))
         self.error = error
+
+
+_LOG = logging.getLogger(__name__)
+# On Windows an antivirus or indexer handle, or a peer's open read handle, can
+# briefly deny an unlink or read with a sharing violation (PermissionError).
+# Retry it with the same bounded budget that weather.io uses for its atomic
+# replace.  POSIX makes exactly one attempt, as before.
+_WINDOWS_TRANSIENT_DENIAL_RETRY = os.name == "nt"
+_TRANSIENT_DENIAL_RETRIES = 20
+_TRANSIENT_DENIAL_RETRY_SLEEP_SECONDS = 0.05
+
+
+def _retry_transient_denial(
+    operation: Callable[[], Any],
+    *,
+    sleep_fn: Callable[[float], None] = time.sleep,
+) -> Any:
+    """Run ``operation``, retrying a Windows PermissionError a bounded number of times."""
+
+    attempts = _TRANSIENT_DENIAL_RETRIES if _WINDOWS_TRANSIENT_DENIAL_RETRY else 1
+    for attempt in range(attempts):
+        try:
+            return operation()
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            sleep_fn(_TRANSIENT_DENIAL_RETRY_SLEEP_SECONDS)
+    return None
 
 
 def _canonical_json_bytes(payload: Mapping[str, Any]) -> bytes:
@@ -165,6 +194,8 @@ def _write_immutable_json(
     cas_root: Path,
     path: Path,
     payload: Mapping[str, Any],
+    *,
+    sleep_fn: Callable[[float], None] = time.sleep,
 ) -> None:
     """Publish one complete receipt without replacing an existing receipt."""
 
@@ -196,9 +227,22 @@ def _write_immutable_json(
         )
     finally:
         try:
-            staging.unlink()
+            _retry_transient_denial(staging.unlink, sleep_fn=sleep_fn)
         except FileNotFoundError:
             pass
+        except PermissionError as exc:
+            if not _WINDOWS_TRANSIENT_DENIAL_RETRY:
+                raise
+            # The staging name is unique and only aliases immutable receipt
+            # bytes, so a leaked alias is harmless; raising here would replace
+            # the publish outcome (or its original exception).
+            _LOG.warning(
+                "cross-process fan-out staging alias left after %d denied "
+                "unlink attempts: %s: %s",
+                _TRANSIENT_DENIAL_RETRIES,
+                staging,
+                exc,
+            )
 
 
 def _http_status(exc: BaseException) -> int | None:
@@ -338,22 +382,58 @@ class CrossProcessMarketInvariantFetchFanout:
         return token
 
     @staticmethod
-    def _release_claim(cas_root: Path, path: Path, token: str) -> None:
+    def _release_claim(
+        cas_root: Path,
+        path: Path,
+        token: str,
+        *,
+        sleep_fn: Callable[[float], None] = time.sleep,
+    ) -> None:
+        # Runs in the holder's ``finally``: on Windows a denial that outlasts
+        # the bounded retry is logged and the claim is left in place, so the
+        # holder's result or original exception is never replaced.  Followers
+        # then rely on the existing bounded wait.  POSIX is unchanged.
         _validate_receipt_ancestors(
             cas_root,
             path.parent,
             allow_missing=False,
         )
         try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except (FileNotFoundError, OSError, json.JSONDecodeError):
+            payload = json.loads(
+                _retry_transient_denial(
+                    lambda: path.read_text(encoding="utf-8"),
+                    sleep_fn=sleep_fn,
+                )
+            )
+        except PermissionError as exc:
+            if _WINDOWS_TRANSIENT_DENIAL_RETRY:
+                _LOG.warning(
+                    "cross-process fan-out claim left in place after %d "
+                    "denied read attempts: %s: %s",
+                    _TRANSIENT_DENIAL_RETRIES,
+                    path,
+                    exc,
+                )
             return
+        except (OSError, json.JSONDecodeError):
+            return
+        # Never delete a claim this holder does not own.
         if not isinstance(payload, dict) or payload.get("token") != token:
             return
         try:
-            path.unlink()
+            _retry_transient_denial(path.unlink, sleep_fn=sleep_fn)
         except FileNotFoundError:
             pass
+        except PermissionError as exc:
+            if not _WINDOWS_TRANSIENT_DENIAL_RETRY:
+                raise
+            _LOG.warning(
+                "cross-process fan-out claim left in place after %d denied "
+                "unlink attempts: %s: %s",
+                _TRANSIENT_DENIAL_RETRIES,
+                path,
+                exc,
+            )
         _validate_receipt_ancestors(
             cas_root,
             path.parent,
@@ -711,7 +791,9 @@ class CrossProcessMarketInvariantFetchFanout:
                     "physical_bytes_written"
                 ],
             }
-            _write_immutable_json(self.cas.root, receipt_path, receipt)
+            _write_immutable_json(
+                self.cas.root, receipt_path, receipt, sleep_fn=self.sleep_fn,
+            )
             published = self._read_receipt(self.cas.root, receipt_path)
             published_payload = {
                 key: value
@@ -756,10 +838,13 @@ class CrossProcessMarketInvariantFetchFanout:
                 self.cas.root,
                 receipt_path,
                 {**base_receipt, "status": "error", "error": _error_receipt(exc)},
+                sleep_fn=self.sleep_fn,
             )
             raise
         finally:
-            self._release_claim(self.cas.root, claim_path, claim_token)
+            self._release_claim(
+                self.cas.root, claim_path, claim_token, sleep_fn=self.sleep_fn,
+            )
 
     def _cross_process_fetch(
         self,
@@ -817,7 +902,12 @@ class CrossProcessMarketInvariantFetchFanout:
                 # before releasing its claim.
                 receipt = self._read_receipt(self.cas.root, receipt_path)
                 if receipt is not None:
-                    self._release_claim(self.cas.root, claim_path, claim_token)
+                    self._release_claim(
+                        self.cas.root,
+                        claim_path,
+                        claim_token,
+                        sleep_fn=self.sleep_fn,
+                    )
                     return self._result_from_receipt(
                         receipt,
                         **key_fields,
