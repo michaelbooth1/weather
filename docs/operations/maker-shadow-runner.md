@@ -204,6 +204,9 @@ create-only report (`maker_core.shadow_score.v0.1`, default
   `PASS` only when every decision and input hash match byte for byte.
 - **Strata:** `policy` (legs the policy wanted resting: `QUOTE` and `HOLD`) and
   `gated` (legs actually resting after the guard, from `resting_after`).
+- **Own-size mid (OD23, #267):** `own_size_mid` sums the minutes' `books_with_own_legs`
+  and `mid_differs` counts; `minutes_not_recorded` counts minutes from tapes written
+  before the field. Each tape row also names its `tape_schema` and `records_stream`.
 - **Fills**, in the desk-study rule names: `strictly_through` (print strictly
   below the bid) and `at_price` (at or below), on the leg's own asset, filling
   `min(print size, remaining)` with the leg re-placed at full size each minute

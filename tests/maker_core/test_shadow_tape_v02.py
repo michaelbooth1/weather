@@ -228,7 +228,9 @@ def test_scorer_reads_v01_and_v02_tapes_side_by_side(tmp_path, monkeypatch):
         m.setattr(tape, "TAPE_SCHEMA", TAPE_SCHEMA_V01)
         m.setattr(tape, "SEAL_SCHEMA", SEAL_SCHEMA_V01)
         legacy = TapeWriter(tmp_path / "tapes", clock=clock, scope={"mode": "fixture"}, run_id="a-v01")
-        legacy.record("minute", NOW, **runner.step(NOW, MARKETS))
+        legacy_minute = runner.step(NOW, MARKETS)
+        legacy_minute.pop("own_size_mid", None)  # a tape written before #267 has no OD23 counts
+        legacy.record("minute", NOW, **legacy_minute)
         legacy.close("completed")
     runner.reads.take_polls()
     writer = TapeWriter(tmp_path / "tapes", clock=clock, scope={"mode": "fixture"}, run_id="b-v02",
