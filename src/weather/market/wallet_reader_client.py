@@ -9,7 +9,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlsplit
 from urllib.request import Request
 
-from weather.market.wallet_reader_security import ReaderError, SecretGuard, lan_ip
+from weather.market.wallet_reader_security import ReaderError, SecretGuard, private_source_ip
 from weather.market.wallet_reader_transport import NoRedirect
 from weather.operations.live_path_security import validate_regular_nonreparse_file
 from weather.paths import config_path
@@ -23,16 +23,24 @@ class ClientError(ReaderError):
         super().__init__("wallet_reader_client_failed")
 
 
-def read_account(command, *, since=None, day=None, config=None, opener=None, timeout=20, include_resolved=False):
-    """No arbitrary path, URL, header, or method accepted from the caller."""
+def read_account(command, *, since=None, day=None, config=None, opener=None, timeout=20, include_resolved=False,
+                 fresh=False):
+    """No arbitrary path, URL, header, or method accepted from the caller.
+
+``fresh`` (open-orders only) asks the reader to bypass its 30 s cache; reserved for
+the S0 section 5 time-to-zero loop. Every other caller keeps the cached path.
+"""
     try:
         if (command not in CLIENT_ROUTES or since is not None and command not in {"trades", "settlement"} or day is not None and command != "rewards"
                 or include_resolved and command not in {"summary", "positions"}
+                or fresh is not False and (fresh is not True or command != "open-orders")
                 or isinstance(timeout, bool) or not math.isfinite(timeout) or not 5 <= timeout <= 120):
             raise ClientError("refused")
         query = {}
         if include_resolved:
             query["include_resolved"] = "true"
+        if fresh:
+            query["fresh"] = "1"
         if since is not None:
             from weather.market.wallet_reader import valid_since
             query["since"] = valid_since(since)
@@ -48,7 +56,7 @@ def read_account(command, *, since=None, day=None, config=None, opener=None, tim
             raise ReaderError("client_config_invalid")
         url, token = value["url"], value["token"]
         parts = urlsplit(url)
-        lan_ip(parts.hostname)
+        private_source_ip(parts.hostname)
         if (parts.scheme != "http" or parts.username or parts.password or parts.query or parts.fragment
                 or parts.path not in ("", "/") or parts.port is None or not 1 <= parts.port <= 65535
                 or url not in {f"http://{parts.hostname}:{parts.port}", f"http://{parts.hostname}:{parts.port}/"}
@@ -82,6 +90,14 @@ def read_account(command, *, since=None, day=None, config=None, opener=None, tim
         raise ClientError("timeout" if isinstance(exc.reason, TimeoutError) else "refused") from None
     except Exception:
         raise ClientError("refused") from None
+
+
+def open_order_count(*, fresh=True, **kwargs):
+    """Open-order count for the S0 section 5 time-to-zero loop; fresh (uncached) by default."""
+    rows = read_account("open-orders", fresh=fresh, **kwargs)
+    if not isinstance(rows, list):
+        raise ClientError("refused")
+    return len(rows)
 
 
 def main(argv=None):

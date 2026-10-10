@@ -148,13 +148,15 @@ class WalletReader:
             from maker_core.contracts.portfolio import validate_campaigns
             validate_campaigns(campaigns)
 
-    def get(self, host, path, **params):
+    def get(self, host, path, *, fresh=False, **params):
+        if fresh:
+            return self.transport.request("GET", host, path, params, fresh=True)
         return self.transport.request("GET", host, path, params)
 
-    def pages(self, path, **params):
+    def pages(self, path, *, fresh=False, **params):
         found, seen = [], set()
         for _ in range(5):
-            page = self.get(CLOB, path, **params)
+            page = self.get(CLOB, path, fresh=fresh, **params)
             if not isinstance(page, dict):
                 raise ReaderError("page_unreadable")
             found.extend(rows(page.get("data")))
@@ -180,8 +182,9 @@ class WalletReader:
         return {"cash_pusd": str(units / 1_000_000), "source": "clob_balance_allowance_read",
                 "cache_seconds": 30}
 
-    def open_orders(self):
-        result = self.pages("/data/orders")
+    def open_orders(self, *, fresh=False):
+        """``fresh`` (``/open-orders?fresh=1``) always queries the venue; see the runbook."""
+        result = self.pages("/data/orders", fresh=fresh)
         if any(str(r.get("maker_address", "")).lower() != self.funder.lower() for r in result):
             raise ReaderError("order_account_mismatch")
         return result
@@ -511,7 +514,7 @@ def main(argv=None):
     sub = parser.add_subparsers(dest="command", required=True)
     serve = sub.add_parser("serve", help="Owner-started authenticated read-only LAN service")
     serve.add_argument("--bind", required=True)
-    serve.add_argument("--allow", required=True, help="Exact production PC RFC1918 IPv4")
+    serve.add_argument("--allow", help="Optional exact RFC1918 IPv4 caller; default admits any RFC1918 or loopback caller")
     serve.add_argument("--port", type=int, default=8765)
     serve.add_argument("--signature-type", type=int, choices=(2, 3), required=True,
                        help="Owner-confirmed existing wallet type: 2 Safe, 3 deposit wallet")
@@ -522,7 +525,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         lan_ip(args.bind)
-        lan_ip(args.allow)
+        if args.allow is not None:
+            lan_ip(args.allow)
         if not 1 <= args.port <= 65535:
             raise ReaderError("port_invalid")
         if args.campaign_capital is not None and number(args.campaign_capital) < 0:
