@@ -770,7 +770,7 @@ draft D; **open** = still a runbook-only note.
     from the repository root; the pinned worktree has no venv, so this runbook
     uses the main venv's interpreter with the pinned `PYTHONPATH`.
 16. **Reader topology — closed (D6.3).** The pinned tip carries the any-LAN
-    reader; the 8765 reader is restarted on it (section 3.6).
+    reader (cherry-pick of b818d187c); the 8765 reader is restarted on master-agent's master merge of that same change, never the pinned tip (section 3.6).
 17. **Reader cache vs S0-2 — closed (D6).** The helper uses the no-cache
     `GET /open-orders?fresh=1`, polled every 3 s (S0 §5 says 2 s; 3 s keeps
     the loop inside the shared cap and only lengthens the measured time).
