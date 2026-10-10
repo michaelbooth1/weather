@@ -349,7 +349,7 @@ def load_conditions(path):
 SHADOW_HORIZONS = (0, 1, 2)  # every local horizon weather.market.maker_shadow.load_config accepts
 
 
-def shadow_scope_union(feed, day, *, specs=None):
+def shadow_scope_union(feed, day):
     """Sorted lowercase condition ids of every market in every event the shadow runner (weather.market.maker_shadow
     discover) could request during UTC date `day`: each registry market x SHADOW_HORIZONS from each local date the
     market's clock shows during that UTC date. Public Gamma /events reads only; any missing event or unusable
@@ -358,7 +358,7 @@ def shadow_scope_union(feed, day, *, specs=None):
     from weather.market.market_config import event_slug_for_date
     from weather.market.market_registry import all_specs
     start = datetime(day.year, day.month, day.day, tzinfo=timezone.utc)
-    slugs = sorted({event_slug_for_date(local + timedelta(days=h), spec.id) for spec in (specs or all_specs())
+    slugs = sorted({event_slug_for_date(local + timedelta(days=h), spec.id) for spec in all_specs()
                     for local in {start.astimezone(spec.tz).date(),
                                   (start + timedelta(hours=23, minutes=59)).astimezone(spec.tz).date()}
                     for h in SHADOW_HORIZONS})
