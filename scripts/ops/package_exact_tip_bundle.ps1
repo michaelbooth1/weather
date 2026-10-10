@@ -48,7 +48,21 @@ $latestRun = @($logLines[$startIndexes[-1]..($logLines.Count - 1)])
 if (-not ($latestRun | Where-Object { $_ -like "*expected_tip=$ExpectedTip*" })) {
     throw "latest suite log is not bound to the expected tip"
 }
-if (-not ($latestRun | Where-Object { $_ -like "*VERDICT: ALL CHUNKS PASSED*" })) {
+# An -InterpreterPath run qualifies an interpreter and is never merge evidence;
+# its receipt line carries probe output, so refuse it before reading any verdict.
+if ($latestRun | Where-Object { $_ -like "*interpreter_override *" }) {
+    throw "latest suite log is an interpreter-override run, not merge evidence"
+}
+# Only the final non-empty line can be the verdict, with the same anchored
+# pattern suite_gated_quiet_merge.ps1 uses, so no earlier line can satisfy it.
+$lastLine = [string](@($latestRun | Where-Object { $_ })[-1])
+$verdictMatch = [regex]::Match(
+    $lastLine,
+    "VERDICT: ALL CHUNKS PASSED \((?<passed>\d+)/(?<planned>\d+)\); exact tip eligible for separate reviewed merge$"
+)
+if (-not $verdictMatch.Success -or
+    [int]$verdictMatch.Groups["passed"].Value -le 0 -or
+    [int]$verdictMatch.Groups["passed"].Value -ne [int]$verdictMatch.Groups["planned"].Value) {
     throw "latest suite log has no full-suite PASS verdict"
 }
 if ($latestRun | Where-Object { $_ -like "*CHUNK(S) FAILED*" }) {
