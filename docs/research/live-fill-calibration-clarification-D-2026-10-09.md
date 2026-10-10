@@ -29,6 +29,11 @@ session 0, or judging S0-2, S0-6, C8 or L.
   file:line below is at `acd052a2d`.
 - **D is signed only after the Fable delta-3 review over
   `468607b13..acd052a2d`** passes.
+- The delta-3 review at `320ac22a9` (branch
+  `claude/lfc-code-review-20261009`, file
+  `live-fill-calibration-code-delta3-review-2026-10-09.md`) passed the code at
+  `acd052a2d` with no code fix required; this round applies its D fixes
+  R-D1..R-D4.
 - Sources: delta review N-6 and N-10 and the delta-2 review (PASS at
   `468607b13`; W-2, W-3) on branch `claude/lfc-code-review-20261009`; the
   owner's statement relayed 2026-10-09 ~20:35 for D5; the owner approvals of
@@ -143,14 +148,29 @@ will not trade during that window."
   no manual order and cancels nothing, except the two 0b test orders (D9).
 - **What is judged:** L and S0-6 are judged only against this campaign's order
   IDs and the baselines (S0-6: positions outside our tokens unchanged against
-  the latest T − 40 min baseline). The owner's activity outside the window is
+  the T − 40 min baseline; see "Two checks" below for which one). The owner's activity outside the window is
   never read or reconciled. This narrows nothing in PR §6: L already counts
   only our order IDs.
 - **0b orders.** Run 0b needs two owner orders: the foreign test order before
   the pre-part preflight, and again after both legs rest. They are on a market
   outside the session (C6), far from the mid, and are cancelled (by the owner,
-  then by the script's account-wide cleanup). If either fills, S0-6 fails and
-  the next start refuses `wallet_activity_outside_pilot`.
+  then by the script's account-wide cleanup). If either fills, S0-6 fails.
+- **Two checks, two scopes (R-D1).** The code's start refusal
+  `wallet_activity_outside_pilot` compares the current positions outside the
+  ledger's own tokens with the **latest** t40 baseline (`compare_baselines`,
+  `lfc_ledger.py:518-524`). The runbook retakes t40 before every sub-run (the
+  90-min age rule), so the code checks only activity **since the latest t40**:
+  a 0b fill followed by a retaken t40 is not refused by the code. The runbook
+  therefore keeps the first t40 of the session day as the session-start
+  baseline (file name and sha256 recorded) and, after every retaken t40 and
+  once after the last sub-run, compares the two baseline files on the code's
+  own fields (`take_baseline`, `lfc_ledger.py:460-469`: `maker_address`,
+  `open_order_ids`, `positions` outside the ledger's `leg_intent` tokens, and
+  `available_collateral` when no leg of ours has matched). Any difference
+  prints `STOP`. So the runbook's compare checks **since the session start**.
+  The baseline file records no trade or activity marker, so a manual trade
+  that leaves positions and cash unchanged is covered only by the owner's
+  no-trade statement.
 - The 0g manual-trading pause (C5) is unchanged and is stricter: no owner
   order or cancel at all from before 0g until its result is read.
 
@@ -167,19 +187,34 @@ open point D6.1 (one fresh read 15 s after the kill).
    the reader's 30 s success cache and 10 s failure cache) and stores its
    result in the cache. T is the UTC time the read that returned 0 completed.
    The 3 s interval only makes the measured time longer, never shorter.
+   **This changes three signed S0 §5 values (R-D2):** the cached
+   `wallet_reader_client open-orders` read becomes the fresh
+   `GET /open-orders?fresh=1`; the 2 s poll (`Start-Sleep -Seconds 2`) becomes
+   3 s; and the 60 s loop bound becomes 21 s. Clarification C leaves these S0
+   §5 values unchanged. S0-2's 20 s limit is unchanged.
 2. **Rate cap.** Every fresh read (each page) counts in the reader's single
    30-per-60-s upstream cap, which is shared with the capture host's 5-minute
    wallet journal reads. The 20 s loop makes at most 8 fresh reads (one page
    each while the account has few orders), so it stays within the cap. Over the
    cap a read is refused (`503 read_unavailable`) and the helper prints `ERR`;
-   the loop does not count `ERR` as 0.
+   the loop does not count `ERR` as 0. The cap is safe while the owner holds
+   no positions (a capture-host journal run then costs about 9-13 upstream
+   reads, and 8 + 13 = 21 < 30) and no other reader call (a manual
+   `Get-OpenOrderCount`, a snapshot) falls in the same 60 s. Otherwise the
+   budget can run out and a read prints `ERR`, never a false 0: S0-2 is then
+   unmeasurable and the run is repeated, not mis-measured. The runbook starts
+   the 0c kill and the 0d/0f/0g drops at least 60 s after a 5-minute boundary
+   (the journal's trigger) and at least 60 s after the last manual reader call
+   (delta-3 review section 4b).
 3. **Reader topology.** The pinned tip carries the any-LAN reader change
    (`b818d187c`, cherry-picked as `388043de5`): `serve` admits any RFC1918 or
    loopback IPv4 caller, and the client accepts an RFC1918 or loopback URL
    host. The bind stays a literal RFC1918 address, so the workstation's client
    URL is `http://<workstation LAN IP>:8765`. By owner decision (2026-10-09
-   ~20:45) the one reader on port 8765 is restarted on that code; its cap and
-   cache are shared with the capture host.
+   ~20:45) the one reader on port 8765 is restarted on master-agent's master
+   merge of `b818d187c`, the same change the pinned tip carries as cherry-pick
+   `388043de5`, never on the pinned tip (the reader also serves the capture
+   host). Its cap and cache are shared with the capture host.
 
 ## D7. C8 replaced: the maker-fee class rule
 
@@ -202,8 +237,11 @@ every submit and every minute, the selected market must be exactly one of:
 The schedule rate (0.05), exponent and `rebateRate` (25%) are recorded and
 cross-checked Gamma against CLOB, never required. Any non-zero builder fee
 field on the market, a builder or fee argument on the order, or a signed
-builder other than bytes32 zero refuses. Session 0 and every open market of its
-event must be FEE_FREE. Anything else, or any change of class or fee field
+builder other than bytes32 zero refuses. The session-0 market must be
+FEE_FREE, and every open market of its event must be fee-free **on its Gamma
+fields only** (`sibling_fee_refusal`, `lfc_fees.py:237-248`: `feesEnabled`
+false, no `feeType` or `feeSchedule`, base and builder fields zero); siblings
+are not checked against CLOB `fd` or `/fee-rate`. Anything else, or any change of class or fee field
 mid-session, ends the session fail-closed. Codes: `fee_fields_unreadable`,
 `fee_fields_inconsistent`, `fee_schedule_unknown`, `maker_fee_nonzero`,
 `builder_fee_nonzero`, `session0_not_fee_free`,
@@ -211,11 +249,34 @@ mid-session, ends the session fail-closed. Codes: `fee_fields_unreadable`,
 `order_builder_nonzero` and `order_fee_field_present`. Any other mid-session
 fee-field change ends as `market_rules`.
 
+**What D7 widens (R-D3).** C8 as signed (`fee_rate_bps == 0` on every token)
+would have refused every weather band, since they read `base_fee` 1000. D7
+admits those bands as WEATHER_TAKER_ONLY on the venue's own schedule metadata
+(`feeSchedule.takerOnly`, `fd.to`) plus EF §10o. This is the one clause that
+widens what may be traded. If that metadata were wrong and makers were charged
+the taker schedule `0.05·p(1−p)` per share, the fee on a BUY at price p is
+deducted from the shares received, so the cash outlay stays ≤ L and the value
+lost is `0.05(1−p)·cost ≤ 0.05·0.83·100 ≈ 4.2` pUSD campaign-wide at the 0.17
+price floor. L, sizes, caps and the GTD are unchanged.
+
 ## D8. Known limit: session 0 does not exercise neg-risk signing
 
-The session-0 picks are plain binary markets (`neg_risk: false`), not neg-risk
-markets. Session 0 therefore exercises the CTF-exchange signing path only, not
-the neg-risk exchange path. Session 1 is the first neg-risk signing, under the
+The session-0 picks are **expected to be** plain binary markets
+(`neg_risk: false`), not neg-risk markets. This is screened, **not
+code-enforced** (R-D4): `session0_candidate` (`lfc_pilot.py:184`) has no
+`neg_risk` check; the only `neg_risk` read is the rule key for change
+detection (`lfc_pilot.py:131`). The five listed events were screened as plain
+binary. The `go` prompt does not print `neg_risk`, but every preflight writes
+its selection table to `selection.json` in its receipt folder
+(`re1_owner_checks.py:116`), with each row's `snapshot.rules.<token>.neg_risk`.
+Before typing `go`, the owner confirms `neg_risk` false on both tokens of the
+row whose condition `live` printed, in the latest PASS preflight's
+`selection.json`; after the run, the same in the session's own
+`selection.json` (`re1_attended.py:287`). A `true` value before `go` means
+stop (Ctrl+C at the prompt posts nothing); after a run, the owner reports it.
+
+With plain binary picks, session 0 exercises the CTF-exchange signing path
+only, not the neg-risk exchange path. Session 1 is the first neg-risk signing, under the
 existing hard limits (PR §6 and RE-1, unchanged).
 
 ## D9. Owner scope: approvals of 2026-10-09 evening
@@ -244,7 +305,8 @@ credential is touched. Counted runs are unaffected.
 ## Signature
 
 Owner signs by hash in a separate signature record, as for clarification C,
-after the Fable delta-3 review over `468607b13..acd052a2d`.
+after the Fable delta-3 review over `468607b13..acd052a2d` (done at
+`320ac22a9`, PASS-WITH-REQUIRED-FIXES; R-D1..R-D4 applied in this revision).
 
 - Owner: ______________________  Date (UTC): ____________
 - Data seen at signature: ______ (expected: none)
