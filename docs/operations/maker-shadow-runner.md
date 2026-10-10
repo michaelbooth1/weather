@@ -43,12 +43,26 @@ what it **would** quote. It never places, cancels or signs anything:
   real portfolio ledger from a paper snapshot, so bleed is the ledger's P&L on
   paper: cash plus open lots marked at the last two-sided mid read for the asset
   (`held_mark_max_age_seconds` is taped; a band that left the selection keeps its
-  last mark; settlement is not applied). A fill sets `fill_seen` for that band's
-  next decision (the sibling leg is cancelled). A print-read failure is a taped
+  last mark; settlement is not applied). A band's first paper fill (earliest print) cancels the
+  band at once, as the replay kernel does (`FILL_CANCEL_SIBLING`/`END` at the fill
+  instant): one fill per band, the sibling and any remainder stop resting, and
+  the next decision sees `fill_seen` with no own legs on its book. A print-read failure is a taped
   `print_gaps` entry, never read as "no fills". Bleed past the limit HALTs and
   latches exactly as for a live runtime; only the owner's latch command clears it.
   The paper book belongs to one run (a restart starts a fresh book; the latch
   persists). Quoting caps are separate hypothetical config values.
+- **Decision book.** `decide()` reads the public book with the runner's resting
+  paper legs on it, composed by `maker_core.quoting.book.compose_book`, the same
+  function the replay v2 kernel imports (engine ruling W1(a)): each leg on its own
+  bid array and mirrored at `1 - p` on the complement's ask array, levels created
+  and sizes summed. Per OD23 (signed 2026-10-08), own size stays in the qualified
+  mid and is removed only from competing score and displayed depth. The taped
+  `inputs.book` is this decision book (it is the public book plus `inputs.existing`,
+  so the public book is recoverable); paper marks and fills read the public book.
+  Each minute records `own_size_mid`: how many decision books carried own legs and
+  how many of those had a qualified mid that differs with own size removed.
+  `own_leg_crossed` counts `CROSSED_BOOK` decisions on a public book that is not
+  crossed (a resting paper leg crossed by the public book), as the replay kernel does.
 - **Fair value.** The weather maker plugin is not on master, so the weather
   composition passes `Unavailable("weather_fair_value_provider_not_integrated")`:
   `informed-v0` then quotes the blind width with grade-`none` size caps. The
@@ -124,7 +138,7 @@ day and run: `<day>-<run>.tape.jsonl`, a `maker_core.evidence.journal` chain
 | --- | --- |
 | `opened` | Scope: mode (`public_shadow` / `offline_fixture`), profile, config and guard-policy digests, caps, fill bound, fair-value source, UTC day, run id; code identity `git_commit` / `git_dirty` / `git_error` (below) |
 | `universe` / `universe_error` | Selected conditions, candidates, cap drops, refusal counts, missing events |
-| `minute` | `minute_utc`; minute guard decision; guard-book digest; `paper` (fill rule, this minute's simulated fills, print gaps, paper cash, P&L, status, bleed state, held-mark age); per condition: identity, `outcomes` (YES/NO asset ids), exact policy `inputs`, `decision`, per-leg `gate` outcome (`ALLOW`/`PAUSE`/`HALT`/`REFUSED_AT_REDEEM`, `placed`), venue timestamps; `cancel_all` intents; `resting_after` |
+| `minute` | `minute_utc`; minute guard decision; guard-book digest; `paper` (fill rule, this minute's simulated fills, print gaps, paper cash, P&L, status, bleed state, held-mark age); per condition: identity, `outcomes` (YES/NO asset ids), exact policy `inputs`, `decision`, per-leg `gate` outcome (`ALLOW`/`PAUSE`/`HALT`/`REFUSED_AT_REDEEM`, `placed`), venue timestamps; `cancel_all` intents; `resting_after`; `own_size_mid` (OD23 diagnostic counts: `books_with_own_legs`, `mid_differs`, `own_leg_crossed`) |
 | `terminal` | End reason, minute count and (v0.2) the record stream's seal |
 
 `inputs` is an exact projection: `maker_core.shadow.tape.inputs_from` rebuilds the
