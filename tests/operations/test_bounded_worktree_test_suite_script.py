@@ -340,6 +340,126 @@ foreach ($name in @('dirty', 'trackedTestFiles', 'finalWorktreeTipRows',
     assert len(payload["checked"]) == 6
 
 
+# Get-HealthyCaptureWorkerCount run end to end against a temporary data\snapshots
+# tree whose loop_status.json and writer lock name this PowerShell process, so
+# only the heartbeat age decides. Timestamps are written as JSON strings and read
+# back through ConvertFrom-Json exactly as on the host (Windows PowerShell 5.1
+# leaves them as strings). Get-Date is pinned to the injected moment's local
+# clock face so a restored wall-clock line is judged at the same instant.
+WORKER_AGE_HARNESS = r"""
+$ErrorActionPreference = 'Stop'
+$tokens = $null
+$errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile(
+    $env:WEATHER_BOUNDED_SUITE_SCRIPT, [ref]$tokens, [ref]$errors)
+if (@($errors).Count -ne 0) { throw 'bounded suite does not parse' }
+foreach ($name in @('ConvertTo-StatusInstant', 'ConvertTo-StatusUtcInstant', 'Get-HealthyCaptureWorkerCount')) {
+    $functionAst = @($ast.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+            $node.Name -eq $name
+    }, $true)) | Select-Object -First 1
+    if ($null -eq $functionAst) { throw "missing $name" }
+    Invoke-Expression $functionAst.Extent.Text
+}
+$global:suiteTestNow = $null
+function Get-Date { $global:suiteTestNow.DateTime }
+$RepoRoot = $env:WEATHER_BOUNDED_SUITE_ROOT
+$snapshotRoot = Join-Path $RepoRoot 'data\snapshots'
+New-Item -ItemType Directory -Force -Path $snapshotRoot | Out-Null
+$utf8 = New-Object System.Text.UTF8Encoding($false)
+[IO.File]::WriteAllText((Join-Path $snapshotRoot '.loop_status.json.writer.lock'),
+    (@{ pid = $PID } | ConvertTo-Json -Compress), $utf8)
+$cases = Get-Content -LiteralPath $env:WEATHER_BOUNDED_SUITE_CASES -Raw | ConvertFrom-Json
+$results = [ordered]@{}
+foreach ($case in @($cases)) {
+    $global:suiteTestNow = [datetimeoffset]::Parse(
+        [string]$case.now, [Globalization.CultureInfo]::InvariantCulture)
+    $status = '{"pid": ' + $PID + ', "last_heartbeat": "' + [string]$case.heartbeat + '"}'
+    [IO.File]::WriteAllText((Join-Path $snapshotRoot 'loop_status.json'), $status, $utf8)
+    $results[[string]$case.name] = Get-HealthyCaptureWorkerCount -Now $global:suiteTestNow
+}
+$results | ConvertTo-Json -Compress
+"""
+
+# Toronto falls back at 2026-11-01 06:00Z: 01:59:59 EDT (-04:00) is followed by
+# 01:00:00 EST (-05:00), so 01:00-02:00 local repeats inside the 00:30-09:00
+# suite window. "now" is given in the host's local offset, as Get-Date shows it.
+WORKER_AGE_CASES = [
+    # 150 s real age; a wall-clock difference reads -57.5 min (spurious refusal).
+    {"name": "fresh_across_fall_back", "heartbeat": "2026-11-01T01:58:00-04:00",
+     "now": "2026-11-01T01:00:30-05:00"},
+    # 62 min real age; a wall-clock difference reads 120 s (falsely admitted).
+    {"name": "stale_hour_hidden_by_fall_back", "heartbeat": "2026-11-01T01:10:00-04:00",
+     "now": "2026-11-01T01:12:00-05:00"},
+    {"name": "exactly_720_across_fall_back", "heartbeat": "2026-11-01T01:50:00-04:00",
+     "now": "2026-11-01T01:02:00-05:00"},
+    {"name": "just_over_720_across_fall_back", "heartbeat": "2026-11-01T01:49:59-04:00",
+     "now": "2026-11-01T01:02:00-05:00"},
+    # Written after fall-back, read "before" it on the clock face: 6 min in the future.
+    {"name": "future_heartbeat", "heartbeat": "2026-11-01T01:05:00-05:00",
+     "now": "2026-11-01T01:59:00-04:00"},
+    {"name": "utc_heartbeat", "heartbeat": "2026-11-01T05:59:00+00:00",
+     "now": "2026-11-01T01:01:00-05:00"},
+    {"name": "unparseable_heartbeat", "heartbeat": "not-a-time",
+     "now": "2026-11-01T01:01:00-05:00"},
+]
+
+
+@WINDOWS_POWERSHELL_REQUIRED
+@pytest.mark.spawns
+def test_admission_ages_snapshot_heartbeat_on_utc_instants_across_fall_back(tmp_path):
+    cases_path = tmp_path / "cases.json"
+    cases_path.write_text(json.dumps(WORKER_AGE_CASES), encoding="utf-8")
+    env = os.environ.copy()
+    env["WEATHER_BOUNDED_SUITE_SCRIPT"] = str(SCRIPT)
+    env["WEATHER_BOUNDED_SUITE_ROOT"] = str(tmp_path / "repo")
+    env["WEATHER_BOUNDED_SUITE_CASES"] = str(cases_path)
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", WORKER_AGE_HARNESS],
+        cwd=REPO_ROOT, env=env, check=False, capture_output=True, text=True, timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+    counts = json.loads(result.stdout.strip().splitlines()[-1])
+    # Only the snapshot worker's files exist, so a healthy snapshot worker counts 1.
+    assert counts == {
+        "fresh_across_fall_back": 1,
+        "stale_hour_hidden_by_fall_back": 0,
+        "exactly_720_across_fall_back": 1,
+        "just_over_720_across_fall_back": 0,
+        "future_heartbeat": 0,
+        "utc_heartbeat": 1,
+        "unparseable_heartbeat": 0,
+    }
+
+
+def _function_text(path: Path, name: str) -> str | None:
+    text = path.read_text(encoding="utf-8-sig").replace("\r\n", "\n")
+    match = re.search(r"(?ms)^function " + re.escape(name) + r" \{\n.*?^\}\n", text)
+    return None if match is None else match.group(0)
+
+
+def test_status_instant_parser_copies_stay_byte_identical():
+    # status.ps1 runs as one hash-pinned file and cannot dot-source a helper, so
+    # each script carries its own copy. They must not drift apart.
+    ops = REPO_ROOT / "scripts" / "ops"
+    suite = _function_text(SCRIPT, "ConvertTo-StatusInstant")
+    assert suite is not None
+    assert "AssumeUniversal" in suite and "[datetimeoffset]::Parse(" in suite
+    assert _function_text(ops / "status.ps1", "ConvertTo-StatusInstant") == suite
+    probe = _function_text(ops / "bounded_execution_tape_probe.ps1", "ConvertTo-StatusInstant")
+    assert probe in (None, suite)
+    # The DateTime-by-Kind front end (status.ps1 and this suite only) is pinned
+    # the same way; the parser above stays unchanged so the probe copy matches.
+    front = _function_text(SCRIPT, "ConvertTo-StatusUtcInstant")
+    assert front is not None and "[DateTimeKind]::Local" in front
+    assert _function_text(ops / "status.ps1", "ConvertTo-StatusUtcInstant") == front
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+    assert "$heartbeat = ConvertTo-StatusUtcInstant $status.last_heartbeat" in text
+    assert "$ageSeconds = ($Now - $heartbeat).TotalSeconds" in text
+    assert "[datetime]$status.last_heartbeat" not in text
+
+
 @WINDOWS_POWERSHELL_REQUIRED
 @pytest.mark.parametrize("breach", ["disk", "commit", "capture"])
 @pytest.mark.spawns
