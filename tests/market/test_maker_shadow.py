@@ -1,7 +1,8 @@
 """Weather shadow CLI: no-network fixture run, 88a fixture panel scoring, embargo and import closure.
 
-Guards: weather maker shadow CLI no-network run, 88a scoring embargo and import closure
-  (docs/operations/maker-shadow-runner.md, Commands and Nightly scoring against 88a).
+Guards: weather maker shadow CLI no-network run, 88a scoring embargo, import closure and the mid-minute refresh
+  deadline and backoff (owner decision N7) (docs/operations/maker-shadow-runner.md, Commands, Tape v0.2 record
+  stream and Nightly scoring against 88a).
 """
 from datetime import datetime, timedelta, timezone
 import json
@@ -10,6 +11,7 @@ from pathlib import Path
 import socket
 import subprocess
 import sys
+import types
 
 import pytest
 
@@ -287,7 +289,7 @@ def test_offline_run_writes_record_stream_and_bundle_day_cli(tmp_path, capsys):
     assert kinds == {"plugin_input", "descriptor", "book", "terms", "outcome_view", "info_event", "coverage"}
     manifest = json.loads((bundle.root / "bundle.json").read_text())
     assert manifest["conditions"][0]["market_id"] == "nyc"
-    assert printed["gaps"] == []
+    assert printed["gaps"] == [] and printed["excluded"] == []
     assert maker_shadow.main(["bundle-day", "--day", NOW.date().isoformat(), "--tape-root", str(root)]) == 2
     capsys.readouterr()
     (bundle.root / "bundle.json").unlink()
@@ -310,3 +312,365 @@ def test_rediscovery_is_due_at_each_market_local_midnight():
     later = NOW.replace(hour=6, minute=50)
     previous = (later, maker_shadow.local_dates(specs, later))
     assert not due(later + timedelta(minutes=9)) and due(later + timedelta(minutes=10))  # Seattle's midnight
+
+
+class BandWriter:
+    """A fake writer whose refresh reads its bands one at a time; each band read takes ``took`` seconds on the
+    monotonic clock and ``took + wall_step`` on the wall clock (a wall-clock step lands inside the read)."""
+
+    def __init__(self, start, bands, took, wall_step=0.0):
+        self.now, self.mono, self.bands, self.took, self.wall_step = start, 1000.0, bands, took, wall_step
+        self.reads, self.incomplete = [], []
+
+    def clock(self):
+        return self.now
+
+    def monotonic(self):
+        return self.mono
+
+    def poll(self, condition_ids, proceed=None):
+        for index in range(self.bands):
+            if proceed is not None and not proceed(self.bands - index):
+                break
+            self.reads.append(self.now)
+            self.now += timedelta(seconds=self.took + self.wall_step)
+            self.mono += self.took
+
+    def incomplete_refresh(self, code, minute, refreshed, left):
+        self.incomplete.append((code, minute, refreshed, left))
+
+
+def refresh_at(writer, minute, plan, second=30):
+    writer.now = minute + timedelta(seconds=second)
+    return maker_shadow.mid_minute_refresh(writer, ["c%d" % n for n in range(writer.bands)], writer.clock, minute,
+                                           plan, monotonic=writer.monotonic)
+
+
+def test_mid_minute_refresh_stops_at_its_hard_deadline_and_records_the_partial_refresh():
+    """N7 / Defender F11: bands are read one at a time and a band starts only when the clock plus the per-band
+    estimate is within the deadline (the next minute less REFRESH_MARGIN). A cut-short refresh is recorded with
+    what it read and what it left; the next refresh uses the measured band time. It stopped within the deadline,
+    so (owner decision N1) it does not back off: the very next minute is attempted again."""
+    plan, writer = maker_shadow.RefreshPlan(), BandWriter(NOW, bands=5, took=7)
+    deadline = NOW + timedelta(minutes=1) - maker_shadow.REFRESH_MARGIN
+    refresh_at(writer, NOW, plan)  # estimate REFRESH_BAND_BOUND (15 s): starts at +30 and +37, not at +44
+    assert writer.reads == [NOW + timedelta(seconds=s) for s in (30, 37)] and writer.now <= deadline
+    assert writer.incomplete == [(maker_shadow.REFRESH_PARTIAL, NOW, 2, 3)]
+    assert plan.band_estimate == timedelta(seconds=7) and plan.resume_at is None and plan.late == 0
+    later, writer.reads = NOW + timedelta(minutes=1), []
+    refresh_at(writer, later, plan)  # the measured 7 s: starts at +30, +37 and +44 (ends +51 <= +57), not +51
+    assert writer.reads == [later + timedelta(seconds=s) for s in (30, 37, 44)]
+    assert writer.incomplete[-1] == (maker_shadow.REFRESH_PARTIAL, later, 3, 2)
+    assert writer.now <= later + timedelta(minutes=1) - maker_shadow.REFRESH_MARGIN
+
+
+def test_a_refresh_that_fits_reads_every_band_and_records_nothing():
+    plan, writer = maker_shadow.RefreshPlan(), BandWriter(NOW, bands=3, took=4)
+    refresh_at(writer, NOW, plan)
+    assert len(writer.reads) == 3 and writer.incomplete == [] and plan.band_estimate == timedelta(seconds=4)
+    assert plan.late == 0 and plan.resume_at is None
+
+
+def test_a_clean_skip_or_partial_never_backs_off():
+    """Owner decision N1 (2026-10-09): back off only after a LATE refresh. A refresh that read nothing because the
+    estimate did not fit, or stopped part-way, ended within its deadline and delayed nothing, so every minute is
+    attempted again: no ``backed_off`` minute, and the backoff level is not raised. Kills mutant
+    N1-partial-backs-off (any incomplete refresh backs off again)."""
+    plan, writer = maker_shadow.RefreshPlan(), BandWriter(NOW, bands=1, took=7)
+    minute = lambda n: NOW + timedelta(minutes=n)  # noqa: E731
+    for n in range(24):
+        refresh_at(writer, minute(n), plan, second=50)  # 50 + 15 > 57: nothing is read
+    assert writer.incomplete == [(maker_shadow.REFRESH_SKIPPED, minute(n), 0, 1) for n in range(24)]
+    assert plan.late == 0 and plan.resume_at is None and plan.band_estimate is None and writer.reads == []
+    writer.bands = 5
+    for n in range(24, 30):
+        refresh_at(writer, minute(n), plan)  # 7 s bands from +30: a clean partial every minute
+    assert [code for code, *_ in writer.incomplete[24:]] == [maker_shadow.REFRESH_PARTIAL] * 6
+    assert plan.late == 0 and plan.resume_at is None and len(writer.reads) == 2 + 5 * 3
+    plan.late, plan.on_time = 2, 0  # just after a late refresh: a clean partial keeps its level (streak 1 < 8)
+    refresh_at(writer, minute(30), plan)
+    assert plan.late == 2 and plan.resume_at is None and writer.incomplete[-1][0] == maker_shadow.REFRESH_PARTIAL
+
+
+def test_band_reads_are_timed_on_the_monotonic_clock_not_the_wall_clock():
+    """N7 / Defender F4, F12: a 40 s wall-clock step inside a 2 s band read must not become the band estimate
+    (that would skip every later refresh); the estimate is the monotonic 2 s, so the next refresh is full."""
+    plan, writer = maker_shadow.RefreshPlan(), BandWriter(NOW, bands=1, took=2, wall_step=40)
+    refresh_at(writer, NOW, plan, second=5)
+    assert plan.band_estimate == timedelta(seconds=2) and writer.incomplete == []
+    writer.wall_step, writer.bands = 0, 3
+    refresh_at(writer, NOW + timedelta(minutes=1), plan, second=45)  # 45 + 2 + 2 + 2 <= 57 with the 2 s estimate
+    assert len(writer.reads) == 4 and writer.incomplete == []
+
+
+def test_a_backward_band_duration_is_clamped_to_zero():
+    """M6: a monotonic reading that goes backwards measures zero, never a negative band estimate."""
+    plan, writer = maker_shadow.RefreshPlan(), BandWriter(NOW, bands=1, took=-5)
+    refresh_at(writer, NOW, plan)
+    assert plan.band_estimate == timedelta(0) and writer.incomplete == []
+
+
+def test_a_band_slower_than_the_carried_estimate_raises_the_estimate_within_the_refresh():
+    """N7: the band estimate is the longer of the carried one and this refresh's longest read, so one slow band
+    stops the refresh before a second slow band could pass the deadline."""
+    plan, writer = maker_shadow.RefreshPlan(), BandWriter(NOW, bands=4, took=10)
+    plan.band_estimate = timedelta(seconds=2)
+    refresh_at(writer, NOW, plan)  # +30 (estimate 2 s), +40 (estimate 10 s); +50 + 10 s would pass +57
+    assert writer.reads == [NOW + timedelta(seconds=s) for s in (30, 40)] and writer.now == NOW + timedelta(seconds=50)
+    assert writer.incomplete == [(maker_shadow.REFRESH_PARTIAL, NOW, 2, 2)]
+
+
+def test_a_refresh_that_ends_late_is_recorded_and_backs_off_and_a_skip_returns_to_the_bound():
+    """N7 / Defender F1, F11, owner decision N1: a band read longer than its estimate (here 30 s against the 15 s
+    bound) ends past the deadline; that refresh is recorded ``late_overrun`` and is the only kind that backs off,
+    1, 2, 4 then 8 minutes (capped) by the backoff level (late refreshes since its reset), so the late decisions it
+    causes thin out (minutes 0, 2, 5, 10, 19, 28), not sustained every other minute. Each backed-off minute is recorded
+    with all its bands left. A skip measures nothing, so the next attempt uses REFRESH_BAND_BOUND again, never
+    the 30 s that would lock refreshes out; that clean skip neither raises nor resets the backoff. A full on-time
+    refresh resets it."""
+    plan, writer = maker_shadow.RefreshPlan(), BandWriter(NOW, bands=1, took=30)
+    minute = lambda n: NOW + timedelta(minutes=n)  # noqa: E731
+    for n in range(30):
+        refresh_at(writer, minute(n), plan)
+    by_code = lambda code: [m for c, m, _, _ in writer.incomplete if c == code]  # noqa: E731
+    assert by_code(maker_shadow.REFRESH_LATE) == [minute(n) for n in (0, 2, 5, 10, 19, 28)]  # gaps 2, 3, 5, 9, 9
+    assert by_code(maker_shadow.REFRESH_SKIPPED) == [minute(n) for n in (1, 4, 9, 18, 27)]
+    assert by_code(maker_shadow.REFRESH_BACKOFF) == [minute(n) for n in (3, 6, 7, 8, *range(11, 18),
+                                                                         *range(20, 27), 29)]
+    assert writer.incomplete[0] == (maker_shadow.REFRESH_LATE, minute(0), 1, 0) and len(writer.incomplete) == 30
+    assert all((r, left) == (0, 1) for c, _, r, left in writer.incomplete if c != maker_shadow.REFRESH_LATE)
+    assert writer.reads == [minute(n) + timedelta(seconds=30) for n in (0, 2, 5, 10, 19, 28)]
+    assert plan.late == 6 and plan.resume_at == minute(36)
+    writer.took = 4
+    refresh_at(writer, minute(36), plan)  # the carried 30 s does not fit: a clean skip, the backoff kept
+    assert plan.late == 6 and plan.resume_at is None
+    refresh_at(writer, minute(37), plan)  # the bound fits and the band takes 4 s: full and on time, reset
+    assert plan.late == 0 and plan.resume_at is None and writer.incomplete[-1][1] == minute(36)
+    writer.took = 30
+    refresh_at(writer, minute(38), plan)  # late again: the backoff restarts at 1 minute
+    assert plan.late == 1 and plan.resume_at == minute(39)
+
+
+
+def test_the_backoff_level_resets_after_eight_consecutive_on_time_attempts_and_a_late_restarts_the_streak():
+    """N3 (2026-10-09): besides a full on-time refresh, REFRESH_BACKOFF_DECAY (8) consecutive attempted refreshes
+    that did not end late (clean partials and skips count) reset the backoff level; 7 do not. A late refresh at
+    streak 7 restarts the streak and raises the level per N1. Backed-off minutes are not attempts: they neither
+    extend nor break the streak. So isolated lates in a feed that never completes a full refresh each back off
+    from 1 minute again instead of escalating for the rest of the run."""
+    assert maker_shadow.REFRESH_BACKOFF_DECAY == 8
+    plan, writer = maker_shadow.RefreshPlan(), BandWriter(NOW, bands=5, took=7)
+    minute = lambda n: NOW + timedelta(minutes=n)  # noqa: E731
+
+    def on_time(n, skip):
+        writer.took = 7
+        refresh_at(writer, minute(n), plan, second=52 if skip else 30)  # +52: a clean skip; +30: a clean partial
+        assert writer.incomplete[-1][:2] == ((maker_shadow.REFRESH_SKIPPED if skip else maker_shadow.REFRESH_PARTIAL),
+                                             minute(n))
+
+    def late(n):
+        writer.took = 30
+        refresh_at(writer, minute(n), plan)  # the first band (+30, estimate <= 15 s) takes 30 s: ends +60 > +57
+        assert writer.incomplete[-1][:2] == (maker_shadow.REFRESH_LATE, minute(n))
+
+    plan.late = 2
+    for n in range(7):
+        on_time(n, skip=n % 2 == 0)
+    assert (plan.late, plan.on_time, plan.resume_at) == (2, 7, None)  # 7 on-time attempts: the level is kept
+    late(7)  # late at streak 7: the streak restarts and the level rises to 3 (backoff 4 minutes)
+    assert (plan.late, plan.on_time, plan.resume_at) == (3, 0, minute(11))
+    for n in (8, 9, 10):
+        refresh_at(writer, minute(n), plan)  # backed off: not an attempt, the streak stays 0
+        assert writer.incomplete[-1] == (maker_shadow.REFRESH_BACKOFF, minute(n), 0, 5) and plan.on_time == 0
+    for n in range(11, 18):
+        on_time(n, skip=n % 2 == 1)
+    assert (plan.late, plan.on_time) == (3, 7)
+    on_time(18, skip=False)  # the 8th consecutive on-time attempt: the level resets
+    assert (plan.late, plan.on_time, plan.resume_at) == (0, 8, None)
+    late(19)  # the next late backs off 1 minute, not 8
+    assert (plan.late, plan.on_time, plan.resume_at) == (1, 0, minute(20))
+
+
+def test_a_refresh_that_ends_exactly_at_its_deadline_is_on_time():
+    """N7 boundary: a band starts when the clock plus its estimate is within the deadline (<=), and a refresh is
+    late only when it ends after the deadline (>). A band of exactly the 15 s bound started at +42 ends exactly at
+    the deadline (+57): a full on-time refresh, nothing recorded, no backoff, and it resets the level."""
+    plan, writer = maker_shadow.RefreshPlan(), BandWriter(NOW, bands=1, took=15)
+    plan.late = 3
+    refresh_at(writer, NOW, plan, second=42)
+    assert writer.now == NOW + timedelta(minutes=1) - maker_shadow.REFRESH_MARGIN and len(writer.reads) == 1
+    assert writer.incomplete == [] and plan.late == 0 and plan.resume_at is None
+
+
+class SleepDrivenClock:
+    """The offline run jumps ``clock.now`` to the next minute after each step; this clock ignores that jump and
+    advances only through the patched ``time.sleep``, a slow step or a slow refresh read, so the loop reaches its
+    +30 s refresh and its next minute at the scripted times."""
+
+    def __init__(self, start):
+        self._now = start
+
+    def __call__(self):
+        return self._now
+
+    now = property(lambda self: self._now, lambda self, value: None)
+
+    def advance(self, seconds):
+        self._now += timedelta(seconds=seconds)
+
+
+def add_bands(config_path, fixture_path, bands):
+    """Grow the one-band fixture to ``bands`` rewarded bands (distinct conditions and tokens)."""
+    config, fixture = json.loads(Path(config_path).read_bytes()), json.loads(Path(fixture_path).read_bytes())
+    config["max_conditions"] = bands
+    event = next(v[0] for v in fixture["replies"].values() if isinstance(v, list) and v and "markets" in v[0])
+    conditions = [CONDITION]
+    for n in range(1, bands):
+        cid, yes, no = "0x" + ("%02d" % n) * 32, "5%02d1" % n, "5%02d2" % n
+        event["markets"].append({**event["markets"][0], "conditionId": cid, "clobTokenIds": json.dumps([yes, no])})
+        fixture["replies"].update({
+            public_feed.book_url(yes): public_book(yes, condition=cid),
+            public_feed.book_url(no): public_book(no, condition=cid, bids=(("0.49", "100"),), asks=(("0.51", "100"),)),
+            public_feed.rewards_url(cid): {"data": [reward_record(cid)], "next_cursor": "LTE="},
+            public_feed.trades_url(cid): []})
+        conditions.append(cid)
+    write(Path(config_path), config)
+    write(Path(fixture_path), fixture)
+    return conditions
+
+
+def scripted_run(tmp_path, monkeypatch, *, minutes, step_seconds, band_seconds, bands=5):
+    """Drive the real ``run`` loop on a sleep-driven clock: each decision step takes ``step_seconds`` and, during
+    the mid-minute refresh only, each band read takes ``band_seconds`` (charged on its trade poll). Returns the
+    decision starts, the refresh calls (start, minute, end) and the record-stream seal."""
+    clocks, starts, refreshes, phase = [], [], [], {"refresh": False}
+    real_refresh, real_build = maker_shadow.mid_minute_refresh, maker_shadow.build_runner
+    trade_urls = set()
+
+    def make_clock(start):
+        clocks.append(SleepDrivenClock(start))
+        return clocks[-1]
+
+    class ScriptedTransport(maker_shadow.FixtureTransport):
+        def get(self, url):
+            if phase["refresh"] and url in trade_urls:
+                clocks[-1].advance(band_seconds)
+            return super().get(url)
+
+    def spy(writer, condition_ids, clock, minute, plan, monotonic=None):
+        begin, phase["refresh"] = clock(), True
+        try:
+            return real_refresh(writer, condition_ids, clock, minute, plan, monotonic=monotonic)
+        finally:
+            phase["refresh"] = False
+            refreshes.append((begin, minute, clock()))
+
+    def slow_runner(config, feed, clock):
+        runner = real_build(config, feed, clock)
+        step = runner.step
+
+        def timed(minute, markets):
+            starts.append((clock(), minute))
+            result = step(minute, markets)
+            clock.advance(step_seconds)
+            return result
+        runner.step = timed
+        return runner
+
+    config, fixture = setup(tmp_path)
+    trade_urls.update(public_feed.trades_url(c) for c in add_bands(config, fixture, bands))
+    monkeypatch.setattr(maker_shadow, "SimulatedClock", make_clock)
+    monkeypatch.setattr(maker_shadow, "FixtureTransport", ScriptedTransport)
+    monkeypatch.setattr(maker_shadow, "mid_minute_refresh", spy)
+    monkeypatch.setattr(maker_shadow, "build_runner", slow_runner)
+    monkeypatch.setattr(maker_shadow, "time", types.SimpleNamespace(
+        sleep=lambda seconds: clocks[-1].advance(seconds), monotonic=lambda: clocks[-1]().timestamp()))
+    assert maker_shadow.main(["run", "--config", config, "--offline-fixture", fixture, "--minutes", str(minutes),
+                              "--output-root", str(tmp_path / "tapes")]) == 0
+    from maker_core.shadow.records import day_directory
+    folder = day_directory(tmp_path / "tapes", NOW.date().isoformat())
+    seal = json.loads(next(folder.glob("*-records.seal.json")).read_bytes())
+    tape = next((tmp_path / "tapes").glob("*.tape.jsonl"))
+    rows = [json.loads(line) for line in tape.read_bytes().decode().splitlines()]
+    assert sum(r["event"] == "minute" for r in rows) == minutes
+    return starts, refreshes, seal, folder
+
+
+def incomplete_rows(*rows, code="deadline_partial"):
+    return [{"minute": (NOW + timedelta(minutes=n)).isoformat(), "code": code, "refreshed": r, "left": left}
+            for n, r, left in rows]
+
+
+ONE_BAND_EACH_MINUTE = tuple((n, 1, 4) for n in range(5))
+
+
+@pytest.mark.parametrize("step_seconds, band_seconds, expected", [
+    (35, 7, ((0, 2, 3), *((n, 3, 2) for n in range(1, 5)))),  # step 35 s, full refresh 35 s
+    (0, 14, ONE_BAND_EACH_MINUTE),  # full refresh 70 s
+    (0, 19, ONE_BAND_EACH_MINUTE),  # full refresh 95 s
+], ids=["step35-refresh35", "refresh70", "refresh95"])
+def test_a_slow_refresh_never_delays_a_decision_and_its_lost_work_is_recorded(tmp_path, monkeypatch, step_seconds,
+                                                                               band_seconds, expected):
+    """N7 / Defender F11: the real run loop with the Defender's scripted timings. Every decision starts on its
+    minute (0 late, 0 uncaptured), every refresh ends by its deadline, and the lost refresh work is named per
+    minute, coded ``deadline_partial``, on the stream seal and in gaps.json. Owner decision N1: those clean
+    partial refreshes never back off, so every minute refreshes what fits (as built before N1, every other
+    minute was ``backed_off``). The exact rows need the run loop to carry its RefreshPlan (estimate and backoff)
+    from one refresh to the next."""
+    starts, refreshes, seal, folder = scripted_run(tmp_path, monkeypatch, minutes=6, step_seconds=step_seconds,
+                                                   band_seconds=band_seconds)
+    minutes = [NOW + timedelta(minutes=n) for n in range(6)]
+    assert starts == [(m, m) for m in minutes]  # each decision at its minute's first instant
+    assert [m for _, m, _ in refreshes] == minutes[:5]
+    assert all(m + timedelta(seconds=max(30, step_seconds)) == begin for begin, m, _ in refreshes)
+    assert all(end <= m + timedelta(minutes=1) - maker_shadow.REFRESH_MARGIN for _, m, end in refreshes)
+    assert seal["incomplete_refreshes"] == incomplete_rows(*expected)
+    assert seal["faults"] == [{"fault_code": maker_shadow.REFRESH_PARTIAL, "count": 5}]
+    assert maker_shadow.main(["bundle-day", "--day", NOW.date().isoformat(),
+                              "--tape-root", str(tmp_path / "tapes")]) == 0
+    gaps = json.loads((folder / "gaps.json").read_bytes())
+    assert gaps["incomplete_refreshes"] == [{"run_id": seal["run_id"], "stream": seal["stream"],
+                                             "refreshes": incomplete_rows(*expected)}]
+
+
+def test_every_refresh_fault_code_has_its_own_incomplete_refresh_row_code():
+    """Owner decision N2: each ``incomplete_refreshes`` row names its reason, one distinct code per runner fault
+    code, so a backed-off row is never confused with a skipped one, nor a late row (``left`` may be 0) with a
+    complete refresh. Kills mutant N2-mislabel (two fault codes share a row code, or a code is swapped)."""
+    from maker_core.shadow.records import INCOMPLETE_REFRESH_CODES
+    assert INCOMPLETE_REFRESH_CODES == {
+        maker_shadow.REFRESH_LATE: "late", maker_shadow.REFRESH_PARTIAL: "deadline_partial",
+        maker_shadow.REFRESH_SKIPPED: "skipped", maker_shadow.REFRESH_BACKOFF: "backed_off"}
+
+
+def test_an_on_time_loop_refreshes_every_band_every_minute(tmp_path, monkeypatch):
+    """N7 / Defender F2: the run loop's +30 s refresh goes through ``mid_minute_refresh`` and, when it fits,
+    reads every band each minute it waits through, recording nothing."""
+    starts, refreshes, seal, _ = scripted_run(tmp_path, monkeypatch, minutes=3, step_seconds=0, band_seconds=1)
+    assert [(b, m) for b, m, _ in refreshes] == [(NOW + timedelta(minutes=n, seconds=30), NOW + timedelta(minutes=n))
+                                                 for n in range(2)]  # the run stops after its third step
+    assert all(end == m + timedelta(seconds=35) for _, m, end in refreshes)  # five 1 s bands each
+    assert seal["faults"] == [] and seal["incomplete_refreshes"] == []
+
+
+def test_bundle_day_cli_excludes_a_broken_run_from_its_summary(tmp_path, capsys):
+    """Q-D5 / Defender F5: a broken run whose stream no longer matches its seal is excluded and listed in the CLI's
+    ``excluded``; the printed summary covers only the bundled streams, so it never refuses after the bundle is
+    written. Kills mutant M5 (the CLI prints ``excluded: []``)."""
+    from maker_core.shadow.records import STREAM_SEAL_SCHEMA, day_directory
+    run_offline(tmp_path, minutes=2)
+    capsys.readouterr()
+    day, root = NOW.date().isoformat(), tmp_path / "tapes"
+    folder = day_directory(root, day)
+    good = json.loads(next(folder.glob("*-records.seal.json")).read_bytes())
+    name = f"{day}-ghost-records.jsonl"
+    (folder / name).write_bytes(b"partial")  # differs from its seal: re-verifying it would refuse the day
+    write(folder / name.replace(".jsonl", ".seal.json"), {
+        "schema_version": STREAM_SEAL_SCHEMA, "stream": name, "utc_day": day, "run_id": "ghost",
+        "status": "broken", "broken_reason": "write:OSError", "sha256": "0" * 64, "bytes": 99, "records": 5,
+        "kinds": {"book": 5}, "dropped": {}, "faults": [], "conditions": {}})
+    assert maker_shadow.main(["bundle-day", "--day", day, "--tape-root", str(root)]) == 0
+    printed = json.loads(capsys.readouterr().out)
+    assert printed["excluded"] == [{"run_id": "ghost", "stream": name, "reason": "broken_record_stream:write:OSError"}]
+    assert printed["streams"] == 1 and printed["records"]["records"] == good["records"]
+    assert printed["records"]["kinds"] == good["kinds"] and printed["records"]["broken_streams"] == []
