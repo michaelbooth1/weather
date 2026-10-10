@@ -21,6 +21,9 @@ Governed by the owner-signed pre-registration and session-0 spec (2026-10-09, re
                                     S may not be below their difference (delta review N-10)
     cancel-ours                     cancel OUR open orders only (ids from the ledger); never a foreign order
     exclusions --output F           band-days of panel_exclusions.jsonl (weather.market.lfc_panel_exclusion)
+    shadow-scope-union --date D --out F
+                                    the --shadow-scope file for session-0 UTC date D: every condition the shadow
+                                    runner could select that day (registry markets x horizons 0-2; public Gamma only)
 
 Session-0 flags (S0 sections 2 and 4): --session0 --run 0a|0b|0c|0d|0e|0f|0g --event-slug SLUG (repeatable: at least
 three distinct owner-listed candidate events) --extra-conditions F (the 88a file in force) --shadow-scope F. Every command that reads the ledger
@@ -77,7 +80,8 @@ def parser():
         mode.add_argument('--event-slug', action='append', default=[],
                           help='session 0 only: a candidate event slug (repeatable)')
         mode.add_argument('--extra-conditions', type=Path,
-                          help="session 0 only: the 88a --extra-conditions file in force (JSON list; may be [])")
+                          help='session 0 only: the 88a --extra-conditions file in force (JSON list or the 88a '
+                               'shape; may be [])')
         mode.add_argument('--shadow-scope', type=Path,
                           help='session 0 only: the shadow-panel scope (JSON list of condition ids; may be [])')
     modes.add_parser('verify')
@@ -93,6 +97,9 @@ def parser():
     modes.add_parser('cancel-ours')
     exclusions = modes.add_parser('exclusions')
     exclusions.add_argument('--output', type=Path, required=True)
+    scope = modes.add_parser('shadow-scope-union')
+    scope.add_argument('--date', required=True, help='session-0 UTC date YYYY-MM-DD')
+    scope.add_argument('--out', type=Path, required=True, help='new file (refused if it exists)')
     return result
 
 
@@ -325,12 +332,64 @@ def close_out(root, directory, summary, *, notifier=notify_owner):
 
 
 def load_conditions(path):
+    """A JSON list, {"conditions": [...]} or the 88a file {"extra_conditions": [...], "update_windows_utc": [...]}
+    (other keys ignored); a dict naming both lists is refused. The sha256 is over the raw bytes."""
     raw = Path(path).read_bytes()
     value = json.loads(raw)
-    conditions = value.get('conditions') if isinstance(value, dict) else value
+    if isinstance(value, dict):
+        keys = {'conditions', 'extra_conditions'} & set(value)
+        conditions = value[keys.pop()] if len(keys) == 1 else None
+    else:
+        conditions = value
     if not isinstance(conditions, list):
         raise ValueError('condition_file_shape')
     return [str(c).lower() for c in conditions], hashlib.sha256(raw).hexdigest()
+
+
+SHADOW_HORIZONS = (0, 1, 2)  # every local horizon weather.market.maker_shadow.load_config accepts
+
+
+def shadow_scope_union(feed, day, *, specs=None):
+    """Sorted lowercase condition ids of every market in every event the shadow runner (weather.market.maker_shadow
+    discover) could request during UTC date `day`: each registry market x SHADOW_HORIZONS from each local date the
+    market's clock shows during that UTC date. Public Gamma /events reads only; any missing event or unusable
+    market refuses (no tape is read)."""
+    from maker_core.venue.public_feed import CONDITION
+    from weather.market.market_config import event_slug_for_date
+    from weather.market.market_registry import all_specs
+    start = datetime(day.year, day.month, day.day, tzinfo=timezone.utc)
+    slugs = sorted({event_slug_for_date(local + timedelta(days=h), spec.id) for spec in (specs or all_specs())
+                    for local in {start.astimezone(spec.tz).date(),
+                                  (start + timedelta(hours=23, minutes=59)).astimezone(spec.tz).date()}
+                    for h in SHADOW_HORIZONS})
+    conditions, found = set(), set()
+    for first in range(0, len(slugs), 20):
+        for event in feed.events(slugs[first:first + 20]):
+            markets = event.get('markets')
+            if not markets or not isinstance(markets, list):
+                raise ValueError('shadow_scope_event_without_markets')
+            for market in markets:
+                condition = str(market.get('conditionId') if isinstance(market, dict) else '').lower()
+                if not CONDITION.fullmatch(condition):
+                    raise ValueError('shadow_scope_condition_unreadable')
+                conditions.add(condition)
+            found.add(event['slug'])
+    if found != set(slugs):
+        raise ValueError('shadow_scope_event_missing')
+    return sorted(conditions)
+
+
+def run_shadow_scope_union(args, *, feed=None):
+    """Write {"conditions": [...]} (new file only) and print its sha256 and count; nothing is written on refusal."""
+    from weather.market.re1_attended import SecretGuard
+    if feed is None:
+        from maker_core.venue.public_feed import PublicFeed, UrllibTransport
+        feed = PublicFeed(UrllibTransport())
+    day = datetime.strptime(args.date, '%Y-%m-%d').date()
+    conditions = shadow_scope_union(feed, day)
+    sha = write_new(args.out, {'conditions': conditions})
+    SecretGuard().print({'shadow_scope': str(args.out), 'sha256': sha, 'count': len(conditions), 'date': args.date})
+    return 0
 
 
 def held_conditions(root, ledger):
@@ -988,6 +1047,8 @@ def main(argv=None):
             return run_cancel_ours()
         if args.mode == 'session0-attest':
             return run_session0_attest(args)
+        if args.mode == 'shadow-scope-union':
+            return run_shadow_scope_union(args)
         from weather.market.lfc_panel_exclusion import main as exclusions_main
         return exclusions_main(['--exclusions', str(pilot_root() / EXCLUSION_FILE), '--output', str(args.output)])
     except BaseException as exc:

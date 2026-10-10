@@ -13,11 +13,19 @@ Fix round 2 (delta review 2026-10-09): every sub-run except 0e passes only with 
 tolerates a truncated unterminated last journal line (N-6), and the 0g manual-trading-paused printout.
 N-10: session0-attest records the 0c journal's last row time and the helper-zero UTC time in pass.json and refuses an
 owner-typed 0c stopwatch below their gap; missing, unparseable or non-UTC timestamps refuse.
+Extension 2026-10-09: load_conditions accepts the 88a extra-conditions shape (docs/operations/passive-maker-evidence-
+capture.md) and refuses a dict naming both lists; shadow-scope-union writes the sorted, deduplicated union of every
+condition the shadow runner could select on the session-0 UTC date from public Gamma reads, fails closed on a missing
+event and never touches a tape.
 """
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from types import SimpleNamespace
+import builtins
+import hashlib
+import io
 import json
+import os
 
 import pytest
 
@@ -281,6 +289,26 @@ def test_condition_file_shapes(tmp_path):
     assert load_conditions(tmp_path / 'b.json')[0] == []
     with pytest.raises(ValueError):
         load_conditions(tmp_path / 'c.json')
+
+
+def test_condition_file_accepts_the_88a_extra_conditions_shape(tmp_path):
+    raw = (b'{"extra_conditions": ["0xAB", "0x2"], "update_windows_utc": [{"start": "2026-09-24T00:00:00Z", '
+           b'"end": "2026-09-24T00:30:00Z"}], "other": 1}')
+    (tmp_path / 'e.json').write_bytes(raw)
+    assert load_conditions(tmp_path / 'e.json') == (['0xab', '0x2'], hashlib.sha256(raw).hexdigest())
+
+
+def test_condition_file_refuses_a_dict_naming_both_lists(tmp_path):
+    (tmp_path / 'd.json').write_text('{"conditions": ["0x1"], "extra_conditions": ["0x2"]}')
+    with pytest.raises(ValueError, match='condition_file_shape'):
+        load_conditions(tmp_path / 'd.json')
+
+
+@pytest.mark.parametrize('body', ['{"extra_conditions": "0xab"}', '{"conditions": {"0xab": 1}}', '"0xab"'])
+def test_condition_file_refuses_a_non_list_value(tmp_path, body):
+    (tmp_path / 'n.json').write_text(body)
+    with pytest.raises(ValueError, match='condition_file_shape'):
+        load_conditions(tmp_path / 'n.json')
 
 
 class FakeVenue:
@@ -785,3 +813,83 @@ def test_the_0g_prompt_and_preflight_print_the_manual_trading_pause(tmp_path, mo
                                 '--event-slug', 'c', '--extra-conditions', 'x.json', '--shadow-scope', 'y.json'])
     assert lfc_cli.run_preflight(args) == 0
     assert (LFC.SESSION0_0G_MANUAL_TRADING_PAUSED in shown) is (run == '0g')
+
+
+SHARED = '0x' + 'ab' * 32  # fictional condition listed in every fake event
+
+
+def _condition(slug):
+    return '0x' + hashlib.sha256(slug.encode()).hexdigest()
+
+
+class GammaFake:
+    """Offline stand-in for the public Gamma /events reads (fictional events, reversed and with a duplicate)."""
+    def __init__(self, missing=()):
+        self.missing, self.requests = set(missing), []
+
+    def events(self, slugs):
+        self.requests.append(list(slugs))
+        return [{'slug': s, 'markets': [{'conditionId': _condition(s).upper()},
+                                        {'conditionId': SHARED.upper()}]}
+                for s in reversed(slugs) if s not in self.missing]
+
+
+def _expected_slugs():
+    from weather.market.market_config import event_slug_for_date
+    from weather.market.market_registry import all_specs
+    # UTC 2026-10-12 shows local dates 10-11 and 10-12 on every registry clock; horizons 0..2 reach 10-14.
+    return {event_slug_for_date(date(2026, 10, day), spec.id) for spec in all_specs() for day in (11, 12, 13, 14)}
+
+
+def _scope_run(monkeypatch, tmp_path, feed, name='scope.json'):
+    import maker_core.venue.public_feed as public_feed
+    monkeypatch.setattr(public_feed, 'UrllibTransport', lambda: None)
+    monkeypatch.setattr(public_feed, 'PublicFeed', lambda transport: feed)
+    out = tmp_path / name
+    return lfc_cli.main(['shadow-scope-union', '--date', '2026-10-12', '--out', str(out)]), out
+
+
+def test_shadow_scope_union_covers_every_registry_market_and_horizon_of_the_utc_date(tmp_path, monkeypatch, capsys):
+    feed = GammaFake()
+    code, out = _scope_run(monkeypatch, tmp_path, feed)
+    assert code == 0
+    assert {slug for batch in feed.requests for slug in batch} == _expected_slugs()
+    assert all(len(batch) <= 20 for batch in feed.requests)
+    conditions, sha = load_conditions(out)
+    assert set(conditions) == {_condition(s) for s in _expected_slugs()} | {SHARED}
+    printed = capsys.readouterr().out
+    assert sha in printed and str(len(conditions)) in printed
+
+
+def test_shadow_scope_union_is_sorted_deduplicated_lowercase_and_deterministic(tmp_path, monkeypatch):
+    first = _scope_run(monkeypatch, tmp_path, GammaFake(), 'a.json')[1].read_bytes()
+    second = _scope_run(monkeypatch, tmp_path, GammaFake(), 'b.json')[1].read_bytes()
+    conditions = json.loads(first)['conditions']
+    assert first == second and set(json.loads(first)) == {'conditions'}
+    assert conditions == sorted(set(conditions)) and conditions.count(SHARED) == 1
+    assert all(c == c.lower() for c in conditions)
+
+
+def test_shadow_scope_union_fails_closed_on_a_missing_event_or_failed_read(tmp_path, monkeypatch):
+    code, out = _scope_run(monkeypatch, tmp_path, GammaFake(missing={sorted(_expected_slugs())[5]}))
+    assert code == 1 and not out.exists()
+
+    class Broken(GammaFake):
+        def events(self, slugs):
+            raise OSError('read failed')
+    code, out = _scope_run(monkeypatch, tmp_path, Broken(), 'b.json')
+    assert code == 1 and not out.exists()
+
+
+def test_shadow_scope_union_opens_no_path_but_its_output(tmp_path, monkeypatch):
+    touched = []
+    for module, name in ((builtins, 'open'), (io, 'open'), (os, 'listdir'), (os, 'scandir')):
+        real = getattr(module, name)
+
+        def spy(path='.', *args, _real=real, **kwargs):
+            touched.append(os.fspath(path) if not isinstance(path, int) else path)
+            return _real(path, *args, **kwargs)
+        monkeypatch.setattr(module, name, spy)
+    code, out = _scope_run(monkeypatch, tmp_path, GammaFake())
+    assert code == 0
+    assert touched and {os.path.normcase(os.path.abspath(p)) for p in touched} == {os.path.normcase(str(out))}
