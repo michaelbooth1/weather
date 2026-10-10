@@ -10,7 +10,7 @@ import subprocess
 
 import pytest
 
-from weather.operations.wu_token_scan import scan
+from weather.operations.wu_token_scan import EXIT_CLEAN, exit_code_for, scan, unread_reasons
 from weather.paths import REPO_ROOT
 
 pytestmark = [pytest.mark.ratchet, pytest.mark.spawns]
@@ -39,5 +39,8 @@ def test_no_tracked_file_contains_a_wu_api_key_value():
     assert result.errors == []
     assert result.skipped_oversize == []
     assert result.truncated_reason is None
+    # N3: nothing named in the list may go unread (a directory, link or reparse point).
+    assert unread_reasons(result) == []
+    assert exit_code_for(result) == EXIT_CLEAN
     # Paths and counts only: a failure message must not quote the token itself.
     assert [(row["path"], row["matches"]) for row in result.findings] == []
