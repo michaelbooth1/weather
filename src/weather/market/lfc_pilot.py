@@ -27,8 +27,10 @@ Session 0 (S0, explicit flag only): uncounted, counts in L, no panel exclusion, 
 size = the market's min_order_size (<= 20), offset 5c, only the reward-terms check skipped. Sub-runs 0a-0f, plus 0g
 (fix round 1, review F-1; DRAFT clarification C): the venue-only dead-man, with the script's stale cleanup off.
 
-Fix round 1 (review 2026-10-09 @ f88074d5; semantics in the DRAFT, UNSIGNED clarification C): fee_rate_bps == 0 at
-selection, every submit and every minute (else the session ends); every market rule compared each minute (F-9); a
+Fix round 1 (review 2026-10-09 @ f88074d5; semantics in the DRAFT, UNSIGNED clarification C): the maker-fee class
+rule at selection, every submit and every minute (C8 as replaced by clarification D, weather.market.lfc_fees:
+WEATHER_TAKER_ONLY or FEE_FREE, session 0 FEE_FREE; base_fee is recorded, not compared to 0; else the session ends);
+every market rule compared each minute (F-9); a
 cancelled requote leg is re-read until terminal before L_resting is released (F-3); a foreign order seen on the user
 stream ends as foreign_open_order and any other stream failure has its own code (F-2).
 """
@@ -44,6 +46,8 @@ import subprocess
 from zoneinfo import ZoneInfo
 
 from weather.market import lfc_constants as LFC
+from weather.market.lfc_fees import (FeeEvidenceBooks, fee_key, gamma_fee_fields, maker_fee_refusal,
+                                     sibling_fee_refusal)
 from weather.market.lfc_ledger import LedgerCap, LedgerUnavailable, band_reserve, position_conditions, traded_shares
 from weather.market.lfc_panel_exclusion import append_exclusions, exclusion_lines
 from weather.market.market_config import event_slug_for_date, market_id_from_slug
@@ -119,37 +123,12 @@ class PilotProfile:
         return Decimal('.79') * size, Decimal('.98') * size
 
 
-# ----- fee rule (review Q4 replacement; DRAFT clarification C) --------------------------------------------------
-def fee_refusal(rules, tokens):
-    """None when every token reads fee_rate_bps == 0; else 'fee_rate_unreadable' or 'fee_rate_nonzero'."""
-    try:
-        fees = [number(rules[token]['fee_rate_bps']) for token in tokens]
-    except Exception:
-        return 'fee_rate_unreadable'
-    if not fees:
-        return 'fee_rate_unreadable'
-    return None if all(fee == LFC.REQUIRED_FEE_RATE_BPS for fee in fees) else 'fee_rate_nonzero'
-
-
-def require_zero_fee(table):
-    """Preflight and live selection (both profiles): the selected market's tokens must read fee_rate_bps == 0."""
-    if table.get('selected_condition_id'):
-        selected = next(r for r in table['rows'] if r['condition_id'] == table['selected_condition_id'])
-        try:
-            rules, tokens = selected['snapshot']['rules'], selected['token_ids']
-        except (KeyError, TypeError):
-            raise RuntimeError('fee_rate_unreadable') from None
-        code = fee_refusal(rules, tokens)
-        if code:
-            raise RuntimeError(code)
-    return table
-
-
+# ----- maker-fee class rule: weather.market.lfc_fees (C8 as replaced by clarification D) -------------------------
 def _rule_key(rule):
-    """Comparable market rules of one token; an unreadable rule never equals a readable one."""
+    """Comparable non-fee market rules of one token (the fee fields are compared by lfc_fees.fee_key); an
+    unreadable rule never equals a readable one."""
     try:
-        return (number(rule['tick_size']), number(rule['min_order_size']), number(rule['fee_rate_bps']),
-                rule['neg_risk'])
+        return (number(rule['tick_size']), number(rule['min_order_size']), rule['neg_risk'])
     except Exception:
         return ('unreadable', id(rule))
 
@@ -205,7 +184,7 @@ def session0_quote(snapshot, *, size):
 def session0_candidate(candidate, *, now, excluded_conditions, held_conditions, ledger):
     """Evaluate one candidate (event + market + public snapshot) against rules 1-5; returns the table row."""
     row = dict(candidate)
-    row.update(eligible=False, refusal=None, quote=None, depth_within_3c=None)
+    row.update(eligible=False, refusal=None, quote=None, depth_within_3c=None, fee=None)
     try:
         refusals = session0_slug_refusals(candidate['event_slug'], now=now)
         if refusals:
@@ -224,7 +203,10 @@ def session0_candidate(candidate, *, now, excluded_conditions, held_conditions, 
         rules = snapshot['rules']
         if any(number(r['tick_size']) != Decimal('.01') for r in rules.values()):
             raise QuoteRefused('unsupported_tick')
-        fee = fee_refusal(rules, candidate['token_ids'])
+        fee, row['fee'] = maker_fee_refusal(snapshot, candidate['token_ids'], require_fee_free=True)
+        if fee:
+            raise QuoteRefused(fee)
+        fee = sibling_fee_refusal(candidate.get('event_fee_fields'))
         if fee:
             raise QuoteRefused(fee)
         sizes = {number(r['min_order_size']) for r in rules.values()}
@@ -285,7 +267,7 @@ def session0_table(candidates, *, now, run, available_collateral, ledger, exclud
             'selected_condition_id': survivors[0]['condition_id'] if survivors else None}
 
 
-_DERIVED = {'eligible', 'refusal', 'quote', 'depth_within_3c', 'predicted_360_minutes'}
+_DERIVED = {'eligible', 'refusal', 'quote', 'depth_within_3c', 'predicted_360_minutes', 'fee'}
 
 
 def validate_session0_table(table, *, now):
@@ -305,9 +287,14 @@ def validate_session0_table(table, *, now):
     return next(r for r in table['rows'] if r['condition_id'] == table['selected_condition_id'])
 
 
-class Session0Books(Re1PublicBooks):
+class LfcPublicBooks(FeeEvidenceBooks, Re1PublicBooks):
+    """Counted sessions: the RE-1 public reader plus the fee evidence (Gamma fee fields, CLOB /clob-markets)."""
+
+
+class Session0Books(FeeEvidenceBooks, Re1PublicBooks):
     """Public books for an unrewarded session-0 market: no reward read; the reward fields of the snapshot are
-    zero placeholders that only the reward-terms check (skipped in session 0) would read."""
+    zero placeholders that only the reward-terms check (skipped in session 0) would read. Each row keeps the Gamma
+    fee fields of every open market of the event (event_fee_fields; session 0 requires all FEE_FREE)."""
 
     def reward(self, condition, *, checkpoint=lambda: None):
         import re
@@ -323,6 +310,8 @@ class Session0Books(Re1PublicBooks):
             if event.get('slug') != slug or not isinstance(event.get('markets'), list) or not event['markets']:
                 raise ValueError('session0_event_unreadable')
             conditions = sorted(str(m.get('conditionId')) for m in event['markets'])
+            siblings = {str(m.get('conditionId')): gamma_fee_fields(m) for m in event['markets']
+                        if not m.get('closed')}
             for market in event['markets']:
                 if market.get('closed') or not market.get('enableOrderBook', True):
                     continue
@@ -334,6 +323,7 @@ class Session0Books(Re1PublicBooks):
                 condition = str(market['conditionId'])
                 rows.append({'event_slug': slug, 'event_condition_ids': conditions, 'condition_id': condition,
                              'token_ids': tokens, 'market_end_utc': market.get('endDate'),
+                             'event_fee_fields': siblings,
                              'snapshot': self.snapshot(condition, tokens, checkpoint=checkpoint)})
         return rows
 
@@ -444,6 +434,12 @@ class PilotSession(Session):
         opening = chosen['snapshot'].get('rules')
         self.opening_rules = ({t: dict(opening[t]) for t in self.tokens}
                               if isinstance(opening, dict) and all(t in opening for t in self.tokens) else None)
+        # Maker-fee class (C8 as replaced by clarification D): the opening class and fee fields bind the session.
+        self.opening_fee_key = fee_key(chosen['snapshot'], self.tokens)
+        self.opening_fee_code, self.opening_fee = maker_fee_refusal(chosen['snapshot'], self.tokens,
+                                                                    require_fee_free=profile.session0)
+        if hasattr(self.public, 'bind_event') and chosen.get('event_slug'):
+            self.public.bind_event(self.condition, chosen['event_slug'])
         if ledger is not None:
             # Bounded trade reads (review F-6): only trades after the campaign genesis, before any of our orders.
             self.venue.trades_after = str(int(utc(ledger.rows[0]['recorded_at_utc']).timestamp()))
@@ -525,6 +521,10 @@ class PilotSession(Session):
             raise HoldEnd('selection_file_differs')
         self.journal.record('lfc_selection', lfc_journal_schema=LFC_JOURNAL_SCHEMA, file='selection.json',
                             sha256=selection_sha, baselines=self.baselines)
+        self.journal.record('lfc_fee_rule', lfc_journal_schema=LFC_JOURNAL_SCHEMA, phase='selection',
+                            refusal=self.opening_fee_code, **self.opening_fee)
+        if self.opening_fee_code:
+            raise HoldEnd(self.opening_fee_code)
         if self.profile.session0:
             return
         lines = exclusion_lines(**self.exclusion, session_id=self.session_id, start=self.start, end=self.end,
@@ -547,11 +547,16 @@ class PilotSession(Session):
             cash, resting = self._cash(balances, reserve)
             record.update(available_collateral=str(cash), L_resting=str(resting))
         self.journal.record('lfc_l_gate', lfc_journal_schema=LFC_JOURNAL_SCHEMA, **record)
-        fee = fee_refusal({self.tokens[leg]: rule}, [self.tokens[leg]])
+        # The fee class of the fresh submit snapshot (both tokens); it must also be the opening class.
+        fee, recorded = maker_fee_refusal(getattr(self, 'submit_snapshot', None), self.tokens,
+                                          require_fee_free=self.profile.session0)
+        if not fee and recorded.get('fee_class') != self.opening_fee.get('fee_class'):
+            fee = 'fee_class_changed'
+        self.journal.record('lfc_fee_rule', lfc_journal_schema=LFC_JOURNAL_SCHEMA, phase='submit', leg=leg,
+                            refusal=fee, **{k: v for k, v in recorded.items() if k != 'refusal'})
         if fee:
-            self.journal.record('lfc_fee_rule', lfc_journal_schema=LFC_JOURNAL_SCHEMA, phase='submit', leg=leg,
-                                refusal=fee)
             raise HoldEnd(fee)
+        # fee_rate_bps here is the observed /fee-rate base_fee, recorded only: the signed V2 order has no fee field.
         self._pending = {'token_id': self.tokens[leg], 'price': price, 'size': size,
                          'fee_rate_bps': rule['fee_rate_bps']}
 
@@ -575,15 +580,20 @@ class PilotSession(Session):
                             if snapshot else None, snapshot_observed_at_utc=snapshot and snapshot['observed_at_utc'])
 
     def minute_extra(self, snapshot):
-        # Review F-9: every market rule of our tokens is compared each minute; any change (or fee != 0) ends.
+        # Review F-9: every market rule of our tokens is compared each minute; any change ends. The maker-fee class
+        # is re-classified each minute (a refusal ends with its code, a class flip with fee_class_changed) and every
+        # fee field must equal the opening value (any other fee-field change, e.g. base_fee alone: market_rules).
         rules = snapshot.get('rules')
         if not isinstance(rules, dict) or self.opening_rules is None:
             raise HoldEnd('market_rules')
         changed = sorted(t for t in self.tokens if _rule_key(rules.get(t)) != _rule_key(self.opening_rules[t]))
-        fee = fee_refusal(rules, self.tokens)
-        if changed or fee:
+        fee, recorded = maker_fee_refusal(snapshot, self.tokens, require_fee_free=self.profile.session0)
+        if not fee and recorded.get('fee_class') != self.opening_fee.get('fee_class'):
+            fee = 'fee_class_changed'
+        fee_changed = fee_key(snapshot, self.tokens) != self.opening_fee_key
+        if changed or fee or fee_changed:
             self.journal.record('lfc_market_rules_changed', lfc_journal_schema=LFC_JOURNAL_SCHEMA, tokens=changed,
-                                fee_refusal=fee)
+                                fee_refusal=fee, fee_fields_changed=fee_changed, fee=recorded)
             raise HoldEnd(fee if fee and not changed else 'market_rules')
         for oid, (leg, price) in self.active.items():
             self.journal.record('lfc_queue_ahead', lfc_journal_schema=LFC_JOURNAL_SCHEMA, phase='book_update',

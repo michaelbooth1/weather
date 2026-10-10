@@ -6,8 +6,10 @@ on the existing wallet, the foreign-order end, account-wide cancel-all cleanup, 
 before the first post, session 0 (market rules, 5c quote at min size, sub-runs 0a/0b/0d/0e/0f) and the notification.
 Fix round 1 (review F-1..F-9, fee rule): the venue-only dead-man sub-run 0g (observed / not observed with a ledger
 halt), the 0d first terminal read before the safety cancel, a foreign order seen through a user-stream failure, the
-bounded terminal re-read after a cancel, fee_rate_bps == 0 at selection and at every submit, every market rule compared
-each minute, and the account read's freshness anchored at the first post.
+bounded terminal re-read after a cancel, every market rule compared each minute, and the account read's freshness
+anchored at the first post. The fee rule is the maker-fee class rule (EF section 10o / LFC C8 as replaced by
+clarification D, weather.market.lfc_fees): a weather band (base_fee 1000) passes as WEATHER_TAKER_ONLY at selection,
+submit and every minute; session 0 must be FEE_FREE; a refusal or a class flip at submit or mid-session ends it.
 Fix round 2 (delta review 2026-10-09): a 0b ending foreign_open_order before the band is posted does not pass (N-1),
 cancel requests after the 0d/0g drop are counted for real and a counted one voids the 0g proof (N-2), and the
 pre-cancel first terminal reads are one attempt per leg (N-3).
@@ -26,8 +28,9 @@ from weather.market import lfc_constants as LFC
 from weather.market import reward_quote
 from weather.market.lfc_ledger import Ledger, LedgerUnavailable
 from weather.market.lfc_panel_exclusion import EXCLUSION_FILE, FIELDS, load_panel_exclusions
-from weather.market.lfc_pilot import (PilotProfile, PilotSession, fee_refusal, hard_stop, notify_owner,
-                                      require_zero_fee, result_line, session0_quote, session0_slug_refusals,
+from weather.market.lfc_fees import clob_fee_fields, gamma_fee_fields, require_maker_fee_zero
+from weather.market.lfc_pilot import (PilotProfile, PilotSession, hard_stop, notify_owner,
+                                      result_line, session0_quote, session0_slug_refusals,
                                       session0_table, start_refusals, validate_session0_table, write_session_end)
 from weather.market.market_config import event_slug_for_date
 from weather.market.market_registry import REGISTRY
@@ -57,12 +60,33 @@ class Clock:
         self.seconds += seconds
 
 
+# Public fee-field shapes of LFC-FEE-CHECK section c: a weather band (base_fee 1000, taker-only schedule) and the
+# fee-free session-0 shape (netanyahu-out-before-2027).
+WEATHER_GAMMA = {'feesEnabled': True, 'feeType': 'weather_fees', 'makerBaseFee': 1000, 'takerBaseFee': 1000,
+                 'feeSchedule': {'rate': 0.05, 'exponent': 1, 'takerOnly': True, 'rebateRate': 0.25}}
+WEATHER_CLOB = {'fd': {'r': 0.05, 'e': 1, 'to': True}, 'mbf': 1000, 'tbf': 1000}
+FREE_GAMMA = {'feesEnabled': False, 'feeType': None}
+FREE_CLOB = {}
+
+
+def fee_evidence(slug, *, free):
+    return {'event_slug': slug, 'gamma': gamma_fee_fields(FREE_GAMMA if free else WEATHER_GAMMA),
+            'clob': clob_fee_fields(FREE_CLOB if free else WEATHER_CLOB), 'error': None}
+
+
+def set_fee_class(snap, *, free):
+    snap['fee_evidence'] = json.loads(json.dumps(fee_evidence(S0_SLUG if free else LA_SLUG, free=free)))
+    for rule in snap['rules'].values():
+        rule['fee_rate_bps'] = '0' if free else '1000'
+    return snap
+
+
 def snapshot(clock, *, session0=False):
     value = Venue(clock).snapshot()
     value['quote_inputs'].update(reward_rate_per_day='100')
     if session0:  # Session0Books placeholders: an unrewarded market
         value['quote_inputs'].update(reward_min_size='0', reward_max_spread_cents='0', reward_rate_per_day='0')
-    return value
+    return set_fee_class(value, free=session0)
 
 
 def counted_table(clock, *, held=(), figures=None, cash='500'):
@@ -77,6 +101,7 @@ def counted_table(clock, *, held=(), figures=None, cash='500'):
 def s0_candidate(clock, *, slug=S0_SLUG, condition=CONDITION, end_days=30, snap=None):
     return {'event_slug': slug, 'event_condition_ids': [condition, OTHER], 'condition_id': condition,
             'token_ids': list(TOKENS), 'market_end_utc': (clock.now() + timedelta(days=end_days)).isoformat(),
+            'event_fee_fields': {condition: gamma_fee_fields(FREE_GAMMA), OTHER: gamma_fee_fields(FREE_GAMMA)},
             'snapshot': snap or snapshot(clock, session0=True)}
 
 
@@ -725,54 +750,107 @@ def test_a_cancel_that_never_reads_terminal_keeps_L_resting_and_ends(tmp_path):
     assert events(session, 'lfc_cancel_not_terminal')[0]['order_id'] == 'x'
 
 
-# ----- fix round 1: fee rule and market rules (fee_rate_bps == 0; review F-9) --------------------------------------
-def test_fee_rule_refuses_nonzero_or_unreadable_fees():
-    rules = {t: {'fee_rate_bps': '0'} for t in TOKENS}
-    assert fee_refusal(rules, TOKENS) is None
-    assert fee_refusal({**rules, TOKENS[1]: {'fee_rate_bps': '10'}}, TOKENS) == 'fee_rate_nonzero'
-    assert fee_refusal({TOKENS[0]: {'fee_rate_bps': '0'}}, TOKENS) == 'fee_rate_unreadable'
-    assert fee_refusal({t: {'fee_rate_bps': 'x'} for t in TOKENS}, TOKENS) == 'fee_rate_unreadable'
-    assert fee_refusal(rules, []) == 'fee_rate_unreadable'
-
-
-def test_session0_candidate_and_selection_require_a_zero_fee():
-    clock = Clock(S0_BASE)
-    snap = snapshot(clock, session0=True)
-    snap['rules'][TOKENS[0]]['fee_rate_bps'] = '5'
-    assert refusal(s0_table(clock, [s0_candidate(clock, snap=snap)])) == 'fee_rate_nonzero'
+# ----- maker-fee class rule (C8 as replaced by clarification D) and market rules (review F-9) ---------------------
+def test_weather_band_passes_selection_and_session0_must_be_fee_free():
     table = counted_table(Clock())
-    assert require_zero_fee(table) is table
-    table['rows'][0]['snapshot']['rules'][TOKENS[1]]['fee_rate_bps'] = '1'
-    with pytest.raises(RuntimeError, match='fee_rate_nonzero'):
-        require_zero_fee(table)
-    del table['rows'][0]['snapshot']['rules']
-    with pytest.raises(RuntimeError, match='fee_rate_unreadable'):
-        require_zero_fee(table)
+    assert table['selected_condition_id'] == CONDITION and require_maker_fee_zero(table) is table
+    with pytest.raises(RuntimeError, match='session0_not_fee_free'):
+        require_maker_fee_zero(table, require_fee_free=True)
+    clock = Clock(S0_BASE)
+    assert s0_table(clock)['rows'][0]['fee']['fee_class'] == 'FEE_FREE'
+    weather = set_fee_class(snapshot(clock, session0=True), free=False)
+    assert refusal(s0_table(clock, [s0_candidate(clock, snap=weather)])) == 'session0_not_fee_free'
+    sibling = s0_candidate(clock)
+    sibling['event_fee_fields'][OTHER] = gamma_fee_fields(WEATHER_GAMMA)
+    assert refusal(s0_table(clock, [sibling])) == 'session0_event_not_fee_free'
+    inconsistent = snapshot(clock, session0=True)
+    inconsistent['rules'][TOKENS[0]]['fee_rate_bps'] = '5'
+    assert refusal(s0_table(clock, [s0_candidate(clock, snap=inconsistent)])) == 'fee_fields_inconsistent'
 
 
-def test_a_nonzero_fee_at_submit_posts_nothing(tmp_path):
+def test_a_full_weather_session_records_base_fee_1000_at_selection_and_submit(tmp_path):
     session, venue, _, _ = setup(tmp_path)
-    venue.memory.public_input['rules'][TOKENS[0]]['fee_rate_bps'] = '10'
+    result = session.run(rehearsal_seconds=120)
+    assert venue.calls and result['submits'] == 2, result['reason']
+    rows = events(session, 'lfc_fee_rule')
+    assert [r['phase'] for r in rows] == ['selection', 'submit', 'submit']
+    assert all(r['fee_class'] == 'WEATHER_TAKER_ONLY' and r['refusal'] is None and
+               r['base_fee'] == {t: '1000' for t in TOKENS} and r['makerBaseFee'] == 1000 and
+               r['rebate_rate'] == '0.25' for r in rows)
+    assert all('fee' not in key.lower() and 'builder' not in key.lower() for call in venue.calls for key in call)
+
+
+def test_session0_fee_free_market_posts_and_records_fee_free(tmp_path):
+    session, venue, _, _ = setup(tmp_path, session0=True, run='0a')
+    session.run(rehearsal_seconds=60)
+    assert venue.calls and {r['fee_class'] for r in events(session, 'lfc_fee_rule')} == {'FEE_FREE'}
+
+
+@pytest.mark.parametrize('change,code', [
+    (lambda e: e['clob']['fd'].update(to=False), 'fee_fields_inconsistent'),
+    (lambda e: [e['gamma']['feeSchedule'].update(takerOnly=False), e['clob']['fd'].update(to=False)],
+     'maker_fee_nonzero'),
+    (lambda e: e['gamma'].update(builderFeeRate=50), 'builder_fee_nonzero'),
+    (lambda e: e['gamma'].update(feeType='crypto_fees'), 'fee_schedule_unknown'),
+    (lambda e: e.update(error='HTTPError', clob=None), 'fee_fields_unreadable'),
+], ids=['fd_to_disagrees', 'taker_only_false', 'builder_fee', 'unknown_fee_type', 'clob_markets_error'])
+def test_a_fee_refusal_at_submit_posts_nothing(tmp_path, change, code):
+    session, venue, _, _ = setup(tmp_path)
+    change(venue.memory.public_input['fee_evidence'])
     result = session.run(rehearsal_seconds=60)
-    assert result['reason'] == 'fee_rate_nonzero' and not venue.calls and result['submits'] == 0
-    assert events(session, 'lfc_fee_rule')[0]['refusal'] == 'fee_rate_nonzero'
+    assert result['reason'] == code and not venue.calls and result['submits'] == 0
+    assert events(session, 'lfc_fee_rule')[-1]['refusal'] == code
 
 
-@pytest.mark.parametrize('field,value', [('min_order_size', '6'), ('neg_risk', True), ('fee_rate_bps', '3')])
-def test_any_market_rule_change_ends_at_the_minute_check(tmp_path, field, value):
-    session, venue, clock, _ = setup(tmp_path)
+def test_a_class_flip_before_submit_posts_nothing(tmp_path):
+    session, venue, _, _ = setup(tmp_path)
+    set_fee_class(venue.memory.public_input, free=True)
+    result = session.run(rehearsal_seconds=60)
+    assert result['reason'] == 'fee_class_changed' and not venue.calls
+
+
+def _flip_at(venue, clock, change, seconds=90):
     real = venue.snapshot
 
     def snap(condition, tokens, *, checkpoint=lambda: None):
-        if clock.seconds >= 90:
-            venue.memory.public_input['rules'][TOKENS[1]][field] = value
+        if clock.seconds >= seconds:
+            change(venue.memory.public_input)
         return real(condition, tokens, checkpoint=checkpoint)
     venue.snapshot = snap
+
+
+@pytest.mark.parametrize('change,code', [
+    (lambda s: set_fee_class(s, free=True), 'fee_class_changed'),
+    (lambda s: s['fee_evidence']['clob']['fd'].update(to=False), 'fee_fields_inconsistent'),
+    (lambda s: s['fee_evidence']['gamma']['feeSchedule'].update(rebateRate=0.2), 'market_rules'),
+    (lambda s: [s['fee_evidence']['gamma'].update(takerBaseFee=1100), s['fee_evidence']['clob'].update(tbf=1100),
+                [r.update(fee_rate_bps='1100') for r in s['rules'].values()]], 'market_rules'),
+], ids=['flip_to_fee_free', 'fd_to_flips', 'rebate_retuned', 'base_fee_alone'])
+def test_a_fee_change_mid_session_ends_it(tmp_path, change, code):
+    session, venue, clock, _ = setup(tmp_path)
+    _flip_at(venue, clock, change)
+    result = session.run(rehearsal_seconds=600)
+    assert result['reason'] == code and result['cleanup_ok'] and not venue.open_orders()
+    [changed] = events(session, 'lfc_market_rules_changed')
+    assert changed['tokens'] == [] and changed['fee_fields_changed'] is True
+    assert changed['fee_refusal'] == (None if code == 'market_rules' else code)
+
+
+def test_session0_ends_when_its_market_becomes_fee_enabled(tmp_path):
+    session, venue, clock, _ = setup(tmp_path, session0=True, run='0a')
+    _flip_at(venue, clock, lambda s: set_fee_class(s, free=False))
+    result = session.run()
+    assert result['reason'] == 'session0_not_fee_free' and result['cleanup_ok'] and not venue.open_orders()
+
+
+@pytest.mark.parametrize('field,value', [('min_order_size', '6'), ('neg_risk', True)])
+def test_any_market_rule_change_ends_at_the_minute_check(tmp_path, field, value):
+    session, venue, clock, _ = setup(tmp_path)
+    _flip_at(venue, clock, lambda s: s['rules'][TOKENS[1]].update({field: value}))
     result = session.run(rehearsal_seconds=600)
     assert result['reason'] == 'market_rules' and result['cleanup_ok'] and not venue.open_orders()
     [changed] = events(session, 'lfc_market_rules_changed')
-    assert changed['tokens'] == [TOKENS[1]]
-    assert changed['fee_refusal'] == ('fee_rate_nonzero' if field == 'fee_rate_bps' else None)
+    assert changed['tokens'] == [TOKENS[1]] and changed['fee_refusal'] is None
 
 
 def test_account_open_orders_freshness_is_anchored_at_the_first_post(tmp_path):

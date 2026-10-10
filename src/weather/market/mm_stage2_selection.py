@@ -6,6 +6,7 @@ from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import json
+import re
 from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
@@ -171,6 +172,9 @@ def reward_rate(reward, observed_at):
 
 class PublicBooks:
     """Exact public hosts only; no SDK, account endpoint, header or credential."""
+    # Additional exact CLOB paths (regex, full match) a subclass may allow; empty here, so RE-1 and Stage 2 are
+    # unchanged. The live-fill calibration reader (weather.market.lfc_fees) allows /clob-markets/<condition>.
+    EXTRA_CLOB_PATHS = ()
 
     def __init__(self, *, clock=None, opener=None):
         self.clock = clock or (lambda: datetime.now(timezone.utc))
@@ -181,7 +185,8 @@ class PublicBooks:
         parts = urlsplit(url)
         allowed = (parts.netloc == 'gamma-api.polymarket.com' and parts.path.startswith('/events/slug/')) or (
             parts.netloc == 'clob.polymarket.com' and (parts.path in {'/book', '/tick-size', '/neg-risk', '/fee-rate', '/rewards/markets/current'}
-                                                      or parts.path.startswith('/rewards/markets/0x')))
+                                                      or parts.path.startswith('/rewards/markets/0x')
+                                                      or any(re.fullmatch(p, parts.path) for p in self.EXTRA_CLOB_PATHS)))
         if parts.scheme != 'https' or not allowed or parts.fragment or parts.username or parts.password:
             raise ValueError('not an allowed public weather/reward endpoint')
         assert_no_ambient_proxy_configuration()

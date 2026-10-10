@@ -85,10 +85,13 @@ SESSION0_PASS_REASONS = {'0a': ('fixed_end',), '0b': ('foreign_open_order',), '0
                          '0d': ('heartbeat_stale', 'order_no_longer_resting'), '0e': ('l_budget_refused',),
                          '0g': ('venue_deadman_cancelled',)}
 SESSION0_S0_2_MAX_SECONDS = 20  # S0-2 measured on 0c gates session 1 (review F-1c)
-# Fee rule (review Q4 replacement; DRAFT clarification C): every token of the selected market must read
-# fee_rate_bps == 0 at selection, the submitted leg's token at every submit, and both tokens every minute;
-# non-zero or unreadable fails closed.
-REQUIRED_FEE_RATE_BPS = 0
+# Maker-fee class rule (C8 as replaced 2026-10-09 by clarification D; EF section 10o; weather.market.lfc_fees): the
+# selected market must classify as WEATHER_TAKER_ONLY (Gamma feesEnabled true, feeType == WEATHER_FEE_TYPE,
+# feeSchedule.takerOnly true, CLOB fd.to true) or FEE_FREE (every fee field off/absent, /fee-rate base_fee 0) at
+# selection, at every submit and every minute; session 0 must be FEE_FREE. base_fee / makerBaseFee read 1000 on
+# weather markets and are recorded only (not the maker charge); the schedule coefficients are recorded, never
+# required to equal 0.05 / 1 / 0.25. Anything else fails closed.
+WEATHER_FEE_TYPE = 'weather_fees'
 # Trade reads at reconcile (review F-6): the same 5 x 2 s re-read as the session cleanup, bounded in time.
 TRADE_READ_ATTEMPTS = 5
 TRADE_READ_PAUSE_SECONDS = 2

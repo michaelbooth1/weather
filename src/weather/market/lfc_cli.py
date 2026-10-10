@@ -54,8 +54,9 @@ from weather.market.lfc_ledger import (SNAPSHOT_FILE, Ledger, LedgerUnavailable,
                                        fetch_account_positions, latest_baseline, ledger_path, normalize_positions,
                                        take_baseline, traded_shares, write_baseline)
 from weather.market.lfc_panel_exclusion import EXCLUSION_FILE, excluded_conditions, load_panel_exclusions
-from weather.market.lfc_pilot import (PilotProfile, PilotSession, Session0Books, notify_owner, owner_local_date,
-                                      pilot_root, require_zero_fee, session0_table, start_refusals,
+from weather.market.lfc_fees import guard_signed_orders, require_maker_fee_zero
+from weather.market.lfc_pilot import (LfcPublicBooks, PilotProfile, PilotSession, Session0Books, notify_owner,
+                                      owner_local_date, pilot_root, session0_table, start_refusals,
                                       write_session_end)
 from weather.market.mm_stage2_hold import _order_id, digest, utc, write_new
 
@@ -399,7 +400,6 @@ def held_conditions(root, ledger):
 
 def _selector(args, *, root, ledger, now_fn=_now):
     """(public books, select(balances)) for the profile; select builds the selection table from public reads."""
-    from weather.market.re1_rehearsal import Re1PublicBooks
     if args.session0:
         public = Session0Books()
         extras, extras_sha = load_conditions(args.extra_conditions)
@@ -410,17 +410,18 @@ def _selector(args, *, root, ledger, now_fn=_now):
                    'panel_exclusions_sha256': hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else None}
 
         def select(balances):
-            return require_zero_fee(session0_table(
+            # Maker-fee class rule (C8 as replaced by clarification D): session 0 must be FEE_FREE.
+            return require_maker_fee_zero(session0_table(
                 public.candidates(sorted(set(args.event_slug))), now=now_fn(), run=args.run,
                 available_collateral=balances['available_collateral'], ledger=ledger.figures(),
                 excluded_conditions=set(extras) | set(shadow) | panel,
-                held_conditions=held_conditions(root, ledger), scope_sources=sources))
+                held_conditions=held_conditions(root, ledger), scope_sources=sources), require_fee_free=True)
         return public, select
-    public = Re1PublicBooks()
+    public = LfcPublicBooks()
 
     def select(balances):
-        # Fee rule (review Q4 replacement): the selected market must read fee_rate_bps == 0, else fail closed.
-        return require_zero_fee(public.selection(
+        # Maker-fee class rule (C8 as replaced by clarification D): WEATHER_TAKER_ONLY or FEE_FREE, else fail closed.
+        return require_maker_fee_zero(public.selection(
             available_collateral=balances['available_collateral'], treatment=LFC.TREATMENT,
             ledger=ledger.figures(), held_conditions=held_conditions(root, ledger)))
     return public, select
@@ -567,6 +568,8 @@ def run_live(args):
             venue = OwnerVenue(client, fields, guard, condition=selected['condition_id'], tokens=selected['token_ids'],
                                directory=directory, timeouts=timeouts, size=selected['quote']['size'],
                                reserve_cap=reserve_cap, profile=profile)
+            # The signed order: no builder or fee argument, builder == bytes32 zero (clarification D, C8).
+            guard_signed_orders(venue)
             t40 = latest_baseline(root, ledger, 't40')
             baselines = {'t40_sha256': digest(t40)}
             if not profile.session0:
