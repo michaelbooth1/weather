@@ -191,14 +191,26 @@ payload payload_sha256 source_hashes`), fsynced per batch, then a create-only
   band at most (a hung GET can exceed its 5 s socket timeout); that refresh is
   `refresh:late_overrun`. A refresh cut short is `refresh:partial_overrun`, one that read
   nothing `refresh:skipped_overrun`. **Backoff** (owner decision N1, 2026-10-09: back off
-  only after a LATE refresh): only a `refresh:late_overrun` refresh, which delayed a decision,
-  defers the next attempt, by 1, 2, 4, then 8 minutes (capped; by late refreshes since the last
-  full on-time refresh), and each backed-off minute is `refresh:skipped_backoff`. A clean
-  partial or skipped refresh stopped within the deadline and delayed nothing, so the next
-  minute is attempted again; it neither raises nor resets the backoff level. A full refresh
-  that ended within the deadline resets it. So under sustained slowness every minute refreshes
-  the bands that fit, and a late decision recurs at most about once every 9 minutes once the
-  backoff is capped, never every other minute. **Expected cost** (the Defender's 30-minute timing
+  only after a LATE refresh): only a `refresh:late_overrun` refresh, one that ended after its
+  deadline, defers the next attempt, by 1, 2, 4, then 8 minutes (capped; by the backoff level,
+  the late refreshes since the level was last reset), and each backed-off minute is
+  `refresh:skipped_backoff`. A clean partial or skipped refresh ended within the deadline, so
+  the next minute is attempted again; it does not raise the level. The level resets after a
+  full refresh that ended within the deadline, or after 8 consecutive attempted refreshes that
+  did not end late (`REFRESH_BACKOFF_DECAY`; clean partials and skips count, backed-off minutes
+  are not attempts, and a late refresh restarts the streak; Defender N3, approved 2026-10-09).
+  So isolated late refreshes in a feed that never completes a full refresh each back off only
+  1 minute (120 minutes of 60 bands of 0.5 s with a 30 s band at minutes 10, 40, 70 and 100:
+  0, 0, 0 and 0 backed-off minutes after each late, against 0, 1, 3 and 7 without the decay),
+  while sustained slowness, with fewer than 8 attempts between late refreshes, still
+  escalates. Under sustained slowness every minute refreshes the bands that fit and late
+  refreshes thin out: the first gaps are 2, 3 and 5 minutes (the first two can be 2 minutes
+  apart), and once the backoff is capped they are at least 8 minutes apart (the 8-minute
+  backoff; 9 in every measured scenario), not sustained every other minute. **Steady late
+  rate under slow bands** (180-minute runs through the real run loop with the decay in place:
+  three 40 s bands, or one slow last band of 40 or 60): one late refresh every 9 minutes after
+  the fourth (about 160 a day, each bounded by one band's excess, at most 10 s), against about
+  1 per 16-18 minutes before N1. **Expected cost** (the Defender's 30-minute timing
   scenarios through the real run loop, before N1 and after): a few more late decisions, each
   still bounded by one band's excess (one slow last band of 40 or 60: 5 late instead of 3, same
   maximum 5.6 s and 8.6 s; three 40 s bands: 6 instead of 3, same 10 s maximum; seeded band
@@ -211,8 +223,9 @@ payload payload_sha256 source_hashes`), fsynced per batch, then a create-only
   sorted by minute) and in `gaps.json` `incomplete_refreshes` (`[{run_id, stream, refreshes}]`,
   bundled streams only, sorted by stream); `bundle.json` is unchanged by them. **Row codes**
   (owner decision N2, `records.INCOMPLETE_REFRESH_CODES`): `late` (`refresh:late_overrun`: the
-  refresh ended past its deadline and delayed the next decision; `left` may be 0, so the row
-  does not mean a complete refresh), `deadline_partial` (`refresh:partial_overrun`: stopped at
+  refresh ended after its deadline, `REFRESH_MARGIN` (3 s) before the next minute; the next
+  decision may be late by that excess, or not at all if it ended inside the margin; `left` may
+  be 0, so the row does not mean a complete refresh), `deadline_partial` (`refresh:partial_overrun`: stopped at
   the deadline after reading some bands), `skipped` (`refresh:skipped_overrun`: stopped before
   reading any; `left` counts the known bands) and `backed_off` (`refresh:skipped_backoff`: not
   attempted, backoff after a late refresh; `left` counts every selected band). A band left unread may let that minute's

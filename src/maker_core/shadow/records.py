@@ -53,9 +53,10 @@ MAX_LINE_BYTES = 1024**2  # The replay reader's per-record cap.
 # may still be sealing it at the day roll, and a create-only bundle would drop it for good.
 UNSEALED_GRACE = timedelta(hours=1)
 # Row code of each ``incomplete_refreshes`` row, by the fault code the runner counts (owner decisions N7, N2):
-# ``late`` the refresh ended past its deadline (the next decision was late; ``left`` may be 0), ``deadline_partial``
-# it stopped at the deadline after reading some bands, ``skipped`` it stopped before reading any, ``backed_off``
-# it was not attempted (backoff after a late refresh; ``left`` is every selected band).
+# ``late`` the refresh ended after its deadline, REFRESH_MARGIN (3 s) before the next minute (the next decision
+# may be late by that excess; ``left`` may be 0), ``deadline_partial`` it stopped at the deadline after reading
+# some bands, ``skipped`` it stopped before reading any, ``backed_off`` it was not attempted (backoff after a late
+# refresh; ``left`` is every selected band).
 INCOMPLETE_REFRESH_CODES = {"refresh:late_overrun": "late", "refresh:partial_overrun": "deadline_partial",
                             "refresh:skipped_overrun": "skipped", "refresh:skipped_backoff": "backed_off"}
 MAX_SEQUENCE = 2**31 - 1

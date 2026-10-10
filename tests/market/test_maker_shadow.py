@@ -374,7 +374,7 @@ def test_a_refresh_that_fits_reads_every_band_and_records_nothing():
 def test_a_clean_skip_or_partial_never_backs_off():
     """Owner decision N1 (2026-10-09): back off only after a LATE refresh. A refresh that read nothing because the
     estimate did not fit, or stopped part-way, ended within its deadline and delayed nothing, so every minute is
-    attempted again: no ``backed_off`` minute, and the backoff level is neither raised nor reset. Kills mutant
+    attempted again: no ``backed_off`` minute, and the backoff level is not raised. Kills mutant
     N1-partial-backs-off (any incomplete refresh backs off again)."""
     plan, writer = maker_shadow.RefreshPlan(), BandWriter(NOW, bands=1, took=7)
     minute = lambda n: NOW + timedelta(minutes=n)  # noqa: E731
@@ -387,7 +387,7 @@ def test_a_clean_skip_or_partial_never_backs_off():
         refresh_at(writer, minute(n), plan)  # 7 s bands from +30: a clean partial every minute
     assert [code for code, *_ in writer.incomplete[24:]] == [maker_shadow.REFRESH_PARTIAL] * 6
     assert plan.late == 0 and plan.resume_at is None and len(writer.reads) == 2 + 5 * 3
-    plan.late = 2  # an earlier late streak: a clean partial keeps its level, it does not reset it
+    plan.late, plan.on_time = 2, 0  # just after a late refresh: a clean partial keeps its level (streak 1 < 8)
     refresh_at(writer, minute(30), plan)
     assert plan.late == 2 and plan.resume_at is None and writer.incomplete[-1][0] == maker_shadow.REFRESH_PARTIAL
 
@@ -423,8 +423,8 @@ def test_a_band_slower_than_the_carried_estimate_raises_the_estimate_within_the_
 def test_a_refresh_that_ends_late_is_recorded_and_backs_off_and_a_skip_returns_to_the_bound():
     """N7 / Defender F1, F11, owner decision N1: a band read longer than its estimate (here 30 s against the 15 s
     bound) ends past the deadline; that refresh is recorded ``late_overrun`` and is the only kind that backs off,
-    1, 2, 4 then 8 minutes (capped) by late refreshes since the last full on-time one, so the late decisions it
-    causes thin out (minutes 0, 2, 5, 10, 19, 28), never every other minute. Each backed-off minute is recorded
+    1, 2, 4 then 8 minutes (capped) by the backoff level (late refreshes since its reset), so the late decisions it
+    causes thin out (minutes 0, 2, 5, 10, 19, 28), not sustained every other minute. Each backed-off minute is recorded
     with all its bands left. A skip measures nothing, so the next attempt uses REFRESH_BAND_BOUND again, never
     the 30 s that would lock refreshes out; that clean skip neither raises nor resets the backoff. A full on-time
     refresh resets it."""
@@ -449,6 +449,57 @@ def test_a_refresh_that_ends_late_is_recorded_and_backs_off_and_a_skip_returns_t
     writer.took = 30
     refresh_at(writer, minute(38), plan)  # late again: the backoff restarts at 1 minute
     assert plan.late == 1 and plan.resume_at == minute(39)
+
+
+
+def test_the_backoff_level_resets_after_eight_consecutive_on_time_attempts_and_a_late_restarts_the_streak():
+    """N3 (2026-10-09): besides a full on-time refresh, REFRESH_BACKOFF_DECAY (8) consecutive attempted refreshes
+    that did not end late (clean partials and skips count) reset the backoff level; 7 do not. A late refresh at
+    streak 7 restarts the streak and raises the level per N1. Backed-off minutes are not attempts: they neither
+    extend nor break the streak. So isolated lates in a feed that never completes a full refresh each back off
+    from 1 minute again instead of escalating for the rest of the run."""
+    assert maker_shadow.REFRESH_BACKOFF_DECAY == 8
+    plan, writer = maker_shadow.RefreshPlan(), BandWriter(NOW, bands=5, took=7)
+    minute = lambda n: NOW + timedelta(minutes=n)  # noqa: E731
+
+    def on_time(n, skip):
+        writer.took = 7
+        refresh_at(writer, minute(n), plan, second=52 if skip else 30)  # +52: a clean skip; +30: a clean partial
+        assert writer.incomplete[-1][:2] == ((maker_shadow.REFRESH_SKIPPED if skip else maker_shadow.REFRESH_PARTIAL),
+                                             minute(n))
+
+    def late(n):
+        writer.took = 30
+        refresh_at(writer, minute(n), plan)  # the first band (+30, estimate <= 15 s) takes 30 s: ends +60 > +57
+        assert writer.incomplete[-1][:2] == (maker_shadow.REFRESH_LATE, minute(n))
+
+    plan.late = 2
+    for n in range(7):
+        on_time(n, skip=n % 2 == 0)
+    assert (plan.late, plan.on_time, plan.resume_at) == (2, 7, None)  # 7 on-time attempts: the level is kept
+    late(7)  # late at streak 7: the streak restarts and the level rises to 3 (backoff 4 minutes)
+    assert (plan.late, plan.on_time, plan.resume_at) == (3, 0, minute(11))
+    for n in (8, 9, 10):
+        refresh_at(writer, minute(n), plan)  # backed off: not an attempt, the streak stays 0
+        assert writer.incomplete[-1] == (maker_shadow.REFRESH_BACKOFF, minute(n), 0, 5) and plan.on_time == 0
+    for n in range(11, 18):
+        on_time(n, skip=n % 2 == 1)
+    assert (plan.late, plan.on_time) == (3, 7)
+    on_time(18, skip=False)  # the 8th consecutive on-time attempt: the level resets
+    assert (plan.late, plan.on_time, plan.resume_at) == (0, 8, None)
+    late(19)  # the next late backs off 1 minute, not 8
+    assert (plan.late, plan.on_time, plan.resume_at) == (1, 0, minute(20))
+
+
+def test_a_refresh_that_ends_exactly_at_its_deadline_is_on_time():
+    """N7 boundary: a band starts when the clock plus its estimate is within the deadline (<=), and a refresh is
+    late only when it ends after the deadline (>). A band of exactly the 15 s bound started at +42 ends exactly at
+    the deadline (+57): a full on-time refresh, nothing recorded, no backoff, and it resets the level."""
+    plan, writer = maker_shadow.RefreshPlan(), BandWriter(NOW, bands=1, took=15)
+    plan.late = 3
+    refresh_at(writer, NOW, plan, second=42)
+    assert writer.now == NOW + timedelta(minutes=1) - maker_shadow.REFRESH_MARGIN and len(writer.reads) == 1
+    assert writer.incomplete == [] and plan.late == 0 and plan.resume_at is None
 
 
 class SleepDrivenClock:

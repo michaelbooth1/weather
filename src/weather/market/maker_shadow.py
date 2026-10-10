@@ -59,16 +59,21 @@ MID_MINUTE_POLL = timedelta(seconds=30)
 # the clock plus the per-band estimate is within the deadline. The per-band estimate is the longest band read
 # measured (monotonic clock) in this refresh and the run's previous one; before a first measurement, and after a
 # refresh that read nothing, it is REFRESH_BAND_BOUND (a band's three public GETs at the 5 s transport timeout).
-# Only a band read that outlasts its estimate can pass the deadline, so the next decision is late only by that
-# excess (one band); such a refresh is recorded as late. A refresh cut short (partial), that read nothing
-# (skipped) or that ended late is recorded per minute. Backoff (owner decision N1, 2026-10-09: back off only
-# after a LATE refresh): only a refresh that ended late, and so delayed a decision, defers the next attempt, by
-# a capped exponential backoff (REFRESH_BACKOFF_MINUTES, by late refreshes since the last full on-time one). A
-# clean partial or skip stopped within the deadline and delayed nothing, so the next minute is attempted again;
-# it neither raises nor resets the backoff. Only a full refresh that ended within the deadline resets it.
+# Only a band read that outlasts its estimate can pass the deadline; such a refresh is late: it ended after its
+# deadline (REFRESH_MARGIN before the next minute), and the next decision may be late by that excess (one band).
+# A refresh cut short (partial), that read nothing (skipped) or that ended late is recorded per minute. Backoff
+# (owner decision N1, 2026-10-09: back off only after a LATE refresh): only a late refresh defers the next
+# attempt, by a capped exponential backoff (REFRESH_BACKOFF_MINUTES, by the backoff level: late refreshes since
+# the level was last reset). A clean partial or skip ended within the deadline, so the next minute is attempted
+# again; it neither raises the level nor, by itself, resets it. The level resets after a full refresh that ended
+# within the deadline, or after REFRESH_BACKOFF_DECAY consecutive attempted refreshes that did not end late
+# (full, clean partial or skip; backed-off minutes are not attempts and do not count), so isolated lates in a
+# regime that never completes a full refresh each back off from 1 minute again (Defender N3, approved 2026-10-09).
+# A late refresh restarts that streak.
 REFRESH_MARGIN = timedelta(seconds=3)
 REFRESH_BAND_BOUND = timedelta(seconds=15)
 REFRESH_BACKOFF_MINUTES = (1, 2, 4, 8)
+REFRESH_BACKOFF_DECAY = 8
 REFRESH_SKIPPED = "refresh:skipped_overrun"
 REFRESH_PARTIAL = "refresh:partial_overrun"
 REFRESH_LATE = "refresh:late_overrun"
@@ -80,7 +85,8 @@ class RefreshPlan:
 
     def __init__(self):
         self.band_estimate = None  # None: REFRESH_BAND_BOUND
-        self.late = 0  # late refreshes since the last full on-time refresh (sets the backoff)
+        self.late = 0  # the backoff level: late refreshes since it was last reset
+        self.on_time = 0  # consecutive attempted refreshes that did not end late (REFRESH_BACKOFF_DECAY)
         self.resume_at = None  # first minute whose refresh may be attempted again
 
 
@@ -118,17 +124,21 @@ def mid_minute_refresh(writer, condition_ids, clock, minute, plan, monotonic=Non
     writer.poll(condition_ids, proceed=proceed)
     measure()
     plan.band_estimate = state["longest"]
-    late = clock() > deadline  # a band read outlasted its estimate
+    late = clock() > deadline  # ended after the deadline (a band read outlasted its estimate); at it is on time
     if state["left"] or late:
         code = REFRESH_LATE if late else REFRESH_PARTIAL if state["refreshed"] else REFRESH_SKIPPED
         writer.incomplete_refresh(code, minute, state["refreshed"], state["left"])
-    if late:  # owner decision N1: only a refresh that delayed a decision backs off
-        plan.late += 1
+    if late:  # owner decision N1: only a refresh that ended after its deadline backs off
+        plan.late, plan.on_time = plan.late + 1, 0
         backoff = REFRESH_BACKOFF_MINUTES[min(plan.late, len(REFRESH_BACKOFF_MINUTES)) - 1]
         plan.resume_at = minute + timedelta(minutes=backoff)
-    elif state["left"]:  # clean partial or skip, within the deadline: retry next minute, backoff level kept
+    elif state["left"]:  # clean partial or skip, within the deadline: retry next minute, level kept until N3
+        plan.on_time += 1
         plan.resume_at = None
+        if plan.on_time >= REFRESH_BACKOFF_DECAY:  # N3: a late-free streak resets the level
+            plan.late = 0
     else:
+        plan.on_time += 1
         plan.late, plan.resume_at = 0, None
     return plan
 
