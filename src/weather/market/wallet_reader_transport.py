@@ -133,7 +133,8 @@ class ReadTransport:
             handle.write(json.dumps(row, allow_nan=False) + "\n")
             handle.flush()
 
-    def request(self, method, host, path, params=None):
+    def request(self, method, host, path, params=None, *, fresh=False):
+        """``fresh`` skips the cache lookup (still budgeted, journaled and cached after)."""
         params = {} if params is None else dict(params)
         check_request(method, host, path, params)
         # No arbitrary account overrides, including through internal callers.
@@ -144,7 +145,7 @@ class ReadTransport:
         with self.lock:
             now = self.clock()
             self._expire()
-            if url in self.cache:
+            if not fresh and url in self.cache:
                 _, result, failed = self.cache[url]
                 if failed:
                     raise ReaderError("upstream_unavailable_cached")

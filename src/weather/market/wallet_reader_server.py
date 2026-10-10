@@ -7,14 +7,17 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
 from urllib.parse import parse_qs, urlsplit
 
-from weather.market.wallet_reader_security import ReaderError, lan_ip
+from weather.market.wallet_reader_security import ReaderError, lan_ip, source_admitted
 
 ROUTES = {"/health", "/summary", "/positions", "/open-orders", "/trades", "/balance", "/rewards", "/settlement"}
 
 
 def dispatch(reader, guard, token, allow, method, target, client_ip, headers):
-    """Pure dispatch boundary, exercised without opening sockets in tests."""
-    if client_ip != allow:
+    """Pure dispatch boundary, exercised without opening sockets in tests.
+
+``allow`` None admits any RFC1918 or loopback IPv4 caller; a value narrows to that IP.
+"""
+    if not source_admitted(client_ip, allow):
         return 403, {"error": "forbidden"}
     supplied = headers.get("Authorization", "")
     if not isinstance(supplied, str) or not hmac.compare_digest(
@@ -31,10 +34,11 @@ def dispatch(reader, guard, token, allow, method, target, client_ip, headers):
             return 404, {"error": "not_found"}
         query = parse_qs(parts.query, keep_blank_values=True, strict_parsing=True)
         allowed = ({"since"} if parts.path in {"/trades", "/settlement"} else {"date"} if parts.path == "/rewards"
-                   else {"include_resolved"} if parts.path in {"/positions", "/summary"} else set())
+                   else {"include_resolved"} if parts.path in {"/positions", "/summary"}
+                   else {"fresh"} if parts.path == "/open-orders" else set())
         if not set(query) <= allowed or any(len(v) != 1 for v in query.values()):
             return 400, {"error": "invalid_query"}
-        if query.get("include_resolved", ["false"])[0] not in {"true", "false"}:
+        if query.get("include_resolved", ["false"])[0] not in {"true", "false"} or query.get("fresh", ["1"])[0] != "1":
             return 400, {"error": "invalid_query"}
         if parts.path == "/health":
             value = {"status": "ok", "upstream_checked": False}
@@ -50,6 +54,8 @@ def dispatch(reader, guard, token, allow, method, target, client_ip, headers):
             from weather.market.wallet_reader import valid_since
             valid_since(since)
             value = reader.settlement(since)
+        elif parts.path == "/open-orders" and "fresh" in query:
+            value = reader.open_orders(fresh=True)  # bypasses the 30 s cache; same rate cap
         elif parts.path == "/rewards":
             day = query.get("date", [datetime.now(timezone.utc).date().isoformat()])[0]
             from weather.market.wallet_reader import valid_date
@@ -105,9 +111,10 @@ def handler_for(reader, guard, token, allow):
     return Handler
 
 
-def serve_reader(reader, guard, token, *, bind, allow, port):
-    lan_ip(bind)
-    lan_ip(allow)
+def serve_reader(reader, guard, token, *, bind, allow=None, port):
+    lan_ip(bind)  # RFC1918 literal only: never wildcard, loopback or public.
+    if allow is not None:
+        lan_ip(allow)
 
     class Server(HTTPServer):
         def get_request(self):
@@ -116,7 +123,7 @@ def serve_reader(reader, guard, token, *, bind, allow, port):
             return connection, address
 
         def verify_request(self, request, client_address):
-            return client_address[0] == allow
+            return source_admitted(client_address[0], allow)
 
         def handle_error(self, request, client_address):
             pass  # Never let default tracebacks emit account data or auth.

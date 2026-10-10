@@ -26,6 +26,7 @@ FIELDS = ("API_KEY", "API_SECRET", "API_PASSPHRASE", "WALLET_ADDRESS",
 ADDRESS = re.compile(r"0x[0-9a-fA-F]{40}\Z")
 CONDITION = re.compile(r"0x[0-9a-fA-F]{64}\Z")
 RFC1918 = tuple(ipaddress.ip_network(n) for n in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"))
+LOOPBACK = ipaddress.ip_network("127.0.0.0/8")
 
 
 class ReaderError(RuntimeError):
@@ -105,6 +106,7 @@ no other entry is inspected, interpolated, exported, retained, or used.
 
 
 def lan_ip(value):
+    """Bind and ``--allow`` addresses: a literal RFC1918 IPv4 only (never loopback)."""
     try:
         address = ipaddress.IPv4Address(value)
         if str(address) != value or not any(address in network for network in RFC1918):
@@ -112,3 +114,30 @@ def lan_ip(value):
     except (ValueError, TypeError):
         raise ReaderError("rfc1918_ipv4_required") from None
     return value
+
+
+def private_source_ip(value):
+    """Caller/URL host: a literal RFC1918 or loopback (127.0.0.0/8) IPv4.
+
+Public, link-local, multicast, CGNAT, unspecified and every IPv6 form are refused.
+"""
+    try:
+        address = ipaddress.IPv4Address(value)
+        if str(address) != value or not (address in LOOPBACK or any(address in network for network in RFC1918)):
+            raise ValueError
+    except (ValueError, TypeError):
+        raise ReaderError("private_lan_or_loopback_ipv4_required") from None
+    return value
+
+
+def source_admitted(client_ip, allow):
+    """Owner decision 2026-10-09: any private-LAN or same-machine caller by default.
+
+``allow`` (``serve --allow``), when given, narrows admission to that exact address.
+The bearer token is checked separately and is always required.
+"""
+    try:
+        private_source_ip(client_ip)
+    except ReaderError:
+        return False
+    return allow is None or client_ip == allow
