@@ -366,8 +366,62 @@ study), not to this diagnostic.
 2026-09-30..2026-10-15 (maker replay v2 panel and settlement day) and
 2026-10-15..2026-11-13 (desk-study decision panel and its pre-registered
 extension), and any day not yet closed in UTC. The windows live in
-`weather.market.maker_shadow_panel.EMBARGOED_UTC_DAYS`; lifting one is a reviewed
-code change. The runner still tapes those days.
+`maker_core.shadow.admission.EMBARGO_WINDOWS` (re-exported by
+`weather.market.maker_shadow_panel`); lifting, shortening or re-scoping one is a
+reviewed code change. The runner still tapes those days.
+
+Each window has a scope. The first is `full`: nothing about its days is scored,
+parity included. The second is `outcome`: 88a, paper fills, cash, markouts and
+settlement stay refused in any output, but the **parity path** (shadow vs frozen
+replay-v2 decisions on the shadow's own tapes, gate parity definition) may read
+its days. A day in both windows takes `full`. Windows are permanent day ranges:
+`score` refuses their days until a reviewed edit of `EMBARGO_WINDOWS` lifts,
+shortens or re-scopes the window; nothing expires by itself.
+
+The parity path is outcome-blind **in output only**. It ingests each minute row in
+memory, including the tape's `paper` block (fills, `cash_pusd`, `pnl_pusd`) and the
+`inputs.portfolio` state, because decisions are conditioned on them; these are
+shadow paper fills from public prints, not 88a. On an `outcome` day none of it may
+appear in the report.
+
+Any parity scorer must, in order:
+
+1. `admit_parity_day(day, clock)` before opening anything. It computes today in UTC
+   itself and requires a canonical closed day, not `full`, an explicit `ParityClock`,
+   and a day on or after its `first_countable_day` (the day after the restart run
+   started). The admission carries its clock. Only `admit_parity_day` can mint a
+   `ParityAdmission`; direct construction is refused, and an admitted token (also
+   one made by `dataclasses.replace`) is re-validated against its day.
+2. `open_parity_tapes(root, admission)`, the only sanctioned tape opener. It first
+   re-derives the canonical day, its window (the permanent windows always apply),
+   the clock and the first countable day from the token, then reads
+   `sealed_tapes(root, day)` only (never D-1 or D+1) and runs `bind_parity_tapes`:
+   no unsealed tape, and every tape on the admission clock's shadow commit, clean,
+   with the clock's `config_sha256` and a run started at or after the restart run.
+3. `assert_outcome_blind(report, admission)` before writing. On an `outcome` day it
+   enforces `PARITY_REPORT_ALLOWLIST`; the window is re-derived from the day, never
+   taken from the flag alone. Exact keys; strings only from closed enums (verdict,
+   label, refusal, tape `git_error`, schema) or exact patterns (canonical day,
+   40-hex commit, 64-hex digest and cohort id, the runner's tape name); counters are
+   non-negative `int` at most `MAX_COUNT`. Any other key, value, object, tuple, set
+   or float is refused. A ratchet test keeps `sealed_tapes(` callers to this module
+   and the diagnostic `score`.
+
+`MakerEvidencePanel` (the 88a reader) refuses an embargoed or non-canonical day in
+its own constructor, independently of `score`. The clock
+(`maker_core.shadow_parity_clock.v0.1`: engine commit, freeze instant, shadow
+commit, restart run id, config sha) is an explicit input; nothing discovers it.
+The restart run id must not be earlier than the freeze instant. The gate loads the
+clock only through `parity_clock_from`, from its tracked `config/` file; it never
+constructs a `ParityClock` directly or takes one from a command line or environment.
+The permanent `EMBARGO_WINDOWS` are always prepended to any injected windows, and
+every scope check (admission, re-validation, tape opening, outcome withholding)
+also checks the day against `EMBARGO_WINDOWS` directly.
+
+**Land before the engine-freeze restart.** The binding compares the whole-repository
+HEAD commit, so any host merge followed by a runner respawn after the restart
+changes the shadow commit and ends the parity cohort. Land embargo and runner
+changes before the restart, and keep the runner's code still afterwards.
 
 ## Forward runner on the capture host
 
@@ -389,7 +443,8 @@ owner/production act; editing or testing the registrar arms nothing.
   [-ParityStartUtc <yyyy-MM-dd>]` prints one line: process, sealed days, last tick,
   the live run's code (`code <12 hex>`, `DIRTY`, `unbound (<git_error>)` or `not recorded`),
   rows and MB today (quotes tape plus record stream), crashed tapes, parity days and the
-  embargo. It reads names and sizes, seal
+  embargo (its dates read from `src/maker_core/shadow/admission.py`, never hard-coded).
+  It reads names and sizes, seal
   JSONs, the first line (at most 64 KiB) and at most the last MiB of the open tape and,
   with `-ParityStartUtc`, score agreement status; it never starts Python or reads 88a.
 - **Restart** (after any merge that touches the runner's modules, and **at the engine
