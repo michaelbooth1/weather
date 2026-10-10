@@ -77,7 +77,8 @@ the `WeatherMakerShadowRunner` task (next section); registering it is an owner a
 
 Exit 0 is success; exit 2 is a refusal printed as JSON (invalid config, stop file
 present at start, embargoed or open day, no sealed tape; for `bundle-day` an open day,
-an unsealed or changed record stream, or an existing `bundle.json`). Initialise the guard
+an unsealed record stream within an hour of the day close, no bundleable stream, a changed
+record stream, or an existing `bundle.json`). Initialise the guard
 latch first with `python -m maker_core.runtime.guard_latch init --state-dir <dir>`;
 an uninitialised latch is a HALT.
 
@@ -177,7 +178,62 @@ payload payload_sha256 source_hashes`), fsynced per batch, then a create-only
   Cost at 12 bands: 24 extra CLOB book GETs a minute (the 12 trade GETs at +30 s already
   existed), from 60 to 84 public GETs a minute, about +4.6 s of sequential reads at 190 ms
   each. The first minute of a run (or of a newly selected band) replays as
-  `MISSING_COVERAGE`: its first poll precedes its first descriptor.
+  `MISSING_COVERAGE`: its first poll precedes its first descriptor. **Overrun deadline** (owner
+  decision N7, `maker_shadow.mid_minute_refresh`): the refresh must not delay the next
+  decision. It has a hard deadline, `REFRESH_MARGIN` (3 s) before the next minute, and reads
+  its bands one at a time; a band is started only when the clock plus the per-band estimate is
+  within the deadline, so a slow refresh is cut short and the next decision starts on time.
+  The per-band estimate is the longest band read measured in this refresh and the run's
+  previous one, on the monotonic clock (a wall-clock step never feeds it); before a first
+  measurement, and after a refresh that read nothing, it is `REFRESH_BAND_BOUND` (15 s: a
+  band's three GETs at the 5 s transport timeout). **Bound:** only a band read that outlasts
+  its estimate can pass the deadline, and then the next decision is late by that excess, one
+  band at most (a hung GET can exceed its 5 s socket timeout); that refresh is
+  `refresh:late_overrun`. A refresh cut short is `refresh:partial_overrun`, one that read
+  nothing `refresh:skipped_overrun`. **Backoff** (owner decision N1, 2026-10-09: back off
+  only after a LATE refresh): only a `refresh:late_overrun` refresh, one that ended after its
+  deadline, defers the next attempt, by 1, 2, 4, then 8 minutes (capped; by the backoff level,
+  the late refreshes since the level was last reset), and each backed-off minute is
+  `refresh:skipped_backoff`. A clean partial or skipped refresh ended within the deadline, so
+  the next minute is attempted again; it does not raise the level. The level resets after a
+  full refresh that ended within the deadline, or after 8 consecutive attempted refreshes that
+  did not end late (`REFRESH_BACKOFF_DECAY`; clean partials and skips count, backed-off minutes
+  are not attempts, and a late refresh restarts the streak; Defender N3, approved 2026-10-09).
+  So isolated late refreshes in a feed that never completes a full refresh each back off only
+  1 minute (120 minutes of 60 bands of 0.5 s with a 30 s band at minutes 10, 40, 70 and 100:
+  0, 0, 0 and 0 backed-off minutes after each late, against 0, 1, 3 and 7 without the decay),
+  while sustained slowness, with fewer than 8 attempts between late refreshes, still
+  escalates. Under sustained slowness every minute refreshes the bands that fit and late
+  refreshes thin out: the first gaps are 2, 3 and 5 minutes (the first two can be 2 minutes
+  apart), and once the backoff is capped they are at least 8 minutes apart (the 8-minute
+  backoff; 9 in every measured scenario), not sustained every other minute. **Steady late
+  rate under slow bands** (180-minute runs through the real run loop with the decay in place:
+  three 40 s bands, or one slow last band of 40 or 60): one late refresh every 9 minutes after
+  the fourth (about 160 a day, each bounded by one band's excess, at most 10 s), against about
+  1 per 16-18 minutes before N1. **Expected cost** (the Defender's 30-minute timing
+  scenarios through the real run loop, before N1 and after): a few more late decisions, each
+  still bounded by one band's excess (one slow last band of 40 or 60: 5 late instead of 3, same
+  maximum 5.6 s and 8.6 s; three 40 s bands: 6 instead of 3, same 10 s maximum; seeded band
+  variance 0.2-3 s with 5 % at 15 s: 1-4 instead of 0-1, at most 9 s), against about 4-5 times
+  more refreshed bands (symmetric 35 s step and 35 s refresh: 86 of 145 bands instead of 17;
+  70 s and 95 s refreshes: 29 instead of 6; 60 bands of 0.5 s: 1508 of 1740 instead of 289;
+  variance: 234-309 of 696 instead of 44-82; busy 50 s steps: 491 instead of 389). No minute
+  is lost in any scenario. Every such minute is counted on the stream seal and named in the
+  seal's `incomplete_refreshes` (`[{minute, code, refreshed, left}]`, bands read and left,
+  sorted by minute) and in `gaps.json` `incomplete_refreshes` (`[{run_id, stream, refreshes}]`,
+  bundled streams only, sorted by stream); `bundle.json` is unchanged by them. **Row codes**
+  (owner decision N2, `records.INCOMPLETE_REFRESH_CODES`): `late` (`refresh:late_overrun`: the
+  refresh ended after its deadline, `REFRESH_MARGIN` (3 s) before the next minute; the next
+  decision may be late by that excess, or not at all if it ended inside the margin; `left` may
+  be 0, so the row does not mean a complete refresh), `deadline_partial` (`refresh:partial_overrun`: stopped at
+  the deadline after reading some bands), `skipped` (`refresh:skipped_overrun`: stopped before
+  reading any; `left` counts the known bands) and `backed_off` (`refresh:skipped_backoff`: not
+  attempted, backoff after a late refresh; `left` counts every selected band). A band left unread may let that minute's
+  trade coverage lapse before the next minute's poll, which replays as a true capture gap.
+  **Bias:** incomplete refreshes happen in the minutes whose decision step overran or whose
+  feed was slow (many bands, deep books, rediscovery), and bands are refreshed in condition-id
+  order, so book staleness concentrates in busy minutes and in later bands; a replay or parity
+  consumer should read `incomplete_refreshes` rather than treat stale-book minutes as random.
 - Trade polls: the first poll of a run is a baseline (nothing emitted); the baseline and the
   seen print keys are per run, so a print just before 00:00 UTC that is first polled after the
   roll lands in the next day's stream. A full page (`TRADES_PAGE` 500) that does not reach the
@@ -205,9 +261,8 @@ payload payload_sha256 source_hashes`), fsynced per batch, then a create-only
   `minute:book_malformed` or `refresh:book_malformed`; a failed refresh read as
   `refresh:book_read`. A failed write or fsync marks the stream broken: later writes are
   skipped, and the seal records the bytes actually on disk with `status: broken` and
-  `broken_reason`. `bundle-day` refuses a day with a broken or unsealed stream
-  (`broken_record_stream`, `unsealed_record_stream`; whether to bundle only the `ok` streams
-  instead is an open owner question). If the stream cannot be opened (for example an
+  `broken_reason`. A broken stream excludes only its own run from the day bundle (owner
+  decision Q-D5, below). If the stream cannot be opened (for example an
   unreadable earlier seal of the day), the day runs without one: each minute's `raw` is
   `{"broken": "open:<Error>"}` and the quotes tape seal carries `records_stream_error`, as it
   does when sealing the stream itself fails.
@@ -228,7 +283,23 @@ payload payload_sha256 source_hashes`), fsynced per batch, then a create-only
   `stream_gaps`, the CLI's `gaps`, and `records/<day>/gaps.json` beside the bundle (the
   bundle format admits no extra field). `gaps.json` is written first, atomically (temp file
   and rename), then the create-only `bundle.json`; a re-run fills in a missing `gaps.json`
-  beside an existing bundle instead of refusing `bundle_exists`. A stream batch advances its sequence and kind counts
+  beside an existing bundle instead of refusing `bundle_exists`. **Per-run exclusion** (owner
+  decision Q-D5): a stream sealed `broken`, or one still unsealed an hour
+  (`records.UNSEALED_GRACE`) after the UTC day closed (a killed, broken or stalled run: reboot,
+  `Stop-ScheduledTask`, or a host sleep or hang over 00:00 UTC longer than the grace, which
+  seals the stream only at its next record), excludes only its own run. It is left out of `bundle.json`, listed in
+  `gaps.json` under `excluded_streams` (`[{run_id, stream, reason}]`, reason
+  `unsealed_record_stream`, `broken_record_stream:<broken_reason>` or `sealed_after_bundle`)
+  and in the CLI's `excluded`, and `records.day_active_intervals` gives its run no interval
+  (it reads the bundle's stream list once `bundle.json` exists), so the replay claims nothing
+  for that run's minutes. A stalled run that seals later stays excluded (`sealed_after_bundle`
+  on a re-run); a re-run beside an existing bundle validates only the bundled streams. The CLI's
+  printed `records` summary covers only the bundled streams. Schedule the nightly `bundle-day`
+  at or after 01:00 UTC. Within the hour an unsealed stream still refuses
+  `unsealed_record_stream`, because its run may still be sealing it at the day roll and the
+  bundle is create-only. A day whose every stream is excluded refuses
+  `no_sealed_record_stream`. A stream that differs from its own `ok` seal, or an unreadable
+  seal, still refuses the whole day. A stream batch advances its sequence and kind counts
   only after its bytes are fsynced, so a failed batch never leaves a sequence gap in an `ok`
   seal.
 - Size and replay limits: the Defender's synthetic 12-band day (decision-time stamping) was
@@ -237,7 +308,19 @@ payload payload_sha256 source_hashes`), fsynced per batch, then a create-only
   140 k records and 190 MB of record stream at 12 bands (about 280 k and 380 MB at 24). The
   replay reader's default `Limits` (64 MiB, 100 k records, 300 s) refuse such a day; read it
   with `Limits(**records.SHADOW_REPLAY_LIMITS)` (600 k records, 1 GiB, 900 s). Nothing prunes
-  record streams.
+  or compresses record streams or tapes yet; see Retention below.
+- **Retention** (owner decision Q-D6, 2026-10-09: compress sealed days after 7 days, never
+  delete). Not built: no existing tiering hook covers shadow tapes (`clob_raw_tape_tiering`,
+  `closed_day_projection_tiering` and `cold_snapshot_compression` each own other families with
+  their own guards), and every reader here (`sealed_tapes`, `verify_stream`, the replay
+  reader) opens plain files. Follow-up spec: a separate `maker_shadow compress-day --day`
+  (or a new family in an existing tiering tool) that, for a UTC day closed at least 7 days and
+  already bundled, gzips each sealed tape and record stream beside the original, proves the
+  decompressed sha256, bytes and line count equal the seal, then removes the plain file; the
+  seals, `bundle.json` and `gaps.json` stay plain. Before it runs, `sealed_tapes`,
+  `verify_stream`, `records_summary` and `next_sequence` must read `.gz` transparently, and a
+  replay of a compressed day must decompress to a scratch copy (the replay reader does not
+  read gzip). Leased night window; roll-free.
 - The round-trip test admits a bundle through a vendored copy of the reader rules
   (`tests/maker_core/fixtures/replay_v2_reader_contract.py`, pinned to build-line
   `2d8cccb13`) until the reader is on master.

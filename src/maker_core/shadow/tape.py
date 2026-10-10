@@ -235,14 +235,23 @@ class TapeWriter:
         self.recorder.commit()
         return result
 
-    def poll(self, condition_ids):
-        """Mid-minute refresh into the current day's record stream; None without a recorder."""
+    def poll(self, condition_ids, proceed=None):
+        """Mid-minute refresh into the current day's record stream; None without a recorder. ``proceed`` is
+        ``RawRecorder.between``'s per-band deadline check."""
         if self.recorder is None:
             return None
         if self.stream is None:
             self._abort()
             return None
-        return self._guarded("between", lambda: self.recorder.between(self.stream, condition_ids))
+        return self._guarded("between", lambda: self.recorder.between(self.stream, condition_ids, proceed))
+
+    def incomplete_refresh(self, code, minute, refreshed, left):
+        """Record the mid-minute refresh of ``minute`` cut short, skipped, backed off or ended late (owner
+        decision N7): ``refreshed`` bands read, ``left`` not; the fault ``code`` is counted in the stream seal's
+        ``faults``, and the minute is named in its ``incomplete_refreshes`` with the row code
+        ``records.INCOMPLETE_REFRESH_CODES[code]`` (owner decision N2)."""
+        if self.stream is not None:
+            self.stream.incomplete_refresh(code, minute, refreshed, left)
 
     def close(self, reason):
         if self.journal is None:
