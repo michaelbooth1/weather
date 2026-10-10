@@ -809,6 +809,7 @@ def test_the_0g_prompt_and_preflight_print_the_manual_trading_pause(tmp_path, mo
     monkeypatch.setattr(lfc_cli, 'pilot_root', lambda: tmp_path)
     monkeypatch.setattr(lfc_cli, 'ledger_path', lambda root: ledger.path)
     monkeypatch.setattr(lfc_cli, '_selector', lambda args, **kwargs: (None, None))
+    monkeypatch.setattr(lfc_cli, '_now', lambda: LFC.SESSION0_DEADLINE_UTC - timedelta(days=3))
     args = parser().parse_args(['preflight', '--session0', '--run', run, '--event-slug', 'a', '--event-slug', 'b',
                                 '--event-slug', 'c', '--extra-conditions', 'x.json', '--shadow-scope', 'y.json'])
     assert lfc_cli.run_preflight(args) == 0
@@ -893,3 +894,52 @@ def test_shadow_scope_union_opens_no_path_but_its_output(tmp_path, monkeypatch):
     code, out = _scope_run(monkeypatch, tmp_path, GammaFake())
     assert code == 0
     assert touched and {os.path.normcase(os.path.abspath(p)) for p in touched} == {os.path.normcase(str(out))}
+
+
+# ----- session-0 deadline (clarification D): live and preflight refuse at or after 2026-10-15T00:00:00Z ---------
+S0_ARGV = ['--session0', '--run', '0a', '--event-slug', 'a', '--event-slug', 'b', '--event-slug', 'c',
+           '--extra-conditions', 'x.json', '--shadow-scope', 'y.json']
+
+
+class _PastDeadlineCheck(Exception):
+    pass
+
+
+def _deadline_run(monkeypatch, mode, now, *, session0=True):
+    """Run `mode` at `now`; reaching pilot_root means the deadline check let it through."""
+    monkeypatch.setattr(lfc_cli, '_now', lambda: now)
+    monkeypatch.setattr(lfc_cli, '_LIVE_STARTED', False)
+
+    def reached():
+        raise _PastDeadlineCheck()
+    monkeypatch.setattr(lfc_cli, 'pilot_root', reached)
+    args = parser().parse_args([mode, *(S0_ARGV if session0 else [])])
+    runner = lfc_cli.run_live if mode == 'live' else lfc_cli.run_preflight
+    try:
+        runner(args)
+    except _PastDeadlineCheck:
+        return 'passed'
+    except RuntimeError as exc:
+        return str(exc)
+    raise AssertionError('unreachable')
+
+
+def test_session0_deadline_is_2026_10_15_utc():
+    assert LFC.SESSION0_DEADLINE_UTC == datetime(2026, 10, 15, tzinfo=timezone.utc)
+
+
+@pytest.mark.parametrize('mode', ['live', 'preflight'])
+def test_session0_one_second_before_the_deadline_passes(monkeypatch, mode):
+    assert _deadline_run(monkeypatch, mode, LFC.SESSION0_DEADLINE_UTC - timedelta(seconds=1)) == 'passed'
+
+
+@pytest.mark.parametrize('mode', ['live', 'preflight'])
+def test_session0_at_the_deadline_instant_refuses(monkeypatch, mode):
+    assert _deadline_run(monkeypatch, mode, LFC.SESSION0_DEADLINE_UTC) == 'session0_deadline_passed'
+    assert _deadline_run(monkeypatch, mode, LFC.SESSION0_DEADLINE_UTC + timedelta(days=1)) == 'session0_deadline_passed'
+
+
+@pytest.mark.parametrize('mode', ['live', 'preflight'])
+def test_the_session0_deadline_does_not_touch_counted_runs(monkeypatch, mode):
+    assert _deadline_run(monkeypatch, mode, LFC.SESSION0_DEADLINE_UTC, session0=False) == 'passed'
+    assert _deadline_run(monkeypatch, mode, LFC.SESSION0_DEADLINE_UTC + timedelta(days=5), session0=False) == 'passed'

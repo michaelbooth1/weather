@@ -27,7 +27,8 @@ Governed by the owner-signed pre-registration and session-0 spec (2026-10-09, re
 
 Session-0 flags (S0 sections 2 and 4): --session0 --run 0a|0b|0c|0d|0e|0f|0g --event-slug SLUG (repeatable: at least
 three distinct owner-listed candidate events) --extra-conditions F (the 88a file in force) --shadow-scope F. Every command that reads the ledger
-fails closed on missing or unreadable state. Nothing here widens an RE-1 limit: the controller is
+fails closed on missing or unreadable state. `live` and `preflight` with --session0 refuse with session0_deadline_passed
+at or after 2026-10-15T00:00:00Z (LFC.SESSION0_DEADLINE_UTC; clarification D). Nothing here widens an RE-1 limit: the controller is
 weather.market.lfc_pilot.PilotSession.
 
 Session-0 runbook notes (DRAFT clarification C5; delta review 2026-10-09):
@@ -116,6 +117,14 @@ def check_flags(args):
     elif args.run or args.event_slug or args.extra_conditions or args.shadow_scope:
         raise ValueError('session0_flags_without_session0')
     return PilotProfile(session0=args.session0, run=args.run)
+
+
+def session0_deadline_refusal(now, profile):
+    """'session0_deadline_passed' for a session-0 live or preflight at or after LFC.SESSION0_DEADLINE_UTC (counted
+    sessions are unaffected); None otherwise."""
+    if profile.session0 and utc(now) >= LFC.SESSION0_DEADLINE_UTC:
+        return 'session0_deadline_passed'
+    return None
 
 
 # ----- pure gates (unit-tested with fakes) -----------------------------------------------------------------------
@@ -485,6 +494,9 @@ def run_baseline(label):
 def run_preflight(args):
     from weather.market.re1_owner_checks import run_preflight as re1_preflight
     profile = check_flags(args)
+    late = session0_deadline_refusal(_now(), profile)
+    if late:
+        raise RuntimeError(late)
     root = pilot_root()
     ledger = Ledger.open(ledger_path(root), clock=_now)
     stopped = ledger.stop_reason()
@@ -515,6 +527,9 @@ def run_live(args):
     from weather.market.re1_rehearsal import WallClock
     from weather.market.re1_transport import load_owner_credentials, build_client, OwnerVenue, geography
     profile = check_flags(args)
+    late = session0_deadline_refusal(_now(), profile)
+    if late:
+        raise RuntimeError(late)
     root = pilot_root()
     with live_mutex():
         now = _now()
