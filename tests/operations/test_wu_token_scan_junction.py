@@ -151,3 +151,26 @@ def test_mutant_ignoring_skipped_links_reports_clean(tmp_path, token, monkeypatc
     monkeypatch.setattr(wu_token_scan, "links_incomplete", lambda result: False)
 
     assert exit_code_for(scan([root])) == EXIT_CLEAN
+
+
+def test_files_list_junction_or_directory_is_never_dropped_clean(tmp_path, token):
+    """N3 (a), Defender N4: a junction or directory in ``files=`` is read as named, never dropped."""
+    real = tmp_path / "real"
+    real.mkdir()
+    (real / "x.log").write_text(f"apiKey={token}\n", encoding="utf-8")
+    _junction(tmp_path / "j", real)
+
+    for entry in (tmp_path / "j", real):
+        result = scan([], files=[entry])
+        assert exit_code_for(result) == EXIT_FOUND, entry
+        assert result.files_scanned == 1
+
+
+def test_real_junction_is_classified_as_a_link_not_a_reparse_file(tmp_path, token):
+    """A junction is a name-surrogate reparse point: ``ignore`` may waive it, the reparse counter stays 0."""
+    root = _leak_tree(tmp_path, token)
+
+    result = scan([root], link_policy="ignore")
+
+    assert result.skipped_links == 1 and result.skipped_reparse_points == 0
+    assert exit_code_for(result) == EXIT_CLEAN
