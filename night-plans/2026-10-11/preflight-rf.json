@@ -1,0 +1,1984 @@
+{
+  "schema": "landing_preflight_v0.1",
+  "generated_at": "2026-10-10T13:37:29+00:00",
+  "git_version": "git version 2.54.0.windows.1",
+  "python": "C:\\Users\\Michael\\Documents\\github\\weather\\venv\\Scripts\\python.exe",
+  "host": "workstation",
+  "elapsed_s": 40.156,
+  "inputs": {
+    "repo": "C:\\Users\\Michael\\Documents\\github\\weather",
+    "base_ref": "origin/master",
+    "base_sha": "32aa8c7c564bfeb588d58c85f422442162231b7a",
+    "head_ref": "c9029029a61e1a5f8cc23832f0b1245dbb0ca3dd",
+    "head_sha": "c9029029a61e1a5f8cc23832f0b1245dbb0ca3dd",
+    "earlier": [
+      {
+        "label": "#259+#210+#270",
+        "sha": "f8499d0bd55f9591d35fec8adf00023ba82c5db1",
+        "prs": [
+          259,
+          210,
+          270
+        ]
+      },
+      {
+        "label": "#265+#267",
+        "sha": "ee41a90e828c215f57e57511910cc547117c59fa",
+        "prs": [
+          265,
+          267
+        ]
+      }
+    ],
+    "tests_mode": "none",
+    "scratch": "C:\\lpf-s",
+    "dry_run": false,
+    "plan_source": "C:\\wt\\workstation-chat\\l-data\\n5heads\\plan-draft.json",
+    "plan_file_sha256": "1b5ba3f127518dc67f4ce170db66745ca8f6eafabba4aa641c4cce8583a92812",
+    "span_base_sha": "32aa8c7c564bfeb588d58c85f422442162231b7a"
+  },
+  "plan_sha256": "2f5c1310bd34a12839bd57467d4e13dbc198f57f10dcfb304960b6f4cf2fb041",
+  "closure_snapshot_sha256": null,
+  "chain": [
+    {
+      "step": 1,
+      "label": "#259+#210+#270",
+      "sha": "f8499d0bd55f9591d35fec8adf00023ba82c5db1",
+      "role": "earlier",
+      "result": "clean",
+      "conflicts": [],
+      "conflicts_fix_class": {},
+      "pairwise_conflicts": [],
+      "tree": "39950336ba27be5e2c830a9f352c5a3aa6d5177d",
+      "synthetic_commit": "84eb0b77ba598e057d2e23902b386b9c11313156",
+      "prs": [
+        259,
+        210,
+        270
+      ],
+      "known_fix": "correspondence_index --check is stale on master 32aa8c7c5 itself (by design: branches never commit it; the closeout regenerates it as a docs light-path commit); --check-structure PASS on every head"
+    },
+    {
+      "step": 2,
+      "label": "#265+#267",
+      "sha": "ee41a90e828c215f57e57511910cc547117c59fa",
+      "role": "earlier",
+      "result": "clean",
+      "conflicts": [],
+      "conflicts_fix_class": {},
+      "pairwise_conflicts": [],
+      "tree": "0b774de13f0e6329bcf7b8c7adac7649b47878b9",
+      "synthetic_commit": "b10e2700290d035f3d41607fa555eb32b5be8871",
+      "prs": [
+        265,
+        267
+      ],
+      "known_fix": "correspondence_index --check is stale on master 32aa8c7c5 itself (by design: branches never commit it; the closeout regenerates it as a docs light-path commit); --check-structure PASS on every head"
+    },
+    {
+      "step": 3,
+      "label": "#272+#273",
+      "sha": "c9029029a61e1a5f8cc23832f0b1245dbb0ca3dd",
+      "role": "head",
+      "result": "clean",
+      "conflicts": [],
+      "conflicts_fix_class": {},
+      "pairwise_conflicts": [],
+      "tree": "0cb73c2a18f4f4748d1649aec1dce6a12794df34",
+      "synthetic_commit": "31943affcb8601255bdd4b3b2ce9bc90d73d591c",
+      "prs": [
+        272,
+        273
+      ],
+      "known_fix": "correspondence_index --check is stale on master 32aa8c7c5 itself (by design: branches never commit it; the closeout regenerates it as a docs light-path commit); --check-structure PASS on every head"
+    }
+  ],
+  "landing": {
+    "tree": "0cb73c2a18f4f4748d1649aec1dce6a12794df34",
+    "commit": "31943affcb8601255bdd4b3b2ce9bc90d73d591c",
+    "pre_head_commit": "b10e2700290d035f3d41607fa555eb32b5be8871",
+    "changed_files": [
+      {
+        "path": ".github/workflows/windows-qualification.yml",
+        "status": "M",
+        "introduced_by": [
+          "#265+#267"
+        ]
+      },
+      {
+        "path": "README.md",
+        "status": "M",
+        "introduced_by": [
+          "#259+#210+#270"
+        ]
+      },
+      {
+        "path": "docs/development.md",
+        "status": "M",
+        "introduced_by": [
+          "#272+#273"
+        ]
+      },
+      {
+        "path": "docs/operations/HISTORY_DATA_DESIGN.md",
+        "status": "M",
+        "introduced_by": [
+          "#259+#210+#270"
+        ]
+      },
+      {
+        "path": "docs/operations/OPERATIONS_DESIGN.md",
+        "status": "M",
+        "introduced_by": [
+          "#265+#267"
+        ]
+      },
+      {
+        "path": "docs/operations/maker-core-contracts.md",
+        "status": "M",
+        "introduced_by": [
+          "#265+#267"
+        ]
+      },
+      {
+        "path": "docs/operations/maker-shadow-runner.md",
+        "status": "M",
+        "introduced_by": [
+          "#265+#267"
+        ]
+      },
+      {
+        "path": "docs/operations/replay-cache-compression.md",
+        "status": "M",
+        "introduced_by": [
+          "#265+#267"
+        ]
+      },
+      {
+        "path": "docs/ops/streak-soak.md",
+        "status": "M",
+        "introduced_by": [
+          "#265+#267"
+        ]
+      },
+      {
+        "path": "docs/roadmap/audits/dst-audit-2026-10-07.md",
+        "status": "M",
+        "introduced_by": [
+          "#272+#273"
+        ]
+      },
+      {
+        "path": "docs/roadmap/items/item-323-shared-forecast-payload-cas-and-single-fetch-fan-out.md",
+        "status": "M",
+        "introduced_by": [
+          "#259+#210+#270"
+        ]
+      },
+      {
+        "path": "scripts/ops/bounded_execution_tape_probe.ps1",
+        "status": "M",
+        "introduced_by": [
+          "#265+#267"
+        ]
+      },
+      {
+        "path": "scripts/ops/bounded_worktree_test_suite.ps1",
+        "status": "M",
+        "introduced_by": [
+          "#272+#273"
+        ]
+      },
+      {
+        "path": "scripts/ops/maker_shadow_readout.ps1",
+        "status": "M",
+        "introduced_by": [
+          "#265+#267"
+        ]
+      },
+      {
+        "path": "scripts/ops/package_exact_tip_bundle.ps1",
+        "status": "M",
+        "introduced_by": [
+          "#272+#273"
+        ]
+      },
+      {
+        "path": "scripts/ops/quiet_window_merge.ps1",
+        "status": "M",
+        "introduced_by": [
+          "#265+#267"
+        ]
+      },
+      {
+        "path": "scripts/ops/status.ps1",
+        "status": "M",
+        "introduced_by": [
+          "#272+#273"
+        ]
+      },
+      {
+        "path": "scripts/ops/suite_gated_quiet_merge.ps1",
+        "status": "M",
+        "introduced_by": [
+          "#272+#273"
+        ]
+      },
+      {
+        "path": "src/maker_core/quoting/book.py",
+        "status": "A",
+        "introduced_by": [
+          "#265+#267"
+        ]
+      },
+      {
+        "path": "src/maker_core/shadow/admission.py",
+        "status": "A",
+        "introduced_by": [
+          "#265+#267"
+        ]
+      },
+      {
+        "path": "src/maker_core/shadow/records.py",
+        "status": "M",
+        "introduced_by": [
+          "#265+#267"
+        ]
+      },
+      {
+        "path": "src/maker_core/shadow/runner.py",
+        "status": "M",
+        "introduced_by": [
+          "#265+#267"
+        ]
+      },
+      {
+        "path": "src/maker_core/shadow/tape.py",
+        "status": "M",
+        "introduced_by": [
+          "#265+#267"
+        ]
+      },
+      {
+        "path": "src/weather/collection/forecast_payload_fetch_fanout.py",
+        "status": "M",
+        "introduced_by": [
+          "#259+#210+#270"
+        ]
+      },
+      {
+        "path": "src/weather/collection/snapshot_tracker.py",
+        "status": "M",
+        "introduced_by": [
+          "#265+#267"
+        ]
+      },
+      {
+        "path": "src/weather/market/maker_shadow.py",
+        "status": "M",
+        "introduced_by": [
+          "#265+#267"
+        ]
+      },
+      {
+        "path": "src/weather/market/maker_shadow_panel.py",
+        "status": "M",
+        "introduced_by": [
+          "#265+#267"
+        ]
+      },
+      {
+        "path": "src/weather/operations/wu_token_scan.py",
+        "status": "M",
+        "introduced_by": [
+          "#259+#210+#270"
+        ]
+      },
+      {
+        "path": "src/weather/sources/wu_history.py",
+        "status": "M",
+        "introduced_by": [
+          "#259+#210+#270"
+        ]
+      },
+      {
+        "path": "src/weather/sources/wu_redaction.py",
+        "status": "M",
+        "introduced_by": [
+          "#259+#210+#270"
+        ]
+      },
+      {
+        "path": "tests/collection/test_forecast_payload_cross_process_fanout.py",
+        "status": "M",
+        "introduced_by": [
+          "#259+#210+#270"
+        ]
+      },
+      {
+        "path": "tests/collection/test_snapshot_sleep_heartbeat.py",
+        "status": "A",
+        "introduced_by": [
+          "#265+#267"
+        ]
+      },
+      {
+        "path": "tests/maker_core/test_quoting_book.py",
+        "status": "A",
+        "introduced_by": [
+          "#265+#267"
+        ]
+      },
+      {
+        "path": "tests/maker_core/test_shadow_admission.py",
+        "status": "A",
+        "introduced_by": [
+          "#265+#267"
+        ]
+      },
+      {
+        "path": "tests/maker_core/test_shadow_compose.py",
+        "status": "A",
+        "introduced_by": [
+          "#265+#267"
+        ]
+      },
+      {
+        "path": "tests/maker_core/test_shadow_fill_parity.py",
+        "status": "A",
+        "introduced_by": [
+          "#265+#267"
+        ]
+      },
+      {
+        "path": "tests/maker_core/test_shadow_tape_v02.py",
+        "status": "M",
+        "introduced_by": [
+          "#265+#267"
+        ]
+      },
+      {
+        "path": "tests/market/test_maker_shadow.py",
+        "status": "M",
+        "introduced_by": [
+          "#265+#267"
+        ]
+      },
+      {
+        "path": "tests/operations/test_bounded_execution_tape_probe_script.py",
+        "status": "M",
+        "introduced_by": [
+          "#265+#267"
+        ]
+      },
+      {
+        "path": "tests/operations/test_bounded_worktree_test_suite_script.py",
+        "status": "M",
+        "introduced_by": [
+          "#272+#273"
+        ]
+      },
+      {
+        "path": "tests/operations/test_dst_audit_powershell_20261007.py",
+        "status": "M",
+        "introduced_by": [
+          "#272+#273"
+        ]
+      },
+      {
+        "path": "tests/operations/test_maker_shadow_ops_scripts.py",
+        "status": "M",
+        "introduced_by": [
+          "#265+#267"
+        ]
+      },
+      {
+        "path": "tests/operations/test_status_script.py",
+        "status": "M",
+        "introduced_by": [
+          "#272+#273"
+        ]
+      },
+      {
+        "path": "tests/operations/test_windows_qualification_shards.py",
+        "status": "M",
+        "introduced_by": [
+          "#265+#267"
+        ]
+      },
+      {
+        "path": "tests/operations/test_wu_token_repository_scan.py",
+        "status": "M",
+        "introduced_by": [
+          "#259+#210+#270"
+        ]
+      },
+      {
+        "path": "tests/operations/test_wu_token_scan.py",
+        "status": "M",
+        "introduced_by": [
+          "#259+#210+#270"
+        ]
+      },
+      {
+        "path": "tests/operations/test_wu_token_scan_junction.py",
+        "status": "M",
+        "introduced_by": [
+          "#259+#210+#270"
+        ]
+      },
+      {
+        "path": "tests/sources/test_wu_redaction.py",
+        "status": "M",
+        "introduced_by": [
+          "#259+#210+#270"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "host_identity": {
+      "status": "PASS",
+      "summary": "not the dedicated capture host",
+      "details": [],
+      "attribution": [],
+      "evidence": {
+        "assignment": "C:\\Users\\Michael\\Documents\\github\\weather\\config\\international_live_execution_host.json"
+      },
+      "command": null,
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.0,
+      "owner": "core"
+    },
+    "git_version": {
+      "status": "PASS",
+      "summary": "git version 2.54.0.windows.1",
+      "details": [],
+      "attribution": [],
+      "evidence": {},
+      "command": null,
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.0,
+      "owner": "core"
+    },
+    "disk_floor": {
+      "status": "PASS",
+      "summary": "132.5 GiB free on C:\\lpf-s",
+      "details": [],
+      "attribution": [],
+      "evidence": {
+        "free_bytes": 142266839040
+      },
+      "command": null,
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.0,
+      "owner": "core"
+    },
+    "refs": {
+      "status": "PASS",
+      "summary": "base 32aa8c7c564b head c9029029a61e earlier 2",
+      "details": [
+        {
+          "label": "#259+#210+#270",
+          "sha": "f8499d0bd55f9591d35fec8adf00023ba82c5db1"
+        },
+        {
+          "label": "#265+#267",
+          "sha": "ee41a90e828c215f57e57511910cc547117c59fa"
+        }
+      ],
+      "attribution": [],
+      "evidence": {
+        "fetch_ok": true,
+        "warnings": []
+      },
+      "command": null,
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.0,
+      "owner": "core"
+    },
+    "already_landed": {
+      "status": "PASS",
+      "summary": "head is not an ancestor of base",
+      "details": [],
+      "attribution": [],
+      "evidence": {},
+      "command": null,
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.0,
+      "owner": "core"
+    },
+    "containment": {
+      "status": "INFO",
+      "summary": "2 containment relation(s)",
+      "details": [
+        {
+          "item": "#259+#210+#270",
+          "relation": "stacked_on_earlier"
+        },
+        {
+          "item": "#265+#267",
+          "relation": "stacked_on_earlier"
+        }
+      ],
+      "attribution": [
+        {
+          "item": "stacked_on_earlier",
+          "introduced_by": "#259+#210+#270"
+        },
+        {
+          "item": "stacked_on_earlier",
+          "introduced_by": "#265+#267"
+        }
+      ],
+      "evidence": {},
+      "command": null,
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.0,
+      "owner": "core"
+    },
+    "merge_chain": {
+      "status": "PASS",
+      "summary": "3 step(s) clean; landing 31943affcb86",
+      "details": [],
+      "attribution": [],
+      "evidence": {
+        "landing_commit": "31943affcb8601255bdd4b3b2ce9bc90d73d591c",
+        "landing_tree": "0cb73c2a18f4f4748d1649aec1dce6a12794df34"
+      },
+      "command": null,
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.0,
+      "owner": "core"
+    },
+    "worktree": {
+      "status": "PASS",
+      "summary": "detached worktree at 31943affcb86",
+      "details": [],
+      "attribution": [],
+      "evidence": {
+        "path": "C:\\lpf-s\\run-20261010T133649Z-167168\\wt"
+      },
+      "command": null,
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.0,
+      "owner": "core"
+    },
+    "import_probe": {
+      "status": "PASS",
+      "summary": "weather and REPO_ROOT resolve inside the scratch worktree",
+      "details": [],
+      "attribution": [],
+      "evidence": {
+        "python": "C:\\Users\\Michael\\Documents\\github\\weather\\venv\\Scripts\\python.exe",
+        "scrubbed_env_names": [
+          "ANTHROPIC_BASE_URL",
+          "CLAUDE_CODE_MESSAGING_TOKEN",
+          "CLAUDE_CODE_SDK_HAS_HOST_AUTH_REFRESH",
+          "GIT_EDITOR",
+          "PYTHONPATH"
+        ],
+        "weather": "C:\\lpf-s\\run-20261010T133649Z-167168\\wt\\weather\\__init__.py",
+        "repo_root": "C:\\lpf-s\\run-20261010T133649Z-167168\\wt"
+      },
+      "command": null,
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.0,
+      "owner": "core"
+    },
+    "roll_class": {
+      "status": "WARN",
+      "summary": "EXPECTED-ROLL-FREE (binding: false; static_graph_only); 0 importable of 9 changed; sensitive 0; light_path_eligible False",
+      "details": [
+        {
+          "path": "docs/development.md",
+          "status": "M",
+          "importable": false,
+          "module": null,
+          "in_snapshot": false,
+          "static_reached": false,
+          "static_chain_base": null,
+          "static_chain_landing": null,
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": false,
+          "expected": "NOT-IMPORTABLE",
+          "reasons": [
+            "not *.py under src/ or weather/: roll-free by contract"
+          ],
+          "binding": false
+        },
+        {
+          "path": "docs/roadmap/audits/dst-audit-2026-10-07.md",
+          "status": "M",
+          "importable": false,
+          "module": null,
+          "in_snapshot": false,
+          "static_reached": false,
+          "static_chain_base": null,
+          "static_chain_landing": null,
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": false,
+          "expected": "NOT-IMPORTABLE",
+          "reasons": [
+            "not *.py under src/ or weather/: roll-free by contract"
+          ],
+          "binding": false
+        },
+        {
+          "path": "scripts/ops/bounded_worktree_test_suite.ps1",
+          "status": "M",
+          "importable": false,
+          "module": null,
+          "in_snapshot": false,
+          "static_reached": false,
+          "static_chain_base": null,
+          "static_chain_landing": null,
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": false,
+          "expected": "NOT-IMPORTABLE",
+          "reasons": [
+            "not *.py under src/ or weather/: roll-free by contract"
+          ],
+          "binding": false
+        },
+        {
+          "path": "scripts/ops/package_exact_tip_bundle.ps1",
+          "status": "M",
+          "importable": false,
+          "module": null,
+          "in_snapshot": false,
+          "static_reached": false,
+          "static_chain_base": null,
+          "static_chain_landing": null,
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": false,
+          "expected": "NOT-IMPORTABLE",
+          "reasons": [
+            "not *.py under src/ or weather/: roll-free by contract"
+          ],
+          "binding": false
+        },
+        {
+          "path": "scripts/ops/status.ps1",
+          "status": "M",
+          "importable": false,
+          "module": null,
+          "in_snapshot": false,
+          "static_reached": false,
+          "static_chain_base": null,
+          "static_chain_landing": null,
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": false,
+          "expected": "NOT-IMPORTABLE",
+          "reasons": [
+            "not *.py under src/ or weather/: roll-free by contract"
+          ],
+          "binding": false
+        },
+        {
+          "path": "scripts/ops/suite_gated_quiet_merge.ps1",
+          "status": "M",
+          "importable": false,
+          "module": null,
+          "in_snapshot": false,
+          "static_reached": false,
+          "static_chain_base": null,
+          "static_chain_landing": null,
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": false,
+          "expected": "NOT-IMPORTABLE",
+          "reasons": [
+            "not *.py under src/ or weather/: roll-free by contract"
+          ],
+          "binding": false
+        },
+        {
+          "path": "tests/operations/test_bounded_worktree_test_suite_script.py",
+          "status": "M",
+          "importable": false,
+          "module": null,
+          "in_snapshot": false,
+          "static_reached": false,
+          "static_chain_base": null,
+          "static_chain_landing": null,
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": false,
+          "expected": "NOT-IMPORTABLE",
+          "reasons": [
+            "not *.py under src/ or weather/: roll-free by contract"
+          ],
+          "binding": false
+        },
+        {
+          "path": "tests/operations/test_dst_audit_powershell_20261007.py",
+          "status": "M",
+          "importable": false,
+          "module": null,
+          "in_snapshot": false,
+          "static_reached": false,
+          "static_chain_base": null,
+          "static_chain_landing": null,
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": false,
+          "expected": "NOT-IMPORTABLE",
+          "reasons": [
+            "not *.py under src/ or weather/: roll-free by contract"
+          ],
+          "binding": false
+        },
+        {
+          "path": "tests/operations/test_status_script.py",
+          "status": "M",
+          "importable": false,
+          "module": null,
+          "in_snapshot": false,
+          "static_reached": false,
+          "static_chain_base": null,
+          "static_chain_landing": null,
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": false,
+          "expected": "NOT-IMPORTABLE",
+          "reasons": [
+            "not *.py under src/ or weather/: roll-free by contract"
+          ],
+          "binding": false
+        }
+      ],
+      "attribution": [],
+      "evidence": {
+        "expected": "EXPECTED-ROLL-FREE",
+        "binding": false,
+        "reasons": [
+          "no importable files (docs/config/tests/ps1 only)"
+        ],
+        "changed_count": 9,
+        "importable_count": 0,
+        "sensitive_files": [],
+        "basis": "static_graph_only",
+        "snapshot": {
+          "supplied": false,
+          "source": null,
+          "sha256": null,
+          "captured": null,
+          "production_master_sha": null,
+          "file_count": 0,
+          "load_error": null,
+          "age_days": null,
+          "stale": false,
+          "max_age_days": 7
+        },
+        "static_graph": {
+          "entries": [
+            "weather.collection.snapshot_tracker",
+            "weather.market.market_microstructure",
+            "weather.operations.observation_trigger",
+            "weather.market.execution_tape_capture",
+            "weather.operations.execution_tape_supervisor"
+          ],
+          "edge_kinds": [
+            "module"
+          ],
+          "missing_entries": {
+            "pre_head": [],
+            "landing": []
+          },
+          "closure_size": {
+            "pre_head": 95,
+            "landing": 95
+          },
+          "parse_errors": {
+            "pre_head": {},
+            "landing": {}
+          },
+          "complete": true
+        },
+        "schema_additive": {
+          "status": "NOT_APPLICABLE",
+          "family_paths_changed": [],
+          "entries_added": [],
+          "entries_removed_or_changed": [],
+          "changed_identities": [],
+          "exclusions_added": 0,
+          "exclusions_removed": 0,
+          "non_entry_code_changed": [],
+          "parse_errors": {},
+          "reference": "pre_head",
+          "candidate": "landing",
+          "rule": "ADDITIVE iff every reference SchemaSpec entry is literal-identical in the candidate and only new entries appear"
+        },
+        "entry_validation": {
+          "tree": "pre_head",
+          "static_reached": 95,
+          "snapshot_compared": false
+        },
+        "classifier_version": "L-P4 roll-class engine 0.1 (port of the L-R3 classifier)",
+        "changed_basis": "git diff --no-renames <tree before the head step> <landing tree> (roll_verdict's set)",
+        "pre_head_tree": "0b774de13f0e6329bcf7b8c7adac7649b47878b9",
+        "landing_tree": "0cb73c2a18f4f4748d1649aec1dce6a12794df34",
+        "execution_tape_entries": [
+          "weather.market.execution_tape_capture",
+          "weather.operations.execution_tape_supervisor"
+        ],
+        "declared": null,
+        "declared_source": null,
+        "declared_matches": null,
+        "light_path_eligible": false,
+        "light_path_basis": {
+          "branch_diff": "pre_head...head",
+          "paths": 9,
+          "first_non_docs": "scripts/ops/bounded_worktree_test_suite.ps1"
+        },
+        "hold": null,
+        "warnings": [
+          "no --closure-snapshot: static graph only (it misses function-level loop imports)"
+        ],
+        "binding_gate": "Get the verdict from scripts\\ops\\roll_verdict.ps1 -Branch <b>; never derive it by hand (AGENTS.md)"
+      },
+      "command": null,
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.922,
+      "owner": "L-P4"
+    },
+    "landing_path": {
+      "status": "INFO",
+      "summary": "ROLL_FREE_GUARDED: 00:30-09:00 (heavy lease) (binding: false)",
+      "details": [],
+      "attribution": [],
+      "evidence": {
+        "path": "ROLL_FREE_GUARDED",
+        "expected": "EXPECTED-ROLL-FREE",
+        "undecidable_as_roll_sensitive": false,
+        "light_path_eligible": false,
+        "window": "00:30-09:00 (heavy lease)",
+        "tool": "scripts/ops/quiet_window_merge.ps1 after the bounded suite",
+        "quotes": [
+          "A roll-free branch does not need the quiet window (AGENTS.md)",
+          "Guarded merges (roll-free included) end at 09:00: the lease returns a window only for 00:30-09:00 (AGREED F1)"
+        ],
+        "hold_quotes": [],
+        "declared": null,
+        "binding": false,
+        "binding_gate": "Get the verdict from scripts\\ops\\roll_verdict.ps1 -Branch <b>; never derive it by hand (AGENTS.md)"
+      },
+      "command": null,
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.0,
+      "owner": "L-P4"
+    },
+    "diff_check": {
+      "status": "PASS",
+      "summary": "git diff --check clean over the span and 3 step(s)",
+      "details": [],
+      "attribution": [],
+      "evidence": {
+        "span": {
+          "span_base": "32aa8c7c564bfeb588d58c85f422442162231b7a",
+          "span_base_tree": "9cb092a020dc27e4822d47abf025d9bef3a0a0ca",
+          "base_tree": "9cb092a020dc27e4822d47abf025d9bef3a0a0ca",
+          "landing_tree": "0cb73c2a18f4f4748d1649aec1dce6a12794df34",
+          "hits": 0
+        },
+        "per_step_hits": {
+          "#259+#210+#270": 0,
+          "#265+#267": 0,
+          "#272+#273": 0
+        },
+        "transient_step_hits": [],
+        "note": "this gate covers base..landing; production's documentation transaction checks first_integration..HEAD, so this is a superset only while base is the night's first-integration base. Re-running mid-night against an advanced origin/master, pass --span-base <that base>."
+      },
+      "command": [
+        "git",
+        "diff",
+        "--check",
+        "9cb092a020dc27e4822d47abf025d9bef3a0a0ca",
+        "0cb73c2a18f4f4748d1649aec1dce6a12794df34"
+      ],
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.14,
+      "owner": "L-P2"
+    },
+    "schema_additive": {
+      "status": "INFO",
+      "summary": "no schema_registry* change",
+      "details": [],
+      "attribution": [],
+      "evidence": {
+        "applicable": false
+      },
+      "command": null,
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.0,
+      "owner": "L-P2"
+    },
+    "docs_transaction": {
+      "status": "INFO",
+      "summary": "4 required document(s) as of the final planned tip #272+#273",
+      "details": [],
+      "attribution": [],
+      "evidence": {
+        "required_from": "src/weather/operations/documentation_transaction.py",
+        "final_tip": "#272+#273",
+        "final_tree": "0cb73c2a18f4f4748d1649aec1dce6a12794df34",
+        "later_slots": [],
+        "documents": [
+          {
+            "path": "docs/operations/ESTABLISHED_FINDINGS.md",
+            "required_review": true,
+            "required_disposition": false,
+            "base_oid": "f85693d31fdf651e98a6ebd7616523ed1265c3a7",
+            "landing_oid": "f85693d31fdf651e98a6ebd7616523ed1265c3a7",
+            "final_tip_oid": "f85693d31fdf651e98a6ebd7616523ed1265c3a7",
+            "touched_by": [],
+            "stale_if_bound_at_this_head": false
+          },
+          {
+            "path": "docs/operations/RETRACTED_AND_FALSE_LEADS.md",
+            "required_review": true,
+            "required_disposition": false,
+            "base_oid": "a01d7423ce70c2af29fc0d46e995b68e09283f50",
+            "landing_oid": "a01d7423ce70c2af29fc0d46e995b68e09283f50",
+            "final_tip_oid": "a01d7423ce70c2af29fc0d46e995b68e09283f50",
+            "touched_by": [],
+            "stale_if_bound_at_this_head": false
+          },
+          {
+            "path": "docs/operations/STATE_OF_PLAY.md",
+            "required_review": true,
+            "required_disposition": true,
+            "base_oid": "004a796b456b7275b428035ba0c38cf3ccb24bbd",
+            "landing_oid": "004a796b456b7275b428035ba0c38cf3ccb24bbd",
+            "final_tip_oid": "004a796b456b7275b428035ba0c38cf3ccb24bbd",
+            "touched_by": [],
+            "stale_if_bound_at_this_head": false
+          },
+          {
+            "path": "docs/roadmap/active-backlog.md",
+            "required_review": true,
+            "required_disposition": true,
+            "base_oid": "179a1a32cf7236dbe665aca1a671dd768bfd35a9",
+            "landing_oid": "179a1a32cf7236dbe665aca1a671dd768bfd35a9",
+            "final_tip_oid": "179a1a32cf7236dbe665aca1a671dd768bfd35a9",
+            "touched_by": [],
+            "stale_if_bound_at_this_head": false
+          }
+        ],
+        "rule": "bind documents_unchanged blob_oid to final_tip_oid (the night's final integration), never to an intermediate tip; STATE_OF_PLAY and active-backlog need an update or a bound review after the last integration"
+      },
+      "command": null,
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.438,
+      "owner": "L-P2"
+    },
+    "whitespace_only": {
+      "status": "INFO",
+      "summary": "false: added src/maker_core/quoting/book.py (+54 more)",
+      "details": [
+        {
+          "reason": "added",
+          "path": "src/maker_core/quoting/book.py"
+        },
+        {
+          "reason": "added",
+          "path": "src/maker_core/shadow/admission.py"
+        },
+        {
+          "reason": "added",
+          "path": "tests/collection/test_snapshot_sleep_heartbeat.py"
+        },
+        {
+          "reason": "added",
+          "path": "tests/maker_core/test_quoting_book.py"
+        },
+        {
+          "reason": "added",
+          "path": "tests/maker_core/test_shadow_admission.py"
+        },
+        {
+          "reason": "added",
+          "path": "tests/maker_core/test_shadow_compose.py"
+        },
+        {
+          "reason": "added",
+          "path": "tests/maker_core/test_shadow_fill_parity.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": ".github/workflows/windows-qualification.yml"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "README.md"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "docs/development.md"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "docs/operations/HISTORY_DATA_DESIGN.md"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "docs/operations/OPERATIONS_DESIGN.md"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "docs/operations/maker-core-contracts.md"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "docs/operations/maker-shadow-runner.md"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "docs/operations/replay-cache-compression.md"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "docs/ops/streak-soak.md"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "docs/roadmap/audits/dst-audit-2026-10-07.md"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "docs/roadmap/items/item-323-shared-forecast-payload-cas-and-single-fetch-fan-out.md"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "scripts/ops/bounded_execution_tape_probe.ps1"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "scripts/ops/bounded_worktree_test_suite.ps1"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "scripts/ops/maker_shadow_readout.ps1"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "scripts/ops/package_exact_tip_bundle.ps1"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "scripts/ops/quiet_window_merge.ps1"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "scripts/ops/status.ps1"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "scripts/ops/suite_gated_quiet_merge.ps1"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "src/maker_core/quoting/book.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "src/maker_core/shadow/admission.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "src/maker_core/shadow/records.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "src/maker_core/shadow/runner.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "src/maker_core/shadow/tape.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "src/weather/collection/forecast_payload_fetch_fanout.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "src/weather/collection/snapshot_tracker.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "src/weather/market/maker_shadow.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "src/weather/market/maker_shadow_panel.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "src/weather/operations/wu_token_scan.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "src/weather/sources/wu_history.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "src/weather/sources/wu_redaction.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "tests/collection/test_forecast_payload_cross_process_fanout.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "tests/collection/test_snapshot_sleep_heartbeat.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "tests/maker_core/test_quoting_book.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "tests/maker_core/test_shadow_admission.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "tests/maker_core/test_shadow_compose.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "tests/maker_core/test_shadow_fill_parity.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "tests/maker_core/test_shadow_tape_v02.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "tests/market/test_maker_shadow.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "tests/operations/test_bounded_execution_tape_probe_script.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "tests/operations/test_bounded_worktree_test_suite_script.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "tests/operations/test_dst_audit_powershell_20261007.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "tests/operations/test_maker_shadow_ops_scripts.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "tests/operations/test_status_script.py"
+        }
+      ],
+      "attribution": [],
+      "evidence": {
+        "whitespace_only": false,
+        "definition": "git diff --ignore-space-at-eol --ignore-blank-lines empty; diff --check clean; no add/delete/rename/copy/type/mode change; no binary or LFS path; EXPECTED-ROLL-FREE",
+        "flags": [
+          "--ignore-space-at-eol",
+          "--ignore-blank-lines"
+        ],
+        "file_count": 48,
+        "lines_added": 8278,
+        "lines_deleted": 283,
+        "first_disqualifier": {
+          "reason": "added",
+          "path": "src/maker_core/quoting/book.py"
+        },
+        "disqualifiers": [
+          {
+            "reason": "added",
+            "path": "src/maker_core/quoting/book.py"
+          },
+          {
+            "reason": "added",
+            "path": "src/maker_core/shadow/admission.py"
+          },
+          {
+            "reason": "added",
+            "path": "tests/collection/test_snapshot_sleep_heartbeat.py"
+          },
+          {
+            "reason": "added",
+            "path": "tests/maker_core/test_quoting_book.py"
+          },
+          {
+            "reason": "added",
+            "path": "tests/maker_core/test_shadow_admission.py"
+          },
+          {
+            "reason": "added",
+            "path": "tests/maker_core/test_shadow_compose.py"
+          },
+          {
+            "reason": "added",
+            "path": "tests/maker_core/test_shadow_fill_parity.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": ".github/workflows/windows-qualification.yml"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "README.md"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "docs/development.md"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "docs/operations/HISTORY_DATA_DESIGN.md"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "docs/operations/OPERATIONS_DESIGN.md"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "docs/operations/maker-core-contracts.md"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "docs/operations/maker-shadow-runner.md"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "docs/operations/replay-cache-compression.md"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "docs/ops/streak-soak.md"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "docs/roadmap/audits/dst-audit-2026-10-07.md"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "docs/roadmap/items/item-323-shared-forecast-payload-cas-and-single-fetch-fan-out.md"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "scripts/ops/bounded_execution_tape_probe.ps1"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "scripts/ops/bounded_worktree_test_suite.ps1"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "scripts/ops/maker_shadow_readout.ps1"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "scripts/ops/package_exact_tip_bundle.ps1"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "scripts/ops/quiet_window_merge.ps1"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "scripts/ops/status.ps1"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "scripts/ops/suite_gated_quiet_merge.ps1"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "src/maker_core/quoting/book.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "src/maker_core/shadow/admission.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "src/maker_core/shadow/records.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "src/maker_core/shadow/runner.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "src/maker_core/shadow/tape.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "src/weather/collection/forecast_payload_fetch_fanout.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "src/weather/collection/snapshot_tracker.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "src/weather/market/maker_shadow.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "src/weather/market/maker_shadow_panel.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "src/weather/operations/wu_token_scan.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "src/weather/sources/wu_history.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "src/weather/sources/wu_redaction.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "tests/collection/test_forecast_payload_cross_process_fanout.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "tests/collection/test_snapshot_sleep_heartbeat.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "tests/maker_core/test_quoting_book.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "tests/maker_core/test_shadow_admission.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "tests/maker_core/test_shadow_compose.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "tests/maker_core/test_shadow_fill_parity.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "tests/maker_core/test_shadow_tape_v02.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "tests/market/test_maker_shadow.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "tests/operations/test_bounded_execution_tape_probe_script.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "tests/operations/test_bounded_worktree_test_suite_script.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "tests/operations/test_dst_audit_powershell_20261007.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "tests/operations/test_maker_shadow_ops_scripts.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "tests/operations/test_status_script.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "tests/operations/test_windows_qualification_shards.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "tests/operations/test_wu_token_repository_scan.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "tests/operations/test_wu_token_scan.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "tests/operations/test_wu_token_scan_junction.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "tests/sources/test_wu_redaction.py"
+          }
+        ],
+        "indentation_only_paths": [],
+        "roll_class_expected": "EXPECTED-ROLL-FREE",
+        "per_file": [
+          {
+            "path": ".github/workflows/windows-qualification.yml",
+            "added": 1,
+            "deleted": 0
+          },
+          {
+            "path": "README.md",
+            "added": 3,
+            "deleted": 1
+          },
+          {
+            "path": "docs/development.md",
+            "added": 1,
+            "deleted": 0
+          },
+          {
+            "path": "docs/operations/HISTORY_DATA_DESIGN.md",
+            "added": 36,
+            "deleted": 8
+          },
+          {
+            "path": "docs/operations/OPERATIONS_DESIGN.md",
+            "added": 6,
+            "deleted": 0
+          },
+          {
+            "path": "docs/operations/maker-core-contracts.md",
+            "added": 8,
+            "deleted": 0
+          },
+          {
+            "path": "docs/operations/maker-shadow-runner.md",
+            "added": 165,
+            "deleted": 13
+          },
+          {
+            "path": "docs/operations/replay-cache-compression.md",
+            "added": 19,
+            "deleted": 0
+          },
+          {
+            "path": "docs/ops/streak-soak.md",
+            "added": 9,
+            "deleted": 2
+          },
+          {
+            "path": "docs/roadmap/audits/dst-audit-2026-10-07.md",
+            "added": 3,
+            "deleted": 0
+          },
+          {
+            "path": "docs/roadmap/items/item-323-shared-forecast-payload-cas-and-single-fetch-fan-out.md",
+            "added": 40,
+            "deleted": 0
+          },
+          {
+            "path": "scripts/ops/bounded_execution_tape_probe.ps1",
+            "added": 151,
+            "deleted": 17
+          },
+          {
+            "path": "scripts/ops/bounded_worktree_test_suite.ps1",
+            "added": 381,
+            "deleted": 6
+          },
+          {
+            "path": "scripts/ops/maker_shadow_readout.ps1",
+            "added": 19,
+            "deleted": 4
+          },
+          {
+            "path": "scripts/ops/package_exact_tip_bundle.ps1",
+            "added": 15,
+            "deleted": 1
+          },
+          {
+            "path": "scripts/ops/quiet_window_merge.ps1",
+            "added": 9,
+            "deleted": 6
+          },
+          {
+            "path": "scripts/ops/status.ps1",
+            "added": 59,
+            "deleted": 6
+          },
+          {
+            "path": "scripts/ops/suite_gated_quiet_merge.ps1",
+            "added": 10,
+            "deleted": 0
+          },
+          {
+            "path": "src/maker_core/quoting/book.py",
+            "added": 78,
+            "deleted": 0
+          },
+          {
+            "path": "src/maker_core/shadow/admission.py",
+            "added": 373,
+            "deleted": 0
+          },
+          {
+            "path": "src/maker_core/shadow/records.py",
+            "added": 115,
+            "deleted": 37
+          },
+          {
+            "path": "src/maker_core/shadow/runner.py",
+            "added": 23,
+            "deleted": 4
+          },
+          {
+            "path": "src/maker_core/shadow/tape.py",
+            "added": 12,
+            "deleted": 3
+          },
+          {
+            "path": "src/weather/collection/forecast_payload_fetch_fanout.py",
+            "added": 130,
+            "deleted": 9
+          },
+          {
+            "path": "src/weather/collection/snapshot_tracker.py",
+            "added": 94,
+            "deleted": 3
+          },
+          {
+            "path": "src/weather/market/maker_shadow.py",
+            "added": 95,
+            "deleted": 3
+          },
+          {
+            "path": "src/weather/market/maker_shadow_panel.py",
+            "added": 5,
+            "deleted": 16
+          },
+          {
+            "path": "src/weather/operations/wu_token_scan.py",
+            "added": 693,
+            "deleted": 87
+          },
+          {
+            "path": "src/weather/sources/wu_history.py",
+            "added": 9,
+            "deleted": 6
+          },
+          {
+            "path": "src/weather/sources/wu_redaction.py",
+            "added": 304,
+            "deleted": 31
+          },
+          {
+            "path": "tests/collection/test_forecast_payload_cross_process_fanout.py",
+            "added": 395,
+            "deleted": 0
+          },
+          {
+            "path": "tests/collection/test_snapshot_sleep_heartbeat.py",
+            "added": 675,
+            "deleted": 0
+          },
+          {
+            "path": "tests/maker_core/test_quoting_book.py",
+            "added": 92,
+            "deleted": 0
+          },
+          {
+            "path": "tests/maker_core/test_shadow_admission.py",
+            "added": 496,
+            "deleted": 0
+          },
+          {
+            "path": "tests/maker_core/test_shadow_compose.py",
+            "added": 110,
+            "deleted": 0
+          },
+          {
+            "path": "tests/maker_core/test_shadow_fill_parity.py",
+            "added": 50,
+            "deleted": 0
+          },
+          {
+            "path": "tests/maker_core/test_shadow_tape_v02.py",
+            "added": 196,
+            "deleted": 7
+          },
+          {
+            "path": "tests/market/test_maker_shadow.py",
+            "added": 367,
+            "deleted": 3
+          },
+          {
+            "path": "tests/operations/test_bounded_execution_tape_probe_script.py",
+            "added": 392,
+            "deleted": 2
+          },
+          {
+            "path": "tests/operations/test_bounded_worktree_test_suite_script.py",
+            "added": 912,
+            "deleted": 0
+          },
+          {
+            "path": "tests/operations/test_dst_audit_powershell_20261007.py",
+            "added": 15,
+            "deleted": 5
+          },
+          {
+            "path": "tests/operations/test_maker_shadow_ops_scripts.py",
+            "added": 12,
+            "deleted": 0
+          },
+          {
+            "path": "tests/operations/test_status_script.py",
+            "added": 443,
+            "deleted": 0
+          },
+          {
+            "path": "tests/operations/test_windows_qualification_shards.py",
+            "added": 1,
+            "deleted": 0
+          },
+          {
+            "path": "tests/operations/test_wu_token_repository_scan.py",
+            "added": 4,
+            "deleted": 1
+          },
+          {
+            "path": "tests/operations/test_wu_token_scan.py",
+            "added": 685,
+            "deleted": 0
+          },
+          {
+            "path": "tests/operations/test_wu_token_scan_junction.py",
+            "added": 23,
+            "deleted": 0
+          },
+          {
+            "path": "tests/sources/test_wu_redaction.py",
+            "added": 544,
+            "deleted": 2
+          }
+        ],
+        "grants": "nothing until the owner adopts M13"
+      },
+      "command": [
+        "git",
+        "diff",
+        "--name-only",
+        "--ignore-space-at-eol",
+        "--ignore-blank-lines",
+        "9cb092a020dc27e4822d47abf025d9bef3a0a0ca",
+        "0cb73c2a18f4f4748d1649aec1dce6a12794df34"
+      ],
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.172,
+      "owner": "L-P2"
+    },
+    "agent_docs_audit": {
+      "status": "PASS",
+      "summary": "agent docs audit clean on the landing tree",
+      "details": [],
+      "attribution": [],
+      "evidence": {},
+      "command": [
+        "C:\\Users\\Michael\\Documents\\github\\weather\\venv\\Scripts\\python.exe",
+        "-m",
+        "weather.operations.agent_docs_audit",
+        "--repo-root",
+        "C:\\lpf-s\\run-20261010T133649Z-167168\\wt"
+      ],
+      "exit_code": 0,
+      "output_tail": "Agent docs audit: PASS (18 agent files, 1179 Markdown files)\n",
+      "duration_s": 13.547,
+      "owner": "L-P2"
+    },
+    "correspondence_index": {
+      "status": "FAIL",
+      "summary": "exit 1: docs/roadmap/correspondence-index.md: stale or missing; run python -m weather.reporting.roadmap.correspondence_index",
+      "details": [
+        "docs/roadmap/correspondence-index.md: stale or missing; run python -m weather.reporting.roadmap.correspondence_index",
+        "docs/roadmap/correspondence-index/2026-09.md: stale or missing; run python -m weather.reporting.roadmap.correspondence_index"
+      ],
+      "attribution": [],
+      "evidence": {},
+      "command": [
+        "C:\\Users\\Michael\\Documents\\github\\weather\\venv\\Scripts\\python.exe",
+        "-m",
+        "weather.reporting.roadmap.correspondence_index",
+        "--repo-root",
+        "C:\\lpf-s\\run-20261010T133649Z-167168\\wt",
+        "--check"
+      ],
+      "exit_code": 1,
+      "output_tail": "docs/roadmap/correspondence-index.md: stale or missing; run python -m weather.reporting.roadmap.correspondence_index\ndocs/roadmap/correspondence-index/2026-09.md: stale or missing; run python -m weather.reporting.roadmap.correspondence_index\n",
+      "duration_s": 0.531,
+      "owner": "L-P2"
+    },
+    "roadmap_backlog": {
+      "status": "PASS",
+      "summary": "roadmap backlog lint OK and generated report current",
+      "details": [],
+      "attribution": [],
+      "evidence": {},
+      "command": [
+        "C:\\Users\\Michael\\Documents\\github\\weather\\venv\\Scripts\\python.exe",
+        "-m",
+        "weather.reporting.roadmap.roadmap_backlog",
+        "--roadmap-root",
+        "C:\\lpf-s\\run-20261010T133649Z-167168\\wt\\docs\\roadmap",
+        "--report-out",
+        "C:\\lpf-s\\run-20261010T133649Z-167168\\wt\\docs\\roadmap\\active-backlog.md",
+        "--json-out",
+        "C:\\lpf-s\\run-20261010T133649Z-167168\\roadmap_backlog.json",
+        "--fail-on-lint",
+        "--check"
+      ],
+      "exit_code": 0,
+      "output_tail": "Roadmap backlog: OK (generated report matches sources)\n",
+      "duration_s": 0.187,
+      "owner": "L-P2"
+    },
+    "schema_registry": {
+      "status": "PASS",
+      "summary": "unregistered_versions == [] (644 registered)",
+      "details": [],
+      "attribution": [],
+      "evidence": {
+        "registered_count": 644,
+        "discovered_literal_count": 1025,
+        "unregistered_version_count": 0,
+        "excluded_version_count": 14,
+        "unregistered_versions": [],
+        "schema_additive": null
+      },
+      "command": [
+        "C:\\Users\\Michael\\Documents\\github\\weather\\venv\\Scripts\\python.exe",
+        "-m",
+        "weather.schema_registry",
+        "audit",
+        "--out",
+        "C:\\lpf-s\\run-20261010T133649Z-167168\\schema_registry_audit.json"
+      ],
+      "exit_code": 0,
+      "output_tail": "",
+      "duration_s": 0.297,
+      "owner": "L-P2"
+    },
+    "shard_coverage": {
+      "status": "PASS",
+      "summary": "92 shard file(s) exist; no unsharded spawning test changed",
+      "details": [],
+      "attribution": [],
+      "evidence": {
+        "listed": 92,
+        "missing": [],
+        "changed_test_modules": [
+          "tests/collection/test_forecast_payload_cross_process_fanout.py",
+          "tests/collection/test_snapshot_sleep_heartbeat.py",
+          "tests/maker_core/test_quoting_book.py",
+          "tests/maker_core/test_shadow_admission.py",
+          "tests/maker_core/test_shadow_compose.py",
+          "tests/maker_core/test_shadow_fill_parity.py",
+          "tests/maker_core/test_shadow_tape_v02.py",
+          "tests/market/test_maker_shadow.py",
+          "tests/operations/test_bounded_execution_tape_probe_script.py",
+          "tests/operations/test_bounded_worktree_test_suite_script.py",
+          "tests/operations/test_dst_audit_powershell_20261007.py",
+          "tests/operations/test_maker_shadow_ops_scripts.py",
+          "tests/operations/test_status_script.py",
+          "tests/operations/test_windows_qualification_shards.py",
+          "tests/operations/test_wu_token_repository_scan.py",
+          "tests/operations/test_wu_token_scan.py",
+          "tests/operations/test_wu_token_scan_junction.py",
+          "tests/sources/test_wu_redaction.py"
+        ],
+        "spawning_rule": "hygiene_ratchet",
+        "unsharded_spawning": [],
+        "post_209": true
+      },
+      "command": null,
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.235,
+      "owner": "L-P2"
+    },
+    "ps1_param_defaults": {
+      "status": "PASS",
+      "summary": "no changed advanced script reads its location in param() (0 pre-existing)",
+      "details": [],
+      "attribution": [],
+      "evidence": {
+        "offenders": [],
+        "touched_offenders": [],
+        "post_222": true
+      },
+      "command": null,
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.109,
+      "owner": "L-P2"
+    },
+    "ratchets": {
+      "status": "PASS",
+      "summary": "87 test(s) passed [union of ci.yml -m ratchet lists (base, pre_head, landing) and the static list, direct]",
+      "details": [],
+      "attribution": [],
+      "evidence": {
+        "source": "union of ci.yml -m ratchet lists (base, pre_head, landing) and the static list",
+        "files": [
+          "tests/app/test_app_architecture.py",
+          "tests/operations/test_ci_ratchet_selection.py",
+          "tests/operations/test_cold_recovery_host_guard.py",
+          "tests/operations/test_config_inventory.py",
+          "tests/operations/test_dependency_pins.py",
+          "tests/operations/test_host_task_wrappers.py",
+          "tests/operations/test_knowledge_structure_audit.py",
+          "tests/operations/test_module_size_audit.py",
+          "tests/operations/test_no_tracked_credentials.py",
+          "tests/operations/test_operating_reference.py",
+          "tests/operations/test_path_policy.py",
+          "tests/operations/test_python_runtime_audit.py",
+          "tests/operations/test_release_import_boundary.py",
+          "tests/operations/test_research_harness.py",
+          "tests/operations/test_runtime_utilities.py",
+          "tests/operations/test_schema_registry.py",
+          "tests/operations/test_structure_inventory.py",
+          "tests/operations/test_wu_token_repository_scan.py",
+          "tests/test_hygiene_ratchet.py",
+          "tests/test_quarantine_registry.py"
+        ],
+        "deferred_to_windows_scripts": [
+          "tests/market/test_wallet_reader.py",
+          "tests/operations/test_agent_docs_audit.py",
+          "tests/operations/test_import_architecture.py",
+          "tests/operations/test_memory_commit_guard_script.py",
+          "tests/operations/test_ops_script_ratchets.py",
+          "tests/operations/test_workload_admission_script.py"
+        ],
+        "serial_reasons": {
+          "tests/market/test_wallet_reader.py": "test_wallet_reader.py starts PowerShell (serial until the marker exists)",
+          "tests/operations/test_agent_docs_audit.py": "test_agent_docs_audit.py starts PowerShell (serial until the marker exists)",
+          "tests/operations/test_import_architecture.py": "test_import_architecture.py starts PowerShell (serial until the marker exists)",
+          "tests/operations/test_memory_commit_guard_script.py": "test_memory_commit_guard_script.py starts PowerShell (serial until the marker exists)",
+          "tests/operations/test_ops_script_ratchets.py": "test_ops_script_ratchets.py starts PowerShell (serial until the marker exists)",
+          "tests/operations/test_workload_admission_script.py": "test_workload_admission_script.py starts PowerShell (serial until the marker exists)"
+        },
+        "classifier": "landing_hook",
+        "warnings": [],
+        "route": "direct",
+        "route_reason": "focused run of 20 non-serial file(s)",
+        "junit": {
+          "present": true,
+          "tests": 87,
+          "skipped": 0
+        }
+      },
+      "command": [
+        "C:\\Users\\Michael\\Documents\\github\\weather\\venv\\Scripts\\python.exe",
+        "-m",
+        "pytest",
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "-o",
+        "junit_family=xunit1",
+        "--junitxml=C:\\lpf-s\\run-20261010T133649Z-167168\\junit-ratchets.xml",
+        "--basetemp=C:\\lpf\\167168\\ratchets",
+        "-m",
+        "ratchet",
+        "tests/app/test_app_architecture.py",
+        "tests/operations/test_ci_ratchet_selection.py",
+        "tests/operations/test_cold_recovery_host_guard.py",
+        "tests/operations/test_config_inventory.py",
+        "tests/operations/test_dependency_pins.py",
+        "tests/operations/test_host_task_wrappers.py",
+        "tests/operations/test_knowledge_structure_audit.py",
+        "tests/operations/test_module_size_audit.py",
+        "tests/operations/test_no_tracked_credentials.py",
+        "tests/operations/test_operating_reference.py",
+        "tests/operations/test_path_policy.py",
+        "tests/operations/test_python_runtime_audit.py",
+        "tests/operations/test_release_import_boundary.py",
+        "tests/operations/test_research_harness.py",
+        "tests/operations/test_runtime_utilities.py",
+        "tests/operations/test_schema_registry.py",
+        "tests/operations/test_structure_inventory.py",
+        "tests/operations/test_wu_token_repository_scan.py",
+        "tests/test_hygiene_ratchet.py",
+        "tests/test_quarantine_registry.py"
+      ],
+      "exit_code": 0,
+      "output_tail": "........................................................................ [ 82%]\n...............                                                          [100%]\n87 passed, 92 deselected in 17.34s\n",
+      "duration_s": 18.25,
+      "owner": "L-P3"
+    },
+    "tests": {
+      "status": "SKIP",
+      "summary": "--tests none: no test ran (the verdict is PASS_NO_TESTS at best, exit 4)",
+      "details": [],
+      "attribution": [],
+      "evidence": {},
+      "command": null,
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.0,
+      "owner": "L-P3"
+    },
+    "windows_scripts": {
+      "status": "SKIP",
+      "summary": "--tests none: no test ran (the verdict is PASS_NO_TESTS at best, exit 4)",
+      "details": [],
+      "attribution": [],
+      "evidence": {},
+      "command": null,
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.0,
+      "owner": "L-P3"
+    }
+  },
+  "verdict": {
+    "status": "FAIL",
+    "exit_code": 1,
+    "failing_checks": [
+      "correspondence_index"
+    ],
+    "warnings": [
+      "roll_class"
+    ],
+    "tests_run": false,
+    "binding": false,
+    "binding_gates": "scripts\\ops\\roll_verdict.ps1 -Branch <b>, scripts\\ops\\quiet_window_merge.ps1 and the integration attempt receipts (docs/operations/INTEGRATION_ATTEMPT_RUNBOOK.md) bind; this verdict does not",
+    "valid_while": "origin/master == 32aa8c7c564bfeb588d58c85f422442162231b7a and the plan's earlier SHAs land unchanged"
+  },
+  "cleanup": {
+    "kept": false,
+    "scratch_removed": true,
+    "worktree_pruned": true
+  },
+  "receipt": {
+    "out_path": "C:\\wt\\workstation-chat\\l-data\\n5heads\\preflight-rf.json",
+    "sha256": "051ea96235ae57ff3ed8f7afe670599d7b2acdb732e1a3e6fb6090e034173b40",
+    "handback_line": "landing_preflight FAIL tests=none(skipped) binding=false sha256=051ea96235ae57ff3ed8f7afe670599d7b2acdb732e1a3e6fb6090e034173b40 head=c9029029a61e1a5f8cc23832f0b1245dbb0ca3dd earlier=[f8499d0bd55f9591d35fec8adf00023ba82c5db1,ee41a90e828c215f57e57511910cc547117c59fa] base=32aa8c7c564bfeb588d58c85f422442162231b7a plan=2f5c1310bd34a12839bd57467d4e13dbc198f57f10dcfb304960b6f4cf2fb041 landing=31943affcb8601255bdd4b3b2ce9bc90d73d591c git=git version 2.54.0.windows.1"
+  }
+}

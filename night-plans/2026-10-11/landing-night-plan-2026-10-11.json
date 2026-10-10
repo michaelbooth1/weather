@@ -1,0 +1,280 @@
+{
+  "schema": "landing_night_plan_v0.1",
+  "night": "2026-10-11",
+  "label": "N5 landing night 2026-10-10 -> 2026-10-11 (production capture host)",
+  "master_sha": "32aa8c7c564bfeb588d58c85f422442162231b7a",
+  "generated_at": "2026-10-10T09:35:30-04:00",
+  "source": "workstation DESKTOP-RFCD2GH; human summary l-data/N5-HEADS-20261011.md",
+  "execution_order_note": "slots are in EXECUTION order and each integration branch is stacked on the previous slot; a later slot tip lands every earlier slot",
+  "schedule": {
+    "rs_a": ">=01:00 suite trigger, merge >=01:30 (about 65 min)",
+    "rs_b": "after RS-A recovery, done <=03:40",
+    "rf": "after RS-B, done <=06:15 (before 91a 06:50)",
+    "overflow_drop_order": [
+      "rf (#272 #273)",
+      "rsb (#267, #265 first, then D5N7, snap-hb last)"
+    ],
+    "rs_failure_fallback": {
+      "rs_a_fails": "land claude/integration-20261011-rsb-nors-v2 7e377cc08113cca55b638f625e40148c81fe8d07 (snap-hb + D5N7, RS) then claude/integration-20261011-rf-nors-v2 36456a4bfb8a8efc946de6a205b217636c75d75a (#272 + #273, RF); #265/#267 slip (their resolution needs the stacked chain)",
+      "rs_b_fails": "land claude/integration-20261011-rf-nors-v2 36456a4bfb8a8efc946de6a205b217636c75d75a on top of RS-A (merge-tree clean, master host sim) or rebuild rf on RS-A"
+    }
+  },
+  "master_drift": {
+    "origin_master_at_plan_time": "32aa8c7c564bfeb588d58c85f422442162231b7a",
+    "pregate_base": "dc7cb6dd38be8b2e7032fbf896839e30325753a7",
+    "drift": "32aa8c7c5 = dc7cb6dd3 + 94d860d87 (CI ratchet fix, contained in every head); later drift listed in checks",
+    "checks": "git merge-tree (git 2.54) of every slot and fallback tip onto 32aa8c7c5 rc 0; master-agent host git 2.45 sims of all v2 heads on 32aa8c7c clean (04:3x); landing_preflight --tests none per slot in preflight-*.json"
+  },
+  "fallback_heads": [
+    {
+      "head": "claude/integration-20261011-rsb-nors-v2",
+      "sha": "7e377cc08113cca55b638f625e40148c81fe8d07",
+      "members": {
+        "snap-hb": "0766101ee102cdf5740858a309e66037d5d2c260",
+        "D5N7": "a4727d6d61681440cceef4523ad0285111285492"
+      },
+      "stacked_on": "94d860d87dd23df9cfcc72a0d2e5399cac8959da",
+      "expected_roll_class": "ROLL-SENSITIVE",
+      "qtest": {
+        "log": "q-n5-rsb-nors-7e377cc08b.log",
+        "result": "433 passed (first run rc 4: test_shadow_admission.py absent without #265; rerun without it)",
+        "rc": 0
+      },
+      "pregate": {
+        "path": "C:\\wt\\workstation-chat\\l-data\\n5heads\\pregate\\pg-7e377cc08113-20261010T083302-112140\\receipt.json",
+        "receipt_sha256": "c0d4eb8f671daa0a730b544b101e5181df4d5602c7a5ef4920d4dc50e126567e",
+        "verdict": "PASS",
+        "base": "dc7cb6dd38be8b2e7032fbf896839e30325753a7",
+        "base_is_ancestor": true,
+        "log_sha256": "2ad1b62259bcff34769865949300c82b0d4055071f97ed3e22229c29a783f8b3",
+        "chunks": 21,
+        "chunk_files": 515,
+        "chunk_exit_codes_nonzero": [],
+        "junit_totals": {
+          "tests": 9249,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 66,
+          "passed": 9183
+        },
+        "failed_tests": [],
+        "failure_reasons": [],
+        "started_at": "2026-10-10T08:33:03.0137278-04:00",
+        "finished_at": "2026-10-10T09:27:38.0831428-04:00",
+        "python": "workstation 3.11.9 (host 3.11.0)",
+        "git": "2.54.0.windows.1 (host 2.45.2)"
+      }
+    },
+    {
+      "head": "claude/integration-20261011-rf-nors-v2",
+      "sha": "36456a4bfb8a8efc946de6a205b217636c75d75a",
+      "members": {
+        "272": "6ae127d2f821658e86b60c5c5ca69ff967cb740d",
+        "273": "12010bdc167a2f73440adacc880ac4e37caf4e37"
+      },
+      "stacked_on": "94d860d87dd23df9cfcc72a0d2e5399cac8959da",
+      "expected_roll_class": "ROLL-FREE",
+      "qtest": {
+        "log": "q-n5-rf-nors-36456a4bf.log",
+        "result": "386 passed, 1 xfailed",
+        "rc": 0
+      },
+      "pregate": {
+        "path": "C:\\wt\\workstation-chat\\l-data\\n5heads\\pregate\\pg-36456a4bfb8a-20261010T073831-41244\\receipt.json",
+        "receipt_sha256": "ffb230267a5a5edc3abd040d47903983379e512729930fdaf90d6682a9172952",
+        "verdict": "PASS",
+        "base": "dc7cb6dd38be8b2e7032fbf896839e30325753a7",
+        "base_is_ancestor": true,
+        "log_sha256": "a7bffde98e2d79788f19848f5bc5206d3206b54f2d6201ce0acded2fbbe5eb77",
+        "chunks": 21,
+        "chunk_files": 514,
+        "chunk_exit_codes_nonzero": [],
+        "junit_totals": {
+          "tests": 9241,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 64,
+          "passed": 9177
+        },
+        "failed_tests": [],
+        "failure_reasons": [],
+        "started_at": "2026-10-10T07:38:31.0751396-04:00",
+        "finished_at": "2026-10-10T08:32:58.5140020-04:00",
+        "python": "workstation 3.11.9 (host 3.11.0)",
+        "git": "2.54.0.windows.1 (host 2.45.2)"
+      }
+    }
+  ],
+  "not_in_this_plan": "#266 and #269 (build line, not master); superseded v1 branches claude/integration-20261011-{rs,rsb,rf,rf-nors,rsb-nors} (delete after N5)",
+  "priority_order": [
+    "claude/integration-20261011-rs-v2",
+    "claude/integration-20261011-rsb-v2",
+    "claude/integration-20261011-rf-v2"
+  ],
+  "slots": [
+    {
+      "kind": "rs_guarded_merge",
+      "head": "claude/integration-20261011-rs-v2",
+      "sha": "f8499d0bd55f9591d35fec8adf00023ba82c5db1",
+      "prs": [
+        259,
+        210,
+        270
+      ],
+      "branch_only_members": [],
+      "priority": 1,
+      "exec": 1,
+      "members": {
+        "259": "9d409b21ceb719f4ca6e5e3fb6f441a3b3e8204d",
+        "210": "624af5db8a968386d19766116c34e7ec6166eee5",
+        "270": "90372e301352285ff2c3c5df686aed88d1b1ffc3"
+      },
+      "stacked_on": "94d860d87dd23df9cfcc72a0d2e5399cac8959da (on dc7cb6dd38be8b2e7032fbf896839e30325753a7)",
+      "expected_roll_class": "ROLL-SENSITIVE",
+      "roll_evidence": "src/weather/sources/wu_history.py and src/weather/collection/forecast_payload_fetch_fanout.py are in the production closure (snapshot_tracker static walk); wu_redaction.py enters it via wu_history",
+      "tier_a": "PASS (no C3/tier-A path touched)",
+      "activation_block": "not required (#259, #210 add no loop/task); #270 body carries one (no activation)",
+      "qtest": {
+        "log": "q-n5-rs-f8499d0bd.log",
+        "result": "854 passed, 2 skipped",
+        "rc": 0
+      },
+      "agent_docs_audit_rc": 0,
+      "known_fix": "correspondence_index --check is stale on master 32aa8c7c5 itself (by design: branches never commit it; the closeout regenerates it as a docs light-path commit); --check-structure PASS on every head",
+      "pregate": {
+        "path": "C:\\wt\\workstation-chat\\l-data\\n5heads\\pregate\\pg-f8499d0bd55f-20261010T045407-137016\\receipt.json",
+        "receipt_sha256": "7cb5cdfdf30b0247698f8a8212861ae34289f4829a5ec316f2432fccf1d7489e",
+        "verdict": "PASS",
+        "base": "dc7cb6dd38be8b2e7032fbf896839e30325753a7",
+        "base_is_ancestor": true,
+        "log_sha256": "5f282009476cbb7280ac6df826a61fd1ae6d2203cb0f610be9d26eed98cc99f4",
+        "chunks": 21,
+        "chunk_files": 514,
+        "chunk_exit_codes_nonzero": [],
+        "junit_totals": {
+          "tests": 9412,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 66,
+          "passed": 9346
+        },
+        "failed_tests": [],
+        "failure_reasons": [],
+        "started_at": "2026-10-10T04:54:07.7491581-04:00",
+        "finished_at": "2026-10-10T05:48:22.4802783-04:00",
+        "python": "workstation 3.11.9 (host 3.11.0)",
+        "git": "2.54.0.windows.1 (host 2.45.2)"
+      }
+    },
+    {
+      "kind": "rs_guarded_merge",
+      "head": "claude/integration-20261011-rsb-v2",
+      "sha": "ee41a90e828c215f57e57511910cc547117c59fa",
+      "prs": [
+        265,
+        267
+      ],
+      "branch_only_members": [
+        "snap-hb claude/snapshot-sleep-heartbeat-20261009",
+        "D5N7 claude/shadow-tape-v02-d5n7-20261009"
+      ],
+      "priority": 2,
+      "exec": 2,
+      "members": {
+        "snap-hb": "0766101ee102cdf5740858a309e66037d5d2c260",
+        "D5N7": "a4727d6d61681440cceef4523ad0285111285492",
+        "265": "318019f9623078322ffcf1585050a87d8f1af9e0",
+        "267": "ea7abb3679117b66a1f81f68c3db2e921b19aa2d"
+      },
+      "stacked_on": "claude/integration-20261011-rs-v2 f8499d0bd55f9591d35fec8adf00023ba82c5db1",
+      "expected_roll_class": "ROLL-SENSITIVE",
+      "roll_evidence": "src/weather/collection/snapshot_tracker.py (snap-hb) is a capture-loop entry module; D5N7/#265/#267 change the shadow runner modules",
+      "tier_a": "PASS (no C3/tier-A path touched)",
+      "activation_block": "#265/#267 bodies carry one; snap-hb and D5N7 have no PR (branch heads claude/snapshot-sleep-heartbeat-20261009, claude/shadow-tape-v02-d5n7-20261009). POST-MERGE: RS-B touches the shadow runner's modules (maker_core/shadow/*, weather/market/maker_shadow.py, maker_shadow_readout.ps1): after the merge run the Restart step of docs/operations/maker-shadow-runner.md (stop file, wait for no run + sealed tape, delete stop file) so the runner activated 04:16 on 1e0e84793 picks up D5N7/#265/#267; verify with scripts\\ops\\maker_shadow_readout.ps1 (code <12 hex> = merged master)",
+      "qtest": {
+        "log": "q-n5-rsb-ee41a90e8.log",
+        "result": "1282 passed, 12 skipped",
+        "rc": 0
+      },
+      "agent_docs_audit_rc": 0,
+      "known_fix": "correspondence_index --check is stale on master 32aa8c7c5 itself (by design: branches never commit it; the closeout regenerates it as a docs light-path commit); --check-structure PASS on every head",
+      "pregate": {
+        "path": "C:\\wt\\workstation-chat\\l-data\\n5heads\\pregate\\pg-ee41a90e828c-20261010T054826-5512\\receipt.json",
+        "receipt_sha256": "5a5664eca26795e5e1b6e0cef355103bc790cf13abd9f54660fdaa95fe37b01c",
+        "verdict": "PASS",
+        "base": "dc7cb6dd38be8b2e7032fbf896839e30325753a7",
+        "base_is_ancestor": true,
+        "log_sha256": "6ac9855a55f533b0a41d5b6f996b20a03ae147cc827e71f10f9de956cc68ed82",
+        "chunks": 21,
+        "chunk_files": 519,
+        "chunk_exit_codes_nonzero": [],
+        "junit_totals": {
+          "tests": 9618,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 66,
+          "passed": 9552
+        },
+        "failed_tests": [],
+        "failure_reasons": [],
+        "started_at": "2026-10-10T05:48:26.6901921-04:00",
+        "finished_at": "2026-10-10T06:43:20.4728057-04:00",
+        "python": "workstation 3.11.9 (host 3.11.0)",
+        "git": "2.54.0.windows.1 (host 2.45.2)"
+      }
+    },
+    {
+      "kind": "rf_guarded_merge",
+      "head": "claude/integration-20261011-rf-v2",
+      "sha": "c9029029a61e1a5f8cc23832f0b1245dbb0ca3dd",
+      "prs": [
+        272,
+        273
+      ],
+      "branch_only_members": [],
+      "priority": 3,
+      "exec": 3,
+      "members": {
+        "272": "6ae127d2f821658e86b60c5c5ca69ff967cb740d",
+        "273": "12010bdc167a2f73440adacc880ac4e37caf4e37"
+      },
+      "stacked_on": "claude/integration-20261011-rsb-v2 ee41a90e828c215f57e57511910cc547117c59fa",
+      "expected_roll_class": "ROLL-FREE",
+      "roll_evidence": "only .ps1, docs and tests change (bounded_worktree_test_suite.ps1, package_exact_tip_bundle.ps1, suite_gated_quiet_merge.ps1, status.ps1); no importable module",
+      "tier_a": "PASS (no C3/tier-A path touched)",
+      "activation_block": "not required (no loop/task added). NOTE #272 changes the bounded suite itself, hence last",
+      "qtest": {
+        "log": "q-n5-rf-c9029029a.log",
+        "result": "386 passed, 1 xfailed",
+        "rc": 0
+      },
+      "agent_docs_audit_rc": 0,
+      "known_fix": "correspondence_index --check is stale on master 32aa8c7c5 itself (by design: branches never commit it; the closeout regenerates it as a docs light-path commit); --check-structure PASS on every head",
+      "pregate": {
+        "path": "C:\\wt\\workstation-chat\\l-data\\n5heads\\pregate\\pg-c9029029a61e-20261010T064323-1336\\receipt.json",
+        "receipt_sha256": "06fc5ea7a04e1d8d28b32a67f0d85be72bee2826133ec29498462ba6003e1762",
+        "verdict": "PASS",
+        "base": "dc7cb6dd38be8b2e7032fbf896839e30325753a7",
+        "base_is_ancestor": true,
+        "log_sha256": "6d442857e63a350d3788055016ef09f987b6268a4677942f8aec3ffddd61aaea",
+        "chunks": 21,
+        "chunk_files": 519,
+        "chunk_exit_codes_nonzero": [],
+        "junit_totals": {
+          "tests": 9654,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 64,
+          "passed": 9590
+        },
+        "failed_tests": [],
+        "failure_reasons": [],
+        "started_at": "2026-10-10T06:43:23.9338308-04:00",
+        "finished_at": "2026-10-10T07:38:26.2480223-04:00",
+        "python": "workstation 3.11.9 (host 3.11.0)",
+        "git": "2.54.0.windows.1 (host 2.45.2)"
+      }
+    }
+  ],
+  "plan_sha256": "2f5c1310bd34a12839bd57467d4e13dbc198f57f10dcfb304960b6f4cf2fb041"
+}
