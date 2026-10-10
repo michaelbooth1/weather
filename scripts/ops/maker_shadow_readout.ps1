@@ -1,5 +1,6 @@
 # One-line, read-only readout of the forward maker shadow runner for the owner's check-in.
-# Reads only file names, seal JSONs, the tail (at most 1 MiB) of the newest open tape and,
+# Reads only file names and sizes (incl. today's v0.2 record streams), seal JSONs, the tail (at most
+# 1 MiB) of the newest open tape and,
 # when -ParityStartUtc is given, the agreement status of score reports. It writes nothing,
 # takes no lease, starts no Python and touches no 88a, panel or settlement data, so it is
 # safe at any hour. Contract: docs/operations/maker-shadow-runner.md.
@@ -32,6 +33,14 @@ $since = if ($days.Count) { $days[0] } else { "none" }
 
 $rowsToday = 0
 $bytesToday = 0
+# Tape v0.2 record streams (records\<day>\*-records.jsonl, sealed or open) are counted by size alone.
+$recordBytesToday = 0
+$recordsToday = Join-Path (Join-Path $tapes "records") $todayUtc
+if (Test-Path -LiteralPath $recordsToday -PathType Container) {
+    foreach ($r in (Get-ChildItem -LiteralPath $recordsToday -Filter "*-records.jsonl" -File)) {
+        $recordBytesToday += [long]$r.Length
+    }
+}
 foreach ($s in ($seals | Where-Object { $_.Name.StartsWith($todayUtc) })) {
     $seal = Get-Content -LiteralPath $s.FullName -Raw | ConvertFrom-Json
     $rowsToday += [int]$seal.records
@@ -42,6 +51,7 @@ foreach ($s in ($seals | Where-Object { $_.Name.StartsWith($todayUtc) })) {
 $last = "none"
 $lastAge = "n/a"
 $lastState = ""
+$code = ""
 if ($open.Count) {
     $live = $open[-1]
     $stream = [IO.File]::Open($live.FullName, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
@@ -57,6 +67,26 @@ if ($open.Count) {
         }
     }
     finally { $stream.Dispose() }
+    # The opening record (first line) carries the code identity the run computed once at start.
+    $head = [IO.File]::Open($live.FullName, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+    try {
+        $headBuffer = New-Object byte[] ([Math]::Min($head.Length, 64KB))
+        $headRead = $head.Read($headBuffer, 0, $headBuffer.Length)
+    }
+    finally { $head.Dispose() }
+    $firstLine = [Text.Encoding]::UTF8.GetString($headBuffer, 0, $headRead).Split("`n")[0]
+    $code = "; code not recorded"
+    try {
+        $scope = ($firstLine | ConvertFrom-Json).scope
+        if ($scope.PSObject.Properties.Name -contains "git_commit") {
+            if ($scope.git_commit) {
+                $code = "; code {0}{1}" -f ([string]$scope.git_commit).Substring(0, 12),
+                    $(if ($scope.git_dirty -eq $false) { "" } elseif ($scope.git_dirty) { " DIRTY" } else { " dirty-unknown" })
+            }
+            else { $code = "; code unbound ({0})" -f [string]$scope.git_error }
+        }
+    }
+    catch { $code = "; code unreadable" }
     $lines = @([Text.Encoding]::UTF8.GetString($buffer, 0, $read).Split("`n") | Where-Object { $_.Trim() })
     if ($lines.Count) {
         $row = $lines[-1] | ConvertFrom-Json
@@ -96,6 +126,6 @@ if (Test-Path -LiteralPath (Join-Path $root "STOP")) { $flags += "STOP file pres
 if (Test-Path -LiteralPath (Join-Path $root "PAUSE")) { $flags += "PAUSE file present" }
 $flagText = if ($flags.Count) { " [" + ($flags -join "; ") + "]" } else { "" }
 
-"shadow: process {0}; sealed days {1} since {2}; last tick {3} ({4}){5}; rows today {6} ({7:N0} MB); crashed/unsealed tapes {8}; {9}; scoring embargoed through 2026-11-13 UTC{10}" -f `
+"shadow: process {0}; sealed days {1} since {2}; last tick {3} ({4}){5}{11}; rows today {6} ({7:N0} MB tape + {12:N0} MB record stream); crashed/unsealed tapes {8}; {9}; scoring embargoed through 2026-11-13 UTC{10}" -f `
     $(if ($alive) { "running" } else { "NOT running" }), $days.Count, $since, $last, $lastAge, $lastState,
-    $rowsToday, ($bytesToday / 1MB), $crashed, $parity, $flagText
+    $rowsToday, ($bytesToday / 1MB), $crashed, $parity, $flagText, $code, ($recordBytesToday / 1MB)

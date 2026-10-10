@@ -65,7 +65,8 @@ package contract, and `requires-python` is `>=3.11`.
   ratchet executes exactly once across all workflows. Local and bounded-suite runs ignore these markers and run
   everything (plain `pytest -q`).
 - The [Windows qualification workflow](../.github/workflows/windows-qualification.yml) adds exact-candidate native
-  launch/integration regressions under Windows PowerShell 5.1, as parallel `native-launch (<shard>)` jobs
+  launch/integration regressions under Windows PowerShell 5.1 and CPython 3.11.0 (the capture host's exact
+  interpreter; the Ubuntu jobs float on the latest 3.11.x), as parallel `native-launch (<shard>)` jobs
   balanced from JUnit timings (a file too slow for one shard, such as `test_status_script.py` or the reconciler execution tests, is
   split across shards by `split_select` -k expressions; `tests/operations/test_windows_qualification_shards.py` pins the
   plan and proves by collection that every listed test runs exactly once); each shard uploads its own receipt and JUnit. Hosted Windows evidence records its actual scope,
@@ -95,6 +96,39 @@ plus later sightings.
 | `tests/operations/test_storage_recovery_inventory_wrapper.py::test_real_wrapper_completion_binding_failure_and_child_tree_teardown[success-True]` | Windows | 1 | run 37078892774 attempt 1 failed, attempt 2 passed |
 | `tests/operations/test_live_wrapper_credential_launcher.py::test_forced_launcher_exit_kills_the_live_child_tree_before_mutex_reuse` | Windows | 1 | inferred, not same-SHA proven (P0-3) |
 | `tests/operations/test_production_baseline_reconciler_execution.py::test_post_start_hung_read_cannot_consume_the_containment_stop_reserve` | Windows (`reconciler-5`) | 1 | run 37246104447 (PR #209, 3767c21f): attempt 1 asserted `[] == ['WeatherOneShotPush']` after 48 s; same-SHA rerun passed. Timing-sensitive hang test on a slow hosted runner |
+
+A deterministic timing race is fixed, not tabled. `test_workload_admission_script.py` held the heavy-workload
+mutex for a fixed 2 s while a contender started; on a slow hosted runner the contender started after the
+release, so `windows-lane-a` was red on master (runs 37743128778, 37793211993). The holders now keep the
+mutex until the test creates a release file.
+
+### Proposal: shrink the host suite once the Windows lane is green (not in force)
+
+Proposal for N4 (2026-10-08), for master-agent and owner review. It changes nothing by itself: the
+[host load policy](operations/HOST_LOAD_POLICY.md) and `scripts/ops/bounded_worktree_test_suite.ps1` stay as
+they are until a reviewed change lands there, and the production acceptance contract above still holds.
+
+- **Pre-gate.** Both `CI` and `Windows Qualification` concluded `success` on the exact head SHA, with every
+  `native-launch (<shard>)` job successful (not skipped, not cancelled). A red or missing shard sends that
+  head to today's full host suite.
+- **What the lanes already run.** The Linux jobs run every tracked test file. The Windows shards run every
+  file with a test that skips off Windows. Listing check: compare the Linux JUnit `<skipped>` cases on a master
+  run with the shard files. On 86b1a7a9, 76 files and 801 skipped cases are all in a shard. The 30 skipped cases
+  outside every shard (7 files) are not Windows-only: DST-audit known-bug skips, RE1 fixture-only attempts, a
+  missing live extra, `pyinstrument`, and native rclone opt-in. They skip on the host too.
+- **What the host suite could drop.** Every file that both lanes ran green on that SHA.
+- **What it keeps:**
+  - the [affected tests](#affected-test-selection) for the head;
+  - the reconciler execution file, under the L5 rule (when its surface is touched, and once a night);
+  - the integration preflight ratchets;
+  - files whose result depends on the host itself rather than on Windows: host git 2.45.2 merge semantics,
+    the host PowerShell build, Scheduler and S4U state. Until the M5 host-divergence classifier lands, these
+    are the merge and integration script tests: `test_quiet_window_merge_script.py`,
+    `test_quiet_window_merge_execution.py`, `test_suite_gated_quiet_merge_script.py`,
+    `test_reconcile_ordinary_quiet_merge.py` and `test_integration_attempt_scripts.py` (all under
+    `tests/operations/`).
+
+The actual-host S4U smoke is not replaced.
 
 ## Where verification may run
 
