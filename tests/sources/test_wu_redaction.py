@@ -594,7 +594,47 @@ def test_attribute_object_rendered_by_custom_str_is_redacted(token):
     assert token not in _rendered(error)
 
 
-def test_n5_http_error_headers_stay_usable_and_are_redacted():
+def _http_error_init_3_11_0(self, url, code, msg, hdrs, fp):
+    """``urllib.error.HTTPError.__init__`` verbatim from CPython 3.11.0/3.11.1 (before gh-98778)."""
+    import urllib.response
+
+    self.code = code
+    self.msg = msg
+    self.hdrs = hdrs
+    self.fp = fp
+    self.filename = url
+    if fp is not None:
+        urllib.response.addinfourl.__init__(self, fp, hdrs, url, code)
+
+
+@pytest.fixture
+def cpython_3110(monkeypatch):
+    """Replay the capture host's CPython 3.11.0 on any interpreter, for both halves of the failure.
+
+    1. ``HTTPError(..., fp=None)`` skips its ``tempfile`` wrapper base (gh-98778, fixed in
+       3.11.2), so every missing-attribute lookup raises ``KeyError: 'file'``.
+    2. ``traceback.TracebackException`` reads ``getattr(exc_value, "__notes__", None)``
+       unguarded. 3.11.8 wrapped that read in ``try/except Exception``, so on the
+       workstation's 3.11.9 a broken error still *renders*; replaying only (1) -- what the
+       first red/green did -- could never fail ``traceback.format_exception`` or
+       ``logging.exception``. On a real 3.11.0 both patches are behaviour-neutral.
+    """
+    import urllib.error
+
+    monkeypatch.setattr(urllib.error.HTTPError, "__init__", _http_error_init_3_11_0)
+    original = traceback.TracebackException.__init__
+
+    def init_3_11_0(self, exc_type, exc_value, *args, **kwargs):
+        getattr(exc_value, "__notes__", None)  # 3.11.0..3.11.7: no try/except around this read
+        original(self, exc_type, exc_value, *args, **kwargs)
+
+    monkeypatch.setattr(traceback.TracebackException, "__init__", init_3_11_0)
+    broken = urllib.error.HTTPError("https://example.invalid/", 503, "busy", {}, None)
+    with pytest.raises(KeyError):  # precondition: the host's failure mode is replayed here
+        _rendered(broken)
+
+
+def test_n5_http_error_headers_stay_usable_and_are_redacted(cpython_3110):
     import http.client
     import email.parser
     import urllib.error
@@ -638,7 +678,7 @@ def _pre_3_11_2_http_error(url, code, msg, hdrs):
 
 
 @pytest.mark.parametrize("build", ["constructor", "pre_3_11_2"])
-def test_n5_http_error_with_fp_none_is_sanitized_on_every_311_patch(build):
+def test_n5_http_error_with_fp_none_is_sanitized_on_every_311_patch(build, cpython_3110):
     import email.parser
     import http.client
     import urllib.error
@@ -707,3 +747,55 @@ def test_write_fetch_error_records_fp_none_http_error(build, tmp_path):
     assert "HTTP Error 503" in row["error"]
     logged = [_json.loads(line) for line in store.error_log_path.read_text(encoding="utf-8").splitlines()]
     assert logged[-1] == row
+
+
+def test_logging_exception_renders_a_sanitized_fp_none_http_error_on_3_11_0(cpython_3110):
+    import email.parser
+    import http.client
+    import io
+    import urllib.error
+
+    class RaisingHandler(logging.StreamHandler):
+        def handleError(self, record):  # noqa: N802 - logging API; surface emit failures
+            raise
+
+    token = secrets.token_hex(16)
+    url = f"https://api.example.invalid/v1/x/historical.json?apiKey={token}&units=e"
+    headers = email.parser.Parser(_class=http.client.HTTPMessage).parsestr(
+        f"Location: {url}\r\nRetry-After: 5\r\n\r\n"
+    )
+    error = urllib.error.HTTPError(url, 503, "busy", headers, None)
+    sanitize_exception(error)
+
+    stream = io.StringIO()
+    handler = RaisingHandler(stream)
+    logger = logging.getLogger("test.wu_redaction.fp_none")
+    logger.addHandler(handler)
+    logger.propagate = False
+    try:
+        try:
+            raise error
+        except urllib.error.HTTPError:
+            try:
+                logger.exception("WU fetch failed")
+            except Exception as exc:  # noqa: BLE001 - reported below, outside the broken chain
+                emit_failure = f"{type(exc).__name__}: {exc}"
+            else:
+                emit_failure = None
+    finally:
+        logger.removeHandler(handler)
+        logger.propagate = True
+
+    # Asserted outside the except blocks: a failure chained to the unrenderable error
+    # would crash pytest's own report on 3.11.0 too.
+    assert emit_failure is None, emit_failure
+    text = stream.getvalue()
+    assert "WU fetch failed" in text and "HTTP Error 503: busy" in text
+    assert token not in text
+    assert token not in error.url and token not in error.filename  # the repair stores ``url`` too
+    # Every attribute read is safe, not only ``__notes__``.
+    assert getattr(error, "no_such_attribute", None) is None
+    assert not hasattr(error, "also_missing")
+    assert error.read() == b""
+    error.close()
+    assert error.headers.get("Retry-After") == "5" and token not in error.headers["Location"]

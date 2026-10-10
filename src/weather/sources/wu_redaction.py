@@ -41,8 +41,11 @@ capture loops. Converging them is a quiet-window follow-up.
 
 from __future__ import annotations
 
+import io
 import logging
 import re
+import urllib.error
+import urllib.response
 
 REDACTED = "<redacted>"
 
@@ -246,6 +249,37 @@ def safe_attr(obj, name):
         return None
 
 
+def repair_fp_none_http_error(exc):
+    """Finish initialising a ``urllib.error.HTTPError`` built with ``fp=None`` on CPython < 3.11.2.
+
+    Before gh-98778 (fixed in 3.11.2; the capture host runs 3.11.0) ``HTTPError.__init__``
+    skipped ``addinfourl.__init__`` when ``fp`` was None, so its ``tempfile`` wrapper base
+    has no ``file`` and *every* missing-attribute lookup raises ``KeyError: 'file'``.
+    ``getattr(exc, name, None)`` does not catch that, and 3.11.0's ``traceback`` reads
+    ``__notes__`` that way, so ``traceback.format_exception``, ``logging.exception`` and
+    ``hasattr`` all crash on it. This runs the base initialiser 3.11.2+ runs, with an empty
+    ``io.BytesIO`` body, so attribute access behaves as on a fixed interpreter (missing
+    names raise AttributeError; ``read``/``close`` work) -- not only ``__notes__``.
+    Headers, code, msg and filename are kept. A no-op for any other exception and on
+    3.11.2+. Returns ``exc``.
+    """
+    if not isinstance(exc, urllib.error.HTTPError):
+        return exc
+    try:
+        state = vars(exc)
+        if "file" in state:
+            return exc
+        urllib.response.addinfourl.__init__(
+            exc, io.BytesIO(), state.get("hdrs"), exc.filename, state.get("code")  # OSError slot
+        )
+    except Exception:  # noqa: BLE001 - never replace the caller's failure with ours.
+        try:
+            vars(exc).setdefault("file", io.BytesIO())
+        except Exception:  # noqa: BLE001
+            pass
+    return exc
+
+
 def _redact_text_attr(obj, name):
     value = safe_attr(obj, name)
     if isinstance(value, str):
@@ -330,6 +364,8 @@ def _sanitize(exc, seen=None, depth=0):
 
 def _sanitize_one(exc, seen):
     depth = 0
+    # First, so every later attribute read and the rendering downstream are safe.
+    repair_fp_none_http_error(exc)
     try:
         exc.args = tuple(_redact_arg(arg, seen, depth) for arg in exc.args)
     except Exception:  # noqa: BLE001 - never replace the caller's failure with ours.
@@ -360,6 +396,9 @@ def _sanitize_one(exc, seen):
 
 def sanitize_exception(exc):
     """Redact the token from ``exc``, its chain, notes, text attributes and request/response URLs, in place.
+
+    A ``urllib.error.HTTPError(..., fp=None)`` from CPython < 3.11.2 is first made
+    renderable (:func:`repair_fp_none_http_error`).
 
     Returns ``exc`` so callers can write ``raise sanitize_exception(exc)``. The
     exception type, status code and attributes the failure classifier reads are
