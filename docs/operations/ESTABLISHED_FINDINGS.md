@@ -3497,6 +3497,7 @@ numbered by **attempt**: attempts 1-9 are sessions 1, 2, none (opening check ref
   **20** (rate 65-67/day) at ~17:05Z on both gamma and CLOB `/rewards/markets/<id>`. The "neither earns rewards" line above
   held only for the morning. CLOB `/rewards/markets` is authoritative (RE-1 reads it; 88a captures it per minute); read it at
   decision time, never from an earlier snapshot.
+- **Realized net, restated from wallet balances (Q-22, 2026-10-09):** **−36.97 pUSD** = five lots −39.11 (NYC +2.90, Miami −13.30 after the owner's taker sale at 0.18 with fee 0.5535 = 0.05·p(1−p)·75, Atlanta +7.55, Chicago Sep 24 NO −4.00 and Chicago Sep 25 YES −32.25, the two Chicago payouts of 0 inferred from no credit with the cash path reconciling) plus the 09-24 reward +2.13; no rebates observed. Sources: `data/wallet_ledger` snapshots dated 09-25..09-29 only. It supersedes the earlier "+6.43", which covered three 09-24 lots only.
 - **Caveats:** six cities, nine attempts, two trade dates — descriptive only, no inference.
   Evidence: `origin/codex/re1-campaign-analysis-20260924` @ `7f98359` (report and rebuild script), second-opinion audit
   `docs/roadmap/audits/second-opinion-audit-2026-09-24.md`, session-1 analysis 86c.
