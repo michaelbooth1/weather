@@ -288,3 +288,688 @@ def test_mutant_scanner_echoing_matches_is_detected(tmp_path, token, capsys, mon
     monkeypatch.setattr(wu_token_scan, "report", leaky_report)
     _code, out, _err = _run(capsys, [tmp_path])
     assert token in out
+
+
+# --- N3: nothing unread may be reported CLEAN ------------------------------------------
+
+_PLACEHOLDER_SUFFIX = ".placeholder"
+
+
+def _simulate_placeholders(monkeypatch):
+    """Report any entry named ``*.placeholder`` as a non-link reparse point.
+
+    That is how a OneDrive cloud placeholder or a deduplicated file looks: the
+    reparse attribute is set but the tag is not a name surrogate (symlink or
+    junction). Real ones cannot be made without OneDrive or the dedup role.
+    """
+    original = wu_token_scan._reparse_info
+
+    def fake(info, path):
+        if str(path).endswith(_PLACEHOLDER_SUFFIX):
+            return wu_token_scan._FILE_ATTRIBUTE_REPARSE_POINT, 0x9000701A  # IO_REPARSE_TAG_CLOUD_7
+        return original(info, path)
+
+    monkeypatch.setattr(wu_token_scan, "_reparse_info", fake)
+
+
+def _recording_scan_file(monkeypatch):
+    """Record every file whose raw bytes ``scan`` actually read (``_scan_raw`` is the read seam)."""
+    read = []
+    original = wu_token_scan._scan_raw
+
+    def recording(path, patterns):
+        outcome = original(path, patterns)
+        read.append(os.path.normcase(os.path.abspath(path)))
+        return outcome
+
+    monkeypatch.setattr(wu_token_scan, "_scan_raw", recording)
+    return read
+
+
+def _every_regular_file(paths):
+    """Every regular file a complete scan must read (no links followed, default exclusions)."""
+    excluded = {name.casefold() for name in wu_token_scan.DEFAULT_EXCLUDED_DIR_NAMES}
+    expected = set()
+    for path in paths:
+        path = str(path)
+        if os.path.isfile(path):
+            expected.add(os.path.normcase(os.path.abspath(path)))
+            continue
+        for directory, dirnames, filenames in os.walk(path, followlinks=False):
+            dirnames[:] = [name for name in dirnames if name.casefold() not in excluded]
+            for name in filenames:
+                expected.add(os.path.normcase(os.path.abspath(os.path.join(directory, name))))
+    return expected
+
+
+def _assert_clean_means_all_read(payload, read, expected):
+    if payload["status"] == "CLEAN":
+        unread = sorted(expected - set(read))
+        assert unread == [], f"CLEAN with unread files: {unread}"
+
+
+def _scenario_tree(root):
+    (root / "logs").mkdir(parents=True)
+    (root / "logs" / "a.log").write_text("clean apiKey=<redacted>\n", encoding="utf-8")
+    (root / "logs" / "b.log").write_text("clean\n", encoding="utf-8")
+    return root
+
+
+class _SpecialEntry:
+    """A directory entry that is neither a regular file nor a directory (a FIFO or socket)."""
+
+    def __init__(self, entry):
+        self._entry = entry
+        self.name, self.path = entry.name, entry.path
+
+    def __getattr__(self, name):
+        return getattr(self._entry, name)
+
+    def is_dir(self, *, follow_symlinks=True):
+        return False
+
+    def is_file(self, *, follow_symlinks=True):
+        return False
+
+
+def _scandir_with_special_entries(real_scandir):
+    class _Scandir:
+        """``os.scandir`` stand-in (context manager and iterator, like the real one)."""
+
+        def __init__(self, path="."):
+            self._inner = real_scandir(path)
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            entry = next(self._inner)
+            return _SpecialEntry(entry) if entry.name.endswith(".special") else entry
+
+        def close(self):
+            self._inner.close()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            self.close()
+
+    return _Scandir
+
+
+@pytest.mark.parametrize("policy", wu_token_scan.LINK_POLICIES)
+@pytest.mark.parametrize(
+    "scenario",
+    ["plain", "placeholder_file", "placeholder_dir", "files_dir", "files_missing", "unreadable",
+     "special_entry", "oversize", "max_files"],
+)
+def test_ratchet_nothing_unread_is_ever_clean(tmp_path, monkeypatch, policy, scenario):
+    """N3 invariant: a CLEAN report means every regular file under the request was read.
+
+    Not marked ``ratchet``: it runs in the ordinary suite shards; the repository
+    ratchet (test_wu_token_repository_scan) asserts the same on every tracked file.
+    """
+    _simulate_placeholders(monkeypatch)
+    root = _scenario_tree(tmp_path / "root")
+    kwargs = {"link_policy": policy}
+    roots, files = [root], None
+    must_be_clean = scenario in {"plain", "files_dir"}
+    extra_expected = []
+    if scenario == "placeholder_file":
+        (root / "logs" / ("cloud" + _PLACEHOLDER_SUFFIX)).write_text("hydrated text\n", encoding="utf-8")
+        # Following within the root reads it in place; the other policies leave it unread.
+        must_be_clean = policy == wu_token_scan.LINKS_FOLLOW_WITHIN_ROOT
+    elif scenario == "placeholder_dir":
+        hidden = root / ("synced" + _PLACEHOLDER_SUFFIX)
+        hidden.mkdir()
+        (hidden / "inner.log").write_text("clean\n", encoding="utf-8")
+        must_be_clean = policy == wu_token_scan.LINKS_FOLLOW_WITHIN_ROOT
+    elif scenario == "files_dir":
+        roots, files = [], [root / "logs"]
+    elif scenario == "files_missing":
+        roots, files = [], [root / "logs" / "a.log", root / "gone.log"]
+    elif scenario == "unreadable":
+        (root / "logs" / "locked.log").write_text("x\n", encoding="utf-8")
+        original = wu_token_scan._scan_raw
+
+        def locked(path, patterns):
+            if str(path).endswith("locked.log"):
+                raise PermissionError(13, "locked")
+            return original(path, patterns)
+
+        monkeypatch.setattr(wu_token_scan, "_scan_raw", locked)
+    elif scenario == "special_entry":
+        (root / "logs" / "pipe.special").write_text("", encoding="utf-8")
+        monkeypatch.setattr(wu_token_scan.os, "scandir", _scandir_with_special_entries(os.scandir))
+    elif scenario == "oversize":
+        (root / "logs" / "big.log").write_text("y" * 4096, encoding="utf-8")
+        kwargs["max_file_bytes"] = 1024
+    elif scenario == "max_files":
+        kwargs["max_files"] = 1
+
+    read = _recording_scan_file(monkeypatch)
+    result = scan(roots, files=files, **kwargs)
+    payload = wu_token_scan.report(result, roots or files)
+
+    expected = _every_regular_file(roots if files is None else [p for p in files if os.path.exists(p)])
+    expected.update(extra_expected)
+    _assert_clean_means_all_read(payload, read, expected)
+    assert (payload["status"] == "CLEAN") is must_be_clean, (payload["status"], payload["unread_reasons"])
+    assert (payload["unread_reasons"] == []) is must_be_clean
+
+
+def test_mutant_unrecorded_placeholder_is_caught_by_the_ratchet(tmp_path, monkeypatch):
+    """If a skipped placeholder were not recorded, the ratchet check would fail."""
+    _simulate_placeholders(monkeypatch)
+    root = _scenario_tree(tmp_path / "root")
+    (root / "logs" / ("cloud" + _PLACEHOLDER_SUFFIX)).write_text("x\n", encoding="utf-8")
+    monkeypatch.setattr(wu_token_scan, "_record_skipped_reparse", lambda result, path: None)
+    read = _recording_scan_file(monkeypatch)
+
+    payload = wu_token_scan.report(scan([root], link_policy="ignore"), [root])
+
+    assert payload["status"] == "CLEAN"
+    with pytest.raises(AssertionError):
+        _assert_clean_means_all_read(payload, read, _every_regular_file([root]))
+
+
+def test_files_list_directory_is_walked_not_dropped(tmp_path, token):
+    """N3 (a): a directory in ``files=`` is walked; it never vanishes from a CLEAN scan."""
+    (tmp_path / "d" / "sub").mkdir(parents=True)
+    (tmp_path / "d" / "sub" / "leak.log").write_text(f"apiKey={token}\n", encoding="utf-8")
+
+    result = scan([], files=[tmp_path / "d"])
+
+    assert exit_code_for(result) == EXIT_FOUND
+    assert [os.path.basename(row["path"]) for row in result.findings] == ["leak.log"]
+
+
+@pytest.mark.parametrize("policy", wu_token_scan.LINK_POLICIES)
+def test_placeholder_file_is_never_clean_unread(tmp_path, token, monkeypatch, capsys, policy):
+    """N3 (b): ``--links ignore`` may skip links, but an unread placeholder makes the scan INCOMPLETE."""
+    _simulate_placeholders(monkeypatch)
+    (tmp_path / "plain.log").write_text("clean\n", encoding="utf-8")
+    placeholder = tmp_path / ("cloud" + _PLACEHOLDER_SUFFIX)
+    placeholder.write_text(f"apiKey={token}\n", encoding="utf-8")
+
+    code, out, err = _run(capsys, [tmp_path, "--links", policy])
+
+    payload = json.loads(out)
+    assert token not in out and token not in err
+    if policy == wu_token_scan.LINKS_FOLLOW_WITHIN_ROOT:
+        assert code == EXIT_FOUND  # read in place: its resolved path is itself, inside the root
+        return
+    assert code == EXIT_ERROR and payload["status"] == "INCOMPLETE"
+    assert payload["skipped_reparse_points"] == 1
+    assert payload["skipped_reparse_paths"] == [str(placeholder)]
+    assert payload["reparse_incomplete"] is True
+    assert "reparse_points_unread" in payload["unread_reasons"]
+    # A placeholder is not a link: the link counters stay untouched.
+    assert payload["skipped_links"] == 0
+
+
+def test_unclassifiable_entry_is_not_waived_by_ignore(tmp_path, monkeypatch):
+    """An entry whose type cannot be read is unread content, not a waivable link."""
+    (tmp_path / "a.log").write_text("clean\n", encoding="utf-8")
+
+    def broken(info, path):
+        raise OSError("cannot read attributes")
+
+    monkeypatch.setattr(wu_token_scan, "_reparse_info", broken)
+
+    result = scan([tmp_path], link_policy="ignore")
+
+    assert exit_code_for(result) == EXIT_ERROR
+
+
+# --- N3 P2: encoded key forms ----------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "template",
+    [
+        "%2522apiKey%2522%253A%2522{t}%2522",  # double URL-encoded JSON
+        "apiKey%253D{t}",  # double URL-encoded '='
+        "apikey%253a{t}",
+        "\\u0022apiKey\\u0022:\\u0022{t}\\u0022",  # JSON-escaped quotes
+        "\\u0022apiKey\\u0022\\u003a\\u0022{t}\\u0022",
+        "X-Api-Key: {t}",  # header names
+        "x-api-key={t}",
+        "{{'X-Api-Key': '{t}'}}",
+        "apiKey&#61;{t}",
+    ],
+)
+def test_n3_encoded_and_header_forms_are_found(tmp_path, capsys, template):
+    hex_token = secrets.token_hex(16)
+    (tmp_path / "enc.log").write_text("prefix " + template.format(t=hex_token) + "\n", encoding="utf-8")
+
+    code, out, err = _run(capsys, [tmp_path])
+
+    assert code == EXIT_FOUND, template
+    assert hex_token not in out and hex_token not in err
+
+
+@pytest.mark.parametrize(
+    "template",
+    [
+        "commit%253D{sha40}",
+        "%2522commit%2522%253A%2522{sha40}%2522",
+        "\\u0022sha256\\u0022:\\u0022{sha256}\\u0022",
+        "X-Request-Id: {uuid}",
+        "X-Api-Key: {uuid}",  # a dashed uuid is not token-shaped
+        "X-Api-Key-Version: 2" + " " * 70 + "{sha40}",
+        "x-api-key=<redacted> ref%2522{sha40}%2522",
+        "apiKey%253D%2522{sha40}",
+    ],
+)
+def test_n3_new_forms_do_not_match_shas_or_uuids(tmp_path, capsys, template):
+    import uuid
+
+    text = template.format(sha40=secrets.token_hex(20), sha256=secrets.token_hex(32), uuid=uuid.uuid4())
+    (tmp_path / "fp.log").write_text("prefix " + text + "\n", encoding="utf-8")
+
+    code, out, _err = _run(capsys, [tmp_path])
+
+    assert code == EXIT_CLEAN, (template, json.loads(out)["findings"])
+
+
+# --- PR #259 Defender MF1: encoded and compressed content is read or counted unread ------
+
+
+def _url_line(hex_token):
+    return json.dumps(
+        {"url": f"https://api.example.invalid/v1/x/historical.json?apiKey={hex_token}&units=e"}
+    ).encode("utf-8")
+
+
+def _zip_bytes(member_bytes, compression):
+    import io
+    import zipfile
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression) as archive:
+        archive.writestr("benign.txt", b"nothing here")
+        archive.writestr("logs/run.jsonl", member_bytes)
+    return buffer.getvalue()
+
+
+def _encodings():
+    import base64
+    import bz2
+    import gzip
+    import lzma
+    import zipfile
+
+    return {
+        "gzip": gzip.compress,
+        "gzip_twice": lambda data: gzip.compress(gzip.compress(data)),
+        "bz2": bz2.compress,
+        "xz": lzma.compress,
+        "zip_deflate": lambda data: _zip_bytes(data, zipfile.ZIP_DEFLATED),
+        "zip_bzip2": lambda data: _zip_bytes(data, zipfile.ZIP_BZIP2),
+        "zip_of_gzip": lambda data: _zip_bytes(gzip.compress(data), zipfile.ZIP_DEFLATED),
+        "utf16_bom": lambda data: data.decode("utf-8").encode("utf-16"),
+        "utf16le_nobom": lambda data: data.decode("utf-8").encode("utf-16-le"),
+        "utf16be_nobom": lambda data: data.decode("utf-8").encode("utf-16-be"),
+        "utf32_bom": lambda data: data.decode("utf-8").encode("utf-32"),
+        "gzip_of_utf16": lambda data: gzip.compress(data.decode("utf-8").encode("utf-16-le")),
+        "base64": base64.b64encode,
+        "base64_wrapped": base64.encodebytes,
+        "base64_of_gzip": lambda data: base64.b64encode(gzip.compress(data)),
+    }
+
+
+@pytest.mark.parametrize("encoding", sorted(_encodings()))
+def test_mf1_token_inside_encoded_or_compressed_file_is_found(tmp_path, capsys, encoding):
+    hex_token = secrets.token_hex(16)
+    (tmp_path / "blob.bin").write_bytes(_encodings()[encoding](_url_line(hex_token)))
+
+    code, out, err = _run(capsys, [tmp_path])
+
+    assert code == EXIT_FOUND, (encoding, json.loads(out))
+    assert hex_token not in out and hex_token not in err
+    row = json.loads(out)["findings"][0]
+    assert row["decoded_matches"], row  # names the decoded layer, never a member name
+    assert "run.jsonl" not in out
+
+
+@pytest.mark.parametrize("encoding", ["gzip", "utf16le_nobom", "zip_deflate", "base64"])
+def test_mf1_exact_env_token_is_found_in_decoded_content(tmp_path, capsys, monkeypatch, encoding):
+    hex_token = secrets.token_hex(16)
+    monkeypatch.setenv("FAKE_WU_TOKEN_FOR_TEST", hex_token)
+    raw = f"blob {hex_token} tail ".encode("utf-8") * 4
+    (tmp_path / "blob.bin").write_bytes(_encodings()[encoding](raw))
+
+    code, out, _err = _run(capsys, [tmp_path, "--token-from-env", "FAKE_WU_TOKEN_FOR_TEST"])
+
+    assert code == EXIT_FOUND, (encoding, json.loads(out))
+    assert hex_token not in out
+
+
+@pytest.mark.parametrize(
+    "name, payload",
+    [
+        ("zstd", b"\x28\xb5\x2f\xfd" + os.urandom(64)),
+        ("7z", b"7z\xbc\xaf\x27\x1c" + os.urandom(64)),
+        ("rar", b"Rar!\x1a\x07\x01\x00" + os.urandom(64)),
+        ("parquet", b"PAR1" + os.urandom(64) + b"PAR1"),
+        ("truncated_gzip", None),
+        ("corrupt_zip", b"PK\x03\x04" + os.urandom(64)),
+        ("bad_base64", None),
+    ],
+)
+def test_mf1_undecodable_content_is_incomplete_never_clean(tmp_path, capsys, name, payload):
+    import base64
+    import gzip
+
+    if name == "truncated_gzip":
+        payload = gzip.compress(os.urandom(4096))[:200]
+    if name == "bad_base64":
+        payload = base64.encodebytes(os.urandom(6000)) + b"!!not base64!!"
+    (tmp_path / "opaque.bin").write_bytes(payload)
+
+    code, out, _err = _run(capsys, [tmp_path])
+    report = json.loads(out)
+
+    assert code == EXIT_ERROR, (name, report)
+    assert report["status"] == "INCOMPLETE"
+    assert "undecoded_content" in report["unread_reasons"]
+    assert report["undecoded"] and report["undecoded"][0]["path"].endswith("opaque.bin")
+
+
+def test_mf1_encrypted_zip_member_is_incomplete(tmp_path):
+    import zipfile
+
+    data = bytearray(_zip_bytes(b"secret-ish payload " * 20, zipfile.ZIP_STORED))
+    # Set the "encrypted" general-purpose flag on every local and central header.
+    for signature, offset in ((b"PK\x03\x04", 6), (b"PK\x01\x02", 8)):
+        start = 0
+        while (index := data.find(signature, start)) >= 0:
+            data[index + offset] |= 0x01
+            start = index + 4
+    path = tmp_path / "locked.zip"
+    path.write_bytes(bytes(data))
+
+    result = scan([path])
+
+    assert exit_code_for(result) == EXIT_ERROR
+    assert "undecoded_content" in wu_token_scan.unread_reasons(result)
+
+
+def test_mf1_decoded_layers_are_bounded_by_the_decoded_byte_cap(tmp_path):
+    import gzip
+
+    path = tmp_path / "bomb.gz"
+    path.write_bytes(gzip.compress(b"\0" * (4 * 1024 * 1024)))
+
+    result = scan([path], max_decoded_bytes=1024 * 1024)
+
+    assert exit_code_for(result) == EXIT_ERROR
+    assert [row["reason"] for row in result.undecoded] == ["gzip:decoded_oversize"]
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        b"plain ascii log line apiKey=<redacted>\n" * 50,
+        "café °F résumé apiKey=<redacted>\n".encode("utf-8") * 50,
+        b"\xef\xbb\xbfutf-8 with bom\n" * 20,
+        ("\n".join(secrets.token_hex(20) for _ in range(40)) + "\n").encode("ascii"),  # sha list
+        b"",
+    ],
+)
+def test_mf1_ordinary_files_stay_clean(tmp_path, content):
+    path = tmp_path / "ordinary.txt"
+    path.write_bytes(content)
+
+    result = scan([path])
+
+    assert exit_code_for(result) == EXIT_CLEAN, (result.undecoded, result.findings)
+
+
+def test_mf1_clean_compressed_file_is_clean(tmp_path):
+    import gzip
+
+    path = tmp_path / "clean.jsonl.gz"
+    path.write_bytes(gzip.compress(b'{"apiKey": "<redacted>"}\n' * 100))
+
+    assert exit_code_for(scan([path])) == EXIT_CLEAN
+
+
+# --- PR #259 Defender cheap notes: excluded dirs, empty root, --json-out failure -------------
+
+
+def test_excluded_directories_are_listed_without_making_the_scan_incomplete(tmp_path, capsys):
+    (tmp_path / "logs" / "venv").mkdir(parents=True)
+    (tmp_path / "logs" / "venv" / "run.log").write_text("benign", encoding="utf-8")
+    (tmp_path / "logs" / "ok.log").write_text("benign", encoding="utf-8")
+
+    code, out, _err = _run(capsys, [tmp_path])
+    report = json.loads(out)
+
+    assert code == EXIT_CLEAN
+    assert report["skipped_excluded"] == [str(tmp_path / "logs" / "venv")]
+    assert report["skipped_excluded_count"] == 1
+
+
+@pytest.mark.parametrize("empty", ["", "   "])
+def test_empty_root_is_refused_not_read_as_cwd(tmp_path, monkeypatch, empty):
+    (tmp_path / "ok.txt").write_text("benign", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    result = scan([empty])
+
+    assert result.files_scanned == 0
+    assert exit_code_for(result) == EXIT_ERROR
+    assert result.errors == [{"path": empty, "error": "EmptyPath"}]
+    assert exit_code_for(scan([], files=[empty])) == EXIT_ERROR
+
+
+@pytest.mark.parametrize("leak", [False])
+def test_unwritable_json_out_exits_distinctly_and_still_prints(tmp_path, capsys, leak):
+    """Exit 3 only when nothing was found; FOUND always wins (see test_json_out_failure_never_masks_found)."""
+    (tmp_path / "a.txt").write_text(f"?apiKey={secrets.token_hex(16)}" if leak else "benign", encoding="utf-8")
+    target = tmp_path / "a.txt" / "sub" / "report.json"  # parent is a file
+
+    code, out, err = _run(capsys, [tmp_path, "--json-out", target])
+
+    assert code == wu_token_scan.EXIT_OUTPUT_ERROR
+    assert code not in (EXIT_CLEAN, EXIT_FOUND, EXIT_ERROR)
+    assert json.loads(out)["status"] == ("FOUND" if leak else "CLEAN")
+    assert "json-out" in err
+
+
+# --- PR #259 delta Defender: MF1-R mixed encodings, S1, S3, PARE, exit precedence ---------
+
+
+_UTF8_HEAD = ("2026-10-07 ok run\n" * 400).encode("utf-8")
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(lambda line: _UTF8_HEAD + ("\r\n" + line).encode("utf-16-le"), id="utf8_head_utf16le_tail"),
+        pytest.param(lambda line: _UTF8_HEAD + ("\r\n" + line).encode("utf-16"), id="utf8_head_utf16bom_tail"),
+        pytest.param(lambda line: _UTF8_HEAD + ("\r\n" + line).encode("utf-16-be"), id="utf8_head_utf16be_tail"),
+        pytest.param(
+            lambda line: _UTF8_HEAD * 400 + ("\r\n" + line).encode("utf-16-le"), id="utf16le_tail_after_1mib"
+        ),
+        pytest.param(
+            lambda line: ("2026-10-07 ok run\n" * 400).encode("utf-16-le") + ("\n" + line).encode("utf-8"),
+            id="utf16le_head_utf8_tail",
+        ),
+        pytest.param(lambda line: ("\u4e2d" * 5000 + line).encode("utf-16-le"), id="utf16le_after_cjk_head"),
+    ],
+)
+def test_mf1r_utf16_anywhere_in_a_file_is_found(tmp_path, capsys, build):
+    """PowerShell 5.1 ``>>`` appends BOM-less UTF-16LE to an existing UTF-8 log."""
+    hex_token = secrets.token_hex(16)
+    (tmp_path / "mixed.log").write_bytes(build(_url_line(hex_token).decode("utf-8")))
+
+    code, out, _err = _run(capsys, [tmp_path])
+
+    assert code == EXIT_FOUND, json.loads(out)
+    assert hex_token not in out
+
+
+def test_mf1r_utf16_token_straddling_a_chunk_boundary_is_counted_once(tmp_path):
+    hex_token = secrets.token_hex(16)
+    encoded = f" apiKey={hex_token}".encode("utf-16-le")  # a space keeps the key on a word boundary
+    for shift in (-6, -13, -20, -37):
+        prefix = b"x" * (wu_token_scan.CHUNK_BYTES + shift)
+        path = tmp_path / f"edge{-shift}.log"
+        path.write_bytes(prefix + encoded + b"tail")
+        result = scan([path])
+        assert exit_code_for(result) == EXIT_FOUND, shift
+        assert result.findings[0]["decoded_matches"]["nul-stripped"]["apikey_query_param"] == 1
+
+
+def test_s1_zip_inside_base64_is_per_file_incomplete_and_keeps_other_found(tmp_path, capsys):
+    import base64
+    import zipfile
+
+    hex_token = secrets.token_hex(16)
+    (tmp_path / "leak.log").write_text(f"?apiKey={hex_token}", encoding="utf-8")
+    (tmp_path / "packed.b64").write_bytes(base64.encodebytes(_zip_bytes(b"benign " * 50, zipfile.ZIP_DEFLATED)))
+
+    code, out, _err = _run(capsys, [tmp_path])
+    report = json.loads(out)
+
+    assert code == EXIT_FOUND, report
+    assert any(row["path"].endswith("packed.b64") and "zip" in row["reason"] for row in report["undecoded"])
+
+
+def test_s1_unexpected_decoder_error_is_per_file_never_whole_scan(tmp_path, monkeypatch):
+    import gzip
+
+    hex_token = secrets.token_hex(16)
+    (tmp_path / "a.gz").write_bytes(gzip.compress(b"benign"))
+    (tmp_path / "b.log").write_text(f"?apiKey={hex_token}", encoding="utf-8")
+
+    def broken(head):
+        raise KeyError("decoder bug")
+
+    monkeypatch.setattr(wu_token_scan, "_sniff", broken)
+    result = scan([tmp_path])
+
+    assert exit_code_for(result) == EXIT_FOUND
+    assert {row["path"].rsplit(os.sep, 1)[-1] for row in result.undecoded} == {"a.gz", "b.log"}
+
+
+def test_s3_truncated_stream_keeps_the_finding_and_is_incomplete(tmp_path):
+    import gzip
+
+    hex_token = secrets.token_hex(16)
+    whole = gzip.compress(_url_line(hex_token) + b"\n" + os.urandom(1024 * 1024))
+    path = tmp_path / "cut.log.gz"
+    path.write_bytes(whole[: len(whole) * 6 // 10])
+
+    result = scan([path])
+
+    assert result.findings and result.findings[0]["decoded_matches"]["gzip"], result.undecoded
+    assert exit_code_for(result) == EXIT_FOUND
+    assert "undecoded_content" in wu_token_scan.unread_reasons(result)
+
+
+def test_parquet_encrypted_footer_magic_is_incomplete(tmp_path):
+    path = tmp_path / "enc.parquet"
+    path.write_bytes(b"PARE" + os.urandom(2000) + b"PARE")
+
+    result = scan([path])
+
+    assert exit_code_for(result) == EXIT_ERROR
+    assert [row["reason"] for row in result.undecoded] == ["parquet:undecodable_format"]
+
+
+def test_json_out_failure_never_masks_found(tmp_path, capsys):
+    (tmp_path / "a.txt").write_text(f"?apiKey={secrets.token_hex(16)}", encoding="utf-8")
+    (tmp_path / "missing_root_sibling").mkdir()
+    target = tmp_path / "a.txt" / "sub" / "report.json"
+
+    code, out, err = _run(capsys, [tmp_path, tmp_path / "gone", "--json-out", target])
+
+    assert code == EXIT_FOUND
+    assert json.loads(out)["status"] == "FOUND"
+    assert "json-out" in err
+
+
+@pytest.mark.parametrize("kind", ["gzip", "xz"])
+def test_n1_stream_broken_inside_its_first_read_keeps_the_finding(tmp_path, kind):
+    import gzip
+    import lzma
+
+    hex_token = secrets.token_hex(16)
+    # About 400 KB of hex compresses to about half, so a cut at half breaks the
+    # stream before the first DECODED_READ_BYTES of output have been produced.
+    payload = _url_line(hex_token) + b"\n" + secrets.token_hex(200_000).encode("ascii")
+    whole = gzip.compress(payload) if kind == "gzip" else lzma.compress(payload)
+    path = tmp_path / f"cut.{'gz' if kind == 'gzip' else 'xz'}"
+    path.write_bytes(whole[: len(whole) // 2])
+
+    result = scan([path])
+
+    assert exit_code_for(result) == EXIT_FOUND, result.undecoded
+    assert result.findings[0]["decoded_matches"][kind]
+    assert "undecoded_content" in wu_token_scan.unread_reasons(result)
+
+
+def test_n2_binary_without_a_key_name_skips_the_nul_stripped_pass(tmp_path, monkeypatch):
+    calls = []
+    real = wu_token_scan._match_into
+
+    def counting(*args, **kwargs):
+        calls.append(1)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(wu_token_scan, "_match_into", counting)
+    data = bytearray(os.urandom(3 * wu_token_scan.CHUNK_BYTES))
+    with_nuls = tmp_path / "with_nuls.bin"
+    with_nuls.write_bytes(bytes(data[: len(data) // 2]) + b"\x00" * (len(data) - len(data) // 2))
+    without_nuls = tmp_path / "without_nuls.bin"
+    without_nuls.write_bytes(bytes(data).replace(b"\x00", b"\x01"))
+
+    assert exit_code_for(scan([without_nuls])) == EXIT_CLEAN
+    baseline = len(calls)
+    calls.clear()
+    assert exit_code_for(scan([with_nuls])) == EXIT_CLEAN
+    assert len(calls) == baseline
+
+
+def test_n2_gate_keeps_utf16_exact_token_and_padded_key(tmp_path):
+    exact = secrets.token_hex(16)
+    (tmp_path / "exact.bin").write_bytes(os.urandom(5000).replace(b"a", b"b") + exact.encode("utf-16-le"))
+    padded = secrets.token_hex(16)
+    (tmp_path / "padded.dat").write_bytes(b"apiKey" + b"\x00" * 122 + padded.encode("ascii"))
+
+    result = scan([tmp_path], exact_token=exact.encode("ascii"))
+
+    found = {os.path.basename(row["path"]): row for row in result.findings}
+    assert set(found) == {"exact.bin", "padded.dat"}
+    assert found["exact.bin"]["decoded_matches"]["nul-stripped"] == {"exact_env_token": 1}
+
+
+def test_n3_plain_token_in_a_file_with_nuls_is_counted_once(tmp_path):
+    hex_token = secrets.token_hex(16)
+    plain = tmp_path / "plain.log"
+    plain.write_bytes(_url_line(hex_token) + b"\n")
+    mixed = tmp_path / "mixed.log"
+    mixed.write_bytes(_url_line(hex_token) + b"\n" + b"\x00" * 100 + b"binary tail")
+
+    baseline = scan([plain]).findings[0]
+    row = scan([mixed]).findings[0]
+
+    assert row["matches"] == baseline["matches"]
+    assert "decoded_matches" not in row
+
+
+def test_n3_plain_and_utf16_tokens_are_each_counted_once(tmp_path):
+    path = tmp_path / "both.log"
+    first, second = secrets.token_hex(16), secrets.token_hex(16)
+    head = b"plain text\n" * 500  # a UTF-8 head, so the whole file is not sniffed as UTF-16
+    path.write_bytes(head + f"x apiKey={first}\n".encode("ascii") + f" apiKey={second}\n".encode("utf-16-le"))
+
+    row = scan([path]).findings[0]
+
+    assert row["matches"]["apikey_query_param"] == 2
+    assert row["decoded_matches"]["nul-stripped"]["apikey_query_param"] == 1
