@@ -190,14 +190,32 @@ payload payload_sha256 source_hashes`), fsynced per batch, then a create-only
   its estimate can pass the deadline, and then the next decision is late by that excess, one
   band at most (a hung GET can exceed its 5 s socket timeout); that refresh is
   `refresh:late_overrun`. A refresh cut short is `refresh:partial_overrun`, one that read
-  nothing `refresh:skipped_overrun`. **Backoff:** after any of these the next refresh is
-  attempted only 1, 2, 4, then 8 minutes later (capped; by consecutive such refreshes), and
-  each backed-off minute is `refresh:skipped_backoff`; a full refresh that ended within the
-  deadline resets the backoff. So under sustained slowness a late decision recurs at most once
-  per 8-minute backoff, never every other minute. Every such minute is counted on the stream seal and
-  named in the seal's `incomplete_refreshes` (`[{minute, refreshed, left}]`, bands read and
-  left) and in `gaps.json` `incomplete_refreshes` (`[{run_id, stream, refreshes}]`, bundled
-  streams only); `bundle.json` is unchanged by them. A band left unread may let that minute's
+  nothing `refresh:skipped_overrun`. **Backoff** (owner decision N1, 2026-10-09: back off
+  only after a LATE refresh): only a `refresh:late_overrun` refresh, which delayed a decision,
+  defers the next attempt, by 1, 2, 4, then 8 minutes (capped; by late refreshes since the last
+  full on-time refresh), and each backed-off minute is `refresh:skipped_backoff`. A clean
+  partial or skipped refresh stopped within the deadline and delayed nothing, so the next
+  minute is attempted again; it neither raises nor resets the backoff level. A full refresh
+  that ended within the deadline resets it. So under sustained slowness every minute refreshes
+  the bands that fit, and a late decision recurs at most about once every 9 minutes once the
+  backoff is capped, never every other minute. **Expected cost** (the Defender's 30-minute timing
+  scenarios through the real run loop, before N1 and after): a few more late decisions, each
+  still bounded by one band's excess (one slow last band of 40 or 60: 5 late instead of 3, same
+  maximum 5.6 s and 8.6 s; three 40 s bands: 6 instead of 3, same 10 s maximum; seeded band
+  variance 0.2-3 s with 5 % at 15 s: 1-4 instead of 0-1, at most 9 s), against about 4-5 times
+  more refreshed bands (symmetric 35 s step and 35 s refresh: 86 of 145 bands instead of 17;
+  70 s and 95 s refreshes: 29 instead of 6; 60 bands of 0.5 s: 1508 of 1740 instead of 289;
+  variance: 234-309 of 696 instead of 44-82; busy 50 s steps: 491 instead of 389). No minute
+  is lost in any scenario. Every such minute is counted on the stream seal and named in the
+  seal's `incomplete_refreshes` (`[{minute, code, refreshed, left}]`, bands read and left,
+  sorted by minute) and in `gaps.json` `incomplete_refreshes` (`[{run_id, stream, refreshes}]`,
+  bundled streams only, sorted by stream); `bundle.json` is unchanged by them. **Row codes**
+  (owner decision N2, `records.INCOMPLETE_REFRESH_CODES`): `late` (`refresh:late_overrun`: the
+  refresh ended past its deadline and delayed the next decision; `left` may be 0, so the row
+  does not mean a complete refresh), `deadline_partial` (`refresh:partial_overrun`: stopped at
+  the deadline after reading some bands), `skipped` (`refresh:skipped_overrun`: stopped before
+  reading any; `left` counts the known bands) and `backed_off` (`refresh:skipped_backoff`: not
+  attempted, backoff after a late refresh; `left` counts every selected band). A band left unread may let that minute's
   trade coverage lapse before the next minute's poll, which replays as a true capture gap.
   **Bias:** incomplete refreshes happen in the minutes whose decision step overran or whose
   feed was slow (many bands, deep books, rediscovery), and bands are refreshed in condition-id
