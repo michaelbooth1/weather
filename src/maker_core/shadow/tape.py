@@ -246,9 +246,10 @@ class TapeWriter:
         return self._guarded("between", lambda: self.recorder.between(self.stream, condition_ids, proceed))
 
     def incomplete_refresh(self, code, minute, refreshed, left):
-        """Record the mid-minute refresh of ``minute`` cut short, skipped or ended late (owner decision N7):
-        ``refreshed`` bands read, ``left`` not; counted in the stream seal's ``faults`` and named in its
-        ``incomplete_refreshes``."""
+        """Record the mid-minute refresh of ``minute`` cut short, skipped, backed off or ended late (owner
+        decision N7): ``refreshed`` bands read, ``left`` not; the fault ``code`` is counted in the stream seal's
+        ``faults``, and the minute is named in its ``incomplete_refreshes`` with the row code
+        ``records.INCOMPLETE_REFRESH_CODES[code]`` (owner decision N2)."""
         if self.stream is not None:
             self.stream.incomplete_refresh(code, minute, refreshed, left)
 

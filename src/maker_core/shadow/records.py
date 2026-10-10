@@ -52,6 +52,12 @@ MAX_LINE_BYTES = 1024**2  # The replay reader's per-record cap.
 # An unsealed stream is excluded from the day bundle only this long after the UTC day closed: before that its run
 # may still be sealing it at the day roll, and a create-only bundle would drop it for good.
 UNSEALED_GRACE = timedelta(hours=1)
+# Row code of each ``incomplete_refreshes`` row, by the fault code the runner counts (owner decisions N7, N2):
+# ``late`` the refresh ended past its deadline (the next decision was late; ``left`` may be 0), ``deadline_partial``
+# it stopped at the deadline after reading some bands, ``skipped`` it stopped before reading any, ``backed_off``
+# it was not attempted (backoff after a late refresh; ``left`` is every selected band).
+INCOMPLETE_REFRESH_CODES = {"refresh:late_overrun": "late", "refresh:partial_overrun": "deadline_partial",
+                            "refresh:skipped_overrun": "skipped", "refresh:skipped_backoff": "backed_off"}
 MAX_SEQUENCE = 2**31 - 1
 CHUNK = 1024**2
 KIND_ORDER = ("plugin_input", "descriptor", "info_event", "terms", "outcome_view", "book", "trade", "coverage")
@@ -274,7 +280,7 @@ class RecordStream:
         self.emitted = {}  # (condition, label) -> payload hash, for on-change records
         self.groups, self.described = {}, set()
         self.faults, self.broken = {}, None
-        self.incomplete_refreshes = {}  # minute (ISO) -> refresh cut short or skipped (owner decision N7)
+        self.incomplete_refreshes = {}  # minute (ISO) -> coded incomplete refresh row (owner decisions N7, N2)
 
     # -- writing ----------------------------------------------------------------------------------------
     def write(self, entries):
@@ -345,13 +351,15 @@ class RecordStream:
         self.faults[code] = self.faults.get(code, 0) + n
 
     def incomplete_refresh(self, code, minute, refreshed, left):
-        """Count a mid-minute refresh cut short, skipped or ended late and name it on the seal
-        (``incomplete_refreshes``: ``{minute, refreshed, left}`` band counts, by minute), so a replay can tell
-        which minutes lack refreshed books; nothing is written to the stream itself."""
+        """Count a mid-minute refresh cut short, skipped, backed off or ended late (fault ``code``) and name it
+        on the seal (``incomplete_refreshes``: ``{minute, code, refreshed, left}``, by minute; ``code`` is the
+        row code from ``INCOMPLETE_REFRESH_CODES``), so a replay can tell which minutes lack refreshed books and
+        why; nothing is written to the stream itself."""
         self.count_fault(code)
         if minute is not None:
             at = minute.astimezone(timezone.utc).isoformat()
-            self.incomplete_refreshes[at] = {"minute": at, "refreshed": int(refreshed), "left": int(left)}
+            self.incomplete_refreshes[at] = {"minute": at, "code": INCOMPLETE_REFRESH_CODES[code],
+                                             "refreshed": int(refreshed), "left": int(left)}
 
     def fault(self, code, at):
         """Count a coded recorder fault and mark every described condition's trade stream not OK from ``at``."""
@@ -819,7 +827,8 @@ def bundle_day(root, day, *, clock):
     ``gaps.json`` beside the bundle (schema ``GAPS_SCHEMA``; the bundle format itself admits no extra field),
     written first and atomically; a re-run fills it in when ``bundle.json`` exists without it, validating only
     the bundled streams. ``gaps.json`` also names, per bundled stream, the minutes whose mid-minute refresh was
-    cut short, skipped or ended late (``incomplete_refreshes``, owner decision N7; their books may age past
+    cut short, skipped, backed off or ended late (``incomplete_refreshes``, owner decision N7; each row carries
+    a ``code`` from ``INCOMPLETE_REFRESH_CODES``, owner decision N2; their books may age past
     60 s). They are also returned under the manifest's ``gaps`` and ``excluded`` keys by ``bundle_day``
     only. Read the day with ``Limits(**SHADOW_REPLAY_LIMITS)``.
     """
@@ -891,7 +900,8 @@ def _replace_json(path, value):
         temporary.unlink(missing_ok=True)
 
 
-__all__ = ["BOOK_VENUE_KEYS", "BUNDLE_FORMAT", "COVERAGE_SECONDS", "GAPS_SCHEMA", "RawRecorder", "RecordStream",
-           "RecordingReads", "SHADOW_REPLAY_LIMITS", "STREAM_SEAL_SCHEMA", "UNSEALED_GRACE", "bundle_day",
-           "day_active_intervals", "day_directory", "fault_list", "gamma_market_projection", "group_id",
-           "next_sequence", "records_summary", "reward_projection", "stream_gaps", "stream_name", "verify_stream"]
+__all__ = ["BOOK_VENUE_KEYS", "BUNDLE_FORMAT", "COVERAGE_SECONDS", "GAPS_SCHEMA", "INCOMPLETE_REFRESH_CODES",
+           "RawRecorder", "RecordStream", "RecordingReads", "SHADOW_REPLAY_LIMITS", "STREAM_SEAL_SCHEMA",
+           "UNSEALED_GRACE", "bundle_day", "day_active_intervals", "day_directory", "fault_list",
+           "gamma_market_projection", "group_id", "next_sequence", "records_summary", "reward_projection",
+           "stream_gaps", "stream_name", "verify_stream"]

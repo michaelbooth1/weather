@@ -750,19 +750,30 @@ def test_an_unsealed_stream_excludes_its_run_only_after_the_grace(tmp_path):
 
 
 def test_an_incomplete_refresh_is_counted_and_named_per_minute_on_the_stream_seal(tmp_path):
-    """N7. Kills mutant N7-skip-not-counted (an incomplete refresh leaves no trace in the seal or summary) and
-    F3-minute-dropped (only a day total, not the minute and the work it lost)."""
+    """N7. Kills mutant N7-skip-not-counted (an incomplete refresh leaves no trace in the seal or summary),
+    F3-minute-dropped (only a day total, not the minute and the work it lost) and, owner decision N2,
+    N2-code-dropped and N2-mislabel (a row without its reason code, or with the wrong one)."""
     runner, _, _, clock = recording_rig(tmp_path)
     writer, _ = record_run(tmp_path, runner, clock, 2, mid=False, close=False)
     later = NOW + timedelta(minutes=1)
+    minute = lambda n: NOW + timedelta(minutes=n)  # noqa: E731
     writer.incomplete_refresh("refresh:skipped_backoff", later, 0, 1)
     writer.incomplete_refresh("refresh:partial_overrun", NOW, 2, 3)
+    writer.incomplete_refresh("refresh:late_overrun", minute(3), 1, 0)
+    writer.incomplete_refresh("refresh:skipped_overrun", minute(2), 0, 1)
     writer.close("completed")
     seal = json.loads(next(day_directory(tmp_path / "tapes", DAY).glob("*-records.seal.json")).read_bytes())
-    assert seal["faults"] == [{"fault_code": "refresh:partial_overrun", "count": 1},
-                              {"fault_code": "refresh:skipped_backoff", "count": 1}]
-    assert seal["incomplete_refreshes"] == [{"minute": NOW.isoformat(), "refreshed": 2, "left": 3},
-                                            {"minute": later.isoformat(), "refreshed": 0, "left": 1}]
+    assert seal["faults"] == [{"fault_code": "refresh:late_overrun", "count": 1},
+                              {"fault_code": "refresh:partial_overrun", "count": 1},
+                              {"fault_code": "refresh:skipped_backoff", "count": 1},
+                              {"fault_code": "refresh:skipped_overrun", "count": 1}]
+    # owner decision N2: each row is coded, so a backed-off row (all selected bands left) and a skipped one (all
+    # known bands left), or a late row with nothing left and a complete refresh, are told apart; sorted by minute
+    assert seal["incomplete_refreshes"] == [
+        {"minute": NOW.isoformat(), "code": "deadline_partial", "refreshed": 2, "left": 3},
+        {"minute": later.isoformat(), "code": "backed_off", "refreshed": 0, "left": 1},
+        {"minute": minute(2).isoformat(), "code": "skipped", "refreshed": 0, "left": 1},
+        {"minute": minute(3).isoformat(), "code": "late", "refreshed": 1, "left": 0}]
     assert records_summary(tmp_path / "tapes", DAY)["faults"] == seal["faults"]
     TapeWriter(tmp_path / "plain", clock=clock, scope={"mode": "fixture"}).incomplete_refresh("x", NOW, 0, 1)  # no-op
 
@@ -789,7 +800,7 @@ def test_gaps_json_lists_incomplete_refreshes_of_bundled_streams_only(tmp_path):
     assert [(e["run_id"], e["reason"]) for e in again["excluded"]] == [("r2", "sealed_after_bundle")]
     gaps = json.loads((path.parent / "gaps.json").read_bytes())
     assert [(g["run_id"], g["refreshes"]) for g in gaps["incomplete_refreshes"]] == [
-        ("r1", [{"minute": NOW.isoformat(), "refreshed": 0, "left": 1}])]
+        ("r1", [{"minute": NOW.isoformat(), "code": "deadline_partial", "refreshed": 0, "left": 1}])]
 
 
 def test_a_rerun_takes_bundled_streams_from_the_bundle_even_when_a_seal_is_gone(tmp_path):

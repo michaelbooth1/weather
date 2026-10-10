@@ -61,9 +61,11 @@ MID_MINUTE_POLL = timedelta(seconds=30)
 # refresh that read nothing, it is REFRESH_BAND_BOUND (a band's three public GETs at the 5 s transport timeout).
 # Only a band read that outlasts its estimate can pass the deadline, so the next decision is late only by that
 # excess (one band); such a refresh is recorded as late. A refresh cut short (partial), that read nothing
-# (skipped) or that ended late is recorded per minute; after one, the next refresh is attempted only after a
-# capped exponential backoff (REFRESH_BACKOFF_MINUTES, by consecutive such refreshes), reset by a full refresh
-# that ended within the deadline.
+# (skipped) or that ended late is recorded per minute. Backoff (owner decision N1, 2026-10-09: back off only
+# after a LATE refresh): only a refresh that ended late, and so delayed a decision, defers the next attempt, by
+# a capped exponential backoff (REFRESH_BACKOFF_MINUTES, by late refreshes since the last full on-time one). A
+# clean partial or skip stopped within the deadline and delayed nothing, so the next minute is attempted again;
+# it neither raises nor resets the backoff. Only a full refresh that ended within the deadline resets it.
 REFRESH_MARGIN = timedelta(seconds=3)
 REFRESH_BAND_BOUND = timedelta(seconds=15)
 REFRESH_BACKOFF_MINUTES = (1, 2, 4, 8)
@@ -78,7 +80,7 @@ class RefreshPlan:
 
     def __init__(self):
         self.band_estimate = None  # None: REFRESH_BAND_BOUND
-        self.incomplete = 0  # consecutive incomplete refreshes
+        self.late = 0  # late refreshes since the last full on-time refresh (sets the backoff)
         self.resume_at = None  # first minute whose refresh may be attempted again
 
 
@@ -120,11 +122,14 @@ def mid_minute_refresh(writer, condition_ids, clock, minute, plan, monotonic=Non
     if state["left"] or late:
         code = REFRESH_LATE if late else REFRESH_PARTIAL if state["refreshed"] else REFRESH_SKIPPED
         writer.incomplete_refresh(code, minute, state["refreshed"], state["left"])
-        plan.incomplete += 1
-        backoff = REFRESH_BACKOFF_MINUTES[min(plan.incomplete, len(REFRESH_BACKOFF_MINUTES)) - 1]
+    if late:  # owner decision N1: only a refresh that delayed a decision backs off
+        plan.late += 1
+        backoff = REFRESH_BACKOFF_MINUTES[min(plan.late, len(REFRESH_BACKOFF_MINUTES)) - 1]
         plan.resume_at = minute + timedelta(minutes=backoff)
+    elif state["left"]:  # clean partial or skip, within the deadline: retry next minute, backoff level kept
+        plan.resume_at = None
     else:
-        plan.incomplete, plan.resume_at = 0, None
+        plan.late, plan.resume_at = 0, None
     return plan
 
 
