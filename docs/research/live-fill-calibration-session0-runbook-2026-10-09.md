@@ -60,16 +60,19 @@ $snapDir = Join-Path $env:USERPROFILE '.weather-lfc-20261009-owner-snapshots'
 # (wallet_reader_client.open_order_count(fresh=True); no 30 s cache). Prints the count, or ERR <reason>.
 # Every call counts in the reader's 30-per-60 s cap, shared with the capture host's 5-minute journal.
 function Get-OpenOrderCount {
-  & $python -c "import weather.market.wallet_reader_client as c`ntry:`n print(c.open_order_count())`nexcept c.ReaderError as e:`n print('ERR', getattr(e, 'reason', 'refused'))"
+  & $python -c "import weather.market.wallet_reader_client as c`ntry:`n print(c.open_order_count(fresh=True))`nexcept c.ReaderError as e:`n print('ERR', getattr(e, 'reason', 'refused'))"
 }
 
 # Time-to-zero (S0 §5, D6) with the UTC time the helper read 0 (N-10): a fresh read every 3 s from t0
 # until it reads 0 or 21 s have passed (at most 8 fresh reads, inside the cap). ERR never counts as 0.
+# Each fresh read prints read_utc (taken when the read returned) and its count; the last line gives
+# helper_zero_utc, the value for lfc_cli --s0-2-helper-zero-utc (N-10). Keep the whole output.
 function Measure-TimeToZero([datetime]$t0) {
   do {
     $next = (Get-Date).ToUniversalTime().AddSeconds(3)
     $n = "$(Get-OpenOrderCount)".Trim()
     $at = (Get-Date).ToUniversalTime()
+    "read_utc=$($at.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'")) open=$n" | Write-Host
     if ($n -ne '0' -and ($at - $t0).TotalSeconds -le 21) {
       $wait = ($next - (Get-Date).ToUniversalTime()).TotalMilliseconds
       if ($wait -gt 0) { Start-Sleep -Milliseconds ([int]$wait) }
@@ -115,7 +118,7 @@ $ev4 = 'will-russia-capture-all-of-bilytske-by-june-30'
 $ev5 = 'turkey-rejoins-f-35-program-byptptpt-20260708215709215'
 # Alternates (swap one in only if an event above is closed or refused):
 #   'houthis-enter-saudi-arabia-byptptpt'   'next-us-iran-senior-diplomatic-meeting-byptptpt'
-$extra = '<prod checkout>\data\maker_evidence\extra_conditions.json'
+$extra = Join-Path $env:USERPROFILE '.weather-lfc-20261009-inputs\extra_conditions-<sha8>.json'  # host copy; sha check below
 $scope = Join-Path $env:USERPROFILE '.weather-lfc-20261009-inputs\shadow_scope_20261012.json'
 $s0 = @('--session0', '--event-slug', $ev1, '--event-slug', $ev2, '--event-slug', $ev3,
         '--event-slug', $ev4, '--event-slug', $ev5, '--extra-conditions', $extra, '--shadow-scope', $scope)
@@ -127,13 +130,27 @@ $s0 = @('--session0', '--event-slug', $ev1, '--event-slug', $ev2, '--event-slug'
 - `--extra-conditions` and `--shadow-scope` are both required with
   `--session0` (`session0_requires_event_slug_extra_conditions_shadow_scope`).
   Agents may not read either file (read clearance).
-- **`$extra`** is the 88a file in force,
-  `<prod checkout>\data\maker_evidence\extra_conditions.json` (the production
-  checkout, `C:\Users\micha\Desktop\github\weather` on the capture host),
-  passed **as is**: the code accepts its
-  `{"extra_conditions": [...], "update_windows_utc": [...]}` shape. If the
-  session runs on the workstation, set `$extra` to a byte-identical copy and
-  check that `Get-FileHash` matches on both hosts.
+- **`$extra`** is a byte-identical copy of the 88a file in force,
+  passed **as is** (the code accepts its
+  `{"extra_conditions": [...], "update_windows_utc": [...]}` shape). Neither
+  agent reads or parses it. Transfer (master-agent, 2026-10-09):
+  1. At **T - 40 min** on 10-12, master-agent makes a shared-open, byte-for-byte
+     copy of `<prod checkout>\data\maker_evidence\extra_conditions.json` on
+     the capture host, records its sha256, and places it at
+     `C:\Users\micha\Desktop\lfc-transfer\extra_conditions-<sha8>.json` on the
+     capture host. Master-agent never touches the workstation by shell; the
+     workstation agent never opens the capture host.
+  2. The **owner** moves that file to the workstation (LAN share or USB, the
+     owner's choice), into `$env:USERPROFILE\.weather-lfc-20261009-inputs\`.
+  3. Before any preflight, window A:
+
+     ```powershell
+     $extra = Join-Path $env:USERPROFILE '.weather-lfc-20261009-inputs\extra_conditions-<sha8>.json'
+     $extraHostSha = '<sha256 recorded by master-agent on the capture host>'
+     if ((Get-FileHash -LiteralPath $extra -Algorithm SHA256).Hash.ToLower() -ne $extraHostSha) { throw 'extra_conditions copy does not match the host sha256: NO SESSION' }
+     ```
+
+     A mismatch means **no session**.
 - **`$scope`** is generated at **T − 40 min** (about 14:20Z on 10-12) and its
   sha256 recorded:
 
@@ -274,9 +291,10 @@ gitignored `config/local/`.
    host's reads). Steps from the any-LAN handback and the
    [wallet reader](../operations/wallet-reader.md) "Restart serve after
    updating":
-   1. Create a detached reader worktree at the reviewed commit that contains
-      `b818d187c`: `origin/master` once the any-LAN branch is merged, else the
-      pinned tip `acd052a2d0c38e701e951f7e5efd53d0a7e11781` after the delta-3 review:
+   1. Create a detached reader worktree at **master-agent's master merge of
+      `b818d187c`** (the merged sha master-agent sends on 10-10; no other
+      commit, never the pinned LFC tip: the reader serves the capture host too,
+      so it must run master code):
       `git worktree add --detach ..\weather-wallet-reader-<sha8> <sha>`. Set
       `$wt` to it and `$sha` to the full SHA.
    2. `& "<old reader worktree>\scripts\ops\register_wallet_reader_logon_task.ps1" -Unregister`.
