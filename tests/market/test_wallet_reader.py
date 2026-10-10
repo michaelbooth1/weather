@@ -337,6 +337,142 @@ class NoReader:
         raise AssertionError("rejected request reached upstream")
 
 
+# Owner decision 2026-10-09: serve admits any private-LAN or same-machine caller unless
+# --allow narrows it; the bearer token and GET allowlist are unchanged.
+PRIVATE_SOURCES = ["10.1.2.3", "172.16.0.9", "172.31.255.254", "192.168.1.6", "127.0.0.1", "127.8.9.10"]
+REFUSED_SOURCES = ["8.8.8.8", "1.1.1.1", "172.32.0.1", "100.64.0.1", "169.254.1.1", "224.0.0.1", "0.0.0.0",
+                   "255.255.255.255", "192.0.2.1", "::1", "fe80::1", "::ffff:192.168.1.6", "fd00::1",
+                   "", None, "192.168.1.6 ", "localhost"]
+AUTH = {"Authorization": "Bearer " + TOKEN}
+
+
+@pytest.mark.parametrize("ip", PRIVATE_SOURCES)
+def test_default_admits_any_rfc1918_or_loopback_source(ip, guard):
+    assert security.source_admitted(ip, None)
+    code, value = server.dispatch(NoReader(), guard, TOKEN, None, "GET", "/health", ip, AUTH)
+    assert code == 200 and value == {"status": "ok", "upstream_checked": False}
+
+
+@pytest.mark.parametrize("ip", REFUSED_SOURCES)
+@pytest.mark.parametrize("allow", [None, "192.168.1.5"])
+def test_public_ipv6_link_local_and_malformed_sources_refused_in_dispatch(ip, allow, guard):
+    assert not security.source_admitted(ip, allow)
+    code, value = server.dispatch(NoReader(), guard, TOKEN, allow, "GET", "/health", ip, AUTH)
+    assert code == 403 and value == {"error": "forbidden"}
+
+
+@pytest.mark.parametrize("ip", ["192.168.1.6", "10.0.0.2", "127.0.0.1"])
+def test_allow_narrows_to_exact_ip(ip, guard):
+    assert server.dispatch(NoReader(), guard, TOKEN, "192.168.1.5", "GET", "/health", "192.168.1.5", AUTH)[0] == 200
+    assert server.dispatch(NoReader(), guard, TOKEN, "192.168.1.5", "GET", "/health", ip, AUTH)[0] == 403
+
+
+@pytest.mark.parametrize("allow", [None, "192.168.1.5"])
+def test_any_lan_still_requires_token_and_get_allowlist(allow, guard):
+    source = "192.168.1.5"
+    for headers in ({}, {"Authorization": "Bearer wrong"}, {"Authorization": TOKEN},
+                    {"Authorization": "bearer " + TOKEN}):
+        assert server.dispatch(NoReader(), guard, TOKEN, allow, "GET", "/summary", source, headers)[0] == 401
+    for method in ("POST", "DELETE", "PUT", "PATCH"):
+        assert server.dispatch(NoReader(), guard, TOKEN, allow, method, "/summary", source, AUTH)[0] == 405
+    for target in ("/order", "/orders", "/cancel", "/cancel-all", "/auth/api-key", "/balance-allowance/update",
+                   "/summary/../order", "http://192.168.1.5/summary"):
+        assert server.dispatch(NoReader(), guard, TOKEN, allow, "GET", target, source, AUTH)[0] == 404
+    assert server.ROUTES == {"/health", "/summary", "/positions", "/open-orders", "/trades", "/balance",
+                             "/rewards", "/settlement"}
+
+
+class FakeHTTPServer:
+    """Stands in for http.server.HTTPServer so serve_reader builds its Server without a socket."""
+    built = []
+
+    def __init__(self, address, handler):
+        self.address = address
+        FakeHTTPServer.built.append(self)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def serve_forever(self, poll_interval):
+        pass
+
+
+@pytest.mark.parametrize("allow,ip,admitted", [
+    (None, "192.168.1.6", True), (None, "10.9.8.7", True), (None, "127.0.0.1", True),
+    (None, "8.8.8.8", False), (None, "169.254.1.1", False), (None, "::1", False), (None, "fe80::1", False),
+    ("192.168.1.5", "192.168.1.5", True), ("192.168.1.5", "192.168.1.6", False),
+    ("192.168.1.5", "127.0.0.1", False), ("192.168.1.5", "8.8.8.8", False),
+])
+def test_verify_request_matches_source_policy_without_socket(monkeypatch, guard, allow, ip, admitted):
+    FakeHTTPServer.built.clear()
+    monkeypatch.setattr(server, "HTTPServer", FakeHTTPServer)
+    server.serve_reader(NoReader(), guard, TOKEN, bind="192.168.1.20", allow=allow, port=8765)
+    (built,) = FakeHTTPServer.built
+    assert built.address == ("192.168.1.20", 8765)
+    assert built.verify_request(None, (ip, 50000)) is admitted
+
+
+@pytest.mark.parametrize("bind", ["127.0.0.1", "0.0.0.0", "8.8.8.8", "::", "::1", "169.254.1.1", "localhost", ""])
+@pytest.mark.parametrize("allow", [None, "192.168.1.5"])
+def test_bind_still_refuses_loopback_wildcard_and_public(monkeypatch, guard, bind, allow):
+    FakeHTTPServer.built.clear()
+    monkeypatch.setattr(server, "HTTPServer", FakeHTTPServer)
+    with pytest.raises(security.ReaderError):
+        server.serve_reader(NoReader(), guard, TOKEN, bind=bind, allow=allow, port=8765)
+    assert FakeHTTPServer.built == []
+
+
+@pytest.mark.parametrize("allow", ["127.0.0.1", "8.8.8.8", "0.0.0.0", "::1"])
+def test_allow_value_must_be_rfc1918(monkeypatch, guard, allow):
+    FakeHTTPServer.built.clear()
+    monkeypatch.setattr(server, "HTTPServer", FakeHTTPServer)
+    with pytest.raises(security.ReaderError):
+        server.serve_reader(NoReader(), guard, TOKEN, bind="192.168.1.20", allow=allow, port=8765)
+    assert FakeHTTPServer.built == []
+
+
+def test_cli_allow_is_optional_and_validated_before_credentials(monkeypatch, capsys):
+    calls = []
+
+    def loader():
+        calls.append("load")
+        raise security.ReaderError("credential_file_unreadable")
+    monkeypatch.setattr(core, "load_owner_credentials", loader)
+    assert core.main(["serve", "--bind", "192.168.1.20", "--signature-type", "3"]) == 1
+    assert calls == ["load"]  # omitted --allow passes validation and reaches the loader
+    for argv in (["--bind", "127.0.0.1"], ["--bind", "0.0.0.0"], ["--bind", "192.168.1.20", "--allow", "127.0.0.1"],
+                 ["--bind", "192.168.1.20", "--allow", "8.8.8.8"]):
+        assert core.main(["serve", *argv, "--signature-type", "3"]) == 1
+    assert calls == ["load"]
+    assert TOKEN not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("host", ["127.0.0.1", "192.168.1.20", "10.0.0.5", "172.20.1.1"])
+def test_client_accepts_loopback_or_rfc1918_url(tmp_path, host):
+    config = tmp_path / "client.json"
+    config.write_text(json.dumps({"url": f"http://{host}:8765", "token": TOKEN}))
+    opener = FakeOpener(lambda r: {"status": "OBSERVED"})
+    assert client.read_account("summary", config=config, opener=opener) == {"status": "OBSERVED"}
+    assert opener.calls[0][0].full_url == f"http://{host}:8765/summary"
+
+
+@pytest.mark.parametrize("url", ["http://8.8.8.8:8765", "http://169.254.1.1:8765", "http://[::1]:8765",
+                                 "http://localhost:8765", "http://reader.lan:8765", "https://192.168.1.20:8765",
+                                 "http://192.168.1.20", "http://u:p@192.168.1.20:8765", "http://192.168.1.20:8765/x",
+                                 "http://0.0.0.0:8765", "http://100.64.0.1:8765"])
+def test_client_refuses_public_dns_and_malformed_urls(tmp_path, url):
+    config = tmp_path / "client.json"
+    config.write_text(json.dumps({"url": url, "token": TOKEN}))
+    opener = FakeOpener(lambda r: {"status": "OBSERVED"})
+    with pytest.raises(client.ClientError) as caught:
+        client.read_account("summary", config=config, opener=opener)
+    assert caught.value.reason == "config" and opener.calls == []
+    assert TOKEN not in str(caught.value)
+
+
 @pytest.mark.parametrize("method,target,ip,headers,status", [
     ("GET", "/summary", "192.168.1.5", {}, 401),
     ("GET", "/summary", "192.168.1.5", {"Authorization": "Bearer wrong"}, 401),
@@ -429,7 +565,7 @@ def test_no_signing_imports_and_no_unapproved_file_access():
 def test_firewall_scope_and_whatif_structure():
     script = (REPO_ROOT / "scripts/ops/register_wallet_reader_firewall.ps1").read_text()
     assert "SupportsShouldProcess = $true" in script
-    assert "-RemoteAddress $AllowIp -Profile Private" in script
+    assert "-RemoteAddress $remote -Profile Private" in script
     assert "[switch]$Unregister" in script
     assert "-Name $ruleName" in script
 
@@ -438,7 +574,7 @@ def test_logon_task_scope_and_whatif_structure():
     script = (REPO_ROOT / "scripts/ops/register_wallet_reader_logon_task.ps1").read_text()
     assert "SupportsShouldProcess = $true" in script
     assert "$taskName = 'WeatherWalletReader'" in script
-    assert "-m weather.market.wallet_reader serve --bind $Bind --allow $AllowIp" in script
+    assert "-m weather.market.wallet_reader serve --bind $Bind$allowArgument --port $Port" in script
     assert "[ValidateSet(2, 3)][int]$SignatureType" in script
     assert "New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME" in script
     assert "-ExecutionTimeLimit ([TimeSpan]::Zero)" in script
@@ -1046,3 +1182,84 @@ def test_110f_redemption_with_stale_positive_position_does_not_double_count(tmp_
     result = reader.summary()
     assert result["campaign_pnl_pusd"] is None and result["status"] == "INCOMPLETE"
     assert result["cash_pusd"] == "75"
+
+
+# Fresh open-orders read for the S0 section 5 time-to-zero loop (master scope addition 2026-10-09).
+def orders_page(maker=FUNDER):
+    return {"data": [{"id": "o1", "maker_address": maker}], "next_cursor": "LTE="}
+
+
+def test_fresh_open_orders_bypass_the_cache_and_refresh_it(tmp_path, guard):
+    t = wire(tmp_path, guard, opener=FakeOpener(lambda r: orders_page()))
+    reader = core.WalletReader(t, signature_type=2)
+    assert len(reader.open_orders()) == 1 and len(t.opener.calls) == 1
+    assert len(reader.open_orders()) == 1 and len(t.opener.calls) == 1  # cached path unchanged
+    assert len(reader.open_orders(fresh=True)) == 1 and len(t.opener.calls) == 2
+    assert len(reader.open_orders(fresh=True)) == 1 and len(t.opener.calls) == 3
+    t.opener.responder = lambda r: {"data": [], "next_cursor": "LTE="}
+    assert reader.open_orders(fresh=True) == [] and len(t.opener.calls) == 4
+    assert reader.open_orders() == [] and len(t.opener.calls) == 4  # the fresh result refreshed the cache
+
+
+def test_fresh_reads_count_against_the_rate_cap_and_are_refused_over_it(tmp_path, guard):
+    clock = [0]
+    t = wire(tmp_path, guard, opener=FakeOpener(lambda r: orders_page()), clock=lambda: clock[0])
+    reader = core.WalletReader(t, signature_type=2)
+    for _ in range(30):
+        reader.open_orders(fresh=True)
+    assert len(t.opener.calls) == 30 and t.remaining() == 0
+    with pytest.raises(security.ReaderError, match="minute_budget"):
+        reader.open_orders(fresh=True)
+    with pytest.raises(security.ReaderError, match="minute_budget"):
+        t.request("GET", security.CLOB, "/book", {"token_id": "1"})
+    assert len(t.opener.calls) == 30
+    assert len(reader.open_orders()) == 1  # cached readers still benefit inside the window
+    code, value = server.dispatch(reader, guard, TOKEN, None, "GET", "/open-orders?fresh=1", "192.168.1.5", AUTH)
+    assert code == 503 and value == {"error": "read_unavailable"} and len(t.opener.calls) == 30
+    clock[0] = 60
+    assert len(reader.open_orders(fresh=True)) == 1 and len(t.opener.calls) == 31
+
+
+class OrdersSpy:
+    def __init__(self):
+        self.calls = []
+
+    def open_orders(self, **kwargs):
+        self.calls.append(kwargs)
+        return [{"id": "o1"}]
+
+
+def test_fresh_endpoint_is_get_only_authenticated_and_exact(guard):
+    spy = OrdersSpy()
+    assert server.dispatch(spy, guard, TOKEN, None, "GET", "/open-orders?fresh=1", "192.168.1.5", AUTH) == (200, [{"id": "o1"}])
+    assert server.dispatch(spy, guard, TOKEN, None, "GET", "/open-orders", "192.168.1.5", AUTH) == (200, [{"id": "o1"}])
+    assert spy.calls == [{"fresh": True}, {}]  # cached path keeps the plain call
+    for method in ("POST", "DELETE", "PUT", "PATCH"):
+        assert server.dispatch(spy, guard, TOKEN, None, method, "/open-orders?fresh=1", "192.168.1.5", AUTH)[0] == 405
+    assert server.dispatch(spy, guard, TOKEN, None, "GET", "/open-orders?fresh=1", "192.168.1.5", {})[0] == 401
+    assert server.dispatch(spy, guard, TOKEN, None, "GET", "/open-orders?fresh=1", "8.8.8.8", AUTH)[0] == 403
+    for target in ("/open-orders?fresh=0", "/open-orders?fresh=true", "/open-orders?fresh=", "/open-orders?fresh=1&fresh=1",
+                   "/summary?fresh=1", "/positions?fresh=1", "/trades?fresh=1", "/balance?fresh=1", "/health?fresh=1",
+                   "/open-orders?fresh=1&x=1"):
+        assert server.dispatch(spy, guard, TOKEN, None, "GET", target, "192.168.1.5", AUTH)[0] == 400
+    assert len(spy.calls) == 2
+
+
+def test_client_open_order_count_is_fresh_and_other_reads_stay_cached(tmp_path):
+    config = tmp_path / "client.json"
+    config.write_text(json.dumps({"url": "http://192.168.1.20:8765", "token": TOKEN}))
+    opener = FakeOpener(lambda r: [{"id": "o1"}, {"id": "o2"}])
+    assert client.open_order_count(config=config, opener=opener) == 2
+    assert client.read_account("open-orders", config=config, opener=opener) == [{"id": "o1"}, {"id": "o2"}]
+    assert client.open_order_count(fresh=False, config=config, opener=opener) == 2
+    urls = [(req.full_url, req.get_method()) for req, _ in opener.calls]
+    assert urls == [("http://192.168.1.20:8765/open-orders?fresh=1", "GET"), ("http://192.168.1.20:8765/open-orders", "GET"),
+                    ("http://192.168.1.20:8765/open-orders", "GET")]
+    for command in ("summary", "positions", "trades", "rewards", "settlement"):
+        with pytest.raises(client.ClientError):
+            client.read_account(command, config=config, opener=opener, fresh=True)
+    with pytest.raises(client.ClientError):
+        client.read_account("open-orders", config=config, opener=opener, fresh="1")
+    with pytest.raises(client.ClientError):
+        client.open_order_count(config=config, opener=FakeOpener(lambda r: {"count": 2}))
+    assert len(opener.calls) == 3
