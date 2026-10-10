@@ -54,6 +54,93 @@ GIT_TIMEOUT_SECONDS = 60
 # is continuous and no recorded book ages past the replay engine's 60 s freshness limit. Record stream only:
 # the shadow's decision inputs are the minute's own reads.
 MID_MINUTE_POLL = timedelta(seconds=30)
+# Overrun rule (owner decision N7): the refresh must not delay the next minute's decision. It has a hard deadline,
+# REFRESH_MARGIN before the next minute starts, and reads its bands one at a time: a band is started only when
+# the clock plus the per-band estimate is within the deadline. The per-band estimate is the longest band read
+# measured (monotonic clock) in this refresh and the run's previous one; before a first measurement, and after a
+# refresh that read nothing, it is REFRESH_BAND_BOUND (a band's three public GETs at the 5 s transport timeout).
+# Only a band read that outlasts its estimate can pass the deadline; such a refresh is late: it ended after its
+# deadline (REFRESH_MARGIN before the next minute), and the next decision may be late by that excess (one band).
+# A refresh cut short (partial), that read nothing (skipped) or that ended late is recorded per minute. Backoff
+# (owner decision N1, 2026-10-09: back off only after a LATE refresh): only a late refresh defers the next
+# attempt, by a capped exponential backoff (REFRESH_BACKOFF_MINUTES, by the backoff level: late refreshes since
+# the level was last reset). A clean partial or skip ended within the deadline, so the next minute is attempted
+# again; it neither raises the level nor, by itself, resets it. The level resets after a full refresh that ended
+# within the deadline, or after REFRESH_BACKOFF_DECAY consecutive attempted refreshes that did not end late
+# (full, clean partial or skip; backed-off minutes are not attempts and do not count), so isolated lates in a
+# regime that never completes a full refresh each back off from 1 minute again (Defender N3, approved 2026-10-09).
+# A late refresh restarts that streak.
+REFRESH_MARGIN = timedelta(seconds=3)
+REFRESH_BAND_BOUND = timedelta(seconds=15)
+REFRESH_BACKOFF_MINUTES = (1, 2, 4, 8)
+REFRESH_BACKOFF_DECAY = 8
+REFRESH_SKIPPED = "refresh:skipped_overrun"
+REFRESH_PARTIAL = "refresh:partial_overrun"
+REFRESH_LATE = "refresh:late_overrun"
+REFRESH_BACKOFF = "refresh:skipped_backoff"
+
+
+class RefreshPlan:
+    """The run's refresh state: the previous refresh's longest band read, and the backoff."""
+
+    def __init__(self):
+        self.band_estimate = None  # None: REFRESH_BAND_BOUND
+        self.late = 0  # the backoff level: late refreshes since it was last reset
+        self.on_time = 0  # consecutive attempted refreshes that did not end late (REFRESH_BACKOFF_DECAY)
+        self.resume_at = None  # first minute whose refresh may be attempted again
+
+
+def mid_minute_refresh(writer, condition_ids, clock, minute, plan, monotonic=None):
+    """The mid-minute refresh of ``minute`` under the hard deadline and backoff; updates and returns ``plan``.
+
+    ``clock`` (wall, UTC) decides the deadline; band reads are timed on ``monotonic`` (default
+    ``time.monotonic``), so a wall-clock step never feeds the estimate. Lost refresh work is recorded on the
+    stream with ``writer.incomplete_refresh(code, minute, refreshed, left)``.
+    """
+    monotonic = monotonic or time.monotonic
+    if plan.resume_at is not None and minute < plan.resume_at:
+        writer.incomplete_refresh(REFRESH_BACKOFF, minute, 0, len(condition_ids))
+        return plan
+    deadline = minute + timedelta(minutes=1) - REFRESH_MARGIN
+    carried = plan.band_estimate or REFRESH_BAND_BOUND
+    state = {"longest": None, "mark": None, "refreshed": 0, "left": 0}
+
+    def measure():
+        if state["mark"] is not None:
+            took = timedelta(seconds=max(0.0, monotonic() - state["mark"]))
+            state["longest"] = took if state["longest"] is None else max(state["longest"], took)
+            state["mark"] = None
+
+    def proceed(remaining):
+        """Called before each band read with the bands left (this one included); False stops the refresh."""
+        measure()
+        if clock() + max(carried, state["longest"] or timedelta(0)) > deadline:
+            state["left"] = remaining
+            return False
+        state["refreshed"] += 1
+        state["mark"] = monotonic()
+        return True
+
+    writer.poll(condition_ids, proceed=proceed)
+    measure()
+    plan.band_estimate = state["longest"]
+    late = clock() > deadline  # ended after the deadline (a band read outlasted its estimate); at it is on time
+    if state["left"] or late:
+        code = REFRESH_LATE if late else REFRESH_PARTIAL if state["refreshed"] else REFRESH_SKIPPED
+        writer.incomplete_refresh(code, minute, state["refreshed"], state["left"])
+    if late:  # owner decision N1: only a refresh that ended after its deadline backs off
+        plan.late, plan.on_time = plan.late + 1, 0
+        backoff = REFRESH_BACKOFF_MINUTES[min(plan.late, len(REFRESH_BACKOFF_MINUTES)) - 1]
+        plan.resume_at = minute + timedelta(minutes=backoff)
+    elif state["left"]:  # clean partial or skip, within the deadline: retry next minute, level kept until N3
+        plan.on_time += 1
+        plan.resume_at = None
+        if plan.on_time >= REFRESH_BACKOFF_DECAY:  # N3: a late-free streak resets the level
+            plan.late = 0
+    else:
+        plan.on_time += 1
+        plan.late, plan.resume_at = 0, None
+    return plan
 
 
 def code_identity(root=REPO_ROOT):
@@ -284,13 +371,15 @@ def run(args):
     market_ids = {}
     writer = TapeWriter(out, clock=clock, scope=scope, recorder=RawRecorder(feed, market_id=market_ids.get))
     markets, discovered_at, done, reason, last, mid_poll = [], None, 0, "completed", None, None
+    refresh_plan = RefreshPlan()
     try:
         while not args.minutes or done < args.minutes:
             minute = clock().replace(second=0, microsecond=0)
             if minute == last:
                 if mid_poll is not None and clock() >= mid_poll:
                     mid_poll = None
-                    writer.poll([m.descriptor.condition_id for m in markets])
+                    refresh_plan = mid_minute_refresh(
+                        writer, [m.descriptor.condition_id for m in markets], clock, minute, refresh_plan)
                     continue
                 wake = mid_poll or minute + timedelta(minutes=1)
                 time.sleep(max(0.0, (wake - clock()).total_seconds()))
@@ -352,8 +441,10 @@ def bundle(args):
     day = date.fromisoformat(args.day).isoformat()
     tape_root = Path(args.tape_root) if args.tape_root else DEFAULT_ROOT / "tapes"
     try:
+        # bundle_day verifies every bundled stream against its seal before it writes anything; the summary
+        # covers exactly those streams, never an excluded (broken or unsealed) run's.
         path, manifest = bundle_day(tape_root, day, clock=lambda: datetime.now(timezone.utc))
-        summary = records_summary(tape_root, day)
+        summary = records_summary(tape_root, day, streams={s["path"] for s in manifest["streams"]})
     except FileExistsError:
         print(json.dumps({"refused": "bundle_exists", "utc_day": day}))
         return 2
@@ -364,7 +455,8 @@ def bundle(args):
         print(json.dumps({"refused": "io_error:" + type(error).__name__, "utc_day": day}))
         return 2
     print(json.dumps({"bundle": str(path), "utc_day": day, "streams": len(manifest["streams"]),
-                      "conditions": len(manifest["conditions"]), "gaps": manifest["gaps"], "records": summary}))
+                      "conditions": len(manifest["conditions"]), "gaps": manifest["gaps"],
+                      "excluded": manifest["excluded"], "records": summary}))
     return 0
 
 
