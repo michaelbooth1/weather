@@ -217,10 +217,18 @@ def _gap_window_label(gap, target_date, tzinfo):
     return "outside_settlement_window"
 
 
-def material_coverage_gap_rows(coverage, target_date=None):
+def material_coverage_gap_rows(coverage, target_date=None, window_tz=None):
     coverage = coverage or {}
     first = coverage.get("first")
-    tzinfo = graded_window_zone(first) if isinstance(first, datetime) else None
+    if window_tz is not None:
+        tzinfo = window_tz
+    elif isinstance(first, datetime):
+        stamps = [first, coverage.get("last")]
+        for gap in coverage.get("gaps") or []:
+            stamps.extend((gap.get("after"), gap.get("before")))
+        tzinfo = graded_window_zone([stamp for stamp in stamps if isinstance(stamp, datetime)])
+    else:
+        tzinfo = None
     rows = []
     for gap in coverage.get("gaps") or []:
         window = _gap_window_label(gap, target_date, tzinfo)
@@ -254,9 +262,10 @@ def material_coverage_grade(
     missing_core_fraction=0.0,
     coverage=None,
     target_date=None,
+    window_tz=None,
 ):
     coverage = coverage or {}
-    gaps = material_coverage_gap_rows(coverage, target_date=target_date)
+    gaps = material_coverage_gap_rows(coverage, target_date=target_date, window_tz=window_tz)
     capture_ratio = safe_float(coverage.get("capture_ratio"))
     max_gap = max((safe_float(gap.get("gap_minutes")) or 0.0 for gap in gaps), default=0.0)
     peak_gap = max(
@@ -1156,7 +1165,11 @@ def build_label(
         core_columns.append(high_column or SNAPSHOT_HIGH_COLUMNS[-1])
     missing_core = missing_fraction(frame, core_columns)
     capture_times = captured_times(frame)
-    coverage = coverage_summary(capture_times, interval_minutes, gap_tolerance, target_date=target_date)
+    # captured_at_local is the capture clock's stamp for every market.
+    window_tz = graded_window_zone(capture_times)
+    coverage = coverage_summary(
+        capture_times, interval_minutes, gap_tolerance, target_date=target_date, window_tz=window_tz
+    )
     coverage_clean = bool(coverage.get("clean"))
     grade = quality_grade(
         snapshot_count,
@@ -1237,6 +1250,7 @@ def build_label(
         missing_core,
         coverage=coverage,
         target_date=target_date,
+        window_tz=window_tz,
     )
     is_promotion_countable, promotion_countable_reason = promotion_countability(
         material,

@@ -22,8 +22,10 @@ import pytest
 
 from weather.backtesting.settlement_ledger import material_coverage_gap_rows
 from weather.collection.collection_health import (
+    CAPTURE_CLOCK_TZ,
     coverage_summary,
     early_hour_coverage_summary,
+    graded_window_zone,
     live_coverage_summary,
     parse_times,
 )
@@ -244,7 +246,119 @@ def test_spring_forward_day_complete_early_hour_cadence_is_countable():
     )
 
     # The defect measures the 7-hour window as 480 wall minutes (minimum 48
-    # captures; 43 exist) and reads 01:50 EST -> 03:00 EDT as a 70-minute gap.
+    # captures; 43 exist). Before the instant-ordered gap fix (branch
+    # claude/dst-h1-m1-m2-utc-20261011) it also read 01:50 EST -> 03:00 EDT as a
+    # 70-minute gap; the minimum-count defect still fails the status assertion.
     assert summary["gap_count"] == 0, summary["reason"]
     assert summary["status"] == "PASS", summary["reason"]
     assert summary["counts_toward_early_hour_evidence"] is True
+
+
+# --- Gap arithmetic on instants (follow-up to DST-H1, defender MF-1) -------------------
+
+DST_ZONES = (
+    ZoneInfo("America/Toronto"),
+    ZoneInfo("America/New_York"),
+    ZoneInfo("America/Chicago"),
+    ZoneInfo("America/Denver"),
+    ZoneInfo("America/Los_Angeles"),
+)
+
+
+def _zone_cadence(zone, day, stop_hour, skip_est_minutes=()):
+    """Every 10 real minutes from local 00:00 to ``stop_hour``:00, in ``zone``,
+    leaving out the second-pass (standard-time) 01:mm captures listed."""
+
+    current = datetime(day.year, day.month, day.day, tzinfo=zone).astimezone(timezone.utc)
+    stop = datetime(day.year, day.month, day.day, stop_hour, tzinfo=zone).astimezone(timezone.utc)
+    out = []
+    while current <= stop:
+        local = current.astimezone(zone)
+        second_pass = local.hour == 1 and local.fold == 1
+        if not (second_pass and local.minute in skip_est_minutes):
+            out.append(local)
+        current += timedelta(minutes=10)
+    return out
+
+
+@pytest.mark.parametrize("zone", DST_ZONES, ids=lambda zone: zone.key)
+def test_fall_back_day_complete_early_hour_cadence_passes(zone):
+    day = date(2026, 11, 1)
+    times = _zone_cadence(zone, day, 8)
+    if not any(value.fold == 1 and value.hour == 1 for value in times):
+        raise RuntimeError("precondition: the cadence crosses the repeated hour")
+
+    summary = early_hour_coverage_summary(
+        times, 10, target_date=day, as_of=datetime(2026, 11, 1, 9, 0, tzinfo=zone), native_tz=zone
+    )
+
+    assert summary["gap_count"] == 0, summary["reason"]
+    assert summary["status"] == "PASS", summary["reason"]
+    assert summary["counts_toward_early_hour_evidence"] is True
+
+
+@pytest.mark.parametrize("zone", DST_ZONES, ids=lambda zone: zone.key)
+def test_fall_back_day_early_hour_outage_in_the_repeated_hour_blocks(zone):
+    day = date(2026, 11, 1)
+    # 01:50 daylight -> 01:30 standard is a 40-minute outage; on the wall clock
+    # it reads -20 minutes, and a wall-clock sort interleaves it away.
+    times = _zone_cadence(zone, day, 8, skip_est_minutes=(0, 10, 20))
+
+    summary = early_hour_coverage_summary(
+        times, 10, target_date=day, as_of=datetime(2026, 11, 1, 9, 0, tzinfo=zone), native_tz=zone
+    )
+
+    assert summary["status"] == "BLOCK", summary["reason"]
+    assert summary["gap_count"] == 1, summary["reason"]
+    assert summary["max_gap_minutes"] == pytest.approx(40.0)
+
+
+@pytest.mark.parametrize(
+    ("skip", "gap_minutes"),
+    [((), []), ((0, 10, 20), [40.0])],
+    ids=["complete", "outage"],
+)
+def test_undated_coverage_gaps_are_instant_ordered_on_the_fall_back_day(skip, gap_minutes):
+    # Without a target date every capture is a gap candidate, including the repeated hour.
+    times = _zone_cadence(TORONTO, date(2026, 11, 1), 18, skip_est_minutes=skip)
+
+    summary = coverage_summary(times, 10)
+
+    assert [gap["gap_minutes"] for gap in summary["gaps"]] == gap_minutes
+    assert summary["span_minutes"] == pytest.approx(19 * 60.0)
+
+
+PANAMA = ZoneInfo("America/Panama")
+
+
+@pytest.mark.parametrize(("stop", "covered"), [((17, 35), False), ((18, 5), True)])
+def test_coincident_fixed_offset_is_not_read_as_the_capture_clock(stop, covered):
+    # America/Panama is -05:00 all year. On 2027-03-14 its early stamps match
+    # Toronto's EST offset, but from 03:00 EDT they do not, so the stamps are
+    # not the capture clock and keep their own 12:00-18:00 -05:00 window.
+    day = date(2027, 3, 14)
+    start = datetime(2027, 3, 14, 0, 5, tzinfo=PANAMA).astimezone(timezone.utc)
+    end = datetime(2027, 3, 14, *stop, tzinfo=PANAMA).astimezone(timezone.utc)
+    strings = []
+    current = start
+    while current <= end:
+        strings.append(current.astimezone(PANAMA).isoformat())
+        current += timedelta(minutes=10)
+    stamps = parse_times(strings)
+
+    summary = coverage_summary(stamps, 10, target_date=day)
+
+    assert graded_window_zone(stamps) is stamps[0].tzinfo
+    assert summary["covers_afternoon"] is covered
+    assert summary["clean"] is covered
+
+
+def test_capture_clock_stamps_are_read_as_the_capture_clock():
+    day = date(2026, 11, 1)
+    stamps = parse_times(_capture_strings(_toronto_utc(2026, 11, 1, 0, 5), _toronto_utc(2026, 11, 1, 18, 5)))
+
+    assert graded_window_zone(stamps) is CAPTURE_CLOCK_TZ
+    assert graded_window_zone([]) is None
+    # An explicit zone overrides the inference: 12:00-18:00 Honolulu is not covered.
+    utc_window = coverage_summary(stamps, 10, target_date=day, window_tz=ZoneInfo("Pacific/Honolulu"))
+    assert utc_window["covers_afternoon"] is False
