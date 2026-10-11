@@ -243,6 +243,20 @@ LOOP_CONSOLE_LOG_PATH = SNAPSHOT_DATA_ROOT / "loop_console.log"
 SUPERVISOR_LOCK_PATH = SNAPSHOT_DATA_ROOT / "loop_supervisor.lock"
 RECENT_LOOP_CYCLE_COUNT = 12
 DEFAULT_TRIGGER_QUEUE_SLEEP_CHECK_SECONDS = 5.0
+# Liveness heartbeat cadence while the loop idles between iterations. Storage
+# admission (replay_cache_compression_admission.MAX_HEARTBEAT_AGE_SECONDS)
+# refuses a snapshot heartbeat older than 180 s, while the idle sleep is often
+# ~290 s. At 60 s a healthy loop's heartbeat is at most about 60 s old plus the
+# preflight time before the first progress write and the post-batch
+# fleet-health bookkeeping before the sleep-plan write (a third of that bound,
+# so even one failed write stays inside it). The cost is 4 extra atomic status
+# writes for a 288 s sleep and at most 9 for a full 600 s sleep, versus one
+# write every 5 s during a capture batch.
+SLEEP_HEARTBEAT_SECONDS = 60.0
+# A failed idle heartbeat write is recorded in the diagnostics JSONL at most
+# once per this many seconds (about once per full sleep); further failures in
+# the window are counted into the next record.
+SLEEP_HEARTBEAT_FAILURE_DIAGNOSTIC_SECONDS = 600.0
 SNAPSHOT_SUPERVISOR = SupervisorSpec(
     name="snapshot_capture",
     module="weather.collection.snapshot_tracker",
@@ -1303,17 +1317,43 @@ def sleep_until_due_or_triggered_work(
     queue_root,
     sleep_fn=time.sleep,
     check_seconds=DEFAULT_TRIGGER_QUEUE_SLEEP_CHECK_SECONDS,
+    heartbeat_fn=None,
+    heartbeat_seconds=SLEEP_HEARTBEAT_SECONDS,
 ):
-    """Keep the normal schedule while making idle sleep interruptible by work."""
+    """Keep the normal schedule while making idle sleep interruptible by work.
+
+    ``queue_root=None`` sleeps without polling the trigger queue. When
+    ``heartbeat_fn`` is given it is called after every ``heartbeat_seconds`` of
+    slept time while sleep remains, so an idle loop keeps a fresh liveness
+    heartbeat; it is never called after the final chunk (the next iteration
+    refreshes the heartbeat) or once triggered work interrupts the sleep.
+
+    The cadence is exact for any ``check_seconds``: a chunk never crosses the
+    next beat boundary, so a check interval that does not divide
+    ``heartbeat_seconds`` (for example 7 s against 60 s) shortens the chunk
+    before the boundary instead of drifting the beats. The trigger queue is
+    still polled at least every ``check_seconds``.
+    """
 
     remaining = max(0.0, float(sleep_seconds))
     check = max(0.1, float(check_seconds))
+    beat_every = max(1.0, float(heartbeat_seconds)) if heartbeat_fn is not None else None
+    since_beat = 0.0
     while remaining > 0.0:
-        if has_pending_triggered_snapshot_jobs(queue_root):
+        if queue_root is not None and has_pending_triggered_snapshot_jobs(queue_root):
             return {"interrupted": True, "remaining_seconds": round(remaining, 3)}
         chunk = min(check, remaining)
+        if beat_every is not None:
+            chunk = min(chunk, beat_every - since_beat)
         sleep_fn(chunk)
         remaining -= chunk
+        if remaining <= 1e-9:
+            remaining = 0.0
+        since_beat += chunk
+        if beat_every is not None and since_beat >= beat_every - 1e-9:
+            since_beat = 0.0
+            if remaining > 0.0:
+                heartbeat_fn()
     return {"interrupted": False, "remaining_seconds": 0.0}
 
 
@@ -1531,6 +1571,47 @@ def run_loop(
         },
     }
     attach_status_writer(status, writer_lock)
+
+    heartbeat_failures = {"last_diagnostic_at": None, "suppressed": 0}
+
+    def report_sleep_heartbeat_failure(beat_at, exc):
+        # Rate-limited: at most one diagnostics record per
+        # SLEEP_HEARTBEAT_FAILURE_DIAGNOSTIC_SECONDS. It goes to the existing
+        # diagnostics JSONL, never the status file, so the heartbeat-only
+        # invariant of the idle writes holds.
+        last = heartbeat_failures["last_diagnostic_at"]
+        if last is not None and (
+            (beat_at - last).total_seconds() < SLEEP_HEARTBEAT_FAILURE_DIAGNOSTIC_SECONDS
+        ):
+            heartbeat_failures["suppressed"] += 1
+            return
+        record = {
+            "time": beat_at.isoformat(),
+            "status": "sleep_heartbeat_write_failed",
+            "error": f"{type(exc).__name__}: {exc}",
+            "suppressed_since_last_diagnostic": heartbeat_failures["suppressed"],
+        }
+        heartbeat_failures["last_diagnostic_at"] = beat_at
+        heartbeat_failures["suppressed"] = 0
+        try:
+            append_diagnostic(record)
+        except OSError:
+            pass
+
+    def sleep_heartbeat():
+        # Refresh only the liveness heartbeat during the idle sleep. Every other
+        # field (error latch, outcome, pause, identity, sleep plan) is written
+        # back unchanged; pause and stale-code are still evaluated only at the
+        # next iteration start, exactly as before.
+        beat_at = now_fn()
+        status["last_heartbeat"] = beat_at.isoformat()
+        try:
+            write_loop_status(status)
+        except OSError as exc:
+            # The atomic writer already retried the replace race. A missed idle
+            # heartbeat must not kill collection; the next cadence retries.
+            report_sleep_heartbeat_failure(beat_at, exc)
+
     try:
         while True:
             now = now_fn()
@@ -2057,6 +2138,9 @@ def run_loop(
             status["last_sleep_seconds"] = round(sleep_seconds, 1)
             status["last_sleep_reason"] = sleep_plan["reason"]
             status["next_due_at"] = sleep_plan["next_due_at"]
+            # Liveness only: the loop is alive and about to idle. Iteration
+            # progress stays in the completed/clean iteration markers.
+            status["last_heartbeat"] = sleep_now.isoformat()
             write_loop_status(status)
             if max_iterations is not None and status["iterations"] >= max_iterations:
                 return status
@@ -2066,9 +2150,16 @@ def run_loop(
                     queue_root=trigger_queue_root,
                     sleep_fn=sleep_fn,
                     check_seconds=trigger_queue_sleep_check_seconds,
+                    heartbeat_fn=sleep_heartbeat,
                 )
             else:
-                sleep_fn(sleep_seconds)
+                sleep_until_due_or_triggered_work(
+                    sleep_seconds,
+                    queue_root=None,
+                    sleep_fn=sleep_fn,
+                    check_seconds=SLEEP_HEARTBEAT_SECONDS,
+                    heartbeat_fn=sleep_heartbeat,
+                )
     finally:
         sleep_inhibitor.stop()
         release_writer_lock(writer_lock)

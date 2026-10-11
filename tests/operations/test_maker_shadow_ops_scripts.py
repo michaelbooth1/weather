@@ -16,6 +16,8 @@ import subprocess
 
 import pytest
 
+from maker_core.shadow.admission import EMBARGO_WINDOWS, FULL
+
 ROOT = Path(__file__).resolve().parents[2]
 REGISTRAR = ROOT / "scripts" / "ops" / "register_maker_shadow_runner.ps1"
 READOUT = ROOT / "scripts" / "ops" / "maker_shadow_readout.ps1"
@@ -207,3 +209,13 @@ def test_readout_surfaces_the_live_tape_code_identity(tmp_path, scope, expected)
     assert result.returncode == 0, result.stderr
     assert expected in result.stdout and ", last record: universe" in result.stdout, result.stdout
     assert " MB tape + 2 MB record stream);" in result.stdout, result.stdout
+    through = max(end for _, end, _, _ in EMBARGO_WINDOWS)
+    closed = ", ".join(f"{a}..{b}" for a, b, scope, _ in EMBARGO_WINDOWS if scope == FULL)
+    assert f"; 88a scoring embargoed through {through} UTC; parity outcome-blind, never {closed}" in result.stdout
+
+
+def test_readout_embargo_dates_are_not_hard_coded():
+    text = READOUT.read_text(encoding="utf-8")
+    for start, end, _, _ in EMBARGO_WINDOWS:
+        assert start not in text and end not in text
+    assert r"src\maker_core\shadow\admission.py" in text

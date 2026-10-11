@@ -26,8 +26,8 @@ record stream"):
 Trade-poll baselines and seen prints are per run, so a print just before 00:00 UTC that is first polled after
 the day roll lands in the next day's stream. A recorder or file fault never stops the runner: ``TapeWriter``
 records it as not-OK coverage with a coded reason, and a stream whose file write failed is sealed ``broken``
-(``bundle_day`` refuses it). Public reads only; nothing here can place, cancel or sign. Paths are explicit
-caller inputs.
+(``bundle_day`` excludes that run's stream, and only it, from the day's bundle). Public reads only; nothing
+here can place, cancel or sign. Paths are explicit caller inputs.
 """
 from collections.abc import Callable, Mapping
 from datetime import date, datetime, timedelta, timezone
@@ -49,6 +49,16 @@ TRADE_CLOCK_SKEW = timedelta(seconds=5)  # The replay decoder's bound on venue t
 TRADES_PAGE = 500  # ``public_feed.TRADES_LIMIT``: a full page cannot prove continuity.
 SEEN_MARGIN_SECONDS = 3600  # Seen print keys older than a poll's oldest print minus this are forgotten.
 MAX_LINE_BYTES = 1024**2  # The replay reader's per-record cap.
+# An unsealed stream is excluded from the day bundle only this long after the UTC day closed: before that its run
+# may still be sealing it at the day roll, and a create-only bundle would drop it for good.
+UNSEALED_GRACE = timedelta(hours=1)
+# Row code of each ``incomplete_refreshes`` row, by the fault code the runner counts (owner decisions N7, N2):
+# ``late`` the refresh ended after its deadline, REFRESH_MARGIN (3 s) before the next minute (the next decision
+# may be late by that excess; ``left`` may be 0), ``deadline_partial`` it stopped at the deadline after reading
+# some bands, ``skipped`` it stopped before reading any, ``backed_off`` it was not attempted (backoff after a late
+# refresh; ``left`` is every selected band).
+INCOMPLETE_REFRESH_CODES = {"refresh:late_overrun": "late", "refresh:partial_overrun": "deadline_partial",
+                            "refresh:skipped_overrun": "skipped", "refresh:skipped_backoff": "backed_off"}
 MAX_SEQUENCE = 2**31 - 1
 CHUNK = 1024**2
 KIND_ORDER = ("plugin_input", "descriptor", "info_event", "terms", "outcome_view", "book", "trade", "coverage")
@@ -271,6 +281,7 @@ class RecordStream:
         self.emitted = {}  # (condition, label) -> payload hash, for on-change records
         self.groups, self.described = {}, set()
         self.faults, self.broken = {}, None
+        self.incomplete_refreshes = {}  # minute (ISO) -> coded incomplete refresh row (owner decisions N7, N2)
 
     # -- writing ----------------------------------------------------------------------------------------
     def write(self, entries):
@@ -340,6 +351,17 @@ class RecordStream:
     def count_fault(self, code, n=1):
         self.faults[code] = self.faults.get(code, 0) + n
 
+    def incomplete_refresh(self, code, minute, refreshed, left):
+        """Count a mid-minute refresh cut short, skipped, backed off or ended late (fault ``code``) and name it
+        on the seal (``incomplete_refreshes``: ``{minute, code, refreshed, left}``, by minute; ``code`` is the
+        row code from ``INCOMPLETE_REFRESH_CODES``), so a replay can tell which minutes lack refreshed books and
+        why; nothing is written to the stream itself."""
+        self.count_fault(code)
+        if minute is not None:
+            at = minute.astimezone(timezone.utc).isoformat()
+            self.incomplete_refreshes[at] = {"minute": at, "code": INCOMPLETE_REFRESH_CODES[code],
+                                             "refreshed": int(refreshed), "left": int(left)}
+
     def fault(self, code, at):
         """Count a coded recorder fault and mark every described condition's trade stream not OK from ``at``."""
         self.count_fault(code)
@@ -384,7 +406,9 @@ class RecordStream:
                 "sha256": sha, "bytes": size, "records": lines,
                 "first_sequence": self.first_sequence, "last_sequence": self.last_sequence,
                 "kinds": dict(sorted(self.kinds.items())), "dropped": dict(self.dropped),
-                "faults": fault_list(self.faults), "conditions": conditions,
+                "faults": fault_list(self.faults),
+                "incomplete_refreshes": [row for _, row in sorted(self.incomplete_refreshes.items())],
+                "conditions": conditions,
                 "coverage_groups": {group_id(cid): [cid] for cid in conditions}}
         write_new(self.path.with_name(self.path.name.replace("-records.jsonl", "-records.seal.json")), seal)
         return seal
@@ -627,12 +651,17 @@ class RawRecorder:
                 entries.extend(self._trades(stream, cid, known["outcomes"], rows))
         return entries
 
-    def between(self, stream: RecordStream, condition_ids):
+    def between(self, stream: RecordStream, condition_ids, proceed=None):
         """Mid-minute refresh, for conditions with a recorded descriptor: one trade poll and both books read
         again, each at receipt time, so the recorded book never ages past the replay freshness limit between
-        two shadow minutes. A failed, mismatched or malformed book read is counted and skipped."""
+        two shadow minutes. A failed, mismatched or malformed book read is counted and skipped. ``proceed``,
+        if given, is called before each band's reads with the number of bands left (this one included); False
+        stops the refresh there (the run's hard deadline), keeping what was read."""
         entries, failed = [], 0
-        for cid in sorted(set(condition_ids) & set(self.known)):
+        bands = sorted(set(condition_ids) & set(self.known))
+        for index, cid in enumerate(bands):
+            if proceed is not None and not proceed(len(bands) - index):
+                break
             known = self.known[cid]
             self.reads.poll([cid])
             replies = []
@@ -659,8 +688,9 @@ class RawRecorder:
 
 # -- day bundle and read paths ---------------------------------------------------------------------------
 # Every refusal below is a ``ValueError`` whose message is a stable code (the bundle CLI prints it as
-# ``{"refused": code}``): utc_day_not_closed, unsealed_record_stream, broken_record_stream,
-# no_sealed_record_stream, record_stream_seal_unreadable, record_stream_seal_mismatch, record_stream_unreadable,
+# ``{"refused": code}``): utc_day_not_closed, unsealed_record_stream (only within ``UNSEALED_GRACE`` of the day
+# close; later an unsealed stream excludes its own run), no_sealed_record_stream, bundle_unreadable,
+# record_stream_seal_unreadable, record_stream_seal_mismatch, record_stream_unreadable,
 # record_stream_differs_from_seal, tape_seal_unreadable, condition_without_market_id,
 # condition_identity_differs_between_runs.
 def _read_json(path, code):
@@ -688,6 +718,25 @@ def _stream_seals(root, day):
     return seals, unsealed
 
 
+def _stream_run_id(day, name):
+    return name[len(day) + 1:-len("-records.jsonl")]
+
+
+def _excluded_streams(day, seals, unsealed, bundled):
+    """Streams of ``day`` with records that are not in the bundle, ``[{run_id, stream, reason}]``: an unsealed
+    stream (a killed run), a stream sealed ``broken`` (a failed file write) or one sealed after the bundle was
+    written. Each excludes only its own run's records and active intervals (owner decision Q-D5)."""
+    out = [{"run_id": _stream_run_id(day, name), "stream": name, "reason": "unsealed_record_stream"}
+           for name in unsealed if name not in bundled]
+    for seal in seals:
+        if seal["stream"] in bundled or (seal.get("status") == "ok" and not seal["records"]):
+            continue
+        reason = ("sealed_after_bundle" if seal.get("status") == "ok"
+                  else "broken_record_stream:" + str(seal.get("broken_reason")))
+        out.append({"run_id": seal.get("run_id"), "stream": seal["stream"], "reason": reason})
+    return sorted(out, key=lambda row: row["stream"])
+
+
 def stream_gaps(root, day):
     """Runs of ``day`` whose quotes tape sealed without a record stream (it could not be opened, or sealing
     it failed): explicit gap sources, ``[{run_id, tape, reason}]``. Their minutes have no raw records."""
@@ -712,9 +761,15 @@ def verify_stream(root, seal):
     return path
 
 
-def records_summary(root, day):
-    """Scorer read path for v0.2: every sealed stream of ``day`` verified against its seal, kinds counted."""
+def records_summary(root, day, streams=None):
+    """Scorer read path for v0.2: every sealed stream of ``day`` verified against its seal, kinds counted.
+
+    With ``streams`` (stream file names, e.g. a bundle's), only those streams are read and counted.
+    """
     seals, unsealed = _stream_seals(root, day)
+    if streams is not None:
+        seals = [s for s in seals if s["stream"] in streams]
+        unsealed = [name for name in unsealed if name in streams]
     kinds = {}
     for seal in seals:
         verify_stream(root, seal)
@@ -739,10 +794,18 @@ def _summed_faults(seals):
 
 
 def day_active_intervals(root, day):
-    """Per-run active intervals ``(condition_id, start, end)`` for ``stream_source(active_intervals=...)``."""
-    seals, unsealed = _stream_seals(root, day)
-    if unsealed:
-        raise ValueError("unsealed_record_stream")
+    """Per-run active intervals ``(condition_id, start, end)`` for ``stream_source(active_intervals=...)``.
+
+    Only the runs whose streams are in the day's ``bundle.json`` (before it is written: the streams sealed
+    ``ok``); an unsealed or broken stream's run has no interval, so the replay claims nothing for it.
+    """
+    seals, _ = _stream_seals(root, day)
+    bundle = day_directory(root, day) / "bundle.json"
+    if bundle.is_file():
+        bundled = {row["path"] for row in _read_json(bundle, "bundle_unreadable").get("streams") or ()}
+        seals = [s for s in seals if s["stream"] in bundled]
+    else:
+        seals = [s for s in seals if s.get("status") == "ok"]
     end_of_day = datetime.combine(date.fromisoformat(day), datetime.min.time(), tzinfo=timezone.utc) + timedelta(days=1)
     out = []
     for seal in seals:
@@ -755,24 +818,37 @@ def day_active_intervals(root, day):
 def bundle_day(root, day, *, clock):
     """Write ``records/<day>/bundle.json`` (bundle v0.2) over the day's sealed streams, after the day closes.
 
-    Refuses an open day, an unsealed stream, a stream sealed ``broken`` (a failed file write), an unreadable
-    or malformed seal, a stream that differs from its seal, a condition without a registry market id, or a
+    A stream sealed ``broken`` (a failed file write), or one still unsealed ``UNSEALED_GRACE`` after the day
+    closed (a killed run), excludes only its own run (owner decision Q-D5): it is left out of the bundle and
+    named under ``excluded_streams``, and ``day_active_intervals`` gives its run no interval. Refuses an open
+    day, an unsealed stream within the grace, a day with no bundleable stream, an unreadable or malformed
+    seal, a bundled stream that differs from its seal, a condition without a registry market id, or a
     condition whose market identity differs between runs, each with a coded ``ValueError``. Create-only.
-    Runs that sealed their quotes tape without a stream (``stream_gaps``) are named in ``gaps.json`` beside
-    the bundle (schema ``GAPS_SCHEMA``; the bundle format itself admits no extra field), written first and
-    atomically; a re-run fills it in when ``bundle.json`` exists without it. They are also returned under the
-    manifest's ``gaps`` key by ``bundle_day`` only. Read the day with ``Limits(**SHADOW_REPLAY_LIMITS)``.
+    Runs that sealed their quotes tape without a stream (``stream_gaps``) and the excluded streams are named in
+    ``gaps.json`` beside the bundle (schema ``GAPS_SCHEMA``; the bundle format itself admits no extra field),
+    written first and atomically; a re-run fills it in when ``bundle.json`` exists without it, validating only
+    the bundled streams. ``gaps.json`` also names, per bundled stream, the minutes whose mid-minute refresh was
+    cut short, skipped, backed off or ended late (``incomplete_refreshes``, owner decision N7; each row carries
+    a ``code`` from ``INCOMPLETE_REFRESH_CODES``, owner decision N2; their books may age past
+    60 s). They are also returned under the manifest's ``gaps`` and ``excluded`` keys by ``bundle_day``
+    only. Read the day with ``Limits(**SHADOW_REPLAY_LIMITS)``.
     """
     start = datetime.combine(date.fromisoformat(day), datetime.min.time(), tzinfo=timezone.utc)
     end, sealed_at = start + timedelta(days=1), clock()
     if sealed_at < end:
         raise ValueError("utc_day_not_closed")
     seals, unsealed = _stream_seals(root, day)
-    if unsealed:
-        raise ValueError("unsealed_record_stream")
-    if any(s.get("status") != "ok" for s in seals):
-        raise ValueError("broken_record_stream")
-    seals = [s for s in seals if s["records"]]
+    if unsealed and sealed_at < end + UNSEALED_GRACE:
+        raise ValueError("unsealed_record_stream")  # its run may still be sealing it at the day roll
+    every_seal, seals = seals, [s for s in seals if s.get("status") == "ok" and s["records"]]
+    path = day_directory(root, day) / "bundle.json"
+    gaps_path = path.with_name("gaps.json")
+    if path.exists() and gaps_path.exists():
+        raise FileExistsError(str(path))
+    existing = _read_json(path, "bundle_unreadable") if path.exists() else None
+    if existing is not None:  # a fill-in validates only the bundled streams, never one sealed after the bundle
+        bundled = {row.get("path") for row in existing.get("streams") or ()}
+        seals = [s for s in seals if s["stream"] in bundled]
     if not seals:
         raise ValueError("no_sealed_record_stream")
     conditions = {}
@@ -797,18 +873,19 @@ def bundle_day(root, day, *, clock):
         "streams": [{"path": s["stream"], "sha256": s["sha256"], "bytes": s["bytes"], "records": s["records"]}
                     for s in seals]}
     gaps = stream_gaps(root, day)
-    path = day_directory(root, day) / "bundle.json"
-    gaps_path = path.with_name("gaps.json")
-    if path.exists() and gaps_path.exists():
-        raise FileExistsError(str(path))
+    bundled = {s["path"] for s in (existing or manifest)["streams"]}
+    excluded = _excluded_streams(day, every_seal, unsealed, bundled)
+    incomplete = [{"run_id": s.get("run_id"), "stream": s["stream"], "refreshes": s["incomplete_refreshes"]}
+                  for s in every_seal if s["stream"] in bundled and s.get("incomplete_refreshes")]
     # gaps.json first, atomically (a temp file renamed over it), then the create-only bundle.json: a bundle
     # never exists without its gap sources, and a re-run after a failure in between fills gaps.json in.
     _replace_json(gaps_path, {"schema_version": GAPS_SCHEMA, "day": day, "bundle": path.name,
-                              "runs_without_record_stream": gaps})
-    if path.exists():
-        return path, dict(json.loads(path.read_bytes()), gaps=gaps)
+                              "runs_without_record_stream": gaps, "excluded_streams": excluded,
+                              "incomplete_refreshes": incomplete})
+    if existing is not None:
+        return path, dict(existing, gaps=gaps, excluded=excluded)
     write_new(path, manifest)
-    return path, dict(manifest, gaps=gaps)
+    return path, dict(manifest, gaps=gaps, excluded=excluded)
 
 
 def _replace_json(path, value):
@@ -824,7 +901,8 @@ def _replace_json(path, value):
         temporary.unlink(missing_ok=True)
 
 
-__all__ = ["BOOK_VENUE_KEYS", "BUNDLE_FORMAT", "COVERAGE_SECONDS", "GAPS_SCHEMA", "RawRecorder", "RecordStream",
-           "RecordingReads", "SHADOW_REPLAY_LIMITS", "STREAM_SEAL_SCHEMA", "bundle_day", "day_active_intervals",
-           "day_directory", "fault_list", "gamma_market_projection", "group_id", "next_sequence", "records_summary",
-           "reward_projection", "stream_gaps", "stream_name", "verify_stream"]
+__all__ = ["BOOK_VENUE_KEYS", "BUNDLE_FORMAT", "COVERAGE_SECONDS", "GAPS_SCHEMA", "INCOMPLETE_REFRESH_CODES",
+           "RawRecorder", "RecordStream", "RecordingReads", "SHADOW_REPLAY_LIMITS", "STREAM_SEAL_SCHEMA",
+           "UNSEALED_GRACE", "bundle_day", "day_active_intervals", "day_directory", "fault_list",
+           "gamma_market_projection", "group_id", "next_sequence", "records_summary", "reward_projection",
+           "stream_gaps", "stream_name", "verify_stream"]

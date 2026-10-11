@@ -43,12 +43,26 @@ what it **would** quote. It never places, cancels or signs anything:
   real portfolio ledger from a paper snapshot, so bleed is the ledger's P&L on
   paper: cash plus open lots marked at the last two-sided mid read for the asset
   (`held_mark_max_age_seconds` is taped; a band that left the selection keeps its
-  last mark; settlement is not applied). A fill sets `fill_seen` for that band's
-  next decision (the sibling leg is cancelled). A print-read failure is a taped
+  last mark; settlement is not applied). A band's first paper fill (earliest print) cancels the
+  band at once, as the replay kernel does (`FILL_CANCEL_SIBLING`/`END` at the fill
+  instant): one fill per band, the sibling and any remainder stop resting, and
+  the next decision sees `fill_seen` with no own legs on its book. A print-read failure is a taped
   `print_gaps` entry, never read as "no fills". Bleed past the limit HALTs and
   latches exactly as for a live runtime; only the owner's latch command clears it.
   The paper book belongs to one run (a restart starts a fresh book; the latch
   persists). Quoting caps are separate hypothetical config values.
+- **Decision book.** `decide()` reads the public book with the runner's resting
+  paper legs on it, composed by `maker_core.quoting.book.compose_book`, the same
+  function the replay v2 kernel imports (engine ruling W1(a)): each leg on its own
+  bid array and mirrored at `1 - p` on the complement's ask array, levels created
+  and sizes summed. Per OD23 (signed 2026-10-08), own size stays in the qualified
+  mid and is removed only from competing score and displayed depth. The taped
+  `inputs.book` is this decision book (it is the public book plus `inputs.existing`,
+  so the public book is recoverable); paper marks and fills read the public book.
+  Each minute records `own_size_mid`: how many decision books carried own legs and
+  how many of those had a qualified mid that differs with own size removed.
+  `own_leg_crossed` counts `CROSSED_BOOK` decisions on a public book that is not
+  crossed (a resting paper leg crossed by the public book), as the replay kernel does.
 - **Fair value.** The weather maker plugin is not on master, so the weather
   composition passes `Unavailable("weather_fair_value_provider_not_integrated")`:
   `informed-v0` then quotes the blind width with grade-`none` size caps. The
@@ -77,7 +91,8 @@ the `WeatherMakerShadowRunner` task (next section); registering it is an owner a
 
 Exit 0 is success; exit 2 is a refusal printed as JSON (invalid config, stop file
 present at start, embargoed or open day, no sealed tape; for `bundle-day` an open day,
-an unsealed or changed record stream, or an existing `bundle.json`). Initialise the guard
+an unsealed record stream within an hour of the day close, no bundleable stream, a changed
+record stream, or an existing `bundle.json`). Initialise the guard
 latch first with `python -m maker_core.runtime.guard_latch init --state-dir <dir>`;
 an uninitialised latch is a HALT.
 
@@ -123,7 +138,7 @@ day and run: `<day>-<run>.tape.jsonl`, a `maker_core.evidence.journal` chain
 | --- | --- |
 | `opened` | Scope: mode (`public_shadow` / `offline_fixture`), profile, config and guard-policy digests, caps, fill bound, fair-value source, UTC day, run id; code identity `git_commit` / `git_dirty` / `git_error` (below) |
 | `universe` / `universe_error` | Selected conditions, candidates, cap drops, refusal counts, missing events |
-| `minute` | `minute_utc`; minute guard decision; guard-book digest; `paper` (fill rule, this minute's simulated fills, print gaps, paper cash, P&L, status, bleed state, held-mark age); per condition: identity, `outcomes` (YES/NO asset ids), exact policy `inputs`, `decision`, per-leg `gate` outcome (`ALLOW`/`PAUSE`/`HALT`/`REFUSED_AT_REDEEM`, `placed`), venue timestamps; `cancel_all` intents; `resting_after` |
+| `minute` | `minute_utc`; minute guard decision; guard-book digest; `paper` (fill rule, this minute's simulated fills, print gaps, paper cash, P&L, status, bleed state, held-mark age); per condition: identity, `outcomes` (YES/NO asset ids), exact policy `inputs`, `decision`, per-leg `gate` outcome (`ALLOW`/`PAUSE`/`HALT`/`REFUSED_AT_REDEEM`, `placed`), venue timestamps; `cancel_all` intents; `resting_after`; `own_size_mid` (OD23 diagnostic counts: `books_with_own_legs`, `mid_differs`, `own_leg_crossed`) |
 | `terminal` | End reason, minute count and (v0.2) the record stream's seal |
 
 `inputs` is an exact projection: `maker_core.shadow.tape.inputs_from` rebuilds the
@@ -177,7 +192,62 @@ payload payload_sha256 source_hashes`), fsynced per batch, then a create-only
   Cost at 12 bands: 24 extra CLOB book GETs a minute (the 12 trade GETs at +30 s already
   existed), from 60 to 84 public GETs a minute, about +4.6 s of sequential reads at 190 ms
   each. The first minute of a run (or of a newly selected band) replays as
-  `MISSING_COVERAGE`: its first poll precedes its first descriptor.
+  `MISSING_COVERAGE`: its first poll precedes its first descriptor. **Overrun deadline** (owner
+  decision N7, `maker_shadow.mid_minute_refresh`): the refresh must not delay the next
+  decision. It has a hard deadline, `REFRESH_MARGIN` (3 s) before the next minute, and reads
+  its bands one at a time; a band is started only when the clock plus the per-band estimate is
+  within the deadline, so a slow refresh is cut short and the next decision starts on time.
+  The per-band estimate is the longest band read measured in this refresh and the run's
+  previous one, on the monotonic clock (a wall-clock step never feeds it); before a first
+  measurement, and after a refresh that read nothing, it is `REFRESH_BAND_BOUND` (15 s: a
+  band's three GETs at the 5 s transport timeout). **Bound:** only a band read that outlasts
+  its estimate can pass the deadline, and then the next decision is late by that excess, one
+  band at most (a hung GET can exceed its 5 s socket timeout); that refresh is
+  `refresh:late_overrun`. A refresh cut short is `refresh:partial_overrun`, one that read
+  nothing `refresh:skipped_overrun`. **Backoff** (owner decision N1, 2026-10-09: back off
+  only after a LATE refresh): only a `refresh:late_overrun` refresh, one that ended after its
+  deadline, defers the next attempt, by 1, 2, 4, then 8 minutes (capped; by the backoff level,
+  the late refreshes since the level was last reset), and each backed-off minute is
+  `refresh:skipped_backoff`. A clean partial or skipped refresh ended within the deadline, so
+  the next minute is attempted again; it does not raise the level. The level resets after a
+  full refresh that ended within the deadline, or after 8 consecutive attempted refreshes that
+  did not end late (`REFRESH_BACKOFF_DECAY`; clean partials and skips count, backed-off minutes
+  are not attempts, and a late refresh restarts the streak; Defender N3, approved 2026-10-09).
+  So isolated late refreshes in a feed that never completes a full refresh each back off only
+  1 minute (120 minutes of 60 bands of 0.5 s with a 30 s band at minutes 10, 40, 70 and 100:
+  0, 0, 0 and 0 backed-off minutes after each late, against 0, 1, 3 and 7 without the decay),
+  while sustained slowness, with fewer than 8 attempts between late refreshes, still
+  escalates. Under sustained slowness every minute refreshes the bands that fit and late
+  refreshes thin out: the first gaps are 2, 3 and 5 minutes (the first two can be 2 minutes
+  apart), and once the backoff is capped they are at least 8 minutes apart (the 8-minute
+  backoff; 9 in every measured scenario), not sustained every other minute. **Steady late
+  rate under slow bands** (180-minute runs through the real run loop with the decay in place:
+  three 40 s bands, or one slow last band of 40 or 60): one late refresh every 9 minutes after
+  the fourth (about 160 a day, each bounded by one band's excess, at most 10 s), against about
+  1 per 16-18 minutes before N1. **Expected cost** (the Defender's 30-minute timing
+  scenarios through the real run loop, before N1 and after): a few more late decisions, each
+  still bounded by one band's excess (one slow last band of 40 or 60: 5 late instead of 3, same
+  maximum 5.6 s and 8.6 s; three 40 s bands: 6 instead of 3, same 10 s maximum; seeded band
+  variance 0.2-3 s with 5 % at 15 s: 1-4 instead of 0-1, at most 9 s), against about 4-5 times
+  more refreshed bands (symmetric 35 s step and 35 s refresh: 86 of 145 bands instead of 17;
+  70 s and 95 s refreshes: 29 instead of 6; 60 bands of 0.5 s: 1508 of 1740 instead of 289;
+  variance: 234-309 of 696 instead of 44-82; busy 50 s steps: 491 instead of 389). No minute
+  is lost in any scenario. Every such minute is counted on the stream seal and named in the
+  seal's `incomplete_refreshes` (`[{minute, code, refreshed, left}]`, bands read and left,
+  sorted by minute) and in `gaps.json` `incomplete_refreshes` (`[{run_id, stream, refreshes}]`,
+  bundled streams only, sorted by stream); `bundle.json` is unchanged by them. **Row codes**
+  (owner decision N2, `records.INCOMPLETE_REFRESH_CODES`): `late` (`refresh:late_overrun`: the
+  refresh ended after its deadline, `REFRESH_MARGIN` (3 s) before the next minute; the next
+  decision may be late by that excess, or not at all if it ended inside the margin; `left` may
+  be 0, so the row does not mean a complete refresh), `deadline_partial` (`refresh:partial_overrun`: stopped at
+  the deadline after reading some bands), `skipped` (`refresh:skipped_overrun`: stopped before
+  reading any; `left` counts the known bands) and `backed_off` (`refresh:skipped_backoff`: not
+  attempted, backoff after a late refresh; `left` counts every selected band). A band left unread may let that minute's
+  trade coverage lapse before the next minute's poll, which replays as a true capture gap.
+  **Bias:** incomplete refreshes happen in the minutes whose decision step overran or whose
+  feed was slow (many bands, deep books, rediscovery), and bands are refreshed in condition-id
+  order, so book staleness concentrates in busy minutes and in later bands; a replay or parity
+  consumer should read `incomplete_refreshes` rather than treat stale-book minutes as random.
 - Trade polls: the first poll of a run is a baseline (nothing emitted); the baseline and the
   seen print keys are per run, so a print just before 00:00 UTC that is first polled after the
   roll lands in the next day's stream. A full page (`TRADES_PAGE` 500) that does not reach the
@@ -205,9 +275,8 @@ payload payload_sha256 source_hashes`), fsynced per batch, then a create-only
   `minute:book_malformed` or `refresh:book_malformed`; a failed refresh read as
   `refresh:book_read`. A failed write or fsync marks the stream broken: later writes are
   skipped, and the seal records the bytes actually on disk with `status: broken` and
-  `broken_reason`. `bundle-day` refuses a day with a broken or unsealed stream
-  (`broken_record_stream`, `unsealed_record_stream`; whether to bundle only the `ok` streams
-  instead is an open owner question). If the stream cannot be opened (for example an
+  `broken_reason`. A broken stream excludes only its own run from the day bundle (owner
+  decision Q-D5, below). If the stream cannot be opened (for example an
   unreadable earlier seal of the day), the day runs without one: each minute's `raw` is
   `{"broken": "open:<Error>"}` and the quotes tape seal carries `records_stream_error`, as it
   does when sealing the stream itself fails.
@@ -228,7 +297,23 @@ payload payload_sha256 source_hashes`), fsynced per batch, then a create-only
   `stream_gaps`, the CLI's `gaps`, and `records/<day>/gaps.json` beside the bundle (the
   bundle format admits no extra field). `gaps.json` is written first, atomically (temp file
   and rename), then the create-only `bundle.json`; a re-run fills in a missing `gaps.json`
-  beside an existing bundle instead of refusing `bundle_exists`. A stream batch advances its sequence and kind counts
+  beside an existing bundle instead of refusing `bundle_exists`. **Per-run exclusion** (owner
+  decision Q-D5): a stream sealed `broken`, or one still unsealed an hour
+  (`records.UNSEALED_GRACE`) after the UTC day closed (a killed, broken or stalled run: reboot,
+  `Stop-ScheduledTask`, or a host sleep or hang over 00:00 UTC longer than the grace, which
+  seals the stream only at its next record), excludes only its own run. It is left out of `bundle.json`, listed in
+  `gaps.json` under `excluded_streams` (`[{run_id, stream, reason}]`, reason
+  `unsealed_record_stream`, `broken_record_stream:<broken_reason>` or `sealed_after_bundle`)
+  and in the CLI's `excluded`, and `records.day_active_intervals` gives its run no interval
+  (it reads the bundle's stream list once `bundle.json` exists), so the replay claims nothing
+  for that run's minutes. A stalled run that seals later stays excluded (`sealed_after_bundle`
+  on a re-run); a re-run beside an existing bundle validates only the bundled streams. The CLI's
+  printed `records` summary covers only the bundled streams. Schedule the nightly `bundle-day`
+  at or after 01:00 UTC. Within the hour an unsealed stream still refuses
+  `unsealed_record_stream`, because its run may still be sealing it at the day roll and the
+  bundle is create-only. A day whose every stream is excluded refuses
+  `no_sealed_record_stream`. A stream that differs from its own `ok` seal, or an unreadable
+  seal, still refuses the whole day. A stream batch advances its sequence and kind counts
   only after its bytes are fsynced, so a failed batch never leaves a sequence gap in an `ok`
   seal.
 - Size and replay limits: the Defender's synthetic 12-band day (decision-time stamping) was
@@ -237,7 +322,19 @@ payload payload_sha256 source_hashes`), fsynced per batch, then a create-only
   140 k records and 190 MB of record stream at 12 bands (about 280 k and 380 MB at 24). The
   replay reader's default `Limits` (64 MiB, 100 k records, 300 s) refuse such a day; read it
   with `Limits(**records.SHADOW_REPLAY_LIMITS)` (600 k records, 1 GiB, 900 s). Nothing prunes
-  record streams.
+  or compresses record streams or tapes yet; see Retention below.
+- **Retention** (owner decision Q-D6, 2026-10-09: compress sealed days after 7 days, never
+  delete). Not built: no existing tiering hook covers shadow tapes (`clob_raw_tape_tiering`,
+  `closed_day_projection_tiering` and `cold_snapshot_compression` each own other families with
+  their own guards), and every reader here (`sealed_tapes`, `verify_stream`, the replay
+  reader) opens plain files. Follow-up spec: a separate `maker_shadow compress-day --day`
+  (or a new family in an existing tiering tool) that, for a UTC day closed at least 7 days and
+  already bundled, gzips each sealed tape and record stream beside the original, proves the
+  decompressed sha256, bytes and line count equal the seal, then removes the plain file; the
+  seals, `bundle.json` and `gaps.json` stay plain. Before it runs, `sealed_tapes`,
+  `verify_stream`, `records_summary` and `next_sequence` must read `.gz` transparently, and a
+  replay of a compressed day must decompress to a scratch copy (the replay reader does not
+  read gzip). Leased night window; roll-free.
 - The round-trip test admits a bundle through a vendored copy of the reader rules
   (`tests/maker_core/fixtures/replay_v2_reader_contract.py`, pinned to build-line
   `2d8cccb13`) until the reader is on master.
@@ -283,8 +380,62 @@ study), not to this diagnostic.
 2026-09-30..2026-10-15 (maker replay v2 panel and settlement day) and
 2026-10-15..2026-11-13 (desk-study decision panel and its pre-registered
 extension), and any day not yet closed in UTC. The windows live in
-`weather.market.maker_shadow_panel.EMBARGOED_UTC_DAYS`; lifting one is a reviewed
-code change. The runner still tapes those days.
+`maker_core.shadow.admission.EMBARGO_WINDOWS` (re-exported by
+`weather.market.maker_shadow_panel`); lifting, shortening or re-scoping one is a
+reviewed code change. The runner still tapes those days.
+
+Each window has a scope. The first is `full`: nothing about its days is scored,
+parity included. The second is `outcome`: 88a, paper fills, cash, markouts and
+settlement stay refused in any output, but the **parity path** (shadow vs frozen
+replay-v2 decisions on the shadow's own tapes, gate parity definition) may read
+its days. A day in both windows takes `full`. Windows are permanent day ranges:
+`score` refuses their days until a reviewed edit of `EMBARGO_WINDOWS` lifts,
+shortens or re-scopes the window; nothing expires by itself.
+
+The parity path is outcome-blind **in output only**. It ingests each minute row in
+memory, including the tape's `paper` block (fills, `cash_pusd`, `pnl_pusd`) and the
+`inputs.portfolio` state, because decisions are conditioned on them; these are
+shadow paper fills from public prints, not 88a. On an `outcome` day none of it may
+appear in the report.
+
+Any parity scorer must, in order:
+
+1. `admit_parity_day(day, clock)` before opening anything. It computes today in UTC
+   itself and requires a canonical closed day, not `full`, an explicit `ParityClock`,
+   and a day on or after its `first_countable_day` (the day after the restart run
+   started). The admission carries its clock. Only `admit_parity_day` can mint a
+   `ParityAdmission`; direct construction is refused, and an admitted token (also
+   one made by `dataclasses.replace`) is re-validated against its day.
+2. `open_parity_tapes(root, admission)`, the only sanctioned tape opener. It first
+   re-derives the canonical day, its window (the permanent windows always apply),
+   the clock and the first countable day from the token, then reads
+   `sealed_tapes(root, day)` only (never D-1 or D+1) and runs `bind_parity_tapes`:
+   no unsealed tape, and every tape on the admission clock's shadow commit, clean,
+   with the clock's `config_sha256` and a run started at or after the restart run.
+3. `assert_outcome_blind(report, admission)` before writing. On an `outcome` day it
+   enforces `PARITY_REPORT_ALLOWLIST`; the window is re-derived from the day, never
+   taken from the flag alone. Exact keys; strings only from closed enums (verdict,
+   label, refusal, tape `git_error`, schema) or exact patterns (canonical day,
+   40-hex commit, 64-hex digest and cohort id, the runner's tape name); counters are
+   non-negative `int` at most `MAX_COUNT`. Any other key, value, object, tuple, set
+   or float is refused. A ratchet test keeps `sealed_tapes(` callers to this module
+   and the diagnostic `score`.
+
+`MakerEvidencePanel` (the 88a reader) refuses an embargoed or non-canonical day in
+its own constructor, independently of `score`. The clock
+(`maker_core.shadow_parity_clock.v0.1`: engine commit, freeze instant, shadow
+commit, restart run id, config sha) is an explicit input; nothing discovers it.
+The restart run id must not be earlier than the freeze instant. The gate loads the
+clock only through `parity_clock_from`, from its tracked `config/` file; it never
+constructs a `ParityClock` directly or takes one from a command line or environment.
+The permanent `EMBARGO_WINDOWS` are always prepended to any injected windows, and
+every scope check (admission, re-validation, tape opening, outcome withholding)
+also checks the day against `EMBARGO_WINDOWS` directly.
+
+**Land before the engine-freeze restart.** The binding compares the whole-repository
+HEAD commit, so any host merge followed by a runner respawn after the restart
+changes the shadow commit and ends the parity cohort. Land embargo and runner
+changes before the restart, and keep the runner's code still afterwards.
 
 ## Forward runner on the capture host
 
@@ -306,7 +457,8 @@ owner/production act; editing or testing the registrar arms nothing.
   [-ParityStartUtc <yyyy-MM-dd>]` prints one line: process, sealed days, last tick,
   the live run's code (`code <12 hex>`, `DIRTY`, `unbound (<git_error>)` or `not recorded`),
   rows and MB today (quotes tape plus record stream), crashed tapes, parity days and the
-  embargo. It reads names and sizes, seal
+  embargo (its dates read from `src/maker_core/shadow/admission.py`, never hard-coded).
+  It reads names and sizes, seal
   JSONs, the first line (at most 64 KiB) and at most the last MiB of the open tape and,
   with `-ParityStartUtc`, score agreement status; it never starts Python or reads 88a.
 - **Restart** (after any merge that touches the runner's modules, and **at the engine

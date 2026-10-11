@@ -3850,12 +3850,15 @@ try {
         if (-not $afterWorker) {
             $ok = $false; $why += "$($beforeWorker.name) missing after merge"; continue
         }
-        # The snapshot worker normally heartbeats once per roughly ten-minute cycle, longer
-        # than the default five-minute settle. Requiring every healthy worker to advance here
-        # made a CLOB-only roll depend on where the unrelated snapshot sleep happened to fall.
-        # The recovery checker above still requires every worker to be fresh, live, locked by
-        # the matching PID, and loaded from the current tree. Require heartbeat advancement in
-        # addition when this worker actually readopted (PID or recorded source identity changed).
+        # A worker heartbeat is liveness only, not iteration progress: the snapshot worker also
+        # refreshes last_heartbeat every 60 s of its idle sleep, so an advanced snapshot
+        # heartbeat does not prove that a new iteration ran (last_completed_iteration_at does).
+        # Advancement is therefore not required from workers that did not readopt; doing so
+        # would only add a timing dependence on unrelated loops. The recovery checker above
+        # still requires every worker to be fresh, live, locked by the matching PID, and loaded
+        # from the current tree. Require heartbeat advancement in addition when this worker
+        # actually readopted (PID or recorded source identity changed): a new process must
+        # have written its own heartbeat.
         $workerReadopted = (
             [int]$afterWorker.pid -ne [int]$beforeWorker.pid -or
             [string]$afterWorker.recorded_source_fingerprint -ne [string]$beforeWorker.recorded_source_fingerprint

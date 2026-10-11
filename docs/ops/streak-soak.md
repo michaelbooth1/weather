@@ -684,8 +684,15 @@ requires the reviewed full SHA to be an ancestor of synchronized production mast
 the read-only producer in a kill-on-close Windows Job for a bounded interval. It fails unless
 the new session observes the complete active seed set connected, writes at least one cleanly
 routed execution observation, adds no parse or routing errors, stops cleanly, stays inside
-working-set and host-commit ceilings, and leaves all three capture workers healthy with an
-advancing snapshot heartbeat. A connected socket plus one routed observation does not prove
+working-set and host-commit ceilings, and leaves all three capture workers healthy. The snapshot
+proof uses iteration progress, not the heartbeat (which the loop also refreshes every 60 s of its
+idle sleep): at the end the snapshot heartbeat must be at most 300 s old and
+`last_completed_iteration_at` at most one interval plus the fleet budget plus 120 s old (1260 s
+at defaults); a probe that ran at least that long must also see it advance. Missing cycle
+parameters fail the proof closed, and heartbeat ages are computed on UTC instants (safe across
+the DST fall-back hour). By design, a paused snapshot loop (more than about 21 minutes) fails the
+probe, because paused iterations never complete; and an inline market capture longer than about
+300 s fails the worker-health check (fail-safe). A connected socket plus one routed observation does not prove
 that every subscribed asset traded or that the public stream can identify our own fills.
 It writes the latest result and append-only history under `data/alerts/`. The probe neither
 registers nor authorizes continuous capture.
