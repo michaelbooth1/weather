@@ -1,0 +1,101 @@
+{
+  "schema": "landing_night_plan_v0.1",
+  "night": "2026-10-12",
+  "label": "N7 landing night 2026-10-11 -> 2026-10-12 (production capture host)",
+  "master_sha": "8ea5d089b6522a53db1a20bb946a490e62842c9d",
+  "generated_at": "2026-10-11T08:18:39-04:00",
+  "source": "workstation DESKTOP-RFCD2GH; human summary l-data/N7-HEADS-20261012.md",
+  "execution_order_note": "one RF slot; members merged in order dst-m4, defender-followups, dst-m5-m6",
+  "schedule": {
+    "rf": "roll-free, admitted 00:30-09:00 window; land alone or last (quiet_window_merge.ps1 freeze)",
+    "overflow_drop_order": [
+      "defender-followups",
+      "dst-m5-m6",
+      "dst-m4 last"
+    ],
+    "fallback": "members are independent branches on ef3610bc8 and each merges clean alone on 8ea5d089b (merge-tree); dst-m4 + dst-m5-m6 together need the additive test/doc resolution in this head, so a partial landing should use this head minus a member rebuilt on the workstation, not an ad-hoc host merge"
+  },
+  "master_drift": {
+    "origin_master_at_plan_time": "8ea5d089b6522a53db1a20bb946a490e62842c9d",
+    "pregate_base": "8ea5d089b6522a53db1a20bb946a490e62842c9d",
+    "checks": "origin/master at plan time = 8ea5d089b = pregate base (zero drift); head a36798574 descends from it; each member merge-tree clean alone on 8ea5d089b; host git 2.45 sim to be repeated by master at landing; reconciler file in focused run (76 tests) and pre-gate; correspondence_index --check-structure rc=0"
+  },
+  "fallback_heads": [],
+  "not_in_this_plan": "LFC N-11/N-12 fe5f54cfa (LFC line, held for owner; journal_pinned_touch wallet_reader_client.py); U6 D6 07dd78252 and research inventory f22bea073 (build line, owner yes pending)",
+  "open_questions": [
+    "owner: retire OD30 (11-01 01:45-02:15 no merge/suite) once H1/C1 re-register/L7 are settled; DST-L15 recorded, not fixed"
+  ],
+  "priority_order": [
+    "claude/integration-20261012-n7-rf"
+  ],
+  "slots": [
+    {
+      "kind": "rf_guarded_merge",
+      "head": "claude/integration-20261012-n7-rf",
+      "sha": "a367985748618ad16a3b5f40b4b019c677878fe1",
+      "prs": [],
+      "branch_only_members": [
+        "dst-m4 claude/dst-m4-guard-utc-ages-20261011 (S4U guard CreationDate as UTC instants; Defender PASS-WITH-NOTES, should-fix applied b27d9800b)",
+        "defender-followups claude/defender-followups-20261011 (status.ps1 DateTimeOffset coverage test; #267 N4 runbook line)",
+        "dst-m5-m6 claude/dst-m5-m6-utc-deadlines-20261011 (quiet-merge/suite-gate/adoption deadlines as instants; Defender PASS-WITH-NOTES)"
+      ],
+      "priority": 1,
+      "exec": 1,
+      "members": {
+        "dst-m4": "b27d9800b3a9c1a7c3b04b18e3c2554bdf86f365",
+        "defender-followups": "c7dc4638fcbb8dc453a354de03a047ff9e286fc0",
+        "dst-m5-m6": "1e4e743ec97e471f3c2e6ce75802a09c7dcbd12e"
+      },
+      "stacked_on": "8ea5d089b6522a53db1a20bb946a490e62842c9d",
+      "merge_order": [
+        "dst-m4",
+        "defender-followups",
+        "dst-m5-m6"
+      ],
+      "integration_resolution": "the dst-m5-m6 merge commit resolves additive conflicts in tests/operations/test_dst_audit_powershell_20261007.py and the DST audit doc (keep both), and per the M5/M6 Defender adds row DST-L15 (Scheduler LastRunTime ordering) and rewords the section-5 plan row for M4/M6",
+      "expected_roll_class": "ROLL-FREE",
+      "roll_evidence": "only .ps1, docs and tests change (memory_commit_guard.ps1, quiet_window_merge.ps1, suite_gated_quiet_merge.ps1, adopt_execution_tape_after_merge.ps1); no importable module",
+      "journal_pinned_touch": [],
+      "tier_a": "PASS (no C3/tier-A path touched)",
+      "activation_block": "not required (no loop/task/scorer added). memory_commit_guard.ps1 runs by path from the production checkout with no hash pin (OPERATIONS_DESIGN.md) and no re-registration: the next one-minute guard run uses it; optionally check one fresh memory_commit_guard_status.json after landing",
+      "landing_constraints": [
+        "quiet_window_merge.ps1 sha256 is frozen by integration-attempt manifests: land this head alone or as the LAST head of its night; any attempt frozen before it lands and run after it fails 'orchestration file changed after freeze'. The attempt landing this head is itself safe.",
+        "suite_gated_quiet_merge.ps1 is hash-frozen on the legacy bootstrap path: before landing, read-only check that no scheduled task still runs it with -ExpectedGateSha256",
+        "quiet_window_merge.ps1 is on the reconciler surface: the bounded suite includes the ~19 min reconciler file",
+        "DST-M4 and DST-M5/M6 must land before 2026-11-01 01:00 EDT"
+      ],
+      "qtest": {
+        "log": "q-n7-rf-a367985.log",
+        "result": "469 passed",
+        "rc": 0
+      },
+      "agent_docs_audit_rc": 0,
+      "known_fix": "landing_preflight correspondence_index --check is stale on master by design (closeout regenerates it); --check-structure PASS on the head",
+      "pregate": {
+        "path": "C:\\wt\\workstation-chat\\l-data\\n7heads\\pregate\\pg-a36798574861-20261011T072710-55308\\receipt.json",
+        "receipt_sha256": "0a55d2d3631ef4c2a523b9f46a34440af71131f0c884b08ccec7883998ea2edd",
+        "verdict": "PASS",
+        "base": "8ea5d089b6522a53db1a20bb946a490e62842c9d",
+        "base_is_ancestor": true,
+        "log_sha256": "7e34f120c2cf19eb0b9d55573c9950609d824dd131a4b9624bd926965b88de92",
+        "chunks": 21,
+        "chunk_files": 519,
+        "chunk_exit_codes_nonzero": [],
+        "junit_totals": {
+          "tests": 9674,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 63,
+          "passed": 9611
+        },
+        "failed_tests": [],
+        "failure_reasons": [],
+        "started_at": "2026-10-11T07:27:10.2359015-04:00",
+        "finished_at": "2026-10-11T08:18:28.2480736-04:00",
+        "python": "workstation 3.11.9 (host 3.11.0)",
+        "git": "2.54.0.windows.1 (host 2.45.2)"
+      }
+    }
+  ],
+  "plan_sha256": "fd9149704e580e20a8e175e3f6fbf813fab6b3dc0ad48763f8f80deb1a3457ef"
+}
