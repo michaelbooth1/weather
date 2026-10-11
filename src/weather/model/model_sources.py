@@ -887,7 +887,10 @@ class SourceFetchMixin:
             return None
         if parsed.tzinfo is None:
             parsed = parsed.replace(tzinfo=self.spec.tz)
-        return max(0.0, (datetime.now(self.spec.tz) - parsed.astimezone(self.spec.tz)).total_seconds() / 60.0)
+        # Elapsed time between UTC instants: subtracting two datetimes that share
+        # ``spec.tz`` is wall-clock arithmetic and is off by the DST shift (DST-M2).
+        elapsed = datetime.now(timezone.utc) - parsed.astimezone(timezone.utc)
+        return max(0.0, elapsed.total_seconds() / 60.0)
 
     def source_cache_ttl_minutes(self, name):
         """Per-source last-good cache TTL in minutes (item 17). Observation /
