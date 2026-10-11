@@ -78,6 +78,7 @@ For the independent public maker collector, its task and retention, read
 | [NIGHTLY_RETRAIN_RUNBOOK.md](NIGHTLY_RETRAIN_RUNBOOK.md) | Candidate-only retraining or immutable inactive-release construction. |
 | [EXCHANGE_ECONOMICS_SNAPSHOT_RUNBOOK.md](EXCHANGE_ECONOMICS_SNAPSHOT_RUNBOOK.md) | Publishing, reviewing, accepting or drift-checking exchange rules. |
 | [mission-dispatch-reconciliation.md](mission-dispatch-reconciliation.md) | A handoff has no visible branch and you are about to call it lost. |
+| [HOST_PYTHON_UPGRADE_RUNBOOK.md](HOST_PYTHON_UPGRADE_RUNBOOK.md) | **Proposed, not approved.** Preparing, reviewing or executing the capture host's 3.11.0 to 3.11.9 interpreter upgrade: install, qualification, quiet-window cutover, release re-bind, rollback. |
 
 Required registration parameters are defined by the scripts under `scripts/ops/`. Read a script's
 `param(...)` block before registration; some production tasks require explicit evidence paths.
