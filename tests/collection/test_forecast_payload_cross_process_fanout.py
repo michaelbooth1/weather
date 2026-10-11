@@ -820,3 +820,398 @@ def test_receipt_evidence_accounts_once_when_holder_never_writes_manifest(tmp_pa
                 "nyc": {"forecast_payload_storage": conflicting},
             }
         )
+
+
+def _claim_open_failing(monkeypatch, failures):
+    """Make exclusive claim creates raise PermissionError ``failures`` times."""
+
+    real_open = os.open
+    denied = []
+
+    def fake_open(path, flags, *args, **kwargs):
+        if flags & os.O_EXCL and str(path).endswith(".claim"):
+            if failures is None or len(denied) < failures:
+                denied.append(str(path))
+                raise PermissionError(13, "Permission denied", str(path))
+        return real_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(fanout_module.os, "open", fake_open)
+    return denied
+
+
+def test_windows_claim_denial_is_retried_as_contention(tmp_path, monkeypatch):
+    monkeypatch.setattr(fanout_module, "_WINDOWS_CLAIM_DENIAL_IS_CONTENTION", True)
+    denied = _claim_open_failing(monkeypatch, 3)
+    coordinator = CrossProcessMarketInvariantFetchFanout(
+        tmp_path / "shared-cas", wait_timeout_seconds=5, poll_seconds=0.001,
+    )
+    calls = []
+
+    def fetch():
+        calls.append("holder")
+        return dict(FETCH_VALUE)
+
+    result = _fetch(coordinator, fetch)
+
+    assert len(denied) == 3
+    assert calls == ["holder"]
+    assert result.fetched is True
+    assert result.wait_timed_out is False
+    assert result.coordination_status == "cross_process_holder_published"
+    assert not list((tmp_path / "shared-cas").rglob("*.claim"))
+    assert len(list((tmp_path / "shared-cas").rglob("*.receipt.json"))) == 1
+
+
+def test_persistent_windows_claim_denial_is_raised_without_fetch(
+    tmp_path, monkeypatch,
+):
+    monkeypatch.setattr(fanout_module, "_WINDOWS_CLAIM_DENIAL_IS_CONTENTION", True)
+    denied = _claim_open_failing(monkeypatch, None)
+    clock = [0.0]
+
+    def sleep(seconds):
+        clock[0] += seconds
+
+    coordinator = CrossProcessMarketInvariantFetchFanout(
+        tmp_path / "shared-cas",
+        wait_timeout_seconds=1.0,
+        poll_seconds=0.25,
+        monotonic_fn=lambda: clock[0],
+        sleep_fn=sleep,
+    )
+    calls = []
+
+    with pytest.raises(PermissionError):
+        _fetch(coordinator, lambda: calls.append("fetch") or dict(FETCH_VALUE))
+
+    # Bounded by the existing wait budget: attempts at t=0, .25, .5, .75, 1.0.
+    assert len(denied) == 5
+    assert calls == []
+    assert not list((tmp_path / "shared-cas").rglob("*.claim"))
+    assert not list((tmp_path / "shared-cas").rglob("*.receipt.json"))
+
+
+def test_posix_claim_permission_error_is_raised_immediately(tmp_path, monkeypatch):
+    monkeypatch.setattr(fanout_module, "_WINDOWS_CLAIM_DENIAL_IS_CONTENTION", False)
+    denied = _claim_open_failing(monkeypatch, None)
+    coordinator = CrossProcessMarketInvariantFetchFanout(
+        tmp_path / "shared-cas", wait_timeout_seconds=5, poll_seconds=0.001,
+    )
+    calls = []
+
+    with pytest.raises(PermissionError):
+        _fetch(coordinator, lambda: calls.append("fetch") or dict(FETCH_VALUE))
+
+    assert len(denied) == 1
+    assert calls == []
+
+
+_RACE_WORKER = r"""
+import json, sys, time
+from weather.collection.forecast_payload_fetch_fanout import (
+    CrossProcessMarketInvariantFetchFanout,
+)
+root, value_path, request_key, cycle_key, rounds, start_at = sys.argv[1:7]
+value = json.loads(open(value_path, encoding="utf-8").read())
+coordinator = CrossProcessMarketInvariantFetchFanout(
+    root, wait_timeout_seconds=60, poll_seconds=0.001,
+)
+while time.time() < float(start_at):
+    time.sleep(0.001)
+outcomes = []
+for index in range(int(rounds)):
+    try:
+        result = coordinator.fetch(
+            source="nbm_probabilistic_tmax",
+            request_key=request_key,
+            cycle_key=cycle_key,
+            scope_key=f"race-{index}",
+            fetch_fn=lambda: dict(value),
+        )
+        outcomes.append([index, result.coordination_status, None])
+    except Exception as exc:
+        outcomes.append([index, None, f"{type(exc).__name__}: {exc}"])
+print(json.dumps(outcomes))
+"""
+
+
+def test_real_processes_racing_on_each_claim_get_one_holder_and_no_denial(tmp_path):
+    """Three OS processes race on fresh claims, as the fleet's workers do.
+
+    On Windows the holder's claim delete races a follower's exclusive create;
+    before claim denials were treated as contention this leaked PermissionError
+    in most runs of this test.
+    """
+
+    import subprocess
+    import sys
+    import time
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parents[2]
+    root = tmp_path / "shared-cas"
+    value_path = tmp_path / "fetch-value.json"
+    value_path.write_text(json.dumps(FETCH_VALUE), encoding="utf-8")
+    rounds = 120
+    start_at = time.time() + 3.0
+    workers = [
+        subprocess.Popen(
+            [
+                sys.executable, "-c", _RACE_WORKER, str(root), str(value_path),
+                REQUEST_KEY, CYCLE_KEY, str(rounds), str(start_at),
+            ],
+            cwd=tmp_path,
+            env=dict(os.environ, PYTHONPATH=str(repo_root / "src")),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        for _ in range(3)
+    ]
+    outputs = []
+    for worker in workers:
+        stdout, stderr = worker.communicate(timeout=120)
+        assert worker.returncode == 0, stderr
+        outputs.append(json.loads(stdout))
+
+    errors = [outcome for output in outputs for outcome in output if outcome[2]]
+    assert errors == []
+    for index in range(rounds):
+        statuses = sorted(output[index][1] for output in outputs)
+        assert statuses == [
+            "cross_process_holder_published",
+            "cross_process_receipt_reused",
+            "cross_process_receipt_reused",
+        ], (index, statuses)
+    assert not list(root.rglob("*.claim"))
+
+
+def _path_op_failing(monkeypatch, name, marker, failures):
+    """Make ``Path.<name>`` raise PermissionError on ``marker`` paths ``failures`` times."""
+
+    real = getattr(fanout_module.Path, name)
+    denied = []
+
+    def fake(self, *args, **kwargs):
+        if marker in self.name and (
+            failures is None or len(denied) < failures
+        ):
+            denied.append(str(self))
+            raise PermissionError(13, "Permission denied", str(self))
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(fanout_module.Path, name, fake)
+    return denied
+
+
+def _fake_clock_coordinator(root, *, wait_timeout_seconds=5.0):
+    clock = [0.0]
+    sleeps = []
+
+    def sleep(seconds):
+        sleeps.append(seconds)
+        clock[0] += seconds
+
+    coordinator = CrossProcessMarketInvariantFetchFanout(
+        root,
+        wait_timeout_seconds=wait_timeout_seconds,
+        poll_seconds=0.25,
+        monotonic_fn=lambda: clock[0],
+        sleep_fn=sleep,
+    )
+    return coordinator, sleeps
+
+
+def test_windows_transient_claim_release_denial_is_retried(tmp_path, monkeypatch):
+    monkeypatch.setattr(fanout_module, "_WINDOWS_TRANSIENT_DENIAL_RETRY", True)
+    denied = _path_op_failing(monkeypatch, "unlink", ".claim", 3)
+    root = tmp_path / "shared-cas"
+    coordinator, sleeps = _fake_clock_coordinator(root)
+
+    result = _fetch(coordinator, lambda: dict(FETCH_VALUE))
+
+    assert len(denied) == 3
+    assert sleeps == [fanout_module._TRANSIENT_DENIAL_RETRY_SLEEP_SECONDS] * 3
+    assert result.coordination_status == "cross_process_holder_published"
+    assert not list(root.rglob("*.claim"))
+
+
+def test_windows_persistent_claim_release_denial_preserves_holder_outcome(
+    tmp_path, monkeypatch, caplog,
+):
+    monkeypatch.setattr(fanout_module, "_WINDOWS_TRANSIENT_DENIAL_RETRY", True)
+    denied = _path_op_failing(monkeypatch, "unlink", ".claim", None)
+    root = tmp_path / "shared-cas"
+    coordinator, sleeps = _fake_clock_coordinator(root)
+
+    with caplog.at_level("WARNING", logger=fanout_module.__name__):
+        result = _fetch(coordinator, lambda: dict(FETCH_VALUE))
+
+    # Bounded retry, then the holder's success is returned, not replaced.
+    assert len(denied) == fanout_module._TRANSIENT_DENIAL_RETRIES
+    assert len(sleeps) == fanout_module._TRANSIENT_DENIAL_RETRIES - 1
+    assert result.fetched is True
+    assert result.coordination_status == "cross_process_holder_published"
+    assert "claim left in place" in caplog.text
+    claims = list(root.rglob("*.claim"))
+    assert len(claims) == 1
+    assert len(list(root.rglob("*.receipt.json"))) == 1
+
+    # A holder's own exception is not replaced either.
+    def failing_fetch():
+        raise RuntimeError("provider exploded")
+
+    with pytest.raises(RuntimeError, match="provider exploded"):
+        _fetch(coordinator, failing_fetch, scope="fleet-pass-2")
+
+    # A follower of the leaked claim relies on the existing bounded wait.
+    follower, _ = _fake_clock_coordinator(root, wait_timeout_seconds=1.0)
+    calls = []
+    followed = _fetch(
+        follower, lambda: calls.append("fetch") or dict(FETCH_VALUE),
+    )
+    assert calls == ["fetch"]
+    assert followed.coordination_status == "cross_process_wait_timeout_fail_open"
+    assert followed.wait_timed_out is True
+
+
+def test_release_never_deletes_a_claim_it_does_not_own(tmp_path, monkeypatch):
+    monkeypatch.setattr(fanout_module, "_WINDOWS_TRANSIENT_DENIAL_RETRY", True)
+    root = tmp_path / "shared-cas"
+    coordinator, _ = _fake_clock_coordinator(root)
+    _, claim_path = coordinator._paths(
+        "nbm_probabilistic_tmax", REQUEST_KEY, CYCLE_KEY, "fleet-pass-1",
+    )
+    token = coordinator._try_claim(root, claim_path, {"source": "x"})
+    assert token is not None
+
+    coordinator._release_claim(root, claim_path, "not-" + token)
+
+    assert claim_path.exists()
+
+
+def test_posix_claim_release_permission_error_is_unchanged(tmp_path, monkeypatch):
+    monkeypatch.setattr(fanout_module, "_WINDOWS_TRANSIENT_DENIAL_RETRY", False)
+    denied = _path_op_failing(monkeypatch, "unlink", ".claim", 1)
+    root = tmp_path / "shared-cas"
+    coordinator, sleeps = _fake_clock_coordinator(root)
+
+    with pytest.raises(PermissionError):
+        _fetch(coordinator, lambda: dict(FETCH_VALUE))
+
+    assert len(denied) == 1
+    assert sleeps == []
+
+
+def test_windows_transient_claim_read_denial_is_retried(tmp_path, monkeypatch):
+    monkeypatch.setattr(fanout_module, "_WINDOWS_TRANSIENT_DENIAL_RETRY", True)
+    denied = _path_op_failing(monkeypatch, "read_text", ".claim", 2)
+    root = tmp_path / "shared-cas"
+    coordinator, sleeps = _fake_clock_coordinator(root)
+
+    result = _fetch(coordinator, lambda: dict(FETCH_VALUE))
+
+    assert len(denied) == 2
+    assert len(sleeps) == 2
+    assert result.coordination_status == "cross_process_holder_published"
+    assert not list(root.rglob("*.claim"))
+
+
+def test_posix_claim_read_denial_is_unchanged(tmp_path, monkeypatch):
+    monkeypatch.setattr(fanout_module, "_WINDOWS_TRANSIENT_DENIAL_RETRY", False)
+    denied = _path_op_failing(monkeypatch, "read_text", ".claim", None)
+    root = tmp_path / "shared-cas"
+    coordinator, sleeps = _fake_clock_coordinator(root)
+
+    result = _fetch(coordinator, lambda: dict(FETCH_VALUE))
+
+    # One silent attempt, as before: the claim is left for the bounded wait.
+    assert len(denied) == 1
+    assert sleeps == []
+    assert result.coordination_status == "cross_process_holder_published"
+    assert len(list(root.rglob("*.claim"))) == 1
+
+
+def test_windows_staging_unlink_denial_is_retried(tmp_path, monkeypatch):
+    monkeypatch.setattr(fanout_module, "_WINDOWS_TRANSIENT_DENIAL_RETRY", True)
+    denied = _path_op_failing(monkeypatch, "unlink", ".receipt.json.staging-", 2)
+    root = tmp_path / "shared-cas"
+    coordinator, sleeps = _fake_clock_coordinator(root)
+
+    result = _fetch(coordinator, lambda: dict(FETCH_VALUE))
+
+    assert len(denied) == 2
+    assert len(sleeps) == 2
+    assert result.coordination_status == "cross_process_holder_published"
+    assert not list(root.rglob("*.staging-*"))
+    assert not list(root.rglob("*.claim"))
+
+
+def test_windows_persistent_staging_unlink_denial_preserves_publish(
+    tmp_path, monkeypatch, caplog,
+):
+    monkeypatch.setattr(fanout_module, "_WINDOWS_TRANSIENT_DENIAL_RETRY", True)
+    denied = _path_op_failing(
+        monkeypatch, "unlink", ".receipt.json.staging-", None,
+    )
+    root = tmp_path / "shared-cas"
+    coordinator, _ = _fake_clock_coordinator(root)
+
+    with caplog.at_level("WARNING", logger=fanout_module.__name__):
+        result = _fetch(coordinator, lambda: dict(FETCH_VALUE))
+
+    assert len(denied) == fanout_module._TRANSIENT_DENIAL_RETRIES
+    assert result.coordination_status == "cross_process_holder_published"
+    assert "staging alias left" in caplog.text
+    assert len(list(root.rglob("*.staging-*"))) == 1
+    assert not list(root.rglob("*.claim"))
+
+
+def test_windows_persistent_claim_read_denial_logs_and_returns(
+    tmp_path, monkeypatch, caplog,
+):
+    monkeypatch.setattr(fanout_module, "_WINDOWS_TRANSIENT_DENIAL_RETRY", True)
+    denied = _path_op_failing(monkeypatch, "read_text", ".claim", None)
+    root = tmp_path / "shared-cas"
+    coordinator, sleeps = _fake_clock_coordinator(root)
+
+    with caplog.at_level("WARNING", logger=fanout_module.__name__):
+        result = _fetch(coordinator, lambda: dict(FETCH_VALUE))
+
+    # Bounded retry, then log and return: the holder's result is preserved.
+    assert len(denied) == fanout_module._TRANSIENT_DENIAL_RETRIES
+    assert len(sleeps) == fanout_module._TRANSIENT_DENIAL_RETRIES - 1
+    assert result.coordination_status == "cross_process_holder_published"
+    assert "denied read attempts" in caplog.text
+    assert len(list(root.rglob("*.claim"))) == 1
+
+
+def test_only_latest_claim_denial_is_raised_at_the_deadline(tmp_path, monkeypatch):
+    """One transient denial, then a crashed holder's claim: fail open, not raise."""
+
+    monkeypatch.setattr(fanout_module, "_WINDOWS_CLAIM_DENIAL_IS_CONTENTION", True)
+    real_open = os.open
+    denied = []
+
+    def fake_open(path, flags, *args, **kwargs):
+        if flags & os.O_EXCL and str(path).endswith(".claim") and not denied:
+            denied.append(str(path))
+            # A holder wins the claim during our denied create, then crashes
+            # and leaves it behind: every later create sees EEXIST.
+            fanout_module.Path(path).write_text(
+                json.dumps({"token": "crashed-holder"}), encoding="utf-8",
+            )
+            raise PermissionError(13, "Permission denied", str(path))
+        return real_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(fanout_module.os, "open", fake_open)
+    root = tmp_path / "shared-cas"
+    coordinator, _ = _fake_clock_coordinator(root, wait_timeout_seconds=1.0)
+    calls = []
+
+    result = _fetch(coordinator, lambda: calls.append("fetch") or dict(FETCH_VALUE))
+
+    assert len(denied) == 1
+    assert calls == ["fetch"]
+    assert result.coordination_status == "cross_process_wait_timeout_fail_open"
+    assert result.wait_timed_out is True

@@ -20,6 +20,7 @@ import requests
 
 from weather.market.market_registry import spec_for_id
 from weather.sources.daily_summary import WU_DAILY_SCHEMA_VERSION, native_bucket, native_to_c
+from weather.sources.wu_redaction import safe_attr
 from weather.units import round_half_up
 
 
@@ -153,10 +154,12 @@ def permanent_no_data_status_codes(page_backed=False):
 
 
 def failure_class_for_exception(exc, page_backed=None):
-    response = getattr(exc, "response", None)
-    status_code = getattr(response, "status_code", None)
+    # safe_attr, not getattr: on CPython < 3.11.2 (the capture host runs 3.11.0) a
+    # urllib HTTPError built with fp=None raises KeyError for any missing attribute.
+    response = safe_attr(exc, "response")
+    status_code = safe_attr(response, "status_code")
     if page_backed is None:
-        page_backed = bool(getattr(exc, PAGE_BACKED_EXCEPTION_ATTR, False))
+        page_backed = bool(safe_attr(exc, PAGE_BACKED_EXCEPTION_ATTR))
     if status_code in permanent_no_data_status_codes(page_backed):
         return PERMANENT_NO_DATA
     if status_code in AUTH_FAILURE_STATUS_CODES:
@@ -638,7 +641,7 @@ class WundergroundHistoryStore:
         return dates
 
     def write_fetch_error(self, start_date, end_date, exc, source=None):
-        response = getattr(exc, "response", None)
+        response = safe_attr(exc, "response")  # see failure_class_for_exception
         failure_class = failure_class_for_exception(exc)
         payload = {
             "source": source or "legacy paid-provider historical observations",
@@ -647,9 +650,9 @@ class WundergroundHistoryStore:
             "temperature_unit": self.unit,
             "start": start_date.isoformat(),
             "end": end_date.isoformat(),
-            "status_code": getattr(response, "status_code", None),
+            "status_code": safe_attr(response, "status_code"),
             "failure_class": failure_class,
-            "url": redact_api_key(getattr(response, "url", None)),
+            "url": redact_api_key(safe_attr(response, "url")),
             "error": redact_api_key(str(exc)),
             "recorded_at_utc": datetime.now(timezone.utc).isoformat(),
             "treated_as_source_unavailable": failure_class == PERMANENT_NO_DATA,
