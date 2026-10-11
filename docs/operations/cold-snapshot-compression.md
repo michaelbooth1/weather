@@ -311,6 +311,12 @@ still consumes its date.
 
 ### Resolving a failed nightly attempt
 
+An unresolved failed attempt blocks every later night: the scheduled runner
+throws at preflight, creates no `nightly-*` directory and writes no receipt.
+So a non-zero `WeatherColdSnapshotNightly` result with no new directory for
+that date means a refused start; look for a prior attempt whose receipt is not
+`PASS` and that has no `resolved-nightly` record, and resolve it the same morning.
+
 After inspecting the attempt, production records a resolution with the
 reviewed source (read-only over the attempt's receipts; no lease needed, no
 source payload read):
