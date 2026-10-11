@@ -6,20 +6,25 @@ on the wall clock). DST-C1 (daily Scheduler triggers stored with a fixed UTC off
 local-trigger helper and guarded by tests/operations/test_scheduled_task_local_daily_triggers.py; its
 xfail here was retired with that fix. DST-H4 is fixed by PR #273 (heartbeat ages are differences of
 UTC instants); its xfail was retired with that fix and its probe now passes the test's own instant
-through Get-HealthyCaptureWorkerCount -Now.
+through Get-HealthyCaptureWorkerCount -Now. DST-H3 is fixed by comparing the readoption heartbeats
+as UTC instants (Test-QuietMergeHeartbeatAdvanced over the status.ps1 timestamp helpers); its xfail
+was retired with that fix and its probe now evaluates both real readoption conditions (capture
+workers and execution tape) across the fall-back hour and on ordinary days.
 
 Every test executes the repository's own PowerShell (a statement or function
 extracted from the script by the PowerShell parser) in a real Windows
 PowerShell child whose local time zone is pinned to Eastern, so the result
 does not depend on the runner's zone. The clock-dependent cases use fixed
 instants inside the 2026-11-01 fall-back hour (and the 2027-03-14 spring-forward
-gap). Each test is ``xfail(strict=True, raises=AssertionError)`` while the defect is
-on master: a broken harness raises ``RuntimeError`` and fails loudly instead of
-counting as the expected failure. The fixing change must remove the marker.
+gap). A test added for a new defect is ``xfail(strict=True, raises=AssertionError)``
+while the defect is on master: a broken harness raises ``RuntimeError`` and fails
+loudly instead of counting as the expected failure. The fixing change must remove
+the marker. Every finding listed above is now fixed, so no marker remains.
 """
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import shutil
@@ -78,46 +83,99 @@ MERGE_HEARTBEAT_PROBE = r"""
 $ast = [System.Management.Automation.Language.Parser]::ParseFile(
     $env:DST_AUDIT_SCRIPT, [ref]$tokens, [ref]$errors)
 if (@($errors).Count -ne 0) { throw 'quiet_window_merge.ps1 does not parse' }
-$comparisons = @($ast.FindAll({
+# Load whichever timestamp helpers the script defines, so the real call-site
+# conditions below evaluate exactly as they would in the merge.
+foreach ($functionAst in @($ast.FindAll({
     param($node)
-    $node -is [System.Management.Automation.Language.BinaryExpressionAst] -and
-        $node.Operator -eq 'Ile' -and
-        $node.Left.Extent.Text -match '\$afterWorker\.last_heartbeat' -and
-        $node.Right.Extent.Text -match '\$beforeWorker\.last_heartbeat'
-}, $true))
-if ($comparisons.Count -ne 1) { throw "expected one heartbeat comparison, found $($comparisons.Count)" }
-$beforeWorker = [pscustomobject]@{ last_heartbeat = $env:DST_BEFORE }
-$afterWorker = [pscustomobject]@{ last_heartbeat = $env:DST_AFTER }
-$notAdvanced = [bool](Invoke-Expression $comparisons[0].Extent.Text)
-[pscustomobject]@{
-    line = $comparisons[0].Extent.StartLineNumber
-    not_advanced = $notAdvanced
-} | ConvertTo-Json -Compress
+    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+        $node.Name -in @('ConvertTo-StatusInstant', 'ConvertTo-StatusUtcInstant', 'Test-QuietMergeHeartbeatAdvanced')
+}, $true))) { Invoke-Expression $functionAst.Extent.Text }
+# The two readoption checks: capture workers and the execution tape. Each is the
+# condition of the one if-statement that compares that pair's heartbeats.
+$sites = [ordered]@{
+    worker = @('$afterWorker.last_heartbeat', '$beforeWorker.last_heartbeat')
+    execution_tape = @('$executionAfter.last_heartbeat', '$executionBefore.last_heartbeat')
+}
+$conditions = [ordered]@{}
+foreach ($site in $sites.Keys) {
+    $pair = $sites[$site]
+    $found = @($ast.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.IfStatementAst] -and
+            $node.Clauses[0].Item1.Extent.Text.Contains($pair[0]) -and
+            $node.Clauses[0].Item1.Extent.Text.Contains($pair[1])
+    }, $true))
+    if ($found.Count -ne 1) { throw "expected one $site heartbeat comparison, found $($found.Count)" }
+    $conditions[$site] = $found[0].Clauses[0].Item1.Extent.Text
+}
+$cases = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:DST_CASES)) | ConvertFrom-Json
+$results = [ordered]@{}
+foreach ($site in $conditions.Keys) {
+    $results[$site] = [ordered]@{}
+    foreach ($case in @($cases)) {
+        $beforeWorker = [pscustomobject]@{ last_heartbeat = $case.before }
+        $afterWorker = [pscustomobject]@{ last_heartbeat = $case.after }
+        $executionBefore = $beforeWorker
+        $executionAfter = $afterWorker
+        try {
+            $verdict = if ([bool](Invoke-Expression $conditions[$site])) { 'not_advanced' } else { 'advanced' }
+        }
+        catch { $verdict = 'error' }
+        $results[$site][[string]$case.name] = $verdict
+    }
+}
+$results | ConvertTo-Json -Compress
 """
+
+# Toronto falls back at 2026-11-01 06:00Z: 01:59:59 EDT (-04:00) is followed by
+# 01:00:00 EST (-05:00). Supervisor heartbeats are written with their offset
+# (datetime.isoformat()), so the quiet window sees both 01:xx readings.
+MERGE_HEARTBEAT_CASES = [
+    # 05:58:40Z -> 06:03:12Z: 4.5 real minutes later, but 01:58 -> 01:03 on the wall.
+    ("fall_back_advanced", "2026-11-01T01:58:40.250000-04:00", "2026-11-01T01:03:12.500000-05:00", "advanced"),
+    # 06:03:12Z -> 05:58:40Z: really earlier, but 01:03 -> 01:58 on the wall.
+    ("fall_back_went_backwards", "2026-11-01T01:03:12.500000-05:00", "2026-11-01T01:58:40.250000-04:00",
+     "not_advanced"),
+    # The same instant written in two offsets is not an advance.
+    ("fall_back_same_instant", "2026-11-01T06:00:30+00:00", "2026-11-01T01:00:30-05:00", "not_advanced"),
+    # Outside DST the verdicts are what the wall-clock comparison always gave.
+    ("ordinary_advanced", "2026-10-20T01:30:00-04:00", "2026-10-20T01:31:00-04:00", "advanced"),
+    ("ordinary_unchanged", "2026-10-20T01:30:00-04:00", "2026-10-20T01:30:00-04:00", "not_advanced"),
+    ("ordinary_backwards", "2026-10-20T01:31:00-04:00", "2026-10-20T01:30:00-04:00", "not_advanced"),
+    ("offsetless_advanced", "2026-10-20T01:30:00", "2026-10-20T01:31:00", "advanced"),
+    ("offsetless_unchanged", "2026-10-20T01:30:00", "2026-10-20T01:30:00", "not_advanced"),
+    # Missing or unparseable stamps fail the comparison (the merge rolls back).
+    ("unparseable_after", "2026-10-20T01:30:00-04:00", "not-a-time", "error"),
+    ("missing_after", "2026-10-20T01:30:00-04:00", None, "error"),
+    ("missing_before", None, "2026-10-20T01:30:00-04:00", "error"),
+]
 
 
 @WINDOWS_POWERSHELL
 @pytest.mark.spawns
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="DST audit 2026-10-07: DST-H3")
 def test_quiet_merge_heartbeat_advancement_survives_fall_back():
-    # Supervisor heartbeats are written with their offset (datetime.isoformat()).
-    before = "2026-11-01T01:58:40.250000-04:00"  # 05:58:40Z, first 01:xx (EDT)
-    after = "2026-11-01T01:03:12.500000-05:00"  # 06:03:12Z, second 01:xx (EST)
-    if not datetime.fromisoformat(after) > datetime.fromisoformat(before):
-        raise RuntimeError("fixture heartbeats are not in real-time order")
+    for name, before, after, expected in MERGE_HEARTBEAT_CASES:
+        try:
+            real = datetime.fromisoformat(after) > datetime.fromisoformat(before)
+        except (TypeError, ValueError):
+            continue
+        if real != (expected == "advanced"):
+            raise RuntimeError(f"fixture {name} does not match its real-time order")
+    cases = [{"name": n, "before": b, "after": a} for n, b, a, _ in MERGE_HEARTBEAT_CASES]
 
     payload = _run(
         MERGE_HEARTBEAT_PROBE,
         {
             "DST_AUDIT_SCRIPT": str(OPS / "quiet_window_merge.ps1"),
-            "DST_BEFORE": before,
-            "DST_AFTER": after,
+            "DST_CASES": base64.b64encode(json.dumps(cases).encode("utf-8")).decode("ascii"),
         },
     )
 
-    # The readopted worker heartbeated 4.5 real minutes later. The defect casts
-    # both to local [datetime] (01:58 vs 01:03 wall) and rolls the merge back.
-    assert payload["not_advanced"] is False, payload
+    # Both readoption checks (capture workers and the execution tape) judge the
+    # heartbeats as instants. The defect cast both to local [datetime], read the
+    # readopted worker's later heartbeat as 55 minutes older, and rolled back.
+    expected = {name: verdict for name, _, _, verdict in MERGE_HEARTBEAT_CASES}
+    assert payload == {"worker": expected, "execution_tape": expected}, payload
 
 
 HEALTHY_WORKERS_PROBE = r"""

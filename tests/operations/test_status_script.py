@@ -2285,6 +2285,121 @@ def test_status_timestamp_helpers_resolve_datetime_input_by_kind() -> None:
     }
 
 
+# The health-watchdog heartbeat age and the quiet-merge marker age, run end to
+# end: the real statements are lifted from status.ps1 and evaluated against a
+# watchdog file and an in-progress marker written with their offset, as
+# health_watchdog.ps1 and quiet_window_merge.ps1 write them ((Get-Date).ToString("o")).
+STATUS_WATCHDOG_MARKER_HARNESS = STATUS_AGE_PROLOGUE + r"""
+$watchdogBlock = @($statements | Where-Object {
+    $_ -is [System.Management.Automation.Language.IfStatementAst] -and
+        $_.Clauses[0].Item1.Extent.Text -eq 'Test-Path $wdf'
+})
+$watchdogFlags = @($statements | Where-Object {
+    $_ -is [System.Management.Automation.Language.IfStatementAst] -and
+        $_.Clauses[0].Item1.Extent.Text -eq '$null -eq $wd'
+})
+$markerBlock = @($statements | Where-Object {
+    $_ -is [System.Management.Automation.Language.IfStatementAst] -and
+        $_.Clauses[0].Item1.Extent.Text.Contains('Test-Path -LiteralPath $quietMarkerPath') -and
+        $_.Clauses[0].Item1.Extent.Text.Contains('$reconciliationPublication.classification')
+})
+if ($watchdogBlock.Count -ne 1 -or $watchdogFlags.Count -ne 1 -or $markerBlock.Count -ne 1) {
+    throw 'watchdog or quiet-marker block not found exactly once'
+}
+$wdf = Join-Path $env:WEATHER_STATUS_TMP 'host_health_latest.json'
+$quietMarkerPath = Join-Path $env:WEATHER_STATUS_TMP 'quiet_window_merge_in_progress.json'
+$reconciliationPublication = [pscustomobject]@{ classification = 'ordinary' }
+foreach ($case in @($cases)) {
+    $global:statusTestNow = [datetimeoffset]::Parse(
+        [string]$case.now, [Globalization.CultureInfo]::InvariantCulture)
+    [IO.File]::WriteAllText($wdf, (@{ ts = $case.stamp; verdict = 'OK' } | ConvertTo-Json -Compress), $utf8)
+    $marker = [ordered]@{
+        schema = 'quiet_window_merge_in_progress_v0.1'
+        phase = 'merged_uncommitted'
+        expected_tip = ('a' * 40)
+        expected_baseline = ('b' * 40)
+        updated_at = $case.stamp
+    }
+    [IO.File]::WriteAllText($quietMarkerPath, ($marker | ConvertTo-Json -Compress), $utf8)
+    $flags = New-Object System.Collections.Generic.List[string]
+    $warns = New-Object System.Collections.Generic.List[string]
+    $wd = $null
+    $wdAgeMin = $null
+    Invoke-Expression $watchdogBlock[0].Extent.Text
+    Invoke-Expression $watchdogFlags[0].Extent.Text
+    $watchdog = [ordered]@{ age_minutes = $wdAgeMin; flags = @($flags) }
+    $flags.Clear()
+    Invoke-Expression $markerBlock[0].Extent.Text
+    $results[[string]$case.name] = [ordered]@{
+        watchdog = $watchdog
+        marker_flags = @($flags)
+        marker_warns = @($warns)
+    }
+}
+$results | ConvertTo-Json -Compress -Depth 5
+"""
+
+STATUS_WATCHDOG_MARKER_CASES = [
+    {"name": "normal_day", "stamp": "2026-11-02T10:00:00-05:00", "now": "2026-11-02T10:20:00-05:00"},
+    # 15 real minutes; the wall clock reads -45 minutes.
+    {"name": "fresh_across_fall_back", "stamp": "2026-11-01T01:50:00-04:00",
+     "now": "2026-11-01T01:05:00-05:00"},
+    # 70 real minutes; the wall clock reads 10 minutes and hides the staleness.
+    {"name": "stale_hour_hidden_by_fall_back", "stamp": "2026-11-01T01:10:00-04:00",
+     "now": "2026-11-01T01:20:00-05:00"},
+    {"name": "unparseable", "stamp": "not-a-time", "now": "2026-11-02T10:20:00-05:00"},
+]
+
+_MARKER_DETAIL = "quiet-window merge marker remains at phase merged_uncommitted for {} minutes (tip " + "a" * 40 + ")"
+
+
+@WINDOWS_POWERSHELL_REQUIRED
+@pytest.mark.spawns
+def test_status_watchdog_and_quiet_marker_ages_are_instants_across_fall_back(tmp_path: Path) -> None:
+    payload = base64.b64encode(json.dumps(STATUS_WATCHDOG_MARKER_CASES).encode("utf-8")).decode("ascii")
+    result = run_powershell_command(
+        STATUS_WATCHDOG_MARKER_HARNESS,
+        env={
+            **os.environ,
+            "WEATHER_STATUS_SCRIPT": str(SCRIPT),
+            "WEATHER_STATUS_TMP": str(tmp_path),
+            "WEATHER_STATUS_CASES": payload,
+        },
+    )
+    assert result.returncode == 0, result.stderr
+    observed = json.loads(result.stdout.strip().splitlines()[-1])
+
+    stale_watchdog = "health watchdog stale by 70 min (runs every 15) - overnight alerting may be dead"
+    assert observed == {
+        "normal_day": {
+            "watchdog": {"age_minutes": 20, "flags": []},
+            "marker_flags": [],
+            "marker_warns": [_MARKER_DETAIL.format(20)],
+        },
+        "fresh_across_fall_back": {
+            "watchdog": {"age_minutes": 15, "flags": []},
+            "marker_flags": [],
+            "marker_warns": [_MARKER_DETAIL.format(15)],
+        },
+        "stale_hour_hidden_by_fall_back": {
+            "watchdog": {"age_minutes": 70, "flags": [stale_watchdog]},
+            "marker_flags": [
+                "STALE " + _MARKER_DETAIL.format(70) + " - run boot/merge recovery before closure or another merge"
+            ],
+            "marker_warns": [],
+        },
+        # An unreadable watchdog stamp leaves the age unknown (no invented flag,
+        # as before); an unreadable marker stamp is an interrupted mutation.
+        "unparseable": {
+            "watchdog": {"age_minutes": None, "flags": []},
+            "marker_flags": [
+                "quiet-window merge in-progress marker is unreadable; treat production mutation as interrupted"
+            ],
+            "marker_warns": [],
+        },
+    }
+
+
 def test_status_surfaces_optional_capture_error_state_without_assuming_one_schema() -> None:
     text = SCRIPT.read_text(encoding="utf-8-sig")
 
