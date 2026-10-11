@@ -1405,6 +1405,58 @@ ARGUMENT_FORMS = (
     " \u2015InterpreterPath C:\\stage\\venv\\Scripts\\python.exe",
     " \u2013Interp:C:\\stage\\venv\\Scripts\\python.exe",
 )
+# Delta-2 D1: powershell.exe -File drops double quotes anywhere in a token, so a
+# quote inside the name still binds (the binding test below proves each one).
+QUOTED_NAME_FORMS = (
+    r' -"InterpreterPath" C:\stage\venv\Scripts\python.exe',
+    r' -Int"erpreterPath" C:\stage\venv\Scripts\python.exe',
+    r' "-"InterpreterPath C:\stage\venv\Scripts\python.exe',
+    r' -I""nterpreterPath C:\stage\venv\Scripts\python.exe',
+    r' -I""nterp C:\stage\venv\Scripts\python.exe',
+)
+# Arguments that merely contain the text are not a parameter name, quoted or not.
+NOT_A_NAME_FORMS = (
+    r' -AdditionalPythonPath "C:\wt\suite-interp-d1"',
+    r' -AdditionalPythonPath "C:\wt\pre"-interp-d1',
+)
+_BIND_PROBE = r'''
+param($Source, $Target)
+$ErrorActionPreference = 'Stop'
+$errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile($Source, [ref]$null, [ref]$errors)
+if ($errors.Count) { throw 'script parse failed' }
+Set-Content -LiteralPath $Target -Encoding UTF8 -Value (
+    "[CmdletBinding()]`n" + $ast.ParamBlock.Extent.Text + "`n'IP=[' + `$InterpreterPath + ']'"
+)
+'''
+
+
+@WINDOWS_POWERSHELL_REQUIRED
+@pytest.mark.spawns
+def test_quoted_name_forms_bind_interpreter_path_under_powershell_file(tmp_path):
+    # Real Windows PowerShell 5.1 -File with the suite's own param block: every
+    # QUOTED_NAME_FORMS entry binds InterpreterPath and no NOT_A_NAME_FORMS one does.
+    probe = tmp_path / "bind_probe.ps1"
+    probe.write_text(_BIND_PROBE, encoding="utf-8")
+    stub = tmp_path / "bind_stub.ps1"
+    built = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+         "-File", str(probe), "-Source", str(SCRIPT), "-Target", str(stub)],
+        check=False, capture_output=True, text=True, timeout=120,
+    )
+    assert built.returncode == 0, built.stdout + built.stderr
+    required = rf"-RepoRoot C:\r -WorktreeRoot C:\w -ExpectedTip {'a' * 40} -BranchRef b -LogPath C:\l.log"
+    expected = {form: r"IP=[C:\stage\venv\Scripts\python.exe]" for form in QUOTED_NAME_FORMS}
+    expected.update({form: "IP=[]" for form in NOT_A_NAME_FORMS})
+    for form, want in expected.items():
+        # A string command line reaches powershell.exe verbatim (no list re-quoting).
+        command = (
+            f'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{stub}" '
+            f"{required}{form}"
+        )
+        result = subprocess.run(command, check=False, capture_output=True, text=True, timeout=120)
+        assert result.returncode == 0, (form, result.stdout + result.stderr)
+        assert result.stdout.strip().splitlines()[-1] == want, (form, result.stdout)
 
 
 @pytest.mark.spawns
@@ -1469,6 +1521,10 @@ def test_every_merge_evidence_reader_refuses_an_override_log(verdict_logs):
         ("gate_named_path", "gate", str(named_log),
          r" -WorktreeRoot C:\wt\bounded-suite-interpreter-20261009"),
         *[(f"gate_argument_{index}", "gate", default_log, form) for index, form in enumerate(ARGUMENT_FORMS)],
+        *[(f"gate_quoted_name_{index}", "gate", default_log, form)
+          for index, form in enumerate(QUOTED_NAME_FORMS)],
+        *[(f"gate_not_a_name_{index}", "gate", default_log, form)
+          for index, form in enumerate(NOT_A_NAME_FORMS)],
     ]
     payload = [
         {"name": name, "reader": reader, "log": log,
@@ -1522,7 +1578,11 @@ def test_every_merge_evidence_reader_refuses_an_override_log(verdict_logs):
         "SUITE GATE REFUSED: suite log is an interpreter-override run, not merge evidence"
     ), outcome["gate_injected"]
     assert outcome["gate_named_path"].endswith("QUIET MERGE STUB INVOKED"), outcome["gate_named_path"]
+    for index in range(len(NOT_A_NAME_FORMS)):
+        name = f"gate_not_a_name_{index}"
+        assert outcome[name].endswith("QUIET MERGE STUB INVOKED"), outcome[name]
     argument_names = [f"gate_argument_{index}" for index in range(len(ARGUMENT_FORMS))]
+    argument_names += [f"gate_quoted_name_{index}" for index in range(len(QUOTED_NAME_FORMS))]
     for name in ("gate_interpreter_argument", "gate_interpreter_prefix", *argument_names):
         assert outcome[name] == (
             "SUITE GATE REFUSED: suite task action passes -InterpreterPath; "
