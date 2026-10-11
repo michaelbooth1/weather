@@ -370,7 +370,8 @@ guarded operation:
 It stages the merge **locally without committing**, waits `-SettleSeconds` (default 300) for readoption, and proves all three
 workers have matching status/lock PIDs, live processes, fresh heartbeats, and loaded-source
 fingerprints matching the tree. A worker whose PID or loaded-source identity changed must also
-advance its heartbeat during the settle. An unchanged worker need not advance merely because an
+advance its heartbeat during the settle; advancement is judged on UTC instants, so the repeated
+01:xx hour of the DST fall-back night cannot fake or hide it. An unchanged worker need not advance merely because an
 unrelated closure rolled; this matters for the snapshot worker's normal ten-minute cycle, which is
 longer than the five-minute settle. If the active public execution-tape closure rolls, the same
 gate directly requires its connected managed process, exact status/lock/process identity, clean

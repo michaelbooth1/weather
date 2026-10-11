@@ -213,7 +213,13 @@ if ($worktreePattern -and $actionArguments -notmatch $worktreePattern) {
 # interpreter: that run qualifies the interpreter and is never merge evidence.
 # PowerShell -File also binds a quoted name and an en/em dash or horizontal bar
 # in place of the hyphen; a path merely containing "interpreter" is not a name.
-if ($actionArguments -match '(?i)(?:^|[\s"''])[-\u2013\u2014\u2015]Inter[a-z]*(?=[:\s"'']|$)') {
+# Its argv parsing drops double quotes anywhere in a token, so -"InterpreterPath",
+# -Int"erpreterPath", "-"InterpreterPath and -I""nterp bind too: the pattern is
+# also matched with every double quote removed (whitespace, the token boundary,
+# is kept, so a token that merely ends in -Interp... is still not a name).
+$interpreterArgumentPattern = '(?i)(?:^|[\s"''])[-\u2013\u2014\u2015]Inter[a-z]*(?=[:\s"'']|$)'
+if ($actionArguments -match $interpreterArgumentPattern -or
+    ($actionArguments -replace '"', '') -match $interpreterArgumentPattern) {
     Refuse-SuiteGate "suite task action passes -InterpreterPath; an interpreter qualification run is not merge evidence"
 }
 if ($ExpectedGateSha256) {
