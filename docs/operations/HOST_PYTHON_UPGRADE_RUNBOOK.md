@@ -51,7 +51,7 @@ The live SDK portability check accepts any 3.11 patch release
 | G1 | The bounded suite supports `-InterpreterPath` and `-ExpectedInterpreterVersion` (`scripts/ops/bounded_worktree_test_suite.ps1:44-52`). | Met on master; re-read `param(` if the script changed |
 | G2 | Phase A and Phase B passed on earlier nights, and `$R\qualification.json` has `"result":"PASS"`. | C0 |
 | G3 | The production HEAD equals the qualified tip, or `roll_verdict.ps1 -Branch` on the difference is roll-free. | C0 |
-| G4 | The owner is reachable from 00:30 to 02:30 to give GO. Phase A also needs the owner at the machine for UAC. | C0, A4 |
+| G4 | The owner is reachable from 00:30 to 03:45 on the cutover night: GO at C0, and any escalation up to the end of §R. Phase A also needs the owner at the machine for UAC. | C0, A4 |
 | G5 | No other lease user is due that night. Specifically: <br>- `WeatherTrainingWindow` (a 01:00 one-shot, `register_training_window.ps1:3`) is disabled or has no trigger that night; <br>- Stage B `WeatherEveningEvidenceRefresh` (00:35, holds the lease to 09:00 when enabled; `register_daily_refresh.ps1:20-24`) is disabled; <br>- no integration attempt, quiet-window merge, storage one-shot or held-head work is scheduled. | Phase B (B0), C0 |
 | G6 | Release case A: `artifacts\releases\current_release.json` is absent (H5, B3, C0). Case B or C is NO-GO for this runbook (§8). | H5, B3, C0 |
 | G7 (LFC) | The cutover night is **after** LFC session 0 has ended and its handback is recorded. It is never the night before a scheduled LFC session. | C0 |
@@ -189,7 +189,11 @@ $Log     = Join-Path $R 'night.log'
 New-Item -ItemType Directory -Force $R, $Tools, $A | Out-Null
 $K = if (Test-Path -LiteralPath (Join-Path $R 'constants.json')) { Get-Content -LiteralPath (Join-Path $R 'constants.json') -Raw | ConvertFrom-Json }   # §6a
 function Log($m){ $l = "{0:o} {1}" -f (Get-Date), $m; Add-Content -LiteralPath $Log -Value $l -Encoding utf8; Write-Host $l }
-function NoGo($m){ Log "NO-GO: $m"; throw "NO-GO: $m" }
+# The lease lives in the session's global scope. While $global:ReleaseOnNoGo is set (B0-B1e, and C1 until the C4 rename),
+# every NoGo releases it; after the C4 rename it stays held for §R.
+$global:Lease = $null; $global:ReleaseOnNoGo = $false
+function Release-Lease { if ($global:Lease) { Exit-WeatherHeavyWorkloadLease -Lease $global:Lease; $global:Lease = $null; Log 'lease released' } }
+function NoGo($m){ Log "NO-GO: $m"; if ($global:ReleaseOnNoGo) { $global:ReleaseOnNoGo = $false; Release-Lease }; throw "NO-GO: $m" }
 function Sha($f){ (Get-FileHash -LiteralPath $f -Algorithm SHA256).Hash.ToUpper() }
 # Native calls whose stderr matters go through Invoke-Native. Never use 2>&1 or 2> on a native command while
 # $ErrorActionPreference is 'Stop': Windows PowerShell 5.1 turns each stderr line into a terminating error.
@@ -203,7 +207,9 @@ function Invoke-Native([string]$Exe, [string[]]$Arguments, [string]$OutBase) {
 function Get-ReleaseActive([string]$Exe, [string]$OutBase) {
   $code = Invoke-Native $Exe @('-m','weather.operations.release_lifecycle_cli','--repo-root',$P,'active') $OutBase
   $o = [string](Get-Content -LiteralPath "$OutBase.out.txt" -Raw); $e = [string](Get-Content -LiteralPath "$OutBase.err.txt" -Raw)
-  $raw = if ($o.Trim()) { $o } else { $e }
+  # PASS prints indented JSON on stdout; BLOCK prints one JSON line on stderr (release_lifecycle_cli.py:191).
+  # Take only that last JSON line from stderr, so a stray warning line cannot break the parse.
+  $raw = if ($o.Trim()) { $o } else { @($e -split "`r?`n" | Where-Object { $_.Trim().StartsWith('{') }) | Select-Object -Last 1 }
   try { $j = $raw | ConvertFrom-Json } catch { NoGo "release active output is not JSON ($OutBase)" }
   $r = [pscustomobject]@{ exit=$code; status=[string]$j.status; error=[string]$j.error }
   $r | ConvertTo-Json | Set-Content -LiteralPath "$OutBase.json" -Encoding utf8; $r }
@@ -225,8 +231,10 @@ Trap reminders ([operations agent role](OPERATIONS_AGENT_ROLE.md) §5):
 Plain `& $exe ...; if ($LASTEXITCODE)` calls with no stderr redirection are safe under `Stop`.
 
 `Enter-WeatherHeavyWorkloadLease` returns `$null` when the lease is busy and throws outside
-00:30-09:00. Keep a whole phase in one PowerShell process, and call `Exit-WeatherHeavyWorkloadLease`
-on every exit path.
+00:30-09:00. Keep a whole phase in one PowerShell process, and release the lease on every exit path.
+`NoGo` does that while `$global:ReleaseOnNoGo` is set. If any other command throws in a leased
+step, run `Release-Lease` before you leave the session. The one exception is after the C4 rename,
+where §R needs the lease.
 
 ### 6a. Constants file (prepared before Phase A, reviewed in the handoff)
 
@@ -345,8 +353,10 @@ try {
   & $Py -m pip download --isolated --no-cache-dir --require-hashes --only-binary=:all: --no-deps -r "$R\lock-tz-hashed.txt" -d "$R\tzdata"; if ($LASTEXITCODE) { NoGo 'tzdata download' }
   & $Py -m pip install --isolated --no-index --no-deps --require-hashes --find-links "$R\tzdata" -r "$R\lock-tz-hashed.txt"; if ($LASTEXITCODE) { NoGo 'tzdata install' }
   & $Py -m pip freeze --all | Out-File "$R\freeze-after-tzdata.txt" -Encoding utf8
-  Compare-Object (Get-Content "$R\freeze-before-tzdata.txt") (Get-Content "$R\freeze-after-tzdata.txt")   # only the tzdata line may differ
-} finally { Exit-WeatherHeavyWorkloadLease -Lease $Lease }
+  $d = Compare-Object (Get-Content "$R\freeze-before-tzdata.txt") (Get-Content "$R\freeze-after-tzdata.txt"); $d | Out-File "$R\freeze-diff-tzdata.txt"
+  if ($d | Where-Object { $_.InputObject -notmatch '^tzdata==' }) { NoGo 'a line other than tzdata changed - roll back tzdata and inspect' }
+  if (-not ($d | Where-Object { $_.SideIndicator -eq '=>' -and $_.InputObject -eq 'tzdata==2026.3' })) { NoGo 'tzdata==2026.3 not in the after-freeze' }
+} finally { Release-Lease }
 ```
 
 Rollback: reinstall the previous version from the before-freeze, or `pip uninstall tzdata` if it was
@@ -474,7 +484,11 @@ foreach ($t in 'WeatherTrainingWindow','WeatherEveningEvidenceRefresh') { $x = G
 $mg = Read-WeatherMemoryGuardStatus -Path (Join-Path $P 'data\logs\memory_commit_guard_status.json'); Log "memory $($mg | ConvertTo-Json -Compress)"
 if ((Get-Volume -DriveLetter C).SizeRemaining -lt 55GB) { NoGo 'disk below the bounded-suite floor plus margin' }
 $Lease = Enter-WeatherHeavyWorkloadLease -RepoRoot $P -Workload 'py3119_prep'; if (-not $Lease) { NoGo 'lease busy' }
+$global:ReleaseOnNoGo = $true     # any NoGo from here to the end of B1e releases the lease
 ```
+
+From B0 to B1e, any `NoGo` releases the lease. If something else throws, run `Release-Lease`
+before you stop.
 
 **B1a. Hashed lock.** The repository pins only the direct dependencies, without hashes. The lock
 comes from the A1 freeze, and the hashes come from PyPI over HTTPS (owner-approved under G12).
@@ -565,7 +579,7 @@ Push-Location -LiteralPath $Stage
 & $StagePy -c "import glob, pickle, sys; fs = sorted(glob.glob(sys.argv[1])); assert fs, 'no artifacts'; [pickle.load(open(f, 'rb')) for f in fs]; print('hgb load ok')" (Join-Path $P 'artifacts\models\hgb\feature_model_hgb*.pkl')
 if ($LASTEXITCODE) { NoGo 'hgb load' }
 Pop-Location
-Exit-WeatherHeavyWorkloadLease -Lease $Lease; $Lease = $null
+$global:ReleaseOnNoGo = $false; Release-Lease
 ```
 
 **B2. Bounded suite on the stage interpreter.** The suite takes its own lease, needs at least
@@ -672,66 +686,112 @@ Log "C0 complete (status.ps1 exit $st0) - awaiting owner GO"
 $Lease = $null; $deadline = (Get-Date).Date.AddHours(1).AddMinutes(30)
 while (-not $Lease) { $Lease = Enter-WeatherHeavyWorkloadLease -RepoRoot $P -Workload 'py3119_cutover'
   if (-not $Lease) { if ((Get-Date) -gt $deadline) { NoGo 'no lease by 01:30' }; Start-Sleep -Seconds 30 } }
+$global:ReleaseOnNoGo = $true     # until the C4 rename, any NoGo releases the lease; after it, §R needs the lease
 $N = Join-Path $R ('night-' + (Get-Date -Format yyyyMMdd)); New-Item -ItemType Directory -Force $N | Out-Null
 & $Py -m pip freeze --all | Set-Content "$N\freeze-3110-tonight.txt"
 if (Compare-Object (Get-Content "$A\freeze-3110.txt") (Get-Content "$N\freeze-3110-tonight.txt")) { NoGo 'prod venv changed since Phase B - requalify' }
 foreach ($f in 'loop_status.json','clob_loop_status.json','observation_trigger_status.json') { Copy-Item -LiteralPath (Join-Path $P "data\snapshots\$f") "$N\pre-$f" }
-$sa = [string](Get-ScheduledTask -TaskName WeatherMakerShadowRunner -ErrorAction SilentlyContinue).Actions[0].Arguments
-$ShadowStop = if ($sa -match '--stop-file\s+"([^"]+)"') { $Matches[1] } else { $null }   # the registrar's -StopFile (register_maker_shadow_runner.ps1:31, :43)
-Log "shadow stop file: $ShadowStop"
+$shadowTask = Get-ScheduledTask -TaskName WeatherMakerShadowRunner -ErrorAction SilentlyContinue
+$ShadowStop = $null
+if ($shadowTask) {   # the registrar's -StopFile (register_maker_shadow_runner.ps1:31, :43)
+  if ([string]$shadowTask.Actions[0].Arguments -match '--stop-file\s+"([^"]+)"') { $ShadowStop = $Matches[1] } else { NoGo 'shadow task registered but its stop-file argument is unreadable' } }
+Log "shadow task registered=$([bool]$shadowTask) stop file: $ShadowStop"
 ```
 
+If the shadow task is not registered, `aux-tasks.txt` must not list it (A1 review). If it does
+list it, `Get-ScheduledTask` throws in C2, before anything has changed.
+
 **C2. Quiesce the auxiliary tasks and long-running holders.** The functions are defined once and
-reused by §R. `Quiesce-Aux` is idempotent: it records the pre-state only once.
+reused by C3, C9b and §R.
+- `Quiesce-Aux` is idempotent. It records the pre-state only once, and stopping something already
+  stopped succeeds.
+- With `-Soft` (§R only), a failed step logs `ESCALATE` and the next step still runs.
 
 ```powershell
 $Sup = 'WeatherSnapshotLoopSupervisor','WeatherClobBookLoopSupervisor','WeatherObservationTriggerSupervisor'
+$Holders = 'WeatherExecutionTapeSupervisor','WeatherMakerShadowRunner','WeatherMakerEvidenceCapture'
 function Undo-Aux { foreach ($row in Import-Csv "$N\aux-prestate.csv") { if ($row.State -ne 'Disabled') { Enable-ScheduledTask -TaskName $row.Task | Out-Null } }
   if ($ShadowStop) { Remove-Item -LiteralPath $ShadowStop -ErrorAction SilentlyContinue } }
-function Quiesce-Aux {
+function Start-AuxHolders {   # restart the long-running holders that C2 stopped, only where their pre-state was enabled
+  foreach ($t in $Holders) { $row = Import-Csv "$N\aux-prestate.csv" -ErrorAction SilentlyContinue | Where-Object Task -eq $t
+    if ($row -and $row.State -ne 'Disabled') { Start-ScheduledTask -TaskName $t; Log "started $t" } } }
+function Stop-Tape([string]$Exe) {
+  # 'stop' exits 0 only when it stopped a live worker (execution_tape_supervisor.py:909-912). A worker that is
+  # already gone returns authorization.process_gone=true / recorded_process_not_found (supervisor.py:1353-1361),
+  # which supervisor.managed_stop_allows_start (supervisor.py:796-804) also treats as stopped.
+  $base = "$N\tape-stop-$(Get-Date -Format HHmmss)"
+  $tc = Invoke-Native $Exe @('-m','weather.operations.execution_tape_supervisor','stop') $base
+  if ($tc -eq 0) { Log 'tape stopped'; return }
+  try { $j = Get-Content -LiteralPath "$base.out.txt" -Raw | ConvertFrom-Json } catch { NoGo "tape stop exit $tc with unreadable output" }
+  if ($j.authorization.process_gone -eq $true) { Log "tape already stopped ($($j.reason))"; return }
+  if ($j.reason -eq 'status_pid_unknown') {
+    $sc = Invoke-Native $Exe @('-m','weather.operations.execution_tape_supervisor','status','--stale-after-seconds','180') "$base-status"
+    if ($sc -ne 0) { Log 'tape has no recorded PID and is not healthy: treated as stopped (the C4/§R holder sweep is the backstop)'; return } }
+  NoGo "execution tape stop exit $tc reason $($j.reason)" }
+function Invoke-QStep([string]$Name, [scriptblock]$Body, [bool]$Soft) {
+  try { & $Body } catch { if ($Soft) { Log "ESCALATE: quiesce step '$Name' failed: $($_.Exception.Message); continuing" } else { throw } } }
+function Quiesce-Aux([string]$Exe, [switch]$Soft) {
   $Aux = @(Get-Content -LiteralPath "$R\aux-tasks.txt" | Where-Object { $_.Trim() })
-  if (-not (Test-Path -LiteralPath "$N\aux-prestate.csv")) {
-    $Aux | ForEach-Object { $x = Get-ScheduledTask -TaskName $_; [pscustomobject]@{ Task=$_; State=[string]$x.State } } |   # throws on a wrong name
-      Export-Csv -LiteralPath "$N\aux-prestate.csv" -NoTypeInformation }
-  # Maker shadow runner: STOP file only, never a kill
-  if ($Aux -contains 'WeatherMakerShadowRunner') {
-    if (-not $ShadowStop) { NoGo 'shadow stop-file path unknown' }
-    New-Item -ItemType File -Force $ShadowStop | Out-Null
-    $t0 = Get-Date; while ([string](Get-ScheduledTask -TaskName WeatherMakerShadowRunner).State -eq 'Running' -and ((Get-Date)-$t0).TotalSeconds -lt 180) { Start-Sleep 10 }
-    if ([string](Get-ScheduledTask -TaskName WeatherMakerShadowRunner).State -eq 'Running') { NoGo 'shadow did not seal in 3 min' } }
-  foreach ($t in $Aux) { Disable-ScheduledTask -TaskName $t | Out-Null; if ([string](Get-ScheduledTask -TaskName $t).State -ne 'Disabled') { NoGo "disable $t" } }
-  $tc = Invoke-Native $Py @('-m','weather.operations.execution_tape_supervisor','stop') "$N\tape-stop-$(Get-Date -Format HHmmss)"
-  if ($tc -ne 0) { NoGo "execution tape stop exit $tc" }
-  # 88a worker: only with the recorded owner choice (G8, Q12)
-  if (((Get-Content -LiteralPath "$R\q12.txt" -TotalCount 1) -split '\s+')[0] -ne 'STOP_AUTHORIZED') { NoGo 'Q12 not STOP_AUTHORIZED' }
-  if ([string](Get-ScheduledTask -TaskName WeatherMakerEvidenceCapture).State -eq 'Running') { Stop-ScheduledTask -TaskName WeatherMakerEvidenceCapture; Log '88a worker stopped (Q12)' }
+  Invoke-QStep 'prestate' {
+    if (-not (Test-Path -LiteralPath "$N\aux-prestate.csv")) {
+      $Aux | ForEach-Object { $x = Get-ScheduledTask -TaskName $_; [pscustomobject]@{ Task=$_; State=[string]$x.State } } |   # throws on a wrong name
+        Export-Csv -LiteralPath "$N\aux-prestate.csv" -NoTypeInformation } } $Soft.IsPresent
+  Invoke-QStep 'shadow' {   # STOP file only, never a kill
+    if ($Aux -contains 'WeatherMakerShadowRunner') {
+      if (-not $ShadowStop) { NoGo 'shadow stop-file path unknown' }
+      New-Item -ItemType File -Force $ShadowStop | Out-Null
+      $t0 = Get-Date; while ([string](Get-ScheduledTask -TaskName WeatherMakerShadowRunner).State -eq 'Running' -and ((Get-Date)-$t0).TotalSeconds -lt 180) { Start-Sleep 10 }
+      if ([string](Get-ScheduledTask -TaskName WeatherMakerShadowRunner).State -eq 'Running') { NoGo 'shadow did not seal in 3 min' } } } $Soft.IsPresent
+  foreach ($t in $Aux) { Invoke-QStep "disable $t" { Disable-ScheduledTask -TaskName $t | Out-Null
+    if ([string](Get-ScheduledTask -TaskName $t).State -ne 'Disabled') { NoGo "disable $t" } } $Soft.IsPresent }
+  Invoke-QStep 'tape' { Stop-Tape $Exe } $Soft.IsPresent
+  Invoke-QStep '88a' {   # only with the recorded owner choice (G8, Q12)
+    if (((Get-Content -LiteralPath "$R\q12.txt" -TotalCount 1) -split '\s+')[0] -ne 'STOP_AUTHORIZED') { NoGo 'Q12 not STOP_AUTHORIZED' }
+    if ([string](Get-ScheduledTask -TaskName WeatherMakerEvidenceCapture).State -eq 'Running') { Stop-ScheduledTask -TaskName WeatherMakerEvidenceCapture; Log '88a worker stopped (Q12)' } } $Soft.IsPresent
 }
-try { Quiesce-Aux; Log 'C2 quiesced' }
-catch { Log "C2 failed: $($_.Exception.Message) - undoing"; if (Test-Path -LiteralPath "$N\aux-prestate.csv") { Undo-Aux }
-  foreach ($t in 'WeatherExecutionTapeSupervisor','WeatherMakerShadowRunner','WeatherMakerEvidenceCapture') { $row = Import-Csv "$N\aux-prestate.csv" -ErrorAction SilentlyContinue | Where-Object Task -eq $t
-    if ($row -and $row.State -ne 'Disabled') { Start-ScheduledTask -TaskName $t } }
-  Exit-WeatherHeavyWorkloadLease -Lease $Lease; throw }
+try { Quiesce-Aux $Py; Log 'C2 quiesced' }
+catch { $msg = $_.Exception.Message; Log "C2 failed: $msg - undoing"
+  if (Test-Path -LiteralPath "$N\aux-prestate.csv") { Undo-Aux; Start-AuxHolders }
+  $global:ReleaseOnNoGo = $false; Release-Lease; throw }
 ```
 
+A tape that is not running at C2 (crashed, or disabled in its pre-state) is not a NO-GO. Its stop
+returns `process_gone` and C2 carries on.
+
 **C3. Stop the capture workers.** This is the training-window stop sequence, with the exit codes
-checked as `training_window.ps1:396-412` does:
+checked as `training_window.ps1:404-409` does. The capture stop verbs print JSON and exit 0 even
+when the loop was already stopped (`snapshot_tracker.py:2413-2415`, `market_microstructure.py:2276-2278`,
+`observation_trigger.py:1955-1957`), so the gate is the stop proof.
 
 ```powershell
-function Stop-Capture([string]$Exe) {
-  foreach ($t in $Sup) { Disable-ScheduledTask -TaskName $t | Out-Null; if ([string](Get-ScheduledTask -TaskName $t).State -ne 'Disabled') { NoGo "disable $t" } }
+function Stop-Capture([string]$Exe, [switch]$Soft) {
+  foreach ($t in $Sup) { Invoke-QStep "disable $t" { Disable-ScheduledTask -TaskName $t | Out-Null
+    if ([string](Get-ScheduledTask -TaskName $t).State -ne 'Disabled') { NoGo "disable $t" } } $Soft.IsPresent }
   $stamp = Get-Date -Format HHmmss
   $c1 = Invoke-Native $Exe @('-m','weather.collection.snapshot_tracker','--stop') "$N\stop-snapshot-$stamp"
   $c2 = Invoke-Native $Exe @('-m','weather.market.market_microstructure','stop') "$N\stop-clob-$stamp"
   $c3 = Invoke-Native $Exe @('-m','weather.operations.observation_trigger','stop') "$N\stop-obs-$stamp"
-  if ($c1 -or $c2 -or $c3) { Log "stop verb exits $c1/$c2/$c3"; return $false }
+  if ($c1 -or $c2 -or $c3) { Log "stop verb exits $c1/$c2/$c3"; if (-not $Soft) { return $false } }
   $t0 = Get-Date
   while (((Get-Date)-$t0).TotalSeconds -lt 600) {
     $g = Invoke-Native $Exe @('-m','weather.operations.capture_resource_gate','--workload','py3119_cutover_stop_confirmation','--capture-mode','no_live_capture',
           '--min-free-memory-bytes','0','--min-free-disk-bytes','0','--no-write','--fail-on-block') "$N\gate-$stamp"
     if ($g -eq 0) { return $true }; Start-Sleep 5 }
   return $false }
-function Undo-Stop { foreach ($t in $Sup) { Enable-ScheduledTask -TaskName $t | Out-Null }; Start-ScheduledTask -TaskName WeatherTrainingWindowRestore; Undo-Aux }
-if (-not (Stop-Capture $Py)) { Undo-Stop; Exit-WeatherHeavyWorkloadLease -Lease $Lease; NoGo 'C3 stop failed - restored (aux tasks restart on their triggers)' }
+function Wait-Restore([datetime]$Since) {   # S4U restore; the task limit is 15 min (register_training_window.ps1:153): one run plus one rerun
+  Start-ScheduledTask -TaskName WeatherTrainingWindowRestore; $t0 = Get-Date; $rerun = $false
+  while (((Get-Date)-$t0).TotalMinutes -lt 32) { Start-Sleep 20
+    $st = Get-Content -LiteralPath (Join-Path $P 'data\logs\training_window_status.json') -Raw | ConvertFrom-Json
+    $fresh = [datetimeoffset]$st.updated_at -gt [datetimeoffset]$Since
+    if ($fresh -and $st.phase -eq 'restore_only' -and $st.outcome -eq 'capture_recovery_pass') { return $true }
+    if ([string](Get-ScheduledTask WeatherTrainingWindowRestore).State -ne 'Running' -and ($fresh -or ((Get-Date)-$t0).TotalMinutes -ge 16)) {
+      if ($rerun) { return $false }; $rerun = $true; Log 'restore did not pass; one rerun'; $Since = Get-Date; Start-ScheduledTask -TaskName WeatherTrainingWindowRestore } }
+  return $false }
+function Undo-Stop {   # pre-rename undo: the venv is still the intact 3.11.0
+  foreach ($t in $Sup) { Enable-ScheduledTask -TaskName $t | Out-Null }
+  $ok = Wait-Restore (Get-Date); Undo-Aux; Start-AuxHolders
+  if ($ok) { Log 'undo: capture 3/3, aux tasks restored' } else { Log 'ESCALATE: undo restore did not report capture_recovery_pass' } }
+if (-not (Stop-Capture $Py)) { Undo-Stop; NoGo 'C3 stop failed - no swap, restored' }
 $GapStart = Get-Date; Log 'C3 capture stopped'
 ```
 
@@ -741,18 +801,23 @@ In no-live-capture mode, one gate call checks all three loops, as `Wait-CaptureS
 **C4. Sweep and rename (deadline 01:45).**
 
 ```powershell
-$OldHomeNorm = (Get-Content "$R\oldhome.txt").Trim().TrimEnd('\')
-function Get-VenvHolders([string]$Dir) { Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" | Where-Object {
-  $_.ExecutablePath -like "$Dir\*" -or $_.CommandLine -like "*$Dir*" -or ($_.ExecutablePath -like "$OldHomeNorm\*" -and $_.CommandLine -like "*$P*") } |
-  Select-Object ProcessId, ParentProcessId, ExecutablePath, CommandLine }
+$OldHomeNorm = (Get-Content "$R\oldhome.txt").Trim().TrimEnd('\'); $NewHomeNorm = $NewHome.TrimEnd('\')
+function Get-VenvHolders([string]$Dir) {
+  # Anchored with a trailing backslash, so a sibling worktree such as <checkout>-<name>\venv never matches.
+  # The base-interpreter clause catches child processes of either home that name the production checkout.
+  Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" | Where-Object {
+    $_.ExecutablePath -like "$Dir\*" -or $_.CommandLine -like "*$Dir\*" -or
+    (($_.ExecutablePath -like "$OldHomeNorm\*" -or $_.ExecutablePath -like "$NewHomeNorm\*") -and $_.CommandLine -like "*$P\*") } |
+    Select-Object ProcessId, ParentProcessId, ExecutablePath, CommandLine }
 function Rename-WithSweep([string]$From, [string]$To, [string]$Tag) {
   for ($i = 1; $i -le 3; $i++) {
     $hold = Get-VenvHolders $From; $hold | Format-List | Out-File "$N\holders-$Tag-try$i.txt"
     if ($hold) { Log "$Tag try $i holders $(($hold.ProcessId) -join ',')"; Start-Sleep 20; continue }
     try { Rename-Item -LiteralPath $From -NewName $To -ErrorAction Stop; return $true } catch { Log "$Tag rename try $i failed: $($_.Exception.Message)"; Start-Sleep 20 } }
   return $false }
-if ((Get-Date) -gt (Get-Date).Date.AddHours(1).AddMinutes(45)) { Undo-Stop; Exit-WeatherHeavyWorkloadLease -Lease $Lease; NoGo 'swap deadline passed' }
-if (-not (Rename-WithSweep (Join-Path $P 'venv') 'venv-cp3110' 'c4')) { Undo-Stop; Exit-WeatherHeavyWorkloadLease -Lease $Lease; NoGo 'C4 rename failed - no swap, restored' }
+if ((Get-Date) -gt (Get-Date).Date.AddHours(1).AddMinutes(45)) { Undo-Stop; NoGo 'swap deadline passed - no swap, restored' }
+if (-not (Rename-WithSweep (Join-Path $P 'venv') 'venv-cp3110' 'c4')) { Undo-Stop; NoGo 'C4 rename failed - no swap, restored' }
+$global:ReleaseOnNoGo = $false    # from here on a failure means §R, which needs the lease
 Log 'C4 renamed'
 ```
 
@@ -776,19 +841,10 @@ Get-ChildItem -LiteralPath (Join-Path $P 'venv\Lib\site-packages') -Filter *.pth
 if (git -C $P status --porcelain --untracked-files=no) { NoGo 'tree dirty -> ROLLBACK' }
 ```
 
-**C7. Restore the capture workers through the S4U path.** The restore task's own limit is
-15 minutes (`register_training_window.ps1:153`), so allow one full run plus one rerun.
+**C7. Restore the capture workers through the S4U path.** `Wait-Restore` (defined in C3) allows
+one full 15-minute run plus one rerun.
 
 ```powershell
-function Wait-Restore([datetime]$Since) {
-  Start-ScheduledTask -TaskName WeatherTrainingWindowRestore; $t0 = Get-Date; $rerun = $false
-  while (((Get-Date)-$t0).TotalMinutes -lt 32) { Start-Sleep 20
-    $st = Get-Content -LiteralPath (Join-Path $P 'data\logs\training_window_status.json') -Raw | ConvertFrom-Json
-    $fresh = [datetimeoffset]$st.updated_at -gt [datetimeoffset]$Since
-    if ($fresh -and $st.phase -eq 'restore_only' -and $st.outcome -eq 'capture_recovery_pass') { return $true }
-    if ([string](Get-ScheduledTask WeatherTrainingWindowRestore).State -ne 'Running' -and ($fresh -or ((Get-Date)-$t0).TotalMinutes -ge 16)) {
-      if ($rerun) { return $false }; $rerun = $true; Log 'restore did not pass; one rerun'; $Since = Get-Date; Start-ScheduledTask -TaskName WeatherTrainingWindowRestore } }
-  return $false }
 foreach ($t in $Sup) { Enable-ScheduledTask -TaskName $t | Out-Null }
 if (-not (Wait-Restore $GapStart)) { NoGo 'C7 not recovered -> ROLLBACK' }
 $GapEnd = Get-Date; Log ("C7 3/3; gap {0:n1} min" -f ($GapEnd-$GapStart).TotalMinutes)
@@ -825,23 +881,28 @@ less (or an overrun the owner accepts). Otherwise run §R.
 **C9b. Restore the auxiliary tasks.**
 
 ```powershell
-Undo-Aux
-foreach ($t in 'WeatherExecutionTapeSupervisor','WeatherMakerShadowRunner','WeatherMakerEvidenceCapture') {
-  $row = Import-Csv "$N\aux-prestate.csv" | Where-Object Task -eq $t; if ($row -and $row.State -ne 'Disabled') { Start-ScheduledTask -TaskName $t } }
+Undo-Aux; Start-AuxHolders
 $AuxRestart = Get-Date
 ```
 
 **C9c. Aux verify (within 10 minutes).**
 
 ```powershell
-$null = Invoke-Native $Py @('-m','weather.operations.execution_tape_supervisor','status','--stale-after-seconds','180') "$N\tape-status"
+$tapeOk = $false; $tapeWanted = (Import-Csv "$N\aux-prestate.csv" | Where-Object Task -eq 'WeatherExecutionTapeSupervisor' | Where-Object State -ne 'Disabled')
+if ($tapeWanted) { $t0 = Get-Date
+  while (-not $tapeOk -and ((Get-Date)-$t0).TotalMinutes -lt 5) {   # status exits 0 only for RUNNING/DEGRADED (execution_tape_supervisor.py:936)
+    $tsc = Invoke-Native $Py @('-m','weather.operations.execution_tape_supervisor','status','--stale-after-seconds','180') "$N\tape-status-$(Get-Date -Format HHmmss)"
+    if ($tsc -eq 0) { $tapeOk = $true } else { Start-Sleep 20 } }
+  if (-not $tapeOk) { NoGo 'tape not RUNNING/DEGRADED after 5 min - inspect the tape status files; import or runtime error -> ROLLBACK' } }
 $m = Get-Content -LiteralPath (Join-Path $P 'data\maker_evidence\status.json') -Raw | ConvertFrom-Json
 Log "88a state=$($m.state) updated=$($m.updated_at_utc) cycles=$($m.cycles) last_error=$($m.last_error)"
 $st2 = Invoke-Native 'powershell.exe' @('-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $P 'scripts\ops\status.ps1'),'-Json') "$N\status-full"
 ```
 
 **Go/no-go C9c:**
-- **Tape:** health is `RUNNING` or `DEGRADED` with a live PID, its identity matches the current runtime, evidence integrity passes, and the connection state is `CONNECTED` (allow up to 5 minutes).
+- **Tape:** the status command exited 0 within 5 minutes (health `RUNNING` or `DEGRADED`). In its
+  latest `tape-status-*.out.txt`, the identity matches the current runtime, evidence integrity
+  passes, and the connection state is `CONNECTED`.
 - **Shadow:** running again, with the STOP file gone.
 - **88a:** `status.json` has an `updated_at_utc` after `$AuxRestart`, `state` is `CAPTURING` or `NO_ELIGIBLE_BANDS`, and no `last_error` mentions a torn journal.
 
@@ -857,7 +918,7 @@ decides the remediation under the 88a retention hold.
 ```powershell
 @{ result='PASS'; head=$Head; gap_minutes=[math]::Round(($GapEnd-$GapStart).TotalMinutes,1); old_venv=$Old; new_home=$NewHome; release_case='A'; at=(Get-Date).ToString('o') } |
   ConvertTo-Json | Set-Content "$N\cutover-receipt.json" -Encoding utf8
-Exit-WeatherHeavyWorkloadLease -Lease $Lease; $Lease = $null; Log 'CUTOVER PASS; lease released'
+Release-Lease; Log 'CUTOVER PASS'
 ```
 
 Keep these for at least 14 days:
@@ -871,30 +932,34 @@ Uninstalling 3.11.0 is a later, separate owner decision.
 
 ### §R. Rollback (start by 03:15, done by 03:45)
 
-§R stops everything that could hold the new venv, using the C2 and C3 functions in the same
-session. It then swaps the directories back and restores capture. The aux tasks are re-enabled only
-after capture is 3/3.
+§R uses the C2, C3 and C4 functions in the same session. It runs the stop verbs with the **intact
+3.11.0 venv** (`$Old`, renamed in C4): a renamed venv still runs `-m`, and its editable install
+points at `$P\src`. The new venv may be the thing that is broken. An `import weather` probe picks the
+interpreter. Every quiesce and stop step is soft: a failure logs `ESCALATE` and §R carries on to the
+swap-back and the restore. Only an interpreter or rename failure stops §R. The aux tasks are
+re-enabled only after capture is 3/3.
 
 ```powershell
 Log 'ROLLBACK start'
-$RbPy = if (Test-Path -LiteralPath "$P\venv\Scripts\python.exe") { "$P\venv\Scripts\python.exe" } else { "$Old\Scripts\python.exe" }
-$Py0 = $Py; $Py = $RbPy            # Quiesce-Aux uses $Py for the tape stop verb
-Quiesce-Aux                        # idempotent: shadow STOP file, disable aux tasks, tape stop, 88a stop (Q12)
-if (-not (Stop-Capture $RbPy)) { Log 'ROLLBACK: capture did not stop in 600 s - ESCALATE' }
-$Py = $Py0
+$global:ReleaseOnNoGo = $false
+function Test-Interp([string]$Exe, [string]$Tag) { if (-not (Test-Path -LiteralPath $Exe)) { return $false }
+  (Invoke-Native $Exe @('-c','import weather.operations.execution_tape_supervisor, weather.operations.capture_resource_gate') "$N\probe-$Tag") -eq 0 }
+$RbPy = $null
+foreach ($c in @(@("$Old\Scripts\python.exe",'old'), @("$P\venv\Scripts\python.exe",'new'))) { if (Test-Interp $c[0] $c[1]) { $RbPy = $c[0]; break } }
+if (-not $RbPy) { Log 'ESCALATE: neither venv imports weather; stop verbs skipped, the holder sweep decides' }
+else { Log "rollback stop interpreter: $RbPy"
+  Quiesce-Aux $RbPy -Soft     # idempotent: shadow STOP file, disable aux tasks, tape stop (already-stopped is fine), 88a stop (Q12)
+  if (-not (Stop-Capture $RbPy -Soft)) { Log 'ESCALATE: capture stop not confirmed in 600 s; continuing to the swap-back' } }
 if (Test-Path -LiteralPath "$P\venv") { if (-not (Rename-WithSweep "$P\venv" 'venv-cp3119-failed' 'r1')) { NoGo 'ROLLBACK: new venv still held - ESCALATE (holders file in $N)' } }
-Rename-Item -LiteralPath $Old -NewName 'venv' -ErrorAction Stop
-if ((& "$P\venv\Scripts\python.exe" -VV) -notlike 'Python 3.11.0*') { Log 'ROLLBACK: venv not 3.11.0 - ESCALATE' }
-if (Compare-Object (Get-Content "$A\freeze-3110.txt") (& "$P\venv\Scripts\python.exe" -m pip freeze --all)) { Log 'ROLLBACK: freeze differs - ESCALATE' }
+if (-not (Rename-WithSweep $Old 'venv' 'r2')) { NoGo 'ROLLBACK: venv-cp3110 cannot be renamed back - ESCALATE (holders file in $N)' }
+if ((& "$P\venv\Scripts\python.exe" -VV) -notlike 'Python 3.11.0*') { Log 'ESCALATE: venv not 3.11.0' }
+if (Compare-Object (Get-Content "$A\freeze-3110.txt") (& "$P\venv\Scripts\python.exe" -m pip freeze --all)) { Log 'ESCALATE: freeze differs' }
 foreach ($t in $Sup) { Enable-ScheduledTask -TaskName $t | Out-Null }
 $rb = Wait-Restore (Get-Date)
-if ($rb) {
-  Undo-Aux
-  foreach ($t in 'WeatherExecutionTapeSupervisor','WeatherMakerShadowRunner','WeatherMakerEvidenceCapture') {
-    $row = Import-Csv "$N\aux-prestate.csv" | Where-Object Task -eq $t; if ($row -and $row.State -ne 'Disabled') { Start-ScheduledTask -TaskName $t } }
-} else { Log 'ROLLBACK: capture not 3/3 - aux tasks (including any U6 export) left DISABLED; ESCALATE' }
+if ($rb) { Undo-Aux; Start-AuxHolders }
+else { Log 'ESCALATE: capture not 3/3 - aux tasks (including any U6 export) left DISABLED' }
 $rar = Get-ReleaseActive "$P\venv\Scripts\python.exe" "$N\rollback-active"; Assert-CaseA $rar 'rollback'
-Exit-WeatherHeavyWorkloadLease -Lease $Lease; $Lease = $null; Log 'ROLLBACK DONE'
+Release-Lease; Log 'ROLLBACK DONE'
 ```
 
 **Rollback passes when:**
