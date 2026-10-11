@@ -19,7 +19,7 @@ from weather.paths import data_path
 import pandas as pd
 import requests
 
-from weather.collection.collection_health import coverage_summary, local_window, parse_times
+from weather.collection.collection_health import coverage_summary, graded_window_zone, local_window, parse_times
 from weather.market.market_config import date_from_event_slug, polymarket_url_for_slug
 from weather.market.market_registry import all_specs, spec_for_slug
 from weather.schema_registry import schema_version
@@ -220,7 +220,7 @@ def _gap_window_label(gap, target_date, tzinfo):
 def material_coverage_gap_rows(coverage, target_date=None):
     coverage = coverage or {}
     first = coverage.get("first")
-    tzinfo = first.tzinfo if isinstance(first, datetime) else None
+    tzinfo = graded_window_zone(first) if isinstance(first, datetime) else None
     rows = []
     for gap in coverage.get("gaps") or []:
         window = _gap_window_label(gap, target_date, tzinfo)

@@ -15,8 +15,9 @@ import csv
 import json
 import sys
 from collections import Counter
-from datetime import datetime, time as dt_time, timedelta
+from datetime import datetime, time as dt_time, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from weather.paths import data_path
 
@@ -32,6 +33,9 @@ AFTERNOON_START_HOUR = 12
 AFTERNOON_END_HOUR = 18
 EARLY_HOUR_START_HOUR = 0
 EARLY_HOUR_END_HOUR = 8
+# The capture loop stamps ``captured_at_local`` on this clock for every market
+# (``SnapshotStore.maybe_write``); parsed stamps carry only its fixed offset.
+CAPTURE_CLOCK_TZ = ZoneInfo("America/Toronto")
 OPEN_METEO_SOURCE_FAMILY = {
     "open_meteo",
     "open_meteo_multimodel",
@@ -82,12 +86,32 @@ def parse_times(iso_strings):
     return sorted(times)
 
 
+def _instant(value):
+    """Aware values as UTC instants, so arithmetic is elapsed time, not wall
+    clock (same-``ZoneInfo`` datetimes subtract on the wall clock); naive
+    values are returned unchanged."""
+    return value.astimezone(timezone.utc) if value.tzinfo is not None else value
+
+
+def graded_window_zone(stamp):
+    """Zone in which to build a local window for captures like ``stamp``.
+
+    A fixed offset that is the capture clock's offset at that instant is read
+    as the capture clock's zone, so the window follows the clock across a DST
+    change instead of the first capture's offset. Any other tzinfo is kept.
+    """
+    tz = stamp.tzinfo
+    if isinstance(tz, timezone) and stamp.utcoffset() == stamp.astimezone(CAPTURE_CLOCK_TZ).utcoffset():
+        return CAPTURE_CLOCK_TZ
+    return tz
+
+
 def detect_gaps(times, interval_minutes, tolerance=1.5):
     """Consecutive captures spaced more than tolerance x the interval apart."""
     limit = interval_minutes * tolerance
     gaps = []
     for a, b in zip(times, times[1:]):
-        gap_min = (b - a).total_seconds() / 60.0
+        gap_min = (_instant(b) - _instant(a)).total_seconds() / 60.0
         if gap_min > limit:
             gaps.append({"after": a, "before": b, "gap_minutes": gap_min})
     return gaps
@@ -111,17 +135,19 @@ def gap_times_for_window(times, window_start, window_end):
 
 
 def coverage_summary(times, interval_minutes, tolerance=1.5, target_date=None):
-    times = sorted(times)
+    times = sorted(times, key=_instant)
     n = len(times)
     if n == 0:
         return {"n": 0, "clean": False, "reason": "no captures"}
-    span_min = (times[-1] - times[0]).total_seconds() / 60.0
+    span_min = (_instant(times[-1]) - _instant(times[0])).total_seconds() / 60.0
     expected = int(span_min // interval_minutes) + 1 if span_min > 0 else 1
     first, last = times[0], times[-1]
     
     if target_date is not None:
-        window_start, window_end = local_window(target_date, first.tzinfo)
-        covers_afternoon = first <= window_start and last >= window_end
+        window_start, window_end = (
+            _instant(bound) for bound in local_window(target_date, graded_window_zone(first))
+        )
+        covers_afternoon = _instant(first) <= window_start and _instant(last) >= window_end
         gap_times = gap_times_for_window(times, window_start, window_end)
     else:
         covers_afternoon = first.hour <= AFTERNOON_START_HOUR and (last.hour >= AFTERNOON_END_HOUR or last.date() > first.date())
@@ -370,7 +396,7 @@ def live_coverage_summary(times, interval_minutes, tolerance=1.5, as_of=None, ta
     strict. This helper avoids marking a morning live tape partial merely
     because the 12:00-18:00 settlement-decisive window has not happened yet.
     """
-    times = sorted(times)
+    times = sorted(times, key=_instant)
     as_of = as_of or datetime.now(times[-1].tzinfo if times else None)
     tzinfo = as_of.tzinfo or (times[-1].tzinfo if times else None)
     target_date = target_date or (times[0].date() if times else as_of.date())
@@ -419,7 +445,7 @@ def live_coverage_summary(times, interval_minutes, tolerance=1.5, as_of=None, ta
         return final_summary
 
     latest = times[-1]
-    latest_age = (as_of - latest).total_seconds() / 60.0
+    latest_age = (_instant(as_of) - _instant(latest)).total_seconds() / 60.0
     gaps = final_summary.get("gaps") or []
     reasons = []
     if gaps:
