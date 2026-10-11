@@ -1,3 +1,4 @@
+import base64
 import copy
 import hashlib
 import json
@@ -1840,6 +1841,448 @@ def test_status_snapshot_fallback_matches_the_twelve_minute_capture_contract() -
     assert '"snapshot_tracker"      = @{ Status = "loop_status.json"; Lock = ".loop_status.json.writer.lock"; MaxAge = 720.0 }' in text
     assert '"market_microstructure" = @{ Status = "clob_loop_status.json"; Lock = ".clob_loop_status.json.writer.lock"; MaxAge = 180.0 }' in text
     assert '"observation_trigger"   = @{ Status = "observation_trigger_status.json"; Lock = ".observation_trigger_status.json.writer.lock"; MaxAge = 180.0 }' in text
+
+
+# The portable capture-worker fallback, run end to end: the real $portableCaps
+# table and the real top-level foreach are lifted from status.ps1 with the parser
+# and evaluated against a temporary data\snapshots tree whose status file and
+# writer lock name this PowerShell process, so only the heartbeat age decides.
+# Timestamps are written as JSON strings and read back through ConvertFrom-Json,
+# as on the host (Windows PowerShell 5.1 leaves them as strings). "now" is
+# injected into Get-StatusAgeSeconds, and Get-Date is pinned to the same local
+# clock face so a restored wall-clock line is judged at the same moment.
+STATUS_PORTABLE_HARNESS = r"""
+$ErrorActionPreference = 'Stop'
+$tokens = $null
+$errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile(
+    $env:WEATHER_STATUS_SCRIPT, [ref]$tokens, [ref]$errors)
+if (@($errors).Count -ne 0) { throw 'status script did not parse' }
+foreach ($name in @('ConvertTo-StatusInstant', 'ConvertTo-StatusUtcInstant', 'Get-StatusAgeSeconds')) {
+    $functionAst = @($ast.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+            $node.Name -eq $name
+    }, $true)) | Select-Object -First 1
+    if ($null -eq $functionAst) { throw "missing function $name" }
+    Invoke-Expression $functionAst.Extent.Text
+}
+$statements = @($ast.EndBlock.Statements)
+$table = @($statements | Where-Object {
+    $_ -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+        $_.Left.Extent.Text -eq '$portableCaps'
+})
+$fallback = @($statements | Where-Object {
+    $_ -is [System.Management.Automation.Language.ForEachStatementAst] -and
+        $_.Condition.Extent.Text -eq '$portableCaps.Keys' -and
+        $_.Body.Extent.Text.Contains('$capState[$label] += $priority')
+})
+if ($table.Count -ne 1 -or $fallback.Count -ne 1) { throw 'portable fallback not found exactly once' }
+Invoke-Expression $table[0].Extent.Text
+$realAge = ${function:Get-StatusAgeSeconds}
+$global:statusTestNow = $null
+function Get-StatusAgeSeconds { param($Value) & $realAge -Value $Value -Now $global:statusTestNow }
+function Get-Date { $global:statusTestNow.DateTime }
+$captureRoot = Join-Path $env:WEATHER_STATUS_TMP 'data\snapshots'
+New-Item -ItemType Directory -Force -Path $captureRoot | Out-Null
+$utf8 = New-Object System.Text.UTF8Encoding($false)
+[IO.File]::WriteAllText((Join-Path $captureRoot '.loop_status.json.writer.lock'),
+    (@{ pid = $PID } | ConvertTo-Json -Compress), $utf8)
+$cases = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:WEATHER_STATUS_CASES)) |
+    ConvertFrom-Json
+$results = [ordered]@{}
+foreach ($case in @($cases)) {
+    $global:statusTestNow = [datetimeoffset]::Parse(
+        [string]$case.now, [Globalization.CultureInfo]::InvariantCulture)
+    $status = '{"pid": ' + $PID + ', "last_heartbeat": "' + [string]$case.heartbeat + '"}'
+    [IO.File]::WriteAllText((Join-Path $captureRoot 'loop_status.json'), $status, $utf8)
+    $capState = @{ snapshot_tracker = @(); market_microstructure = @(); observation_trigger = @() }
+    Invoke-Expression $fallback[0].Extent.Text
+    $results[[string]$case.name] = [ordered]@{
+        healthy = @($capState['snapshot_tracker']).Count
+        age = Get-StatusAgeSeconds ([string]$case.heartbeat)
+    }
+}
+$results | ConvertTo-Json -Compress
+"""
+
+# Toronto falls back at 2026-11-01 06:00Z: 01:59:59 EDT (-04:00) is followed by
+# 01:00:00 EST (-05:00), so 01:00-02:00 local repeats. "now" is given in the
+# host's local offset, as Get-Date would show it.
+STATUS_FALL_BACK_CASES = [
+    # 150 s real age; a wall-clock difference reads -57.5 min (spurious DOWN).
+    {"name": "fresh_across_fall_back", "heartbeat": "2026-11-01T01:58:00-04:00",
+     "now": "2026-11-01T01:00:30-05:00"},
+    # 62 min real age; a wall-clock difference reads 120 s (falsely alive).
+    {"name": "stale_hour_hidden_by_fall_back", "heartbeat": "2026-11-01T01:10:00-04:00",
+     "now": "2026-11-01T01:12:00-05:00"},
+    {"name": "exactly_720_across_fall_back", "heartbeat": "2026-11-01T01:50:00-04:00",
+     "now": "2026-11-01T01:02:00-05:00"},
+    {"name": "just_over_720_across_fall_back", "heartbeat": "2026-11-01T01:49:59-04:00",
+     "now": "2026-11-01T01:02:00-05:00"},
+    # Written after fall-back, read "before" it on the clock face: 6 min in the future.
+    {"name": "future_heartbeat", "heartbeat": "2026-11-01T01:05:00-05:00",
+     "now": "2026-11-01T01:59:00-04:00"},
+    {"name": "utc_heartbeat", "heartbeat": "2026-11-01T05:59:00+00:00",
+     "now": "2026-11-01T01:01:00-05:00"},
+    {"name": "unparseable_heartbeat", "heartbeat": "not-a-time",
+     "now": "2026-11-01T01:01:00-05:00"},
+]
+
+
+@WINDOWS_POWERSHELL_REQUIRED
+@pytest.mark.spawns
+def test_status_portable_fallback_ages_heartbeats_on_utc_instants_across_fall_back(
+    tmp_path: Path,
+) -> None:
+    payload = base64.b64encode(json.dumps(STATUS_FALL_BACK_CASES).encode("utf-8")).decode("ascii")
+    result = run_powershell_command(
+        STATUS_PORTABLE_HARNESS,
+        env={
+            **os.environ,
+            "WEATHER_STATUS_SCRIPT": str(SCRIPT),
+            "WEATHER_STATUS_TMP": str(tmp_path),
+            "WEATHER_STATUS_CASES": payload,
+        },
+    )
+    assert result.returncode == 0, result.stderr
+    observed = json.loads(result.stdout.strip().splitlines()[-1])
+
+    assert {name: row["healthy"] for name, row in observed.items()} == {
+        "fresh_across_fall_back": 1,
+        "stale_hour_hidden_by_fall_back": 0,
+        "exactly_720_across_fall_back": 1,
+        "just_over_720_across_fall_back": 0,
+        "future_heartbeat": 0,
+        "utc_heartbeat": 1,
+        "unparseable_heartbeat": 0,
+    }
+    assert {name: row["age"] for name, row in observed.items()} == {
+        "fresh_across_fall_back": pytest.approx(150.0),
+        "stale_hour_hidden_by_fall_back": pytest.approx(3720.0),
+        "exactly_720_across_fall_back": pytest.approx(720.0),
+        "just_over_720_across_fall_back": pytest.approx(721.0),
+        "future_heartbeat": pytest.approx(-360.0),
+        "utc_heartbeat": pytest.approx(120.0),
+        "unparseable_heartbeat": None,
+    }
+
+
+def test_status_ages_capture_and_execution_heartbeats_as_instants() -> None:
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+
+    assert "$ageSeconds = Get-StatusAgeSeconds $status.last_heartbeat" in text
+    assert "$cleanAgeSeconds = Get-StatusAgeSeconds $cleanAtProperty.Value" in text
+    assert "$executionAge = Get-StatusAgeSeconds $executionStatus.last_heartbeat" in text
+    assert "[datetime]$status.last_heartbeat" not in text
+    assert "[datetime]$cleanAtProperty.Value" not in text
+    assert "[datetime]$executionStatus.last_heartbeat" not in text
+
+
+
+# Shared prologue for the behavioural harnesses below: lift the real timestamp
+# helpers out of status.ps1 with the parser, inject "now" into
+# Get-StatusAgeSeconds, and pin Get-Date to the same local clock face so a
+# restored wall-clock line is judged at the same moment.
+STATUS_AGE_PROLOGUE = r"""
+$ErrorActionPreference = 'Stop'
+$tokens = $null
+$errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile(
+    $env:WEATHER_STATUS_SCRIPT, [ref]$tokens, [ref]$errors)
+if (@($errors).Count -ne 0) { throw 'status script did not parse' }
+foreach ($name in @('ConvertTo-StatusInstant', 'ConvertTo-StatusUtcInstant', 'Get-StatusAgeSeconds')) {
+    $functionAst = @($ast.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+            $node.Name -eq $name
+    }, $true)) | Select-Object -First 1
+    if ($null -eq $functionAst) { throw "missing function $name" }
+    Invoke-Expression $functionAst.Extent.Text
+}
+$statements = @($ast.EndBlock.Statements)
+$realAge = ${function:Get-StatusAgeSeconds}
+$global:statusTestNow = $null
+function Get-StatusAgeSeconds { param($Value) & $realAge -Value $Value -Now $global:statusTestNow }
+function Get-Date { $global:statusTestNow.DateTime }
+$captureRoot = Join-Path $env:WEATHER_STATUS_TMP 'data\snapshots'
+New-Item -ItemType Directory -Force -Path $captureRoot | Out-Null
+$utf8 = New-Object System.Text.UTF8Encoding($false)
+$cases = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:WEATHER_STATUS_CASES)) |
+    ConvertFrom-Json
+$results = [ordered]@{}
+"""
+
+# The armed execution-tape block, run end to end: the real $executionTapeState
+# initialiser and the real `if ($executionTapeState.armed)` statement are lifted
+# from status.ps1 and evaluated against status/lock/supervisor files that name
+# this PowerShell process, so only the heartbeat decides health.
+STATUS_EXECUTION_TAPE_HARNESS = STATUS_AGE_PROLOGUE + r"""
+$init = @($statements | Where-Object {
+    $_ -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+        $_.Left.Extent.Text -eq '$executionTapeState'
+})
+$armedBlock = @($statements | Where-Object {
+    $_ -is [System.Management.Automation.Language.IfStatementAst] -and
+        $_.Clauses[0].Item1.Extent.Text -eq '$executionTapeState.armed'
+})
+if ($init.Count -ne 1 -or $armedBlock.Count -ne 1) { throw 'execution-tape block not found exactly once' }
+[IO.File]::WriteAllText((Join-Path $captureRoot '.execution_tape_status.json.writer.lock'),
+    (@{ pid = $PID } | ConvertTo-Json -Compress), $utf8)
+[IO.File]::WriteAllText((Join-Path $captureRoot 'execution_tape_supervisor_status.json'),
+    (@{ ensure_status = 'OK'; runtime_identity_matches_current = $true } | ConvertTo-Json -Compress), $utf8)
+foreach ($case in @($cases)) {
+    $global:statusTestNow = [datetimeoffset]::Parse(
+        [string]$case.now, [Globalization.CultureInfo]::InvariantCulture)
+    $case.status.pid = $PID
+    [IO.File]::WriteAllText((Join-Path $captureRoot 'execution_tape_status.json'),
+        ($case.status | ConvertTo-Json -Compress), $utf8)
+    $flags = New-Object System.Collections.Generic.List[string]
+    $warns = New-Object System.Collections.Generic.List[string]
+    Invoke-Expression $init[0].Extent.Text
+    $executionTapeState.armed = $true
+    Invoke-Expression $armedBlock[0].Extent.Text
+    $results[[string]$case.name] = [ordered]@{
+        process_healthy = $executionTapeState.process_healthy
+        heartbeat_age_seconds = $executionTapeState.heartbeat_age_seconds
+        flags = @($flags)
+    }
+}
+$results | ConvertTo-Json -Compress -Depth 4
+"""
+
+_TAPE_STATUS = {
+    "pid": 0,
+    "state": "CAPTURING",
+    "evidence_integrity": "OK",
+    "price_path_evidence_usable": True,
+}
+
+# Toronto falls back at 2026-11-01 06:00Z (01:59:59 EDT -> 01:00:00 EST). The
+# producer's MaxAge is 180 s.
+STATUS_EXECUTION_TAPE_CASES = [
+    # 90 s real age; a wall-clock difference reads -58.5 min.
+    {"name": "fresh_across_fall_back", "now": "2026-11-01T01:00:30-05:00",
+     "status": {**_TAPE_STATUS, "last_heartbeat": "2026-11-01T01:59:00-04:00"}},
+    # 62 min real age; a wall-clock difference reads 120 s (falsely alive).
+    {"name": "stale_hour_hidden_by_fall_back", "now": "2026-11-01T01:12:00-05:00",
+     "status": {**_TAPE_STATUS, "last_heartbeat": "2026-11-01T01:10:00-04:00"}},
+    {"name": "normal_day", "now": "2026-11-02T10:01:00-05:00",
+     "status": {**_TAPE_STATUS, "last_heartbeat": "2026-11-02T15:00:00+00:00"}},
+    {"name": "missing_heartbeat", "now": "2026-11-02T10:01:00-05:00",
+     "status": dict(_TAPE_STATUS)},
+    {"name": "null_heartbeat", "now": "2026-11-02T10:01:00-05:00",
+     "status": {**_TAPE_STATUS, "last_heartbeat": None}},
+    {"name": "unparseable_heartbeat", "now": "2026-11-02T10:01:00-05:00",
+     "status": {**_TAPE_STATUS, "last_heartbeat": "not-a-time"}},
+]
+
+UNHEALTHY_TAPE = "public execution-tape producer is armed but its process/lock/identity contract is unhealthy"
+UNREADABLE_TAPE = "public execution-tape producer is armed but its status contract is unreadable"
+
+
+@WINDOWS_POWERSHELL_REQUIRED
+@pytest.mark.spawns
+def test_status_execution_tape_heartbeat_is_aged_on_instants_and_never_healthy_when_unreadable(
+    tmp_path: Path,
+) -> None:
+    payload = base64.b64encode(json.dumps(STATUS_EXECUTION_TAPE_CASES).encode("utf-8")).decode("ascii")
+    result = run_powershell_command(
+        STATUS_EXECUTION_TAPE_HARNESS,
+        env={
+            **os.environ,
+            "WEATHER_STATUS_SCRIPT": str(SCRIPT),
+            "WEATHER_STATUS_TMP": str(tmp_path),
+            "WEATHER_STATUS_CASES": payload,
+        },
+    )
+    assert result.returncode == 0, result.stderr
+    observed = json.loads(result.stdout.strip().splitlines()[-1])
+
+    assert observed == {
+        "fresh_across_fall_back": {"process_healthy": True, "heartbeat_age_seconds": 90.0, "flags": []},
+        "stale_hour_hidden_by_fall_back": {
+            "process_healthy": False, "heartbeat_age_seconds": 3720.0, "flags": [UNHEALTHY_TAPE],
+        },
+        "normal_day": {"process_healthy": True, "heartbeat_age_seconds": 60.0, "flags": []},
+        # A missing or unparseable heartbeat must never read as a fresh one.
+        "missing_heartbeat": {"process_healthy": False, "heartbeat_age_seconds": None, "flags": [UNREADABLE_TAPE]},
+        "null_heartbeat": {"process_healthy": False, "heartbeat_age_seconds": None, "flags": [UNREADABLE_TAPE]},
+        "unparseable_heartbeat": {
+            "process_healthy": False, "heartbeat_age_seconds": None, "flags": [UNREADABLE_TAPE],
+        },
+    }
+
+
+# The runtime-health loop, run end to end: the real $portableCaps table and the
+# real foreach that fills $captureRuntimeState are lifted from status.ps1 and fed
+# a loop_status.json whose last_clean_iteration_at varies per case.
+STATUS_CLEAN_AGE_HARNESS = STATUS_AGE_PROLOGUE + r"""
+$table = @($statements | Where-Object {
+    $_ -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+        $_.Left.Extent.Text -eq '$portableCaps'
+})
+$runtimeLoop = @($statements | Where-Object {
+    $_ -is [System.Management.Automation.Language.ForEachStatementAst] -and
+        $_.Condition.Extent.Text -eq '$portableCaps.Keys' -and
+        $_.Body.Extent.Text.Contains('last_clean_age_seconds')
+})
+if ($table.Count -ne 1 -or $runtimeLoop.Count -ne 1) { throw 'runtime-health loop not found exactly once' }
+Invoke-Expression $table[0].Extent.Text
+foreach ($case in @($cases)) {
+    $global:statusTestNow = [datetimeoffset]::Parse(
+        [string]$case.now, [Globalization.CultureInfo]::InvariantCulture)
+    [IO.File]::WriteAllText((Join-Path $captureRoot 'loop_status.json'),
+        ($case.status | ConvertTo-Json -Compress), $utf8)
+    $flags = New-Object System.Collections.Generic.List[string]
+    $warns = New-Object System.Collections.Generic.List[string]
+    $captureRuntimeState = [ordered]@{}
+    Invoke-Expression $runtimeLoop[0].Extent.Text
+    $row = $captureRuntimeState['snapshot_tracker']
+    $results[[string]$case.name] = [ordered]@{
+        parsed = $row.parsed
+        last_clean_age_seconds = $row.last_clean_age_seconds
+        snapshot_warnings = @($warns | Where-Object { $_ -like 'snapshot_tracker*' })
+    }
+}
+$results | ConvertTo-Json -Compress -Depth 4
+"""
+
+STATUS_CLEAN_AGE_CASES = [
+    {"name": "normal_day", "now": "2026-11-02T10:01:00-05:00",
+     "status": {"pid": 1, "last_clean_iteration_at": "2026-11-02T10:00:00-05:00"}},
+    # 150 s real age; a wall-clock difference reads -3450 s.
+    {"name": "fresh_across_fall_back", "now": "2026-11-01T01:00:30-05:00",
+     "status": {"pid": 1, "last_clean_iteration_at": "2026-11-01T01:58:00-04:00"}},
+    # 62 min real age; a wall-clock difference reads 120 s.
+    {"name": "stale_hour_hidden_by_fall_back", "now": "2026-11-01T01:12:00-05:00",
+     "status": {"pid": 1, "last_clean_iteration_at": "2026-11-01T01:10:00-04:00"}},
+    {"name": "utc_stamp", "now": "2026-11-01T01:01:00-05:00",
+     "status": {"pid": 1, "last_clean_iteration_at": "2026-11-01T05:59:00+00:00"}},
+    {"name": "unparseable", "now": "2026-11-02T10:01:00-05:00",
+     "status": {"pid": 1, "last_clean_iteration_at": "not-a-time"}},
+    {"name": "null", "now": "2026-11-02T10:01:00-05:00",
+     "status": {"pid": 1, "last_clean_iteration_at": None}},
+    {"name": "missing", "now": "2026-11-02T10:01:00-05:00", "status": {"pid": 1}},
+]
+
+
+@WINDOWS_POWERSHELL_REQUIRED
+@pytest.mark.spawns
+def test_status_clean_iteration_age_is_aged_on_instants_across_fall_back(tmp_path: Path) -> None:
+    payload = base64.b64encode(json.dumps(STATUS_CLEAN_AGE_CASES).encode("utf-8")).decode("ascii")
+    result = run_powershell_command(
+        STATUS_CLEAN_AGE_HARNESS,
+        env={
+            **os.environ,
+            "WEATHER_STATUS_SCRIPT": str(SCRIPT),
+            "WEATHER_STATUS_TMP": str(tmp_path),
+            "WEATHER_STATUS_CASES": payload,
+        },
+    )
+    assert result.returncode == 0, result.stderr
+    observed = json.loads(result.stdout.strip().splitlines()[-1])
+
+    # An unreadable stamp is "unknown" (null), never a fresh age, and the
+    # status file itself still counts as parsed with no invented warning.
+    assert observed == {
+        name: {"parsed": True, "last_clean_age_seconds": age, "snapshot_warnings": []}
+        for name, age in {
+            "normal_day": 60.0,
+            "fresh_across_fall_back": 150.0,
+            "stale_hour_hidden_by_fall_back": 3720.0,
+            "utc_stamp": 120.0,
+            "unparseable": None,
+            "null": None,
+            "missing": None,
+        }.items()
+    }
+
+
+# [DateTime] input, by Kind. Windows PowerShell 5.1 ConvertFrom-Json yields
+# strings, so this only guards a future PowerShell 7 caller. It runs in a real
+# child whose TimeZoneInfo.Local is pinned to Eastern by reflection on the
+# process-wide cache (so it must not use the shared test host); that makes
+# "Unspecified read as local" visibly different from "Unspecified read as UTC".
+STATUS_DATETIME_KIND_HARNESS = r"""
+$ErrorActionPreference = 'Stop'
+$staticFlags = [Reflection.BindingFlags]'NonPublic,Static'
+$instanceFlags = [Reflection.BindingFlags]'NonPublic,Instance'
+$cache = [TimeZoneInfo].GetField('s_cachedData', $staticFlags).GetValue($null)
+$cache.GetType().GetField('m_localTimeZone', $instanceFlags).SetValue(
+    $cache, [TimeZoneInfo]::FindSystemTimeZoneById('Eastern Standard Time'))
+$oneYear = $cache.GetType().GetField('m_oneYearLocalFromUtc', $instanceFlags)
+if ($oneYear) { $oneYear.SetValue($cache, $null) }
+if ([TimeZoneInfo]::Local.Id -ne 'Eastern Standard Time') { throw 'time zone pin failed' }
+$tokens = $null
+$errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile(
+    $env:WEATHER_STATUS_SCRIPT, [ref]$tokens, [ref]$errors)
+if (@($errors).Count -ne 0) { throw 'status script did not parse' }
+foreach ($name in @('ConvertTo-StatusInstant', 'ConvertTo-StatusUtcInstant', 'Get-StatusAgeSeconds')) {
+    $functionAst = @($ast.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+            $node.Name -eq $name
+    }, $true)) | Select-Object -First 1
+    if ($null -eq $functionAst) { throw "missing function $name" }
+    Invoke-Expression $functionAst.Extent.Text
+}
+function Format-Instant {
+    param($Value)
+    if ($null -eq $Value) { return $null }
+    return $Value.UtcDateTime.ToString('o')
+}
+# 07:30:15.250Z is 02:30:15.250 EST on 2026-11-01: after the repeated hour, so unambiguous.
+$utc = New-Object DateTime(2026, 11, 1, 7, 30, 15, 250, ([DateTimeKind]::Utc))
+$local = $utc.ToLocalTime()
+$unspecified = [datetime]::SpecifyKind($utc, [DateTimeKind]::Unspecified)
+$now = [datetimeoffset]::Parse('2026-11-01T07:32:15.250+00:00', [Globalization.CultureInfo]::InvariantCulture)
+[ordered]@{
+    local_kind = [string]$local.Kind
+    parser_utc = Format-Instant (ConvertTo-StatusInstant $utc)
+    parser_local = Format-Instant (ConvertTo-StatusInstant $local)
+    parser_naive_string = Format-Instant (ConvertTo-StatusInstant '2026-11-01T07:30:15.250')
+    utc_kind = Format-Instant (ConvertTo-StatusUtcInstant $utc)
+    local_kind_instant = Format-Instant (ConvertTo-StatusUtcInstant $local)
+    unspecified_kind = Format-Instant (ConvertTo-StatusUtcInstant $unspecified)
+    offset_string = Format-Instant (ConvertTo-StatusUtcInstant '2026-11-01T02:30:15.250-05:00')
+    garbage = Format-Instant (ConvertTo-StatusUtcInstant 'not-a-time')
+    age_unspecified = Get-StatusAgeSeconds $unspecified -Now $now
+    age_local = Get-StatusAgeSeconds $local -Now $now
+} | ConvertTo-Json -Compress
+"""
+
+
+@WINDOWS_POWERSHELL_REQUIRED
+@pytest.mark.spawns
+def test_status_timestamp_helpers_resolve_datetime_input_by_kind() -> None:
+    env = {**os.environ, "WEATHER_STATUS_SCRIPT": str(SCRIPT)}
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", STATUS_DATETIME_KIND_HARNESS],
+        cwd=REPO_ROOT, env=env, check=False, capture_output=True, text=True, timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+    observed = json.loads(result.stdout.strip().splitlines()[-1])
+
+    instant = "2026-11-01T07:30:15.2500000Z"
+    assert observed == {
+        "local_kind": "Local",
+        # The parser keeps the instant and sub-second precision for Utc and
+        # Local DateTimes, and reads an offset-less string as UTC.
+        "parser_utc": instant,
+        "parser_local": instant,
+        "parser_naive_string": instant,
+        # The Kind-aware front end: Utc as is, Local via ToUniversalTime,
+        # Unspecified as UTC (the string rule), strings through the parser.
+        "utc_kind": instant,
+        "local_kind_instant": instant,
+        "unspecified_kind": instant,
+        "offset_string": instant,
+        "garbage": None,
+        "age_unspecified": 120.0,
+        "age_local": 120.0,
+    }
 
 
 def test_status_surfaces_optional_capture_error_state_without_assuming_one_schema() -> None:

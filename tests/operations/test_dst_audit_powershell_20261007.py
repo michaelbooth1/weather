@@ -4,7 +4,9 @@ Guards: docs/roadmap/audits/dst-audit-2026-10-07.md findings DST-H3 (quiet-windo
 advancement compared on the wall clock) and DST-H4 (bounded suite capture-worker heartbeat age computed
 on the wall clock). DST-C1 (daily Scheduler triggers stored with a fixed UTC offset) is fixed by the
 local-trigger helper and guarded by tests/operations/test_scheduled_task_local_daily_triggers.py; its
-xfail here was retired with that fix.
+xfail here was retired with that fix. DST-H4 is fixed by PR #273 (heartbeat ages are differences of
+UTC instants); its xfail was retired with that fix and its probe now passes the test's own instant
+through Get-HealthyCaptureWorkerCount -Now.
 
 Every test executes the repository's own PowerShell (a statement or function
 extracted from the script by the PowerShell parser) in a real Windows
@@ -128,6 +130,13 @@ $functionAst = @($ast.FindAll({
         $node.Name -eq 'Get-HealthyCaptureWorkerCount'
 }, $true)) | Select-Object -First 1
 if ($null -eq $functionAst) { throw 'missing Get-HealthyCaptureWorkerCount' }
+$helpers = @($ast.FindAll({
+    param($node)
+    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+        $node.Name -in @('ConvertTo-StatusInstant', 'ConvertTo-StatusUtcInstant')
+}, $true))
+if ($helpers.Count -ne 2) { throw "expected the two timestamp helpers, found $($helpers.Count)" }
+foreach ($helper in $helpers) { Invoke-Expression $helper.Extent.Text }
 $RepoRoot = $env:DST_REPO_ROOT
 $snapshotRoot = Join-Path $RepoRoot 'data\snapshots'
 $beats = $env:DST_HEARTBEATS | ConvertFrom-Json
@@ -138,12 +147,14 @@ foreach ($name in @('loop_status.json', 'clob_loop_status.json', 'observation_tr
     [pscustomobject]@{ pid = $PID } | ConvertTo-Json -Compress |
         Set-Content -LiteralPath (Join-Path $snapshotRoot ".$name.writer.lock") -Encoding UTF8
 }
-# The pinned clock: Get-Date resolves to this function inside the extracted one.
-$script:fakeNow = [datetimeoffset]::Parse($env:DST_NOW).UtcDateTime.ToLocalTime()
+# The pinned clock: the test's own instant goes in through -Now, and Get-Date
+# resolves to the same moment so a restored wall-clock line is judged at it too.
+$now = [datetimeoffset]::Parse($env:DST_NOW)
+$script:fakeNow = $now.UtcDateTime.ToLocalTime()
 function Get-Date { return $script:fakeNow }
 Invoke-Expression $functionAst.Extent.Text
 [pscustomobject]@{
-    healthy = [int](Get-HealthyCaptureWorkerCount)
+    healthy = [int](Get-HealthyCaptureWorkerCount -Now $now)
     local_now = $script:fakeNow.ToString('yyyy-MM-ddTHH:mm:ss')
 } | ConvertTo-Json -Compress
 """
@@ -172,7 +183,6 @@ HEARTBEAT_CASES = {
 
 @WINDOWS_POWERSHELL
 @pytest.mark.spawns
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="DST audit 2026-10-07: DST-H4")
 @pytest.mark.parametrize("case", sorted(HEARTBEAT_CASES))
 def test_bounded_suite_counts_fresh_capture_workers_across_dst(tmp_path, case):
     now, heartbeats = HEARTBEAT_CASES[case]
