@@ -143,7 +143,7 @@ function Get-AgentToolRoot($ProcessRow, $ProcessByPid) {
         $parentId = [uint32]$current.ParentProcessId
         if (-not $ProcessByPid.ContainsKey($parentId)) { return $null }
         $parent = $ProcessByPid[$parentId]
-        if ([datetime]$parent.CreationDate -gt [datetime]$current.CreationDate) { return $null }
+        if (([datetime]$parent.CreationDate).ToUniversalTime() -gt ([datetime]$current.CreationDate).ToUniversalTime()) { return $null }
         $current = $parent
     }
     return $null
@@ -160,7 +160,7 @@ function Get-ProcessTreeRows($RootRow, $AllProcesses) {
         $selected[$key] = $current
         foreach ($child in $AllProcesses) {
             if ([uint32]$child.ParentProcessId -ne $key) { continue }
-            if ([datetime]$child.CreationDate -lt [datetime]$current.CreationDate) { continue }
+            if (([datetime]$child.CreationDate).ToUniversalTime() -lt ([datetime]$current.CreationDate).ToUniversalTime()) { continue }
             $queue.Enqueue($child)
         }
     }
@@ -218,7 +218,7 @@ function Stop-VerifiedProcessTree(
         }
         $current = Get-CimInstance Win32_Process -Filter ("ProcessId = {0}" -f $memberId) -ErrorAction SilentlyContinue
         if (-not $current) { continue }
-        if ([datetime]$current.CreationDate -ne [datetime]$row.CreationDate) {
+        if (([datetime]$current.CreationDate).ToUniversalTime() -ne ([datetime]$row.CreationDate).ToUniversalTime()) {
             Write-GuardLog "ERROR" ("pid {0} creation identity changed before termination" -f $memberId)
             $ok = $false
             continue
@@ -281,14 +281,19 @@ $status = @{
 # policy from OS process ancestry, not from model compliance. Each distinct
 # direct tool subtree is one workload; a PID is accepted only while its parent
 # creation identity is older, which closes the Windows PID-reuse hole.
+# CreationDate is a local wall time. Every age and creation order in this guard
+# compares UTC instants: across the fall-back hour a 01:55 EDT parent reads as
+# younger than its 01:05 EST child on the wall clock (DST audit 2026-10-07 DST-M4).
+# The 00:30-09:00 and 12:00-18:00 windows are deliberately local.
 $localNow = Get-Date
+$utcNow = $localNow.ToUniversalTime()
 $minuteOfDay = (60 * $localNow.Hour) + $localNow.Minute + ($localNow.Second / 60.0)
 $agentHeavyWindowAllowed = ($minuteOfDay -ge 30.0) -and ($minuteOfDay -lt 540.0)
 $status.agent_heavy_window_allowed = $agentHeavyWindowAllowed
 $heavyToolRoots = @{}
 foreach ($row in $allProcesses) {
     if (-not (Test-AgentHeavyProcess $row)) { continue }
-    $ageSeconds = ($localNow - [datetime]$row.CreationDate).TotalSeconds
+    $ageSeconds = ($utcNow - ([datetime]$row.CreationDate).ToUniversalTime()).TotalSeconds
     if ($ageSeconds -lt $AgentWorkloadGraceSeconds) { continue }
     $toolRoot = Get-AgentToolRoot $row $processByPid
     if (-not $toolRoot) { continue }
@@ -318,7 +323,8 @@ if (-not $agentHeavyWindowAllowed) {
     foreach ($entry in $heavyToolRoots.GetEnumerator()) { $agentTargetMap[$entry.Key] = $entry.Value }
 }
 elseif ($heavyToolRoots.Count -gt $MaxConcurrentAgentHeavyWorkloads) {
-    $orderedRoots = @($heavyToolRoots.Values | Sort-Object CreationDate, ProcessId)
+    $orderedRoots = @($heavyToolRoots.Values |
+        Sort-Object @{ Expression = { ([datetime]$_.CreationDate).ToUniversalTime() } }, ProcessId)
     foreach ($root in @($orderedRoots | Select-Object -Skip $MaxConcurrentAgentHeavyWorkloads)) {
         $key = "{0}|{1}" -f $root.ProcessId, ([datetime]$root.CreationDate).ToUniversalTime().Ticks
         $agentTargetMap[$key] = $root
@@ -365,7 +371,7 @@ if ($localNow.Hour -ge 12 -and $localNow.Hour -lt 18) {
         $orphanedEvidence = @(Get-CimInstance Win32_Process -Filter "Name like 'python%'" |
             ForEach-Object {
                 $cmd = [string]$_.CommandLine
-                $ageMinutes = ($localNow - $_.CreationDate).TotalMinutes
+                $ageMinutes = ($utcNow - ([datetime]$_.CreationDate).ToUniversalTime()).TotalMinutes
                 if ($ageMinutes -lt 2) { return }
                 if ($cmd -notmatch '(?i)-m\s+weather\.operations\.daily_refresh') { return }
                 if ($cmd -notmatch "(?i)--scheduler-task-name\s+$escapedTaskName(?:\s|$)") { return }
@@ -483,7 +489,7 @@ if ($commitPercent -ge $ActPercent -and -not $terminationPerformed) {
 $orphanActions = @()
 $allProcs = @($allProcesses | Where-Object { ([string]$_.Name) -like 'python*' })
 $pidTable = @{}
-$allProcesses | ForEach-Object { $pidTable[[uint32]$_.ProcessId] = $_.CreationDate }
+$allProcesses | ForEach-Object { $pidTable[[uint32]$_.ProcessId] = ([datetime]$_.CreationDate).ToUniversalTime() }
 foreach ($row in $allProcs) {
     $cmd = [string]$row.CommandLine
     if ($cmd -match "-m\s+weather\.") { continue }
@@ -491,12 +497,12 @@ foreach ($row in $allProcs) {
     $isInline = $cmd -match '(?i)python[w]?(\.exe)?"?\s+-c\s'
     $isBareScript = $cmd -match '(?i)python[w]?(\.exe)?"?\s+[^-]\S*\.py'
     if (-not ($isStdin -or $isInline -or $isBareScript)) { continue }
-    $ageMinutes = ((Get-Date) - $row.CreationDate).TotalMinutes
+    $ageMinutes = ((Get-Date).ToUniversalTime() - ([datetime]$row.CreationDate).ToUniversalTime()).TotalMinutes
     if ($ageMinutes -lt $OrphanGraceMinutes) { continue }
     $ppid = [uint32]$row.ParentProcessId
     $parentBirth = $pidTable[$ppid]
     # Parent gone, or its PID was reused by a younger process.
-    $orphaned = ($null -eq $parentBirth) -or ($parentBirth -gt $row.CreationDate)
+    $orphaned = ($null -eq $parentBirth) -or ($parentBirth -gt ([datetime]$row.CreationDate).ToUniversalTime())
     if (-not $orphaned) { continue }
     $proc = Get-Process -Id $row.ProcessId -ErrorAction SilentlyContinue
     $privateMB = 0
