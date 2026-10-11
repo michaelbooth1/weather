@@ -78,7 +78,10 @@ path, wrapper action, scheduled time, or base-retrain binding change. The
 candidate directory is immutable and run-specific, so a completed candidate
 also requires a new reviewed binding before another window can be armed.
 Both registrars therefore require an exact future `RunAtLocal`; neither
-run-specific task uses `StartWhenAvailable`. The capture-host run is fixed to
+run-specific task uses `StartWhenAvailable`. The direct registrar refuses a
+`RunAtLocal` in the repeated fall-back hour or the skipped spring-forward hour
+with the integration attempts' `Assert-WeatherIntegrationLocalScheduleTime`
+(DST-L11). The capture-host run is fixed to
 01:00 local and refuses outside a two-minute skew before it acquires the heavy
 lease or stops capture. The daily 04:15 dead-man restore deliberately retains
 `StartWhenAvailable`.
