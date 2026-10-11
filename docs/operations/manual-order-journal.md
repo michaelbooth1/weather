@@ -110,6 +110,8 @@ pins:
 
 Both pins must match before any Scheduler call. The action carries them, so the runner refuses to run
 (`runner.log` status `refused`, exit 3) after any unreviewed edit. Re-register after a reviewed change.
+Landing a change to any pinned file is such an edit: night plans flag it per slot
+(`journal_pinned_touch`, [landing preflight](LANDING_PREFLIGHT.md)) so the re-pin follows the merge.
 A wrong or missing pin makes `-WhatIf` and a real run print the current hashes. `-RepoRoot` is the
 code checkout. `-StateRoot` (default `-RepoRoot`) supplies `venv`, `config\local` and `data\`. A
 detached reviewed worktree can therefore journal into the production checkout before its branch

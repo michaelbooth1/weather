@@ -183,6 +183,12 @@ window).
   UTF-8. An embedded hash that does not match the content is refused.
 - Other keys (`label`, `master_sha`, `generated_at`, `source`) are carried, hashed
   and otherwise ignored.
+- Every landing slot carries `journal_pinned_touch`: the files its diff from the
+  plan base changes among those the manual order journal pins (the five modules
+  and the runner listed in [manual-order-journal.md](manual-order-journal.md)),
+  or `[]`. The preflight does not check it. A non-empty list means the journal
+  refuses (exit 3) from the merge until it is re-registered with new pins, so the
+  plan schedules the re-pin right after that slot lands.
 
 ## Verdict schema (`landing_preflight_v0.1`)
 
