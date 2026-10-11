@@ -523,7 +523,8 @@ class PilotSession(Session):
         self.journal.record('lfc_selection', lfc_journal_schema=LFC_JOURNAL_SCHEMA, file='selection.json',
                             sha256=selection_sha, baselines=self.baselines)
         self.journal.record('lfc_fee_rule', lfc_journal_schema=LFC_JOURNAL_SCHEMA, phase='selection',
-                            refusal=self.opening_fee_code, **self.opening_fee)
+                            refusal=self.opening_fee_code,
+                            **{k: v for k, v in self.opening_fee.items() if k != 'refusal'})
         if self.opening_fee_code:
             raise HoldEnd(self.opening_fee_code)
         if self.profile.session0:

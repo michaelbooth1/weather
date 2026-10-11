@@ -802,6 +802,21 @@ def test_a_fee_refusal_at_submit_posts_nothing(tmp_path, change, code):
     assert events(session, 'lfc_fee_rule')[-1]['refusal'] == code
 
 
+def test_a_selection_phase_fee_refusal_ends_with_its_code_and_posts_nothing(tmp_path):
+    # Delta-3 N-12: maker_fee_refusal's record carries 'refusal' too; the selection row must not pass it twice.
+    from copy import deepcopy
+    from weather.market.lfc_fees import maker_fee_refusal
+    session, venue, _, _ = setup(tmp_path)
+    bad = deepcopy(venue.memory.public_input)
+    bad['fee_evidence']['gamma'].update(builderFeeRate=50)
+    session.opening_fee_code, session.opening_fee = maker_fee_refusal(bad, session.tokens)
+    assert session.opening_fee_code == 'builder_fee_nonzero' and 'refusal' in session.opening_fee
+    result = session.run(rehearsal_seconds=60)
+    assert result['reason'] == 'builder_fee_nonzero' and not venue.calls and result['submits'] == 0
+    row = events(session, 'lfc_fee_rule')[-1]
+    assert row['phase'] == 'selection' and row['refusal'] == 'builder_fee_nonzero'
+
+
 def test_a_class_flip_before_submit_posts_nothing(tmp_path):
     session, venue, _, _ = setup(tmp_path)
     set_fee_class(venue.memory.public_input, free=True)
