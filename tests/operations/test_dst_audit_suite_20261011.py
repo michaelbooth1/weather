@@ -148,7 +148,8 @@ DEADLINE_CASES = {
     "ordinary_0130": ("2026-10-20T01:30:00-04:00", 5400, 5400),
     "ordinary_0130_short_cap": ("2026-10-20T01:30:00-04:00", 600, 600),
     "ordinary_0800": ("2026-10-20T08:00:00-04:00", 5400, 3600),
-    "ordinary_0830_long_cap": ("2026-10-20T08:30:00-04:00", 7200, 1800),
+    # A full-length cap that outlasts the window: the 09:00 edge binds first.
+    "ordinary_0830_long_cap": ("2026-10-20T08:30:00-04:00", 5400, 1800),
 }
 
 
