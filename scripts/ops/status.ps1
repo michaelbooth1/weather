@@ -4771,7 +4771,10 @@ $wdf = Join-Path $repo "data\alerts\host_health_latest.json"
 if (Test-Path $wdf) {
     try {
         $wd = Get-Content $wdf -Raw | ConvertFrom-Json
-        $wdAgeMin = [math]::Round(((Get-Date) - [datetime]$wd.ts).TotalMinutes, 0)
+        # Aged on UTC instants: the watchdog writes ts with its offset, and a wall-clock
+        # difference across the DST fall-back hour would hide or invent an hour of staleness.
+        $wdAgeSeconds = Get-StatusAgeSeconds $wd.ts
+        if ($null -ne $wdAgeSeconds) { $wdAgeMin = [math]::Round($wdAgeSeconds / 60, 0) }
     }
     catch {}
 }
@@ -4834,7 +4837,11 @@ if (([string]$reconciliationPublication.classification -ceq "ordinary") -and
             [string]::IsNullOrWhiteSpace([string]$quietMarker.phase)) {
             throw "quiet-merge marker schema or identity is invalid"
         }
-        $quietMarkerAgeMinutes = ((Get-Date) - [datetime]$quietMarker.updated_at).TotalMinutes
+        # Aged on UTC instants: merges run inside the 01:00-04:00 window, which holds the
+        # repeated hour of the DST fall-back night.
+        $quietMarkerAgeSeconds = Get-StatusAgeSeconds $quietMarker.updated_at
+        if ($null -eq $quietMarkerAgeSeconds) { throw "quiet-merge marker updated_at is unreadable" }
+        $quietMarkerAgeMinutes = $quietMarkerAgeSeconds / 60
         $quietMarkerDetail = "quiet-window merge marker remains at phase $($quietMarker.phase) for $([math]::Round($quietMarkerAgeMinutes, 1)) minutes (tip $($quietMarker.expected_tip))"
         if ($quietMarkerAgeMinutes -gt 30) {
             $flags.Add("STALE $quietMarkerDetail - run boot/merge recovery before closure or another merge")

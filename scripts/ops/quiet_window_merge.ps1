@@ -3547,6 +3547,63 @@ catch {
 Note "pre-merge HEAD $preMerge; merging $Branch ($($resolvedBranchTip.Substring(0, 12)))"
 
 # ---- capture baseline (what we will require to still be true afterwards) ----
+function ConvertTo-StatusInstant {
+    # Parses a status timestamp as an absolute instant. Windows PowerShell 5.1
+    # ConvertFrom-Json leaves ISO-8601 strings as strings; the loops write them
+    # with their UTC offset, so DateTimeOffset.Parse keeps the instant exact even
+    # across the DST fall-back hour (a wall-clock [datetime] cast does not).
+    # Offset-less strings are taken as UTC. Unparseable or empty input is $null.
+    param($Value)
+    if ($null -eq $Value) { return $null }
+    if ($Value -is [datetimeoffset]) { return $Value }
+    if ($Value -is [datetime]) { return [datetimeoffset]$Value }
+    if (-not [string]$Value) { return $null }
+    try {
+        return [datetimeoffset]::Parse(
+            [string]$Value,
+            [Globalization.CultureInfo]::InvariantCulture,
+            [Globalization.DateTimeStyles]::AssumeUniversal
+        )
+    }
+    catch { return $null }
+}
+
+function ConvertTo-StatusUtcInstant {
+    # DateTime-aware front end to ConvertTo-StatusInstant. That parser is kept
+    # byte-identical across scripts, so DateTime handling lives here instead.
+    # A [datetime] is resolved by its Kind: Utc is taken as is, Local is
+    # converted with ToUniversalTime(), and Unspecified is taken as UTC, the
+    # same rule the parser applies to an offset-less string. Windows PowerShell
+    # 5.1 ConvertFrom-Json yields strings, so today only strings arrive here; a
+    # PowerShell 7 ConvertFrom-Json would yield Local DateTimes, which are
+    # ambiguous inside the repeated fall-back hour (.NET picks standard time).
+    # Every other input goes to ConvertTo-StatusInstant unchanged.
+    param($Value)
+    if ($Value -is [datetime]) {
+        if ($Value.Kind -eq [DateTimeKind]::Local) {
+            return [datetimeoffset]($Value.ToUniversalTime())
+        }
+        return [datetimeoffset]([datetime]::SpecifyKind($Value, [DateTimeKind]::Utc))
+    }
+    return ConvertTo-StatusInstant $Value
+}
+
+function Test-QuietMergeHeartbeatAdvanced {
+    # True when $After is a strictly later instant than $Before. Both stamps are
+    # compared as UTC instants (ConvertTo-StatusUtcInstant, the status.ps1 idiom),
+    # never as local wall-clock [datetime] casts: the 01:00-04:00 quiet window
+    # holds the repeated 01:xx hour of the DST fall-back night, where a heartbeat
+    # written in the second 01:xx would otherwise look older than one written in
+    # the first. Throws when either stamp is missing or unparseable, as the cast did.
+    param($Before, $After)
+    $beforeInstant = ConvertTo-StatusUtcInstant $Before
+    $afterInstant = ConvertTo-StatusUtcInstant $After
+    if ($null -eq $beforeInstant -or $null -eq $afterInstant) {
+        throw "heartbeat is missing or unparseable ($Before -> $After)"
+    }
+    return ($afterInstant.UtcTicks -gt $beforeInstant.UtcTicks)
+}
+
 # Command lines are hidden for S4U-owned processes, and one fresh snapshot heartbeat says
 # nothing about the CLOB or observation workers. The checker validates all three workers'
 # status + writer-lock PID, process liveness, heartbeat freshness, and loaded-source
@@ -3865,7 +3922,7 @@ try {
         )
         if (-not $workerReadopted) { continue }
         try {
-            if ([datetime]$afterWorker.last_heartbeat -le [datetime]$beforeWorker.last_heartbeat) {
+            if (-not (Test-QuietMergeHeartbeatAdvanced -Before $beforeWorker.last_heartbeat -After $afterWorker.last_heartbeat)) {
                 $ok = $false
                 $why += "$($beforeWorker.name) readopted but heartbeat did not advance ($($beforeWorker.last_heartbeat) -> $($afterWorker.last_heartbeat))"
             }
@@ -3888,7 +3945,7 @@ try {
                 $why += "execution_tape closure rolled but loaded-source fingerprint did not change"
             }
             try {
-                if ([datetime]$executionAfter.last_heartbeat -le [datetime]$executionBefore.last_heartbeat) {
+                if (-not (Test-QuietMergeHeartbeatAdvanced -Before $executionBefore.last_heartbeat -After $executionAfter.last_heartbeat)) {
                     $ok = $false
                     $why += "execution_tape readopted but heartbeat did not advance ($($executionBefore.last_heartbeat) -> $($executionAfter.last_heartbeat))"
                 }
