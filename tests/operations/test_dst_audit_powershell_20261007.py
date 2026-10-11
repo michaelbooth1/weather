@@ -9,7 +9,9 @@ UTC instants); its xfail was retired with that fix and its probe now passes the 
 through Get-HealthyCaptureWorkerCount -Now. DST-H3 is fixed by comparing the readoption heartbeats
 as UTC instants (Test-QuietMergeHeartbeatAdvanced over the status.ps1 timestamp helpers); its xfail
 was retired with that fix and its probe now evaluates both real readoption conditions (capture
-workers and execution tape) across the fall-back hour and on ordinary days.
+workers and execution tape) across the fall-back hour and on ordinary days. DST-M4 (the S4U memory
+guard compared process CreationDate values on the wall clock) landed with its fix and this file's
+test_memory_guard_creation_ages_and_order_are_instants_across_dst, which failed first on master.
 
 Every test executes the repository's own PowerShell (a statement or function
 extracted from the script by the PowerShell parser) in a real Windows
@@ -264,3 +266,260 @@ def test_bounded_suite_counts_fresh_capture_workers_across_dst(tmp_path, case):
     # defect subtracts local wall times (negative age on fall-back, ~62 minutes
     # on spring-forward), counts 0, and Assert-HostAdmission aborts the suite.
     assert payload["healthy"] == 3, payload
+
+
+GUARD_CREATION_PROBE = r"""
+$ast = [System.Management.Automation.Language.Parser]::ParseFile(
+    $env:DST_AUDIT_SCRIPT, [ref]$tokens, [ref]$errors)
+if (@($errors).Count -ne 0) { throw 'memory_commit_guard.ps1 does not parse' }
+foreach ($name in @('Test-GovernedWeatherProcess', 'Test-AgentHeavyProcess', 'Get-AgentToolRoot',
+        'Get-ProcessTreeRows', 'Stop-VerifiedProcessTree')) {
+    $found = @($ast.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
+    }, $true))
+    if ($found.Count -ne 1) { throw "expected one function $name, found $($found.Count)" }
+    Invoke-Expression $found[0].Extent.Text
+}
+$top = @($ast.EndBlock.Statements)
+function Get-TopIndex([scriptblock]$Predicate) {
+    $hits = @(for ($i = 0; $i -lt $top.Count; $i++) { if (& $Predicate $top[$i].Extent.Text) { $i } })
+    if ($hits.Count -ne 1) { throw "expected one top-level statement, found $($hits.Count)" }
+    return $hits[0]
+}
+function Get-TopRange([int]$From, [int]$To) {
+    return ($top[$From..$To] | ForEach-Object { $_.Extent.Text }) -join "`n"
+}
+function Get-Assignment([string]$Variable) {
+    $found = @($ast.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+            $node.Left.Extent.Text -eq $Variable
+    }, $true))
+    if ($found.Count -ne 1) { throw "expected one assignment to $Variable, found $($found.Count)" }
+    return $found[0].Extent.Text
+}
+Invoke-Expression (Get-Assignment '$agentRootNames')
+Invoke-Expression (Get-Assignment '$agentShellNames')
+# The clock statements: $localNow, and $utcNow where the script derives it.
+$clockText = ($top | Where-Object { $_.Extent.Text -match '^\$(?:localNow|utcNow)\s*=' } |
+    ForEach-Object { $_.Extent.Text }) -join "`n"
+if (-not $clockText.Contains('$localNow = Get-Date')) { throw 'missing $localNow = Get-Date' }
+$heavyText = Get-TopRange (Get-TopIndex { param($t) $t -eq '$heavyToolRoots = @{}' }) `
+    (Get-TopIndex { param($t) $t.StartsWith('foreach') -and $t.Contains('$AgentWorkloadGraceSeconds') })
+$sweepText = Get-TopRange (Get-TopIndex { param($t) $t -eq '$orphanActions = @()' }) `
+    (Get-TopIndex { param($t) $t.StartsWith('foreach') -and $t.Contains('$OrphanGraceMinutes') })
+$sortText = Get-Assignment '$orderedRoots'
+$evidenceText = Get-Assignment '$orphanedEvidence'
+
+# Rows carry CreationDate the way Get-CimInstance returns it: a local DateTime
+# converted from the absolute instant (a fall-back-hour value keeps its
+# ambiguity bit, so ToUniversalTime round-trips).
+function ConvertTo-LocalBirth([string]$Iso) { return [datetimeoffset]::Parse($Iso).UtcDateTime.ToLocalTime() }
+function New-Row($Spec) {
+    return [pscustomobject]@{
+        ProcessId = [uint32]$Spec.pid
+        ParentProcessId = [uint32]$Spec.ppid
+        Name = [string]$Spec.name
+        CommandLine = [string]$Spec.cmd
+        CreationDate = ConvertTo-LocalBirth $Spec.born
+        ReadTransferCount = [uint64]0
+    }
+}
+function Get-Date {
+    param([string]$Format)
+    if ($Format) { return $script:fakeNow.ToString($Format) }
+    return $script:fakeNow
+}
+function Get-Process {
+    param($Id, $ErrorAction)
+    return [pscustomobject]@{ Id = [int]$Id; PrivateMemorySize64 = [long]64MB }
+}
+function Stop-Process { param($Id, [switch]$Force, $Confirm, $ErrorAction) $script:stopped.Add([int]$Id) }
+function Write-GuardLog([string]$Level, [string]$Message) { }
+function Get-CimInstance {
+    param($ClassName, $Filter, $ErrorAction)
+    if ($Filter -match '^ProcessId = (\d+)$') {
+        $wanted = [int]$Matches[1]
+        return $script:liveRows | Where-Object { [int]$_.ProcessId -eq $wanted } | Select-Object -First 1
+    }
+    if ($Filter -eq "Name like 'python%'") { return $script:liveRows }
+    throw "unexpected Win32_Process filter: $Filter"
+}
+
+$AgentWorkloadGraceSeconds = 15.0
+$OrphanGraceMinutes = 30.0
+$MaxConcurrentAgentHeavyWorkloads = 1
+$escapedTaskName = 'WeatherEveningEvidenceRefresh'
+$cases = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:DST_CASES)) | ConvertFrom-Json
+$results = [ordered]@{}
+foreach ($case in @($cases)) {
+    $script:fakeNow = ConvertTo-LocalBirth $case.now
+    $script:stopped = New-Object System.Collections.Generic.List[int]
+    $guardActions = New-Object System.Collections.Generic.List[string]
+    $allProcesses = @($case.rows | ForEach-Object { New-Row $_ })
+    $script:liveRows = @(if ($case.live) { $case.live | ForEach-Object { New-Row $_ } } else { $allProcesses })
+    $processByPid = @{}
+    foreach ($row in $allProcesses) { $processByPid[[uint32]$row.ProcessId] = $row }
+    Invoke-Expression $clockText
+    $site = [string]$case.site
+    if ($site -eq 'heavy') {
+        Invoke-Expression $heavyText
+        $value = @($heavyToolRoots.Values | ForEach-Object { [int]$_.ProcessId } | Sort-Object)
+    }
+    elseif ($site -eq 'tree') {
+        $value = @(Get-ProcessTreeRows $allProcesses[0] $allProcesses |
+            ForEach-Object { [int]$_.ProcessId } | Sort-Object)
+    }
+    elseif ($site -eq 'order') {
+        $heavyToolRoots = @{}
+        foreach ($row in $allProcesses) { $heavyToolRoots["$($row.ProcessId)"] = $row }
+        Invoke-Expression $sortText
+        $value = @($orderedRoots | ForEach-Object { [int]$_.ProcessId })
+    }
+    elseif ($site -eq 'identity') {
+        [void](Stop-VerifiedProcessTree $allProcesses[0] $allProcesses 'dst probe' $true)
+        $value = @($script:stopped)
+    }
+    elseif ($site -eq 'sweep') {
+        Invoke-Expression $sweepText
+        $value = @($script:stopped)
+    }
+    elseif ($site -eq 'evidence') {
+        Invoke-Expression $evidenceText
+        $value = @($orphanedEvidence | ForEach-Object { [int]$_.AgeMinutes })
+    }
+    else { throw "unknown site $site" }
+    $results[[string]$case.name] = [object[]]@($value)
+}
+$results | ConvertTo-Json -Compress -Depth 4
+"""
+
+_SHELL = "powershell.exe"
+_PY = "python.exe"
+_PYTEST = "python -m pytest -q"
+_INLINE = "python -c pass"
+_REFRESH = "python -m weather.operations.daily_refresh --scheduler-task-name WeatherEveningEvidenceRefresh"
+_GONE = 7999999  # a parent PID absent from every table
+
+
+def _row(pid, ppid, name, cmd, born):
+    return {"pid": pid, "ppid": ppid, "name": name, "cmd": cmd, "born": born}
+
+
+def _agent_tree(shell_born, child_born):
+    # claude.exe -> tool shell -> heavy pytest child; the shell is the tool root.
+    return [
+        _row(7000001, _GONE, "claude.exe", "claude", "2026-10-01T00:00:00+00:00"),
+        _row(7000003, 7000001, _SHELL, "powershell -NoProfile -Command run", shell_born),
+        _row(7000005, 7000003, _PY, _PYTEST, child_born),
+    ]
+
+
+# (name, site, now, rows, expected, rows a re-read by PID returns, else None).
+# Toronto falls back at 2026-11-01 06:00Z (01:59:59 EDT -> 01:00:00 EST) and
+# springs forward at 2027-03-14 07:00Z (01:59:59 EST -> 03:00:00 EDT). Every
+# expectation is the verdict on real (UTC) instants.
+GUARD_CREATION_CASES = [
+    # Ancestry: a 01:55 EDT shell is older than its 01:05 EST pytest child.
+    ("heavy_ancestry_fall_back", "heavy", "2026-11-01T01:10:00-05:00",
+     _agent_tree("2026-11-01T01:55:00-04:00", "2026-11-01T01:05:00-05:00"), [7000003], None),
+    # Grace: 40 real seconds old (-59 minutes on the wall) is past the 15 s grace.
+    ("heavy_grace_fall_back", "heavy", "2026-11-01T01:00:10-05:00",
+     _agent_tree("2026-11-01T01:59:00-04:00", "2026-11-01T01:59:30-04:00"), [7000003], None),
+    # Grace: 10 real seconds old (60 minutes on the wall) is inside it.
+    ("heavy_grace_spring_forward", "heavy", "2027-03-14T03:00:05-04:00",
+     _agent_tree("2027-03-14T01:59:50-05:00", "2027-03-14T01:59:55-05:00"), [], None),
+    ("heavy_ordinary_counted", "heavy", "2026-10-20T01:10:00-04:00",
+     _agent_tree("2026-10-20T01:00:00-04:00", "2026-10-20T01:05:00-04:00"), [7000003], None),
+    ("heavy_ordinary_in_grace", "heavy", "2026-10-20T01:10:00-04:00",
+     _agent_tree("2026-10-20T01:00:00-04:00", "2026-10-20T01:09:55-04:00"), [], None),
+    # Ancestry PID reuse: a "parent" really younger than its child holds a reused
+    # PID, so the child is not attributed to that tree.
+    ("heavy_ordinary_reused_parent_pid", "heavy", "2026-10-20T03:10:00-04:00",
+     _agent_tree("2026-10-20T02:00:00-04:00", "2026-10-20T01:00:00-04:00"), [], None),
+    ("heavy_fall_back_reused_parent_pid", "heavy", "2026-11-01T01:40:00-05:00",
+     _agent_tree("2026-11-01T01:10:00-05:00", "2026-11-01T01:30:00-04:00"), [], None),
+    # Tree membership: descendants born after the root belong to its tree.
+    ("tree_fall_back", "tree", "2026-11-01T01:20:00-05:00", [
+        _row(7000003, 7000001, _SHELL, "powershell", "2026-11-01T01:55:00-04:00"),
+        _row(7000005, 7000003, _PY, _PYTEST, "2026-11-01T01:05:00-05:00"),
+        _row(7000007, 7000005, _PY, _INLINE, "2026-11-01T01:06:00-05:00"),
+    ], [7000003, 7000005, 7000007], None),
+    # A "child" really older than the root holds a reused parent PID: excluded.
+    ("tree_fall_back_reused_pid", "tree", "2026-11-01T01:20:00-05:00", [
+        _row(7000003, 7000001, _SHELL, "powershell", "2026-11-01T01:10:00-05:00"),
+        _row(7000005, 7000003, _PY, _PYTEST, "2026-11-01T01:30:00-04:00"),
+    ], [7000003], None),
+    ("tree_ordinary", "tree", "2026-10-20T01:20:00-04:00", [
+        _row(7000003, 7000001, _SHELL, "powershell", "2026-10-20T01:00:00-04:00"),
+        _row(7000005, 7000003, _PY, _PYTEST, "2026-10-20T01:05:00-04:00"),
+        _row(7000007, 7000005, _PY, _INLINE, "2026-10-20T00:59:00-04:00"),
+    ], [7000003, 7000005], None),
+    # Concurrency: roots are ordered oldest first (the oldest is retained).
+    ("order_fall_back", "order", "2026-11-01T01:20:00-05:00", [
+        _row(7000003, 7000001, _SHELL, "powershell", "2026-11-01T01:02:00-05:00"),
+        _row(7000009, 7000001, _SHELL, "powershell", "2026-11-01T01:50:00-04:00"),
+    ], [7000009, 7000003], None),
+    ("order_ordinary", "order", "2026-10-20T01:20:00-04:00", [
+        _row(7000003, 7000001, _SHELL, "powershell", "2026-10-20T01:10:00-04:00"),
+        _row(7000009, 7000001, _SHELL, "powershell", "2026-10-20T01:05:00-04:00"),
+    ], [7000009, 7000003], None),
+    # Creation identity before a kill: 01:30 EDT and 01:30 EST are different processes.
+    ("identity_fall_back_reused_pid", "identity", "2026-11-01T01:40:00-05:00",
+     [_row(7000011, _GONE, _PY, _INLINE, "2026-11-01T01:30:00-04:00")], [],
+     [_row(7000011, _GONE, _PY, _INLINE, "2026-11-01T01:30:00-05:00")]),
+    ("identity_ordinary_same", "identity", "2026-10-20T01:40:00-04:00",
+     [_row(7000011, _GONE, _PY, _INLINE, "2026-10-20T01:30:00-04:00")], [7000011], None),
+    # Orphan sweep: a 01:05 EST child of a live 01:55 EDT parent is not orphaned.
+    ("sweep_fall_back_live_parent", "sweep", "2026-11-01T01:40:00-05:00", [
+        _row(7000013, _GONE, _SHELL, "powershell", "2026-11-01T01:55:00-04:00"),
+        _row(7000015, 7000013, _PY, _INLINE, "2026-11-01T01:05:00-05:00"),
+    ], [], None),
+    # A parent PID really younger than its child was reused: the child is orphaned.
+    ("sweep_ordinary_reused_parent_pid", "sweep", "2026-10-20T02:30:00-04:00", [
+        _row(7000013, _GONE, _SHELL, "powershell", "2026-10-20T02:00:00-04:00"),
+        _row(7000015, 7000013, _PY, _INLINE, "2026-10-20T01:30:00-04:00"),
+    ], [7000015], None),
+    # Parent gone: 50 real minutes old (-10 on the wall) is past the 30-minute grace.
+    ("sweep_fall_back_grace", "sweep", "2026-11-01T01:10:00-05:00",
+     [_row(7000017, _GONE, _PY, _INLINE, "2026-11-01T01:20:00-04:00")], [7000017], None),
+    # Parent gone: 15 real minutes old (75 on the wall) is inside it.
+    ("sweep_spring_forward_grace", "sweep", "2027-03-14T03:05:00-04:00",
+     [_row(7000017, _GONE, _PY, _INLINE, "2027-03-14T01:50:00-05:00")], [], None),
+    ("sweep_ordinary_past_grace", "sweep", "2026-10-20T02:31:00-04:00",
+     [_row(7000017, _GONE, _PY, _INLINE, "2026-10-20T02:00:00-04:00")], [7000017], None),
+    ("sweep_ordinary_in_grace", "sweep", "2026-10-20T02:29:00-04:00",
+     [_row(7000017, _GONE, _PY, _INLINE, "2026-10-20T02:00:00-04:00")], [], None),
+    # Orphaned evidence-refresh age (gated at 2 minutes and logged) is real elapsed time.
+    ("evidence_fall_back_age", "evidence", "2026-11-01T12:00:00-05:00",
+     [_row(7000019, _GONE, _PY, _REFRESH, "2026-11-01T01:30:00-04:00")], [690], None),
+    ("evidence_ordinary_age", "evidence", "2026-10-20T12:00:00-04:00",
+     [_row(7000019, _GONE, _PY, _REFRESH, "2026-10-20T11:50:00-04:00")], [10], None),
+]
+
+
+@WINDOWS_POWERSHELL
+@pytest.mark.spawns
+def test_memory_guard_creation_ages_and_order_are_instants_across_dst():
+    cases = [
+        {"name": name, "site": site, "now": now, "rows": rows, "live": live}
+        for name, site, now, rows, _, live in GUARD_CREATION_CASES
+    ]
+
+    payload = _run(
+        GUARD_CREATION_PROBE,
+        {
+            "DST_AUDIT_SCRIPT": str(OPS / "memory_commit_guard.ps1"),
+            "DST_CASES": base64.b64encode(json.dumps(cases).encode("utf-8")).decode("ascii"),
+        },
+    )
+
+    # DST-M4: the S4U guard compared process CreationDate values as local wall
+    # times. Across fall-back that broke agent ancestry (fail-open), dropped live
+    # descendants from a tree, inverted the keep-oldest order, passed a reused PID
+    # as the same process, and classed a live child as orphaned; across both
+    # transitions it moved every grace period by an hour. Ordinary days keep their
+    # verdicts.
+    expected = {name: verdict for name, _, _, _, verdict, _ in GUARD_CREATION_CASES}
+    assert payload == expected, payload
