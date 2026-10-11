@@ -1,0 +1,82 @@
+{
+  "schema": "landing_night_plan_v0.1",
+  "night": "2026-10-12",
+  "label": "N6 landing night 2026-10-11 -> 2026-10-12 (production capture host)",
+  "master_sha": "ac24b994182606573a97de8a2952e0e961355640",
+  "generated_at": "2026-10-11T04:38:17-04:00",
+  "source": "workstation DESKTOP-RFCD2GH; human summary l-data/N6-HEADS-20261012.md",
+  "execution_order_note": "one RF slot; members merged in order dst-h3 then 272-d1 (they share tests/operations/test_bounded_worktree_test_suite_script.py, auto-merged clean)",
+  "schedule": {
+    "rf": ">=01:00 suite trigger; roll-free, any admitted window; done before 06:15",
+    "overflow_drop_order": [
+      "272-d1",
+      "dst-h3 last (needed before 11-01 01:45)"
+    ],
+    "fallback": "members are independent branches on ac24b994182606573a97de8a2952e0e961355640; either lands alone (merge-tree clean on master)"
+  },
+  "master_drift": {
+    "origin_master_at_plan_time": "ac24b994182606573a97de8a2952e0e961355640",
+    "pregate_base": "ac24b994182606573a97de8a2952e0e961355640",
+    "checks": "origin/master at plan time = ac24b9941 = pregate base (zero drift); head 9b9501806 descends from it (fast-forward); git 2.54 merge-tree: head tree d15174a9a identical, each member clean alone; host git 2.45 sim to be repeated by master at landing; reconciler file INCLUDED in pre-gate; correspondence_index --check-structure rc=0 (4 rows pending closeout)"
+  },
+  "fallback_heads": [],
+  "not_in_this_plan": "LFC N-11/N-12 fe5f54cfa (LFC line, held for owner); U6 D6 07dd78252 and research inventory f22bea073 (build line, owner yes pending); hook fix and wallet_reader landed 10-11 morning",
+  "priority_order": [
+    "claude/integration-20261012-rf"
+  ],
+  "slots": [
+    {
+      "kind": "rf_guarded_merge",
+      "head": "claude/integration-20261012-rf",
+      "sha": "9b95018060a01d90431c77d06a99e2139eef4114",
+      "prs": [],
+      "branch_only_members": [
+        "dst-h3 claude/dst-h3-quiet-merge-utc-n6-20261011 (rebased 4446800c1)",
+        "272-d1 claude/suite-interp-d1-quoted-args-n6-20261011 (rebased 865c512d9 + 1adda88d6)"
+      ],
+      "priority": 1,
+      "exec": 1,
+      "members": {
+        "dst-h3": "0ff2acb06674c8b8208a9d90c2550e6d79cc9897",
+        "272-d1": "f28f505d939d91d19637443d3dd8036cdfbecdc5"
+      },
+      "stacked_on": "ac24b994182606573a97de8a2952e0e961355640",
+      "expected_roll_class": "ROLL-FREE",
+      "roll_evidence": "only .ps1, docs and tests change (quiet_window_merge.ps1, status.ps1, suite_gated_quiet_merge.ps1); no importable module",
+      "tier_a": "PASS (no C3/tier-A path touched)",
+      "activation_block": "not required (no loop/task/scorer added). NOTE status.ps1 change reaches the pinned watchdog only on the owner's redeploy (already queued for #273, needed before 11-01); quiet_window_merge.ps1 change is used by the NEXT quiet-window merge after landing",
+      "qtest": {
+        "log": "q-n6-rf-9b9501806.log",
+        "result": "720 passed, 16 skipped",
+        "rc": 0
+      },
+      "agent_docs_audit_rc": 0,
+      "known_fix": "landing_preflight FAIL is only correspondence_index --check: stale on master ac24b9941 itself (strict --check rc=1 there too; by design branches never commit it, the closeout regenerates it as a docs light-path commit); --check-structure PASS on the head (4 rows pending closeout)",
+      "pregate": {
+        "path": "C:\\wt\\workstation-chat\\l-data\\n6heads\\pregate\\pg-9b95018060a0-20261011T034232-84496\\receipt.json",
+        "receipt_sha256": "fa1e2da2bcdfa6da5b2c4ef750b588d05d0b675480ab2912ea30b8ed7dc8f8c7",
+        "verdict": "PASS",
+        "base": "ac24b994182606573a97de8a2952e0e961355640",
+        "base_is_ancestor": true,
+        "log_sha256": "511bf4a273d1927bebf82c41798bd3f56a8014f8fa5f9f08d0c15f69742b9153",
+        "chunks": 21,
+        "chunk_files": 519,
+        "chunk_exit_codes_nonzero": [],
+        "junit_totals": {
+          "tests": 9657,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 63,
+          "passed": 9594
+        },
+        "failed_tests": [],
+        "failure_reasons": [],
+        "started_at": "2026-10-11T03:42:32.2086249-04:00",
+        "finished_at": "2026-10-11T04:34:03.3034687-04:00",
+        "python": "workstation 3.11.9 (host 3.11.0)",
+        "git": "2.54.0.windows.1 (host 2.45.2)"
+      }
+    }
+  ],
+  "plan_sha256": "4caa53c15a2a68e0382bd94c7262e2de31559b9d00bed39082109094119de8bb"
+}
