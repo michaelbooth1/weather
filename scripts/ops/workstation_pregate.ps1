@@ -154,7 +154,9 @@ function Read-WorkstationPregateSuiteLog {
             $result.starts[[int]$Matches[1]] = [pscustomobject]@{
                 files = [int]$Matches[3]; junit = [string]$Matches[4]
             }
-            if ($Matches[4] -cmatch '\.(\d{8}T\d{6})\.chunk-\d{3}\.xml$') {
+            # The host suite's run tag is a UTC instant ending in Z (DST-L13);
+            # the optional Z still reads logs written before that change.
+            if ($Matches[4] -cmatch '\.(\d{8}T\d{6}Z?)\.chunk-\d{3}\.xml$') {
                 $result.run_tag = $Matches[1]
             }
         }

@@ -101,7 +101,9 @@ def test_bounded_suite_is_fail_closed_and_non_mutating():
     assert "$previousIntegrationTestOffline" in text
     assert "[int]$MaxRuntimeSeconds = 5400" in text
     assert "$suiteDeadline" in text
-    assert "$localNow.AddSeconds($MaxRuntimeSeconds)" in text
+    # DST-M7: the runtime cap is the Stopwatch alone; the wall clock bounds only 09:00.
+    assert "$suiteDeadline = $hardStop" in text
+    assert "$localNow.AddSeconds($MaxRuntimeSeconds)" not in text
     assert "$suiteRuntimeStopwatch = [Diagnostics.Stopwatch]::StartNew()" in text
     assert "$suiteRuntimeStopwatch.Elapsed.TotalSeconds -ge $MaxRuntimeSeconds" in text
     assert "runtime or 09:00 hard teardown boundary" in text
