@@ -192,6 +192,16 @@ function Fail($m) {
     Save-Report -ok $false -stage "abort" -detail $m
     exit 1
 }
+function Get-QuietMergeClockInstant {
+    # The current moment as an absolute instant. Deadlines, waits and elapsed
+    # budgets are held as [datetimeoffset] instants (compared in UTC), never as
+    # local wall-clock [datetime] arithmetic: the 01:00-04:00 quiet window holds
+    # both DST transitions, where wall-clock deadlines run an hour long (fall
+    # back) or skip (spring forward). Get-Date's Local value carries .NET's
+    # repeated-hour flag, so the conversion is exact; reading Get-Date keeps the
+    # execution twins' logical clock in charge (DST audit 2026-10-07 M5/M6).
+    return [datetimeoffset](Get-Date)
+}
 function Save-Report($ok, $stage, $detail) {
     $record = [ordered]@{
         schema = "quiet_window_merge_report_v0.2"
@@ -777,11 +787,11 @@ function Invoke-ReconciliationOwnedProcess {
 
 function New-ReconciliationSchedulerRpcIdentity {
     param(
-        [Parameter(Mandatory = $true)][datetime]$LogicalBoundary,
+        [Parameter(Mandatory = $true)][datetimeoffset]$LogicalBoundary,
         [Parameter(Mandatory = $true)][ValidateRange(1, 300)][int]$MaximumSeconds
     )
 
-    $logicalNow = Get-Date
+    $logicalNow = Get-QuietMergeClockInstant
     # Five seconds are available for TerminateAndWait proof and a further
     # three seconds remain for bounded result parsing before the logical
     # containment boundary. The helper receives the shorter request deadline.
@@ -890,19 +900,19 @@ function Invoke-ReconciliationSchedulerRpc {
 
 function Get-ReconciliationSchedulerReadIdentity {
     $now = Get-Date
-    $logicalBoundary = $now.Date.AddHours(4)
+    $logicalBoundary = [datetimeoffset]$now.Date.AddHours(4)
     if ($null -ne $pushContainmentDeadline -and
-        [datetime]$pushContainmentDeadline -lt $logicalBoundary) {
-        $logicalBoundary = [datetime]$pushContainmentDeadline
+        [datetimeoffset]$pushContainmentDeadline -lt $logicalBoundary) {
+        $logicalBoundary = [datetimeoffset]$pushContainmentDeadline
     }
     if ($null -ne $pushContainmentStopAt -and
         $oneShotPushStopCount -eq 0 -and
-        [datetime]$pushContainmentStopAt -lt $logicalBoundary) {
+        [datetimeoffset]$pushContainmentStopAt -lt $logicalBoundary) {
         # Before the first containment claim, every Scheduler read must leave
         # the complete Stop reserve untouched.  At/after the reserve edge the
         # identity calculation fails closed, and the drain catch below claims
         # Stop instead of launching another potentially hung read helper.
-        $logicalBoundary = [datetime]$pushContainmentStopAt
+        $logicalBoundary = [datetimeoffset]$pushContainmentStopAt
     }
     return New-ReconciliationSchedulerRpcIdentity `
         -LogicalBoundary $logicalBoundary -MaximumSeconds 15
@@ -1155,9 +1165,9 @@ function Get-ReconciliationOneShotPushState {
 }
 
 function Get-ReconciliationPublicationAck {
-    param([Parameter(Mandatory = $true)][datetime]$Boundary)
+    param([Parameter(Mandatory = $true)][datetimeoffset]$Boundary)
 
-    if ((Get-Date) -ge $Boundary) {
+    if ((Get-QuietMergeClockInstant) -ge $Boundary) {
         throw "absolute publication boundary closed before acknowledgement"
     }
     $previousPreference = $ErrorActionPreference
@@ -1180,7 +1190,7 @@ function Get-ReconciliationPublicationAck {
         }
     }
     finally { $ErrorActionPreference = $previousPreference }
-    if ((Get-Date) -ge $Boundary) {
+    if ((Get-QuietMergeClockInstant) -ge $Boundary) {
         throw "absolute publication boundary closed during acknowledgement"
     }
     $remoteParts = if ($remoteRows.Count -eq 1) {
@@ -1274,7 +1284,7 @@ function Invoke-ReconciliationOneShotPushStop {
 }
 
 function Request-ReconciliationOneShotPushContainment {
-    param([Parameter(Mandatory = $true)][datetime]$LogicalBoundary)
+    param([Parameter(Mandatory = $true)][datetimeoffset]$LogicalBoundary)
 
     if ($oneShotPushStopExhausted -or
         $oneShotPushStopCount -ge $reconciliationPushStopAttemptLimit) {
@@ -1422,11 +1432,11 @@ function Assert-ReconciliationQuietWindowOpen {
 
 function Start-ReconciliationBoundedPollSleep {
     param(
-        [Parameter(Mandatory = $true)][datetime]$Boundary,
+        [Parameter(Mandatory = $true)][datetimeoffset]$Boundary,
         [ValidateRange(1, 10)][int]$MaximumSeconds = 10
     )
 
-    $now = Get-Date
+    $now = Get-QuietMergeClockInstant
     $next = $now.AddSeconds($MaximumSeconds)
     if ($Boundary -lt $next) { $next = $Boundary }
     $milliseconds = [int][Math]::Floor(($next - $now).TotalMilliseconds)
@@ -1447,15 +1457,15 @@ function Invoke-ReconciliationBoundedGit {
     param(
         [Parameter(Mandatory = $true)][string[]]$Arguments,
         [ValidateRange(1, 120)][int]$TimeoutSeconds = 30,
-        [datetime]$LogicalBoundary = [datetime]::MinValue
+        [datetimeoffset]$LogicalBoundary = [datetimeoffset]::MinValue
     )
 
     if (-not $reconciliationOwnedChildInitialized) {
         throw "kill-on-close child runtime is not initialized for bounded Git"
     }
-    if ($LogicalBoundary -eq [datetime]::MinValue) {
+    if ($LogicalBoundary -eq [datetimeoffset]::MinValue) {
         $logicalNow = Get-Date
-        $LogicalBoundary = $logicalNow.Date.AddHours(4)
+        $LogicalBoundary = [datetimeoffset]$logicalNow.Date.AddHours(4)
     }
     $identity = New-ReconciliationSchedulerRpcIdentity `
         -LogicalBoundary $LogicalBoundary -MaximumSeconds $TimeoutSeconds
@@ -2348,14 +2358,16 @@ function Invoke-ReconciliationRollbackAndProve {
             -Detail "special rollback could not prove exact baseline/raw-byte state: $($_.Exception.Message); original=$Reason" `
             -Stage "rollback_recovery_failed" -ExitCode 4
     }
+    # Elapsed-time deadline held as an instant, capped at the 04:00 window end
+    # (DST-M6): never local wall-clock arithmetic.
     $rollbackNow = Get-Date
-    $deadline = $rollbackNow.AddSeconds($RollbackRecoverySeconds)
-    $quietWindowEnd = $rollbackNow.Date.AddHours(4)
+    $deadline = ([datetimeoffset]$rollbackNow).AddSeconds($RollbackRecoverySeconds)
+    $quietWindowEnd = [datetimeoffset]$rollbackNow.Date.AddHours(4)
     if ($quietWindowEnd -lt $deadline) { $deadline = $quietWindowEnd }
     do {
         $proof = Test-ReconciliationCaptureProof
         if ($proof.ok) { break }
-        $sleepNow = Get-Date
+        $sleepNow = Get-QuietMergeClockInstant
         if ($sleepNow -lt $deadline) {
             $sleepMilliseconds = [int][Math]::Floor(
                 ([Math]::Min(15, ($deadline - $sleepNow).TotalSeconds)) * 1000
@@ -2364,7 +2376,7 @@ function Invoke-ReconciliationRollbackAndProve {
                 Start-Sleep -Milliseconds $sleepMilliseconds
             }
         }
-    } while ((Get-Date) -lt $deadline)
+    } while ((Get-QuietMergeClockInstant) -lt $deadline)
     if (-not $proof.ok) {
         Stop-Reconciliation `
             -Detail "special rollback restored Git/bytes but affected-producer recovery is unproved; marker preserved; original=$Reason" `
@@ -2942,9 +2954,12 @@ if ($productionBaselineReconciliationMode) {
             $reconciliationPrePushCaptureRecoveryAt = (Get-Date).ToString("o")
             $pushStartIssuedAt = Get-Date
             $quietWindowEnd = Assert-ReconciliationPublicationTimeBudget -Now $pushStartIssuedAt
-            $pushContainmentDeadline = $pushStartIssuedAt.Add($reconciliationPushRuntimeLimit)
-            if ($quietWindowEnd -lt $pushContainmentDeadline) {
-                $pushContainmentDeadline = $quietWindowEnd
+            # PT15M of elapsed time from Start, held as an instant: a wall-clock
+            # deadline gave a 75-minute containment across the fall-back hour
+            # and a skipped (Stop-less) one across spring forward (DST-M5).
+            $pushContainmentDeadline = ([datetimeoffset]$pushStartIssuedAt).Add($reconciliationPushRuntimeLimit)
+            if ([datetimeoffset]$quietWindowEnd -lt $pushContainmentDeadline) {
+                $pushContainmentDeadline = [datetimeoffset]$quietWindowEnd
             }
             $pushContainmentStopAt = $pushContainmentDeadline.AddSeconds(-30)
             $oneShotPushStartIssuedAt = $pushStartIssuedAt.ToString("o")
@@ -2977,9 +2992,9 @@ if ($productionBaselineReconciliationMode) {
                 throw "HEAD/master/origin moved at the final Start boundary"
             }
             Assert-ReconciliationSnapshot
-            $pushImmediateAt = Get-Date
+            $pushImmediateAt = Get-QuietMergeClockInstant
             if ($pushImmediateAt -ge $pushContainmentDeadline -or
-                $pushImmediateAt -ge $quietWindowEnd) {
+                $pushImmediateAt -ge [datetimeoffset]$quietWindowEnd) {
                 throw "quiet-window containment clock elapsed while arming the task start"
             }
             $pushStartIdentity = New-ReconciliationSchedulerRpcIdentity `
@@ -3035,7 +3050,7 @@ if ($productionBaselineReconciliationMode) {
         $pushDeadlineWarningWritten = $false
         $pushTerminalInfo = $null
         while (-not $pushTerminalProved) {
-            $pushPollAt = Get-Date
+            $pushPollAt = Get-QuietMergeClockInstant
             if ($pushPollAt -ge $pushContainmentDeadline) {
                 Stop-ReconciliationAtAbsolutePublicationBoundary
             }
@@ -3046,13 +3061,13 @@ if ($productionBaselineReconciliationMode) {
                 $pushTask = Get-ReconciliationOneShotPushState
                 $pushState = [string]$pushTask.State
                 $pushInfo = Get-ReconciliationOneShotPushTaskInfo
-                $pushPollAt = Get-Date
+                $pushPollAt = Get-QuietMergeClockInstant
                 if ($pushPollAt -ge $pushContainmentDeadline) {
                     Stop-ReconciliationAtAbsolutePublicationBoundary
                 }
             }
             catch {
-                $pushPollAt = Get-Date
+                $pushPollAt = Get-QuietMergeClockInstant
                 if ($pushPollAt -ge $pushContainmentDeadline) {
                     Stop-ReconciliationAtAbsolutePublicationBoundary
                 }
@@ -3128,7 +3143,7 @@ if ($productionBaselineReconciliationMode) {
                         $oneShotPushRuntimeState = "Ready"
                         $oneShotPushObservedLastRunTime = $pushTerminalCandidate.last_run_time.ToString("o")
                         $oneShotPushLastTaskResult = [long]$pushTerminalCandidate.last_task_result
-                        $pushTerminalProvedAt = Get-Date
+                        $pushTerminalProvedAt = Get-QuietMergeClockInstant
                         $oneShotPushTerminalProvedAt = $pushTerminalProvedAt.ToString("o")
                         if ($pushTerminalProvedAt -ge $pushContainmentDeadline) {
                             $oneShotPushContainmentBreached = $true
@@ -3771,7 +3786,9 @@ function Invoke-RollbackAndProve {
     }
 
     Note "rolled back to synchronized baseline $baselineCommit with generated config preserved as allowlisted drift; nothing was pushed. Waiting up to ${RollbackRecoverySeconds}s for every affected producer to re-adopt the rollback..."
-    $rollbackDeadline = (Get-Date).AddSeconds($RollbackRecoverySeconds)
+    # Elapsed-time deadline held as an instant (DST-M6): a wall-clock one ran an
+    # hour long across the fall-back hour and an hour short across spring forward.
+    $rollbackDeadline = (Get-QuietMergeClockInstant).AddSeconds($RollbackRecoverySeconds)
     do {
         $rollbackState = Get-CaptureState
         $rollbackCoreOk = $rollbackState.ok -and @($rollbackState.workers).Count -eq 3
@@ -3784,8 +3801,8 @@ function Invoke-RollbackAndProve {
                     [string]$executionBefore.recorded_source_fingerprint
         }
         if ($rollbackCoreOk -and $rollbackExecutionOk) { break }
-        if ((Get-Date) -lt $rollbackDeadline) { Start-Sleep -Seconds 15 }
-    } while ((Get-Date) -lt $rollbackDeadline)
+        if ((Get-QuietMergeClockInstant) -lt $rollbackDeadline) { Start-Sleep -Seconds 15 }
+    } while ((Get-QuietMergeClockInstant) -lt $rollbackDeadline)
 
     if (-not $rollbackCoreOk -or -not $rollbackExecutionOk) {
         $rollbackWhy = @(

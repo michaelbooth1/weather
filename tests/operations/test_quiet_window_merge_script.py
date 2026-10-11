@@ -464,7 +464,7 @@ def test_failed_merge_proves_rollback_readoption_before_reporting_rolled_back() 
     script = _script_text()
 
     reset = script.index("& git reset --hard $preMerge")
-    rollback_wait = script.index("$rollbackDeadline = (Get-Date).AddSeconds")
+    rollback_wait = script.index("$rollbackDeadline = (Get-QuietMergeClockInstant).AddSeconds")
     rollback_proof = script.index(
         'Note "every affected producer re-adopted the rollback and satisfies its exact recovery contract"'
     )
