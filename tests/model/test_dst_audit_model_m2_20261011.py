@@ -14,6 +14,7 @@ between the fetch and the read. No network: the clock is frozen and no fetch is 
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
@@ -96,8 +97,8 @@ def test_cache_age_spanning_a_transition_is_elapsed_time(monkeypatch, fetched, n
     assert _cache_age(monkeypatch, fetched, now) == pytest.approx(age)
 
 
-def test_fall_back_ttl_decision_rejects_a_cache_older_than_its_ttl(monkeypatch):
-    """The primary model's last-good reuse: a 35-minute-old cache is past a 30-minute TTL."""
+def test_fall_back_fresh_cache_reuse_rejects_a_cache_older_than_its_limit(monkeypatch):
+    """``cached_source_for_reuse`` (the Open-Meteo fresh-cache reuse): 35 real minutes is past 30."""
 
     fetched = datetime(2026, 11, 1, 1, 50, tzinfo=TORONTO)
     now = datetime(2026, 11, 1, 1, 25, tzinfo=TORONTO, fold=1)
@@ -106,12 +107,12 @@ def test_fall_back_ttl_decision_rejects_a_cache_older_than_its_ttl(monkeypatch):
         spec=SimpleNamespace(tz=TORONTO),
         target_date=now.date(),
         load_last_good_sources=lambda: {
-            "wu_history": {"target_date": "2026-11-01", "fetched_at": fetched.isoformat(), "data": {"rows": []}}
+            "open_meteo": {"target_date": "2026-11-01", "fetched_at": fetched.isoformat(), "data": {"rows": []}}
         },
     )
     client.cache_age_minutes = lambda value: model_sources.SourceFetchMixin.cache_age_minutes(client, value)
-    assert model_sources.SourceFetchMixin.cached_source_for_reuse(client, "wu_history", 30) is None
-    reused = model_sources.SourceFetchMixin.cached_source_for_reuse(client, "wu_history", 40)
+    assert model_sources.SourceFetchMixin.cached_source_for_reuse(client, "open_meteo", 30) is None
+    reused = model_sources.SourceFetchMixin.cached_source_for_reuse(client, "open_meteo", 40)
     assert reused is not None and reused["cache_age_minutes"] == pytest.approx(35.0)
 
 
@@ -150,3 +151,56 @@ def test_future_fetch_and_unparseable_stamps_are_unchanged(monkeypatch):
     assert _cache_age(monkeypatch, now + timedelta(minutes=5), now) == 0.0
     assert _cache_age(monkeypatch, now, now, fetched_at="not-a-time") is None
     assert _cache_age(monkeypatch, now, now, fetched_at="") is None
+
+
+def _blend_wu_history(monkeypatch, tmp_path, fetched_local, now_local):
+    """The primary model's real ``wu_history`` TTL decision (``blend_with_last_good``)."""
+
+    import weather.model.toronto_model as toronto_model
+
+    monkeypatch.setattr(toronto_model, "DEFAULT_DATA_ROOT", tmp_path)
+    model = toronto_model.TorontoHighTempModel(target_date=now_local.date().isoformat())
+    assert model.source_cache_ttl_minutes("wu_history") == 30
+    cache_path = model.spec.data_root / "last_good_sources.json"
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    cache_path.write_text(
+        json.dumps({
+            "wu_history": {
+                "target_date": now_local.date().isoformat(),
+                "fetched_at": fetched_local.isoformat(),
+                "data": {"marker": 1},
+            }
+        }),
+        encoding="utf-8",
+    )
+    _freeze(monkeypatch, now_local)
+    fetched = {"wu_history": {"ok": False, "error": "feed failed", "fetched_at": now_local.isoformat()}}
+    return model.blend_with_last_good(fetched)["wu_history"]
+
+
+@pytest.mark.parametrize(
+    ("fetched", "now", "served_age"),
+    [
+        # Fall-back: 35 real minutes is past the 30-minute TTL (defect: age 0, served as stale_cache).
+        (datetime(2026, 11, 1, 1, 50, tzinfo=TORONTO), datetime(2026, 11, 1, 1, 25, tzinfo=TORONTO, fold=1), None),
+        # Fall-back: 85 real minutes (defect: 25, served).
+        (datetime(2026, 11, 1, 0, 40, tzinfo=TORONTO), datetime(2026, 11, 1, 1, 5, tzinfo=TORONTO, fold=1), None),
+        # Spring-forward: 20 real minutes is inside the TTL (defect: 80, rejected).
+        (datetime(2027, 3, 14, 1, 55, tzinfo=TORONTO), datetime(2027, 3, 14, 3, 15, tzinfo=TORONTO), 20.0),
+        # Ordinary-day controls (pass before and after the fix).
+        (datetime(2026, 7, 15, 1, 50, tzinfo=TORONTO), datetime(2026, 7, 15, 2, 25, tzinfo=TORONTO), None),
+        (datetime(2026, 7, 15, 1, 55, tzinfo=TORONTO), datetime(2026, 7, 15, 2, 15, tzinfo=TORONTO), 20.0),
+        (datetime(2026, 1, 15, 1, 55, tzinfo=TORONTO), datetime(2026, 1, 15, 2, 15, tzinfo=TORONTO), 20.0),
+    ],
+)
+def test_wu_history_ttl_decision_in_blend_with_last_good(monkeypatch, tmp_path, fetched, now, served_age):
+    output = _blend_wu_history(monkeypatch, tmp_path, fetched, now)
+    if served_age is None:
+        assert output["ok"] is False
+        assert output["cache_status"] == "miss"
+        assert "cache_age_minutes" not in output
+    else:
+        assert output["ok"] is True
+        assert output["status"] == "stale_cache"
+        assert output["cache_status"] == "fallback"
+        assert output["cache_age_minutes"] == pytest.approx(served_age)
