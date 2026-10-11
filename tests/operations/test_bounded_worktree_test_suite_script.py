@@ -1394,7 +1394,9 @@ def test_override_run_never_writes_the_merge_eligible_verdict(verdict_logs):
     assert not any("VERDICT" in line for line in swapped["lines"])
 
 
-# Defender N2: forms PowerShell 5.1 -File still binds to -InterpreterPath.
+# Defender N2: forms the gate refuses. Most bind to -InterpreterPath under PowerShell 5.1
+# -File; the single-quoted name and the "C:\wt\x"-InterpreterPath suffix do not (the first
+# is a positional value, the second joins its token), and refusing them is harmless.
 ARGUMENT_FORMS = (
     r' "-InterpreterPath" C:\stage\venv\Scripts\python.exe',
     r" '-InterpreterPath' C:\stage\venv\Scripts\python.exe",
