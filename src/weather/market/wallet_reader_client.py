@@ -10,7 +10,7 @@ from urllib.parse import urlencode, urlsplit
 from urllib.request import Request
 
 from weather.market.wallet_reader_security import ReaderError, SecretGuard, private_source_ip
-from weather.market.wallet_reader_transport import NoRedirect
+from weather.market.wallet_reader_transport import NoRedirect, close_http_error
 from weather.operations.live_path_security import validate_regular_nonreparse_file
 from weather.paths import config_path
 
@@ -82,7 +82,7 @@ the S0 section 5 time-to-zero loop. Every other caller keeps the cached path.
         raise
     except HTTPError as exc:
         code = exc.code
-        exc.close()
+        close_http_error(exc)
         raise ClientError(f"http_{code}") from None
     except TimeoutError:
         raise ClientError("timeout") from None

@@ -67,6 +67,18 @@ class NoRedirect(HTTPRedirectHandler):
         return None  # urllib raises HTTPError with the original redirect status.
 
 
+def close_http_error(exc):
+    """Close an ``HTTPError`` body without letting the close replace the caller's handling.
+
+    On CPython < 3.11.2 (the capture host runs 3.11.0, gh-98778) an ``HTTPError`` built with
+    ``fp=None`` never initialises its tempfile wrapper, so ``close()`` raises ``KeyError: 'file'``.
+    """
+    try:
+        exc.close()
+    except Exception:  # noqa: BLE001 - nothing left to release; keep the safe reason code.
+        pass
+
+
 def direct_opener():
     return build_opener(ProxyHandler({}), NoRedirect())
 
@@ -187,7 +199,7 @@ class ReadTransport:
                 except Exception:
                     raw = None
                 finally:
-                    exc.close()
+                    close_http_error(exc)
             except Exception:
                 pass  # Raw network/JSON exceptions may contain auth or body data.
             finally:

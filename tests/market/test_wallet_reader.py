@@ -1263,3 +1263,32 @@ def test_client_open_order_count_is_fresh_and_other_reads_stay_cached(tmp_path):
     with pytest.raises(client.ClientError):
         client.open_order_count(config=config, opener=FakeOpener(lambda r: {"count": 2}))
     assert len(opener.calls) == 3
+
+
+def _pre_3_11_2_http_error(url, code):
+    """``HTTPError(url, code, msg, {}, fp=None)`` as CPython < 3.11.2 (the capture host) builds it.
+
+    Before gh-98778 the tempfile wrapper base was never initialised, so ``close()`` and any
+    missing attribute raise ``KeyError: 'file'``. Replays the old ``__init__`` body.
+    """
+    error = HTTPError.__new__(HTTPError, url, code, "fixture", {}, None)
+    error.code, error.msg, error.hdrs, error.fp, error.filename = code, "fixture", {}, None, url
+    with pytest.raises(KeyError):  # precondition: the host's failure mode is replayed
+        error.close()
+    return error
+
+
+def test_pre_3_11_2_fp_none_http_error_keeps_safe_reason_codes(tmp_path, guard):
+    def failed(req):
+        raise _pre_3_11_2_http_error(req.full_url, 503)
+    t = wire(tmp_path, guard, FakeOpener(failed))
+    with pytest.raises(security.ReaderError) as error:
+        t.request("GET", security.CLOB, "/data/orders")
+    assert str(error.value) == "upstream_unavailable"
+    assert json.loads(next(t.journal_root.glob("*.jsonl")).read_text().splitlines()[-1])["status"] == 503
+
+    config = tmp_path / "client.json"
+    config.write_text(json.dumps({"url": "http://192.168.1.20:8765", "token": TOKEN}))
+    with pytest.raises(client.ClientError) as caught:
+        client.read_account("summary", config=config, opener=FakeOpener(failed))
+    assert caught.value.reason == "http_503"
