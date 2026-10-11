@@ -1,0 +1,1415 @@
+{
+  "schema": "landing_preflight_v0.1",
+  "generated_at": "2026-10-11T15:45:05+00:00",
+  "git_version": "git version 2.54.0.windows.1",
+  "python": "C:\\Users\\Michael\\Documents\\github\\weather\\venv\\Scripts\\python.exe",
+  "host": "workstation",
+  "elapsed_s": 42.578,
+  "inputs": {
+    "repo": "C:\\Users\\Michael\\Documents\\github\\weather",
+    "base_ref": "origin/master",
+    "base_sha": "a8aded771dc1f89b26e566309a81c8f733175ae6",
+    "head_ref": "c6977df5f33875884e97da2e97b7e89eb57200d6",
+    "head_sha": "c6977df5f33875884e97da2e97b7e89eb57200d6",
+    "earlier": [],
+    "tests_mode": "none",
+    "scratch": "C:\\lpf-s",
+    "dry_run": false,
+    "plan_source": "C:\\wt\\workstation-chat\\l-data\\n8heads\\plan-draft.json",
+    "plan_file_sha256": "e94324707d83b7c438d3a05bb295d8fad095bc122f0509dec5663eeaa36f847b",
+    "span_base_sha": "a8aded771dc1f89b26e566309a81c8f733175ae6"
+  },
+  "plan_sha256": "b392167fee6fc077c85d33f75ea173aac42574d10407860f8365bfca5a4e0e3e",
+  "closure_snapshot_sha256": null,
+  "chain": [
+    {
+      "step": 1,
+      "label": "claude/integration-20261013-n8-rs",
+      "sha": "c6977df5f33875884e97da2e97b7e89eb57200d6",
+      "role": "head",
+      "result": "clean",
+      "conflicts": [],
+      "conflicts_fix_class": {},
+      "pairwise_conflicts": [],
+      "tree": "3afd378221704ea8403d9bafd651c66c9c5a0527",
+      "synthetic_commit": "23895a520c4b90e11a8e1bef1f8c25bdd1194e78",
+      "prs": [],
+      "known_fix": "landing_preflight correspondence_index --check is stale on master by design (closeout regenerates it); --check-structure PASS on the head"
+    }
+  ],
+  "landing": {
+    "tree": "3afd378221704ea8403d9bafd651c66c9c5a0527",
+    "commit": "23895a520c4b90e11a8e1bef1f8c25bdd1194e78",
+    "pre_head_commit": "a8aded771dc1f89b26e566309a81c8f733175ae6",
+    "changed_files": [
+      {
+        "path": "docs/operations/maker-shadow-runner.md",
+        "status": "M",
+        "introduced_by": [
+          "claude/integration-20261013-n8-rs"
+        ]
+      },
+      {
+        "path": "docs/roadmap/audits/dst-audit-2026-10-07.md",
+        "status": "M",
+        "introduced_by": [
+          "claude/integration-20261013-n8-rs"
+        ]
+      },
+      {
+        "path": "scripts/ops/adopt_execution_tape_after_merge.ps1",
+        "status": "M",
+        "introduced_by": [
+          "claude/integration-20261013-n8-rs"
+        ]
+      },
+      {
+        "path": "scripts/ops/memory_commit_guard.ps1",
+        "status": "M",
+        "introduced_by": [
+          "claude/integration-20261013-n8-rs"
+        ]
+      },
+      {
+        "path": "scripts/ops/quiet_window_merge.ps1",
+        "status": "M",
+        "introduced_by": [
+          "claude/integration-20261013-n8-rs"
+        ]
+      },
+      {
+        "path": "scripts/ops/streak_status.py",
+        "status": "M",
+        "introduced_by": [
+          "claude/integration-20261013-n8-rs"
+        ]
+      },
+      {
+        "path": "scripts/ops/suite_gated_quiet_merge.ps1",
+        "status": "M",
+        "introduced_by": [
+          "claude/integration-20261013-n8-rs"
+        ]
+      },
+      {
+        "path": "src/weather/backtesting/settlement_ledger.py",
+        "status": "M",
+        "introduced_by": [
+          "claude/integration-20261013-n8-rs"
+        ]
+      },
+      {
+        "path": "src/weather/collection/collection_health.py",
+        "status": "M",
+        "introduced_by": [
+          "claude/integration-20261013-n8-rs"
+        ]
+      },
+      {
+        "path": "tests/collection/test_dst_audit_collection_20261007.py",
+        "status": "M",
+        "introduced_by": [
+          "claude/integration-20261013-n8-rs"
+        ]
+      },
+      {
+        "path": "tests/model/test_dst_audit_model_m2_20261011.py",
+        "status": "A",
+        "introduced_by": [
+          "claude/integration-20261013-n8-rs"
+        ]
+      },
+      {
+        "path": "tests/operations/test_dst_audit_powershell_20261007.py",
+        "status": "M",
+        "introduced_by": [
+          "claude/integration-20261013-n8-rs"
+        ]
+      },
+      {
+        "path": "tests/operations/test_memory_commit_guard_script.py",
+        "status": "M",
+        "introduced_by": [
+          "claude/integration-20261013-n8-rs"
+        ]
+      },
+      {
+        "path": "tests/operations/test_production_baseline_reconciler_execution.py",
+        "status": "M",
+        "introduced_by": [
+          "claude/integration-20261013-n8-rs"
+        ]
+      },
+      {
+        "path": "tests/operations/test_quiet_window_merge_script.py",
+        "status": "M",
+        "introduced_by": [
+          "claude/integration-20261013-n8-rs"
+        ]
+      },
+      {
+        "path": "tests/operations/test_status_script.py",
+        "status": "M",
+        "introduced_by": [
+          "claude/integration-20261013-n8-rs"
+        ]
+      },
+      {
+        "path": "tests/operations/test_suite_gated_quiet_merge_script.py",
+        "status": "M",
+        "introduced_by": [
+          "claude/integration-20261013-n8-rs"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "host_identity": {
+      "status": "PASS",
+      "summary": "not the dedicated capture host",
+      "details": [],
+      "attribution": [],
+      "evidence": {
+        "assignment": "C:\\Users\\Michael\\Documents\\github\\weather\\config\\international_live_execution_host.json"
+      },
+      "command": null,
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.0,
+      "owner": "core"
+    },
+    "git_version": {
+      "status": "PASS",
+      "summary": "git version 2.54.0.windows.1",
+      "details": [],
+      "attribution": [],
+      "evidence": {},
+      "command": null,
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.0,
+      "owner": "core"
+    },
+    "disk_floor": {
+      "status": "PASS",
+      "summary": "122.6 GiB free on C:\\",
+      "details": [],
+      "attribution": [],
+      "evidence": {
+        "free_bytes": 131662589952
+      },
+      "command": null,
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.0,
+      "owner": "core"
+    },
+    "refs": {
+      "status": "PASS",
+      "summary": "base a8aded771dc1 head c6977df5f338 earlier 0",
+      "details": [],
+      "attribution": [],
+      "evidence": {
+        "fetch_ok": true,
+        "warnings": []
+      },
+      "command": null,
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.0,
+      "owner": "core"
+    },
+    "already_landed": {
+      "status": "PASS",
+      "summary": "head is not an ancestor of base",
+      "details": [],
+      "attribution": [],
+      "evidence": {},
+      "command": null,
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.0,
+      "owner": "core"
+    },
+    "containment": {
+      "status": "PASS",
+      "summary": "0 containment relation(s)",
+      "details": [],
+      "attribution": [],
+      "evidence": {},
+      "command": null,
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.0,
+      "owner": "core"
+    },
+    "merge_chain": {
+      "status": "PASS",
+      "summary": "1 step(s) clean; landing 23895a520c4b",
+      "details": [],
+      "attribution": [],
+      "evidence": {
+        "landing_commit": "23895a520c4b90e11a8e1bef1f8c25bdd1194e78",
+        "landing_tree": "3afd378221704ea8403d9bafd651c66c9c5a0527"
+      },
+      "command": null,
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.0,
+      "owner": "core"
+    },
+    "worktree": {
+      "status": "PASS",
+      "summary": "detached worktree at 23895a520c4b",
+      "details": [],
+      "attribution": [],
+      "evidence": {
+        "path": "C:\\lpf-s\\run-20261011T154422Z-115384\\wt"
+      },
+      "command": null,
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.0,
+      "owner": "core"
+    },
+    "import_probe": {
+      "status": "PASS",
+      "summary": "weather and REPO_ROOT resolve inside the scratch worktree",
+      "details": [],
+      "attribution": [],
+      "evidence": {
+        "python": "C:\\Users\\Michael\\Documents\\github\\weather\\venv\\Scripts\\python.exe",
+        "scrubbed_env_names": [
+          "ANTHROPIC_BASE_URL",
+          "CLAUDE_CODE_MESSAGING_TOKEN",
+          "CLAUDE_CODE_SDK_HAS_HOST_AUTH_REFRESH",
+          "GIT_EDITOR",
+          "PYTHONPATH"
+        ],
+        "weather": "C:\\lpf-s\\run-20261011T154422Z-115384\\wt\\weather\\__init__.py",
+        "repo_root": "C:\\lpf-s\\run-20261011T154422Z-115384\\wt"
+      },
+      "command": null,
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.0,
+      "owner": "core"
+    },
+    "roll_class": {
+      "status": "WARN",
+      "summary": "EXPECTED-ROLL-SENSITIVE (binding: false; static_graph_only); 2 importable of 17 changed; sensitive 1; light_path_eligible False",
+      "details": [
+        {
+          "path": "docs/operations/maker-shadow-runner.md",
+          "status": "M",
+          "importable": false,
+          "module": null,
+          "in_snapshot": false,
+          "static_reached": false,
+          "static_chain_base": null,
+          "static_chain_landing": null,
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": false,
+          "expected": "NOT-IMPORTABLE",
+          "reasons": [
+            "not *.py under src/ or weather/: roll-free by contract"
+          ],
+          "binding": false
+        },
+        {
+          "path": "docs/roadmap/audits/dst-audit-2026-10-07.md",
+          "status": "M",
+          "importable": false,
+          "module": null,
+          "in_snapshot": false,
+          "static_reached": false,
+          "static_chain_base": null,
+          "static_chain_landing": null,
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": false,
+          "expected": "NOT-IMPORTABLE",
+          "reasons": [
+            "not *.py under src/ or weather/: roll-free by contract"
+          ],
+          "binding": false
+        },
+        {
+          "path": "scripts/ops/adopt_execution_tape_after_merge.ps1",
+          "status": "M",
+          "importable": false,
+          "module": null,
+          "in_snapshot": false,
+          "static_reached": false,
+          "static_chain_base": null,
+          "static_chain_landing": null,
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": false,
+          "expected": "NOT-IMPORTABLE",
+          "reasons": [
+            "not *.py under src/ or weather/: roll-free by contract"
+          ],
+          "binding": false
+        },
+        {
+          "path": "scripts/ops/memory_commit_guard.ps1",
+          "status": "M",
+          "importable": false,
+          "module": null,
+          "in_snapshot": false,
+          "static_reached": false,
+          "static_chain_base": null,
+          "static_chain_landing": null,
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": false,
+          "expected": "NOT-IMPORTABLE",
+          "reasons": [
+            "not *.py under src/ or weather/: roll-free by contract"
+          ],
+          "binding": false
+        },
+        {
+          "path": "scripts/ops/quiet_window_merge.ps1",
+          "status": "M",
+          "importable": false,
+          "module": null,
+          "in_snapshot": false,
+          "static_reached": false,
+          "static_chain_base": null,
+          "static_chain_landing": null,
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": false,
+          "expected": "NOT-IMPORTABLE",
+          "reasons": [
+            "not *.py under src/ or weather/: roll-free by contract"
+          ],
+          "binding": false
+        },
+        {
+          "path": "scripts/ops/streak_status.py",
+          "status": "M",
+          "importable": false,
+          "module": null,
+          "in_snapshot": false,
+          "static_reached": false,
+          "static_chain_base": null,
+          "static_chain_landing": null,
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": false,
+          "expected": "NOT-IMPORTABLE",
+          "reasons": [
+            "not *.py under src/ or weather/: roll-free by contract"
+          ],
+          "binding": false
+        },
+        {
+          "path": "scripts/ops/suite_gated_quiet_merge.ps1",
+          "status": "M",
+          "importable": false,
+          "module": null,
+          "in_snapshot": false,
+          "static_reached": false,
+          "static_chain_base": null,
+          "static_chain_landing": null,
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": false,
+          "expected": "NOT-IMPORTABLE",
+          "reasons": [
+            "not *.py under src/ or weather/: roll-free by contract"
+          ],
+          "binding": false
+        },
+        {
+          "path": "src/weather/backtesting/settlement_ledger.py",
+          "status": "M",
+          "importable": true,
+          "module": "weather.backtesting.settlement_ledger",
+          "in_snapshot": false,
+          "static_reached": false,
+          "static_chain_base": null,
+          "static_chain_landing": null,
+          "deferred_chain_info": [
+            "weather.collection.snapshot_tracker",
+            "weather.model.toronto_model",
+            "weather.release_serving",
+            "weather.residual_distribution_release",
+            "weather.calibration.residual_distribution_corpus",
+            "weather.operations.closed_market_day_archive",
+            "weather.backtesting.settlement_ledger"
+          ],
+          "schema_family": false,
+          "known_node": true,
+          "expected": "EXPECTED-ROLL-FREE",
+          "reasons": [
+            "not reached from the loop entries (static graph only: no closure snapshot)",
+            "INFO: reachable only through a function-level import: weather.collection.snapshot_tracker -> weather.model.toronto_model -> weather.release_serving -> weather.residual_distribution_release -> weather.calibration.residual_distribution_corpus -> weather.operations.closed_market_day_archive -> weather.backtesting.settlement_ledger"
+          ],
+          "binding": false
+        },
+        {
+          "path": "src/weather/collection/collection_health.py",
+          "status": "M",
+          "importable": true,
+          "module": "weather.collection.collection_health",
+          "in_snapshot": false,
+          "static_reached": true,
+          "static_chain_base": [
+            "weather.collection.snapshot_tracker",
+            "weather.collection.collection_health"
+          ],
+          "static_chain_landing": [
+            "weather.collection.snapshot_tracker",
+            "weather.collection.collection_health"
+          ],
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": true,
+          "expected": "EXPECTED-ROLL-SENSITIVE",
+          "reasons": [
+            "static graph (base): weather.collection.snapshot_tracker -> weather.collection.collection_health",
+            "static graph (landing): weather.collection.snapshot_tracker -> weather.collection.collection_health"
+          ],
+          "binding": false
+        },
+        {
+          "path": "tests/collection/test_dst_audit_collection_20261007.py",
+          "status": "M",
+          "importable": false,
+          "module": null,
+          "in_snapshot": false,
+          "static_reached": false,
+          "static_chain_base": null,
+          "static_chain_landing": null,
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": false,
+          "expected": "NOT-IMPORTABLE",
+          "reasons": [
+            "not *.py under src/ or weather/: roll-free by contract"
+          ],
+          "binding": false
+        },
+        {
+          "path": "tests/model/test_dst_audit_model_m2_20261011.py",
+          "status": "A",
+          "importable": false,
+          "module": null,
+          "in_snapshot": false,
+          "static_reached": false,
+          "static_chain_base": null,
+          "static_chain_landing": null,
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": false,
+          "expected": "NOT-IMPORTABLE",
+          "reasons": [
+            "not *.py under src/ or weather/: roll-free by contract"
+          ],
+          "binding": false
+        },
+        {
+          "path": "tests/operations/test_dst_audit_powershell_20261007.py",
+          "status": "M",
+          "importable": false,
+          "module": null,
+          "in_snapshot": false,
+          "static_reached": false,
+          "static_chain_base": null,
+          "static_chain_landing": null,
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": false,
+          "expected": "NOT-IMPORTABLE",
+          "reasons": [
+            "not *.py under src/ or weather/: roll-free by contract"
+          ],
+          "binding": false
+        },
+        {
+          "path": "tests/operations/test_memory_commit_guard_script.py",
+          "status": "M",
+          "importable": false,
+          "module": null,
+          "in_snapshot": false,
+          "static_reached": false,
+          "static_chain_base": null,
+          "static_chain_landing": null,
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": false,
+          "expected": "NOT-IMPORTABLE",
+          "reasons": [
+            "not *.py under src/ or weather/: roll-free by contract"
+          ],
+          "binding": false
+        },
+        {
+          "path": "tests/operations/test_production_baseline_reconciler_execution.py",
+          "status": "M",
+          "importable": false,
+          "module": null,
+          "in_snapshot": false,
+          "static_reached": false,
+          "static_chain_base": null,
+          "static_chain_landing": null,
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": false,
+          "expected": "NOT-IMPORTABLE",
+          "reasons": [
+            "not *.py under src/ or weather/: roll-free by contract"
+          ],
+          "binding": false
+        },
+        {
+          "path": "tests/operations/test_quiet_window_merge_script.py",
+          "status": "M",
+          "importable": false,
+          "module": null,
+          "in_snapshot": false,
+          "static_reached": false,
+          "static_chain_base": null,
+          "static_chain_landing": null,
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": false,
+          "expected": "NOT-IMPORTABLE",
+          "reasons": [
+            "not *.py under src/ or weather/: roll-free by contract"
+          ],
+          "binding": false
+        },
+        {
+          "path": "tests/operations/test_status_script.py",
+          "status": "M",
+          "importable": false,
+          "module": null,
+          "in_snapshot": false,
+          "static_reached": false,
+          "static_chain_base": null,
+          "static_chain_landing": null,
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": false,
+          "expected": "NOT-IMPORTABLE",
+          "reasons": [
+            "not *.py under src/ or weather/: roll-free by contract"
+          ],
+          "binding": false
+        },
+        {
+          "path": "tests/operations/test_suite_gated_quiet_merge_script.py",
+          "status": "M",
+          "importable": false,
+          "module": null,
+          "in_snapshot": false,
+          "static_reached": false,
+          "static_chain_base": null,
+          "static_chain_landing": null,
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": false,
+          "expected": "NOT-IMPORTABLE",
+          "reasons": [
+            "not *.py under src/ or weather/: roll-free by contract"
+          ],
+          "binding": false
+        }
+      ],
+      "attribution": [],
+      "evidence": {
+        "expected": "EXPECTED-ROLL-SENSITIVE",
+        "binding": false,
+        "reasons": [
+          "1 importable file(s) expected to roll"
+        ],
+        "changed_count": 17,
+        "importable_count": 2,
+        "sensitive_files": [
+          "src/weather/collection/collection_health.py"
+        ],
+        "basis": "static_graph_only",
+        "snapshot": {
+          "supplied": false,
+          "source": null,
+          "sha256": null,
+          "captured": null,
+          "production_master_sha": null,
+          "file_count": 0,
+          "load_error": null,
+          "age_days": null,
+          "stale": false,
+          "max_age_days": 7
+        },
+        "static_graph": {
+          "entries": [
+            "weather.collection.snapshot_tracker",
+            "weather.market.market_microstructure",
+            "weather.operations.observation_trigger",
+            "weather.market.execution_tape_capture",
+            "weather.operations.execution_tape_supervisor"
+          ],
+          "edge_kinds": [
+            "module"
+          ],
+          "missing_entries": {
+            "pre_head": [],
+            "landing": []
+          },
+          "closure_size": {
+            "pre_head": 95,
+            "landing": 95
+          },
+          "parse_errors": {
+            "pre_head": {},
+            "landing": {}
+          },
+          "complete": true
+        },
+        "schema_additive": {
+          "status": "NOT_APPLICABLE",
+          "family_paths_changed": [],
+          "entries_added": [],
+          "entries_removed_or_changed": [],
+          "changed_identities": [],
+          "exclusions_added": 0,
+          "exclusions_removed": 0,
+          "non_entry_code_changed": [],
+          "parse_errors": {},
+          "reference": "pre_head",
+          "candidate": "landing",
+          "rule": "ADDITIVE iff every reference SchemaSpec entry is literal-identical in the candidate and only new entries appear"
+        },
+        "entry_validation": {
+          "tree": "pre_head",
+          "static_reached": 95,
+          "snapshot_compared": false
+        },
+        "classifier_version": "L-P4 roll-class engine 0.1 (port of the L-R3 classifier)",
+        "changed_basis": "git diff --no-renames <tree before the head step> <landing tree> (roll_verdict's set)",
+        "pre_head_tree": "5d87910c8ba6bf59ae45b4ba79e56561ae0669a0",
+        "landing_tree": "3afd378221704ea8403d9bafd651c66c9c5a0527",
+        "execution_tape_entries": [
+          "weather.market.execution_tape_capture",
+          "weather.operations.execution_tape_supervisor"
+        ],
+        "declared": "EXPECTED-ROLL-SENSITIVE",
+        "declared_source": "--declared-roll-class",
+        "declared_matches": true,
+        "light_path_eligible": false,
+        "light_path_basis": {
+          "branch_diff": "pre_head...head",
+          "paths": 17,
+          "first_non_docs": "scripts/ops/adopt_execution_tape_after_merge.ps1"
+        },
+        "hold": null,
+        "warnings": [
+          "no --closure-snapshot: static graph only (it misses function-level loop imports)"
+        ],
+        "binding_gate": "Get the verdict from scripts\\ops\\roll_verdict.ps1 -Branch <b>; never derive it by hand (AGENTS.md)"
+      },
+      "command": null,
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.859,
+      "owner": "L-P4"
+    },
+    "landing_path": {
+      "status": "INFO",
+      "summary": "ROLL_SENSITIVE: 01:00-04:00 (quiet window) (binding: false)",
+      "details": [],
+      "attribution": [],
+      "evidence": {
+        "path": "ROLL_SENSITIVE",
+        "expected": "EXPECTED-ROLL-SENSITIVE",
+        "undecidable_as_roll_sensitive": false,
+        "light_path_eligible": false,
+        "window": "01:00-04:00 (quiet window)",
+        "tool": "scripts/ops/quiet_window_merge.ps1",
+        "quotes": [
+          "Roll-sensitive branches merge in the 01:00-04:00 quiet window via scripts/ops/quiet_window_merge.ps1 (AGENTS.md)"
+        ],
+        "hold_quotes": [],
+        "declared": "EXPECTED-ROLL-SENSITIVE",
+        "binding": false,
+        "binding_gate": "Get the verdict from scripts\\ops\\roll_verdict.ps1 -Branch <b>; never derive it by hand (AGENTS.md)"
+      },
+      "command": null,
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.0,
+      "owner": "L-P4"
+    },
+    "diff_check": {
+      "status": "PASS",
+      "summary": "git diff --check clean over the span and 1 step(s)",
+      "details": [],
+      "attribution": [],
+      "evidence": {
+        "span": {
+          "span_base": "a8aded771dc1f89b26e566309a81c8f733175ae6",
+          "span_base_tree": "5d87910c8ba6bf59ae45b4ba79e56561ae0669a0",
+          "base_tree": "5d87910c8ba6bf59ae45b4ba79e56561ae0669a0",
+          "landing_tree": "3afd378221704ea8403d9bafd651c66c9c5a0527",
+          "hits": 0
+        },
+        "per_step_hits": {
+          "claude/integration-20261013-n8-rs": 0
+        },
+        "transient_step_hits": [],
+        "note": "this gate covers base..landing; production's documentation transaction checks first_integration..HEAD, so this is a superset only while base is the night's first-integration base. Re-running mid-night against an advanced origin/master, pass --span-base <that base>."
+      },
+      "command": [
+        "git",
+        "diff",
+        "--check",
+        "5d87910c8ba6bf59ae45b4ba79e56561ae0669a0",
+        "3afd378221704ea8403d9bafd651c66c9c5a0527"
+      ],
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.063,
+      "owner": "L-P2"
+    },
+    "schema_additive": {
+      "status": "INFO",
+      "summary": "no schema_registry* change",
+      "details": [],
+      "attribution": [],
+      "evidence": {
+        "applicable": false
+      },
+      "command": null,
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.0,
+      "owner": "L-P2"
+    },
+    "docs_transaction": {
+      "status": "INFO",
+      "summary": "4 required document(s) as of the final planned tip claude/integration-20261013-n8-rf2",
+      "details": [],
+      "attribution": [],
+      "evidence": {
+        "required_from": "src/weather/operations/documentation_transaction.py",
+        "final_tip": "claude/integration-20261013-n8-rf2",
+        "final_tree": "dcd33802ad5ba55eeca7a12b2477921028bb1399",
+        "later_slots": [
+          {
+            "label": "claude/integration-20261013-n8-rf2",
+            "sha": "1c64f9173a2b27c3a9c716134f607629717d3b36"
+          }
+        ],
+        "documents": [
+          {
+            "path": "docs/operations/ESTABLISHED_FINDINGS.md",
+            "required_review": true,
+            "required_disposition": false,
+            "base_oid": "f85693d31fdf651e98a6ebd7616523ed1265c3a7",
+            "landing_oid": "f85693d31fdf651e98a6ebd7616523ed1265c3a7",
+            "final_tip_oid": "f85693d31fdf651e98a6ebd7616523ed1265c3a7",
+            "touched_by": [],
+            "stale_if_bound_at_this_head": false
+          },
+          {
+            "path": "docs/operations/RETRACTED_AND_FALSE_LEADS.md",
+            "required_review": true,
+            "required_disposition": false,
+            "base_oid": "a01d7423ce70c2af29fc0d46e995b68e09283f50",
+            "landing_oid": "a01d7423ce70c2af29fc0d46e995b68e09283f50",
+            "final_tip_oid": "a01d7423ce70c2af29fc0d46e995b68e09283f50",
+            "touched_by": [],
+            "stale_if_bound_at_this_head": false
+          },
+          {
+            "path": "docs/operations/STATE_OF_PLAY.md",
+            "required_review": true,
+            "required_disposition": true,
+            "base_oid": "fd3ef6b074b6ae817eea2800654088592cb22274",
+            "landing_oid": "fd3ef6b074b6ae817eea2800654088592cb22274",
+            "final_tip_oid": "fd3ef6b074b6ae817eea2800654088592cb22274",
+            "touched_by": [],
+            "stale_if_bound_at_this_head": false
+          },
+          {
+            "path": "docs/roadmap/active-backlog.md",
+            "required_review": true,
+            "required_disposition": true,
+            "base_oid": "179a1a32cf7236dbe665aca1a671dd768bfd35a9",
+            "landing_oid": "179a1a32cf7236dbe665aca1a671dd768bfd35a9",
+            "final_tip_oid": "179a1a32cf7236dbe665aca1a671dd768bfd35a9",
+            "touched_by": [],
+            "stale_if_bound_at_this_head": false
+          }
+        ],
+        "rule": "bind documents_unchanged blob_oid to final_tip_oid (the night's final integration), never to an intermediate tip; STATE_OF_PLAY and active-backlog need an update or a bound review after the last integration"
+      },
+      "command": null,
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.312,
+      "owner": "L-P2"
+    },
+    "whitespace_only": {
+      "status": "INFO",
+      "summary": "false: added tests/model/test_dst_audit_model_m2_20261011.py (+18 more)",
+      "details": [
+        {
+          "reason": "added",
+          "path": "tests/model/test_dst_audit_model_m2_20261011.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "docs/operations/maker-shadow-runner.md"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "docs/roadmap/audits/dst-audit-2026-10-07.md"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "scripts/ops/adopt_execution_tape_after_merge.ps1"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "scripts/ops/memory_commit_guard.ps1"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "scripts/ops/quiet_window_merge.ps1"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "scripts/ops/streak_status.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "scripts/ops/suite_gated_quiet_merge.ps1"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "src/weather/backtesting/settlement_ledger.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "src/weather/collection/collection_health.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "tests/collection/test_dst_audit_collection_20261007.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "tests/model/test_dst_audit_model_m2_20261011.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "tests/operations/test_dst_audit_powershell_20261007.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "tests/operations/test_memory_commit_guard_script.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "tests/operations/test_production_baseline_reconciler_execution.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "tests/operations/test_quiet_window_merge_script.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "tests/operations/test_status_script.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "tests/operations/test_suite_gated_quiet_merge_script.py"
+        },
+        {
+          "reason": "roll_class_expected-roll-sensitive",
+          "path": ""
+        }
+      ],
+      "attribution": [],
+      "evidence": {
+        "whitespace_only": false,
+        "definition": "git diff --ignore-space-at-eol --ignore-blank-lines empty; diff --check clean; no add/delete/rename/copy/type/mode change; no binary or LFS path; EXPECTED-ROLL-FREE",
+        "flags": [
+          "--ignore-space-at-eol",
+          "--ignore-blank-lines"
+        ],
+        "file_count": 17,
+        "lines_added": 1079,
+        "lines_deleted": 83,
+        "first_disqualifier": {
+          "reason": "added",
+          "path": "tests/model/test_dst_audit_model_m2_20261011.py"
+        },
+        "disqualifiers": [
+          {
+            "reason": "added",
+            "path": "tests/model/test_dst_audit_model_m2_20261011.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "docs/operations/maker-shadow-runner.md"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "docs/roadmap/audits/dst-audit-2026-10-07.md"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "scripts/ops/adopt_execution_tape_after_merge.ps1"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "scripts/ops/memory_commit_guard.ps1"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "scripts/ops/quiet_window_merge.ps1"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "scripts/ops/streak_status.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "scripts/ops/suite_gated_quiet_merge.ps1"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "src/weather/backtesting/settlement_ledger.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "src/weather/collection/collection_health.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "tests/collection/test_dst_audit_collection_20261007.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "tests/model/test_dst_audit_model_m2_20261011.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "tests/operations/test_dst_audit_powershell_20261007.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "tests/operations/test_memory_commit_guard_script.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "tests/operations/test_production_baseline_reconciler_execution.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "tests/operations/test_quiet_window_merge_script.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "tests/operations/test_status_script.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "tests/operations/test_suite_gated_quiet_merge_script.py"
+          },
+          {
+            "reason": "roll_class_expected-roll-sensitive",
+            "path": ""
+          }
+        ],
+        "indentation_only_paths": [],
+        "roll_class_expected": "EXPECTED-ROLL-SENSITIVE",
+        "per_file": [
+          {
+            "path": "docs/operations/maker-shadow-runner.md",
+            "added": 5,
+            "deleted": 0
+          },
+          {
+            "path": "docs/roadmap/audits/dst-audit-2026-10-07.md",
+            "added": 38,
+            "deleted": 13
+          },
+          {
+            "path": "scripts/ops/adopt_execution_tape_after_merge.ps1",
+            "added": 4,
+            "deleted": 2
+          },
+          {
+            "path": "scripts/ops/memory_commit_guard.ps1",
+            "added": 17,
+            "deleted": 9
+          },
+          {
+            "path": "scripts/ops/quiet_window_merge.ps1",
+            "added": 49,
+            "deleted": 32
+          },
+          {
+            "path": "scripts/ops/streak_status.py",
+            "added": 8,
+            "deleted": 0
+          },
+          {
+            "path": "scripts/ops/suite_gated_quiet_merge.ps1",
+            "added": 4,
+            "deleted": 2
+          },
+          {
+            "path": "src/weather/backtesting/settlement_ledger.py",
+            "added": 19,
+            "deleted": 5
+          },
+          {
+            "path": "src/weather/collection/collection_health.py",
+            "added": 51,
+            "deleted": 11
+          },
+          {
+            "path": "tests/collection/test_dst_audit_collection_20261007.py",
+            "added": 291,
+            "deleted": 4
+          },
+          {
+            "path": "tests/model/test_dst_audit_model_m2_20261011.py",
+            "added": 62,
+            "deleted": 0
+          },
+          {
+            "path": "tests/operations/test_dst_audit_powershell_20261007.py",
+            "added": 514,
+            "deleted": 1
+          },
+          {
+            "path": "tests/operations/test_memory_commit_guard_script.py",
+            "added": 1,
+            "deleted": 1
+          },
+          {
+            "path": "tests/operations/test_production_baseline_reconciler_execution.py",
+            "added": 3,
+            "deleted": 1
+          },
+          {
+            "path": "tests/operations/test_quiet_window_merge_script.py",
+            "added": 1,
+            "deleted": 1
+          },
+          {
+            "path": "tests/operations/test_status_script.py",
+            "added": 11,
+            "deleted": 0
+          },
+          {
+            "path": "tests/operations/test_suite_gated_quiet_merge_script.py",
+            "added": 1,
+            "deleted": 1
+          }
+        ],
+        "grants": "nothing until the owner adopts M13"
+      },
+      "command": [
+        "git",
+        "diff",
+        "--name-only",
+        "--ignore-space-at-eol",
+        "--ignore-blank-lines",
+        "5d87910c8ba6bf59ae45b4ba79e56561ae0669a0",
+        "3afd378221704ea8403d9bafd651c66c9c5a0527"
+      ],
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.11,
+      "owner": "L-P2"
+    },
+    "agent_docs_audit": {
+      "status": "PASS",
+      "summary": "agent docs audit clean on the landing tree",
+      "details": [],
+      "attribution": [],
+      "evidence": {},
+      "command": [
+        "C:\\Users\\Michael\\Documents\\github\\weather\\venv\\Scripts\\python.exe",
+        "-m",
+        "weather.operations.agent_docs_audit",
+        "--repo-root",
+        "C:\\lpf-s\\run-20261011T154422Z-115384\\wt"
+      ],
+      "exit_code": 0,
+      "output_tail": "Agent docs audit: PASS (18 agent files, 1179 Markdown files)\n",
+      "duration_s": 16.375,
+      "owner": "L-P2"
+    },
+    "correspondence_index": {
+      "status": "FAIL",
+      "summary": "exit 1: docs/roadmap/correspondence-index.md: stale or missing; run python -m weather.reporting.roadmap.correspondence_index",
+      "details": [
+        "docs/roadmap/correspondence-index.md: stale or missing; run python -m weather.reporting.roadmap.correspondence_index",
+        "docs/roadmap/correspondence-index/2026-09.md: stale or missing; run python -m weather.reporting.roadmap.correspondence_index"
+      ],
+      "attribution": [],
+      "evidence": {},
+      "command": [
+        "C:\\Users\\Michael\\Documents\\github\\weather\\venv\\Scripts\\python.exe",
+        "-m",
+        "weather.reporting.roadmap.correspondence_index",
+        "--repo-root",
+        "C:\\lpf-s\\run-20261011T154422Z-115384\\wt",
+        "--check"
+      ],
+      "exit_code": 1,
+      "output_tail": "docs/roadmap/correspondence-index.md: stale or missing; run python -m weather.reporting.roadmap.correspondence_index\ndocs/roadmap/correspondence-index/2026-09.md: stale or missing; run python -m weather.reporting.roadmap.correspondence_index\n",
+      "duration_s": 0.578,
+      "owner": "L-P2"
+    },
+    "roadmap_backlog": {
+      "status": "PASS",
+      "summary": "roadmap backlog lint OK and generated report current",
+      "details": [],
+      "attribution": [],
+      "evidence": {},
+      "command": [
+        "C:\\Users\\Michael\\Documents\\github\\weather\\venv\\Scripts\\python.exe",
+        "-m",
+        "weather.reporting.roadmap.roadmap_backlog",
+        "--roadmap-root",
+        "C:\\lpf-s\\run-20261011T154422Z-115384\\wt\\docs\\roadmap",
+        "--report-out",
+        "C:\\lpf-s\\run-20261011T154422Z-115384\\wt\\docs\\roadmap\\active-backlog.md",
+        "--json-out",
+        "C:\\lpf-s\\run-20261011T154422Z-115384\\roadmap_backlog.json",
+        "--fail-on-lint",
+        "--check"
+      ],
+      "exit_code": 0,
+      "output_tail": "Roadmap backlog: OK (generated report matches sources)\n",
+      "duration_s": 0.172,
+      "owner": "L-P2"
+    },
+    "schema_registry": {
+      "status": "PASS",
+      "summary": "unregistered_versions == [] (644 registered)",
+      "details": [],
+      "attribution": [],
+      "evidence": {
+        "registered_count": 644,
+        "discovered_literal_count": 1025,
+        "unregistered_version_count": 0,
+        "excluded_version_count": 14,
+        "unregistered_versions": [],
+        "schema_additive": null
+      },
+      "command": [
+        "C:\\Users\\Michael\\Documents\\github\\weather\\venv\\Scripts\\python.exe",
+        "-m",
+        "weather.schema_registry",
+        "audit",
+        "--out",
+        "C:\\lpf-s\\run-20261011T154422Z-115384\\schema_registry_audit.json"
+      ],
+      "exit_code": 0,
+      "output_tail": "",
+      "duration_s": 0.281,
+      "owner": "L-P2"
+    },
+    "shard_coverage": {
+      "status": "PASS",
+      "summary": "92 shard file(s) exist; no unsharded spawning test changed",
+      "details": [],
+      "attribution": [],
+      "evidence": {
+        "listed": 92,
+        "missing": [],
+        "changed_test_modules": [
+          "tests/collection/test_dst_audit_collection_20261007.py",
+          "tests/model/test_dst_audit_model_m2_20261011.py",
+          "tests/operations/test_dst_audit_powershell_20261007.py",
+          "tests/operations/test_memory_commit_guard_script.py",
+          "tests/operations/test_production_baseline_reconciler_execution.py",
+          "tests/operations/test_quiet_window_merge_script.py",
+          "tests/operations/test_status_script.py",
+          "tests/operations/test_suite_gated_quiet_merge_script.py"
+        ],
+        "spawning_rule": "hygiene_ratchet",
+        "unsharded_spawning": [],
+        "post_209": true
+      },
+      "command": null,
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.157,
+      "owner": "L-P2"
+    },
+    "ps1_param_defaults": {
+      "status": "PASS",
+      "summary": "no changed advanced script reads its location in param() (0 pre-existing)",
+      "details": [],
+      "attribution": [],
+      "evidence": {
+        "offenders": [],
+        "touched_offenders": [],
+        "post_222": true
+      },
+      "command": null,
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.093,
+      "owner": "L-P2"
+    },
+    "ratchets": {
+      "status": "PASS",
+      "summary": "87 test(s) passed [union of ci.yml -m ratchet lists (base, pre_head, landing) and the static list, direct]",
+      "details": [],
+      "attribution": [],
+      "evidence": {
+        "source": "union of ci.yml -m ratchet lists (base, pre_head, landing) and the static list",
+        "files": [
+          "tests/app/test_app_architecture.py",
+          "tests/operations/test_ci_ratchet_selection.py",
+          "tests/operations/test_cold_recovery_host_guard.py",
+          "tests/operations/test_config_inventory.py",
+          "tests/operations/test_dependency_pins.py",
+          "tests/operations/test_host_task_wrappers.py",
+          "tests/operations/test_knowledge_structure_audit.py",
+          "tests/operations/test_module_size_audit.py",
+          "tests/operations/test_no_tracked_credentials.py",
+          "tests/operations/test_operating_reference.py",
+          "tests/operations/test_path_policy.py",
+          "tests/operations/test_python_runtime_audit.py",
+          "tests/operations/test_release_import_boundary.py",
+          "tests/operations/test_research_harness.py",
+          "tests/operations/test_runtime_utilities.py",
+          "tests/operations/test_schema_registry.py",
+          "tests/operations/test_structure_inventory.py",
+          "tests/operations/test_wu_token_repository_scan.py",
+          "tests/test_hygiene_ratchet.py",
+          "tests/test_quarantine_registry.py"
+        ],
+        "deferred_to_windows_scripts": [
+          "tests/market/test_wallet_reader.py",
+          "tests/operations/test_agent_docs_audit.py",
+          "tests/operations/test_import_architecture.py",
+          "tests/operations/test_memory_commit_guard_script.py",
+          "tests/operations/test_ops_script_ratchets.py",
+          "tests/operations/test_workload_admission_script.py"
+        ],
+        "serial_reasons": {
+          "tests/market/test_wallet_reader.py": "test_wallet_reader.py starts PowerShell (serial until the marker exists)",
+          "tests/operations/test_agent_docs_audit.py": "test_agent_docs_audit.py starts PowerShell (serial until the marker exists)",
+          "tests/operations/test_import_architecture.py": "test_import_architecture.py starts PowerShell (serial until the marker exists)",
+          "tests/operations/test_memory_commit_guard_script.py": "test_memory_commit_guard_script.py starts PowerShell (serial until the marker exists)",
+          "tests/operations/test_ops_script_ratchets.py": "test_ops_script_ratchets.py starts PowerShell (serial until the marker exists)",
+          "tests/operations/test_workload_admission_script.py": "test_workload_admission_script.py starts PowerShell (serial until the marker exists)"
+        },
+        "classifier": "landing_hook",
+        "warnings": [],
+        "route": "direct",
+        "route_reason": "focused run of 20 non-serial file(s)",
+        "junit": {
+          "present": true,
+          "tests": 87,
+          "skipped": 0
+        }
+      },
+      "command": [
+        "C:\\Users\\Michael\\Documents\\github\\weather\\venv\\Scripts\\python.exe",
+        "-m",
+        "pytest",
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "-o",
+        "junit_family=xunit1",
+        "--junitxml=C:\\lpf-s\\run-20261011T154422Z-115384\\junit-ratchets.xml",
+        "--basetemp=C:\\lpf\\115384\\ratchets",
+        "-m",
+        "ratchet",
+        "tests/app/test_app_architecture.py",
+        "tests/operations/test_ci_ratchet_selection.py",
+        "tests/operations/test_cold_recovery_host_guard.py",
+        "tests/operations/test_config_inventory.py",
+        "tests/operations/test_dependency_pins.py",
+        "tests/operations/test_host_task_wrappers.py",
+        "tests/operations/test_knowledge_structure_audit.py",
+        "tests/operations/test_module_size_audit.py",
+        "tests/operations/test_no_tracked_credentials.py",
+        "tests/operations/test_operating_reference.py",
+        "tests/operations/test_path_policy.py",
+        "tests/operations/test_python_runtime_audit.py",
+        "tests/operations/test_release_import_boundary.py",
+        "tests/operations/test_research_harness.py",
+        "tests/operations/test_runtime_utilities.py",
+        "tests/operations/test_schema_registry.py",
+        "tests/operations/test_structure_inventory.py",
+        "tests/operations/test_wu_token_repository_scan.py",
+        "tests/test_hygiene_ratchet.py",
+        "tests/test_quarantine_registry.py"
+      ],
+      "exit_code": 0,
+      "output_tail": "........................................................................ [ 82%]\n...............                                                          [100%]\n87 passed, 92 deselected in 19.34s\n",
+      "duration_s": 20.485,
+      "owner": "L-P3"
+    },
+    "tests": {
+      "status": "SKIP",
+      "summary": "--tests none: no test ran (the verdict is PASS_NO_TESTS at best, exit 4)",
+      "details": [],
+      "attribution": [],
+      "evidence": {},
+      "command": null,
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.0,
+      "owner": "L-P3"
+    },
+    "windows_scripts": {
+      "status": "SKIP",
+      "summary": "--tests none: no test ran (the verdict is PASS_NO_TESTS at best, exit 4)",
+      "details": [],
+      "attribution": [],
+      "evidence": {},
+      "command": null,
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.0,
+      "owner": "L-P3"
+    }
+  },
+  "verdict": {
+    "status": "FAIL",
+    "exit_code": 1,
+    "failing_checks": [
+      "correspondence_index"
+    ],
+    "warnings": [
+      "roll_class"
+    ],
+    "tests_run": false,
+    "binding": false,
+    "binding_gates": "scripts\\ops\\roll_verdict.ps1 -Branch <b>, scripts\\ops\\quiet_window_merge.ps1 and the integration attempt receipts (docs/operations/INTEGRATION_ATTEMPT_RUNBOOK.md) bind; this verdict does not",
+    "valid_while": "origin/master == a8aded771dc1f89b26e566309a81c8f733175ae6 and the plan's earlier SHAs land unchanged"
+  },
+  "cleanup": {
+    "kept": false,
+    "scratch_removed": true,
+    "worktree_pruned": true
+  },
+  "receipt": {
+    "out_path": "C:\\wt\\workstation-chat\\l-data\\n8heads\\preflight-rs.json",
+    "sha256": "eab58f8a13f560779d91d4c4969a103320d633dac7b0990208b9e9fb8edda37f",
+    "handback_line": "landing_preflight FAIL tests=none(skipped) binding=false sha256=eab58f8a13f560779d91d4c4969a103320d633dac7b0990208b9e9fb8edda37f head=c6977df5f33875884e97da2e97b7e89eb57200d6 earlier=[] base=a8aded771dc1f89b26e566309a81c8f733175ae6 plan=b392167fee6fc077c85d33f75ea173aac42574d10407860f8365bfca5a4e0e3e landing=23895a520c4b90e11a8e1bef1f8c25bdd1194e78 git=git version 2.54.0.windows.1"
+  }
+}

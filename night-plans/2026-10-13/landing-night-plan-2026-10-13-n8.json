@@ -1,0 +1,222 @@
+{
+  "schema": "landing_night_plan_v0.1",
+  "night": "2026-10-13",
+  "label": "N8 landing night 2026-10-12 -> 2026-10-13 (production capture host)",
+  "master_sha": "a8aded771dc1f89b26e566309a81c8f733175ae6",
+  "generated_at": "2026-10-11T11:44:14-04:00",
+  "source": "workstation DESKTOP-RFCD2GH; human summary l-data/N8-HEADS-20261013.md",
+  "execution_order_note": "slots in EXECUTION order; rf2 is stacked on rs, so landing rf2 lands rs too",
+  "prerequisite": "N7 (claude/integration-20261012-n7-rf a36798574) landed on master",
+  "schedule": {
+    "rs": ">=01:00 quiet window via quiet_window_merge.ps1, with recovery proof",
+    "rf2": "after RS recovery, last head of the night, inside 00:30-09:00",
+    "overflow_drop_order": [
+      "rf2 (roll-free; can move to a later night as a standalone RF night)",
+      "rs"
+    ],
+    "rs_failure_fallback": "land claude/integration-20261013-n8-rf 9bf466af103747bd5c10b50817c2f84e7f405199 (n7 + lows + m7 only, pre-gate PASS, merge-tree clean against N7) as the RF slot; H1/M1 slips to the next quiet window"
+  },
+  "master_drift": {
+    "origin_master_at_plan_time": "a8aded771dc1f89b26e566309a81c8f733175ae6",
+    "pregate_base": "8ea5d089b6522a53db1a20bb946a490e62842c9d",
+    "checks": "origin/master a8aded771 = 8ea5d089b + 484bae704 (docs: STATE_OF_PLAY, cold-snapshot doc); touches no head file"
+  },
+  "fallback_heads": [
+    {
+      "head": "claude/integration-20261013-n8-rf",
+      "sha": "9bf466af103747bd5c10b50817c2f84e7f405199",
+      "members": {
+        "dst-lows-ps": "5b1311169cddb4f9fd7e3561849776c862108494",
+        "dst-m7-l13": "e44ebcaa4fb8fe3d7def9230c13bfc4990607d7b"
+      },
+      "stacked_on": "stacked on the N7 head a367985748618ad16a3b5f40b4b019c677878fe1 (claude/integration-20261012-n7-rf, scheduled 10-12 00:35). Run N8 only after N7 has landed on master; if N7 did not land, N8 is NOT runnable (rebuild on the workstation)",
+      "expected_roll_class": "ROLL-FREE",
+      "journal_pinned_touch": [],
+      "qtest": {
+        "log": "q-n8-rf-9bf466a.log",
+        "result": "456 passed, 16 skipped (counted from progress dots)",
+        "rc": 0
+      },
+      "pregate": {
+        "path": "C:\\wt\\workstation-chat\\l-data\\n8heads\\pregate\\pg-9bf466af1037-20261011T085638-136948\\receipt.json",
+        "receipt_sha256": "aaf82c5a80f1d0c872fff669daed029e19818a3a566d5d5991e1836c93df9729",
+        "verdict": "PASS",
+        "base": "8ea5d089b6522a53db1a20bb946a490e62842c9d",
+        "base_is_ancestor": true,
+        "log_sha256": "005beb79cf1a1a77a9b2316f9e0ccea7dcd0bc59a1263113038be470362f2743",
+        "chunks": 21,
+        "chunk_files": 521,
+        "chunk_exit_codes_nonzero": [],
+        "junit_totals": {
+          "tests": 9687,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 63,
+          "passed": 9624
+        },
+        "failed_tests": [],
+        "failure_reasons": [],
+        "started_at": "2026-10-11T08:56:38.6039032-04:00",
+        "finished_at": "2026-10-11T09:50:01.3375183-04:00",
+        "python": "workstation 3.11.9 (host 3.11.0)",
+        "git": "2.54.0.windows.1 (host 2.45.2)"
+      }
+    }
+  ],
+  "docs_light_path": [
+    {
+      "branch": "claude/host-python-upgrade-runbook-20261011",
+      "sha": "65387f54d9d2499aa7b345a7d87191d1596aa5fe",
+      "what": "docs/operations/HOST_PYTHON_UPGRADE_RUNBOOK.md, PROPOSED (owner sign-off required); Defender rounds 1-3 FAIL, round 4 PASS, polish R4-S1/S2 applied; docs-only, roll-free, any time"
+    }
+  ],
+  "not_in_this_plan": "LFC N-11/N-12 fe5f54cfa (held for owner; touches wallet_reader_client.py); U6 D6 07dd78252 and research inventory f22bea073 (owner yes pending); DST-M2 (owner decision)",
+  "open_questions": [
+    "owner: DST-M2 - fix cache_age_minutes in UTC before 11-01? It feeds source_*_age_minutes of pooled_f_dynamic_source_state_v0_1 (shadow) and the primary model's last-good wu_history cache reuse (a cache older than its 30-min TTL can be served as fresh across 02:00 EDT). Rec: fix in UTC before 11-01 (feature value changes only on the 2 DST days)",
+    "owner: retire OD30 once H1 + L7/C1 re-registrations are settled",
+    "owner: Python upgrade runbook sign-off (12 decisions + host reads H1-H9 for master)"
+  ],
+  "priority_order": [
+    "claude/integration-20261013-n8-rs",
+    "claude/integration-20261013-n8-rf2"
+  ],
+  "slots": [
+    {
+      "kind": "rs_guarded_merge",
+      "head": "claude/integration-20261013-n8-rs",
+      "sha": "c6977df5f33875884e97da2e97b7e89eb57200d6",
+      "prs": [],
+      "branch_only_members": [
+        "dst-h1-m1 claude/dst-h1-m1-m2-utc-20261011 (DST-H1 graded window from a named zone in UTC, early-hour order by instant; DST-M1 live latest_age by instant; DST-M2 HELD for owner, strict xfail). Defender FAIL -> fix round 1 -> PASS-WITH-NOTES"
+      ],
+      "priority": 1,
+      "exec": 1,
+      "members": {
+        "dst-h1-m1": "70efaed118cc43d7f18e3b4586d736833b75c277"
+      },
+      "stacked_on": "stacked on the N7 head a367985748618ad16a3b5f40b4b019c677878fe1 (claude/integration-20261012-n7-rf, scheduled 10-12 00:35). Run N8 only after N7 has landed on master; if N7 did not land, N8 is NOT runnable (rebuild on the workstation)",
+      "merge_order": [
+        "dst-h1-m1"
+      ],
+      "integration_resolution": "merge commit resolves the DST audit doc only: section 4 takes the branch's H1/M1/M2 test notes and keeps DST-M4 on the PowerShell file line; section 5 keeps N7's M4/M5/M6 landing row plus the branch's H1 landing and M2 owner rows",
+      "expected_roll_class": "ROLL-SENSITIVE",
+      "roll_evidence": "src/weather/collection/collection_health.py is in the snapshot loop's module-level closure (snapshot_tracker.py:17 imports it); settlement_ledger.py is reached only through function-level imports; scripts/ops/streak_status.py is outside the fingerprint. Static walk only: get the binding verdict from roll_verdict.ps1",
+      "journal_pinned_touch": [],
+      "tier_a": "PASS (no C3/tier-A path touched)",
+      "activation_block": "not required (no loop/task/scorer added); capture workers pick up collection_health.py through the STALE_CODE readoption the guarded merge proves",
+      "landing_constraints": [
+        "quiet window 01:00-04:00 through quiet_window_merge.ps1 (roll-sensitive)",
+        "scripts/ops/streak_status.py is on the live-path status attestation list: do not land while a live attempt is sealed",
+        "must land before 2026-11-01; if it lands after any market's 11-01 ledger row is written, regrade the 11-01 rows",
+        "train/serve parity: no model feature changes (DST-M2, which feeds source_*_age_minutes, is held; collection_health/settlement_ledger are grading, not features)"
+      ],
+      "qtest": {
+        "log": "q-n8-rs-c6977df.log",
+        "result": "921 passed, 2 skipped, 8 xfailed, 45 subtests passed",
+        "rc": 0
+      },
+      "agent_docs_audit_rc": 0,
+      "known_fix": "landing_preflight correspondence_index --check is stale on master by design (closeout regenerates it); --check-structure PASS on the head",
+      "reports": [
+        "C:\\wt\\workstation-chat\\l-data\\swarm-m\\DST-H1-M1-M2-report.md",
+        "C:\\wt\\workstation-chat\\l-data\\swarm-m\\DST-H1-M1-defender.md"
+      ],
+      "pregate": {
+        "path": "C:\\wt\\workstation-chat\\l-data\\n8heads\\pregate\\pg-c6977df5f338-20261011T095934-51208\\receipt.json",
+        "receipt_sha256": "012dac7362a372a7ddd811adba0ee3e0ea8c94110d071849628cc673878b860b",
+        "verdict": "PASS",
+        "base": "8ea5d089b6522a53db1a20bb946a490e62842c9d",
+        "base_is_ancestor": true,
+        "log_sha256": "a390ed35445c63398a787199ffc4c016eb85f9b7f375c3f2afcf071d0ad0a12d",
+        "chunks": 21,
+        "chunk_files": 520,
+        "chunk_exit_codes_nonzero": [],
+        "junit_totals": {
+          "tests": 9719,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 64,
+          "passed": 9655
+        },
+        "failed_tests": [],
+        "failure_reasons": [],
+        "started_at": "2026-10-11T09:59:34.1374938-04:00",
+        "finished_at": "2026-10-11T10:50:46.3598030-04:00",
+        "python": "workstation 3.11.9 (host 3.11.0)",
+        "git": "2.54.0.windows.1 (host 2.45.2)"
+      }
+    },
+    {
+      "kind": "rf_guarded_merge",
+      "head": "claude/integration-20261013-n8-rf2",
+      "sha": "1c64f9173a2b27c3a9c716134f607629717d3b36",
+      "prs": [],
+      "branch_only_members": [
+        "dst-lows-ps claude/dst-lows-ps-20261011 (DST-L6 attempt-suite teardown in real time; L7 storage-recovery limits from UTC span; L8 Stopwatch backstop in twins/WU-orphan wrappers; L11 retrain RunAtLocal refuses ambiguous/nonexistent times; L15 adoption -ne and suite-gate instants; quiet_window_merge.ps1:3094 left, spent mode). Defender PASS-WITH-NOTES",
+        "dst-m7-l13 claude/dst-m7-l13-suite-20261011 (DST-M7 bounded-suite deadline = Stopwatch cap + 09:00 edge; L13 UTC run tags, pre-gate reader accepts both). Defender PASS-WITH-NOTES, fix round 1 applied"
+      ],
+      "priority": 2,
+      "exec": 2,
+      "members": {
+        "dst-h1-m1": "70efaed118cc43d7f18e3b4586d736833b75c277",
+        "dst-lows-ps": "5b1311169cddb4f9fd7e3561849776c862108494",
+        "dst-m7-l13": "e44ebcaa4fb8fe3d7def9230c13bfc4990607d7b",
+        "n8-rf": "9bf466af103747bd5c10b50817c2f84e7f405199"
+      },
+      "stacked_on": "claude/integration-20261013-n8-rs c6977df5f33875884e97da2e97b7e89eb57200d6",
+      "merge_order": [
+        "(n8-rf = n7 + dst-lows-ps + dst-m7-l13, union resolution of launch shard + audit section 5 row)",
+        "n8-rf onto n8-rs (clean)"
+      ],
+      "expected_roll_class": "ROLL-FREE",
+      "roll_evidence": "beyond the RS slot, only .ps1, tests, docs and .github/workflows/windows-qualification.yml change; no importable module",
+      "journal_pinned_touch": [],
+      "tier_a": "PASS (no C3/tier-A path touched)",
+      "activation_block": "not required (no loop/task/scorer added). L7 and L11 change registrars: effective only at the owner's next registration (nothing re-registered)",
+      "landing_constraints": [
+        "LAND LAST in its night and only when no frozen integration attempt is still due: bounded_worktree_test_suite.ps1 and integration_attempt_suite.ps1 sha256 are frozen per attempt (new_integration_attempt.ps1:273, integration_attempt_contract.ps1:1479-1508/1595); the attempt landing this head is itself safe",
+        "a failed attempt caused by this head needs successor class manual_reviewed_change (orchestration_wrapper covers only the suite script and its own test)",
+        "suite_gated_quiet_merge.ps1 self-hash: any legacy gated-merge task frozen with the old hash refuses until re-set-up; read-only check that no scheduled task still runs it with -ExpectedGateSha256",
+        "registrar changes (L7 register_storage_recovery_night.ps1, L11 register_nightly_retrain.ps1) take effect only on owner re-registration; nights registered from the old registrar keep PT254M (interim 11-01 rule stays)"
+      ],
+      "qtest": {
+        "log": "q-n8-rf2-1c64f91.log",
+        "result": "500 passed, 16 skipped, 3 xfailed",
+        "rc": 0
+      },
+      "agent_docs_audit_rc": 0,
+      "known_fix": "landing_preflight correspondence_index --check is stale on master by design (closeout regenerates it); --check-structure PASS on the head",
+      "reports": [
+        "C:\\wt\\workstation-chat\\l-data\\swarm-m\\DST-LOWS-PS-report.md",
+        "C:\\wt\\workstation-chat\\l-data\\swarm-m\\DST-LOWS-PS-defender.md",
+        "C:\\wt\\workstation-chat\\l-data\\swarm-m\\DST-M7-L13-report.md",
+        "C:\\wt\\workstation-chat\\l-data\\swarm-m\\DST-M7-L13-defender.md"
+      ],
+      "pregate": {
+        "path": "C:\\wt\\workstation-chat\\l-data\\n8heads\\pregate\\pg-1c64f9173a2b-20261011T105050-6280\\receipt.json",
+        "receipt_sha256": "a073fc7cf2a8f5259639245684ec539d54ec2ef5734d8c49c85e67c3fa34f6ff",
+        "verdict": "PASS",
+        "base": "8ea5d089b6522a53db1a20bb946a490e62842c9d",
+        "base_is_ancestor": true,
+        "log_sha256": "a211f07e7811752f1e19c892e80fd8710c3e04efd2a88727b918d1edd10ec438",
+        "chunks": 21,
+        "chunk_files": 522,
+        "chunk_exit_codes_nonzero": [],
+        "junit_totals": {
+          "tests": 9732,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 64,
+          "passed": 9668
+        },
+        "failed_tests": [],
+        "failure_reasons": [],
+        "started_at": "2026-10-11T10:50:50.2951460-04:00",
+        "finished_at": "2026-10-11T11:42:45.1185968-04:00",
+        "python": "workstation 3.11.9 (host 3.11.0)",
+        "git": "2.54.0.windows.1 (host 2.45.2)"
+      }
+    }
+  ],
+  "plan_sha256": "b392167fee6fc077c85d33f75ea173aac42574d10407860f8365bfca5a4e0e3e"
+}
