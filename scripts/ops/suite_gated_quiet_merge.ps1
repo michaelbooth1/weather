@@ -136,9 +136,11 @@ if ([string]$suiteTask.State -eq "Running") {
     if ($SuiteRunningWaitMinutes -le 0) {
         Refuse-SuiteGate "suite task is still running"
     }
-    $suiteWaitDeadline = (Get-Date).AddMinutes($SuiteRunningWaitMinutes)
+    # Elapsed-time deadline held as an instant, never local wall-clock
+    # arithmetic, so the bounded wait is the same length across DST (DST-M6).
+    $suiteWaitDeadline = ([datetimeoffset](Get-Date)).AddMinutes($SuiteRunningWaitMinutes)
     Write-Output ("SUITE GATE WAIT: suite task is still running; waiting at most {0} minute(s)" -f $SuiteRunningWaitMinutes)
-    while ([string]$suiteTask.State -eq "Running" -and (Get-Date) -lt $suiteWaitDeadline) {
+    while ([string]$suiteTask.State -eq "Running" -and ([datetimeoffset](Get-Date)) -lt $suiteWaitDeadline) {
         Start-Sleep -Seconds 15
         $suiteTaskMatches = @(Get-ScheduledTask -TaskName $SuiteTaskName -ErrorAction SilentlyContinue)
         if ($suiteTaskMatches.Count -ne 1) {

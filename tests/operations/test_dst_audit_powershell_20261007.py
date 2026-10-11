@@ -9,8 +9,12 @@ UTC instants); its xfail was retired with that fix and its probe now passes the 
 through Get-HealthyCaptureWorkerCount -Now. DST-H3 is fixed by comparing the readoption heartbeats
 as UTC instants (Test-QuietMergeHeartbeatAdvanced over the status.ps1 timestamp helpers); its xfail
 was retired with that fix and its probe now evaluates both real readoption conditions (capture
-workers and execution tape) across the fall-back hour and on ordinary days. DST-M4 (the S4U memory
-guard compared process CreationDate values on the wall clock) landed with its fix and this file's
+workers and execution tape) across the fall-back hour and on ordinary days. DST-M5 (reconciliation
+push containment deadline) and DST-M6 (rollback and recovery waits in quiet_window_merge.ps1,
+suite_gated_quiet_merge.ps1 and adopt_execution_tape_after_merge.ps1) are fixed by holding each
+deadline as a [datetimeoffset] instant; their tests were written failing-first against master and
+pass with that fix. DST-M4 (the S4U memory guard compared process CreationDate values on the
+wall clock) landed with its fix and this file's
 test_memory_guard_creation_ages_and_order_are_instants_across_dst, which failed first on master.
 
 Every test executes the repository's own PowerShell (a statement or function
@@ -499,6 +503,139 @@ GUARD_CREATION_CASES = [
 ]
 
 
+# ---------------------------------------------------------------------------
+# DST-M5 / DST-M6: deadlines and bounded waits held as instants.
+#
+# The probes below drive the scripts' own statements with a logical clock: the
+# clock is a UTC instant, Get-Date returns it as local time (ToLocalTime keeps
+# .NET's repeated-hour flag, exactly as DateTime.Now does) and Start-Sleep
+# advances it. Each case reports how many real seconds elapse before the
+# script's own deadline fires.
+
+LOGICAL_CLOCK = r"""
+$script:fakeUtc = ([datetimeoffset]::Parse($env:DST_START)).UtcDateTime
+$script:startUtc = $script:fakeUtc
+function Get-Date {
+    param([string]$Format)
+    $local = $script:fakeUtc.ToLocalTime()
+    if ($PSBoundParameters.ContainsKey('Format')) { return $local.ToString($Format) }
+    return $local
+}
+function Start-Sleep {
+    param([int]$Seconds, [int]$Milliseconds)
+    $ms = if ($PSBoundParameters.ContainsKey('Milliseconds')) { $Milliseconds } else { $Seconds * 1000 }
+    $script:fakeUtc = $script:fakeUtc.AddMilliseconds($ms)
+}
+function Get-ElapsedSeconds { return [int][Math]::Round(($script:fakeUtc - $script:startUtc).TotalSeconds) }
+$ast = [System.Management.Automation.Language.Parser]::ParseFile(
+    $env:DST_AUDIT_SCRIPT, [ref]$tokens, [ref]$errors)
+if (@($errors).Count -ne 0) { throw "$env:DST_AUDIT_SCRIPT does not parse" }
+function Get-ScriptFunctionText([string]$Name, [switch]$Optional) {
+    $found = @($ast.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $Name
+    }, $true))
+    if ($found.Count -eq 0 -and $Optional) { return '' }
+    if ($found.Count -ne 1) { throw "expected one function $Name, found $($found.Count)" }
+    return $found[0].Extent.Text
+}
+function Get-AssignmentAst([string]$Left) {
+    $found = @($ast.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+            $node.Left.Extent.Text -eq $Left -and
+            $node.Right.Extent.Text -ne '$null'
+    }, $true))
+    if ($found.Count -ne 1) { throw "expected one assignment to $Left, found $($found.Count)" }
+    return $found[0]
+}
+# The statements of one block from the assignment to $FirstLeft through the
+# first following statement that satisfies $IsLast.
+function Get-StatementRunText([string]$FirstLeft, [scriptblock]$IsLast) {
+    $first = Get-AssignmentAst $FirstLeft
+    $statements = @($first.Parent.Statements)
+    $index = [array]::IndexOf($statements, $first)
+    for ($i = $index; $i -lt $statements.Count; $i++) {
+        if (& $IsLast $statements[$i]) {
+            return (@($statements[$index..$i] | ForEach-Object { $_.Extent.Text }) -join "`n")
+        }
+    }
+    throw "no closing statement after $FirstLeft"
+}
+# Optional on master, where the instant helper does not exist yet.
+$clockHelper = Get-ScriptFunctionText 'Get-QuietMergeClockInstant' -Optional
+if ($clockHelper) { Invoke-Expression $clockHelper }
+"""
+
+WAIT_PROBE = LOGICAL_CLOCK + r"""
+Invoke-Expression $env:DST_STUBS
+$isLoop = { param($s) $s -is [System.Management.Automation.Language.LoopStatementAst] }
+Invoke-Expression (Get-StatementRunText $env:DST_ANCHOR $isLoop)
+[pscustomobject]@{ elapsed = (Get-ElapsedSeconds) } | ConvertTo-Json -Compress
+"""
+
+# Each M6 wait, with stubs that keep its readiness probe failing so the loop runs
+# to its own deadline: (script, first statement, stubs, configured real seconds,
+# the loop's sleep step = the most it may overshoot).
+WAIT_SITES = {
+    "quiet_merge_rollback": (
+        "quiet_window_merge.ps1",
+        "$rollbackDeadline",
+        r"""
+$RollbackRecoverySeconds = 1200
+$executionTapeRecoveryRequired = $false
+function Get-CaptureState { return [pscustomobject]@{ ok = $false; workers = @() } }
+""",
+        1200,
+        15,
+    ),
+    "reconciliation_rollback": (
+        "quiet_window_merge.ps1",
+        "$rollbackNow",
+        r"""
+$RollbackRecoverySeconds = 1200
+function Test-ReconciliationCaptureProof { return [pscustomobject]@{ ok = $false } }
+""",
+        1200,
+        15,
+    ),
+    "suite_gate_running_wait": (
+        "suite_gated_quiet_merge.ps1",
+        "$suiteWaitDeadline",
+        r"""
+$SuiteRunningWaitMinutes = 20
+$SuiteTaskName = 'dst-probe-suite'
+$suiteTask = [pscustomobject]@{ State = 'Running' }
+function Refuse-SuiteGate([string]$Reason) { throw "refused: $Reason" }
+function Get-ScheduledTask { return [pscustomobject]@{ State = 'Running' } }
+function Get-ScheduledTaskInfo { return [pscustomobject]@{ LastRunTime = [datetime]'2026-10-31T09:00:00' } }
+""",
+        1200,
+        15,
+    ),
+    "adopt_first_ensure": (
+        "adopt_execution_tape_after_merge.ps1",
+        "$deadline",
+        r"""
+$SupervisorTaskName = 'dst-probe-supervisor'
+$before = [pscustomobject]@{ LastRunTime = [datetime]'2026-10-31T09:00:00'; LastTaskResult = 0 }
+function Get-ScheduledTask { return [pscustomobject]@{ State = 'Running' } }
+function Get-ScheduledTaskInfo { return $before }
+""",
+        60,
+        1,
+    ),
+}
+
+# Start instants shortly before each transition (the 60-second adoption wait
+# starts 30 seconds before it), and an ordinary night for unchanged semantics.
+WAIT_STARTS = {
+    "fall_back_2026_11_01": ("2026-11-01T01:50:00-04:00", "2026-11-01T01:59:30-04:00"),
+    "spring_forward_2027_03_14": ("2027-03-14T01:50:00-05:00", "2027-03-14T01:59:30-05:00"),
+    "ordinary_2026_10_20": ("2026-10-20T01:50:00-04:00", "2026-10-20T01:59:30-04:00"),
+}
+
+
 @WINDOWS_POWERSHELL
 @pytest.mark.spawns
 def test_memory_guard_creation_ages_and_order_are_instants_across_dst():
@@ -523,3 +660,120 @@ def test_memory_guard_creation_ages_and_order_are_instants_across_dst():
     # verdicts.
     expected = {name: verdict for name, _, _, _, verdict, _ in GUARD_CREATION_CASES}
     assert payload == expected, payload
+
+
+@WINDOWS_POWERSHELL
+@pytest.mark.spawns
+@pytest.mark.parametrize("start", sorted(WAIT_STARTS))
+@pytest.mark.parametrize("site", sorted(WAIT_SITES))
+def test_bounded_waits_last_their_configured_real_time_across_dst(site, start):
+    script, anchor, stubs, budget, step = WAIT_SITES[site]
+    long_start, short_start = WAIT_STARTS[start]
+
+    payload = _run(
+        WAIT_PROBE,
+        {
+            "DST_AUDIT_SCRIPT": str(OPS / script),
+            "DST_ANCHOR": anchor,
+            "DST_STUBS": stubs,
+            "DST_START": short_start if budget < 600 else long_start,
+        },
+    )
+
+    # DST-M6: the defect computed these deadlines on the local wall clock, so a
+    # wait straddling 02:00 ran an hour long on 2026-11-01 (holding the lease)
+    # and ended at 03:00 EDT on 2027-03-14 (a false rollback_recovery_failed).
+    assert budget <= payload["elapsed"] <= budget + step, payload
+
+
+PUSH_CLOCK_SETUP = r"""
+Invoke-Expression (Get-ScriptFunctionText 'Assert-ReconciliationPublicationTimeBudget')
+Invoke-Expression (Get-AssignmentAst '$reconciliationPushRuntimeLimit').Extent.Text
+Invoke-Expression (Get-AssignmentAst '$reconciliationPushTerminalReserve').Extent.Text
+$isStopAt = {
+    param($s)
+    $s -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+        $s.Left.Extent.Text -eq '$pushContainmentStopAt'
+}
+# The armed containment clock: from the Start instant through the Stop reserve.
+Invoke-Expression (Get-StatementRunText '$pushStartIssuedAt' $isStopAt)
+"""
+
+PUSH_CONTAINMENT_PROBE = LOGICAL_CLOCK + PUSH_CLOCK_SETUP + r"""
+# The drain loop's own clock read and its two boundary conditions.
+$pollRead = @($ast.FindAll({
+    param($node)
+    $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+        $node.Left.Extent.Text -eq '$pushPollAt'
+}, $true))[0].Extent.Text
+$conditions = @($ast.FindAll({
+    param($node) $node -is [System.Management.Automation.Language.IfStatementAst]
+}, $true) | ForEach-Object { $_.Clauses[0].Item1.Extent.Text -replace '\s+', ' ' })
+$deadlineCondition = '$pushPollAt -ge $pushContainmentDeadline'
+$stopCondition = '$pushPollAt -ge $pushContainmentStopAt -and $pushPollAt -lt $pushContainmentDeadline'
+foreach ($condition in @($deadlineCondition, $stopCondition)) {
+    if (@($conditions | Where-Object { $_ -ceq $condition }).Count -lt 1) { throw "missing condition: $condition" }
+}
+$result = [ordered]@{ stop_opens = $null; deadline = $null }
+for ($t = 0; $t -le 7200 -and $null -eq $result.deadline; $t += 10) {
+    $script:fakeUtc = $script:startUtc.AddSeconds($t)
+    Invoke-Expression $pollRead
+    if ($null -eq $result.stop_opens -and [bool](Invoke-Expression $stopCondition)) { $result.stop_opens = $t }
+    if ([bool](Invoke-Expression $deadlineCondition)) { $result.deadline = $t }
+}
+$result | ConvertTo-Json -Compress
+"""
+
+# Start instants: shortly before each transition, and an ordinary night.
+PUSH_STARTS = {
+    "fall_back_2026_11_01": "2026-11-01T01:50:00-04:00",
+    "spring_forward_2027_03_14": "2027-03-14T01:50:00-05:00",
+    "ordinary_2026_10_20": "2026-10-20T01:50:00-04:00",
+}
+
+
+@WINDOWS_POWERSHELL
+@pytest.mark.spawns
+@pytest.mark.parametrize("start", sorted(PUSH_STARTS))
+def test_reconciliation_push_containment_is_pt15m_of_real_time(start):
+    payload = _run(
+        PUSH_CONTAINMENT_PROBE,
+        {"DST_AUDIT_SCRIPT": str(OPS / "quiet_window_merge.ps1"), "DST_START": PUSH_STARTS[start]},
+    )
+
+    # DST-M5: the containment deadline is PT15M of elapsed time and the bounded
+    # Stop opens 30 seconds before it. The defect added PT15M on the wall clock:
+    # 75 minutes on 2026-11-01, and on 2027-03-14 a skipped 02:05 deadline that
+    # fired after 10 minutes with the Stop window never open.
+    assert payload == {"stop_opens": 870, "deadline": 900}, payload
+
+
+RPC_BUDGET_PROBE = LOGICAL_CLOCK + PUSH_CLOCK_SETUP + r"""
+Invoke-Expression (Get-ScriptFunctionText 'New-ReconciliationSchedulerRpcIdentity')
+Invoke-Expression (Get-AssignmentAst '$reconciliationChildBoundaryReserveSeconds').Extent.Text
+$result = [ordered]@{}
+foreach ($t in @(0, 880, 905)) {
+    $script:fakeUtc = $script:startUtc.AddSeconds($t)
+    try {
+        $identity = New-ReconciliationSchedulerRpcIdentity -LogicalBoundary $pushContainmentDeadline -MaximumSeconds 20
+        $result["t$t"] = [int][Math]::Round(([datetimeoffset]$identity.deadline - [datetimeoffset]::UtcNow).TotalSeconds)
+    }
+    catch { $result["t$t"] = 'refused' }
+}
+$result | ConvertTo-Json -Compress
+"""
+
+
+@WINDOWS_POWERSHELL
+@pytest.mark.spawns
+def test_reconciliation_rpc_budget_shrinks_to_the_real_containment_deadline():
+    # Start at 01:55 EDT: the real PT15M deadline is 01:10 EST, after the
+    # fall-back, while the wall-clock one was 02:10, an hour later.
+    payload = _run(
+        RPC_BUDGET_PROBE,
+        {"DST_AUDIT_SCRIPT": str(OPS / "quiet_window_merge.ps1"), "DST_START": "2026-11-01T01:55:00-04:00"},
+    )
+
+    # Each Scheduler RPC is granted at most what remains before the containment
+    # deadline less the 8-second child reserve; none is granted after it.
+    assert payload == {"t0": 20, "t880": 12, "t905": "refused"}, payload
