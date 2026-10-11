@@ -454,6 +454,13 @@ def test_status_instant_parser_copies_stay_byte_identical():
     front = _function_text(SCRIPT, "ConvertTo-StatusUtcInstant")
     assert front is not None and "[DateTimeKind]::Local" in front
     assert _function_text(ops / "status.ps1", "ConvertTo-StatusUtcInstant") == front
+    # quiet_window_merge.ps1 carries both (DST-H3: readoption heartbeats compared as instants).
+    merge = ops / "quiet_window_merge.ps1"
+    assert _function_text(merge, "ConvertTo-StatusInstant") == suite
+    assert _function_text(merge, "ConvertTo-StatusUtcInstant") == front
+    merge_text = merge.read_text(encoding="utf-8-sig")
+    assert "[datetime]$afterWorker.last_heartbeat" not in merge_text
+    assert "[datetime]$executionAfter.last_heartbeat" not in merge_text
     text = SCRIPT.read_text(encoding="utf-8-sig")
     assert "$heartbeat = ConvertTo-StatusUtcInstant $status.last_heartbeat" in text
     assert "$ageSeconds = ($Now - $heartbeat).TotalSeconds" in text
