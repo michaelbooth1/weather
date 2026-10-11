@@ -2238,6 +2238,10 @@ $utc = New-Object DateTime(2026, 11, 1, 7, 30, 15, 250, ([DateTimeKind]::Utc))
 $local = $utc.ToLocalTime()
 $unspecified = [datetime]::SpecifyKind($utc, [DateTimeKind]::Unspecified)
 $now = [datetimeoffset]::Parse('2026-11-01T07:32:15.250+00:00', [Globalization.CultureInfo]::InvariantCulture)
+# A DateTimeOffset (no caller passes one today) goes through the parser as the
+# same instant, its own offset kept.
+$offsetValue = [datetimeoffset]::Parse('2026-11-01T13:00:15.250+05:30', [Globalization.CultureInfo]::InvariantCulture)
+$offsetInstant = ConvertTo-StatusUtcInstant $offsetValue
 [ordered]@{
     local_kind = [string]$local.Kind
     parser_utc = Format-Instant (ConvertTo-StatusInstant $utc)
@@ -2248,8 +2252,11 @@ $now = [datetimeoffset]::Parse('2026-11-01T07:32:15.250+00:00', [Globalization.C
     unspecified_kind = Format-Instant (ConvertTo-StatusUtcInstant $unspecified)
     offset_string = Format-Instant (ConvertTo-StatusUtcInstant '2026-11-01T02:30:15.250-05:00')
     garbage = Format-Instant (ConvertTo-StatusUtcInstant 'not-a-time')
+    offset_value = Format-Instant $offsetInstant
+    offset_value_offset = if ($null -eq $offsetInstant) { $null } else { [string]$offsetInstant.Offset }
     age_unspecified = Get-StatusAgeSeconds $unspecified -Now $now
     age_local = Get-StatusAgeSeconds $local -Now $now
+    age_offset_value = Get-StatusAgeSeconds $offsetValue -Now $now
 } | ConvertTo-Json -Compress
 """
 
@@ -2280,8 +2287,12 @@ def test_status_timestamp_helpers_resolve_datetime_input_by_kind() -> None:
         "unspecified_kind": instant,
         "offset_string": instant,
         "garbage": None,
+        # A DateTimeOffset passes through as the exact instant, offset kept.
+        "offset_value": instant,
+        "offset_value_offset": "05:30:00",
         "age_unspecified": 120.0,
         "age_local": 120.0,
+        "age_offset_value": 120.0,
     }
 
 

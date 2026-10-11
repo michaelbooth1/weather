@@ -63,6 +63,11 @@ what it **would** quote. It never places, cancels or signs anything:
   how many of those had a qualified mid that differs with own size removed.
   `own_leg_crossed` counts `CROSSED_BOOK` decisions on a public book that is not
   crossed (a resting paper leg crossed by the public book), as the replay kernel does.
+  A public side that lists one price twice cannot be composed while own legs rest on
+  it (`UnmergedBookLevels`). The two paths then differ, and both fail closed: the
+  shadow records the band `unevaluated` (`public_input_unavailable:UnmergedBookLevels`)
+  and withdraws its legs, so with no legs it may quote again the next minute; the
+  replay v2 kernel treats the same input as fatal for the pass (`BundleError`).
 - **Fair value.** The weather maker plugin is not on master, so the weather
   composition passes `Unavailable("weather_fair_value_provider_not_integrated")`:
   `informed-v0` then quotes the blind width with grade-`none` size caps. The
