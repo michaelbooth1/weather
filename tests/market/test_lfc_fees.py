@@ -380,3 +380,19 @@ def test_the_pinned_sdk_v2_order_has_no_fee_field_and_a_zero_default_builder():
     names = {f.name for f in fields(sdk.SignedOrder)}
     assert 'builder' in names and not any('fee' in n.lower() for n in names)
     assert SDK_ZERO.lower() == BYTES32_ZERO
+
+
+def test_a_control_checkpoint_inside_the_fee_reads_is_not_swallowed():
+    from weather.market.mm_stage2_hold import HoldEnd
+    books = LfcPublicBooks(clock=Clock().now, opener=fake_opener(routes(), []))
+    books.bind_event(CONDITION, SLUG)
+    calls = []
+
+    def checkpoint():
+        calls.append(1)
+        if len(calls) > 4:  # after the book reads: inside the Gamma / clob-markets fee reads
+            raise HoldEnd('fixed_end')
+    with pytest.raises(HoldEnd, match='fixed_end'):
+        books.snapshot(CONDITION, TOKENS, reward=REWARD, checkpoint=checkpoint)
+    with pytest.raises(HoldEnd, match='fixed_end'):
+        books.fee_evidence(CONDITION, checkpoint=lambda: (_ for _ in ()).throw(HoldEnd('fixed_end')))
