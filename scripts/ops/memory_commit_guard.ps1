@@ -281,9 +281,11 @@ $status = @{
 # policy from OS process ancestry, not from model compliance. Each distinct
 # direct tool subtree is one workload; a PID is accepted only while its parent
 # creation identity is older, which closes the Windows PID-reuse hole.
-# CreationDate is a local wall time. Every age and creation order in this guard
-# compares UTC instants: across the fall-back hour a 01:55 EDT parent reads as
-# younger than its 01:05 EST child on the wall clock (DST audit 2026-10-07 DST-M4).
+# CreationDate is an offset-bearing instant (a Kind=Local DateTime that keeps the
+# ambiguous-DST bit); compare it only via .ToUniversalTime(), never by its local
+# components. Every age and creation order in this guard compares UTC instants:
+# on the wall clock a 01:55 EDT parent reads as younger than its 01:05 EST child
+# across the fall-back hour (DST audit 2026-10-07 DST-M4).
 # The 00:30-09:00 and 12:00-18:00 windows are deliberately local.
 $localNow = Get-Date
 $utcNow = $localNow.ToUniversalTime()

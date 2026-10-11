@@ -434,6 +434,12 @@ GUARD_CREATION_CASES = [
      _agent_tree("2026-10-20T01:00:00-04:00", "2026-10-20T01:05:00-04:00"), [7000003], None),
     ("heavy_ordinary_in_grace", "heavy", "2026-10-20T01:10:00-04:00",
      _agent_tree("2026-10-20T01:00:00-04:00", "2026-10-20T01:09:55-04:00"), [], None),
+    # Ancestry PID reuse: a "parent" really younger than its child holds a reused
+    # PID, so the child is not attributed to that tree.
+    ("heavy_ordinary_reused_parent_pid", "heavy", "2026-10-20T03:10:00-04:00",
+     _agent_tree("2026-10-20T02:00:00-04:00", "2026-10-20T01:00:00-04:00"), [], None),
+    ("heavy_fall_back_reused_parent_pid", "heavy", "2026-11-01T01:40:00-05:00",
+     _agent_tree("2026-11-01T01:10:00-05:00", "2026-11-01T01:30:00-04:00"), [], None),
     # Tree membership: descendants born after the root belong to its tree.
     ("tree_fall_back", "tree", "2026-11-01T01:20:00-05:00", [
         _row(7000003, 7000001, _SHELL, "powershell", "2026-11-01T01:55:00-04:00"),
