@@ -52,7 +52,7 @@ The live SDK portability check accepts any 3.11 patch release
 | G2 | Phase A and Phase B passed on earlier nights, and `$R\qualification.json` has `"result":"PASS"`. | C0 |
 | G3 | The production HEAD equals the qualified tip, or `roll_verdict.ps1 -Branch` on the difference is roll-free. | C0 |
 | G4 | The owner is reachable from 00:30 to 03:45 on the cutover night: GO at C0, and any escalation up to the end of §R. Phase A also needs the owner at the machine for UAC. | C0, A4 |
-| G5 | No other lease user is due that night. Specifically: <br>- `WeatherTrainingWindow` (a 01:00 one-shot, `register_training_window.ps1:3`) is disabled or has no trigger that night; <br>- Stage B `WeatherEveningEvidenceRefresh` (00:35, holds the lease to 09:00 when enabled; `register_daily_refresh.ps1:20-24`) is disabled; <br>- a U6 export registered at 00:35 (Q3) is disabled for the cutover night;<br>- no integration attempt, quiet-window merge, storage one-shot or held-head work is scheduled. | Phase B (B0), C0 |
+| G5 | No other lease user is due that night. Specifically: <br>- `WeatherTrainingWindow` (a 01:00 one-shot, `register_training_window.ps1:3`) is disabled or has no trigger that night; <br>- Stage B `WeatherEveningEvidenceRefresh` (00:35, holds the lease to 09:00 when enabled; `register_daily_refresh.ps1:20-24`) is disabled; <br>- a U6 export registered at 00:35 (Q3) is disabled (enforced in B0 and C0 by `Assert-NoU6At0035`);<br>- no integration attempt, quiet-window merge, storage one-shot or held-head work is scheduled. | Phase B (B0), C0 |
 | G6 | Release case A: `artifacts\releases\current_release.json` is absent (H5, B3, C0). Case B or C is NO-GO for this runbook (§8). | H5, B3, C0 |
 | G7 (LFC) | The cutover night is **after** LFC session 0 has ended and its handback is recorded. It is never the night before a scheduled LFC session. | C0 |
 | G8 (88a) | The night is after the 88a merge freeze in the state of play. `$R\q12.txt` records the owner's Q12 choice as `STOP_AUTHORIZED` with its DECISION_LOG reference. Any other value means NO-GO, because the 88a worker would hold the venv. | Sign-off, C0, C2 |
@@ -213,6 +213,14 @@ function Get-ReleaseActive([string]$Exe, [string]$OutBase) {
   try { $j = $raw | ConvertFrom-Json } catch { NoGo "release active output is not JSON ($OutBase)" }
   $r = [pscustomobject]@{ exit=$code; status=[string]$j.status; error=[string]$j.error }
   $r | ConvertTo-Json | Set-Content -LiteralPath "$OutBase.json" -Encoding utf8; $r }
+# G5/Q3: a U6 export registered at 00:35 can hold the lease until 01:25, so it must be disabled on Phase B and C nights
+function Assert-NoU6At0035([string]$Tag) {
+  $u6 = Get-ScheduledTask -TaskName WeatherReplayBundleExportNightly -ErrorAction SilentlyContinue
+  if ($u6 -and [string]$u6.State -ne 'Disabled' -and @($u6.Triggers | Where-Object { [string]$_.StartBoundary -match 'T00:35' }).Count -gt 0) {
+    NoGo "$Tag U6 export is registered at 00:35 and enabled (G5, Q3)" } }
+# §11: the owner's recorded choice for a capture gap over 35 minutes; first token ACCEPT_OVERRUN or ROLLBACK_ON_OVERRUN
+function Get-GapChoice { $c = if (Test-Path -LiteralPath "$R\gap-overrun.txt") { ((Get-Content -LiteralPath "$R\gap-overrun.txt" -TotalCount 1) -split '\s+')[0] }
+  if ($c -notin 'ACCEPT_OVERRUN','ROLLBACK_ON_OVERRUN') { NoGo 'gap-overrun choice not recorded in $R\gap-overrun.txt (§11)' }; $c }
 function Assert-CaseA($ra, $tag) {
   if ($ra.status -ne 'BLOCK' -or $ra.error -notlike '*active release pointer is missing*') { NoGo "$tag release is not case A: $($ra | ConvertTo-Json -Compress)" }
   if (Test-Path -LiteralPath (Join-Path $P 'artifacts\releases\current_release.json')) { NoGo "$tag active release pointer exists" } }
@@ -481,6 +489,7 @@ If A4 fails after the installer ran:
 $h = (Get-Date).Hour + (Get-Date).Minute/60; if ($h -lt 0.5 -or $h -ge 2.0) { NoGo 'outside the Phase B start window' }
 foreach ($t in 'WeatherTrainingWindow','WeatherEveningEvidenceRefresh') { $x = Get-ScheduledTask -TaskName $t -ErrorAction SilentlyContinue
   if ($x -and [string]$x.State -ne 'Disabled') { NoGo "$t is enabled (G5)" } }
+Assert-NoU6At0035 'B0'
 $mg = Read-WeatherMemoryGuardStatus -Path (Join-Path $P 'data\logs\memory_commit_guard_status.json'); Log "memory $($mg | ConvertTo-Json -Compress)"
 if ((Get-Volume -DriveLetter C).SizeRemaining -lt 55GB) { NoGo 'disk below the bounded-suite floor plus margin' }
 $global:Lease = Enter-WeatherHeavyWorkloadLease -RepoRoot $P -Workload 'py3119_prep'; if (-not $global:Lease) { NoGo 'lease busy' }
@@ -655,6 +664,8 @@ start the S4U restore. A failure after the rename means §R.
 ```powershell
 $q = Get-Content "$R\qualification.json" -Raw | ConvertFrom-Json; if ($q.result -ne 'PASS' -or $q.release_case -ne 'A') { NoGo 'not qualified for case A' }
 if (((Get-Content -LiteralPath "$R\q12.txt" -TotalCount 1) -split '\s+')[0] -ne 'STOP_AUTHORIZED') { NoGo 'Q12 not recorded as STOP_AUTHORIZED (G8)' }
+$GapChoice = Get-GapChoice; Log "gap-overrun choice: $GapChoice"
+Assert-NoU6At0035 'C0'     # enforced here, not left to the C0 next-runs exemption of the aux list
 $Head = (git -C $P rev-parse HEAD).Trim()
 if ($Head -ne $q.tip) { Log "HEAD moved from the qualified tip; master must attach roll_verdict.ps1 output showing roll-free before GO" }
 if (git -C $P status --porcelain --untracked-files=no) { NoGo 'prod tree dirty' }
@@ -887,8 +898,22 @@ $null = Invoke-Native $Py @('-I','-c','import ssl, sqlite3, zlib, pyexpat; print
 - (d) capture shows no new FLAG (aux-task flags are expected until C9b);
 - (e) is a receipt only.
 
-**C9. Core decision (by 02:15).** PASS needs C6, C7 and C8 all green, and a gap of 35 minutes or
-less (or an overrun the owner accepts). Otherwise run §R.
+**C9. Core decision (by 02:15).** PASS needs C6, C7 and C8 all green, and either a gap of
+35 minutes or less, or an overrun covered by the owner's choice recorded before the night (§11,
+`$R\gap-overrun.txt`, read at C0). Nobody is asked at 02:15. Otherwise run §R.
+
+```powershell
+$GapMin = ($GapEnd-$GapStart).TotalMinutes
+if ($GapMin -gt 35) {
+  Log ("gap {0:n1} min over 35; recorded choice {1}" -f $GapMin, $GapChoice)
+  if ($GapChoice -eq 'ROLLBACK_ON_OVERRUN') { NoGo 'capture gap overran and the owner chose rollback -> ROLLBACK' } }
+Log 'C9 core PASS'
+```
+
+The worst-case gap with C7 passing is about 47 minutes: the C4 sweeps, then C5 and C6, then the
+full C7 run and its rerun. A rollback after an overrun adds a second stop and restart, so it
+lengthens the total gap rather than shortening it. That is why accepting the overrun is the
+recommendation.
 
 **C9b. Restore the auxiliary tasks.**
 
@@ -1122,6 +1147,13 @@ The owner initials each line in the decision log. Recommendations come first.
       execution tape, the maker shadow and 88a (they restart at C9b). Confirm this is within the
       approved one-gap budget, and that the gap's timing against the desk-study panel window is
       acceptable.
+- [ ] **Gap overrun (pre-decided; C9 acts on it):** if the capture gap exceeds 35 minutes but C7
+      recovered (worst case about 47 minutes), record the choice as the first token of
+      `$R\gap-overrun.txt`, with its DECISION_LOG reference:
+      - `ACCEPT_OVERRUN` (recommended): keep 3.11.9. A rollback would add a second gap.
+      - `ROLLBACK_ON_OVERRUN`: run §R.
+
+      C0 is NO-GO without a recorded choice.
 - [ ] **G12, downloads:** approve the PyPI wheel downloads (§T, B1a and B1b; hash-pinned, Windows
       and pure wheels only), in addition to the already-approved installer download.
 - [ ] **Q13, tzdata:** run §T on an earlier night (recommended), or exempt tzdata in the comparisons.
