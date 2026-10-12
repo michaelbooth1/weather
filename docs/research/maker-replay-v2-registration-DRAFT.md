@@ -137,7 +137,13 @@ only; no decision, P&L or base-pass prefix digest changes.
   (`run_binding_pack_required`, `run_binding_pack_manifest_invalid`, `run_binding_pack_universe_mismatch`,
   `run_binding_zone_source_mismatch`, `run_binding_zone_map_mismatch`, `run_binding_inventory_mismatch`,
   `run_binding_pack_tzdata_mismatch`, or the `market_time_zones` codes). The report (format v0.2) records the check
-  as `pack_check`: the manifest digest (the manifest file's sha when written by `pack_io.write_json`), whether that
+  as `pack_check`: the manifest digest (`journal.digest` of the parsed document; it is the manifest file's sha only
+  when the file was written canonically by `pack_io.write_json`: `build_report` reads no file, so for other bytes
+  the binding is this canonical digest plus the enrollment lookup, not the file's sha; R155 defender-2 D3. The
+  owner-gated F4 change, which adds a `manifest_sha256=` argument checked against `digest(manifest)`, needs a code
+  change before it lands: a caller-supplied string the caller can compute from the document binds nothing, so F4
+  must take the manifest path and read and hash the file bytes itself, or drop the argument and enforce enrollment of
+  `digest(manifest)` alone), whether that
   digest is enrolled (`approved_registrations`), the digest of the `input_hashes` it matched, and the universe,
   registry and tzdata zone-file digests. The run's scope is bound too (`execution_manifest.verify_scored_scope`,
   R155 defender-2 D1, as v1's runner binds it with `authorization.bind_scope`): every plan day is declared with

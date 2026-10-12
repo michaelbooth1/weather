@@ -239,7 +239,9 @@ def verify_scored_pack(run_binding, plan, markets, *, manifest, registered):
     - the run's tzdata block equals the manifest's ``tzdata`` record (``run_binding_pack_tzdata_mismatch``): both are
       ``bundle.tzdata_binding`` over the same zones once the map equals the universe's.
     Returns the report's ``pack_check`` record: this verifier, the manifest's ``digest`` (equal to the manifest
-    file's sha, and so to the v1 ``pre_registration_sha256``, when the file was written by ``pack_io.write_json``),
+    file's sha, and so to the v1 ``pre_registration_sha256``, only when the file was written by
+    ``pack_io.write_json``; this function reads no file, so for other file bytes the binding is this canonical digest
+    plus the enrollment lookup, not the file's sha: R155 defender-2 D3),
     whether that digest is enrolled in ``approved_registrations.APPROVED_REGISTRATIONS``, the digest of the
     ``input_hashes`` it matched, the universe and registry digests, and the tzdata zone-file digest it bound.
     Enrollment is recorded, not enforced: the runner reads the

@@ -185,7 +185,13 @@ def build_report(run, config, *, replicates=2000, seed=20260926, registration_ha
     The records the run replayed (``Run.replayed``) must digest to the manifest's ``record_sources_sha256``
     (``execution_manifest.verify_scored_records``, R155 defender-2 D2), not only carry its input-hash labels.
     This function does not re-verify the manifest; the caller must, and an auditor matches
-    ``pack_check.manifest_sha256`` against the enrolled manifest. A FIXTURE_ONLY report does not read the pack (``pack_check`` is ``None``)."""
+    ``pack_check.manifest_sha256`` against the enrolled manifest. It reads no file (R155 defender-2 D3): ``manifest``
+    is the parsed document, and ``pack_check.manifest_sha256`` (hence ``pre_registration_sha256``) is
+    ``journal.digest(manifest)``, the canonical-JSON digest. That equals the manifest file's sha only for a file
+    written canonically (``pack_io.write_json``); for any other file bytes the binding is that canonical digest plus
+    the ``approved_registrations`` lookup recorded as ``manifest_enrolled``, not the file's sha. A caller that holds
+    a file sha must check it against the file itself (``read_authorization``) before parsing. A FIXTURE_ONLY report
+    does not read the pack (``pack_check`` is ``None``)."""
     from maker_core.replay.v2.pipeline import verify_run_binding
     plan, books, passes, matches, markets = run.plan, run.books, run.passes, run.matches, run.markets
     fixture_only = all(d.provenance == "synthetic" for d in plan.days)
