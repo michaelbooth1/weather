@@ -1,7 +1,7 @@
 # Host Python upgrade runbook (capture host, 3.11.0 to 3.11.9)
 
-> **APPROVED by the owner 2026-10-12 (DECISION_LOG, §11).** The cutover night is not yet named, and the
-> 2026-10-12 G0/G7 revisions and the §7a calendar are pending owner confirmation.
+> **APPROVED by the owner 2026-10-12 (DECISION_LOG, §11)**, including the 2026-10-12 G0/G7 revisions
+> and the §7a calendar. The cutover night is 00:30 on 10-17.
 > Nothing in this file authorizes a download, an install, a capture gap, a task change or a merge.
 > [The owner sign-off checklist](#11-owner-sign-off-checklist) lists what the owner must sign first.
 > Live orders, cancels and signing are out of scope here; the live launcher is resealed under its
@@ -12,7 +12,7 @@ upgrade as a quiet-window job with a release re-bind; installer download, UAC an
 into gated steps. Today's host version, the planned night and every dated hold live in
 [the state of play](STATE_OF_PLAY.md), not here.
 
-Revision 2026-10-12, **pending owner confirmation**: the owner postponed LFC session 0 on 10-12 and
+Revision 2026-10-12, **confirmed by the owner the same day**: the owner postponed LFC session 0 on 10-12 and
 approved the upgrade, so G7 no longer waits for session 0's handback. It now only keeps the Phase B
 and Phase C nights clear of scheduled LFC sessions. G0 now names each phase's own morning or night,
 so Phase A can run on its owner-named morning before the cutover night is named. §7a holds the
@@ -54,14 +54,14 @@ The live SDK portability check accepts any 3.11 patch release
 
 | Gate | Condition | Checked at |
 | --- | --- | --- |
-| G0 | The owner has signed §11 for this runbook revision and has named the morning or night of the phase about to run (Phase A: its owner-attended morning; Phase B and C: their nights). Revised 2026-10-12, pending owner confirmation. | Before Phase A, B0, C0 |
+| G0 | The owner has signed §11 for this runbook revision and has named the morning or night of the phase about to run (Phase A: its owner-attended morning; Phase B and C: their nights). Revised 2026-10-12 (owner-confirmed). | Before Phase A, B0, C0 |
 | G1 | The bounded suite supports `-InterpreterPath` and `-ExpectedInterpreterVersion` (`scripts/ops/bounded_worktree_test_suite.ps1:44-52`). | Met on master; re-read `param(` if the script changed |
 | G2 | Phase A and Phase B passed on earlier nights, and `$R\qualification.json` has `"result":"PASS"`. | C0 |
 | G3 | The production HEAD equals the qualified tip, or `roll_verdict.ps1 -Branch` on the difference is roll-free. | C0 |
 | G4 | The owner is reachable from 00:30 to 03:45 on the cutover night: GO at C0, and any escalation up to the end of §R. Phase A also needs the owner at the machine for UAC. | C0, A4 |
 | G5 | No other lease user is due that night. Specifically: <br>- `WeatherTrainingWindow` (a 01:00 one-shot, `register_training_window.ps1:3`) is disabled or has no trigger that night; <br>- Stage B `WeatherEveningEvidenceRefresh` (00:35, holds the lease to 09:00 when enabled; `register_daily_refresh.ps1:20-24`) is disabled; <br>- a U6 export registered at 00:35 (Q3) is disabled (enforced in B0 and C0 by `Assert-NoU6At0035`);<br>- no integration attempt, quiet-window merge, storage one-shot or held-head work is scheduled. | Phase B (B0), C0 |
 | G6 | Release case A: `artifacts\releases\current_release.json` is absent (H5, B3, C0). Case B or C is NO-GO for this runbook (§8). | H5, B3, C0 |
-| G7 (LFC) | The cutover night (and any Phase B prep night) is not the night before or the night of a scheduled LFC session. Revised 2026-10-12, pending owner confirmation: it no longer waits for LFC session 0, which the owner postponed. | Phase B (B0), C0 |
+| G7 (LFC) | The cutover night (and any Phase B prep night) is not the night before or the night of a scheduled LFC session. Revised 2026-10-12 (owner-confirmed): it no longer waits for LFC session 0, which the owner postponed. | Phase B (B0), C0 |
 | G8 (88a) | The night is after the 88a merge freeze in the state of play. `$R\q12.txt` records the owner's Q12 choice as `STOP_AUTHORIZED` with its DECISION_LOG reference. Any other value means NO-GO, because the 88a worker would hold the venv. | Sign-off, C0, C2 |
 | G9 (tzdata) | The tzdata sequencing is decided (Q13), so the freeze comparison in `Test-Venv` cannot false-fail. | Before Phase B |
 | G10 (seals) | No live attempt is planned between the cutover and the reseal. | Sign-off |
@@ -352,11 +352,12 @@ is why the suite starts no later than 03:00. Using the tiering hole (HOST_LOAD_P
 later needs at least 100 GiB free and skips tiering that night; that is an owner choice, not a
 default.
 
-### 7a. Phase calendar (owner picks 2026-10-12; the rest PROPOSED)
+### 7a. Phase calendar (owner-confirmed 2026-10-12)
 
-The owner picked Phase A on the morning of 10-13 and a cutover night inside 10-15..10-30, accepting
-the short gap inside the 88a desk-study panel window (DECISION_LOG 2026-10-12). The other rows are
-proposals; the signed nights live in [the state of play](STATE_OF_PLAY.md). A night is named by its
+The owner confirmed this calendar on 2026-10-12, including the fallbacks, and named the cutover
+night 00:30 on 10-17 (owner reachable 00:30-03:45, G4), accepting the short gap inside the 88a
+desk-study panel window (DECISION_LOG 2026-10-12). Today's position lives in
+[the state of play](STATE_OF_PLAY.md). A night is named by its
 morning: "00:30 on 10-16" is the night of 10-15 to 10-16.
 
 | Phase | Primary | Fallback | Reason |
@@ -364,7 +365,7 @@ morning: "00:30 on 10-16" is the night of 10-15 to 10-16.
 | A install (owner at the machine) | Tue 10-13, about 07:30-09:00 (owner's pick) | Fri 10-16, same slot | It shares the morning of the N8 merge night. It takes no lease and starts only after the N8 sequence has handed back; if a landing is still running or needs recovery, A moves to the fallback. It overlaps the 06:50 91a run with light I/O only. It runs before §T, so §T ends with T-R. |
 | §T tzdata + T-R | 00:30-02:00 on Thu 10-15 | 00:30 on Fri 10-16 | First admitted night after N9 (00:30 on 10-14). |
 | B prep night | 00:30-04:45 on Fri 10-16 | 00:30 on Sat 10-17 | After A and after §T's T-R (B builds its lock from the refreshed freeze). |
-| C cutover | the owner-named night after B passes, inside 10-15..10-30; proposed 00:30 on Sat 10-17 | the next night that meets G4 and G5 | Close after B, so the qualified tip has little time to move (G3); after the freeze (G8). |
+| C cutover | 00:30-02:25 on Sat 10-17 (owner-named) | the next night inside 10-15..10-30 that meets G4 and G5, named by the owner (G0) | The night after B, so the qualified tip has little time to move (G3); after the freeze (G8). If B uses its fallback (10-17), C moves too. |
 | Latest second attempt | 00:30 on Thu 10-29 | none | Keeps 10-30 and 10-31 spare; never 11-01 (G11). |
 | §D cleanup | first admitted night after a C PASS that has no other lease user | any later night | Removes the stage worktree; not urgent. |
 
