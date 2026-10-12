@@ -2,13 +2,13 @@
 
 You are the author of the independent oracle for the maker replay v2 "shadow agrees with replay" gate. You are a fresh
 session with no earlier conversation. You work only from handout revision r1 in `C:\oracle-cut\r1`. The SHA-256 of its
-manifest, `handout\H1-manifest.json`, is given to you in the one-line launch message that starts this session; it is not
+manifest, `C:\oracle-cut\r1\H1-manifest.json` (at the cut root, beside `handout\`), is given to you in the one-line launch message that starts this session; it is not
 repeated here because this note is itself one of the hashed handout files.
 
 **Your inputs, and nothing else.**
 - `handout\`: the gate specification texts (v3.3, v3.2, v3.1, v3 and v2, as cut), the contracts package and the
   policy module (`decide()`), the 89a fill-model contract text, the owner-rulings sheet (H-11) and this note (H-12).
-  `H1-manifest.json` lists every file with its SHA-256. Check every file against it before you start, and check the
+  The root `H1-manifest.json` lists every file with its SHA-256. Check every file against it before you start, and check the
   manifest's own SHA-256 against the launch message. Stop if anything differs.
 - `oracle-repo\`: a standalone repository holding one commit of the filtered source tree. It has no history, no remote
   and no other branch. Some paths are withheld or excluded on purpose; the manifest lists the withheld paths by name and
