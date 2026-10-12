@@ -87,6 +87,7 @@ EXPECTED_SHARDS = {
             "tests/operations/test_quiet_window_merge_execution.py",
             "tests/operations/test_landing_preflight.py",
             "tests/operations/test_bounded_execution_tape_probe_script.py",
+            "tests/operations/test_oracle_author_test_run_script.py",
         ],
     ),
     "windows-lane-a": (
