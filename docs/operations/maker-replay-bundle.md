@@ -391,7 +391,7 @@ The thread variables are set to `1` just before the probe, in the wrapper's own 
 children inherit. It admits only the assigned capture host and holds the shared heavy-work lease. Starts are limited
 to 00:30–04:54 America/Toronto, a strict subset of the heavy lane. The child gets at most 2,700 seconds of cooperative
 budget (`--max-seconds`) inside a 2,730-second outer deadline and stops by 04:54:45 at the latest, reserving 15 seconds
-for teardown/lease release before 04:55. Unproved teardown poisons the lease. A busy lease fails without waiting or
+for teardown/lease release before 04:55. Unproved teardown of the child Job or the import-probe Job poisons the lease. A busy lease fails without waiting or
 automatic catch-up.
 
 `scripts/ops/register_replay_bundle_export_nightly.ps1` requires `-DataRoot`, `-ReleaseRoot`, `-OutputRoot`,
