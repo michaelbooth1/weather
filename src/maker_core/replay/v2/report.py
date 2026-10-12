@@ -20,10 +20,12 @@ from collections import defaultdict
 from dataclasses import fields
 from decimal import Decimal
 import hashlib
+import json
 
 from scipy.special import stdtrit
 
 from maker_core.evidence.journal import canonical_bytes
+from maker_core.replay.bundle import BundleError
 from maker_core.replay.clarification_3 import quote_presence, registered_decision
 from maker_core.replay.fill_model import BOUNDS
 from maker_core.replay.inference import cluster_intervals, paired_cells
@@ -167,6 +169,20 @@ def _config(config):
                                                                                          "policy", "fill_bound")}
 
 
+def _canonical_manifest(manifest):
+    """A plain ``dict``/``list``/scalar copy of ``manifest`` parsed back from its canonical JSON
+    (``journal.canonical_bytes``), the bytes ``journal.digest`` hashes (R155 defender-3 R2). ``None`` stays ``None``
+    (``run_binding_pack_required`` follows); content that has no canonical JSON form refuses
+    ``run_binding_pack_manifest_invalid``. A tuple where the builder wrote a list is the same canonical content
+    and the same digest, so it reads as that list."""
+    if manifest is None:
+        return None
+    try:
+        return json.loads(canonical_bytes(manifest))
+    except (TypeError, ValueError, RecursionError):
+        raise BundleError("run_binding_pack_manifest_invalid") from None
+
+
 def build_report(run, config, *, replicates=2000, seed=20260926, registration_hash=None, sidecar_path=None,
                  check=lambda: None, manifest=None, registered=None):
     """Compose the scored report from a finished ``pipeline.Run`` and write its sidecar; returns (report, sidecar).
@@ -192,7 +208,9 @@ def build_report(run, config, *, replicates=2000, seed=20260926, registration_ha
     ``journal.digest(manifest)``, the canonical-JSON digest. That equals the manifest file's sha only for a file
     written canonically (``pack_io.write_json``); for any other file bytes the binding is that canonical digest plus
     the ``approved_registrations`` lookup recorded as ``manifest_enrolled``, not the file's sha. A caller that holds
-    a file sha must check it against the file itself (``read_authorization``) before parsing. A FIXTURE_ONLY report
+    a file sha must check it against the file itself (``read_authorization``) before parsing. Every scored check
+    reads one plain copy of ``manifest`` parsed back from its canonical JSON (R155 defender-3 R2), so a mapping that
+    answers ``[]`` differently from what ``digest`` serialises is checked on its digested content. A FIXTURE_ONLY report
     does not read the pack (``pack_check`` is ``None``)."""
     from maker_core.replay.v2.pipeline import verify_run_binding
     plan, books, passes, matches, markets = run.plan, run.books, run.passes, run.matches, run.markets
@@ -202,6 +220,10 @@ def build_report(run, config, *, replicates=2000, seed=20260926, registration_ha
     if not fixture_only:  # the F2 remainder: the zone source must be the verified pack's, not self-declared
         from maker_core.replay.execution_manifest import (verify_scored_pack, verify_scored_records,
                                                           verify_scored_scope)
+        # R155 defender-3 R2: check exactly what is hashed. ``digest`` serialises a mapping through ``items()``; a
+        # ``dict`` subclass can answer ``[]`` with other values. One plain canonical-JSON copy is taken here and
+        # every check below reads only it, so the checked manifest is the digested one.
+        manifest = _canonical_manifest(manifest)
         pack_check = verify_scored_pack(run_binding, plan, markets, manifest=manifest, registered=registered)
         # R155 defender-2 D1: windows, markets, configuration, bootstrap and registration hash are the manifest's.
         pack_check.update(verify_scored_scope(plan, config, manifest=manifest, replicates=replicates, seed=seed,

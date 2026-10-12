@@ -176,7 +176,9 @@ only; no decision, P&L or base-pass prefix digest changes.
   against its sha as it is read (`replay_payload_hash_mismatch`). Records of one sealed segment share their
   `source_hashes`, so binding sources alone bound only the count; the identity digest binds each record, and a
   substituted, duplicated, re-ordered or payload-edited record refuses with the count kept. `pack_check` records the
-  digest and the record count. Scope of the check:
+  digest and the record count. Every one of these checks reads one plain copy of the manifest parsed back from its
+  canonical JSON, the bytes its digest covers (R155 defender-3 R2), so a mapping that answers lookups differently
+  from what it serialises is checked on its digested content. Scope of the check:
   this binds the run to the manifest the caller passes; it does not re-run `verify_manifest`, and enrollment is
   recorded, not enforced, so a fabricated manifest still yields a report, with a foreign `manifest_sha256` and
   `manifest_enrolled` false. The runner must read the manifest through `read_authorization` (which refuses an

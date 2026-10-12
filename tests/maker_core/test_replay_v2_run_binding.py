@@ -793,9 +793,14 @@ def test_the_manifest_must_be_an_execution_manifest_whose_universe_and_tzdata_ma
                      for key in ("tzdata", "universe_sha256", "input_hashes", "dates", "settlement_only_date")),
                    dict(manifest, input_hashes=list(manifest["input_hashes"].items())),
                    dict(manifest, input_hashes={DAY.isoformat(): "0" * 64}),
-                   dict(manifest, dates=tuple(manifest["dates"])), dict(manifest, settlement_only_date=DAY)):
+                   dict(manifest, settlement_only_date=DAY), dict(manifest, owner=object())):
         with pytest.raises(BundleError, match="run_binding_pack_manifest_invalid"):
             build_report(run, CONFIG, replicates=100, manifest=broken, registered=registry)
+    # Defender-3 R2: the checks read the canonical-JSON copy, so a tuple where the builder wrote a list is the same
+    # content under the same digest, not another manifest.
+    report, _ = build_report(run, CONFIG, replicates=100, manifest=dict(manifest, dates=tuple(manifest["dates"])),
+                             registered=registry)
+    assert report["pre_registration_sha256"] == digest(manifest)
     with pytest.raises(BundleError, match="run_binding_pack_universe_mismatch"):  # sha not over these rows
         build_report(run, CONFIG, replicates=100, manifest=dict(manifest, universe_sha256="0" * 64),
                      registered=registry)
@@ -873,11 +878,16 @@ def test_the_manifest_days_must_be_its_dates_and_its_settlement_day_in_order():
     hashes = manifest["input_hashes"]
     for broken in (dict(manifest, dates=[]),
                    dict(manifest, dates=[NEXT.isoformat()], settlement_only_date=DAY.isoformat()),
-                   dict(manifest, input_hashes=dict(reversed(hashes.items()))),
                    dict(manifest, dates=[DAY.isoformat(), DAY.isoformat()]),
                    dict(manifest, input_hashes={**hashes, "2026-09-29": {}})):
         with pytest.raises(BundleError, match="run_binding_pack_days_mismatch"):
             build_report(both, CONFIG, replicates=100, manifest=broken, registered=bound["registered"])
+    # Defender-3 R2: the checks read the canonical-JSON copy (sorted keys), the content the digest covers, so an
+    # ``input_hashes`` mapping in another insertion order is the same manifest under the same digest.
+    reordered = dict(manifest, input_hashes=dict(reversed(hashes.items())))
+    assert digest(reordered) == digest(manifest)
+    report, _ = build_report(both, CONFIG, replicates=100, manifest=reordered, registered=bound["registered"])
+    assert report["status"] == "PRE_REGISTERED_REPLAY"
 
 
 # -- R155 defender-2 D1: a scored report's scope is the manifest's -----------------------------------------------
@@ -898,7 +908,7 @@ def test_a_scored_run_whose_windows_are_not_the_manifest_intervals_is_refused():
             build_report(run, CONFIG, replicates=100, manifest=dict(manifest, active_intervals=intervals),
                          registered=bound["registered"])
     for broken in ({k: v for k, v in manifest.items() if k != "active_intervals"},
-                   dict(manifest, active_intervals=tuple(manifest["active_intervals"])),
+                   dict(manifest, active_intervals={str(i): w for i, w in enumerate(manifest["active_intervals"])}),
                    dict(manifest, active_intervals=[dict(first, start="not-a-time")])):
         with pytest.raises(BundleError, match="run_binding_pack_manifest_invalid"):
             build_report(run, CONFIG, replicates=100, manifest=broken, registered=bound["registered"])
@@ -933,6 +943,45 @@ def test_a_scored_report_under_another_bootstrap_or_registration_hash_is_refused
         build_report(run, CONFIG, replicates=100, registration_hash="f" * 64, **bound)
     report, _ = build_report(run, CONFIG, replicates=100, registration_hash=digest(bound["manifest"]), **bound)
     assert report["pre_registration_sha256"] == digest(bound["manifest"])
+
+
+class _TwoFaced(dict):
+    """Defender-3 P15: a ``dict`` whose stored content (what ``digest`` serialises) is the honest manifest, but whose
+    ``[]`` and ``get`` answer ``forged`` values."""
+    forged = {}
+
+    def __getitem__(self, key):
+        return self.forged[key] if key in self.forged else dict.__getitem__(self, key)
+
+    def get(self, key, default=None):
+        return self.forged[key] if key in self.forged else dict.get(self, key, default)
+
+
+def test_a_two_faced_manifest_is_checked_on_its_digested_content():
+    """Defender-3 R2/P15: a mapping that hashes as the honest manifest but answers another bootstrap, configuration
+    or record digest to the checks. The checks read the canonical-JSON copy, so the off-scope run refuses, and the
+    honest run scores exactly as under the plain manifest."""
+    zones, bound = pack()
+    manifest = bound["manifest"]
+    hazard = dict(manifest["replay_config"], hazard_per_minute=.5)
+    other = replace(CONFIG, hazard_per_minute=.5)
+    cases = ((dict(bootstrap_seed=1, bootstrap_replicates=50), CONFIG, dict(replicates=50, seed=1),
+              "run_binding_pack_bootstrap_mismatch"),
+             (dict(replay_config=hazard), other, dict(replicates=100), "run_binding_pack_config_mismatch"))
+    for forged, config, scope, code in cases:
+        two_faced = _TwoFaced(manifest)
+        two_faced.forged = forged
+        assert digest(two_faced) == digest(manifest)
+        assert all(two_faced[k] == v for k, v in forged.items())  # the trap is live
+        run = run_passes([day_source(DAY, "captured")], config, time_zones=zones)
+        with pytest.raises(BundleError, match=code):
+            build_report(run, config, **scope, manifest=two_faced, registered=bound["registered"])
+    run = small_run(zones, "captured")
+    two_faced = _TwoFaced(manifest)
+    two_faced.forged = dict(record_identity_sha256="0" * 64, input_hashes={})
+    report, _ = build_report(run, CONFIG, replicates=100, manifest=two_faced, registered=bound["registered"])
+    honest, _ = build_report(run, CONFIG, replicates=100, **bound)
+    assert canonical_bytes(report) == canonical_bytes(honest)
 
 
 def _with_days(run, days):
