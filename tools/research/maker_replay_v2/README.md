@@ -89,8 +89,11 @@ digest must equal the manifest's `record_sources_sha256`, so records dropped or 
 refuse `run_binding_pack_records_mismatch` (source hashes and order are bound, payloads are not; the sealed readers
 re-hash payloads at load). The report (format v0.2) records the check
 and the digests it bound as `pack_check`, with `manifest_enrolled` (whether the manifest digest is in
-`approved_registrations`; recorded, not enforced). It does not re-verify the manifest: the runner must
-(`read_authorization`, then `verify_manifest`). For
+`approved_registrations`). Enrollment is enforced (owner policy F4, R155; no escape hatch): a scored report whose
+canonical manifest digest is not enrolled refuses `run_binding_pack_manifest_unenrolled`. There is no
+caller-supplied sha argument; a manifest is enrollable for scoring only by its canonical digest (`pack_io.write_json`
+output). It reads no file and does not re-verify the manifest: the runner must verify the file bytes against the
+enrolled sha (`read_authorization`), then `verify_manifest`. For
 `maker_replay_universe.universe()` inventories the registry check is close to a tautology (both sides read
 `BUILTIN_SPECS`); it catches a tampered or hand-built inventory, not a wrong registry entry.
 Run it through the workstation queue only: `python -m tools.research.maker_replay_v2.attribution OUT.json`.

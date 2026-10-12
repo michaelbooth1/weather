@@ -259,10 +259,11 @@ def verify_scored_pack(run_binding, plan, markets, *, manifest, registered):
     plus the enrollment lookup, not the file's sha: R155 defender-2 D3),
     whether that digest is enrolled in ``approved_registrations.APPROVED_REGISTRATIONS``, the digest of the
     ``input_hashes`` it matched, the universe and registry digests, and the tzdata zone-file digest it bound.
-    Enrollment is recorded, not enforced: the runner reads the
-    manifest through ``authorization.read_authorization`` (which refuses an unenrolled hash) and ``verify_manifest``
-    before it builds the report. A fabricated manifest therefore still yields a report, but one whose
-    ``manifest_sha256`` is not the verified pack's and whose ``manifest_enrolled`` is false."""
+    Enrollment is recorded here and enforced by ``report.build_report`` (owner policy F4, R155; no escape hatch): a
+    scored report refuses ``run_binding_pack_manifest_unenrolled`` unless this canonical digest is enrolled, so a
+    manifest is enrollable for scoring only by its canonical digest (``pack_io.write_json`` output). The runner still
+    verifies the file bytes through ``authorization.read_authorization`` and the pack through ``verify_manifest``
+    before it builds the report."""
     if manifest is None or registered is None:
         raise BundleError("run_binding_pack_required")
     if not isinstance(manifest, Mapping) or manifest.get("format") != FORMAT or not _PACK_FIELDS <= set(manifest):

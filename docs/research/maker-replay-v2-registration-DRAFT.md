@@ -151,11 +151,9 @@ only; no decision, P&L or base-pass prefix digest changes.
   `run_binding_pack_tzdata_mismatch`, or the `market_time_zones` codes). The report (format v0.2) records the check
   as `pack_check`: the manifest digest (`journal.digest` of the parsed document; it is the manifest file's sha only
   when the file was written canonically by `pack_io.write_json`: `build_report` reads no file, so for other bytes
-  the binding is this canonical digest plus the enrollment lookup, not the file's sha; R155 defender-2 D3. The
-  owner-gated F4 change, which adds a `manifest_sha256=` argument checked against `digest(manifest)`, needs a code
-  change before it lands: a caller-supplied string the caller can compute from the document binds nothing, so F4
-  must take the manifest path and read and hash the file bytes itself, or drop the argument and enforce enrollment of
-  `digest(manifest)` alone), whether that
+  the binding is this canonical digest plus the enrollment lookup, not the file's sha; R155 defender-2 D3. F4
+  therefore takes no caller-supplied sha argument, which the caller could compute from the document, and enforces
+  enrollment of `digest(manifest)` alone, as below), whether that
   digest is enrolled (`approved_registrations`), the digest of the `input_hashes` it matched, and the universe,
   registry and tzdata zone-file digests. The run's scope is bound too (`execution_manifest.verify_scored_scope`,
   R155 defender-2 D1, as v1's runner binds it with `authorization.bind_scope`): every plan day is declared with
@@ -173,10 +171,14 @@ only; no decision, P&L or base-pass prefix digest changes.
   it refuses `run_binding_records_required`). `pack_check` records it and the record count. It binds the record
   sequence and each record's sources, not its payload: a payload edited in memory under the same `source_hashes` is
   not caught here (the sealed readers re-hash every payload at load). Scope of the check:
-  this binds the run to the manifest the caller passes; it does not re-run `verify_manifest`, and enrollment is
-  recorded, not enforced, so a fabricated manifest still yields a report, with a foreign `manifest_sha256` and
-  `manifest_enrolled` false. The runner must read the manifest through `read_authorization` (which refuses an
-  unenrolled hash) and `verify_manifest` first. The descriptor checks on the bundles run when the pack is built and
+  this binds the run to the manifest the caller passes; it does not re-run `verify_manifest`. Enrollment is
+  enforced (owner policy F4, R155; no escape hatch): a scored report whose `digest(manifest)` is not in
+  `approved_registrations` refuses `run_binding_pack_manifest_unenrolled` (checked last, before the sidecar opens),
+  so a fabricated manifest yields no scored report. A manifest is enrollable for scoring only by its canonical
+  digest, that is, as `pack_io.write_json` output: `read_authorization` looks up the file's sha and `build_report`
+  looks up `digest(manifest)`, and both pass only when they are equal. The binding is content, not a file: the
+  runner must verify the file bytes against the enrolled sha (`read_authorization`, which refuses an unenrolled or
+  mismatched hash) before it parses them, then `verify_manifest`. The descriptor checks on the bundles run when the pack is built and
   verified.
 - **Sealed captures only (R155 defender-2 D4):** `build_manifest` refuses any panel or calibration bundle whose
   provenance is not `captured` (`manifest_bundle_not_captured`), so a scored run never relabels a bundle in memory.
