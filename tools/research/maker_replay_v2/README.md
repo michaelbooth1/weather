@@ -93,10 +93,14 @@ condition or group, kind, payload sha and sources in consumption order; every pa
 honest input-hash labels refuse `run_binding_pack_records_mismatch`, even with the record count kept. The report
 (format v0.2) records the check
 and the digests it bound as `pack_check`, with `manifest_enrolled` (whether the manifest digest is in
-`approved_registrations`; recorded, not enforced). Resource ceilings, v0.2 `groups` and the plan's condition list
-are not bound, by design (R155 defender-3 N4: refuse-only, fixed by the input hashes, or covered by the record
-digest). It does not re-verify the manifest: the runner must
-(`read_authorization`, then `verify_manifest`). For
+`approved_registrations`). Enrollment is enforced (owner policy F4, R155; no escape hatch): a scored report whose
+canonical manifest digest is not enrolled refuses `run_binding_pack_manifest_unenrolled`. Only the key is checked,
+not the enrolled owner value (R155 defender-3 N2; `read_authorization` compares the owner). There is no
+caller-supplied sha argument; a manifest is enrollable for scoring only by its canonical digest (`pack_io.write_json`
+output). Resource ceilings, v0.2 `groups` and the plan's condition list are not bound, by design (R155 defender-3
+N4: refuse-only, fixed by the input hashes, or covered by the record digest). It reads no file and does not
+re-verify the manifest: the runner must verify the file bytes against the enrolled sha (`read_authorization`), then
+`verify_manifest`. For
 `maker_replay_universe.universe()` inventories the registry check is close to a tautology (both sides read
 `BUILTIN_SPECS`); it catches a tampered or hand-built inventory, not a wrong registry entry.
 Run it through the workstation queue only: `python -m tools.research.maker_replay_v2.attribution OUT.json`.

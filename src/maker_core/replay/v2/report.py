@@ -202,17 +202,26 @@ def build_report(run, config, *, replicates=2000, seed=20260926, registration_ha
     (``execution_manifest.verify_scored_records``, R155 defender-2 D2 and defender-3 R1: each record's sequence,
     capture time, condition or group, kind, re-hashed payload sha and sources, in consumption order), not only carry
     its input-hash labels.
-    This function does not re-verify the manifest; the caller must, and an auditor matches
-    ``pack_check.manifest_sha256`` against the enrolled manifest. It reads no file (R155 defender-2 D3): ``manifest``
-    is the parsed document, and ``pack_check.manifest_sha256`` (hence ``pre_registration_sha256``) is
-    ``journal.digest(manifest)``, the canonical-JSON digest. That equals the manifest file's sha only for a file
-    written canonically (``pack_io.write_json``); for any other file bytes the binding is that canonical digest plus
-    the ``approved_registrations`` lookup recorded as ``manifest_enrolled``, not the file's sha. A caller that holds
-    a file sha must check it against the file itself (``read_authorization``) before parsing. Every scored check
-    reads one plain copy of ``manifest`` parsed back from its canonical JSON (R155 defender-3 R2), so a mapping that
-    answers ``[]`` differently from what ``digest`` serialises is checked on its digested content. A FIXTURE_ONLY report
-    does not read the pack (``pack_check`` is ``None``), and its ``pre_registration_sha256`` is ``None``: a
-    ``registration_hash`` given for one refuses ``fixture_report_registration_hash`` (R155 defender-3 N1)."""
+    This function does not re-verify the manifest; the caller must (``authorization.read_authorization``, then
+    ``verify_manifest``). It reads no file (R155 defender-2 D3): ``manifest`` is the parsed document, and
+    ``pack_check.manifest_sha256`` (hence ``pre_registration_sha256``) is ``journal.digest(manifest)``, the
+    canonical-JSON digest. That equals the manifest file's sha only for a file written canonically
+    (``pack_io.write_json``). Every scored check reads one plain copy of ``manifest`` parsed back from its canonical
+    JSON (R155 defender-3 R2), so a mapping that answers ``[]`` differently from what ``digest`` serialises is
+    checked on its digested content.
+
+    Enrollment is enforced (owner policy F4, R155; no escape hatch): ``digest(manifest)`` must be enrolled in
+    ``approved_registrations.APPROVED_REGISTRATIONS``, else ``run_binding_pack_manifest_unenrolled``, checked last,
+    before the sidecar opens. No argument carries a caller-supplied sha, and no keyword skips the check. A manifest
+    is therefore enrollable for a scored v2 report only by its canonical digest, that is, as ``pack_io.write_json``
+    output, whose file sha is that digest (``read_authorization`` looks up and checks the file sha). For any other
+    file bytes the file sha and the digest differ, and the two lookups cannot both pass. This binds content, not a
+    file: the runner must verify the file bytes against the enrolled sha (``read_authorization``) before it parses
+    them and calls this function. Only the key's presence is checked here, not the enrolled owner value
+    (R155 defender-3 N2): the digest pins the content, and ``read_authorization`` compares the owner. A FIXTURE_ONLY
+    report does not read the pack and needs no enrollment (``pack_check`` is ``None``), and its
+    ``pre_registration_sha256`` is ``None``: a ``registration_hash`` given for one refuses
+    ``fixture_report_registration_hash`` (R155 defender-3 N1)."""
     from maker_core.replay.v2.pipeline import verify_run_binding
     plan, books, passes, matches, markets = run.plan, run.books, run.passes, run.matches, run.markets
     fixture_only = all(d.provenance == "synthetic" for d in plan.days)
@@ -237,6 +246,10 @@ def build_report(run, config, *, replicates=2000, seed=20260926, registration_ha
         # R155 defender-2 D2, defender-3 R1: the records the run actually replayed are the manifest's, by identity.
         # The bound record digest (defender-3 R3), which ``verify_run_binding`` checked equals ``Run.replayed``.
         pack_check.update(verify_scored_records(run_binding["records"], manifest=manifest))
+        # Owner policy F4 (R155): no scored report from a manifest whose canonical digest is not enrolled (the
+        # digest of the canonical copy above, defender-3 R2).
+        if pack_check["manifest_enrolled"] is not True:
+            raise BundleError("run_binding_pack_manifest_unenrolled")
         registration_hash = pack_check["manifest_sha256"]
     sidecar = Sidecar(sidecar_path)
     try:
