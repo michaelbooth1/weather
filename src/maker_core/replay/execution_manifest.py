@@ -8,7 +8,7 @@ import time
 from maker_core.evidence.journal import digest, plain
 from maker_core.replay import authorization
 from maker_core.replay.bundle import (ZONE_MAP_BUILDER, BundleError, Limits, RegisteredZones, _Reader, sha256, time_zone,
-                                      timestamp)
+                                      timestamp, tzdata_binding)
 from maker_core.replay import ceilings as ceiling_rule
 from maker_core.replay.calibration import calibrate
 from maker_core.replay.engine import ReplayConfig
@@ -55,7 +55,8 @@ def source_hashes(*, check=lambda: None):
     return result
 
 
-def _inventory(bundles, inventory, *, check):
+def _inventory_rows(inventory):
+    """condition_id -> row of a well-formed universe inventory (shape, sorted and unique; no bundle checks)."""
     if not isinstance(inventory, list) or not inventory or len(inventory) > 30000:
         raise BundleError("invalid_universe_inventory")
     fields = {"condition_id", "market_id", "domain_id", "target_date", "local_timezone"}
@@ -63,7 +64,11 @@ def _inventory(bundles, inventory, *, check):
         raise BundleError("incomplete_universe_binding")
     if [r["condition_id"] for r in inventory] != sorted({r["condition_id"] for r in inventory}):
         raise BundleError("universe_not_sorted_unique")
-    by_id = {r["condition_id"]: r for r in inventory}
+    return {r["condition_id"]: r for r in inventory}
+
+
+def _inventory(bundles, inventory, *, check):
+    by_id = _inventory_rows(inventory)
     discovered = {c.condition_id for b in bundles for c in b.conditions}
     if set(by_id) != discovered:
         raise BundleError("universe_discovery_mismatch")
@@ -123,14 +128,53 @@ def market_time_zones(bundles, inventory, *, registered, check=lambda: None):
     if not isinstance(registered, Mapping):
         raise BundleError("market_time_zone_registry_required")
     zones = _zones(_inventory(bundles, inventory, check=check))
+    return RegisteredZones(zones, _registry_source(zones, inventory, registered))
+
+
+def _registry_source(zones, inventory, registered):
+    """Check ``zones`` by name against the registry and return the ``RegisteredZones.source`` record."""
+    if not isinstance(registered, Mapping):
+        raise BundleError("market_time_zone_registry_required")
     registered = dict(registered)
     for market, zone in zones.items():
         if market not in registered:
             raise BundleError("market_time_zone_unregistered")
         if registered[market] != zone:
             raise BundleError("market_time_zone_registry_mismatch")
-    return RegisteredZones(zones, dict(builder=ZONE_MAP_BUILDER, registry_checked=True, inventory_sha256=digest(inventory),
-                                       registry_sha256=digest(dict(sorted(registered.items())))))
+    return dict(builder=ZONE_MAP_BUILDER, registry_checked=True, inventory_sha256=digest(inventory),
+                registry_sha256=digest(dict(sorted(registered.items()))))
+
+
+def verify_registered_zones(time_zones, source, markets, *, inventory, registered):
+    """A scored run's zone map, re-derived from the execution pack's bound inventory (the F2 remainder).
+
+    ``pipeline.verify_run_binding`` checks integrity only: a caller can construct ``RegisteredZones`` with a made-up
+    ``source`` or recompute every digest. This recomputes what ``market_time_zones`` would return from
+    ``inventory`` (the pack's bound universe inventory, ``manifest["universe"]``, whose own file sha the manifest
+    binds as ``universe_sha256``) and ``registered`` (the domain registry), and refuses unless
+    - ``inventory`` and ``registered`` are both given (``run_binding_pack_inventory_required``);
+    - the rows are well formed, each market names one zone and every zone is registered under that name (the
+      ``_inventory_rows``, ``_zones`` and registry codes);
+    - ``source`` equals the recomputed record, so ``inventory_sha256`` is ``digest(inventory)`` and
+      ``registry_sha256`` is the registry's digest (``run_binding_zone_source_mismatch``);
+    - the bound map ``time_zones`` equals the inventory's map exactly (``run_binding_zone_map_mismatch``);
+    - every run condition is an inventory row of the same market (``run_binding_inventory_mismatch``).
+    The bundle-level descriptor checks of ``_inventory`` ran when the pack was built and verified
+    (``verify_manifest``); they are not repeated here, since the report sees the plan, not the bundles."""
+    if inventory is None or registered is None:
+        raise BundleError("run_binding_pack_inventory_required")
+    by_id = _inventory_rows(inventory)
+    zones = _zones(by_id)
+    expected = _registry_source(zones, inventory, registered)
+    if not isinstance(source, Mapping) or dict(source) != expected:
+        raise BundleError("run_binding_zone_source_mismatch")
+    if not isinstance(time_zones, Mapping) or dict(time_zones) != zones:
+        raise BundleError("run_binding_zone_map_mismatch")
+    for condition, market in markets.items():
+        row = by_id.get(condition)
+        if row is None or row["market_id"] != market:
+            raise BundleError("run_binding_inventory_mismatch")
+    return expected
 
 
 def active_intervals(bundles, inventory, *, check=lambda: None):
@@ -229,6 +273,10 @@ def build_manifest(bundles, calibration_bundles, calibration, inventory, owner_d
             or owner_decision["scoring_date"] != "2026-10-15" or owner_decision["owner"] != "michaelbooth1"):
         raise BundleError("clarified_owner_decision_required")
     windows, exclusions = active_intervals(bundles, inventory, check=check)
+    # F5b (owner T1(a)): the manifest records the pinned tzdata block (version, IANA release, ``tzpath_used=False``
+    # and the sha of every inventory zone file, ``bundle.tzdata_binding``) its intervals were derived with.
+    # ``verify_manifest`` rebuilds the manifest, so a manifest built under another tzdata or other zone bytes
+    # refuses (``tzdata_version_unpinned`` or ``execution_manifest_binding_mismatch``).
     if {f.name for f in fields(ReplayConfig)} != set(FROZEN_CONFIG) | {"hazard_per_minute", "max_events", "max_outputs"}:
         raise BundleError("new_config_field_requires_prospective_addendum")
     config = ReplayConfig(**FROZEN_CONFIG, hazard_per_minute=float(calibration["hazard_per_minute"]),
@@ -240,7 +288,8 @@ def build_manifest(bundles, calibration_bundles, calibration, inventory, owner_d
                 metrics=["modeled_net_k1", "modeled_net_k05"], replay_config=plain(config),
                 bootstrap_replicates=2000, bootstrap_seed=20260926, universe=inventory,
                 universe_sha256=inventory_sha256, active_intervals=windows, exclusions=exclusions,
-                maintenance_utc=["05:00", "08:00"], input_hashes={b.day.isoformat(): dict(b.input_hashes) for b in bundles},
+                maintenance_utc=["05:00", "08:00"], tzdata=tzdata_binding(r["local_timezone"] for r in inventory),
+                input_hashes={b.day.isoformat(): dict(b.input_hashes) for b in bundles},
                 record_sources_sha256=digest([dict(r.source_hashes) for b in bundles for r in b.records]),
                 calibration=calibration, calibration_sha256=calibration_sha256,
                 source_hashes=source_hashes(check=check), quote_market_rule="captured_band_on_any_calibration_date",

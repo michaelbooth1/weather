@@ -120,8 +120,18 @@ only; no decision, P&L or base-pass prefix digest changes.
   it recomputes from the zone bytes it loads. A scored (non-fixture) report also requires the full source that
   `execution_manifest.market_time_zones` records (builder, `registry_checked`, inventory and registry digests).
   This stops accidental misuse: a run that bypasses `run_passes`, passes a hand-made zone map or reuses a binding
-  produces no scored report. It is an integrity check, not an authenticity check: code can still construct a
-  forged source, so a verifier recomputes the map from the bound inventory and registry.
+  produces no scored report. Those checks are integrity only: code can still construct a forged source or
+  recompute every digest. So a scored report also takes the execution pack's bound universe inventory and the
+  domain registry (`build_report(..., inventory=, registered=)`) and re-derives the map from them
+  (`execution_manifest.verify_registered_zones`): the source must equal the record `market_time_zones` would write
+  for that inventory and registry, the bound map must equal the inventory's map, the registry and per-market zone
+  agreement are re-checked, and every run condition must be an inventory row of its market. Otherwise it refuses
+  (`run_binding_pack_inventory_required`, `run_binding_zone_source_mismatch`, `run_binding_zone_map_mismatch`,
+  `run_binding_inventory_mismatch`, or the `market_time_zones` codes). The descriptor checks on the bundles run when
+  the pack is built and verified.
+- **Manifest tzdata record (T1, F5b):** `build_manifest` records `tzdata`, the `bundle.tzdata_binding` block of
+  every inventory zone (version, IANA release, `tzpath_used=False`, zone-file SHA-256s). `verify_manifest` rebuilds
+  the manifest, so one built under another tzdata or other zone bytes refuses.
 - **Registry (T3):** `market_time_zones` requires `registered=` (the domain's market-to-zone registry). Omitting it
   is an error; `None` or a non-mapping refuses `market_time_zone_registry_required`. A market missing from the
   registry, or registered under another name, is refused.
@@ -168,7 +178,7 @@ convention. Also unchanged: the shared portfolio carried across all dates, never
   for existing legs. The asymmetry cannot be reached inside the clause windows (every active minute has a lead in 1..2,
   and the interval end withdraws the legs), so it changes no scored decision.
 - The v1 exam's manifest output changes: `build_manifest` and `verify_manifest` now emit and check the clause intervals
-  and the new exclusion rows, so a v1 manifest rebuilt with this code differs from one built before C15. This is
+  and the new exclusion rows (and, after F5b, the `tzdata` record), so a v1 manifest rebuilt with this code differs from one built before C15. This is
   acceptable only because the v1 exam is closed NOT EXECUTED; no signed v1 result depends on the old intervals.
 - Decided against C13 (owner Q2 N1 (a), 2026-10-09; not changed by C15): a panel with a missing day carries the
   last lead across it, because derived descriptors are produced only at local midnights inside the days driven.

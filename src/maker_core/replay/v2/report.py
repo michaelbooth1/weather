@@ -163,12 +163,21 @@ def _config(config):
 
 
 def build_report(run, config, *, replicates=2000, seed=20260926, registration_hash=None, sidecar_path=None,
-                 check=lambda: None):
-    """Compose the scored report from a finished ``pipeline.Run`` and write its sidecar; returns (report, sidecar)."""
+                 check=lambda: None, inventory=None, registered=None):
+    """Compose the scored report from a finished ``pipeline.Run`` and write its sidecar; returns (report, sidecar).
+
+    A scored (not FIXTURE_ONLY) report also needs ``inventory``, the execution pack's bound universe inventory
+    (``manifest["universe"]``), and ``registered``, the domain zone registry: the run's zone map and its
+    ``time_zones_source`` are re-derived from them (``execution_manifest.verify_registered_zones``), so a made-up
+    ``RegisteredZones`` source or a forged map refuses. A FIXTURE_ONLY report does not read them."""
     from maker_core.replay.v2.pipeline import verify_run_binding
     plan, books, passes, matches, markets = run.plan, run.books, run.passes, run.matches, run.markets
     fixture_only = all(d.provenance == "synthetic" for d in plan.days)
     run_binding = verify_run_binding(run, config, scored=not fixture_only)  # owner T2(a): no binding, no report
+    if not fixture_only:  # the F2 remainder: the source must be the pack's, not self-declared
+        from maker_core.replay.execution_manifest import verify_registered_zones
+        verify_registered_zones(run_binding["time_zones"], run_binding["time_zones_source"], markets,
+                                inventory=inventory, registered=registered)
     sidecar = Sidecar(sidecar_path)
     try:
         sidecar.write(dict(kind="header", format=SIDECAR_FORMAT, days=[d.day.isoformat() for d in plan.days]))

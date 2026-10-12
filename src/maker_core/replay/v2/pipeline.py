@@ -203,7 +203,8 @@ def verify_run_binding(run, config, *, scored) -> dict:
       fixture run may bind a hand-made map (``builder="caller"``).
 
     This is an integrity check, not an authenticity check: code that recomputes every digest can still forge a
-    source, so only a verifier that recomputes the map from the bound inventory and registry proves it."""
+    source. ``report.build_report`` therefore also re-derives a scored run's map and source from the execution
+    pack's bound inventory and the registry (``execution_manifest.verify_registered_zones``)."""
     from maker_core.replay.bundle import TZDATA_VERSION, BundleError, tzdata_binding
     binding = getattr(run, "binding", None)
     if (not isinstance(binding, dict) or binding.get("format") != RUN_BINDING_FORMAT or set(binding) != BINDING_FIELDS
@@ -246,8 +247,9 @@ def run_passes(sources, config, *, time_zones, engine=EngineV2, progress=lambda 
     configuration into ``Run.binding``. ``report.build_report`` refuses a run without it or with another run's
     binding, and a non-fixture report refuses a map whose source is not the full ``market_time_zones(...,
     registered=)`` record. That stops accidental misuse (a run driven around this function, a hand-made map, a
-    binding reused from another run); it does not stop deliberate forgery, since a caller can construct
-    ``RegisteredZones`` with a made-up source. For a ``maker_replay_universe.universe()``-built inventory the
+    binding reused from another run); on its own it does not stop deliberate forgery, since a caller can construct
+    ``RegisteredZones`` with a made-up source, so a scored report also re-derives the map and source from the
+    pack's bound inventory and registry (``build_report(..., inventory=, registered=)``). For a ``maker_replay_universe.universe()``-built inventory the
     registry cross-check is close to a tautology (both sides read ``BUILTIN_SPECS``): it catches a tampered or
     hand-built inventory, not a wrong registry entry.
     """

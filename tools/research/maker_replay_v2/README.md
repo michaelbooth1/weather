@@ -69,8 +69,11 @@ configuration and the zone map it drove with (kept as `Run.time_zones`). `report
 without that binding or with another run's binding (also from a same-input run driven with another map), recomputes
 the tzdata block from the zone bytes it loads, and for a non-fixture report requires the full `market_time_zones`
 source (builder, `registry_checked`, inventory and registry digests). That stops accidental misuse (a run driven
-around `run_passes`, a hand-made map, a reused binding); it is an integrity check, not proof against deliberate
-forgery, since a caller can construct a `RegisteredZones` with a made-up source. For
+around `run_passes`, a hand-made map, a reused binding). Those checks alone are integrity, not authenticity: a
+caller can construct a `RegisteredZones` with a made-up source. So a non-fixture report also needs
+`inventory=` (the execution pack's bound universe inventory, `manifest["universe"]`) and `registered=` (the domain
+registry), and `execution_manifest.verify_registered_zones` re-derives the map and its source from them; a made-up
+source, a forged map or a run condition outside the inventory refuses. For
 `maker_replay_universe.universe()` inventories the registry check is close to a tautology (both sides read
 `BUILTIN_SPECS`); it catches a tampered or hand-built inventory, not a wrong registry entry.
 Run it through the workstation queue only: `python -m tools.research.maker_replay_v2.attribution OUT.json`.

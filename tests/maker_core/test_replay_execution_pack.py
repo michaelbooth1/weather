@@ -8,7 +8,7 @@ import pytest
 from maker_core.evidence.journal import canonical_bytes
 from maker_core.replay import authorization, ceilings, pack_cli
 from maker_core.replay.__main__ import main
-from maker_core.replay.bundle import BundleError, sha256
+from maker_core.replay.bundle import TZDATA_VERSION, BundleError, sha256, tzdata_binding
 from maker_core.replay.engine import replay, ReplayConfig
 from maker_core.replay.execution_manifest import apply_manifest, build_manifest, verify_manifest
 from maker_core.replay.execution_receipt import reserve_attempt, evaluate_hurdles
@@ -59,7 +59,7 @@ def test_all_bindings_verify_before_scoring_day_without_enrollment(tmp_path, mon
 
 
 @pytest.mark.parametrize("field", ["replay_config", "source_hashes", "active_intervals", "input_hashes",
-                                   "universe", "calibration", "ceilings", "hurdles", "ceiling_measurement"])
+                                   "universe", "calibration", "ceilings", "hurdles", "ceiling_measurement", "tzdata"])
 def test_missing_binding_refuses(tmp_path, field):
     doc, bundles, cb, paths, _, _ = pack(tmp_path)
     del doc[field]
@@ -623,3 +623,31 @@ def test_manifest_refuses_a_ceiling_measurement_rehearsed_on_another_calibration
     built = build_manifest(bundles, cb, calibration, inventory, doc["owner_decision"],
                            measurement(calibration_sha256=sealed), **kwargs)
     assert built["calibration_sha256"] == sealed
+
+
+# -- F5b (owner T1(a)): the manifest records the pinned tzdata block ---------------------------------------------
+def test_the_manifest_records_the_pinned_tzdata_block_of_its_inventory_zones(tmp_path):
+    doc, bundles, cb, paths, _, _ = pack(tmp_path)
+    zones = sorted({r["local_timezone"] for r in doc["universe"]})
+    assert doc["tzdata"] == tzdata_binding(zones)
+    assert doc["tzdata"]["version"] == TZDATA_VERSION and doc["tzdata"]["tzpath_used"] is False
+    assert [name for name, _ in doc["tzdata"]["zone_files"]] == zones
+    for change in (dict(version="2099.1"), dict(iana_version="1999z"), dict(zone_files_sha256="0"*64),
+                   dict(zone_files=[])):
+        changed = deepcopy(doc)
+        changed["tzdata"].update(change)
+        with pytest.raises(BundleError, match="binding_mismatch"):
+            verify_manifest(changed, bundles, cb, **paths, now=NOW)
+
+
+def test_a_manifest_verified_under_another_tzdata_is_refused_even_with_warm_zone_caches(tmp_path, monkeypatch):
+    """The zone caches are warm after ``pack`` built the manifest, so only the recorded block re-checks the package:
+    an installed tzdata of another release refuses at verification."""
+    import importlib.metadata
+    import tzdata
+    doc, bundles, cb, paths, _, _ = pack(tmp_path)
+    real = importlib.metadata.version
+    monkeypatch.setattr(importlib.metadata, "version", lambda name: "2099.1" if name == "tzdata" else real(name))
+    monkeypatch.setattr(tzdata, "__version__", "2099.1")
+    with pytest.raises(BundleError, match="tzdata_version_unpinned"):
+        verify_manifest(doc, bundles, cb, **paths, now=NOW)
