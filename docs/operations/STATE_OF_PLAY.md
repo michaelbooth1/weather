@@ -1,6 +1,6 @@
 # State of play
 
-**Last updated: 2026-10-12 12:50 America/Toronto (owner back; LFC postponed incl. session 0; N7 landed; N8/N9 planned; DST-M2, build-line merges and the host Python upgrade approved, upgrade details pending).**
+**Last updated: 2026-10-12 12:50 America/Toronto (owner back; LFC postponed incl. session 0; N7 landed; N8/N9 planned; DST-M2, build-line merges and the host Python upgrade approved, upgrade §11 details recorded; Phase A on 10-13).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended. At most 95 lines and about 9 KB, one fact per bullet, detail in the linked owner.** This file owns
@@ -42,9 +42,9 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
   10-08. Scoring embargo: `maker_shadow_panel.py` refuses UTC 09-30..10-15 and 10-15..11-13 (a reviewed code change lifts it).
 - **Journal pin:** `WeatherManualOrderJournal` pins five module files including `wallet_reader_client.py`; any merge touching
   one makes it exit 3 until re-registered ([runbook](manual-order-journal.md)).
-- **Host Python is 3.11.0;** upgrade approved as the [runbook](HOST_PYTHON_UPGRADE_RUNBOOK.md) §11 sign-off (owner 2026-10-12),
-  four details pending (master-agent confirming): the night, G7 (its "after LFC session 0" gate is being revised on a separate
-  branch), Q12 `STOP_AUTHORIZED`, the gap-overrun choice. No phase runs before all four. No host release store (case A).
+- **Host Python is 3.11.0;** upgrade approved as the [runbook](HOST_PYTHON_UPGRADE_RUNBOOK.md) §11 sign-off (owner 2026-10-12):
+  Q12 `STOP_AUTHORIZED`, `ACCEPT_OVERRUN`, cutover inside 10-15..10-30 (night not yet named). Phase A: owner at the machine
+  10-13 ~07:30 after N8 hands back; then §T + T-R, B, C per runbook §7a. No host release store (case A).
 - **DST audit:** DST-H3 landed, so its interim merge guard is retired; OD30 (the 11-01 night rule) stays until the owner retires it.
 - **LFC** (postponed, above): its signed documents stay SIGNED; N-11/N-12 fix `fe5f54cf` touches `wallet_reader_client.py`.
 - **Build line** `codex/maker-replay-v2-build-20261003` = `89618c30`; inventory fix `f22bea07` and U6 D6 `07dd7825` APPROVED to
@@ -65,7 +65,7 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 2. **Merges:** N8, night of 10-13: RS `claude/integration-20261013-n8-rs` `c6977df5`, then RF2 `...-n8-rf2` `1c64f917`
    (fallback RF `...-n8-rf` `9bf466af`). N9, night of 10-14, roll-sensitive, only after N8 lands: DST-M2 via
    `claude/integration-20261014-m2-rs` `fc136e2c`. Build line: `f22bea07` + `07dd7825`. After 10-14: #118, #172 + #182, #177.
-3. **Host Python upgrade:** the four pending §11 details and the G7 revision, then §T, Phase A and B, and the cutover night.
+3. **Host Python upgrade:** Phase A 10-13 morning; §T + T-R, then B; the cutover on the owner-named night (runbook §7a).
 4. **Measurements (09-29 only; never 88a 09-30..10-14):** desk-study power rule #263. **Research:** NBS/NBH probe; T+1/T+2
    NWP timing; no-METAR floor gap (item 337).
 
@@ -73,8 +73,7 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 
 | What | Owner | Due | Verify |
 | --- | --- | --- | --- |
-| Host Python §11: named night, Q12 `STOP_AUTHORIZED`, gap-overrun token (master-agent confirming) | owner | before G0 | DECISION_LOG row |
-| G7 revision of the upgrade runbook (LFC postponed) | master-agent | before the named night | revised G7 on master |
+| Name the cutover night (10-15..10-30); confirm the 10-12 G0/G7 revision and §7a | owner | before Phase B | DECISION_LOG row |
 | Merge `f22bea07` + `07dd7825` into the build line | production | next admitted window | both in the build-line tip |
 | Evening-fix scoring prereg; OD30 retirement | owner | open | DECISION_LOG rows |
 | Restart the wallet reader on master; LFC client json in the pinned worktree | owner | before LFC resumes | `summary` from both PCs |
