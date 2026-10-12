@@ -75,6 +75,34 @@ def test_lease_release_follows_proved_job_teardown(teardown_fails):
     ps(source)
 
 
+def test_an_unproved_import_probe_teardown_poisons_the_lease():
+    # EXPLORATORY-BUILD D6: a throwing probe TerminateAndWait used to reach the outer finally with
+    # $job still null, which then released the lease.
+    source = parse(OPS / "replay_bundle_export_nightly.ps1") + """
+    $fn=$ast.Find({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and
+        $n.Name -eq 'Invoke-ReplayExportImportProbe'},$true)
+    Invoke-Expression $fn.Extent.Text
+    $outer=$ast.EndBlock.Statements | Where-Object {$_ -is [Management.Automation.Language.TryStatementAst]}
+    $script:events=[Collections.Generic.List[string]]::new()
+    function New-ReplayExportLimitedJob {
+        $probeJob=New-Object psobject
+        $probeJob | Add-Member ScriptMethod StartAssigned {param($a,$b,$c) throw 'fixture probe start failure'}
+        $probeJob | Add-Member ScriptMethod TerminateAndWait {param($ms) $script:events.Add('probe_terminate'); throw 'fixture'}
+        $probeJob | Add-Member ScriptMethod Dispose {$script:events.Add('probe_close')}
+        return $probeJob
+    }
+    function ConvertTo-WeatherWindowsArgumentString {param($Tokens) return ''}
+    function Exit-WeatherHeavyWorkloadLease {param($Lease) $script:events.Add('release')}
+    function Set-WeatherHeavyWorkloadLeasePoisoned {param($Lease) $script:events.Add('poison')}
+    $lease='fixture';$teardownProved=$false;$job=$null;$child=$null
+    $script:ReplayExportProbeTeardownUnproved=$false
+    try { Invoke-ReplayExportImportProbe -Python x -Src x -WorkingDirectory x -Modules @('m') } catch { }
+    try { & ([scriptblock]::Create($outer.Finally.Statements.Extent.Text -join "`n")) } catch { }
+    if(($script:events -join ',') -cne 'probe_terminate,probe_close,poison'){throw ($script:events -join ',')}
+    """
+    ps(source)
+
+
 @pytest.mark.parametrize("mode", ["whatif", "register", "wrong_hash", "bad_module_pin", "bad_readback"])
 def test_pinned_registrar_with_mock_scheduler(tmp_path, mode):
     (tmp_path / "data").mkdir()
