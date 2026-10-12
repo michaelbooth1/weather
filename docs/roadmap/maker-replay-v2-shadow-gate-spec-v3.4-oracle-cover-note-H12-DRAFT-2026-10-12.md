@@ -1,5 +1,8 @@
 # Maker replay v2 oracle: cover note H-12 (workstation DRAFT input, 2026-10-12)
 
+> **SUPERSEDED 2026-10-12 by [H-12 r1](maker-replay-v2-shadow-gate-spec-v3.4-oracle-cover-note-H12-r1-2026-10-12.md),
+> the production agent's final text; that file's bytes are the handout item. Kept as the input record only.**
+>
 > **DRAFT input, not the cover prompt.** By the 2026-10-07 DECISION_LOG row (OD18), the **production agent writes**
 > H-12, the exact session prompt for the oracle author. This file is the workstation's proposed text for the production
 > agent to adopt, change or discard; the signed H-12 is whatever the production agent writes and the owner signs, and

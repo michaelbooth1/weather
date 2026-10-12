@@ -1,8 +1,9 @@
-# Maker replay v2 gate spec v3.4, erratum 1 (DRAFT, 2026-10-12): §2/§5/§8 amendment for the oracle handout
+# Maker replay v2 gate spec v3.4, erratum 1 (SIGNED 2026-10-12): §2/§5/§8 amendment for the oracle handout
 
-> **DRAFT, pending owner signature (and the master agent's H0 review). Not in force.** It proposes text for
-> [v3.4](maker-replay-v2-shadow-gate-spec-v3.4-DRAFT-2026-10-07.md) §2, §5 and §8 only; v3.4 stays the accepted text
-> until the owner signs this erratum. It follows v3.4's own amendment rule ("Add a new dated file rather than editing
+> **SIGNED (owner, relayed by master-agent, 2026-10-12 ~20:00; DECISION_LOG 2026-10-12).** E1, E3 and E5 are signed as written (E-R1); E-R2 is
+> ruled `501f47579` plus re-bind (U3 is on the build line at `1fd0c295f`; re-bind PASS); E-R3/E-R4 are ruled
+> option A plus N1. It amends [v3.4](maker-replay-v2-shadow-gate-spec-v3.4-DRAFT-2026-10-07.md) §2, §5 and §8 only.
+> The filename keeps its DRAFT date stamp so links stay stable. It follows v3.4's own amendment rule ("Add a new dated file rather than editing
 > this copy"), so the accepted file is not edited. It grants no run, cut, transfer, handout or merge authority.
 > Owner item: [item 330](items/item-330-maker-economics-refocus-master-plan.md). Status of maker replay v2 and of the
 > handout lives in [the state of play](../operations/STATE_OF_PLAY.md), never here.
@@ -137,7 +138,7 @@ Dated targets (the scoping note's "H1 by about 10-10") stay out of the spec: tim
 
 Proposed new §8 point, written in on signature:
 
-> 8. **Erratum 1** (signed `<date>`): E1 (cover prompt as §2 item 7; author session recorded in the PR), E2 (re-bind
+> 8. **Erratum 1** (signed 2026-10-12): E1 (cover prompt as §2 item 7; author session recorded in the PR), E2 (re-bind
 >    scope; cut commit per E-R2), E3 (output controls), E4 (host isolation per E-R3 and E-R4), E5 (revisions).
 
 ## Rulings requested

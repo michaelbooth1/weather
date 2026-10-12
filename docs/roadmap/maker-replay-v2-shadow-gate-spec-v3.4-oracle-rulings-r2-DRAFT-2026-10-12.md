@@ -1,8 +1,8 @@
-# Maker replay v2 oracle: owner rulings that bind the oracle (sheet r2, DRAFT 2026-10-12)
+# Maker replay v2 oracle: owner rulings that bind the oracle (sheet r2, SIGNED 2026-10-12)
 
-> **DRAFT r2, pending owner signature. Handout item H-11.** On signature it replaces
-> [sheet r1](maker-replay-v2-shadow-gate-spec-v3.4-oracle-rulings-2026-10-07.md) as H-11; until then r1 is the sheet
-> in force. It owns only the list of owner rulings that fix what the clean-room oracle computes, each with its source,
+> **SIGNED r2 (owner, relayed by master-agent, 2026-10-12 ~20:00). Handout item H-11.** It replaces
+> [sheet r1](maker-replay-v2-shadow-gate-spec-v3.4-oracle-rulings-2026-10-07.md) as H-11. The filename keeps its
+> DRAFT date stamp so links and the cut plan stay stable. It owns only the list of owner rulings that fix what the clean-room oracle computes, each with its source,
 > in design words. It restates no engine code; the meaning of each ruling is the cited spec text. Maker replay v2 status
 > lives in [the state of play](../operations/STATE_OF_PLAY.md), owner decisions in
 > [the decision log](../operations/DECISION_LOG.md), work status in
@@ -38,8 +38,8 @@ not yet in DL** = an owner signature relayed by the master agent whose DECISION_
 | **OD25 (ii)** | If the kernel fix misses 10-23, the signature slips; never an automatic fallback to a known deviation. | v3.2 §11 OD25 option (ii) | DL 2026-10-07 "Maker replay v2 engine semantics" |
 | **OD18 (b)** | A fresh agent, started by the production agent on the production host, writes the oracle from the filtered handout. The workstation never authors or touches it. | v3.4 §5 "Author", §8 point 6 | DL 2026-10-07 "OD18" |
 | **OD21: deferred** | No TL unit or owner is named now. The oracle's author is never TL's author. | v3.2 §11 OD21; v3.3 §9 OD21 | DL 2026-10-07 "OD18" (same row) |
-| **OD22** | Stands as recommended in the cited spec row. | v3.3 §9 OD22 | 08:55 "approve all recommendations". **Confirm by ID at signature:** ☐ |
-| **OD26** | Stands as recommended in the cited spec row: the broken-night caps are frozen after calibration and may only be lowered later. | v3.3 §9 OD26 | 08:55 "approve all recommendations". **Confirm by ID at signature:** ☐ |
+| **OD22** | Stands as recommended in the cited spec row. | v3.3 §9 OD22 | 08:55 "approve all recommendations". **Confirmed by ID at signature:** ☑ |
+| **OD26** | Stands as recommended in the cited spec row: the broken-night caps are frozen after calibration and may only be lowered later. | v3.3 §9 OD26 | 08:55 "approve all recommendations". **Confirmed by ID at signature:** ☑ |
 | **Q2 N1 (a)** | A derived local-midnight descriptor is produced only at a local midnight that falls inside a day the run is driven over. Across a day the run does not drive, no derived descriptor exists: the latest descriptor's horizon is carried unchanged into the next driven day, even where the true local lead would be 0 or below, until a captured descriptor, or a derived one at a midnight inside a driven day whose new lead is within 0..2, replaces it. The registered quote panel 09-30..10-13 is contiguous, so this ruling binds fixture cross-validation and partial-panel runs. The handout at `501f47579` does not carry this text (the registration text is excluded), so this row is its carrier. Classified oracle semantics by H0, 2026-10-12. | v3.2 §4.3; v3.3 §1, §3.2 (iii) | DL 2026-10-09 "Recommendations approved as listed" |
 
 With OD19 (a) and OD20 (a) ruled, the (b) alternatives written for each item in v3.1 §3.7 do not apply: the oracle
@@ -66,7 +66,7 @@ signature of this sheet adopts it.
 
 ## Signature
 
-Owner: ____________________ Date: ____________ OD22 confirmed ☐ OD26 confirmed ☐ §3 classified ☑ (by H0, 2026-10-12; §3 removed, rows moved to §1 and §2)
+Owner: owner, relayed by master-agent, 2026-10-12 ~20:00 (DECISION_LOG 2026-10-12) Date: 2026-10-12 OD22 confirmed ☑ OD26 confirmed ☑ §3 classified ☑ (by H0, 2026-10-12; §3 removed, rows moved to §1 and §2)
 
 The SHA-256 of this file's raw bytes is recorded in the H1 manifest at the cut; a change after signature is a new
 revision.
