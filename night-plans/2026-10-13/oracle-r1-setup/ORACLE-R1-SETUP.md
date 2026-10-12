@@ -1,10 +1,16 @@
-# Oracle r1 author setup on the capture host (owner-attended block)
+# Oracle r1 author setup on the capture host (owner-attended block, revision 2)
 
 This block was generated from the [isolation runbook](../../../docs/roadmap/maker-replay-v2-shadow-gate-spec-v3.4-oracle-host-isolation-runbook-DRAFT-2026-10-12.md)
-at `claude/oracle-handout-h1-20261012` @ `c85494d57`, file sha256
-`371c49c7853c014b369ecb5228e86d2a2127434f7ee14e2dcb2aaa6e91378deb`. That runbook commit adds two fixes: an operator
-grant in step 4, and a scoped `safe.directory` in step 7. If the landed runbook differs, the runbook wins: regenerate
-this block from it.
+at `claude/oracle-handout-h1-20261012` @ `c85494d57` (runbook file sha256
+`371c49c7853c014b369ecb5228e86d2a2127434f7ee14e2dcb2aaa6e91378deb`), and amended by master-agent's review of
+2026-10-12:
+- **(A) Calendar.** Nothing oracle-related happens on 10-14.
+- **(B) Profile handling.** Profile trees are not deny-ACLed; they are asserted closed instead. Inheritable deny ACEs go
+  on non-profile roots only.
+- **(V) Oracle venv.** The owner approved the PyPI download on 2026-10-12 at about 20:15.
+
+Where this block and the runbook differ on (B), this block is the newer ruling. The runbook's step 5 needs the same
+amendment when it lands.
 
 Bound values. Each one is checked by the code below, so none of them needs retyping:
 
@@ -14,41 +20,40 @@ Bound values. Each one is checked by the code below, so none of them needs retyp
 | H-12 r1 (signed 2026-10-12 ~20:45), inside the cut as `handout\H-12-session-prompt-r1.md` | `50afac36accc3d4a613db2d2a6037f0d0a7b2cd1f93092a103b5a8cd4162f878` |
 | Cut plan `plan.json` (this folder; byte copy of the workstation r1 plan) | `e75ed9de176e9775009bf64b8162048a703c1f91a9a102695f84b63a7087fc56` |
 | `materialize_h1_inputs.py` (this folder), blob `7a77a72e27db09d52c19a6070a791fa0c4835c5d` | `e834f9fc77dc4126f5b1de7d6f705d9f843691767ac0926e0098e0c999227395` |
+| `oracle-venv-lock-hashed.txt` (this folder), blob `8121a95be7cdd84c0f3e58f15cd9d4864edb6a6f` | `591ac9533d1e88b77907c8c5c549a3967eaf40dbddbb3851580a78ac88e5caa5` |
 
 The workstation reproduced the binding from a fresh top-level ops folder: the materializer wrote the inputs from git
 objects, the cut ran into a different output path, and it gave `62327970…7db9`. The binding does not depend on the
 output path.
 
-## Who runs what
+## Who runs what, and when
 
-| Step | Who | Elevated (UAC) | Window | Heavy (lease) |
+| Step | Who | Elevated (UAC) | When | Heavy (lease) |
 | --- | --- | --- | --- | --- |
-| M0 deny-list discovery and the list file | master | no | not 12:00-18:00 | no (depth-limited listing) |
-| M1 fetch, materialize, cut, verify | master | no | 00:30-09:00 (suggest 05:00-07:00, clear of the N9 quiet window) | yes, short (~20 s cut) |
-| O1 create the author account | **owner at the machine** | **yes** | not 12:00-18:00 | no |
-| O2 sign the deny list, apply the deny ACEs | **owner at the machine** | **yes** | **00:30-09:00** | **yes**: each inheritable deny propagates through the whole tree (the production clone and `data\` included), which is bulk disk I/O |
-| M2 cut ACLs, post-ACL verify, the four work folders (step 8), the check script | master | no (master owns the cut) | not 12:00-18:00 | no |
-| O3 author profile: harness install and login, settings, git identity, the §3 checks | **owner at the machine**, signed in as the author (Switch user; **never sign out** the operator session) | no | not 12:00-18:00 | no |
-| M3 read the check results, light integrity re-check, clear the handback folder | master | no | not 12:00-18:00 | no |
+| O1 create the author account | **owner at the machine** | **yes** | **10-13**, after Phase A, before 12:00, if the owner has time (else 10-15 07:30) | no |
+| V1 oracle pytest venv (PyPI download, hash-pinned) | master | no | **10-15** 00:30-04:45, after §T, before M0 | yes, short |
+| M0 profile assertions, non-profile root inventory, deny-list file | master | no | **10-15 05:00** | yes (bounded file counts) |
+| M1 fetch, materialize, cut, verify | master | no | **10-15** after M0, done by **06:40** (91a runs at 06:50) | yes, short (~20 s cut) |
+| O2 sign the deny list, apply the deny ACEs (non-profile roots only) | **owner at the machine** | **yes** | **10-15 07:30** | **yes**: inheritable denies propagate through each tree |
+| M2 cut ACLs, post-ACL verify, the four work folders (step 8), the check script | master | no (master owns the cut) | after O2 | no |
+| V2 I-6 wrapper proof run (import containment) | master | no | after M2, must end by 08:55 | the wrapper takes the lease itself |
+| O3 author profile: harness install and login, settings, git identity, the §3 checks | **owner at the machine**, signed in as the author (Switch user; **never sign out** the operator session) | no | after V2 | no |
+| M3 read the check results, light integrity re-check | master | no | after O3 | no |
 | O4 launch the author session with the one-line launch message | **owner at the machine**, as the author | no | master names the time | no |
 
-Suggested calendar:
-- **10-13 (after Phase A, before 12:00):** O1 only.
-- **10-13/14 night, 05:00-07:00:** M0 and M1.
-- **10-14, ~07:30-09:00:** O2, M2, O3, M3, then O4 when master says go.
+Fallback: if anything after O1 slips, the whole 10-15 sequence moves to the **10-18 morning**, with the same windows.
+O2 must finish by 09:00. Only V1, M0, M1, O2 and V2 are bound to 00:30-09:00. The author's own unit tests are bound to
+00:30-09:00 as well (I-6); they run later through the same wrapper as V2.
 
-O2 must finish by 09:00. All of it can also run on the 10-14 morning in one sitting. Only the author's own unit tests
-are bound to 00:30-09:00 (I-6). They run through `scripts\ops\oracle_author_test_run.ps1` (branch
-`claude/oracle-author-test-lease-20261012`), which needs its own pytest venv outside every clone.
-
-Any NO-GO stops the sequence. Nothing below reads `data\` contents, credentials or `.env*` files. The author's
-password is typed by the owner into a secure prompt. It never appears in this block, a log, a file or a chat.
+Any NO-GO stops the sequence. Nothing below reads `data\` contents, credentials or `.env*` files. Directory listings
+read names only. The author's password is typed by the owner into a secure prompt. It never appears in this block, a
+log, a file or a chat.
 
 ## Header (master's and the owner's elevated windows: Windows PowerShell 5.1)
 
 ```powershell
 $ErrorActionPreference = 'Stop'
-$P        = '<PROD_CLONE>'                          # the production checkout
+$P        = '<PROD_CLONE>'                          # the production checkout (under the operator's profile)
 $Py       = Join-Path $P 'venv\Scripts\python.exe'  # stdlib-only use; -I everywhere
 $Ops      = 'C:\oracle-ops'                         # operator-only; must be top-level (the plan's relative path)
 $CutRoot  = 'C:\oracle-cut'
@@ -57,63 +62,142 @@ $Bind     = '623279703b2daac805c95e330aef4bede87ac203b75d6724d6bcae793a7b7db9'
 $H12      = '50afac36accc3d4a613db2d2a6037f0d0a7b2cd1f93092a103b5a8cd4162f878'
 $Author   = 'oracle-author'                         # <AUTHOR>; change here only
 $Operator = '<OPERATOR>'                            # master's account, DOMAIN\user form, e.g. "$env:COMPUTERNAME\<user>"
+$Base     = '<3.11.9 home from Phase A ($R\paths.json)>\python.exe'   # the oracle venv's base interpreter (V1)
+$Venv     = Join-Path $Ops 'venv'; $VPy = Join-Path $Venv 'Scripts\python.exe'
 $Log      = Join-Path $Ops 'setup.log'
+$BadIds   = 'BUILTIN\Users','NT AUTHORITY\Authenticated Users','Everyone','NT AUTHORITY\INTERACTIVE'
 function Log($m){ $l = "{0:o} {1}" -f (Get-Date), $m; if (Test-Path -LiteralPath $Ops) { Add-Content -LiteralPath $Log -Value $l -Encoding utf8 }; Write-Host $l }
 function NoGo($m){ Log "NO-GO: $m"; throw "NO-GO: $m" }
 function Sha($f){ (Get-FileHash -LiteralPath $f -Algorithm SHA256).Hash.ToLower() }
 function Icacls([string[]]$a){ & icacls.exe @a | Out-Null; if ($LASTEXITCODE -ne 0) { NoGo "icacls $($a -join ' ') exit $LASTEXITCODE" }; Log "icacls $($a -join ' ')" }
-```
-
-## M0. Deny-list discovery (master, read-only)
-
-```powershell
-if (-not (Test-Path -LiteralPath $Ops)) {
-  New-Item -ItemType Directory $Ops | Out-Null
-  Icacls @($Ops,'/inheritance:r','/grant:r',"${Operator}:(OI)(CI)F",'SYSTEM:(OI)(CI)F','Administrators:(OI)(CI)F') }
-$sys = 'Windows','Program Files','Program Files (x86)','ProgramData','$Recycle.Bin','System Volume Information','Recovery','PerfLogs','Users','oracle-cut'
-$cand = foreach ($d in (Get-PSDrive -PSProvider FileSystem | Where-Object { $_.Root -match '^[A-Z]:\\$' -and $_.Free })) {
-  Get-ChildItem -LiteralPath $d.Root -Directory -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -notin $sys } | ForEach-Object FullName }
-$prof = Get-ChildItem -LiteralPath 'C:\Users' -Directory -Force -ErrorAction SilentlyContinue |
-  Where-Object { $_.Name -notin 'Public','Default','Default User','All Users',$Author } | ForEach-Object FullName
-# repositories and worktrees up to depth 3 below each candidate (a worktree's .git is a file)
-$repos = foreach ($c in $cand + $prof) { Get-ChildItem -LiteralPath $c -Filter '.git' -Force -Recurse -Depth 3 -ErrorAction SilentlyContinue | ForEach-Object { $_.Parent.FullName; if (-not $_.PSIsContainer) { $_.DirectoryName } } }
-($cand + $prof + ($repos | Sort-Object -Unique)) | Sort-Object -Unique | Set-Content -LiteralPath "$Ops\deny-candidates.txt" -Encoding utf8
-Log "M0 candidates: $((Get-Content "$Ops\deny-candidates.txt").Count)"
-```
-
-Master writes `$Ops\deny-list.txt` from the candidates: one absolute path per line, with `#` comment lines. It must
-cover at least these roots:
-- `$P`;
-- every other clone and worktree;
-- `$Ops`;
-- `C:\wt` (it holds the frozen sources after M1);
-- l-data;
-- `C:\b` and any other scratch root;
-- every user profile other than the author's.
-
-`C:\Users\Public` is master's judgement: deny it unless something the author needs lives there. Remove only system
-folders the author must use: Windows, Program Files and the harness install. The O2 code refuses a list that omits a
-must-include root.
-
-## M1. Fetch, materialize, cut, verify (master, 00:30-09:00, lease)
-
-```powershell
+function Grants($path){ @((Get-Acl -LiteralPath $path).Access | Where-Object { $_.AccessControlType -eq 'Allow' -and $BadIds -contains $_.IdentityReference.Value } | ForEach-Object { "$($_.IdentityReference.Value):$($_.FileSystemRights)" }) }
+function Blob($blob, $dest, $sha){ & $Py -I -c "import subprocess,sys; open(sys.argv[2],'wb').write(subprocess.check_output(['git','-C',sys.argv[1],'cat-file','blob',sys.argv[3]]))" $P $dest $blob
+  if ((Sha $dest) -ne $sha) { NoGo "$dest is not the reviewed file" } }
+function New-OpsDir($d){ if (-not (Test-Path -LiteralPath $d)) { New-Item -ItemType Directory $d | Out-Null
+  Icacls @($d,'/inheritance:r','/grant:r',"${Operator}:(OI)(CI)F",'SYSTEM:(OI)(CI)F','Administrators:(OI)(CI)F') } }
 . (Join-Path $P 'scripts\ops\workload_admission.ps1')
+```
+
+## V1. Oracle-author pytest venv (master, 10-15 00:30-04:45, after §T, lease)
+
+- **What it holds.** pytest and its Windows runtime dependencies only. The handout modules (`maker_core.contracts`,
+  `maker_core.quoting.policy` and what they import) use the standard library alone. The pins equal the workstation
+  3.11.9 venv: `oracle-venv-pins.txt`, hashed by the Python upgrade runbook's §6b `pypi_hash_lock.py` logic.
+- **Download rules.** Windows and pure wheels only, `--require-hashes`, `--only-binary=:all:`, `--no-deps`; then
+  `pip check`.
+- **Base interpreter.** The 3.11.9 home that Phase A installs side by side on 10-13. It is not the production venv
+  (the I-6 wrapper refuses that venv, because its editable `.pth` adds the production `src`).
+- **After the 10-17 cutover (C).** No rebuild is needed. The cutover rebuilds only `$P\venv`; the 3.11.9 home this
+  venv points at stays installed and unchanged. V3 below is a one-line check.
+- **Fallback if Phase A has not run.** Use the 3.11.0 home (the `home` key in `$P\venv\pyvenv.cfg`) and change the
+  version expectation below. That venv keeps working after C, because 3.11.0 stays installed (runbook Q7). Rebuild it
+  on 3.11.9 only if 3.11.0 is ever uninstalled.
+- **Location.** `C:\oracle-ops\venv`, inside the operator-only `$Ops`. The author account cannot read it and does not
+  need to: the wrapper runs as the operator. `$Ops` is therefore **not** passed to the wrapper's `-ForbiddenRoot`
+  (V2).
+
+```powershell
+New-OpsDir $Ops
+$Lock = Join-Path $Ops 'oracle-venv-lock-hashed.txt'; $Wh = Join-Path $Ops 'wheels'
+foreach ($x in $Venv, $Wh, $Lock) { if (Test-Path -LiteralPath $x) { NoGo "$x exists" } }
+if ((& $Base -VV) -notlike 'Python 3.11.9 *') { NoGo "base interpreter is not 3.11.9: $(& $Base -VV)" }
+& git -C $P fetch origin claude/night-plans; if ($LASTEXITCODE -ne 0) { NoGo 'fetch failed' }
+Blob '8121a95be7cdd84c0f3e58f15cd9d4864edb6a6f' $Lock '591ac9533d1e88b77907c8c5c549a3967eaf40dbddbb3851580a78ac88e5caa5'
+$Lease = Enter-WeatherHeavyWorkloadLease -RepoRoot $P -Workload 'oracle-author-venv'
+try {
+  & $Base -I -m venv $Venv; if ($LASTEXITCODE -ne 0) { NoGo 'venv create' }
+  & $VPy -I -m pip download --isolated --no-cache-dir --require-hashes --only-binary=:all: --no-deps -r $Lock -d $Wh; if ($LASTEXITCODE -ne 0) { NoGo 'download' }
+  & $VPy -I -m pip install --isolated --no-index --no-deps --require-hashes --find-links $Wh -r $Lock; if ($LASTEXITCODE -ne 0) { NoGo 'install' }
+  & $VPy -I -m pip check; if ($LASTEXITCODE -ne 0) { NoGo 'pip check' }
+} finally { Exit-WeatherHeavyWorkloadLease -Lease $Lease; Log 'lease released' }
+$cfg = Get-Content -LiteralPath (Join-Path $Venv 'pyvenv.cfg')
+if (-not ($cfg -match '^include-system-site-packages\s*=\s*false')) { NoGo 'venv sees system site-packages' }
+$vhome = (($cfg -match '^home\s*=') -replace '^home\s*=\s*', '' | Select-Object -First 1).Trim()
+if ($vhome -ne (Split-Path -Parent $Base)) { NoGo "venv home $vhome is not $(Split-Path -Parent $Base)" }
+$freeze = @(& $VPy -I -m pip freeze --all); $freeze | Set-Content -LiteralPath "$Ops\venv-freeze.txt" -Encoding utf8
+$want = 'colorama==0.4.6','iniconfig==2.3.0','packaging==26.2','pluggy==1.6.0','Pygments==2.20.0','pytest==9.0.3'
+$extra = @($freeze | Where-Object { $_ -notmatch '^(pip|setuptools)==' -and $want -notcontains $_ })
+$miss = @($want | Where-Object { $freeze -notcontains $_ })
+if ($extra.Count -or $miss.Count) { NoGo "venv contents differ: extra=$($extra -join ',') missing=$($miss -join ',')" }
+Log "V1 PASS venv $Venv on $(& $VPy -VV); freeze sha256 $(Sha "$Ops\venv-freeze.txt")"
+```
+
+## M0. Profile assertions, root inventory, deny-list file (master, 10-15 05:00, lease)
+
+1. **Profiles are asserted, not deny-ACLed.** Every profile root under `C:\Users` must carry no allow ACE for
+   Users, Authenticated Users, Everyone or INTERACTIVE. The expected ACEs are the profile's owner, SYSTEM and
+   Administrators; anything else is listed for master. If any profile grants one of the four, the step lists it and
+   **stops**. Master decides; this block does not fix it.
+2. **Direct paths.** Windows grants "bypass traverse checking" to Everyone by default. A child folder with its own
+   allow ACE for Users would therefore be reachable by its full path even though the profile root is closed. M0 reads
+   the direct ACLs of the production paths the author must never reach. O3 then probes those paths as the author.
+3. **Non-profile roots.** Every top-level folder on every fixed drive, other than system folders, gets a bounded file
+   count, its Users-type grants and a repository count. Roots over 50 000 files are marked `LARGE` for master's call.
+
+```powershell
+New-OpsDir $Ops
+$Lease = Enter-WeatherHeavyWorkloadLease -RepoRoot $P -Workload 'oracle-r1-m0-inventory'
+try {
+  # 1. profile roots
+  $skip = 'Public','Default','Default User','All Users',$Author
+  $prof = foreach ($d in Get-ChildItem -LiteralPath 'C:\Users' -Directory -Force) {
+    if ($d.Attributes -band [IO.FileAttributes]::ReparsePoint) { continue }
+    $acl = Get-Acl -LiteralPath $d.FullName
+    $other = @($acl.Access | Where-Object { $_.AccessControlType -eq 'Allow' } | ForEach-Object { $_.IdentityReference.Value } |
+      Where-Object { $_ -notin 'NT AUTHORITY\SYSTEM','BUILTIN\Administrators' -and $BadIds -notcontains $_ -and $_ -notlike "*\$($d.Name)" } | Sort-Object -Unique)
+    [pscustomobject]@{ profile = $d.Name; owner = $acl.Owner; users_grant = (Grants $d.FullName) -join ','; review = $other -join ',' } }
+  $prof | Format-Table -AutoSize | Out-String -Width 400 | Set-Content -LiteralPath "$Ops\m0-profiles.txt" -Encoding utf8
+  # 2. direct ACLs of the production paths (names only; no file content is read)
+  $direct = @($P, "$P\.git", "$P\data", "$P\src", "$P\venv", "$P\config", (Split-Path -Parent $P)) | Where-Object { Test-Path -LiteralPath $_ }
+  $drows = foreach ($x in $direct) { [pscustomobject]@{ path = $x; users_grant = (Grants $x) -join ',' } }
+  $drows | Format-Table -AutoSize | Out-String -Width 400 | Set-Content -LiteralPath "$Ops\m0-direct.txt" -Encoding utf8
+  # 3. non-profile roots
+  $sys = 'Windows','Program Files','Program Files (x86)','ProgramData','$Recycle.Bin','System Volume Information',
+         'Recovery','PerfLogs','Users','Documents and Settings','Config.Msi','oracle-cut'
+  $roots = foreach ($dr in (Get-PSDrive -PSProvider FileSystem | Where-Object { $_.Root -match '^[A-Z]:\\$' -and $_.Free })) {
+    Get-ChildItem -LiteralPath $dr.Root -Directory -Force -ErrorAction SilentlyContinue |
+      Where-Object { $_.Name -notin $sys -and -not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) } | ForEach-Object FullName }
+  $rrows = foreach ($r in $roots) {
+    $n = @(Get-ChildItem -LiteralPath $r -Recurse -File -Force -ErrorAction SilentlyContinue | Select-Object -First 200001).Count
+    $g = @(Get-ChildItem -LiteralPath $r -Filter '.git' -Force -Recurse -Depth 3 -ErrorAction SilentlyContinue).Count
+    [pscustomobject]@{ root = $r; files = $(if ($n -gt 200000) { '>200000' } else { $n }); large = $(if ($n -gt 50000) { 'LARGE' } else { '' })
+                       repos = $g; users_grant = (Grants $r) -join ',' } }
+  $rrows | Format-Table -AutoSize | Out-String -Width 400 | Set-Content -LiteralPath "$Ops\m0-roots.txt" -Encoding utf8
+} finally { Exit-WeatherHeavyWorkloadLease -Lease $Lease; Log 'lease released' }
+$roots | Set-Content -LiteralPath "$Ops\m0-roots-list.txt" -Encoding utf8
+Get-Content "$Ops\m0-profiles.txt", "$Ops\m0-direct.txt", "$Ops\m0-roots.txt"
+$badProf = @($prof | Where-Object { $_.profile -notin $skip -and $_.users_grant })
+if ($badProf.Count) { NoGo "profile root grants a Users-type identity: $(($badProf | ForEach-Object { "$($_.profile)=$($_.users_grant)" }) -join '; ') (STOP: master's call)" }
+$badDirect = @($drows | Where-Object { $_.users_grant })
+if ($badDirect.Count) { NoGo "production path grants a Users-type identity: $(($badDirect | ForEach-Object { "$($_.path)=$($_.users_grant)" }) -join '; ') (STOP: master's call)" }
+if (-not (@($prof | Where-Object { $P -like "C:\Users\$($_.profile)\*" -and $_.profile -notin $skip }).Count)) { NoGo "$P is not under a checked profile root: it must go on the deny list instead" }
+Log "M0 PASS profiles=$(@($prof).Count) roots=$(@($roots).Count) large=$(@($rrows | Where-Object large).Count)"
+```
+
+Read the three tables. `review` lists other allow ACEs on a profile; `Public` and `Default` are listed for
+information only (they are open to Users by design). Then master writes `$Ops\deny-list.txt`:
+- **One absolute path per line, and only non-profile roots.** Every root in `m0-roots-list.txt` must be on the list
+  unless a line `#ALLOW <root> <reason>` names it. Examples are a root holding only the harness install, or the
+  3.11.9 home if it is a top-level folder: the author needs neither, so denying is the default.
+- **Expected entries:** `C:\wt`, `C:\tmp`, `C:\pt`, `C:\oracle-ops`, the l-data location, `C:\b` and any other
+  scratch root, as present.
+- **`LARGE` roots** are master's call. Denying one only costs propagation time inside O2's lease.
+- **No path under `C:\Users`.** O2 refuses one.
+- `#` lines are comments, and they are part of the signed bytes.
+
+## M1. Fetch, materialize, cut, verify (master, 10-15, done by 06:40, lease)
+
+```powershell
 if (Test-Path -LiteralPath $Cut) { NoGo "$Cut exists (the cut writes only to a new directory)" }
 & git -C $P fetch origin codex/maker-replay-v2-build-20261003 claude/oracle-handout-h1-20261012 claude/scratch-h1-sources-20261007 claude/night-plans
 if ($LASTEXITCODE -ne 0) { NoGo 'fetch failed' }
 foreach ($c in '501f475796f70263907d4d7d5fd3cd44fe7d1d5b','cf7b0d5337dd7ef2d5385077602cfb9812c41558') {
   & git -C $P cat-file -e "$c^{commit}"; if ($LASTEXITCODE -ne 0) { NoGo "commit $c missing" } }
-# C:\wt holds the frozen sources: create it operator-only if it does not exist yet
-if (-not (Test-Path -LiteralPath 'C:\wt')) { New-Item -ItemType Directory 'C:\wt' | Out-Null
-  Icacls @('C:\wt','/inheritance:r','/grant:r',"${Operator}:(OI)(CI)F",'SYSTEM:(OI)(CI)F','Administrators:(OI)(CI)F') }
-# the materializer itself, byte-exact from its blob
+New-OpsDir 'C:\wt'                                  # holds the frozen sources; created operator-only if absent
 $M = Join-Path $Ops 'materialize_h1_inputs.py'
-& $Py -I -c "import subprocess,sys; open(sys.argv[2],'wb').write(subprocess.check_output(['git','-C',sys.argv[1],'cat-file','blob',sys.argv[3]]))" $P $M '7a77a72e27db09d52c19a6070a791fa0c4835c5d'
-if ((Sha $M) -ne 'e834f9fc77dc4126f5b1de7d6f705d9f843691767ac0926e0098e0c999227395') { NoGo 'materializer is not the reviewed file' }
+Blob '7a77a72e27db09d52c19a6070a791fa0c4835c5d' $M 'e834f9fc77dc4126f5b1de7d6f705d9f843691767ac0926e0098e0c999227395'
 & $Py -I $M --repo $P --ops $Ops; if ($LASTEXITCODE -ne 0) { NoGo 'materialize refused' }
-if (-not (Test-Path -LiteralPath $CutRoot)) { New-Item -ItemType Directory $CutRoot | Out-Null }
-Icacls @($CutRoot,'/inheritance:r','/grant:r',"${Operator}:(OI)(CI)F",'SYSTEM:(OI)(CI)F','Administrators:(OI)(CI)F')
+New-OpsDir $CutRoot
 $Lease = Enter-WeatherHeavyWorkloadLease -RepoRoot $P -Workload 'oracle-r1-cut'
 try {
   $o = & $Py -I "$Ops\tool\maker_replay_v2_h1_cut.py" cut --plan "$Ops\plan\plan.json" --repo $P --out $Cut
@@ -128,7 +212,10 @@ try {
 Log "M1 PASS binding $Bind"
 ```
 
-## O1. Author account (owner, elevated)
+## O1. Author account (owner, elevated; 10-13 after Phase A, before 12:00)
+
+O1 needs only the header lines up to `$Author` and the `Log`/`NoGo` functions. `$Ops` may not exist yet; `Log` then
+writes to the screen only.
 
 ```powershell
 if (Get-LocalUser -Name $Author -ErrorAction SilentlyContinue) { NoGo "$Author already exists" }
@@ -141,18 +228,21 @@ if ((@($groups) -join ',') -ne 'Users') { NoGo "$Author groups: $($groups -join 
 Log "O1 $Author created, groups=Users (password set by the owner, not recorded)"
 ```
 
-## O2. Sign and apply the deny list (owner, elevated, 00:30-09:00, lease)
+## O2. Sign and apply the deny list (owner, elevated, 10-15 07:30, lease)
 
 ```powershell
-. (Join-Path $P 'scripts\ops\workload_admission.ps1')
 $DL = Join-Path $Ops 'deny-list.txt'
-$paths = @(Get-Content -LiteralPath $DL | ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') })
-$must = @($P, $Ops, 'C:\wt') + @(Get-ChildItem -LiteralPath 'C:\Users' -Directory -Force | Where-Object { $_.Name -notin 'Public','Default','Default User','All Users',$Author } | ForEach-Object FullName)
-foreach ($m in $must) { if ($paths -notcontains $m) { NoGo "deny list lacks $m" } }
-foreach ($p in $paths) { if (-not (Test-Path -LiteralPath $p)) { NoGo "deny path missing: $p" } }
+$lines = @(Get-Content -LiteralPath $DL | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+$paths = @($lines | Where-Object { -not $_.StartsWith('#') })
+$allow = @($lines | Where-Object { $_ -match '^#ALLOW\s+(\S+)\s+\S' } | ForEach-Object { ($_ -split '\s+')[1] })
+foreach ($r in @(Get-Content -LiteralPath "$Ops\m0-roots-list.txt")) { if ($paths -notcontains $r -and $allow -notcontains $r) { NoGo "deny list neither denies nor #ALLOWs $r" } }
+foreach ($p in $paths) {
+  if ($p -like 'C:\Users*') { NoGo "profile path on the deny list: $p (profiles are asserted in M0, not deny-ACLed)" }
+  if (-not (Test-Path -LiteralPath $p)) { NoGo "deny path missing: $p" } }
+if ($paths -notcontains $Ops) { NoGo "deny list lacks $Ops" }
 $h = Sha $DL
-$paths | ForEach-Object { Write-Host "  DENY $_" }
-Write-Host "deny-list.txt sha256 $h ($($paths.Count) paths)"
+$lines | ForEach-Object { Write-Host "  $_" }
+Write-Host "deny-list.txt sha256 $h ($($paths.Count) deny paths, $($allow.Count) allowed roots)"
 $s = Read-Host 'Owner: to sign this list type SIGN followed by the first 8 characters of the sha256'
 if ($s -cne "SIGN $($h.Substring(0,8))") { NoGo 'owner did not sign the deny list' }
 Log "O2 owner signed deny-list sha256 $h"
@@ -165,9 +255,9 @@ Log 'O2 PASS'
 ```
 
 Children whose inheritance is switched off do not receive an inherited deny. The O3 checks probe direct paths for
-exactly that reason.
+exactly that reason: each deny root and its first-level children, plus the profile paths from M0.
 
-## M2. Cut ACLs, post-ACL verify, work folders (master)
+## M2. Cut ACLs, post-ACL verify, work folders, check script (master)
 
 ```powershell
 Icacls @($Cut,'/inheritance:r','/grant:r',"${Author}:(OI)(CI)RX","${Operator}:(OI)(CI)F",'SYSTEM:(OI)(CI)F','Administrators:(OI)(CI)F')
@@ -179,14 +269,17 @@ if ($rc -ne 0) { NoGo "post-ACL verify exit $rc" }
 foreach ($f in 'questions','test-requests','test-results','handback') { New-Item -ItemType Directory "$Cut\$f" | Out-Null }
 foreach ($f in 'questions','test-requests','handback') { Icacls @("$Cut\$f",'/grant',"${Author}:(OI)(CI)M") }
 & icacls.exe $Cut /T | Set-Content -LiteralPath "$Ops\acl-cut.txt" -Encoding utf8
-# the §3 check script for O3: the deny list is copied in, and master deletes it again in M3
+# the §3 check script for O3; master deletes it again in M3
 $deny = @(Get-Content -LiteralPath "$Ops\deny-list.txt" | ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') })
-$probe = @("$P\.git\HEAD","$P\README.md","$P\src","$P\docs","$P\tools","$P\data")
+$kids = foreach ($d in $deny) { Get-ChildItem -LiteralPath $d -Force -ErrorAction SilentlyContinue | Select-Object -First 20 | ForEach-Object FullName }
+$profRoot = (Get-Item -LiteralPath $P).FullName; while ((Split-Path -Parent $profRoot) -ne 'C:\Users') { $profRoot = Split-Path -Parent $profRoot }
+$dataFile = Get-ChildItem -LiteralPath "$P\data" -File -Force -ErrorAction SilentlyContinue | Select-Object -First 1 | ForEach-Object FullName   # a name only
+$probe = @($profRoot, "$P", "$P\.git", "$P\.git\HEAD", "$P\.git\config", "$P\README.md", "$P\src", "$P\docs", "$P\tools", "$P\data", "$P\venv") + @($dataFile) + @($kids) | Where-Object { $_ }
 $snap = (& git -C "$Cut\oracle-repo" rev-parse HEAD).Trim()
 $body = @"
 `$deny = @('$($deny -join "','")')
 `$probe = @('$($probe -join "','")')
-`$Cut = '$Cut'; `$snap = '$snap'; `$out = '$Cut\handback\setup-checks.txt'
+`$P = '$P'; `$Cut = '$Cut'; `$snap = '$snap'; `$out = '$Cut\handback\setup-checks.txt'
 "@ + @'
 $r = New-Object System.Collections.Generic.List[string]
 function Rec($ok,$m){ $r.Add(("{0} {1}" -f ($(if ($ok) {'PASS'} else {'FAIL'})), $m)) }
@@ -194,10 +287,10 @@ Rec (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdent
 foreach ($p in $deny + $probe) { $denied = $false; try { Get-ChildItem -LiteralPath $p -Force -ErrorAction Stop | Select-Object -First 1 | Out-Null } catch { $denied = $true }
   if (-not $denied) { try { Get-Content -LiteralPath $p -TotalCount 1 -ErrorAction Stop | Out-Null } catch { $denied = $true } }
   Rec $denied "no read: $p" }
-& git -C $probe[0].Replace('\.git\HEAD','') rev-parse HEAD 2>$null | Out-Null; Rec ($LASTEXITCODE -ne 0) 'git rev-parse on the production clone fails'
+& git -C $P rev-parse HEAD 2>$null | Out-Null; Rec ($LASTEXITCODE -ne 0) 'git rev-parse on the production clone fails'
 Rec (@(Get-ChildItem env: | Where-Object { $_.Name -like 'GIT_*' }).Count -eq 0) 'no GIT_* variable'
-$envhit = @(Get-ChildItem env: | Where-Object { $v = [string]$_.Value; @($deny | Where-Object { $v -like "*$_*" }).Count })
-Rec ($envhit.Count -eq 0) "no variable points into a denied root $($envhit.Name -join ',')"
+$envhit = @(Get-ChildItem env: | Where-Object { $v = [string]$_.Value; @(@($deny) + @($P) | Where-Object { $v -like "*$_*" }).Count })
+Rec ($envhit.Count -eq 0) "no variable points into a denied root or the production clone $($envhit.Name -join ',')"
 $ck = (cmdkey /list) -join ' '; Rec ($ck -notmatch 'Target:') 'cmdkey: no stored credential'
 $gc = (git config --global --list) -join ' '; Rec ($gc -notmatch 'credential') "git global config has no credential helper"
 $r.Add("INFO git system credential config: $((git config --system --get-all credential.helper) -join ',')")
@@ -216,8 +309,46 @@ $r | Set-Content -LiteralPath $out -Encoding utf8; $r
 if ($r -match '^FAIL') { Write-Host 'SETUP CHECKS FAILED' -ForegroundColor Red } else { Write-Host 'SETUP CHECKS PASS' -ForegroundColor Green }
 '@
 Set-Content -LiteralPath "$Cut\test-results\setup-checks.ps1" -Value $body -Encoding utf8
-Log "M2 PASS; check script $(Sha "$Cut\test-results\setup-checks.ps1")"
+Log "M2 PASS; check script $(Sha "$Cut\test-results\setup-checks.ps1") ($($probe.Count) direct probes)"
 ```
+
+## V2. I-6 wrapper proof run (master, after M2, ends by 08:55)
+
+This step proves that, under the wrapper, every import comes from the cut or the oracle venv. The wrapper's probe
+child checks four things before pytest starts, and refuses on any failure:
+- the `-I -S -B` flags;
+- the prefix is the venv or its base;
+- every `sys.path` entry is inside the cut repository or the interpreter;
+- `pytest` resolves from the venv, and `weather`, `maker_core`, `app`, `sitecustomize` and `usercustomize` resolve
+  inside the cut or not at all.
+
+The test is a stdlib-only snapshot test that reads one file of the cut. Precondition: the I-6 wrapper
+(`claude/oracle-author-test-lease-20261012`) has landed and is present in `$P`.
+
+```powershell
+$W = Join-Path $P 'scripts\ops\oracle_author_test_run.ps1'
+if (-not (Test-Path -LiteralPath $W)) { NoGo 'the I-6 wrapper is not in the production checkout' }
+$TL = Join-Path $Ops 'test-logs'; New-OpsDir $TL
+$baseRoot = [IO.Path]::GetPathRoot($Base) + (($Base.Substring(3)) -split '\\')[0]
+$forbid = @(Get-Content -LiteralPath "$Ops\deny-list.txt" | ForEach-Object { $_.Trim() } |
+  Where-Object { $_ -and -not $_.StartsWith('#') -and $_ -ne $Ops -and $_ -ne $baseRoot }) -join ';'
+powershell -NoProfile -ExecutionPolicy Bypass -File $W -CutDir $Cut -PythonPath $VPy -LogDir $TL `
+  -TestPath 'tests/operations/test_roll_verdict_script.py' -ExpectedManifestSha256 $Bind -ForbiddenRoot $forbid
+$rc = $LASTEXITCODE
+$rcpt = Get-ChildItem -LiteralPath $TL -Filter '*.receipt.json' | Sort-Object LastWriteTime | Select-Object -Last 1
+$j = Get-Content -LiteralPath $rcpt.FullName -Raw | ConvertFrom-Json
+Log "V2 exit $rc status $($j.status) python $($j.probe.version) pytest=$($j.probe.pytest) maker_core=$($j.probe.guarded.maker_core) receipt $(Sha $rcpt.FullName)"
+if ($rc -ne 0) { NoGo "wrapper proof exit $rc ($($j.reason))" }
+if ($j.probe.version -ne '3.11.9') { NoGo "probe interpreter $($j.probe.version)" }
+```
+
+- **Expected result:** exit 0 and 2 passed, with `maker_core` resolving under `$Cut\oracle-repo\src`.
+- **Wrapper refusals:** exit 64 is a refusal before pytest started, and its reason is printed. Exit 65 means the run
+  modified the cut; inspect before O3.
+- **`$Ops` is not a forbidden root here,** because the venv lives in it. Nothing in `$Ops` can be imported: it is on
+  no `sys.path` entry, and the probe proves that.
+- **The base home's top-level root is also left out,** because the wrapper refuses an interpreter whose base overlaps
+  a forbidden root. Both roots stay denied to the author account.
 
 ## O3. Author profile and checks (owner, signed in as the author)
 
@@ -226,11 +357,12 @@ session, because capture runs there. In a normal (not elevated) PowerShell:
 
 1. Install Claude Code for this account the way the owner normally does. That is a download, so it is the owner's own
    decision. Then run `claude` once and log in. The login is the owner's credential, typed by the owner.
-2. Settings, git identity and the scoped `safe.directory`:
+2. Settings, git identity and the scoped `safe.directory`. Use the settings variant the owner picks for the
+   permission mode (see "Permission mode" below; variant 1 is shown):
 
 ```powershell
 New-Item -ItemType Directory -Force "$env:USERPROFILE\.claude" | Out-Null
-'{ "permissions": { "deny": ["WebFetch", "WebSearch"] }, "env": { "DISABLE_AUTOUPDATER": "1" } }' |
+'{ "permissions": { "disableBypassPermissionsMode": "disable", "deny": ["WebFetch", "WebSearch", "mcp__*"] }, "env": { "DISABLE_AUTOUPDATER": "1" } }' |
   Set-Content -LiteralPath "$env:USERPROFILE\.claude\settings.json" -Encoding ascii
 git config --global user.name 'oracle-author'
 git config --global user.email 'oracle-author@localhost.invalid'
@@ -240,9 +372,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File C:\oracle-cut\r1\test-result
 
 3. In `claude`, started from `C:\oracle-cut\r1`:
    - `/mcp` must list **no** servers, including claude.ai connectors. If any appear, disable them before the launch.
+   - `/permissions` must show the deny rules above.
    - `/status` gives the model and version. Note them for master (E1).
-   - The sandbox setting: if this Windows build offers no shell network sandbox, record "not supported" for the N1
-     disclosure.
+   - Record the sandbox as "not supported on native Windows" for the N1 disclosure.
    - Exit.
 
 ## M3. Results and pre-launch re-check (master)
@@ -279,5 +411,37 @@ Oracle handout r1. Manifest C:\oracle-cut\r1\H1-manifest.json, SHA-256 623279703
 After that, say nothing else to the session (erratum 1 E1). The owner tells master the start time, model and Claude Code
 version. Master records them with the archive (I-7).
 
-Still open for master: the permission mode the author runs in. The default mode means the owner approves each tool call
-at the machine. A mode that allows edits inside the cut removes that. The OS-level isolation holds either way.
+## V3. After the 10-17 cutover (master, one line, any admitted window)
+
+```powershell
+& $VPy -I -c "import sys, pytest; print(sys.version.split()[0], pytest.__version__)"   # expect 3.11.9 9.0.3
+```
+
+If it fails, the base home has moved. Rebuild with V1 into a new path; never repair the venv in place.
+
+## Permission mode (pending with the owner)
+
+What Claude Code can and cannot confine on this host (Claude Code docs: permissions, sandboxing, settings):
+- **Bash cannot be scoped to a directory.** Bash and PowerShell rules match the command text only. A deny such as
+  `Bash(cd *)` is literal text matching and is bypassable, so it is not a boundary.
+- **Read and Edit path rules** cover the file tools and recognized shell file commands (`cat`, `sed`, redirects). They
+  do not cover a script that opens files itself.
+- **`acceptEdits`** auto-accepts edits only inside the working directory (`C:\oracle-cut\r1`) and any
+  `additionalDirectories`. An edit elsewhere still prompts.
+- **The shell sandbox** (filesystem and network limits) exists on macOS, Linux and WSL2 only. On native Windows,
+  commands run unsandboxed, so the N1 egress residual stays and stays disclosed.
+- **Managed settings** (`C:\Program Files\ClaudeCode\managed-settings.json`) cannot be overridden by the author, but
+  they would also bind master's own Claude Code session on this host. They are not used here.
+
+The OS boundary is the author account's NTFS rights, which this block sets and O3 checks.
+
+The two variants for the owner:
+1. **Default mode (variant 1, shown in O3).** The owner approves every edit and every command at the machine.
+   Strongest control, slowest.
+2. **`acceptEdits` plus a small allow-list.** Add `"defaultMode": "acceptEdits"` and
+   `"allow": ["Bash(git status *)", "Bash(git diff *)", "Bash(git log *)", "Bash(git add *)", "Bash(git commit *)",
+   "Bash(git switch *)", "Bash(git checkout -b *)", "Bash(git bundle create *)"]`, and keep the deny list.
+   - Edits inside the cut and those git commands run without a prompt. Every other command still prompts the owner,
+     including any `python`, `pytest` or network tool, which H-12 rule 5 forbids anyway.
+   - The settings file sits in the author's own profile, so the author session could edit it. That edit lies outside
+     the working directory, so it prompts too.
