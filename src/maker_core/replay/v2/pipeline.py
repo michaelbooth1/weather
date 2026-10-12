@@ -17,7 +17,8 @@ from types import MappingProxyType
 from maker_core.evidence.journal import digest
 from maker_core.replay.fill_model import BOUNDS
 from maker_core.replay.v2.engine import EngineV2
-from maker_core.replay.v2.lockstep import drive, run_plan
+from maker_core.replay.bundle import BundleError
+from maker_core.replay.v2.lockstep import RecordDigest, drive, run_plan
 from maker_core.replay.v2.score import BandDayScorer, Books
 
 D = Decimal
@@ -107,6 +108,9 @@ class Run:
     trials: list  # (bound, round, calendar fraction, Pass); passes kept only when ``config.keep``
     binding: dict | None = None  # ``run_binding``: set only by ``run_passes``; ``report.build_report`` requires it
     time_zones: object = None  # the ``snapshot_zones`` copy every ``drive`` of this run used (Delta-1 finding 2)
+    # ``lockstep.RecordDigest.summary()`` of the records every drive of this run read (R155 defender-2 D2): a scored
+    # report compares ``record_sources_sha256`` with the manifest's; ``None`` for a run not made by ``run_passes``
+    replayed: dict | None = None
 
 
 RUN_BINDING_FORMAT = "maker_core.replay.v2.run_binding.v0.3"  # v0.3: run inputs bind the driven zone map
@@ -269,7 +273,9 @@ def run_passes(sources, config, *, time_zones, engine=EngineV2, progress=lambda 
             scorer = BandDayScorer(policy, bound, pull_runs=policy in ("informed-v0", "clock_only"))
             passes[bound][policy] = Pass(engine(cfg, plan, sink=scorer), scorer)
             engines.append(passes[bound][policy].engine)
-    drive(sources, engines, observers=(books,), time_zones=time_zones)
+    replayed = RecordDigest()
+    drive(sources, engines, observers=(books,), time_zones=time_zones, records=replayed)
+    replayed = replayed.summary()
     progress("base", len(engines))
     bisections, log = {}, []
     for bound in BOUNDS:
@@ -288,7 +294,10 @@ def run_passes(sources, config, *, time_zones, engine=EngineV2, progress=lambda 
             trials[bound] = Pass(engine(cfg, plan, sink=scorer), scorer)
         if not trials:
             break
-        drive(sources, [t.engine for t in trials.values()], time_zones=time_zones)
+        again = RecordDigest()
+        drive(sources, [t.engine for t in trials.values()], time_zones=time_zones, records=again)
+        if again.summary() != replayed:  # every pass of one run reads the same records (R155 defender-2 D2)
+            raise BundleError("replay_records_unstable")
         progress("clock_round", len(trials))
         for bound, trial in trials.items():
             got, _ = fraction(trial.band_days(books, markets))
@@ -301,7 +310,7 @@ def run_passes(sources, config, *, time_zones, engine=EngineV2, progress=lambda 
         passes[bound]["clock_only"] = best
         matches[bound] = state.summary(len(best.engine.config.clock_pulls))
         matches[bound]["selected_windows_sha256"] = _windows_digest(best.engine.config.clock_pulls)
-    return Run(plan, books, passes, matches, markets, log, binding, time_zones)
+    return Run(plan, books, passes, matches, markets, log, binding, time_zones, replayed)
 
 
 def _windows_digest(windows):

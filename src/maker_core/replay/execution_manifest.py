@@ -227,8 +227,9 @@ def verify_scored_pack(run_binding, plan, markets, *, manifest, registered):
     - the manifest's ``input_hashes`` has exactly one entry per ``dates`` entry plus the ``settlement_only_date``, in
       that order (``run_binding_pack_days_mismatch``; ``build_manifest`` writes it so and ``verify_manifest`` pins
       the dates), and the plan's ``{day: input_hashes}`` equals it exactly: every quote day and the settlement day,
-      no subset, no superset, no other bundle bytes (``run_binding_pack_input_hashes_mismatch``). A re-exported
-      bundle set has other input hashes and refuses here even with an identical universe;
+      no subset, no superset, no other bundle-file hashes (``run_binding_pack_input_hashes_mismatch``). A
+      re-exported bundle set has other input hashes and refuses here even with an identical universe. These are
+      labels copied from the loaded bundles; the records actually replayed are bound by ``verify_scored_records``;
     - ``digest(manifest["universe"])`` equals ``manifest["universe_sha256"]`` (``run_binding_pack_universe_mismatch``).
       The manifest binds the universe file's sha; the file is written as canonical JSON (``pack_io.write_json``),
       so that sha *is* ``digest`` of its rows, the same hash as the run's ``time_zones_source.inventory_sha256``.
@@ -359,6 +360,28 @@ def verify_scored_scope(plan, config, *, manifest, replicates, seed, registratio
     return dict(scope_verifier=PACK_SCOPE, active_intervals_sha256=digest(manifest["active_intervals"]),
                 replay_config_sha256=digest(manifest["replay_config"]), bootstrap_replicates=replicates,
                 bootstrap_seed=seed)
+
+
+def verify_scored_records(replayed, *, manifest):
+    """The records a scored run actually replayed are the manifest's (R155 defender-2 D2).
+
+    ``replayed`` is ``Run.replayed``, the ``lockstep.RecordDigest`` summary of every record the run's drives read.
+    The plan's ``input_hashes`` are labels copied from the loaded bundles; a ``DaySource`` or ``Bundle`` can carry
+    other records under them. So the digest of the records read, ``digest([dict(r.source_hashes) ...])`` in day
+    order, must equal the manifest's ``record_sources_sha256`` (``build_manifest`` writes the same shape over the
+    same bundles' records): a dropped, added or re-ordered record, or one whose sources differ, refuses
+    ``run_binding_pack_records_mismatch``. A run without the summary refuses ``run_binding_records_required``.
+    This binds the record sequence and each record's ``source_hashes``, not its payload: a record whose payload is
+    edited in memory with its ``source_hashes`` kept is not caught here (the sealed readers re-hash every payload
+    against ``payload_sha256`` at load). Returns the ``pack_check`` fields: the digest and the record count."""
+    if (not isinstance(replayed, Mapping) or set(replayed) != {"record_sources_sha256", "records"}
+            or type(replayed["record_sources_sha256"]) is not str or type(replayed["records"]) is not int):
+        raise BundleError("run_binding_records_required")
+    if not isinstance(manifest.get("record_sources_sha256"), str):
+        raise BundleError("run_binding_pack_manifest_invalid")
+    if replayed["record_sources_sha256"] != manifest["record_sources_sha256"]:
+        raise BundleError("run_binding_pack_records_mismatch")
+    return dict(record_sources_sha256=replayed["record_sources_sha256"], records_replayed=replayed["records"])
 
 
 def active_intervals(bundles, inventory, *, check=lambda: None):

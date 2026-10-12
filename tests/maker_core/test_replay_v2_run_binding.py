@@ -66,15 +66,17 @@ def registered(zones):
                                        registry_checked=True, inventory_sha256="0" * 64, registry_sha256="1" * 64))
 
 
-def manifest_for(inventory, plans=None):
+def manifest_for(inventory, sources=None):
     """The fields of a fictional execution manifest that the pack check reads (``verify_scored_pack``): format,
     universe, its sha (the canonical-JSON digest, which is the file sha ``pack_io.write_json`` gives), the
-    tzdata record ``build_manifest`` writes, and the per-day ``input_hashes`` of ``plans`` (default: the one
+    tzdata record ``build_manifest`` writes, and the per-day ``input_hashes`` of ``sources`` (default: the one
     ``day_source()`` day) with the last day as ``settlement_only_date`` and the others as ``dates``, and the scope
     ``verify_scored_scope`` reads (R155 defender-2 D1): the plans' windows as ``active_intervals``, the quote-day
     markets, ``CONFIG`` as the v1 ``replay_config`` and the bootstrap these tests run (100 replicates, the default
-    seed). A real pack's verified manifest is used end to end below."""
-    plans = plans or [day_source().plan]
+    seed); and ``record_sources_sha256`` over the sources' records as ``build_manifest`` writes it (D2). A real
+    pack's verified manifest is used end to end below."""
+    sources = sources or [day_source()]
+    plans = [s.plan for s in sources]
     days = [p.day.isoformat() for p in plans]
     hashes = {p.day.isoformat(): dict(p.input_hashes) for p in plans}
     intervals = [dict(date=p.day.isoformat(), condition_id=cid, start=a.isoformat(), end=b.isoformat())
@@ -84,18 +86,20 @@ def manifest_for(inventory, plans=None):
                 dates=days[:-1], settlement_only_date=days[-1], input_hashes=hashes, active_intervals=intervals,
                 markets=sorted({c.market_id for p in plans[:-1] for c in p.conditions}),
                 replay_config=plain(ReplayConfig(hazard_per_minute=CONFIG.hazard_per_minute)),
-                bootstrap_replicates=100, bootstrap_seed=20260926)
+                bootstrap_replicates=100, bootstrap_seed=20260926,
+                record_sources_sha256=digest([dict(r.source_hashes) for s in sources for r in s.records()]))
 
 
-def pack(zones=FIXTURE_ZONES, registry=None, edit=lambda rows: rows, plans=None):
+def pack(zones=FIXTURE_ZONES, registry=None, edit=lambda rows: rows, sources=None):
     """A fictional execution pack's manifest (``manifest_for``) and the domain registry, with the
     ``RegisteredZones`` that ``execution_manifest.market_time_zones`` records for them (its exact source record,
     written out here).
 
     One inventory row per fixture condition (every DenseDay day has the same four conditions) and one placeholder
     row for each other market of ``zones``, so the inventory's zone map is ``zones`` exactly. ``registry``
-    defaults to ``zones``; ``edit`` changes the rows before the digests are taken; ``plans`` are the day plans whose
-    input hashes the manifest binds (``manifest_for``). Returns the zones and the ``build_report`` keywords."""
+    defaults to ``zones``; ``edit`` changes the rows before the digests are taken; ``sources`` are the days whose
+    input hashes, windows and records the manifest binds (``manifest_for``). Returns the zones and the
+    ``build_report`` keywords."""
     rows = [dict(condition_id=c.condition_id, market_id=c.market_id, domain_id=c.domain_id,
                  target_date="2026-11-21", local_timezone=zones[c.market_id]) for c in day_source().plan.conditions]
     rows += [dict(condition_id=f"zz-placeholder-{m}", market_id=m, domain_id="fictional", target_date="2026-11-21",
@@ -104,7 +108,7 @@ def pack(zones=FIXTURE_ZONES, registry=None, edit=lambda rows: rows, plans=None)
     registry = dict(zones if registry is None else registry)
     source = dict(builder=bundle.ZONE_MAP_BUILDER, registry_checked=True, inventory_sha256=digest(inventory),
                   registry_sha256=digest(dict(sorted(registry.items()))))
-    return RegisteredZones(zones, source), dict(manifest=manifest_for(inventory, plans), registered=registry)
+    return RegisteredZones(zones, source), dict(manifest=manifest_for(inventory, sources), registered=registry)
 
 
 def scored(run):
@@ -363,7 +367,7 @@ def test_a_plan_with_any_captured_day_is_scored_and_every_day_must_be_captured()
     sources = [day_source(DAY), day_source(date(2026, 9, 28), "captured")]
     with pytest.raises(BundleError, match="run_binding_unregistered_zone_map"):
         build_report(run_passes(sources, CONFIG, time_zones=FIXTURE_ZONES), CONFIG, replicates=100)
-    zones, bound = pack(plans=[s.plan for s in sources])
+    zones, bound = pack(sources=sources)
     with pytest.raises(BundleError, match="run_binding_pack_provenance_unsealed"):
         build_report(run_passes(sources, CONFIG, time_zones=zones), CONFIG, replicates=100, **bound)
     sources = [day_source(DAY, "captured"), sources[1]]
@@ -373,7 +377,7 @@ def test_a_plan_with_any_captured_day_is_scored_and_every_day_must_be_captured()
 
 # -- Defender F1: the binding belongs to this run ---------------------------------------------------------------
 def test_a_binding_copied_from_another_run_is_refused():
-    zones, bound = pack(plans=[day_source(date(2026, 11, 20), trades=50).plan])
+    zones, bound = pack(sources=[day_source(date(2026, 11, 20), trades=50)])
     donor = small_run(zones, "captured", day=date(2026, 11, 20), trades=50)
     victim = small_run(provenance="captured")
     with pytest.raises(BundleError, match="run_binding_unregistered_zone_map"):
@@ -446,7 +450,8 @@ def test_the_execution_manifest_source_is_accepted_for_a_scored_report(tmp_path)
         input_hashes_sha256=digest(verified["input_hashes"]), universe_sha256=universe_file_sha,
         registry_sha256=source["registry_sha256"], tzdata_zone_files_sha256=verified["tzdata"]["zone_files_sha256"],
         scope_verifier=PACK_SCOPE, active_intervals_sha256=digest(verified["active_intervals"]),
-        replay_config_sha256=digest(verified["replay_config"]), bootstrap_replicates=2000, bootstrap_seed=20260926)
+        replay_config_sha256=digest(verified["replay_config"]), bootstrap_replicates=2000, bootstrap_seed=20260926,
+        record_sources_sha256=verified["record_sources_sha256"], records_replayed=sum(len(b.records) for b in bundles))
     assert report["pre_registration_sha256"] == manifest_key == sha256(manifest_path.read_bytes())
     assert report["configuration"]["hazard_per_minute"] == verified["replay_config"]["hazard_per_minute"]
     assert universe_file_sha == verified["universe_sha256"] == source["inventory_sha256"]
@@ -459,6 +464,14 @@ def test_the_execution_manifest_source_is_accepted_for_a_scored_report(tmp_path)
                      manifest=verified, registered=registry)
     with pytest.raises(BundleError, match="run_binding_pack_windows_mismatch"):  # defender-2 P2: envelope windows
         build_report(run_passes(sources_of(bundles), config, time_zones=zones), config, **scope,
+                     manifest=verified, registered=registry)
+    # Defender-2 P1: the declared pack with its terms, info and outcome-view records dropped in memory, under the
+    # honest labels (day, provenance, input hashes): the records replayed are not the manifest's.
+    cut = [replace(b, records=tuple(r for r in b.records if r.kind not in ("terms", "info_event", "outcome_view")))
+           for b in apply_manifest(verified, bundles)]
+    assert sum(len(b.records) for b in cut) < sum(len(b.records) for b in bundles)
+    with pytest.raises(BundleError, match="run_binding_pack_records_mismatch"):
+        build_report(run_passes(sources_of(cut), config, time_zones=zones), config, **scope,
                      manifest=verified, registered=registry)
 
 
@@ -691,7 +704,9 @@ def test_a_scored_report_records_the_pack_check_and_the_digests_it_bound():
         tzdata_zone_files_sha256=manifest["tzdata"]["zone_files_sha256"],
         scope_verifier="maker_core.replay.execution_manifest.verify_scored_scope",
         active_intervals_sha256=digest(manifest["active_intervals"]),
-        replay_config_sha256=digest(manifest["replay_config"]), bootstrap_replicates=100, bootstrap_seed=20260926)
+        replay_config_sha256=digest(manifest["replay_config"]), bootstrap_replicates=100, bootstrap_seed=20260926,
+        record_sources_sha256=manifest["record_sources_sha256"],
+        records_replayed=sum(1 for _ in day_source().records()))
     assert report["pack_check"]["universe_sha256"] == report["run_binding"]["time_zones_source"]["inventory_sha256"]
     assert report["pre_registration_sha256"] == digest(manifest)  # derived, never a free value (defender-2 D1)
 
@@ -756,7 +771,7 @@ NEXT = date(2026, 9, 28)
 
 
 def test_a_run_of_a_subset_of_the_manifest_days_is_refused():
-    zones, bound = pack(plans=[day_source(DAY).plan, day_source(NEXT).plan])
+    zones, bound = pack(sources=[day_source(DAY), day_source(NEXT)])
     with pytest.raises(BundleError, match="run_binding_pack_input_hashes_mismatch"):
         build_report(small_run(zones, "captured"), CONFIG, replicates=100, **bound)
     both = [day_source(DAY, "captured"), day_source(NEXT, "captured")]
@@ -811,7 +826,7 @@ def test_a_scored_day_whose_provenance_is_not_a_sealed_capture_is_refused(label)
 
 
 def test_the_manifest_days_must_be_its_dates_and_its_settlement_day_in_order():
-    zones, bound = pack(plans=[day_source(DAY).plan, day_source(NEXT).plan])
+    zones, bound = pack(sources=[day_source(DAY), day_source(NEXT)])
     manifest = bound["manifest"]
     both = run_passes([day_source(DAY, "captured"), day_source(NEXT, "captured")], CONFIG, time_zones=zones)
     hashes = manifest["input_hashes"]
@@ -879,8 +894,67 @@ def test_a_scored_report_under_another_bootstrap_or_registration_hash_is_refused
     assert report["pre_registration_sha256"] == digest(bound["manifest"])
 
 
+def test_the_record_digest_is_the_manifest_record_sources_shape():
+    """``RecordDigest`` streams ``digest([dict(r.source_hashes) for r in records])``, the shape ``build_manifest``
+    writes as ``record_sources_sha256``, for zero, one and many records."""
+    from maker_core.replay.v2.lockstep import RecordDigest
+    records = list(day_source().records()) + list(day_source(NEXT).records())
+    for given in ([], records[:1], records):
+        streamed = RecordDigest()
+        for record in given:
+            streamed.add(record)
+        assert streamed.summary() == dict(record_sources_sha256=digest([dict(r.source_hashes) for r in given]),
+                                          records=len(given))
+
+
+def _replaying(source, keep):
+    """``source`` with the same plan (day, provenance, input-hash labels) whose ``records()`` yields only ``keep``."""
+    return replace(source, records=lambda: (r for r in source.records() if keep(r)))
+
+
+def test_a_scored_run_whose_replayed_records_are_not_the_manifest_records_is_refused():
+    """Defender-2 P1 on the small fixture: the honest labels over other records (one record dropped, every trade
+    dropped, one record's sources changed) refuse; so does a run that carries no record digest."""
+    zones, bound = pack()
+    honest = day_source(DAY, "captured")
+    records = list(honest.records())
+    last = records[-1]
+    resourced = replace(last, source_hashes={"fictional": "0" * 64})
+    for source in (_replaying(honest, lambda r: r.sequence != last.sequence),
+                   _replaying(honest, lambda r: r.kind != "trade"),
+                   replace(honest, records=lambda: iter([*records[:-1], resourced]))):
+        run = run_passes([source], CONFIG, time_zones=zones)
+        assert run.replayed["record_sources_sha256"] != bound["manifest"]["record_sources_sha256"]
+        with pytest.raises(BundleError, match="run_binding_pack_records_mismatch"):
+            build_report(run, CONFIG, replicates=100, **bound)
+    run = small_run(zones, "captured")
+    assert run.replayed == dict(record_sources_sha256=bound["manifest"]["record_sources_sha256"],
+                                records=len(records))
+    for replayed in (None, {}, dict(run.replayed, records="1"), dict(run.replayed, extra=1)):
+        with pytest.raises(BundleError, match="run_binding_records_required"):
+            build_report(replace(run, replayed=replayed), CONFIG, replicates=100, **bound)
+    with pytest.raises(BundleError, match="run_binding_pack_manifest_invalid"):
+        build_report(run, CONFIG, replicates=100, registered=bound["registered"],
+                     manifest={k: v for k, v in bound["manifest"].items() if k != "record_sources_sha256"})
+
+
+def test_every_drive_of_a_run_must_read_the_same_records():
+    """A source whose ``records()`` yields other records on a later call (a cache or pre-filter that changes between
+    passes) refuses ``replay_records_unstable`` at the first matched-clock round."""
+    honest = day_source(DAY, "captured")
+    assert run_passes([honest], CONFIG, time_zones=FIXTURE_ZONES).trials  # the fixture has clock rounds
+    count = sum(1 for _ in honest.records())
+    calls = []
+
+    def records():  # the base drive reads every record; every later drive drops the last one
+        calls.append(1)
+        return (r for i, r in enumerate(honest.records()) if len(calls) == 1 or i < count - 1)
+    with pytest.raises(BundleError, match="replay_records_unstable"):
+        run_passes([replace(honest, records=records)], CONFIG, time_zones=FIXTURE_ZONES)
+
+
 def test_a_scored_run_whose_quote_markets_are_not_the_manifest_markets_is_refused():
-    zones, bound = pack(plans=[day_source(DAY).plan, day_source(NEXT).plan])
+    zones, bound = pack(sources=[day_source(DAY), day_source(NEXT)])
     both = run_passes([day_source(DAY, "captured"), day_source(NEXT, "captured")], CONFIG, time_zones=zones)
     report, _ = build_report(both, CONFIG, replicates=100, **bound)
     assert bound["manifest"]["markets"] and report["status"] == "PRE_REGISTERED_REPLAY"

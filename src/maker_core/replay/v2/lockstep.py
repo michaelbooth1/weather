@@ -12,8 +12,10 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
+import hashlib
 from types import MappingProxyType
 
+from maker_core.evidence.journal import canonical_bytes
 from maker_core.replay.bundle import Bundle, BundleError, CapturedRecord, Condition, _freeze, timestamp
 from maker_core.replay.bundle_v02 import GroupRecord, StreamBundle
 from maker_core.replay.payloads import decode
@@ -144,12 +146,48 @@ def items(source: DaySource) -> Iterable[tuple[datetime, list[Item]]]:
         yield at, [item for _, item in batch]
 
 
-def drive(sources, engines, *, time_zones, observers=()):
+class RecordDigest:
+    """The records one ``drive`` actually read, digested as they stream (R155 defender-2 D2).
+
+    ``hexdigest()`` equals ``journal.digest([dict(r.source_hashes) for r in records])`` over every record read, in
+    day order and, within a day, in reader order: the shape of the execution manifest's ``record_sources_sha256``
+    (``build_manifest``: every bundle's records in day order). It is accumulated incrementally, element by element
+    of that canonical JSON list, so no record is retained. Raw reader records only: a v0.2 group record counts once
+    (not once per member), and the day roll's derived descriptors are not records."""
+
+    def __init__(self):
+        self._sha = hashlib.sha256(b"[")
+        self.records = 0
+
+    def add(self, record):
+        raw = canonical_bytes(record.source_hashes)  # ends with "\n"; a list element does not
+        self._sha.update((b"," if self.records else b"") + raw[:-1])
+        self.records += 1
+
+    def hexdigest(self):
+        sha = self._sha.copy()
+        sha.update(b"]\n")
+        return sha.hexdigest()
+
+    def summary(self):
+        return dict(record_sources_sha256=self.hexdigest(), records=self.records)
+
+
+def _tapped(source: DaySource, digest: RecordDigest) -> DaySource:
+    def records():
+        for record in source.records():
+            digest.add(record)
+            yield record
+    return DaySource(source.plan, records)
+
+
+def drive(sources, engines, *, time_zones, observers=(), records=None):
     """Parse each day once and feed every engine and observer the same instants; then finish engines.
 
     ``time_zones`` (market_id -> IANA zone) drives the local-midnight descriptor refresh (``day_roll``,
     registration C13). It is required; ``day_roll.NO_REFRESH`` turns the refresh off and exists only for the
-    attribution re-run of the pre-F3 engine.
+    attribution re-run of the pre-F3 engine. ``records``, a ``RecordDigest``, digests every record the drive reads
+    (``pipeline.run_passes`` keeps it as ``Run.replayed``).
     """
     from maker_core.replay.v2.day_roll import NO_REFRESH, DayRoll
     roll = None if time_zones is NO_REFRESH else DayRoll(time_zones)
@@ -157,6 +195,8 @@ def drive(sources, engines, *, time_zones, observers=()):
         for engine in engines:  # the engine summary carries the roll's derived-descriptor digest (R155 Fable F5)
             engine.day_roll = roll
     sources = sorted(sources, key=lambda s: s.plan.day)
+    if records is not None:
+        sources = [_tapped(source, records) for source in sources]
     for source in sources:
         for engine in engines:
             engine.start_day(source.plan)

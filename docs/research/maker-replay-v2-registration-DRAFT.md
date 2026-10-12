@@ -147,7 +147,14 @@ only; no decision, P&L or base-pass prefix digest changes.
   caps, cash, hazard and book-gap fields (`run_binding_pack_config_mismatch`), the bootstrap replicates and seed
   are the manifest's (`run_binding_pack_bootstrap_mismatch`), and `registration_hash` is omitted or the manifest
   digest (`run_binding_pack_registration_mismatch`); `pre_registration_sha256` is that digest. `pack_check` adds
-  the `active_intervals` and `replay_config` digests and the bootstrap it ran. Scope of the check:
+  the `active_intervals` and `replay_config` digests and the bootstrap it ran. The records replayed are bound
+  (`execution_manifest.verify_scored_records`, R155 defender-2 D2): the input hashes are labels, so every drive of
+  the run digests the records it actually reads (`lockstep.RecordDigest`, `digest([dict(r.source_hashes) ...])` in
+  day order, kept as `Run.replayed`; a later drive that reads other records refuses `replay_records_unstable`), and
+  that digest must equal the manifest's `record_sources_sha256` (`run_binding_pack_records_mismatch`; a run without
+  it refuses `run_binding_records_required`). `pack_check` records it and the record count. It binds the record
+  sequence and each record's sources, not its payload: a payload edited in memory under the same `source_hashes` is
+  not caught here (the sealed readers re-hash every payload at load). Scope of the check:
   this binds the run to the manifest the caller passes; it does not re-run `verify_manifest`, and enrollment is
   recorded, not enforced, so a fabricated manifest still yields a report, with a foreign `manifest_sha256` and
   `manifest_enrolled` false. The runner must read the manifest through `read_authorization` (which refuses an

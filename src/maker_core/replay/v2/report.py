@@ -182,6 +182,8 @@ def build_report(run, config, *, replicates=2000, seed=20260926, registration_ha
     every plan day declared with the manifest's ``active_intervals`` (``apply_manifest``), the quote-day markets, the
     ``replay_config`` fields, ``replicates``/``seed`` equal to ``bootstrap_replicates``/``bootstrap_seed``, and
     ``registration_hash`` either omitted or equal to the manifest digest; ``pre_registration_sha256`` is that digest.
+    The records the run replayed (``Run.replayed``) must digest to the manifest's ``record_sources_sha256``
+    (``execution_manifest.verify_scored_records``, R155 defender-2 D2), not only carry its input-hash labels.
     This function does not re-verify the manifest; the caller must, and an auditor matches
     ``pack_check.manifest_sha256`` against the enrolled manifest. A FIXTURE_ONLY report does not read the pack (``pack_check`` is ``None``)."""
     from maker_core.replay.v2.pipeline import verify_run_binding
@@ -190,12 +192,15 @@ def build_report(run, config, *, replicates=2000, seed=20260926, registration_ha
     run_binding = verify_run_binding(run, config, scored=not fixture_only)  # owner T2(a): no binding, no report
     pack_check = None
     if not fixture_only:  # the F2 remainder: the zone source must be the verified pack's, not self-declared
-        from maker_core.replay.execution_manifest import verify_scored_pack, verify_scored_scope
+        from maker_core.replay.execution_manifest import (verify_scored_pack, verify_scored_records,
+                                                          verify_scored_scope)
         pack_check = verify_scored_pack(run_binding, plan, markets, manifest=manifest, registered=registered)
         # R155 defender-2 D1: windows, markets, configuration, bootstrap and registration hash are the manifest's.
         pack_check.update(verify_scored_scope(plan, config, manifest=manifest, replicates=replicates, seed=seed,
                                               registration_hash=registration_hash,
                                               manifest_sha256=pack_check["manifest_sha256"]))
+        # R155 defender-2 D2: the records the run actually replayed are the manifest's.
+        pack_check.update(verify_scored_records(getattr(run, "replayed", None), manifest=manifest))
         registration_hash = pack_check["manifest_sha256"]
     sidecar = Sidecar(sidecar_path)
     try:

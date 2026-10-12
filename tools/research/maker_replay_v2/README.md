@@ -80,7 +80,11 @@ exactly (all quote days and the settlement day; a subset, a superset or a re-exp
 `verify_scored_scope` binds the scope to the manifest (R155 defender-2 D1): declared windows equal to the manifest's
 `active_intervals` (build the sources from `apply_manifest(manifest, bundles)`), the quote-day `markets`, the
 `replay_config` caps, hazard and book gap, the bootstrap replicates and seed, and a registration hash that is
-omitted or the manifest digest. The report (format v0.2) records the check
+omitted or the manifest digest. `verify_scored_records` (D2) binds the records actually replayed: every drive digests
+the records it reads (`Run.replayed`; drives that read different records refuse `replay_records_unstable`), and the
+digest must equal the manifest's `record_sources_sha256`, so records dropped or swapped under honest input-hash labels
+refuse `run_binding_pack_records_mismatch` (source hashes and order are bound, payloads are not; the sealed readers
+re-hash payloads at load). The report (format v0.2) records the check
 and the digests it bound as `pack_check`, with `manifest_enrolled` (whether the manifest digest is in
 `approved_registrations`; recorded, not enforced). It does not re-verify the manifest: the runner must
 (`read_authorization`, then `verify_manifest`). For
