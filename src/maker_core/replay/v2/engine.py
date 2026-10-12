@@ -51,6 +51,7 @@ class EngineV2(Kernel):
         self.day = None
         self.finished = False
         self.timer_pops = self.stale_timers = self.wakes = self.instants = 0
+        self.day_roll = None  # the ``day_roll.DayRoll`` that fed this engine (``lockstep.drive``); None: no refresh
         for cid, state in sorted(self.states.items()):
             for start, end in (*state.windows, *state.clock):
                 self._push(start, cid, "fixed")
@@ -240,4 +241,5 @@ class EngineV2(Kernel):
                     decisions=self.decision_count, decision_sha256=self.decision_sha.hexdigest(),
                     intervals=self.interval_count, fills=len(self.fills), final_cash=self.cash,
                     exclusions=dict(sorted(self.exclusions.counts.items())),
-                    exclusions_sha256=self.exclusions.sha.hexdigest())
+                    exclusions_sha256=self.exclusions.sha.hexdigest(),
+                    day_roll=None if self.day_roll is None else self.day_roll.summary())

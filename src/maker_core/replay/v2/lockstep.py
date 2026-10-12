@@ -12,8 +12,11 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
+import hashlib
+import json
 from types import MappingProxyType
 
+from maker_core.evidence.journal import canonical_bytes
 from maker_core.replay.bundle import Bundle, BundleError, CapturedRecord, Condition, _freeze, timestamp
 from maker_core.replay.bundle_v02 import GroupRecord, StreamBundle
 from maker_core.replay.payloads import decode
@@ -31,6 +34,7 @@ class Item:
     value: object
     error: str | None
     sequence: int
+    derived: str | None = None  # "local_midnight" for a day-roll descriptor (``day_roll``); None when captured
 
 
 @dataclass(frozen=True)
@@ -143,13 +147,106 @@ def items(source: DaySource) -> Iterable[tuple[datetime, list[Item]]]:
         yield at, [item for _, item in batch]
 
 
-def drive(sources, engines, *, observers=()):
-    """Parse each day once and feed every engine and observer the same instants; then finish engines."""
+def _materialise(record, extra=None):
+    """``(identity_bytes, identity, rebuilt)`` for one reader record (R155 defender-3 R1, defender-4 D-1).
+
+    ``identity_bytes`` is the canonical JSON of the record's identity (``record_identity``, plus ``extra``);
+    ``identity`` is those bytes parsed back. ``rebuilt`` is a fresh, frozen ``CapturedRecord`` or ``GroupRecord``
+    made from exactly the bytes that were hashed: the identity bytes and the payload's canonical bytes, through
+    ``json.loads`` and ``record_from_row``. The payload's sha is compared, on those plain types, with the
+    ``payload_sha256`` the identity carries; a mismatch, or a payload with no canonical form, refuses
+    ``replay_payload_hash_mismatch``. So whatever object the caller handed in (a mapping subclass whose ``items()``
+    and ``[]`` disagree, a ``datetime`` where the canonical text is a string, a ``str`` subclass with its own
+    ``__eq__``), the engine reads only plain JSON types whose bytes are the ones digested."""
+    try:
+        payload = canonical_bytes(record.payload)
+    except (TypeError, ValueError) as exc:
+        raise BundleError("replay_payload_hash_mismatch") from exc
+    owner = "group_id" if isinstance(record, GroupRecord) else "condition_id"
+    fields = {"sequence": record.sequence, "captured_at": record.captured_at, owner: getattr(record, owner),
+              "kind": record.kind, "payload_sha256": record.payload_sha256, "source_hashes": record.source_hashes}
+    raw = canonical_bytes(dict(fields, **(extra or {})))
+    identity = json.loads(raw)
+    if hashlib.sha256(payload).hexdigest() != identity["payload_sha256"]:
+        raise BundleError("replay_payload_hash_mismatch")
+    return raw, identity, record_from_row(dict(identity, payload=json.loads(payload)))
+
+
+def record_identity(record) -> dict:
+    """One reader record's identity, as plain JSON (R155 defender-3 R1): ``sequence``, ``captured_at`` (ISO text),
+    ``condition_id`` (v0.1) or ``group_id`` (v0.2 group record), ``kind``, ``payload_sha256`` and
+    ``source_hashes``. The record digest binds each one together with its day (``RecordDigest.add``). The payload is
+    re-hashed first: a payload whose canonical-JSON sha is not its ``payload_sha256`` refuses
+    ``replay_payload_hash_mismatch`` (the sealed readers check the same at load; an in-memory ``Bundle.records`` or
+    ``DaySource.records`` is not a sealed reader). The sha binds the payload's canonical bytes, not the in-memory
+    object: a digested drive feeds the engine the record rebuilt from those bytes (``_materialise``, R155
+    defender-4 D-1), so the sha stands for the payload actually consumed there."""
+    return _materialise(record)[1]
+
+
+class RecordDigest:
+    """The records one ``drive`` actually read, digested as they stream (R155 defender-2 D2, defender-3 R1).
+
+    ``hexdigest()`` equals ``journal.digest([dict(record_identity(r), day=d.isoformat()) for d, r in records])``
+    over every record read with its plan day, in consumption order: day order and, within a day, reader order.
+    That is the shape of the execution manifest's ``record_identity_sha256`` (``build_manifest`` feeds every
+    bundle's records, in day order and with the bundle's day, through this class). Each element binds the record's
+    day (R155 defender-4 N-1: a record moved to an adjacent day changes the digest even though the flat sequence is
+    kept), sequence, capture time, condition or group, kind, payload sha (re-hashed against the payload,
+    ``replay_payload_hash_mismatch``) and sources, so a substituted, re-ordered, duplicated or re-priced record
+    changes the digest even when the count and every ``source_hashes`` are kept (records of one sealed segment share
+    their ``source_hashes``). ``add`` returns the record rebuilt from the digested bytes, which is what a digested
+    drive consumes (R155 defender-4 D-1). It is accumulated incrementally, element by element of that canonical
+    JSON list, so no record is retained. Raw reader records only: a v0.2 group record counts once (not once per
+    member), and the day roll's derived descriptors are not records."""
+
+    def __init__(self):
+        self._sha = hashlib.sha256(b"[")
+        self.records = 0
+
+    def add(self, record, *, day):
+        raw, _, rebuilt = _materialise(record, {"day": day.isoformat()})
+        self._sha.update((b"," if self.records else b"") + raw[:-1])  # raw ends with "\n"; a list element does not
+        self.records += 1
+        return rebuilt
+
+    def hexdigest(self):
+        sha = self._sha.copy()
+        sha.update(b"]\n")
+        return sha.hexdigest()
+
+    def summary(self):
+        return dict(record_identity_sha256=self.hexdigest(), records=self.records)
+
+
+def _tapped(source: DaySource, digest: RecordDigest) -> DaySource:
+    """``source`` digested as it streams; it yields each record rebuilt from its digested bytes (defender-4 D-1)."""
+    def records():
+        for record in source.records():
+            yield digest.add(record, day=source.plan.day)
+    return DaySource(source.plan, records)
+
+
+def drive(sources, engines, *, time_zones, observers=(), records=None):
+    """Parse each day once and feed every engine and observer the same instants; then finish engines.
+
+    ``time_zones`` (market_id -> IANA zone) drives the local-midnight descriptor refresh (``day_roll``,
+    registration C13). It is required; ``day_roll.NO_REFRESH`` turns the refresh off and exists only for the
+    attribution re-run of the pre-F3 engine. ``records``, a ``RecordDigest``, digests every record the drive reads
+    (``pipeline.run_passes`` keeps it as ``Run.replayed``).
+    """
+    from maker_core.replay.v2.day_roll import NO_REFRESH, DayRoll
+    roll = None if time_zones is NO_REFRESH else DayRoll(time_zones)
+    if roll is not None:
+        for engine in engines:  # the engine summary carries the roll's derived-descriptor digest (R155 Fable F5)
+            engine.day_roll = roll
     sources = sorted(sources, key=lambda s: s.plan.day)
+    if records is not None:
+        sources = [_tapped(source, records) for source in sources]
     for source in sources:
         for engine in engines:
             engine.start_day(source.plan)
-        for at, batch in items(source):
+        for at, batch in (items(source) if roll is None else roll.items(source)):
             for observer in observers:
                 observer.instant(at, batch)
             for engine in engines:

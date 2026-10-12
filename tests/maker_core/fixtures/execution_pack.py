@@ -13,14 +13,17 @@ from .replay_scenario import Scenario
 from .replay_bundle import seal
 
 
-def calibration_days(root, minutes=480, markets=("a",), occupied=10):
+def calibration_days(root, minutes=480, markets=("a",), occupied=10, provenance="synthetic"):
     bundles = []
     for day in CALIBRATION_DATES:
         scenario = Scenario(day, markets=markets, minutes=minutes)
         scenario.records = [r for r in scenario.records if r["kind"] == "descriptor"]
-        # O(n) fixture construction, independent of the calibration implementation.
+        # O(n) fixture construction, independent of the calibration implementation. Sequences continue after the
+        # kept descriptors (with several markets their sequences are not 0..k-1).
+        next_sequence = [1 + max(r["sequence"] for r in scenario.records)]
         def add(market, kind, seconds, payload):
-            scenario.records.append(dict(sequence=len(scenario.records), captured_at=scenario.at(seconds).isoformat(),
+            next_sequence[0] += 1
+            scenario.records.append(dict(sequence=next_sequence[0]-1, captured_at=scenario.at(seconds).isoformat(),
                 condition_id=scenario.cid(market), kind=kind, payload=payload,
                 payload_sha256=sha256(canonical_bytes(payload)), source_hashes={"fictional": "0"*64}))
         for market in markets:
@@ -29,7 +32,7 @@ def calibration_days(root, minutes=480, markets=("a",), occupied=10):
             for minute in range(min(occupied, minutes)):
                 add(market, "trade", minute*60+1, dict(trade_id=f"{day}-{minute}", outcome="YES", price=".01",
                     size=".1", aggressor_side="BUY", traded_at_utc=scenario.at(minute*60+1).isoformat()))
-        bundles.append(scenario.bundle(root/day.isoformat()))
+        bundles.append(scenario.bundle(root/day.isoformat(), provenance))
     return tuple(bundles)
 
 
@@ -60,27 +63,41 @@ def measurement(measured=MEASURED, calibration_sha256="0"*64):
                 calibration_sha256=calibration_sha256, derived=ceilings.derive(dates))
 
 
-def pack(root, measured=MEASURED, authorization_id="maker-replay-2026-10-15-v2"):
+def pack(root, measured=MEASURED, authorization_id="maker-replay-2026-10-15-v2", zones=None):
+    """``zones`` (market -> inventory ``local_timezone``) defaults to one market ``a`` in UTC. Every zone must be
+    UTC+0 at the fictional closes (the descriptor check); each market is quoted and calibrated."""
+    zones = dict(zones or {"a": "UTC"})
+    markets = tuple(sorted(zones))
     calibration_root, panel_root = root/"calibration-bundles", root/"panel"
     calibration_root.mkdir()
     panel_root.mkdir()
-    cb = calibration_days(calibration_root, minutes=2, occupied=1)
+    # ``build_manifest`` admits only sealed captures (R155 defender-2 D4): the fictional pack carries that label.
+    cb = calibration_days(calibration_root, minutes=2, occupied=1, markets=markets, provenance="captured")
     quote_markets = root/"quote-markets.json"
-    quote_hash = write_json(quote_markets, ["a"])
-    calibration = calibrate(cb, ["a"])
+    quote_hash = write_json(quote_markets, list(markets))
+    calibration = calibrate(cb, list(markets))
     calibration["quote_inventory_sha256"] = quote_hash
     calibration_path = root/"calibration.json"
     calibration_hash = write_json(calibration_path, calibration)
     bundles, inventory = [], []
     for day in (*QUOTE_DATES, SETTLEMENT_DATE):
-        scenario = Scenario(day, markets=("a",), minutes=600)
+        scenario = Scenario(day, markets=markets, minutes=600)
         for r in scenario.records:
             if r["kind"] == "descriptor":
                 r["payload"]["horizon_days"] = 1
                 r["payload_sha256"] = sha256(canonical_bytes(r["payload"]))
-        bundles.append(scenario.bundle(panel_root/day.isoformat()))
-        inventory.append(dict(condition_id=scenario.cid("a"), market_id="a", domain_id="fictional",
-                              target_date=(day+timedelta(days=1)).isoformat(), local_timezone="UTC"))
+        if day != SETTLEMENT_DATE:  # R155 defender-3 N3: books and trades, so a scored run quotes and fills
+            for m in markets:
+                for minute in range(10, 70):  # a fresh book each minute, before the 05:00 UTC maintenance window
+                    scenario.book(m, minute*60)
+                    if minute % 20 == 0:  # through-the-book prints on both outcomes, as the v2 engine scenario
+                        scenario.trade(m, minute*60 + 5, price=".40", size="10", trade_id=f"{day}-{m}-{minute}y")
+                        scenario.trade(m, minute*60 + 35, price=".40", size="10", outcome="NO",
+                                       trade_id=f"{day}-{m}-{minute}n")
+        bundles.append(scenario.bundle(panel_root/day.isoformat(), "captured"))
+        inventory.extend(dict(condition_id=scenario.cid(m), market_id=m, domain_id="fictional",
+                              target_date=(day+timedelta(days=1)).isoformat(), local_timezone=zones[m])
+                         for m in markets)
     inventory.sort(key=lambda r: r["condition_id"])
     universe_path = root/"universe.json"
     inventory_hash = write_json(universe_path, inventory)

@@ -87,6 +87,125 @@ motivated by an outcome: no panel data has been read, and no economic result exi
 | C8 | **Two gates before signature** (executability, reachability) | governance | The exam was signed before it was measured, and Clarification 3 showed that a screen-suppressed run cannot reach MET. | None; a failed gate stops signature, not a scored run. |
 | C9 | **Settlement-only 10-15** in addition to 10-14 | operational | `informed-v0` quotes only T+1/T+2, so its 10-13 positions settle on target 10-14. That settlement fact may be captured on the 10-15 UTC day. Without it, those fills stay unresolved and their cells drop out. The signed exam had the same latent gap. | Fewer unresolved-fill exclusions; no quote minutes added. |
 | C10 | **Small-cluster sensitivity** reported beside each economic cell (§12) | reporting | With 14 date clusters the percentile bootstrap probably under-covers (plan B audit §C). | None: the decision rule is unchanged. |
+| C11 | **Own legs in the decision book:** the decision book holds each resting leg on its token's bid array at its price and mirrored on the other token's ask array at `1 − price`, creating levels and summing sizes (`compose_book`) | engine correction (defect) | Defect found in code by the shadow-gate review (2026-10-06): the frozen loop added own size only at existing public levels and only to the YES arrays, so the policy decided on a book that is neither the public book nor the venue's book. Live parity: the venue book shows own orders on both token books (RE-1, YES/NO mirror). Not motivated by any outcome: no panel date had been read or run. | Policy behaviour differs from the frozen loop wherever a leg rests at a price without public liquidity, including the qualified mid and the HOLD/requote path. An own leg touched or crossed by the public book without a print now pulls `CROSSED_BOOK` (no same-instant replacement) where the frozen loop pulled `TOUCH_BUFFER` and replaced; on the venue that state is an at-price fill, which paper does not credit. The values of the registered estimands change in every quoting arm (informed-v0, blind_re1 and clock_only); their definitions do not. Not comparable with the frozen engine on those decisions. |
+| C12 | **Replacement book:** the same-instant replacement after a replacement-reason CANCEL decides on the public book, without the just-cancelled own legs | engine correction (defect) | Defect found in code by the shadow-gate review (2026-10-06): the frozen loop re-used the pre-cancel book, so the cancelled own size counted as competing liquidity and displayed depth for the replacement. Live parity: live decides again only after the cancel is acknowledged, on a book without those orders. Not motivated by any outcome. | Replacement QUOTEs differ from the frozen loop where cancelled legs sat on public levels; the replacement still happens at the cancel instant (live: after acknowledgement), and that timing is not changed. |
+| C13 | **Local-midnight descriptor refresh:** at each market's local midnight the engine's inputs carry a derived descriptor whose `horizon_days` follows the new local date; a later captured descriptor supersedes it | input-construction correction | Found by the shadow-gate review (2026-10-06): captured descriptors kept the previous day's horizon for 15-120 min after local midnight (rediscovery cadence), so horizon-gated decisions and the lead-0 boundary lagged the market's local date. Live parity: the live executor applies the same function. Not motivated by any outcome: no panel date had been read or run. | Horizon-gated decisions in `[local midnight, next captured descriptor)` differ from the frozen loop. If the exam's per-day reader applies the day-open re-emission, decisions in `[00:00, first fresh record)` of each UTC day differ too (class A7). |
+| C15 | **Horizon clause applied mechanically:** active intervals end at the market's local midnight when the latest captured **or derived** (C13) descriptor leaves leads 1..2; the resting legs are withdrawn at that interval end; `blind_re1` gets the same horizon gate as `informed-v0` (`HORIZON_NOT_ELIGIBLE`) | input-construction and engine correction | Owner decision Q2(a) full, 2026-10-08. Found by the gate-logic review: the manifest builder wrote whole-day intervals minus 05-08Z, so the §4 text ("intervals derive mechanically from descriptors") did not hold, T+0 minutes after local midnight were scored as NO_QUOTE instead of exclusions, legs rested until their next own wake, and `blind_re1` (no `eligible_horizons`) kept quoting T+0 bands the informed arm refuses. Not motivated by any outcome: no panel date had been read or run. | Fewer active minutes (T+0 after local midnight becomes `horizon_outside_1_2` exclusions), no T+0 quoting in any arm, legs pulled `OUTSIDE_ACTIVE_INTERVAL` at local midnight. Re-run attributed as its own class **A8** against W1+W2+F3 (not folded into A6). A8 is not self-labelling: a difference is A8 only where the engine's own horizon read is missing or outside 1..2, and the re-run fails on any decision taken at such a horizon other than the `OUTSIDE_ACTIVE_INTERVAL` cancel at the instant the horizon leaves 1..2, on legs still resting after that instant, or on any window cut where the engine reads 1..2. The A8 fixtures show zero quote, fill and cash deltas; the value effects rest on the hand-built engine tests. Exclusion precedence, gate ordering and the v1 manifest change are disclosed in §4. |
+
+C11-C13 are engine rulings W1(a), W2(a) and F3 (owner decision 2026-10-07); C15 is ruling Q2(a) (owner decision
+2026-10-08; the number C14 is reserved for R1). They land before signature; if the
+engine fix misses the signature date, the signature slips (no "known deviation" fallback). Each was re-run against
+the frozen engine on fictional fixtures only, and every changed decision was attributed to its allowed class
+(A1-A3 for C11, A5 for C12, A6 for C13; C15 against the C11-C13 engine, class A8), directly or as a cascade from a direct difference; an unattributed
+difference fails the re-run (`tools/research/maker_replay_v2/attribution.py`, pinned by
+`tests/maker_core/test_replay_v2_attribution.py`). C11 also adds the diagnostic `OWN_LEG_CROSSED`: a recorded
+`CANCEL CROSSED_BOOK` at which the public book alone is not crossed. It is the paper analogue of a live at-price
+fill, is reported per day, and is never counted as a fill. The fixture re-runs bind no panel value.
+
+C13's inputs are bound as follows (owner decisions T1(a), T2(a) and T3(a), 2026-10-09). They add binding fields
+only; no decision, P&L or base-pass prefix digest changes.
+- **Zone data (T1):** `tzdata` is a pinned dependency (`bundle.TZDATA_VERSION`, the same pin in `pyproject.toml`
+  and `requirements.txt`). Zone names and zone rules come only from that package, never from the platform's
+  TZPATH, so local midnights do not depend on the machine. The run binding records the tzdata version, its IANA
+  release and the SHA-256 of each zone file the run used. A different installed tzdata refuses the run
+  (`tzdata_version_unpinned`), and so does an imported `tzdata` module that is not the installed distribution's
+  (its `__version__` differs, or its file is not in the distribution's package directory; a sourceless `.pyc`-only
+  install is accepted; `tzdata_package_mismatch`).
+  Scope (R155 defender-2 D5): this holds for the engine, the day roll, the manifest and the exporter's envelope,
+  not for every path that writes bundle content. These still read the platform zone (`MarketSpec.tz`, a
+  `zoneinfo.ZoneInfo` that may use the host TZPATH): the v0.2 exporter's event-selection lead and the descriptor
+  `horizon_days` it writes (`maker_replay_bundle_v02.py`, the same value; kept for row-for-row equivalence with the
+  frozen v0.1 projection), and the live plugin's `evaluate_event` paths the exporter calls
+  (`maker_plugin_runner.py` lead, `maker_plugin/universe.py` horizon filter and descriptor `close_at_utc`,
+  `maker_plugin/fair_value.py` lead that picks served versus bulletin fair value). The descriptor `horizon_days`
+  and `close_at_utc` are re-checked against the pinned zone when the manifest is built
+  (`universe_target_descriptor_mismatch`). The fair-value lead is not re-checked: its outputs are bound by payload
+  and source hashes only, so on a host whose platform zone rules differ from the pinned tzdata near a local
+  midnight the captured `outcome_view` could reflect another lead. Not re-checked in this round; it is the live
+  plugin's semantics and a lead for a later review, not a closed finding.
+- **Run binding (T2):** `pipeline.run_passes` copies the zone map once and binds the refresh flag (always on;
+  `day_roll.NO_REFRESH` is refused), the exact market-to-zone map, its SHA-256 and its source, the tzdata block and
+  a SHA-256 of the run's own days, provenance, input hashes, markets, report configuration and the zone map it
+  actually drove with (kept as `Run.time_zones`, with its source) into `run_binding`,
+  with a SHA-256 over all of them, and the report carries it. The report refuses a run without that binding, with
+  another run's binding (also one from a run with the same inputs driven with another map), with the refresh off, with an altered map or with a tzdata block that differs from the one
+  it recomputes from the zone bytes it loads. A scored (non-fixture) report also requires the full source that
+  `execution_manifest.market_time_zones` records (builder, `registry_checked`, inventory and registry digests).
+  This stops accidental misuse: a run that bypasses `run_passes`, passes a hand-made zone map or reuses a binding
+  produces no scored report. Those checks are integrity only: code can still construct a forged source or
+  recompute every digest. So a scored report also takes the execution manifest that `verify_manifest` returned for
+  the pack and the domain registry (`build_report(..., manifest=, registered=)`); the inventory is the manifest's
+  `universe`, never a free argument. `execution_manifest.verify_scored_pack` takes the run plan and requires every
+  plan day to be a sealed capture (provenance `captured`, `run_binding_pack_provenance_unsealed`), the manifest's
+  `input_hashes` to be exactly its `dates` plus its `settlement_only_date`, in order
+  (`run_binding_pack_days_mismatch`), and the plan's per-day input hashes to equal them exactly: every quote day
+  and the settlement day, no subset, no superset, no re-exported bundle (`run_binding_pack_input_hashes_mismatch`;
+  R155 Fable F1). It requires `digest(universe)` to equal the
+  manifest's `universe_sha256` (the universe file is canonical JSON, so its file sha and the run source's
+  `inventory_sha256` are one hash), re-derives the map (`verify_registered_zones`: the source must be exactly the
+  record `market_time_zones` would write, the bound map the universe's map, the registry and per-market zone
+  agreement re-checked, every plan condition a run market and every run condition a universe row of its market),
+  and requires the run's tzdata block to equal the manifest's `tzdata` record. Otherwise it refuses
+  (`run_binding_pack_required`, `run_binding_pack_manifest_invalid`, `run_binding_pack_universe_mismatch`,
+  `run_binding_zone_source_mismatch`, `run_binding_zone_map_mismatch`, `run_binding_inventory_mismatch`,
+  `run_binding_pack_tzdata_mismatch`, or the `market_time_zones` codes). The report (format v0.2) records the check
+  as `pack_check`: the manifest digest (`journal.digest` of the parsed document; it is the manifest file's sha only
+  when the file was written canonically by `pack_io.write_json`: `build_report` reads no file, so for other bytes
+  the binding is this canonical digest plus the enrollment lookup, not the file's sha; R155 defender-2 D3. F4
+  therefore takes no caller-supplied sha argument, which the caller could compute from the document, and enforces
+  enrollment of `digest(manifest)` alone, as below), whether that
+  digest is enrolled (`approved_registrations`), the digest of the `input_hashes` it matched, and the universe,
+  registry and tzdata zone-file digests. The run's scope is bound too (`execution_manifest.verify_scored_scope`,
+  R155 defender-2 D1, as v1's runner binds it with `authorization.bind_scope`): every plan day is declared with
+  exactly the manifest's `active_intervals` (`apply_manifest`; envelope or other windows refuse
+  `run_binding_pack_windows_mismatch`), the quote-day markets are the manifest's `markets`
+  (`run_binding_pack_markets_mismatch`), the report configuration equals the manifest's `replay_config` on the
+  caps, cash, hazard and book-gap fields (`run_binding_pack_config_mismatch`), the bootstrap replicates and seed
+  are the manifest's (`run_binding_pack_bootstrap_mismatch`), and `registration_hash` is omitted or the manifest
+  digest (`run_binding_pack_registration_mismatch`); `pre_registration_sha256` is that digest. `pack_check` adds
+  the `active_intervals` and `replay_config` digests and the bootstrap it ran. The records replayed are bound
+  (`execution_manifest.verify_scored_records`, R155 defender-2 D2 and defender-3 R1): the input hashes are labels,
+  so every drive of the run digests the records it actually reads (`lockstep.RecordDigest`,
+  each `record_identity(r)` with its day, in consumption order, kept as `Run.replayed`; a later drive that reads other
+  records refuses `replay_records_unstable`), and that digest must equal the manifest's `record_identity_sha256`
+  (`run_binding_pack_records_mismatch`; a run without it refuses `run_binding_records_required`), which
+  `build_manifest` writes with the same class over the pack's records in day order. A record's identity is its
+  day, sequence, capture time, condition (or v0.2 group), kind, payload sha and sources, and each payload is
+  re-hashed against its sha as it is read (`replay_payload_hash_mismatch`). Records of one sealed segment share their
+  `source_hashes`, so binding sources alone bound only the count; the identity digest binds each record, and a
+  substituted, duplicated, re-ordered or day-moved record, or one with other payload bytes, refuses with the count
+  kept. The digest binds canonical bytes, not in-memory objects, so the drive feeds the engine each record rebuilt
+  from exactly the digested bytes (R155 defender-4 D-1): an object that serialises honestly but would decode
+  otherwise scores as the honest record. `pack_check` records the
+  digest and the record count. Every one of these checks reads one plain copy of the manifest parsed back from its
+  canonical JSON, the bytes its digest covers (R155 defender-3 R2), so a mapping that answers lookups differently
+  from what it serialises is checked on its digested content. Scope of the check:
+  this binds the run to the manifest the caller passes; it does not re-run `verify_manifest`. Enrollment is
+  enforced (owner policy F4, R155; no escape hatch): a scored report whose `digest(manifest)` is not in
+  `approved_registrations` refuses `run_binding_pack_manifest_unenrolled` (checked last, before the sidecar opens),
+  so a fabricated manifest yields no scored report. A manifest is enrollable for scoring only by its canonical
+  digest, that is, as `pack_io.write_json` output: `read_authorization` looks up the file's sha and `build_report`
+  looks up `digest(manifest)`, and both pass only when they are equal. `build_report` checks the key only, not the
+  enrolled owner value (R155 defender-3 N2); `read_authorization` compares the owner, and the digest pins the
+  content. The binding is content, not a file: the runner must verify the file bytes against the enrolled sha
+  (`read_authorization`, which refuses an unenrolled or mismatched hash) before it parses them, then
+  `verify_manifest`. The descriptor checks on the bundles run when the pack is built and verified. The scored check reads the record digest from the run binding (format v0.4 `records`, R155 defender-3
+  R3), not from a field a caller can swap, and a FIXTURE_ONLY report refuses a registration hash
+  (`fixture_report_registration_hash`, N1). Deliberately not bound (R155 defender-3 N4): the resource `ceilings`
+  only refuse a run that exceeds them, so they change no output; v0.2 `groups` cannot differ from a v0.1-built
+  manifest without changing the input hashes; and a plan dropping a condition must drop or substitute its records,
+  which the record digest refuses.
+- **Sealed captures only (R155 defender-2 D4):** `build_manifest` refuses any panel or calibration bundle whose
+  provenance is not `captured` (`manifest_bundle_not_captured`), so a scored run never relabels a bundle in memory.
+  The fictional execution-pack fixture seals its bundles with that label; it is a fixture label, not real capture.
+- **Manifest tzdata record (T1, F5b):** `build_manifest` records `tzdata`, the `bundle.tzdata_binding` block of
+  every inventory zone (version, IANA release, `tzpath_used=False`, zone-file SHA-256s). `verify_manifest` rebuilds
+  the manifest, so one built under another tzdata or other zone bytes refuses.
+- **Registry (T3):** `market_time_zones` requires `registered=` (the domain's market-to-zone registry). Omitting it
+  is an error; `None` or a non-mapping refuses `market_time_zone_registry_required`. A market missing from the
+  registry, or registered under another name, is refused.
+- **Day gaps (Q2 N1, decided (a), 2026-10-09):** across a missing panel day the day roll carries the last lead
+  (current behaviour). It is no longer an open owner item.
 
 Explicitly **not** changed: the 10 s submit freshness gate (still applied at every decision), the 60 s replacement
 cooldown (still not scheduled as an event), every profile parameter, the strict net screen, the hazard recipe and
@@ -99,15 +218,43 @@ convention. Also unchanged: the shared portfolio carried across all dates, never
   stays complete. The universe rule acts only through active intervals in the execution manifest.
 - A condition is **active** at UTC minute t when all of these hold:
   - t is on a quote-panel date;
-  - the latest captured descriptor for the condition at or before t has `horizon_days` 1 or 2;
+  - the latest captured or derived descriptor for the condition at or before t has `horizon_days` 1 or 2. A derived
+    descriptor recomputes `horizon_days` at each market's local midnight (time zone database rule, from the pinned
+    `tzdata` only; §3 after C13) and is otherwise identical to the descriptor before it (C13). Before a condition's
+    first descriptor it is inactive (`missing_descriptor`);
   - t is outside 05:00–08:00 UTC;
   - the condition's local target date is on or before 2026-10-14;
   - the condition is not in an owner-excluded market-date (Austin, target 2026-10-03; §2).
-  The manifest builder computes intervals mechanically from the panel bundles' descriptors. Nothing is chosen by
-  judgment.
+  The manifest builder computes intervals mechanically from the panel bundles' descriptors (C15): it replays their
+  descriptor records through the engine's own local-midnight reader (`maker_core.replay.v2.horizon`, `day_roll`), so
+  an interval ends at the same local midnight at which the engine's `horizon_days` leaves 1..2. Nothing is chosen by
+  judgment. The v0.2 exporter's per-condition `active_from`/`active_until` envelope is the single-day form of the same
+  rule, `[local midnight of target − 2, local midnight of target)`, clipped to the UTC day.
+- Both arms are gated alike: `informed-v0` by its `eligible_horizons` (1, 2) and `blind_re1` by the same set in the
+  engine (`HORIZON_NOT_ELIGIBLE`), so the contrast never compares T+0 quoting with a refusal by construction.
 - Inactive minutes are exclusions, never zeros. A band that leaves the universe (T+1 → T+0 at local midnight) has its
-  resting legs withdrawn by the engine at the interval end. Its inventory is held to settlement, as before.
-- The inventory lists every discovered condition with its exclusion reason: `HORIZON_OUTSIDE_1_2`, `MAINTENANCE_UTC`,
+  resting legs withdrawn by the engine at the interval end (`OUTSIDE_ACTIVE_INTERVAL`). Its inventory is held to
+  settlement, as before.
+- Disclosure: the calibration hazard count (`calibration.py`, `outside_t1_t2`) still reads **captured** descriptors
+  only, with no derived descriptor and no horizon clause. The hazard recipe is inherited unchanged from the signed
+  exam; the count's T+1/T+2 denominator can therefore include up to one rediscovery lag (15-120 min) of T+0 time per
+  band after local midnight.
+- Exclusion takes precedence over maintenance: an ineligible run (`horizon_outside_1_2`, `missing_descriptor`) is one
+  exclusion row over its whole span, including any 05:00–08:00 UTC minutes it covers; the maintenance split applies
+  only to eligible runs, so no minute is listed twice and maintenance is never the reason for an ineligible minute.
+- Gate ordering (disclosure): `blind_re1`'s horizon gate runs in `Kernel.tick` before `blind_tick`, so a blind band
+  outside 1..2 is pulled before its runtime is consulted; `informed-v0`'s gate is inside `decide()`, after the HOLD path
+  for existing legs. The asymmetry cannot be reached inside the clause windows (every active minute has a lead in 1..2,
+  and the interval end withdraws the legs), so it changes no scored decision.
+- The v1 exam's manifest output changes: `build_manifest` and `verify_manifest` now emit and check the clause intervals
+  and the new exclusion rows (and, after F5b, the `tzdata` record), so a v1 manifest rebuilt with this code differs from one built before C15. This is
+  acceptable only because the v1 exam is closed NOT EXECUTED; no signed v1 result depends on the old intervals.
+- Decided against C13 (owner Q2 N1 (a), 2026-10-09; not changed by C15): a panel with a missing day carries the
+  last lead across it, because derived descriptors are produced only at local midnights inside the days driven.
+  Manifest and engine agree (both read the same carried lead); a band can stay active at a true lead of 0 or below
+  after the gap, and that is the ruled behaviour. A test pins it.
+- The inventory lists every discovered condition with its exclusion reason: `HORIZON_OUTSIDE_1_2`
+  (`horizon_outside_1_2` in the manifest), `MISSING_DESCRIPTOR` (`missing_descriptor`), `MAINTENANCE_UTC`,
   `TARGET_AFTER_PANEL`, `OWNER_EXCLUDED_PRIOR_READ`, plus every coverage reason.
 - Cluster minimums are unchanged: at least 10 date and 10 market clusters per primary contrast after exclusions, and
   the whole-cell rule.
@@ -229,8 +376,19 @@ reconciliation.
 
   It also holds the band-day table (one row per band/UTC-day/policy/bound), the inference results, Clarification 3's
   fields and the Clarification 2 diagnostics.
+- **Run binding** (owner T1(a)/T2(a), 2026-10-09): the day-roll refresh flag, the market-to-zone map with its
+  SHA-256 and source, the pinned tzdata version with its zone-file SHA-256s, and the SHA-256 of the run's days,
+  input hashes, markets, configuration and driven zone map, plus one SHA-256 over all of them (§3, after C13). The report refuses a
+  run without it or with another run's binding.
 - **Sidecar** (under its own ceiling, hash-bound in the receipt): the merged run-length excluded intervals and a
-  decision-stream SHA-256 per engine pass. No estimator reads it.
+  decision-stream SHA-256 per engine pass. Each pass record (the engine summary, also in the report's `traces`)
+  carries `day_roll`: the count and SHA-256 of the derived local-midnight descriptors the day roll emitted
+  (`[[instant, condition_id, horizon_days, payload_sha256], ...]` in emission order), so an auditor can recompute
+  the descriptor stream from the bundles and the bound zone map (R155 Fable F5). No estimator reads it.
+- **Formats:** report `maker_core.replay.v2.report.v0.2` and sidecar `maker_core.replay.v2.sidecar.v0.1` have never
+  been released (no v2 report has been produced from a pack). They therefore absorb the R155 Fable changes
+  (`pack_check.input_hashes_sha256`, the pass records' `day_roll`) without another bump; their bytes for the same
+  run differ from the 00d247bb9 output. Once a v2 report is released, any field change bumps its format.
 - Every estimator, bootstrap and hurdle reads only cell sums, which the registration already defines. So the
   decision is a function of the scored report alone.
 
@@ -346,7 +504,7 @@ On FAIL, this draft is not signed as written. Exactly one variant is pre-declare
   `max_m U_m`. The Bonferroni `q = 1 − 0.01/M` is unchanged, so it is still a 99% family bound. Motivation: the
   global maximum imposes the riskiest city's trade rate on every city, which the design never required.
 
-Recompute f_cal under R1. If it passes, R1 becomes change C11 in the signed text. If R1 also fails, the
+Recompute f_cal under R1. If it passes, R1 becomes change C14 in the signed text. If R1 also fails, the
 recommendation is not to spend the panel, and the owner chooses between pausing and signing anyway, with the text
 stating that MET is unreachable in expectation. No other screen, hazard or size change may be tried against the
 calibration rehearsal.

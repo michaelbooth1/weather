@@ -86,6 +86,14 @@ def _trades(bundles, check):
 
 
 def _count(bundle, condition, occupied, invalid, check):
+    """One condition-day's eligible and occupied minutes for the hazard recipe (frozen; addendum, Clarification 1).
+
+    Disclosure (owner Q2(a), 2026-10-08): ``outside_t1_t2`` reads the **captured** descriptors only. It does not
+    apply the local-midnight derived descriptor (``maker_core.replay.v2.day_roll``, registration C13) nor the §4
+    horizon clause the execution manifest now applies (``maker_core.replay.v2.horizon``). Minutes between a market's
+    local midnight and the next captured descriptor therefore keep the earlier lead here. The hazard recipe is
+    inherited unchanged by the v2 registration, so this is disclosed, not changed.
+    """
     descriptors, coverage = [], []
     for row in bundle.records:
         if row.condition_id != condition.condition_id or row.kind not in ("descriptor", "coverage"):

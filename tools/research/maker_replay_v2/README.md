@@ -48,3 +48,87 @@ Rule 4 = option B (owner, 2026-10-05) adds `rule4.py`: real view cadence on any 
 `restamped`: every view re-stamped at each book record, with NBP-like `stdev` drift), and the lazy-delivery
 harness behind `tests/maker_core/test_replay_v2_rule4.py`. `s3` and `s5` take `--view-cadence real` to measure
 under it.
+
+Engine rulings W1(a), W2(a) and F3 (owner, 2026-10-07; registration C11-C13) add `attribution.py`: it re-runs
+the fictional fixtures under the frozen engine and under each ruling alone and together, and attributes every
+changed decision to its class (A1-A3, A5, A6) or fails (spec v3.2 §1.4, v3.3 §4.2). `frozen` is pinned to the
+pre-fix digests in `tests/maker_core/fixtures/replay_v2_prefix_digests.json`. Since F3, `lockstep.drive` and
+`pipeline.run_passes` require `time_zones` (market id to IANA zone). A scored run takes it from
+`execution_manifest.market_time_zones`, which reads the bound universe inventory's `local_timezone` (already
+checked against each descriptor's close and horizon) and refuses a market whose conditions disagree (owner Gate
+Q1, 2026-10-07). That descriptor check is offset-only, so the zone is also checked by name against the caller's
+domain registry (`registered=`, required (owner T3(a)); for weather `maker_replay_universe.registered_time_zones()`).
+Zone names are strict and zone data is the pinned `tzdata` only (owner T1(a); `bundle.time_zone`: listed verbatim
+by the pinned package's `zones` file and loaded from its bytes, never from the platform's TZPATH, else
+`unknown_time_zone`). Not every bundle-writing path is pinned (R155 defender-2 D5): the v0.2 exporter's event lead
+and descriptor `horizon_days`, and the plugin's `evaluate_event` leads (runner, universe filter and descriptor close,
+fair value), use the platform `MarketSpec.tz`; descriptors are re-checked against the pinned zone at manifest build,
+the fair-value lead is not (open lead, see the registration draft). Fictional markets use `sources.FIXTURE_ZONES`. `day_roll.NO_REFRESH` turns the refresh off in
+`lockstep.drive` and exists only for that re-run; `pipeline.run_passes` refuses it (`day_roll_refresh_required`).
+`run_passes` copies the zone map once at entry and records `Run.binding` (owner T2(a); `pipeline.run_binding`):
+the refresh flag, the zone map, its sha and its source (`market_time_zones` or `caller`), the tzdata version with
+the sha of each zone file used, and a digest of the run's own days, provenance, input hashes, markets, report
+configuration and the zone map it drove with (kept as `Run.time_zones`); after the base drive it adds `records`,
+the record digest of what the drive read (format v0.4, R155 defender-3 R3), which `Run.replayed` must equal
+(`run_binding_records_mismatch`). `report.build_report` refuses a run
+without that binding or with another run's binding (also from a same-input run driven with another map), recomputes
+the tzdata block from the zone bytes it loads, and for a non-fixture report requires the full `market_time_zones`
+source (builder, `registry_checked`, inventory and registry digests). That stops accidental misuse (a run driven
+around `run_passes`, a hand-made map, a reused binding). Those checks alone are integrity, not authenticity: a
+caller can construct a `RegisteredZones` with a made-up source. So a non-fixture report also needs `manifest=`
+(the execution manifest `verify_manifest` returned for the pack) and `registered=` (the domain registry), and
+`execution_manifest.verify_scored_pack` re-derives the map and its source from the manifest's `universe` (checked
+against its `universe_sha256`) and checks the run's tzdata block against the manifest's; a made-up source, a forged
+map, another inventory or a run condition outside the universe refuses. It also requires every plan day to be a
+sealed capture (provenance `captured`) and the plan's per-day input hashes to equal the manifest's `input_hashes`
+exactly (all quote days and the settlement day; a subset, a superset or a re-exported bundle refuses), and
+`verify_scored_scope` binds the scope to the manifest (R155 defender-2 D1): declared windows equal to the manifest's
+`active_intervals` (build the sources from `apply_manifest(manifest, bundles)`), the quote-day `markets`, the
+`replay_config` caps, hazard and book gap, the bootstrap replicates and seed, and a registration hash that is
+omitted or the manifest digest. `verify_scored_records` (D2) binds the records actually replayed: every drive digests
+the records it reads (`Run.replayed`; drives that read different records refuse `replay_records_unstable`), and the
+digest must equal the manifest's `record_identity_sha256` (R155 defender-3 R1: each record's day, sequence, capture
+time, condition or group, kind, payload sha and sources in consumption order; every payload is re-hashed as it is
+read, `replay_payload_hash_mismatch`), so records dropped, substituted, duplicated, re-ordered, moved to another day
+or with other payload bytes under honest input-hash labels refuse `run_binding_pack_records_mismatch`, even with the
+record count kept. The digest binds canonical bytes, not in-memory objects: the drive feeds the engine each record
+rebuilt from the digested bytes (R155 defender-4 D-1), so an object that serialises honestly but would decode
+otherwise (a two-faced mapping, a `datetime` for ISO text) scores exactly as the honest record. The report
+(format v0.2) records the check
+and the digests it bound as `pack_check`, with `manifest_enrolled` (whether the manifest digest is in
+`approved_registrations`). Enrollment is enforced (owner policy F4, R155; no escape hatch): a scored report whose
+canonical manifest digest is not enrolled refuses `run_binding_pack_manifest_unenrolled`. Only the key is checked,
+not the enrolled owner value (R155 defender-3 N2; `read_authorization` compares the owner). There is no
+caller-supplied sha argument; a manifest is enrollable for scoring only by its canonical digest (`pack_io.write_json`
+output). Resource ceilings, v0.2 `groups` and the plan's condition list are not bound, by design (R155 defender-3
+N4: refuse-only, fixed by the input hashes, or covered by the record digest). It reads no file and does not
+re-verify the manifest: the runner must verify the file bytes against the enrolled sha (`read_authorization`), then
+`verify_manifest`. For
+`maker_replay_universe.universe()` inventories the registry check is close to a tautology (both sides read
+`BUILTIN_SPECS`); it catches a tampered or hand-built inventory, not a wrong registry entry.
+Run it through the workstation queue only: `python -m tools.research.maker_replay_v2.attribution OUT.json`.
+
+Owner ruling Q2(a) (2026-10-08; registration C15) adds class **A8** to `attribution.py`: `horizon_sources` cuts each
+fixture day's condition windows by the §4 horizon clause (`maker_core.replay.v2.horizon.day_windows`, the same
+captured-or-derived descriptor timeline the engine reads), and the `Q2` variant is `all` plus the blind RE-1 horizon
+gate (`Kernel.blind_horizons`, `HORIZON_NOT_ELIGIBLE`). `report_q2()` attributes `Q2` on the clause windows against
+`all` on the envelope windows; every changed decision must be A8 or a cascade from one. A8 is not self-labelling
+(Defender M1, 2026-10-08): a decision is A8 only when the condition is outside the clause window inside the
+envelope **and** the post engine's own horizon read at that instant (its latest captured or derived descriptor) is
+missing or not in `A8_LEADS` = (1, 2), a literal independent of `horizon.py`; a blind gate pull is A8 under the same
+horizon test. Further checks fail the re-run. `FAIL_A8_CLAUSE_NOT_APPLIED` has two completeness rules: (i) a post
+decision taken while the engine's horizon is missing or outside 1..2, except a `CANCEL OUTSIDE_ACTIVE_INTERVAL` at
+the very instant a descriptor moved the engine's horizon from 1..2 to outside it (tightened for Defender D1: before,
+every such cancel was exempt, so a window end 20 s late on a sparse-wake band passed); (ii) after any instant's
+processing, legs still resting on a condition whose engine horizon is missing or outside 1..2. In the D1 fixture
+either rule alone catches the late end (the late cancel is not exempt, and the legs rest past the leaving instant);
+each rule also has its own test that only it passes (E1): a leg-free `no_quote` arm deciding at lead 0 for rule (i),
+and an engine that drops the interval-end withdrawal (legs rest, no further decision) for rule (ii). And
+`FAIL_A8_CUT_NOT_THE_CLAUSE`: a post wake cut out of its window while the engine reads 1..2. They are needed because
+rule 3 counts every change after the first direct one as cascade. `tests/maker_core/test_replay_v2_horizon.py` runs a
+negative control (a 5-minute cut at engine lead 1) and shows the re-run fails for an always-true A8 predicate,
+UTC-zone clause windows, an eligible set of (0, 1, 2), and a window end 20 s late on a Kathmandu band with no wake
+in those 20 s. The A8 fixtures show zero quote, fill and cash deltas; the value effects of Q2 rest
+on the hand-built engine tests in that module, not on these fixtures. The module's `__main__` writes both `rulings` (A1-A6 against `frozen`) and
+`q2_against_all`. `frozen` and the other variants run with the blind gate off, so the pinned prefix digests are
+unchanged.
