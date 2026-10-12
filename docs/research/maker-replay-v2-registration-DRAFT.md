@@ -328,7 +328,14 @@ reconciliation.
   input hashes, markets, configuration and driven zone map, plus one SHA-256 over all of them (§3, after C13). The report refuses a
   run without it or with another run's binding.
 - **Sidecar** (under its own ceiling, hash-bound in the receipt): the merged run-length excluded intervals and a
-  decision-stream SHA-256 per engine pass. No estimator reads it.
+  decision-stream SHA-256 per engine pass. Each pass record (the engine summary, also in the report's `traces`)
+  carries `day_roll`: the count and SHA-256 of the derived local-midnight descriptors the day roll emitted
+  (`[[instant, condition_id, horizon_days, payload_sha256], ...]` in emission order), so an auditor can recompute
+  the descriptor stream from the bundles and the bound zone map (R155 Fable F5). No estimator reads it.
+- **Formats:** report `maker_core.replay.v2.report.v0.2` and sidecar `maker_core.replay.v2.sidecar.v0.1` have never
+  been released (no v2 report has been produced from a pack). They therefore absorb the R155 Fable changes
+  (`pack_check.input_hashes_sha256`, the pass records' `day_roll`) without another bump; their bytes for the same
+  run differ from the 00d247bb9 output. Once a v2 report is released, any field change bumps its format.
 - Every estimator, bootstrap and hurdle reads only cell sums, which the registration already defines. So the
   decision is a function of the scored report alone.
 

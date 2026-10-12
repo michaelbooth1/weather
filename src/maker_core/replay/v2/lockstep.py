@@ -153,6 +153,9 @@ def drive(sources, engines, *, time_zones, observers=()):
     """
     from maker_core.replay.v2.day_roll import NO_REFRESH, DayRoll
     roll = None if time_zones is NO_REFRESH else DayRoll(time_zones)
+    if roll is not None:
+        for engine in engines:  # the engine summary carries the roll's derived-descriptor digest (R155 Fable F5)
+            engine.day_roll = roll
     sources = sorted(sources, key=lambda s: s.plan.day)
     for source in sources:
         for engine in engines:

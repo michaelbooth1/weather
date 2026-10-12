@@ -2,7 +2,8 @@
 §3.1 and §4). Fictional fixtures only; the dates are invented and outside every reserved or excluded window.
 
 Guards: registration C13 (engine ruling F3, owner 2026-10-07), owner Gate Q1 zone source, and the Delta Defender
-3bf0eef5c notes (a)-(d) on strict, coded and registry-checked zone names and the fall-back emitted schedule.
+3bf0eef5c notes (a)-(d) on strict, coded and registry-checked zone names and the fall-back emitted schedule, and
+the R155 Fable review F5 (the engine summary's recomputable digest of the emitted derived descriptors).
 """
 from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
@@ -498,3 +499,40 @@ def test_scored_run_passes_refuse_no_refresh():
     from maker_core.replay.v2.pipeline import run_passes
     with pytest.raises(BundleError, match="day_roll_refresh_required"):
         run_passes([engine_day()], CONFIG, time_zones=NO_REFRESH)
+
+
+# -- R155 Fable F5: the engine summary carries a digest of the derived-descriptor stream ------------------------
+def test_engine_summary_digest_of_the_day_roll_is_recomputable_from_the_stream(tmp_path):
+    """Every pass summary (and so every sidecar ``pass`` record) carries ``day_roll``: the count and SHA-256 of the
+    derived local-midnight descriptors the roll emitted. An auditor recomputes it by replaying the same sources
+    through a fresh ``DayRoll`` with the bound zone map and hashing the derived items in stream order."""
+    import json
+    from maker_core.replay.v2.day_roll import DERIVED
+    from maker_core.replay.v2.pipeline import run_passes
+    from maker_core.replay.v2.report import build_report
+    from tools.research.maker_replay_v2.dense import DenseDay
+    from tools.research.maker_replay_v2.sources import FIXTURE_ZONES, materialize
+    source, _ = materialize(DenseDay(date(2026, 11, 1), union=12, trades=2000, start_minute=225, minutes=40))
+    run = run_passes([source], replace(CONFIG, keep=False), time_zones=FIXTURE_ZONES)
+    _, stream = roll_items([source], FIXTURE_ZONES)
+    rows = [[at.isoformat(), item.condition_id, item.value.horizon_days, item.payload_sha256]
+            for at, batch in stream for item in batch if item.derived == DERIVED]
+    assert rows, "the fixture must cross a local midnight"
+    expected = dict(derived=len(rows), derived_sha256=sha256(canonical_bytes(rows)))
+    for bound in run.passes:
+        for policy in run.passes[bound]:
+            assert run.passes[bound][policy].engine.summary()["day_roll"] == expected
+    build_report(run, replace(CONFIG, keep=False), replicates=100, sidecar_path=tmp_path / "sidecar.jsonl")
+    passes = [json.loads(line) for line in (tmp_path / "sidecar.jsonl").read_bytes().splitlines()
+              if b'"kind":"pass"' in line]
+    assert passes and all(p["day_roll"] == expected for p in passes)
+
+
+def test_engine_summary_without_a_refresh_records_no_day_roll():
+    from maker_core.replay.v2.day_roll import NO_REFRESH
+    src = engine_day()
+    with_roll, without = EngineV2(CONFIG, run_plan([src])), EngineV2(CONFIG, run_plan([src]))
+    drive([src], [with_roll], time_zones={"nyc": NY})
+    drive([src], [without], time_zones=NO_REFRESH)
+    assert without.summary()["day_roll"] is None
+    assert with_roll.summary()["day_roll"]["derived"] == len(with_roll.day_roll.emitted) > 0

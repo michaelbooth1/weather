@@ -153,3 +153,10 @@ class DayRoll:
 
     def _emit(self, midnight, group):
         self.emitted.extend((midnight, cid, value.horizon_days, sha) for cid, value, sha in sorted(group))
+
+    def summary(self) -> dict:
+        """The derived-descriptor stream this roll emitted, for the engine summary (R155 Fable F5): the count and
+        the SHA-256 of the canonical JSON list ``[[instant (UTC ISO), condition_id, horizon_days, payload_sha256],
+        ...]`` in emission order, so an auditor can recompute it from the bundles and the bound zone map."""
+        rows = [[at.isoformat(), cid, horizon, sha] for at, cid, horizon, sha in self.emitted]
+        return dict(derived=len(rows), derived_sha256=sha256(canonical_bytes(rows)))
