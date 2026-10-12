@@ -54,7 +54,7 @@ def test_memory_guard_attributes_and_reaps_codex_heavy_tool_trees():
     assert "function Get-AgentToolRoot" in block
     assert "function Stop-VerifiedProcessTree" in block
     assert "ProcessId = {0}" in block
-    assert "CreationDate -ne" in block
+    assert "CreationDate).ToUniversalTime() -ne" in block
     assert "$minuteOfDay -ge 30.0" in block
     assert "$minuteOfDay -lt 540.0" in block
     assert "$MaxConcurrentAgentHeavyWorkloads" in block
