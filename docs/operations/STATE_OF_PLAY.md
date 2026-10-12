@@ -1,6 +1,6 @@
 # State of play
 
-**Last updated: 2026-10-12 21:00 America/Toronto (build line at 15584831; OD23 signed wording recorded; owner back; LFC postponed incl. session 0; N7 landed; N8/N9 planned; DST-M2, build-line merges and the host Python upgrade approved, upgrade calendar confirmed: Phase A 10-13, cutover 00:30 on 10-17).**
+**Last updated: 2026-10-12 21:00 America/Toronto (build line at 15584831; OD23 signed wording recorded; owner back; LFC session 0 un-postponed to 10-14 15:00Z; N7 landed; N8/N9 planned; DST-M2, build-line merges and the host Python upgrade approved, upgrade calendar confirmed: Phase A 10-13, cutover 00:30 on 10-17).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended. At most 95 lines and about 9 KB, one fact per bullet, detail in the linked owner.** This file owns
@@ -15,8 +15,9 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 
 ## Current authority
 
-- **Live trading paused (owner 2026-09-25).** The live fill-calibration (LFC) test is **postponed, session 0 included**
-  (owner 2026-10-12); no live attempt is scheduled. No agent places, cancels or signs orders. Owner trades stay
+- **Live trading paused (owner 2026-09-25)**, except the owner-attended LFC session 0: **10-14 from 15:00Z (11:00 EDT)**
+  on the workstation (owner 10-12 19:35, un-postponing it); hard stop 23:50Z, code deadline 10-15 00:00Z; session 1
+  10-15 afternoon or >= 10-18, never 10-16/17. No agent places, cancels or signs orders. Owner trades stay
   `owner-discretionary`.
 - **Owner back as of 2026-10-12** (away 10-10 22:02 to 10-12); owner-only steps resume.
 - Heavy work only 00:30-09:00 under the shared lease ([host load policy](HOST_LOAD_POLICY.md)). Merges: roll-sensitive
@@ -46,14 +47,15 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
   Q12 `STOP_AUTHORIZED`, `ACCEPT_OVERRUN`, cutover 00:30 on 10-17 (owner-named). Phase A: owner at the machine
   10-13 ~07:30 after N8 hands back; then §T + T-R, B, C per runbook §7a. No host release store (case A).
 - **DST audit:** DST-H3 landed, so its interim merge guard is retired; OD30 (the 11-01 night rule) stays until the owner retires it.
-- **LFC** (postponed, above): its signed documents stay SIGNED; N-11/N-12 fix `fe5f54cf` touches `wallet_reader_client.py`.
+- **LFC** (session 0 on 10-14, above): pinned worktree `acd052a2d`; signed documents stay SIGNED; T-24h steps 10-13
+  ~15:00Z; the 8765 reader restarts on master after N8. N-11/N-12 fix `fe5f54cf` touches `wallet_reader_client.py`.
 - **Build line** `codex/maker-replay-v2-build-20261003` = `15584831` (inventory fix `f22bea07` and U6 D6 `07dd7825` merged,
   owner 10-12). `WeatherReplayBundleExportNightly` stays unregistered until a separate owner yes (>= 10-16).
 - **Maker replay v2** (panel UTC 09-30..10-14 never read): gate spec v3.4 is the frozen oracle basis; OD18 fresh oracle
   author on this host from a filtered standalone handout. OD23 signed (10-08): `decide()` mid keeps own size; diagnostic
   built. Signature when the gates pass (~10-18..20); look by 11-15.
 - **Model, morning:** MG-1 SIGNED 10-04 at `b044e0f1`; needs parser v2 (#190); scored on dates >= 10-15.
-- **Live seals** must all be RESEALED before any live attempt (#229). **C3 console rehearsal** never ran on the host; deferred (owner 10-09).
+- **Live seals** must all be RESEALED before any sealed-lane live attempt (#229); the LFC re1 lane consumes no seal. **C3 console rehearsal** never ran on the host; deferred (owner 10-09).
 - **Pinned deployments (detached, locked worktrees):** watchdog `1794fd3b`, cold snapshot (91a `6e5ff47`; `979c0e7`
   removed 10-11), exam U6 `89618c30`; exact paths are the task actions (`Get-ScheduledTask`).
 - **Disk / 91a:** the unresolved 10-09 attempt was resolved 10-11 07:01 (manual run PASSED, ~16 GiB freed); policy expires 10-30.
@@ -75,7 +77,7 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 | What | Owner | Due | Verify |
 | --- | --- | --- | --- |
 | Evening-fix scoring prereg; OD30 retirement | owner | open | DECISION_LOG rows |
-| Restart the wallet reader on master; LFC client json in the pinned worktree | owner | before LFC resumes | `summary` from both PCs |
+| Restart the wallet reader on master after N8; LFC client json in the pinned worktree | owner | 10-13 before 15:00Z | `summary` from both PCs |
 | Scope and run the pinned watchdog redeploy + re-register (DRIFT since #273, DST-H3) | owner scope, production runs | before 11-01 | `status.ps1 -Json` watchdog CURRENT |
 | 91a policy renewal | owner (production prepares) | week of 10-26 | new policy sha, expiry > 10-30 |
 
