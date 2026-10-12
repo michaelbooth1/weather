@@ -351,8 +351,15 @@ and the actual `pools` (API, library prefix, `num_threads`). In-process callers 
 **Pinned tzdata.** The v0.2 exporter computes each condition's envelope (the horizon lead window) in the pinned
 tzdata zone (`maker_core.replay.bundle.time_zone`), the same zone the execution manifest and the day roll use, not
 the platform zone. On a host whose installed `tzdata` is not the pinned version (`bundle.TZDATA_VERSION`) the export
-refuses `tzdata_version_unpinned` and writes no bundle. The descriptor rows' `horizon_days` still use the platform
-zone, as the frozen v0.1 projection does (row-for-row equivalence).
+refuses `tzdata_version_unpinned` and writes no bundle. Two exporter paths still use the platform zone
+(`MarketSpec.tz`, a `zoneinfo.ZoneInfo` that may read the host TZPATH), as the frozen v0.1 projection does
+(row-for-row equivalence): the lead that selects which events are exported (`horizon` 0..2) and the descriptor
+rows' `horizon_days`, which is that same value. The descriptor rows are re-checked against the pinned zone when the
+execution manifest is built (`execution_manifest._inventory`: each descriptor's `close_at_utc` and `horizon_days`
+against the universe row's pinned zone, else `universe_target_descriptor_mismatch`), so a platform/pinned
+disagreement refuses there rather than scoring. The plugin's `evaluate_event` outputs (fair value, clock events) are
+also computed with `MarketSpec.tz` (see the v2 registration draft); those are bound only by their payload and
+source hashes, not re-derived.
 
 **Panel gate first.** A `-Day` (default yesterday, UTC) in 2026-09-30..2026-10-15 writes
 `REFUSED: PANEL_GATED <day> ...` to stderr and exits **3** before the time window, path checks, self-hash, lease,

@@ -60,7 +60,10 @@ Q1, 2026-10-07). That descriptor check is offset-only, so the zone is also check
 domain registry (`registered=`, required (owner T3(a)); for weather `maker_replay_universe.registered_time_zones()`).
 Zone names are strict and zone data is the pinned `tzdata` only (owner T1(a); `bundle.time_zone`: listed verbatim
 by the pinned package's `zones` file and loaded from its bytes, never from the platform's TZPATH, else
-`unknown_time_zone`). Fictional markets use `sources.FIXTURE_ZONES`. `day_roll.NO_REFRESH` turns the refresh off in
+`unknown_time_zone`). Not every bundle-writing path is pinned (R155 defender-2 D5): the v0.2 exporter's event lead
+and descriptor `horizon_days`, and the plugin's `evaluate_event` leads (runner, universe filter and descriptor close,
+fair value), use the platform `MarketSpec.tz`; descriptors are re-checked against the pinned zone at manifest build,
+the fair-value lead is not (open lead, see the registration draft). Fictional markets use `sources.FIXTURE_ZONES`. `day_roll.NO_REFRESH` turns the refresh off in
 `lockstep.drive` and exists only for that re-run; `pipeline.run_passes` refuses it (`day_roll_refresh_required`).
 `run_passes` copies the zone map once at entry and records `Run.binding` (owner T2(a); `pipeline.run_binding`):
 the refresh flag, the zone map, its sha and its source (`market_time_zones` or `caller`), the tzdata version with

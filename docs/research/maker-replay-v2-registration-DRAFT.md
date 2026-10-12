@@ -111,6 +111,18 @@ only; no decision, P&L or base-pass prefix digest changes.
   (`tzdata_version_unpinned`), and so does an imported `tzdata` module that is not the installed distribution's
   (its `__version__` differs, or its file is not in the distribution's package directory; a sourceless `.pyc`-only
   install is accepted; `tzdata_package_mismatch`).
+  Scope (R155 defender-2 D5): this holds for the engine, the day roll, the manifest and the exporter's envelope,
+  not for every path that writes bundle content. These still read the platform zone (`MarketSpec.tz`, a
+  `zoneinfo.ZoneInfo` that may use the host TZPATH): the v0.2 exporter's event-selection lead and the descriptor
+  `horizon_days` it writes (`maker_replay_bundle_v02.py`, the same value; kept for row-for-row equivalence with the
+  frozen v0.1 projection), and the live plugin's `evaluate_event` paths the exporter calls
+  (`maker_plugin_runner.py` lead, `maker_plugin/universe.py` horizon filter and descriptor `close_at_utc`,
+  `maker_plugin/fair_value.py` lead that picks served versus bulletin fair value). The descriptor `horizon_days`
+  and `close_at_utc` are re-checked against the pinned zone when the manifest is built
+  (`universe_target_descriptor_mismatch`). The fair-value lead is not re-checked: its outputs are bound by payload
+  and source hashes only, so on a host whose platform zone rules differ from the pinned tzdata near a local
+  midnight the captured `outcome_view` could reflect another lead. Not re-checked in this round; it is the live
+  plugin's semantics and a lead for a later review, not a closed finding.
 - **Run binding (T2):** `pipeline.run_passes` copies the zone map once and binds the refresh flag (always on;
   `day_roll.NO_REFRESH` is refused), the exact market-to-zone map, its SHA-256 and its source, the tzdata block and
   a SHA-256 of the run's own days, provenance, input hashes, markets, report configuration and the zone map it
