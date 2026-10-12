@@ -1,7 +1,7 @@
 # Phase A, owner-attended, 2026-10-13 ~07:30-09:00 (capture host)
 
 Generated from `docs/operations/HOST_PYTHON_UPGRADE_RUNBOOK.md` at branch `claude/decisions-pyup-20261012`
-(file sha256 `7187a5897ef205025e5f1b05cdccbe483c92beab2a60f419d2907748d1f42deb`). The code is copied from the runbook by script, not retyped. If the landed
+(file sha256 `238c4546668d202875ee74ac2c467def3adae8bbbb6a47b6614770cbcf378737`). The code is copied from the runbook by script, not retyped. If the landed
 runbook differs, the landed runbook wins: regenerate the block from it.
 
 Constants file: copy `constants.json` from this folder byte-for-byte to `$R\constants.json`
