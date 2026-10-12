@@ -807,3 +807,156 @@ def test_plan_items_must_match_the_pinned_set(cut_env):
     plan["code_items"] = plan["code_items"][:3]
     with pytest.raises(h1.CutRefused, match="pinned expected-output items"):
         _cut(cut_env, plan=plan)
+
+
+# --------------------------------------------------------------------------- erratum 1 §E3 output controls
+
+
+@pytest.mark.spawns
+def test_two_full_cuts_are_byte_identical(cut_env, monkeypatch):
+    _, first = _cut(cut_env, "one")
+    monkeypatch.setenv("GIT_AUTHOR_DATE", "2031-02-03T04:05:06")
+    monkeypatch.setenv("GIT_COMMITTER_NAME", "Someone Else")
+    monkeypatch.setenv("TZ", "Asia/Tokyo")
+    _, second = _cut(cut_env, "two")
+    assert first == second
+    one, two = cut_env["tmp"] / "one", cut_env["tmp"] / "two"
+    for name in (h1.MANIFEST_NAME, h1.FILES_LIST_NAME, h1.TAR_NAME):
+        assert (one / name).read_bytes() == (two / name).read_bytes(), name
+
+
+@pytest.mark.spawns
+def test_files_list_records_every_tree_file_sha256(cut_env):
+    manifest, _ = _cut(cut_env)
+    out = cut_env["tmp"] / "out"
+    listing = (out / h1.FILES_LIST_NAME).read_bytes()
+    assert manifest["filtered_tree"]["files_sha256_list"] == {"name": h1.FILES_LIST_NAME, "sha256": _sha(listing)}
+    rows = h1.parse_files_list(listing)
+    repo = out / h1.REPO_DIR
+    assert set(rows) == set(_git(repo, "ls-tree", "-r", "--name-only", "main").split())
+    assert len(rows) == manifest["filtered_tree"]["files"]
+    for path, digest in rows.items():
+        assert _sha((repo / path).read_bytes()) == digest
+    assert manifest["checks"]["output_verified"]["tree_files"] == len(rows)
+
+
+@pytest.mark.spawns
+def test_cut_output_has_no_parent_remote_alternate_or_other_ref(cut_env):
+    _cut(cut_env)
+    repo = cut_env["tmp"] / "out" / h1.REPO_DIR
+    assert _git(repo, "rev-list", "--all", "--count") == "1"
+    assert len(_git(repo, "rev-list", "--parents", "--all").split()) == 1
+    assert _git(repo, "for-each-ref", "--format=%(refname)") == "refs/heads/main"
+    assert _git(repo, "remote") == ""
+    assert not (repo / ".git" / "objects" / "info" / "alternates").exists()
+    assert not (repo / ".git" / "packed-refs").exists()
+    source_head = _git(cut_env["repo"], "rev-parse", "HEAD")
+    probe = subprocess.run(["git", "-C", str(repo), "cat-file", "-e", source_head], capture_output=True, timeout=60)
+    assert probe.returncode != 0  # the source commit is not reachable from the standalone repository
+
+
+@pytest.mark.spawns
+@pytest.mark.parametrize("literal", ["add_own", "record_decision", "value.book", "state.latest[", "def compose_book"])
+def test_tree_file_naming_a_denied_kernel_string_refuses(cut_env, literal):
+    _commit_files(cut_env["repo"], {"docs/notes.md": f"a note that mentions {literal} in passing\n"}, "leak")
+    with pytest.raises(h1.CutRefused, match=r"docs/notes.md: names a denied Kernel string"):
+        _cut(cut_env)
+    assert not (cut_env["tmp"] / "out").exists()
+
+
+@pytest.mark.spawns
+def test_denied_string_file_cannot_be_withheld(cut_env):
+    _commit_files(cut_env["repo"], {"docs/notes.md": "mentions add_own\n"}, "leak")
+    with pytest.raises(h1.CutRefused, match="no longer hits|denied Kernel string"):
+        _cut(cut_env, withheld=(("docs/notes.md", "path-mention"),))
+
+
+@pytest.mark.spawns
+def test_copy_of_an_excluded_file_under_a_neutral_name_refuses(cut_env):
+    kernel = _source_files()[f"src/{PKG}/replay/v2/kernel.py"]
+    _commit_files(cut_env["repo"], {"src/other/engine_copy.py": kernel}, "copy")
+    with pytest.raises(h1.CutRefused, match=r"src/other/engine_copy.py: byte-identical to an excluded or withheld"):
+        _cut(cut_env)
+
+
+@pytest.mark.spawns
+def test_empty_files_matching_an_excluded_empty_file_pass(cut_env):
+    _commit_files(cut_env["repo"], {f"tests/{PKG}/fixtures/__init__.py": "", "pkg/__init__.py": ""}, "empty")
+    manifest, _ = _cut(cut_env)
+    assert manifest["checks"]["tree_excluded_blob_matches"] == 0
+    assert "pkg/__init__.py" in h1.parse_files_list((cut_env["tmp"] / "out" / h1.FILES_LIST_NAME).read_bytes())
+
+
+@pytest.mark.spawns
+def test_verify_passes_on_a_fresh_cut_and_checks_the_binding(cut_env):
+    _, binding = _cut(cut_env)
+    out = cut_env["tmp"] / "out"
+    summary, again = h1.run_verify(out, binding)
+    assert again == binding and summary["section4_hits"] == 0 and summary["tar_rebuilt"] is True
+    with pytest.raises(h1.CutRefused, match="expected binding"):
+        h1.run_verify(out, "0" * 64)
+    assert h1.main(["verify", "--out", str(out), "--binding", binding]) == 0
+
+
+def _tamper_extra_tree_file(out: Path) -> None:
+    (out / h1.REPO_DIR / "planted.py").write_text("x = 1\n")
+
+
+def _tamper_handout_bytes(out: Path) -> None:
+    target = out / "handout" / "spec" / "a.md"
+    target.write_bytes(target.read_bytes() + b"more\n")
+
+
+def _tamper_extra_handout_file(out: Path) -> None:
+    (out / "handout" / "extra.md").write_text("extra\n")
+
+
+def _tamper_top_level(out: Path) -> None:
+    (out / "notes.txt").write_text("stray\n")
+
+
+def _tamper_tar(out: Path) -> None:
+    (out / h1.TAR_NAME).write_bytes((out / h1.TAR_NAME).read_bytes() + b"\0" * 512)
+
+
+def _tamper_second_commit(out: Path) -> None:
+    repo = out / h1.REPO_DIR
+    _git(repo, "commit", "-q", "--allow-empty", "-m", "second")
+
+
+@pytest.mark.spawns
+@pytest.mark.parametrize(
+    "tamper, message",
+    [
+        (_tamper_extra_tree_file, "working tree differs"),
+        (_tamper_handout_bytes, "changed on disk"),
+        (_tamper_extra_handout_file, "handout files differ"),
+        (_tamper_top_level, "output top level"),
+        (_tamper_tar, "snapshot tar"),
+        (_tamper_second_commit, "snapshot commit differs"),
+    ],
+)
+def test_verify_refuses_a_tampered_output(cut_env, tamper, message):
+    _cut(cut_env)
+    out = cut_env["tmp"] / "out"
+    tamper(out)
+    with pytest.raises(h1.CutRefused, match=message):
+        h1.run_verify(out, None)
+    assert h1.main(["verify", "--out", str(out)]) == 2
+
+
+@pytest.mark.spawns
+def test_verify_runs_section4_on_the_handout_as_written(cut_env):
+    _cut(cut_env)
+    out = cut_env["tmp"] / "out"
+    target = out / "handout" / "spec" / "a.md"
+    planted = b"# A\nthe state.latest[ residue\n"
+    target.write_bytes(planted)
+    manifest_file = out / h1.MANIFEST_NAME
+    manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
+    for row in manifest["handout"]:
+        if row["handout_path"] == "spec/a.md":
+            row["sha256"] = _sha(planted)
+    manifest_file.write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(h1.CutRefused, match="§4 check on the handout as written"):
+        h1.run_verify(out, None)

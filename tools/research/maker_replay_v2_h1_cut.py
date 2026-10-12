@@ -25,6 +25,18 @@ Modes:
             commit, verify that the code items (H-6..H-9) and the 89a text (H-10) are
             byte-identical there (R2). Identical: print a re-bind record. Different:
             exit non-zero with a diff summary (a re-hand).
+``verify``  Re-check a cut directory from disk alone (no source repository): the
+            manifest SHA-256 against ``--binding``, every handout and tree byte, the §4
+            check on the handout as written, the per-file list, the tar rebuilt from the
+            snapshot's own blobs, and R1. Used by the host after transfer and before
+            the author session starts.
+
+Output controls (proposed erratum 1 §E3, ``docs/roadmap/maker-replay-v2-shadow-gate-spec-
+v3.4-erratum-1-DRAFT-2026-10-12.md``; stricter-only): a kept tree file that carries a §4
+rule-2 literal, or is byte-identical to an excluded or withheld file (empty blob exempt),
+refuses and cannot be withheld; ``filtered-files.sha256`` lists every tree file's SHA-256
+and its hash is in the manifest; ``cut`` runs ``verify``'s checks before writing the
+manifest.
 
 Expected outputs (master, 2026-10-07): the full SHA-256 of H-1..H-9 is pinned in
 ``EXPECTED_OUTPUT_SHA256``; the plan must carry each value in full and equal to it. Cut and
@@ -265,6 +277,15 @@ R4B_WITHHELD: tuple[tuple[str, str], ...] = (
     ("tools/research/pull_cap_precheck/measure.py", "v1-import"),
     (CUT_SCRIPT_PATH, "cut-script"),
 )
+
+# Output controls (proposed v3.4 erratum 1 §E3, 2026-10-12; stricter-only, 0 hits at 501f47579 and
+# 155848313). (1) No kept tree file may carry a §4 rule-2 literal; this is never withholdable.
+# (2) No kept tree file may be byte-identical (same git blob) to a glob-excluded or withheld file,
+# except the empty blob. (3) After writing, every output byte is re-read from disk and checked
+# against the in-memory plan (``verify_output``); the same check runs on the host (``verify``).
+EMPTY_BLOB = "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+FILES_LIST_NAME = "filtered-files.sha256"
+OUTPUT_TOP_LEVEL = frozenset({HANDOUT_DIR, REPO_DIR, TAR_NAME, FILES_LIST_NAME, MANIFEST_NAME})
 
 
 # --------------------------------------------------------------------------- helpers
@@ -813,6 +834,18 @@ def _withheld_map(withheld: Sequence[tuple[str, str]]) -> dict[str, str]:
     return mapping
 
 
+def tree_output_reasons(entry: TreeEntry, data: bytes, excluded_blobs: set[str]) -> list[str]:
+    """Erratum-1 output controls for one kept tree file (never withholdable)."""
+    reasons = []
+    text = _decode(data)
+    for literal in DENIED_LITERALS:
+        if literal in text:
+            reasons.append(f"names a denied Kernel string (§4 rule 2: {literal})")
+    if entry.blob in excluded_blobs:
+        reasons.append("byte-identical to an excluded or withheld file")
+    return reasons
+
+
 def filtered_files(repo: Path, commit: str, withheld: Sequence[tuple[str, str]] = R4B_WITHHELD,
                    handout_sources: Iterable[str] = ()) -> tuple[list[tuple[TreeEntry, bytes]], list[dict]]:
     """Apply the §5 globs, the R4b recorded list, then the R4 refusal over every remaining file.
@@ -826,9 +859,11 @@ def filtered_files(repo: Path, commit: str, withheld: Sequence[tuple[str, str]] 
     refused: list[str] = []
     stale: list[str] = []
     seen: set[str] = set()
+    entries = list_tree(repo, commit)
+    excluded_blobs = {e.blob for e in entries if excluded_by(e.path) or e.path in listed} - {EMPTY_BLOB}
     reader = BlobReader(repo)
     try:
-        for entry in list_tree(repo, commit):
+        for entry in entries:
             if excluded_by(entry.path):
                 continue
             cls = listed.get(entry.path)
@@ -849,6 +884,7 @@ def filtered_files(repo: Path, commit: str, withheld: Sequence[tuple[str, str]] 
                 continue
             if V2_PATH_NAME.search(entry.path) and entry.path.casefold() not in allowed_names:
                 reasons = [*reasons, "path name says replay v2 and it is not a handout item"]
+            reasons = [*reasons, *tree_output_reasons(entry, data, excluded_blobs)]
             if reasons:
                 refused.append(f"{entry.path}: {'; '.join(reasons)}")
             files.append((entry, data))
@@ -957,6 +993,118 @@ def assert_r1_invariants(repo_dir: Path) -> dict:
             raise CutRefused("R1: the snapshot commit does not carry the fixed identity")
     return {"rev_list_all": 1, "parents": 0, "remotes": 0, "alternates": "absent", "logs": "absent", "refs": refs,
             "objects": len(present)}
+
+
+# --------------------------------------------------------------------------- output verification
+
+
+def files_list_bytes(files: Sequence[tuple[TreeEntry, bytes]]) -> bytes:
+    """``<sha256>  <path>`` per filtered-tree file, sorted by path, LF."""
+    rows = sorted((entry.path, sha256_hex(data)) for entry, data in files)
+    return "".join(f"{digest}  {path}\n" for path, digest in rows).encode("utf-8")
+
+
+def parse_files_list(data: bytes) -> dict[str, str]:
+    rows: dict[str, str] = {}
+    if not data.endswith(b"\n"):
+        raise CutRefused(f"{FILES_LIST_NAME}: must be non-empty and end with a newline")
+    for line in data.decode("utf-8")[:-1].split("\n"):
+        digest, sep, path = line.partition("  ")
+        if not sep or not re.fullmatch(r"[0-9a-f]{64}", digest) or not path or path in rows:
+            raise CutRefused(f"{FILES_LIST_NAME}: malformed or duplicate line {line[:80]!r}")
+        rows[path] = digest
+    return rows
+
+
+def _walk_files(root: Path, skip_top: str | None = None) -> dict[str, Path]:
+    """Every regular file below ``root`` as a POSIX relative path (``skip_top`` excluded)."""
+    found: dict[str, Path] = {}
+    base = long_path(root)
+    for current, dirs, names in os.walk(base):
+        rel_dir = os.path.relpath(current, base)
+        if rel_dir == "." and skip_top in dirs:
+            dirs.remove(skip_top)
+        for name in names:
+            rel = name if rel_dir == "." else f"{rel_dir.replace(os.sep, '/')}/{name}"
+            found[rel] = Path(current) / name
+    return found
+
+
+def verify_output(out_dir: Path, manifest: dict, *, require_manifest: bool = False) -> dict:
+    """Re-read every output byte from disk and check it against ``manifest`` (erratum 1 §E3).
+
+    Runs at the end of ``cut`` before the manifest is written, and on the host as ``verify``
+    after transfer. Refuses on any extra, missing or changed file, a §4 hit on the handout as
+    written, an excluded or v2-named tree path, a tar that does not rebuild from the
+    repository's own blobs, or a broken R1 invariant."""
+    out_dir = out_dir.resolve()
+    if not out_dir.is_dir():
+        raise CutRefused(f"verify: {out_dir} is not a directory")
+    top = {p.name for p in out_dir.iterdir()}
+    required = {HANDOUT_DIR, REPO_DIR, TAR_NAME, FILES_LIST_NAME} | ({MANIFEST_NAME} if require_manifest else set())
+    if top - OUTPUT_TOP_LEVEL or required - top:
+        raise CutRefused(f"verify: output top level {sorted(top)} != expected {sorted(required)}")
+
+    # Handout as written.
+    expected_handout = {row["handout_path"]: row for row in manifest["handout"]}
+    on_disk = _walk_files(out_dir / HANDOUT_DIR)
+    if set(on_disk) != set(expected_handout):
+        extra, missing = sorted(set(on_disk) - set(expected_handout)), sorted(set(expected_handout) - set(on_disk))
+        raise CutRefused(f"verify: handout files differ (extra {extra}, missing {missing})")
+    for rel, path in sorted(on_disk.items()):
+        data = path.read_bytes()
+        if sha256_hex(data) != expected_handout[rel]["sha256"]:
+            raise CutRefused(f"verify: handout file {rel} changed on disk")
+        hits = section4_hits(rel, _decode(data))
+        if hits:
+            raise CutRefused(f"verify: §4 check on the handout as written: {len(hits)} hit(s) in {rel}")
+
+    # Filtered tree: files list, working tree, git objects, tar.
+    tree = manifest["filtered_tree"]
+    files_list = (out_dir / FILES_LIST_NAME).read_bytes()
+    if sha256_hex(files_list) != tree["files_sha256_list"]["sha256"]:
+        raise CutRefused(f"verify: {FILES_LIST_NAME} does not match the manifest")
+    rows = parse_files_list(files_list)
+    if len(rows) != tree["files"]:
+        raise CutRefused(f"verify: {FILES_LIST_NAME} lists {len(rows)} files, the manifest {tree['files']}")
+    allowed_names = {row["source"].casefold() for row in manifest["handout"] if row["kind"] in ("code", "text_89a")}
+    for rel in rows:
+        check_tree_path(rel)
+        if excluded_by(rel):
+            raise CutRefused(f"verify: {rel} matches an exclusion glob")
+        if V2_PATH_NAME.search(rel) and rel.casefold() not in allowed_names:
+            raise CutRefused(f"verify: {rel} is named for replay v2 and is not a handout item")
+    repo_dir = out_dir / REPO_DIR
+    working = _walk_files(repo_dir, skip_top=".git")
+    if set(working) != set(rows):
+        extra, missing = sorted(set(working) - set(rows))[:20], sorted(set(rows) - set(working))[:20]
+        raise CutRefused(f"verify: working tree differs from {FILES_LIST_NAME} (extra {extra}, missing {missing})")
+    for rel, path in working.items():
+        if sha256_hex(path.read_bytes()) != rows[rel]:
+            raise CutRefused(f"verify: working-tree file {rel} changed on disk")
+    if git(repo_dir, "rev-parse", BRANCH).decode().strip() != tree["commit"]:
+        raise CutRefused("verify: the snapshot commit differs from the manifest")
+    if git(repo_dir, "rev-parse", f"{BRANCH}^{{tree}}").decode().strip() != tree["tree"]:
+        raise CutRefused("verify: the snapshot tree differs from the manifest")
+    entries = list_tree(repo_dir, BRANCH)
+    if {e.path for e in entries} != set(rows):
+        raise CutRefused("verify: the committed tree differs from the files list")
+    reader = BlobReader(repo_dir)
+    try:
+        committed = [(entry, reader.read(entry.blob)) for entry in entries]
+    finally:
+        reader.close()
+    for entry, data in committed:
+        if sha256_hex(data) != rows[entry.path]:
+            raise CutRefused(f"verify: committed blob for {entry.path} differs from the files list")
+    tar_bytes = (out_dir / TAR_NAME).read_bytes()
+    if sha256_hex(tar_bytes) != tree["tar_sha256"] or deterministic_tar(committed) != tar_bytes:
+        raise CutRefused("verify: the snapshot tar does not match the manifest and the committed tree")
+    r1 = assert_r1_invariants(repo_dir)
+    if r1 != tree["r1"]:
+        raise CutRefused("verify: the R1 report differs from the manifest")
+    return {"handout_files": len(on_disk), "tree_files": len(rows), "section4_hits": 0, "tar_rebuilt": True,
+            "r1": "ok"}
 
 
 # --------------------------------------------------------------------------- plan + cut
@@ -1165,6 +1313,8 @@ def run_cut(plan_file: Path, repo: Path, out_dir: Path, *, table: Sequence[Sub] 
     handout_sources |= {row["path"] for row in (rulings, cover or {}, spec_in_force or {}) if "commit" in row}
     files, withheld_records = filtered_files(repo, commit, withheld, handout_sources)
     checks["import_refusal_files"] = 0
+    checks["tree_denied_literal_files"] = 0
+    checks["tree_excluded_blob_matches"] = 0
     out_dir.mkdir(parents=True)
     try:
         for h in handout:
@@ -1175,6 +1325,8 @@ def run_cut(plan_file: Path, repo: Path, out_dir: Path, *, table: Sequence[Sub] 
         (out_dir / TAR_NAME).write_bytes(tar_bytes)
         snapshot = create_standalone_repo(out_dir / REPO_DIR, files)
         r1 = assert_r1_invariants(out_dir / REPO_DIR)
+        files_list = files_list_bytes(files)
+        (out_dir / FILES_LIST_NAME).write_bytes(files_list)
         manifest = {
             "schema": MANIFEST_SCHEMA,
             "rev": plan.get("rev", "r1"),
@@ -1194,11 +1346,13 @@ def run_cut(plan_file: Path, repo: Path, out_dir: Path, *, table: Sequence[Sub] 
                 "files": len(files),
                 "tar": TAR_NAME,
                 "tar_sha256": sha256_hex(tar_bytes),
+                "files_sha256_list": {"name": FILES_LIST_NAME, "sha256": sha256_hex(files_list)},
                 "exclusion_globs": list(EXCLUSION_GLOBS),
                 "withheld_r4b": withheld_records,
                 "r1": r1,
             },
         }
+        checks["output_verified"] = verify_output(out_dir, manifest)
         manifest_bytes = (json.dumps(manifest, sort_keys=True, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
         (out_dir / MANIFEST_NAME).write_bytes(manifest_bytes)
     except BaseException:
@@ -1249,6 +1403,22 @@ def run_rebind(manifest_file: Path, repo: Path, new_rev: str) -> tuple[dict, str
     return record, sha256_hex(record_bytes)
 
 
+def run_verify(out_dir: Path, expected_binding: str | None) -> tuple[dict, str]:
+    """Host-side check of a transferred cut directory (erratum 1 §E3); reads nothing outside it."""
+    manifest_bytes = (out_dir / MANIFEST_NAME).read_bytes() if (out_dir / MANIFEST_NAME).is_file() else b""
+    if not manifest_bytes:
+        raise CutRefused(f"verify: {MANIFEST_NAME} is missing")
+    binding = sha256_hex(manifest_bytes)
+    if expected_binding is not None and not hash_matches(binding, expected_binding):
+        raise CutRefused(f"verify: manifest SHA-256 {binding} != the expected binding {expected_binding}")
+    manifest = json.loads(manifest_bytes)
+    if manifest.get("schema") != MANIFEST_SCHEMA:
+        raise CutRefused(f"manifest schema must be {MANIFEST_SCHEMA}")
+    if "files_sha256_list" not in manifest.get("filtered_tree", {}):
+        raise CutRefused("verify: the manifest predates the per-file list (re-cut with this script)")
+    return verify_output(out_dir, manifest, require_manifest=True), binding
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     sub = parser.add_subparsers(dest="mode", required=True)
@@ -1261,9 +1431,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     rebind.add_argument("--repo", required=True, type=Path)
     rebind.add_argument("--commit", required=True)
     rebind.add_argument("--out", type=Path, help="write the re-bind record here (must not exist)")
+    verify = sub.add_parser("verify", help="re-check a cut directory from disk alone (host, after transfer)")
+    verify.add_argument("--out", required=True, type=Path, help="the cut directory holding H1-manifest.json")
+    verify.add_argument("--binding", help="expected SHA-256 of H1-manifest.json (full 64 hex)")
     args = parser.parse_args(argv)
     try:
-        if args.mode == "cut":
+        if args.mode == "verify":
+            summary, binding = run_verify(args.out, args.binding)
+            print(json.dumps(summary, sort_keys=True))
+            print(f"verified; binding (SHA-256 of {MANIFEST_NAME}): {binding}")
+        elif args.mode == "cut":
             manifest, binding = run_cut(args.plan, args.repo, args.out)
             print(f"handout files: {len(manifest['handout'])}; filtered tree {manifest['filtered_tree']['tree']} "
                   f"({manifest['filtered_tree']['files']} files); commit {manifest['filtered_tree']['commit']}")

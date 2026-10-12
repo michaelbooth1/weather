@@ -1,0 +1,103 @@
+# Maker replay v2 oracle: host isolation runbook for the author session (DRAFT, 2026-10-12)
+
+> **DRAFT, pending owner rulings I-1..I-7 below and the master agent's H0 review. Not in force; grants no authority.**
+> It proposes the steps the production (master) agent runs on the capture host so the clean-room oracle author can read
+> only the cut directory. It implements [erratum 1](maker-replay-v2-shadow-gate-spec-v3.4-erratum-1-DRAFT-2026-10-12.md)
+> E4 (G3). Owner item: [item 330](items/item-330-maker-economics-refocus-master-plan.md); status lives in
+> [the state of play](../operations/STATE_OF_PLAY.md). Host load and Scheduler rules stay owned by
+> [the host load policy](../operations/HOST_LOAD_POLICY.md) and [the operations agent role](../operations/OPERATIONS_AGENT_ROLE.md).
+>
+> **Read when** preparing, checking or tearing down the oracle author's session on the capture host.
+>
+> **Not a handout item.** Its filename matches the v3.4 §5 exclusion `docs/roadmap/maker-replay-v2-shadow-gate-spec-*`,
+> and the author never receives it.
+>
+> **Update when** the owner rules I-1..I-7, the host's edition or accounts change, or a check below fails in practice.
+
+Paths are placeholders, filled by the master agent from the host: `<PROD_CLONE>` (the production clone),
+`<WORKTREES>` (every pinned or deployed worktree and other clone), `<LDATA>` (the workstation-state and handoff
+folders), `<SOURCES>` (the frozen spec sources the cut reads), `<CUT_DIR>` (the new cut directory), `<AUTHOR>` (the
+author account). No step reads `data/` contents, credentials or `.env*` files; the checks only prove the author cannot.
+
+## 1. Mechanism (ruling I-1)
+
+| Option | What it is | Assessment |
+| --- | --- | --- |
+| **A. Dedicated local account** (recommended) | A new standard (non-administrator) local account `<AUTHOR>` that owns nothing else; the author harness runs as it. NTFS grants it only `<CUT_DIR>`; explicit deny entries on the sensitive roots. | Works on every Windows edition, including Home. Isolation is by the OS, not by the harness. Cost: one account, a profile, a harness install under it. |
+| B. VM or Windows Sandbox | The cut directory copied into a VM or Sandbox; nothing else mounted. | Strongest file isolation; needs Pro/Enterprise (Hyper-V or Sandbox) and RAM the 16 GB capture host is short of during capture. Use only if the edition allows and the session runs outside the protected windows. |
+| C. Harness permissions only | The author runs as the operator's account with the harness's directory allow-list. | **Rejected**: the account can read every clone; one tool call outside the allow-list (or a harness bug) reaches the build line. |
+
+## 2. Preparation (master agent, operator account, outside the 12:00-18:00 graded window)
+
+1. **Cut on the host.** Run the cut script from the build line at the ruled commit (erratum 1 E-R2) with the plan that
+   names the signed H-11 and H-12, into a new empty `<CUT_DIR>` outside every clone and outside the operator profile
+   (for example a top-level folder). Record the manifest SHA-256.
+2. **Verify.** `python tools/research/maker_replay_v2_h1_cut.py verify --out <CUT_DIR> --binding <MANIFEST_SHA256>`
+   must exit 0. It reads only `<CUT_DIR>`.
+3. **Account (option A).** Create `<AUTHOR>` as a standard local user with a generated password the master agent never
+   writes into a repository, a chat or a log (the owner sets or holds it; I-2). Not a member of Administrators,
+   Remote Desktop Users or any group that holds rights on the clones.
+4. **Grant.** `icacls <CUT_DIR> /inheritance:r /grant:r "<AUTHOR>:(OI)(CI)M" "SYSTEM:(OI)(CI)F" "Administrators:(OI)(CI)F"`.
+   The author may modify only inside `<CUT_DIR>` (it commits in `oracle-repo/`).
+5. **Deny.** For each of `<PROD_CLONE>`, `<WORKTREES>`, `<LDATA>`, `<SOURCES>`, the operator profile and every other
+   user profile: `icacls <path> /deny "<AUTHOR>:(OI)(CI)RX"`. Deny entries are added, never replacing the existing
+   ACL, so the capture workers' access is unchanged. Record the exact list.
+6. **Scheduler.** The author account gets no scheduled task and no logon-as-batch right; nothing the Scheduler or the
+   S4U guard runs is started under it.
+7. **Harness.** Install or point the agent harness for `<AUTHOR>` (ruling I-5) with no stored repository credential,
+   no MCP connector, web search and web fetch disabled, and shell commands sandboxed without network where the
+   harness supports it (ruling I-4).
+
+## 3. Checks (run as `<AUTHOR>`, before the session starts; record every output)
+
+| Check | Expected |
+| --- | --- |
+| `dir <PROD_CLONE>`, each `<WORKTREES>` entry, `<LDATA>`, `<SOURCES>`, `<PROD_CLONE>\data`, other profiles | access denied for every one |
+| `git -C <PROD_CLONE> rev-parse HEAD` | fails (no access) |
+| `set GIT` and `set` | no `GIT_*` variable; no variable pointing into a clone |
+| `cmdkey /list`; `git config --global --list` | no stored credential; no credential helper |
+| `git -C <CUT_DIR>\oracle-repo remote -v`; `for-each-ref`; `rev-list --all --count`; `.git\objects\info\alternates` absent | no remote, one ref, one commit, no alternates |
+| `python tools/research/maker_replay_v2_h1_cut.py verify --out <CUT_DIR> --binding <MANIFEST_SHA256>` run from a copy outside the cut, or the master agent's own verify re-run after the ACL change | exit 0 (the ACL change did not alter a byte) |
+| Egress (I-4) | the harness's network sandbox refuses a request to the public repository host; web tools absent |
+
+Any unexpected result stops the session; the master agent fixes and re-runs every check.
+
+## 4. Session
+
+- The production agent starts the session as `<AUTHOR>` with the signed H-12 as its prompt, and records start time,
+  agent, model, harness and version (erratum 1 E1).
+- Tests run only as H-12's `<TEST_RULE>` says. Open question I-6: the author account cannot take the workload lease or
+  run the bounded wrapper unless granted; the recommendation is that the author runs focused tests only inside the
+  00:30-09:00 window through a master-agent-run wrapper that takes the lease on the author's behalf, or that the master
+  agent runs them after hand-back.
+- Questions go to `<CONTACT>`; answers come back only as a re-hand (erratum 1 E5).
+
+## 5. Hand-back and teardown
+
+1. The author leaves its branch in `oracle-repo/`. The master agent, as the operator account, creates a git bundle (or
+   format-patch series) of that branch only, checks that its base is the snapshot commit, and imports it onto the build
+   line under v3.2 §6 (coordinator import, then the deletion commit).
+2. Archive `<CUT_DIR>` and the session transcript read-only (ruling I-7 says where); audit the transcript for any
+   network call, any path outside `<CUT_DIR>` and any tool outside the allowed set, and record the result with the
+   oracle PR.
+3. Disable `<AUTHOR>` and remove its deny entries only after the archive; do not delete the account's profile until the
+   oracle PR is merged or abandoned.
+
+## 6. Residual exposure
+
+The repository is public on GitHub, so the build line, including the engine, is reachable from any session with
+network egress. Option A closes file access, not the network. Closing it fully needs the network sandbox (I-4), a VM
+without network (option B), or making the repository private for the session's duration (an owner decision outside
+this runbook). Whatever is ruled is disclosed with the oracle PR.
+
+## Rulings requested
+
+| Id | Question | Recommendation |
+| --- | --- | --- |
+| I-1 | Isolation mechanism (erratum 1 E-R3) | Option A; option B only if the edition supports it and RAM allows |
+| I-2 | Who sets and holds the author account's password | The owner, out of band; never in a repository file or chat |
+| I-3 | Which paths are denied (the `<PROD_CLONE>`, `<WORKTREES>`, `<LDATA>`, `<SOURCES>` lists) | The master agent enumerates them from the host; the owner signs the list |
+| I-4 | Network egress (erratum 1 E-R4) | Harness network sandbox plus web tools off plus transcript audit; residual risk disclosed |
+| I-5 | Which harness and model the author runs | A harness different from the gate logic's author where possible; recorded in the PR |
+| I-6 | How the author's tests take the workload lease | Master-agent-run wrapper in 00:30-09:00, or tests after hand-back |
+| I-7 | Where the cut directory and transcript are archived, and for how long | A read-only folder outside the clones, kept until the cohort receipt is signed |
