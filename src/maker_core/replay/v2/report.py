@@ -172,12 +172,14 @@ def build_report(run, config, *, replicates=2000, seed=20260926, registration_ha
     """Compose the scored report from a finished ``pipeline.Run`` and write its sidecar; returns (report, sidecar).
 
     A scored (not FIXTURE_ONLY) report also needs ``manifest``, the execution manifest document ``verify_manifest``
-    returned for the pack, and ``registered``, the domain zone registry. The run's zone map and its
+    returned for the pack, and ``registered``, the domain zone registry. Every plan day must be a sealed capture day
+    and the plan's per-day input hashes must equal the manifest's ``input_hashes`` exactly (every quote day and the
+    settlement day; no subset, superset or re-exported bundle). The run's zone map and its
     ``time_zones_source`` are re-derived from the manifest's bound universe (``execution_manifest.verify_scored_pack``),
     so a made-up ``RegisteredZones`` source, a forged map or an inventory other than the manifest's refuses, and the
-    report's ``pack_check`` records the digests the check bound (manifest, universe, registry, tzdata). This function
-    does not re-verify the manifest; the caller must, and an auditor matches ``pack_check.manifest_sha256`` against
-    the enrolled manifest. A FIXTURE_ONLY report does not read the pack (``pack_check`` is ``None``)."""
+    report's ``pack_check`` records the digests the check bound (manifest, input hashes, universe, registry,
+    tzdata). This function does not re-verify the manifest; the caller must, and an auditor matches
+    ``pack_check.manifest_sha256`` against the enrolled manifest. A FIXTURE_ONLY report does not read the pack (``pack_check`` is ``None``)."""
     from maker_core.replay.v2.pipeline import verify_run_binding
     plan, books, passes, matches, markets = run.plan, run.books, run.passes, run.matches, run.markets
     fixture_only = all(d.provenance == "synthetic" for d in plan.days)
@@ -185,8 +187,7 @@ def build_report(run, config, *, replicates=2000, seed=20260926, registration_ha
     pack_check = None
     if not fixture_only:  # the F2 remainder: the zone source must be the verified pack's, not self-declared
         from maker_core.replay.execution_manifest import verify_scored_pack
-        pack_check = verify_scored_pack(run_binding, markets, [c.condition_id for d in plan.days for c in d.conditions],
-                                        manifest=manifest, registered=registered)
+        pack_check = verify_scored_pack(run_binding, plan, markets, manifest=manifest, registered=registered)
     sidecar = Sidecar(sidecar_path)
     try:
         sidecar.write(dict(kind="header", format=SIDECAR_FORMAT, days=[d.day.isoformat() for d in plan.days]))

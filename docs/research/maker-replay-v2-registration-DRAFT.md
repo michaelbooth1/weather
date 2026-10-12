@@ -123,7 +123,12 @@ only; no decision, P&L or base-pass prefix digest changes.
   produces no scored report. Those checks are integrity only: code can still construct a forged source or
   recompute every digest. So a scored report also takes the execution manifest that `verify_manifest` returned for
   the pack and the domain registry (`build_report(..., manifest=, registered=)`); the inventory is the manifest's
-  `universe`, never a free argument. `execution_manifest.verify_scored_pack` requires `digest(universe)` to equal the
+  `universe`, never a free argument. `execution_manifest.verify_scored_pack` takes the run plan and requires every
+  plan day to be a sealed capture (provenance `captured`, `run_binding_pack_provenance_unsealed`), the manifest's
+  `input_hashes` to be exactly its `dates` plus its `settlement_only_date`, in order
+  (`run_binding_pack_days_mismatch`), and the plan's per-day input hashes to equal them exactly: every quote day
+  and the settlement day, no subset, no superset, no re-exported bundle (`run_binding_pack_input_hashes_mismatch`;
+  R155 Fable F1). It requires `digest(universe)` to equal the
   manifest's `universe_sha256` (the universe file is canonical JSON, so its file sha and the run source's
   `inventory_sha256` are one hash), re-derives the map (`verify_registered_zones`: the source must be exactly the
   record `market_time_zones` would write, the bound map the universe's map, the registry and per-market zone
@@ -133,7 +138,8 @@ only; no decision, P&L or base-pass prefix digest changes.
   `run_binding_zone_source_mismatch`, `run_binding_zone_map_mismatch`, `run_binding_inventory_mismatch`,
   `run_binding_pack_tzdata_mismatch`, or the `market_time_zones` codes). The report (format v0.2) records the check
   as `pack_check`: the manifest digest (the manifest file's sha when written by `pack_io.write_json`), whether that
-  digest is enrolled (`approved_registrations`), and the universe, registry and tzdata zone-file digests. Scope:
+  digest is enrolled (`approved_registrations`), the digest of the `input_hashes` it matched, and the universe,
+  registry and tzdata zone-file digests. Scope:
   this binds the run to the manifest the caller passes; it does not re-run `verify_manifest`, and enrollment is
   recorded, not enforced, so a fabricated manifest still yields a report, with a foreign `manifest_sha256` and
   `manifest_enrolled` false. The runner must read the manifest through `read_authorization` (which refuses an

@@ -189,16 +189,46 @@ def verify_registered_zones(time_zones, source, markets, *, inventory, registere
 PACK_CHECK = "maker_core.replay.execution_manifest.verify_scored_pack"
 
 
-def verify_scored_pack(run_binding, markets, conditions, *, manifest, registered):
-    """The pack check of a scored v2 report: bind the run's zone map to the verified execution manifest.
+# The only non-synthetic provenance the sealed bundle readers accept (``bundle.load_bundle``, ``bundle_v02``); the
+# exporters write it into every sealed capture bundle. A scored report's days must all carry it (R155 Fable F1).
+SEALED_PROVENANCE = "captured"
+_PACK_FIELDS = {"universe", "universe_sha256", "tzdata", "input_hashes", "dates", "settlement_only_date"}
+
+
+def _pack_days(manifest):
+    """The manifest's ``input_hashes`` as a plain dict, checked against its own ``dates`` and ``settlement_only_date``:
+    exactly one entry per quote date and one for the settlement-only date, in that (ISO, so calendar) order."""
+    hashes, dates, settlement = manifest["input_hashes"], manifest["dates"], manifest["settlement_only_date"]
+    if (not isinstance(hashes, Mapping) or not isinstance(dates, list) or not isinstance(settlement, str)
+            or not all(isinstance(d, str) for d in dates)
+            or not all(isinstance(k, str) and isinstance(v, Mapping) for k, v in hashes.items())):
+        raise BundleError("run_binding_pack_manifest_invalid")
+    days = [*dates, settlement]
+    if list(hashes) != days or days != sorted(set(days)):
+        raise BundleError("run_binding_pack_days_mismatch")
+    return {day: dict(value) for day, value in hashes.items()}
+
+
+def verify_scored_pack(run_binding, plan, markets, *, manifest, registered):
+    """The pack check of a scored v2 report: bind the run's days, inputs and zone map to the verified manifest.
 
     ``manifest`` is the execution manifest document that ``verify_manifest`` returned for this pack (the runner
     verifies it; this function does not re-run ``verify_manifest``, which needs the bundles and the signed
     documents). ``registered`` is the domain registry (for weather,
     ``weather.market.maker_replay_universe.registered_time_zones()``; the neutral core reads no domain registry).
-    The inventory is never a free argument: it is ``manifest["universe"]``. Refuses unless
+    ``plan`` is the run's ``lockstep.RunPlan``. The inventory is never a free argument: it is
+    ``manifest["universe"]``. Refuses unless
     - both are given (``run_binding_pack_required``) and ``manifest`` is an execution manifest of this ``FORMAT``
-      carrying ``universe``, ``universe_sha256`` and ``tzdata`` (``run_binding_pack_manifest_invalid``);
+      carrying ``universe``, ``universe_sha256``, ``tzdata``, ``input_hashes``, ``dates`` and
+      ``settlement_only_date`` of the right types (``run_binding_pack_manifest_invalid``);
+    - every plan day is a sealed capture day, provenance ``SEALED_PROVENANCE``
+      (``run_binding_pack_provenance_unsealed``): a plan that mixes synthetic and captured days is not a scored run
+      of the pack;
+    - the manifest's ``input_hashes`` has exactly one entry per ``dates`` entry plus the ``settlement_only_date``, in
+      that order (``run_binding_pack_days_mismatch``; ``build_manifest`` writes it so and ``verify_manifest`` pins
+      the dates), and the plan's ``{day: input_hashes}`` equals it exactly: every quote day and the settlement day,
+      no subset, no superset, no other bundle bytes (``run_binding_pack_input_hashes_mismatch``). A re-exported
+      bundle set has other input hashes and refuses here even with an identical universe;
     - ``digest(manifest["universe"])`` equals ``manifest["universe_sha256"]`` (``run_binding_pack_universe_mismatch``).
       The manifest binds the universe file's sha; the file is written as canonical JSON (``pack_io.write_json``),
       so that sha *is* ``digest`` of its rows, the same hash as the run's ``time_zones_source.inventory_sha256``.
@@ -209,16 +239,22 @@ def verify_scored_pack(run_binding, markets, conditions, *, manifest, registered
       ``bundle.tzdata_binding`` over the same zones once the map equals the universe's.
     Returns the report's ``pack_check`` record: this verifier, the manifest's ``digest`` (equal to the manifest
     file's sha, and so to the v1 ``pre_registration_sha256``, when the file was written by ``pack_io.write_json``),
-    whether that digest is enrolled in ``approved_registrations.APPROVED_REGISTRATIONS``, the universe and registry
-    digests, and the tzdata zone-file digest it bound. Enrollment is recorded, not enforced: the runner reads the
+    whether that digest is enrolled in ``approved_registrations.APPROVED_REGISTRATIONS``, the digest of the
+    ``input_hashes`` it matched, the universe and registry digests, and the tzdata zone-file digest it bound.
+    Enrollment is recorded, not enforced: the runner reads the
     manifest through ``authorization.read_authorization`` (which refuses an unenrolled hash) and ``verify_manifest``
     before it builds the report. A fabricated manifest therefore still yields a report, but one whose
     ``manifest_sha256`` is not the verified pack's and whose ``manifest_enrolled`` is false."""
     if manifest is None or registered is None:
         raise BundleError("run_binding_pack_required")
-    if (not isinstance(manifest, Mapping) or manifest.get("format") != FORMAT
-            or not {"universe", "universe_sha256", "tzdata"} <= set(manifest)):
+    if not isinstance(manifest, Mapping) or manifest.get("format") != FORMAT or not _PACK_FIELDS <= set(manifest):
         raise BundleError("run_binding_pack_manifest_invalid")
+    input_hashes = _pack_days(manifest)
+    if any(d.provenance != SEALED_PROVENANCE for d in plan.days):
+        raise BundleError("run_binding_pack_provenance_unsealed")
+    if {d.day.isoformat(): dict(d.input_hashes) for d in plan.days} != input_hashes:
+        raise BundleError("run_binding_pack_input_hashes_mismatch")
+    conditions = [c.condition_id for d in plan.days for c in d.conditions]
     inventory = manifest["universe"]
     if digest(inventory) != manifest["universe_sha256"]:
         raise BundleError("run_binding_pack_universe_mismatch")
@@ -230,7 +266,7 @@ def verify_scored_pack(run_binding, markets, conditions, *, manifest, registered
     manifest_sha256 = digest(manifest)
     return dict(verifier=PACK_CHECK, manifest_format=FORMAT, manifest_sha256=manifest_sha256,
                 manifest_enrolled=manifest_sha256 in approved_registrations.APPROVED_REGISTRATIONS,
-                universe_sha256=manifest["universe_sha256"], registry_sha256=expected["registry_sha256"],
+                input_hashes_sha256=digest(input_hashes), universe_sha256=manifest["universe_sha256"], registry_sha256=expected["registry_sha256"],
                 tzdata_zone_files_sha256=manifest["tzdata"]["zone_files_sha256"])
 
 

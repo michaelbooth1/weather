@@ -74,7 +74,10 @@ caller can construct a `RegisteredZones` with a made-up source. So a non-fixture
 (the execution manifest `verify_manifest` returned for the pack) and `registered=` (the domain registry), and
 `execution_manifest.verify_scored_pack` re-derives the map and its source from the manifest's `universe` (checked
 against its `universe_sha256`) and checks the run's tzdata block against the manifest's; a made-up source, a forged
-map, another inventory or a run condition outside the universe refuses. The report (format v0.2) records the check
+map, another inventory or a run condition outside the universe refuses. It also requires every plan day to be a
+sealed capture (provenance `captured`) and the plan's per-day input hashes to equal the manifest's `input_hashes`
+exactly (all quote days and the settlement day; a subset, a superset or a re-exported bundle refuses). The report
+(format v0.2) records the check
 and the digests it bound as `pack_check`, with `manifest_enrolled` (whether the manifest digest is in
 `approved_registrations`; recorded, not enforced). It does not re-verify the manifest: the runner must
 (`read_authorization`, then `verify_manifest`). For
