@@ -139,7 +139,15 @@ only; no decision, P&L or base-pass prefix digest changes.
   `run_binding_pack_tzdata_mismatch`, or the `market_time_zones` codes). The report (format v0.2) records the check
   as `pack_check`: the manifest digest (the manifest file's sha when written by `pack_io.write_json`), whether that
   digest is enrolled (`approved_registrations`), the digest of the `input_hashes` it matched, and the universe,
-  registry and tzdata zone-file digests. Scope:
+  registry and tzdata zone-file digests. The run's scope is bound too (`execution_manifest.verify_scored_scope`,
+  R155 defender-2 D1, as v1's runner binds it with `authorization.bind_scope`): every plan day is declared with
+  exactly the manifest's `active_intervals` (`apply_manifest`; envelope or other windows refuse
+  `run_binding_pack_windows_mismatch`), the quote-day markets are the manifest's `markets`
+  (`run_binding_pack_markets_mismatch`), the report configuration equals the manifest's `replay_config` on the
+  caps, cash, hazard and book-gap fields (`run_binding_pack_config_mismatch`), the bootstrap replicates and seed
+  are the manifest's (`run_binding_pack_bootstrap_mismatch`), and `registration_hash` is omitted or the manifest
+  digest (`run_binding_pack_registration_mismatch`); `pre_registration_sha256` is that digest. `pack_check` adds
+  the `active_intervals` and `replay_config` digests and the bootstrap it ran. Scope of the check:
   this binds the run to the manifest the caller passes; it does not re-run `verify_manifest`, and enrollment is
   recorded, not enforced, so a fabricated manifest still yields a report, with a foreign `manifest_sha256` and
   `manifest_enrolled` false. The runner must read the manifest through `read_authorization` (which refuses an

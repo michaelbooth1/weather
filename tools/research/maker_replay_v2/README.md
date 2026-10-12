@@ -76,8 +76,11 @@ caller can construct a `RegisteredZones` with a made-up source. So a non-fixture
 against its `universe_sha256`) and checks the run's tzdata block against the manifest's; a made-up source, a forged
 map, another inventory or a run condition outside the universe refuses. It also requires every plan day to be a
 sealed capture (provenance `captured`) and the plan's per-day input hashes to equal the manifest's `input_hashes`
-exactly (all quote days and the settlement day; a subset, a superset or a re-exported bundle refuses). The report
-(format v0.2) records the check
+exactly (all quote days and the settlement day; a subset, a superset or a re-exported bundle refuses), and
+`verify_scored_scope` binds the scope to the manifest (R155 defender-2 D1): declared windows equal to the manifest's
+`active_intervals` (build the sources from `apply_manifest(manifest, bundles)`), the quote-day `markets`, the
+`replay_config` caps, hazard and book gap, the bootstrap replicates and seed, and a registration hash that is
+omitted or the manifest digest. The report (format v0.2) records the check
 and the digests it bound as `pack_check`, with `manifest_enrolled` (whether the manifest digest is in
 `approved_registrations`; recorded, not enforced). It does not re-verify the manifest: the runner must
 (`read_authorization`, then `verify_manifest`). For

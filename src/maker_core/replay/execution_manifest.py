@@ -270,6 +270,97 @@ def verify_scored_pack(run_binding, plan, markets, *, manifest, registered):
                 tzdata_zone_files_sha256=manifest["tzdata"]["zone_files_sha256"])
 
 
+PACK_SCOPE = "maker_core.replay.execution_manifest.verify_scored_scope"
+_SCOPE_FIELDS = {"dates", "active_intervals", "markets", "replay_config", "bootstrap_replicates", "bootstrap_seed"}
+# The v1 ``replay_config`` fields a v2 run is scored under (``kernel.V2Config`` has the same names): caps, cash, the
+# hazard scalar and the book-gap limit. ``policy``, ``fill_bound`` and ``clock_pulls`` are per pass (the report runs
+# every policy and bound); ``max_events``/``max_outputs`` are resource ceilings, which refuse a run, never re-score it.
+SCOPE_CONFIG_FIELDS = ("initial_cash", "band_cap", "order_cap", "wallet_cap", "event_cap", "factor_cap",
+                       "hazard_per_minute", "max_book_gap_seconds")
+
+
+def _scope_windows(plan, manifest):
+    """Every plan day is declared, with exactly ``apply_manifest``'s windows for that day (an empty map for a day
+    with no active interval, such as the settlement-only day)."""
+    from maker_core.replay.v2.lockstep import windows_of
+    intervals = manifest["active_intervals"]
+    keys = {"date", "condition_id", "start", "end"}
+    if not isinstance(intervals, list) or not all(isinstance(w, Mapping) and keys <= set(w) for w in intervals):
+        raise BundleError("run_binding_pack_manifest_invalid")
+    for day in plan.days:
+        iso = day.day.isoformat()
+        try:
+            expected = windows_of(day.conditions, tuple((w["condition_id"], timestamp(w["start"]), timestamp(w["end"]))
+                                                        for w in intervals if w["date"] == iso))
+        except (BundleError, TypeError, ValueError):
+            raise BundleError("run_binding_pack_manifest_invalid") from None
+        if day.declared is not True or not isinstance(day.windows, Mapping) or dict(day.windows) != dict(expected):
+            raise BundleError("run_binding_pack_windows_mismatch")
+
+
+def _scope_markets(plan, manifest):
+    """The quote-day markets of the plan are the manifest's ``markets`` (as ``build_manifest`` derives them)."""
+    quote = manifest["dates"]
+    markets = sorted({c.market_id for d in plan.days if d.day.isoformat() in quote for c in d.conditions})
+    if not isinstance(manifest["markets"], list) or markets != manifest["markets"]:
+        raise BundleError("run_binding_pack_markets_mismatch")
+
+
+def _scope_config(config, manifest):
+    """The report configuration equals the manifest's ``replay_config`` on ``SCOPE_CONFIG_FIELDS``, both normalised
+    through ``V2Config`` (so ``"100"`` and ``Decimal(100)`` agree; a hazard of 0.5 against 1.0 does not)."""
+    from maker_core.replay.v2.kernel import V2Config
+    replay_config = manifest["replay_config"]
+    if not isinstance(replay_config, Mapping) or not set(SCOPE_CONFIG_FIELDS) <= set(replay_config):
+        raise BundleError("run_binding_pack_manifest_invalid")
+    try:
+        expected = V2Config(**{name: replay_config[name] for name in SCOPE_CONFIG_FIELDS})
+    except (BundleError, TypeError, ValueError, ArithmeticError):
+        raise BundleError("run_binding_pack_manifest_invalid") from None
+    if any(type(getattr(config, name, None)) is bool
+           or plain(getattr(config, name, None)) != plain(getattr(expected, name)) for name in SCOPE_CONFIG_FIELDS):
+        raise BundleError("run_binding_pack_config_mismatch")
+
+
+def _scope_bootstrap(replicates, seed, manifest):
+    if (type(replicates) is not int or type(seed) is not int or replicates != manifest["bootstrap_replicates"]
+            or seed != manifest["bootstrap_seed"]):
+        raise BundleError("run_binding_pack_bootstrap_mismatch")
+
+
+def _scope_registration(registration_hash, manifest_sha256):
+    if registration_hash is not None and registration_hash != manifest_sha256:
+        raise BundleError("run_binding_pack_registration_mismatch")
+
+
+def verify_scored_scope(plan, config, *, manifest, replicates, seed, registration_hash, manifest_sha256):
+    """The scope of a scored v2 report is the enrolled manifest's (R155 defender-2 D1), as v1's runner binds it
+    (``authorization.bind_scope`` and ``ReplayConfig(**registration["replay_config"])``). Called by
+    ``report.build_report`` after ``verify_scored_pack`` accepted ``manifest``; refuses unless
+    - every plan day is declared and its windows are exactly the manifest's ``active_intervals`` for that day, as
+      ``apply_manifest`` projects them (``run_binding_pack_windows_mismatch``): envelope windows, empty windows or
+      any other interval set refuse;
+    - the plan's quote-day markets are the manifest's ``markets`` (``run_binding_pack_markets_mismatch``);
+    - ``config`` equals the manifest's ``replay_config`` on ``SCOPE_CONFIG_FIELDS`` (``run_binding_pack_config_mismatch``);
+    - ``replicates`` and ``seed`` are the ints ``bootstrap_replicates`` and ``bootstrap_seed``
+      (``run_binding_pack_bootstrap_mismatch``);
+    - ``registration_hash`` is ``None`` or ``manifest_sha256`` (``run_binding_pack_registration_mismatch``); the
+      report's ``pre_registration_sha256`` is then ``manifest_sha256``, never a free value.
+    A malformed scope field refuses ``run_binding_pack_manifest_invalid``. Returns the scope fields the report's
+    ``pack_check`` adds: the digests of the manifest's ``active_intervals`` and ``replay_config``, and the bootstrap
+    replicates and seed."""
+    if not _SCOPE_FIELDS <= set(manifest):
+        raise BundleError("run_binding_pack_manifest_invalid")
+    _scope_windows(plan, manifest)
+    _scope_markets(plan, manifest)
+    _scope_config(config, manifest)
+    _scope_bootstrap(replicates, seed, manifest)
+    _scope_registration(registration_hash, manifest_sha256)
+    return dict(scope_verifier=PACK_SCOPE, active_intervals_sha256=digest(manifest["active_intervals"]),
+                replay_config_sha256=digest(manifest["replay_config"]), bootstrap_replicates=replicates,
+                bootstrap_seed=seed)
+
+
 def active_intervals(bundles, inventory, *, check=lambda: None):
     """Declared active intervals and the exclusion inventory (registration draft §4; owner Q2(a), 2026-10-08).
 

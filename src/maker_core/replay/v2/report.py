@@ -178,7 +178,11 @@ def build_report(run, config, *, replicates=2000, seed=20260926, registration_ha
     ``time_zones_source`` are re-derived from the manifest's bound universe (``execution_manifest.verify_scored_pack``),
     so a made-up ``RegisteredZones`` source, a forged map or an inventory other than the manifest's refuses, and the
     report's ``pack_check`` records the digests the check bound (manifest, input hashes, universe, registry,
-    tzdata). This function does not re-verify the manifest; the caller must, and an auditor matches
+    tzdata). The run's scope is the manifest's too (``execution_manifest.verify_scored_scope``, R155 defender-2 D1):
+    every plan day declared with the manifest's ``active_intervals`` (``apply_manifest``), the quote-day markets, the
+    ``replay_config`` fields, ``replicates``/``seed`` equal to ``bootstrap_replicates``/``bootstrap_seed``, and
+    ``registration_hash`` either omitted or equal to the manifest digest; ``pre_registration_sha256`` is that digest.
+    This function does not re-verify the manifest; the caller must, and an auditor matches
     ``pack_check.manifest_sha256`` against the enrolled manifest. A FIXTURE_ONLY report does not read the pack (``pack_check`` is ``None``)."""
     from maker_core.replay.v2.pipeline import verify_run_binding
     plan, books, passes, matches, markets = run.plan, run.books, run.passes, run.matches, run.markets
@@ -186,8 +190,13 @@ def build_report(run, config, *, replicates=2000, seed=20260926, registration_ha
     run_binding = verify_run_binding(run, config, scored=not fixture_only)  # owner T2(a): no binding, no report
     pack_check = None
     if not fixture_only:  # the F2 remainder: the zone source must be the verified pack's, not self-declared
-        from maker_core.replay.execution_manifest import verify_scored_pack
+        from maker_core.replay.execution_manifest import verify_scored_pack, verify_scored_scope
         pack_check = verify_scored_pack(run_binding, plan, markets, manifest=manifest, registered=registered)
+        # R155 defender-2 D1: windows, markets, configuration, bootstrap and registration hash are the manifest's.
+        pack_check.update(verify_scored_scope(plan, config, manifest=manifest, replicates=replicates, seed=seed,
+                                              registration_hash=registration_hash,
+                                              manifest_sha256=pack_check["manifest_sha256"]))
+        registration_hash = pack_check["manifest_sha256"]
     sidecar = Sidecar(sidecar_path)
     try:
         sidecar.write(dict(kind="header", format=SIDECAR_FORMAT, days=[d.day.isoformat() for d in plan.days]))

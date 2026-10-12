@@ -11,10 +11,12 @@ GATELOGIC-T1T3 Defender 4f3ca7c03 findings F1-F6 (binding tied to the run, full 
 recomputed from the one installed package, zone-map snapshot, mutants M1cov/M2ver/M3any), and GATELOGIC-T1T3
 delta review 1 at a66a5b492 (findings 1-3: mutants D2markets/D4hashes/D6fields, the driven zone map bound into the
 run inputs, the package-directory tzdata check for a sourceless install), and the R155 Fable review of 00d247bb9
-(F1: a scored run's days are all sealed captures and its per-day input hashes are exactly the manifest's).
+(F1: a scored run's days are all sealed captures and its per-day input hashes are exactly the manifest's), and the
+R155 defender-2 review of 5a7df6fb4 (D1: a scored run's windows, markets, configuration, bootstrap and registration
+hash are the manifest's).
 """
 from dataclasses import replace
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 import importlib.metadata
 import importlib.resources
 import inspect
@@ -24,8 +26,9 @@ import zoneinfo
 
 import pytest
 
-from maker_core.evidence.journal import digest
+from maker_core.evidence.journal import digest, plain
 from maker_core.replay import bundle
+from maker_core.replay.engine import ReplayConfig
 from maker_core.replay.bundle import TZDATA_VERSION, BundleError, RegisteredZones, sha256, time_zone
 from maker_core.replay.execution_manifest import FORMAT as MANIFEST_FORMAT
 from maker_core.replay.v2 import pipeline
@@ -46,9 +49,11 @@ SUMMER = datetime(2026, 7, 1, 12, tzinfo=timezone.utc)
 
 
 def day_source(day=DAY, provenance="synthetic", trades=200):
-    """A fictional dense day; ``provenance="captured"`` makes ``build_report`` treat it as a scored replay day."""
+    """A fictional dense day; ``provenance="captured"`` makes ``build_report`` treat it as a scored replay day. A
+    non-synthetic day is declared with its envelope windows, which ``manifest_for`` writes as the manifest's
+    ``active_intervals`` (R155 defender-2 D1: a scored run's windows are the manifest's)."""
     source, _ = materialize(DenseDay(day, union=4, trades=trades, minutes=10))
-    return replace(source, plan=replace(source.plan, provenance=provenance))
+    return replace(source, plan=replace(source.plan, provenance=provenance, declared=provenance != "synthetic"))
 
 
 def small_run(time_zones=FIXTURE_ZONES, provenance="synthetic", day=DAY, trades=200):
@@ -65,13 +70,21 @@ def manifest_for(inventory, plans=None):
     """The fields of a fictional execution manifest that the pack check reads (``verify_scored_pack``): format,
     universe, its sha (the canonical-JSON digest, which is the file sha ``pack_io.write_json`` gives), the
     tzdata record ``build_manifest`` writes, and the per-day ``input_hashes`` of ``plans`` (default: the one
-    ``day_source()`` day) with the last day as ``settlement_only_date`` and the others as ``dates``. A real pack's
-    verified manifest is used end to end below."""
-    days = [p.day.isoformat() for p in plans] if plans else [DAY.isoformat()]
-    hashes = {p.day.isoformat(): dict(p.input_hashes) for p in (plans or [day_source().plan])}
+    ``day_source()`` day) with the last day as ``settlement_only_date`` and the others as ``dates``, and the scope
+    ``verify_scored_scope`` reads (R155 defender-2 D1): the plans' windows as ``active_intervals``, the quote-day
+    markets, ``CONFIG`` as the v1 ``replay_config`` and the bootstrap these tests run (100 replicates, the default
+    seed). A real pack's verified manifest is used end to end below."""
+    plans = plans or [day_source().plan]
+    days = [p.day.isoformat() for p in plans]
+    hashes = {p.day.isoformat(): dict(p.input_hashes) for p in plans}
+    intervals = [dict(date=p.day.isoformat(), condition_id=cid, start=a.isoformat(), end=b.isoformat())
+                 for p in plans for cid, windows in p.windows.items() for a, b in windows]
     return dict(format=MANIFEST_FORMAT, universe=inventory, universe_sha256=digest(inventory),
                 tzdata=bundle.tzdata_binding(r["local_timezone"] for r in inventory),
-                dates=days[:-1], settlement_only_date=days[-1], input_hashes=hashes)
+                dates=days[:-1], settlement_only_date=days[-1], input_hashes=hashes, active_intervals=intervals,
+                markets=sorted({c.market_id for p in plans[:-1] for c in p.conditions}),
+                replay_config=plain(ReplayConfig(hazard_per_minute=CONFIG.hazard_per_minute)),
+                bootstrap_replicates=100, bootstrap_seed=20260926)
 
 
 def pack(zones=FIXTURE_ZONES, registry=None, edit=lambda rows: rows, plans=None):
@@ -404,10 +417,13 @@ def test_a_scored_report_refuses_an_incomplete_or_rewritten_source(source):
 def test_the_execution_manifest_source_is_accepted_for_a_scored_report(tmp_path):
     """End to end on the fictional execution pack: ``verify_manifest`` accepts the pack's manifest, and
     ``market_time_zones`` over its bundles and universe drives a sealed run whose report verifies against that
-    manifest. ``pack_check`` records the digests it bound: the manifest digest is the manifest file's sha, and the
-    universe digest is both the manifest's ``universe_sha256`` (the file sha) and the run source's
-    ``inventory_sha256`` (one hash). The source grafted onto another map refuses."""
-    from maker_core.replay.execution_manifest import PACK_CHECK, market_time_zones, verify_manifest
+    manifest. The run is the runner's: the declared windows (``apply_manifest``), the manifest's ``replay_config``
+    and its bootstrap (R155 defender-2 D1). ``pack_check`` records the digests it bound: the manifest digest is the
+    manifest file's sha, and the universe digest is both the manifest's ``universe_sha256`` (the file sha) and the
+    run source's ``inventory_sha256`` (one hash). The source grafted onto another map refuses, and so does the same
+    pack replayed over its bundle envelopes instead of the declared windows."""
+    from maker_core.replay.execution_manifest import (PACK_CHECK, PACK_SCOPE, SCOPE_CONFIG_FIELDS, apply_manifest,
+                                                      market_time_zones, verify_manifest)
     from maker_core.replay.v2.lockstep import bundle_source
     from .fixtures.execution_pack import pack as execution_pack
     doc, bundles, cb, paths, manifest_path, manifest_key = execution_pack(tmp_path)
@@ -415,23 +431,34 @@ def test_the_execution_manifest_source_is_accepted_for_a_scored_report(tmp_path)
     registry = {"a": "UTC"}
     zones = market_time_zones(bundles, verified["universe"], registered=registry)
     source = dict(zones.source)
-    sources = [replace(s, plan=replace(s.plan, provenance="captured")) for s in map(bundle_source, bundles)]
-    run = run_passes(sources, CONFIG, time_zones=zones)
-    report, _ = build_report(run, CONFIG, replicates=100, manifest=verified, registered=registry)
+    config = V2Config(**{name: verified["replay_config"][name] for name in SCOPE_CONFIG_FIELDS}, debug=True)
+    scope = dict(replicates=verified["bootstrap_replicates"], seed=verified["bootstrap_seed"])
+
+    def sources_of(given):
+        return [replace(s, plan=replace(s.plan, provenance="captured")) for s in map(bundle_source, given)]
+    sources = sources_of(apply_manifest(verified, bundles))
+    run = run_passes(sources, config, time_zones=zones)
+    report, _ = build_report(run, config, **scope, manifest=verified, registered=registry)
     assert report["status"] == "PRE_REGISTERED_REPLAY" and report["run_binding"]["time_zones_source"] == source
     universe_file_sha = sha256(paths["inventory_path"].read_bytes())
     assert report["pack_check"] == dict(
         verifier=PACK_CHECK, manifest_format=MANIFEST_FORMAT, manifest_sha256=manifest_key, manifest_enrolled=False,
         input_hashes_sha256=digest(verified["input_hashes"]), universe_sha256=universe_file_sha,
-        registry_sha256=source["registry_sha256"], tzdata_zone_files_sha256=verified["tzdata"]["zone_files_sha256"])
-    assert manifest_key == sha256(manifest_path.read_bytes())
+        registry_sha256=source["registry_sha256"], tzdata_zone_files_sha256=verified["tzdata"]["zone_files_sha256"],
+        scope_verifier=PACK_SCOPE, active_intervals_sha256=digest(verified["active_intervals"]),
+        replay_config_sha256=digest(verified["replay_config"]), bootstrap_replicates=2000, bootstrap_seed=20260926)
+    assert report["pre_registration_sha256"] == manifest_key == sha256(manifest_path.read_bytes())
+    assert report["configuration"]["hazard_per_minute"] == verified["replay_config"]["hazard_per_minute"]
     assert universe_file_sha == verified["universe_sha256"] == source["inventory_sha256"]
     assert report["input_hashes"] == verified["input_hashes"] and len(verified["input_hashes"]) == 15
     with pytest.raises(BundleError, match="run_binding_zone_map_mismatch"):
-        build_report(forge(run, RegisteredZones({"a": "Africa/Abidjan"}, source)), CONFIG, replicates=100,
+        build_report(forge(run, RegisteredZones({"a": "Africa/Abidjan"}, source), config), config, **scope,
                      manifest=verified, registered=registry)
     with pytest.raises(BundleError, match="run_binding_pack_input_hashes_mismatch"):  # one quote day, not the pack
-        build_report(run_passes(sources[:1], CONFIG, time_zones=zones), CONFIG, replicates=100,
+        build_report(run_passes(sources[:1], config, time_zones=zones), config, **scope,
+                     manifest=verified, registered=registry)
+    with pytest.raises(BundleError, match="run_binding_pack_windows_mismatch"):  # defender-2 P2: envelope windows
+        build_report(run_passes(sources_of(bundles), config, time_zones=zones), config, **scope,
                      manifest=verified, registered=registry)
 
 
@@ -661,8 +688,12 @@ def test_a_scored_report_records_the_pack_check_and_the_digests_it_bound():
         input_hashes_sha256=digest({DAY.isoformat(): dict(day_source().plan.input_hashes)}),
         universe_sha256=manifest["universe_sha256"],
         registry_sha256=zones.source["registry_sha256"],
-        tzdata_zone_files_sha256=manifest["tzdata"]["zone_files_sha256"])
+        tzdata_zone_files_sha256=manifest["tzdata"]["zone_files_sha256"],
+        scope_verifier="maker_core.replay.execution_manifest.verify_scored_scope",
+        active_intervals_sha256=digest(manifest["active_intervals"]),
+        replay_config_sha256=digest(manifest["replay_config"]), bootstrap_replicates=100, bootstrap_seed=20260926)
     assert report["pack_check"]["universe_sha256"] == report["run_binding"]["time_zones_source"]["inventory_sha256"]
+    assert report["pre_registration_sha256"] == digest(manifest)  # derived, never a free value (defender-2 D1)
 
 
 def test_a_self_consistent_fake_inventory_and_registry_refuse_against_the_manifest(monkeypatch):
@@ -791,6 +822,72 @@ def test_the_manifest_days_must_be_its_dates_and_its_settlement_day_in_order():
                    dict(manifest, input_hashes={**hashes, "2026-09-29": {}})):
         with pytest.raises(BundleError, match="run_binding_pack_days_mismatch"):
             build_report(both, CONFIG, replicates=100, manifest=broken, registered=bound["registered"])
+
+
+# -- R155 defender-2 D1: a scored report's scope is the manifest's -----------------------------------------------
+def test_a_scored_run_whose_windows_are_not_the_manifest_intervals_is_refused():
+    """Defender-2 P2: the run's day must be declared with exactly the manifest's ``active_intervals`` for it. The
+    envelope (not declared), an empty interval list and one shortened interval each refuse."""
+    zones, bound = pack()
+    manifest = bound["manifest"]
+    envelope = day_source(DAY, "captured")
+    envelope = replace(envelope, plan=replace(envelope.plan, declared=False))
+    with pytest.raises(BundleError, match="run_binding_pack_windows_mismatch"):
+        build_report(run_passes([envelope], CONFIG, time_zones=zones), CONFIG, replicates=100, **bound)
+    run = small_run(zones, "captured")
+    first = manifest["active_intervals"][0]
+    shortened = dict(first, end=(datetime.fromisoformat(first["end"]) - timedelta(minutes=1)).isoformat())
+    for intervals in ([], [shortened, *manifest["active_intervals"][1:]], manifest["active_intervals"][1:]):
+        with pytest.raises(BundleError, match="run_binding_pack_windows_mismatch"):
+            build_report(run, CONFIG, replicates=100, manifest=dict(manifest, active_intervals=intervals),
+                         registered=bound["registered"])
+    for broken in ({k: v for k, v in manifest.items() if k != "active_intervals"},
+                   dict(manifest, active_intervals=tuple(manifest["active_intervals"])),
+                   dict(manifest, active_intervals=[dict(first, start="not-a-time")])):
+        with pytest.raises(BundleError, match="run_binding_pack_manifest_invalid"):
+            build_report(run, CONFIG, replicates=100, manifest=broken, registered=bound["registered"])
+
+
+def test_a_scored_run_under_another_configuration_is_refused():
+    """Defender-2 P3: the report configuration is the manifest's ``replay_config`` (hazard, caps, book gap)."""
+    zones, bound = pack()
+    for other in (replace(CONFIG, hazard_per_minute=.5), replace(CONFIG, order_cap=50),
+                  replace(CONFIG, max_book_gap_seconds=30)):
+        with pytest.raises(BundleError, match="run_binding_pack_config_mismatch"):
+            build_report(run_passes([day_source(DAY, "captured")], other, time_zones=zones), other, replicates=100,
+                         **bound)
+    replay_config = bound["manifest"]["replay_config"]
+    for broken in ({k: v for k, v in replay_config.items() if k != "hazard_per_minute"},
+                   dict(replay_config, order_cap="-1"), list(replay_config.items())):
+        with pytest.raises(BundleError, match="run_binding_pack_manifest_invalid"):
+            build_report(small_run(zones, "captured"), CONFIG, replicates=100,
+                         manifest=dict(bound["manifest"], replay_config=broken), registered=bound["registered"])
+
+
+def test_a_scored_report_under_another_bootstrap_or_registration_hash_is_refused():
+    """Defender-2 P3/P4: replicates and seed are the manifest's ints, and ``registration_hash`` is either omitted or
+    the manifest digest, which the report records as ``pre_registration_sha256``."""
+    zones, bound = pack()
+    run = small_run(zones, "captured")
+    for given in (dict(replicates=2000), dict(replicates=100, seed=1), dict(replicates=100.0),
+                  dict(replicates=100, seed=20260926.0)):
+        with pytest.raises(BundleError, match="run_binding_pack_bootstrap_mismatch"):
+            build_report(run, CONFIG, **given, **bound)
+    with pytest.raises(BundleError, match="run_binding_pack_registration_mismatch"):
+        build_report(run, CONFIG, replicates=100, registration_hash="f" * 64, **bound)
+    report, _ = build_report(run, CONFIG, replicates=100, registration_hash=digest(bound["manifest"]), **bound)
+    assert report["pre_registration_sha256"] == digest(bound["manifest"])
+
+
+def test_a_scored_run_whose_quote_markets_are_not_the_manifest_markets_is_refused():
+    zones, bound = pack(plans=[day_source(DAY).plan, day_source(NEXT).plan])
+    both = run_passes([day_source(DAY, "captured"), day_source(NEXT, "captured")], CONFIG, time_zones=zones)
+    report, _ = build_report(both, CONFIG, replicates=100, **bound)
+    assert bound["manifest"]["markets"] and report["status"] == "PRE_REGISTERED_REPLAY"
+    for markets in (bound["manifest"]["markets"][1:], [*bound["manifest"]["markets"], "city99"], []):
+        with pytest.raises(BundleError, match="run_binding_pack_markets_mismatch"):
+            build_report(both, CONFIG, replicates=100, manifest=dict(bound["manifest"], markets=markets),
+                         registered=bound["registered"])
 
 
 def _with_universe(rows):
