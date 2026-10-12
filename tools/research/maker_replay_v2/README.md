@@ -79,7 +79,9 @@ sealed capture (provenance `captured`) and the plan's per-day input hashes to eq
 exactly (all quote days and the settlement day; a subset, a superset or a re-exported bundle refuses). The report
 (format v0.2) records the check
 and the digests it bound as `pack_check`, with `manifest_enrolled` (whether the manifest digest is in
-`approved_registrations`; recorded, not enforced). It does not re-verify the manifest: the runner must
+`approved_registrations`). Enrollment is enforced: `manifest_sha256=` (the verified manifest file's sha) must
+equal the manifest's digest and be enrolled, or the report refuses (owner policy F4). It does not re-verify the
+manifest: the runner must
 (`read_authorization`, then `verify_manifest`). For
 `maker_replay_universe.universe()` inventories the registry check is close to a tautology (both sides read
 `BUILTIN_SPECS`); it catches a tampered or hand-built inventory, not a wrong registry entry.

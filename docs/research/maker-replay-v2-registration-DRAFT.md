@@ -140,9 +140,12 @@ only; no decision, P&L or base-pass prefix digest changes.
   as `pack_check`: the manifest digest (the manifest file's sha when written by `pack_io.write_json`), whether that
   digest is enrolled (`approved_registrations`), the digest of the `input_hashes` it matched, and the universe,
   registry and tzdata zone-file digests. Scope:
-  this binds the run to the manifest the caller passes; it does not re-run `verify_manifest`, and enrollment is
-  recorded, not enforced, so a fabricated manifest still yields a report, with a foreign `manifest_sha256` and
-  `manifest_enrolled` false. The runner must read the manifest through `read_authorization` (which refuses an
+  this binds the run to the manifest the caller passes; it does not re-run `verify_manifest`. Enrollment is
+  enforced (owner policy F4, R155 Fable; no escape hatch): `build_report(..., manifest_sha256=)` takes the sha of
+  the manifest file the runner verified, requires it to equal the manifest's `digest` (so only a canonical
+  `pack_io.write_json` manifest can score; `run_binding_pack_manifest_sha_mismatch`, also when missing) and requires
+  that sha in `approved_registrations` (`run_binding_pack_manifest_unenrolled`). A fabricated manifest therefore
+  yields no scored report. The runner must read the manifest through `read_authorization` (which refuses an
   unenrolled hash) and `verify_manifest` first. The descriptor checks on the bundles run when the pack is built and
   verified.
 - **Manifest tzdata record (T1, F5b):** `build_manifest` records `tzdata`, the `bundle.tzdata_binding` block of

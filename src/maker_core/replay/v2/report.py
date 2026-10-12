@@ -168,7 +168,7 @@ def _config(config):
 
 
 def build_report(run, config, *, replicates=2000, seed=20260926, registration_hash=None, sidecar_path=None,
-                 check=lambda: None, manifest=None, registered=None):
+                 check=lambda: None, manifest=None, registered=None, manifest_sha256=None):
     """Compose the scored report from a finished ``pipeline.Run`` and write its sidecar; returns (report, sidecar).
 
     A scored (not FIXTURE_ONLY) report also needs ``manifest``, the execution manifest document ``verify_manifest``
@@ -178,16 +178,29 @@ def build_report(run, config, *, replicates=2000, seed=20260926, registration_ha
     ``time_zones_source`` are re-derived from the manifest's bound universe (``execution_manifest.verify_scored_pack``),
     so a made-up ``RegisteredZones`` source, a forged map or an inventory other than the manifest's refuses, and the
     report's ``pack_check`` records the digests the check bound (manifest, input hashes, universe, registry,
-    tzdata). This function does not re-verify the manifest; the caller must, and an auditor matches
-    ``pack_check.manifest_sha256`` against the enrolled manifest. A FIXTURE_ONLY report does not read the pack (``pack_check`` is ``None``)."""
+    tzdata). This function does not re-verify the manifest; the caller must (``authorization.read_authorization``,
+    then ``verify_manifest``).
+
+    Enrollment is enforced (owner policy F4, R155 Fable): ``manifest_sha256`` is the sha of the manifest *file* the
+    runner verified (the hash ``read_authorization`` checked the bytes against). It must equal ``digest(manifest)``,
+    so only a manifest written as canonical JSON (``pack_io.write_json``) can score
+    (``run_binding_pack_manifest_sha_mismatch``, also when it is missing), and it must be enrolled in
+    ``approved_registrations.APPROVED_REGISTRATIONS`` (``run_binding_pack_manifest_unenrolled``). There is no
+    escape hatch: an unenrolled manifest yields no scored report. A FIXTURE_ONLY report does not read the pack
+    (``pack_check`` is ``None``)."""
     from maker_core.replay.v2.pipeline import verify_run_binding
     plan, books, passes, matches, markets = run.plan, run.books, run.passes, run.matches, run.markets
     fixture_only = all(d.provenance == "synthetic" for d in plan.days)
     run_binding = verify_run_binding(run, config, scored=not fixture_only)  # owner T2(a): no binding, no report
     pack_check = None
     if not fixture_only:  # the F2 remainder: the zone source must be the verified pack's, not self-declared
+        from maker_core.replay.bundle import BundleError
         from maker_core.replay.execution_manifest import verify_scored_pack
         pack_check = verify_scored_pack(run_binding, plan, markets, manifest=manifest, registered=registered)
+        if not isinstance(manifest_sha256, str) or manifest_sha256 != pack_check["manifest_sha256"]:
+            raise BundleError("run_binding_pack_manifest_sha_mismatch")
+        if pack_check["manifest_enrolled"] is not True:
+            raise BundleError("run_binding_pack_manifest_unenrolled")
     sidecar = Sidecar(sidecar_path)
     try:
         sidecar.write(dict(kind="header", format=SIDECAR_FORMAT, days=[d.day.isoformat() for d in plan.days]))

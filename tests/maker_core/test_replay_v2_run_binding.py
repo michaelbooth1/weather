@@ -91,7 +91,22 @@ def pack(zones=FIXTURE_ZONES, registry=None, edit=lambda rows: rows, plans=None)
     registry = dict(zones if registry is None else registry)
     source = dict(builder=bundle.ZONE_MAP_BUILDER, registry_checked=True, inventory_sha256=digest(inventory),
                   registry_sha256=digest(dict(sorted(registry.items()))))
-    return RegisteredZones(zones, source), dict(manifest=manifest_for(inventory, plans), registered=registry)
+    manifest = manifest_for(inventory, plans)
+    return RegisteredZones(zones, source), dict(manifest=manifest, registered=registry,
+                                                manifest_sha256=digest(manifest))
+
+
+@pytest.fixture
+def enroll(monkeypatch):
+    """Owner policy F4 (R155 Fable): a scored report refuses an unenrolled manifest. ``enroll(manifest, ...)`` puts
+    fictional manifests' digests into ``APPROVED_REGISTRATIONS`` (empty otherwise) for this test only."""
+    from maker_core.replay import approved_registrations
+    enrolled = {}
+    monkeypatch.setattr(approved_registrations, "APPROVED_REGISTRATIONS", enrolled)
+
+    def add(*manifests):
+        enrolled.update({digest(m): "fictional-owner" for m in manifests})
+    return add
 
 
 def scored(run):
@@ -265,16 +280,17 @@ def test_a_swapped_zone_map_is_refused():
         build_report(replace(run, binding=dict(run.binding, time_zones=swapped)), CONFIG, replicates=100)
 
 
-def test_a_scored_report_refuses_a_hand_made_zone_map():
+def test_a_scored_report_refuses_a_hand_made_zone_map(enroll):
     with pytest.raises(BundleError, match="run_binding_unregistered_zone_map"):
         build_report(small_run(provenance="captured"), CONFIG, replicates=100)
     zones, bound = pack()
+    enroll(bound["manifest"])
     report, _ = build_report(small_run(zones, "captured"), CONFIG, replicates=100, **bound)
     assert report["status"] == "PRE_REGISTERED_REPLAY"
     assert report["run_binding"]["time_zones_source"]["registry_checked"] is True
 
 
-def test_mutant_scored_report_accepting_a_caller_map_is_caught(monkeypatch):
+def test_mutant_scored_report_accepting_a_caller_map_is_caught(monkeypatch, enroll):
     """Mutant T2-M2 ``caller_map_scored``: the report verifies the binding as if it were a fixture run. The T2
     guard is now defence in depth: the pack check behind it still refuses the caller map, so the mutant is caught
     by exactly one thing, the refusal code changing from ``run_binding_unregistered_zone_map`` to
@@ -283,7 +299,7 @@ def test_mutant_scored_report_accepting_a_caller_map_is_caught(monkeypatch):
     monkeypatch.setattr(pipeline, "verify_run_binding",
                         lambda run, config, *, scored: original(run, config, scored=False))
     with pytest.raises(AssertionError, match=r"run_binding_unregistered_zone_map(.|\n)*run_binding_pack_required"):
-        test_a_scored_report_refuses_a_hand_made_zone_map()
+        test_a_scored_report_refuses_a_hand_made_zone_map(enroll)
 
 
 def test_market_time_zones_records_its_source_for_the_binding(tmp_path):
@@ -343,7 +359,7 @@ def test_a_report_refuses_a_binding_recorded_under_another_tzdata_version():
         build_report(replace(run, binding=forged), CONFIG, replicates=100)
 
 
-def test_a_plan_with_any_captured_day_is_scored_and_every_day_must_be_captured():
+def test_a_plan_with_any_captured_day_is_scored_and_every_day_must_be_captured(enroll):
     """Kills M3any (``all`` -> ``any`` in the fixture test): one synthetic and one captured day is a scored run, so
     it reaches the scored checks, and the pack check then refuses it (R155 Fable F1: a scored run's days are all
     sealed capture days). The same two days, both captured, score against a manifest binding both."""
@@ -354,12 +370,13 @@ def test_a_plan_with_any_captured_day_is_scored_and_every_day_must_be_captured()
     with pytest.raises(BundleError, match="run_binding_pack_provenance_unsealed"):
         build_report(run_passes(sources, CONFIG, time_zones=zones), CONFIG, replicates=100, **bound)
     sources = [day_source(DAY, "captured"), sources[1]]
+    enroll(bound["manifest"])
     report, _ = build_report(run_passes(sources, CONFIG, time_zones=zones), CONFIG, replicates=100, **bound)
     assert report["status"] == "PRE_REGISTERED_REPLAY"
 
 
 # -- Defender F1: the binding belongs to this run ---------------------------------------------------------------
-def test_a_binding_copied_from_another_run_is_refused():
+def test_a_binding_copied_from_another_run_is_refused(enroll):
     zones, bound = pack(plans=[day_source(date(2026, 11, 20), trades=50).plan])
     donor = small_run(zones, "captured", day=date(2026, 11, 20), trades=50)
     victim = small_run(provenance="captured")
@@ -367,6 +384,7 @@ def test_a_binding_copied_from_another_run_is_refused():
         build_report(victim, CONFIG, replicates=100)
     with pytest.raises(BundleError, match="run_binding_run_mismatch"):
         build_report(replace(victim, binding=donor.binding), CONFIG, replicates=100)
+    enroll(bound["manifest"])
     report, _ = build_report(donor, CONFIG, replicates=100, **bound)  # the donor's own run still reports
     assert report["status"] == "PRE_REGISTERED_REPLAY"
 
@@ -401,7 +419,7 @@ def test_a_scored_report_refuses_an_incomplete_or_rewritten_source(source):
         build_report(forge(caller, RegisteredZones(FIXTURE_ZONES, source)), CONFIG, replicates=100)
 
 
-def test_the_execution_manifest_source_is_accepted_for_a_scored_report(tmp_path):
+def test_the_execution_manifest_source_is_accepted_for_a_scored_report(tmp_path, enroll):
     """End to end on the fictional execution pack: ``verify_manifest`` accepts the pack's manifest, and
     ``market_time_zones`` over its bundles and universe drives a sealed run whose report verifies against that
     manifest. ``pack_check`` records the digests it bound: the manifest digest is the manifest file's sha, and the
@@ -417,11 +435,15 @@ def test_the_execution_manifest_source_is_accepted_for_a_scored_report(tmp_path)
     source = dict(zones.source)
     sources = [replace(s, plan=replace(s.plan, provenance="captured")) for s in map(bundle_source, bundles)]
     run = run_passes(sources, CONFIG, time_zones=zones)
-    report, _ = build_report(run, CONFIG, replicates=100, manifest=verified, registered=registry)
+    given = dict(manifest=verified, registered=registry, manifest_sha256=manifest_key)
+    with pytest.raises(BundleError, match="run_binding_pack_manifest_unenrolled"):  # owner policy F4
+        build_report(run, CONFIG, replicates=100, **given)
+    enroll(verified)
+    report, _ = build_report(run, CONFIG, replicates=100, **given)
     assert report["status"] == "PRE_REGISTERED_REPLAY" and report["run_binding"]["time_zones_source"] == source
     universe_file_sha = sha256(paths["inventory_path"].read_bytes())
     assert report["pack_check"] == dict(
-        verifier=PACK_CHECK, manifest_format=MANIFEST_FORMAT, manifest_sha256=manifest_key, manifest_enrolled=False,
+        verifier=PACK_CHECK, manifest_format=MANIFEST_FORMAT, manifest_sha256=manifest_key, manifest_enrolled=True,
         input_hashes_sha256=digest(verified["input_hashes"]), universe_sha256=universe_file_sha,
         registry_sha256=source["registry_sha256"], tzdata_zone_files_sha256=verified["tzdata"]["zone_files_sha256"])
     assert manifest_key == sha256(manifest_path.read_bytes())
@@ -541,7 +563,7 @@ def test_a_run_whose_markets_change_after_binding_is_refused():
         build_report(replace(run, markets=markets), CONFIG, replicates=100)
 
 
-def test_a_plan_day_whose_input_hashes_change_after_binding_is_refused():
+def test_a_plan_day_whose_input_hashes_change_after_binding_is_refused(enroll):
     """Kills D4hashes (``run_inputs`` drops ``input_hashes``): only one day's input hashes change."""
     zones, bound = pack()
     run = small_run(zones, "captured")
@@ -553,6 +575,7 @@ def test_a_plan_day_whose_input_hashes_change_after_binding_is_refused():
     plan = replace(run.plan, days=(replace(day, input_hashes=hashes),) + tuple(run.plan.days[1:]))
     with pytest.raises(BundleError, match="run_binding_run_mismatch"):
         build_report(replace(run, plan=plan), CONFIG, replicates=100, **bound)
+    enroll(bound["manifest"])
     report, _ = build_report(run, CONFIG, replicates=100, **bound)
     assert report["status"] == "PRE_REGISTERED_REPLAY"
 
@@ -585,7 +608,7 @@ def test_run_keeps_the_snapshot_it_drove_with(monkeypatch):
     assert run.binding["run_inputs_sha256"] == digest(run_inputs(run.plan, run.markets, CONFIG, run.time_zones))
 
 
-def test_a_binding_grafted_from_a_same_inputs_run_with_another_zone_map_is_refused():
+def test_a_binding_grafted_from_a_same_inputs_run_with_another_zone_map_is_refused(enroll):
     """The delta reviewer's copy-binding scenario: run B (same sealed day, markets and config as run A) is driven
     with a hand-made map. On its own it refuses as unregistered; with A's registered binding grafted on it must not
     become a PRE_REGISTERED_REPLAY."""
@@ -597,6 +620,7 @@ def test_a_binding_grafted_from_a_same_inputs_run_with_another_zone_map_is_refus
         build_report(b, CONFIG, replicates=100)
     with pytest.raises(BundleError, match="run_binding_run_mismatch"):
         build_report(replace(b, binding=a.binding), CONFIG, replicates=100, **bound)
+    enroll(bound["manifest"])
     report, _ = build_report(a, CONFIG, replicates=100, **bound)
     assert report["status"] == "PRE_REGISTERED_REPLAY"
 
@@ -649,15 +673,16 @@ def test_a_scored_report_needs_the_manifest_and_the_registry():
     assert report["format"] == REPORT_FORMAT == "maker_core.replay.v2.report.v0.2"
 
 
-def test_a_scored_report_records_the_pack_check_and_the_digests_it_bound():
+def test_a_scored_report_records_the_pack_check_and_the_digests_it_bound(enroll):
     """Defender R155 F1/F2: the report shows that the pack check ran and what it bound. ``universe_sha256`` is the
     manifest's own field, and it is the same hash as the run source's ``inventory_sha256``."""
     zones, bound = pack()
+    enroll(bound["manifest"])
     report, _ = build_report(small_run(zones, "captured"), CONFIG, replicates=100, **bound)
     manifest = bound["manifest"]
     assert report["pack_check"] == dict(
         verifier="maker_core.replay.execution_manifest.verify_scored_pack", manifest_format=MANIFEST_FORMAT,
-        manifest_sha256=digest(manifest), manifest_enrolled=False,
+        manifest_sha256=digest(manifest), manifest_enrolled=True,
         input_hashes_sha256=digest({DAY.isoformat(): dict(day_source().plan.input_hashes)}),
         universe_sha256=manifest["universe_sha256"],
         registry_sha256=zones.source["registry_sha256"],
@@ -672,10 +697,9 @@ def test_a_self_consistent_fake_inventory_and_registry_refuse_against_the_manife
     manifest's universe, not an argument, so each refuses: P1 on the registry (the fake registry contradicts the
     manifest's universe), P1b and P1c on the source digest (the record is over another inventory).
 
-    The residual is a forged *manifest*: ``build_report`` does not re-run ``verify_manifest``, so a caller who
-    fabricates the manifest as well gets a report, but its ``pack_check.manifest_sha256`` is the fabricated
-    manifest's digest, not the verified pack's, and ``manifest_enrolled`` is false (here the honest fictional
-    manifest is enrolled by monkeypatch), so the substitution is visible in the report itself."""
+    A forged *manifest* as well: ``build_report`` does not re-run ``verify_manifest``, but owner policy F4 (R155
+    Fable) makes enrollment binding, so the fabricated manifest refuses as unenrolled (here the honest fictional
+    manifest is enrolled by monkeypatch), and claiming the honest manifest's sha for it refuses as a sha mismatch."""
     from maker_core.replay import approved_registrations
     _, honest = pack()
     monkeypatch.setattr(approved_registrations, "APPROVED_REGISTRATIONS",
@@ -692,9 +716,11 @@ def test_a_self_consistent_fake_inventory_and_registry_refuse_against_the_manife
     other_zones, _ = pack(edit=lambda rows: [dict(r, domain_id="made-up", target_date="1999-01-01") for r in rows])
     with pytest.raises(BundleError, match="run_binding_zone_source_mismatch"):  # P1c
         build_report(small_run(other_zones, "captured"), CONFIG, replicates=100, **honest)
-    report, _ = build_report(small_run(fake_zones, "captured"), CONFIG, replicates=100, **fake)  # forged manifest too
-    assert report["pack_check"]["manifest_sha256"] == digest(fake["manifest"]) != digest(honest["manifest"])
-    assert report["pack_check"]["manifest_enrolled"] is False
+    with pytest.raises(BundleError, match="run_binding_pack_manifest_unenrolled"):  # forged manifest too
+        build_report(small_run(fake_zones, "captured"), CONFIG, replicates=100, **fake)
+    with pytest.raises(BundleError, match="run_binding_pack_manifest_sha_mismatch"):  # ... claiming the honest sha
+        build_report(small_run(fake_zones, "captured"), CONFIG, replicates=100,
+                     **dict(fake, manifest_sha256=honest["manifest_sha256"]))
 
 
 def test_the_manifest_must_be_an_execution_manifest_whose_universe_and_tzdata_match():
@@ -724,11 +750,12 @@ def test_the_manifest_must_be_an_execution_manifest_whose_universe_and_tzdata_ma
 NEXT = date(2026, 9, 28)
 
 
-def test_a_run_of_a_subset_of_the_manifest_days_is_refused():
+def test_a_run_of_a_subset_of_the_manifest_days_is_refused(enroll):
     zones, bound = pack(plans=[day_source(DAY).plan, day_source(NEXT).plan])
     with pytest.raises(BundleError, match="run_binding_pack_input_hashes_mismatch"):
         build_report(small_run(zones, "captured"), CONFIG, replicates=100, **bound)
     both = [day_source(DAY, "captured"), day_source(NEXT, "captured")]
+    enroll(bound["manifest"])
     report, _ = build_report(run_passes(both, CONFIG, time_zones=zones), CONFIG, replicates=100, **bound)
     assert report["status"] == "PRE_REGISTERED_REPLAY"
     assert report["pack_check"]["input_hashes_sha256"] == digest(bound["manifest"]["input_hashes"])
@@ -932,3 +959,38 @@ def test_a_tzdata_module_outside_the_installed_package_directory_is_refused(monk
     monkeypatch.setattr(tzdata, "__file__", file)
     with pytest.raises(BundleError, match="tzdata_package_mismatch"):
         bundle.tzdata_package()
+
+
+# -- R155 Fable F4 (owner policy): a scored report needs an enrolled manifest, bound by the verified file sha -----
+@pytest.mark.parametrize("given", [None, "", 7, "0" * 64])
+def test_a_scored_report_without_the_verified_manifest_file_sha_is_refused(enroll, given):
+    """The runner passes the sha ``read_authorization`` verified; a missing, malformed or other sha refuses even
+    for an enrolled manifest. ``build_report`` has no keyword that skips enrollment."""
+    zones, bound = pack()
+    enroll(bound["manifest"])
+    with pytest.raises(BundleError, match="run_binding_pack_manifest_sha_mismatch"):
+        build_report(small_run(zones, "captured"), CONFIG, replicates=100, **dict(bound, manifest_sha256=given))
+    assert set(inspect.signature(build_report).parameters) >= {"manifest", "registered", "manifest_sha256"}
+    assert not {p for p in inspect.signature(build_report).parameters if "enrol" in p or "allow" in p}
+
+
+def test_a_non_canonical_manifest_file_is_refused_even_when_its_file_sha_is_enrolled(enroll, monkeypatch):
+    """Enrollment is keyed by file sha. A manifest file whose bytes are not the canonical JSON of the manifest (here
+    indented) has a file sha that is not the manifest's digest: enrolling the file sha does not admit it, because
+    the report binds ``digest(manifest)`` and the two must be equal."""
+    import json
+    from maker_core.replay import approved_registrations
+    zones, bound = pack()
+    pretty = json.dumps(bound["manifest"], indent=2, sort_keys=True).encode()
+    file_sha = sha256(pretty)
+    assert file_sha != bound["manifest_sha256"] == digest(json.loads(pretty))
+    monkeypatch.setattr(approved_registrations, "APPROVED_REGISTRATIONS", {file_sha: "fictional-owner"})
+    with pytest.raises(BundleError, match="run_binding_pack_manifest_sha_mismatch"):
+        build_report(small_run(zones, "captured"), CONFIG, replicates=100, **dict(bound, manifest_sha256=file_sha))
+    with pytest.raises(BundleError, match="run_binding_pack_manifest_unenrolled"):  # canonical sha, not enrolled
+        build_report(small_run(zones, "captured"), CONFIG, replicates=100, **bound)
+
+
+def test_a_fixture_report_needs_no_enrollment(enroll):
+    report, _ = build_report(small_run(), CONFIG, replicates=100)
+    assert report["status"] == "FIXTURE_ONLY" and report["pack_check"] is None
