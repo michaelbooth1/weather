@@ -407,15 +407,14 @@ compares against it, so this step must pass before Phase B.
 
 ```powershell
 foreach ($f in 'freeze-3110.txt','pth-3110.txt','rtv-3110.json') { Copy-Item -LiteralPath "$A\$f" "$A\$f.pre-tzdata" }
-& $Py -m pip freeze --all | Set-Content "$Areeze-3110.txt" -Encoding utf8
+& $Py -m pip freeze --all | Set-Content "$A\freeze-3110.txt" -Encoding utf8
 Get-ChildItem -LiteralPath (Join-Path $P 'venv\Lib\site-packages') -Filter *.pth | ForEach-Object { "$($_.Name): $((Get-Content -LiteralPath $_.FullName) -join ' | ')" } |
   Set-Content "$A\pth-3110.txt" -Encoding utf8
 Push-Location -LiteralPath $P
-& $Py -c "import json; from weather.release_artifacts import capture_runtime_versions as c; print(json.dumps(c(), indent=1, sort_keys=True))" | Set-Content "$A
-tv-3110.json" -Encoding utf8
+& $Py -c "import json; from weather.release_artifacts import capture_runtime_versions as c; print(json.dumps(c(), indent=1, sort_keys=True))" | Set-Content "$A\rtv-3110.json" -Encoding utf8
 Pop-Location
-if (-not (Select-String -LiteralPath "$Areeze-3110.txt" -Pattern '^tzdata==2026\.3$' -Quiet)) { NoGo 'T-R: freeze-3110 lacks tzdata==2026.3' }
-$d = Compare-Object (Get-Content "$Areeze-3110.txt.pre-tzdata") (Get-Content "$Areeze-3110.txt")
+if (-not (Select-String -LiteralPath "$A\freeze-3110.txt" -Pattern '^tzdata==2026\.3$' -Quiet)) { NoGo 'T-R: freeze-3110 lacks tzdata==2026.3' }
+$d = Compare-Object (Get-Content "$A\freeze-3110.txt.pre-tzdata") (Get-Content "$A\freeze-3110.txt")
 if ($d | Where-Object { $_.InputObject -notmatch '^tzdata==' }) { NoGo 'T-R: a line other than tzdata changed since Phase A' }
 Log 'T-R PASS'
 ```
