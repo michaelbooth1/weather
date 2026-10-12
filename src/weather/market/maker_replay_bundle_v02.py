@@ -14,7 +14,8 @@ same projection, row for row, and changes only where the rows go:
   outcome views, info events and settlements, so a v0.2 day expands to exactly the v0.1 rows.
 - **The condition envelope follows the horizon clause** (registration §4, owner Q2(a), 2026-10-08):
   ``active_from``/``active_until`` are ``maker_core.replay.v2.horizon.lead_window``, the UTC span of the
-  target's local leads 1..2 clipped to the day, instead of the whole day. Rows are unchanged; only the
+  target's local leads 1..2 clipped to the day, instead of the whole day, computed in the pinned tzdata zone
+  (``maker_core.replay.bundle.time_zone``; a host without the pinned tzdata refuses). Rows are unchanged; only the
   manifest's envelope differs from v0.1's. Before a condition's first descriptor the engine still excludes it
   as ``MISSING_DESCRIPTOR``; the execution manifest's declared intervals also trim that (``horizon``).
 - Validation streams the written bundle back (two-pass reader and expansion) and requires the
@@ -34,7 +35,7 @@ import shutil
 
 from maker_core.evidence.journal import canonical_bytes, plain
 from maker_core.contracts import SettlementFact
-from maker_core.replay.bundle import HOST_MAX_BYTES, HOST_MAX_SECONDS, BundleError, sha256
+from maker_core.replay.bundle import HOST_MAX_BYTES, HOST_MAX_SECONDS, BundleError, sha256, time_zone
 from maker_core.replay.bundle import regular_path as neutral_path
 from maker_core.replay.export_gate import export_permitted
 from maker_core.replay.payloads import market_descriptor
@@ -175,8 +176,12 @@ def _project(args, reader, sources, projection):
                     descriptor = market_descriptor(entry["descriptor"])
                     projection.descriptors[cid] = descriptor
                     # Registration §4 horizon clause (owner Q2(a)): the envelope is the UTC span of local leads
-                    # 1..2 of the target, so a band leaves at the local midnight its lead becomes 0.
-                    active_from, active_until = lead_window(spec.tz, target, projection.start, projection.end)
+                    # 1..2 of the target, so a band leaves at the local midnight its lead becomes 0. The zone is the
+                    # pinned tzdata's (``bundle.time_zone``, owner T1(a)), the one the execution manifest and the
+                    # day roll use, not the platform's ``spec.tz`` (R155 Fable F3): a host without the pinned
+                    # tzdata refuses here rather than writing an envelope from other zone rules.
+                    zone = time_zone(spec.timezone)
+                    active_from, active_until = lead_window(zone, target, projection.start, projection.end)
                     projection.conditions[cid] = dict(condition_id=cid, market_id=spec.id, domain_id=descriptor.domain_id,
                         active_from=active_from.isoformat(), active_until=active_until.isoformat())
                     if len(projection.conditions) > 2000:

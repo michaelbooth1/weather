@@ -348,6 +348,12 @@ and the actual `pools` (API, library prefix, `num_threads`). In-process callers 
 `scripts/ops/replay_bundle_export_nightly.ps1` is a roll-free wrapper. It launches the **v0.2** exporter
 (`maker_replay_night_v02 <night|calibration>`, `-Kind`, default `night`).
 
+**Pinned tzdata.** The v0.2 exporter computes each condition's envelope (the horizon lead window) in the pinned
+tzdata zone (`maker_core.replay.bundle.time_zone`), the same zone the execution manifest and the day roll use, not
+the platform zone. On a host whose installed `tzdata` is not the pinned version (`bundle.TZDATA_VERSION`) the export
+refuses `tzdata_version_unpinned` and writes no bundle. The descriptor rows' `horizon_days` still use the platform
+zone, as the frozen v0.1 projection does (row-for-row equivalence).
+
 **Panel gate first.** A `-Day` (default yesterday, UTC) in 2026-09-30..2026-10-15 writes
 `REFUSED: PANEL_GATED <day> ...` to stderr and exits **3** before the time window, path checks, self-hash, lease,
 Python or any output. Exit 3 is an expected refusal, not a failure; the task refuses every night from 10-01 to 10-16
