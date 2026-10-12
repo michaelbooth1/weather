@@ -40,6 +40,7 @@ not yet in DL** = an owner signature relayed by the master agent whose DECISION_
 | **OD21: deferred** | No TL unit or owner is named now. The oracle's author is never TL's author. | v3.2 §11 OD21; v3.3 §9 OD21 | DL 2026-10-07 "OD18" (same row) |
 | **OD22** | Stands as recommended in the cited spec row. | v3.3 §9 OD22 | 08:55 "approve all recommendations". **Confirm by ID at signature:** ☐ |
 | **OD26** | Stands as recommended in the cited spec row: the broken-night caps are frozen after calibration and may only be lowered later. | v3.3 §9 OD26 | 08:55 "approve all recommendations". **Confirm by ID at signature:** ☐ |
+| **Q2 N1 (a)** | A derived local-midnight descriptor is produced only at a local midnight that falls inside a day the run is driven over. Across a day the run does not drive, no derived descriptor exists: the latest descriptor's horizon is carried unchanged into the next driven day, even where the true local lead would be 0 or below, until a captured descriptor, or a derived one at a midnight inside a driven day whose new lead is within 0..2, replaces it. The registered quote panel 09-30..10-13 is contiguous, so this ruling binds fixture cross-validation and partial-panel runs. The handout at `501f47579` does not carry this text (the registration text is excluded), so this row is its carrier. Classified oracle semantics by H0, 2026-10-12. | v3.2 §4.3; v3.3 §1, §3.2 (iii) | DL 2026-10-09 "Recommendations approved as listed" |
 
 With OD19 (a) and OD20 (a) ruled, the (b) alternatives written for each item in v3.1 §3.7 do not apply: the oracle
 implements the (a) alternatives only, and no classifier for the (b) branches is needed. With OD25 (ii) ruled, there is
@@ -61,17 +62,11 @@ signature of this sheet adopts it.
 | Parity definition | "Shadow agrees with replay" means the same quote/no-quote decision and every price within 1 tick on identical tapes. | the shadow-vs-replay gate, not the oracle | DL 2026-10-08 "Parity definition" |
 | Shadow hazard and tape | Forward shadow hazard 0.001 per minute until the engine freeze; a v0.2 raw-record shadow tape. | shadow only | DL 2026-10-08 (20:21) |
 | T1-T3 (a, a, a) | Pin the time-zone database for scored runs and bind its version and the zone map into the run digest; the market zone lookup requires the registry argument. | run integrity: the oracle's cross-validation runs use the same pinned zone data | DL 2026-10-09 "Recommendations approved as listed" |
-
-## 3. To classify before signature
-
-| Ruling | Question | Source |
-| --- | --- | --- |
-| Q2 horizon clause = (a) FULL | Does the full horizon clause (active intervals, exclusions, withdrawal, calibration, registration §4 text) change what the oracle computes for activity, or only the engine's manifest inputs? The coordinator (H0) classifies it; if it changes the oracle, this sheet states it in design words before signature. | DL 2026-10-08 (20:21) |
-| Q2 N1 gap (a) | Same question. | DL 2026-10-09 "Recommendations approved as listed" |
+| Q2 horizon clause (a) FULL | Active intervals are computed by the manifest builder from captured-or-derived descriptors; T+0 runs become exclusions, never NO_QUOTE; calibration hazard count unchanged (disclosed). | The oracle takes the manifest's active intervals as given (v3.1 §6.3 I14 step 1) and already withdraws legs at the interval end; `decide()`'s horizon input is F3 (§1). The Kernel's blind_re1 HORIZON_NOT_ELIGIBLE pull is outside Tier I (I14 step 3, informed-v0 only) and unreachable inside clause windows (registration §4 gate ordering). Classified input-only by H0, 2026-10-12. | DL 2026-10-08 (20:21) |
 
 ## Signature
 
-Owner: ____________________ Date: ____________ OD22 confirmed ☐ OD26 confirmed ☐ §3 classified ☐
+Owner: ____________________ Date: ____________ OD22 confirmed ☐ OD26 confirmed ☐ §3 classified ☑ (by H0, 2026-10-12; §3 removed, rows moved to §1 and §2)
 
 The SHA-256 of this file's raw bytes is recorded in the H1 manifest at the cut; a change after signature is a new
 revision.
