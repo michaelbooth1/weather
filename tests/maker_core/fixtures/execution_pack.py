@@ -13,7 +13,7 @@ from .replay_scenario import Scenario
 from .replay_bundle import seal
 
 
-def calibration_days(root, minutes=480, markets=("a",), occupied=10):
+def calibration_days(root, minutes=480, markets=("a",), occupied=10, provenance="synthetic"):
     bundles = []
     for day in CALIBRATION_DATES:
         scenario = Scenario(day, markets=markets, minutes=minutes)
@@ -32,7 +32,7 @@ def calibration_days(root, minutes=480, markets=("a",), occupied=10):
             for minute in range(min(occupied, minutes)):
                 add(market, "trade", minute*60+1, dict(trade_id=f"{day}-{minute}", outcome="YES", price=".01",
                     size=".1", aggressor_side="BUY", traded_at_utc=scenario.at(minute*60+1).isoformat()))
-        bundles.append(scenario.bundle(root/day.isoformat()))
+        bundles.append(scenario.bundle(root/day.isoformat(), provenance))
     return tuple(bundles)
 
 
@@ -71,7 +71,8 @@ def pack(root, measured=MEASURED, authorization_id="maker-replay-2026-10-15-v2",
     calibration_root, panel_root = root/"calibration-bundles", root/"panel"
     calibration_root.mkdir()
     panel_root.mkdir()
-    cb = calibration_days(calibration_root, minutes=2, occupied=1, markets=markets)
+    # ``build_manifest`` admits only sealed captures (R155 defender-2 D4): the fictional pack carries that label.
+    cb = calibration_days(calibration_root, minutes=2, occupied=1, markets=markets, provenance="captured")
     quote_markets = root/"quote-markets.json"
     quote_hash = write_json(quote_markets, list(markets))
     calibration = calibrate(cb, list(markets))
@@ -85,7 +86,7 @@ def pack(root, measured=MEASURED, authorization_id="maker-replay-2026-10-15-v2",
             if r["kind"] == "descriptor":
                 r["payload"]["horizon_days"] = 1
                 r["payload_sha256"] = sha256(canonical_bytes(r["payload"]))
-        bundles.append(scenario.bundle(panel_root/day.isoformat()))
+        bundles.append(scenario.bundle(panel_root/day.isoformat(), "captured"))
         inventory.extend(dict(condition_id=scenario.cid(m), market_id=m, domain_id="fictional",
                               target_date=(day+timedelta(days=1)).isoformat(), local_timezone=zones[m])
                          for m in markets)

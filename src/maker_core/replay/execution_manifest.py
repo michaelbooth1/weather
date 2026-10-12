@@ -460,6 +460,10 @@ def build_manifest(bundles, calibration_bundles, calibration, inventory, owner_d
     if not isinstance(calibration, dict):
         raise BundleError("invalid_calibration_json")
     all_bundles = (*bundles, *calibration_bundles)
+    # R155 defender-2 D4: an execution pack is built only from sealed captures; a synthetic (or any other) bundle
+    # cannot be enrolled as the panel or the calibration, so a scored run never needs an in-memory relabel.
+    if any(b.provenance != SEALED_PROVENANCE for b in all_bundles):
+        raise BundleError("manifest_bundle_not_captured")
     if (sum(b.input_bytes for b in all_bundles) > run["max_input_bytes"]
             or sum(len(b.records) for b in all_bundles) > run["max_records"]):
         raise BundleError("manifest_input_ceiling")

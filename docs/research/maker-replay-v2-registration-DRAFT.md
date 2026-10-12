@@ -166,6 +166,9 @@ only; no decision, P&L or base-pass prefix digest changes.
   `manifest_enrolled` false. The runner must read the manifest through `read_authorization` (which refuses an
   unenrolled hash) and `verify_manifest` first. The descriptor checks on the bundles run when the pack is built and
   verified.
+- **Sealed captures only (R155 defender-2 D4):** `build_manifest` refuses any panel or calibration bundle whose
+  provenance is not `captured` (`manifest_bundle_not_captured`), so a scored run never relabels a bundle in memory.
+  The fictional execution-pack fixture seals its bundles with that label; it is a fixture label, not real capture.
 - **Manifest tzdata record (T1, F5b):** `build_manifest` records `tzdata`, the `bundle.tzdata_binding` block of
   every inventory zone (version, IANA release, `tzpath_used=False`, zone-file SHA-256s). `verify_manifest` rebuilds
   the manifest, so one built under another tzdata or other zone bytes refuses.

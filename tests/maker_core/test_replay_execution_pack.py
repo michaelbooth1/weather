@@ -625,6 +625,26 @@ def test_manifest_refuses_a_ceiling_measurement_rehearsed_on_another_calibration
     assert built["calibration_sha256"] == sealed
 
 
+def test_manifest_admits_only_sealed_captures(tmp_path):
+    """R155 defender-2 D4: a synthetic panel or calibration bundle cannot be built into an execution manifest."""
+    from dataclasses import replace
+    doc, bundles, cb, paths, _, _ = pack(tmp_path)
+    assert {b.provenance for b in (*bundles, *cb)} == {"captured"}
+    calibration = json.loads(paths["calibration_path"].read_bytes())
+    sealed = sha256(paths["calibration_path"].read_bytes())
+    kwargs = dict(calibration_sha256=sealed, inventory_sha256=doc["universe_sha256"],
+                  quote_inventory_sha256=doc["calibration"]["quote_inventory_sha256"], measurement_sha256="0"*64)
+    inventory = json.loads(paths["inventory_path"].read_bytes())
+    synthetic = lambda given, i: tuple(replace(b, provenance="synthetic") if n == i else b for n, b in enumerate(given))
+    for panel, calibration_bundles in ((synthetic(bundles, 0), cb), (synthetic(bundles, len(bundles)-1), cb),
+                                       (bundles, synthetic(cb, 0))):
+        with pytest.raises(BundleError, match="manifest_bundle_not_captured"):
+            build_manifest(panel, calibration_bundles, calibration, inventory, doc["owner_decision"],
+                           measurement(calibration_sha256=sealed), **kwargs)
+    assert build_manifest(bundles, cb, calibration, inventory, doc["owner_decision"],
+                          measurement(calibration_sha256=sealed), **kwargs)["record_sources_sha256"]
+
+
 # -- F5b (owner T1(a)): the manifest records the pinned tzdata block ---------------------------------------------
 def test_the_manifest_records_the_pinned_tzdata_block_of_its_inventory_zones(tmp_path):
     doc, bundles, cb, paths, _, _ = pack(tmp_path)

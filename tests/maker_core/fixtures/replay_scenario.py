@@ -66,9 +66,11 @@ class Scenario:
         self.add(market, "settlement", seconds, SettlementFact(self.cid(market), p, self.at(seconds),
                                                               {"synthetic": "0"*64}, "reconciled"))
 
-    def bundle(self, root):
+    def bundle(self, root, provenance="synthetic"):
+        """Seal and load the day. ``provenance="captured"`` is a fixture label for the fictional execution pack,
+        whose ``build_manifest`` admits only sealed captures (R155 defender-2 D4); it is never real capture."""
         root.mkdir()
         manifest = dict(format=FORMAT, day=self.day.isoformat(), sealed_at=self.at(86400).isoformat(),
-                        provenance="synthetic", conditions=self.conditions, streams=[])
+                        provenance=provenance, conditions=self.conditions, streams=[])
         seal(root, manifest, self.records)
         return load_bundle(root)

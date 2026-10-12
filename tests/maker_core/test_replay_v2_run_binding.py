@@ -438,8 +438,9 @@ def test_the_execution_manifest_source_is_accepted_for_a_scored_report(tmp_path)
     config = V2Config(**{name: verified["replay_config"][name] for name in SCOPE_CONFIG_FIELDS}, debug=True)
     scope = dict(replicates=verified["bootstrap_replicates"], seed=verified["bootstrap_seed"])
 
-    def sources_of(given):
-        return [replace(s, plan=replace(s.plan, provenance="captured")) for s in map(bundle_source, given)]
+    def sources_of(given):  # the fixture pack is sealed as captured (defender-2 D4): no in-memory relabel
+        return [bundle_source(b) for b in given]
+    assert {b.provenance for b in (*bundles, *cb)} == {"captured"}
     sources = sources_of(apply_manifest(verified, bundles))
     run = run_passes(sources, config, time_zones=zones)
     report, _ = build_report(run, config, **scope, manifest=verified, registered=registry)
