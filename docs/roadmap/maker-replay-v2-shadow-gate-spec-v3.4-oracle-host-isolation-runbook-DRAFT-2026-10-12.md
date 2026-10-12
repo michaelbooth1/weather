@@ -19,7 +19,7 @@
 Paths are placeholders, filled by the master agent from the host: `<PROD_CLONE>` (the production clone),
 `<WORKTREES>` (every pinned or deployed worktree and other clone), `<LDATA>` (the workstation-state and handoff
 folders), `<SOURCES>` (the frozen spec sources the cut reads), `<CUT_DIR>` (the new cut directory; H-12 r1 fixes it as
-`C:\oracle-cut\r1`), `<AUTHOR>` (the author account). No step reads `data/` contents, credentials or `.env*` files; the checks only prove the author cannot.
+`C:\oracle-cut\r1`), `<AUTHOR>` (the author account), `<OPERATOR>` (the master agent's account). No step reads `data/` contents, credentials or `.env*` files; the checks only prove the author cannot.
 
 ## 1. Mechanism (ruling I-1)
 
@@ -39,7 +39,9 @@ folders), `<SOURCES>` (the frozen spec sources the cut reads), `<CUT_DIR>` (the 
 3. **Account (option A).** Create `<AUTHOR>` as a standard local user with a generated password the master agent never
    writes into a repository, a chat or a log (the owner sets or holds it; I-2). Not a member of Administrators,
    Remote Desktop Users or any group that holds rights on the clones.
-4. **Grant.** `icacls <CUT_DIR> /inheritance:r /grant:r "<AUTHOR>:(OI)(CI)RX" "SYSTEM:(OI)(CI)F" "Administrators:(OI)(CI)F"`,
+4. **Grant.** `icacls <CUT_DIR> /inheritance:r /grant:r "<AUTHOR>:(OI)(CI)RX" "<OPERATOR>:(OI)(CI)F" "SYSTEM:(OI)(CI)F" "Administrators:(OI)(CI)F"`
+   (`<OPERATOR>` is the master agent's own account: `/grant:r` would otherwise remove it, and the post-ACL verify,
+   the test results and the hand-back need it),
    then `icacls <CUT_DIR>\oracle-repo /grant "<AUTHOR>:(OI)(CI)M"`. The author reads `handout\` and the cut's
    top-level files and modifies only `oracle-repo\` (it commits there) and the exchange folders of step 8.
 5. **Deny.** For each of `<PROD_CLONE>`, `<WORKTREES>`, `<LDATA>`, `<SOURCES>`, the operator profile and every other
@@ -49,7 +51,8 @@ folders), `<SOURCES>` (the frozen spec sources the cut reads), `<CUT_DIR>` (the 
    S4U guard runs is started under it.
 7. **Harness.** Install or point the agent harness for `<AUTHOR>` (ruling I-5) with no stored repository credential,
    no MCP connector, web search and web fetch disabled, and shell commands sandboxed without network where the
-   harness supports it (ruling I-4).
+   harness supports it (ruling I-4). The cut is owned by `<OPERATOR>`, so git refuses it to `<AUTHOR>` as dubious
+   ownership: add exactly `<CUT_DIR>/oracle-repo` to the author's global `safe.directory`, nothing broader.
 8. **Exchange folders (H-12 r1), after the §3 verify row.** Create `<CUT_DIR>\questions`, `test-requests`,
    `test-results` and `handback`, then `icacls <CUT_DIR>\<folder> /grant "<AUTHOR>:(OI)(CI)M"` for `questions`,
    `test-requests` and `handback` only; `test-results` keeps the inherited read-only grant (the coordinator writes
