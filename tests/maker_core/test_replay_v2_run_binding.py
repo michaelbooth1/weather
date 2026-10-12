@@ -945,6 +945,17 @@ def test_a_scored_report_under_another_bootstrap_or_registration_hash_is_refused
     assert report["pre_registration_sha256"] == digest(bound["manifest"])
 
 
+def test_a_fixture_report_carries_no_pre_registration_digest():
+    """Defender-3 N1/P17: a FIXTURE_ONLY report reads no manifest, so a ``registration_hash`` (here the fictional
+    manifest's digest) refuses instead of riding along; without one, ``pre_registration_sha256`` is ``None``."""
+    _, bound = pack()
+    run = small_run()
+    with pytest.raises(BundleError, match="fixture_report_registration_hash"):
+        build_report(run, CONFIG, replicates=100, registration_hash=digest(bound["manifest"]))
+    report, _ = build_report(run, CONFIG, replicates=100)
+    assert report["status"] == "FIXTURE_ONLY" and report["pre_registration_sha256"] is None
+
+
 class _TwoFaced(dict):
     """Defender-3 P15: a ``dict`` whose stored content (what ``digest`` serialises) is the honest manifest, but whose
     ``[]`` and ``get`` answer ``forged`` values."""

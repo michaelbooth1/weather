@@ -211,11 +211,16 @@ def build_report(run, config, *, replicates=2000, seed=20260926, registration_ha
     a file sha must check it against the file itself (``read_authorization``) before parsing. Every scored check
     reads one plain copy of ``manifest`` parsed back from its canonical JSON (R155 defender-3 R2), so a mapping that
     answers ``[]`` differently from what ``digest`` serialises is checked on its digested content. A FIXTURE_ONLY report
-    does not read the pack (``pack_check`` is ``None``)."""
+    does not read the pack (``pack_check`` is ``None``), and its ``pre_registration_sha256`` is ``None``: a
+    ``registration_hash`` given for one refuses ``fixture_report_registration_hash`` (R155 defender-3 N1)."""
     from maker_core.replay.v2.pipeline import verify_run_binding
     plan, books, passes, matches, markets = run.plan, run.books, run.passes, run.matches, run.markets
     fixture_only = all(d.provenance == "synthetic" for d in plan.days)
     run_binding = verify_run_binding(run, config, scored=not fixture_only)  # owner T2(a): no binding, no report
+    if fixture_only and registration_hash is not None:
+        # R155 defender-3 N1: a FIXTURE_ONLY report reads no manifest, so it carries no pre-registration digest
+        # (an enrolled one would look like a registration it never checked).
+        raise BundleError("fixture_report_registration_hash")
     pack_check = None
     if not fixture_only:  # the F2 remainder: the zone source must be the verified pack's, not self-declared
         from maker_core.replay.execution_manifest import (verify_scored_pack, verify_scored_records,
