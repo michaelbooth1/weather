@@ -35,12 +35,12 @@ under any relay.
 
 | Item | Rule | Source |
 | --- | --- | --- |
-| Session 0 date | **UTC 2026-10-12, starting about 15:00Z** (owner-confirmed 2026-10-09 evening, D9). | owner, D9 |
-| Session 0 deadline | Before 2026-10-15T00:00Z. **Enforced:** `preflight` and `live` with `--session0` refuse `session0_deadline_passed` at or after that instant. | S0 §1, D10, `SESSION0_DEADLINE_UTC` |
+| Session 0 date | **UTC 2026-10-14, starting about 15:00Z (11:00 EDT)**. Owner re-dated 2026-10-12 19:35 EDT, relayed by master-agent: "ok approved lets plan for it" (DECISION_LOG 2026-10-12). It replaces the 10-12 date of 2026-10-09 (D9). | owner, D9, DECISION_LOG |
+| Session 0 deadline | Before 2026-10-15T00:00Z (10-14 20:00 EDT). **Enforced:** `preflight` and `live` with `--session0` refuse `session0_deadline_passed` at or after that instant. | S0 §1, D10, `SESSION0_DEADLINE_UTC` |
 | One UTC date | Run every sub-run on one UTC date. `live` accepts only a PASS preflight from the same UTC date and commit. | code (`clean_preflight`) |
-| Hard stop | Each run's start + duration must end by 23:50Z (0a = 20 min, others = 10 min), else `past_hard_stop_2350z`. | PR §4, code |
-| Plan for 10-12 | T − 24 h steps on 10-11 about 15:00Z; T − 40 min steps (including the shadow scope, section 2) about 14:20Z on 10-12; first preflight about 15:00Z (11:00 Toronto, EDT). Total ≈ 3 h with checks; 10-13 and 10-14 are the fallback days. | this runbook |
-| Earliest counted session | 2026-10-15, owner's local afternoon, e.g. 17:00Z. The code's own floor is 2026-10-15T00:00Z (session 0 is exempt). | PR §4, `EARLIEST_START_UTC` |
+| Hard stop | Each run's start + duration must end by 23:50Z (19:50 EDT; 0a = 20 min, others = 10 min), else `past_hard_stop_2350z`. | PR §4, code |
+| Plan for 10-14 | T − 24 h steps on **10-13 about 15:00Z (11:00 EDT)**, starting with the ledger init (section 3.7); T − 40 min steps (including the shadow scope, section 2) about **14:20Z (10:20 EDT) on 10-14**; first preflight about **15:00Z (11:00 EDT)**. Total ≈ 3 h with checks. **No fallback day**: the deadline is 10-15T00:00Z, so anything not done by the 23:50Z (19:50 EDT) hard stop on 10-14 is not done. | this runbook |
+| Earliest counted session | Session 1: 2026-10-15 owner's afternoon (e.g. 17:00Z, 13:00 EDT) or 10-18 and later; **never 10-16 or 10-17** (owner, 2026-10-12). The code's own floor is 2026-10-15T00:00Z (session 0 is exempt). | PR §4, `EARLIEST_START_UTC` |
 | Markets | Session 0 uses **non-panel markets only**: the owner lists ≥ 3 off-panel events, and the selector refuses any condition in the 88a extra conditions, the shadow scope or `panel_exclusions.jsonl`. | S0 §2, C2 |
 
 ## 2. Shell setup (every new window)
@@ -175,7 +175,7 @@ function Compare-T40ToStart([string]$StartFile, [string]$StartSha) {
 **Owner inputs** (window A only; fill in before section 5). The five events
 are the proposed session-0 list (all plain binary, fee-free, non-weather; the
 pinned selector picked the Netanyahu market in 3 of 3 checks on 10-10 about
-00:40Z). Paste as is:
+00:40Z, 20:40 EDT 10-09). Paste as is:
 
 ```powershell
 $ev1 = 'netanyahu-out-before-2027'
@@ -186,7 +186,7 @@ $ev5 = 'turkey-rejoins-f-35-program-byptptpt-20260708215709215'
 # Alternates (swap one in only if an event above is closed or refused):
 #   'houthis-enter-saudi-arabia-byptptpt'   'next-us-iran-senior-diplomatic-meeting-byptptpt'
 $extra = Join-Path $env:USERPROFILE '.weather-lfc-20261009-inputs\extra_conditions-<sha8>.json'  # host copy; sha check below
-$scope = Join-Path $env:USERPROFILE '.weather-lfc-20261009-inputs\shadow_scope_20261012.json'
+$scope = Join-Path $env:USERPROFILE '.weather-lfc-20261009-inputs\shadow_scope_20261014.json'
 $s0 = @('--session0', '--event-slug', $ev1, '--event-slug', $ev2, '--event-slug', $ev3,
         '--event-slug', $ev4, '--event-slug', $ev5, '--extra-conditions', $extra, '--shadow-scope', $scope)
 ```
@@ -201,7 +201,7 @@ $s0 = @('--session0', '--event-slug', $ev1, '--event-slug', $ev2, '--event-slug'
   passed **as is** (the code accepts its
   `{"extra_conditions": [...], "update_windows_utc": [...]}` shape). Neither
   agent reads or parses it. Transfer (master-agent, 2026-10-09):
-  1. At **T - 40 min** on 10-12, master-agent makes a shared-open, byte-for-byte
+  1. At **T - 40 min** on 10-14 (14:20Z, 10:20 EDT), master-agent makes a shared-open, byte-for-byte
      copy of `<prod checkout>\data\maker_evidence\extra_conditions.json` on
      the capture host, records its sha256, and places it at
      `C:\Users\micha\Desktop\lfc-transfer\extra_conditions-<sha8>.json` on the
@@ -218,17 +218,17 @@ $s0 = @('--session0', '--event-slug', $ev1, '--event-slug', $ev2, '--event-slug'
      ```
 
      A mismatch means **no session**.
-- **`$scope`** is generated at **T − 40 min** (about 14:20Z on 10-12) and its
+- **`$scope`** is generated at **T − 40 min** (about 14:20Z, 10:20 EDT, on 10-14) and its
   sha256 recorded:
 
   ```powershell
   New-Item -ItemType Directory -Force (Split-Path $scope) | Out-Null
-  & $python -m weather.market.lfc_cli shadow-scope-union --date 2026-10-12 --out $scope
+  & $python -m weather.market.lfc_cli shadow-scope-union --date 2026-10-14 --out $scope
   ```
 
   Success: exit 0, printing `sha256` and `count`; record the sha256 line. It
   reads public Gamma only and **fails closed** (`shadow_scope_event_missing`,
-  nothing written) until every registry event dated 10-11 to 10-14 (D−1 to
+  nothing written) until every registry event dated 10-13 to 10-16 (D−1 to
   D+2) is listed; rerun later if so. An existing `--out` is refused.
 - `go <6 hex>` is typed by the owner at each `live` start; it is the first 6 hex
   of the selection digest that `live` prints. Check S0 rules 1-2 by eye on the
@@ -358,10 +358,11 @@ gitignored `config/local/`.
    host's reads). Steps from the any-LAN handback and the
    [wallet reader](../operations/wallet-reader.md) "Restart serve after
    updating":
-   1. Create a detached reader worktree at **master-agent's master merge of
-      `b818d187c`** (the merged sha master-agent sends on 10-10; no other
-      commit, never the pinned LFC tip: the reader serves the capture host too,
-      so it must run master code):
+   1. Create a detached reader worktree at **master as it stands after the
+      N8 merge** (it contains the master merge of `b818d187c`; master-agent
+      sends the full sha on the morning of 10-13; no other commit, never the
+      pinned LFC tip: the reader serves the capture host too, so it must run
+      master code):
       `git worktree add --detach ..\weather-wallet-reader-<sha8> <sha>`. Set
       `$wt` to it and `$sha` to the full SHA.
    2. `& "<old reader worktree>\scripts\ops\register_wallet_reader_logon_task.ps1" -Unregister`.
@@ -438,14 +439,14 @@ not trade during that window."
 
 | When | Command | Purpose |
 | --- | --- | --- |
-| T − 24 h (10-11, ~15:00Z) | `Save-OwnerSnapshot t24` then `& $python -m weather.market.lfc_cli baseline --label t24` | record only; session 0 does not use t24 |
-| T − 40 min (10-12, ~14:20Z, before 0a) | `Save-OwnerSnapshot t40`, then `shadow-scope-union` (section 2), then `baseline --label t40` and record the **session-start baseline** (block below) | owner-private before-snapshot; the `$scope` file and its sha256; the start baseline for R-D1 |
+| T − 24 h (10-13, ~15:00Z, 11:00 EDT) | `init-ledger` (section 3.7, first), then `Save-OwnerSnapshot t24` then `& $python -m weather.market.lfc_cli baseline --label t24` | record only; session 0 does not use t24 |
+| T − 40 min (10-14, ~14:20Z, 10:20 EDT, before 0a) | `Save-OwnerSnapshot t40`, then `shadow-scope-union` (section 2), then `baseline --label t40` and record the **session-start baseline** (block below) | owner-private before-snapshot; the `$scope` file and its sha256; the start baseline for R-D1 |
 | before **each** sub-run (≤ 90 min before its start) | `& $python -m weather.market.lfc_cli baseline --label t40`, then `Compare-T40ToStart` (section 5) | ledger-bound baseline the start checks; compare since the session start |
 | after the last sub-run | `baseline --label t40` and `Compare-T40ToStart` (section 7), then `Save-OwnerSnapshot after-session0` | final compare; owner-private after-snapshot |
 | after settlement of any session-0 lot | `Save-OwnerSnapshot after-settlement` | **only if a session-0 order filled**; if nothing filled, the end-of-session snapshot suffices (owner, 2026-10-09 evening; D9) |
 
 **Session-start baseline (R-D1 (a)).** Window A, right after the first
-`baseline --label t40` of 10-12 prints `status: PASS`:
+`baseline --label t40` of 10-14 prints `status: PASS`:
 
 ```powershell
 $t40Start = Get-LatestT40Row
@@ -474,7 +475,8 @@ repeats included. In a new window, set it again from the record:
   owner places no manual order and cancels nothing, except the two 0b test
   orders this runbook asks for (section 6, 0b), and nothing at all during 0g.
 - **Owner approvals, 2026-10-09 evening** (relayed by master-agent; draft D9):
-  "I hold no positions, 10-12 confirmed"; no after-settlement snapshot if
+  "I hold no positions, 10-12 confirmed" (said of the old date; the owner
+  re-confirms at T − 40 min on 10-14); no after-settlement snapshot if
   nothing filled; and the two 0b test orders (the foreign order on a market
   outside the session, per C6) may be placed inside the no-trade window as
   part of the test.
@@ -861,8 +863,8 @@ start.
 | `clean_final_tip_preflight_required` | rerun `preflight` to PASS (same UTC date, same commit) |
 | `baseline_t40_age`, `baseline_foreign_open_orders` | take `baseline --label t40` again |
 | `wallet_activity_outside_pilot` | stop; owner activity changed positions |
-| `past_hard_stop_2350z` | too late in the UTC day; continue another day before 10-15 |
-| `session0_deadline_passed` | 2026-10-15T00:00Z reached; session 0 cannot run any more (D10) |
+| `past_hard_stop_2350z` | too late in the UTC day (23:50Z, 19:50 EDT); on 10-14 there is no later day before the deadline, so session 0 ends there |
+| `session0_deadline_passed` | 2026-10-15T00:00Z (10-14 20:00 EDT) reached; session 0 cannot run any more (D10) |
 
 ## 11. Differences between the signed docs and the code at acd052a2d
 
@@ -893,7 +895,7 @@ draft D; **open** = still a runbook-only note.
    `--s0-2-helper-zero-utc` and refuses when `S` is below the
    last-journal-row-to-helper-zero gap.
 9. **Session-0 deadline — closed (D10).** Enforced in code:
-   `session0_deadline_passed` at or after 2026-10-15T00:00Z.
+   `session0_deadline_passed` at or after 2026-10-15T00:00Z (10-14 20:00 EDT).
 10. **Wording in C — closed (D2-D4).** The N-6 rule; "0d and 0g journal";
     "0e recorded no leg intent".
 11. **Extra conditions and shadow scope — closed.** The 88a file is accepted as
@@ -908,7 +910,8 @@ draft D; **open** = still a runbook-only note.
     uses the main venv's interpreter with the pinned `PYTHONPATH`.
 16. **Reader topology — closed (D6.3).** The pinned tip carries the any-LAN
     reader as cherry-pick `388043de5` of `b818d187c`; the 8765 reader is
-    restarted on master-agent's master merge of `b818d187c`, never on the
+    restarted on master after the N8 merge (it contains master-agent's
+    merge of `b818d187c`; sha sent 10-13 morning), never on the
     pinned tip (section 3.6).
 17. **Reader cache vs S0-2 — closed (D6).** D6 changes three signed S0 §5
     values: the cached `open-orders` read becomes `GET /open-orders?fresh=1`,
@@ -943,13 +946,15 @@ draft D; **open** = still a runbook-only note.
 ## 12. Owner inputs still needed
 
 Done: the event slugs (section 2), the `$extra` path, the session-0 date
-(10-12, ~15:00Z), the after-settlement answer and the 0b approval (D9).
+(10-14, ~15:00Z, 11:00 EDT; owner 2026-10-12), the after-settlement answer
+and the 0b approval (D9).
 
 1. The Fable delta-3 review over `468607b13..acd052a2d`; then the main session
    creates and locks `C:\wt\lfc-pinned-acd052a2d` (section 3.0).
 2. The restart of the 8765 reader on the any-LAN code at a time the owner
    picks; then the direct yes and the workstation LAN IP for the client config
    (section 3.6; written by the owner, never uploaded).
-3. At T − 40 min on 10-12: `shadow-scope-union` PASS and its sha256 recorded.
+3. At T − 40 min on 10-14 (14:20Z, 10:20 EDT): `shadow-scope-union` PASS and
+   its sha256 recorded.
 4. Signature of draft clarification D (the delta-3 review at `320ac22a9`
    passed the code; its D fixes R-D1..R-D4 are applied) before session 1.
