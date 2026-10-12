@@ -116,7 +116,12 @@ function Invoke-ReplayExportImportProbe {
         if ($probe.ExitCode -ne 0) { throw "module-path probe failed: exit $($probe.ExitCode); a module loads outside $Src" }
     }
     finally {
-        try { $probeJob.TerminateAndWait(5000) }
+        # An unproved probe teardown must poison the lease too; the caller's $job is still null here.
+        $script:ReplayExportProbeTeardownUnproved = $true
+        try {
+            $probeJob.TerminateAndWait(5000)
+            $script:ReplayExportProbeTeardownUnproved = $false
+        }
         finally {
             if ($probe) { $probe.Dispose() }
             $probeJob.Dispose()
@@ -192,6 +197,7 @@ $job = $null
 $child = $null
 $exitCode = 1
 $teardownProved = $false
+$script:ReplayExportProbeTeardownUnproved = $false
 try {
     # Admission and a renewed deadline precede Python or output creation.
     $renewed = Get-ReplayExportDeadline -NowUtc ([DateTime]::UtcNow)
@@ -250,7 +256,7 @@ finally {
     # poisons the lease rather than granting the next heavyweight admission.
     try {
         if ($job) { $job.TerminateAndWait(5000) }
-        $teardownProved = $true
+        $teardownProved = -not $script:ReplayExportProbeTeardownUnproved
     }
     finally {
         if ($child) { $child.Dispose() }
