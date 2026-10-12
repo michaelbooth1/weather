@@ -11,6 +11,10 @@ upgrade as a quiet-window job with a release re-bind; installer download, UAC an
 into gated steps. Today's host version, the planned night and every dated hold live in
 [the state of play](STATE_OF_PLAY.md), not here.
 
+Revision 2026-10-12, **pending owner confirmation**: the owner postponed LFC session 0 on 10-12 and
+approved the upgrade, so G7 no longer waits for session 0's handback. It now only keeps the Phase B
+and Phase C nights clear of scheduled LFC sessions. §7a adds a PROPOSED phase calendar.
+
 **Owns:** the procedure for moving the production checkout's `venv` from CPython 3.11.0 to 3.11.9
 on the 16 GB capture host. That covers a side-by-side install, an offline wheelhouse, a stage venv
 qualified by the bounded suite, the cutover through the guarded stop/restore path, verification,
@@ -54,7 +58,7 @@ The live SDK portability check accepts any 3.11 patch release
 | G4 | The owner is reachable from 00:30 to 03:45 on the cutover night: GO at C0, and any escalation up to the end of §R. Phase A also needs the owner at the machine for UAC. | C0, A4 |
 | G5 | No other lease user is due that night. Specifically: <br>- `WeatherTrainingWindow` (a 01:00 one-shot, `register_training_window.ps1:3`) is disabled or has no trigger that night; <br>- Stage B `WeatherEveningEvidenceRefresh` (00:35, holds the lease to 09:00 when enabled; `register_daily_refresh.ps1:20-24`) is disabled; <br>- a U6 export registered at 00:35 (Q3) is disabled (enforced in B0 and C0 by `Assert-NoU6At0035`);<br>- no integration attempt, quiet-window merge, storage one-shot or held-head work is scheduled. | Phase B (B0), C0 |
 | G6 | Release case A: `artifacts\releases\current_release.json` is absent (H5, B3, C0). Case B or C is NO-GO for this runbook (§8). | H5, B3, C0 |
-| G7 (LFC) | The cutover night is **after** LFC session 0 has ended and its handback is recorded. It is never the night before a scheduled LFC session. | C0 |
+| G7 (LFC) | The cutover night (and any Phase B prep night) is not the night before or the night of a scheduled LFC session. Revised 2026-10-12, pending owner confirmation: it no longer waits for LFC session 0, which the owner postponed. | Phase B (B0), C0 |
 | G8 (88a) | The night is after the 88a merge freeze in the state of play. `$R\q12.txt` records the owner's Q12 choice as `STOP_AUTHORIZED` with its DECISION_LOG reference. Any other value means NO-GO, because the 88a worker would hold the venv. | Sign-off, C0, C2 |
 | G9 (tzdata) | The tzdata sequencing is decided (Q13), so the freeze comparison in `Test-Venv` cannot false-fail. | Before Phase B |
 | G10 (seals) | No live attempt is planned between the cutover and the reseal. | Sign-off |
@@ -332,7 +336,7 @@ sys.exit(1 if bad else 0)
 | §4 host reads | before sign-off | 00:30-09:00, serial | no | none |
 | §T tzdata (if Q13 = earlier night) | an earlier night | 00:30-04:45 | yes | none until the next worker restart |
 | A install side by side | any night after sign-off | 00:30-09:00, owner at the machine | no | none |
-| B wheelhouse, stage venv, bounded suite | a prep night after A, G5 holds | B0 by 02:00, suite start by 03:00, finished by 04:45 | yes (released before B2) | none |
+| B wheelhouse, stage venv, bounded suite | a prep night after A; G5 and G7 hold | B0 by 02:00, suite start by 03:00, finished by 04:45 | yes (released before B2) | none |
 | C cutover | the signed night (G7, G8, G11) | 00:30-02:25; rollback starts by 02:45 | yes | about 20-35 min gap |
 | §D cleanup | a later night | 00:30-04:45 | no | none |
 
@@ -341,6 +345,27 @@ economics). The bounded suite's own limit (`MaxRuntimeSeconds`, `bounded_worktre
 is why the suite starts no later than 03:00. Using the tiering hole (HOST_LOAD_POLICY rule 10) to run
 later needs at least 100 GiB free and skips tiering that night; that is an owner choice, not a
 default.
+
+### 7a. Phase calendar (PROPOSED, pending owner confirmation)
+
+Drafted 2026-10-12. Not a schedule until the owner signs it; the signed nights then live in
+[the state of play](STATE_OF_PLAY.md). A night is named by its morning: "00:30 on 10-16" is the
+night of 10-15 to 10-16. It avoids the N8 (00:30 on 10-13) and N9 (00:30 on 10-14) merge nights,
+the 88a freeze through 10-14 (G8) and the DST night (G11).
+
+| Phase | Primary | Fallback | Reason |
+| --- | --- | --- | --- |
+| §T tzdata (if Q13 = earlier night) | 00:30-02:00 on Fri 10-16 | 00:30 on Sat 10-17 | First night clear of N8, N9 and 10-15, the first post-freeze night, which the held 88a heads may claim. |
+| A install (owner at the machine) | Fri 10-16, 07:30-09:00; exact time is the owner's | Sat 10-17, same slot | After §T, so the A1 receipts hold tzdata 2026.3. Before 09:30 Stage-A and the 12:00 graded window; no lease, so the 06:50 91a run does not block it. |
+| B prep night | 00:30-04:45 on Sun 10-18 | 00:30 on Wed 10-21 | After A, or A's fallback; leaves the cutover for the next night, so the qualified tip has little time to move (G3). |
+| C cutover | 00:30-02:25 on Mon 10-19 | 00:30 on Thu 10-22 | The night after B and after the freeze (G8). It leaves 12 nights before the DST night for §R, a re-qualification and a second attempt. |
+| Latest second attempt | 00:30 on Thu 10-29 | none | Keeps 10-30 and 10-31 spare; never 11-01 (G11). |
+| §D cleanup | first admitted night after a C PASS that has no other lease user | any later night | Removes the stage worktree; not urgent. |
+
+Re-check every row against the night plan of the day. N9+ quiet-window merge nights (including the
+held 88a heads) may be scheduled later onto these nights; any collision moves the phase to its
+fallback (G5). G4 (the owner reachable 00:30-03:45) and G7 (not the night before or the night of a
+scheduled LFC session) are checked again before each Phase B and Phase C night.
 
 ### §T. tzdata 2026.3 on the current 3.11.0 venv (if Q13 chooses an earlier night)
 
@@ -483,7 +508,7 @@ If A4 fails after the installer ran:
 
 ### Phase B. Wheelhouse, stage venv, qualification (prep night; capture keeps running on 3.11.0)
 
-**B0. Admission (00:30-02:00; G5 holds).**
+**B0. Admission (00:30-02:00; G5 and G7 hold).**
 
 ```powershell
 $h = (Get-Date).Hour + (Get-Date).Minute/60; if ($h -lt 0.5 -or $h -ge 2.0) { NoGo 'outside the Phase B start window' }
@@ -1130,15 +1155,16 @@ started on 3.11.9 against a 3.11.0-bound release would fail `check_runtime`
 | 04:45-06:45 tiering reserve, 06:50 jobs | Nothing heavy from this runbook |
 | 09:30-11:55 Stage-A | Nothing |
 | 12:00-18:00 graded and 18:00-00:30 near-close | Nothing |
-| DST night 10-31 to 11-01 | Nothing (G11) |
+| DST night 10-31 to 11-01 | Nothing (G11); §7a keeps the last attempt two nights earlier |
+| Night before or night of a scheduled LFC session | No Phase B or Phase C (G7) |
 
 ## 11. Owner sign-off checklist
 
 The owner initials each line in the decision log. Recommendations come first.
 
-- [ ] **Runbook revision** approved as written (G0). The night is named. It must come after LFC
-      session 0 (G7) and after the 88a freeze in the state of play (G8), and must not be the night
-      before an LFC session or the DST night (G11).
+- [ ] **Runbook revision** approved as written (G0), including the 2026-10-12 G7 revision. The
+      night is named. It must come after the 88a freeze in the state of play (G8), must not be the
+      night before or the night of a scheduled LFC session (G7), and must not be the DST night (G11).
 - [ ] **Q12, 88a stop:** record `STOP_AUTHORIZED` in `$R\q12.txt`, authorizing `Stop-ScheduledTask
       -TaskName WeatherMakerEvidenceCapture` at C2 and accepting a short 88a gap and an untested
       abrupt stop (recommended). The alternative is to wait for a reviewed graceful-stop verb; the
