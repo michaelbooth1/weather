@@ -87,10 +87,13 @@ exactly (all quote days and the settlement day; a subset, a superset or a re-exp
 `replay_config` caps, hazard and book gap, the bootstrap replicates and seed, and a registration hash that is
 omitted or the manifest digest. `verify_scored_records` (D2) binds the records actually replayed: every drive digests
 the records it reads (`Run.replayed`; drives that read different records refuse `replay_records_unstable`), and the
-digest must equal the manifest's `record_identity_sha256` (R155 defender-3 R1: each record's sequence, capture time,
-condition or group, kind, payload sha and sources in consumption order; every payload is re-hashed as it is read,
-`replay_payload_hash_mismatch`), so records dropped, substituted, duplicated, re-ordered or payload-edited under
-honest input-hash labels refuse `run_binding_pack_records_mismatch`, even with the record count kept. The report
+digest must equal the manifest's `record_identity_sha256` (R155 defender-3 R1: each record's day, sequence, capture
+time, condition or group, kind, payload sha and sources in consumption order; every payload is re-hashed as it is
+read, `replay_payload_hash_mismatch`), so records dropped, substituted, duplicated, re-ordered, moved to another day
+or with other payload bytes under honest input-hash labels refuse `run_binding_pack_records_mismatch`, even with the
+record count kept. The digest binds canonical bytes, not in-memory objects: the drive feeds the engine each record
+rebuilt from the digested bytes (R155 defender-4 D-1), so an object that serialises honestly but would decode
+otherwise (a two-faced mapping, a `datetime` for ISO text) scores exactly as the honest record. The report
 (format v0.2) records the check
 and the digests it bound as `pack_check`, with `manifest_enrolled` (whether the manifest digest is in
 `approved_registrations`; recorded, not enforced). Resource ceilings, v0.2 `groups` and the plan's condition list

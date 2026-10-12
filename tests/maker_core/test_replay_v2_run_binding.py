@@ -74,8 +74,8 @@ def manifest_for(inventory, sources=None):
     ``day_source()`` day) with the last day as ``settlement_only_date`` and the others as ``dates``, and the scope
     ``verify_scored_scope`` reads (R155 defender-2 D1): the plans' windows as ``active_intervals``, the quote-day
     markets, ``CONFIG`` as the v1 ``replay_config`` and the bootstrap these tests run (100 replicates, the default
-    seed); and ``record_identity_sha256`` over the sources' records as ``build_manifest`` writes it (D2, defender-3
-    R1). A real pack's verified manifest is used end to end below."""
+    seed); and ``record_identity_sha256`` over the sources' records, each with its day, as ``build_manifest`` writes
+    it (D2, defender-3 R1, defender-4 N-1). A real pack's verified manifest is used end to end below."""
     sources = sources or [day_source()]
     plans = [s.plan for s in sources]
     days = [p.day.isoformat() for p in plans]
@@ -88,7 +88,8 @@ def manifest_for(inventory, sources=None):
                 markets=sorted({c.market_id for p in plans[:-1] for c in p.conditions}),
                 replay_config=plain(ReplayConfig(hazard_per_minute=CONFIG.hazard_per_minute)),
                 bootstrap_replicates=100, bootstrap_seed=20260926,
-                record_identity_sha256=digest([record_identity(r) for s in sources for r in s.records()]))
+                record_identity_sha256=digest([dict(record_identity(r), day=s.plan.day.isoformat())
+                                               for s in sources for r in s.records()]))
 
 
 def pack(zones=FIXTURE_ZONES, registry=None, edit=lambda rows: rows, sources=None):
@@ -1040,19 +1041,22 @@ def test_a_plan_day_that_is_not_a_date_is_a_coded_refusal(day):
 
 
 def test_the_record_digest_is_the_manifest_record_identity_shape():
-    """``RecordDigest`` streams ``digest([record_identity(r) for r in records])``, the shape ``build_manifest``
-    writes as ``record_identity_sha256``, for zero, one and many records. Defender-3 R1: the identity is the
-    sequence, capture time, condition (or group), kind, payload sha and sources, not the sources alone."""
+    """``RecordDigest`` streams ``digest([dict(record_identity(r), day=d) for d, r in records])``, the shape
+    ``build_manifest`` writes as ``record_identity_sha256``, for zero, one and many records. Defender-3 R1: the
+    identity is the sequence, capture time, condition (or group), kind, payload sha and sources, not the sources
+    alone; defender-4 N-1: each element carries its day. ``add`` returns the record rebuilt from the digested bytes,
+    which for an honest record equals it (defender-4 D-1)."""
     from maker_core.replay.v2.lockstep import RecordDigest
-    records = list(day_source().records()) + list(day_source(NEXT).records())
+    records = [(d, r) for d in (DAY, NEXT) for r in day_source(d).records()]
     for given in ([], records[:1], records):
         streamed = RecordDigest()
-        for record in given:
-            streamed.add(record)
-        assert streamed.summary() == dict(record_identity_sha256=digest([record_identity(r) for r in given]),
-                                          records=len(given))
-    first = records[0]
-    assert record_identity(first) == dict(sequence=first.sequence, captured_at=first.captured_at,
+        for day, record in given:
+            assert streamed.add(record, day=day) == record
+        assert streamed.summary() == dict(
+            record_identity_sha256=digest([dict(record_identity(r), day=d.isoformat()) for d, r in given]),
+            records=len(given))
+    first = records[0][1]
+    assert record_identity(first) == dict(sequence=first.sequence, captured_at=first.captured_at.isoformat(),
                                           condition_id=first.condition_id, kind=first.kind,
                                           payload_sha256=first.payload_sha256,
                                           source_hashes=dict(first.source_hashes))
@@ -1070,6 +1074,161 @@ def test_the_record_digest_refuses_a_payload_that_is_not_its_sha():
         with pytest.raises(BundleError, match="replay_payload_hash_mismatch"):
             record_identity(bad)
     assert record_identity(_reprice(record, .8, rehash=True))["payload_sha256"] != record.payload_sha256
+
+
+def test_the_record_digest_binds_each_record_to_its_day():
+    """Defender-4 N-1: a record moved across a day boundary keeps the flat record sequence, so a digest without days
+    would keep it too; the day in every element changes it. (The engine also refuses the probed moves, through
+    ``instant_order`` or ``market_time_zone_unknown``; the digest no longer relies on that.)"""
+    from maker_core.replay.v2.lockstep import RecordDigest
+    first, second = list(day_source(DAY).records()), list(day_source(NEXT).records())
+
+    def summary(days):
+        streamed = RecordDigest()
+        for day, records in days:
+            for record in records:
+                streamed.add(record, day=day)
+        return streamed.summary()
+    honest = summary([(DAY, first), (NEXT, second)])
+    for moved in ([(DAY, first[:-1]), (NEXT, [first[-1], *second])], [(DAY, [*first, second[0]]), (NEXT, second[1:])]):
+        assert [r for _, rs in moved for r in rs] == [*first, *second]  # the flat sequence is kept
+        assert summary(moved)["records"] == honest["records"]
+        assert summary(moved)["record_identity_sha256"] != honest["record_identity_sha256"]
+
+
+class _TwoFacedPayload(dict):
+    """Defender-4 D21: serialises (``items()``) as ``honest`` but answers ``[]`` and ``get`` from ``shown``."""
+
+    def __init__(self, honest, shown):
+        super().__init__(honest)
+        self._shown = shown
+
+    def __getitem__(self, key):
+        return self._shown[key]
+
+    def get(self, key, default=None):
+        return self._shown.get(key, default)
+
+
+class _NeverEqual(str):
+    """Defender-4 D23: serialises as its text but compares unequal to every engine branch."""
+
+    def __eq__(self, other):
+        return False
+
+    __hash__ = str.__hash__
+
+
+def _as_datetime(value):
+    """The ``datetime`` whose ``isoformat()`` is exactly ``value`` (so the canonical bytes are kept), else None."""
+    try:
+        parsed = datetime.fromisoformat(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed.tzinfo is not None and parsed.isoformat() == value else None
+
+
+def _two_faced_view(record):
+    shown = plain(record.payload)
+    shown["value"]["p_yes"] = .8
+    return replace(record, payload=_TwoFacedPayload(plain(record.payload), shown))
+
+
+def _datetime_for(field):
+    def edit(record):
+        payload = plain(record.payload)
+        parsed = _as_datetime(payload.get(field))
+        return record if parsed is None else replace(record, payload=dict(payload, **{field: parsed}))
+    return edit
+
+
+TWO_FACED = {  # defender-4 probe -> (kind edited, edit); every edit keeps the record's canonical bytes
+    "D21_view_mapping": ("outcome_view", _two_faced_view),
+    "D22_trade_datetime": ("trade", _datetime_for("traded_at_utc")),
+    "D22b_book_datetime": ("book", _datetime_for("as_of_utc")),
+    "D23_kind_str_subclass": ("book", lambda r: replace(r, kind=_NeverEqual(r.kind))),
+}
+
+
+@pytest.fixture(scope="module")
+def dense_scored():
+    """The honest DenseDay scored run (its manifest enrolled, for owner policy F4), and a scorer for edited records."""
+    from maker_core.replay import approved_registrations
+    zones, bound = pack()
+    honest = day_source(DAY, "captured")
+    records = list(honest.records())
+
+    def score(given):
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(approved_registrations, "APPROVED_REGISTRATIONS", {digest(bound["manifest"]): "fictional"})
+            run = run_passes([replace(honest, records=lambda: iter(given))], CONFIG, time_zones=zones)
+            return run, build_report(run, CONFIG, replicates=100, **bound)[0]
+    return records, score, score(records)
+
+
+@pytest.mark.parametrize("probe", sorted(TWO_FACED))
+def test_an_object_that_serialises_to_the_bound_bytes_is_consumed_as_those_bytes(dense_scored, probe):
+    """Defender-4 D-1 (D21, D22, D22b, D23): an in-memory record whose canonical bytes, and so its identity, are the
+    honest record's, but whose object decodes otherwise: a mapping whose ``[]`` disagrees with ``items()``, a
+    ``datetime`` where the canonical text is an ISO string, a ``kind`` that compares unequal. Before the fix each
+    scored ``PRE_REGISTERED_REPLAY`` under the honest manifest with another P&L table (or other exclusions). The
+    drive now feeds the engine each record rebuilt from its digested bytes, so the run is the honest run."""
+    records, score, (honest_run, honest_report) = dense_scored
+    kind, edit = TWO_FACED[probe]
+    edited = [edit(r) if r.kind == kind else r for r in records]
+    changed = [(a, b) for a, b in zip(records, edited) if a is not b]
+    assert changed and all(record_identity(a) == record_identity(b) for a, b in changed)  # the binding is kept
+    a, b = changed[0]
+    if probe.startswith("D23"):
+        assert not b.kind == kind  # the object is two-faced: the engine would not see a book
+    else:
+        assert decode_or_error(a) != decode_or_error(b)  # the object is two-faced: it decodes otherwise
+    run, report = score(edited)
+    assert run.replayed == honest_run.replayed
+    assert report["status"] == honest_report["status"] == "PRE_REGISTERED_REPLAY"
+    assert report["bounds"] == honest_report["bounds"]
+
+
+def decode_or_error(record):
+    from maker_core.replay.payloads import decode
+    try:
+        return decode(record)
+    except (ValueError, TypeError, KeyError, ArithmeticError, BundleError) as exc:
+        return type(exc).__name__
+
+
+def test_two_faced_trades_on_the_execution_pack_score_as_the_honest_pack(tmp_path, monkeypatch):
+    """Defender-4 P26 on the 15-day fictional execution pack, which quotes and fills: every trade payload
+    serialises honestly but shows ``size`` 1000. Before the fix the band-day P&L moved under the honest, enrolled
+    manifest; the rebuilt records score exactly as the honest pack."""
+    from maker_core.replay import approved_registrations
+    from maker_core.replay.execution_manifest import (SCOPE_CONFIG_FIELDS, apply_manifest, market_time_zones,
+                                                      verify_manifest)
+    from maker_core.replay.v2.lockstep import bundle_source
+    from .fixtures.execution_pack import pack as execution_pack
+    doc, bundles, cb, paths, _, _ = execution_pack(tmp_path)
+    verified = verify_manifest(doc, bundles, cb, **paths, now=datetime(2026, 10, 15, 12, tzinfo=timezone.utc))
+    monkeypatch.setattr(approved_registrations, "APPROVED_REGISTRATIONS", {digest(verified): "fictional"})
+    registry = {"a": "UTC"}
+    zones = market_time_zones(bundles, verified["universe"], registered=registry)
+    config = V2Config(**{name: verified["replay_config"][name] for name in SCOPE_CONFIG_FIELDS})
+    scope = dict(replicates=verified["bootstrap_replicates"], seed=verified["bootstrap_seed"])
+    declared = apply_manifest(verified, bundles)
+
+    def score(given):
+        run = run_passes([bundle_source(b) for b in given], config, time_zones=zones)
+        return build_report(run, config, **scope, manifest=verified, registered=registry)[0]
+
+    def two_faced(record):
+        honest = plain(record.payload)
+        return replace(record, payload=_TwoFacedPayload(honest, dict(honest, size="1000")))
+    edited = [replace(b, records=tuple(two_faced(r) if r.kind == "trade" else r for r in b.records))
+              for b in declared]
+    assert sum(r.kind == "trade" for b in edited for r in b.records)
+    honest, forged = score(declared), score(edited)
+    assert forged["status"] == honest["status"] == "PRE_REGISTERED_REPLAY"
+    assert any(t["fills"] for v in honest["bounds"].values() for t in v["traces"].values())
+    assert forged["bounds"] == honest["bounds"]
 
 
 def _dense_edited(records, rehash):

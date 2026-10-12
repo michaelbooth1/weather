@@ -199,9 +199,11 @@ def build_report(run, config, *, replicates=2000, seed=20260926, registration_ha
     ``replay_config`` fields, ``replicates``/``seed`` equal to ``bootstrap_replicates``/``bootstrap_seed``, and
     ``registration_hash`` either omitted or equal to the manifest digest; ``pre_registration_sha256`` is that digest.
     The records the run replayed (``Run.replayed``) must digest to the manifest's ``record_identity_sha256``
-    (``execution_manifest.verify_scored_records``, R155 defender-2 D2 and defender-3 R1: each record's sequence,
-    capture time, condition or group, kind, re-hashed payload sha and sources, in consumption order), not only carry
-    its input-hash labels.
+    (``execution_manifest.verify_scored_records``, R155 defender-2 D2 and defender-3 R1: each record's day,
+    sequence, capture time, condition or group, kind, re-hashed payload sha and sources, in consumption order), not
+    only carry its input-hash labels. The digest binds canonical bytes; the engine consumes each record rebuilt from
+    those bytes (``lockstep._tapped``, R155 defender-4 D-1), so an in-memory object that serialises honestly but
+    would decode otherwise scores as the honest record.
     This function does not re-verify the manifest; the caller must, and an auditor matches
     ``pack_check.manifest_sha256`` against the enrolled manifest. It reads no file (R155 defender-2 D3): ``manifest``
     is the parsed document, and ``pack_check.manifest_sha256`` (hence ``pre_registration_sha256``) is

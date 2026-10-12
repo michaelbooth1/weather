@@ -382,13 +382,16 @@ def verify_scored_scope(plan, config, *, manifest, replicates, seed, registratio
 
 def _record_identity_sha256(bundles):
     """``record_identity_sha256``: ``lockstep.RecordDigest`` over every bundle's records in day order, the digest a
-    scored run's drives must reproduce (R155 defender-3 R1). A record whose payload does not hash to its
-    ``payload_sha256`` refuses ``replay_payload_hash_mismatch``."""
+    scored run's drives must reproduce (R155 defender-3 R1), each record bound with its bundle's day (defender-4
+    N-1). A record whose payload does not hash to its ``payload_sha256`` refuses ``replay_payload_hash_mismatch``.
+    The digest is over canonical bytes, so it is the same for any in-memory object that serialises to them; the
+    rebuilt records ``add`` returns are not needed here, because a scored drive consumes its own rebuild from the
+    same bytes (``lockstep._tapped``, defender-4 D-1)."""
     from maker_core.replay.v2.lockstep import RecordDigest
     records = RecordDigest()
     for bundle in bundles:
         for record in bundle.records:
-            records.add(record)
+            records.add(record, day=bundle.day)
     return records.hexdigest()
 
 
@@ -400,14 +403,19 @@ def verify_scored_records(replayed, *, manifest):
     later drive reads other records; ``pipeline.verify_run_binding`` checks that ``Run.replayed`` equals it,
     R155 defender-3 R3). The plan's
     ``input_hashes`` are labels copied from the loaded bundles; a ``DaySource`` or ``Bundle`` can carry other records
-    under them. So the digest of the records read, ``digest([lockstep.record_identity(r) ...])`` in consumption
-    order, must equal the manifest's ``record_identity_sha256`` (``build_manifest`` writes it with the same class over
-    the same bundles' records). Each identity is the record's sequence, capture time, condition or group, kind,
-    payload sha and sources, and every payload is re-hashed against its sha while the run reads it
-    (``replay_payload_hash_mismatch``). So a dropped, added, duplicated, substituted or re-ordered record, or one
-    whose payload or sources differ, refuses ``run_binding_pack_records_mismatch``, also within one sealed segment
-    whose records share their ``source_hashes`` and with the record count kept. A run without the summary refuses
-    ``run_binding_records_required``. Returns the ``pack_check`` fields: the digest and the record count."""
+    under them. So the digest of the records read (``RecordDigest``: each ``lockstep.record_identity(r)`` with its
+    day, in consumption order) must equal the manifest's ``record_identity_sha256`` (``build_manifest`` writes it
+    with the same class over the same bundles' records). Each identity is the record's day, sequence, capture time,
+    condition or group, kind, payload sha and sources, and every payload is re-hashed against its sha while the run
+    reads it (``replay_payload_hash_mismatch``). So a dropped, added, duplicated, substituted, re-ordered or
+    day-moved record, or one whose payload's canonical bytes or sources differ, refuses
+    ``run_binding_pack_records_mismatch``, also within one sealed segment whose records share their
+    ``source_hashes`` and with the record count kept. The digest binds canonical bytes, not in-memory objects; an
+    object that serialises to the bound bytes but would decode differently (a two-faced mapping, a ``datetime`` for
+    ISO text) is not refused here, but the drive feeds the engine the record rebuilt from those bytes
+    (``lockstep._tapped``, R155 defender-4 D-1), so it scores exactly as the honest record. A run without the
+    summary refuses ``run_binding_records_required``. Returns the ``pack_check`` fields: the digest and the record
+    count."""
     if (not isinstance(replayed, Mapping) or set(replayed) != {"record_identity_sha256", "records"}
             or type(replayed["record_identity_sha256"]) is not str or type(replayed["records"]) is not int):
         raise BundleError("run_binding_records_required")

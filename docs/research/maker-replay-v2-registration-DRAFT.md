@@ -168,14 +168,17 @@ only; no decision, P&L or base-pass prefix digest changes.
   the `active_intervals` and `replay_config` digests and the bootstrap it ran. The records replayed are bound
   (`execution_manifest.verify_scored_records`, R155 defender-2 D2 and defender-3 R1): the input hashes are labels,
   so every drive of the run digests the records it actually reads (`lockstep.RecordDigest`,
-  `digest([record_identity(r) ...])` in consumption order, kept as `Run.replayed`; a later drive that reads other
+  each `record_identity(r)` with its day, in consumption order, kept as `Run.replayed`; a later drive that reads other
   records refuses `replay_records_unstable`), and that digest must equal the manifest's `record_identity_sha256`
   (`run_binding_pack_records_mismatch`; a run without it refuses `run_binding_records_required`), which
   `build_manifest` writes with the same class over the pack's records in day order. A record's identity is its
-  sequence, capture time, condition (or v0.2 group), kind, payload sha and sources, and each payload is re-hashed
-  against its sha as it is read (`replay_payload_hash_mismatch`). Records of one sealed segment share their
+  day, sequence, capture time, condition (or v0.2 group), kind, payload sha and sources, and each payload is
+  re-hashed against its sha as it is read (`replay_payload_hash_mismatch`). Records of one sealed segment share their
   `source_hashes`, so binding sources alone bound only the count; the identity digest binds each record, and a
-  substituted, duplicated, re-ordered or payload-edited record refuses with the count kept. `pack_check` records the
+  substituted, duplicated, re-ordered or day-moved record, or one with other payload bytes, refuses with the count
+  kept. The digest binds canonical bytes, not in-memory objects, so the drive feeds the engine each record rebuilt
+  from exactly the digested bytes (R155 defender-4 D-1): an object that serialises honestly but would decode
+  otherwise scores as the honest record. `pack_check` records the
   digest and the record count. Every one of these checks reads one plain copy of the manifest parsed back from its
   canonical JSON, the bytes its digest covers (R155 defender-3 R2), so a mapping that answers lookups differently
   from what it serialises is checked on its digested content. Scope of the check:
