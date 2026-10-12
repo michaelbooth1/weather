@@ -68,7 +68,9 @@ the fair-value lead is not (open lead, see the registration draft). Fictional ma
 `run_passes` copies the zone map once at entry and records `Run.binding` (owner T2(a); `pipeline.run_binding`):
 the refresh flag, the zone map, its sha and its source (`market_time_zones` or `caller`), the tzdata version with
 the sha of each zone file used, and a digest of the run's own days, provenance, input hashes, markets, report
-configuration and the zone map it drove with (kept as `Run.time_zones`). `report.build_report` refuses a run
+configuration and the zone map it drove with (kept as `Run.time_zones`); after the base drive it adds `records`,
+the record digest of what the drive read (format v0.4, R155 defender-3 R3), which `Run.replayed` must equal
+(`run_binding_records_mismatch`). `report.build_report` refuses a run
 without that binding or with another run's binding (also from a same-input run driven with another map), recomputes
 the tzdata block from the zone bytes it loads, and for a non-fixture report requires the full `market_time_zones`
 source (builder, `registry_checked`, inventory and registry digests). That stops accidental misuse (a run driven

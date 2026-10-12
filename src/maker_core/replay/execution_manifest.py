@@ -395,8 +395,10 @@ def _record_identity_sha256(bundles):
 def verify_scored_records(replayed, *, manifest):
     """The records a scored run actually replayed are the manifest's (R155 defender-2 D2, defender-3 R1).
 
-    ``replayed`` is ``Run.replayed``, the ``lockstep.RecordDigest`` summary of every record the run's drives read
-    (``pipeline.run_passes`` refuses ``replay_records_unstable`` when a later drive reads other records). The plan's
+    ``replayed`` is the run binding's ``records``, the ``lockstep.RecordDigest`` summary of every record the run's
+    drives read (``pipeline.run_passes`` binds it after the base drive and refuses ``replay_records_unstable`` when a
+    later drive reads other records; ``pipeline.verify_run_binding`` checks that ``Run.replayed`` equals it,
+    R155 defender-3 R3). The plan's
     ``input_hashes`` are labels copied from the loaded bundles; a ``DaySource`` or ``Bundle`` can carry other records
     under them. So the digest of the records read, ``digest([lockstep.record_identity(r) ...])`` in consumption
     order, must equal the manifest's ``record_identity_sha256`` (``build_manifest`` writes it with the same class over

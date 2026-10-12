@@ -1136,12 +1136,41 @@ def test_a_scored_run_whose_replayed_records_are_not_the_manifest_records_is_ref
     run = small_run(zones, "captured")
     assert run.replayed == dict(record_identity_sha256=bound["manifest"]["record_identity_sha256"],
                                 records=len(records))
+    assert run.binding["records"] == run.replayed  # defender-3 R3: bound into the run binding
     for replayed in (None, {}, dict(run.replayed, records="1"), dict(run.replayed, extra=1)):
-        with pytest.raises(BundleError, match="run_binding_records_required"):
+        with pytest.raises(BundleError, match="run_binding_records_mismatch"):  # Run.replayed is not the bound one
             build_report(replace(run, replayed=replayed), CONFIG, replicates=100, **bound)
+        # the binding rewritten to agree, its sha recomputed: the record summary itself is malformed
+        forged = replace(run, replayed=replayed, binding=rebind(run.binding, records=replayed))
+        with pytest.raises(BundleError, match="run_binding_records_(mismatch|required)"):
+            build_report(forged, CONFIG, replicates=100, **bound)
     with pytest.raises(BundleError, match="run_binding_pack_manifest_invalid"):
         build_report(run, CONFIG, replicates=100, registered=bound["registered"],
                      manifest={k: v for k, v in bound["manifest"].items() if k != "record_identity_sha256"})
+
+
+def test_a_cut_run_carrying_an_honest_runs_record_summary_is_refused():
+    """Defender-3 R3/P16: the run whose trades were cut refuses on its records; the same run with
+    ``replayed`` copied from the honest run used to score, because ``Run.replayed`` was outside the binding. The
+    binding now carries the record summary, so the copy refuses ``run_binding_records_mismatch``, fixture or
+    scored. (Copying the honest binding as well is the disclosed recompute-everything forgery class.)"""
+    zones, bound = pack()
+    honest = day_source(DAY, "captured")
+    run = run_passes([honest], CONFIG, time_zones=zones)
+    cut = run_passes([_replaying(honest, lambda r: r.kind != "trade")], CONFIG, time_zones=zones)
+    assert cut.binding["records"] != run.binding["records"]
+    assert {k: v for k, v in cut.binding.items() if k not in ("records", "sha256")} == {
+        k: v for k, v in run.binding.items() if k not in ("records", "sha256")}  # same inputs otherwise
+    with pytest.raises(BundleError, match="run_binding_pack_records_mismatch"):
+        build_report(cut, CONFIG, replicates=100, **bound)
+    with pytest.raises(BundleError, match="run_binding_records_mismatch"):
+        build_report(replace(cut, replayed=run.replayed), CONFIG, replicates=100, **bound)
+    fixture = small_run()
+    assert fixture.replayed == run.replayed  # the same dense day's records, synthetic label
+    with pytest.raises(BundleError, match="run_binding_records_mismatch"):
+        build_report(replace(fixture, replayed=cut.replayed), CONFIG, replicates=100)
+    with pytest.raises(BundleError, match="run_binding_records_mismatch"):  # unbound: a pre-drive binding
+        build_report(replace(fixture, binding=rebind(fixture.binding, records=None)), CONFIG, replicates=100)
 
 
 def test_every_drive_of_a_run_must_read_the_same_records():

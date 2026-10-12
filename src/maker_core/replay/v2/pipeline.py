@@ -110,15 +110,18 @@ class Run:
     time_zones: object = None  # the ``snapshot_zones`` copy every ``drive`` of this run used (Delta-1 finding 2)
     # ``lockstep.RecordDigest.summary()`` of the records every drive of this run read (R155 defender-2 D2, defender-3
     # R1): a scored report compares ``record_identity_sha256`` with the manifest's; ``None`` for a run not made by
-    # ``run_passes``
+    # ``run_passes``. The same summary is ``binding["records"]``, and ``verify_run_binding`` refuses a disagreement
+    # (defender-3 R3)
     replayed: dict | None = None
 
 
-RUN_BINDING_FORMAT = "maker_core.replay.v2.run_binding.v0.3"  # v0.3: run inputs bind the driven zone map
+# v0.3: run inputs bind the driven zone map; v0.4: the binding carries the records the drives read (``records``,
+# R155 defender-3 R3)
+RUN_BINDING_FORMAT = "maker_core.replay.v2.run_binding.v0.4"
 CALLER_ZONE_MAP = dict(builder="caller", registry_checked=False)
 REGISTERED_SOURCE_FIELDS = frozenset({"builder", "registry_checked", "inventory_sha256", "registry_sha256"})
 BINDING_FIELDS = frozenset({"format", "day_roll_refresh", "time_zones", "time_zones_sha256", "time_zones_source",
-                            "tzdata", "run_inputs_sha256", "sha256"})
+                            "tzdata", "run_inputs_sha256", "records", "sha256"})
 _HEX64 = re.compile(r"[0-9a-f]{64}")
 
 
@@ -168,7 +171,10 @@ def run_binding(time_zones, plan, markets, config) -> dict:
       tzdata other than ``bundle.TZDATA_VERSION`` refuses ``tzdata_version_unpinned``;
     - ``run_inputs_sha256``: the digest of ``run_inputs(plan, markets, config, time_zones)``, so the binding
       belongs to this run's days, provenance, input hashes, markets, configuration and driven zone map and to no
-      other (Defender F1; Delta-1 finding 2).
+      other (Defender F1; Delta-1 finding 2);
+    - ``records``: ``None`` here, before any drive; ``run_passes`` sets it after the base drive to the
+      ``lockstep.RecordDigest`` summary of the records read (``bind_records``; R155 defender-3 R3), so the binding
+      covers what was replayed and ``Run.replayed`` is not a free field.
 
     ``sha256`` is the digest of every other field. It binds no decision: the decision and P&L digests are
     unchanged by it."""
@@ -178,7 +184,15 @@ def run_binding(time_zones, plan, markets, config) -> dict:
     body = dict(format=RUN_BINDING_FORMAT, day_roll_refresh=True, time_zones=dict(pairs),
                 time_zones_sha256=digest(pairs), time_zones_source=_zone_source(time_zones),
                 tzdata=tzdata_binding(zone for _, zone in pairs),
-                run_inputs_sha256=digest(run_inputs(plan, markets, config, time_zones)))
+                run_inputs_sha256=digest(run_inputs(plan, markets, config, time_zones)), records=None)
+    return dict(body, sha256=digest(body))
+
+
+def bind_records(binding, replayed) -> dict:
+    """``binding`` with ``records`` set to ``replayed`` (the base drive's ``RecordDigest.summary()``) and its
+    ``sha256`` recomputed (R155 defender-3 R3)."""
+    body = {k: v for k, v in binding.items() if k != "sha256"}
+    body["records"] = dict(replayed)
     return dict(body, sha256=digest(body))
 
 
@@ -208,6 +222,9 @@ def verify_run_binding(run, config, *, scored) -> dict:
       fixture run may bind a hand-made map (``builder="caller"``).
     - A plan whose days are not a non-empty tuple of ``datetime.date`` days (a ``str`` day, a ``datetime``) refuses
       ``run_binding_plan_invalid`` (R155 defender-2 N2).
+    - Its ``records`` (the record digest ``run_passes`` bound after the base drive) must be a summary equal to
+      ``Run.replayed`` (``run_binding_records_mismatch``; R155 defender-3 R3): ``Run.replayed`` replaced with another
+      run's, with the binding kept, refuses.
 
     This is an integrity check, not an authenticity check: code that recomputes every digest can still forge a
     source. ``report.build_report`` therefore also re-derives a scored run's map and source from the verified
@@ -232,6 +249,10 @@ def verify_run_binding(run, config, *, scored) -> dict:
         raise BundleError("run_binding_run_mismatch")
     if binding["run_inputs_sha256"] != digest(run_inputs(run.plan, run.markets, config, driven)):
         raise BundleError("run_binding_run_mismatch")
+    # R155 defender-3 R3: the records the drives read are in the binding; ``Run.replayed`` must be that record
+    replayed = getattr(run, "replayed", None)
+    if not isinstance(binding["records"], dict) or not isinstance(replayed, dict) or binding["records"] != replayed:
+        raise BundleError("run_binding_records_mismatch")
     if binding["day_roll_refresh"] is not True:
         raise BundleError("day_roll_refresh_required")
     if binding["tzdata"].get("version") != TZDATA_VERSION:
@@ -255,7 +276,8 @@ def run_passes(sources, config, *, time_zones, engine=EngineV2, progress=lambda 
 
     Binding (owner T2(a), 2026-10-09): before any engine work, ``run_binding`` records the refresh flag, the zone
     map, its sha and its source, the pinned tzdata (T1(a)) and the digest of this run's plan, markets and
-    configuration into ``Run.binding``. ``report.build_report`` refuses a run without it or with another run's
+    configuration into ``Run.binding``; after the base drive it adds the record digest of what was read
+    (``bind_records``, R155 defender-3 R3). ``report.build_report`` refuses a run without it or with another run's
     binding, and a non-fixture report refuses a map whose source is not the full ``market_time_zones(...,
     registered=)`` record. That stops accidental misuse (a run driven around this function, a hand-made map, a
     binding reused from another run); on its own it does not stop deliberate forgery, since a caller can construct
@@ -282,6 +304,7 @@ def run_passes(sources, config, *, time_zones, engine=EngineV2, progress=lambda 
     replayed = RecordDigest()
     drive(sources, engines, observers=(books,), time_zones=time_zones, records=replayed)
     replayed = replayed.summary()
+    binding = bind_records(binding, replayed)  # R155 defender-3 R3: what was replayed is part of the binding
     progress("base", len(engines))
     bisections, log = {}, []
     for bound in BOUNDS:

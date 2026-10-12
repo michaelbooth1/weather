@@ -230,7 +230,8 @@ def build_report(run, config, *, replicates=2000, seed=20260926, registration_ha
                                               registration_hash=registration_hash,
                                               manifest_sha256=pack_check["manifest_sha256"]))
         # R155 defender-2 D2, defender-3 R1: the records the run actually replayed are the manifest's, by identity.
-        pack_check.update(verify_scored_records(getattr(run, "replayed", None), manifest=manifest))
+        # The bound record digest (defender-3 R3), which ``verify_run_binding`` checked equals ``Run.replayed``.
+        pack_check.update(verify_scored_records(run_binding["records"], manifest=manifest))
         registration_hash = pack_check["manifest_sha256"]
     sidecar = Sidecar(sidecar_path)
     try:
