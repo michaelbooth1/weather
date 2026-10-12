@@ -93,7 +93,9 @@ condition or group, kind, payload sha and sources in consumption order; every pa
 honest input-hash labels refuse `run_binding_pack_records_mismatch`, even with the record count kept. The report
 (format v0.2) records the check
 and the digests it bound as `pack_check`, with `manifest_enrolled` (whether the manifest digest is in
-`approved_registrations`; recorded, not enforced). It does not re-verify the manifest: the runner must
+`approved_registrations`; recorded, not enforced). Resource ceilings, v0.2 `groups` and the plan's condition list
+are not bound, by design (R155 defender-3 N4: refuse-only, fixed by the input hashes, or covered by the record
+digest). It does not re-verify the manifest: the runner must
 (`read_authorization`, then `verify_manifest`). For
 `maker_replay_universe.universe()` inventories the registry check is close to a tautology (both sides read
 `BUILTIN_SPECS`); it catches a tampered or hand-built inventory, not a wrong registry entry.

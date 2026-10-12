@@ -183,7 +183,12 @@ only; no decision, P&L or base-pass prefix digest changes.
   recorded, not enforced, so a fabricated manifest still yields a report, with a foreign `manifest_sha256` and
   `manifest_enrolled` false. The runner must read the manifest through `read_authorization` (which refuses an
   unenrolled hash) and `verify_manifest` first. The descriptor checks on the bundles run when the pack is built and
-  verified.
+  verified. The scored check reads the record digest from the run binding (format v0.4 `records`, R155 defender-3
+  R3), not from a field a caller can swap, and a FIXTURE_ONLY report refuses a registration hash
+  (`fixture_report_registration_hash`, N1). Deliberately not bound (R155 defender-3 N4): the resource `ceilings`
+  only refuse a run that exceeds them, so they change no output; v0.2 `groups` cannot differ from a v0.1-built
+  manifest without changing the input hashes; and a plan dropping a condition must drop or substitute its records,
+  which the record digest refuses.
 - **Sealed captures only (R155 defender-2 D4):** `build_manifest` refuses any panel or calibration bundle whose
   provenance is not `captured` (`manifest_bundle_not_captured`), so a scored run never relabels a bundle in memory.
   The fictional execution-pack fixture seals its bundles with that label; it is a fixture label, not real capture.
