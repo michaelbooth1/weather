@@ -5,7 +5,7 @@ Generated from `docs/operations/HOST_PYTHON_UPGRADE_RUNBOOK.md` at branch `claud
 runbook differs, the landed runbook wins: regenerate the block from it.
 
 Constants file: copy `constants.json` from this folder byte-for-byte to `$R\constants.json`
-(sha256 `2A426D5AD50993859EE6B216EC573A93D934204F3A41359C5E6B3497301EF8AB`). It holds only public installer facts.
+(sha256 `D498DBB3FAAF36196847C271EDA3640A457276ACFB9EDE3218CECA83ECF19EEF`). It holds only public installer facts.
 
 Order:
 1. One elevated PowerShell 5.1 window. Paste the section 6 header with the host's own paths
@@ -73,7 +73,7 @@ Log "session start host=$env:COMPUTERNAME head=$(git -C $P rev-parse HEAD)"
 $Freeze = '<freeze copy root, e.g. C:\PyFreeze\cp3110; must not exist>'
 if (Test-Path -LiteralPath $NewHome) { NoGo 'NewHome exists' }
 if (Test-Path -LiteralPath $Freeze) { NoGo 'freeze copy target exists' }
-if ((Sha (Join-Path $R 'constants.json')) -ne '2A426D5AD50993859EE6B216EC573A93D934204F3A41359C5E6B3497301EF8AB') { NoGo 'constants.json is not the reviewed file' }
+if ((Sha (Join-Path $R 'constants.json')) -ne 'D498DBB3FAAF36196847C271EDA3640A457276ACFB9EDE3218CECA83ECF19EEF') { NoGo 'constants.json is not the reviewed file' }
 $K = Get-Content -LiteralPath (Join-Path $R 'constants.json') -Raw | ConvertFrom-Json
 foreach ($f in 'h1-pythoncore.txt','h1-uninstall.txt','h3-tasks.csv','h5-release.txt') {
   if (-not (Test-Path -LiteralPath (Join-Path $R "host-reads\$f"))) { NoGo "host read $f missing (runbook section 4)" } }
