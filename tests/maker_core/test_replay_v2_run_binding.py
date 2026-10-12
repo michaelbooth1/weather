@@ -456,6 +456,12 @@ def test_the_execution_manifest_source_is_accepted_for_a_scored_report(tmp_path)
         record_identity_sha256=verified["record_identity_sha256"],
         records_replayed=sum(len(b.records) for b in bundles))
     assert report["pre_registration_sha256"] == manifest_key == sha256(manifest_path.read_bytes())
+    # Defender-3 N3: the fictional pack carries books and trades, so the scored run quotes and fills (economics,
+    # not only the binding, are exercised end to end).
+    traces = [t for b in report["bounds"].values() for t in b["traces"].values()]
+    assert {"book", "trade"} <= {r.kind for b in bundles for r in b.records}
+    assert any(t["intervals"] for t in traces) and any(t["fills"] for t in traces), [
+        (t["policy"], t["fill_bound"], t["fills"], t["intervals"], t["decisions"], t["exclusions"]) for t in traces]
     assert report["configuration"]["hazard_per_minute"] == verified["replay_config"]["hazard_per_minute"]
     assert universe_file_sha == verified["universe_sha256"] == source["inventory_sha256"]
     assert report["input_hashes"] == verified["input_hashes"] and len(verified["input_hashes"]) == 15

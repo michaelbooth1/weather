@@ -86,6 +86,14 @@ def pack(root, measured=MEASURED, authorization_id="maker-replay-2026-10-15-v2",
             if r["kind"] == "descriptor":
                 r["payload"]["horizon_days"] = 1
                 r["payload_sha256"] = sha256(canonical_bytes(r["payload"]))
+        if day != SETTLEMENT_DATE:  # R155 defender-3 N3: books and trades, so a scored run quotes and fills
+            for m in markets:
+                for minute in range(10, 70):  # a fresh book each minute, before the 05:00 UTC maintenance window
+                    scenario.book(m, minute*60)
+                    if minute % 20 == 0:  # through-the-book prints on both outcomes, as the v2 engine scenario
+                        scenario.trade(m, minute*60 + 5, price=".40", size="10", trade_id=f"{day}-{m}-{minute}y")
+                        scenario.trade(m, minute*60 + 35, price=".40", size="10", outcome="NO",
+                                       trade_id=f"{day}-{m}-{minute}n")
         bundles.append(scenario.bundle(panel_root/day.isoformat(), "captured"))
         inventory.extend(dict(condition_id=scenario.cid(m), market_id=m, domain_id="fictional",
                               target_date=(day+timedelta(days=1)).isoformat(), local_timezone=zones[m])
