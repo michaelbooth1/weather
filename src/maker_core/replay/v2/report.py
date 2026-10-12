@@ -182,8 +182,10 @@ def build_report(run, config, *, replicates=2000, seed=20260926, registration_ha
     every plan day declared with the manifest's ``active_intervals`` (``apply_manifest``), the quote-day markets, the
     ``replay_config`` fields, ``replicates``/``seed`` equal to ``bootstrap_replicates``/``bootstrap_seed``, and
     ``registration_hash`` either omitted or equal to the manifest digest; ``pre_registration_sha256`` is that digest.
-    The records the run replayed (``Run.replayed``) must digest to the manifest's ``record_sources_sha256``
-    (``execution_manifest.verify_scored_records``, R155 defender-2 D2), not only carry its input-hash labels.
+    The records the run replayed (``Run.replayed``) must digest to the manifest's ``record_identity_sha256``
+    (``execution_manifest.verify_scored_records``, R155 defender-2 D2 and defender-3 R1: each record's sequence,
+    capture time, condition or group, kind, re-hashed payload sha and sources, in consumption order), not only carry
+    its input-hash labels.
     This function does not re-verify the manifest; the caller must, and an auditor matches
     ``pack_check.manifest_sha256`` against the enrolled manifest. It reads no file (R155 defender-2 D3): ``manifest``
     is the parsed document, and ``pack_check.manifest_sha256`` (hence ``pre_registration_sha256``) is
@@ -205,7 +207,7 @@ def build_report(run, config, *, replicates=2000, seed=20260926, registration_ha
         pack_check.update(verify_scored_scope(plan, config, manifest=manifest, replicates=replicates, seed=seed,
                                               registration_hash=registration_hash,
                                               manifest_sha256=pack_check["manifest_sha256"]))
-        # R155 defender-2 D2: the records the run actually replayed are the manifest's.
+        # R155 defender-2 D2, defender-3 R1: the records the run actually replayed are the manifest's, by identity.
         pack_check.update(verify_scored_records(getattr(run, "replayed", None), manifest=manifest))
         registration_hash = pack_check["manifest_sha256"]
     sidecar = Sidecar(sidecar_path)

@@ -642,7 +642,7 @@ def test_manifest_admits_only_sealed_captures(tmp_path):
             build_manifest(panel, calibration_bundles, calibration, inventory, doc["owner_decision"],
                            measurement(calibration_sha256=sealed), **kwargs)
     assert build_manifest(bundles, cb, calibration, inventory, doc["owner_decision"],
-                          measurement(calibration_sha256=sealed), **kwargs)["record_sources_sha256"]
+                          measurement(calibration_sha256=sealed), **kwargs)["record_identity_sha256"]
 
 
 # -- F5b (owner T1(a)): the manifest records the pinned tzdata block ---------------------------------------------

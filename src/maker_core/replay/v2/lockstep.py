@@ -146,21 +146,44 @@ def items(source: DaySource) -> Iterable[tuple[datetime, list[Item]]]:
         yield at, [item for _, item in batch]
 
 
-class RecordDigest:
-    """The records one ``drive`` actually read, digested as they stream (R155 defender-2 D2).
+def record_identity(record) -> dict:
+    """One reader record's identity as the record digest binds it (R155 defender-3 R1): ``sequence``,
+    ``captured_at``, ``condition_id`` (v0.1) or ``group_id`` (v0.2 group record), ``kind``, ``payload_sha256`` and
+    ``source_hashes``. The payload is re-hashed first: a payload whose canonical-JSON sha is not its
+    ``payload_sha256`` refuses ``replay_payload_hash_mismatch``, so the sha stands for the payload actually consumed
+    (the sealed readers check the same at load; an in-memory ``Bundle.records`` or ``DaySource.records`` is not a
+    sealed reader)."""
+    try:
+        payload_ok = hashlib.sha256(canonical_bytes(record.payload)).hexdigest() == record.payload_sha256
+    except (TypeError, ValueError):
+        payload_ok = False
+    if not payload_ok:
+        raise BundleError("replay_payload_hash_mismatch")
+    owner = "group_id" if isinstance(record, GroupRecord) else "condition_id"
+    return {"sequence": record.sequence, "captured_at": record.captured_at, owner: getattr(record, owner),
+            "kind": record.kind, "payload_sha256": record.payload_sha256,
+            "source_hashes": dict(record.source_hashes)}
 
-    ``hexdigest()`` equals ``journal.digest([dict(r.source_hashes) for r in records])`` over every record read, in
-    day order and, within a day, in reader order: the shape of the execution manifest's ``record_sources_sha256``
-    (``build_manifest``: every bundle's records in day order). It is accumulated incrementally, element by element
-    of that canonical JSON list, so no record is retained. Raw reader records only: a v0.2 group record counts once
-    (not once per member), and the day roll's derived descriptors are not records."""
+
+class RecordDigest:
+    """The records one ``drive`` actually read, digested as they stream (R155 defender-2 D2, defender-3 R1).
+
+    ``hexdigest()`` equals ``journal.digest([record_identity(r) for r in records])`` over every record read, in
+    consumption order: day order and, within a day, reader order. That is the shape of the execution manifest's
+    ``record_identity_sha256`` (``build_manifest`` feeds every bundle's records, in day order, through this class).
+    Each element binds the record's sequence, capture time, condition or group, kind, payload sha (re-hashed against
+    the payload, ``replay_payload_hash_mismatch``) and sources, so a substituted, re-ordered, duplicated or
+    payload-edited record changes the digest even when the count and every ``source_hashes`` are kept (records of
+    one sealed segment share their ``source_hashes``). It is accumulated incrementally, element by element of that
+    canonical JSON list, so no record is retained. Raw reader records only: a v0.2 group record counts once (not
+    once per member), and the day roll's derived descriptors are not records."""
 
     def __init__(self):
         self._sha = hashlib.sha256(b"[")
         self.records = 0
 
     def add(self, record):
-        raw = canonical_bytes(record.source_hashes)  # ends with "\n"; a list element does not
+        raw = canonical_bytes(record_identity(record))  # ends with "\n"; a list element does not
         self._sha.update((b"," if self.records else b"") + raw[:-1])
         self.records += 1
 
@@ -170,7 +193,7 @@ class RecordDigest:
         return sha.hexdigest()
 
     def summary(self):
-        return dict(record_sources_sha256=self.hexdigest(), records=self.records)
+        return dict(record_identity_sha256=self.hexdigest(), records=self.records)
 
 
 def _tapped(source: DaySource, digest: RecordDigest) -> DaySource:

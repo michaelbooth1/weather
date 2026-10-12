@@ -85,9 +85,11 @@ exactly (all quote days and the settlement day; a subset, a superset or a re-exp
 `replay_config` caps, hazard and book gap, the bootstrap replicates and seed, and a registration hash that is
 omitted or the manifest digest. `verify_scored_records` (D2) binds the records actually replayed: every drive digests
 the records it reads (`Run.replayed`; drives that read different records refuse `replay_records_unstable`), and the
-digest must equal the manifest's `record_sources_sha256`, so records dropped or swapped under honest input-hash labels
-refuse `run_binding_pack_records_mismatch` (source hashes and order are bound, payloads are not; the sealed readers
-re-hash payloads at load). The report (format v0.2) records the check
+digest must equal the manifest's `record_identity_sha256` (R155 defender-3 R1: each record's sequence, capture time,
+condition or group, kind, payload sha and sources in consumption order; every payload is re-hashed as it is read,
+`replay_payload_hash_mismatch`), so records dropped, substituted, duplicated, re-ordered or payload-edited under
+honest input-hash labels refuse `run_binding_pack_records_mismatch`, even with the record count kept. The report
+(format v0.2) records the check
 and the digests it bound as `pack_check`, with `manifest_enrolled` (whether the manifest digest is in
 `approved_registrations`; recorded, not enforced). It does not re-verify the manifest: the runner must
 (`read_authorization`, then `verify_manifest`). For

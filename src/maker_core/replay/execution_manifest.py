@@ -380,26 +380,40 @@ def verify_scored_scope(plan, config, *, manifest, replicates, seed, registratio
                 bootstrap_seed=seed)
 
 
-def verify_scored_records(replayed, *, manifest):
-    """The records a scored run actually replayed are the manifest's (R155 defender-2 D2).
+def _record_identity_sha256(bundles):
+    """``record_identity_sha256``: ``lockstep.RecordDigest`` over every bundle's records in day order, the digest a
+    scored run's drives must reproduce (R155 defender-3 R1). A record whose payload does not hash to its
+    ``payload_sha256`` refuses ``replay_payload_hash_mismatch``."""
+    from maker_core.replay.v2.lockstep import RecordDigest
+    records = RecordDigest()
+    for bundle in bundles:
+        for record in bundle.records:
+            records.add(record)
+    return records.hexdigest()
 
-    ``replayed`` is ``Run.replayed``, the ``lockstep.RecordDigest`` summary of every record the run's drives read.
-    The plan's ``input_hashes`` are labels copied from the loaded bundles; a ``DaySource`` or ``Bundle`` can carry
-    other records under them. So the digest of the records read, ``digest([dict(r.source_hashes) ...])`` in day
-    order, must equal the manifest's ``record_sources_sha256`` (``build_manifest`` writes the same shape over the
-    same bundles' records): a dropped, added or re-ordered record, or one whose sources differ, refuses
-    ``run_binding_pack_records_mismatch``. A run without the summary refuses ``run_binding_records_required``.
-    This binds the record sequence and each record's ``source_hashes``, not its payload: a record whose payload is
-    edited in memory with its ``source_hashes`` kept is not caught here (the sealed readers re-hash every payload
-    against ``payload_sha256`` at load). Returns the ``pack_check`` fields: the digest and the record count."""
-    if (not isinstance(replayed, Mapping) or set(replayed) != {"record_sources_sha256", "records"}
-            or type(replayed["record_sources_sha256"]) is not str or type(replayed["records"]) is not int):
+
+def verify_scored_records(replayed, *, manifest):
+    """The records a scored run actually replayed are the manifest's (R155 defender-2 D2, defender-3 R1).
+
+    ``replayed`` is ``Run.replayed``, the ``lockstep.RecordDigest`` summary of every record the run's drives read
+    (``pipeline.run_passes`` refuses ``replay_records_unstable`` when a later drive reads other records). The plan's
+    ``input_hashes`` are labels copied from the loaded bundles; a ``DaySource`` or ``Bundle`` can carry other records
+    under them. So the digest of the records read, ``digest([lockstep.record_identity(r) ...])`` in consumption
+    order, must equal the manifest's ``record_identity_sha256`` (``build_manifest`` writes it with the same class over
+    the same bundles' records). Each identity is the record's sequence, capture time, condition or group, kind,
+    payload sha and sources, and every payload is re-hashed against its sha while the run reads it
+    (``replay_payload_hash_mismatch``). So a dropped, added, duplicated, substituted or re-ordered record, or one
+    whose payload or sources differ, refuses ``run_binding_pack_records_mismatch``, also within one sealed segment
+    whose records share their ``source_hashes`` and with the record count kept. A run without the summary refuses
+    ``run_binding_records_required``. Returns the ``pack_check`` fields: the digest and the record count."""
+    if (not isinstance(replayed, Mapping) or set(replayed) != {"record_identity_sha256", "records"}
+            or type(replayed["record_identity_sha256"]) is not str or type(replayed["records"]) is not int):
         raise BundleError("run_binding_records_required")
-    if not isinstance(manifest.get("record_sources_sha256"), str):
+    if not isinstance(manifest.get("record_identity_sha256"), str):
         raise BundleError("run_binding_pack_manifest_invalid")
-    if replayed["record_sources_sha256"] != manifest["record_sources_sha256"]:
+    if replayed["record_identity_sha256"] != manifest["record_identity_sha256"]:
         raise BundleError("run_binding_pack_records_mismatch")
-    return dict(record_sources_sha256=replayed["record_sources_sha256"], records_replayed=replayed["records"])
+    return dict(record_identity_sha256=replayed["record_identity_sha256"], records_replayed=replayed["records"])
 
 
 def active_intervals(bundles, inventory, *, check=lambda: None):
@@ -519,7 +533,7 @@ def build_manifest(bundles, calibration_bundles, calibration, inventory, owner_d
                 universe_sha256=inventory_sha256, active_intervals=windows, exclusions=exclusions,
                 maintenance_utc=["05:00", "08:00"], tzdata=tzdata_binding(r["local_timezone"] for r in inventory),
                 input_hashes={b.day.isoformat(): dict(b.input_hashes) for b in bundles},
-                record_sources_sha256=digest([dict(r.source_hashes) for b in bundles for r in b.records]),
+                record_identity_sha256=_record_identity_sha256(bundles),
                 calibration=calibration, calibration_sha256=calibration_sha256,
                 source_hashes=source_hashes(check=check), quote_market_rule="captured_band_on_any_calibration_date",
                 ceiling_measurement=measurement, ceiling_measurement_sha256=measurement_sha256,

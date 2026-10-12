@@ -166,13 +166,17 @@ only; no decision, P&L or base-pass prefix digest changes.
   are the manifest's (`run_binding_pack_bootstrap_mismatch`), and `registration_hash` is omitted or the manifest
   digest (`run_binding_pack_registration_mismatch`); `pre_registration_sha256` is that digest. `pack_check` adds
   the `active_intervals` and `replay_config` digests and the bootstrap it ran. The records replayed are bound
-  (`execution_manifest.verify_scored_records`, R155 defender-2 D2): the input hashes are labels, so every drive of
-  the run digests the records it actually reads (`lockstep.RecordDigest`, `digest([dict(r.source_hashes) ...])` in
-  day order, kept as `Run.replayed`; a later drive that reads other records refuses `replay_records_unstable`), and
-  that digest must equal the manifest's `record_sources_sha256` (`run_binding_pack_records_mismatch`; a run without
-  it refuses `run_binding_records_required`). `pack_check` records it and the record count. It binds the record
-  sequence and each record's sources, not its payload: a payload edited in memory under the same `source_hashes` is
-  not caught here (the sealed readers re-hash every payload at load). Scope of the check:
+  (`execution_manifest.verify_scored_records`, R155 defender-2 D2 and defender-3 R1): the input hashes are labels,
+  so every drive of the run digests the records it actually reads (`lockstep.RecordDigest`,
+  `digest([record_identity(r) ...])` in consumption order, kept as `Run.replayed`; a later drive that reads other
+  records refuses `replay_records_unstable`), and that digest must equal the manifest's `record_identity_sha256`
+  (`run_binding_pack_records_mismatch`; a run without it refuses `run_binding_records_required`), which
+  `build_manifest` writes with the same class over the pack's records in day order. A record's identity is its
+  sequence, capture time, condition (or v0.2 group), kind, payload sha and sources, and each payload is re-hashed
+  against its sha as it is read (`replay_payload_hash_mismatch`). Records of one sealed segment share their
+  `source_hashes`, so binding sources alone bound only the count; the identity digest binds each record, and a
+  substituted, duplicated, re-ordered or payload-edited record refuses with the count kept. `pack_check` records the
+  digest and the record count. Scope of the check:
   this binds the run to the manifest the caller passes; it does not re-run `verify_manifest`, and enrollment is
   recorded, not enforced, so a fabricated manifest still yields a report, with a foreign `manifest_sha256` and
   `manifest_enrolled` false. The runner must read the manifest through `read_authorization` (which refuses an

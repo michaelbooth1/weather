@@ -108,8 +108,9 @@ class Run:
     trials: list  # (bound, round, calendar fraction, Pass); passes kept only when ``config.keep``
     binding: dict | None = None  # ``run_binding``: set only by ``run_passes``; ``report.build_report`` requires it
     time_zones: object = None  # the ``snapshot_zones`` copy every ``drive`` of this run used (Delta-1 finding 2)
-    # ``lockstep.RecordDigest.summary()`` of the records every drive of this run read (R155 defender-2 D2): a scored
-    # report compares ``record_sources_sha256`` with the manifest's; ``None`` for a run not made by ``run_passes``
+    # ``lockstep.RecordDigest.summary()`` of the records every drive of this run read (R155 defender-2 D2, defender-3
+    # R1): a scored report compares ``record_identity_sha256`` with the manifest's; ``None`` for a run not made by
+    # ``run_passes``
     replayed: dict | None = None
 
 
@@ -301,7 +302,9 @@ def run_passes(sources, config, *, time_zones, engine=EngineV2, progress=lambda 
             break
         again = RecordDigest()
         drive(sources, [t.engine for t in trials.values()], time_zones=time_zones, records=again)
-        if again.summary() != replayed:  # every pass of one run reads the same records (R155 defender-2 D2)
+        # every pass of one run reads the same records, compared by identity and payload sha (R155 defender-2 D2,
+        # defender-3 R1), not by count and sources only
+        if again.summary() != replayed:
             raise BundleError("replay_records_unstable")
         progress("clock_round", len(trials))
         for bound, trial in trials.items():

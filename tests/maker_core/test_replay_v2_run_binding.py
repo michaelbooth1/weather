@@ -13,7 +13,8 @@ delta review 1 at a66a5b492 (findings 1-3: mutants D2markets/D4hashes/D6fields, 
 run inputs, the package-directory tzdata check for a sourceless install), and the R155 Fable review of 00d247bb9
 (F1: a scored run's days are all sealed captures and its per-day input hashes are exactly the manifest's), and the
 R155 defender-2 review of 5a7df6fb4 (D1: a scored run's windows, markets, configuration, bootstrap and registration
-hash are the manifest's).
+hash are the manifest's), and the R155 defender-3 review of 29a139083 (R1: the records replayed are bound by
+identity and payload, not by count and sources).
 """
 from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
@@ -26,14 +27,14 @@ import zoneinfo
 
 import pytest
 
-from maker_core.evidence.journal import digest, plain
+from maker_core.evidence.journal import canonical_bytes, digest, plain
 from maker_core.replay import bundle
 from maker_core.replay.engine import ReplayConfig
 from maker_core.replay.bundle import TZDATA_VERSION, BundleError, RegisteredZones, sha256, time_zone
 from maker_core.replay.execution_manifest import FORMAT as MANIFEST_FORMAT
 from maker_core.replay.v2 import pipeline
 from maker_core.replay.v2.kernel import V2Config
-from maker_core.replay.v2.lockstep import run_plan
+from maker_core.replay.v2.lockstep import record_identity, run_plan
 from maker_core.replay.v2.pipeline import (RUN_BINDING_FORMAT, run_binding, run_inputs, run_passes,
                                            verify_run_binding)
 from maker_core.replay.v2.report import REPORT_FORMAT, build_report
@@ -73,8 +74,8 @@ def manifest_for(inventory, sources=None):
     ``day_source()`` day) with the last day as ``settlement_only_date`` and the others as ``dates``, and the scope
     ``verify_scored_scope`` reads (R155 defender-2 D1): the plans' windows as ``active_intervals``, the quote-day
     markets, ``CONFIG`` as the v1 ``replay_config`` and the bootstrap these tests run (100 replicates, the default
-    seed); and ``record_sources_sha256`` over the sources' records as ``build_manifest`` writes it (D2). A real
-    pack's verified manifest is used end to end below."""
+    seed); and ``record_identity_sha256`` over the sources' records as ``build_manifest`` writes it (D2, defender-3
+    R1). A real pack's verified manifest is used end to end below."""
     sources = sources or [day_source()]
     plans = [s.plan for s in sources]
     days = [p.day.isoformat() for p in plans]
@@ -87,7 +88,7 @@ def manifest_for(inventory, sources=None):
                 markets=sorted({c.market_id for p in plans[:-1] for c in p.conditions}),
                 replay_config=plain(ReplayConfig(hazard_per_minute=CONFIG.hazard_per_minute)),
                 bootstrap_replicates=100, bootstrap_seed=20260926,
-                record_sources_sha256=digest([dict(r.source_hashes) for s in sources for r in s.records()]))
+                record_identity_sha256=digest([record_identity(r) for s in sources for r in s.records()]))
 
 
 def pack(zones=FIXTURE_ZONES, registry=None, edit=lambda rows: rows, sources=None):
@@ -452,7 +453,8 @@ def test_the_execution_manifest_source_is_accepted_for_a_scored_report(tmp_path)
         registry_sha256=source["registry_sha256"], tzdata_zone_files_sha256=verified["tzdata"]["zone_files_sha256"],
         scope_verifier=PACK_SCOPE, active_intervals_sha256=digest(verified["active_intervals"]),
         replay_config_sha256=digest(verified["replay_config"]), bootstrap_replicates=2000, bootstrap_seed=20260926,
-        record_sources_sha256=verified["record_sources_sha256"], records_replayed=sum(len(b.records) for b in bundles))
+        record_identity_sha256=verified["record_identity_sha256"],
+        records_replayed=sum(len(b.records) for b in bundles))
     assert report["pre_registration_sha256"] == manifest_key == sha256(manifest_path.read_bytes())
     assert report["configuration"]["hazard_per_minute"] == verified["replay_config"]["hazard_per_minute"]
     assert universe_file_sha == verified["universe_sha256"] == source["inventory_sha256"]
@@ -474,6 +476,44 @@ def test_the_execution_manifest_source_is_accepted_for_a_scored_report(tmp_path)
     with pytest.raises(BundleError, match="run_binding_pack_records_mismatch"):
         build_report(run_passes(sources_of(cut), config, time_zones=zones), config, **scope,
                      manifest=verified, registered=registry)
+    # Defender-3 P11/P13: the record count and every record's ``source_hashes`` kept (the pack's records share one),
+    # with every outcome view re-priced (payload sha recomputed) or every terms record replaced by a duplicate of the
+    # record before it. The identity digest differs, so both refuse.
+    declared = apply_manifest(verified, bundles)
+    assert len({canonical_bytes(r.source_hashes) for b in declared for r in b.records}) == 1
+    for edited in (_repriced(declared, .9, rehash=True), _terms_duplicated(declared)):
+        assert [len(b.records) for b in edited] == [len(b.records) for b in declared]
+        with pytest.raises(BundleError, match="run_binding_pack_records_mismatch"):
+            build_report(run_passes(sources_of(edited), config, time_zones=zones), config, **scope,
+                         manifest=verified, registered=registry)
+    # Defender-3 P12: the payload edited with the sealed sha kept is refused while the run reads it.
+    with pytest.raises(BundleError, match="replay_payload_hash_mismatch"):
+        run_passes(sources_of(_repriced(declared, .9, rehash=False)), config, time_zones=zones)
+
+
+def _reprice(record, p_yes, rehash):
+    payload = plain(record.payload)
+    payload["value"]["p_yes"] = p_yes
+    return replace(record, payload=payload,
+                   payload_sha256=sha256(canonical_bytes(payload)) if rehash else record.payload_sha256)
+
+
+def _repriced(bundles, p_yes, *, rehash):
+    """Every ``outcome_view`` record re-priced in memory; its ``payload_sha256`` recomputed when ``rehash``."""
+    return [replace(b, records=tuple(_reprice(r, p_yes, rehash) if r.kind == "outcome_view" else r
+                                     for r in b.records)) for b in bundles]
+
+
+def _terms_duplicated(bundles):
+    """Every ``terms`` record replaced by a duplicate of the record before it (count kept)."""
+    out = []
+    for b in bundles:
+        records = list(b.records)
+        for i, r in enumerate(records):
+            if r.kind == "terms" and i:
+                records[i] = records[i - 1]
+        out.append(replace(b, records=tuple(records)))
+    return out
 
 
 # -- Defender F3/F5: the tzdata block is recomputed at report time, from the one installed package ---------------
@@ -706,7 +746,7 @@ def test_a_scored_report_records_the_pack_check_and_the_digests_it_bound():
         scope_verifier="maker_core.replay.execution_manifest.verify_scored_scope",
         active_intervals_sha256=digest(manifest["active_intervals"]),
         replay_config_sha256=digest(manifest["replay_config"]), bootstrap_replicates=100, bootstrap_seed=20260926,
-        record_sources_sha256=manifest["record_sources_sha256"],
+        record_identity_sha256=manifest["record_identity_sha256"],
         records_replayed=sum(1 for _ in day_source().records()))
     assert report["pack_check"]["universe_sha256"] == report["run_binding"]["time_zones_source"]["inventory_sha256"]
     assert report["pre_registration_sha256"] == digest(manifest)  # derived, never a free value (defender-2 D1)
@@ -933,17 +973,95 @@ def test_a_plan_day_that_is_not_a_date_is_a_coded_refusal(day):
         verify_scored_pack(run.binding, forged.plan, run.markets, **bound)
 
 
-def test_the_record_digest_is_the_manifest_record_sources_shape():
-    """``RecordDigest`` streams ``digest([dict(r.source_hashes) for r in records])``, the shape ``build_manifest``
-    writes as ``record_sources_sha256``, for zero, one and many records."""
+def test_the_record_digest_is_the_manifest_record_identity_shape():
+    """``RecordDigest`` streams ``digest([record_identity(r) for r in records])``, the shape ``build_manifest``
+    writes as ``record_identity_sha256``, for zero, one and many records. Defender-3 R1: the identity is the
+    sequence, capture time, condition (or group), kind, payload sha and sources, not the sources alone."""
     from maker_core.replay.v2.lockstep import RecordDigest
     records = list(day_source().records()) + list(day_source(NEXT).records())
     for given in ([], records[:1], records):
         streamed = RecordDigest()
         for record in given:
             streamed.add(record)
-        assert streamed.summary() == dict(record_sources_sha256=digest([dict(r.source_hashes) for r in given]),
+        assert streamed.summary() == dict(record_identity_sha256=digest([record_identity(r) for r in given]),
                                           records=len(given))
+    first = records[0]
+    assert record_identity(first) == dict(sequence=first.sequence, captured_at=first.captured_at,
+                                          condition_id=first.condition_id, kind=first.kind,
+                                          payload_sha256=first.payload_sha256,
+                                          source_hashes=dict(first.source_hashes))
+    from maker_core.replay.bundle_v02 import GroupRecord
+    group = GroupRecord(first.sequence, first.captured_at, "group-1", first.kind, first.payload,
+                        first.payload_sha256, first.source_hashes)
+    assert record_identity(group)["group_id"] == "group-1" and "condition_id" not in record_identity(group)
+
+
+def test_the_record_digest_refuses_a_payload_that_is_not_its_sha():
+    """Defender-3 R1 step 1: every record read is re-hashed against its ``payload_sha256``."""
+    record = next(r for r in day_source().records() if r.kind == "outcome_view")
+    edited = _reprice(record, .8, rehash=False)
+    for bad in (edited, replace(record, payload_sha256="0" * 64), replace(record, payload={1: "not canonical"})):
+        with pytest.raises(BundleError, match="replay_payload_hash_mismatch"):
+            record_identity(bad)
+    assert record_identity(_reprice(record, .8, rehash=True))["payload_sha256"] != record.payload_sha256
+
+
+def _dense_edited(records, rehash):
+    """Defender-3 P12b: every outcome view of the dense day re-priced to 0.8 (count and sources kept)."""
+    return [_reprice(r, .8, rehash) if r.kind == "outcome_view" else r for r in records]
+
+
+@pytest.mark.parametrize("rehash", [False, True])
+def test_a_dense_day_with_re_priced_views_and_the_count_kept_is_refused(rehash):
+    """Defender-3 P12b on DenseDay, whose records all share one ``source_hashes``: an in-memory re-price that kept
+    the sealed sha refuses as the run reads it; one that recomputed the sha is another record and refuses against
+    the manifest. Before the fix both scored PRE_REGISTERED_REPLAY with another band-day P&L table."""
+    zones, bound = pack()
+    honest = day_source(DAY, "captured")
+    records = list(honest.records())
+    assert len({canonical_bytes(r.source_hashes) for r in records}) == 1
+    edited = _dense_edited(records, rehash)
+    assert len(edited) == len(records) and edited != records
+    source = replace(honest, records=lambda: iter(edited))
+    if not rehash:
+        with pytest.raises(BundleError, match="replay_payload_hash_mismatch"):
+            run_passes([source], CONFIG, time_zones=zones)
+        return
+    with pytest.raises(BundleError, match="run_binding_pack_records_mismatch"):
+        build_report(run_passes([source], CONFIG, time_zones=zones), CONFIG, replicates=100, **bound)
+
+
+def test_a_dense_day_with_a_record_substituted_or_reordered_and_the_count_kept_is_refused():
+    """Defender-3 P13 and the re-order the old docstring claimed: one record replaced by a duplicate of its
+    predecessor, and two adjacent records swapped. Count and sources are kept; both refuse."""
+    zones, bound = pack()
+    honest = day_source(DAY, "captured")
+    records = list(honest.records())
+    i = next(i for i, r in enumerate(records) if i and r.kind == "terms")
+    duplicated = [*records[:i], records[i - 1], *records[i + 1:]]
+    j = next(j for j in range(len(records) - 1) if records[j].captured_at == records[j + 1].captured_at)
+    swapped = [*records[:j], records[j + 1], records[j], *records[j + 2:]]
+    for given in (duplicated, swapped):
+        assert len(given) == len(records) and given != records
+        source = replace(honest, records=lambda given=given: iter(given))
+        with pytest.raises(BundleError, match="run_binding_pack_records_mismatch"):
+            build_report(run_passes([source], CONFIG, time_zones=zones), CONFIG, replicates=100, **bound)
+
+
+def test_clock_rounds_that_read_re_priced_records_are_refused():
+    """Defender-3 P14b: ``records()`` honest on the base drive and re-priced (sha recomputed, count and sources
+    kept) on every later drive. The clock-round stability check compares identities, so it refuses."""
+    honest = day_source(DAY, "captured")
+    records = list(honest.records())
+    edited = _dense_edited(records, True)
+    calls = []
+
+    def recs():
+        calls.append(1)
+        return iter(records if len(calls) == 1 else edited)
+    with pytest.raises(BundleError, match="replay_records_unstable"):
+        run_passes([replace(honest, records=recs)], CONFIG, time_zones=FIXTURE_ZONES)
+    assert len(calls) == 2
 
 
 def _replaying(source, keep):
@@ -963,18 +1081,18 @@ def test_a_scored_run_whose_replayed_records_are_not_the_manifest_records_is_ref
                    _replaying(honest, lambda r: r.kind != "trade"),
                    replace(honest, records=lambda: iter([*records[:-1], resourced]))):
         run = run_passes([source], CONFIG, time_zones=zones)
-        assert run.replayed["record_sources_sha256"] != bound["manifest"]["record_sources_sha256"]
+        assert run.replayed["record_identity_sha256"] != bound["manifest"]["record_identity_sha256"]
         with pytest.raises(BundleError, match="run_binding_pack_records_mismatch"):
             build_report(run, CONFIG, replicates=100, **bound)
     run = small_run(zones, "captured")
-    assert run.replayed == dict(record_sources_sha256=bound["manifest"]["record_sources_sha256"],
+    assert run.replayed == dict(record_identity_sha256=bound["manifest"]["record_identity_sha256"],
                                 records=len(records))
     for replayed in (None, {}, dict(run.replayed, records="1"), dict(run.replayed, extra=1)):
         with pytest.raises(BundleError, match="run_binding_records_required"):
             build_report(replace(run, replayed=replayed), CONFIG, replicates=100, **bound)
     with pytest.raises(BundleError, match="run_binding_pack_manifest_invalid"):
         build_report(run, CONFIG, replicates=100, registered=bound["registered"],
-                     manifest={k: v for k, v in bound["manifest"].items() if k != "record_sources_sha256"})
+                     manifest={k: v for k, v in bound["manifest"].items() if k != "record_identity_sha256"})
 
 
 def test_every_drive_of_a_run_must_read_the_same_records():
