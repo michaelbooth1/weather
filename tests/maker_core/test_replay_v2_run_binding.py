@@ -26,12 +26,13 @@ import pytest
 from maker_core.evidence.journal import digest
 from maker_core.replay import bundle
 from maker_core.replay.bundle import TZDATA_VERSION, BundleError, RegisteredZones, sha256, time_zone
+from maker_core.replay.execution_manifest import FORMAT as MANIFEST_FORMAT
 from maker_core.replay.v2 import pipeline
 from maker_core.replay.v2.kernel import V2Config
 from maker_core.replay.v2.lockstep import run_plan
 from maker_core.replay.v2.pipeline import (RUN_BINDING_FORMAT, run_binding, run_inputs, run_passes,
                                            verify_run_binding)
-from maker_core.replay.v2.report import build_report
+from maker_core.replay.v2.report import REPORT_FORMAT, build_report
 from tools.research.maker_replay_v2.dense import DenseDay
 from tools.research.maker_replay_v2.sources import FIXTURE_ZONES, materialize
 
@@ -59,9 +60,18 @@ def registered(zones):
                                        registry_checked=True, inventory_sha256="0" * 64, registry_sha256="1" * 64))
 
 
+def manifest_for(inventory):
+    """The fields of a fictional execution manifest that the pack check reads (``verify_scored_pack``): format,
+    universe, its sha (the canonical-JSON digest, which is the file sha ``pack_io.write_json`` gives) and the
+    tzdata record ``build_manifest`` writes. A real pack's verified manifest is used end to end below."""
+    return dict(format=MANIFEST_FORMAT, universe=inventory, universe_sha256=digest(inventory),
+                tzdata=bundle.tzdata_binding(r["local_timezone"] for r in inventory))
+
+
 def pack(zones=FIXTURE_ZONES, registry=None, edit=lambda rows: rows):
-    """A fictional execution pack's bound universe inventory and the domain registry, with the ``RegisteredZones``
-    that ``execution_manifest.market_time_zones`` records for them (its exact source record, written out here).
+    """A fictional execution pack's manifest (``manifest_for``) and the domain registry, with the
+    ``RegisteredZones`` that ``execution_manifest.market_time_zones`` records for them (its exact source record,
+    written out here).
 
     One inventory row per fixture condition (every DenseDay day has the same four conditions) and one placeholder
     row for each other market of ``zones``, so the inventory's zone map is ``zones`` exactly. ``registry``
@@ -75,7 +85,7 @@ def pack(zones=FIXTURE_ZONES, registry=None, edit=lambda rows: rows):
     registry = dict(zones if registry is None else registry)
     source = dict(builder=bundle.ZONE_MAP_BUILDER, registry_checked=True, inventory_sha256=digest(inventory),
                   registry_sha256=digest(dict(sorted(registry.items()))))
-    return RegisteredZones(zones, source), dict(inventory=inventory, registered=registry)
+    return RegisteredZones(zones, source), dict(manifest=manifest_for(inventory), registered=registry)
 
 
 def scored(run):
@@ -259,12 +269,14 @@ def test_a_scored_report_refuses_a_hand_made_zone_map():
 
 
 def test_mutant_scored_report_accepting_a_caller_map_is_caught(monkeypatch):
-    """Mutant T2-M2 ``caller_map_scored``: the report verifies the binding as if it were a fixture run. The pack
-    check behind it still refuses the caller map, with another code, so the refusal-code assertion fails."""
+    """Mutant T2-M2 ``caller_map_scored``: the report verifies the binding as if it were a fixture run. The T2
+    guard is now defence in depth: the pack check behind it still refuses the caller map, so the mutant is caught
+    by exactly one thing, the refusal code changing from ``run_binding_unregistered_zone_map`` to
+    ``run_binding_pack_required`` (Defender R155 F5: any other AssertionError would not satisfy this)."""
     original = verify_run_binding
     monkeypatch.setattr(pipeline, "verify_run_binding",
                         lambda run, config, *, scored: original(run, config, scored=False))
-    with pytest.raises((pytest.fail.Exception, AssertionError)):
+    with pytest.raises(AssertionError, match=r"run_binding_unregistered_zone_map(.|\n)*run_binding_pack_required"):
         test_a_scored_report_refuses_a_hand_made_zone_map()
 
 
@@ -379,21 +391,33 @@ def test_a_scored_report_refuses_an_incomplete_or_rewritten_source(source):
 
 
 def test_the_execution_manifest_source_is_accepted_for_a_scored_report(tmp_path):
-    """End to end: ``market_time_zones`` on a fictional pack drives a sealed run whose report verifies against
-    that pack's inventory and registry. Its source grafted onto another map (the earlier form of this test)
-    refuses."""
-    from maker_core.replay.execution_manifest import market_time_zones
+    """End to end on the fictional execution pack: ``verify_manifest`` accepts the pack's manifest, and
+    ``market_time_zones`` over its bundles and universe drives a sealed run whose report verifies against that
+    manifest. ``pack_check`` records the digests it bound: the manifest digest is the manifest file's sha, and the
+    universe digest is both the manifest's ``universe_sha256`` (the file sha) and the run source's
+    ``inventory_sha256`` (one hash). The source grafted onto another map refuses."""
+    from maker_core.replay.execution_manifest import PACK_CHECK, market_time_zones, verify_manifest
     from maker_core.replay.v2.lockstep import bundle_source
-    bundles, inventory = zone_pack(tmp_path, ["Europe/London"])
-    zones = market_time_zones(bundles, inventory, registered=REGISTERED)
+    from .fixtures.execution_pack import pack as execution_pack
+    doc, bundles, cb, paths, manifest_path, manifest_key = execution_pack(tmp_path)
+    verified = verify_manifest(doc, bundles, cb, **paths, now=datetime(2026, 10, 15, 12, tzinfo=timezone.utc))
+    registry = {"a": "UTC"}
+    zones = market_time_zones(bundles, verified["universe"], registered=registry)
     source = dict(zones.source)
-    sources = [replace(s, plan=replace(s.plan, provenance="sealed")) for s in map(bundle_source, bundles)]
+    sources = [replace(s, plan=replace(s.plan, provenance="sealed")) for s in map(bundle_source, bundles[:1])]
     report, _ = build_report(run_passes(sources, CONFIG, time_zones=zones), CONFIG, replicates=100,
-                             inventory=inventory, registered=REGISTERED)
+                             manifest=verified, registered=registry)
     assert report["status"] == "PRE_REGISTERED_REPLAY" and report["run_binding"]["time_zones_source"] == source
+    universe_file_sha = sha256(paths["inventory_path"].read_bytes())
+    assert report["pack_check"] == dict(
+        verifier=PACK_CHECK, manifest_format=MANIFEST_FORMAT, manifest_sha256=manifest_key, manifest_enrolled=False,
+        universe_sha256=universe_file_sha, registry_sha256=source["registry_sha256"],
+        tzdata_zone_files_sha256=verified["tzdata"]["zone_files_sha256"])
+    assert manifest_key == sha256(manifest_path.read_bytes())
+    assert universe_file_sha == verified["universe_sha256"] == source["inventory_sha256"]
     with pytest.raises(BundleError, match="run_binding_zone_map_mismatch"):
         build_report(small_run(RegisteredZones(FIXTURE_ZONES, source), "sealed"), CONFIG, replicates=100,
-                     inventory=inventory, registered=REGISTERED)
+                     manifest=verified, registered=registry)
 
 
 # -- Defender F3/F5: the tzdata block is recomputed at report time, from the one installed package ---------------
@@ -595,15 +619,147 @@ def test_the_run_inputs_digest_covers_the_driven_map():
     assert report["status"] == "FIXTURE_ONLY"
 
 
-# -- The F2 remainder: a scored run's zone source is re-derived from the execution pack's bound inventory --------
-def test_a_scored_report_needs_the_pack_inventory_and_the_registry():
+# -- The F2 remainder: a scored run's zone source is re-derived from the verified execution manifest's universe ---
+def test_a_scored_report_needs_the_manifest_and_the_registry():
     zones, bound = pack()
     run = small_run(zones, "sealed")
-    for given in ({}, dict(inventory=bound["inventory"]), dict(registered=bound["registered"])):
-        with pytest.raises(BundleError, match="run_binding_pack_inventory_required"):
+    for given in ({}, dict(manifest=bound["manifest"]), dict(registered=bound["registered"])):
+        with pytest.raises(BundleError, match="run_binding_pack_required"):
             build_report(run, CONFIG, replicates=100, **given)
+    with pytest.raises(TypeError):  # the inventory is no longer a free argument (Defender R155 F1)
+        build_report(run, CONFIG, replicates=100, inventory=bound["manifest"]["universe"],
+                     registered=bound["registered"])
     report, _ = build_report(small_run(), CONFIG, replicates=100)  # a fixture report does not read the pack
-    assert report["status"] == "FIXTURE_ONLY"
+    assert report["status"] == "FIXTURE_ONLY" and report["pack_check"] is None
+    assert report["format"] == REPORT_FORMAT == "maker_core.replay.v2.report.v0.2"
+
+
+def test_a_scored_report_records_the_pack_check_and_the_digests_it_bound():
+    """Defender R155 F1/F2: the report shows that the pack check ran and what it bound. ``universe_sha256`` is the
+    manifest's own field, and it is the same hash as the run source's ``inventory_sha256``."""
+    zones, bound = pack()
+    report, _ = build_report(small_run(zones, "sealed"), CONFIG, replicates=100, **bound)
+    manifest = bound["manifest"]
+    assert report["pack_check"] == dict(
+        verifier="maker_core.replay.execution_manifest.verify_scored_pack", manifest_format=MANIFEST_FORMAT,
+        manifest_sha256=digest(manifest), manifest_enrolled=False, universe_sha256=manifest["universe_sha256"],
+        registry_sha256=zones.source["registry_sha256"],
+        tzdata_zone_files_sha256=manifest["tzdata"]["zone_files_sha256"])
+    assert report["pack_check"]["universe_sha256"] == report["run_binding"]["time_zones_source"]["inventory_sha256"]
+
+
+def test_a_self_consistent_fake_inventory_and_registry_refuse_against_the_manifest(monkeypatch):
+    """Defender R155 probes P1, P1b and P1c. The forger's run carries the honest builder record over a fake
+    inventory and a fake registry that put every market in Kiritimati (P1), or the same with the honest registry
+    (P1b), or over an inventory that differs from the pack's only in non-zone fields (P1c). The inventory is the
+    manifest's universe, not an argument, so each refuses: P1 on the registry (the fake registry contradicts the
+    manifest's universe), P1b and P1c on the source digest (the record is over another inventory).
+
+    The residual is a forged *manifest*: ``build_report`` does not re-run ``verify_manifest``, so a caller who
+    fabricates the manifest as well gets a report, but its ``pack_check.manifest_sha256`` is the fabricated
+    manifest's digest, not the verified pack's, and ``manifest_enrolled`` is false (here the honest fictional
+    manifest is enrolled by monkeypatch), so the substitution is visible in the report itself."""
+    from maker_core.replay import approved_registrations
+    _, honest = pack()
+    monkeypatch.setattr(approved_registrations, "APPROVED_REGISTRATIONS",
+                        {digest(honest["manifest"]): "fictional-owner"})
+    zones, _ = pack()
+    report, _ = build_report(small_run(zones, "sealed"), CONFIG, replicates=100, **honest)
+    assert report["pack_check"]["manifest_enrolled"] is True
+    fake_zones, fake = pack(KIRITIMATI)                                     # P1: fake inventory + fake registry
+    with pytest.raises(BundleError, match="market_time_zone_registry_mismatch"):
+        build_report(small_run(fake_zones, "sealed"), CONFIG, replicates=100,
+                     manifest=honest["manifest"], registered=fake["registered"])
+    with pytest.raises(BundleError, match="run_binding_zone_source_mismatch"):  # P1b: honest registry held fixed
+        build_report(small_run(fake_zones, "sealed"), CONFIG, replicates=100, **honest)
+    other_zones, _ = pack(edit=lambda rows: [dict(r, domain_id="made-up", target_date="1999-01-01") for r in rows])
+    with pytest.raises(BundleError, match="run_binding_zone_source_mismatch"):  # P1c
+        build_report(small_run(other_zones, "sealed"), CONFIG, replicates=100, **honest)
+    report, _ = build_report(small_run(fake_zones, "sealed"), CONFIG, replicates=100, **fake)  # forged manifest too
+    assert report["pack_check"]["manifest_sha256"] == digest(fake["manifest"]) != digest(honest["manifest"])
+    assert report["pack_check"]["manifest_enrolled"] is False
+
+
+def test_the_manifest_must_be_an_execution_manifest_whose_universe_and_tzdata_match():
+    zones, bound = pack()
+    run = small_run(zones, "sealed")
+    manifest, registry = bound["manifest"], bound["registered"]
+    for broken in ([], dict(manifest, format="maker_core.replay.execution.v1"),
+                   {k: v for k, v in manifest.items() if k != "tzdata"},
+                   {k: v for k, v in manifest.items() if k != "universe_sha256"}):
+        with pytest.raises(BundleError, match="run_binding_pack_manifest_invalid"):
+            build_report(run, CONFIG, replicates=100, manifest=broken, registered=registry)
+    with pytest.raises(BundleError, match="run_binding_pack_universe_mismatch"):  # sha not over these rows
+        build_report(run, CONFIG, replicates=100, manifest=dict(manifest, universe_sha256="0" * 64),
+                     registered=registry)
+    with pytest.raises(BundleError, match="run_binding_pack_universe_mismatch"):  # rows not under this sha
+        build_report(run, CONFIG, replicates=100, manifest=dict(manifest, universe=manifest["universe"][1:]),
+                     registered=registry)
+    other = dict(manifest, tzdata=dict(manifest["tzdata"], zone_files_sha256="0" * 64))
+    with pytest.raises(BundleError, match="run_binding_pack_tzdata_mismatch"):
+        build_report(run, CONFIG, replicates=100, manifest=other, registered=registry)
+
+
+def _with_universe(rows):
+    """A scored run whose honest builder record is over ``rows``, and the manifest binding exactly those rows."""
+    zones, bound = pack()
+    source = dict(zones.source, inventory_sha256=digest(rows))
+    return small_run(RegisteredZones(FIXTURE_ZONES, source), "sealed"), dict(bound, manifest=manifest_for(rows))
+
+
+def test_a_malformed_unsorted_or_duplicated_universe_is_refused_on_the_report_path():
+    """Defender R155 F3 (mutant MX1shape): the verify path applies the inventory shape, sort and uniqueness
+    checks. A duplicate condition whose last row files it under another market must refuse as a duplicate."""
+    _, bound = pack()
+    rows = bound["manifest"]["universe"]
+    first = rows[0]
+    moved = dict(first, market_id="city01", local_timezone=FIXTURE_ZONES["city01"])
+    for bad, code in ((list(reversed(rows)), "universe_not_sorted_unique"),
+                      ([first, moved, *rows[1:]], "universe_not_sorted_unique"),
+                      ([{k: v for k, v in first.items() if k != "domain_id"}, *rows[1:]],
+                       "incomplete_universe_binding"),
+                      ([], "invalid_universe_inventory")):
+        run, given = _with_universe(bad)
+        with pytest.raises(BundleError, match=code):
+            build_report(run, CONFIG, replicates=100, **given)
+
+
+def test_a_plan_condition_missing_from_the_run_markets_is_refused_with_a_code():
+    """Defender R155 N1/P2: a forged run (every binding digest recomputed) whose plan keeps a condition that its
+    ``markets`` and the inventory drop refuses as an inventory mismatch, before the sidecar opens."""
+    base, _ = pack()
+    run = small_run(base, "sealed")
+    dropped = sorted(run.markets)[0]
+    zones, bound = pack(edit=lambda rows: [r for r in rows if r["condition_id"] != dropped])
+    forged = forge(replace(run, markets={c: m for c, m in run.markets.items() if c != dropped}), zones)
+    assert dropped in {c.condition_id for d in forged.plan.days for c in d.conditions}
+    with pytest.raises(BundleError, match="run_binding_inventory_mismatch"):
+        build_report(forged, CONFIG, replicates=100, **bound)
+
+
+def test_a_registry_with_a_non_string_key_or_zone_is_refused_with_a_code():
+    """Defender R155 N1/P4: not a TypeError from sorting mixed keys."""
+    zones, bound = pack()
+    for extra in ({7: "UTC"}, {"city99": None}):
+        with pytest.raises(BundleError, match="market_time_zone_registry_invalid"):
+            build_report(small_run(zones, "sealed"), CONFIG, replicates=100, manifest=bound["manifest"],
+                         registered={**bound["registered"], **extra})
+
+
+def test_verify_registered_zones_called_directly_is_strict():
+    """Defender R155 N2/P5/P6: ``registry_checked`` must be the boolean ``True`` (``1`` equals it in a dict
+    comparison), and ``markets`` must be a non-empty mapping of strings that covers ``conditions``."""
+    from maker_core.replay.execution_manifest import verify_registered_zones
+    zones, bound = pack()
+    run = small_run(zones, "sealed")
+    given = dict(inventory=bound["manifest"]["universe"], registered=bound["registered"])
+    assert verify_registered_zones(dict(zones), dict(zones.source), run.markets, **given) == dict(zones.source)
+    with pytest.raises(BundleError, match="run_binding_zone_source_mismatch"):
+        verify_registered_zones(dict(zones), dict(zones.source, registry_checked=1), run.markets, **given)
+    for markets, conditions in (({}, ()), (list(run.markets.items()), ()), ({1: "city00"}, ()),
+                                (run.markets, ["not-a-run-condition"])):
+        with pytest.raises(BundleError, match="run_binding_inventory_mismatch"):
+            verify_registered_zones(dict(zones), dict(zones.source), markets, conditions=conditions, **given)
 
 
 def test_a_made_up_registered_source_is_refused_against_the_pack():

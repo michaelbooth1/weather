@@ -121,14 +121,24 @@ only; no decision, P&L or base-pass prefix digest changes.
   `execution_manifest.market_time_zones` records (builder, `registry_checked`, inventory and registry digests).
   This stops accidental misuse: a run that bypasses `run_passes`, passes a hand-made zone map or reuses a binding
   produces no scored report. Those checks are integrity only: code can still construct a forged source or
-  recompute every digest. So a scored report also takes the execution pack's bound universe inventory and the
-  domain registry (`build_report(..., inventory=, registered=)`) and re-derives the map from them
-  (`execution_manifest.verify_registered_zones`): the source must equal the record `market_time_zones` would write
-  for that inventory and registry, the bound map must equal the inventory's map, the registry and per-market zone
-  agreement are re-checked, and every run condition must be an inventory row of its market. Otherwise it refuses
-  (`run_binding_pack_inventory_required`, `run_binding_zone_source_mismatch`, `run_binding_zone_map_mismatch`,
-  `run_binding_inventory_mismatch`, or the `market_time_zones` codes). The descriptor checks on the bundles run when
-  the pack is built and verified.
+  recompute every digest. So a scored report also takes the execution manifest that `verify_manifest` returned for
+  the pack and the domain registry (`build_report(..., manifest=, registered=)`); the inventory is the manifest's
+  `universe`, never a free argument. `execution_manifest.verify_scored_pack` requires `digest(universe)` to equal the
+  manifest's `universe_sha256` (the universe file is canonical JSON, so its file sha and the run source's
+  `inventory_sha256` are one hash), re-derives the map (`verify_registered_zones`: the source must be exactly the
+  record `market_time_zones` would write, the bound map the universe's map, the registry and per-market zone
+  agreement re-checked, every plan condition a run market and every run condition a universe row of its market),
+  and requires the run's tzdata block to equal the manifest's `tzdata` record. Otherwise it refuses
+  (`run_binding_pack_required`, `run_binding_pack_manifest_invalid`, `run_binding_pack_universe_mismatch`,
+  `run_binding_zone_source_mismatch`, `run_binding_zone_map_mismatch`, `run_binding_inventory_mismatch`,
+  `run_binding_pack_tzdata_mismatch`, or the `market_time_zones` codes). The report (format v0.2) records the check
+  as `pack_check`: the manifest digest (the manifest file's sha when written by `pack_io.write_json`), whether that
+  digest is enrolled (`approved_registrations`), and the universe, registry and tzdata zone-file digests. Scope:
+  this binds the run to the manifest the caller passes; it does not re-run `verify_manifest`, and enrollment is
+  recorded, not enforced, so a fabricated manifest still yields a report, with a foreign `manifest_sha256` and
+  `manifest_enrolled` false. The runner must read the manifest through `read_authorization` (which refuses an
+  unenrolled hash) and `verify_manifest` first. The descriptor checks on the bundles run when the pack is built and
+  verified.
 - **Manifest tzdata record (T1, F5b):** `build_manifest` records `tzdata`, the `bundle.tzdata_binding` block of
   every inventory zone (version, IANA release, `tzpath_used=False`, zone-file SHA-256s). `verify_manifest` rebuilds
   the manifest, so one built under another tzdata or other zone bytes refuses.

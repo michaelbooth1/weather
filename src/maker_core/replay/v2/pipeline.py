@@ -203,8 +203,9 @@ def verify_run_binding(run, config, *, scored) -> dict:
       fixture run may bind a hand-made map (``builder="caller"``).
 
     This is an integrity check, not an authenticity check: code that recomputes every digest can still forge a
-    source. ``report.build_report`` therefore also re-derives a scored run's map and source from the execution
-    pack's bound inventory and the registry (``execution_manifest.verify_registered_zones``)."""
+    source. ``report.build_report`` therefore also re-derives a scored run's map and source from the verified
+    execution manifest's universe and the registry (``execution_manifest.verify_scored_pack``). That binds the run
+    to the manifest the caller passes; which manifest that was is shown by the report's ``pack_check`` digests."""
     from maker_core.replay.bundle import TZDATA_VERSION, BundleError, tzdata_binding
     binding = getattr(run, "binding", None)
     if (not isinstance(binding, dict) or binding.get("format") != RUN_BINDING_FORMAT or set(binding) != BINDING_FIELDS
@@ -249,8 +250,8 @@ def run_passes(sources, config, *, time_zones, engine=EngineV2, progress=lambda 
     registered=)`` record. That stops accidental misuse (a run driven around this function, a hand-made map, a
     binding reused from another run); on its own it does not stop deliberate forgery, since a caller can construct
     ``RegisteredZones`` with a made-up source, so a scored report also re-derives the map and source from the
-    pack's bound inventory and registry (``build_report(..., inventory=, registered=)``). For a ``maker_replay_universe.universe()``-built inventory the
-    registry cross-check is close to a tautology (both sides read ``BUILTIN_SPECS``): it catches a tampered or
+    verified execution manifest's universe and the registry (``build_report(..., manifest=, registered=)``). For a
+    ``maker_replay_universe.universe()``-built inventory the registry cross-check is close to a tautology (both sides read ``BUILTIN_SPECS``): it catches a tampered or
     hand-built inventory, not a wrong registry entry.
     """
     time_zones = snapshot_zones(time_zones)

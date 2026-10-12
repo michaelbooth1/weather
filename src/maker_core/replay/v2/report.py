@@ -10,6 +10,9 @@ read cell sums only), Clarification 2's k = 0.3 sensitivity, Clarification 3's f
 
 The **sidecar** holds the merged run-length excluded intervals and each pass's decision-stream SHA-256.
 No estimator reads it; the report binds it by SHA-256, byte count and record count.
+
+A scored report also carries ``pack_check`` (``execution_manifest.verify_scored_pack``): the digests of the verified
+execution manifest, its universe, the registry and the tzdata zone files that the run's zone map was checked against.
 """
 from __future__ import annotations
 
@@ -29,7 +32,9 @@ from maker_core.replay.v2.pull import pull_endpoint
 from maker_core.replay.v2.score import DAY_US, from_us
 
 D = Decimal
-REPORT_FORMAT = "maker_core.replay.v2.report.v0.1"
+# v0.2 (GATELOGIC-R155 Defender F1): the report records ``pack_check``, the execution-manifest pack check a scored
+# report passed and the digests it bound (``None`` for FIXTURE_ONLY), so a v0.2 scored report shows that it ran.
+REPORT_FORMAT = "maker_core.replay.v2.report.v0.2"
 SIDECAR_FORMAT = "maker_core.replay.v2.sidecar.v0.1"
 POLICIES = ("informed-v0", "blind_re1", "no_quote", "clock_only")
 REPORTED_METRICS = ("modeled_net_k1", "modeled_net_k05", "modeled_net_k03")
@@ -163,21 +168,25 @@ def _config(config):
 
 
 def build_report(run, config, *, replicates=2000, seed=20260926, registration_hash=None, sidecar_path=None,
-                 check=lambda: None, inventory=None, registered=None):
+                 check=lambda: None, manifest=None, registered=None):
     """Compose the scored report from a finished ``pipeline.Run`` and write its sidecar; returns (report, sidecar).
 
-    A scored (not FIXTURE_ONLY) report also needs ``inventory``, the execution pack's bound universe inventory
-    (``manifest["universe"]``), and ``registered``, the domain zone registry: the run's zone map and its
-    ``time_zones_source`` are re-derived from them (``execution_manifest.verify_registered_zones``), so a made-up
-    ``RegisteredZones`` source or a forged map refuses. A FIXTURE_ONLY report does not read them."""
+    A scored (not FIXTURE_ONLY) report also needs ``manifest``, the execution manifest document ``verify_manifest``
+    returned for the pack, and ``registered``, the domain zone registry. The run's zone map and its
+    ``time_zones_source`` are re-derived from the manifest's bound universe (``execution_manifest.verify_scored_pack``),
+    so a made-up ``RegisteredZones`` source, a forged map or an inventory other than the manifest's refuses, and the
+    report's ``pack_check`` records the digests the check bound (manifest, universe, registry, tzdata). This function
+    does not re-verify the manifest; the caller must, and an auditor matches ``pack_check.manifest_sha256`` against
+    the enrolled manifest. A FIXTURE_ONLY report does not read the pack (``pack_check`` is ``None``)."""
     from maker_core.replay.v2.pipeline import verify_run_binding
     plan, books, passes, matches, markets = run.plan, run.books, run.passes, run.matches, run.markets
     fixture_only = all(d.provenance == "synthetic" for d in plan.days)
     run_binding = verify_run_binding(run, config, scored=not fixture_only)  # owner T2(a): no binding, no report
-    if not fixture_only:  # the F2 remainder: the source must be the pack's, not self-declared
-        from maker_core.replay.execution_manifest import verify_registered_zones
-        verify_registered_zones(run_binding["time_zones"], run_binding["time_zones_source"], markets,
-                                inventory=inventory, registered=registered)
+    pack_check = None
+    if not fixture_only:  # the F2 remainder: the zone source must be the verified pack's, not self-declared
+        from maker_core.replay.execution_manifest import verify_scored_pack
+        pack_check = verify_scored_pack(run_binding, markets, [c.condition_id for d in plan.days for c in d.conditions],
+                                        manifest=manifest, registered=registered)
     sidecar = Sidecar(sidecar_path)
     try:
         sidecar.write(dict(kind="header", format=SIDECAR_FORMAT, days=[d.day.isoformat() for d in plan.days]))
@@ -185,7 +194,7 @@ def build_report(run, config, *, replicates=2000, seed=20260926, registration_ha
                       status="FIXTURE_ONLY" if fixture_only else "PRE_REGISTERED_REPLAY",
                       pre_registration_sha256=registration_hash, configuration=_config(config),
                       input_hashes={d.day.isoformat(): dict(d.input_hashes) for d in plan.days},
-                      run_binding=run_binding, assumptions=ASSUMPTIONS, bounds={})
+                      run_binding=run_binding, pack_check=pack_check, assumptions=ASSUMPTIONS, bounds={})
         for bound in BOUNDS:
             check()
             band_days = {policy: passes[bound][policy].band_days(books, markets) for policy in POLICIES}

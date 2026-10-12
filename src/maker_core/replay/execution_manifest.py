@@ -136,6 +136,8 @@ def _registry_source(zones, inventory, registered):
     if not isinstance(registered, Mapping):
         raise BundleError("market_time_zone_registry_required")
     registered = dict(registered)
+    if not all(isinstance(m, str) and isinstance(z, str) for m, z in registered.items()):
+        raise BundleError("market_time_zone_registry_invalid")  # coded, not a TypeError from sorting mixed keys
     for market, zone in zones.items():
         if market not in registered:
             raise BundleError("market_time_zone_unregistered")
@@ -145,36 +147,91 @@ def _registry_source(zones, inventory, registered):
                 registry_sha256=digest(dict(sorted(registered.items()))))
 
 
-def verify_registered_zones(time_zones, source, markets, *, inventory, registered):
-    """A scored run's zone map, re-derived from the execution pack's bound inventory (the F2 remainder).
+def verify_registered_zones(time_zones, source, markets, *, inventory, registered, conditions=()):
+    """A scored run's zone map, re-derived from an inventory and a registry (the F2 remainder).
 
     ``pipeline.verify_run_binding`` checks integrity only: a caller can construct ``RegisteredZones`` with a made-up
     ``source`` or recompute every digest. This recomputes what ``market_time_zones`` would return from
-    ``inventory`` (the pack's bound universe inventory, ``manifest["universe"]``, whose own file sha the manifest
-    binds as ``universe_sha256``) and ``registered`` (the domain registry), and refuses unless
-    - ``inventory`` and ``registered`` are both given (``run_binding_pack_inventory_required``);
+    ``inventory`` and ``registered`` (the domain registry), and refuses unless
+    - ``inventory`` and ``registered`` are both given (``run_binding_pack_required``);
     - the rows are well formed, each market names one zone and every zone is registered under that name (the
       ``_inventory_rows``, ``_zones`` and registry codes);
-    - ``source`` equals the recomputed record, so ``inventory_sha256`` is ``digest(inventory)`` and
-      ``registry_sha256`` is the registry's digest (``run_binding_zone_source_mismatch``);
+    - ``source`` is exactly the recomputed record, ``registry_checked`` the boolean ``True`` (not ``1``), so
+      ``inventory_sha256`` is ``digest(inventory)`` and ``registry_sha256`` the registry's digest
+      (``run_binding_zone_source_mismatch``);
     - the bound map ``time_zones`` equals the inventory's map exactly (``run_binding_zone_map_mismatch``);
-    - every run condition is an inventory row of the same market (``run_binding_inventory_mismatch``).
-    The bundle-level descriptor checks of ``_inventory`` ran when the pack was built and verified
-    (``verify_manifest``); they are not repeated here, since the report sees the plan, not the bundles."""
+    - ``markets`` is a non-empty condition -> market mapping, every one of ``conditions`` (the plan's condition ids)
+      is in it, and every run condition is an inventory row of the same market (``run_binding_inventory_mismatch``).
+    It does not by itself say where ``inventory`` came from: ``verify_scored_pack`` (what ``report.build_report``
+    calls) takes it from the verified execution manifest. The bundle-level descriptor checks of ``_inventory`` ran
+    when the pack was built and verified (``verify_manifest``); the report sees the plan, not the bundles."""
     if inventory is None or registered is None:
-        raise BundleError("run_binding_pack_inventory_required")
+        raise BundleError("run_binding_pack_required")
     by_id = _inventory_rows(inventory)
     zones = _zones(by_id)
     expected = _registry_source(zones, inventory, registered)
-    if not isinstance(source, Mapping) or dict(source) != expected:
+    if (not isinstance(source, Mapping) or dict(source) != expected or source["registry_checked"] is not True
+            or not all(type(source[k]) is str for k in ("builder", "inventory_sha256", "registry_sha256"))):
         raise BundleError("run_binding_zone_source_mismatch")
     if not isinstance(time_zones, Mapping) or dict(time_zones) != zones:
         raise BundleError("run_binding_zone_map_mismatch")
+    if (not isinstance(markets, Mapping) or not markets
+            or not all(isinstance(c, str) and isinstance(m, str) for c, m in markets.items())
+            or any(c not in markets for c in conditions)):
+        raise BundleError("run_binding_inventory_mismatch")
     for condition, market in markets.items():
         row = by_id.get(condition)
         if row is None or row["market_id"] != market:
             raise BundleError("run_binding_inventory_mismatch")
     return expected
+
+
+PACK_CHECK = "maker_core.replay.execution_manifest.verify_scored_pack"
+
+
+def verify_scored_pack(run_binding, markets, conditions, *, manifest, registered):
+    """The pack check of a scored v2 report: bind the run's zone map to the verified execution manifest.
+
+    ``manifest`` is the execution manifest document that ``verify_manifest`` returned for this pack (the runner
+    verifies it; this function does not re-run ``verify_manifest``, which needs the bundles and the signed
+    documents). ``registered`` is the domain registry (for weather,
+    ``weather.market.maker_replay_universe.registered_time_zones()``; the neutral core reads no domain registry).
+    The inventory is never a free argument: it is ``manifest["universe"]``. Refuses unless
+    - both are given (``run_binding_pack_required``) and ``manifest`` is an execution manifest of this ``FORMAT``
+      carrying ``universe``, ``universe_sha256`` and ``tzdata`` (``run_binding_pack_manifest_invalid``);
+    - ``digest(manifest["universe"])`` equals ``manifest["universe_sha256"]`` (``run_binding_pack_universe_mismatch``).
+      The manifest binds the universe file's sha; the file is written as canonical JSON (``pack_io.write_json``),
+      so that sha *is* ``digest`` of its rows, the same hash as the run's ``time_zones_source.inventory_sha256``.
+      One hash, compared like with like; a non-canonical universe file refuses here;
+    - ``verify_registered_zones`` accepts the run's map and source against that universe and ``registered``, with
+      every plan condition in ``markets``;
+    - the run's tzdata block equals the manifest's ``tzdata`` record (``run_binding_pack_tzdata_mismatch``): both are
+      ``bundle.tzdata_binding`` over the same zones once the map equals the universe's.
+    Returns the report's ``pack_check`` record: this verifier, the manifest's ``digest`` (equal to the manifest
+    file's sha, and so to the v1 ``pre_registration_sha256``, when the file was written by ``pack_io.write_json``),
+    whether that digest is enrolled in ``approved_registrations.APPROVED_REGISTRATIONS``, the universe and registry
+    digests, and the tzdata zone-file digest it bound. Enrollment is recorded, not enforced: the runner reads the
+    manifest through ``authorization.read_authorization`` (which refuses an unenrolled hash) and ``verify_manifest``
+    before it builds the report. A fabricated manifest therefore still yields a report, but one whose
+    ``manifest_sha256`` is not the verified pack's and whose ``manifest_enrolled`` is false."""
+    if manifest is None or registered is None:
+        raise BundleError("run_binding_pack_required")
+    if (not isinstance(manifest, Mapping) or manifest.get("format") != FORMAT
+            or not {"universe", "universe_sha256", "tzdata"} <= set(manifest)):
+        raise BundleError("run_binding_pack_manifest_invalid")
+    inventory = manifest["universe"]
+    if digest(inventory) != manifest["universe_sha256"]:
+        raise BundleError("run_binding_pack_universe_mismatch")
+    expected = verify_registered_zones(run_binding["time_zones"], run_binding["time_zones_source"], markets,
+                                       inventory=inventory, registered=registered, conditions=conditions)
+    if manifest["tzdata"] != run_binding["tzdata"]:
+        raise BundleError("run_binding_pack_tzdata_mismatch")
+    from maker_core.replay import approved_registrations
+    manifest_sha256 = digest(manifest)
+    return dict(verifier=PACK_CHECK, manifest_format=FORMAT, manifest_sha256=manifest_sha256,
+                manifest_enrolled=manifest_sha256 in approved_registrations.APPROVED_REGISTRATIONS,
+                universe_sha256=manifest["universe_sha256"], registry_sha256=expected["registry_sha256"],
+                tzdata_zone_files_sha256=manifest["tzdata"]["zone_files_sha256"])
 
 
 def active_intervals(bundles, inventory, *, check=lambda: None):

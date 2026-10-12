@@ -143,8 +143,8 @@ class RegisteredZones(Mapping):
     (``pipeline.run_binding``) copies it into the run digest. A hand-made mapping has no ``source`` and binds as
     ``builder="caller"``, which a scored (non-synthetic) report refuses, as it refuses any source that is not the
     full record (``ZONE_MAP_BUILDER``, ``registry_checked`` and both digests). Hashes bind provenance; they do not stop
-    a caller from constructing this class by hand, so a scored report recomputes it from the bound inventory and
-    registry (``execution_manifest.verify_registered_zones``).
+    a caller from constructing this class by hand, so a scored report recomputes it from the verified execution
+    manifest's universe and the registry (``execution_manifest.verify_scored_pack``).
     """
 
     __slots__ = ("_zones", "source")

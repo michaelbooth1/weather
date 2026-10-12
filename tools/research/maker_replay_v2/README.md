@@ -70,10 +70,14 @@ without that binding or with another run's binding (also from a same-input run d
 the tzdata block from the zone bytes it loads, and for a non-fixture report requires the full `market_time_zones`
 source (builder, `registry_checked`, inventory and registry digests). That stops accidental misuse (a run driven
 around `run_passes`, a hand-made map, a reused binding). Those checks alone are integrity, not authenticity: a
-caller can construct a `RegisteredZones` with a made-up source. So a non-fixture report also needs
-`inventory=` (the execution pack's bound universe inventory, `manifest["universe"]`) and `registered=` (the domain
-registry), and `execution_manifest.verify_registered_zones` re-derives the map and its source from them; a made-up
-source, a forged map or a run condition outside the inventory refuses. For
+caller can construct a `RegisteredZones` with a made-up source. So a non-fixture report also needs `manifest=`
+(the execution manifest `verify_manifest` returned for the pack) and `registered=` (the domain registry), and
+`execution_manifest.verify_scored_pack` re-derives the map and its source from the manifest's `universe` (checked
+against its `universe_sha256`) and checks the run's tzdata block against the manifest's; a made-up source, a forged
+map, another inventory or a run condition outside the universe refuses. The report (format v0.2) records the check
+and the digests it bound as `pack_check`, with `manifest_enrolled` (whether the manifest digest is in
+`approved_registrations`; recorded, not enforced). It does not re-verify the manifest: the runner must
+(`read_authorization`, then `verify_manifest`). For
 `maker_replay_universe.universe()` inventories the registry check is close to a tautology (both sides read
 `BUILTIN_SPECS`); it catches a tampered or hand-built inventory, not a wrong registry entry.
 Run it through the workstation queue only: `python -m tools.research.maker_replay_v2.attribution OUT.json`.

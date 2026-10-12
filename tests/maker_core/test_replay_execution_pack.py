@@ -640,6 +640,17 @@ def test_the_manifest_records_the_pinned_tzdata_block_of_its_inventory_zones(tmp
             verify_manifest(changed, bundles, cb, **paths, now=NOW)
 
 
+def test_the_tzdata_record_covers_every_inventory_zone_of_a_multi_zone_pack(tmp_path):
+    """Defender R155 F4 (mutant F5b4first): with one zone, "every zone" and "the first zone" agree, so this pack
+    has two markets in two fictional UTC+0 zones. The record must name both, in sorted order, whichever
+    row sorts first, and the manifest still verifies."""
+    doc, bundles, cb, paths, _, _ = pack(tmp_path, zones={"a": "UTC", "b": "Africa/Abidjan"})
+    assert {r["local_timezone"] for r in doc["universe"]} == {"Africa/Abidjan", "UTC"}
+    assert [name for name, _ in doc["tzdata"]["zone_files"]] == ["Africa/Abidjan", "UTC"]
+    assert doc["tzdata"] == tzdata_binding(["UTC", "Africa/Abidjan"])
+    assert verify_manifest(doc, bundles, cb, **paths, now=NOW) == doc
+
+
 def test_a_manifest_verified_under_another_tzdata_is_refused_even_with_warm_zone_caches(tmp_path, monkeypatch):
     """The zone caches are warm after ``pack`` built the manifest, so only the recorded block re-checks the package:
     an installed tzdata of another release refuses at verification."""
