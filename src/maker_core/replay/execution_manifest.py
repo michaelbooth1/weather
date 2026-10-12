@@ -209,6 +209,19 @@ def _pack_days(manifest):
     return {day: dict(value) for day, value in hashes.items()}
 
 
+def _plan_day_hashes(plan):
+    """The plan's ``[(iso day, input_hashes), ...]`` in plan order. Every day is a ``datetime.date``
+    (``run_binding_plan_invalid``, R155 defender-2 N2) and no day repeats (``run_binding_pack_duplicate_day``,
+    defender-2 N1): a duplicate is refused here, never collapsed by a dict."""
+    days = getattr(plan, "days", None)
+    if not isinstance(days, tuple) or not days or any(type(getattr(d, "day", None)) is not date for d in days):
+        raise BundleError("run_binding_plan_invalid")
+    pairs = [(d.day.isoformat(), dict(d.input_hashes)) for d in days]
+    if len({day for day, _ in pairs}) != len(pairs):
+        raise BundleError("run_binding_pack_duplicate_day")
+    return pairs
+
+
 def verify_scored_pack(run_binding, plan, markets, *, manifest, registered):
     """The pack check of a scored v2 report: bind the run's days, inputs and zone map to the verified manifest.
 
@@ -221,6 +234,8 @@ def verify_scored_pack(run_binding, plan, markets, *, manifest, registered):
     - both are given (``run_binding_pack_required``) and ``manifest`` is an execution manifest of this ``FORMAT``
       carrying ``universe``, ``universe_sha256``, ``tzdata``, ``input_hashes``, ``dates`` and
       ``settlement_only_date`` of the right types (``run_binding_pack_manifest_invalid``);
+    - every plan day is a ``datetime.date`` (``run_binding_plan_invalid``) and no day repeats
+      (``run_binding_pack_duplicate_day``; R155 defender-2 N1/N2);
     - every plan day is a sealed capture day, provenance ``SEALED_PROVENANCE``
       (``run_binding_pack_provenance_unsealed``): a plan that mixes synthetic and captured days is not a scored run
       of the pack;
@@ -253,9 +268,10 @@ def verify_scored_pack(run_binding, plan, markets, *, manifest, registered):
     if not isinstance(manifest, Mapping) or manifest.get("format") != FORMAT or not _PACK_FIELDS <= set(manifest):
         raise BundleError("run_binding_pack_manifest_invalid")
     input_hashes = _pack_days(manifest)
+    plan_hashes = _plan_day_hashes(plan)
     if any(d.provenance != SEALED_PROVENANCE for d in plan.days):
         raise BundleError("run_binding_pack_provenance_unsealed")
-    if {d.day.isoformat(): dict(d.input_hashes) for d in plan.days} != input_hashes:
+    if plan_hashes != list(input_hashes.items()):  # like with like, in day order (defender-2 N1)
         raise BundleError("run_binding_pack_input_hashes_mismatch")
     conditions = [c.condition_id for d in plan.days for c in d.conditions]
     inventory = manifest["universe"]

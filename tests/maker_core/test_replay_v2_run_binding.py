@@ -895,6 +895,44 @@ def test_a_scored_report_under_another_bootstrap_or_registration_hash_is_refused
     assert report["pre_registration_sha256"] == digest(bound["manifest"])
 
 
+def _with_days(run, days):
+    """``run`` whose plan carries ``days`` as given, past ``RunPlan``'s own checks (a forged plan)."""
+    plan = replace(run.plan)
+    object.__setattr__(plan, "days", days)
+    return replace(run, plan=plan)
+
+
+def test_a_plan_with_a_repeated_day_is_refused_by_the_pack_check_not_collapsed():
+    """Defender-2 N1: a repeated day used to collapse into one ``{day: hashes}`` entry and match. With every binding
+    digest recomputed for the forged plan, the pack check refuses it by name."""
+    from maker_core.replay.execution_manifest import verify_scored_pack
+    zones, bound = pack()
+    run = small_run(zones, "captured")
+    day = run.plan.days[0]
+    twice = forge(_with_days(run, (day, day)), zones)
+    with pytest.raises(BundleError, match="run_binding_pack_duplicate_day"):
+        build_report(twice, CONFIG, replicates=100, **bound)
+    with pytest.raises(BundleError, match="run_binding_pack_duplicate_day"):
+        verify_scored_pack(run.binding, twice.plan, run.markets, **bound)
+
+
+@pytest.mark.parametrize("day", [DAY.isoformat(), datetime(2026, 9, 27, tzinfo=timezone.utc), None])
+def test_a_plan_day_that_is_not_a_date_is_a_coded_refusal(day):
+    """Defender-2 N2: a ``str`` (or ``datetime``, or missing) plan day refuses ``run_binding_plan_invalid`` in the
+    binding check and in the pack check, never an ``AttributeError``/``TypeError``."""
+    from maker_core.replay.execution_manifest import verify_scored_pack
+    zones, bound = pack()
+    run = small_run(zones, "captured")
+    forged = _with_days(run, (replace(run.plan.days[0], day=day),))
+    fixture = small_run()
+    with pytest.raises(BundleError, match="run_binding_plan_invalid"):
+        build_report(forged, CONFIG, replicates=100, **bound)
+    with pytest.raises(BundleError, match="run_binding_plan_invalid"):  # a fixture report too
+        build_report(_with_days(fixture, (replace(fixture.plan.days[0], day=day),)), CONFIG, replicates=100)
+    with pytest.raises(BundleError, match="run_binding_plan_invalid"):
+        verify_scored_pack(run.binding, forged.plan, run.markets, **bound)
+
+
 def test_the_record_digest_is_the_manifest_record_sources_shape():
     """``RecordDigest`` streams ``digest([dict(r.source_hashes) for r in records])``, the shape ``build_manifest``
     writes as ``record_sources_sha256``, for zero, one and many records."""

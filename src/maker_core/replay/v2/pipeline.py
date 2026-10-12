@@ -9,7 +9,7 @@ schedule for differential tests.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from datetime import timedelta
+from datetime import date, timedelta
 from decimal import Decimal
 import re
 from types import MappingProxyType
@@ -205,6 +205,8 @@ def verify_run_binding(run, config, *, scored) -> dict:
     - ``scored`` is true for every report that is not FIXTURE_ONLY: such a run needs the full ``market_time_zones``
       source (builder, ``registry_checked`` and the inventory and registry digests; owner T2(a), Defender F2); a
       fixture run may bind a hand-made map (``builder="caller"``).
+    - A plan whose days are not a non-empty tuple of ``datetime.date`` days (a ``str`` day, a ``datetime``) refuses
+      ``run_binding_plan_invalid`` (R155 defender-2 N2).
 
     This is an integrity check, not an authenticity check: code that recomputes every digest can still forge a
     source. ``report.build_report`` therefore also re-derives a scored run's map and source from the verified
@@ -218,6 +220,9 @@ def verify_run_binding(run, config, *, scored) -> dict:
     driven = getattr(run, "time_zones", None)
     if driven is None:
         raise BundleError("run_binding_required")
+    days = getattr(getattr(run, "plan", None), "days", None)
+    if not isinstance(days, tuple) or not days or any(type(getattr(d, "day", None)) is not date for d in days):
+        raise BundleError("run_binding_plan_invalid")  # R155 defender-2 N2: a coded refusal, not an AttributeError
     if binding["sha256"] != digest({k: v for k, v in binding.items() if k != "sha256"}):
         raise BundleError("run_binding_digest_mismatch")
     if binding["time_zones_sha256"] != digest(_zone_pairs(binding["time_zones"])):
