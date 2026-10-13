@@ -20,7 +20,7 @@ from .fixtures.panel_v02 import Panel
 
 NOW = datetime(2026, 10, 13, 17, tzinfo=timezone.utc)
 CAL = "c" * 64
-REPLICATES = 50
+REPLICATES = 100  # the bootstrap floor (pull_efficiency); the rehearsal itself defaults to 2000
 
 
 def fixture():
@@ -32,7 +32,7 @@ def calibration(tmp_path_factory):
     panel = fixture()
     root = tmp_path_factory.mktemp("calibration")
     paths = {d: panel.write(root / d.isoformat(), d, provenance="captured") for d in CALIBRATION_DATES}
-    return panel, paths, panel.inventory(CALIBRATION_DATES)
+    return panel, paths, panel.inventory
 
 
 def memory_probe(step=1000):
@@ -51,7 +51,7 @@ def rehearse(paths, inventory, mode, **overrides):
 @pytest.fixture(scope="module")
 def per_date(calibration):
     _, paths, inventory = calibration
-    return {d.isoformat(): rehearse([paths[d]], inventory, "per_date") for d in CALIBRATION_DATES}
+    return {d.isoformat(): rehearse([paths[d]], inventory([d]), "per_date") for d in CALIBRATION_DATES}
 
 
 def test_a_per_date_rehearsal_is_whitelisted_and_measures_the_whole_pipeline(per_date):
@@ -82,7 +82,7 @@ def test_nothing_scored_is_in_the_document(per_date):
 def test_two_rehearsals_of_one_date_are_byte_identical_e7(calibration, per_date):
     _, paths, inventory = calibration
     day = CALIBRATION_DATES[1]
-    again = rehearse([paths[day]], inventory, "per_date")
+    again = rehearse([paths[day]], inventory([day]), "per_date")
     first = per_date[day.isoformat()]
     assert again["hashes"] == first["hashes"]
     assert again["passes"] == first["passes"]
@@ -92,7 +92,7 @@ def test_two_rehearsals_of_one_date_are_byte_identical_e7(calibration, per_date)
 
 def test_the_carried_run_feeds_the_ceiling_rule_and_e5(calibration, per_date):
     _, paths, inventory = calibration
-    carried = rehearse([paths[d] for d in reversed(CALIBRATION_DATES)], inventory, "carried")
+    carried = rehearse([paths[d] for d in reversed(CALIBRATION_DATES)], inventory(CALIBRATION_DATES), "carried")
     assert carried["dates"] == [d.isoformat() for d in CALIBRATION_DATES]
     assert carried["measured"]["records"] == sum(d["measured"]["records"] for d in per_date.values())
     assert carried["measured"]["input_bytes"] == sum(d["measured"]["input_bytes"] for d in per_date.values())
@@ -108,6 +108,7 @@ def test_the_carried_run_feeds_the_ceiling_rule_and_e5(calibration, per_date):
 
 def test_a_non_calibration_path_refuses_before_any_bundle_is_opened(calibration, monkeypatch, tmp_path):
     _, paths, inventory = calibration
+    inventory = inventory(CALIBRATION_DATES)
     monkeypatch.setattr(bundle_v02, "open_stream_bundle", lambda *a, **k: pytest.fail("a bundle was opened"))
     with pytest.raises(BundleError, match="rehearsal_restricted_to_calibration_dates"):
         rehearse([tmp_path / "2026-10-02" / "bundle"], inventory, "per_date")
@@ -123,6 +124,7 @@ def test_a_non_calibration_path_refuses_before_any_bundle_is_opened(calibration,
 
 def test_a_bundle_whose_manifest_names_another_day_refuses(calibration, tmp_path):
     panel, _, inventory = calibration
+    inventory = inventory(CALIBRATION_DATES[:1])
     moved = panel.write(tmp_path / CALIBRATION_DATES[1].isoformat(), CALIBRATION_DATES[0], provenance="captured")
     with pytest.raises(BundleError, match="rehearsal_restricted_to_calibration_dates"):
         rehearse([moved], inventory, "per_date")
