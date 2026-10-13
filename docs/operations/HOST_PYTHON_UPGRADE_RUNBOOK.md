@@ -8,7 +8,8 @@
 > own runbook.
 
 Status: approved runbook (owner sign-off 2026-10-12, with the §11 details recorded the same day). It turns the approved intent (DECISION_LOG, 2026-10-09: host Python
-upgrade as a quiet-window job with a release re-bind; installer download, UAC and one capture gap)
+upgrade as a quiet-window job with a release re-bind; installer download, UAC and one capture gap; the installer and UAC
+were replaced by the NuGet route in the 2026-10-13 revision)
 into gated steps. Today's host version, the planned night and every dated hold live in
 [the state of play](STATE_OF_PLAY.md), not here.
 
@@ -17,6 +18,18 @@ approved the upgrade, so G7 no longer waits for session 0's handback. It now onl
 and Phase C nights clear of scheduled LFC sessions. G0 now names each phase's own morning or night,
 so Phase A can run on its owner-named morning before the cutover night is named. §7a holds the
 calendar; because Phase A runs before §T, §T ends by re-taking the venv receipts (T-R).
+
+Revision 2026-10-13 (r2 after an adversarial review), **DRAFT, pending owner sign-off (G0, G12, Q4, Q9)**: the installer route for A4 is
+withdrawn. On the host, the 3.11.9 installer with `InstallAllUsers=1` detected the per-user 3.11.0
+bundle and planned a **MajorUpgrade** of it, not a side-by-side install (detect log
+`install-detect-20261013-0858.log`: "Detected related bundle ... scope: PerUser ... operation:
+MajorUpgrade"; it was stopped before plan or apply, and nothing changed). A3 and A4 now download the
+python.org NuGet package `python` 3.11.9 and copy its `tools` tree into the new home: no installer,
+no MSI, no registry, no PATH, no UAC prompt and no owner click. Its binaries are the same build as
+the installer's: the 11 files pinned in `binaries` (§6a) have identical sizes in the package and in
+the workstation's installer-built 3.11.9 home, and A4 proves the SHA-256 values. Phase A runs in
+the elevated operator session on an owner-named morning; the §7a dates are re-set by the owner in
+the decision log and the state of play.
 
 **Owns:** the procedure for moving the production checkout's `venv` from CPython 3.11.0 to 3.11.9
 on the 16 GB capture host. That covers a side-by-side install, an offline wheelhouse, a stage venv
@@ -58,7 +71,7 @@ The live SDK portability check accepts any 3.11 patch release
 | G1 | The bounded suite supports `-InterpreterPath` and `-ExpectedInterpreterVersion` (`scripts/ops/bounded_worktree_test_suite.ps1:44-52`). | Met on master; re-read `param(` if the script changed |
 | G2 | Phase A and Phase B passed on earlier nights, and `$R\qualification.json` has `"result":"PASS"`. | C0 |
 | G3 | The production HEAD equals the qualified tip, or `roll_verdict.ps1 -Branch` on the difference is roll-free. | C0 |
-| G4 | The owner is reachable from 00:30 to 03:45 on the cutover night: GO at C0, and any escalation up to the end of §R. Phase A also needs the owner at the machine for UAC. | C0, A4 |
+| G4 | The owner is reachable from 00:30 to 03:45 on the cutover night: GO at C0, and any escalation up to the end of §R. Phase A needs no owner click since the 2026-10-13 revision (A4 has no installer). | C0 |
 | G5 | No other lease user is due that night. Specifically: <br>- `WeatherTrainingWindow` (a 01:00 one-shot, `register_training_window.ps1:3`) is disabled or has no trigger that night; <br>- Stage B `WeatherEveningEvidenceRefresh` (00:35, holds the lease to 09:00 when enabled; `register_daily_refresh.ps1:20-24`) is disabled; <br>- a U6 export registered at 00:35 (Q3) is disabled (enforced in B0 and C0 by `Assert-NoU6At0035`);<br>- no integration attempt, quiet-window merge, storage one-shot or held-head work is scheduled. | Phase B (B0), C0 |
 | G6 | Release case A: `artifacts\releases\current_release.json` is absent (H5, B3, C0). Case B or C is NO-GO for this runbook (§8). | H5, B3, C0 |
 | G7 (LFC) | The cutover night (and any Phase B prep night) is not the night before or the night of a scheduled LFC session. Revised 2026-10-12 (owner-confirmed): it no longer waits for LFC session 0, which the owner postponed. | Phase B (B0), C0 |
@@ -66,7 +79,7 @@ The live SDK portability check accepts any 3.11 patch release
 | G9 (tzdata) | The tzdata sequencing is decided (Q13), so the freeze comparison in `Test-Venv` cannot false-fail. | Before Phase B |
 | G10 (seals) | No live attempt is planned between the cutover and the reseal. | Sign-off |
 | G11 (DST) | No phase of this runbook runs on the DST fall-back night (the night of 10-31 to 11-01). That night is under OD30 (HOST_LOAD_POLICY rule 10), and the repeated hour breaks the `.Date.AddHours()` deadlines below. | Every phase |
-| G12 (downloads) | The owner has approved the PyPI wheel downloads (§T, B1a, B1b) as well as the installer download. | Sign-off |
+| G12 (downloads) | The owner has approved the PyPI wheel downloads (§T, B1a, B1b) and the NuGet package download (A3; revision 2026-10-13). The installer download approved earlier is no longer used. | Sign-off |
 
 ## 3. Question register
 
@@ -83,12 +96,12 @@ recommendations on 2026-10-12 (DECISION_LOG); the H-reads that Q4 and Q5 still n
 | Q1 | Can an interactive session stop, see and verify the S4U capture workers? | **RESOLVED** (H6 optional corroboration) | Run Phase C and §R in an **elevated** window. The stop confirmation is PID-based: `capture_resource_gate.py:150-158` marks a loop active when the status PID or the writer-lock PID is alive (or heartbeat, lock and PID evidence agree). It uses the gate the training window uses (`training_window.ps1:238-252`), so it works from an interactive shell. The binding recovery proof is the S4U `WeatherTrainingWindowRestore` task (S4U at `register_training_window.ps1:115-118`, `-RestoreOnly` at :140). It writes `restore_only` / `capture_recovery_pass` (`training_window.ps1:277-290`) and takes no lease (the lease is at :352, after the restore-only exit). `capture_recovery_check` is documented to run in the S4U context (`capture_recovery_check.py:1-6`), and a non-elevated session cannot read S4U command lines (HOST_LOAD_POLICY, "residual scan" paragraph), so the interactive check is corroboration only. The rename failing on a locked file is the final backstop. |
 | Q2 | Exact interpreter flag on the bounded suite | **RESOLVED** (closed earlier) | `-ExpectedInterpreterVersion` takes an exact `X.Y.Z` and requires `-InterpreterPath` (`bounded_worktree_test_suite.ps1:44-52`). |
 | Q3 | Does the U6 export collide with the cutover? | **RESOLVED, conditional** (H8 confirms) | `WeatherReplayBundleExportNightly` stays unregistered until the owner says yes (state of play). The owner approved its 04:10 slot (DECISION_LOG 2026-10-09), so 04:10 is the likely registration. The 00:35 slot is the only one on the build-line registrar. If it is registered, it is in the C2 aux list and stays **disabled** from C2 until C9b, and §R does not re-enable it unless capture is 3/3. A 00:35 run with its 50-minute limit can hold the lease until 01:25, after the 01:15 latest cutover lease, so a 00:35 registration must be disabled for the cutover night (G5). A 04:10 run starts after the 03:45 rollback deadline. |
-| Q4 | Will the installer offer "Upgrade" over the existing 3.11.0? | **NEEDS-HOST-READ** (H1), then **OWNER-DECISION** | PEP 514 allows one `PythonCore\3.11` registration per hive (HKCU, HKLM). Inference, not tested: install 3.11.9 in the **opposite** scope from the existing 3.11.0 (all users if 3.11.0 is per-user, and the reverse). The owner cancels if the first page says *Upgrade* or *Modify*. A NuGet or embeddable-zip fallback is a new download and needs its own approval. |
+| Q4 | Will the installer offer "Upgrade" over the existing 3.11.0? | **ANSWERED 2026-10-13: yes for the all-users scope** (host detect log, revision note; a same-scope per-user install is an upgrade by definition); **OWNER-DECISION**: install from the NuGet package (A3/A4) | Superseded inference, kept for the record: PEP 514 allows one `PythonCore\3.11` registration per hive (HKCU, HKLM). Inference, not tested: install 3.11.9 in the **opposite** scope from the existing 3.11.0 (all users if 3.11.0 is per-user, and the reverse). The owner cancels if the first page says *Upgrade* or *Modify*. A NuGet or embeddable-zip fallback is a new download and needs its own approval. |
 | Q5 | Release case A, B or C? | **RESOLVED: case A expected; NEEDS-HOST-READ H5 to confirm** | The state of play says there is no release store on the host. The pointer path is `artifacts\releases\current_release.json` (`release_artifacts.py:49-50`). H5, B3 and C0 re-check it. Any case other than A is NO-GO (G6, §8). |
 | Q6 | #259 test ids | **RESOLVED** (closed earlier) | #259 is on master. Its parametrized `constructor` / `pre_3_11_2` tests (`tests/sources/test_wu_redaction.py`, around lines 680 and 721) run on every 3.11 patch without skip or xfail, and must pass in B2. |
 | Q7 | Which venvs and deployments move with the cutover? | **RESOLVED; contradicts the original plan.** Sibling venvs: H4 | The pinned watchdog, the 91a cold snapshot, the manual order journal, boot recovery and the U6 exam deployment all run the **production** venv (evidence in §1). They move to 3.11.9 at the cutover; none is left on 3.11.0. The scheduled ones are quiesced in C2 and verified in §9. Sibling worktree venvs keep `home = <3.11.0>` and keep working, because 3.11.0 stays installed. |
 | Q8 | Are 3.11.10 and later fixes needed? | **OWNER-DECISION** | 3.11.9 is the last 3.11 release with a Windows installer. §5 lists the audited and not-audited items. Recommendation: take 3.11.9 now and track a 3.12/3.13 move separately. |
-| Q9 | Where does the installer SHA-256 come from? | **OWNER-DECISION** | python.org publishes the size and MD5 for 3.11.9, but no SHA-256. Recommendation: require all four of the python.org size, the python.org MD5, the third-party winget manifest SHA-256 and a valid PSF Authenticode signature. Sigstore verification is optional and needs its own download decision. |
+| Q9 | What proves the NuGet package's provenance? | **OWNER-DECISION** (revision 2026-10-13) | The nuget.org size and SHA-512 (same origin as the download), the W0 full-tree comparison against the workstation's python.org-installer home, the pinned `binaries` SHA-256 values, and PSF Authenticode on the signed binaries. The earlier installer provenance (python.org size and MD5, winget SHA-256) is retired with the installer. |
 | Q10 | Build backend for the editable install | **RESOLVED** (H2 records versions) | `pyproject.toml` requires `setuptools>=69`, but a fresh 3.11.9 venv bundles setuptools 65.5.0. The editable install therefore uses build isolation fed from the wheelhouse: pip passes `--no-index --find-links` to the isolated build. Pin a setuptools release of 70.1 or later in `lock-build`. From 70.1 setuptools ships `bdist_wheel` itself; if you pin an older release, add `wheel` to `lock-build`. The B1a hash script fails closed if a wheel is missing. |
 | Q11 | Names on master (memory guard reader, tape stop verb, status key, gate flags) | **RESOLVED** (closed earlier) | `Read-WeatherMemoryGuardStatus -Path` (`memory_guard_status_reader.ps1:13-17`); `execution_tape_supervisor stop` has no arguments (`execution_tape_supervisor.py:880`); `updated_at` (`training_window.ps1:144`). |
 | Q12 (new) | How does the 88a worker release the venv? | **OWNER-DECISION**, recorded in `$R\q12.txt` (G8) | `WeatherMakerEvidenceCapture` runs one long-lived worker that holds the lock ([passive maker evidence capture](passive-maker-evidence-capture.md), "Commands and registration"). Its CLI has no stop verb and no stop file (`maker_evidence_capture.py:365-372`), so disabling the task does not end it, and the rename fails while it runs. **Recommendation:** after the 88a freeze, the owner authorizes `Stop-ScheduledTask -TaskName WeatherMakerEvidenceCapture` at C2 (record `STOP_AUTHORIZED`), with the resume check in C9c. Risk: an abrupt stop skips `store.seal()` (`maker_evidence_capture.py:343-360`), and the store raises "torn journal" on a partial last line (`maker_evidence_store.py:142-143`). Alternative: wait for a reviewed graceful-stop verb, which is 88a capture behaviour and waits for the freeze to end. Until one exists, the cutover is NO-GO. |
@@ -108,10 +121,14 @@ of these reads changes state. Save the output under `$R\host-reads\`.
 ```powershell
 $HR = Join-Path $R 'host-reads'; New-Item -ItemType Directory -Force $HR | Out-Null
 # H1 (Q4): PEP 514 registrations and uninstall entries for 3.11
-$(foreach ($k in 'HKCU:\Software\Python\PythonCore','HKLM:\SOFTWARE\Python\PythonCore','HKLM:\SOFTWARE\WOW6432Node\Python\PythonCore') {
-  Get-ChildItem -LiteralPath $k -ErrorAction SilentlyContinue | ForEach-Object {
+$(foreach ($hk in 'HKCU:\Software\Python\PythonCore','HKLM:\SOFTWARE\Python\PythonCore','HKLM:\SOFTWARE\WOW6432Node\Python\PythonCore') {
+  Get-ChildItem -LiteralPath $hk -ErrorAction SilentlyContinue | ForEach-Object {
     $ip = Get-ItemProperty -LiteralPath (Join-Path $_.PSPath 'InstallPath') -ErrorAction SilentlyContinue
-    '{0} | InstallPath={1}' -f $_.Name, $ip.'(default)' } }) | Out-File "$HR\h1-pythoncore.txt" -Encoding utf8
+    '{0} | InstallPath={1}' -f $_.Name, $ip.'(default)'
+    $pp = Get-Item -LiteralPath (Join-Path $_.PSPath 'PythonPath') -ErrorAction SilentlyContinue
+    if ($pp) { '{0} | PythonPath(default)={1}' -f $_.Name, $pp.GetValue('')
+      Get-ChildItem -LiteralPath $pp.PSPath -Recurse -ErrorAction SilentlyContinue | ForEach-Object { '{0} | PythonPath subkey={1}' -f $_.Name, $_.GetValue('') } } } }) |
+  Out-File "$HR\h1-pythoncore.txt" -Encoding utf8   # expect no PythonPath subkey (getpath appends each subkey's default value)
 Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*','HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue |
   Where-Object { $_.DisplayName -like 'Python 3.11*' } | Select-Object DisplayName, DisplayVersion, InstallLocation, PSPath |
   Format-List | Out-File "$HR\h1-uninstall.txt" -Encoding utf8
@@ -121,8 +138,8 @@ Get-Content -LiteralPath (Join-Path $P 'venv\pyvenv.cfg') | Out-File "$HR\h2-pyv
 $null = Invoke-Native $Py @('-m','pip','freeze','--all') "$HR\h2-freeze"
 Select-String -LiteralPath "$HR\h2-freeze.out.txt" -Pattern '^(pip|setuptools|wheel|tzdata)==' | ForEach-Object Line | Out-File "$HR\h2-tools.txt" -Encoding utf8
 # H3 (Q7, C2): every task whose action names a venv, python or a .ps1 wrapper, with state and principal
-Get-ScheduledTask | ForEach-Object { $t = $_; foreach ($a in $t.Actions) { [pscustomobject]@{
-  Task=$t.TaskPath+$t.TaskName; State=[string]$t.State; Logon=[string]$t.Principal.LogonType; Execute=$a.Execute; Arguments=$a.Arguments } } } |
+Get-ScheduledTask | ForEach-Object { $st = $_; foreach ($act in $st.Actions) { [pscustomobject]@{
+  Task=$st.TaskPath+$st.TaskName; State=[string]$st.State; Logon=[string]$st.Principal.LogonType; Execute=$act.Execute; Arguments=$act.Arguments } } } |
   Where-Object { ($_.Execute + ' ' + $_.Arguments) -match 'venv|python|\.ps1' } |
   Export-Csv -LiteralPath "$HR\h3-tasks.csv" -NoTypeInformation -Encoding utf8
 # H4 (Q7): sibling venvs and their home
@@ -196,15 +213,18 @@ $ErrorActionPreference = 'Stop'
 $P       = '<production checkout>'                 # e.g. the WeatherSnapshotLoopSupervisor working directory
 $Py      = Join-Path $P 'venv\Scripts\python.exe'
 $R       = '<cutover record root, outside data\ and outside the checkout>'
-$WH      = Join-Path $R 'wheelhouse'; $Inst = Join-Path $R 'installer'; $Tools = Join-Path $R 'tools'
+$WH      = Join-Path $R 'wheelhouse'; $Tools = Join-Path $R 'tools'   # $Inst (installer) retired 2026-10-13
 $A       = Join-Path $R 'receipts-3110'
-$NewHome = '<new 3.11.9 home, e.g. C:\Python\cp3119>'
+$NewHome = '<new 3.11.9 home, e.g. C:\Program Files\Python311-cp3119>'   # under Program Files: Users get read/execute only
 $NewPy   = Join-Path $NewHome 'python.exe'
 $Stage   = '<stage worktree next to the checkout>'; $StagePy = Join-Path $Stage 'venv\Scripts\python.exe'
 $Old     = Join-Path $P 'venv-cp3110'
 $Log     = Join-Path $R 'night.log'
 New-Item -ItemType Directory -Force $R, $Tools, $A | Out-Null
 $K = if (Test-Path -LiteralPath (Join-Path $R 'constants.json')) { Get-Content -LiteralPath (Join-Path $R 'constants.json') -Raw | ConvertFrom-Json }   # §6a
+if ($K) { foreach ($kk in 'nupkg_url','nupkg_size','nupkg_sha512_b64','tools_manifest_sha256','binary_signer_thumbprint','vv_prefix','binaries') { if (-not $K.$kk) { throw "constants.json lacks $kk" } } }
+# Session globals that a later phase reads come from files, never from an earlier session (A1 writes oldhome.txt).
+$OldHome = if (Test-Path -LiteralPath "$R\oldhome.txt") { (Get-Content -LiteralPath "$R\oldhome.txt" -TotalCount 1).Trim() }
 function Log($m){ $l = "{0:o} {1}" -f (Get-Date), $m; Add-Content -LiteralPath $Log -Value $l -Encoding utf8; Write-Host $l }
 # The lease lives in the session's global scope. While $global:ReleaseOnNoGo is set (B0-B1e, and C1 until the C4 rename),
 # every NoGo releases it; after the C4 rename it stays held for §R.
@@ -216,10 +236,10 @@ function Sha($f){ (Get-FileHash -LiteralPath $f -Algorithm SHA256).Hash.ToUpper(
 # $ErrorActionPreference is 'Stop': Windows PowerShell 5.1 turns each stderr line into a terminating error.
 function Invoke-Native([string]$Exe, [string[]]$Arguments, [string]$OutBase) {
   $quoted = foreach ($a in $Arguments) { if ($a -match '[\s"]') { '"' + ($a -replace '"','\"') + '"' } else { $a } }
-  $p = Start-Process -FilePath $Exe -ArgumentList ($quoted -join ' ') -WorkingDirectory $P -NoNewWindow -Wait -PassThru `
+  $proc = Start-Process -FilePath $Exe -ArgumentList ($quoted -join ' ') -WorkingDirectory $P -NoNewWindow -Wait -PassThru `
         -RedirectStandardOutput "$OutBase.out.txt" -RedirectStandardError "$OutBase.err.txt"
-  $p.WaitForExit(); if ($null -eq $p.ExitCode) { NoGo "no exit code from $Exe" }
-  Log ("native exit {0}: {1} {2}" -f $p.ExitCode, (Split-Path -Leaf $Exe), ($Arguments -join ' ')); [int]$p.ExitCode }
+  $proc.WaitForExit(); if ($null -eq $proc.ExitCode) { NoGo "no exit code from $Exe" }
+  Log ("native exit {0}: {1} {2}" -f $proc.ExitCode, (Split-Path -Leaf $Exe), ($Arguments -join ' ')); [int]$proc.ExitCode }
 # Release readiness as parsed fields (release_lifecycle_cli prints JSON; a BLOCK goes to stderr with a non-zero exit)
 function Get-ReleaseActive([string]$Exe, [string]$OutBase) {
   $code = Invoke-Native $Exe @('-m','weather.operations.release_lifecycle_cli','--repo-root',$P,'active') $OutBase
@@ -251,7 +271,12 @@ Trap reminders ([operations agent role](OPERATIONS_AGENT_ROLE.md) §5):
 - use `-LiteralPath`;
 - never append `2>$null` to native `git`;
 - never run a recursive listing of `data\`;
-- track and terminate every process you start.
+- track and terminate every process you start;
+- an agent session runs in Windows session 0, so any window it starts (an installer, a UAC prompt) is invisible. A step that needs the owner to click runs in the owner's own elevated window (seen on the host, 2026-10-13);
+- a value one phase assigns is `$null` in the fresh session of a later night: read it from the file that phase wrote
+  (the §6 header reads `oldhome.txt`), never from a variable set earlier (found in review 2026-10-13);
+- PowerShell variable names ignore case, and `foreach` and `ForEach-Object` assign in the session scope: a loop variable `$k`, `$p`, `$a` or `$r` overwrites `$K`, `$P`, `$A` or `$R`. Never reuse a session constant's name for a loop variable (a `foreach ($k ...)` in C6 would have rolled back every cutover; found in review 2026-10-13);
+- never follow `night.log` with a tailing reader (`Get-Content -Wait`, `tail -F`): it can hold the file so that `Log`'s `Add-Content` fails and stops the phase. Read snapshots instead (seen on the host, 2026-10-13).
 
 Plain `& $exe ...; if ($LASTEXITCODE)` calls with no stderr redirection are safe under `Stop`.
 
@@ -263,15 +288,16 @@ where §R needs the lease.
 
 ### 6a. Constants file (prepared before Phase A, reviewed in the handoff)
 
-`$R\constants.json` holds the published installer facts. It keeps them in one reviewed place,
+`$R\constants.json` holds the published package and binary facts. It keeps them in one reviewed place,
 not in prose. Source each value as stated:
 
 | Key | Source |
 | --- | --- |
-| `installer_url` | python.org 3.11.9 release page (`python-3.11.9-amd64.exe`) |
-| `installer_size`, `installer_md5` | python.org release page / release API |
-| `installer_sha256` | `microsoft/winget-pkgs`, manifest for `Python.Python.3.11` version 3.11.9 (third-party, Q9) |
-| `signer_subject_prefix`, `signer_thumbprint` | Authenticode of the same installer, observed on the workstation |
+| `nupkg_url` | `https://api.nuget.org/v3-flatcontainer/python/3.11.9/python.3.11.9.nupkg` (the `packageContent` of the nuget.org registration for `python` 3.11.9) |
+| `nupkg_size`, `nupkg_sha512_b64` | `packageSize` and `packageHash` (SHA512, base64) of the nuget.org catalog entry for `python` 3.11.9 |
+| `tools_manifest_sha256` | §6a-W0 on the workstation, from the same package after its SHA-512 check |
+| `binary_signer_thumbprint` | PSF Authenticode thumbprint of `python.exe` in the workstation's installer-built 3.11.9 home |
+| `installer_*`, `signer_*` | Retired with the 2026-10-13 revision (the installer is not run). Keep them for the record. |
 | `vv_prefix` | `python -VV` of the workstation's 3.11.9 install, up to the first comma |
 | `binaries` | SHA-256 of `python.exe`, `pythonw.exe`, `python311.dll`, `python3.dll`, `vcruntime140*.dll`, `Lib\venv\scripts\nt\python(w).exe`, `DLLs\_ssl.pyd`, `DLLs\libssl-3.dll`, `DLLs\libcrypto-3.dll` from the workstation's 3.11.9 home |
 
@@ -282,9 +308,50 @@ never the host:
 $WsHome = (& .\venv\Scripts\python.exe -c "import sys; print(sys.base_prefix)").Trim()
 $rel = 'python.exe','pythonw.exe','python311.dll','python3.dll','vcruntime140.dll','vcruntime140_1.dll',
        'Lib\venv\scripts\nt\python.exe','Lib\venv\scripts\nt\pythonw.exe','DLLs\_ssl.pyd','DLLs\libssl-3.dll','DLLs\libcrypto-3.dll'
-$b = [ordered]@{}; foreach ($r in $rel) { $b[$r] = (Get-FileHash -LiteralPath (Join-Path $WsHome $r) -Algorithm SHA256).Hash.ToUpper() }
+$b = [ordered]@{}; foreach ($rp in $rel) { $b[$rp] = (Get-FileHash -LiteralPath (Join-Path $WsHome $rp) -Algorithm SHA256).Hash.ToUpper() }
 [ordered]@{ vv_prefix = ((& (Join-Path $WsHome 'python.exe') -VV) -replace ',.*$',''); binaries = $b } | ConvertTo-Json
 ```
+
+**6a-W0. NuGet manifest (workstation, read-only toward the host; needs the G12 download approval).**
+It runs in an empty scratch folder on the workstation, never the host. It proves the package's
+`binaries` equal the installer-built home, and pins the exact extracted tree for A4.
+
+```powershell
+$W = '<empty scratch folder>'; $Pkg = Join-Path $W 'python.3.11.9.nupkg'
+curl.exe -fsSL --proto '=https' --tlsv1.2 -o $Pkg 'https://api.nuget.org/v3-flatcontainer/python/3.11.9/python.3.11.9.nupkg'
+$want512 = -join ([Convert]::FromBase64String('<packageHash from the catalog entry>') | ForEach-Object { $_.ToString('X2') })
+if ((Get-FileHash -LiteralPath $Pkg -Algorithm SHA512).Hash.ToUpper() -ne $want512) { throw 'nupkg sha512' }
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+[IO.Compression.ZipFile]::ExtractToDirectory($Pkg, (Join-Path $W 'x')); $T = Join-Path $W 'x\tools'
+if (Get-ChildItem -LiteralPath (Join-Path $W 'x') -Recurse | Where-Object Name -like '*%*') { throw 'encoded entry name' }
+[string[]]$tree = Get-ChildItem -LiteralPath $T -Recurse -File | ForEach-Object { '{0}  {1}' -f (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToUpper(), $_.FullName.Substring($T.Length) }
+[Array]::Sort($tree, [StringComparer]::Ordinal)
+$tree | Set-Content (Join-Path $W 'nuget-tools-sha256.txt') -Encoding utf8
+-join ([Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes(($tree -join "`n"))) | ForEach-Object { $_.ToString('X2') })   # tools_manifest_sha256
+$WsHome = '<workstation installer-built 3.11.9 home>'; if ((& (Join-Path $WsHome 'python.exe') -VV) -notlike 'Python 3.11.9*') { throw 'ws home' }
+$tree | ForEach-Object { $h, $rel = $_ -split '  ', 2; $o = Join-Path $WsHome $rel.TrimStart('\')
+  if (-not (Test-Path -LiteralPath $o)) { "ONLY-NUGET $rel" } elseif ((Get-FileHash -LiteralPath $o -Algorithm SHA256).Hash.ToUpper() -ne $h) { "DIFF $rel" } }
+$nset = [Collections.Generic.HashSet[string]]::new([string[]]($tree | ForEach-Object { ($_ -split '  ', 2)[1] }), [StringComparer]::OrdinalIgnoreCase)
+$expected = '\\__pycache__\\|^\\(tcl|Tools\\scripts|Lib\\(site-packages|idlelib|tkinter|turtledemo|test|ctypes\\test|distutils\\tests|lib2to3\\tests|unittest\\test))\\|' +
+            '^\\(NEWS\.txt|Lib\\turtle\.py|Scripts\\pip[0-9.]*\.exe|libs\\_tkinter\.lib|DLLs\\(tcl86t\.dll|tk86t\.dll|_tkinter\.pyd|pyc?d?\.ico|python_(lib|tools)\.cat))$'
+Get-ChildItem -LiteralPath $WsHome -Recurse -File | ForEach-Object { $_.FullName.Substring($WsHome.TrimEnd('\').Length) } |
+  Where-Object { -not $nset.Contains($_) } | ForEach-Object { if ($_ -match $expected) { "ONLY-INSTALLER $_" } else { "ONLY-INSTALLER-UNEXPECTED $_" } }
+```
+
+Go/no-go W0: every `binaries` path is present and not `DIFF`; any `DIFF` or `ONLY-NUGET` outside
+`Lib\site-packages\*.dist-info\`, `__pycache__`, `libs\*.lib` and `DLLs\python.cat` is NO-GO (the
+nuget.org SHA-512 has the same origin as the download, so this full-tree comparison against the
+python.org-installer home is the independent check on every file A4 pins); no extracted name
+contains `%`; any `ONLY-INSTALLER-UNEXPECTED` line is NO-GO (the reverse pass's `$expected` pattern is
+the reviewed list of installer-only content). The two extra exemptions were added after the first W0 run (2026-10-13), which found
+exactly two `DIFF`s (the `RECORD` files of `pip` and `setuptools`) and 22 `ONLY-NUGET` files: 21
+link-time import libraries under `libs\` (the installer adds only `python3.lib`, `python311.lib` and
+`_tkinter.lib`; no runtime path loads a `.lib`) and the package's PSF-signed `DLLs\python.cat`
+(Authenticode `Valid`, `binary_signer_thumbprint`). The reverse pass's expected set is what the package omits: `tkinter`,
+Tcl/Tk, `idlelib`, `turtle`, `test`, the `ctypes`, `distutils`, `lib2to3` and `unittest` test packages,
+`turtledemo`, `Tools\scripts`, base `Scripts\pip*.exe`, icons, `NEWS.txt` and the installer's two
+catalogs (`Lib\site-packages` is exempt because a workstation home holds its own installs); nothing under `src/`, `app/`, `tools/`, `scripts/` or
+`tests/` imports them, venv `pip` comes from `ensurepip`, and the bounded suite in B2 is the proof.
 
 ### 6b. Helper scripts (verbatim; copy into `$Tools`, outside `$WH`)
 
@@ -348,7 +415,7 @@ sys.exit(1 if bad else 0)
 | --- | --- | --- | --- | --- |
 | §4 host reads | before sign-off | 00:30-09:00, serial | no | none |
 | §T tzdata (if Q13 = earlier night) | an earlier night | 00:30-04:45 | yes | none until the next worker restart |
-| A install side by side | any night after sign-off | 00:30-09:00, owner at the machine | no | none |
+| A install side by side | an owner-named morning after sign-off | 00:30-09:00, elevated operator session (no owner click since 2026-10-13) | no | none |
 | B wheelhouse, stage venv, bounded suite | a prep night after A; G5 and G7 hold | B0 by 02:00, suite start by 03:00, finished by 04:45 | yes (released before B2) | none |
 | C cutover | the signed night (G7, G8, G11) | 00:30-02:25; rollback starts by 02:45 | yes | about 20-35 min gap |
 | §D cleanup | a later night | 00:30-04:45 | no | none |
@@ -369,7 +436,7 @@ morning: "00:30 on 10-16" is the night of 10-15 to 10-16.
 
 | Phase | Primary | Fallback | Reason |
 | --- | --- | --- | --- |
-| A install (owner at the machine) | Tue 10-13, about 07:30-09:00 (owner's pick) | Fri 10-16, same slot | It shares the morning of the N8 merge night. It takes no lease and starts only after the N8 sequence has handed back; if a landing is still running or needs recovery, A moves to the fallback. It overlaps the 06:50 91a run with light I/O only. It runs before §T, so §T ends with T-R. |
+| A install (elevated operator session; no owner click since 2026-10-13) | owner-named morning, about 07:30-09:00 (the 10-13 attempt stopped at A4; re-set in the state of play) | owner-named | It shares the morning of the N8 merge night. It takes no lease and starts only after the N8 sequence has handed back; if a landing is still running or needs recovery, A moves to the fallback. It overlaps the 06:50 91a run with light I/O only. It runs before §T, so §T ends with T-R. |
 | §T tzdata + T-R | 00:30-02:00 on Thu 10-15 | 00:30 on Fri 10-16 | First admitted night after N9 (00:30 on 10-14). |
 | B prep night | 00:30-04:45 on Fri 10-16 | 00:30 on Sat 10-17 | After A and after §T's T-R (B builds its lock from the refreshed freeze). |
 | C cutover | 00:30-02:25 on Sat 10-17 (owner-named) | the next night inside 10-15..10-30 that meets G4 and G5, named by the owner (G0) | The night after B, so the qualified tip has little time to move (G3); after the freeze (G8). If B uses its fallback (10-17), C moves too. |
@@ -489,54 +556,84 @@ robocopy $OldHome '<freeze copy, e.g. C:\PyFreeze\cp3110>' /E /COPY:DAT /DCOPY:D
 if ($LASTEXITCODE -ge 8) { NoGo "robocopy exit $LASTEXITCODE" }
 ```
 
-**A3. Download and verify the installer on the host (approved download).**
+**A3. Download and verify the NuGet package on the host (approved download, G12).**
 
 ```powershell
-if (Test-Path -LiteralPath $Inst) { NoGo 'installer dir exists; inspect first' }
-New-Item -ItemType Directory $Inst | Out-Null
-$Exe = Join-Path $Inst 'python-3.11.9-amd64.exe'
-curl.exe -fsSL --proto '=https' --tlsv1.2 -o $Exe $K.installer_url; if ($LASTEXITCODE) { NoGo "curl $LASTEXITCODE" }
-$len = (Get-Item -LiteralPath $Exe).Length; $md5 = (Get-FileHash -LiteralPath $Exe -Algorithm MD5).Hash.ToLower(); $sha = Sha $Exe
-$sig = Get-AuthenticodeSignature -LiteralPath $Exe
-Log "installer len=$len md5=$md5 sha256=$sha sig=$($sig.Status) thumb=$($sig.SignerCertificate.Thumbprint)"
-if ($len -ne [int64]$K.installer_size) { NoGo 'size' }
-if ($md5 -ne $K.installer_md5.ToLower()) { NoGo 'md5' }
-if ($sha -ne $K.installer_sha256.ToUpper()) { NoGo 'sha256' }
-if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notlike "$($K.signer_subject_prefix)*" -or $sig.SignerCertificate.Thumbprint -ne $K.signer_thumbprint) { NoGo 'authenticode' }
+if (-not $K) { NoGo 'constants.json is missing' }
+$Nup = Join-Path $R 'nuget'
+if (Test-Path -LiteralPath $Nup) { NoGo 'nuget dir exists; inspect first' }
+New-Item -ItemType Directory $Nup | Out-Null
+$Pkg = Join-Path $Nup 'python.3.11.9.nupkg'
+curl.exe -fsSL --proto '=https' --tlsv1.2 -o $Pkg $K.nupkg_url; if ($LASTEXITCODE) { NoGo "curl $LASTEXITCODE" }
+$len = (Get-Item -LiteralPath $Pkg).Length
+$want512 = -join ([Convert]::FromBase64String($K.nupkg_sha512_b64) | ForEach-Object { $_.ToString('X2') })
+$have512 = (Get-FileHash -LiteralPath $Pkg -Algorithm SHA512).Hash.ToUpper()
+Log "nupkg len=$len sha512=$have512 sha256=$(Sha $Pkg)"
+if ($len -ne [int64]$K.nupkg_size) { NoGo 'nupkg size' }
+if ($have512 -ne $want512) { NoGo 'nupkg sha512' }
 ```
 
-**A4. UAC install (the owner clicks).** Set the scope from H1 (Q4): `InstallAllUsers=1` if the
-existing 3.11.0 is per-user, `0` if it is all-users. PATH, the launcher, file associations,
-shortcuts and precompile are all off.
+**A4. Copy the package's `tools` tree into the new home (elevated operator session; no installer).**
+Nothing is registered: no PEP 514 key, no uninstall entry, no launcher, no PATH change. The copy
+takes the ACL of the destination (`robocopy /COPY:DAT` copies no security), so under Program Files
+ordinary users get read and execute only; a home directly under `C:\` would inherit Modify for
+Authenticated Users, which A4 refuses.
 
 ```powershell
-$before = @{ M=[Environment]::GetEnvironmentVariable('Path','Machine'); U=[Environment]::GetEnvironmentVariable('Path','User') }
-$AllUsers = '<1 or 0 from H1>'
-$instArgs = @("InstallAllUsers=$AllUsers","TargetDir=$NewHome","DefaultAllUsersTargetDir=$NewHome","DefaultJustForMeTargetDir=$NewHome",
-  'PrependPath=0','AppendPath=0','Include_launcher=0','InstallLauncherAllUsers=0','AssociateFiles=0','Shortcuts=0','CompileAll=0',
-  'Include_symbols=0','Include_debug=0','Include_test=0','Include_doc=0','Include_tcltk=1','/log',"$R\install.log")
-$proc = Start-Process -FilePath $Exe -ArgumentList $instArgs -Verb RunAs -Wait -PassThru; Log "installer exit $($proc.ExitCode)"
-```
-
-Owner instructions:
-- The first page must say **"Install Python 3.11.9"**. If it says *Upgrade* or *Modify*, click **Cancel**: that is NO-GO, and Q4 goes back to the owner.
-- Choose *Customize installation*. Confirm the scope and the target directory, and that the launcher, environment variables and precompile are off.
-
-```powershell
-if ($proc.ExitCode -ne 0) { NoGo "installer exit $($proc.ExitCode)" }
-foreach ($p in $K.binaries.PSObject.Properties) { if ((Sha (Join-Path $NewHome $p.Name)) -ne $p.Value) { NoGo "binary $($p.Name)" } }
+if (Test-Path -LiteralPath $NewHome) { NoGo 'new home exists; inspect first' }
+function Get-PyCoreKeys { @(foreach ($k in 'HKCU:\Software\Python\PythonCore','HKLM:\SOFTWARE\Python\PythonCore','HKLM:\SOFTWARE\WOW6432Node\Python\PythonCore') {
+  Get-ChildItem -LiteralPath $k -ErrorAction SilentlyContinue | ForEach-Object Name }) -join '|' }
+$before = @{ M=[Environment]::GetEnvironmentVariable('Path','Machine'); U=[Environment]::GetEnvironmentVariable('Path','User'); Reg=(Get-PyCoreKeys) }
+$X = Join-Path $Nup 'x'
+if (Test-Path -LiteralPath $X) { Remove-Item -LiteralPath $X -Recurse -Force; Log 'removed a partial extraction from an earlier A4 run' }
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+[IO.Compression.ZipFile]::ExtractToDirectory($Pkg, $X)
+$T = Join-Path $X 'tools'
+if (Get-ChildItem -LiteralPath $T -Filter '*._pth' -File) { NoGo 'a ._pth file is present' }
+function Get-Tree([string]$Root) { $n = $Root.TrimEnd('\').Length
+  [string[]]$a = Get-ChildItem -LiteralPath $Root -Recurse -File | ForEach-Object { '{0}  {1}' -f (Sha $_.FullName), $_.FullName.Substring($n) }
+  [Array]::Sort($a, [StringComparer]::Ordinal); ,$a }
+$tree = Get-Tree $T; $tree | Set-Content "$R\nuget-tools-sha256.txt" -Encoding utf8
+$treeSha = -join ([Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes(($tree -join "`n"))) | ForEach-Object { $_.ToString('X2') })
+Log "nuget tools files=$($tree.Count) manifest=$treeSha"
+if ($treeSha -ne $K.tools_manifest_sha256.ToUpper()) { NoGo 'nuget tools tree differs from the reviewed manifest' }
+if (-not (Test-Path -LiteralPath (Split-Path -Parent $NewHome) -PathType Container)) { NoGo 'the parent of the new home must already exist (C:\Program Files)' }
+function Get-WeakAce([string]$Dir) { @((Get-Acl -LiteralPath $Dir).Access | Where-Object { $_.AccessControlType -eq 'Allow' -and
+  [string]$_.IdentityReference -match '(^|\\)(Users|Authenticated Users|Everyone|INTERACTIVE)$' -and ([int]$_.FileSystemRights -band 0x500D0156) }) }
+if ((Get-WeakAce (Split-Path -Parent $NewHome)).Count) { NoGo 'the parent of the new home grants ordinary users write access' }
+robocopy $T $NewHome /E /COPY:DAT /DCOPY:DAT /R:1 /W:1 /NFL /NDL /NP /LOG:"$R\robocopy-newhome.log"
+if ($LASTEXITCODE -ge 8) { NoGo "robocopy exit $LASTEXITCODE" }
+if (Compare-Object -CaseSensitive $tree (Get-Tree $NewHome)) { NoGo 'new home differs from the verified tree' }
+$weak = Get-WeakAce $NewHome
+if ($weak.Count) { NoGo "new home is writable by $($weak.IdentityReference -join ', ')" }
+foreach ($f in 'python.exe','pythonw.exe','python311.dll','Lib\venv\scripts\nt\python.exe','Lib\venv\scripts\nt\pythonw.exe') {
+  $s = Get-AuthenticodeSignature -LiteralPath (Join-Path $NewHome $f)
+  if ($s.Status -ne 'Valid' -or $s.SignerCertificate.Thumbprint -ne $K.binary_signer_thumbprint) { NoGo "authenticode $f" } }
+foreach ($bp in $K.binaries.PSObject.Properties) { if ((Sha (Join-Path $NewHome $bp.Name)) -ne $bp.Value) { NoGo "binary $($bp.Name)" } }
 if ((& $NewPy -VV) -notlike "$($K.vv_prefix)*") { NoGo 'new -VV' }
 $now = Get-ChildItem -LiteralPath $OldHome -Recurse -File | Where-Object { $_.FullName -notmatch '\\__pycache__\\' } | ForEach-Object { '{0}  {1}' -f (Sha $_.FullName), $_.FullName.Substring($OldHome.Length) }
 if (Compare-Object (Get-Content "$A\oldhome-sha256.txt") $now) { NoGo 'OLD HOME CHANGED' }
 if ((& $Py -VV) -notlike 'Python 3.11.0*') { NoGo 'prod venv no longer 3.11.0' }
 if ([Environment]::GetEnvironmentVariable('Path','Machine') -ne $before.M -or [Environment]::GetEnvironmentVariable('Path','User') -ne $before.U) { NoGo 'PATH changed' }
+if ((Get-PyCoreKeys) -ne $before.Reg) { NoGo 'PEP 514 registrations changed' }
 $null = Invoke-Native $NewPy @('-I','-c','import ssl, sqlite3, zlib, pyexpat; print(ssl.OPENSSL_VERSION); print(sqlite3.sqlite_version); print(zlib.ZLIB_RUNTIME_VERSION); print(pyexpat.EXPAT_VERSION)') "$R\native-3119"
+$Smoke = Join-Path $Nup 'venv-smoke'
+& $NewPy -I -m venv $Smoke; if ($LASTEXITCODE) { NoGo 'smoke venv' }
+foreach ($ln in 'python.exe','pythonw.exe') { if ((Sha (Join-Path $Smoke "Scripts\$ln")) -ne $K.binaries."Lib\venv\scripts\nt\$ln") { NoGo "smoke launcher $ln" } }
+& (Join-Path $Smoke 'Scripts\python.exe') -I -m pip --version | Set-Content "$R\smoke-pip.txt" -Encoding utf8; if ($LASTEXITCODE) { NoGo 'smoke pip' }
+Remove-Item -LiteralPath $Smoke, $X -Recurse -Force
 Log 'PHASE A PASS'
 ```
 
-If A4 fails after the installer ran:
-- restore the old home from the freeze copy if it changed;
-- check capture with the next `status.ps1` run;
+The smoke venv proves B1c and C5 will work from this home: the venv launchers are present and
+equal the pinned ones, and `ensurepip` installs its bundled pip. B1a and B1b run `$NewPy -m pip`
+from the home's own `site-packages` (the package ships pip there, as the installer does).
+
+If A4 fails:
+- nothing was installed or registered: delete `$NewHome` if it exists, and keep `$Nup` and the log. A4 can then be
+  re-run on its own (it clears `$Nup\x` and re-checks the extracted tree against `tools_manifest_sha256`); do not re-run A3,
+  which refuses an existing `$Nup`;
+- if `OLD HOME CHANGED` fired, restore the old home from the freeze copy and check capture with the next `status.ps1` run;
 - do not continue to Phase B.
 
 ### Phase B. Wheelhouse, stage venv, qualification (prep night; capture keeps running on 3.11.0)
@@ -545,8 +642,8 @@ If A4 fails after the installer ran:
 
 ```powershell
 $h = (Get-Date).Hour + (Get-Date).Minute/60; if ($h -lt 0.5 -or $h -ge 2.0) { NoGo 'outside the Phase B start window' }
-foreach ($t in 'WeatherTrainingWindow','WeatherEveningEvidenceRefresh') { $x = Get-ScheduledTask -TaskName $t -ErrorAction SilentlyContinue
-  if ($x -and [string]$x.State -ne 'Disabled') { NoGo "$t is enabled (G5)" } }
+foreach ($tn in 'WeatherTrainingWindow','WeatherEveningEvidenceRefresh') { $x = Get-ScheduledTask -TaskName $tn -ErrorAction SilentlyContinue
+  if ($x -and [string]$x.State -ne 'Disabled') { NoGo "$tn is enabled (G5)" } }
 Assert-NoU6At0035 'B0'
 $mg = Read-WeatherMemoryGuardStatus -Path (Join-Path $P 'data\logs\memory_commit_guard_status.json'); Log "memory $($mg | ConvertTo-Json -Compress)"
 if ((Get-Volume -DriveLetter C).SizeRemaining -lt 55GB) { NoGo 'disk below the bounded-suite floor plus margin' }
@@ -623,6 +720,14 @@ function Test-Venv($vpy, $root, $tag) {
     $loc = & $vpy -c "import weather, maker_core; print(weather.__file__); print(maker_core.__file__)"; if ($LASTEXITCODE) { NoGo "$tag import location" }
     $src = (Join-Path $root 'src') + '\'
     foreach ($l in $loc) { if (-not $l.StartsWith($src, [StringComparison]::OrdinalIgnoreCase)) { NoGo "$tag package imported from $l, not $src" } }
+    # Without -I (as the workers run): the stdlib comes from the new home and no sys.path entry reaches the
+    # 3.11.0 home, whose PEP 514 PythonPath key shares sys.winver 3.11.
+    $std = & $vpy -c "import os, ssl, sys; print(os.__file__); print(ssl.__file__); print('\n'.join(p for p in sys.path if p))"; if ($LASTEXITCODE) { NoGo "$tag stdlib location" }
+    $std | Set-Content "$out\stdlib-path.txt" -Encoding utf8
+    if (-not $OldHome) { NoGo "$tag oldhome.txt missing" }
+    $nh = $NewHome.TrimEnd('\') + '\'; $oh = $OldHome.TrimEnd('\') + '\'
+    foreach ($s in $std[0..1]) { if (-not $s.StartsWith($nh, [StringComparison]::OrdinalIgnoreCase)) { NoGo "$tag stdlib from $s, not $nh" } }
+    foreach ($s in $std) { if (($s.TrimEnd('\') + '\').StartsWith($oh, [StringComparison]::OrdinalIgnoreCase)) { NoGo "$tag sys.path reaches the 3.11.0 home: $s" } }
   } finally { Pop-Location }
   Push-Location -LiteralPath $root
   try {
@@ -729,8 +834,8 @@ if ($Head -ne $q.tip) { Log "HEAD moved from the qualified tip; master must atta
 if (git -C $P status --porcelain --untracked-files=no) { NoGo 'prod tree dirty' }
 if (Test-Path -LiteralPath $Old) { NoGo "$Old exists" }
 if ((Get-Volume -DriveLetter C).SizeRemaining -lt 10GB) { NoGo 'disk' }
-foreach ($t in 'WeatherTrainingWindow','WeatherEveningEvidenceRefresh') { $x = Get-ScheduledTask -TaskName $t -ErrorAction SilentlyContinue
-  if ($x -and [string]$x.State -ne 'Disabled') { NoGo "$t is enabled (G5)" } }
+foreach ($tn in 'WeatherTrainingWindow','WeatherEveningEvidenceRefresh') { $x = Get-ScheduledTask -TaskName $tn -ErrorAction SilentlyContinue
+  if ($x -and [string]$x.State -ne 'Disabled') { NoGo "$tn is enabled (G5)" } }
 $mg = Read-WeatherMemoryGuardStatus -Path (Join-Path $P 'data\logs\memory_commit_guard_status.json'); Log "memory $($mg | ConvertTo-Json -Compress)"
 Log "lease state $((Get-WeatherHeavyWorkloadLeaseState -RepoRoot $P) | ConvertTo-Json -Compress)"
 $st0 = Invoke-Native 'powershell.exe' @('-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $P 'scripts\ops\status.ps1'),'-Json') "$R\c0-status"
@@ -782,8 +887,8 @@ $Holders = 'WeatherExecutionTapeSupervisor','WeatherMakerShadowRunner','WeatherM
 function Undo-Aux { foreach ($row in Import-Csv "$N\aux-prestate.csv") { if ($row.State -ne 'Disabled') { Enable-ScheduledTask -TaskName $row.Task | Out-Null } }
   if ($ShadowStop) { Remove-Item -LiteralPath $ShadowStop -ErrorAction SilentlyContinue } }
 function Start-AuxHolders {   # restart the long-running holders that C2 stopped, only where their pre-state was enabled
-  foreach ($t in $Holders) { $row = Import-Csv "$N\aux-prestate.csv" -ErrorAction SilentlyContinue | Where-Object Task -eq $t
-    if ($row -and $row.State -ne 'Disabled') { Start-ScheduledTask -TaskName $t; Log "started $t" } } }
+  foreach ($tn in $Holders) { $row = Import-Csv "$N\aux-prestate.csv" -ErrorAction SilentlyContinue | Where-Object Task -eq $tn
+    if ($row -and $row.State -ne 'Disabled') { Start-ScheduledTask -TaskName $tn; Log "started $tn" } } }
 function Stop-Tape([string]$Exe) {
   # 'stop' exits 0 only when it stopped a live worker (execution_tape_supervisor.py:909-912). A worker that is
   # already gone returns authorization.process_gone=true / recorded_process_not_found (supervisor.py:1353-1361),
@@ -811,8 +916,8 @@ function Quiesce-Aux([string]$Exe, [switch]$Soft) {
       New-Item -ItemType File -Force $ShadowStop | Out-Null
       $t0 = Get-Date; while ([string](Get-ScheduledTask -TaskName WeatherMakerShadowRunner).State -eq 'Running' -and ((Get-Date)-$t0).TotalSeconds -lt 180) { Start-Sleep 10 }
       if ([string](Get-ScheduledTask -TaskName WeatherMakerShadowRunner).State -eq 'Running') { NoGo 'shadow did not seal in 3 min' } } } $Soft.IsPresent
-  foreach ($t in $Aux) { Invoke-QStep "disable $t" { Disable-ScheduledTask -TaskName $t | Out-Null
-    if ([string](Get-ScheduledTask -TaskName $t).State -ne 'Disabled') { NoGo "disable $t" } } $Soft.IsPresent }
+  foreach ($tn in $Aux) { Invoke-QStep "disable $tn" { Disable-ScheduledTask -TaskName $tn | Out-Null
+    if ([string](Get-ScheduledTask -TaskName $tn).State -ne 'Disabled') { NoGo "disable $tn" } } $Soft.IsPresent }
   Invoke-QStep 'tape' { Stop-Tape $Exe } $Soft.IsPresent
   Invoke-QStep '88a' {   # only with the recorded owner choice (G8, Q12)
     if (((Get-Content -LiteralPath "$R\q12.txt" -TotalCount 1) -split '\s+')[0] -ne 'STOP_AUTHORIZED') { NoGo 'Q12 not STOP_AUTHORIZED' }
@@ -836,8 +941,8 @@ when the loop was already stopped (`snapshot_tracker.py:2413-2415`, `market_micr
 # $Exe is one interpreter for everything (C3), or a hashtable with keys snapshot, clob, obs and gate (§R, per worker).
 function Stop-Capture($Exe, [switch]$Soft) {
   $X = if ($Exe -is [hashtable]) { $Exe } else { @{ snapshot=$Exe; clob=$Exe; obs=$Exe; gate=$Exe } }
-  foreach ($t in $Sup) { Invoke-QStep "disable $t" { Disable-ScheduledTask -TaskName $t | Out-Null
-    if ([string](Get-ScheduledTask -TaskName $t).State -ne 'Disabled') { NoGo "disable $t" } } $Soft.IsPresent }
+  foreach ($tn in $Sup) { Invoke-QStep "disable $tn" { Disable-ScheduledTask -TaskName $tn | Out-Null
+    if ([string](Get-ScheduledTask -TaskName $tn).State -ne 'Disabled') { NoGo "disable $tn" } } $Soft.IsPresent }
   $stamp = Get-Date -Format HHmmss; $script:c1 = $script:c2 = $script:c3 = 99
   Invoke-QStep 'stop snapshot' { $script:c1 = Invoke-Native $X.snapshot @('-m','weather.collection.snapshot_tracker','--stop') "$N\stop-snapshot-$stamp" } $Soft.IsPresent
   Invoke-QStep 'stop clob'     { $script:c2 = Invoke-Native $X.clob @('-m','weather.market.market_microstructure','stop') "$N\stop-clob-$stamp" } $Soft.IsPresent
@@ -860,7 +965,7 @@ function Wait-Restore([datetime]$Since) {   # S4U restore; the task limit is 15 
       if ($rerun) { return $false }; $rerun = $true; Log 'restore did not pass; one rerun'; $Since = Get-Date; Start-ScheduledTask -TaskName WeatherTrainingWindowRestore } }
   return $false }
 function Undo-Stop {   # pre-rename undo: the venv is still the intact 3.11.0
-  foreach ($t in $Sup) { Invoke-QStep "enable $t" { Enable-ScheduledTask -TaskName $t | Out-Null } $true }
+  foreach ($tn in $Sup) { Invoke-QStep "enable $tn" { Enable-ScheduledTask -TaskName $tn | Out-Null } $true }
   $ok = Wait-Restore (Get-Date); Invoke-QStep 'undo aux' { Undo-Aux; Start-AuxHolders } $true
   if ($ok) { Log 'undo: capture 3/3, aux tasks restored' } else { Log 'ESCALATE: undo restore did not report capture_recovery_pass' } }
 ```
@@ -905,7 +1010,10 @@ Log 'C4 renamed'                  # from here on a failure means §R, which keep
 C4 never kills a holder. An unknown holder means NO-GO with no swap. The holder file goes to the
 owner.
 
-**C5. Build the new venv offline.** From here on, any failure means §R.
+**C5. Build the new venv offline.** From here on, any failure means §R. The C session is fresh: before
+C5, define `Build-Venv` (B1c) and `Test-Venv` (B1d) in it by pasting those two function definitions
+only, not the B1c and B1d calls. Both read only §6 header values (`$R`, `$WH`, `$A`, `$K`, `$NewHome`,
+`$OldHome`).
 
 ```powershell
 & $NewPy -I -m venv (Join-Path $P 'venv'); if ($LASTEXITCODE) { NoGo 'venv create -> ROLLBACK' }
@@ -916,7 +1024,7 @@ Build-Venv $Py $P
 
 ```powershell
 Test-Venv $Py $P 'prod'      # includes the import-location check: weather and maker_core must import from $P\src
-foreach ($k in 'python.exe','pythonw.exe') { if ((Sha (Join-Path $P "venv\Scripts\$k")) -ne $K.binaries."Lib\venv\scripts\nt\$k") { NoGo "launcher $k -> ROLLBACK" } }
+foreach ($ln in 'python.exe','pythonw.exe') { if ((Sha (Join-Path $P "venv\Scripts\$ln")) -ne $K.binaries."Lib\venv\scripts\nt\$ln") { NoGo "launcher $ln -> ROLLBACK" } }
 Get-ChildItem -LiteralPath (Join-Path $P 'venv\Lib\site-packages') -Filter *.pth | ForEach-Object { "$($_.Name): $((Get-Content -LiteralPath $_.FullName) -join ' | ')" } |
   Set-Content "$N\pth-3119.txt" -Encoding utf8     # receipt only; the import-location check is the pass rule
 if (git -C $P status --porcelain --untracked-files=no) { NoGo 'tree dirty -> ROLLBACK' }
@@ -926,7 +1034,7 @@ if (git -C $P status --porcelain --untracked-files=no) { NoGo 'tree dirty -> ROL
 one full 15-minute run plus one rerun.
 
 ```powershell
-foreach ($t in $Sup) { Enable-ScheduledTask -TaskName $t | Out-Null }
+foreach ($tn in $Sup) { Enable-ScheduledTask -TaskName $tn | Out-Null }
 if (-not (Wait-Restore $GapStart)) { NoGo 'C7 not recovered -> ROLLBACK' }
 $GapEnd = Get-Date; Log ("C7 3/3; gap {0:n1} min" -f ($GapEnd-$GapStart).TotalMinutes)
 ```
@@ -1023,7 +1131,8 @@ Keep these for at least 14 days:
 - every 3.11.0 release manifest;
 - `$R`.
 
-Uninstalling 3.11.0 is a later, separate owner decision.
+Uninstalling 3.11.0 is a later, separate owner decision. The 3.11.9 home is a plain directory with no
+uninstall entry, so uninstalling 3.11.0 cannot touch it.
 
 ### §R. Rollback (start by 02:45, done by 03:45)
 
@@ -1071,7 +1180,7 @@ function Resolve-StopPy([string]$Key) {
   foreach ($c in @(@("$Old\Scripts\python.exe",'old'), @("$P\venv\Scripts\python.exe",'new'))) {
     if (Test-Interp $c[0] "$Key-$($c[1])") { Log "$Key stop interpreter $($c[0]) (probe fallback)"; return $c[0] } }
   Log "ESCALATE: no interpreter for $Key"; return $null }
-$X = @{}; foreach ($k in 'snapshot','clob','obs','tape') { $X[$k] = Resolve-StopPy $k }
+$X = @{}; foreach ($sk in 'snapshot','clob','obs','tape') { $X[$sk] = Resolve-StopPy $sk }
 $X.gate = @($X.snapshot, $X.clob, $X.obs, $X.tape | Where-Object { $_ })[0]     # the gate has no provenance check; any importable interpreter will do
 $X | ConvertTo-Json | Set-Content "$N\rollback-interpreters.json" -Encoding utf8
 Quiesce-Aux $X.tape -Soft         # idempotent: shadow STOP file, disable aux tasks, tape stop (already-stopped is fine), 88a stop (Q12)
@@ -1081,7 +1190,7 @@ if (Test-Path -LiteralPath "$P\venv") { if (-not (Rename-WithSweep "$P\venv" 've
 if (-not (Rename-WithSweep $Old 'venv' 'r2')) { NoGo 'ROLLBACK: venv-cp3110 cannot be renamed back - ESCALATE (holders file in $N); lease kept, see below' }
 if ((& "$P\venv\Scripts\python.exe" -VV) -notlike 'Python 3.11.0*') { Log 'ESCALATE: venv not 3.11.0' }
 if (Compare-Object (Get-Content "$A\freeze-3110.txt") (& "$P\venv\Scripts\python.exe" -m pip freeze --all)) { Log 'ESCALATE: freeze differs' }
-foreach ($t in $Sup) { Enable-ScheduledTask -TaskName $t | Out-Null }
+foreach ($tn in $Sup) { Enable-ScheduledTask -TaskName $tn | Out-Null }
 $rb = Wait-Restore (Get-Date)
 if ($rb) { Undo-Aux; Start-AuxHolders }
 else { Log 'ESCALATE: capture not 3/3 - aux tasks (including any U6 export) left DISABLED' }
@@ -1132,8 +1241,10 @@ owner. The aux tasks stay disabled, so a 04:10 U6 export cannot start on a half-
 ### §D. Cleanup after PASS (a later admitted night)
 
 ```powershell
+$QBranch = @(git -C $P branch --list 'py3119-qual-*' --format='%(refname:short)')   # B1 set it in an earlier session
+if ($QBranch.Count -ne 1) { throw "expected one py3119-qual-* branch, found $($QBranch.Count)" }
 git -C $P worktree remove $Stage      # use --force only if git refuses because of the ignored stage venv
-git -C $P branch -D $QBranch
+git -C $P branch -D $QBranch[0]
 ```
 
 ## 8. Release cases
@@ -1176,14 +1287,15 @@ started on 3.11.9 against a 3.11.0-bound release would fail `check_runtime`
 6. **State.** Production rewrites [the state of play](STATE_OF_PLAY.md) (host Python) and records the
    cutover in the owning roadmap item.
 7. **Day 14.** The owner decides on deleting `venv-cp3110` and the freeze copy, and on uninstalling
-   3.11.0.
+   3.11.0. After a §R rollback, `$NewHome` is a plain directory: delete it on a later night once no
+   venv's `pyvenv.cfg` names it.
 
 ## 10. Timings against the host timetable
 
 | Window | Allowed for this runbook |
 | --- | --- |
 | 00:30-04:45 | §T; Phase B (B0 by 02:00, suite start by 03:00); §D |
-| 00:30-09:00 | §4 host reads (serial); Phase A |
+| 00:30-09:00 | §4 host reads (serial); Phase A (no lease; after any landing night has handed back) |
 | 01:00-04:00 quiet window | Phase C only. Latest lease 01:15, latest rename 01:30, core decision 02:15, aux verify 02:25, rollback start 02:45 (worst case done about 03:35). |
 | 04:45-06:45 tiering reserve, 06:50 jobs | Nothing heavy from this runbook |
 | 09:30-11:55 Stage-A | Nothing |
@@ -1214,12 +1326,16 @@ The owner initials each line in the decision log. Recommendations come first.
 
       C0 is NO-GO without a recorded choice.
 - [ ] **G12, downloads:** approve the PyPI wheel downloads (§T, B1a and B1b; hash-pinned, Windows
-      and pure wheels only), in addition to the already-approved installer download.
+      and pure wheels only) and the NuGet package `python` 3.11.9 (A3 on the host, W0 on the
+      workstation; about 17 MB, SHA-512 pinned). The installer download is no longer used.
 - [ ] **Q13, tzdata:** run §T on an earlier night (recommended), or exempt tzdata in the comparisons.
-- [ ] **Q4, installer scope:** install in the opposite scope to 3.11.0 per H1, and cancel on
-      "Upgrade" (recommended). Any NuGet or embeddable fallback is a new approval.
-- [ ] **Q9, provenance:** require the python.org size and MD5, the winget SHA-256 and the PSF
-      Authenticode signature together (recommended). Sigstore is optional.
+- [ ] **Q4, install method (revision 2026-10-13):** copy the NuGet package's `tools` tree into a
+      new home under Program Files (A4; recommended). Rejected: the installer in either scope (it
+      plans a MajorUpgrade of 3.11.0); an admin layout with direct MSI installs (more downloads,
+      registry writes, unproven upgrade tables); the embeddable zip (no `venv`, no `ensurepip`).
+- [ ] **Q9, provenance (revision 2026-10-13):** require the nuget.org size and SHA-512, the W0
+      manifest, the `binaries` SHA-256 values from the workstation's python.org-installer home and
+      the PSF Authenticode signature together (recommended).
 - [ ] **Q8, scope:** accept 3.11.9 with the partial audit in §5 (recommended), and track 3.12/3.13
       separately.
 - [ ] **Q7, deployments:** accept that the watchdog, 91a, manual order journal, boot recovery and U6
