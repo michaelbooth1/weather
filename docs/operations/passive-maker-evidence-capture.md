@@ -57,8 +57,40 @@ next UTC day. Separate public trade connections continue at the existing
 execution tape's event-driven cadence, with ten-second application heartbeats.
 They retain only explicit `last_trade_price` replies and record disconnects and
 gaps. They cover the entire selected universe because this worker does not
-assume another tape's current subscriptions. Overlapping public trades must be
-deduplicated by an analysis consumer; no own-account fill or backfill is claimed.
+assume another tape's current subscriptions. Trades that overlap another tape's
+capture must be deduplicated by an analysis consumer; no own-account fill or
+backfill is claimed.
+
+A trade-channel token-set swap (about once a minute) is make-before-break. The new
+sockets connect and subscribe while the old ones stay open. The old ones close once
+every new socket has received its first data frame (the venue's book snapshot), and
+never more than 5 s (`SWAP_OVERLAP_SECONDS`) after the swap began; they then stop
+within the existing 8 s stop bound. At most two generations of sockets are open at
+once. A trade seen on both sockets is journaled once. The venue's `last_trade_price`
+has no trade id, so the identity is the execution tape's trade fingerprint fields
+(asset, market, price, side, size, fee rate, timestamp, transaction hash). A socket's
+n-th sighting of an identity is journaled only when no other socket has already seen
+it n times, so genuine identical trades on one socket are kept. A frame that is
+entirely repeats is not journaled; a mixed frame keeps its exact bytes with
+`duplicate_trades: <n>` on its row. Dedupe memory holds at most 16,384 identities
+for at most 120 s (about 4 MB). The raw update channel stays break-before-make,
+since its frames have no identity to dedupe. Every token-set change and every stop
+journals a `stream_tokens` row (`channel`, token count, and references to the
+wanted subscriptions; an empty list means nothing is wanted). The inspector checks
+those references like the lifecycle ones.
+
+Each socket thread only reads, sends `PING` and stamps receipt time; a per-session
+writer thread journals the session's rows in arrival order from a queue bounded at
+4,096 frames and 64 MiB (the reader blocks only that far behind and never drops a frame), so an
+fsync or the store lock cannot stop the socket being drained and pinged. Stream,
+trade and lifecycle rows carry the reader's receipt time in `captured_at_utc`; the
+segment still rolls on the write clock. Frames received before a drop are journaled
+before the `disconnected` lifecycle row and the `stream_gap` row, both stamped when
+reading stopped. The 30-second inbound-silence deadline is judged only after a
+receive has just timed out. A venue close frame raises `VenueCloseError` and its
+gap text carries `code=<n> reason=<text>`; an empty data frame is liveness, not a
+close. Reconnects wait a jittered delay in [d/2, d], doubling from 2 s to 30 s after
+failures; a session that stayed connected for 60 s resets it to the base.
 
 ## Storage and brakes
 
@@ -148,6 +180,33 @@ daily projections by family, a stream-off projection against the 150 MB/day targ
 and incremental update bytes per 30-minute active window. These are observed-window
 extrapolations, not a full-day guarantee. Perform this scratch verification on the workstation; broader
 production-day inspection remains subject to the host load policy.
+
+`python -m weather.market.maker_evidence_disconnects --date <local date>` replays
+only the `stream_lifecycle`, `stream_gap`, `stream_tokens` and `subscription`
+journals (plain or gzip). It reports socket drops by cause, channel and local hour,
+venue close codes, connect failures, orderly stops and session lifetimes, listing
+each input with its SHA-256. It is read-only and opens no connection.
+
+Dark time is judged per token, never per subscription key. A swap rekeys every socket,
+so the earlier per-key figure kept an old key "dark" until that exact token set came
+back: 53,760 s on 2026-09-29, against 283 s with no trade socket connected at all.
+That field (`dark_seconds_by_cause`) had no downstream reader and is removed.
+`coverage_by_channel.<channel>` reports:
+
+- `token_dark_seconds_total`, `per_token_dark_seconds`, `darkest_tokens`: time a token
+  was wanted while no connected session's subscription included it, taking the union
+  across every subscription that contains it. The total is in token-seconds.
+- `token_dark_seconds_by_cause`: that time by the end cause of the session whose end
+  opened the gap. `awaiting_connect` is time a token was wanted before its first
+  covering connect.
+- `all_sockets_down_seconds` and `all_sockets_down_gap_seconds`: time the channel
+  wanted any token while none of its sockets was connected.
+- `wanted_basis`. `stream_tokens_rows` uses the journaled wanted sets.
+  `inferred_from_session_rows` covers journals written before those rows existed: a
+  token stays wanted after its coverage ends only if the channel's next connect round
+  (connects within 10 s of the first) covers it again, or until that round began
+  after a failure. For those journals, all-sockets-down spans the channel's first to
+  last row.
 
 Run the offline compression/integrity inspection through the workstation heavy
 wrapper, which keeps the existing host/principal and shared-lease checks:
