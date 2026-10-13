@@ -755,10 +755,24 @@ $result = [ordered]@{}
 foreach ($t in @(0, 880, 905)) {
     $script:fakeUtc = $script:startUtc.AddSeconds($t)
     try {
+        # The budget is computed on the logical clock, but the request deadline
+        # is stamped on the real clock. Read the exact budget, then bracket the
+        # real stamp instead of re-reading the real clock afterwards (#278:
+        # a >0.5 s stall on a loaded runner rounded a 20 s budget to 19).
+        $realBefore = [datetimeoffset]::UtcNow
         $identity = New-ReconciliationSchedulerRpcIdentity -LogicalBoundary $pushContainmentDeadline -MaximumSeconds 20
-        $result["t$t"] = [int][Math]::Round(([datetimeoffset]$identity.deadline - [datetimeoffset]::UtcNow).TotalSeconds)
+        $realAfter = [datetimeoffset]::UtcNow
+        $deadline = [datetimeoffset]$identity.deadline
+        $budget = [int]$identity.timeout_seconds
+        if ($deadline -lt $realBefore.AddSeconds($budget) -or $deadline -gt $realAfter.AddSeconds($budget)) {
+            throw "deadline $($deadline.ToString('o')) is not real-now + $budget s"
+        }
+        $result["t$t"] = $budget
     }
-    catch { $result["t$t"] = 'refused' }
+    catch {
+        if ("$_" -notlike 'no Scheduler RPC budget remains*') { throw }
+        $result["t$t"] = 'refused'
+    }
 }
 $result | ConvertTo-Json -Compress
 """
