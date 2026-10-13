@@ -66,4 +66,5 @@ Draft build (2026-10-13, branch `claude/no-metar-floor-20261013`, not landed; ow
   no-METAR rows). Under the served code
   182 of those Toronto rows kept mass below the anchor (max 0.199), far more than the three B-replay rows. 50 of the
   changed rows are hour 0, so the open WU 12:00 AM question decides whether the switch is safe.
-- Still needed: the host read above, and the same arm over the B window (2026-08-25..09-29) on the capture host.
+- Host read done 2026-10-13 (WU counts 00:00; venue paid the with-midnight band 2/2, EF §10r). Still needed: the
+  same arm over the B window (2026-08-25..09-29) on the capture host, earliest 2026-10-15 02:00-04:00.
