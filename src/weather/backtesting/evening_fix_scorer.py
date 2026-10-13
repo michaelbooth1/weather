@@ -15,8 +15,9 @@ Read gate (checked before any input is opened; a refusal writes nothing):
     * names this pre-registration (``prereg`` = ``PREREG_ID``) and its signed hash
       (``prereg_sha256``);
     * carries a non-empty ``reason`` and ``issued_by``;
-    * quotes a ``decision_log_row`` that appears verbatim in the decision log,
-      so an early read is recorded by the owner before it happens.
+    * quotes a ``decision_log_row`` that is one whole line of the decision log,
+      verbatim, and is not the signature row itself, so an early read is
+      recorded by the owner before it happens (a fragment of a row is refused).
   A token given on or after the read date is validated the same way and recorded.
 - Rows on the reserved/embargo dates 2026-09-30..2026-10-15 refuse the whole run.
   Rows outside the scoring window are skipped and counted.
@@ -118,9 +119,16 @@ def check_read_token(token_path, prereg_digest, log_text):
     for field in ("reason", "issued_by", "decision_log_row"):
         if not str(token.get(field) or "").strip():
             raise ScoreRefused(f"refused: read token has no {field}")
-    if str(token["decision_log_row"]).strip() not in log_text:
+    row = str(token["decision_log_row"]).strip()
+    lines = [line.strip() for line in log_text.splitlines()]
+    if row not in lines:
         raise ScoreRefused(
-            "refused: the read token's decision_log_row is not recorded in the decision log"
+            "refused: the read token's decision_log_row is not recorded in the decision log "
+            "as a whole row"
+        )
+    if prereg_digest in row and row == next(line for line in lines if prereg_digest in line):
+        raise ScoreRefused(
+            "refused: the read token quotes the signature row; an early read needs its own owner row"
         )
     return {
         "token_sha256": file_sha256(path),

@@ -110,6 +110,8 @@ def test_before_read_date_without_token_refuses_before_opening_any_input(tmp_pat
     ({"reason": " "}, "no reason"),
     ({"issued_by": ""}, "no issued_by"),
     ({"decision_log_row": "| 2026-10-20 | made up |"}, "not recorded"),
+    ({"decision_log_row": "| 2026-10-20 |"}, "as a whole row"),
+    ({"decision_log_row": "early evening-fix read"}, "as a whole row"),
 ])
 def test_invalid_read_token_is_refused(tmp_path, signed, overrides, message, capsys):
     prereg, log, digest, row = signed
@@ -243,3 +245,14 @@ def test_h2_is_tested_only_after_a_primary_pass():
     for row in harmed:
         row["v3_band_p"] = list(GOOD)
     assert scorer.evaluate(harmed, _labels(harmed))["h2_pre_lockin_floor_non_inferiority_00_16"] == {"tested": False}
+
+
+def test_token_quoting_the_signature_row_is_refused(tmp_path, signed, capsys):
+    prereg, log, digest, _ = signed
+    signature_row = next(line for line in log.read_text(encoding="utf-8").splitlines() if digest in line)
+    token = _token(tmp_path, digest, signature_row)
+    code = scorer.main(_argv(tmp_path, prereg, log, tmp_path / "missing.jsonl",
+                             "--read-token", str(token)), today=BEFORE_READ)
+    assert code == scorer.REFUSED_EXIT
+    assert "quotes the signature row" in capsys.readouterr().err
+    assert not (tmp_path / "result.json").exists()
