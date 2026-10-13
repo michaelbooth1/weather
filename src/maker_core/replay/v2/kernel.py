@@ -291,6 +291,11 @@ class Kernel:
     def changed(self, cid):
         """A condition's reserve, inventory or descriptor changed: portfolio totals may move."""
 
+    def hazard_for(self, state):
+        """The hazard a decision of ``state``'s condition reads: the run's one scalar (``max_m``, registration §3).
+        Only the §11 R1 rehearsal variant overrides it (``reachability.per_city_engine``); a scored run does not."""
+        return self.config.hazard_per_minute
+
     def portfolio(self, cid) -> Portfolio:
         raise NotImplementedError
 
@@ -556,7 +561,7 @@ class Kernel:
         book = self.decision_book(state, state.legs)
         fair_value = (state.latest["outcome_view"] if self.informed else Unavailable("clock/blind baseline", at))
         value = DecisionInputs(desc.market, at, book, state.latest["terms"], fair_value, self.portfolio(cid),
-                               desc.horizon_days, events, self.profile, self.config.hazard_per_minute,
+                               desc.horizon_days, events, self.profile, self.hazard_for(state),
                                existing=state.legs, last_requote_at=state.last_quote,
                                previous_fair_value=state.previous_fair_value)
         if self.config.policy == "blind_re1":
