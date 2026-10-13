@@ -115,17 +115,21 @@ def bundle_source(bundle: Bundle) -> DaySource:
     return DaySource(plan, lambda: iter(bundle.records))
 
 
-def descriptor_source(bundle) -> DaySource:
+def descriptor_source(bundle, records=None) -> DaySource:
     """A v0.1 or v0.2 day's **descriptor records only**, for reading the horizon timeline that the declared active
     intervals are derived from (``execution_manifest.active_intervals`` via ``horizon.timelines``; owner Q2(a)).
 
     Intervals do not exist yet at that point, so a captured bundle cannot pass through ``bundle_source`` or
     ``stream_source``. The plan is declared with **no windows**: ``DayRoll`` reads only the plan's day and
-    conditions, and should this source ever reach an engine, nothing on it is active (fail closed, A-defender M3)."""
+    conditions, and should this source ever reach an engine, nothing on it is active (fail closed, A-defender M3).
+
+    ``records``, when given, is the day's descriptor records already read (``universe_v02.day_inputs``, used by
+    ``intervals.evaluate``); otherwise the bundle's own records are read and filtered on each call."""
     groups = MappingProxyType({g.group_id: g.condition_ids for g in getattr(bundle, "coverage_groups", ())})
-    plan = DayPlan(bundle.day, bundle.conditions, MappingProxyType({}), groups, bundle.provenance,
-                   bundle.input_hashes, True)
-    records = bundle.records
+    plan = DayPlan(bundle.day, tuple(bundle.conditions), MappingProxyType({}), groups,
+                   getattr(bundle, "provenance", "synthetic"), getattr(bundle, "input_hashes", MappingProxyType({})),
+                   True)
+    records = bundle.records if records is None else tuple(records)
 
     def descriptors():
         return (r for r in (records() if callable(records) else iter(records)) if r.kind == "descriptor")

@@ -252,20 +252,55 @@ def test_target_after_last_panel_target_is_excluded_but_kept_in_inventory(regist
     assert reasons_of(result, late, date(2026, 10, 13)) == {"TARGET_AFTER_PANEL": 86400}
 
 
-def test_toronto_horizon_roll_stale_minutes_and_first_minute_after_descriptor(registered):
-    """Toronto's local midnight is 04:00Z (EDT), outside maintenance (A-defender M5)."""
+def test_toronto_horizon_roll_ends_at_local_midnight_under_q2a(registered):
+    """Toronto's local midnight is 04:00Z (EDT), outside maintenance (A-defender M5).
+
+    Owner Q2(a) FULL (registration C15): the latest captured **or derived** descriptor holds. The derived
+    local-midnight descriptor moves the band to lead 0 at 04:00Z, so the window ends there (the U1 r2 literal
+    rule kept 04:00..04:03 active on the stale horizon-1 capture). The descriptor state carries across the
+    evaluated days, so 00:00..00:04 before the day's first capture is not MISSING: the 10-04 horizon-1
+    descriptor still holds."""
     _, _, _, result = registered
     day = date(2026, 10, 5)
     rolling = cid_of("toronto", day, 0)  # T+1 until 04:00Z, then T+0; next capture 04:03:20
-    # minutes 04:00..04:03 keep the stale horizon-1 descriptor (the literal rule); 04:04 is the first minute
-    # after the horizon-0 descriptor and is excluded
-    assert windows_of(result, rolling, day) == [(iso(at(day, 0, 4)), iso(at(day, 4, 4)))]
-    reasons = reasons_of(result, rolling, day)
-    assert reasons["HORIZON_OUTSIDE_1_2"] == 86400 - 4 * 3600 - 3 * 3600 - 4 * 60  # less missing, active, maintenance
-    assert reasons["MISSING_DESCRIPTOR"] == 4 * 60  # 00:00..00:04 before the day's first capture
-    assert reasons["MAINTENANCE_UTC"] == 3 * 3600
-    assert [d for d in result.diagnostics if d["condition_id"] == rolling and d["date"] == day.isoformat()] == [
-        dict(date=day.isoformat(), condition_id=rolling, reason=intervals.STALE, seconds=240)]
+    assert windows_of(result, rolling, day) == [(iso(at(day, 0)), iso(at(day, 4)))]
+    assert reasons_of(result, rolling, day) == {"MAINTENANCE_UTC": 3 * 3600,
+                                                "HORIZON_OUTSIDE_1_2": 86400 - 4 * 3600 - 3 * 3600}
+    assert not [d for d in result.diagnostics if d["condition_id"] == rolling]  # no stale minutes remain
+
+
+def test_the_first_evaluated_day_is_missing_before_its_first_capture(registered):
+    """Nothing is carried into the first evaluated day: MISSING_DESCRIPTOR until the first capture."""
+    _, _, _, result = registered
+    day = PANEL_DAYS[0]
+    rolling = cid_of("toronto", day + timedelta(days=1), 0)  # T+2 -> T+1 at 04:00Z on the first day
+    assert reasons_of(result, rolling, day)["MISSING_DESCRIPTOR"] == 4 * 60
+    assert windows_of(result, rolling, day)[0][0] == iso(at(day, 0, 4))
+
+
+def test_windows_equal_the_horizon_runs_of_the_build_line_rule(registered):
+    """One §4 horizon rule: on every eligible (date, condition) the windows are ``horizon.runs`` over the same
+    timeline, split by maintenance (``execution_manifest.active_intervals``'s construction)."""
+    from maker_core.replay.v2 import horizon
+    _, bundles, _, result = registered
+    lines = horizon.timelines([lockstep.descriptor_source(b) for b in bundles], ZONES)
+    owner = {cid for row in result.owner_exclusions for cid in row["matched_conditions"]}
+    checked = 0
+    for b in bundles:
+        if b.day in panel.SETTLEMENT_ONLY_DATES:
+            continue
+        start = at(b.day, 0)
+        m0, m1 = start + timedelta(hours=5), start + timedelta(hours=8)
+        for c in b.conditions:
+            if c.condition_id in owner or reasons_of(result, c.condition_id, b.day).get("TARGET_AFTER_PANEL"):
+                continue
+            expected = []
+            for low, high, reason in horizon.runs(lines.get(c.condition_id, ()), c.active_from, c.active_until):
+                if reason is None:
+                    expected += [(iso(x), iso(y)) for x, y in ((low, min(high, m0)), (max(low, m1), high)) if x < y]
+            assert windows_of(result, c.condition_id, b.day) == expected, (b.day, c.condition_id)
+            checked += 1
+    assert checked > 100
 
 
 def test_austin_windows_at_the_05_00_boundary(registered):
@@ -273,11 +308,10 @@ def test_austin_windows_at_the_05_00_boundary(registered):
     _, _, _, result = registered
     day = date(2026, 10, 4)
     rolling = cid_of("austin", day, 0)
-    assert windows_of(result, rolling, day) == [(iso(at(day, 0, 4)), iso(at(day, 5)))]
-    assert reasons_of(result, rolling, day) == {"MAINTENANCE_UTC": 3 * 3600, "MISSING_DESCRIPTOR": 240,
-                                                "HORIZON_OUTSIDE_1_2": 16 * 3600}
+    assert windows_of(result, rolling, day) == [(iso(at(day, 0)), iso(at(day, 5)))]  # 10-03's capture carries
+    assert reasons_of(result, rolling, day) == {"MAINTENANCE_UTC": 3 * 3600, "HORIZON_OUTSIDE_1_2": 16 * 3600}
     t2 = cid_of("austin", date(2026, 10, 5), 0)  # T+2 until 05:00Z, then T+1 after maintenance
-    assert windows_of(result, t2, day) == [(iso(at(day, 0, 4)), iso(at(day, 5))),
+    assert windows_of(result, t2, day) == [(iso(at(day, 0)), iso(at(day, 5))),
                                            (iso(at(day, 8)), iso(at(day + timedelta(days=1), 0)))]
 
 

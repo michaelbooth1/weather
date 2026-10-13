@@ -8,9 +8,14 @@ granularity, the latest descriptor at the minute start, the hazard denominator's
 - the condition is not in an owner-excluded market-date (``panel.OWNER_EXCLUSIONS``);
 - its local target date is on or before the panel's last target date;
 - ``t`` is outside ``panel.MAINTENANCE_UTC``;
-- the latest descriptor captured at or before ``t`` has ``horizon_days`` 1 or 2 (``MISSING_DESCRIPTOR``
-  before the condition's first descriptor of the day; an undecodable descriptor refuses the whole build,
-  ``universe_descriptor_undecodable``, as in v1).
+- the latest **captured or derived** descriptor at or before ``t`` has ``horizon_days`` 1 or 2 (owner Q2(a)
+  FULL, 2026-10-08; registration C15). The timeline is ``maker_core.replay.v2.horizon.timelines``: the
+  evaluated days' descriptor records replayed through the engine's own ``day_roll.DayRoll`` with the
+  inventory's zones, carried across the days in date order, so a derived local-midnight descriptor moves the
+  band from lead 1 to lead 0 exactly where the engine withdraws its legs (the rule of
+  ``execution_manifest.active_intervals``). ``MISSING_DESCRIPTOR`` before the condition's first descriptor of
+  the evaluated days; an undecodable descriptor refuses the whole build, ``universe_descriptor_undecodable``,
+  as in v1.
 
 Every other minute of the condition's envelope is an exclusion with exactly one reason, taken in this
 precedence order (A-defender M5/N5): ``OWNER_EXCLUDED_PRIOR_READ`` > ``SETTLEMENT_ONLY`` >
@@ -44,9 +49,10 @@ from typing import NamedTuple
 from zoneinfo import ZoneInfo
 
 from maker_core.replay.bundle import BundleError, timestamp
+from maker_core.replay.v2 import horizon
 from maker_core.replay.v2 import panel as constants
 from maker_core.replay.v2 import universe_v02
-from maker_core.replay.v2.lockstep import stream_source
+from maker_core.replay.v2.lockstep import descriptor_source, stream_source
 
 OWNER = "OWNER_EXCLUDED_PRIOR_READ"
 SETTLEMENT_ONLY = "SETTLEMENT_ONLY"
@@ -56,8 +62,9 @@ MISSING_DESCRIPTOR = "MISSING_DESCRIPTOR"
 HORIZON = "HORIZON_OUTSIDE_1_2"
 REASONS = (OWNER, SETTLEMENT_ONLY, TARGET_AFTER_PANEL, MAINTENANCE, MISSING_DESCRIPTOR, HORIZON)
 # Diagnostic (A-defender N2), never an exclusion: active seconds whose calendar horizon (inventory
-# timezone) differs from the latest descriptor's, e.g. the minutes between local midnight and the first
-# horizon-0 descriptor, which the literal rule keeps active.
+# timezone) differs from the latest descriptor's. Under Q2(a) the derived local-midnight descriptor closes the
+# minutes between local midnight and the first captured horizon-0 descriptor, so this is expected to be zero;
+# a non-zero count flags a captured descriptor whose horizon disagrees with the calendar.
 STALE = "HORIZON_DESCRIPTOR_STALE_SECONDS"
 ACTIVE_HORIZONS = (1, 2)
 MINUTE = timedelta(minutes=1)
@@ -179,24 +186,25 @@ def evaluate(days, inventory, *, panel, check=lambda: None) -> Evaluation:
     by_id = universe_v02.check_inventory(days, inventory, check=check)
     excluded_sets = _excluded(days, by_id, rows, spec)
     excluded = set().union(*excluded_sets)
+    for _, records in days:  # every descriptor decodes, or the build refuses (v1 rule), before the timeline
+        for record in records:
+            universe_v02.decoded(record)
+    lines = horizon.timelines([descriptor_source(day, records) for day, records in days], _zones(by_id))
     windows, exclusions, diagnostics = [], [], []
     for day, records in days:
         start = datetime.combine(day.day, time(), tzinfo=timezone.utc)
         maintenance = tuple(datetime.combine(day.day, t, tzinfo=timezone.utc) for t in constants.MAINTENANCE_UTC)
-        latest = {}
-        for record in records:
-            latest.setdefault(record.condition_id, []).append((record.captured_at, universe_v02.decoded(record)))
         for c in day.conditions:
             check()
             cid, item = c.condition_id, by_id[c.condition_id]
             target = date.fromisoformat(item["target_date"])
             zone = ZoneInfo(item["local_timezone"])
-            history, pointer, current = latest.get(cid, []), 0, None
+            history, pointer, seen, current = lines.get(cid, ()), 0, False, None
             counts, stale, run = Counter(), 0, None
             at = max(c.active_from, start)
             while at < min(c.active_until, start + timedelta(days=1)):
                 while pointer < len(history) and history[pointer][0] <= at:
-                    current = history[pointer][1]
+                    seen, current = True, history[pointer][1]  # the last entry at an instant holds
                     pointer += 1
                 if cid in excluded:
                     reason = OWNER
@@ -206,13 +214,13 @@ def evaluate(days, inventory, *, panel, check=lambda: None) -> Evaluation:
                     reason = TARGET_AFTER_PANEL
                 elif maintenance[0] <= at < maintenance[1]:
                     reason = MAINTENANCE
-                elif current is None:
+                elif not seen or current is None:
                     reason = MISSING_DESCRIPTOR
-                elif current.horizon_days not in ACTIVE_HORIZONS:
+                elif current not in ACTIVE_HORIZONS:
                     reason = HORIZON
                 else:
                     reason = None
-                if reason is None and (target - at.astimezone(zone).date()).days != current.horizon_days:
+                if reason is None and (target - at.astimezone(zone).date()).days != current:
                     stale += 60
                 end = min(at + MINUTE, c.active_until)
                 if reason is None:
@@ -240,6 +248,15 @@ def evaluate(days, inventory, *, panel, check=lambda: None) -> Evaluation:
                for row, found in zip(rows, excluded_sets)]
     windows.sort(key=lambda w: (w["date"], w["condition_id"], w["start"]))
     return Evaluation(windows, exclusions, matched, diagnostics)
+
+
+def _zones(by_id):
+    """market_id -> zone name from the checked inventory rows; a market whose conditions disagree refuses."""
+    zones = {}
+    for row in by_id.values():
+        if zones.setdefault(row["market_id"], row["local_timezone"]) != row["local_timezone"]:
+            raise BundleError("market_time_zone_disagreement")
+    return zones
 
 
 def active_intervals(days, inventory, *, panel, check=lambda: None):
