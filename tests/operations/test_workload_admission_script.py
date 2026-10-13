@@ -181,6 +181,7 @@ WRAPPERS = (
     "clob_tiering_run.ps1",
     "clob_raw_tape_tiering_run.ps1",
     "daily_refresh.ps1",
+    "oracle_author_test_run.ps1",
 )
 
 
