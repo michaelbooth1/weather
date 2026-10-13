@@ -1,3 +1,8 @@
+"""Execution-tape disconnect classification from production gap rows.
+
+Guards: #173 trade-stream coverage report (docs/roadmap/agent-report-2026-10-03-trade-stream-coverage.md)
+"""
+
 import json
 import tempfile
 import unittest

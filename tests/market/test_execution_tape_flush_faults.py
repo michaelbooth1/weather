@@ -3,6 +3,8 @@
 A single transient background fsync error used to be retained until the handle
 closed and re-raised by every status write, freezing the capture heartbeat
 until the supervisor's stale restart (3-4 minutes of capture lost).
+
+Guards: DECISION_LOG 2026-09-30 execution-tape fsync fix (#152); a row is never torn
 """
 
 import io as stdio

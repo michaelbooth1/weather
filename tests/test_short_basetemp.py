@@ -1,3 +1,8 @@
+"""Short pytest base temp on Windows (tests/conftest.py).
+
+Guards: tests/AGENTS.md base-temp rule (260-character path limit; capture-disk temp incident)
+"""
+
 import os
 
 from tests.conftest import MAX_BASETEMP_CHARS, needs_short_basetemp

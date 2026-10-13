@@ -3,6 +3,8 @@
 Every test drives the production ``ExecutionTapeCoordinator`` and its real
 JSONL writers in a temporary root, so gap (lifecycle) rows and trade rows are
 read back exactly as production writes them.
+
+Guards: #173 execution-tape trade socket keeps reading through tape stalls (item 326)
 """
 
 import json
