@@ -15,10 +15,16 @@ plan into three files:
     the suite and merge windows.  Suite and merge times are derived at run time with
     the merge-queue driver's rule.  The script **never** registers a task: it prints
     the registration command, because registration needs explicit operator
-    authorisation (INTEGRATION_ATTEMPT_RUNBOOK).
+    authorisation (INTEGRATION_ATTEMPT_RUNBOOK).  A slot with
+    ``"landing_path": "direct_rf"`` (roll-free only) is not an attempt but the direct
+    guarded merge (bounded suite under the lease, then ``quiet_window_merge.ps1``):
+    it is bounded by the 09:00 heavy-work close, not the 03:40 attempt reserve, and
+    the script only prints its commands.
 ``timetable-<night>.md``
     Execution order, the gates and an estimated serial timetable, with every unit
-    that would overflow the 03:40 merge reserve marked.
+    that would overflow marked: an attempt unit whose merge trigger or suite end is
+    past 03:40 (the consumer stops a suite still running at 03:40), or a direct
+    unit that would not land by 09:00.
 ``queue-<night>.draft.json``
     An unsigned ``weather_exact_tip_merge_queue_v1`` draft for the M6 dry pilot.
     Every entry has ``approved: false``.  Only the owner approves and signs.
@@ -49,10 +55,13 @@ QUEUE_SCHEMA = "weather_exact_tip_merge_queue_v1"
 EXIT_OK, EXIT_REFUSED, EXIT_FINDINGS = 0, 1, 2
 
 # INTEGRATION_ATTEMPT_RUNBOOK: suite 00:30-09:00; merge 01:00-03:40, >= 30 minutes after the suite.
-SUITE_OPEN = timedelta(minutes=30)
+SUITE_OPEN = timedelta(minutes=30)  # heavy-work window opens
+FIRST_SUITE = timedelta(minutes=35)  # earliest real first suite trigger (lease taken after 00:30)
 MERGE_OPEN = timedelta(hours=1)
-MERGE_RESERVE = timedelta(hours=3, minutes=40)
+MERGE_RESERVE = timedelta(hours=3, minutes=40)  # bounds an attempt's merge trigger AND its suite end
 MIN_SUITE_TO_MERGE = timedelta(minutes=30)
+DIRECT_CLOSE = timedelta(hours=9)  # heavy-work window closes: a direct unit must land by then
+LANDING_PATHS = ("attempt", "direct_rf")
 
 _SHA40 = re.compile(r"[0-9a-f]{40}")
 _ATTEMPT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,47}$")
@@ -74,6 +83,7 @@ class Unit:
     fallback: bool = False
     requires_landed: list[str] = field(default_factory=list)
     pregate: dict[str, Any] = field(default_factory=dict)
+    path: str = "attempt"  # "attempt" (integration attempt) or "direct_rf" (direct guarded merge)
 
 
 @dataclass
@@ -139,9 +149,14 @@ def build_units(plan: dict[str, Any]) -> tuple[list[Unit], list[Finding]]:
             attempt_stem=attempt_stem(night, label),
             fallback=fallback,
             pregate=dict(slot.get("pregate") or {}),
+            path=str(slot.get("landing_path") or "attempt"),
         )
         if roll_class not in ROLL_CLASSES:
             findings.append(Finding("BLOCK", label, f"expected_roll_class {roll_class or 'missing'!r} is not a roll class"))
+        if unit.path not in LANDING_PATHS:
+            findings.append(Finding("BLOCK", label, f"landing_path {unit.path!r} is not one of {', '.join(LANDING_PATHS)}"))
+        elif unit.path == "direct_rf" and roll_class != "ROLL-FREE":
+            findings.append(Finding("BLOCK", label, f"landing_path direct_rf needs expected_roll_class ROLL-FREE, not {roll_class or 'missing'!r}"))
         stacked = _stacked_sha(slot)
         if stacked and stacked != master_sha:
             if stacked in shas:
@@ -191,27 +206,50 @@ def estimate_timetable(units: Sequence[Unit], night: date, *, suite_minutes: int
     """Serial estimate for the primary units, using the merge-queue driver's rule.
 
     A unit's attempt can be created only after the previous unit has pushed, because the
-    attempt freezes the production baseline.  So the units are strictly serial:
-    suite at the previous landing + 2 minutes (not before 00:30), merge at
-    max(suite + 30 minutes, 01:00), landing at max(merge, suite + suite_minutes) +
-    land_minutes.  A merge after the 03:40 reserve is an overflow.
+    attempt freezes the production baseline.  So the units are strictly serial: the
+    first suite at 00:35 (the real first trigger once the lease is taken after 00:30),
+    each later suite at the previous landing + 2 minutes.
+
+    Attempt unit: merge at max(suite + 30 minutes, 01:00), landing at
+    max(merge, suite end) + land_minutes.  It overflows when the merge trigger is past
+    the 03:40 reserve or when its suite would still be running at 03:40 (the consumer
+    stops such a suite, so the attempt cannot pass).
+
+    Direct unit (``direct_rf``): bounded suite, then ``quiet_window_merge.ps1`` right
+    after it, so merge at the suite end and landing land_minutes later.  03:40 does not
+    bind it; it overflows only if it would not land by the 09:00 heavy-work close.
     """
 
     midnight = datetime.combine(night, datetime.min.time())
-    cursor = start or midnight + SUITE_OPEN
+    cursor = start or midnight + FIRST_SUITE
     rows = []
     for unit in units:
         if unit.fallback:
             continue
         suite_at = max(cursor, midnight + SUITE_OPEN)
-        merge_at = max(suite_at + MIN_SUITE_TO_MERGE, midnight + MERGE_OPEN)
-        landed_at = max(merge_at, suite_at + timedelta(minutes=suite_minutes)) + timedelta(minutes=land_minutes)
+        suite_end = suite_at + timedelta(minutes=suite_minutes)
+        reasons: list[str] = []
+        if unit.path == "direct_rf":
+            merge_at = suite_end
+            landed_at = suite_end + timedelta(minutes=land_minutes)
+            if landed_at > midnight + DIRECT_CLOSE:
+                reasons.append(f"direct landing {landed_at:%H:%M} is past the 09:00 heavy-work close")
+        else:
+            merge_at = max(suite_at + MIN_SUITE_TO_MERGE, midnight + MERGE_OPEN)
+            landed_at = max(merge_at, suite_end) + timedelta(minutes=land_minutes)
+            if merge_at > midnight + MERGE_RESERVE:
+                reasons.append(f"merge trigger {merge_at:%H:%M} is past the 03:40 reserve")
+            if suite_end > midnight + MERGE_RESERVE:
+                reasons.append(f"suite end {suite_end:%H:%M} is past 03:40, where the consumer stops it")
         rows.append({
             "label": unit.label,
+            "path": unit.path,
             "suite_at": suite_at,
+            "suite_end": suite_end,
             "merge_at": merge_at,
             "landed_at": landed_at,
-            "overflow": merge_at > midnight + MERGE_RESERVE,
+            "overflow": bool(reasons),
+            "overflow_reason": "; ".join(reasons),
         })
         cursor = landed_at + timedelta(minutes=2)
     return rows
@@ -303,11 +341,31 @@ if ($rollClass -ne $u.roll_class) {
 # 5. Windows (merge-queue driver rule).
 $asOf = $Now.AddMinutes(3)
 $suiteAt = $asOf.Date.AddHours($asOf.Hour).AddMinutes($asOf.Minute + 1)
-if ($suiteAt -lt $midnight.AddMinutes(30)) { $suiteAt = $midnight.AddMinutes(30) }
+if ($suiteAt -lt $midnight.AddMinutes(35)) { $suiteAt = $midnight.AddMinutes(35) }
+$suiteEnd = $suiteAt.AddMinutes($SuiteMinutes)
+if ($u.path -eq "direct_rf") {
+    # Direct roll-free guarded merge: not an attempt, so the 03:40 reserve does not apply.
+    # Its bounded suite holds the heavy-work lease and must land before the 09:00 close.
+    $landBy = $suiteEnd.AddMinutes($LandMinutes)
+    if ($landBy -gt $midnight.AddHours(9)) {
+        Out-Verdict "STOP_FOR_NIGHT" ("direct landing {0:HH:mm} would pass the 09:00 heavy-work close; drop per overflow_drop_order" -f $landBy) 4
+    }
+    $worktree = Join-Path $WorktreeParent ("{0}-direct" -f $u.attempt_stem)
+    $logPath = Join-Path $WorktreeParent ("{0}-direct-suite.log" -f $u.attempt_stem)
+    Write-Output ("READY unit={0} head={1} sha={2} roll={3} path=direct_rf suite_from={4} land_by={5}" -f $u.label, $u.head, $u.sha, $rollClass, $suiteAt.ToString("yyyy-MM-ddTHH:mm:ss", $inv), $landBy.ToString("yyyy-MM-ddTHH:mm:ss", $inv))
+    Write-Output "Commands (direct roll-free path; this script runs none of them, even with -Execute):"
+    Write-Output ("  a) git worktree add --detach `"{0}`" {1}" -f $worktree, $u.sha)
+    Write-Output ("  b) .\scripts\ops\bounded_worktree_test_suite.ps1 -RepoRoot `"{0}`" -WorktreeRoot `"{1}`" -ExpectedTip {2} -BranchRef origin/{3} -LogPath `"{4}`"   (takes the heavy-work lease)" -f $RepoRoot, $worktree, $u.sha, $u.head, $logPath)
+    Write-Output ("  c) .\scripts\ops\quiet_window_merge.ps1 -Branch origin/{0} -ExpectedTip {1}   (only after b passes)" -f $u.head, $u.sha)
+    Out-Verdict "READY" "direct path; nothing created" 0
+}
 $mergeAt = $suiteAt.AddMinutes(30)
 if ($mergeAt -lt $midnight.AddHours(1)) { $mergeAt = $midnight.AddHours(1) }
 if ($mergeAt -gt $midnight.AddHours(3).AddMinutes(40)) {
     Out-Verdict "STOP_FOR_NIGHT" ("merge trigger {0:HH:mm} would pass the 03:40 reserve; drop per overflow_drop_order" -f $mergeAt) 4
+}
+if ($suiteEnd -gt $midnight.AddHours(3).AddMinutes(40)) {
+    Out-Verdict "STOP_FOR_NIGHT" ("suite would end {0:HH:mm} ({1} min), past 03:40 where the consumer stops it; drop per overflow_drop_order" -f $suiteEnd, $SuiteMinutes) 4
 }
 
 # 6. Attempt identity and paths.
@@ -346,7 +404,8 @@ Out-Verdict "CREATED" "attempt $attemptId frozen; registration not performed" 0
 """
 
 
-def render_powershell(plan: dict[str, Any], plan_sha: str, units: Sequence[Unit]) -> str:
+def render_powershell(plan: dict[str, Any], plan_sha: str, units: Sequence[Unit], *, suite_minutes: int = 52,
+                      land_minutes: int = 8) -> str:
     night = str(plan["night"])
     base = str((units[0].pregate.get("base") if units else "") or plan.get("master_sha") or "").lower()
     lines = [
@@ -362,7 +421,9 @@ def render_powershell(plan: dict[str, Any], plan_sha: str, units: Sequence[Unit]
         "    [Parameter(Mandatory = $true)][string]$GitExecutablePath,",
         "    [ValidateRange(1, 9)][int]$Attempt = 1,",
         "    [switch]$Execute,",
-        "    [datetime]$Now = (Get-Date)",
+        "    [datetime]$Now = (Get-Date),",
+        f"    [ValidateRange(1, 240)][int]$SuiteMinutes = {int(suite_minutes)},",
+        f"    [ValidateRange(0, 120)][int]$LandMinutes = {int(land_minutes)}",
         ")",
         f"$Night = {ps_literal(night)}",
         f"$PlanSha256 = {ps_literal(plan_sha)}",
@@ -376,6 +437,7 @@ def render_powershell(plan: dict[str, Any], plan_sha: str, units: Sequence[Unit]
             f"head = {ps_literal(unit.head)}",
             f"sha = {ps_literal(unit.sha)}",
             f"roll_class = {ps_literal(unit.roll_class)}",
+            f"path = {ps_literal(unit.path)}",
             f"attempt_stem = {ps_literal(unit.attempt_stem)}",
             f"fallback = ${'true' if unit.fallback else 'false'}",
             f"requires_landed = @({requires})",
@@ -395,19 +457,21 @@ def render_timetable(plan: dict[str, Any], plan_sha: str, units: Sequence[Unit],
         f"Generated from `{plan.get('label') or night}`, plan_sha256 `{plan_sha}`.",
         "This is an estimate and binds nothing. The binding gates are the sequencer's run-time checks and production's own.",
         "",
-        "| Exec | Unit | Head | Tip | Expected class | Requires landed | Pre-gate |",
-        "| --- | --- | --- | --- | --- | --- | --- |",
+        "| Exec | Unit | Head | Tip | Expected class | Path | Requires landed | Pre-gate |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for index, unit in enumerate(units, 1):
         exec_cell = "fallback" if unit.fallback else str(index)
         requires = ", ".join(f"`{s[:9]}`" for s in unit.requires_landed) or "-"
         pregate = f"{unit.pregate.get('verdict', 'missing')} `{str(unit.pregate.get('receipt_sha256') or '')[:12]}`"
-        out.append(f"| {exec_cell} | {unit.label} | `{unit.head}` | `{unit.sha[:9]}` | {unit.roll_class} | {requires} | {pregate} |")
+        out.append(f"| {exec_cell} | {unit.label} | `{unit.head}` | `{unit.sha[:9]}` | {unit.roll_class} | {unit.path} | {requires} | {pregate} |")
     out += ["", f"Estimated serial timetable (suite {suite_minutes} min, merge-to-pushed {land_minutes} min):", "",
-            "| Unit | Suite at | Merge at | Landed by | Overflow |", "| --- | --- | --- | --- | --- |"]
+            "| Unit | Path | Suite at | Suite end | Merge at | Landed by | Overflow |",
+            "| --- | --- | --- | --- | --- | --- | --- |"]
     for row in rows:
-        out.append(f"| {row['label']} | {row['suite_at']:%H:%M} | {row['merge_at']:%H:%M} | {row['landed_at']:%H:%M} | "
-                   f"{'YES: past 03:40' if row['overflow'] else 'no'} |")
+        out.append(f"| {row['label']} | {row['path']} | {row['suite_at']:%H:%M} | {row['suite_end']:%H:%M} | "
+                   f"{row['merge_at']:%H:%M} | {row['landed_at']:%H:%M} | "
+                   f"{'YES: ' + row['overflow_reason'] if row['overflow'] else 'no'} |")
     drop = (plan.get("schedule") or {}).get("overflow_drop_order")
     if drop:
         out += ["", "Overflow drop order (plan): " + "; ".join(str(d) for d in drop)]
@@ -479,10 +543,11 @@ def generate(plan_path: Path, out_dir: Path, *, expect_sha256: str | None = None
     rows = estimate_timetable(units, night, suite_minutes=suite_minutes, land_minutes=land_minutes)
     for row in rows:
         if row["overflow"]:
-            findings.append(Finding("NOTE", row["label"], f"estimated merge {row['merge_at']:%H:%M} is past the 03:40 reserve"))
+            findings.append(Finding("NOTE", row["label"], f"estimated overflow: {row['overflow_reason']}"))
     out_dir.mkdir(parents=True, exist_ok=True)
     files = {
-        f"sequencer-{night}.ps1": render_powershell(plan, plan_sha, units),
+        f"sequencer-{night}.ps1": render_powershell(plan, plan_sha, units, suite_minutes=suite_minutes,
+                                                    land_minutes=land_minutes),
         f"timetable-{night}.md": render_timetable(plan, plan_sha, units, rows, findings, suite_minutes, land_minutes),
         f"queue-{night}.draft.json": render_queue(plan, plan_sha, units, _parse_receipts(receipts, out_dir)),
     }

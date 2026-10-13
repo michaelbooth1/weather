@@ -215,12 +215,13 @@ merge entry also refuse an attempt that already has either terminal receipt.
   - tree identity: `master` is an ancestor of the tip, or every `master` commit outside the tip is a no-content merge (its tree equals its merged parent's) of a head the tip contains. Otherwise rebuild and re-pregate.
   - no running `WeatherIntegration*` task, and the lease is free;
   - the binding `roll_verdict.ps1` (a plan that said roll-free, but whose binding verdict is not roll-free, stops);
-  - the windows: suite three to four minutes after now and not before 00:30, merge at max(suite + 30 min, 01:00), and nothing past 03:40.
+  - the windows: suite three to four minutes after now and not before 00:35 (the real first trigger), merge at max(suite + 30 min, 01:00), the merge trigger not past 03:40, and the suite end (suite + `-SuiteMinutes`, default from the generator's `--suite-minutes`) not past 03:40, because the consumer stops a suite still running then.
 
   It prints `SEQUENCER ... VERDICT=READY|WAIT|STOP|STOP_FOR_NIGHT|DONE|CREATED`, with exit 0, 3 (wait) or 4.
   With `-Execute` it adds the detached worktree and runs `new_integration_attempt.ps1`.
   It **never** registers: it prints the `register_integration_attempt.ps1` command for the operator-authorised step above.
-- `timetable-<night>.md` lists the order and the gates, with a serial estimate. Attempts are serial because each one freezes the production baseline.
+  A plan slot with `"landing_path": "direct_rf"` (allowed only for an expected `ROLL-FREE` head) is not an attempt: after the same gates it only prints the direct guarded-merge commands (worktree, `bounded_worktree_test_suite.ps1`, which takes the lease, then `quiet_window_merge.ps1`), even with `-Execute`. 03:40 does not bind it; it stops for the night if suite + `-SuiteMinutes` + `-LandMinutes` would pass the 09:00 heavy-work close.
+- `timetable-<night>.md` lists the order, path and gates, with a serial estimate (first suite 00:35). Attempts are serial because each one freezes the production baseline. An attempt unit overflows when its merge trigger or its suite end is past 03:40; a direct unit only when it would not land by 09:00.
 - `queue-<night>.draft.json` is an unsigned M6 queue draft. Every entry has `approved: false`, and only the owner approves and signs it.
 
 ## Early launch diagnostics

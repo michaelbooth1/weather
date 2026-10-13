@@ -132,17 +132,18 @@ def fx(tmp_path: Path) -> dict:
     wrapper.write_text(WRAPPER, encoding="utf-8")
     return {"tmp": tmp_path, "repo": repo, "script": out / "sequencer-2026-10-14.ps1", "wrapper": wrapper,
             "journal": tmp_path / "journal.txt", "rs": rs, "rf": rf, "alone": alone, "rs_head": rs_head,
-            "base": base}
+            "base": base, "plan": plan, "out": out}
 
 
 def _run(fx: dict, unit: str, *, now: str = "2026-10-14T00:10:00", roll: int = 3, lease: str = "free",
-         running: str = "", execute: bool = False) -> tuple[int, str, list[str]]:
+         running: str = "", execute: bool = False, extra: tuple[str, ...] = ()) -> tuple[int, str, list[str]]:
     env = dict(os.environ, **GIT_ENV, FAKE_SCRIPT=str(fx["script"]), FAKE_JOURNAL=str(fx["journal"]),
                FAKE_ROLL_EXIT=str(roll), FAKE_LEASE=lease, FAKE_RUNNING=running)
     argv = [POWERSHELL, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", str(fx["wrapper"]),
             "-Unit", unit, "-WorktreeParent", str(fx["tmp"] / "wt"), "-GitExecutablePath", GIT, "-Now", now]
     if execute:
         argv.append("-Execute")
+    argv.extend(extra)
     result = subprocess.run(argv, cwd=fx["repo"], capture_output=True, text=True, env=env, timeout=120)
     journal = fx["journal"].read_text(encoding="utf-8-sig").splitlines() if fx["journal"].exists() else []
     return result.returncode, result.stdout + result.stderr, journal
@@ -165,7 +166,7 @@ def test_dry_run_is_ready_with_runbook_windows_and_creates_nothing(fx):
     code, out, journal = _run(fx, "n9-rs")
     assert code == 0, out
     assert "VERDICT=READY dry; nothing created" in out
-    assert "suite=2026-10-14T00:30:00 merge=2026-10-14T01:00:00" in out
+    assert "suite=2026-10-14T00:35:00 merge=2026-10-14T01:05:00" in out  # first suite at 00:35
     assert "attempt=20261014-n9-rs-a1" in out
     assert journal == ["ROLL origin/claude/integration-20261014-n9-rs"]
     assert not (fx["repo"] / "data").exists() and not (fx["tmp"] / "wt").exists()
@@ -193,8 +194,12 @@ def test_stacked_unit_waits_for_its_base_then_execute_creates_but_never_register
         ({"lease": "held"}, "WAIT", "lease is held"),
         ({"running": "WeatherIntegrationSuite_x"}, "WAIT", "WeatherIntegrationSuite_x"),
         ({"roll": 1}, "STOP", "roll_verdict.ps1 failed"),
-        ({"now": "2026-10-14T03:06:00"}, "READY", "merge=2026-10-14T03:40:00"),
-        ({"now": "2026-10-14T03:07:00"}, "STOP_FOR_NIGHT", "03:40 reserve"),
+        # Default 52-minute suite: 02:44 -> suite 02:48, ends 03:40 exactly; one minute later it would be stopped.
+        ({"now": "2026-10-14T02:44:00"}, "READY", "suite=2026-10-14T02:48:00 merge=2026-10-14T03:18:00"),
+        ({"now": "2026-10-14T02:45:00"}, "STOP_FOR_NIGHT", "suite would end 03:41 (52 min), past 03:40"),
+        # A short suite reaches the merge-trigger reserve first.
+        ({"now": "2026-10-14T03:06:00", "extra": ("-SuiteMinutes", "20")}, "READY", "merge=2026-10-14T03:40:00"),
+        ({"now": "2026-10-14T03:07:00", "extra": ("-SuiteMinutes", "20")}, "STOP_FOR_NIGHT", "03:40 reserve"),
     ],
 )
 def test_gates_for_the_first_unit(fx, kwargs, verdict, needle):
@@ -238,3 +243,38 @@ def test_stacked_unit_stops_when_master_carries_an_untested_commit(fx):
     _git(fx["repo"], "push", "-q", "origin", "master")
     code, out, _ = _run(fx, "n9-rf", roll=0)
     assert code == 4 and "which the tip was not tested with" in out, out
+
+
+def _make_rf_direct(fx: dict) -> None:
+    plan = dict(fx["plan"], slots=[dict(slot) for slot in fx["plan"]["slots"]])
+    plan["slots"][1]["landing_path"] = "direct_rf"
+    plan["plan_sha256"] = plan_content_sha256(plan)
+    plan_path = fx["tmp"] / "plan-direct.json"
+    plan_path.write_text(json.dumps(plan), encoding="utf-8")
+    assert ns.generate(plan_path, fx["out"])["blocking"] is False
+
+
+def test_direct_rf_unit_after_0340_is_ready_and_prints_the_guarded_merge_only(fx):
+    _make_rf_direct(fx)
+    _land(fx, fx["rs"])
+    code, out, journal = _run(fx, "n9-rf", roll=0, now="2026-10-14T03:50:00", execute=True)
+    assert code == 0 and "VERDICT=READY direct path; nothing created" in out, out
+    assert "path=direct_rf suite_from=2026-10-14T03:54:00 land_by=2026-10-14T04:54:00" in out
+    assert "bounded_worktree_test_suite.ps1" in out and f"-ExpectedTip {fx['rf']}" in out
+    assert f"quiet_window_merge.ps1 -Branch origin/claude/integration-20261014-n9-rf -ExpectedTip {fx['rf']}" in out
+    assert not [line for line in journal if line.startswith(("CREATE ", "MUTATION"))]
+    assert not (fx["repo"] / "data").exists() and not (fx["tmp"] / "wt").exists()
+
+
+def test_direct_rf_unit_stops_for_the_night_past_the_0900_close(fx):
+    _make_rf_direct(fx)
+    _land(fx, fx["rs"])
+    code, out, _ = _run(fx, "n9-rf", roll=0, now="2026-10-14T08:00:00")  # 08:04 + 52 + 8 = 09:04
+    assert code == 4 and "VERDICT=STOP_FOR_NIGHT" in out and "09:00 heavy-work close" in out, out
+
+
+def test_direct_rf_unit_still_stops_on_a_sensitive_binding_verdict(fx):
+    _make_rf_direct(fx)
+    _land(fx, fx["rs"])
+    code, out, _ = _run(fx, "n9-rf", roll=3, now="2026-10-14T03:50:00")
+    assert code == 4 and "binding verdict is ROLL-SENSITIVE" in out, out

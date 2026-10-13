@@ -126,22 +126,86 @@ def test_timetable_is_serial_and_respects_the_merge_window():
     rows = ns.estimate_timetable(units, date(2026, 10, 14), suite_minutes=52, land_minutes=8)
     assert [r["label"] for r in rows] == ["n9-rs-r2", "n9-rf-r2"]  # fallback is not scheduled
     first, second = rows
-    assert first["suite_at"] == datetime(2026, 10, 14, 0, 30)
-    assert first["merge_at"] == datetime(2026, 10, 14, 1, 0)  # max(suite + 30, 01:00)
-    assert first["landed_at"] == datetime(2026, 10, 14, 1, 30)
-    assert second["suite_at"] == datetime(2026, 10, 14, 1, 32)
-    assert second["merge_at"] == datetime(2026, 10, 14, 2, 2)
+    assert first["suite_at"] == datetime(2026, 10, 14, 0, 35)  # the real first trigger, not 00:30
+    assert first["merge_at"] == datetime(2026, 10, 14, 1, 5)  # max(suite + 30, 01:00)
+    assert first["suite_end"] == datetime(2026, 10, 14, 1, 27)
+    assert first["landed_at"] == datetime(2026, 10, 14, 1, 35)  # max(merge, suite end) + 8
+    assert second["suite_at"] == datetime(2026, 10, 14, 1, 37)
+    assert second["merge_at"] == datetime(2026, 10, 14, 2, 7)
     assert not first["overflow"] and not second["overflow"]
+    assert first["path"] == second["path"] == "attempt"
 
 
-def test_overflow_boundary_is_the_0340_reserve():
-    units, _ = ns.build_units(_plan())
-    at_reserve = ns.estimate_timetable(units[:1], date(2026, 10, 14), suite_minutes=52, land_minutes=8,
-                                       start=datetime(2026, 10, 14, 3, 10))
-    past = ns.estimate_timetable(units[:1], date(2026, 10, 14), suite_minutes=52, land_minutes=8,
-                                 start=datetime(2026, 10, 14, 3, 11))
-    assert at_reserve[0]["merge_at"] == datetime(2026, 10, 14, 3, 40) and not at_reserve[0]["overflow"]
-    assert past[0]["overflow"]
+def _one(unit, *, start: datetime, suite_minutes: int = 52, land_minutes: int = 8) -> dict:
+    return ns.estimate_timetable([unit], date(2026, 10, 14), suite_minutes=suite_minutes,
+                                 land_minutes=land_minutes, start=start)[0]
+
+
+def test_attempt_overflows_when_its_suite_would_run_past_0340():
+    rs = ns.build_units(_plan())[0][0]
+    at_reserve = _one(rs, start=datetime(2026, 10, 14, 2, 48))  # 02:48 + 52 = 03:40 exactly
+    past = _one(rs, start=datetime(2026, 10, 14, 2, 49))
+    assert at_reserve["suite_end"] == datetime(2026, 10, 14, 3, 40) and not at_reserve["overflow"]
+    # The merge trigger (03:19) is inside the reserve; the suite end alone makes it overflow.
+    assert past["merge_at"] == datetime(2026, 10, 14, 3, 19)
+    assert past["overflow"] and "suite end 03:41" in past["overflow_reason"]
+    assert "merge trigger" not in past["overflow_reason"]
+
+
+def test_attempt_merge_trigger_boundary_is_the_0340_reserve():
+    rs = ns.build_units(_plan())[0][0]
+    at_reserve = _one(rs, start=datetime(2026, 10, 14, 3, 10), suite_minutes=20)
+    past = _one(rs, start=datetime(2026, 10, 14, 3, 11), suite_minutes=20)
+    assert at_reserve["merge_at"] == datetime(2026, 10, 14, 3, 40) and not at_reserve["overflow"]
+    assert past["overflow"] and "merge trigger 03:41" in past["overflow_reason"]
+
+
+def _direct_plan() -> dict:
+    plan = _plan()
+    plan["slots"][0]["landing_path"] = "direct_rf"  # the roll-free slot (exec 2)
+    plan["plan_sha256"] = plan_content_sha256(plan)
+    return plan
+
+
+def test_direct_rf_unit_is_not_bound_by_0340_only_by_0900():
+    units, findings = ns.build_units(_direct_plan())
+    assert findings == []
+    rf = units[1]
+    assert rf.path == "direct_rf" and units[0].path == "attempt"
+    late = _one(rf, start=datetime(2026, 10, 14, 3, 50))
+    assert not late["overflow"]
+    assert late["merge_at"] == late["suite_end"] == datetime(2026, 10, 14, 4, 42)  # merge right after the suite
+    assert late["landed_at"] == datetime(2026, 10, 14, 4, 50)
+    at_close = _one(rf, start=datetime(2026, 10, 14, 8, 0))  # lands 09:00 exactly
+    past = _one(rf, start=datetime(2026, 10, 14, 8, 1))
+    assert at_close["landed_at"] == datetime(2026, 10, 14, 9, 0) and not at_close["overflow"]
+    assert past["overflow"] and "09:00" in past["overflow_reason"]
+
+
+def test_direct_rf_after_an_attempt_follows_it_serially():
+    units, _ = ns.build_units(_direct_plan())
+    rows = ns.estimate_timetable(units, date(2026, 10, 14), suite_minutes=52, land_minutes=8,
+                                 start=datetime(2026, 10, 14, 2, 40))
+    rs, rf = rows
+    assert not rs["overflow"]  # 02:40 + 52 = 03:32
+    assert rf["suite_at"] == datetime(2026, 10, 14, 3, 42)  # previous landing 03:40 + 2
+    assert not rf["overflow"]  # a direct head past 03:40 is not an overflow
+
+
+@pytest.mark.parametrize(
+    "path, roll, needle",
+    [
+        ("direct_rf", "ROLL-SENSITIVE", "needs expected_roll_class ROLL-FREE"),
+        ("direct_rf", "ROLL-FREE-IF-DORMANT", "needs expected_roll_class ROLL-FREE"),
+        ("sideways", "ROLL-FREE", "is not one of attempt, direct_rf"),
+    ],
+)
+def test_landing_path_findings_block(path, roll, needle):
+    plan = _plan()
+    plan["slots"][0]["landing_path"] = path
+    plan["slots"][0]["expected_roll_class"] = roll
+    _, findings = ns.build_units(plan)
+    assert any(f.unit == "n9-rf-r2" and f.severity == "BLOCK" and needle in f.message for f in findings), findings
 
 
 @pytest.mark.parametrize("value", ["a'b", "a$b", "a`b", 'a"b', "a;b"])
@@ -166,6 +230,30 @@ def test_generate_writes_three_files_and_an_unsigned_queue_draft(tmp_path):
         "queue-2026-10-14.draft.json", "sequencer-2026-10-14.ps1", "timetable-2026-10-14.md"]
     timetable = (out / "timetable-2026-10-14.md").read_text(encoding="utf-8")
     assert "-CheckOnly" in timetable and "Findings:" in timetable
+
+
+def test_generate_carries_paths_and_estimates_into_the_outputs(tmp_path):
+    out = tmp_path / "out"
+    summary = ns.generate(_write(tmp_path, _direct_plan()), out, suite_minutes=47, land_minutes=6)
+    assert summary["blocking"] is False
+    script = (out / "sequencer-2026-10-14.ps1").read_bytes().decode("utf-8-sig")
+    assert "[int]$SuiteMinutes = 47," in script and "[int]$LandMinutes = 6" in script
+    assert "path = 'direct_rf'" in script and "path = 'attempt'" in script
+    timetable = (out / "timetable-2026-10-14.md").read_text(encoding="utf-8")
+    assert "| n9-rs-r2 | attempt | 00:35 | 01:22 | 01:05 | 01:28 | no |" in timetable
+    assert "| n9-rf-r2 | direct_rf | 01:30 | 02:17 | 02:17 | 02:23 | no |" in timetable
+
+
+def test_generate_notes_a_suite_end_overflow(tmp_path):
+    out = tmp_path / "out"
+    summary = ns.generate(_write(tmp_path, _plan()), out, suite_minutes=170)  # rs 00:35-03:25 fits; rf from 03:35
+    notes = {f["unit"]: f["message"] for f in summary["findings"]}
+    assert "n9-rs-r2" not in notes
+    assert notes["n9-rf-r2"].startswith("estimated overflow: merge trigger 04:05 is past the 03:40 reserve; suite end 06:25")
+    assert "YES: merge trigger 04:05" in (out / "timetable-2026-10-14.md").read_text(encoding="utf-8")
+    summary = ns.generate(_write(tmp_path, _plan()), out, suite_minutes=190)  # rs 00:35 + 190 = 03:45
+    notes = {f["unit"]: f["message"] for f in summary["findings"]}
+    assert notes["n9-rs-r2"] == "estimated overflow: suite end 03:45 is past 03:40, where the consumer stops it"
 
 
 def test_queue_draft_binds_a_named_preflight_receipt(tmp_path):
