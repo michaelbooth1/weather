@@ -325,11 +325,17 @@ $tree | ForEach-Object { $h, $rel = $_ -split '  ', 2; $o = Join-Path $WsHome $r
 ```
 
 Go/no-go W0: every `binaries` path is present and not `DIFF`; any `DIFF` or `ONLY-NUGET` outside
-`Lib\site-packages\*.dist-info\` and `__pycache__` is NO-GO (the nuget.org SHA-512 has the same
-origin as the download, so this full-tree comparison against the python.org-installer home is the
-independent check on every file A4 pins); no extracted name contains `%`. The package has no `tkinter`, Tcl/Tk, `idlelib`, `test`
-or `turtledemo`; nothing under `src/`, `app/`, `tools/`, `scripts/` or `tests/` imports them, and the
-bounded suite in B2 is the proof.
+`Lib\site-packages\*.dist-info\`, `__pycache__`, `libs\*.lib` and `DLLs\python.cat` is NO-GO (the
+nuget.org SHA-512 has the same origin as the download, so this full-tree comparison against the
+python.org-installer home is the independent check on every file A4 pins); no extracted name
+contains `%`. The two extra exemptions were added after the first W0 run (2026-10-13), which found
+exactly two `DIFF`s (the `RECORD` files of `pip` and `setuptools`) and 22 `ONLY-NUGET` files: 21
+link-time import libraries under `libs\` (the installer adds only `python3.lib`, `python311.lib` and
+`_tkinter.lib`; no runtime path loads a `.lib`) and the package's PSF-signed `DLLs\python.cat`
+(Authenticode `Valid`, `binary_signer_thumbprint`). The package has no `tkinter`, Tcl/Tk, `idlelib`,
+`turtle`, `test`, the `ctypes`, `distutils`, `lib2to3` and `unittest` test packages, `turtledemo`,
+`Tools\scripts` or base `Scripts\pip*.exe`; nothing under `src/`, `app/`, `tools/`, `scripts/` or
+`tests/` imports them, venv `pip` comes from `ensurepip`, and the bounded suite in B2 is the proof.
 
 ### 6b. Helper scripts (verbatim; copy into `$Tools`, outside `$WH`)
 
