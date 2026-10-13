@@ -455,7 +455,8 @@ Late-day lock-in anchor replay (read-only, outcome-blind; closed dates up to
 2026-10-15 is always refused). Run it on the capture host only inside the
 admitted heavy window under the shared lease. It replays captured inputs through
 `estimate_distribution` with the pre-v0.5.11 WU-only anchor and with the
-restored anchor (`--with-v3-arm` adds v3 without the v4 pre-lock-in floor). It
+restored anchor (`--with-v3-arm` adds v3 without the v4 pre-lock-in floor;
+`--with-no-metar-arm` adds the item-337 no-METAR observed floor and checks it). It
 writes one JSONL row per snapshot, holding both final vectors and, when the
 folder has `snapshots_long.csv`, both arms' band probabilities and the captured
 market price, to a new `--out` file outside `data/`, and prints a

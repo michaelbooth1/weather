@@ -245,3 +245,63 @@ def test_rows_carry_band_probabilities_and_v3_arm_when_bands_are_captured(tmp_pa
         assert len(row[arm]) == 3
         assert all(0.0 <= p <= 1.0 for p in row[arm])
     assert row["new_band_p"][1] > row["old_band_p"][1]
+
+
+# --- item 337: the no-METAR observed-floor arm (development dates only) -------------
+
+def _swob_record(snapshot_id, hour, rows):
+    model = TorontoHighTempModel(market_id="atlanta", target_date="2026-09-20")
+    built_at = datetime(2026, 9, 20, hour, 30, tzinfo=model.spec.tz)
+    station = {"station_observation_source": "eccc_swob",
+               "rows": [{"time": t, "local_time": t, "temp_native": v} for t, v in rows]}
+    return {"snapshot_id": snapshot_id, "target_date": "2026-09-20",
+            "built_at": built_at.isoformat(),
+            "sources": {"station_observations": {"ok": True, "data": station}}}
+
+
+def _nm_factory(market_id):
+    model = _model_factory(market_id)
+    # Mass well below the SWOB high, as in the three Toronto rows of the B replay.
+    model.predict_feature_distribution = lambda sources, cutoff_hour, now: (
+        {70: 0.2, 76: 0.2, 82: 0.2, 84: 0.2, 88: 0.2}, "hgb",
+    )
+    return model
+
+
+def test_no_metar_arm_floors_swob_only_rows_and_changes_nothing_else(tmp_path):
+    root = tmp_path / "snapshots"
+    _write_folder(root, SLUG, [
+        _swob_record("s-swob-night", 3, [("00:00", 82.0), ("02:00", 80.0)]),
+        _record("s-metar-morning", 10),
+        _record("s-metar-evening", 23),
+    ])
+    out = tmp_path / "nm.jsonl"
+    summary = replay_cmd.run(replay_cmd.select_folders([], root), out,
+                             model_factory=_nm_factory, no_metar_arm=True)
+    rows = {row["snapshot_id"]: row for row in map(json.loads, out.read_text().splitlines())}
+    swob = rows["s-swob-night"]
+    assert swob["no_metar_rows"] is True
+    assert swob["nm_floor_stage"] == "pre_lockin_no_metar"
+    assert swob["nm_mass_below_anchor"] == 0.0
+    assert swob["l1_nm_vs_new"] > 0.0
+    for snapshot_id in ("s-metar-morning", "s-metar-evening"):
+        assert rows[snapshot_id]["no_metar_rows"] is False
+        assert rows[snapshot_id]["l1_nm_vs_new"] == 0.0
+    arm = summary["no_metar_arm"]
+    assert arm["no_metar_rows"] == 1 and arm["no_metar_rows_floored"] == 1
+    assert arm["no_metar_rows_below_anchor"] == 0
+    assert arm["rows_changed_outside_the_no_metar_floor"] == 0
+    assert arm["no_metar_check"] == "PASS"
+
+
+def test_no_metar_summary_fails_on_residual_or_collateral_change():
+    rows = [
+        {"no_metar_rows": True, "nm_floor_stage": None, "nm_mass_below_anchor": 0.01,
+         "l1_nm_vs_new": 0.0},
+        {"no_metar_rows": False, "nm_floor_stage": "pre_lockin", "nm_mass_below_anchor": 0.0,
+         "l1_nm_vs_new": 0.02},
+    ]
+    arm = replay_cmd.summarize_no_metar_arm(rows)
+    assert arm["no_metar_rows_below_anchor"] == 1
+    assert arm["rows_changed_outside_the_no_metar_floor"] == 1
+    assert arm["no_metar_check"] == "FAIL"

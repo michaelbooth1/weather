@@ -23,6 +23,8 @@ keying, the capture every closed date in the replay was made under.
 lockin-anchor-v4 (stacked on #189): before lock-in, no mass below the same-day METAR
 high bucket at any hour; Defender mutants on B (hour >= 7 only, renormalize instead of
 move, SWOB as a hard floor, sentinel readings, raw-less D-1 rows).
+Item 337 (owner-gated, off by default): with no METAR row, the observed station high floors
+the vector before lock-in; with METAR present nothing changes.
 """
 import math
 import random
@@ -698,3 +700,69 @@ def test_stored_row_without_raw_keyed_to_the_prior_day_is_excluded():
     *_, anchor = _stage_inputs(model, {"metar": metar}, _night(model, 2, 0))
     assert anchor["excluded_prior_day_rows"] == 1
     assert anchor["bucket"] == _oracle_bucket(22.0)
+
+
+# --- (6) item 337: the no-METAR observed floor (owner-gated, off by default) ---
+
+def _swob_only(*rows):
+    return {"station_observations": {"ok": True, "data": {
+        "station_observation_source": "eccc_swob",
+        "rows": [{"time": t, "local_time": t, "temp_native": v} for t, v in rows],
+    }}}
+
+
+NO_METAR_SCORES = {70: 0.1, 76: 0.2, 79: 0.1, 82: 0.05, 84: 0.35, 88: 0.2}
+
+
+def test_no_metar_floor_is_off_by_default_and_the_swob_hedge_is_untouched():
+    model = _model()
+    out, _, context = _run_stage(model, NO_METAR_SCORES, _swob_only(("02:00", 82.0)), _night(model))
+    anchor = context["lockin_anchor"]
+    assert anchor["no_metar_rows"] is True
+    assert anchor["observed_floor_stage"] is None
+    assert out == pytest.approx(NO_METAR_SCORES)
+
+
+@pytest.mark.parametrize("swob_time", ["00:00", "02:00"])
+def test_no_metar_floor_moves_mass_onto_the_observed_station_high(swob_time):
+    """Enabled: a SWOB-only day (including a genuine local-midnight day-D reading) floors at B."""
+    model = _model()
+    model.no_metar_observed_floor = True
+    out, strength, context = _run_stage(
+        model, NO_METAR_SCORES, _swob_only((swob_time, 82.0), ("03:00", 80.0)), _night(model),
+    )
+    anchor = context["lockin_anchor"]
+    assert strength == 0.0
+    assert anchor["observed_floor_stage"] == "pre_lockin_no_metar"
+    assert anchor["observed_floor_bucket"] == 82
+    assert _below(out, 82) == 0.0
+    assert out[82] == pytest.approx(0.1 + 0.2 + 0.1 + 0.05)
+    assert out[84] == pytest.approx(0.35) and out[88] == pytest.approx(0.2)
+
+
+def test_no_metar_floor_changes_nothing_when_metar_rows_exist():
+    """With METAR present the v4 METAR-only floor is unchanged: SWOB stays hedged above it."""
+    model = _model()
+    model.no_metar_observed_floor = True
+    metar = _metar_source(model, ((1, 24.0), (3, 23.0)), until_hour=3)
+    sources = {"metar": metar, **_swob_only(("02:00", 82.0))}
+    out, _, context = _run_stage(model, NO_METAR_SCORES, sources, _night(model))
+    anchor = context["lockin_anchor"]
+    assert anchor["no_metar_rows"] is False
+    assert anchor["observed_floor_stage"] == "pre_lockin"
+    assert anchor["observed_floor_bucket"] == _oracle_bucket(24.0)
+    assert out[79] == pytest.approx(0.1)
+
+
+def test_no_metar_floor_is_inert_without_the_v4_floor_or_under_the_legacy_anchor():
+    model = _model()
+    model.no_metar_observed_floor = True
+    model.pre_lockin_same_day_floor = False
+    out, _, context = _run_stage(model, NO_METAR_SCORES, _swob_only(("02:00", 82.0)), _night(model))
+    assert context["lockin_anchor"]["observed_floor_stage"] is None
+    assert out == pytest.approx(NO_METAR_SCORES)
+    del model.pre_lockin_same_day_floor
+    model.late_day_lockin_legacy_wu_anchor = True
+    out, _, context = _run_stage(model, NO_METAR_SCORES, _swob_only(("02:00", 82.0)), _night(model))
+    assert context["lockin_anchor"]["observed_floor_stage"] is None
+    assert out == pytest.approx(NO_METAR_SCORES)

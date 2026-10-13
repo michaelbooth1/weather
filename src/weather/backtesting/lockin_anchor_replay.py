@@ -33,7 +33,7 @@ CLI:
   python -m weather.backtesting.lockin_anchor_replay --out <path.jsonl>
       [folder ...] [--snapshots-root data/snapshots] [--market MARKET]
       [--from-date YYYY-MM-DD] [--through-date YYYY-MM-DD]
-      [--include-reconstructed] [--with-v3-arm]
+      [--include-reconstructed] [--with-v3-arm] [--with-no-metar-arm]
 """
 from __future__ import annotations
 
@@ -192,7 +192,7 @@ def band_descriptor(band):
     }
 
 
-def _replay(model, record, *, legacy, bands=None, pre_lockin_floor=True):
+def _replay(model, record, *, legacy, bands=None, pre_lockin_floor=True, no_metar_floor=False):
     """One arm: final vector, payload and (when bands are given) band probabilities.
 
     Band probabilities are computed inside the arm, because ``bin_probability``
@@ -203,8 +203,10 @@ def _replay(model, record, *, legacy, bands=None, pre_lockin_floor=True):
         model.set_target_date(target)
     previous = getattr(model, "late_day_lockin_legacy_wu_anchor", False)
     previous_floor = getattr(model, "pre_lockin_same_day_floor", True)
+    previous_no_metar = getattr(model, "no_metar_observed_floor", False)
     model.late_day_lockin_legacy_wu_anchor = legacy
     model.pre_lockin_same_day_floor = pre_lockin_floor
+    model.no_metar_observed_floor = no_metar_floor
     try:
         result = model.estimate_distribution_result(
             record.get("sources") or {}, now=parse_built_at(record),
@@ -215,12 +217,13 @@ def _replay(model, record, *, legacy, bands=None, pre_lockin_floor=True):
     finally:
         model.late_day_lockin_legacy_wu_anchor = previous
         model.pre_lockin_same_day_floor = previous_floor
+        model.no_metar_observed_floor = previous_no_metar
     payload = result.component_payload or {}
     return as_int_distribution(result.distribution), payload, band_p
 
 
 def compare_record(model, record, market_id, *, bands=None, event_slug=None, v3_arm=False,
-                   today=None):
+                   no_metar_arm=False, today=None):
     """One old-vs-new comparison row, or None when the record has no inputs."""
     if not record.get("sources"):
         return None
@@ -267,7 +270,39 @@ def compare_record(model, record, market_id, *, bands=None, event_slug=None, v3_
         row["v3_final"] = {str(k): v for k, v in sorted(v3.items())}
         if bands is not None:
             row["v3_band_p"] = v3_band_p
+    if no_metar_arm:
+        # Item 337: the same record with the no-METAR observed floor enabled.
+        nm, nm_payload, nm_band_p = _replay(model, record, legacy=False, bands=bands,
+                                            no_metar_floor=True)
+        nm_anchor = (nm_payload.get("high_has_stood_lockin") or {}).get("lockin_anchor") or {}
+        row["no_metar_rows"] = bool(anchor.get("no_metar_rows"))
+        row["nm_floor_stage"] = nm_anchor.get("observed_floor_stage")
+        row["nm_mass_below_anchor"] = _below(nm, bucket)
+        row["l1_nm_vs_new"] = distribution_l1(nm, new)
+        row["nm_final"] = {str(k): v for k, v in sorted(nm.items())}
+        if bands is not None:
+            row["nm_band_p"] = nm_band_p
     return row
+
+
+def summarize_no_metar_arm(rows):
+    """Item 337 acceptance: zero below-anchor mass on no-METAR rows, no other change."""
+    no_metar = [row for row in rows if row.get("no_metar_rows")]
+    below = [row for row in no_metar
+             if row["nm_mass_below_anchor"] is not None
+             and row["nm_mass_below_anchor"] > BELOW_ANCHOR_TOLERANCE]
+    other_change = [row for row in rows
+                    if row.get("nm_floor_stage") != "pre_lockin_no_metar"
+                    and (row.get("l1_nm_vs_new") or 0.0) > 1e-12]
+    return {
+        "no_metar_rows": len(no_metar),
+        "no_metar_rows_floored": sum(1 for row in no_metar
+                                     if row.get("nm_floor_stage") == "pre_lockin_no_metar"),
+        "no_metar_rows_changed": sum(1 for row in no_metar if (row.get("l1_nm_vs_new") or 0.0) > 1e-12),
+        "no_metar_rows_below_anchor": len(below),
+        "rows_changed_outside_the_no_metar_floor": len(other_change),
+        "no_metar_check": "FAIL" if below or other_change else "PASS",
+    }
 
 
 def summarize(rows):
@@ -326,7 +361,7 @@ def load_band_rows(folder):
 
 
 def run(folders, out_path, *, include_reconstructed=False, model_factory=None, v3_arm=False,
-        today=None):
+        no_metar_arm=False, today=None):
     if model_factory is None:
         from weather.model.toronto_model import TorontoHighTempModel
 
@@ -353,7 +388,8 @@ def run(folders, out_path, *, include_reconstructed=False, model_factory=None, v
                 row = compare_record(
                     models[market_id], record, market_id,
                     bands=band_rows.get(str(snapshot_id)),
-                    event_slug=Path(folder).name, v3_arm=v3_arm, today=today,
+                    event_slug=Path(folder).name, v3_arm=v3_arm, no_metar_arm=no_metar_arm,
+                    today=today,
                 )
                 if row is None:
                     continue
@@ -362,8 +398,12 @@ def run(folders, out_path, *, include_reconstructed=False, model_factory=None, v
                     "hour", "l1_new_vs_old", "l1_old_vs_recorded",
                     "old_mass_above_anchor", "new_mass_above_anchor",
                     "old_mass_below_anchor", "new_mass_below_anchor",
-                )})
-    return summarize(rows)
+                    "no_metar_rows", "nm_floor_stage", "nm_mass_below_anchor", "l1_nm_vs_new",
+                ) if key in row})
+    summary = summarize(rows)
+    if no_metar_arm:
+        summary["no_metar_arm"] = summarize_no_metar_arm(rows)
+    return summary
 
 
 def build_parser():
@@ -382,6 +422,10 @@ def build_parser():
     parser.add_argument("--with-v3-arm", action="store_true",
                         help="Also replay v3 without the v4 pre-lock-in floor "
                              "(pre_lockin_same_day_floor = False).")
+    parser.add_argument("--with-no-metar-arm", action="store_true",
+                        help="Also replay with the item-337 no-METAR observed floor enabled "
+                             "(no_metar_observed_floor = True); exits 3 if a no-METAR row keeps "
+                             "mass below the anchor or any other row changes.")
     parser.add_argument("--out", required=True,
                         help="New JSONL file outside data/ (never overwritten).")
     return parser
@@ -399,7 +443,7 @@ def main(argv=None):
         )
         check_out_path(args.out)
         summary = run(folders, args.out, include_reconstructed=args.include_reconstructed,
-                      v3_arm=args.with_v3_arm)
+                      v3_arm=args.with_v3_arm, no_metar_arm=args.with_no_metar_arm)
     except ReplayRefused as exc:
         print(str(exc), file=sys.stderr)
         return 2
@@ -411,6 +455,9 @@ def main(argv=None):
             "anchor did".format(summary["rows_new_below_anchor_exceeds_old"]),
             file=sys.stderr,
         )
+        return FLOOR_CHECK_FAILED_EXIT
+    if summary.get("no_metar_arm", {}).get("no_metar_check") == "FAIL":
+        print("no-METAR floor check FAILED (item 337)", file=sys.stderr)
         return FLOOR_CHECK_FAILED_EXIT
     return 0
 

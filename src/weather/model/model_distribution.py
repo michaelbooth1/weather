@@ -1233,6 +1233,7 @@ class DistributionMixin(DistributionSignalMixin):
             "guidance_physical_floor": self.to_number(guidance_floor),
             "excluded_prior_day_rows": 0,
             "metar_bucket": None,
+            "no_metar_rows": False,
             "legacy_wu_anchor": legacy,
             "history": history,
         }
@@ -1250,6 +1251,11 @@ class DistributionMixin(DistributionSignalMixin):
         metar_rows, _ = self.lockin_observed_rows(metar=metar, now=now)
         if metar_rows:
             anchor["metar_bucket"] = self.round_half_up(max(value for _, _, value in metar_rows))
+        else:
+            # Item 337: no METAR row on the target day, so the anchor comes
+            # from the station rows alone (SWOB, or WU current); the v4 floor
+            # is inert unless ``no_metar_observed_floor`` is enabled.
+            anchor["no_metar_rows"] = True
         first_time = next(
             (time for _, time, value in rows if self.round_half_up(value) >= bucket),
             None,
@@ -1534,6 +1540,18 @@ class DistributionMixin(DistributionSignalMixin):
         elif observed_anchor and pre_lockin_floor and lockin_anchor.get("metar_bucket") is not None:
             observed_floor_bucket = lockin_anchor["metar_bucket"]
             observed_floor_stage = "pre_lockin"
+        elif (
+            observed_anchor
+            and pre_lockin_floor
+            and lockin_anchor.get("no_metar_rows")
+            and bool(getattr(self, "no_metar_observed_floor", False))
+        ):
+            # Item 337 (owner-gated, off by default): with no METAR row the
+            # observed station high (SWOB / WU current, including a genuine
+            # local-midnight day-D reading) floors the vector before lock-in,
+            # replacing the SWOB one-bucket warm-bias hedge on this path.
+            observed_floor_bucket = lockin_anchor["bucket"]
+            observed_floor_stage = "pre_lockin_no_metar"
         if observed_floor_bucket is not None:
             # The current-max overlock guard never runs alongside this floor:
             # it needs a WU history bucket, and an observed anchor exists only
