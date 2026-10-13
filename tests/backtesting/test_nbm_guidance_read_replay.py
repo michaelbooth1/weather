@@ -100,8 +100,11 @@ class _Tmp(unittest.TestCase):
     def run_cli(self, *args, name="out.jsonl"):
         out = self.tmp / "reports" / name
         code = replay.main([*args, "--out", str(out), "--snapshots-root", str(self.snapshots)])
-        lines = out.read_text(encoding="utf-8").splitlines() if out.exists() else []
-        return code, [json.loads(line) for line in lines]
+        if not out.exists():
+            return code, []
+        if out.suffix == ".json":  # --d0-check writes one indented JSON document
+            return code, [json.loads(out.read_text(encoding="utf-8"))]
+        return code, [json.loads(line) for line in out.read_text(encoding="utf-8").splitlines()]
 
     def rewrite(self, name, mutate):
         path = self.folder / name
