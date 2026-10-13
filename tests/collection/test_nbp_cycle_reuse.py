@@ -1,4 +1,7 @@
-"""Complete national-cycle reuse: fixture-only, no external requests or outcomes."""
+"""Complete national-cycle reuse: fixture-only, no external requests or outcomes.
+
+Guards: item 190 national-cycle NBP reuse (docs/operations/nbm-target-period-contract.md).
+"""
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -8,7 +11,7 @@ import pytest
 import requests
 
 from weather.collection.forecast_payload_fetch_fanout import (
-    CrossProcessMarketInvariantFetchFanout, _complete_nbp, _nbp_reuse_stations,
+    CrossProcessMarketInvariantFetchFanout, complete_nbp, nbp_reuse_stations,
 )
 from weather.collection.forecast_payload_cas import forecast_payload_byte_summary
 from weather.collection.snapshot_store import SnapshotStore
@@ -34,23 +37,23 @@ def test_fixture_probe_independent_passes_and_markets(tmp_path):
     for reuse, expected in [(False, 33), (True, 1)]:
         calls = []
         for pass_number in range(3):
-            for station in _nbp_reuse_stations():
+            for station in nbp_reuse_stations():
                 # Each market is due in a different process/supervisor iteration.
                 result = fetch(tmp_path / str(reuse), lambda: calls.append(1) or dict(VALUE),
                                f'pass-{pass_number}-{station}', reuse=reuse)
                 assert result.value == VALUE
-                if reuse and len(calls) == 1 and (pass_number or station != _nbp_reuse_stations()[0]):
+                if reuse and len(calls) == 1 and (pass_number or station != nbp_reuse_stations()[0]):
                     assert result.reused and not result.fetched
                     assert result.coordinator_network_fetch_count == 0
         assert len(calls) == expected
-        measurements.append({'reuse': reuse, 'passes': 3, 'markets': len(_nbp_reuse_stations()),
+        measurements.append({'reuse': reuse, 'passes': 3, 'markets': len(nbp_reuse_stations()),
                              'downloads': len(calls), 'bulletin_bytes': len(TEXT.encode())})
     print('NBP_FETCH_PROBE=' + json.dumps(measurements))
 
 
 def test_station_set_is_evaluated_once_on_first_fetch_and_reuse(tmp_path):
     with patch('weather.collection.forecast_payload_fetch_fanout._nbp_reuse_stations',
-               wraps=_nbp_reuse_stations) as stations:
+               wraps=nbp_reuse_stations) as stations:
         fetch(tmp_path, lambda: dict(VALUE), 'first')
         assert stations.call_count == 1
         stations.reset_mock()
@@ -97,9 +100,9 @@ def test_incomplete_first_fetch_is_not_indexed_and_next_pass_downloads(tmp_path,
         line = next(line for line in text.splitlines() if line[:6].strip() == code)
         text = text.replace(line, '', 1)
     if defect == 'cycle':
-        assert not _complete_nbp(text, KEY['cycle_key'], _nbp_reuse_stations())
+        assert not complete_nbp(text, KEY['cycle_key'], nbp_reuse_stations())
         return
-    assert not _complete_nbp(text, KEY['cycle_key'], _nbp_reuse_stations())
+    assert not complete_nbp(text, KEY['cycle_key'], nbp_reuse_stations())
     calls = []
     fetch(tmp_path, lambda: calls.append(1) or {**VALUE, 'text': text}, 'first')
     assert not list(tmp_path.glob('nbp_cycle_index/*/*.json'))

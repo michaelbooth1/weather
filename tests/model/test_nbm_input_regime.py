@@ -1,4 +1,7 @@
-"""A v1-trained artifact never consumes parser-v2 NBM values (EF 10k/10l)."""
+"""A v1-trained artifact never consumes parser-v2 NBM values (EF 10k/10l).
+
+Guards: EF 10k/10l and the NBM contract shadow input regime section.
+"""
 import json
 import math
 import pickle

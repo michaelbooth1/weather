@@ -1,4 +1,7 @@
-"""Landing controls for parser v2 on retained NOAA station blocks; no outcomes."""
+"""Landing controls for parser v2 on retained NOAA station blocks; no outcomes.
+
+Guards: item 190 parser-v2 landing contract (docs/operations/nbm-target-period-contract.md).
+"""
 from datetime import timedelta
 from pathlib import Path
 
@@ -7,9 +10,9 @@ import pytest
 from weather.sources.nbm_probabilistic_tmax import (
     NBM_NBP_TXN_CYCLES,
     NBM_PROB_TMAX_FEATURE_COLUMNS,
-    _parse_issue_time,
-    _parse_pair_row,
-    _row_code,
+    nbp_row_code,
+    parse_nbp_issue_time,
+    parse_nbp_pair_row,
     parse_nbp_station_tmax,
     parse_nbp_station_tmax_v1,
     station_nbp_block,
@@ -23,8 +26,8 @@ BLOCKS = sorted([*FIXTURES.glob("20260917T*.txt"), FIXTURES / "p0" / "20260917T0
 def _maximum_valid_times(path):
     station = path.stem.split("-")[1]
     block = station_nbp_block(path.read_text(), station)
-    issue = _parse_issue_time(block[0])
-    rows = {_row_code(line): _parse_pair_row(line) for line in block if _row_code(line)}
+    issue = parse_nbp_issue_time(block[0])
+    rows = {nbp_row_code(line): parse_nbp_pair_row(line) for line in block if nbp_row_code(line)}
     leads = [lead for pair in rows["FHR"] for lead in pair if lead is not None]
     return issue, [issue + timedelta(hours=lead) for lead in leads if (issue + timedelta(hours=lead)).hour == 0]
 
