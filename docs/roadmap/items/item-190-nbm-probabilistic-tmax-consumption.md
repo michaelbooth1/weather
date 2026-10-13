@@ -289,7 +289,7 @@ head. Nothing has landed. Every piece is ROLL-SENSITIVE because
   also adds tests for served-output invariance and for the no-outcome-join
   ratchet.
 
-The [NBM contract](../operations/nbm-target-period-contract.md#mg-1-stage-tape-outcome-blind)
+The [NBM contract](../../operations/nbm-target-period-contract.md)
 owns the tape semantics. The closed-day archive family for the tape is still
 open, along with the D4 replay/check CLI and D0 dating.
 
