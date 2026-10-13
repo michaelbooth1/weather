@@ -50,7 +50,7 @@ If any check fails, the head falls back to today's suite-gated integration attem
 Sources:
 - 42 pre-gate receipts under the workstation's `l-data\n*heads\pregate\`.
 - Master merge history.
-- Master's host suite verdict lines (`C:	mp\suite-logs` on the host, relayed 2026-10-13).
+- Master's host suite verdict lines (`C:\tmp\suite-logs` on the host, relayed 2026-10-13).
 - The workstation state log of master's night reports.
 
 This covers test outcomes only; no market or panel data was read.
