@@ -223,6 +223,8 @@ $Log     = Join-Path $R 'night.log'
 New-Item -ItemType Directory -Force $R, $Tools, $A | Out-Null
 $K = if (Test-Path -LiteralPath (Join-Path $R 'constants.json')) { Get-Content -LiteralPath (Join-Path $R 'constants.json') -Raw | ConvertFrom-Json }   # §6a
 if ($K) { foreach ($kk in 'nupkg_url','nupkg_size','nupkg_sha512_b64','tools_manifest_sha256','binary_signer_thumbprint','vv_prefix','binaries') { if (-not $K.$kk) { throw "constants.json lacks $kk" } } }
+# Session globals that a later phase reads come from files, never from an earlier session (A1 writes oldhome.txt).
+$OldHome = if (Test-Path -LiteralPath "$R\oldhome.txt") { (Get-Content -LiteralPath "$R\oldhome.txt" -TotalCount 1).Trim() }
 function Log($m){ $l = "{0:o} {1}" -f (Get-Date), $m; Add-Content -LiteralPath $Log -Value $l -Encoding utf8; Write-Host $l }
 # The lease lives in the session's global scope. While $global:ReleaseOnNoGo is set (B0-B1e, and C1 until the C4 rename),
 # every NoGo releases it; after the C4 rename it stays held for §R.
@@ -271,6 +273,8 @@ Trap reminders ([operations agent role](OPERATIONS_AGENT_ROLE.md) §5):
 - never run a recursive listing of `data\`;
 - track and terminate every process you start;
 - an agent session runs in Windows session 0, so any window it starts (an installer, a UAC prompt) is invisible. A step that needs the owner to click runs in the owner's own elevated window (seen on the host, 2026-10-13);
+- a value one phase assigns is `$null` in the fresh session of a later night: read it from the file that phase wrote
+  (the §6 header reads `oldhome.txt`), never from a variable set earlier (found in review 2026-10-13);
 - PowerShell variable names ignore case, and `foreach` and `ForEach-Object` assign in the session scope: a loop variable `$k`, `$p`, `$a` or `$r` overwrites `$K`, `$P`, `$A` or `$R`. Never reuse a session constant's name for a loop variable (a `foreach ($k ...)` in C6 would have rolled back every cutover; found in review 2026-10-13);
 - never follow `night.log` with a tailing reader (`Get-Content -Wait`, `tail -F`): it can hold the file so that `Log`'s `Add-Content` fails and stops the phase. Read snapshots instead (seen on the host, 2026-10-13).
 
@@ -720,6 +724,7 @@ function Test-Venv($vpy, $root, $tag) {
     # 3.11.0 home, whose PEP 514 PythonPath key shares sys.winver 3.11.
     $std = & $vpy -c "import os, ssl, sys; print(os.__file__); print(ssl.__file__); print('\n'.join(p for p in sys.path if p))"; if ($LASTEXITCODE) { NoGo "$tag stdlib location" }
     $std | Set-Content "$out\stdlib-path.txt" -Encoding utf8
+    if (-not $OldHome) { NoGo "$tag oldhome.txt missing" }
     $nh = $NewHome.TrimEnd('\') + '\'; $oh = $OldHome.TrimEnd('\') + '\'
     foreach ($s in $std[0..1]) { if (-not $s.StartsWith($nh, [StringComparison]::OrdinalIgnoreCase)) { NoGo "$tag stdlib from $s, not $nh" } }
     foreach ($s in $std) { if (($s.TrimEnd('\') + '\').StartsWith($oh, [StringComparison]::OrdinalIgnoreCase)) { NoGo "$tag sys.path reaches the 3.11.0 home: $s" } }
@@ -1005,7 +1010,10 @@ Log 'C4 renamed'                  # from here on a failure means §R, which keep
 C4 never kills a holder. An unknown holder means NO-GO with no swap. The holder file goes to the
 owner.
 
-**C5. Build the new venv offline.** From here on, any failure means §R.
+**C5. Build the new venv offline.** From here on, any failure means §R. The C session is fresh: before
+C5, define `Build-Venv` (B1c) and `Test-Venv` (B1d) in it by pasting those two function definitions
+only, not the B1c and B1d calls. Both read only §6 header values (`$R`, `$WH`, `$A`, `$K`, `$NewHome`,
+`$OldHome`).
 
 ```powershell
 & $NewPy -I -m venv (Join-Path $P 'venv'); if ($LASTEXITCODE) { NoGo 'venv create -> ROLLBACK' }
@@ -1233,8 +1241,10 @@ owner. The aux tasks stay disabled, so a 04:10 U6 export cannot start on a half-
 ### §D. Cleanup after PASS (a later admitted night)
 
 ```powershell
+$QBranch = @(git -C $P branch --list 'py3119-qual-*' --format='%(refname:short)')   # B1 set it in an earlier session
+if ($QBranch.Count -ne 1) { throw "expected one py3119-qual-* branch, found $($QBranch.Count)" }
 git -C $P worktree remove $Stage      # use --force only if git refuses because of the ignored stage venv
-git -C $P branch -D $QBranch
+git -C $P branch -D $QBranch[0]
 ```
 
 ## 8. Release cases
