@@ -13,14 +13,38 @@ This module holds the parts of that contract that do not depend on the pipeline 
   ``final_cash`` and the exclusion counts are dropped, never copied);
 - ``whitelisted(doc)``: walks a rehearsal document and refuses any key outside ``WHITELIST`` at its path
   (``rehearsal_whitelist:<path>``), so a smuggled score key anywhere fails closed.
+
+and the end-to-end rehearsal (U2 part 2):
+
+- ``rehearse(paths, inventory, ...)``: path names checked, bundles opened under one shared ``RunBudget``, the §4
+  rule applied to the calibration dates (``intervals.sources(..., panel="calibration")``), then the whole scored
+  pipeline (``pipeline.run_passes``: eight base passes and every matched-clock round; ``report.build_report``: the
+  bootstrap, the report and the sidecar, kept as bytes and hash only). Returns the whitelisted document.
+- ``ceiling_input(doc)``: the ``measured`` block projected to ``ceilings.MEASURED`` for ``ceilings.derive``.
+
+Report path (pending review, T1 report decision 3): a scored report needs an enrolled execution manifest, which
+cannot exist before signature. The rehearsal therefore composes the report from the same declared sources
+relabelled ``synthetic`` (``report_status`` FIXTURE_ONLY, recorded in the document). Every pass, round, bootstrap
+replicate and sidecar row is the same work; the FIXTURE_ONLY report omits only ``pack_check`` (a fixed set of
+digests) and ``pre_registration_sha256``, so ``report_bytes`` is short of the scored report by that fixed block.
+
+Measurement: the run clock starts after the path check and stops after the report bytes are taken; the
+records-by-kind count rides the base drive (the first read of each day), so it adds no pass. Memory is the
+process peak (``ceilings.process_memory``) above the peak taken before the first input byte, so one rehearsal
+runs per fresh process, as v1's did.
 """
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Mapping
+from dataclasses import replace
 from datetime import date
+import hashlib
 from pathlib import Path
 import re
+import time
 
+from maker_core.evidence.journal import digest
 from maker_core.replay.bundle import BundleError
 from maker_core.replay.calibration import CALIBRATION_DATES
 
@@ -41,7 +65,7 @@ REACHABILITY_KEYS = ("status", "f_cal", "screen_pass_rate", "decision_reasons", 
 ANY = object()  # a free-form leaf (a value, or a mapping whose keys are data such as kinds, dates or reasons)
 WHITELIST = {
     "format": ANY, "mode": ANY, "dates": ANY, "hazard_variant": ANY, "calibration_sha256": ANY,
-    "after_fail_sha256": ANY, "measured_at": ANY, "interpretation": ANY,
+    "after_fail_sha256": ANY, "measured_at": ANY, "interpretation": ANY, "report_status": ANY, "replicates": ANY,
     "measured": {**{k: ANY for k in MEASURED_KEYS}, "records_by_kind": ANY},
     "passes": [{k: ANY for k in PASS_KEYS}],
     "clock": {"rounds": ANY, "matches": {ANY: {"status": ANY, "attempts": ANY}}},
@@ -117,3 +141,111 @@ def whitelisted(doc):
         raise BundleError("rehearsal_whitelist:")
     _walk(doc, WHITELIST, "")
     return doc
+
+
+def _counting(source, counts, done):
+    """``source`` with its first read counted by record kind; later reads (matched-clock rounds) are not."""
+    from maker_core.replay.v2.lockstep import DaySource
+
+    def records():
+        first = source.plan.day not in done
+        for record in source.records():
+            if first:
+                counts[record.kind] += 1
+            yield record
+        done.add(source.plan.day)
+    return DaySource(source.plan, records)
+
+
+def _rehearsal_label(source):
+    """The declared source relabelled ``synthetic`` so ``build_report`` composes without a manifest (see above)."""
+    if not source.plan.declared:
+        raise BundleError("rehearsal_requires_declared_intervals")
+    return replace(source, plan=replace(source.plan, provenance="synthetic"))
+
+
+def _zones(inventory):
+    zones = {}
+    for row in inventory:
+        if zones.setdefault(row["market_id"], row["local_timezone"]) != row["local_timezone"]:
+            raise BundleError("market_time_zone_disagreement")
+    return zones
+
+
+def rehearse(paths, inventory, *, mode, hazard_per_minute, calibration_sha256, hazard_variant="max_m", now,
+             replicates=2000, clock=time.monotonic, memory=None, limits=None, progress=lambda *_: None):
+    """One score-free rehearsal (registration §9): ``per_date`` (one calibration bundle) or ``carried`` (the three).
+
+    ``inventory`` is the weather producer's universe rows for those dates; ``hazard_per_minute`` comes from the
+    unchanged calibration recipe (``calibration_sha256`` names its document). Nothing scored leaves this function:
+    the report and the engines are dropped and only the whitelisted document is returned."""
+    from maker_core.replay.bundle_v02 import open_stream_bundle
+    from maker_core.replay.ceilings import process_memory
+    from maker_core.replay.v2 import intervals
+    from maker_core.replay.v2.kernel import V2Config
+    from maker_core.replay.v2.limits import RunBudget
+    from maker_core.replay.v2.pipeline import run_passes
+    from maker_core.replay.v2.report import build_report, report_bytes
+
+    if hazard_variant not in HAZARD_VARIANTS:
+        raise BundleError("rehearsal_hazard_variant_invalid")
+    paths = list(paths)
+    days = sorted(calibration_day(path) for path in paths)  # before any byte is read
+    if len(set(days)) != len(days):
+        raise BundleError("rehearsal_duplicate_date")
+    check_mode(mode, days)
+    memory = memory or process_memory
+    baseline = memory()[1]
+    started = clock()
+    budget = RunBudget(clock=clock)
+    bundles = sorted((open_stream_bundle(Path(path), limits=limits, clock=clock, run=budget) for path in paths),
+                     key=lambda b: b.day)
+    if [b.day for b in bundles] != days:
+        raise BundleError("rehearsal_restricted_to_calibration_dates")  # a manifest naming another day
+    declared, _ = intervals.sources(bundles, inventory, panel="calibration", check=budget.check)
+    counts, done = Counter(), set()
+    sources = [_counting(_rehearsal_label(s), counts, done) for s in declared]
+    config = V2Config(hazard_per_minute=hazard_per_minute)
+    run = run_passes(sources, config, time_zones=_zones(inventory), progress=progress)
+    report, sidecar = build_report(run, config, replicates=replicates, check=budget.check)
+    raw = report_bytes(report)
+    runtime = clock() - started
+    peak = memory()[1]
+    status = report["status"]
+    del report
+    engines = [p.engine for passes in run.passes.values() for p in passes.values()]
+    summaries = [e.summary() for e in engines] + [t if isinstance(t, dict) else t.engine.summary()
+                                                  for *_, t in run.trials]
+    if sum(counts.values()) != run.replayed["records"]:
+        raise BundleError("rehearsal_record_count_mismatch")
+    passes = [project_pass(e.summary()) for e in engines]
+    measured = dict(
+        input_bytes=sum(b.input_bytes for b in bundles), records=sum(counts.values()),
+        records_by_kind=dict(sorted(counts.items())),
+        wakes=max(s["wakes"] for s in summaries), decisions=max(s["decisions"] for s in summaries),
+        span_runs=max(s["intervals"] for s in summaries), report_bytes=len(raw), sidecar_bytes=sidecar["bytes"],
+        sidecar_records=sidecar["records"], runtime_seconds=runtime,
+        peak_memory_above_baseline_bytes=max(0, peak - baseline), baseline_memory_bytes=baseline)
+    doc = dict(
+        format=FORMAT, mode=mode, dates=[d.isoformat() for d in days], hazard_variant=hazard_variant,
+        calibration_sha256=calibration_sha256, measured_at=now.isoformat(), interpretation=INTERPRETATION,
+        report_status=status, replicates=replicates, measured=measured, passes=passes,
+        clock={"rounds": len(run.trials),
+               "matches": {bound: {"status": m["status"], "attempts": m["attempts"]}
+                           for bound, m in run.matches.items()}},
+        hashes=dict(input_hashes={b.day.isoformat(): dict(b.input_hashes) for b in bundles},
+                    report_sha256=hashlib.sha256(raw).hexdigest(), sidecar_sha256=sidecar["sha256"],
+                    decision_sha256=digest([p["decision_sha256"] for p in passes])))
+    return whitelisted(doc)
+
+
+def ceiling_input(doc) -> dict:
+    """A whitelisted rehearsal document's ``measured`` block reduced to ``ceilings.MEASURED`` (``derive``'s input)."""
+    from maker_core.replay.v2 import ceilings
+    whitelisted(doc)
+    if doc.get("format") != FORMAT:
+        raise BundleError("rehearsal_format_invalid")
+    measured = doc["measured"]
+    if not set(ceilings.MEASURED) <= set(measured):
+        raise BundleError("incomplete_ceiling_measurement")
+    return {k: measured[k] for k in ceilings.MEASURED}
