@@ -182,9 +182,30 @@ a write failure is dropped without blocking the snapshot. Tests pin the served
 CSVs, `snapshots.jsonl`, replay inputs and variant tape as byte-identical with
 the stage on or off.
 
-Nothing in reporting, backtesting, scoring or daily refresh reads the tape. The
-only outcome join allowed is the pre-registered MG-1 look, behind
-`weather.mg1_reserved_window`.
+Nothing in reporting, backtesting, scoring or daily refresh reads the tape,
+except the outcome-blind replay/check CLI below. The only outcome join allowed
+is the pre-registered MG-1 look, behind `weather.mg1_reserved_window`.
+
+### Replay and D0 check
+
+[`nbm_guidance_read_replay.py`](../../src/weather/backtesting/nbm_guidance_read_replay.py)
+proves the pre-registration's replay condition (100% within 1e-12):
+
+- **L1** recomputes each stage vector from the row's own inputs and requires
+  the row's stage hashes to equal the running module's.
+- **L2** rebuilds the row from `replay_inputs.jsonl` and `snapshots.jsonl`.
+- **L3** (`--level l3`) re-parses the retained NBP bulletin bytes from the
+  shared CAS through parser v2. The same-issue bulletin must give the same mean
+  and spread. A newer bulletin available at capture is counted, not failed.
+
+`--d0-check --day V` checks D0 condition (b) (every US NBM manifest row captured
+on local day V has parser 2) and (c) (every T+0 snapshot for target V has a
+non-error, hash-bound tape row), and prints the candidate D0. The landing
+verification and promotion countability stay manual (OD32).
+
+The CLI imports no settlement, panel or scoring loader. It refuses targets
+before `MG1_FLOOR`, an existing `--out` and any `--out` inside `data/`. Exit
+codes: 0 pass, 2 refused, 3 replay failure, 4 D0 not met.
 
 ## Update when
 

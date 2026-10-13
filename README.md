@@ -463,6 +463,17 @@ refuses later dates, an existing `--out`, and any `--out` inside `data/`:
 .\venv\Scripts\python.exe -m weather.backtesting.lockin_anchor_replay --out scratch\lockin_anchor_replay\through-2026-09-29.jsonl --from-date 2026-09-14
 ```
 
+`weather.backtesting.nbm_guidance_read_replay` replays the outcome-blind MG-1
+stage tape at L1/L2 (or L3 with `--level l3`), and `--d0-check --day` checks MG-1
+D0 conditions (b) and (c). It is read-only, refuses dates before 2026-10-15, and
+writes only a new `--out` outside `data/`
+([NBM contract](docs/operations/nbm-target-period-contract.md)):
+
+```powershell
+.\venv\Scripts\python.exe -m weather.backtesting.nbm_guidance_read_replay --out scratch\mg1_replay\day.jsonl --from-date 2026-10-20 --through-date 2026-10-20
+.\venv\Scripts\python.exe -m weather.backtesting.nbm_guidance_read_replay --d0-check --day 2026-10-20 --out scratch\mg1_replay\d0.json
+```
+
 `weather.calibration.feature_model` trains one market/unit-family at a time.
 Use `--market toronto` for Celsius artifacts and an F-market such as `nyc` for
 F-family artifacts. For the local multi-market helper, use

@@ -288,9 +288,12 @@ head. Nothing has landed. Every piece is ROLL-SENSITIVE because
   tape, the schema and storage registration, and the frozen config entry. It
   also adds tests for served-output invariance and for the no-outcome-join
   ratchet.
+- **Replay/check CLI (D4):** branch `claude/mg1-replay-cli-20261013`, stacked
+  on the capture branch. It adds `weather.backtesting.nbm_guidance_read_replay`
+  (L1/L2, L3 byte re-derivation and `--d0-check`).
 
 The [NBM contract](../../operations/nbm-target-period-contract.md)
-owns the tape semantics. The closed-day archive family for the tape is still
-open, along with the D4 replay/check CLI and D0 dating.
+owns the tape and replay semantics. The closed-day archive family for the tape
+is still open (held by the coordinator), along with D0 dating.
 
 Related: items 185, 75, 21, 27; `[[highs-projection-data-gap-2026-06-20]]`.

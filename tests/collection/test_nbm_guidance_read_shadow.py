@@ -338,9 +338,11 @@ class TestNoOutcomeJoin(unittest.TestCase):
         files = [p for root in roots for p in root.rglob("*.py")]
         files += list(repo_path("src", "weather", "operations").glob("daily_refresh*.py"))
         self.assertTrue(files)
+        # The one reader is the outcome-blind replay/check CLI; its own test pins that it imports no outcome loader.
+        replay_module = repo_path("src", "weather", "backtesting", "nbm_guidance_read_replay.py")
         offenders = [
             str(p) for p in files
-            if "nbm_guidance_read_shadow" in p.read_text(encoding="utf-8", errors="replace")
+            if p != replay_module and "nbm_guidance_read_shadow" in p.read_text(encoding="utf-8", errors="replace")
         ]
         self.assertEqual(offenders, [], "the MG-1 tape may be joined to outcomes only by a pre-registered D0 look")
 
