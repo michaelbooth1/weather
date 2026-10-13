@@ -113,6 +113,11 @@ network egress. Option A closes file access, not the network. Closing it fully n
 without network (option B), or making the repository private for the session's duration (an owner decision outside
 this runbook). Whatever is ruled is disclosed with the oracle PR.
 
+The author's test venv holds pytest, its Windows runtime dependencies and `tzdata==2026.3` only (the oracle needs
+tzdata for local midnights; native Windows has no zone database). Tests that need requests, pandas, numpy, pyarrow,
+streamlit, websocket, matplotlib or sklearn do not collect. This is a disclosed limit, not a cut defect: the cut
+keeps every repository module those tests import, and the author may ask about the errors.
+
 ## Rulings (owner, 2026-10-12)
 
 | Id | Question | Ruling |
