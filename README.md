@@ -143,6 +143,16 @@ larger runs wait their turn in the FIFO queue of the heavy wrapper (timeout exit
 .\scripts\ops\workstation_heavy.ps1 -Kind pytest -PythonPath "$PWD\venv\Scripts\python.exe" -ArgumentsBase64 <base64-json-argv> -RepoRoot $PWD.Path -Queue -QueueTimeoutSeconds 14400
 ```
 
+A focused run that does include `serial` files can use the second slot instead, beside a long queued run. This is allowed only after LFC session 0, and never during a live session.
+
+- The run is capped at under 5 minutes and its child tree is killed on overrun.
+- Exit codes: 76 when the slot is busy, 77 when a live session pre-empts the run, 124 on overrun.
+- The contract is in [docs/development.md](docs/development.md#separate-non-capture-workstation).
+
+```powershell
+.\scripts\ops\workstation_heavy.ps1 -Kind pytest -PythonPath "$PWD\venv\Scripts\python.exe" -ArgumentsBase64 <base64-json-argv> -RepoRoot $PWD.Path -FocusedSlot -FocusedSlotTimeoutSeconds 299
+```
+
 `pytest.ini` sets `pythonpath = src` and limits collection to `tests/`.
 Ad-hoc live scripts under `scratch/` are intentionally outside the test suite.
 
