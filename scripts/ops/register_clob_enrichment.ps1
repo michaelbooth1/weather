@@ -24,7 +24,7 @@
 # restarts it if it has died.
 [CmdletBinding()]
 param(
-    [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
+    [string]$RepoRoot = "",
     [switch]$AcknowledgeRetired,
     [string]$StartAt = "01:00",
     [int]$IntervalSeconds = 900,
@@ -36,6 +36,12 @@ param(
     [int]$WebsocketMessageLimit = 400,
     [switch]$Unregister
 )
+# Windows PowerShell 5.1 leaves $PSScriptRoot and $PSCommandPath empty inside an
+# advanced script's param() defaults under `powershell -File`; derive the default
+# here. An explicit -RepoRoot always wins.
+if (-not $RepoRoot) {
+    $RepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
+}
 
 $ErrorActionPreference = "Stop"
 $taskName = "WeatherClobEnrichmentLoop"

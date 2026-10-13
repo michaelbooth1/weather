@@ -136,7 +136,10 @@ def test_acceptance_files_keep_legacy_bytes_and_sealer_contract(tmp_path, monkey
     original_bytes = {name: Path(name).read_bytes() for name in legacy_file_hashes}
     assert {
         name: hashlib.sha256(raw).hexdigest() for name, raw in original_bytes.items()
-    } == legacy_file_hashes
+    } == legacy_file_hashes, (
+        "accepted.json/drift.json bytes changed: re-review weather.market.exchange_economics "
+        "accept_snapshot_baseline and write_json output before re-pinning"
+    )
     assert set(json.loads(original_bytes["drift.json"])) == candidate_cli.DRIFT_REPORT_KEYS
     binding = candidate_cli.load_economics_acceptance_evidence(
         "current.json", "accepted.json", "drift.json", TARGET_DATE, now=NOW,

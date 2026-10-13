@@ -44,6 +44,7 @@ import datetime as dt
 import json
 import sys
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 REPO = Path(__file__).resolve().parents[2]
 LEDGER = REPO / "data" / "settlements" / "toronto" / "ledger.jsonl"
@@ -172,7 +173,14 @@ def today_capture_health(today: dt.date, now_override: dt.datetime | None = None
         out["reason"] = "no captures parsed"
         return out
 
+    # The window follows the Toronto clock, not the first stamp's fixed offset
+    # (on 2026-11-01 that offset is -04:00 but the window is 12:00-18:00 EST).
     tz = times[0].tzinfo
+    if tz is not None:
+        try:
+            tz = ZoneInfo("America/Toronto")
+        except ZoneInfoNotFoundError:
+            pass
     ws = dt.datetime.combine(today, dt.time(AFTERNOON_START_HOUR), tzinfo=tz)
     we = dt.datetime.combine(today, dt.time(AFTERNOON_END_HOUR), tzinfo=tz)
     now = now_override if now_override is not None else dt.datetime.now(tz)

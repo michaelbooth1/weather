@@ -41,41 +41,6 @@ from weather.reporting.promotion.promotion_corpus import (
 
 DEFAULT_OUT = data_path() / "backtest" / "promotion_gauntlet_report.md"
 DEFAULT_REPLAY_REPORT = data_path() / "backtest" / "promotion_replay_report.md"
-DEFAULT_FORECAST_TRACKER = data_path() / "backtest" / "forecast_vs_realized.json"
-
-
-def _forecast_tracker_status(path):
-    path = Path(path)
-    if not path.exists():
-        return {
-            "status": "WARN",
-            "message": f"forecast tracker missing at {path}",
-            "path": str(path),
-        }
-    count = None
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        if isinstance(payload, list):
-            count = len(payload)
-        elif isinstance(payload, dict):
-            for key in ("rows", "records", "items", "markets"):
-                if isinstance(payload.get(key), list):
-                    count = len(payload[key])
-                    break
-    except (OSError, json.JSONDecodeError):
-        return {
-            "status": "WARN",
-            "message": f"forecast tracker exists but is unreadable at {path}",
-            "path": str(path),
-        }
-    suffix = f"; {count} record(s)" if count is not None else ""
-    return {
-        "status": "INFO",
-        "message": f"forecast tracker present at {path}{suffix}",
-        "path": str(path),
-    }
-
-
 def _rows_by_market(rows):
     grouped = defaultdict(list)
     for row in rows:
@@ -341,7 +306,6 @@ def run_promotion_gauntlet(args):
     )
     baseline_path = None if args.no_baseline else args.baseline
     baseline_ok, baseline_message = _baseline_gate_status(results, baseline_path, args.tol)
-    forecast_status = _forecast_tracker_status(args.forecast_tracker)
     overall = _overall_verdict(corpus_ok, fidelity_ok, baseline_ok, market_rows)
 
     report = {
@@ -352,7 +316,6 @@ def run_promotion_gauntlet(args):
         "fidelity_message": fidelity_message,
         "baseline_ok": baseline_ok,
         "baseline_message": baseline_message,
-        "forecast_tracker": forecast_status,
         "results": results,
         "market_rows": market_rows,
         "decomposition": decomposition,
@@ -430,7 +393,6 @@ def write_report(report, out_path):
              "all pinned tape/replay hashes matched" if report["corpus_ok"] else "corpus pin warnings present"],
             ["Replay fidelity", "PASS" if report["fidelity_ok"] else "FAIL", report["fidelity_message"]],
             ["Regression", "PASS" if report["baseline_ok"] else "FAIL", report["baseline_message"]],
-            ["Forecast tracker", report["forecast_tracker"]["status"], report["forecast_tracker"]["message"]],
         ],
     )
     lines += [
@@ -552,7 +514,6 @@ def main():
     parser.add_argument("--baseline", default=str(DEFAULT_BASELINE))
     parser.add_argument("--no-baseline", action="store_true",
                         help="Gate against recorded incumbent probabilities instead of a saved baseline.")
-    parser.add_argument("--forecast-tracker", default=str(DEFAULT_FORECAST_TRACKER))
     parser.add_argument("--out", default=str(DEFAULT_OUT))
     parser.add_argument("--replay-report", default=str(DEFAULT_REPLAY_REPORT),
                         help="Detailed replay report path. Empty string disables it.")

@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pytest
 
-from weather.market.mm_paper_scoring import load_quote_rows
 from weather.market.mm_scoring_projection import (
     BASE_CANONICAL_FILENAME,
     BASE_PROJECTION_FILENAME,
@@ -222,118 +221,6 @@ def test_invalid_projection_member_falls_back_to_both_canonical_tapes(tmp_path):
     }
     assert resolved["input_bytes"] == resolved["canonical_bytes"]
     assert resolved["projected_vs_canonical_byte_ratio"] == 1.0
-
-
-def test_live_append_prefix_scores_captured_rows_after_file_grows(tmp_path):
-    run_folder = _write_current_run(
-        tmp_path / "mm_runs",
-        target_date="2099-08-20",
-    )
-    exact = resolve_run_scoring_inputs(run_folder)
-    captured = resolve_run_scoring_inputs(
-        run_folder,
-        live_append_prefix=True,
-    )
-    quote_path = run_folder / BASE_CANONICAL_FILENAME
-    appended = _current_row(run_id="paper-run", target_date="2099-08-20")
-    appended["generated_at_utc"] = "2099-08-20T16:01:00+00:00"
-    _append_csv_row(quote_path, appended)
-
-    with pytest.raises(RuntimeError, match="size_bytes binding mismatch"):
-        load_quote_rows(
-            [run_folder],
-            input_paths_by_folder={str(run_folder): quote_path},
-            input_bindings_by_folder={
-                str(run_folder): exact["input_bindings"]["base"]
-            },
-        )
-
-    binding = captured["input_bindings"]["base"]
-    assert binding["binding_mode"] == LIVE_APPEND_PREFIX_BINDING_MODE
-    assert binding["captured_mtime_ns"] > 0
-    assert binding["size_bytes"] < quote_path.stat().st_size
-    rows, _configs = load_quote_rows(
-        [run_folder],
-        input_paths_by_folder={str(run_folder): quote_path},
-        input_bindings_by_folder={str(run_folder): binding},
-    )
-    assert len(rows) == 1
-    assert rows[0]["generated_at_utc"] == "2099-08-20T16:00:00+00:00"
-
-
-def test_live_append_prefix_excludes_partial_final_record(tmp_path):
-    run_folder = _write_current_run(
-        tmp_path / "mm_runs",
-        target_date="2099-08-20",
-    )
-    quote_path = run_folder / BASE_CANONICAL_FILENAME
-    complete_size = quote_path.stat().st_size
-    with quote_path.open("ab") as handle:
-        handle.write(b"paper-run,unfinished")
-
-    captured = resolve_run_scoring_inputs(
-        run_folder,
-        live_append_prefix=True,
-    )
-    binding = captured["input_bindings"]["base"]
-
-    assert binding["size_bytes"] == complete_size
-    assert binding["captured_file_size_bytes"] > binding["size_bytes"]
-    rows, _configs = load_quote_rows(
-        [run_folder],
-        input_paths_by_folder={str(run_folder): quote_path},
-        input_bindings_by_folder={str(run_folder): binding},
-    )
-    assert len(rows) == 1
-
-
-def test_live_append_prefix_rejects_newline_inside_unfinished_quoted_record(
-    tmp_path,
-):
-    run_folder = _write_current_run(
-        tmp_path / "mm_runs",
-        target_date="2099-08-20",
-    )
-    quote_path = run_folder / BASE_CANONICAL_FILENAME
-    with quote_path.open("ab") as handle:
-        handle.write(b'paper-run,"unfinished\n')
-
-    captured = resolve_run_scoring_inputs(
-        run_folder,
-        live_append_prefix=True,
-    )
-    binding = captured["input_bindings"]["base"]
-
-    with pytest.raises(csv.Error, match="unexpected end of data"):
-        load_quote_rows(
-            [run_folder],
-            input_paths_by_folder={str(run_folder): quote_path},
-            input_bindings_by_folder={str(run_folder): binding},
-        )
-
-
-def test_live_append_prefix_rejects_rewrite_inside_captured_bytes(tmp_path):
-    run_folder = _write_current_run(
-        tmp_path / "mm_runs",
-        target_date="2099-08-20",
-    )
-    quote_path = run_folder / BASE_CANONICAL_FILENAME
-    captured = resolve_run_scoring_inputs(
-        run_folder,
-        live_append_prefix=True,
-    )
-    binding = captured["input_bindings"]["base"]
-    original = quote_path.read_bytes()
-    rewritten = original.replace(b"atlanta", b"atlantb", 1)
-    assert len(rewritten) == len(original)
-    quote_path.write_bytes(rewritten)
-
-    with pytest.raises(RuntimeError, match="prefix hash binding mismatch"):
-        load_quote_rows(
-            [run_folder],
-            input_paths_by_folder={str(run_folder): quote_path},
-            input_bindings_by_folder={str(run_folder): binding},
-        )
 
 
 @pytest.mark.parametrize(

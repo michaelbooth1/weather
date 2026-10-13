@@ -3,8 +3,14 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 
-def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+def utc_now(value=None, *, parser=None) -> datetime:
+    """UTC clock, optionally using a caller's established input parser."""
+    parsed = parser(value) if parser is not None else parse_datetime(value)
+    if parsed is None:
+        return datetime.now(timezone.utc)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def utc_iso() -> str:

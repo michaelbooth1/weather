@@ -14,6 +14,10 @@ Scope: serving-time model code under `src/weather/model/`. Inherits
   cutoff, not wall-clock hour alone. WU publication lag is a modeled behavior.
   When WU is empty, only the admitted station/current rescue captured by model
   emission may establish the effective observed-high floor.
+- Key station observation rows on the observation instant (METAR `obsTime`),
+  not the provider's nominal report hour; a parse-keying change bumps the
+  source's `SOURCE_PAYLOAD_CONTRACTS` parser version
+  ([durable domain context](../../../docs/operations/AGENT_CONTEXT.md)).
 - `historical_target_cache()` defaults to the serving-safe prior-year,
   target-season window. Calibration may request exact PIT coverage dates only
   to make the verified prelocked universe addressable; that does not relax

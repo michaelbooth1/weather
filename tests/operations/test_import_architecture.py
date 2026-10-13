@@ -2,6 +2,31 @@ import ast
 import re
 import subprocess
 from pathlib import Path
+import pytest
+
+pytestmark = pytest.mark.ratchet
+
+import pytest
+
+
+# Every scan below is repo-relative. Anchor it on this file, not on the process
+# CWD: from any other CWD the globs came back empty and the ratchets passed
+# vacuously (item K, test-suite review 2026-10-04).
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _repo_glob(directory, pattern, *, recursive=False):
+    """Glob ``directory`` under REPO_ROOT; return the same repo-relative paths a
+    glob run with CWD == REPO_ROOT returns."""
+    base = REPO_ROOT / directory
+    found = base.rglob(pattern) if recursive else base.glob(pattern)
+    return [path.relative_to(REPO_ROOT) for path in found]
+
+
+@pytest.fixture(autouse=True)
+def _run_from_repo_root(monkeypatch):
+    """Resolve the in-test repo-relative paths and globs against REPO_ROOT."""
+    monkeypatch.chdir(REPO_ROOT)
 
 
 TARGET_MODULES = [
@@ -48,11 +73,6 @@ TARGET_MODULES = [
     Path("src/weather/market/market_microstructure_features.py"),
     Path("src/weather/market/mm_exchange.py"),
     Path("src/weather/market/mm_exchange_reports.py"),
-    Path("src/weather/market/mm_paper.py"),
-    Path("src/weather/market/mm_paper_aggregation.py"),
-    Path("src/weather/market/mm_paper_evidence.py"),
-    Path("src/weather/market/mm_paper_reports.py"),
-    Path("src/weather/market/mm_paper_scoring.py"),
     Path("src/weather/market/mm_policy.py"),
     Path("src/weather/market/mm_scoring_projection.py"),
     Path("src/weather/market/polymarket_client.py"),
@@ -69,7 +89,6 @@ TARGET_MODULES = [
     Path("src/weather/model/toronto_model.py"),
     Path("src/weather/operations/daily_refresh.py"),
     Path("src/weather/operations/long_job_guard.py"),
-    Path("src/weather/operations/market_making_daily_roll.py"),
     Path("src/weather/operations/nightly_retrain.py"),
     Path("src/weather/operations/observation_trigger.py"),
     Path("src/weather/operations/ops_monitor.py"),
@@ -217,17 +236,16 @@ POOLED_FEATURE_SPLIT_MODULES = [
     Path("src/weather/calibration/pooled_reporting.py"),
     Path("src/weather/calibration/pooled_feature_cli.py"),
 ]
-TAKER_BOT_SPLIT_MODULES = sorted(Path("src/weather/market").glob("taker_bot_*.py"))
-PROMOTION_REFRESH_SPLIT_MODULES = sorted(Path("src/weather/reporting").glob("promotion_refresh_*.py"))
+PROMOTION_REFRESH_SPLIT_MODULES = sorted(_repo_glob("src/weather/reporting", "promotion_refresh_*.py"))
 PROMOTION_REFRESH_IMPL_MODULES = sorted(
-    path for path in Path("src/weather/reporting/promotion").glob("*.py")
+    path for path in _repo_glob("src/weather/reporting/promotion", "*.py")
     if path.name != "__init__.py"
 )
 FLEET_OBSERVABILITY_SPLIT_MODULES = sorted(
-    Path("src/weather/reporting/fleet").glob("fleet_observability_*.py")
+    _repo_glob("src/weather/reporting/fleet", "fleet_observability_*.py")
 )
 HOURLY_MODEL_SPLIT_MODULES = sorted(
-    Path("src/weather/reporting/hourly").glob("hourly_model_*.py")
+    _repo_glob("src/weather/reporting/hourly", "hourly_model_*.py")
 )
 REPORTING_HOURLY_MODULES = [
     *HOURLY_MODEL_SPLIT_MODULES,
@@ -247,13 +265,13 @@ REPORTING_SCORECARD_MODULES = [
 ]
 REPORTING_CASEBOOK_MODULES = [
     Path("src/weather/reporting/casebooks/disagreement_casebook.py"),
-    Path("src/weather/reporting/casebooks/taker_tail_casebook.py"),
     Path("src/weather/reporting/casebooks/winner_underpricing_casebook.py"),
 ]
 REPORTING_MARKET_MODULES = [
     Path("src/weather/reporting/market/market_beating_objective_scoreboard.py"),
     Path("src/weather/reporting/market/market_benchmark_residual_edge.py"),
     Path("src/weather/reporting/market/operator_control_room.py"),
+    Path("src/weather/reporting/market/retired_trading_evidence.py"),
     Path("src/weather/reporting/market/market_residual_repair_program.py"),
     Path("src/weather/reporting/market/trading_evidence.py"),
 ]
@@ -403,10 +421,9 @@ REPORTING_ROOT_SHARED_MODULES = {
     "__init__.py",
     "formatting.py",
 }
-DAILY_REFRESH_SPLIT_MODULES = sorted(Path("src/weather/operations").glob("daily_refresh_*.py"))
+DAILY_REFRESH_SPLIT_MODULES = sorted(_repo_glob("src/weather/operations", "daily_refresh_*.py"))
 TARGET_MODULES.extend(
     POOLED_FEATURE_SPLIT_MODULES
-    + TAKER_BOT_SPLIT_MODULES
     + FLEET_OBSERVABILITY_SPLIT_MODULES
     + REPORTING_SAFE_SLICE_MODULES
     + DAILY_REFRESH_SPLIT_MODULES
@@ -415,36 +432,36 @@ TARGET_MODULES.extend(
 
 NATIVE_RUNTIME_MODULES = [
     path
-    for path in Path("src/weather/model").glob("*.py")
+    for path in _repo_glob("src/weather/model", "*.py")
     if path.name != "feature_store.py"
 ] + [
     Path("src/weather/operations/observation_trigger.py"),
 ]
 
 APP_AND_TEST_MODULES = [
-    *Path("app").rglob("*.py"),
+    *_repo_glob("app", "*.py", recursive=True),
     *(
         path
-        for path in Path("tests").rglob("*.py")
+        for path in _repo_glob("tests", "*.py", recursive=True)
         if path != Path("tests/operations/test_import_architecture.py")
     ),
 ]
 
 SOURCE_MODULES_EXCEPT_BACKTEST_CLI = [
     path
-    for path in Path("src/weather").rglob("*.py")
+    for path in _repo_glob("src/weather", "*.py", recursive=True)
     if path != Path("src/weather/backtesting/backtest.py")
 ]
 
 PATH_POLICY_MODULES = [
-    *Path("src/weather").rglob("*.py"),
-    *Path("app").rglob("*.py"),
-    *Path("tools").rglob("*.py"),
+    *_repo_glob("src/weather", "*.py", recursive=True),
+    *_repo_glob("app", "*.py", recursive=True),
+    *_repo_glob("tools", "*.py", recursive=True),
 ]
 
 WRAPPER_MODULE_NAMES = sorted(
     path.stem
-    for path in Path("src").glob("*.py")
+    for path in _repo_glob("src", "*.py")
     if path.name != "__init__.py"
 )
 WRAPPER_MODULE_PATTERN = "|".join(re.escape(name) for name in WRAPPER_MODULE_NAMES) or r"(?!)"
@@ -527,21 +544,6 @@ EXTRACTED_MODULE_IMPORT_RULES = {
         r"import\s+weather\.market\.mm_exchange\b)",
         re.MULTILINE,
     ),
-    Path("src/weather/market/mm_paper_evidence.py"): re.compile(
-        r"^\s*(?:from\s+(?:weather\.market\.mm_paper|\.mm_paper)\s+import\b|"
-        r"import\s+weather\.market\.mm_paper\b)",
-        re.MULTILINE,
-    ),
-    Path("src/weather/market/mm_paper_scoring.py"): re.compile(
-        r"^\s*(?:from\s+(?:weather\.market\.mm_paper|\.mm_paper)\s+import\b|"
-        r"import\s+weather\.market\.mm_paper\b)",
-        re.MULTILINE,
-    ),
-    Path("src/weather/market/mm_paper_aggregation.py"): re.compile(
-        r"^\s*(?:from\s+(?:weather\.market\.mm_paper|\.mm_paper)\s+import\b|"
-        r"import\s+weather\.market\.mm_paper\b)",
-        re.MULTILINE,
-    ),
     Path("src/weather/reporting/data_quality/data_layer_audit_remediation.py"): re.compile(
         r"^\s*(?:from\s+(?:weather\.reporting\.data_quality\.data_layer_audit|\.data_layer_audit)\s+import\b|"
         r"import\s+weather\.reporting\.data_quality\.data_layer_audit\b)",
@@ -570,14 +572,6 @@ EXTRACTED_MODULE_IMPORT_RULES.update({
         re.MULTILINE,
     )
     for path in POOLED_FEATURE_SPLIT_MODULES
-})
-EXTRACTED_MODULE_IMPORT_RULES.update({
-    path: re.compile(
-        r"^\s*(?:from\s+(?:weather\.market\.taker_bot|\.taker_bot)\s+import\b|"
-        r"import\s+weather\.market\.taker_bot\b)",
-        re.MULTILINE,
-    )
-    for path in TAKER_BOT_SPLIT_MODULES
 })
 EXTRACTED_MODULE_IMPORT_RULES.update({
     path: re.compile(
@@ -975,16 +969,53 @@ def test_tests_do_not_depend_on_repo_root_data_tree():
     assert offenders == {}
 
 
+def _is_sys_path(node):
+    """``sys.path`` or ``os.sys.path``."""
+    return (
+        isinstance(node, ast.Attribute)
+        and node.attr == "path"
+        and (
+            (isinstance(node.value, ast.Name) and node.value.id == "sys")
+            or (isinstance(node.value, ast.Attribute) and node.value.attr == "sys")
+        )
+    )
+
+
+def _sys_path_mutations(source):
+    """``sys.path.insert``/``append`` calls (also through ``os.sys``) in a module.
+
+    AST-based so a child-process bootstrap that is only a string (the live
+    launcher's ``python -I -S -c`` recipe, mirrored by the Ctrl+Break harness)
+    is not a mutation, while every call the former text check caught still is.
+    """
+    return [
+        node.lineno for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+        and node.func.attr in {"insert", "append"} and _is_sys_path(node.func.value)
+    ]
+
+
 def test_app_and_tests_do_not_mutate_sys_path():
-    offenders = []
-    for path in APP_AND_TEST_MODULES:
-        text = path.read_text(encoding="utf-8")
-        if "sys.path.insert" in text or "sys.path.append" in text:
-            offenders.append(str(path))
-        if "os.sys.path.insert" in text or "os.sys.path.append" in text:
-            offenders.append(str(path))
+    offenders = [str(path) for path in APP_AND_TEST_MODULES
+                 if _sys_path_mutations(path.read_text(encoding="utf-8"))]
 
     assert offenders == []
+
+
+@pytest.mark.parametrize("source", [
+    "import sys\nsys.path.insert(0, 'x')\n",
+    "import sys\nsys.path.append('x')\n",
+    "import os\nos.sys.path.insert(0, 'x')\n",
+    "import os\nos.sys.path.append('x')\n",
+    "def f():\n    import sys\n    sys.path.insert(0, 'x')\n",
+])
+def test_sys_path_guard_flags_every_call_the_text_check_caught(source):
+    assert _sys_path_mutations(source)
+
+
+def test_sys_path_guard_ignores_a_child_bootstrap_string():
+    source = "BOOTSTRAP = \"import sys,os;sys.path.insert(0,os.environ['SRC'])\"\n"
+    assert _sys_path_mutations(source) == []
 
 
 def test_migrated_modules_use_package_imports_for_internal_modules():
@@ -1248,3 +1279,43 @@ def test_model_runtime_uses_calibration_runtime_boundary():
             offenders[str(path)] = matches
 
     assert offenders == {}
+
+
+def test_ratchet_scans_are_anchored_on_the_repository_and_non_empty():
+    """Each scan above must see the real tree; an empty scan makes its ratchet vacuous."""
+    assert REPO_ROOT == Path(__file__).resolve().parents[2]
+    assert (REPO_ROOT / "src" / "weather" / "__init__.py").is_file()
+    assert Path.cwd().resolve() == REPO_ROOT
+    import_time_scans = {
+        "PROMOTION_REFRESH_IMPL_MODULES": PROMOTION_REFRESH_IMPL_MODULES,
+        "FLEET_OBSERVABILITY_SPLIT_MODULES": FLEET_OBSERVABILITY_SPLIT_MODULES,
+        "HOURLY_MODEL_SPLIT_MODULES": HOURLY_MODEL_SPLIT_MODULES,
+        "DAILY_REFRESH_SPLIT_MODULES": DAILY_REFRESH_SPLIT_MODULES,
+        "NATIVE_RUNTIME_MODULES": NATIVE_RUNTIME_MODULES,
+        "APP_AND_TEST_MODULES": APP_AND_TEST_MODULES,
+        "SOURCE_MODULES_EXCEPT_BACKTEST_CLI": SOURCE_MODULES_EXCEPT_BACKTEST_CLI,
+        "PATH_POLICY_MODULES": PATH_POLICY_MODULES,
+    }
+    for name, paths in import_time_scans.items():
+        assert paths, name
+        assert not any(path.is_absolute() for path in paths), name
+        assert all((REPO_ROOT / path).is_file() for path in paths), name
+    in_test_scan_roots = [
+        ("docs/operations", "*.md", True),
+        ("src/weather", "*.py", True),
+        ("src/weather/reporting", "*.py", False),
+        ("src/weather/model", "*.py", False),
+        ("src/maker_core", "*.py", True),
+        # src/weather/market/maker_plugin is pre-registered for a plugin that
+        # does not exist yet; its scan is empty by design.
+        ("tests", "*.py", True),
+        ("scripts", "*", False),
+    ]
+    for directory, pattern, recursive in in_test_scan_roots:
+        assert _repo_glob(directory, pattern, recursive=recursive), directory
+    tree_scan_roots = {*FIRST_PARTY_SHIM_CALLER_ROOTS, Path("app"), Path("config"), Path("docs"), Path("src")}
+    for root in sorted(tree_scan_roots):
+        if (REPO_ROOT / root).is_file():
+            continue
+        assert _repo_glob(root, "*", recursive=True), root
+    assert (REPO_ROOT / "README.md").is_file()

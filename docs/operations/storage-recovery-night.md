@@ -71,8 +71,11 @@ The two one-shot tasks are named
 `WeatherStorageRecovery-<plan_id>-early` and
 `WeatherStorageRecovery-<plan_id>-late`. They start at 00:30 and 06:45 Toronto,
 with absolute controller deadlines 04:42 and 08:55. Starts over sixty seconds
-late are refused. Scheduler limits are PT254M and PT134M, with wake enabled,
-IgnoreNew, hidden execution and no late catch-up. These bounds protect the
+late are refused. Scheduler limits are each segment's real (UTC) span plus 2
+and 4 minutes: PT254M and PT134M on an ordinary night, PT314M early on the
+2026-11-01 fall-back night and PT194M early on the 2027-03-14 spring-forward
+night (DST-L7). Wake is enabled, with IgnoreNew, hidden execution and no late
+catch-up. These bounds protect the
 existing 05:00/06:00 tiering jobs and the 09:00 heavy-work boundary.
 
 Registration retains create-only intents, exact exported task XML and readback

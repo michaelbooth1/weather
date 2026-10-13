@@ -18,3 +18,8 @@ identities, orders, signatures, auth fields, balances or credential material.
 Attempt folders are not session counts. Four attempts have no minute-price row;
 those tests prove recorded selection-price parity only. Freshness/close clocks
 are synthetic in this price-only replay; no live-state parity is claimed.
+
+`shadow_rig.py` is the synthetic shadow-runner rig: one quoting band (the
+blind-width `informed_v0` QUOTE case), CLOB-shaped book and reward replies,
+fixture campaigns and complete/incomplete wallet books for the trading guard.
+No production data, account identity or credential is involved.

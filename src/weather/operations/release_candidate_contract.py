@@ -35,6 +35,7 @@ from weather.release_contract import (
     SEMANTIC_SERVING_ROLE_KINDS,
 )
 from weather.schema_registry import schema_version
+from weather.units import round_half_up, to_float
 
 
 SEMANTIC_PATHS = {
@@ -694,6 +695,37 @@ def _point_in_time_route_selection(route: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+DEFAULT_SETTLEMENT_ROUNDING = "whole_degree_half_up"
+# A location's `settlement.band_mapping` names how the venue maps a finer-precision
+# source reading to a whole-degree band; absent means the default half-up rule.
+SETTLEMENT_ROUNDING_BY_BAND_MAPPING = {"floor_to_whole_degree": "whole_degree_floor"}
+
+
+def settlement_rounding(settlement: Mapping[str, Any]) -> str:
+    """Return the release rounding rule declared by one location's settlement block."""
+    band_mapping = settlement.get("band_mapping")
+    if band_mapping is None:
+        if settlement.get("precision") not in {None, "whole_degree"}:
+            raise CandidateContractError(
+                f"settlement precision {settlement.get('precision')!r} requires a declared band_mapping"
+            )
+        return DEFAULT_SETTLEMENT_ROUNDING
+    rounding = SETTLEMENT_ROUNDING_BY_BAND_MAPPING.get(str(band_mapping))
+    if rounding is None:
+        raise CandidateContractError(f"unsupported settlement band_mapping: {band_mapping!r}")
+    return rounding
+
+
+def settlement_band_degree(value: Any, rounding: str) -> int | None:
+    """Map a settlement-source reading to the whole-degree band it settles in."""
+    if rounding == DEFAULT_SETTLEMENT_ROUNDING:
+        return round_half_up(value)
+    if rounding == "whole_degree_floor":
+        number = to_float(value)
+        return None if number is None else int(math.floor(number))
+    raise CandidateContractError(f"unsupported settlement rounding: {rounding!r}")
+
+
 def _settlement_rules(locations: Mapping[str, Any]) -> dict[str, Any]:
     rows = []
     for raw in locations.get("locations") or []:
@@ -707,6 +739,7 @@ def _settlement_rules(locations: Mapping[str, Any]) -> dict[str, Any]:
                 "market_unit": raw.get("market_unit"),
                 "settlement_unit": settlement.get("unit"),
                 "precision": settlement.get("precision"),
+                "rounding": settlement_rounding(settlement),
                 "source_type": settlement.get("source_type"),
                 "station_id": settlement.get("station_id"),
                 "resolution_source_url": settlement.get("resolution_source_url"),
@@ -731,7 +764,12 @@ def _settlement_rules(locations: Mapping[str, Any]) -> dict[str, Any]:
             "band_contract": {
                 "kinds": ["eq", "gte", "lte"],
                 "probability_partition": "mutually_exclusive_exhaustive_native_unit_bands",
-                "rounding": "whole_degree_half_up",
+                "rounding": DEFAULT_SETTLEMENT_ROUNDING,
+                "location_rounding_overrides": {
+                    row["location_id"]: row["rounding"]
+                    for row in sorted(rows, key=lambda row: row["location_id"])
+                    if row["rounding"] != DEFAULT_SETTLEMENT_ROUNDING
+                },
                 "binary_yes_outcome_index": 0,
             },
             "locations": sorted(rows, key=lambda row: row["location_id"]),

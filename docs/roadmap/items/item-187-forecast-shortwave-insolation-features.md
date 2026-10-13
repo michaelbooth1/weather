@@ -222,4 +222,3 @@ lane contract requires.
 
 This restores the permutation-evidence leg of Item 187 without changing its
 narrow positive-market disposition or making a broad all-market claim.
-

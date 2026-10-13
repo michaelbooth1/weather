@@ -1,2 +1,1 @@
 """Streamlit view modules."""
-

@@ -76,8 +76,7 @@ RAW_DRIVER_COLUMNS = (
 )
 
 
-def utc_now():
-    return datetime.now(timezone.utc)
+from weather.time import utc_now
 
 
 def safe_int(value):

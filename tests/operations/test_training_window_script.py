@@ -145,7 +145,7 @@ def test_training_tasks_are_run_specific_and_restore_is_proved() -> None:
 
     assert "New-ScheduledTaskTrigger -Once -At $runAt" in direct
     assert "New-ScheduledTaskTrigger -Once -At $runAt" in registration
-    assert "New-ScheduledTaskTrigger -Daily -At $RestoreAt" in registration
+    assert "New-WeatherLocalDailyTrigger -At $RestoreAt" in registration
     window_settings = registration.split("$windowSettings =", 1)[1].split(
         "$principal =", 1
     )[0]

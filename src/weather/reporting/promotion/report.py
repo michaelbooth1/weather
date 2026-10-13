@@ -672,7 +672,6 @@ def write_report(path, payload, min_free_bytes=0):
                 ["Corpus OK", serving.get("corpus_ok")],
                 ["Fidelity OK", serving.get("fidelity_ok")],
                 ["Regression OK", serving.get("baseline_ok")],
-                ["Forecast tracker", (serving.get("forecast_tracker") or {}).get("message") or "-"],
             ],
         )
         lines += ["", "### Serving Gauntlet Markets", ""]
@@ -726,4 +725,3 @@ def write_report(path, payload, min_free_bytes=0):
 # Re-export imported dependency names as well because later slices intentionally
 # share the original module global namespace while the public facade remains stable.
 __all__ = [name for name in globals() if not name.startswith("__")]
-
