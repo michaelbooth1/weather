@@ -119,6 +119,10 @@ Each item is a separate reviewed branch. None of them registers a task.
   - Add `push: branches: ['claude/integration-*', 'codex/integration-*']` to both workflows. This is a roll-free `.github/` change.
 
   `Windows Qualification` already checks out `pull_request.head.sha || github.sha`. A red, cancelled or missing shard means the suite path, or a same-SHA rerun.
+- **T2a. A green Windows lane is a precondition, not a given.**
+  - On `master`, 7 of the 10 most recent Windows Qualification runs did not succeed (2026-10-11..13). Every failed run inspected (6) failed on the same test: `tests/operations/test_replay_cache_compression_wrapper.py::test_abrupt_wrapper_exit_kills_entire_owned_tree` ("fixture did not launch owned descendants"), in the `status-rest` shard. The other runs were cancelled.
+  - The 3.11.9 repin run (#274) failed the same test, plus once `test_production_baseline_reconciler_execution.py::test_persistent_stop_failure_keeps_lease_and_never_reports_terminal` (`reconciler-5`). That test was not seen failing on master's recent runs; a same-SHA rerun decides whether it is a flake.
+  - Requirement 3 is unusable while one shard is red on most runs. That test must be fixed, or quarantined under the staged-cut rules, before the first attested landing.
 - **T3. Host verifier** (`scripts/ops/assert_roll_free_attestation.ps1`, read-only). It writes an immutable attestation receipt and checks:
   - the exact tip;
   - `roll_verdict.ps1` exit 0;
