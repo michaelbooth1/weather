@@ -1,4 +1,4 @@
-# 337. No-METAR Observed-Floor Gap [OPEN 2026-10-08 - SCOPE QUESTION FOR THE OWNER]
+# 337. No-METAR Observed-Floor Gap [OPEN 2026-10-08 - OWNER YES 2026-10-13, CONDITIONAL ON THE HOST REPLAY]
 
 Goal: decide whether, when a market has no METAR rows for the day, its observed same-day station high (SWOB or WU
 current, including a reading at local midnight) should act as a hard floor on the probability vector, and if so build
@@ -43,10 +43,13 @@ Acceptance:
 - [x] Host read: WU settled high for Toronto on 2026-09-06, 09-21 and 09-26 against anchor buckets 19, 15 and 14, and
   whether WU's day-D history includes the 12:00 AM observation (decides whether the residual could ever settle).
   Done 2026-10-13: WU includes 00:00; see the host-read finding above (n = 2 discriminating days).
-- [ ] Owner decision: keep the hedge on the no-METAR path, or floor at the observed SWOB/WU-current same-day high
-  (this would reverse the "SWOB keeps its warm-bias hedge" choice made for v4). The host read leans toward the floor;
-  the call stays the owner's.
+- [x] Owner decision: keep the hedge on the no-METAR path, or floor at the observed SWOB/WU-current same-day high
+  (this would reverse the "SWOB keeps its warm-bias hedge" choice made for v4). Decided 2026-10-13 ~18:30 EDT (relayed
+  verbatim by master-agent; [DECISION_LOG](../../operations/DECISION_LOG.md)): "Yes, after the replay (Recommended)" —
+  "Run the late-September replay on this PC first (10-15 or later); if it passes, flip the switch, bump the model
+  version and land it in a quiet window." Conditional: floor only if the host replay below passes.
 - [ ] Host `lockin_anchor_replay --with-no-metar-arm` over 2026-08-25..09-29 (all markets) on the draft branch
   `claude/no-metar-floor-20261013`; earliest 2026-10-15 02:00-04:00 under the heavy lease.
-- [ ] If flooring: a reviewed change with a model-version bump, a replay over the same window showing zero
-  below-anchor mass on no-METAR rows and no other change, and the release-binding steps.
+- [ ] On a PASS: flip `no_metar_observed_floor` on in a reviewed change with a model-version bump (the replay above
+  must show zero below-anchor mass on no-METAR rows and no other change), the release-binding steps, and a quiet-window
+  landing after a roll verdict.

@@ -1,7 +1,7 @@
 # State of play
 
-**Last updated: 2026-10-13 14:45 America/Toronto (owner 14:35: #177 on 10-15, #190 then the stage 10-18, v2 lapse date
-moves out, second workstation lease slot; Phase A NO-GO at A4, A' 10-14 07:00; LFC session 0 10-14; N9 heads set).**
+**Last updated: 2026-10-13 18:45 America/Toronto (owner 18:30: evening-fix prereg signed, item 337 yes after replay, v2 §4
+whole minute, #162 from 10-19; owner 14:35: #177 10-15, #190 + stage 10-18; A' 10-14 07:00; LFC session 0 10-14).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended. At most 95 lines and about 9 KB, one fact per bullet, detail in the linked owner.** This file owns
@@ -56,8 +56,8 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
   export nightly stays unregistered until a separate owner yes (>= 10-16).
 - **Maker replay v2** (panel UTC 09-30..10-14 never read): spec v3.4 is the frozen oracle basis; handout r1 signed 10-12
   (H-11 r2, erratum 1, H-12 r1, I-1..I-8); fresh oracle author on the host. Signature target 10-22..23;
-  look by 11-15. Lapse date moves out of 10-23 (owner 10-13): **PROPOSED 10-30, owner to confirm**; §13 not yet amended.
-- **Model:** MG-1 `b044e0f1` (scored >= 10-15) needs #190; owner cleared 10-18: #190 first, then stage, after roll verdict + parity re-run (#162 not asked).
+  look by 11-15. Lapse 10-23 moves out (owner 10-13): **PROPOSED 10-30, to confirm**; §4 window start: whole minute (no amendment).
+- **Model:** MG-1 `b044e0f1` (scored >= 10-15) needs #190; 10-18: #190, then stage (roll verdict + parity); #162 on #190 >= 10-19.
 - **Live seals** must be RESEALED before any sealed-lane attempt (#229); the LFC re1 lane consumes none. C3 rehearsal deferred.
 - **Pinned deployments:** watchdog `1794fd3b`, cold snapshot (91a `6e5ff47`), exam U6 `89618c30`; paths in the task actions.
 - **88a retention hold:** keep UTC 09-27..10-15 (v2) and 10-15..10-30 (desk-study panel); lossless compression ok.
@@ -70,7 +70,7 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 3. **Host Python:** A' 10-14 07:00; §T + T-R 10-15; B 10-16; cutover C 00:30 10-17.
 4. **10-15 night: #177 (T2, owner yes)**; §T holds the lease 00:30-02:00, suite ~02:45, merge start by 03:40; owner accepts
    the capture restart ~03:40-04:00 EDT in the UTC 10-15 panel day. 10-16/10-17 G5 no-merge; #182 + #172 10-18; #118 >= 10-18.
-5. **Measurements (09-29 only):** desk-study power rule #263. **Research:** NBS/NBH probe; T+1/T+2 NWP timing; item 337.
+5. **Item 337:** host no-METAR replay >= 10-15; on PASS flip, bump, quiet window (owner yes). #263 power rule (09-29 only); NBS/NBH; NWP timing.
 
 ## Open commitments (every row: owner, due, verify)
 
@@ -79,7 +79,7 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 | A' at A3; then delete the workstation W0 temp tree | owner at host, production | 10-14 09:00 | A' receipts GO |
 | Fresh t24 after F2 for session 1 (F2a) | owner | 10-14 evening | t24 20-30 h old at start |
 | Policy: roll-free heads land on workstation pre-gate + Windows CI (T4 draft) | owner | after C | DECISION_LOG row |
-| Evening-fix scoring prereg; OD30 retirement | owner | open | DECISION_LOG rows |
+| Evening-fix scorer `8cdcb62ec` lands (prereg SIGNED 10-13, sha256 in DL; read 10-29); OD30 retirement | T3; owner | 10-28; open | scorer on master; DL row |
 | Pinned watchdog redeploy + re-register (DRIFT since #273, DST-H3) | owner scope, production | before 11-01 | watchdog CURRENT |
 | 91a policy renewal (expires 10-30) | owner (production prepares) | week of 10-26 | new policy sha |
 
