@@ -1,4 +1,7 @@
-"""83a regression controls from the pinned 82a station bytes; no outcomes."""
+"""83a regression controls from the pinned 82a station bytes; no outcomes.
+
+Guards: item 190 target-period fix (83a) and docs/operations/nbm-target-period-contract.md.
+"""
 import json
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -288,7 +291,7 @@ def test_provenance_is_stored_but_excluded_from_training_and_source_reports():
     from weather.calibration.pooled_feature_assembly import feature_names_for_subset, FEATURE_SUBSET_CHOICES
     from weather.model.variant_prediction_runtime import feature_frame, band_feature_frame
     from weather.reporting.source_gates.nbm_probabilistic_tmax_gate import NBM_FEATURES
-    from weather.reporting.source_gates.nbm_probabilistic_tmax_settlement_scoring import _artifact_payload
+    from weather.reporting.source_gates.nbm_probabilistic_tmax_settlement_scoring import artifact_payload
     provenance = dict(zip(NBM_PROB_TMAX_PROVENANCE_COLUMNS, [2., 0., 13., 1.]))
     keys = set(provenance)
     assert len(NBM_PROB_TMAX_FEATURE_COLUMNS) == 15
@@ -297,7 +300,7 @@ def test_provenance_is_stored_but_excluded_from_training_and_source_reports():
     record = build_live_feature_record('2026-09-17', 12, None, 'fixture', provenance)
     assert {key: audit_row({}, record)[key] for key in keys} == provenance
     selectors = [FEATURE_COLUMNS, NATIVE_NAN_FEATURE_COLUMNS, NBM_FEATURES,
-                 _artifact_payload(0, {})['feature_names']]
+                 artifact_payload(0, {})['feature_names']]
     for spec in all_specs():
         selectors.extend(feature_model_columns([], [], market_spec=spec))
         selectors.append(late_day_feature_columns([], [], market_spec=spec))

@@ -1074,3 +1074,10 @@ def exceedance_probability_from_percentiles(percentiles: dict, threshold: float 
     if cdf is None:
         return None
     return max(0.0, min(1.0, 1.0 - cdf))
+
+
+# Public names for the NBP text-row primitives (tests and landing controls use
+# these; the underscored names remain the implementation).
+parse_nbp_issue_time = _parse_issue_time
+nbp_row_code = _row_code
+parse_nbp_pair_row = _parse_pair_row

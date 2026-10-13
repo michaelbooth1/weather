@@ -1172,3 +1172,8 @@ def fanout_from_environment(
             "cross-process forecast fan-out requires both CAS root and scope"
         )
     return CrossProcessMarketInvariantFetchFanout(cas_root), scope_key
+
+
+# Public names for the NBP national-cycle reuse checks (tests use these).
+nbp_reuse_stations = _nbp_reuse_stations
+complete_nbp = _complete_nbp
