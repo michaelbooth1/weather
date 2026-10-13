@@ -44,7 +44,7 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 - The owner approved the NuGet side-by-side route into `C:\Program Files\Python311-cp3119`; W0 verified it on the workstation.
 - **A' resumes at A3 on the host 10-14 07:00-09:00** (`claude/night-plans`, `night-plans/2026-10-14/pyup-phase-a2/`).
 - If A' passes, the 10-12 calendar stands: §T + T-R 00:30 10-15, B 00:30 10-16, cutover C 00:30 10-17 (runbook §7a).
-- Owner 10-13 08:53 (relayed): advance GO for C, G4 amended so the owner may sleep; DECISION_LOG row still to write.
+- Owner 10-13 08:53 (relayed): C advance GO if every C0 check is clean; G4 amended (auto rollback; a failed rollback waits for the owner). DECISION_LOG row.
 - Calendar-shift branch `claude/decisions-pyup-shift-20261013` `84c723ae2` (C 10-18) is **ON HOLD**; not a decision.
 - **DST:** DST-H3 landed; DST-M2 lands in N9; OD30 (the 11-01 night rule) stays until the owner retires it.
 - **LFC session 0: 10-14 11:00-19:50 EDT on the workstation**, owner-attended; pinned `acd052a2d`; signed documents stay SIGNED.
@@ -75,7 +75,6 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 
 | What | Owner | Due | Verify |
 | --- | --- | --- | --- |
-| DECISION_LOG row: 10-13 08:53 C advance GO + G4 amendment | production + owner | before C | row on master |
 | A' at A3; then delete the workstation W0 temp tree | owner at host, production | 10-14 09:00 | A' receipts GO |
 | Fresh t24 after F2 for session 1 (F2a) | owner | 10-14 evening | t24 20-30 h old at start |
 | Policy: roll-free heads land on workstation pre-gate + Windows CI (T4 draft) | owner | after C | DECISION_LOG row |
