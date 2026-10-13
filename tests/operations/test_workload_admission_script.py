@@ -25,6 +25,8 @@ POWERSHELL = (
     "Bypass",
 )
 HOST_GLOBAL_MUTEX = "Global\\WeatherProjectHeavyWorkloadV1"
+# Probes and holds the real host-global mutex: never in the workstation focused slot.
+pytestmark = pytest.mark.real_global_mutex
 
 
 # A mutex holder keeps its lease until the test creates the release file, so the

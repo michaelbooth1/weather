@@ -13,11 +13,16 @@
 #     --basetemp, no xdist, only allowlisted options (the Codex hook's classifier);
 #   * a hard wall-clock limit below 300 s; on overrun the whole child tree is killed;
 #   * refused, and pre-empted mid-run, while any live-session signal is present.
+#   * a test file marked `real_global_mutex` (it opens a real Global\WeatherProject*
+#     mutex, so beside the primary lease it would fail as busy or disturb that lease)
+#     is refused before anything starts.
 # Exit codes: the child's code; 76 slot busy (nothing started); 77 pre-empted by a
-# live-session signal; 124 time limit overrun. Other refusals throw (exit 1).
+# live-session signal; 78 refused because a named file takes the real global mutex
+# (nothing started); 124 time limit overrun. Other refusals throw (exit 1).
 
 $script:WeatherFocusedSlotBusyExitCode = 76
 $script:WeatherFocusedSlotPreemptedExitCode = 77
+$script:WeatherFocusedSlotGlobalMutexExitCode = 78
 $script:WeatherFocusedSlotOverrunExitCode = 124
 $script:WeatherFocusedSlotMaxSeconds = 299
 
@@ -96,7 +101,8 @@ function Get-WeatherWorkstationLiveSessionReason {
 function Test-WeatherWorkstationFocusedSlotArguments {
     # The focused-run shape from the Codex hook's classifier (`focused_pytest_arguments`).
     # Unlike the exemption, `serial` files are admitted: the slot owns them in a Job
-    # under a hard time limit instead of letting them run unwrapped.
+    # under a hard time limit instead of letting them run unwrapped. Files marked
+    # `real_global_mutex` are reported in GlobalMutexFiles so the caller can refuse them.
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)][string]$RepoRoot,
@@ -104,7 +110,7 @@ function Test-WeatherWorkstationFocusedSlotArguments {
         [Parameter(Mandatory = $true)][string[]]$Arguments
     )
 
-    $refuse = { param([string]$Reason) [PSCustomObject]@{ Allowed = $false; Reason = $Reason } }
+    $refuse = { param([string]$Reason) [PSCustomObject]@{ Allowed = $false; Reason = $Reason; GlobalMutexFiles = @() } }
     if ($Arguments.Count -lt 3 -or $Arguments[0] -cne "-m" -or $Arguments[1] -cne "pytest") {
         return & $refuse "the focused slot admits only '-m pytest' runs"
     }
@@ -118,13 +124,24 @@ function Test-WeatherWorkstationFocusedSlotArguments {
     } | ConvertTo-Json -Compress
     $encoded = [Convert]::ToBase64String([Text.UTF8Encoding]::new($false).GetBytes($request))
     $probe = @'
-import base64, importlib.util, json, pathlib, sys
+import base64, importlib.util, json, pathlib, re, sys
 spec = importlib.util.spec_from_file_location('weather_focused_slot_hook', sys.argv[1])
 hook = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(hook)
 request = json.loads(base64.b64decode(sys.argv[2], validate=True).decode('utf-8'))
 files, why = hook.focused_pytest_arguments(request['arguments'], pathlib.Path(request['cwd']))
-json.dump({'allowed': files is not None, 'reason': why}, sys.stdout, separators=(',', ':'))
+paths = [] if files is None else list(files.values() if isinstance(files, dict) else files)
+marker = re.compile(r'^\s*(?:pytestmark\s*=\s*\[?\s*|@)?pytest\.mark\.real_global_mutex\b', re.M)
+held = []
+for path in paths:
+    try:
+        text = pathlib.Path(path).read_text(encoding='utf-8')
+    except (OSError, UnicodeDecodeError):
+        held.append(str(path))
+        continue
+    if marker.search(text):
+        held.append(str(path))
+json.dump({'allowed': files is not None, 'reason': why, 'global_mutex': held}, sys.stdout, separators=(',', ':'))
 '@
     # No double quotes in the probe: Windows PowerShell 5.1 strips them from native arguments.
     try {
@@ -133,10 +150,15 @@ json.dump({'allowed': files is not None, 'reason': why}, sys.stdout, separators=
         $verdict = (@($output) -join "") | ConvertFrom-Json -ErrorAction Stop
     }
     catch { return & $refuse "the focused-run classifier failed: $($_.Exception.Message)" }
-    if ($verdict.allowed -isnot [bool] -or $verdict.reason -isnot [string]) {
+    if ($verdict.allowed -isnot [bool] -or $verdict.reason -isnot [string] -or
+        $null -eq $verdict.PSObject.Properties['global_mutex']) {
         return & $refuse "the focused-run classifier returned a malformed verdict"
     }
-    return [PSCustomObject]@{ Allowed = [bool]$verdict.allowed; Reason = [string]$verdict.reason }
+    return [PSCustomObject]@{
+        Allowed = [bool]$verdict.allowed
+        Reason = [string]$verdict.reason
+        GlobalMutexFiles = @($verdict.global_mutex | ForEach-Object { [string]$_ })
+    }
 }
 
 function Write-WeatherWorkstationFocusedSlotEvent {
@@ -188,6 +210,14 @@ function Invoke-WeatherWorkstationFocusedSlot {
     $shape = Test-WeatherWorkstationFocusedSlotArguments -RepoRoot $RepoRoot `
         -PythonPath $PythonPath -Arguments $Arguments
     if (-not $shape.Allowed) { throw "focused slot refused: $($shape.Reason)" }
+    if (@($shape.GlobalMutexFiles).Count -gt 0) {
+        $names = @($shape.GlobalMutexFiles | ForEach-Object { Split-Path -Leaf $_ }) -join ", "
+        Write-WeatherWorkstationFocusedSlotEvent -RepoRoot $RepoRoot -Event "refused_global_mutex" `
+            -Extra @{ files = $names }
+        [Console]::Error.WriteLine(("focused slot refused: {0} takes the real global workload mutex " +
+            "(marked real_global_mutex); run it through -Queue instead; nothing was started") -f $names)
+        return $script:WeatherFocusedSlotGlobalMutexExitCode
+    }
     $stateRoot = Get-WeatherWorkstationFocusedSlotStateRoot
     $slotPoison = Join-Path $stateRoot "workstation_focused_slot_v1.poison"
     if (Test-Path -LiteralPath $slotPoison) {

@@ -5,7 +5,11 @@ non-capture workstation only, one focused pytest run may run beside the primary 
 separate named-mutex slot; it never queues, exits 76 when the slot is busy, kills its whole
 child tree on a hard sub-300 s overrun (exit 124) or on a live-session signal (exit 77), and is
 refused before it starts on the capture identity, a non-focused shape, a live-session signal or
-an unproved earlier slot teardown. The primary lease and its FIFO queue state are untouched.
+an unproved earlier slot teardown. A file marked `real_global_mutex` is refused with exit 78, and
+every test file naming a real Global\\WeatherProject* mutex is either so marked or an allowlisted
+fixture that rewrites the name. The primary lease and its FIFO queue state are untouched. The
+live-session runbook probe (wait_workstation_focused_slot_free.ps1) prints SLOT_FREE only once
+the marker is written and the slot is free, and STOP otherwise.
 
 Every mutex, marker and process here belongs to a disposable fixture: the wrapper closure is
 copied with fixture-local mutex names, the host-global state root moves into the fixture, and
@@ -31,7 +35,7 @@ from weather.operations.process_lock_identity import observe_process_identity
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 POWERSHELL = ("powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass")
-BUSY, PREEMPTED, OVERRUN = 76, 77, 124
+BUSY, PREEMPTED, GLOBAL_MUTEX, OVERRUN = 76, 77, 78, 124
 pytestmark = [
     pytest.mark.spawns,
     pytest.mark.skipif(
@@ -49,6 +53,7 @@ def _install(repo: Path, token: str) -> dict[str, str]:
         "workload_admission.ps1",
         "windows_kill_on_close_job.ps1",
         "workstation_focused_slot.ps1",
+        "wait_workstation_focused_slot_free.ps1",
     ):
         shutil.copyfile(REPO_ROOT / "scripts" / "ops" / name, ops / name)
     hooks = repo / ".codex" / "hooks"
@@ -359,3 +364,111 @@ def test_capture_identity_is_refused_before_any_slot_state(tmp_path: Path) -> No
     assert "workstation-offline admission is forbidden on the dedicated capture host" in result.stderr
     assert fixture.events() == []
     assert not (repo / "data").exists()
+
+
+def test_a_file_that_takes_the_real_global_mutex_is_refused_with_78(slot: Fixture) -> None:
+    sentinel = slot.repo / "never.txt"
+    quick = slot.child_test("quick", QUICK)
+    marked = slot.child_test("marked", (
+        "import pytest\nfrom pathlib import Path\n\npytestmark = pytest.mark.real_global_mutex\n\n"
+        f"def test_x():\n    Path({str(sentinel)!r}).write_text('ran')\n"
+    ))
+    arguments = ["-m", "pytest", str(quick), str(marked), "-q", "-p", "no:cacheprovider",
+                 "--basetemp", str(slot.repo / "bt" / "gm")]
+    result, _ = slot.run(slot.argv("", "-FocusedSlot", arguments=arguments))
+    assert result.returncode == GLOBAL_MUTEX, result.stdout + result.stderr
+    assert "test_slot_marked.py takes the real global workload mutex" in result.stderr
+    assert "test_slot_quick.py" not in result.stderr
+    assert not sentinel.exists()
+    assert [e["event"] for e in slot.events()] == ["refused_global_mutex"]
+
+
+# Test files that name a real Global\WeatherProject* mutex only to rewrite it to a fixture-local
+# name. Every other test file naming one must carry `real_global_mutex`.
+REWRITES_THE_GLOBAL_MUTEX_NAME = {
+    "tests/operations/test_cold_snapshot_compression_wrapper.py",
+    "tests/operations/test_maker_replay_exam_step_script.py",
+    "tests/operations/test_production_cold_archive_wrapper.py",
+    "tests/operations/test_replay_cache_compression_wrapper.py",
+    "tests/operations/test_storage_recovery_inventory_wrapper.py",
+    "tests/operations/test_workstation_focused_slot.py",
+    "tests/operations/test_workstation_heavy_queue.py",
+}
+
+
+def test_every_test_naming_a_real_global_mutex_is_marked_or_rewrites_it() -> None:
+    import re
+
+    name = re.compile(r"Global\\{1,2}WeatherProject\w*V1")
+    # The same pattern the slot applies: a pytestmark entry or decorator, not a mention.
+    marker = re.compile(r"^\s*(?:pytestmark\s*=\s*\[?\s*|@)?pytest\.mark\.real_global_mutex\b", re.M)
+    texts = {
+        path.relative_to(REPO_ROOT).as_posix(): path.read_text(encoding="utf-8")
+        for path in (REPO_ROOT / "tests").rglob("*.py")
+    }
+    naming = {rel for rel, text in texts.items() if name.search(text)}
+    marked = {rel for rel in naming if marker.search(texts[rel])}
+    assert marked >= {
+        "tests/operations/test_workload_admission_script.py",
+        "tests/operations/test_workload_admission_service_allowlist.py",
+        "tests/operations/test_workstation_pregate_script.py",
+    }
+    unmarked = naming - marked
+    assert unmarked <= REWRITES_THE_GLOBAL_MUTEX_NAME, sorted(unmarked - REWRITES_THE_GLOBAL_MUTEX_NAME)
+    assert REWRITES_THE_GLOBAL_MUTEX_NAME <= unmarked, "stale allowlist entry"
+
+
+def _wait_free(slot: Fixture, *extra: str) -> tuple[subprocess.CompletedProcess[str], float]:
+    probe = slot.repo / "scripts" / "ops" / "wait_workstation_focused_slot_free.ps1"
+    return slot.run([*POWERSHELL, "-File", str(probe), *extra], timeout=120)
+
+
+def _session_marker(slot: Fixture) -> None:
+    (slot.repo / "live_session_v1.active").write_text("session", encoding="utf-8")
+
+
+def _last_line(result: subprocess.CompletedProcess[str]) -> str:
+    lines = result.stdout.strip().splitlines()
+    return lines[-1] if lines else ""
+
+
+def test_wait_probe_stops_without_the_session_marker(slot: Fixture) -> None:
+    result, _ = _wait_free(slot)
+    assert result.returncode == 1, result.stderr
+    assert _last_line(result).startswith("STOP: live_session_v1.active is not present")
+
+
+def test_wait_probe_prints_slot_free_when_the_slot_is_free(slot: Fixture) -> None:
+    _session_marker(slot)
+    result, _ = _wait_free(slot)
+    assert (result.returncode, _last_line(result)) == (0, "SLOT_FREE"), result.stderr
+
+
+def test_wait_probe_stops_when_the_slot_stays_held(slot: Fixture) -> None:
+    _session_marker(slot)
+    slot.hold_mutex(slot.names["slot"])
+    result, elapsed = _wait_free(slot, "-MaxWaitSeconds", "2")
+    assert result.returncode == 1, result.stderr
+    assert _last_line(result) == "STOP: the workstation focused slot is still held after 2 s"
+    assert elapsed >= 2
+
+
+def test_wait_probe_stops_on_an_unproved_slot_teardown(slot: Fixture) -> None:
+    _session_marker(slot)
+    (slot.repo / "workstation_focused_slot_v1.poison").write_text("{}", encoding="utf-8")
+    result, _ = _wait_free(slot)
+    assert result.returncode == 1, result.stderr
+    assert _last_line(result).startswith("STOP: an earlier focused-slot teardown was not proved")
+
+
+def test_marker_then_probe_preempts_a_running_slot_and_prints_slot_free(slot: Fixture) -> None:
+    record = slot.repo / "tree.json"
+    process = slot.spawn(slot.argv(str(slot.child_test("running", _hanging_tree(record))), "-FocusedSlot"))
+    _wait_for(record, process)
+    _session_marker(slot)
+    result, elapsed = _wait_free(slot, "-MaxWaitSeconds", "60")
+    assert (result.returncode, _last_line(result)) == (0, "SLOT_FREE"), result.stdout + result.stderr
+    assert elapsed < 30
+    stdout, stderr = process.communicate(timeout=60)
+    assert process.returncode == PREEMPTED, stdout + stderr
+    _assert_tree_gone(record)

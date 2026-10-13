@@ -111,9 +111,24 @@ workstation.
 - **Second lease slot (owner decision 2026-10-13; [decision log](DECISION_LOG.md) row of 2026-10-13).** On the
   non-capture workstation only, a second `workstation_heavy` lease slot is allowed for focused runs that finish
   in under 5 minutes, beside the one ordinary heavy run. It applies only after LFC session 0 (2026-10-14) is
-  declared done. It never applies on the capture PC and never while a live session runs (a portable live stage
-  holding the host-global mutex refuses it as today). **Not yet implemented:** `workstation_heavy.ps1` still has
-  one slot, so until a separate code item adds the slot heavy runs stay one at a time through the queue.
+  declared done. It never applies on the capture PC and never while a live session runs.
+  - *Mechanism.* `workstation_heavy.ps1 -FocusedSlot [-FocusedSlotTimeoutSeconds 1-299]` (helper
+    `scripts/ops/workstation_focused_slot.ps1`) takes a separate named mutex with no queue (exit 76 when busy).
+    The primary lease, the FIFO queue and portable admission are unchanged.
+  - *Admission.* Only focused-shape pytest (the Codex hook's classifier), after the same non-capture identity
+    proof the queue uses. A file marked `real_global_mutex` (it opens a real `Global\WeatherProject*` mutex) is
+    refused with exit 78; a test ratchet keeps every test that names such a mutex marked or on a reviewed
+    rewrite allowlist.
+  - *Hard limit.* Below 300 s of wall clock; an overrun kills the whole child tree and exits 124.
+  - *Live sessions.* Any live-session signal refuses the run, and pre-empts it mid-run within about a second
+    (exit 77). The signals are the `live_session_v1.active` marker beside the state marker, a portable or
+    teardown-pending state marker, and a live session runner, stage wrapper or pilot CLI process. A live
+    session's runbook writes the marker at the step before its first preflight, then runs
+    `scripts/ops/wait_workstation_focused_slot_free.ps1`, which prints `SLOT_FREE` once the slot mutex is free
+    (at most 300 s) or `STOP` (the session does not start). The runbook removes the marker at the end. Portable
+    admission itself does not consult the slot, so no reseal is needed; the marker and probe close the overlap.
+
+  Contract: [development.md](../development.md#separate-non-capture-workstation).
 - **xdist.** `pytest -n` (`--dist loadfile`, `-m "not serial"`, then the `serial` set in one process) runs only
   on the workstation, only through the wrapper, and only after an identical pass set (same test ids, same
   outcomes) has been shown against a serial run.
@@ -155,17 +170,6 @@ below applies: no exemption, no queue state, the same windows and the same bound
   skips only the capture-host checks: window, hard stop, host lease, capture workers and host commit
   ceiling. It keeps the suite's 50 GiB disk floor and `MaxRuntimeSeconds`. Contract:
   [development.md](../development.md#workstation-pre-gate-before-a-host-landing-slot).
-- *Second slot (owner decision 2026-10-13).* `workstation_heavy.ps1 -FocusedSlot` (helper
-  `scripts/ops/workstation_focused_slot.ps1`) is the second lease slot.
-  - It is a separate named mutex with no queue: exit 76 when the slot is busy.
-  - It admits only focused-shape pytest, under a hard limit below 300 s; an overrun kills the child tree and exits 124.
-  - It requires the same non-capture identity proof as the queue.
-  - It is refused, and pre-empted mid-run (exit 77), by any live-session signal. The signals are the
-    `live_session_v1.active` marker beside the state marker, a portable or teardown-pending state
-    marker, or a live session runner, stage wrapper or pilot CLI process.
-  - The primary lease, the FIFO queue and portable admission are unchanged.
-
-  Contract: [development.md](../development.md#separate-non-capture-workstation).
 
 ## Host capacity (measured 2026-07-12 — A DATED SAMPLE, NOT CURRENT STATE)
 

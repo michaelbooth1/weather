@@ -146,7 +146,10 @@ larger runs wait their turn in the FIFO queue of the heavy wrapper (timeout exit
 A focused run that does include `serial` files can use the second slot instead, beside a long queued run. This is allowed only after LFC session 0, and never during a live session.
 
 - The run is capped at under 5 minutes and its child tree is killed on overrun.
-- Exit codes: 76 when the slot is busy, 77 when a live session pre-empts the run, 124 on overrun.
+- Exit codes: 76 when the slot is busy, 77 when a live session pre-empts the run, 78 when a named file is
+  marked `real_global_mutex` (run it through `-Queue`), 124 on overrun.
+- A live session's runbook writes `live_session_v1.active` and then runs
+  `scripts\ops\wait_workstation_focused_slot_free.ps1`, which prints `SLOT_FREE` or `STOP` before the first preflight.
 - The contract is in [docs/development.md](docs/development.md#separate-non-capture-workstation).
 
 ```powershell
