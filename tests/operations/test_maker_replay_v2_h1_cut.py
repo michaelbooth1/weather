@@ -1,0 +1,809 @@
+"""Tests for the H1 oracle-handout cut script (``tools/research/maker_replay_v2_h1_cut.py``).
+
+Guards: gate spec v3.4 §1-§5 (accepted 2026-10-07) and the R1/R2/R4 rulings — source hash pins refuse before
+reading, the §3 table matches the spec text, the §5 globs and the R4 fail-closed import refusal (string and split
+forms), the R1 standalone-repository invariants, and the R2 byte-identical re-bind.
+
+Synthetic fixtures only: no engine code, no data, no real cut. This module's name matches the §5 exclusion glob
+``tests/operations/test_maker_replay_v2_*`` on purpose, so it never enters the oracle's filtered tree.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import re
+import subprocess
+from pathlib import Path
+
+import pytest
+
+from tools.research import maker_replay_v2_h1_cut as h1
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+SPEC_V34 = REPO_ROOT / "docs" / "roadmap" / "maker-replay-v2-shadow-gate-spec-v3.4-DRAFT-2026-10-07.md"
+PKG = "maker" + "_core"
+GIT_IDENTITY = ("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgSign=false")
+
+
+def _sha(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def _git(repo: Path, *args: str) -> str:
+    result = subprocess.run(["git", "-C", str(repo), *GIT_IDENTITY, *args], capture_output=True, text=True,
+                            timeout=60)
+    assert result.returncode == 0, result.stderr
+    return result.stdout.strip()
+
+
+# --------------------------------------------------------------------------- §3/§4/§5 vs spec text
+
+
+def _parse_section3(text: str) -> list[h1.Sub]:
+    section = text.split("\n## 3. Substitution table", 1)[1].split("\n## 4. ", 1)[0]
+    subs: list[dict] = []
+    source = None
+    in_block = False
+    for line in section.split("\n"):
+        header = re.match(r"^### 3\.\d+ .*\(`(D-shadow-gate-spec-[^`]+\.md)`\)\s*$", line)
+        if header:
+            source = header.group(1)
+            continue
+        if line.startswith("```"):
+            in_block = not in_block
+            continue
+        if not in_block or not line.strip() or line.startswith("  = "):
+            continue
+        entry = re.match(r"^S(\d+)\s+l\.(\d+)(?:-(\d+))?\s+(.*)$", line)
+        if entry:
+            rest = entry.group(4)
+            kind = ("withdrawn" if rest.startswith("[withdrawn") else "delete" if rest.startswith("delete")
+                    else "span" if rest.startswith("replace span") else "lines" if rest.startswith("replace whole")
+                    else "cell" if rest.startswith("replace the G2 row") else None)
+            assert kind, line
+            start = int(entry.group(2))
+            row = {"id": f"S{entry.group(1)}", "source": source, "kind": kind, "start": start,
+                   "end": int(entry.group(3) or start), "new": []}
+            if kind == "cell":
+                cell = re.search(r"between '(.*)' and '(.*)'\)\s*$", rest)
+                row["left"], row["right"] = cell.group(1), cell.group(2)
+            subs.append(row)
+            continue
+        for prefix, key in (("  - ", "old"), ("  first: ", "first")):
+            if line.startswith(prefix):
+                subs[-1][key] = line[len(prefix):]
+                break
+        else:
+            if line.startswith("  + "):
+                subs[-1]["new"].append(line[4:])
+            elif re.match(r"^  last:\s+", line):
+                value = re.sub(r"^  last:\s+", "", line)
+                subs[-1]["last"] = "" if value == "(blank line)" else value
+            else:
+                raise AssertionError(f"unparsed table line: {line!r}")
+    live = [s for s in subs if s["kind"] != "withdrawn"]
+    assert len(subs) == 58
+    return [h1.Sub(**{**s, "new": tuple(s["new"])}) for s in live]
+
+
+def _text_block_after(text: str, marker: str) -> list[str]:
+    tail = text.split(marker, 1)[1]
+    block = tail.split("```text\n", 1)[1].split("```", 1)[0]
+    return block.split()
+
+
+def test_substitution_table_matches_spec_section3():
+    parsed = _parse_section3(SPEC_V34.read_text(encoding="utf-8"))
+    assert len(parsed) == 49
+    assert tuple(parsed) == h1.V34_TABLE
+
+
+def test_deny_lists_and_globs_match_spec():
+    text = SPEC_V34.read_text(encoding="utf-8")
+    assert set(_text_block_after(text, "**Denied Kernel identifiers (curated, explicit).**")) == h1.DENIED_IDENTIFIERS
+    assert set(_text_block_after(text, "**Excluded on purpose.**")) == h1.EXCLUDED_IDENTIFIERS
+    base = _text_block_after(text, "At the build-line commit it is cut from, it excludes")
+    r4 = _text_block_after(text, "**Additional exclusions `[v3.4: ruling R4")
+    assert list(h1.EXCLUSION_GLOBS) == base + r4
+
+
+# --------------------------------------------------------------------------- hash pins
+
+
+def test_verify_sha256_refuses_mismatch_and_abbreviated_pins():
+    data = b"source text\n"
+    assert h1.verify_sha256(data, _sha(data), "S") == _sha(data)
+    with pytest.raises(h1.CutRefused, match="mismatch"):
+        h1.verify_sha256(data + b" ", _sha(data), "S")
+    with pytest.raises(h1.CutRefused, match="full lowercase"):
+        h1.verify_sha256(data, _sha(data)[:12], "S")
+
+
+@pytest.mark.parametrize(
+    ("expected", "ok"),
+    [("abcdef12" + "0" * 52 + "a3b1", True), ("abcdef12…a3b1", False), ("abcdef12...a3b1", False),
+     ("abcdef1", False), ("ABCDEF12" + "0" * 52 + "A3B1", False), ("", False)],
+)
+def test_hash_matches_refuses_abbreviations(expected, ok):
+    assert h1.hash_matches("abcdef12" + "0" * 52 + "a3b1", expected) is ok
+
+
+@pytest.mark.parametrize(
+    ("expected", "ok"),
+    [("abcdef12…a3b1", True), ("abcdef12…a3b2", False), ("abcdef1", True), ("abcdef0", False), ("abc", False)],
+)
+def test_spec_abbreviation_matches_reads_section7_forms(expected, ok):
+    assert h1.spec_abbreviation_matches("abcdef12" + "0" * 52 + "a3b1", expected) is ok
+
+
+def test_expected_output_constant_agrees_with_spec_section7():
+    pinned = h1.EXPECTED_OUTPUT_SHA256
+    assert sorted(pinned) == [f"H-{n}" for n in range(1, 10)]
+    assert all(re.fullmatch(r"[0-9a-f]{64}", value) for value in pinned.values())
+    section7 = SPEC_V34.read_text(encoding="utf-8").split("\n## 7.", 1)[1].split("\n## 8.", 1)[0]
+    for item_id in ("H-1", "H-2", "H-3", "H-4", "H-5"):
+        assert f"`{pinned[item_id]}`" in section7, item_id
+    abbreviations = re.findall(r"`([0-9a-f]{8}…[0-9a-f]{4})`", section7.split("The code files are identical", 1)[1])
+    for item_id, abbreviated in zip(h1.CODE_IDS, abbreviations[:4]):
+        assert h1.spec_abbreviation_matches(pinned[item_id], abbreviated), item_id
+
+
+# --------------------------------------------------------------------------- §3 application
+
+
+SOURCE = "alpha `old_name` here\n| G2 | old cell | `kernel.py:1-2` | tail\nline three\nline four\nline five\n"
+
+
+def test_apply_substitutions_spans_cells_ranges():
+    subs = [
+        h1.Sub("S1", "x", "span", 1, 1, old="`old_name`", new=("the new name",)),
+        h1.Sub("S2", "x", "cell", 2, 2, new=("new cell",), left="| G2 | ", right=" | `kernel.py:1-2`"),
+        h1.Sub("S3", "x", "lines", 3, 3, new=("replaced three",)),
+        h1.Sub("S4", "x", "delete", 4, 5, first="line four", last="line five"),
+    ]
+    out = h1.apply_substitutions(SOURCE.replace("\n", "\r\n"), subs)
+    assert out == "alpha the new name here\n| G2 | new cell | `kernel.py:1-2` | tail\nreplaced three\n"
+
+
+@pytest.mark.parametrize(
+    ("sub", "message"),
+    [
+        (h1.Sub("S1", "x", "span", 1, 1, old="missing", new=("y",)), "exactly once"),
+        (h1.Sub("S1", "x", "span", 3, 3, old="e", new=("y",)), "exactly once"),
+        (h1.Sub("S1", "x", "lines", 5, 6, new=("y",)), "out of bounds"),
+        (h1.Sub("S1", "x", "delete", 4, 5, first="line FOUR"), "first line"),
+        (h1.Sub("S1", "x", "delete", 4, 5, last="line six"), "last line"),
+        (h1.Sub("S1", "x", "cell", 2, 2, new=("y",), left="| G3 | ", right=" | "), "left marker"),
+    ],
+)
+def test_apply_substitutions_fails_closed(sub, message):
+    with pytest.raises(h1.CutRefused, match=message):
+        h1.apply_substitutions(SOURCE, [sub])
+
+
+def test_apply_substitutions_refuses_overlap_and_span_inside_range():
+    with pytest.raises(h1.CutRefused, match="overlap"):
+        h1.apply_substitutions(SOURCE, [h1.Sub("A", "x", "delete", 3, 4), h1.Sub("B", "x", "delete", 4, 5)])
+    with pytest.raises(h1.CutRefused, match="inside"):
+        h1.apply_substitutions(SOURCE, [h1.Sub("A", "x", "delete", 1, 2),
+                                        h1.Sub("B", "x", "span", 1, 1, old="alpha", new=("b",))])
+
+
+def test_section4_rules_each_fire():
+    rules = {hit.rule for hit in h1.section4_hits("f", "```python\nx add_own\ny state.legs\n`a view_state b`\n")}
+    assert rules == {"rule1:fenced-python", "rule2:add_own", "rule3:state-attribute", "rule4:view_state"}
+    assert h1.section4_hits("f", "`my_view_state` and `portfolio` and `compose_book`, outside view_state\n") == []
+
+
+def test_kernel_drift_refuses_unlisted_name():
+    listed = b"MAX_OUTPUTS = 1\nclass Kernel:\n    def __init__(self):\n        pass\n    def add_own(self):\n        pass\n"
+    assert h1.drift_check(listed) == {"names": 4, "unlisted": 0}
+    with pytest.raises(h1.CutRefused, match="new_helper"):
+        h1.drift_check(listed + b"def new_helper():\n    pass\n")
+
+
+# --------------------------------------------------------------------------- §5 globs and R4 refusal
+
+
+@pytest.mark.parametrize(
+    ("path", "excluded"),
+    [
+        (f"src/{PKG}/replay/v2/kernel.py", True),
+        (f"src/{PKG}/replay/bundle.py", True),
+        (f"src/{PKG}/shadow/runner.py", True),
+        (f"src/{PKG}/shadow/other.py", False),
+        (f"src/{PKG}/live/a/b.py", True),
+        ("src/weather/market/maker_replay_x.py", True),
+        ("src/weather/market/maker_replay_x/y.py", False),
+        (f"tests/{PKG}/fixtures/deep/x.json", True),
+        (f"tests/{PKG}/fixtures", False),
+        (f"tests/{PKG}/test_replay_v2.py", True),
+        ("tests/operations/test_maker_replay_v2_anything.py", True),
+        ("tests/operations/test_maker_replay_v1.py", False),
+        ("docs/research/maker-replay-v2-engineering-plan-DRAFT.md", True),
+        ("docs/roadmap/maker-replay-v2-shadow-gate-spec-v3.4-oracle-rulings-2026-10-07.md", True),
+        ("docs/roadmap/agent-report-2026-10-mrv2-u3.md", True),
+        ("tools/research/maker_replay_v2/dense.py", True),
+        ("tools/research/maker_replay_v2_h1_cut.py", False),
+        (f"src/{PKG}/contracts/__init__.py", False),
+    ],
+)
+def test_exclusion_globs(path, excluded):
+    assert h1.excluded_by(path) is excluded
+
+
+@pytest.mark.parametrize(
+    ("path", "body"),
+    [
+        ("a.py", f"import {PKG}.replay.v2\n"),
+        ("a.py", f"import {PKG}.replay as r\n"),
+        ("a.py", f"from {PKG}.replay.bundle import X\n"),
+        ("a.py", f"from {PKG} import replay\n"),
+        (f"src/{PKG}/quoting/a.py", "from ..replay import bundle\n"),
+        ("a.py", f"import importlib\nm = importlib.import_module('{PKG}.replay.v2.kernel')\n"),
+        ("a.py", f"m = __import__('{PKG}.replay')\n"),
+        ("a.py", f"PATH = 'src/{PKG}/replay/v2'\n"),
+        ("a.py", f"import importlib\nm = importlib.import_module('{PKG}' + '.rep' + 'lay')\n"),
+        ("a.py", f"import importlib\nm = importlib.import_module('{PKG[:5]}' '{PKG[5:]}.replay')\n"),
+        ("a.py", f"import importlib\nparts = ['{PKG}', 'replay']\nm = importlib.import_module('.'.join(parts))\n"),
+        ("a.py", f"import importlib\nm = importlib.import_module('.replay', package='{PKG}')\n"),
+        ("a.py", f"import {PKG}\nm = getattr({PKG}, 'replay')\n"),
+        ("a.py", f"x = f'{PKG}.replay.{{name}}'\n"),
+        ("a.py", "def broken(:\n    '" + PKG + ".replay'\n"),
+        ("notes.md", f"See `{PKG}/replay/**` for the engine.\n"),
+        ("run.ps1", f'$m = @("{PKG}.replay")\n'),
+        ("blob.bin", b"\x00\xff".decode("latin-1") + f"{PKG}.replay"),
+    ],
+)
+def test_import_refusal_catches(path, body):
+    assert h1.refusal_reasons(path, body.encode("utf-8") if path != "blob.bin" else body.encode("latin-1"))
+
+
+@pytest.mark.parametrize(
+    ("path", "body"),
+    [
+        ("a.py", f"from {PKG}.contracts import portfolio\nfrom {PKG}.quoting import policy\n"),
+        ("a.py", "MODE = 'replay'\nimport importlib\nm = importlib.import_module(name)\n"),
+        ("a.py", f"from {PKG}.quoting import policy\nLABEL = 'replay'\n"),
+        ("notes.md", "The replay engine is described in prose only.\n"),
+    ],
+)
+def test_import_refusal_allows_unrelated(path, body):
+    assert h1.refusal_reasons(path, body.encode("utf-8")) == []
+
+
+# --------------------------------------------------------------------------- R1 standalone repository
+
+
+def _entries(files: dict[str, bytes]) -> list[tuple[h1.TreeEntry, bytes]]:
+    return [(h1.TreeEntry(path, "100644", ""), data) for path, data in files.items()]
+
+
+@pytest.fixture
+def standalone(tmp_path) -> Path:
+    repo = tmp_path / "oracle-repo"
+    h1.create_standalone_repo(repo, _entries({"a.txt": b"a\n", "dir/b.py": b"print(1)\n"}))
+    return repo
+
+
+@pytest.mark.spawns
+def test_standalone_repo_meets_r1(standalone):
+    report = h1.assert_r1_invariants(standalone)
+    assert report["rev_list_all"] == 1 and report["refs"] == ["refs/heads/main"]
+    assert (standalone / "dir" / "b.py").read_bytes() == b"print(1)\n"
+    assert _git(standalone, "rev-list", "--parents", "-n", "1", "main").count(" ") == 0
+
+
+@pytest.mark.spawns
+def test_standalone_repo_is_deterministic(tmp_path):
+    files = _entries({"a.txt": b"a\n"})
+    first = h1.create_standalone_repo(tmp_path / "one", files)
+    second = h1.create_standalone_repo(tmp_path / "two", files)
+    assert first == second
+
+
+@pytest.mark.spawns
+def test_r1_refuses_remote(standalone):
+    _git(standalone, "remote", "add", "origin", "https://example.invalid/repo.git")
+    with pytest.raises(h1.CutRefused, match="remote"):
+        h1.assert_r1_invariants(standalone)
+
+
+@pytest.mark.spawns
+def test_r1_refuses_alternates(standalone, tmp_path):
+    (standalone / ".git" / "objects" / "info").mkdir(parents=True, exist_ok=True)
+    (standalone / ".git" / "objects" / "info" / "alternates").write_text(str(tmp_path / "elsewhere"))
+    with pytest.raises(h1.CutRefused, match="alternates"):
+        h1.assert_r1_invariants(standalone)
+
+
+@pytest.mark.spawns
+def test_r1_refuses_second_commit(standalone):
+    (standalone / "c.txt").write_text("c\n")
+    _git(standalone, "add", "c.txt")
+    _git(standalone, "commit", "-q", "-m", "second")
+    with pytest.raises(h1.CutRefused, match="exactly 1"):
+        h1.assert_r1_invariants(standalone)
+
+
+@pytest.mark.spawns
+def test_r1_refuses_other_ref_and_stray_object(standalone):
+    _git(standalone, "update-ref", "refs/tags/extra", "main")
+    with pytest.raises(h1.CutRefused, match="refs other than"):
+        h1.assert_r1_invariants(standalone)
+    _git(standalone, "update-ref", "-d", "refs/tags/extra")
+    subprocess.run(["git", "-C", str(standalone), "hash-object", "-w", "--stdin"], input=b"stray", check=True,
+                   capture_output=True)
+    with pytest.raises(h1.CutRefused, match="not reachable"):
+        h1.assert_r1_invariants(standalone)
+
+
+@pytest.mark.spawns
+def test_r1_refuses_packed_ref(standalone):
+    head = _git(standalone, "rev-parse", "main")
+    (standalone / ".git" / "packed-refs").write_bytes(f"# pack-refs with: peeled\n{head} refs/heads/other\n".encode())
+    with pytest.raises(h1.CutRefused, match="packed-refs holds another ref"):
+        h1.assert_r1_invariants(standalone)
+
+
+# --------------------------------------------------------------------------- end-to-end cut and re-bind
+
+CODE_PATHS = {
+    "H-6": f"src/{PKG}/contracts/__init__.py",
+    "H-7": f"src/{PKG}/contracts/conformance.py",
+    "H-8": f"src/{PKG}/contracts/portfolio.py",
+    "H-9": f"src/{PKG}/quoting/policy.py",
+}
+TEXT_89A = "docs/roadmap/handoff-89a.md"
+SYN_TABLE = (h1.Sub("S1", "spec-a.md", "span", 2, 2, old="`add_own`", new=("own-leg composition",)),
+             h1.Sub("S2", "spec-b.md", "delete", 3, 3, first="state.legs residue"))
+
+
+SYN_EXPECTED = {
+    "H-1": _sha(b"# A\nuses own-leg composition here\n"),
+    "H-2": _sha(b"# B\nok\n"),
+    **{item: _sha(f"# synthetic {item}\nVALUE = 1\n".encode()) for item in CODE_PATHS},
+}
+
+
+def _write_tree(root: Path, files: dict[str, str]) -> None:
+    for path, text in files.items():
+        target = root / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(text.encode("utf-8"))
+
+
+def _source_files() -> dict[str, str]:
+    files = {path: f"# synthetic {item}\nVALUE = 1\n" for item, path in CODE_PATHS.items()}
+    files.update({
+        TEXT_89A: "# 89a contract (synthetic)\n",
+        f"src/{PKG}/replay/v2/kernel.py": "class Kernel:\n    def __init__(self):\n        pass\n",
+        f"tests/{PKG}/fixtures/expected.json": "{}\n",
+        "docs/roadmap/maker-replay-v2-shadow-gate-spec-v9.md": "`add_own`\n",
+        "README.md": "synthetic repository\n",
+        ".gitattributes": "* text=auto eol=lf\n",
+    })
+    return files
+
+
+@pytest.fixture
+def cut_env(tmp_path):
+    repo = tmp_path / "src-repo"
+    _write_tree(repo, _source_files())
+    _git(tmp_path, "init", "-q", str(repo))
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "base")
+    specs = tmp_path / "specs"
+    _write_tree(specs, {"spec-a.md": "# A\nuses `add_own` here\n", "spec-b.md": "# B\nok\nstate.legs residue\n"})
+    rulings = tmp_path / "rulings.md"
+    rulings.write_text("# Rulings\nOD23: decide() unchanged.\n", encoding="utf-8")
+    plan = {
+        "schema": h1.PLAN_SCHEMA,
+        "rev": "r-test",
+        "spec_source_dir": "specs",
+        "build_line_commit": "HEAD",
+        "spec_cuts": [
+            {"id": "H-1", "source": "spec-a.md", "sha256": _sha((specs / "spec-a.md").read_bytes()),
+             "handout_path": "spec/a.md", "expected_output_sha256": SYN_EXPECTED["H-1"]},
+            {"id": "H-2", "source": "spec-b.md", "sha256": _sha((specs / "spec-b.md").read_bytes()),
+             "handout_path": "spec/b.md",
+             "expected_output_sha256": SYN_EXPECTED["H-2"]},
+        ],
+        "code_items": [{"id": item, "path": path,
+                        "blob": h1.git_blob_id(f"# synthetic {item}\nVALUE = 1\n".encode()),
+                        "expected_output_sha256": SYN_EXPECTED[item]}
+                       for item, path in CODE_PATHS.items()],
+        "text_89a": {"id": "H-10", "path": TEXT_89A, "sha256": _sha(b"# 89a contract (synthetic)\n")},
+        "rulings_sheet": {"id": "H-11", "file": "rulings.md", "sha256": _sha(rulings.read_bytes())},
+        "cover_prompt": None,
+    }
+    plan_file = tmp_path / "plan.json"
+    plan_file.write_text(json.dumps(plan), encoding="utf-8")
+    return {"repo": repo, "plan": plan, "plan_file": plan_file, "tmp": tmp_path}
+
+
+def _cut(env, out_name="out", plan=None, withheld=()):
+    if plan is not None:
+        env["plan_file"].write_text(json.dumps(plan), encoding="utf-8")
+    return h1.run_cut(env["plan_file"], env["repo"], env["tmp"] / out_name, table=SYN_TABLE, mo1_skip=None,
+                      withheld=withheld, expected_outputs=SYN_EXPECTED)
+
+
+@pytest.mark.spawns
+def test_cut_end_to_end(cut_env):
+    manifest, binding = _cut(cut_env)
+    out = cut_env["tmp"] / "out"
+    assert binding == _sha((out / h1.MANIFEST_NAME).read_bytes())
+    assert manifest["bindable"] is False  # cover prompt placeholder
+    by_id = {row["id"]: row for row in manifest["handout"]}
+    assert (out / "handout" / "spec" / "a.md").read_text(encoding="utf-8") == "# A\nuses own-leg composition here\n"
+    assert by_id["H-6"]["commit"] == manifest["build_line_commit"]
+    repo = out / h1.REPO_DIR
+    tracked = set(_git(repo, "ls-tree", "-r", "--name-only", "main").split())
+    assert f"src/{PKG}/contracts/portfolio.py" in tracked and "README.md" in tracked
+    assert not any("replay" in p or "fixtures" in p or "gate-spec" in p for p in tracked)
+    assert manifest["filtered_tree"]["tree"] == _git(repo, "rev-parse", "main^{tree}")
+    assert manifest["checks"]["kernel_drift"]["unlisted"] == 0
+    _, again = _cut(cut_env, "out2")
+    assert again == binding
+
+
+@pytest.mark.spawns
+def test_cut_refuses_source_hash_mismatch_without_output(cut_env):
+    plan = cut_env["plan"]
+    plan["spec_cuts"][0]["sha256"] = _sha(b"some other bytes")
+    with pytest.raises(h1.CutRefused, match="H-1: SHA-256 mismatch"):
+        _cut(cut_env, plan=plan)
+    assert not (cut_env["tmp"] / "out").exists()
+
+
+@pytest.mark.spawns
+def test_cut_refuses_code_blob_mismatch(cut_env):
+    plan = cut_env["plan"]
+    plan["code_items"][3]["blob"] = "0" * 40
+    with pytest.raises(h1.CutRefused, match="H-9: blob id mismatch"):
+        _cut(cut_env, plan=plan)
+
+
+@pytest.mark.spawns
+def test_cut_refuses_import_in_filtered_tree(cut_env):
+    repo = cut_env["repo"]
+    _write_tree(repo, {"tools/helper.py": f"import importlib\nm = importlib.import_module('{PKG}' + '.replay')\n"})
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "leak")
+    with pytest.raises(h1.CutRefused, match="tools/helper.py"):
+        _cut(cut_env)
+    assert not (cut_env["tmp"] / "out").exists()
+
+
+@pytest.mark.spawns
+def test_cut_refuses_section4_hit_in_rulings_sheet(cut_env):
+    plan = cut_env["plan"]
+    rulings = cut_env["tmp"] / plan["rulings_sheet"]["file"]
+    rulings.write_text("# Rulings\nthe state.legs field\n", encoding="utf-8")
+    plan["rulings_sheet"]["sha256"] = _sha(rulings.read_bytes())
+    with pytest.raises(h1.CutRefused, match="§4 check"):
+        _cut(cut_env, plan=plan)
+
+
+@pytest.mark.spawns
+def test_rebind_identical_and_differing(cut_env, capsys):
+    _cut(cut_env)
+    manifest_file = cut_env["tmp"] / "out" / h1.MANIFEST_NAME
+    repo = cut_env["repo"]
+    _write_tree(repo, {"README.md": "changed elsewhere\n"})
+    _git(repo, "commit", "-q", "-am", "unrelated change")
+    identical = _git(repo, "rev-parse", "HEAD")
+    record, _ = h1.run_rebind(manifest_file, repo, identical)
+    assert record["new_commit"] == identical
+    assert [f["id"] for f in record["files"]] == ["H-10", "H-6", "H-7", "H-8", "H-9"]
+    _write_tree(repo, {CODE_PATHS["H-9"]: "# synthetic H-9\nVALUE = 2\n"})
+    _git(repo, "commit", "-q", "-am", "policy change")
+    assert h1.main(["rebind", "--manifest", str(manifest_file), "--repo", str(repo), "--commit", "HEAD"]) == 2
+    err = capsys.readouterr().err
+    assert "re-hand" in err and "H-9" in err and "H-6" not in err
+
+
+# --------------------------------------------------------------------------- R4b recorded exclusion list
+
+LEAK_IMPORT = f"from {PKG}.replay.bundle import X\n"
+LEAK_DOC = f"See src/{PKG}/replay/ for the v1 engine.\n"
+
+
+def _commit_files(repo: Path, files: dict[str, str], message: str) -> None:
+    _write_tree(repo, files)
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", message)
+
+
+def test_r4b_list_shape():
+    paths = [path for path, _ in h1.R4B_WITHHELD]
+    assert len(paths) == len(set(paths)) == 29
+    assert {cls for _, cls in h1.R4B_WITHHELD} == set(h1.REASON_CLASSES)
+    assert (h1.CUT_SCRIPT_PATH, "cut-script") in h1.R4B_WITHHELD
+    assert not any(h1.excluded_by(path) for path in paths)
+
+
+@pytest.mark.spawns
+def test_listed_paths_are_withheld_and_recorded_by_class(cut_env):
+    _commit_files(cut_env["repo"], {"tools/old_tool.py": LEAK_IMPORT, "docs/notes.md": LEAK_DOC,
+                                    "tools/research/maker_replay_v2_h1_cut.py": "DENY = 'add_own'\n"}, "listed")
+    withheld = (("tools/old_tool.py", "v1-import"), ("docs/notes.md", "path-mention"),
+                ("tools/research/maker_replay_v2_h1_cut.py", "cut-script"))
+    manifest, _ = _cut(cut_env, withheld=withheld)
+    assert manifest["filtered_tree"]["withheld_r4b"] == [
+        {"path": "docs/notes.md", "reason_class": "path-mention"},
+        {"path": "tools/old_tool.py", "reason_class": "v1-import"},
+        {"path": "tools/research/maker_replay_v2_h1_cut.py", "reason_class": "cut-script"},
+    ]
+    tracked = set(_git(cut_env["tmp"] / "out" / h1.REPO_DIR, "ls-tree", "-r", "--name-only", "main").split())
+    assert not tracked & {path for path, _ in withheld}
+
+
+@pytest.mark.spawns
+def test_manifest_carries_no_withheld_content(cut_env):
+    _commit_files(cut_env["repo"], {"tools/old_tool.py": LEAK_IMPORT + "SECRET_MARKER_TEXT = 1\n"}, "listed")
+    _cut(cut_env, withheld=(("tools/old_tool.py", "v1-import"),))
+    raw = (cut_env["tmp"] / "out" / h1.MANIFEST_NAME).read_text(encoding="utf-8")
+    assert "SECRET_MARKER_TEXT" not in raw and "bundle import" not in raw
+    rows = json.loads(raw)["filtered_tree"]["withheld_r4b"]
+    assert all(set(row) == {"path", "reason_class"} for row in rows)
+
+
+@pytest.mark.spawns
+def test_unlisted_new_hit_still_refuses(cut_env):
+    _commit_files(cut_env["repo"], {"tools/old_tool.py": LEAK_IMPORT, "tools/new_tool.py": LEAK_IMPORT}, "two")
+    with pytest.raises(h1.CutRefused, match=r"1 unlisted file.*\n  tools/new_tool.py"):
+        _cut(cut_env, withheld=(("tools/old_tool.py", "v1-import"),))
+    assert not (cut_env["tmp"] / "out").exists()
+
+
+@pytest.mark.spawns
+@pytest.mark.parametrize(
+    ("files", "entry", "message"),
+    [
+        ({}, ("tools/gone.py", "v1-import"), "absent from the filtered tree"),
+        ({"tools/clean.py": "VALUE = 1\n"}, ("tools/clean.py", "v1-import"), "no longer hits"),
+        ({"tools/drifted.py": LEAK_IMPORT}, ("tools/drifted.py", "string-literal"), "now hits as v1-import"),
+        ({}, (f"tests/{PKG}/fixtures/expected.json", "path-mention"), "absent from the filtered tree"),
+    ],
+)
+def test_stale_list_entry_refuses(cut_env, files, entry, message):
+    if files:
+        _commit_files(cut_env["repo"], files, "stale")
+    with pytest.raises(h1.CutRefused, match=message):
+        _cut(cut_env, withheld=(entry,))
+
+
+@pytest.mark.spawns
+def test_absent_cut_script_entry_is_not_stale(cut_env):
+    manifest, _ = _cut(cut_env, withheld=((h1.CUT_SCRIPT_PATH, "cut-script"),))
+    assert manifest["filtered_tree"]["withheld_r4b"] == []
+
+
+def test_r4b_list_rejects_unknown_class_and_duplicates():
+    with pytest.raises(h1.CutRefused, match="unknown reason class"):
+        h1._withheld_map((("a.md", "other"),))
+    with pytest.raises(h1.CutRefused, match="listed twice"):
+        h1._withheld_map((("a.md", "path-mention"), ("a.md", "path-mention")))
+
+
+# --------------------------------------------------------------------------- Defender B1 and should-fixes
+
+
+@pytest.mark.parametrize(
+    ("path", "excluded"),
+    [
+        ("docs/research/maker-replay-v2-rule4b-results/s3_real_40.json", True),
+        ("docs/research/maker-replay-v2-x/deep/a.json", True),
+        ("docs/research/Maker-Replay-V2-plan.md", True),
+        (f"SRC/{PKG.upper()}/Replay/V2/kernel.py", True),
+        ("docs/research/maker-replay-v1-x/a.json", False),
+    ],
+)
+def test_exclusion_globs_cover_directories_and_case(path, excluded):
+    assert h1.excluded_by(path) is excluded
+
+
+@pytest.mark.parametrize("name", ["src" + chr(92) + "x.py", "C:/x.py", '"quoted"', "a\nb"])
+def test_tree_path_refuses_unsupported_forms(name):
+    with pytest.raises(h1.CutRefused, match="unsupported path"):
+        h1.check_tree_path(name)
+
+
+@pytest.mark.spawns
+def test_v2_named_path_refuses_unless_handout_item(cut_env):
+    _commit_files(cut_env["repo"], {"docs/notes/foo-MRV2.json": "{\"x\": 1}\n"}, "v2 name")
+    with pytest.raises(h1.CutRefused, match="foo-MRV2.json: path name says replay v2"):
+        _cut(cut_env)
+    files, _ = h1.filtered_files(cut_env["repo"], "HEAD", (), {"docs/notes/foo-mrv2.json"})
+    assert "docs/notes/foo-MRV2.json" in {entry.path for entry, _ in files}
+
+
+@pytest.mark.spawns
+def test_case_colliding_tree_paths_refuse(cut_env):
+    repo = cut_env["repo"]
+    blob = subprocess.run(["git", "-C", str(repo), "hash-object", "-w", "--stdin"], input=b"x\n", check=True,
+                          capture_output=True).stdout.decode().strip()
+    tree = subprocess.run(["git", "-C", str(repo), "mktree"], input=f"100644 blob {blob}\tA.md\n100644 blob {blob}\ta.md\n"
+                          .encode(), check=True, capture_output=True).stdout.decode().strip()
+    with pytest.raises(h1.CutRefused, match="case-colliding"):
+        h1.list_tree(repo, tree)
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "from pathlib import Path\nROOT = Path('src') / ('maker' + '_core') / 'replay'\n",
+        "PKG = '_'.join(['maker', 'core'])\nimport importlib\nimportlib.import_module(PKG + '.replay')\n",
+    ],
+)
+def test_folded_forms_refuse(body):
+    assert h1.refusal_reasons("tools/x.py", body.encode())
+
+
+def test_utf16_and_archive_files_refuse():
+    assert any("UTF-16" in r for r in h1.refusal_reasons("tools/x.py", "VALUE = 1\n".encode("utf-16")))
+    assert any("archive" in r for r in h1.refusal_reasons("tools/x.zip", b"PK\x03\x04"))
+
+
+@pytest.mark.spawns
+def test_r1_no_reflog_and_fixed_identity(standalone):
+    assert not (standalone / ".git" / "logs").exists()
+    ident = _git(standalone, "log", "-1", "--format=%an <%ae> %at|%cn <%ce> %ct", "main")
+    assert ident == "H1 cut <h1-cut@example.invalid> 946684800|H1 cut <h1-cut@example.invalid> 946684800"
+    (standalone / ".git" / "logs").mkdir()
+    with pytest.raises(h1.CutRefused, match="logs"):
+        h1.assert_r1_invariants(standalone)
+
+
+@pytest.mark.spawns
+def test_r1_refuses_local_identity(standalone):
+    _git(standalone, "config", "user.name", "Someone")
+    with pytest.raises(h1.CutRefused, match="identity"):
+        h1.assert_r1_invariants(standalone)
+
+
+@pytest.mark.spawns
+def test_cut_refuses_absolute_plan_path(cut_env):
+    plan = cut_env["plan"]
+    plan["rulings_sheet"]["file"] = str(cut_env["tmp"] / "rulings.md")
+    with pytest.raises(h1.CutRefused, match="is absolute"):
+        _cut(cut_env, plan=plan)
+
+
+@pytest.mark.spawns
+def test_cut_refuses_abbreviated_code_pin(cut_env):
+    plan = cut_env["plan"]
+    plan["code_items"][0]["blob"] = plan["code_items"][0]["blob"][:8]
+    with pytest.raises(h1.CutRefused, match="full 40-hex blob id"):
+        _cut(cut_env, plan=plan)
+
+
+@pytest.mark.spawns
+def test_manifest_holds_no_absolute_paths(cut_env):
+    _cut(cut_env)
+    raw = (cut_env["tmp"] / "out" / h1.MANIFEST_NAME).read_text(encoding="utf-8")
+    tmp = str(cut_env["tmp"])
+    assert all(form not in raw for form in (tmp, tmp.replace("\\", "/"), json.dumps(tmp)[1:-1], cut_env["tmp"].name))
+    manifest = json.loads(raw)
+    assert re.fullmatch(r"[0-9a-f]{40}", manifest["cut_script_blob"])
+
+
+@pytest.mark.spawns
+def test_rulings_sheet_from_repository_path(cut_env):
+    _commit_files(cut_env["repo"], {"docs/rulings.md": "# Rulings\nOD23: decide() unchanged.\n"}, "rulings")
+    plan = cut_env["plan"]
+    plan["rulings_sheet"] = {"id": "H-11", "path": "docs/rulings.md", "commit": "HEAD",
+                             "sha256": _sha(b"# Rulings\nOD23: decide() unchanged.\n")}
+    manifest, _ = _cut(cut_env, plan=plan)
+    row = next(r for r in manifest["handout"] if r["id"] == "H-11")
+    assert row["source"] == "docs/rulings.md" and row["handout_path"] == "rulings.md"
+
+
+def test_cut_script_identity_refuses_crlf(monkeypatch, tmp_path):
+    crlf = tmp_path / "script.py"
+    crlf.write_bytes(b"x = 1\r\n")
+    monkeypatch.setattr(h1, "__file__", str(crlf))
+    with pytest.raises(h1.CutRefused, match="CRLF"):
+        h1.cut_script_identity()
+
+
+@pytest.mark.spawns
+def test_rebind_refuses_non_descendant_and_89a_change(cut_env):
+    _cut(cut_env)
+    manifest_file = cut_env["tmp"] / "out" / h1.MANIFEST_NAME
+    repo = cut_env["repo"]
+    base = _git(repo, "rev-parse", "HEAD")
+    _git(repo, "checkout", "-q", "--orphan", "unrelated")
+    _git(repo, "commit", "-q", "-m", "unrelated root")
+    with pytest.raises(h1.CutRefused, match="does not descend"):
+        h1.run_rebind(manifest_file, repo, "unrelated")
+    _git(repo, "checkout", "-q", "-B", "line", base)
+    _commit_files(repo, {TEXT_89A: "# 89a contract (changed)\n"}, "89a change")
+    with pytest.raises(h1.CutRefused, match="H-10"):
+        h1.run_rebind(manifest_file, repo, "HEAD")
+
+
+# --------------------------------------------------------------------------- Defender D1: engine-output shape
+
+
+@pytest.mark.parametrize(
+    ("path", "body", "refused"),
+    [
+        ("data/run_a.json", '{"engine": {"decision_sha256": "ab", "final_cash": 1}}', True),
+        ("data/run_b.json", '[{"meta": {"x": {"decision_sha256": "ab"}}}, {"fills": []}]', True),
+        ("data/run_c.jsonl", '{"a": 1}\n{"decision_sha256": "ab", "exclusions_sha256": "cd"}\n', True),
+        ("data/run_d.csv", "id,Decision_SHA256,fills\n1,ab,0\n", True),
+        ("data/run_e.json", '{"decision_sha256": "ab", "fills": [', True),  # unparseable: raw-key fallback
+        ("data/release.json", '{"promotion_decision_sha256": "ab", "final_cash": 1, "fills": 2}', False),
+        ("data/session.json", '{"decision_sha256": "ab", "release_id": "r1", "decisions": 3}', False),
+        ("data/run_f.csv", "id,value\n1,decision_sha256 final_cash\n", False),
+        ("notes/run.md", '{"decision_sha256": "ab", "final_cash": 1}', False),
+    ],
+)
+def test_engine_output_shape(path, body, refused):
+    hit = h1.ENGINE_OUTPUT_REASON in h1.refusal_reasons(path, body.encode())
+    assert hit is refused
+
+
+@pytest.mark.spawns
+def test_engine_output_with_neutral_name_refuses_and_cannot_be_withheld(cut_env):
+    _commit_files(cut_env["repo"], {"results/batch/outcome_07.json":
+                                    '{"summary": {"decision_sha256": "ab", "fills": 4}}\n'}, "neutral")
+    with pytest.raises(h1.CutRefused, match="outcome_07.json: engine-output shaped"):
+        _cut(cut_env)
+    with pytest.raises(h1.CutRefused, match="now hits as engine-output"):
+        _cut(cut_env, withheld=(("results/batch/outcome_07.json", "path-mention"),))
+
+
+# --------------------------------------------------------------------------- mandatory full expected outputs
+
+
+@pytest.mark.spawns
+@pytest.mark.parametrize(
+    ("item", "value", "message"),
+    [
+        ("H-7", None, "H-7: expected_output_sha256 is missing"),
+        ("H-7", "abbreviated", "H-7: expected_output_sha256 must be a full 64-hex"),
+        ("H-2", "upper", "H-2: expected_output_sha256 must be a full 64-hex"),
+        ("H-9", "0" * 64, "H-9: expected_output_sha256 0{64} != the pinned"),
+    ],
+)
+def test_expected_output_must_be_full_and_pinned(cut_env, item, value, message):
+    plan = cut_env["plan"]
+    row = next(r for r in [*plan["spec_cuts"], *plan["code_items"]] if r["id"] == item)
+    if value is None:
+        del row["expected_output_sha256"]
+    elif value == "abbreviated":
+        row["expected_output_sha256"] = f"{SYN_EXPECTED[item][:8]}…{SYN_EXPECTED[item][-4:]}"
+    elif value == "upper":
+        row["expected_output_sha256"] = SYN_EXPECTED[item].upper()
+    else:
+        row["expected_output_sha256"] = value
+    with pytest.raises(h1.CutRefused, match=message):
+        _cut(cut_env, plan=plan)
+    assert not (cut_env["tmp"] / "out").exists()
+
+
+@pytest.mark.spawns
+def test_expected_output_full_value_passes_and_produced_output_is_checked(cut_env):
+    manifest, _ = _cut(cut_env)
+    produced = {row["id"]: row["sha256"] for row in manifest["handout"]}
+    assert all(produced[item] == value for item, value in SYN_EXPECTED.items())
+    wrong = {**SYN_EXPECTED, "H-6": "1" * 64}
+    plan = cut_env["plan"]
+    plan["code_items"][0]["expected_output_sha256"] = "1" * 64
+    cut_env["plan_file"].write_text(json.dumps(plan), encoding="utf-8")
+    with pytest.raises(h1.CutRefused, match="H-6: output SHA-256"):
+        h1.run_cut(cut_env["plan_file"], cut_env["repo"], cut_env["tmp"] / "out2", table=SYN_TABLE, mo1_skip=None,
+                   withheld=(), expected_outputs=wrong)
+
+
+@pytest.mark.spawns
+def test_plan_items_must_match_the_pinned_set(cut_env):
+    plan = cut_env["plan"]
+    plan["code_items"] = plan["code_items"][:3]
+    with pytest.raises(h1.CutRefused, match="pinned expected-output items"):
+        _cut(cut_env, plan=plan)

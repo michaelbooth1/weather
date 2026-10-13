@@ -79,7 +79,7 @@ def test_suite_gate_can_bootstrap_a_hash_bound_fixed_merge_wrapper() -> None:
 def test_suite_gate_can_wait_boundedly_for_running_suite_and_rebinds_it() -> None:
     text = _script_text()
 
-    assert "$suiteWaitDeadline = (Get-Date).AddMinutes($SuiteRunningWaitMinutes)" in text
+    assert "$suiteWaitDeadline = ([datetimeoffset](Get-Date)).AddMinutes($SuiteRunningWaitMinutes)" in text
     assert "Start-Sleep -Seconds 15" in text
     assert "suite task remained running past the bounded wait" in text
     assert "suite task identity changed while waiting" in text

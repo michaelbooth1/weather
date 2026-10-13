@@ -10,7 +10,7 @@
   authorizes no deletion.
 - **Verify with:** constants and the `ARTIFACT_FAMILIES` tuple near the
   top of `src/weather/operations/closed_market_day_archive.py`; last converter
-  outcome in `dataacktestosed_market_day_parquet_incremental.json`.
+  outcome in `data\backtest\closed_market_day_parquet_incremental.json`.
 
 This contract defines the historical Parquet surface for closed market-days.
 It does not change live collectors, current serving code, or active

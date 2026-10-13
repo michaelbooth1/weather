@@ -221,3 +221,71 @@ $rows | ConvertTo-Json -Compress
     assert "00:30-09:00" in rows[8]["action"]
     assert "admitted" in rows[8]["action"]
     assert "do not resume an operator-paused mirror" in rows[9]["action"]
+
+
+@WINDOWS_POWERSHELL_REQUIRED
+def test_watchdog_reviewed_expected_disabled_list_is_named_not_blanket(tmp_path: Path) -> None:
+    watchdog = tmp_path / "scripts" / "ops" / "health_watchdog.ps1"
+    watchdog.parent.mkdir(parents=True)
+    watchdog.write_bytes(SCRIPT.read_bytes())
+    flags = [
+        "WeatherMarketMakingDailyRoll unexpectedly DISABLED",
+        "WeatherMarketMakingDailyRollSupervisor is armed for 09/30/2026 02:00:00 but DISABLED - it will not fire",
+        "WeatherSomeOtherTask unexpectedly DISABLED",
+        "WeatherMarketMakingDailyRollShadow unexpectedly DISABLED",
+        "WeatherMarketMakingDailyRoll last result 0x1",
+    ]
+    ps_flags = ",".join("'" + flag + "'" for flag in flags)
+    (watchdog.parent / "status.ps1").write_text(
+        "param([string]$RepoRoot, [switch]$Json)\n"
+        f"@{{verdict='ATTENTION'; flags=@({ps_flags}); warns=@('fixture warn'); "
+        "streak=@{days=2;target=14;today='fixture'}} | ConvertTo-Json -Depth 4\n",
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-File", str(watchdog)],
+        cwd=tmp_path, capture_output=True, text=True, check=False, timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    latest = json.loads(
+        (tmp_path / "data" / "alerts" / "host_health_latest.json").read_text(encoding="utf-8-sig")
+    )
+    assert sorted(alert["flag"] for alert in latest["alerts"]) == sorted(flags[2:])
+    reason = "live and paper maker paused by owner 2026-09-25"
+    assert latest["notes"] == [
+        "fixture warn",
+        f"WeatherMarketMakingDailyRoll is expected-disabled: {reason}",
+        f"WeatherMarketMakingDailyRollSupervisor is expected-disabled: {reason}",
+    ]
+    assert latest["expected_disabled_tasks"] == {
+        "WeatherMarketMakingDailyRoll": reason,
+        "WeatherMarketMakingDailyRollSupervisor": reason,
+    }
+    briefing = (tmp_path / "data" / "alerts" / "MORNING_BRIEFING.md").read_text(encoding="utf-8-sig")
+    assert "WeatherSomeOtherTask unexpectedly DISABLED" in briefing
+    assert f"WeatherMarketMakingDailyRoll is expected-disabled: {reason}" in briefing
+
+
+@WINDOWS_POWERSHELL_REQUIRED
+def test_watchdog_with_only_expected_disabled_tasks_reports_no_alerts(tmp_path: Path) -> None:
+    watchdog = tmp_path / "scripts" / "ops" / "health_watchdog.ps1"
+    watchdog.parent.mkdir(parents=True)
+    watchdog.write_bytes(SCRIPT.read_bytes())
+    (watchdog.parent / "status.ps1").write_text(
+        "param([string]$RepoRoot, [switch]$Json)\n"
+        "@{verdict='ATTENTION'; flags=@('WeatherMarketMakingDailyRoll unexpectedly DISABLED',"
+        "'WeatherMarketMakingDailyRollSupervisor unexpectedly DISABLED'); warns=@(); "
+        "streak=@{days=2;target=14;today='fixture'}} | ConvertTo-Json -Depth 4\n",
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-File", str(watchdog)],
+        cwd=tmp_path, capture_output=True, text=True, check=False, timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    latest = json.loads(
+        (tmp_path / "data" / "alerts" / "host_health_latest.json").read_text(encoding="utf-8-sig")
+    )
+    assert latest["alerts"] == []
+    assert latest["top_severity"] == "OK"
+    assert len(latest["notes"]) == 2

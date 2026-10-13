@@ -67,6 +67,18 @@ class NoRedirect(HTTPRedirectHandler):
         return None  # urllib raises HTTPError with the original redirect status.
 
 
+def close_http_error(exc):
+    """Close an ``HTTPError`` body without letting the close replace the caller's handling.
+
+    On CPython < 3.11.2 (the capture host runs 3.11.0, gh-98778) an ``HTTPError`` built with
+    ``fp=None`` never initialises its tempfile wrapper, so ``close()`` raises ``KeyError: 'file'``.
+    """
+    try:
+        exc.close()
+    except Exception:  # noqa: BLE001 - nothing left to release; keep the safe reason code.
+        pass
+
+
 def direct_opener():
     return build_opener(ProxyHandler({}), NoRedirect())
 
@@ -133,7 +145,8 @@ class ReadTransport:
             handle.write(json.dumps(row, allow_nan=False) + "\n")
             handle.flush()
 
-    def request(self, method, host, path, params=None):
+    def request(self, method, host, path, params=None, *, fresh=False):
+        """``fresh`` skips the cache lookup (still budgeted, journaled and cached after)."""
         params = {} if params is None else dict(params)
         check_request(method, host, path, params)
         # No arbitrary account overrides, including through internal callers.
@@ -144,7 +157,7 @@ class ReadTransport:
         with self.lock:
             now = self.clock()
             self._expire()
-            if url in self.cache:
+            if not fresh and url in self.cache:
                 _, result, failed = self.cache[url]
                 if failed:
                     raise ReaderError("upstream_unavailable_cached")
@@ -186,7 +199,7 @@ class ReadTransport:
                 except Exception:
                     raw = None
                 finally:
-                    exc.close()
+                    close_http_error(exc)
             except Exception:
                 pass  # Raw network/JSON exceptions may contain auth or body data.
             finally:

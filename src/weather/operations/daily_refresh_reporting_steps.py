@@ -17,9 +17,6 @@ from weather.backtesting.settlement_ledger import (
     finalize_folders,
 )
 from weather.market import exchange_economics
-from weather.market import mm_paper
-from weather.market import taker_bot
-from weather.market import taker_edge_permission
 from weather.market.market_day_labels import discover_default_folders, parse_overrides
 from weather.market.market_config import date_from_event_slug
 from weather.market.market_registry import all_specs
@@ -1569,16 +1566,6 @@ def run_nightly_health_checks_step(args):
             nightly_health_checks.DEFAULT_TIMEZONE,
         ),
         target_date=getattr(args, "nightly_health_date", "") or None,
-        max_bot_activity_age_seconds=getattr(
-            args,
-            "nightly_health_max_bot_activity_age_seconds",
-            nightly_health_checks.DEFAULT_MAX_BOT_ACTIVITY_AGE_SECONDS,
-        ),
-        startup_grace_seconds=getattr(
-            args,
-            "nightly_health_startup_grace_seconds",
-            nightly_health_checks.DEFAULT_STARTUP_GRACE_SECONDS,
-        ),
     )
     outputs = nightly_health_checks.write_outputs(
         payload,

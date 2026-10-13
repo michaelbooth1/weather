@@ -1,0 +1,2 @@
+# Optional diagnostics only; the normal daily refresh does not require this.
+pyinstrument>=5.1,<6

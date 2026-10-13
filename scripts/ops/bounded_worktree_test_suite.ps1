@@ -18,7 +18,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$LogPath,
     [ValidateRange(1, 25)]
-    [int]$MaxFilesPerChunk = 20,
+    [int]$MaxFilesPerChunk = 25,
     [ValidateRange(1.0, 99.0)]
     [double]$StartCommitPercent = 64.0,
     [ValidateRange(1.0, 99.0)]
@@ -32,7 +32,24 @@ param(
     [switch]$RequireLiveSdkContract,
     [switch]$PreflightOnly,
     [switch]$SmokeTest,
-    [switch]$IntegrationPreflight
+    [switch]$IntegrationPreflight,
+    # L5 (owner decision 2026-10-06): the reconciler execution file runs only when the
+    # tip touches its surface (scripts/ops/reconciler_surface.ps1). The predicate needs
+    # the base this tip is measured against; without one the file is always included,
+    # so callers that pass nothing (integration attempts) run exactly as before.
+    [ValidatePattern("^$|^[0-9a-fA-F]{40}$")]
+    [string]$ReconcilerSurfaceBase = "",
+    # Forces the reconciler file in (the once-a-night run on the final tip).
+    [switch]$IncludeReconciler,
+    # Host Python upgrade prep: an absolute path to a staged venv's python.exe
+    # that runs the probe and every chunk instead of RepoRoot\venv. RepoRoot
+    # still owns admission, capture state and the shared heavy-workload lease.
+    # Empty (the default) keeps the production venv exactly as before.
+    [string]$InterpreterPath = "",
+    # With -InterpreterPath only: the exact sys.version_info triple the staged
+    # interpreter must report (for example 3.11.9). Empty accepts any 3.11.x.
+    [ValidatePattern("^$|^[0-9]+\.[0-9]+\.[0-9]+$")]
+    [string]$ExpectedInterpreterVersion = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -61,6 +78,21 @@ if (-not (Test-Path -LiteralPath $logParent -PathType Container)) {
 }
 if (Test-Path -LiteralPath $LogPath) {
     throw "bounded suite refuses to append to or replace an existing log: $LogPath"
+}
+if (-not [string]::IsNullOrEmpty($InterpreterPath) -or
+    -not [string]::IsNullOrEmpty($ExpectedInterpreterVersion)) {
+    # Interpreter override only: the probe's sidecar outputs are create-new, so
+    # a retry with the same LogPath gets this clean refusal instead.
+    if ([string]::IsNullOrEmpty($InterpreterPath)) {
+        throw "ExpectedInterpreterVersion requires InterpreterPath"
+    }
+    foreach ($interpreterProbeSidecar in @(
+        ($LogPath + ".interpreter.stdout.log"), ($LogPath + ".interpreter.stderr.log")
+    )) {
+        if (Test-Path -LiteralPath $interpreterProbeSidecar) {
+            throw "bounded suite refuses to replace an existing interpreter probe output: $interpreterProbeSidecar"
+        }
+    }
 }
 if ($StartCommitPercent -ge $AbortCommitPercent) {
     throw "StartCommitPercent must be lower than AbortCommitPercent"
@@ -222,6 +254,13 @@ function Invoke-SuiteCheckedLocalGit {
                 [string]$Arguments[1] -ceq "--" -and
                 [string]$Arguments[2] -ceq "tests"
         }
+        "diff" {
+            $Arguments.Count -eq 5 -and
+                [string]$Arguments[1] -ceq "--name-only" -and
+                [string]$Arguments[2] -ceq "--no-renames" -and
+                [string]$Arguments[3] -cmatch '^[0-9a-f]{40}$' -and
+                [string]$Arguments[4] -cmatch '^[0-9a-f]{40}$'
+        }
         default { $false }
     }
     if (-not $valid) { throw "$Label refused an unsupported local Git query" }
@@ -304,6 +343,24 @@ function Invoke-SuiteCheckedLocalGit {
     }
 }
 
+function Enter-SuiteChunkTemp {
+    param([Parameter(Mandatory = $true)][string]$Root)
+
+    $saved = @{ TEMP = $env:TEMP; TMP = $env:TMP }
+    $childTemp = Join-Path $Root "temp"
+    New-Item -ItemType Directory -Path $childTemp -ErrorAction Stop | Out-Null
+    $env:TEMP = $childTemp
+    $env:TMP = $childTemp
+    return $saved
+}
+
+function Exit-SuiteChunkTemp {
+    param([Parameter(Mandatory = $true)][hashtable]$Saved)
+
+    $env:TEMP = $Saved.TEMP
+    $env:TMP = $Saved.TMP
+}
+
 function Write-SuiteLog {
     param([Parameter(Mandatory = $true)][string]$Message)
 
@@ -318,6 +375,18 @@ function Write-SuiteLog {
     $suiteLogWriter.WriteLine($line)
     $suiteLogWriter.Flush()
     Write-Output $line
+}
+
+function Get-SuiteRunTag {
+    # Names this run's JUnit evidence and chunk basetemps. A UTC instant with a
+    # literal Z (DST-L13): a local yyyyMMddTHHmmss tag repeats inside the
+    # 2026-11-01 fall-back hour, and the per-chunk "already exists" guards
+    # would then refuse a run that started one real hour after another.
+    param([datetimeoffset]$Now = [datetimeoffset]::UtcNow)
+    return $Now.UtcDateTime.ToString(
+        "yyyyMMdd'T'HHmmss'Z'",
+        [Globalization.CultureInfo]::InvariantCulture
+    )
 }
 
 function Get-CommitPercent {
@@ -353,7 +422,52 @@ function Assert-SuiteDiskHeadroom {
     }
 }
 
+function ConvertTo-StatusInstant {
+    # Parses a status timestamp as an absolute instant. Windows PowerShell 5.1
+    # ConvertFrom-Json leaves ISO-8601 strings as strings; the loops write them
+    # with their UTC offset, so DateTimeOffset.Parse keeps the instant exact even
+    # across the DST fall-back hour (a wall-clock [datetime] cast does not).
+    # Offset-less strings are taken as UTC. Unparseable or empty input is $null.
+    param($Value)
+    if ($null -eq $Value) { return $null }
+    if ($Value -is [datetimeoffset]) { return $Value }
+    if ($Value -is [datetime]) { return [datetimeoffset]$Value }
+    if (-not [string]$Value) { return $null }
+    try {
+        return [datetimeoffset]::Parse(
+            [string]$Value,
+            [Globalization.CultureInfo]::InvariantCulture,
+            [Globalization.DateTimeStyles]::AssumeUniversal
+        )
+    }
+    catch { return $null }
+}
+
+function ConvertTo-StatusUtcInstant {
+    # DateTime-aware front end to ConvertTo-StatusInstant. That parser is kept
+    # byte-identical across scripts, so DateTime handling lives here instead.
+    # A [datetime] is resolved by its Kind: Utc is taken as is, Local is
+    # converted with ToUniversalTime(), and Unspecified is taken as UTC, the
+    # same rule the parser applies to an offset-less string. Windows PowerShell
+    # 5.1 ConvertFrom-Json yields strings, so today only strings arrive here; a
+    # PowerShell 7 ConvertFrom-Json would yield Local DateTimes, which are
+    # ambiguous inside the repeated fall-back hour (.NET picks standard time).
+    # Every other input goes to ConvertTo-StatusInstant unchanged.
+    param($Value)
+    if ($Value -is [datetime]) {
+        if ($Value.Kind -eq [DateTimeKind]::Local) {
+            return [datetimeoffset]($Value.ToUniversalTime())
+        }
+        return [datetimeoffset]([datetime]::SpecifyKind($Value, [DateTimeKind]::Utc))
+    }
+    return ConvertTo-StatusInstant $Value
+}
+
 function Get-HealthyCaptureWorkerCount {
+    # Ages are differences of UTC instants (ConvertTo-StatusUtcInstant), never of
+    # local wall-clock times: on the 2026-11-01 fall-back night the repeated
+    # 01:00-02:00 hour falls inside the 00:30-09:00 suite window.
+    param([datetimeoffset]$Now = [datetimeoffset]::UtcNow)
     $snapshotRoot = Join-Path $RepoRoot "data\snapshots"
     $specs = @(
         # Snapshot normally sleeps for almost its 10-minute cadence. Keep this
@@ -370,7 +484,9 @@ function Get-HealthyCaptureWorkerCount {
             $lock = Get-Content -LiteralPath (Join-Path $snapshotRoot $spec.Lock) -Raw |
                 ConvertFrom-Json
             $pidValue = [int]$status.pid
-            $ageSeconds = ((Get-Date) - [datetime]$status.last_heartbeat).TotalSeconds
+            $heartbeat = ConvertTo-StatusUtcInstant $status.last_heartbeat
+            if ($null -eq $heartbeat) { continue }
+            $ageSeconds = ($Now - $heartbeat).TotalSeconds
             $alive = $null -ne (Get-Process -Id $pidValue -ErrorAction SilentlyContinue)
             if (
                 $pidValue -gt 0 -and
@@ -404,6 +520,410 @@ function Assert-HostAdmission {
     }
 }
 
+function Read-SuiteFileTimingTable {
+    # The exact-tip worktree carries a checked-in per-file timing table. It only
+    # decides which files share a chunk; it can never add, drop or duplicate a
+    # file, raise the per-chunk cap, or change the chunk count. A malformed table
+    # fails closed; an absent table (older candidates) packs every file at the
+    # same weight.
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $seconds = New-Object 'System.Collections.Generic.Dictionary[string,double]' ([StringComparer]::Ordinal)
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return [pscustomobject]@{
+            Present = $false; Sha256 = ""; DefaultSeconds = [double]1.0; Seconds = $seconds
+        }
+    }
+    $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+    if ($item.PSIsContainer -or
+        ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+        [int64]$item.Length -le 0 -or [int64]$item.Length -gt 1048576) {
+        throw "suite file timing table is not one bounded regular file: $Path"
+    }
+    $bytes = [IO.File]::ReadAllBytes($item.FullName)
+    $sha256 = [Security.Cryptography.SHA256]::Create()
+    try {
+        $digest = (($sha256.ComputeHash($bytes) | ForEach-Object { $_.ToString("x2") }) -join "")
+    }
+    finally { $sha256.Dispose() }
+    try {
+        $table = (New-Object Text.UTF8Encoding($false, $true)).GetString($bytes) |
+            ConvertFrom-Json -ErrorAction Stop
+    }
+    catch { throw "suite file timing table is not valid UTF-8 JSON: $Path" }
+    $numberTypes = @([int], [long], [double], [decimal])
+    if ($null -eq $table -or
+        @($table.PSObject.Properties.Name) -notcontains "format_version" -or
+        [string]$table.format_version -cne "1" -or
+        @($table.PSObject.Properties.Name) -notcontains "default_seconds" -or
+        @($table.PSObject.Properties.Name) -notcontains "files" -or
+        $null -eq $table.files -or
+        $table.files -isnot [Management.Automation.PSCustomObject]) {
+        throw "suite file timing table does not match format_version 1: $Path"
+    }
+    $default = $table.default_seconds
+    if ($null -eq $default -or @($numberTypes | Where-Object { $default -is $_ }).Count -eq 0 -or
+        [double]$default -le 0 -or [double]$default -gt 3600) {
+        throw "suite file timing table default_seconds must be in (0, 3600]"
+    }
+    foreach ($property in @($table.files.PSObject.Properties)) {
+        $value = $property.Value
+        if ([string]$property.Name -notmatch '^tests/(?:.*/)?test_[^/]*\.py$' -or
+            $null -eq $value -or @($numberTypes | Where-Object { $value -is $_ }).Count -eq 0 -or
+            [double]$value -lt 0 -or [double]$value -gt 86400 -or
+            $seconds.ContainsKey([string]$property.Name)) {
+            throw "suite file timing table has an invalid entry: $($property.Name)"
+        }
+        $seconds[[string]$property.Name] = [double]$value
+    }
+    return [pscustomobject]@{
+        Present = $true; Sha256 = $digest; DefaultSeconds = [double]$default; Seconds = $seconds
+    }
+}
+
+function Get-SuiteTimePackedChunks {
+    # Deterministic longest-processing-time packing under a hard file cap. The
+    # chunk count stays ceil(files / MaxFilesPerChunk), exactly as the integration
+    # manifest expects; only the grouping changes so chunk wall times even out.
+    # Ties break on file count, then chunk index; files sort by weight then
+    # ordinal path, and each chunk lists its files in ordinal path order.
+    param(
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][string[]]$TestFiles,
+        [Parameter(Mandatory = $true)][ValidateRange(1, 25)][int]$MaxFilesPerChunk,
+        [Parameter(Mandatory = $true)][object]$TimingTable
+    )
+
+    $fileCount = $TestFiles.Count
+    if ($fileCount -eq 0) { return ,@() }
+    $chunkCount = [int][math]::Ceiling($fileCount / [double]$MaxFilesPerChunk)
+    $weighted = New-Object 'System.Collections.Generic.List[object]'
+    $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::Ordinal)
+    foreach ($file in $TestFiles) {
+        if (-not $seen.Add([string]$file)) { throw "suite test inventory repeats a file: $file" }
+        $value = [double]$TimingTable.DefaultSeconds
+        if ($TimingTable.Seconds.ContainsKey([string]$file)) { $value = $TimingTable.Seconds[[string]$file] }
+        $weighted.Add([pscustomobject]@{
+            Path = [string]$file
+            Milliseconds = [int64][math]::Round($value * 1000.0, [MidpointRounding]::AwayFromZero)
+        })
+    }
+    $weighted.Sort([Comparison[object]]{
+        param($left, $right)
+        $byWeight = $right.Milliseconds.CompareTo($left.Milliseconds)
+        if ($byWeight -ne 0) { return $byWeight }
+        return [string]::CompareOrdinal($left.Path, $right.Path)
+    })
+    $loads = New-Object 'int64[]' $chunkCount
+    $members = @()
+    for ($index = 0; $index -lt $chunkCount; $index++) {
+        $members += ,(New-Object 'System.Collections.Generic.List[string]')
+    }
+    foreach ($entry in $weighted) {
+        $target = -1
+        for ($index = 0; $index -lt $chunkCount; $index++) {
+            if ($members[$index].Count -ge $MaxFilesPerChunk) { continue }
+            if ($target -lt 0 -or
+                $loads[$index] -lt $loads[$target] -or
+                ($loads[$index] -eq $loads[$target] -and
+                    $members[$index].Count -lt $members[$target].Count)) {
+                $target = $index
+            }
+        }
+        if ($target -lt 0) { throw "suite chunk packing ran out of capacity" }
+        $members[$target].Add($entry.Path)
+        $loads[$target] += $entry.Milliseconds
+    }
+    $chunks = @()
+    $placed = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::Ordinal)
+    for ($index = 0; $index -lt $chunkCount; $index++) {
+        $chunkFiles = $members[$index].ToArray()
+        [Array]::Sort($chunkFiles, [StringComparer]::Ordinal)
+        if ($chunkFiles.Count -lt 1 -or $chunkFiles.Count -gt $MaxFilesPerChunk) {
+            throw "suite chunk packing produced a chunk outside 1..$MaxFilesPerChunk files"
+        }
+        foreach ($file in $chunkFiles) {
+            if (-not $placed.Add($file)) { throw "suite chunk packing placed a file twice: $file" }
+        }
+        $chunks += ,@($chunkFiles)
+    }
+    if ($placed.Count -ne $fileCount -or $chunks.Count -ne $chunkCount) {
+        throw "suite chunk packing did not place every test file exactly once"
+    }
+    return ,$chunks
+}
+
+function Get-SuiteDosDeviceTarget {
+    # The DOS device a drive letter names: \Device\... for a real volume,
+    # \??\<path> for a subst letter. $null when the letter is not defined.
+    param([Parameter(Mandatory = $true)][string]$DriveName)
+
+    if (-not ('Weather.Operations.SuiteDosDevice' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+namespace Weather.Operations {
+    public static class SuiteDosDevice {
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern uint QueryDosDeviceW(string deviceName, StringBuilder targetPath, int max);
+        public static string Query(string deviceName) {
+            StringBuilder buffer = new StringBuilder(32768);
+            uint length = QueryDosDeviceW(deviceName, buffer, buffer.Capacity);
+            if (length == 0) { return null; }
+            return buffer.ToString();
+        }
+    }
+}
+'@
+    }
+    return [Weather.Operations.SuiteDosDevice]::Query($DriveName)
+}
+
+function Assert-SuiteInterpreterLocalDrive {
+    # A local fixed volume: DriveType Fixed and a \Device\ DOS target, so a
+    # mapped network letter and a subst letter (\??\<path>) are both refused.
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    $root = [IO.Path]::GetPathRoot($Path)
+    $driveType = $null
+    try { $driveType = ([IO.DriveInfo]::new($root)).DriveType } catch { }
+    $dosTarget = $null
+    try { $dosTarget = Get-SuiteDosDeviceTarget -DriveName $root.Substring(0, 2) } catch { }
+    if ($driveType -ne [IO.DriveType]::Fixed -or $null -eq $dosTarget -or
+        -not $dosTarget.StartsWith('\Device\', [StringComparison]::OrdinalIgnoreCase)) {
+        throw "$Label must be on a local fixed drive, not a mapped or subst letter: $root ($driveType, $dosTarget)"
+    }
+}
+
+function Assert-SuiteInterpreterLocalRegularFile {
+    # A regular file with no reparse point on the file or any parent directory.
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    $root = [IO.Path]::GetPathRoot($Path)
+    $cursor = $root
+    $item = $null
+    foreach ($component in $Path.Substring($root.Length).Split(
+        [char[]]@('\'), [StringSplitOptions]::RemoveEmptyEntries
+    )) {
+        $cursor = Join-Path $cursor $component
+        $item = Get-Item -LiteralPath $cursor -Force -ErrorAction SilentlyContinue
+        if ($null -eq $item) { throw "$Label does not exist: $Path" }
+        if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "$Label traverses a reparse point: $cursor"
+        }
+    }
+    if ($null -eq $item -or $item.PSIsContainer) {
+        throw "$Label is not a regular file: $Path"
+    }
+}
+
+function Get-SuiteInterpreterOverrideHashes {
+    # The bytes an override run depends on: the venv's python.exe (launcher),
+    # its pyvenv.cfg and the base interpreter that pyvenv.cfg selects.
+    param([Parameter(Mandatory = $true)][object]$Override)
+
+    return [ordered]@{
+        interpreter_sha256 = (Get-FileHash -LiteralPath $Override.interpreter_path -Algorithm SHA256).Hash.ToLowerInvariant()
+        pyvenv_cfg_sha256 = (Get-FileHash -LiteralPath $Override.pyvenv_cfg_path -Algorithm SHA256).Hash.ToLowerInvariant()
+        base_executable_sha256 = (Get-FileHash -LiteralPath $Override.base_executable -Algorithm SHA256).Hash.ToLowerInvariant()
+    }
+}
+
+function Assert-SuiteInterpreterOverrideUnchanged {
+    # Re-hash before the verdict: an interpreter swapped after the probe must
+    # not inherit a qualification earned by different bytes.
+    param([Parameter(Mandatory = $true)][object]$Override)
+
+    $now = $null
+    try { $now = Get-SuiteInterpreterOverrideHashes -Override $Override } catch { }
+    if ($null -eq $now) {
+        throw "interpreter override changed while the suite was running (unreadable)"
+    }
+    foreach ($name in @($now.Keys)) {
+        if ([string]$now[$name] -cne [string]$Override.$name) {
+            throw "interpreter override changed while the suite was running ($name)"
+        }
+    }
+}
+
+function Resolve-SuiteInterpreterOverride {
+    # -InterpreterPath (host Python upgrade prep). Accepts only an absolute,
+    # normalized path on a local fixed (not subst) drive to an existing regular
+    # python.exe with no reparse point anywhere on it, whose contained probe
+    # proves a Python 3.11 virtual environment rooted at <venv>\Scripts\.. with
+    # its own pyvenv.cfg. Records what will actually run: the path, sys.version,
+    # sys.prefix/base_prefix/executable and the SHA-256 of the launcher,
+    # pyvenv.cfg and the base interpreter.
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$ProbeOutputPrefix,
+        [Parameter(Mandatory = $true)][string]$LeaseRepoRoot,
+        [AllowEmptyString()][string]$ExpectedVersion = "",
+        [ValidateRange(1, 300)][int]$ProbeTimeoutSeconds = 30
+    )
+
+    $normalized = $null
+    try { $normalized = [IO.Path]::GetFullPath($Path) } catch { }
+    if ($Path -notmatch '^[A-Za-z]:\\' -or $null -eq $normalized -or
+        -not [string]::Equals($normalized, $Path, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "InterpreterPath must be an absolute, normalized local path: $Path"
+    }
+    if (-not [string]::Equals(
+        [IO.Path]::GetFileName($Path), "python.exe", [StringComparison]::OrdinalIgnoreCase
+    )) {
+        throw "InterpreterPath must name a python.exe: $Path"
+    }
+    if (-not [string]::IsNullOrEmpty($ExpectedVersion) -and $ExpectedVersion -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$') {
+        throw "ExpectedInterpreterVersion must be an exact N.N.N version: $ExpectedVersion"
+    }
+    Assert-SuiteInterpreterLocalDrive -Path $Path -Label "InterpreterPath"
+    Assert-SuiteInterpreterLocalRegularFile -Path $Path -Label "InterpreterPath"
+    $venvRoot = Split-Path -Parent (Split-Path -Parent $Path)
+
+    # -I ignores PYTHON* variables, the user site and the working directory.
+    # json.dumps keeps the record ASCII whatever the console code page.
+    $probeArguments = ConvertTo-ScheduledTaskArgumentString `
+        -Tokens @("-I", "-c", (
+            "import sys, json; sys.stdout.write(json.dumps(dict(" +
+            "version=sys.version, version_info=list(sys.version_info[:3]), " +
+            "executable=sys.executable, prefix=sys.prefix, base_prefix=sys.base_prefix, " +
+            "base_executable=getattr(sys, '_base_executable', ''))))"
+        ))
+    $probeJob = $null
+    $probe = $null
+    $probeOutput = $null
+    $exitCode = $null
+    try {
+        $probeJob = New-WeatherKillOnCloseJob
+        $probeOutput = [Weather.Operations.KillOnCloseJob+CapturedOutput]::new(
+            ($ProbeOutputPrefix + ".stdout.log"), ($ProbeOutputPrefix + ".stderr.log"), 65536
+        )
+        try {
+            $probe = Start-WeatherProcessInJob `
+                -Job $probeJob -FilePath $Path -ArgumentString $probeArguments `
+                -WorkingDirectory (Split-Path -Parent $Path) -OutputCapture $probeOutput
+        }
+        catch {
+            throw "InterpreterPath version probe could not start: $($_.Exception.Message)"
+        }
+        $probeDeadline = [Diagnostics.Stopwatch]::StartNew()
+        while (-not $probe.HasExited) {
+            if ($probeDeadline.Elapsed.TotalSeconds -ge $ProbeTimeoutSeconds) {
+                throw "InterpreterPath version probe exceeded its bounded runtime"
+            }
+            $probeOutput.Drain()
+            Start-Sleep -Milliseconds 50
+            $probe.Refresh()
+        }
+        $probe.WaitForExit()
+        $exitCode = [int]$probe.ExitCode
+        $probeJob.TerminateAndWait(5000)
+        $probeOutput.Complete(2000)
+    }
+    finally {
+        if ($probeOutput) { $probeOutput.Dispose() }
+        if ($probeJob) { $probeJob.Dispose() }
+        if ($probe) { $probe.Dispose() }
+    }
+    $probeText = [IO.File]::ReadAllText($ProbeOutputPrefix + ".stdout.log")
+    $record = $null
+    if ($probeText.Length -le 16384) {
+        try { $record = $probeText | ConvertFrom-Json } catch { $record = $null }
+    }
+    $triple = $null
+    if ($null -ne $record) {
+        $parts = @($record.version_info)
+        if ($parts.Count -eq 3 -and @($parts | Where-Object { $_ -isnot [int] }).Count -eq 0 -and
+            $record.version -is [string] -and $record.prefix -is [string] -and
+            $record.base_prefix -is [string] -and $record.executable -is [string] -and
+            $record.base_executable -is [string]) {
+            $triple = "{0}.{1}.{2}" -f $parts[0], $parts[1], $parts[2]
+        }
+    }
+    if ($exitCode -ne 0 -or $null -eq $triple) {
+        throw "InterpreterPath version probe did not identify a Python interpreter (exit=$exitCode)"
+    }
+    # sys.version is interpreter-controlled text (a site .pth can rewrite it), so
+    # the log records only the validated N.N.N triple and a hash of the raw string.
+    if ($triple -notmatch '^[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,6}$') {
+        throw "InterpreterPath version probe did not identify a Python interpreter (exit=$exitCode)"
+    }
+    $versionHasher = [Security.Cryptography.SHA256]::Create()
+    try {
+        $versionSha256 = -join ($versionHasher.ComputeHash(
+            [Text.Encoding]::UTF8.GetBytes([string]$record.version)
+        ) | ForEach-Object { $_.ToString("x2") })
+    }
+    finally { $versionHasher.Dispose() }
+
+    $sameFull = {
+        param([string]$Left, [string]$Right)
+        $l = $null
+        $r = $null
+        try {
+            $l = [IO.Path]::GetFullPath($Left).TrimEnd('\')
+            $r = [IO.Path]::GetFullPath($Right).TrimEnd('\')
+        }
+        catch { return $false }
+        return [string]::Equals($l, $r, [StringComparison]::OrdinalIgnoreCase)
+    }
+    $venvRefusal = $null
+    if (-not (& $sameFull $record.prefix $venvRoot)) {
+        $venvRefusal = "sys.prefix $($record.prefix) is not the venv root $venvRoot"
+    }
+    elseif (& $sameFull $record.prefix $record.base_prefix) {
+        $venvRefusal = "sys.prefix equals sys.base_prefix"
+    }
+    elseif (-not (& $sameFull $record.executable $Path)) {
+        $venvRefusal = "sys.executable $($record.executable) is not InterpreterPath"
+    }
+    if ($null -ne $venvRefusal) {
+        throw "InterpreterPath is not a virtual environment interpreter: $venvRefusal"
+    }
+    $pyvenvCfg = Join-Path $venvRoot "pyvenv.cfg"
+    Assert-SuiteInterpreterLocalRegularFile -Path $pyvenvCfg -Label "InterpreterPath pyvenv.cfg"
+    $baseExecutable = [string]$record.base_executable
+    if ($baseExecutable -notmatch '^[A-Za-z]:\\' -or -not (Test-Path -LiteralPath $baseExecutable -PathType Leaf) -or
+        (& $sameFull $baseExecutable $Path)) {
+        throw "InterpreterPath base interpreter is not a separate local regular file: $baseExecutable"
+    }
+    # The base interpreter gets the same locality proof as InterpreterPath.
+    Assert-SuiteInterpreterLocalDrive -Path $baseExecutable -Label "InterpreterPath base interpreter"
+    Assert-SuiteInterpreterLocalRegularFile -Path $baseExecutable -Label "InterpreterPath base interpreter"
+    if ($triple -notmatch '^3\.11\.[0-9]+$') {
+        throw "InterpreterPath is not Python 3.11: $triple"
+    }
+    if (-not [string]::IsNullOrEmpty($ExpectedVersion) -and $triple -cne $ExpectedVersion) {
+        throw "InterpreterPath is Python $triple, not the expected $ExpectedVersion"
+    }
+
+    $override = [pscustomobject][ordered]@{
+        interpreter_path = $Path
+        interpreter_sha256 = $null
+        python_version = $triple
+        python_version_sha256 = $versionSha256
+        python_version_triple = $triple
+        expected_version = $ExpectedVersion
+        sys_executable = [string]$record.executable
+        sys_prefix = [string]$record.prefix
+        sys_base_prefix = [string]$record.base_prefix
+        pyvenv_cfg_path = $pyvenvCfg
+        pyvenv_cfg_sha256 = $null
+        base_executable = $baseExecutable
+        base_executable_sha256 = $null
+        lease_repo_root = $LeaseRepoRoot
+    }
+    $hashes = Get-SuiteInterpreterOverrideHashes -Override $override
+    foreach ($name in @($hashes.Keys)) { $override.$name = $hashes[$name] }
+    return $override
+}
+
 Assert-SuiteDiskHeadroom
 
 $localNow = Get-Date
@@ -412,8 +932,12 @@ if ($localMinute -ge (9 * 60) -or $localMinute -lt 30) {
     throw "bounded suite must start inside the 00:30-09:00 heavy-work window"
 }
 $hardStop = $localNow.Date.AddHours(9)
-$runtimeStop = $localNow.AddSeconds($MaxRuntimeSeconds)
-$suiteDeadline = if ($runtimeStop -lt $hardStop) { $runtimeStop } else { $hardStop }
+# The runtime budget is elapsed time only: the Stopwatch below enforces
+# $MaxRuntimeSeconds at every check. A wall-clock "start + runtime" term would
+# shrink across a DST transition (DST-M7: on 2027-03-14 a 01:30 EST start would
+# be killed after 30 real minutes instead of 90), so the wall clock bounds only
+# the 09:00 local window edge, which lies outside every transition hour.
+$suiteDeadline = $hardStop
 $suiteRuntimeStopwatch = [Diagnostics.Stopwatch]::StartNew()
 
 Write-WeatherLaunchDiagnostic -Journal $launchJournal -Event "VALIDATING_GIT" -Detail ([ordered]@{
@@ -456,11 +980,24 @@ if ($dirty.Count -ne 0) {
     throw "suite worktree is dirty; exact-tip evidence would be ambiguous"
 }
 
-$python = Join-Path $RepoRoot "venv\Scripts\python.exe"
-if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
-    throw "production venv interpreter is missing: $python"
+if ([string]::IsNullOrEmpty($InterpreterPath)) {
+    $interpreterOverride = $null
+    $python = Join-Path $RepoRoot "venv\Scripts\python.exe"
+    if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
+        throw "production venv interpreter is missing: $python"
+    }
+    $python = (Resolve-Path -LiteralPath $python).Path
 }
-$python = (Resolve-Path -LiteralPath $python).Path
+else {
+    # Only the interpreter changes: RepoRoot (admission, capture state and the
+    # shared data\logs\heavy_workload.lock lease below) stays production.
+    $interpreterOverride = Resolve-SuiteInterpreterOverride `
+        -Path $InterpreterPath -ProbeOutputPrefix ($LogPath + ".interpreter") `
+        -LeaseRepoRoot $RepoRoot -ExpectedVersion $ExpectedInterpreterVersion
+    $python = $interpreterOverride.interpreter_path
+    Write-WeatherLaunchDiagnostic -Journal $launchJournal -Event "INTERPRETER_OVERRIDE" `
+        -Detail $interpreterOverride
+}
 
 $previousPythonPath = $env:PYTHONPATH
 $previousLiveSdkRequirement = $env:WEATHER_REQUIRE_LIVE_SDK_CONTRACT
@@ -501,6 +1038,9 @@ try {
     Write-SuiteLog "selected_git=$($worktreeQuery.Executable) expected_git_sha256=$ExpectedGitExecutableSha256 expected_git_file_version=$ExpectedGitExecutableFileVersion"
     Write-SuiteLog "worktree=$WorktreeRoot branch=$BranchRef expected_tip=$ExpectedTip"
     Write-SuiteLog "additional_python_roots=$($additionalPythonRoots.Count) require_live_sdk_contract=$($RequireLiveSdkContract.IsPresent) integration_preflight=$($IntegrationPreflight.IsPresent)"
+    if ($null -ne $interpreterOverride) {
+        Write-SuiteLog ("interpreter_override " + ($interpreterOverride | ConvertTo-Json -Compress))
+    }
     # Bootstrap the safety boundary needed to qualify the hardening revision
     # that will later make these controls part of the strict v2 contract. The
     # marker is set by already-adopted code before candidate Python starts, so
@@ -635,18 +1175,74 @@ try {
         )
     }
     if ($testFiles.Count -eq 0) { throw "no pytest files found in exact worktree" }
+    $inventoryTestFiles = @($testFiles)
+    $reconcilerTestFile = "tests/operations/test_production_baseline_reconciler_execution.py"
+    if (-not $IntegrationPreflight -and $testFiles -contains $reconcilerTestFile) {
+        $reconcilerInclude = $true
+        $reconcilerTouched = @()
+        $reconcilerSurfaceCount = "n/a"
+        if ($IncludeReconciler) {
+            $reconcilerReason = "forced by -IncludeReconciler"
+        }
+        elseif (-not $ReconcilerSurfaceBase) {
+            $reconcilerReason = "no -ReconcilerSurfaceBase supplied"
+        }
+        else {
+            try {
+                . (Join-Path $PSScriptRoot "reconciler_surface.ps1")
+                $changedPaths = @((Invoke-SuiteCheckedLocalGit `
+                    -Root $WorktreeRoot `
+                    -Arguments @("diff", "--name-only", "--no-renames",
+                        $ReconcilerSurfaceBase.ToLowerInvariant(), $ExpectedTip.ToLowerInvariant()) `
+                    -Label "reconciler surface diff").Rows)
+                $decision = Get-WeatherReconcilerDecision -Root $WorktreeRoot -ChangedPaths $changedPaths
+                $reconcilerInclude = [bool]$decision.Include
+                $reconcilerReason = [string]$decision.Reason
+                $reconcilerTouched = @($decision.Touched)
+                $reconcilerSurfaceCount = [string]$decision.SurfaceCount
+            }
+            catch {
+                # Fail closed: a predicate that cannot be evaluated includes the file.
+                $reconcilerInclude = $true
+                $reconcilerReason = "predicate unavailable ($($_.Exception.Message))"
+            }
+        }
+        if (-not $reconcilerInclude) {
+            $testFiles = @($testFiles | Where-Object { $_ -ne $reconcilerTestFile })
+        }
+        Write-SuiteLog (
+            "reconciler: $(if ($reconcilerInclude) { 'INCLUDED' } else { 'SKIPPED' }) " +
+            "reason=$reconcilerReason base=$(if ($ReconcilerSurfaceBase) { $ReconcilerSurfaceBase.ToLowerInvariant() } else { 'none' }) " +
+            "surface_paths=$reconcilerSurfaceCount touched=$(@($reconcilerTouched) -join ',')"
+        )
+    }
     if ($SmokeTest) {
         $testFiles = @($testFiles | Select-Object -First ([math]::Min(2, $testFiles.Count)))
     }
 
-    $chunks = @()
-    for ($offset = 0; $offset -lt $testFiles.Count; $offset += $MaxFilesPerChunk) {
-        $last = [math]::Min($offset + $MaxFilesPerChunk - 1, $testFiles.Count - 1)
-        $chunks += ,@($testFiles[$offset..$last])
-    }
+    $timingTable = Read-SuiteFileTimingTable `
+        -Path (Join-Path $WorktreeRoot "tests\bounded_suite_file_timings.json")
+    $chunks = Get-SuiteTimePackedChunks `
+        -TestFiles $testFiles -MaxFilesPerChunk $MaxFilesPerChunk -TimingTable $timingTable
     Write-SuiteLog "planned chunks=$($chunks.Count) files=$($testFiles.Count) max_files=$MaxFilesPerChunk"
+    $projectedChunkSeconds = @($chunks | ForEach-Object {
+        $chunkSeconds = 0.0
+        foreach ($file in @($_)) {
+            $chunkSeconds += if ($timingTable.Seconds.ContainsKey([string]$file)) {
+                $timingTable.Seconds[[string]$file]
+            } else { $timingTable.DefaultSeconds }
+        }
+        $chunkSeconds
+    })
+    $defaultedFiles = @($testFiles | Where-Object { -not $timingTable.Seconds.ContainsKey([string]$_) }).Count
+    Write-SuiteLog (
+        "chunk packing=time_lpt_v1 timing_table_present=$($timingTable.Present) " +
+        "timing_table_sha256=$($timingTable.Sha256) defaulted_files=$defaultedFiles " +
+        "projected_max_s=$([math]::Round(($projectedChunkSeconds | Measure-Object -Maximum).Maximum, 1)) " +
+        "projected_min_s=$([math]::Round(($projectedChunkSeconds | Measure-Object -Minimum).Minimum, 1))"
+    )
 
-    $runTag = Get-Date -Format "yyyyMMddTHHmmss"
+    $runTag = Get-SuiteRunTag
     $failedChunks = 0
     for ($index = 0; $index -lt $chunks.Count; $index++) {
         $ordinal = $index + 1
@@ -671,7 +1267,7 @@ try {
         )) {
             throw "chunk $ordinal JUnit temp/evidence paths must share one volume"
         }
-        # Per-chunk pytest temp root on a short path, removed after the chunk.
+        # Both pytest and tempfile stay in this chunk's short, cleaned root.
         # Without it pytest keeps its temp trees in %TEMP% (2026-09-23: ~2.6 GB
         # after 10 chunks pushed the host under this suite's own disk floor).
         $chunkBaseTempParent = Join-Path $env:SystemDrive "pt"
@@ -682,17 +1278,22 @@ try {
         if (Test-Path -LiteralPath $chunkBaseTemp) {
             throw "chunk $ordinal pytest basetemp unexpectedly already exists: $chunkBaseTemp"
         }
+        # Pytest clears --basetemp on first use. Keep TEMP/TMP in a sibling
+        # beneath the chunk root so that cleanup cannot erase the active TEMP.
+        $chunkPytestBaseTemp = Join-Path $chunkBaseTemp "pytest"
         $tokens = @(
             "-m", "pytest", "-q", "-p", "no:cacheprovider",
             "--junitxml", $junitTempPath
-        ) + @("--basetemp", $chunkBaseTemp) + @($chunks[$index])
+        ) + @("--basetemp", $chunkPytestBaseTemp) + @($chunks[$index])
         $argumentString = ConvertTo-ScheduledTaskArgumentString -Tokens $tokens
         Write-SuiteLog "chunk $ordinal/$($chunks.Count) starting files=$($chunks[$index].Count) junit=$junitPath"
 
         $childJob = $null
         $child = $null
         $exitCode = $null
+        $chunkTempEnvironment = $null
         try {
+            $chunkTempEnvironment = Enter-SuiteChunkTemp -Root $chunkBaseTemp
             $childJob = New-WeatherKillOnCloseJob
             $child = Start-WeatherProcessInJob `
                 -Job $childJob `
@@ -738,6 +1339,9 @@ try {
             }
         }
         finally {
+            if ($null -ne $chunkTempEnvironment) {
+                Exit-SuiteChunkTemp -Saved $chunkTempEnvironment
+            }
             if ($childJob) { $childJob.Dispose() }
             if ($child) { $child.Dispose() }
             if (Test-Path -LiteralPath $junitTempPath) {
@@ -813,12 +1417,16 @@ try {
                 Where-Object { $_ -match '^tests/(?:.*/)?test_[^/]*\.py$' } |
                 Sort-Object
         )
-        if ($finalTestFiles.Count -ne $testFiles.Count -or
-            @(Compare-Object -ReferenceObject @($testFiles) -DifferenceObject @($finalTestFiles)).Count -ne 0) {
+        if ($finalTestFiles.Count -ne $inventoryTestFiles.Count -or
+            @(Compare-Object -ReferenceObject @($inventoryTestFiles) -DifferenceObject @($finalTestFiles)).Count -ne 0) {
             throw "tracked pytest inventory changed while the suite was running"
         }
     }
     Write-SuiteLog "final exact-tip, clean-worktree, and test-inventory recheck passed"
+    if ($null -ne $interpreterOverride) {
+        Assert-SuiteInterpreterOverrideUnchanged -Override $interpreterOverride
+        Write-SuiteLog "interpreter override re-hash matched: interpreter, pyvenv.cfg and base executable unchanged"
+    }
 
     if ($SmokeTest) {
         Write-SuiteLog "VERDICT: SMOKE PASSED; full suite not run and merge is not authorized"
@@ -827,6 +1435,18 @@ try {
     }
     if ($IntegrationPreflight) {
         Write-SuiteLog "VERDICT: INTEGRATION PREFLIGHT PASSED; full suite not run and merge is not authorized"
+        $launchStatus = "PASS"
+        exit 0
+    }
+    if ($null -ne $interpreterOverride) {
+        # A staged interpreter qualifies itself, never the production venv, so
+        # this verdict must not contain the merge-eligible phrase that the
+        # merge gates, attempt contract and bundle packager accept.
+        Write-SuiteLog (
+            "VERDICT: INTERPRETER QUALIFICATION PASSED ($($chunks.Count)/$($chunks.Count)); " +
+            "interpreter override sha256=$($interpreterOverride.interpreter_sha256) " +
+            "python=$($interpreterOverride.python_version_triple); NOT merge evidence"
+        )
         $launchStatus = "PASS"
         exit 0
     }

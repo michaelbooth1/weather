@@ -123,7 +123,7 @@
       "expected_disabled": false,
       "expected_nonzero": [],
       "registrar": "scripts/ops/register_exchange_economics_refresh.ps1",
-      "registration_evidence": "repository registrar; host action and enablement unverified"
+      "registration_evidence": "repository registrar (06:50 local, -File, S4U/Limited, status data/logs/exchange_economics_refresh_status.json); live host registration on 2026-10-07 was 06:50, Highest, -Command (Swarm P F1) until re-registered"
     },
     {
       "name": "WeatherExecutionTapeSupervisor",
@@ -197,7 +197,25 @@
       "expected_disabled": false,
       "expected_nonzero": [],
       "registrar": "scripts/ops/register_maker_evidence_capture.ps1",
-      "registration_evidence": "repository registrar; host action and enablement unverified"
+      "registration_evidence": "repository registrar repeats PT1M; the live host task repeats PT5M, the intended value (owner-approved efficiency audit 2026-09-27, DECISION_LOG; Swarm P F2). Registrar alignment to PT5M is an open owner question (88a behaviour freeze until 2026-10-14)"
+    },
+    {
+      "name": "WeatherMakerShadowRunner",
+      "owner": "docs/operations/maker-shadow-runner.md",
+      "state": "active",
+      "expected_disabled": false,
+      "expected_nonzero": [],
+      "registrar": "scripts/ops/register_maker_shadow_runner.ps1",
+      "registration_evidence": "repository registrar only (2026-10-08); not registered on the capture host until the owner-approved activation block in docs/operations/maker-shadow-runner.md runs"
+    },
+    {
+      "name": "WeatherManualOrderJournal",
+      "owner": "docs/operations/manual-order-journal.md",
+      "state": "active",
+      "expected_disabled": false,
+      "expected_nonzero": [],
+      "registrar": "scripts/ops/register_manual_order_journal.ps1",
+      "registration_evidence": "repository registrar (from PR #127 at ebe72984); the live task runs the pinned detached worktree weather-manual-order-journal-deployed-ebe72984 (DECISION_LOG 2026-09-30); journal modules land on master with PR #127 (N3)"
     },
     {
       "name": "WeatherMakerEvidenceLowestTemperature",
@@ -214,8 +232,8 @@
       "state": "retired",
       "expected_disabled": true,
       "expected_nonzero": [],
-      "registrar": "scripts/ops/register_market_making_daily_roll.ps1",
-      "registration_evidence": "repository registrar; host action and enablement unverified"
+      "registrar": null,
+      "registration_evidence": "retired 2026-09-29: runtime code and registrar deleted (110o part 3); host task expected registered Disabled, host state unverified"
     },
     {
       "name": "WeatherMarketMakingDailyRollSupervisor",
@@ -223,8 +241,8 @@
       "state": "retired",
       "expected_disabled": true,
       "expected_nonzero": [],
-      "registrar": "scripts/ops/register_market_making_daily_roll_supervisor.ps1",
-      "registration_evidence": "repository registrar; host action and enablement unverified"
+      "registrar": null,
+      "registration_evidence": "retired 2026-09-29: runtime code and registrar deleted (110o part 3); host task expected registered Disabled, host state unverified"
     },
     {
       "name": "WeatherMemoryCommitGuard",
@@ -330,7 +348,7 @@
         "0x2"
       ],
       "registrar": null,
-      "registration_evidence": "host-local definition absent from repository; production must export/review XML before recreation"
+      "registration_evidence": "host-local definition absent from repository; production must export/review XML before recreation; DST (OD28): daily 08:10 trigger re-set in place with scripts/ops/reset_daily_trigger_local.ps1 -ExpectedAt 08:10, never recreated"
     },
     {
       "name": "WeatherStorageRecovery-*",
@@ -348,7 +366,7 @@
       "expected_disabled": false,
       "expected_nonzero": [],
       "registrar": null,
-      "registration_evidence": "host-local definition absent from repository; production must export/review XML before recreation"
+      "registration_evidence": "host-local definition absent from repository; production must export/review XML before recreation; DST (OD28): daily 12:00 trigger (PT30M repetition) re-set in place with scripts/ops/reset_daily_trigger_local.ps1 -ExpectedAt 12:00, never recreated"
     },
     {
       "name": "WeatherSuite0969a",
@@ -365,8 +383,8 @@
       "state": "retired",
       "expected_disabled": true,
       "expected_nonzero": [],
-      "registrar": "scripts/ops/register_taker_bot_daily_roll.ps1",
-      "registration_evidence": "repository registrar; host action and enablement unverified"
+      "registrar": null,
+      "registration_evidence": "retired 2026-09-29: runtime code and registrar deleted (110o part 3); host task expected registered Disabled, host state unverified"
     },
     {
       "name": "WeatherTakerBotDailyRollSupervisor",
@@ -374,8 +392,8 @@
       "state": "retired",
       "expected_disabled": true,
       "expected_nonzero": [],
-      "registrar": "scripts/ops/register_taker_bot_daily_roll_supervisor.ps1",
-      "registration_evidence": "repository registrar; host action and enablement unverified"
+      "registrar": null,
+      "registration_evidence": "retired 2026-09-29: runtime code and registrar deleted (110o part 3); host task expected registered Disabled, host state unverified"
     },
     {
       "name": "WeatherTrainingWindow",
@@ -405,6 +423,15 @@
       "expected_nonzero": [],
       "registrar": "scripts/ops/register_training_window.ps1",
       "registration_evidence": "repository registrar; host action and enablement unverified"
+    },
+    {
+      "name": "WeatherWalletReader",
+      "owner": "docs/operations/wallet-reader.md",
+      "state": "active",
+      "expected_disabled": false,
+      "expected_nonzero": [],
+      "registrar": "scripts/ops/register_wallet_reader_logon_task.ps1",
+      "registration_evidence": "repository registrar; workstation only, never the capture host; owner-registered, host action unverified; its python.exe action and -m weather.market.wallet_reader serve arguments are the identity workload_admission.ps1 residual-scan allowlists"
     }
   ]
 }

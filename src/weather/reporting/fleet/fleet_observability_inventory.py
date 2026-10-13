@@ -23,7 +23,7 @@ from weather.collection.collection_health import (
     SNAPSHOT_STATUS_COMMAND,
     fleet_collection_health,
 )
-from weather.market.market_making_preflight import REMEDIATION_RULES
+from weather.market.platform_contract import REMEDIATION_RULES
 from weather.market.market_microstructure import (
     BOOK_AUDIT_MAX_GAP_SECONDS,
     CLOB_SUPERVISOR,
@@ -44,8 +44,6 @@ from weather.operations.observation_trigger import OBSERVATION_SUPERVISOR
 from weather.operations.observation_trigger import STATUS_PATH as OBSERVATION_STATUS_PATH
 from weather.operations.observation_trigger import read_status as read_observation_status
 from weather.operations.observation_trigger import watcher_health
-from weather.operations.market_making_daily_roll import MARKET_MAKING_DAILY_ROLL_SUPERVISOR
-from weather.operations.taker_bot_daily_roll import TAKER_DAILY_ROLL_SUPERVISOR
 from weather.artifacts import resolve_artifact_path
 from weather.paths import relative_to_repo, data_path
 from weather.reporting.data_quality.data_auditor import MIN_HOURLY_OBS, audit_fleet_historical_data, jsonable_result
@@ -151,23 +149,17 @@ LOOP_RESTART_BUDGETS = {
     "snapshot_capture": 6,
     "clob_capture": 12,
     "observation_trigger": 12,
-    "taker_bot_daily_roll": 12,
-    "market_making_daily_roll": 12,
 }
 LOOP_RESTART_BUDGET_WINDOW_HOURS = 24.0
 LOOP_DIAGNOSTIC_WINDOW_DAYS = 7
 COUNTABLE_SOAK_STATES = {"RUNNING"}
+# The taker and paper-maker daily-roll supervisors were retired on 2026-09-29
+# and their runtime code deleted; only the capture loops are supervised here.
 SUPERVISED_LOOP_SPECS = (
     SNAPSHOT_SUPERVISOR,
     CLOB_SUPERVISOR,
     OBSERVATION_SUPERVISOR,
-    TAKER_DAILY_ROLL_SUPERVISOR,
-    MARKET_MAKING_DAILY_ROLL_SUPERVISOR,
 )
-BOT_DAILY_ROLL_SUPERVISOR_NAMES = {
-    TAKER_DAILY_ROLL_SUPERVISOR.name,
-    MARKET_MAKING_DAILY_ROLL_SUPERVISOR.name,
-}
 
 
 MARKET_ARTIFACT_TEMPLATES = {

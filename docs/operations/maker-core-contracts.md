@@ -89,6 +89,14 @@ exclude the current band's replaceable orders. Reserve every selected market
 before deciding another; `rank` does not reserve funds. Factor loading uses its
 absolute value, so offsets never silently increase available capital.
 
+When the caller has own resting legs, the book it passes is the decision book from
+`maker_core.quoting.book.compose_book`, the one canonical composition (engine ruling
+W1(a)): each leg on its own bid array and mirrored at `1 - p` on the complement's ask
+array, levels created and sizes summed. Both the replay v2 kernel and the shadow runner
+import it; do not copy it. Per OD23 (signed 2026-10-08), `decide()` keeps own size in
+the qualified mid and removes it only from the competing score and displayed depth;
+`own_size_moves_mid` is the count-only diagnostic of where own size moves that mid.
+
 `informed_v0` implements the design's freshness, pull/decided, qualified-mid,
 width/asymmetry, depth, size, positive-net and portfolio screens. Scheduled events
 are active from -3 to +10 minutes; detected and observed-only events remain active
@@ -152,10 +160,13 @@ not authentication. Journal IO failure poisons that writer; never retry append.
 If the opening record fails, the newly created journal is closed and unlinked;
 an existing file is never overwritten or removed.
 
-`portfolio`, `venue`, `runtime` and `replay` are docstring-only placeholders.
+`portfolio`, `venue`, `runtime` and `replay` began as docstring-only placeholders; the
+portfolio ledger and the runtime [trading guard](maker-trading-guard.md) have since landed, and
+`maker_core.shadow` (with `maker_core.venue.public_feed`) is the public-reads-only
+[shadow runner](maker-shadow-runner.md); its tape projects `DecisionInputs` exactly.
 The fictional replay lives in tests. Production evidence loading, portfolio
 accounting, venue/credential access, session control, fitted hazard estimation,
-weather and YouTube plugins, shadow scoring and live execution are later phases.
+weather and YouTube plugins, economic shadow scoring and live execution are later phases.
 
 ## Update when
 

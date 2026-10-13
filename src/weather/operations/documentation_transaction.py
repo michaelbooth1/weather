@@ -315,6 +315,12 @@ def _completion_checks(repo_root: Path, first_integration: str) -> dict[str, Any
             str(python), "-m", "weather.reporting.roadmap.roadmap_backlog",
             "--fail-on-lint", "--check",
         ],
+        # Strict: the closeout regenerated the correspondence index after the
+        # night's landings (branches only pass the structural check).
+        "correspondence_index_strict": [
+            str(python), "-m", "weather.reporting.roadmap.correspondence_index",
+            "--repo-root", str(repo_root), "--check",
+        ],
         "focused_tests": [
             str(python), "-m", "pytest",
             "tests/operations/test_agent_docs_audit.py",

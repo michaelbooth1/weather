@@ -91,7 +91,6 @@ def build_parser():
         "--per-location-artifact-quarantine-report",
         default=str(DEFAULT_PER_LOCATION_ARTIFACT_QUARANTINE),
     )
-    parser.add_argument("--forecast-tracker", default=str(DEFAULT_FORECAST_TRACKER))
     parser.add_argument("--baseline", default=str(DEFAULT_BASELINE))
     parser.add_argument("--no-baseline", action="store_true")
     parser.add_argument("--skip-serving-gauntlet", action="store_true")

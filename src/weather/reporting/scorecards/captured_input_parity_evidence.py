@@ -50,6 +50,7 @@ from weather.reporting.scorecards.live_variant_settlement_scorecard import (
     compare_replay_to_served,
 )
 from weather.schema_registry import schema_version
+from weather.time import utc_now as shared_utc_now
 
 
 PARITY_SCHEMA_VERSION = schema_version("live_variant_settlement_scorecard")
@@ -145,7 +146,7 @@ def _block(
 
 
 def _utc_now(value: datetime | None) -> datetime:
-    current = value or datetime.now(timezone.utc)
+    current = value or shared_utc_now()
     if current.tzinfo is None:
         raise ValueError("now must be timezone-aware")
     return current.astimezone(timezone.utc)

@@ -129,11 +129,11 @@ def test_allowed_window_still_denies_full_suite_and_recursive_data_scans():
         now=now,
         constrained_capture_host=True,
     )
-    assert "bounded 25-file suite" in reason(full_suite)
-    assert "bounded 25-file suite" in reason(attached_full_suite)
-    assert "bounded 25-file suite" in reason(clustered_full_suite)
-    assert "bounded 25-file suite" in reason(separated_cluster_full_suite)
-    assert "bounded 25-file suite" in reason(quoted_cluster_full_suite)
+    assert "chunked full suite (at most 25 files per child)" in reason(full_suite)
+    assert "chunked full suite (at most 25 files per child)" in reason(attached_full_suite)
+    assert "chunked full suite (at most 25 files per child)" in reason(clustered_full_suite)
+    assert "chunked full suite (at most 25 files per child)" in reason(separated_cluster_full_suite)
+    assert "chunked full suite (at most 25 files per child)" in reason(quoted_cluster_full_suite)
     assert "Recursive Get-ChildItem" in reason(recursive_scan)
 
 
@@ -251,7 +251,7 @@ def test_multiline_heavy_commands_cannot_bypass_host_policy():
         capture_reason = reason(capture)
         assert (
             "00:30-09:00" in capture_reason
-            or "bounded 25-file suite" in capture_reason
+            or "chunked full suite (at most 25 files per child)" in capture_reason
         ), command
 
 
@@ -556,7 +556,7 @@ def test_pytest_main_alias_is_subject_to_the_unbounded_suite_guard():
             now=now,
             constrained_capture_host=True,
         )
-        assert "bounded 25-file suite" in reason(blocked), command
+        assert "chunked full suite (at most 25 files per child)" in reason(blocked), command
 
     for command in (
         r"python -m cProfile -o NUL -m pytest tests/operations/test_x.py -q",
@@ -625,7 +625,7 @@ def test_pytest_option_values_do_not_prove_a_focused_target():
             now=now,
             constrained_capture_host=True,
         )
-        assert "bounded 25-file suite" in reason(blocked), command
+        assert "chunked full suite (at most 25 files per child)" in reason(blocked), command
 
 
 def test_every_offline_weather_module_is_classified_and_wrapper_allowlisted():
@@ -1115,7 +1115,7 @@ def remote_workstation_command(kind="pytest", arguments=None):
         "-o BatchMode=yes -o StrictHostKeyChecking=yes "
         "-o PermitLocalCommand=no -o ProxyCommand=none -o ProxyJump=none "
         "-o ClearAllForwardings=yes -o IdentitiesOnly=yes -o ConnectTimeout=10 "
-        "-o HostName=192.168.1.106 "
+        "-o HostName=192.168.1.20 "
         "-i C:/Users/controller/.ssh/id_ed25519_workstation_codex "
         "-o UserKnownHostsFile=C:/Users/controller/.ssh/known_hosts "
         "-l worker weather-workstation "
@@ -1241,11 +1241,11 @@ def test_remote_workstation_transport_paths_and_destination_fail_closed(monkeypa
         ("id_ed25519_workstation_codex", "id_other"),
         (".ssh/known_hosts", ".ssh/untrusted_hosts"),
         ("weather-workstation", "another-workstation"),
-        ("192.168.1.106", "127.0.0.1"),
-        ("192.168.1.106", "8.8.8.8"),
-        ("192.168.1.106", "169.254.1.2"),
-        ("192.168.1.106", "192.168.1.999"),
-        ("192.168.1.106", "192.168.1.0106"),
+        ("192.168.1.20", "127.0.0.1"),
+        ("192.168.1.20", "8.8.8.8"),
+        ("192.168.1.20", "169.254.1.2"),
+        ("192.168.1.20", "192.168.1.999"),
+        ("192.168.1.20", "192.168.1.020"),
         ("/repo/scripts", "/other/scripts"),
         ("/repo/scripts", "/repo/../repo/scripts"),
         ("/repo/scripts", "/repo./scripts"),

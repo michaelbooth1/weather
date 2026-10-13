@@ -15,8 +15,9 @@ import csv
 import json
 import sys
 from collections import Counter
-from datetime import datetime, time as dt_time, timedelta
+from datetime import datetime, time as dt_time, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from weather.paths import data_path
 
@@ -32,6 +33,10 @@ AFTERNOON_START_HOUR = 12
 AFTERNOON_END_HOUR = 18
 EARLY_HOUR_START_HOUR = 0
 EARLY_HOUR_END_HOUR = 8
+# The capture loop stamps ``captured_at_local`` on this clock for every market
+# (``SnapshotStore.maybe_write``); parsed stamps carry only its fixed offset, so
+# a window over them must be rebuilt in this zone (DST audit 2026-10-07 DST-H1).
+CAPTURE_CLOCK_TZ = ZoneInfo("America/Toronto")
 OPEN_METEO_SOURCE_FAMILY = {
     "open_meteo",
     "open_meteo_multimodel",
@@ -82,12 +87,44 @@ def parse_times(iso_strings):
     return sorted(times)
 
 
+def _instant(value):
+    """Aware values as UTC instants, so arithmetic is elapsed time, not wall
+    clock (same-``ZoneInfo`` datetimes subtract on the wall clock); naive
+    values are returned unchanged."""
+    return value.astimezone(timezone.utc) if value.tzinfo is not None else value
+
+
+def graded_window_zone(stamps):
+    """Zone in which to build the local graded window for capture-clock stamps.
+
+    Meant for parsed ``captured_at_local`` stamps, which carry only the capture
+    clock's fixed offset. When every stamp is a fixed offset equal to
+    ``CAPTURE_CLOCK_TZ``'s offset at its own instant, the stamps are read as
+    that clock and its ``ZoneInfo`` is returned, so the window follows the clock
+    across a DST change. Otherwise (a ``ZoneInfo``, naive values, or any stamp
+    whose offset differs from the capture clock's, e.g. year-round -05:00 after
+    the spring change) the first stamp's tzinfo is returned unchanged. A series
+    whose offsets coincide with the capture clock's at every instant cannot be
+    told apart from it; callers that know the zone should pass it explicitly.
+    """
+    stamps = [stamp for stamp in stamps if stamp is not None]
+    if not stamps:
+        return None
+    if all(
+        isinstance(stamp.tzinfo, timezone)
+        and stamp.utcoffset() == stamp.astimezone(CAPTURE_CLOCK_TZ).utcoffset()
+        for stamp in stamps
+    ):
+        return CAPTURE_CLOCK_TZ
+    return stamps[0].tzinfo
+
+
 def detect_gaps(times, interval_minutes, tolerance=1.5):
     """Consecutive captures spaced more than tolerance x the interval apart."""
     limit = interval_minutes * tolerance
     gaps = []
     for a, b in zip(times, times[1:]):
-        gap_min = (b - a).total_seconds() / 60.0
+        gap_min = (_instant(b) - _instant(a)).total_seconds() / 60.0
         if gap_min > limit:
             gaps.append({"after": a, "before": b, "gap_minutes": gap_min})
     return gaps
@@ -110,18 +147,21 @@ def gap_times_for_window(times, window_start, window_end):
     return inside
 
 
-def coverage_summary(times, interval_minutes, tolerance=1.5, target_date=None):
-    times = sorted(times)
+def coverage_summary(times, interval_minutes, tolerance=1.5, target_date=None, window_tz=None):
+    """Completed-day coverage. The 12:00-18:00 window is built in ``window_tz``
+    (default: ``graded_window_zone(times)``) and compared on UTC instants."""
+    times = sorted(times, key=_instant)
     n = len(times)
     if n == 0:
         return {"n": 0, "clean": False, "reason": "no captures"}
-    span_min = (times[-1] - times[0]).total_seconds() / 60.0
+    span_min = (_instant(times[-1]) - _instant(times[0])).total_seconds() / 60.0
     expected = int(span_min // interval_minutes) + 1 if span_min > 0 else 1
     first, last = times[0], times[-1]
     
     if target_date is not None:
-        window_start, window_end = local_window(target_date, first.tzinfo)
-        covers_afternoon = first <= window_start and last >= window_end
+        zone = window_tz if window_tz is not None else graded_window_zone(times)
+        window_start, window_end = (_instant(bound) for bound in local_window(target_date, zone))
+        covers_afternoon = _instant(first) <= window_start and _instant(last) >= window_end
         gap_times = gap_times_for_window(times, window_start, window_end)
     else:
         covers_afternoon = first.hour <= AFTERNOON_START_HOUR and (last.hour >= AFTERNOON_END_HOUR or last.date() > first.date())
@@ -273,7 +313,7 @@ def early_hour_coverage_summary(
         ]
         if as_of is not None:
             as_of = as_of.astimezone(native_tz) if as_of.tzinfo is not None else as_of.replace(tzinfo=native_tz)
-    times = sorted(times or [])
+    times = sorted(times or [], key=_instant)
     tzinfo = (times[-1].tzinfo if times else None) if times else (as_of.tzinfo if as_of is not None else None)
     if as_of is not None:
         if tzinfo is None and as_of.tzinfo is not None:
@@ -370,7 +410,7 @@ def live_coverage_summary(times, interval_minutes, tolerance=1.5, as_of=None, ta
     strict. This helper avoids marking a morning live tape partial merely
     because the 12:00-18:00 settlement-decisive window has not happened yet.
     """
-    times = sorted(times)
+    times = sorted(times, key=_instant)
     as_of = as_of or datetime.now(times[-1].tzinfo if times else None)
     tzinfo = as_of.tzinfo or (times[-1].tzinfo if times else None)
     target_date = target_date or (times[0].date() if times else as_of.date())
@@ -419,7 +459,7 @@ def live_coverage_summary(times, interval_minutes, tolerance=1.5, as_of=None, ta
         return final_summary
 
     latest = times[-1]
-    latest_age = (as_of - latest).total_seconds() / 60.0
+    latest_age = (_instant(as_of) - _instant(latest)).total_seconds() / 60.0
     gaps = final_summary.get("gaps") or []
     reasons = []
     if gaps:
@@ -466,7 +506,7 @@ def summarize_folder(folder, interval_minutes=10.0, tolerance=1.5, live=False, a
     summary = (
         live_coverage_summary(times, interval_minutes, tolerance, as_of=as_of, target_date=target_date)
         if live
-        else coverage_summary(times, interval_minutes, tolerance, target_date=target_date)
+        else coverage_summary(times, interval_minutes, tolerance, target_date=target_date, window_tz=native_tz)
     )
     _latest_rows, snapshot_meta = latest_snapshot_rows(folder)
     summary["event_slug"] = folder.name

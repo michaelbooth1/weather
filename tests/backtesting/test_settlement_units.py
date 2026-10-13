@@ -37,5 +37,20 @@ class TestNativeOutcome(unittest.TestCase):
         self.assertEqual(band_value_hi("90 F", 90, explicit=91), 91)
 
 
+def test_canonical_winning_band_spelling_table():
+    """Settlement units: dash, spacing and unit-case spellings of one band canonicalise identically (review K, A04)."""
+    from weather.backtesting.settlement_io import canonical_winning_band
+
+    for raw, expected in [
+        ("86—87 F", "86-87 F"),
+        ("86–87°F", "86-87 F"),
+        ("86 - 87 F", "86-87 F"),
+        ("28c or higher", "28 C or higher"),
+        ("28C or higher", "28 C or higher"),
+        ("28 C or higher", "28 C or higher"),
+    ]:
+        assert canonical_winning_band(raw) == expected, raw
+
+
 if __name__ == "__main__":
     unittest.main()

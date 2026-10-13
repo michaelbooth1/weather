@@ -126,7 +126,9 @@ Use the same wrapper with `-VerifyRetained`, never together with `-Apply`.
 This mode opens one exact file without write access, denies concurrent writers,
 streams its hash under the unchanged resource/capture/lease/deadline gates,
 and compares every original native identity field and timestamp. It neither
-compresses nor decompresses the source.
+compresses nor decompresses the source. This section covers attended-lane
+journals; an unfinished file in a nightly batch uses the nightly request in
+[Resolving a failed nightly attempt](#resolving-a-failed-nightly-attempt).
 
 First obtain a fresh completed inventory at the new reviewed execution source.
 The request uses schema `cold_snapshot_verification_request_v1`, operation
@@ -196,11 +198,37 @@ compression receipts can establish saved bytes.
 
 `cold_snapshot_nightly_run.ps1` calls the same guarded compression wrapper with
 `-Nightly`. `register_cold_snapshot_nightly.ps1` registers
-`WeatherColdSnapshotNightly` at 00:30, current-user S4U/Limited, IgnoreNew,
-255-minute Scheduler limit, with no late catch-up. Registration is production
+`WeatherColdSnapshotNightly` daily at 06:50, current-user S4U/Limited, IgnoreNew,
+140-minute Scheduler limit, with no late catch-up. Registration is production
 work after review and guarded integration; it is not performed by workstation tests.
-The wrapper and runner each contain their child tree in a kill-on-close Job;
-the wrapper reserves teardown before 04:45. A busy shared lease refuses.
+The wrapper and runner each contain their child tree in a kill-on-close Job.
+A busy shared lease refuses.
+
+The nightly window is **06:50-09:00 America/Toronto** (owner decision 2026-10-05):
+after the 04:45-06:45 tiering reserve, so the 01:00-04:00 quiet window stays free
+for roll-sensitive merges. Until 2026-10-06 it was 00:30-04:45.
+
+- **Late start.** A start needs 90 minutes before 09:00, so the latest start is
+  07:30. The biggest night so far (2026-10-02, 21.3 GB) took 73 minutes. A refused
+  start creates no attempt and does not consume the local date.
+- **Deadlines, in order.**
+  - Soft stop: the child takes no new batch (at most 1 GiB) in its last 600 s
+    and ends `PASS` with `stopped_at_soft_deadline: true`, like the byte budget.
+  - Child deadline: 09:00 - 15 s - 120 s. A guard trip there ends in the child's
+    own `FAILED_RETAIN_AND_INSPECT` receipt, which the resolution below can clear.
+  - Wrapper hard stop: 09:00 - 15 s, a backstop. A hard-stopped receipt cannot be
+    resolved by the tool.
+  - Runner backstop: 09:00, so the wrapper can still write its receipt.
+- **Manual `-Nightly` runs** need at least 720 s to their deadline (the 120 s
+  child reserve plus the 600 s soft stop); a shorter one refuses before creating
+  an attempt, because its child would refuse before writing `result.json`.
+- **Morning lease contention.** The nightly holds the shared heavy lease from about
+  06:50 to 08:50. Disabled-by-default Stage B (00:35 trigger, 09:00 teardown) or
+  any other heavy morning work makes it refuse with "lease busy": no attempt is
+  created, and only the task's nonzero `LastTaskResult` shows it. Check that
+  each morning.
+- **One attempt per local date** is unchanged. Attempts are still named
+  `nightly-YYYYMMDD-*` by the local date of the start.
 
 The nightly policy schema is `cold_snapshot_nightly_policy` (version from the
 central registry). Exact fields: `schema_version`, `production_repo_root`,
@@ -212,7 +240,7 @@ create-only policy and reviewed re-registration. No policy changes itself.
 
 Selection is oldest built-in event first, once the closed market-day is at
 least two local calendar days old (owner decision 2026-09-30 in
-[DECISION_LOG](DECISION_LOG.md), replacing fourteen): at 00:30 on day D+2 the
+[DECISION_LOG](DECISION_LOG.md), replacing fourteen): at the 06:50 run on day D+2 the
 market-day D is selectable, D+1 and later are not. Only immediate ordinary
 nonempty JSON/JSONL/CSV files qualify; each must also be unchanged for two full
 days, so a file last written late on D is picked up a night later and a later
@@ -230,6 +258,38 @@ against the budget; each night records them with a reason in
 `skipped-NNNN.json` (bound to its inventory hash, inside the 64 MiB evidence
 bound) and counts them as `files_skipped_unshrinkable`. A selected file that
 still reclaims nothing stops its batch exactly as before.
+
+Snapshot-root selection classifies entries by name only: live status files,
+writer locks and hot event folders are never stat'ed or opened, and an error on
+a selected closed-day folder refuses. The capture loops atomically replace their
+status files, so the per-second capture-admission read can land on a
+delete-pending file (the 2026-10-03 night failed after 87 batches with
+`PermissionError` on `clob_loop_status.json`). The same thing happened on
+2026-10-06, and 2026-10-04 failed on a transient `capture_unhealthy` read.
+
+- **Quick retries.** A `PermissionError` or `BLOCK` from an admission
+  observation is re-observed after 0.25, 0.5, 1 and 2 s.
+- **What counts as transient.** A `PermissionError` (the delete-pending status
+  file). Also a `FileNotFoundError` or `JSONDecodeError` on the writer lock,
+  which a restarting loop unlinks and then re-creates before writing.
+- **Waiting.** After the quick retries, the night treats admission as unknown and
+  waits, re-observing every 5 s. No compression happens while it waits; the
+  current closed-day file stays locked meanwhile, which capture never touches.
+  Time spent waiting is not owed back as an unthrottled read burst afterwards.
+- **Failing closed.** The night fails when the status stays unreadable or
+  `BLOCK`ed:
+  - for 60 s in one episode;
+  - for 300 s of waiting across the night (a flapping capture);
+  - or when the next wait would cross the child deadline.
+  A final unreadable status raises `AdmissionUnknown`, and a final `BLOCK`
+  refuses.
+- **Unchanged.** The admission criteria are the same, and other read errors are
+  never retried.
+- **Deadline.** The guard re-checks the deadline after a wait, so no work starts
+  past it and the 120 s child stop reserve holds.
+- **Receipt.** It records `admission_retries`, `admission_episodes`,
+  `admission_wait_seconds` and the first 32 observations in
+  `admission_retry_notes`.
 
 Limits: 256 MiB/file, 1 GiB and 256 files/batch, at most 32 GiB and 8,192 files
 per night (policy may lower the byte limit), 10,000 root entries, 64 MiB total
@@ -250,6 +310,12 @@ date refuses, so the budget is not reset by a retry, and a resolved attempt
 still consumes its date.
 
 ### Resolving a failed nightly attempt
+
+An unresolved failed attempt blocks every later night: the scheduled runner
+throws at preflight, creates no `nightly-*` directory and writes no receipt.
+So a non-zero `WeatherColdSnapshotNightly` result with no new directory for
+that date means a refused start; look for a prior attempt whose receipt is not
+`PASS` and that has no `resolved-nightly` record, and resolve it the same morning.
 
 After inspecting the attempt, production records a resolution with the
 reviewed source (read-only over the attempt's receipts; no lease needed, no
@@ -273,9 +339,64 @@ prior attempt only when that record exists and its hash matches. The record's
 nightly total; its files are already compressed and can never be selected again.
 
 An attempt with a started but unfinished file (a before-journal without its
-after-journal) is refused and stays blocking. `-VerifyRetained` currently binds
-only attended-lane journals, not nightly batch journals, so such an attempt
-needs a reviewed extension before it can be cleared.
+after-journal) is refused and stays blocking until that file is verified. Such
+a file can only be the last started file of the attempt's last batch. Verify it
+read-only with the attended wrapper in its ordinary window (00:30-09:00 outside
+04:45-06:45, shared lease, capture admission, 600-second bound) and a new
+reviewed request with schema `cold_snapshot_verification_request_v1`, operation
+`verify_retained_nightly` (which selects this contract) and exactly these other
+fields: `production_repo_root`, `execution_host_id`, `approved_by`, `approved_at_utc`,
+`expires_at_utc` (at most 72 hours later), `attempt` (the `nightly-*` name),
+`batch` (`batch-NNNN`), `ordinal` (integer), `preimage_sha256` (hash of that
+`NNN-before.json`) and `predecessor_wrapper_sha256` (hash of the attempt's
+`wrapper-result.json`). Name the output directory anything **but**
+`nightly-*` (for example `verify-nightly-YYYYMMDD-a`): the scheduled runner
+treats every `nightly-*` directory as an attempt, and the verifier refuses
+such a name.
+
+```powershell
+& .\scripts\ops\cold_snapshot_compression_run.ps1 `
+  -ProductionRepoRoot $productionRepo -RequestPath $verifyRequestPath `
+  -RequestSha256 $verifyRequestSha256 -ExpectedSourceTip $reviewedSourceTip `
+  -OutputRoot "$productionRepo\scratch\cold_snapshot_compression\verify-nightly-YYYYMMDD-a" `
+  -VerifyRetained
+```
+
+The verifier refuses unless the attempt is a torn-down `FAILED` apply on this
+host whose child result is `FAILED_RETAIN_AND_INSPECT`, its retained
+`request.json` matches the wrapper's request hash, the named batch is the last
+one and holds no `result.json`, every earlier file of that batch has both
+journals and the named ordinal has only its before-journal. The before-journal
+must name its selected path, carry an exact SHA-256 and the full uncompressed
+native preimage and equal its `selection.json` row; that row must appear in the
+hash-bound PASS `inventory-NNNN.json` and still satisfy the nightly cold-file
+contract. The verifier then opens the retained file without write access and
+requires unchanged identity fields (size, volume, file index, mtime, creation
+time), a compression state that is either untouched (format 0 with the original
+allocation and attributes) or LZNT1 (format 2 with exactly the compressed
+attribute added), and a streamed SHA-256 equal to the before-journal's. A hash
+mismatch, any other state or a missing file fails verification and writes no
+PASS. Then resolve with the verification bound by hash:
+
+```powershell
+.\venv\Scripts\python.exe -m weather.operations.cold_snapshot_nightly_resolution `
+  --production-repo-root $productionRepo --attempt nightly-YYYYMMDD-... `
+  --approved-by "<reviewer>" `
+  --verified-retained "$productionRepo\scratch\cold_snapshot_compression\verify-nightly-YYYYMMDD-a\wrapper-result.json" `
+  --verified-retained-sha256 $verificationWrapperSha256
+```
+
+The resolution accepts the unfinished file only when that verification wrapper
+is a torn-down read-only `PASS` (`apply=false`, `reclaimed_bytes=0`,
+`source_files_changed=0`), its `result.json` and `request.json` match their
+hashes, and its single `VERIFIED_RETAINED` row binds this attempt, batch,
+ordinal, current before-journal hash, path, preimage and equal SHA-256. Every
+other started file still needs its `VERIFIED` after-journal. The row is marked
+`verified_by: retained_verification`, its `verified_reclaimed_bytes` enters only
+the record's reconciliation figure, and the record lists the verification
+wrapper hash in `retained_verifications`. A verification that matches no
+unfinished file is refused. A file verified untouched (format 0) stays
+uncompressed and a later night may select it.
 
 Production registration, after creating and reviewing the policy and proving
 the exact source tip (all paths absolute):
@@ -290,8 +411,11 @@ the exact source tip (all paths absolute):
 The variables must name the actual production root, immutable policy file,
 its hash and reviewed tip. Omitting `-Apply` registers metadata/writer-lock
 validation only. Before registration, perform a bounded dry run with
-`cold_snapshot_compression_run.ps1 -Nightly` and a fresh output directory,
-then one bounded low-budget apply; review its complete receipts. Do not invoke
+`cold_snapshot_compression_run.ps1 -Nightly` and a fresh output directory not
+named `nightly-*`. Pass `-MaxRuntimeSeconds 15300`, which the wrapper caps at
+the window end: the default 600 s is below the 720 s a nightly run needs, so
+the wrapper refuses without it (seen on the 2026-10-08 re-pin). Then run one
+bounded low-budget apply; review its complete receipts. Do not invoke
 either production path from the workstation. A policy expiry is an explicit
 stop, not permission to manufacture renewal authority.
 

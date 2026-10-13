@@ -226,7 +226,7 @@ def test_forced_outer_launcher_exit_kills_session_runner_tree(tmp_path):
         text=True,
     )
     try:
-        deadline = time.monotonic() + 10
+        deadline = time.monotonic() + 30  # readiness ceiling; the loop returns as soon as it is ready
         while not ready.exists() and time.monotonic() < deadline:
             if launcher.poll() is not None:
                 stdout, stderr = launcher.communicate()

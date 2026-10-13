@@ -18,7 +18,8 @@ This timetable governs only the dedicated capture PC. A separate non-capture
 workstation, including the 32 GB PC when it also holds the portable
 live-executor assignment, may run ordinary implementation, tests, training,
 and replay outside this timetable and without the capture-host resource/time
-admission. Recognized heavy commands use `scripts/ops/workstation_heavy.ps1`.
+admission. Recognized heavy commands use `scripts/ops/workstation_heavy.ps1`, except
+the focused runs exempted below (owner decision 2026-10-04).
 The capture controller may dispatch that wrapper only through the literal,
 configuration-free SSH transport specified in [development.md](../development.md#starting-workstation-verification-from-the-capture-controller).
 The hook's transport exception does not admit local heavy work or replace the
@@ -52,6 +53,23 @@ portable/offline profiles; capture-colocated admission keeps its existing
 capture-host teardown contract. The workstation allowance comes from the
 machine's non-capture workstation role, not from a live profile.
 
+The residual scan counts every Python process whose command line it cannot
+read as heavy, because a non-elevated session cannot read S4U or service
+command lines. The single exception is the explicit allowlist in
+`Get-WeatherKnownReadOnlyServiceDefinition` (today only the S4U
+`\WeatherWalletReader` task running `-m weather.market.wallet_reader serve`).
+A process is excluded only when the registered task definition matches the
+allowlisted logon type, executable and arguments, the Scheduler reports exactly
+one running instance whose engine PID is that process, and its creation time
+falls just after the task's last start; the engine's direct `python.exe`
+children (the venv redirector's interpreter) are excluded with it. Any
+mismatch, or a Scheduler that cannot be read, excludes nothing. Every
+recovery decision (owner alive, residuals found, scan failure, recovered) is
+echoed as a warning and appended to `data\logs\heavy_workload_recovery.jsonl`
+in the admitting checkout. Add an allowlist entry, with tests, only for a
+long-running service that never runs tests, training, replay or order
+mutation.
+
 The exact attended, host-bound International Stage 0/1 lane remains governed
 by [`PORTABLE_LIVE_EXECUTION_HOST.md`](PORTABLE_LIVE_EXECUTION_HOST.md). Its
 `portable_execution_v1` admission is restricted to canonical live-stage workload
@@ -76,6 +94,61 @@ capture wrappers and exact per-lane disk reservations. They retain the shared
 lease, protected windows, capture health and memory gates; neither permits
 source deletion or changes ordinary heavy-work admission. Direct module
 launches remain classified as heavy by the Codex launch guard.
+
+## Workstation focused runs, FIFO queue and xdist (owner decision 2026-10-04)
+
+Adopted by the owner on 2026-10-04 (test-suite review K; [decision log](DECISION_LOG.md) row of 2026-10-04;
+record: [test-policy-proposals.md](../research/test-suite-review-2026-10-04/test-policy-proposals.md) P3).
+**Every capture-host rule in this file is unchanged**; this section applies only to the non-capture
+workstation.
+
+- **Focused-run exemption.** pytest naming at most 25 test files, none containing a test marked `serial`, and
+  not using xdist, may run without `workstation_heavy.ps1`, with an explicit `--basetemp` deleted afterwards.
+  Never while a portable live stage holds the host-global mutex. A file that starts PowerShell counts as
+  `serial` even without the marker (see *Exemption* below).
+- **FIFO queue.** Full suites and larger runs wait their turn first-in first-out (`workstation_heavy.ps1
+  -Queue`) instead of polling a refusal, with one wait-log line per enqueue, start, finish and give-up.
+- **xdist.** `pytest -n` (`--dist loadfile`, `-m "not serial"`, then the `serial` set in one process) runs only
+  on the workstation, only through the wrapper, and only after an identical pass set (same test ids, same
+  outcomes) has been shown against a serial run.
+
+**Mechanism (implemented 2026-10-04, test-suite review K item M).** Host identity is the existing one: the
+SHA-256 of the Windows `MachineGuid` compared with `dedicated_capture_execution_host_id` in
+`config/international_live_execution_host.json`. On that identity, or when it cannot be proved, nothing
+below applies: no exemption, no queue state, the same windows and the same bounded-suite rule.
+
+- *Exemption.* The Codex hook (`.codex/hooks/pre_tool_use_host_load.py`, `focused_pytest_verdict`) admits
+  one static `python -m pytest` (or `pytest`) command with no chaining, at most 25 distinct existing test
+  files (node ids of one file count once), an explicit `--basetemp`, only allowlisted options (`-k`/`-m` only
+  beside named files; no xdist, `--pyargs`, directories, globs or `@argfiles`), and no `serial` file. A file
+  is `serial` when it carries `pytest.mark.serial`, or when it, a local `tests.*` module it imports, or an
+  ancestor `conftest.py` names PowerShell (a `powershell`/`pwsh` string, identifier or import, or a `.ps1`
+  string) and imports a process-spawning module (`subprocess`, `asyncio`, `os`, `multiprocessing`); an
+  unparsable file is `serial`. A host-global state marker naming `portable_execution_v1`, or one that cannot
+  be read, refuses the exemption. `scripts/ops/workstation_focused_exemption.ps1` exposes the same verdict as
+  `Test-WeatherWorkstationFocusedPytestExemption`: it proves the non-capture identity with
+  `workload_admission.ps1` before it asks the hook's classifier (`--classify-focused-pytest`);
+  `workload_admission.ps1` itself stays independent of the hook. A denial names the reason.
+- *Queue.* `workstation_heavy.ps1 -Queue [-QueueTimeoutSeconds N]` (default 14400 s, 4 h) takes a ticket in
+  `%ProgramData%\WeatherProject\heavy_workload_queue_v1\` (file `ticket-<12 digits>.json` holding ticket, PID,
+  process start time, workload and checkout; numbers are allocated by exclusive create, so one queue serves
+  every checkout and worktree). Only the head ticket tries the lease; each poll first reaps tickets whose PID
+  has exited or names a different process, and unreadable tickets older than 60 s. Events go to stdout and to
+  `data\logs\heavy_workload_queue.jsonl` in the admitting checkout: `enqueue`, `wait` (on every position
+  change and every `-QueueReportSeconds`, default 60), `reaped`, `start`, `finish` (with the exit code),
+  `give_up` and `error`, each with ticket, position, waited seconds and the holder when known. A timeout exits
+  **75** without starting the child. Without `-Queue` a busy lease is still refused at once. The queue orders
+  only its own waiters: a portable live stage or a wrapper run without `-Queue` can still take a free lease
+  first. Kill-on-close Job and child-tree teardown are unchanged.
+- *Pre-gate.* `scripts/ops/workstation_pregate.ps1` runs the full suite for one exact head in the host
+  bounded suite's launch mode on the workstation. It takes the same queue lease itself (workload
+  `WorkstationOffline-pytest-pregate-<sha12>-<pid>`). In every mode it first proves that this is the
+  assigned non-capture workstation (`Assert-WeatherWorkstationOfflineHost`), because the capture host's heavy
+  lease uses the same mutex name. When it is nested inside `workstation_heavy.ps1` it then reuses that
+  wrapper's lease, but only after proving that another process holds the host-global mutex. It
+  skips only the capture-host checks: window, hard stop, host lease, capture workers and host commit
+  ceiling. It keeps the suite's 50 GiB disk floor and `MaxRuntimeSeconds`. Contract:
+  [development.md](../development.md#workstation-pre-gate-before-a-host-landing-slot).
 
 ## Host capacity (measured 2026-07-12 — A DATED SAMPLE, NOT CURRENT STATE)
 
@@ -134,7 +207,7 @@ a committed timetable.
 | Window | Load class |
 | --- | --- |
 | 00:00–00:30 | **PROTECTED for ad-hoc work — tail of the near-close window.** 00:05–00:30 is the taker/MM daily roll-over spike (scheduled, brief). The lease does not open until 00:30 |
-| 00:30–09:00 | **the least-contended block, but no longer empty.** Heavy work goes here; disabled-by-default Stage B has one 00:35 trigger and a 09:00 teardown when explicitly enabled, and the quiet merge window (01:00–04:00) sits inside it |
+| 00:30–09:00 | **the least-contended block, but no longer empty.** Heavy work goes here; disabled-by-default Stage B has one 00:35 trigger and a 09:00 teardown when explicitly enabled, and the quiet merge window (01:00–04:00) sits inside it. The 91a cold-snapshot nightly runs 06:50–09:00 (latest start 07:30), after the 04:45–06:45 tiering reserve, so it never takes the quiet window ([cold snapshot compression](cold-snapshot-compression.md)) |
 | 09:30–11:55 | Stage A settlement chain — heavy, scheduled, with an absolute teardown deadline |
 | 12:00–18:00 | **PROTECTED graded capture window — no heavy work** |
 | 18:00–00:00 | **PROTECTED — nothing heavy, ever.** Near-close fast capture (15s CLOB), MM quoting from 19:30, settlement watch. Continues through 00:30 (first row) |
@@ -154,13 +227,10 @@ eight-hour child SLA (08:35), the wrapper's 09:00 teardown (8h25m), and the
 Scheduler `PT8H40M` cleanup limit (09:15). This leaves 15 minutes before the
 09:30 Stage-A exception; `StartWhenAvailable` is forbidden.
 
-Stage-A settlement safeguards: the daily taker edge-permission aggregation is
-single-pass and tape-bounded. Scheduled maker-paper scoring selects the latest
-14 active-day runs and fails closed before materialization when its selected
-quote inputs exceed 512 MiB (`--maker-paper-latest-active-runs` and
-`--maker-paper-max-input-bytes`). These independent input limits remain
-fail-closed alongside the per-step isolation and physical-memory admission
-owned by Roadmap Item 324.
+Stage-A settlement safeguards: the retired taker edge-permission aggregation and
+maker-paper scoring steps (and their input-limit flags) were deleted with the taker
+and paper-maker runtime on 2026-09-29. The remaining heavy steps keep the per-step
+isolation and physical-memory admission owned by Roadmap Item 324.
 
 The scheduled fleet-observability tail measures current fleet, tape,
 provenance, and child-resource state in an isolated 20-minute child with a
@@ -173,17 +243,6 @@ resumable fallback before launch, so a
 timeout terminalizes before the 11:55 outer teardown instead of leaving a
 nonterminal in-process status. Run full historical audits only as separately
 admitted work in the ordinary 00:30–09:00 window.
-
-For each run, a complete validated `mm_scoring_projection_v0.2` base/variant
-pair is measured and passed to the streaming scorer; any missing, stale,
-malformed, or incompatible member makes that run use both canonical tapes.
-The receipt records projected versus canonical bytes and exact input bindings.
-The scorer revalidates admitted size/mtime bindings (and projection hashes)
-before ingestion and checks that inputs stay stable through streaming. Daily
-roll projection finalization starts only after the superseded target-matched
-writer's exit is confirmed; otherwise canonical fallback remains in force.
-Projection compaction does not change the 512 MiB input cap, the 4 GiB
-isolated-child private cap, or the 3 GiB working-set cap.
 
 Snapshot fleet capture admits at most two isolated children by default, with a
 1,792 MiB process-tree working-set and private-commit cap per child. The 3,584
@@ -350,7 +409,13 @@ Stage-A, workstation or live authority is added.
 2. **Heavy ad-hoc work runs 00:30–09:00**, holds the shared lease from
    `scripts/ops/workload_admission.ps1`, and checks first:
    `data\logs\memory_commit_guard_status.json` (commit_percent < 70) and
-   ≥ 50 GiB disk free. The lease itself rejects acquisition outside that
+   ≥ 50 GiB disk free. Read that file only through
+   `scripts/ops/memory_guard_status_reader.ps1` (`Read-WeatherMemoryGuardStatus`;
+   `status.ps1` carries a test-enforced identical inline copy): the guard writes it
+   with a UTF-8 BOM and replaces it by rename every minute, so a reader must open it
+   with `FileShare` ReadWrite|Delete, `TrimStart([char]0xFEFF)` before
+   `ConvertFrom-Json`, and retry briefly. A plain `Get-Content`/`ReadAllText` gate
+   broke admission in four places (Swarm P audit 2026-10-07). The lease itself rejects acquisition outside that
    window but does **not** check disk; the disk floor is enforced per lane.
    Only the settlement Stage-A wrapper can request the explicit
    09:30–11:55 exception. Bounded test suites additionally kill their complete
@@ -393,14 +458,16 @@ Stage-A, workstation or live authority is added.
    its aggregate private bytes reach the 8 GB per-job ceiling; this does not
    wait for global commit to reach 92%. In Codex sessions a user-layer `PreToolUse` hook rejects these commands
    before launch and rejects a direct unbounded pytest run at every hour. Full
-   suites use the repository-owned 25-file bounded wrapper. Never use
+   suites use the repository-owned full-suite wrapper (at most 25 files per chunk). Never use
    `Promise.all`, parallel subagents, or parallel tool calls for verification
    on this host. Hook trust is useful defense-in-depth, not authority to weaken
    the S4U watchdog. Install the user-layer hook with
    `scripts/ops/install_codex_host_load_hook.ps1`; Codex must review/trust its
    exact definition on the next session. Claude Code sessions have no hook; the
    S4U guard is their only backstop.
-7. **Test runs are disk writers.** Always pass `--basetemp <dir>` to pytest,
+7. **Test runs are disk writers.** The bounded wrapper keeps pytest and
+   `TEMP`/`TMP` in sibling directories under each chunk's cleaned root, and
+   restores the parent environment even on failure. Always pass `--basetemp <dir>` to pytest,
    point it at a directory you own outside `data\`, and delete that directory
    when the run ends — pass or fail. Measure free space on the volume before
    and after (`(Get-PSDrive C).Free`, or `df`), not `du` of the directory you
@@ -409,6 +476,46 @@ Stage-A, workstation or live authority is added.
    volume from roughly 20 GiB to 7 GiB free. pytest keeps its last three
    base-temp roots by default, so an undeleted run is a standing cost. This
    applies on every host; on the capture host it is also a capture risk.
+8. **No idle between a night's units** (Swarm L M1, owner 2026-10-05). Build and
+   preflight every head the day before, so the night only runs suites and merges.
+   - Plan **2 roll-sensitive + 5 roll-free heads** per night, not 3 + 5. The
+     third RS head had a one-minute margin.
+   - Start the next unit as soon as its gate opens. A gate is the shared lease state,
+     or the previous unit's Scheduler `LastRunTime` plus its status artefact. Never
+     gate on a guessed attempt name, a guessed time or a bare exit code (the
+     2026-10-05 mis-gated 91a wait).
+   - This changes scheduling only; the windows, the lease and serial heavy work are
+     unchanged. Head composition (caps, RS batching) is in
+     [the git workflow](../git-workflow.md#integration-heads-for-a-night).
+9. **The reconciler execution file runs once a night, or when touched** (L5, owner
+   2026-10-06). The bounded suite skips
+   `tests/operations/test_production_baseline_reconciler_execution.py` (~19 min) when
+   it is given `-ReconcilerSurfaceBase` and the tip changes nothing on the file's
+   derived surface; the skip is logged. The night's final-tip run passes
+   `-IncludeReconciler`. With no base, or a surface that cannot be derived, the file
+   runs. No test is weakened and no other host rule changes. Details are in
+   [development](../development.md).
+10. **Night-throughput approvals (owner 2026-10-07; each applies once its tooling
+    implements it).**
+    - Tiering hole: one suite may hold the lease across the 05:00/06:00 tiering
+      reservation when the volume has >= 100 GiB free (tiering skips that night),
+      never two skips in a row.
+    - Roll-free heads settle 60 s instead of 300 s after a merge; the recovery
+      proof is still required. Roll-sensitive heads are unchanged.
+    - DST night 2026-11-01: no merge and no suite 01:45-02:15 local (OD30); the
+      daily tasks are re-registered around 10-30 because their triggers carry a
+      fixed -04:00 offset (OD28, #249), and the integration sequencer does not
+      run the night of 10-31 to 11-01 (05-F3). Task order and the read-only
+      check: [OPERATIONS_DESIGN](OPERATIONS_DESIGN.md) "DST re-registration (OD28)".
+
+**Space inventory is not a heavy command.** `scripts/ops/workstation_space_report.ps1` is read-only and may
+run on either host at any hour: it lowers its own priority, runs no Python, pytest or `Get-ChildItem -Recurse`,
+never walks the main working tree or a worktree's `data\` (unless `-IncludeWorktreeData`, workstation only),
+never follows a reparse point, and caps each walk (`-MaxEntriesPerItem`) and the whole run
+(`-MaxTotalSeconds`); a capped item is reported CHECK, never SAFE. Its companion
+`workstation_space_clean.ps1 -Apply` deletes files, so on the capture host it is a bulk file operation under
+rule 1 (never 12:00-00:30). The session rule for where scratch goes is in
+[the workstation session preamble](WORKSTATION_SESSION_PREAMBLE.md#scratch-space).
 
 Incident-bearing watchdog samples append to
 `data/logs/memory_commit_guard_history.jsonl` without raw command lines. The

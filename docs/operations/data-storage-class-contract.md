@@ -84,6 +84,16 @@ operator-maintained extra-condition list are operator caches. The
 [collector contract](passive-maker-evidence-capture.md) owns write, hash, cap
 and hourly rotation/compression mechanics; the same reviewed evidence-reclaim gate applies.
 
+Maker scoring projections (`mm_runs/<date>/<run>/mm_scoring_projection.csv` and
+`model_variant_mm_scoring_projection.csv`) are analysis projections whose rebuild
+source is the sibling `quote_intents_long.csv` /
+`model_variant_quote_intents_long.csv`, bound by size+mtime in
+`mm_scoring_projection_manifest.json`. Readers fail closed to the canonical tapes
+when that binding does not validate, and cleanup preflight blocks a projection
+candidate unless that same run-level binding validates. The manifest itself is retained. The
+`backtest/active_variant_shadow_attribution.jsonl` sidecar has the same class and
+family (`backtest_row_exports`) as its sibling `active_variant_shadow_long.csv`.
+
 Cleanup is allowed only from a reviewed cleanup manifest. Do not delete from
 raw directory size, age, or duplicated-looking filenames alone.
 
@@ -101,10 +111,11 @@ references the file.
 
 Taker counterfactual replay detail is the sole current bounded-retention
 canonical family. `counterfactual_orders_long.csv` and its settled detail copy
-default to 14 days (`DEFAULT_FINALIZATION_RETENTION_DAYS`,
-`src/weather/market/taker_bot_finalization.py:31`). The taker is **paused**, so
-the daily roll that applies this rule is not running and those files are
-currently retained. Daily roll requires both the run target date and file mtime
+default to 14 days (`DEFAULT_FINALIZATION_RETENTION_DAYS` in the former
+`weather.market.taker_bot_finalization`). The taker is **retired** and its runtime,
+including the daily roll that applied this rule, was deleted on 2026-09-29, so
+those files are retained until a storage decision removes them. The former daily
+roll required both the run target date and file mtime
 to cross the cutoff, writes a self-hashed exact-path/SHA-256/byte plan before
 apply, rechecks identity immediately before deletion, and writes an apply
 receipt. The rule does not depend on `settled_counterfactual_pnl.json`; real

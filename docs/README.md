@@ -36,12 +36,15 @@ research established) · **Generated** (edit the generator) · **History**
 | A guard, marker or lock blocks work and you must decide whether to clear it | [Fail-forward recovery table](operations/fail-forward-recovery.md) | Canonical decision record |
 | About to run anything heavy, on either host | [Host load policy](operations/HOST_LOAD_POLICY.md); generated numbers in [Operating reference](operations/OPERATING_REFERENCE.md) | Canonical policy; Generated |
 | Writing, executing, or verifying a cross-host mission | [Delegation contract](operations/DELEGATION_CONTRACT.md), [workstation session preamble](operations/WORKSTATION_SESSION_PREAMBLE.md), [roadmap agent guide](roadmap/AGENTS.md), [mission dispatch reconciliation](operations/mission-dispatch-reconciliation.md) | Canonical contract |
+| Freeing disk from old worktrees and agent scratch folders | [Workstation session preamble, scratch space](operations/WORKSTATION_SESSION_PREAMBLE.md#scratch-space) | Canonical contract |
 | Changing task names, loops, supervisors, or the dashboard role | [Operations design](operations/OPERATIONS_DESIGN.md) | Canonical guide |
 | Merging on the production host, or protecting capture during a change | [Capture-day grading and guarded merges](ops/streak-soak.md), [Immutable integration attempts](operations/INTEGRATION_ATTEMPT_RUNBOOK.md) | Canonical runbook |
 | Working on branches, worktrees, commits, pushes, or pull requests | [Git workflow SOP](git-workflow.md); LFS limits in [Git LFS policy](operations/git-lfs-policy.md) | Canonical runbook |
 | Triaging the open pull-request queue | [PR hygiene report](operations/pr-hygiene.md) | Canonical runbook |
+| Checking a head on the night's cumulative merge before handing it to production | [Landing preflight](operations/LANDING_PREFLIGHT.md) | Canonical runbook |
 | Working on the maker pilot, live trading, or maker economics | [International MM live pilot](operations/INTERNATIONAL_MM_LIVE_PILOT.md), [Item 330 master plan](roadmap/items/item-330-maker-economics-refocus-master-plan.md), [Maker incentive feasibility](operations/maker-incentive-feasibility.md), [Exchange economics snapshot runbook](operations/EXCHANGE_ECONOMICS_SNAPSHOT_RUNBOOK.md) | Canonical runbook; numbered item |
 | Moving the attended live executor to another PC | [Portable live execution host](operations/PORTABLE_LIVE_EXECUTION_HOST.md) | Canonical runbook |
+| Upgrading the capture host's Python interpreter | [Host Python upgrade runbook](operations/HOST_PYTHON_UPGRADE_RUNBOOK.md) | Proposed runbook — not approved |
 | Retraining, or building or sequencing a release | [Nightly retrain runbook](operations/NIGHTLY_RETRAIN_RUNBOOK.md), [Release #1 build runbook](operations/RELEASE_ONE_BUILD_RUNBOOK.md), [Release #1 is deferred](operations/release-one-deferred-until-a-retrained-candidate.md), [Release #1 and the MM clock](operations/release-one-is-not-the-mm-critical-path.md) | Canonical runbook; decision record |
 | Operating the project end to end | [Project operating SOP](operations/PROJECT_OPERATING_SOP.md) | Canonical runbook |
 | Looking for work, or an item's scope, status, and evidence | [Active backlog](roadmap/active-backlog.md) (generated), `roadmap/items/item-*.md` (one owner per item), [ROADMAP.md](roadmap/ROADMAP.md) (full taxonomy), [Open backlog](operations/OPEN_BACKLOG.md) (known-broken, unowned) | Generated; canonical per item |
@@ -49,7 +52,10 @@ research established) · **Generated** (edit the generator) · **History**
 | Setting up, testing, or checking the definition of done | [Development](development.md), [Python runtime audit gate](operations/PYTHON_RUNTIME_AUDIT_GATE.md), [Research audit harness](operations/RESEARCH_AUDIT_HARNESS.md) | Canonical guide |
 | Looking up product purpose, setup, dashboard, or an operator command | [Root README](../README.md) | Canonical guide |
 | Starting or using the read-only account LAN service | [Wallet reader](operations/wallet-reader.md) | Canonical runbook |
+| Measuring the owner's manual resting orders (rewards, fills, markouts) | [Manual order journal](operations/manual-order-journal.md) | Canonical runbook |
 | Attributing wallet lots and reconciling campaign books | [Portfolio ledger](operations/portfolio-ledger.md) | Canonical runbook |
+| Pausing, halting or clearing a maker runtime; the bleed-limit guard | [Maker trading guard](operations/maker-trading-guard.md) | Canonical runbook |
+| Running the public-reads-only maker shadow, reading its quotes tape, or scoring it against 88a | [Maker shadow runner](operations/maker-shadow-runner.md) | Canonical runbook |
 | Changing or adding documentation | [Documentation maintenance](documentation-maintenance.md), [docs/AGENTS.md](AGENTS.md) | Canonical guide |
 
 ## Durable technical contracts
@@ -84,6 +90,7 @@ how to interpret and update those sources; it does not copy volatile values.
 | [Overnight briefings](operations/OVERNIGHT_BRIEFINGS.md) | Hand-written notes from unattended overnight agents | Reconstructing a specific night |
 | Dated files in `operations/` (name ends in a date) | Incident and decision records | From [the operations index](operations/README.md), when touching the same subsystem |
 | `research/`, `roadmap/audits/`, other dated roadmap narratives | Research and audit evidence | For the detail behind a specific finding; start audits from [the audit index](roadmap/audits/README.md) |
+| [research/model-parity-swarm-2026-10-04/](research/model-parity-swarm-2026-10-04/SYNTHESIS.md) | Model-parity swarm v2 (workstation, night 2026-10-03/04): synthesis, per-agent reports, unsigned pre-registration and capture-plan drafts; every number development | Only behind EF §10q, or when a task names the swarm, one of its drafts, or one of its source routes; start from `SYNTHESIS.md` |
 | [Open questions](operations/OPEN_QUESTIONS.md), [decision log](operations/DECISION_LOG.md) | What is still unanswered and who owns it; dated owner decisions | Choosing what to analyse next; tracing when a decision was made |
 
 The correspondence is too large to read end to end, and it is not the current
