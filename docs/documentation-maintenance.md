@@ -124,6 +124,17 @@ The knowledge audit also enforces the controls added after the 2026-09-18 audit
 | `CLAUDE.md` must import `@AGENTS.md` | Two harnesses starting from two different entry points | Do not fork the entry point; add harness notes only |
 | `--max-state-age-days N` (off by default, so CI stays deterministic) | `STATE_OF_PLAY.md` going stale while nothing merges | `status.ps1` raises the same flag every morning at 3 days; rewrite or re-attest the file |
 
+**Host-pasted PowerShell blocks.** A runbook or night-plan block that the
+capture host pastes or saves as a `.ps1` must parse in Windows PowerShell 5.1.
+Before handing one off, run
+`scripts\ops\check_markdown_powershell_fences.ps1 -Path '<file.md>;<folder>'`.
+It parses every `powershell` fence and never executes one. Exit 0 is required.
+It also warns on non-ASCII characters, because 5.1 reads a BOM-less `.ps1` as
+ANSI. A `foreach (...) { } | Out-File` in the Python upgrade runbook's §4 failed
+on the host on 2026-10-13.
+Scope it to host-run files. Older runbooks use bare `<placeholder>` templates,
+which are intentionally not runnable.
+
 Freshness has three triggers, and only the first used to exist. **Event:** a
 change updates its owner document in the same commit (the table above and the
 change triggers). **Integration:** the documentation transaction below.

@@ -108,10 +108,10 @@ of these reads changes state. Save the output under `$R\host-reads\`.
 ```powershell
 $HR = Join-Path $R 'host-reads'; New-Item -ItemType Directory -Force $HR | Out-Null
 # H1 (Q4): PEP 514 registrations and uninstall entries for 3.11
-foreach ($k in 'HKCU:\Software\Python\PythonCore','HKLM:\SOFTWARE\Python\PythonCore','HKLM:\SOFTWARE\WOW6432Node\Python\PythonCore') {
+$(foreach ($k in 'HKCU:\Software\Python\PythonCore','HKLM:\SOFTWARE\Python\PythonCore','HKLM:\SOFTWARE\WOW6432Node\Python\PythonCore') {
   Get-ChildItem -LiteralPath $k -ErrorAction SilentlyContinue | ForEach-Object {
     $ip = Get-ItemProperty -LiteralPath (Join-Path $_.PSPath 'InstallPath') -ErrorAction SilentlyContinue
-    '{0} | InstallPath={1}' -f $_.Name, $ip.'(default)' } } | Out-File "$HR\h1-pythoncore.txt" -Encoding utf8
+    '{0} | InstallPath={1}' -f $_.Name, $ip.'(default)' } }) | Out-File "$HR\h1-pythoncore.txt" -Encoding utf8
 Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*','HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue |
   Where-Object { $_.DisplayName -like 'Python 3.11*' } | Select-Object DisplayName, DisplayVersion, InstallLocation, PSPath |
   Format-List | Out-File "$HR\h1-uninstall.txt" -Encoding utf8
@@ -183,6 +183,13 @@ Windows PowerShell 5.1, ELEVATED, as the capture host's operator account. **The 
 illustrative. Set them from the host's own facts** (the task actions in `Get-ScheduledTask`, and
 the `home` key of `pyvenv.cfg`) and record them in `$R\paths.json` during Phase A. Never paste
 workstation paths.
+
+Pasting a block into the console is safe. **A block saved as a `.ps1` must be saved as UTF-8 with a
+BOM** (`Set-Content -Encoding utf8` writes one in 5.1). Windows PowerShell 5.1 decodes a BOM-less
+script as ANSI, so a non-ASCII character such as an em dash decodes into a smart quote that ends a
+string early and breaks parsing (seen on the host, 2026-10-13).
+`scripts\ops\check_markdown_powershell_fences.ps1` parses every block with the 5.1 parser and flags
+the non-ASCII ones.
 
 ```powershell
 $ErrorActionPreference = 'Stop'
@@ -1234,4 +1241,10 @@ The owner initials each line in the decision log. Recommendations come first.
 - the upgrade has run: mark this file historical, or retarget it, in the same change that updates
   the state of play.
 
-Validate with `.\venv\Scripts\python.exe -m weather.operations.agent_docs_audit`.
+Validate with `.\venv\Scripts\python.exe -m weather.operations.agent_docs_audit`, and parse-check
+every PowerShell block of this file and of the night-plan blocks built from it (exit 0 required;
+read-only, nothing is executed):
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\ops\check_markdown_powershell_fences.ps1 -Path 'docs\operations\HOST_PYTHON_UPGRADE_RUNBOOK.md;<night-plans folder>'
+```
