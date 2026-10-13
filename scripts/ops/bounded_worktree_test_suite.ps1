@@ -377,6 +377,18 @@ function Write-SuiteLog {
     Write-Output $line
 }
 
+function Get-SuiteRunTag {
+    # Names this run's JUnit evidence and chunk basetemps. A UTC instant with a
+    # literal Z (DST-L13): a local yyyyMMddTHHmmss tag repeats inside the
+    # 2026-11-01 fall-back hour, and the per-chunk "already exists" guards
+    # would then refuse a run that started one real hour after another.
+    param([datetimeoffset]$Now = [datetimeoffset]::UtcNow)
+    return $Now.UtcDateTime.ToString(
+        "yyyyMMdd'T'HHmmss'Z'",
+        [Globalization.CultureInfo]::InvariantCulture
+    )
+}
+
 function Get-CommitPercent {
     $limit = (Get-Counter "\Memory\Commit Limit").CounterSamples[0].CookedValue
     $used = (Get-Counter "\Memory\Committed Bytes").CounterSamples[0].CookedValue
@@ -920,8 +932,12 @@ if ($localMinute -ge (9 * 60) -or $localMinute -lt 30) {
     throw "bounded suite must start inside the 00:30-09:00 heavy-work window"
 }
 $hardStop = $localNow.Date.AddHours(9)
-$runtimeStop = $localNow.AddSeconds($MaxRuntimeSeconds)
-$suiteDeadline = if ($runtimeStop -lt $hardStop) { $runtimeStop } else { $hardStop }
+# The runtime budget is elapsed time only: the Stopwatch below enforces
+# $MaxRuntimeSeconds at every check. A wall-clock "start + runtime" term would
+# shrink across a DST transition (DST-M7: on 2027-03-14 a 01:30 EST start would
+# be killed after 30 real minutes instead of 90), so the wall clock bounds only
+# the 09:00 local window edge, which lies outside every transition hour.
+$suiteDeadline = $hardStop
 $suiteRuntimeStopwatch = [Diagnostics.Stopwatch]::StartNew()
 
 Write-WeatherLaunchDiagnostic -Journal $launchJournal -Event "VALIDATING_GIT" -Detail ([ordered]@{
@@ -1226,7 +1242,7 @@ try {
         "projected_min_s=$([math]::Round(($projectedChunkSeconds | Measure-Object -Minimum).Minimum, 1))"
     )
 
-    $runTag = Get-Date -Format "yyyyMMddTHHmmss"
+    $runTag = Get-SuiteRunTag
     $failedChunks = 0
     for ($index = 0; $index -lt $chunks.Count; $index++) {
         $ordinal = $index + 1

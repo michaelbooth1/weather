@@ -1,15 +1,22 @@
 # Host Python upgrade runbook (capture host, 3.11.0 to 3.11.9)
 
-> **PROPOSED - not approved; owner sign-off required before any step.**
+> **APPROVED by the owner 2026-10-12 (DECISION_LOG, §11)**, including the 2026-10-12 G0/G7 revisions
+> and the §7a calendar. The cutover night is 00:30 on 10-17.
 > Nothing in this file authorizes a download, an install, a capture gap, a task change or a merge.
 > [The owner sign-off checklist](#11-owner-sign-off-checklist) lists what the owner must sign first.
 > Live orders, cancels and signing are out of scope here; the live launcher is resealed under its
 > own runbook.
 
-Status: proposed runbook. It turns the approved intent (DECISION_LOG, 2026-10-09: host Python
+Status: approved runbook (owner sign-off 2026-10-12, with the §11 details recorded the same day). It turns the approved intent (DECISION_LOG, 2026-10-09: host Python
 upgrade as a quiet-window job with a release re-bind; installer download, UAC and one capture gap)
 into gated steps. Today's host version, the planned night and every dated hold live in
 [the state of play](STATE_OF_PLAY.md), not here.
+
+Revision 2026-10-12, **confirmed by the owner the same day**: the owner postponed LFC session 0 on 10-12 and
+approved the upgrade, so G7 no longer waits for session 0's handback. It now only keeps the Phase B
+and Phase C nights clear of scheduled LFC sessions. G0 now names each phase's own morning or night,
+so Phase A can run on its owner-named morning before the cutover night is named. §7a holds the
+calendar; because Phase A runs before §T, §T ends by re-taking the venv receipts (T-R).
 
 **Owns:** the procedure for moving the production checkout's `venv` from CPython 3.11.0 to 3.11.9
 on the 16 GB capture host. That covers a side-by-side install, an offline wheelhouse, a stage venv
@@ -47,14 +54,14 @@ The live SDK portability check accepts any 3.11 patch release
 
 | Gate | Condition | Checked at |
 | --- | --- | --- |
-| G0 | The owner has signed §11 for this runbook revision and has named the night. | Before Phase A |
+| G0 | The owner has signed §11 for this runbook revision and has named the morning or night of the phase about to run (Phase A: its owner-attended morning; Phase B and C: their nights). Revised 2026-10-12 (owner-confirmed). | Before Phase A, B0, C0 |
 | G1 | The bounded suite supports `-InterpreterPath` and `-ExpectedInterpreterVersion` (`scripts/ops/bounded_worktree_test_suite.ps1:44-52`). | Met on master; re-read `param(` if the script changed |
 | G2 | Phase A and Phase B passed on earlier nights, and `$R\qualification.json` has `"result":"PASS"`. | C0 |
 | G3 | The production HEAD equals the qualified tip, or `roll_verdict.ps1 -Branch` on the difference is roll-free. | C0 |
 | G4 | The owner is reachable from 00:30 to 03:45 on the cutover night: GO at C0, and any escalation up to the end of §R. Phase A also needs the owner at the machine for UAC. | C0, A4 |
 | G5 | No other lease user is due that night. Specifically: <br>- `WeatherTrainingWindow` (a 01:00 one-shot, `register_training_window.ps1:3`) is disabled or has no trigger that night; <br>- Stage B `WeatherEveningEvidenceRefresh` (00:35, holds the lease to 09:00 when enabled; `register_daily_refresh.ps1:20-24`) is disabled; <br>- a U6 export registered at 00:35 (Q3) is disabled (enforced in B0 and C0 by `Assert-NoU6At0035`);<br>- no integration attempt, quiet-window merge, storage one-shot or held-head work is scheduled. | Phase B (B0), C0 |
 | G6 | Release case A: `artifacts\releases\current_release.json` is absent (H5, B3, C0). Case B or C is NO-GO for this runbook (§8). | H5, B3, C0 |
-| G7 (LFC) | The cutover night is **after** LFC session 0 has ended and its handback is recorded. It is never the night before a scheduled LFC session. | C0 |
+| G7 (LFC) | The cutover night (and any Phase B prep night) is not the night before or the night of a scheduled LFC session. Revised 2026-10-12 (owner-confirmed): it no longer waits for LFC session 0, which the owner postponed. | Phase B (B0), C0 |
 | G8 (88a) | The night is after the 88a merge freeze in the state of play. `$R\q12.txt` records the owner's Q12 choice as `STOP_AUTHORIZED` with its DECISION_LOG reference. Any other value means NO-GO, because the 88a worker would hold the venv. | Sign-off, C0, C2 |
 | G9 (tzdata) | The tzdata sequencing is decided (Q13), so the freeze comparison in `Test-Venv` cannot false-fail. | Before Phase B |
 | G10 (seals) | No live attempt is planned between the cutover and the reseal. | Sign-off |
@@ -67,6 +74,9 @@ Status key:
 - **RESOLVED**: settled from repository evidence;
 - **NEEDS-HOST-READ**: the read-only command is in §4;
 - **OWNER-DECISION**: options are given with the recommendation first, and are collected in §11.
+
+The owner decided Q4, Q7-Q9, Q12 (`STOP_AUTHORIZED`) and Q13 (§T on an earlier night) with their
+recommendations on 2026-10-12 (DECISION_LOG); the H-reads that Q4 and Q5 still need stay due.
 
 | # | Question | Status | Answer or next step |
 | --- | --- | --- | --- |
@@ -98,10 +108,10 @@ of these reads changes state. Save the output under `$R\host-reads\`.
 ```powershell
 $HR = Join-Path $R 'host-reads'; New-Item -ItemType Directory -Force $HR | Out-Null
 # H1 (Q4): PEP 514 registrations and uninstall entries for 3.11
-foreach ($k in 'HKCU:\Software\Python\PythonCore','HKLM:\SOFTWARE\Python\PythonCore','HKLM:\SOFTWARE\WOW6432Node\Python\PythonCore') {
+$(foreach ($k in 'HKCU:\Software\Python\PythonCore','HKLM:\SOFTWARE\Python\PythonCore','HKLM:\SOFTWARE\WOW6432Node\Python\PythonCore') {
   Get-ChildItem -LiteralPath $k -ErrorAction SilentlyContinue | ForEach-Object {
     $ip = Get-ItemProperty -LiteralPath (Join-Path $_.PSPath 'InstallPath') -ErrorAction SilentlyContinue
-    '{0} | InstallPath={1}' -f $_.Name, $ip.'(default)' } } | Out-File "$HR\h1-pythoncore.txt" -Encoding utf8
+    '{0} | InstallPath={1}' -f $_.Name, $ip.'(default)' } }) | Out-File "$HR\h1-pythoncore.txt" -Encoding utf8
 Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*','HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue |
   Where-Object { $_.DisplayName -like 'Python 3.11*' } | Select-Object DisplayName, DisplayVersion, InstallLocation, PSPath |
   Format-List | Out-File "$HR\h1-uninstall.txt" -Encoding utf8
@@ -173,6 +183,13 @@ Windows PowerShell 5.1, ELEVATED, as the capture host's operator account. **The 
 illustrative. Set them from the host's own facts** (the task actions in `Get-ScheduledTask`, and
 the `home` key of `pyvenv.cfg`) and record them in `$R\paths.json` during Phase A. Never paste
 workstation paths.
+
+Pasting a block into the console is safe. **A block saved as a `.ps1` must be saved as UTF-8 with a
+BOM** (`Set-Content -Encoding utf8` writes one in 5.1). Windows PowerShell 5.1 decodes a BOM-less
+script as ANSI, so a non-ASCII character such as an em dash decodes into a smart quote that ends a
+string early and breaks parsing (seen on the host, 2026-10-13).
+`scripts\ops\check_markdown_powershell_fences.ps1` parses every block with the 5.1 parser and flags
+the non-ASCII ones.
 
 ```powershell
 $ErrorActionPreference = 'Stop'
@@ -332,7 +349,7 @@ sys.exit(1 if bad else 0)
 | §4 host reads | before sign-off | 00:30-09:00, serial | no | none |
 | §T tzdata (if Q13 = earlier night) | an earlier night | 00:30-04:45 | yes | none until the next worker restart |
 | A install side by side | any night after sign-off | 00:30-09:00, owner at the machine | no | none |
-| B wheelhouse, stage venv, bounded suite | a prep night after A, G5 holds | B0 by 02:00, suite start by 03:00, finished by 04:45 | yes (released before B2) | none |
+| B wheelhouse, stage venv, bounded suite | a prep night after A; G5 and G7 hold | B0 by 02:00, suite start by 03:00, finished by 04:45 | yes (released before B2) | none |
 | C cutover | the signed night (G7, G8, G11) | 00:30-02:25; rollback starts by 02:45 | yes | about 20-35 min gap |
 | §D cleanup | a later night | 00:30-04:45 | no | none |
 
@@ -341,6 +358,28 @@ economics). The bounded suite's own limit (`MaxRuntimeSeconds`, `bounded_worktre
 is why the suite starts no later than 03:00. Using the tiering hole (HOST_LOAD_POLICY rule 10) to run
 later needs at least 100 GiB free and skips tiering that night; that is an owner choice, not a
 default.
+
+### 7a. Phase calendar (owner-confirmed 2026-10-12)
+
+The owner confirmed this calendar on 2026-10-12, including the fallbacks, and named the cutover
+night 00:30 on 10-17 (owner reachable 00:30-03:45, G4), accepting the short gap inside the 88a
+desk-study panel window (DECISION_LOG 2026-10-12). Today's position lives in
+[the state of play](STATE_OF_PLAY.md). A night is named by its
+morning: "00:30 on 10-16" is the night of 10-15 to 10-16.
+
+| Phase | Primary | Fallback | Reason |
+| --- | --- | --- | --- |
+| A install (owner at the machine) | Tue 10-13, about 07:30-09:00 (owner's pick) | Fri 10-16, same slot | It shares the morning of the N8 merge night. It takes no lease and starts only after the N8 sequence has handed back; if a landing is still running or needs recovery, A moves to the fallback. It overlaps the 06:50 91a run with light I/O only. It runs before §T, so §T ends with T-R. |
+| §T tzdata + T-R | 00:30-02:00 on Thu 10-15 | 00:30 on Fri 10-16 | First admitted night after N9 (00:30 on 10-14). |
+| B prep night | 00:30-04:45 on Fri 10-16 | 00:30 on Sat 10-17 | After A and after §T's T-R (B builds its lock from the refreshed freeze). |
+| C cutover | 00:30-02:25 on Sat 10-17 (owner-named) | the next night inside 10-15..10-30 that meets G4 and G5, named by the owner (G0) | The night after B, so the qualified tip has little time to move (G3); after the freeze (G8). If B uses its fallback (10-17), C moves too. |
+| Latest second attempt | 00:30 on Thu 10-29 | none | Keeps 10-30 and 10-31 spare; never 11-01 (G11). |
+| §D cleanup | first admitted night after a C PASS that has no other lease user | any later night | Removes the stage worktree; not urgent. |
+
+Re-check every row against the night plan of the day. A later quiet-window merge night (including
+the held 88a heads) that collides with a row moves the phase to its fallback (G5). G0 (the night is
+named), G4 (the owner reachable 00:30-03:45) and G7 (not the night before or the night of a
+scheduled LFC session) are checked again before each Phase B and Phase C night.
 
 ### §T. tzdata 2026.3 on the current 3.11.0 venv (if Q13 chooses an earlier night)
 
@@ -370,9 +409,28 @@ try {
 Rollback: reinstall the previous version from the before-freeze, or `pip uninstall tzdata` if it was
 absent.
 
+**T-R. Refresh the A1 venv receipts (only if Phase A ran before §T).** The old-home hashes are
+unaffected, because tzdata lives in the venv. B builds its lock from `freeze-3110.txt`, and C1
+compares against it, so this step must pass before Phase B.
+
+```powershell
+foreach ($f in 'freeze-3110.txt','pth-3110.txt','rtv-3110.json') { Copy-Item -LiteralPath "$A\$f" "$A\$f.pre-tzdata" }
+& $Py -m pip freeze --all | Set-Content "$A\freeze-3110.txt" -Encoding utf8
+Get-ChildItem -LiteralPath (Join-Path $P 'venv\Lib\site-packages') -Filter *.pth | ForEach-Object { "$($_.Name): $((Get-Content -LiteralPath $_.FullName) -join ' | ')" } |
+  Set-Content "$A\pth-3110.txt" -Encoding utf8
+Push-Location -LiteralPath $P
+& $Py -c "import json; from weather.release_artifacts import capture_runtime_versions as c; print(json.dumps(c(), indent=1, sort_keys=True))" | Set-Content "$A\rtv-3110.json" -Encoding utf8
+Pop-Location
+if (-not (Select-String -LiteralPath "$A\freeze-3110.txt" -Pattern '^tzdata==2026\.3$' -Quiet)) { NoGo 'T-R: freeze-3110 lacks tzdata==2026.3' }
+$d = Compare-Object (Get-Content "$A\freeze-3110.txt.pre-tzdata") (Get-Content "$A\freeze-3110.txt")
+if ($d | Where-Object { $_.InputObject -notmatch '^tzdata==' }) { NoGo 'T-R: a line other than tzdata changed since Phase A' }
+Log 'T-R PASS'
+```
+
 ### Phase A. Install side by side (owner-attended; no capture change; no lease)
 
-**A1. Receipts.** Take them after §T if §T runs.
+**A1. Receipts.** If §T has already run, take them after it. If Phase A runs first (the §7a
+calendar), §T ends with T-R, which re-takes the venv receipts.
 
 ```powershell
 & $Py -VV | Set-Content -LiteralPath "$A\VV.txt" -Encoding utf8
@@ -483,7 +541,7 @@ If A4 fails after the installer ran:
 
 ### Phase B. Wheelhouse, stage venv, qualification (prep night; capture keeps running on 3.11.0)
 
-**B0. Admission (00:30-02:00; G5 holds).**
+**B0. Admission (00:30-02:00; G5 and G7 hold).**
 
 ```powershell
 $h = (Get-Date).Hour + (Get-Date).Minute/60; if ($h -lt 0.5 -or $h -ge 2.0) { NoGo 'outside the Phase B start window' }
@@ -1130,15 +1188,16 @@ started on 3.11.9 against a 3.11.0-bound release would fail `check_runtime`
 | 04:45-06:45 tiering reserve, 06:50 jobs | Nothing heavy from this runbook |
 | 09:30-11:55 Stage-A | Nothing |
 | 12:00-18:00 graded and 18:00-00:30 near-close | Nothing |
-| DST night 10-31 to 11-01 | Nothing (G11) |
+| DST night 10-31 to 11-01 | Nothing (G11); §7a keeps the last attempt two nights earlier |
+| Night before or night of a scheduled LFC session | No Phase B or Phase C (G7) |
 
 ## 11. Owner sign-off checklist
 
 The owner initials each line in the decision log. Recommendations come first.
 
-- [ ] **Runbook revision** approved as written (G0). The night is named. It must come after LFC
-      session 0 (G7) and after the 88a freeze in the state of play (G8), and must not be the night
-      before an LFC session or the DST night (G11).
+- [ ] **Runbook revision** approved as written (G0), including the 2026-10-12 G7 revision. The
+      night is named (G0: Phase A its morning, B and C their nights). It must come after the 88a freeze in the state of play (G8), must not be the
+      night before or the night of a scheduled LFC session (G7), and must not be the DST night (G11).
 - [ ] **Q12, 88a stop:** record `STOP_AUTHORIZED` in `$R\q12.txt`, authorizing `Stop-ScheduledTask
       -TaskName WeatherMakerEvidenceCapture` at C2 and accepting a short 88a gap and an untested
       abrupt stop (recommended). The alternative is to wait for a reviewed graceful-stop verb; the
@@ -1182,4 +1241,10 @@ The owner initials each line in the decision log. Recommendations come first.
 - the upgrade has run: mark this file historical, or retarget it, in the same change that updates
   the state of play.
 
-Validate with `.\venv\Scripts\python.exe -m weather.operations.agent_docs_audit`.
+Validate with `.\venv\Scripts\python.exe -m weather.operations.agent_docs_audit`, and parse-check
+every PowerShell block of this file and of the night-plan blocks built from it (exit 0 required;
+read-only, nothing is executed):
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\ops\check_markdown_powershell_fences.ps1 -Path 'docs\operations\HOST_PYTHON_UPGRADE_RUNBOOK.md;<night-plans folder>'
+```

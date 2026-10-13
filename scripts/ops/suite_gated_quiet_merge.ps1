@@ -47,6 +47,21 @@ function Refuse-SuiteGate {
     exit 1
 }
 
+function Get-SuiteGateLocalInstants {
+    # Every UTC instant an offsetless local wall time can denote: one normally,
+    # two in the repeated fall-back hour, none in the spring-forward gap. The
+    # Scheduler's LastRunTime and the suite log's run boundary are both such
+    # wall times, so ordering checks compare these instants (DST-L15).
+    param([Parameter(Mandatory = $true)][datetime]$Local)
+
+    if ($Local.Kind -eq [DateTimeKind]::Utc) { return @($Local) }
+    $wall = [datetime]::SpecifyKind($Local, [DateTimeKind]::Unspecified)
+    $zone = [TimeZoneInfo]::Local
+    if ($zone.IsInvalidTime($wall)) { return @() }
+    $offsets = if ($zone.IsAmbiguousTime($wall)) { @($zone.GetAmbiguousTimeOffsets($wall)) } else { @($zone.GetUtcOffset($wall)) }
+    return @($offsets | ForEach-Object { ([datetimeoffset]::new($wall, $_)).UtcDateTime })
+}
+
 if ($ExpectedTip -notmatch "^[0-9a-f]{40}$") {
     Refuse-SuiteGate "ExpectedTip must be a full 40-character hexadecimal commit SHA"
 }
@@ -287,7 +302,12 @@ if (-not (Test-Path -LiteralPath $SuiteLogPath -PathType Leaf)) {
     Refuse-SuiteGate "suite log does not exist"
 }
 $logItem = Get-Item -LiteralPath $SuiteLogPath
-if ($logItem.LastWriteTime -lt [datetime]$suiteInfo.LastRunTime) {
+$lastRunInstants = @(Get-SuiteGateLocalInstants ([datetime]$suiteInfo.LastRunTime))
+if ($lastRunInstants.Count -eq 0) {
+    Refuse-SuiteGate "suite task LastRunTime is not a valid local time"
+}
+# The log's UTC write time against the earliest instant LastRunTime can denote.
+if ($logItem.LastWriteTimeUtc -lt @($lastRunInstants | Sort-Object)[0]) {
     Refuse-SuiteGate "suite log predates the task run"
 }
 $lines = @(Get-Content -LiteralPath $SuiteLogPath)
@@ -303,7 +323,17 @@ $runStartedAt = $null
 if ([string]$runLines[0] -match "^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})") {
     $runStartedAt = [datetime]::ParseExact($Matches[1], "yyyy-MM-dd HH:mm:ss", $null)
 }
-if ($null -eq $runStartedAt -or [math]::Abs(($runStartedAt - [datetime]$suiteInfo.LastRunTime).TotalMinutes) -gt 5) {
+$runBoundaryCorrelated = $false
+if ($null -ne $runStartedAt) {
+    foreach ($runStartInstant in @(Get-SuiteGateLocalInstants $runStartedAt)) {
+        foreach ($lastRunInstant in $lastRunInstants) {
+            if ([math]::Abs(($runStartInstant - $lastRunInstant).TotalMinutes) -le 5) {
+                $runBoundaryCorrelated = $true
+            }
+        }
+    }
+}
+if (-not $runBoundaryCorrelated) {
     Refuse-SuiteGate "suite log run boundary does not correlate to LastRunTime"
 }
 

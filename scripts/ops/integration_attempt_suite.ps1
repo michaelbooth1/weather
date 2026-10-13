@@ -76,9 +76,12 @@ function Invoke-WeatherAttemptSuitePhase {
     $output = $null
     $treeGone = $false
     $remainingMilliseconds = {
-        # Wall-clock rollback cannot extend the original suite budget.
+        # Wall-clock rollback cannot extend the original suite budget. Both
+        # terms are real time to the 09:00 boundary: instants, not wall-clock
+        # subtraction, so a start before the fall-back keeps its last hour
+        # (DST-L6).
         [int][Math]::Max(0, [Math]::Min(
-            ($hardStop - (Get-Date)).TotalMilliseconds,
+            (([datetimeoffset]$hardStop) - ([datetimeoffset](Get-Date))).TotalMilliseconds,
             $suiteDeadlineBudgetMilliseconds - $suiteDeadlineClock.ElapsedMilliseconds
         ))
     }
@@ -288,7 +291,7 @@ if ($localMinute -lt 30 -or $localMinute -ge (9 * 60)) {
     throw "Integration-attempt suite must start inside the 00:30-09:00 heavy-work window."
 }
 $hardStop = $localNow.Date.AddHours(9)
-$suiteDeadlineBudgetMilliseconds = ($hardStop - $localNow).TotalMilliseconds
+$suiteDeadlineBudgetMilliseconds = (([datetimeoffset]$hardStop) - ([datetimeoffset]$localNow)).TotalMilliseconds
 $suiteDeadlineClock = [Diagnostics.Stopwatch]::StartNew()
 $startedAt = $localNow.ToString("o")
 $status = "FAIL"

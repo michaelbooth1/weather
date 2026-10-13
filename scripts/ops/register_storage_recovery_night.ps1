@@ -13,6 +13,16 @@ $sourceRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 Assert-WeatherNightSource $sourceRoot $ExpectedSourceTip
 . (Join-Path $PSScriptRoot 'workload_admission.ps1')
 . (Join-Path $PSScriptRoot 'windows_kill_on_close_job.ps1')
+function Get-WeatherNightSegmentRuntimeMinutes {
+    # The Scheduler limit is the segment's real (UTC) span plus a fixed margin,
+    # so the 25-hour fall-back night is not killed an hour early (DST-L7).
+    # Ordinary nights: early 252 + 2 = 254 minutes, late 130 + 4 = 134.
+    param($Plan, [ValidateSet('early','late')][string]$Segment)
+    $times = Get-WeatherNightTimes $Plan $Segment
+    $margin = 2
+    if ($Segment -eq 'late') { $margin = 4 }
+    return [int][Math]::Ceiling(($times.End - $times.Start).TotalMinutes) + $margin
+}
 $plan = Read-WeatherNightPlan $ProductionRepoRoot $sourceRoot $ExpectedSourceTip $PlanPath $PlanSha256
 $nightRoot = Join-Path $ProductionRepoRoot ('scratch\storage_recovery_nights\' + $plan.plan_id)
 Assert-WeatherNightDirectory $nightRoot
@@ -70,11 +80,9 @@ foreach ($segment in $segments) {
     Assert-WeatherNightSource $sourceRoot $ExpectedSourceTip
     $null = Read-WeatherNightPlan $ProductionRepoRoot $sourceRoot $ExpectedSourceTip $PlanPath $PlanSha256
     $name = 'WeatherStorageRecovery-' + $plan.plan_id + '-' + $segment
-    $runtimeMinutes = 254
-    $at = $early.Start
     $argumentSegment = $segment
-    if ($segment -eq 'late') { $at = (Get-WeatherNightTimes $plan 'late').Start; $runtimeMinutes = 134 }
     if ($segment -eq 'preflight') { $at = [DateTime]::UtcNow.AddSeconds(45); $runtimeMinutes = 2; $argumentSegment = 'early' }
+    else { $at = (Get-WeatherNightTimes $plan $segment).Start; $runtimeMinutes = Get-WeatherNightSegmentRuntimeMinutes $plan $segment }
     $tokens = @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$runner,
         '-ProductionRepoRoot',$ProductionRepoRoot,'-PlanPath',$PlanPath,'-PlanSha256',$PlanSha256,
         '-ExpectedSourceTip',$ExpectedSourceTip,'-Segment',$argumentSegment)
