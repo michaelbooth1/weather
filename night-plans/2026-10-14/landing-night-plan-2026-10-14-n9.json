@@ -1,0 +1,210 @@
+{
+  "schema": "landing_night_plan_v0.1",
+  "night": "2026-10-14",
+  "label": "N9 landing night 2026-10-13 -> 2026-10-14 (production capture host)",
+  "master_sha": "4bc93ae5d1009d7406e78f701bfdbc5aa3171a17",
+  "generated_at": "2026-10-13T07:45:58-04:00",
+  "source": "workstation DESKTOP-RFCD2GH; human summary night-plans/2026-10-14/N9-HEADS.md",
+  "execution_order_note": "slots in EXECUTION order; rf is stacked on rs, so landing rf lands rs too",
+  "prerequisite": "N8 and the pyup parse fix landed (master 4bc93ae5d, code tree 67cedeb67); nothing else",
+  "schedule": {
+    "rs": ">=01:00 quiet window via quiet_window_merge.ps1, with recovery proof",
+    "rf": "after RS recovery, last head of the night, inside 00:30-09:00",
+    "overflow_drop_order": [
+      "rf (roll-free; can move to any later admitted night as rf-alone)",
+      "rs"
+    ],
+    "rs_failure_fallback": "land claude/integration-20261014-n9-rf-alone-r2 f870a759d036e22b895f5f7eb63e5fb5f9b948b4 (master + I-6 wrapper only, pre-gate PASS) as the RF slot; DST-M2 slips to the next quiet window (still before 10-31)"
+  },
+  "master_drift": {
+    "origin_master_at_plan_time": "4bc93ae5d1009d7406e78f701bfdbc5aa3171a17",
+    "pregate_base": "4bc93ae5d1009d7406e78f701bfdbc5aa3171a17",
+    "checks": "origin/master at plan time equals the pregate base 4bc93ae5d (no drift)"
+  },
+  "fallback_heads": [
+    {
+      "head": "claude/integration-20261014-n9-rf-alone-r2",
+      "sha": "f870a759d036e22b895f5f7eb63e5fb5f9b948b4",
+      "members": {
+        "i6-wrapper": "ff67ae21b0e0a0939235b19fec1c91d6fa445114"
+      },
+      "stacked_on": "built directly on master 4bc93ae5d1009d7406e78f701bfdbc5aa3171a17 (N8 result + pyup parse fix eb745a5fc; code tree = 67cedeb67)",
+      "expected_roll_class": "ROLL-FREE",
+      "journal_pinned_touch": [],
+      "activation_block": "not a loop/task/scorer; nothing to start. First use is the oracle r1 setup block's V2 proof run (night-plans/2026-10-13/oracle-r1-setup, master, 10-15 after M2), whose precondition is this file in $P",
+      "qtest": {
+        "log": "q-n9r2-rfa-f870a75.log",
+        "result": "112 passed, 15 skipped",
+        "rc": 0
+      },
+      "pregate": {
+        "path": "C:\\wt\\workstation-chat\\l-data\\n9heads\\pregate\\pg-f870a759d036-20261013T065250-104944\\receipt.json",
+        "receipt_sha256": "88dd527393457d80c6adc36cdd244911883a08a2df9cd454ea41adaf98f7abfd",
+        "verdict": "PASS",
+        "base": "4bc93ae5d1009d7406e78f701bfdbc5aa3171a17",
+        "base_is_ancestor": true,
+        "log_sha256": "ef8be195bc05cd607c10f19b13cb7d8cf96e3d0ebf374c6f804dfcda0ce11c84",
+        "chunks": 21,
+        "chunk_files": 523,
+        "chunk_exit_codes_nonzero": [],
+        "junit_totals": {
+          "tests": 9757,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 64,
+          "passed": 9693
+        },
+        "failed_tests": [],
+        "failure_reasons": [],
+        "started_at": "2026-10-13T06:52:50.1766700-04:00",
+        "finished_at": "2026-10-13T07:45:51.3059508-04:00",
+        "python": "workstation 3.11.9 (host 3.11.0)",
+        "git": "2.54.0.windows.1 (host 2.45.2)"
+      }
+    }
+  ],
+  "docs_light_path": [
+    {
+      "branch": "claude/oracle-cut-fixture-keep-20261012",
+      "sha": "3ca741e2bc3cd9aaa233ecb1cacdbc3b608b2037",
+      "what": "oracle r1 cut tool (tools/research, fixture keep list + import-resolution check; 167 tests) and isolation runbook DRAFT (I-8, step 5, §6 limit); not imported by any loop; master's call on path"
+    }
+  ],
+  "not_in_this_plan": "LFC N-11/N-12 fe5f54cfa (held for owner; touches wallet_reader_client.py); build-line r155 heads (owner yes pending, build branch not master)",
+  "open_questions": [],
+  "priority_order": [
+    "claude/integration-20261014-n9-rs-r2",
+    "claude/integration-20261014-n9-rf-r2"
+  ],
+  "slots": [
+    {
+      "kind": "rs_guarded_merge",
+      "head": "claude/integration-20261014-n9-rs-r2",
+      "sha": "dae4c96da9b79002717c7846892f1bcacac0fbff",
+      "prs": [],
+      "branch_only_members": [
+        "dst-m2 claude/dst-m2-cache-age-utc-20261011 (DST-M2: SourceFetchMixin.cache_age_minutes from UTC instants, so a last-good cache read across a DST transition is aged correctly; owner approved 2026-10-12 ~12:40). Defender PASS-WITH-NOTES, review round 1 applied"
+      ],
+      "priority": 1,
+      "exec": 1,
+      "members": {
+        "dst-m2": "79ca1fa2acabd2c0add18eab8da0cb1f2e0b5901"
+      },
+      "stacked_on": "built directly on master 4bc93ae5d1009d7406e78f701bfdbc5aa3171a17 (N8 result + pyup parse fix eb745a5fc; code tree = 67cedeb67)",
+      "merge_order": [
+        "dst-m2"
+      ],
+      "integration_resolution": "merge commit resolves the DST audit doc only, byte-identical to the reviewed held head fc136e2cc's resolution (master's copy of the doc equals the N8 rf2 head's): keep LOW 16 with L15 (N7) then L16 (M2); section 4 takes the M2 bullet; section 5 keeps the M2 owner row",
+      "expected_roll_class": "ROLL-SENSITIVE",
+      "roll_evidence": "src/weather/model/model_sources.py is in the snapshot-loop and observation-trigger closures (via toronto_model); the held head fc136e2cc with the same src/tests got host verdict ROLL-SENSITIVE (master, 10-11 13:05). Get the binding verdict from roll_verdict.ps1",
+      "journal_pinned_touch": [],
+      "tier_a": "PASS (no C3/tier-A path touched)",
+      "activation_block": "not required (no loop/task/scorer added); capture workers pick up model_sources.py through the STALE_CODE readoption the guarded merge proves",
+      "landing_constraints": [
+        "quiet window 01:00-04:00 through quiet_window_merge.ps1 (roll-sensitive)",
+        "must land before 2026-10-31 (owner: before 11-01)",
+        "release binding: model_sources.py is covered by the tree-wide runtime source_fingerprint; as for any src merge, a release verified with check_runtime=True must be re-bound under the existing release process (no manifest pins the file; model pkl and feature_names_sha256 unchanged)",
+        "train/serve parity preserved: training uses the historical defaults; replay reads the stored age; source_*_age_minutes values change only for spans crossing a DST transition",
+        "residual-distribution corpus: the quiet-window merge splits that event day's runtime identity, as for any roll-sensitive merge"
+      ],
+      "qtest": {
+        "log": "q-n9r2-rs-dae4c96.log",
+        "result": "656 passed, 5 xfailed, 691 subtests passed",
+        "rc": 0
+      },
+      "agent_docs_audit_rc": 0,
+      "known_fix": "landing_preflight correspondence_index --check is stale on master by design (closeout regenerates it); --check-structure PASS on the head",
+      "reports": [
+        "C:\\wt\\workstation-chat\\l-data\\swarm-m\\DST-M2-report.md",
+        "C:\\wt\\workstation-chat\\l-data\\swarm-m\\DST-M2-defender.md"
+      ],
+      "pregate": {
+        "path": "C:\\wt\\workstation-chat\\l-data\\n9heads\\pregate\\pg-dae4c96da9b7-20261013T050722-46356\\receipt.json",
+        "receipt_sha256": "002089960cc1eb1baf8cc9db036c1e6c71948257e28b5476f716a7902fffe92b",
+        "verdict": "PASS",
+        "base": "4bc93ae5d1009d7406e78f701bfdbc5aa3171a17",
+        "base_is_ancestor": true,
+        "log_sha256": "650fe2156a79b258e728c241e66aefe0e3aeed7c3b490ba67c22042e4d55bb40",
+        "chunks": 21,
+        "chunk_files": 522,
+        "chunk_exit_codes_nonzero": [],
+        "junit_totals": {
+          "tests": 9744,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 62,
+          "passed": 9682
+        },
+        "failed_tests": [],
+        "failure_reasons": [],
+        "started_at": "2026-10-13T05:07:22.1728213-04:00",
+        "finished_at": "2026-10-13T05:59:50.5163799-04:00",
+        "python": "workstation 3.11.9 (host 3.11.0)",
+        "git": "2.54.0.windows.1 (host 2.45.2)"
+      }
+    },
+    {
+      "kind": "rf_guarded_merge",
+      "head": "claude/integration-20261014-n9-rf-r2",
+      "sha": "48becd401172726b84031ea9d9096b7e57675280",
+      "prs": [],
+      "branch_only_members": [
+        "i6-wrapper claude/oracle-author-test-lease-20261012 (scripts/ops/oracle_author_test_run.ps1: leased, time-gated 00:30-09:00 oracle-author quick-test wrapper, owner ruling I-6; 25 fixture tests; lease-caller ratchet and launch shard updated). Reviewed on the workstation"
+      ],
+      "priority": 2,
+      "exec": 2,
+      "members": {
+        "dst-m2": "79ca1fa2acabd2c0add18eab8da0cb1f2e0b5901",
+        "i6-wrapper": "ff67ae21b0e0a0939235b19fec1c91d6fa445114"
+      },
+      "stacked_on": "claude/integration-20261014-n9-rs-r2 dae4c96da9b79002717c7846892f1bcacac0fbff",
+      "merge_order": [
+        "i6-wrapper onto n9-rs (clean; auto-merge of windows-qualification.yml and test_windows_qualification_shards.py)"
+      ],
+      "expected_roll_class": "ROLL-FREE",
+      "roll_evidence": "beyond the RS slot, only scripts/ops/oracle_author_test_run.ps1 (new), tests and .github/workflows/windows-qualification.yml change; no importable module",
+      "journal_pinned_touch": [],
+      "tier_a": "PASS (no C3/tier-A path touched)",
+      "activation_block": "not a loop/task/scorer; nothing to start. First use is the oracle r1 setup block's V2 proof run (night-plans/2026-10-13/oracle-r1-setup, master, 10-15 after M2), whose precondition is this file in $P",
+      "landing_constraints": [
+        "after RS recovery, inside 00:30-09:00; stacked, so landing it lands rs too if rs has not landed",
+        "if rs fails or is dropped, land the fallback rf-alone head instead (not this one)"
+      ],
+      "qtest": {
+        "log": "q-n9r2-rf-48becd4.log",
+        "result": "128 passed, 15 skipped",
+        "rc": 0
+      },
+      "agent_docs_audit_rc": 0,
+      "known_fix": "landing_preflight correspondence_index --check is stale on master by design (closeout regenerates it); --check-structure PASS on the head",
+      "reports": [
+        "C:\\wt\\workstation-chat\\l-data\\swarm-m\\I6-LEASE-WRAPPER-report.md"
+      ],
+      "pregate": {
+        "path": "C:\\wt\\workstation-chat\\l-data\\n9heads\\pregate\\pg-48becd401172-20261013T055954-148760\\receipt.json",
+        "receipt_sha256": "c01b187ce7bb8b24f895359c4c8dbb10c575ed85c5c1a325a7ce2b71ea426154",
+        "verdict": "PASS",
+        "base": "4bc93ae5d1009d7406e78f701bfdbc5aa3171a17",
+        "base_is_ancestor": true,
+        "log_sha256": "711bc4b3f9ead441b97b0136eb95ebdb348902b3f4d4802c11ca12f3c6a2a883",
+        "chunks": 21,
+        "chunk_files": 523,
+        "chunk_exit_codes_nonzero": [],
+        "junit_totals": {
+          "tests": 9769,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 62,
+          "passed": 9707
+        },
+        "failed_tests": [],
+        "failure_reasons": [],
+        "started_at": "2026-10-13T05:59:54.5344274-04:00",
+        "finished_at": "2026-10-13T06:52:46.3397600-04:00",
+        "python": "workstation 3.11.9 (host 3.11.0)",
+        "git": "2.54.0.windows.1 (host 2.45.2)"
+      }
+    }
+  ],
+  "plan_sha256": "89ef5311fc7d92d9472ad9024fe3dd5df584a618b969a705259f2a91d6b3f1d6"
+}
