@@ -423,11 +423,12 @@ def cut_env(tmp_path):
     return {"repo": repo, "plan": plan, "plan_file": plan_file, "tmp": tmp_path}
 
 
-def _cut(env, out_name="out", plan=None, withheld=()):
+def _cut(env, out_name="out", plan=None, withheld=(), keep=(), import_withheld=()):
     if plan is not None:
         env["plan_file"].write_text(json.dumps(plan), encoding="utf-8")
     return h1.run_cut(env["plan_file"], env["repo"], env["tmp"] / out_name, table=SYN_TABLE, mo1_skip=None,
-                      withheld=withheld, expected_outputs=SYN_EXPECTED)
+                      withheld=withheld, expected_outputs=SYN_EXPECTED, keep=keep,
+                      import_withheld=import_withheld)
 
 
 @pytest.mark.spawns
@@ -617,7 +618,8 @@ def test_v2_named_path_refuses_unless_handout_item(cut_env):
     _commit_files(cut_env["repo"], {"docs/notes/foo-MRV2.json": "{\"x\": 1}\n"}, "v2 name")
     with pytest.raises(h1.CutRefused, match="foo-MRV2.json: path name says replay v2"):
         _cut(cut_env)
-    files, _ = h1.filtered_files(cut_env["repo"], "HEAD", (), {"docs/notes/foo-mrv2.json"})
+    files, _ = h1.filtered_files(cut_env["repo"], "HEAD", (), {"docs/notes/foo-mrv2.json"}, keep=(),
+                                 import_withheld=())
     assert "docs/notes/foo-MRV2.json" in {entry.path for entry, _ in files}
 
 
@@ -798,7 +800,7 @@ def test_expected_output_full_value_passes_and_produced_output_is_checked(cut_en
     cut_env["plan_file"].write_text(json.dumps(plan), encoding="utf-8")
     with pytest.raises(h1.CutRefused, match="H-6: output SHA-256"):
         h1.run_cut(cut_env["plan_file"], cut_env["repo"], cut_env["tmp"] / "out2", table=SYN_TABLE, mo1_skip=None,
-                   withheld=(), expected_outputs=wrong)
+                   withheld=(), expected_outputs=wrong, keep=(), import_withheld=())
 
 
 @pytest.mark.spawns
@@ -960,3 +962,142 @@ def test_verify_runs_section4_on_the_handout_as_written(cut_env):
     manifest_file.write_text(json.dumps(manifest), encoding="utf-8")
     with pytest.raises(h1.CutRefused, match="§4 check on the handout as written"):
         h1.run_verify(out, None)
+
+
+# ---- Owner keep list and import resolution (owner 2026-10-12, R4 narrowed for two fixture files) ----
+
+FIX = f"tests/{PKG}/fixtures"
+FIXTURE_TEXT = "from datetime import datetime\n\nT0 = datetime(2030, 1, 1)\n"
+CONFTEST_TEXT = "import pytest\n\nfrom .fixtures.fictional import T0\n"
+
+
+def _keep_files() -> dict[str, str]:
+    return {f"tests/{PKG}/__init__.py": "", f"{FIX}/__init__.py": "", f"{FIX}/fictional.py": FIXTURE_TEXT,
+            f"tests/{PKG}/conftest.py": CONFTEST_TEXT}
+
+
+def _keep_list() -> tuple[tuple[str, str], ...]:
+    return ((f"{FIX}/__init__.py", h1.EMPTY_BLOB), (f"{FIX}/fictional.py", h1.git_blob_id(FIXTURE_TEXT.encode())))
+
+
+def test_real_keep_and_import_withheld_lists():
+    assert h1.FIXTURE_KEEP == (
+        (f"{FIX}/__init__.py", h1.EMPTY_BLOB),
+        (f"{FIX}/fictional_domain.py", "c498c8600a3cd287592aa61cd6eb9a4f7dfa1dde"),
+    )
+    assert h1.IMPORT_WITHHELD == (
+        (f"tests/{PKG}/test_re1_parity.py", "excluded-import"),
+        (f"tests/{PKG}/test_re1_session_export.py", "excluded-import"),
+    )
+    assert not h1.excluded_by(f"{FIX}/fictional_domain.py")
+    assert not h1.excluded_by(f"{FIX}/__init__.py")
+    assert h1.excluded_by(f"{FIX}/re1_session_replay.py")
+    assert h1.excluded_by(f"{FIX}/fill89a_reference.py")
+    assert h1.excluded_by(f"{FIX}/fictional_domain.py", keep=())
+
+
+@pytest.mark.parametrize(
+    "path, text, problems",
+    [
+        ("tests/a/test_x.py", "import json\nfrom decimal import Decimal\nimport pytest\n", 0),
+        ("tests/a/test_x.py", "from .fixtures.gone import X\n", 1),
+        ("tests/a/test_x.py", "from .fixtures import gone\n", 1),
+        ("tests/a/test_x.py", "from .fixtures import kept\n", 0),
+        ("tests/a/test_x.py", "from .fixtures import NAME\n", 0),
+        ("tests/a/test_x.py", f"import {PKG}.hidden.mod\n", 1),
+        ("tests/a/test_x.py", f"from {PKG}.shown import thing\n", 0),
+        ("tests/a/test_x.py", "def f():\n    from .fixtures.gone import X\n", 1),
+        ("tests/a/test_x.py", "from .... import x\n", 1),
+    ],
+)
+def test_unresolved_imports(path, text, problems):
+    source = {"tests/a/__init__.py", "tests/a/fixtures/__init__.py", "tests/a/fixtures/kept.py",
+              "tests/a/fixtures/gone.py", f"src/{PKG}/__init__.py", f"src/{PKG}/shown.py",
+              f"src/{PKG}/hidden/__init__.py", f"src/{PKG}/hidden/mod.py"}
+    kept = source - {"tests/a/fixtures/gone.py", f"src/{PKG}/hidden/__init__.py", f"src/{PKG}/hidden/mod.py"}
+    assert len(h1.unresolved_imports(path, text, kept, source)) == problems
+
+
+@pytest.mark.spawns
+def test_conftest_importing_an_excluded_fixture_refuses(cut_env):
+    _commit_files(cut_env["repo"], _keep_files(), "conftest")
+    with pytest.raises(h1.CutRefused, match=r"conftest.py: imports a repository module the cut does not keep"):
+        _cut(cut_env)
+
+
+@pytest.mark.spawns
+def test_keep_list_keeps_the_pinned_fixture(cut_env):
+    _commit_files(cut_env["repo"], _keep_files(), "conftest")
+    manifest, binding = _cut(cut_env, keep=_keep_list())
+    out = cut_env["tmp"] / "out"
+    assert (out / h1.REPO_DIR / FIX / "fictional.py").read_text(encoding="utf-8") == FIXTURE_TEXT
+    assert not (out / h1.REPO_DIR / FIX / "expected.json").exists()
+    assert manifest["filtered_tree"]["fixture_keep"] == [{"path": p, "blob": b} for p, b in _keep_list()]
+    assert manifest["checks"]["tests_unresolved_imports"] == 0
+    assert h1.run_verify(out, binding)[1] == binding
+
+
+@pytest.mark.spawns
+@pytest.mark.parametrize(
+    "keep, message",
+    [
+        (((f"{FIX}/fictional.py", "0" * 40),), "on the keep list with blob"),
+        (((f"{FIX}/absent.py", "0" * 40),), "on the keep list but absent"),
+        ((("README.md", h1.git_blob_id(b"synthetic repository\n")),), "no exclusion glob matches it"),
+        (((f"{FIX}/fictional.py", "abc"),), "full 40-hex blob pin"),
+    ],
+)
+def test_keep_list_is_fail_closed(cut_env, keep, message):
+    _commit_files(cut_env["repo"], _keep_files(), "conftest")
+    with pytest.raises(h1.CutRefused, match=message):
+        _cut(cut_env, keep=keep)
+
+
+@pytest.mark.spawns
+def test_kept_fixture_with_a_section4_hit_refuses(cut_env):
+    planted = FIXTURE_TEXT + "# state.legs\n"
+    files = {**_keep_files(), f"{FIX}/fictional.py": planted}
+    _commit_files(cut_env["repo"], files, "planted")
+    keep = ((f"{FIX}/__init__.py", h1.EMPTY_BLOB), (f"{FIX}/fictional.py", h1.git_blob_id(planted.encode())))
+    with pytest.raises(h1.CutRefused, match="fictional.py: §4 rule3"):
+        _cut(cut_env, keep=keep)
+
+
+@pytest.mark.spawns
+def test_import_withheld_test_is_withheld_and_recorded(cut_env):
+    test_path = f"tests/{PKG}/test_parity.py"
+    _commit_files(cut_env["repo"], {**_keep_files(), f"{FIX}/replayish.py": "X = 1\n",
+                                    test_path: "from .fixtures.replayish import X\n"}, "parity")
+    manifest, binding = _cut(cut_env, keep=_keep_list(), import_withheld=((test_path, "excluded-import"),))
+    out = cut_env["tmp"] / "out"
+    assert not (out / h1.REPO_DIR / test_path).exists()
+    assert {"path": test_path, "reason_class": "excluded-import"} in manifest["filtered_tree"]["withheld_r4b"]
+    assert h1.run_verify(out, binding)[1] == binding
+
+
+@pytest.mark.spawns
+@pytest.mark.parametrize(
+    "entry, message",
+    [
+        ((f"tests/{PKG}/conftest.py", "excluded-import"), "every import now resolves"),
+        ((f"tests/{PKG}/test_absent.py", "excluded-import"), "not in the filtered tree"),
+        ((f"tests/{PKG}/conftest.py", "path-mention"), "unknown reason class"),
+    ],
+)
+def test_import_withheld_list_is_fail_closed(cut_env, entry, message):
+    _commit_files(cut_env["repo"], _keep_files(), "conftest")
+    with pytest.raises(h1.CutRefused, match=message):
+        _cut(cut_env, keep=_keep_list(), import_withheld=(entry,))
+
+
+@pytest.mark.spawns
+def test_verify_refuses_a_withheld_path_in_the_tree(cut_env):
+    test_path = f"tests/{PKG}/test_parity.py"
+    _commit_files(cut_env["repo"], {**_keep_files(), f"{FIX}/replayish.py": "X = 1\n",
+                                    test_path: "from .fixtures.replayish import X\n"}, "parity")
+    _cut(cut_env, keep=_keep_list(), import_withheld=((test_path, "excluded-import"),))
+    out = cut_env["tmp"] / "out"
+    manifest = json.loads((out / h1.MANIFEST_NAME).read_text(encoding="utf-8"))
+    manifest["filtered_tree"]["withheld_r4b"].append({"path": "README.md", "reason_class": "path-mention"})
+    with pytest.raises(h1.CutRefused, match="README.md is recorded as withheld"):
+        h1.verify_output(out, manifest)

@@ -12,8 +12,11 @@ Modes:
             apply the 49 live substitutions; copy the code items, the 89a text, the
             rulings sheet and the cover prompt; run the §4 check, the MO1/MO2
             self-tests and the deny-list drift check; build the filtered tree (§5
-            globs, the R4b recorded exclusion list ``R4B_WITHHELD``, then the R4
-            fail-closed import refusal); create a standalone
+            globs less the owner's blob-pinned ``FIXTURE_KEEP``, the R4b recorded
+            exclusion list ``R4B_WITHHELD``, the R4 fail-closed import refusal, then
+            the import-resolution check: every kept ``tests/`` Python file imports
+            only repository modules the cut keeps, except the recorded
+            ``IMPORT_WITHHELD`` files, which are withheld); create a standalone
             repository in a NEW directory holding one parentless commit; assert the
             R1 invariants; write ``H1-manifest.json`` and print its SHA-256, the
             binding value. Any refusal deletes the partial output directory.
@@ -284,6 +287,27 @@ R4B_WITHHELD: tuple[tuple[str, str], ...] = (
 # except the empty blob. (3) After writing, every output byte is re-read from disk and checked
 # against the in-memory plan (``verify_output``); the same check runs on the host (``verify``).
 EMPTY_BLOB = "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+
+# R4 narrowed by the owner (2026-10-12, ~21:30, relayed by master): these two files below
+# ``tests/maker_core/fixtures/**`` are kept, pinned by blob, because the kept conftest and three
+# kept tests import them. Fictional coin-toss plugin over ``maker_core.contracts`` only; no Kernel
+# logic; 0 §4 and 0 R4 hits at 501f47579. Fail closed: a pinned file that is missing, has another
+# blob, or gains a §4, R4 or output-control hit refuses.
+FIXTURE_KEEP: tuple[tuple[str, str], ...] = (
+    ("tests/maker_core/fixtures/__init__.py", EMPTY_BLOB),
+    ("tests/maker_core/fixtures/fictional_domain.py", "c498c8600a3cd287592aa61cd6eb9a4f7dfa1dde"),
+)
+# Import resolution (owner, same ruling): every kept Python file under ``tests/`` must import only
+# repository modules the cut keeps, so pytest collection cannot fail on an excluded import. These
+# tests import fixtures that stay excluded (``re1_session_replay`` imports the v1 replay package)
+# and are withheld instead. Fail closed both ways, like R4b: an unresolved import not listed here
+# refuses, and a listed path that is missing, glob-excluded or now resolves also refuses.
+IMPORT_WITHHELD: tuple[tuple[str, str], ...] = (
+    ("tests/maker_core/test_re1_parity.py", "excluded-import"),
+    ("tests/maker_core/test_re1_session_export.py", "excluded-import"),
+)
+IMPORT_CHECK_PREFIX = "tests/"
+IMPORT_ROOTS = ("", "src/")
 FILES_LIST_NAME = "filtered-files.sha256"
 OUTPUT_TOP_LEVEL = frozenset({HANDOUT_DIR, REPO_DIR, TAR_NAME, FILES_LIST_NAME, MANIFEST_NAME})
 
@@ -545,8 +569,11 @@ def glob_regex(pattern: str) -> re.Pattern[str]:
 _GLOB_RES = tuple(glob_regex(g) for g in EXCLUSION_GLOBS)
 
 
-def excluded_by(path: str, globs: Iterable[re.Pattern[str]] = _GLOB_RES) -> bool:
-    return any(g.fullmatch(path) for g in globs)
+def excluded_by(path: str, globs: Iterable[re.Pattern[str]] = _GLOB_RES,
+                keep: Iterable[str] | None = None) -> bool:
+    """Glob-excluded and not on the owner's keep list (``FIXTURE_KEEP`` unless ``keep`` is given)."""
+    kept = {p for p, _ in FIXTURE_KEEP} if keep is None else set(keep)
+    return path not in kept and any(g.fullmatch(path) for g in globs)
 
 
 def _is_utf16(data: bytes) -> bool:
@@ -846,13 +873,90 @@ def tree_output_reasons(entry: TreeEntry, data: bytes, excluded_blobs: set[str])
     return reasons
 
 
+def _module_files(dotted: str) -> list[str]:
+    base = "/".join(dotted.split("."))
+    return [f"{root}{base}{suffix}" for root in IMPORT_ROOTS for suffix in (".py", "/__init__.py")]
+
+
+def unresolved_imports(path: str, text: str, kept: set[str], source: set[str]) -> list[str]:
+    """Imports in ``path`` of a repository module (one in ``source``) that the cut does not keep.
+
+    A dotted name is a repository module when ``<root><a/b/c>.py`` or ``<root><a/b/c>/__init__.py``
+    exists in the source tree for a root in ``IMPORT_ROOTS``; it resolves when one of those is kept.
+    Each package prefix is checked too. ``from X import n`` checks ``X.n`` only when the source tree
+    has it as a module. Stdlib and third-party imports are not repository modules and are ignored."""
+    def status(dotted: str) -> str | None:
+        names = _module_files(dotted)
+        if any(n in kept for n in names):
+            return "kept"
+        return "missing" if any(n in source for n in names) else None
+
+    try:
+        tree = ast.parse(text, filename=path)
+    except SyntaxError as exc:
+        return [f"line {exc.lineno}: does not parse ({exc.msg})"]
+    package = path.rsplit("/", 1)[0].split("/") if "/" in path else []
+    out = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            targets = [alias.name for alias in node.names]
+        elif isinstance(node, ast.ImportFrom):
+            if node.level:
+                if node.level - 1 > len(package):
+                    out.append(f"line {node.lineno}: relative import beyond the top level")
+                    continue
+                parts = package[: len(package) - (node.level - 1)]
+                base = ".".join(parts + ([node.module] if node.module else []))
+            else:
+                base = node.module or ""
+            subs = [f"{base}.{a.name}" if base else a.name for a in node.names if a.name != "*"]
+            targets = ([base] if base else []) + [t for t in subs if status(t) is not None]
+        else:
+            continue
+        for target in targets:
+            pieces = target.split(".")
+            for index in range(1, len(pieces) + 1):
+                prefix = ".".join(pieces[:index])
+                if status(prefix) == "missing":
+                    out.append(f"line {node.lineno}: {target} ({prefix} is not kept)")
+                    break
+    return out
+
+
+def _keep_map(keep: Sequence[tuple[str, str]]) -> dict[str, str]:
+    mapping: dict[str, str] = {}
+    for path, blob in keep:
+        if not re.fullmatch(r"[0-9a-f]{40}", blob):
+            raise CutRefused(f"keep list: {path} needs a full 40-hex blob pin")
+        if path in mapping:
+            raise CutRefused(f"keep list: {path} is listed twice")
+        mapping[path] = blob
+    return mapping
+
+
+def _import_withheld_map(import_withheld: Sequence[tuple[str, str]], listed: dict[str, str]) -> dict[str, str]:
+    mapping: dict[str, str] = {}
+    for path, cls in import_withheld:
+        if cls != "excluded-import":
+            raise CutRefused(f"import-withheld list: {path} has unknown reason class {cls!r}")
+        if path in mapping or path in listed:
+            raise CutRefused(f"import-withheld list: {path} is listed twice")
+        mapping[path] = cls
+    return mapping
+
+
 def filtered_files(repo: Path, commit: str, withheld: Sequence[tuple[str, str]] = R4B_WITHHELD,
-                   handout_sources: Iterable[str] = ()) -> tuple[list[tuple[TreeEntry, bytes]], list[dict]]:
-    """Apply the §5 globs, the R4b recorded list, then the R4 refusal over every remaining file.
+                   handout_sources: Iterable[str] = (), *, keep: Sequence[tuple[str, str]] = FIXTURE_KEEP,
+                   import_withheld: Sequence[tuple[str, str]] = IMPORT_WITHHELD,
+                   ) -> tuple[list[tuple[TreeEntry, bytes]], list[dict]]:
+    """Apply the §5 globs (less the owner's keep list), the R4b recorded list, the R4 refusal over
+    every remaining file, then the import-resolution check over kept ``tests/`` Python files.
 
     Returns the kept files and the withheld records (path and reason class only).
     """
     listed = _withheld_map(withheld)
+    keep_map = _keep_map(keep)
+    import_listed = _import_withheld_map(import_withheld, listed)
     allowed_names = {p.casefold() for p in handout_sources}
     files: list[tuple[TreeEntry, bytes]] = []
     records: list[dict] = []
@@ -860,11 +964,24 @@ def filtered_files(repo: Path, commit: str, withheld: Sequence[tuple[str, str]] 
     stale: list[str] = []
     seen: set[str] = set()
     entries = list_tree(repo, commit)
-    excluded_blobs = {e.blob for e in entries if excluded_by(e.path) or e.path in listed} - {EMPTY_BLOB}
+    by_path = {e.path: e for e in entries}
+
+    def excluded(path: str) -> bool:
+        return excluded_by(path, keep=keep_map)
+
+    for path, blob in keep_map.items():
+        entry = by_path.get(path)
+        if entry is None:
+            stale.append(f"{path}: on the keep list but absent at {commit[:12]}")
+        elif entry.blob != blob:
+            stale.append(f"{path}: on the keep list with blob {blob[:12]} but is {entry.blob[:12]} at {commit[:12]}")
+        elif not any(g.fullmatch(path) for g in _GLOB_RES):
+            stale.append(f"{path}: on the keep list but no exclusion glob matches it")
+    excluded_blobs = {e.blob for e in entries if excluded(e.path) or e.path in listed} - {EMPTY_BLOB}
     reader = BlobReader(repo)
     try:
         for entry in entries:
-            if excluded_by(entry.path):
+            if excluded(entry.path):
                 continue
             cls = listed.get(entry.path)
             if cls == "cut-script":
@@ -885,6 +1002,8 @@ def filtered_files(repo: Path, commit: str, withheld: Sequence[tuple[str, str]] 
             if V2_PATH_NAME.search(entry.path) and entry.path.casefold() not in allowed_names:
                 reasons = [*reasons, "path name says replay v2 and it is not a handout item"]
             reasons = [*reasons, *tree_output_reasons(entry, data, excluded_blobs)]
+            if entry.path in keep_map:
+                reasons = [*reasons, *(f"§4 {h.rule} at line {h.line}" for h in section4_hits(entry.path, _decode(data)))]
             if reasons:
                 refused.append(f"{entry.path}: {'; '.join(reasons)}")
             files.append((entry, data))
@@ -893,12 +1012,40 @@ def filtered_files(repo: Path, commit: str, withheld: Sequence[tuple[str, str]] 
     for path, cls in listed.items():
         if path not in seen and cls != "cut-script":
             stale.append(f"{path}: listed as {cls} but absent from the filtered tree at {commit[:12]}")
+    # Import resolution over the kept tree less the import-withheld files.
+    kept_paths = {e.path for e, _ in files} - set(import_listed)
+    source_paths = set(by_path)
+    for path in import_listed:
+        if path not in by_path or excluded(path) or path in listed:
+            stale.append(f"{path}: listed as excluded-import but not in the filtered tree at {commit[:12]}")
+    unresolved: dict[str, list[str]] = {}
+    for entry, data in files:
+        if entry.path.startswith(IMPORT_CHECK_PREFIX) and entry.path.endswith(".py"):
+            problems = unresolved_imports(entry.path, _decode(data), kept_paths, source_paths)
+            if problems:
+                unresolved[entry.path] = problems
+    for path, problems in sorted(unresolved.items()):
+        if path not in import_listed:
+            refused.append(f"{path}: imports a repository module the cut does not keep: {'; '.join(problems)}")
+    for path in sorted(import_listed):
+        if path in by_path and not excluded(path) and path not in listed:
+            if path not in unresolved:
+                stale.append(f"{path}: listed as excluded-import but every import now resolves")
+            else:
+                records.append({"path": path, "reason_class": import_listed[path]})
+    withheld_blobs = {by_path[p].blob for p in import_listed if p in by_path} - {EMPTY_BLOB}
+    files = [(e, d) for e, d in files if e.path not in import_listed]
+    for entry, _ in files:
+        if entry.blob in withheld_blobs:
+            refused.append(f"{entry.path}: byte-identical to an excluded or withheld file")
     if refused or stale:
         parts = []
         if refused:
-            parts.append(f"R4 import refusal: {len(refused)} unlisted file(s) after filtering:\n  " + "\n  ".join(refused))
+            parts.append(f"R4 or import-resolution refusal: {len(refused)} unlisted file(s) after filtering:\n  "
+                         + "\n  ".join(refused))
         if stale:
-            parts.append(f"R4b list is stale: {len(stale)} entr(y/ies):\n  " + "\n  ".join(stale))
+            parts.append(f"recorded list is stale (R4b, keep or excluded-import): {len(stale)} entr(y/ies):\n  "
+                         + "\n  ".join(stale))
         raise CutRefused("\n".join(parts))
     return files, sorted(records, key=lambda r: r["path"])
 
@@ -1068,9 +1215,13 @@ def verify_output(out_dir: Path, manifest: dict, *, require_manifest: bool = Fal
     if len(rows) != tree["files"]:
         raise CutRefused(f"verify: {FILES_LIST_NAME} lists {len(rows)} files, the manifest {tree['files']}")
     allowed_names = {row["source"].casefold() for row in manifest["handout"] if row["kind"] in ("code", "text_89a")}
+    keep_rows = {row["path"]: row["blob"] for row in tree.get("fixture_keep", [])}
+    withheld_rows = {row["path"] for row in tree.get("withheld_r4b", [])}
     for rel in rows:
         check_tree_path(rel)
-        if excluded_by(rel):
+        if rel in withheld_rows:
+            raise CutRefused(f"verify: {rel} is recorded as withheld")
+        if excluded_by(rel, keep=keep_rows):
             raise CutRefused(f"verify: {rel} matches an exclusion glob")
         if V2_PATH_NAME.search(rel) and rel.casefold() not in allowed_names:
             raise CutRefused(f"verify: {rel} is named for replay v2 and is not a handout item")
@@ -1080,8 +1231,11 @@ def verify_output(out_dir: Path, manifest: dict, *, require_manifest: bool = Fal
         extra, missing = sorted(set(working) - set(rows))[:20], sorted(set(rows) - set(working))[:20]
         raise CutRefused(f"verify: working tree differs from {FILES_LIST_NAME} (extra {extra}, missing {missing})")
     for rel, path in working.items():
-        if sha256_hex(path.read_bytes()) != rows[rel]:
+        data = path.read_bytes()
+        if sha256_hex(data) != rows[rel]:
             raise CutRefused(f"verify: working-tree file {rel} changed on disk")
+        if rel in keep_rows and git_blob_id(data) != keep_rows[rel]:
+            raise CutRefused(f"verify: kept fixture {rel} is not its pinned blob")
     if git(repo_dir, "rev-parse", BRANCH).decode().strip() != tree["commit"]:
         raise CutRefused("verify: the snapshot commit differs from the manifest")
     if git(repo_dir, "rev-parse", f"{BRANCH}^{{tree}}").decode().strip() != tree["tree"]:
@@ -1187,7 +1341,9 @@ def _mo2(sample: bytes, pin: str) -> dict:
 def run_cut(plan_file: Path, repo: Path, out_dir: Path, *, table: Sequence[Sub] = V34_TABLE,
             mo1_skip: str | None = "S6", run_drift: bool = True,
             withheld: Sequence[tuple[str, str]] = R4B_WITHHELD,
-            expected_outputs: dict[str, str] | None = None) -> tuple[dict, str]:
+            expected_outputs: dict[str, str] | None = None,
+            keep: Sequence[tuple[str, str]] = FIXTURE_KEEP,
+            import_withheld: Sequence[tuple[str, str]] = IMPORT_WITHHELD) -> tuple[dict, str]:
     """Cut the handout and the filtered tree. Returns (manifest, binding sha256).
 
     ``expected_outputs`` defaults to ``EXPECTED_OUTPUT_SHA256``; tests pass a synthetic map."""
@@ -1311,10 +1467,12 @@ def run_cut(plan_file: Path, repo: Path, out_dir: Path, *, table: Sequence[Sub] 
     # 5. Filtered tree, standalone repository, R1.
     handout_sources = {item["path"] for item in plan["code_items"]} | {text89["path"]}
     handout_sources |= {row["path"] for row in (rulings, cover or {}, spec_in_force or {}) if "commit" in row}
-    files, withheld_records = filtered_files(repo, commit, withheld, handout_sources)
+    files, withheld_records = filtered_files(repo, commit, withheld, handout_sources, keep=keep,
+                                             import_withheld=import_withheld)
     checks["import_refusal_files"] = 0
     checks["tree_denied_literal_files"] = 0
     checks["tree_excluded_blob_matches"] = 0
+    checks["tests_unresolved_imports"] = 0
     out_dir.mkdir(parents=True)
     try:
         for h in handout:
@@ -1349,6 +1507,7 @@ def run_cut(plan_file: Path, repo: Path, out_dir: Path, *, table: Sequence[Sub] 
                 "files_sha256_list": {"name": FILES_LIST_NAME, "sha256": sha256_hex(files_list)},
                 "exclusion_globs": list(EXCLUSION_GLOBS),
                 "withheld_r4b": withheld_records,
+                "fixture_keep": [{"path": p, "blob": b} for p, b in keep],
                 "r1": r1,
             },
         }
