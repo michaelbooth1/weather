@@ -1,6 +1,6 @@
 # State of play
 
-**Last updated: 2026-10-12 13:05 America/Toronto (owner back; LFC postponed incl. session 0; N7 landed; N8/N9 planned; DST-M2, build-line merges and the host Python upgrade approved, upgrade calendar confirmed: Phase A 10-13, cutover 00:30 on 10-17).**
+**Last updated: 2026-10-12 21:00 America/Toronto (build line at 15584831; OD23 signed wording recorded; owner back; LFC postponed incl. session 0; N7 landed; N8/N9 planned; DST-M2, build-line merges and the host Python upgrade approved, upgrade calendar confirmed: Phase A 10-13, cutover 00:30 on 10-17).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended. At most 95 lines and about 9 KB, one fact per bullet, detail in the linked owner.** This file owns
@@ -47,10 +47,11 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
   10-13 ~07:30 after N8 hands back; then §T + T-R, B, C per runbook §7a. No host release store (case A).
 - **DST audit:** DST-H3 landed, so its interim merge guard is retired; OD30 (the 11-01 night rule) stays until the owner retires it.
 - **LFC** (postponed, above): its signed documents stay SIGNED; N-11/N-12 fix `fe5f54cf` touches `wallet_reader_client.py`.
-- **Build line** `codex/maker-replay-v2-build-20261003` = `89618c30`; inventory fix `f22bea07` and U6 D6 `07dd7825` APPROVED to
-  merge (owner 10-12). `WeatherReplayBundleExportNightly` stays unregistered until a separate owner yes (>= 10-16).
+- **Build line** `codex/maker-replay-v2-build-20261003` = `15584831` (inventory fix `f22bea07` and U6 D6 `07dd7825` merged,
+  owner 10-12). `WeatherReplayBundleExportNightly` stays unregistered until a separate owner yes (>= 10-16).
 - **Maker replay v2** (panel UTC 09-30..10-14 never read): gate spec v3.4 is the frozen oracle basis; OD18 fresh oracle
-  author on this host from a filtered standalone handout. Signature when the gates pass (~10-18..20); look by 11-15.
+  author on this host from a filtered standalone handout. OD23 signed (10-08): `decide()` mid keeps own size; diagnostic
+  built. Signature when the gates pass (~10-18..20); look by 11-15.
 - **Model, morning:** MG-1 SIGNED 10-04 at `b044e0f1`; needs parser v2 (#190); scored on dates >= 10-15.
 - **Live seals** must all be RESEALED before any live attempt (#229). **C3 console rehearsal** never ran on the host; deferred (owner 10-09).
 - **Pinned deployments (detached, locked worktrees):** watchdog `1794fd3b`, cold snapshot (91a `6e5ff47`; `979c0e7`
@@ -64,7 +65,7 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
    handout cut then the fresh oracle author; P1-P4 on calibration dates only; gates; signature ~10-18..20.
 2. **Merges:** N8, night of 10-13: RS `claude/integration-20261013-n8-rs` `c6977df5`, then RF2 `...-n8-rf2` `1c64f917`
    (fallback RF `...-n8-rf` `9bf466af`). N9, night of 10-14, roll-sensitive, only after N8 lands: DST-M2 via
-   `claude/integration-20261014-m2-rs` `fc136e2c`. Build line: `f22bea07` + `07dd7825`. After 10-14: #118, #172 + #182, #177.
+   `claude/integration-20261014-m2-rs` `fc136e2c`. After 10-14: #118, #172 + #182, #177.
 3. **Host Python upgrade:** Phase A 10-13 ~07:30; §T + T-R 10-15; B 10-16; cutover 00:30 on 10-17 (runbook §7a).
 4. **Measurements (09-29 only; never 88a 09-30..10-14):** desk-study power rule #263. **Research:** NBS/NBH probe; T+1/T+2
    NWP timing; no-METAR floor gap (item 337).
@@ -73,7 +74,6 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 
 | What | Owner | Due | Verify |
 | --- | --- | --- | --- |
-| Merge `f22bea07` + `07dd7825` into the build line | production | next admitted window | both in the build-line tip |
 | Evening-fix scoring prereg; OD30 retirement | owner | open | DECISION_LOG rows |
 | Restart the wallet reader on master; LFC client json in the pinned worktree | owner | before LFC resumes | `summary` from both PCs |
 | Scope and run the pinned watchdog redeploy + re-register (DRIFT since #273, DST-H3) | owner scope, production runs | before 11-01 | `status.ps1 -Json` watchdog CURRENT |
