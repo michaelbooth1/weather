@@ -83,7 +83,8 @@ dates <= 2026-09-29 only, landed before the read date. No one runs it on window 
 
 **Primary metric:** NEW minus OLD mean multi-band Brier score against the venue winner (the WU settlement proxy,
 EF §10c), **local hours 17:00-23:59**, US11.
-- Brier over the complete band support of each snapshot.
+- Snapshot Brier: the mean of (p - outcome)^2 over the snapshot's captured band rows (its complete band support),
+  with band probabilities computed inside each arm exactly as production records them (`bin_probability`).
 - Weights: equal snapshot weights within a market-day cell, then equal market-day weights.
 
 **Inference (fixed-market, date-clustered; the 2026-09-30 guardrails):** the 11 markets are fixed; dates are
@@ -218,10 +219,13 @@ this also inflates the market component, which does not shrink with dates, so th
 ## 7. Preconditions (owner and code)
 
 1. **Signature** of this file (section 9).
-2. **Replay date gate:** a reviewed code change to `weather.backtesting.lockin_anchor_replay` (or a scorer beside it)
-   that admits exactly the declared window, adds settlement scoring as specified here, and keeps the refusal for
-   2026-09-30..10-15. It is tested on dates <= 2026-09-29 only and landed before 10-28. It is a backtesting module
-   that no capture loop imports; whether it is roll-free is for `roll_verdict.ps1`, not this draft.
+2. **Replay date gate and scorer:** a reviewed code change, drafted on `claude/evening-fix-scorer-20261013`
+   (unlanded). `weather.backtesting.lockin_anchor_replay` admits closed dates >= 10-16 for outcome-blind replay and
+   keeps refusing 2026-09-30..10-15; `weather.backtesting.evening_fix_scorer` implements sections 2-3 and the
+   section 5 gate: it refuses unless this file's SHA-256 is in DECISION_LOG (signature), and before 10-29 it refuses
+   unless `--read-token` names a JSON token bound to that hash whose `decision_log_row` is recorded in DECISION_LOG
+   (an early read is an owner decision recorded before it happens). Tests use synthetic fixtures only. It must land
+   before 10-28. Neither module is imported by a capture loop; the formal verdict is `roll_verdict.ps1`'s.
 3. **No conflict with reservations:** the MG-1 reservation (narrow scope, NBM guidance-read family, dates >= 10-15)
    does not cover the late-day anchor path, and this draft reads no 88a data. The owner confirms both readings
    (OD-A6).
