@@ -3657,6 +3657,23 @@ was made.
   `docs/research/model-parity-swarm-2026-10-04/`; harness `8db69adc7fb9bee8c3db47707b8aea71bff825a415b950108e19e84a0fd29f74`;
   scores and acquired data on the workstation only (`C:\swarm\`).
 
+### 10r. WU's Toronto daily high counts the 00:00 local observation; the venue paid the with-midnight band on both discriminating days (n = 2) — host read, 2026-10-13
+
+Read by the master agent on the capture host for [item 337](../roadmap/items/item-337-no-metar-observed-floor-gap.md);
+pre-embargo dates only (nothing from 2026-09-30 on).
+
+- **WU day files:** the CYYZ raw WU day files hold 24 observations, 00:00-23:00 local, so the 00:00 reading is inside
+  day D's history.
+- **The three B-replay rows do not discriminate:** settled highs 09-06 = 22 (max at 13h), 09-21 = 15 (00:00 ties
+  14-17h), 09-26 = 23 (14-15h); all reconcile with the Polymarket outcome under either reading.
+- **Discriminating days:** of Toronto raw days 2025-01-01..2026-09-29, 23 had the maximum only at 00:00; 2 have
+  settlement rows. 2026-06-14: 24 with midnight, 23 without; resolved 24. 2026-08-02: 24 with, 22 without; resolved 24.
+- **Independence:** our `settlement_high` comes from `daily_summary` and would agree by construction; the Polymarket
+  closed-market winner is the independent check: **with-midnight 2, without 0.**
+- **Consequence:** an observed hour-0 same-day high is consistent with venue settlement as a floor, on n = 2 with no
+  counterexample. It is evidence for the owner's hedge-vs-floor decision on item 337, not a decision; the host
+  `--with-no-metar-arm` replay over 2026-08-25..09-29 is still open.
+
 ## Related
 
 - [FINDINGS_DIGEST.md](FINDINGS_DIGEST.md) — the one-screen digest of this file; read it first

@@ -28,13 +28,26 @@ Findings so far (workstation code trace at 91bf07863; host read of the three row
   converted to local and filtered to the target date (`model_sources.py:2410-2427`). It is not the prior-day keying
   defect #189 fixed for METAR.
 - The replay's `below_floor_viol` does not test these rows (it checks only rows where the v4 floor is set).
+- **Host read, 2026-10-13 (master; pre-embargo reads only): WU counts the 00:00 observation.** CYYZ raw WU day files
+  hold 24 observations, 00:00-23:00 local. Settled highs: 09-06 = 22 (max at 13h), 09-21 = 15 (the 00:00 reading ties
+  the 14-17h readings), 09-26 = 23 (14-15h). All three reconcile with the Polymarket outcome, but none of them separates
+  "midnight counts" from "midnight does not count". A scan of Toronto raw days 2025-01-01..2026-09-29 found 23 days on
+  which only the 00:00 observation held the maximum; 2 have settlement rows, and on both the venue resolved the
+  with-midnight band (2026-06-14: 24 with midnight, 23 without, resolved 24; 2026-08-02: 24 with, 22 without, resolved
+  24). Our `settlement_high` is read from `daily_summary`, so it is circular; the independent check is the Polymarket
+  closed-market winner: with-midnight 2, without 0. **n = 2, no counterexample.** So a floor at an observed hour-0 high
+  is consistent with venue settlement on the evidence so far; it is not proof. EF §10r.
 
 Acceptance:
 
-- [ ] Host read: WU settled high for Toronto on 2026-09-06, 09-21 and 09-26 against anchor buckets 19, 15 and 14, and
+- [x] Host read: WU settled high for Toronto on 2026-09-06, 09-21 and 09-26 against anchor buckets 19, 15 and 14, and
   whether WU's day-D history includes the 12:00 AM observation (decides whether the residual could ever settle).
+  Done 2026-10-13: WU includes 00:00; see the host-read finding above (n = 2 discriminating days).
 - [ ] Owner decision: keep the hedge on the no-METAR path, or floor at the observed SWOB/WU-current same-day high
-  (this would reverse the "SWOB keeps its warm-bias hedge" choice made for v4).
+  (this would reverse the "SWOB keeps its warm-bias hedge" choice made for v4). The host read leans toward the floor;
+  the call stays the owner's.
+- [ ] Host `lockin_anchor_replay --with-no-metar-arm` over 2026-08-25..09-29 (all markets) on the draft branch
+  `claude/no-metar-floor-20261013`; earliest 2026-10-15 02:00-04:00 under the heavy lease.
 - [ ] If flooring: a reviewed change with a model-version bump, a replay over the same window showing zero
   below-anchor mass on no-METAR rows and no other change, and the release-binding steps.
 
