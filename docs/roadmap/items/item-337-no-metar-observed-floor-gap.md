@@ -46,10 +46,11 @@ Draft build (2026-10-13, branch `claude/no-metar-floor-20261013`, not landed; ow
   the model-version bump and release-binding steps above.
 - `lockin_anchor_replay --with-no-metar-arm` replays the switch next to the served arm and exits 3 when a no-METAR row
   keeps mass below the anchor or any other row changes.
-- Workstation validation on local captures only (Toronto 2026-06-03..08-12, 77 folders, 11,168 snapshots; Atlanta
-  07-20..08-12 as a collateral check). Toronto had 836 no-METAR rows on 41 dates. With the switch on, 0 of them kept
-  mass below the anchor: 520 were floored by the new stage and 316 were already floored late-day. 492 changed
-  (max L1 0.397). 0 rows changed anywhere else, and Atlanta had no no-METAR rows and no change. Under the served code
+- Workstation validation on local captures only (Toronto 2026-06-03..08-12, 77 folders, 11,168 snapshots; Miami and
+  NYC, 4,924 snapshots, as a collateral check). Toronto had 836 no-METAR rows on 41 dates. With the switch on, 0 of
+  them kept mass below the anchor: 520 were floored by the new stage and 316 were already floored late-day. 492
+  changed (max L1 0.397). 0 rows changed anywhere else (Toronto's 10,332 METAR rows, and Miami and NYC, which had no
+  no-METAR rows). Under the served code
   182 of those Toronto rows kept mass below the anchor (max 0.199), far more than the three B-replay rows. 50 of the
   changed rows are hour 0, so the open WU 12:00 AM question decides whether the switch is safe.
 - Still needed: the host read above, and the same arm over the B window (2026-08-25..09-29) on the capture host.
