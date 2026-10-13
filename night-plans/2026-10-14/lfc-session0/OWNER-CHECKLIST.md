@@ -53,6 +53,7 @@ Fixed dates (owner, 2026-10-12 19:35 EDT): session 0 on **Tue 10-14 from 11:00 E
 | E7 | ~13:10 | owner, **MANUAL TRADING PAUSED** | **0g** (always last): from before `preflight --run 0g` until the result is read, place and cancel nothing anywhere. Run `Wait-ReaderQuiet 125` at `go`. Pass: `venue_deadman_cancelled`. `venue_deadman_not_observed` is a **permanent halt**. | §6 0g |
 | F1 | after 0g | owner | `verify`, `wallet-verify`, then the final `baseline --label t40` and `Compare-T40ToStart` (PASS, otherwise STOP and report). | §7 |
 | F2 | right after F1 | **OWNER ONLY** | `Save-OwnerSnapshot after-session0`. **The no-trade window closes here.** | §4, §7 |
+| F2a | right after F2, only if session 1 is on 10-15 | **OWNER ONLY** | Session-1 t24: `Save-OwnerSnapshot t24`, then `baseline --label t24` (PASS, `open_orders: 0`). Session 1 must then start 20-30 h after this baseline (`baseline_t24_age`), so pick the time to fit the 10-15 slot; the 10-13 t24 is too old. Open orders must be 0 when you take it. | §4, decision log 2026-10-13 |
 | F3 | right after F2 | owner | `session0-attest --s0-2-seconds <S> --s0-2-helper-zero-utc <0c helper_zero_utc>`. Compute the gap first, then type `attest session0 <6 hex>`. Then `verify`. | §8 |
 | F4 | right after F3 | owner | One message to master with the §8 "Send to master" list. Never send raw positions, balances, addresses or snapshot files. | §8 |
 | F5 | 19:50 (23:50Z) | n/a | **Hard stop.** Any run that is not done by then is not done; session 0 cannot be run after 20:00 EDT. | §1 |
