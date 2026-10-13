@@ -4,6 +4,7 @@ The bundles are ``fixtures.panel_v02`` fictional v0.2 days on the real calibrati
 """
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timezone
 import itertools
 
@@ -139,3 +140,42 @@ def test_ceiling_input_refuses_an_incomplete_or_foreign_document(per_date):
     with pytest.raises(BundleError, match="incomplete_ceiling_measurement"):
         rehearsal.ceiling_input(dict(doc, measured=measured))
     assert set(rehearsal.ceiling_input(doc)) == set(ceilings.MEASURED)
+
+
+def test_an_undeclared_source_refuses_before_the_relabel(calibration, monkeypatch):
+    # Defender D3.2 / m06: the relabel to ``synthetic`` is only for declared sources. A synthetic, undeclared
+    # source (every envelope active) would otherwise run through the whole pipeline unrefused.
+    from maker_core.replay.v2 import intervals
+    _, paths, inventory = calibration
+    day = CALIBRATION_DATES[0]
+    real = intervals.sources
+
+    def undeclared(*args, **kwargs):
+        declared, rest = real(*args, **kwargs)
+        return [replace(s, plan=replace(s.plan, provenance="synthetic", declared=False)) for s in declared], rest
+
+    monkeypatch.setattr(intervals, "sources", undeclared)
+    with pytest.raises(BundleError, match="rehearsal_requires_declared_intervals"):
+        rehearse([paths[day]], inventory([day]), "per_date")
+
+
+def test_a_record_count_that_disagrees_with_the_replay_refuses(calibration, monkeypatch):
+    # Defender D3.2 / m11: records-by-kind must count every replayed record; a count that skips one refuses.
+    _, paths, inventory = calibration
+    day = CALIBRATION_DATES[0]
+    real = rehearsal._counting
+
+    def skipping(source, counts, done):
+        counted = real(source, counts, done)
+
+        def records():
+            first = source.plan.day not in done
+            for i, record in enumerate(counted.records()):
+                if first and i == 0:
+                    counts[record.kind] -= 1  # one record goes uncounted
+                yield record
+        return replace(counted, records=records)
+
+    monkeypatch.setattr(rehearsal, "_counting", skipping)
+    with pytest.raises(BundleError, match="rehearsal_record_count_mismatch"):
+        rehearse([paths[day]], inventory([day]), "per_date")
