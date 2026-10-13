@@ -66,7 +66,7 @@ ANY = object()  # a free-form leaf (a value, or a mapping whose keys are data su
 WHITELIST = {
     "format": ANY, "mode": ANY, "dates": ANY, "hazard_variant": ANY, "calibration_sha256": ANY,
     "after_fail_sha256": ANY, "measured_at": ANY, "interpretation": ANY, "report_status": ANY, "replicates": ANY,
-    "hazard_per_minute": ANY, "hazard_map_sha256": ANY,
+    "hazard_per_minute": ANY, "hazard_map_sha256": ANY, "inventory_sha256": ANY,
     "measured": {**{k: ANY for k in MEASURED_KEYS}, "records_by_kind": ANY},
     "hashes": {"input_hashes": ANY, "report_sha256": ANY, "sidecar_sha256": ANY, "decision_sha256": ANY},
     "reachability": {**{k: ANY for k in REACHABILITY_KEYS}, "decision_reasons": ANY, "quoted_fraction": ANY},
@@ -232,6 +232,7 @@ def rehearse(paths, inventory, *, mode, hazard_per_minute, calibration_sha256, h
         format=FORMAT, mode=mode, dates=[d.isoformat() for d in days], hazard_variant=hazard_variant,
         calibration_sha256=calibration_sha256, hazard_per_minute=hazard_per_minute,
         hazard_map_sha256=None if hazard_map is None else digest(sorted(hazard_map.items())),
+        inventory_sha256=digest(list(inventory)),
         measured_at=now.isoformat(), interpretation=INTERPRETATION,
         report_status=status, replicates=replicates, measured=measured,
         hashes=dict(input_hashes={b.day.isoformat(): dict(b.input_hashes) for b in bundles},

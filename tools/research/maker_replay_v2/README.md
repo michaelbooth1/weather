@@ -132,3 +132,16 @@ in those 20 s. The A8 fixtures show zero quote, fill and cash deltas; the value 
 on the hand-built engine tests in that module, not on these fixtures. The module's `__main__` writes both `rulings` (A1-A6 against `frozen`) and
 `q2_against_all`. `frozen` and the other variants run with the blind gate off, so the pinned prefix digests are
 unchanged.
+
+Calibration rehearsal subcommands (registration draft §9-§11, U5) are in `rehearse_cli.py`, reached through
+`run.py` (the admitted entry), one per fresh process through the workstation wrapper, calibration dates
+2026-09-27..29 only (every bundle path is checked by name before a byte is read):
+
+1. `rehearsal-inventory --bundle B [...]`: the universe inventory for exactly the rehearsed dates (one date, or the
+   three for the carried run). Produce it per rehearsal, in its own process.
+2. `rehearse --mode per_date|carried --bundle B [...] --inventory I --calibration C [--hazard-variant r1_per_city]`:
+   one score-free rehearsal (`maker_core.replay.v2.rehearsal`). The carried run adds the §11 reachability block.
+3. `derive --per-date A B C --carried D`: the §9 ceilings and gate E5.
+4. `gate-report --per-date A B C --carried D --repeat-rehearsal E [--r1 F] [--e1 G] [--e3 H] [--e8 I]`: §10 E1-E8
+   and §11 (`maker_core.replay.v2.reachability.gate_report`); E1/E3/E8 evidence is supplied as JSON
+   `{"status", "evidence"}` and reads NOT_SUPPLIED until given.

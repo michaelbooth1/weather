@@ -14,7 +14,9 @@ mismatch is refused. S2 (W2) writes a fictional sealed 88a capture day (``s2-inp
 night export of it per process (``s2``: the v0.2 exporter, or the frozen v0.1 one as the baseline) and
 reports the peak, the peak per exporter phase, the in-memory accumulators, and bytes and records per
 kind. ``books`` measures book record bytes against levels a side. S3/S5/S7/S8/S9 (W3-W5) are
-reached through this entry point too; their usage is in ``bench.py``. Output goes only under
+reached through this entry point too; their usage is in ``bench.py``. The §9-§11 calibration rehearsal
+subcommands (``rehearsal-inventory``, ``rehearse``, ``derive``, ``gate-report``; U5) are in ``rehearse_cli.py``.
+Output goes only under
 ``--out``. Engineering plan:
 docs/research/maker-replay-v2-engineering-plan-DRAFT.md. Heavy work: run it through
 ``scripts/ops/workstation_heavy.ps1`` (``weather_heavy``), serially.
@@ -34,7 +36,7 @@ from maker_core.replay.bundle import (FORMAT, HOST_MAX_BYTES, HOST_MAX_RECORDS, 
                                       Limits, sha256)
 from maker_core.replay.bundle_v02 import FORMAT_V02, open_stream_bundle
 from maker_core.replay.v2.compaction import Compactor, elide, expand, stream_digest
-from tools.research.maker_replay_v2 import bench
+from tools.research.maker_replay_v2 import bench, rehearse_cli
 from tools.research.maker_replay_v2.fixture170 import Day
 
 DAY = date(2026, 9, 27)  # a fictional day; nothing captured is read
@@ -180,7 +182,8 @@ def s6(args):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument("measurement", choices=("s1", "s6", "s2-input", "s2", "books", *bench.MEASUREMENTS))
+    parser.add_argument("measurement", choices=("s1", "s6", "s2-input", "s2", "books", *bench.MEASUREMENTS,
+                                                *rehearse_cli.SUBCOMMANDS))
     parser.add_argument("--out", type=Path, required=True, help="new directory for the fictional bundles")
     parser.add_argument("--trades", type=int, default=2000)
     parser.add_argument("--union", type=int, default=170)
@@ -193,13 +196,16 @@ def main(argv=None):
     # S3/S5/S7/S8/S9 (W3-W5): tools/research/maker_replay_v2/bench.py. It owns --minutes (default None, filled
     # per measurement by bench.DEFAULTS); s2-input and books fill their own default below.
     bench.add_arguments(parser)
+    rehearse_cli.add_arguments(parser)  # U5: the calibration rehearsal subcommands
     args = parser.parse_args(argv)
     if args.measurement == "s2" and args.input is None:
         parser.error("s2 needs --input")
     if args.out.exists():
         parser.error("--out must be a new directory")
     args.out.mkdir(parents=True)
-    if args.measurement in bench.MEASUREMENTS:
+    if args.measurement in rehearse_cli.SUBCOMMANDS:
+        result = rehearse_cli.run(args.measurement, args)
+    elif args.measurement in bench.MEASUREMENTS:
         result = bench.run(args.measurement, args)
     elif args.measurement in ("s1", "s6"):
         result = (s1 if args.measurement == "s1" else s6)(args)
