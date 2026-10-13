@@ -23,7 +23,7 @@ from weather.schema_registry import schema_version
 
 TARGET = date(2026, 6, 18)
 CAPTURED = datetime(2026, 6, 18, 14, 0, tzinfo=timezone.utc)
-SLUG = "highest-temperature-in-new-york-city-on-june-18-2026"
+SLUG = "highest-temperature-in-nyc-on-june-18-2026"
 
 
 class FakeFahrenheitClient:
@@ -69,8 +69,8 @@ def _nbm_item(**overrides):
         "valid_time_utc": "2026-06-19T00:00:00+00:00",
         "mean_native": 81.4,
         "stddev_native": 2.2,
+        "parser_version": "nbm-probabilistic-tmax-parser-v2",
         FETCH_META_KEY: {
-            "parser_version": "nbm-probabilistic-tmax-parser-v2",
             "response_received_at": "2026-06-18T08:10:00+00:00",
             "cache_status": "fresh",
             "stale": False,
@@ -317,10 +317,9 @@ class TestNoOutcomeJoin(unittest.TestCase):
     def test_stage_and_tape_modules_import_no_outcome_loader(self):
         for path in self.STAGE_MODULES:
             for name in _weather_imports(path):
-                module = name if name in _ALLOWED_WEATHER_IMPORTS else name.rsplit(".", 1)[0]
-                self.assertIn(
-                    module,
-                    _ALLOWED_WEATHER_IMPORTS | {"weather.model", "weather.collection"},
+                allowed = name in _ALLOWED_WEATHER_IMPORTS or name.rsplit(".", 1)[0] in _ALLOWED_WEATHER_IMPORTS
+                self.assertTrue(
+                    allowed or name == "weather.model",
                     f"{path.name} imports {name}",
                 )
                 self.assertFalse(

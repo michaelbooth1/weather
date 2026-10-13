@@ -1,4 +1,7 @@
-"""MG-1 shadow stage ``nbm_v2_guidance_read_v1``: rule, eligibility and frozen constants."""
+"""MG-1 shadow stage ``nbm_v2_guidance_read_v1``: rule, eligibility and frozen constants.
+
+Guards: MG-1 pre-registration §1 (signed b044e0f1) and item 190 owner Q1 (2026-10-08).
+"""
 
 from __future__ import annotations
 
