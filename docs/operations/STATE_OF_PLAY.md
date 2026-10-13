@@ -55,16 +55,16 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 - **Build line** `codex/maker-replay-v2-build-20261003` = `1fd0c295f` (W1/W2/F3, T1-T3, Q2 #269, F4; owner-approved); the
   export nightly stays unregistered until a separate owner yes (>= 10-16).
 - **Maker replay v2** (panel UTC 09-30..10-14 never read): spec v3.4 is the frozen oracle basis; handout r1 signed 10-12
-  (H-11 r2, erratum 1, H-12 r1, I-1..I-8); fresh oracle author on the host. Signature ~10-18..20, target stays 10-22..23;
+  (H-11 r2, erratum 1, H-12 r1, I-1..I-8); fresh oracle author on the host. Signature target 10-22..23;
   look by 11-15. Lapse date moves out of 10-23 (owner 10-13): **PROPOSED 10-30, owner to confirm**; §13 not yet amended.
-- **Model:** MG-1 `b044e0f1` (scored >= 10-15) needs #190; owner cleared 10-18: #190 first, then the stage, after roll verdict + parity re-run (#162 not asked).
+- **Model:** MG-1 `b044e0f1` (scored >= 10-15) needs #190; owner cleared 10-18: #190 first, then stage, after roll verdict + parity re-run (#162 not asked).
 - **Live seals** must be RESEALED before any sealed-lane attempt (#229); the LFC re1 lane consumes none. C3 rehearsal deferred.
 - **Pinned deployments:** watchdog `1794fd3b`, cold snapshot (91a `6e5ff47`), exam U6 `89618c30`; paths in the task actions.
 - **88a retention hold:** keep UTC 09-27..10-15 (v2) and 10-15..10-30 (desk-study panel); lossless compression ok.
 
 ## Ordered critical path
 
-1. **Maker replay v2 (T1):** oracle author on handout r1; P1-P4 on calibration dates only; gates; signature ~10-18..20.
+1. **Maker replay v2 (T1):** oracle author on handout r1; P1-P4 on calibration dates only; gates; signature target 10-22..23.
 2. **N9, 10-14 01:00-04:00:** RS `claude/integration-20261014-n9-rs-r2` `dae4c96da` (DST-M2); RF stacked `...-n9-rf-r2`
    `48becd401` (I-6 wrapper); oc `...-n9-oc` `051d8aa64` (roll-free, after rf or rf-alone); fallback `...-n9-rf-alone-r2` `f870a759d`.
 3. **Host Python:** A' 10-14 07:00; §T + T-R 10-15; B 10-16; cutover C 00:30 10-17.
