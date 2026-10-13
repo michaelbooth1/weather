@@ -44,14 +44,23 @@ folders), `<SOURCES>` (the frozen spec sources the cut reads), `<CUT_DIR>` (the 
    the test results and the hand-back need it),
    then `icacls <CUT_DIR>\oracle-repo /grant "<AUTHOR>:(OI)(CI)M"`. The author reads `handout\` and the cut's
    top-level files and modifies only `oracle-repo\` (it commits there) and the exchange folders of step 8.
-5. **Deny.** For each of `<PROD_CLONE>`, `<WORKTREES>`, `<LDATA>`, `<SOURCES>`, the operator profile and every other
-   user profile: `icacls <path> /deny "<AUTHOR>:(OI)(CI)RX"`. Deny entries are added, never replacing the existing
-   ACL, so the capture workers' access is unchanged. Record the exact list.
+5. **Deny.** Profiles are asserted, not deny-ACLed (master agent, 2026-10-12): every profile root under `C:\Users`
+   must grant no allow entry to Users, Authenticated Users, Everyone or INTERACTIVE, and neither may `<PROD_CLONE>`,
+   its `.git`, `data`, `src`, `venv` or `config`; any such grant stops the setup for the master agent's call. For each
+   non-profile root (`<WORKTREES>`, `<LDATA>`, `<SOURCES>` and every other top-level folder the master agent lists,
+   unless recorded as allowed with a reason): `icacls <path> /deny "<AUTHOR>:(OI)(CI)RX"`. Deny entries are added,
+   never replacing the existing ACL, so the capture workers' access is unchanged. Record the exact list; the owner
+   signs it (I-3).
 6. **Scheduler.** The author account gets no scheduled task and no logon-as-batch right; nothing the Scheduler or the
    S4U guard runs is started under it.
 7. **Harness.** Install or point the agent harness for `<AUTHOR>` (ruling I-5) with no stored repository credential,
    no MCP connector, web search and web fetch disabled, and shell commands sandboxed without network where the
-   harness supports it (ruling I-4). The cut is owned by `<OPERATOR>`, so git refuses it to `<AUTHOR>` as dubious
+   harness supports it (ruling I-4; Claude Code's shell sandbox is not available on native Windows, so this is
+   recorded and the residual stays disclosed, §6). Permission mode (ruling I-8): `acceptEdits`, with deny rules for
+   `WebFetch`, `WebSearch` and `mcp__*`, bypass mode disabled, and a Bash allow-list of `git status`, `git diff`,
+   `git log`, `git add`, `git commit`, `git switch`, `git checkout -b` and `git bundle create` only; every other
+   command prompts the owner at the machine. Claude Code cannot confine shell commands to a directory, so the NTFS
+   rights of steps 4-5 remain the boundary. The cut is owned by `<OPERATOR>`, so git refuses it to `<AUTHOR>` as dubious
    ownership: add exactly `<CUT_DIR>/oracle-repo` to the author's global `safe.directory`, nothing broader.
 8. **Exchange folders (H-12 r1), after the §3 verify row.** Create `<CUT_DIR>\questions`, `test-requests`,
    `test-results` and `handback`, then `icacls <CUT_DIR>\<folder> /grant "<AUTHOR>:(OI)(CI)M"` for `questions`,
@@ -68,7 +77,8 @@ folders), `<SOURCES>` (the frozen spec sources the cut reads), `<CUT_DIR>` (the 
 | `cmdkey /list`; `git config --global --list` | no stored credential; no credential helper |
 | `git -C <CUT_DIR>\oracle-repo remote -v`; `for-each-ref`; `rev-list --all --count`; `.git\objects\info\alternates` absent | no remote, one ref, one commit, no alternates |
 | `python tools/research/maker_replay_v2_h1_cut.py verify --out <CUT_DIR> --binding <MANIFEST_SHA256>` run from a copy outside the cut, or the master agent's own verify re-run after the ACL change | exit 0 (the ACL change did not alter a byte) |
-| Egress (I-4) | the harness's network sandbox refuses a request to the public repository host; web tools absent |
+| Egress (I-4) | web tools denied and no MCP server listed; the shell sandbox, where supported, refuses a request to the public repository host (on native Windows it is unsupported: record reachability, disclosed under §6) |
+| Permission mode (I-8) | `/permissions` shows the I-8 deny and allow rules; bypass mode disabled |
 
 Any unexpected result stops the session; the master agent fixes and re-runs every check.
 
@@ -114,3 +124,4 @@ this runbook). Whatever is ruled is disclosed with the oracle PR.
 | I-5 | Which harness and model the author runs | A fresh Claude Code session, web tools off; the owner accepts the shared-model limit on independence, disclosed in the oracle PR and in §4 |
 | I-6 | How the author's tests take the workload lease | Quick unit tests only, in `<CUT_DIR>`, 00:30-09:00, through a master-run wrapper holding the lease; heavier tests after hand-back |
 | I-7 | Where the cut directory and transcript are archived, and for how long | Cut folder plus full transcript, read-only, outside every clone, kept until the cohort receipt is signed, with the N1 audit result beside it |
+| I-8 | The author session's permission mode (owner, 2026-10-12 ~21:30) | `acceptEdits` plus a git-only Bash allow-list (status, diff, log, add, commit, switch, checkout -b, bundle create); deny `WebFetch`, `WebSearch`, `mcp__*`; bypass disabled; every other command prompts the owner (§2 step 7) |
