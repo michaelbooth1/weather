@@ -4,6 +4,8 @@ Every test journals through the production ``EvidenceStore`` in a temporary
 root.  The live tests run a real websocket server on localhost and connect the
 production ``BoundedWebSocket`` to it, so opcodes, PING/PONG and close frames
 cross a real socket.
+
+Guards: docs/operations/passive-maker-evidence-capture.md 88a stream reader/writer split and make-before-break (#177)
 """
 import base64
 import contextlib

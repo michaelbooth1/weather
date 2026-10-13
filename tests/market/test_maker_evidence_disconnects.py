@@ -1,4 +1,7 @@
-"""88a stream drops are classified from journals written by the production store and stream."""
+"""88a stream drops are classified from journals written by the production store and stream.
+
+Guards: docs/operations/passive-maker-evidence-capture.md 88a disconnect report (#177, DL 2026-10-04 row 109)
+"""
 from datetime import datetime, timedelta, timezone
 
 import pytest
