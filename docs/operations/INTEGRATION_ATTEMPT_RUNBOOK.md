@@ -201,6 +201,27 @@ Registration holds the attempt terminal mutex from its closure/reconciliation
 check through intent, Scheduler mutation, receipt, and final readback. Suite and
 merge entry also refuse an attempt that already has either terminal receipt.
 
+## Generate the night's commands
+
+`python -m weather.operations.night_sequencer --plan <landing-night-plan.json> --out-dir <dir>
+[--expect-plan-sha256 <sha>] [--preflight-receipt <label>=<path>]` reads only the hashed
+`landing_night_plan_v0.1` (refused on a hash mismatch) and writes three files.
+
+- `sequencer-<night>.ps1`. Run it from the production root once per unit:
+  `-Unit <label> -WorktreeParent <dir> -GitExecutablePath <reviewed git.exe> [-Attempt <n>] [-Execute]`.
+  It checks the following, in order:
+  - the exact tip, and `master` equal to `origin/master`;
+  - the unit's stacked base has landed, and `master` is an ancestor of the tip (otherwise rebuild and re-pregate);
+  - no running `WeatherIntegration*` task, and the lease is free;
+  - the binding `roll_verdict.ps1` (a plan that said roll-free, but whose binding verdict is not roll-free, stops);
+  - the windows: suite three to four minutes after now and not before 00:30, merge at max(suite + 30 min, 01:00), and nothing past 03:40.
+
+  It prints `SEQUENCER ... VERDICT=READY|WAIT|STOP|STOP_FOR_NIGHT|DONE|CREATED`, with exit 0, 3 (wait) or 4.
+  With `-Execute` it adds the detached worktree and runs `new_integration_attempt.ps1`.
+  It **never** registers: it prints the `register_integration_attempt.ps1` command for the operator-authorised step above.
+- `timetable-<night>.md` lists the order and the gates, with a serial estimate. Attempts are serial because each one freezes the production baseline.
+- `queue-<night>.draft.json` is an unsigned M6 queue draft. Every entry has `approved: false`, and only the owner approves and signs it.
+
 ## Early launch diagnostics
 
 The suite wrapper writes a create-once

@@ -67,6 +67,7 @@ EXPECTED_SHARDS = {
             "tests/operations/test_guidance_all_hours_admission.py",
             "tests/operations/test_ps_script_root_param_defaults.py",
             "tests/operations/test_maker_shadow_ops_scripts.py",
+            "tests/operations/test_night_sequencer_script.py",
         ],
     ),
     "launch": (
