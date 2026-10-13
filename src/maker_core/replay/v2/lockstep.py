@@ -115,6 +115,24 @@ def bundle_source(bundle: Bundle) -> DaySource:
     return DaySource(plan, lambda: iter(bundle.records))
 
 
+def descriptor_source(bundle) -> DaySource:
+    """A v0.1 or v0.2 day's **descriptor records only**, for reading the horizon timeline that the declared active
+    intervals are derived from (``execution_manifest.active_intervals`` via ``horizon.timelines``; owner Q2(a)).
+
+    Intervals do not exist yet at that point, so a captured bundle cannot pass through ``bundle_source`` or
+    ``stream_source``. The plan is declared with **no windows**: ``DayRoll`` reads only the plan's day and
+    conditions, and should this source ever reach an engine, nothing on it is active (fail closed, A-defender M3)."""
+    groups = MappingProxyType({g.group_id: g.condition_ids for g in getattr(bundle, "coverage_groups", ())})
+    plan = DayPlan(bundle.day, bundle.conditions, MappingProxyType({}), groups, bundle.provenance,
+                   bundle.input_hashes, True)
+    records = bundle.records
+
+    def descriptors():
+        return (r for r in (records() if callable(records) else iter(records)) if r.kind == "descriptor")
+
+    return DaySource(plan, descriptors)
+
+
 def record_from_row(value) -> CapturedRecord | GroupRecord:
     """An exporter-shaped dict row as a reader record (fixtures and benchmarks; no hash re-check)."""
     kind = GroupRecord if "group_id" in value else CapturedRecord

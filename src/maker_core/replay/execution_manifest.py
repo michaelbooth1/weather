@@ -444,11 +444,11 @@ def active_intervals(bundles, inventory, *, check=lambda: None):
     exclusion row spans any 05:00-08:00 UTC minutes inside its run, and the maintenance split applies only to the
     eligible runs. The maintenance window stays declared by ``maintenance_utc`` and is not repeated here."""
     from maker_core.replay.v2 import horizon
-    from maker_core.replay.v2.lockstep import bundle_source
+    from maker_core.replay.v2.lockstep import descriptor_source
 
     by_id = _inventory(bundles, inventory, check=check)
     bundles = sorted(bundles, key=lambda b: b.day)
-    lines = horizon.timelines([bundle_source(b) for b in bundles], _zones(by_id))
+    lines = horizon.timelines([descriptor_source(b) for b in bundles], _zones(by_id))
     windows, excluded = [], []
     for bundle in bundles:
         start = datetime.combine(bundle.day, datetime.min.time(), tzinfo=timezone.utc)

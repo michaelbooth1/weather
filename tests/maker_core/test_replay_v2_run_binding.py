@@ -130,8 +130,9 @@ def enroll(monkeypatch):
 
 
 def scored(run):
-    """The same run relabelled as non-synthetic after binding (the binding is NOT recomputed)."""
-    days = tuple(replace(d, provenance="captured") for d in run.plan.days)
+    """The same run relabelled as non-synthetic (and declared, as a captured plan must be) after binding (the binding is
+    NOT recomputed)."""
+    days = tuple(replace(d, provenance="captured", declared=True) for d in run.plan.days)
     return replace(run, plan=replace(run.plan, days=days))
 
 
@@ -494,8 +495,15 @@ def test_the_execution_manifest_source_is_accepted_for_a_scored_report(tmp_path,
     with pytest.raises(BundleError, match="run_binding_pack_input_hashes_mismatch"):  # one quote day, not the pack
         build_report(run_passes(sources[:1], config, time_zones=zones), config, **scope,
                      manifest=verified, registered=registry)
-    with pytest.raises(BundleError, match="run_binding_pack_windows_mismatch"):  # defender-2 P2: envelope windows
-        build_report(run_passes(sources_of(bundles), config, time_zones=zones), config, **scope,
+    # Defender-2 P2: envelope windows. An undeclared captured day is refused when its plan is built (U1 Defender
+    # MF2, ``DayPlan.__post_init__``); the envelope *declared* as intervals still reaches the scope check and refuses.
+    with pytest.raises(BundleError, match="captured_bundle_requires_declared_intervals"):
+        sources_of(bundles)
+    envelope = [replace(b, active_intervals=tuple((c.condition_id, c.active_from, c.active_until)
+                                                  for c in b.conditions)) for b in bundles]
+    assert apply_manifest(verified, bundles) != tuple(envelope)
+    with pytest.raises(BundleError, match="run_binding_pack_windows_mismatch"):
+        build_report(run_passes(sources_of(envelope), config, time_zones=zones), config, **scope,
                      manifest=verified, registered=registry)
     # Defender-2 P1: the declared pack with its terms, info and outcome-view records dropped in memory, under the
     # honest labels (day, provenance, input hashes): the records replayed are not the manifest's.
@@ -929,9 +937,9 @@ def test_a_scored_run_whose_windows_are_not_the_manifest_intervals_is_refused():
     zones, bound = pack()
     manifest = bound["manifest"]
     envelope = day_source(DAY, "captured")
-    envelope = replace(envelope, plan=replace(envelope.plan, declared=False))
-    with pytest.raises(BundleError, match="run_binding_pack_windows_mismatch"):
-        build_report(run_passes([envelope], CONFIG, time_zones=zones), CONFIG, replicates=100, **bound)
+    # the envelope undeclared: refused when the plan is built (U1 Defender MF2), before any run or report
+    with pytest.raises(BundleError, match="captured_bundle_requires_declared_intervals"):
+        replace(envelope, plan=replace(envelope.plan, declared=False))
     run = small_run(zones, "captured")
     first = manifest["active_intervals"][0]
     shortened = dict(first, end=(datetime.fromisoformat(first["end"]) - timedelta(minutes=1)).isoformat())

@@ -28,7 +28,7 @@ from maker_core.replay.v2.kernel import V2Config
 from maker_core.replay.v2.pipeline import run_passes
 from maker_core.replay.v2.pull import candidate_minutes, windows_by_condition
 from maker_core.replay.v2.report import build_report
-from .fixtures.panel_v02 import AUSTIN_TARGET, PANEL_DAYS, Panel, cid_of
+from .fixtures.panel_v02 import AUSTIN_TARGET, PANEL_DAYS, ZONES, Panel, cid_of
 
 UTC = timezone.utc
 AUSTIN_DATES = tuple(date(2026, 10, d) for d in (1, 2, 3, 4))
@@ -41,6 +41,13 @@ def at(day, hour, minute=0):
 
 def iso(value):
     return value.isoformat()
+
+
+def fixture_only(sources):
+    """The same declared sources labelled synthetic, so ``build_report`` composes a FIXTURE_ONLY report."""
+    from dataclasses import replace
+    assert all(s.plan.declared for s in sources)
+    return [replace(s, plan=replace(s.plan, provenance="synthetic")) for s in sources]
 
 
 def write(tmp_path, fixture, days, *, provenance="synthetic", name="b"):
@@ -168,7 +175,9 @@ def test_excluded_market_date_is_never_scored(tmp_path, monkeypatch):
     config = V2Config(hazard_per_minute=.001, keep=True)
     derived, evaluation = intervals.sources(bundles, fixture.inventory(days), panel="registered")
     assert evaluation.windows == windows
-    run = run_passes(derived, config)
+    # The scored-report path needs an execution manifest (build line R155); this comparison is about exclusion,
+    # so both runs are relabelled fixture-only (declared windows kept) before they are bound.
+    run = run_passes(fixture_only(derived), config, time_zones=ZONES)
     assert set(names) == {"descriptor.jsonl"}  # scoring reads through records(), not the descriptor helper
     scored_somewhere = False
     for bound, passes in run.passes.items():
@@ -191,7 +200,7 @@ def test_excluded_market_date_is_never_scored(tmp_path, monkeypatch):
     twin_bundles = write(tmp_path, twin, days, provenance="captured", name="deleted")
     # the twin has no Austin 10-03 rows, so it cannot pass the registered rule; it gets the same windows directly
     twin_sources = [lockstep.stream_source(b, intervals.windows_for(windows, b.day)) for b in twin_bundles]
-    twin_report, _ = build_report(run_passes(twin_sources, config), config, replicates=100)
+    twin_report, _ = build_report(run_passes(fixture_only(twin_sources), config, time_zones=ZONES), config, replicates=100)
     for bound in report["bounds"]:
         mine, theirs = report["bounds"][bound], twin_report["bounds"][bound]
         for key in ("band_days", "scores", "intervals", "quote_presence"):
@@ -229,7 +238,7 @@ def test_settlement_only_dates_have_no_windows_and_settlements_are_consumed(regi
     full = write(tmp_path, fixture, days, provenance="captured")
     derived, evaluation = intervals.sources(full, fixture.inventory(days), panel="registered")
     assert {w["date"] for w in evaluation.windows} == {"2026-10-13"}
-    run = run_passes(derived, V2Config(hazard_per_minute=.001))
+    run = run_passes(derived, V2Config(hazard_per_minute=.001), time_zones=ZONES)
     settled = run.passes["strictly_through"]["no_quote"].engine.settlements
     assert {cid for cid in settled} >= {cid_of("toronto", date(2026, 10, 13), 0),
                                         cid_of("toronto", date(2026, 10, 14), 0)}
@@ -407,6 +416,19 @@ def test_captured_bundle_requires_declared_intervals(tmp_path):
     assert not lockstep.stream_source(synthetic).plan.declared
 
 
+def test_descriptor_source_reads_descriptors_only_and_activates_nothing(tmp_path):
+    """The horizon reader for ``execution_manifest.active_intervals`` (owner Q2(a)): a captured day before any
+    interval is declared. Its plan is declared with no windows, so it can never make an envelope active."""
+    fixture = Panel(markets=("toronto",), bands=1, step=60, full=True, capture_minutes=range(0, 120))
+    captured = write(tmp_path, fixture, (date(2026, 10, 7),), provenance="captured", name="c")[0]
+    source = lockstep.descriptor_source(captured)
+    assert source.plan.declared and dict(source.plan.windows) == {} and source.plan.provenance == "captured"
+    kinds = [r.kind for r in source.records()]
+    assert kinds and set(kinds) == {"descriptor"}
+    assert len(kinds) == sum(1 for r in captured.records() if r.kind == "descriptor")
+    assert [r.kind for r in source.records()] == kinds  # a fresh iterator per call
+
+
 def test_sources_refuse_a_bundle_without_a_descriptor_stream(tmp_path):
     day = date(2026, 10, 7)
     fixture = Panel(markets=("toronto",), bands=1, step=60, full=True, capture_minutes=range(0, 120))
@@ -426,8 +448,13 @@ def test_only_the_sanctioned_modules_name_the_raw_source_constructors():
     root = V2.parents[3]
     allowed = {"src/maker_core/replay/v2/lockstep.py", "src/maker_core/replay/v2/intervals.py",
                "src/maker_core/replay/v2/manifest.py",  # U4's build/apply_manifest (U1 Defender r2 section 4)
+               # the build line's manifest module: ``windows_of`` checks a scored plan against the manifest
+               # (``_scope_windows``) and ``descriptor_source`` reads the horizon timeline (owner Q2(a))
+               "src/maker_core/replay/execution_manifest.py",
+               # research only: re-cuts already-built plans by the horizon clause, keeping each plan's ``declared``
+               "tools/research/maker_replay_v2/attribution.py",
                "tools/research/maker_replay_v2/sources.py"}
-    raw = re.compile(r"\b(stream_source|bundle_source|DayPlan|windows_of)\b")
+    raw = re.compile(r"\b(stream_source|bundle_source|descriptor_source|DayPlan|windows_of)\b")
     offenders = []
     for path in sorted([*(root / "src").rglob("*.py"), *(root / "tools").rglob("*.py")]):
         tree = ast.parse(path.read_text(encoding="utf-8"))
