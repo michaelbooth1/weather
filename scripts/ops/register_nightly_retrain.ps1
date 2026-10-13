@@ -68,6 +68,16 @@ function Require-NonEmpty([string]$Value, [string]$Label) {
     return $Value.Trim()
 }
 
+function Assert-NightlyRetrainRunAtLocal {
+    # A one-shot at a nonexistent (spring-forward) or ambiguous (fall-back)
+    # local time is refused with the integration attempts' own guard (DST-L11).
+    # Dot-sourced inside this function so the contract's StrictMode and helpers
+    # stay out of the registrar's scope.
+    param([Parameter(Mandatory = $true)][datetime]$Value)
+    . (Join-Path $PSScriptRoot "integration_attempt_contract.ps1")
+    return Assert-WeatherIntegrationLocalScheduleTime -Value $Value -Label "RunAtLocal"
+}
+
 $runAt = [datetime]::MinValue
 if (-not [datetime]::TryParseExact(
         $RunAtLocal,
@@ -78,6 +88,7 @@ if (-not [datetime]::TryParseExact(
     )) {
     throw "RunAtLocal must use exact local yyyy-MM-ddTHH:mm:ss form."
 }
+$null = Assert-NightlyRetrainRunAtLocal -Value $runAt
 if ($runAt -le (Get-Date).AddMinutes(2)) {
     throw "RunAtLocal must be more than two minutes in the future."
 }
