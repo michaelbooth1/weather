@@ -110,18 +110,16 @@ Run the focused tests:
 .\venv\Scripts\python.exe -m pytest tests/reporting/test_worktrack.py -q
 ```
 
-After adding correspondence, commit the source file, then regenerate its index
-so the Git-added date is available (include both commits in the handback):
+After adding correspondence, commit only the source file: **branches never commit
+the regenerated correspondence index** (the closeout regenerates it after landings;
+[documentation maintenance](../documentation-maintenance.md) owns the rule). On a
+branch run `correspondence_index --check-structure`; a report without a row is
+pending. Drop conflicting index hunks with `git checkout origin/master --
+docs/roadmap/correspondence-index.md docs/roadmap/correspondence-index`.
 
-```powershell
-.\venv\Scripts\python.exe -m weather.reporting.roadmap.correspondence_index
-.\venv\Scripts\python.exe -m weather.reporting.roadmap.correspondence_index --check
-```
-
-`agent_docs_audit` includes both generators' read-only parity checks, audit-row
+`agent_docs_audit` runs the backlog parity and index structure checks, audit-row
 coverage, digest EF references, question ids/answer pointers and owner-decision
-dates. Full Git history is required for correspondence parity; a shallow clone
-fails explicitly. Workstation tests and the audit CLI test run through the
+dates. Full Git history is required; a shallow clone fails explicitly. Workstation tests and the audit CLI test run through the
 heavy wrapper described in [development](../development.md).
 
 ## Update this file when

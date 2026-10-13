@@ -3,7 +3,7 @@
 Status: canonical. Owns neutral account snapshots, campaign attribution, FIFO
 accounting, reconciliation and create-only portfolio records. Read when rebuilding
 campaign books from recorded wallet reads. This is reporting, never order or bleed
-enforcement. The [wallet reader](wallet-reader.md) owns LAN reads and credentials.
+enforcement; the [maker trading guard](maker-trading-guard.md) enforces from its books. The [wallet reader](wallet-reader.md) owns LAN reads and credentials.
 
 ## Boundaries and commands
 
@@ -125,7 +125,8 @@ Live marks use a two-sided midpoint only. Per-campaign equity is recorded capita
 plus cash flows and live/terminal values; P&L subtracts that campaign's capital.
 Bleed is P&L strictly below minus its optional loss limit. It never tests whole-wallet
 cash. Campaign cash can be negative when an owner lot consumes shared cash; this
-financing is visible and does not debit the weather campaign. Limits are report-only.
+financing is visible and does not debit the weather campaign. Limits are report-only
+here (`enforcement: report_only`); the [maker trading guard](maker-trading-guard.md) halts on them.
 
 The wallet compares actual cash with campaign cash plus the recorded reserve,
 and actual cash plus snapshot position values with campaign equity plus reserve.

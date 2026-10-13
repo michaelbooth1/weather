@@ -39,9 +39,32 @@ UNCHANGED_SECONDS = 2 * 86400
 CLUSTER_BYTES = 4096
 # The capture loops atomically replace their status files. An admission read
 # that lands inside a replace meets a delete-pending file (PermissionError) or,
-# through the tolerant loop reader, an unreadable row (BLOCK). One fresh complete
-# observation after a short pause decides; the admission criteria are unchanged.
-ADMISSION_RETRY_SECONDS = 0.25
+# through the tolerant loop reader, an unreadable row (BLOCK). 2026-10-03 and
+# 2026-10-06 failed on a second PermissionError 0.25 s after the first, and
+# 2026-10-04 on a transient capture_unhealthy read. So: quick retries with backoff,
+# then "admission unknown, wait" polling; the night fails closed only when the
+# capture status stays unreadable or BLOCKed for ADMISSION_SUSTAINED_SECONDS.
+# The admission criteria themselves are unchanged. A wait never crosses the child
+# deadline (it stops first), so the 120 s child stop reserve still holds.
+ADMISSION_RETRY_DELAYS = (0.25, 0.5, 1.0, 2.0)
+ADMISSION_WAIT_POLL_SECONDS = 5.0
+ADMISSION_SUSTAINED_SECONDS = 60.0
+# Across the whole night: a capture that flaps (mostly BLOCKed, briefly PASS) must
+# not keep the night limping along; once this much waiting is spent, fail closed.
+ADMISSION_NIGHT_WAIT_BUDGET_SECONDS = 300.0
+# Transient during a status replace or a loop restart: the delete-pending status
+# file (PermissionError), and the writer lock between its unlink and re-create
+# (FileNotFoundError) or between O_EXCL create and write (JSONDecodeError). The
+# plain ValueError of an over-bound read is never retried.
+TRANSIENT_ADMISSION_ERRORS = (PermissionError, FileNotFoundError, json.JSONDecodeError)
+# Owner decision 2026-10-05: the nightly runs 06:50-09:00 America/Toronto, after
+# the 04:45-06:45 tiering jobs, so 01:00-04:00 stays free for roll-sensitive merges.
+WINDOW_START_MINUTE = 6 * 60 + 50
+WINDOW_END_MINUTE = 9 * 60
+# No new batch (at most 1 GiB, about 3.5 min at the 2026-10-02 rate) starts in the
+# last SOFT_STOP_RESERVE_SECONDS before the child deadline: the night ends PASS with
+# the work done, like the byte budget, instead of a deadline failure mid-file.
+SOFT_STOP_RESERVE_SECONDS = 600
 MAX_ADMISSION_NOTES = 32
 
 
@@ -92,22 +115,55 @@ def closed_folders(data_root, as_of, guard):
     return [name for _, name in sorted(selected)]
 
 
-def observe_admission(root, resources, notes, *, observe=None, sleep=time.sleep):
-    """Capture admission, re-observed once after a transient status-read race."""
+class AdmissionUnknown(RuntimeError):
+    """Capture admission stayed unreadable past its wait bounds: fail the night closed."""
+
+
+def observe_admission(root, resources, notes, *, observe=None, sleep=time.sleep, monotonic=time.monotonic,
+                      deadline=None, now=None):
+    """Capture admission that rides out a status file's atomic replace or a loop restart.
+
+    Returns the first PASS. A transient read error (:data:`TRANSIENT_ADMISSION_ERRORS`) or a
+    BLOCK is re-observed after ADMISSION_RETRY_DELAYS, then every ADMISSION_WAIT_POLL_SECONDS.
+    It stops waiting when the next wait would pass ADMISSION_SUSTAINED_SECONDS in this
+    episode, the night's ADMISSION_NIGHT_WAIT_BUDGET_SECONDS (``notes["admission_wait_seconds"]``),
+    or ``deadline``. Then a BLOCK is returned for the guard to refuse and an unreadable status
+    raises :class:`AdmissionUnknown`. Other errors are never retried.
+    """
     observe = observe or cold.observe_capture_admission
-    try:
-        admission = observe(root, resources)
-        if admission["status"] == "PASS":
+    now = now or (lambda: datetime.now(timezone.utc))
+    notes.setdefault("admission_wait_seconds", 0.0)
+    notes.setdefault("admission_episodes", 0)
+    started = monotonic()
+    attempt = 0
+    while True:
+        try:
+            admission = observe(root, resources)
+            if admission["status"] == "PASS":
+                return admission
+            last, error = "BLOCK: " + ",".join(admission["reasons"]), None
+        except TRANSIENT_ADMISSION_ERRORS as exc:
+            admission, last, error = None, f"{type(exc).__name__}: {exc}", exc
+        if attempt == 0:
+            notes["admission_episodes"] += 1
+        delay = ADMISSION_RETRY_DELAYS[attempt] if attempt < len(ADMISSION_RETRY_DELAYS) else ADMISSION_WAIT_POLL_SECONDS
+        elapsed = monotonic() - started
+        stop = ("sustained" if elapsed + delay > ADMISSION_SUSTAINED_SECONDS
+                else "night_budget" if notes["admission_wait_seconds"] + delay > ADMISSION_NIGHT_WAIT_BUDGET_SECONDS
+                else "deadline" if deadline is not None and now() + timedelta(seconds=delay) >= deadline
+                else None)
+        if stop:
+            if error is not None:
+                raise AdmissionUnknown(f"capture admission unknown ({stop}) after {elapsed:.1f} s and "
+                                       f"{attempt + 1} observation(s): {last}") from error
             return admission
-        first = "BLOCK: " + ",".join(admission["reasons"])
-    except PermissionError as exc:
-        first = f"PermissionError: {exc}"
-    notes["admission_retries"] += 1
-    if len(notes["admission_retry_notes"]) < MAX_ADMISSION_NOTES:
-        notes["admission_retry_notes"].append({
-            "observed_at_utc": datetime.now(timezone.utc).isoformat(), "first_observation": first[:512]})
-    sleep(ADMISSION_RETRY_SECONDS)
-    return observe(root, resources)
+        notes["admission_retries"] += 1
+        if len(notes["admission_retry_notes"]) < MAX_ADMISSION_NOTES:
+            notes["admission_retry_notes"].append({
+                "observed_at_utc": datetime.now(timezone.utc).isoformat(), "first_observation": last[:512]})
+        sleep(delay)
+        notes["admission_wait_seconds"] += delay
+        attempt += 1
 
 
 def eligible(row, *, now):
@@ -175,6 +231,81 @@ def execute_batch(rows, root, output, *, apply, guard, compress=cold.compress_ca
     return results
 
 
+def in_window(local: datetime) -> bool:
+    """True inside the 06:50-09:00 America/Toronto nightly window."""
+    return WINDOW_START_MINUTE <= local.hour * 60 + local.minute < WINDOW_END_MINUTE
+
+
+def soft_stop_reached(now: datetime, deadline: datetime) -> bool:
+    """True once a new batch could no longer finish before the child deadline."""
+    return (deadline - now).total_seconds() < SOFT_STOP_RESERVE_SECONDS
+
+
+def compress_night(root, output, receipt, *, now, budget, deadline, guard, args, policy, clock=None):
+    """Select and compress closed folders oldest first; sets ``receipt["status"] = "PASS"`` at the end.
+
+    Stops before a new folder or batch once :func:`soft_stop_reached` (still PASS, with
+    ``stopped_at_soft_deadline``); any guard failure raises and the caller records
+    ``FAILED_RETAIN_AND_INSPECT``. ``clock`` is a test seam.
+    """
+    clock = clock or (lambda: datetime.now(timezone.utc))
+    as_of = now.astimezone(ZoneInfo("America/Toronto")).date()
+    inventory_bytes = 0
+    for number, folder in enumerate(closed_folders(root / "data", as_of, guard)):
+        guard()
+        if receipt["logical_bytes_processed"] >= budget or receipt["files_processed"] >= MAX_FILES_PER_NIGHT:
+            break
+        if soft_stop_reached(clock(), deadline):
+            receipt["stopped_at_soft_deadline"] = True
+            break
+        manifest = inventory.inventory(root / "data", [folder], as_of=as_of, guard=guard,
+            traversal_scope="immediate_files", min_age_days=HOT_WINDOW_DAYS)
+        manifest.update(source_git_sha=args.source_git_sha, request_sha256=args.request_sha256,
+                        execution_host_id=policy["execution_host_id"])
+        manifest_path = output / f"inventory-{number:04d}.json"
+        manifest_raw = (json.dumps(manifest, sort_keys=True) + "\n").encode()
+        inventory_bytes += len(manifest_raw)
+        if inventory_bytes > MAX_INVENTORY_BYTES:
+            raise ValueError("nightly inventory evidence budget exceeded")
+        cold.write_receipt_bytes(manifest_path, manifest_raw, inventory.MAX_OUTPUT_BYTES)
+        if manifest["status"] != "PASS":
+            raise ValueError("incomplete nightly inventory; retain and inspect")
+        manifest_sha256 = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+        skipped = []
+        batches = list(plan_batches(manifest["files"], budget - receipt["logical_bytes_processed"],
+            now=now, remaining_files=MAX_FILES_PER_NIGHT - receipt["files_processed"], skipped=skipped))
+        if skipped:
+            skipped_raw = (json.dumps({"inventory": manifest_path.name, "inventory_sha256": manifest_sha256,
+                                       "files": skipped}, sort_keys=True) + "\n").encode()
+            inventory_bytes += len(skipped_raw)
+            if inventory_bytes > MAX_INVENTORY_BYTES:
+                raise ValueError("nightly inventory evidence budget exceeded")
+            cold.write_receipt_bytes(output / f"skipped-{number:04d}.json", skipped_raw,
+                                     inventory.MAX_OUTPUT_BYTES)
+            receipt["files_skipped_unshrinkable"] += len(skipped)
+        for rows in batches:
+            if soft_stop_reached(clock(), deadline):
+                receipt["stopped_at_soft_deadline"] = True
+                break
+            batch_path = output / f"batch-{len(receipt['batches']):04d}"
+            batch_path.mkdir()
+            selection = {"inventory": manifest_path.name, "inventory_sha256": manifest_sha256, "files": rows}
+            cold.write_receipt(batch_path / "selection.json", selection)
+            results = execute_batch(rows, root, batch_path, apply=args.apply, guard=guard)
+            cold.write_receipt(batch_path / "result.json", {"status": "PASS", "results": results})
+            logical = sum(row["size_bytes"] for row in rows)
+            saved = sum(row["reclaimed_bytes"] for row in results)
+            receipt["logical_bytes_processed"] += logical
+            receipt["files_processed"] += len(results)
+            receipt["reclaimed_bytes"] += saved
+            receipt["batches"].append({"path": batch_path.name, "files": len(results),
+                                       "logical_bytes": logical, "verified_savings_bytes": saved})
+        if receipt.get("stopped_at_soft_deadline"):
+            break
+    guard()
+    receipt["status"] = "PASS"
+
+
 def run(args):
     if os.name != "nt":
         raise ValueError("nightly compression requires native Windows")
@@ -210,8 +341,8 @@ def run(args):
         current = datetime.now(timezone.utc)
         local = current.astimezone(ZoneInfo("America/Toronto"))
         if (current >= deadline or current >= cold._utc(policy["expires_at_utc"])
-                or not 30 <= local.hour * 60 + local.minute < 285):
-            raise ValueError("nightly deadline, approval or 00:30-04:45 window ended")
+                or not in_window(local)):
+            raise ValueError("nightly deadline, approval or 06:50-09:00 window ended")
         if time.monotonic() - last_check >= 1:
             def resources(**observed):
                 result = cold.check_resources(**observed)
@@ -219,9 +350,11 @@ def run(args):
                     result["status"] = "BLOCK"
                     result["reasons"].append("large_file_disk_reservation_unmet")
                 return result
-            admission = observe_admission(root, resources, receipt)
+            admission = observe_admission(root, resources, receipt, deadline=deadline)
             if admission["status"] != "PASS":
                 raise ValueError("nightly capture admission refused: " + ",".join(admission["reasons"]))
+            if datetime.now(timezone.utc) >= deadline:  # an admission wait must not carry work past it
+                raise ValueError("nightly deadline, approval or 06:50-09:00 window ended")
             cold.verify_current_lease(lease, owner, lease_path, workload=cold.WORKLOAD)
             last_check = time.monotonic()
 
@@ -231,58 +364,15 @@ def run(args):
         "apply": args.apply, "deleted_files": 0, "cleanup_eligible": False,
         "reclaimed_bytes": 0, "logical_bytes_processed": 0, "files_processed": 0,
         "files_skipped_unshrinkable": 0, "admission_retries": 0, "admission_retry_notes": [],
-        "nightly_budget_bytes": budget, "batches": [], "status": "FAILED_RETAIN_AND_INSPECT"}
+        "admission_wait_seconds": 0.0, "admission_episodes": 0,
+        "nightly_budget_bytes": budget, "batches": [], "stopped_at_soft_deadline": False,
+        "status": "FAILED_RETAIN_AND_INSPECT"}
     with PinnedNtfsDirectory(output):
         cold.write_receipt_bytes(output / "request.json", raw, cold.MAX_REQUEST_BYTES)
         try:
             guard()
-            as_of = now.astimezone(ZoneInfo("America/Toronto")).date()
-            inventory_bytes = 0
-            for number, folder in enumerate(closed_folders(root / "data", as_of, guard)):
-                guard()
-                if receipt["logical_bytes_processed"] >= budget or receipt["files_processed"] >= MAX_FILES_PER_NIGHT:
-                    break
-                manifest = inventory.inventory(root / "data", [folder], as_of=as_of, guard=guard,
-                    traversal_scope="immediate_files", min_age_days=HOT_WINDOW_DAYS)
-                manifest.update(source_git_sha=args.source_git_sha, request_sha256=args.request_sha256,
-                                execution_host_id=policy["execution_host_id"])
-                manifest_path = output / f"inventory-{number:04d}.json"
-                manifest_raw = (json.dumps(manifest, sort_keys=True) + "\n").encode()
-                inventory_bytes += len(manifest_raw)
-                if inventory_bytes > MAX_INVENTORY_BYTES:
-                    raise ValueError("nightly inventory evidence budget exceeded")
-                cold.write_receipt_bytes(manifest_path, manifest_raw, inventory.MAX_OUTPUT_BYTES)
-                if manifest["status"] != "PASS":
-                    raise ValueError("incomplete nightly inventory; retain and inspect")
-                manifest_sha256 = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
-                skipped = []
-                batches = list(plan_batches(manifest["files"], budget - receipt["logical_bytes_processed"],
-                    now=now, remaining_files=MAX_FILES_PER_NIGHT - receipt["files_processed"], skipped=skipped))
-                if skipped:
-                    skipped_raw = (json.dumps({"inventory": manifest_path.name, "inventory_sha256": manifest_sha256,
-                                               "files": skipped}, sort_keys=True) + "\n").encode()
-                    inventory_bytes += len(skipped_raw)
-                    if inventory_bytes > MAX_INVENTORY_BYTES:
-                        raise ValueError("nightly inventory evidence budget exceeded")
-                    cold.write_receipt_bytes(output / f"skipped-{number:04d}.json", skipped_raw,
-                                             inventory.MAX_OUTPUT_BYTES)
-                    receipt["files_skipped_unshrinkable"] += len(skipped)
-                for rows in batches:
-                    batch_path = output / f"batch-{len(receipt['batches']):04d}"
-                    batch_path.mkdir()
-                    selection = {"inventory": manifest_path.name, "inventory_sha256": manifest_sha256, "files": rows}
-                    cold.write_receipt(batch_path / "selection.json", selection)
-                    results = execute_batch(rows, root, batch_path, apply=args.apply, guard=guard)
-                    cold.write_receipt(batch_path / "result.json", {"status": "PASS", "results": results})
-                    logical = sum(row["size_bytes"] for row in rows)
-                    saved = sum(row["reclaimed_bytes"] for row in results)
-                    receipt["logical_bytes_processed"] += logical
-                    receipt["files_processed"] += len(results)
-                    receipt["reclaimed_bytes"] += saved
-                    receipt["batches"].append({"path": batch_path.name, "files": len(results),
-                                               "logical_bytes": logical, "verified_savings_bytes": saved})
-            guard()
-            receipt["status"] = "PASS"
+            compress_night(root, output, receipt, now=now, budget=budget, deadline=deadline, guard=guard,
+                           args=args, policy=policy)
         except Exception as exc:
             receipt["error"] = str(exc)
         cold.write_receipt(output / "result.json", receipt)

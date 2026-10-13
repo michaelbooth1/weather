@@ -26,7 +26,10 @@ If you add a file, link it here in the same change.
 | [PROJECT_OPERATING_SOP.md](PROJECT_OPERATING_SOP.md) | You need the end-to-end shift-to-release decision flow and which runbook owns each step. |
 | [Git workflow SOP](../git-workflow.md) | Branches, worktrees, commits, pushes, merges, branch retirement. Single owner of git authority. |
 | [wallet-reader.md](wallet-reader.md) | Starting the owner-run read-only wallet LAN API, scoped firewall rule, or production client. |
+| [manual-order-journal.md](manual-order-journal.md) | Journaling and reporting the owner's manual resting orders (rewards, fills, markouts); `WeatherManualOrderJournal`. |
 | [portfolio-ledger.md](portfolio-ledger.md) | Rebuilding one-wallet campaign books, FIFO lots and reconciliation from recorded account reads. |
+| [maker-trading-guard.md](maker-trading-guard.md) | Building a maker runtime or placement port; pausing, halting or clearing it; the bleed-limit guard. |
+| [maker-shadow-runner.md](maker-shadow-runner.md) | Running the public-reads-only maker shadow (Phase 3), its per-minute quotes tape, nightly 88a diagnostics and evidence embargo. |
 
 ## Accumulated knowledge
 
@@ -70,10 +73,12 @@ For the independent public maker collector, its task and retention, read
 | --- | --- |
 | [OPERATIONS_DESIGN.md](OPERATIONS_DESIGN.md) | Touching capture supervision, status files, the dashboard, or restart guidance. |
 | [INTEGRATION_ATTEMPT_RUNBOOK.md](INTEGRATION_ATTEMPT_RUNBOOK.md) | Landing a reviewed branch on production: exact-tip preflight, full suite, quiet merge, failure closure, bounded repair. |
+| [LANDING_PREFLIGHT.md](LANDING_PREFLIGHT.md) | On a workstation, before handing production a head: the non-binding check of the head on the night's cumulative merge (never on the capture host). |
 | [Capture-day grading and guarded-merge runbook](../ops/streak-soak.md) | Checking capture-day health, `status.ps1` / `streak.ps1`, the watchdog, boot recovery, `quiet_window_merge.ps1`. The streak it measures is a diagnostic, not an objective. |
 | [NIGHTLY_RETRAIN_RUNBOOK.md](NIGHTLY_RETRAIN_RUNBOOK.md) | Candidate-only retraining or immutable inactive-release construction. |
 | [EXCHANGE_ECONOMICS_SNAPSHOT_RUNBOOK.md](EXCHANGE_ECONOMICS_SNAPSHOT_RUNBOOK.md) | Publishing, reviewing, accepting or drift-checking exchange rules. |
 | [mission-dispatch-reconciliation.md](mission-dispatch-reconciliation.md) | A handoff has no visible branch and you are about to call it lost. |
+| [HOST_PYTHON_UPGRADE_RUNBOOK.md](HOST_PYTHON_UPGRADE_RUNBOOK.md) | **Proposed, not approved.** Preparing, reviewing or executing the capture host's 3.11.0 to 3.11.9 interpreter upgrade: install, qualification, quiet-window cutover, release re-bind, rollback. |
 
 Required registration parameters are defined by the scripts under `scripts/ops/`. Read a script's
 `param(...)` block before registration; some production tasks require explicit evidence paths.

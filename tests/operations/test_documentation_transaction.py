@@ -282,3 +282,21 @@ def test_unchanged_completion_requires_local_master_equality(tmp_path):
 
     with pytest.raises(ValueError, match="must equal local master"):
         complete_transaction(root, manifest_path=manifest, run_checks=False)
+
+
+def test_completion_runs_the_strict_correspondence_index_check(tmp_path, monkeypatch):
+    """Option D: branches only pass the structural check, so completion must be strict."""
+    ran = {}
+
+    def fake_run(command, *, repo_root, timeout=180):
+        ran[tuple(command[-4:])] = command
+        stale = "correspondence_index" in " ".join(command)
+        return {"status": "FAIL" if stale else "PASS", "exit_code": int(stale),
+                "command": command, "output": ""}
+
+    monkeypatch.setattr(documentation_transaction, "_run_check", fake_run)
+    with pytest.raises(ValueError, match="correspondence_index_strict"):
+        documentation_transaction._completion_checks(tmp_path, "0" * 40)
+    strict = [c for c in ran.values() if "weather.reporting.roadmap.correspondence_index" in c]
+    assert len(strict) == 1 and strict[0][-1] == "--check"
+    assert "--check-structure" not in strict[0]

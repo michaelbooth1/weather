@@ -15,9 +15,6 @@ from weather.backtesting.settlement_ledger import (
     finalize_folders,
 )
 from weather.market import exchange_economics
-from weather.market import mm_paper
-from weather.market import taker_bot
-from weather.market import taker_edge_permission
 from weather.market.market_day_labels import discover_default_folders, parse_overrides
 from weather.market.market_registry import all_specs
 from weather.operations import clob_order_book_tiering
@@ -79,7 +76,6 @@ from weather.reporting.serving_gates import runtime_identity_reconciliation
 from weather.reporting.candidate_lifecycle import shadow_ab_monitor
 from weather.reporting.scorecards import snapshot_evaluation
 from weather.reporting.source_gates import settlement_source_audit
-from weather.reporting.casebooks import taker_tail_casebook
 from weather.reporting.hourly import ten_minute_model_performance
 from weather.reporting.market import trading_evidence
 from weather.reporting.candidate_lifecycle import variant_evidence_growth
@@ -93,6 +89,7 @@ from weather.sources.wu_history import (
     WundergroundHistoryStore,
     failure_class_for_exception,
 )
+from weather.sources.wu_redaction import pin_http_debug_loggers, sanitize_exception
 
 
 def _truthy(value):
@@ -165,6 +162,8 @@ def _store_for_wu_restore(spec):
 def run_public_wu_settlement_restore_step(args):
     if getattr(args, "skip_public_wu_settlement_restore", False):
         return {"status": "SKIPPED", "reason": "skip_public_wu_settlement_restore"}
+    # OD15: the page access token must never reach a log; urllib3 DEBUG prints the query.
+    pin_http_debug_loggers()
 
     target = settled_analysis_target_date(args)
     market_specs = _restore_specs(getattr(args, "wu_settlement_restore_markets", "all"))
@@ -211,6 +210,8 @@ def run_public_wu_settlement_restore_step(args):
                     try:
                         payload = client.fetch_range(chunk_start, chunk_end, units=spec.wu_units)
                     except Exception as exc:  # noqa: BLE001 - record source failures and continue by default.
+                        # OD15: the re-raise below reaches step status JSON and tracebacks.
+                        sanitize_exception(exc)
                         transient = failure_class_for_exception(exc) == TRANSIENT_FAILURE
                         if transient and attempt < retries:
                             market_retries += 1

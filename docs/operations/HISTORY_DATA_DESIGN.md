@@ -42,6 +42,83 @@ and derives daily summaries in the existing schema. Other page resources may
 carry unrelated `apiKey` query parameters; they are not history credentials and
 the collector ignores them.
 
+## Page Access Token
+
+Owner decision OD15 (2026-10-06) accepts the free page-backed access, but the
+`API_KEY` value scraped from the page must never be persisted: not in logs,
+tapes, snapshots, `backfill_errors.jsonl`, status JSON, tracebacks, commits or
+anything pushed. The contract in code:
+
+- `weather.sources.wu_redaction` is the single redaction helper.
+  `redact_wu_secrets` rewrites every `apiKey=`, `"apiKey":"..."`, `X-Api-Key:`
+  and page `API_KEY` form, including once- and twice-URL-encoded (`%22`,
+  `%2522`, `%3A`, `%253D`), HTML-entity and JSON `\u0022` quotes and
+  separators; a test holds it in step with every form the scanner flags.
+  `sanitize_exception` rewrites an escaping exception (string, bytes, list,
+  tuple, dict and set arguments, and any other argument whose text carries the
+  token), its `__cause__`/`__context__` chain and its request/response URLs in
+  place, so a
+  downstream `str(exc)` or `traceback.format_exc()` is already clean;
+  `pin_http_debug_loggers` holds the `urllib3`/`requests` loggers at WARNING
+  (urllib3 DEBUG prints the query string). urllib3 2.x also prints the full
+  URL at WARNING ("Failed to parse headers", "Retrying"), so
+  `install_wu_log_redaction()` attaches `WuSecretRedactingFilter` to every
+  emitting urllib3/requests logger (and optionally to handlers). It is opt-in
+  and not yet wired into any entry point; wiring it into the WU fetch entry
+  points that already call `pin_http_debug_loggers` (`wu_history`
+  `PublicWundergroundHistoryClient.__init__` and `main`, and the
+  daily-refresh WU restore step) is the follow-up.
+- `weather.collection.redaction.redact_sensitive_url_parts` is a separate,
+  generic redactor for secret-like *query parameters* in collection status
+  text (`snapshot_store`, `collection_health`, maker preflight). It is
+  loop-imported and is not WU-specific; the WU helper covers the extra token
+  forms and exceptions. Neither delegates to the other (`weather.sources` may
+  not import `weather.collection`, and changing the collection helper rolls
+  the capture loops); converging them is a quiet-window follow-up.
+- The client never stores the page HTML; raw day files keep only the API
+  `observations`, and provenance keeps the page URL, which carries no token.
+- Fetch behaviour and values are unchanged; only diagnostic text is rewritten.
+
+`python -m weather.operations.wu_token_scan <roots...>` is the read-only leak
+scan. It reports file paths, per-pattern match counts and the first-match byte
+offset, never the matched text; `--token-from-env NAME` adds an exact-value
+search without echoing it. Exit 0 = clean, 1 = found, 2 = error or incomplete
+(a cap was hit, a root or file was unreadable or an empty string, a link was
+skipped, a placeholder was left unread, or content could not be decoded),
+3 = nothing was found but `--json-out` could not be written (the report is
+still printed; a scan with a finding exits 1 even then). A symlink or junction inside a root is not
+followed by default: its path is listed in `skipped_link_paths` and the scan is
+INCOMPLETE, never CLEAN. `--links follow-within-root` follows a link only when
+its target resolves inside the requested root (cycle-safe); `--links ignore`
+lists skipped links without failing the scan. No mode follows a link out of
+the requested root; scan the target as its own root instead. Any other reparse
+point (a OneDrive placeholder, a deduplicated file, an app execution alias) holds
+data in place: unless `follow-within-root` reads it, it is listed in
+`skipped_reparse_paths` and the scan is INCOMPLETE under every policy,
+`ignore` included. CLEAN therefore means every regular file under the request
+was read, apart from files behind a link `ignore` waived; the report's
+`unread_reasons` names every reason a scan is not CLEAN. An explicit file list
+(`scan(files=...)`, used by the ratchet) is treated like roots, so a directory in
+it is walked, never dropped. Each file is scanned raw (a chunk holding NUL bytes and a key name or the
+exact token with NULs between its letters is also scanned NUL-stripped, which
+catches UTF-16 text anywhere, such as a PowerShell 5.1 `>>` append to a UTF-8
+log; a match the raw pass already counted is not counted again) and then through every
+layer it can decode, streamed and recursively: gzip, bzip2, xz, zip members,
+UTF-16/UTF-32 (BOM, or BOM-less UTF-16 by its NUL pattern) and whole-file
+base64. A recognised layer that cannot be decoded (zstd, 7z, rar, lz4, Parquet,
+an encrypted or corrupt archive, a stream past `--max-decoded-bytes`) is listed
+in `undecoded` and makes the scan INCOMPLETE; findings name the layer
+(`decoded_matches`), never a zip member name. Matches made before a stream
+broke are kept, and a decoder failure only marks its own file. Base64 or compressed runs embedded
+inside a plain file are not decoded. Directories skipped by `--exclude-dir` are
+listed in `skipped_excluded` without making the scan incomplete. It is capped by
+`--max-files`, `--max-file-bytes`, `--max-total-bytes` and
+`--max-decoded-bytes`. On the
+capture host it is a bulk scan: run it 00:30–09:00 under the shared lease from
+`scripts/ops/workload_admission.ps1` ([HOST_LOAD_POLICY](HOST_LOAD_POLICY.md)).
+A repository ratchet (`tests/operations/test_wu_token_repository_scan.py`) runs
+the same patterns over every tracked file.
+
 ## Failure Classes And Recovery
 
 The old paid-provider backfill path is disabled before network access. A missing

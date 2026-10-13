@@ -1,11 +1,20 @@
 {
   "schema_version": "weather_exact_tip_merge_queue_v1",
+  "night": "2026-10-07",
+  "base_sha": "0000000000000000000000000000000000000000",
+  "plan_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "on_failure": "stop_night",
+  "note": "Copy beside its receipts, replace every placeholder after review; only the owner signs it.",
   "entries": [
     {
+      "order": 1,
       "branch": "origin/codex/example-reviewed-branch",
       "expected_tip": "0000000000000000000000000000000000000000",
+      "roll_class": "ROLL-SENSITIVE",
       "approved": false,
-      "note": "Copy to a host-local queue and replace every placeholder after review."
+      "approval_ref": "PR #<n>: owner instruction <date>",
+      "preflight_receipt": "receipts/example.json",
+      "preflight_receipt_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
     }
   ]
 }

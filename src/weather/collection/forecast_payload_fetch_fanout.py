@@ -13,6 +13,7 @@ from __future__ import annotations
 import errno
 import hashlib
 import json
+import logging
 import os
 import re
 import stat
@@ -94,6 +95,49 @@ def _complete_nbp(text: str, cycle_key: str, stations: tuple[str, ...]) -> bool:
             if code == "SLPP9" and _NBP_REQUIRED_ROWS <= rows.keys():
                 completed.add(station)
     return bool(stations) and completed == set(stations)
+
+
+# On Windows an exclusive create of a claim that another process is deleting
+# (delete-pending while any handle, such as a follower's stat or a scanner,
+# is still open) or holding without delete sharing fails with EACCES, not
+# EEXIST.  POSIX never reports a racing O_EXCL create that way.
+_WINDOWS_CLAIM_DENIAL_IS_CONTENTION = os.name == "nt"
+
+
+class _ClaimDenied(Exception):
+    """A Windows claim create was refused; treat it as transient contention."""
+
+    def __init__(self, error: PermissionError):
+        super().__init__(str(error))
+        self.error = error
+
+
+logger = logging.getLogger(__name__)
+# On Windows an antivirus or indexer handle, or a peer's open read handle, can
+# briefly deny an unlink or read with a sharing violation (PermissionError).
+# Retry it with the same bounded budget that weather.io uses for its atomic
+# replace.  POSIX makes exactly one attempt, as before.
+_WINDOWS_TRANSIENT_DENIAL_RETRY = os.name == "nt"
+_TRANSIENT_DENIAL_RETRIES = 20
+_TRANSIENT_DENIAL_RETRY_SLEEP_SECONDS = 0.05
+
+
+def _retry_transient_denial(
+    operation: Callable[[], Any],
+    *,
+    sleep_fn: Callable[[float], None] = time.sleep,
+) -> Any:
+    """Run ``operation``, retrying a Windows PermissionError a bounded number of times."""
+
+    attempts = _TRANSIENT_DENIAL_RETRIES if _WINDOWS_TRANSIENT_DENIAL_RETRY else 1
+    for attempt in range(attempts):
+        try:
+            return operation()
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            sleep_fn(_TRANSIENT_DENIAL_RETRY_SLEEP_SECONDS)
+    return None
 
 
 def _canonical_json_bytes(payload: Mapping[str, Any]) -> bytes:
@@ -197,6 +241,8 @@ def _write_immutable_json(
     cas_root: Path,
     path: Path,
     payload: Mapping[str, Any],
+    *,
+    sleep_fn: Callable[[float], None] = time.sleep,
 ) -> None:
     """Publish one complete receipt without replacing an existing receipt."""
 
@@ -228,9 +274,22 @@ def _write_immutable_json(
         )
     finally:
         try:
-            staging.unlink()
+            _retry_transient_denial(staging.unlink, sleep_fn=sleep_fn)
         except FileNotFoundError:
             pass
+        except PermissionError as exc:
+            if not _WINDOWS_TRANSIENT_DENIAL_RETRY:
+                raise
+            # The staging name is unique and only aliases immutable receipt
+            # bytes, so a leaked alias is harmless; raising here would replace
+            # the publish outcome (or its original exception).
+            logger.warning(
+                "cross-process fan-out staging alias left after %d denied "
+                "unlink attempts: %s: %s",
+                _TRANSIENT_DENIAL_RETRIES,
+                staging,
+                exc,
+            )
 
 
 def _http_status(exc: BaseException) -> int | None:
@@ -353,6 +412,10 @@ class CrossProcessMarketInvariantFetchFanout:
             handle = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         except FileExistsError:
             return None
+        except PermissionError as exc:
+            if not _WINDOWS_CLAIM_DENIAL_IS_CONTENTION:
+                raise
+            raise _ClaimDenied(exc) from exc
         try:
             os.write(handle, _canonical_json_bytes(payload))
             os.fsync(handle)
@@ -366,22 +429,58 @@ class CrossProcessMarketInvariantFetchFanout:
         return token
 
     @staticmethod
-    def _release_claim(cas_root: Path, path: Path, token: str) -> None:
+    def _release_claim(
+        cas_root: Path,
+        path: Path,
+        token: str,
+        *,
+        sleep_fn: Callable[[float], None] = time.sleep,
+    ) -> None:
+        # Runs in the holder's ``finally``: on Windows a denial that outlasts
+        # the bounded retry is logged and the claim is left in place, so the
+        # holder's result or original exception is never replaced.  Followers
+        # then rely on the existing bounded wait.  POSIX is unchanged.
         _validate_receipt_ancestors(
             cas_root,
             path.parent,
             allow_missing=False,
         )
         try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except (FileNotFoundError, OSError, json.JSONDecodeError):
+            payload = json.loads(
+                _retry_transient_denial(
+                    lambda: path.read_text(encoding="utf-8"),
+                    sleep_fn=sleep_fn,
+                )
+            )
+        except PermissionError as exc:
+            if _WINDOWS_TRANSIENT_DENIAL_RETRY:
+                logger.warning(
+                    "cross-process fan-out claim left in place after %d "
+                    "denied read attempts: %s: %s",
+                    _TRANSIENT_DENIAL_RETRIES,
+                    path,
+                    exc,
+                )
             return
+        except (OSError, json.JSONDecodeError):
+            return
+        # Never delete a claim this holder does not own.
         if not isinstance(payload, dict) or payload.get("token") != token:
             return
         try:
-            path.unlink()
+            _retry_transient_denial(path.unlink, sleep_fn=sleep_fn)
         except FileNotFoundError:
             pass
+        except PermissionError as exc:
+            if not _WINDOWS_TRANSIENT_DENIAL_RETRY:
+                raise
+            logger.warning(
+                "cross-process fan-out claim left in place after %d denied "
+                "unlink attempts: %s: %s",
+                _TRANSIENT_DENIAL_RETRIES,
+                path,
+                exc,
+            )
         _validate_receipt_ancestors(
             cas_root,
             path.parent,
@@ -739,7 +838,9 @@ class CrossProcessMarketInvariantFetchFanout:
                     "physical_bytes_written"
                 ],
             }
-            _write_immutable_json(self.cas.root, receipt_path, receipt)
+            _write_immutable_json(
+                self.cas.root, receipt_path, receipt, sleep_fn=self.sleep_fn,
+            )
             published = self._read_receipt(self.cas.root, receipt_path)
             published_payload = {
                 key: value
@@ -784,10 +885,13 @@ class CrossProcessMarketInvariantFetchFanout:
                 self.cas.root,
                 receipt_path,
                 {**base_receipt, "status": "error", "error": _error_receipt(exc)},
+                sleep_fn=self.sleep_fn,
             )
             raise
         finally:
-            self._release_claim(self.cas.root, claim_path, claim_token)
+            self._release_claim(
+                self.cas.root, claim_path, claim_token, sleep_fn=self.sleep_fn,
+            )
 
     def _cross_process_fetch(
         self,
@@ -817,6 +921,11 @@ class CrossProcessMarketInvariantFetchFanout:
             "cycle_key": cycle_key,
             "scope_key": scope_key,
         }
+        # A Windows claim denial is retried as contention inside the same
+        # bounded wait.  If the latest attempt at the deadline was still
+        # denied, the denial is a real permission failure and is raised rather
+        # than failing open or being treated as a claim.
+        claim_denial: PermissionError | None = None
         while True:
             receipt = self._read_receipt(
                 self.cas.root, receipt_path, publication_claim=claim_path,
@@ -827,13 +936,25 @@ class CrossProcessMarketInvariantFetchFanout:
                     **key_fields,
                     waited_seconds=self.monotonic_fn() - started,
                 )
-            claim_token = self._try_claim(self.cas.root, claim_path, key_fields)
+            try:
+                claim_token = self._try_claim(
+                    self.cas.root, claim_path, key_fields,
+                )
+                claim_denial = None
+            except _ClaimDenied as denied:
+                claim_token = None
+                claim_denial = denied.error
             if claim_token is not None:
                 # Recheck after claiming in case another holder published just
                 # before releasing its claim.
                 receipt = self._read_receipt(self.cas.root, receipt_path)
                 if receipt is not None:
-                    self._release_claim(self.cas.root, claim_path, claim_token)
+                    self._release_claim(
+                        self.cas.root,
+                        claim_path,
+                        claim_token,
+                        sleep_fn=self.sleep_fn,
+                    )
                     return self._result_from_receipt(
                         receipt,
                         **key_fields,
@@ -849,6 +970,8 @@ class CrossProcessMarketInvariantFetchFanout:
                 )
             waited = self.monotonic_fn() - started
             if waited >= self.wait_timeout_seconds:
+                if claim_denial is not None:
+                    raise claim_denial
                 value = fetch_fn()
                 return FanoutFetchResult(
                     value,

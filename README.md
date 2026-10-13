@@ -134,6 +134,15 @@ local only, and the full suite runs only through
 workload lease). See [development.md](docs/development.md) and the
 [host load policy](docs/operations/HOST_LOAD_POLICY.md).
 
+On the non-capture workstation, a focused run (at most 25 named test files, none
+`serial` or starting PowerShell, an explicit `--basetemp`, no xdist) runs directly;
+larger runs wait their turn in the FIFO queue of the heavy wrapper (timeout exit 75):
+
+```powershell
+.\venv\Scripts\python.exe -m pytest tests\test_artifacts.py -q --basetemp C:\wt\bt-focused
+.\scripts\ops\workstation_heavy.ps1 -Kind pytest -PythonPath "$PWD\venv\Scripts\python.exe" -ArgumentsBase64 <base64-json-argv> -RepoRoot $PWD.Path -Queue -QueueTimeoutSeconds 14400
+```
+
 `pytest.ini` sets `pythonpath = src` and limits collection to `tests/`.
 Ad-hoc live scripts under `scratch/` are intentionally outside the test suite.
 
@@ -186,16 +195,41 @@ credential selection and the scoped firewall commands.
 `scripts\ops\wait_pr_ci.ps1 -Pr <n> -ExpectedHead <sha>` waits (read-only, via `gh`) until
 every check on that exact PR head finishes; exit 0 means all green, 1 a failure, 2 a timeout,
 4 a moved head. Docs-only ROLL-FREE branches land with `scripts\ops\docs_light_path.ps1`
-([guarded-merge runbook](docs/ops/streak-soak.md)).
+([guarded-merge runbook](docs/ops/streak-soak.md)). `scripts\ops\correspondence_index_closeout.ps1 [-Land]`
+regenerates the correspondence index on origin/master after the night's landings and pushes it as
+a docs-only branch (`-Land` hands it to the light path); it is idempotent.
+
+`scripts\ops\workstation_space_report.ps1 -JsonPath <json>` lists every git worktree and agent scratch
+folder with its size, idle time, processes inside and a SAFE / IN USE / CHECK verdict; it changes nothing.
+`scripts\ops\workstation_space_clean.ps1 -FromReport <json>` lists what it would remove, and with `-Apply`
+removes only items that are still SAFE on a fresh re-check, writing a JSON receipt
+([session preamble](docs/operations/WORKSTATION_SESSION_PREAMBLE.md#scratch-space)).
 
 The read-only [PR hygiene report](docs/operations/pr-hygiene.md)
 (`python -m weather.operations.pr_hygiene`) lists each open PR's ancestry,
 conflicts, age, linked work, roll heuristic and a proposed action; it changes nothing.
 
+The workstation-only [landing preflight](docs/operations/LANDING_PREFLIGHT.md)
+(`python -m weather.operations.landing_preflight --head <ref> --earlier <n@sha> --tests affected`)
+judges a head on the night's cumulative merge (master, then the heads landing earlier, then
+the head) and writes a non-binding JSON verdict; exit 0 PASS, 1 FAIL, 2 ERROR, 3 CONFLICT,
+4 TESTS_NOT_RUN or PASS_NO_TESTS, 5 SUPERSEDED, 6 DRY_RUN. It refuses to run on the capture host.
+
 The [portfolio ledger](docs/operations/portfolio-ledger.md) rebuilds separate
 campaign books from archived reads with
 `python -m maker_core.portfolio report --snapshots <dir> --campaigns <json> --out <dir>`.
 Unmatched lots belong to owner-discretionary, outside bot bleed limits.
+
+The [maker shadow runner](docs/operations/maker-shadow-runner.md) tapes, each minute, what the
+maker would quote from public International Polymarket reads, every leg through the guard and none
+placed: `python -m weather.market.maker_shadow run --config <json> [--offline-fixture <json> --minutes <n>]`.
+`python -m weather.market.maker_shadow score --day <closed UTC day> --maker-evidence-root <dir>`
+writes diagnostics against sealed 88a capture and refuses embargoed panel days. No task is registered.
+
+The [manual order journal](docs/operations/manual-order-journal.md) records the owner's manual
+resting orders read-only with
+`python -m weather.market.order_journal record --out data\manual_order_journal` and reports
+rewards, fills and markouts with `python -m weather.market.order_journal report --out <dir>`.
 
 Run commands from the repository root with the venv interpreter.
 
@@ -207,6 +241,13 @@ Run commands from the repository root with the venv interpreter.
 # public WU page-backed collection, then audit/rebuild/recover as needed.
 .\venv\Scripts\python.exe -m weather.sources.wu_history --market toronto public-backfill --start 2026-06-29 --end 2026-06-29 --skip-existing
 .\venv\Scripts\python.exe -m weather.sources.wu_history --market toronto audit
+# Read-only leak scan for the WU page access token (OD15): paths, counts and
+# offsets only, never the value. A bulk scan: on the capture host it runs only
+# 00:30-09:00 under the shared lease (docs/operations/HISTORY_DATA_DESIGN.md).
+# A skipped symlink/junction makes it INCOMPLETE (exit 2); see --links. An unread
+# placeholder/reparse file is INCOMPLETE under every --links policy. gzip/zip/
+# UTF-16/base64 content is decoded; undecodable content (zstd, Parquet) is INCOMPLETE.
+.\venv\Scripts\python.exe -m weather.operations.wu_token_scan data\logs data\wunderground
 
 # METAR/ASOS redundant observation history.
 .\venv\Scripts\python.exe -m weather.sources.metar_history --market toronto backfill --start 2026-06-01 --end 2026-06-22 --skip-existing
@@ -288,7 +329,7 @@ $targetDate = "YYYY-MM-DD"
 ```
 
 `daily_refresh` is the morning settlement-to-reporting chain. It can finalize
-settlement labels, run taker finalization checks, refresh trading/model evidence,
+settlement labels, refresh trading/model evidence,
 run promotion and shadow monitors, audit fleet/data health, refresh learning
 reports, and write `data/backtest/daily_refresh_status.json` plus
 `data/backtest/daily_refresh_report.md`.
@@ -305,28 +346,11 @@ stop the settled-day chain. Pass `--fail-on-observed-floor-safety` to
 lock is secured to restore fail-closed enforcement; detection and evidence
 requirements are identical in both modes.
 
-The scheduled maker paper-score step is host-bounded: it selects the latest 14
-`active_day_live_forward` runs and fails closed before loading more than 512 MiB
-of quote inputs. Operators can narrow those limits with
-`--maker-paper-latest-active-runs` and `--maker-paper-max-input-bytes`; raising
-them requires a separate host-capacity review.
-
-Finalized runs normally provide a source-bound `mm_scoring_projection_v0.1`
-base/variant CSV pair containing only current maker-score reader fields.
-Preflight validates both members against their canonical tapes and
-measures/passes those exact paths; if either member is missing, stale,
-malformed, or incompatible, the whole run falls back to both canonical quote
-tapes. For the scheduled active-day scorer only, canonical fallback captures a
-SHA-256-bound prefix ending at the last complete CSV record and the isolated
-child reads exactly that prefix; later appends are excluded, while any rewrite
-inside the prefix fails closed. Captured mtime is receipt metadata rather than
-an equality gate. The score receipt records selected and canonical bytes,
-their ratio, and every run's input mode. Existing runs can be projected without
-rewriting canonical tapes with:
-
-```powershell
-.\venv\Scripts\python.exe -m weather.market.mm_scoring_projection backfill
-```
+The retired taker and paper maker (runtime code deleted 2026-09-29, 110o part 3)
+no longer have daily-refresh steps. Their run folders under `data/mm_runs` and
+`data/taker_runs` and the last `mm_paper_report.json` remain retained evidence;
+`trading_evidence` reads them through the read-only
+`weather.reporting.market.retired_trading_evidence` module.
 
 High-risk settlement-stage steps run one at a time in isolated child process
 trees. Each has a repository-declared timeout plus private-memory and
@@ -345,7 +369,7 @@ result cardinality/byte metrics.
 `--stage-a-max-commit-percent` may make admission stricter; loosening either
 requires host-capacity review.
 
-Exchange-economics snapshots gate paper/shadow taker and maker evidence. The
+Exchange-economics snapshots gate maker evidence. The
 tracked source template is
 `docs/research/exchange_economics_snapshot_template.json`; publish a fresh
 runtime snapshot before evidence runs and accept the baseline only after
@@ -426,36 +450,55 @@ health proof are completed.
 .\venv\Scripts\python.exe -m weather.artifacts size-audit
 ```
 
+Late-day lock-in anchor replay (read-only, closed dates up to 2026-09-29 only).
+Run it on the capture host only inside the admitted heavy window under the
+shared lease. It replays captured inputs through `estimate_distribution` with
+the pre-v0.5.11 WU-only anchor and with the restored anchor. It writes one JSONL
+row per snapshot, holding both final vectors, to a new `--out` file outside
+`data/`, and prints a per-hour-block summary. Its floor check exits 3 when any
+row's new vector holds more mass below the anchor bucket than the old one. It
+refuses later dates, an existing `--out`, and any `--out` inside `data/`:
+
+```powershell
+.\venv\Scripts\python.exe -m weather.backtesting.lockin_anchor_replay --out scratch\lockin_anchor_replay\through-2026-09-29.jsonl --from-date 2026-09-14
+```
+
 `weather.calibration.feature_model` trains one market/unit-family at a time.
 Use `--market toronto` for Celsius artifacts and an F-market such as `nyc` for
 F-family artifacts. For the local multi-market helper, use
 `.\tools\train_all_markets.ps1`.
 
-### Trading Simulations
+METAR keying replay (read-only, target dates up to 2026-09-29 only). It
+re-parses the raw AWC payloads retained in each market-day folder's
+`observation_payloads/` under the retired `reportTime` keying
+(`metar-parser-v3`) and the served `obsTime` keying (`metar-parser-v4`), and
+writes one JSONL row per captured snapshot: rows only one keying admits, the
+METAR floor, running max, since-07:00 max and current reading. It verifies each
+blob's SHA-256, skips captures dated after 2026-09-29 without opening them, and
+refuses later `--date` values, an existing `--out`, and any `--out` inside
+`data/`. On the capture host run it inside the admitted heavy window under the
+shared lease:
 
 ```powershell
-# Keyless market-making operator run.
-.\venv\Scripts\python.exe -m weather.market.market_making_run --date 2026-06-22 --budget-usdc 500 --mode shadow --markets all
-.\venv\Scripts\python.exe -m weather.market.market_making_run --date 2026-06-22 --budget-usdc 500 --mode paper-live-forward --markets all --once
-# Separately authorized paper-only midpoint-harvest profile; never emits live permission.
-.\venv\Scripts\python.exe -m weather.market.market_making_run --date 2026-06-22 --budget-usdc 25 --mode paper-live-forward --permission-profile market_harvest --markets atlanta --once
-.\venv\Scripts\python.exe -m weather.market.mm_paper
-.\venv\Scripts\python.exe -m weather.market.mm_scoring_projection backfill
-
-# Paper taker-bot simulator.
-.\venv\Scripts\python.exe -m weather.market.taker_bot_cli --date 2026-06-22 --budget-usdc 100 --markets all --loop --interval-seconds 60
-.\venv\Scripts\python.exe -m weather.operations.taker_bot_daily_roll start --disable-counterfactual-tape
-.\venv\Scripts\python.exe -m weather.operations.market_making_daily_roll status
-.\venv\Scripts\python.exe -m weather.operations.taker_bot_daily_roll status
+.\venv\Scripts\python.exe -m weather.backtesting.metar_keying_replay --date 2026-08-29 --date 2026-09-19 --date 2026-09-28 --market miami --market nyc --market chicago --out scratch\metar_keying_replay\m0-v3-vs-v4.jsonl
 ```
 
-Counterfactual replay tape remains enabled by default. The explicit daily-roll
-flag disables it for the launched child without changing the default. On every
-daily-roll start or recovery, the configured `counterfactual_retention_days`
-(14 by default) is enforced against both target-date age and file mtime. Only
-the two allowlisted counterfactual detail CSVs are removed; real order evidence
-and compact run/settlement/strategy summaries remain. Exact pre-delete hashes,
-byte counts, paths, and the apply result are recorded under `data/taker_runs`.
+### Trading Simulations
+
+The paper maker scorer (`mm_paper`), the paper taker bot and both daily rolls
+were retired and their runtime code deleted on 2026-09-29 (110o part 3). Their
+retained run folders are read-only evidence. The informed maker is built in
+`maker_core`; see
+[the informed maker design](docs/operations/informed-maker-design-2026-09-25.md).
+
+`market_making_run` is retained only as the paper-run tool that produces the
+International live-pilot Stage 0/1 paper proof (runbook prerequisite 7), until
+the informed maker's own live procedure replaces it:
+
+```powershell
+# Separately authorized paper-only midpoint-harvest profile; never emits live permission.
+.\venv\Scripts\python.exe -m weather.market.market_making_run --date 2026-06-22 --budget-usdc 25 --mode paper-live-forward --permission-profile market_harvest --markets atlanta --once
+```
 
 Live order modes have additional readiness gates and confirmation flags. Keep
 normal development and research runs in `shadow` or `paper-live-forward`.
@@ -499,7 +542,7 @@ That command replaces both daily tasks. It intentionally omits the FULL
 production-evidence contract and does not assert production readiness.
 
 Scheduled settlement/evidence refresh, event-config refresh, exchange-economics
-refresh, maker/taker daily rolls and supervisors, analysis, host guards, and
+refresh, analysis, host guards, and
 candidate training are separate registrations. Their script parameter blocks
 are the source of truth for names, cadence, and required inputs. On a dedicated
 single host, use the bounded training-window topology; do not also enable the
@@ -558,8 +601,8 @@ data/
       market_ws.jsonl
   backtest/                     # reports, scoring outputs, promotion payloads
   settlements/<market-id>/      # settlement ledgers
-  mm_runs/                      # market-making run folders
-  taker_runs/                   # taker-bot run folders
+  mm_runs/                      # paper-maker run folders (retained evidence; Stage 0/1 paper runs)
+  taker_runs/                   # retired taker-bot run folders (read-only evidence)
 ```
 
 Durable model artifacts are tracked under `artifacts/`. Small deterministic

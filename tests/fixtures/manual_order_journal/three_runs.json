@@ -1,0 +1,634 @@
+{
+ "description": "Synthetic recorded-shape wallet reader and public CLOB replies for three manual order journal runs; identifiers are fabricated.",
+ "ids": {
+  "C1": "0x1111111111111111111111111111111111111111111111111111111111111111",
+  "C2": "0x2222222222222222222222222222222222222222222222222222222222222222",
+  "T1": "71321045679252212594626385532706912750332728571942532289631379312455583992563",
+  "T1N": "52114319501245915516055106046884209969926127482827954674443846427813813222426",
+  "T2": "21742633143463906290569050155826241533067272736897614950488156847949938836455",
+  "A": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "B": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "ADDR": "0xcccccccccccccccccccccccccccccccccccccccc",
+  "t0": 1790640000
+ },
+ "runs": [
+  {
+   "at": 1790640000,
+   "reader": {
+    "summary": {
+     "cash_pusd": "283.95",
+     "positions": [],
+     "open_orders": [
+      {
+       "id": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+       "status": "LIVE",
+       "owner": "redacted-by-reader",
+       "maker_address": "0xcccccccccccccccccccccccccccccccccccccccc",
+       "market": "0x1111111111111111111111111111111111111111111111111111111111111111",
+       "asset_id": "71321045679252212594626385532706912750332728571942532289631379312455583992563",
+       "side": "BUY",
+       "original_size": "100",
+       "size_matched": "0",
+       "price": "0.85",
+       "outcome": "Yes",
+       "expiration": "0",
+       "order_type": "GTC",
+       "created_at": 1790636400,
+       "associate_trades": []
+      },
+      {
+       "id": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+       "status": "LIVE",
+       "owner": "redacted-by-reader",
+       "maker_address": "0xcccccccccccccccccccccccccccccccccccccccc",
+       "market": "0x2222222222222222222222222222222222222222222222222222222222222222",
+       "asset_id": "21742633143463906290569050155826241533067272736897614950488156847949938836455",
+       "side": "BUY",
+       "original_size": "50",
+       "size_matched": "0",
+       "price": "0.90",
+       "outcome": "No",
+       "expiration": "0",
+       "order_type": "GTC",
+       "created_at": 1790636400,
+       "associate_trades": []
+      }
+     ],
+     "status": "INCOMPLETE",
+     "errors": {}
+    },
+    "trades": {
+     "fills": [],
+     "recent_public_trades": [],
+     "recent_activity": [],
+     "public_history_scope": "latest_100_not_complete_history"
+    },
+    "rewards:2026-09-29": {
+     "date": "2026-09-29",
+     "earnings": [
+      {
+       "date": "2026-09-29",
+       "condition_id": "0x1111111111111111111111111111111111111111111111111111111111111111",
+       "asset_address": "0xcccccccccccccccccccccccccccccccccccccccc",
+       "maker_address": "0xcccccccccccccccccccccccccccccccccccccccc",
+       "earnings": "1.10",
+       "asset_rate": "0.5"
+      },
+      {
+       "date": "2026-09-29",
+       "condition_id": "0x2222222222222222222222222222222222222222222222222222222222222222",
+       "asset_address": "0xcccccccccccccccccccccccccccccccccccccccc",
+       "maker_address": "0xcccccccccccccccccccccccccccccccccccccccc",
+       "earnings": "0.40",
+       "asset_rate": "0.5"
+      }
+     ],
+     "total": [
+      {
+       "date": "2026-09-29",
+       "asset_address": "0xcccccccccccccccccccccccccccccccccccccccc",
+       "maker_address": "0xcccccccccccccccccccccccccccccccccccccccc",
+       "earnings": "1.5",
+       "asset_rate": "0.5"
+      }
+     ],
+     "percentages": {
+      "0x1111111111111111111111111111111111111111111111111111111111111111": 12.5,
+      "0x2222222222222222222222222222222222222222222222222222222222222222": 4
+     },
+     "payment_verified": false
+    },
+    "rewards:2026-09-28": {
+     "date": "2026-09-28",
+     "earnings": [
+      {
+       "date": "2026-09-28",
+       "condition_id": "0x1111111111111111111111111111111111111111111111111111111111111111",
+       "asset_address": "0xcccccccccccccccccccccccccccccccccccccccc",
+       "maker_address": "0xcccccccccccccccccccccccccccccccccccccccc",
+       "earnings": "5.00",
+       "asset_rate": "0.5"
+      },
+      {
+       "date": "2026-09-28",
+       "condition_id": "0x2222222222222222222222222222222222222222222222222222222222222222",
+       "asset_address": "0xcccccccccccccccccccccccccccccccccccccccc",
+       "maker_address": "0xcccccccccccccccccccccccccccccccccccccccc",
+       "earnings": "0",
+       "asset_rate": "0.5"
+      }
+     ],
+     "total": [
+      {
+       "date": "2026-09-28",
+       "asset_address": "0xcccccccccccccccccccccccccccccccccccccccc",
+       "maker_address": "0xcccccccccccccccccccccccccccccccccccccccc",
+       "earnings": "5.0",
+       "asset_rate": "0.5"
+      }
+     ],
+     "percentages": {
+      "0x1111111111111111111111111111111111111111111111111111111111111111": 12.5,
+      "0x2222222222222222222222222222222222222222222222222222222222222222": 4
+     },
+     "payment_verified": false
+    }
+   },
+   "public": {
+    "/book?token_id=71321045679252212594626385532706912750332728571942532289631379312455583992563": {
+     "market": "0x1111111111111111111111111111111111111111111111111111111111111111",
+     "asset_id": "71321045679252212594626385532706912750332728571942532289631379312455583992563",
+     "timestamp": "1790640000000",
+     "hash": "0000000000000000000000000000000000000000",
+     "bids": [
+      {
+       "price": "0.84",
+       "size": "200"
+      },
+      {
+       "price": "0.85",
+       "size": "100"
+      }
+     ],
+     "asks": [
+      {
+       "price": "0.88",
+       "size": "10"
+      },
+      {
+       "price": "0.87",
+       "size": "50"
+      }
+     ],
+     "min_order_size": "5",
+     "tick_size": "0.01",
+     "neg_risk": false
+    },
+    "/book?token_id=21742633143463906290569050155826241533067272736897614950488156847949938836455": {
+     "market": "0x2222222222222222222222222222222222222222222222222222222222222222",
+     "asset_id": "21742633143463906290569050155826241533067272736897614950488156847949938836455",
+     "timestamp": "1790640000000",
+     "hash": "1111111111111111111111111111111111111111",
+     "bids": [
+      {
+       "price": "0.90",
+       "size": "50"
+      }
+     ],
+     "asks": [
+      {
+       "price": "0.94",
+       "size": "30"
+      }
+     ],
+     "min_order_size": "5",
+     "tick_size": "0.01",
+     "neg_risk": false
+    },
+    "/rewards/markets/0x1111111111111111111111111111111111111111111111111111111111111111": {
+     "data": [
+      {
+       "condition_id": "0x1111111111111111111111111111111111111111111111111111111111111111",
+       "question": "Fixture views market 1",
+       "market_slug": "fixture-views-1",
+       "rewards_max_spread": 3.5,
+       "rewards_min_size": 50,
+       "rewards_config": [
+        {
+         "asset_address": "0xcccccccccccccccccccccccccccccccccccccccc",
+         "start_date": "2026-09-20",
+         "end_date": "2500-12-31",
+         "rate_per_day": 73,
+         "total_rewards": 0
+        }
+       ]
+      }
+     ],
+     "next_cursor": "LTE="
+    },
+    "/rewards/markets/0x2222222222222222222222222222222222222222222222222222222222222222": {
+     "data": [
+      {
+       "condition_id": "0x2222222222222222222222222222222222222222222222222222222222222222",
+       "rewards_max_spread": 4.5,
+       "rewards_min_size": 20,
+       "rewards_daily_rate": "10"
+      }
+     ],
+     "next_cursor": "LTE="
+    }
+   }
+  },
+  {
+   "at": 1790640300,
+   "reader": {
+    "summary": {
+     "cash_pusd": "283.95",
+     "positions": [],
+     "open_orders": [
+      {
+       "id": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+       "status": "LIVE",
+       "owner": "redacted-by-reader",
+       "maker_address": "0xcccccccccccccccccccccccccccccccccccccccc",
+       "market": "0x1111111111111111111111111111111111111111111111111111111111111111",
+       "asset_id": "71321045679252212594626385532706912750332728571942532289631379312455583992563",
+       "side": "BUY",
+       "original_size": "100",
+       "size_matched": "20",
+       "price": "0.85",
+       "outcome": "Yes",
+       "expiration": "0",
+       "order_type": "GTC",
+       "created_at": 1790636400,
+       "associate_trades": []
+      }
+     ],
+     "status": "INCOMPLETE",
+     "errors": {}
+    },
+    "trades": {
+     "fills": [
+      {
+       "id": "f3d1c2b0-0000-4000-8000-000000000001",
+       "taker_order_id": "0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+       "market": "0x1111111111111111111111111111111111111111111111111111111111111111",
+       "asset_id": "52114319501245915516055106046884209969926127482827954674443846427813813222426",
+       "side": "BUY",
+       "size": "20",
+       "fee_rate_bps": "0",
+       "price": "0.15",
+       "status": "CONFIRMED",
+       "match_time": "1790640200",
+       "last_update": "1790640210",
+       "outcome": "No",
+       "bucket_index": 0,
+       "owner": "redacted-by-reader",
+       "maker_address": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+       "transaction_hash": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+       "trader_side": "MAKER",
+       "maker_orders": [
+        {
+         "order_id": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+         "owner": "redacted-by-reader",
+         "maker_address": "0xcccccccccccccccccccccccccccccccccccccccc",
+         "matched_amount": "20",
+         "price": "0.85",
+         "fee_rate_bps": "0",
+         "asset_id": "71321045679252212594626385532706912750332728571942532289631379312455583992563",
+         "outcome": "Yes",
+         "side": "BUY"
+        }
+       ]
+      }
+     ],
+     "recent_public_trades": [],
+     "recent_activity": [],
+     "public_history_scope": "latest_100_not_complete_history"
+    },
+    "rewards:2026-09-29": {
+     "date": "2026-09-29",
+     "earnings": [
+      {
+       "date": "2026-09-29",
+       "condition_id": "0x1111111111111111111111111111111111111111111111111111111111111111",
+       "asset_address": "0xcccccccccccccccccccccccccccccccccccccccc",
+       "maker_address": "0xcccccccccccccccccccccccccccccccccccccccc",
+       "earnings": "2.00",
+       "asset_rate": "0.5"
+      },
+      {
+       "date": "2026-09-29",
+       "condition_id": "0x2222222222222222222222222222222222222222222222222222222222222222",
+       "asset_address": "0xcccccccccccccccccccccccccccccccccccccccc",
+       "maker_address": "0xcccccccccccccccccccccccccccccccccccccccc",
+       "earnings": "0.40",
+       "asset_rate": "0.5"
+      }
+     ],
+     "total": [
+      {
+       "date": "2026-09-29",
+       "asset_address": "0xcccccccccccccccccccccccccccccccccccccccc",
+       "maker_address": "0xcccccccccccccccccccccccccccccccccccccccc",
+       "earnings": "2.4",
+       "asset_rate": "0.5"
+      }
+     ],
+     "percentages": {
+      "0x1111111111111111111111111111111111111111111111111111111111111111": 12.5,
+      "0x2222222222222222222222222222222222222222222222222222222222222222": 4
+     },
+     "payment_verified": false
+    }
+   },
+   "public": {
+    "/book?token_id=71321045679252212594626385532706912750332728571942532289631379312455583992563": {
+     "market": "0x1111111111111111111111111111111111111111111111111111111111111111",
+     "asset_id": "71321045679252212594626385532706912750332728571942532289631379312455583992563",
+     "timestamp": "1790640000000",
+     "hash": "0000000000000000000000000000000000000000",
+     "bids": [
+      {
+       "price": "0.84",
+       "size": "200"
+      },
+      {
+       "price": "0.85",
+       "size": "100"
+      }
+     ],
+     "asks": [
+      {
+       "price": "0.88",
+       "size": "10"
+      },
+      {
+       "price": "0.87",
+       "size": "50"
+      }
+     ],
+     "min_order_size": "5",
+     "tick_size": "0.01",
+     "neg_risk": false
+    },
+    "/book?token_id=21742633143463906290569050155826241533067272736897614950488156847949938836455": {
+     "market": "0x2222222222222222222222222222222222222222222222222222222222222222",
+     "asset_id": "21742633143463906290569050155826241533067272736897614950488156847949938836455",
+     "timestamp": "1790640000000",
+     "hash": "1111111111111111111111111111111111111111",
+     "bids": [
+      {
+       "price": "0.90",
+       "size": "50"
+      }
+     ],
+     "asks": [
+      {
+       "price": "0.94",
+       "size": "30"
+      }
+     ],
+     "min_order_size": "5",
+     "tick_size": "0.01",
+     "neg_risk": false
+    },
+    "/rewards/markets/0x1111111111111111111111111111111111111111111111111111111111111111": {
+     "data": [
+      {
+       "condition_id": "0x1111111111111111111111111111111111111111111111111111111111111111",
+       "question": "Fixture views market 1",
+       "market_slug": "fixture-views-1",
+       "rewards_max_spread": 3.5,
+       "rewards_min_size": 50,
+       "rewards_config": [
+        {
+         "asset_address": "0xcccccccccccccccccccccccccccccccccccccccc",
+         "start_date": "2026-09-20",
+         "end_date": "2500-12-31",
+         "rate_per_day": 73,
+         "total_rewards": 0
+        }
+       ]
+      }
+     ],
+     "next_cursor": "LTE="
+    },
+    "/rewards/markets/0x2222222222222222222222222222222222222222222222222222222222222222": {
+     "data": [
+      {
+       "condition_id": "0x2222222222222222222222222222222222222222222222222222222222222222",
+       "rewards_max_spread": 4.5,
+       "rewards_min_size": 20,
+       "rewards_daily_rate": "10"
+      }
+     ],
+     "next_cursor": "LTE="
+    }
+   }
+  },
+  {
+   "at": 1790642400,
+   "reader": {
+    "summary": {
+     "cash_pusd": "283.95",
+     "positions": [],
+     "open_orders": [
+      {
+       "id": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+       "status": "LIVE",
+       "owner": "redacted-by-reader",
+       "maker_address": "0xcccccccccccccccccccccccccccccccccccccccc",
+       "market": "0x1111111111111111111111111111111111111111111111111111111111111111",
+       "asset_id": "71321045679252212594626385532706912750332728571942532289631379312455583992563",
+       "side": "BUY",
+       "original_size": "100",
+       "size_matched": "20",
+       "price": "0.85",
+       "outcome": "Yes",
+       "expiration": "0",
+       "order_type": "GTC",
+       "created_at": 1790636400,
+       "associate_trades": []
+      }
+     ],
+     "status": "INCOMPLETE",
+     "errors": {}
+    },
+    "trades": {
+     "fills": [
+      {
+       "id": "f3d1c2b0-0000-4000-8000-000000000001",
+       "taker_order_id": "0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+       "market": "0x1111111111111111111111111111111111111111111111111111111111111111",
+       "asset_id": "52114319501245915516055106046884209969926127482827954674443846427813813222426",
+       "side": "BUY",
+       "size": "20",
+       "fee_rate_bps": "0",
+       "price": "0.15",
+       "status": "CONFIRMED",
+       "match_time": "1790640200",
+       "last_update": "1790640210",
+       "outcome": "No",
+       "bucket_index": 0,
+       "owner": "redacted-by-reader",
+       "maker_address": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+       "transaction_hash": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+       "trader_side": "MAKER",
+       "maker_orders": [
+        {
+         "order_id": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+         "owner": "redacted-by-reader",
+         "maker_address": "0xcccccccccccccccccccccccccccccccccccccccc",
+         "matched_amount": "20",
+         "price": "0.85",
+         "fee_rate_bps": "0",
+         "asset_id": "71321045679252212594626385532706912750332728571942532289631379312455583992563",
+         "outcome": "Yes",
+         "side": "BUY"
+        }
+       ]
+      }
+     ],
+     "recent_public_trades": [],
+     "recent_activity": [],
+     "public_history_scope": "latest_100_not_complete_history"
+    },
+    "rewards:2026-09-29": {
+     "date": "2026-09-29",
+     "earnings": [
+      {
+       "date": "2026-09-29",
+       "condition_id": "0x1111111111111111111111111111111111111111111111111111111111111111",
+       "asset_address": "0xcccccccccccccccccccccccccccccccccccccccc",
+       "maker_address": "0xcccccccccccccccccccccccccccccccccccccccc",
+       "earnings": "2.50",
+       "asset_rate": "0.5"
+      },
+      {
+       "date": "2026-09-29",
+       "condition_id": "0x2222222222222222222222222222222222222222222222222222222222222222",
+       "asset_address": "0xcccccccccccccccccccccccccccccccccccccccc",
+       "maker_address": "0xcccccccccccccccccccccccccccccccccccccccc",
+       "earnings": "0.40",
+       "asset_rate": "0.5"
+      }
+     ],
+     "total": [
+      {
+       "date": "2026-09-29",
+       "asset_address": "0xcccccccccccccccccccccccccccccccccccccccc",
+       "maker_address": "0xcccccccccccccccccccccccccccccccccccccccc",
+       "earnings": "2.9",
+       "asset_rate": "0.5"
+      }
+     ],
+     "percentages": {
+      "0x1111111111111111111111111111111111111111111111111111111111111111": 12.5,
+      "0x2222222222222222222222222222222222222222222222222222222222222222": 4
+     },
+     "payment_verified": false
+    }
+   },
+   "public": {
+    "/book?token_id=71321045679252212594626385532706912750332728571942532289631379312455583992563": {
+     "market": "0x1111111111111111111111111111111111111111111111111111111111111111",
+     "asset_id": "71321045679252212594626385532706912750332728571942532289631379312455583992563",
+     "timestamp": "1790640000000",
+     "hash": "0000000000000000000000000000000000000000",
+     "bids": [
+      {
+       "price": "0.84",
+       "size": "200"
+      },
+      {
+       "price": "0.85",
+       "size": "100"
+      }
+     ],
+     "asks": [
+      {
+       "price": "0.88",
+       "size": "10"
+      },
+      {
+       "price": "0.87",
+       "size": "50"
+      }
+     ],
+     "min_order_size": "5",
+     "tick_size": "0.01",
+     "neg_risk": false
+    },
+    "/book?token_id=21742633143463906290569050155826241533067272736897614950488156847949938836455": {
+     "market": "0x2222222222222222222222222222222222222222222222222222222222222222",
+     "asset_id": "21742633143463906290569050155826241533067272736897614950488156847949938836455",
+     "timestamp": "1790640000000",
+     "hash": "1111111111111111111111111111111111111111",
+     "bids": [
+      {
+       "price": "0.90",
+       "size": "50"
+      }
+     ],
+     "asks": [
+      {
+       "price": "0.94",
+       "size": "30"
+      }
+     ],
+     "min_order_size": "5",
+     "tick_size": "0.01",
+     "neg_risk": false
+    },
+    "/rewards/markets/0x1111111111111111111111111111111111111111111111111111111111111111": {
+     "data": [
+      {
+       "condition_id": "0x1111111111111111111111111111111111111111111111111111111111111111",
+       "question": "Fixture views market 1",
+       "market_slug": "fixture-views-1",
+       "rewards_max_spread": 3.5,
+       "rewards_min_size": 50,
+       "rewards_config": [
+        {
+         "asset_address": "0xcccccccccccccccccccccccccccccccccccccccc",
+         "start_date": "2026-09-20",
+         "end_date": "2500-12-31",
+         "rate_per_day": 73,
+         "total_rewards": 0
+        }
+       ]
+      }
+     ],
+     "next_cursor": "LTE="
+    },
+    "/rewards/markets/0x2222222222222222222222222222222222222222222222222222222222222222": {
+     "data": [
+      {
+       "condition_id": "0x2222222222222222222222222222222222222222222222222222222222222222",
+       "rewards_max_spread": 4.5,
+       "rewards_min_size": 20,
+       "rewards_daily_rate": "10"
+      }
+     ],
+     "next_cursor": "LTE="
+    },
+    "/prices-history": {
+     "history": [
+      {
+       "t": 1790640480,
+       "p": 0.86
+      },
+      {
+       "t": 1790641980,
+       "p": 0.83
+      },
+      {
+       "t": 1790642380,
+       "p": 0.84
+      }
+     ]
+    },
+    "/markets/0x1111111111111111111111111111111111111111111111111111111111111111": {
+     "condition_id": "0x1111111111111111111111111111111111111111111111111111111111111111",
+     "closed": true,
+     "active": false,
+     "tokens": [
+      {
+       "token_id": "71321045679252212594626385532706912750332728571942532289631379312455583992563",
+       "outcome": "Yes",
+       "price": 1,
+       "winner": true
+      },
+      {
+       "token_id": "52114319501245915516055106046884209969926127482827954674443846427813813222426",
+       "outcome": "No",
+       "price": 0,
+       "winner": false
+      }
+     ]
+    }
+   }
+  }
+ ]
+}

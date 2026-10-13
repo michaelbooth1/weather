@@ -372,6 +372,30 @@ parent branch for a stacked PR. After the dependency merges and the stacked PR
 is retargeted, catch up from `origin/master`. Resolve on the topic branch and
 rerun verification; do not rebase a shared or published branch.
 
+### Integration heads for a night
+
+A night lands **integration heads**: temporary branches (`claude/integration-*`,
+`codex/integration-*`, `prep/*`) that merge several approved PRs for one suite and one
+merge. Owner decisions 2026-10-05 (Swarm L M2 and M7) make these rules the default:
+
+- **Caps.** A head holds at most 4 PRs **and** at most 30 changed `src` files. Both
+  limits apply ("or" would admit a 12-PR head). It carries at most one serving
+  change, and its members share one roll class.
+- **Never mixed in:** a schema change that is not additive, or an 88a change. Each
+  lands alone. The caps apply to newly built heads; a held head is not re-cut.
+- **Roll-sensitive batching.** RS PRs may share a head under the caps, which costs
+  one capture restart for all members. Each member states that its schema changes
+  are additive only. A behavioural revert costs the whole batch and a quiet window,
+  so keep risky members alone.
+- **Build and preflight the day before.** Before the 22:00 bind, run the landing
+  preflight chained against the night plan: each head after the earlier ones, on
+  the plan-time `origin/master`. The handback carries each receipt's SHA-256.
+- **Refreshing is not landing.** Merging the base into a PR's own branch, or adding
+  fix commits there, is ordinary branch work. Folding one PR into another PR's
+  branch is a merge, unless the target is a temporary integration head. Merges
+  into `master` or a long-lived branch (`*-build-*`, `release/*`) follow the
+  authority rules above.
+
 After repository-owner approval, use a GitHub merge commit that preserves the
 topic history. A suitable merge subject is
 `Merge codex/<topic>: <outcome>`. Squash, rebase, cherry-pick, direct-master,

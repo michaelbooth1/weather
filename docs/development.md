@@ -40,20 +40,36 @@ package contract, and `requires-python` is `>=3.11`.
 
 - The `CI` workflow runs on **pull requests and on pushes to `master` only**. A push to any other branch runs
   nothing. A branch has no CI evidence until a pull request exists for it.
-- One job, Ubuntu, Python 3.11, 30-minute timeout, Git LFS disabled on purpose (tests stub model artifacts).
+- Ubuntu, Python 3.11, 30-minute job timeout, Git LFS disabled on purpose (tests stub model artifacts).
   Production modules must therefore stay cross-platform even though scheduled operations are Windows specific.
 - Tests that execute Windows PowerShell, ACL, Scheduler, or Job semantics carry precise non-Windows skips, so
-  **CI never executes them**. Their static and portable contracts run on Ubuntu; executable Windows coverage
-  exists only in the admitted production-host bounded suite below.
+  the Ubuntu job skips them. Every such file runs in a Windows qualification shard (below);
+  `test_windows_qualification_shards.py` fails when a test file that skips off Windows is in no shard.
 - The [`Host-load hook` workflow](../.github/workflows/host-load-hook.yml) runs the hook policy tests on Windows and Linux, only when the hook, its test, or
   that workflow file changes. It uses no fixtures or credentials and provides a verification path while an
   installed hook prevents dispatch of its own proposed repair.
 - [`ci.yml`](../.github/workflows/ci.yml) runs a fast `audit` job first (compileall, agent-docs audit, roadmap
-  check, schema-registry, import, path-policy and module-size ratchets; about a minute). The full Linux `test`
-  job `needs` it, so a ratchet failure stops the run before the long suite.
+  check, then every test marked `@pytest.mark.ratchet`, uploading a `linux-junit-audit-*` artifact). The Linux
+  `test` and `memory-flatness` jobs both `need` it, so a ratchet failure stops the run before the long suite, and
+  then run in parallel on the same Python and dependencies: `test` runs
+  `pytest -m "not ratchet and not memory_flatness"` and `memory-flatness` runs
+  `pytest -m "memory_flatness and not ratchet"` (the slow 5-to-50-run tracemalloc flatness tests). Each uploads a
+  `linux-junit-*` artifact. The three selections partition the suite, so each test runs exactly once per CI run;
+  `tests/operations/test_ci_job_partition.py` proves it by truth table, so a new marker split must keep that test
+  green. A ratchet is a repository-wide architecture or inventory check (imports, schema registry, docs audit, path
+  policy, module size, ops-script and task inventories). Mark a new one `ratchet` and add its file to the audit
+  job's list; `tests/operations/test_ci_ratchet_selection.py` fails until the list names exactly the files that use
+  the marker and the jobs' selections are exact complements. A ratchet that skips off Windows also carries
+  `windows_native` and executes in exactly one [Windows qualification](../.github/workflows/windows-qualification.yml)
+  shard (shards holding ratchet files select `-m "not ratchet or windows_native"`); the same meta-test proves every
+  ratchet executes exactly once across all workflows. Local and bounded-suite runs ignore these markers and run
+  everything (plain `pytest -q`).
 - The [Windows qualification workflow](../.github/workflows/windows-qualification.yml) adds exact-candidate native
-  launch/integration regressions under Windows PowerShell 5.1, as parallel `native-launch (<shard>)` jobs
-  balanced from JUnit timings; each shard uploads its own receipt and JUnit. Hosted Windows evidence records its actual scope,
+  launch/integration regressions under Windows PowerShell 5.1 and CPython 3.11.0 (the capture host's exact
+  interpreter; the Ubuntu jobs float on the latest 3.11.x), as parallel `native-launch (<shard>)` jobs
+  balanced from JUnit timings (a file too slow for one shard, such as `test_status_script.py` or the reconciler execution tests, is
+  split across shards by `split_select` -k expressions; `tests/operations/test_windows_qualification_shards.py` pins the
+  plan and proves by collection that every listed test runs exactly once); each shard uploads its own receipt and JUnit. Hosted Windows evidence records its actual scope,
   candidate/tree, workflow and resolved dependencies. It does **not** replace the admitted production-host bounded
   suite or the actual-host S4U smoke; the production acceptance contract stays in force until a separately reviewed
   substitution is qualified.
@@ -65,6 +81,54 @@ package contract, and `requires-python` is `>=3.11`.
 - The GitHub CLI (`gh`) is not installed on the capture host. Do not plan a step there that opens a pull request
   or reads CI status with `gh`; use the web UI, the workstation, or the push path in the
   [Git workflow SOP](git-workflow.md).
+
+### Known CI flakes
+
+A test enters this table on a proven same-SHA fail-then-pass. A row is tracked evidence, not a quarantine: one
+occurrence never justifies `@pytest.mark.quarantine`. Rerun the failed job on the same SHA; if a test reaches three
+occurrences, raise it with the owner. Counts come from the item K CI history (P0-3, the 500 runs to 2026-10-04)
+plus later sightings.
+
+| Test | Lane | Occurrences | Evidence |
+| --- | --- | --- | --- |
+| `tests/collection/test_forecast_payload_cross_process_fanout.py::test_holder_http_backoff_outcome_is_shared_without_second_provider_call` | Windows | 1 | same-SHA rerun (P0-3) |
+| `tests/collection/test_forecast_payload_cross_process_fanout.py::test_timeout_fetch_plus_holder_counts_two_fetches_and_one_write` | Windows | 1 | same-SHA rerun (P0-3) |
+| `tests/operations/test_storage_recovery_inventory_wrapper.py::test_real_wrapper_completion_binding_failure_and_child_tree_teardown[success-True]` | Windows | 1 | run 37078892774 attempt 1 failed, attempt 2 passed |
+| `tests/operations/test_live_wrapper_credential_launcher.py::test_forced_launcher_exit_kills_the_live_child_tree_before_mutex_reuse` | Windows | 1 | inferred, not same-SHA proven (P0-3) |
+| `tests/operations/test_production_baseline_reconciler_execution.py::test_post_start_hung_read_cannot_consume_the_containment_stop_reserve` | Windows (`reconciler-5`) | 1 | run 37246104447 (PR #209, 3767c21f): attempt 1 asserted `[] == ['WeatherOneShotPush']` after 48 s; same-SHA rerun passed. Timing-sensitive hang test on a slow hosted runner |
+
+A deterministic timing race is fixed, not tabled. `test_workload_admission_script.py` held the heavy-workload
+mutex for a fixed 2 s while a contender started; on a slow hosted runner the contender started after the
+release, so `windows-lane-a` was red on master (runs 37743128778, 37793211993). The holders now keep the
+mutex until the test creates a release file.
+
+### Proposal: shrink the host suite once the Windows lane is green (not in force)
+
+Proposal for N4 (2026-10-08), for master-agent and owner review. It changes nothing by itself: the
+[host load policy](operations/HOST_LOAD_POLICY.md) and `scripts/ops/bounded_worktree_test_suite.ps1` stay as
+they are until a reviewed change lands there, and the production acceptance contract above still holds.
+
+- **Pre-gate.** Both `CI` and `Windows Qualification` concluded `success` on the exact head SHA, with every
+  `native-launch (<shard>)` job successful (not skipped, not cancelled). A red or missing shard sends that
+  head to today's full host suite.
+- **What the lanes already run.** The Linux jobs run every tracked test file. The Windows shards run every
+  file with a test that skips off Windows. Listing check: compare the Linux JUnit `<skipped>` cases on a master
+  run with the shard files. On 86b1a7a9, 76 files and 801 skipped cases are all in a shard. The 30 skipped cases
+  outside every shard (7 files) are not Windows-only: DST-audit known-bug skips, RE1 fixture-only attempts, a
+  missing live extra, `pyinstrument`, and native rclone opt-in. They skip on the host too.
+- **What the host suite could drop.** Every file that both lanes ran green on that SHA.
+- **What it keeps:**
+  - the [affected tests](#affected-test-selection) for the head;
+  - the reconciler execution file, under the L5 rule (when its surface is touched, and once a night);
+  - the integration preflight ratchets;
+  - files whose result depends on the host itself rather than on Windows: host git 2.45.2 merge semantics,
+    the host PowerShell build, Scheduler and S4U state. Until the M5 host-divergence classifier lands, these
+    are the merge and integration script tests: `test_quiet_window_merge_script.py`,
+    `test_quiet_window_merge_execution.py`, `test_suite_gated_quiet_merge_script.py`,
+    `test_reconcile_ordinary_quiet_merge.py` and `test_integration_attempt_scripts.py` (all under
+    `tests/operations/`).
+
+The actual-host S4U smoke is not replaced.
 
 ## Where verification may run
 
@@ -80,18 +144,73 @@ rejects pytest/compileall outside that window (Claude Code has no hook; the S4U 
 | Limit | Value in the script |
 | --- | --- |
 | Mandatory parameters | `-RepoRoot`, `-WorktreeRoot`, `-ExpectedTip` (40-hex), `-BranchRef`, `-LogPath` |
-| Chunk size | `-MaxFilesPerChunk` default 20, hard maximum 25 test files |
+| Chunk size | `-MaxFilesPerChunk` default 25 (owner decision 2026-10-04; was 20), which is also the hard maximum and what new integration attempts freeze; always `ceil(files / MaxFilesPerChunk)` chunks |
+| Chunk grouping | time-packed (longest first into the lightest chunk with room) from the candidate's `tests/bounded_suite_file_timings.json`; an unlisted file weighs `default_seconds`, an absent table weighs every file equally, a malformed one refuses. Grouping never changes the file set, the cap or the chunk count. Regenerate the table from one or more complete Windows JUnit runs with `python tools/bounded_suite_timings.py --run "<run>/*.xml" --source "<what, when, sha>"` |
 | Commit charge | refuses to start above `-StartCommitPercent` 64, aborts before any chunk above `-AbortCommitPercent` 66 |
 | Free disk | 50 GiB (53,687,091,200 bytes) free on the volume, or it refuses |
 | Window | must start inside 00:30-09:00; hard teardown at 09:00 or `-MaxRuntimeSeconds` (max 5400) |
 | Exclusivity | takes the `data/logs/heavy_workload.lock` lease; refuses if another heavy workload holds it |
 | Modes | `-PreflightOnly`, `-SmokeTest`, `-IntegrationPreflight`, `-RequireLiveSdkContract` |
+| Interpreter | `<RepoRoot>\venv\Scripts\python.exe` by default. Optional `-InterpreterPath` (host Python upgrade prep) runs the import probe and every chunk with a staged venv's `python.exe` while `-RepoRoot` stays production, so admission, capture state and the shared `data/logs/heavy_workload.lock` lease are unchanged. The path must be absolute and normalized, on a local fixed drive (no mapped or `subst` letter), and name an existing regular `python.exe` with no reparse point on it. A contained `-I` probe must then prove a Python 3.11 virtual environment: `sys.prefix` is the venv root (`Scripts\..`) and differs from `sys.base_prefix`, `sys.executable` is the path itself, `pyvenv.cfg` exists, and the base interpreter is a separate regular file with the same locality proof (local fixed drive, no reparse point on it or any parent). `-ExpectedInterpreterVersion N.N.N` (only with `-InterpreterPath`) also pins the exact version. Any failure, or existing `<log>.interpreter.*.log` probe output from an earlier attempt, refuses before the lease. The suite log records one `interpreter_override {json}` line (path, the validated `N.N.N` version plus the SHA-256 of the raw `sys.version` text, never the text itself, prefixes, and the SHA-256 of `python.exe`, `pyvenv.cfg` and the base interpreter, plus the lease root), the bootstrap journal an `INTERPRETER_OVERRIDE` event, and the raw probe output sits beside the log as `<log>.interpreter.stdout.log`. Before the verdict the three files are re-hashed and any change refuses. A passing run ends `VERDICT: INTERPRETER QUALIFICATION PASSED (n/n); ...; NOT merge evidence`, never `ALL CHUNKS PASSED`, so `suite_gated_quiet_merge.ps1`, the integration-attempt verdict check and `package_exact_tip_bundle.ps1` all refuse it. The gate and the bundle packager read only the final non-empty line with the same anchored pattern and refuse any log carrying an `interpreter_override` line; the gate also refuses a suite task whose action passes `-InterpreterPath` in any form PowerShell `-File` binds (prefix, colon, quoted, a double quote anywhere inside the name such as `-"InterpreterPath"` or `-I""nterp`, or an en/em dash or horizontal bar for the hyphen). Omitted, nothing changes |
+| Reconciler file (L5, owner decision 2026-10-06) | `test_production_baseline_reconciler_execution.py` (~19 min) runs only when the diff from `-ReconcilerSurfaceBase` (40-hex) to the tip touches its surface. `scripts/ops/reconciler_surface.ps1` derives that surface from the test file, the scripts it names and their closure, the Python modules those scripts launch, and a floor: `quiet_window_merge.ps1`, `production_baseline_scheduler_rpc.ps1`, `workload_admission.ps1` and the integration-attempt scripts. The log records `reconciler: INCLUDED` or `SKIPPED` with the reason. `-IncludeReconciler` forces the file (the once-a-night final-tip run). No base, or a predicate that cannot be evaluated (a missing floor or test file), means the file is included, so integration attempts, which pass no base, run every file as before |
 
 The only merge-eligible result is the final log line `VERDICT: ALL CHUNKS PASSED`. When free disk is under the
 floor the suite cannot be admitted at all; that is a blocker to report, not a limit to lower.
 
 Test runs write large temporary trees. Give focused pytest an explicit `--basetemp` outside the repository and
 delete it afterwards; judge disk with the volume's free space, not a directory size.
+
+#### Workstation pre-gate (before a host landing slot)
+
+A head bound for a host landing night first passes `scripts/ops/workstation_pregate.ps1 -Head <40-hex>
+[-Base <40-hex>]` on the non-capture workstation, after its landing preflight. A FAIL keeps the head off the
+host. The run:
+
+- **Same mode as the host.** The pre-gate starts `workstation_pregate_driver.ps1` the way
+  `integration_attempt_suite.ps1` starts the host suite: `Start-WeatherProcessInJob` with captured output.
+  The driver then replays the host suite's own top-level statements from its AST. So the chunk plan
+  (25 files, time-packed), the `CREATE_SUSPENDED|CREATE_NO_WINDOW` chunk launch, Job containment,
+  environment scrubbing, per-chunk `C:\pt` basetemp and JUnit handling are the host's code.
+- **Only host-only checks are replaced, and the log records each one.** These are the 00:30-09:00 window,
+  the 09:00 hard stop, the capture-host lease, and `Assert-HostAdmission` (capture workers and the host
+  commit ceiling). If any of them no longer matches exactly once, the driver refuses. Each replaced
+  statement, and the `Assert-HostAdmission` body, is also pinned by a SHA-256 of its text (CRLF normalised
+  to LF) in `workstation_pregate_driver.ps1`. A content-only host edit inside one of them (for example a
+  changed chunk cap or a new host check) is refused until someone reviews it and updates the pin.
+- **Admission and cleanup.** In every mode it first proves that this is the assigned non-capture
+  workstation (`Assert-WeatherWorkstationOfflineHost`); the capture host's heavy lease uses the same mutex
+  name, so a held mutex is no proof of which host this is. It then takes the workstation FIFO queue lease
+  (`workstation_offline_v1`), or, nested inside `workstation_heavy.ps1`, reuses that wrapper's lease. It
+  runs in a detached worktree `C:\lpf-s\pg-<sha12>` and removes it, and the chunk basetemps, afterwards.
+- **Receipt.** It writes a receipt (`weather.workstation_pregate_receipt.v1`) under `data\pregate\`. The
+  receipt has the chunk plan, each chunk's exit code, the verdict, the log path and the log's SHA-256.
+  **The receipt verdict is authoritative**; consumers read it, not the process exit code. The exit code
+  follows it (0 only for PASS, 75 for a queue timeout, otherwise 1), including after Ctrl+C: the exit is
+  issued from inside the final `finally`, because a stopped Windows PowerShell 5.1 `-File` script would
+  otherwise exit 0. A hard kill (`taskkill /F`, a closed console) writes no receipt and leaves
+  `C:\lpf-s\pg-<sha12>` behind; the next run for that head refuses until it is removed.
+
+Known gaps (Defender review of 2026-10-07, not fixed):
+
+- **Teardown order (N4).** The pre-gate terminates the driver Job before
+  `Set-WeatherHeavyWorkloadLeaseTeardownPending`, the reverse of `workstation_heavy.ps1`. If
+  `TerminateAndWait` throws, the lease is released normally rather than poisoned, so a child tree may
+  briefly outlive the lease. The verdict is still FAIL.
+- **Smaller gaps (N5).** `basetemp_removed=false` does not fail the verdict; the queue `finish` event is not
+  written; only nested mode is tested end to end, and the standalone queue path (`Enter-…Queued`,
+  TeardownPending, Exit) has no test.
+- Nested mode proves only that *some* process holds the mutex, not that the holder is an ancestor.
+
+**Console mode.** Each chunk owns a fresh, windowless console. Neither host hop shares its parent's console,
+so this comes from the creation flags, not from the S4U session. No Scheduled Task is needed or registered.
+A `DETACHED_PROCESS` Windows PowerShell driver is not a substitute: measured on 2026-10-06, it exits 0
+without running its script. The pre-gate cannot reproduce two host properties:
+
+- the S4U logon itself: session 0, a non-interactive window station, no network credentials;
+- the host's machine-level environment.
+
+The pre-gate removes the agent-harness and Python override variables the host task would not carry, and
+lists them in the receipt. Tests: `tests/operations/test_workstation_pregate_script.py`.
 
 ### Separate non-capture workstation
 
@@ -138,7 +257,9 @@ same real repository root, then submit this exact literal shape as one line:
 
 The hook accepts the wrapper owned by that absolute repository root, in the
 exact parameter order shown, with literal absolute paths and a literal
-canonical base64 value. A sibling worktree or clone is accepted only
+canonical base64 value, optionally followed by ` -Queue` or
+` -Queue -QueueTimeoutSeconds <N>` to wait first-in first-out for a busy lease
+([host load policy](operations/HOST_LOAD_POLICY.md#workstation-focused-runs-fifo-queue-and-xdist-owner-decision-2026-10-04)). A sibling worktree or clone is accepted only
 when its workstation wrapper, workload-admission script, and Windows Job helper
 are byte-identical to the installed hook's reference checkout. Compute the
 base64 value in a light command, then submit the wrapper invocation as a second
@@ -209,12 +330,77 @@ and [SSH configuration manual](https://man.openbsd.org/ssh_config.5).
 | Shared root modules (`weather.io`, `weather.artifacts`, release serving) | the top-level `tests/test_*.py` files plus the owning package tests |
 | Reports, gates, roadmap | matching `tests/reporting`; verify fail-closed evidence behavior |
 | Package/import/path changes | `tests/operations/test_import_architecture.py` |
+| Landing preflight (`weather.operations.landing_preflight*`) | `tests/operations/test_landing_preflight.py` plus `tests/test_hygiene_ratchet.py` and the schema-registry tests (via the workstation wrapper); a `--tests none` dog-food run on a real night plan ([landing preflight](operations/LANDING_PREFLIGHT.md)) |
 | Canonical docs/agent files | `python -m weather.operations.agent_docs_audit` |
 | Roadmap item/index or generated backlog | roadmap lint plus `roadmap_backlog --fail-on-lint --check` after regeneration |
 
 Run the full suite for cross-owner changes, release/evidence contracts, shared
 utilities, or before handing off a broad refactor: on a workstation or through CI, and on the capture host only
 through the bounded runner above.
+
+### Affected-test selection
+
+`python -m weather.operations.affected_tests` lists the test files a change can reach through the static
+graph, with one reason per file (the shortest chain from the test to a changed file):
+
+```powershell
+.\venv\Scripts\python.exe -m weather.operations.affected_tests --base origin/master            # HEAD vs its merge base
+.\venv\Scripts\python.exe -m weather.operations.affected_tests --base origin/master --worktree # include uncommitted and untracked files
+.\venv\Scripts\python.exe -m weather.operations.affected_tests --base origin/master --format paths   # file list for pytest
+```
+
+`--format json` gives the same result for tooling. The graph is read from the git tree of `--head` (no
+checkout needed), so it is cheap enough to run anywhere; running the selected tests is still a pytest run under
+the host rules above. What it follows and where it stops is in the module docstring; in short:
+
+- Python imports (and, in tests and scripts, strings naming a module), PowerShell lines that run
+  `-m weather.*` or launch another script, and file or directory paths that a test or module names.
+- Any `conftest.py`, `pytest.ini`, `pyproject.toml`, `requirements*.txt` or the import bootstrap selects the
+  full suite. The repository ratchets are always selected, and the output lists the always-run audit commands.
+- It is advisory. Dynamic imports, computed paths and behavior that crosses branches (a master change that
+  breaks a test that exists only on a feature branch) are invisible to it; a pull request's full CI run stays
+  the evidence. Changes it cannot connect to any test are listed under "changes no test reaches statically".
+
+## Staged test cuts: the quarantine marker
+
+A test is never deleted in one step. Removing a test that is believed redundant, trivial or brittle is staged:
+
+1. **Quarantine.** Mark it
+   `@pytest.mark.quarantine(reason="...", added="YYYY-MM-DD", sunset="YYYY-MM-DD", replaced_by="...")` and add an
+   entry to [`tests/quarantine_registry.json`](../tests/quarantine_registry.json):
+   `"tests/x.py::test_y": {"first_added": "<added>", "renewals": []}` (the key is the test function; parametrized
+   cases share it). `reason`, `added` and `sunset` are required; `added` is not in the future and `sunset` is at
+   most 6 weeks after it. `replaced_by` names the surviving test that still kills the same fault. Name a twin
+   that CI actually runs: a Windows-only twin in no Windows qualification shard leaves pull-request CI with
+   neither test. A class-level or module `pytestmark` marker applies to every test under it; stacking two
+   markers on one test is refused.
+2. **Observe.** A quarantined test is still collected and still runs everywhere (CI, the workstation, the bounded
+   suite). If it fails in setup or call, the run does not fail: the result becomes a non-strict xfail with the
+   quarantine reason, a `QuarantinedFailureWarning` is shown, the terminal report ends with a "quarantined tests"
+   section naming each failure, and the JUnit test case carries `quarantine` and `quarantine_failure` properties.
+   A teardown error stays fatal. Every quarantined failure must be triaged: a real defect means the test is
+   restored (marker and registry entry removed), not deleted.
+3. **Renew at most within 12 weeks.** A renewal appends the new `added` date to the entry's `renewals` and sets a
+   new sunset, so it is a visible, reviewed registry diff. No sunset may fall more than 12 weeks after
+   `first_added`, however often the entry is renewed.
+4. **Delete or restore.** Deletion is an owner decision, taken only after at least two weeks of CI and at least
+   three bounded-suite runs with no real-defect failure.
+
+**When the sunset passes.** Under GitHub Actions (`GITHUB_ACTIONS=true`) collection fails with a usage error
+that names the test, in every job that collects it: the test job, and the audit job through
+`tests/test_quarantine_registry.py`. This also holds under `--collect-only` and under a `-k`/`-m` selection
+that would skip the test. Off CI (the workstation, and the capture-host bounded suite on an integration night)
+the expiry is only reported: a `QuarantineExpiredWarning`, an `EXPIRED QUARANTINE` line in the terminal
+section, and a `quarantine_expired` JUnit property. The test stays quarantined, so a calendar date alone never
+changes a local or bounded-suite outcome. `--quarantine-expired=fail|report` overrides the detection.
+Malformed markers and registry mismatches always fail collection; CI catches them before merge.
+
+[`tests/quarantine_plugin.py`](../tests/quarantine_plugin.py) implements the marker (registered in `pytest.ini`,
+loaded by `tests/conftest.py`). `tests/test_quarantine_marker.py` pins its behaviour, and
+`tests/test_quarantine_registry.py` proves that the hooks are registered (so a bad `conftest.py` merge cannot
+silently drop them) and that the registry matches the markers. Under pytest-xdist the terminal section sees only
+the controller's reports; the JUnit properties stay per test. Never-cut families (safety, parity, settlement,
+release binding, architecture ratchets and the like) are not quarantined without the review that froze them.
 
 ## Stateful command boundaries
 
@@ -244,7 +430,8 @@ Exact gates evolve and belong to the release/runbook code, not copied prose.
 ## Definition of done
 
 - The intended behavior is implemented through the correct owner.
-- Focused tests pass on a host allowed to run them; broader checks match the change risk. State where each
+- Focused tests pass on a host allowed to run them; broader checks follow "Verification scope and assertion
+  strength" below, including its Windows condition. State where each
   check ran. A capture-host refusal (window, disk floor, commit charge) is reported as a blocker, not as a pass.
 - CI evidence exists only for a pull request or for `master`; say which, or say there is none.
 - Windows-executing script tests are proven only by the bounded production-host suite, never by CI.
@@ -254,6 +441,37 @@ Exact gates evolve and belong to the release/runbook code, not copied prose.
 - No secrets, machine-specific paths, ignored runtime files, or unrelated user
   changes entered the diff.
 - Documentation links and knowledge contracts pass the agent-doc audit.
+
+## Verification scope and assertion strength (owner decision 2026-10-04)
+
+Adopted by the owner on 2026-10-04 (test-suite review K; [decision log](operations/DECISION_LOG.md) row of
+2026-10-04; record and evidence:
+[test-policy-proposals.md](research/test-suite-review-2026-10-04/test-policy-proposals.md) P2 and P5).
+
+**Local verification and CI (P2, approved with a condition).**
+
+- **Condition, not yet met.** The rule below takes effect only once a CI Windows lane runs the Windows-only
+  tests that CI never runs today (about 303 cases in files in no `windows-qualification` shard, including the
+  70 reconciler-execution cases; that shard work is approved separately). The change that adds the lane must
+  update this paragraph to say the condition is met.
+- **Until then**, a change that touches a Windows-executing script (`scripts/ops/*.ps1`, or a test that runs
+  PowerShell) still needs a local full suite: the bounded production-host suite, or a Windows workstation full
+  run through `scripts/ops/workstation_heavy.ps1`.
+- **The rule (once the condition is met).** Local verification is the focused tests for the owner package plus
+  the affected tests from `python -m weather.operations.affected_tests --base origin/master --format paths`
+  (draft PR #204), run through the host's normal pytest route. The pull request's CI is the full-suite
+  evidence; nobody runs a local full suite only to duplicate CI. A handoff may still require more.
+
+**Mutation-informed assertions (P5).** A mutation sample (104 faults in 27 functions) found 51 faults that were
+executed but never asserted. New tests, and tests touched in a change:
+
+1. assert both sides of every boundary they cover: the value at the threshold and one step past it;
+2. give each guard clause a case where only that guard fires, and assert the specific outcome, not just
+   "not PASS";
+3. check computed statistics and numeric outputs against an independent expected value, not only presence or
+   order;
+4. for an incident test, name the mutation it kills in the module `Guards:` line or the test docstring;
+5. prefer one strong case per input partition over many cases in the same partition.
 
 ## Update this file when
 

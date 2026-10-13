@@ -1,6 +1,8 @@
 import os
 import subprocess
 
+import pytest
+
 from weather.reporting.roadmap import correspondence_index as index
 
 
@@ -123,3 +125,87 @@ def test_unknown_correspondence_name_is_not_silently_omitted(tmp_path, monkeypat
     put(tmp_path, "agent-report-new.md", "# Report\n")
     monkeypatch.setattr(index, "git_added_dates", lambda root: {})
     assert "unparseable correspondence filename" in index.parity_errors(tmp_path)[0]
+
+
+# --- option D: branches do not commit the index; structural vs strict -------
+
+def _landed_index(tmp_path):
+    """A repo whose committed index is fully regenerated (the closeout state)."""
+    git(tmp_path, "init")
+    put(tmp_path, "workstation-handoff-2026-09-10a-topic.md", "# Handoff\n")
+    put(tmp_path, "agent-report-2026-09-11a-other.md", "# Other\n")
+    git(tmp_path, "add", ".")
+    git(tmp_path, "-c", "core.hooksPath=", "commit", "-m", "add", date="2026-09-10T12:00:00+00:00")
+    index.write_outputs(tmp_path)
+    git(tmp_path, "add", ".")
+    git(tmp_path, "-c", "core.hooksPath=", "commit", "-m", "index", date="2026-09-10T13:00:00+00:00")
+    assert index.parity_errors(tmp_path) == []
+    return tmp_path / index.SHARD_DIR / "2026-09.md"
+
+
+@pytest.mark.spawns
+def test_structure_allows_pending_rows_and_lagging_answers_strict_does_not(tmp_path):
+    shard = _landed_index(tmp_path)
+    # A branch adds the handoff's answering report without regenerating the index.
+    put(tmp_path, "agent-report-2026-09-10a-answer.md", "# Answer\n")
+    git(tmp_path, "add", ".")
+    git(tmp_path, "-c", "core.hooksPath=", "commit", "-m", "answer", date="2026-09-12T12:00:00+00:00")
+    errors, pending = index.structural_check(tmp_path)
+    assert errors == [] and pending == 1
+    assert "none in tree" in shard.read_text(encoding="utf-8")  # the handoff's answers lag
+    assert index.parity_errors(tmp_path)  # strict still demands the closeout
+    assert index.main(["--repo-root", str(tmp_path), "--check-structure"]) == 0
+    assert index.main(["--repo-root", str(tmp_path), "--check"]) == 1
+    # The closeout regeneration is idempotent and restores strict parity.
+    assert index.write_outputs(tmp_path)
+    assert index.write_outputs(tmp_path) == []
+    assert index.parity_errors(tmp_path) == [] and index.structural_check(tmp_path) == ([], 0)
+
+
+@pytest.mark.spawns
+def test_structure_fails_a_stale_row(tmp_path):
+    """Mutant: a committed row that no longer matches its source must fail."""
+    _landed_index(tmp_path)
+    put(tmp_path, "agent-report-2026-09-11a-other.md", "# Retitled\n")
+    errors = index.structural_errors(tmp_path)
+    assert len(errors) == 1 and "differs from its source" in errors[0]
+    assert "drop the hunk" in errors[0]
+
+
+@pytest.mark.spawns
+def test_structure_fails_stray_edited_wrong_answer_and_out_of_order_rows(tmp_path):
+    shard = _landed_index(tmp_path)
+    original = shard.read_text(encoding="utf-8")
+    header, rows = original.rstrip("\n").split("\n")[:-2], original.rstrip("\n").split("\n")[-2:]
+
+    def with_rows(*lines):
+        shard.write_text("\n".join([*header, *lines]) + "\n", encoding="utf-8")
+        return index.structural_errors(tmp_path)
+
+    report = next(row for row in rows if "11a-other" in row)
+    handoff = next(row for row in rows if "| handoff |" in row)
+    assert rows == [report, handoff]  # same added date: filename order
+    stray = report.replace("agent-report-2026-09-11a-other.md", "agent-report-2026-09-11a-gone.md")
+    assert any("no source in tree" in e for e in with_rows(*rows, stray))
+    assert any("differs from its source" in e
+               for e in with_rows(report.replace("| 2026-09-10 |", "| 2026-09-09 |"), handoff))
+    wrong = handoff.replace("none in tree", "[agent-report-2026-09-11a-other.md](../agent-report-2026-09-11a-other.md)")
+    assert any("does not share its id" in e for e in with_rows(report, wrong))
+    assert any("out of order" in e for e in with_rows(handoff, report))
+    assert any("duplicate row" in e for e in with_rows(*rows, report))
+    assert with_rows(handoff) == []  # dropping a row is only pending
+    assert with_rows(*rows) == []
+
+
+@pytest.mark.spawns
+def test_structure_checks_the_root_month_list_not_its_prose(tmp_path):
+    _landed_index(tmp_path)
+    root = tmp_path / index.OUTPUT
+    text = root.read_text(encoding="utf-8")
+    root.write_text(text.replace("Branches do not commit", "Older prose: branches commit"), encoding="utf-8")
+    assert index.structural_errors(tmp_path) == []  # the first closeout migrates the prose
+    root.write_text(text + "- [2026-01](correspondence-index/2026-01.md)\n", encoding="utf-8")
+    assert any("no longer generated" in e for e in index.structural_errors(tmp_path))
+    root.write_text(text, encoding="utf-8")
+    (tmp_path / index.SHARD_DIR / "2026-09.md").unlink()
+    assert any("shard is missing" in e for e in index.structural_errors(tmp_path))

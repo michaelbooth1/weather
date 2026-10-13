@@ -252,9 +252,16 @@ def run_pinned(args, production_root, output):
     verify_retained = getattr(args, "verify_retained", False)
     if verify_retained and args.apply:
         raise ValueError("read-only verification cannot be combined with apply")
+    nightly_journal = False
     if verify_retained:
+        from weather.operations import cold_snapshot_nightly_verification as nightly
         from weather.operations import cold_snapshot_verification as verification
-        candidates = verification.validate_request(request, production_root=production_root, now=now)
+        nightly_journal = nightly.is_request(request)
+        if nightly_journal and nightly.ATTEMPT.fullmatch(output.name):
+            raise ValueError("a verification attempt must not be named like a nightly attempt")
+        candidates = (nightly.validate_request(request, production_root=production_root, now=now)
+                      if nightly_journal else
+                      verification.validate_request(request, production_root=production_root, now=now))
     else:
         candidates = validate_request(request, production_root=production_root, now=now)
     source = repo_path()
@@ -291,15 +298,20 @@ def run_pinned(args, production_root, output):
                 raise ValueError("capture admission refused: " + ",".join(admission["reasons"]))
 
     guard(force=True)
-    read_inventory(request, candidates, production_root=production_root, source_git_sha=args.source_git_sha)
-    preimage = (verification.read_preimage(request, candidates[0], production_root=production_root)
-                if verify_retained else None)
+    if nightly_journal:
+        # The failed nightly attempt's own hash-bound inventory and selection bind the file.
+        row, preimage = nightly.read_preimage(request, production_root=production_root, now=now)
+        candidates = [row]
+    else:
+        read_inventory(request, candidates, production_root=production_root,
+                       source_git_sha=args.source_git_sha)
+        preimage = (verification.read_preimage(request, candidates[0], production_root=production_root)
+                    if verify_retained else None)
     write_receipt_bytes(output / "request.json", raw, MAX_REQUEST_BYTES)
     results = []
     receipt = {"schema_version": schema_version("cold_snapshot_compression_receipt"),
                "source_git_sha": args.source_git_sha, "request_sha256": args.request_sha256,
                "execution_host_id": request["execution_host_id"],
-               "inventory_wrapper_sha256": request["inventory_wrapper_sha256"],
                "owner_approved_exception": exception,
                "apply": args.apply, "deleted_files": 0, "cleanup_eligible": False,
                "reclaimed_bytes": 0}
@@ -308,12 +320,20 @@ def run_pinned(args, production_root, output):
                        verify_retained=True, source_files_changed=0, verified_reclaimed_bytes=0,
                        preimage_sha256=request["preimage_sha256"],
                        predecessor_wrapper_sha256=request["predecessor_wrapper_sha256"])
+    if nightly_journal:
+        receipt.update(attempt=request["attempt"], batch=request["batch"], ordinal=request["ordinal"])
+    else:
+        receipt["inventory_wrapper_sha256"] = request["inventory_wrapper_sha256"]
     try:
         for index, candidate in enumerate(candidates):
             def journal(phase, row, index=index):
                 write_receipt(output / f"{index:03d}-{phase}.json", {**receipt, **row})
             guard(force=True)
-            if verify_retained:
+            if nightly_journal:
+                row = nightly.verify_candidate(production_root / "data" / candidate["path"],
+                                               request, candidate, preimage, guard=guard)
+                journal("verification", row)
+            elif verify_retained:
                 row = verification.verify_candidate(production_root / "data" / candidate["path"],
                                                      candidate, preimage, guard=guard)
                 journal("verification", row)

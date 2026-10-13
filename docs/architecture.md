@@ -26,7 +26,7 @@ the evidence and release gates.
 | `weather.sources` | Provider fetch/parsing, historical stores, source schemas |
 | `weather.model` | Serving-time source assembly, features, distributions, calibration application |
 | `weather.calibration` | Training, candidate replay/scoring, calibration, artifact production |
-| `weather.market` | Market registry, Polymarket/CLOB access, settlement labeling, maker/taker policy |
+| `weather.market` | Market registry, Polymarket/CLOB access, settlement labeling, live maker adapters and policy |
 | `weather.collection` | Snapshot/forecast capture, persistence, health, and backfill |
 | `weather.backtesting` | Settlement ledger IO, frozen-tape scoring, replay, evaluation |
 | `weather.reporting` | Audits, reports, scorecards, promotion and serving gates |
@@ -82,20 +82,14 @@ historical pilot view) and the active Roadmap; retired market, history,
 overview, and operations views are not hidden routes or retained application
 code.
 
-The taker track is paused by owner decision (maker focus); read
-[STATE_OF_PLAY](operations/STATE_OF_PLAY.md) for whether it is running. Its storage contract still binds the code
-and the evidence already on disk. The paper taker writes `orders_long.csv` and its counterfactual tape by append.
-Real order evidence is permanent. Counterfactual replay detail has a specific
-date-bounded policy: daily-roll startup removes only hash-bound allowlisted raw
-and settled detail CSVs after both their target date and mtime exceed the
-configured retention, without waiting for settlement. Compact P&L, strategy,
-report, plan, and apply receipts remain.
-`incremental_state.sqlite3` is a rebuildable intent index and cumulative
-checkpoint, not canonical evidence: ordinary ticks use it to materialize only
-new rows and the bounded filled-position set, while explicit maintenance
-recovery may stream the canonical tapes. Per-tick memory, tape-I/O, duration,
-and post-warmup slope diagnostics are advisory observability and do not change
-daily-roll liveness classification.
+The paper taker and the paper maker were retired and their runtime code deleted on
+2026-09-29 (110o part 3), except the paper-run tool `weather.market.market_making_run`,
+retained only for the International live-pilot Stage 0/1 paper proof. Their run folders under `data/taker_runs` and `data/mm_runs`
+remain append-only evidence: real order evidence is permanent, and the taker's
+bounded counterfactual detail is governed by the
+[storage class contract](operations/data-storage-class-contract.md). The retained
+`trading_evidence` report reads them through the read-only
+`weather.reporting.market.retired_trading_evidence` module.
 
 ## Sources of truth
 
@@ -128,6 +122,12 @@ daily-roll liveness classification.
   source, model, label, replay, and reporting owners.
 - Intraday features align to the effective WU printed cutoff, not blindly to
   wall-clock time.
+- Station observation rows are keyed on the observation instant
+  (`metar-parser-v4` keys AWC rows on `obsTime`, never the nominal
+  `reportTime`; [durable domain context](operations/AGENT_CONTEXT.md)). Captured
+  v3 rows are not rewritten; `python -m weather.backtesting.metar_keying_replay`
+  re-derives both keyings from the retained raw payloads for closed dates up to
+  2026-09-29 and reports the per-snapshot difference. It is read-only.
 - Training extraction and live feature extraction change together. Captured
   input replay is the preferred proof against train/serve skew.
 - Snapshot, forecast, order-book, settlement, and trading tapes are local
@@ -143,6 +143,25 @@ daily-roll liveness classification.
   Source fingerprints exclude artifacts, so a source-roll verdict alone does not
   prove activation. Preserve fitted contexts when toggling the switch; never
   refit against this stage's own output. See [the decision and evidence](operations/ESTABLISHED_FINDINGS.md#2-the-cool-bias-is-real-and-is-not-correctable-at-serve).
+- The late-day lock-in stages (heuristic, learned, high-has-stood, expanded,
+  standing-high partial, late-day continuation) read one anchor built by
+  `late_day_lockin_anchor` in `weather.model.model_distribution`
+  (`LATE_DAY_LOCKIN_ANCHOR_VERSION`, model `v0.5.11`; the pre-lock-in floor
+  of `lockin-anchor-v4` is model `v0.5.12`). With WU printed history
+  present it is that history, unchanged. With WU history empty it is the
+  observed same-day station high: point-in-time METAR rows keyed by observation
+  time (AWC `obsTime`, else the raw `DDHHMMZ` group), never by the nominal
+  `reportTime`, so a D-1 23:5x report carried into D as a "00:00" row is
+  excluded. It is never higher than `guidance_physical_floor`, which still
+  carries that report. Once a late-day stage acts, mass below the anchor
+  bucket moves onto it and the calibration floor follows. Before lock-in
+  (`lockin-anchor-v4`) the same move applies at the same-day METAR high bucket,
+  because the hard floor otherwise reads only the current reading and the max
+  since 07:00; SWOB rows keep their hedge until lock-in. Implausible readings
+  never anchor. The calibration taper reads the resulting strength.
+  `python -m weather.backtesting.lockin_anchor_replay` replays closed dates up
+  to 2026-09-29, comparing the old and new anchors. It is read-only and exits 3
+  when any row puts more mass below the anchor than before.
 - Public facade names and compatibility shims can remain stable, but new logic
   belongs to the documented owner module and must not import back through its
   facade.

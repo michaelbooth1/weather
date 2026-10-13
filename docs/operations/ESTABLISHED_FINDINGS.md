@@ -100,10 +100,11 @@ sequence numbers, not calendar dates.
 | 10j | `-09-81a`: on every morning row the guidance lead halves; most guidance is dropped against the floor; 11 market clusters cap confirmation power |
 | 10k | `-09-82a`: after the 13Z cycle the NBM parser reads tomorrow morning's minimum as today's maximum; a live shadow variant consumes the columns |
 | 10l | `-09-83a`: the versioned parser repair is built (PARTIAL); production downloads the same national NBM bulletin ~49 times an hour |
-| 10m | RE-1 live reward sessions 1-9: the reward model holds; empty bands fill |
+| 10m | RE-1 live reward sessions 1-11: the reward model holds; empty bands fill |
 | 10n | Open orders are limited to cash per market, not across markets |
 | 10o | Weather takers pay fees and makers earn fee-funded rebates |
 | 10p | `2026-09-111h`: NBM guidance at all hours (parser v2) does not carry the morning lead into the afternoon; the US all-hours route is closed |
+| 10q | Model-parity swarm v2 (2026-10-04, development; landed by production 2026-10-04): two serving repairs on captured data close about half of the 111h table's gap (evening lock-in defect; morning v2 read); no external free source adds information; 13-16 residual |
 
 ---
 
@@ -2231,8 +2232,9 @@ adds the regression that reducing both `covered_years` and `selected_dates` cann
 
 The MM gate cannot decide until enough maker days count toward the live-forward gate, so that
 **yield**, not elapsed calendar time, sets the date the gate can rule. Nothing reported it, so it
-was being argued from memory. `python -m weather.reporting.market.mm_countability_postmortem`
-now reports it from the `preflight_remediation.json` every maker run already writes.
+was being argued from memory. `weather.reporting.market.mm_countability_postmortem` then
+reported it from the `preflight_remediation.json` every maker run writes (module deleted with the
+retired paper maker on 2026-09-29; it remains in git history).
 
 | Measure | Value |
 | --- | ---: |
@@ -3250,6 +3252,10 @@ persists rather than heals.
 
 ### 10e. 13 of about 26 serving post-processing stages are silent no-ops — CODE-TRACED, SERVED OUTPUT NOT READ
 
+> **PARTLY SUPERSEDED by §10q:** for the late-day lock-in stages and the calibration
+> taper, one real served payload has now been read (ATL 2026-09-20 23:55: lock-in no-op, calibration moved above-high mass
+> 0.031 → 0.087), plus a production multi-payload read (27 closing snapshots, 11 markets x 3 dates 08-12/09-14/09-27, where the floor agrees with the market): the per-band change made by `late_day_lockin` is median 8.4e-9, max 1.2e-7, a no-op in all 27; mass above the running high is 0.276 served vs 0.002 market ([synthesis §12](../research/model-parity-swarm-2026-10-04/SYNTHESIS.md)), and their forecast consequence is measured (development) in §10q.
+
 `src/weather/model/model_constants.py:19` sets `PAID_WEATHER_PROVIDER_ACCESS_ENABLED = False` (commit
 `5735b573a`, 2026-06-30), with no environment override. `fetch_wu_history`, `fetch_wu_current` and
 `fetch_weather_com_forecast` therefore raise immediately and every live capture since carries empty
@@ -3453,7 +3459,7 @@ for lack of live closure evidence, so production must run its own). Handback **P
   NBH/NBS products. The v1-trained shadow is quarantined, not re-versioned: NBM inputs are masked when the parser
   regimes differ. Review also found and fixed a v1 replay regression: `live_only_fields` had dropped to 11 names.
 
-### 10m. RE-1 live reward sessions 1-9 (2026-09-23/24): the reward model holds; empty bands fill — mission 92a
+### 10m. RE-1 live reward sessions 1-11 (2026-09-23/25): the reward model holds; empty bands fill — mission 92a
 
 Owner-attended sessions on the testing wallet (sized treatment, 75 shares at ±1.5 c from session 4 on). Journal folders are
 numbered by **attempt**: attempts 1-9 are sessions 1, 2, none (opening check refused), 3, 4, 5, 6, 7, 8.
@@ -3466,7 +3472,8 @@ numbered by **attempt**: attempts 1-9 are sessions 1, 2, none (opening check ref
 - **Competition arrives within minutes of our quote.** The selected share halved 2-4 minutes after posting in every
   session (Miami 95.4% -> 3.55%; Atlanta 63.1% -> 4.07%) while midpoints barely moved. An "empty" band at selection is
   empty only until we post; selection-time six-hour projections overstate reward by an order of magnitude.
-- **Fills came on the thinnest bands.** Four fills in six sampled sessions, at 1.8, 12.3, 42.0 and 87.2 minutes: 5.57 NO
+- **Fills in sessions 1-8 came on the thinnest bands.** Four fills in sessions 1-8 (six minute-bearing attempts), at
+  1.8, 12.3, 42.0 and 87.2 minutes, all at the quote price (three partial; Miami full but not through): 5.57 NO
   @0.48 (NYC), **75 YES @0.35 (Miami 90-91°F Sep 25; marked -8.5 c/share at +5 and +30 minutes, ~-6.4; the 00Z GFS
   published 36 minutes before)**, 18.41 NO @0.59, 10 NO @0.40; four distinct takers. Only Miami looks informed at short
   horizons; all four are held to settlement (~43.8 cost). On an empty band share is 100% at any size or distance, so 75
@@ -3481,7 +3488,9 @@ numbered by **attempt**: attempts 1-9 are sessions 1, 2, none (opening check ref
   UTC 09-24 rewards reached ~1.99 before its last minutes.
 - **Session 11 (attempt 12, depth rule, 2026-09-25 01:12-02:23Z):** contested Chicago 68-69°F Sep 25 band (selected share 0.56,
   ~14% at 20 min), 72 minutes, `P_many` 0.383, no requote; a burst of five taker trades then filled the YES leg in full (75 @0.43,
-  32.25) and the session ended and cleaned up; positions read lagged the trades (empty at cleanup, 75 YES in the app).
+  32.25) and the session ended and cleaned up; positions read lagged the trades (empty at cleanup, 75 YES in the app). Four of the five trades printed
+  at 0.43 and the fifth at 0.42, strictly through our price: RE-1's fifth fill and its only strictly-through one
+  (campaign-root attempt 12 `terminal_trades`).
 - **Settlements (owner portfolio, 2026-09-25 ~00:30Z):** Atlanta 72-73°F Sep 24 NO (18.41 @0.59) won, +7.54; NYC 66-67°F Sep 24
   NO (5.57 @0.48) won, +2.89; Chicago 68-69°F Sep 24 NO (10 @0.40) lost, -4.00 (the taker was right). Realized fills
   **+6.43**; Miami 90-91°F Sep 25 YES (75 @0.35) open, marked 0.44 (+6.75) after a -8.5 c short-horizon mark — short marks
@@ -3497,6 +3506,7 @@ numbered by **attempt**: attempts 1-9 are sessions 1, 2, none (opening check ref
   **20** (rate 65-67/day) at ~17:05Z on both gamma and CLOB `/rewards/markets/<id>`. The "neither earns rewards" line above
   held only for the morning. CLOB `/rewards/markets` is authoritative (RE-1 reads it; 88a captures it per minute); read it at
   decision time, never from an earlier snapshot.
+- **Realized net, restated from wallet balances (Q-22, 2026-10-09):** **−36.97 pUSD** = five lots −39.11 (NYC +2.90, Miami −13.30 after the owner's taker sale at 0.18 with fee 0.5535 = 0.05·p(1−p)·75, Atlanta +7.55, Chicago Sep 24 NO −4.00 and Chicago Sep 25 YES −32.25, the two Chicago payouts of 0 inferred from no credit with the cash path reconciling) plus the 09-24 reward +2.13; no rebates observed. Sources: `data/wallet_ledger` snapshots dated 09-25..09-29 only. It supersedes the earlier "+6.43", which covered three 09-24 lots only.
 - **Caveats:** six cities, nine attempts, two trade dates — descriptive only, no inference.
   Evidence: `origin/codex/re1-campaign-analysis-20260924` @ `7f98359` (report and rebuild script), second-opinion audit
   `docs/roadmap/audits/second-opinion-audit-2026-09-24.md`, session-1 analysis 86c.
@@ -3558,6 +3568,103 @@ candidate and statistics unchanged (crossed date x market bootstrap, 2,000 draws
   dates; these results may not be used to choose its hours.
 - **Evidence:** `codex/guidance-all-hours-analysis-20261003` @ `0206f4d1` (PR #183),
   `docs/roadmap/agent-report-2026-09-111h-guidance-all-hours.md`; extract on production `data\exports\nbm-guidance-111h`.
+
+### 10q. Half of the 111h table's served-to-market gap is two serving repairs on captured data; no external free source adds information — model-parity swarm v2, 2026-10-04
+
+> Reviewed and landed by the production agent 2026-10-04 (owner approved landing). Every number remains a development read.
+
+**Every number is a development read.** The from stratum (2026-08-23..09-29) had already been read by 79a, 81a and 111h,
+so it is not a holdout and nothing here is confirmation. Table: the §10p extract (110,807 snapshots, 626 market-days, 57
+dates, 11 US markets, targets 08-01..09-29; 0 rows after 09-29), scored by a hash-pinned harness (one crossed date x market
+bootstrap weight matrix, 2,000 draws; 81a floor mask on every candidate; served fallback on every row). On this table
+served/market Brier is 1.77x pooled; that is not §1's 1.423246x (different panel; never mix). 26 hunters, 2 refuters per
+lead family; **134 registered rule ids** are the multiplicity denominator. No serving, config, capture or reservation change
+was made.
+
+- **Ladder (no new source), from stratum, all rows:**
+
+  | Block | served − market (ratio) | + evening lock-in restoration (r1) | + MG-1 morning read (r2) | r2 − market (ratio) | r2 share of gap closed |
+  | --- | --- | --- | --- | --- | --- |
+  | 00-05 | +0.0244 (1.43) | 0 | −0.0141 [−0.0234, −0.0067] 11/11 | +0.0102 (1.18) | 58% [37, 76] |
+  | 06-09 | +0.0254 (1.45) | 0 | −0.0139 [−0.0229, −0.0063] 11/11 | +0.0114 (1.20) | 55% [33, 75] |
+  | 10-12 | +0.0228 (1.44) | 0 | −0.0092 [−0.0164, −0.0027] 10/11 | +0.0137 (1.26) | 40% [15, 62] |
+  | 13-16 | +0.0239 (1.84) | −0.0006 | −0.0002 [−0.0086, +0.0077] 2/11 | +0.0231 (1.81) | 4% [−36, 33] |
+  | 17-23 | +0.0296 (not interpretable: market Brier ~0.0008) | **−0.0252 [−0.0350, −0.0174] 11/11** | +0.0018 | +0.0063 | 79% [63, 89] (r1 alone 85% [76, 92]) |
+  | 00-16 | +0.0242 (1.49) | −0.0002 | **−0.0099 [−0.0177, −0.0034] 10/11** | +0.0141 (1.29) | 42% [19, 62] |
+  | all | +0.0258 (1.73) | −0.0073 | −0.0066 | +0.0119 (1.34) | **54% [35, 70]** |
+
+- **Evening (17-23) is a serving defect, not missing information.** The late-day lock-in stages read WU-only
+  `history_max`, empty since 2026-06-30 (§10e), so lock-in strength is 0 and the calibration taper (S7) is untapered.
+  Re-anchoring S1/S2 with production constants (a band-level emulation, not a replay) closes 85% of the 17-23 gap. The
+  emulation used `max(history_max, guidance_floor)`; the **served rule is the v3 anchor** (owner decision 2026-10-05,
+  PR #191). It is the observed same-day station high, with METAR keyed by observation time and before-07:00 readings
+  included, and the D-1 report carried in by the M0 `reportTime` defect excluded. Once a late-day stage acts, no mass
+  is left below the anchor bucket. `guidance_floor` itself was not a safe anchor: production's captured-input replay
+  of the v2 rule found 679 rows where the new vector put more mass below the anchor than the old one (worst: austin
+  2026-08-25 18:07, a carried 84.02 °F "00:00" row). **v3 replay** (production, closed dates <= 2026-09-29;
+  development):
+  - `floor_check` PASS, with 0 rows worse below the anchor.
+  - 17-23 mean mass above the anchor fell 0.332 → 0.075.
+  - The settled check found 0 v3-rule anchors with a settled bucket below the anchor. **Confirmed on one real served payload** (ATL 2026-09-20 23:55:
+  lock-in no-op; calibration moved above-high mass 0.031 → 0.087), and by a production multi-payload read (27 closing snapshots, 11 markets x 3 dates 08-12/09-14/09-27, where the floor agrees with the market): the per-band change made by `late_day_lockin` is median 8.4e-9, max 1.2e-7, a no-op in all 27; mass above the running high is 0.276 served vs 0.002 market ([synthesis §12](../research/model-parity-swarm-2026-10-04/SYNTHESIS.md)); together these meet §10e's read-before-acting condition for
+  these stages. An independent re-implementation (T27) reproduces the rung to 7e-6 and it clears Bonferroni at the full
+  registry count. The taper reads the same lock-in strength (`model_distribution.py:544`), so the restored strength
+  must reach it; an extra S7 gate is optional (−0.00008 at 17-23). Every 17-23 "lead" from the remaining-rise / decided-band family (T1-T4, T15, T16 and the 17-23 legs of
+  T5-T10) is this mechanism: an unconditional collapse with no input does at least as well. **Cosmetic for the maker**
+  (the market already knows the high is in); it removes Brier loss that never moved a quote.
+- **Morning (00-12): served under-uses the NBM v2 guidance it already captures.** MG-1 (v2_mean, sigma = max(v2_stddev, 1),
+  floored, zero parameters, no hour gate) 00-16 −0.0100 [−0.0179, −0.0035], 10/11, before stratum −0.0122. This is the
+  known §10h/§10j/§10p family, not a discovery; §10j's power cap (11 market clusters, about 40% crossed power) applies. It
+  depends on landing the 83a/83b parser repair (§10k, §10l): production's v1 parser reads a minimum as today's maximum on 75,049 of
+  110,807 rows. The fitted forms (T18 EMOS, frozen RV-1) differ from MG-1 by spread modelling on captured v2, not by a source
+  (RV-1 − MG-1 00-16 −0.0034 [−0.0078, +0.0007]).
+- **No external free source adds information beyond captured data plus those two repairs:** NBH, NBS, MOS/NBE, Open-Meteo
+  Single-Runs HRRR (latest and time-lagged), ECMWF IFS, 12Z soundings, NWS revision direction, neighbour stations,
+  METAR/GOES cloud. NBH's 00-16 increment over MG-1 is +0.0027 [−0.0037, +0.0098] (5/11, wrong sign); v2_mean carries 137%
+  of T5's 00-16 gain. The one borderline sign (MOS/NBE t7-r2 at 13-14, −0.0063 over r2) is a post-hoc hour slice and not an
+  increment over the remaining-rise rung (−0.0031 [−0.0077, +0.0017]).
+- **Residual after both repairs is largest in the registered 13-16 block:** +0.0231 [+0.0173, +0.0289], 1.81x (the POST-HOC
+  15-16 slice reads +0.0270, 2.53x). Re-anchoring the 13-19 h lock-in stages S3-S5 recovers only −0.0020 (−0.0032 at
+  15-16; 58% of 15-16 snapshots have not rolled over below the high: a remaining-rise problem, under a declared forecast
+  proxy). The no-source METAR remaining-rise rung t3-r3 (station x month x local-hour pmf of final max − running max from
+  IEM history to 2026-07-31) beats served at 13-16 by −0.0116 [−0.0190, −0.0052], 10/11, and r2 by −0.0107, 11/11, but is
+  **fragile**: WEAK at +1 h METAR staleness, NULL at +2 h, and fails family-wise (z −3.26). The 15-16 "−0.0181 over r2" is
+  post-hoc twice and 0.0068 of it is MG-1's own 15-16 harm. A new rule; it can only enter through a pre-registration on
+  new dates.
+- **No candidate reaches market parity in 00-16.** Serveable without a new rule: 1.29x. Best composed (POST-HOC r2 x t3-r3):
+  1.245x. Nothing tested closes the 00-12 residual (+0.010 to +0.014).
+- **T1 (decided-band collapse) is subsumed, not drafted.** Serving-stage form: after the final calibrated distribution,
+  when local time is past sunset or (hour >= 15 and the latest routine METAR is >= 1 °F below the METAR running max), bands
+  1-3 °F above the floor band B keep a historical residual rate q(k) and the rest of the mass above B moves into B. Floor
+  interaction: the 81a mask (max of `guidance_physical_floor`, `high_so_far`, `trusted_current_max`; B = round_half_up)
+  is lower-side, T1 upper-side; both act on B, never conflict, and never weaken the floor. Inserted before calibration it
+  needs an S7 gate (it does not feed the taper). 17-23 −0.0264, but the unconditional collapse scores −0.0287 and the restored lock-in −0.0254: the
+  "decided" condition carries none of the effect.
+- **Tail lens, this table's definition:** band rows with served SE > market SE and |p_served − p_market| >= 0.30 are
+  **6.075% of rows carrying 70.38% of the positive excess**. §1/§1f's **4.387% / 64.140%** is the sealed in-season panel's
+  figure; the difference is expected and does not change §1. Per-market tail sign cannot rank candidates here (98 of 99
+  candidate vectors improve the tail); the separating quantity is the non-tail cost (MG-1 about −27% of the 00-16 tail
+  excess vs about −6% for the history-fitted spread forms).
+- **Defects found:** **M0** — production keys METAR rows by AWC `reportTime` (nominal hour), so a 23:5x report enters the
+  next day's running max; confirmed on the captured floor at KLGA 2026-09-19 and KMIA 2026-08-29 (on KMIA every floored
+  candidate gave the winner 0 all day); 0.3-0.6% of station-days Aug-Sep, 2.2% Oct-Dec, up to 5.4% at KLGA; fix = key on
+  `obsTime` (parse-only, versioned). `trusted_current_max` is null on 100% of extract rows. 31 rows carry a captured floor
+  10 °F above the METAR max. Late S3 NBM uploads are upstream delays plus one transfer backlog, not re-uploads.
+- **Bonferroni** (134 rules x 7 block groups, z about 4.04): passes for the 17-23 family, T18 00-16, RV-1 00-16 and t7-r2
+  00-16 (about 90% captured v2); fails for MG-1 00-16, r2 all hours, t3-r3 13-16 and the POST-HOC composite. MG-1 survives
+  its statistics refuter on resampling robustness (W, date, market, LOMO, LOWO), not on multiplicity. Passing makes a
+  result worth a pre-registration, not established.
+- **Consequences (owner decisions 2026-10-04, [DECISION_LOG](DECISION_LOG.md)):** the evening lock-in fix is approved and
+  built (PR #191, re-anchored on the v3 same-day observed high, owner decision 2026-10-05, so the restored strength
+  reaches the S7 taper), with a
+  production captured-input replay and then a quiet-window landing; the parser v2 landing is approved (PR #190), and its
+  12Z/13Z/19Z rejection was verified correct; MG-1 is SIGNED at `b044e0f1`, with a narrow-scope reservation
+  ([reserved-confirmation-window.md](reserved-confirmation-window.md)); RV-1, t3-r3 and HG-1 are held until the evening fix
+  is live; NBH-1 is declined; the M0 fix is built (PR #189), plus the DST fetch-window fix (item I). **There is no capture
+  case for any new source.**
+- **Evidence:** [synthesis](../research/model-parity-swarm-2026-10-04/SYNTHESIS.md) and per-agent reports in
+  `docs/research/model-parity-swarm-2026-10-04/`; harness `8db69adc7fb9bee8c3db47707b8aea71bff825a415b950108e19e84a0fd29f74`;
+  scores and acquired data on the workstation only (`C:\swarm\`).
 
 ## Related
 

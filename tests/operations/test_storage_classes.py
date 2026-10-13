@@ -47,6 +47,15 @@ def test_wu_orphan_pid_reuse_and_non_wu_scope():
     assert classify_storage_path("wunderground/cyyz/day.tmp", wu_orphan_proof=proof).protected
 
 
+def test_wu_orphan_writer_pid_zero_is_never_proved():
+    """PID 0 is never a writer; a temp file named for it stays protected even with every other proof."""
+    path = "wunderground/cyyz/day.json.0.123.tmp"
+    proof = WuAtomicOrphanProof(path, 0, False, None, 1, 86402, True, True)
+    assert classify_storage_path(path, wu_orphan_proof=proof).protected
+    control = "wunderground/cyyz/day.json.42.123.tmp"
+    assert not classify_storage_path(control, wu_orphan_proof=replace(proof, path=control, writer_pid=42)).protected
+
+
 def test_retired_paper_maker_tasks_are_expected_disabled():
     from weather.paths import repo_path
 

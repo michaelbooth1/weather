@@ -37,30 +37,6 @@ SETTLED_DAY_ANALYSIS_DEPENDENCIES = (
         "skippable_as_non_critical": False,
     },
     {
-        "step": "taker_finalization_watchdog",
-        "phase": "post_label_taker_finalization",
-        "critical": True,
-        "skippable_as_non_critical": True,
-    },
-    {
-        "step": "taker_edge_permission_map",
-        "phase": "post_label_taker_permission_map",
-        "critical": True,
-        "skippable_as_non_critical": True,
-    },
-    {
-        "step": "taker_tail_casebook",
-        "phase": "post_label_taker_evidence",
-        "critical": True,
-        "skippable_as_non_critical": True,
-    },
-    {
-        "step": "maker_paper_score",
-        "phase": "post_label_maker_evidence",
-        "critical": True,
-        "skippable_as_non_critical": True,
-    },
-    {
         "step": "settlement_source_audit",
         "phase": "label_provenance_audit",
         "critical": True,
@@ -185,10 +161,6 @@ def _dependency_status(step, dependency, target_date):
         blocker = step.get("error") or "step_error"
     elif dependency["step"] in SETTLEMENT_TRUTH_STEPS and step_status != "ok":
         blocker = f"step_status={step_status}"
-    elif (dependency["step"] == "maker_paper_score"
-          and result_status == "NOT_APPLICABLE"
-          and result.get("reason") == "paper_maker_paused"):
-        non_critical = True
     elif result_status == "SKIPPED" and dependency.get("skippable_as_non_critical"):
         non_critical = True
     elif result_status == "SKIPPED" and dependency.get("critical"):
@@ -367,8 +339,6 @@ def _settled_day_resume_command(args, resume_step="settled_day_analysis_barrier"
         command += ["--settled-analysis-target-date", str(target)]
     if getattr(args, "fail_on_observed_floor_safety", False):
         command.append("--fail-on-observed-floor-safety")
-    if getattr(args, "paper_maker_paused", False):
-        command.append("--paper-maker-paused")
     return " ".join(command)
 
 

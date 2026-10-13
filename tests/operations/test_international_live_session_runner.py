@@ -15,6 +15,7 @@ import pytest
 from weather.market import mm_geographic_eligibility as geography
 from weather.operations import international_live_time_window as time_window
 from weather.operations import international_live_session_runner as runner
+from tests.operations.live_launcher_break_harness import assert_cooperative_break, run_break_case
 from weather.operations import international_live_wrapper_sealer as sealer
 from tests.live_candidate_fixture import build_live_candidate_payload
 
@@ -1512,27 +1513,40 @@ def test_default_launcher_runner_executes_safe_child_inside_job(tmp_path):
     assert result.returncode == 0
 
 
+# Timing contract for the cooperative Ctrl+Break test. Every interval is derived from these three, so the
+# ordering "script running < deadline < script's own exit < deadline + grace" holds by construction:
+# - STARTUP_ALLOWANCE: launch to deadline. It must exceed Windows PowerShell 5.1 start-up so the break lands
+#   while the script runs. A break during start-up takes a different, nondeterministic path (immediate
+#   0xC000013A, or exit 2 about 3.3 s later, outside the grace). Workstation start-up is about 0.3 s.
+# - TAIL: the script keeps working this long past the deadline, then exits 3 on its own.
+# - GRACE: the runner's cleanup grace. TAIL plus the debugger resume must fit inside it; a forced
+#   teardown cannot finish before STARTUP_ALLOWANCE + GRACE, which the elapsed bound relies on.
+COOPERATIVE_STARTUP_ALLOWANCE_SECONDS = 3.0
+COOPERATIVE_TAIL_SECONDS = 0.5
+COOPERATIVE_GRACE_SECONDS = 3.0
+
+
+@pytest.mark.spawns
 @pytest.mark.skipif(os.name != "nt", reason="Windows Job containment is Windows-only")
 def test_default_runner_allows_cooperative_ctrl_break_cleanup(tmp_path):
-    script = tmp_path / "cooperative.ps1"
-    script.write_text(
-        "Start-Sleep -Milliseconds 1500\nexit 3\n",
-        encoding="utf-8",
-    )
-
-    started = time.monotonic()
-    absolute_deadline = datetime.now().astimezone() + timedelta(seconds=1)
-    with pytest.raises(runner.LauncherControlError) as caught:
-        runner._default_launcher_runner(
-            script,
-            timeout_seconds=5,
-            absolute_deadline=absolute_deadline,
-            cleanup_grace_seconds=3,
-        )
-
-    assert caught.value.cooperative is True
-    assert caught.value.forced is False
-    assert time.monotonic() - started < 4
+    # Windows PowerShell answers Ctrl+Break inside a running script by entering
+    # its debugger at the next statement and reading a command from stdin. If
+    # that stdin is a console or an open pipe the read blocks, the script never
+    # reaches its own exit, and the runner rightly forces the tree. The runner
+    # starts the child with stdin on the null device (#229), so the debugger
+    # reads EOF and resumes and the outcome depends only on the runner.
+    # The runner runs in a helper started exactly as the live template starts it
+    # (python -I -S), so the repository sitecustomize cannot add CREATE_NO_WINDOW
+    # to the child and move it off the runner's console, which silently dropped the
+    # break under the bounded suite (2026-10-06). The stub's DebuggerStop handler
+    # proves delivery without console text (tests/operations/live_launcher_break_harness.py).
+    rc, text, outcome, events = run_break_case(
+        tmp_path, runner.__file__, allowance=COOPERATIVE_STARTUP_ALLOWANCE_SECONDS,
+        tail=COOPERATIVE_TAIL_SECONDS, grace=COOPERATIVE_GRACE_SECONDS, caller_stdin_open=False)
+    assert_cooperative_break(
+        rc, text, outcome, events, runner_file=runner.__file__,
+        max_return_after_deadline_s=COOPERATIVE_GRACE_SECONDS,
+        max_elapsed_s=COOPERATIVE_STARTUP_ALLOWANCE_SECONDS + COOPERATIVE_GRACE_SECONDS)
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows Job containment is Windows-only")

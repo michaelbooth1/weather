@@ -20,13 +20,8 @@ from weather.market.mm_official_adapter import (
     require_official_clob_version,
 )
 from weather.market.mm_official_transport import fetch_wallet_deployed
-from weather.market.market_making_preflight import (
-    INTERNATIONAL_SETTLEMENT_UNIT,
-    contains_secret_material,
-    pilot_wallet_signature_topology,
-    valid_evm_address,
-)
-from weather.market.market_making_run_constants import MAX_OPERATOR_PILOT_BUDGET_USDC
+from weather.market.platform_contract import INTERNATIONAL_SETTLEMENT_UNIT, contains_secret_material, pilot_wallet_signature_topology, valid_evm_address
+from weather.market.execution_contract import MAX_OPERATOR_PILOT_BUDGET_USDC
 
 
 REFERENCE_ENV = {
