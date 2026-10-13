@@ -105,10 +105,10 @@ SERVED_ARTIFACTS = (
 )
 
 
-def _write_once(root, **patches):
+def _write_once(root, runtime_guard=None, **patches):
     store = SnapshotStore(root=root, event_slug=SLUG)
     with patch.multiple("weather.collection.nbm_guidance_read_shadow", **patches) if patches else _null():
-        result = store.write(_event(), _model(), FakeFahrenheitClient(), CAPTURED)
+        result = store.write(_event(), _model(), FakeFahrenheitClient(), CAPTURED, runtime_guard=runtime_guard)
     files = {name: (root / name).read_bytes() for name in SERVED_ARTIFACTS if (root / name).exists()}
     tape_path = root / shadow.TAPE_FILENAME
     tape = [json.loads(line) for line in tape_path.read_text(encoding="utf-8").splitlines()] if tape_path.exists() else []
@@ -220,9 +220,11 @@ class TestSnapshotStoreWiring(unittest.TestCase):
         self.assertEqual(tape[0]["captured_input_hash"], replay["captured_input_hash"])
 
     def test_served_artifacts_are_byte_identical_with_stage_on_or_off(self):
-        result_on, files_on, tape_on = _write_once(self._fresh())
+        # One runtime guard for both writes: its current-identity probe is timestamped.
+        guard = SnapshotStore(root=self._fresh(), event_slug=SLUG).runtime_identity_guard()
+        result_on, files_on, tape_on = _write_once(self._fresh(), guard)
         result_off, files_off, tape_off = _write_once(
-            self._fresh(), build_row=_raise("stage disabled for the invariance test")
+            self._fresh(), guard, build_row=_raise("stage disabled for the invariance test")
         )
         self.assertEqual(sorted(files_on), sorted(files_off))
         self.assertIn("snapshots.jsonl", files_on)
