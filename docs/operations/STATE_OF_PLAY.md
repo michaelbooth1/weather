@@ -1,7 +1,7 @@
 # State of play
 
-**Last updated: 2026-10-13 12:00 America/Toronto (N8 + pyup NuGet runbook landed; Phase A NO-GO at A4, A' 10-14 07:00;
-LFC T-24h done, session 0 10-14; N9 heads set; four workstation tracks).**
+**Last updated: 2026-10-13 14:45 America/Toronto (owner 14:35: #177 on 10-15, #190 then the stage 10-18, v2 lapse date
+moves out, second workstation lease slot; Phase A NO-GO at A4, A' 10-14 07:00; LFC session 0 10-14; N9 heads set).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended. At most 95 lines and about 9 KB, one fact per bullet, detail in the linked owner.** This file owns
@@ -25,9 +25,9 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
   every night head pre-gated on its stacked base; host-only behaviour needs a host run.
 - **Workstation: one Claude Code chat directed by the production agent** ([preamble](WORKSTATION_SESSION_PREAMBLE.md));
   relayed owner approvals bind it for serving-model and merges, never money or credentials; credentials never committed.
-- **Workstation tracks** (owner 10-13 ~10:50, "stay ambitious ... keep going"): T1 shadow MM / replay v2 (critical path),
-  T2 the 88a 10-15 roll-sensitive head, T3 model improvements, T4 core engineering throughput. **Heavy freeze** on the
-  workstation from 10-14 10:00 EDT until LFC session 0 is declared done.
+- **Workstation tracks** (owner 10-13 ~10:50): T1 shadow MM / replay v2 (critical path), T2 88a 10-15 head, T3 model, T4
+  engineering. **Heavy freeze** 10-14 10:00 EDT until LFC session 0 is done; after it, a **second `workstation_heavy` slot**
+  for focused runs < 5 min (owner 10-13 ~14:35; workstation only, never capture PC or live; script change separate).
 - **Landed is not running:** a new loop, nightly, scorer or task is done only when its Open-commitments verify has run.
 
 ## Current truth
@@ -55,8 +55,9 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 - **Build line** `codex/maker-replay-v2-build-20261003` = `1fd0c295f` (W1/W2/F3, T1-T3, Q2 #269, F4; owner-approved); the
   export nightly stays unregistered until a separate owner yes (>= 10-16).
 - **Maker replay v2** (panel UTC 09-30..10-14 never read): spec v3.4 is the frozen oracle basis; handout r1 signed 10-12
-  (H-11 r2, erratum 1, H-12 r1, isolation I-1..I-8); fresh oracle author on the host. Signature ~10-18..20; look by 11-15.
-- **Model, morning:** MG-1 SIGNED 10-04 at `b044e0f1`; needs parser v2 (#190); scored on dates >= 10-15.
+  (H-11 r2, erratum 1, H-12 r1, I-1..I-8); fresh oracle author on the host. Signature ~10-18..20, target stays 10-22..23;
+  look by 11-15. Lapse date moves out of 10-23 (owner 10-13): **PROPOSED 10-30, owner to confirm**; §13 not yet amended.
+- **Model:** MG-1 `b044e0f1` (scored >= 10-15) needs #190; owner cleared 10-18: #190 first, then the stage, after roll verdict + parity re-run (#162 not asked).
 - **Live seals** must be RESEALED before any sealed-lane attempt (#229); the LFC re1 lane consumes none. C3 rehearsal deferred.
 - **Pinned deployments:** watchdog `1794fd3b`, cold snapshot (91a `6e5ff47`), exam U6 `89618c30`; paths in the task actions.
 - **88a retention hold:** keep UTC 09-27..10-15 (v2) and 10-15..10-30 (desk-study panel); lossless compression ok.
@@ -67,8 +68,8 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 2. **N9, 10-14 01:00-04:00:** RS `claude/integration-20261014-n9-rs-r2` `dae4c96da` (DST-M2); RF stacked `...-n9-rf-r2`
    `48becd401` (I-6 wrapper); oc `...-n9-oc` `051d8aa64` (roll-free, after rf or rf-alone); fallback `...-n9-rf-alone-r2` `f870a759d`.
 3. **Host Python:** A' 10-14 07:00; §T + T-R 10-15; B 10-16; cutover C 00:30 10-17.
-4. **10-15 night: one roll-sensitive 88a head (T2)**; §T holds the lease 00:30-02:00, suite ~02:45, merge start by 03:40.
-   Nights 10-16 and 10-17 are G5 no-merge; remaining 88a heads (#118, #172 + #182, #177) 10-18 or later.
+4. **10-15 night: #177 (T2, owner yes)**; §T holds the lease 00:30-02:00, suite ~02:45, merge start by 03:40; owner accepts
+   the capture restart ~03:40-04:00 EDT in the UTC 10-15 panel day. 10-16/10-17 G5 no-merge; #182 + #172 10-18; #118 >= 10-18.
 5. **Measurements (09-29 only):** desk-study power rule #263. **Research:** NBS/NBH probe; T+1/T+2 NWP timing; item 337.
 
 ## Open commitments (every row: owner, due, verify)
