@@ -8,6 +8,12 @@ at `claude/oracle-handout-h1-20261012` @ `c85494d57` (runbook file sha256
 - **(B) Profile handling.** Profile trees are not deny-ACLed; they are asserted closed instead. Inheritable deny ACEs go
   on non-profile roots only.
 - **(V) Oracle venv.** The owner approved the PyPI download on 2026-10-12 at about 20:15.
+- **r1 re-cut before hand-out** (owner, 2026-10-12 ~21:30). The kept `tests/maker_core/conftest.py` imported an
+  excluded fixture, so collection failed. R4 is narrowed for `tests/maker_core/fixtures/__init__.py` and
+  `fictional_domain.py` (blob-pinned keep list); `test_re1_parity.py` and `test_re1_session_export.py` are withheld as
+  `excluded-import`; the cut tool now refuses any kept `tests/` file whose imports the cut does not keep. The new
+  binding below supersedes `62327970…7db9`. H-11, H-12 and the erratum bytes are unchanged.
+- **Permission mode** (owner, same sitting): variant 2, `acceptEdits` plus a git-only Bash allow-list (ruling I-8).
 
 Where this block and the runbook differ on (B), this block is the newer ruling. The runbook's step 5 needs the same
 amendment when it lands.
@@ -16,15 +22,18 @@ Bound values. Each one is checked by the code below, so none of them needs retyp
 
 | Value | |
 | --- | --- |
-| r1 manifest binding (SHA-256 of `C:\oracle-cut\r1\H1-manifest.json`) | `623279703b2daac805c95e330aef4bede87ac203b75d6724d6bcae793a7b7db9` |
+| r1 manifest binding (SHA-256 of `C:\oracle-cut\r1\H1-manifest.json`), re-cut 2026-10-12 | `61b68b16e4b51b1fd4702e77d0b30edfb1fe2f66c315096087c291053a56673b` |
 | H-12 r1 (signed 2026-10-12 ~20:45), inside the cut as `handout\H-12-session-prompt-r1.md` | `50afac36accc3d4a613db2d2a6037f0d0a7b2cd1f93092a103b5a8cd4162f878` |
 | Cut plan `plan.json` (this folder; byte copy of the workstation r1 plan) | `e75ed9de176e9775009bf64b8162048a703c1f91a9a102695f84b63a7087fc56` |
-| `materialize_h1_inputs.py` (this folder), blob `7a77a72e27db09d52c19a6070a791fa0c4835c5d` | `e834f9fc77dc4126f5b1de7d6f705d9f843691767ac0926e0098e0c999227395` |
+| `materialize_h1_inputs.py` (this folder), blob `40ba3c0ce94bd08f4fce73ac1ea45f3a4cfdedbc` | `a6ed3cc7c584b980c5d67110ec643b91ba35a17849189c32a6b1607094627753` |
+| Cut tool written by the materializer, blob `9585b5a7ba365f3b95c1b70bc5f18d04e41a7107` (`claude/oracle-cut-fixture-keep-20261012` @ `8b85810bc`) | `7a30cecfe14e01eb500a0ddbf3a688e46a365f6d87453a04868b19effbdf9f47` |
 | `oracle-venv-lock-hashed.txt` (this folder), blob `8121a95be7cdd84c0f3e58f15cd9d4864edb6a6f` | `591ac9533d1e88b77907c8c5c549a3967eaf40dbddbb3851580a78ac88e5caa5` |
 
-The workstation reproduced the binding from a fresh top-level ops folder: the materializer wrote the inputs from git
-objects, the cut ran into a different output path, and it gave `62327970…7db9`. The binding does not depend on the
-output path.
+The workstation re-cut twice into different output paths and got `61b68b16…673b` both times, so the binding does not
+depend on the output path. In that scratch cut, `pytest --collect-only tests/maker_core` on the six oracle-venv pins
+collected 162 tests with 0 errors. Over all of `tests/`, every collection error (312 files) is a third-party package the
+oracle venv does not hold (requests, pandas, tzdata, numpy, pyarrow, streamlit, websocket, matplotlib, sklearn); none
+is a repository module missing from the cut.
 
 ## Who runs what, and when
 
@@ -58,7 +67,7 @@ $Py       = Join-Path $P 'venv\Scripts\python.exe'  # stdlib-only use; -I everyw
 $Ops      = 'C:\oracle-ops'                         # operator-only; must be top-level (the plan's relative path)
 $CutRoot  = 'C:\oracle-cut'
 $Cut      = 'C:\oracle-cut\r1'
-$Bind     = '623279703b2daac805c95e330aef4bede87ac203b75d6724d6bcae793a7b7db9'
+$Bind     = '61b68b16e4b51b1fd4702e77d0b30edfb1fe2f66c315096087c291053a56673b'
 $H12      = '50afac36accc3d4a613db2d2a6037f0d0a7b2cd1f93092a103b5a8cd4162f878'
 $Author   = 'oracle-author'                         # <AUTHOR>; change here only
 $Operator = '<OPERATOR>'                            # master's account, DOMAIN\user form, e.g. "$env:COMPUTERNAME\<user>"
@@ -189,13 +198,13 @@ information only (they are open to Users by design). Then master writes `$Ops\de
 
 ```powershell
 if (Test-Path -LiteralPath $Cut) { NoGo "$Cut exists (the cut writes only to a new directory)" }
-& git -C $P fetch origin codex/maker-replay-v2-build-20261003 claude/oracle-handout-h1-20261012 claude/scratch-h1-sources-20261007 claude/night-plans
+& git -C $P fetch origin codex/maker-replay-v2-build-20261003 claude/oracle-handout-h1-20261012 claude/oracle-cut-fixture-keep-20261012 claude/scratch-h1-sources-20261007 claude/night-plans
 if ($LASTEXITCODE -ne 0) { NoGo 'fetch failed' }
 foreach ($c in '501f475796f70263907d4d7d5fd3cd44fe7d1d5b','cf7b0d5337dd7ef2d5385077602cfb9812c41558') {
   & git -C $P cat-file -e "$c^{commit}"; if ($LASTEXITCODE -ne 0) { NoGo "commit $c missing" } }
 New-OpsDir 'C:\wt'                                  # holds the frozen sources; created operator-only if absent
 $M = Join-Path $Ops 'materialize_h1_inputs.py'
-Blob '7a77a72e27db09d52c19a6070a791fa0c4835c5d' $M 'e834f9fc77dc4126f5b1de7d6f705d9f843691767ac0926e0098e0c999227395'
+Blob '40ba3c0ce94bd08f4fce73ac1ea45f3a4cfdedbc' $M 'a6ed3cc7c584b980c5d67110ec643b91ba35a17849189c32a6b1607094627753'
 & $Py -I $M --repo $P --ops $Ops; if ($LASTEXITCODE -ne 0) { NoGo 'materialize refused' }
 New-OpsDir $CutRoot
 $Lease = Enter-WeatherHeavyWorkloadLease -RepoRoot $P -Workload 'oracle-r1-cut'
@@ -357,12 +366,12 @@ session, because capture runs there. In a normal (not elevated) PowerShell:
 
 1. Install Claude Code for this account the way the owner normally does. That is a download, so it is the owner's own
    decision. Then run `claude` once and log in. The login is the owner's credential, typed by the owner.
-2. Settings, git identity and the scoped `safe.directory`. Use the settings variant the owner picks for the
-   permission mode (see "Permission mode" below; variant 1 is shown):
+2. Settings (ruling I-8: `acceptEdits` plus the git-only allow-list), git identity and the scoped
+   `safe.directory`:
 
 ```powershell
 New-Item -ItemType Directory -Force "$env:USERPROFILE\.claude" | Out-Null
-'{ "permissions": { "disableBypassPermissionsMode": "disable", "deny": ["WebFetch", "WebSearch", "mcp__*"] }, "env": { "DISABLE_AUTOUPDATER": "1" } }' |
+'{ "permissions": { "defaultMode": "acceptEdits", "disableBypassPermissionsMode": "disable", "deny": ["WebFetch", "WebSearch", "mcp__*"], "allow": ["Bash(git status *)", "Bash(git diff *)", "Bash(git log *)", "Bash(git add *)", "Bash(git commit *)", "Bash(git switch *)", "Bash(git checkout -b *)", "Bash(git bundle create *)"] }, "env": { "DISABLE_AUTOUPDATER": "1" } }' |
   Set-Content -LiteralPath "$env:USERPROFILE\.claude\settings.json" -Encoding ascii
 git config --global user.name 'oracle-author'
 git config --global user.email 'oracle-author@localhost.invalid'
@@ -372,7 +381,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File C:\oracle-cut\r1\test-result
 
 3. In `claude`, started from `C:\oracle-cut\r1`:
    - `/mcp` must list **no** servers, including claude.ai connectors. If any appear, disable them before the launch.
-   - `/permissions` must show the deny rules above.
+   - `/permissions` must show the deny and allow rules above, and the mode `acceptEdits`.
    - `/status` gives the model and version. Note them for master (E1).
    - Record the sandbox as "not supported on native Windows" for the N1 disclosure.
    - Exit.
@@ -405,7 +414,7 @@ claude
 The first and only message, pasted exactly as one line:
 
 ```text
-Oracle handout r1. Manifest C:\oracle-cut\r1\H1-manifest.json, SHA-256 623279703b2daac805c95e330aef4bede87ac203b75d6724d6bcae793a7b7db9. Your session prompt is C:\oracle-cut\r1\handout\H-12-session-prompt-r1.md: read it in full and follow it.
+Oracle handout r1. Manifest C:\oracle-cut\r1\H1-manifest.json, SHA-256 61b68b16e4b51b1fd4702e77d0b30edfb1fe2f66c315096087c291053a56673b. Your session prompt is C:\oracle-cut\r1\handout\H-12-session-prompt-r1.md: read it in full and follow it.
 ```
 
 After that, say nothing else to the session (erratum 1 E1). The owner tells master the start time, model and Claude Code
@@ -419,7 +428,7 @@ version. Master records them with the archive (I-7).
 
 If it fails, the base home has moved. Rebuild with V1 into a new path; never repair the venv in place.
 
-## Permission mode (pending with the owner)
+## Permission mode (owner: variant 2, ruling I-8)
 
 What Claude Code can and cannot confine on this host (Claude Code docs: permissions, sandboxing, settings):
 - **Bash cannot be scoped to a directory.** Bash and PowerShell rules match the command text only. A deny such as
@@ -435,10 +444,9 @@ What Claude Code can and cannot confine on this host (Claude Code docs: permissi
 
 The OS boundary is the author account's NTFS rights, which this block sets and O3 checks.
 
-The two variants for the owner:
-1. **Default mode (variant 1, shown in O3).** The owner approves every edit and every command at the machine.
-   Strongest control, slowest.
-2. **`acceptEdits` plus a small allow-list.** Add `"defaultMode": "acceptEdits"` and
+The two variants that were offered (the owner chose 2 on 2026-10-12 ~21:30):
+1. **Default mode.** The owner approves every edit and every command at the machine. Strongest control, slowest.
+2. **`acceptEdits` plus a small allow-list (chosen; shown in O3).** Add `"defaultMode": "acceptEdits"` and
    `"allow": ["Bash(git status *)", "Bash(git diff *)", "Bash(git log *)", "Bash(git add *)", "Bash(git commit *)",
    "Bash(git switch *)", "Bash(git checkout -b *)", "Bash(git bundle create *)"]`, and keep the deny list.
    - Edits inside the cut and those git commands run without a prompt. Every other command still prompts the owner,

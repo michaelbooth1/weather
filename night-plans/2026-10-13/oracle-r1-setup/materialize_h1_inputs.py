@@ -20,9 +20,9 @@ FROZEN = Path(r"C:\wt\workstation-chat\l-data\swarm-m\h1-frozen-20261007")
 
 # (blob id, sha256, destination relative to --ops, or absolute)
 ROWS = [
-    # cut tool at claude/oracle-handout-h1-20261012 (cf7b0d533 and later; unchanged since 6ca59743d)
-    ("04469bf0e3d027c5e8eaf928338e3ad75484b73e",
-     "34a9161f714db39227062c8ec2657f6d12fcc3c117b74b6d3c546e73a07ac242", "tool/maker_replay_v2_h1_cut.py"),
+    # cut tool at claude/oracle-cut-fixture-keep-20261012 @ 8b85810bc (owner keep list, import-resolution check)
+    ("9585b5a7ba365f3b95c1b70bc5f18d04e41a7107",
+     "7a30cecfe14e01eb500a0ddbf3a688e46a365f6d87453a04868b19effbdf9f47", "tool/maker_replay_v2_h1_cut.py"),
     # r1 plan (claude/night-plans, this folder)
     ("bd30d0aaabd94fa5aa3caa8ec99b4bf7a3a68927",
      "e75ed9de176e9775009bf64b8162048a703c1f91a9a102695f84b63a7087fc56", "plan/plan.json"),
@@ -55,7 +55,7 @@ def main() -> int:
             return 2
         r = subprocess.run(["git", "-C", str(a.repo), "cat-file", "blob", blob], capture_output=True)
         if r.returncode != 0:
-            print(f"REFUSED: blob {blob} not in {a.repo} (fetch the four branches first)")
+            print(f"REFUSED: blob {blob} not in {a.repo} (fetch the five branches first)")
             return 2
         got = hashlib.sha256(r.stdout).hexdigest()
         if got != sha:
