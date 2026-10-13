@@ -124,7 +124,11 @@ $HR = Join-Path $R 'host-reads'; New-Item -ItemType Directory -Force $HR | Out-N
 $(foreach ($hk in 'HKCU:\Software\Python\PythonCore','HKLM:\SOFTWARE\Python\PythonCore','HKLM:\SOFTWARE\WOW6432Node\Python\PythonCore') {
   Get-ChildItem -LiteralPath $hk -ErrorAction SilentlyContinue | ForEach-Object {
     $ip = Get-ItemProperty -LiteralPath (Join-Path $_.PSPath 'InstallPath') -ErrorAction SilentlyContinue
-    '{0} | InstallPath={1}' -f $_.Name, $ip.'(default)' } }) | Out-File "$HR\h1-pythoncore.txt" -Encoding utf8
+    '{0} | InstallPath={1}' -f $_.Name, $ip.'(default)'
+    $pp = Get-Item -LiteralPath (Join-Path $_.PSPath 'PythonPath') -ErrorAction SilentlyContinue
+    if ($pp) { '{0} | PythonPath(default)={1}' -f $_.Name, $pp.GetValue('')
+      Get-ChildItem -LiteralPath $pp.PSPath -Recurse -ErrorAction SilentlyContinue | ForEach-Object { '{0} | PythonPath subkey={1}' -f $_.Name, $_.GetValue('') } } } }) |
+  Out-File "$HR\h1-pythoncore.txt" -Encoding utf8   # expect no PythonPath subkey (getpath appends each subkey's default value)
 Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*','HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue |
   Where-Object { $_.DisplayName -like 'Python 3.11*' } | Select-Object DisplayName, DisplayVersion, InstallLocation, PSPath |
   Format-List | Out-File "$HR\h1-uninstall.txt" -Encoding utf8
@@ -218,6 +222,7 @@ $Old     = Join-Path $P 'venv-cp3110'
 $Log     = Join-Path $R 'night.log'
 New-Item -ItemType Directory -Force $R, $Tools, $A | Out-Null
 $K = if (Test-Path -LiteralPath (Join-Path $R 'constants.json')) { Get-Content -LiteralPath (Join-Path $R 'constants.json') -Raw | ConvertFrom-Json }   # §6a
+if ($K) { foreach ($kk in 'nupkg_url','nupkg_size','nupkg_sha512_b64','tools_manifest_sha256','binary_signer_thumbprint','vv_prefix','binaries') { if (-not $K.$kk) { throw "constants.json lacks $kk" } } }
 function Log($m){ $l = "{0:o} {1}" -f (Get-Date), $m; Add-Content -LiteralPath $Log -Value $l -Encoding utf8; Write-Host $l }
 # The lease lives in the session's global scope. While $global:ReleaseOnNoGo is set (B0-B1e, and C1 until the C4 rename),
 # every NoGo releases it; after the C4 rename it stays held for §R.
@@ -229,10 +234,10 @@ function Sha($f){ (Get-FileHash -LiteralPath $f -Algorithm SHA256).Hash.ToUpper(
 # $ErrorActionPreference is 'Stop': Windows PowerShell 5.1 turns each stderr line into a terminating error.
 function Invoke-Native([string]$Exe, [string[]]$Arguments, [string]$OutBase) {
   $quoted = foreach ($a in $Arguments) { if ($a -match '[\s"]') { '"' + ($a -replace '"','\"') + '"' } else { $a } }
-  $p = Start-Process -FilePath $Exe -ArgumentList ($quoted -join ' ') -WorkingDirectory $P -NoNewWindow -Wait -PassThru `
+  $proc = Start-Process -FilePath $Exe -ArgumentList ($quoted -join ' ') -WorkingDirectory $P -NoNewWindow -Wait -PassThru `
         -RedirectStandardOutput "$OutBase.out.txt" -RedirectStandardError "$OutBase.err.txt"
-  $p.WaitForExit(); if ($null -eq $p.ExitCode) { NoGo "no exit code from $Exe" }
-  Log ("native exit {0}: {1} {2}" -f $p.ExitCode, (Split-Path -Leaf $Exe), ($Arguments -join ' ')); [int]$p.ExitCode }
+  $proc.WaitForExit(); if ($null -eq $proc.ExitCode) { NoGo "no exit code from $Exe" }
+  Log ("native exit {0}: {1} {2}" -f $proc.ExitCode, (Split-Path -Leaf $Exe), ($Arguments -join ' ')); [int]$proc.ExitCode }
 # Release readiness as parsed fields (release_lifecycle_cli prints JSON; a BLOCK goes to stderr with a non-zero exit)
 function Get-ReleaseActive([string]$Exe, [string]$OutBase) {
   $code = Invoke-Native $Exe @('-m','weather.operations.release_lifecycle_cli','--repo-root',$P,'active') $OutBase
@@ -322,19 +327,26 @@ $tree | Set-Content (Join-Path $W 'nuget-tools-sha256.txt') -Encoding utf8
 $WsHome = '<workstation installer-built 3.11.9 home>'; if ((& (Join-Path $WsHome 'python.exe') -VV) -notlike 'Python 3.11.9*') { throw 'ws home' }
 $tree | ForEach-Object { $h, $rel = $_ -split '  ', 2; $o = Join-Path $WsHome $rel.TrimStart('\')
   if (-not (Test-Path -LiteralPath $o)) { "ONLY-NUGET $rel" } elseif ((Get-FileHash -LiteralPath $o -Algorithm SHA256).Hash.ToUpper() -ne $h) { "DIFF $rel" } }
+$nset = [Collections.Generic.HashSet[string]]::new([string[]]($tree | ForEach-Object { ($_ -split '  ', 2)[1] }), [StringComparer]::OrdinalIgnoreCase)
+$expected = '\\__pycache__\\|^\\(tcl|Tools\\scripts|Lib\\(site-packages|idlelib|tkinter|turtledemo|test|ctypes\\test|distutils\\tests|lib2to3\\tests|unittest\\test))\\|' +
+            '^\\(NEWS\.txt|Lib\\turtle\.py|Scripts\\pip[0-9.]*\.exe|libs\\_tkinter\.lib|DLLs\\(tcl86t\.dll|tk86t\.dll|_tkinter\.pyd|pyc?d?\.ico|python_(lib|tools)\.cat))$'
+Get-ChildItem -LiteralPath $WsHome -Recurse -File | ForEach-Object { $_.FullName.Substring($WsHome.TrimEnd('\').Length) } |
+  Where-Object { -not $nset.Contains($_) } | ForEach-Object { if ($_ -match $expected) { "ONLY-INSTALLER $_" } else { "ONLY-INSTALLER-UNEXPECTED $_" } }
 ```
 
 Go/no-go W0: every `binaries` path is present and not `DIFF`; any `DIFF` or `ONLY-NUGET` outside
 `Lib\site-packages\*.dist-info\`, `__pycache__`, `libs\*.lib` and `DLLs\python.cat` is NO-GO (the
 nuget.org SHA-512 has the same origin as the download, so this full-tree comparison against the
 python.org-installer home is the independent check on every file A4 pins); no extracted name
-contains `%`. The two extra exemptions were added after the first W0 run (2026-10-13), which found
+contains `%`; any `ONLY-INSTALLER-UNEXPECTED` line is NO-GO (the reverse pass's `$expected` pattern is
+the reviewed list of installer-only content). The two extra exemptions were added after the first W0 run (2026-10-13), which found
 exactly two `DIFF`s (the `RECORD` files of `pip` and `setuptools`) and 22 `ONLY-NUGET` files: 21
 link-time import libraries under `libs\` (the installer adds only `python3.lib`, `python311.lib` and
 `_tkinter.lib`; no runtime path loads a `.lib`) and the package's PSF-signed `DLLs\python.cat`
-(Authenticode `Valid`, `binary_signer_thumbprint`). The package has no `tkinter`, Tcl/Tk, `idlelib`,
-`turtle`, `test`, the `ctypes`, `distutils`, `lib2to3` and `unittest` test packages, `turtledemo`,
-`Tools\scripts` or base `Scripts\pip*.exe`; nothing under `src/`, `app/`, `tools/`, `scripts/` or
+(Authenticode `Valid`, `binary_signer_thumbprint`). The reverse pass's expected set is what the package omits: `tkinter`,
+Tcl/Tk, `idlelib`, `turtle`, `test`, the `ctypes`, `distutils`, `lib2to3` and `unittest` test packages,
+`turtledemo`, `Tools\scripts`, base `Scripts\pip*.exe`, icons, `NEWS.txt` and the installer's two
+catalogs (`Lib\site-packages` is exempt because a workstation home holds its own installs); nothing under `src/`, `app/`, `tools/`, `scripts/` or
 `tests/` imports them, venv `pip` comes from `ensurepip`, and the bounded suite in B2 is the proof.
 
 ### 6b. Helper scripts (verbatim; copy into `$Tools`, outside `$WH`)
@@ -543,6 +555,7 @@ if ($LASTEXITCODE -ge 8) { NoGo "robocopy exit $LASTEXITCODE" }
 **A3. Download and verify the NuGet package on the host (approved download, G12).**
 
 ```powershell
+if (-not $K) { NoGo 'constants.json is missing' }
 $Nup = Join-Path $R 'nuget'
 if (Test-Path -LiteralPath $Nup) { NoGo 'nuget dir exists; inspect first' }
 New-Item -ItemType Directory $Nup | Out-Null
@@ -568,6 +581,7 @@ function Get-PyCoreKeys { @(foreach ($k in 'HKCU:\Software\Python\PythonCore','H
   Get-ChildItem -LiteralPath $k -ErrorAction SilentlyContinue | ForEach-Object Name }) -join '|' }
 $before = @{ M=[Environment]::GetEnvironmentVariable('Path','Machine'); U=[Environment]::GetEnvironmentVariable('Path','User'); Reg=(Get-PyCoreKeys) }
 $X = Join-Path $Nup 'x'
+if (Test-Path -LiteralPath $X) { Remove-Item -LiteralPath $X -Recurse -Force; Log 'removed a partial extraction from an earlier A4 run' }
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 [IO.Compression.ZipFile]::ExtractToDirectory($Pkg, $X)
 $T = Join-Path $X 'tools'
@@ -579,7 +593,7 @@ $tree = Get-Tree $T; $tree | Set-Content "$R\nuget-tools-sha256.txt" -Encoding u
 $treeSha = -join ([Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes(($tree -join "`n"))) | ForEach-Object { $_.ToString('X2') })
 Log "nuget tools files=$($tree.Count) manifest=$treeSha"
 if ($treeSha -ne $K.tools_manifest_sha256.ToUpper()) { NoGo 'nuget tools tree differs from the reviewed manifest' }
-New-Item -ItemType Directory -Force (Split-Path -Parent $NewHome) | Out-Null
+if (-not (Test-Path -LiteralPath (Split-Path -Parent $NewHome) -PathType Container)) { NoGo 'the parent of the new home must already exist (C:\Program Files)' }
 function Get-WeakAce([string]$Dir) { @((Get-Acl -LiteralPath $Dir).Access | Where-Object { $_.AccessControlType -eq 'Allow' -and
   [string]$_.IdentityReference -match '(^|\\)(Users|Authenticated Users|Everyone|INTERACTIVE)$' -and ([int]$_.FileSystemRights -band 0x500D0156) }) }
 if ((Get-WeakAce (Split-Path -Parent $NewHome)).Count) { NoGo 'the parent of the new home grants ordinary users write access' }
@@ -612,7 +626,9 @@ equal the pinned ones, and `ensurepip` installs its bundled pip. B1a and B1b run
 from the home's own `site-packages` (the package ships pip there, as the installer does).
 
 If A4 fails:
-- nothing was installed or registered: delete `$NewHome` if it exists, and keep `$Nup` and the log;
+- nothing was installed or registered: delete `$NewHome` if it exists, and keep `$Nup` and the log. A4 can then be
+  re-run on its own (it clears `$Nup\x` and re-checks the extracted tree against `tools_manifest_sha256`); do not re-run A3,
+  which refuses an existing `$Nup`;
 - if `OLD HOME CHANGED` fired, restore the old home from the freeze copy and check capture with the next `status.ps1` run;
 - do not continue to Phase B.
 
@@ -700,6 +716,13 @@ function Test-Venv($vpy, $root, $tag) {
     $loc = & $vpy -c "import weather, maker_core; print(weather.__file__); print(maker_core.__file__)"; if ($LASTEXITCODE) { NoGo "$tag import location" }
     $src = (Join-Path $root 'src') + '\'
     foreach ($l in $loc) { if (-not $l.StartsWith($src, [StringComparison]::OrdinalIgnoreCase)) { NoGo "$tag package imported from $l, not $src" } }
+    # Without -I (as the workers run): the stdlib comes from the new home and no sys.path entry reaches the
+    # 3.11.0 home, whose PEP 514 PythonPath key shares sys.winver 3.11.
+    $std = & $vpy -c "import os, ssl, sys; print(os.__file__); print(ssl.__file__); print('\n'.join(p for p in sys.path if p))"; if ($LASTEXITCODE) { NoGo "$tag stdlib location" }
+    $std | Set-Content "$out\stdlib-path.txt" -Encoding utf8
+    $nh = $NewHome.TrimEnd('\') + '\'; $oh = $OldHome.TrimEnd('\') + '\'
+    foreach ($s in $std[0..1]) { if (-not $s.StartsWith($nh, [StringComparison]::OrdinalIgnoreCase)) { NoGo "$tag stdlib from $s, not $nh" } }
+    foreach ($s in $std) { if (($s.TrimEnd('\') + '\').StartsWith($oh, [StringComparison]::OrdinalIgnoreCase)) { NoGo "$tag sys.path reaches the 3.11.0 home: $s" } }
   } finally { Pop-Location }
   Push-Location -LiteralPath $root
   try {
