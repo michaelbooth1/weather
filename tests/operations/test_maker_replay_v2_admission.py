@@ -21,3 +21,16 @@ def test_exact_module_and_guarded_launch():
     assert hook.evaluate({"tool_name": "Bash", "tool_input": {
         "command": f'& "{sys.executable}" -m {MODULE} s1 --out x'
     }}, constrained_capture_host=False) is not None
+
+
+def test_allow_list_is_the_union_with_master():
+    """Both research modules admitted on master and on the v2 build line are listed here (T1, 2026-10-13).
+
+    Master admits ``tools.research.guidance_all_hours.run`` where the build line admits this module; the union means
+    every allow-list conflict of a build-line merge resolves to the build-line side without dropping either."""
+    text = (ROOT / "scripts/ops/workload_admission.ps1").read_text(encoding="utf-8-sig")
+    body = re.search(r"function Get-WeatherWorkstationOfflineModule\s*\{.*?@\((.*?)\)\s*\}", text, re.S)[1]
+    modules = re.findall(r'"([A-Za-z0-9_.-]+)"', body)
+    research = [m for m in modules if m.startswith("tools.")]
+    assert research == sorted(research)
+    assert {"tools.research.guidance_all_hours.run", MODULE} <= set(research)
