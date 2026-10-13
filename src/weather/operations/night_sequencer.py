@@ -264,8 +264,20 @@ if (Test-Ancestor $u.sha $master) { Out-Verdict "DONE" ("{0} is already containe
 foreach ($need in @($u.requires_landed)) {
     if (-not (Test-Ancestor $need $master)) { Out-Verdict "WAIT" "prerequisite $need has not landed on master" 3 }
 }
+# Tree identity: master must add nothing the tip has not been tested with. Either master is an
+# ancestor of the tip, or every master commit outside the tip is a no-content merge (tree equal to
+# its merged parent's) of a head the tip contains -- the guarded merge of an earlier stacked unit.
 if (-not (Test-Ancestor $master $u.sha)) {
-    Out-Verdict "STOP" "master $master is not an ancestor of the tip: rebuild and re-pregate the head (OD35), or use a fallback unit" 4
+    $extra = @(((Invoke-Git rev-list $master ("^" + $u.sha)).Out -split "`n") | Where-Object { $_ })
+    foreach ($c in $extra) {
+        $parents = @(((Invoke-Git rev-list --parents -n 1 $c).Out -split " ") | Select-Object -Skip 1)
+        $ok = $parents.Count -eq 2 -and (Test-Ancestor $parents[1] $u.sha) -and
+            ((Invoke-Git rev-parse ($c + "^{tree}")).Out -eq (Invoke-Git rev-parse ($parents[1] + "^{tree}")).Out)
+        if (-not $ok) {
+            Out-Verdict "STOP" "master $master carries $c, which the tip was not tested with: rebuild and re-pregate the head (OD35), or use a fallback unit" 4
+        }
+    }
+    Write-Output ("NOTE: master is not an ancestor of the tip, but its {0} extra commit(s) are no-content merges of heads the tip contains." -f $extra.Count)
 }
 if ($master -ne $PregateBase -and @($u.requires_landed).Count -eq 0) {
     Write-Output "NOTE: master $master differs from the plan's pre-gate base $PregateBase (ancestry still holds)."

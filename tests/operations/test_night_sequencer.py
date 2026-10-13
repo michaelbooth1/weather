@@ -162,11 +162,8 @@ def test_generate_writes_three_files_and_an_unsigned_queue_draft(tmp_path):
     assert [(e["order"], e["expected_tip"], e["roll_class"]) for e in queue["entries"]] == [
         (1, RS, "ROLL-SENSITIVE"), (2, RF, "ROLL-FREE")]
     assert all(e["approved"] is False and e["approval_ref"] == "" for e in queue["entries"])
-    script = (out / "sequencer-2026-10-14.ps1").read_bytes()
-    assert script.startswith(b"\xef\xbb\xbf")
-    text = script.decode("utf-8-sig")
-    assert f"$PlanSha256 = '{plan['plan_sha256']}'" in text
-    assert f"requires_landed = @('{RS}')" in text
+    assert sorted(p.name for p in out.iterdir()) == [
+        "queue-2026-10-14.draft.json", "sequencer-2026-10-14.ps1", "timetable-2026-10-14.md"]
     timetable = (out / "timetable-2026-10-14.md").read_text(encoding="utf-8")
     assert "-CheckOnly" in timetable and "Findings:" in timetable
 

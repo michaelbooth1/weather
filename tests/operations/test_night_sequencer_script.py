@@ -9,6 +9,7 @@ for their base to land; a head whose base master has moved past is refused (OD35
 
 from __future__ import annotations
 
+import codecs
 import json
 import os
 import shutil
@@ -152,6 +153,14 @@ def _land(fx: dict, sha: str) -> None:
     _git(fx["repo"], "push", "-q", "origin", "master")
 
 
+def test_generated_script_is_bom_utf8_and_refuses_an_unknown_unit(fx):
+    raw = fx["script"].read_bytes()
+    assert raw.startswith(codecs.BOM_UTF8)
+    assert f"requires_landed = @('{fx['rs']}')" in raw.decode("utf-8-sig")
+    code, out, _ = _run(fx, "nope")
+    assert code != 0 and "Unknown unit 'nope'" in out
+
+
 def test_dry_run_is_ready_with_runbook_windows_and_creates_nothing(fx):
     code, out, journal = _run(fx, "n9-rs")
     assert code == 0, out
@@ -212,7 +221,7 @@ def test_moved_head_stops(fx):
 def test_fallback_refused_once_master_moved_past_its_base_and_landed_unit_is_done(fx):
     _land(fx, fx["rs"])
     code, out, _ = _run(fx, "n9-rf-alone", roll=0)
-    assert code == 4 and "not an ancestor of the tip" in out, out
+    assert code == 4 and "which the tip was not tested with" in out, out
     code, out, _ = _run(fx, "n9-rs")
     assert code == 0 and "VERDICT=DONE" in out, out
 
@@ -221,3 +230,11 @@ def test_local_master_behind_origin_stops(fx):
     _git(fx["repo"], "push", "-q", "origin", f"{fx['rs']}:refs/heads/master")
     code, out, _ = _run(fx, "n9-rs")
     assert code == 4 and "!= origin/master" in out, out
+
+
+def test_stacked_unit_stops_when_master_carries_an_untested_commit(fx):
+    _land(fx, fx["rs"])
+    _commit(fx["repo"], "docs-light.txt")  # e.g. a docs light-path landing after the base
+    _git(fx["repo"], "push", "-q", "origin", "master")
+    code, out, _ = _run(fx, "n9-rf", roll=0)
+    assert code == 4 and "which the tip was not tested with" in out, out

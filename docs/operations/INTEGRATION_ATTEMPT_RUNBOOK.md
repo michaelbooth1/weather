@@ -211,7 +211,8 @@ merge entry also refuse an attempt that already has either terminal receipt.
   `-Unit <label> -WorktreeParent <dir> -GitExecutablePath <reviewed git.exe> [-Attempt <n>] [-Execute]`.
   It checks the following, in order:
   - the exact tip, and `master` equal to `origin/master`;
-  - the unit's stacked base has landed, and `master` is an ancestor of the tip (otherwise rebuild and re-pregate);
+  - the unit's stacked base has landed;
+  - tree identity: `master` is an ancestor of the tip, or every `master` commit outside the tip is a no-content merge (its tree equals its merged parent's) of a head the tip contains. Otherwise rebuild and re-pregate.
   - no running `WeatherIntegration*` task, and the lease is free;
   - the binding `roll_verdict.ps1` (a plan that said roll-free, but whose binding verdict is not roll-free, stops);
   - the windows: suite three to four minutes after now and not before 00:30, merge at max(suite + 30 min, 01:00), and nothing past 03:40.
