@@ -231,6 +231,33 @@ production `data/` access, Scheduler or capture mutation, credentials,
 networked collectors, exchange contact, or live orders, and a workstation
 PASS does not replace any explicitly required production-host qualification.
 
+**Second slot (`-FocusedSlot`, owner decision 2026-10-13).** It may be used only after the
+decision's start condition, which is LFC session 0 declared done.
+- **Shape and scope.** It runs one `-Kind pytest` run of the focused-run shape beside the primary
+  lease. The shape is 1-25 named test files, an explicit `--basetemp` and no xdist, as judged by
+  the Codex hook's classifier. Unlike the unwrapped exemption, `serial` files are admitted.
+- **Separate slot.** The slot is its own named mutex. It never takes or waits for the primary
+  mutex and never touches the FIFO queue or its state.
+- **Refusals before start.** The run is refused before anything starts in any of these cases:
+  - on the capture identity (the same `Assert-WeatherWorkstationOfflineHost` proof the queue uses);
+  - with `-Queue`;
+  - on any live-session signal, re-checked every second while the run lasts:
+    - the marker `%ProgramData%\WeatherProject\live_session_v1.active`;
+    - a portable-profile or teardown-pending host-global state marker;
+    - a running live session runner, sealed stage wrapper or live pilot CLI process;
+  - while an earlier slot teardown is unproved (`workstation_focused_slot_v1.poison` beside the
+    state marker; delete it only after verifying that no residual slot processes remain).
+- **Time limit.** `-FocusedSlotTimeoutSeconds` (1-299, default 299) is a hard wall-clock limit.
+  An overrun or a live signal kills the whole child tree.
+- **Exit codes.** The child's own code, or:
+  - 76: the slot is busy and nothing was started (use `-Queue` instead);
+  - 77: a live signal pre-empted the run;
+  - 124: the run overran the time limit.
+- **Events and environment.** Events go to `data\logs\heavy_workload_focused_slot.jsonl`. The
+  child sees `WEATHER_WORKSTATION_FOCUSED_SLOT_ACTIVE=1` and never
+  `WEATHER_WORKSTATION_WRAPPER_ACTIVE`, so nested tools cannot mistake the slot for the primary
+  lease.
+
 An attended PowerShell operator can build the bounded argument contract like
 this (use `compileall` or an allowlisted `weather_heavy` module as appropriate).
 This variable-based form is for a person at an interactive shell, not for a

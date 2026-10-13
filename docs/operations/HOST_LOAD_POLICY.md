@@ -155,6 +155,17 @@ below applies: no exemption, no queue state, the same windows and the same bound
   skips only the capture-host checks: window, hard stop, host lease, capture workers and host commit
   ceiling. It keeps the suite's 50 GiB disk floor and `MaxRuntimeSeconds`. Contract:
   [development.md](../development.md#workstation-pre-gate-before-a-host-landing-slot).
+- *Second slot (owner decision 2026-10-13).* `workstation_heavy.ps1 -FocusedSlot` (helper
+  `scripts/ops/workstation_focused_slot.ps1`) is the second lease slot.
+  - It is a separate named mutex with no queue: exit 76 when the slot is busy.
+  - It admits only focused-shape pytest, under a hard limit below 300 s; an overrun kills the child tree and exits 124.
+  - It requires the same non-capture identity proof as the queue.
+  - It is refused, and pre-empted mid-run (exit 77), by any live-session signal. The signals are the
+    `live_session_v1.active` marker beside the state marker, a portable or teardown-pending state
+    marker, or a live session runner, stage wrapper or pilot CLI process.
+  - The primary lease, the FIFO queue and portable admission are unchanged.
+
+  Contract: [development.md](../development.md#separate-non-capture-workstation).
 
 ## Host capacity (measured 2026-07-12 — A DATED SAMPLE, NOT CURRENT STATE)
 

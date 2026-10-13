@@ -5,6 +5,11 @@
 # caller takes a FIFO ticket and waits up to -QueueTimeoutSeconds (default 4 h);
 # a timeout exits 75 without starting anything. The child tree is owned by a
 # kill-on-close Job either way.
+#
+# -FocusedSlot (owner decision 2026-10-13) runs one focused pytest run in the
+# separate second slot instead (workstation_focused_slot.ps1): no queue, a hard
+# -FocusedSlotTimeoutSeconds limit below 300 s, exit 76 when the slot is busy.
+# Without -FocusedSlot that helper is never loaded and nothing below changes.
 
 [CmdletBinding()]
 param(
@@ -17,7 +22,9 @@ param(
     [switch]$Queue,
     [ValidateRange(1, 86400)][int]$QueueTimeoutSeconds = 14400,
     [ValidateRange(100, 60000)][int]$QueuePollMilliseconds = 2000,
-    [ValidateRange(1, 3600)][int]$QueueReportSeconds = 60
+    [ValidateRange(1, 3600)][int]$QueueReportSeconds = 60,
+    [switch]$FocusedSlot,
+    [ValidateRange(1, 299)][int]$FocusedSlotTimeoutSeconds = 299
 )
 
 $ErrorActionPreference = "Stop"
@@ -138,6 +145,19 @@ switch ($Kind) {
             throw "weather-heavy workload must be an offline training/replay module"
         }
     }
+}
+
+if ($FocusedSlot) {
+    $slotScript = Join-Path $PSScriptRoot "workstation_focused_slot.ps1"
+    if (-not (Test-Path -LiteralPath $slotScript -PathType Leaf)) {
+        throw "required workstation focused-slot helper is missing: $slotScript"
+    }
+    . $slotScript
+    $slotExitCode = Invoke-WeatherWorkstationFocusedSlot -RepoRoot $resolvedRepoRoot `
+        -PythonPath $resolvedPython -Arguments $arguments -Kind $Kind `
+        -TimeoutSeconds $FocusedSlotTimeoutSeconds -Queue:$Queue `
+        -ArchiveUnattended:$archiveUnattended
+    exit $slotExitCode
 }
 
 $workloadName = "WorkstationOffline-{0}-{1}" -f $Kind, $PID
