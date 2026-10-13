@@ -20,7 +20,7 @@ builds on the not-in-force [host-suite shrink proposal](../../development.md#pro
 > The head lands through `scripts\ops\quiet_window_merge.ps1` inside 00:30–12:00 when all of the following hold:
 >
 > 1. **Pre-gate.** A workstation pre-gate receipt (`weather.workstation_pregate_receipt.v1`) is `PASS` for the exact tip. The receipt's SHA-256 is recorded in that night's hashed plan.
-> 2. **Ancestry.** `origin/master` at merge time is an ancestor of the tip, so the merged tree equals the tree that was tested.
+> 2. **Tree identity.** `origin/master` at merge time is an ancestor of the tip. For a head stacked on a unit that landed earlier that night, the condition is instead that every `master` commit outside the tip is that unit's no-content guarded merge: its tree equals its merged parent's, and the tip contains that parent. Either way, the merged tree equals the tree that was tested.
 > 3. **CI.** `CI` and `Windows Qualification` (CPython 3.11.9) concluded `success` on the exact tip, with every `native-launch` shard successful.
 > 4. **Host residual set** (option A only). The small host residual set (section 5) passes on the host at the exact tip.
 >
@@ -126,7 +126,7 @@ Each item is a separate reviewed branch. None of them registers a task.
 - **T3. Host verifier** (`scripts/ops/assert_roll_free_attestation.ps1`, read-only). It writes an immutable attestation receipt and checks:
   - the exact tip;
   - `roll_verdict.ps1` exit 0;
-  - `origin/master` is an ancestor of the tip;
+  - tree identity (requirement 2; the night sequencer already implements this check);
   - the plan hash, and that the receipt's SHA-256 matches the plan;
   - receipt `verdict == PASS`, `head == tip`, the log SHA-256, and `host_suite_sha256` equal to the tip's own `bounded_worktree_test_suite.ps1` blob;
   - the T1 freeze hash;
@@ -158,7 +158,7 @@ Each item is a separate reviewed branch. None of them registers a task.
   - The next RS suite on the host re-tests that tree under S4U.
   - The rollback is an ordinary revert branch.
   - Review after 14 attested landings. Any host-only regression found later reverts the rule to option C.
-- **Stale attestation.** The ancestry rule (requirement 2) makes the merged tree identical to the tested tree. A master that moved in between, even by a docs light path, voids the attestation, and the head is rebuilt or takes the suite path. This is OD35's base binding, made exact.
+- **Stale attestation.** The tree-identity rule (requirement 2) makes the merged tree identical to the tested tree. A master that moved in between, even by a docs light path, voids the attestation, and the head is rebuilt or takes the suite path. This is OD35's base binding, made exact.
 - **CI flake masking.** Only `success` on every required job counts. A same-SHA rerun is allowed and is recorded in the attestation.
 - **Scope creep.** Roll-sensitive heads, schema-registry changes (always RS), 88a changes, and the DST night 2026-11-01 (OD30, 05-F3) are untouched.
 
