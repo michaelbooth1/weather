@@ -450,17 +450,36 @@ health proof are completed.
 .\venv\Scripts\python.exe -m weather.artifacts size-audit
 ```
 
-Late-day lock-in anchor replay (read-only, closed dates up to 2026-09-29 only).
-Run it on the capture host only inside the admitted heavy window under the
-shared lease. It replays captured inputs through `estimate_distribution` with
-the pre-v0.5.11 WU-only anchor and with the restored anchor. It writes one JSONL
-row per snapshot, holding both final vectors, to a new `--out` file outside
-`data/`, and prints a per-hour-block summary. Its floor check exits 3 when any
-row's new vector holds more mass below the anchor bucket than the old one. It
-refuses later dates, an existing `--out`, and any `--out` inside `data/`:
+Late-day lock-in anchor replay (read-only, outcome-blind; closed dates up to
+2026-09-29, or from 2026-10-16 for the evening-fix scoring window; 2026-09-30..
+2026-10-15 is always refused). Run it on the capture host only inside the
+admitted heavy window under the shared lease. It replays captured inputs through
+`estimate_distribution` with the pre-v0.5.11 WU-only anchor and with the
+restored anchor (`--with-v3-arm` adds v3 without the v4 pre-lock-in floor). It
+writes one JSONL row per snapshot, holding both final vectors and, when the
+folder has `snapshots_long.csv`, both arms' band probabilities and the captured
+market price, to a new `--out` file outside `data/`, and prints a
+per-hour-block summary. It never reads settlement. Its floor check exits 3 when
+any row's new vector holds more mass below the anchor bucket than the old one.
+It refuses embargo dates, open days, an existing `--out`, and any `--out` inside
+`data/`:
 
 ```powershell
 .\venv\Scripts\python.exe -m weather.backtesting.lockin_anchor_replay --out scratch\lockin_anchor_replay\through-2026-09-29.jsonl --from-date 2026-09-14
+.\venv\Scripts\python.exe -m weather.backtesting.lockin_anchor_replay --out scratch\lockin_anchor_replay\evening-fix.jsonl --from-date 2026-10-16 --through-date 2026-10-29 --with-v3-arm
+```
+
+Evening lock-in fix scorer (one look, read-gated). It scores the replay rows
+above against the settlement ledger exactly as the evening-fix scoring
+pre-registration specifies (17-23 local, US11, fixed-market date-clustered,
+PASS / NOT_CONFIRMED / HARM / VOID). It refuses an unsigned pre-registration
+(its SHA-256 must be in `DECISION_LOG.md`), refuses before 2026-10-29 unless
+`--read-token` names a JSON token whose `decision_log_row` is recorded in the
+decision log, refuses any 2026-09-30..10-15 row, and writes nothing on refusal
+(exit 2):
+
+```powershell
+.\venv\Scripts\python.exe -m weather.backtesting.evening_fix_scorer --replay scratch\lockin_anchor_replay\evening-fix.jsonl --prereg docs\research\<signed prereg>.md --out scratch\evening_fix\result.json
 ```
 
 `weather.calibration.feature_model` trains one market/unit-family at a time.

@@ -160,8 +160,12 @@ bounded counterfactual detail is governed by the
   since 07:00; SWOB rows keep their hedge until lock-in. Implausible readings
   never anchor. The calibration taper reads the resulting strength.
   `python -m weather.backtesting.lockin_anchor_replay` replays closed dates up
-  to 2026-09-29, comparing the old and new anchors. It is read-only and exits 3
-  when any row puts more mass below the anchor than before.
+  to 2026-09-29 and from 2026-10-16 (2026-09-30..10-15 always refused),
+  comparing the old and new anchors. It is read-only and outcome-blind, and
+  exits 3 when any row puts more mass below the anchor than before.
+  `python -m weather.backtesting.evening_fix_scorer` scores those rows once,
+  behind a read gate (signed pre-registration; no read before 2026-10-29
+  without a token recorded in the decision log).
 - Public facade names and compatibility shims can remain stable, but new logic
   belongs to the documented owner module and must not import back through its
   facade.
