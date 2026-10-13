@@ -18,6 +18,18 @@ and Phase C nights clear of scheduled LFC sessions. G0 now names each phase's ow
 so Phase A can run on its owner-named morning before the cutover night is named. §7a holds the
 calendar; because Phase A runs before §T, §T ends by re-taking the venv receipts (T-R).
 
+Revision 2026-10-13, **DRAFT, pending owner sign-off (G0, G12, Q4)**: the installer route for A4 is
+withdrawn. On the host, the 3.11.9 installer with `InstallAllUsers=1` detected the per-user 3.11.0
+bundle and planned a **MajorUpgrade** of it, not a side-by-side install (detect log
+`install-detect-20261013-0858.log`: "Detected related bundle ... scope: PerUser ... operation:
+MajorUpgrade"; it was stopped before plan or apply, and nothing changed). A3 and A4 now download the
+python.org NuGet package `python` 3.11.9 and copy its `tools` tree into the new home: no installer,
+no MSI, no registry, no PATH, no UAC prompt and no owner click. Its binaries are the same build as
+the installer's: the 11 files pinned in `binaries` (§6a) have identical sizes in the package and in
+the workstation's installer-built 3.11.9 home, and A4 proves the SHA-256 values. Phase A runs in
+the elevated operator session on an owner-named morning; the §7a dates are re-set by the owner in
+the decision log and the state of play.
+
 **Owns:** the procedure for moving the production checkout's `venv` from CPython 3.11.0 to 3.11.9
 on the 16 GB capture host. That covers a side-by-side install, an offline wheelhouse, a stage venv
 qualified by the bounded suite, the cutover through the guarded stop/restore path, verification,
@@ -58,7 +70,7 @@ The live SDK portability check accepts any 3.11 patch release
 | G1 | The bounded suite supports `-InterpreterPath` and `-ExpectedInterpreterVersion` (`scripts/ops/bounded_worktree_test_suite.ps1:44-52`). | Met on master; re-read `param(` if the script changed |
 | G2 | Phase A and Phase B passed on earlier nights, and `$R\qualification.json` has `"result":"PASS"`. | C0 |
 | G3 | The production HEAD equals the qualified tip, or `roll_verdict.ps1 -Branch` on the difference is roll-free. | C0 |
-| G4 | The owner is reachable from 00:30 to 03:45 on the cutover night: GO at C0, and any escalation up to the end of §R. Phase A also needs the owner at the machine for UAC. | C0, A4 |
+| G4 | The owner is reachable from 00:30 to 03:45 on the cutover night: GO at C0, and any escalation up to the end of §R. Phase A needs no owner click since the 2026-10-13 revision (A4 has no installer). | C0 |
 | G5 | No other lease user is due that night. Specifically: <br>- `WeatherTrainingWindow` (a 01:00 one-shot, `register_training_window.ps1:3`) is disabled or has no trigger that night; <br>- Stage B `WeatherEveningEvidenceRefresh` (00:35, holds the lease to 09:00 when enabled; `register_daily_refresh.ps1:20-24`) is disabled; <br>- a U6 export registered at 00:35 (Q3) is disabled (enforced in B0 and C0 by `Assert-NoU6At0035`);<br>- no integration attempt, quiet-window merge, storage one-shot or held-head work is scheduled. | Phase B (B0), C0 |
 | G6 | Release case A: `artifacts\releases\current_release.json` is absent (H5, B3, C0). Case B or C is NO-GO for this runbook (§8). | H5, B3, C0 |
 | G7 (LFC) | The cutover night (and any Phase B prep night) is not the night before or the night of a scheduled LFC session. Revised 2026-10-12 (owner-confirmed): it no longer waits for LFC session 0, which the owner postponed. | Phase B (B0), C0 |
@@ -66,7 +78,7 @@ The live SDK portability check accepts any 3.11 patch release
 | G9 (tzdata) | The tzdata sequencing is decided (Q13), so the freeze comparison in `Test-Venv` cannot false-fail. | Before Phase B |
 | G10 (seals) | No live attempt is planned between the cutover and the reseal. | Sign-off |
 | G11 (DST) | No phase of this runbook runs on the DST fall-back night (the night of 10-31 to 11-01). That night is under OD30 (HOST_LOAD_POLICY rule 10), and the repeated hour breaks the `.Date.AddHours()` deadlines below. | Every phase |
-| G12 (downloads) | The owner has approved the PyPI wheel downloads (§T, B1a, B1b) as well as the installer download. | Sign-off |
+| G12 (downloads) | The owner has approved the PyPI wheel downloads (§T, B1a, B1b) and the NuGet package download (A3; revision 2026-10-13). The installer download approved earlier is no longer used. | Sign-off |
 
 ## 3. Question register
 
@@ -83,7 +95,7 @@ recommendations on 2026-10-12 (DECISION_LOG); the H-reads that Q4 and Q5 still n
 | Q1 | Can an interactive session stop, see and verify the S4U capture workers? | **RESOLVED** (H6 optional corroboration) | Run Phase C and §R in an **elevated** window. The stop confirmation is PID-based: `capture_resource_gate.py:150-158` marks a loop active when the status PID or the writer-lock PID is alive (or heartbeat, lock and PID evidence agree). It uses the gate the training window uses (`training_window.ps1:238-252`), so it works from an interactive shell. The binding recovery proof is the S4U `WeatherTrainingWindowRestore` task (S4U at `register_training_window.ps1:115-118`, `-RestoreOnly` at :140). It writes `restore_only` / `capture_recovery_pass` (`training_window.ps1:277-290`) and takes no lease (the lease is at :352, after the restore-only exit). `capture_recovery_check` is documented to run in the S4U context (`capture_recovery_check.py:1-6`), and a non-elevated session cannot read S4U command lines (HOST_LOAD_POLICY, "residual scan" paragraph), so the interactive check is corroboration only. The rename failing on a locked file is the final backstop. |
 | Q2 | Exact interpreter flag on the bounded suite | **RESOLVED** (closed earlier) | `-ExpectedInterpreterVersion` takes an exact `X.Y.Z` and requires `-InterpreterPath` (`bounded_worktree_test_suite.ps1:44-52`). |
 | Q3 | Does the U6 export collide with the cutover? | **RESOLVED, conditional** (H8 confirms) | `WeatherReplayBundleExportNightly` stays unregistered until the owner says yes (state of play). The owner approved its 04:10 slot (DECISION_LOG 2026-10-09), so 04:10 is the likely registration. The 00:35 slot is the only one on the build-line registrar. If it is registered, it is in the C2 aux list and stays **disabled** from C2 until C9b, and §R does not re-enable it unless capture is 3/3. A 00:35 run with its 50-minute limit can hold the lease until 01:25, after the 01:15 latest cutover lease, so a 00:35 registration must be disabled for the cutover night (G5). A 04:10 run starts after the 03:45 rollback deadline. |
-| Q4 | Will the installer offer "Upgrade" over the existing 3.11.0? | **NEEDS-HOST-READ** (H1), then **OWNER-DECISION** | PEP 514 allows one `PythonCore\3.11` registration per hive (HKCU, HKLM). Inference, not tested: install 3.11.9 in the **opposite** scope from the existing 3.11.0 (all users if 3.11.0 is per-user, and the reverse). The owner cancels if the first page says *Upgrade* or *Modify*. A NuGet or embeddable-zip fallback is a new download and needs its own approval. |
+| Q4 | Will the installer offer "Upgrade" over the existing 3.11.0? | **ANSWERED 2026-10-13: yes, in either scope** (host detect log, revision note); **OWNER-DECISION**: install from the NuGet package (A3/A4) | Superseded inference, kept for the record: PEP 514 allows one `PythonCore\3.11` registration per hive (HKCU, HKLM). Inference, not tested: install 3.11.9 in the **opposite** scope from the existing 3.11.0 (all users if 3.11.0 is per-user, and the reverse). The owner cancels if the first page says *Upgrade* or *Modify*. A NuGet or embeddable-zip fallback is a new download and needs its own approval. |
 | Q5 | Release case A, B or C? | **RESOLVED: case A expected; NEEDS-HOST-READ H5 to confirm** | The state of play says there is no release store on the host. The pointer path is `artifacts\releases\current_release.json` (`release_artifacts.py:49-50`). H5, B3 and C0 re-check it. Any case other than A is NO-GO (G6, §8). |
 | Q6 | #259 test ids | **RESOLVED** (closed earlier) | #259 is on master. Its parametrized `constructor` / `pre_3_11_2` tests (`tests/sources/test_wu_redaction.py`, around lines 680 and 721) run on every 3.11 patch without skip or xfail, and must pass in B2. |
 | Q7 | Which venvs and deployments move with the cutover? | **RESOLVED; contradicts the original plan.** Sibling venvs: H4 | The pinned watchdog, the 91a cold snapshot, the manual order journal, boot recovery and the U6 exam deployment all run the **production** venv (evidence in §1). They move to 3.11.9 at the cutover; none is left on 3.11.0. The scheduled ones are quiesced in C2 and verified in §9. Sibling worktree venvs keep `home = <3.11.0>` and keep working, because 3.11.0 stays installed. |
@@ -198,7 +210,7 @@ $Py      = Join-Path $P 'venv\Scripts\python.exe'
 $R       = '<cutover record root, outside data\ and outside the checkout>'
 $WH      = Join-Path $R 'wheelhouse'; $Inst = Join-Path $R 'installer'; $Tools = Join-Path $R 'tools'
 $A       = Join-Path $R 'receipts-3110'
-$NewHome = '<new 3.11.9 home, e.g. C:\Python\cp3119>'
+$NewHome = '<new 3.11.9 home, e.g. C:\Program Files\Python311-cp3119>'   # under Program Files: Users get read/execute only
 $NewPy   = Join-Path $NewHome 'python.exe'
 $Stage   = '<stage worktree next to the checkout>'; $StagePy = Join-Path $Stage 'venv\Scripts\python.exe'
 $Old     = Join-Path $P 'venv-cp3110'
@@ -251,7 +263,9 @@ Trap reminders ([operations agent role](OPERATIONS_AGENT_ROLE.md) §5):
 - use `-LiteralPath`;
 - never append `2>$null` to native `git`;
 - never run a recursive listing of `data\`;
-- track and terminate every process you start.
+- track and terminate every process you start;
+- an agent session runs in Windows session 0, so any window it starts (an installer, a UAC prompt) is invisible. A step that needs the owner to click runs in the owner's own elevated window (seen on the host, 2026-10-13);
+- never follow `night.log` with a tailing reader (`Get-Content -Wait`, `tail -F`): it can hold the file so that `Log`'s `Add-Content` fails and stops the phase. Read snapshots instead (seen on the host, 2026-10-13).
 
 Plain `& $exe ...; if ($LASTEXITCODE)` calls with no stderr redirection are safe under `Stop`.
 
@@ -268,10 +282,11 @@ not in prose. Source each value as stated:
 
 | Key | Source |
 | --- | --- |
-| `installer_url` | python.org 3.11.9 release page (`python-3.11.9-amd64.exe`) |
-| `installer_size`, `installer_md5` | python.org release page / release API |
-| `installer_sha256` | `microsoft/winget-pkgs`, manifest for `Python.Python.3.11` version 3.11.9 (third-party, Q9) |
-| `signer_subject_prefix`, `signer_thumbprint` | Authenticode of the same installer, observed on the workstation |
+| `nupkg_url` | `https://api.nuget.org/v3-flatcontainer/python/3.11.9/python.3.11.9.nupkg` (the `packageContent` of the nuget.org registration for `python` 3.11.9) |
+| `nupkg_size`, `nupkg_sha512_b64` | `packageSize` and `packageHash` (SHA512, base64) of the nuget.org catalog entry for `python` 3.11.9 |
+| `tools_manifest_sha256` | §6a-W0 on the workstation, from the same package after its SHA-512 check |
+| `binary_signer_thumbprint` | PSF Authenticode thumbprint of `python.exe` in the workstation's installer-built 3.11.9 home |
+| `installer_*`, `signer_*` | Retired with the 2026-10-13 revision (the installer is not run). Keep them for the record. |
 | `vv_prefix` | `python -VV` of the workstation's 3.11.9 install, up to the first comma |
 | `binaries` | SHA-256 of `python.exe`, `pythonw.exe`, `python311.dll`, `python3.dll`, `vcruntime140*.dll`, `Lib\venv\scripts\nt\python(w).exe`, `DLLs\_ssl.pyd`, `DLLs\libssl-3.dll`, `DLLs\libcrypto-3.dll` from the workstation's 3.11.9 home |
 
@@ -285,6 +300,32 @@ $rel = 'python.exe','pythonw.exe','python311.dll','python3.dll','vcruntime140.dl
 $b = [ordered]@{}; foreach ($r in $rel) { $b[$r] = (Get-FileHash -LiteralPath (Join-Path $WsHome $r) -Algorithm SHA256).Hash.ToUpper() }
 [ordered]@{ vv_prefix = ((& (Join-Path $WsHome 'python.exe') -VV) -replace ',.*$',''); binaries = $b } | ConvertTo-Json
 ```
+
+**6a-W0. NuGet manifest (workstation, read-only toward the host; needs the G12 download approval).**
+It runs in an empty scratch folder on the workstation, never the host. It proves the package's
+`binaries` equal the installer-built home, and pins the exact extracted tree for A4.
+
+```powershell
+$W = '<empty scratch folder>'; $Pkg = Join-Path $W 'python.3.11.9.nupkg'
+curl.exe -fsSL --proto '=https' --tlsv1.2 -o $Pkg 'https://api.nuget.org/v3-flatcontainer/python/3.11.9/python.3.11.9.nupkg'
+$want512 = -join ([Convert]::FromBase64String('<packageHash from the catalog entry>') | ForEach-Object { $_.ToString('X2') })
+if ((Get-FileHash -LiteralPath $Pkg -Algorithm SHA512).Hash.ToUpper() -ne $want512) { throw 'nupkg sha512' }
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+[IO.Compression.ZipFile]::ExtractToDirectory($Pkg, (Join-Path $W 'x')); $T = Join-Path $W 'x\tools'
+[string[]]$tree = Get-ChildItem -LiteralPath $T -Recurse -File | ForEach-Object { '{0}  {1}' -f (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToUpper(), $_.FullName.Substring($T.Length) }
+[Array]::Sort($tree, [StringComparer]::Ordinal)
+$tree | Set-Content (Join-Path $W 'nuget-tools-sha256.txt') -Encoding utf8
+-join ([Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes(($tree -join "`n"))) | ForEach-Object { $_.ToString('X2') })   # tools_manifest_sha256
+$WsHome = (& .\venv\Scripts\python.exe -c "import sys; print(sys.base_prefix)").Trim()
+$tree | ForEach-Object { $h, $rel = $_ -split '  ', 2; $o = Join-Path $WsHome $rel.TrimStart('\')
+  if (-not (Test-Path -LiteralPath $o)) { "ONLY-NUGET $rel" } elseif ((Get-FileHash -LiteralPath $o -Algorithm SHA256).Hash.ToUpper() -ne $h) { "DIFF $rel" } }
+```
+
+Go/no-go W0: every `binaries` path is present and not `DIFF`; no extracted name contains `%`
+(an undecoded package name); any other `DIFF` (for example `pip` metadata in the base
+`site-packages`) is listed in the handoff. The package has no `tkinter`, Tcl/Tk, `idlelib`, `test`
+or `turtledemo`; nothing under `src/`, `app/`, `tools/`, `scripts/` or `tests/` imports them, and the
+bounded suite in B2 is the proof.
 
 ### 6b. Helper scripts (verbatim; copy into `$Tools`, outside `$WH`)
 
@@ -348,7 +389,7 @@ sys.exit(1 if bad else 0)
 | --- | --- | --- | --- | --- |
 | §4 host reads | before sign-off | 00:30-09:00, serial | no | none |
 | §T tzdata (if Q13 = earlier night) | an earlier night | 00:30-04:45 | yes | none until the next worker restart |
-| A install side by side | any night after sign-off | 00:30-09:00, owner at the machine | no | none |
+| A install side by side | an owner-named morning after sign-off | 00:30-09:00, elevated operator session (no owner click since 2026-10-13) | no | none |
 | B wheelhouse, stage venv, bounded suite | a prep night after A; G5 and G7 hold | B0 by 02:00, suite start by 03:00, finished by 04:45 | yes (released before B2) | none |
 | C cutover | the signed night (G7, G8, G11) | 00:30-02:25; rollback starts by 02:45 | yes | about 20-35 min gap |
 | §D cleanup | a later night | 00:30-04:45 | no | none |
@@ -489,54 +530,78 @@ robocopy $OldHome '<freeze copy, e.g. C:\PyFreeze\cp3110>' /E /COPY:DAT /DCOPY:D
 if ($LASTEXITCODE -ge 8) { NoGo "robocopy exit $LASTEXITCODE" }
 ```
 
-**A3. Download and verify the installer on the host (approved download).**
+**A3. Download and verify the NuGet package on the host (approved download, G12).**
 
 ```powershell
-if (Test-Path -LiteralPath $Inst) { NoGo 'installer dir exists; inspect first' }
-New-Item -ItemType Directory $Inst | Out-Null
-$Exe = Join-Path $Inst 'python-3.11.9-amd64.exe'
-curl.exe -fsSL --proto '=https' --tlsv1.2 -o $Exe $K.installer_url; if ($LASTEXITCODE) { NoGo "curl $LASTEXITCODE" }
-$len = (Get-Item -LiteralPath $Exe).Length; $md5 = (Get-FileHash -LiteralPath $Exe -Algorithm MD5).Hash.ToLower(); $sha = Sha $Exe
-$sig = Get-AuthenticodeSignature -LiteralPath $Exe
-Log "installer len=$len md5=$md5 sha256=$sha sig=$($sig.Status) thumb=$($sig.SignerCertificate.Thumbprint)"
-if ($len -ne [int64]$K.installer_size) { NoGo 'size' }
-if ($md5 -ne $K.installer_md5.ToLower()) { NoGo 'md5' }
-if ($sha -ne $K.installer_sha256.ToUpper()) { NoGo 'sha256' }
-if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notlike "$($K.signer_subject_prefix)*" -or $sig.SignerCertificate.Thumbprint -ne $K.signer_thumbprint) { NoGo 'authenticode' }
+$Nup = Join-Path $R 'nuget'
+if (Test-Path -LiteralPath $Nup) { NoGo 'nuget dir exists; inspect first' }
+New-Item -ItemType Directory $Nup | Out-Null
+$Pkg = Join-Path $Nup 'python.3.11.9.nupkg'
+curl.exe -fsSL --proto '=https' --tlsv1.2 -o $Pkg $K.nupkg_url; if ($LASTEXITCODE) { NoGo "curl $LASTEXITCODE" }
+$len = (Get-Item -LiteralPath $Pkg).Length
+$want512 = -join ([Convert]::FromBase64String($K.nupkg_sha512_b64) | ForEach-Object { $_.ToString('X2') })
+$have512 = (Get-FileHash -LiteralPath $Pkg -Algorithm SHA512).Hash.ToUpper()
+Log "nupkg len=$len sha512=$have512 sha256=$(Sha $Pkg)"
+if ($len -ne [int64]$K.nupkg_size) { NoGo 'nupkg size' }
+if ($have512 -ne $want512) { NoGo 'nupkg sha512' }
 ```
 
-**A4. UAC install (the owner clicks).** Set the scope from H1 (Q4): `InstallAllUsers=1` if the
-existing 3.11.0 is per-user, `0` if it is all-users. PATH, the launcher, file associations,
-shortcuts and precompile are all off.
+**A4. Copy the package's `tools` tree into the new home (elevated operator session; no installer).**
+Nothing is registered: no PEP 514 key, no uninstall entry, no launcher, no PATH change. The copy
+takes the ACL of the destination (`robocopy /COPY:DAT` copies no security), so under Program Files
+ordinary users get read and execute only; a home directly under `C:\` would inherit Modify for
+Authenticated Users, which A4 refuses.
 
 ```powershell
-$before = @{ M=[Environment]::GetEnvironmentVariable('Path','Machine'); U=[Environment]::GetEnvironmentVariable('Path','User') }
-$AllUsers = '<1 or 0 from H1>'
-$instArgs = @("InstallAllUsers=$AllUsers","TargetDir=$NewHome","DefaultAllUsersTargetDir=$NewHome","DefaultJustForMeTargetDir=$NewHome",
-  'PrependPath=0','AppendPath=0','Include_launcher=0','InstallLauncherAllUsers=0','AssociateFiles=0','Shortcuts=0','CompileAll=0',
-  'Include_symbols=0','Include_debug=0','Include_test=0','Include_doc=0','Include_tcltk=1','/log',"$R\install.log")
-$proc = Start-Process -FilePath $Exe -ArgumentList $instArgs -Verb RunAs -Wait -PassThru; Log "installer exit $($proc.ExitCode)"
-```
-
-Owner instructions:
-- The first page must say **"Install Python 3.11.9"**. If it says *Upgrade* or *Modify*, click **Cancel**: that is NO-GO, and Q4 goes back to the owner.
-- Choose *Customize installation*. Confirm the scope and the target directory, and that the launcher, environment variables and precompile are off.
-
-```powershell
-if ($proc.ExitCode -ne 0) { NoGo "installer exit $($proc.ExitCode)" }
+if (Test-Path -LiteralPath $NewHome) { NoGo 'new home exists; inspect first' }
+function Get-PyCoreKeys { @(foreach ($k in 'HKCU:\Software\Python\PythonCore','HKLM:\SOFTWARE\Python\PythonCore','HKLM:\SOFTWARE\WOW6432Node\Python\PythonCore') {
+  Get-ChildItem -LiteralPath $k -ErrorAction SilentlyContinue | ForEach-Object Name }) -join '|' }
+$before = @{ M=[Environment]::GetEnvironmentVariable('Path','Machine'); U=[Environment]::GetEnvironmentVariable('Path','User'); Reg=(Get-PyCoreKeys) }
+$X = Join-Path $Nup 'x'
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+[IO.Compression.ZipFile]::ExtractToDirectory($Pkg, $X)
+$T = Join-Path $X 'tools'
+if (Get-ChildItem -LiteralPath $T -Filter '*._pth' -File) { NoGo 'a ._pth file is present' }
+function Get-Tree([string]$Root) { $n = $Root.TrimEnd('\').Length
+  [string[]]$a = Get-ChildItem -LiteralPath $Root -Recurse -File | ForEach-Object { '{0}  {1}' -f (Sha $_.FullName), $_.FullName.Substring($n) }
+  [Array]::Sort($a, [StringComparer]::Ordinal); ,$a }
+$tree = Get-Tree $T; $tree | Set-Content "$R\nuget-tools-sha256.txt" -Encoding utf8
+$treeSha = -join ([Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes(($tree -join "`n"))) | ForEach-Object { $_.ToString('X2') })
+Log "nuget tools files=$($tree.Count) manifest=$treeSha"
+if ($treeSha -ne $K.tools_manifest_sha256.ToUpper()) { NoGo 'nuget tools tree differs from the reviewed manifest' }
+New-Item -ItemType Directory -Force (Split-Path -Parent $NewHome) | Out-Null
+robocopy $T $NewHome /E /COPY:DAT /DCOPY:DAT /R:1 /W:1 /NFL /NDL /NP /LOG:"$R\robocopy-newhome.log"
+if ($LASTEXITCODE -ge 8) { NoGo "robocopy exit $LASTEXITCODE" }
+if (Compare-Object -CaseSensitive $tree (Get-Tree $NewHome)) { NoGo 'new home differs from the verified tree' }
+$weak = @((Get-Acl -LiteralPath $NewHome).Access | Where-Object { $_.AccessControlType -eq 'Allow' -and
+  [string]$_.IdentityReference -match '\\(Users|Authenticated Users|Everyone|INTERACTIVE)$' -and ([int]$_.FileSystemRights -band 0x500D0116) })
+if ($weak.Count) { NoGo "new home is writable by $($weak.IdentityReference -join ', ')" }
+foreach ($f in 'python.exe','pythonw.exe','python311.dll','Lib\venv\scripts\nt\python.exe','Lib\venv\scripts\nt\pythonw.exe') {
+  $s = Get-AuthenticodeSignature -LiteralPath (Join-Path $NewHome $f)
+  if ($s.Status -ne 'Valid' -or $s.SignerCertificate.Thumbprint -ne $K.binary_signer_thumbprint) { NoGo "authenticode $f" } }
 foreach ($p in $K.binaries.PSObject.Properties) { if ((Sha (Join-Path $NewHome $p.Name)) -ne $p.Value) { NoGo "binary $($p.Name)" } }
 if ((& $NewPy -VV) -notlike "$($K.vv_prefix)*") { NoGo 'new -VV' }
 $now = Get-ChildItem -LiteralPath $OldHome -Recurse -File | Where-Object { $_.FullName -notmatch '\\__pycache__\\' } | ForEach-Object { '{0}  {1}' -f (Sha $_.FullName), $_.FullName.Substring($OldHome.Length) }
 if (Compare-Object (Get-Content "$A\oldhome-sha256.txt") $now) { NoGo 'OLD HOME CHANGED' }
 if ((& $Py -VV) -notlike 'Python 3.11.0*') { NoGo 'prod venv no longer 3.11.0' }
 if ([Environment]::GetEnvironmentVariable('Path','Machine') -ne $before.M -or [Environment]::GetEnvironmentVariable('Path','User') -ne $before.U) { NoGo 'PATH changed' }
+if ((Get-PyCoreKeys) -ne $before.Reg) { NoGo 'PEP 514 registrations changed' }
 $null = Invoke-Native $NewPy @('-I','-c','import ssl, sqlite3, zlib, pyexpat; print(ssl.OPENSSL_VERSION); print(sqlite3.sqlite_version); print(zlib.ZLIB_RUNTIME_VERSION); print(pyexpat.EXPAT_VERSION)') "$R\native-3119"
+$Smoke = Join-Path $Nup 'venv-smoke'
+& $NewPy -I -m venv $Smoke; if ($LASTEXITCODE) { NoGo 'smoke venv' }
+foreach ($k in 'python.exe','pythonw.exe') { if ((Sha (Join-Path $Smoke "Scripts\$k")) -ne $K.binaries."Lib\venv\scripts\nt\$k") { NoGo "smoke launcher $k" } }
+& (Join-Path $Smoke 'Scripts\python.exe') -I -m pip --version | Set-Content "$R\smoke-pip.txt" -Encoding utf8; if ($LASTEXITCODE) { NoGo 'smoke pip' }
+Remove-Item -LiteralPath $Smoke, $X -Recurse -Force
 Log 'PHASE A PASS'
 ```
 
-If A4 fails after the installer ran:
-- restore the old home from the freeze copy if it changed;
-- check capture with the next `status.ps1` run;
+The smoke venv proves B1c and C5 will work from this home: the venv launchers are present and
+equal the pinned ones, and `ensurepip` installs its bundled pip. B1a and B1b run `$NewPy -m pip`
+from the home's own `site-packages` (the package ships pip there, as the installer does).
+
+If A4 fails:
+- nothing was installed or registered: delete `$NewHome` if it exists, and keep `$Nup` and the log;
+- if `OLD HOME CHANGED` fired, restore the old home from the freeze copy and check capture with the next `status.ps1` run;
 - do not continue to Phase B.
 
 ### Phase B. Wheelhouse, stage venv, qualification (prep night; capture keeps running on 3.11.0)
@@ -1023,7 +1088,8 @@ Keep these for at least 14 days:
 - every 3.11.0 release manifest;
 - `$R`.
 
-Uninstalling 3.11.0 is a later, separate owner decision.
+Uninstalling 3.11.0 is a later, separate owner decision. The 3.11.9 home is a plain directory with no
+uninstall entry, so uninstalling 3.11.0 cannot touch it.
 
 ### §R. Rollback (start by 02:45, done by 03:45)
 
@@ -1183,7 +1249,7 @@ started on 3.11.9 against a 3.11.0-bound release would fail `check_runtime`
 | Window | Allowed for this runbook |
 | --- | --- |
 | 00:30-04:45 | §T; Phase B (B0 by 02:00, suite start by 03:00); §D |
-| 00:30-09:00 | §4 host reads (serial); Phase A |
+| 00:30-09:00 | §4 host reads (serial); Phase A (no lease; after any landing night has handed back) |
 | 01:00-04:00 quiet window | Phase C only. Latest lease 01:15, latest rename 01:30, core decision 02:15, aux verify 02:25, rollback start 02:45 (worst case done about 03:35). |
 | 04:45-06:45 tiering reserve, 06:50 jobs | Nothing heavy from this runbook |
 | 09:30-11:55 Stage-A | Nothing |
@@ -1214,12 +1280,16 @@ The owner initials each line in the decision log. Recommendations come first.
 
       C0 is NO-GO without a recorded choice.
 - [ ] **G12, downloads:** approve the PyPI wheel downloads (§T, B1a and B1b; hash-pinned, Windows
-      and pure wheels only), in addition to the already-approved installer download.
+      and pure wheels only) and the NuGet package `python` 3.11.9 (A3 on the host, W0 on the
+      workstation; about 17 MB, SHA-512 pinned). The installer download is no longer used.
 - [ ] **Q13, tzdata:** run §T on an earlier night (recommended), or exempt tzdata in the comparisons.
-- [ ] **Q4, installer scope:** install in the opposite scope to 3.11.0 per H1, and cancel on
-      "Upgrade" (recommended). Any NuGet or embeddable fallback is a new approval.
-- [ ] **Q9, provenance:** require the python.org size and MD5, the winget SHA-256 and the PSF
-      Authenticode signature together (recommended). Sigstore is optional.
+- [ ] **Q4, install method (revision 2026-10-13):** copy the NuGet package's `tools` tree into a
+      new home under Program Files (A4; recommended). Rejected: the installer in either scope (it
+      plans a MajorUpgrade of 3.11.0); an admin layout with direct MSI installs (more downloads,
+      registry writes, unproven upgrade tables); the embeddable zip (no `venv`, no `ensurepip`).
+- [ ] **Q9, provenance (revision 2026-10-13):** require the nuget.org size and SHA-512, the W0
+      manifest, the `binaries` SHA-256 values from the workstation's python.org-installer home and
+      the PSF Authenticode signature together (recommended).
 - [ ] **Q8, scope:** accept 3.11.9 with the partial audit in §5 (recommended), and track 3.12/3.13
       separately.
 - [ ] **Q7, deployments:** accept that the watchdog, 91a, manual order journal, boot recovery and U6
