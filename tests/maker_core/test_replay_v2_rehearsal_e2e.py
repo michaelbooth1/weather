@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import datetime, timezone
+from collections import Counter
 import itertools
 
 import pytest
@@ -13,7 +14,9 @@ import pytest
 from maker_core.replay import bundle_v02
 from maker_core.replay.bundle import BundleError
 from maker_core.replay.calibration import CALIBRATION_DATES
-from maker_core.replay.v2 import ceilings, rehearsal
+from maker_core.replay.clarification_3 import quote_presence
+from maker_core.replay.v2 import ceilings, reachability, rehearsal
+from maker_core.replay.v2.pull import pull_endpoint
 
 from .fixtures.panel_v02 import Panel
 
@@ -75,19 +78,40 @@ def test_nothing_scored_is_in_the_document(per_date):
         assert f"'{key}'" not in text
 
 
-def test_two_rehearsals_of_one_date_are_byte_identical_e7(calibration, per_date):
+@pytest.fixture(scope="module")
+def repeat(calibration):
     _, paths, inventory = calibration
     day = CALIBRATION_DATES[1]
-    again = rehearse([paths[day]], inventory([day]), "per_date")
+    return rehearse([paths[day]], inventory([day]), "per_date")
+
+
+@pytest.fixture(scope="module")
+def carried(calibration):
+    """The carried max_m rehearsal, with the run and the decision counts ``reachability.block`` read (captured)."""
+    _, paths, inventory = calibration
+    seen = {}
+    block = reachability.block
+
+    def capture(run, counts, **kwargs):
+        seen.update(run=run, counts=Counter(counts))
+        return block(run, counts, **kwargs)
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(reachability, "block", capture)
+        doc = rehearse([paths[d] for d in reversed(CALIBRATION_DATES)], inventory(CALIBRATION_DATES), "carried")
+    return doc, seen
+
+
+def test_two_rehearsals_of_one_date_are_byte_identical_e7(per_date, repeat):
+    day = CALIBRATION_DATES[1]
+    again = repeat
     first = per_date[day.isoformat()]
     assert again["hashes"] == first["hashes"]
     for key in set(rehearsal.MEASURED_KEYS) - {"runtime_seconds"}:
         assert again["measured"][key] == first["measured"][key], key
 
 
-def test_the_carried_run_feeds_the_ceiling_rule_and_e5(calibration, per_date):
-    _, paths, inventory = calibration
-    carried = rehearse([paths[d] for d in reversed(CALIBRATION_DATES)], inventory(CALIBRATION_DATES), "carried")
+def test_the_carried_run_feeds_the_ceiling_rule_and_e5(per_date, carried):
+    carried, _ = carried
     assert carried["dates"] == [d.isoformat() for d in CALIBRATION_DATES]
     assert carried["measured"]["records"] == sum(d["measured"]["records"] for d in per_date.values())
     assert carried["measured"]["input_bytes"] == sum(d["measured"]["input_bytes"] for d in per_date.values())
@@ -173,3 +197,114 @@ def test_a_record_count_that_disagrees_with_the_replay_refuses(calibration, monk
     monkeypatch.setattr(rehearsal, "_counting", skipping)
     with pytest.raises(BundleError, match="rehearsal_record_count_mismatch"):
         rehearse([paths[day]], inventory([day]), "per_date")
+
+
+# -- §11 reachability and the E1-E8 gate report (U3) -------------------------------------------------------------------
+
+def test_only_the_carried_rehearsal_carries_the_reachability_block(per_date, carried):
+    doc, _ = carried
+    assert all("reachability" not in d for d in per_date.values())
+    reach = doc["reachability"]
+    assert set(reach) == set(rehearsal.REACHABILITY_KEYS)
+    assert doc["hazard_variant"] == "max_m" and doc["hazard_map_sha256"] is None
+    f_cal = reachability.D(reach["f_cal"])
+    assert 0 <= f_cal <= 1
+    assert reach["status"] == ("PASS" if f_cal >= reachability.THRESHOLD else "FAIL")
+    assert set(reach["quoted_fraction"]) == set(reachability.QUOTED_FRACTION_POLICIES)
+    assert reach["quoted_fraction"]["informed-v0"]["quoted_fraction"] == reach["f_cal"]
+    # the fixture's 5-minute captures leave no 5-minute endpoint inside the 120 s tolerance, so N_cal may be 0 here;
+    # the counting itself is pinned in test_replay_v2_reachability
+    assert 0 <= reach["l_cal"] <= reach["n_cal"] <= reach["pull_candidates"] and reach["pull_candidates"] > 0
+    assert reach["n_cal"] + sum(reach["opportunity_exclusions"].values()) == reach["pull_candidates"]
+    removed = reachability.D(reach["l_cal"]) * (1 - f_cal)
+    assert reach["expected_clock_removed"]["calibration"] == str(removed)
+    assert reach["expected_clock_removed"]["panel"] == str(removed * reachability.PANEL_SCALE)
+    informed = seen["run"].passes["strictly_through"]["informed-v0"].engine.summary()["decisions"]
+    assert sum(reach["decision_reasons"].values()) == informed > 0
+    assert reach["screen_pass_rate"]["reached"] <= informed
+
+
+def test_f_cal_is_clarification_3_quote_presence_and_n_cal_bounds_the_pull_endpoint(carried):
+    doc, seen = carried
+    run = seen["run"]
+    rows = {p: run.passes["strictly_through"][p].band_days(run.books, run.markets)
+            for p in reachability.QUOTED_FRACTION_POLICIES}
+    presence = quote_presence(rows)
+    for policy, row in doc["reachability"]["quoted_fraction"].items():
+        pooled = presence[policy]["pooled"]
+        assert row["eligible_seconds"] == str(pooled["eligible_seconds"])
+        assert reachability.D(row["quoted_fraction"]) == pooled["quoted_fraction"]
+    passes = run.passes["strictly_through"]
+    endpoint = pull_endpoint(run.plan, passes["informed-v0"].scorer, passes["clock_only"].scorer, run.books,
+                             run.matches["strictly_through"], replicates=REPLICATES)
+    assert endpoint["candidates"] == doc["reachability"]["pull_candidates"]
+    assert endpoint["counts"]["opportunities"] <= doc["reachability"]["n_cal"]
+    assert endpoint["counts"]["large_moves"] <= doc["reachability"]["l_cal"]
+
+
+def test_r1_with_the_scalar_for_every_market_is_identical_to_max_m(carried, calibration):
+    """The R1 hook is neutral when every market reads the scalar: the carried run is identical to max_m's."""
+    doc, _ = carried
+    _, paths, inventory = calibration
+    rows = inventory(CALIBRATION_DATES)
+    same = {r["market_id"]: .001 for r in rows}
+    r1 = rehearse([paths[d] for d in CALIBRATION_DATES], rows, "carried", hazard_variant="r1_per_city",
+                  hazard_by_market=same)
+    assert r1["hashes"]["decision_sha256"] == doc["hashes"]["decision_sha256"]
+    assert r1["reachability"] == doc["reachability"]
+    assert r1["hazard_map_sha256"] is not None
+
+
+def test_r1_changes_the_hazard_each_city_reads(carried, calibration):
+    doc, _ = carried
+    _, paths, inventory = calibration
+    rows = inventory(CALIBRATION_DATES)
+    markets = sorted({r["market_id"] for r in rows})
+    harsh = {m: (1.0 if m == markets[0] else .001) for m in markets}
+    r1 = rehearse([paths[d] for d in CALIBRATION_DATES], rows, "carried", hazard_variant="r1_per_city",
+                  hazard_by_market=harsh)
+    assert r1["hashes"]["decision_sha256"] != doc["hashes"]["decision_sha256"]
+    assert reachability.D(r1["reachability"]["f_cal"]) <= reachability.D(doc["reachability"]["f_cal"])
+    assert r1["reachability"]["decision_reasons"].get("NO_QUOTE:NONPOSITIVE_NET", 0) > \
+        doc["reachability"]["decision_reasons"].get("NO_QUOTE:NONPOSITIVE_NET", 0)
+    with pytest.raises(BundleError, match="r1_hazard_market_missing"):
+        rehearse([paths[d] for d in CALIBRATION_DATES], rows, "carried", hazard_variant="r1_per_city",
+                 hazard_by_market={markets[0]: .001})
+    with pytest.raises(BundleError, match="max_m_takes_no_hazard_map"):
+        rehearse([paths[d] for d in CALIBRATION_DATES], rows, "carried", hazard_by_market=harsh)
+
+
+def test_the_gate_report_reads_e2_e4_e5_e6_e7_and_section_11_and_waits_for_e1_e3_e8(per_date, carried, repeat):
+    doc, _ = carried
+    report = reachability.gate_report(per_date, doc, repeat)
+    gates = report["executability"]["gates"]
+    for name in ("E2", "E4", "E5", "E6", "E7"):
+        assert gates[name]["status"] == "PASS", name
+    assert report["executability"]["status"] == "INCOMPLETE"
+    assert report["executability"]["not_supplied"] == ["E1", "E3", "E8"]
+    assert gates["E7"]["identical"] == dict(decision_sha256=True, report_sha256=True, sidecar_sha256=True)
+    assert gates["E6"]["projected_pull_candidates"] == doc["reachability"]["pull_candidates"] * ceilings.N // 3
+    evidence = {k: dict(status="PASS", evidence="fixture") for k in ("e1", "e3", "e8")}
+    assert reachability.gate_report(per_date, doc, repeat, **evidence)["executability"]["status"] == "PASS"
+    failed = dict(evidence, e3=dict(status="FAIL", evidence="fixture"))
+    assert reachability.gate_report(per_date, doc, repeat, **failed)["executability"]["status"] == "FAIL"
+    verdict = report["reachability"]["verdict"]
+    assert verdict == ("PASS" if doc["reachability"]["status"] == "PASS" else "FAIL_R1_NOT_RUN")
+    text = repr(report)
+    for key in ("fills", "final_cash", "band_days", "scores", "pnl", "markout"):
+        assert f"'{key}'" not in text
+
+
+def test_the_gate_report_refuses_mislabelled_rehearsals(per_date, carried, repeat):
+    doc, _ = carried
+    day = CALIBRATION_DATES[0].isoformat()
+    with pytest.raises(BundleError, match="gate_carried_rehearsal_required:max_m"):
+        reachability.gate_report(per_date, per_date[day], repeat)
+    with pytest.raises(BundleError, match="gate_per_date_rehearsal_required"):
+        reachability.gate_report(dict(per_date, **{day: doc}), doc, repeat)
+    with pytest.raises(BundleError, match="gate_repeat_rehearsal_required"):
+        reachability.gate_report(per_date, doc, doc)
+    with pytest.raises(BundleError, match="gate_carried_rehearsal_required:r1_per_city"):
+        reachability.gate_report(per_date, doc, repeat, r1=doc)
+    with pytest.raises(BundleError, match="gate_evidence_invalid:E1"):
+        reachability.gate_report(per_date, doc, repeat, e1=dict(status="MAYBE", evidence="x"))

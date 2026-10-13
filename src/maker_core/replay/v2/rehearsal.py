@@ -32,7 +32,8 @@ digests) and ``pre_registration_sha256``, so ``report_bytes`` is short of the sc
 Measurement: the run clock starts after the path check and stops after the report bytes are taken; the
 records-by-kind count rides the base drive (the first read of each day), so it adds no pass. Memory is the
 process peak (``ceilings.process_memory``) above the peak taken before the first input byte, so one rehearsal
-runs per fresh process, as v1's did.
+runs per fresh process, as v1's did. The §11 block of a carried rehearsal (U3, ``reachability``) is read after
+that: its decision tee runs inside the measured pipeline, its policy-free opportunity count does not.
 """
 from __future__ import annotations
 
@@ -59,12 +60,13 @@ MEASURED_KEYS = ("input_bytes", "records", "records_by_kind", "wakes", "decision
                  "baseline_memory_bytes")
 # The §11 reachability block (carried mode only): counts and fractions, never a cell or a score.
 REACHABILITY_KEYS = ("status", "f_cal", "screen_pass_rate", "decision_reasons", "quoted_fraction", "n_cal", "l_cal",
-                     "expected_clock_removed")
+                     "pull_candidates", "opportunity_exclusions", "expected_clock_removed")
 
 ANY = object()  # a free-form leaf (a value, or a mapping whose keys are data such as kinds, dates or reasons)
 WHITELIST = {
     "format": ANY, "mode": ANY, "dates": ANY, "hazard_variant": ANY, "calibration_sha256": ANY,
     "after_fail_sha256": ANY, "measured_at": ANY, "interpretation": ANY, "report_status": ANY, "replicates": ANY,
+    "hazard_per_minute": ANY, "hazard_map_sha256": ANY,
     "measured": {**{k: ANY for k in MEASURED_KEYS}, "records_by_kind": ANY},
     "hashes": {"input_hashes": ANY, "report_sha256": ANY, "sidecar_sha256": ANY, "decision_sha256": ANY},
     "reachability": {**{k: ANY for k in REACHABILITY_KEYS}, "decision_reasons": ANY, "quoted_fraction": ANY},
@@ -163,15 +165,19 @@ def _zones(inventory):
 
 
 def rehearse(paths, inventory, *, mode, hazard_per_minute, calibration_sha256, hazard_variant="max_m", now,
-             replicates=2000, clock=time.monotonic, memory=None, limits=None, progress=lambda *_: None):
+             hazard_by_market=None, replicates=2000, clock=time.monotonic, memory=None, limits=None,
+             progress=lambda *_: None):
     """One score-free rehearsal (registration §9): ``per_date`` (one calibration bundle) or ``carried`` (the three).
 
     ``inventory`` is the weather producer's universe rows for those dates; ``hazard_per_minute`` comes from the
-    unchanged calibration recipe (``calibration_sha256`` names its document). Nothing scored leaves this function:
-    the report and the engines are dropped and only the whitelisted document is returned."""
+    unchanged calibration recipe (``calibration_sha256`` names its document; ``reachability.hazards`` reads both
+    from it). ``hazard_variant="r1_per_city"`` (§11 R1) also takes ``hazard_by_market`` for every market of the
+    inventory. A ``carried`` rehearsal adds the §11 ``reachability`` block (``reachability.block``). Nothing scored
+    leaves this function: the report and the engines are dropped and only the whitelisted document is returned."""
     from maker_core.replay.bundle_v02 import open_stream_bundle
     from maker_core.replay.ceilings import process_memory
-    from maker_core.replay.v2 import intervals
+    from maker_core.replay.v2 import intervals, reachability
+    from maker_core.replay.v2.engine import EngineV2
     from maker_core.replay.v2.kernel import V2Config
     from maker_core.replay.v2.limits import RunBudget
     from maker_core.replay.v2.pipeline import run_passes
@@ -184,6 +190,7 @@ def rehearse(paths, inventory, *, mode, hazard_per_minute, calibration_sha256, h
     if len(set(days)) != len(days):
         raise BundleError("rehearsal_duplicate_date")
     check_mode(mode, days)
+    hazard_map = reachability.check_hazard_map(hazard_variant, hazard_by_market, {r["market_id"] for r in inventory})
     memory = memory or process_memory
     baseline = memory()[1]
     started = clock()
@@ -196,13 +203,18 @@ def rehearse(paths, inventory, *, mode, hazard_per_minute, calibration_sha256, h
     counts, done = Counter(), set()
     sources = [_counting(_rehearsal_label(s), counts, done) for s in declared]
     config = V2Config(hazard_per_minute=hazard_per_minute)
-    run = run_passes(sources, config, time_zones=_zones(inventory), progress=progress)
+    engine = EngineV2 if hazard_map is None else reachability.per_city_engine(EngineV2, hazard_map)
+    decisions = Counter()
+    if mode == "carried":
+        engine = reachability.counting_engine(decisions, engine)
+    run = run_passes(sources, config, time_zones=_zones(inventory), engine=engine, progress=progress)
     report, sidecar = build_report(run, config, replicates=replicates, check=budget.check)
     raw = report_bytes(report)
     runtime = clock() - started
     peak = memory()[1]
     status = report["status"]
     del report
+    reach = reachability.block(run, decisions, check=budget.check) if mode == "carried" else None
     engines = [p.engine for passes in run.passes.values() for p in passes.values()]
     summaries = [e.summary() for e in engines] + [t if isinstance(t, dict) else t.engine.summary()
                                                   for *_, t in run.trials]
@@ -218,11 +230,15 @@ def rehearse(paths, inventory, *, mode, hazard_per_minute, calibration_sha256, h
         peak_memory_above_baseline_bytes=max(0, peak - baseline), baseline_memory_bytes=baseline)
     doc = dict(
         format=FORMAT, mode=mode, dates=[d.isoformat() for d in days], hazard_variant=hazard_variant,
-        calibration_sha256=calibration_sha256, measured_at=now.isoformat(), interpretation=INTERPRETATION,
+        calibration_sha256=calibration_sha256, hazard_per_minute=hazard_per_minute,
+        hazard_map_sha256=None if hazard_map is None else digest(sorted(hazard_map.items())),
+        measured_at=now.isoformat(), interpretation=INTERPRETATION,
         report_status=status, replicates=replicates, measured=measured,
         hashes=dict(input_hashes={b.day.isoformat(): dict(b.input_hashes) for b in bundles},
                     report_sha256=hashlib.sha256(raw).hexdigest(), sidecar_sha256=sidecar["sha256"],
                     decision_sha256=digest(decision_shas)))
+    if reach is not None:
+        doc["reachability"] = reach
     return whitelisted(doc)
 
 
