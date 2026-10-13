@@ -97,8 +97,8 @@ def test_austin_2026_10_03_has_no_active_interval_on_any_panel_date(registered):
     toronto_same = cid_of("toronto", AUSTIN_TARGET, 0)
     assert windows_of(result, austin_next, date(2026, 10, 2)) == [
         (iso(at(date(2026, 10, 2), 8)), iso(at(date(2026, 10, 3), 0)))]  # T+2 from local midnight (05:00Z)
-    assert windows_of(result, austin_next, date(2026, 10, 3)) == [
-        (iso(at(date(2026, 10, 3), 0, 4)), iso(at(date(2026, 10, 3), 5))),
+    assert windows_of(result, austin_next, date(2026, 10, 3)) == [  # Q2(a): 10-02's descriptor carries from 00:00
+        (iso(at(date(2026, 10, 3), 0)), iso(at(date(2026, 10, 3), 5))),
         (iso(at(date(2026, 10, 3), 8)), iso(at(date(2026, 10, 4), 0)))]
     assert windows_of(result, toronto_same, date(2026, 10, 2))
     assert result.owner_exclusions == [dict(
@@ -278,9 +278,18 @@ def test_the_first_evaluated_day_is_missing_before_its_first_capture(registered)
     assert windows_of(result, rolling, day)[0][0] == iso(at(day, 0, 4))
 
 
-def test_windows_equal_the_horizon_runs_of_the_build_line_rule(registered):
+def _minute_ceiling(value):
+    whole = value.replace(second=0, microsecond=0)
+    return whole if whole == value else whole + timedelta(minutes=1)
+
+
+def test_windows_equal_the_horizon_runs_of_the_build_line_rule_at_minute_granularity(registered):
     """One §4 horizon rule: on every eligible (date, condition) the windows are ``horizon.runs`` over the same
-    timeline, split by maintenance (``execution_manifest.active_intervals``'s construction)."""
+    timeline, split by maintenance (``execution_manifest.active_intervals``'s construction), with each run
+    endpoint rounded up to the next minute. That rounding is owner decision 15 (the latest descriptor at the
+    minute start): a capture at 00:03:20 activates the minute from 00:04. ``execution_manifest.active_intervals``
+    keeps the exact instant (00:03:20), so the two §4 implementations differ by under a minute per descriptor
+    change (disclosed in the U1 r3 report; one module must own §4)."""
     from maker_core.replay.v2 import horizon
     _, bundles, _, result = registered
     lines = horizon.timelines([lockstep.descriptor_source(b) for b in bundles], ZONES)
@@ -297,6 +306,7 @@ def test_windows_equal_the_horizon_runs_of_the_build_line_rule(registered):
             expected = []
             for low, high, reason in horizon.runs(lines.get(c.condition_id, ()), c.active_from, c.active_until):
                 if reason is None:
+                    low, high = _minute_ceiling(low), min(_minute_ceiling(high), c.active_until)
                     expected += [(iso(x), iso(y)) for x, y in ((low, min(high, m0)), (max(low, m1), high)) if x < y]
             assert windows_of(result, c.condition_id, b.day) == expected, (b.day, c.condition_id)
             checked += 1
