@@ -13,9 +13,7 @@ import pytest
 from maker_core.replay import bundle_v02
 from maker_core.replay.bundle import BundleError
 from maker_core.replay.calibration import CALIBRATION_DATES
-from maker_core.replay.fill_model import BOUNDS
 from maker_core.replay.v2 import ceilings, rehearsal
-from maker_core.replay.v2.pipeline import BASE_POLICIES
 
 from .fixtures.panel_v02 import Panel
 
@@ -66,12 +64,9 @@ def test_a_per_date_rehearsal_is_whitelisted_and_measures_the_whole_pipeline(per
     assert sum(measured["records_by_kind"].values()) == measured["records"] > 0
     assert {"book", "descriptor"} <= set(measured["records_by_kind"])
     assert measured["decisions"] > 0 and measured["wakes"] > 0 and measured["span_runs"] > 0
-    assert measured["report_bytes"] > 0 and measured["sidecar_bytes"] > 0 and measured["sidecar_records"] > 0
+    assert measured["report_bytes"] > 0 and measured["sidecar_bytes"] > 0
     assert measured["peak_memory_above_baseline_bytes"] == 1000
-    assert len(doc["passes"]) == 8  # four policies x two fill bounds, the clock pass being the selected trial
-    assert {(p["policy"], p["fill_bound"]) for p in doc["passes"]} == {
-        (p, b) for p in BASE_POLICIES for b in BOUNDS}
-    assert set(doc["clock"]["matches"]) == set(BOUNDS)
+    assert not {"passes", "clock"} & set(doc)  # §9: per-pass and matched-clock rows are not recorded (D3.1)
 
 
 def test_nothing_scored_is_in_the_document(per_date):
@@ -86,7 +81,6 @@ def test_two_rehearsals_of_one_date_are_byte_identical_e7(calibration, per_date)
     again = rehearse([paths[day]], inventory([day]), "per_date")
     first = per_date[day.isoformat()]
     assert again["hashes"] == first["hashes"]
-    assert again["passes"] == first["passes"]
     for key in set(rehearsal.MEASURED_KEYS) - {"runtime_seconds"}:
         assert again["measured"][key] == first["measured"][key], key
 
