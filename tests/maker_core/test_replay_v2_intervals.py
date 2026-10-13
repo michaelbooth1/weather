@@ -283,18 +283,13 @@ def _minute_ceiling(value):
     return whole if whole == value else whole + timedelta(minutes=1)
 
 
-def test_windows_equal_the_horizon_runs_of_the_build_line_rule_at_minute_granularity(registered):
-    """One §4 horizon rule: on every eligible (date, condition) the windows are ``horizon.runs`` over the same
-    timeline, split by maintenance (``execution_manifest.active_intervals``'s construction), with each run
-    endpoint rounded up to the next minute. That rounding is owner decision 15 (the latest descriptor at the
-    minute start): a capture at 00:03:20 activates the minute from 00:04. ``execution_manifest.active_intervals``
-    keeps the exact instant (00:03:20), so the two §4 implementations differ by under a minute per descriptor
-    change (disclosed in the U1 r3 report; one module must own §4)."""
+def _build_line_rule(bundles, result, endpoint):
+    """``execution_manifest.active_intervals``'s construction per eligible (date, condition): ``horizon.runs`` over
+    the shared timeline, split by maintenance, with ``endpoint`` applied to every run endpoint."""
     from maker_core.replay.v2 import horizon
-    _, bundles, _, result = registered
     lines = horizon.timelines([lockstep.descriptor_source(b) for b in bundles], ZONES)
     owner = {cid for row in result.owner_exclusions for cid in row["matched_conditions"]}
-    checked = 0
+    expected = {}
     for b in bundles:
         if b.day in panel.SETTLEMENT_ONLY_DATES:
             continue
@@ -303,14 +298,70 @@ def test_windows_equal_the_horizon_runs_of_the_build_line_rule_at_minute_granula
         for c in b.conditions:
             if c.condition_id in owner or reasons_of(result, c.condition_id, b.day).get("TARGET_AFTER_PANEL"):
                 continue
-            expected = []
+            rows = []
             for low, high, reason in horizon.runs(lines.get(c.condition_id, ()), c.active_from, c.active_until):
                 if reason is None:
-                    low, high = _minute_ceiling(low), min(_minute_ceiling(high), c.active_until)
-                    expected += [(iso(x), iso(y)) for x, y in ((low, min(high, m0)), (max(low, m1), high)) if x < y]
-            assert windows_of(result, c.condition_id, b.day) == expected, (b.day, c.condition_id)
-            checked += 1
-    assert checked > 100
+                    low, high = endpoint(low), min(endpoint(high), c.active_until)
+                    rows += [(iso(x), iso(y)) for x, y in ((low, min(high, m0)), (max(low, m1), high)) if x < y]
+            expected[(b.day, c.condition_id)] = rows
+    assert len(expected) > 100
+    return expected
+
+
+def test_windows_equal_the_horizon_runs_of_the_build_line_rule_at_minute_granularity(registered):
+    """Option "minute" (the default, owner decision 15 as U1 built it): the windows are the build line's §4
+    construction with each run endpoint rounded up to the next minute, so a capture at 00:03:20 activates the
+    minute from 00:04."""
+    _, bundles, _, result = registered
+    assert intervals.WINDOW_START == "minute"
+    for (day, cid), rows in _build_line_rule(bundles, result, _minute_ceiling).items():
+        assert windows_of(result, cid, day) == rows, (day, cid)
+
+
+def test_window_start_options_differ_only_at_captured_descriptor_instants(registered, monkeypatch):
+    """§4 window-start options side by side (T1, 2026-10-13; the choice is for review, not made here).
+
+    "exact" reproduces the build line's ``execution_manifest.active_intervals`` construction with no rounding;
+    "minute" is the same windows with each endpoint rounded up to a minute start. Every other output (keys, ends
+    on local midnight or maintenance, reasons) is the same; MISSING_DESCRIPTOR and HORIZON seconds move by the
+    sub-minute remainders; every (date, condition) still sums to its envelope."""
+    _, bundles, inventory, minute = registered
+    monkeypatch.setattr(intervals, "WINDOW_START", "exact")
+    exact = evaluate(bundles, inventory)
+    for (day, cid), rows in _build_line_rule(bundles, exact, lambda value: value).items():
+        assert windows_of(exact, cid, day) == rows, (day, cid)
+    assert len(exact.windows) == len(minute.windows)
+    moved = 0
+    for e, m in zip(exact.windows, minute.windows):
+        assert (e["date"], e["condition_id"]) == (m["date"], m["condition_id"])
+        for key in ("start", "end"):
+            got, rounded = datetime.fromisoformat(e[key]), datetime.fromisoformat(m[key])
+            assert rounded == _minute_ceiling(got) and rounded - got < timedelta(minutes=1)
+            moved += got != rounded
+    assert moved > 0  # not vacuous: the fixture captures at 20 s past the minute
+    day = PANEL_DAYS[0]
+    rolling = cid_of("toronto", day + timedelta(days=1), 0)
+    assert windows_of(exact, rolling, day)[0][0] == iso(at(day, 0, 3) + timedelta(seconds=20))
+    assert windows_of(minute, rolling, day)[0][0] == iso(at(day, 0, 4))
+    assert reasons_of(exact, rolling, day)["MISSING_DESCRIPTOR"] == 3 * 60 + 20
+    assert reasons_of(minute, rolling, day)["MISSING_DESCRIPTOR"] == 4 * 60
+    totals = defaultdict(float)
+    for w in exact.windows:
+        totals[(w["date"], w["condition_id"])] += (datetime.fromisoformat(w["end"])
+                                                   - datetime.fromisoformat(w["start"])).total_seconds()
+    for e in exact.exclusions:
+        totals[(e["date"], e["condition_id"])] += e["seconds"]
+    assert set(totals.values()) == {86400}
+    assert [(e["date"], e["condition_id"], e["reason"]) for e in exact.exclusions] == [
+        (e["date"], e["condition_id"], e["reason"]) for e in minute.exclusions]
+    assert exact.owner_exclusions == minute.owner_exclusions
+
+
+def test_an_unknown_window_start_rule_refuses(registered, monkeypatch):
+    _, bundles, inventory, _ = registered
+    monkeypatch.setattr(intervals, "WINDOW_START", "second")
+    with pytest.raises(BundleError, match="window_start_rule_invalid"):
+        evaluate(bundles, inventory)
 
 
 def test_austin_windows_at_the_05_00_boundary(registered):

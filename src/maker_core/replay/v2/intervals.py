@@ -68,10 +68,18 @@ REASONS = (OWNER, SETTLEMENT_ONLY, TARGET_AFTER_PANEL, MAINTENANCE, MISSING_DESC
 STALE = "HORIZON_DESCRIPTOR_STALE_SECONDS"
 ACTIVE_HORIZONS = (1, 2)
 MINUTE = timedelta(minutes=1)
+# §4 window start (T1, 2026-10-13; one module must own §4, and that choice is pending review). "minute" is owner
+# decision 15 as U1 built it and registration §4 words it ("active at UTC minute t"): a descriptor change counts
+# from the first UTC minute start at or after its instant, so a capture at 00:03:20 activates the band from 00:04.
+# "exact" is the build line's ``execution_manifest.active_intervals``: the change counts from its instant (00:03:20).
+# Every other boundary (UTC day, maintenance, local midnight, envelope) is already on a minute, so the options
+# differ only at captured descriptor instants, by under a minute each. Not a parameter (U1 Defender MF4).
+WINDOW_START_OPTIONS = ("minute", "exact")
+WINDOW_START = "minute"
 REFUSAL_CODES = ("unknown_panel", "owner_exclusion_constant_invalid", "owner_exclusion_key_disagreement",
                  "owner_exclusion_unmatched", "owner_exclusion_matched_outside_span",
                  "owner_excluded_market_date_active", "day_outside_panel", "duplicate_panel_day",
-                 "intervals_require_bundles")
+                 "intervals_require_bundles", "window_start_rule_invalid")
 
 
 class Evaluation(NamedTuple):
@@ -190,6 +198,7 @@ def evaluate(days, inventory, *, panel, check=lambda: None) -> Evaluation:
         for record in records:
             universe_v02.decoded(record)
     lines = horizon.timelines([descriptor_source(day, records) for day, records in days], _zones(by_id))
+    shift = _window_start_rule()
     windows, exclusions, diagnostics = [], [], []
     for day, records in days:
         start = datetime.combine(day.day, time(), tzinfo=timezone.utc)
@@ -199,10 +208,15 @@ def evaluate(days, inventory, *, panel, check=lambda: None) -> Evaluation:
             cid, item = c.condition_id, by_id[c.condition_id]
             target = date.fromisoformat(item["target_date"])
             zone = ZoneInfo(item["local_timezone"])
-            history, pointer, seen, current = lines.get(cid, ()), 0, False, None
+            history = tuple((shift(t), value) for t, value in lines.get(cid, ()))
+            pointer, seen, current = 0, False, None
             counts, stale, run = Counter(), 0, None
-            at = max(c.active_from, start)
-            while at < min(c.active_until, start + timedelta(days=1)):
+            low, high = max(c.active_from, start), min(c.active_until, start + timedelta(days=1))
+            # Reasons change only at these instants, so each piece between two of them has one reason (the minute
+            # rule's minutes, merged; with "minute" every point is a minute start).
+            points = sorted({low, high, *(m for m in maintenance if low < m < high),
+                             *(t for t, _ in history if low < t < high), *_local_midnights(zone, low, high)})
+            for at, end in zip(points, points[1:]):
                 while pointer < len(history) and history[pointer][0] <= at:
                     seen, current = True, history[pointer][1]  # the last entry at an instant holds
                     pointer += 1
@@ -220,9 +234,9 @@ def evaluate(days, inventory, *, panel, check=lambda: None) -> Evaluation:
                     reason = HORIZON
                 else:
                     reason = None
+                length = _seconds(end - at)
                 if reason is None and (target - at.astimezone(zone).date()).days != current:
-                    stale += 60
-                end = min(at + MINUTE, c.active_until)
+                    stale += length
                 if reason is None:
                     if run is not None and run[1] == at:
                         run[1] = end
@@ -231,8 +245,7 @@ def evaluate(days, inventory, *, panel, check=lambda: None) -> Evaluation:
                             windows.append(_window(day.day, cid, *run))
                         run = [at, end]
                 else:
-                    counts[reason] += int((end - at).total_seconds())
-                at = end
+                    counts[reason] += length
             if run is not None:
                 windows.append(_window(day.day, cid, *run))
             for reason in REASONS:
@@ -248,6 +261,39 @@ def evaluate(days, inventory, *, panel, check=lambda: None) -> Evaluation:
                for row, found in zip(rows, excluded_sets)]
     windows.sort(key=lambda w: (w["date"], w["condition_id"], w["start"]))
     return Evaluation(windows, exclusions, matched, diagnostics)
+
+
+def _window_start_rule():
+    """``WINDOW_START`` as a function of a descriptor instant; any other value refuses."""
+    if WINDOW_START == "minute":
+        return _minute_start
+    if WINDOW_START == "exact":
+        return lambda value: value
+    raise BundleError("window_start_rule_invalid")
+
+
+def _minute_start(value: datetime) -> datetime:
+    """The first UTC minute start at or after ``value``: the minute whose start first sees the descriptor."""
+    whole = value.replace(second=0, microsecond=0)
+    return whole if whole == value else whole + MINUTE
+
+
+def _local_midnights(zone, low, high):
+    """Local midnights of ``zone`` strictly inside ``(low, high)``: where the calendar horizon steps."""
+    found, local = [], low.astimezone(zone).date()
+    while True:
+        local += timedelta(days=1)
+        value = horizon._midnight(zone, local)
+        if value >= high:
+            return found
+        if value > low:
+            found.append(value)
+
+
+def _seconds(span: timedelta):
+    """Whole seconds as ``int`` (every minute-rule piece); a sub-second capture instant keeps its fraction."""
+    value = span.total_seconds()
+    return int(value) if value.is_integer() else value
 
 
 def _zones(by_id):
