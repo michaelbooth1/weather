@@ -18,9 +18,10 @@ import math
 from pathlib import Path
 
 from maker_core.contracts import OutcomeView, SettlementFact, Unavailable
+from maker_core.replay.export_gate import read_permitted
 from maker_core.quoting.policy import Book, DecisionInputs, Portfolio, RewardTerms, decide, informed_v0
 from weather.market.market_registry import BUILTIN_SPECS
-from weather.market.maker_plugin.clock import WeatherInformationClock
+from weather.market.maker_plugin.clock import OBSERVED_AT_UNPARSEABLE, WeatherInformationClock
 from weather.market.maker_plugin.fair_value import WeatherFairValue
 from weather.market.maker_plugin.inputs import body, digest, event_identity, latest, timestamp
 from weather.market.maker_plugin.settlement import WeatherSettlement
@@ -28,6 +29,27 @@ from weather.market.maker_plugin.universe import WeatherUniverse, is_open
 from weather.market.maker_plugin_capture import Reader, Segment, StopRun, encoded, regular_path, sealed_segments
 from weather.market.maker_plugin_sources import COVERAGE_KEYS, Sources, point_in_time_count, reason
 from weather.schema_registry import schema_version
+
+# Reader-coverage prefix for the clock's per-row trigger refusals (OD37).
+CLOCK_SKIP_COVERAGE = "clock.trigger_rows_skipped."
+
+
+def clock_trigger_rows_skipped(coverage):
+    """The clock's trigger-row refusals for an export/receipt summary (owner decision SWOB-b, 2026-10-07).
+
+    Maps refusal code to count from ``reader.coverage`` keys ``clock.trigger_rows_skipped.<code>``;
+    ``observed_at_unparseable`` is always present, so an explicit 0 is visible. One count per refused
+    row per band-minute whose clock step completed. It is a LOWER BOUND ("at least this many"): it
+    misses every band-minute that never reached a completed ``observe`` (a descriptor failure, a
+    corrupt ``triggers`` source, another raise inside ``observe``), so a 0 does not by itself prove
+    that no event-day lost its v1 clock to an unparseable ``observed_at``.
+    """
+    skipped = {OBSERVED_AT_UNPARSEABLE: 0}
+    for key, count in (coverage or {}).items():
+        if key.startswith(CLOCK_SKIP_COVERAGE):
+            skipped[key[len(CLOCK_SKIP_COVERAGE):]] = int(count)
+    return dict(sorted(skipped.items()))
+
 
 DEFAULT_CACHE_BYTES = 512 * 1024**2
 
@@ -342,6 +364,8 @@ def evaluate_event(index, event_capture, now, sources, reader, hazard):
                 raise ValueError("corrupt_clock_input")
             events = clock.upcoming((descriptor,), now - timedelta(minutes=10), now + timedelta(minutes=3))
             events += clock.observe((descriptor,), now)
+            for code, count in sorted(clock.last_skipped.items()):
+                reader.coverage[CLOCK_SKIP_COVERAGE + code] += count
             entry["clock_events"] = plain(events)
             entry["joins"]["clock"] = True
         except (ValueError, KeyError, TypeError, ArithmeticError) as exc:
@@ -519,6 +543,7 @@ def verdict(summary):
 
 
 def run(args, *, clock=None):
+    read_permitted(args.date, getattr(args, "owner_decision", None))  # first: before any input
     output, root = Path(args.output).absolute(), Path(args.data_root).absolute()
     regular_path(root, root)
     regular_path(output, output)

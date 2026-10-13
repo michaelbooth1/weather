@@ -1,4 +1,5 @@
 """Replayable station clocks and conservative observation-trigger vetoes."""
+from collections import Counter
 from datetime import timedelta
 import math
 
@@ -15,12 +16,53 @@ STATION_ROUTINE_MINUTES = {
     "KLGA": (51,), "KSFO": (56,), "KSEA": (53,), "CYYZ": (0,),
 }
 
+# Observation-trigger rows by (reason, source), as emitted by
+# weather.operations.observation_trigger.detect_observation_triggers. Only the
+# captured WU printed high decides. Supporting observations (METAR, ECCC SWOB,
+# WU current) may cause a pull but never a hard settlement floor. A supporting
+# pair counts only with a rising value (the monotonic filter below); value-less
+# *_became_fresh rows, revisions down and unknown or mismatched pairs are ignored.
+DECIDING_TRIGGER = ("wu_history_high_increased", "wu_history")
+SUPPORTING_TRIGGERS = frozenset({
+    ("wu_current_temp_bucket_crossed", "wu_current"),
+    ("wu_current_max_since_7am_bucket_crossed", "wu_current"),
+    ("metar_temp_bucket_crossed", "metar"),
+    ("eccc_swob_latest_temp_bucket_crossed", "eccc_swob"),
+    ("metar_temp_above_wu_floor", "metar"),
+    ("eccc_swob_max_above_wu_floor", "eccc_swob"),
+    ("eccc_swob_latest_temp_above_wu_floor", "eccc_swob"),
+})
+
+# Per-row refusals of a trigger's observed_at. The row is skipped and counted in
+# ``WeatherInformationClock.last_skipped``; it never makes the clock unavailable.
+OBSERVED_AT_UNPARSEABLE = "observed_at_unparseable"
+
+
+def observed_time(row):
+    """Return ``(UTC instant or None, refusal code or None)`` for a trigger row's observed_at.
+
+    Producers write ISO-8601 with a UTC offset (SWOB: the station's local time with its offset,
+    from ``model_sources.parse_swob_xml``), which is unambiguous across DST. Anything that is not an
+    aware instant is refused and never interpreted (owner decision OD37, 2026-10-07): a bare local
+    ``"HH:MM"`` (the eccc_swob_history CSV shape), a naive ISO string, garbage. Only a missing key,
+    ``None`` or ``""`` means "no observed time"; any other falsy value (``0``, ``False``, ``[]``,
+    ``{}``) is present and therefore refused, never treated as absent.
+    """
+    value = row.get("observed_at")
+    if value is None or value == "":
+        return None, None
+    try:
+        return timestamp(value), None
+    except (ValueError, TypeError, OverflowError):
+        return None, OBSERVED_AT_UNPARSEABLE
+
 
 class WeatherInformationClock:
     def __init__(self, universe, *, triggers=(), bulletins=()):
         self.universe = universe
         self.triggers = records(triggers)
         self.bulletins = records(bulletins)
+        self.last_skipped = Counter()  # Refusals in the latest observe call: one per (row, market), by code.
 
     def upcoming(self, markets, from_utc, to_utc):
         utc_time(from_utc)
@@ -48,6 +90,7 @@ class WeatherInformationClock:
     def observe(self, markets, as_of_utc):
         utc_time(as_of_utc)
         events = []
+        self.last_skipped = Counter()
         for market in markets:
             spec, target = event_identity(market.event_id)
             for raw in self.bulletins:
@@ -66,8 +109,14 @@ class WeatherInformationClock:
                 if row.get("event_slug") != market.event_id:
                     continue
                 detected = timestamp(row["current_captured_at_utc"])
-                observed = timestamp(row["observed_at"]) if row.get("observed_at") else None
-                if detected > as_of_utc or (observed and observed > detected):
+                if detected > as_of_utc:
+                    continue  # Point in time: a later row is neither used nor counted.
+                # One bad observed_at skips that row only; it never fails the whole clock.
+                observed, refused = observed_time(row)
+                if refused:
+                    self.last_skipped[refused] += 1
+                    continue
+                if observed and observed > detected:
                     continue
                 if detected.astimezone(spec.tz).date() != target or (
                         observed and observed.astimezone(spec.tz).date() != target):
@@ -81,12 +130,15 @@ class WeatherInformationClock:
                     continue
                 if previous is not None and float(current) <= float(previous):
                     continue
-                # Supporting observations may cause a pull but never a hard
-                # settlement floor. Only the captured WU printed high decides.
-                if row.get("reason") != "wu_history_high_increased" or row.get("source") != "wu_history":
+                pair = (row.get("reason"), row.get("source"))
+                if pair != DECIDING_TRIGGER and pair not in SUPPORTING_TRIGGERS:
                     continue
                 events.append(InfoEvent("new_high", None, observed, detected,
                                         (market.condition_id,), 1., None, "pull"))
+                # Supporting observations may cause a pull but never a hard
+                # settlement floor. Only the captured WU printed high decides.
+                if pair != DECIDING_TRIGGER:
+                    continue
                 lo, hi = self.universe.bands(market.event_id, detected)[market.condition_id]
                 bucket = row.get("current_bucket")
                 if bucket is None or bucket != round_half_up(float(current)):

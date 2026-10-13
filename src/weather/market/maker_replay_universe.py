@@ -10,6 +10,7 @@ from __future__ import annotations
 from maker_core.replay.bundle import HOST_MAX_BYTES, HOST_MAX_RECORDS, HOST_MAX_SECONDS, Limits, load_bundle
 from maker_core.replay.payloads import decode
 from weather.market.maker_plugin.inputs import event_identity
+from weather.market.market_registry import BUILTIN_SPECS
 
 MAX_BUNDLES = 15
 MAX_ROWS = 30000
@@ -41,3 +42,10 @@ def universe(paths, *, check=lambda: None):
         if len(rows) > MAX_ROWS:
             raise ValueError("universe_row_cap")
     return [rows[cid] for cid in sorted(rows)]
+
+
+def registered_time_zones():
+    """market_id -> IANA zone from the built-in market registry: the ``registered`` cross-check that
+    ``maker_core.replay.execution_manifest.market_time_zones`` requires (the inventory's zone is checked by name,
+    not only by the descriptors' UTC offsets)."""
+    return {spec.id: spec.timezone for spec in BUILTIN_SPECS}

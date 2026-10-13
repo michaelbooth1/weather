@@ -56,3 +56,10 @@ are synthetic in this price-only replay; no live-state parity is claimed.
 markets, with a missing book minute and later-captured plugin/settlement inputs.
 It supplies the [neutral replay envelope](../../../docs/operations/maker-replay-bundle.md)
 tests. It contains no production data and proves no real-data fill or parity result.
+
+`replay_v2_prefix_digests.json` pins the maker replay v2 base-pass metrics
+(decision digests, counts, P&L-row digests) of the fictional attribution
+fixtures as produced by the engine before engine rulings W1(a), W2(a) and F3
+(build line `501f47579`). `test_replay_v2_attribution.py` requires the
+attribution tool's `frozen` variant to reproduce them exactly. Every value is
+computed from invented fixtures; nothing captured is read.

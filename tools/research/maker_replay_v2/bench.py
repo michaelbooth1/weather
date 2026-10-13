@@ -32,7 +32,7 @@ from maker_core.replay.v2.report import build_report, report_bytes
 from maker_core.replay.v2.score import BandDayScorer, Books
 from tools.research.maker_replay_v2.dense import DenseDay
 from tools.research.maker_replay_v2.rule4 import RealCadence
-from tools.research.maker_replay_v2.sources import ScaledDay, materialize, plan_of
+from tools.research.maker_replay_v2.sources import FIXTURE_ZONES, ScaledDay, materialize, plan_of
 
 DAY = date(2026, 9, 27)  # fictional
 HAZARD = .001
@@ -78,12 +78,12 @@ def fingerprint(engine):
                 exclusions=engine.exclusions.sha.hexdigest())
 
 
-def differential(source, config):
+def differential(source, config, time_zones=FIXTURE_ZONES):
     """Run every pass of the pipeline with the v2 engine and with the reference; list every difference."""
     started = time.perf_counter()
-    v2 = run_passes([source], replace(config, debug=True, keep=True), engine=EngineV2)
+    v2 = run_passes([source], replace(config, debug=True, keep=True), engine=EngineV2, time_zones=time_zones)
     mid = time.perf_counter()
-    ref = run_passes([source], replace(config, keep=True), engine=ReferenceEngine)
+    ref = run_passes([source], replace(config, keep=True), engine=ReferenceEngine, time_zones=time_zones)
     done = time.perf_counter()
     divergences, compared = [], 0
     for bound in v2.passes:
@@ -193,7 +193,7 @@ def s7(args):
     _, base_peak = working_set()
     started = time.perf_counter()
     rounds = []
-    run = run_passes([source], V2Config(hazard_per_minute=HAZARD),
+    run = run_passes([source], V2Config(hazard_per_minute=HAZARD), time_zones=FIXTURE_ZONES,
                      progress=lambda stage, n: rounds.append((stage, n, round(time.perf_counter() - started, 1))))
     passes_seconds = time.perf_counter() - started
     sidecar = args.out / "sidecar.jsonl"
@@ -235,7 +235,7 @@ def s8(args):
                     scorer, books = BandDayScorer("informed-v0", "strictly_through"), Books()
                     engine = EngineV2(config, plan, sink=scorer)
                     started = time.perf_counter()
-                    drive([source], [engine], observers=(books,))
+                    drive([source], [engine], observers=(books,), time_zones=FIXTURE_ZONES)
                     seconds = time.perf_counter() - started
                     quoted, covered = _quoted(scorer.band_days(engine.settlements, books, markets))
                     variants[name] = dict(quoted_fraction=quoted, covered_seconds=covered, seconds=round(seconds, 1),
@@ -290,7 +290,7 @@ def s9(args):
     started = time.perf_counter()
     error = None
     try:
-        drive(sources, engines)
+        drive(sources, engines, time_zones=FIXTURE_ZONES)
     except Exception as exc:  # the measurement reports any trap or mismatch as its result
         error = f"{type(exc).__name__}: {exc}"
     elapsed = time.perf_counter() - started

@@ -12,6 +12,12 @@ same projection, row for row, and changes only where the rows go:
   its kind. The same-coverage refusal still fires if a group's members ever disagree.
 - No duplicate elision beyond the projection's own: v0.1 already skips repeated descriptors, terms,
   outcome views, info events and settlements, so a v0.2 day expands to exactly the v0.1 rows.
+- **The condition envelope follows the horizon clause** (registration §4, owner Q2(a), 2026-10-08):
+  ``active_from``/``active_until`` are ``maker_core.replay.v2.horizon.lead_window``, the UTC span of the
+  target's local leads 1..2 clipped to the day, instead of the whole day, computed in the pinned tzdata zone
+  (``maker_core.replay.bundle.time_zone``; a host without the pinned tzdata refuses). Rows are unchanged; only the
+  manifest's envelope differs from v0.1's. Before a condition's first descriptor the engine still excludes it
+  as ``MISSING_DESCRIPTOR``; the execution manifest's declared intervals also trim that (``horizon``).
 - Validation streams the written bundle back (two-pass reader and expansion) and requires the
   expanded rows to equal the pushed v0.1 rows by count, bytes and an order-independent hash.
 
@@ -29,9 +35,11 @@ import shutil
 
 from maker_core.evidence.journal import canonical_bytes, plain
 from maker_core.contracts import SettlementFact
-from maker_core.replay.bundle import HOST_MAX_BYTES, HOST_MAX_SECONDS, BundleError, sha256
+from maker_core.replay.bundle import HOST_MAX_BYTES, HOST_MAX_SECONDS, BundleError, sha256, time_zone
 from maker_core.replay.bundle import regular_path as neutral_path
+from maker_core.replay.export_gate import export_permitted
 from maker_core.replay.payloads import market_descriptor
+from maker_core.replay.v2.horizon import lead_window
 from maker_core.replay.v2.writer import BundleWriter, validate
 from weather.market.maker_plugin.inputs import body, event_identity, latest, timestamp
 from weather.market.maker_plugin_capture import Segment, StopRun, encoded, sealed_segments
@@ -39,7 +47,8 @@ from weather.market.maker_plugin_runner import CaptureIndex, evaluate_event, cap
 from weather.market.maker_plugin.settlement import WeatherSettlement
 from weather.market.maker_plugin.universe import WeatherUniverse
 from weather.market.maker_replay_bundle import (MAX_INPUT_BYTES, OUTPUT_LIMITS, ExportReader, Projection,
-                                                _carry_metadata, _raw_support, _support_records)
+                                                _carry_metadata, _raw_support, _support_records,
+                                                gate_carried_bundles)
 from weather.market.maker_replay_release import ReleaseSources
 from weather.market.maker_plugin.exposure import WeatherExposure
 from weather.market.market_registry import BUILTIN_SPECS
@@ -49,6 +58,8 @@ ASSUMPTIONS = [
     "Coverage groups are trade-stream subscriptions: conditions whose tokens share exactly the same "
     "subscriptions; a group's members must agree at every capture or the day is refused.",
     "No duplicate elision is added; the v0.1 projection already skips repeated payloads.",
+    "Each condition's active_from/active_until is the UTC span of its target's local leads 1..2 clipped to the day "
+    "(registration §4 horizon clause, owner Q2(a)); the v0.1 exporter keeps the whole day.",
 ]
 
 
@@ -164,8 +175,15 @@ def _project(args, reader, sources, projection):
                         continue
                     descriptor = market_descriptor(entry["descriptor"])
                     projection.descriptors[cid] = descriptor
+                    # Registration §4 horizon clause (owner Q2(a)): the envelope is the UTC span of local leads
+                    # 1..2 of the target, so a band leaves at the local midnight its lead becomes 0. The zone is the
+                    # pinned tzdata's (``bundle.time_zone``, owner T1(a)), the one the execution manifest and the
+                    # day roll use, not the platform's ``spec.tz`` (R155 Fable F3): a host without the pinned
+                    # tzdata refuses here rather than writing an envelope from other zone rules.
+                    zone = time_zone(spec.timezone)
+                    active_from, active_until = lead_window(zone, target, projection.start, projection.end)
                     projection.conditions[cid] = dict(condition_id=cid, market_id=spec.id, domain_id=descriptor.domain_id,
-                        active_from=projection.start.isoformat(), active_until=projection.end.isoformat())
+                        active_from=active_from.isoformat(), active_until=active_until.isoformat())
                     if len(projection.conditions) > 2000:
                         raise StopRun("condition_cap")
                     for outcome, token in descriptor.outcome_tokens.items():
@@ -209,6 +227,7 @@ def _overlap(output, other):
 
 def export(args, *, now=None, reader=None, phase=None):
     """Export one closed UTC day as bundle v0.2 into the new directory ``args.out``."""
+    export_permitted(args.date, getattr(args, "owner_decision", None))  # first: before any input
     day = date.fromisoformat(args.date)
     now = now or datetime.now(timezone.utc)
     phase = phase or (lambda label: None)
@@ -226,6 +245,7 @@ def export(args, *, now=None, reader=None, phase=None):
     for path in getattr(args, "carry_bundle", ()) or ():
         if _overlap(output, neutral_path(path)):
             raise ValueError("output_carry_overlap")
+    gate_carried_bundles(args)
     release_root = getattr(args, "release_root", None)
     if release_root is not None:
         release_root = neutral_path(release_root)
@@ -299,6 +319,7 @@ def main(argv=None):
     run.add_argument("--max-input-bytes", type=int, default=4 * 1024**3)
     run.add_argument("--max-output-bytes", type=int, default=2 * 1024**3)
     run.add_argument("--max-records", type=int, default=2**31)
+    run.add_argument("--owner-decision", type=Path, help="signed maker-replay-v2-v1 decision (panel dates only)")
     args = parser.parse_args(argv)
     try:
         result = export(args)

@@ -10,6 +10,9 @@ read cell sums only), Clarification 2's k = 0.3 sensitivity, Clarification 3's f
 
 The **sidecar** holds the merged run-length excluded intervals and each pass's decision-stream SHA-256.
 No estimator reads it; the report binds it by SHA-256, byte count and record count.
+
+A scored report also carries ``pack_check`` (``execution_manifest.verify_scored_pack``): the digests of the verified
+execution manifest, its universe, the registry and the tzdata zone files that the run's zone map was checked against.
 """
 from __future__ import annotations
 
@@ -17,10 +20,12 @@ from collections import defaultdict
 from dataclasses import fields
 from decimal import Decimal
 import hashlib
+import json
 
 from scipy.special import stdtrit
 
 from maker_core.evidence.journal import canonical_bytes
+from maker_core.replay.bundle import BundleError
 from maker_core.replay.clarification_3 import quote_presence, registered_decision
 from maker_core.replay.fill_model import BOUNDS
 from maker_core.replay.inference import cluster_intervals, paired_cells
@@ -29,7 +34,9 @@ from maker_core.replay.v2.pull import pull_endpoint
 from maker_core.replay.v2.score import DAY_US, from_us
 
 D = Decimal
-REPORT_FORMAT = "maker_core.replay.v2.report.v0.1"
+# v0.2 (GATELOGIC-R155 Defender F1): the report records ``pack_check``, the execution-manifest pack check a scored
+# report passed and the digests it bound (``None`` for FIXTURE_ONLY), so a v0.2 scored report shows that it ran.
+REPORT_FORMAT = "maker_core.replay.v2.report.v0.2"
 SIDECAR_FORMAT = "maker_core.replay.v2.sidecar.v0.1"
 POLICIES = ("informed-v0", "blind_re1", "no_quote", "clock_only")
 REPORTED_METRICS = ("modeled_net_k1", "modeled_net_k05", "modeled_net_k03")
@@ -162,19 +169,98 @@ def _config(config):
                                                                                          "policy", "fill_bound")}
 
 
+def _canonical_manifest(manifest):
+    """A plain ``dict``/``list``/scalar copy of ``manifest`` parsed back from its canonical JSON
+    (``journal.canonical_bytes``), the bytes ``journal.digest`` hashes (R155 defender-3 R2). ``None`` stays ``None``
+    (``run_binding_pack_required`` follows); content that has no canonical JSON form refuses
+    ``run_binding_pack_manifest_invalid``. A tuple where the builder wrote a list is the same canonical content
+    and the same digest, so it reads as that list."""
+    if manifest is None:
+        return None
+    try:
+        return json.loads(canonical_bytes(manifest))
+    except (TypeError, ValueError, RecursionError):
+        raise BundleError("run_binding_pack_manifest_invalid") from None
+
+
 def build_report(run, config, *, replicates=2000, seed=20260926, registration_hash=None, sidecar_path=None,
-                 check=lambda: None):
-    """Compose the scored report from a finished ``pipeline.Run`` and write its sidecar; returns (report, sidecar)."""
+                 check=lambda: None, manifest=None, registered=None):
+    """Compose the scored report from a finished ``pipeline.Run`` and write its sidecar; returns (report, sidecar).
+
+    A scored (not FIXTURE_ONLY) report also needs ``manifest``, the execution manifest document ``verify_manifest``
+    returned for the pack, and ``registered``, the domain zone registry. Every plan day must be a sealed capture day
+    and the plan's per-day input hashes must equal the manifest's ``input_hashes`` exactly (every quote day and the
+    settlement day; no subset, superset or re-exported bundle). The run's zone map and its
+    ``time_zones_source`` are re-derived from the manifest's bound universe (``execution_manifest.verify_scored_pack``),
+    so a made-up ``RegisteredZones`` source, a forged map or an inventory other than the manifest's refuses, and the
+    report's ``pack_check`` records the digests the check bound (manifest, input hashes, universe, registry,
+    tzdata). The run's scope is the manifest's too (``execution_manifest.verify_scored_scope``, R155 defender-2 D1):
+    every plan day declared with the manifest's ``active_intervals`` (``apply_manifest``), the quote-day markets, the
+    ``replay_config`` fields, ``replicates``/``seed`` equal to ``bootstrap_replicates``/``bootstrap_seed``, and
+    ``registration_hash`` either omitted or equal to the manifest digest; ``pre_registration_sha256`` is that digest.
+    The records the run replayed (``Run.replayed``) must digest to the manifest's ``record_identity_sha256``
+    (``execution_manifest.verify_scored_records``, R155 defender-2 D2 and defender-3 R1: each record's day,
+    sequence, capture time, condition or group, kind, re-hashed payload sha and sources, in consumption order), not
+    only carry its input-hash labels. The digest binds canonical bytes; the engine consumes each record rebuilt from
+    those bytes (``lockstep._tapped``, R155 defender-4 D-1), so an in-memory object that serialises honestly but
+    would decode otherwise scores as the honest record.
+    This function does not re-verify the manifest; the caller must (``authorization.read_authorization``, then
+    ``verify_manifest``). It reads no file (R155 defender-2 D3): ``manifest`` is the parsed document, and
+    ``pack_check.manifest_sha256`` (hence ``pre_registration_sha256``) is ``journal.digest(manifest)``, the
+    canonical-JSON digest. That equals the manifest file's sha only for a file written canonically
+    (``pack_io.write_json``). Every scored check reads one plain copy of ``manifest`` parsed back from its canonical
+    JSON (R155 defender-3 R2), so a mapping that answers ``[]`` differently from what ``digest`` serialises is
+    checked on its digested content.
+
+    Enrollment is enforced (owner policy F4, R155; no escape hatch): ``digest(manifest)`` must be enrolled in
+    ``approved_registrations.APPROVED_REGISTRATIONS``, else ``run_binding_pack_manifest_unenrolled``, checked last,
+    before the sidecar opens. No argument carries a caller-supplied sha, and no keyword skips the check. A manifest
+    is therefore enrollable for a scored v2 report only by its canonical digest, that is, as ``pack_io.write_json``
+    output, whose file sha is that digest (``read_authorization`` looks up and checks the file sha). For any other
+    file bytes the file sha and the digest differ, and the two lookups cannot both pass. This binds content, not a
+    file: the runner must verify the file bytes against the enrolled sha (``read_authorization``) before it parses
+    them and calls this function. Only the key's presence is checked here, not the enrolled owner value
+    (R155 defender-3 N2): the digest pins the content, and ``read_authorization`` compares the owner. A FIXTURE_ONLY
+    report does not read the pack and needs no enrollment (``pack_check`` is ``None``), and its
+    ``pre_registration_sha256`` is ``None``: a ``registration_hash`` given for one refuses
+    ``fixture_report_registration_hash`` (R155 defender-3 N1)."""
+    from maker_core.replay.v2.pipeline import verify_run_binding
     plan, books, passes, matches, markets = run.plan, run.books, run.passes, run.matches, run.markets
+    fixture_only = all(d.provenance == "synthetic" for d in plan.days)
+    run_binding = verify_run_binding(run, config, scored=not fixture_only)  # owner T2(a): no binding, no report
+    if fixture_only and registration_hash is not None:
+        # R155 defender-3 N1: a FIXTURE_ONLY report reads no manifest, so it carries no pre-registration digest
+        # (an enrolled one would look like a registration it never checked).
+        raise BundleError("fixture_report_registration_hash")
+    pack_check = None
+    if not fixture_only:  # the F2 remainder: the zone source must be the verified pack's, not self-declared
+        from maker_core.replay.execution_manifest import (verify_scored_pack, verify_scored_records,
+                                                          verify_scored_scope)
+        # R155 defender-3 R2: check exactly what is hashed. ``digest`` serialises a mapping through ``items()``; a
+        # ``dict`` subclass can answer ``[]`` with other values. One plain canonical-JSON copy is taken here and
+        # every check below reads only it, so the checked manifest is the digested one.
+        manifest = _canonical_manifest(manifest)
+        pack_check = verify_scored_pack(run_binding, plan, markets, manifest=manifest, registered=registered)
+        # R155 defender-2 D1: windows, markets, configuration, bootstrap and registration hash are the manifest's.
+        pack_check.update(verify_scored_scope(plan, config, manifest=manifest, replicates=replicates, seed=seed,
+                                              registration_hash=registration_hash,
+                                              manifest_sha256=pack_check["manifest_sha256"]))
+        # R155 defender-2 D2, defender-3 R1: the records the run actually replayed are the manifest's, by identity.
+        # The bound record digest (defender-3 R3), which ``verify_run_binding`` checked equals ``Run.replayed``.
+        pack_check.update(verify_scored_records(run_binding["records"], manifest=manifest))
+        # Owner policy F4 (R155): no scored report from a manifest whose canonical digest is not enrolled (the
+        # digest of the canonical copy above, defender-3 R2).
+        if pack_check["manifest_enrolled"] is not True:
+            raise BundleError("run_binding_pack_manifest_unenrolled")
+        registration_hash = pack_check["manifest_sha256"]
     sidecar = Sidecar(sidecar_path)
     try:
         sidecar.write(dict(kind="header", format=SIDECAR_FORMAT, days=[d.day.isoformat() for d in plan.days]))
         report = dict(format=REPORT_FORMAT, mode="comparison",
-                      status=("FIXTURE_ONLY" if all(d.provenance == "synthetic" for d in plan.days)
-                              else "PRE_REGISTERED_REPLAY"),
+                      status="FIXTURE_ONLY" if fixture_only else "PRE_REGISTERED_REPLAY",
                       pre_registration_sha256=registration_hash, configuration=_config(config),
                       input_hashes={d.day.isoformat(): dict(d.input_hashes) for d in plan.days},
-                      assumptions=ASSUMPTIONS, bounds={})
+                      run_binding=run_binding, pack_check=pack_check, assumptions=ASSUMPTIONS, bounds={})
         for bound in BOUNDS:
             check()
             band_days = {policy: passes[bound][policy].band_days(books, markets) for policy in POLICIES}
