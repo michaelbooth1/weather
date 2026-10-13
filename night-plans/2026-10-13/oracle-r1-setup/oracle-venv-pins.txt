@@ -1,4 +1,6 @@
-# Oracle-author pytest venv: pytest and its Windows runtime dependencies only (the handout modules are stdlib-only).
+# Oracle-author pytest venv: pytest and its Windows runtime dependencies, plus tzdata (the handout modules are
+# stdlib-only; native Windows zoneinfo has no system database, so local midnights need the tzdata package).
+# tzdata 2026.3 is the same artifact the Python upgrade runbook's section T installs on the host.
 # Versions equal the workstation 3.11.9 venv. Hash with pypi_hash_lock.py (HOST_PYTHON_UPGRADE_RUNBOOK section 6b).
 pytest==9.0.3
 pluggy==1.6.0
@@ -6,3 +8,4 @@ iniconfig==2.3.0
 packaging==26.2
 colorama==0.4.6
 Pygments==2.20.0
+tzdata==2026.3

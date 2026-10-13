@@ -27,13 +27,17 @@ Bound values. Each one is checked by the code below, so none of them needs retyp
 | Cut plan `plan.json` (this folder; byte copy of the workstation r1 plan) | `e75ed9de176e9775009bf64b8162048a703c1f91a9a102695f84b63a7087fc56` |
 | `materialize_h1_inputs.py` (this folder), blob `40ba3c0ce94bd08f4fce73ac1ea45f3a4cfdedbc` | `a6ed3cc7c584b980c5d67110ec643b91ba35a17849189c32a6b1607094627753` |
 | Cut tool written by the materializer, blob `9585b5a7ba365f3b95c1b70bc5f18d04e41a7107` (`claude/oracle-cut-fixture-keep-20261012` @ `8b85810bc`) | `7a30cecfe14e01eb500a0ddbf3a688e46a365f6d87453a04868b19effbdf9f47` |
-| `oracle-venv-lock-hashed.txt` (this folder), blob `8121a95be7cdd84c0f3e58f15cd9d4864edb6a6f` | `591ac9533d1e88b77907c8c5c549a3967eaf40dbddbb3851580a78ac88e5caa5` |
+| `oracle-venv-lock-hashed.txt` (this folder, 7 pins with tzdata), blob `5641fa85e4e8d5df64815858dd537d25ed1d4695` | `2593874af3124185fd38311a55df4bea962930c93e0f791f52784045a02e2e77` |
 
 The workstation re-cut twice into different output paths and got `61b68b16…673b` both times, so the binding does not
-depend on the output path. In that scratch cut, `pytest --collect-only tests/maker_core` on the six oracle-venv pins
-collected 162 tests with 0 errors. Over all of `tests/`, every collection error (312 files) is a third-party package the
-oracle venv does not hold (requests, pandas, tzdata, numpy, pyarrow, streamlit, websocket, matplotlib, sklearn); none
-is a repository module missing from the cut.
+depend on the output path. In that scratch cut, `pytest --collect-only tests/maker_core` on the six pytest pins
+collected 162 tests with 0 errors. Over all of `tests/` it collected 2260 tests with 312 error files, every one a
+third-party package; none is a repository module missing from the cut. 44 of them were tzdata (`ZoneInfo` on native
+Windows has no system database), so the master agent added `tzdata==2026.3` as the seventh pin: the oracle itself needs
+it for local midnights. With it, `tests/` collects 2403 tests with 305 error files, all requests, pandas, numpy,
+pyarrow, streamlit, websocket, matplotlib or sklearn. Those packages stay out by design; this is a disclosed limit (the
+author sees collect errors for those files and may ask), recorded in the decision log and the isolation runbook §6. The
+launch message and H-12 do not change.
 
 ## Who runs what, and when
 
@@ -89,8 +93,11 @@ function New-OpsDir($d){ if (-not (Test-Path -LiteralPath $d)) { New-Item -ItemT
 
 ## V1. Oracle-author pytest venv (master, 10-15 00:30-04:45, after §T, lease)
 
-- **What it holds.** pytest and its Windows runtime dependencies only. The handout modules (`maker_core.contracts`,
-  `maker_core.quoting.policy` and what they import) use the standard library alone. The pins equal the workstation
+- **What it holds.** pytest and its Windows runtime dependencies, plus `tzdata==2026.3` (the §T artifact): native
+  Windows `zoneinfo` has no system database, and the oracle computes local midnights. The handout modules
+  (`maker_core.contracts`, `maker_core.quoting.policy` and what they import) use the standard library alone. Nothing
+  else is installed, so tests that need requests, pandas, numpy and similar packages do not collect (a disclosed
+  limit). The pins equal the workstation
   3.11.9 venv: `oracle-venv-pins.txt`, hashed by the Python upgrade runbook's §6b `pypi_hash_lock.py` logic.
 - **Download rules.** Windows and pure wheels only, `--require-hashes`, `--only-binary=:all:`, `--no-deps`; then
   `pip check`.
@@ -111,7 +118,7 @@ $Lock = Join-Path $Ops 'oracle-venv-lock-hashed.txt'; $Wh = Join-Path $Ops 'whee
 foreach ($x in $Venv, $Wh, $Lock) { if (Test-Path -LiteralPath $x) { NoGo "$x exists" } }
 if ((& $Base -VV) -notlike 'Python 3.11.9 *') { NoGo "base interpreter is not 3.11.9: $(& $Base -VV)" }
 & git -C $P fetch origin claude/night-plans; if ($LASTEXITCODE -ne 0) { NoGo 'fetch failed' }
-Blob '8121a95be7cdd84c0f3e58f15cd9d4864edb6a6f' $Lock '591ac9533d1e88b77907c8c5c549a3967eaf40dbddbb3851580a78ac88e5caa5'
+Blob '5641fa85e4e8d5df64815858dd537d25ed1d4695' $Lock '2593874af3124185fd38311a55df4bea962930c93e0f791f52784045a02e2e77'
 $Lease = Enter-WeatherHeavyWorkloadLease -RepoRoot $P -Workload 'oracle-author-venv'
 try {
   & $Base -I -m venv $Venv; if ($LASTEXITCODE -ne 0) { NoGo 'venv create' }
@@ -124,7 +131,7 @@ if (-not ($cfg -match '^include-system-site-packages\s*=\s*false')) { NoGo 'venv
 $vhome = (($cfg -match '^home\s*=') -replace '^home\s*=\s*', '' | Select-Object -First 1).Trim()
 if ($vhome -ne (Split-Path -Parent $Base)) { NoGo "venv home $vhome is not $(Split-Path -Parent $Base)" }
 $freeze = @(& $VPy -I -m pip freeze --all); $freeze | Set-Content -LiteralPath "$Ops\venv-freeze.txt" -Encoding utf8
-$want = 'colorama==0.4.6','iniconfig==2.3.0','packaging==26.2','pluggy==1.6.0','Pygments==2.20.0','pytest==9.0.3'
+$want = 'colorama==0.4.6','iniconfig==2.3.0','packaging==26.2','pluggy==1.6.0','Pygments==2.20.0','pytest==9.0.3','tzdata==2026.3'
 $extra = @($freeze | Where-Object { $_ -notmatch '^(pip|setuptools)==' -and $want -notcontains $_ })
 $miss = @($want | Where-Object { $freeze -notcontains $_ })
 if ($extra.Count -or $miss.Count) { NoGo "venv contents differ: extra=$($extra -join ',') missing=$($miss -join ',')" }
@@ -349,6 +356,13 @@ $j = Get-Content -LiteralPath $rcpt.FullName -Raw | ConvertFrom-Json
 Log "V2 exit $rc status $($j.status) python $($j.probe.version) pytest=$($j.probe.pytest) maker_core=$($j.probe.guarded.maker_core) receipt $(Sha $rcpt.FullName)"
 if ($rc -ne 0) { NoGo "wrapper proof exit $rc ($($j.reason))" }
 if ($j.probe.version -ne '3.11.9') { NoGo "probe interpreter $($j.probe.version)" }
+# tzdata: the oracle venv must resolve America/Toronto from its own tzdata 2026.3 (no system database on Windows).
+$tz = @(& $VPy -I -c "import importlib.metadata as m, zoneinfo, tzdata, datetime as d; z = zoneinfo.ZoneInfo('America/Toronto'); print(m.version('tzdata')); print(tzdata.__file__); print(int(d.datetime(2026, 7, 1, tzinfo=z).utcoffset().total_seconds()), int(d.datetime(2026, 1, 1, tzinfo=z).utcoffset().total_seconds()))")
+if ($LASTEXITCODE -ne 0 -or $tz.Count -ne 3) { NoGo "zoneinfo probe failed: $($tz -join ' | ')" }
+if ($tz[0] -ne '2026.3') { NoGo "tzdata version $($tz[0])" }
+if (-not $tz[1].StartsWith((Join-Path $Venv 'Lib\site-packages\tzdata\'), [StringComparison]::OrdinalIgnoreCase)) { NoGo "tzdata not from the oracle venv: $($tz[1])" }
+if ($tz[2] -ne '-14400 -18000') { NoGo "America/Toronto offsets $($tz[2])" }
+Log "V2 tzdata $($tz[0]) from $($tz[1]); America/Toronto offsets $($tz[2])"
 ```
 
 - **Expected result:** exit 0 and 2 passed, with `maker_core` resolving under `$Cut\oracle-repo\src`.
