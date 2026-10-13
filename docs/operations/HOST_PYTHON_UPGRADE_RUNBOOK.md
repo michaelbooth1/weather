@@ -1,7 +1,8 @@
 # Host Python upgrade runbook (capture host, 3.11.0 to 3.11.9)
 
 > **APPROVED by the owner 2026-10-12 (DECISION_LOG, §11)**, including the 2026-10-12 G0/G7 revisions
-> and the §7a calendar. The cutover night is 00:30 on 10-17.
+> and the §7a calendar. The cutover night is 00:30 on 10-18 (shifted by the owner 2026-10-13, DECISION_LOG;
+> the state of play holds the current dates).
 > Nothing in this file authorizes a download, an install, a capture gap, a task change or a merge.
 > [The owner sign-off checklist](#11-owner-sign-off-checklist) lists what the owner must sign first.
 > Live orders, cancels and signing are out of scope here; the live launcher is resealed under its

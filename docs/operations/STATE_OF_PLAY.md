@@ -1,6 +1,6 @@
 # State of play
 
-**Last updated: 2026-10-12 21:00 America/Toronto (build line at 15584831; OD23 signed wording recorded; owner back; LFC session 0 un-postponed to 10-14 15:00Z; N7 landed; N8/N9 planned; DST-M2, build-line merges and the host Python upgrade approved, upgrade calendar confirmed: Phase A 10-13, cutover 00:30 on 10-17).**
+**Last updated: 2026-10-13 09:15 America/Toronto (build line at 15584831; OD23 signed wording recorded; owner back; LFC session 0 un-postponed to 10-14 15:00Z; N7 landed; N8/N9 planned; DST-M2, build-line merges and the host Python upgrade approved, upgrade calendar shifted 10-13: Phase A 10-16, cutover 00:30 on 10-18; LFC session 1 10-15 afternoon).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended. At most 95 lines and about 9 KB, one fact per bullet, detail in the linked owner.** This file owns
@@ -17,7 +17,7 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 
 - **Live trading paused (owner 2026-09-25)**, except the owner-attended LFC session 0: **10-14 from 15:00Z (11:00 EDT)**
   on the workstation (owner 10-12 19:35, un-postponing it); hard stop 23:50Z, code deadline 10-15 00:00Z; session 1
-  10-15 afternoon or >= 10-18, never 10-16/17. No agent places, cancels or signs orders. Owner trades stay
+  10-15 afternoon (owner 10-13 08:51). No agent places, cancels or signs orders. Owner trades stay
   `owner-discretionary`.
 - **Owner back as of 2026-10-12** (away 10-10 22:02 to 10-12); owner-only steps resume.
 - Heavy work only 00:30-09:00 under the shared lease ([host load policy](HOST_LOAD_POLICY.md)). Merges: roll-sensitive
@@ -44,8 +44,8 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 - **Journal pin:** `WeatherManualOrderJournal` pins five module files including `wallet_reader_client.py`; any merge touching
   one makes it exit 3 until re-registered ([runbook](manual-order-journal.md)).
 - **Host Python is 3.11.0;** upgrade approved as the [runbook](HOST_PYTHON_UPGRADE_RUNBOOK.md) §11 sign-off (owner 2026-10-12):
-  Q12 `STOP_AUTHORIZED`, `ACCEPT_OVERRUN`, cutover 00:30 on 10-17 (owner-named). Phase A: owner at the machine
-  10-13 ~07:30 after N8 hands back; then §T + T-R, B, C per runbook §7a. No host release store (case A).
+  Q12 `STOP_AUTHORIZED`, `ACCEPT_OVERRUN`, cutover 00:30 on 10-18 (owner 10-13, shifted after A missed 10-13). §T 00:30 on 10-15
+  (no T-R: A follows §T); A 10-16 07:30-09:00, owner at the machine; B 00:30 on 10-17. No host release store (case A).
 - **DST audit:** DST-H3 landed, so its interim merge guard is retired; OD30 (the 11-01 night rule) stays until the owner retires it.
 - **LFC** (session 0 on 10-14, above): pinned worktree `acd052a2d`; signed documents stay SIGNED; T-24h steps 10-13
   ~15:00Z; the 8765 reader restarts on master after N8. N-11/N-12 fix `fe5f54cf` touches `wallet_reader_client.py`.
@@ -68,7 +68,7 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 2. **Merges:** N8, night of 10-13: RS `claude/integration-20261013-n8-rs` `c6977df5`, then RF2 `...-n8-rf2` `1c64f917`
    (fallback RF `...-n8-rf` `9bf466af`). N9, night of 10-14, roll-sensitive, only after N8 lands: DST-M2 via
    `claude/integration-20261014-m2-rs` `fc136e2c`. After 10-14: #118, #172 + #182, #177.
-3. **Host Python upgrade:** Phase A 10-13 ~07:30; §T + T-R 10-15; B 10-16; cutover 00:30 on 10-17 (runbook §7a).
+3. **Host Python upgrade:** §T 10-15; A 10-16 ~07:30; B 00:30 10-17; C 00:30 10-18; G5: no merges those nights (to confirm).
 4. **Measurements (09-29 only; never 88a 09-30..10-14):** desk-study power rule #263. **Research:** NBS/NBH probe; T+1/T+2
    NWP timing; no-METAR floor gap (item 337).
 
