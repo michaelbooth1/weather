@@ -42,6 +42,7 @@ from weather.collection.forecast_archive import (
     append_rows as append_forecast_rows,
     build_forecast_rows,
 )
+from weather.collection import nbm_guidance_read_shadow
 from weather.collection.live_variant_predictions import (
     LIVE_VARIANT_PREDICTION_COLUMNS,
     build_live_variant_prediction_rows,
@@ -638,6 +639,7 @@ class SnapshotStore:
         self.variant_predictions_long_path = self.root / "variant_predictions_long.csv"
         self.variant_predictions_jsonl_path = self.root / "variant_predictions.jsonl"
         self.replay_inputs_path = self.root / "replay_inputs.jsonl"
+        self.nbm_guidance_read_shadow_path = self.root / nbm_guidance_read_shadow.TAPE_FILENAME
         self.snapshot_explanations_long_path = self.root / "snapshot_explanations_long.csv"
         self.snapshot_explanations_jsonl_path = self.root / "snapshot_explanations.jsonl"
         self._payload_first_seen_cache = {}
@@ -883,6 +885,17 @@ class SnapshotStore:
             )
         except Exception as exc:  # noqa: BLE001 - variant tape must not block serving snapshots
             variant_prediction_error = f"{type(exc).__name__}: {exc}"
+        nbm_guidance_read_row = self.nbm_guidance_read_shadow_row(
+            snapshot_id=snapshot_id,
+            captured_at=captured_at,
+            event_config=event_config,
+            model=model,
+            model_client=model_client,
+            band_rows=long_rows,
+            captured_input_hash=captured_input_hash,
+            runtime_fields=runtime_fields,
+            release_lineage=release_lineage,
+        )
         self.append_csv(self.long_path, LONG_COLUMNS, long_rows)
         self.append_csv(
             self.wide_path,
@@ -1000,6 +1013,13 @@ class SnapshotStore:
         # are demonstrably bound to the verified manifest.
         if replay_input_payload:
             self.append_jsonl(self.replay_inputs_path, replay_input_payload)
+
+        # MG-1 shadow tape (owner Q3): outcome-blind, separate from every served
+        # artifact above, and never allowed to block the snapshot.
+        try:
+            self.append_jsonl(self.nbm_guidance_read_shadow_path, nbm_guidance_read_row)
+        except Exception:  # noqa: BLE001 - shadow tape must not block serving snapshots
+            pass
 
         if variant_prediction_rows:
             self.append_csv(
@@ -2297,6 +2317,48 @@ class SnapshotStore:
             "max_abs_diff": max_abs_diff,
             "tolerance": SNAPSHOT_PROBABILITY_TOLERANCE,
         }
+
+    def nbm_guidance_read_shadow_row(
+        self,
+        *,
+        snapshot_id,
+        captured_at,
+        event_config,
+        model,
+        model_client,
+        band_rows,
+        captured_input_hash,
+        runtime_fields,
+        release_lineage,
+    ):
+        """One MG-1 shadow row; any failure becomes an error row, never an exception."""
+
+        identity = {
+            "snapshot_id": snapshot_id,
+            "captured_at": captured_at,
+            "event_slug": self.event_slug,
+            "market_id": getattr(event_config, "market_id", None),
+            "target_date": getattr(event_config, "target_date", None),
+        }
+        try:
+            return nbm_guidance_read_shadow.build_row(
+                **identity,
+                model=model,
+                model_client=model_client,
+                band_rows=band_rows,
+                captured_input_hash=captured_input_hash,
+                runtime_fields=runtime_fields,
+                release_lineage=release_lineage,
+            )
+        except Exception as exc:  # noqa: BLE001 - shadow tape must not block serving snapshots
+            return nbm_guidance_read_shadow.error_row(
+                exc,
+                **identity,
+                unit=None,
+                captured_input_hash=captured_input_hash,
+                runtime_fields=runtime_fields,
+                release_lineage=release_lineage,
+            )
 
     def model_bin_probability(self, model_client, distribution, bin_data, calibration_context=None):
         calibration_context = calibration_context or {}

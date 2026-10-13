@@ -1,0 +1,27 @@
+{
+  "schema": "mg1_guidance_read_stage_v1",
+  "stage_id": "nbm_v2_guidance_read_v1",
+  "owner_module": "weather.model.nbm_guidance_read",
+  "tape": "snapshots/<event>/nbm_guidance_read_shadow.jsonl",
+  "mode": "shadow_outcome_blind",
+  "preregistration": "docs/research/morning-guidance-read-mg1-preregistration-2026-10-04.md",
+  "preregistration_signed_commit": "b044e0f1",
+  "constants": {
+    "stage_id": "nbm_v2_guidance_read_v1",
+    "sigma_floor_native": 1.0,
+    "lookback_hours": 24,
+    "required_parser_version": 2,
+    "floor_fields": [
+      "guidance_physical_floor",
+      "high_so_far",
+      "trusted_current_max"
+    ],
+    "discretisation": "integer, mass on [k-0.5, k+0.5)",
+    "final_high": "H = max(B, X), B = floor(F + 0.5)",
+    "renormalise_tolerance": 1e-12,
+    "native_unit": "F",
+    "fallback": "captured served vector, unmasked"
+  },
+  "config_sha256": "daa71db98dd7af14de5b74237fdb218e8a4464fe39c94f3e9ac1c837aa97063b",
+  "code_sha256": "8c45d67c8747844b05afcd718f262f20f2fbc22ddee83a122dea0de9933ff962"
+}

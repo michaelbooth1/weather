@@ -82,6 +82,14 @@ change lands (owner, 2026-10-07, OD24).
 
 ## Evidence and model claims
 
+NBP guidance must satisfy the [target-period and parser-provenance
+contract](nbm-target-period-contract.md). Future guidance admission requires
+recorded maximum-period provenance; unversioned history remains legacy replay
+only. An artifact consumes NBM values only from the parser version it was
+trained on; undeclared NBM-selecting artifacts are version 1 and see v2 rows'
+NBM inputs as missing. No fitting, retirement, re-scoring or pooling crosses
+that boundary.
+
 The north-star claim is not “the forecast looks reasonable.” Evidence should
 compare model probabilities with captured market yes-prices and realized
 settlement using proper scoring such as Brier score/log loss, calibration,

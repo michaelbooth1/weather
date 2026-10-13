@@ -25,6 +25,7 @@ from weather.variant_registry import (
 )
 from weather.schema_registry import schema_version
 from weather.market.snapshot_cadence_quality import cadence_adjusted_probability, snapshot_cadence_quality
+from weather.model.nbm_input_regime import artifact_nbm_parser_version, quarantine_nbm_inputs
 from weather.model.current_blend import (
     blend_with_current,
     source_freshness_state_from_diagnostics,
@@ -700,6 +701,11 @@ def _pooled_candidate_replay_payload(variant: dict[str, Any], context: dict[str,
     feature_vector = _feature_vector(context)
     if not feature_vector:
         return _prediction_failure(runtime, "missing_feature_vector", "live snapshot model did not include feature_vector")
+    try:
+        # A v1-trained artifact never consumes parser-v2 NBM values (EF 10k/10l).
+        nbm_regime = quarantine_nbm_inputs(feature_vector, artifact_nbm_parser_version(artifact))
+    except ValueError as exc:
+        return _prediction_failure(runtime, "nbm_input_regime_unsupported", str(exc))
     band_rows = list(context.get("band_rows") or [])
     if not band_rows:
         return _prediction_failure(runtime, "missing_band_rows", "live snapshot has no band rows")
@@ -718,7 +724,7 @@ def _pooled_candidate_replay_payload(variant: dict[str, Any], context: dict[str,
         return _prediction_failure(runtime, "runtime_exception", f"{type(exc).__name__}: {exc}")
     if not probabilities:
         return _prediction_failure(runtime, "missing_band_probability", "artifact produced no live band probabilities")
-    return {
+    payload = {
         "status": "predicted",
         "probabilities": probabilities,
         "model_version": variant.get("variant_id"),
@@ -727,6 +733,9 @@ def _pooled_candidate_replay_payload(variant: dict[str, Any], context: dict[str,
         "postprocess_config_hash": variant.get("postprocess_config_hash"),
         "live_runtime": runtime,
     }
+    if nbm_regime is not None:
+        payload["nbm_input_regime"] = nbm_regime
+    return payload
 
 
 def _residual_distribution_v1_payload(
@@ -848,6 +857,8 @@ def trace_pooled_band_binary_probabilities(
 
     from weather.model.variant_prediction_runtime import apply_band_postprocessing, predict_band_rows_for_bundle
 
+    feature_vector = dict(feature_vector or {})
+    nbm_regime = quarantine_nbm_inputs(feature_vector, artifact_nbm_parser_version(artifact))
     records = _band_prediction_records(feature_vector, band_rows)
     if not records:
         return {"probabilities": {}, "stages": {}, "stage_order": []}
@@ -920,6 +931,7 @@ def trace_pooled_band_binary_probabilities(
         "current_blend_enabled": bool(
             postprocess.get("current_blend_enabled", False)
         ),
+        **({"nbm_input_regime": nbm_regime} if nbm_regime is not None else {}),
     }
 
 
