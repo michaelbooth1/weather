@@ -211,6 +211,7 @@ ARTIFACT_FAMILIES = (
             "snapshots/*/snapshot_explanations.jsonl",
             "snapshots/*/variant_predictions.jsonl",
             "snapshots/*/live_variant_predictions.jsonl",
+            "snapshots/*/nbm_guidance_read_shadow.jsonl",
             "snapshots/diagnostics.jsonl",
             "snapshots/observation_trigger*.json",
             "snapshots/observation_trigger*.jsonl",

@@ -1340,4 +1340,11 @@ RECENT_REGISTERED_SCHEMAS = (
         "active",
         "Ordered night landing plan (heads and SHAs) whose canonical content hash the preflight verdict binds.",
     ),
+    SchemaSpec(
+        "nbm_guidance_read_shadow",
+        "nbm_guidance_read_shadow_v0.1",
+        "weather.collection.nbm_guidance_read_shadow",
+        "active",
+        "Outcome-blind MG-1 stage tape: one row per snapshot binding the parser-v2 read, floor, stage and served vectors to stage/config/code hashes.",
+    ),
 )

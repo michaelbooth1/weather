@@ -157,6 +157,35 @@ mask v1 rows the same way. Training assembly must still never pool rows from bot
 sides of the boundary. A forecast-effect question needs its own pre-registration
 on dates captured after adoption.
 
+## MG-1 stage tape (outcome-blind)
+
+The MG-1 stage `nbm_v2_guidance_read_v1`
+([`nbm_guidance_read.py`](../../src/weather/model/nbm_guidance_read.py)) is a
+pure function of captured inputs. It needs a parser-v2 `maximum` read for
+(station, D) that was issued and available at or before `captured_at`, within
+24 hours. It takes the 81a floor and the served band grid. It returns the
+MG-1 vector, or the served vector unchanged with a recorded reason.
+
+[`nbm_guidance_read_shadow.py`](../../src/weather/collection/nbm_guidance_read_shadow.py)
+writes one row per snapshot to `snapshots/<event>/nbm_guidance_read_shadow.jsonl`
+(schema `nbm_guidance_read_shadow`). The tape is canonical snapshot evidence.
+Each row binds:
+
+- the snapshot, captured-input hash, runtime commit and fingerprint, and
+  release id;
+- the stage id with the config and code SHA-256 frozen in
+  `config/mg1_guidance_read_stage.json`;
+- the read, the floor inputs, the bands, and the stage and served vectors.
+
+The tape changes no served byte. A builder failure becomes an `error` row, and
+a write failure is dropped without blocking the snapshot. Tests pin the served
+CSVs, `snapshots.jsonl`, replay inputs and variant tape as byte-identical with
+the stage on or off.
+
+Nothing in reporting, backtesting, scoring or daily refresh reads the tape. The
+only outcome join allowed is the pre-registered MG-1 look, behind
+`weather.mg1_reserved_window`.
+
 ## Update when
 
 Update with period rules, supported station geography, parser dispatch,

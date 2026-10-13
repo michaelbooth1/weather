@@ -277,4 +277,20 @@ The build plan and test list are in the workstation's 2026-10-07 scoping note,
 which is outside the repository. D0 is dated in the reservation file once it
 is determined (OD32).
 
+## 2026-10-13 MG-1 stage build (branches, not landed)
+
+The stage and its tape are built on branches stacked on the refreshed #190
+head. Nothing has landed. Every piece is ROLL-SENSITIVE because
+`snapshot_store` is loop-imported.
+
+- **Pure rule:** branch `claude/mg1-guidance-read-stage-20261013`.
+- **Capture wiring:** branch `claude/mg1-stage-capture-20261013`. It adds the
+  tape, the schema and storage registration, and the frozen config entry. It
+  also adds tests for served-output invariance and for the no-outcome-join
+  ratchet.
+
+The [NBM contract](../operations/nbm-target-period-contract.md#mg-1-stage-tape-outcome-blind)
+owns the tape semantics. The closed-day archive family for the tape is still
+open, along with the D4 replay/check CLI and D0 dating.
+
 Related: items 185, 75, 21, 27; `[[highs-projection-data-gap-2026-06-20]]`.

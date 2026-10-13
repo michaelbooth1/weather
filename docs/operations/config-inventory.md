@@ -14,6 +14,7 @@ Checked-in files under `config/` are classified by owner and freshness policy:
 | `supplemental_stations.json` | Hand-authored registry | Review when station provenance changes. |
 | `no_market_extra_locations.json` | Local shadow registry | Active entries must be backfilled before training eligibility; evidence-free diagnostic entries are retained under `archived_locations`. |
 | `storage_pressure.json` | Operator activation policy | **Activated `false` by the owner on 2026-09-19 (item 325).** `capture.write_order_books_long_csv=true` restores the long-CSV projection. Change it only in an operator-approved quiet window after the production dry-run; missing or invalid policy fails safe to writing the projection. |
+| `mg1_guidance_read_stage.json` | Frozen pre-registered stage binding | Binds MG-1 stage `nbm_v2_guidance_read_v1` (owner Q1, 2026-10-08): its constants and the config and code SHA-256 that every `nbm_guidance_read_shadow.jsonl` row carries. A test fails if the module drifts. Never edit in place; any rule change is a new stage id and a new pre-registration. |
 | `international_live_execution_host.json` | Hand-authored execution-role registry | Binds one active portable Windows installation and token principal per production tip, separately identifies the dedicated capture host, and is `UNASSIGNED` until a reviewed relocation assigns both public IDs. |
 
 Generate the current inventory:
