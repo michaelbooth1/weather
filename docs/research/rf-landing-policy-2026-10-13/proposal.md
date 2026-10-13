@@ -43,18 +43,14 @@ If any check fails, the head falls back to today's suite-gated integration attem
   - This proposal follows from that last clause: after cutover C the 3.11.0 stdlib is gone from the host.
 - `quiet_window_merge.ps1` itself does not require a suite. A ROLL-FREE branch may run there 00:30–12:00.
 
-**Practice already diverges from the written contract.** Several roll-free code heads landed by guarded merge minutes after the previous merge. That is too soon for an exact-tip host bounded suite to have run; the workstation pre-gate alone takes about 50 minutes. Examples:
-
-- `1e0e84793`: wallet-reader any-LAN, 11 files including `src/weather/market/*`. It landed 6 minutes after the previous merge.
-- `ac24b9941`: wallet-reader HTTPError close, `src/` plus a test. It landed 1 minute after the previous merge.
-
-Master should confirm from its receipts. If confirmed, this proposal makes the existing practice explicit, attested and conditional.
+**Practice matches the contract.** Master confirmed on 2026-10-13 that no head has ever landed without an exact-tip host bounded suite. `1e0e84793` (10-10 04:11) and `ac24b9941` (10-11 03:35) each landed inside a night-sequencer step after its own suite. This proposal would therefore be a real change to practice, not a codification of it.
 
 ## 3. Evidence: host bounded suite against workstation pre-gate, N2–N9 (2026-10-07..10-13)
 
 Sources:
 - 42 pre-gate receipts under the workstation's `l-data\n*heads\pregate\`.
 - Master merge history.
+- Master's host suite verdict lines (`C:	mp\suite-logs` on the host, relayed 2026-10-13).
 - The workstation state log of master's night reports.
 
 This covers test outcomes only; no market or panel data was read.
@@ -62,19 +58,30 @@ This covers test outcomes only; no market or panel data was read.
 | Outcome | Count | Heads | Cause |
 | --- | ---: | --- | --- |
 | Pre-gate PASS at the exact tip; the host suite passed and the head landed | 16 | rs1b `012cbc872`, rf2e `b7b8b7ebb` (N2); rsa `859df38b6`, h1 `e83194bcf`, 258 `3c95a3226` (N3); 268-nors `d3e7aecc1`, econ-nors `30cb279b9` (N4); rs-v2 `f8499d0bd`, rsb-v2 `ee41a90e8`, rf-v2 `c9029029a` (N5); N6 `9b9501806`; N7 `a36798574`; N8 rs `c6977df5f`, rf2 `1c64f9173`; plus `247fu-nors` `3e911b225`, contained in the pre-gated 268-nors | agreement |
-| **Pre-gate PASS, host suite FAIL** | **2** | N3 RF-B `441cfbcfe`; N4 RS `dfce75ff2` | Both are **CPython 3.11.0 gh-98778**: `HTTPError(fp=None)` raises `KeyError 'file'` through `traceback` reading `__notes__` (PR #259). The workstation runs 3.11.9, where this is fixed. **This class disappears at cutover C.** |
-| Host suite FAIL with no workstation pre-gate | 1 | N3 #261, assembled by master | (a) The repo-wide hygiene ratchet `ps1_substring_without_execution`. Platform-independent, so any full pre-gate or CI would catch it. (b) A fanout `PermissionError` (Windows delete-pending), already in the known Windows flake table in development.md. |
+| **Pre-gate PASS, host suite FAIL** | **2** | N3 RF-B `441cfbcfe` (10-09, chunk 8; from master's N3 interim report); N4 RS `dfce75ff2` (`prrs-20261010` 01:45, "1 CHUNK(S) FAILED") | Both are **CPython 3.11.0 gh-98778**: `HTTPError(fp=None)` raises `KeyError 'file'` through `traceback` reading `__notes__` (PR #259; 3 tests at N4). The workstation runs 3.11.9, where this is fixed. **This class disappears at cutover C.** |
+| Host suite FAIL with no workstation pre-gate on that base: #261, run 1 (N3, about 03:10) | 1 | #261 `6e8b533c6`, assembled by master | (a) The repo-wide hygiene ratchet `ps1_substring_without_execution`. Platform-independent, so any full pre-gate or CI catches it. (b) Chunk 16: a fanout `PermissionError`. This was **a real Windows race** (an `O_EXCL` claim in `forecast_payload_fetch_fanout.py`), not a delete-pending flake. It was **already on master** and not introduced by #261; its fix (`624af5db8`) was pending on #210. |
+| Host suite FAIL with no workstation pre-gate on that base: #261, run 2 (`pr261b-20261009` 05:07, "1 CHUNK(S) FAILED") | 1 | #261 `2666e69ec`, re-run after #258 landed | The pinned Windows shard ratchet: #258 had added a Windows-only test file (`test_maker_shadow_ops_scripts.py`) that was in no shard. This is platform-independent and comes from the stacking order; a pre-gate on the stacked base catches it (the N3 lesson "pre-gate each head on the stacked base"). |
 | Pre-gate FAIL, fixed before the host saw it | 4 | rs1 `69e9ea988` (Guards lines), rf2d `feb42229b` (stale string; doc names a module not yet landed), H1 `ad2ab569c` (research inventory) | All are platform-independent ratchets. The workstation is the earlier gate. |
 | Pre-gate FAIL, host suite PASS | 0 | | No case where the workstation was stricter by accident. |
 
-**Bottom line.** Every case where the host caught something the workstation missed was the 3.11.0 interpreter. No failure was due to host paths, Scheduler, S4U, Defender or git.
+**Bottom line.** On the heads that had a workstation pre-gate on their landing base, every host-only catch was the 3.11.0 interpreter. No failure was due to host paths, Scheduler, S4U, Defender or git.
+
+The one real defect the host suite surfaced outside that class is the fanout `O_EXCL` race. It was:
+- pre-existing on master;
+- Windows-generic, not host-specific: the workstation and the Windows lane run the same chunk;
+- timing-dependent, so no single run of either suite is a reliable detector.
+
+It blocked an unrelated head rather than catching a regression in it. Under this proposal, the same race would show up as a red pre-gate or CI run, and the head would take the suite path.
 
 The pre-gate is not a different suite. It replays the host suite's own statements from its AST: the same chunk plan, Job containment, environment scrubbing and `C:\pt` basetemp ([development.md](../../development.md#workstation-pre-gate-before-a-host-landing-slot)). It replaces only the window, the hard stop, the host lease and `Assert-HostAdmission`.
 
 **Caveats:**
 - The sample is small: 7 nights.
-- The host suite's own JUnit was not available to the workstation. Host outcomes come from master's reports and from merge history (a landed attempt implies a PASS suite receipt).
-- Master should attach its `data/integration_attempts/*/suite` verdict lines for the 16 heads to close this gap.
+- Host verdict lines (relayed by master; host JUnit was not read):
+  - 21/21 PASSED: `pr247fu-nors`, `pr268-nors`, `precon-nors` (10-10); `prrs-v2`, `prrsb-v2`, `prrf-v2`, `prn6-rf` (10-11); `prn7-rf` (10-12); `prn8-rs`, `prn8-rf2`, `prn8c-pyparse` (10-13).
+  - FAILED: `pr261b-20261009` and `prrs-20261010`.
+  - `prn8b-pyparse` halted on admission, not on a test.
+- The relayed list does not include the N3 RF-B run or the first #261 run. Both failures are in master's own N3 reports (02:25 and 03:12) and are counted above from there. Master should check whether those logs are stored under other names.
 
 ## 4. Host-only behaviour after cutover C, and what covers it
 
@@ -85,7 +92,7 @@ The pre-gate is not a different suite. It replays the host suite's own statement
 | Git (host 2.45.2; workstation 2.54; runner latest) | Yes | The integration merge itself runs on the host inside `quiet_window_merge.ps1` (a conflict refuses). Master's host-git-2.45 chain sim is unchanged. Tests whose result depends on git semantics are in the residual set (section 5). |
 | S4U logon (session 0, non-interactive window station, no network credentials) | Yes. Neither the pre-gate nor CI reproduces it. | (i) The actual-host S4U smoke is unchanged. (ii) Every night with a roll-sensitive head still runs the full host suite under S4U, on a tip that contains every earlier roll-free landing. That is a standing lagging canary. (iii) No S4U-only failure appears in the evidence. |
 | Host paths (production checkout under the owner profile, worktree roots, MAX_PATH) | Yes | Both suites use the short `C:\pt` basetemp. Path-dependent tests are hermetic. No path failure appears in the evidence. |
-| Defender real-time scanning and exclusions | Yes (per machine) | Shows up as `PermissionError` or timeout flakes, which are false failures, not missed defects. Dropping a host run removes a source of false FAILs. |
+| Defender real-time scanning and exclusions | Yes (per machine) | Usually shows up as `PermissionError` or timeout flakes. These are false failures, not missed defects. Scanning can also widen real file-claim races such as the N3 fanout `O_EXCL` race (§3), but those races are Windows-generic, so the pre-gate and the Windows lane can hit them too. Any red run takes the suite path. |
 | Machine tools and privileges (rclone, pwsh, symlink privilege) | Yes | The workstation skips 62 tests on `48becd401`: 14 symlink-privilege, 15 "outer workstation lease owns mutex" (admission tests), 4 "pwsh is unavailable", 8 opt-in rclone, 12 RE1 fixture-only, 6 DST known-bug, 1 Ctrl+C runner, plus pyinstrument. The Windows lane runs the privilege and admission ones (hosted runners are admin, with no outer lease), which is why requirement 3 is CI **plus** pre-gate, not either alone. The admission tests are also in the residual set. |
 | Capture-host identity (MachineGuid vs `dedicated_capture_execution_host_id`) | Yes | Tests take the identity from fixtures. The admission and hook files that exercise the capture-host branch are in the residual set. |
 | Host load (16 GB, commit ceiling, live capture) | Yes | This affects timing flakes, not correctness. It is a reason to run less on the host. |
