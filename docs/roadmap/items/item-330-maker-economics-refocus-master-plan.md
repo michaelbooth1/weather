@@ -12,6 +12,13 @@ Its superseded bases, in redacted repository copies:
 The amendment of v3.3's oracle-handout section, **accepted by the owner 2026-10-07** (it replaces v3.3 §6.2):
 [v3.4 DRAFT](../maker-replay-v2-shadow-gate-spec-v3.4-DRAFT-2026-10-07.md), with its
 [oracle rulings sheet](../maker-replay-v2-shadow-gate-spec-v3.4-oracle-rulings-2026-10-07.md).
+Proposed for owner signature 2026-10-12 (DRAFTS, not in force; v3.4 is unchanged):
+[erratum 1](../maker-replay-v2-shadow-gate-spec-v3.4-erratum-1-DRAFT-2026-10-12.md) (§2/§5/§8: cover prompt, re-bind
+scope, cut output controls, host isolation, revisions), with the
+[rulings sheet r2](../maker-replay-v2-shadow-gate-spec-v3.4-oracle-rulings-r2-DRAFT-2026-10-12.md), the
+[H-12 cover-note input](../maker-replay-v2-shadow-gate-spec-v3.4-oracle-cover-note-H12-DRAFT-2026-10-12.md) for the
+production agent and the
+[host isolation runbook](../maker-replay-v2-shadow-gate-spec-v3.4-oracle-host-isolation-runbook-DRAFT-2026-10-12.md).
 
 ## September 23 strategy and status
 
