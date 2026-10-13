@@ -1,0 +1,107 @@
+{
+  "schema": "landing_night_plan_v0.1",
+  "night": "2026-10-15",
+  "label": "N10 landing night 2026-10-14 -> 2026-10-15 (production capture host): 88a post-freeze head #177",
+  "status": "DRAFT_SIMULATED_BASE",
+  "master_sha": "7ec97bcce3f773cc801e0382f48da3c1448b8609",
+  "generated_at": "2026-10-13T13:02:44-04:00",
+  "source": "workstation DESKTOP-RFCD2GH, track T2; human summary night-plans/2026-10-15/N10-HEADS.md",
+  "execution_order_note": "one roll-sensitive slot only (pyup section T holds the lease 00:30-02:00)",
+  "prerequisite": "N9 landed (rs-r2 dae4c96da + rf-r2 48becd401, or the rf-alone-r2 f870a759d fallback) and the oc head 051d8aa64; if master differs from master_sha, the head must be the -r2 rebuild on it",
+  "schedule": {
+    "pyup_section_T": "00:30-02:00 holds the shared lease (not part of this plan)",
+    "rs": "bounded suite start <= 02:45, quiet_window_merge.ps1 start <= 03:40, recovery proof, then 88a re-adoption before 04:00",
+    "overflow_drop_order": [
+      "rs (moves to 10-18; nothing else lands this night)"
+    ],
+    "rs_failure_fallback": "none: no RF head tonight; #177 retries on 10-18 ahead of #182"
+  },
+  "master_drift": {
+    "origin_master_at_plan_time": "a994231203010d667e94840576d325794c0683ed",
+    "pregate_base": "7ec97bcce3f773cc801e0382f48da3c1448b8609",
+    "checks": "SIMULATED: origin/master does not yet contain N9; regenerate this file after N9 lands"
+  },
+  "fallback_heads": [],
+  "docs_light_path": [],
+  "not_in_this_plan": "#182 holding #172 (88a capture families; 10-18, alone, with task-registration activation); #118 (owner hold DL 2026-10-02 row 93: not before 10-30 unless traced cadence-independent)",
+  "open_questions": [
+    "D1: accept the 88a re-adoption gap inside UTC panel day 10-15 (recommended) or move #177 to 10-18"
+  ],
+  "priority_order": [
+    "claude/integration-20261015-88a-rs"
+  ],
+  "slots": [
+    {
+      "kind": "rs_guarded_merge",
+      "head": "claude/integration-20261015-88a-rs",
+      "sha": "403c2f1086d72cbc115fa7559d6b7af7abbca77f",
+      "prs": [
+        177,
+        173,
+        152
+      ],
+      "branch_only_members": [],
+      "priority": 1,
+      "exec": 1,
+      "members": {
+        "pr177": "4518a49a1d3fadca9a115254891c5272905b90cb",
+        "pr173 (inside #177)": "96e22678925357d1713b26a5d60a826d9ff90760",
+        "pr152 (inside #177)": "722b34b5501294a8df2e245e0e1bf5149d62e542"
+      },
+      "stacked_on": "built on the SIMULATED post-N9 base 7ec97bcce3f773cc801e0382f48da3c1448b8609 (origin/master a99423120 + N9 rf-r2 48becd401 + oc 051d8aa64); rebuild as -r2 on the real master after N9 lands",
+      "merge_order": [
+        "pr177 (already contains #152 and #173)",
+        "fix: Guards docstring lines (tests only)"
+      ],
+      "integration_resolution": "tests/conftest.py add/add only: master's quarantine hooks stay the registered pytest_configure (test_quarantine_registry checks identity); #177's short-basetemp hook is registered as pytest_configure_short_basetemp with specname='pytest_configure', tryfirst (pytest 9.0.3 / pluggy 1.6 pinned); plus one fix commit adding a module-docstring Guards: line to the 6 new test modules (master hygiene ratchet guards_declaration, which postdates #177)",
+      "expected_roll_class": "ROLL-SENSITIVE",
+      "roll_evidence": "execution_tape_capture.py / _io.py / _store.py (#152, #173) are in capture closures (static prediction l-data/r3/roll-177.json); maker_evidence_store/stream/socket.py roll 88a only (direct task, explicit re-adoption). Workstation roll_verdict.ps1: UNDECIDABLE (no closure files). Get the binding verdict from roll_verdict.ps1 on the host",
+      "journal_pinned_touch": [],
+      "tier_a": "PASS (no C3/tier-A path touched)",
+      "activation_block": "88a (WeatherMakerEvidenceCapture) is a directly registered task, not a supervisor: after quiet_window_merge.ps1 proves the capture workers (incl. the execution tape) recovered, the production operator explicitly re-adopts 88a (stop the running 88a process the documented way, let the existing PT5M task start it on the new code). NEVER run register_maker_evidence_capture.ps1 (writes PT1M over the live PT5M; open owner question). Who: master-agent on the capture host. When: right after RS recovery, before 04:00. Verify: scripts\\ops\\status.ps1 shows 88a CAPTURING with a fresh status.json, and status.json source_sha256 for weather.market.maker_evidence_stream equals the head's blob hash; do not run maker_evidence_disconnects on dates 09-30..10-15",
+      "landing_constraints": [
+        "88a freeze (DL 2026-10-03 row 102, 10-07 row 137) ends after 2026-10-14: this night is the first allowed",
+        "quiet window via quiet_window_merge.ps1; the host lease is held by pyup section T 00:30-02:00, so the bounded suite starts no later than 02:45 and the merge starts no later than 03:40; if either cutoff is missed, drop the head (no other RS head tonight; next merge night 10-18)",
+        "the 88a re-adoption lands inside UTC 10-15, the first day of the desk-study panel (UTC 10-15..10-30, DL row 90): a few minutes of 88a gap around 07:40-08:00Z (decision D1 in the T2 report)",
+        "88a rows written after the merge carry the reader's receipt stamp in captured_at_utc for stream/trade/lifecycle rows (schema version and row shapes unchanged)",
+        "alone on its night (88a heads never share a night); 10-16 and 10-17 are no-merge nights (G5)"
+      ],
+      "qtest": {
+        "log": "q-t2-88a-rs-a399ca4.log + q-t2-88a-rs-403c2f1.log",
+        "result": "a399ca487: 277 passed, 51 subtests passed (15 maker-evidence/execution-tape/quarantine/schema/storage/docs-audit files); 403c2f1 (Guards fix): 122 passed, 11 subtests passed (hygiene ratchet, heavy-queue, the 6 fixed modules, quarantine registry)",
+        "rc": 0
+      },
+      "agent_docs_audit_rc": 0,
+      "known_fix": "landing_preflight correspondence_index --check is stale on master by design (closeout regenerates it); #177 itself only appends to docs/roadmap/correspondence-index/2026-10.md",
+      "reports": [
+        "C:\\wt\\workstation-chat\\l-data\\swarm-m\\T2-88A-report.md",
+        "docs/roadmap/agent-report-2026-10-03-88a-trade-stream-coverage.md (on the head)"
+      ],
+      "pregate": {
+        "path": "C:\\wt\\workstation-chat\\l-data\\t2heads\\pregate\\pg-403c2f1086d7-20261013T120406-163916\\receipt.json",
+        "receipt_sha256": "03db8433fa3d2845a8dd451376615182a9bee6eebb9f6e7ac7657c6aaa64fe1b",
+        "verdict": "PASS",
+        "base": "7ec97bcce3f773cc801e0382f48da3c1448b8609",
+        "base_is_ancestor": true,
+        "log_sha256": "593473dc762e4e1696ba90187e45e91dc1ef2349c7ce0b73dd14edcf1ea7a7d7",
+        "chunks": 22,
+        "chunk_files": 529,
+        "chunk_exit_codes_nonzero": [],
+        "junit_totals": {
+          "tests": 9878,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 62,
+          "passed": 9816
+        },
+        "failed_tests": [],
+        "failure_reasons": [],
+        "started_at": "2026-10-13T12:04:06.4582802-04:00",
+        "finished_at": "2026-10-13T13:01:18.3354310-04:00",
+        "python": "workstation 3.11.9 (host 3.11.0)",
+        "git": "2.54.0.windows.1 (host 2.45.2)"
+      }
+    }
+  ],
+  "plan_sha256": "1e0d69ad75c33253fb0b571f2959c7aefc65cf3cc20f98d11ada6348126c037b"
+}

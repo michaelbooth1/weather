@@ -1,0 +1,1927 @@
+{
+  "schema": "landing_preflight_v0.1",
+  "generated_at": "2026-10-13T17:03:49+00:00",
+  "git_version": "git version 2.54.0.windows.1",
+  "python": "C:/Users/Michael/Documents/github/weather/venv/Scripts/python.exe",
+  "host": "workstation",
+  "elapsed_s": 45.125,
+  "inputs": {
+    "repo": "C:\\Users\\Michael\\Documents\\github\\weather",
+    "base_ref": "7ec97bcce3f773cc801e0382f48da3c1448b8609",
+    "base_sha": "7ec97bcce3f773cc801e0382f48da3c1448b8609",
+    "head_ref": "403c2f1086d72cbc115fa7559d6b7af7abbca77f",
+    "head_sha": "403c2f1086d72cbc115fa7559d6b7af7abbca77f",
+    "earlier": [],
+    "tests_mode": "none",
+    "scratch": "C:\\lpf-t2",
+    "dry_run": false,
+    "plan_source": "C:/wt/t2-np/night-plans/2026-10-15/landing-night-plan-2026-10-15-n10.json",
+    "plan_file_sha256": "d81e27e144935ec77cb81dec25cc8148726d4a856c30273a180c7cceb8128179",
+    "span_base_sha": "7ec97bcce3f773cc801e0382f48da3c1448b8609"
+  },
+  "plan_sha256": "1e0d69ad75c33253fb0b571f2959c7aefc65cf3cc20f98d11ada6348126c037b",
+  "closure_snapshot_sha256": null,
+  "chain": [
+    {
+      "step": 1,
+      "label": "#177+#173+#152",
+      "sha": "403c2f1086d72cbc115fa7559d6b7af7abbca77f",
+      "role": "head",
+      "result": "clean",
+      "conflicts": [],
+      "conflicts_fix_class": {},
+      "pairwise_conflicts": [],
+      "tree": "4ab2f151ea98a4707fc791f40edc11d6bffc25ad",
+      "synthetic_commit": "ca1d1b14add476dee078665862683290e6144730",
+      "prs": [
+        177,
+        173,
+        152
+      ],
+      "known_fix": "landing_preflight correspondence_index --check is stale on master by design (closeout regenerates it); #177 itself only appends to docs/roadmap/correspondence-index/2026-10.md"
+    }
+  ],
+  "landing": {
+    "tree": "4ab2f151ea98a4707fc791f40edc11d6bffc25ad",
+    "commit": "ca1d1b14add476dee078665862683290e6144730",
+    "pre_head_commit": "7ec97bcce3f773cc801e0382f48da3c1448b8609",
+    "changed_files": [
+      {
+        "path": "docs/operations/OPERATIONS_DESIGN.md",
+        "status": "M",
+        "introduced_by": [
+          "#177+#173+#152"
+        ]
+      },
+      {
+        "path": "docs/operations/data-storage-class-contract.md",
+        "status": "M",
+        "introduced_by": [
+          "#177+#173+#152"
+        ]
+      },
+      {
+        "path": "docs/operations/passive-maker-evidence-capture.md",
+        "status": "M",
+        "introduced_by": [
+          "#177+#173+#152"
+        ]
+      },
+      {
+        "path": "docs/roadmap/agent-report-2026-10-03-88a-trade-stream-coverage.md",
+        "status": "A",
+        "introduced_by": [
+          "#177+#173+#152"
+        ]
+      },
+      {
+        "path": "docs/roadmap/agent-report-2026-10-03-trade-stream-coverage-transfer-manifest.json",
+        "status": "A",
+        "introduced_by": [
+          "#177+#173+#152"
+        ]
+      },
+      {
+        "path": "docs/roadmap/agent-report-2026-10-03-trade-stream-coverage.md",
+        "status": "A",
+        "introduced_by": [
+          "#177+#173+#152"
+        ]
+      },
+      {
+        "path": "docs/roadmap/correspondence-index/2026-10.md",
+        "status": "M",
+        "introduced_by": [
+          "#177+#173+#152"
+        ]
+      },
+      {
+        "path": "docs/roadmap/items/item-326-supervised-continuous-public-execution-tape.md",
+        "status": "M",
+        "introduced_by": [
+          "#177+#173+#152"
+        ]
+      },
+      {
+        "path": "src/weather/market/execution_tape_capture.py",
+        "status": "M",
+        "introduced_by": [
+          "#177+#173+#152"
+        ]
+      },
+      {
+        "path": "src/weather/market/execution_tape_disconnects.py",
+        "status": "A",
+        "introduced_by": [
+          "#177+#173+#152"
+        ]
+      },
+      {
+        "path": "src/weather/market/execution_tape_io.py",
+        "status": "M",
+        "introduced_by": [
+          "#177+#173+#152"
+        ]
+      },
+      {
+        "path": "src/weather/market/execution_tape_store.py",
+        "status": "M",
+        "introduced_by": [
+          "#177+#173+#152"
+        ]
+      },
+      {
+        "path": "src/weather/market/maker_evidence_coverage.py",
+        "status": "A",
+        "introduced_by": [
+          "#177+#173+#152"
+        ]
+      },
+      {
+        "path": "src/weather/market/maker_evidence_disconnects.py",
+        "status": "A",
+        "introduced_by": [
+          "#177+#173+#152"
+        ]
+      },
+      {
+        "path": "src/weather/market/maker_evidence_inspect.py",
+        "status": "M",
+        "introduced_by": [
+          "#177+#173+#152"
+        ]
+      },
+      {
+        "path": "src/weather/market/maker_evidence_socket.py",
+        "status": "M",
+        "introduced_by": [
+          "#177+#173+#152"
+        ]
+      },
+      {
+        "path": "src/weather/market/maker_evidence_store.py",
+        "status": "M",
+        "introduced_by": [
+          "#177+#173+#152"
+        ]
+      },
+      {
+        "path": "src/weather/market/maker_evidence_stream.py",
+        "status": "M",
+        "introduced_by": [
+          "#177+#173+#152"
+        ]
+      },
+      {
+        "path": "tests/AGENTS.md",
+        "status": "M",
+        "introduced_by": [
+          "#177+#173+#152"
+        ]
+      },
+      {
+        "path": "tests/conftest.py",
+        "status": "M",
+        "introduced_by": [
+          "#177+#173+#152"
+        ]
+      },
+      {
+        "path": "tests/market/test_execution_tape_disconnects.py",
+        "status": "A",
+        "introduced_by": [
+          "#177+#173+#152"
+        ]
+      },
+      {
+        "path": "tests/market/test_execution_tape_flush_faults.py",
+        "status": "A",
+        "introduced_by": [
+          "#177+#173+#152"
+        ]
+      },
+      {
+        "path": "tests/market/test_execution_tape_stream_coverage.py",
+        "status": "A",
+        "introduced_by": [
+          "#177+#173+#152"
+        ]
+      },
+      {
+        "path": "tests/market/test_execution_tape_write_cadence.py",
+        "status": "M",
+        "introduced_by": [
+          "#177+#173+#152"
+        ]
+      },
+      {
+        "path": "tests/market/test_maker_evidence_capture.py",
+        "status": "M",
+        "introduced_by": [
+          "#177+#173+#152"
+        ]
+      },
+      {
+        "path": "tests/market/test_maker_evidence_disconnects.py",
+        "status": "A",
+        "introduced_by": [
+          "#177+#173+#152"
+        ]
+      },
+      {
+        "path": "tests/market/test_maker_evidence_stream_coverage.py",
+        "status": "A",
+        "introduced_by": [
+          "#177+#173+#152"
+        ]
+      },
+      {
+        "path": "tests/test_short_basetemp.py",
+        "status": "A",
+        "introduced_by": [
+          "#177+#173+#152"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "host_identity": {
+      "status": "PASS",
+      "summary": "not the dedicated capture host",
+      "details": [],
+      "attribution": [],
+      "evidence": {
+        "assignment": "C:\\Users\\Michael\\Documents\\github\\weather\\config\\international_live_execution_host.json"
+      },
+      "command": null,
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.0,
+      "owner": "core"
+    },
+    "git_version": {
+      "status": "PASS",
+      "summary": "git version 2.54.0.windows.1",
+      "details": [],
+      "attribution": [],
+      "evidence": {},
+      "command": null,
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.0,
+      "owner": "core"
+    },
+    "disk_floor": {
+      "status": "PASS",
+      "summary": "122.0 GiB free on C:\\",
+      "details": [],
+      "attribution": [],
+      "evidence": {
+        "free_bytes": 130967179264
+      },
+      "command": null,
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.0,
+      "owner": "core"
+    },
+    "refs": {
+      "status": "PASS",
+      "summary": "base 7ec97bcce3f7 head 403c2f1086d7 earlier 0",
+      "details": [],
+      "attribution": [],
+      "evidence": {
+        "fetch_ok": null,
+        "warnings": []
+      },
+      "command": null,
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.0,
+      "owner": "core"
+    },
+    "already_landed": {
+      "status": "PASS",
+      "summary": "head is not an ancestor of base",
+      "details": [],
+      "attribution": [],
+      "evidence": {},
+      "command": null,
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.0,
+      "owner": "core"
+    },
+    "containment": {
+      "status": "PASS",
+      "summary": "0 containment relation(s)",
+      "details": [],
+      "attribution": [],
+      "evidence": {},
+      "command": null,
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.0,
+      "owner": "core"
+    },
+    "merge_chain": {
+      "status": "PASS",
+      "summary": "1 step(s) clean; landing ca1d1b14add4",
+      "details": [],
+      "attribution": [],
+      "evidence": {
+        "landing_commit": "ca1d1b14add476dee078665862683290e6144730",
+        "landing_tree": "4ab2f151ea98a4707fc791f40edc11d6bffc25ad"
+      },
+      "command": null,
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.0,
+      "owner": "core"
+    },
+    "worktree": {
+      "status": "PASS",
+      "summary": "detached worktree at ca1d1b14add4",
+      "details": [],
+      "attribution": [],
+      "evidence": {
+        "path": "C:\\lpf-t2\\run-20261013T170304Z-78152\\wt"
+      },
+      "command": null,
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.0,
+      "owner": "core"
+    },
+    "import_probe": {
+      "status": "PASS",
+      "summary": "weather and REPO_ROOT resolve inside the scratch worktree",
+      "details": [],
+      "attribution": [],
+      "evidence": {
+        "python": "C:/Users/Michael/Documents/github/weather/venv/Scripts/python.exe",
+        "scrubbed_env_names": [
+          "ANTHROPIC_BASE_URL",
+          "CLAUDE_CODE_MESSAGING_TOKEN",
+          "CLAUDE_CODE_SDK_HAS_HOST_AUTH_REFRESH",
+          "GIT_EDITOR",
+          "PYTHONPATH"
+        ],
+        "weather": "C:\\lpf-t2\\run-20261013T170304Z-78152\\wt\\weather\\__init__.py",
+        "repo_root": "C:\\lpf-t2\\run-20261013T170304Z-78152\\wt"
+      },
+      "command": null,
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.0,
+      "owner": "core"
+    },
+    "roll_class": {
+      "status": "WARN",
+      "summary": "EXPECTED-ROLL-SENSITIVE (binding: false; static_graph_only); 10 importable of 28 changed; sensitive 3; light_path_eligible False",
+      "details": [
+        {
+          "path": "docs/operations/OPERATIONS_DESIGN.md",
+          "status": "M",
+          "importable": false,
+          "module": null,
+          "in_snapshot": false,
+          "static_reached": false,
+          "static_chain_base": null,
+          "static_chain_landing": null,
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": false,
+          "expected": "NOT-IMPORTABLE",
+          "reasons": [
+            "not *.py under src/ or weather/: roll-free by contract"
+          ],
+          "binding": false
+        },
+        {
+          "path": "docs/operations/data-storage-class-contract.md",
+          "status": "M",
+          "importable": false,
+          "module": null,
+          "in_snapshot": false,
+          "static_reached": false,
+          "static_chain_base": null,
+          "static_chain_landing": null,
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": false,
+          "expected": "NOT-IMPORTABLE",
+          "reasons": [
+            "not *.py under src/ or weather/: roll-free by contract"
+          ],
+          "binding": false
+        },
+        {
+          "path": "docs/operations/passive-maker-evidence-capture.md",
+          "status": "M",
+          "importable": false,
+          "module": null,
+          "in_snapshot": false,
+          "static_reached": false,
+          "static_chain_base": null,
+          "static_chain_landing": null,
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": false,
+          "expected": "NOT-IMPORTABLE",
+          "reasons": [
+            "not *.py under src/ or weather/: roll-free by contract"
+          ],
+          "binding": false
+        },
+        {
+          "path": "docs/roadmap/agent-report-2026-10-03-88a-trade-stream-coverage.md",
+          "status": "A",
+          "importable": false,
+          "module": null,
+          "in_snapshot": false,
+          "static_reached": false,
+          "static_chain_base": null,
+          "static_chain_landing": null,
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": false,
+          "expected": "NOT-IMPORTABLE",
+          "reasons": [
+            "not *.py under src/ or weather/: roll-free by contract"
+          ],
+          "binding": false
+        },
+        {
+          "path": "docs/roadmap/agent-report-2026-10-03-trade-stream-coverage-transfer-manifest.json",
+          "status": "A",
+          "importable": false,
+          "module": null,
+          "in_snapshot": false,
+          "static_reached": false,
+          "static_chain_base": null,
+          "static_chain_landing": null,
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": false,
+          "expected": "NOT-IMPORTABLE",
+          "reasons": [
+            "not *.py under src/ or weather/: roll-free by contract"
+          ],
+          "binding": false
+        },
+        {
+          "path": "docs/roadmap/agent-report-2026-10-03-trade-stream-coverage.md",
+          "status": "A",
+          "importable": false,
+          "module": null,
+          "in_snapshot": false,
+          "static_reached": false,
+          "static_chain_base": null,
+          "static_chain_landing": null,
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": false,
+          "expected": "NOT-IMPORTABLE",
+          "reasons": [
+            "not *.py under src/ or weather/: roll-free by contract"
+          ],
+          "binding": false
+        },
+        {
+          "path": "docs/roadmap/correspondence-index/2026-10.md",
+          "status": "M",
+          "importable": false,
+          "module": null,
+          "in_snapshot": false,
+          "static_reached": false,
+          "static_chain_base": null,
+          "static_chain_landing": null,
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": false,
+          "expected": "NOT-IMPORTABLE",
+          "reasons": [
+            "not *.py under src/ or weather/: roll-free by contract"
+          ],
+          "binding": false
+        },
+        {
+          "path": "docs/roadmap/items/item-326-supervised-continuous-public-execution-tape.md",
+          "status": "M",
+          "importable": false,
+          "module": null,
+          "in_snapshot": false,
+          "static_reached": false,
+          "static_chain_base": null,
+          "static_chain_landing": null,
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": false,
+          "expected": "NOT-IMPORTABLE",
+          "reasons": [
+            "not *.py under src/ or weather/: roll-free by contract"
+          ],
+          "binding": false
+        },
+        {
+          "path": "src/weather/market/execution_tape_capture.py",
+          "status": "M",
+          "importable": true,
+          "module": "weather.market.execution_tape_capture",
+          "in_snapshot": false,
+          "static_reached": true,
+          "static_chain_base": [
+            "weather.market.execution_tape_capture"
+          ],
+          "static_chain_landing": [
+            "weather.market.execution_tape_capture"
+          ],
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": true,
+          "expected": "EXPECTED-ROLL-SENSITIVE",
+          "reasons": [
+            "static graph (base): weather.market.execution_tape_capture",
+            "static graph (landing): weather.market.execution_tape_capture"
+          ],
+          "binding": false
+        },
+        {
+          "path": "src/weather/market/execution_tape_disconnects.py",
+          "status": "A",
+          "importable": true,
+          "module": "weather.market.execution_tape_disconnects",
+          "in_snapshot": false,
+          "static_reached": false,
+          "static_chain_base": null,
+          "static_chain_landing": null,
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": true,
+          "expected": "EXPECTED-ROLL-FREE",
+          "reasons": [
+            "not reached from the loop entries (static graph only: no closure snapshot)"
+          ],
+          "binding": false
+        },
+        {
+          "path": "src/weather/market/execution_tape_io.py",
+          "status": "M",
+          "importable": true,
+          "module": "weather.market.execution_tape_io",
+          "in_snapshot": false,
+          "static_reached": true,
+          "static_chain_base": [
+            "weather.market.execution_tape_capture",
+            "weather.market.execution_tape_store",
+            "weather.market.execution_tape_io"
+          ],
+          "static_chain_landing": [
+            "weather.market.execution_tape_capture",
+            "weather.market.execution_tape_store",
+            "weather.market.execution_tape_io"
+          ],
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": true,
+          "expected": "EXPECTED-ROLL-SENSITIVE",
+          "reasons": [
+            "static graph (base): weather.market.execution_tape_capture -> weather.market.execution_tape_store -> weather.market.execution_tape_io",
+            "static graph (landing): weather.market.execution_tape_capture -> weather.market.execution_tape_store -> weather.market.execution_tape_io"
+          ],
+          "binding": false
+        },
+        {
+          "path": "src/weather/market/execution_tape_store.py",
+          "status": "M",
+          "importable": true,
+          "module": "weather.market.execution_tape_store",
+          "in_snapshot": false,
+          "static_reached": true,
+          "static_chain_base": [
+            "weather.market.execution_tape_capture",
+            "weather.market.execution_tape_store"
+          ],
+          "static_chain_landing": [
+            "weather.market.execution_tape_capture",
+            "weather.market.execution_tape_store"
+          ],
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": true,
+          "expected": "EXPECTED-ROLL-SENSITIVE",
+          "reasons": [
+            "static graph (base): weather.market.execution_tape_capture -> weather.market.execution_tape_store",
+            "static graph (landing): weather.market.execution_tape_capture -> weather.market.execution_tape_store"
+          ],
+          "binding": false
+        },
+        {
+          "path": "src/weather/market/maker_evidence_coverage.py",
+          "status": "A",
+          "importable": true,
+          "module": "weather.market.maker_evidence_coverage",
+          "in_snapshot": false,
+          "static_reached": false,
+          "static_chain_base": null,
+          "static_chain_landing": null,
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": true,
+          "expected": "EXPECTED-ROLL-FREE",
+          "reasons": [
+            "not reached from the loop entries (static graph only: no closure snapshot)"
+          ],
+          "binding": false
+        },
+        {
+          "path": "src/weather/market/maker_evidence_disconnects.py",
+          "status": "A",
+          "importable": true,
+          "module": "weather.market.maker_evidence_disconnects",
+          "in_snapshot": false,
+          "static_reached": false,
+          "static_chain_base": null,
+          "static_chain_landing": null,
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": true,
+          "expected": "EXPECTED-ROLL-FREE",
+          "reasons": [
+            "not reached from the loop entries (static graph only: no closure snapshot)"
+          ],
+          "binding": false
+        },
+        {
+          "path": "src/weather/market/maker_evidence_inspect.py",
+          "status": "M",
+          "importable": true,
+          "module": "weather.market.maker_evidence_inspect",
+          "in_snapshot": false,
+          "static_reached": false,
+          "static_chain_base": null,
+          "static_chain_landing": null,
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": true,
+          "expected": "EXPECTED-ROLL-FREE",
+          "reasons": [
+            "not reached from the loop entries (static graph only: no closure snapshot)"
+          ],
+          "binding": false
+        },
+        {
+          "path": "src/weather/market/maker_evidence_socket.py",
+          "status": "M",
+          "importable": true,
+          "module": "weather.market.maker_evidence_socket",
+          "in_snapshot": false,
+          "static_reached": false,
+          "static_chain_base": null,
+          "static_chain_landing": null,
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": true,
+          "expected": "EXPECTED-ROLL-FREE",
+          "reasons": [
+            "not reached from the loop entries (static graph only: no closure snapshot)"
+          ],
+          "binding": false
+        },
+        {
+          "path": "src/weather/market/maker_evidence_store.py",
+          "status": "M",
+          "importable": true,
+          "module": "weather.market.maker_evidence_store",
+          "in_snapshot": false,
+          "static_reached": false,
+          "static_chain_base": null,
+          "static_chain_landing": null,
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": true,
+          "expected": "EXPECTED-ROLL-FREE",
+          "reasons": [
+            "not reached from the loop entries (static graph only: no closure snapshot)"
+          ],
+          "binding": false
+        },
+        {
+          "path": "src/weather/market/maker_evidence_stream.py",
+          "status": "M",
+          "importable": true,
+          "module": "weather.market.maker_evidence_stream",
+          "in_snapshot": false,
+          "static_reached": false,
+          "static_chain_base": null,
+          "static_chain_landing": null,
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": true,
+          "expected": "EXPECTED-ROLL-FREE",
+          "reasons": [
+            "not reached from the loop entries (static graph only: no closure snapshot)"
+          ],
+          "binding": false
+        },
+        {
+          "path": "tests/AGENTS.md",
+          "status": "M",
+          "importable": false,
+          "module": null,
+          "in_snapshot": false,
+          "static_reached": false,
+          "static_chain_base": null,
+          "static_chain_landing": null,
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": false,
+          "expected": "NOT-IMPORTABLE",
+          "reasons": [
+            "not *.py under src/ or weather/: roll-free by contract"
+          ],
+          "binding": false
+        },
+        {
+          "path": "tests/conftest.py",
+          "status": "M",
+          "importable": false,
+          "module": null,
+          "in_snapshot": false,
+          "static_reached": false,
+          "static_chain_base": null,
+          "static_chain_landing": null,
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": false,
+          "expected": "NOT-IMPORTABLE",
+          "reasons": [
+            "not *.py under src/ or weather/: roll-free by contract"
+          ],
+          "binding": false
+        },
+        {
+          "path": "tests/market/test_execution_tape_disconnects.py",
+          "status": "A",
+          "importable": false,
+          "module": null,
+          "in_snapshot": false,
+          "static_reached": false,
+          "static_chain_base": null,
+          "static_chain_landing": null,
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": false,
+          "expected": "NOT-IMPORTABLE",
+          "reasons": [
+            "not *.py under src/ or weather/: roll-free by contract"
+          ],
+          "binding": false
+        },
+        {
+          "path": "tests/market/test_execution_tape_flush_faults.py",
+          "status": "A",
+          "importable": false,
+          "module": null,
+          "in_snapshot": false,
+          "static_reached": false,
+          "static_chain_base": null,
+          "static_chain_landing": null,
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": false,
+          "expected": "NOT-IMPORTABLE",
+          "reasons": [
+            "not *.py under src/ or weather/: roll-free by contract"
+          ],
+          "binding": false
+        },
+        {
+          "path": "tests/market/test_execution_tape_stream_coverage.py",
+          "status": "A",
+          "importable": false,
+          "module": null,
+          "in_snapshot": false,
+          "static_reached": false,
+          "static_chain_base": null,
+          "static_chain_landing": null,
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": false,
+          "expected": "NOT-IMPORTABLE",
+          "reasons": [
+            "not *.py under src/ or weather/: roll-free by contract"
+          ],
+          "binding": false
+        },
+        {
+          "path": "tests/market/test_execution_tape_write_cadence.py",
+          "status": "M",
+          "importable": false,
+          "module": null,
+          "in_snapshot": false,
+          "static_reached": false,
+          "static_chain_base": null,
+          "static_chain_landing": null,
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": false,
+          "expected": "NOT-IMPORTABLE",
+          "reasons": [
+            "not *.py under src/ or weather/: roll-free by contract"
+          ],
+          "binding": false
+        },
+        {
+          "path": "tests/market/test_maker_evidence_capture.py",
+          "status": "M",
+          "importable": false,
+          "module": null,
+          "in_snapshot": false,
+          "static_reached": false,
+          "static_chain_base": null,
+          "static_chain_landing": null,
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": false,
+          "expected": "NOT-IMPORTABLE",
+          "reasons": [
+            "not *.py under src/ or weather/: roll-free by contract"
+          ],
+          "binding": false
+        },
+        {
+          "path": "tests/market/test_maker_evidence_disconnects.py",
+          "status": "A",
+          "importable": false,
+          "module": null,
+          "in_snapshot": false,
+          "static_reached": false,
+          "static_chain_base": null,
+          "static_chain_landing": null,
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": false,
+          "expected": "NOT-IMPORTABLE",
+          "reasons": [
+            "not *.py under src/ or weather/: roll-free by contract"
+          ],
+          "binding": false
+        },
+        {
+          "path": "tests/market/test_maker_evidence_stream_coverage.py",
+          "status": "A",
+          "importable": false,
+          "module": null,
+          "in_snapshot": false,
+          "static_reached": false,
+          "static_chain_base": null,
+          "static_chain_landing": null,
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": false,
+          "expected": "NOT-IMPORTABLE",
+          "reasons": [
+            "not *.py under src/ or weather/: roll-free by contract"
+          ],
+          "binding": false
+        },
+        {
+          "path": "tests/test_short_basetemp.py",
+          "status": "A",
+          "importable": false,
+          "module": null,
+          "in_snapshot": false,
+          "static_reached": false,
+          "static_chain_base": null,
+          "static_chain_landing": null,
+          "deferred_chain_info": null,
+          "schema_family": false,
+          "known_node": false,
+          "expected": "NOT-IMPORTABLE",
+          "reasons": [
+            "not *.py under src/ or weather/: roll-free by contract"
+          ],
+          "binding": false
+        }
+      ],
+      "attribution": [],
+      "evidence": {
+        "expected": "EXPECTED-ROLL-SENSITIVE",
+        "binding": false,
+        "reasons": [
+          "3 importable file(s) expected to roll"
+        ],
+        "changed_count": 28,
+        "importable_count": 10,
+        "sensitive_files": [
+          "src/weather/market/execution_tape_capture.py",
+          "src/weather/market/execution_tape_io.py",
+          "src/weather/market/execution_tape_store.py"
+        ],
+        "basis": "static_graph_only",
+        "snapshot": {
+          "supplied": false,
+          "source": null,
+          "sha256": null,
+          "captured": null,
+          "production_master_sha": null,
+          "file_count": 0,
+          "load_error": null,
+          "age_days": null,
+          "stale": false,
+          "max_age_days": 7
+        },
+        "static_graph": {
+          "entries": [
+            "weather.collection.snapshot_tracker",
+            "weather.market.market_microstructure",
+            "weather.operations.observation_trigger",
+            "weather.market.execution_tape_capture",
+            "weather.operations.execution_tape_supervisor"
+          ],
+          "edge_kinds": [
+            "module"
+          ],
+          "missing_entries": {
+            "pre_head": [],
+            "landing": []
+          },
+          "closure_size": {
+            "pre_head": 95,
+            "landing": 95
+          },
+          "parse_errors": {
+            "pre_head": {},
+            "landing": {}
+          },
+          "complete": true
+        },
+        "schema_additive": {
+          "status": "NOT_APPLICABLE",
+          "family_paths_changed": [],
+          "entries_added": [],
+          "entries_removed_or_changed": [],
+          "changed_identities": [],
+          "exclusions_added": 0,
+          "exclusions_removed": 0,
+          "non_entry_code_changed": [],
+          "parse_errors": {},
+          "reference": "pre_head",
+          "candidate": "landing",
+          "rule": "ADDITIVE iff every reference SchemaSpec entry is literal-identical in the candidate and only new entries appear"
+        },
+        "entry_validation": {
+          "tree": "pre_head",
+          "static_reached": 95,
+          "snapshot_compared": false
+        },
+        "classifier_version": "L-P4 roll-class engine 0.1 (port of the L-R3 classifier)",
+        "changed_basis": "git diff --no-renames <tree before the head step> <landing tree> (roll_verdict's set)",
+        "pre_head_tree": "de0880ad1b9a299753736b3d8c054877a65a8c01",
+        "landing_tree": "4ab2f151ea98a4707fc791f40edc11d6bffc25ad",
+        "execution_tape_entries": [
+          "weather.market.execution_tape_capture",
+          "weather.operations.execution_tape_supervisor"
+        ],
+        "declared": null,
+        "declared_source": null,
+        "declared_matches": null,
+        "light_path_eligible": false,
+        "light_path_basis": {
+          "branch_diff": "pre_head...head",
+          "paths": 28,
+          "first_non_docs": "docs/roadmap/agent-report-2026-10-03-trade-stream-coverage-transfer-manifest.json"
+        },
+        "hold": null,
+        "warnings": [
+          "no --closure-snapshot: static graph only (it misses function-level loop imports)"
+        ],
+        "binding_gate": "Get the verdict from scripts\\ops\\roll_verdict.ps1 -Branch <b>; never derive it by hand (AGENTS.md)"
+      },
+      "command": null,
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.921,
+      "owner": "L-P4"
+    },
+    "landing_path": {
+      "status": "INFO",
+      "summary": "ROLL_SENSITIVE: 01:00-04:00 (quiet window) (binding: false)",
+      "details": [],
+      "attribution": [],
+      "evidence": {
+        "path": "ROLL_SENSITIVE",
+        "expected": "EXPECTED-ROLL-SENSITIVE",
+        "undecidable_as_roll_sensitive": false,
+        "light_path_eligible": false,
+        "window": "01:00-04:00 (quiet window)",
+        "tool": "scripts/ops/quiet_window_merge.ps1",
+        "quotes": [
+          "Roll-sensitive branches merge in the 01:00-04:00 quiet window via scripts/ops/quiet_window_merge.ps1 (AGENTS.md)"
+        ],
+        "hold_quotes": [],
+        "declared": null,
+        "binding": false,
+        "binding_gate": "Get the verdict from scripts\\ops\\roll_verdict.ps1 -Branch <b>; never derive it by hand (AGENTS.md)"
+      },
+      "command": null,
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.0,
+      "owner": "L-P4"
+    },
+    "diff_check": {
+      "status": "PASS",
+      "summary": "git diff --check clean over the span and 1 step(s)",
+      "details": [],
+      "attribution": [],
+      "evidence": {
+        "span": {
+          "span_base": "7ec97bcce3f773cc801e0382f48da3c1448b8609",
+          "span_base_tree": "de0880ad1b9a299753736b3d8c054877a65a8c01",
+          "base_tree": "de0880ad1b9a299753736b3d8c054877a65a8c01",
+          "landing_tree": "4ab2f151ea98a4707fc791f40edc11d6bffc25ad",
+          "hits": 0
+        },
+        "per_step_hits": {
+          "#177+#173+#152": 0
+        },
+        "transient_step_hits": [],
+        "note": "this gate covers base..landing; production's documentation transaction checks first_integration..HEAD, so this is a superset only while base is the night's first-integration base. Re-running mid-night against an advanced origin/master, pass --span-base <that base>."
+      },
+      "command": [
+        "git",
+        "diff",
+        "--check",
+        "de0880ad1b9a299753736b3d8c054877a65a8c01",
+        "4ab2f151ea98a4707fc791f40edc11d6bffc25ad"
+      ],
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.047,
+      "owner": "L-P2"
+    },
+    "schema_additive": {
+      "status": "INFO",
+      "summary": "no schema_registry* change",
+      "details": [],
+      "attribution": [],
+      "evidence": {
+        "applicable": false
+      },
+      "command": null,
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.0,
+      "owner": "L-P2"
+    },
+    "docs_transaction": {
+      "status": "INFO",
+      "summary": "4 required document(s) as of the final planned tip #177+#173+#152",
+      "details": [],
+      "attribution": [],
+      "evidence": {
+        "required_from": "src/weather/operations/documentation_transaction.py",
+        "final_tip": "#177+#173+#152",
+        "final_tree": "4ab2f151ea98a4707fc791f40edc11d6bffc25ad",
+        "later_slots": [],
+        "documents": [
+          {
+            "path": "docs/operations/ESTABLISHED_FINDINGS.md",
+            "required_review": true,
+            "required_disposition": false,
+            "base_oid": "f85693d31fdf651e98a6ebd7616523ed1265c3a7",
+            "landing_oid": "f85693d31fdf651e98a6ebd7616523ed1265c3a7",
+            "final_tip_oid": "f85693d31fdf651e98a6ebd7616523ed1265c3a7",
+            "touched_by": [],
+            "stale_if_bound_at_this_head": false
+          },
+          {
+            "path": "docs/operations/RETRACTED_AND_FALSE_LEADS.md",
+            "required_review": true,
+            "required_disposition": false,
+            "base_oid": "a01d7423ce70c2af29fc0d46e995b68e09283f50",
+            "landing_oid": "a01d7423ce70c2af29fc0d46e995b68e09283f50",
+            "final_tip_oid": "a01d7423ce70c2af29fc0d46e995b68e09283f50",
+            "touched_by": [],
+            "stale_if_bound_at_this_head": false
+          },
+          {
+            "path": "docs/operations/STATE_OF_PLAY.md",
+            "required_review": true,
+            "required_disposition": true,
+            "base_oid": "ac4dd5b77bb17c1f8360e648727acbc2dd569bbb",
+            "landing_oid": "ac4dd5b77bb17c1f8360e648727acbc2dd569bbb",
+            "final_tip_oid": "ac4dd5b77bb17c1f8360e648727acbc2dd569bbb",
+            "touched_by": [],
+            "stale_if_bound_at_this_head": false
+          },
+          {
+            "path": "docs/roadmap/active-backlog.md",
+            "required_review": true,
+            "required_disposition": true,
+            "base_oid": "179a1a32cf7236dbe665aca1a671dd768bfd35a9",
+            "landing_oid": "179a1a32cf7236dbe665aca1a671dd768bfd35a9",
+            "final_tip_oid": "179a1a32cf7236dbe665aca1a671dd768bfd35a9",
+            "touched_by": [],
+            "stale_if_bound_at_this_head": false
+          }
+        ],
+        "rule": "bind documents_unchanged blob_oid to final_tip_oid (the night's final integration), never to an intermediate tip; STATE_OF_PLAY and active-backlog need an update or a bound review after the last integration"
+      },
+      "command": null,
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.25,
+      "owner": "L-P2"
+    },
+    "whitespace_only": {
+      "status": "INFO",
+      "summary": "false: added docs/roadmap/agent-report-2026-10-03-88a-trade-stream-coverage.md (+40 more)",
+      "details": [
+        {
+          "reason": "added",
+          "path": "docs/roadmap/agent-report-2026-10-03-88a-trade-stream-coverage.md"
+        },
+        {
+          "reason": "added",
+          "path": "docs/roadmap/agent-report-2026-10-03-trade-stream-coverage-transfer-manifest.json"
+        },
+        {
+          "reason": "added",
+          "path": "docs/roadmap/agent-report-2026-10-03-trade-stream-coverage.md"
+        },
+        {
+          "reason": "added",
+          "path": "src/weather/market/execution_tape_disconnects.py"
+        },
+        {
+          "reason": "added",
+          "path": "src/weather/market/maker_evidence_coverage.py"
+        },
+        {
+          "reason": "added",
+          "path": "src/weather/market/maker_evidence_disconnects.py"
+        },
+        {
+          "reason": "added",
+          "path": "tests/market/test_execution_tape_disconnects.py"
+        },
+        {
+          "reason": "added",
+          "path": "tests/market/test_execution_tape_flush_faults.py"
+        },
+        {
+          "reason": "added",
+          "path": "tests/market/test_execution_tape_stream_coverage.py"
+        },
+        {
+          "reason": "added",
+          "path": "tests/market/test_maker_evidence_disconnects.py"
+        },
+        {
+          "reason": "added",
+          "path": "tests/market/test_maker_evidence_stream_coverage.py"
+        },
+        {
+          "reason": "added",
+          "path": "tests/test_short_basetemp.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "docs/operations/OPERATIONS_DESIGN.md"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "docs/operations/data-storage-class-contract.md"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "docs/operations/passive-maker-evidence-capture.md"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "docs/roadmap/agent-report-2026-10-03-88a-trade-stream-coverage.md"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "docs/roadmap/agent-report-2026-10-03-trade-stream-coverage-transfer-manifest.json"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "docs/roadmap/agent-report-2026-10-03-trade-stream-coverage.md"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "docs/roadmap/correspondence-index/2026-10.md"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "docs/roadmap/items/item-326-supervised-continuous-public-execution-tape.md"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "src/weather/market/execution_tape_capture.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "src/weather/market/execution_tape_disconnects.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "src/weather/market/execution_tape_io.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "src/weather/market/execution_tape_store.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "src/weather/market/maker_evidence_coverage.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "src/weather/market/maker_evidence_disconnects.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "src/weather/market/maker_evidence_inspect.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "src/weather/market/maker_evidence_socket.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "src/weather/market/maker_evidence_store.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "src/weather/market/maker_evidence_stream.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "tests/AGENTS.md"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "tests/conftest.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "tests/market/test_execution_tape_disconnects.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "tests/market/test_execution_tape_flush_faults.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "tests/market/test_execution_tape_stream_coverage.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "tests/market/test_execution_tape_write_cadence.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "tests/market/test_maker_evidence_capture.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "tests/market/test_maker_evidence_disconnects.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "tests/market/test_maker_evidence_stream_coverage.py"
+        },
+        {
+          "reason": "non_whitespace_change",
+          "path": "tests/test_short_basetemp.py"
+        },
+        {
+          "reason": "roll_class_expected-roll-sensitive",
+          "path": ""
+        }
+      ],
+      "attribution": [],
+      "evidence": {
+        "whitespace_only": false,
+        "definition": "git diff --ignore-space-at-eol --ignore-blank-lines empty; diff --check clean; no add/delete/rename/copy/type/mode change; no binary or LFS path; EXPECTED-ROLL-FREE",
+        "flags": [
+          "--ignore-space-at-eol",
+          "--ignore-blank-lines"
+        ],
+        "file_count": 28,
+        "lines_added": 3450,
+        "lines_deleted": 143,
+        "first_disqualifier": {
+          "reason": "added",
+          "path": "docs/roadmap/agent-report-2026-10-03-88a-trade-stream-coverage.md"
+        },
+        "disqualifiers": [
+          {
+            "reason": "added",
+            "path": "docs/roadmap/agent-report-2026-10-03-88a-trade-stream-coverage.md"
+          },
+          {
+            "reason": "added",
+            "path": "docs/roadmap/agent-report-2026-10-03-trade-stream-coverage-transfer-manifest.json"
+          },
+          {
+            "reason": "added",
+            "path": "docs/roadmap/agent-report-2026-10-03-trade-stream-coverage.md"
+          },
+          {
+            "reason": "added",
+            "path": "src/weather/market/execution_tape_disconnects.py"
+          },
+          {
+            "reason": "added",
+            "path": "src/weather/market/maker_evidence_coverage.py"
+          },
+          {
+            "reason": "added",
+            "path": "src/weather/market/maker_evidence_disconnects.py"
+          },
+          {
+            "reason": "added",
+            "path": "tests/market/test_execution_tape_disconnects.py"
+          },
+          {
+            "reason": "added",
+            "path": "tests/market/test_execution_tape_flush_faults.py"
+          },
+          {
+            "reason": "added",
+            "path": "tests/market/test_execution_tape_stream_coverage.py"
+          },
+          {
+            "reason": "added",
+            "path": "tests/market/test_maker_evidence_disconnects.py"
+          },
+          {
+            "reason": "added",
+            "path": "tests/market/test_maker_evidence_stream_coverage.py"
+          },
+          {
+            "reason": "added",
+            "path": "tests/test_short_basetemp.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "docs/operations/OPERATIONS_DESIGN.md"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "docs/operations/data-storage-class-contract.md"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "docs/operations/passive-maker-evidence-capture.md"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "docs/roadmap/agent-report-2026-10-03-88a-trade-stream-coverage.md"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "docs/roadmap/agent-report-2026-10-03-trade-stream-coverage-transfer-manifest.json"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "docs/roadmap/agent-report-2026-10-03-trade-stream-coverage.md"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "docs/roadmap/correspondence-index/2026-10.md"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "docs/roadmap/items/item-326-supervised-continuous-public-execution-tape.md"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "src/weather/market/execution_tape_capture.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "src/weather/market/execution_tape_disconnects.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "src/weather/market/execution_tape_io.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "src/weather/market/execution_tape_store.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "src/weather/market/maker_evidence_coverage.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "src/weather/market/maker_evidence_disconnects.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "src/weather/market/maker_evidence_inspect.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "src/weather/market/maker_evidence_socket.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "src/weather/market/maker_evidence_store.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "src/weather/market/maker_evidence_stream.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "tests/AGENTS.md"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "tests/conftest.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "tests/market/test_execution_tape_disconnects.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "tests/market/test_execution_tape_flush_faults.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "tests/market/test_execution_tape_stream_coverage.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "tests/market/test_execution_tape_write_cadence.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "tests/market/test_maker_evidence_capture.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "tests/market/test_maker_evidence_disconnects.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "tests/market/test_maker_evidence_stream_coverage.py"
+          },
+          {
+            "reason": "non_whitespace_change",
+            "path": "tests/test_short_basetemp.py"
+          },
+          {
+            "reason": "roll_class_expected-roll-sensitive",
+            "path": ""
+          }
+        ],
+        "indentation_only_paths": [],
+        "roll_class_expected": "EXPECTED-ROLL-SENSITIVE",
+        "per_file": [
+          {
+            "path": "docs/operations/OPERATIONS_DESIGN.md",
+            "added": 13,
+            "deleted": 0
+          },
+          {
+            "path": "docs/operations/data-storage-class-contract.md",
+            "added": 15,
+            "deleted": 7
+          },
+          {
+            "path": "docs/operations/passive-maker-evidence-capture.md",
+            "added": 61,
+            "deleted": 2
+          },
+          {
+            "path": "docs/roadmap/agent-report-2026-10-03-88a-trade-stream-coverage.md",
+            "added": 141,
+            "deleted": 0
+          },
+          {
+            "path": "docs/roadmap/agent-report-2026-10-03-trade-stream-coverage-transfer-manifest.json",
+            "added": 51,
+            "deleted": 0
+          },
+          {
+            "path": "docs/roadmap/agent-report-2026-10-03-trade-stream-coverage.md",
+            "added": 154,
+            "deleted": 0
+          },
+          {
+            "path": "docs/roadmap/correspondence-index/2026-10.md",
+            "added": 2,
+            "deleted": 0
+          },
+          {
+            "path": "docs/roadmap/items/item-326-supervised-continuous-public-execution-tape.md",
+            "added": 6,
+            "deleted": 0
+          },
+          {
+            "path": "src/weather/market/execution_tape_capture.py",
+            "added": 208,
+            "deleted": 29
+          },
+          {
+            "path": "src/weather/market/execution_tape_disconnects.py",
+            "added": 296,
+            "deleted": 0
+          },
+          {
+            "path": "src/weather/market/execution_tape_io.py",
+            "added": 87,
+            "deleted": 18
+          },
+          {
+            "path": "src/weather/market/execution_tape_store.py",
+            "added": 2,
+            "deleted": 2
+          },
+          {
+            "path": "src/weather/market/maker_evidence_coverage.py",
+            "added": 208,
+            "deleted": 0
+          },
+          {
+            "path": "src/weather/market/maker_evidence_disconnects.py",
+            "added": 276,
+            "deleted": 0
+          },
+          {
+            "path": "src/weather/market/maker_evidence_inspect.py",
+            "added": 6,
+            "deleted": 3
+          },
+          {
+            "path": "src/weather/market/maker_evidence_socket.py",
+            "added": 29,
+            "deleted": 6
+          },
+          {
+            "path": "src/weather/market/maker_evidence_store.py",
+            "added": 10,
+            "deleted": 4
+          },
+          {
+            "path": "src/weather/market/maker_evidence_stream.py",
+            "added": 288,
+            "deleted": 69
+          },
+          {
+            "path": "tests/AGENTS.md",
+            "added": 3,
+            "deleted": 0
+          },
+          {
+            "path": "tests/conftest.py",
+            "added": 79,
+            "deleted": 0
+          },
+          {
+            "path": "tests/market/test_execution_tape_disconnects.py",
+            "added": 136,
+            "deleted": 0
+          },
+          {
+            "path": "tests/market/test_execution_tape_flush_faults.py",
+            "added": 187,
+            "deleted": 0
+          },
+          {
+            "path": "tests/market/test_execution_tape_stream_coverage.py",
+            "added": 432,
+            "deleted": 0
+          },
+          {
+            "path": "tests/market/test_execution_tape_write_cadence.py",
+            "added": 4,
+            "deleted": 3
+          },
+          {
+            "path": "tests/market/test_maker_evidence_capture.py",
+            "added": 9,
+            "deleted": 0
+          },
+          {
+            "path": "tests/market/test_maker_evidence_disconnects.py",
+            "added": 198,
+            "deleted": 0
+          },
+          {
+            "path": "tests/market/test_maker_evidence_stream_coverage.py",
+            "added": 517,
+            "deleted": 0
+          },
+          {
+            "path": "tests/test_short_basetemp.py",
+            "added": 32,
+            "deleted": 0
+          }
+        ],
+        "grants": "nothing until the owner adopts M13"
+      },
+      "command": [
+        "git",
+        "diff",
+        "--name-only",
+        "--ignore-space-at-eol",
+        "--ignore-blank-lines",
+        "de0880ad1b9a299753736b3d8c054877a65a8c01",
+        "4ab2f151ea98a4707fc791f40edc11d6bffc25ad"
+      ],
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.125,
+      "owner": "L-P2"
+    },
+    "agent_docs_audit": {
+      "status": "PASS",
+      "summary": "agent docs audit clean on the landing tree",
+      "details": [],
+      "attribution": [],
+      "evidence": {},
+      "command": [
+        "C:/Users/Michael/Documents/github/weather/venv/Scripts/python.exe",
+        "-m",
+        "weather.operations.agent_docs_audit",
+        "--repo-root",
+        "C:\\lpf-t2\\run-20261013T170304Z-78152\\wt"
+      ],
+      "exit_code": 0,
+      "output_tail": "Agent docs audit: PASS (18 agent files, 1187 Markdown files)\n",
+      "duration_s": 17.797,
+      "owner": "L-P2"
+    },
+    "correspondence_index": {
+      "status": "FAIL",
+      "summary": "exit 1: docs/roadmap/correspondence-index.md: stale or missing; run python -m weather.reporting.roadmap.correspondence_index",
+      "details": [
+        "docs/roadmap/correspondence-index.md: stale or missing; run python -m weather.reporting.roadmap.correspondence_index",
+        "docs/roadmap/correspondence-index/2026-09.md: stale or missing; run python -m weather.reporting.roadmap.correspondence_index"
+      ],
+      "attribution": [],
+      "evidence": {},
+      "command": [
+        "C:/Users/Michael/Documents/github/weather/venv/Scripts/python.exe",
+        "-m",
+        "weather.reporting.roadmap.correspondence_index",
+        "--repo-root",
+        "C:\\lpf-t2\\run-20261013T170304Z-78152\\wt",
+        "--check"
+      ],
+      "exit_code": 1,
+      "output_tail": "docs/roadmap/correspondence-index.md: stale or missing; run python -m weather.reporting.roadmap.correspondence_index\ndocs/roadmap/correspondence-index/2026-09.md: stale or missing; run python -m weather.reporting.roadmap.correspondence_index\n",
+      "duration_s": 0.562,
+      "owner": "L-P2"
+    },
+    "roadmap_backlog": {
+      "status": "PASS",
+      "summary": "roadmap backlog lint OK and generated report current",
+      "details": [],
+      "attribution": [],
+      "evidence": {},
+      "command": [
+        "C:/Users/Michael/Documents/github/weather/venv/Scripts/python.exe",
+        "-m",
+        "weather.reporting.roadmap.roadmap_backlog",
+        "--roadmap-root",
+        "C:\\lpf-t2\\run-20261013T170304Z-78152\\wt\\docs\\roadmap",
+        "--report-out",
+        "C:\\lpf-t2\\run-20261013T170304Z-78152\\wt\\docs\\roadmap\\active-backlog.md",
+        "--json-out",
+        "C:\\lpf-t2\\run-20261013T170304Z-78152\\roadmap_backlog.json",
+        "--fail-on-lint",
+        "--check"
+      ],
+      "exit_code": 0,
+      "output_tail": "Roadmap backlog: OK (generated report matches sources)\n",
+      "duration_s": 0.172,
+      "owner": "L-P2"
+    },
+    "schema_registry": {
+      "status": "PASS",
+      "summary": "unregistered_versions == [] (644 registered)",
+      "details": [],
+      "attribution": [],
+      "evidence": {
+        "registered_count": 644,
+        "discovered_literal_count": 1025,
+        "unregistered_version_count": 0,
+        "excluded_version_count": 14,
+        "unregistered_versions": [],
+        "schema_additive": null
+      },
+      "command": [
+        "C:/Users/Michael/Documents/github/weather/venv/Scripts/python.exe",
+        "-m",
+        "weather.schema_registry",
+        "audit",
+        "--out",
+        "C:\\lpf-t2\\run-20261013T170304Z-78152\\schema_registry_audit.json"
+      ],
+      "exit_code": 0,
+      "output_tail": "",
+      "duration_s": 0.281,
+      "owner": "L-P2"
+    },
+    "shard_coverage": {
+      "status": "PASS",
+      "summary": "95 shard file(s) exist; no unsharded spawning test changed",
+      "details": [],
+      "attribution": [],
+      "evidence": {
+        "listed": 95,
+        "missing": [],
+        "changed_test_modules": [
+          "tests/market/test_execution_tape_disconnects.py",
+          "tests/market/test_execution_tape_flush_faults.py",
+          "tests/market/test_execution_tape_stream_coverage.py",
+          "tests/market/test_execution_tape_write_cadence.py",
+          "tests/market/test_maker_evidence_capture.py",
+          "tests/market/test_maker_evidence_disconnects.py",
+          "tests/market/test_maker_evidence_stream_coverage.py",
+          "tests/test_short_basetemp.py"
+        ],
+        "spawning_rule": "hygiene_ratchet",
+        "unsharded_spawning": [],
+        "post_209": true
+      },
+      "command": null,
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.125,
+      "owner": "L-P2"
+    },
+    "ps1_param_defaults": {
+      "status": "PASS",
+      "summary": "no changed advanced script reads its location in param() (0 pre-existing)",
+      "details": [],
+      "attribution": [],
+      "evidence": {
+        "offenders": [],
+        "touched_offenders": [],
+        "post_222": true
+      },
+      "command": null,
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.11,
+      "owner": "L-P2"
+    },
+    "ratchets": {
+      "status": "PASS",
+      "summary": "87 test(s) passed [union of ci.yml -m ratchet lists (base, pre_head, landing) and the static list, direct]",
+      "details": [],
+      "attribution": [],
+      "evidence": {
+        "source": "union of ci.yml -m ratchet lists (base, pre_head, landing) and the static list",
+        "files": [
+          "tests/app/test_app_architecture.py",
+          "tests/operations/test_ci_ratchet_selection.py",
+          "tests/operations/test_cold_recovery_host_guard.py",
+          "tests/operations/test_config_inventory.py",
+          "tests/operations/test_dependency_pins.py",
+          "tests/operations/test_host_task_wrappers.py",
+          "tests/operations/test_knowledge_structure_audit.py",
+          "tests/operations/test_module_size_audit.py",
+          "tests/operations/test_no_tracked_credentials.py",
+          "tests/operations/test_operating_reference.py",
+          "tests/operations/test_path_policy.py",
+          "tests/operations/test_python_runtime_audit.py",
+          "tests/operations/test_release_import_boundary.py",
+          "tests/operations/test_research_harness.py",
+          "tests/operations/test_runtime_utilities.py",
+          "tests/operations/test_schema_registry.py",
+          "tests/operations/test_structure_inventory.py",
+          "tests/operations/test_wu_token_repository_scan.py",
+          "tests/test_hygiene_ratchet.py",
+          "tests/test_quarantine_registry.py"
+        ],
+        "deferred_to_windows_scripts": [
+          "tests/market/test_wallet_reader.py",
+          "tests/operations/test_agent_docs_audit.py",
+          "tests/operations/test_import_architecture.py",
+          "tests/operations/test_memory_commit_guard_script.py",
+          "tests/operations/test_ops_script_ratchets.py",
+          "tests/operations/test_workload_admission_script.py"
+        ],
+        "serial_reasons": {
+          "tests/market/test_wallet_reader.py": "test_wallet_reader.py starts PowerShell (serial until the marker exists)",
+          "tests/operations/test_agent_docs_audit.py": "test_agent_docs_audit.py starts PowerShell (serial until the marker exists)",
+          "tests/operations/test_import_architecture.py": "test_import_architecture.py starts PowerShell (serial until the marker exists)",
+          "tests/operations/test_memory_commit_guard_script.py": "test_memory_commit_guard_script.py starts PowerShell (serial until the marker exists)",
+          "tests/operations/test_ops_script_ratchets.py": "test_ops_script_ratchets.py starts PowerShell (serial until the marker exists)",
+          "tests/operations/test_workload_admission_script.py": "test_workload_admission_script.py starts PowerShell (serial until the marker exists)"
+        },
+        "classifier": "landing_hook",
+        "warnings": [],
+        "route": "direct",
+        "route_reason": "focused run of 20 non-serial file(s)",
+        "junit": {
+          "present": true,
+          "tests": 87,
+          "skipped": 0
+        }
+      },
+      "command": [
+        "C:/Users/Michael/Documents/github/weather/venv/Scripts/python.exe",
+        "-m",
+        "pytest",
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "-o",
+        "junit_family=xunit1",
+        "--junitxml=C:\\lpf-t2\\run-20261013T170304Z-78152\\junit-ratchets.xml",
+        "--basetemp=C:\\lpf\\78152\\ratchets",
+        "-m",
+        "ratchet",
+        "tests/app/test_app_architecture.py",
+        "tests/operations/test_ci_ratchet_selection.py",
+        "tests/operations/test_cold_recovery_host_guard.py",
+        "tests/operations/test_config_inventory.py",
+        "tests/operations/test_dependency_pins.py",
+        "tests/operations/test_host_task_wrappers.py",
+        "tests/operations/test_knowledge_structure_audit.py",
+        "tests/operations/test_module_size_audit.py",
+        "tests/operations/test_no_tracked_credentials.py",
+        "tests/operations/test_operating_reference.py",
+        "tests/operations/test_path_policy.py",
+        "tests/operations/test_python_runtime_audit.py",
+        "tests/operations/test_release_import_boundary.py",
+        "tests/operations/test_research_harness.py",
+        "tests/operations/test_runtime_utilities.py",
+        "tests/operations/test_schema_registry.py",
+        "tests/operations/test_structure_inventory.py",
+        "tests/operations/test_wu_token_repository_scan.py",
+        "tests/test_hygiene_ratchet.py",
+        "tests/test_quarantine_registry.py"
+      ],
+      "exit_code": 0,
+      "output_tail": "........................................................................ [ 82%]\n...............                                                          [100%]\n87 passed, 92 deselected in 21.39s\n",
+      "duration_s": 22.39,
+      "owner": "L-P3"
+    },
+    "tests": {
+      "status": "SKIP",
+      "summary": "--tests none: no test ran (the verdict is PASS_NO_TESTS at best, exit 4)",
+      "details": [],
+      "attribution": [],
+      "evidence": {},
+      "command": null,
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.0,
+      "owner": "L-P3"
+    },
+    "windows_scripts": {
+      "status": "SKIP",
+      "summary": "--tests none: no test ran (the verdict is PASS_NO_TESTS at best, exit 4)",
+      "details": [],
+      "attribution": [],
+      "evidence": {},
+      "command": null,
+      "exit_code": null,
+      "output_tail": "",
+      "duration_s": 0.0,
+      "owner": "L-P3"
+    }
+  },
+  "verdict": {
+    "status": "FAIL",
+    "exit_code": 1,
+    "failing_checks": [
+      "correspondence_index"
+    ],
+    "warnings": [
+      "roll_class"
+    ],
+    "tests_run": false,
+    "binding": false,
+    "binding_gates": "scripts\\ops\\roll_verdict.ps1 -Branch <b>, scripts\\ops\\quiet_window_merge.ps1 and the integration attempt receipts (docs/operations/INTEGRATION_ATTEMPT_RUNBOOK.md) bind; this verdict does not",
+    "valid_while": "origin/master == 7ec97bcce3f773cc801e0382f48da3c1448b8609 and the plan's earlier SHAs land unchanged"
+  },
+  "cleanup": {
+    "kept": false,
+    "scratch_removed": true,
+    "worktree_pruned": true
+  },
+  "receipt": {
+    "out_path": "C:\\wt\\t2-np\\night-plans\\2026-10-15\\preflight-n10-88a-rs.json",
+    "sha256": "e01119c63eae43ecdb8be7ecc0d083c7f9aa0daf7497c3b3905af223da66283d",
+    "handback_line": "landing_preflight FAIL tests=none(skipped) binding=false sha256=e01119c63eae43ecdb8be7ecc0d083c7f9aa0daf7497c3b3905af223da66283d head=403c2f1086d72cbc115fa7559d6b7af7abbca77f earlier=[] base=7ec97bcce3f773cc801e0382f48da3c1448b8609 plan=1e0d69ad75c33253fb0b571f2959c7aefc65cf3cc20f98d11ada6348126c037b landing=ca1d1b14add476dee078665862683290e6144730 git=git version 2.54.0.windows.1"
+  }
+}
