@@ -43,11 +43,13 @@ $R0  = 'C:\pyup\cp3119'
 $Src = '<host path of night-plans\2026-10-14\pyup-phase-a2\constants.json>'
 $Cur = Join-Path $R0 'constants.json'; $Arc = Join-Path $R0 'constants-installer-20261013.json'
 function Sha0($f){ (Get-FileHash -LiteralPath $f -Algorithm SHA256).Hash.ToUpper() }
-if ((Sha0 $Src) -ne '1CDE074347CDD81405EB5694EBB4B1A34D98712B8F2EC1C9EE8A86E807205A6F') { throw 'staged constants.json is not the reviewed file' }
+# A git checkout with core.autocrlf=true turns the staged file's final LF into CRLF; both are accepted, and $Cur is
+# always written as the reviewed LF bytes.
+if ((Sha0 $Src) -notin '1CDE074347CDD81405EB5694EBB4B1A34D98712B8F2EC1C9EE8A86E807205A6F','B488F176A6DAA79F8D8AD345394112ED04DA1AE819718F8A21C48CEEB5606618') { throw 'staged constants.json is not the reviewed file' }
 if (Test-Path -LiteralPath $Cur) { $c = Sha0 $Cur
   if ($c -eq 'D498DBB3FAAF36196847C271EDA3640A457276ACFB9EDE3218CECA83ECF19EEF') { if (Test-Path -LiteralPath $Arc) { throw 'archive name exists; inspect' }; Move-Item -LiteralPath $Cur $Arc }
   elseif ($c -ne '1CDE074347CDD81405EB5694EBB4B1A34D98712B8F2EC1C9EE8A86E807205A6F') { throw "unexpected constants.json $c; inspect" } }
-if (-not (Test-Path -LiteralPath $Cur)) { Copy-Item -LiteralPath $Src $Cur }
+if (-not (Test-Path -LiteralPath $Cur)) { [IO.File]::WriteAllText($Cur, ([IO.File]::ReadAllText($Src).TrimEnd("`r", "`n") + "`n"), (New-Object Text.UTF8Encoding $false)) }
 if ((Sha0 $Cur) -ne '1CDE074347CDD81405EB5694EBB4B1A34D98712B8F2EC1C9EE8A86E807205A6F') { throw 'constants.json copy' }
 ```
 
