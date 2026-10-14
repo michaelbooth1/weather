@@ -1117,3 +1117,11 @@ def test_live_refuses_a_linked_scope_before_the_root(tmp_path, monkeypatch):
     monkeypatch.setattr(lfc_cli, 'pilot_root', lambda: (_ for _ in ()).throw(AssertionError('reached the root')))
     with pytest.raises(ValueError, match='^condition_file_not_regular$'):
         lfc_cli.run_live(parser().parse_args(['live', *argv]))
+
+
+@pytest.mark.parametrize('name', ['shadow_scope_20261015_20261332.json', 'shadow_scope_20261015_2026-02-30.json',
+                                  'shadow_scope_20261399.json'])
+def test_a_date_shaped_run_in_the_name_that_is_no_date_refuses(tmp_path, name):
+    # Review S7: not skipped; unreadable, like a bad "date" field, even beside a valid session date.
+    with pytest.raises(ValueError, match='^shadow_scope_date_unreadable$'):
+        lfc_cli.shadow_scope_date_refusal(_scope_file(tmp_path, name), S0_SESSION)

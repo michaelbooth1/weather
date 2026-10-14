@@ -441,7 +441,8 @@ def shadow_scope_dates(path, raw=None):
         try:
             dates.add(datetime.strptime(''.join(match.groups()), '%Y%m%d').date())
         except ValueError:
-            continue
+            # Review S7: a date-shaped run that is no date refuses, as an unparseable "date" field does.
+            raise ValueError('shadow_scope_date_unreadable') from None
     return dates
 
 
