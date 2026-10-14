@@ -1,3 +1,8 @@
+"""NBM NBH/NBS station-block bulletin parser over committed excerpt fixtures.
+
+Guards: owner decision 2026-10-02 (item 2) NBH/NBS capture-only contract,
+item 75 section "2026-10-02 NBM NBH/NBS Station-Block Capture (Capture Only)".
+"""
 from datetime import datetime, timezone
 from pathlib import Path
 

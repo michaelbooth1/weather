@@ -1,3 +1,8 @@
+"""NBM NBH/NBS station-block text capture writer; fictional fixtures only, no outcomes.
+
+Guards: owner decision 2026-10-02 (item 2) NBH/NBS capture-only contract,
+item 75 section "2026-10-02 NBM NBH/NBS Station-Block Capture (Capture Only)".
+"""
 import gzip
 import json
 from datetime import datetime, timezone
