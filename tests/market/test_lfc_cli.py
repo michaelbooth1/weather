@@ -1125,3 +1125,34 @@ def test_a_date_shaped_run_in_the_name_that_is_no_date_refuses(tmp_path, name):
     # Review S7: not skipped; unreadable, like a bad "date" field, even beside a valid session date.
     with pytest.raises(ValueError, match='^shadow_scope_date_unreadable$'):
         lfc_cli.shadow_scope_date_refusal(_scope_file(tmp_path, name), S0_SESSION)
+
+
+def _s0_select_sources(tmp_path, monkeypatch, scope, now):
+    """The scope_sources the session-0 select hands to session0_table (no public read, no ledger)."""
+    seen = {}
+
+    def table(candidates, **kwargs):
+        seen.update(kwargs)
+        return {'scope_sources': kwargs['scope_sources']}
+    monkeypatch.setattr(lfc_cli, 'session0_table', table)
+    monkeypatch.setattr(lfc_cli, 'require_maker_fee_zero', lambda value, **_k: value)
+    monkeypatch.setattr(lfc_cli, 'held_conditions', lambda root, ledger: [])
+    monkeypatch.setattr(lfc_cli.Session0Books, 'candidates', lambda self, slugs: [])
+    extras = _scope_file(tmp_path, 'extra_conditions.json', {'extra_conditions': [], 'update_windows_utc': []})
+    args = parser().parse_args(['preflight', '--session0', '--run', '0a', '--event-slug', 'a', '--event-slug', 'b',
+                                '--event-slug', 'c', '--extra-conditions', str(extras), '--shadow-scope', str(scope)])
+    ledger = SimpleNamespace(figures=lambda: {'L': Decimal('0'), 'L_resting': Decimal('0')})
+    _, select = lfc_cli._selector(args, root=tmp_path, ledger=ledger, now_fn=lambda: now)
+    return select({'available_collateral': '10'})['scope_sources']
+
+
+def test_the_selection_records_the_utc_date_the_scope_was_checked_against(tmp_path, monkeypatch):
+    # Review S6: selection.json (and attempt.json through its sha) say which UTC date the scope was checked for.
+    scope = _scope_file(tmp_path, 'shadow_scope_20261015.json')
+    sources = _s0_select_sources(tmp_path, monkeypatch, scope, S0_SESSION)
+    assert sources['shadow_scope_date'] == '2026-10-15'
+    assert sources['shadow_scope_sha256'] == hashlib.sha256(scope.read_bytes()).hexdigest()
+    # A non-UTC clock is normalised: 20:00 in Toronto on 10-15 is 00:00Z on 10-16.
+    late = _scope_file(tmp_path, 'shadow_scope_20261016.json')
+    toronto = datetime(2026, 10, 15, 20, tzinfo=timezone(timedelta(hours=-4)))
+    assert _s0_select_sources(tmp_path, monkeypatch, late, toronto)['shadow_scope_date'] == '2026-10-16'

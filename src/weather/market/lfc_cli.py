@@ -469,12 +469,15 @@ def _selector(args, *, root, ledger, now_fn=_now):
         extras, extras_sha = load_conditions(args.extra_conditions)
         shadow_raw = read_condition_file(args.shadow_scope)  # review S5: one read; hashed, listed and dated
         shadow, shadow_sha = conditions_from_bytes(shadow_raw)
-        refusal = shadow_scope_date_refusal(args.shadow_scope, now_fn(), raw=shadow_raw)
+        checked = now_fn()
+        refusal = shadow_scope_date_refusal(args.shadow_scope, checked, raw=shadow_raw)
         if refusal:
             raise ValueError(refusal)
         path = Path(root) / EXCLUSION_FILE
         panel = excluded_conditions(load_panel_exclusions(path)) if path.exists() else set()
+        # Review S6: the UTC date the scope was checked against, so selection.json and attempt.json say it.
         sources = {'extra_conditions_sha256': extras_sha, 'shadow_scope_sha256': shadow_sha,
+                   'shadow_scope_date': utc(checked).date().isoformat(),
                    'panel_exclusions_sha256': hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else None}
 
         def select(balances):
