@@ -173,8 +173,12 @@ COMPONENT_SCHEMA_VERSION = "toronto_distribution_components_v0.1"
 # keyed by observation time (a D-1 23:5x report carried in as "00:00" is
 # excluded), and once a late-day stage acts the mass below the anchor bucket
 # moves onto it (the calibration floor follows). v2 anchored on the whole
-# guidance_physical_floor and renormalized below it.
+# guidance_physical_floor and renormalized below it. v4: before lock-in too,
+# mass below the same-day METAR high bucket moves onto it (the pre-lock-in hard
+# floor otherwise reads only the current reading and max-since-07:00); SWOB
+# rows keep their hedge until a late-day stage acts, and implausible readings
+# never anchor.
 # A behaviour label like ML_MODEL_VERSION, not a payload schema version (the
 # components payload shape stays COMPONENT_SCHEMA_VERSION).
-LATE_DAY_LOCKIN_ANCHOR_VERSION = "lockin-anchor-v3"
+LATE_DAY_LOCKIN_ANCHOR_VERSION = "lockin-anchor-v4"
 VALIDATED_WU_MAX_HARD_FLOOR_MARKETS = frozenset({"miami"})

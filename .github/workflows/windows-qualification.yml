@@ -67,6 +67,7 @@ jobs:
               tests/operations/test_daily_refresh_wrapper_execution.py
               tests/operations/test_guidance_all_hours_admission.py
               tests/operations/test_ps_script_root_param_defaults.py
+              tests/operations/test_maker_shadow_ops_scripts.py
             mark: ''
           - shard: launch
             split_file: ''
@@ -77,6 +78,9 @@ jobs:
               tests/operations/test_integration_phase_output.py
               tests/operations/test_health_watchdog_script.py
               tests/operations/test_dst_audit_powershell_20261007.py
+              tests/operations/test_dst_audit_lows_20261011.py
+              tests/operations/test_dst_audit_suite_20261011.py
+              tests/operations/test_watchdog_classify_drift.py
               tests/operations/test_bounded_worktree_test_suite_script.py
               tests/operations/test_workstation_pregate_script.py
               tests/operations/test_reconciler_surface.py
@@ -84,6 +88,7 @@ jobs:
               tests/operations/test_merge_queue_driver_dry.py
               tests/operations/test_quiet_window_merge_execution.py
               tests/operations/test_landing_preflight.py
+              tests/operations/test_bounded_execution_tape_probe_script.py
             mark: ''
           - shard: windows-lane-a
             split_file: ''
@@ -110,6 +115,7 @@ jobs:
               tests/operations/test_storage_inventory_scope.py
               tests/operations/test_cold_snapshot_nightly_status_race.py
               tests/operations/test_wu_token_scan_junction.py
+              tests/market/test_order_journal.py
             # Ratchets run once in CI: portable ones in ci.yml's audit job, the
             # windows_native ones here (tests/operations/test_ci_ratchet_selection.py).
             mark: not ratchet or windows_native
@@ -143,6 +149,7 @@ jobs:
               tests/operations/test_thin_ensure.py
               tests/operations/test_scheduled_task_local_daily_triggers.py
               tests/operations/test_exchange_economics_refresh_script.py
+              tests/operations/test_reset_daily_trigger_local.py
             mark: ''
           - shard: reconciler-1
             split_file: test_production_baseline_reconciler_execution.py
@@ -232,7 +239,11 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          python-version: '3.11'
+          # Pinned to the capture host's exact interpreter (CPython 3.11.0). Floating
+          # '3.11' resolves to the latest patch and hides pre-3.11.2 behaviour such as
+          # gh-98778 (urllib HTTPError(fp=None) raises KeyError on attribute lookup),
+          # which reached the host in PR #259. Ubuntu lanes stay on floating '3.11'.
+          python-version: '3.11.0'
           cache: pip
 
       - name: Install dependencies

@@ -17,7 +17,12 @@ station rows through ``station_observation_data`` and the floor through
 
 Guards: never weaken the trusted observed-high floor (DELEGATION_CONTRACT section 2); the
 v2 replay floor failure on PR #191 (austin 2026-08-25, M0 carried D-1 report) and the
-Defender mutants M1-M4 on the lockin-anchor-v3 floor.
+Defender mutants M1-M4 on the lockin-anchor-v3 floor. With PR #189 (metar-parser-v4,
+obsTime keying) the M0 carried-report fixtures parse explicitly under v3 ``reportTime``
+keying, the capture every closed date in the replay was made under.
+lockin-anchor-v4 (stacked on #189): before lock-in, no mass below the same-day METAR
+high bucket at any hour; Defender mutants on B (hour >= 7 only, renormalize instead of
+move, SWOB as a hard floor, sentinel readings, raw-less D-1 rows).
 """
 import math
 import random
@@ -27,6 +32,7 @@ import pytest
 
 from weather.model.model_distribution import DistributionPipelineState
 from weather.model.model_distribution_constants import LATE_DAY_LOCKIN_ANCHOR_VERSION
+from weather.model.model_sources import METAR_KEYING_REPORT_TIME
 from weather.model.toronto_model import TorontoHighTempModel
 
 ATL_DATE = "2026-09-20"
@@ -76,7 +82,10 @@ def awc_metar_item(observed_local, temp_c, icao):
 
 
 def _metar_source(model, readings, *, until_hour, day=ATL_DATE, icao="KATL", carried=()):
-    """A captured ``metar`` source item exactly as ``fetch_metar`` shapes it.
+    """A captured ``metar`` source item exactly as a ``metar-parser-v3``
+    ``fetch_metar`` shaped it (every closed date the replay reads was captured
+    under v3, so the rows are keyed on ``reportTime``; ``metar-parser-v4``
+    serving keys on ``obsTime`` and never admits the carried report).
 
     ``carried`` adds reports observed before the target day (local datetimes)
     that AWC's nominal ``reportTime`` keys into it (capture defect M0)."""
@@ -87,7 +96,7 @@ def _metar_source(model, readings, *, until_hour, day=ATL_DATE, icao="KATL", car
             continue
         local = datetime(year, month, dom, hour, 52, tzinfo=model.spec.tz)
         payload.append(awc_metar_item(local, temp_c, icao))
-    rows = model.parse_metar_payload(payload)
+    rows = model.parse_metar_payload(payload, keying=METAR_KEYING_REPORT_TIME)
     latest = rows[-1]
     same_day_max = max(row["temp_native"] for row in rows)
     max_since_7am = model.station_max_since_7am_from_rows(rows)
@@ -241,23 +250,45 @@ def test_atlanta_evening_end_to_end_restored_strength_reaches_calibration_taper(
     assert sum(restored.distribution.values()) == pytest.approx(1.0)
 
 
-# --- (2) a morning snapshot is unchanged ------------------------------------
+# --- (2) a morning snapshot changes only below the same-day anchor --------
+
+def _estimate_without_pre_lockin_floor(model, sources, now, **kwargs):
+    model.pre_lockin_same_day_floor = False
+    try:
+        return _estimate(model, sources, now, legacy=False, **kwargs)
+    finally:
+        del model.pre_lockin_same_day_floor
+
 
 @pytest.mark.parametrize("hour", [9, 12])
-def test_morning_snapshot_is_unchanged(hour):
+def test_morning_snapshot_moves_only_the_mass_below_the_same_day_anchor(hour):
     model = _model()
     now = datetime(2026, 9, 20, hour, 55, tzinfo=model.spec.tz)
-    sources = {"metar": _metar_source(model, ATL_METAR_C, until_hour=hour)}
-    feature_vector = {80: 0.1, 84: 0.2, 87: 0.3, 89: 0.25, 91: 0.15}
+    # A frontal morning: the day's warmest reading so far is at 03:52, before
+    # 07:00 and above the current reading, so the pre-lock-in hard floor
+    # (current reading, max since 07:00) sits below it.
+    readings = ((1, 25.0), (3, 26.0), (5, 24.0), (7, 22.0), (9, 23.0), (11, 24.0), (12, 24.0))
+    sources = {"metar": _metar_source(model, readings, until_hour=hour)}
+    feature_vector = {70: 0.1, 76: 0.2, 80: 0.3, 84: 0.25, 88: 0.15}
+    expected_bucket = _oracle_bucket(max(t for h, t in readings if h <= hour))
+    hard_floor_bucket = _oracle_bucket(max(t for h, t in readings if 7 <= h <= hour))
+    assert hard_floor_bucket < 76 < expected_bucket  # 76 is the band B newly closes
 
     legacy = _estimate(model, sources, now, feature_vector=feature_vector, legacy=True)
+    v3 = _estimate_without_pre_lockin_floor(model, sources, now, feature_vector=feature_vector)
     restored = _estimate(model, sources, now, feature_vector=feature_vector, legacy=False)
 
-    assert restored.distribution == legacy.distribution
+    assert v3.distribution == legacy.distribution  # v3 behaviour, exactly
     assert restored.component_payload["lockin_strength"] == 0.0
+    anchor = restored.component_payload["high_has_stood_lockin"]["lockin_anchor"]
+    assert anchor["bucket"] == expected_bucket
+    assert anchor["observed_floor_stage"] == "pre_lockin"
+    assert legacy.distribution.get(76, 0.0) > 0.05  # v3 kept real mass below the anchor
+    assert _below(restored.distribution, expected_bucket) == pytest.approx(0.0, abs=1e-12)
+    assert sum(restored.distribution.values()) == pytest.approx(1.0)
 
 
-def test_celsius_market_morning_unchanged_and_evening_anchored():
+def test_celsius_market_morning_floored_and_evening_anchored():
     model = _model(market_id="toronto", target_date="2026-07-20")
     readings = ((7, 19.0), (10, 23.0), (13, 26.0), (14, 27.0), (16, 26.0),
                 (18, 24.0), (20, 22.0), (22, 21.0))
@@ -267,8 +298,10 @@ def test_celsius_market_morning_unchanged_and_evening_anchored():
     )}
     vector = {21: 0.2, 23: 0.3, 25: 0.3, 27: 0.2}
     legacy = _estimate(model, morning_sources, morning, feature_vector=vector, legacy=True)
+    v3 = _estimate_without_pre_lockin_floor(model, morning_sources, morning, feature_vector=vector)
     restored = _estimate(model, morning_sources, morning, feature_vector=vector, legacy=False)
-    assert restored.distribution == legacy.distribution
+    assert v3.distribution == legacy.distribution
+    assert _below(restored.distribution, 23) == pytest.approx(0.0, abs=1e-12)
 
     evening = datetime(2026, 7, 20, 22, 55, tzinfo=model.spec.tz)
     sources = {"metar": _metar_source(
@@ -460,13 +493,14 @@ def test_rawob_group_keys_rows_when_obstime_is_not_retained():
 def test_property_new_mass_below_anchor_never_exceeds_old(seed):
     rng = random.Random(seed)
     model = _model()
-    hour = rng.randint(13, 23)
-    now = datetime(2026, 9, 20, hour, rng.choice((5, 30, 55)), tzinfo=model.spec.tz)
+    hour = rng.randint(1, 23)
+    minute = rng.choice((5, 30, 55))
+    now = datetime(2026, 9, 20, hour, minute, tzinfo=model.spec.tz)
     # A third of the days peak before 07:00 (a frontal passage): there the
     # max-since-07:00 hard floor sits below the observed anchor, so the old
     # vector does carry mass below it.
     front = rng.random() < 0.35
-    peak_hour = rng.randint(0, 5) if front else rng.randint(11, min(hour, 17))
+    peak_hour = rng.randint(0, min(hour, 5)) if front or hour < 11 else rng.randint(11, min(hour, 17))
     peak = rng.uniform(26.0, 34.0)
     readings = tuple(
         (h, round(peak - abs(h - peak_hour) * rng.uniform(0.3, 1.2), 1))
@@ -476,7 +510,9 @@ def test_property_new_mass_below_anchor_never_exceeds_old(seed):
     if rng.random() < 0.5:
         carried = ((datetime(2026, 9, 19, 23, 53, tzinfo=model.spec.tz),
                     round(peak + rng.uniform(-1.0, 3.0), 1)),)
-    until_hour = hour - 1 if hour > 7 else hour
+    # Reports are observed at HH:52, so the current hour's report exists only
+    # from HH:52 on; before 07:00 the property also covers that edge.
+    until_hour = hour - 1 if hour > 7 or minute < 52 else hour
     sources = {"metar": _metar_source(model, readings, until_hour=until_hour, carried=carried)}
     vector = {b: rng.random() ** 2 for b in range(70, 100) if rng.random() < 0.6}
     continuation = rng.choice((None, rng.random()))
@@ -498,8 +534,9 @@ def test_property_new_mass_below_anchor_never_exceeds_old(seed):
     assert _below(restored.distribution, expected_bucket) <= (
         _below(legacy.distribution, expected_bucket) + 1e-9
     )
-    if _late_day_stage_acted(restored):
-        assert _below(restored.distribution, expected_bucket) == pytest.approx(0.0, abs=1e-12)
+    # lockin-anchor-v4: no mass below the observed same-day high at ANY hour,
+    # whether or not a late-day stage acted.
+    assert _below(restored.distribution, expected_bucket) == pytest.approx(0.0, abs=1e-12)
     assert sum(restored.distribution.values()) == pytest.approx(1.0)
 
 
@@ -583,3 +620,81 @@ def test_s6_blend_alone_puts_no_mass_below_the_anchor():
     assert hard_floor is not None and hard_floor < anchor_bucket
     assert _below(result.distribution, anchor_bucket) == pytest.approx(0.0, abs=1e-12)
     assert sum(result.distribution.values()) == pytest.approx(1.0)
+
+
+# --- (5) lockin-anchor-v4: the pre-lock-in same-day floor (Defender on B) ---
+
+def _night(model, hour=3, minute=30):
+    return datetime(2026, 9, 20, hour, minute, tzinfo=model.spec.tz)
+
+
+def test_pre_lockin_floor_moves_mass_onto_the_anchor_before_0700():
+    """Fixed 03:30 case: a mutant applying the floor only at hour >= 7 fails here."""
+    model = _model()
+    now = _night(model)
+    sources = {"metar": _metar_source(model, ((1, 26.0), (3, 24.0)), until_hour=3)}
+    scores = {70: 0.1, 76: 0.2, 79: 0.1, 84: 0.4, 88: 0.2}
+    out, strength, context = _run_stage(model, scores, sources, now)
+    bucket = _oracle_bucket(26.0)
+    assert strength == 0.0
+    assert context["lockin_anchor"]["observed_floor_stage"] == "pre_lockin"
+    assert context["lockin_anchor"]["observed_floor_bucket"] == bucket
+    # Moved, not renormalized: buckets above keep their mass exactly and the
+    # anchor bucket gains everything that was below it.
+    assert _below(out, bucket) == 0.0
+    assert out[bucket] == pytest.approx(0.1 + 0.2 + 0.1)
+    assert out[84] == pytest.approx(0.4) and out[88] == pytest.approx(0.2)
+
+
+def test_pre_lockin_floor_switch_off_restores_v3():
+    model = _model()
+    sources = {"metar": _metar_source(model, ((1, 26.0), (3, 24.0)), until_hour=3)}
+    scores = {70: 0.1, 76: 0.2, 79: 0.1, 84: 0.4, 88: 0.2}
+    model.pre_lockin_same_day_floor = False
+    out, _, context = _run_stage(model, scores, sources, _night(model))
+    assert context["lockin_anchor"]["observed_floor_stage"] is None
+    assert out == pytest.approx(scores)
+
+
+def test_implausible_reading_is_never_the_anchor():
+    model = _model()
+    sources = {"metar": _metar_source(model, ((1, 26.0), (2, 60.0), (3, 24.0)), until_hour=3)}
+    *_, anchor = _stage_inputs(model, sources, _night(model))
+    assert anchor["bucket"] == _oracle_bucket(26.0)  # 60 C (140 F) is a sentinel, not a high
+
+
+def test_pre_lockin_floor_reads_metar_not_swob():
+    """SWOB keeps its warm-bias hedge before lock-in; only METAR is a hard floor there."""
+    model = _model()
+    metar = _metar_source(model, ((1, 24.0), (3, 23.0)), until_hour=3)
+    swob = {"ok": True, "data": {"station_observation_source": "eccc_swob", "rows": [
+        {"time": "02:00", "local_time": "02:00", "temp_native": 82.0},
+    ]}}
+    scores = {70: 0.1, 76: 0.2, 79: 0.1, 84: 0.4, 88: 0.2}
+    out, _, context = _run_stage(model, scores, {"metar": metar, "station_observations": swob},
+                                 _night(model))
+    anchor = context["lockin_anchor"]
+    assert anchor["bucket"] == 82  # the anchor itself still sees SWOB
+    assert anchor["metar_bucket"] == _oracle_bucket(24.0)
+    assert anchor["observed_floor_bucket"] == _oracle_bucket(24.0)
+    assert out[79] == pytest.approx(0.1)  # below SWOB's 82, above METAR's 75: untouched
+
+    swob_only = {"station_observations": swob}
+    out, _, context = _run_stage(model, scores, swob_only, _night(model))
+    assert context["lockin_anchor"]["observed_floor_stage"] is None
+    assert out == pytest.approx(scores)
+
+
+def test_stored_row_without_raw_keyed_to_the_prior_day_is_excluded():
+    """A stored row with no raw report but its own D-1 obs_time never anchors day D."""
+    model = _model()
+    metar = _metar_source(model, ((1, 22.0),), until_hour=1)
+    rows = [dict(row) for row in metar["data"]["rows"]]
+    for row in rows:
+        row.pop("raw", None)
+    carried = {"time": "00:00", "local_time": "00:00", "temp_native": 90.0,
+               "obs_time": "2026-09-20T03:53:00Z"}  # 23:53 EDT on 09-19
+    metar = {"ok": True, "data": {**metar["data"], "raw_payload": [], "rows": [carried, *rows]}}
+    *_, anchor = _stage_inputs(model, {"metar": metar}, _night(model, 2, 0))
+    assert anchor["excluded_prior_day_rows"] == 1
+    assert anchor["bucket"] == _oracle_bucket(22.0)

@@ -3,8 +3,11 @@
 #
 # S4U/Limited: no console window and no stored password. The task starts one minute after
 # the owner logs on and runs until stopped (no execution time limit). Registration
-# refuses an existing task instead of silently replacing it, and requires the matching
+# refuses an existing task instead of silently replacing it, and requires a matching
 # firewall rule from register_wallet_reader_firewall.ps1. Run from an elevated session.
+# -AllowIp is optional (owner decision 2026-10-09): omitted, serve admits any RFC1918 or
+# loopback caller and registration needs any WeatherWalletReader-*-<port> rule (exact-IP or
+# anylan; the firewall still scopes remote PCs); given, serve and the rule narrow to that IP.
 #
 # The reader runs from a dedicated linked worktree at a reviewed commit (-RepoRoot,
 # -ExpectedCommit) with the main checkout's venv interpreter (-PythonPath, default: the
@@ -18,7 +21,7 @@ param(
     [Parameter(Mandatory = $true, ParameterSetName = 'Register')][string]$ExpectedCommit,
     [Parameter(ParameterSetName = 'Register')][string]$PythonPath = '',
     [Parameter(Mandatory = $true, ParameterSetName = 'Register')][string]$Bind,
-    [Parameter(Mandatory = $true, ParameterSetName = 'Register')][string]$AllowIp,
+    [Parameter(ParameterSetName = 'Register')][string]$AllowIp = '',
     [Parameter(ParameterSetName = 'Register')][ValidateRange(1, 65535)][int]$Port = 8765,
     [Parameter(Mandatory = $true, ParameterSetName = 'Register')][ValidateSet(2, 3)][int]$SignatureType,
     [Parameter(Mandatory = $true, ParameterSetName = 'Unregister')][switch]$Unregister
@@ -49,7 +52,7 @@ if ($Unregister) {
     exit 0
 }
 
-foreach ($value in @($Bind, $AllowIp)) {
+foreach ($value in @(@($Bind, $AllowIp) | Where-Object { $_ })) {
     $address = $null
     if (-not [Net.IPAddress]::TryParse($value, [ref]$address) -or
         $address.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork -or
@@ -65,7 +68,14 @@ foreach ($value in @($Bind, $AllowIp)) {
 if (-not (Get-NetIPAddress -IPAddress $Bind -ErrorAction SilentlyContinue)) {
     throw 'Bind must be an IPv4 address assigned to this PC.'
 }
-$ruleName = "WeatherWalletReader-$AllowIp-$Port"
+if ($AllowIp) {
+    $ruleName = "WeatherWalletReader-$AllowIp-$Port"
+    $allowArgument = " --allow $AllowIp"
+} else {
+    # Any WeatherWalletReader rule for this port: the owner's exact-IP rule or the anylan rule.
+    $ruleName = "WeatherWalletReader-*-$Port"
+    $allowArgument = ''
+}
 if (-not (Get-NetFirewallRule -Name $ruleName -ErrorAction SilentlyContinue)) {
     throw 'Register the matching firewall rule first (register_wallet_reader_firewall.ps1).'
 }
@@ -138,7 +148,7 @@ if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
     throw 'Task already exists; unregister it before replacing it.'
 }
 
-$arguments = "-m weather.market.wallet_reader serve --bind $Bind --allow $AllowIp --port $Port --signature-type $SignatureType"
+$arguments = "-m weather.market.wallet_reader serve --bind $Bind$allowArgument --port $Port --signature-type $SignatureType"
 $action = New-ScheduledTaskAction -Execute $python -Argument $arguments -WorkingDirectory $repo
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
 $trigger.Delay = 'PT1M'  # let the LAN address come up before binding

@@ -383,3 +383,25 @@ def test_runner_takes_exactly_one_guard_book_source(tmp_path):
     with pytest.raises(TypeError, match="exactly_one_guard_book_source"):
         ShadowRunner(reads=Reads(), gate=gate, cancel_port=port, fair_value=None, clock=clock, caps=CAPS,
                      hazard_per_minute=0.001, adverse_markout=0.0043, profile=PROFILES["informed-v0"])
+
+
+def test_score_surfaces_tape_code_identity_and_legacy_tapes_read_unrecorded(tmp_path):
+    from maker_core.shadow.score import code_summary, tape_code
+    runner, _, _, clock, _ = rig(tmp_path)
+    writer = TapeWriter(tmp_path / "tapes", clock=clock,
+                        scope={"mode": "fixture", "git_commit": "a" * 40, "git_dirty": True, "git_error": None},
+                        run_id="r1")
+    writer.record("minute", NOW, **runner.step(NOW, MARKETS))
+    writer.close("completed")
+    legacy = TapeWriter(tmp_path / "tapes", clock=clock, scope={"mode": "fixture"}, run_id="r2")
+    clock.now = NOW + timedelta(minutes=1)
+    legacy.record("minute", clock.now, **runner.step(clock.now, MARKETS))
+    legacy.close("completed")
+    tapes, _ = sealed_tapes(tmp_path / "tapes", "2026-09-28")
+    assert [tape_code(t) for t in tapes] == [
+        {"git_commit": "a" * 40, "git_dirty": True, "git_error": None},
+        {"git_commit": None, "git_dirty": None, "git_error": "not_recorded"}]
+    report = score_day(tapes, Panel([]), utc_day="2026-09-28")
+    assert report["code"] == {"git_commits": ["a" * 40], "tapes": 2, "dirty_tapes": 1, "unbound_tapes": 2}
+    assert [t["git_error"] for t in report["tapes"]] == [None, "not_recorded"]
+    assert code_summary([]) == {"git_commits": [], "tapes": 0, "dirty_tapes": 0, "unbound_tapes": 0}

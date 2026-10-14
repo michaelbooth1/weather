@@ -170,8 +170,12 @@ five minutes (`PT5M`, owner-approved efficiency audit 2026-09-27 in the
 trigger only produced about 1,440 refused starts a day. The host runs PT5M. The
 registrar still writes `PT1M`, so re-running it unchanged would revert the
 interval; aligning the registrar is an open owner question held behind the 88a
-freeze (Swarm P audit F2, 2026-10-07). Until it is answered, re-registration
-must restore PT5M on the trigger afterwards and read it back. A Critical disk stop remains visible
+freeze (Swarm P audit F2, 2026-10-07).
+
+> **DO NOT RUN `register_maker_evidence_capture.ps1` until the owner answers the PT5M question.**
+> It writes **PT1M** and would silently undo the live, intended **PT5M**. This applies to the DST
+> re-registration pass too: the task's repeating trigger needs no DST action.
+ A Critical disk stop remains visible
 and subsequent triggers keep refusing capture until disk recovers. The worker
 never stops another process. `scripts/ops/status.ps1` reads `status.json`, flags
 missing/stale/non-capturing state when armed and displays band count/disk/cap.

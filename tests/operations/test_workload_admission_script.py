@@ -27,6 +27,24 @@ POWERSHELL = (
 HOST_GLOBAL_MUTEX = "Global\\WeatherProjectHeavyWorkloadV1"
 
 
+# A mutex holder keeps its lease until the test creates the release file, so the
+# contender is judged while the holder provably still owns it. A fixed sleep let a
+# slow hosted runner start the contender after the holder had already released
+# (windows-lane-a, master runs 2026-10-08). Exit 9 means the release never came.
+_HOLDER_RELEASE_ENV = "WEATHER_TEST_HOLDER_RELEASE"
+_HOLD_UNTIL_RELEASED_PS = r"""
+$releaseDeadline = [DateTime]::UtcNow.AddSeconds(120)
+while (-not (Test-Path -LiteralPath $env:WEATHER_TEST_HOLDER_RELEASE)) {
+    if ([DateTime]::UtcNow -gt $releaseDeadline) { exit 9 }
+    Start-Sleep -Milliseconds 50
+}
+"""
+
+
+def _holder_release_env(release: Path, base: dict[str, str] | None = None) -> dict[str, str]:
+    return {**(os.environ if base is None else base), _HOLDER_RELEASE_ENV: str(release)}
+
+
 _RECOVERY_DECISION_PREFIX = "WARNING: heavy-workload recovery decision: "
 _RECOVERY_DECISION_SCHEMA = "weather_heavy_workload_recovery_decision_v1"
 # Write-WeatherHeavyWorkloadRecoveryDecision's best-effort fallback when the
@@ -280,7 +298,7 @@ def test_lease_is_exclusive_and_recovers_when_owner_exits(tmp_path: Path) -> Non
         f"$lease = Enter-WeatherHeavyWorkloadLease -RepoRoot '{tmp_path}' -Workload holder\n"
         "if ($null -eq $lease) { Write-Output 'BLOCKED'; exit 3 }\n"
         "Write-Output 'ACQUIRED'\n"
-        "Start-Sleep -Seconds 2\n"
+        f"{_HOLD_UNTIL_RELEASED_PS}\n"
         "Exit-WeatherHeavyWorkloadLease -Lease $lease\n",
         encoding="utf-8",
     )
@@ -294,20 +312,25 @@ def test_lease_is_exclusive_and_recovers_when_owner_exits(tmp_path: Path) -> Non
         encoding="utf-8",
     )
 
+    release = tmp_path / "holder-release"
     owner = subprocess.Popen(
         [*POWERSHELL, "-File", str(holder)],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        env=_holder_release_env(release),
     )
-    assert owner.stdout is not None
-    assert owner.stdout.readline().strip() == "ACQUIRED"
-    blocked = subprocess.run(
-        [*POWERSHELL, "-File", str(contender)],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        assert owner.stdout is not None
+        assert owner.stdout.readline().strip() == "ACQUIRED"
+        blocked = subprocess.run(
+            [*POWERSHELL, "-File", str(contender)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    finally:
+        release.write_text("release", encoding="utf-8")
     assert blocked.returncode == 3
     assert blocked.stdout.strip() == "BLOCKED"
     assert owner.wait(timeout=10) == 0
@@ -1309,7 +1332,7 @@ $lease = Enter-WeatherHeavyWorkloadLease `
     -ExecutionHostProfile '{profile}' {host_binding}
 if ($null -eq $lease) {{ Write-Output 'BLOCKED'; exit 3 }}
 Write-Output 'ACQUIRED'
-Start-Sleep -Seconds 2
+{hold}
 Set-WeatherHeavyWorkloadLeaseTeardownPending -Lease $lease | Out-Null
 Exit-WeatherHeavyWorkloadLease -Lease $lease
 """
@@ -1366,13 +1389,15 @@ Exit-WeatherHeavyWorkloadLease -Lease $lease
             profile=holder_profile,
             workload=holder_workload,
             host_binding=holder_binding,
+            hold=_HOLD_UNTIL_RELEASED_PS,
         )
         contender_script = contender_template.format(
             profile=contender_profile,
             workload=contender_workload,
             host_binding=contender_binding,
         )
-        holder_env = env.copy()
+        release = holder_root.parent / f"release-{holder_workload}"
+        holder_env = _holder_release_env(release, env)
         holder_env["WEATHER_LEASE_ROOT"] = str(holder_root)
         contender_env = env.copy()
         contender_env["WEATHER_LEASE_ROOT"] = str(contender_root)
@@ -1383,15 +1408,18 @@ Exit-WeatherHeavyWorkloadLease -Lease $lease
             text=True,
             env=holder_env,
         )
-        assert owner.stdout is not None
-        assert owner.stdout.readline().strip() == "ACQUIRED"
-        blocked = subprocess.run(
-            [*POWERSHELL, "-Command", contender_script],
-            capture_output=True,
-            text=True,
-            check=False,
-            env=contender_env,
-        )
+        try:
+            assert owner.stdout is not None
+            assert owner.stdout.readline().strip() == "ACQUIRED"
+            blocked = subprocess.run(
+                [*POWERSHELL, "-Command", contender_script],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=contender_env,
+            )
+        finally:
+            release.write_text("release", encoding="utf-8")
         assert blocked.returncode == 3, blocked.stderr
         assert blocked.stdout.strip() == "BLOCKED"
         assert owner.wait(timeout=10) == 0
@@ -2024,30 +2052,35 @@ try {
     catch [Threading.AbandonedMutexException] { $owned = $true }
     if (-not $owned) { throw 'test mutex unexpectedly busy' }
     Write-Output 'ACQUIRED'
-    Start-Sleep -Seconds 2
+""" + _HOLD_UNTIL_RELEASED_PS + r"""
 }
 finally {
     if ($owned) { $mutex.ReleaseMutex() }
     $mutex.Dispose()
 }
 """
+    release = tmp_path / "holder-release"
     holder = subprocess.Popen(
         [*POWERSHELL, "-Command", holder_script],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        env=_holder_release_env(release),
     )
-    assert holder.stdout is not None
-    assert holder.stdout.readline().strip() == "ACQUIRED"
-    blocked = subprocess.run(
-        _workstation_wrapper_argv(
-            tmp_path,
-            ["-m", "pytest", str(busy_test), "-q"],
-        ),
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        assert holder.stdout is not None
+        assert holder.stdout.readline().strip() == "ACQUIRED"
+        blocked = subprocess.run(
+            _workstation_wrapper_argv(
+                tmp_path,
+                ["-m", "pytest", str(busy_test), "-q"],
+            ),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    finally:
+        release.write_text("release", encoding="utf-8")
     assert blocked.returncode != 0
     assert "blocked by another heavy or portable live lease" in blocked.stderr
     assert not busy_sentinel.exists()

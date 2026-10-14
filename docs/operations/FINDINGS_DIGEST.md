@@ -22,7 +22,7 @@ never pooled across the 2026-07-31 provenance boundary.
 4. One change has ever improved a served number: the serving floor, 2026-07-31. EF §3.
 5. No cell out of 114 pre-registered ones shows a quotable model edge. EF §1b.
 6. The declared primary objective (09:00–14:00 local) has no powered measurement; the old ~504-date requirement rested on a retired effect size and is withdrawn, and no replacement figure is citable. EF §1b, §5.
-7. No profitability result exists yet: RE-1 has five fills (sessions 1, 4, 7, 8 and 11; four at the quote price, one strictly through) and one paid reward day (+2.13 vs ~2.03 modelled) — far too little to judge. The earlier realized net for the settled lots is superseded; to be restated from wallet-reader balances (Q-22). EF §10m.
+7. No profitability result exists yet: RE-1 has five fills (sessions 1, 4, 7, 8 and 11; four at the quote price, one strictly through) and one paid reward day (+2.13 vs ~2.03 modelled) — far too little to judge. Restated from wallet-ledger balances (Q-22, 2026-10-09): RE-1's realized net is **−36.97 pUSD** (five lots −39.11, one reward day +2.13), driven by the Chicago Sep 25 YES loss (−32.25); too small to read as edge either way. EF §10m.
 8. One attended real-money lifecycle test ran on 2026-09-06 off master with zero fills; it is spent and grants nothing. EF §10f.
 9. The configured liquidity-reward pool is two orders of magnitude larger than the figure the economics case used; our share of it is unmeasured. EF §10a.
 10. Streak contiguity gates nothing on the critical path; settled, promotion-countable date volume is what counts. EF §0d.

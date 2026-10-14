@@ -163,6 +163,11 @@ SCRIPT_INVENTORY = {
         "smoke": "compile_main_guard",
         "notes": "Maker P&L desk-study power rule (N_req) on the 09-24..09-28 88a pilot; refuses dates after 09-29.",
     },
+    "maker_replay_v2_h1_cut.py": {
+        "status": "fixture-only",
+        "smoke": "compile_main_guard",
+        "notes": "Maker replay v2 H1 oracle-handout cut/rebind (gate spec v3.4); workstation only.",
+    },
 }
 
 

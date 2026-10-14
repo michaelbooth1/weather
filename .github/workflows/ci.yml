@@ -67,6 +67,7 @@ jobs:
           tests/operations/test_knowledge_structure_audit.py
           tests/operations/test_memory_commit_guard_script.py
           tests/operations/test_module_size_audit.py
+          tests/operations/test_no_tracked_credentials.py
           tests/operations/test_operating_reference.py
           tests/operations/test_ops_script_ratchets.py
           tests/operations/test_path_policy.py

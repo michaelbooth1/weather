@@ -122,6 +122,12 @@ bounded counterfactual detail is governed by the
   source, model, label, replay, and reporting owners.
 - Intraday features align to the effective WU printed cutoff, not blindly to
   wall-clock time.
+- Station observation rows are keyed on the observation instant
+  (`metar-parser-v4` keys AWC rows on `obsTime`, never the nominal
+  `reportTime`; [durable domain context](operations/AGENT_CONTEXT.md)). Captured
+  v3 rows are not rewritten; `python -m weather.backtesting.metar_keying_replay`
+  re-derives both keyings from the retained raw payloads for closed dates up to
+  2026-09-29 and reports the per-snapshot difference. It is read-only.
 - Training extraction and live feature extraction change together. Captured
   input replay is the preferred proof against train/serve skew.
 - Snapshot, forecast, order-book, settlement, and trading tapes are local
@@ -140,15 +146,19 @@ bounded counterfactual detail is governed by the
 - The late-day lock-in stages (heuristic, learned, high-has-stood, expanded,
   standing-high partial, late-day continuation) read one anchor built by
   `late_day_lockin_anchor` in `weather.model.model_distribution`
-  (`LATE_DAY_LOCKIN_ANCHOR_VERSION`, model `v0.5.11`). With WU printed history
+  (`LATE_DAY_LOCKIN_ANCHOR_VERSION`, model `v0.5.11`; the pre-lock-in floor
+  of `lockin-anchor-v4` is model `v0.5.12`). With WU printed history
   present it is that history, unchanged. With WU history empty it is the
   observed same-day station high: point-in-time METAR rows keyed by observation
   time (AWC `obsTime`, else the raw `DDHHMMZ` group), never by the nominal
   `reportTime`, so a D-1 23:5x report carried into D as a "00:00" row is
   excluded. It is never higher than `guidance_physical_floor`, which still
-  carries that report. Once a late-day stage acts, mass below the anchor bucket
-  moves onto it and the calibration floor follows, so no mass stays below an
-  observed floor. The calibration taper reads the resulting strength.
+  carries that report. Once a late-day stage acts, mass below the anchor
+  bucket moves onto it and the calibration floor follows. Before lock-in
+  (`lockin-anchor-v4`) the same move applies at the same-day METAR high bucket,
+  because the hard floor otherwise reads only the current reading and the max
+  since 07:00; SWOB rows keep their hedge until lock-in. Implausible readings
+  never anchor. The calibration taper reads the resulting strength.
   `python -m weather.backtesting.lockin_anchor_replay` replays closed dates up
   to 2026-09-29, comparing the old and new anchors. It is read-only and exits 3
   when any row puts more mass below the anchor than before.

@@ -15,6 +15,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -101,3 +102,78 @@ def test_collector_failure_records_exit_code_and_output_tail(tmp_path):
     assert status["reason"] == "collector exited 1"
     assert any("weather" in line for line in status["output_tail"]), status
     assert status["target_date"] == "2026-10-07"
+
+
+FAKE_COLLECTOR = '''
+import os, sys, time
+from pathlib import Path
+Path(os.environ["FAKE_COLLECTOR_MARK"]).write_text("started", encoding="utf-8")
+print("fake collector running")
+time.sleep(float(os.environ.get("FAKE_COLLECTOR_SLEEP", "0")))
+sys.exit(int(os.environ.get("FAKE_COLLECTOR_EXIT", "0")))
+'''
+
+
+def _fake_collector_env(tmp_path: Path, *, sleep: float, exit_code: int) -> dict:
+    package = tmp_path / "fakepkg" / "weather" / "market"
+    package.mkdir(parents=True)
+    (package.parent / "__init__.py").write_text("", encoding="utf-8")
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "exchange_economics.py").write_text(FAKE_COLLECTOR, encoding="utf-8")
+    env = {k: v for k, v in os.environ.items() if k not in {"PYTHONPATH", "PYTHONHOME"}}
+    env.update(
+        PYTHONPATH=str(tmp_path / "fakepkg"),
+        FAKE_COLLECTOR_MARK=str(tmp_path / "collector.started"),
+        FAKE_COLLECTOR_SLEEP=str(sleep),
+        FAKE_COLLECTOR_EXIT=str(exit_code),
+    )
+    return env
+
+
+def _helper_command(root: Path) -> list[str]:
+    return ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File",
+            str(root / "scripts" / "ops" / HELPER.name), "-RepoRoot", str(root), "-TargetDate", "2026-10-07"]
+
+
+@WINDOWS_POWERSHELL
+@pytest.mark.spawns
+def test_successful_collection_records_pass(tmp_path):
+    root = _scratch_root(tmp_path, with_venv=True)
+    result = subprocess.run(_helper_command(root), capture_output=True, text=True, timeout=120,
+                            env=_fake_collector_env(tmp_path, sleep=0, exit_code=0), cwd=root)
+    assert result.returncode == 0, result.stdout + result.stderr
+    status = json.loads((root / "data" / "logs" / "exchange_economics_refresh_status.json").read_text(encoding="utf-8"))
+    assert status["status"] == "PASS" and status["exit_code"] == 0
+    assert "fake collector running" in status["output_tail"]
+    history = (root / "data" / "logs" / "exchange_economics_refresh_history.jsonl").read_text(encoding="utf-8").splitlines()
+    assert [json.loads(line)["status"] for line in history] == ["PASS"]  # RUNNING never reaches history
+
+
+@WINDOWS_POWERSHELL
+@pytest.mark.spawns
+def test_a_killed_run_leaves_a_running_marker_not_the_previous_result(tmp_path):
+    root = _scratch_root(tmp_path, with_venv=True)
+    logs = root / "data" / "logs"
+    logs.mkdir(parents=True)
+    status_path = logs / "exchange_economics_refresh_status.json"
+    status_path.write_text(json.dumps({"status": "PASS", "started_at_utc": "2026-10-06T10:50:00Z"}), encoding="utf-8")
+
+    process = subprocess.Popen(_helper_command(root), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                               env=_fake_collector_env(tmp_path, sleep=60, exit_code=0), cwd=root)
+    try:
+        deadline = time.monotonic() + 60
+        while not (tmp_path / "collector.started").exists():
+            assert process.poll() is None, "helper exited before the collector started"
+            assert time.monotonic() < deadline, "collector never started"
+            time.sleep(0.2)
+        running = json.loads(status_path.read_text(encoding="utf-8"))
+        assert running["status"] == "RUNNING" and running["exit_code"] == -1
+        assert running["pid"] == process.pid
+    finally:
+        # Same effect as the Scheduler's execution-limit kill: the whole tree, no cleanup.
+        subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"], capture_output=True, check=False)
+        process.wait(timeout=60)
+
+    after = json.loads(status_path.read_text(encoding="utf-8"))
+    assert after["status"] == "RUNNING"  # stale RUNNING is the kill signal
+    assert not (logs / "exchange_economics_refresh_history.jsonl").exists()

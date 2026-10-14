@@ -10,6 +10,13 @@
 # the collector's output. A nonzero task result is diagnosed from that file
 # (Swarm P audit F1, 2026-10-07: two silent exit-1 runs).
 #
+# Before any work it overwrites the status file with status RUNNING (status file
+# only, not history). A run that never finishes leaves RUNNING behind: RUNNING
+# older than the task's PT5M execution limit means the run was killed (timeout
+# or hard crash). A status file whose started_at_utc predates the task's
+# LastRunTime means that run never reached this body (parse or parameter-binding
+# error, or launch failure); read LastTaskResult. The runbook owns these rules.
+#
 # Run from the repo root:
 #   .\scripts\ops\refresh_exchange_economics_snapshot.ps1
 
@@ -36,7 +43,8 @@ function Write-RefreshStatus {
         [Parameter(Mandatory = $true)][string]$Status,
         [Parameter(Mandatory = $true)][int]$ExitCode,
         [Parameter(Mandatory = $true)][string]$Reason,
-        [string[]]$OutputTail = @()
+        [string[]]$OutputTail = @(),
+        [switch]$NoHistory
     )
     if (-not $script:StatusPath) { return }
     try {
@@ -59,6 +67,7 @@ function Write-RefreshStatus {
         $temporary = Join-Path $directory ("exchange_economics_refresh_status.{0}.tmp" -f $PID)
         [IO.File]::WriteAllText($temporary, $json, (New-Object Text.UTF8Encoding($false)))
         Move-Item -LiteralPath $temporary -Destination $script:StatusPath -Force
+        if ($NoHistory) { return }
         $history = Join-Path $directory "exchange_economics_refresh_history.jsonl"
         [IO.File]::AppendAllText($history, $json + "`n", (New-Object Text.UTF8Encoding($false)))
     }
@@ -80,6 +89,8 @@ if (-not (Test-Path -LiteralPath $logDirectory -PathType Container)) {
     New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
 }
 $script:StatusPath = Join-Path $logDirectory "exchange_economics_refresh_status.json"
+# Started marker first: a killed or crashed run leaves RUNNING, never an old PASS.
+Write-RefreshStatus -Status "RUNNING" -ExitCode -1 -Reason "started; execution limit PT5M" -NoHistory
 
 if ($Platform -ne "polymarket_global") {
     Write-RefreshStatus -Status "REFUSED" -ExitCode 2 -Reason "platform '$Platform' is not polymarket_global"

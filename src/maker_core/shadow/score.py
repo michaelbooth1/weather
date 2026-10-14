@@ -112,12 +112,35 @@ def _text(value):
     return value
 
 
+CODE_FIELDS = ("git_commit", "git_dirty", "git_error")
+
+
+def tape_code(tape):
+    """The code identity a tape's ``opened`` scope recorded; tapes from before the field read as unrecorded."""
+    rows = tape.get("rows") or ()
+    scope = rows[0].get("scope") if rows and rows[0].get("event") == "opened" else None
+    scope = scope if isinstance(scope, dict) else {}
+    if "git_commit" not in scope:
+        return {"git_commit": None, "git_dirty": None, "git_error": "not_recorded"}
+    return {name: scope.get(name) for name in CODE_FIELDS}
+
+
+def code_summary(codes):
+    """Distinct commits and the tapes that are dirty or carry no commit; surfaced, never a verdict."""
+    commits = sorted({c["git_commit"] for c in codes if c["git_commit"]})
+    return {"git_commits": commits, "tapes": len(codes),
+            "dirty_tapes": sum(1 for c in codes if c["git_dirty"] is True),
+            "unbound_tapes": sum(1 for c in codes if not c["git_commit"] or c["git_dirty"] is not False)}
+
+
 def score_day(tapes, panel, *, utc_day, unsealed=(), panel_summary=None):
     """Score every condition-minute of the day's sealed tapes against the panel."""
     agreement = {"matched": 0, "mismatched": 0, "unreconstructable": 0, "examples": []}
     strata = {"policy": _stratum(), "gated": _stratum()}
     actions, reasons, guard = Counter(), Counter(), Counter()
     minutes = condition_minutes = unevaluated = 0
+    # OD23 diagnostic (#267): per-minute counts summed; minutes before the field existed are counted apart.
+    own_mid = {"books_with_own_legs": 0, "mid_differs": 0, "minutes_recorded": 0, "minutes_not_recorded": 0}
     for tape in tapes:
         for record in tape["rows"]:
             if record["event"] != "minute":
@@ -126,6 +149,13 @@ def score_day(tapes, panel, *, utc_day, unsealed=(), panel_summary=None):
                 raise ValueError("tape_minute_outside_day")
             minutes += 1
             guard[record["guard"]["action"]] += 1
+            counts = record.get("own_size_mid")
+            if isinstance(counts, dict):
+                own_mid["minutes_recorded"] += 1
+                for key in ("books_with_own_legs", "mid_differs"):
+                    own_mid[key] += int(counts.get(key, 0))
+            else:
+                own_mid["minutes_not_recorded"] += 1
             for row in record["conditions"]:
                 condition_minutes += 1
                 if "decision" not in row:
@@ -143,14 +173,17 @@ def score_day(tapes, panel, *, utc_day, unsealed=(), panel_summary=None):
                            "PASS" if compared == agreement["matched"] else "FAIL")
     return _text({
         "schema_version": SCORE_SCHEMA, "utc_day": utc_day, "label": "DIAGNOSTIC_NOT_A_VERDICT",
-        "tapes": [{"tape": t["tape"], "sha256": t["sha256"]} for t in tapes], "unsealed_tapes": list(unsealed),
+        "tapes": [{"tape": t["tape"], "sha256": t["sha256"], "tape_schema": t.get("tape_schema"),
+                   "records_stream": t.get("records_stream"), **tape_code(t)} for t in tapes],
+        "code": code_summary([tape_code(t) for t in tapes]), "unsealed_tapes": list(unsealed),
         "minutes": minutes, "condition_minutes": condition_minutes, "unevaluated": unevaluated,
         "decisions": dict(sorted(actions.items())), "reasons": dict(sorted(reasons.items())),
-        "minute_guard_actions": dict(sorted(guard.items())), "agreement": agreement,
+        "minute_guard_actions": dict(sorted(guard.items())), "own_size_mid": own_mid, "agreement": agreement,
         "strata": strata, "fill_rules": RULES, "horizons_minutes": list(HORIZONS_MINUTES),
         "k_share": list(K_SHARES), "leg_life_seconds": int(LEG_LIFE.total_seconds()),
         "panel": panel_summary or {},
     })
 
 
-__all__ = ["HORIZONS_MINUTES", "K_SHARES", "Panel", "RULES", "SCORE_SCHEMA", "score_day"]
+__all__ = ["CODE_FIELDS", "HORIZONS_MINUTES", "K_SHARES", "Panel", "RULES", "SCORE_SCHEMA", "code_summary",
+           "score_day", "tape_code"]

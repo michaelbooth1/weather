@@ -89,6 +89,14 @@ exclude the current band's replaceable orders. Reserve every selected market
 before deciding another; `rank` does not reserve funds. Factor loading uses its
 absolute value, so offsets never silently increase available capital.
 
+When the caller has own resting legs, the book it passes is the decision book from
+`maker_core.quoting.book.compose_book`, the one canonical composition (engine ruling
+W1(a)): each leg on its own bid array and mirrored at `1 - p` on the complement's ask
+array, levels created and sizes summed. Both the replay v2 kernel and the shadow runner
+import it; do not copy it. Per OD23 (signed 2026-10-08), `decide()` keeps own size in
+the qualified mid and removes it only from the competing score and displayed depth;
+`own_size_moves_mid` is the count-only diagnostic of where own size moves that mid.
+
 `informed_v0` implements the design's freshness, pull/decided, qualified-mid,
 width/asymmetry, depth, size, positive-net and portfolio screens. Scheduled events
 are active from -3 to +10 minutes; detected and observed-only events remain active

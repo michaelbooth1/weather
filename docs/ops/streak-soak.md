@@ -230,6 +230,40 @@ Outputs, all under `data/alerts/`:
   after being away.** It reads bounded tails (400 rows / 1 MiB each) from the active file
   and newest archive, filters to 24 hours, and explicitly labels that coverage as incomplete.
 
+Classification and severity (`Get-FlagClass` plus a state-aware second pass):
+
+- `UNEXPECTED SHUTDOWN` is class `host_stability`, **HIGH**, and **CRITICAL** when the
+  outage interval `status.ps1` reports (last System event before the OS start -> OS start)
+  overlaps 12:00–18:00 local on any day. `status.ps1` also reports the unclean-boot count
+  for 7 and 90 days (`host_stability` in its JSON); the watchdog carries it through.
+- `system clock is not synchronized` (and the stale-sync clock flags) is class
+  `capture_integrity`: HIGH, CRITICAL inside the graded window.
+- Staleness-sweep rows are class `staleness_sweep` and carry the sweep's severity: a sweep
+  CRITICAL row is HIGH, and CRITICAL once the reported age is ≥ 3 days, the watchdog has
+  seen it for ≥ 72 h, or it failed 3 consecutive times; an unreadable sweep snapshot starts
+  MEDIUM and becomes HIGH after 24 h. The reviewed, reasoned `$demotedSweepChecks` list
+  (`learning/daily_learning`, `learning/market_beating_scoreboard`) pins those standing
+  rows at MEDIUM with the reason in the alert; no other row is silenced.
+- `scheduled_job` (the catch-all) starts MEDIUM (HIGH in the daily chain), becomes HIGH
+  after 2 consecutive failures or 24 h, and CRITICAL after 5 consecutive failures over
+  ≥ 72 h. A consecutive failure is a change of the timestamps inside an otherwise unchanged
+  condition (a new failed run); condition age is how long the watchdog has seen it.
+- The dedup fingerprint is severity plus class plus the flag with volatile numbers removed
+  (ages, counts, byte sizes, percentages, timestamps; result codes like `0x1` and
+  identifiers stay), so ticking numbers do not create `state_change` rows. A different
+  unclean boot is still a new condition. Two worsening conditions keep identity so they
+  re-alert: a `LOW DISK` row's free-space figure becomes a depth bucket (`<50`, `<25`,
+  `<10`, `<5` GiB, or `>=50`), and a `SETTLEMENT HOLE` row carries its sorted missing-date
+  set (a new or moved date re-alerts; the same set in any order dedupes). Per-condition tracking lives in
+  `host_health_watchdog_state.json` (`tracking`).
+- `-AsOf <local time>` exists only for fixture evaluation; the registered task never passes it.
+
+`status.ps1` also reports **deployed-vs-master drift** for the pinned watchdog deployment
+(`watchdog_deployment` in its JSON, `DEPLOYED` in the digest): `DRIFT` (a note) when the
+deployed bytes differ from `master`, `PIN_MISMATCH` (a FLAG) when a deployed file no longer
+matches its registered SHA256. The pinned redeploy procedure is in
+[OPERATIONS_DESIGN.md](../operations/OPERATIONS_DESIGN.md#pinned-watchdog-redeploy).
+
 Register or remove it with `scripts/ops/register_health_watchdog.ps1` (`-Unregister`).
 
 ## This host loses power (WeatherBootRecovery)
@@ -336,7 +370,8 @@ guarded operation:
 It stages the merge **locally without committing**, waits `-SettleSeconds` (default 300) for readoption, and proves all three
 workers have matching status/lock PIDs, live processes, fresh heartbeats, and loaded-source
 fingerprints matching the tree. A worker whose PID or loaded-source identity changed must also
-advance its heartbeat during the settle. An unchanged worker need not advance merely because an
+advance its heartbeat during the settle; advancement is judged on UTC instants, so the repeated
+01:xx hour of the DST fall-back night cannot fake or hide it. An unchanged worker need not advance merely because an
 unrelated closure rolled; this matters for the snapshot worker's normal ten-minute cycle, which is
 longer than the five-minute settle. If the active public execution-tape closure rolls, the same
 gate directly requires its connected managed process, exact status/lock/process identity, clean
@@ -650,8 +685,15 @@ requires the reviewed full SHA to be an ancestor of synchronized production mast
 the read-only producer in a kill-on-close Windows Job for a bounded interval. It fails unless
 the new session observes the complete active seed set connected, writes at least one cleanly
 routed execution observation, adds no parse or routing errors, stops cleanly, stays inside
-working-set and host-commit ceilings, and leaves all three capture workers healthy with an
-advancing snapshot heartbeat. A connected socket plus one routed observation does not prove
+working-set and host-commit ceilings, and leaves all three capture workers healthy. The snapshot
+proof uses iteration progress, not the heartbeat (which the loop also refreshes every 60 s of its
+idle sleep): at the end the snapshot heartbeat must be at most 300 s old and
+`last_completed_iteration_at` at most one interval plus the fleet budget plus 120 s old (1260 s
+at defaults); a probe that ran at least that long must also see it advance. Missing cycle
+parameters fail the proof closed, and heartbeat ages are computed on UTC instants (safe across
+the DST fall-back hour). By design, a paused snapshot loop (more than about 21 minutes) fails the
+probe, because paused iterations never complete; and an inline market capture longer than about
+300 s fails the worker-health check (fail-safe). A connected socket plus one routed observation does not prove
 that every subscribed asset traded or that the public stream can identify our own fills.
 It writes the latest result and append-only history under `data/alerts/`. The probe neither
 registers nor authorizes continuous capture.

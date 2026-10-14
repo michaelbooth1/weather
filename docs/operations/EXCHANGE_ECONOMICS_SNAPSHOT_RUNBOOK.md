@@ -100,6 +100,17 @@ appends the same record to `data\logs\exchange_economics_refresh_history.jsonl`.
 unhandled PowerShell error, exit 1). Diagnose a nonzero `LastTaskResult` from that file before re-running
 anything; the task itself has no other log.
 
+Before any work, each run overwrites the status file with `status: RUNNING`, `exit_code: -1`, its `pid` and
+`started_at_utc`. RUNNING goes to the status file only, never to the history. Compare the file with
+`Get-ScheduledTask -TaskName WeatherExchangeEconomicsSnapshotRefresh | Get-ScheduledTaskInfo`:
+
+| Status file shows | Meaning |
+| --- | --- |
+| `PASS` / `FAIL` / `REFUSED` / `ERROR` with `started_at_utc` at or after `LastRunTime` | That run finished; trust the record. |
+| `RUNNING`, started less than 5 minutes ago | Still running. |
+| `RUNNING`, started more than 5 minutes ago | Killed: the task's PT5M execution limit, a reboot or a hard crash. No result was recorded; `LastTaskResult` is usually `0x41306` (terminated). |
+| `started_at_utc` older than `LastRunTime` | The last run never reached the script body: a PowerShell parse error, a parameter-binding error, or a launch failure. Read `LastTaskResult`, then run the helper by hand to see the error. |
+
 This is a **current-day** proof. Do not apply today's per-condition rates to a
 historical leg merely because its token still appears in a file. Historical
 paper rows need economics captured contemporaneously on the row or in a

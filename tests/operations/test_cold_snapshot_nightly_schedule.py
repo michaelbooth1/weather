@@ -195,6 +195,20 @@ def run_entry(entry, local_clock: str):
                                                                if child.exists() else None)
 
 
+def test_production_script_keeps_the_real_0900_backstop_deadline():
+    """run_entry substitutes the deadline line (time-bomb fix 27e67f6e6), so pin the production text separately:
+    the backstop deadline is the Toronto local date at 09:00 and the wait loop compares it with the real clock."""
+    lines = [line.strip() for line in
+             repo_path("scripts", "ops", "cold_snapshot_nightly_run.ps1").read_text(encoding="utf-8-sig").splitlines()]
+    assert lines.count("$zone = [TimeZoneInfo]::FindSystemTimeZoneById('Eastern Standard Time')") == 1
+    assert lines.count("$now = [TimeZoneInfo]::ConvertTimeFromUtc([DateTime]::UtcNow, $zone)") == 1
+    assert [line for line in lines if line.startswith("$windowEndMinute =")] == ["$windowEndMinute = 9 * 60"]
+    assert [line for line in lines if line.startswith("$deadline =")] == [
+        "$deadline = [TimeZoneInfo]::ConvertTimeToUtc($now.Date.AddMinutes($windowEndMinute), $zone)"]
+    assert [line for line in lines if line.startswith("while (") and "$deadline" in line] == [
+        "while (-not $child.HasExited -and [DateTime]::UtcNow -lt $deadline) {"]
+
+
 @pytest.mark.spawns
 @windows_only
 @pytest.mark.parametrize("clock", ["2026-10-07T00:30:00", "2026-10-07T04:00:00", "2026-10-07T06:49:00",

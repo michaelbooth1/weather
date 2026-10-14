@@ -47,6 +47,21 @@ function Refuse-SuiteGate {
     exit 1
 }
 
+function Get-SuiteGateLocalInstants {
+    # Every UTC instant an offsetless local wall time can denote: one normally,
+    # two in the repeated fall-back hour, none in the spring-forward gap. The
+    # Scheduler's LastRunTime and the suite log's run boundary are both such
+    # wall times, so ordering checks compare these instants (DST-L15).
+    param([Parameter(Mandatory = $true)][datetime]$Local)
+
+    if ($Local.Kind -eq [DateTimeKind]::Utc) { return @($Local) }
+    $wall = [datetime]::SpecifyKind($Local, [DateTimeKind]::Unspecified)
+    $zone = [TimeZoneInfo]::Local
+    if ($zone.IsInvalidTime($wall)) { return @() }
+    $offsets = if ($zone.IsAmbiguousTime($wall)) { @($zone.GetAmbiguousTimeOffsets($wall)) } else { @($zone.GetUtcOffset($wall)) }
+    return @($offsets | ForEach-Object { ([datetimeoffset]::new($wall, $_)).UtcDateTime })
+}
+
 if ($ExpectedTip -notmatch "^[0-9a-f]{40}$") {
     Refuse-SuiteGate "ExpectedTip must be a full 40-character hexadecimal commit SHA"
 }
@@ -136,9 +151,11 @@ if ([string]$suiteTask.State -eq "Running") {
     if ($SuiteRunningWaitMinutes -le 0) {
         Refuse-SuiteGate "suite task is still running"
     }
-    $suiteWaitDeadline = (Get-Date).AddMinutes($SuiteRunningWaitMinutes)
+    # Elapsed-time deadline held as an instant, never local wall-clock
+    # arithmetic, so the bounded wait is the same length across DST (DST-M6).
+    $suiteWaitDeadline = ([datetimeoffset](Get-Date)).AddMinutes($SuiteRunningWaitMinutes)
     Write-Output ("SUITE GATE WAIT: suite task is still running; waiting at most {0} minute(s)" -f $SuiteRunningWaitMinutes)
-    while ([string]$suiteTask.State -eq "Running" -and (Get-Date) -lt $suiteWaitDeadline) {
+    while ([string]$suiteTask.State -eq "Running" -and ([datetimeoffset](Get-Date)) -lt $suiteWaitDeadline) {
         Start-Sleep -Seconds 15
         $suiteTaskMatches = @(Get-ScheduledTask -TaskName $SuiteTaskName -ErrorAction SilentlyContinue)
         if ($suiteTaskMatches.Count -ne 1) {
@@ -209,6 +226,19 @@ if ($actionArguments -notmatch $logPattern) { Refuse-SuiteGate "suite task actio
 if ($worktreePattern -and $actionArguments -notmatch $worktreePattern) {
     Refuse-SuiteGate "suite task action is not bound to the frozen WorktreeRoot"
 }
+# -InterpreterPath (or any prefix PowerShell would bind to it) runs a staged
+# interpreter: that run qualifies the interpreter and is never merge evidence.
+# PowerShell -File also binds a quoted name and an en/em dash or horizontal bar
+# in place of the hyphen; a path merely containing "interpreter" is not a name.
+# Its argv parsing drops double quotes anywhere in a token, so -"InterpreterPath",
+# -Int"erpreterPath", "-"InterpreterPath and -I""nterp bind too: the pattern is
+# also matched with every double quote removed (whitespace, the token boundary,
+# is kept, so a token that merely ends in -Interp... is still not a name).
+$interpreterArgumentPattern = '(?i)(?:^|[\s"''])[-\u2013\u2014\u2015]Inter[a-z]*(?=[:\s"'']|$)'
+if ($actionArguments -match $interpreterArgumentPattern -or
+    ($actionArguments -replace '"', '') -match $interpreterArgumentPattern) {
+    Refuse-SuiteGate "suite task action passes -InterpreterPath; an interpreter qualification run is not merge evidence"
+}
 if ($ExpectedGateSha256) {
     if (-not [string]::Equals(
             [string]$suiteTask.Principal.UserId,
@@ -272,7 +302,12 @@ if (-not (Test-Path -LiteralPath $SuiteLogPath -PathType Leaf)) {
     Refuse-SuiteGate "suite log does not exist"
 }
 $logItem = Get-Item -LiteralPath $SuiteLogPath
-if ($logItem.LastWriteTime -lt [datetime]$suiteInfo.LastRunTime) {
+$lastRunInstants = @(Get-SuiteGateLocalInstants ([datetime]$suiteInfo.LastRunTime))
+if ($lastRunInstants.Count -eq 0) {
+    Refuse-SuiteGate "suite task LastRunTime is not a valid local time"
+}
+# The log's UTC write time against the earliest instant LastRunTime can denote.
+if ($logItem.LastWriteTimeUtc -lt @($lastRunInstants | Sort-Object)[0]) {
     Refuse-SuiteGate "suite log predates the task run"
 }
 $lines = @(Get-Content -LiteralPath $SuiteLogPath)
@@ -288,7 +323,17 @@ $runStartedAt = $null
 if ([string]$runLines[0] -match "^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})") {
     $runStartedAt = [datetime]::ParseExact($Matches[1], "yyyy-MM-dd HH:mm:ss", $null)
 }
-if ($null -eq $runStartedAt -or [math]::Abs(($runStartedAt - [datetime]$suiteInfo.LastRunTime).TotalMinutes) -gt 5) {
+$runBoundaryCorrelated = $false
+if ($null -ne $runStartedAt) {
+    foreach ($runStartInstant in @(Get-SuiteGateLocalInstants $runStartedAt)) {
+        foreach ($lastRunInstant in $lastRunInstants) {
+            if ([math]::Abs(($runStartInstant - $lastRunInstant).TotalMinutes) -le 5) {
+                $runBoundaryCorrelated = $true
+            }
+        }
+    }
+}
+if (-not $runBoundaryCorrelated) {
     Refuse-SuiteGate "suite log run boundary does not correlate to LastRunTime"
 }
 
@@ -298,6 +343,9 @@ if (-not ($runLines -match $identityPattern)) {
 }
 if ($runLines -match "CHUNK\(S\) FAILED|SMOKE PASSED|PREFLIGHT PASSED") {
     Refuse-SuiteGate "suite log contains a non-full or failed verdict"
+}
+if ($runLines -match "interpreter_override ") {
+    Refuse-SuiteGate "suite log is an interpreter-override run, not merge evidence"
 }
 $lastLine = [string](@($runLines | Where-Object { $_ })[-1])
 $verdictMatch = [regex]::Match(

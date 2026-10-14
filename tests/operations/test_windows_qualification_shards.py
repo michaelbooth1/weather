@@ -66,6 +66,7 @@ EXPECTED_SHARDS = {
             "tests/operations/test_daily_refresh_wrapper_execution.py",
             "tests/operations/test_guidance_all_hours_admission.py",
             "tests/operations/test_ps_script_root_param_defaults.py",
+            "tests/operations/test_maker_shadow_ops_scripts.py",
         ],
     ),
     "launch": (
@@ -77,6 +78,9 @@ EXPECTED_SHARDS = {
             "tests/operations/test_integration_phase_output.py",
             "tests/operations/test_health_watchdog_script.py",
             "tests/operations/test_dst_audit_powershell_20261007.py",
+            "tests/operations/test_dst_audit_lows_20261011.py",
+            "tests/operations/test_dst_audit_suite_20261011.py",
+            "tests/operations/test_watchdog_classify_drift.py",
             "tests/operations/test_bounded_worktree_test_suite_script.py",
             "tests/operations/test_workstation_pregate_script.py",
             "tests/operations/test_reconciler_surface.py",
@@ -84,6 +88,7 @@ EXPECTED_SHARDS = {
             "tests/operations/test_merge_queue_driver_dry.py",
             "tests/operations/test_quiet_window_merge_execution.py",
             "tests/operations/test_landing_preflight.py",
+            "tests/operations/test_bounded_execution_tape_probe_script.py",
         ],
     ),
     "windows-lane-a": (
@@ -111,6 +116,7 @@ EXPECTED_SHARDS = {
             "tests/operations/test_storage_inventory_scope.py",
             "tests/operations/test_cold_snapshot_nightly_status_race.py",
             "tests/operations/test_wu_token_scan_junction.py",
+            "tests/market/test_order_journal.py",
         ],
     ),
     "windows-lane-b": (
@@ -143,6 +149,7 @@ EXPECTED_SHARDS = {
             "tests/operations/test_thin_ensure.py",
             "tests/operations/test_scheduled_task_local_daily_triggers.py",
             "tests/operations/test_exchange_economics_refresh_script.py",
+            "tests/operations/test_reset_daily_trigger_local.py",
         ],
     ),
     "reconciler-1": (

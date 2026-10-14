@@ -6,6 +6,10 @@ from weather.schema_registry_types import SchemaSpec
 
 
 RECENT_REGISTERED_SCHEMAS = (
+    SchemaSpec("manual_order_journal", "manual_order_journal_v0.1", "weather.market.order_journal", "active",
+               "Hash-chained owner-discretionary manual order records: orders, books, rewards, fills, markouts."),
+    SchemaSpec("manual_order_journal_report", "manual_order_journal_report_v0.1", "weather.market.order_journal_report",
+               "active", "Per-order/per-market manual order rewards, markouts, cash-days and two-sided baseline."),
     SchemaSpec("portfolio_snapshot", "portfolio_snapshot_v0.1", "maker_core.contracts.portfolio", "active",
                "Neutral account snapshots with explicit history coverage and fee availability."),
     SchemaSpec("portfolio_campaigns", "portfolio_campaigns_v0.1", "maker_core.contracts.portfolio", "active",

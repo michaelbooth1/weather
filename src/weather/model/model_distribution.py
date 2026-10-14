@@ -25,7 +25,7 @@ from weather.model.calibration_runtime import (
     apply_exact_distribution_calibration,
 )
 from weather.model.model_contracts import DistributionResult
-from weather.model.feature_store import current_max_trust_features
+from weather.model.feature_store import current_max_trust_features, plausible_native_temperature
 
 from weather.model.model_distribution_constants import (
     BUCKET_TRANSITION_BLEND_MAX,
@@ -1219,7 +1219,8 @@ class DistributionMixin(DistributionSignalMixin):
         is never a prior-day reading.  It never exceeds
         ``guidance_physical_floor``.  ``max_times`` is the first such row whose
         value reached ``B = round_half_up(anchor)``.  Every stage acts only
-        above ``B``; ``apply_lockin_observed_floor`` handles the mass below it.
+        above ``B``; ``apply_lockin_observed_floor`` handles the mass below it,
+        at every hour (v4), not only once a late-day stage acts.
         """
         history = history or {}
         legacy = bool(getattr(self, "late_day_lockin_legacy_wu_anchor", False))
@@ -1231,6 +1232,7 @@ class DistributionMixin(DistributionSignalMixin):
             "first_reached_time": (history.get("max_times") or [None])[0],
             "guidance_physical_floor": self.to_number(guidance_floor),
             "excluded_prior_day_rows": 0,
+            "metar_bucket": None,
             "legacy_wu_anchor": legacy,
             "history": history,
         }
@@ -1242,6 +1244,12 @@ class DistributionMixin(DistributionSignalMixin):
             return anchor
         high = max(value for _, _, value in rows)
         bucket = self.round_half_up(high)
+        # The pre-lock-in floor (v4) reads METAR rows only: the owner accepted a
+        # hard zero below a METAR-derived reading, and SWOB keeps its warm-bias
+        # hedge (apply_live_observed_floor) until a late-day stage acts.
+        metar_rows, _ = self.lockin_observed_rows(metar=metar, now=now)
+        if metar_rows:
+            anchor["metar_bucket"] = self.round_half_up(max(value for _, _, value in metar_rows))
         first_time = next(
             (time for _, time, value in rows if self.round_half_up(value) >= bucket),
             None,
@@ -1280,9 +1288,11 @@ class DistributionMixin(DistributionSignalMixin):
         for source_rows in row_sets:
             for row in source_rows:
                 value = self.row_temp_native(row)
-                if value is None:
+                if value is None or not plausible_native_temperature(value, self.spec.display_unit):
                     continue
                 observed = self.metar_observation_local_time(row, raw_obs_times)
+                if observed is None:
+                    observed = self.row_obs_time_local(row)
                 if observed is not None:
                     if target is not None and observed.date() != target:
                         excluded += 1
@@ -1299,6 +1309,19 @@ class DistributionMixin(DistributionSignalMixin):
                 rows.append((minute, "%02d:%02d" % divmod(minute, 60), value))
         rows.sort(key=lambda item: item[0])
         return rows, excluded
+
+    def row_obs_time_local(self, row):
+        """Local time of a row's own ``obs_time`` (ISO UTC), or None."""
+        value = row.get("obs_time")
+        if not value:
+            return None
+        try:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            return None
+        return parsed.astimezone(self.spec.tz)
 
     def metar_observation_local_time(self, row, raw_obs_times=None):
         """Local observation time of a METAR row, or None when it is not one.
@@ -1493,17 +1516,34 @@ class DistributionMixin(DistributionSignalMixin):
         )
         effective_lockin_strength = max(lockin_strength, partial_strength)
         observed_floor_bucket = None
-        if (
+        observed_floor_stage = None
+        late_day_acts = effective_lockin_strength > 0.0 or continuation_blended
+        # lockin-anchor-v4: the observed same-day high is a floor at every hour,
+        # not only once a late-day stage acts.  Before lock-in nothing else
+        # holds the same-day max since midnight (the hard floor reads the
+        # current reading and max-since-07:00 only).
+        pre_lockin_floor = bool(getattr(self, "pre_lockin_same_day_floor", True))
+        observed_anchor = (
             lockin_anchor is not None
             and lockin_anchor.get("source") == "observed_station_rows"
             and lockin_anchor.get("bucket") is not None
-            and (effective_lockin_strength > 0.0 or continuation_blended)
-        ):
+        )
+        if observed_anchor and late_day_acts:
             observed_floor_bucket = lockin_anchor["bucket"]
+            observed_floor_stage = "late_day"
+        elif observed_anchor and pre_lockin_floor and lockin_anchor.get("metar_bucket") is not None:
+            observed_floor_bucket = lockin_anchor["metar_bucket"]
+            observed_floor_stage = "pre_lockin"
+        if observed_floor_bucket is not None:
+            # The current-max overlock guard never runs alongside this floor:
+            # it needs a WU history bucket, and an observed anchor exists only
+            # while WU history is empty.
             scores = self.apply_lockin_observed_floor(scores, observed_floor_bucket)
         if lockin_anchor is not None:
             lockin_anchor["observed_floor_bucket"] = observed_floor_bucket
+            lockin_anchor["observed_floor_stage"] = observed_floor_stage
             high_has_stood_context["lockin_anchor"]["observed_floor_bucket"] = observed_floor_bucket
+            high_has_stood_context["lockin_anchor"]["observed_floor_stage"] = observed_floor_stage
         high_has_stood_context["stage_attribution"] = {
             "hard_lockin_strength": lockin_strength,
             "partial_dampener_strength": partial_strength,

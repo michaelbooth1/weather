@@ -955,7 +955,9 @@ $global:reconciliationTaskStarted = $false
 $global:reconciliationTaskDispatchAt = $null
 $global:reconciliationTaskPushed = $false
 $global:reconciliationTaskStopped = $false
-$global:reconciliationNow = [datetime]$env:RECON_TEST_NOW
+# Local kind, like production Get-Date: its "o" strings carry the offset, as do the
+# [datetimeoffset] containment instants the reconciler records (DST-M5).
+$global:reconciliationNow = [datetime]::SpecifyKind([datetime]$env:RECON_TEST_NOW, [DateTimeKind]::Local)
 [IO.File]::WriteAllText($env:RECON_TEST_CLOCK, $global:reconciliationNow.ToString("o"))
 
 function global:Get-Date {

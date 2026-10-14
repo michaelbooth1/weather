@@ -182,14 +182,19 @@ $before = Get-ScheduledTaskInfo -TaskName $SupervisorTaskName
 Enable-ScheduledTask -TaskName $SupervisorTaskName | Out-Null
 $enabledByThisRun = $true
 Start-ScheduledTask -TaskName $SupervisorTaskName
-$deadline = (Get-Date).AddSeconds(60)
+# Elapsed-time deadline held as an instant, never local wall-clock arithmetic
+# (DST audit 2026-10-07 M6).
+$deadline = ([datetimeoffset](Get-Date)).AddSeconds(60)
 do {
     Start-Sleep -Milliseconds 500
     $supervisorTask = Get-ScheduledTask -TaskName $SupervisorTaskName
     $after = Get-ScheduledTaskInfo -TaskName $SupervisorTaskName
-    $completedThisRun = [datetime]$after.LastRunTime -gt [datetime]$before.LastRunTime
+    # The Scheduler reports LastRunTime as local wall time without an offset,
+    # so a run in the repeated fall-back hour can read as earlier than the one
+    # before it. A new run is a changed LastRunTime, not a later one (DST-L15).
+    $completedThisRun = [datetime]$after.LastRunTime -ne [datetime]$before.LastRunTime
 } while ((-not $completedThisRun -or [string]$supervisorTask.State -eq "Running") -and
-    (Get-Date) -lt $deadline)
+    ([datetimeoffset](Get-Date)) -lt $deadline)
 if (-not $completedThisRun -or [string]$supervisorTask.State -eq "Running" -or
     [int]$after.LastTaskResult -ne 0) {
     Refuse-Adoption "first supervised ensure did not complete successfully"
