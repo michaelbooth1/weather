@@ -410,14 +410,15 @@ def shadow_scope_union(feed, day):
 
 
 def run_shadow_scope_union(args, *, feed=None):
-    """Write {"conditions": [...]} (new file only) and print its sha256 and count; nothing is written on refusal."""
+    """Write {"conditions": [...], "date": "YYYY-MM-DD"} (new file only; the UTC date it covers, which the session-0
+    scope-date guard checks beside the file name) and print its sha256 and count; nothing is written on refusal."""
     from weather.market.re1_attended import SecretGuard
     if feed is None:
         from maker_core.venue.public_feed import PublicFeed, UrllibTransport
         feed = PublicFeed(UrllibTransport())
     day = datetime.strptime(args.date, '%Y-%m-%d').date()
     conditions = shadow_scope_union(feed, day)
-    sha = write_new(args.out, {'conditions': conditions})
+    sha = write_new(args.out, {'conditions': conditions, 'date': day.isoformat()})  # review S8
     SecretGuard().print({'shadow_scope': str(args.out), 'sha256': sha, 'count': len(conditions), 'date': args.date})
     return 0
 
@@ -427,8 +428,8 @@ _NAME_DATE = re.compile(r'(?<!\d)(\d{4})-?(\d{2})-?(\d{2})(?!\d)')
 
 def shadow_scope_dates(path, raw=None):
     """Every UTC date the --shadow-scope file names: its "date" field (YYYY-MM-DD) if it records one, and each valid
-    YYYYMMDD or YYYY-MM-DD in its file name (shadow-scope-union writes {"conditions": [...]} only, so today the
-    name, e.g. shadow_scope_20261015.json, is the only record). `raw`: the bytes already read and hashed (review S5),
+    YYYYMMDD or YYYY-MM-DD in its file name, e.g. shadow_scope_20261015.json (shadow-scope-union records the field
+    since review S8; older files carry only the name). `raw`: the bytes already read and hashed (review S5),
     so the date checked and the sha256 recorded come from the same read."""
     dates = set()
     value = json.loads(read_condition_file(path) if raw is None else raw)

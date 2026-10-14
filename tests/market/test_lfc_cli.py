@@ -868,7 +868,8 @@ def test_shadow_scope_union_is_sorted_deduplicated_lowercase_and_deterministic(t
     first = _scope_run(monkeypatch, tmp_path, GammaFake(), 'a.json')[1].read_bytes()
     second = _scope_run(monkeypatch, tmp_path, GammaFake(), 'b.json')[1].read_bytes()
     conditions = json.loads(first)['conditions']
-    assert first == second and set(json.loads(first)) == {'conditions'}
+    assert first == second and set(json.loads(first)) == {'conditions', 'date'}
+    assert json.loads(first)['date'] == '2026-10-12'
     assert conditions == sorted(set(conditions)) and conditions.count(SHARED) == 1
     assert all(c == c.lower() for c in conditions)
 
@@ -1236,3 +1237,20 @@ def test_the_start_date_check_reads_the_recorded_date():
     assert lfc_cli.session0_start_date_refusal(table, datetime(2026, 10, 16, tzinfo=timezone.utc)) == \
         'shadow_scope_date_mismatch'
     assert lfc_cli.session0_start_date_refusal({'scope_sources': {}}, S0_SESSION) == 'shadow_scope_date_mismatch'
+
+
+def test_the_scope_writer_records_its_utc_date_and_the_guard_reads_it(tmp_path, monkeypatch):
+    # Review S8: shadow-scope-union --date D writes "date": D; the guard then checks the field and the name together.
+    code, out = _scope_run(monkeypatch, tmp_path, GammaFake(), 'shadow_scope_20261012.json')
+    assert code == 0 and json.loads(out.read_bytes())['date'] == '2026-10-12'
+    assert lfc_cli.shadow_scope_dates(out) == {date(2026, 10, 12)}
+    assert lfc_cli.shadow_scope_date_refusal(out, datetime(2026, 10, 12, 15, tzinfo=timezone.utc)) is None
+    assert lfc_cli.shadow_scope_date_refusal(out, datetime(2026, 10, 13, 15, tzinfo=timezone.utc)) ==         'shadow_scope_date_mismatch'
+    # Renamed by hand to another date, the recorded field still refuses it (the S1 mirror, on a written file).
+    renamed = tmp_path / 'shadow_scope_20261013.json'
+    renamed.write_bytes(out.read_bytes())
+    assert lfc_cli.shadow_scope_date_refusal(renamed, datetime(2026, 10, 13, 15, tzinfo=timezone.utc)) ==         'shadow_scope_date_mismatch'
+    # Without a date in the name, the field alone is the record.
+    bare = tmp_path / 'scope.json'
+    bare.write_bytes(out.read_bytes())
+    assert lfc_cli.shadow_scope_date_refusal(bare, datetime(2026, 10, 12, 15, tzinfo=timezone.utc)) is None
