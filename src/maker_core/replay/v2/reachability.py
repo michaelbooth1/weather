@@ -221,17 +221,21 @@ def verdict(max_m, r1=None):
     return "PASS_UNDER_R1" if r1 == "PASS" else "FAIL"
 
 
-def block(run, counts, *, check=lambda: None):
-    """The rehearsal document's ``reachability`` block from a carried run (counts and fractions only)."""
+def block(run, counts, *, check=lambda: None, opportunities=None):
+    """The rehearsal document's ``reachability`` block from a carried run: the §11 fields only (counts and fractions).
+
+    ``opportunities`` is ``policy_free_opportunities`` of the run when the caller already has it. Its candidate
+    count and exclusion histogram are not §11 quantities, so they stay out of this block (Defender re-check LOW);
+    the candidate count is E6's input and the rehearsal carries it at the document's top level."""
     fractions = {policy: quoted_fraction(run.passes[BOUND][policy].scorer) for policy in QUOTED_FRACTION_POLICIES}
     f_cal = fractions[POLICY]["quoted_fraction"]
-    opportunities = policy_free_opportunities(run.plan, run.books, check=check)
+    if opportunities is None:
+        opportunities = policy_free_opportunities(run.plan, run.books, check=check)
     status = status_of(f_cal)
     removed = None if f_cal is None else D(opportunities["l_cal"]) * (1 - D(f_cal))
     return dict(status=status, f_cal=f_cal, screen_pass_rate=screen(counts),
                 decision_reasons=dict(sorted(counts.items())), quoted_fraction=fractions,
                 n_cal=opportunities["n_cal"], l_cal=opportunities["l_cal"],
-                pull_candidates=opportunities["candidates"], opportunity_exclusions=opportunities["exclusions"],
                 expected_clock_removed=None if removed is None else dict(
                     calibration=str(removed), panel=str(removed * PANEL_SCALE),
                     panel_scale=f"{QUOTE_DATES}/{len(CALIBRATION_DATES)} quote dates per calibration date"))
@@ -256,6 +260,8 @@ def _carried(doc, variant):
     reach = doc["reachability"]
     if not isinstance(reach, dict) or reach.get("status") != status_of(reach.get("f_cal")):
         raise BundleError(f"gate_reachability_status_mismatch:{variant}")  # the status is recomputed, not trusted
+    if type(doc.get("pull_candidates")) is not int or doc["pull_candidates"] < 0:
+        raise BundleError(f"gate_carried_rehearsal_required:{variant}")  # E6's input, outside the §11 block
     return doc
 
 
@@ -297,8 +303,8 @@ def gate_report(per_date, carried, repeat, *, r1=None, e1=None, e3=None, e8=None
         E5=ceilings.e5_memory(measured, ceiling_input(carried), derived),
         E6=dict(status="INCOMPLETE" if derived["executable"] else "FAIL",
                 host_limit_binding=derived["host_limit_binding"],
-                projected_pull_candidates=carried["reachability"]["pull_candidates"] * ceilings.N
-                // len(CALIBRATION_DATES),
+                projected_pull_candidates=carried["pull_candidates"] * QUOTE_DATES // len(CALIBRATION_DATES),
+                panel_scale=f"{QUOTE_DATES}/{len(CALIBRATION_DATES)} quote dates per calibration date (D6.6)",
                 max_events="not derived: §9 has no pull-candidate ceiling (owner ruling pending)"),
         E7=dict(status="PASS" if all(same.values()) else "FAIL", date=day, identical=same),
         E8=_external("E8", e8))

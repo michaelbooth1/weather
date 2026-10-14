@@ -15,7 +15,7 @@ from types import SimpleNamespace
 import pytest
 
 from maker_core.replay.bundle import BundleError
-from maker_core.replay.v2 import reachability
+from maker_core.replay.v2 import reachability, rehearsal
 from maker_core.replay.v2.pull import LARGE_MOVE_MID2
 from maker_core.replay.v2.score import MINUTE_US, us
 
@@ -190,6 +190,8 @@ def test_the_block_status_reads_f_cal_through_the_table(covered, pulled, status,
     run = SimpleNamespace(passes={reachability.BOUND: scorers}, plan=None, books=None)
     reach = reachability.block(run, Counter())
     assert reach["status"] == status
+    assert set(reach) == set(rehearsal.REACHABILITY_KEYS)  # §11 fields only: no candidates or exclusion histogram
+    assert not {"pull_candidates", "opportunity_exclusions"} & set(reach)
     assert (reach["expected_clock_removed"] is None) == (status == "UNIDENTIFIED")
 
 
