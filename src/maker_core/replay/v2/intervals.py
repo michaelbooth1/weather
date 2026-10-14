@@ -1,8 +1,8 @@
 """The §4 universe rule as declared active intervals (maker replay v2 W7; registration draft §2, §4).
 
-A condition is **active** in UTC minute ``[t, t+1min)`` when all of these hold (owner decision 15: minute
-granularity, the latest descriptor at the minute start, the hazard denominator's rule in
-``maker_core.replay.calibration``):
+A condition is **active** in UTC minute ``[t, t+1min)`` when all of these hold (the registration §4 text, "active
+at UTC minute t", which the owner kept as written on 2026-10-13: minute granularity, the latest descriptor at the
+minute start, the hazard denominator's rule in ``maker_core.replay.calibration``):
 
 - ``t`` is on a quote date of the panel;
 - the condition is not in an owner-excluded market-date (``panel.OWNER_EXCLUSIONS``);
@@ -68,8 +68,9 @@ REASONS = (OWNER, SETTLEMENT_ONLY, TARGET_AFTER_PANEL, MAINTENANCE, MISSING_DESC
 STALE = "HORIZON_DESCRIPTOR_STALE_SECONDS"
 ACTIVE_HORIZONS = (1, 2)
 MINUTE = timedelta(minutes=1)
-# §4 window start (T1, 2026-10-13; one module must own §4, and that choice is pending review). "minute" is owner
-# decision 15 as U1 built it and registration §4 words it ("active at UTC minute t"): a descriptor change counts
+# §4 window start (T1, 2026-10-13). The owner ruled whole minute on 2026-10-13 (§4 kept as written), so "minute"
+# is the scored rule and "exact" is an unused, non-default switch kept for comparison only. "minute" is the
+# registration §4 text ("active at UTC minute t") as U1 built it: a descriptor change counts
 # from the first UTC minute start at or after its instant, so a capture at 00:03:20 activates the band from 00:04.
 # "exact" is the build line's ``execution_manifest.active_intervals``: the change counts from its instant (00:03:20).
 # Every other boundary (UTC day, maintenance, local midnight, envelope) is already on a minute, so the options

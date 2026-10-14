@@ -309,7 +309,7 @@ def _build_line_rule(bundles, result, endpoint):
 
 
 def test_windows_equal_the_horizon_runs_of_the_build_line_rule_at_minute_granularity(registered):
-    """Option "minute" (the default, owner decision 15 as U1 built it): the windows are the build line's §4
+    """Option "minute" (the default and the scored rule, registration §4 as written): the windows are the build line's §4
     construction with each run endpoint rounded up to the next minute, so a capture at 00:03:20 activates the
     minute from 00:04."""
     _, bundles, _, result = registered
