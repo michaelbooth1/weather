@@ -907,15 +907,18 @@ class _PastDeadlineCheck(Exception):
     pass
 
 
-def _deadline_run(monkeypatch, mode, now, *, session0=True):
-    """Run `mode` at `now`; reaching pilot_root means the deadline check let it through."""
+def _deadline_run(monkeypatch, mode, now, *, session0=True, s0_argv=None):
+    """Run `mode` at `now`; reaching pilot_root means the deadline check let it through. Without s0_argv the
+    scope-date guard is stubbed (S0_ARGV names no real scope file); with it the real guard runs."""
     monkeypatch.setattr(lfc_cli, '_now', lambda: now)
     monkeypatch.setattr(lfc_cli, '_LIVE_STARTED', False)
+    if s0_argv is None:
+        monkeypatch.setattr(lfc_cli, 'shadow_scope_date_refusal', lambda path, when: None)
 
     def reached():
         raise _PastDeadlineCheck()
     monkeypatch.setattr(lfc_cli, 'pilot_root', reached)
-    args = parser().parse_args([mode, *(S0_ARGV if session0 else [])])
+    args = parser().parse_args([mode, *((s0_argv or S0_ARGV) if session0 else [])])
     runner = lfc_cli.run_live if mode == 'live' else lfc_cli.run_preflight
     try:
         runner(args)
@@ -991,6 +994,9 @@ def test_the_scope_date_is_the_utc_date_not_the_owner_local_date(tmp_path):
 def test_a_shadow_scope_naming_no_date_refuses(tmp_path):
     scope = _scope_file(tmp_path, 'y.json')
     assert lfc_cli.shadow_scope_date_refusal(scope, S0_SESSION) == 'shadow_scope_date_unrecorded'
+    # Review S2: a 9-digit run on either side is no date (each regex boundary), nor is a 7-digit run.
+    for name in ('shadow_scope_120261015.json', 'shadow_scope_202610150.json', 'shadow_scope_2026101.json'):
+        assert lfc_cli.shadow_scope_date_refusal(_scope_file(tmp_path, name), S0_SESSION) ==             'shadow_scope_date_unrecorded', name
     with pytest.raises(ValueError, match='^shadow_scope_date_unrecorded$'):
         _s0_selector(tmp_path, scope, S0_SESSION)
 
@@ -1002,6 +1008,43 @@ def test_a_date_recorded_in_the_file_is_checked_and_must_agree_with_the_name(tmp
     assert lfc_cli.shadow_scope_date_refusal(stale, S0_SESSION) == 'shadow_scope_date_mismatch'
     renamed = _scope_file(tmp_path, 'shadow_scope_20261015.json', {'conditions': [], 'date': '2026-10-14'})
     assert lfc_cli.shadow_scope_date_refusal(renamed, S0_SESSION) == 'shadow_scope_date_mismatch'
+    # Review S1, the mirror: a name dated 10-14 refuses even when the field says 10-15 (the name is always scanned).
+    mirror = _scope_file(tmp_path, 'shadow_scope_20261014.json', {'conditions': [], 'date': '2026-10-15'})
+    assert lfc_cli.shadow_scope_date_refusal(mirror, S0_SESSION) == 'shadow_scope_date_mismatch'
     broken = _scope_file(tmp_path, 'scope_c.json', {'conditions': [], 'date': '15/10/2026'})
     with pytest.raises(ValueError, match='^shadow_scope_date_unreadable$'):
         lfc_cli.shadow_scope_date_refusal(broken, S0_SESSION)
+
+
+def _no_credential_step(monkeypatch):
+    """Every live step after the early gates raises, so a refusal proves it fired before any of them."""
+    from weather.market import re1_evidence, re1_owner_checks, re1_transport
+
+    def forbidden(*_a, **_k):
+        raise AssertionError('reached a mutex, credential, client or network step')
+    for module, name in ((re1_evidence, 'live_mutex'), (re1_owner_checks, 'clean_preflight'),
+                         (re1_transport, 'load_owner_credentials'), (re1_transport, 'build_client'),
+                         (re1_transport, 'geography')):
+        monkeypatch.setattr(module, name, forbidden)
+
+
+def _live_s0_argv(tmp_path, scope_name):
+    scope = _scope_file(tmp_path, scope_name)
+    extras = _scope_file(tmp_path, 'extra_conditions.json', {'extra_conditions': [], 'update_windows_utc': []})
+    return ['--session0', '--run', '0a', '--event-slug', 'a', '--event-slug', 'b', '--event-slug', 'c',
+            '--extra-conditions', str(extras), '--shadow-scope', str(scope)]
+
+
+def test_live_refuses_a_stale_scope_before_the_root_mutex_or_any_credential(tmp_path, monkeypatch):
+    # Review M1: the scope-date guard sits with the deadline check, before pilot_root and the live mutex.
+    _no_credential_step(monkeypatch)
+    argv = _live_s0_argv(tmp_path, 'shadow_scope_20261014.json')
+    assert _deadline_run(monkeypatch, 'live', S0_SESSION, s0_argv=argv) == 'shadow_scope_date_mismatch'
+    argv = _live_s0_argv(tmp_path, 'scope_no_date.json')
+    assert _deadline_run(monkeypatch, 'live', S0_SESSION, s0_argv=argv) == 'shadow_scope_date_unrecorded'
+
+
+def test_live_with_the_session_date_scope_reaches_the_root(tmp_path, monkeypatch):
+    _no_credential_step(monkeypatch)
+    argv = _live_s0_argv(tmp_path, 'shadow_scope_20261015.json')
+    assert _deadline_run(monkeypatch, 'live', S0_SESSION, s0_argv=argv) == 'passed'

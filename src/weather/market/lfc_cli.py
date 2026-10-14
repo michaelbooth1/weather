@@ -570,6 +570,12 @@ def run_live(args):
     late = session0_deadline_refusal(_now(), profile)
     if late:
         raise RuntimeError(late)
+    if profile.session0:
+        # Review M1: a file-only gate, so it refuses before the root, the live mutex, credentials or any read
+        # (_selector repeats it as defence in depth).
+        stale = shadow_scope_date_refusal(args.shadow_scope, _now())
+        if stale:
+            raise RuntimeError(stale)
     root = pilot_root()
     with live_mutex():
         now = _now()

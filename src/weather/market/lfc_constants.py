@@ -40,7 +40,8 @@ SHARE_MANY_RANGE = (Decimal('.15'), Decimal('.70'))
 
 # PR section 4 dates. No campaign order may rest before EARLIEST_START_UTC (replaces RE-1 LAST_DAY); a hard stop at
 # 23:50Z keeps every session inside its UTC day; counted sessions are on distinct owner-local dates and the last
-# one starts by LAST_START_LOCAL_DATE. Session 0 is exempt from the earliest start only (S0 section 1).
+# one starts by LAST_START_LOCAL_DATE. Session 0 is exempt from the earliest start (S0 section 1) and the last start
+# date, keeps the 23:50Z hard stop, and is bounded by SESSION0_DEADLINE_UTC instead.
 EARLIEST_START_UTC = datetime(2026, 10, 15, tzinfo=timezone.utc)
 HARD_STOP_UTC = time(23, 50)
 LAST_START_LOCAL_DATE = date(2026, 10, 31)

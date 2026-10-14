@@ -13,7 +13,8 @@ Added hard limits (PR section 6; each ends the session through the RE-1 cleanup)
   * Open orders must be exactly ours: an account-wide read every FOREIGN_CHECK_SECONDS ends the session on any
     foreign open order (`foreign_open_order`). The preflight and the live start refuse any open order at all.
   * Dates: no counted session before 2026-10-15T00:00Z, none ending after 23:50Z of its UTC day, the last one
-    starting by local 2026-10-31, at most one per owner-local date. Session 0 is exempt from the earliest start only.
+    starting by local 2026-10-31, at most one per owner-local date. Session 0 is exempt from the earliest and the
+    last start (it keeps the 23:50Z hard stop) and is bounded by LFC.SESSION0_DEADLINE_UTC (lfc_cli) instead.
 
 Dead-man and unattended cleanup (PR section 7, RE-1 pattern unchanged): the heartbeat thread sends every 2 s and the
 session ends when none succeeds within 8 s; a main loop stale for 20 s stops the sends so the venue cancels all of
