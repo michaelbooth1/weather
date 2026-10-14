@@ -142,3 +142,57 @@ def test_policy_free_opportunities_use_the_frozen_endpoint_rule_on_midpoints_onl
     assert result["n_cal"] == 7
     assert result["l_cal"] == 5  # minutes 2..6 end at or after the move at minute 7
     assert result["exclusions"] == {"MISSING_END_MIDPOINT": 3, "MISSING_START_MIDPOINT": 3}
+
+
+# -- §11 decision logic (Defender D6.1: mutants u01-u04) ---------------------------------------------------------------
+
+@pytest.mark.parametrize("f_cal, status", [
+    ("0.5", "PASS"),  # the boundary passes (>=, not >)
+    ("0.50", "PASS"),
+    ("0.5000001", "PASS"),
+    ("1", "PASS"),
+    ("0.4999999", "FAIL"),
+    ("0.45", "FAIL"),  # between 0.4 and 0.5: a 0.4 threshold would pass it
+    ("0.4", "FAIL"),
+    ("0", "FAIL"),
+    (None, "UNIDENTIFIED"),  # no eligible second: never a pass
+])
+def test_the_f_cal_status_table(f_cal, status):
+    assert reachability.THRESHOLD == reachability.D("0.5")
+    assert reachability.status_of(f_cal) == status
+
+
+@pytest.mark.parametrize("max_m, r1, outcome", [
+    ("PASS", None, "PASS"),
+    ("PASS", "FAIL", "PASS"),
+    ("PASS", "UNIDENTIFIED", "PASS"),
+    ("FAIL", None, "FAIL_R1_NOT_RUN"),
+    ("FAIL", "PASS", "PASS_UNDER_R1"),
+    ("FAIL", "FAIL", "FAIL"),
+    ("FAIL", "UNIDENTIFIED", "FAIL"),  # an unidentified R1 does not rescue max_m
+    ("UNIDENTIFIED", None, "UNIDENTIFIED"),  # not a pass, and not a reason to run R1 (D6.7)
+    ("UNIDENTIFIED", "PASS", "UNIDENTIFIED"),
+    ("UNIDENTIFIED", "FAIL", "UNIDENTIFIED"),
+])
+def test_the_section_11_verdict_table(max_m, r1, outcome):
+    assert reachability.verdict(max_m, r1) == outcome
+
+
+@pytest.mark.parametrize("covered, pulled, status", [
+    (2_000_000, 1_000_000, "PASS"),  # f_cal exactly 0.5
+    (100_000_000, 55_000_000, "FAIL"),  # f_cal 0.45
+    (0, 0, "UNIDENTIFIED"),
+])
+def test_the_block_status_reads_f_cal_through_the_table(covered, pulled, status, monkeypatch):
+    monkeypatch.setattr(reachability, "policy_free_opportunities",
+                        lambda *a, **k: dict(candidates=4, n_cal=3, l_cal=1, exclusions={}))
+    scorers = {p: SimpleNamespace(scorer=_scorer((covered, pulled))) for p in reachability.QUOTED_FRACTION_POLICIES}
+    run = SimpleNamespace(passes={reachability.BOUND: scorers}, plan=None, books=None)
+    reach = reachability.block(run, Counter())
+    assert reach["status"] == status
+    assert (reach["expected_clock_removed"] is None) == (status == "UNIDENTIFIED")
+
+
+def test_the_screen_reading_says_the_rate_is_biased_toward_pass():
+    reading = reachability.screen(Counter())["reading"]
+    assert "biased toward pass" in reading and "lower bound on decisions" not in reading

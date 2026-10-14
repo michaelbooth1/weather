@@ -202,7 +202,7 @@ def test_a_record_count_that_disagrees_with_the_replay_refuses(calibration, monk
 # -- §11 reachability and the E1-E8 gate report (U3) -------------------------------------------------------------------
 
 def test_only_the_carried_rehearsal_carries_the_reachability_block(per_date, carried):
-    doc, _ = carried
+    doc, seen = carried
     assert all("reachability" not in d for d in per_date.values())
     reach = doc["reachability"]
     assert set(reach) == set(rehearsal.REACHABILITY_KEYS)
@@ -278,18 +278,22 @@ def test_the_gate_report_reads_e2_e4_e5_e6_e7_and_section_11_and_waits_for_e1_e3
     doc, _ = carried
     report = reachability.gate_report(per_date, doc, repeat)
     gates = report["executability"]["gates"]
-    for name in ("E2", "E4", "E5", "E6", "E7"):
+    for name in ("E2", "E4", "E5", "E7"):
         assert gates[name]["status"] == "PASS", name
+    # E6's max_events clause is not evaluable until the owner rules (§9 derives no max_events): never PASS (D6.2)
+    assert gates["E6"]["status"] == "INCOMPLETE"
     assert report["executability"]["status"] == "INCOMPLETE"
     assert report["executability"]["not_supplied"] == ["E1", "E3", "E8"]
+    assert report["executability"]["not_evaluated"] == ["E6"]
     assert gates["E7"]["identical"] == dict(decision_sha256=True, report_sha256=True, sidecar_sha256=True)
     assert gates["E6"]["projected_pull_candidates"] == doc["reachability"]["pull_candidates"] * ceilings.N // 3
     evidence = {k: dict(status="PASS", evidence="fixture") for k in ("e1", "e3", "e8")}
-    assert reachability.gate_report(per_date, doc, repeat, **evidence)["executability"]["status"] == "PASS"
+    supplied = reachability.gate_report(per_date, doc, repeat, **evidence)["executability"]
+    assert supplied["status"] == "INCOMPLETE" and supplied["not_supplied"] == [] and supplied["not_evaluated"] == ["E6"]
     failed = dict(evidence, e3=dict(status="FAIL", evidence="fixture"))
     assert reachability.gate_report(per_date, doc, repeat, **failed)["executability"]["status"] == "FAIL"
     verdict = report["reachability"]["verdict"]
-    assert verdict == ("PASS" if doc["reachability"]["status"] == "PASS" else "FAIL_R1_NOT_RUN")
+    assert verdict == reachability.verdict(doc["reachability"]["status"])
     text = repr(report)
     for key in ("fills", "final_cash", "band_days", "scores", "pnl", "markout"):
         assert f"'{key}'" not in text
@@ -308,3 +312,34 @@ def test_the_gate_report_refuses_mislabelled_rehearsals(per_date, carried, repea
         reachability.gate_report(per_date, doc, repeat, r1=doc)
     with pytest.raises(BundleError, match="gate_evidence_invalid:E1"):
         reachability.gate_report(per_date, doc, repeat, e1=dict(status="MAYBE", evidence="x"))
+
+
+def test_e6_fails_when_the_ceilings_are_not_executable(per_date, carried, repeat, monkeypatch):
+    doc, _ = carried
+    real = ceilings.derive
+    monkeypatch.setattr(ceilings, "derive", lambda *a, **k: dict(real(*a, **k), executable=False))
+    report = reachability.gate_report(per_date, doc, repeat)
+    assert report["executability"]["gates"]["E6"]["status"] == "FAIL"
+    assert report["executability"]["status"] == "FAIL"
+
+
+def _with_status(doc, status, variant=None):
+    copy = dict(doc, reachability=dict(doc["reachability"], status=status))
+    return copy if variant is None else dict(copy, hazard_variant=variant)
+
+
+@pytest.mark.parametrize("max_m, r1, outcome", [
+    ("PASS", None, "PASS"),
+    ("FAIL", None, "FAIL_R1_NOT_RUN"),
+    ("FAIL", "PASS", "PASS_UNDER_R1"),
+    ("FAIL", "FAIL", "FAIL"),
+    ("FAIL", "UNIDENTIFIED", "FAIL"),
+    ("UNIDENTIFIED", None, "UNIDENTIFIED"),
+    ("UNIDENTIFIED", "PASS", "UNIDENTIFIED"),
+])
+def test_the_gate_report_verdict_passes_only_on_pass(per_date, carried, repeat, max_m, r1, outcome):
+    # D6.1 (u03/u04): fabricated statuses through the whole gate report; UNIDENTIFIED is never a pass
+    doc, _ = carried
+    r1_doc = None if r1 is None else _with_status(doc, r1, "r1_per_city")
+    report = reachability.gate_report(per_date, _with_status(doc, max_m), repeat, r1=r1_doc)
+    assert report["reachability"]["verdict"] == outcome

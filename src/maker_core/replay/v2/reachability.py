@@ -6,7 +6,7 @@
   second of a declared active interval, quoted is eligible with a leg resting: Clarification 3's ``quote_presence``
   read straight from the base pass's scorer sums (``covered``, ``pulled``), so no band-day row, fill or P&L is built
   for it. **PASS iff f_cal >= 0.5** (``THRESHOLD``); no eligible second is UNIDENTIFIED, which is not a pass.
-- **Screen pass rate** (reported only): over ``informed-v0``'s ``strictly_through`` base-pass decisions, those that
+- **Screen pass rate** (reported only, biased toward pass; see below): over ``informed-v0``'s ``strictly_through`` base-pass decisions, those that
   reached the net screen and passed it / those that reached it. With it, the decision-reason histogram keyed
   ``ACTION:REASON`` (counts only), and ``blind_re1``'s and ``clock_only``'s (the selected matched trial) quoted
   fractions. The decisions are counted by a tee in front of the scorer (``counting_engine``); the engine, the
@@ -26,8 +26,14 @@ so a decision is classified by its (action, terminal reason) pair:
 - everything else did not reach it (kernel pulls, gates before the size loop, eligibility rejections).
 
 ``decide`` tries sizes largest first and keeps only the last size's rejection, so a decision whose larger size
-failed the net screen and whose smallest admissible size failed an eligibility check reads as not reached. The
-rate is therefore over a lower bound of the decisions that reached the screen. It is reported, never gated.
+failed the net screen and whose smallest admissible size failed an eligibility check reads as not reached. Only
+reached-and-failed decisions are lost that way, so ``reached`` is a lower bound and the **rate is biased toward pass**
+(it is not a lower bound on the rate; Defender D6.4). It is reported, never gated.
+
+Decision logic (pinned by a table test): ``status_of`` maps f_cal to PASS (>= 0.5, the boundary included), FAIL or
+UNIDENTIFIED (no eligible second); ``verdict`` maps the max_m and R1 statuses to the §11 verdict, where only PASS
+passes: an UNIDENTIFIED max_m reads ``UNIDENTIFIED`` (a rehearsal or universe defect, not a reason to run R1), and
+R1 rescues only a FAIL, only with its own PASS.
 
 **R1** (the one pre-declared variant): each city's bands read their own ``U_m`` (``calibrate``'s ``cities[m]["upper"]``,
 which already carries Clarification 1's pooled fallback) instead of ``max_m U_m``, through ``Kernel.hazard_for``
@@ -173,7 +179,7 @@ def screen(counts):
         failed += n if pair in SCREEN_FAILED else 0
     reached = passed + failed
     return dict(reached=reached, passed=passed, rate=str(D(passed) / D(reached)) if reached else None,
-                reading="terminal (action, reason); a lower bound on decisions that reached the screen")
+                reading="terminal (action, reason); reached is a lower bound, so the rate is biased toward pass")
 
 
 def policy_free_opportunities(plan, books, *, check=lambda: None):
@@ -197,12 +203,30 @@ def policy_free_opportunities(plan, books, *, check=lambda: None):
     return dict(candidates=candidates, n_cal=opportunities, l_cal=large, exclusions=dict(sorted(excluded.items())))
 
 
+def status_of(f_cal):
+    """§11: PASS iff f_cal >= 0.5 (the boundary passes); no eligible second (None) is UNIDENTIFIED, never a pass."""
+    if f_cal is None:
+        return "UNIDENTIFIED"
+    return "PASS" if D(f_cal) >= THRESHOLD else "FAIL"
+
+
+def verdict(max_m, r1=None):
+    """The §11 verdict from the max_m status and, when R1 was run, its status (None: not run)."""
+    if max_m == "PASS":
+        return "PASS"
+    if max_m != "FAIL":
+        return "UNIDENTIFIED"
+    if r1 is None:
+        return "FAIL_R1_NOT_RUN"
+    return "PASS_UNDER_R1" if r1 == "PASS" else "FAIL"
+
+
 def block(run, counts, *, check=lambda: None):
     """The rehearsal document's ``reachability`` block from a carried run (counts and fractions only)."""
     fractions = {policy: quoted_fraction(run.passes[BOUND][policy].scorer) for policy in QUOTED_FRACTION_POLICIES}
     f_cal = fractions[POLICY]["quoted_fraction"]
     opportunities = policy_free_opportunities(run.plan, run.books, check=check)
-    status = "UNIDENTIFIED" if f_cal is None else "PASS" if D(f_cal) >= THRESHOLD else "FAIL"
+    status = status_of(f_cal)
     removed = None if f_cal is None else D(opportunities["l_cal"]) * (1 - D(f_cal))
     return dict(status=status, f_cal=f_cal, screen_pass_rate=screen(counts),
                 decision_reasons=dict(sorted(counts.items())), quoted_fraction=fractions,
@@ -239,8 +263,9 @@ def gate_report(per_date, carried, repeat, *, r1=None, e1=None, e3=None, e8=None
     ``repeat``: a second per-date document of one of the dates (E7); ``r1``: the carried ``r1_per_city`` document,
     required only when ``max_m`` fails §11. ``e1``/``e3``/``e8``: {"status": "PASS"|"FAIL", "evidence": text} from the
     export receipts, the v0.1 equivalence check and the fixture suite; absent is NOT_SUPPLIED, which is not a pass.
-    E6's pull-candidate clause has no derived ``max_events`` ceiling to compare with (T1 report) and is reported as
-    the projected count only."""
+    E6's pull-candidate clause has no derived ``max_events`` ceiling to compare with (§9 derives none; owner ruling
+    pending), so E6 reads INCOMPLETE (FAIL when the ceilings are not executable) and never PASS (Defender D6.2).
+    Only PASS passes: the executability status is PASS when every gate passes, FAIL when any fails, else INCOMPLETE."""
     from maker_core.replay.v2 import ceilings
     from maker_core.replay.v2.rehearsal import ceiling_input, whitelisted
     expected = [d.isoformat() for d in CALIBRATION_DATES]
@@ -267,26 +292,25 @@ def gate_report(per_date, carried, repeat, *, r1=None, e1=None, e3=None, e8=None
         E4=dict(status="PASS" if all(m["runtime_seconds"] <= E4_SECONDS for m in measured.values()) else "FAIL",
                 limit_seconds=E4_SECONDS, per_date={d: m["runtime_seconds"] for d, m in measured.items()}),
         E5=ceilings.e5_memory(measured, ceiling_input(carried), derived),
-        E6=dict(status="PASS" if derived["executable"] else "FAIL", host_limit_binding=derived["host_limit_binding"],
+        E6=dict(status="INCOMPLETE" if derived["executable"] else "FAIL",
+                host_limit_binding=derived["host_limit_binding"],
                 projected_pull_candidates=carried["reachability"]["pull_candidates"] * ceilings.N
-                // len(CALIBRATION_DATES), max_events="not derived (T1 report)"),
+                // len(CALIBRATION_DATES),
+                max_events="not derived: §9 has no pull-candidate ceiling (owner ruling pending)"),
         E7=dict(status="PASS" if all(same.values()) else "FAIL", date=day, identical=same),
         E8=_external("E8", e8))
     reach = {"max_m": carried["reachability"]}
     if r1 is not None:
         reach["r1_per_city"] = _carried(r1, "r1_per_city")["reachability"]
-    if reach["max_m"]["status"] == "PASS":
-        verdict = "PASS"
-    elif "r1_per_city" not in reach:
-        verdict = "FAIL_R1_NOT_RUN"
-    else:
-        verdict = "PASS_UNDER_R1" if reach["r1_per_city"]["status"] == "PASS" else "FAIL"
-    executable = all(g["status"] == "PASS" for g in gates.values())
-    incomplete = [name for name, g in gates.items() if g["status"] == "NOT_SUPPLIED"]
+    outcome = verdict(reach["max_m"]["status"], reach.get("r1_per_city", {}).get("status"))
+    statuses = [g["status"] for g in gates.values()]
+    status = "PASS" if all(s == "PASS" for s in statuses) else "FAIL" if "FAIL" in statuses else "INCOMPLETE"
     doc = dict(format=GATE_FORMAT, dates=expected, calibration_sha256=carried["calibration_sha256"],
-               executability=dict(status="PASS" if executable else "INCOMPLETE" if incomplete and not any(
-                   g["status"] == "FAIL" for g in gates.values()) else "FAIL", not_supplied=incomplete, gates=gates),
-               ceilings=derived, reachability=dict(verdict=verdict, threshold=str(THRESHOLD), variants=reach),
+               executability=dict(status=status,
+                                  not_supplied=[n for n, g in gates.items() if g["status"] == "NOT_SUPPLIED"],
+                                  not_evaluated=[n for n, g in gates.items() if g["status"] == "INCOMPLETE"],
+                                  gates=gates),
+               ceilings=derived, reachability=dict(verdict=outcome, threshold=str(THRESHOLD), variants=reach),
                rehearsal_sha256=dict(per_date={d: digest(doc) for d, doc in sorted(per_date.items())},
                                      carried=digest(carried), repeat=digest(repeat),
                                      r1=None if r1 is None else digest(r1)),
