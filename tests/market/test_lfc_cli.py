@@ -896,7 +896,7 @@ def test_shadow_scope_union_opens_no_path_but_its_output(tmp_path, monkeypatch):
     assert touched and {os.path.normcase(os.path.abspath(p)) for p in touched} == {os.path.normcase(str(out))}
 
 
-# ----- session-0 deadline (clarification D): live and preflight refuse at or after 2026-10-15T00:00:00Z ---------
+# ----- session-0 deadline (clarifications D, E): live and preflight refuse at or after 2026-10-25T00:00:00Z -----
 S0_ARGV = ['--session0', '--run', '0a', '--event-slug', 'a', '--event-slug', 'b', '--event-slug', 'c',
            '--extra-conditions', 'x.json', '--shadow-scope', 'y.json']
 
@@ -924,8 +924,8 @@ def _deadline_run(monkeypatch, mode, now, *, session0=True):
     raise AssertionError('unreachable')
 
 
-def test_session0_deadline_is_2026_10_15_utc():
-    assert LFC.SESSION0_DEADLINE_UTC == datetime(2026, 10, 15, tzinfo=timezone.utc)
+def test_session0_deadline_is_2026_10_25_utc():
+    assert LFC.SESSION0_DEADLINE_UTC == datetime(2026, 10, 25, tzinfo=timezone.utc)
 
 
 @pytest.mark.parametrize('mode', ['live', 'preflight'])

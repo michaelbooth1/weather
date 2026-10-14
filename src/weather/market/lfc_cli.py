@@ -28,7 +28,7 @@ Governed by the owner-signed pre-registration and session-0 spec (2026-10-09, re
 Session-0 flags (S0 sections 2 and 4): --session0 --run 0a|0b|0c|0d|0e|0f|0g --event-slug SLUG (repeatable: at least
 three distinct owner-listed candidate events) --extra-conditions F (the 88a file in force) --shadow-scope F. Every command that reads the ledger
 fails closed on missing or unreadable state. `live` and `preflight` with --session0 refuse with session0_deadline_passed
-at or after 2026-10-15T00:00:00Z (LFC.SESSION0_DEADLINE_UTC; clarification D). Nothing here widens an RE-1 limit: the controller is
+at or after 2026-10-25T00:00:00Z (LFC.SESSION0_DEADLINE_UTC; clarifications D and E). Nothing here widens an RE-1 limit: the controller is
 weather.market.lfc_pilot.PilotSession.
 
 Session-0 runbook notes (DRAFT clarification C5; delta review 2026-10-09):
