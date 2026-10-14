@@ -1067,7 +1067,7 @@ def test_the_scope_is_read_once_and_the_date_is_checked_on_the_hashed_bytes(tmp_
     monkeypatch.setattr(io, 'open', spy)
     monkeypatch.setattr(builtins, 'open', spy)
     _s0_selector(tmp_path, scope, S0_SESSION)
-    assert opened.count(os.path.normcase(str(scope))) == 1
+    assert sum(1 for p in opened if isinstance(p, str) and os.path.basename(p) == os.path.normcase(scope.name)) == 1
 
 
 def test_a_condition_file_must_be_a_regular_file_reached_through_no_reparse_point(tmp_path, monkeypatch):
