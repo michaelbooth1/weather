@@ -83,7 +83,7 @@ The live SDK portability check accepts any 3.11 patch release
 | G4 | The owner is reachable from 00:30 to 03:45 on the cutover night: GO at C0, and any escalation up to the end of §R. Phase A needs no owner click since the 2026-10-13 revision (A4 has no installer). | C0 |
 | G5 | No other lease user is due that night. Specifically: <br>- `WeatherTrainingWindow` (a 01:00 one-shot, `register_training_window.ps1:3`) is disabled or has no trigger that night; <br>- Stage B `WeatherEveningEvidenceRefresh` (00:35, holds the lease to 09:00 when enabled; `register_daily_refresh.ps1:20-24`) is disabled; <br>- a U6 export registered at 00:35 (Q3) is disabled (enforced in B0 and C0 by `Assert-NoU6At0035`);<br>- no integration attempt, quiet-window merge, storage one-shot or held-head work is scheduled. | Phase B (B0), C0 |
 | G6 | Release case A: `artifacts\releases\current_release.json` is absent (H5, B3, C0). Case B or C is NO-GO for this runbook (§8). | H5, B3, C0 |
-| G7 (LFC) | The cutover night (and any Phase B prep night) is not the night before or the night of a scheduled LFC session. Revised 2026-10-12 (owner-confirmed): it no longer waits for LFC session 0, which the owner postponed. | Phase B (B0), C0 |
+| G7 (LFC) | The cutover night (and any Phase B prep night) is not the night before or the night of a scheduled LFC session. Revised 2026-10-12 (owner-confirmed): it no longer waits for LFC session 0, which the owner postponed. **Dated exception 2026-10-14** (owner: "Keep B" (2026-10-14 16:27 EDT, relayed verbatim by master-agent); DECISION_LOG 2026-10-13 LFC session 0 row): Phase B runs at 00:30 on 10-16, the morning of LFC session 0 (Fri 10-16), on the guard that B ends clean by 09:00 with the 8765 reader and capture re-checked, else session 0 slips; C stays at 00:30 on 10-17. | Phase B (B0), C0 |
 | G8 (88a) | The night is after the 88a merge freeze in the state of play. `$R\q12.txt` records the owner's Q12 choice as `STOP_AUTHORIZED` with its DECISION_LOG reference. Any other value means NO-GO, because the 88a worker would hold the venv. | Sign-off, C0, C2 |
 | G9 (tzdata) | The tzdata sequencing is decided (Q13), so the freeze comparison in `Test-Venv` cannot false-fail. | Before Phase B |
 | G10 (seals) | No live attempt is planned between the cutover and the reseal. | Sign-off |
@@ -1314,7 +1314,7 @@ started on 3.11.9 against a 3.11.0-bound release would fail `check_runtime`
 | 09:30-11:55 Stage-A | Nothing |
 | 12:00-18:00 graded and 18:00-00:30 near-close | Nothing |
 | DST night 10-31 to 11-01 | Nothing (G11); §7a keeps the last attempt two nights earlier |
-| Night before or night of a scheduled LFC session | No Phase B or Phase C (G7) |
+| Night before or night of a scheduled LFC session | No Phase B or Phase C (G7), except the dated 2026-10-14 exception in G7 (B 00:30 10-16) |
 
 ## 11. Owner sign-off checklist
 
