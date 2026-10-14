@@ -112,6 +112,7 @@ never pooled across the 2026-07-31 provenance boundary.
   'band already decided' scores Brier 0.042 on held-out September against 0.24 for a constant (miscalibrated in the
   0.3-0.4 bin); report-to-availability lag is not measurable from the archive. Timing inputs only, no edge claim.
   (`codex/observation-clock-20260923` @ `d059cc78`).
+- **The maker-P&L desk study is not powerable at delta = 1.0 pUSD per band-day:** the pre-registered power rule on the 4-date 88a pilot gives sigma_d 4.713, 90% upper bound 10.679, **N_req = 706** event dates against a 14-28 date panel (UNDECIDABLE_AT_DELTA; descriptive only), so the embargo end stays 11-13; the bound comes from 4 dates. EF §10r.
 - A current economics snapshot cannot score historical maker runs; each dated condition has its own identities. EF §8k.
 - International Stage 0/1 software is adopted on master; the 2026-09-06 attended test ran different, unmerged code; Stage 2 has never run. EF §8t, §10f, [item 67](../roadmap/items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md).
 - Geographic eligibility is recorded as resolved by owner statement (2026-09-19); the operating rule is that the home file-access tunnel is down for a whole live session. [INTERNATIONAL_MM_LIVE_PILOT.md](INTERNATIONAL_MM_LIVE_PILOT.md).

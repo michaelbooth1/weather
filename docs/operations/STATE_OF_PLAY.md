@@ -35,7 +35,7 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 - **Production source:** `origin/master` `a99423120` (read it with git). N8 landed 10-13 as `67cedeb67`; then the pyup parse
   fix `eb745a5fc` and the A4 NuGet runbook revision (docs/.ps1 only).
 - **Forward maker shadow ACTIVE** (`WeatherMakerShadowRunner`, 24/7, 12 bands, paper only); stop only with
-  `data\maker_shadow\STOP`. Scoring embargo: `maker_shadow_panel.py` refuses UTC 09-30..10-15 and 10-15..11-13.
+  `data\maker_shadow\STOP`. Scoring embargo: `maker_shadow_panel.py` refuses UTC 09-30..10-15 and 10-15..11-13 (end stays 11-13: #263 N_req 706, DL 10-14).
 - **Journal pin:** `WeatherManualOrderJournal` pins five files incl. `wallet_reader_client.py`; a merge touching one makes it
   exit 3 until re-registered ([runbook](manual-order-journal.md)).
 - **Wallet reader (8765)** restarted by the owner 10-13 10:21 on `a1014edab` (any-LAN code); LFC client config in the pinned worktree.
@@ -70,7 +70,7 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 3. **Host Python:** A' 10-14 07:00; §T + T-R 10-15; B 10-16; cutover C 00:30 10-17.
 4. **10-15 night: #177 (T2, owner yes)**; §T holds the lease 00:30-02:00, suite ~02:45, merge start by 03:40; owner accepts
    the capture restart ~03:40-04:00 EDT in the UTC 10-15 panel day. 10-16/10-17 G5 no-merge; #182 + #172 10-18; #118 >= 10-18.
-5. **Item 337:** host no-METAR replay >= 10-15; on PASS flip, bump, quiet window (owner yes). #263 power rule (09-29 only); NBS/NBH; NWP timing.
+5. **Item 337:** host no-METAR replay >= 10-15; on PASS flip, bump, quiet window (owner yes). NBS/NBH; NWP timing (#263 done 10-14, EF §10r).
 
 ## Open commitments (every row: owner, due, verify)
 
