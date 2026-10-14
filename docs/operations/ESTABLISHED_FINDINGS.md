@@ -105,6 +105,7 @@ sequence numbers, not calendar dates.
 | 10o | Weather takers pay fees and makers earn fee-funded rebates |
 | 10p | `2026-09-111h`: NBM guidance at all hours (parser v2) does not carry the morning lead into the afternoon; the US all-hours route is closed |
 | 10q | Model-parity swarm v2 (2026-10-04, development; landed by production 2026-10-04): two serving repairs on captured data close about half of the 111h table's gap (evening lock-in defect; morning v2 read); no external free source adds information; 13-16 residual |
+| 10r | Desk-study power rule (2026-10-14, pre-registered, n = 4 pilot dates): N_req = 706 event dates, branch UNDECIDABLE_AT_DELTA; the 11-13 embargo end stands |
 
 ---
 
@@ -3673,6 +3674,30 @@ pre-embargo dates only (nothing from 2026-09-30 on).
 - **Consequence:** an observed hour-0 same-day high is consistent with venue settlement as a floor, on n = 2 with no
   counterexample. It is evidence for the owner's hedge-vs-floor decision on item 337, not a decision; the host
   `--with-no-metar-arm` replay over 2026-08-25..09-29 is still open.
+
+### 10r. The maker-P&L desk study is not powerable at delta = 1.0: N_req = 706 event dates from a 4-date pilot — power rule #263, 2026-10-14
+
+Pre-registered computation, run once: `docs/research/maker-pnl-adverse-selection-preregistration-2026-10-01.md`
+(frozen at `574f8369b`, lines 118-133) with Clarification 1 point 3 (`67e44273b`), on the owner's 2026-10-07 instruction
+to run the power rule now (DECISION_LOG 2026-10-07). Input: the 88a variance pilot only (UTC days 2026-09-25..09-29,
+event dates 2026-09-26..09-29; the script refuses any later date) and the 12 settlement ledgers. Nothing fitted, no α,
+no panel read. Source: host run by master-agent 2026-10-14 03:09-03:11 EDT, head `69af7d613` (`claude/desk-study-power-rule-r2-20261014`, draft PR #283), result_sha256 `e4061d78aeb254680e63d1e7962c4f43b63b44ef6afd8bb32fab2d264268efae`; output `C:\tmp\pwr-20261014\results\power-rule.json` on the capture host.
+
+- **Inputs read:** dry run 311,061,393 bytes, 121 sealed segments, no missing day, all 12 ledgers present.
+- **Result (verbatim):** n = 4 date clusters; sigma_d = 4.713343445231315 pUSD per band-day (sample SD of the date-mean
+  NP_S); c = 0.5843743741551835 (the 0.10 lower-tail chi-square quantile, 3 df; a fixed function of n);
+  sigma_up = 10.679333086154092; delta = 1.0 pUSD per band-day (fixed in the pre-registration, not from the pilot);
+  **N_req = 706**; branch **UNDECIDABLE_AT_DELTA** (N_req > 28); decision **EMBARGO_END_UNCHANGED**.
+- **Caveat:** sigma_up is the one-sided 90% upper bound on sigma from 4 dates (3 degrees of freedom), so it is 2.27x
+  sigma_d by construction. With sigma_d itself in place of sigma_up the same formula gives about 138 dates; both are far
+  above the 28-date ceiling, so the branch does not depend on that choice.
+- **Consequences under the pre-registration, nothing more:** the panel stays 14 dates and runs descriptive only, with the
+  achieved MDE reported; the owner's conditional (N_req <= 14 moves the embargo end 11-13 -> 10-31) does not fire, so the
+  shadow scoring embargo end stays 2026-11-13. As a gate, the desk-study P&L comparison cannot decide the sign question at
+  delta = 1.0 pUSD per band-day on any panel the pre-registration allows; no maker decision may treat its outcome as
+  powered.
+- **Not established:** the size or sign of NP_S; whether the pilot's variance holds on later dates; any figure for a
+  different delta.
 
 ## Related
 
