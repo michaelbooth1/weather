@@ -15,12 +15,15 @@ running session 0, or reviewing what the owner will do.
   pre-registration (PR), session-0 spec (S0), panel clarifications,
   clarification A/2, and clarification C (sha256
   `4d6ae37a4f2cb6a098ef709dd0148b9babba6e465c3d202dff2ab4242d369054`).
-- Code: the pinned worktree `C:\wt\lfc-pinned-acd052a2d` at the final session-0 tip `acd052a2d`
-  (`acd052a2d0c38e701e951f7e5efd53d0a7e11781`, branch `claude/lfc-pinned-ext-20261009`; it replaces
-  `6c45aaa14`). The main session creates and locks it after the Fable delta-3
-  review over `468607b13..acd052a2d` (section 3.0). Every command below was
-  checked against the CLI at that commit (`python -m weather.market.lfc_cli
-  --help` and the source). Commands that touch the venue or the wallet reader
+- Code: the pinned worktree `C:\wt\lfc-pinned-e27909a76` at the session-0 tip `e27909a76`
+  (`e27909a764e96931c9ea38d6fba8202af8fc2b67`, branch `claude/lfc-scope-date-guard-r2-20261014`: `acd052a2d` plus the
+  deadline 2026-10-25T00:00Z and the scope-date guard r2; Fable-reviewed 2026-10-13, master-approved pin;
+  the main session created and locked it 2026-10-13, section 3.0). It replaces `acd052a2d`; the worktrees
+  `C:\wt\lfc-pinned-acd052a2d` and `C:\wt\lfc-pinned-6c45aaa14` are **retained as evidence** and are not
+  used. **A fresh preflight is needed on this pin** (Fable): preflight evidence binds `code_identity`
+  (the commit), so no receipt from `acd052a2d` counts. The ledger is unchanged from `acd052a2d` to
+  `e27909a76`, so the ledger from `init-ledger` stays valid. The commands below were checked against the
+  CLI at `acd052a2d`; the pin adds only the deadline value and the scope-date refusals (section 10). Commands that touch the venue or the wallet reader
   were **not** run while drafting.
 - Data seen while drafting: none. No 88a, panel or settlement data, and no
   session-0 artefact.
@@ -35,12 +38,13 @@ under any relay.
 
 | Item | Rule | Source |
 | --- | --- | --- |
-| Session 0 date | **UTC 2026-10-14, starting about 15:00Z (11:00 EDT)**. Owner re-dated 2026-10-12 19:35 EDT, relayed by master-agent: "ok approved lets plan for it" (DECISION_LOG 2026-10-12). It replaces the 10-12 date of 2026-10-09 (D9). | owner, D9, DECISION_LOG |
-| Session 0 deadline | Before 2026-10-15T00:00Z (10-14 20:00 EDT). **Enforced:** `preflight` and `live` with `--session0` refuse `session0_deadline_passed` at or after that instant. | S0 §1, D10, `SESSION0_DEADLINE_UTC` |
+| Session 0 date | **UTC 2026-10-15 (Thursday), starting about 15:00Z (11:00 EDT)**, owner-attended, about 3 h. This is the 10-15 variant of this runbook; the owner's chat answer picks the day (DECISION_LOG 2026-10-13 rows). It replaces the 10-14 date of 2026-10-12 and the 10-12 date of 2026-10-09 (D9). | owner, D9, DECISION_LOG |
+| Session 0 deadline | Before **2026-10-25T00:00Z** (10-24 20:00 EDT), per the DECISION_LOG 2026-10-13 rows; it replaces 2026-10-15T00:00Z and is in the pin `e27909a76`. No clarification is issued for the move; the session-0 day and logistics are decided by the owner's chat answer. **Enforced:** `preflight` and `live` with `--session0` refuse `session0_deadline_passed` at or after that instant. | DECISION_LOG, D10, `SESSION0_DEADLINE_UTC` |
 | One UTC date | Run every sub-run on one UTC date. `live` accepts only a PASS preflight from the same UTC date and commit. | code (`clean_preflight`) |
 | Hard stop | Each run's start + duration must end by 23:50Z (19:50 EDT; 0a = 20 min, others = 10 min), else `past_hard_stop_2350z`. | PR §4, code |
-| Plan for 10-14 | T − 24 h steps on **10-13 about 15:00Z (11:00 EDT)**, starting with the ledger init (section 3.7); T − 40 min steps (including the shadow scope, section 2) about **14:20Z (10:20 EDT) on 10-14**; first preflight about **15:00Z (11:00 EDT)**. Total ≈ 3 h with checks. **No fallback day**: the deadline is 10-15T00:00Z, so anything not done by the 23:50Z (19:50 EDT) hard stop on 10-14 is not done. | this runbook |
-| Earliest counted session | Session 1: 2026-10-15 owner's afternoon (e.g. 17:00Z, 13:00 EDT) or 10-18 and later; **never 10-16 or 10-17** (owner, 2026-10-12). The code's own floor is 2026-10-15T00:00Z (session 0 is exempt). | PR §4, `EARLIEST_START_UTC` |
+| Plan for 10-15 | T − 24 h steps on **10-14 about 15:00Z (11:00 EDT)** (`init-ledger` already ran on 10-13 and is once; it is not repeated); T − 40 min steps (including the shadow scope, section 2) at **10:20 EDT (14:20Z) on 10-15**; first preflight about **15:00Z (11:00 EDT)**. Total ≈ 3 h with checks. Anything not done by the 23:50Z (19:50 EDT) hard stop on 10-15 is not done that day; any other session-0 date is an owner decision. Host-Python Phase B runs on the capture host at 00:30 on 10-16, after the session. | this runbook |
+| Earliest counted session | Session 1: **10-18 or later**, only after a session-0 PASS, with its t24 taken the day before (20-30 h before its start); **never 10-16 or 10-17**. The code's own floor is 2026-10-15T00:00Z (session 0 is exempt). | PR §4, `EARLIEST_START_UTC` |
+| Session-1 pin | `claude/lfc-hardening-r2-20261014` @ `6bc6f2bec` replaces delta-3 §8's `acd052a2d` for session 1. It needs its own pinned worktree and a fresh preflight on it (preflight evidence binds `code_identity`), and is recorded in DECISION_LOG after a session-0 PASS. Session 0 runs on `e27909a76` only. | master, Fable |
 | Markets | Session 0 uses **non-panel markets only**: the owner lists ≥ 3 off-panel events, and the selector refuses any condition in the 88a extra conditions, the shadow scope or `panel_exclusions.jsonl`. | S0 §2, C2 |
 
 ## 2. Shell setup (every new window)
@@ -49,9 +53,9 @@ Open Windows PowerShell (not an agent tool). Paste this into **each** window
 you use; window A runs `live`, window B runs the helpers.
 
 ```powershell
-Set-Location C:\wt\lfc-pinned-acd052a2d
+Set-Location C:\wt\lfc-pinned-e27909a76
 $python = 'C:\Users\Michael\Documents\github\weather\venv\Scripts\python.exe'
-$env:PYTHONPATH = 'C:\wt\lfc-pinned-acd052a2d;C:\wt\lfc-pinned-acd052a2d\src'
+$env:PYTHONPATH = 'C:\wt\lfc-pinned-e27909a76;C:\wt\lfc-pinned-e27909a76\src'
 $env:PYTHONDONTWRITEBYTECODE = '1'
 $root = Join-Path $env:USERPROFILE '.weather-lfc-20261009'
 $snapDir = Join-Path $env:USERPROFILE '.weather-lfc-20261009-owner-snapshots'
@@ -186,7 +190,7 @@ $ev5 = 'turkey-rejoins-f-35-program-byptptpt-20260708215709215'
 # Alternates (swap one in only if an event above is closed or refused):
 #   'houthis-enter-saudi-arabia-byptptpt'   'next-us-iran-senior-diplomatic-meeting-byptptpt'
 $extra = Join-Path $env:USERPROFILE '.weather-lfc-20261009-inputs\extra_conditions-<sha8>.json'  # host copy; sha check below
-$scope = Join-Path $env:USERPROFILE '.weather-lfc-20261009-inputs\shadow_scope_20261014.json'
+$scope = Join-Path $env:USERPROFILE '.weather-lfc-20261009-inputs\shadow_scope_20261015.json'
 $s0 = @('--session0', '--event-slug', $ev1, '--event-slug', $ev2, '--event-slug', $ev3,
         '--event-slug', $ev4, '--event-slug', $ev5, '--extra-conditions', $extra, '--shadow-scope', $scope)
 ```
@@ -201,7 +205,7 @@ $s0 = @('--session0', '--event-slug', $ev1, '--event-slug', $ev2, '--event-slug'
   passed **as is** (the code accepts its
   `{"extra_conditions": [...], "update_windows_utc": [...]}` shape). Neither
   agent reads or parses it. Transfer (master-agent, 2026-10-09):
-  1. At **T - 40 min** on 10-14 (14:20Z, 10:20 EDT), master-agent makes a shared-open, byte-for-byte
+  1. At **T - 40 min** on 10-15 (14:20Z, 10:20 EDT), master-agent makes a shared-open, byte-for-byte
      copy of `<prod checkout>\data\maker_evidence\extra_conditions.json` on
      the capture host, records its sha256, and places it at
      `C:\Users\micha\Desktop\lfc-transfer\extra_conditions-<sha8>.json` on the
@@ -218,18 +222,24 @@ $s0 = @('--session0', '--event-slug', $ev1, '--event-slug', $ev2, '--event-slug'
      ```
 
      A mismatch means **no session**.
-- **`$scope`** is generated at **T − 40 min** (about 14:20Z, 10:20 EDT, on 10-14) and its
+- **`$scope`** is generated at **T − 40 min** (about 14:20Z, 10:20 EDT, on 10-15) and its
   sha256 recorded:
 
   ```powershell
   New-Item -ItemType Directory -Force (Split-Path $scope) | Out-Null
-  & $python -m weather.market.lfc_cli shadow-scope-union --date 2026-10-14 --out $scope
+  & $python -m weather.market.lfc_cli shadow-scope-union --date 2026-10-15 --out $scope
   ```
 
   Success: exit 0, printing `sha256` and `count`; record the sha256 line. It
   reads public Gamma only and **fails closed** (`shadow_scope_event_missing`,
-  nothing written) until every registry event dated 10-13 to 10-16 (D−1 to
+  nothing written) until every registry event dated 10-14 to 10-17 (D−1 to
   D+2) is listed; rerun later if so. An existing `--out` is refused.
+- **The scope file name carries the date.** At the session-0 pin `e27909a76`,
+  `shadow-scope-union` writes only `{"conditions": [...]}`, so the file NAME
+  (`shadow_scope_<YYYYMMDD>.json`) is the only record of its date, and
+  `preflight`/`live` refuse a name without the session's UTC date (section 10).
+  From the session-1 pin (`6bc6f2bec`) onward, `shadow-scope-union` also writes
+  a `"date"` field, which must agree with the name.
 - `go <6 hex>` is typed by the owner at each `live` start; it is the first 6 hex
   of the selection digest that `live` prints. Check S0 rules 1-2 by eye on the
   printed `event_slug` and `condition` before typing.
@@ -238,27 +248,32 @@ $s0 = @('--session0', '--event-slug', $ev1, '--event-slug', $ev2, '--event-slug'
 
 ### 3.0 Pinned worktree (created by the main session after review)
 
-The main session creates the new locked, detached worktree once the Fable
-delta-3 review over `468607b13..acd052a2d` passes. The old
-`C:\wt\lfc-pinned-6c45aaa14` stays as it is.
+Done by the main session 2026-10-13 (~22:40 EDT): the locked, detached
+worktree `C:\wt\lfc-pinned-e27909a76` at `e27909a76` (Fable-reviewed r2,
+master-approved pin). `C:\wt\lfc-pinned-acd052a2d` and
+`C:\wt\lfc-pinned-6c45aaa14` stay as they are, as evidence. For the record,
+the commands were:
 
 ```powershell
-git -C C:\Users\Michael\Documents\github\weather fetch origin claude/lfc-pinned-ext-20261009
-git -C C:\Users\Michael\Documents\github\weather worktree add --detach C:\wt\lfc-pinned-acd052a2d acd052a2d0c38e701e951f7e5efd53d0a7e11781
-git -C C:\Users\Michael\Documents\github\weather worktree lock --reason "LFC session-0 pinned tip acd052a2d (owner-approved 2026-10-09; delta-3 reviewed)" C:\wt\lfc-pinned-acd052a2d
+git -C C:\Users\Michael\Documents\github\weather fetch origin claude/lfc-scope-date-guard-r2-20261014
+git -C C:\Users\Michael\Documents\github\weather worktree add --detach C:\wt\lfc-pinned-e27909a76 e27909a764e96931c9ea38d6fba8202af8fc2b67
+git -C C:\Users\Michael\Documents\github\weather worktree lock --reason "LFC session-0 pinned tip e27909a76 (deadline 2026-10-25T00Z + scope-date guard r2; Fable-reviewed 2026-10-13; master-approved pin; owner logistics row 2026-10-13)" C:\wt\lfc-pinned-e27909a76
 ```
+
+A new pin needs a fresh `preflight` on it (preflight evidence binds
+`code_identity`, the commit).
 
 ### 3.1 Pinned code and lock (window A)
 
 ```powershell
-git -C C:\wt\lfc-pinned-acd052a2d rev-parse HEAD
-git -C C:\wt\lfc-pinned-acd052a2d status --porcelain --untracked-files=normal
-git -C C:\Users\Michael\Documents\github\weather worktree list --porcelain | Select-String -Context 0,4 'lfc-pinned-acd052a2d'
+git -C C:\wt\lfc-pinned-e27909a76 rev-parse HEAD
+git -C C:\wt\lfc-pinned-e27909a76 status --porcelain --untracked-files=normal
+git -C C:\Users\Michael\Documents\github\weather worktree list --porcelain | Select-String -Context 0,4 'lfc-pinned-e27909a76'
 ```
 
-Success: HEAD `acd052a2d0c38e701e951f7e5efd53d0a7e11781`; status prints nothing (the code refuses on any
+Success: HEAD `e27909a764e96931c9ea38d6fba8202af8fc2b67`; status prints nothing (the code refuses on any
 untracked or modified file); the worktree entry shows
-`locked LFC session-0 pinned tip acd052a2d ...`. Anything else: **stop**.
+`locked LFC session-0 pinned tip e27909a76 (deadline 2026-10-25T00Z + scope-date guard r2; Fable-reviewed 2026-10-13; master-approved pin; owner logistics row 2026-10-13)`. Anything else: **stop**.
 
 ### 3.2 Interpreter and imports
 
@@ -270,9 +285,9 @@ untracked or modified file); the worktree entry shows
 
 Success, exactly:
 - `3.11.9`;
-- `C:\wt\lfc-pinned-acd052a2d\weather\__init__.py`;
-- `C:\wt\lfc-pinned-acd052a2d\src\weather\market\lfc_cli.py`;
-- `C:\wt\lfc-pinned-acd052a2d`;
+- `C:\wt\lfc-pinned-e27909a76\weather\__init__.py`;
+- `C:\wt\lfc-pinned-e27909a76\src\weather\market\lfc_cli.py`;
+- `C:\wt\lfc-pinned-e27909a76`;
 - `0.6.0`;
 - `econ_loaded=False` (P2 scan).
 
@@ -383,12 +398,12 @@ gitignored `config/local/`.
 
    ```powershell
    # OWNER ONLY. <ws ip> = the address from step 1. The token never appears in any shared output.
-   New-Item -ItemType Directory -Force C:\wt\lfc-pinned-acd052a2d\config\local | Out-Null
+   New-Item -ItemType Directory -Force C:\wt\lfc-pinned-e27909a76\config\local | Out-Null
    $tok = Read-Host 'reader token (64 hex)'
-   [IO.File]::WriteAllText('C:\wt\lfc-pinned-acd052a2d\config\local\wallet_reader_client.json', (@{ url = 'http://<ws ip>:8765'; token = $tok } | ConvertTo-Json -Compress))
+   [IO.File]::WriteAllText('C:\wt\lfc-pinned-e27909a76\config\local\wallet_reader_client.json', (@{ url = 'http://<ws ip>:8765'; token = $tok } | ConvertTo-Json -Compress))
    Remove-Variable tok
-   git -C C:\wt\lfc-pinned-acd052a2d check-ignore -v config/local/wallet_reader_client.json
-   git -C C:\wt\lfc-pinned-acd052a2d status --porcelain --untracked-files=normal
+   git -C C:\wt\lfc-pinned-e27909a76 check-ignore -v config/local/wallet_reader_client.json
+   git -C C:\wt\lfc-pinned-e27909a76 status --porcelain --untracked-files=normal
    ```
 
    Success: `check-ignore` names `.gitignore` (`config/local/`); status still
@@ -399,7 +414,7 @@ gitignored `config/local/`.
 
    ```powershell
    Get-NetTCPConnection -LocalPort 8765 -State Listen | Select-Object LocalAddress, LocalPort, OwningProcess
-   $c = Get-Content C:\wt\lfc-pinned-acd052a2d\config\local\wallet_reader_client.json -Raw | ConvertFrom-Json
+   $c = Get-Content C:\wt\lfc-pinned-e27909a76\config\local\wallet_reader_client.json -Raw | ConvertFrom-Json
    Invoke-RestMethod -Uri ($c.url.TrimEnd('/') + '/health') -Headers @{ Authorization = 'Bearer ' + $c.token }; Remove-Variable c
    Get-OpenOrderCount
    ```
@@ -439,14 +454,14 @@ not trade during that window."
 
 | When | Command | Purpose |
 | --- | --- | --- |
-| T − 24 h (10-13, ~15:00Z, 11:00 EDT) | `init-ledger` (section 3.7, first), then `Save-OwnerSnapshot t24` then `& $python -m weather.market.lfc_cli baseline --label t24` | record only; session 0 does not use t24 |
-| T − 40 min (10-14, ~14:20Z, 10:20 EDT, before 0a) | `Save-OwnerSnapshot t40`, then `shadow-scope-union` (section 2), then `baseline --label t40` and record the **session-start baseline** (block below) | owner-private before-snapshot; the `$scope` file and its sha256; the start baseline for R-D1 |
+| T − 24 h (10-14, ~15:00Z, 11:00 EDT) | `init-ledger` (section 3.7; already ran on 10-13, once only, not repeated), then `Save-OwnerSnapshot t24` then `& $python -m weather.market.lfc_cli baseline --label t24` | record only; session 0 does not use t24 |
+| T − 40 min (10-15, ~14:20Z, 10:20 EDT, before 0a) | `Save-OwnerSnapshot t40`, then `shadow-scope-union` (section 2), then `baseline --label t40` and record the **session-start baseline** (block below) | owner-private before-snapshot; the `$scope` file and its sha256; the start baseline for R-D1 |
 | before **each** sub-run (≤ 90 min before its start) | `& $python -m weather.market.lfc_cli baseline --label t40`, then `Compare-T40ToStart` (section 5) | ledger-bound baseline the start checks; compare since the session start |
 | after the last sub-run | `baseline --label t40` and `Compare-T40ToStart` (section 7), then `Save-OwnerSnapshot after-session0` | final compare; owner-private after-snapshot |
 | after settlement of any session-0 lot | `Save-OwnerSnapshot after-settlement` | **only if a session-0 order filled**; if nothing filled, the end-of-session snapshot suffices (owner, 2026-10-09 evening; D9) |
 
 **Session-start baseline (R-D1 (a)).** Window A, right after the first
-`baseline --label t40` of 10-14 prints `status: PASS`:
+`baseline --label t40` of 10-15 prints `status: PASS`:
 
 ```powershell
 $t40Start = Get-LatestT40Row
@@ -476,7 +491,7 @@ repeats included. In a new window, set it again from the record:
   orders this runbook asks for (section 6, 0b), and nothing at all during 0g.
 - **Owner approvals, 2026-10-09 evening** (relayed by master-agent; draft D9):
   "I hold no positions, 10-12 confirmed" (said of the old date; the owner
-  re-confirms at T − 40 min on 10-14); no after-settlement snapshot if
+  re-confirms at T − 40 min on 10-15); no after-settlement snapshot if
   nothing filled; and the two 0b test orders (the foreign order on a market
   outside the session, per C6) may be placed inside the no-trade window as
   part of the test.
@@ -863,8 +878,12 @@ start.
 | `clean_final_tip_preflight_required` | rerun `preflight` to PASS (same UTC date, same commit) |
 | `baseline_t40_age`, `baseline_foreign_open_orders` | take `baseline --label t40` again |
 | `wallet_activity_outside_pilot` | stop; owner activity changed positions |
-| `past_hard_stop_2350z` | too late in the UTC day (23:50Z, 19:50 EDT); on 10-14 there is no later day before the deadline, so session 0 ends there |
-| `session0_deadline_passed` | 2026-10-15T00:00Z (10-14 20:00 EDT) reached; session 0 cannot run any more (D10) |
+| `past_hard_stop_2350z` | too late in the UTC day (23:50Z, 19:50 EDT); session 0 ends for that UTC day (10-15); any other date is an owner decision |
+| `session0_deadline_passed` | 2026-10-25T00:00Z (10-24 20:00 EDT) reached (DECISION_LOG 2026-10-13 rows; was 2026-10-15T00:00Z); session 0 cannot run any more (D10) |
+| `shadow_scope_date_mismatch` | a date named by the `--shadow-scope` file (its file name, or a `"date"` field) is not the session's UTC date: rebuild with `shadow-scope-union --date <today's UTC date>` (after 20:00 EDT that is tomorrow's date), named `shadow_scope_<YYYYMMDD>.json` |
+| `shadow_scope_date_unrecorded` | the scope file names no date (no `YYYYMMDD` or `YYYY-MM-DD` in its file name and no `"date"` field): rename it with its build date |
+| `shadow_scope_date_unreadable` | the scope file has a `"date"` field that is not `YYYY-MM-DD` |
+| `condition_file_not_regular` | **session-1 pin onward (`6bc6f2bec`); not in the session-0 pin.** `--extra-conditions` or `--shadow-scope` is absent, not a regular file, or reached through a symlink or junction |
 
 ## 11. Differences between the signed docs and the code at acd052a2d
 
@@ -895,7 +914,9 @@ draft D; **open** = still a runbook-only note.
    `--s0-2-helper-zero-utc` and refuses when `S` is below the
    last-journal-row-to-helper-zero gap.
 9. **Session-0 deadline — closed (D10).** Enforced in code:
-   `session0_deadline_passed` at or after 2026-10-15T00:00Z (10-14 20:00 EDT).
+   `session0_deadline_passed` at or after `SESSION0_DEADLINE_UTC`, now
+   2026-10-25T00:00Z (DECISION_LOG 2026-10-13 rows; in the pin `e27909a76`;
+   it was 2026-10-15T00:00Z at `acd052a2d`).
 10. **Wording in C — closed (D2-D4).** The N-6 rule; "0d and 0g journal";
     "0e recorded no leg intent".
 11. **Extra conditions and shadow scope — closed.** The 88a file is accepted as
@@ -945,16 +966,18 @@ draft D; **open** = still a runbook-only note.
 
 ## 12. Owner inputs still needed
 
-Done: the event slugs (section 2), the `$extra` path, the session-0 date
-(10-14, ~15:00Z, 11:00 EDT; owner 2026-10-12), the after-settlement answer
-and the 0b approval (D9).
+Done: the event slugs (section 2), the `$extra` path, the session-0 pin
+`e27909a76` (section 3.0, 2026-10-13), the after-settlement answer and the 0b
+approval (D9). The session-0 day (this variant: 2026-10-15) is the owner's chat
+answer.
 
-1. The Fable delta-3 review over `468607b13..acd052a2d`; then the main session
-   creates and locks `C:\wt\lfc-pinned-acd052a2d` (section 3.0).
+1. Done 2026-10-13: the Fable reviews and the main session's locked pin
+   `C:\wt\lfc-pinned-e27909a76` (section 3.0); the owner re-enters the
+   client config in the new path (section 3.6 step 3).
 2. The restart of the 8765 reader on the any-LAN code at a time the owner
    picks; then the direct yes and the workstation LAN IP for the client config
    (section 3.6; written by the owner, never uploaded).
-3. At T − 40 min on 10-14 (14:20Z, 10:20 EDT): `shadow-scope-union` PASS and
+3. At T − 40 min on 10-15 (14:20Z, 10:20 EDT): `shadow-scope-union` PASS and
    its sha256 recorded.
 4. Signature of draft clarification D (the delta-3 review at `320ac22a9`
    passed the code; its D fixes R-D1..R-D4 are applied) before session 1.
