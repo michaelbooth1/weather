@@ -224,3 +224,9 @@ def test_simulation_fills_only_strictly_through_own_token_prints():
     assert sim["fills"] == [(start + 20, 5.0, 0.52, -1)]
     assert sim["diagnostics"]["opposite_token_prints_that_would_qualify"] == 1
     assert sim["admissible_minutes"] == 2  # rests 120 s < 5-minute maximum
+
+
+def test_peak_memory_is_reported_not_zero():
+    # The envelope's peak working set must be a real positive number (a silent ctypes failure gave 0).
+    peak = pilot.peak_memory_bytes()
+    assert peak is not None and peak > 1024 ** 2

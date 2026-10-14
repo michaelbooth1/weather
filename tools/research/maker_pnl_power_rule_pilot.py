@@ -843,9 +843,17 @@ def peak_memory_bytes():
                             ("PeakPagefileUsage", ctypes.c_size_t)]
             counters = Counters()
             counters.cb = ctypes.sizeof(Counters)
-            process = ctypes.windll.kernel32.GetCurrentProcess()
-            ctypes.windll.psapi.GetProcessMemoryInfo(process, ctypes.byref(counters), counters.cb)
-            return int(counters.PeakWorkingSetSize)
+            # Explicit prototypes: without them the 64-bit pseudo-handle is truncated and the call
+            # fails silently, leaving a zero peak (seen on the 2026-10-14 workstation scale run).
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            psapi = ctypes.WinDLL("psapi", use_last_error=True)
+            kernel32.GetCurrentProcess.argtypes = ()
+            kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+            psapi.GetProcessMemoryInfo.argtypes = (wintypes.HANDLE, ctypes.POINTER(Counters), wintypes.DWORD)
+            psapi.GetProcessMemoryInfo.restype = wintypes.BOOL
+            if not psapi.GetProcessMemoryInfo(kernel32.GetCurrentProcess(), ctypes.byref(counters), counters.cb):
+                return None
+            return int(counters.PeakWorkingSetSize) or None
         import resource
         return int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss) * 1024
     except Exception:
