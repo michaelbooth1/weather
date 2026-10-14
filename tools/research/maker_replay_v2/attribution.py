@@ -29,6 +29,14 @@ cascade, or the re-run fails:
   as cascade, so a mislabelled cut later in the day would otherwise hide behind an earlier genuine A8. A8 is
   attributed against ``all`` (W1+W2+F3), not against ``frozen``: Q2 is a change on top of the 2026-10-07 rulings.
 
+SPECULATIVE option M (T1, 2026-10-14; pending owner M/X; do not land): the clause windows and A8 follow the §4
+whole-minute rule. ``horizon_sources`` cuts windows over ``horizon.minute_lines`` (a descriptor at instant s counts
+from the first minute start at or after s), and every A8 test above reads ``clause_horizon``, the engine's own
+descriptor reads under that rule, instead of the read at the instant. So the direct condition, the cut rule and
+completeness (i)/(ii) all hold at minute starts: the exempt cancel is the one at the minute start at which the clause
+horizon leaves (1, 2), and in the part of a minute after a mid-minute descriptor change the clause still sees the
+lead before it. The blind gate (``pull``) still reads the engine's horizon at the instant, as the engine does.
+
 Variants (``VARIANTS``) switch each ruling on alone and all together; ``frozen`` reproduces the engine before
 the rulings (T1 decision book, T2 replacement book, no refresh, no blind horizon gate) and is pinned to the pre-fix
 digests by ``tests/maker_core/test_replay_v2_attribution.py``. ``Q2`` is ``all`` plus the blind gate, run on the
@@ -41,7 +49,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import replace
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 import json
 import sys
@@ -88,6 +96,12 @@ def variant(engine, name):
 
 
 A8_LEADS = (1, 2)  # registration §4: leads 1 and 2; a literal, deliberately not ``horizon.ELIGIBLE``
+
+
+def _minute_start(at):
+    """The first UTC minute start at or after ``at``; A8's own copy, deliberately not ``horizon.minute_start``."""
+    whole = at.replace(second=0, microsecond=0)
+    return whole if whole == at else whole + timedelta(minutes=1)
 VARIANTS = {"frozen": False, "W1": False, "W2": False, "F3": True, "all": True, "Q2": True}  # name -> refresh
 
 
@@ -111,7 +125,6 @@ def attributing(engine, q2=False):
             self.captured, self.derived_shas = {}, set()
             self.inputs, self._pending = [], None
             self.envelope, self.horizons, self.clause_violations, self.unexplained_cuts = {}, {}, [], []
-            self.lead_now, self.left_at = {}, set()  # current engine horizon; (cid, at) where it left (1, 2)
             for day in self.plan.days:
                 for c in day.conditions:
                     self.envelope.setdefault(c.condition_id, []).append((c.active_from, c.active_until))
@@ -121,7 +134,7 @@ def attributing(engine, q2=False):
                 if self.outside_clause(cid, at):
                     self._record(cid, ("A8",))
                 else:  # a cut inside the envelope where the engine reads lead 1 or 2: not the clause
-                    self.unexplained_cuts.append((at, cid, self.engine_horizon(cid, at)))
+                    self.unexplained_cuts.append((at, cid, self.clause_horizon(cid, at)))
             super().tick(cid, at)
 
         def pull(self, cid, at, reason):
@@ -138,9 +151,6 @@ def attributing(engine, q2=False):
             if kind == "descriptor":  # the engine's own horizon read, captured or derived (None when invalid)
                 lead = None if error is not None else value.horizon_days
                 self.horizons.setdefault(cid, []).append((at, lead))
-                if self.lead_now.get(cid) in A8_LEADS and lead not in A8_LEADS:
-                    self.left_at.add((cid, at))
-                self.lead_now[cid] = lead
             if kind == "descriptor" and error is None and payload_sha not in self.derived_shas:
                 self.captured[cid] = value.horizon_days
 
@@ -157,6 +167,18 @@ def attributing(engine, q2=False):
                 value = horizon_days
             return value
 
+        def clause_horizon(self, cid, at):
+            """SPECULATIVE option M (pending owner M/X): the engine's own horizon reads under the §4 minute rule,
+            i.e. its latest descriptor at or before the latest minute start at or before ``at``. A read at instant
+            ``s`` counts from ``_minute_start(s)``, so in the part of a minute after a mid-minute descriptor change
+            the clause still sees the lead before it (the window opens or ends at the next minute start)."""
+            value = None
+            for when, horizon_days in self.horizons.get(cid, ()):
+                if _minute_start(when) > at:
+                    break
+                value = horizon_days
+            return value
+
         def in_envelope(self, cid, at):
             return any(a <= at < b for a, b in self.envelope.get(cid, ()))
 
@@ -164,7 +186,7 @@ def attributing(engine, q2=False):
             """A8's direct condition: outside the post window, inside the envelope (the base's window), and the
             engine's own horizon at ``at`` missing or not in ``A8_LEADS`` (independent of ``horizon.py``)."""
             return (not self.active(cid, at) and self.in_envelope(cid, at)
-                    and self.engine_horizon(cid, at) not in A8_LEADS)
+                    and self.clause_horizon(cid, at) not in A8_LEADS)
 
         def absent_a8(self, base):
             """A base decision with no post wake at all is A8 when the post condition is outside its clause window
@@ -211,13 +233,14 @@ def attributing(engine, q2=False):
             super()._process(at, batch)
             if q2:  # completeness (ii): no legs may rest past the instant the engine's horizon leaves (1, 2)
                 for cid, state in self.states.items():
-                    if state.legs and self.lead_now.get(cid) not in A8_LEADS:
+                    if state.legs and self.clause_horizon(cid, at) not in A8_LEADS:
                         self.clause_violations.append((at, cid, "LEGS_RESTING", ()))
 
         def record_decision(self, cid, at, decision):
+            # completeness (i): only the cancel at the minute start at which the clause horizon leaves (1, 2)
             exempt = ((decision.action, decision.reasons) == ("CANCEL", ("OUTSIDE_ACTIVE_INTERVAL",))
-                      and (cid, at) in self.left_at)  # completeness (i): only the cancel at the leaving instant
-            if q2 and self.engine_horizon(cid, at) not in A8_LEADS and not exempt:
+                      and self.clause_horizon(cid, at - timedelta(microseconds=1)) in A8_LEADS)
+            if q2 and self.clause_horizon(cid, at) not in A8_LEADS and not exempt:
                 self.clause_violations.append((at, cid, decision.action, decision.reasons))
             self.inputs.append(self._pending)
             self._pending = None
@@ -244,13 +267,14 @@ def book_class(book, frozen, public, existing, cancelled, post):
 
 # -- one run ------------------------------------------------------------------------------------------------
 def horizon_sources(sources, zones):
-    """The same day sources with each condition's windows cut by the horizon clause (``horizon.day_windows``).
+    """The same day sources with each condition's windows cut by the horizon clause (``horizon.day_windows`` over
+    ``horizon.minute_lines``: SPECULATIVE option M, pending owner M/X; do not land).
 
     ``declared`` is kept as the source's, so the only difference from the envelope run is the clause itself."""
     from types import MappingProxyType
     from maker_core.replay.v2 import horizon
     from maker_core.replay.v2.lockstep import DayPlan, DaySource
-    lines = horizon.timelines(sources, zones)
+    lines = horizon.minute_lines(horizon.timelines(sources, zones))  # SPECULATIVE option M: §4 whole minutes
     out = []
     for s in sources:
         windows, _ = horizon.day_windows(s.plan, lines)

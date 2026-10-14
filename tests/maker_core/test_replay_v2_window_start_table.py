@@ -6,6 +6,8 @@ Characterisation only (T1 r3, 2026-10-14). The owner ruled §4 whole-minute on 2
 descriptor instant. Moving those two is BLOCKED-ON-OWNER (T1 report 6: the registered C15 row and the §4 gate-ordering
 disclosure assume exact instants), so this table pins today's difference at a captured descriptor change on both
 sides, including the 59 s edge. Fictional bundles only.
+On the SPECULATIVE option M branch (pending owner M/X; do not land) both builders cut over
+``horizon.minute_lines`` instead; ``horizon.day_windows`` itself stays exact, which is what this table pins.
 """
 from __future__ import annotations
 

@@ -96,6 +96,25 @@ def runs(timeline, start, end):
     return merged
 
 
+def minute_start(at: datetime) -> datetime:
+    """The first UTC minute start at or after ``at`` (``at`` itself when it is on a minute)."""
+    whole = at.replace(second=0, microsecond=0)
+    return whole if whole == at else whole + timedelta(minutes=1)
+
+
+def minute_lines(lines):
+    """``timelines`` under the registration §4 minute rule (SPECULATIVE, option M, pending owner M/X).
+
+    The condition is active in UTC minute ``[t, t+1min)`` when the latest descriptor at or before the minute start
+    ``t`` has a lead in 1..2 (``maker_core.replay.v2.intervals``). So a descriptor at instant ``s`` takes effect from
+    ``minute_start(s)``: a band first captured at 00:03:20 is active from 00:04, and a captured descriptor that
+    moves a lead out of 1..2 at 00:03:20 ends the interval at 00:04. Derived local-midnight descriptors fall on a
+    minute (``_midnight``) and are unchanged. Order is kept, so when several entries round to one minute start the
+    last one holds there, as ``runs`` already reads an instant. ``runs``/``day_windows`` over these lines give the
+    windows of ``intervals.evaluate`` (before its maintenance split)."""
+    return {cid: [(minute_start(at), value) for at, value in timeline] for cid, timeline in lines.items()}
+
+
 def day_windows(plan, lines):
     """One day's eligible windows (condition_id -> ((start, end), ...)) and its ineligible runs with reasons.
 
