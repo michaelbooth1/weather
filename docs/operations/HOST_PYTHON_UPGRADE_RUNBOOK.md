@@ -31,6 +31,15 @@ the workstation's installer-built 3.11.9 home, and A4 proves the SHA-256 values.
 the elevated operator session on an owner-named morning; the §7a dates are re-set by the owner in
 the decision log and the state of play.
 
+Revision 2026-10-14 (A' r2): **every comparison of a stored `pip freeze` against the live production venv masks the
+weather editable line's commit sha** (`Mask-Editable`, §6). That line,
+`-e git+https://github.com/michaelbooth1/weather.git@<sha>#egg=weather_market`, records the production HEAD and so changes
+on every master merge. A' r1 (10-14 05:16) stopped on a false NO-GO for exactly that line (HEAD `4bc93ae5d` to
+`378256d49`; nothing installed); r2 masked it and passed at 05:23, and a negative control (a changed pip version) still
+failed. The mask replaces only the 40-hex sha, only on that exact line, so a missing or different weather install still
+differs. HEAD itself is checked by G3 (C0), not by the freeze. §T, T-R, C1 and §R use the mask; Test-Venv already drops
+`-e` lines, and the B1a lock never contained them.
+
 **Owns:** the procedure for moving the production checkout's `venv` from CPython 3.11.0 to 3.11.9
 on the 16 GB capture host. That covers a side-by-side install, an offline wheelhouse, a stage venv
 qualified by the bounded suite, the cutover through the guarded stop/restore path, verification,
@@ -232,6 +241,10 @@ $global:Lease = $null; $global:ReleaseOnNoGo = $false
 function Release-Lease { if ($global:Lease) { Exit-WeatherHeavyWorkloadLease -Lease $global:Lease; $global:Lease = $null; Log 'lease released' } }
 function NoGo($m){ Log "NO-GO: $m"; if ($global:ReleaseOnNoGo) { $global:ReleaseOnNoGo = $false; Release-Lease }; throw "NO-GO: $m" }
 function Sha($f){ (Get-FileHash -LiteralPath $f -Algorithm SHA256).Hash.ToUpper() }
+# pip freeze records the production HEAD on the weather editable line, so it changes on every master merge (A' r2, 2026-10-14).
+# Mask only that 40-hex sha, only on that exact line; every other line, and any other form of that line, is compared as is.
+function Mask-Editable([string[]]$Lines) { foreach ($line in $Lines) {
+  if ($line -cmatch '^-e git\+https://github\.com/michaelbooth1/weather\.git@[0-9a-f]{40}#egg=weather_market$') { $line -creplace '@[0-9a-f]{40}#', '@<HEAD>#' } else { $line } } }
 # Native calls whose stderr matters go through Invoke-Native. Never use 2>&1 or 2> on a native command while
 # $ErrorActionPreference is 'Stop': Windows PowerShell 5.1 turns each stderr line into a terminating error.
 function Invoke-Native([string]$Exe, [string[]]$Arguments, [string]$OutBase) {
@@ -426,7 +439,7 @@ is why the suite starts no later than 03:00. Using the tiering hole (HOST_LOAD_P
 later needs at least 100 GiB free and skips tiering that night; that is an owner choice, not a
 default.
 
-### 7a. Phase calendar (owner-confirmed 2026-10-12)
+### 7a. Phase calendar (owner-confirmed 2026-10-12; Phase A done 2026-10-14)
 
 The owner confirmed this calendar on 2026-10-12, including the fallbacks, and named the cutover
 night 00:30 on 10-17 (owner reachable 00:30-03:45, G4), accepting the short gap inside the 88a
@@ -436,7 +449,7 @@ morning: "00:30 on 10-16" is the night of 10-15 to 10-16.
 
 | Phase | Primary | Fallback | Reason |
 | --- | --- | --- | --- |
-| A install (elevated operator session; no owner click since 2026-10-13) | owner-named morning, about 07:30-09:00 (the 10-13 attempt stopped at A4; re-set in the state of play) | owner-named | It shares the morning of the N8 merge night. It takes no lease and starts only after the N8 sequence has handed back; if a landing is still running or needs recovery, A moves to the fallback. It overlaps the 06:50 91a run with light I/O only. It runs before §T, so §T ends with T-R. |
+| A install (elevated operator session; no owner click since 2026-10-13) | **done**: P0-A2 10-13 08:54-08:57 (A4 NO-GO on the installer route); A' (A3 + A4, NuGet route) **PASS 10-14 05:23** after N9 handed back | none needed | It ran before §T, so §T ends with T-R. |
 | §T tzdata + T-R | 00:30-02:00 on Thu 10-15 | 00:30 on Fri 10-16 | First admitted night after N9 (00:30 on 10-14). |
 | B prep night | 00:30-04:45 on Fri 10-16 | 00:30 on Sat 10-17 | After A and after §T's T-R (B builds its lock from the refreshed freeze). |
 | C cutover | 00:30-02:25 on Sat 10-17 (owner-named) | the next night inside 10-15..10-30 that meets G4 and G5, named by the owner (G0) | The night after B, so the qualified tip has little time to move (G3); after the freeze (G8). If B uses its fallback (10-17), C moves too. |
@@ -467,7 +480,7 @@ try {
   & $Py -m pip download --isolated --no-cache-dir --require-hashes --only-binary=:all: --no-deps -r "$R\lock-tz-hashed.txt" -d "$R\tzdata"; if ($LASTEXITCODE) { NoGo 'tzdata download' }
   & $Py -m pip install --isolated --no-index --no-deps --require-hashes --find-links "$R\tzdata" -r "$R\lock-tz-hashed.txt"; if ($LASTEXITCODE) { NoGo 'tzdata install' }
   & $Py -m pip freeze --all | Out-File "$R\freeze-after-tzdata.txt" -Encoding utf8
-  $d = Compare-Object (Get-Content "$R\freeze-before-tzdata.txt") (Get-Content "$R\freeze-after-tzdata.txt"); $d | Out-File "$R\freeze-diff-tzdata.txt"
+  $d = Compare-Object (Mask-Editable (Get-Content "$R\freeze-before-tzdata.txt")) (Mask-Editable (Get-Content "$R\freeze-after-tzdata.txt")); $d | Out-File "$R\freeze-diff-tzdata.txt"
   if ($d | Where-Object { $_.InputObject -notmatch '^tzdata==' }) { NoGo 'a line other than tzdata changed - roll back tzdata and inspect' }
   if (-not ($d | Where-Object { $_.SideIndicator -eq '=>' -and $_.InputObject -eq 'tzdata==2026.3' })) { NoGo 'tzdata==2026.3 not in the after-freeze' }
 } finally { Release-Lease }
@@ -489,7 +502,7 @@ Push-Location -LiteralPath $P
 & $Py -c "import json; from weather.release_artifacts import capture_runtime_versions as c; print(json.dumps(c(), indent=1, sort_keys=True))" | Set-Content "$A\rtv-3110.json" -Encoding utf8
 Pop-Location
 if (-not (Select-String -LiteralPath "$A\freeze-3110.txt" -Pattern '^tzdata==2026\.3$' -Quiet)) { NoGo 'T-R: freeze-3110 lacks tzdata==2026.3' }
-$d = Compare-Object (Get-Content "$A\freeze-3110.txt.pre-tzdata") (Get-Content "$A\freeze-3110.txt")
+$d = Compare-Object (Mask-Editable (Get-Content "$A\freeze-3110.txt.pre-tzdata")) (Mask-Editable (Get-Content "$A\freeze-3110.txt"))
 if ($d | Where-Object { $_.InputObject -notmatch '^tzdata==' }) { NoGo 'T-R: a line other than tzdata changed since Phase A' }
 Log 'T-R PASS'
 ```
@@ -863,7 +876,7 @@ while (-not $global:Lease) { $global:Lease = Enter-WeatherHeavyWorkloadLease -Re
 $global:ReleaseOnNoGo = $true     # until the C4 rename, any NoGo releases the lease; after it, §R needs the lease
 $N = Join-Path $R ('night-' + (Get-Date -Format yyyyMMdd)); New-Item -ItemType Directory -Force $N | Out-Null
 & $Py -m pip freeze --all | Set-Content "$N\freeze-3110-tonight.txt"
-if (Compare-Object (Get-Content "$A\freeze-3110.txt") (Get-Content "$N\freeze-3110-tonight.txt")) { NoGo 'prod venv changed since Phase B - requalify' }
+if (Compare-Object (Mask-Editable (Get-Content "$A\freeze-3110.txt")) (Mask-Editable (Get-Content "$N\freeze-3110-tonight.txt"))) { NoGo 'prod venv changed since Phase B - requalify' }
 foreach ($f in 'loop_status.json','clob_loop_status.json','observation_trigger_status.json') { Copy-Item -LiteralPath (Join-Path $P "data\snapshots\$f") "$N\pre-$f" }
 $shadowTask = Get-ScheduledTask -TaskName WeatherMakerShadowRunner -ErrorAction SilentlyContinue
 $ShadowStop = $null
@@ -1189,7 +1202,7 @@ elseif (-not (Stop-Capture $X -Soft)) { Log 'ESCALATE: capture stop not confirme
 if (Test-Path -LiteralPath "$P\venv") { if (-not (Rename-WithSweep "$P\venv" 'venv-cp3119-failed' 'r1')) { NoGo 'ROLLBACK: new venv still held - ESCALATE (holders file in $N); lease kept, see below' } }
 if (-not (Rename-WithSweep $Old 'venv' 'r2')) { NoGo 'ROLLBACK: venv-cp3110 cannot be renamed back - ESCALATE (holders file in $N); lease kept, see below' }
 if ((& "$P\venv\Scripts\python.exe" -VV) -notlike 'Python 3.11.0*') { Log 'ESCALATE: venv not 3.11.0' }
-if (Compare-Object (Get-Content "$A\freeze-3110.txt") (& "$P\venv\Scripts\python.exe" -m pip freeze --all)) { Log 'ESCALATE: freeze differs' }
+if (Compare-Object (Mask-Editable (Get-Content "$A\freeze-3110.txt")) (Mask-Editable (& "$P\venv\Scripts\python.exe" -m pip freeze --all))) { Log 'ESCALATE: freeze differs' }
 foreach ($tn in $Sup) { Enable-ScheduledTask -TaskName $tn | Out-Null }
 $rb = Wait-Restore (Get-Date)
 if ($rb) { Undo-Aux; Start-AuxHolders }
