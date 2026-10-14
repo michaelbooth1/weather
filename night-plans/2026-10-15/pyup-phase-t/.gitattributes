@@ -1,0 +1,2 @@
+# Keep these files byte-exact on every checkout so they match SHA256SUMS (core.autocrlf would rewrite them).
+* -text
