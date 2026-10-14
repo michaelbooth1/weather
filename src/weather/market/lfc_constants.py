@@ -61,7 +61,8 @@ SESSION0_OFFSET = Decimal('.05')  # d = 5c from the mid, snapped outward
 SESSION0_END_DAYS = 7  # the market's end date is at least 7 days after the session date
 SESSION0_DEPTH_REACH = Decimal('.03')  # pick: largest two-sided displayed depth within 3c of the mid
 SESSION0_MID_RANGE = (Decimal('.20'), Decimal('.80'))
-# Session-0 deadline (owner, 2026-10-09; clarification D, re-dated by clarification E): `lfc_cli live` and
+# Session-0 deadline (owner, 2026-10-09; clarification D, re-dated under the DECISION_LOG 2026-10-13 row "LFC session 0
+# moved", the logistics rule): `lfc_cli live` and
 # `preflight` with --session0 refuse with session0_deadline_passed when now >= this instant. Session 0 still precedes
 # every counted session through the session0_not_passed start gate, not through this date.
 SESSION0_DEADLINE_UTC = datetime(2026, 10, 25, tzinfo=timezone.utc)

@@ -899,7 +899,8 @@ def test_shadow_scope_union_opens_no_path_but_its_output(tmp_path, monkeypatch):
     assert touched and {os.path.normcase(os.path.abspath(p)) for p in touched} == {os.path.normcase(str(out))}
 
 
-# ----- session-0 deadline (clarifications D, E): live and preflight refuse at or after 2026-10-25T00:00:00Z -----
+# ----- session-0 deadline (clarification D; DECISION_LOG 2026-10-13 "LFC session 0 moved"): live and preflight
+# refuse at or after 2026-10-25T00:00:00Z
 S0_ARGV = ['--session0', '--run', '0a', '--event-slug', 'a', '--event-slug', 'b', '--event-slug', 'c',
            '--extra-conditions', 'x.json', '--shadow-scope', 'y.json']
 

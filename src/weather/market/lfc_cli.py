@@ -30,9 +30,9 @@ three distinct owner-listed candidate events) --extra-conditions F (the 88a file
 fails closed on missing or unreadable state. `live` and `preflight` with --session0 refuse with
 shadow_scope_date_mismatch unless every date the --shadow-scope file names (a "date" field, a YYYYMMDD or YYYY-MM-DD
 in its file name) is the session's UTC date (shadow_scope_date_unrecorded when it names none), and with
-session0_deadline_passed
-at or after 2026-10-25T00:00:00Z (LFC.SESSION0_DEADLINE_UTC; clarifications D and E). Nothing here widens an RE-1 limit: the controller is
-weather.market.lfc_pilot.PilotSession.
+session0_deadline_passed at or after 2026-10-25T00:00:00Z (LFC.SESSION0_DEADLINE_UTC; clarification D, re-dated
+under the DECISION_LOG 2026-10-13 row "LFC session 0 moved", the logistics rule). Nothing here widens an RE-1 limit:
+the controller is weather.market.lfc_pilot.PilotSession.
 
 Session-0 runbook notes (DRAFT clarification C5; delta review 2026-10-09):
 - Every sub-run except 0e passes only if its band was posted (both legs with a venue order id); 0e posts nothing.
