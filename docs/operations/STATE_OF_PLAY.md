@@ -39,11 +39,10 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 - **Journal pin:** `WeatherManualOrderJournal` pins five files incl. `wallet_reader_client.py`; a merge touching one makes it
   exit 3 until re-registered ([runbook](manual-order-journal.md)).
 - **Wallet reader (8765)** restarted by the owner 10-13 10:21 on `a1014edab` (any-LAN code); LFC client config in the pinned worktree.
-- **Host Python is 3.11.0.** Phase A ran 10-13 08:54 and stopped NO-GO at A4: the python.org installer planned a MajorUpgrade
-  of the per-user 3.11.0 ([runbook](HOST_PYTHON_UPGRADE_RUNBOOK.md), revision 2026-10-13).
-- The owner approved the NuGet side-by-side route into `C:\Program Files\Python311-cp3119`; W0 verified it on the workstation.
-- **A' resumes at A3 on the host 10-14 07:00-09:00** (`claude/night-plans`, `night-plans/2026-10-14/pyup-phase-a2/`).
-- If A' passes, the 10-12 calendar stands: §T + T-R 00:30 10-15, B 00:30 10-16, cutover C 00:30 10-17 (runbook §7a).
+- **Host Python: A' PASS 10-14 05:23.** 3.11.9 (NuGet) sits side by side in `C:\Program Files\Python311-cp3119`; the
+  production venv is still 3.11.0, PATH and PEP 514 unchanged, capture 10/10 ([runbook](HOST_PYTHON_UPGRADE_RUNBOOK.md)).
+- Freeze compares mask the weather editable line's sha (A' r1 false NO-GO on a merge; runbook revision 2026-10-14).
+- The 10-12 calendar stands: §T + T-R 00:30 10-15, B 00:30 10-16, cutover C 00:30 10-17 (runbook §7a).
 - Owner 10-13 08:53 (relayed): C advance GO if every C0 check is clean; G4 amended (auto rollback; a failed rollback waits for the owner). DECISION_LOG row.
 - Calendar-shift branch `claude/decisions-pyup-shift-20261013` `84c723ae2` (C 10-18) is **ON HOLD**; not a decision.
 - **DST:** DST-H3 landed; DST-M2 lands in N9; OD30 (the 11-01 night rule) stays until the owner retires it.
@@ -67,7 +66,7 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 1. **Maker replay v2 (T1):** oracle author on handout r1; P1-P4 on calibration dates only; gates; signature target 10-22..23.
 2. **N9, 10-14 01:00-04:00:** RS `claude/integration-20261014-n9-rs-r2` `dae4c96da` (DST-M2); RF stacked `...-n9-rf-r2`
    `48becd401` (I-6 wrapper); oc `...-n9-oc` `051d8aa64` (roll-free, after rf or rf-alone); fallback `...-n9-rf-alone-r2` `f870a759d`.
-3. **Host Python:** A' 10-14 07:00; §T + T-R 10-15; B 10-16; cutover C 00:30 10-17.
+3. **Host Python:** A' PASS 10-14 05:23; §T + T-R 00:30 10-15; B 00:30 10-16; cutover C 00:30 10-17.
 4. **10-15 night: #177 (T2, owner yes)**; §T holds the lease 00:30-02:00, suite ~02:45, merge start by 03:40; owner accepts
    the capture restart ~03:40-04:00 EDT in the UTC 10-15 panel day. 10-16/10-17 G5 no-merge; #182 + #172 10-18; #118 >= 10-18.
 5. **Item 337:** host no-METAR replay >= 10-15; on PASS flip, bump, quiet window (owner yes). NBS/NBH; NWP timing (#263 done 10-14, EF §10r).
