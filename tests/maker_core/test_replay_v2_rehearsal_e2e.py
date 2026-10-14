@@ -292,12 +292,17 @@ def test_the_gate_report_reads_e2_e4_e5_e6_e7_and_section_11_and_waits_for_e1_e3
     missing = {k: v for k, v in doc.items() if k != "pull_candidates"}
     with pytest.raises(BundleError, match="gate_carried_rehearsal_required:max_m"):
         reachability.gate_report(per_date, missing, repeat)
-    n_cal = doc["reachability"]["n_cal"]
-    assert n_cal > 0
-    with pytest.raises(BundleError, match="gate_pull_candidates_below_n_cal:max_m"):  # Defender B-1
-        reachability.gate_report(per_date, dict(doc, pull_candidates=n_cal - 1), repeat)
-    at_n_cal = reachability.gate_report(per_date, dict(doc, pull_candidates=n_cal), repeat)  # the boundary holds
-    assert at_n_cal["executability"]["gates"]["E6"]["projected_pull_candidates"] == n_cal * 14 // 3
+    # Defender B-1: a carried count below N_cal is refused (the fixture's N_cal is 0, so N_cal is raised instead)
+    candidates = doc["pull_candidates"]
+
+    def with_n_cal(n):
+        return dict(doc, reachability=dict(doc["reachability"], n_cal=n))
+    with pytest.raises(BundleError, match="gate_pull_candidates_below_n_cal:max_m"):
+        reachability.gate_report(per_date, with_n_cal(candidates + 1), repeat)
+    with pytest.raises(BundleError, match="gate_pull_candidates_below_n_cal:max_m"):
+        reachability.gate_report(per_date, with_n_cal(None), repeat)
+    at_boundary = reachability.gate_report(per_date, with_n_cal(candidates), repeat)  # N_cal == candidates holds
+    assert at_boundary["executability"]["gates"]["E6"]["projected_pull_candidates"] == candidates * 14 // 3
     evidence = {k: dict(status="PASS", evidence="fixture") for k in ("e1", "e3", "e8")}
     supplied = reachability.gate_report(per_date, doc, repeat, **evidence)["executability"]
     assert supplied["status"] == "INCOMPLETE" and supplied["not_supplied"] == [] and supplied["not_evaluated"] == ["E6"]
