@@ -33,6 +33,7 @@ from urllib.parse import urlsplit
 
 from weather.market import lfc_constants as LFC
 from weather.market.mm_stage2_hold import HoldEnd, utc
+from weather.operations.live_path_security import LivePathSecurityError
 
 GAMMA_HOST = 'gamma-api.polymarket.com'
 EVENTS_PATH = '/events/slug/'
@@ -285,8 +286,10 @@ class FeeEvidenceBooks:
             clob = self.get(CLOB_MARKETS_URL + str(condition), checkpoint=checkpoint)
             return {'event_slug': self._event_of[key], 'gamma': gamma_fee_fields(cached[1]),
                     'clob': clob_fee_fields(clob), 'error': None}
-        except HoldEnd:
-            raise  # a control checkpoint inside the reads ends the session with its own code (delta-3 N-11)
+        except (HoldEnd, LivePathSecurityError):
+            # A control checkpoint (delta-3 N-11) or the ambient-proxy check inside the reads ends the session with
+            # its own code, not fee_fields_unreadable (hardening review should-fix 3).
+            raise
         except Exception as exc:
             return {'event_slug': self._event_of.get(key), 'gamma': None, 'clob': None,
                     'error': type(exc).__name__}

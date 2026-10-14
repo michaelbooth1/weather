@@ -916,6 +916,7 @@ def _deadline_run(monkeypatch, mode, now, *, session0=True, s0_argv=None):
     monkeypatch.setattr(lfc_cli, '_LIVE_STARTED', False)
     if s0_argv is None:
         monkeypatch.setattr(lfc_cli, 'shadow_scope_date_refusal', lambda path, when: None)
+        monkeypatch.setattr(lfc_cli, 'load_conditions', lambda path: ([], '0' * 64))
 
     def reached():
         raise _PastDeadlineCheck()
@@ -1250,12 +1251,30 @@ def test_the_scope_writer_records_its_utc_date_and_the_guard_reads_it(tmp_path, 
     assert code == 0 and json.loads(out.read_bytes())['date'] == '2026-10-12'
     assert lfc_cli.shadow_scope_dates(out) == {date(2026, 10, 12)}
     assert lfc_cli.shadow_scope_date_refusal(out, datetime(2026, 10, 12, 15, tzinfo=timezone.utc)) is None
-    assert lfc_cli.shadow_scope_date_refusal(out, datetime(2026, 10, 13, 15, tzinfo=timezone.utc)) ==         'shadow_scope_date_mismatch'
+    assert lfc_cli.shadow_scope_date_refusal(out, datetime(2026, 10, 13, 15, tzinfo=timezone.utc)) == \
+        'shadow_scope_date_mismatch'
     # Renamed by hand to another date, the recorded field still refuses it (the S1 mirror, on a written file).
     renamed = tmp_path / 'shadow_scope_20261013.json'
     renamed.write_bytes(out.read_bytes())
-    assert lfc_cli.shadow_scope_date_refusal(renamed, datetime(2026, 10, 13, 15, tzinfo=timezone.utc)) ==         'shadow_scope_date_mismatch'
+    assert lfc_cli.shadow_scope_date_refusal(renamed, datetime(2026, 10, 13, 15, tzinfo=timezone.utc)) == \
+        'shadow_scope_date_mismatch'
     # Without a date in the name, the field alone is the record.
     bare = tmp_path / 'scope.json'
     bare.write_bytes(out.read_bytes())
     assert lfc_cli.shadow_scope_date_refusal(bare, datetime(2026, 10, 12, 15, tzinfo=timezone.utc)) is None
+
+
+def test_live_refuses_a_bad_88a_file_before_the_root_mutex_or_any_credential(tmp_path, monkeypatch):
+    # Hardening review should-fix 4: --extra-conditions is loaded in the early live block, like the scope (M1).
+    _no_credential_step(monkeypatch)
+    monkeypatch.setattr(lfc_cli, '_now', lambda: S0_SESSION)
+    monkeypatch.setattr(lfc_cli, 'pilot_root', lambda: (_ for _ in ()).throw(AssertionError('reached the root')))
+    argv = _live_s0_argv(tmp_path, 'shadow_scope_20261015.json')
+    missing = argv.index('--extra-conditions') + 1
+    for value, code in ((str(tmp_path / 'absent.json'), 'condition_file_not_regular'),
+                        (str(_scope_file(tmp_path, 'both.json', {'conditions': [], 'extra_conditions': []})),
+                         'condition_file_shape')):
+        argv[missing] = value
+        monkeypatch.setattr(lfc_cli, '_LIVE_STARTED', False)
+        with pytest.raises(ValueError, match=f'^{code}$'):
+            lfc_cli.run_live(parser().parse_args(['live', *argv]))

@@ -390,9 +390,23 @@ def test_a_control_checkpoint_inside_the_fee_reads_is_not_swallowed():
 
     def checkpoint():
         calls.append(1)
-        if len(calls) > 4:  # after the book reads: inside the Gamma / clob-markets fee reads
+        # Calls 1-10 are the reward and per-token /book and /fee-rate reads; the 11th is inside the fee reads.
+        if len(calls) > 10:
             raise HoldEnd('fixed_end')
     with pytest.raises(HoldEnd, match='fixed_end'):
         books.snapshot(CONDITION, TOKENS, reward=REWARD, checkpoint=checkpoint)
+    assert len(calls) == 11
     with pytest.raises(HoldEnd, match='fixed_end'):
         books.fee_evidence(CONDITION, checkpoint=lambda: (_ for _ in ()).throw(HoldEnd('fixed_end')))
+
+
+def test_a_live_path_security_error_inside_the_fee_reads_is_not_relabelled():
+    # Hardening review should-fix 3: a proxy appearing mid-session surfaces as itself, not fee_fields_unreadable.
+    from weather.operations.live_path_security import LivePathSecurityError
+    books = LfcPublicBooks(clock=Clock().now, opener=fake_opener(routes(), []))
+    books.bind_event(CONDITION, SLUG)
+
+    def proxied():
+        raise LivePathSecurityError('ambient proxy configuration')
+    with pytest.raises(LivePathSecurityError):
+        books.fee_evidence(CONDITION, checkpoint=proxied)

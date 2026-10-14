@@ -608,6 +608,9 @@ def run_live(args):
         stale = shadow_scope_date_refusal(args.shadow_scope, _now())
         if stale:
             raise RuntimeError(stale)
+        # The 88a file too (hardening review should-fix 4): absent, linked or mis-shaped refuses here, not after
+        # the credentials; _selector loads it again for the selection.
+        load_conditions(args.extra_conditions)
     root = pilot_root()
     with live_mutex():
         now = _now()
