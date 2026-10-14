@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -51,7 +52,11 @@ def test_the_manifest_construction_gives_the_intervals_windows_on_the_registered
     ``intervals.evaluate`` on every eligible (date, condition). The inline exact-instant split is only the
     comparison that shows the minute rule is exercised (it differs), and its minute form must equal the manifest."""
     _, bundles, inventory, result = registered
-    manifest_windows, _ = execution_manifest.active_intervals(bundles, inventory)
+    # the panel is v0.2 stream bundles; ``active_intervals`` reads a v0.1-shaped ``records`` attribute, so hand it
+    # each day's records already read (the same records, the same conditions; ``descriptor_source`` takes either)
+    v01_shaped = [SimpleNamespace(day=b.day, conditions=b.conditions, records=tuple(b.records()),
+                                  coverage_groups=b.coverage_groups, provenance=b.provenance) for b in bundles]
+    manifest_windows, _ = execution_manifest.active_intervals(v01_shaped, inventory)
     manifest = {}
     for w in manifest_windows:
         manifest.setdefault((w["date"], w["condition_id"]), []).append((w["start"], w["end"]))
