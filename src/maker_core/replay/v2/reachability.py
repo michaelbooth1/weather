@@ -262,6 +262,9 @@ def _carried(doc, variant):
         raise BundleError(f"gate_reachability_status_mismatch:{variant}")  # the status is recomputed, not trusted
     if type(doc.get("pull_candidates")) is not int or doc["pull_candidates"] < 0:
         raise BundleError(f"gate_carried_rehearsal_required:{variant}")  # E6's input, outside the §11 block
+    # a genuine run has n_cal + sum(exclusions) == pull_candidates, so a count below N_cal is not one (Defender B-1)
+    if type(reach.get("n_cal")) is not int or doc["pull_candidates"] < reach["n_cal"]:
+        raise BundleError(f"gate_pull_candidates_below_n_cal:{variant}")
     return doc
 
 
