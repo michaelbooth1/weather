@@ -348,7 +348,11 @@ def close_out(root, directory, summary, *, notifier=notify_owner):
 def load_conditions(path):
     """A JSON list, {"conditions": [...]} or the 88a file {"extra_conditions": [...], "update_windows_utc": [...]}
     (other keys ignored); a dict naming both lists is refused. The sha256 is over the raw bytes."""
-    raw = Path(path).read_bytes()
+    return conditions_from_bytes(Path(path).read_bytes())
+
+
+def conditions_from_bytes(raw):
+    """load_conditions on bytes already read, so a caller that checks more of the file checks the hashed bytes."""
     value = json.loads(raw)
     if isinstance(value, dict):
         keys = {'conditions', 'extra_conditions'} & set(value)
@@ -409,12 +413,13 @@ def run_shadow_scope_union(args, *, feed=None):
 _NAME_DATE = re.compile(r'(?<!\d)(\d{4})-?(\d{2})-?(\d{2})(?!\d)')
 
 
-def shadow_scope_dates(path):
+def shadow_scope_dates(path, raw=None):
     """Every UTC date the --shadow-scope file names: its "date" field (YYYY-MM-DD) if it records one, and each valid
     YYYYMMDD or YYYY-MM-DD in its file name (shadow-scope-union writes {"conditions": [...]} only, so today the
-    name, e.g. shadow_scope_20261015.json, is the only record)."""
+    name, e.g. shadow_scope_20261015.json, is the only record). `raw`: the bytes already read and hashed (review S5),
+    so the date checked and the sha256 recorded come from the same read."""
     dates = set()
-    value = json.loads(Path(path).read_bytes())
+    value = json.loads(Path(path).read_bytes() if raw is None else raw)
     if isinstance(value, dict) and 'date' in value:
         try:
             dates.add(datetime.strptime(str(value['date']), '%Y-%m-%d').date())
@@ -428,10 +433,10 @@ def shadow_scope_dates(path):
     return dates
 
 
-def shadow_scope_date_refusal(path, now):
+def shadow_scope_date_refusal(path, now, raw=None):
     """Session 0: the scope must be the one built for the session's UTC date (shadow-scope-union --date D covers UTC
     date D; the session rests inside one UTC day, hard stop 23:50Z). Every date the file names must equal it."""
-    dates = shadow_scope_dates(path)
+    dates = shadow_scope_dates(path, raw)
     if not dates:
         return 'shadow_scope_date_unrecorded'
     if dates != {utc(now).date()}:
@@ -449,8 +454,9 @@ def _selector(args, *, root, ledger, now_fn=_now):
     if args.session0:
         public = Session0Books()
         extras, extras_sha = load_conditions(args.extra_conditions)
-        shadow, shadow_sha = load_conditions(args.shadow_scope)
-        refusal = shadow_scope_date_refusal(args.shadow_scope, now_fn())
+        shadow_raw = Path(args.shadow_scope).read_bytes()  # review S5: one read; hashed, listed and dated
+        shadow, shadow_sha = conditions_from_bytes(shadow_raw)
+        refusal = shadow_scope_date_refusal(args.shadow_scope, now_fn(), raw=shadow_raw)
         if refusal:
             raise ValueError(refusal)
         path = Path(root) / EXCLUSION_FILE

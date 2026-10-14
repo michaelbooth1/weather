@@ -1048,3 +1048,23 @@ def test_live_with_the_session_date_scope_reaches_the_root(tmp_path, monkeypatch
     _no_credential_step(monkeypatch)
     argv = _live_s0_argv(tmp_path, 'shadow_scope_20261015.json')
     assert _deadline_run(monkeypatch, 'live', S0_SESSION, s0_argv=argv) == 'passed'
+
+
+# ----- hardening after session 0 (review S3-S8 on the scope-date guard) -------------------------------------------
+def test_the_scope_is_read_once_and_the_date_is_checked_on_the_hashed_bytes(tmp_path, monkeypatch):
+    # Review S5: the dated bytes are the hashed bytes. Given bytes, the check ignores what is on disk now.
+    scope = _scope_file(tmp_path, 'scope.json', {'conditions': [], 'date': '2026-10-14'})
+    read = json.dumps({'conditions': [], 'date': '2026-10-15'}).encode()
+    assert lfc_cli.shadow_scope_date_refusal(scope, S0_SESSION, raw=read) is None
+    assert lfc_cli.shadow_scope_date_refusal(scope, S0_SESSION) == 'shadow_scope_date_mismatch'
+    scope = _scope_file(tmp_path, 'shadow_scope_20261015.json')
+    opened = []
+    real = io.open
+
+    def spy(path, *args, **kwargs):
+        opened.append(os.path.normcase(os.fspath(path)) if not isinstance(path, int) else path)
+        return real(path, *args, **kwargs)
+    monkeypatch.setattr(io, 'open', spy)
+    monkeypatch.setattr(builtins, 'open', spy)
+    _s0_selector(tmp_path, scope, S0_SESSION)
+    assert opened.count(os.path.normcase(str(scope))) == 1
