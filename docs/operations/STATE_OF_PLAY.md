@@ -1,6 +1,6 @@
 # State of play
 
-**Last updated: 2026-10-13 22:30 America/Toronto (owner ~22:00: LFC session 0 to Thu 10-16, logistics need no signature;
+**Last updated: 2026-10-13 22:30 America/Toronto (owner ~22:00: LFC session 0 to Fri 10-16, logistics need no signature;
 owner 18:30: evening-fix prereg signed, item 337 yes after replay, v2 §4 whole minute, #162 from 10-19; A' 10-14 07:00).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
@@ -47,7 +47,7 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 - Owner 10-13 08:53 (relayed): C advance GO if every C0 check is clean; G4 amended (auto rollback; a failed rollback waits for the owner). DECISION_LOG row.
 - Calendar-shift branch `claude/decisions-pyup-shift-20261013` `84c723ae2` (C 10-18) is **ON HOLD**; not a decision.
 - **DST:** DST-H3 landed; DST-M2 lands in N9; OD30 (the 11-01 night rule) stays until the owner retires it.
-- **LFC session 0: Thu 10-16 from 11:00 EDT (~3 h) on the workstation**, owner-attended, provisional (owner 10-13 ~22:00);
+- **LFC session 0: Fri 10-16 from 11:00 EDT (~3 h) on the workstation**, owner-attended, provisional (owner 10-13 ~22:00);
   guard: Phase B clean by 09:00 10-16, reader + capture re-checked, else it slips. Code deadline 10-25 00:00Z; new pin by master.
 - Logistics (dates, times, session day) take the owner's chat yes in DECISION_LOG, no signature (owner 10-13 ~22:00). init-ledger done 10-13.
 - **LFC no-trade window:** 10-16 T-40 (10:20 EDT) to F2; all T-40 steps re-made 10-16 (scope `--date 2026-10-16`).
