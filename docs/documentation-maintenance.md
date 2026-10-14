@@ -29,6 +29,7 @@ changing inventories, metrics, versions, or operational state.
 | Documentation routing/classification | `docs/README.md` |
 | Documentation writing rules | `docs/AGENTS.md` |
 | What the research established, in short mandatory form | `docs/operations/FINDINGS_DIGEST.md` |
+| What must be exhausted before a no-go: taint verdicts, free-source inventory, exit criteria | `docs/operations/EXHAUSTION_REGISTER.md` (rows never deleted; a closed row says how it closed) |
 | Full derivations; claims that were wrong; recurring error shapes | `docs/operations/ESTABLISHED_FINDINGS.md`; `RETRACTED_AND_FALSE_LEADS.md`; `HOW_WE_GET_THINGS_WRONG.md` (reference depth behind the digest) |
 | Host windows, leases, heavy-work wrappers | `docs/operations/HOST_LOAD_POLICY.md`; generated numbers in `OPERATING_REFERENCE.md` |
 | Production-host agent role and authority | `docs/operations/OPERATIONS_AGENT_ROLE.md` |
