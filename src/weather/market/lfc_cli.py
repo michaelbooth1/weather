@@ -27,7 +27,10 @@ Governed by the owner-signed pre-registration and session-0 spec (2026-10-09, re
 
 Session-0 flags (S0 sections 2 and 4): --session0 --run 0a|0b|0c|0d|0e|0f|0g --event-slug SLUG (repeatable: at least
 three distinct owner-listed candidate events) --extra-conditions F (the 88a file in force) --shadow-scope F. Every command that reads the ledger
-fails closed on missing or unreadable state. `live` and `preflight` with --session0 refuse with session0_deadline_passed
+fails closed on missing or unreadable state. `live` and `preflight` with --session0 refuse with
+shadow_scope_date_mismatch unless every date the --shadow-scope file names (a "date" field, a YYYYMMDD or YYYY-MM-DD
+in its file name) is the session's UTC date (shadow_scope_date_unrecorded when it names none), and with
+session0_deadline_passed
 at or after 2026-10-25T00:00:00Z (LFC.SESSION0_DEADLINE_UTC; clarifications D and E). Nothing here widens an RE-1 limit: the controller is
 weather.market.lfc_pilot.PilotSession.
 
@@ -47,6 +50,7 @@ from decimal import Decimal, InvalidOperation
 import hashlib
 import json
 from pathlib import Path
+import re
 import signal
 import sys
 
@@ -402,6 +406,39 @@ def run_shadow_scope_union(args, *, feed=None):
     return 0
 
 
+_NAME_DATE = re.compile(r'(?<!\d)(\d{4})-?(\d{2})-?(\d{2})(?!\d)')
+
+
+def shadow_scope_dates(path):
+    """Every UTC date the --shadow-scope file names: its "date" field (YYYY-MM-DD) if it records one, and each valid
+    YYYYMMDD or YYYY-MM-DD in its file name (shadow-scope-union writes {"conditions": [...]} only, so today the
+    name, e.g. shadow_scope_20261015.json, is the only record)."""
+    dates = set()
+    value = json.loads(Path(path).read_bytes())
+    if isinstance(value, dict) and 'date' in value:
+        try:
+            dates.add(datetime.strptime(str(value['date']), '%Y-%m-%d').date())
+        except ValueError:
+            raise ValueError('shadow_scope_date_unreadable') from None
+    for match in _NAME_DATE.finditer(Path(path).name):
+        try:
+            dates.add(datetime.strptime(''.join(match.groups()), '%Y%m%d').date())
+        except ValueError:
+            continue
+    return dates
+
+
+def shadow_scope_date_refusal(path, now):
+    """Session 0: the scope must be the one built for the session's UTC date (shadow-scope-union --date D covers UTC
+    date D; the session rests inside one UTC day, hard stop 23:50Z). Every date the file names must equal it."""
+    dates = shadow_scope_dates(path)
+    if not dates:
+        return 'shadow_scope_date_unrecorded'
+    if dates != {utc(now).date()}:
+        return 'shadow_scope_date_mismatch'
+    return None
+
+
 def held_conditions(root, ledger):
     t40 = latest_baseline(root, ledger, 't40')
     return sorted(set(t40['position_conditions']) | set(c for c in t40['open_order_conditions'] if c))
@@ -413,6 +450,9 @@ def _selector(args, *, root, ledger, now_fn=_now):
         public = Session0Books()
         extras, extras_sha = load_conditions(args.extra_conditions)
         shadow, shadow_sha = load_conditions(args.shadow_scope)
+        refusal = shadow_scope_date_refusal(args.shadow_scope, now_fn())
+        if refusal:
+            raise ValueError(refusal)
         path = Path(root) / EXCLUSION_FILE
         panel = excluded_conditions(load_panel_exclusions(path)) if path.exists() else set()
         sources = {'extra_conditions_sha256': extras_sha, 'shadow_scope_sha256': shadow_sha,

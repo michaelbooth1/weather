@@ -17,6 +17,8 @@ Extension 2026-10-09: load_conditions accepts the 88a extra-conditions shape (do
 capture.md) and refuses a dict naming both lists; shadow-scope-union writes the sorted, deduplicated union of every
 condition the shadow runner could select on the session-0 UTC date from public Gamma reads, fails closed on a missing
 event and never touches a tape.
+Scope date (session-0 slip support, 2026-10-14): session-0 preflight and live refuse a --shadow-scope file that names
+another UTC date than the session's (shadow_scope_date_mismatch) or names none (shadow_scope_date_unrecorded).
 """
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -943,3 +945,63 @@ def test_session0_at_the_deadline_instant_refuses(monkeypatch, mode):
 def test_the_session0_deadline_does_not_touch_counted_runs(monkeypatch, mode):
     assert _deadline_run(monkeypatch, mode, LFC.SESSION0_DEADLINE_UTC, session0=False) == 'passed'
     assert _deadline_run(monkeypatch, mode, LFC.SESSION0_DEADLINE_UTC + timedelta(days=5), session0=False) == 'passed'
+
+
+# ----- session-0 shadow-scope date: preflight and live refuse a scope built for another UTC date ------------------
+# Fictional fixture dates only (no data is read): a scope built for 10-14 used by a session on 10-15.
+S0_SESSION = datetime(2026, 10, 15, 15, tzinfo=timezone.utc)
+
+
+def _scope_file(tmp_path, name, value=None):
+    path = tmp_path / name
+    path.write_text(json.dumps({'conditions': []} if value is None else value), encoding='utf-8')
+    return path
+
+
+def _s0_selector(tmp_path, scope, now):
+    extras = _scope_file(tmp_path, 'extra_conditions.json', {'extra_conditions': [], 'update_windows_utc': []})
+    args = parser().parse_args(['preflight', '--session0', '--run', '0a', '--event-slug', 'a', '--event-slug', 'b',
+                                '--event-slug', 'c', '--extra-conditions', str(extras), '--shadow-scope', str(scope)])
+    return lfc_cli._selector(args, root=tmp_path, ledger=None, now_fn=lambda: now)
+
+
+def test_a_10_14_shadow_scope_refuses_a_10_15_session(tmp_path):
+    scope = _scope_file(tmp_path, 'shadow_scope_20261014.json')
+    assert lfc_cli.shadow_scope_date_refusal(scope, S0_SESSION) == 'shadow_scope_date_mismatch'
+    with pytest.raises(ValueError, match='^shadow_scope_date_mismatch$'):
+        _s0_selector(tmp_path, scope, S0_SESSION)
+
+
+@pytest.mark.parametrize('name', ['shadow_scope_20261015.json', 'shadow_scope_2026-10-15.json'])
+def test_a_shadow_scope_for_the_session_utc_date_passes(tmp_path, name):
+    scope = _scope_file(tmp_path, name)
+    assert lfc_cli.shadow_scope_date_refusal(scope, S0_SESSION) is None
+    assert lfc_cli.shadow_scope_date_refusal(scope, datetime(2026, 10, 15, 23, 49, tzinfo=timezone.utc)) is None
+    public, select = _s0_selector(tmp_path, scope, S0_SESSION)
+    assert public is not None and callable(select)
+
+
+def test_the_scope_date_is_the_utc_date_not_the_owner_local_date(tmp_path):
+    # 00:30Z on 10-16 is 20:30 on 10-15 in Toronto; the scope covers UTC days, so the 10-15 file no longer matches.
+    scope = _scope_file(tmp_path, 'shadow_scope_20261015.json')
+    late = datetime(2026, 10, 16, 0, 30, tzinfo=timezone.utc)
+    assert lfc_cli.shadow_scope_date_refusal(scope, late) == 'shadow_scope_date_mismatch'
+
+
+def test_a_shadow_scope_naming_no_date_refuses(tmp_path):
+    scope = _scope_file(tmp_path, 'y.json')
+    assert lfc_cli.shadow_scope_date_refusal(scope, S0_SESSION) == 'shadow_scope_date_unrecorded'
+    with pytest.raises(ValueError, match='^shadow_scope_date_unrecorded$'):
+        _s0_selector(tmp_path, scope, S0_SESSION)
+
+
+def test_a_date_recorded_in_the_file_is_checked_and_must_agree_with_the_name(tmp_path):
+    inside = _scope_file(tmp_path, 'scope.json', {'conditions': [], 'date': '2026-10-15'})
+    assert lfc_cli.shadow_scope_date_refusal(inside, S0_SESSION) is None
+    stale = _scope_file(tmp_path, 'scope_b.json', {'conditions': [], 'date': '2026-10-14'})
+    assert lfc_cli.shadow_scope_date_refusal(stale, S0_SESSION) == 'shadow_scope_date_mismatch'
+    renamed = _scope_file(tmp_path, 'shadow_scope_20261015.json', {'conditions': [], 'date': '2026-10-14'})
+    assert lfc_cli.shadow_scope_date_refusal(renamed, S0_SESSION) == 'shadow_scope_date_mismatch'
+    broken = _scope_file(tmp_path, 'scope_c.json', {'conditions': [], 'date': '15/10/2026'})
+    with pytest.raises(ValueError, match='^shadow_scope_date_unreadable$'):
+        lfc_cli.shadow_scope_date_refusal(broken, S0_SESSION)
