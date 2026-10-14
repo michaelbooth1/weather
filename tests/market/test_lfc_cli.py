@@ -997,7 +997,8 @@ def test_a_shadow_scope_naming_no_date_refuses(tmp_path):
     assert lfc_cli.shadow_scope_date_refusal(scope, S0_SESSION) == 'shadow_scope_date_unrecorded'
     # Review S2: a 9-digit run on either side is no date (each regex boundary), nor is a 7-digit run.
     for name in ('shadow_scope_120261015.json', 'shadow_scope_202610150.json', 'shadow_scope_2026101.json'):
-        assert lfc_cli.shadow_scope_date_refusal(_scope_file(tmp_path, name), S0_SESSION) ==             'shadow_scope_date_unrecorded', name
+        assert lfc_cli.shadow_scope_date_refusal(_scope_file(tmp_path, name), S0_SESSION) == \
+            'shadow_scope_date_unrecorded', name
     with pytest.raises(ValueError, match='^shadow_scope_date_unrecorded$'):
         _s0_selector(tmp_path, scope, S0_SESSION)
 
@@ -1043,6 +1044,9 @@ def test_live_refuses_a_stale_scope_before_the_root_mutex_or_any_credential(tmp_
     assert _deadline_run(monkeypatch, 'live', S0_SESSION, s0_argv=argv) == 'shadow_scope_date_mismatch'
     argv = _live_s0_argv(tmp_path, 'scope_no_date.json')
     assert _deadline_run(monkeypatch, 'live', S0_SESSION, s0_argv=argv) == 'shadow_scope_date_unrecorded'
+    # Review R2-S2: the deadline check runs first; at the deadline instant a stale scope still reports the deadline.
+    argv = _live_s0_argv(tmp_path, 'shadow_scope_20261014.json')
+    assert _deadline_run(monkeypatch, 'live', LFC.SESSION0_DEADLINE_UTC, s0_argv=argv) == 'session0_deadline_passed'
 
 
 def test_live_with_the_session_date_scope_reaches_the_root(tmp_path, monkeypatch):
