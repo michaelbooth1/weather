@@ -130,7 +130,8 @@ def test_derive_refuses_mislabelled_rehearsals(workspace, documents):
     per_date = [documents[d][0] for d in DAYS]
     carried = documents["carried"][0]
     cases = [
-        ([*per_date[:2], carried], carried, "gate_per_date_rehearsal_required"),  # carried passed as a per-date one
+        # carried passed as a per-date one; its first date (DAYS[0]) is not a duplicate, so the label check refuses
+        ([*per_date[1:], carried], carried, "gate_per_date_rehearsal_required"),
         (per_date, per_date[0], "gate_carried_rehearsal_required:max_m"),  # a per-date one passed as carried
         (per_date, documents["r1"][0], "gate_carried_rehearsal_required:max_m"),  # R1 is not the ceiling run
     ]

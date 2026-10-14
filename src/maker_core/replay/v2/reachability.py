@@ -253,6 +253,9 @@ def _carried(doc, variant):
     whitelisted(doc)
     if doc.get("mode") != "carried" or doc.get("hazard_variant") != variant or "reachability" not in doc:
         raise BundleError(f"gate_carried_rehearsal_required:{variant}")
+    reach = doc["reachability"]
+    if not isinstance(reach, dict) or reach.get("status") != status_of(reach.get("f_cal")):
+        raise BundleError(f"gate_reachability_status_mismatch:{variant}")  # the status is recomputed, not trusted
     return doc
 
 

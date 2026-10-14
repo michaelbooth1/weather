@@ -323,8 +323,11 @@ def test_e6_fails_when_the_ceilings_are_not_executable(per_date, carried, repeat
     assert report["executability"]["status"] == "FAIL"
 
 
+F_CAL = {"PASS": "0.6", "FAIL": "0.3", "UNIDENTIFIED": None}  # a fabricated f_cal consistent with each status
+
+
 def _with_status(doc, status, variant=None):
-    copy = dict(doc, reachability=dict(doc["reachability"], status=status))
+    copy = dict(doc, reachability=dict(doc["reachability"], status=status, f_cal=F_CAL[status]))
     return copy if variant is None else dict(copy, hazard_variant=variant)
 
 
@@ -343,3 +346,15 @@ def test_the_gate_report_verdict_passes_only_on_pass(per_date, carried, repeat, 
     r1_doc = None if r1 is None else _with_status(doc, r1, "r1_per_city")
     report = reachability.gate_report(per_date, _with_status(doc, max_m), repeat, r1=r1_doc)
     assert report["reachability"]["verdict"] == outcome
+
+
+@pytest.mark.parametrize("status, f_cal", [("PASS", "0.3"), ("FAIL", "0.5"), ("PASS", None), ("UNIDENTIFIED", "0.6")])
+def test_the_gate_report_recomputes_the_section_11_status(per_date, carried, repeat, status, f_cal):
+    # Defender re-check: a stale or hand-edited status that disagrees with its own f_cal refuses
+    doc, _ = carried
+    edited = dict(doc, reachability=dict(doc["reachability"], status=status, f_cal=f_cal))
+    with pytest.raises(BundleError, match="gate_reachability_status_mismatch:max_m"):
+        reachability.gate_report(per_date, edited, repeat)
+    with pytest.raises(BundleError, match="gate_reachability_status_mismatch:r1_per_city"):
+        reachability.gate_report(per_date, _with_status(doc, "FAIL"), repeat,
+                                 r1=dict(edited, hazard_variant="r1_per_city"))
