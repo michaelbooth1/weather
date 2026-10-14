@@ -1,38 +1,38 @@
 {
   "schema": "landing_preflight_v0.1",
-  "generated_at": "2026-10-13T17:03:49+00:00",
+  "generated_at": "2026-10-14T09:30:40+00:00",
   "git_version": "git version 2.54.0.windows.1",
-  "python": "C:/Users/Michael/Documents/github/weather/venv/Scripts/python.exe",
+  "python": "C:\\Users\\Michael\\Documents\\github\\weather\\venv\\Scripts\\python.exe",
   "host": "workstation",
-  "elapsed_s": 45.125,
+  "elapsed_s": 40.406,
   "inputs": {
     "repo": "C:\\Users\\Michael\\Documents\\github\\weather",
-    "base_ref": "7ec97bcce3f773cc801e0382f48da3c1448b8609",
-    "base_sha": "7ec97bcce3f773cc801e0382f48da3c1448b8609",
-    "head_ref": "403c2f1086d72cbc115fa7559d6b7af7abbca77f",
-    "head_sha": "403c2f1086d72cbc115fa7559d6b7af7abbca77f",
+    "base_ref": "origin/master",
+    "base_sha": "378256d49b21337ce38f641aacdf389345ecec2a",
+    "head_ref": "d9a4e61f6a34c2ec44856ec85f02018c7a52fe02",
+    "head_sha": "d9a4e61f6a34c2ec44856ec85f02018c7a52fe02",
     "earlier": [],
     "tests_mode": "none",
-    "scratch": "C:\\lpf-t2",
+    "scratch": "C:\\lpf-s",
     "dry_run": false,
-    "plan_source": "C:/wt/t2-np/night-plans/2026-10-15/landing-night-plan-2026-10-15-n10.json",
-    "plan_file_sha256": "d81e27e144935ec77cb81dec25cc8148726d4a856c30273a180c7cceb8128179",
-    "span_base_sha": "7ec97bcce3f773cc801e0382f48da3c1448b8609"
+    "plan_source": "C:\\wt\\t2-np\\night-plans\\2026-10-15\\landing-night-plan-2026-10-15-n10.json",
+    "plan_file_sha256": "557cd3ffbcaa606e609f5b786927455c0cbd65246126d15564fed4ef40bfce2e",
+    "span_base_sha": "378256d49b21337ce38f641aacdf389345ecec2a"
   },
-  "plan_sha256": "1e0d69ad75c33253fb0b571f2959c7aefc65cf3cc20f98d11ada6348126c037b",
+  "plan_sha256": "93aef186184fce76e16bccd733bee8fc64c458858d84a813f60e3b6c7d669cc1",
   "closure_snapshot_sha256": null,
   "chain": [
     {
       "step": 1,
       "label": "#177+#173+#152",
-      "sha": "403c2f1086d72cbc115fa7559d6b7af7abbca77f",
+      "sha": "d9a4e61f6a34c2ec44856ec85f02018c7a52fe02",
       "role": "head",
       "result": "clean",
       "conflicts": [],
       "conflicts_fix_class": {},
       "pairwise_conflicts": [],
-      "tree": "4ab2f151ea98a4707fc791f40edc11d6bffc25ad",
-      "synthetic_commit": "ca1d1b14add476dee078665862683290e6144730",
+      "tree": "ebaf124fb7be1f76ccade314c1bfb4d810351ae4",
+      "synthetic_commit": "053d76d61ba9aa7fc06b7b333ea41d9c33ab4864",
       "prs": [
         177,
         173,
@@ -42,9 +42,9 @@
     }
   ],
   "landing": {
-    "tree": "4ab2f151ea98a4707fc791f40edc11d6bffc25ad",
-    "commit": "ca1d1b14add476dee078665862683290e6144730",
-    "pre_head_commit": "7ec97bcce3f773cc801e0382f48da3c1448b8609",
+    "tree": "ebaf124fb7be1f76ccade314c1bfb4d810351ae4",
+    "commit": "053d76d61ba9aa7fc06b7b333ea41d9c33ab4864",
+    "pre_head_commit": "378256d49b21337ce38f641aacdf389345ecec2a",
     "changed_files": [
       {
         "path": "docs/operations/OPERATIONS_DESIGN.md",
@@ -273,11 +273,11 @@
     },
     "disk_floor": {
       "status": "PASS",
-      "summary": "122.0 GiB free on C:\\",
+      "summary": "95.1 GiB free on C:\\lpf-s",
       "details": [],
       "attribution": [],
       "evidence": {
-        "free_bytes": 130967179264
+        "free_bytes": 102145302528
       },
       "command": null,
       "exit_code": null,
@@ -287,11 +287,11 @@
     },
     "refs": {
       "status": "PASS",
-      "summary": "base 7ec97bcce3f7 head 403c2f1086d7 earlier 0",
+      "summary": "base 378256d49b21 head d9a4e61f6a34 earlier 0",
       "details": [],
       "attribution": [],
       "evidence": {
-        "fetch_ok": null,
+        "fetch_ok": true,
         "warnings": []
       },
       "command": null,
@@ -326,12 +326,12 @@
     },
     "merge_chain": {
       "status": "PASS",
-      "summary": "1 step(s) clean; landing ca1d1b14add4",
+      "summary": "1 step(s) clean; landing 053d76d61ba9",
       "details": [],
       "attribution": [],
       "evidence": {
-        "landing_commit": "ca1d1b14add476dee078665862683290e6144730",
-        "landing_tree": "4ab2f151ea98a4707fc791f40edc11d6bffc25ad"
+        "landing_commit": "053d76d61ba9aa7fc06b7b333ea41d9c33ab4864",
+        "landing_tree": "ebaf124fb7be1f76ccade314c1bfb4d810351ae4"
       },
       "command": null,
       "exit_code": null,
@@ -341,11 +341,11 @@
     },
     "worktree": {
       "status": "PASS",
-      "summary": "detached worktree at ca1d1b14add4",
+      "summary": "detached worktree at 053d76d61ba9",
       "details": [],
       "attribution": [],
       "evidence": {
-        "path": "C:\\lpf-t2\\run-20261013T170304Z-78152\\wt"
+        "path": "C:\\lpf-s\\run-20261014T093000Z-154988\\wt"
       },
       "command": null,
       "exit_code": null,
@@ -359,7 +359,7 @@
       "details": [],
       "attribution": [],
       "evidence": {
-        "python": "C:/Users/Michael/Documents/github/weather/venv/Scripts/python.exe",
+        "python": "C:\\Users\\Michael\\Documents\\github\\weather\\venv\\Scripts\\python.exe",
         "scrubbed_env_names": [
           "ANTHROPIC_BASE_URL",
           "CLAUDE_CODE_MESSAGING_TOKEN",
@@ -367,8 +367,8 @@
           "GIT_EDITOR",
           "PYTHONPATH"
         ],
-        "weather": "C:\\lpf-t2\\run-20261013T170304Z-78152\\wt\\weather\\__init__.py",
-        "repo_root": "C:\\lpf-t2\\run-20261013T170304Z-78152\\wt"
+        "weather": "C:\\lpf-s\\run-20261014T093000Z-154988\\wt\\weather\\__init__.py",
+        "repo_root": "C:\\lpf-s\\run-20261014T093000Z-154988\\wt"
       },
       "command": null,
       "exit_code": null,
@@ -979,15 +979,15 @@
         },
         "classifier_version": "L-P4 roll-class engine 0.1 (port of the L-R3 classifier)",
         "changed_basis": "git diff --no-renames <tree before the head step> <landing tree> (roll_verdict's set)",
-        "pre_head_tree": "de0880ad1b9a299753736b3d8c054877a65a8c01",
-        "landing_tree": "4ab2f151ea98a4707fc791f40edc11d6bffc25ad",
+        "pre_head_tree": "b3dd33dfe5811543cfcbe58a95af523e7e141bf5",
+        "landing_tree": "ebaf124fb7be1f76ccade314c1bfb4d810351ae4",
         "execution_tape_entries": [
           "weather.market.execution_tape_capture",
           "weather.operations.execution_tape_supervisor"
         ],
-        "declared": null,
-        "declared_source": null,
-        "declared_matches": null,
+        "declared": "EXPECTED-ROLL-SENSITIVE",
+        "declared_source": "--declared-roll-class",
+        "declared_matches": true,
         "light_path_eligible": false,
         "light_path_basis": {
           "branch_diff": "pre_head...head",
@@ -1003,7 +1003,7 @@
       "command": null,
       "exit_code": null,
       "output_tail": "",
-      "duration_s": 0.921,
+      "duration_s": 0.969,
       "owner": "L-P4"
     },
     "landing_path": {
@@ -1022,7 +1022,7 @@
           "Roll-sensitive branches merge in the 01:00-04:00 quiet window via scripts/ops/quiet_window_merge.ps1 (AGENTS.md)"
         ],
         "hold_quotes": [],
-        "declared": null,
+        "declared": "EXPECTED-ROLL-SENSITIVE",
         "binding": false,
         "binding_gate": "Get the verdict from scripts\\ops\\roll_verdict.ps1 -Branch <b>; never derive it by hand (AGENTS.md)"
       },
@@ -1039,10 +1039,10 @@
       "attribution": [],
       "evidence": {
         "span": {
-          "span_base": "7ec97bcce3f773cc801e0382f48da3c1448b8609",
-          "span_base_tree": "de0880ad1b9a299753736b3d8c054877a65a8c01",
-          "base_tree": "de0880ad1b9a299753736b3d8c054877a65a8c01",
-          "landing_tree": "4ab2f151ea98a4707fc791f40edc11d6bffc25ad",
+          "span_base": "378256d49b21337ce38f641aacdf389345ecec2a",
+          "span_base_tree": "b3dd33dfe5811543cfcbe58a95af523e7e141bf5",
+          "base_tree": "b3dd33dfe5811543cfcbe58a95af523e7e141bf5",
+          "landing_tree": "ebaf124fb7be1f76ccade314c1bfb4d810351ae4",
           "hits": 0
         },
         "per_step_hits": {
@@ -1055,8 +1055,8 @@
         "git",
         "diff",
         "--check",
-        "de0880ad1b9a299753736b3d8c054877a65a8c01",
-        "4ab2f151ea98a4707fc791f40edc11d6bffc25ad"
+        "b3dd33dfe5811543cfcbe58a95af523e7e141bf5",
+        "ebaf124fb7be1f76ccade314c1bfb4d810351ae4"
       ],
       "exit_code": null,
       "output_tail": "",
@@ -1085,16 +1085,16 @@
       "evidence": {
         "required_from": "src/weather/operations/documentation_transaction.py",
         "final_tip": "#177+#173+#152",
-        "final_tree": "4ab2f151ea98a4707fc791f40edc11d6bffc25ad",
+        "final_tree": "ebaf124fb7be1f76ccade314c1bfb4d810351ae4",
         "later_slots": [],
         "documents": [
           {
             "path": "docs/operations/ESTABLISHED_FINDINGS.md",
             "required_review": true,
             "required_disposition": false,
-            "base_oid": "f85693d31fdf651e98a6ebd7616523ed1265c3a7",
-            "landing_oid": "f85693d31fdf651e98a6ebd7616523ed1265c3a7",
-            "final_tip_oid": "f85693d31fdf651e98a6ebd7616523ed1265c3a7",
+            "base_oid": "b0e9f5ad7504905b339f094df16e053521425118",
+            "landing_oid": "b0e9f5ad7504905b339f094df16e053521425118",
+            "final_tip_oid": "b0e9f5ad7504905b339f094df16e053521425118",
             "touched_by": [],
             "stale_if_bound_at_this_head": false
           },
@@ -1112,9 +1112,9 @@
             "path": "docs/operations/STATE_OF_PLAY.md",
             "required_review": true,
             "required_disposition": true,
-            "base_oid": "ac4dd5b77bb17c1f8360e648727acbc2dd569bbb",
-            "landing_oid": "ac4dd5b77bb17c1f8360e648727acbc2dd569bbb",
-            "final_tip_oid": "ac4dd5b77bb17c1f8360e648727acbc2dd569bbb",
+            "base_oid": "670f212b318c48f26c5a7a4781fd8da7471ac872",
+            "landing_oid": "670f212b318c48f26c5a7a4781fd8da7471ac872",
+            "final_tip_oid": "670f212b318c48f26c5a7a4781fd8da7471ac872",
             "touched_by": [],
             "stale_if_bound_at_this_head": false
           },
@@ -1122,9 +1122,9 @@
             "path": "docs/roadmap/active-backlog.md",
             "required_review": true,
             "required_disposition": true,
-            "base_oid": "179a1a32cf7236dbe665aca1a671dd768bfd35a9",
-            "landing_oid": "179a1a32cf7236dbe665aca1a671dd768bfd35a9",
-            "final_tip_oid": "179a1a32cf7236dbe665aca1a671dd768bfd35a9",
+            "base_oid": "695e0771647fb8ca0de9f1b98b3d556f9247b4a8",
+            "landing_oid": "695e0771647fb8ca0de9f1b98b3d556f9247b4a8",
+            "final_tip_oid": "695e0771647fb8ca0de9f1b98b3d556f9247b4a8",
             "touched_by": [],
             "stale_if_bound_at_this_head": false
           }
@@ -1134,7 +1134,7 @@
       "command": null,
       "exit_code": null,
       "output_tail": "",
-      "duration_s": 0.25,
+      "duration_s": 0.234,
       "owner": "L-P2"
     },
     "whitespace_only": {
@@ -1639,12 +1639,12 @@
         "--name-only",
         "--ignore-space-at-eol",
         "--ignore-blank-lines",
-        "de0880ad1b9a299753736b3d8c054877a65a8c01",
-        "4ab2f151ea98a4707fc791f40edc11d6bffc25ad"
+        "b3dd33dfe5811543cfcbe58a95af523e7e141bf5",
+        "ebaf124fb7be1f76ccade314c1bfb4d810351ae4"
       ],
       "exit_code": null,
       "output_tail": "",
-      "duration_s": 0.125,
+      "duration_s": 0.11,
       "owner": "L-P2"
     },
     "agent_docs_audit": {
@@ -1654,15 +1654,15 @@
       "attribution": [],
       "evidence": {},
       "command": [
-        "C:/Users/Michael/Documents/github/weather/venv/Scripts/python.exe",
+        "C:\\Users\\Michael\\Documents\\github\\weather\\venv\\Scripts\\python.exe",
         "-m",
         "weather.operations.agent_docs_audit",
         "--repo-root",
-        "C:\\lpf-t2\\run-20261013T170304Z-78152\\wt"
+        "C:\\lpf-s\\run-20261014T093000Z-154988\\wt"
       ],
       "exit_code": 0,
-      "output_tail": "Agent docs audit: PASS (18 agent files, 1187 Markdown files)\n",
-      "duration_s": 17.797,
+      "output_tail": "Agent docs audit: PASS (18 agent files, 1188 Markdown files)\n",
+      "duration_s": 14.453,
       "owner": "L-P2"
     },
     "correspondence_index": {
@@ -1675,16 +1675,16 @@
       "attribution": [],
       "evidence": {},
       "command": [
-        "C:/Users/Michael/Documents/github/weather/venv/Scripts/python.exe",
+        "C:\\Users\\Michael\\Documents\\github\\weather\\venv\\Scripts\\python.exe",
         "-m",
         "weather.reporting.roadmap.correspondence_index",
         "--repo-root",
-        "C:\\lpf-t2\\run-20261013T170304Z-78152\\wt",
+        "C:\\lpf-s\\run-20261014T093000Z-154988\\wt",
         "--check"
       ],
       "exit_code": 1,
       "output_tail": "docs/roadmap/correspondence-index.md: stale or missing; run python -m weather.reporting.roadmap.correspondence_index\ndocs/roadmap/correspondence-index/2026-09.md: stale or missing; run python -m weather.reporting.roadmap.correspondence_index\n",
-      "duration_s": 0.562,
+      "duration_s": 0.547,
       "owner": "L-P2"
     },
     "roadmap_backlog": {
@@ -1694,21 +1694,21 @@
       "attribution": [],
       "evidence": {},
       "command": [
-        "C:/Users/Michael/Documents/github/weather/venv/Scripts/python.exe",
+        "C:\\Users\\Michael\\Documents\\github\\weather\\venv\\Scripts\\python.exe",
         "-m",
         "weather.reporting.roadmap.roadmap_backlog",
         "--roadmap-root",
-        "C:\\lpf-t2\\run-20261013T170304Z-78152\\wt\\docs\\roadmap",
+        "C:\\lpf-s\\run-20261014T093000Z-154988\\wt\\docs\\roadmap",
         "--report-out",
-        "C:\\lpf-t2\\run-20261013T170304Z-78152\\wt\\docs\\roadmap\\active-backlog.md",
+        "C:\\lpf-s\\run-20261014T093000Z-154988\\wt\\docs\\roadmap\\active-backlog.md",
         "--json-out",
-        "C:\\lpf-t2\\run-20261013T170304Z-78152\\roadmap_backlog.json",
+        "C:\\lpf-s\\run-20261014T093000Z-154988\\roadmap_backlog.json",
         "--fail-on-lint",
         "--check"
       ],
       "exit_code": 0,
       "output_tail": "Roadmap backlog: OK (generated report matches sources)\n",
-      "duration_s": 0.172,
+      "duration_s": 0.188,
       "owner": "L-P2"
     },
     "schema_registry": {
@@ -1725,12 +1725,12 @@
         "schema_additive": null
       },
       "command": [
-        "C:/Users/Michael/Documents/github/weather/venv/Scripts/python.exe",
+        "C:\\Users\\Michael\\Documents\\github\\weather\\venv\\Scripts\\python.exe",
         "-m",
         "weather.schema_registry",
         "audit",
         "--out",
-        "C:\\lpf-t2\\run-20261013T170304Z-78152\\schema_registry_audit.json"
+        "C:\\lpf-s\\run-20261014T093000Z-154988\\schema_registry_audit.json"
       ],
       "exit_code": 0,
       "output_tail": "",
@@ -1778,7 +1778,7 @@
       "command": null,
       "exit_code": null,
       "output_tail": "",
-      "duration_s": 0.11,
+      "duration_s": 0.109,
       "owner": "L-P2"
     },
     "ratchets": {
@@ -1837,7 +1837,7 @@
         }
       },
       "command": [
-        "C:/Users/Michael/Documents/github/weather/venv/Scripts/python.exe",
+        "C:\\Users\\Michael\\Documents\\github\\weather\\venv\\Scripts\\python.exe",
         "-m",
         "pytest",
         "-q",
@@ -1845,8 +1845,8 @@
         "no:cacheprovider",
         "-o",
         "junit_family=xunit1",
-        "--junitxml=C:\\lpf-t2\\run-20261013T170304Z-78152\\junit-ratchets.xml",
-        "--basetemp=C:\\lpf\\78152\\ratchets",
+        "--junitxml=C:\\lpf-s\\run-20261014T093000Z-154988\\junit-ratchets.xml",
+        "--basetemp=C:\\lpf\\154988\\ratchets",
         "-m",
         "ratchet",
         "tests/app/test_app_architecture.py",
@@ -1871,8 +1871,8 @@
         "tests/test_quarantine_registry.py"
       ],
       "exit_code": 0,
-      "output_tail": "........................................................................ [ 82%]\n...............                                                          [100%]\n87 passed, 92 deselected in 21.39s\n",
-      "duration_s": 22.39,
+      "output_tail": "........................................................................ [ 82%]\n...............                                                          [100%]\n87 passed, 92 deselected in 19.63s\n",
+      "duration_s": 20.719,
       "owner": "L-P3"
     },
     "tests": {
@@ -1912,7 +1912,7 @@
     "tests_run": false,
     "binding": false,
     "binding_gates": "scripts\\ops\\roll_verdict.ps1 -Branch <b>, scripts\\ops\\quiet_window_merge.ps1 and the integration attempt receipts (docs/operations/INTEGRATION_ATTEMPT_RUNBOOK.md) bind; this verdict does not",
-    "valid_while": "origin/master == 7ec97bcce3f773cc801e0382f48da3c1448b8609 and the plan's earlier SHAs land unchanged"
+    "valid_while": "origin/master == 378256d49b21337ce38f641aacdf389345ecec2a and the plan's earlier SHAs land unchanged"
   },
   "cleanup": {
     "kept": false,
@@ -1921,7 +1921,7 @@
   },
   "receipt": {
     "out_path": "C:\\wt\\t2-np\\night-plans\\2026-10-15\\preflight-n10-88a-rs.json",
-    "sha256": "e01119c63eae43ecdb8be7ecc0d083c7f9aa0daf7497c3b3905af223da66283d",
-    "handback_line": "landing_preflight FAIL tests=none(skipped) binding=false sha256=e01119c63eae43ecdb8be7ecc0d083c7f9aa0daf7497c3b3905af223da66283d head=403c2f1086d72cbc115fa7559d6b7af7abbca77f earlier=[] base=7ec97bcce3f773cc801e0382f48da3c1448b8609 plan=1e0d69ad75c33253fb0b571f2959c7aefc65cf3cc20f98d11ada6348126c037b landing=ca1d1b14add476dee078665862683290e6144730 git=git version 2.54.0.windows.1"
+    "sha256": "51cdac13579aa11f81b5143efc34db3a7a3c5b0fc7c5a29adefecf7d98ae3da4",
+    "handback_line": "landing_preflight FAIL tests=none(skipped) binding=false sha256=51cdac13579aa11f81b5143efc34db3a7a3c5b0fc7c5a29adefecf7d98ae3da4 head=d9a4e61f6a34c2ec44856ec85f02018c7a52fe02 earlier=[] base=378256d49b21337ce38f641aacdf389345ecec2a plan=93aef186184fce76e16bccd733bee8fc64c458858d84a813f60e3b6c7d669cc1 landing=053d76d61ba9aa7fc06b7b333ea41d9c33ab4864 git=git version 2.54.0.windows.1"
   }
 }

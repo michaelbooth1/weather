@@ -2,14 +2,14 @@
   "schema": "landing_night_plan_v0.1",
   "night": "2026-10-15",
   "label": "N10 landing night 2026-10-14 -> 2026-10-15 (production capture host): 88a post-freeze head #177",
-  "status": "DRAFT_SIMULATED_BASE",
-  "master_sha": "7ec97bcce3f773cc801e0382f48da3c1448b8609",
-  "generated_at": "2026-10-13T13:02:44-04:00",
+  "status": "FINAL",
+  "master_sha": "378256d49b21337ce38f641aacdf389345ecec2a",
+  "generated_at": "2026-10-14T05:29:42-04:00",
   "source": "workstation DESKTOP-RFCD2GH, track T2; human summary night-plans/2026-10-15/N10-HEADS.md",
   "execution_order_note": "one roll-sensitive slot only (pyup section T holds the lease 00:30-02:00)",
-  "prerequisite": "N9 landed (rs-r2 dae4c96da + rf-r2 48becd401, or the rf-alone-r2 f870a759d fallback) and the oc head 051d8aa64; if master differs from master_sha, the head must be the -r2 rebuild on it",
+  "prerequisite": "N9 landed (FINAL 260d498cd); master_sha is the real post-N9 master. If origin/master moves past master_sha on the night, only a docs/*.md or night-plans/ difference keeps this pre-gate valid; anything else needs a rebuild",
   "schedule": {
-    "pyup_section_T": "00:30-02:00 holds the shared lease (not part of this plan)",
+    "pyup_section_T": "00:30-02:00 holds the shared lease (not part of this plan; host block night-plans/2026-10-15/pyup-phase-t/PHASE-T.md on claude/night-plans)",
     "rs": "bounded suite start <= 02:45, quiet_window_merge.ps1 start <= 03:40, recovery proof, then 88a re-adoption before 04:00",
     "overflow_drop_order": [
       "rs (moves to 10-18; nothing else lands this night)"
@@ -17,24 +17,25 @@
     "rs_failure_fallback": "none: no RF head tonight; #177 retries on 10-18 ahead of #182"
   },
   "master_drift": {
-    "origin_master_at_plan_time": "a994231203010d667e94840576d325794c0683ed",
-    "pregate_base": "7ec97bcce3f773cc801e0382f48da3c1448b8609",
-    "checks": "SIMULATED: origin/master does not yet contain N9; regenerate this file after N9 lands"
+    "origin_master_at_plan_time": "378256d49b21337ce38f641aacdf389345ecec2a",
+    "pregate_base": "378256d49b21337ce38f641aacdf389345ecec2a",
+    "checks": "origin/master at plan time must equal the pregate base"
   },
   "fallback_heads": [],
   "docs_light_path": [],
   "not_in_this_plan": "#182 holding #172 (88a capture families; 10-18, alone, with task-registration activation); #118 (owner hold DL 2026-10-02 row 93: not before 10-30 unless traced cadence-independent)",
-  "open_questions": [
-    "D1: accept the 88a re-adoption gap inside UTC panel day 10-15 (recommended) or move #177 to 10-18"
+  "open_questions": [],
+  "answered": [
+    "D1: the owner accepts the capture restart ~03:40-04:00 EDT inside the UTC 10-15 panel day (STATE_OF_PLAY critical path item 4, '#177 (T2, owner yes)')"
   ],
   "priority_order": [
-    "claude/integration-20261015-88a-rs"
+    "claude/integration-20261015-88a-rs-r2"
   ],
   "slots": [
     {
       "kind": "rs_guarded_merge",
-      "head": "claude/integration-20261015-88a-rs",
-      "sha": "403c2f1086d72cbc115fa7559d6b7af7abbca77f",
+      "head": "claude/integration-20261015-88a-rs-r2",
+      "sha": "d9a4e61f6a34c2ec44856ec85f02018c7a52fe02",
       "prs": [
         177,
         173,
@@ -48,7 +49,7 @@
         "pr173 (inside #177)": "96e22678925357d1713b26a5d60a826d9ff90760",
         "pr152 (inside #177)": "722b34b5501294a8df2e245e0e1bf5149d62e542"
       },
-      "stacked_on": "built on the SIMULATED post-N9 base 7ec97bcce3f773cc801e0382f48da3c1448b8609 (origin/master a99423120 + N9 rf-r2 48becd401 + oc 051d8aa64); rebuild as -r2 on the real master after N9 lands",
+      "stacked_on": "built directly on post-N9 master 378256d49b21337ce38f641aacdf389345ecec2a",
       "merge_order": [
         "pr177 (already contains #152 and #173)",
         "fix: Guards docstring lines (tests only)"
@@ -67,8 +68,8 @@
         "alone on its night (88a heads never share a night); 10-16 and 10-17 are no-merge nights (G5)"
       ],
       "qtest": {
-        "log": "q-t2-88a-rs-a399ca4.log + q-t2-88a-rs-403c2f1.log",
-        "result": "a399ca487: 277 passed, 51 subtests passed (15 maker-evidence/execution-tape/quarantine/schema/storage/docs-audit files); 403c2f1 (Guards fix): 122 passed, 11 subtests passed (hygiene ratchet, heavy-queue, the 6 fixed modules, quarantine registry)",
+        "log": "q-t2-88a-rs-r2-d9a4e61.log (r1: q-t2-88a-rs-a399ca4.log + q-t2-88a-rs-403c2f1.log)",
+        "result": "d9a4e61f6 (r2 on master 378256d49): 332 passed, 51 subtests passed (16 files: 6 execution-tape, 3 maker-evidence, short-basetemp, 2 quarantine, schema-registry, storage-classes, agent-docs-audit, hygiene ratchet)",
         "rc": 0
       },
       "agent_docs_audit_rc": 0,
@@ -78,12 +79,12 @@
         "docs/roadmap/agent-report-2026-10-03-88a-trade-stream-coverage.md (on the head)"
       ],
       "pregate": {
-        "path": "C:\\wt\\workstation-chat\\l-data\\t2heads\\pregate\\pg-403c2f1086d7-20261013T120406-163916\\receipt.json",
-        "receipt_sha256": "03db8433fa3d2845a8dd451376615182a9bee6eebb9f6e7ac7657c6aaa64fe1b",
+        "path": "C:\\wt\\workstation-chat\\l-data\\t2heads\\pregate\\pg-d9a4e61f6a34-20261014T043126-75044\\receipt.json",
+        "receipt_sha256": "489cc0517efe51e305fea5fd683d80d8082905d77a28d0191a4cc76a28531b27",
         "verdict": "PASS",
-        "base": "7ec97bcce3f773cc801e0382f48da3c1448b8609",
+        "base": "378256d49b21337ce38f641aacdf389345ecec2a",
         "base_is_ancestor": true,
-        "log_sha256": "593473dc762e4e1696ba90187e45e91dc1ef2349c7ce0b73dd14edcf1ea7a7d7",
+        "log_sha256": "c9762ced4f2a416513243a146487e02cde7f591cbacdc1d47626b93c0177adc0",
         "chunks": 22,
         "chunk_files": 529,
         "chunk_exit_codes_nonzero": [],
@@ -96,12 +97,12 @@
         },
         "failed_tests": [],
         "failure_reasons": [],
-        "started_at": "2026-10-13T12:04:06.4582802-04:00",
-        "finished_at": "2026-10-13T13:01:18.3354310-04:00",
+        "started_at": "2026-10-14T04:31:26.4299017-04:00",
+        "finished_at": "2026-10-14T05:26:35.3603252-04:00",
         "python": "workstation 3.11.9 (host 3.11.0)",
         "git": "2.54.0.windows.1 (host 2.45.2)"
       }
     }
   ],
-  "plan_sha256": "1e0d69ad75c33253fb0b571f2959c7aefc65cf3cc20f98d11ada6348126c037b"
+  "plan_sha256": "93aef186184fce76e16bccd733bee8fc64c458858d84a813f60e3b6c7d669cc1"
 }
