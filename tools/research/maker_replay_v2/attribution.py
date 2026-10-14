@@ -35,7 +35,10 @@ from the first minute start at or after s), and every A8 test above reads ``clau
 descriptor reads under that rule, instead of the read at the instant. So the direct condition, the cut rule and
 completeness (i)/(ii) all hold at minute starts: the exempt cancel is the one at the minute start at which the clause
 horizon leaves (1, 2), and in the part of a minute after a mid-minute descriptor change the clause still sees the
-lead before it. The blind gate (``pull``) still reads the engine's horizon at the instant, as the engine does.
+lead before it. One A8 label is not on the minute rule: the blind gate (``pull``) labels a ``blind_re1``
+``HORIZON_NOT_ELIGIBLE`` pull A8 on the engine's horizon read at the instant, as the engine's gate does, so in the
+end-side gap it can label A8 up to 59 s before the clause horizon leaves (1, 2) (Defender A-1, 2026-10-14: 2 such
+labels on dense-11-01-dst).
 
 Variants (``VARIANTS``) switch each ruling on alone and all together; ``frozen`` reproduces the engine before
 the rulings (T1 decision book, T2 replacement book, no refresh, no blind horizon gate) and is pinned to the pre-fix
@@ -102,6 +105,8 @@ def _minute_start(at):
     """The first UTC minute start at or after ``at``; A8's own copy, deliberately not ``horizon.minute_start``."""
     whole = at.replace(second=0, microsecond=0)
     return whole if whole == at else whole + timedelta(minutes=1)
+
+
 VARIANTS = {"frozen": False, "W1": False, "W2": False, "F3": True, "all": True, "Q2": True}  # name -> refresh
 
 
@@ -114,8 +119,9 @@ def attributing(engine, q2=False):
     """``engine`` that runs the direct check (rule 1) at every ``decide()`` and records each decision's inputs.
 
     With ``q2`` the base is ``all`` (same books and refresh), so the book and horizon checks are off and the direct
-    check is A8's (``outside_clause``: outside the post window, inside the envelope, and the engine's own horizon
-    missing or not in ``A8_LEADS``), plus the clause-completeness checks in ``record_decision`` and ``_process``."""
+    check is A8's (``outside_clause``: outside the post window, inside the envelope, and ``clause_horizon``, the
+    engine's own horizon read at the latest minute start, missing or not in ``A8_LEADS``), plus the
+    clause-completeness checks in ``record_decision`` and ``_process``."""
     from maker_core.replay.v2 import kernel as k
 
     class Attributing(engine):
@@ -184,7 +190,8 @@ def attributing(engine, q2=False):
 
         def outside_clause(self, cid, at):
             """A8's direct condition: outside the post window, inside the envelope (the base's window), and the
-            engine's own horizon at ``at`` missing or not in ``A8_LEADS`` (independent of ``horizon.py``)."""
+            engine's own horizon read at the latest minute start (``clause_horizon``) missing or not in
+            ``A8_LEADS`` (independent of ``horizon.py``)."""
             return (not self.active(cid, at) and self.in_envelope(cid, at)
                     and self.clause_horizon(cid, at) not in A8_LEADS)
 
@@ -231,7 +238,8 @@ def attributing(engine, q2=False):
 
         def _process(self, at, batch):
             super()._process(at, batch)
-            if q2:  # completeness (ii): no legs may rest past the instant the engine's horizon leaves (1, 2)
+            # completeness (ii): no legs may rest past the minute start at which the clause horizon leaves (1, 2)
+            if q2:
                 for cid, state in self.states.items():
                     if state.legs and self.clause_horizon(cid, at) not in A8_LEADS:
                         self.clause_violations.append((at, cid, "LEGS_RESTING", ()))

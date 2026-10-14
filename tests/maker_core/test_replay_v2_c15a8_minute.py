@@ -47,9 +47,14 @@ def test_mutant_exact_instant_manifest_is_caught(tmp_path, monkeypatch):
 
 
 def test_the_manifest_construction_gives_the_intervals_windows_on_the_registered_fixture_panel(registered):
-    """One §4 rule: ``runs`` over ``minute_lines`` split by maintenance (``active_intervals``'s construction) equals
-    ``intervals.evaluate`` on every eligible (date, condition); compare the exact-instant form, which differs."""
-    _, bundles, _, result = registered
+    """One §4 rule: ``execution_manifest.active_intervals`` itself (called, not re-implemented) equals
+    ``intervals.evaluate`` on every eligible (date, condition). The inline exact-instant split is only the
+    comparison that shows the minute rule is exercised (it differs), and its minute form must equal the manifest."""
+    _, bundles, inventory, result = registered
+    manifest_windows, _ = execution_manifest.active_intervals(bundles, inventory)
+    manifest = {}
+    for w in manifest_windows:
+        manifest.setdefault((w["date"], w["condition_id"]), []).append((w["start"], w["end"]))
     lines = horizon.timelines([lockstep.descriptor_source(b) for b in bundles], ZONES)
     minute_lines = horizon.minute_lines(lines)
     owner = {cid for row in result.owner_exclusions for cid in row["matched_conditions"]}
@@ -71,7 +76,8 @@ def test_the_manifest_construction_gives_the_intervals_windows_on_the_registered
                                 if x < y]
                 return out
             minute = split(minute_lines.get(c.condition_id, ()))
-            assert windows_of(result, c.condition_id, b.day) == minute, (b.day, c.condition_id)
+            built = manifest.get((b.day.isoformat(), c.condition_id), [])
+            assert windows_of(result, c.condition_id, b.day) == built == minute, (b.day, c.condition_id)
             differs += minute != split(lines.get(c.condition_id, ()))
             checked += 1
     assert checked > 100 and differs > 0, (checked, differs)

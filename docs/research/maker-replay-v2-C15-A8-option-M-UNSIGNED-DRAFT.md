@@ -23,7 +23,10 @@ disclosure (T1 report 6) applies.
   - completeness (i), where the exempt cancel is the one at the minute start at which the clause horizon leaves 1..2;
   - completeness (ii).
 
-  The blind gate still reads the engine's horizon at the instant, as the engine does.
+  The blind gate still reads the engine's horizon at the instant, as the engine does. So `attribution.pull()` still
+  labels a `blind_re1` `HORIZON_NOT_ELIGIBLE` pull A8 on that instant read. In the end-side gap this can come up to
+  59 s before the clause horizon leaves 1..2. The Defender found 2 such labels on dense-11-01-dst (A-1, 2026-10-14);
+  edit 3 carries the carve-out.
 
 ## A8 re-run on minute windows (4 registered fictional fixtures, 32 cells)
 
@@ -53,19 +56,27 @@ Add:
 
 ## Edit 2: §4 gate-ordering disclosure
 
-Replace "(every active minute has a lead in 1..2, and the interval end withdraws the legs), so it changes no scored
-decision" with:
+Replace the whole sentence "The asymmetry cannot be reached inside the clause windows (every active minute has a lead
+in 1..2, and the interval end withdraws the legs), so it changes no scored decision." with:
 
-> (at every minute start of an active interval the lead is in 1..2, and the interval end withdraws the legs). The
-> exception is at most 59 s after a captured descriptor moves a lead out of 1..2 mid-minute, where informed-v0's
-> resting legs are held until the interval end at the next minute start.
+> The asymmetry is reachable only in the part of a minute after a captured descriptor moves a lead out of 1..2
+> mid-minute, for at most 59 s until the interval end at the next minute start. There `blind_re1`'s gate pulls at
+> the instant of the descriptor, while `informed-v0`'s HOLD path still holds its existing legs until the interval end
+> withdraws them. So in that gap the arms can differ, and it can change a scored decision. At every minute start of an
+> active interval the lead is in 1..2, so the asymmetry is not reachable elsewhere.
+
+On the four registered fixtures, every decision in that end-side gap, on every arm, is `NO_QUOTE` with no legs
+resting (Defender probe P3, 2026-10-14). So the fixtures do not exercise the held-legs case; it follows from the
+rule, not from an observed fixture difference.
 
 ## Edit 3: C15 row, the A8 sentence
 
 Report 6 proposed changing only the "other than ..." clause. The implemented rules also read the horizon at the
-minute start in the direct condition and in completeness (i). Without that, the HOLD decisions in the end-side gap
-(edit 2's exception) are "a decision taken at such a horizon" and fail the re-run. So the edit covers the whole
-sentence. Replace:
+minute start in the direct condition and in completeness (i). Without that, any decision in the end-side gap (edit
+2's exception) would be "a decision taken at such a horizon" and fail the re-run. In the fixtures every such decision
+is `NO_QUOTE`; a held-legs HOLD there is the rule's case, not an observed one. So the edit covers the whole sentence.
+It also carries a carve-out for the blind gate, which still labels A8 on the read at the instant (Defender A-1).
+Replace:
 
 > A8 is not self-labelling: a difference is A8 only where the engine's own horizon read is missing or outside 1..2,
 > and the re-run fails on any decision taken at such a horizon other than the `OUTSIDE_ACTIVE_INTERVAL` cancel at the
@@ -75,15 +86,19 @@ sentence. Replace:
 with:
 
 > A8 is not self-labelling: a difference is A8 only where the engine's own horizon read, taken as it stood at the
-> latest minute start (§4 whole minutes), is missing or outside 1..2, and the re-run fails on any decision taken at
-> such a horizon other than the `OUTSIDE_ACTIVE_INTERVAL` cancel at the first minute start at or after the instant the
-> horizon leaves 1..2, on legs still resting after that minute start, or on any window cut where the engine reads
-> 1..2, except the part of a minute before the first minute start after the descriptor change.
+> latest minute start (§4 whole minutes), is missing or outside 1..2, or, for `blind_re1`'s horizon gate
+> (`HORIZON_NOT_ELIGIBLE`), where the engine's read at the instant of the pull is missing or outside 1..2, which can
+> precede that minute start by up to 59 s. The re-run fails on any decision taken at such a minute-start horizon
+> other than the `OUTSIDE_ACTIVE_INTERVAL` cancel at the first minute start at or after the instant the horizon leaves
+> 1..2, on legs still resting after that minute start, or on any window cut where the engine reads 1..2, except the
+> part of a minute before the first minute start after the descriptor change.
 
 ## Consequence edit 4: C15 row, the fixture-delta sentence (required by the re-run)
 
 Under the minute windows, "The A8 fixtures show zero quote, fill and cash deltas" no longer holds. On w0-09-27-roll,
-`clock_only` places one quote fewer (two legs) in the start-side gap, with zero fill and cash change. Replace it with:
+`clock_only` places one quote fewer (two legs) at each bound (`at_price` and `strictly_through`), with zero fill and
+cash change. The difference comes only from the minute rule, so it lies in a minute gap; which side of the window
+that gap is on has not been independently confirmed. Replace it with:
 
-> The A8 fixtures show zero fill and cash deltas, and zero quote deltas except one fewer `clock_only` quote on
-> w0-09-27-roll inside a start-side minute gap.
+> The A8 fixtures show zero fill and cash deltas, and zero quote deltas except one fewer `clock_only` quote (two
+> legs) at each bound (`at_price` and `strictly_through`) on w0-09-27-roll, inside a minute gap.
