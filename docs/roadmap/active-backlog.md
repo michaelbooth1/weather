@@ -40,7 +40,7 @@ Status: `OK`
 | 332 | PARTIAL | 2026-09-12 | WORKSTATION QUALIFIED; PRODUCTION QUALIFICATION OPEN | [Bounded Settlement-Source Audit](items/item-332-bounded-settlement-source-audit.md) |
 | 333 | PARTIAL | - | - | [Signed Native Temperature Band Parser](items/item-333-signed-native-temperature-band-parser.md) |
 | 336 | PARTIAL | 2026-10-06 | WORKSTATION TOOL IN REVIEW; LANDING AND ADOPTION OPEN | [Landing Preflight](items/item-336-landing-preflight.md) |
-| 337 | OPEN | 2026-10-08 | SCOPE QUESTION FOR THE OWNER | [No-METAR Observed-Floor Gap](items/item-337-no-metar-observed-floor-gap.md) |
+| 337 | OPEN | 2026-10-08 | OWNER YES 2026-10-13, CONDITIONAL ON THE HOST REPLAY | [No-METAR Observed-Floor Gap](items/item-337-no-metar-observed-floor-gap.md) |
 
 ## Active Items Without A Disposition In 45 Days
 

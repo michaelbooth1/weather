@@ -108,6 +108,12 @@ workstation.
   `serial` even without the marker (see *Exemption* below).
 - **FIFO queue.** Full suites and larger runs wait their turn first-in first-out (`workstation_heavy.ps1
   -Queue`) instead of polling a refusal, with one wait-log line per enqueue, start, finish and give-up.
+- **Second lease slot (owner decision 2026-10-13; [decision log](DECISION_LOG.md) row of 2026-10-13).** On the
+  non-capture workstation only, a second `workstation_heavy` lease slot is allowed for focused runs that finish
+  in under 5 minutes, beside the one ordinary heavy run. It applies only after LFC session 0 (2026-10-14) is
+  declared done. It never applies on the capture PC and never while a live session runs (a portable live stage
+  holding the host-global mutex refuses it as today). **Not yet implemented:** `workstation_heavy.ps1` still has
+  one slot, so until a separate code item adds the slot heavy runs stay one at a time through the queue.
 - **xdist.** `pytest -n` (`--dist loadfile`, `-m "not serial"`, then the `serial` set in one process) runs only
   on the workstation, only through the wrapper, and only after an identical pass set (same test ids, same
   outcomes) has been shown against a serial run.
