@@ -24,12 +24,12 @@ never 10-16 or 10-17. Session 1 uses its own pin (`6bc6f2bec`, its own worktree 
 | A5 | right after A4 | owner | Run the §3.1 code-and-lock check (HEAD `e27909a76…`, lock text `LFC session-0 pinned tip e27909a76 …`), the §3.2 imports check and the §3.3 host-assignment check. The workstation agent already saw all three pass on 10-12 at about 19:45 EDT; you rerun them in your own window. | §3.1-3.3 |
 | A6 | right after A5 | **OWNER ONLY** | Reader up: a listener on `<ws ip>:8765`, `/health` answers, and `Get-OpenOrderCount` prints `0`. | §3.6 step 4 |
 
-## 10-14 T-24h, about 11:00 EDT (15:00Z)
+## 10-14 T-24h, about 11:00 EDT (15:00Z): optional, record-only, not required
 
 | # | When (EDT) | Who | Step | Runbook |
 | --- | --- | --- | --- | --- |
 | B1 | 11:00 | owner | `init-ledger`, **once**: it already ran on 10-13 (the ledger is unchanged by the new pin), so **skip it** unless master says otherwise. | §3.7 |
-| B2 | right after B1 | **OWNER ONLY** | `Save-OwnerSnapshot t24`, then `baseline --label t24`. This is a record only; session 0 does not use t24. | §4 |
+| B2 | right after B1 | **OWNER ONLY** | **Optional, record-only, not required:** `Save-OwnerSnapshot t24`, then `baseline --label t24`. Session 0 reads no t24 and `init-ledger` was done 10-13, so skipping this blocks nothing. | §4 |
 | B3 | until 10-15 10:20 | owner | **Superseded (owner, 10-13 ~10:40 EDT): the no-trade window opens at D5, not here.** You may trade until then. By 10:20 EDT 10-15: zero open orders; no holding in the five events or the two alternates; no position that could settle or redeem between 11:00 and 19:50 EDT. | decision log 2026-10-13 |
 | B4 | any time 10-14 | owner | Check by eye: sleep set to Never on AC, toasts on, Focus assist off. | §3.5 |
 
