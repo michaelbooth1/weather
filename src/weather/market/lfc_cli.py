@@ -348,7 +348,19 @@ def close_out(root, directory, summary, *, notifier=notify_owner):
 def load_conditions(path):
     """A JSON list, {"conditions": [...]} or the 88a file {"extra_conditions": [...], "update_windows_utc": [...]}
     (other keys ignored); a dict naming both lists is refused. The sha256 is over the raw bytes."""
-    return conditions_from_bytes(Path(path).read_bytes())
+    return conditions_from_bytes(read_condition_file(path))
+
+
+def read_condition_file(path):
+    """The bytes of an owner-supplied condition file (--extra-conditions, --shadow-scope). Review S4: like
+    clean_preflight's inputs it must be a regular file reached through no reparse point (symlink or junction), so the
+    name the scope-date guard checks is the name of the bytes read; anything else refuses condition_file_not_regular
+    (an absent path included)."""
+    from weather.operations.live_path_security import LivePathSecurityError, validate_regular_nonreparse_file
+    try:
+        return validate_regular_nonreparse_file(path).read_bytes()
+    except LivePathSecurityError:
+        raise ValueError('condition_file_not_regular') from None
 
 
 def conditions_from_bytes(raw):
@@ -419,7 +431,7 @@ def shadow_scope_dates(path, raw=None):
     name, e.g. shadow_scope_20261015.json, is the only record). `raw`: the bytes already read and hashed (review S5),
     so the date checked and the sha256 recorded come from the same read."""
     dates = set()
-    value = json.loads(Path(path).read_bytes() if raw is None else raw)
+    value = json.loads(read_condition_file(path) if raw is None else raw)
     if isinstance(value, dict) and 'date' in value:
         try:
             dates.add(datetime.strptime(str(value['date']), '%Y-%m-%d').date())
@@ -454,7 +466,7 @@ def _selector(args, *, root, ledger, now_fn=_now):
     if args.session0:
         public = Session0Books()
         extras, extras_sha = load_conditions(args.extra_conditions)
-        shadow_raw = Path(args.shadow_scope).read_bytes()  # review S5: one read; hashed, listed and dated
+        shadow_raw = read_condition_file(args.shadow_scope)  # review S5: one read; hashed, listed and dated
         shadow, shadow_sha = conditions_from_bytes(shadow_raw)
         refusal = shadow_scope_date_refusal(args.shadow_scope, now_fn(), raw=shadow_raw)
         if refusal:

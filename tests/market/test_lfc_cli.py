@@ -1068,3 +1068,52 @@ def test_the_scope_is_read_once_and_the_date_is_checked_on_the_hashed_bytes(tmp_
     monkeypatch.setattr(builtins, 'open', spy)
     _s0_selector(tmp_path, scope, S0_SESSION)
     assert opened.count(os.path.normcase(str(scope))) == 1
+
+
+def test_a_condition_file_must_be_a_regular_file_reached_through_no_reparse_point(tmp_path, monkeypatch):
+    # Review S4: a link named for the session date that points at another date's scope refuses.
+    stale = _scope_file(tmp_path, 'shadow_scope_20261014.json')
+    link = tmp_path / 'shadow_scope_20261015.json'
+    try:
+        os.symlink(stale, link)
+    except (OSError, NotImplementedError):
+        link = None
+    if link is not None:
+        with pytest.raises(ValueError, match='^condition_file_not_regular$'):
+            lfc_cli.shadow_scope_date_refusal(link, S0_SESSION)
+        with pytest.raises(ValueError, match='^condition_file_not_regular$'):
+            _s0_selector(tmp_path, link, S0_SESSION)
+        with pytest.raises(ValueError, match='^condition_file_not_regular$'):
+            load_conditions(link)
+    with pytest.raises(ValueError, match='^condition_file_not_regular$'):
+        load_conditions(tmp_path)  # a directory
+    with pytest.raises(ValueError, match='^condition_file_not_regular$'):
+        load_conditions(tmp_path / 'absent.json')
+    # Whatever the host allows for links, the guard's read goes through the shared reparse-point check.
+    from weather.operations import live_path_security
+    seen = []
+
+    def refuse(path):
+        seen.append(os.fspath(path))
+        raise live_path_security.LivePathSecurityError('reparse point')
+    monkeypatch.setattr(live_path_security, 'validate_regular_nonreparse_file', refuse)
+    good = _scope_file(tmp_path, 'shadow_scope_20261015.json') if link is None else stale
+    for call in (lambda: lfc_cli.shadow_scope_date_refusal(good, S0_SESSION), lambda: load_conditions(good)):
+        with pytest.raises(ValueError, match='^condition_file_not_regular$'):
+            call()
+    assert seen == [os.fspath(good)] * 2
+
+
+def test_live_refuses_a_linked_scope_before_the_root(tmp_path, monkeypatch):
+    from weather.operations import live_path_security
+    _no_credential_step(monkeypatch)
+    argv = _live_s0_argv(tmp_path, 'shadow_scope_20261015.json')
+
+    def refuse(path):
+        raise live_path_security.LivePathSecurityError('reparse point')
+    monkeypatch.setattr(live_path_security, 'validate_regular_nonreparse_file', refuse)
+    monkeypatch.setattr(lfc_cli, '_now', lambda: S0_SESSION)
+    monkeypatch.setattr(lfc_cli, '_LIVE_STARTED', False)
+    monkeypatch.setattr(lfc_cli, 'pilot_root', lambda: (_ for _ in ()).throw(AssertionError('reached the root')))
+    with pytest.raises(ValueError, match='^condition_file_not_regular$'):
+        lfc_cli.run_live(parser().parse_args(['live', *argv]))
