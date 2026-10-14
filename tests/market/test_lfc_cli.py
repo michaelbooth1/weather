@@ -1156,3 +1156,83 @@ def test_the_selection_records_the_utc_date_the_scope_was_checked_against(tmp_pa
     late = _scope_file(tmp_path, 'shadow_scope_20261016.json')
     toronto = datetime(2026, 10, 15, 20, tzinfo=timezone(timedelta(hours=-4)))
     assert _s0_select_sources(tmp_path, monkeypatch, late, toronto)['shadow_scope_date'] == '2026-10-16'
+
+
+def _live_through_confirmation(tmp_path, monkeypatch, confirmed_at):
+    """run_live with every venue, credential and ledger step faked; the owner confirms at `confirmed_at`. Returns the
+    refusal code, or 'session_identity' when the start reaches the session id (nothing after it runs)."""
+    import contextlib
+    from weather.market import re1_evidence, re1_owner_checks, re1_transport
+    clock = {'now': datetime(2026, 10, 15, 23, 59, 30, tzinfo=timezone.utc)}
+    closed = []
+    guard = SimpleNamespace(print=lambda *_a, **_k: None)
+    table = {'scope_sources': {'shadow_scope_date': '2026-10-15'}, 'selected_condition_id': 'c',
+             'rows': [{'condition_id': 'c', 'quote': {'size': '5'}}]}
+
+    def confirm(*_a, **_k):
+        clock['now'] = confirmed_at
+        return {'typed': 'go'}
+
+    class Reader:
+        def __init__(self, *_a, **_k):
+            pass
+
+        def balances(self):
+            return {'available_collateral': '10'}
+
+        def open_orders(self):
+            return []
+
+    class Reached(Exception):
+        pass
+
+    def identity(*_a, **_k):
+        raise Reached()
+    monkeypatch.setattr(lfc_cli, '_now', lambda: clock['now'])
+    monkeypatch.setattr(lfc_cli, '_LIVE_STARTED', False)
+    monkeypatch.setattr(lfc_cli, 'pilot_root', lambda: tmp_path)
+    monkeypatch.setattr(re1_evidence, 'live_mutex', contextlib.nullcontext)
+    monkeypatch.setattr(lfc_cli, 'start_refusals', lambda *_a, **_k: [])
+    monkeypatch.setattr(re1_owner_checks, 'clean_preflight',
+                        lambda *_a, **_k: {'maker_address': '0xm', 'timeouts_seconds': {'read': 1}})
+    monkeypatch.setattr(re1_owner_checks, 'code_identity', lambda: 'x')
+    monkeypatch.setattr(re1_transport, 'geography', lambda: {'blocked': False})
+    monkeypatch.setattr(re1_transport, 'load_owner_credentials', lambda mode: ({'FUNDER_ADDRESS': '0xm'}, guard))
+    monkeypatch.setattr(re1_transport, 'build_client',
+                        lambda *_a, **_k: SimpleNamespace(close=lambda: closed.append(True)))
+    monkeypatch.setattr(re1_transport, 'OwnerVenue', Reader)
+    monkeypatch.setattr(lfc_cli, 'Ledger', SimpleNamespace(open=lambda *_a, **_k: SimpleNamespace()))
+    monkeypatch.setattr(lfc_cli, 'start_gates', lambda **_k: [])
+    monkeypatch.setattr(lfc_cli, 'fetch_account_positions', lambda maker: [])
+    monkeypatch.setattr(lfc_cli, '_selector', lambda args, *, root, ledger: (None, lambda balances: table))
+    monkeypatch.setattr(lfc_cli, 'confirmation', confirm)
+    monkeypatch.setattr(lfc_cli.PilotProfile, 'venue_ceiling', lambda self, size: (None, None))
+    monkeypatch.setattr(lfc_cli, 'session_identity', identity)
+    args = parser().parse_args(['live', *_live_s0_argv(tmp_path, 'shadow_scope_20261015.json')])
+    try:
+        lfc_cli.run_live(args)
+    except Reached:
+        result = 'session_identity'
+    except RuntimeError as exc:
+        result = str(exc)
+    assert closed == [True]  # the signing client is closed either way; no session, so no ledger close-out
+    return result
+
+
+def test_a_confirmation_that_crosses_utc_midnight_refuses_before_the_session_id(tmp_path, monkeypatch):
+    # Review S3: selected at 23:59:30Z on 10-15 with the 10-15 scope; the owner types go at 00:05Z on 10-16.
+    late = datetime(2026, 10, 16, 0, 5, tzinfo=timezone.utc)
+    assert _live_through_confirmation(tmp_path, monkeypatch, late) == 'shadow_scope_date_mismatch'
+
+
+def test_a_confirmation_on_the_same_utc_day_reaches_the_session_id(tmp_path, monkeypatch):
+    same = datetime(2026, 10, 15, 23, 59, 59, tzinfo=timezone.utc)
+    assert _live_through_confirmation(tmp_path, monkeypatch, same) == 'session_identity'
+
+
+def test_the_start_date_check_reads_the_recorded_date():
+    table = {'scope_sources': {'shadow_scope_date': '2026-10-15'}}
+    assert lfc_cli.session0_start_date_refusal(table, S0_SESSION) is None
+    assert lfc_cli.session0_start_date_refusal(table, datetime(2026, 10, 16, tzinfo=timezone.utc)) == \
+        'shadow_scope_date_mismatch'
+    assert lfc_cli.session0_start_date_refusal({'scope_sources': {}}, S0_SESSION) == 'shadow_scope_date_mismatch'

@@ -457,6 +457,15 @@ def shadow_scope_date_refusal(path, now, raw=None):
     return None
 
 
+def session0_start_date_refusal(table, started):
+    """Review S3: the scope is checked at selector time, but the session's UTC day is the day of `started` (after the
+    owner's confirmation). A confirmation that crosses UTC midnight must not run on the previous day's scope: the
+    date recorded in the selection (S6) must still be the UTC date of the start."""
+    if (table.get('scope_sources') or {}).get('shadow_scope_date') != utc(started).date().isoformat():
+        return 'shadow_scope_date_mismatch'
+    return None
+
+
 def held_conditions(root, ledger):
     t40 = latest_baseline(root, ledger, 't40')
     return sorted(set(t40['position_conditions']) | set(c for c in t40['open_order_conditions'] if c))
@@ -632,6 +641,10 @@ def run_live(args):
             selected = next(r for r in table['rows'] if r['condition_id'] == table['selected_condition_id'])
             _, reserve_cap = profile.venue_ceiling(selected['quote']['size'])
             started = _now()
+            if profile.session0:
+                moved = session0_start_date_refusal(table, started)
+                if moved:
+                    raise RuntimeError(moved)  # before any session id, directory or ledger row
             session_id, numbering = session_identity(ledger, started, profile=profile)
             directory = session_directory(root, session_id, profile=profile)
             directory.mkdir(parents=True, exist_ok=False)
