@@ -1,6 +1,6 @@
 # State of play
 
-**Last updated: 2026-10-13 22:30 America/Toronto (owner ~22:00: LFC session 0 to Thu 10-16, logistics need no signature;
+**Last updated: 2026-10-13 22:30 America/Toronto (owner ~22:00: LFC session 0 to Thu 10-15, logistics need no signature;
 owner 18:30: evening-fix prereg signed, item 337 yes after replay, v2 §4 whole minute, #162 from 10-19; A' 10-14 07:00).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
@@ -26,7 +26,7 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 - **Workstation: one Claude Code chat directed by the production agent** ([preamble](WORKSTATION_SESSION_PREAMBLE.md));
   relayed owner approvals bind it for serving-model and merges, never money or credentials; credentials never committed.
 - **Workstation tracks** (owner 10-13 ~10:50): T1 shadow MM / replay v2 (critical path), T2 88a 10-15 head, T3 model, T4
-  engineering. **Heavy freeze** 10-16 10:00 EDT until LFC session 0 is done (none 10-14); after it, a **second `workstation_heavy` slot**
+  engineering. **Heavy freeze** 10-15 10:00 EDT until LFC session 0 is done (none 10-14); after it, a **second `workstation_heavy` slot**
   for focused runs < 5 min (owner 10-13 ~14:35; workstation only, never capture PC or live; script change separate).
 - **Landed is not running:** a new loop, nightly, scorer or task is done only when its Open-commitments verify has run.
 
@@ -47,10 +47,10 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 - Owner 10-13 08:53 (relayed): C advance GO if every C0 check is clean; G4 amended (auto rollback; a failed rollback waits for the owner). DECISION_LOG row.
 - Calendar-shift branch `claude/decisions-pyup-shift-20261013` `84c723ae2` (C 10-18) is **ON HOLD**; not a decision.
 - **DST:** DST-H3 landed; DST-M2 lands in N9; OD30 (the 11-01 night rule) stays until the owner retires it.
-- **LFC session 0: Thu 10-16 from 11:00 EDT (~3 h) on the workstation**, owner-attended, provisional (owner 10-13 ~22:00);
-  guard: Phase B clean by 09:00 10-16, reader + capture re-checked, else it slips. Code deadline 10-25 00:00Z; new pin by master.
+- **LFC session 0: Thu 10-15 from 11:00 EDT (~3 h) on the workstation**, owner-attended (owner 10-13 ~22:00, day confirmed);
+  ends by the 23:50Z stop, before Phase B 00:30 10-16. Code deadline 10-25 00:00Z; pin `C:\wt\lfc-pinned-e27909a76`.
 - Logistics (dates, times, session day) take the owner's chat yes in DECISION_LOG, no signature (owner 10-13 ~22:00). init-ledger done 10-13.
-- **LFC no-trade window:** 10-16 T-40 (10:20 EDT) to F2; all T-40 steps re-made 10-16 (scope `--date 2026-10-16`).
+- **LFC no-trade window:** 10-15 T-40 (10:20 EDT) to F2; all T-40 steps re-made 10-15 (scope `--date 2026-10-15`).
 - LFC session 1: >= 10-18 after a session-0 PASS, never 10-17; t24 the day before (20-30 h old at start).
 - **Build line** `codex/maker-replay-v2-build-20261003` = `1fd0c295f` (W1/W2/F3, T1-T3, Q2 #269, F4; owner-approved); the
   export nightly stays unregistered until a separate owner yes (>= 10-16).
@@ -77,7 +77,7 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 | What | Owner | Due | Verify |
 | --- | --- | --- | --- |
 | A' at A3; then delete the workstation W0 temp tree | owner at host, production | 10-14 09:00 | A' receipts GO |
-| LFC session 0 re-pin (deadline 10-25 + scope-date guard, Fable-reviewed) and runbook re-date to 10-16 | master; workstation | 10-15 | new pinned tip in DL |
+| LFC session 0 re-pin (deadline 10-25 + scope-date guard, Fable-reviewed) and runbook re-date to 10-15 | master; workstation | 10-14 | new pinned tip in DL |
 | Policy: roll-free heads land on workstation pre-gate + Windows CI (T4 draft) | owner | after C | DECISION_LOG row |
 | Evening-fix scorer `8cdcb62ec` lands (prereg SIGNED 10-13, sha256 in DL; read 10-29); OD30 retirement | T3; owner | 10-28; open | scorer on master; DL row |
 | Pinned watchdog redeploy + re-register (DRIFT since #273, DST-H3) | owner scope, production | before 11-01 | watchdog CURRENT |
