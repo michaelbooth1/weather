@@ -286,7 +286,7 @@ def _minute_ceiling(value):
 def test_windows_equal_the_horizon_runs_of_the_build_line_rule_at_minute_granularity(registered):
     """One §4 horizon rule: on every eligible (date, condition) the windows are ``horizon.runs`` over the same
     timeline, split by maintenance (``execution_manifest.active_intervals``'s construction), with each run
-    endpoint rounded up to the next minute. That rounding is owner decision 15 (the latest descriptor at the
+    endpoint rounded up to the next minute. That rounding is the registration §4 text (the latest descriptor at the
     minute start): a capture at 00:03:20 activates the minute from 00:04. ``execution_manifest.active_intervals``
     keeps the exact instant (00:03:20), so the two §4 implementations differ by under a minute per descriptor
     change (disclosed in the U1 r3 report; one module must own §4)."""

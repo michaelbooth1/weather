@@ -1,8 +1,8 @@
 """The §4 universe rule as declared active intervals (maker replay v2 W7; registration draft §2, §4).
 
-A condition is **active** in UTC minute ``[t, t+1min)`` when all of these hold (owner decision 15: minute
-granularity, the latest descriptor at the minute start, the hazard denominator's rule in
-``maker_core.replay.calibration``):
+A condition is **active** in UTC minute ``[t, t+1min)`` when all of these hold (the registration §4 text, "active
+at UTC minute t", which the owner kept as written on 2026-10-13: minute granularity, the latest descriptor at the
+minute start, the hazard denominator's rule in ``maker_core.replay.calibration``):
 
 - ``t`` is on a quote date of the panel;
 - the condition is not in an owner-excluded market-date (``panel.OWNER_EXCLUSIONS``);
