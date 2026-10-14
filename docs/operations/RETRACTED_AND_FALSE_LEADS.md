@@ -389,11 +389,36 @@ reporting a **downstream block**, not a task fault.
 | Task | Result | What it actually means |
 | --- | ---: | --- |
 | `WeatherTrainingWindow` | **2** | `training_window.log`: `[RETRAIN] promoting non-success nightly status to window exit 2`. The nightly retrain is blocked by the season window (0 / 12,600 cells). Capture stops and is restored — on 2026-08-06 in **20 seconds**. |
-| `WeatherDailySettlementPromotionRefresh` | **1** | The chain errors at `settled_day_analysis_barrier`, which is the documented, expected stop. |
+| `WeatherDailySettlementPromotionRefresh` | **2** (was 1 before the lane split) | Stage A completes with status `critical`: the promotion lane is `BLOCKED` (`live_variant_settlement_scorecard` blocked, `promotion_lane_blocked`), and the first blocker is `settled_day_analysis_barrier` with `result_status` `DIAGNOSTIC_ONLY`. The learning lane still runs. |
 
-`WeatherTrainingWindow` will report **2 every night until the season window lands**, and the chain
-will report **1 every day until `-09-29a` merges.** Neither number changing is progress; neither
-number staying is an incident.
+`WeatherTrainingWindow` will report **2 every night until the season window lands**. The Stage-A
+chain will report **2 on every target day that has a settled label which is not promotion-countable**.
+Neither number changing is progress; neither number staying is an incident.
+
+**Why Stage A exits 2 (checked in code 2026-10-14; seen daily 10-09..10-13).** It is not the reserved
+confirmation window or the scoring embargo: nothing on this path reads a date range.
+- The barrier reports `DIAGNOSTIC_ONLY` when any selected settled label for the target date is not
+  promotion-countable (`daily_refresh_settled_day.py`, `_label_countability_from_freshness`). One market
+  is enough.
+- A label counts only if its material-coverage grade is `strict_complete`, `minor_gap_material` or
+  `manual_override`, and its WU settlement reconciliation is `match` (`settlement_ledger.py`,
+  `promotion_countability`, `material_coverage_grade`). Grades that fail include `decisive_gap`,
+  `low_capture_ratio`, `insufficient_captures`, `stale_source`, `sparse_settlement_source`,
+  `missing_tape` and `missing_settlement`.
+- The promotion gate accepts only `PASS` from the barrier (`daily_refresh_registry.py`,
+  `action_statuses`), so the promotion lane is `BLOCKED`.
+- A blocked promotion lane makes the run `critical`, and `critical` exits 2 (`daily_refresh.py`, run
+  status; `daily_refresh_cli.py`, `exit_code_for_status`). [Operations design](OPERATIONS_DESIGN.md)
+  documents that "a blocked settled-day barrier ... still yields a completed, critical Stage-A manifest".
+- No end date can be derived from code. The barrier clears only on a target day whose labels are all
+  countable; after that, the other promotion gates still apply.
+
+Exit 2 is expected only when the run status is `critical`, `errors` is empty, there are no contained
+step errors, and the first promotion blocker is the barrier's `DIAGNOSTIC_ONLY` verdict. Treat these as
+real faults: exit 1 (`error` or `unreadable`), the status `deferred` or `interrupted` (also exit 2), a
+barrier `BLOCK`, or a blocker on another step. Which markets failed, and why, is in the barrier's
+`label_countability.material_coverage_blocked_sample` (or its `reason`). That is settlement data: honour the
+[reserved confirmation window](reserved-confirmation-window.md) before reading it for a reserved date.
 
 **The distinguishing evidence is the log, not the exit code.** For the training window, check that
 `[RESTORE]` lines follow the `[STOP]` lines in `data\logs\training_window.log` — that is the only
