@@ -1,4 +1,5 @@
-"""S1, S2 and S6 for maker replay v2 W0-W2 on fictional fixtures; one measurement per fresh process.
+"""S1, S2 and S6 for maker replay v2 W0-W2 on fictional fixtures, and the calibration rehearsal; one measurement per
+fresh process.
 
     python -m tools.research.maker_replay_v2.run s1 --out NEW_DIR [--trades N] [--union 170] [--book-depth 8]
     python -m tools.research.maker_replay_v2.run s6 --out NEW_DIR [--trades N] [--union 170]
@@ -15,7 +16,8 @@ night export of it per process (``s2``: the v0.2 exporter, or the frozen v0.1 on
 reports the peak, the peak per exporter phase, the in-memory accumulators, and bytes and records per
 kind. ``books`` measures book record bytes against levels a side. S3/S5/S7/S8/S9 (W3-W5) are
 reached through this entry point too; their usage is in ``bench.py``. The §9-§11 calibration rehearsal
-subcommands (``rehearsal-inventory``, ``rehearse``, ``derive``, ``gate-report``; U5) are in ``rehearse_cli.py``.
+subcommands (``rehearsal-inventory``, ``rehearse``, ``derive``, ``gate-report``; U5) are in ``rehearse_cli.py``;
+they read captured calibration bundles (2026-09-27..29 only, refused by path name before any byte is read).
 Output goes only under
 ``--out``. Engineering plan:
 docs/research/maker-replay-v2-engineering-plan-DRAFT.md. Heavy work: run it through
@@ -39,7 +41,7 @@ from maker_core.replay.v2.compaction import Compactor, elide, expand, stream_dig
 from tools.research.maker_replay_v2 import bench, rehearse_cli
 from tools.research.maker_replay_v2.fixture170 import Day
 
-DAY = date(2026, 9, 27)  # a fictional day; nothing captured is read
+DAY = date(2026, 9, 27)  # S1/S2/S6: a fictional day; nothing captured is read (the rehearsal subcommands differ)
 LIMITS = dict(max_bytes=HOST_MAX_BYTES, max_records=HOST_MAX_RECORDS, max_seconds=HOST_MAX_SECONDS)
 
 

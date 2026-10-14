@@ -115,7 +115,10 @@ def derive(args):
     from maker_core.replay.v2 import ceilings
     from maker_core.replay.v2.rehearsal import ceiling_input
     per_date, carried = _rehearsals(args)
-    if carried.get("mode") != "carried":
+    for day, doc in per_date.items():  # the same labels gate_report requires (Defender D7.2)
+        if doc.get("mode") != "per_date" or doc.get("dates") != [day] or doc.get("hazard_variant") != "max_m":
+            raise BundleError("gate_per_date_rehearsal_required:" + str(day))
+    if not isinstance(carried, dict) or carried.get("mode") != "carried" or carried.get("hazard_variant") != "max_m":
         raise BundleError("gate_carried_rehearsal_required:max_m")
     measured = {day: ceiling_input(doc) for day, doc in per_date.items()}
     derived = ceilings.derive(measured, ceiling_input(carried))

@@ -90,6 +90,10 @@ def test_derive_and_the_gate_report_read_the_written_documents(workspace, docume
     gates = gate["executability"]["gates"]
     assert gates["E7"]["status"] == "PASS" and gates["E8"] == dict(status="PASS", evidence="fixture suite")
     assert gate["executability"]["not_supplied"] == ["E1", "E3"]
+    assert gates["E6"]["status"] == "INCOMPLETE" and gate["executability"]["not_evaluated"] == ["E6"]
+    # real in-process memory readings (E5) may fail here; either way E6 keeps the report from reading PASS
+    failed = any(g["status"] == "FAIL" for g in gates.values())
+    assert gate["executability"]["status"] == ("FAIL" if failed else "INCOMPLETE")
     assert set(gate["reachability"]["variants"]) == {"max_m", "r1_per_city"}
 
 
@@ -109,3 +113,28 @@ def test_rehearse_refuses_an_inventory_for_other_dates(workspace, documents):
     with pytest.raises(BundleError, match="rehearsal_inventory_dates_mismatch"):
         run.main(["rehearse", "--out", str(root / "mismatch"), "--bundle", str(bundles[DAYS[0]]), "--inventory",
                   str(inventory), "--calibration", str(calibration), "--mode", "per_date"])
+
+
+def test_an_inventory_takes_one_date_or_all_three(workspace, monkeypatch):
+    # Defender D7.2 / v03: two dates are neither a per-date nor a carried rehearsal; refused before anything is read
+    from weather.market import maker_replay_universe_v02
+    root, bundles, _ = workspace
+    monkeypatch.setattr(maker_replay_universe_v02, "universe", lambda *a, **k: pytest.fail("bundles were read"))
+    with pytest.raises(BundleError, match="rehearsal_bundle_paths_invalid"):
+        run.main(["rehearsal-inventory", "--out", str(root / "two-dates"), *map(str, bundle_args(bundles, DAYS[:2]))])
+
+
+def test_derive_refuses_mislabelled_rehearsals(workspace, documents):
+    # Defender D7.2 / v04: derive holds the documents to the labels gate-report requires
+    root, _, _ = workspace
+    per_date = [documents[d][0] for d in DAYS]
+    carried = documents["carried"][0]
+    cases = [
+        ([*per_date[:2], carried], carried, "gate_per_date_rehearsal_required"),  # carried passed as a per-date one
+        (per_date, per_date[0], "gate_carried_rehearsal_required:max_m"),  # a per-date one passed as carried
+        (per_date, documents["r1"][0], "gate_carried_rehearsal_required:max_m"),  # R1 is not the ceiling run
+    ]
+    for i, (dates, carried_path, refusal) in enumerate(cases):
+        with pytest.raises(BundleError, match=refusal):
+            run.main(["derive", "--out", str(root / f"derive-refused-{i}"), "--per-date", *map(str, dates),
+                      "--carried", str(carried_path)])

@@ -144,4 +144,6 @@ Calibration rehearsal subcommands (registration draft §9-§11, U5) are in `rehe
 3. `derive --per-date A B C --carried D`: the §9 ceilings and gate E5.
 4. `gate-report --per-date A B C --carried D --repeat-rehearsal E [--r1 F] [--e1 G] [--e3 H] [--e8 I]`: §10 E1-E8
    and §11 (`maker_core.replay.v2.reachability.gate_report`); E1/E3/E8 evidence is supplied as JSON
-   `{"status", "evidence"}` and reads NOT_SUPPLIED until given.
+   `{"status", "evidence"}` and reads NOT_SUPPLIED until given. E6 reads INCOMPLETE (never PASS) while §9 derives
+   no pull-candidate `max_events`, so the executability status cannot read PASS before that owner ruling. Only a
+   §11 PASS passes; no eligible second reads UNIDENTIFIED. `derive` holds its inputs to the same labels.
