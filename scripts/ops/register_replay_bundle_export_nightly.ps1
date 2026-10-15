@@ -4,6 +4,12 @@
 # v0.2 exporter). The runner refuses panel days 2026-09-30..2026-10-15 with exit code 3 (PANEL_GATED).
 # -RepoRoot is the exact-tip DEPLOY tree (it owns the runner and becomes the runner's -DeployRoot); -ProductionRoot
 # is the production checkout (venv, memory guard, lease helpers, host assignment). The two must be disjoint.
+# Start slots (owner decision 2026-10-09): 00:35 (50-minute Scheduler limit) or 04:10, after the 01:00-04:00 quiet
+# merge window (45-minute limit, so the backstop fires by 04:55, before the 05:00 tiering). The runner clamps its
+# own budget to end by 04:54:45 at any start, so a 04:10 run gets about 44 minutes, not 45.
+# DST (DST-C1/OD28): the trigger is a local wall-clock daily trigger (unzoned StartBoundary) built and read back
+# through scheduled_task_local_trigger.ps1 beside this script, so either slot fires at the same Toronto time in EDT
+# and EST; a zoned (fixed-offset) read-back is refused. Pin that helper's SHA-256 with this registrar's.
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
     [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
@@ -14,7 +20,7 @@ param(
     [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{64}$')][string]$ExpectedRunnerSha256,
     [Parameter(Mandatory = $true)][string]$ProductionRoot,
     [Parameter(Mandatory = $true)][ValidateRange(512, 65536)][int]$MinAvailableMiB,
-    [ValidateSet('00:35')][string]$At = '00:35'
+    [ValidateSet('00:35', '04:10')][string]$At = '00:35'
 )
 $ErrorActionPreference = 'Stop'
 $taskName = 'WeatherReplayBundleExportNightly'
@@ -55,7 +61,10 @@ $runner = Join-Path $RepoRoot 'scripts\ops\replay_bundle_export_nightly.ps1'
 if ((Get-FileHash -LiteralPath $runner -Algorithm SHA256).Hash.ToLowerInvariant() -cne $ExpectedRunnerSha256) {
     throw 'nightly runner hash mismatch'
 }
-if (-not $PSCmdlet.ShouldProcess($taskName, "Register daily $At export; pin modules $ExpectedModuleSha256")) { return }
+. (Join-Path $PSScriptRoot 'scheduled_task_local_trigger.ps1')
+$limitMinutes = @{ '00:35' = 50; '04:10' = 45 }[$At]
+if (-not $PSCmdlet.ShouldProcess($taskName,
+        "Register daily $At export with a $limitMinutes-minute limit; pin modules $ExpectedModuleSha256")) { return }
 if ((Get-TimeZone).Id -ne 'Eastern Standard Time') { throw 'Scheduler must use America/Toronto local time' }
 . (Join-Path $ProductionRoot 'scripts\ops\workload_admission.ps1')
 $assignment = Get-WeatherExecutionHostAssignment -RepoRoot $ProductionRoot
@@ -70,9 +79,9 @@ $tokens = @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Fil
     '-MinAvailableMiB', [string]$MinAvailableMiB)
 $arguments = ConvertTo-ScheduledTaskArgumentString -Tokens $tokens
 $action = New-ScheduledTaskAction -Execute $powerShell -Argument $arguments -WorkingDirectory $RepoRoot
-$trigger = New-ScheduledTaskTrigger -Daily -At $At
+$trigger = New-WeatherLocalDailyTrigger -At $At
 $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -Hidden -WakeToRun `
-    -ExecutionTimeLimit (New-TimeSpan -Minutes 50) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+    -ExecutionTimeLimit (New-TimeSpan -Minutes $limitMinutes) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
 $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType S4U -RunLevel Limited
 Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings `
     -Principal $principal -Description 'Pinned sealed replay export; no catch-up, no capture mutation.' -Force | Out-Null
@@ -86,13 +95,13 @@ if ($task.TaskPath -ne '\' -or $task.State -eq 'Disabled' -or
     $actions[0].Arguments -cne $arguments -or $actions[0].WorkingDirectory -ine $RepoRoot -or
     $triggers.Count -ne 1 -or $triggers[0].CimClass.CimClassName -ne 'MSFT_TaskDailyTrigger' -or
     $triggers[0].DaysInterval -ne 1 -or -not $triggers[0].Enabled -or
-    ([datetime]$triggers[0].StartBoundary).ToString('HH:mm') -ne $At -or
+    -not (Test-WeatherLocalDailyStartBoundary -StartBoundary ([string]$triggers[0].StartBoundary) -At $At) -or
     -not [string]::IsNullOrWhiteSpace([string]$triggers[0].Repetition.Interval) -or
-    $task.Settings.StartWhenAvailable -or $task.Settings.ExecutionTimeLimit -ne 'PT50M' -or
+    $task.Settings.StartWhenAvailable -or $task.Settings.ExecutionTimeLimit -ne "PT${limitMinutes}M" -or
     $task.Settings.MultipleInstances -ne 'IgnoreNew' -or -not $task.Settings.Hidden -or
     -not $task.Settings.WakeToRun -or $task.Settings.DisallowStartIfOnBatteries -or
     $task.Settings.StopIfGoingOnBatteries -or $task.Principal.UserId -ine $env:USERNAME -or
     $task.Principal.LogonType -ne 'S4U' -or $task.Principal.RunLevel -ne 'Limited') {
     throw 'registration readback differs from pinned nightly contract'
 }
-Write-Output "Registered $taskName at $At; rerun registrar after any exporter module change."
+Write-Output "Registered $taskName at $At ($limitMinutes-minute limit); rerun registrar after any exporter module change."
