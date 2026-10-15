@@ -36,6 +36,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
+import os
 import re
 import warnings
 
@@ -102,7 +103,7 @@ def rehearse(args, *, now=None, memory=None):
     return rehearsal.rehearse(args.bundle, inventory["rows"], mode=args.mode, hazard_per_minute=scalar,
                               hazard_by_market=by_market, hazard_variant=args.hazard_variant,
                               calibration_sha256=calibration_sha256, replicates=args.replicates,
-                              now=now or datetime.now(timezone.utc), memory=memory)
+                              now=now or datetime.now(timezone.utc), memory=memory, environ=os.environ)
 
 
 def _rehearsal(path):

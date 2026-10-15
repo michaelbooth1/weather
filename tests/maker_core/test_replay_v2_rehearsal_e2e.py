@@ -8,6 +8,7 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from collections import Counter
 import itertools
+import os
 
 import pytest
 
@@ -45,7 +46,7 @@ def memory_probe(step=1000):
 
 def rehearse(paths, inventory, mode, **overrides):
     options = dict(mode=mode, hazard_per_minute=.001, calibration_sha256=CAL, now=NOW, replicates=REPLICATES,
-                   memory=memory_probe())
+                   memory=memory_probe(), environ=os.environ)
     options.update(overrides)
     return rehearsal.rehearse(paths, inventory, **options)
 
@@ -159,7 +160,8 @@ def test_a_bundle_whose_manifest_names_another_day_refuses(calibration, tmp_path
 
 def test_ceiling_input_refuses_an_incomplete_or_foreign_document(per_date):
     doc = dict(per_date[CALIBRATION_DATES[0].isoformat()])
-    with pytest.raises(BundleError, match="rehearsal_format_invalid"):
+    # row 16: the typed schema names the format, so a foreign one is refused on read before ceiling_input looks
+    with pytest.raises(BundleError, match="rehearsal_whitelist:format"):
         rehearsal.ceiling_input(dict(doc, format="maker_core.replay.rehearsal.v1"))
     measured = dict(doc["measured"])
     del measured["span_runs"]
@@ -308,7 +310,7 @@ def test_the_gate_report_reads_e2_e4_e5_e6_e7_and_section_11_and_waits_for_e1_e3
         return dict(doc, reachability=dict(doc["reachability"], n_cal=n))
     with pytest.raises(BundleError, match="gate_pull_candidates_below_n_cal:max_m"):
         reachability.gate_report(per_date, with_n_cal(candidates + 1), repeat)
-    with pytest.raises(BundleError, match="gate_pull_candidates_below_n_cal:max_m"):
+    with pytest.raises(BundleError, match="rehearsal_whitelist:reachability.n_cal"):  # row 16: typed on read
         reachability.gate_report(per_date, with_n_cal(None), repeat)
     at_boundary = reachability.gate_report(per_date, with_n_cal(candidates), repeat)  # N_cal == candidates holds
     assert at_boundary["executability"]["gates"]["E6"]["projected_pull_candidates"] == candidates * 14 // 3
