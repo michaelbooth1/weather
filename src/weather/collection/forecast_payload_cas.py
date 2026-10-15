@@ -112,6 +112,19 @@ class SharedForecastPayloadCAS:
     def verify(self, digest: str, *, expected_bytes: int | None = None) -> int:
         return self.verify_path(self.path_for(digest), digest, expected_bytes=expected_bytes)
 
+    def contains(self, digest: str, *, expected_bytes: int) -> bool:
+        """Return whether a published blob exists with the expected byte count.
+
+        This is a cheap presence check for callers that keep only a reference;
+        it does not re-hash.  Anything that serves the bytes must use ``read``,
+        which verifies the digest and size.
+        """
+
+        path = self.path_for(digest)
+        if path.is_symlink() or not path.is_file():
+            return False
+        return path.stat().st_size == int(expected_bytes)
+
     def put(self, payload_bytes: bytes, *, expected_digest: str | None = None) -> dict[str, Any]:
         payload_bytes = bytes(payload_bytes)
         digest = raw_payload_digest(payload_bytes)

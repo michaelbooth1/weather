@@ -124,7 +124,14 @@ orders and compact run, P&L, strategy, and settlement summaries are excluded.
 Shared forecast blobs under `data/forecast_payload_cas/` are reachable from
 many event folders. Reachability must be computed across every per-market
 forecast manifest; one event-day manifest cannot classify a shared blob as an
-orphan. Garbage collection is disabled in every current cleanup and inventory
+orphan. The per-station model cache
+`data/wunderground/<icao>/last_good_sources.json` is a further reader: once
+the snapshot writer's shared CAS holds a market-invariant body (the national
+NBM bulletin) with the right digest and size, the cache keeps only a
+`raw_payload.text_ref` to it; the fallback path re-reads the blob, checks its
+SHA-256 and the payload's SHA-1 `payload_hash`, and treats any unprovable
+reference as a cache miss (`weather.model.model_sources`).
+Garbage collection is disabled in every current cleanup and inventory
 workflow; generic operator review cannot override that block. A future,
 separately reviewed deletion contract would have to prove global reachability,
 restore hashes, and market-specific replay before enabling any mutation.

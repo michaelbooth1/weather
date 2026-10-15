@@ -320,3 +320,63 @@ def test_nbm_shared_attestation_requires_replay_complete_extraction_identity(tmp
         )
 
     assert not (tmp_path / "shared").exists()
+
+
+def test_contains_checks_presence_and_size_without_rehash(tmp_path):
+    cas = SharedForecastPayloadCAS(tmp_path / "cas")
+    payload = b"national bulletin"
+    stored = cas.put(payload)
+    digest = stored["payload_hash"]
+
+    assert cas.contains(digest, expected_bytes=len(payload)) is True
+    assert cas.contains(digest, expected_bytes=len(payload) + 1) is False
+    assert cas.contains("0" * 64, expected_bytes=len(payload)) is False
+    with pytest.raises(ForecastPayloadCASIntegrityError, match="invalid SHA-256"):
+        cas.contains("not-a-digest", expected_bytes=1)
+
+
+def test_last_good_fallback_row_matches_the_fresh_row(tmp_path, monkeypatch):
+    import weather.model.toronto_model as toronto_model
+    from weather.model.toronto_model import TorontoHighTempModel
+
+    store = SnapshotStore(
+        root=tmp_path / "ny-event",
+        event_slug="ny-event",
+        shared_forecast_payload_cas_root=tmp_path / "shared-cas",
+    )
+    store.root.mkdir(parents=True)
+    identity = {"market_id": "nyc", "target_date": "2026-05-30"}
+    fresh_sources = _source("KLGA")
+    fresh_row = store.write_forecast_payloads(
+        fresh_sources,
+        "fresh-snapshot",
+        datetime(2026, 5, 30, 1, 1, tzinfo=timezone.utc),
+        "model-v",
+        config_identity=identity,
+    )[0]
+
+    monkeypatch.setattr(toronto_model, "DEFAULT_DATA_ROOT", tmp_path / "wu")
+    model = TorontoHighTempModel(target_date="2026-05-30")
+    model.shared_forecast_payload_cas = store.shared_forecast_payload_cas
+    now = datetime.now(model.spec.tz).isoformat()
+    item = fresh_sources["nbm_probabilistic_tmax"]
+    model.blend_with_last_good(
+        {"nbm_probabilistic_tmax": {"ok": True, "data": item["data"], "fetched_at": now}}
+    )
+    cached = json.loads(model.last_good_sources_path().read_text(encoding="utf-8"))
+    assert "text_ref" in cached["nbm_probabilistic_tmax"]["data"]["raw_payload"]
+    fallback = model.blend_with_last_good(
+        {"nbm_probabilistic_tmax": {"ok": False, "error": "feed failed", "fetched_at": now}}
+    )
+    assert fallback["nbm_probabilistic_tmax"]["cache_status"] == "fallback"
+    fallback_row = store.write_forecast_payloads(
+        fallback,
+        "fallback-snapshot",
+        datetime(2026, 5, 30, 1, 11, tzinfo=timezone.utc),
+        "model-v",
+        config_identity=identity,
+    )[0]
+
+    for field in ("payload_hash", "payload_ref", "payload_bytes", "extraction_identity"):
+        assert fallback_row[field] == fresh_row[field]
+    assert fallback_row["payload_blob_reused"] is True

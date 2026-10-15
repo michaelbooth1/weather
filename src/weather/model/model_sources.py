@@ -38,7 +38,10 @@ from weather.sources.nbm_probabilistic_tmax import (
     parse_nbp_station_tmax,
 )
 from weather.sources.forecast_payload_fanout import MarketInvariantFetchFanout
-from weather.forecast_payload_contracts import nbm_nbp_cycle_key_from_bulletin
+from weather.forecast_payload_contracts import (
+    NBM_NBP_ENCODING,
+    nbm_nbp_cycle_key_from_bulletin,
+)
 from weather.model.source_adapters import (
     FETCH_META_KEY,
     SourceExpectedUnavailable,
@@ -98,6 +101,15 @@ TORONTO_OFFICIAL_CANADIAN_SOURCES = {
     "eccc_gem": "official_gridded_forecast",
 }
 TORONTO_OFFICIAL_SOURCE_LATE_DAY_HOUR = 15
+
+# The last-good cache keeps a market-invariant response body (the national NBM
+# bulletin, ~35 MB) only by reference once the shared forecast payload CAS holds
+# the exact bytes. The fallback path restores the body before serving, so the
+# snapshot writer still sees the attested text.
+LAST_GOOD_PAYLOAD_ATTESTATION_KEY = "forecast_payload_attestation"
+LAST_GOOD_PAYLOAD_TEXT_REF_KEY = "text_ref"
+LAST_GOOD_PAYLOAD_CAS_NAME = "shared_forecast_payload"
+LAST_GOOD_PAYLOAD_HASH_ALGORITHM = "sha256"
 
 # Explicit capture contracts for every source adapter. These version the
 # parser/normalizer code that turned a provider response into the source data
@@ -610,6 +622,9 @@ class SourceFetchMixin:
                 return
             merged = self.load_last_good_sources()
             merged.update(cache)
+            # Returns copies: blend_with_last_good serves the same data objects
+            # it caches, so the merged items must never be mutated.
+            merged = self.last_good_sources_with_payload_refs(merged)
             self.validate_last_good_sources_cache(merged)
             self.validate_last_good_sources_cache_size(merged)
             write_json_atomic(cache_path, merged)
@@ -623,6 +638,132 @@ class SourceFetchMixin:
         if override is not None:
             return Path(override)
         return self.spec.data_root / "last_good_sources.json"
+
+    def last_good_payload_cas(self):
+        """Shared forecast payload CAS used to dereference last-good bodies.
+
+        The capture path injects the snapshot writer's store as
+        ``shared_forecast_payload_cas``; an isolated capture child also reaches
+        it through its cross-process fan-out. Without either, bodies stay inline.
+        """
+        cas = getattr(self, "shared_forecast_payload_cas", None)
+        if cas is not None:
+            return cas
+        fanout = getattr(self, "market_invariant_fetch_fanout", None)
+        return getattr(fanout, "cas", None)
+
+    def last_good_sources_with_payload_refs(self, cache):
+        cas = self.last_good_payload_cas()
+        if cas is None:
+            return cache
+        return {
+            name: self.last_good_item_with_payload_ref(name, item, cas)
+            for name, item in cache.items()
+        }
+
+    def last_good_item_with_payload_ref(self, name, item, cas):
+        """Return a copy of one cache item whose attested body is a CAS reference.
+
+        The body is replaced only when the shared CAS already holds a blob of
+        the right digest and size; any doubt keeps it inline (old behaviour).
+        """
+        if not isinstance(item, dict) or not isinstance(item.get("data"), dict):
+            return item
+        data = item["data"]
+        raw_payload = data.get("raw_payload")
+        if not isinstance(raw_payload, dict) or LAST_GOOD_PAYLOAD_TEXT_REF_KEY in raw_payload:
+            return item
+        attestation = raw_payload.get(LAST_GOOD_PAYLOAD_ATTESTATION_KEY)
+        if not isinstance(attestation, dict) or attestation.get("market_invariant") is not True:
+            return item
+        body_field = str(attestation.get("body_field") or "").strip()
+        encoding = str(attestation.get("encoding") or NBM_NBP_ENCODING).lower()
+        body = raw_payload.get(body_field) if body_field else None
+        if (
+            not isinstance(body, str)
+            or encoding != NBM_NBP_ENCODING
+            or not raw_payload.get("payload_hash")
+        ):
+            return item
+        try:
+            body_bytes = body.encode(NBM_NBP_ENCODING)
+            payload_bytes = len(body_bytes)
+            single_fetch = attestation.get("single_fetch")
+            single_fetch = single_fetch if isinstance(single_fetch, dict) else {}
+            digest = str(single_fetch.get("prepublished_payload_hash") or "").lower()
+            prepublished = bool(
+                digest
+                and single_fetch.get("prepublished_payload_bytes") == payload_bytes
+                and single_fetch.get("prepublished_payload_ref") == cas.relative_ref(digest)
+                and cas.contains(digest, expected_bytes=payload_bytes) is True
+            )
+            if not prepublished:
+                # No usable fan-out declaration: hash the body once and look for
+                # the blob the snapshot writer stored.
+                digest = hashlib.sha256(body_bytes).hexdigest()
+                if cas.contains(digest, expected_bytes=payload_bytes) is not True:
+                    return item
+            text_ref = {
+                "cas": LAST_GOOD_PAYLOAD_CAS_NAME,
+                "payload_hash_algorithm": LAST_GOOD_PAYLOAD_HASH_ALGORITHM,
+                "payload_hash": digest,
+                "payload_ref": cas.relative_ref(digest),
+                "payload_bytes": payload_bytes,
+                "body_field": body_field,
+            }
+        except Exception as e:
+            logger.warning("Keeping last good %s payload inline: %s", name, e)
+            return item
+        stripped_raw = {key: value for key, value in raw_payload.items() if key != body_field}
+        stripped_raw[LAST_GOOD_PAYLOAD_TEXT_REF_KEY] = text_ref
+        return {**item, "data": {**data, "raw_payload": stripped_raw}}
+
+    def last_good_data_with_payload_body(self, data):
+        """Restore a CAS-referenced body into a copy of cached source data.
+
+        Returns ``(data, None)`` when restored or nothing is referenced, and
+        ``(None, error)`` when the reference cannot be proven. Never raises.
+        """
+        if not isinstance(data, dict):
+            return data, None
+        raw_payload = data.get("raw_payload")
+        if not isinstance(raw_payload, dict) or LAST_GOOD_PAYLOAD_TEXT_REF_KEY not in raw_payload:
+            return data, None
+        try:
+            text_ref = raw_payload[LAST_GOOD_PAYLOAD_TEXT_REF_KEY]
+            if not isinstance(text_ref, dict):
+                raise ValueError("text_ref must be an object")
+            if (
+                text_ref.get("cas") != LAST_GOOD_PAYLOAD_CAS_NAME
+                or text_ref.get("payload_hash_algorithm") != LAST_GOOD_PAYLOAD_HASH_ALGORITHM
+            ):
+                raise ValueError("text_ref names an unsupported store")
+            body_field = str(text_ref.get("body_field") or "").strip()
+            if not body_field or body_field in raw_payload:
+                raise ValueError("text_ref body_field is missing or already present")
+            digest = str(text_ref.get("payload_hash") or "")
+            payload_bytes = text_ref.get("payload_bytes")
+            if not isinstance(payload_bytes, int) or isinstance(payload_bytes, bool):
+                raise ValueError("text_ref payload_bytes must be an integer")
+            cas = self.last_good_payload_cas()
+            if cas is None:
+                raise ValueError("shared forecast payload CAS is not configured")
+            if text_ref.get("payload_ref") != cas.relative_ref(digest):
+                raise ValueError("text_ref payload_ref does not match its hash")
+            # read() verifies the SHA-256 digest and the byte count.
+            body_bytes = cas.read(digest, expected_bytes=payload_bytes)
+            body = body_bytes.decode(NBM_NBP_ENCODING)
+            if hashlib.sha1(body_bytes).hexdigest() != raw_payload.get("payload_hash"):
+                raise ValueError("restored body does not match payload_hash (SHA-1)")
+        except Exception as e:
+            return None, f"Last good payload reference could not be restored: {e}"
+        restored_raw = {
+            key: value
+            for key, value in raw_payload.items()
+            if key != LAST_GOOD_PAYLOAD_TEXT_REF_KEY
+        }
+        restored_raw[body_field] = body
+        return {**data, "raw_payload": restored_raw}, None
 
     def with_source_fetch_meta(self, data, metadata):
         if isinstance(data, dict):
@@ -824,18 +965,26 @@ class SourceFetchMixin:
                         output.setdefault("cache_status", "auth_failure")
                     blended[name] = output
                     continue
-                if (
+                cache_usable = bool(
                     cached_item
                     and cached_item.get("target_date") == self.target_date.isoformat()
                     and cache_is_recent
-                ):
+                )
+                # A body kept by CAS reference is restored and proven before it
+                # is served; an unprovable reference is a cache miss.
+                cached_data, restore_error = (
+                    self.last_good_data_with_payload_body(cached_item["data"])
+                    if cache_usable
+                    else (None, None)
+                )
+                if cache_usable and restore_error is None:
                     fallback_status = self.source_cache_fallback_status(failure_status)
                     output = {
                         "ok": True,
                         "stale": True,
                         "status": fallback_status,
                         "fetched_at": cached_item["fetched_at"],
-                        "data": cached_item["data"],
+                        "data": cached_data,
                         "error": item.get("error", "Unknown error"),
                         "latency_ms": item.get("latency_ms"),
                         "cache_age_minutes": cache_age_minutes,
@@ -849,7 +998,9 @@ class SourceFetchMixin:
                     blended[name] = output
                 else:
                     stale_detail = ""
-                    if cached_item and cached_item.get("target_date") == self.target_date.isoformat():
+                    if restore_error:
+                        stale_detail = f" {restore_error}."
+                    elif cached_item and cached_item.get("target_date") == self.target_date.isoformat():
                         stale_detail = (
                             f" Last good cache is {cache_age_minutes:.0f} minutes old (TTL {ttl_minutes} min)."
                             if cache_age_minutes is not None else " Last good cache age is unknown."
