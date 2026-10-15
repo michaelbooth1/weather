@@ -1,7 +1,7 @@
 # State of play
 
-**Last updated: 2026-10-15 10:45 America/Toronto (owner 10-15 "All as recommended": replay v2 C15/A8 M, E6 ceiling, trim, rows
-13/16/17, lapse 10-30; DLv2 §9 Q3/4/7/10/11/13/15/16; review 11-20. N10 night: §T + T-R PASS, #177 moved to 10-18).**
+**Last updated: 2026-10-15 11:30 America/Toronto (owner 10-15 "All as recommended" + batch 2 "approve all": RF A, U6 10-20,
+#209 build, 91a A, watchdog by 10-28, OD-B1 build, O9 UTC cutoff; replay v2 M/E6/13/16/17; DLv2 §9; review 11-20).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended. At most 95 lines and about 9 KB, one fact per bullet, detail in the linked owner.** This file owns
@@ -43,7 +43,7 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
   10/10 after). Venv still 3.11.0; 3.11.9 side by side. Next: B 00:30 10-16, cutover C 00:30 10-17 ([runbook](HOST_PYTHON_UPGRADE_RUNBOOK.md) §7a).
 - Owner 10-13 08:53 (relayed): C advance GO if every C0 check is clean; G4 amended (auto rollback; a failed rollback waits for the owner). DECISION_LOG row.
 - Calendar-shift branch `claude/decisions-pyup-shift-20261013` `84c723ae2` (C 10-18) is **ON HOLD**; not a decision.
-- **DST:** DST-H3 landed; DST-M2 lands in N9; OD30 (the 11-01 night rule) stays until the owner retires it.
+- **DST:** DST-H3 landed; DST-M2 lands in N9; OD30 (the 11-01 night rule) holds for 11-01 and lapses 11-02 (owner 10-15).
 - **LFC session 0: Fri 10-16 from 11:00 EDT (~3 h) on the workstation**, owner-attended, locked in (owner 10-14 16:22);
   guard (owner "Keep B" 10-14 16:27; G7 exception): Phase B clean by 09:00 10-16, reader + capture re-checked, else it slips. Code deadline 10-25 00:00Z; new pin by master.
 - Logistics (dates, times, session day) take the owner's chat yes in DECISION_LOG, no signature (owner 10-13 ~22:00). init-ledger done 10-13.
@@ -75,10 +75,11 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 | What | Owner | Due | Verify |
 | --- | --- | --- | --- |
 | LFC session 0 re-pin and runbook re-date to 10-16: done; pin `e27909a76` recorded in DL 10-15; reader client config re-entry is an owner step 10-16 | owner | 10-16 10:00 | `config\local\wallet_reader_client.json` present in the pin (name check only) |
-| Policy: roll-free heads land on workstation pre-gate + Windows CI (T4 draft) | owner | after C | DECISION_LOG row |
-| Evening-fix scorer `8cdcb62ec` lands (prereg SIGNED 10-13, sha256 in DL; read 10-29); OD30 retirement | T3; owner | 10-28; open | scorer on master; DL row |
-| Pinned watchdog redeploy + re-register (DRIFT since #273, DST-H3) | owner scope, production | before 11-01 | watchdog CURRENT |
-| 91a policy renewal (expires 10-30) | owner (production prepares) | week of 10-26 | new policy sha |
+| RF policy A (owner 10-15): roll-free heads land on workstation pre-gate + Windows CI once #274, #276/#284 green; then #209 deselect build | T4; workstation | after C | DL row; lane green |
+| Evening-fix scorer `8cdcb62ec` lands (prereg SIGNED 10-13, sha256 in DL; read 10-29 `--no-market`, item 337 owns it) | T3 | 10-28 | scorer on master |
+| Pinned watchdog redeploy from master, re-register only the watchdog task (owner yes 10-15) | production | after C, by 10-28 | watchdog CURRENT |
+| U6 replay-bundle export registered 04:10 from the 3.11.9 build-line tip (owner yes 10-15) | production | night 10-20 | task registered; first receipt |
+| 91a policy renewal unchanged (owner A 10-15; CP-5 LZX later, own change) | production | ~10-27 (expires 10-30) | new policy sha |
 
 ## Standing decisions
 
