@@ -136,7 +136,7 @@ reviewed change, because the ids feed settlement-proxy and forecast lookups.
   and `operator_status_json` for status files and kill receipts).
 - **`scheduled_tasks.json` rows:** none needed in S1 (every registered task already has a
   row, and the ratchet enforces it); the evidence-host task arrives with its stage. S4 added
-  the `WeatherEvidenceHost` row and the `evidence_host` evidence family; its seven `data/evidence`
-  paths are `storage_pending` (unclassified) for the same `storage_classes.py` reason
-  ([evidence host](EVIDENCE_HOST.md)).
+  the `WeatherEvidenceHost` row and the `evidence_host` evidence family
+  ([evidence host](EVIDENCE_HOST.md)); its `data/evidence` paths are classified by the S3
+  commit above, so none is `storage_pending`.
 - **Retiring `clob-enrichment`** from `roll_closures`.
