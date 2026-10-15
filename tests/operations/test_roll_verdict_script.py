@@ -124,6 +124,16 @@ CASES = {
 }
 
 
+# Cases where the baseline's strict-mode output was an artefact of a swallowed exception, and the
+# value the fixed script gives instead. The baseline's `.PSObject.Properties.Name -contains` lookup
+# throws under inherited strict mode on an object with no properties; for a sparse `{}` worker
+# status that exception landed in the "unreadable artefact" catch and dropped the optional closure
+# (exit 0). Without strict mode -- how the script runs in production -- the same lookup returns
+# no state, the producer counts as active and its closure is required (exit 3). The fix makes
+# strict mode agree with production; the change is toward roll-sensitive, never toward roll-free.
+STRICT_MODE_FIXED = {"worker_sparse": 3}
+
+
 def _git(cwd: Path, *args: str) -> None:
     subprocess.run(
         ["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "core.autocrlf=false", *args],
@@ -202,6 +212,10 @@ def test_registry_script_reproduces_the_pre_registry_verdict_for_every_evidence_
         before = results[(case_id, "roll_verdict_pre_registry.ps1")]
         after = results[(case_id, "roll_verdict.ps1")]
         assert before["rc"] == expected_rc, (case_id, before["out"])
+        if case_id in STRICT_MODE_FIXED:
+            assert after["rc"] == STRICT_MODE_FIXED[case_id], (case_id, after["out"])
+            assert not after["out"].startswith("THREW"), (case_id, after["out"])
+            continue
         assert (after["rc"], after["out"]) == (before["rc"], before["out"]), case_id
 
 
@@ -212,6 +226,12 @@ def test_registry_script_reproduces_the_pre_registry_verdict_for_every_evidence_
         pytest.param(lambda doc: doc["platform"].update(roll_closures=[]), id="empty_closures"),
         pytest.param(lambda doc: doc["platform"]["roll_closures"][0].update(status_path="data/../x.json"), id="escaping_path"),
         pytest.param(lambda doc: doc["platform"]["roll_closures"][4].update(arming="sometimes"), id="unknown_arming"),
+        # Strict-mode traps: an empty platform block, an empty row and an optional producer without a
+        # task must refuse through the registry message, never throw or drop the optional closure.
+        pytest.param(lambda doc: doc.update(platform={}), id="empty_platform_block"),
+        pytest.param(lambda doc: doc["platform"].update(roll_closures=[{}]), id="empty_row"),
+        pytest.param(lambda doc: doc["platform"]["roll_closures"][4].pop("task"), id="optional_without_task"),
+        pytest.param(lambda doc: doc["platform"]["roll_closures"][4].update(task=""), id="optional_empty_task"),
     ],
 )
 def test_unreadable_registry_is_undecidable_not_a_shorter_list(tmp_path: Path, mutate) -> None:
@@ -225,3 +245,45 @@ def test_unreadable_registry_is_undecidable_not_a_shorter_list(tmp_path: Path, m
     row = results[("bad", "roll_verdict.ps1")]
     assert row["rc"] == 1
     assert row["out"].startswith("UNDECIDABLE: capture closure registry unreadable: config\\capture_families.json")
+
+
+IDENTITY_STATUSES = (
+    "loop_supervisor_status",
+    "clob_loop_supervisor_status",
+    "observation_trigger_supervisor_status",
+    "clob_enrichment_status",
+)
+
+
+@pytest.mark.parametrize(
+    ("document", "reason"),
+    [
+        ({"state": "RUNNING", "runtime_identity": {}}, "(runtime identity empty or absent)"),
+        ({"state": "RUNNING", "current_runtime_identity": {}, "runtime_identity": ""},
+         "(runtime identity empty or absent)"),
+        ({"state": "RUNNING", "runtime_identity": None}, "(runtime identity empty or absent)"),
+        ({"state": "RUNNING"}, "(runtime identity empty or absent)"),
+        ({}, "(runtime identity empty or absent)"),
+        (None, "(empty document)"),
+    ],
+    ids=["empty-object", "all-empty", "null", "absent", "empty-doc", "json-null"],
+)
+def test_empty_or_absent_runtime_identity_is_undecidable_under_strict_mode(
+    tmp_path: Path, document: object, reason: str
+) -> None:
+    # The pre-registry baseline THREW on the empty-object and empty-document shapes ("The property
+    # 'Name'/'Properties' cannot be found"), so these cases are deliberately not differential.
+    template = _template(tmp_path, REGISTRY.read_text(encoding="utf-8"))
+    statuses = {SNAP + name + ".json": document for name in IDENTITY_STATUSES}
+    repo = _materialise(template, tmp_path / "case", statuses, (), {})
+    results = _run(tmp_path, [{
+        "id": "identity", "branch": "roll", "task_state": "",
+        "script": str(repo / "scripts" / "ops" / "roll_verdict.ps1"),
+    }])
+    row = results[("identity", "roll_verdict.ps1")]
+    assert row["rc"] == 1, row["out"]
+    assert not row["out"].startswith("THREW"), row["out"]
+    assert row["out"].splitlines()[0] == "UNDECIDABLE: no live closure evidence"
+    assert "ROLL-FREE" not in row["out"]
+    for name in IDENTITY_STATUSES:
+        assert "data\\snapshots\\" + f"{name}.json {reason}" in row["out"]

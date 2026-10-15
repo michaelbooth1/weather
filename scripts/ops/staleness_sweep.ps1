@@ -148,6 +148,12 @@ try {
             [string]$row.arming -notin @("always", "while_armed_or_active")) {
             throw ("malformed roll_closures row: {0}" -f [string]$row.id)
         }
+        # Same rule as roll_verdict.ps1: an optional producer is judged by its task's state, so a
+        # row without one is malformed rather than silently "not armed".
+        if ([string]$row.arming -eq "while_armed_or_active" -and
+            -not [string]($row.PSObject.Properties["task"] | ForEach-Object { $_.Value })) {
+            throw ("malformed roll_closures row: {0} (optional producer without a task)" -f [string]$row.id)
+        }
         $rel = [string]$row.status_path -replace '/', '\'
         if ([string]$row.arming -eq "always") { $closureFiles[[string]$row.id] = $rel; continue }
         # Optional producer: required only while armed or still running.

@@ -30,8 +30,8 @@ verdict, in order. Fields: `id`, `status_path` (repo-relative, must match
   verdict problem.
 - `arming: while_armed_or_active` — required only while the task exists and is not
   Disabled, or its writer lock exists, or its worker status exists with a state other than
-  `STOPPED` (an unreadable worker status counts as not active). Today only the execution
-  tape.
+  `STOPPED` (an unreadable worker status counts as not active). The row must name its
+  `task`; a row without one is malformed. Today only the execution tape.
 
 Readers fail closed: an unreadable, empty or malformed list makes `roll_verdict.ps1`
 print `UNDECIDABLE: capture closure registry unreadable: ...` and exit 1, and makes the
@@ -44,7 +44,12 @@ The rows reproduce the pre-S1 hand list exactly, including the retired
 `clob-enrichment` closure (dropping it changes verdict output and is a separate reviewed
 change). `tests/operations/test_roll_verdict_script.py` runs the pre-S1 script (frozen
 byte-for-byte in `tests/fixtures/roll_verdict/`) and the registry script over the same
-closure-evidence fixtures and requires identical output and exit codes.
+closure-evidence fixtures and requires identical output and exit codes. The one listed
+exception (`STRICT_MODE_FIXED` there) is a sparse `{}` worker status: under inherited strict mode
+the pre-S1 script threw on it and dropped the optional closure, while production (no strict
+mode) required it; the registry script now requires it in both. An empty or absent runtime
+identity in a closure status reports `no source_scope_files in <path> (runtime identity empty or
+absent)` and drops that closure, so with no live closure the verdict is UNDECIDABLE.
 
 ### `evidence_families`
 

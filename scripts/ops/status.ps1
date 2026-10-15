@@ -5006,6 +5006,11 @@ function Get-CaptureRegistryHealth {
                 $rowArming -notin @("always", "while_armed_or_active")) {
                 throw "malformed roll_closures row: $rowPath"
             }
+            # Same rule as roll_verdict.ps1: an optional producer is judged by its task's state.
+            if ($rowArming -eq "while_armed_or_active" -and
+                -not $(if ($names -contains "task") { [string]$row.task } else { "" })) {
+                throw "malformed roll_closures row: $rowPath (optional producer without a task)"
+            }
             $ids += $(if ($names -contains "id") { [string]$row.id } else { $rowPath })
         }
         return [pscustomobject]@{ ok = $true; path = $relative; closures = @($ids); error = $null }

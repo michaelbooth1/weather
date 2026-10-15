@@ -98,6 +98,9 @@ ConvertTo-Json -InputObject @($results) -Depth 5 | Set-Content -LiteralPath $env
 def test_closure_list_comes_from_the_registry_and_the_execution_tape_only_while_armed_or_active(tmp_path):
     registry = (REPO_ROOT / "config" / "capture_families.json").read_text(encoding="utf-8")
     snap = "data/snapshots/"
+    no_task_doc = json.loads(registry)
+    no_task_doc["platform"]["roll_closures"][4].pop("task")
+    no_task_registry = json.dumps(no_task_doc)
     cases = {
         # id: (task state, raw files, expected closure ids or None for registry failure)
         "unarmed": ("", {}, ALWAYS_CLOSURES),
@@ -108,6 +111,7 @@ def test_closure_list_comes_from_the_registry_and_the_execution_tape_only_while_
         "worker_stopped": ("", {snap + "execution_tape_status.json": '{"state": "STOPPED"}'}, ALWAYS_CLOSURES),
         "worker_unreadable": ("", {snap + "execution_tape_status.json": "{not json"}, ALWAYS_CLOSURES),
         "registry_broken": ("", {"config/capture_families.json": '{"families": {}}'}, None),
+        "optional_without_task": ("", {"config/capture_families.json": no_task_registry}, None),
     }
     payload = []
     for case_id, (task_state, raw, _expected) in cases.items():

@@ -67,6 +67,8 @@ CASES = {
     "escaping_path": _registry(lambda d: d["platform"]["roll_closures"][1].update(status_path="data/../x.json")),
     "unknown_arming": _registry(lambda d: d["platform"]["roll_closures"][4].update(arming="sometimes")),
     "row_without_arming": _registry(lambda d: d["platform"]["roll_closures"][0].pop("arming")),
+    "optional_without_task": _registry(lambda d: d["platform"]["roll_closures"][4].pop("task")),
+    "optional_empty_task": _registry(lambda d: d["platform"]["roll_closures"][4].update(task="")),
 }
 
 
