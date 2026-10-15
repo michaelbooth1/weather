@@ -76,3 +76,20 @@ Naming them closes the gap between the text and the code before the hash is sign
 
 **Owner question:** OD-B1b — Amend §1 "Stage" to name the three added fallbacks (unit not °F, artifact hash
 mismatch, snapshot not on the target local date) as implemented (recommended), or remove them from the stage code?
+
+## Owner answer (2026-10-15 15:45 EDT): amend
+
+Owner, verbatim, relayed by master-agent: "amend". OD-B1a and OD-B1b both take the recommendation:
+
+- (a) F = max(`guidance_physical_floor`, `high_so_far`, `trusted_current_max`), matching the served 81a floor;
+- (b) §1 "Stage" names the three added fallbacks: unit not °F, artifact hash mismatch, snapshot not on the target
+  local date.
+
+The replacement texts above are applied verbatim, and nothing else changes, on
+`claude/remaining-rise-prereg-amended-20261015` @ `9485901dd8a70e5c9b08d42f6a622a85cd568121` (from
+`claude/model-preregs-20261013` @ `d2dc8e661`). The amended file's sha256 is
+`d8fa4e1c22e6515db997c121f0322e1cb83de24a10350563a0a6204bb80ed33f`. It stays DRAFT, UNSIGNED.
+
+The stage code needs no change: it already implements both items in the amended form. The pre-registration is
+still unsigned. It is signed only with the artifact hash `b727fe1a897f8786afcd89514f0bae4a82d9e03ad951f2d72db9e228dd2afb09`
+(owner B2), and the signature row records the amended file's hash.
