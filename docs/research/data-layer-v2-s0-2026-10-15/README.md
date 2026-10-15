@@ -107,8 +107,14 @@ Each module was imported 3 times in a fresh interpreter (3.11.9, numpy 2.4.6 wit
     the TAF endpoint has no `hours` parameter.
   - HKO data may be used commercially only when taken through DATA.GOV.HK; material from HKO's own website needs
     written permission.
-- The proposed no-token substitute for the Synoptic comparison (IEM vs AWC, 6 stations × 3 days in 09-24..09-29) must
-  run before about 10-24, when those days leave AWC's 30-day window.
+- The proposed no-token substitute for the Synoptic comparison (IEM vs AWC, 6 stations × 3 days in 09-24..09-29) was
+  run **IEM side only** (2026-10-15). The IEM requests were bounded by `sts=2026-09-24T00:00Z` and
+  `ets=2026-09-29T00:00Z`, with a client check that no row was at or after 09-30. Row counts: EGLC 240, LFPB 214,
+  RKSI 240, RJTT 240, ZSPD 243, KLGA 152; the files are kept on the workstation only. **The AWC side was skipped: its
+  date bound cannot be verified.** `/api/data/metar` accepts `date`, but neither its OpenAPI spec nor `/data/api/`
+  says how `date` and `hours` combine. Inside the embargo, a request that is not provably date-bounded could return
+  current reports, so master-agent declined a probe (2026-10-15). Revisit after 2026-11-13; by then 09-24..09-29 has
+  left AWC's 30-day window, so a later comparison needs other days.
 - **Side finding:** `config/locations.json` WMO numbers disagree with the DWD catalogue for Munich and São Paulo, and
   three stations (Kuala Lumpur, Chengdu, Taipei) have no DWD entry. Not edited.
 
