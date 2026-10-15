@@ -348,6 +348,39 @@ Calendar:
 | S15 | **DS-1 served-path refactor** (digest-pinned refs or delta-embedding), MRMS removal, FC-1 run_init in manifest, PL-4 wired in, OB-4; LB-4 after 11-15 | workstation with parity proof | after the MG-1 window (~12-02) | **RS**, schema bump | `captured_input_hash` continuity; replay parity on a closed pre-bump day **including one with the OB-1 segment restored from Drive** |
 | S16 | Snapshot twins → Parquet; retire plain CSVs after D1 and named reader migration | workstation | November | mixed | corpus counts unchanged per reader |
 
+**S2+S9 workstation dry run (measured 2026-10-15, master Q2).** Method: the branch's
+`maker_evidence_capture --dry-run --duration-seconds 5400 --recorder-only-config <copy>` on
+the 32 GB workstation, root `C:\wt\workstation-chat\l-data\s2s9-dryrun\scratch\run-20261015`
+(outside the repository; nothing written to `data/`), with the config copy setting the pilot
+on, the sweep on and `event_driven` built-ins (honoured before the hold only because the root is
+scratch). Public endpoints only: no auth, credentials, order or settlement instruments. Run
+2026-10-15 20:41:36Z-21:43:43Z (3,726 s, 62 cycles, 0 failed cycles); it ended early, not at
+90 min, when the final `status.json` replace raised `PermissionError` (see finding below). Both
+hour segments sealed with `manifest.json.gz`. Counted from the journalled request rows; bytes are
+journal sizes; per-day figures scale the 1.035 h run linearly.
+
+- **REST:** 1,518 requests, all HTTP 200, zero 429s. 0.407 req/s over the whole run; 0.374 req/s
+  after a 900 s warm-up, against the 0.4 budget. Steady req/s by endpoint: core books 0.085,
+  pilot books 0.034, core `/rewards/markets/<cid>` 0.107, pilot `/rewards/markets/<cid>` 0.024,
+  sweep `/rewards/markets/current` 0.040, core Gamma events 0.050, pilot Gamma events 0.034.
+  Until UTC 10-30 the shipped config keeps built-ins on the legacy every-minute read
+  (≈2 req/s, 120 reads/min), so the 0.4 budget applies only after the post-hold
+  `built_in_reward_cadence` flip.
+- **Sweep:** 4 passes of 38 pages each (152 pages, ~15 min apart), 18,679-18,800 conditions per
+  pass. Churn between passes: 3,089 / 2,659 / 3,018 conditions changed (14-16%) and
+  1,047 / 699 / 989 removed.
+- **Bytes:** pilot partitions (5 cities, 72 tokens; `-pilot` journals, pilot `book-<token>`,
+  `universe-pilot-*`) 22.5 MB plain / 0.93 MB gzip in the run, ≈523 MB/day plain and
+  ≈21.6 MB/day gzip, ≈4.3 MB/city-day gzip (gate ≤10). Sweep journals (`rewards_sweep`,
+  `rewards_sweep_page`, `rewards_current`) 0.59 MB plain / 0.12 MB gzip, ≈13.6 MB/day plain and
+  ≈2.8 MB/day gzip (VR-4 estimate ≤10). The pilot trade socket carried ~6k messages and ~3.9 MB
+  received per 5 min.
+- **Finding (open, not fixed on this branch):** the run died on Windows `os.replace` of
+  `status.json.tmp` over `status.json` (`atomic_json`, unchanged base code) while an outside
+  reader had `status.json` open. The production recorder has the same exposure to a concurrent
+  `status.ps1` or cockpit read; a bounded retry on `PermissionError` is the candidate fix, and it
+  is roll-sensitive (88a), so it needs an owner decision.
+
 Decidable-date consequences (all assume every target date is countable): Q-14 census ~30 days after S2 (≈11-20); L8 T+1 read ~20 dates after S12 (≈11-25); label agreement ~30 settled days after S5 (≈11-22). LB-5 and Q-11 determine whether these dates hold.
 
 ---
