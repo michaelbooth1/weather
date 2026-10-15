@@ -873,10 +873,14 @@ _NBM = "nbm_probabilistic_tmax"
 
 
 def _nbm_model(tmp_path, monkeypatch, *, cas=True):
+    import weather.model.model_sources as model_sources
     from weather.collection.forecast_payload_cas import SharedForecastPayloadCAS
     from weather.sources.nbm_probabilistic_tmax import parse_nbp_station_tmax
 
     monkeypatch.setattr(toronto_model, "DEFAULT_DATA_ROOT", tmp_path / "wu")
+    # Readers without an injected CAS use the fleet default root.
+    monkeypatch.setattr(model_sources, "SHARED_FORECAST_PAYLOAD_CAS_ROOT", tmp_path / "default-cas")
+    monkeypatch.setattr(model_sources, "_LAST_GOOD_RESTORE_FAILURES_LOGGED", set())
     model = TorontoHighTempModel(target_date="2026-05-30")
     if cas:
         model.shared_forecast_payload_cas = SharedForecastPayloadCAS(tmp_path / "cas")
@@ -953,8 +957,10 @@ def test_failed_fetch_restores_referenced_bulletin_exactly(tmp_path, monkeypatch
     assert "text" not in _cache_file(model)[_NBM]["data"]["raw_payload"]
 
 
-@pytest.mark.parametrize("damage", ["missing_blob", "corrupt_blob", "sha1_mismatch", "no_cas"])
-def test_unprovable_bulletin_reference_is_a_cache_miss(tmp_path, monkeypatch, damage):
+@pytest.mark.parametrize(
+    "damage", ["missing_blob", "corrupt_blob", "sha1_mismatch", "default_root_without_blob"]
+)
+def test_unprovable_bulletin_reference_is_a_cache_miss(tmp_path, monkeypatch, caplog, damage):
     model, data = _nbm_model(tmp_path, monkeypatch)
     stored = model.shared_forecast_payload_cas.put(_NBP_TEXT.encode("utf-8"))
     _fresh(model, data)
@@ -970,13 +976,35 @@ def test_unprovable_bulletin_reference_is_a_cache_miss(tmp_path, monkeypatch, da
     else:
         model.shared_forecast_payload_cas = None
 
+    with caplog.at_level("WARNING", logger="weather.model.model_sources"):
+        blended = _failed(model)
+        again = _failed(model)
+
+    for result in (blended, again):
+        assert result[_NBM]["ok"] is False
+        assert result[_NBM]["status"] == "failed"
+        # Distinct from a TTL miss.
+        assert result[_NBM]["cache_status"] == "fallback_unprovable"
+        assert result[_NBM]["data"] == {}
+        assert "Last good payload reference could not be restored" in result[_NBM]["error"]
+    # Logged once per digest, not on every pass.
+    restore_logs = [r for r in caplog.records if "could not be restored" in r.getMessage()]
+    assert len(restore_logs) == 1
+    assert stored["payload_hash"] in restore_logs[0].getMessage()
+
+
+def test_expired_referenced_entry_is_an_ordinary_ttl_miss(tmp_path, monkeypatch):
+    model, data = _nbm_model(tmp_path, monkeypatch)
+    model.shared_forecast_payload_cas.put(_NBP_TEXT.encode("utf-8"))
+    _fresh(model, data)
+    cache = _cache_file(model)
+    cache[_NBM]["fetched_at"] = (datetime.now(model.spec.tz) - timedelta(hours=5)).isoformat()
+    model.last_good_sources_path().write_text(json.dumps(cache), encoding="utf-8")
+
     blended = _failed(model)
 
-    assert blended[_NBM]["ok"] is False
-    assert blended[_NBM]["status"] == "failed"
     assert blended[_NBM]["cache_status"] == "miss"
-    assert blended[_NBM]["data"] == {}
-    assert "Last good payload reference could not be restored" in blended[_NBM]["error"]
+    assert "could not be restored" not in blended[_NBM]["error"]
 
 
 def test_legacy_inline_cache_is_served_then_shrunk_on_next_save(tmp_path, monkeypatch):
@@ -1004,6 +1032,7 @@ def test_legacy_inline_cache_is_served_then_shrunk_on_next_save(tmp_path, monkey
 
 @pytest.mark.parametrize("cas", [True, False])
 def test_bulletin_stays_inline_without_a_confirmed_blob(tmp_path, monkeypatch, cas):
+    # cas=False: no injected CAS, and the default root holds no blob.
     model, data = _nbm_model(tmp_path, monkeypatch, cas=cas)
     if cas:
         # A blob of the wrong size under the right digest is not confirmation.
@@ -1021,18 +1050,36 @@ def test_bulletin_stays_inline_without_a_confirmed_blob(tmp_path, monkeypatch, c
     assert "text_ref" not in stored_raw
 
 
-def test_prepublished_declaration_is_used_only_when_it_matches(tmp_path, monkeypatch):
+def test_reader_without_injected_cas_uses_the_default_root(tmp_path, monkeypatch):
+    from weather.collection.forecast_payload_cas import SharedForecastPayloadCAS
+
+    model, data = _nbm_model(tmp_path, monkeypatch, cas=False)
+    SharedForecastPayloadCAS(tmp_path / "default-cas").put(_NBP_TEXT.encode("utf-8"))
+    _fresh(model, data)
+    assert "text_ref" in _cache_file(model)[_NBM]["data"]["raw_payload"]
+
+    blended = _failed(model)
+
+    assert blended[_NBM]["cache_status"] == "fallback"
+    assert blended[_NBM]["data"]["raw_payload"]["text"] == _NBP_TEXT
+
+
+@pytest.mark.parametrize("declaration", ["matching", "decoy"])
+def test_prepublished_declaration_is_only_a_cross_check(tmp_path, monkeypatch, declaration):
     import hashlib
 
     model, data = _nbm_model(tmp_path, monkeypatch)
+    cas = model.shared_forecast_payload_cas
     body = _NBP_TEXT.encode("utf-8")
-    stored = model.shared_forecast_payload_cas.put(body)
-    attestation = data["raw_payload"]["forecast_payload_attestation"]
-    # A wrong declared size is ignored; the body digest still proves the blob.
-    attestation["single_fetch"] = {
-        "prepublished_payload_hash": stored["payload_hash"],
-        "prepublished_payload_ref": stored["payload_ref"],
-        "prepublished_payload_bytes": len(body) + 1,
+    stored = cas.put(body)
+    # A same-size blob with other bytes: trusting a declaration that names it
+    # would make the reference point at the wrong bulletin.
+    decoy = cas.put(b"x" * len(body))
+    declared = stored if declaration == "matching" else decoy
+    data["raw_payload"]["forecast_payload_attestation"]["single_fetch"] = {
+        "prepublished_payload_hash": declared["payload_hash"],
+        "prepublished_payload_ref": declared["payload_ref"],
+        "prepublished_payload_bytes": declared["payload_bytes"],
     }
 
     _fresh(model, data)
@@ -1040,6 +1087,7 @@ def test_prepublished_declaration_is_used_only_when_it_matches(tmp_path, monkeyp
     text_ref = _cache_file(model)[_NBM]["data"]["raw_payload"]["text_ref"]
     assert text_ref["payload_hash"] == hashlib.sha256(body).hexdigest()
     assert text_ref["payload_ref"] == stored["payload_ref"]
+    assert _failed(model)[_NBM]["data"]["raw_payload"]["text"] == _NBP_TEXT
 
 
 if __name__ == "__main__":

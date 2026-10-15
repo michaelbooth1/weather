@@ -42,6 +42,10 @@ from weather.forecast_payload_contracts import (
     NBM_NBP_ENCODING,
     nbm_nbp_cycle_key_from_bulletin,
 )
+from weather.shared_forecast_payload_cas import (
+    SHARED_FORECAST_PAYLOAD_CAS_ROOT,
+    SharedForecastPayloadCAS,
+)
 from weather.model.source_adapters import (
     FETCH_META_KEY,
     SourceExpectedUnavailable,
@@ -110,6 +114,8 @@ LAST_GOOD_PAYLOAD_ATTESTATION_KEY = "forecast_payload_attestation"
 LAST_GOOD_PAYLOAD_TEXT_REF_KEY = "text_ref"
 LAST_GOOD_PAYLOAD_CAS_NAME = "shared_forecast_payload"
 LAST_GOOD_PAYLOAD_HASH_ALGORITHM = "sha256"
+# Digests whose restore failure was already logged by this process.
+_LAST_GOOD_RESTORE_FAILURES_LOGGED = set()
 
 # Explicit capture contracts for every source adapter. These version the
 # parser/normalizer code that turned a provider response into the source data
@@ -644,13 +650,17 @@ class SourceFetchMixin:
 
         The capture path injects the snapshot writer's store as
         ``shared_forecast_payload_cas``; an isolated capture child also reaches
-        it through its cross-process fan-out. Without either, bodies stay inline.
+        it through its cross-process fan-out. Every other reader (replay,
+        calibration, research) uses the fleet default root, so it can restore
+        and keep references instead of re-inflating the cache.
         """
         cas = getattr(self, "shared_forecast_payload_cas", None)
         if cas is not None:
             return cas
-        fanout = getattr(self, "market_invariant_fetch_fanout", None)
-        return getattr(fanout, "cas", None)
+        fanout_cas = getattr(getattr(self, "market_invariant_fetch_fanout", None), "cas", None)
+        if fanout_cas is not None:
+            return fanout_cas
+        return SharedForecastPayloadCAS(SHARED_FORECAST_PAYLOAD_CAS_ROOT)
 
     def last_good_sources_with_payload_refs(self, cache):
         cas = self.last_good_payload_cas()
@@ -688,21 +698,25 @@ class SourceFetchMixin:
         try:
             body_bytes = body.encode(NBM_NBP_ENCODING)
             payload_bytes = len(body_bytes)
+            # Always hash the body (~0.1 s for 35 MB): the reference must name
+            # these bytes, and contains() below only checks presence and size.
+            digest = hashlib.sha256(body_bytes).hexdigest()
             single_fetch = attestation.get("single_fetch")
             single_fetch = single_fetch if isinstance(single_fetch, dict) else {}
-            digest = str(single_fetch.get("prepublished_payload_hash") or "").lower()
-            prepublished = bool(
-                digest
-                and single_fetch.get("prepublished_payload_bytes") == payload_bytes
-                and single_fetch.get("prepublished_payload_ref") == cas.relative_ref(digest)
-                and cas.contains(digest, expected_bytes=payload_bytes) is True
-            )
-            if not prepublished:
-                # No usable fan-out declaration: hash the body once and look for
-                # the blob the snapshot writer stored.
-                digest = hashlib.sha256(body_bytes).hexdigest()
-                if cas.contains(digest, expected_bytes=payload_bytes) is not True:
-                    return item
+            declared = single_fetch.get("prepublished_payload_hash")
+            if declared and (
+                str(declared).lower() != digest
+                or single_fetch.get("prepublished_payload_bytes") != payload_bytes
+            ):
+                # The fan-out declaration is only a cross-check; the computed
+                # digest wins.
+                logger.warning(
+                    "Last good %s fan-out payload declaration disagrees with its body; using sha256 %s",
+                    name,
+                    digest,
+                )
+            if cas.contains(digest, expected_bytes=payload_bytes) is not True:
+                return item
             text_ref = {
                 "cas": LAST_GOOD_PAYLOAD_CAS_NAME,
                 "payload_hash_algorithm": LAST_GOOD_PAYLOAD_HASH_ALGORITHM,
@@ -756,7 +770,14 @@ class SourceFetchMixin:
             if hashlib.sha1(body_bytes).hexdigest() != raw_payload.get("payload_hash"):
                 raise ValueError("restored body does not match payload_hash (SHA-1)")
         except Exception as e:
-            return None, f"Last good payload reference could not be restored: {e}"
+            error = f"Last good payload reference could not be restored: {e}"
+            text_ref = raw_payload.get(LAST_GOOD_PAYLOAD_TEXT_REF_KEY)
+            digest = str(text_ref.get("payload_hash") or "") if isinstance(text_ref, dict) else ""
+            # Log once per digest: every later pass would repeat the same miss.
+            if digest not in _LAST_GOOD_RESTORE_FAILURES_LOGGED:
+                _LAST_GOOD_RESTORE_FAILURES_LOGGED.add(digest)
+                logger.warning("%s (sha256 %s)", error, digest or "unknown")
+            return None, error
         restored_raw = {
             key: value
             for key, value in raw_payload.items()
@@ -1024,6 +1045,10 @@ class SourceFetchMixin:
                     output["ttl_minutes"] = ttl_minutes
                     output["degradation_state"] = self.source_degradation_state(status, item)
                     output.setdefault("cache_status", "miss")
+                    if restore_error:
+                        # Distinct from a TTL miss: the entry was recent but its
+                        # referenced body could not be proven.
+                        output["cache_status"] = "fallback_unprovable"
                     blended[name] = output
                     
         self.save_last_good_sources(cache)
