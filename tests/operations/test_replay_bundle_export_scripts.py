@@ -1,4 +1,8 @@
-"""Windows parser and mocked registrar/teardown checks; never touches Scheduler."""
+"""Windows parser and mocked registrar/teardown checks; never touches Scheduler.
+
+Guards: nightly replay bundle export wrappers and registrar, never touching Scheduler (docs/operations/maker-replay-bundle.md;
+  docs/operations/OPERATING_REFERENCE.md).
+"""
 import base64
 import hashlib
 import os
@@ -9,7 +13,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 OPS = ROOT / "scripts" / "ops"
-pytestmark = pytest.mark.skipif(os.name != "nt", reason="Windows PowerShell required")
+pytestmark = [pytest.mark.skipif(os.name != "nt", reason="Windows PowerShell required"), pytest.mark.spawns]
 
 
 def ps(source):

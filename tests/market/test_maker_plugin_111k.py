@@ -2,6 +2,9 @@
 
 The tie trace uses a tracked public NBP bulletin (tests/fixtures/nbm_target_fix,
 KAUS 2026-09-17 01Z); everything else is synthetic. No production data.
+
+Guards: tied NBP knots, WeatherUniverse identity and captured-set mass
+  (docs/operations/maker-core-contracts.md, Bounded weather plugin dry run; T+1 amendment 1).
 """
 from datetime import date, datetime, timedelta, timezone
 import hashlib

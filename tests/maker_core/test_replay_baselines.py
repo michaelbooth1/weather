@@ -1,3 +1,8 @@
+"""Maker replay baselines (matched clock) on fictional scenarios.
+
+Guards: replay baseline policies and matched clock (docs/operations/maker-replay-bundle.md, Diagnostic and scoring boundary;
+  docs/research/maker-replay-hurdles-preregistration-2026-09-27.md).
+"""
 from dataclasses import replace
 from decimal import Decimal as D
 

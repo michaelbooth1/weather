@@ -6,6 +6,8 @@ of one condition with the same ``inputs_hash``, ``p_yes``, model and ``as_of_utc
 whatever else differs (call order, repeated calls on one instance, unrelated rows in the provider's pools).
 Both current producers (the NBP and lead-one fallback views, and the served T+0 view) are checked, and two
 mutant producers show the check failing.
+
+Guards: fair-value producer stdev contract for maker replay v2 rule 4 = option B (owner decision 2026-10-05).
 """
 from dataclasses import replace
 from datetime import timedelta

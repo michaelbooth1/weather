@@ -1,3 +1,8 @@
+"""Maker replay scoring and nominal rebate on fictional scenarios.
+
+Guards: replay scoring and nominal rebate (docs/research/maker-replay-hurdles-preregistration-2026-09-27.md;
+  docs/operations/maker-replay-bundle.md, Diagnostic and scoring boundary).
+"""
 from decimal import Decimal as D
 import pytest
 

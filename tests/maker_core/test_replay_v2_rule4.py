@@ -6,6 +6,9 @@ equals, decision for decision and in every fingerprint field, a run under the re
 on the same rows with each time-only re-stamp delivered at the condition's next wake. That is, a re-stamp that
 moves only ``as_of_utc`` or ``stdev`` never wakes a band and is read exactly at its next own event. A mutant
 that drops ``p_yes`` from the view state must fail the same check.
+
+Guards: maker replay v2 rule 4 = option B equivalence (owner decision 2026-10-05, DECISION_LOG;
+  docs/research/maker-replay-v2-rule4b-results).
 """
 from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone

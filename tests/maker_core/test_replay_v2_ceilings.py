@@ -1,4 +1,7 @@
-"""Registration §9 ceiling rule for the v2 scored run (U2): N = 16, memory 2x carried plus baseline, §8 limits."""
+"""Registration §9 ceiling rule for the v2 scored run (U2): N = 16, memory 2x carried plus baseline, §8 limits.
+
+Guards: maker replay v2 scored-run ceilings (docs/research/maker-replay-v2-registration-DRAFT.md, sections 8-9).
+"""
 from __future__ import annotations
 
 import pytest

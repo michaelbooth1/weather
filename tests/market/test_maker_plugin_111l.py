@@ -2,6 +2,8 @@
 
 The KAUS trace uses a tracked public NBP bulletin (tests/fixtures/nbm_target_fix);
 everything else is synthetic. No production data.
+
+Guards: tied end knots at print resolution (T+1 amendment 2; docs/operations/maker-core-contracts.md, Bounded weather plugin dry run).
 """
 from datetime import date, datetime, timezone
 from itertools import product

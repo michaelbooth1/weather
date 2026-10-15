@@ -1,3 +1,8 @@
+"""Maker replay cluster inference on invented cells.
+
+Guards: replay cluster-bootstrap inference and underpowered verdicts
+  (docs/research/maker-replay-hurdles-preregistration-2026-09-27.md).
+"""
 from decimal import Decimal as D
 from maker_core.evidence.journal import canonical_bytes
 from maker_core.replay.inference import cluster_intervals, paired_cells

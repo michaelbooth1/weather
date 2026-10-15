@@ -1,6 +1,8 @@
 """End-to-end score-free rehearsal on fictional calibration bundles (registration §9, §10 E5-E7; U2 part 2).
 
 The bundles are ``fixtures.panel_v02`` fictional v0.2 days on the real calibration dates; no captured data is read.
+
+Guards: maker replay v2 score-free rehearsal end to end (docs/research/maker-replay-v2-registration-DRAFT.md, sections 9-10).
 """
 from __future__ import annotations
 

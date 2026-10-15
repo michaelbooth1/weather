@@ -2,6 +2,8 @@
 
 No bundle, panel or calibration data is read: scorers, plans and books are small fakes, and the calibration
 documents are invented.
+
+Guards: maker replay v2 reachability fields and R1 hazard hook (docs/research/maker-replay-v2-registration-DRAFT.md, section 11).
 """
 from __future__ import annotations
 

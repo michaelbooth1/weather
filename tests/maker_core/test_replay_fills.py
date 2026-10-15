@@ -1,3 +1,7 @@
+"""Maker replay fill model against the 89a reference on fictional scenarios.
+
+Guards: replay conservative fill model and 89a reference parity (docs/operations/maker-replay-bundle.md, Diagnostic and scoring boundary).
+"""
 from decimal import Decimal as D
 import pytest
 

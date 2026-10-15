@@ -1,4 +1,7 @@
-"""Rehearsal output contract (registration §9; U2): calibration-date guard, pass projection, whitelist."""
+"""Rehearsal output contract (registration §9; U2): calibration-date guard, pass projection, whitelist.
+
+Guards: maker replay v2 rehearsal output contract and calibration-date guard (docs/research/maker-replay-v2-registration-DRAFT.md, section 9).
+"""
 from __future__ import annotations
 
 import copy

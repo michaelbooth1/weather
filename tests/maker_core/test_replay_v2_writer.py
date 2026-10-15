@@ -1,4 +1,8 @@
-"""Maker replay v2 W2: the bundle v0.2 streaming writer and its streaming validation, on fictional rows."""
+"""Maker replay v2 W2: the bundle v0.2 streaming writer and its streaming validation, on fictional rows.
+
+Guards: maker replay v2 bundle v0.2 streaming writer and validation
+  (docs/operations/maker-replay-bundle.md; docs/research/maker-replay-v2-engineering-plan-DRAFT.md W2).
+"""
 from datetime import date, datetime, timedelta, timezone
 import gzip
 import json

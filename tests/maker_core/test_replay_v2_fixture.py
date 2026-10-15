@@ -1,4 +1,8 @@
-"""W0: the 170-condition fictional day (maker replay v2), and #166's fixture left byte-identical."""
+"""W0: the 170-condition fictional day (maker replay v2), and #166's fixture left byte-identical.
+
+Guards: maker replay v2 170-condition fictional fixture and #166 byte identity
+  (docs/research/maker-replay-v2-engineering-plan-DRAFT.md W0).
+"""
 from collections import Counter
 from datetime import date, datetime, timedelta, timezone
 import hashlib

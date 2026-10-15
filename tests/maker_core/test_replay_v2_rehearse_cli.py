@@ -2,6 +2,8 @@
 
 The bundles are ``fixtures.panel_v02`` fictional v0.2 days on the real calibration dates and the calibration
 document is invented; no captured data is read.
+
+Guards: maker replay v2 rehearsal subcommands through the admitted entry (docs/research/maker-replay-v2-registration-DRAFT.md, sections 9-11).
 """
 from __future__ import annotations
 

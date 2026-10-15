@@ -1,4 +1,7 @@
-"""Maker replay v2 engine (W3) against the reference schedule (W4); fictional fixtures only."""
+"""Maker replay v2 engine (W3) against the reference schedule (W4); fictional fixtures only.
+
+Guards: maker replay v2 engine against the reference schedule (docs/research/maker-replay-v2-registration-DRAFT.md; docs/research/maker-replay-v2-engineering-plan-DRAFT.md W3/W4).
+"""
 from dataclasses import replace
 from datetime import date, timedelta
 from decimal import Decimal as D

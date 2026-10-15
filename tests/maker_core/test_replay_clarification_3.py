@@ -1,4 +1,8 @@
-"""Clarification 3: reported-only quote presence, economic MDE, screen label and the v3 binding."""
+"""Clarification 3: reported-only quote presence, economic MDE, screen label and the v3 binding.
+
+Guards: maker replay clarification 3 (docs/research/maker-replay-clarification-3-2026-10-01.md;
+  docs/operations/maker-replay-bundle.md, Clarified execution pack).
+"""
 from copy import deepcopy
 from datetime import datetime, timezone
 from decimal import Decimal as D

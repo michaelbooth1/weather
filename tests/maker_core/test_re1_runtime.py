@@ -1,4 +1,7 @@
-"""Source-derived boundary tests, entirely offline and with explicit clocks."""
+"""Source-derived boundary tests, entirely offline and with explicit clocks.
+
+Guards: blind_re1 RE-1 runtime boundaries with explicit clocks (docs/operations/maker-core-contracts.md, informed_v0 and RE-1 policies).
+"""
 from dataclasses import replace
 from datetime import timedelta
 from decimal import Decimal as D

@@ -1,4 +1,8 @@
-"""Guard failures never print values or silently scrub a source into a pass."""
+"""Guard failures never print values or silently scrub a source into a pass.
+
+Guards: RE-1 session export secret guard: no value printed, no silent scrub
+  (docs/operations/maker-core-contracts.md, SecretGuard and journal).
+"""
 from copy import deepcopy
 from pathlib import Path
 import pytest

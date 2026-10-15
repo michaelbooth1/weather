@@ -1,3 +1,8 @@
+"""Maker replay pull-efficiency metric on fictional scenarios.
+
+Guards: replay pull-efficiency ratio intervals (docs/research/maker-replay-execution-addendum-2026-09-27.md;
+  docs/operations/maker-replay-bundle.md, Clarified execution pack).
+"""
 from dataclasses import replace
 from datetime import timedelta
 from decimal import Decimal as D

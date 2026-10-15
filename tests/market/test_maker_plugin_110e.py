@@ -1,4 +1,7 @@
-"""Real weather-provider output through the offline core proposal kernel."""
+"""Real weather-provider output through the offline core proposal kernel.
+
+Guards: weather fair value through the core proposal kernel (docs/operations/maker-core-contracts.md, Weather adapter inputs).
+"""
 from decimal import Decimal as D
 
 from maker_core.contracts import OutcomeView
