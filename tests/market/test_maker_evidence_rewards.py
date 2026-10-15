@@ -2,7 +2,8 @@
 
 Guards: docs/operations/DATA_LAYER_V2_PLAN.md S2+S9 (REST <=0.4 req/s; rewards change-trigger;
 VR-4 sweep stored change-only; 1 s grouped fsync) and DATA_LAYER_V2_CONTRACT.md "Recorder-only
-rows" (sweep isolation, kill switch); docs/operations/passive-maker-evidence-capture.md.
+rows" (sweep isolation, kill switch); docs/operations/passive-maker-evidence-capture.md; the 88a
+hold to UTC 10-30 (a journal sync never creates or rewrites a file).
 """
 from datetime import datetime, timezone
 import json
@@ -222,6 +223,18 @@ def test_three_consecutive_failed_sync_passes_latch_the_writer(tmp_path, monkeyp
     with pytest.raises(JournalSyncFailure):
         store.sync()
     assert store.failure == "journal fsync failed"
+
+
+def test_a_sync_never_creates_or_changes_a_journal(tmp_path):
+    """88a hold (add files only): syncing a journal that is gone fails the pass; nothing is created."""
+    store = EvidenceStore(tmp_path, clock=lambda: NOW, group_fsync=True)
+    store.event("note", {"n": 1})
+    (journal,) = store.dirty
+    before = journal.read_bytes(), journal.stat().st_mtime_ns
+    assert store.sync() and (journal.read_bytes(), journal.stat().st_mtime_ns) == before
+    gone = store.folder / "held-elsewhere.jsonl"
+    store.dirty.add(gone)
+    assert store.sync() is False and not gone.exists()
 
 
 def test_family_store_default_keeps_per_record_fsync(tmp_path, monkeypatch):

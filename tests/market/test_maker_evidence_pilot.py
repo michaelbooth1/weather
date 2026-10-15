@@ -5,7 +5,11 @@ built-in ids and per-city selection cannot change under any config state; P1 row
 default config path, reloaded per cycle, config_sha256 stamped) and DATA_LAYER_V2_CONTRACT.md
 "Recorder-only rows"; owner Q16 (2026-10-15): pilot bands are outside the 10-01 maker-P&L
 pre-registration's 12-market stratum, so no pilot row may reach a built-in journal or panel input.
+Also the 88a data hold to UTC 10-30 (DATA_LAYER_V2_PLAN.md VR-1, S2+S9; master 10-15): the pilot and
+sweep land off, built-in bands keep the pre-S9 every-minute reward read until 2026-10-31T00:00Z
+whatever the config says, and a pilot cycle or pilot trade-socket failure never stops the built-ins.
 """
+from argparse import Namespace
 from datetime import datetime, timezone
 import json
 
@@ -13,7 +17,7 @@ import pytest
 
 from weather.market import maker_evidence_capture as capture
 from weather.market.maker_evidence_pilot import (
-    BLOCK, MAX_ROWS, PILOT_PARTITION, STRATUM, load_recorder_only,
+    BLOCK, BUILT_IN_LEGACY_UNTIL, MAX_ROWS, PILOT_PARTITION, STRATUM, built_ins_event_driven, load_recorder_only,
 )
 from weather.market.maker_evidence_rewards import RewardSweep, RewardTrigger
 from weather.market.maker_evidence_store import EvidenceStore, digest, encoded
@@ -44,11 +48,12 @@ class Reader:
 
     def __init__(self, store, *, fail_pilot=False):
         self.store, self.fail_pilot = store, fail_pilot
-        self.calls, self.token_market = [], {}
+        self.calls, self.keys, self.token_market = [], [], {}
 
     def read(self, url, *, params=None, body=None, kind="discovery", change_key=None, partition=None,
              projection=None):
         self.calls.append((kind, partition))
+        self.keys.append((kind, partition, change_key))
         if self.fail_pilot and partition == PILOT_PARTITION:
             raise TimeoutError("public reply exceeded wall deadline")
         if url.endswith("/events"):
@@ -93,9 +98,13 @@ def core_selection(store):
             for row in rows], shortages, missing
 
 
+def pilot_on(**changes):
+    return {"pilot": "on", "rewards_sweep": "on", "rows": shipped_rows(), **changes}
+
+
 def test_shipped_block_is_the_p1_pilot_and_agrees_with_the_location_registry():
     config = load_recorder_only(CONFIG)
-    assert [m.id for m in config.markets] == P1 and config.sweep_enabled
+    assert [m.id for m in config.markets] == P1
     assert config.config_sha256 == digest(CONFIG.read_bytes())
     locations = {row["id"]: row for row in json.loads(config_path("locations.json").read_text(encoding="utf-8"))["locations"]}
     for m in config.markets:
@@ -105,9 +114,70 @@ def test_shipped_block_is_the_p1_pilot_and_agrees_with_the_location_registry():
     assert not {m.id for m in config.markets} & {spec.id for spec in all_specs()}
 
 
-def test_absent_block_means_no_pilot_and_the_sweep_on(tmp_path):
+def test_absent_block_means_no_pilot_no_sweep_and_legacy_built_ins(tmp_path):
     config = load_recorder_only(write_config(tmp_path, None))
-    assert config.markets == () and config.sweep_enabled
+    assert config.markets == () and not config.sweep_enabled and config.built_in_reward_cadence == "legacy"
+
+
+def test_landing_config_is_inert_and_switching_on_is_config_only(tmp_path):
+    """Master 10-15 (Q3): land disabled. Rows are validated but none is captured; no sweep; legacy built-ins."""
+    shipped = load_recorder_only(CONFIG)
+    assert (shipped.pilot, shipped.rewards_sweep, shipped.built_in_reward_cadence) == ("off", "off", "legacy")
+    assert shipped.active_markets == () and not shipped.sweep_enabled
+    on = load_recorder_only(write_config(tmp_path, pilot_on()))
+    assert [m.id for m in on.active_markets] == P1 and on.sweep_enabled
+    for key, value in (("pilot", "maybe"), ("built_in_reward_cadence", "hourly")):
+        with pytest.raises(ValueError, match=key):
+            load_recorder_only(write_config(tmp_path, pilot_on(**{key: value})))
+
+
+def test_built_ins_stay_on_the_legacy_reward_cadence_until_the_hold_ends(tmp_path):
+    flipped = load_recorder_only(write_config(tmp_path, pilot_on(built_in_reward_cadence="event_driven")))
+    before = datetime(2026, 10, 30, 23, 59, 59, tzinfo=timezone.utc)
+    assert BUILT_IN_LEGACY_UNTIL == datetime(2026, 10, 31, tzinfo=timezone.utc)
+    assert not built_ins_event_driven(flipped, before)
+    assert built_ins_event_driven(flipped, BUILT_IN_LEGACY_UNTIL)
+    assert built_ins_event_driven(flipped, before, dry_run=True)  # Scratch roots only.
+    for config in (load_recorder_only(CONFIG), None):
+        assert not built_ins_event_driven(config, BUILT_IN_LEGACY_UNTIL)
+    reader = Reader(EvidenceStore(tmp_path / "root", clock=lambda: NOW))
+    hook, event_driven = capture.built_in_reward_hook(flipped, RewardTrigger(reader), RewardSweep(reader), True, before)
+    assert hook is capture.read_every_cycle and not event_driven
+
+
+# The pre-S9 universe row and event, in key order (maker_evidence_capture.py at 658592038).
+PRE_S9_ROW_KEYS = ["condition_id", "city", "day_ahead", "event_slug", "tokens", "modelled_reward_20",
+                   "clob_reward_content_sha256", "ranking_terms"]
+PRE_S9_EVENT_KEYS = ["city", "bands", "shortages", "missing_events", "candidate_count", "ranking"]
+
+
+def test_legacy_built_in_reward_reads_keep_the_pre_s9_cadence_and_record_shape(tmp_path):
+    """Under the shipped config every selected built-in band's record is read every cycle, as before S9."""
+    store = EvidenceStore(tmp_path / "root", clock=lambda: NOW)
+    reader = Reader(store)
+    sweep, trigger = RewardSweep(reader), RewardTrigger(reader)
+    config = load_recorder_only(CONFIG)
+    events = []
+    original = store.event
+
+    def spy(kind, payload, **kwargs):
+        events.append((kind, payload))
+        return original(kind, payload, **kwargs)
+
+    store.event = spy
+    for cycle in range(3):
+        trigger.begin_cycle()
+        hook, event_driven = capture.built_in_reward_hook(config, trigger, sweep, config.sweep_enabled, NOW)
+        assert not event_driven
+        start = len(reader.keys)
+        rows, _, _ = capture.build_universe(reader, all_specs(), now=NOW, rewards=hook)
+        reward_keys = [key for kind, _, key in reader.keys[start:] if kind == "rewards"]
+        assert reward_keys == [f"reward:{row['condition_id']}:first" for row in rows], cycle
+        assert len(rows) == 120 and all(list(row) == PRE_S9_ROW_KEYS for row in rows)
+    universe = [payload for kind, payload in events if kind == "universe"]
+    assert universe and all(list(payload) == PRE_S9_EVENT_KEYS for payload in universe)
+    assert not any(name.startswith(("rewards_current", "rewards_sweep")) for name in store.files)
+    assert {kind for kind, _ in reader.calls} == {"discovery", "ranking_books", "rewards"}
 
 
 def row(**changes):
@@ -146,8 +216,8 @@ def test_built_in_selection_is_identical_with_and_without_the_pilot(tmp_path):
     baseline = core_selection(alone)
     assert {city for city, *_ in baseline[0]} == {spec.id for spec in all_specs()}
     assert all(sum(r[0] == spec.id for r in baseline[0]) == 10 for spec in all_specs())
-    for state, block in [("pilot", {"rewards_sweep": "on", "rows": shipped_rows()}),
-                         ("sweep_off", {"rewards_sweep": "off", "rows": shipped_rows()}),
+    for state, block in [("pilot", pilot_on()), ("sweep_off", pilot_on(rewards_sweep="off")),
+                         ("event_driven", pilot_on(built_in_reward_cadence="event_driven")),
                          ("malformed", {"rewards_sweep": "on", "rows": [row(id="nyc")]}), ("absent", None)]:
         store = EvidenceStore(tmp_path / state, clock=lambda: NOW)
         pilot_state = {"state": "OFF", "cycles": 0, "failed_cycles": 0}
@@ -171,7 +241,7 @@ def test_pilot_lane_journals_only_in_pilot_partitions_and_stamps_its_stratum(tmp
     reader = Reader(store)
     trigger = RewardTrigger(reader)
     trigger.begin_cycle()
-    config = load_recorder_only(CONFIG)
+    config = load_recorder_only(write_config(tmp_path, pilot_on()))
     trades = PublicStream(store, trades_only=True, partition=PILOT_PARTITION)
     pilot_state = {"state": "OFF", "cycles": 0, "failed_cycles": 0}
     universe = capture.capture_recorder_only(reader, store, config, trigger, RewardSweep(reader), True, trades, pilot_state)
@@ -199,7 +269,8 @@ def test_pilot_failure_never_fails_or_changes_the_built_in_cycle(tmp_path):
     trigger = RewardTrigger(reader)
     trigger.begin_cycle()
     pilot_state = {"state": "OFF", "cycles": 0, "failed_cycles": 0}
-    universe = capture.capture_recorder_only(reader, store, load_recorder_only(CONFIG), trigger, RewardSweep(reader),
+    universe = capture.capture_recorder_only(reader, store, load_recorder_only(write_config(tmp_path, pilot_on())),
+                                             trigger, RewardSweep(reader),
                                              True, PublicStream(store, trades_only=True, partition=PILOT_PARTITION),
                                              pilot_state)
     assert universe == [] and pilot_state["state"] == "DEGRADED" and pilot_state["failed_cycles"] == 1
@@ -214,6 +285,7 @@ def test_config_errors_are_journaled_once_per_distinct_error(tmp_path):
         assert capture.load_recorder_only_safely(store, pilot_state, path=bad) is None
     assert store.files["recorder_only_config_error.jsonl"]["records"] == 1
     good = capture.load_recorder_only_safely(store, pilot_state, path=CONFIG)
+    assert pilot_state["markets"] == []  # Shipped rows are validated but off.
     assert good is not None and pilot_state["config_sha256"] == good.config_sha256
 
 
@@ -222,3 +294,99 @@ def test_only_a_trade_channel_takes_a_partition(tmp_path):
     with pytest.raises(ValueError, match="trade channel"):
         PublicStream(store, partition=PILOT_PARTITION)
     assert PublicStream(store, trades_only=True).channel == "trades"
+
+
+class FakeTime:
+    def __init__(self):
+        self.now = 0.
+
+    def monotonic(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.now += max(seconds, 0.)
+
+    @property
+    def cycle(self):
+        return int(self.now // 60)
+
+
+class LoopReader(Reader):
+    """The fake public reader inside capture(): pilot reads fail in cycle 1."""
+
+    def __init__(self, store, clock):
+        super().__init__(store)
+        self.clock, self.deadline, self.by_cycle = clock, 0., []
+
+    def read(self, url, **kwargs):
+        self.by_cycle.append((self.clock.cycle, kwargs.get("kind"), kwargs.get("partition")))
+        if kwargs.get("partition") == PILOT_PARTITION and self.clock.cycle == 1:
+            raise TimeoutError("injected pilot cycle failure")
+        return super().read(url, **kwargs)
+
+    def metrics(self):
+        return {"requests": len(self.by_cycle)}
+
+    def close(self):
+        pass
+
+
+class LoopStream:
+    """The fake websocket: the pilot trade socket fails (closed by the venue) in cycle 2."""
+
+    def __init__(self, clock, store, *, trades_only=False, partition=None):
+        self.clock, self.partition, self.trades_only = clock, partition, trades_only
+        self.channel = f"{partition}_trades" if partition else ("trades" if trades_only else "market")
+        self.replaced, self.closed = [], False
+
+    def replace(self, tokens):
+        if self.partition and self.clock.cycle == 2:
+            self.closed = True
+            raise ConnectionError("injected pilot trade socket close code=1006")
+        self.replaced.append((self.clock.cycle, len(tokens)))
+
+    def replace_window(self, tokens, end):
+        pass
+
+    def stop(self):
+        pass
+
+    def metrics(self):
+        return {"channel": self.channel, "connected": not self.closed}
+
+
+def test_pilot_cycle_and_trade_socket_failures_never_stop_the_built_in_loop(tmp_path, monkeypatch):
+    """Master 10-15 (Q1): same process accepted; the pilot's failures stay the pilot's."""
+    clock, streams, readers = FakeTime(), [], []
+
+    def make_reader(store, timeout):
+        readers.append(LoopReader(store, clock))
+        return readers[-1]
+
+    def make_stream(store, **kwargs):
+        streams.append(LoopStream(clock, store, **kwargs))
+        return streams[-1]
+
+    monkeypatch.setattr(capture, "time", clock)
+    monkeypatch.setattr(capture, "lowest_priority", lambda: None)
+    monkeypatch.setattr(capture, "disk_band", lambda free: "green")
+    monkeypatch.setattr(capture, "RECORDER_ONLY_CONFIG", write_config(tmp_path, pilot_on()))
+    monkeypatch.setattr(capture, "PublicReader", make_reader)
+    monkeypatch.setattr(capture, "PublicStream", make_stream)
+    root = tmp_path / "evidence"
+    args = Namespace(root=root, extra_conditions=None, family=None, duration_seconds=200, dry_run=False,
+                     stream_cap_bytes=capture.DEFAULT_STREAM_CAP, request_timeout_seconds=5., recorder_only_config=None)
+    capture.capture(args)
+    status = json.loads((root / "status.json").read_text(encoding="utf-8"))
+    assert (status["state"], status["cycles"], status["failed_cycles"]) == ("COMPLETED", 3, 0)
+    pilot = status["recorder_only"]
+    assert pilot["state"] == "DEGRADED" and (pilot["cycles"], pilot["failed_cycles"]) == (1, 2)
+    assert "ConnectionError" in pilot["last_error"]
+    assert status["rewards"]["built_in_cadence"] == "legacy"
+    calls = readers[0].by_cycle
+    for cycle in range(3):  # Built-in discovery, ranking, rewards and books were read every cycle.
+        assert {kind for c, kind, partition in calls if c == cycle and partition is None} >= {
+            "discovery", "ranking_books", "rewards", "books"}, cycle
+    core_trades = next(s for s in streams if s.trades_only and s.partition is None)
+    assert core_trades.replaced == [(0, 240), (1, 240), (2, 240)]
+    assert next(s for s in streams if s.partition).closed

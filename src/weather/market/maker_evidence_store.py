@@ -323,8 +323,13 @@ class EvidenceStore:
         pending = sorted(self.dirty)
         try:
             for path in pending:
-                with path.open("ab") as handle:  # Any write handle flushes the file's buffers.
-                    os.fsync(handle.fileno())
+                # Any write handle flushes the file's buffers. No O_CREAT: a sync never creates,
+                # truncates or writes a journal (the 88a hold: add files only, held segments untouched).
+                handle = os.open(path, os.O_WRONLY | os.O_APPEND | getattr(os, "O_BINARY", 0))
+                try:
+                    os.fsync(handle)
+                finally:
+                    os.close(handle)
                 self.fsync_calls += 1
                 self.dirty.discard(path)
         except OSError as exc:

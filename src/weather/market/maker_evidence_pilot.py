@@ -16,12 +16,17 @@ Contract (docs/operations/DATA_LAYER_V2_CONTRACT.md "Recorder-only rows"):
   channel; the built-in journals (``books``, ``ranking_books``, ``trades``,
   ``universe-<city>``) never receive a pilot row.
 * A malformed block switches the pilot off for that cycle; it never stops built-in capture.
+* Landing defaults are inert: ``pilot`` and ``rewards_sweep`` are ``off`` and
+  ``built_in_reward_cadence`` is ``legacy`` (owner 10-15 via master: the 88a desk-study panel
+  holds to UTC 10-30, so built-in bands keep the every-minute reward read until
+  ``BUILT_IN_LEGACY_UNTIL`` whatever the config says). Switching on is a config-only change.
 
 This module never imports the capture entry point.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import re
@@ -43,6 +48,12 @@ BAND_POLICIES = ("top10_reward_ranked",)
 HORIZONS = (0, 1, 2)
 ROW_FIELDS = {"id", "location_id", "series", "slug_prefix", "tz", "horizons", "band_policy"}
 SWEEP_STATES = ("on", "off")
+PILOT_STATES = ("on", "off")
+# Built-in reward-read cadence. ``legacy`` is the pre-S9 every-minute read of each selected
+# band's record; ``event_driven`` is the S9 trigger. Before the panel hold ends the built-ins
+# stay legacy even when the config says otherwise (dry runs excepted: their root is scratch).
+CADENCES = ("legacy", "event_driven")
+BUILT_IN_LEGACY_UNTIL = datetime(2026, 10, 31, tzinfo=timezone.utc)
 
 
 @dataclass(frozen=True)
@@ -63,10 +74,27 @@ class RecorderOnlyConfig:
     markets: tuple
     rewards_sweep: str
     config_sha256: str
+    pilot: str = "off"
+    built_in_reward_cadence: str = "legacy"
 
     @property
     def sweep_enabled(self):
         return self.rewards_sweep == "on"
+
+    @property
+    def pilot_enabled(self):
+        return self.pilot == "on"
+
+    @property
+    def active_markets(self):
+        """The rows captured this cycle: none while the pilot switch is off."""
+        return self.markets if self.pilot_enabled else ()
+
+
+def built_ins_event_driven(config, now, *, dry_run=False):
+    """True only when the config asks for it and the panel hold has ended (or a scratch dry run)."""
+    return (config is not None and config.built_in_reward_cadence == "event_driven"
+            and (dry_run or now >= BUILT_IN_LEGACY_UNTIL))
 
 
 def _family_prefixes(payload):
@@ -77,7 +105,7 @@ def _family_prefixes(payload):
 
 
 def load_recorder_only(path=FAMILY_CONFIG, *, specs=None):
-    """Parse and validate the block; an absent block means no pilot and the sweep on."""
+    """Parse and validate the block; an absent block means no pilot, no sweep, legacy built-ins."""
     raw = Path(path).read_bytes()
     if len(raw) > 65536:
         raise ValueError("capture family config exceeds byte limit")
@@ -87,12 +115,18 @@ def load_recorder_only(path=FAMILY_CONFIG, *, specs=None):
     sha = digest(raw)
     block = payload.get(BLOCK)
     if block is None:
-        return RecorderOnlyConfig(markets=(), rewards_sweep="on", config_sha256=sha)
+        return RecorderOnlyConfig(markets=(), rewards_sweep="off", config_sha256=sha)
     if not isinstance(block, dict):
         raise ValueError("core_recorder_only must be an object")
-    sweep = block.get("rewards_sweep", "on")
+    sweep = block.get("rewards_sweep", "off")
     if sweep not in SWEEP_STATES:
         raise ValueError("rewards_sweep must be 'on' or 'off'")
+    pilot = block.get("pilot", "off")
+    if pilot not in PILOT_STATES:
+        raise ValueError("pilot must be 'on' or 'off'")
+    cadence = block.get("built_in_reward_cadence", "legacy")
+    if cadence not in CADENCES:
+        raise ValueError("built_in_reward_cadence must be 'legacy' or 'event_driven'")
     rows = block.get("rows", [])
     if not isinstance(rows, list) or len(rows) > MAX_ROWS:
         raise ValueError(f"core_recorder_only rows must be a list of at most {MAX_ROWS}")
@@ -127,7 +161,8 @@ def load_recorder_only(path=FAMILY_CONFIG, *, specs=None):
         prefixes.add(prefix)
         markets.append(RecorderOnlyMarket(id=row_id, location_id=str(location), series=series, slug_prefix=prefix,
                                           tz=zone, horizons=HORIZONS, band_policy=row["band_policy"]))
-    return RecorderOnlyConfig(markets=tuple(markets), rewards_sweep=sweep, config_sha256=sha)
+    return RecorderOnlyConfig(markets=tuple(markets), rewards_sweep=sweep, config_sha256=sha, pilot=pilot,
+                              built_in_reward_cadence=cadence)
 
 
 def pilot_slug(market, target_date):

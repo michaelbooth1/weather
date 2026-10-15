@@ -7,7 +7,9 @@ Data layer v2 S2+S9: per-condition reward records are read on change
 (``weather.market.maker_evidence_rewards``), journals fsync in one-second groups,
 and the recorder-only rows of ``config/capture_families.json``
 (``weather.market.maker_evidence_pilot``) are captured in their own ``pilot``
-partitions after the built-ins, which stay on ``all_specs()``.
+partitions after the built-ins, which stay on ``all_specs()``. Built-in bands keep the
+pre-S9 every-minute reward read (``read_every_cycle``) unless the config selects
+``event_driven`` and the 88a panel hold has ended (UTC 2026-10-31); pilot and sweep land off.
 """
 from __future__ import annotations
 
@@ -39,7 +41,8 @@ from weather.market.maker_evidence_store import (
 from weather.market.maker_evidence_archive import compress_closed_segments
 from weather.market.maker_evidence_family import family_universe, load_family
 from weather.market.maker_evidence_pilot import (
-    FAMILY_CONFIG, PILOT_PARTITION, STRATUM, load_recorder_only, pilot_slug, universe_partition,
+    FAMILY_CONFIG, PILOT_PARTITION, STRATUM, built_ins_event_driven, load_recorder_only, pilot_slug,
+    universe_partition,
 )
 from weather.market.maker_evidence_rewards import RewardSweep, RewardTrigger
 from weather.market.maker_evidence_stream import PublicStream
@@ -259,10 +262,19 @@ def load_recorder_only_safely(store, pilot_state, path=None):
     if pilot_state.get("config_sha256") != config.config_sha256:
         store.event("recorder_only_config", {"config_sha256": config.config_sha256,
                                              "markets": [market.id for market in config.markets],
-                                             "rewards_sweep": config.rewards_sweep})
+                                             "pilot": config.pilot, "rewards_sweep": config.rewards_sweep,
+                                             "built_in_reward_cadence": config.built_in_reward_cadence})
     pilot_state.update(config_sha256=config.config_sha256, config_error=None,
-                       markets=[market.id for market in config.markets], rewards_sweep=config.rewards_sweep)
+                       markets=[market.id for market in config.active_markets], pilot=config.pilot,
+                       rewards_sweep=config.rewards_sweep)
     return config
+
+
+def built_in_reward_hook(config, trigger, sweep, sweep_enabled, now, *, dry_run=False):
+    """Legacy every-minute reads for built-ins unless event-driven is configured and allowed."""
+    if built_ins_event_driven(config, now, dry_run=dry_run):
+        return lane_rewards(trigger, sweep, sweep_enabled, None), True
+    return read_every_cycle, False
 
 
 def capture_recorder_only(reader, store, config, trigger, sweep, sweep_enabled, trades, pilot_state):
@@ -271,7 +283,7 @@ def capture_recorder_only(reader, store, config, trigger, sweep, sweep_enabled, 
     Pilot tokens never join the raw update stream (extras only), so the daily stream cap is
     not diluted. Errors are the pilot's own: counted, journaled, and the built-ins continue.
     """
-    if config is None or not config.markets:
+    if config is None or not config.active_markets:
         trades.stop()
         if config is not None:
             pilot_state.update(state="OFF", universe_size=0)
@@ -356,7 +368,8 @@ def capture(args):
         pilot_trades = PublicStream(store, trades_only=True, partition=PILOT_PARTITION)
         sweep, trigger = RewardSweep(reader), RewardTrigger(reader)
         pilot_state = {"state": "OFF", "stratum": STRATUM, "cycles": 0, "failed_cycles": 0, "markets": [], "universe_size": 0}
-        sweep_switch = {"enabled": True}
+        sweep_switch = {"enabled": False, "built_in_cadence": "legacy"}
+        recorder_only_path = getattr(args, "recorder_only_config", None)
         start = time.monotonic()
         deadline = start + args.duration_seconds if args.duration_seconds else float("inf")
         state = {"schema_version": SCHEMA, "started_at_utc": utc_now().isoformat(),
@@ -402,8 +415,9 @@ def capture(args):
                          raw_working_warn_fraction=LATCH_WARN_FRACTION, storage=store.sync_metrics())
             if family is None:
                 state.update(pilot_trades=pilot_trades.metrics(), recorder_only=dict(pilot_state),
-                             rewards={"sweep_enabled": sweep_switch["enabled"], "sweep": sweep.metrics(),
-                                      "trigger": trigger.metrics()})
+                             rewards={"sweep_enabled": sweep_switch["enabled"],
+                                      "built_in_cadence": sweep_switch["built_in_cadence"],
+                                      "sweep": sweep.metrics(), "trigger": trigger.metrics()})
             atomic_json(root / "status.json", state)
         specs = all_specs()
         status()
@@ -460,8 +474,8 @@ def capture(args):
                 if family is None:
                     trigger.begin_cycle()
                     try:
-                        recorder_only = load_recorder_only_safely(store, pilot_state)
-                        sweep_switch["enabled"] = recorder_only.sweep_enabled if recorder_only else True
+                        recorder_only = load_recorder_only_safely(store, pilot_state, path=recorder_only_path)
+                        sweep_switch["enabled"] = bool(recorder_only and recorder_only.sweep_enabled)
                         if sweep_switch["enabled"]:
                             sweep.step()  # Isolated: a sweep failure is journaled and never fails the cycle.
                     except Exception as exc:  # Only a latched store limit reaches here.
@@ -471,10 +485,13 @@ def capture(args):
                         universe, shortages, missing = family_universe(reader, family, now=utc_now(),
                                                                        reward_state=reward_state, discover=discover_events)
                     else:
+                        built_in_rewards, event_driven = built_in_reward_hook(
+                            recorder_only, trigger, sweep, sweep_switch["enabled"], utc_now(), dry_run=args.dry_run)
+                        sweep_switch["built_in_cadence"] = "event_driven" if event_driven else "legacy"
                         universe, shortages, missing = build_universe(
-                            reader, specs, now=utc_now(), extras_path=args.extra_conditions,
-                            rewards=lane_rewards(trigger, sweep, sweep_switch["enabled"], None))
-                        retain_sweep_rows(store, sweep, sweep_switch["enabled"], universe, None)
+                            reader, specs, now=utc_now(), extras_path=args.extra_conditions, rewards=built_in_rewards)
+                        if event_driven:
+                            retain_sweep_rows(store, sweep, sweep_switch["enabled"], universe, None)
                     tokens = [token for row in universe for token in row["tokens"]]
                     # Re-read both sides together after ranking, preserving minute snapshot identity.
                     books = get_books(reader, tokens, kind="books")
@@ -552,7 +569,10 @@ def build_parser():
     parser.add_argument("--extra-conditions", type=Path)
     parser.add_argument("--family", help="capture a config/capture_families.json family in its own root")
     parser.add_argument("--duration-seconds", type=int, default=0, help="0 runs until stopped; dry run requires 1800")
-    parser.add_argument("--dry-run", action="store_true", help="30-minute public capture in a NEW scratch root, before 19:45 ET")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="30-90 minute public capture in a NEW scratch root, before 19:45 ET")
+    parser.add_argument("--recorder-only-config", type=Path,
+                        help="dry run only: a capture_families.json copy to read instead of the default path")
     parser.add_argument("--stream-cap-bytes", type=int, default=DEFAULT_STREAM_CAP)
     parser.add_argument("--request-timeout-seconds", type=float, default=5.)
     return parser
@@ -561,8 +581,10 @@ def build_parser():
 def main(argv=None):
     parser = build_parser()
     args = parser.parse_args(argv)
-    if args.duration_seconds < 0 or (args.dry_run and args.duration_seconds != 1800):
-        parser.error("dry run requires exactly 1800 seconds; duration cannot be negative")
+    if args.duration_seconds < 0 or (args.dry_run and not 1800 <= args.duration_seconds <= 5400):
+        parser.error("dry run requires 1800-5400 seconds; duration cannot be negative")
+    if args.recorder_only_config and not args.dry_run:
+        parser.error("--recorder-only-config is for dry runs; production reads the default path only")
     if not 0 < args.stream_cap_bytes <= 3_000_000_000 or not 0 < args.request_timeout_seconds <= 10:
         parser.error("invalid stream cap or request timeout")
     if args.family and args.extra_conditions:

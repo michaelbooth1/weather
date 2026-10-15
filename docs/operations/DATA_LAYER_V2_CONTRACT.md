@@ -95,9 +95,15 @@ and its whole-file SHA-256 is stamped as `config_sha256` on every pilot universe
   (`recorder_only.state = CONFIG_ERROR`, one `recorder_only_config_error` event per distinct
   error); a failed pilot cycle is `DEGRADED` with its own counters. Neither fails nor changes
   a built-in cycle. A red disk band switches the pilot off.
-- **Kill switch.** `rewards_sweep: "off"` stops the VR-4 sweep; per-condition reward
-  records then fall back to the 15-minute recheck. An absent block means no pilot and the
-  sweep on.
+- **Switches, all config-only and landed off.** `pilot` (`on`/`off`, default `off`):
+  rows are validated either way, captured only when `on`. `rewards_sweep` (`on`/`off`,
+  default `off`): the VR-4 sweep; off, per-condition reward records fall back to the
+  15-minute recheck. `built_in_reward_cadence` (`legacy`/`event_driven`, default `legacy`):
+  built-in bands keep the pre-S9 every-minute reward read; `event_driven` takes effect only
+  from `BUILT_IN_LEGACY_UNTIL` (UTC 2026-10-31T00:00Z, the end of the 88a panel hold) and is
+  ignored before it (a scratch dry run excepted). An absent or malformed block means no
+  pilot, no sweep and legacy built-ins. Switching on after verification is a config edit:
+  no restart, the block is re-read every cycle.
 
 ## Embargo
 

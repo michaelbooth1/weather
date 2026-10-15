@@ -29,7 +29,8 @@ Select ten per city, reserving its best three per day-ahead first and filling
 the remaining slot by score (condition ID breaks ties). If fewer than three
 exist in a day, record the shortage; never fabricate coverage. Capture both
 tokens together. The full `/rewards/markets/<condition>` record of a selected
-condition is retained on change (data layer v2 S9, below), separately from Gamma's
+condition is read every cycle for built-ins through the 88a hold and on change otherwise
+(data layer v2 S9, below), separately from Gamma's
 ranking terms so discrepancies are visible. Exact repeated pagination rows
 are dropped and logged; conflicting rows or repeated cursors refuse the cycle.
 
@@ -96,7 +97,15 @@ failures; a session that stayed connected for 60 s resets it to the base.
 
 Selection never used the per-condition CLOB reward reply (ranking uses Gamma's
 terms), yet reading it for every selected band each minute was about 83% of the
-recorder's public REST. `weather.market.maker_evidence_rewards` replaces that read:
+recorder's public REST. `weather.market.maker_evidence_rewards` replaces that read for
+pilot bands now and for built-in bands only after the 88a panel hold:
+
+- **Built-ins stay legacy through the hold.** Built-in bands keep the pre-S9
+  every-minute read of every selected band's record (`read_every_cycle`; same request
+  order, change keys and universe row shape) unless `built_in_reward_cadence` is
+  `event_driven` **and** the time is at or after UTC 2026-10-31T00:00Z
+  (`BUILT_IN_LEGACY_UNTIL`). Before that the setting is ignored, except in a scratch dry
+  run. `status.json` `rewards.built_in_cadence` says which cadence ran.
 
 - **Sweep (VR-4).** One paged pass over `/rewards/markets/current` (GET, allowlisted,
   `next_cursor` until `LTE=`, `-1` or empty) at most every 15 minutes, a few pages per
@@ -111,7 +120,8 @@ recorder's public REST. `weather.market.maker_evidence_rewards` replaces that re
   ordered by lane (built-ins first), reason, then age. Universe rows carry
   `clob_reward_content_sha256`, `clob_reward_age_seconds` and `clob_reward_reason`.
 - **Kill switch.** `core_recorder_only.rewards_sweep` in `config/capture_families.json`
-  is `on` or `off`, reloaded each cycle; off falls back to the stale-recheck cadence.
+  is `on` or `off` (lands `off`), reloaded each cycle; off falls back to the
+  stale-recheck cadence.
 
 The core recorder's REST budget, `REQUEST_BUDGET_PER_HOUR` (0.4 req/s, the plan's
 acceptance bound), is the registry's `request_budget`.
@@ -126,6 +136,18 @@ locations or slug prefixes, family prefixes, duplicates and unknown fields; a ba
 is journaled once (`recorder_only_config_error`) and the pilot stays off
 (`CONFIG_ERROR`) while the built-in cycle is unchanged. The shipped P1 rows are London,
 Shanghai, Paris, Seoul and Tokyo.
+
+**It lands disabled** (`pilot: "off"`, `rewards_sweep: "off"`,
+`built_in_reward_cadence: "legacy"`): the rows are validated every cycle but nothing is
+captured, so landing changes no built-in record. Switching on after the post-landing
+verification is a config-only change landed through the roll-free path: set `pilot` and
+`rewards_sweep` to `on`; the running recorder re-reads the block on its next cycle (no
+restart). Flip `built_in_reward_cadence` to `event_driven` only after UTC 10-30; it has
+no effect before 2026-10-31T00:00Z.
+
+The pilot shares the core process (owner Q1 via master, 10-15). A failed pilot cycle or
+a failed or closed pilot trade socket is the pilot's own `DEGRADED`; the built-in cycle,
+its reads and its journals continue (tested in `capture()` itself).
 
 Owner Q16 (2026-10-15): these bands are **outside** the 10-01 maker-P&L
 pre-registration's 12-market stratum. Every pilot universe row carries
@@ -276,12 +298,17 @@ From an integrated checkout with the pinned dependencies installed:
 ```powershell
 .\venv\Scripts\python.exe -m weather.market.maker_evidence_capture --help
 .\venv\Scripts\python.exe -m weather.market.maker_evidence_capture --dry-run --duration-seconds 1800 --root C:\scratch\maker-evidence-new-run
+.\venv\Scripts\python.exe -m weather.market.maker_evidence_capture --dry-run --duration-seconds 5400 --root C:\scratch\s2s9-run --recorder-only-config C:\scratch\capture_families-pilot-on.json
 .\scripts\ops\register_maker_evidence_capture.ps1 -WhatIf
 ```
 
-The dry run requires a new scratch root, rejects an active RE-1 preflight/live
-process without opening its files, and reserves one minute for teardown before
-19:45 America/Toronto. The process guard is checked each cycle. It writes the
+The dry run (1,800-5,400 s) requires a new root with a path part named `scratch`, rejects
+an active RE-1 preflight/live process without opening its files, and reserves one minute for teardown before
+19:45 America/Toronto. The process guard is checked each cycle.
+`--recorder-only-config` (dry run only; production reads the default path) points the
+dry run at a copy of `capture_families.json`, e.g. with the pilot, the sweep and
+`event_driven` on to measure S9 before the switch-on; a dry run honours `event_driven`
+before the hold ends because its root is scratch. It writes the
 same evidence as production, using public reads only.
 
 After it stops, the bounded offline inspector verifies every manifest payload
