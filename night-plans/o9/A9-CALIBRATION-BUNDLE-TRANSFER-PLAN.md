@@ -4,6 +4,9 @@ Written 2026-10-15 on the 32 GB workstation.
 - r2 folded in master's answers on Q2, Q4-Q6 and the fence.
 - r3 used master's host stat, added `calibration_v01_reference` and answered "does 09-28 matter".
 - r4 folded in Q9, Q10 and Q11 and added the exact host block.
+- **r6 (same day):** master found by stat that `$Prod\artifacts\releases` does not exist. §7a(b2) shows from code that
+  no captured row can carry the verified-release marker in that configuration, so `$Rel` is now a fresh, empty, dated
+  folder created at registration (R0).
 - **r5 (same day) applies master's r4 decisions:**
   - O2: no bypass of the admitted exam wrapper. The 09-28 root moves outside the repository, and H4 enforces 03:15
     with an outer Job deadline.
@@ -143,6 +146,15 @@ Run as master on the capture host in Windows PowerShell 5.1, one phase at a time
 - The block holds **no lease itself**. The exam wrapper (H4) and the U6 runner (H5) each take and release the shared
   lease (wrapper :205-209 and 228-240; U :193-195).
 
+**R0. Empty release root, created once at registration on 10-20.** It is a fresh, dated folder outside `artifacts\`
+and outside every output root, as the runner requires (U :167-173). Expected output: `R0 ok`. Receipt: the folder itself.
+
+```powershell
+$Rel = 'C:\Users\micha\Desktop\github\mrv2-cal\u6-release-root-empty-20261020'
+if (Test-Path -LiteralPath $Rel) { throw "STOP: $Rel already exists; attempt paths are never reused" }
+New-Item -ItemType Directory -Path $Rel | Out-Null; 'R0 ok'
+```
+
 **H0. Constants and helpers.** Expected output: `H0 ok`. Receipt: none.
 
 ```powershell
@@ -160,7 +172,7 @@ $ErrorActionPreference = 'Continue'
   $MOD1  = 'dbb118d4c247826cc278dac468a8d5a38ab8e46d484d440f1eb7e30949089beb'; $MOD1Files = 63   # §7a(c)
   $WRAP1 = '8dd29ad3495d33c53bedfdacaaa3e6d342bb55891256a2554e20a15830fc1143'                    # §7a(c)
   $Data  = "$Prod\data"                                  # master's proposal; H1 stat-confirms it (§7a(a))
-  $Rel   = "$Prod\artifacts\releases"                    # §7a(b); OPEN O4 until master confirms
+  $Rel   = "$G\mrv2-cal\u6-release-root-empty-20261020"   # R0 creates it empty on 10-20; any verified row refuses the day (Q11)
   $MinMiB = 7168                                         # U6B:227
   $X = "$G\weather-exam-a9-$Night-6ac18be7e"; $T = "$G\weather-a9-drv-$Night"
   $C2b = "$Prod\scratch\maker-replay-exam-c2b"; $C2 = "$Prod\scratch\maker-replay-exam-c2"
@@ -215,7 +227,8 @@ Expected output: listings, then `H1 ok data-root segments <found>/<listed>`. Rec
   for ($dir = New-Object IO.DirectoryInfo $V28Exam; $null -ne $dir; $dir = $dir.Parent) {
     if (Test-Path -LiteralPath (Join-Path $dir.FullName '.git')) { throw "STOP: .git at $($dir.FullName); exam root would be refused" } }
   if (-not (Test-Path -LiteralPath $Data -PathType Container)) { throw "STOP: $Data missing" }
-  if (-not (Test-Path -LiteralPath $Rel -PathType Container)) { throw "STOP: $Rel missing (O4)" }
+  if (-not (Test-Path -LiteralPath $Rel -PathType Container)) { throw "STOP: $Rel missing (run R0 at registration)" }
+  if (@(Get-ChildItem -LiteralPath $Rel -Force).Count) { throw "STOP: $Rel is not empty" }
   New-Item -ItemType Directory -Path $A9 | Out-Null
   $side = @("$C2b\calibration-20261003T050423Z\calibration-ledger.jsonl", "$C2b\calibration-20261003T050423Z\exporter-module-sha256.txt",
             "$C2\calibration\calibration-ledger.jsonl", "$C2\exporter-module-sha256.txt")
@@ -519,7 +532,26 @@ Everything on the host is kept as evidence: `$A9`, `$X`, `$T` and the new `a9-<N
     `REFUSED` and the runner exits non-zero, which is a refusal, never a mis-record (Q11).
   - It would need copies of exactly the releases those rows name. Their ids are visible only in the captured data.
 - **The canonical location** is `artifacts\releases` (U src/weather/release_artifacts.py:49;
-  src/weather/artifacts.py:36), so `$Rel = $Prod\artifacts\releases`.
+  src/weather/artifacts.py:36). It does not exist on the host (master stat, r6), so see (b2).
+
+**(b2) Is the verified marker written in the current configuration? (r6, code and docs only; every file below is identical at M and U)**
+- **Only one writer:** `serving_bundle_lineage`, which emits `verified_variant_serving_bundle` only when the bundle status
+  is `BOUND` (M src/weather/release_serving.py:899-917). Every other status maps to an unverified value (:922-935).
+  `worker_release_binding.py:42` and the readers only compare against it.
+- **`BOUND` needs the active pointer.** `load_verified_active_serving_bundle` returns `RESEARCH_UNBOUND` ("no active
+  release pointer") when the pointer is absent (:513-521). `BOUND` is set only after the pointer and the release
+  verify (:522-585).
+- **The pointer is the default path.** It is `artifacts\releases\current_release.json` (M
+  src/weather/release_artifacts.py:49-50; M src/weather/paths.py:12). Capture callers use that default (M
+  src/weather/collection/snapshot_store.py:210-214; M src/weather/market/market_making_run.py:1218; M
+  src/weather/market/worker_release_binding.py:75, 84-108). The tracked scheduled-task contract passes the same path
+  (M scripts/ops/daily_refresh_contract.ps1:129, 140).
+- **Not tracked.** `artifacts\releases` is not a tracked directory (the M tree `artifacts/` holds calibration,
+  manifests, misc and models only), and master's stat shows no such folder on the host.
+- **Verdict:** the marker is written only when a variant serving bundle is served, and that is **never in the current
+  configuration**. Captured rows carry `research_unbound_non_countable` with an empty `release_id` (:922-935), so the
+  exporter never reads the release root (U maker_replay_release.py:55-59). **U6 can start with an empty fresh `$Rel`.**
+  A verified row, if one existed, would refuse the day (Q11).
 
 **(c) MOD1, WRAP1 and V01 for U, recomputed as P2 does.**
 - **Pin code:** U6B P2 (U6B:302-321).
@@ -669,8 +701,7 @@ tools/research/maker_replay_v2/rehearse_cli.py:1-11).
   no `.git`, and H1 proves that.
 - **O3 (resolved, pending deploy).** MOD1, WRAP1 and the U tip are in H0. The deploy tree for `67cad7be2` must exist
   (Q6 deploy), and H2b re-derives both values on the host.
-- **O4.** Confirm that `$Rel = $Prod\artifacts\releases` exists on the host and holds the releases the 09-27..29
-  captures name (§7a(b)). An empty root makes those days refuse.
+- **O4 (resolved r6).** `$Rel` is the fresh empty R0 folder (§7a(b2)). Master runs R0 at registration on 10-20.
 - **O5.** `$Data = $Prod\data` is master's proposal. H1's segment stat confirms it or stops.
 - **O6.** The landed master sha of DRV (`$DrvSha` in H0 and `$Land` in W8), after Fable. Pushed tip: `0f2944548`.
 - **O7 (dependency).** `6c3c4792b` must land before W8. W8 checks for the allowlist entry.
