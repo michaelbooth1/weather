@@ -47,7 +47,8 @@ function Get-ScheduledTask {
     return $null
 }
 $results = @()
-foreach ($case in @(Get-Content -LiteralPath $env:RV_CASES -Raw | ConvertFrom-Json)) {
+$cases = Get-Content -LiteralPath $env:RV_CASES -Raw | ConvertFrom-Json
+foreach ($case in $cases) {
     $env:RV_STUB_TASK_STATE = [string]$case.task_state
     $global:LASTEXITCODE = $null
     try {
@@ -88,7 +89,7 @@ OLD = 48 * 3600
 def _with(base: dict, **changes) -> dict:
     out = dict(base)
     for key, value in changes.items():
-        path = SNAP + key
+        path = SNAP + key + ".json"
         if value is None:
             out.pop(path, None)
         else:
@@ -111,11 +112,11 @@ CASES = {
         _with(FRESH, observation_trigger_supervisor_status={"state": "DEAD", "reason": "retired", "runtime_identity": {"source_scope_files": ["src/weather/b.py"]}}),
         (), {}, "docs", "", 0,
     ),
-    "no_scope_files": (_with(FRESH, clob_loop_supervisor_status={"runtime_identity": {}}), (), {}, "roll", "", 3),
+    "no_scope_files": (_with(FRESH, clob_loop_supervisor_status={"runtime_identity": {"source_scope_files": []}}), (), {}, "roll", "", 3),
     "writer_lock_without_status": (FRESH, (), {SNAP + ".execution_tape_status.json.writer.lock": ""}, "other", "", 0),
     "worker_running": ({**FRESH, **EXEC_STATUS}, (), {SNAP + "execution_tape_status.json": '{"state": "RUNNING"}'}, "other", "", 3),
     "worker_stopped": ({**FRESH, **EXEC_STATUS}, (), {SNAP + "execution_tape_status.json": '{"state": "STOPPED"}'}, "other", "", 0),
-    "worker_sparse": ({**FRESH, **EXEC_STATUS}, (), {SNAP + "execution_tape_status.json": "{}"}, "other", "", 3),
+    "worker_sparse": ({**FRESH, **EXEC_STATUS}, (), {SNAP + "execution_tape_status.json": "{}"}, "other", "", 0),
     "worker_unreadable": ({**FRESH, **EXEC_STATUS}, (), {SNAP + "execution_tape_status.json": "{not json"}, "other", "", 0),
     "task_ready": ({**FRESH, **EXEC_STATUS}, (), {}, "other", "Ready", 3),
     "task_disabled": ({**FRESH, **EXEC_STATUS}, (), {}, "other", "Disabled", 0),

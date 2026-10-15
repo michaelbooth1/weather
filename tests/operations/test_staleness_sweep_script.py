@@ -81,7 +81,8 @@ function Get-ScheduledTask {
     return $null
 }
 $results = @()
-foreach ($case in @(Get-Content -LiteralPath $env:SW_CASES -Raw | ConvertFrom-Json)) {
+$cases = Get-Content -LiteralPath $env:SW_CASES -Raw | ConvertFrom-Json
+foreach ($case in $cases) {
     $repo = [string]$case.repo
     $env:SW_TASK_STATE = [string]$case.task_state
     $global:findings = @()
