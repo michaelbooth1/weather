@@ -464,6 +464,9 @@ scheduled LFC session) are checked again before each Phase B and Phase C night.
 ### §T. tzdata 2026.3 on the current 3.11.0 venv (if Q13 chooses an earlier night)
 
 This is light pip work under the lease, with the workers left running.
+- **Precondition:** `$Tools\pypi_hash_lock.py` exists, copied verbatim from §6b. No step creates it (§6 makes only
+  the folder), so on a §T night that runs before Phase B, copy it in after the §6 session header and before the block
+  below (the 10-15 §T run found it missing).
 - **Not a code roll.** The source fingerprint excludes the venv (`runtime_identity.py` lines 19-28 and
   141-145), so installing tzdata cannot trigger `STALE_CODE`.
 - **Capture does read tzdata.** On Windows, `ZoneInfo("America/Toronto")` (`model_constants.py:13`,
