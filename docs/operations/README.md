@@ -43,6 +43,7 @@ citing it in a new decision.
 | [FINDINGS_DIGEST.md](FINDINGS_DIGEST.md) | *What is the short version?* — read first for model, measurement or research work; it cites the sections below worth opening. |
 | [ESTABLISHED_FINDINGS.md](ESTABLISHED_FINDINGS.md) | *What do we know?* — every measured result and interval. Read before model, measurement or research work. |
 | [RETRACTED_AND_FALSE_LEADS.md](RETRACTED_AND_FALSE_LEADS.md) | *What is false?* — withdrawn claims, and alarms that look real and are not. |
+| [EXHAUSTION_REGISTER.md](EXHAUSTION_REGISTER.md) | *What is left before a no-go?* — which conclusions survive the serving fixes, which free sources were tested, and each open lead's exit criterion. |
 | [HOW_WE_GET_THINGS_WRONG.md](HOW_WE_GET_THINGS_WRONG.md) | *What shape do our mistakes take?* — read before designing a gate or trusting a green signal. |
 | [CAMPAIGN_LEDGER.md](CAMPAIGN_LEDGER.md) | *How much α is spent, and on what?* — the binding decision ledger. Read before proposing any confirmatory look; only the operator allocates. |
 

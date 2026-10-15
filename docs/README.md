@@ -27,6 +27,7 @@ research established) · **Generated** (edit the generator) · **History**
 | Doing model, measurement, or research work; or about to claim a number | [Findings digest](operations/FINDINGS_DIGEST.md) — short, mandatory; it cites the depth below | Distillation |
 | …and need the full derivation behind a digest entry | [Established findings](operations/ESTABLISHED_FINDINGS.md) (read the cited section, not the file) | Distillation, reference depth |
 | …and need to know what was claimed and was wrong | [Retracted claims and false leads](operations/RETRACTED_AND_FALSE_LEADS.md); the recurring error *shapes* are in [How we get things wrong](operations/HOW_WE_GET_THINGS_WRONG.md) | Distillation, reference depth |
+| …and are about to call something closed, exhausted, or a no-go | [Exhaustion register](operations/EXHAUSTION_REGISTER.md) — what survives the serving fixes, the free-source inventory, and each lead's exit criterion | Canonical register |
 | Spending a statistical decision on the sealed panel | [Campaign ledger](operations/CAMPAIGN_LEDGER.md) | Canonical control |
 | Reading dated evidence or settled days for evaluation | [Reserved confirmation window](operations/reserved-confirmation-window.md) — its status line says whether anything is reserved | Canonical contract |
 | Building a leakage-free evaluation or the PIT training corpus | [Point-in-time evaluation](operations/POINT_IN_TIME_EVALUATION.md), [PIT forecast training corpus](operations/PIT_FORECAST_TRAINING_CORPUS.md) | Canonical runbook |
