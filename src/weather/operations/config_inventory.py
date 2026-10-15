@@ -78,6 +78,12 @@ CONFIG_POLICIES = {
         "freshness_policy": "review_and_merge_for_each_executor_reassignment",
         "max_age_days": None,
     },
+    "evidence_host.json": {
+        "owner": "weather.evidence.config",
+        "classification": "hand_authored_registry",
+        "freshness_policy": "review_with_evidence_family_station_cap_or_budget_changes",
+        "max_age_days": None,
+    },
     "capture_families.json": {
         "owner": "weather.market.maker_evidence_family",
         "classification": "hand_authored_registry",

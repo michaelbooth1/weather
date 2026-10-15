@@ -1,0 +1,236 @@
+{
+ "schema_version": "evidence_host_config_v1",
+ "root": "data/evidence",
+ "user_agent": "weather-market-research/1.0 (local)",
+ "host": {
+  "parent_ram_cap_mib": 64,
+  "min_available_mib": 5120,
+  "optional_pause_local": [
+   [
+    "09:30",
+    "11:55"
+   ]
+  ],
+  "max_cap_kills_per_day": 3,
+  "status_interval_seconds": 30
+ },
+ "families": {
+  "ob1_metar": {
+   "plan_family": "OB-1",
+   "module": "weather.evidence.families.ob1_metar",
+   "enabled": true,
+   "ram_cap_mib": 128,
+   "hour_byte_budget_mib": 8,
+   "request_budget_per_hour": 200,
+   "station_overrides": {
+    "HKO": "VHHH"
+   },
+   "channels": {
+    "metar_recent": {
+     "interval_seconds": 60,
+     "hours": 2,
+     "optional": false
+    },
+    "metar_sweep": {
+     "interval_seconds": 3600,
+     "hours": 36,
+     "chunk": 6,
+     "spacing_seconds": 2,
+     "optional": true
+    }
+   }
+  },
+  "ob2_nws": {
+   "plan_family": "OB-2",
+   "module": "weather.evidence.families.ob2_nws",
+   "enabled": true,
+   "ram_cap_mib": 128,
+   "hour_byte_budget_mib": 4,
+   "request_budget_per_hour": 200,
+   "country_code": "US",
+   "channels": {
+    "nws_observations": {
+     "interval_seconds": 300,
+     "limit": 3,
+     "spacing_seconds": 0.5,
+     "optional": true
+    }
+   }
+  },
+  "ob3_native": {
+   "plan_family": "OB-3",
+   "module": "weather.evidence.families.ob3_native",
+   "enabled": true,
+   "ram_cap_mib": 128,
+   "hour_byte_budget_mib": 8,
+   "request_budget_per_hour": 600,
+   "channels": {
+    "hko_maxmin": {
+     "interval_seconds": 600,
+     "stations": [
+      "HK Observatory"
+     ],
+     "optional": true
+    },
+    "hko_rhrread": {
+     "interval_seconds": 600,
+     "places": [
+      "Hong Kong Observatory"
+     ],
+     "optional": true
+    },
+    "jma_amedas": {
+     "interval_seconds": 600,
+     "station": "44166",
+     "optional": true
+    },
+    "eccc_swob": {
+     "interval_seconds": 120,
+     "stations": [
+      "CYYZ",
+      "CYTZ",
+      "CYKZ",
+      "CXTO"
+     ],
+     "max_new_files_per_poll": 12,
+     "optional": true
+    }
+   }
+  },
+  "fc1_openmeteo_meta": {
+   "plan_family": "FC-1",
+   "module": "weather.evidence.families.fc1_openmeteo_meta",
+   "enabled": true,
+   "ram_cap_mib": 128,
+   "hour_byte_budget_mib": 2,
+   "request_budget_per_hour": 30,
+   "channels": {
+    "run_meta": {
+     "interval_seconds": 1800,
+     "quiet_local": [
+      [
+       "12:00",
+       "18:00"
+      ]
+     ],
+     "daily_call_meter": 450,
+     "optional": true,
+     "models": [
+      "ecmwf_ifs025",
+      "ecmwf_aifs025_single",
+      "ncep_gfs013",
+      "ncep_gfs025",
+      "ncep_aigfs025",
+      "ncep_hrrr_conus",
+      "ncep_nbm_conus",
+      "ncep_nam_conus",
+      "cmc_gem_gdps",
+      "cmc_gem_rdps",
+      "dwd_icon"
+     ]
+    }
+   }
+  },
+  "fc4_mosmix": {
+   "plan_family": "FC-4",
+   "module": "weather.evidence.families.fc4_mosmix",
+   "enabled": true,
+   "ram_cap_mib": 128,
+   "hour_byte_budget_mib": 8,
+   "request_budget_per_hour": 120,
+   "stations": {
+    "amsterdam": "06240",
+    "ankara": "17128",
+    "atlanta": "72219",
+    "austin": "72254",
+    "beijing": "54511",
+    "buenos-aires": "87576",
+    "busan": "47153",
+    "cape-town": "68816",
+    "chengdu": "56187",
+    "chicago": "72530",
+    "chongqing": "57516",
+    "dallas": "72259",
+    "denver": "72469",
+    "guangzhou": "59287",
+    "helsinki": "02974",
+    "hong-kong": "45007",
+    "houston": "72243",
+    "istanbul": "F9731",
+    "jeddah": "41024",
+    "jinan": "54823",
+    "karachi": "41780",
+    "kuala-lumpur": "48647",
+    "london": "P0478",
+    "los-angeles": "72295",
+    "lucknow": "42369",
+    "madrid": "08221",
+    "manila": "98429",
+    "mexico-city": "76679",
+    "miami": "72202",
+    "milan": "16066",
+    "moscow": "P0567",
+    "munich": "10870",
+    "nyc": "72503",
+    "panama-city": "78792",
+    "paris": "07150",
+    "qingdao": "54857",
+    "san-francisco": "72494",
+    "sao-paulo": "83779",
+    "seattle": "72793",
+    "seoul": "47113",
+    "shanghai": "58362",
+    "shenzhen": "59493",
+    "singapore": "48698",
+    "taipei": "58968",
+    "tel-aviv": "40180",
+    "tokyo": "47671",
+    "toronto": "71624",
+    "warsaw": "12375",
+    "wellington": "93436",
+    "wuhan": "57494",
+    "zhengzhou": "57083"
+   },
+   "channels": {
+    "mosmix_l": {
+     "interval_seconds": 3600,
+     "spacing_seconds": 0.5,
+     "optional": true
+    }
+   }
+  },
+  "vr3_gamma": {
+   "plan_family": "VR-3",
+   "module": "weather.evidence.families.vr3_gamma",
+   "enabled": true,
+   "ram_cap_mib": 128,
+   "hour_byte_budget_mib": 16,
+   "request_budget_per_hour": 400,
+   "tag_slugs": [
+    "highest-temperature",
+    "lowest-temperature"
+   ],
+   "channels": {
+    "events_active": {
+     "interval_seconds": 900,
+     "limit": 100,
+     "max_pages": 10,
+     "optional": true
+    },
+    "events_closed_sweep": {
+     "interval_seconds": 300,
+     "run_local": [
+      [
+       "00:30",
+       "01:00"
+      ]
+     ],
+     "lookback_days_from": 2,
+     "lookback_days_to": 4,
+     "spacing_seconds": 0.25,
+     "optional": true
+    }
+   }
+  }
+ }
+}
