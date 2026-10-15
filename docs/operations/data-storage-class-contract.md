@@ -139,10 +139,28 @@ orders and compact run, P&L, strategy, and settlement summaries are excluded.
 Shared forecast blobs under `data/forecast_payload_cas/` are reachable from
 many event folders. Reachability must be computed across every per-market
 forecast manifest; one event-day manifest cannot classify a shared blob as an
-orphan. Garbage collection is disabled in every current cleanup and inventory
+orphan. The store itself is `weather.shared_forecast_payload_cas` (re-exported
+by `weather.collection.forecast_payload_cas`), so model code can read it.
+
+The per-station model cache `data/wunderground/<icao>/last_good_sources.json`
+is a further reader. Once the shared CAS holds a market-invariant body (the
+national NBM bulletin) whose freshly computed SHA-256 and size match, the cache
+keeps only a `raw_payload.text_ref` to it. The fallback path re-reads the blob,
+checks its SHA-256 and the payload's SHA-1 `payload_hash`, and reports any
+unprovable reference as `cache_status: fallback_unprovable`, a cache miss
+(`weather.model.model_sources`). A `text_ref` names no CAS root: it assumes the
+single fleet root `data/forecast_payload_cas/`, which the snapshot writer, the
+isolated capture fan-out, and every other model reader use by default. A second
+root would make those references unresolvable.
+
+Garbage collection is disabled in every current cleanup and inventory
 workflow; generic operator review cannot override that block. A future,
 separately reviewed deletion contract would have to prove global reachability,
 restore hashes, and market-specific replay before enabling any mutation.
+Reachability today is computed from forecast manifests only, and a last-good
+`text_ref` can point at a blob that no manifest row names. Any such contract
+must therefore also enumerate the `text_ref` entries in
+`data/wunderground/*/last_good_sources.json` as GC roots.
 
 ## Update this file when
 
