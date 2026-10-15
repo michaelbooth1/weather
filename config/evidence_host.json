@@ -232,5 +232,63 @@
     }
    }
   }
+ },
+ "light_lane": {
+  "run_local": [
+   [
+    "00:30",
+    "01:00"
+   ]
+  ],
+  "tasks": {
+   "lb1_labels": {
+    "plan_family": "LB-1",
+    "module": "weather.evidence.tasks.lb1_labels",
+    "enabled": true,
+    "ram_cap_mib": 256,
+    "wall_seconds": 600,
+    "hour_byte_budget_mib": 32,
+    "request_budget_per_hour": 120,
+    "station_overrides": {
+     "HKO": "VHHH"
+    },
+    "chunk": 10,
+    "spacing_seconds": 1.1,
+    "settle_hours": 1,
+    "reread_days": 1
+   },
+   "vr5_trades": {
+    "plan_family": "VR-5",
+    "module": "weather.evidence.tasks.vr5_trades",
+    "enabled": true,
+    "ram_cap_mib": 256,
+    "wall_seconds": 600,
+    "hour_byte_budget_mib": 64,
+    "request_budget_per_hour": 900,
+    "location_ids": [
+     "atlanta",
+     "austin",
+     "chicago",
+     "dallas",
+     "denver",
+     "houston",
+     "los-angeles",
+     "miami",
+     "nyc",
+     "san-francisco",
+     "seattle",
+     "toronto"
+    ],
+    "lookback_days_from": 1,
+    "lookback_days_to": 3,
+    "vr3_capture_days_before": 4,
+    "max_pages": 20,
+    "max_requests_per_run": 800,
+    "max_bytes_per_second": 4194304,
+    "spacing_seconds": 0.25,
+    "history_days_before": 2,
+    "history_days_after": 2
+   }
+  }
  }
 }

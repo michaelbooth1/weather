@@ -20,6 +20,11 @@ Supervision rules:
 - the parent watches its own private bytes against ``parent_ram_cap_mib`` and stops everything if
   it ever exceeds it (the receipt is ``host_status.json``).
 
+The S5 light lane (:class:`LightLaneSupervisor`) runs beside the families: once per host-local day
+inside ``light_lane.run_local`` it starts each enabled task (``python -m weather.evidence.batch task``)
+one at a time, each in the same containment with its own cap and ``wall_seconds`` timeout. A cap
+kill writes a kill receipt for the task; ``host.stop`` stops the lane before its next task.
+
 ``kill-receipt`` runs the deliberate over-cap proof child the plan requires before S4 lands.
 """
 from __future__ import annotations
@@ -33,6 +38,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from weather.evidence.batch import task_configs
 from weather.evidence.config import (
     DEFAULT_CONFIG_PATH, MIB, declared_caps_bytes, evidence_root, load_config,
 )
@@ -178,9 +184,72 @@ class FamilySupervisor:
             self.wait_backoff(stop_event)
 
 
+class LightLaneSupervisor:
+    """Once per host-local day inside ``light_lane.run_local``: each enabled task, serially, contained."""
+
+    def __init__(self, *, config, config_path, root, runner, python=sys.executable, clock=_now,
+                 local_clock=None, sleep=time.sleep, cwd=None):
+        from weather.evidence.child import in_window
+        self.in_window = in_window
+        self.config, self.config_path = config, str(config_path)
+        self.tasks = {k: v for k, v in task_configs(config).items() if v.get("enabled")}
+        self.windows = [tuple(w) for w in (config.get("light_lane") or {}).get("run_local", [])]
+        self.root, self.runner, self.python = Path(root), runner, python
+        self.clock, self.sleep, self.cwd = clock, sleep, cwd
+        self.local_clock = local_clock or (lambda: datetime.now().astimezone())
+        self.state = {"state": "idle", "ran_on": None, "runs": 0, "last": {}}
+
+    def command(self, task) -> list[str]:
+        return [self.python, "-m", "weather.evidence.batch", "--config", self.config_path, "task", "--task", task]
+
+    def host_stopped(self) -> bool:
+        return (self.root / "control" / "host.stop").exists()
+
+    def due(self) -> bool:
+        local = self.local_clock()
+        return (bool(self.tasks) and self.state["ran_on"] != local.date().isoformat()
+                and any(self.in_window(local, start, end) for start, end in self.windows))
+
+    def run_once(self, only=None) -> list[dict]:
+        results = []
+        self.state["runs"] += 1
+        for task, cfg in self.tasks.items():
+            if only and task not in only:
+                continue
+            if self.host_stopped():
+                results.append({"task": task, "outcome": "stopped"})
+                break
+            cap = int(cfg["ram_cap_mib"]) * MIB
+            self.state.update(state="running", task=task)
+            result = self.runner(self.command(task), timeout_seconds=float(cfg["wall_seconds"]),
+                                 private_memory_max_bytes=cap, cwd=self.cwd, env=child_env(),
+                                 resource_sample_interval_seconds=CHILD_SAMPLE_INTERVAL_SECONDS)
+            row = {"task": task, "returncode": result.get("returncode"), "at_utc": utc_text(self.clock()),
+                   "duration_seconds": result.get("duration_seconds"), "cap_bytes": cap,
+                   "timed_out": bool(result.get("timed_out"))}
+            if cap_exceeded(result):
+                row["outcome"] = "cap_kill"
+                row["receipt"] = str(write_kill_receipt(self.root, task, result, cap_bytes=cap, clock=self.clock))
+            elif result.get("timed_out"):
+                row["outcome"] = "wall_bound_kill"
+            else:
+                row["outcome"] = "exit" if result.get("returncode") == 0 else "crash"
+            self.state["last"][task] = row
+            results.append(row)
+        self.state.update(state="idle", task=None)
+        return results
+
+    def loop(self, stop_event):
+        while not stop_event.is_set() and not self.host_stopped():
+            if self.due():
+                self.state["ran_on"] = self.local_clock().date().isoformat()
+                self.run_once()
+            stop_event.wait(30.0)
+
+
 class EvidenceHost:
     def __init__(self, *, config, config_sha256, config_path, root, runner=None, python=sys.executable,
-                 clock=_now, sleep=time.sleep, memory_probe=None, cwd=None):
+                 clock=_now, sleep=time.sleep, memory_probe=None, cwd=None, local_clock=None):
         if runner is None:
             from weather.operations.long_job_guard import run_isolated_subprocess as runner
         self.config, self.config_sha256 = config, config_sha256
@@ -194,6 +263,9 @@ class EvidenceHost:
         self.supervisors = [FamilySupervisor(name, config=config, config_path=config_path, root=root, runner=runner,
                                              python=python, clock=clock, sleep=sleep, cwd=cwd)
                             for name, cfg in sorted(config["families"].items()) if cfg.get("enabled")]
+        self.light_lane = LightLaneSupervisor(config=config, config_path=config_path, root=root, runner=runner,
+                                              python=python, clock=clock, local_clock=local_clock, sleep=sleep,
+                                              cwd=cwd)
         self.stop_event = threading.Event()
         self.stop_reason = None
 
@@ -203,7 +275,8 @@ class EvidenceHost:
                 "config_sha256": self.config_sha256, "parent_memory": memory, "parent_cap_bytes": self.parent_cap,
                 "declared_caps_bytes": declared_caps_bytes(self.config), "stop_reason": self.stop_reason,
                 "host_stop_file": (self.root / "control" / "host.stop").exists(), "adoption": "explicit_restart",
-                "families": {s.family: dict(s.state) for s in self.supervisors}}
+                "families": {s.family: dict(s.state) for s in self.supervisors},
+                "light_lane": dict(self.light_lane.state)}
 
     def write_status(self) -> dict:
         payload = self.status_payload()
@@ -234,6 +307,9 @@ class EvidenceHost:
                 return 0  # a deliberate stop is not a task failure
             threads = [threading.Thread(target=s.loop, args=(self.stop_event,), name=f"evidence-{s.family}",
                                         daemon=True) for s in self.supervisors]
+            if self.light_lane.tasks:
+                threads.append(threading.Thread(target=self.light_lane.loop, args=(self.stop_event,),
+                                                name="evidence-light-lane", daemon=True))
             for thread in threads:
                 thread.start()
             started = time.monotonic()
