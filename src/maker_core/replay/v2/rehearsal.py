@@ -60,13 +60,14 @@ MEASURED_KEYS = ("input_bytes", "records", "records_by_kind", "wakes", "decision
                  "baseline_memory_bytes")
 # The §11 reachability block (carried mode only): counts and fractions, never a cell or a score.
 REACHABILITY_KEYS = ("status", "f_cal", "screen_pass_rate", "decision_reasons", "quoted_fraction", "n_cal", "l_cal",
-                     "pull_candidates", "opportunity_exclusions", "expected_clock_removed")
+                     "expected_clock_removed")
 
 ANY = object()  # a free-form leaf (a value, or a mapping whose keys are data such as kinds, dates or reasons)
 WHITELIST = {
     "format": ANY, "mode": ANY, "dates": ANY, "hazard_variant": ANY, "calibration_sha256": ANY,
     "after_fail_sha256": ANY, "measured_at": ANY, "interpretation": ANY, "report_status": ANY, "replicates": ANY,
     "hazard_per_minute": ANY, "hazard_map_sha256": ANY, "inventory_sha256": ANY,
+    "pull_candidates": ANY,  # carried mode only: E6's policy-free pull-candidate count (not a §11 field)
     "measured": {**{k: ANY for k in MEASURED_KEYS}, "records_by_kind": ANY},
     "hashes": {"input_hashes": ANY, "report_sha256": ANY, "sidecar_sha256": ANY, "decision_sha256": ANY},
     "reachability": {**{k: ANY for k in REACHABILITY_KEYS}, "decision_reasons": ANY, "quoted_fraction": ANY},
@@ -214,7 +215,10 @@ def rehearse(paths, inventory, *, mode, hazard_per_minute, calibration_sha256, h
     peak = memory()[1]
     status = report["status"]
     del report
-    reach = reachability.block(run, decisions, check=budget.check) if mode == "carried" else None
+    reach = opportunities = None
+    if mode == "carried":
+        opportunities = reachability.policy_free_opportunities(run.plan, run.books, check=budget.check)
+        reach = reachability.block(run, decisions, check=budget.check, opportunities=opportunities)
     engines = [p.engine for passes in run.passes.values() for p in passes.values()]
     summaries = [e.summary() for e in engines] + [t if isinstance(t, dict) else t.engine.summary()
                                                   for *_, t in run.trials]
@@ -240,6 +244,7 @@ def rehearse(paths, inventory, *, mode, hazard_per_minute, calibration_sha256, h
                     decision_sha256=digest(decision_shas)))
     if reach is not None:
         doc["reachability"] = reach
+        doc["pull_candidates"] = opportunities["candidates"]
     return whitelisted(doc)
 
 

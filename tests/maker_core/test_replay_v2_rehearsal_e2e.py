@@ -214,8 +214,10 @@ def test_only_the_carried_rehearsal_carries_the_reachability_block(per_date, car
     assert reach["quoted_fraction"]["informed-v0"]["quoted_fraction"] == reach["f_cal"]
     # the fixture's 5-minute captures leave no 5-minute endpoint inside the 120 s tolerance, so N_cal may be 0 here;
     # the counting itself is pinned in test_replay_v2_reachability
-    assert 0 <= reach["l_cal"] <= reach["n_cal"] <= reach["pull_candidates"] and reach["pull_candidates"] > 0
-    assert reach["n_cal"] + sum(reach["opportunity_exclusions"].values()) == reach["pull_candidates"]
+    assert 0 <= reach["l_cal"] <= reach["n_cal"] <= doc["pull_candidates"] and doc["pull_candidates"] > 0
+    assert not {"pull_candidates", "opportunity_exclusions"} & set(reach)  # not §11 fields (Defender re-check LOW)
+    opportunities = reachability.policy_free_opportunities(seen["run"].plan, seen["run"].books)
+    assert opportunities["n_cal"] + sum(opportunities["exclusions"].values()) == doc["pull_candidates"]
     removed = reachability.D(reach["l_cal"]) * (1 - f_cal)
     assert reach["expected_clock_removed"]["calibration"] == str(removed)
     assert reach["expected_clock_removed"]["panel"] == str(removed * reachability.PANEL_SCALE)
@@ -237,7 +239,7 @@ def test_f_cal_is_clarification_3_quote_presence_and_n_cal_bounds_the_pull_endpo
     passes = run.passes["strictly_through"]
     endpoint = pull_endpoint(run.plan, passes["informed-v0"].scorer, passes["clock_only"].scorer, run.books,
                              run.matches["strictly_through"], replicates=REPLICATES)
-    assert endpoint["candidates"] == doc["reachability"]["pull_candidates"]
+    assert endpoint["candidates"] == doc["pull_candidates"]
     assert endpoint["counts"]["opportunities"] <= doc["reachability"]["n_cal"]
     assert endpoint["counts"]["large_moves"] <= doc["reachability"]["l_cal"]
 
@@ -286,7 +288,21 @@ def test_the_gate_report_reads_e2_e4_e5_e6_e7_and_section_11_and_waits_for_e1_e3
     assert report["executability"]["not_supplied"] == ["E1", "E3", "E8"]
     assert report["executability"]["not_evaluated"] == ["E6"]
     assert gates["E7"]["identical"] == dict(decision_sha256=True, report_sha256=True, sidecar_sha256=True)
-    assert gates["E6"]["projected_pull_candidates"] == doc["reachability"]["pull_candidates"] * ceilings.N // 3
+    assert gates["E6"]["projected_pull_candidates"] == doc["pull_candidates"] * 14 // 3  # D6.6: 14/3, not 16/3
+    missing = {k: v for k, v in doc.items() if k != "pull_candidates"}
+    with pytest.raises(BundleError, match="gate_carried_rehearsal_required:max_m"):
+        reachability.gate_report(per_date, missing, repeat)
+    # Defender B-1: a carried count below N_cal is refused (the fixture's N_cal is 0, so N_cal is raised instead)
+    candidates = doc["pull_candidates"]
+
+    def with_n_cal(n):
+        return dict(doc, reachability=dict(doc["reachability"], n_cal=n))
+    with pytest.raises(BundleError, match="gate_pull_candidates_below_n_cal:max_m"):
+        reachability.gate_report(per_date, with_n_cal(candidates + 1), repeat)
+    with pytest.raises(BundleError, match="gate_pull_candidates_below_n_cal:max_m"):
+        reachability.gate_report(per_date, with_n_cal(None), repeat)
+    at_boundary = reachability.gate_report(per_date, with_n_cal(candidates), repeat)  # N_cal == candidates holds
+    assert at_boundary["executability"]["gates"]["E6"]["projected_pull_candidates"] == candidates * 14 // 3
     evidence = {k: dict(status="PASS", evidence="fixture") for k in ("e1", "e3", "e8")}
     supplied = reachability.gate_report(per_date, doc, repeat, **evidence)["executability"]
     assert supplied["status"] == "INCOMPLETE" and supplied["not_supplied"] == [] and supplied["not_evaluated"] == ["E6"]
