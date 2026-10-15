@@ -127,9 +127,19 @@ The lane takes no workload lease and adds no scheduled task.
   and `metar_hourly` disagree at the degree, behind the strict `backfill` guard
   (every window refused). The WRH page renders through a page-embedded third-party
   token that no decision covers yet, so the row records `status=pending_route` and
-  nothing is fetched until a route is ruled. Not built yet: WU daily, the IEM
-  6-hour composite, 1-minute ASOS, CLI/CF6, HKO Daily Extract, ECCC climate-daily,
-  the venue winner and the Stage-A read step.
+  nothing is fetched until a route is ruled.
+  Strict members (`weather.evidence.tasks.lb1_strict`) run only when the strict
+  `backfill` guard allows the day and one day either side, so while a window is
+  open (FULL, OUTCOME or the open-ended MG-1 reservation) they record
+  `status=embargo_refused` and build no URL: `wu_daily` for the registry markets
+  through the existing OD15 client `PublicWundergroundHistoryClient` (the
+  settlement-restore path), with every GET routed through the task fetcher and the
+  page token kept in memory only (errors journal a failure class; a payload
+  carrying the token is not stored; the page itself is never stored); and
+  `iem_6h_composite`, the max/min of the `1snTTT`/`2snTTT` groups in the routine
+  reports already fetched (periods inside the local day, `covered_hours`, plus an
+  overlap variant). Not built yet: 1-minute ASOS, CLI/CF6, HKO Daily Extract,
+  ECCC climate-daily, the venue winner and the Stage-A read step.
 - **VR-5 `vr5_trades`:** conditions from the VR-3 journal (`capture_check`) for the
   configured `location_ids` and event days 1-3 back, each guarded in `capture`
   mode. `trades` rows (data-api `/trades?market=`, paged) keep `proxyWallet`

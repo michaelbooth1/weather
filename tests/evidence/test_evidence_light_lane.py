@@ -6,11 +6,16 @@ guard's ``capture`` mode refuses every ``full`` embargo day and records outcome/
 writes one panel row per location-day-kind and at most one strict-guarded WRH wanted row per US
 station-day where METAR-all and METAR-hourly disagree (owner Q4); VR-5 keeps public wallet
 addresses and drops profile fields (owner Q3 = A), requests only the two International Polymarket
-public hosts and fetches prices-history once per closed-market token).
+public hosts and fetches prices-history once per closed-market token; S5b: WU daily and the IEM 6 h
+composite sit behind the STRICT guard over the day and one day either side, so the boundary dates
+2026-09-30 and 2026-10-15 never get a request URL, and WU goes only through the existing OD15
+page-token client with the access value never journalled or stored).
 """
 from __future__ import annotations
 
+import gzip
 import json
+import uuid
 from datetime import date, datetime, timedelta, timezone
 from urllib.parse import parse_qs, urlparse
 
@@ -25,13 +30,15 @@ from weather.evidence.fetch import Fetcher, Response
 from weather.evidence.host import LightLaneSupervisor
 from weather.evidence.journal import EvidenceJournal, iter_segment_rows, segment_dirs
 from weather.evidence.reader import read
-from weather.evidence.tasks import lb1_labels, vr5_trades
+from weather.evidence.tasks import lb1_labels, lb1_strict, vr5_trades
 from weather.evidence.telemetry import FamilyTelemetry
 
 LOCATIONS = load_locations()
 CONFIG, CONFIG_SHA = load_config()
 STATIONS = lb1_labels.panel_stations(LOCATIONS, {"HKO": "VHHH"})
 CONDITION_A, CONDITION_B = "0x" + "a" * 64, "0x" + "b" * 64
+CONFIG_NO_WU = json.loads(json.dumps(CONFIG))
+CONFIG_NO_WU["light_lane"]["tasks"]["lb1_labels"]["wu_daily"] = False
 
 
 class Clock:
@@ -178,7 +185,7 @@ def test_lb1_writes_51_station_panel_and_one_pending_wrh_row_for_a_us_disagreeme
     transport = _iem_transport(calls, special_temps={"LGA": ("2026-01-02 18:20", 30.0),
                                                      "EGLC": ("2026-01-02 12:20", 30.0)})
     result = _run("lb1_labels", tmp_path, transport, datetime(2026, 1, 3, 15, tzinfo=timezone.utc),
-                  days=["2026-01-02"])
+                  days=["2026-01-02"], config=CONFIG_NO_WU)
     assert result["outcome"] == "ok" and result["refused_days"] == [] and result["wrh_wanted"] == 1
     assert len(calls) == 12 and all(urlparse(u).hostname == "mesonet.agron.iastate.edu" for u in calls)
     assert {parse_qs(urlparse(u).query)["report_type"][0] for u in calls} == {"3", "4"}
@@ -196,7 +203,7 @@ def test_lb1_writes_51_station_panel_and_one_pending_wrh_row_for_a_us_disagreeme
     assert wrh[0]["body"]["status"] == "pending_route" and wrh[0]["body"]["kinds"] == ["max"]
     # The re-run neither duplicates the WRH row nor rewrites unchanged panel rows.
     again = _run("lb1_labels", tmp_path, transport, datetime(2026, 1, 3, 16, tzinfo=timezone.utc),
-                 days=["2026-01-02"])
+                 days=["2026-01-02"], config=CONFIG_NO_WU)
     assert again["wrh_wanted"] == 0 and again["panel_rows"] == 0
 
 
@@ -403,3 +410,144 @@ def test_lane_cap_kill_receipt_wall_bound_kill_and_host_stop(tmp_path):
     (tmp_path / "control" / "host.stop").write_text("stop\n")
     assert lane.run_once() == [{"task": "lb1_labels", "outcome": "stopped"}]
     assert len(runner.calls) == 2
+
+
+# ------------------------------------------------------------------------------------- S5b strict instruments
+def _task_ctx(root, now, transport):
+    clock = Clock(now)
+    journal = EvidenceJournal(root, "lb1_labels", clock=clock).open()
+    telemetry = FamilyTelemetry(root, "lb1_labels", clock=clock)
+    fetcher = Fetcher(user_agent="t", request_budget_per_hour=500, telemetry=telemetry, transport=transport,
+                      clock=lambda: 0.0)
+    return batch.TaskContext("lb1_labels", CONFIG["light_lane"]["tasks"]["lb1_labels"], CONFIG["host"], journal,
+                             fetcher, telemetry, LOCATIONS, clock, lambda _s: None, channel="lb1_labels")
+
+
+@pytest.mark.parametrize("boundary", ["2026-09-30", "2026-10-15"])
+def test_strict_guard_refuses_each_boundary_date(boundary):
+    for mode in ("backfill", "sweep"):
+        with pytest.raises(EmbargoRefused):
+            embargo_guard("lb1_labels", boundary, mode=mode, today=date(2026, 12, 1))
+
+
+def test_no_wu_or_strict_request_url_is_built_for_boundary_days_or_their_neighbours(tmp_path, monkeypatch):
+    from weather.sources import wu_history
+    built, calls = [], []
+    monkeypatch.setattr(wu_history.PublicWundergroundHistoryClient, "history_page_url",
+                        lambda self, d: built.append(d) or "https://www.wunderground.com/x")
+    ctx = _task_ctx(tmp_path, datetime(2026, 12, 1, 1, tzinfo=timezone.utc),
+                    lambda u, h, t, m: calls.append(u) or Response(u, 500))
+    ids = [loc["id"] for loc in LOCATIONS]
+    for day in ("2026-09-29", "2026-09-30", "2026-10-15", "2026-10-16"):
+        assert lb1_strict.wu_daily(ctx, ctx.cfg, date.fromisoformat(day), ids) is None
+        assert not lb1_strict.strict_allowed(ctx, date.fromisoformat(day))
+    ctx.journal.close()
+    assert built == [] and calls == []
+    guards = [e for e in _events(tmp_path, "lb1_labels", "2026-12-01") if e["kind"] == "guard"]
+    assert guards and {e["mode"] for e in guards} == {"backfill"}
+    assert {"2026-09-30", "2026-10-15"} <= {e["event_date"] for e in guards}
+
+
+WU_API_HOST = "wu-history-api.invalid"  # the page's runtime data names the API host; tests use a fake one
+
+
+def _wu_transport(calls, token, *, page_status=200):
+    iem = _iem_transport([])
+
+    def transport(url, headers, timeout, max_bytes):
+        calls.append(url)
+        parts = urlparse(url)
+        if parts.hostname == "www.wunderground.com":
+            page = ('<html><script>const data = {"API_URL":"https://%s","API_KEY":"%s"};</script>'
+                    "</html>" % (WU_API_HOST, token))
+            return Response(url, page_status, page.encode() if page_status == 200 else b"")
+        if parts.hostname == WU_API_HOST:
+            query = parse_qs(parts.query)
+            metric = query["units"][0] == "m"
+            obs = [{"valid_time_gmt": 1767355200 + 3600 * h, "temp": t, "key": "X", "obs_id": "X"}
+                   for h, t in ((0, 5 if metric else 41), (7, 13 if metric else 55), (11, 9 if metric else 48))]
+            return Response(url, 200, json.dumps({"metadata": {"status_code": 200}, "observations": obs}).encode())
+        return iem(url, headers, timeout, max_bytes)
+    return transport
+
+
+def _all_bytes(root):
+    for path in root.rglob("*"):
+        if path.is_file():
+            data = path.read_bytes()
+            yield gzip.decompress(data) if path.suffix == ".gz" else data
+
+
+def test_wu_daily_uses_the_page_token_route_and_never_stores_the_token(tmp_path):
+    token = uuid.uuid4().hex  # generated in memory; no fixture holds an access value
+    calls = []
+    result = _run("lb1_labels", tmp_path, _wu_transport(calls, token), datetime(2026, 1, 3, 15, tzinfo=timezone.utc),
+                  days=["2026-01-02"])
+    assert result["outcome"] == "ok"
+    api = [u for u in calls if urlparse(u).hostname == WU_API_HOST]
+    assert len(api) == 12 and all(parse_qs(urlparse(u).query)["apiKey"] == [token] for u in api)
+    assert all(parse_qs(urlparse(u).query)["startDate"] == ["20260102"] for u in api)
+    rows = _rows(tmp_path, "lb1_labels", "2026-01-03")
+    nyc = next(r["body"] for r in rows if r["key"] == "nyc|2026-01-02|max")
+    wu = nyc["instruments"]["wu_daily"]
+    assert (wu["status"], wu["max"], wu["history_id"]) == ("ok", 55, "KLGA:9:US") and wu["raw_ref"]
+    assert "wu_daily_vs_metar_all" in nyc["agreement"]
+    london = next(r["body"] for r in rows if r["key"] == "london|2026-01-02|max")
+    assert "wu_daily" not in london["instruments"]
+    stored = list(_all_bytes(tmp_path))
+    assert stored and not any(token.encode() in blob for blob in stored)
+    assert not any(b"const data" in blob for blob in stored)
+
+
+def test_wu_fetch_failure_journals_a_failure_class_only(tmp_path):
+    token = uuid.uuid4().hex
+    calls = []
+    result = _run("lb1_labels", tmp_path, _wu_transport(calls, token, page_status=403),
+                  datetime(2026, 1, 3, 15, tzinfo=timezone.utc), days=["2026-01-02"])
+    assert result["outcome"] == "ok" and not any(urlparse(u).hostname == WU_API_HOST for u in calls)
+    gaps = [e for e in _events(tmp_path, "lb1_labels", "2026-01-03") if e.get("reason") == "wu_daily_fetch"]
+    assert len(gaps) == 12 and {g["failure_class"] for g in gaps} == {"auth_failure"}
+    assert all("url" not in g and "error" not in g for g in gaps)
+    rows = _rows(tmp_path, "lb1_labels", "2026-01-03")
+    nyc = next(r["body"] for r in rows if r["key"] == "nyc|2026-01-02|max")
+    assert nyc["instruments"]["wu_daily"]["status"] == "fetch_failed"
+
+
+def test_strict_refused_day_marks_wu_and_iem_6h_refused(tmp_path):
+    calls = []
+    result = _run("lb1_labels", tmp_path, _wu_transport(calls, uuid.uuid4().hex),
+                  datetime(2026, 10, 21, 15, tzinfo=timezone.utc), days=["2026-10-20"])
+    assert result["panel_rows"] == 102
+    assert not any(urlparse(u).hostname in (lb1_strict.WU_PAGE_HOST, WU_API_HOST) for u in calls)
+    rows = _rows(tmp_path, "lb1_labels", "2026-10-21")
+    nyc = next(r["body"] for r in rows if r["key"] == "nyc|2026-10-20|max")
+    assert nyc["instruments"]["wu_daily"]["status"] == "embargo_refused"
+    assert nyc["instruments"]["iem_6h_composite"]["status"] == "embargo_refused"
+
+
+def test_iem_6h_composite_uses_periods_inside_the_local_day():
+    def line(when, max6, min6):
+        return f"LGA,{when},5.0,KLGA RMK AO2 SLP160 1{max6} 2{min6}"
+    text = "\n".join(["station,valid,tmpc,metar",
+                      line("2026-01-02 05:51", "0050", "0011"),   # 00-06Z: starts before 05Z local midnight
+                      line("2026-01-02 11:51", "0100", "0022"),   # 06-12Z
+                      line("2026-01-02 17:51", "0156", "0078"),   # 12-18Z
+                      line("2026-01-02 23:51", "0122", "0044"),   # 18-00Z
+                      line("2026-01-03 05:51", "0300", "1011")])  # 00-06Z: ends after 05Z
+    reports = lb1_labels.parse_iem_csv(text + "\n", lb1_labels.ROUTINE)
+    nyc = next(s for s in STATIONS if s["location"] == "nyc")
+    start, end = lb1_labels.local_day_bounds(date(2026, 1, 2), nyc["timezone"])
+    member = lb1_strict.iem_6h_member(lb1_strict.six_hour_periods(reports), start, end, "F")
+    assert (member["status"], member["covered_hours"], member["periods"], member["overlap_periods"]) == (
+        "partial", 18, 3, 5)
+    assert (member["max"], member["min"]) == (60, 36)            # 15.6 C, 2.2 C
+    assert (member["max_overlap"], member["min_overlap"]) == (86, 30)  # 30.0 C, -1.1 C
+
+
+def test_wu_session_allows_only_the_page_host_and_the_api_host_the_page_names():
+    session = lb1_strict.FetcherSession(None, "apiKey", lambda text: ("https://" + WU_API_HOST, "v"))
+    assert session.allowed_host(lb1_strict.WU_PAGE_HOST) and not session.allowed_host(WU_API_HOST)
+    with pytest.raises(ValueError):
+        session.get("https://elsewhere.invalid/x", params={"apiKey": "v"})
+    session.api_host = WU_API_HOST
+    assert session.allowed_host(WU_API_HOST) and not session.allowed_host("elsewhere.invalid")
