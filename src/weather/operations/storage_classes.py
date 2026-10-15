@@ -116,6 +116,20 @@ ARTIFACT_FAMILIES = (
         "operator_cache_ttl_or_manifest", False,
     ),
     ArtifactFamilyClassification(
+        "passive_capture_family_evidence", "market", CANONICAL_EVIDENCE,
+        ("maker_evidence_families/*/*/*.jsonl", "maker_evidence_families/*/*/*.jsonl.gz",
+         "maker_evidence_families/*/*/*/manifest.json", "maker_evidence_families/*/*/*/manifest.json.gz"),
+        "permanent_public_maker_evidence", "not rebuildable at the captured instant",
+        "canonical_evidence_review_gate", True,
+        notes="config/capture_families.json families: the passive_maker_evidence journal format in a per-family root.",
+    ),
+    ArtifactFamilyClassification(
+        "passive_capture_family_status", "market", OPERATOR_CACHE,
+        ("maker_evidence_families/*/status.json",),
+        "operator_current_state", "append-only capture family journals",
+        "operator_cache_ttl_or_manifest", False,
+    ),
+    ArtifactFamilyClassification(
         "shared_forecast_payload_cas",
         "collection/sources",
         CANONICAL_EVIDENCE,

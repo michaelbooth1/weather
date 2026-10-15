@@ -13,6 +13,7 @@ import hashlib
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -30,6 +31,7 @@ from weather.market.maker_evidence_store import (
     atomic_json, disk_band, digest, encoded, utc_now,
 )
 from weather.market.maker_evidence_archive import compress_closed_segments
+from weather.market.maker_evidence_family import family_universe, load_family
 from weather.market.maker_evidence_stream import PublicStream
 from weather.paths import data_path
 
@@ -97,9 +99,8 @@ def get_books(reader, tokens, *, kind):
     return books
 
 
-def build_universe(reader, specs, *, now, extras_path=None):
-    expected = {event_slug_for_date(now.astimezone(spec.tz).date() + timedelta(days=day), spec.id): (spec.id, day)
-                for spec in specs for day in range(3)}
+def discover_events(reader, expected):
+    """Active YES/NO conditions of the requested event slugs ({slug: (city, day_ahead)})."""
     all_events = []
     slugs = list(expected)
     for start in range(0, len(slugs), 12):
@@ -136,6 +137,13 @@ def build_universe(reader, specs, *, now, extras_path=None):
             if cid in discovered and discovered[cid] != row:
                 raise ValueError("condition mapped to conflicting events")
             discovered[cid] = row
+    return discovered, missing
+
+
+def build_universe(reader, specs, *, now, extras_path=None):
+    expected = {event_slug_for_date(now.astimezone(spec.tz).date() + timedelta(days=day), spec.id): (spec.id, day)
+                for spec in specs for day in range(3)}
+    discovered, missing = discover_events(reader, expected)
     extra_ids = load_extras(extras_path)
     for cid in extra_ids:
         if cid not in discovered:
@@ -214,7 +222,11 @@ def re1_active():
 
 
 def capture(args):
-    root = args.root.resolve()
+    family = load_family(args.family) if args.family else None
+    root = (args.root or (family.root if family else DEFAULT_ROOT)).resolve()
+    core = DEFAULT_ROOT.resolve()
+    if family and (root == core or core in root.parents or root in core.parents):
+        raise ValueError("a capture family never writes inside or above the 88a root")
     if args.dry_run and (root.exists() or "scratch" not in [part.lower() for part in root.parts]):
         raise ValueError("dry run requires a NEW scratch directory")
     if args.dry_run:
@@ -225,6 +237,12 @@ def capture(args):
     lowest_priority()
     root.mkdir(parents=True, exist_ok=True)
     with WriterLock(root):
+        if family and shutil.disk_usage(root).free < family.floor_bytes:
+            # Below its floor a family opens no journal; each one-minute retry only refreshes status.
+            atomic_json(root / "status.json", {"schema_version": SCHEMA, "family": family.id,
+                        "state": "STOPPED_FAMILY_DISK_FLOOR", "free_bytes": shutil.disk_usage(root).free,
+                        "family_floor_bytes": family.floor_bytes, "updated_at_utc": utc_now().isoformat()})
+            return 2
         store = EvidenceStore(root, stream_cap=args.stream_cap_bytes)
         reader = PublicReader(store, timeout=args.request_timeout_seconds)
         stream, trades = PublicStream(store), PublicStream(store, trades_only=True)
@@ -233,6 +251,10 @@ def capture(args):
         state = {"schema_version": SCHEMA, "started_at_utc": utc_now().isoformat(),
                  "pid": os.getpid(), "dry_run": args.dry_run, "cycles": 0, "failed_cycles": 0,
                  "state": "STARTING", "priority": "idle", "root": str(root)}
+        if family:
+            state.update(family=family.id, family_config_sha256=family.config_sha256,
+                         family_floor_bytes=family.floor_bytes, websocket="none")
+        reward_state = {}
         state["source_sha256"] = {name: hashlib.sha256(Path(module.__file__).read_bytes()).hexdigest()
                                   for name, module in tuple(sys.modules.items())
                                   if name.startswith("weather.") and getattr(module, "__file__", None)}
@@ -291,6 +313,10 @@ def capture(args):
                     state["state"] = "STOPPED_CRITICAL_DISK"
                     store.event("disk_brake", {"band": band, "free_bytes": free})
                     break
+                if family and free < family.floor_bytes:
+                    state["state"] = "STOPPED_FAMILY_DISK_FLOOR"
+                    store.event("disk_brake", {"band": band, "free_bytes": free, "family_floor_bytes": family.floor_bytes})
+                    break
                 if args.dry_run and re1_active():
                     state["state"] = "STOPPED_RE1_ACTIVE"
                     break
@@ -301,7 +327,11 @@ def capture(args):
                     stream.stop()
                 reader.deadline = min(deadline, cycle_start + 55)
                 try:
-                    universe, shortages, missing = build_universe(reader, specs, now=utc_now(), extras_path=args.extra_conditions)
+                    if family:
+                        universe, shortages, missing = family_universe(reader, family, now=utc_now(),
+                                                                       reward_state=reward_state, discover=discover_events)
+                    else:
+                        universe, shortages, missing = build_universe(reader, specs, now=utc_now(), extras_path=args.extra_conditions)
                     tokens = [token for row in universe for token in row["tokens"]]
                     # Re-read both sides together after ranking, preserving minute snapshot identity.
                     books = get_books(reader, tokens, kind="books")
@@ -309,8 +339,9 @@ def capture(args):
                         if any(books[t]["market"].lower() != row["condition_id"] for t in row["tokens"]):
                             raise ValueError("selected book condition mismatch")
                     state.update(universe_size=len(universe), shortages=shortages, missing_events=missing)
-                    trades.replace(tokens)
-                    reconcile_updates(band)
+                    if family is None:  # Families are books and reward terms only: no websocket.
+                        trades.replace(tokens)
+                        reconcile_updates(band)
                     state["cycles"] += 1
                     state["state"] = "CAPTURING" if universe else "NO_ELIGIBLE_BANDS"
                 except Exception as exc:
@@ -331,7 +362,8 @@ def capture(args):
                         stream.stop()
                         trades.stop()
                         break
-                    reconcile_updates(band)
+                    if family is None:
+                        reconcile_updates(band)
                     status()
             if store.failure:
                 state["state"] = "STOPPED_RAW_FOOTPRINT"
@@ -364,8 +396,9 @@ def capture(args):
 
 def build_parser():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", type=Path, default=DEFAULT_ROOT)
+    parser.add_argument("--root", type=Path, help="default data/maker_evidence, or the family's own root")
     parser.add_argument("--extra-conditions", type=Path)
+    parser.add_argument("--family", help="capture a config/capture_families.json family in its own root")
     parser.add_argument("--duration-seconds", type=int, default=0, help="0 runs until stopped; dry run requires 1800")
     parser.add_argument("--dry-run", action="store_true", help="30-minute public capture in a NEW scratch root, before 19:45 ET")
     parser.add_argument("--stream-cap-bytes", type=int, default=DEFAULT_STREAM_CAP)
@@ -380,6 +413,8 @@ def main(argv=None):
         parser.error("dry run requires exactly 1800 seconds; duration cannot be negative")
     if not 0 < args.stream_cap_bytes <= 3_000_000_000 or not 0 < args.request_timeout_seconds <= 10:
         parser.error("invalid stream cap or request timeout")
+    if args.family and args.extra_conditions:
+        parser.error("--extra-conditions belongs to the core recorder, not a capture family")
     return capture(args)
 
 

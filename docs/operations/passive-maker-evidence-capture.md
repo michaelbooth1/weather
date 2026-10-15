@@ -92,6 +92,63 @@ gap text carries `code=<n> reason=<text>`; an empty data frame is liveness, not 
 close. Reconnects wait a jittered delay in [d/2, d], doubling from 2 s to 30 s after
 failures; a session that stayed connected for 60 s resets it to the base.
 
+## Capture families
+
+`--family <id>` records one family from
+[`config/capture_families.json`](../../config/capture_families.json) instead of the
+core universe, as a **separate process with its own root**,
+`data/maker_evidence_families/<id>` (the core root and `--extra-conditions` are
+refused). The core 88a root, its discovery captures and every reader of them stay
+unchanged: a lowest-temperature slug inside them would make the pinned exam
+exporter refuse with `unregistered_event`, and the family's reads would share the
+core 55-second cycle.
+
+A family names, per registry city, an event-slug prefix (dates are formed as for
+the core family, in the city's own time zone), its excluded cities with the reason,
+its day-aheads and its bounds. The first family, `lowest_temperature`, covers the 11
+cities the lowest-temperature desk study (2026-10-02) admitted for passive capture;
+Chicago is excluded because its own F1 was falsified.
+
+Each minute a family discovers its events in batches of 12 slugs, keeps **every**
+active condition (no ranking, no reward filter; bound `max_conditions`), and reads
+both tokens' books. Gamma's reward terms arrive with discovery every minute and are
+stored change-only in the selection projection. The full CLOB
+`/rewards/markets/<condition>` record is read when a condition's Gamma terms change,
+when it is new, or after `reward_sweep_minutes`, at most
+`max_reward_reads_per_cycle` per minute (changed first, then oldest). Reward records
+share one journal per family and universe rows one change-only journal per city.
+Universe rows carry the family, Gamma's scalar terms and the latest CLOB record hash
+and rate.
+
+A family opens **no websocket**: trades and raw updates stay with the core recorder
+(at 100 tokens per connection, the lowest-temperature universe alone would need eight
+more sockets). It stops at its own `stop_below_free_gib` floor (70 GiB for
+`lowest_temperature`), above the core Critical brake, so it yields disk before the
+core recorder does. Below the floor it opens no journal; each one-minute retry only
+rewrites `status.json` with `STOPPED_FAMILY_DISK_FLOOR`. Its journals are
+`canonical_evidence` (`passive_capture_family_evidence`).
+
+`scripts/ops/register_maker_evidence_family_capture.ps1 -Family lowest_temperature`
+registers `WeatherMakerEvidenceLowestTemperature` with the same S4U/IgnoreNew/one-minute
+contract. Only the production operator registers it, after integration. The task name
+must be `WeatherMakerEvidence<PascalCaseId>` (the registrar refuses any other): the
+monitor finds each family's task by that name. A new family passes its own `-TaskName`
+and adds its `config/scheduled_tasks.json` row.
+
+**Monitoring.** `weather.reporting.market.capture_family_status` reads every family in
+the config from its bounded `status.json` (never the journals). `status.ps1` prints one
+`FAMILY` line per family (state, status age, conditions against `max_conditions`, free
+space against the family floor, mean request rate, task state) and the cockpit's Health
+column shows the same rows. The alarms are the core recorder's: while the family's task
+is registered and enabled, a missing or unreadable status, a status older than 180 s, or
+any state other than `CAPTURING` is a `CAPTURE_FAMILY` FLAG. **A family stopped at its
+own floor (`STOPPED_FAMILY_DISK_FLOOR`) is a WARN with its reason, not a capture failure**:
+it is yielding disk to the core recorder as designed, and the disk itself is alarmed by
+the disk lines. That floor status is rewritten every one-minute retry, so a stale one
+is still a FLAG (the retries have died). An unregistered or disabled family is
+informational only. The cockpit cannot see the Scheduler, so it holds any family that
+has written a status to the alarms.
+
 ## Storage and brakes
 
 Default root: `data/maker_evidence`. Schema `maker_evidence_v2` stores journals
@@ -248,5 +305,5 @@ the worker does not itself prove the entire branch roll-free.
 ## Update when
 
 Update with selection, endpoints, timing, CLI, byte/disk brakes, storage,
-registration or status changes. Verify with the focused maker-evidence tests,
+registration, status or capture-family changes. Verify with the focused maker-evidence tests,
 import architecture, storage/schema tests and the required timed scratch run.
