@@ -64,6 +64,16 @@ def test_other_errors_are_not_retried(tmp_path, monkeypatch):
     assert len(calls) == 1
 
 
+def test_manifest_seal_still_raises_when_replace_is_exhausted(tmp_path, monkeypatch):
+    store = EvidenceStore(tmp_path / "root")
+    store.event("probe", {"n": 1})
+    flaky_replace(monkeypatch, failures=10 ** 6)
+    monkeypatch.setattr(store_module.time, "sleep", lambda _: None)
+
+    with pytest.raises(PermissionError):
+        store.seal()
+
+
 @windows_only
 def test_held_reader_released_mid_retry_lets_status_write_land(tmp_path):
     path = tmp_path / "status.json"

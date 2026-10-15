@@ -54,6 +54,8 @@ def replace_with_retry(source, target, *, attempts=REPLACE_ATTEMPTS, budget_seco
             sleep(unit * 2 ** attempt * random.uniform(.5, 1.))
 
 
+# Not weather.io.write_json_atomic: these files keep the store's compact sorted `encoded` bytes
+# (manifest sizes are accounted from them) and a fixed `<name>.tmp` sibling, fsynced before replace.
 def atomic_json(path, value, **retry):
     path = Path(path)
     temporary = path.with_suffix(path.suffix + ".tmp")
