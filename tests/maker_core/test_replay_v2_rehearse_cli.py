@@ -85,7 +85,8 @@ def documents(workspace):
         if label == DAYS[1]:  # E7's pair: two fresh processes under different hash seeds (row 17)
             docs[label] = call_process(root, "rehearse", "reh-" + label, 0, *bundle_args(bundles, days), *common)
             docs["repeat"] = call_process(root, "rehearse", "reh-repeat", 1, *bundle_args(bundles, days), *common)
-            docs["same-process"] = call(root, "rehearse", "reh-same", *bundle_args(bundles, days), *common)
+            for n in (1, 2):  # and a pair from this one process (one seed in force)
+                docs[f"same-{n}"] = call(root, "rehearse", f"reh-same-{n}", *bundle_args(bundles, days), *common)
         else:
             docs[label] = call(root, "rehearse", "reh-" + label, *bundle_args(bundles, days), *common)
         if label == "carried":
@@ -175,9 +176,9 @@ def test_derive_refuses_mislabelled_rehearsals(workspace, documents, capsys):
 def test_e7_fails_for_a_repeat_from_the_same_process(workspace, documents):
     # row 17: the in-process repeat has the same hash seed in force, so identical hashes do not pass E7
     root, _, _ = workspace
-    per_date = ["--per-date", *(documents[d][0] for d in DAYS)]
+    per_date = ["--per-date", documents[DAYS[0]][0], documents["same-1"][0], documents[DAYS[2]][0]]
     _, gate = call(root, "gate-report", "gate-same", *per_date, "--carried", documents["carried"][0],
-                   "--repeat-rehearsal", documents["same-process"][0])
+                   "--repeat-rehearsal", documents["same-2"][0])
     e7 = gate["executability"]["gates"]["E7"]
     assert e7["status"] == "FAIL" and e7["separate_hash_seeds"] is False and all(e7["identical"].values())
     assert documents["repeat"][1]["environment"]["hash_seed"] == "1"
