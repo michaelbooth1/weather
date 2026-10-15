@@ -387,20 +387,20 @@ Answered questions stay listed with their answer; open ones are not acted on unt
 
 1. **Open-Meteo licence.** ANSWERED (owner 10-14 ~21:25 EDT, relayed by master-agent; DECISION_LOG 2026-10-14): accept the risk ("this is mainly research still even if we trade real money"). Keep the free API; FC-10 is optional, not an exit requirement. S0(f) still records the current terms.
 2. **WU intraday (S22).** ANSWERED (master-agent from host run-state status fields, at the owner's direction; owner 10-14 ~21:25 EDT, relayed by master-agent; DECISION_LOG 2026-10-14): `public_wu_settlement_restore` runs in Stage A (10-14: PASS, 12/12 markets, target 10-13, 0 errors), so the redaction landed. WU-1 is in scope: shadow, redacted, token never logged.
-3. **Wallet identity.** OPEN. Keep taker/maker addresses from public data-api trades (VR-5), or keep stripping them?
-4. **Page tokens, registration keys, WRH disagreement read.** Free-registration keys: ANSWERED YES (owner 10-14 ~21:25 EDT, relayed by master-agent; DECISION_LOG 2026-10-14); the owner does the sign-ups from the [sign-up list](free-registration-signup-list.md); keys live only in `config/local/` (git-ignored) or the environment, never in git, never opened by agents. **Still open:** is a disagreement-only WRH page read (est. 5-10% of station-days) acceptable? Without it Q-09 cannot close.
+3. **Wallet identity.** ANSWERED (owner 10-15 10:39 EDT "All as recommended", relayed by master-agent; DECISION_LOG 2026-10-15): **keep** taker/maker addresses from public data-api trades (VR-5). The 10-14 "3" was Q8.
+4. **Page tokens, registration keys, WRH disagreement read.** Free-registration keys: ANSWERED YES (owner 10-14 ~21:25 EDT, relayed by master-agent; DECISION_LOG 2026-10-14); the owner does the sign-ups from the [sign-up list](free-registration-signup-list.md); keys live only in `config/local/` (git-ignored) or the environment, never in git, never opened by agents. Disagreement-only WRH page read (est. 5-10% of station-days): ANSWERED (owner 10-15 10:39 EDT "All as recommended", relayed by master-agent; DECISION_LOG 2026-10-15), **yes**, behind the fetch-side embargo guard, embargo dates excluded; closes Q-09.
 5. **Book write-on-change heartbeat.** ANSWERED YES (owner 10-14 ~21:25 EDT, relayed by master-agent; DECISION_LOG 2026-10-14), "once test show we lose nothing": lands only after S0(b) shows a lossless reconstruction, with a receipt.
 6. **Shared WS subscriber (M13).** Approve the evidence-semantics change?
-7. **Ledger idempotence (LB-3)** for ~10-28?
+7. **Ledger idempotence (LB-3).** ANSWERED (owner 10-15 10:39 EDT "All as recommended", relayed by master-agent; DECISION_LOG 2026-10-15): **yes**, with LB-5 ~10-28.
 8. **Settlement coverage (LB-5) and learning-lane unblock (Q-11).** ANSWERED YES as a standing rule (owner 10-14 ~21:25 EDT, relayed by master-agent; DECISION_LOG 2026-10-14, mapped from the owner's "3"): always fill missing countable rows, including after 10-09; backfill writes stay outcome-blind and nobody reads reserved-date contents until the window ends. Q-11: schedule it.
 9. **Label instrument switch** after MG-1's look: pre-register a WRH-equivalent regime?
-10. **Lowest series.** Does the 10-02 decision apply to the recorder-only lane (~10-24, after S9)?
-11. **Adoption model for new families.** The default is explicit restart with running-vs-disk identity in status.
-12. **Free space.** Confirm the current figure (106+36 vs 159 GiB) and whether replay_cache and twin deletes have run.
-13. **Hong Kong embargo disclosure.** Rule on the single HKO fetch at 2026-10-15 00:40Z.
+10. **Lowest series.** ANSWERED (owner 10-15 10:39 EDT "All as recommended", relayed by master-agent; DECISION_LOG 2026-10-15): **confirmed**, the 10-02 decision covers the S6 recorder-only lane (~10-24).
+11. **Adoption model for new families.** ANSWERED (owner 10-15 10:39 EDT "All as recommended", relayed by master-agent; DECISION_LOG 2026-10-15): **yes**, explicit restart with running-vs-disk identity in status.
+12. **Free space.** CLOSED from state (DECISION_LOG 2026-10-15): 158.4 GiB free at the 10-14 host stat; no replay_cache or twin delete has run (they need Q15's signed manifest / 10-31).
+13. **Hong Kong embargo disclosure.** ANSWERED (owner 10-15 10:39 EDT "All as recommended", relayed by master-agent; DECISION_LOG 2026-10-15): **accepted** as disclosed; no evidence voided; the no-live-fetch rule stands.
 14. **Phase D scope.** All remaining venue cities, or stop after the 16 that out-trade the median built-in?
-15. **Reclaims.** Sign the exact replay_cache manifest. Separately, approve or refuse the legacy `forecast_payloads` CAS dedupe (now excluded; it is the only issue-time archive).
-16. **88a panel freeze.** If the 10-01 maker-P&L pre-registration freezes 88a behaviour, approve an amendment for S2 or defer it to after 10-30.
+15. **Reclaims.** `forecast_payloads` CAS dedupe: ANSWERED (owner 10-15 10:39 EDT "All as recommended", relayed by master-agent; DECISION_LOG 2026-10-15), **refused permanently** (the only issue-time archive). The exact replay_cache manifest is still signed when presented.
+16. **88a panel freeze.** ANSWERED (owner 10-15 10:39 EDT "All as recommended", relayed by master-agent; DECISION_LOG 2026-10-15): no amendment needed (S0(j): the 10-01 pre-registration freezes no 88a code); the owner signed the clarification that the P1 pilot bands are outside its 12-market stratum.
 
 ---
 
