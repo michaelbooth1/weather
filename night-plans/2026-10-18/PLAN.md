@@ -81,7 +81,15 @@ Runs A, B and R used qtest (queue lease) on `a39b998a2`.
   the workflow and the pinned shard plan; `tests/bounded_suite_file_timings.json` gains the 12 new test files, with
   seconds from the failed pre-gate's chunk XMLs (Fable's minor note). The hygiene baseline needs no entry: the files now
   comply. Focused run (9 files incl. hygiene, shards, ci_timing, ps-root, bounded-suite script): rc 0.
-- **Full pre-gate on `cf8cfe6ae`** (base and pre-gate script from master `90b2e1844`): @@PREGATE6@@
+- **Full pre-gate on `cf8cfe6ae`** (base and pre-gate script from master `90b2e1844`): **FAIL**, 1 chunk of the bounded suite
+  (receipt `l-data/s18/pregate/pg-cf8cfe6aec4e-20261015T120012-81956/receipt.json`). All four failures are
+  `test_production_cold_archive_wrapper` teardown tests asserting `'running' == 'not_found'`: a child process
+  still alive at the check, while three other heavy jobs shared the machine. The stack touches no cold-archive code.
+  - Isolated re-run of that file on `cf8cfe6ae`: **71 passed**.
+  - Re-run of the whole failing chunk (25 files) on `cf8cfe6ae`: **334 passed, 12 skipped**, rc 0.
+  - Verdict: load flake, not a stack defect. Every other chunk passed.
+- **Fallback** `claude/integration-20261018-stack4-r` @ `50071829d`: stack4 + `cherry-pick -x` of the repair +
+  merge of master `90b2e1844`; focused run 228 passed. Land only if stack6 is rejected.
 
 The BLAS parity proof was accepted 10-15: the toronto-aug-12 captured-input replay is byte-identical with and without the cap.
 
