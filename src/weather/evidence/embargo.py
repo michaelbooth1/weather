@@ -13,6 +13,9 @@ Read purposes: ``capture_check`` (outcome-blind operational read), ``outcome_joi
 Fetch side (:func:`embargo_guard`): a backfill or sweep keyed to an event or target date inside
 any window is refused before the request is sent. A ``live`` current-state poll is outcome-blind
 capture and is allowed in every window, but never for an event date already in the past.
+``capture`` (the S5 light lane: label instruments, venue trades) is an outcome-blind write of a
+past date: refused for a ``full`` day, allowed with its scopes recorded for an ``outcome`` or MG-1
+reserved day, whose contents nobody reads until the window ends (contract "Embargo").
 """
 from __future__ import annotations
 
@@ -26,7 +29,7 @@ OUTCOME_JOIN = "outcome_join"
 CANDIDATE = "candidate"
 CANDIDATE_PREFIX = "candidate="
 MG1_RESERVED = "mg1_reserved"
-FETCH_MODES = ("live", "backfill", "sweep")
+FETCH_MODES = ("live", "backfill", "sweep", "capture")
 
 
 class EmbargoRefused(PermissionError):
@@ -97,6 +100,12 @@ def embargo_guard(family: str, event_date, *, mode: str = "backfill", today=None
             raise EmbargoRefused("live_mode_for_past_event_date", **decision)
         return {**decision, "decision": "allowed_live_capture"}
     scopes = day_scopes(text)
+    if mode == "capture":
+        if FULL in scopes:
+            raise EmbargoRefused("fetch_event_date_full_window", scopes=list(scopes), **decision)
+        if scopes:
+            return {**decision, "decision": "allowed_outcome_blind_capture", "scopes": list(scopes)}
+        return {**decision, "decision": "allowed"}
     if scopes:
         raise EmbargoRefused("fetch_event_date_embargoed", scopes=list(scopes), **decision)
     return {**decision, "decision": "allowed"}

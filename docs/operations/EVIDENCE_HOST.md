@@ -3,7 +3,7 @@
 Status: canonical. Owns the `WeatherEvidenceHost` supervisor, its per-family child
 processes, the evidence journal layout under `data/evidence/`, the point-in-time
 (PIT) reader and fetch-side embargo guard, and the first families (OB-1, OB-2,
-OB-3, FC-1, FC-4, VR-3). Read when running, registering, extending or reading the
+OB-3, FC-1, FC-4, VR-3) and the S5 light batch lane (LB-1, VR-5). Read when running, registering, extending or reading the
 evidence host, or adding a family to it. Family purpose, budgets and the build
 sequence belong to [the Data Layer v2 plan](DATA_LAYER_V2_PLAN.md); the `platform`
 registry row belongs to [the platform contract](DATA_LAYER_V2_CONTRACT.md). This
@@ -15,7 +15,9 @@ document grants no registration, run or trading authority:
 One long-lived `python -m weather.evidence.host run` parent supervises one child
 (`python -m weather.evidence.child --family <id>`) per enabled family in
 `config/evidence_host.json`. Every request is a public, free, read-only GET
-(AWC, api.weather.gov, HKO, JMA, ECCC, DWD, Open-Meteo metadata, Polymarket Gamma).
+(AWC, api.weather.gov, HKO, JMA, ECCC, DWD, Open-Meteo metadata, Polymarket Gamma,
+and for the light lane the Iowa Environmental Mesonet ASOS archive and the public
+Polymarket data-api trades and CLOB prices-history routes).
 The package imports no order, wallet, signing or credential module and reads no
 `.env`; `tests/evidence/test_evidence_child_host.py` ratchets that, and that no
 capture loop's static import closure reaches `src/weather/evidence/` (so every
@@ -71,6 +73,10 @@ only reader. Purposes are `capture_check`, `outcome_join` and `candidate=<id>`.
 Fetchers enforce the embargo too: `weather.evidence.embargo.embargo_guard` refuses
 any `backfill` or `sweep` request for an embargoed event date and journals a
 `guard` row; `live` mode refuses any event date older than yesterday (UTC).
+`capture` mode (light-lane outcome-blind capture, per the contract's rule that
+capture writes are allowed inside a window) refuses every FULL-window day
+(`fetch_event_date_full_window`) and allows OUTCOME and MG-1 reserved days as
+`allowed_outcome_blind_capture` with the scopes recorded.
 
 ## Families
 
@@ -97,6 +103,45 @@ Adding a family: a module with `build`, a config block, schemas in
 `weather/schema_families/evidence_host.py`, tests under `tests/evidence/`, and a
 plan family id on the `evidence_host` row of `config/capture_families.json`.
 
+## Light lane (S5)
+
+`light_lane` in `config/evidence_host.json` lists one-shot tasks, each a module under
+`weather.evidence.tasks` exposing `run(ctx, days=None)` and journalling under its own
+family id through the same writer, fetcher, telemetry and guard as a child
+(`weather.evidence.batch`). A `LightLaneSupervisor` thread inside the host starts
+every enabled task once per host-local day inside `run_local` (00:30-01:00), one at
+a time, each in the same kill-on-close Job with `ram_cap_mib` (at most 256) and a
+wall bound `wall_seconds` (at most 600; the task stops itself 30 s earlier with a
+`cap` row). A cap kill writes a kill receipt; a timeout is a `wall_bound_kill`.
+The lane takes no workload lease and adds no scheduled task.
+
+- **LB-1 `lb1_labels`:** shadow label panel, partition `label_panel`, one row per
+  `location|local day|max-or-min` with `metar_all` (IEM routine and special
+  reports, fetched as separate `report_type` 3 and 4 requests), `metar_hourly`
+  (routine reports with a numeric SLP group; foreign cities resolve on
+  `metar_all`) and the `ob1_finality_proxy` (`awc_proxy_of_wrh`: the OB-1 state
+  when the next local day's first report was first seen). It writes no settlement
+  label. Every UTC day a request touches passes the guard in `capture` mode; the
+  re-read day journals a `cor` event where the proxy differs from `metar_all`.
+  WRH (owner Q4): at most one `wrh_read` row per US station-day where `metar_all`
+  and `metar_hourly` disagree at the degree, behind the strict `backfill` guard
+  (every window refused). The WRH page renders through a page-embedded third-party
+  token that no decision covers yet, so the row records `status=pending_route` and
+  nothing is fetched until a route is ruled. Not built yet: WU daily, the IEM
+  6-hour composite, 1-minute ASOS, CLI/CF6, HKO Daily Extract, ECCC climate-daily,
+  the venue winner and the Stage-A read step.
+- **VR-5 `vr5_trades`:** conditions from the VR-3 journal (`capture_check`) for the
+  configured `location_ids` and event days 1-3 back, each guarded in `capture`
+  mode. `trades` rows (data-api `/trades?market=`, paged) keep `proxyWallet`
+  (public on-chain identifiers; owner Q3 = A) and drop profile fields; no `user=`
+  filter is ever sent. `prices_history` (CLOB, 1-minute fidelity) covers closed
+  markets only, once per token, raw reply to the CAS. Bounded by
+  `max_requests_per_run`, the hourly request budget and at most 4 MiB/s.
+
+`python -m weather.evidence.batch task --task <id> [--day YYYY-MM-DD ...]` runs one
+task in-process (each `--day` still guarded); `python -m weather.evidence.batch run`
+runs the lane once now under the same containment.
+
 ## Caps and pauses (PL-5, PL-6)
 
 - Each child runs inside `weather.operations.long_job_guard.run_isolated_subprocess`:
@@ -109,6 +154,9 @@ plan family id on the `evidence_host` row of `config/capture_families.json`.
   until the next UTC day. Crashes back off from 5 s doubling to 300 s.
 - The parent writes `host.stop` and exits if its own private bytes pass
   `parent_ram_cap_mib` (at most 64).
+- The declared worst case (`declared_caps_bytes`) is the parent cap plus every
+  enabled child cap plus the largest enabled light-lane task cap (tasks run one at
+  a time); `host_status.json` reports it.
 - Optional channels pause inside `optional_pause_local` (09:30-11:55, the Stage-A
   chain), when available memory is below `min_available_mib` plus the declared
   child caps, and on a red disk band; every channel pauses on a critical disk band
@@ -136,4 +184,5 @@ arm it.
 ## Update when
 
 Update when a family, channel class, journal file, envelope field, purpose,
-embargo rule, cap or pause rule, CLI subcommand or the registrar contract changes.
+embargo rule, cap or pause rule, light-lane task, CLI subcommand or the registrar
+contract changes.

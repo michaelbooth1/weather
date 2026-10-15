@@ -53,10 +53,15 @@ def evidence_root(config: dict, repo_root=None) -> Path:
 
 
 def declared_caps_bytes(config: dict) -> int:
-    """Sum of enabled children's commit caps plus the parent's (the RAM pause rule adds these)."""
+    """Enabled children's commit caps, the parent's, and the largest enabled light-lane task cap.
+
+    Light-lane tasks run one at a time, so at most one task cap is live (the RAM pause rule adds these).
+    """
     host = config.get("host") or {}
     total = int(host.get("parent_ram_cap_mib", 0)) * MIB
     for family in config["families"].values():
         if family.get("enabled"):
             total += int(family["ram_cap_mib"]) * MIB
+    tasks = ((config.get("light_lane") or {}).get("tasks") or {}).values()
+    total += max((int(t["ram_cap_mib"]) * MIB for t in tasks if t.get("enabled")), default=0)
     return total
