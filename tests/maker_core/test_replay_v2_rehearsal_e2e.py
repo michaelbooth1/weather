@@ -79,10 +79,18 @@ def test_nothing_scored_is_in_the_document(per_date):
 
 
 @pytest.fixture(scope="module")
-def repeat(calibration):
+def same_process_repeat(calibration):
     _, paths, inventory = calibration
     day = CALIBRATION_DATES[1]
     return rehearse([paths[day]], inventory([day]), "per_date")
+
+
+@pytest.fixture(scope="module")
+def repeat(same_process_repeat):
+    """The E7 repeat as a second process would write it: only the hash probe of the seed in force differs. Row 17's
+    real two-process run (PYTHONHASHSEED 0 and 1) is ``test_replay_v2_rehearse_cli``; here both ran in this one."""
+    env = same_process_repeat["environment"]
+    return dict(same_process_repeat, environment=dict(env, hash_seed="1", hash_probe=env["hash_probe"] ^ 1))
 
 
 @pytest.fixture(scope="module")
@@ -101,11 +109,11 @@ def carried(calibration):
     return doc, seen
 
 
-def test_two_rehearsals_of_one_date_are_byte_identical_e7(per_date, repeat):
+def test_two_rehearsals_of_one_date_are_byte_identical_e7(per_date, same_process_repeat):
     day = CALIBRATION_DATES[1]
-    again = repeat
+    again = same_process_repeat
     first = per_date[day.isoformat()]
-    assert again["hashes"] == first["hashes"]
+    assert again["hashes"] == first["hashes"] and again["environment"] == first["environment"]
     for key in set(rehearsal.MEASURED_KEYS) - {"runtime_seconds"}:
         assert again["measured"][key] == first["measured"][key], key
 
@@ -395,3 +403,36 @@ def test_the_gate_report_recomputes_the_section_11_status(per_date, carried, rep
     with pytest.raises(BundleError, match="gate_reachability_status_mismatch:r1_per_city"):
         reachability.gate_report(per_date, _with_status(doc, "FAIL"), repeat,
                                  r1=dict(edited, hazard_variant="r1_per_city"))
+
+
+def test_e7_fails_for_two_rehearsals_under_one_hash_seed(per_date, carried, same_process_repeat):
+    # row 17: identical hashes from one process (one seed in force) do not show seed independence
+    e7 = reachability.gate_report(per_date, carried[0], same_process_repeat)["executability"]["gates"]["E7"]
+    assert e7["status"] == "FAIL" and e7["separate_hash_seeds"] is False and all(e7["identical"].values())
+
+
+def test_e7_passes_only_for_identical_hashes(per_date, carried, repeat):
+    other = dict(repeat, hashes=dict(repeat["hashes"], report_sha256="0" * 64))
+    e7 = reachability.gate_report(per_date, carried[0], other)["executability"]["gates"]["E7"]
+    assert e7["status"] == "FAIL" and e7["identical"]["report_sha256"] is False and e7["separate_hash_seeds"]
+
+
+@pytest.mark.parametrize("edit, field", [
+    (lambda d: d.pop("environment"), "environment"),
+    (lambda d: d.update(environment=dict(d["environment"], source_sha256="0" * 64)), "environment.source_sha256"),
+    (lambda d: d.update(environment=dict(d["environment"], numpy="0.0")), "environment.numpy"),
+    (lambda d: d.update(environment=dict(d["environment"], thread_pins=dict(
+        d["environment"]["thread_pins"], OPENBLAS_NUM_THREADS="8"))), "environment.thread_pins"),
+    (lambda d: d.update(hashes=dict(d["hashes"], input_hashes={k: {**v, "bundle.json": "0" * 64}
+                                                                for k, v in d["hashes"]["input_hashes"].items()})),
+     "input_hashes"),
+    (lambda d: d.update(calibration_sha256="0" * 64), "calibration_sha256"),
+    (lambda d: d.update(replicates=REPLICATES + 1), "replicates"),
+    (lambda d: d.update(inventory_sha256="0" * 64), "inventory_sha256"),
+])
+def test_e7_refuses_a_repeat_that_is_not_comparable(per_date, carried, repeat, edit, field):
+    # row 17: the source/environment digest and every input E7 holds fixed must match, or E7 means nothing
+    other = dict(repeat)
+    edit(other)
+    with pytest.raises(BundleError, match="e7_not_comparable:" + field + "$"):
+        reachability.gate_report(per_date, carried[0], other)

@@ -147,4 +147,13 @@ Calibration rehearsal subcommands (registration draft §9-§11, U5) are in `rehe
    and §11 (`maker_core.replay.v2.reachability.gate_report`); E1/E3/E8 evidence is supplied as JSON
    `{"status", "evidence"}` and reads NOT_SUPPLIED until given. E6 (owner ruling E6 = A, DECISION_LOG
    2026-10-15) reads PASS when every ceiling is within its host limit and the panel-projected pull-candidate count
-   is at or below the §9 pull-candidate ceiling, FAIL otherwise. Only a §11 PASS passes; no eligible second reads UNIDENTIFIED. `derive` holds its inputs to the same labels.
+   is at or below the §9 pull-candidate ceiling, FAIL otherwise. E7 (CONSOLIDATED row 17, binding) compares a
+   per-date rehearsal with `--repeat-rehearsal`, the same date rehearsed in a second process under a different
+   `PYTHONHASHSEED` (for example 0 and 1): it refuses `e7_not_comparable:<field>` unless both documents' input
+   hashes, settings and `environment` digest (maker_core sources, Python/numpy/scipy versions, thread pins) match,
+   and passes only for identical decision, report and sidecar hashes under different hash seeds in force. Only a
+   §11 PASS passes; no eligible second reads UNIDENTIFIED. `derive` holds its inputs to the same labels.
+
+Every rehearsal document is held to a path-and-type schema (`rehearsal.schema()`, CONSOLIDATED row 16, binding),
+re-checked by every reader. A refused subcommand exits 2 and prints only `refused: <code>` on stderr (no traceback,
+exception text or warning); the code's path names schema keys only and masks any other key as `<key>`.

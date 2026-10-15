@@ -59,6 +59,8 @@ THRESHOLD = D("0.5")  # Clarification 3: below it the pull hurdle (ratio >= 2) i
 POLICY, BOUND = "informed-v0", "strictly_through"
 QUOTED_FRACTION_POLICIES = ("informed-v0", "blind_re1", "clock_only")
 PANEL_SCALE = D(QUOTE_DATES) / D(len(CALIBRATION_DATES))
+PANEL_SCALE_TEXT = f"{QUOTE_DATES}/{len(CALIBRATION_DATES)} quote dates per calibration date"
+SCREEN_READING = "terminal (action, reason); reached is a lower bound, so the rate is biased toward pass"
 SCREEN_FAILED = frozenset({("NO_QUOTE", "NONPOSITIVE_NET"), ("CANCEL", "NONPOSITIVE_NET")})
 SCREEN_PASSED = frozenset({
     ("QUOTE", "INFORMED_QUOTE"), ("NO_QUOTE", "COMPETITION_OUTSIDE_RANGE"), ("CANCEL", "ADVERSE_LEG_CHANGED"),
@@ -179,7 +181,7 @@ def screen(counts):
         failed += n if pair in SCREEN_FAILED else 0
     reached = passed + failed
     return dict(reached=reached, passed=passed, rate=str(D(passed) / D(reached)) if reached else None,
-                reading="terminal (action, reason); reached is a lower bound, so the rate is biased toward pass")
+                reading=SCREEN_READING)
 
 
 def policy_free_opportunities(plan, books, *, check=lambda: None):
@@ -238,7 +240,7 @@ def block(run, counts, *, check=lambda: None, opportunities=None):
                 n_cal=opportunities["n_cal"], l_cal=opportunities["l_cal"],
                 expected_clock_removed=None if removed is None else dict(
                     calibration=str(removed), panel=str(removed * PANEL_SCALE),
-                    panel_scale=f"{QUOTE_DATES}/{len(CALIBRATION_DATES)} quote dates per calibration date"))
+                    panel_scale=PANEL_SCALE_TEXT))
 
 
 # -- §10 and §11 gate report -----------------------------------------------------------------------------------------
@@ -268,6 +270,44 @@ def _carried(doc, variant):
     return doc
 
 
+E7_COMPARED = ("calibration_sha256", "hazard_variant", "hazard_per_minute", "hazard_map_sha256", "inventory_sha256",
+               "replicates", "report_status", "dates")
+E7_ENVIRONMENT = ("source_sha256", "python", "numpy", "scipy", "thread_pins")
+
+
+def _e7(per_date, repeat):
+    """(date, identical hashes, separate hash seeds) for E7 (CONSOLIDATED row 17, binding: DECISION_LOG 2026-10-15).
+
+    The repeat is a second per-date rehearsal of one date, run in its own process under a different
+    ``PYTHONHASHSEED``. Both documents must carry ``environment`` and agree on every input and setting E7 holds fixed:
+    the input file hashes, the calibration, hazard, inventory and replicate settings, and the source/environment
+    digest (sources, versions, thread pins); otherwise ``e7_not_comparable:<field>`` refuses. Identical decision,
+    report and sidecar hashes pass only when the two hash probes differ, i.e. the seeds in force really differed."""
+    from maker_core.replay.v2.rehearsal import whitelisted
+    whitelisted(repeat)
+    day = (repeat.get("dates") or [None])[0]
+    if repeat.get("mode") != "per_date" or day not in per_date:
+        raise BundleError("gate_repeat_rehearsal_required")
+    first = per_date[day]
+    for doc in (first, repeat):
+        if not isinstance(doc.get("environment"), dict) or set(doc["environment"]) != set(
+                (*E7_ENVIRONMENT, "hash_seed", "hash_probe")):
+            raise BundleError("e7_not_comparable:environment")
+        if not isinstance(doc.get("hashes"), dict) or "input_hashes" not in doc["hashes"]:
+            raise BundleError("e7_not_comparable:input_hashes")
+    if first["hashes"]["input_hashes"] != repeat["hashes"]["input_hashes"]:
+        raise BundleError("e7_not_comparable:input_hashes")
+    for key in E7_COMPARED:
+        if first.get(key) != repeat.get(key):
+            raise BundleError("e7_not_comparable:" + key)
+    for key in E7_ENVIRONMENT:
+        if first["environment"][key] != repeat["environment"][key]:
+            raise BundleError("e7_not_comparable:environment." + key)
+    same = {k: first["hashes"].get(k) == repeat["hashes"].get(k)
+            for k in ("decision_sha256", "report_sha256", "sidecar_sha256")}
+    return day, same, first["environment"]["hash_probe"] != repeat["environment"]["hash_probe"]
+
+
 def gate_report(per_date, carried, repeat, *, r1=None, e1=None, e3=None, e8=None):
     """The §10 E1-E8 and §11 gate document, from rehearsal documents and supplied external evidence only.
 
@@ -278,6 +318,7 @@ def gate_report(per_date, carried, repeat, *, r1=None, e1=None, e3=None, e8=None
     E6 (owner ruling E6 = A, DECISION_LOG 2026-10-15): every derived ceiling within its §8 limit, and the carried
     pull-candidate count projected to the panel (x 14 // 3) at or below §9's MEASURED pull-candidate ceiling
     (``ceilings.e6_pull_candidates``); PASS within, FAIL above it or when the ceilings are not executable.
+    E7 (row 17): ``_e7``; PASS only for identical hashes from two processes under different hash seeds.
     Only PASS passes: the executability status is PASS when every gate passes, FAIL when any fails, else INCOMPLETE."""
     from maker_core.replay.v2 import ceilings
     from maker_core.replay.v2.rehearsal import ceiling_input, whitelisted
@@ -291,12 +332,7 @@ def gate_report(per_date, carried, repeat, *, r1=None, e1=None, e3=None, e8=None
     carried = _carried(carried, "max_m")
     measured = {day: ceiling_input(doc) for day, doc in per_date.items()}
     derived = ceilings.derive(measured, ceiling_input(carried), pull_candidates=carried["pull_candidates"])
-    whitelisted(repeat)
-    day = (repeat.get("dates") or [None])[0]
-    if repeat.get("mode") != "per_date" or day not in per_date:
-        raise BundleError("gate_repeat_rehearsal_required")
-    first = per_date[day]["hashes"]
-    same = {k: first[k] == repeat["hashes"][k] for k in ("decision_sha256", "report_sha256", "sidecar_sha256")}
+    day, same, seeds = _e7(per_date, repeat)
     projected = carried["pull_candidates"] * QUOTE_DATES // len(CALIBRATION_DATES)
     gates = dict(
         E1=_external("E1", e1),
@@ -309,7 +345,8 @@ def gate_report(per_date, carried, repeat, *, r1=None, e1=None, e3=None, e8=None
         E6=dict(ceilings.e6_pull_candidates(projected, derived), host_limit_binding=derived["host_limit_binding"],
                 projected_pull_candidates=projected,
                 panel_scale=f"{QUOTE_DATES}/{len(CALIBRATION_DATES)} quote dates per calibration date (D6.6)"),
-        E7=dict(status="PASS" if all(same.values()) else "FAIL", date=day, identical=same),
+        E7=dict(status="PASS" if all(same.values()) and seeds else "FAIL", date=day, identical=same,
+                separate_hash_seeds=seeds, source_sha256=repeat["environment"]["source_sha256"]),
         E8=_external("E8", e8))
     reach = {"max_m": carried["reachability"]}
     if r1 is not None:

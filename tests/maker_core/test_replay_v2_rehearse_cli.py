@@ -6,6 +6,11 @@ document is invented; no captured data is read.
 from __future__ import annotations
 
 import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import warnings
 
 import pytest
 
@@ -19,6 +24,7 @@ from tools.research.maker_replay_v2 import rehearse_cli, run
 from .fixtures.panel_v02 import Panel
 
 REPLICATES = "100"  # the bootstrap floor; the subcommand defaults to 2000
+ROOT = Path(__file__).resolve().parents[2]
 DAYS = [d.isoformat() for d in CALIBRATION_DATES]
 
 
@@ -47,6 +53,26 @@ def bundle_args(bundles, days):
     return [a for day in days for a in ("--bundle", bundles[day])]
 
 
+def call_process(root, name, label, seed, *args):
+    """``call`` in a fresh interpreter under ``PYTHONHASHSEED=seed`` (row 17: E7's two processes)."""
+    out = root / label
+    env = dict(os.environ, PYTHONHASHSEED=str(seed), PYTHONPATH=os.pathsep.join((str(ROOT / "src"), str(ROOT))))
+    done = subprocess.run([sys.executable, "-B", "-m", "tools.research.maker_replay_v2.run", name, "--out", str(out),
+                           *map(str, args)], cwd=ROOT, env=env, capture_output=True, text=True, timeout=600)
+    assert done.returncode == 0, done.stderr[-2000:]
+    value, _ = read_json(out / f"{name}.json", rehearse_cli.DOCUMENT_BYTES)
+    return out / f"{name}.json", value
+
+
+def refused(capsys, argv):
+    """(code, stdout) of a refused subcommand: rc 2 and one ``refused: <code>`` line on stderr (row 16)."""
+    capsys.readouterr()
+    assert run.main([str(a) for a in argv]) == 2
+    captured = capsys.readouterr()
+    assert captured.err.startswith("refused: ") and captured.err.count("\n") == 1 and captured.out == ""
+    return captured.err.strip()[len("refused: "):], captured.out
+
+
 @pytest.fixture(scope="module")
 def documents(workspace):
     root, bundles, calibration = workspace
@@ -56,9 +82,12 @@ def documents(workspace):
         assert value["format"] == rehearse_cli.INVENTORY_FORMAT and value["dates"] == days and value["rows"]
         mode = "carried" if label == "carried" else "per_date"
         common = ("--inventory", inventory, "--calibration", calibration, "--mode", mode, "--replicates", REPLICATES)
-        docs[label] = call(root, "rehearse", "reh-" + label, *bundle_args(bundles, days), *common)
-        if label == DAYS[1]:
-            docs["repeat"] = call(root, "rehearse", "reh-repeat", *bundle_args(bundles, days), *common)
+        if label == DAYS[1]:  # E7's pair: two fresh processes under different hash seeds (row 17)
+            docs[label] = call_process(root, "rehearse", "reh-" + label, 0, *bundle_args(bundles, days), *common)
+            docs["repeat"] = call_process(root, "rehearse", "reh-repeat", 1, *bundle_args(bundles, days), *common)
+            docs["same-process"] = call(root, "rehearse", "reh-same", *bundle_args(bundles, days), *common)
+        else:
+            docs[label] = call(root, "rehearse", "reh-" + label, *bundle_args(bundles, days), *common)
         if label == "carried":
             docs["r1"] = call(root, "rehearse", "reh-r1", *bundle_args(bundles, days), *common,
                               "--hazard-variant", "r1_per_city")
@@ -89,6 +118,7 @@ def test_derive_and_the_gate_report_read_the_written_documents(workspace, docume
                    "--repeat-rehearsal", documents["repeat"][0], "--r1", documents["r1"][0], "--e8", evidence)
     gates = gate["executability"]["gates"]
     assert gates["E7"]["status"] == "PASS" and gates["E8"] == dict(status="PASS", evidence="fixture suite")
+    assert gates["E7"]["separate_hash_seeds"] is True and all(gates["E7"]["identical"].values())
     assert gate["executability"]["not_supplied"] == ["E1", "E3"]
     assert gates["E6"]["status"] == "PASS" and gate["executability"]["not_evaluated"] == []  # E6 = A (10-15)
     assert derived["derived"]["ceilings"]["pull_candidates"] == gates["E6"]["max_pull_candidates"]
@@ -98,34 +128,34 @@ def test_derive_and_the_gate_report_read_the_written_documents(workspace, docume
     assert set(gate["reachability"]["variants"]) == {"max_m", "r1_per_city"}
 
 
-def test_a_panel_date_is_refused_before_any_bundle_is_opened(workspace, monkeypatch):
+def test_a_panel_date_is_refused_before_any_bundle_is_opened(workspace, monkeypatch, capsys):
     root, _, calibration = workspace
     monkeypatch.setattr(bundle_v02, "open_stream_bundle", lambda *a, **k: pytest.fail("a bundle was opened"))
     panel_path = root / "bundles" / "2026-10-02" / "bundle"
     for name, extra in (("rehearsal-inventory", ()), ("rehearse", ("--mode", "per_date", "--calibration", calibration,
                                                                     "--inventory", calibration))):
-        with pytest.raises(BundleError, match="rehearsal_restricted_to_calibration_dates"):
-            run.main([name, "--out", str(root / ("refused-" + name)), "--bundle", str(panel_path), *map(str, extra)])
+        code, _ = refused(capsys, [name, "--out", root / ("refused-" + name), "--bundle", panel_path, *extra])
+        assert code == "rehearsal_restricted_to_calibration_dates"
 
 
-def test_rehearse_refuses_an_inventory_for_other_dates(workspace, documents):
+def test_rehearse_refuses_an_inventory_for_other_dates(workspace, documents, capsys):
     root, bundles, calibration = workspace
     inventory = root / "inv-carried" / "rehearsal-inventory.json"
-    with pytest.raises(BundleError, match="rehearsal_inventory_dates_mismatch"):
-        run.main(["rehearse", "--out", str(root / "mismatch"), "--bundle", str(bundles[DAYS[0]]), "--inventory",
-                  str(inventory), "--calibration", str(calibration), "--mode", "per_date"])
+    code, _ = refused(capsys, ["rehearse", "--out", root / "mismatch", "--bundle", bundles[DAYS[0]], "--inventory",
+                               inventory, "--calibration", calibration, "--mode", "per_date"])
+    assert code == "rehearsal_inventory_dates_mismatch"
 
 
-def test_an_inventory_takes_one_date_or_all_three(workspace, monkeypatch):
+def test_an_inventory_takes_one_date_or_all_three(workspace, monkeypatch, capsys):
     # Defender D7.2 / v03: two dates are neither a per-date nor a carried rehearsal; refused before anything is read
     from weather.market import maker_replay_universe_v02
     root, bundles, _ = workspace
     monkeypatch.setattr(maker_replay_universe_v02, "universe", lambda *a, **k: pytest.fail("bundles were read"))
-    with pytest.raises(BundleError, match="rehearsal_bundle_paths_invalid"):
-        run.main(["rehearsal-inventory", "--out", str(root / "two-dates"), *map(str, bundle_args(bundles, DAYS[:2]))])
+    code, _ = refused(capsys, ["rehearsal-inventory", "--out", root / "two-dates", *bundle_args(bundles, DAYS[:2])])
+    assert code == "rehearsal_bundle_paths_invalid"
 
 
-def test_derive_refuses_mislabelled_rehearsals(workspace, documents):
+def test_derive_refuses_mislabelled_rehearsals(workspace, documents, capsys):
     # Defender D7.2 / v04: derive holds the documents to the labels gate-report requires
     root, _, _ = workspace
     per_date = [documents[d][0] for d in DAYS]
@@ -137,6 +167,81 @@ def test_derive_refuses_mislabelled_rehearsals(workspace, documents):
         (per_date, documents["r1"][0], "gate_carried_rehearsal_required:max_m"),  # R1 is not the ceiling run
     ]
     for i, (dates, carried_path, refusal) in enumerate(cases):
-        with pytest.raises(BundleError, match=refusal):
-            run.main(["derive", "--out", str(root / f"derive-refused-{i}"), "--per-date", *map(str, dates),
-                      "--carried", str(carried_path)])
+        code, _ = refused(capsys, ["derive", "--out", root / f"derive-refused-{i}", "--per-date", *dates,
+                                   "--carried", carried_path])
+        assert code.startswith(refusal)
+
+
+def test_e7_fails_for_a_repeat_from_the_same_process(workspace, documents):
+    # row 17: the in-process repeat has the same hash seed in force, so identical hashes do not pass E7
+    root, _, _ = workspace
+    per_date = ["--per-date", *(documents[d][0] for d in DAYS)]
+    _, gate = call(root, "gate-report", "gate-same", *per_date, "--carried", documents["carried"][0],
+                   "--repeat-rehearsal", documents["same-process"][0])
+    e7 = gate["executability"]["gates"]["E7"]
+    assert e7["status"] == "FAIL" and e7["separate_hash_seeds"] is False and all(e7["identical"].values())
+    assert documents["repeat"][1]["environment"]["hash_seed"] == "1"
+    assert documents[DAYS[1]][1]["environment"]["hash_seed"] == "0"
+
+
+SECRET, KEY_SECRET = "0.918273645", "77123"
+
+
+def _smuggled(source, target, mutate):
+    doc = json.loads(source.read_text(encoding="utf-8"))
+    mutate(doc)
+    target.write_text(json.dumps(doc), encoding="utf-8")
+    return target
+
+
+@pytest.mark.parametrize("mutate, expected", [
+    (lambda d: d["reachability"].update(f_cal=SECRET + " fills"), "rehearsal_whitelist:reachability.f_cal"),
+    (lambda d: d["measured"]["records_by_kind"].update({KEY_SECRET: 1}),
+     "rehearsal_whitelist:measured.records_by_kind.<key>"),
+    (lambda d: d["reachability"]["decision_reasons"].update({"pnl": SECRET}),
+     "rehearsal_whitelist:reachability.decision_reasons.pnl"),
+    (lambda d: d.update({"x" + KEY_SECRET: SECRET}), "rehearsal_whitelist:<key>"),
+    (lambda d: d.update(interpretation=SECRET), "rehearsal_whitelist:interpretation"),
+])
+@pytest.mark.parametrize("name", ["derive", "gate-report"])
+def test_an_edited_document_is_refused_on_read_and_nothing_of_it_is_printed_or_written(
+        workspace, documents, capsys, tmp_path, mutate, expected, name):
+    # row 16: the typed schema is re-checked on read, and a refusal is a code only on stderr: the smuggled value
+    # (and a smuggled key) is in no output stream and no written file
+    carried = _smuggled(documents["carried"][0], tmp_path / "carried.json", mutate)
+    out = tmp_path / "out"
+    extra = ["--repeat-rehearsal", documents["repeat"][0]] if name == "gate-report" else []
+    code, stdout = refused(capsys, [name, "--out", out, "--per-date", *(documents[d][0] for d in DAYS),
+                                    "--carried", carried, *extra])
+    assert code == expected
+    written = b"".join(p.read_bytes() for p in out.rglob("*") if p.is_file())
+    for secret in (SECRET, KEY_SECRET):
+        assert secret not in code and secret not in stdout and secret.encode() not in written
+
+
+def test_an_exception_or_a_warning_prints_no_text(documents, capsys, monkeypatch, tmp_path):
+    def leaky(args):
+        warnings.warn("pnl " + SECRET)
+        raise KeyError("fills " + SECRET)
+    monkeypatch.setattr(rehearse_cli, "derive", leaky)
+    code, _ = refused(capsys, ["derive", "--out", tmp_path / "leak", "--per-date", *(documents[d][0] for d in DAYS),
+                               "--carried", documents["carried"][0]])
+    assert code == "error:KeyError"
+    monkeypatch.setattr(rehearse_cli, "derive", lambda args: dict(nested=[dict(pnl=SECRET)]))
+    code, _ = refused(capsys, ["derive", "--out", tmp_path / "out-key"])
+    assert code == "rehearsal_output_forbidden_key"
+    assert not list((tmp_path / "out-key").iterdir())
+
+
+@pytest.mark.parametrize("text, code", [
+    ("rehearsal_whitelist:measured.records_by_kind.<key>", "rehearsal_whitelist:measured.records_by_kind.<key>"),
+    ("rehearsal_whitelist:dates[2]", "rehearsal_whitelist:dates[2]"),
+    ("e7_not_comparable:environment.source_sha256", "e7_not_comparable:environment.source_sha256"),
+    ("gate_per_date_rehearsal_required:2026-09-27", "gate_per_date_rehearsal_required:2026-09-27"),
+    ("gate_evidence_invalid:E1", "gate_evidence_invalid:E1"),
+    ("rehearsal_whitelist:" + SECRET, "rehearsal_whitelist:<key>.<key>"),
+    ("rehearsal_whitelist:x" + KEY_SECRET, "rehearsal_whitelist:<key>"),
+    ("Pnl " + SECRET, "error:BundleError"),
+])
+def test_a_refusal_code_echoes_only_known_names(text, code):
+    assert rehearse_cli.refusal_code(BundleError(text)) == code

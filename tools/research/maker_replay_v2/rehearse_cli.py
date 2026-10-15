@@ -25,12 +25,19 @@ fresh process, serially, through ``scripts/ops/workstation_heavy.ps1``:
   ``{"status": "PASS"|"FAIL", "evidence": "..."}``; an absent one reads NOT_SUPPLIED.
 
 Every output is counts, fractions and hashes only (the rehearsal whitelist); no score, fill, P&L or contrast is
-written.
+written. ``guarded`` (CONSOLIDATED row 16, binding: DECISION_LOG 2026-10-15) covers what reaches stdout and stderr:
+every rehearsal document read is re-checked against the typed schema (``rehearsal.whitelisted``), a ``rehearse``
+result is re-checked before it is written or printed, every result is scanned for forbidden keys at any depth, and
+a refusal prints only ``refused: <code>`` on stderr: the code's path keeps schema names, calibration dates and
+indices, and replaces anything else with ``<key>``; no traceback, exception text or warning is printed.
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
+import re
+import warnings
 
 from maker_core.replay.bundle import BundleError
 from maker_core.replay.calibration import CALIBRATION_DATES
@@ -98,18 +105,24 @@ def rehearse(args, *, now=None, memory=None):
                               now=now or datetime.now(timezone.utc), memory=memory)
 
 
+def _rehearsal(path):
+    """A written rehearsal document, re-checked against the typed schema on read (row 16)."""
+    from maker_core.replay.v2.rehearsal import whitelisted
+    doc, _ = _document(path)
+    return doc if doc is None else whitelisted(doc)
+
+
 def _rehearsals(args):
     if args.per_date is None or args.carried is None:
         raise BundleError("rehearsal_documents_required")
     per_date = {}
     for path in args.per_date:
-        doc, _ = _document(path)
+        doc = _rehearsal(path)
         day = (doc.get("dates") or [None])[0] if isinstance(doc, dict) else None
         if day in per_date or day is None:
             raise BundleError("gate_per_date_rehearsal_required:" + str(day))
         per_date[day] = doc
-    carried, _ = _document(args.carried)
-    return per_date, carried
+    return per_date, _rehearsal(args.carried)
 
 
 def derive(args):
@@ -130,10 +143,10 @@ def derive(args):
 def gate_report(args):
     from maker_core.replay.v2 import reachability
     per_date, carried = _rehearsals(args)
-    repeat, _ = _document(args.repeat_rehearsal)
+    repeat = _rehearsal(args.repeat_rehearsal)
     if repeat is None:
         raise BundleError("gate_repeat_rehearsal_required")
-    r1, _ = _document(args.r1)
+    r1 = _rehearsal(args.r1)
     evidence = {gate: _document(getattr(args, gate))[0] for gate in ("e1", "e3", "e8")}
     return reachability.gate_report(per_date, carried, repeat, r1=r1, **evidence)
 
@@ -141,3 +154,74 @@ def gate_report(args):
 def run(name, args):
     """The result document of one subcommand; ``run.py`` writes it under ``--out``."""
     return dict(zip(SUBCOMMANDS, (rehearsal_inventory, rehearse, derive, gate_report)))[name](args)
+
+
+_CODE = re.compile(r"[a-z][a-z0-9_]{0,79}")
+_INDEX = re.compile(r"\[\d{1,6}\]")
+_NAMES = []
+
+
+def _names():
+    """Every name a refusal path may echo: schema keys, forbidden keys, gate and variant names, calibration dates."""
+    if not _NAMES:
+        from maker_core.replay.v2 import rehearsal
+        names = set(rehearsal.FORBIDDEN) | {f"E{i}" for i in range(1, 9)} | set(rehearsal.HAZARD_VARIANTS)
+        names |= {d.isoformat() for d in CALIBRATION_DATES} | {"<key>", ""}
+
+        def collect(spec):
+            if isinstance(spec, dict):
+                for key, child in spec.items():
+                    names.add(key)
+                    collect(child)
+            elif isinstance(spec, (rehearsal.MapOf, rehearsal.ListOf)):
+                collect(getattr(spec, "value", getattr(spec, "item", None)))
+        collect(rehearsal.schema())
+        _NAMES.append(frozenset(names))
+    return _NAMES[0]
+
+
+def refusal_code(exc):
+    """What a refusal may print: the code, and its path with every segment that is not a known name masked."""
+    coded = isinstance(exc, (BundleError, ValueError)) and not isinstance(exc, UnicodeError)  # raised with a code
+    text = str(exc.args[0]) if coded and exc.args and isinstance(exc.args[0], str) else ""
+    head, _, rest = text.partition(":")
+    if _CODE.fullmatch(head) is None:
+        return "error:" + type(exc).__name__
+    if not rest:
+        return head
+    segments = [_INDEX.sub("", s) for s in rest[:400].split(".")]
+    indices = [_INDEX.findall(s) for s in rest[:400].split(".")]
+    shown = [(s if s in _names() else "<key>") + "".join(i) for s, i in zip(segments, indices)]
+    return head + ":" + ".".join(shown)
+
+
+def forbidden_keys(value, path=""):
+    """Every path in ``value`` whose key is a forbidden (score) key, at any depth."""
+    from maker_core.replay.v2.rehearsal import FORBIDDEN
+    found = []
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            where = f"{path}.{key}" if path else str(key)
+            found += [where] if str(key) in FORBIDDEN else forbidden_keys(item, where)
+    elif isinstance(value, (list, tuple)):
+        for i, item in enumerate(value):
+            found += forbidden_keys(item, f"{path}[{i}]")
+    return found
+
+
+def guarded(name, args):
+    """(result, None) or (None, refusal code): ``run`` with the output guard of row 16 (see the module docstring).
+
+    Warnings are silenced for the call, so nothing a library prints reaches stderr; a refusal is a code only."""
+    from maker_core.replay.v2.rehearsal import whitelisted
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            result = run(name, args)
+            if name == "rehearse":
+                whitelisted(result)
+            if forbidden_keys(result):
+                raise BundleError("rehearsal_output_forbidden_key")
+    except Exception as exc:  # noqa: BLE001 - every failure becomes a code; no exception text is printed
+        return None, refusal_code(exc)
+    return result, None

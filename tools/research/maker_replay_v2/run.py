@@ -30,6 +30,7 @@ import hashlib
 from collections import Counter
 from datetime import date
 import json
+import sys
 from pathlib import Path
 import time
 
@@ -206,7 +207,10 @@ def main(argv=None):
         parser.error("--out must be a new directory")
     args.out.mkdir(parents=True)
     if args.measurement in rehearse_cli.SUBCOMMANDS:
-        result = rehearse_cli.run(args.measurement, args)
+        result, refused = rehearse_cli.guarded(args.measurement, args)  # row 16: stdout/stderr guard
+        if refused is not None:
+            print("refused: " + refused, file=sys.stderr)
+            return 2
     elif args.measurement in bench.MEASUREMENTS:
         result = bench.run(args.measurement, args)
     elif args.measurement in ("s1", "s6"):

@@ -9,8 +9,11 @@ This module holds the parts of that contract that do not depend on the pipeline 
 
 - ``calibration_day(path)``: the date a bundle path names, refused before a byte is read unless it is a
   calibration date (``rehearsal_restricted_to_calibration_dates``), as ``pack_cli.rehearse`` does for v1;
-- ``whitelisted(doc)``: walks a rehearsal document and refuses any key outside ``WHITELIST`` at its path
-  (``rehearsal_whitelist:<path>``), so a smuggled score key anywhere fails closed.
+- ``whitelisted(doc)``: walks a rehearsal document against ``schema()``, every path and the type of every leaf
+  (CONSOLIDATED row 16, binding: DECISION_LOG 2026-10-15), and refuses any key outside it, any leaf of the wrong
+  type and any data key of the wrong shape (``rehearsal_whitelist:<path>``), so a smuggled score key or value fails
+  closed; every reader re-checks it, and the CLI re-checks what it writes and prints (``rehearse_cli.guarded``);
+- ``environment()``: the source/environment digest and the hash seed in force, which E7 compares (row 17).
 
 and the end-to-end rehearsal (U2 part 2):
 
@@ -43,12 +46,14 @@ from dataclasses import replace
 from datetime import date
 import hashlib
 from pathlib import Path
+import math
 import re
 import time
 
 from maker_core.evidence.journal import digest
 from maker_core.replay.bundle import BundleError
 from maker_core.replay.calibration import CALIBRATION_DATES
+from maker_core.replay.v2.threads import PINNED_VARIABLES
 
 FORMAT = "maker_core.replay.v2.rehearsal.v0.1"
 MODES = ("per_date", "carried")
@@ -62,21 +67,14 @@ MEASURED_KEYS = ("input_bytes", "records", "records_by_kind", "wakes", "decision
 REACHABILITY_KEYS = ("status", "f_cal", "screen_pass_rate", "decision_reasons", "quoted_fraction", "n_cal", "l_cal",
                      "expected_clock_removed")
 
-ANY = object()  # a free-form leaf (a value, or a mapping whose keys are data such as kinds, dates or reasons)
-WHITELIST = {
-    "format": ANY, "mode": ANY, "dates": ANY, "hazard_variant": ANY, "calibration_sha256": ANY,
-    "after_fail_sha256": ANY, "measured_at": ANY, "interpretation": ANY, "report_status": ANY, "replicates": ANY,
-    "hazard_per_minute": ANY, "hazard_map_sha256": ANY, "inventory_sha256": ANY,
-    "pull_candidates": ANY,  # carried mode only: E6's policy-free pull-candidate count (not a §11 field)
-    "measured": {**{k: ANY for k in MEASURED_KEYS}, "records_by_kind": ANY},
-    "hashes": {"input_hashes": ANY, "report_sha256": ANY, "sidecar_sha256": ANY, "decision_sha256": ANY},
-    "reachability": {**{k: ANY for k in REACHABILITY_KEYS}, "decision_reasons": ANY, "quoted_fraction": ANY},
-}
 # Keys that may never appear anywhere in a rehearsal document, even under a free-form leaf.
 FORBIDDEN = frozenset({"fills", "final_cash", "pnl", "reward", "rewards", "markout", "markouts", "contrast",
                        "removed_moves", "score", "scores", "cells", "band_days", "registered_decision", "target",
                        "actual", "calendar_prefix_fraction", "exclusions", "exclusions_sha256"})
 _DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+REPORT_STATUSES = ("FIXTURE_ONLY", "PRE_REGISTERED_REPLAY")
+THREAD_PINS = PINNED_VARIABLES  # the four BLAS/OpenMP pins ``threads.py`` checks
+HASH_PROBE = "maker_core.replay.v2.rehearsal hash seed probe"
 
 
 def calibration_day(path) -> date:
@@ -103,37 +101,194 @@ def check_mode(mode, days):
     return days
 
 
+class MapOf:
+    """A mapping whose keys are data (kinds, dates, file names, ``ACTION:REASON``): each key must fullmatch
+    ``key`` and each value must satisfy ``value``; at most ``limit`` entries."""
+
+    def __init__(self, key, value, limit):
+        self.key, self.value, self.limit = re.compile(key), value, limit
+
+
+class ListOf:
+    """A list whose items each satisfy ``item``; at most ``limit`` items."""
+
+    def __init__(self, item, limit):
+        self.item, self.limit = item, limit
+
+
+_HEX64 = re.compile(r"[0-9a-f]{64}")
+_DECIMAL = re.compile(r"-?[0-9]{1,30}(\.[0-9]{1,40})?(E[+-]?[0-9]{1,4})?")
+_VERSION = re.compile(r"[0-9A-Za-z.+_-]{1,40}")
+_TIME = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}:\d{2})")
+_COUNT_LIMIT = 2**63
+
+
+def _count(v):
+    return type(v) is int and 0 <= v < _COUNT_LIMIT
+
+
+def _seconds(v):
+    return type(v) in (int, float) and math.isfinite(v) and v >= 0
+
+
+def _unit(v):
+    return _seconds(v) and v <= 1
+
+
+def _hex64(v):
+    return isinstance(v, str) and _HEX64.fullmatch(v) is not None
+
+
+def _decimal(v):
+    return isinstance(v, str) and _DECIMAL.fullmatch(v) is not None
+
+
+def _instant(v):
+    return isinstance(v, str) and _TIME.fullmatch(v) is not None
+
+
+def _signed64(v):
+    return type(v) is int and -(2**63) <= v < 2**63
+
+
+def _version(v):
+    return isinstance(v, str) and _VERSION.fullmatch(v) is not None
+
+
+def _seed(v):
+    """``PYTHONHASHSEED`` as Python accepts it (0..4294967295), or ``random``."""
+    return isinstance(v, str) and (v == "random" or (v.isdigit() and len(v) <= 10 and int(v) < 2**32))
+
+
+def _one_of(*allowed):
+    return lambda v: isinstance(v, str) and v in allowed
+
+
+def _nullable(check):
+    return lambda v: v is None or (check(v) if callable(check) else _conforms(v, check))
+
+
+def _conforms(value, spec):
+    try:
+        _walk(value, spec, "")
+    except BundleError:
+        return False
+    return True
+
+
+_SCHEMA = []
+
+
+def schema():
+    """The rehearsal document schema: every path and the type of every leaf (CONSOLIDATED row 16, binding:
+    DECISION_LOG 2026-10-15). A key outside it, a leaf of the wrong type, a structure where a leaf belongs or a data
+    key of the wrong shape refuses at its path, so a value cannot ride under an allowed name in another shape."""
+    if not _SCHEMA:
+        from maker_core.replay.bundle import KINDS
+        from maker_core.replay.v2 import reachability
+        dates = [d.isoformat() for d in CALIBRATION_DATES]
+        date_key = "|".join(re.escape(d) for d in dates)
+        count = _count
+        _SCHEMA.append({
+            "format": _one_of(FORMAT), "mode": _one_of(*MODES), "dates": ListOf(_one_of(*dates), len(dates)),
+            "hazard_variant": _one_of(*HAZARD_VARIANTS), "calibration_sha256": _hex64,
+            "after_fail_sha256": _nullable(_hex64), "measured_at": _instant,
+            "interpretation": _one_of(INTERPRETATION), "report_status": _one_of(*REPORT_STATUSES),
+            "replicates": count, "hazard_per_minute": _unit, "hazard_map_sha256": _nullable(_hex64),
+            "inventory_sha256": _hex64,
+            "pull_candidates": count,  # carried mode only: E6's policy-free pull-candidate count (not a §11 field)
+            "measured": {**{k: count for k in MEASURED_KEYS}, "runtime_seconds": _seconds,
+                         "records_by_kind": MapOf("|".join(sorted(KINDS)), count, len(KINDS))},
+            "hashes": {"input_hashes": MapOf(date_key, MapOf(r"bundle\.json|[a-zA-Z0-9_-]{1,64}\.jsonl(\.gz)?",
+                                                             _hex64, 64), len(dates)),
+                       "report_sha256": _hex64, "sidecar_sha256": _hex64, "decision_sha256": _hex64},
+            "reachability": {
+                "status": _one_of("PASS", "FAIL", "UNIDENTIFIED"), "f_cal": _nullable(_decimal),
+                "screen_pass_rate": {"reached": count, "passed": count, "rate": _nullable(_decimal),
+                                     "reading": _one_of(reachability.SCREEN_READING)},
+                "decision_reasons": MapOf(r"[A-Z][A-Z0-9_]{0,63}:[A-Z][A-Z0-9_]{0,63}", count, 256),
+                "quoted_fraction": MapOf("|".join(re.escape(p) for p in reachability.QUOTED_FRACTION_POLICIES),
+                                         {"eligible_seconds": _decimal, "quoted_seconds": _decimal,
+                                          "quoted_fraction": _nullable(_decimal)}, 3),
+                "n_cal": count, "l_cal": count,
+                "expected_clock_removed": _nullable({"calibration": _decimal, "panel": _decimal,
+                                                     "panel_scale": _one_of(reachability.PANEL_SCALE_TEXT)})},
+            "environment": {
+                "source_sha256": _hex64, "python": _version, "numpy": _nullable(_version),
+                "scipy": _nullable(_version),
+                "thread_pins": {name: _nullable(_one_of(*map(str, range(1, 257)))) for name in THREAD_PINS},
+                "hash_seed": _seed,
+                "hash_probe": _signed64},
+        })
+    return _SCHEMA[0]
+
+
+def _refuse(path):
+    raise BundleError("rehearsal_whitelist:" + path)
+
+
 def _walk(value, spec, path):
     if isinstance(value, Mapping):
+        for key in value:
+            if str(key) in FORBIDDEN:
+                _refuse(f"{path}.{key}" if path else str(key))  # never allowed, at any depth or under a data key
+    if isinstance(spec, dict):
+        if not isinstance(value, Mapping):
+            _refuse(path)
         for key, item in value.items():
             where = f"{path}.{key}" if path else str(key)
-            if str(key) in FORBIDDEN:
-                raise BundleError("rehearsal_whitelist:" + where)
-            if spec is ANY:
-                _walk(item, ANY, where)
-                continue
-            if not isinstance(spec, Mapping):
-                raise BundleError("rehearsal_whitelist:" + where)
-            child = spec.get(key, spec.get(ANY, None)) if ANY in spec else spec.get(key)
-            if child is None:
-                raise BundleError("rehearsal_whitelist:" + where)
-            _walk(item, child, where)
-    elif isinstance(value, (list, tuple)):
-        item_spec = ANY if spec is ANY else (spec[0] if isinstance(spec, list) and spec else None)
-        if item_spec is None:
-            raise BundleError("rehearsal_whitelist:" + path)
+            if not isinstance(key, str) or key not in spec:
+                _refuse(where)
+            _walk(item, spec[key], where)
+    elif isinstance(spec, MapOf):
+        if not isinstance(value, Mapping) or len(value) > spec.limit:
+            _refuse(path)
+        for key, item in value.items():
+            where = f"{path}.{key}" if path else str(key)
+            if not isinstance(key, str) or spec.key.fullmatch(key) is None:
+                _refuse(f"{path}.<key>")  # the key is data of the wrong shape: it is not echoed
+            _walk(item, spec.value, where)
+    elif isinstance(spec, ListOf):
+        if not isinstance(value, list) or len(value) > spec.limit:
+            _refuse(path)
         for i, item in enumerate(value):
-            _walk(item, item_spec, f"{path}[{i}]")
-    elif spec is not ANY:
-        raise BundleError("rehearsal_whitelist:" + path)  # a leaf where the whitelist expects structure
+            _walk(item, spec.item, f"{path}[{i}]")
+    elif isinstance(value, (Mapping, list, tuple)) or not spec(value):
+        _refuse(path)  # a structure where a leaf belongs, or a leaf of the wrong type or shape
 
 
 def whitelisted(doc):
-    """``doc`` unchanged when every key is whitelisted at its path and no forbidden key appears anywhere."""
+    """``doc`` unchanged when every key is in ``schema()`` at its path, every leaf has its type, and no forbidden key
+    appears anywhere. Re-checked by every reader (``ceiling_input``, ``reachability.gate_report``, the CLI)."""
     if not isinstance(doc, Mapping):
-        raise BundleError("rehearsal_whitelist:")
-    _walk(doc, WHITELIST, "")
+        _refuse("")
+    _walk(doc, schema(), "")
     return doc
+
+
+def environment(environ=None):
+    """What E7 compares (CONSOLIDATED row 17, binding): the digest of every ``maker_core`` source file this process
+    can import, the interpreter and numeric library versions, the BLAS thread pins as seen, and the hash seed in
+    force. ``hash_seed`` is ``PYTHONHASHSEED`` as set (``random`` when unset); ``hash_probe`` is ``hash()`` of a
+    fixed string, so it shows the seed actually in force and differs between processes with different seeds."""
+    import importlib.metadata
+    import os
+    import platform
+    import maker_core
+    environ = os.environ if environ is None else environ
+    package = Path(maker_core.__file__).resolve().parent
+    sources = {p.relative_to(package).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+               for p in sorted(package.rglob("*.py"))}
+
+    def version(name):
+        try:
+            return importlib.metadata.version(name)
+        except importlib.metadata.PackageNotFoundError:
+            return None
+    seed = environ.get("PYTHONHASHSEED")
+    return dict(source_sha256=digest(sources), python=platform.python_version(), numpy=version("numpy"),
+                scipy=version("scipy"), thread_pins={name: environ.get(name) for name in THREAD_PINS},
+                hash_seed="random" if seed in (None, "", "random") else seed, hash_probe=hash(HASH_PROBE))
 
 
 def _counting(source, counts, done):
@@ -167,13 +322,14 @@ def _zones(inventory):
 
 def rehearse(paths, inventory, *, mode, hazard_per_minute, calibration_sha256, hazard_variant="max_m", now,
              hazard_by_market=None, replicates=2000, clock=time.monotonic, memory=None, limits=None,
-             progress=lambda *_: None):
+             progress=lambda *_: None, environ=None):
     """One score-free rehearsal (registration §9): ``per_date`` (one calibration bundle) or ``carried`` (the three).
 
     ``inventory`` is the weather producer's universe rows for those dates; ``hazard_per_minute`` comes from the
     unchanged calibration recipe (``calibration_sha256`` names its document; ``reachability.hazards`` reads both
     from it). ``hazard_variant="r1_per_city"`` (§11 R1) also takes ``hazard_by_market`` for every market of the
-    inventory. A ``carried`` rehearsal adds the §11 ``reachability`` block (``reachability.block``). Nothing scored
+    inventory. A ``carried`` rehearsal adds the §11 ``reachability`` block (``reachability.block``). ``environment``
+    (row 17) is read from ``environ`` (``os.environ`` by default) and this process. Nothing scored
     leaves this function: the report and the engines are dropped and only the whitelisted document is returned."""
     from maker_core.replay.bundle_v02 import open_stream_bundle
     from maker_core.replay.v2.host import process_memory
@@ -241,7 +397,8 @@ def rehearse(paths, inventory, *, mode, hazard_per_minute, calibration_sha256, h
         report_status=status, replicates=replicates, measured=measured,
         hashes=dict(input_hashes={b.day.isoformat(): dict(b.input_hashes) for b in bundles},
                     report_sha256=hashlib.sha256(raw).hexdigest(), sidecar_sha256=sidecar["sha256"],
-                    decision_sha256=digest(decision_shas)))
+                    decision_sha256=digest(decision_shas)),
+        environment=environment(environ))
     if reach is not None:
         doc["reachability"] = reach
         doc["pull_candidates"] = opportunities["candidates"]

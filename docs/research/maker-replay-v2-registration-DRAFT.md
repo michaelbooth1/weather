@@ -451,7 +451,7 @@ These all run on calibration dates only, before any panel export. **All must pas
 | E4 runtime | Each date ≤ 2,048 s for the full pipeline on the workstation. |
 | E5 memory | The 3-date run's peak ≤ 1.25 × the largest single-date peak (days do not accumulate), and the derived memory ceiling ≤ 16 GiB. |
 | E6 ceilings | Every derived ceiling is within its §8 limit. Pull opportunity candidates for the projected panel are within the §9 pull-candidate ceiling; above it, E6 fails. |
-| E7 determinism | Two rehearsals of one date give byte-identical decision-stream hashes and scored-report bytes. |
+| E7 determinism | Two rehearsals of one date, in two processes under different `PYTHONHASHSEED`, give byte-identical decision-stream hashes, scored-report bytes and sidecar bytes. Both record the same input hashes, settings and source/environment digest (sources, Python and library versions, thread pins); otherwise E7 is not comparable and refuses. |
 | E8 correctness | The fixture suite passes: the v2 engine against the reference schedule, running totals against recomputation, linearity in bands, and no Inexact trap. See the engineering plan. |
 
 **Expectations from the fixtures (W0–W2).** These are MEASURED on fictional data, not gate results
