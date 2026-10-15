@@ -177,11 +177,11 @@ which is after signature and after 10-14.
 - Three earlier suite attempts did not count, and none was caused by this code:
   - a basetemp under the long scratch path hit Windows MAX_PATH (`WinError 206`);
   - one run was killed by the session tool's 2-hour background cap;
-  - one run lost its basetemp mid-run when all of `C:	mp` (including several sessions' worktrees) was deleted by
+  - one run lost its basetemp mid-run when all of `C:\tmp` (including several sessions' worktrees) was deleted by
     something outside this session.
 
-  The last run's 279 setup errors were all `FileNotFoundError: C:	mptmrv2`, with 0 failures. The clean run above
-  used a worktree and basetemp outside `C:	mp`.
+  The last run's 279 setup errors were all `FileNotFoundError: C:\tmp\btmrv2`, with 0 failures. The clean run above
+  used a worktree and basetemp outside `C:\tmp`.
 - GitHub CI on #178 (`test`, `native-launch`, `hook` ubuntu/windows): green at `a9c6aa1e`. The hook workflow first failed
   because its shallow checkout refuses the docs audit. It was fixed with `fetch-depth: 0`, identical to unmerged #154.
 
