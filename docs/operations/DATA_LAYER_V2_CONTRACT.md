@@ -131,6 +131,9 @@ reviewed change, because the ids feed settlement-proxy and forecast lookups.
   `storage_pending` list). `src/weather/operations/storage_classes.py` is reached through
   deferred imports from the snapshot loop's closure, so editing it is not roll-free and
   needs its own verdict; S1 changes no `src/` file.
+  The evidence host's `data/evidence` paths (S4) are classified instead in a commit stacked on
+  S3, so they ride S3's roll-sensitive landing (`evidence_journal_segment`, `evidence_raw_cas`,
+  and `operator_status_json` for status files and kill receipts).
 - **`scheduled_tasks.json` rows:** none needed in S1 (every registered task already has a
   row, and the ratchet enforces it); the evidence-host task arrives with its stage. S4 added
   the `WeatherEvidenceHost` row and the `evidence_host` evidence family; its seven `data/evidence`
