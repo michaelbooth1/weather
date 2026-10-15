@@ -121,6 +121,7 @@ contract and a reviewed cleanup manifest.
 | [informed-maker-design-2026-09-25.md](informed-maker-design-2026-09-25.md) | Building or reviewing maker code, a domain plugin (weather, YouTube) or the replay harness. |
 | [maker-core-contracts.md](maker-core-contracts.md) | Implementing the v0.1 domain-neutral plugin API, conformance, pure proposals or journals. |
 | [DATA_LAYER_V2_PLAN.md](DATA_LAYER_V2_PLAN.md) | Adding or changing any capture family, sizing its RAM/disk/request budget, or landing a v2 build step (S0-S16); its §9 holds the open owner questions. |
+| [DATA_LAYER_V2_CONTRACT.md](DATA_LAYER_V2_CONTRACT.md) | Adding or changing a capture closure, evidence-family row, storage-pending row or embargo reference in the `platform` block of `config/capture_families.json`. |
 | [free-registration-signup-list.md](free-registration-signup-list.md) | Adding a source that needs a free registration key, or checking where such a key may live (never in git). |
 | [storage-plan-2026-09-23.md](storage-plan-2026-09-23.md) | Free space below the green band, a heavy job refusing on disk, or before any compress/archive/reclaim. |
 | [live-testing-plan-2026-09-25.md](live-testing-plan-2026-09-25.md) | Preparing the last RE-1 session or proposing post-RE-1 live experiments. |
