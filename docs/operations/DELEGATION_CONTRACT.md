@@ -182,6 +182,11 @@ blocked its own handback for nothing.
   closure. `roll_verdict.ps1` uses the explicit table above and rejects any configured closure
   whose current state is `DEAD` or `BLOCKED`.
 - **The `SOURCE_PATTERNS` glob is not the test.** It over-reports and wastes quiet windows.
+- **The 88a maker-evidence recorder is reported, not gated.** `roll_verdict.ps1` reads the module
+  names under `source_sha256` in `data\maker_evidence\status.json` and marks each changed file in
+  that set with an extra `88a` line (and `maker_evidence_88a` in `-JsonOut`). A merge never
+  restarts that recorder, so these changes never alter the verdict or exit code; they go live only
+  at its explicit re-adoption restart (`restart_maker_evidence_capture.ps1`, which lands with S2).
 - Markdown, `docs/`, and `config/` are roll-free. `.ps1` scripts are roll-free (status closures
   contain Python only).
 - **The whole `schema_registry*` family is in all four closures** — `schema_registry.py`,

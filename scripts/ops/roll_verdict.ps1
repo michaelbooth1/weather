@@ -301,6 +301,49 @@ foreach ($file in $candidates) {
         file = $file; closures = $hits; dormant = $sleeping; rolls = ($hits.Count -gt 0)
     }
 }
+# REPORT-ONLY, NON-GATING: the 88a passive maker-evidence recorder (task WeatherMakerEvidenceCapture,
+# root data\maker_evidence) is not a capture supervisor and a merge never restarts it. A changed file
+# in its import set lies dormant until an explicit re-adoption restart
+# (restart_maker_evidence_capture.ps1), so it is shown to the operator but NEVER changes $verdict,
+# the VERDICT line or the exit code. Only the module names under source_sha256 are read.
+$makerEvidenceRel = "data\maker_evidence\status.json"
+$makerEvidence = "missing"
+$makerEvidenceReason = $null
+$makerFiles = New-Object System.Collections.Generic.HashSet[string]([StringComparer]::OrdinalIgnoreCase)
+$makerPath = Join-Path $repo $makerEvidenceRel
+if (-not (Test-Path -LiteralPath $makerPath)) {
+    $makerEvidenceReason = "missing: $makerEvidenceRel"
+}
+else {
+    $makerDoc = $null
+    try { $makerDoc = Get-Content -LiteralPath $makerPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop }
+    catch { $makerDoc = $null }
+    $makerSources = Get-OptionalPropertyValue -InputObject $makerDoc -Name "source_sha256"
+    $makerModules = @()
+    if ($null -ne $makerSources -and $makerSources -is [System.Management.Automation.PSCustomObject]) {
+        foreach ($property in @($makerSources.PSObject.Properties)) { $makerModules += [string]$property.Name }
+    }
+    if ($null -eq $makerDoc) {
+        $makerEvidence = "unreadable"; $makerEvidenceReason = "unreadable: $makerEvidenceRel"
+    }
+    elseif ($makerModules.Count -eq 0) {
+        $makerEvidence = "no_source_sha256"; $makerEvidenceReason = "no source_sha256 in $makerEvidenceRel"
+    }
+    else {
+        $makerEvidence = "status.json"
+        foreach ($module in $makerModules) {
+            if ($module -notmatch '^weather(\.[A-Za-z_][A-Za-z0-9_]*)+$') { continue }
+            $moduleRel = "src/" + ($module -replace '\.', '/')
+            $packageInit = "$moduleRel/__init__.py"
+            if (Test-Path -LiteralPath (Join-Path $repo (ConvertTo-RepoRelativeWindowsPath $packageInit))) {
+                [void]$makerFiles.Add($packageInit)
+            }
+            else { [void]$makerFiles.Add("$moduleRel.py") }
+        }
+    }
+}
+$makerHits = @($candidates | Where-Object { $makerFiles.Contains($_) })
+
 $rolling = @($rows | Where-Object { $_.rolls })
 $dormantHits = @($rows | Where-Object { -not $_.rolls -and $_.dormant.Count -gt 0 })
 $verdict = if ($rolling.Count -gt 0) { "ROLL-SENSITIVE" }
@@ -312,12 +355,15 @@ Write-Output "base:     $baseRef ($baseSha)"
 if ($baseNote) { Write-Output "base:     $baseNote" }
 Write-Output "changed:  $($changed.Count) file(s); $($candidates.Count) importable"
 Write-Output "closures: $($closures.Keys -join ', ')"
+if ($makerEvidenceReason) { Write-Output "88a:      no closure evidence ($makerEvidenceReason)" }
 foreach ($r in $rows) {
     if ($r.rolls) { Write-Output ("  ROLL  {0}  -> {1}" -f $r.file, ($r.closures -join ',')) }
     elseif ($r.dormant.Count -gt 0) { Write-Output ("  DORM  {0}  -> {1} (dormant)" -f $r.file, ($r.dormant -join ',')) }
     else { Write-Output ("  free  {0}" -f $r.file) }
+    if ($makerFiles.Contains($r.file)) { Write-Output ("  88a   {0}" -f $r.file) }
 }
 if ($candidates.Count -eq 0) { Write-Output "  (no importable files -- docs/config/tests/ps1 only)" }
+if ($makerHits.Count -gt 0) { Write-Output "88a code changed: dormant until re-adoption" }
 foreach ($p in $problems) { Write-Output "  WARN  $p" }
 Write-Output ""
 Write-Output "VERDICT: $verdict"
@@ -328,6 +374,10 @@ if ($JsonOut) {
         base_ref = $baseRef; base_sha = $baseSha; base_note = $baseNote
         closures_used = @($closures.Keys); problems = @($problems)
         files = @($rows | ForEach-Object { [ordered]@{ file = $_.file; closures = @($_.closures); rolls = $_.rolls } })
+        # Report-only; never an input to the verdict above.
+        maker_evidence_88a = [ordered]@{
+            evidence = $makerEvidence; files = @($makerHits); dormant_until_readoption = ($makerHits.Count -gt 0)
+        }
     }
     $payload | ConvertTo-Json -Depth 6 | Set-Content -Path $JsonOut -Encoding utf8
 }

@@ -51,8 +51,11 @@ $cases = Get-Content -LiteralPath $env:RV_CASES -Raw | ConvertFrom-Json
 foreach ($case in $cases) {
     $env:RV_STUB_TASK_STATE = [string]$case.task_state
     $global:LASTEXITCODE = $null
+    $splat = @{ Branch = [string]$case.branch }
+    $jsonOut = $case.PSObject.Properties['json_out']
+    if ($null -ne $jsonOut -and $jsonOut.Value) { $splat.JsonOut = [string]$jsonOut.Value }
     try {
-        $out = (& $case.script -Branch $case.branch 2>&1 | Out-String)
+        $out = (& $case.script @splat 2>&1 | Out-String)
         $rc = $LASTEXITCODE
     }
     catch { $out = "THREW: " + $_.Exception.Message; $rc = -1 }
@@ -65,12 +68,14 @@ FILES = {
     "src/weather/a.py": "A = 1\n",
     "src/weather/b.py": "B = 1\n",
     "src/weather/c.py": "C = 1\n",
+    "src/weather/pkg/__init__.py": "P = 1\n",
     "docs/x.md": "x\n",
 }
 BRANCH_EDITS = {
     "roll": "src/weather/a.py",
     "docs": "docs/x.md",
     "other": "src/weather/c.py",
+    "pkg": "src/weather/pkg/__init__.py",
 }
 SNAP = "data/snapshots/"
 FRESH = {
@@ -132,6 +137,16 @@ CASES = {
 # no state, the producer counts as active and its closure is required (exit 3). The fix makes
 # strict mode agree with production; the change is toward roll-sensitive, never toward roll-free.
 STRICT_MODE_FIXED = {"worker_sparse": 3}
+
+
+MAKER_STATUS = "data/maker_evidence/status.json"
+MAKER_REL = "data\\maker_evidence\\status.json"
+NO_88A_EVIDENCE = f"88a:      no closure evidence (missing: {MAKER_REL})"
+
+
+def _without_88a(out: str) -> str:
+    """The 88a report is additive and non-gating: drop its lines to compare everything else."""
+    return "".join(line for line in out.splitlines(keepends=True) if not line.startswith(("88a", "  88a ")))
 
 
 def _git(cwd: Path, *args: str) -> None:
@@ -216,7 +231,11 @@ def test_registry_script_reproduces_the_pre_registry_verdict_for_every_evidence_
             assert after["rc"] == STRICT_MODE_FIXED[case_id], (case_id, after["out"])
             assert not after["out"].startswith("THREW"), (case_id, after["out"])
             continue
-        assert (after["rc"], after["out"]) == (before["rc"], before["out"]), case_id
+        # The pre-registry baseline predates the report-only 88a column. With no 88a status in the
+        # fixture the new script adds exactly the no-evidence line and is otherwise byte-identical.
+        if before["rc"] != 1:
+            assert NO_88A_EVIDENCE in after["out"].splitlines(), (case_id, after["out"])
+        assert (after["rc"], _without_88a(after["out"])) == (before["rc"], before["out"]), case_id
 
 
 @pytest.mark.parametrize(
@@ -287,3 +306,92 @@ def test_empty_or_absent_runtime_identity_is_undecidable_under_strict_mode(
     assert "ROLL-FREE" not in row["out"]
     for name in IDENTITY_STATUSES:
         assert "data\\snapshots\\" + f"{name}.json {reason}" in row["out"]
+
+
+MAKER_SOURCES = {
+    "source_sha256": {
+        "weather.market.maker_evidence_capture": "0" * 64,
+        "weather.c": "1" * 64,
+        "weather.pkg": "2" * 64,
+        "weather.b": "3" * 64,
+    }
+}
+
+# id -> (raw 88a status text or None, branch)
+MAKER_CASES = {
+    "hit_free": (json.dumps(MAKER_SOURCES), "other"),
+    "hit_package": (json.dumps(MAKER_SOURCES), "pkg"),
+    "non_88a_roll": (json.dumps(MAKER_SOURCES), "roll"),
+    "missing_free": (None, "other"),
+    "missing_package": (None, "pkg"),
+    "missing_roll": (None, "roll"),
+    "unreadable": ("{not json", "other"),
+    "no_source_sha256": (json.dumps({"state": "RUNNING"}), "other"),
+}
+
+
+def test_88a_column_is_report_only_and_never_changes_the_verdict(tmp_path: Path) -> None:
+    template = _template(tmp_path, REGISTRY.read_text(encoding="utf-8"))
+    cases = []
+    for case_id, (maker_text, branch) in MAKER_CASES.items():
+        raw = {} if maker_text is None else {MAKER_STATUS: maker_text}
+        repo = _materialise(template, tmp_path / case_id, FRESH, (), raw)
+        cases.append({
+            "id": case_id, "branch": branch, "task_state": "",
+            "script": str(repo / "scripts" / "ops" / "roll_verdict.ps1"),
+            "json_out": str(tmp_path / f"{case_id}.json"),
+        })
+    results = _run(tmp_path, cases)
+    out = {case_id: results[(case_id, "roll_verdict.ps1")] for case_id in MAKER_CASES}
+    payload = {
+        case_id: json.loads((tmp_path / f"{case_id}.json").read_text(encoding="utf-8-sig"))
+        for case_id in MAKER_CASES
+    }
+    for case_id, row in out.items():
+        assert not row["out"].startswith("THREW"), (case_id, row["out"])
+
+    def same_verdict(a: str, b: str) -> None:
+        assert out[a]["rc"] == out[b]["rc"], (a, b)
+        assert _without_88a(out[a]["out"]) == _without_88a(out[b]["out"]), (a, b)
+        for key in ("verdict", "files", "problems", "closures_used", "base_note"):
+            assert payload[a][key] == payload[b][key], (a, b, key)
+
+    # A hit prints the 88a line beside (not instead of) the existing line, plus one summary line.
+    for case_id, missing_id, rel in (
+        ("hit_free", "missing_free", "src/weather/c.py"),
+        ("hit_package", "missing_package", "src/weather/pkg/__init__.py"),
+    ):
+        lines = out[case_id]["out"].splitlines()
+        assert out[case_id]["rc"] == 0
+        assert f"  free  {rel}" in lines
+        assert f"  88a   {rel}" in lines
+        assert lines.count("88a code changed: dormant until re-adoption") == 1
+        assert not any(line.startswith("88a:") for line in lines)
+        assert "VERDICT: ROLL-FREE" in lines
+        assert payload[case_id]["maker_evidence_88a"] == {
+            "evidence": "status.json", "files": [rel], "dormant_until_readoption": True,
+        }
+        same_verdict(case_id, missing_id)
+
+    # An importable file outside the 88a set gets no 88a line, and a roll stays a roll.
+    lines = out["non_88a_roll"]["out"].splitlines()
+    assert out["non_88a_roll"]["rc"] == 3
+    assert "VERDICT: ROLL-SENSITIVE" in lines
+    assert not any("88a" in line for line in lines), lines
+    assert payload["non_88a_roll"]["maker_evidence_88a"] == {
+        "evidence": "status.json", "files": [], "dormant_until_readoption": False,
+    }
+    same_verdict("non_88a_roll", "missing_roll")
+
+    # Missing or unusable 88a evidence prints one no-evidence line and changes nothing else.
+    for case_id, evidence, reason in (
+        ("missing_free", "missing", f"missing: {MAKER_REL}"),
+        ("unreadable", "unreadable", f"unreadable: {MAKER_REL}"),
+        ("no_source_sha256", "no_source_sha256", f"no source_sha256 in {MAKER_REL}"),
+    ):
+        lines = out[case_id]["out"].splitlines()
+        assert [line for line in lines if "88a" in line] == [f"88a:      no closure evidence ({reason})"], lines
+        assert payload[case_id]["maker_evidence_88a"] == {
+            "evidence": evidence, "files": [], "dormant_until_readoption": False,
+        }
+        same_verdict(case_id, "missing_free")
