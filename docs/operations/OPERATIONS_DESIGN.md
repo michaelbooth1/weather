@@ -101,6 +101,12 @@ process with its own stop file; it is not a capture worker, and no capture loop 
 modules. Its [owning contract](maker-shadow-runner.md) defines registration, stop and
 readout.
 
+`WeatherEvidenceHost` (registrar `scripts/ops/register_evidence_host.ps1`, Data Layer v2
+S4) is one long-lived public-read supervisor with one hard-commit-capped child per
+evidence family, a `host.stop` control file and explicit-restart adoption; no capture
+loop imports `weather.evidence`. Its [owning contract](EVIDENCE_HOST.md) defines
+registration, stop, caps and the reader.
+
 Each supervisor invokes an idempotent `ensure` command at logon and on its
 repeating schedule. The command repairs or starts one detached worker; it is
 not itself the long-running capture process. A healthy/no-op or successful
