@@ -435,6 +435,67 @@ def test_admission_ages_snapshot_heartbeat_on_utc_instants_across_fall_back(tmp_
     }
 
 
+# A worker rewrites its status file in place, so admission can read it mid-write.
+# Get-Content is shadowed to return a torn status for the first $env:TORN_READS
+# reads of loop_status.json; only the snapshot worker's files exist.
+TORN_READ_HARNESS = r"""
+$ErrorActionPreference = 'Stop'
+$tokens = $null
+$errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile(
+    $env:WEATHER_BOUNDED_SUITE_SCRIPT, [ref]$tokens, [ref]$errors)
+if (@($errors).Count -ne 0) { throw 'bounded suite does not parse' }
+foreach ($name in @('ConvertTo-StatusInstant', 'ConvertTo-StatusUtcInstant', 'Get-HealthyCaptureWorkerCount')) {
+    $functionAst = @($ast.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+            $node.Name -eq $name
+    }, $true)) | Select-Object -First 1
+    if ($null -eq $functionAst) { throw "missing $name" }
+    Invoke-Expression $functionAst.Extent.Text
+}
+$RepoRoot = $env:WEATHER_BOUNDED_SUITE_ROOT
+$snapshotRoot = Join-Path $RepoRoot 'data\snapshots'
+New-Item -ItemType Directory -Force -Path $snapshotRoot | Out-Null
+$utf8 = New-Object System.Text.UTF8Encoding($false)
+$now = [datetimeoffset]::UtcNow
+[IO.File]::WriteAllText((Join-Path $snapshotRoot '.loop_status.json.writer.lock'),
+    (@{ pid = $PID } | ConvertTo-Json -Compress), $utf8)
+[IO.File]::WriteAllText((Join-Path $snapshotRoot 'loop_status.json'),
+    ('{"pid": ' + $PID + ', "last_heartbeat": "' + $now.ToString('o') + '"}'), $utf8)
+$script:tornLeft = [int]$env:TORN_READS
+$script:statusReads = 0
+function Get-Content {
+    param([string]$LiteralPath, [switch]$Raw)
+    if ((Split-Path -Leaf $LiteralPath) -eq 'loop_status.json') {
+        $script:statusReads++
+        if ($script:tornLeft -gt 0) { $script:tornLeft--; return '{"pid": 12' }
+    }
+    [IO.File]::ReadAllText($LiteralPath)
+}
+$healthy = Get-HealthyCaptureWorkerCount -Now $now -RetryDelaySeconds 0
+[pscustomobject]@{ healthy = [int]$healthy; status_reads = $script:statusReads } | ConvertTo-Json -Compress
+"""
+
+
+@WINDOWS_POWERSHELL_REQUIRED
+@pytest.mark.spawns
+@pytest.mark.parametrize(("torn_reads", "healthy", "status_reads"), [(0, 1, 1), (2, 1, 3), (3, 0, 3)])
+def test_admission_rereads_a_torn_status_before_refusing(tmp_path, torn_reads, healthy, status_reads):
+    env = os.environ.copy()
+    env["WEATHER_BOUNDED_SUITE_SCRIPT"] = str(SCRIPT)
+    env["WEATHER_BOUNDED_SUITE_ROOT"] = str(tmp_path / "repo")
+    env["TORN_READS"] = str(torn_reads)
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", TORN_READ_HARNESS],
+        cwd=REPO_ROOT, env=env, check=False, capture_output=True, text=True, timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout.strip().splitlines()[-1])
+    # Two torn reads recover on the third; three exhaust the attempts. The missing
+    # clob and observation files are judged at once, never retried.
+    assert payload == {"healthy": healthy, "status_reads": status_reads}
+
 def _function_text(path: Path, name: str) -> str | None:
     text = path.read_text(encoding="utf-8-sig").replace("\r\n", "\n")
     match = re.search(r"(?ms)^function " + re.escape(name) + r" \{\n.*?^\}\n", text)

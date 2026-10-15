@@ -467,7 +467,15 @@ function Get-HealthyCaptureWorkerCount {
     # Ages are differences of UTC instants (ConvertTo-StatusUtcInstant), never of
     # local wall-clock times: on the 2026-11-01 fall-back night the repeated
     # 01:00-02:00 hour falls inside the 00:30-09:00 suite window.
-    param([datetimeoffset]$Now = [datetimeoffset]::UtcNow)
+    # A worker rewrites its status and lock files in place, so a read can land
+    # mid-write and fail to parse. Such a read is retried (up to $ReadAttempts
+    # reads, $RetryDelaySeconds apart) before the worker counts as unhealthy;
+    # a missing file or a parsed-but-failing status is judged at once.
+    param(
+        [datetimeoffset]$Now = [datetimeoffset]::UtcNow,
+        [ValidateRange(1, 10)][int]$ReadAttempts = 3,
+        [ValidateRange(0, 10)][int]$RetryDelaySeconds = 1
+    )
     $snapshotRoot = Join-Path $RepoRoot "data\snapshots"
     $specs = @(
         # Snapshot normally sleeps for almost its 10-minute cadence. Keep this
@@ -479,10 +487,21 @@ function Get-HealthyCaptureWorkerCount {
     $healthy = 0
     foreach ($spec in $specs) {
         try {
-            $status = Get-Content -LiteralPath (Join-Path $snapshotRoot $spec.Status) -Raw |
-                ConvertFrom-Json
-            $lock = Get-Content -LiteralPath (Join-Path $snapshotRoot $spec.Lock) -Raw |
-                ConvertFrom-Json
+            $statusPath = Join-Path $snapshotRoot $spec.Status
+            $lockPath = Join-Path $snapshotRoot $spec.Lock
+            for ($attempt = 1; ; $attempt++) {
+                try {
+                    $status = Get-Content -LiteralPath $statusPath -Raw | ConvertFrom-Json
+                    $lock = Get-Content -LiteralPath $lockPath -Raw | ConvertFrom-Json
+                    if ($null -eq $status -or $null -eq $lock) { throw "empty status or lock read" }
+                    break
+                }
+                catch {
+                    $present = (Test-Path -LiteralPath $statusPath) -and (Test-Path -LiteralPath $lockPath)
+                    if (-not $present -or $attempt -ge $ReadAttempts) { throw }
+                    Start-Sleep -Seconds $RetryDelaySeconds
+                }
+            }
             $pidValue = [int]$status.pid
             $heartbeat = ConvertTo-StatusUtcInstant $status.last_heartbeat
             if ($null -eq $heartbeat) { continue }
