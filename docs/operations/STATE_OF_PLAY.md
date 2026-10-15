@@ -38,7 +38,7 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
   `data\maker_shadow\STOP`. Scoring embargo: `maker_shadow_panel.py` refuses UTC 09-30..10-15 and 10-15..11-13 (end stays 11-13: #263 N_req 706, DL 10-14).
 - **Journal pin:** `WeatherManualOrderJournal` pins five files incl. `wallet_reader_client.py`; a merge touching one makes it
   exit 3 until re-registered ([runbook](manual-order-journal.md)).
-- **Wallet reader (8765)** restarted by the owner 10-13 10:21 on `a1014edab` (any-LAN code); LFC client config in the pinned worktree.
+- **Wallet reader (8765)** restarted by the owner 10-13 10:21 on `a1014edab` (any-LAN code). The LFC client config is **not** in the session-0 pin `C:\wt\lfc-pinned-e27909a76` yet: the owner re-enters it there on 10-16 before the 10:00 checks (session-0 runbook §3.6 step 3, owner only).
 - **Host Python: A' PASS 10-14; §T + T-R PASS 10-15 00:31** (hash-locked tzdata 2026.3 into the production venv; capture
   10/10 after). Venv still 3.11.0; 3.11.9 side by side. Next: B 00:30 10-16, cutover C 00:30 10-17 ([runbook](HOST_PYTHON_UPGRADE_RUNBOOK.md) §7a).
 - Owner 10-13 08:53 (relayed): C advance GO if every C0 check is clean; G4 amended (auto rollback; a failed rollback waits for the owner). DECISION_LOG row.
@@ -73,7 +73,7 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 
 | What | Owner | Due | Verify |
 | --- | --- | --- | --- |
-| LFC session 0 re-pin (deadline 10-25 + scope-date guard, Fable-reviewed) and runbook re-date to 10-16 | master; workstation | 10-15 | new pinned tip in DL |
+| LFC session 0 re-pin and runbook re-date to 10-16: done; pin `e27909a76` recorded in DL 10-15; reader client config re-entry is an owner step 10-16 | owner | 10-16 10:00 | `config\local\wallet_reader_client.json` present in the pin (name check only) |
 | Policy: roll-free heads land on workstation pre-gate + Windows CI (T4 draft) | owner | after C | DECISION_LOG row |
 | Evening-fix scorer `8cdcb62ec` lands (prereg SIGNED 10-13, sha256 in DL; read 10-29); OD30 retirement | T3; owner | 10-28; open | scorer on master; DL row |
 | Pinned watchdog redeploy + re-register (DRIFT since #273, DST-H3) | owner scope, production | before 11-01 | watchdog CURRENT |
