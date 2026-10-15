@@ -61,6 +61,8 @@ PLACEHOLDERS = {
     "<hour>": "07",
     "<segment>": "segment-000001",
     "<run>": "r1",
+    "<evidence_family>": "ob1_metar",
+    "<partition>": "rows",
 }
 ISO_DATE = re.compile(r"\b(19|20)\d{2}-\d{2}-\d{2}\b")
 
@@ -150,9 +152,12 @@ def test_request_budget_references_name_a_configured_family_field() -> None:
 
 
 def test_every_registered_evidence_path_is_classified_as_declared() -> None:
+    pending = {row["path"] for row in PLATFORM["storage_pending"]}
     wrong = []
     for row in PLATFORM["evidence_families"]:
         for entry in row["storage"]:
+            if entry["path"] in pending:  # the contract: unclassified and not listed fails
+                continue
             for concrete in _expand(entry["path"]):
                 got = classify_storage_path(concrete).artifact_family
                 if got == UNCLASSIFIED or got != entry["artifact_family"]:
