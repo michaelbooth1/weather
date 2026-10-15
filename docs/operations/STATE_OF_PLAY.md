@@ -70,6 +70,7 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 4. **10-15 night: #177 (T2, owner yes)**; §T holds the lease 00:30-02:00, suite ~02:45, merge start by 03:40; owner accepts
    the capture restart ~03:40-04:00 EDT in the UTC 10-15 panel day. 10-16/10-17 G5 no-merge; #182 + #172 10-18; #118 >= 10-18.
 5. **Item 337:** host no-METAR replay >= 10-15; on PASS flip, bump, quiet window (owner yes). NBS/NBH; NWP timing (#263 done 10-14, EF §10r).
+6. **Data layer v2 (T3/T4, owner 10-14):** [plan](DATA_LAYER_V2_PLAN.md); S0 10-15, S1 10-19, S3 10-20, S2+S9+P1 10-21; §9 open.
 
 ## Open commitments (every row: owner, due, verify)
 

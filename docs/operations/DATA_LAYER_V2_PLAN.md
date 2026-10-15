@@ -1,4 +1,19 @@
-# Data layer v2 plan (draft 2026-10-14)
+# Data layer v2 plan
+
+**Living plan, canonical.** Owner mandate 2026-10-14 ~20:40 EDT (relayed by master-agent): build the best data layer we
+can, capturing as much helpful data as possible, RAM- and storage-mindful. Drafted 2026-10-14 by a 15-agent design
+workflow on `c2771ab02`; the production addendum below binds over the body where they differ.
+
+How to keep it true:
+- **Edit in place; never fork a dated copy.** When a step lands, a receipt replaces a "not measured", or a date moves,
+  change the row and say how (e.g. `S1 landed <sha> 10-19`). Build status and receipts live here; today's critical
+  path and decisions stay in [STATE_OF_PLAY](STATE_OF_PLAY.md); measured results go to the
+  [findings digest](FINDINGS_DIGEST.md) and [established findings](ESTABLISHED_FINDINGS.md) as usual.
+- **§9 owner questions stay listed until a relayed owner answer arrives.** Nothing in §9 is acted on before then; the
+  answer is recorded in [DECISION_LOG](DECISION_LOG.md) and the question is marked answered here, not deleted.
+- Roll classes here are predictions; the binding verdict is `scripts\ops\roll_verdict.ps1 -Branch <b>` at landing.
+- Evidence behind the pilot: [more-markets desk study](../research/more-markets-desk-study-2026-10-14.md)
+  (liquidity census, MDE/K1 scaling, storage, foreign feasibility).
 
 > **Production-agent addendum (2026-10-14 21:5x EDT, capture host; binds over the text below where they differ)**
 > 1. **Calendar correction.** Pyup B is the 10-16 night (00:30) and cutover C the 10-17 night; neither night takes any other host work (G5/G7). S0(g) is therefore NOT on the 10-16 night.

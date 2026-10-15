@@ -30,6 +30,7 @@ changing inventories, metrics, versions, or operational state.
 | Documentation writing rules | `docs/AGENTS.md` |
 | What the research established, in short mandatory form | `docs/operations/FINDINGS_DIGEST.md` |
 | Full derivations; claims that were wrong; recurring error shapes | `docs/operations/ESTABLISHED_FINDINGS.md`; `RETRACTED_AND_FALSE_LEADS.md`; `HOW_WE_GET_THINGS_WRONG.md` (reference depth behind the digest) |
+| Data-capture design: family table, budgets, v2 build sequence and its status, open data-layer owner questions | `docs/operations/DATA_LAYER_V2_PLAN.md` (living; edited in place as steps land) |
 | Host windows, leases, heavy-work wrappers | `docs/operations/HOST_LOAD_POLICY.md`; generated numbers in `OPERATING_REFERENCE.md` |
 | Production-host agent role and authority | `docs/operations/OPERATIONS_AGENT_ROLE.md` |
 | Cross-host mission rules | `docs/operations/DELEGATION_CONTRACT.md` |
