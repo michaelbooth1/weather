@@ -718,7 +718,11 @@ Build-Venv $StagePy $Stage
 The editable install builds in an isolated environment. That environment gets `setuptools` from
 `$WH`, because pip passes `--no-index --find-links` to it (Q10).
 
-**B1d. Test-Venv (reused in C6).**
+**B1d. Test-Venv (reused in C6).** `rtv.json` records each direct dependency's *declared* string from
+`pyproject.toml` as well as its installed version (`capture_runtime_versions`, `release_artifacts.py`). So if a
+`pyproject.toml` pin changes on master after `$A\rtv-3110.json` was taken, re-take that receipt from the merged
+production checkout before B1d, keeping the old one beside it (the T-R `rtv` line). The 2026-10-15 `python-dotenv`
+1.2.3 to 1.2.2 pin was such a change. Otherwise the stage compare stops with `direct dependencies moved`.
 
 ```powershell
 function Test-Venv($vpy, $root, $tag) {
@@ -772,19 +776,27 @@ $global:ReleaseOnNoGo = $false; Release-Lease
 
 **B2. Bounded suite on the stage interpreter.** The suite takes its own lease, needs at least
 50 GiB free, and starts by 03:00 (§7). Run it in a child PowerShell, so that a throw cannot skip the
-qualification record.
+qualification record. Bind the suite's Git executable explicitly. Without the binding the suite resolves `git.exe`
+from PATH and refuses when it finds more than one, which is the case on the capture host: User PATH `Git\bin` and
+Machine PATH `Git\cmd` (Fable review of the Phase B wrapper, 2026-10-15). Use the reviewed binding the night
+sequencers pass: its path, SHA-256 and file version, read on the host with `Get-FileHash` and
+`(Get-Item).VersionInfo.FileVersion`.
 
 ```powershell
 if ((Get-Date) -gt (Get-Date).Date.AddHours(3)) { NoGo 'past the 03:00 suite start limit' }
 $SuiteLog = Join-Path $R ('bounded-suite-' + (Get-Date -Format yyyyMMdd) + '.log')
 $suite = Join-Path $P 'scripts\ops\bounded_worktree_test_suite.ps1'
+$GitExe = '<reviewed git.exe, e.g. C:\Program Files\Git\cmd\git.exe>'; $GitSha = '<its SHA-256>'; $GitVer = '<its file version, e.g. 2.45.2.windows.1>'
+if ((Sha $GitExe) -ne $GitSha.ToUpper() -or (Get-Item -LiteralPath $GitExe).VersionInfo.FileVersion -ne $GitVer) { NoGo 'B2 git binding does not match the host git.exe' }
 $SuiteExit = 99
 try {
   powershell -NoProfile -ExecutionPolicy Bypass -File $suite -RepoRoot $P -WorktreeRoot $Stage -ExpectedTip $Tip -BranchRef $QBranch `
-    -LogPath "$SuiteLog.preflight" -PreflightOnly -InterpreterPath $StagePy -ExpectedInterpreterVersion '3.11.9'
+    -LogPath "$SuiteLog.preflight" -PreflightOnly -InterpreterPath $StagePy -ExpectedInterpreterVersion '3.11.9' `
+    -GitExecutablePath $GitExe -ExpectedGitExecutableSha256 $GitSha -ExpectedGitExecutableFileVersion $GitVer
   if ($LASTEXITCODE -eq 0) {
     powershell -NoProfile -ExecutionPolicy Bypass -File $suite -RepoRoot $P -WorktreeRoot $Stage -ExpectedTip $Tip -BranchRef $QBranch `
-      -LogPath $SuiteLog -InterpreterPath $StagePy -ExpectedInterpreterVersion '3.11.9'
+      -LogPath $SuiteLog -InterpreterPath $StagePy -ExpectedInterpreterVersion '3.11.9' `
+      -GitExecutablePath $GitExe -ExpectedGitExecutableSha256 $GitSha -ExpectedGitExecutableFileVersion $GitVer
   }
   $SuiteExit = $LASTEXITCODE
 } finally {
@@ -797,6 +809,7 @@ try {
 **Go/no-go B2:**
 - the suite exits 0;
 - its interpreter-override line names `$StagePy` and 3.11.9;
+- its `selected_git=` and `expected_git_*` values name `$GitExe`, `$GitSha` and `$GitVer`;
 - the stage worktree is clean;
 - the #259 `constructor` / `pre_3_11_2` tests pass.
 
