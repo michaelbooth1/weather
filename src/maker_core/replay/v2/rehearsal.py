@@ -109,6 +109,13 @@ class MapOf:
         self.key, self.value, self.limit = re.compile(key), value, limit
 
 
+class Nullable:
+    """``None``, or a value that satisfies ``spec`` (a leaf check or a structure)."""
+
+    def __init__(self, spec):
+        self.spec = spec
+
+
 class ListOf:
     """A list whose items each satisfy ``item``; at most ``limit`` items."""
 
@@ -119,7 +126,8 @@ class ListOf:
 _HEX64 = re.compile(r"[0-9a-f]{64}")
 _DECIMAL = re.compile(r"-?[0-9]{1,30}(\.[0-9]{1,40})?(E[+-]?[0-9]{1,4})?")
 _VERSION = re.compile(r"[0-9A-Za-z.+_-]{1,40}")
-_TIME = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}:\d{2})")
+_TIME = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,6})?(Z|[+-][0-9]{2}:[0-9]{2})")
+_SEED = re.compile(r"[0-9]{1,10}")
 _COUNT_LIMIT = 2**63
 
 
@@ -157,23 +165,14 @@ def _version(v):
 
 def _seed(v):
     """``PYTHONHASHSEED`` as Python accepts it (0..4294967295), or ``random``."""
-    return isinstance(v, str) and (v == "random" or (v.isdigit() and len(v) <= 10 and int(v) < 2**32))
+    return isinstance(v, str) and (v == "random" or (_SEED.fullmatch(v) is not None and int(v) < 2**32))
 
 
 def _one_of(*allowed):
     return lambda v: isinstance(v, str) and v in allowed
 
 
-def _nullable(check):
-    return lambda v: v is None or (check(v) if callable(check) else _conforms(v, check))
-
-
-def _conforms(value, spec):
-    try:
-        _walk(value, spec, "")
-    except BundleError:
-        return False
-    return True
+_nullable = Nullable
 
 
 _SCHEMA = []
@@ -232,7 +231,10 @@ def _walk(value, spec, path):
         for key in value:
             if str(key) in FORBIDDEN:
                 _refuse(f"{path}.{key}" if path else str(key))  # never allowed, at any depth or under a data key
-    if isinstance(spec, dict):
+    if isinstance(spec, Nullable):
+        if value is not None:
+            _walk(value, spec.spec, path)
+    elif isinstance(spec, dict):
         if not isinstance(value, Mapping):
             _refuse(path)
         for key, item in value.items():

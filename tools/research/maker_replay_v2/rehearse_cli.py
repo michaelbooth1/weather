@@ -173,8 +173,8 @@ def _names():
                 for key, child in spec.items():
                     names.add(key)
                     collect(child)
-            elif isinstance(spec, (rehearsal.MapOf, rehearsal.ListOf)):
-                collect(getattr(spec, "value", getattr(spec, "item", None)))
+            elif isinstance(spec, (rehearsal.MapOf, rehearsal.ListOf, rehearsal.Nullable)):
+                collect(getattr(spec, "value", getattr(spec, "item", getattr(spec, "spec", None))))
         collect(rehearsal.schema())
         _NAMES.append(frozenset(names))
     return _NAMES[0]
