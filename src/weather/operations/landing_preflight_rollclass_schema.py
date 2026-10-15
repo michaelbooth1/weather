@@ -12,6 +12,13 @@ additivity only decides whether the change may share a batch (M2 caps).
 ``SchemaLiteralExclusion(...)`` entries and the rest of the family's code are compared
 too and reported, but only ``SchemaSpec`` entries decide the class. Code outside the
 entries that changed is reported as ``non_entry_code_changed`` (INFO).
+
+PL-2 split (Data Layer v2): :func:`classify_schema_path` maps a path to its half of
+the registry. ``src/weather/schema_registry*.py`` is the frozen **core** (always
+roll-sensitive). ``src/weather/schema_families/<family>.py`` is a **family** module:
+no loop imports it, so a family-only diff is roll-free unless a loop closure or the
+static graph reaches it, which the roll-class engine still checks and which is a
+PL-2 contract violation.
 """
 
 from __future__ import annotations
@@ -22,6 +29,7 @@ from dataclasses import dataclass, field
 from collections.abc import Callable, Mapping
 
 SCHEMA_FAMILY_PREFIX = "src/weather/schema_registry"
+SCHEMA_FAMILIES_DIR = "src/weather/schema_families/"
 ENTRY_CALLS = ("SchemaSpec",)
 INFO_CALLS = ("SchemaLiteralExclusion",)
 
@@ -35,7 +43,56 @@ Reader = Callable[[str], bytes]
 
 
 def is_schema_family(path: str) -> bool:
+    """The frozen core: ``src/weather/schema_registry*.py`` (always roll-sensitive)."""
+
     return path.startswith(SCHEMA_FAMILY_PREFIX) and path.endswith(".py") and "/" not in path[len("src/weather/") :]
+
+
+SCHEMA_PART_CORE = "core"
+SCHEMA_PART_FAMILY = "family"
+SCHEMA_PART_FAMILY_PACKAGE = "family_package"
+PATH_ROLL_SENSITIVE = "ROLL-SENSITIVE"
+PATH_ROLL_FREE_UNLESS_IMPORTED = "ROLL-FREE-UNLESS-IMPORTED"
+
+
+@dataclass(frozen=True)
+class SchemaPathClass:
+    """Which half of the split registry a path belongs to, and its roll class by contract."""
+
+    path: str
+    part: str
+    family: str | None
+    roll_class: str
+    reason: str
+
+    def to_json(self) -> dict[str, object]:
+        return {"path": self.path, "part": self.part, "family": self.family, "roll_class": self.roll_class,
+                "reason": self.reason}
+
+
+def is_schema_families_module(path: str) -> bool:
+    """A file directly under ``src/weather/schema_families/`` (a family module or the package init)."""
+
+    if not path.startswith(SCHEMA_FAMILIES_DIR) or not path.endswith(".py"):
+        return False
+    return "/" not in path[len(SCHEMA_FAMILIES_DIR):]
+
+
+def classify_schema_path(path: str) -> SchemaPathClass | None:
+    """``path -> (part, family, roll class)`` for the split registry; ``None`` outside it."""
+
+    path = path.replace("\\", "/")
+    if is_schema_family(path):
+        return SchemaPathClass(path, SCHEMA_PART_CORE, None, PATH_ROLL_SENSITIVE,
+                               "schema_registry* core: imported by every capture loop")
+    if is_schema_families_module(path):
+        stem = path[len(SCHEMA_FAMILIES_DIR):-len(".py")]
+        if stem == "__init__":
+            return SchemaPathClass(path, SCHEMA_PART_FAMILY_PACKAGE, None, PATH_ROLL_FREE_UNLESS_IMPORTED,
+                                   "schema_families package: loaded only by the audit and family producers")
+        return SchemaPathClass(path, SCHEMA_PART_FAMILY, stem, PATH_ROLL_FREE_UNLESS_IMPORTED,
+                               f"schema_families/{stem}: PL-2 family schema; no loop imports it")
+    return None
 
 
 def _call_name(node: ast.Call) -> str | None:

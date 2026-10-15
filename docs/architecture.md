@@ -108,7 +108,9 @@ bounded counterfactual detail is governed by the
   `config/location_market_events.json`; refresh it rather than hand-editing it.
 - Supervised settlement labels: per-market ledgers under local
   `data/settlements/`; folder settlement files are derived copies.
-- Schemas: `weather.schema_registry` and producer/consumer tests.
+- Schemas: `weather.schema_registry` (the frozen core the capture loops import)
+  plus one `weather.schema_families.<family>` module per new capture family,
+  which no loop imports, so adding one is roll-free; producer/consumer tests.
 - Serving state: the verified active-release pointer and complete immutable
   release graph. Candidate artifacts are never active merely because they exist.
 - Active work: numbered roadmap items and the generated active backlog.
