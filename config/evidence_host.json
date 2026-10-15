@@ -248,7 +248,7 @@
     "ram_cap_mib": 256,
     "wall_seconds": 600,
     "hour_byte_budget_mib": 32,
-    "request_budget_per_hour": 120,
+    "request_budget_per_hour": 240,
     "station_overrides": {
      "HKO": "VHHH"
     },
@@ -258,6 +258,8 @@
     "reread_days": 1,
     "wu_daily": true,
     "wu_spacing_seconds": 1.0,
+    "asos_1min": true,
+    "cli_cf6": true,
     "iem_6h": true
    },
    "vr5_trades": {

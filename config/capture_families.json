@@ -110,7 +110,7 @@
         "id": "evidence_host", "plan_family": "PL-1, PL-4, PL-5, PL-6, OB-1, OB-2, OB-3, FC-1, FC-4, VR-3, LB-1, VR-5", "task": "WeatherEvidenceHost", "entry_module": "weather.evidence.host",
         "status_path": "data/evidence/host_status.json", "adoption": "explicit_restart", "roll_class": "RF",
         "ram_cap": "weather.evidence.host:DEFAULT_CHILD_RAM_CAP_BYTES", "byte_budget": "weather.evidence.journal:DEFAULT_HOUR_BYTE_BUDGET", "request_budget": "not_declared", "embargo_scope": "capture_outcome_blind",
-        "licence": "AWC, api.weather.gov, ECCC public; HKO via DATA.GOV.HK terms; JMA PDL1.0; DWD CC BY 4.0; Open-Meteo free API (risk accepted in DECISION_LOG.md); Polymarket public API; Iowa Environmental Mesonet public ASOS archive (LB-1); WU public history page route under OD15 (LB-1, page token never stored)",
+        "licence": "AWC, api.weather.gov, ECCC public; HKO via DATA.GOV.HK terms; JMA PDL1.0; DWD CC BY 4.0; Open-Meteo free API (risk accepted in DECISION_LOG.md); Polymarket public API; Iowa Environmental Mesonet public ASOS, 1-minute ASOS and AFOS (NWS CLI/CF6) archives (LB-1); WU public history page route under OD15 (LB-1, page token never stored)",
         "storage": [
           {"path": "data/evidence/<evidence_family>/<day>/<hour>-<segment>/<partition>.jsonl.gz", "artifact_family": "evidence_journal_segment"},
           {"path": "data/evidence/<evidence_family>/<day>/<hour>-<segment>/manifest.json", "artifact_family": "evidence_journal_segment"},

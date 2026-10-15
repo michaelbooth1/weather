@@ -138,8 +138,16 @@ The lane takes no workload lease and adds no scheduled task.
   carrying the token is not stored; the page itself is never stored); and
   `iem_6h_composite`, the max/min of the `1snTTT`/`2snTTT` groups in the routine
   reports already fetched (periods inside the local day, `covered_hours`, plus an
-  overlap variant). Not built yet: 1-minute ASOS, CLI/CF6, HKO Daily Extract,
-  ECCC climate-daily, the venue winner and the Stage-A read step.
+  overlap variant). US strict members (`weather.evidence.tasks.lb1_us`, public IEM
+  archives, one request per US station-day each): `asos_1min` (IEM `asos1min.py`
+  over the local day in UTC; whole-degree max/min of the 1-minute `tmpf`,
+  `coverage_ratio`, `first_max_utc`), and `nws_cli` / `nws_cf6` (IEM AFOS archive
+  `afos/retrieve.py`, products issued D 00:00Z to D+1 23:59Z; the CLI prefers the
+  final `YESTERDAY` report over a preliminary one; both are degrees F over the
+  local-standard-time day, `day_basis=lst`, so a DST day is offset by an hour;
+  no product is `no_product`). The LB-1 hourly request budget is sized for these
+  (two days of IEM, WU, 1-minute and CLI/CF6 requests). Not built yet: HKO Daily
+  Extract, ECCC climate-daily, the venue winner and the Stage-A read step.
 - **VR-5 `vr5_trades`:** conditions from the VR-3 journal (`capture_check`) for the
   configured `location_ids` and event days 1-3 back, each guarded in `capture`
   mode. `trades` rows (data-api `/trades?market=`, paged) keep `proxyWallet`
