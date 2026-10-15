@@ -57,9 +57,14 @@ function Get-OptionalPropertyValue {
         [Parameter(Mandatory = $true)][string]$Name
     )
 
-    if ($null -ne $InputObject -and $InputObject.PSObject.Properties.Name -contains $Name) {
-        return $InputObject.$Name
-    }
+    # Look the property up through the Properties indexer, which returns $null for a missing
+    # name. The former `.PSObject.Properties.Name -contains` form member-enumerates `.Name`
+    # over the property collection, and under an inherited Set-StrictMode that throws
+    # "The property 'Name' cannot be found" when the object has NO properties -- an empty
+    # `runtime_identity: {}` crashed the whole verdict instead of yielding UNDECIDABLE.
+    if ($null -eq $InputObject) { return $null }
+    $property = $InputObject.PSObject.Properties[$Name]
+    if ($null -ne $property) { return $property.Value }
     return $null
 }
 
@@ -119,13 +124,22 @@ foreach ($rel in $statusFiles) {
     if (-not (Test-Path -LiteralPath $path)) { $problems += "missing closure evidence: $rel"; continue }
     try { $doc = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json }
     catch { $problems += "unreadable closure evidence: $rel"; continue }
+    # An empty file or a literal `null` parses to $null; it is not closure evidence.
+    if ($null -eq $doc) { $problems += "unreadable closure evidence: $rel (empty document)"; continue }
 
+    # A missing, null, empty-string or empty-object runtime identity is NOT evidence that the loop
+    # imports nothing; it is the absence of evidence, so it is reported and the closure is dropped
+    # (with no live closure the verdict is UNDECIDABLE). It must never count toward ROLL-FREE.
     $identity = $null
     foreach ($key in @("current_runtime_identity", "runtime_identity_before", "runtime_identity")) {
-        if ($doc.PSObject.Properties.Name -contains $key -and $doc.$key) { $identity = $doc.$key; break }
+        $candidate = Get-OptionalPropertyValue -InputObject $doc -Name $key
+        if ($candidate) { $identity = $candidate; break }
+    }
+    if (-not $identity -or @($identity.PSObject.Properties).Count -eq 0) {
+        $problems += "no source_scope_files in $rel (runtime identity empty or absent)"; continue
     }
     $sourceScopeFiles = Get-OptionalPropertyValue -InputObject $identity -Name "source_scope_files"
-    if (-not $identity -or -not $sourceScopeFiles) {
+    if (-not $sourceScopeFiles) {
         $problems += "no source_scope_files in $rel"; continue
     }
 
