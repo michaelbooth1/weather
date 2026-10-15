@@ -99,6 +99,7 @@ EXPECTED_SHARDS = {
             "tests/operations/test_production_baseline_reconciliation.py",
             "tests/operations/test_production_baseline_scheduler_rpc.py",
             "tests/operations/test_monitoring_fixes.py",
+            "tests/reporting/test_capture_family_status.py",
             "tests/operations/test_bulk_cold_archive_crypt.py",
             "tests/operations/test_cold_snapshot_nightly.py",
             "tests/operations/test_cold_snapshot_nightly_schedule.py",

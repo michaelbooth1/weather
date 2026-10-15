@@ -2,7 +2,7 @@
 # Public-data capture only, books and reward terms, no websocket. Editing/testing this registrar does not arm it.
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
-    [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
+    [string]$RepoRoot = "",
     [ValidatePattern('^[a-z][a-z0-9_]{0,40}$')]
     [string]$Family = "lowest_temperature",
     # Must be WeatherMakerEvidence<PascalFamily>: status.ps1 finds each family's task by that name
@@ -15,6 +15,7 @@ $familyPascal = ($Family -split '_' | ForEach-Object {
 if ($TaskName -cnotmatch '^WeatherMakerEvidence(\w+)$' -or $Matches[1] -cne $familyPascal) {
     throw "Task name for family '$Family' must end in MakerEvidence$familyPascal; status.ps1 monitors family tasks by that name."
 }
+if (-not $RepoRoot) { $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot) }
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 $python = Join-Path $RepoRoot "venv\Scripts\pythonw.exe"
 if (-not (Test-Path -LiteralPath $python -PathType Leaf)) { throw "Repository pythonw is absent." }

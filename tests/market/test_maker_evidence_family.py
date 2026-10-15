@@ -1,4 +1,7 @@
-"""Capture families: config contract, full-universe discovery, reward cadence, isolation from 88a."""
+"""Capture families: config contract, full-universe discovery, reward cadence, isolation from 88a.
+
+Guards: DATA_LAYER_V2_PLAN capture families (config/capture_families.json); 88a capture isolation
+"""
 from datetime import datetime, timedelta, timezone
 import json
 
