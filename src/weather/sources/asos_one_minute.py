@@ -109,7 +109,8 @@ def build_iem_1min_params(station, start_utc, end_utc):
         "minute2": end.minute,
         "tz": "Etc/UTC",
         "format": "onlycomma",
-        "vars": "tmpf,dwpf,sknt,drct,alti",
+        # IEM rejects `alti` for one-minute data; `pres1` is station pressure (inHg).
+        "vars": "tmpf,dwpf,sknt,drct,pres1",
     }
 
 
@@ -121,7 +122,10 @@ def normalize_iem_1min_csv(text, spec, station=None, source_url=IEM_ASOS_1MIN_UR
     rows = []
     reader = csv.DictReader(io.StringIO(text or ""))
     for raw in reader:
-        utc_dt = parse_valid_utc(raw.get("valid") or raw.get("time") or raw.get("timestamp"))
+        # Current IEM output names the column `valid(Etc/UTC)` after the requested tz.
+        utc_dt = parse_valid_utc(
+            raw.get("valid") or raw.get("valid(Etc/UTC)") or raw.get("time") or raw.get("timestamp")
+        )
         temp_f = to_float(raw.get("tmpf"))
         if utc_dt is None or temp_f is None:
             continue
@@ -144,6 +148,7 @@ def normalize_iem_1min_csv(text, spec, station=None, source_url=IEM_ASOS_1MIN_UR
             "wind_speed_kmh": knots_to_kmh(raw.get("sknt")),
             "wind_dir_deg": to_float(raw.get("drct")),
             "pressure_hpa": inches_hg_to_hpa(raw.get("alti")),
+            "station_pressure_hpa": inches_hg_to_hpa(raw.get("pres1")),
             "source_url": source_url,
             "payload_hash": digest,
             "fetched_at_utc": fetched_at_utc,
