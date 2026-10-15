@@ -18,7 +18,7 @@ from weather.sources.historical_schema import to_float
 from weather.units import f_to_native, round_half_up
 
 
-ASOS_1MIN_SCHEMA_VERSION = "asos_1min_v0.1"
+ASOS_1MIN_SCHEMA_VERSION = "asos_1min_v0.2"
 SOURCE = "asos_1min"
 IEM_ASOS_1MIN_URL = "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py"
 DEFAULT_ROOT = data_path() / "sources" / "asos_1min"
@@ -114,6 +114,22 @@ def build_iem_1min_params(station, start_utc, end_utc):
     }
 
 
+def iem_time_column(fieldnames):
+    """The UTC time column: IEM names it `valid(<tz>)` (`valid(Etc/UTC)` today) or plain `valid`.
+
+    A header with no recognisable time column raises, so a format change cannot silently yield zero rows.
+    """
+    if not fieldnames:
+        return None
+    for key in fieldnames:
+        if str(key).strip().lower().startswith("valid"):
+            return key
+    for key in ("time", "timestamp"):
+        if key in fieldnames:
+            return key
+    raise ValueError(f"IEM one-minute CSV has no time column: {list(fieldnames)!r}")
+
+
 def normalize_iem_1min_csv(text, spec, station=None, source_url=IEM_ASOS_1MIN_URL, fetched_at=None):
     station = station or resolve_iem_1min_station(spec).get("station") or getattr(spec, "icao", "")
     digest = payload_hash(text)
@@ -121,11 +137,9 @@ def normalize_iem_1min_csv(text, spec, station=None, source_url=IEM_ASOS_1MIN_UR
     fetched_at_utc = fetched_dt.isoformat() if fetched_dt else None
     rows = []
     reader = csv.DictReader(io.StringIO(text or ""))
+    time_key = iem_time_column(reader.fieldnames)
     for raw in reader:
-        # Current IEM output names the column `valid(Etc/UTC)` after the requested tz.
-        utc_dt = parse_valid_utc(
-            raw.get("valid") or raw.get("valid(Etc/UTC)") or raw.get("time") or raw.get("timestamp")
-        )
+        utc_dt = parse_valid_utc(raw.get(time_key))
         temp_f = to_float(raw.get("tmpf"))
         if utc_dt is None or temp_f is None:
             continue

@@ -86,6 +86,16 @@ class TestAsosOneMinute(unittest.TestCase):
         self.assertIsNone(rows[0]["pressure_hpa"])
         self.assertAlmostEqual(rows[0]["station_pressure_hpa"], 1012.9, places=0)
 
+    def test_header_without_time_column_raises_instead_of_dropping_rows(self):
+        text = "station,station_name,when,tmpf\nLGA,New York LaGuardia,2025-06-14 16:00,82\n"
+        with self.assertRaises(ValueError):
+            normalize_iem_1min_csv(text, NYC)
+
+    def test_any_tz_suffixed_valid_column_is_the_time_column(self):
+        text = "station,valid(UTC),tmpf\nLGA,2025-06-14 16:00,82\n"
+        rows = normalize_iem_1min_csv(text, NYC)
+        self.assertEqual([row["valid_time_utc"] for row in rows], ["2025-06-14T16:00:00+00:00"])
+
     def test_availability_summary_counts_temperature_minutes(self):
         rows = normalize_iem_1min_csv(CSV_TEXT, NYC)
         summary = availability_summary(NYC, "2025-06-14", rows, expected_minutes=4)
