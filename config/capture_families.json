@@ -128,14 +128,7 @@
       {"path": "data/snapshots/clob_loop_supervisor_status.json", "today": "clob_raw_evidence", "needs": "operator_cache row ahead of the snapshots/clob*.json glob"},
       {"path": "data/snapshots/clob_enrichment_status.json", "today": "clob_raw_evidence", "needs": "operator_cache row ahead of the snapshots/clob*.json glob"},
       {"path": "data/snapshots/observation_trigger_supervisor_status.json", "today": "snapshot_jsonl_evidence", "needs": "operator_cache row ahead of the snapshots/observation_trigger*.json glob"},
-      {"path": "data/maker_shadow/tapes/<day>-<run>.tape.jsonl", "today": "unclassified", "needs": "VR-9 canonical_evidence row"},
-      {"path": "data/evidence/<evidence_family>/<day>/<hour>-<segment>/<partition>.jsonl.gz", "today": "unclassified", "needs": "evidence-host rows in weather.operations.storage_classes (deferred-reachable from the snapshot loop, so its own verdict)"},
-      {"path": "data/evidence/<evidence_family>/<day>/<hour>-<segment>/manifest.json", "today": "unclassified", "needs": "evidence-host rows in weather.operations.storage_classes (deferred-reachable from the snapshot loop, so its own verdict)"},
-      {"path": "data/evidence/<evidence_family>/<day>/day_seal.json", "today": "unclassified", "needs": "evidence-host rows in weather.operations.storage_classes (deferred-reachable from the snapshot loop, so its own verdict)"},
-      {"path": "data/evidence/cas/sha256/<prefix>/<sha256>.blob", "today": "unclassified", "needs": "evidence-host rows in weather.operations.storage_classes (deferred-reachable from the snapshot loop, so its own verdict)"},
-      {"path": "data/evidence/identity/<sha256>.json.gz", "today": "unclassified", "needs": "evidence-host rows in weather.operations.storage_classes (deferred-reachable from the snapshot loop, so its own verdict)"},
-      {"path": "data/evidence/<evidence_family>/status.json", "today": "unclassified", "needs": "evidence-host rows in weather.operations.storage_classes (deferred-reachable from the snapshot loop, so its own verdict)"},
-      {"path": "data/evidence/host_status.json", "today": "unclassified", "needs": "evidence-host rows in weather.operations.storage_classes (deferred-reachable from the snapshot loop, so its own verdict)"}
+      {"path": "data/maker_shadow/tapes/<day>-<run>.tape.jsonl", "today": "unclassified", "needs": "VR-9 canonical_evidence row"}
     ]
   }
 }
