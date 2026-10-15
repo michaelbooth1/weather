@@ -276,6 +276,8 @@
   "tests/operations/test_runtime_identity.py": 0.3,
   "tests/operations/test_runtime_monitor.py": 0.7,
   "tests/operations/test_runtime_utilities.py": 4.7,
+  "tests/operations/test_schema_families_registry.py": 7.4,
+  "tests/operations/test_schema_families_roll_verdict.py": 2.0,
   "tests/operations/test_schema_registry.py": 0.8,
   "tests/operations/test_settled_day_freshness.py": 0.4,
   "tests/operations/test_settlement_audit_bounded_consumers.py": 0.5,

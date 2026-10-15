@@ -52,11 +52,12 @@ pytestmark = pytest.mark.ratchet
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-# sha256 of the canonical core registry content on master 01cad4b91 (before the PL-2 split):
+# sha256 of the canonical core registry content on the S3 base d69842131 (stack6 + S1, before the PL-2 split;
+# re-pinned from 01cad4b91 for the stack6 feature_store v1.17 core change):
 # registry_payload(), every exclusion, the alias table and both lookup maps. The core is frozen;
 # a change here is a roll-sensitive landing that re-pins this digest on purpose, never in passing.
-CORE_REGISTRY_SHA256 = "a07b86c475868f2d71b44685a10222a283874175c4f4750ef4314f3d5c4f1f0f"
-CORE_SCHEMA_COUNT = 644
+CORE_REGISTRY_SHA256 = "a384a71a34fe96e3d136dd0345a053e7ed571f63302b0c087814a0d2893d6e4a"
+CORE_SCHEMA_COUNT = 645
 CORE_EXCLUSION_COUNT = 14
 
 FAMILY_MODULE = '''from weather.schema_registry_types import SchemaLiteralExclusion, SchemaSpec

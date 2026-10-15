@@ -3,7 +3,8 @@
 Guards: docs/operations/DATA_LAYER_V2_PLAN.md S3 verify "dummy family diff -> ROLL-FREE" and
 AGENTS.md "Get the verdict from scripts\\ops\\roll_verdict.ps1 -Branch <b>; never derive it by hand".
 
-The fixture repository carries the real ``scripts/ops/roll_verdict.ps1`` and four fresh capture
+The fixture repository carries the real ``scripts/ops/roll_verdict.ps1``, the real
+``config/capture_families.json`` closure registry (DLv2 S1) and four fresh capture
 closure status files whose ``source_scope_files`` are the static loop closure of this checkout
 (which includes the ``schema_registry*`` core). A branch that only adds
 ``src/weather/schema_families/<family>.py`` must be ROLL-FREE (exit 0); a branch that adds the same
@@ -25,6 +26,7 @@ from weather.operations.landing_preflight_rollclass_graph import GraphOptions, T
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "scripts" / "ops" / "roll_verdict.ps1"
+REGISTRY = REPO_ROOT / "config" / "capture_families.json"
 POWERSHELL = shutil.which("powershell.exe") or shutil.which("powershell")
 
 pytestmark = pytest.mark.skipif(
@@ -83,6 +85,9 @@ def repo(tmp_path: Path) -> Path:
     repo = tmp_path / "repo"
     (repo / "scripts" / "ops").mkdir(parents=True)
     shutil.copy2(SCRIPT, repo / "scripts" / "ops" / "roll_verdict.ps1")
+    # Since DLv2 S1 the closure list is read from the registry; without it the verdict is UNDECIDABLE.
+    (repo / "config").mkdir()
+    shutil.copy2(REGISTRY, repo / "config" / "capture_families.json")
     for rel in (*CORE_FILES, "src/weather/schema_families/__init__.py"):
         target = repo / rel
         target.parent.mkdir(parents=True, exist_ok=True)
