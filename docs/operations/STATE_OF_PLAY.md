@@ -76,7 +76,6 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 
 | What | Owner | Due | Verify |
 | --- | --- | --- | --- |
-| A' at A3; then delete the workstation W0 temp tree | owner at host, production | 10-14 09:00 | A' receipts GO |
 | Fresh t24 after F2 for session 1 (F2a) | owner | 10-14 evening | t24 20-30 h old at start |
 | Policy: roll-free heads land on workstation pre-gate + Windows CI (T4 draft) | owner | after C | DECISION_LOG row |
 | Evening-fix scorer `8cdcb62ec` lands (prereg SIGNED 10-13, sha256 in DL; read 10-29); OD30 retirement | T3; owner | 10-28; open | scorer on master; DL row |
