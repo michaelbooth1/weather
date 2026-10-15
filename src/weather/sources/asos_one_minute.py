@@ -18,7 +18,8 @@ from weather.sources.historical_schema import to_float
 from weather.units import f_to_native, round_half_up
 
 
-ASOS_1MIN_SCHEMA_VERSION = "asos_1min_v0.2"
+# Stays v0.1: the core schema registry is frozen (S3); station_pressure_hpa is an additive field.
+ASOS_1MIN_SCHEMA_VERSION = "asos_1min_v0.1"
 SOURCE = "asos_1min"
 IEM_ASOS_1MIN_URL = "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py"
 DEFAULT_ROOT = data_path() / "sources" / "asos_1min"

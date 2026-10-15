@@ -286,7 +286,7 @@ REGISTERED_SCHEMAS = (
         "active",
         "Conservative market/hour/kind postprocess calibration embedded in pooled band artifacts.",
     ),
-    SchemaSpec("asos_1min", "asos_1min_v0.2", "weather.sources.asos_one_minute", "active"),
+    SchemaSpec("asos_1min", "asos_1min_v0.1", "weather.sources.asos_one_minute", "active"),
     SchemaSpec("artifact_provenance_manifest", "artifact_provenance_manifest_v0.1", "weather.artifacts", "active"),
     SchemaSpec("calibrated_weights", "calibrated_weights_v0.1", "weather.calibration.intraday_calibration", "active"),
     SchemaSpec(
