@@ -243,13 +243,15 @@ def _walk(value, spec, path):
                 _refuse(where)
             _walk(item, spec[key], where)
     elif isinstance(spec, MapOf):
-        if not isinstance(value, Mapping) or len(value) > spec.limit:
+        if not isinstance(value, Mapping):
             _refuse(path)
-        for key, item in value.items():
-            where = f"{path}.{key}" if path else str(key)
+        for key in value:  # key shapes first: a foreign key is named as such even in an over-long map
             if not isinstance(key, str) or spec.key.fullmatch(key) is None:
                 _refuse(f"{path}.<key>")  # the key is data of the wrong shape: it is not echoed
-            _walk(item, spec.value, where)
+        if len(value) > spec.limit:
+            _refuse(path)
+        for key, item in value.items():
+            _walk(item, spec.value, f"{path}.{key}" if path else str(key))
     elif isinstance(spec, ListOf):
         if not isinstance(value, list) or len(value) > spec.limit:
             _refuse(path)
@@ -268,16 +270,18 @@ def whitelisted(doc):
     return doc
 
 
-def environment(environ=None):
+def environment(environ):
     """What E7 compares (CONSOLIDATED row 17, binding): the digest of every ``maker_core`` source file this process
     can import, the interpreter and numeric library versions, the BLAS thread pins as seen, and the hash seed in
-    force. ``hash_seed`` is ``PYTHONHASHSEED`` as set (``random`` when unset); ``hash_probe`` is ``hash()`` of a
+    force. ``environ`` is the caller's environment mapping (``maker_core`` never reads ``os.environ`` itself: the
+    import-architecture ratchet confines that to ``maker_core.runtime.credentials``). ``hash_seed`` is
+    ``PYTHONHASHSEED`` as set (``random`` when unset); ``hash_probe`` is ``hash()`` of a
     fixed string, so it shows the seed actually in force and differs between processes with different seeds."""
     import importlib.metadata
-    import os
     import platform
     import maker_core
-    environ = os.environ if environ is None else environ
+    if not isinstance(environ, Mapping):
+        raise BundleError("rehearsal_environment_required")
     package = Path(maker_core.__file__).resolve().parent
     sources = {p.relative_to(package).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
                for p in sorted(package.rglob("*.py"))}
@@ -324,14 +328,14 @@ def _zones(inventory):
 
 def rehearse(paths, inventory, *, mode, hazard_per_minute, calibration_sha256, hazard_variant="max_m", now,
              hazard_by_market=None, replicates=2000, clock=time.monotonic, memory=None, limits=None,
-             progress=lambda *_: None, environ=None):
+             progress=lambda *_: None, environ):
     """One score-free rehearsal (registration §9): ``per_date`` (one calibration bundle) or ``carried`` (the three).
 
     ``inventory`` is the weather producer's universe rows for those dates; ``hazard_per_minute`` comes from the
     unchanged calibration recipe (``calibration_sha256`` names its document; ``reachability.hazards`` reads both
     from it). ``hazard_variant="r1_per_city"`` (§11 R1) also takes ``hazard_by_market`` for every market of the
     inventory. A ``carried`` rehearsal adds the §11 ``reachability`` block (``reachability.block``). ``environment``
-    (row 17) is read from ``environ`` (``os.environ`` by default) and this process. Nothing scored
+    (row 17) is read from ``environ`` (required; the CLI passes ``os.environ``) and this process. Nothing scored
     leaves this function: the report and the engines are dropped and only the whitelisted document is returned."""
     from maker_core.replay.bundle_v02 import open_stream_bundle
     from maker_core.replay.v2.host import process_memory
