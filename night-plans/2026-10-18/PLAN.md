@@ -88,6 +88,9 @@ Runs A, B and R used qtest (queue lease) on `a39b998a2`.
   - Isolated re-run of that file on `cf8cfe6ae`: **71 passed**.
   - Re-run of the whole failing chunk (25 files) on `cf8cfe6ae`: **334 passed, 12 skipped**, rc 0.
   - Verdict: load flake, not a stack defect. Every other chunk passed.
+- **Full pre-gate re-run on `cf8cfe6ae`** on an idle queue (master 13:5x): **PASS**, base `90b2e1844` is an ancestor
+  (receipt `l-data/s18/pregate/pg-cf8cfe6aec4e-20261015T134457-115928/receipt.json`, sha256 `7107585e…`). The cold-archive
+  teardown did not reproduce; that file sits in chunk 4 of 22 in this tree's packing.
 - **Fallback** `claude/integration-20261018-stack4-r` @ `50071829d`: stack4 + `cherry-pick -x` of the repair +
   merge of master `90b2e1844`; focused run 228 passed. Land only if stack6 is rejected.
 
