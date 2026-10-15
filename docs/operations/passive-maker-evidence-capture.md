@@ -123,8 +123,10 @@ pilot bands now and for built-in bands only after the 88a panel hold:
   is `on` or `off` (lands `off`), reloaded each cycle; off falls back to the
   stale-recheck cadence.
 
-The core recorder's REST budget, `REQUEST_BUDGET_PER_HOUR` (0.4 req/s, the plan's
-acceptance bound), is the registry's `request_budget`.
+`REQUEST_BUDGET_PER_HOUR` (0.4 req/s) is the plan's acceptance bound for the
+event-driven cadence. The registry's `request_budget` stays `not_declared` while built-ins
+run the legacy cadence (about 2 req/s, mostly reward reads); declare it when
+`built_in_reward_cadence` flips.
 
 ## Recorder-only pilot (S2 P1)
 

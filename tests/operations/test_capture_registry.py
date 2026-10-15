@@ -143,10 +143,6 @@ def test_request_budget_references_name_a_configured_family_field() -> None:
         value = row["request_budget"]
         if value == "not_declared":
             continue
-        if ":" in value:  # A code constant (S9: the core recorder's public REST budget per hour).
-            resolved = _resolve(value)
-            assert isinstance(resolved, int) and resolved > 0, (row["id"], value)
-            continue
         prefix, _, field = value.partition("<family>.")
         assert prefix == "families."
         for family in _family_ids():

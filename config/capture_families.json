@@ -101,7 +101,7 @@
       {
         "id": "maker_evidence_core", "plan_family": "VR-1 (88a)", "task": "WeatherMakerEvidenceCapture", "entry_module": "weather.market.maker_evidence_capture",
         "status_path": "data/maker_evidence/status.json", "adoption": "explicit_restart_88a", "roll_class": "88a-R",
-        "ram_cap": "weather.market.maker_evidence_store:MAX_RAW_BYTES", "byte_budget": "weather.market.maker_evidence_store:DEFAULT_STREAM_CAP", "request_budget": "weather.market.maker_evidence_rewards:REQUEST_BUDGET_PER_HOUR", "embargo_scope": "capture_outcome_blind",
+        "ram_cap": "weather.market.maker_evidence_store:MAX_RAW_BYTES", "byte_budget": "weather.market.maker_evidence_store:DEFAULT_STREAM_CAP", "request_budget": "not_declared", "embargo_scope": "capture_outcome_blind",
         "licence": "Polymarket public API",
         "storage": [
           {"path": "data/maker_evidence/<utc_day>/<segment>.jsonl", "artifact_family": "passive_maker_evidence"},
