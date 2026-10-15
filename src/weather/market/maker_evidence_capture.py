@@ -36,7 +36,7 @@ from weather.market.maker_evidence_public import (
 )
 from weather.market.maker_evidence_store import (
     DEFAULT_STREAM_CAP, GROUP_FSYNC_SECONDS, SCHEMA, EvidenceStore, JournalSyncFailure, WriterLock,
-    RawFootprintLimit, atomic_json, disk_band, digest, encoded, utc_now,
+    RawFootprintLimit, atomic_json, disk_band, digest, encoded, utc_now, write_status,
 )
 from weather.market.maker_evidence_archive import compress_closed_segments
 from weather.market.maker_evidence_family import family_universe, load_family
@@ -418,7 +418,7 @@ def capture(args):
                              rewards={"sweep_enabled": sweep_switch["enabled"],
                                       "built_in_cadence": sweep_switch["built_in_cadence"],
                                       "sweep": sweep.metrics(), "trigger": trigger.metrics()})
-            atomic_json(root / "status.json", state)
+            write_status(store, root / "status.json", state)
         specs = all_specs()
         status()
         universe = []
