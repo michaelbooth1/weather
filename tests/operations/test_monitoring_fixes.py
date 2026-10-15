@@ -212,6 +212,7 @@ def _capture_family_block(tmp_path, tasks, payload, exit_code=0):
     return json.loads(out)
 
 
+@pytest.mark.spawns
 def test_status_capture_family_block_forwards_task_states_and_alarm_levels(tmp_path):
     payload = {"families": [{"family": "lowest_temperature", "line": "x"}],
                "flags": ["CAPTURE_FAMILY a: state DEGRADED"],
@@ -228,6 +229,7 @@ def test_status_capture_family_block_forwards_task_states_and_alarm_levels(tmp_p
     assert result["flags"] == payload["flags"] and result["warns"] == payload["warns"] and result["rows"] == 1
 
 
+@pytest.mark.spawns
 def test_status_capture_family_block_flags_when_the_reader_fails(tmp_path):
     result = _capture_family_block(tmp_path, [], {"families": []}, exit_code=1)
 

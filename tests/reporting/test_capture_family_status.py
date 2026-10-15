@@ -1,3 +1,7 @@
+"""Capture-family status reader, status.ps1 alarm levels and the registrar task-name convention.
+
+Guards: capture-family monitoring in status.ps1 (weather.reporting.market.capture_family_status)
+"""
 import json
 import re
 from datetime import datetime, timedelta, timezone
@@ -191,6 +195,7 @@ def test_cli_reports_task_states_and_never_crashes(tmp_path, capsys):
     assert broken["families"] == [] and broken["flags"][0].startswith("CAPTURE_FAMILY status unavailable: ")
 
 
+@pytest.mark.spawns
 @pytest.mark.skipif(__import__("os").name != "nt", reason="Windows PowerShell registrar")
 @pytest.mark.parametrize("args", [["-Family", "rain_total"], ["-TaskName", "WeatherSomethingElse"]])
 def test_registrar_refuses_a_task_name_the_monitor_would_not_find(args):
