@@ -41,7 +41,6 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 - **Wallet reader (8765)** restarted by the owner 10-13 10:21 on `a1014edab` (any-LAN code); LFC client config in the pinned worktree.
 - **Host Python: A' PASS 10-14 05:23.** 3.11.9 (NuGet) sits side by side in `C:\Program Files\Python311-cp3119`; the
   production venv is still 3.11.0, PATH and PEP 514 unchanged, capture 10/10 ([runbook](HOST_PYTHON_UPGRADE_RUNBOOK.md)).
-- Freeze compares mask the weather editable line's sha (A' r1 false NO-GO on a merge; runbook revision 2026-10-14).
 - The 10-12 calendar stands: §T + T-R 00:30 10-15, B 00:30 10-16, cutover C 00:30 10-17 (runbook §7a).
 - Owner 10-13 08:53 (relayed): C advance GO if every C0 check is clean; G4 amended (auto rollback; a failed rollback waits for the owner). DECISION_LOG row.
 - Calendar-shift branch `claude/decisions-pyup-shift-20261013` `84c723ae2` (C 10-18) is **ON HOLD**; not a decision.
@@ -76,6 +75,7 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 
 | What | Owner | Due | Verify |
 | --- | --- | --- | --- |
+| A' at A3; then delete the workstation W0 temp tree | owner at host, production | 10-14 09:00 | A' receipts GO |
 | Fresh t24 after F2 for session 1 (F2a) | owner | 10-14 evening | t24 20-30 h old at start |
 | Policy: roll-free heads land on workstation pre-gate + Windows CI (T4 draft) | owner | after C | DECISION_LOG row |
 | Evening-fix scorer `8cdcb62ec` lands (prereg SIGNED 10-13, sha256 in DL; read 10-29); OD30 retirement | T3; owner | 10-28; open | scorer on master; DL row |
