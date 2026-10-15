@@ -3699,6 +3699,33 @@ no panel read. Source: host run by master-agent 2026-10-14 03:09-03:11 EDT, head
 - **Not established:** the size or sign of NP_S; whether the pilot's variance holds on later dates; any figure for a
   different delta.
 
+### 10s. Data layer v2 S0 measurement pack — workstation, 2026-10-15
+
+Receipts: [S0 receipts](../research/data-layer-v2-s0-2026-10-15/README.md). Inputs are workstation copies dated before
+2026-09-30 only; repository facts are read at commit `9fc1ff062`.
+
+- **Book write-on-change is lossless:** on 2026-08-05 (3 events, 246,224 captures, median per-token interval 15 s), 50.3%
+  of consecutive per-token captures repeat their quote content and 44.7% repeat the venue hash. The hash never stayed
+  fixed while content changed. A write-on-change journal replays exactly at heartbeats of 0-3,600 s and keeps 48-49% of
+  the plaintext bytes.
+- **Codecs:** WOF LZX beats NTFS LZNT1 by 3.0-7.3x on every family tested, and stdlib xz-6 beats gzip-6 by 1.2-3.4x.
+  xz-6 compresses JSONL at 16-27 MiB/s but forecast blobs at about 4 MiB/s (32-thread workstation).
+- **numpy import commits ~756 MiB of private memory** with no thread cap: OpenBLAS (scipy-openblas 0.3.31,
+  `MAX_THREADS=24`) reserves about 30 MiB per thread. It is 113 MiB at `OPENBLAS_NUM_THREADS=4` and 17 MiB at 1.
+  `snapshot_tracker`, `observation_trigger`, `market_microstructure` and `execution_tape_supervisor` each commit
+  775-816 MiB after import; the 88a and exec-tape capture modules commit about 23 MiB. Only `experiment_executor.py`
+  sets a cap. On the host each numpy-importing capture process likely commits min(logical CPUs, 24) × 30 MiB (not
+  measured on the host).
+- **The GEFS "ensemble mean" is the control run:** `fetch_global_ensemble` reads the unsuffixed `temperature_2m` column
+  of the GEFS payload as the mean, but it sits 0.26-0.54 °F (max 1.26 °F) from the 30-member mean on stored 2026-08-10
+  San Francisco payloads, at a moving rank (0.17-0.73). There are 31 columns, one of which is the control. Train and
+  serve read the same column, so parity holds; only the name is wrong.
+- **`last_good_sources.json` is rewritten whole on every pass:** `model_sources.py:596-619` reloads and atomically
+  rewrites the ~36 MB file (the NBM bulletin text in `raw_payload`) even when unchanged; est. 5.2 GB/day of writes per
+  US station at the 10-minute default. The host cadence is not confirmed.
+- **Not established:** post-gzip savings of write-on-change; host process commit; FC-10 bytes per point; L2 delta bytes
+  (S0(a)).
+
 ## Related
 
 - [FINDINGS_DIGEST.md](FINDINGS_DIGEST.md) — the one-screen digest of this file; read it first
