@@ -41,7 +41,6 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 - **Wallet reader (8765)** restarted by the owner 10-13 10:21 on `a1014edab` (any-LAN code); LFC client config in the pinned worktree.
 - **Host Python: A' PASS 10-14 05:23.** 3.11.9 (NuGet) sits side by side in `C:\Program Files\Python311-cp3119`; the
   production venv is still 3.11.0, PATH and PEP 514 unchanged, capture 10/10 ([runbook](HOST_PYTHON_UPGRADE_RUNBOOK.md)).
-- Freeze compares mask the weather editable line's sha (A' r1 false NO-GO on a merge; runbook revision 2026-10-14).
 - The 10-12 calendar stands: §T + T-R 00:30 10-15, B 00:30 10-16, cutover C 00:30 10-17 (runbook §7a).
 - Owner 10-13 08:53 (relayed): C advance GO if every C0 check is clean; G4 amended (auto rollback; a failed rollback waits for the owner). DECISION_LOG row.
 - Calendar-shift branch `claude/decisions-pyup-shift-20261013` `84c723ae2` (C 10-18) is **ON HOLD**; not a decision.
@@ -71,6 +70,7 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 4. **10-15 night: #177 (T2, owner yes)**; §T holds the lease 00:30-02:00, suite ~02:45, merge start by 03:40; owner accepts
    the capture restart ~03:40-04:00 EDT in the UTC 10-15 panel day. 10-16/10-17 G5 no-merge; #182 + #172 10-18; #118 >= 10-18.
 5. **Item 337:** host no-METAR replay >= 10-15; on PASS flip, bump, quiet window (owner yes). NBS/NBH; NWP timing (#263 done 10-14, EF §10r).
+6. **Data layer v2 (T3/T4, owner 10-14):** [plan](DATA_LAYER_V2_PLAN.md); S0 10-15, S1 10-19, S3 10-20, S2+S9+P1 10-21; §9 Q1/2/4/5/8 answered (DL 10-14), rest open.
 
 ## Open commitments (every row: owner, due, verify)
 
