@@ -4,7 +4,8 @@
   (``highest-temperature`` and ``lowest-temperature`` tag slugs). Each event is one change-only row
   keyed by event id, hashing the Rules text, resolution source, negRisk, dates, rewards, UMA status,
   closed time, outcome prices and volume/liquidity. ``event_date`` from the slug goes in the
-  envelope so readers can apply the embargo windows.
+  envelope so readers can apply the embargo windows. An event whose date lies in a FULL embargo
+  window is never journalled (counted as ``embargo_full_dropped`` in the heartbeat meta).
 - Source-change gate (WARN first): an event whose ``resolutionSource`` differs from the city's
   ``settlement.resolution_source_url`` in ``locations.json`` writes a ``warn`` row once per
   (event, source) pair. Nothing is blocked or rewritten.
@@ -19,7 +20,9 @@ from __future__ import annotations
 import re
 from datetime import date, timedelta
 
-from weather.evidence.embargo import EmbargoRefused
+from maker_core.shadow.admission import FULL
+
+from weather.evidence.embargo import EmbargoRefused, day_scopes
 from weather.evidence.families.common import item, json_body
 
 PARSER_VERSION = "vr3-gamma-1"
@@ -101,12 +104,15 @@ def build(cfg, locations):
     base = cfg.get("base_url")
 
     def record_events(ctx, events, meta):
-        items = []
+        items, dropped = [], 0
         for event in events:
             built = event_item(event, cities) if isinstance(event, dict) else None
             if built is None:
                 continue
             row, mismatch = built
+            if FULL in day_scopes(row["envelope"]["event_date"]):
+                dropped += 1
+                continue
             items.append(row)
             if mismatch:
                 marker = (mismatch["event_id"], _norm_url(mismatch["venue_source"]))
@@ -114,7 +120,7 @@ def build(cfg, locations):
                 if marker not in warned:
                     warned.add(marker)
                     ctx.warn("resolution_source_differs_from_locations", **mismatch)
-        return ctx.record(items, meta=meta)
+        return ctx.record(items, meta={**meta, "embargo_full_dropped": dropped})
 
     def poll_active(ctx):
         spec = channels["events_active"]

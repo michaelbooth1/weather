@@ -90,7 +90,8 @@ exposes `build(cfg, locations)` returning its channels.
   keyed by issue time.
 - **VR-3 `vr3_gamma`:** Gamma temperature events (journal only): active events
   every 15 minutes and a closed-event sweep 00:30-01:00 for days 2-4 back, each
-  date through the fetch guard first.
+  date through the fetch guard first. An active event dated inside a FULL embargo window is
+  dropped before journalling (`embargo_full_dropped` in the heartbeat meta).
 
 Adding a family: a module with `build`, a config block, schemas in
 `weather/schema_families/evidence_host.py`, tests under `tests/evidence/`, and a

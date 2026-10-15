@@ -301,3 +301,18 @@ def test_every_configured_family_builds_its_channels():
                 for name, cfg in CONFIG["families"].items()}
     assert optional["ob1_metar"] == [False, True]
     assert all(all(flags) for name, flags in optional.items() if name != "ob1_metar")
+
+
+def test_active_events_dated_in_a_full_window_are_never_journalled(tmp_path):
+    clock = Clock(datetime(2026, 1, 2, 12, 0, tzinfo=timezone.utc))
+    source = next(loc for loc in LOCATIONS if loc["id"] == "nyc")["settlement"]["resolution_source_url"]
+    inside = FULL_START + timedelta(days=1)
+    month = inside.strftime("%B").lower()
+    events = [_event("1", f"highest-temperature-in-nyc-on-{month}-{inside.day}-{inside.year}", source),
+              _event("2", "highest-temperature-in-nyc-on-january-3-2026", source)]
+    transport = lambda u, h, t, m: Response(u, 200, json.dumps(events if "highest" in u else []).encode())  # noqa: E731
+    active = {c.name: c for c in vr3_gamma.build(CONFIG["families"]["vr3_gamma"], LOCATIONS)}["events_active"]
+    ctx = _ctx(tmp_path, "vr3_gamma", transport, clock, channel="events_active")
+    active.poll(ctx)
+    ctx.journal.close()
+    assert [r["key"] for r in _rows(tmp_path, "vr3_gamma")] == ["2"]
