@@ -463,6 +463,18 @@ refuses later dates, an existing `--out`, and any `--out` inside `data/`:
 .\venv\Scripts\python.exe -m weather.backtesting.lockin_anchor_replay --out scratch\lockin_anchor_replay\through-2026-09-29.jsonl --from-date 2026-09-14
 ```
 
+`weather.calibration.remaining_rise_pmf` builds the frozen `remaining_rise_pmf_v1`
+history table read by the shadow-only t3-r3 stage `remaining_rise_floor_v1`
+(`config/remaining_rise_floor_stage.json` binds its hash). It reads A-IEM-1
+`<ICAO>.parquet` METAR files, refuses any file whose `local_date` statistics
+reach 2026-09-30 before decoding it, and is deterministic; a rebuild that changes
+the hash is a new artifact id, never an edit. Run it through
+`scripts\ops\workstation_heavy.ps1`:
+
+```powershell
+.\venv\Scripts\python.exe -m weather.calibration.remaining_rise_pmf --metar-dir <a-iem-1-dir> --out scratch\remaining_rise_pmf_v1.json
+```
+
 `weather.calibration.feature_model` trains one market/unit-family at a time.
 Use `--market toronto` for Celsius artifacts and an F-market such as `nyc` for
 F-family artifacts. For the local multi-market helper, use

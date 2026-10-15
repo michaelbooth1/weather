@@ -1,14 +1,14 @@
 {
-  "artifact_count": 103,
+  "artifact_count": 104,
   "artifact_root": "artifacts",
   "checks": [],
-  "generated_at_utc": "2026-07-16T03:21:05.942377+00:00",
+  "generated_at_utc": "2026-10-15T15:39:27.092762+00:00",
   "kind_counts": {
     "calibration": 51,
     "coefs_model": 24,
     "hgb_model": 26,
     "manifest": 1,
-    "misc": 1
+    "misc": 2
   },
   "largest_artifacts": [
     {
@@ -218,13 +218,13 @@
     "active_shadow": 4,
     "shadow_only": 1,
     "smoke_only": 2,
-    "unreferenced": 2,
+    "unreferenced": 3,
     "unregistered_runtime_artifact": 93
   },
   "schema_version": "model_artifact_size_audit_v0.1",
   "status": "PASS",
   "storage_backend_counts": {
-    "git": 77,
+    "git": 78,
     "git_lfs": 26
   },
   "thresholds": {
@@ -234,7 +234,7 @@
     "total_failure_bytes": 524288000,
     "total_warning_bytes": 367001600
   },
-  "total_bytes": 387825854,
-  "unmanaged_git_bytes": 7411869,
-  "working_tree_bytes": 387825854
+  "total_bytes": 389182463,
+  "unmanaged_git_bytes": 8768478,
+  "working_tree_bytes": 389182463
 }

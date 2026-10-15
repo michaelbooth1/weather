@@ -14,6 +14,7 @@ Checked-in files under `config/` are classified by owner and freshness policy:
 | `supplemental_stations.json` | Hand-authored registry | Review when station provenance changes. |
 | `no_market_extra_locations.json` | Local shadow registry | Active entries must be backfilled before training eligibility; evidence-free diagnostic entries are retained under `archived_locations`. |
 | `storage_pressure.json` | Operator activation policy | **Activated `false` by the owner on 2026-09-19 (item 325).** `capture.write_order_books_long_csv=true` restores the long-CSV projection. Change it only in an operator-approved quiet window after the production dry-run; missing or invalid policy fails safe to writing the projection. |
+| `remaining_rise_floor_stage.json` | Frozen pre-registered stage binding | Binds t3-r3 stage `remaining_rise_floor_v1` (OD-B1, 2026-10-15): its constants, the config and code SHA-256 that every `remaining_rise_floor_shadow.jsonl` row carries, and the SHA-256 of the frozen artifact `artifacts/misc/remaining_rise_pmf_v1.json`. A test fails if the module or artifact drifts. Never edit in place; any rule or artifact change is a new stage id and a new pre-registration. |
 | `international_live_execution_host.json` | Hand-authored execution-role registry | Binds one active portable Windows installation and token principal per production tip, separately identifies the dedicated capture host, and is `UNASSIGNED` until a reviewed relocation assigns both public IDs. |
 
 Generate the current inventory:

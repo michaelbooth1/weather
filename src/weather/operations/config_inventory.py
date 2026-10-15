@@ -72,6 +72,12 @@ CONFIG_POLICIES = {
         "freshness_policy": "default_preserves_current_capture_until_operator_activation",
         "max_age_days": None,
     },
+    "remaining_rise_floor_stage.json": {
+        "owner": "weather.model.remaining_rise_floor",
+        "classification": "frozen_preregistered_stage_binding",
+        "freshness_policy": "never_edit_in_place_new_stage_id_for_any_rule_change",
+        "max_age_days": None,
+    },
     "international_live_execution_host.json": {
         "owner": "weather.execution_host",
         "classification": "single_active_execution_host_registry",
