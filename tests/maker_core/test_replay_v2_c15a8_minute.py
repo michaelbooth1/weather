@@ -1,7 +1,8 @@
-"""SPECULATIVE option M (pending owner M/X; do not land): C15 manifest builder and A8 on the §4 minute rule.
+"""Option M (DECISION_LOG 2026-10-15, C15/A8 = M): C15 manifest builder and A8 on the §4 minute rule.
 
 Guards: T1 report 6 option M (registration draft §4 "active at UTC minute t", C15 row A8 sentence, §4 gate-ordering
-disclosure); the unsigned text edits are in docs/research/maker-replay-v2-C15-A8-option-M-UNSIGNED-DRAFT.md.
+disclosure); the three registration text edits (plus consequence edit 4) are drafted in
+docs/research/maker-replay-v2-C15-A8-option-M-UNSIGNED-DRAFT.md.
 Fictional fixtures only; never a captured day.
 """
 from __future__ import annotations

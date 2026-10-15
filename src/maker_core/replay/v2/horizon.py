@@ -103,7 +103,7 @@ def minute_start(at: datetime) -> datetime:
 
 
 def minute_lines(lines):
-    """``timelines`` under the registration §4 minute rule (SPECULATIVE, option M, pending owner M/X).
+    """``timelines`` under the registration §4 minute rule (option M, DECISION_LOG 2026-10-15).
 
     The condition is active in UTC minute ``[t, t+1min)`` when the latest descriptor at or before the minute start
     ``t`` has a lead in 1..2 (``maker_core.replay.v2.intervals``). So a descriptor at instant ``s`` takes effect from

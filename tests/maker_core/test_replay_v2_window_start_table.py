@@ -3,11 +3,10 @@
 Characterisation only (T1 r3, 2026-10-14). The owner ruled §4 whole-minute on 2026-10-13. ``intervals.evaluate``
 (U1) applies it; the C15 manifest builder (``execution_manifest.active_intervals``) and A8
 (``attribution.horizon_sources``) still cut windows with ``horizon.runs``/``horizon.day_windows`` at the exact
-descriptor instant. Moving those two is BLOCKED-ON-OWNER (T1 report 6: the registered C15 row and the §4 gate-ordering
-disclosure assume exact instants), so this table pins today's difference at a captured descriptor change on both
-sides, including the 59 s edge. Fictional bundles only.
-On the SPECULATIVE option M branch (pending owner M/X; do not land) both builders cut over
-``horizon.minute_lines`` instead; ``horizon.day_windows`` itself stays exact, which is what this table pins.
+descriptor instant until option M. The owner ruled C15/A8 = option M (DECISION_LOG 2026-10-15), so both
+builders now cut over ``horizon.minute_lines``; ``horizon.day_windows`` itself stays exact, and this table pins
+its difference from the minute rule at a captured descriptor change on both sides, including the 59 s edge.
+Fictional bundles only.
 """
 from __future__ import annotations
 

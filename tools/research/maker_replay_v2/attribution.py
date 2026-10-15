@@ -29,7 +29,7 @@ cascade, or the re-run fails:
   as cascade, so a mislabelled cut later in the day would otherwise hide behind an earlier genuine A8. A8 is
   attributed against ``all`` (W1+W2+F3), not against ``frozen``: Q2 is a change on top of the 2026-10-07 rulings.
 
-SPECULATIVE option M (T1, 2026-10-14; pending owner M/X; do not land): the clause windows and A8 follow the §4
+Option M (T1, 2026-10-14; owner ruling DECISION_LOG 2026-10-15): the clause windows and A8 follow the §4
 whole-minute rule. ``horizon_sources`` cuts windows over ``horizon.minute_lines`` (a descriptor at instant s counts
 from the first minute start at or after s), and every A8 test above reads ``clause_horizon``, the engine's own
 descriptor reads under that rule, instead of the read at the instant. So the direct condition, the cut rule and
@@ -174,7 +174,7 @@ def attributing(engine, q2=False):
             return value
 
         def clause_horizon(self, cid, at):
-            """SPECULATIVE option M (pending owner M/X): the engine's own horizon reads under the §4 minute rule,
+            """Option M (DECISION_LOG 2026-10-15): the engine's own horizon reads under the §4 minute rule,
             i.e. its latest descriptor at or before the latest minute start at or before ``at``. A read at instant
             ``s`` counts from ``_minute_start(s)``, so in the part of a minute after a mid-minute descriptor change
             the clause still sees the lead before it (the window opens or ends at the next minute start)."""
@@ -276,13 +276,13 @@ def book_class(book, frozen, public, existing, cancelled, post):
 # -- one run ------------------------------------------------------------------------------------------------
 def horizon_sources(sources, zones):
     """The same day sources with each condition's windows cut by the horizon clause (``horizon.day_windows`` over
-    ``horizon.minute_lines``: SPECULATIVE option M, pending owner M/X; do not land).
+    ``horizon.minute_lines``: option M, DECISION_LOG 2026-10-15).
 
     ``declared`` is kept as the source's, so the only difference from the envelope run is the clause itself."""
     from types import MappingProxyType
     from maker_core.replay.v2 import horizon
     from maker_core.replay.v2.lockstep import DayPlan, DaySource
-    lines = horizon.minute_lines(horizon.timelines(sources, zones))  # SPECULATIVE option M: §4 whole minutes
+    lines = horizon.minute_lines(horizon.timelines(sources, zones))  # option M: §4 whole minutes
     out = []
     for s in sources:
         windows, _ = horizon.day_windows(s.plan, lines)

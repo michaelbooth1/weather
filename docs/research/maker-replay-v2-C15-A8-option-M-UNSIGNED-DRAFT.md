@@ -1,16 +1,18 @@
-# Maker replay v2: C15/A8 option M text edits (UNSIGNED DRAFT, pending owner M/X; do not land)
+# Maker replay v2: C15/A8 option M text edits (owner-ruled M; text not yet signed)
 
-**Status: UNSIGNED DRAFT. Pending the owner's M/X ruling. Do not land.** This file proposes three text edits, and
-records one consequence edit, to the [v2 registration draft](maker-replay-v2-registration-DRAFT.md) for **option M**:
-the C15 manifest builder and the A8 re-run move to the §4 whole-minute rule. It edits nothing in place, and it is not
-signed or registered text. If the owner rules option X instead, this file and its branch are dropped, and the option X
-disclosure (T1 report 6) applies.
+**Status: the owner ruled C15/A8 = option M** ([DECISION_LOG](../operations/DECISION_LOG.md) 2026-10-15, "C15/A8 =
+option M"); option X is not taken. This file holds the three text edits, and one consequence edit, to the
+[v2 registration draft](maker-replay-v2-registration-DRAFT.md) for option M: the C15 manifest builder and the A8
+re-run move to the §4 whole-minute rule. It edits nothing in place. The edits become signed text only when the
+registration that carries them is signed; until then they are draft wording. The code lands only after master-agent's
+review (same DECISION_LOG row).
 
-**Read when:** the owner rules on C15/A8 M vs X, or someone reviews the speculative branch
-`claude/mrv2-c15a8-minute-SPECULATIVE-20261014`. **Do not use for:** current state or decisions in force
-([STATE_OF_PLAY](../operations/STATE_OF_PLAY.md), [DECISION_LOG](../operations/DECISION_LOG.md)).
+**Read when:** folding the option M edits into the registration draft, or reviewing the option M code (built on
+`claude/mrv2-c15a8-minute-SPECULATIVE-20261014`, carried by `claude/mrv2-owner-rulings-20261015`). **Do not use
+for:** current state or decisions in force ([STATE_OF_PLAY](../operations/STATE_OF_PLAY.md),
+[DECISION_LOG](../operations/DECISION_LOG.md)).
 
-## Code on the speculative branch (off r3 5dedc198a)
+## Code for option M (built off r3 5dedc198a)
 
 - `horizon.minute_lines`: a descriptor read at instant s counts from the first UTC minute start at or after s.
   Derived local midnights already fall on a minute and are unchanged.

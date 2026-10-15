@@ -437,7 +437,7 @@ def active_intervals(bundles, inventory, *, check=lambda: None):
     the target is on or before the settlement-only date. So an interval ends at the local midnight at which the
     band passes from lead 1 to lead 0, and the engine withdraws its legs there (interval end is a wake).
 
-    SPECULATIVE option M (pending owner M/X; do not land): intervals are on whole UTC minutes
+    Option M (owner ruling, DECISION_LOG 2026-10-15: C15/A8 = M): intervals are on whole UTC minutes
     (``horizon.minute_lines``), the rule of ``maker_core.replay.v2.intervals``: a captured descriptor change at a
     mid-minute instant takes effect from the next minute start. Derived local midnights fall on a minute.
 
@@ -452,7 +452,7 @@ def active_intervals(bundles, inventory, *, check=lambda: None):
 
     by_id = _inventory(bundles, inventory, check=check)
     bundles = sorted(bundles, key=lambda b: b.day)
-    # SPECULATIVE option M (pending owner M/X; do not land): the §4 minute rule, as ``intervals.evaluate``.
+    # Option M (DECISION_LOG 2026-10-15): the §4 minute rule, as ``intervals.evaluate``.
     lines = horizon.minute_lines(horizon.timelines([descriptor_source(b) for b in bundles], _zones(by_id)))
     windows, excluded = [], []
     for bundle in bundles:
