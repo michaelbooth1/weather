@@ -255,7 +255,10 @@
     "chunk": 10,
     "spacing_seconds": 1.1,
     "settle_hours": 1,
-    "reread_days": 1
+    "reread_days": 1,
+    "wu_daily": true,
+    "wu_spacing_seconds": 1.0,
+    "iem_6h": true
    },
    "vr5_trades": {
     "plan_family": "VR-5",

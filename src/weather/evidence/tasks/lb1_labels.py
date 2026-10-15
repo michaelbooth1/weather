@@ -4,7 +4,9 @@ One panel row per ``(location, local day, label_kind)`` for ``label_kind`` in ``
 written change-only to the ``label_panel`` partition of the ``lb1_labels`` journal. Nothing here
 writes a settlement label, a ledger row or ``config/``.
 
-Instruments built here (the plan's other LB-1 members are not built yet; see EVIDENCE_HOST.md):
+Instruments built here (the plan's other LB-1 members are not built yet; see EVIDENCE_HOST.md).
+``wu_daily`` and ``iem_6h_composite`` are added by :mod:`weather.evidence.tasks.lb1_strict` behind the
+strict guard:
 
 - ``metar_all``: every routine and special report (IEM ``asos.py``, ``report_type`` 3 and 4 fetched
   separately so the classification never depends on a SPECI prefix) whose UTC time falls in the
@@ -41,8 +43,8 @@ from weather.evidence.families.common import chunks, item, settlement_stations
 from weather.evidence.families.ob1_metar import parse_remarks
 from weather.units import c_to_native, round_half_up
 
-PARSER_VERSION = "lb1-labels-1"
-LABEL_INSTRUMENT_VERSION = "lb1-panel-1"
+PARSER_VERSION = "lb1-labels-2"
+LABEL_INSTRUMENT_VERSION = "lb1-panel-2"
 DEFAULT_BASE_URL = "https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py"
 WRH_PAGE = "https://www.weather.gov/wrh/timeseries?site={station}"
 PANEL, WRH = "label_panel", "wrh_read"
@@ -103,8 +105,10 @@ def parse_iem_csv(text: str, report_type: int) -> list[dict]:
             when = datetime.strptime(valid, "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
         except (TypeError, ValueError):
             continue
+        remarks = parse_remarks(raw)
         out.append({"iem": str(row.get("station") or "").upper(), "valid_utc": when, "tmpc": tmpc, "raw": raw,
-                    "report_type": report_type, "slp_hpa": parse_remarks(raw)["slp_hpa"]})
+                    "report_type": report_type, "slp_hpa": remarks["slp_hpa"], "max6h_c": remarks["max6h_c"],
+                    "min6h_c": remarks["min6h_c"]})
     return out
 
 
@@ -152,9 +156,13 @@ def ob1_finality_proxy(ob1_rows, station, day) -> dict:
 
 def agreement(instruments, kind) -> dict:
     a, h = instruments["metar_all"][kind], instruments["metar_hourly"][kind]
-    proxy = (instruments.get("ob1_finality_proxy") or {}).get(kind)
-    return {"metar_all_vs_hourly": None if a is None or h is None else a == h,
-            "finality_proxy_vs_metar_all": None if a is None or proxy is None else a == proxy}
+    out = {"metar_all_vs_hourly": None if a is None or h is None else a == h}
+    for name, key in (("ob1_finality_proxy", "finality_proxy_vs_metar_all"), ("wu_daily", "wu_daily_vs_metar_all"),
+                      ("iem_6h_composite", "iem_6h_vs_metar_all")):
+        if name in instruments or name == "ob1_finality_proxy":
+            other = (instruments.get(name) or {}).get(kind)
+            out[key] = None if a is None or other is None else a == other
+    return out
 
 
 def wants_wrh(station, instruments) -> list[str]:
@@ -204,7 +212,11 @@ def read_ob1(ctx, day) -> list[dict] | None:
         return None
 
 
-def panel_items(stations, reports, ob1_rows, day, *, read_kind, raw_refs) -> tuple[list[dict], list[tuple]]:
+def panel_items(stations, reports, ob1_rows, day, *, read_kind, raw_refs, wu=None,
+                strict=False) -> tuple[list[dict], list[tuple]]:
+    """``wu`` is ``{location: member}`` (None: strict guard refused); ``strict`` adds the IEM 6 h composite."""
+    from weather.evidence.tasks import lb1_strict
+    wu_ids = {spec.id for spec in lb1_strict.wu_specs([s["location"] for s in stations])}
     by_iem: dict[str, list] = {}
     for r in reports:
         by_iem.setdefault(r["iem"], []).append(r)
@@ -214,6 +226,15 @@ def panel_items(stations, reports, ob1_rows, day, *, read_kind, raw_refs) -> tup
         instruments["ob1_finality_proxy"] = (ob1_finality_proxy(ob1_rows, station, day) if ob1_rows is not None
                                              else {"instrument": "awc_proxy_of_wrh", "status": "embargo_refused"})
         start, end = local_day_bounds(day, station["timezone"])
+        if strict:
+            instruments["iem_6h_composite"] = lb1_strict.iem_6h_member(
+                lb1_strict.six_hour_periods(by_iem.get(station["iem"], [])), start, end, station["unit"])
+        else:
+            instruments["iem_6h_composite"] = {"instrument": "iem_6h_composite", **lb1_strict.REFUSED}
+        if wu is None and station["location"] in wu_ids:
+            instruments["wu_daily"] = {"instrument": "wu_daily", **lb1_strict.REFUSED}
+        elif wu and station["location"] in wu:
+            instruments["wu_daily"] = wu[station["location"]]
         disagree = wants_wrh(station, instruments)
         if disagree:
             wanted.append((station, disagree, instruments))
@@ -265,6 +286,7 @@ def record_cor(ctx, items, day):
 
 
 def run(ctx, days=None) -> dict:
+    from weather.evidence.tasks import lb1_strict
     cfg = ctx.cfg
     stations = panel_stations(ctx.locations, cfg.get("station_overrides"))
     targets = days or default_days(ctx.now(), stations, settle_hours=float(cfg.get("settle_hours", 1)),
@@ -279,7 +301,15 @@ def run(ctx, days=None) -> dict:
             continue
         reports, refs = fetched
         read_kind = "first" if day == first and not days else ("reread" if not days else "backfill")
-        items, wanted = panel_items(stations, reports, read_ob1(ctx, day), day, read_kind=read_kind, raw_refs=refs)
+        strict = lb1_strict.strict_allowed(ctx, day)
+        if not strict:
+            wu = None
+        elif cfg.get("wu_daily", True):
+            wu = lb1_strict.wu_daily(ctx, cfg, day, [s["location"] for s in stations])
+        else:
+            wu = {}
+        items, wanted = panel_items(stations, reports, read_ob1(ctx, day), day, read_kind=read_kind, raw_refs=refs,
+                                    wu=wu, strict=strict and bool(cfg.get("iem_6h", True)))
         result = ctx.record(items, channel=PANEL, meta={"day": day.isoformat(), "read": read_kind,
                                                         "reports": len(reports), "stations": len(stations)})
         if read_kind == "reread":
