@@ -114,8 +114,10 @@ LAST_GOOD_PAYLOAD_ATTESTATION_KEY = "forecast_payload_attestation"
 LAST_GOOD_PAYLOAD_TEXT_REF_KEY = "text_ref"
 LAST_GOOD_PAYLOAD_CAS_NAME = "shared_forecast_payload"
 LAST_GOOD_PAYLOAD_HASH_ALGORITHM = "sha256"
-# Digests whose restore failure was already logged by this process.
+# Digests whose restore failure or fan-out declaration mismatch was already
+# logged by this process; every later save or pass would repeat it.
 _LAST_GOOD_RESTORE_FAILURES_LOGGED = set()
+_LAST_GOOD_DECLARATION_MISMATCHES_LOGGED = set()
 
 # Explicit capture contracts for every source adapter. These version the
 # parser/normalizer code that turned a provider response into the source data
@@ -664,8 +666,6 @@ class SourceFetchMixin:
 
     def last_good_sources_with_payload_refs(self, cache):
         cas = self.last_good_payload_cas()
-        if cas is None:
-            return cache
         return {
             name: self.last_good_item_with_payload_ref(name, item, cas)
             for name, item in cache.items()
@@ -704,12 +704,17 @@ class SourceFetchMixin:
             single_fetch = attestation.get("single_fetch")
             single_fetch = single_fetch if isinstance(single_fetch, dict) else {}
             declared = single_fetch.get("prepublished_payload_hash")
-            if declared and (
-                str(declared).lower() != digest
-                or single_fetch.get("prepublished_payload_bytes") != payload_bytes
+            if (
+                declared
+                and (
+                    str(declared).lower() != digest
+                    or single_fetch.get("prepublished_payload_bytes") != payload_bytes
+                )
+                and digest not in _LAST_GOOD_DECLARATION_MISMATCHES_LOGGED
             ):
                 # The fan-out declaration is only a cross-check; the computed
-                # digest wins.
+                # digest wins. Logged once per digest.
+                _LAST_GOOD_DECLARATION_MISMATCHES_LOGGED.add(digest)
                 logger.warning(
                     "Last good %s fan-out payload declaration disagrees with its body; using sha256 %s",
                     name,
@@ -760,8 +765,6 @@ class SourceFetchMixin:
             if not isinstance(payload_bytes, int) or isinstance(payload_bytes, bool):
                 raise ValueError("text_ref payload_bytes must be an integer")
             cas = self.last_good_payload_cas()
-            if cas is None:
-                raise ValueError("shared forecast payload CAS is not configured")
             if text_ref.get("payload_ref") != cas.relative_ref(digest):
                 raise ValueError("text_ref payload_ref does not match its hash")
             # read() verifies the SHA-256 digest and the byte count.

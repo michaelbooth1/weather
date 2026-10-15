@@ -881,6 +881,7 @@ def _nbm_model(tmp_path, monkeypatch, *, cas=True):
     # Readers without an injected CAS use the fleet default root.
     monkeypatch.setattr(model_sources, "SHARED_FORECAST_PAYLOAD_CAS_ROOT", tmp_path / "default-cas")
     monkeypatch.setattr(model_sources, "_LAST_GOOD_RESTORE_FAILURES_LOGGED", set())
+    monkeypatch.setattr(model_sources, "_LAST_GOOD_DECLARATION_MISMATCHES_LOGGED", set())
     model = TorontoHighTempModel(target_date="2026-05-30")
     if cas:
         model.shared_forecast_payload_cas = SharedForecastPayloadCAS(tmp_path / "cas")
@@ -1065,7 +1066,7 @@ def test_reader_without_injected_cas_uses_the_default_root(tmp_path, monkeypatch
 
 
 @pytest.mark.parametrize("declaration", ["matching", "decoy"])
-def test_prepublished_declaration_is_only_a_cross_check(tmp_path, monkeypatch, declaration):
+def test_prepublished_declaration_is_only_a_cross_check(tmp_path, monkeypatch, caplog, declaration):
     import hashlib
 
     model, data = _nbm_model(tmp_path, monkeypatch)
@@ -1082,11 +1083,16 @@ def test_prepublished_declaration_is_only_a_cross_check(tmp_path, monkeypatch, d
         "prepublished_payload_bytes": declared["payload_bytes"],
     }
 
-    _fresh(model, data)
+    with caplog.at_level("WARNING", logger="weather.model.model_sources"):
+        _fresh(model, data)
+        _fresh(model, data)
 
     text_ref = _cache_file(model)[_NBM]["data"]["raw_payload"]["text_ref"]
     assert text_ref["payload_hash"] == hashlib.sha256(body).hexdigest()
     assert text_ref["payload_ref"] == stored["payload_ref"]
+    # A disagreeing declaration is logged once per digest, not every save.
+    mismatch_logs = [r for r in caplog.records if "declaration disagrees" in r.getMessage()]
+    assert len(mismatch_logs) == (1 if declaration == "decoy" else 0)
     assert _failed(model)[_NBM]["data"]["raw_payload"]["text"] == _NBP_TEXT
 
 
