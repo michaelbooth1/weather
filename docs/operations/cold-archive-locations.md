@@ -9,7 +9,7 @@
 - **Do not use for:** staging or uploading new archives (see
   [production-cold-archive-staging.md](production-cold-archive-staging.md)), or
   routine pruning ([data-retention-policy.md](data-retention-policy.md)).
-- **Verify with:** `datald_archiveWHERE_DATA_IS.md` (what is archived),
+- **Verify with:** `data\cold_archive\WHERE_DATA_IS.md` (what is archived),
   and `python -m weather.operations.cold_archive_catalog locate --source-path <file>`
   (read-only, local metadata only).
 

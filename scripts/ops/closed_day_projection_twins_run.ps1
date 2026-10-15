@@ -2,22 +2,31 @@
 [CmdletBinding()]
 param(
     [ValidateSet('plan-twins', 'prove-twins', 'apply')][string]$Command = 'plan-twins',
-    [string]$RepoRoot = (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent),
+    [string]$RepoRoot = "",
     [Parameter(Mandatory = $true)][string]$OutputRoot,
     [string]$ApprovedManifest = '',
     [string]$AsOfDate = (Get-Date -Format 'yyyy-MM-dd'),
     [ValidateRange(1, 1099511627776)][long]$MaxBytes = 1GB,
     [ValidateRange(60, 7200)][int]$MaxRuntimeSeconds = 1800
 )
+# Windows PowerShell 5.1 leaves $PSScriptRoot and $PSCommandPath empty inside an
+# advanced script's param() defaults under `powershell -File`; derive the default
+# here. An explicit -RepoRoot always wins.
+if (-not $RepoRoot) {
+    $RepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
+}
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'workload_admission.ps1')
 . (Join-Path $PSScriptRoot 'windows_kill_on_close_job.ps1')
 $now = Get-Date
+$runtimeClock = [Diagnostics.Stopwatch]::StartNew()
 if ($now.TimeOfDay.TotalMinutes -lt 30 -or $now.Hour -ge 9) { throw 'Outside 00:30-09:00' }
 if ((Get-PSDrive C).Free -lt 50GB) { throw 'Less than 50 GiB free' }
 $memoryPath = Join-Path $RepoRoot 'data/logs/memory_commit_guard_status.json'
-$memory = Get-Content -LiteralPath $memoryPath -Raw | ConvertFrom-Json
-if (((Get-Date) - (Get-Item -LiteralPath $memoryPath).LastWriteTime).TotalMinutes -gt 5 -or
+. (Join-Path $PSScriptRoot 'memory_guard_status_reader.ps1')
+$memoryRead = Read-WeatherMemoryGuardStatus -Path $memoryPath
+$memory = $memoryRead.row
+if (((Get-Date) - $memoryRead.last_write_time).TotalMinutes -gt 5 -or
     $null -eq $memory.commit_percent -or [double]$memory.commit_percent -ge 70) { throw 'Memory evidence blocks admission' }
 $tokens = @('-m', 'weather.operations.closed_day_projection_tiering', $Command,
     '--output-root', $OutputRoot, '--protected-root', (Join-Path $RepoRoot 'data'))
@@ -36,9 +45,14 @@ try {
     $job = New-WeatherKillOnCloseJob
     $child = Start-WeatherProcessInJob -Job $job -FilePath (Join-Path $RepoRoot 'venv/Scripts/python.exe') -ArgumentString (ConvertTo-WeatherWindowsArgumentString -Tokens $tokens) -WorkingDirectory $RepoRoot
     $null = $child.Handle
-    $deadline = @($now.Date.AddHours(9), $now.AddSeconds($MaxRuntimeSeconds)) | Sort-Object | Select-Object -First 1
+    # The 09:00 boundary is a wall-clock poll; MaxRuntimeSeconds is real time
+    # since admission on a Stopwatch, so it neither stretches nor shrinks by
+    # an hour across DST (DST-L8).
+    $hardStop = $now.Date.AddHours(9)
     while (-not $child.WaitForExit(1000)) {
-        if ((Get-Date) -ge $deadline) { throw 'Twin command deadline exceeded' }
+        if ((Get-Date) -ge $hardStop -or $runtimeClock.Elapsed.TotalSeconds -ge $MaxRuntimeSeconds) {
+            throw 'Twin command deadline exceeded'
+        }
     }
     if ($child.ExitCode -ne 0) { throw "Twin command failed: $($child.ExitCode)" }
 } finally {

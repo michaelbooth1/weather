@@ -23,6 +23,7 @@ if (-not (Test-Path -LiteralPath $contractScript -PathType Leaf)) {
     throw "argument contract not found at $contractScript"
 }
 . $contractScript
+. (Join-Path $PSScriptRoot "scheduled_task_local_trigger.ps1")
 $powerShell = [string](
     Get-Command powershell.exe -CommandType Application -ErrorAction Stop
 ).Source
@@ -44,7 +45,7 @@ $action = New-ScheduledTaskAction `
     -Execute $powerShell `
     -Argument $arguments `
     -WorkingDirectory $RepoRoot
-$trigger = New-ScheduledTaskTrigger -Daily -At $At
+$trigger = New-WeatherLocalDailyTrigger -At $At
 $settings = New-ScheduledTaskSettingsSet `
     -MultipleInstances IgnoreNew `
     -Hidden `
@@ -73,9 +74,11 @@ if ($matches.Count -ne 1) {
 $registered = $matches[0]
 $registeredActions = @($registered.Actions)
 $registeredTriggers = @($registered.Triggers)
+# Local wall-clock boundary only: a zoned (fixed-offset) boundary is refused (DST-C1).
 $registeredTime = $null
-try { $registeredTime = ([datetime]$registeredTriggers[0].StartBoundary).ToString("HH:mm") }
-catch { }
+if (Test-WeatherLocalDailyStartBoundary -StartBoundary ([string]$registeredTriggers[0].StartBoundary) -At $At) {
+    $registeredTime = $At
+}
 if ([string]$registered.TaskPath -ne "\" -or
     [string]$registered.State -eq "Disabled" -or
     $registeredActions.Count -ne 1 -or

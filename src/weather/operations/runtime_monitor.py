@@ -90,8 +90,7 @@ TASK_NAMES = (
 )
 
 
-def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+from weather.time import utc_now
 
 
 def utc_iso(value: datetime | None = None) -> str:

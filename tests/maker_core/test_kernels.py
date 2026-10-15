@@ -61,3 +61,17 @@ def test_price_rejections_match(field, value):
     with pytest.raises(legacy.QuoteRefused) as b:
         legacy.price_reward_quote(**kwargs)
     assert str(a.value) == str(b.value)
+
+
+def test_qualified_mid_refuses_locked_book():
+    # bid == ask after size qualification is a locked book: refused like a crossed one.
+    with pytest.raises(prices.QuoteRefused) as refused:
+        prices.qualified_mid(((D(".50"), D(100)),), ((D(".50"), D(100)),), D(20))
+    assert str(refused.value) == "crossed_book"
+
+
+def test_qualified_mid_without_qualified_ask_refuses_with_reason():
+    # Only a 5-share ask exists against a 20-share minimum: a typed refusal, never a bare ValueError.
+    with pytest.raises(prices.QuoteRefused) as refused:
+        prices.qualified_mid(((D(".49"), D(100)),), ((D(".51"), D(5)),), D(20))
+    assert str(refused.value) == "no_size_adjusted_midpoint"

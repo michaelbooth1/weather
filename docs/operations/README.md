@@ -26,7 +26,10 @@ If you add a file, link it here in the same change.
 | [PROJECT_OPERATING_SOP.md](PROJECT_OPERATING_SOP.md) | You need the end-to-end shift-to-release decision flow and which runbook owns each step. |
 | [Git workflow SOP](../git-workflow.md) | Branches, worktrees, commits, pushes, merges, branch retirement. Single owner of git authority. |
 | [wallet-reader.md](wallet-reader.md) | Starting the owner-run read-only wallet LAN API, scoped firewall rule, or production client. |
+| [manual-order-journal.md](manual-order-journal.md) | Journaling and reporting the owner's manual resting orders (rewards, fills, markouts); `WeatherManualOrderJournal`. |
 | [portfolio-ledger.md](portfolio-ledger.md) | Rebuilding one-wallet campaign books, FIFO lots and reconciliation from recorded account reads. |
+| [maker-trading-guard.md](maker-trading-guard.md) | Building a maker runtime or placement port; pausing, halting or clearing it; the bleed-limit guard. |
+| [maker-shadow-runner.md](maker-shadow-runner.md) | Running the public-reads-only maker shadow (Phase 3), its per-minute quotes tape, nightly 88a diagnostics and evidence embargo. |
 
 ## Accumulated knowledge
 
@@ -40,6 +43,7 @@ citing it in a new decision.
 | [FINDINGS_DIGEST.md](FINDINGS_DIGEST.md) | *What is the short version?* — read first for model, measurement or research work; it cites the sections below worth opening. |
 | [ESTABLISHED_FINDINGS.md](ESTABLISHED_FINDINGS.md) | *What do we know?* — every measured result and interval. Read before model, measurement or research work. |
 | [RETRACTED_AND_FALSE_LEADS.md](RETRACTED_AND_FALSE_LEADS.md) | *What is false?* — withdrawn claims, and alarms that look real and are not. |
+| [EXHAUSTION_REGISTER.md](EXHAUSTION_REGISTER.md) | *What is left before a no-go?* — which conclusions survive the serving fixes, which free sources were tested, and each open lead's exit criterion. |
 | [HOW_WE_GET_THINGS_WRONG.md](HOW_WE_GET_THINGS_WRONG.md) | *What shape do our mistakes take?* — read before designing a gate or trusting a green signal. |
 | [CAMPAIGN_LEDGER.md](CAMPAIGN_LEDGER.md) | *How much α is spent, and on what?* — the binding decision ledger. Read before proposing any confirmatory look; only the operator allocates. |
 
@@ -71,10 +75,12 @@ For the independent public maker collector, its task and retention, read
 | --- | --- |
 | [OPERATIONS_DESIGN.md](OPERATIONS_DESIGN.md) | Touching capture supervision, status files, the dashboard, or restart guidance. |
 | [INTEGRATION_ATTEMPT_RUNBOOK.md](INTEGRATION_ATTEMPT_RUNBOOK.md) | Landing a reviewed branch on production: exact-tip preflight, full suite, quiet merge, failure closure, bounded repair. |
+| [LANDING_PREFLIGHT.md](LANDING_PREFLIGHT.md) | On a workstation, before handing production a head: the non-binding check of the head on the night's cumulative merge (never on the capture host). |
 | [Capture-day grading and guarded-merge runbook](../ops/streak-soak.md) | Checking capture-day health, `status.ps1` / `streak.ps1`, the watchdog, boot recovery, `quiet_window_merge.ps1`. The streak it measures is a diagnostic, not an objective. |
 | [NIGHTLY_RETRAIN_RUNBOOK.md](NIGHTLY_RETRAIN_RUNBOOK.md) | Candidate-only retraining or immutable inactive-release construction. |
 | [EXCHANGE_ECONOMICS_SNAPSHOT_RUNBOOK.md](EXCHANGE_ECONOMICS_SNAPSHOT_RUNBOOK.md) | Publishing, reviewing, accepting or drift-checking exchange rules. |
 | [mission-dispatch-reconciliation.md](mission-dispatch-reconciliation.md) | A handoff has no visible branch and you are about to call it lost. |
+| [HOST_PYTHON_UPGRADE_RUNBOOK.md](HOST_PYTHON_UPGRADE_RUNBOOK.md) | **Proposed, not approved.** Preparing, reviewing or executing the capture host's 3.11.0 to 3.11.9 interpreter upgrade: install, qualification, quiet-window cutover, release re-bind, rollback. |
 
 Required registration parameters are defined by the scripts under `scripts/ops/`. Read a script's
 `param(...)` block before registration; some production tasks require explicit evidence paths.
@@ -116,6 +122,8 @@ contract and a reviewed cleanup manifest.
 | [informed-maker-design-2026-09-25.md](informed-maker-design-2026-09-25.md) | Building or reviewing maker code, a domain plugin (weather, YouTube) or the replay harness. |
 | [maker-core-contracts.md](maker-core-contracts.md) | Implementing the v0.1 domain-neutral plugin API, conformance, pure proposals or journals. |
 | [maker-shadow-runner-design.md](maker-shadow-runner-design.md) | Designing the workstation public-read-only shadow runner, quotes tape, nightly scoring, replay agreement and drills; proposed, not run authority. |
+| [DATA_LAYER_V2_PLAN.md](DATA_LAYER_V2_PLAN.md) | Adding or changing any capture family, sizing its RAM/disk/request budget, or landing a v2 build step (S0-S16); its §9 holds the open owner questions. |
+| [free-registration-signup-list.md](free-registration-signup-list.md) | Adding a source that needs a free registration key, or checking where such a key may live (never in git). |
 | [storage-plan-2026-09-23.md](storage-plan-2026-09-23.md) | Free space below the green band, a heavy job refusing on disk, or before any compress/archive/reclaim. |
 | [live-testing-plan-2026-09-25.md](live-testing-plan-2026-09-25.md) | Preparing the last RE-1 session or proposing post-RE-1 live experiments. |
 | [OPEN_QUESTIONS.md](OPEN_QUESTIONS.md) | Choosing what to analyse next; naming the question ids a handoff serves; updating rows on handback. |

@@ -38,16 +38,15 @@ MANUAL_REVIEW_COMMAND = (
 )
 
 
-def utc_now(value: str | datetime | None = None) -> datetime:
+def _parse_clock_value(value):
     if isinstance(value, datetime):
-        parsed = value
-    elif value:
-        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-    else:
-        parsed = datetime.now(timezone.utc)
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
+        return value
+    return datetime.fromisoformat(str(value).replace("Z", "+00:00")) if value else None
+
+
+from functools import partial as _clock_partial
+from weather.time import utc_now as _shared_clock
+utc_now = _clock_partial(_shared_clock, parser=_parse_clock_value)
 
 
 def utc_iso() -> str:

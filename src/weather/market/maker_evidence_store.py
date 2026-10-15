@@ -22,8 +22,7 @@ ROTATE_BYTES = 100_000_000
 MAX_LINE_BYTES = 16 * 1024**2
 
 
-def utc_now():
-    return datetime.now(timezone.utc)
+from weather.time import utc_now
 
 
 def encoded(value):

@@ -26,6 +26,7 @@ def test_direct_cold_recovery_launch_is_denied_in_protected_window(module, switc
     assert "00:30-09:00" in result["hookSpecificOutput"]["permissionDecisionReason"]
 
 
+@pytest.mark.ratchet
 def test_current_docs_audit():
     from weather.operations.agent_docs_audit import audit_repo
     assert audit_repo(ROOT) == []

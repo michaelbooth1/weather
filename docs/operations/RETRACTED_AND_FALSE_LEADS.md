@@ -146,6 +146,45 @@ untested. It fooled us because the reports sat on unmerged branches whose ids we
 - **Why it fooled us:** the commissioning handoff specified a screen that could not fail. Prove both
   decision branches reachable before reading data.
 
+### "Evening decided-band / remaining-rise rules are an information lead" — A SERVING DEFECT (2026-10-04)
+
+- **What it looked like:** on the 111h table every evening rule in the family (T1 decided band, T2/T3 remaining rise, T4
+  obs trend, T15 diurnal projection, T16 settlement mechanics, and the 17-23 legs of the NBH/NBS/MOS/HRRR/ECMWF hunters)
+  was a LEAD at 17-23, survived +1 h/+2 h shifts, LOMO/LOWO and Bonferroni (e.g. T1 −0.0264, 11/11).
+- **What is true:** an unconditional collapse onto the floor band with no input does at least as well (−0.0287), and
+  restoring production's own late-day lock-in, re-anchored on the captured METAR floor, gives −0.0254 (85% of the 17-23
+  gap). The stages read WU-only `history_max`, empty since 2026-06-30; confirmed on one served payload. It is a serving
+  defect, cosmetic for the maker, and no member carries information. `ESTABLISHED_FINDINGS.md` §10e, §10q.
+- **Why it fooled us:** a large, robust effect was read as information because no input-free control was run first.
+  Before attributing a gain to an input, score the same transformation with the input removed. §10e had warned the stages
+  were no-ops, but nobody joined that trace to the evening loss.
+
+### "Re-anchor the late-day lock-in to max(history_max, guidance_floor)" — SUPERSEDED (2026-10-05)
+
+- **What it looked like:** the 2026-10-04 evening fix (D-DEFECT, T27, and the §10q evening bullet) re-anchored the
+  lock-in on `max(history_max, guidance_floor)`. The band-level emulation closed 85% of the 17-23 gap.
+- **What is true:** `guidance_physical_floor` can include the prior day's 23:5x METAR report, which AWC's nominal
+  `reportTime` keys to 00:00 of D (the M0 defect, #189). So it is not a safe same-day anchor. Production's replay of
+  that rule (v2) found 679 rows where the new vector put more mass below the anchor than the old one.
+- **The adopted anchor** is the observed same-day station high with observation-time keying (`lockin-anchor-v3`,
+  #191, owner decision 2026-10-05). No late-day stage may leave mass below the anchor bucket. The replay floor check
+  is the acceptance gate: v3 had 0 rows with increased below-anchor mass. `ESTABLISHED_FINDINGS.md` §10q.
+- **Why it fooled us:** the emulation scored the anchor on the captured floor without asking which observations built
+  that floor. Before anchoring a stage on a derived value, trace its inputs' time keying.
+
+### "Capture NBH (or another free source) to fix the morning" — FALSE LEAD (2026-10-04)
+
+- **What it looked like:** T5 (NBH latest cycle, remaining-hours max) was PIT-clean, LEAD in 00-16 and held at +60/+120 min;
+  NBS, MOS/NBE, HRRR and ECMWF candidates also showed classifier LEADs in some blocks.
+- **What is true:** against a zero-parameter read of the NBM v2 guidance production already captures, NBH's 00-16
+  increment is +0.0027 [−0.0037, +0.0098] (5/11, wrong sign; v2_mean carries 137% of T5's 00-16 gain), and in 00-12 NBH is
+  worse than v2_mean in the same form. No external source tested (NBH, NBS, MOS/NBE, Single-Runs HRRR latest and lagged,
+  ECMWF IFS, 12Z soundings, NWS revision direction, neighbours, METAR/GOES cloud) shows an increment over captured data plus
+  the two serving repairs. There is no capture case. `ESTABLISHED_FINDINGS.md` §10q.
+- **Why it fooled us:** each source was scored against served, which under-uses its own captured guidance, so any
+  guidance-shaped input looked like a lead. Score a source as a paired increment over the best no-source or captured-data
+  control.
+
 ---
 
 ## 2. Statistical traps
@@ -350,11 +389,36 @@ reporting a **downstream block**, not a task fault.
 | Task | Result | What it actually means |
 | --- | ---: | --- |
 | `WeatherTrainingWindow` | **2** | `training_window.log`: `[RETRAIN] promoting non-success nightly status to window exit 2`. The nightly retrain is blocked by the season window (0 / 12,600 cells). Capture stops and is restored — on 2026-08-06 in **20 seconds**. |
-| `WeatherDailySettlementPromotionRefresh` | **1** | The chain errors at `settled_day_analysis_barrier`, which is the documented, expected stop. |
+| `WeatherDailySettlementPromotionRefresh` | **2** (was 1 before the lane split) | Stage A completes with status `critical`: the promotion lane is `BLOCKED` (`live_variant_settlement_scorecard` blocked, `promotion_lane_blocked`), and the first blocker is `settled_day_analysis_barrier` with `result_status` `DIAGNOSTIC_ONLY`. The learning lane still runs. |
 
-`WeatherTrainingWindow` will report **2 every night until the season window lands**, and the chain
-will report **1 every day until `-09-29a` merges.** Neither number changing is progress; neither
-number staying is an incident.
+`WeatherTrainingWindow` will report **2 every night until the season window lands**. The Stage-A
+chain will report **2 on every target day that has a settled label which is not promotion-countable**.
+Neither number changing is progress; neither number staying is an incident.
+
+**Why Stage A exits 2 (checked in code 2026-10-14; seen daily 10-09..10-13).** It is not the reserved
+confirmation window or the scoring embargo: nothing on this path reads a date range.
+- The barrier reports `DIAGNOSTIC_ONLY` when any selected settled label for the target date is not
+  promotion-countable (`daily_refresh_settled_day.py`, `_label_countability_from_freshness`). One market
+  is enough.
+- A label counts only if its material-coverage grade is `strict_complete`, `minor_gap_material` or
+  `manual_override`, and its WU settlement reconciliation is `match` (`settlement_ledger.py`,
+  `promotion_countability`, `material_coverage_grade`). Grades that fail include `decisive_gap`,
+  `low_capture_ratio`, `insufficient_captures`, `stale_source`, `sparse_settlement_source`,
+  `missing_tape` and `missing_settlement`.
+- The promotion gate accepts only `PASS` from the barrier (`daily_refresh_registry.py`,
+  `action_statuses`), so the promotion lane is `BLOCKED`.
+- A blocked promotion lane makes the run `critical`, and `critical` exits 2 (`daily_refresh.py`, run
+  status; `daily_refresh_cli.py`, `exit_code_for_status`). [Operations design](OPERATIONS_DESIGN.md)
+  documents that "a blocked settled-day barrier ... still yields a completed, critical Stage-A manifest".
+- No end date can be derived from code. The barrier clears only on a target day whose labels are all
+  countable; after that, the other promotion gates still apply.
+
+Exit 2 is expected only when the run status is `critical`, `errors` is empty, there are no contained
+step errors, and the first promotion blocker is the barrier's `DIAGNOSTIC_ONLY` verdict. Treat these as
+real faults: exit 1 (`error` or `unreadable`), the status `deferred` or `interrupted` (also exit 2), a
+barrier `BLOCK`, or a blocker on another step. Which markets failed, and why, is in the barrier's
+`label_countability.material_coverage_blocked_sample` (or its `reason`). That is settlement data: honour the
+[reserved confirmation window](reserved-confirmation-window.md) before reading it for a reserved date.
 
 **The distinguishing evidence is the log, not the exit code.** For the training window, check that
 `[RESTORE]` lines follow the `[STOP]` lines in `data\logs\training_window.log` — that is the only

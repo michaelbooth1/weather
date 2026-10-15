@@ -9,8 +9,6 @@ from weather.operations import daily_refresh_reporting_steps as reports
 from weather.operations import daily_refresh_settled_day as barrier
 from weather.operations.daily_refresh_lanes import settlement_barrier_blocker, chain_target_settlement_coverage
 from weather.operations.daily_refresh_registry import SETTLEMENT_GATED_LEARNING_STEPS
-from weather.operations.daily_refresh_trading_steps import run_maker_paper_score_step
-from weather.operations import daily_refresh_trading_steps as trading
 
 TARGET = '2026-09-23'
 
@@ -25,16 +23,16 @@ def ready_freshness(monkeypatch):
 
 @pytest.mark.parametrize('fault', [None, 'market_day_labels_finalize', 'settlement_source_audit',
                                   'public_wu_settlement_restore', 'replay_status_backfill'])
-def test_real_chain_writes_learning_despite_maker_block_but_not_settlement_fault(tmp_path, ready_freshness, fault):
+def test_real_chain_writes_learning_despite_economics_block_but_not_settlement_fault(tmp_path, ready_freshness, fault):
     args = _args(str(tmp_path), settled_analysis_target_date=TARGET)
     steps = _settled_barrier_dependency_steps(TARGET)
     for step in steps:
-        if step['name'] in {'exchange_economics_rule_drift', 'maker_paper_score', fault}:
+        if step['name'] in {'exchange_economics_rule_drift', fault}:
             step['result'] = {**step['result'], 'status': 'BLOCK'}
     runners = [(step['name'], lambda args, value=step['result']: value) for step in steps]
     runners.append(('settled_day_analysis_barrier', barrier.run_settled_day_analysis_barrier_step))
     def forbidden_promotion(args):
-        pytest.fail('maker/economics block must still prevent promotion')
+        pytest.fail('economics block must still prevent promotion')
     runners.append(('promotion_refresh', forbidden_promotion))
     runners.extend((name, getattr(reports, 'run_' + name + '_step'))
                    for name in ('data_retention_inventory', 'daily_learning', 'market_beating_objective_scoreboard'))
@@ -66,36 +64,23 @@ def test_missing_stale_or_failed_receipts_cannot_admit_learning(tmp_path, steps)
         assert getattr(reports, 'run_' + name + '_step')(args)['reason'] == 'settlement_truth_not_ready'
 
 
-def test_paused_maker_is_explicit_not_applicable_without_loading_runs(tmp_path, monkeypatch, ready_freshness):
-    args = _args(str(tmp_path), paper_maker_paused=True, settled_analysis_target_date=TARGET)
-    monkeypatch.setattr(trading.mm_paper, 'discover_run_folders', lambda *a, **k: pytest.fail('paused scorer read runs'))
-    monkeypatch.setattr(refresh, '_run_isolated_stage_a_step', lambda *a, **k: pytest.fail('paused scorer launched child'))
-    result = run_maker_paper_score_step(args)
-    assert result == {'status': 'NOT_APPLICABLE', 'reason': 'paper_maker_paused',
-                      'target_date': TARGET, 'counts_toward_maker_readiness': False}
-    steps = _settled_barrier_dependency_steps(TARGET)
-    next(s for s in steps if s['name'] == 'maker_paper_score')['result'] = result
-    payload = barrier.build_settled_day_analysis_barrier(args, steps_so_far=steps)
+def test_retired_taker_and_maker_steps_are_gone_from_barrier_and_cli(tmp_path, ready_freshness):
+    # Retired and deleted 2026-09-29: no barrier dependency, no step, no flag.
+    retired = {'taker_finalization_watchdog', 'taker_edge_permission_map',
+               'taker_tail_casebook', 'maker_paper_score'}
+    args = _args(str(tmp_path), settled_analysis_target_date=TARGET)
+    payload = barrier.build_settled_day_analysis_barrier(
+        args, steps_so_far=_settled_barrier_dependency_steps(TARGET))
     assert payload['learning_status'] == 'PASS'
-    maker = next(row for row in payload['dependencies'] if row['step'] == 'maker_paper_score')
-    assert maker['non_critical'] and not maker['blocker']
-    assert '--paper-maker-paused' in payload['resume_command']
-    chain, _, _ = refresh.run_daily_refresh(args, runners=[('maker_paper_score', run_maker_paper_score_step)])
-    assert chain['steps'][0]['result']['status'] == 'NOT_APPLICABLE'
-
-
-def test_retired_taker_skips_are_noncritical_to_settled_day_learning(tmp_path, ready_freshness):
-    args = _args(str(tmp_path), paper_maker_paused=True, settled_analysis_target_date=TARGET)
-    names = {"taker_finalization_watchdog", "taker_edge_permission_map", "taker_tail_casebook"}
-    steps = _settled_barrier_dependency_steps(TARGET)
-    for step in steps:
-        if step["name"] in names:
-            step["result"] = {"status": "SKIPPED", "reason": "explicit_skip"}
-    payload = barrier.build_settled_day_analysis_barrier(args, steps_so_far=steps)
-    assert payload["learning_status"] == "PASS"
-    rows = [row for row in payload["dependencies"] if row["step"] in names]
-    assert len(rows) == 3
-    assert all(row["non_critical"] and not row["blocker"] for row in rows)
+    assert not retired & {row['step'] for row in payload['dependencies']}
+    assert not retired & {row['step'] for row in barrier.SETTLED_DAY_ANALYSIS_DEPENDENCIES}
+    assert '--paper-maker-paused' not in payload['resume_command']
+    assert 'trading_evidence' in {row['step'] for row in payload['dependencies']}
+    parser = refresh.build_parser()
+    for flag in ('--paper-maker-paused', '--skip-taker-finalization-watchdog',
+                 '--skip-taker-edge-permission-map', '--skip-taker-tail-casebook'):
+        with pytest.raises(SystemExit):
+            parser.parse_args(['run', '--dry-run', flag])
 
 
 def test_old_blocked_receipt_remains_closed_until_barrier_reruns():

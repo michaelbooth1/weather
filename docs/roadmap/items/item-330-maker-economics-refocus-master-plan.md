@@ -1,5 +1,25 @@
 # 330. Maker Economics And Liquidity Rewards Refocus Master Plan [PARTIAL 2026-09-05 - NON-LIVE IMPLEMENTATION STARTED; ECONOMIC PROOF OPEN]
 
+## October 7 maker replay v2 shadow-gate specification
+
+The current draft of the maker replay v2 "shadow agrees with replay" live-gate specification, with OD22 and the v1-exam
+disclosure (including the clock defect-2 sentence), is
+[the v3.3 repository copy](../maker-replay-v2-shadow-gate-spec-v3.3-2026-10-07.md). It is a draft for owner decision, not a
+signed registration; maker replay v2 status lives in [the state of play](../../operations/STATE_OF_PLAY.md).
+Its superseded bases, in redacted repository copies:
+[v3.2](../maker-replay-v2-shadow-gate-spec-v3.2-2026-10-06.md) and
+[v3.1](../maker-replay-v2-shadow-gate-spec-v3.1-2026-10-06.md).
+The amendment of v3.3's oracle-handout section, **accepted by the owner 2026-10-07** (it replaces v3.3 §6.2):
+[v3.4 DRAFT](../maker-replay-v2-shadow-gate-spec-v3.4-DRAFT-2026-10-07.md), with its
+[oracle rulings sheet](../maker-replay-v2-shadow-gate-spec-v3.4-oracle-rulings-2026-10-07.md).
+Proposed for owner signature 2026-10-12 (DRAFTS, not in force; v3.4 is unchanged):
+[erratum 1](../maker-replay-v2-shadow-gate-spec-v3.4-erratum-1-DRAFT-2026-10-12.md) (§2/§5/§8: cover prompt, re-bind
+scope, cut output controls, host isolation, revisions), with the
+[rulings sheet r2](../maker-replay-v2-shadow-gate-spec-v3.4-oracle-rulings-r2-DRAFT-2026-10-12.md), the
+[H-12 cover-note input](../maker-replay-v2-shadow-gate-spec-v3.4-oracle-cover-note-H12-DRAFT-2026-10-12.md) for the
+production agent and the
+[host isolation runbook](../maker-replay-v2-shadow-gate-spec-v3.4-oracle-host-isolation-runbook-DRAFT-2026-10-12.md).
+
 ## September 23 strategy and status
 
 Owner 2026-09-23: two pillars — forecast from our own information, and maker rewards with quotes pulled around
@@ -145,8 +165,8 @@ concrete to decide against; none is needed for non-live work to continue):
 
 | Decision | Why it is open |
 | --- | --- |
-| Hurdle `H` | Section 7 "minimum worthwhile return" has no value. Without it G1 and G4 can only return a negative. |
-| Stop rule and date for G1 | No project-level stop date, spend cap or capture-only fallback exists; only a negative desk outcome is currently executable. |
+| Hurdle `H` | **Decided 2026-09-22** ([DECISION_LOG](../../operations/DECISION_LOG.md)): H = 1.00 net per day per 100 deployed; replay v2's reference effect equals the signed hurdle (DL 2026-10-03); it also governs G1 and G4 (owner 2026-10-15). No longer open. |
+| Stop rule and date for G1 | **Partly decided 2026-09-23** (RE-1 addendum, DECISION_LOG): 2026-10-31 is an owner **review**, not an automatic closure. The owner moved that review to **2026-11-20** (DL 2026-10-15), after the replay v2 look and the 11-13 shadow embargo end. Spend cap and capture-only fallback remain open. |
 | Caps | Whether the per-band ceiling moves to admit a 20-share (about 25 pUSD) or 100-share (about 100 pUSD) two-sided quote, and the total capital at risk. |
 | Dedicated wallet | The 2026-09-06 test used the owner's existing wallet under a declared allocation; account-wide cancel-all reaches personal orders. A dedicated wallet funded to the cap restores the documented isolated-wallet control. |
 | Live authority | Standing instruction is no live trading. A fresh Stage 0/1 is required before any Stage 2 in any case. |

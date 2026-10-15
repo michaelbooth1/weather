@@ -7,13 +7,19 @@
 # see docs/ops/streak-soak.md). Cheap: one status.ps1 pass, no capture imports.
 [CmdletBinding()]
 param(
-    [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
+    [string]$RepoRoot = "",
     [string]$WatchdogScriptPath = "",
     [string]$ExpectedSelfSha256 = "",
     [string]$StatusScriptPath = "",
     [string]$ExpectedStatusScriptSha256 = "",
     [switch]$Unregister
 )
+# Windows PowerShell 5.1 leaves $PSScriptRoot and $PSCommandPath empty inside an
+# advanced script's param() defaults under `powershell -File`; derive the default
+# here. An explicit -RepoRoot always wins.
+if (-not $RepoRoot) {
+    $RepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
+}
 
 $ErrorActionPreference = "Stop"
 $taskName = "WeatherHostHealthWatchdog"

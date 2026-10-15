@@ -17,17 +17,8 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
-from weather.market.market_making_preflight import (
-    INTERNATIONAL_SETTLEMENT_UNIT,
-    contains_secret_material,
-    dict_value,
-    non_empty_text,
-    pilot_wallet_identity_topology_checks,
-    recent_utc_timestamp,
-    signature_type_consistent,
-    valid_evm_address,
-)
-from weather.market.market_making_run_constants import MAX_OPERATOR_PILOT_BUDGET_USDC
+from weather.market.platform_contract import INTERNATIONAL_SETTLEMENT_UNIT, contains_secret_material, dict_value, non_empty_text, pilot_wallet_identity_topology_checks, recent_utc_timestamp, signature_type_consistent, valid_evm_address
+from weather.market.execution_contract import MAX_OPERATOR_PILOT_BUDGET_USDC
 from weather.market.market_config import ensure_date
 from weather.market.mm_geographic_eligibility import (
     GEOBLOCK_ENDPOINT,
@@ -40,7 +31,8 @@ from weather.market.mm_official_adapter import (
     OFFICIAL_CLOB_VERSION,
     exact_current_positions_evidence,
 )
-from weather.market.mm_policy import bool_value, maybe_float, utc_now
+from weather.market.value_helpers import bool_value, maybe_float
+from weather.time import utc_now
 from weather.market.mm_credentials import stage0_client_identity_gate
 SCHEMA_VERSION = "mm_platform_bootstrap_v0.4"
 PLATFORM_ID = "polymarket_global"

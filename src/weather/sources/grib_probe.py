@@ -71,8 +71,7 @@ PROVIDER_CACHE_POLICIES = {
 }
 
 
-def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+from weather.time import utc_now
 
 
 def grib_provider_for_url(url: str | None = None, provider: str | None = None) -> str:

@@ -1,5 +1,6 @@
 import json
 import socket
+import tracemalloc
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -153,3 +154,48 @@ def test_route_query_and_client_scope(guard):
     with pytest.raises(client.ClientError) as refused:
         client.read_account("settlement", since="1789000000", config="missing.json")
     assert refused.value.reason == "config"
+
+
+def test_ledger_over_the_old_64_mib_cap_streams_in_constant_memory(tmp_path):
+    root = tmp_path / "settlements" / "toronto"
+    root.mkdir(parents=True)
+    path = root / "ledger.jsonl"
+    filler = (json.dumps(dict(event_slug=PREFIX + "-january-1-2026", revision_number=1, settlement_high=1,
+                              settlement_unit="C", padding="x" * 400)) + "\n").encode()
+    chunk = filler * 4096
+    with path.open("wb") as handle:
+        handle.write((json.dumps(dict(event_slug=SLUG_A, revision_number=1, winning_band="15°C")) + "\n").encode())
+        while handle.tell() < 70 * 1024 * 1024:
+            handle.write(chunk)
+        handle.write((json.dumps(dict(event_slug=SLUG_A, revision_number=2, winning_band="16°C")) + "\n").encode())
+        handle.write((json.dumps(dict(event_slug=SLUG_B, revision_number=1, winning_band="17°C")) + "\n").encode())
+    assert path.stat().st_size > 64 * 1024 * 1024
+    tracemalloc.start()
+    try:
+        found, status = settle.ledger_labels(tmp_path / "settlements", "toronto", [SLUG_A, SLUG_B])
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    assert status is None
+    assert (found[SLUG_A]["revision_number"], found[SLUG_A]["winning_band"]) == (2, "16°C")
+    assert found[SLUG_B]["winning_band"] == "17°C"
+    assert peak < 4 * settle.LEDGER_LINE_MAX_BYTES
+    assert settle.ledger_label(tmp_path / "settlements", "toronto", SLUG_B)[0]["revision_number"] == 1
+    assert settle.ledger_label(tmp_path / "settlements", "toronto", PREFIX + "-may-1-2026") == (None, "proxy_label_absent")
+
+
+def test_overlong_ledger_lines_are_skipped_not_buffered(tmp_path, monkeypatch):
+    monkeypatch.setattr(settle, "LEDGER_LINE_MAX_BYTES", 256)
+    root = tmp_path / "toronto"
+    root.mkdir()
+    fits = json.dumps(dict(event_slug=SLUG_A, revision_number=1, pad=""))
+    fits = json.dumps(dict(event_slug=SLUG_A, revision_number=1, pad="y" * (256 - len(fits))))
+    assert len(fits) == 256
+    long_row = json.dumps(dict(event_slug=SLUG_A, revision_number=9, pad="z" * 2000))
+    (root / "ledger.jsonl").write_bytes(
+        (fits + "\n" + long_row + "\n" + json.dumps(dict(event_slug=SLUG_B, revision_number=3)) + "\n" + long_row).encode())
+    found, status = settle.ledger_labels(tmp_path, "toronto", [SLUG_A, SLUG_B, "Odd Slug"])
+    assert status is None
+    assert found[SLUG_A]["revision_number"] == 1 and found[SLUG_B]["revision_number"] == 3
+    assert settle.ledger_labels(tmp_path, "toronto", [])[1] is None
+    assert settle.ledger_labels(tmp_path, "missing", [SLUG_A]) == ({}, "proxy_ledger_absent")

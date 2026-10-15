@@ -2,9 +2,15 @@
 # Public-data capture only. Editing/testing this registrar does not arm it.
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
-    [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
+    [string]$RepoRoot = "",
     [string]$TaskName = "WeatherMakerEvidenceCapture"
 )
+# Windows PowerShell 5.1 leaves $PSScriptRoot and $PSCommandPath empty inside an
+# advanced script's param() defaults under `powershell -File`; derive the default
+# here. An explicit -RepoRoot always wins.
+if (-not $RepoRoot) {
+    $RepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
+}
 $ErrorActionPreference = "Stop"
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 $python = Join-Path $RepoRoot "venv\Scripts\pythonw.exe"

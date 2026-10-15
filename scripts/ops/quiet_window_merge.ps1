@@ -15,8 +15,10 @@
 # publishing means a bad merge is undone by resetting to the exact pre-merge commit with nothing
 # published and no history to rewrite.
 #
-# Refuses to run outside 01:00-04:00 without -Force: a roll inside the 12:00-18:00 graded
-# window can cost the streak day. See docs/ops/streak-soak.md.
+# Window rule: every branch is refused 12:00-00:30 (the 12:00-18:00 graded capture window,
+# where a roll can cost the day, and the 18:00-00:30 near-close window). A roll-sensitive
+# branch (roll_verdict.ps1 not a clean ROLL-FREE) is further confined to 01:00-04:00 unless
+# -Force; a ROLL-FREE branch may run 00:30-12:00. See docs/ops/streak-soak.md.
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][string]$Branch,
@@ -27,7 +29,7 @@ param(
     [string]$ExpectedPublishedTarget = "",
     [string]$ExpectedSourceTip = "",
     [string]$ExpectedSourceTree = "",
-    [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
+    [string]$RepoRoot = "",
     [string]$AttemptReportPath = "",
     [string]$ExpectedSelfSha256 = "",
     [string]$OwnerApprovedException = "",
@@ -38,6 +40,13 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+# Windows PowerShell 5.1 leaves $PSScriptRoot and $PSCommandPath empty inside an
+# advanced script's param() defaults under `powershell -File`, so a default derived there failed
+# binding before the script ran (2026-10-04). Derive it in the body instead; an
+# explicit -RepoRoot always wins.
+if (-not $RepoRoot) {
+    $RepoRoot = (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath)))
+}
 $ExpectedSelfSha256 = $ExpectedSelfSha256.Trim().ToLowerInvariant()
 if ($ExpectedSelfSha256) {
     if ($ExpectedSelfSha256 -notmatch '^[0-9a-f]{64}$') {
@@ -182,6 +191,16 @@ function Fail($m) {
     Note "ABORT: $m"
     Save-Report -ok $false -stage "abort" -detail $m
     exit 1
+}
+function Get-QuietMergeClockInstant {
+    # The current moment as an absolute instant. Deadlines, waits and elapsed
+    # budgets are held as [datetimeoffset] instants (compared in UTC), never as
+    # local wall-clock [datetime] arithmetic: the 01:00-04:00 quiet window holds
+    # both DST transitions, where wall-clock deadlines run an hour long (fall
+    # back) or skip (spring forward). Get-Date's Local value carries .NET's
+    # repeated-hour flag, so the conversion is exact; reading Get-Date keeps the
+    # execution twins' logical clock in charge (DST audit 2026-10-07 M5/M6).
+    return [datetimeoffset](Get-Date)
 }
 function Save-Report($ok, $stage, $detail) {
     $record = [ordered]@{
@@ -768,11 +787,11 @@ function Invoke-ReconciliationOwnedProcess {
 
 function New-ReconciliationSchedulerRpcIdentity {
     param(
-        [Parameter(Mandatory = $true)][datetime]$LogicalBoundary,
+        [Parameter(Mandatory = $true)][datetimeoffset]$LogicalBoundary,
         [Parameter(Mandatory = $true)][ValidateRange(1, 300)][int]$MaximumSeconds
     )
 
-    $logicalNow = Get-Date
+    $logicalNow = Get-QuietMergeClockInstant
     # Five seconds are available for TerminateAndWait proof and a further
     # three seconds remain for bounded result parsing before the logical
     # containment boundary. The helper receives the shorter request deadline.
@@ -881,19 +900,19 @@ function Invoke-ReconciliationSchedulerRpc {
 
 function Get-ReconciliationSchedulerReadIdentity {
     $now = Get-Date
-    $logicalBoundary = $now.Date.AddHours(4)
+    $logicalBoundary = [datetimeoffset]$now.Date.AddHours(4)
     if ($null -ne $pushContainmentDeadline -and
-        [datetime]$pushContainmentDeadline -lt $logicalBoundary) {
-        $logicalBoundary = [datetime]$pushContainmentDeadline
+        [datetimeoffset]$pushContainmentDeadline -lt $logicalBoundary) {
+        $logicalBoundary = [datetimeoffset]$pushContainmentDeadline
     }
     if ($null -ne $pushContainmentStopAt -and
         $oneShotPushStopCount -eq 0 -and
-        [datetime]$pushContainmentStopAt -lt $logicalBoundary) {
+        [datetimeoffset]$pushContainmentStopAt -lt $logicalBoundary) {
         # Before the first containment claim, every Scheduler read must leave
         # the complete Stop reserve untouched.  At/after the reserve edge the
         # identity calculation fails closed, and the drain catch below claims
         # Stop instead of launching another potentially hung read helper.
-        $logicalBoundary = [datetime]$pushContainmentStopAt
+        $logicalBoundary = [datetimeoffset]$pushContainmentStopAt
     }
     return New-ReconciliationSchedulerRpcIdentity `
         -LogicalBoundary $logicalBoundary -MaximumSeconds 15
@@ -1146,9 +1165,9 @@ function Get-ReconciliationOneShotPushState {
 }
 
 function Get-ReconciliationPublicationAck {
-    param([Parameter(Mandatory = $true)][datetime]$Boundary)
+    param([Parameter(Mandatory = $true)][datetimeoffset]$Boundary)
 
-    if ((Get-Date) -ge $Boundary) {
+    if ((Get-QuietMergeClockInstant) -ge $Boundary) {
         throw "absolute publication boundary closed before acknowledgement"
     }
     $previousPreference = $ErrorActionPreference
@@ -1171,7 +1190,7 @@ function Get-ReconciliationPublicationAck {
         }
     }
     finally { $ErrorActionPreference = $previousPreference }
-    if ((Get-Date) -ge $Boundary) {
+    if ((Get-QuietMergeClockInstant) -ge $Boundary) {
         throw "absolute publication boundary closed during acknowledgement"
     }
     $remoteParts = if ($remoteRows.Count -eq 1) {
@@ -1265,7 +1284,7 @@ function Invoke-ReconciliationOneShotPushStop {
 }
 
 function Request-ReconciliationOneShotPushContainment {
-    param([Parameter(Mandatory = $true)][datetime]$LogicalBoundary)
+    param([Parameter(Mandatory = $true)][datetimeoffset]$LogicalBoundary)
 
     if ($oneShotPushStopExhausted -or
         $oneShotPushStopCount -ge $reconciliationPushStopAttemptLimit) {
@@ -1413,11 +1432,11 @@ function Assert-ReconciliationQuietWindowOpen {
 
 function Start-ReconciliationBoundedPollSleep {
     param(
-        [Parameter(Mandatory = $true)][datetime]$Boundary,
+        [Parameter(Mandatory = $true)][datetimeoffset]$Boundary,
         [ValidateRange(1, 10)][int]$MaximumSeconds = 10
     )
 
-    $now = Get-Date
+    $now = Get-QuietMergeClockInstant
     $next = $now.AddSeconds($MaximumSeconds)
     if ($Boundary -lt $next) { $next = $Boundary }
     $milliseconds = [int][Math]::Floor(($next - $now).TotalMilliseconds)
@@ -1438,15 +1457,15 @@ function Invoke-ReconciliationBoundedGit {
     param(
         [Parameter(Mandatory = $true)][string[]]$Arguments,
         [ValidateRange(1, 120)][int]$TimeoutSeconds = 30,
-        [datetime]$LogicalBoundary = [datetime]::MinValue
+        [datetimeoffset]$LogicalBoundary = [datetimeoffset]::MinValue
     )
 
     if (-not $reconciliationOwnedChildInitialized) {
         throw "kill-on-close child runtime is not initialized for bounded Git"
     }
-    if ($LogicalBoundary -eq [datetime]::MinValue) {
+    if ($LogicalBoundary -eq [datetimeoffset]::MinValue) {
         $logicalNow = Get-Date
-        $LogicalBoundary = $logicalNow.Date.AddHours(4)
+        $LogicalBoundary = [datetimeoffset]$logicalNow.Date.AddHours(4)
     }
     $identity = New-ReconciliationSchedulerRpcIdentity `
         -LogicalBoundary $LogicalBoundary -MaximumSeconds $TimeoutSeconds
@@ -2339,14 +2358,16 @@ function Invoke-ReconciliationRollbackAndProve {
             -Detail "special rollback could not prove exact baseline/raw-byte state: $($_.Exception.Message); original=$Reason" `
             -Stage "rollback_recovery_failed" -ExitCode 4
     }
+    # Elapsed-time deadline held as an instant, capped at the 04:00 window end
+    # (DST-M6): never local wall-clock arithmetic.
     $rollbackNow = Get-Date
-    $deadline = $rollbackNow.AddSeconds($RollbackRecoverySeconds)
-    $quietWindowEnd = $rollbackNow.Date.AddHours(4)
+    $deadline = ([datetimeoffset]$rollbackNow).AddSeconds($RollbackRecoverySeconds)
+    $quietWindowEnd = [datetimeoffset]$rollbackNow.Date.AddHours(4)
     if ($quietWindowEnd -lt $deadline) { $deadline = $quietWindowEnd }
     do {
         $proof = Test-ReconciliationCaptureProof
         if ($proof.ok) { break }
-        $sleepNow = Get-Date
+        $sleepNow = Get-QuietMergeClockInstant
         if ($sleepNow -lt $deadline) {
             $sleepMilliseconds = [int][Math]::Floor(
                 ([Math]::Min(15, ($deadline - $sleepNow).TotalSeconds)) * 1000
@@ -2355,7 +2376,7 @@ function Invoke-ReconciliationRollbackAndProve {
                 Start-Sleep -Milliseconds $sleepMilliseconds
             }
         }
-    } while ((Get-Date) -lt $deadline)
+    } while ((Get-QuietMergeClockInstant) -lt $deadline)
     if (-not $proof.ok) {
         Stop-Reconciliation `
             -Detail "special rollback restored Git/bytes but affected-producer recovery is unproved; marker preserved; original=$Reason" `
@@ -2933,9 +2954,12 @@ if ($productionBaselineReconciliationMode) {
             $reconciliationPrePushCaptureRecoveryAt = (Get-Date).ToString("o")
             $pushStartIssuedAt = Get-Date
             $quietWindowEnd = Assert-ReconciliationPublicationTimeBudget -Now $pushStartIssuedAt
-            $pushContainmentDeadline = $pushStartIssuedAt.Add($reconciliationPushRuntimeLimit)
-            if ($quietWindowEnd -lt $pushContainmentDeadline) {
-                $pushContainmentDeadline = $quietWindowEnd
+            # PT15M of elapsed time from Start, held as an instant: a wall-clock
+            # deadline gave a 75-minute containment across the fall-back hour
+            # and a skipped (Stop-less) one across spring forward (DST-M5).
+            $pushContainmentDeadline = ([datetimeoffset]$pushStartIssuedAt).Add($reconciliationPushRuntimeLimit)
+            if ([datetimeoffset]$quietWindowEnd -lt $pushContainmentDeadline) {
+                $pushContainmentDeadline = [datetimeoffset]$quietWindowEnd
             }
             $pushContainmentStopAt = $pushContainmentDeadline.AddSeconds(-30)
             $oneShotPushStartIssuedAt = $pushStartIssuedAt.ToString("o")
@@ -2968,9 +2992,9 @@ if ($productionBaselineReconciliationMode) {
                 throw "HEAD/master/origin moved at the final Start boundary"
             }
             Assert-ReconciliationSnapshot
-            $pushImmediateAt = Get-Date
+            $pushImmediateAt = Get-QuietMergeClockInstant
             if ($pushImmediateAt -ge $pushContainmentDeadline -or
-                $pushImmediateAt -ge $quietWindowEnd) {
+                $pushImmediateAt -ge [datetimeoffset]$quietWindowEnd) {
                 throw "quiet-window containment clock elapsed while arming the task start"
             }
             $pushStartIdentity = New-ReconciliationSchedulerRpcIdentity `
@@ -3026,7 +3050,7 @@ if ($productionBaselineReconciliationMode) {
         $pushDeadlineWarningWritten = $false
         $pushTerminalInfo = $null
         while (-not $pushTerminalProved) {
-            $pushPollAt = Get-Date
+            $pushPollAt = Get-QuietMergeClockInstant
             if ($pushPollAt -ge $pushContainmentDeadline) {
                 Stop-ReconciliationAtAbsolutePublicationBoundary
             }
@@ -3037,13 +3061,13 @@ if ($productionBaselineReconciliationMode) {
                 $pushTask = Get-ReconciliationOneShotPushState
                 $pushState = [string]$pushTask.State
                 $pushInfo = Get-ReconciliationOneShotPushTaskInfo
-                $pushPollAt = Get-Date
+                $pushPollAt = Get-QuietMergeClockInstant
                 if ($pushPollAt -ge $pushContainmentDeadline) {
                     Stop-ReconciliationAtAbsolutePublicationBoundary
                 }
             }
             catch {
-                $pushPollAt = Get-Date
+                $pushPollAt = Get-QuietMergeClockInstant
                 if ($pushPollAt -ge $pushContainmentDeadline) {
                     Stop-ReconciliationAtAbsolutePublicationBoundary
                 }
@@ -3119,7 +3143,7 @@ if ($productionBaselineReconciliationMode) {
                         $oneShotPushRuntimeState = "Ready"
                         $oneShotPushObservedLastRunTime = $pushTerminalCandidate.last_run_time.ToString("o")
                         $oneShotPushLastTaskResult = [long]$pushTerminalCandidate.last_task_result
-                        $pushTerminalProvedAt = Get-Date
+                        $pushTerminalProvedAt = Get-QuietMergeClockInstant
                         $oneShotPushTerminalProvedAt = $pushTerminalProvedAt.ToString("o")
                         if ($pushTerminalProvedAt -ge $pushContainmentDeadline) {
                             $oneShotPushContainmentBreached = $true
@@ -3538,6 +3562,63 @@ catch {
 Note "pre-merge HEAD $preMerge; merging $Branch ($($resolvedBranchTip.Substring(0, 12)))"
 
 # ---- capture baseline (what we will require to still be true afterwards) ----
+function ConvertTo-StatusInstant {
+    # Parses a status timestamp as an absolute instant. Windows PowerShell 5.1
+    # ConvertFrom-Json leaves ISO-8601 strings as strings; the loops write them
+    # with their UTC offset, so DateTimeOffset.Parse keeps the instant exact even
+    # across the DST fall-back hour (a wall-clock [datetime] cast does not).
+    # Offset-less strings are taken as UTC. Unparseable or empty input is $null.
+    param($Value)
+    if ($null -eq $Value) { return $null }
+    if ($Value -is [datetimeoffset]) { return $Value }
+    if ($Value -is [datetime]) { return [datetimeoffset]$Value }
+    if (-not [string]$Value) { return $null }
+    try {
+        return [datetimeoffset]::Parse(
+            [string]$Value,
+            [Globalization.CultureInfo]::InvariantCulture,
+            [Globalization.DateTimeStyles]::AssumeUniversal
+        )
+    }
+    catch { return $null }
+}
+
+function ConvertTo-StatusUtcInstant {
+    # DateTime-aware front end to ConvertTo-StatusInstant. That parser is kept
+    # byte-identical across scripts, so DateTime handling lives here instead.
+    # A [datetime] is resolved by its Kind: Utc is taken as is, Local is
+    # converted with ToUniversalTime(), and Unspecified is taken as UTC, the
+    # same rule the parser applies to an offset-less string. Windows PowerShell
+    # 5.1 ConvertFrom-Json yields strings, so today only strings arrive here; a
+    # PowerShell 7 ConvertFrom-Json would yield Local DateTimes, which are
+    # ambiguous inside the repeated fall-back hour (.NET picks standard time).
+    # Every other input goes to ConvertTo-StatusInstant unchanged.
+    param($Value)
+    if ($Value -is [datetime]) {
+        if ($Value.Kind -eq [DateTimeKind]::Local) {
+            return [datetimeoffset]($Value.ToUniversalTime())
+        }
+        return [datetimeoffset]([datetime]::SpecifyKind($Value, [DateTimeKind]::Utc))
+    }
+    return ConvertTo-StatusInstant $Value
+}
+
+function Test-QuietMergeHeartbeatAdvanced {
+    # True when $After is a strictly later instant than $Before. Both stamps are
+    # compared as UTC instants (ConvertTo-StatusUtcInstant, the status.ps1 idiom),
+    # never as local wall-clock [datetime] casts: the 01:00-04:00 quiet window
+    # holds the repeated 01:xx hour of the DST fall-back night, where a heartbeat
+    # written in the second 01:xx would otherwise look older than one written in
+    # the first. Throws when either stamp is missing or unparseable, as the cast did.
+    param($Before, $After)
+    $beforeInstant = ConvertTo-StatusUtcInstant $Before
+    $afterInstant = ConvertTo-StatusUtcInstant $After
+    if ($null -eq $beforeInstant -or $null -eq $afterInstant) {
+        throw "heartbeat is missing or unparseable ($Before -> $After)"
+    }
+    return ($afterInstant.UtcTicks -gt $beforeInstant.UtcTicks)
+}
+
 # Command lines are hidden for S4U-owned processes, and one fresh snapshot heartbeat says
 # nothing about the CLOB or observation workers. The checker validates all three workers'
 # status + writer-lock PID, process liveness, heartbeat freshness, and loaded-source
@@ -3705,7 +3786,9 @@ function Invoke-RollbackAndProve {
     }
 
     Note "rolled back to synchronized baseline $baselineCommit with generated config preserved as allowlisted drift; nothing was pushed. Waiting up to ${RollbackRecoverySeconds}s for every affected producer to re-adopt the rollback..."
-    $rollbackDeadline = (Get-Date).AddSeconds($RollbackRecoverySeconds)
+    # Elapsed-time deadline held as an instant (DST-M6): a wall-clock one ran an
+    # hour long across the fall-back hour and an hour short across spring forward.
+    $rollbackDeadline = (Get-QuietMergeClockInstant).AddSeconds($RollbackRecoverySeconds)
     do {
         $rollbackState = Get-CaptureState
         $rollbackCoreOk = $rollbackState.ok -and @($rollbackState.workers).Count -eq 3
@@ -3718,8 +3801,8 @@ function Invoke-RollbackAndProve {
                     [string]$executionBefore.recorded_source_fingerprint
         }
         if ($rollbackCoreOk -and $rollbackExecutionOk) { break }
-        if ((Get-Date) -lt $rollbackDeadline) { Start-Sleep -Seconds 15 }
-    } while ((Get-Date) -lt $rollbackDeadline)
+        if ((Get-QuietMergeClockInstant) -lt $rollbackDeadline) { Start-Sleep -Seconds 15 }
+    } while ((Get-QuietMergeClockInstant) -lt $rollbackDeadline)
 
     if (-not $rollbackCoreOk -or -not $rollbackExecutionOk) {
         $rollbackWhy = @(
@@ -3841,19 +3924,22 @@ try {
         if (-not $afterWorker) {
             $ok = $false; $why += "$($beforeWorker.name) missing after merge"; continue
         }
-        # The snapshot worker normally heartbeats once per roughly ten-minute cycle, longer
-        # than the default five-minute settle. Requiring every healthy worker to advance here
-        # made a CLOB-only roll depend on where the unrelated snapshot sleep happened to fall.
-        # The recovery checker above still requires every worker to be fresh, live, locked by
-        # the matching PID, and loaded from the current tree. Require heartbeat advancement in
-        # addition when this worker actually readopted (PID or recorded source identity changed).
+        # A worker heartbeat is liveness only, not iteration progress: the snapshot worker also
+        # refreshes last_heartbeat every 60 s of its idle sleep, so an advanced snapshot
+        # heartbeat does not prove that a new iteration ran (last_completed_iteration_at does).
+        # Advancement is therefore not required from workers that did not readopt; doing so
+        # would only add a timing dependence on unrelated loops. The recovery checker above
+        # still requires every worker to be fresh, live, locked by the matching PID, and loaded
+        # from the current tree. Require heartbeat advancement in addition when this worker
+        # actually readopted (PID or recorded source identity changed): a new process must
+        # have written its own heartbeat.
         $workerReadopted = (
             [int]$afterWorker.pid -ne [int]$beforeWorker.pid -or
             [string]$afterWorker.recorded_source_fingerprint -ne [string]$beforeWorker.recorded_source_fingerprint
         )
         if (-not $workerReadopted) { continue }
         try {
-            if ([datetime]$afterWorker.last_heartbeat -le [datetime]$beforeWorker.last_heartbeat) {
+            if (-not (Test-QuietMergeHeartbeatAdvanced -Before $beforeWorker.last_heartbeat -After $afterWorker.last_heartbeat)) {
                 $ok = $false
                 $why += "$($beforeWorker.name) readopted but heartbeat did not advance ($($beforeWorker.last_heartbeat) -> $($afterWorker.last_heartbeat))"
             }
@@ -3876,7 +3962,7 @@ try {
                 $why += "execution_tape closure rolled but loaded-source fingerprint did not change"
             }
             try {
-                if ([datetime]$executionAfter.last_heartbeat -le [datetime]$executionBefore.last_heartbeat) {
+                if (-not (Test-QuietMergeHeartbeatAdvanced -Before $executionBefore.last_heartbeat -After $executionAfter.last_heartbeat)) {
                     $ok = $false
                     $why += "execution_tape readopted but heartbeat did not advance ($($executionBefore.last_heartbeat) -> $($executionAfter.last_heartbeat))"
                 }

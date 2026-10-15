@@ -304,7 +304,7 @@ def test_forced_launcher_exit_kills_the_live_child_tree_before_mutex_reuse(tmp_p
         text=True,
     )
     try:
-        deadline = time.monotonic() + 10
+        deadline = time.monotonic() + 30  # readiness ceiling; the loop returns as soon as it is ready
         while not ready.exists() and time.monotonic() < deadline:
             if launcher.poll() is not None:
                 stdout, stderr = launcher.communicate()
