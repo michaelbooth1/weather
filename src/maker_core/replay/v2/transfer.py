@@ -39,7 +39,10 @@ a relabelled synthetic bundle could otherwise run without declared intervals.
   empty, ``.`` or ``..`` segment, no segment ending in a dot or space, no device name; U1 Defender r2
   NOTE-2, U1r2 Defender NOTE-2 and D-1), and every path whose
   first segment is case-insensitively ``maker_evidence`` lies under ``maker_evidence/<day>/`` exactly
-  (cumulative non-evidence inputs are PB2(c): allowed and disclosed).
+  (cumulative non-evidence inputs are PB2(c): allowed and disclosed). For the calibration kinds a
+  ``carry:`` date must lie before ``CALIBRATION_CARRY_FENCE`` (2026-09-30T00:00Z, the first panel date;
+  A9 plan review): a calibration bundle that carries state from that date or later refuses
+  ``transfer_calibration_carry_after_fence:<day>``, so no panel-period input reaches a calibration run.
 - ``verify(doc, roots, *, bounds_check=True, limits=None, clock=..., run=None)`` runs on the workstation.
   Each of ``bundle.json``, ``export.json`` and ``receipt.json`` is read by this module once; its raw
   bytes are hashed and compared with the listed entry BEFORE this module parses them, and this module
@@ -107,6 +110,9 @@ DOC_FIELDS = frozenset({"format", "bundles", "host_id", "created_at"})
 EVIDENCE_PREFIX = "maker_evidence/"
 MAX_INPUT_KEY_CHARS = 512
 _CARRY_KEY = re.compile(r"carry:\d{4}-\d{2}-\d{2}")
+CALIBRATION_KINDS = ("calibration_night", "calibration_hazard", "calibration_v01_reference")
+# A9 plan review: a calibration bundle carries no state from the panel (2026-09-30T00:00Z onward).
+CALIBRATION_CARRY_FENCE = datetime(2026, 9, 30, tzinfo=timezone.utc)
 _RELEASE_PREFIX = "release:"
 _WINDOWS_INVALID = set('<>:"|?*~')  # ``~``: 8.3 short names (``MAKER_~1``) alias long ones
 _DEVICE_NAMES = frozenset({"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$",
@@ -117,7 +123,7 @@ REFUSAL_CODES = ("transfer_root_invalid", "transfer_export_kind_unknown", "trans
                  "transfer_receipt_bundle_mismatch", "transfer_export_mismatch", "transfer_inputs_outside_day",
                  "transfer_duplicate_bundle", "transfer_manifest_invalid", "transfer_manifest_unlisted",
                  "transfer_manifest_mismatch", "transfer_bounds_outside_day", "transfer_decoder_unavailable",
-                 "transfer_bundle_not_captured")
+                 "transfer_bundle_not_captured", "transfer_calibration_carry_after_fence")
 
 
 class Verified(NamedTuple):
@@ -131,7 +137,7 @@ def days_of(export_kind):
         return tuple(constants.QUOTE_DATES)
     if export_kind == "settlement_night":
         return tuple(constants.SETTLEMENT_ONLY_DATES)
-    if export_kind in ("calibration_night", "calibration_hazard", "calibration_v01_reference"):
+    if export_kind in CALIBRATION_KINDS:
         return tuple(constants.CALIBRATION_DATES)
     raise BundleError("transfer_export_kind_unknown")
 
@@ -179,8 +185,27 @@ def _bundle_folder(root):
     return folder, names
 
 
-def _inputs_rule(day, export, receipt):
-    """PB2(a): every capture input key lies under that day's ``maker_evidence/<day>/`` folder."""
+def _carry_fence(day, export_kind, keys):
+    """Calibration kinds only: refuse a ``carry:`` date at or after ``CALIBRATION_CARRY_FENCE`` (fail closed)."""
+    if export_kind not in CALIBRATION_KINDS:
+        return
+    fence = CALIBRATION_CARRY_FENCE
+    if not isinstance(fence, datetime) or fence.tzinfo is None:
+        raise BundleError(f"transfer_calibration_carry_after_fence:{day}")
+    for key in keys:
+        if isinstance(key, str) and _CARRY_KEY.fullmatch(key):
+            try:
+                carried = datetime.combine(date.fromisoformat(key.removeprefix("carry:")), clock_time(0),
+                                           tzinfo=timezone.utc)
+            except ValueError:
+                raise BundleError(f"transfer_calibration_carry_after_fence:{day}") from None
+            if carried >= fence:
+                raise BundleError(f"transfer_calibration_carry_after_fence:{day}")
+
+
+def _inputs_rule(day, export, receipt, export_kind):
+    """PB2(a): every capture input key lies under that day's ``maker_evidence/<day>/`` folder; for the
+    calibration kinds every ``carry:`` date also lies before ``CALIBRATION_CARRY_FENCE``."""
     inputs = export.get("input_hashes")
     if not isinstance(inputs, dict) or not inputs:
         raise BundleError("transfer_export_mismatch")
@@ -193,6 +218,7 @@ def _inputs_rule(day, export, receipt):
         if path is None or (path.split("/")[0].casefold() == EVIDENCE_PREFIX[:-1]
                             and not path.startswith(own)):
             raise BundleError(f"transfer_inputs_outside_day:{day}")
+    _carry_fence(day, export_kind, (*inputs, *later))
 
 
 def _normalised(key):
@@ -289,7 +315,7 @@ def _entry(export_kind, root, raws=None):
         v01_sha = None
     if not _hex(v01_sha) or not _hex(module):
         raise BundleError("transfer_receipt_bundle_mismatch")
-    _inputs_rule(day.isoformat(), export, receipt)
+    _inputs_rule(day.isoformat(), export, receipt, export_kind)
     return dict(day=day.isoformat(), export_kind=export_kind, format=label, bundle_format=bundle_format,
                 bundle_json_sha256=manifest_hash, export_json_sha256=export_hash, receipt_sha256=receipt_hash,
                 module_sha256=module, v01_equivalent_sha256=v01_sha, streams=dict(sorted(out.items())))

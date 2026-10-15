@@ -37,6 +37,9 @@ def fictional_panel(monkeypatch):
     monkeypatch.setattr(panel, "SETTLEMENT_ONLY_DATES", (DAY + timedelta(days=400),))
     monkeypatch.setattr(night_v02, "CALIBRATION_DATES", (DAY,))
     monkeypatch.setattr(night_v01, "CALIBRATION_DATES", (DAY,))
+    # the A9 carry fence follows the fictional calibration day: the day after it, as 2026-09-30 follows 09-29
+    monkeypatch.setattr(transfer, "CALIBRATION_CARRY_FENCE",
+                        datetime.combine(DAY + timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc))
 
 
 @pytest.fixture
@@ -534,3 +537,43 @@ def test_every_key_the_real_exporters_write_is_admitted(exports):
     assert keys and any(k.startswith(f"maker_evidence/{DAY}/") for k in keys)
     assert [k for k in sorted(keys) if transfer._normalised(k) is None] == []
     assert build(list(exports.items()))["bundles"]
+
+
+def test_the_real_calibration_carry_fence_is_the_first_panel_instant():
+    # A9 plan review: no calibration input may carry state from 2026-09-30T00:00Z onward
+    assert transfer.CALIBRATION_CARRY_FENCE == datetime(2026, 9, 30, tzinfo=timezone.utc)
+    assert max(panel.CALIBRATION_DATES) < transfer.CALIBRATION_CARRY_FENCE.date()
+    assert "transfer_calibration_carry_after_fence" in transfer.REFUSAL_CODES
+
+
+@pytest.mark.parametrize("kind", ["calibration_night", "calibration_hazard", "calibration_v01_reference"])
+def test_a_calibration_carry_key_at_or_after_the_fence_is_refused(exports, kind):
+    fence = transfer.CALIBRATION_CARRY_FENCE.date()  # the fixture's fence: the day after the fictional day
+    root = exports[kind]
+    for offset in (0, 1, 400):  # the fence itself, the day after, far later: each refuses (fail closed)
+        _reseal(root, export_edit=lambda e: e["input_hashes"].update(
+            {f"carry:{fence + timedelta(days=offset)}": "0" * 64}))
+        with pytest.raises(BundleError, match=f"^transfer_calibration_carry_after_fence:{DAY}$"):
+            build([(kind, root)])
+        _reseal(root, export_edit=lambda e: e["input_hashes"].pop(f"carry:{fence + timedelta(days=offset)}"))
+    _reseal(root, export_edit=lambda e: e["input_hashes"].update({f"carry:{fence - timedelta(days=1)}": "0" * 64}))
+    assert build([(kind, root)])["bundles"]  # the day before the fence is admitted
+
+
+def test_the_carry_fence_reads_the_receipt_keys_too_and_spares_the_panel_kinds(exports):
+    fence = transfer.CALIBRATION_CARRY_FENCE.date()
+    root = exports["calibration_hazard"]
+    receipt = json.loads((root / "receipt.json").read_bytes())
+    receipt["input_hashes"] = {f"carry:{fence}": "0" * 64}
+    (root / "receipt.json").write_bytes(canonical_bytes(receipt))
+    with pytest.raises(BundleError, match=f"^transfer_calibration_carry_after_fence:{DAY}$"):
+        build([("calibration_hazard", root)])
+    panel_root = exports["panel_night"]
+    _reseal(panel_root, export_edit=lambda e: e["input_hashes"].update({f"carry:{fence}": "0" * 64}))
+    assert build([("panel_night", panel_root)])["bundles"]  # the fence binds the calibration kinds only
+
+
+def test_the_carry_fence_fails_closed_when_it_is_not_an_aware_instant(exports, monkeypatch):
+    monkeypatch.setattr(transfer, "CALIBRATION_CARRY_FENCE", None)
+    with pytest.raises(BundleError, match=f"^transfer_calibration_carry_after_fence:{DAY}$"):
+        build([("calibration_hazard", exports["calibration_hazard"])])
