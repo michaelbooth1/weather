@@ -11,7 +11,6 @@ Engineering plan: docs/research/maker-replay-v2-engineering-plan-DRAFT.md. Every
 """
 from __future__ import annotations
 
-import ctypes
 from dataclasses import replace
 from datetime import date, timedelta
 from decimal import Decimal as D
@@ -42,27 +41,14 @@ S5_WINDOWS = ((210, "horizon roll 03:30-"), (570, "settlements 09:30-"))
 
 
 # -- process measurements ------------------------------------------------------------------------------
-class _Counters(ctypes.Structure):
-    _fields_ = [("cb", ctypes.c_ulong), ("PageFaultCount", ctypes.c_ulong),
-                ("PeakWorkingSetSize", ctypes.c_size_t), ("WorkingSetSize", ctypes.c_size_t),
-                ("QuotaPeakPagedPoolUsage", ctypes.c_size_t), ("QuotaPagedPoolUsage", ctypes.c_size_t),
-                ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t), ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
-                ("PagefileUsage", ctypes.c_size_t), ("PeakPagefileUsage", ctypes.c_size_t)]
-
-
 def working_set():
-    """(current, peak) working set bytes of this process (Windows); (None, None) elsewhere."""
+    """(current, peak) working set bytes of this process (Windows, ``v2.host.counters``); (None, None) elsewhere."""
+    from maker_core.replay.v2 import host
     try:
-        kernel32 = ctypes.windll.kernel32
-        kernel32.GetCurrentProcess.restype = ctypes.c_void_p
-        kernel32.K32GetProcessMemoryInfo.argtypes = [ctypes.c_void_p, ctypes.POINTER(_Counters), ctypes.c_ulong]
-        counters = _Counters()
-        counters.cb = ctypes.sizeof(counters)
-        if kernel32.K32GetProcessMemoryInfo(kernel32.GetCurrentProcess(), ctypes.byref(counters), counters.cb):
-            return counters.WorkingSetSize, counters.PeakWorkingSetSize
-    except (AttributeError, OSError):
-        pass
-    return None, None
+        c = host.counters()
+    except OSError:
+        return None, None
+    return c["working_set"], c["peak_working_set"]
 
 
 # -- comparison ------------------------------------------------------------------------------------------

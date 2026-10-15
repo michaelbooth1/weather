@@ -31,7 +31,7 @@ digests) and ``pre_registration_sha256``, so ``report_bytes`` is short of the sc
 
 Measurement: the run clock starts after the path check and stops after the report bytes are taken; the
 records-by-kind count rides the base drive (the first read of each day), so it adds no pass. Memory is the
-process peak (``ceilings.process_memory``) above the peak taken before the first input byte, so one rehearsal
+process peak (``v2.host.process_memory``, row 13) above the peak taken before the first input byte, so one rehearsal
 runs per fresh process, as v1's did. The §11 block of a carried rehearsal (U3, ``reachability``) is read after
 that: its decision tee runs inside the measured pipeline, its policy-free opportunity count does not.
 """
@@ -176,7 +176,7 @@ def rehearse(paths, inventory, *, mode, hazard_per_minute, calibration_sha256, h
     inventory. A ``carried`` rehearsal adds the §11 ``reachability`` block (``reachability.block``). Nothing scored
     leaves this function: the report and the engines are dropped and only the whitelisted document is returned."""
     from maker_core.replay.bundle_v02 import open_stream_bundle
-    from maker_core.replay.ceilings import process_memory
+    from maker_core.replay.v2.host import process_memory
     from maker_core.replay.v2 import intervals, reachability
     from maker_core.replay.v2.engine import EngineV2
     from maker_core.replay.v2.kernel import V2Config

@@ -101,12 +101,12 @@ def write_forms(day: Day, out: Path) -> dict:
 
 
 def _peak_rss():
+    """Peak working set on Windows (what ``psutil``'s ``peak_wset`` read), else peak RSS: ``v2.host`` (row 13)."""
+    from maker_core.replay.v2 import host
     try:
-        import psutil
-        info = psutil.Process().memory_info()
-        return getattr(info, "peak_wset", None) or info.rss
-    except ImportError:
-        return None
+        return host.counters()["peak_working_set"]
+    except OSError:
+        return host.process_memory()[1]
 
 
 def _forms_table(written):

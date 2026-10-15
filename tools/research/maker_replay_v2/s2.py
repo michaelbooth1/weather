@@ -28,38 +28,15 @@ from types import SimpleNamespace
 from typing import Iterator
 
 from maker_core.replay.bundle import HOST_MAX_BYTES, HOST_MAX_RECORDS, HOST_MAX_SECONDS
-from maker_core.replay.ceilings import process_memory
+from maker_core.replay.v2.host import process_memory
 
 LATER = datetime(2026, 10, 4, tzinfo=timezone.utc)  # any instant after the fictional day has closed
 
 
 def _probe():
-    """``process_memory`` without its per-call ctypes class: that class and its cached ``POINTER`` type are never
-    freed, so sampling it every 50 ms grows the process by about 5 KB a call and inflates what is measured."""
-    if os.name != "nt":
-        return lambda: process_memory()[0]
-    import ctypes
-    from ctypes import wintypes
-
-    class Counters(ctypes.Structure):
-        _fields_ = [("cb", wintypes.DWORD), ("PageFaultCount", wintypes.DWORD),
-                    ("PeakWorkingSetSize", ctypes.c_size_t), ("WorkingSetSize", ctypes.c_size_t),
-                    ("QuotaPeakPagedPoolUsage", ctypes.c_size_t), ("QuotaPagedPoolUsage", ctypes.c_size_t),
-                    ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t), ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
-                    ("PagefileUsage", ctypes.c_size_t), ("PeakPagefileUsage", ctypes.c_size_t)]
-
-    # Private library objects: ``windll``'s function objects are shared, and ``process_memory`` sets their argtypes.
-    kernel32, psapi = ctypes.WinDLL("kernel32"), ctypes.WinDLL("psapi")
-    kernel32.GetCurrentProcess.restype = wintypes.HANDLE
-    psapi.GetProcessMemoryInfo.argtypes = [wintypes.HANDLE, ctypes.POINTER(Counters), wintypes.DWORD]
-    counters = Counters()
-    counters.cb = ctypes.sizeof(counters)
-    handle = kernel32.GetCurrentProcess()
-
-    def current():
-        psapi.GetProcessMemoryInfo(handle, ctypes.byref(counters), counters.cb)
-        return max(counters.WorkingSetSize, counters.PagefileUsage)
-    return current
+    """The current-memory reader the sampler polls: ``v2.host.process_memory`` (the single v2 probe, row 13; leak-free,
+    so sampling it every 50 ms does not inflate what is measured)."""
+    return lambda: process_memory()[0]
 
 
 class Sampler:
