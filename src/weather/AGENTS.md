@@ -12,6 +12,8 @@ Scope: canonical Python implementation under `src/weather/`.
 - `backtesting` owns settlement IO, tape scoring, and replay evaluation.
 - `reporting` owns reports, scorecards, audits, and promotion summaries.
 - `operations` owns scheduled orchestration, supervisors, and operational audits.
+- `evidence` owns the Data Layer v2 evidence host and its journals
+  ([owner](../../docs/operations/EVIDENCE_HOST.md)); no capture loop may import it.
 
 Cross-owner helpers belong in a small shared module such as `weather.paths`,
 `weather.units`, `weather.io`, `weather.schema_registry`, or `weather.scoring`.

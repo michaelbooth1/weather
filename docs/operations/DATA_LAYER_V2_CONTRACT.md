@@ -132,5 +132,8 @@ reviewed change, because the ids feed settlement-proxy and forecast lookups.
   deferred imports from the snapshot loop's closure, so editing it is not roll-free and
   needs its own verdict; S1 changes no `src/` file.
 - **`scheduled_tasks.json` rows:** none needed in S1 (every registered task already has a
-  row, and the ratchet enforces it); the evidence-host task arrives with its stage.
+  row, and the ratchet enforces it); the evidence-host task arrives with its stage. S4 added
+  the `WeatherEvidenceHost` row and the `evidence_host` evidence family; its seven `data/evidence`
+  paths are `storage_pending` (unclassified) for the same `storage_classes.py` reason
+  ([evidence host](EVIDENCE_HOST.md)).
 - **Retiring `clob-enrichment`** from `roll_closures`.
