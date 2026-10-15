@@ -27,6 +27,17 @@
       "stop_below_free_gib": 70
     }
   },
+  "core_recorder_only": {
+    "scope": "Data layer v2 S2+S9 pilot P1 (VR-1). Read only by the core 88a recorder (weather.market.maker_evidence_capture, default path, re-read every cycle, whole-file SHA-256 stamped on every pilot row). Recorder-only: minute books, change-triggered reward records and public trades in 'pilot' partitions; top ten reward-ranked bands per city across horizons 0-2. Never a built-in, never a capture-family event, never a model, fair-value, quoting or settlement input. Owner Q16: outside the 10-01 maker-P&L pre-registration's 12-market stratum. Contract: docs/operations/DATA_LAYER_V2_CONTRACT.md 'Recorder-only rows'.",
+    "rewards_sweep": "on",
+    "rows": [
+      {"id": "london", "location_id": "london", "series": "highest", "slug_prefix": "highest-temperature-in-london-on", "tz": "Europe/London", "horizons": [0, 1, 2], "band_policy": "top10_reward_ranked"},
+      {"id": "shanghai", "location_id": "shanghai", "series": "highest", "slug_prefix": "highest-temperature-in-shanghai-on", "tz": "Asia/Shanghai", "horizons": [0, 1, 2], "band_policy": "top10_reward_ranked"},
+      {"id": "paris", "location_id": "paris", "series": "highest", "slug_prefix": "highest-temperature-in-paris-on", "tz": "Europe/Paris", "horizons": [0, 1, 2], "band_policy": "top10_reward_ranked"},
+      {"id": "seoul", "location_id": "seoul", "series": "highest", "slug_prefix": "highest-temperature-in-seoul-on", "tz": "Asia/Seoul", "horizons": [0, 1, 2], "band_policy": "top10_reward_ranked"},
+      {"id": "tokyo", "location_id": "tokyo", "series": "highest", "slug_prefix": "highest-temperature-in-tokyo-on", "tz": "Asia/Tokyo", "horizons": [0, 1, 2], "band_policy": "top10_reward_ranked"}
+    ]
+  },
   "platform": {
     "contract": "docs/operations/DATA_LAYER_V2_CONTRACT.md",
     "scope": "Data layer v2 platform registry (PL-3). Read by roll_verdict.ps1 and staleness_sweep.ps1 (roll_closures), health-checked by status.ps1 (CAPTURE_REGISTRY warn) and checked by tests/operations/test_capture_registry.py. The capture-family recorders above read only the families block; this block never selects, ranks or enumerates a market.",
@@ -88,7 +99,7 @@
       {
         "id": "maker_evidence_core", "plan_family": "VR-1 (88a)", "task": "WeatherMakerEvidenceCapture", "entry_module": "weather.market.maker_evidence_capture",
         "status_path": "data/maker_evidence/status.json", "adoption": "explicit_restart_88a", "roll_class": "88a-R",
-        "ram_cap": "weather.market.maker_evidence_store:MAX_RAW_BYTES", "byte_budget": "weather.market.maker_evidence_store:DEFAULT_STREAM_CAP", "request_budget": "not_declared", "embargo_scope": "capture_outcome_blind",
+        "ram_cap": "weather.market.maker_evidence_store:MAX_RAW_BYTES", "byte_budget": "weather.market.maker_evidence_store:DEFAULT_STREAM_CAP", "request_budget": "weather.market.maker_evidence_rewards:REQUEST_BUDGET_PER_HOUR", "embargo_scope": "capture_outcome_blind",
         "licence": "Polymarket public API",
         "storage": [
           {"path": "data/maker_evidence/<utc_day>/<segment>.jsonl", "artifact_family": "passive_maker_evidence"},
