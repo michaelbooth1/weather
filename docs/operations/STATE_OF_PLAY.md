@@ -1,7 +1,7 @@
 # State of play
 
-**Last updated: 2026-10-14 16:30 America/Toronto (owner 16:22: LFC session 0 locked in Fri 10-16; 16:27 "Keep B"; logistics need no signature;
-owner 18:30: evening-fix prereg signed, item 337 yes after replay, v2 §4 whole minute, #162 from 10-19; A' PASS 10-14 05:23).**
+**Last updated: 2026-10-15 03:00 America/Toronto (N10 night: §T + T-R PASS, #177 not merged, five docs batches + suite re-read landed;
+owner 10-14: LFC session 0 Fri 10-16, "Keep B", evening-fix prereg signed, data layer v2 §9 Q1/2/4/5/8).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended. At most 95 lines and about 9 KB, one fact per bullet, detail in the linked owner.** This file owns
@@ -19,8 +19,8 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 - **Live trading paused** (owner 09-25) except owner-attended LFC sessions; no agent places, cancels or signs orders.
 - Capture host: heavy work 00:30-09:00 under the lease ([host load policy](HOST_LOAD_POLICY.md)); roll-sensitive merges
   01:00-04:00; roll-free 00:30-09:00; docs-only by the light path before 12:00; never 12:00-00:30.
-- **88a freeze** (owner 10-07): `maker_evidence_capture.py`, `maker_evidence_store.py`, the 88a schema record and 88a
-  capture behaviour wait until after 2026-10-14. Owner decisions since 09-30 are rows in [DECISION_LOG](DECISION_LOG.md).
+- The 88a code freeze (owner 10-07) **lapsed after 2026-10-14**; 88a changes follow the host roll verdict like any other
+  code. Owner decisions since 09-30 are rows in [DECISION_LOG](DECISION_LOG.md).
 - **Testing (owner 10-04, PR #205):** focused + affected tests, PR CI (Windows lane #262 on 3.11.0) as full-suite evidence;
   every night head pre-gated on its stacked base; host-only behaviour needs a host run.
 - **Workstation: one Claude Code chat directed by the production agent** ([preamble](WORKSTATION_SESSION_PREAMBLE.md));
@@ -32,16 +32,15 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 
 ## Current truth
 
-- **Production source:** `origin/master` `a99423120` (read it with git). N8 landed 10-13 as `67cedeb67`; then the pyup parse
-  fix `eb745a5fc` and the A4 NuGet runbook revision (docs/.ps1 only).
+- **Production source:** read `origin/master` with git. Since N9 only docs, `.ps1` and tests have landed (10-15: the suite
+  capture-worker re-read `2e6c16e6c`, the data-layer v2 S0 receipts and five docs batches).
 - **Forward maker shadow ACTIVE** (`WeatherMakerShadowRunner`, 24/7, 12 bands, paper only); stop only with
   `data\maker_shadow\STOP`. Scoring embargo: `maker_shadow_panel.py` refuses UTC 09-30..10-15 and 10-15..11-13 (end stays 11-13: #263 N_req 706, DL 10-14).
 - **Journal pin:** `WeatherManualOrderJournal` pins five files incl. `wallet_reader_client.py`; a merge touching one makes it
   exit 3 until re-registered ([runbook](manual-order-journal.md)).
 - **Wallet reader (8765)** restarted by the owner 10-13 10:21 on `a1014edab` (any-LAN code); LFC client config in the pinned worktree.
-- **Host Python: A' PASS 10-14 05:23.** 3.11.9 (NuGet) sits side by side in `C:\Program Files\Python311-cp3119`; the
-  production venv is still 3.11.0, PATH and PEP 514 unchanged, capture 10/10 ([runbook](HOST_PYTHON_UPGRADE_RUNBOOK.md)).
-- The 10-12 calendar stands: §T + T-R 00:30 10-15, B 00:30 10-16, cutover C 00:30 10-17 (runbook §7a).
+- **Host Python: A' PASS 10-14; §T + T-R PASS 10-15 00:31** (hash-locked tzdata 2026.3 into the production venv; capture
+  10/10 after). Venv still 3.11.0; 3.11.9 side by side. Next: B 00:30 10-16, cutover C 00:30 10-17 ([runbook](HOST_PYTHON_UPGRADE_RUNBOOK.md) §7a).
 - Owner 10-13 08:53 (relayed): C advance GO if every C0 check is clean; G4 amended (auto rollback; a failed rollback waits for the owner). DECISION_LOG row.
 - Calendar-shift branch `claude/decisions-pyup-shift-20261013` `84c723ae2` (C 10-18) is **ON HOLD**; not a decision.
 - **DST:** DST-H3 landed; DST-M2 lands in N9; OD30 (the 11-01 night rule) stays until the owner retires it.
@@ -64,19 +63,16 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 ## Ordered critical path
 
 1. **Maker replay v2 (T1):** oracle author on handout r1; P1-P4 on calibration dates only; gates; signature target 10-22..23.
-2. **N9, 10-14 01:00-04:00:** RS `claude/integration-20261014-n9-rs-r2` `dae4c96da` (DST-M2); RF stacked `...-n9-rf-r2`
-   `48becd401` (I-6 wrapper); oc `...-n9-oc` `051d8aa64` (roll-free, after rf or rf-alone); fallback `...-n9-rf-alone-r2` `f870a759d`.
-3. **Host Python:** A' PASS 10-14 05:23; §T + T-R 00:30 10-15; B 00:30 10-16; cutover C 00:30 10-17.
-4. **10-15 night: #177 (T2, owner yes)**; §T holds the lease 00:30-02:00, suite ~02:45, merge start by 03:40; owner accepts
-   the capture restart ~03:40-04:00 EDT in the UTC 10-15 panel day. 10-16/10-17 G5 no-merge; #182 + #172 10-18; #118 >= 10-18.
-5. **Item 337:** host no-METAR replay >= 10-15; on PASS flip, bump, quiet window (owner yes). NBS/NBH; NWP timing (#263 done 10-14, EF §10r).
-6. **Data layer v2 (T3/T4, owner 10-14):** [plan](DATA_LAYER_V2_PLAN.md); S0 10-15, S1 10-19, S3 10-20, S2+S9+P1 10-21; §9 Q1/2/4/5/8 answered (DL 10-14), rest open.
+2. **Host Python:** B 00:30 10-16 (guard above); cutover C 00:30 10-17.
+3. **#177 (T2, owner yes) moved to the 10-18 night:** the 10-15 suite failed on a new #177 test (timing) and a master date
+   test; fix head `claude/integration-20261018-88a-rs-r3` `9121de239` (tests only). 10-16/10-17 G5 no-merge; #182 + #172 10-18; #118 >= 10-18.
+4. **Item 337:** host no-METAR replay >= 10-15; on PASS flip, bump, quiet window (owner yes). NBS/NBH; NWP timing (#263 done 10-14, EF §10r).
+5. **Data layer v2 (T3/T4, owner 10-14):** [plan](DATA_LAYER_V2_PLAN.md); S0 receipts landed 10-15; S0b FC-11 10-16; S1 10-19, S3 10-20, S2+S9+P1 10-21; §9 Q1/2/4/5/8 answered (DL 10-14), rest open.
 
 ## Open commitments (every row: owner, due, verify)
 
 | What | Owner | Due | Verify |
 | --- | --- | --- | --- |
-| A' at A3; then delete the workstation W0 temp tree | owner at host, production | 10-14 09:00 | A' receipts GO |
 | LFC session 0 re-pin (deadline 10-25 + scope-date guard, Fable-reviewed) and runbook re-date to 10-16 | master; workstation | 10-15 | new pinned tip in DL |
 | Policy: roll-free heads land on workstation pre-gate + Windows CI (T4 draft) | owner | after C | DECISION_LOG row |
 | Evening-fix scorer `8cdcb62ec` lands (prereg SIGNED 10-13, sha256 in DL; read 10-29); OD30 retirement | T3; owner | 10-28; open | scorer on master; DL row |
