@@ -1,0 +1,48 @@
+[
+  {
+    "layer": 2,
+    "tested_tip": "c6c58155faf6f78c6ba714eff1abebc8ee28ef18",
+    "status": "BLOCK",
+    "summary": {
+      "all_known_defects_rediscovered": true,
+      "blocking_finding_count": 100,
+      "both_missing_cells": 2323,
+      "case_count": 29,
+      "compared_cells": 2908,
+      "compared_feature_count": 221,
+      "coverage_blocker_count": 0,
+      "covered_market_count": 12,
+      "exception_count": 1,
+      "feature_count": 221,
+      "finding_count": 101,
+      "known_defect_count": 4,
+      "known_defects_rediscovered": 4,
+      "registered_market_count": 12,
+      "unexpected_blocking_finding_count": 0
+    },
+    "report_file_sha256": "260378738d08b40a8ed6b1e6f85a71d03b8ed01a568b458ec0f484b6985eb6f5"
+  },
+  {
+    "layer": 3,
+    "tested_tip": "f1e7350ad77bfaf1cd860821c31aa4b56634f405",
+    "status": "BLOCK",
+    "summary": {
+      "all_known_defects_rediscovered": true,
+      "blocking_finding_count": 100,
+      "both_missing_cells": 2323,
+      "case_count": 29,
+      "compared_cells": 2908,
+      "compared_feature_count": 221,
+      "coverage_blocker_count": 0,
+      "covered_market_count": 12,
+      "exception_count": 1,
+      "feature_count": 221,
+      "finding_count": 101,
+      "known_defect_count": 4,
+      "known_defects_rediscovered": 4,
+      "registered_market_count": 12,
+      "unexpected_blocking_finding_count": 0
+    },
+    "report_file_sha256": "5f10e821315c6f427f69c7cd82823bb4f15e8e70fdacfd79738da1a39f55cbaf"
+  }
+]

@@ -438,6 +438,12 @@ TRAILING_BLANK_LINE_EXEMPT = frozenset(
         "src/weather/reporting/promotion/decisions.py",
         "src/weather/scoring/__init__.py",
         "src/weather/scoring/trading.py",
+        # Byte-exact NOAA NBP station blocks: the space-padded separator line
+        # that ends each block is part of the bulletin format the parser reads.
+        "tests/fixtures/nbm_target_fix/p0/20260917T00Z-KLGA.txt",
+        "tests/fixtures/nbm_target_fix/p0/20260917T00Z-PGUM.txt",
+        "tests/fixtures/nbm_target_fix/p0/20260917T12Z-KLGA.txt",
+        "tests/fixtures/nbm_target_fix/p0/20260917T12Z-PGUM.txt",
         "weather/__init__.py",
     }
 )
