@@ -5,7 +5,8 @@ written change-only to the ``label_panel`` partition of the ``lb1_labels`` journ
 writes a settlement label, a ledger row or ``config/``.
 
 Instruments built here (the plan's other LB-1 members are not built yet; see EVIDENCE_HOST.md).
-``wu_daily`` and ``iem_6h_composite`` are added by :mod:`weather.evidence.tasks.lb1_strict` behind the
+``wu_daily`` and ``iem_6h_composite`` are added by :mod:`weather.evidence.tasks.lb1_strict`, and the US
+``asos_1min``, ``nws_cli`` and ``nws_cf6`` members by :mod:`weather.evidence.tasks.lb1_us`, all behind the
 strict guard:
 
 - ``metar_all``: every routine and special report (IEM ``asos.py``, ``report_type`` 3 and 4 fetched
@@ -43,8 +44,8 @@ from weather.evidence.families.common import chunks, item, settlement_stations
 from weather.evidence.families.ob1_metar import parse_remarks
 from weather.units import c_to_native, round_half_up
 
-PARSER_VERSION = "lb1-labels-2"
-LABEL_INSTRUMENT_VERSION = "lb1-panel-2"
+PARSER_VERSION = "lb1-labels-3"
+LABEL_INSTRUMENT_VERSION = "lb1-panel-3"
 DEFAULT_BASE_URL = "https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py"
 WRH_PAGE = "https://www.weather.gov/wrh/timeseries?site={station}"
 PANEL, WRH = "label_panel", "wrh_read"
@@ -158,7 +159,8 @@ def agreement(instruments, kind) -> dict:
     a, h = instruments["metar_all"][kind], instruments["metar_hourly"][kind]
     out = {"metar_all_vs_hourly": None if a is None or h is None else a == h}
     for name, key in (("ob1_finality_proxy", "finality_proxy_vs_metar_all"), ("wu_daily", "wu_daily_vs_metar_all"),
-                      ("iem_6h_composite", "iem_6h_vs_metar_all")):
+                      ("iem_6h_composite", "iem_6h_vs_metar_all"), ("asos_1min", "asos_1min_vs_metar_all"),
+                      ("nws_cli", "nws_cli_vs_metar_all"), ("nws_cf6", "nws_cf6_vs_metar_all")):
         if name in instruments or name == "ob1_finality_proxy":
             other = (instruments.get(name) or {}).get(kind)
             out[key] = None if a is None or other is None else a == other
@@ -212,10 +214,15 @@ def read_ob1(ctx, day) -> list[dict] | None:
         return None
 
 
-def panel_items(stations, reports, ob1_rows, day, *, read_kind, raw_refs, wu=None,
-                strict=False) -> tuple[list[dict], list[tuple]]:
-    """``wu`` is ``{location: member}`` (None: strict guard refused); ``strict`` adds the IEM 6 h composite."""
-    from weather.evidence.tasks import lb1_strict
+def panel_items(stations, reports, ob1_rows, day, *, read_kind, raw_refs, wu=None, strict=False,
+                us=None) -> tuple[list[dict], list[tuple]]:
+    """``wu`` is ``{location: member}`` (None: strict guard refused); ``strict`` adds the IEM 6 h composite.
+
+    ``us`` is ``(one_minute, climate)`` from :mod:`weather.evidence.tasks.lb1_us`, each None when the strict
+    guard refused the day and ``{}`` when disabled; ``us=None`` marks both refused for US stations.
+    """
+    from weather.evidence.tasks import lb1_strict, lb1_us
+    one_min, climate = us if us is not None else (None, None)
     wu_ids = {spec.id for spec in lb1_strict.wu_specs([s["location"] for s in stations])}
     by_iem: dict[str, list] = {}
     for r in reports:
@@ -235,6 +242,16 @@ def panel_items(stations, reports, ob1_rows, day, *, read_kind, raw_refs, wu=Non
             instruments["wu_daily"] = {"instrument": "wu_daily", **lb1_strict.REFUSED}
         elif wu and station["location"] in wu:
             instruments["wu_daily"] = wu[station["location"]]
+        if station["country_code"] == "US":
+            if one_min is None:
+                instruments[lb1_us.ONE_MIN] = lb1_us.refused(lb1_us.ONE_MIN)
+            elif station["location"] in one_min:
+                instruments[lb1_us.ONE_MIN] = one_min[station["location"]]
+            for name, _prefix in lb1_us.PRODUCTS:
+                if climate is None:
+                    instruments[name] = lb1_us.refused(name)
+                elif name in climate.get(station["location"], {}):
+                    instruments[name] = climate[station["location"]][name]
         disagree = wants_wrh(station, instruments)
         if disagree:
             wanted.append((station, disagree, instruments))
@@ -286,7 +303,7 @@ def record_cor(ctx, items, day):
 
 
 def run(ctx, days=None) -> dict:
-    from weather.evidence.tasks import lb1_strict
+    from weather.evidence.tasks import lb1_strict, lb1_us
     cfg = ctx.cfg
     stations = panel_stations(ctx.locations, cfg.get("station_overrides"))
     targets = days or default_days(ctx.now(), stations, settle_hours=float(cfg.get("settle_hours", 1)),
@@ -308,8 +325,12 @@ def run(ctx, days=None) -> dict:
             wu = lb1_strict.wu_daily(ctx, cfg, day, [s["location"] for s in stations])
         else:
             wu = {}
+        one_min = (lb1_us.one_minute(ctx, cfg, day, stations, local_day_bounds) if strict and cfg.get("asos_1min", True)
+                   else ({} if strict else None))
+        climate = (lb1_us.climate(ctx, cfg, day, stations) if strict and cfg.get("cli_cf6", True)
+                   else ({} if strict else None))
         items, wanted = panel_items(stations, reports, read_ob1(ctx, day), day, read_kind=read_kind, raw_refs=refs,
-                                    wu=wu, strict=strict and bool(cfg.get("iem_6h", True)))
+                                    wu=wu, strict=strict and bool(cfg.get("iem_6h", True)), us=(one_min, climate))
         result = ctx.record(items, channel=PANEL, meta={"day": day.isoformat(), "read": read_kind,
                                                         "reports": len(reports), "stations": len(stations)})
         if read_kind == "reread":

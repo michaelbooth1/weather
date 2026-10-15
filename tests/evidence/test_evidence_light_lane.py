@@ -9,13 +9,16 @@ addresses and drops profile fields (owner Q3 = A), requests only the two Interna
 public hosts and fetches prices-history once per closed-market token; S5b: WU daily and the IEM 6 h
 composite sit behind the STRICT guard over the day and one day either side, so the boundary dates
 2026-09-30 and 2026-10-15 never get a request URL, and WU goes only through the existing OD15
-page-token client with the access value never journalled or stored).
+page-token client with the access value never journalled or stored; the US 1-minute ASOS and NWS
+CLI/CF6 members sit behind the same strict guard, one public IEM request per station-day each).
 """
 from __future__ import annotations
 
 import gzip
+import io
 import json
 import uuid
+import zipfile
 from datetime import date, datetime, timedelta, timezone
 from urllib.parse import parse_qs, urlparse
 
@@ -30,15 +33,17 @@ from weather.evidence.fetch import Fetcher, Response
 from weather.evidence.host import LightLaneSupervisor
 from weather.evidence.journal import EvidenceJournal, iter_segment_rows, segment_dirs
 from weather.evidence.reader import read
-from weather.evidence.tasks import lb1_labels, lb1_strict, vr5_trades
+from weather.evidence.tasks import lb1_labels, lb1_strict, lb1_us, vr5_trades
 from weather.evidence.telemetry import FamilyTelemetry
 
 LOCATIONS = load_locations()
 CONFIG, CONFIG_SHA = load_config()
 STATIONS = lb1_labels.panel_stations(LOCATIONS, {"HKO": "VHHH"})
 CONDITION_A, CONDITION_B = "0x" + "a" * 64, "0x" + "b" * 64
-CONFIG_NO_WU = json.loads(json.dumps(CONFIG))
-CONFIG_NO_WU["light_lane"]["tasks"]["lb1_labels"]["wu_daily"] = False
+CONFIG_IEM_ONLY = json.loads(json.dumps(CONFIG))
+CONFIG_IEM_ONLY["light_lane"]["tasks"]["lb1_labels"].update(wu_daily=False, asos_1min=False, cli_cf6=False)
+CONFIG_US_ONLY = json.loads(json.dumps(CONFIG))
+CONFIG_US_ONLY["light_lane"]["tasks"]["lb1_labels"]["wu_daily"] = False
 
 
 class Clock:
@@ -163,6 +168,8 @@ def _iem_transport(calls, *, special_temps=None):
 
     def transport(url, headers, timeout, max_bytes):
         calls.append(url)
+        if not urlparse(url).path.endswith("/asos.py"):
+            return Response(url, 404)
         query = parse_qs(urlparse(url).query)
         start = datetime.strptime(query["sts"][0], "%Y-%m-%dT%H:%M:%SZ")
         end = datetime.strptime(query["ets"][0], "%Y-%m-%dT%H:%M:%SZ")
@@ -185,7 +192,7 @@ def test_lb1_writes_51_station_panel_and_one_pending_wrh_row_for_a_us_disagreeme
     transport = _iem_transport(calls, special_temps={"LGA": ("2026-01-02 18:20", 30.0),
                                                      "EGLC": ("2026-01-02 12:20", 30.0)})
     result = _run("lb1_labels", tmp_path, transport, datetime(2026, 1, 3, 15, tzinfo=timezone.utc),
-                  days=["2026-01-02"], config=CONFIG_NO_WU)
+                  days=["2026-01-02"], config=CONFIG_IEM_ONLY)
     assert result["outcome"] == "ok" and result["refused_days"] == [] and result["wrh_wanted"] == 1
     assert len(calls) == 12 and all(urlparse(u).hostname == "mesonet.agron.iastate.edu" for u in calls)
     assert {parse_qs(urlparse(u).query)["report_type"][0] for u in calls} == {"3", "4"}
@@ -203,7 +210,7 @@ def test_lb1_writes_51_station_panel_and_one_pending_wrh_row_for_a_us_disagreeme
     assert wrh[0]["body"]["status"] == "pending_route" and wrh[0]["body"]["kinds"] == ["max"]
     # The re-run neither duplicates the WRH row nor rewrites unchanged panel rows.
     again = _run("lb1_labels", tmp_path, transport, datetime(2026, 1, 3, 16, tzinfo=timezone.utc),
-                 days=["2026-01-02"], config=CONFIG_NO_WU)
+                 days=["2026-01-02"], config=CONFIG_IEM_ONLY)
     assert again["wrh_wanted"] == 0 and again["panel_rows"] == 0
 
 
@@ -551,3 +558,143 @@ def test_wu_session_allows_only_the_page_host_and_the_api_host_the_page_names():
         session.get("https://elsewhere.invalid/x", params={"apiKey": "v"})
     session.api_host = WU_API_HOST
     assert session.allowed_host(WU_API_HOST) and not session.allowed_host("elsewhere.invalid")
+
+
+# ------------------------------------------------------------------------------------- 1-minute ASOS, CLI/CF6
+def _cli(day_text, final, hi, lo):
+    valid = "" if final else "VALID TODAY AS OF 0400 PM LOCAL TIME.\n"
+    when = "YESTERDAY" if final else "TODAY"
+    return ("CLIMATE REPORT\nNATIONAL WEATHER SERVICE TEST\n\n"
+            f"...THE TEST CLIMATE SUMMARY FOR {day_text}...\n{valid}\n"
+            "WEATHER ITEM   OBSERVED TIME   RECORD YEAR NORMAL\n"
+            f"TEMPERATURE (F)\n {when}\n  MAXIMUM         {hi}    433 PM  96    2010  82\n"
+            f"  MINIMUM         {lo}   1159 PM  55    1967  69\n  AVERAGE         50\n\n"
+            "PRECIPITATION (IN)\n  MAXIMUM         99\n")
+
+
+def _cf6(month, year, rows):
+    body = "\n".join(f"{d:2d}  {hi:>2}  {lo:>2}  50   1   0   9 0.00  0.0" for d, hi, lo in rows)
+    return (f"PRELIMINARY LOCAL CLIMATOLOGICAL DATA (WS FORM: F-6)\n  STATION: TEST\n  MONTH:     {month}\n"
+            f"  YEAR:      {year}\n====\n1   2   3   4   5  6A  6B    7    8\nDY MAX MIN AVG DEP HDD CDD  WTR  SNW\n"
+            f"====\n\n{body}\n====\nSM   80   68\n")
+
+
+def _zip(entries):
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        for name, text in entries:
+            archive.writestr(name, text)
+    return buffer.getvalue()
+
+
+def test_cli_and_cf6_parsers_pick_the_final_product_for_the_day():
+    cli = [("CLIX_1.txt", _cli("JANUARY 1 2026", True, 40, 30)),       # the day before, final
+           ("CLIX_2.txt", _cli("JANUARY 2 2026", False, 55, 31)),      # preliminary
+           ("CLIX_3.txt", _cli("JANUARY 2 2026", True, "56R", 30)),    # final, record flag
+           ("CLIX_4.txt", _cli("JANUARY 3 2026", False, 70, 60))]
+    member = lb1_us.climate_member(lb1_us.CLI, cli, date(2026, 1, 2), "F", "ref")
+    assert (member["status"], member["product"], member["final"], member["max"], member["min"]) == (
+        "ok", "CLIX_3.txt", True, 56, 30)
+    assert member["day_basis"] == "lst"
+    only_preliminary = lb1_us.climate_member(lb1_us.CLI, cli[:2], date(2026, 1, 2), "F", "ref")
+    assert (only_preliminary["final"], only_preliminary["max"]) == (False, 55)
+    assert lb1_us.parse_cli(_cli("JANUARY 2 2026", True, "MM", 30))["max_f"] is None
+    cf6 = [("CF6X_1.txt", _cf6("DECEMBER", 2025, [(1, 33, 20)])),
+           ("CF6X_2.txt", _cf6("JANUARY", 2026, [(1, 41, 29), (2, 57, 31)]))]
+    member = lb1_us.climate_member(lb1_us.CF6, cf6, date(2026, 1, 2), "F", "ref")
+    assert (member["status"], member["product"], member["max"], member["min"]) == ("ok", "CF6X_2.txt", 57, 31)
+    # The column-number line above the header is not a day row.
+    assert lb1_us.parse_cf6(_cf6("JANUARY", 2026, [(2, 57, 31)]), date(2026, 1, 1)) is None
+    assert lb1_us.climate_member(lb1_us.CF6, [], date(2026, 1, 2), "F", None)["status"] == "no_product"
+    assert lb1_us.climate_member(lb1_us.CF6, cf6[:1], date(2026, 1, 2), "F", "r")["status"] == "no_day"
+
+
+def test_one_minute_member_uses_the_local_day_and_reports_coverage():
+    nyc = next(s for s in STATIONS if s["location"] == "nyc")
+    start, end = lb1_labels.local_day_bounds(date(2026, 1, 2), nyc["timezone"])
+    text = "station,station_name,valid(Etc/UTC),tmpf,dwpf\n" + "\n".join(
+        [f"LGA,X,{(start - timedelta(minutes=1)):%Y-%m-%d %H:%M},90,1",          # before the local day
+         f"LGA,X,{start:%Y-%m-%d %H:%M},40,1", f"LGA,X,{(start + timedelta(minutes=1)):%Y-%m-%d %H:%M},M,1",
+         f"LGA,X,{(start + timedelta(hours=9)):%Y-%m-%d %H:%M},52,1",
+         f"LGA,X,{(end - timedelta(minutes=1)):%Y-%m-%d %H:%M},31,1",
+         f"LGA,X,{end:%Y-%m-%d %H:%M},10,1"]) + "\n"                             # the next local day
+    member = lb1_us.one_minute_member(lb1_us.parse_one_minute(text), start, end, "F", "ref")
+    assert (member["status"], member["max"], member["min"], member["minutes"], member["expected_minutes"]) == (
+        "ok", 52, 31, 3, 1440)
+    assert member["first_max_utc"] == "2026-01-02T14:00:00Z"
+    query = parse_qs(urlparse(lb1_us.one_minute_url(lb1_us.IEM_1MIN_URL, "LGA", start, end)).query)
+    assert query["vars"] == ["tmpf", "dwpf"]
+    assert (query["hour1"], query["hour2"], query["minute2"]) == (["5"], ["4"], ["59"])
+
+
+def _us_transport(calls):
+    iem = _iem_transport(calls)
+
+    def transport(url, headers, timeout, max_bytes):
+        parts = urlparse(url)
+        query = parse_qs(parts.query)
+        if parts.path.endswith("/asos1min.py"):
+            calls.append(url)
+            start = datetime(int(query["year1"][0]), int(query["month1"][0]), int(query["day1"][0]),
+                             int(query["hour1"][0]), int(query["minute1"][0]))
+            lines = ["station,station_name,valid(Etc/UTC),tmpf,dwpf"]
+            for minute in range(0, 1440, 10):
+                temp = 52 if minute == 600 else 40
+                lines.append(f"{query['station'][0]},X,{start + timedelta(minutes=minute):%Y-%m-%d %H:%M},{temp},30")
+            return Response(url, 200, ("\n".join(lines) + "\n").encode())
+        if parts.path.endswith("/afos/retrieve.py"):
+            calls.append(url)
+            pil = query["pil"][0]
+            if pil.endswith("BKF"):
+                return Response(url, 200, _zip([]))
+            if pil.startswith("CLI"):
+                return Response(url, 200, _zip([(pil + "_1.txt", _cli("JANUARY 2 2026", True, 52, 39))]))
+            return Response(url, 200, _zip([(pil + "_1.txt", _cf6("JANUARY", 2026, [(2, 52, 39)]))]))
+        return iem(url, headers, timeout, max_bytes)
+    return transport
+
+
+def test_lb1_us_members_use_one_public_request_per_station_day_each(tmp_path):
+    calls = []
+    result = _run("lb1_labels", tmp_path, _us_transport(calls), datetime(2026, 1, 3, 15, tzinfo=timezone.utc),
+                  days=["2026-01-02"], config=CONFIG_US_ONLY)
+    assert result["outcome"] == "ok"
+    us = [s for s in STATIONS if s["country_code"] == "US"]
+    one_min = [u for u in calls if urlparse(u).path.endswith("/asos1min.py")]
+    afos = [u for u in calls if urlparse(u).path.endswith("/afos/retrieve.py")]
+    assert len(one_min) == len(us) and len(afos) == 2 * len(us)
+    assert {urlparse(u).hostname for u in calls} == {"mesonet.agron.iastate.edu"}
+    assert {parse_qs(urlparse(u).query)["pil"][0] for u in afos} == (
+        {"CLI" + s["station"][1:] for s in us} | {"CF6" + s["station"][1:] for s in us})
+    assert all(parse_qs(urlparse(u).query)["sdate"] == ["2026-01-02T00:00Z"] for u in afos)
+    assert all(parse_qs(urlparse(u).query)["edate"] == ["2026-01-03T23:59Z"] for u in afos)
+    rows = _rows(tmp_path, "lb1_labels", "2026-01-03")
+    nyc = next(r["body"] for r in rows if r["key"] == "nyc|2026-01-02|max")
+    assert nyc["instruments"]["asos_1min"]["max"] == 52 and nyc["instruments"]["asos_1min"]["raw_ref"]
+    assert nyc["instruments"]["nws_cli"]["max"] == 52 and nyc["instruments"]["nws_cf6"]["max"] == 52
+    assert {"asos_1min_vs_metar_all", "nws_cli_vs_metar_all", "nws_cf6_vs_metar_all"} <= set(nyc["agreement"])
+    nyc_min = next(r["body"] for r in rows if r["key"] == "nyc|2026-01-02|min")
+    assert nyc_min["instruments"]["nws_cli"]["min"] == 39 and "max" not in nyc_min["instruments"]["nws_cli"]
+    denver = next(r["body"] for r in rows
+                  if r["channel"] == "label_panel" and r["body"]["station"] == "KBKF" and r["body"]["label_kind"] == "max")
+    assert denver["instruments"]["nws_cli"]["status"] == "no_product"
+    london = next(r["body"] for r in rows if r["key"] == "london|2026-01-02|max")
+    assert not {"asos_1min", "nws_cli", "nws_cf6"} & set(london["instruments"])
+
+
+def test_lb1_us_members_build_no_url_for_boundary_days_and_mark_refused_days(tmp_path):
+    calls = []
+    ctx = _task_ctx(tmp_path / "unit", datetime(2026, 12, 1, 1, tzinfo=timezone.utc),
+                    lambda u, h, t, m: calls.append(u) or Response(u, 500))
+    for day in ("2026-09-29", "2026-09-30", "2026-10-15", "2026-10-16"):
+        assert lb1_us.one_minute(ctx, ctx.cfg, date.fromisoformat(day), STATIONS, lb1_labels.local_day_bounds) is None
+        assert lb1_us.climate(ctx, ctx.cfg, date.fromisoformat(day), STATIONS) is None
+    ctx.journal.close()
+    assert calls == []
+    result = _run("lb1_labels", tmp_path / "run", _us_transport(calls),
+                  datetime(2026, 10, 21, 15, tzinfo=timezone.utc), days=["2026-10-20"], config=CONFIG_US_ONLY)
+    assert result["panel_rows"] == 102
+    assert not any(urlparse(u).path.endswith(("/asos1min.py", "/afos/retrieve.py")) for u in calls)
+    rows = _rows(tmp_path / "run", "lb1_labels", "2026-10-21")
+    nyc = next(r["body"] for r in rows if r["key"] == "nyc|2026-10-20|max")
+    assert {nyc["instruments"][n]["status"] for n in ("asos_1min", "nws_cli", "nws_cf6")} == {"embargo_refused"}
