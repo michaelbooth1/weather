@@ -1,7 +1,7 @@
 # State of play
 
-**Last updated: 2026-10-15 03:00 America/Toronto (N10 night: §T + T-R PASS, #177 not merged, five docs batches + suite re-read landed;
-owner 10-14: LFC session 0 Fri 10-16, "Keep B", evening-fix prereg signed, data layer v2 §9 Q1/2/4/5/8).**
+**Last updated: 2026-10-15 10:45 America/Toronto (owner 10-15 "All as recommended": replay v2 C15/A8 M, E6 ceiling, trim, rows
+13/16/17, lapse 10-30; DLv2 §9 Q3/4/7/10/11/13/15/16; review 11-20. N10 night: §T + T-R PASS, #177 moved to 10-18).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended. At most 95 lines and about 9 KB, one fact per bullet, detail in the linked owner.** This file owns
@@ -53,9 +53,10 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
   export nightly stays unregistered until a separate owner yes (>= 10-16).
 - **Maker replay v2** (panel UTC 09-30..10-14 never read): spec v3.4 is the frozen oracle basis; handout r1 signed 10-12
   (H-11 r2, erratum 1, H-12 r1, I-1..I-8); fresh oracle author on the host. Signature target 10-22..23;
-  look by 11-15. Lapse 10-23 moves out (owner 10-13): **PROPOSED 10-30, to confirm**; §4 window start: whole minute (no amendment).
+  look by 11-15. **Lapse 10-30** (owner 10-15); §4 window start: whole minute (no amendment). Owner 10-15: C15/A8 = whole-minute
+  intervals (M); E6 MEASURED pull-candidate ceiling (carried x 14/3); §9 trim kept; consolidated rows 13/16/17 binding (DL 10-15).
 - **Model:** MG-1 `b044e0f1` (scored >= 10-15) needs #190; 10-18: #190, then stage (roll verdict + parity); #162 on #190 >= 10-19.
-- **No-go bar:** [exhaustion register](EXHAUSTION_REGISTER.md) (10-14; the owner keeps the no-go). Stratum-C and Aug-Sep gap numbers are tainted; a post-fix scoreboard is URGENT.
+- **No-go bar:** [exhaustion register](EXHAUSTION_REGISTER.md) (10-14; the owner keeps the no-go). Maker-track owner review 11-20 (was 10-31). Stratum-C and Aug-Sep gap numbers are tainted; a post-fix scoreboard is URGENT.
 - **Live seals** must be RESEALED before any sealed-lane attempt (#229); the LFC re1 lane consumes none. C3 rehearsal deferred.
 - **Pinned deployments:** watchdog `1794fd3b`, cold snapshot (91a `6e5ff47`), exam U6 `89618c30`; paths in the task actions.
 - **88a retention hold:** keep UTC 09-27..10-15 (v2) and 10-15..10-30 (desk-study panel); lossless compression ok.
@@ -67,7 +68,7 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 3. **#177 (T2, owner yes) moved to the 10-18 night:** the 10-15 suite failed on a new #177 test (timing) and a master date
    test; fix head `claude/integration-20261018-88a-rs-r3` `9121de239` (tests only). 10-16/10-17 G5 no-merge; #182 + #172 10-18; #118 >= 10-18.
 4. **Item 337:** host no-METAR replay >= 10-15; on PASS flip, bump, quiet window (owner yes). NBS/NBH; NWP timing (#263 done 10-14, EF §10r).
-5. **Data layer v2 (T3/T4, owner 10-14):** [plan](DATA_LAYER_V2_PLAN.md); S0 receipts landed 10-15; S0b FC-11 10-16; S1 10-19, S3 10-20, S2+S9+P1 10-21; §9 Q1/2/4/5/8 answered (DL 10-14), rest open.
+5. **Data layer v2 (T3/T4, owner 10-14):** [plan](DATA_LAYER_V2_PLAN.md); S0 receipts landed 10-15; S0b FC-11 10-16; S1 10-19, S3 10-20, S2+S9+P1 10-21; §9 answered except Q6, Q9, Q14 (DL 10-14, 10-15).
 
 ## Open commitments (every row: owner, due, verify)
 

@@ -165,8 +165,8 @@ concrete to decide against; none is needed for non-live work to continue):
 
 | Decision | Why it is open |
 | --- | --- |
-| Hurdle `H` | **Decided 2026-09-22** ([DECISION_LOG](../../operations/DECISION_LOG.md)): H = 1.00 net per day per 100 deployed; replay v2's reference effect equals the signed hurdle (DL 2026-10-03). No longer open. |
-| Stop rule and date for G1 | **Partly decided 2026-09-23** (RE-1 addendum, DECISION_LOG): 2026-10-31 is an owner **review**, not an automatic closure. Open: whether to move that review after the replay v2 look and the 11-13 shadow embargo end (put to the owner 10-15). Spend cap and capture-only fallback remain open. |
+| Hurdle `H` | **Decided 2026-09-22** ([DECISION_LOG](../../operations/DECISION_LOG.md)): H = 1.00 net per day per 100 deployed; replay v2's reference effect equals the signed hurdle (DL 2026-10-03); it also governs G1 and G4 (owner 2026-10-15). No longer open. |
+| Stop rule and date for G1 | **Partly decided 2026-09-23** (RE-1 addendum, DECISION_LOG): 2026-10-31 is an owner **review**, not an automatic closure. The owner moved that review to **2026-11-20** (DL 2026-10-15), after the replay v2 look and the 11-13 shadow embargo end. Spend cap and capture-only fallback remain open. |
 | Caps | Whether the per-band ceiling moves to admit a 20-share (about 25 pUSD) or 100-share (about 100 pUSD) two-sided quote, and the total capital at risk. |
 | Dedicated wallet | The 2026-09-06 test used the owner's existing wallet under a declared allocation; account-wide cancel-all reaches personal orders. A dedicated wallet funded to the cap restores the documented isolated-wallet control. |
 | Live authority | Standing instruction is no live trading. A fresh Stage 0/1 is required before any Stage 2 in any case. |
