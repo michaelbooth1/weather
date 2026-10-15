@@ -130,6 +130,24 @@ ARTIFACT_FAMILIES = (
         "operator_cache_ttl_or_manifest", False,
     ),
     ArtifactFamilyClassification(
+        "evidence_journal_segment", "evidence", CANONICAL_EVIDENCE,
+        ("evidence/*/*/*/*.jsonl", "evidence/*/*/*/*.jsonl.gz", "evidence/*/*/*/manifest.json",
+         "evidence/*/*/day_seal.json", "evidence/*/ledger.jsonl", "evidence/identity/*.json.gz"),
+        "permanent_public_first_seen_evidence", "not rebuildable at the captured instant",
+        "canonical_evidence_review_gate", True,
+        examples=("data/evidence/ob1_metar/2026-10-20/03-0123456789ab/rows.jsonl.gz",),
+        notes="Data Layer v2 evidence host journals (docs/operations/EVIDENCE_HOST.md): change-only rows, "
+              "heartbeats and events in hourly segments, verified seals, the chained day seal, the per-day "
+              "ledger and the PL-4 code-identity manifests.",
+    ),
+    ArtifactFamilyClassification(
+        "evidence_raw_cas", "evidence", CANONICAL_EVIDENCE,
+        ("evidence/cas/sha256/*/*.blob",),
+        "permanent_public_first_seen_evidence", "not rebuildable at the captured instant",
+        "canonical_evidence_review_gate", True,
+        notes="Raw provider bytes (MOSMIX KMZ, SWOB XML) stored once and referenced by journal raw_ref.",
+    ),
+    ArtifactFamilyClassification(
         "nbp_complete_cycle_index",
         "collection/sources",
         ANALYSIS_PROJECTION,
@@ -623,6 +641,9 @@ ARTIFACT_FAMILIES = (
             "backtest/progress_audit.json",
             "backtest/*status*.json",
             "ops/**/*.json",
+            "evidence/host_status.json",
+            "evidence/*/status.json",
+            "evidence/kill_receipts/*.json",
         ),
         "latest_operator_status",
         "daily refresh, fleet observability, or source reports",
