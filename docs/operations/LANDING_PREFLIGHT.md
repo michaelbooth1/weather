@@ -149,7 +149,10 @@ its lease scripts, the base tree's copies run instead (warned).
 **Roll class.** `roll_class` predicts EXPECTED-ROLL-FREE, EXPECTED-ROLL-SENSITIVE
 or EXPECTED-UNDECIDABLE (schedule as roll-sensitive) from the closure snapshot
 plus the static import graph of the capture-loop entry modules; any
-`schema_registry*` change is sensitive. Every row is `binding: false`;
+`schema_registry*` change is sensitive, and a `weather/schema_families/` module is
+roll-free unless the snapshot or the graph reaches it (reported as a PL-2
+violation). The `schema_registry` worktree check also fails on a refused
+schema family (`family_errors`). Every row is `binding: false`;
 `roll_verdict.ps1` on the production tree decides. `landing_path` maps the class to
 DOCS_LIGHT, ROLL_FREE_GUARDED (00:30–09:00) or ROLL_SENSITIVE (01:00–04:00 quiet
 window).

@@ -90,6 +90,7 @@ EXPECTED_SHARDS = {
             "tests/operations/test_landing_preflight.py",
             "tests/operations/test_bounded_execution_tape_probe_script.py",
             "tests/operations/test_oracle_author_test_run_script.py",
+            "tests/operations/test_schema_families_roll_verdict.py",
         ],
     ),
     "windows-lane-a": (
