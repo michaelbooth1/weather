@@ -137,9 +137,9 @@ never pooled across the 2026-07-31 provenance boundary.
 - A reboot does not kill the fleet. RF "A reboot kills the fleet".
 - Commits that touch a module inside a capture loop's import closure roll capture; the `SOURCE_PATTERNS` glob is not the test. RF "The `SOURCE_PATTERNS` glob".
 - Agent reports and code exist only on unmerged branches: never delete a branch ref; branch names mislead, so read the commits. RF "Agent reports exist only on unmerged branches", "Branch names lie".
-- Every numpy import commits ~756 MiB of private memory through OpenBLAS per-thread buffers (17 MiB with `OPENBLAS_NUM_THREADS=1`), and the capture workers set no cap; host commit per process not yet measured. EF §10s.
+- Every numpy import commits ~756 MiB of private memory through OpenBLAS per-thread buffers (17 MiB with `OPENBLAS_NUM_THREADS=1`), about 2.9 GiB across the four numpy capture workers on the host (2026-10-15); workers started by `supervisor.launch_detached` now get a one-thread cap; the short-lived `ensure` processes do not. EF §10s.
 - The served GEFS "ensemble mean" `day_max` is the GEFS control run, not the member mean (parity holds; name wrong). EF §10s.
-- `last_good_sources.json` (~36 MB per US station) is rewritten whole on every snapshot pass, even unchanged. EF §10s.
+- `last_good_sources.json` (~36 MB per US station) is rewritten whole on every snapshot pass, even unchanged: ~53 GiB/day of writes on the host. EF §10s.
 - Master does not describe everything production ran: the 2026-09-06 live test and other lanes executed from unmerged code. EF §10f; current reconciliation in [STATE_OF_PLAY.md](STATE_OF_PLAY.md).
 
 ## Closed threads — do not reopen

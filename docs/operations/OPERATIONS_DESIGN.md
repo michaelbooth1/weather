@@ -105,7 +105,11 @@ launch exits `0`. Lock contention, restart backoff, an open restart circuit, or
 a failed launch exits nonzero so Task Scheduler does not report success while
 capture is down. Each ensure writes its latest decision and recovery-guard
 state to a separate atomic `*_supervisor_status.json` sidecar; the long-running
-worker remains the only writer of its loop status. Registration source, task
+worker remains the only writer of its loop status. Workers are started through
+`supervisor.launch_detached`, which sets `OPENBLAS_NUM_THREADS`, `OMP_NUM_THREADS`
+and `MKL_NUM_THREADS` to 1 unless they are already set. Without the cap, OpenBLAS
+commits about 30 MiB per logical CPU in every numpy-importing worker (established
+findings §10s). The short-lived `ensure` processes are not capped. Registration source, task
 names, cadences, and parameters live in:
 
 - `scripts/ops/register_snapshot_supervisor.ps1`

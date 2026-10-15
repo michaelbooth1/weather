@@ -3714,16 +3714,19 @@ Receipts: [S0 receipts](../research/data-layer-v2-s0-2026-10-15/README.md). Inpu
   `MAX_THREADS=24`) reserves about 30 MiB per thread. It is 113 MiB at `OPENBLAS_NUM_THREADS=4` and 17 MiB at 1.
   `snapshot_tracker`, `observation_trigger`, `market_microstructure` and `execution_tape_supervisor` each commit
   775-816 MiB after import; the 88a and exec-tape capture modules commit about 23 MiB. Only `experiment_executor.py`
-  sets a cap. On the host each numpy-importing capture process likely commits min(logical CPUs, 24) × 30 MiB (not
-  measured on the host).
+  sets a cap. **Host stat (master-agent, 2026-10-15 03:28, 20 logical CPUs):** private bytes `market_microstructure`
+  793 MiB, `snapshot_tracker` 745, `observation_trigger` 709, `execution_tape_supervisor` 677, about 2.9 GiB in all;
+  `maker_evidence_capture` 58 and `maker_shadow` 49. A numpy worker started through `supervisor.launch_detached` with
+  the one-thread cap commits 48 MiB against 788 MiB uncapped (workstation, 2026-10-15); `launch_detached` sets that cap.
 - **The GEFS "ensemble mean" is the control run:** `fetch_global_ensemble` reads the unsuffixed `temperature_2m` column
   of the GEFS payload as the mean, but it sits 0.26-0.54 °F (max 1.26 °F) from the 30-member mean on stored 2026-08-10
   San Francisco payloads, at a moving rank (0.17-0.73). There are 31 columns, one of which is the control. Train and
   serve read the same column, so parity holds; only the name is wrong.
 - **`last_good_sources.json` is rewritten whole on every pass:** `model_sources.py:596-619` reloads and atomically
   rewrites the ~36 MB file (the NBM bulletin text in `raw_payload`) even when unchanged; est. 5.2 GB/day of writes per
-  US station at the 10-minute default. The host cadence is not confirmed.
-- **Not established:** post-gzip savings of write-on-change; host process commit; FC-10 bytes per point; L2 delta bytes
+  US station at the 10-minute default. Host count (master-agent, 2026-10-15 02:57-03:27): 3-4 rewrites per 30 min of
+  ~34.4 MiB files, about 4.8 GiB/day per US station and ~53 GiB/day across 11.
+- **Not established:** post-gzip savings of write-on-change; FC-10 bytes per point; L2 delta bytes
   (S0(a)).
 
 ## Related
