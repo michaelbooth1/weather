@@ -116,7 +116,7 @@ def test_the_carried_run_feeds_the_ceiling_rule_and_e5(per_date, carried):
     assert carried["measured"]["records"] == sum(d["measured"]["records"] for d in per_date.values())
     assert carried["measured"]["input_bytes"] == sum(d["measured"]["input_bytes"] for d in per_date.values())
     rows = {day: rehearsal.ceiling_input(doc) for day, doc in per_date.items()}
-    derived = ceilings.derive(rows, rehearsal.ceiling_input(carried))
+    derived = ceilings.derive(rows, rehearsal.ceiling_input(carried), pull_candidates=carried["pull_candidates"])
     assert derived["executable"] is True and derived["host_limit_binding"] == []
     largest = max(r["records"] for r in rows.values())
     assert derived["ceilings"]["records"] == ceilings.next_power_of_two(ceilings.N * largest)
@@ -280,13 +280,14 @@ def test_the_gate_report_reads_e2_e4_e5_e6_e7_and_section_11_and_waits_for_e1_e3
     doc, _ = carried
     report = reachability.gate_report(per_date, doc, repeat)
     gates = report["executability"]["gates"]
-    for name in ("E2", "E4", "E5", "E7"):
+    for name in ("E2", "E4", "E5", "E6", "E7"):
         assert gates[name]["status"] == "PASS", name
-    # E6's max_events clause is not evaluable until the owner rules (§9 derives no max_events): never PASS (D6.2)
-    assert gates["E6"]["status"] == "INCOMPLETE"
+    # E6 = A (DECISION_LOG 2026-10-15): the projected count against §9's MEASURED pull-candidate ceiling
+    assert gates["E6"]["max_pull_candidates"] == report["ceilings"]["ceilings"]["pull_candidates"]
+    assert gates["E6"]["max_pull_candidates"] == doc["pull_candidates"] * 14 // 3
     assert report["executability"]["status"] == "INCOMPLETE"
     assert report["executability"]["not_supplied"] == ["E1", "E3", "E8"]
-    assert report["executability"]["not_evaluated"] == ["E6"]
+    assert report["executability"]["not_evaluated"] == []
     assert gates["E7"]["identical"] == dict(decision_sha256=True, report_sha256=True, sidecar_sha256=True)
     assert gates["E6"]["projected_pull_candidates"] == doc["pull_candidates"] * 14 // 3  # D6.6: 14/3, not 16/3
     missing = {k: v for k, v in doc.items() if k != "pull_candidates"}
@@ -305,7 +306,7 @@ def test_the_gate_report_reads_e2_e4_e5_e6_e7_and_section_11_and_waits_for_e1_e3
     assert at_boundary["executability"]["gates"]["E6"]["projected_pull_candidates"] == candidates * 14 // 3
     evidence = {k: dict(status="PASS", evidence="fixture") for k in ("e1", "e3", "e8")}
     supplied = reachability.gate_report(per_date, doc, repeat, **evidence)["executability"]
-    assert supplied["status"] == "INCOMPLETE" and supplied["not_supplied"] == [] and supplied["not_evaluated"] == ["E6"]
+    assert supplied["status"] == "PASS" and supplied["not_supplied"] == [] and supplied["not_evaluated"] == []
     failed = dict(evidence, e3=dict(status="FAIL", evidence="fixture"))
     assert reachability.gate_report(per_date, doc, repeat, **failed)["executability"]["status"] == "FAIL"
     verdict = report["reachability"]["verdict"]
@@ -337,6 +338,26 @@ def test_e6_fails_when_the_ceilings_are_not_executable(per_date, carried, repeat
     report = reachability.gate_report(per_date, doc, repeat)
     assert report["executability"]["gates"]["E6"]["status"] == "FAIL"
     assert report["executability"]["status"] == "FAIL"
+
+
+def test_e6_fails_when_the_projected_count_is_above_the_ceiling(per_date, carried, repeat, monkeypatch):
+    doc, _ = carried
+    real = ceilings.derive
+
+    def lowered(by):
+        def derive(*a, **k):
+            out = real(*a, **k)
+            return dict(out, ceilings=dict(out["ceilings"], pull_candidates=out["ceilings"]["pull_candidates"] - by))
+        return derive
+    projected = doc["pull_candidates"] * 14 // 3
+    monkeypatch.setattr(ceilings, "derive", lowered(0))  # boundary: projected == ceiling passes
+    e6 = reachability.gate_report(per_date, doc, repeat)["executability"]["gates"]["E6"]
+    assert e6["status"] == "PASS" and e6["projected_pull_candidates"] == e6["max_pull_candidates"] == projected
+    monkeypatch.setattr(ceilings, "derive", lowered(1))  # ceiling + 1 == projected: FAIL
+    report = reachability.gate_report(per_date, doc, repeat)
+    e6 = report["executability"]["gates"]["E6"]
+    assert e6["status"] == "FAIL" and e6["within_ceiling"] is False
+    assert report["executability"]["status"] == "FAIL" and report["executability"]["not_evaluated"] == []
 
 
 F_CAL = {"PASS": "0.6", "FAIL": "0.3", "UNIDENTIFIED": None}  # a fabricated f_cal consistent with each status

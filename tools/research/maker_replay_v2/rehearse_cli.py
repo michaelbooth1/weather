@@ -19,7 +19,8 @@ fresh process, serially, through ``scripts/ops/workstation_heavy.ps1``:
 - ``rehearse``: one score-free rehearsal (``rehearsal.rehearse``); the hazard scalar and, for R1, the per-city map
   come from the unchanged calibration document (``reachability.hazards``); ``calibration_sha256`` is that file's
   SHA-256. The inventory's dates must be the bundles' dates.
-- ``derive``: ``ceilings.derive`` and gate E5 from the three per-date documents and the carried one.
+- ``derive``: ``ceilings.derive`` and gate E5 from the three per-date documents and the carried one (whose top-level
+  ``pull_candidates`` gives the §9 pull-candidate ceiling; a carried document without it refuses).
 - ``gate-report``: ``reachability.gate_report`` (§10 E1-E8 and §11). ``--e1/--e3/--e8`` are JSON files
   ``{"status": "PASS"|"FAIL", "evidence": "..."}``; an absent one reads NOT_SUPPLIED.
 
@@ -121,7 +122,7 @@ def derive(args):
     if not isinstance(carried, dict) or carried.get("mode") != "carried" or carried.get("hazard_variant") != "max_m":
         raise BundleError("gate_carried_rehearsal_required:max_m")
     measured = {day: ceiling_input(doc) for day, doc in per_date.items()}
-    derived = ceilings.derive(measured, ceiling_input(carried))
+    derived = ceilings.derive(measured, ceiling_input(carried), pull_candidates=carried.get("pull_candidates"))
     return dict(format=DERIVED_FORMAT, derived=derived, e5=ceilings.e5_memory(measured, ceiling_input(carried), derived),
                 run_limits=ceilings.run_limits(derived) if derived["executable"] else None)
 

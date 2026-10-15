@@ -50,6 +50,7 @@ import math
 from maker_core.evidence.journal import digest
 from maker_core.replay.bundle import BundleError
 from maker_core.replay.calibration import CALIBRATION_DATES
+from maker_core.replay.v2.ceilings import QUOTE_DATES  # registration §9: the scored run's quote dates
 
 D = Decimal
 FORMAT = "maker_core.replay.v2.reachability.v0.1"
@@ -57,7 +58,6 @@ GATE_FORMAT = "maker_core.replay.v2.gate_report.v0.1"
 THRESHOLD = D("0.5")  # Clarification 3: below it the pull hurdle (ratio >= 2) is out of reach in expectation
 POLICY, BOUND = "informed-v0", "strictly_through"
 QUOTED_FRACTION_POLICIES = ("informed-v0", "blind_re1", "clock_only")
-QUOTE_DATES = 14  # registration §9: the scored run's quote dates
 PANEL_SCALE = D(QUOTE_DATES) / D(len(CALIBRATION_DATES))
 SCREEN_FAILED = frozenset({("NO_QUOTE", "NONPOSITIVE_NET"), ("CANCEL", "NONPOSITIVE_NET")})
 SCREEN_PASSED = frozenset({
@@ -275,8 +275,9 @@ def gate_report(per_date, carried, repeat, *, r1=None, e1=None, e3=None, e8=None
     ``repeat``: a second per-date document of one of the dates (E7); ``r1``: the carried ``r1_per_city`` document,
     required only when ``max_m`` fails §11. ``e1``/``e3``/``e8``: {"status": "PASS"|"FAIL", "evidence": text} from the
     export receipts, the v0.1 equivalence check and the fixture suite; absent is NOT_SUPPLIED, which is not a pass.
-    E6's pull-candidate clause has no derived ``max_events`` ceiling to compare with (§9 derives none; owner ruling
-    pending), so E6 reads INCOMPLETE (FAIL when the ceilings are not executable) and never PASS (Defender D6.2).
+    E6 (owner ruling E6 = A, DECISION_LOG 2026-10-15): every derived ceiling within its §8 limit, and the carried
+    pull-candidate count projected to the panel (x 14 // 3) at or below §9's MEASURED pull-candidate ceiling
+    (``ceilings.e6_pull_candidates``); PASS within, FAIL above it or when the ceilings are not executable.
     Only PASS passes: the executability status is PASS when every gate passes, FAIL when any fails, else INCOMPLETE."""
     from maker_core.replay.v2 import ceilings
     from maker_core.replay.v2.rehearsal import ceiling_input, whitelisted
@@ -289,13 +290,14 @@ def gate_report(per_date, carried, repeat, *, r1=None, e1=None, e3=None, e8=None
             raise BundleError("gate_per_date_rehearsal_required:" + day)
     carried = _carried(carried, "max_m")
     measured = {day: ceiling_input(doc) for day, doc in per_date.items()}
-    derived = ceilings.derive(measured, ceiling_input(carried))
+    derived = ceilings.derive(measured, ceiling_input(carried), pull_candidates=carried["pull_candidates"])
     whitelisted(repeat)
     day = (repeat.get("dates") or [None])[0]
     if repeat.get("mode") != "per_date" or day not in per_date:
         raise BundleError("gate_repeat_rehearsal_required")
     first = per_date[day]["hashes"]
     same = {k: first[k] == repeat["hashes"][k] for k in ("decision_sha256", "report_sha256", "sidecar_sha256")}
+    projected = carried["pull_candidates"] * QUOTE_DATES // len(CALIBRATION_DATES)
     gates = dict(
         E1=_external("E1", e1),
         E2=dict(status="PASS" if all(m["input_bytes"] <= E2_INPUT_BYTES for m in measured.values()) else "FAIL",
@@ -304,11 +306,9 @@ def gate_report(per_date, carried, repeat, *, r1=None, e1=None, e3=None, e8=None
         E4=dict(status="PASS" if all(m["runtime_seconds"] <= E4_SECONDS for m in measured.values()) else "FAIL",
                 limit_seconds=E4_SECONDS, per_date={d: m["runtime_seconds"] for d, m in measured.items()}),
         E5=ceilings.e5_memory(measured, ceiling_input(carried), derived),
-        E6=dict(status="INCOMPLETE" if derived["executable"] else "FAIL",
-                host_limit_binding=derived["host_limit_binding"],
-                projected_pull_candidates=carried["pull_candidates"] * QUOTE_DATES // len(CALIBRATION_DATES),
-                panel_scale=f"{QUOTE_DATES}/{len(CALIBRATION_DATES)} quote dates per calibration date (D6.6)",
-                max_events="not derived: §9 has no pull-candidate ceiling (owner ruling pending)"),
+        E6=dict(ceilings.e6_pull_candidates(projected, derived), host_limit_binding=derived["host_limit_binding"],
+                projected_pull_candidates=projected,
+                panel_scale=f"{QUOTE_DATES}/{len(CALIBRATION_DATES)} quote dates per calibration date (D6.6)"),
         E7=dict(status="PASS" if all(same.values()) else "FAIL", date=day, identical=same),
         E8=_external("E8", e8))
     reach = {"max_m": carried["reachability"]}

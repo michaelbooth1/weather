@@ -22,9 +22,16 @@ def per_date(**by_day):
     return {d.isoformat(): measured(**by_day.get(d.isoformat(), {})) for d in CALIBRATION_DATES}
 
 
+CANDIDATES = 3_000  # a carried rehearsal's pull-candidate count (fabricated)
+
+
+def derive(days, carried, pull_candidates=CANDIDATES):
+    return ceilings.derive(days, carried, pull_candidates=pull_candidates)
+
+
 def test_rule_is_n16_next_power_of_two_of_the_largest_per_date_value():
     days = per_date(**{"2026-09-28": dict(records=3_000_000, runtime_seconds=1_000.0)})
-    derived = ceilings.derive(days, measured())
+    derived = derive(days, measured())
     c = derived["ceilings"]
     assert ceilings.N == 16 and derived["n"] == 16
     assert c["records"] == 2**26  # 16 x 3,000,000 = 48,000,000 -> 67,108,864
@@ -35,8 +42,8 @@ def test_rule_is_n16_next_power_of_two_of_the_largest_per_date_value():
 
 
 def test_a_power_of_two_product_is_not_doubled():
-    derived = ceilings.derive(per_date(), measured())
-    assert ceilings.derive(per_date(**{d.isoformat(): dict(records=2**20) for d in CALIBRATION_DATES}),
+    derived = derive(per_date(), measured())
+    assert derive(per_date(**{d.isoformat(): dict(records=2**20) for d in CALIBRATION_DATES}),
                            measured())["ceilings"]["records"] == 2**24
     assert derived["ceilings"]["sidecar_bytes"] == 2 * GIB  # 16 x 100 MiB = 1600 MiB -> 2 GiB
 
@@ -44,7 +51,7 @@ def test_a_power_of_two_product_is_not_doubled():
 def test_memory_is_two_times_the_carried_peak_rounded_then_the_baseline_added_not_multiplied():
     days = per_date(**{"2026-09-27": dict(peak_memory_above_baseline_bytes=900 * 1024**2,
                                           baseline_memory_bytes=200 * 1024**2)})
-    derived = ceilings.derive(days, measured(peak_memory_above_baseline_bytes=600 * 1024**2,
+    derived = derive(days, measured(peak_memory_above_baseline_bytes=600 * 1024**2,
                                              baseline_memory_bytes=180 * 1024**2))
     # the carried run's peak (600 MiB), not the largest per-date peak (900 MiB): 2 x 600 MiB -> 2 GiB
     assert derived["ceilings"]["memory_bytes"] == 2 * GIB + 200 * 1024**2  # plus the largest baseline, once
@@ -60,7 +67,7 @@ def test_memory_is_two_times_the_carried_peak_rounded_then_the_baseline_added_no
     ("wakes", 2**27 + 1, "wakes"),
 ])
 def test_each_host_limit_binds_and_is_never_clipped(name, value, limit):
-    derived = ceilings.derive(per_date(**{"2026-09-29": {name: value}}), measured())
+    derived = derive(per_date(**{"2026-09-29": {name: value}}), measured())
     assert derived["host_limit_binding"] == [limit] and not derived["executable"]
     assert derived["verdict"] == ceilings.NOT_EXECUTABLE
     assert derived["ceilings"][limit] > ceilings.HOST_LIMITS[limit]  # reported as derived, not truncated
@@ -71,25 +78,26 @@ def test_each_host_limit_binds_and_is_never_clipped(name, value, limit):
 def test_limits_hold_at_the_boundary():
     days = per_date(**{"2026-09-29": dict(input_bytes=1 * GIB, runtime_seconds=2_048, report_bytes=64 * 1024**2,
                                           sidecar_bytes=512 * 1024**2, records=2**27)})
-    derived = ceilings.derive(days, measured())
+    derived = derive(days, measured())
     assert derived["executable"], derived["host_limit_binding"]
 
 
 def test_memory_limit_is_on_the_derived_ceiling_including_the_baseline():
     # 2 x 4 GiB -> 8 GiB: within; 2 x (4 GiB + 1) -> 16 GiB, plus a baseline -> over 16 GiB: binds
-    ok = ceilings.derive(per_date(), measured(peak_memory_above_baseline_bytes=4 * GIB))
+    ok = derive(per_date(), measured(peak_memory_above_baseline_bytes=4 * GIB))
     assert ok["executable"]
-    over = ceilings.derive(per_date(), measured(peak_memory_above_baseline_bytes=4 * GIB + 1))
+    over = derive(per_date(), measured(peak_memory_above_baseline_bytes=4 * GIB + 1))
     assert over["host_limit_binding"] == ["memory_bytes"]
 
 
 def test_run_limits_bind_every_ceiling():
-    derived = ceilings.derive(per_date(), measured())
+    derived = derive(per_date(), measured())
     c = derived["ceilings"]
     assert ceilings.run_limits(derived) == dict(
         max_input_bytes=c["input_bytes"], max_records=c["records"], max_seconds=float(c["runtime_seconds"]),
         max_output_bytes=c["report_bytes"], max_sidecar_bytes=c["sidecar_bytes"], max_memory_bytes=c["memory_bytes"],
-        max_wakes=c["wakes"], max_outputs=c["decisions"] + c["span_runs"])
+        max_wakes=c["wakes"], max_outputs=c["decisions"] + c["span_runs"],
+        max_pull_candidates=c["pull_candidates"])
     with pytest.raises(BundleError, match="invalid_ceiling_derivation"):
         ceilings.run_limits(dict(derived, format="maker_core.replay.ceiling_measurement.v3"))
     with pytest.raises(BundleError, match="not_executable_on_host"):
@@ -110,12 +118,12 @@ def test_incomplete_or_scored_measurements_refuse(mutate):
     days = per_date()
     mutate(days)
     with pytest.raises(BundleError, match="incomplete_ceiling_measurement|invalid_measurement_value"):
-        ceilings.derive(days, measured())
+        derive(days, measured())
 
 
 def test_carried_measurement_is_checked_like_a_date():
     with pytest.raises(BundleError, match="incomplete_ceiling_measurement"):
-        ceilings.derive(per_date(), dict(measured(), fills=1))
+        derive(per_date(), dict(measured(), fills=1))
 
 
 def test_e5_ratio_boundary_is_exact():
@@ -124,16 +132,16 @@ def test_e5_ratio_boundary_is_exact():
                        "2026-09-29": dict(peak_memory_above_baseline_bytes=700)})
     largest = 800
     ok = measured(peak_memory_above_baseline_bytes=largest * 5 // 4)  # exactly 1.25x
-    assert ceilings.e5_memory(days, ok, ceilings.derive(days, ok))["status"] == "PASS"
+    assert ceilings.e5_memory(days, ok, derive(days, ok))["status"] == "PASS"
     bad = measured(peak_memory_above_baseline_bytes=largest * 5 // 4 + 1)
-    result = ceilings.e5_memory(days, bad, ceilings.derive(days, bad))
+    result = ceilings.e5_memory(days, bad, derive(days, bad))
     assert result["status"] == "FAIL" and not result["days_do_not_accumulate"]
 
 
 def test_e5_fails_when_the_memory_ceiling_exceeds_16_gib():
     days = per_date(**{d.isoformat(): dict(peak_memory_above_baseline_bytes=8 * GIB) for d in CALIBRATION_DATES})
     carried = measured(peak_memory_above_baseline_bytes=8 * GIB)
-    result = ceilings.e5_memory(days, carried, ceilings.derive(days, carried))
+    result = ceilings.e5_memory(days, carried, derive(days, carried))
     assert result == dict(status="FAIL", days_do_not_accumulate=True, memory_ceiling_within_limit=False)
 
 
@@ -141,3 +149,63 @@ def test_e5_fails_when_the_memory_ceiling_exceeds_16_gib():
                                              (2**40, 2**40), (2**40 + 1, 2**41), (2_048.5 * 16, 32_768 * 2)])
 def test_next_power_of_two(value, expected):
     assert ceilings.next_power_of_two(value) == expected
+
+
+# -- E6 = A (owner ruling, DECISION_LOG 2026-10-15): the §9 MEASURED pull-candidate ceiling -------------------------
+
+def test_pull_candidate_ceiling_is_the_carried_count_times_14_floordiv_3():
+    derived = derive(per_date(), measured(), pull_candidates=1_000)
+    assert ceilings.QUOTE_DATES == 14 and len(CALIBRATION_DATES) == 3
+    assert derived["ceilings"]["pull_candidates"] == 4_666  # 14_000 // 3, not rounded up, not a power of two
+    assert derived["carried_pull_candidates"] == 1_000 and derived["executable"]
+    assert derive(per_date(), measured(), pull_candidates=3)["ceilings"]["pull_candidates"] == 14
+    assert derive(per_date(), measured(), pull_candidates=0)["ceilings"]["pull_candidates"] == 0
+    assert ceilings.run_limits(derived)["max_pull_candidates"] == 4_666
+    assert ceilings.HOST_LIMITS["pull_candidates"] == ceilings.COUNT_LIMIT
+
+
+@pytest.mark.parametrize("value", [None, -1, 1.0, True, "3000"])
+def test_missing_or_invalid_pull_candidates_refuse(value):
+    with pytest.raises(BundleError, match="incomplete_ceiling_measurement:pull_candidates"):
+        derive(per_date(), measured(), pull_candidates=value)
+    with pytest.raises(BundleError, match="incomplete_ceiling_measurement:pull_candidates"):
+        ceilings.derive(per_date(), measured())  # the keyword is required in substance: None refuses
+
+
+def test_pull_candidate_ceiling_above_the_count_limit_binds():
+    over = 2**31 * 3 // 14 + 1  # the smallest count whose ceiling exceeds 2^31
+    derived = derive(per_date(), measured(), pull_candidates=over)
+    assert derived["ceilings"]["pull_candidates"] > ceilings.COUNT_LIMIT
+    assert derived["host_limit_binding"] == ["pull_candidates"] and not derived["executable"]
+    assert derive(per_date(), measured(), pull_candidates=over - 1)["executable"]
+
+
+def test_e6_boundary_equal_passes_and_one_above_fails():
+    derived = derive(per_date(), measured(), pull_candidates=1_000)
+    ceiling = derived["ceilings"]["pull_candidates"]
+    at = ceilings.e6_pull_candidates(ceiling, derived)
+    assert at == dict(status="PASS", pull_candidates=ceiling, max_pull_candidates=ceiling, within_ceiling=True,
+                      ceilings_executable=True)
+    assert ceilings.e6_pull_candidates(ceiling - 1, derived)["status"] == "PASS"
+    above = ceilings.e6_pull_candidates(ceiling + 1, derived)
+    assert above["status"] == "FAIL" and above["within_ceiling"] is False
+
+
+def test_e6_fails_when_the_ceilings_are_not_executable_even_within():
+    derived = derive(per_date(**{"2026-09-29": dict(wakes=2**27 + 1)}), measured(), pull_candidates=1_000)
+    result = ceilings.e6_pull_candidates(0, derived)
+    assert result["status"] == "FAIL" and result["within_ceiling"] and not result["ceilings_executable"]
+
+
+@pytest.mark.parametrize("count", [None, -1, 2.0, False])
+def test_e6_refuses_a_missing_count(count):
+    with pytest.raises(BundleError, match="incomplete_ceiling_measurement:pull_candidates"):
+        ceilings.e6_pull_candidates(count, derive(per_date(), measured()))
+
+
+def test_e6_refuses_a_derivation_without_the_pull_candidate_ceiling():
+    derived = derive(per_date(), measured())
+    stale = dict(derived, ceilings={k: v for k, v in derived["ceilings"].items() if k != "pull_candidates"})
+    for bad in (stale, dict(derived, format="maker_core.replay.v2.ceiling_measurement.v0.1"), None):
+        with pytest.raises(BundleError, match="invalid_ceiling_derivation"):
+            ceilings.e6_pull_candidates(1, bad)

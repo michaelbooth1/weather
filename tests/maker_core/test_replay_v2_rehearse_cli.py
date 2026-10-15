@@ -90,8 +90,9 @@ def test_derive_and_the_gate_report_read_the_written_documents(workspace, docume
     gates = gate["executability"]["gates"]
     assert gates["E7"]["status"] == "PASS" and gates["E8"] == dict(status="PASS", evidence="fixture suite")
     assert gate["executability"]["not_supplied"] == ["E1", "E3"]
-    assert gates["E6"]["status"] == "INCOMPLETE" and gate["executability"]["not_evaluated"] == ["E6"]
-    # real in-process memory readings (E5) may fail here; either way E6 keeps the report from reading PASS
+    assert gates["E6"]["status"] == "PASS" and gate["executability"]["not_evaluated"] == []  # E6 = A (10-15)
+    assert derived["derived"]["ceilings"]["pull_candidates"] == gates["E6"]["max_pull_candidates"]
+    # real in-process memory readings (E5) may fail here; E1/E3 are not supplied, so it never reads PASS
     failed = any(g["status"] == "FAIL" for g in gates.values())
     assert gate["executability"]["status"] == ("FAIL" if failed else "INCOMPLETE")
     assert set(gate["reachability"]["variants"]) == {"max_m", "r1_per_city"}

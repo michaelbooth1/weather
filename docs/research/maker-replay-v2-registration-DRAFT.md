@@ -430,6 +430,7 @@ Let N = 16, the bundles in the scored run (14 quote dates and 2 settlement-only)
 | input bytes, records, wakes, decisions, span runs, report bytes, sidecar bytes | next power of two ≥ N × the largest per-date value | §8; counts ≤ 2^31 |
 | runtime | next power of two ≥ N × the largest per-date runtime, in seconds | 32,768 s, so each date ≤ 2,048 s |
 | memory | next power of two ≥ 2 × the 3-date run's peak, plus the measured baseline | 16 GiB |
+| pull opportunity candidates (MEASURED) | the 3-date run's policy-free pull-candidate count × 14 // 3 (14 quote dates per 3 calibration dates) | 2^31 |
 
 The memory rule assumes v2 streams days. Gate E5 checks that assumption.
 
@@ -449,7 +450,7 @@ These all run on calibration dates only, before any panel export. **All must pas
 | E3 equivalence | Each calibration date's v0.2 bundle expands to its v0.1 calibration export (descriptor, coverage and trade kinds) with an identical SHA-256. Hazard counts n_m and x_m are identical from both formats. Only match or no-match is reported. |
 | E4 runtime | Each date ≤ 2,048 s for the full pipeline on the workstation. |
 | E5 memory | The 3-date run's peak ≤ 1.25 × the largest single-date peak (days do not accumulate), and the derived memory ceiling ≤ 16 GiB. |
-| E6 ceilings | Every derived ceiling is within its §8 limit. Pull opportunity candidates for the projected panel are within the derived `max_events`. |
+| E6 ceilings | Every derived ceiling is within its §8 limit. Pull opportunity candidates for the projected panel are within the §9 pull-candidate ceiling; above it, E6 fails. |
 | E7 determinism | Two rehearsals of one date give byte-identical decision-stream hashes and scored-report bytes. |
 | E8 correctness | The fixture suite passes: the v2 engine against the reference schedule, running totals against recomputation, linearity in bands, and no Inexact trap. See the engineering plan. |
 

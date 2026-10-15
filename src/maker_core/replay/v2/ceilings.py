@@ -11,8 +11,15 @@ sidecar 8 GiB, every count 2^31. A ceiling above its limit makes the run not exe
 for memory, E5); the panel is never sampled, truncated or split to fit. The memory comparison is on the derived
 ceiling itself (power of two plus baseline), the stricter reading of "the derived memory ceiling <= 16 GiB" (E5).
 
+Pull candidates (owner ruling E6 = A, DECISION_LOG 2026-10-15): §9 also derives a MEASURED pull-candidate ceiling,
+``pull_candidates`` = the carried rehearsal's policy-free pull-candidate count x 14 // 3 (``QUOTE_DATES`` quote dates
+per calibration date, the panel-scale projection gate E6 already showed), held to the 2^31 count limit. Gate E6
+(``e6_pull_candidates``) passes iff the ceilings are executable and the projected (or, later, the scored) candidate
+count is at or below it. It is not a power of two: the ruling fixes the projection itself as the ceiling.
+
 The per-date and carried measurements are the rehearsal's ``measured`` block (``rehearsal`` whitelist, §9): no
-fill, P&L, reward, markout or contrast is accepted here; an unknown key refuses.
+fill, P&L, reward, markout or contrast is accepted here; an unknown key refuses. The carried pull-candidate count is
+the rehearsal document's top-level ``pull_candidates`` (carried mode only), passed separately.
 """
 from __future__ import annotations
 
@@ -21,9 +28,11 @@ import math
 from maker_core.replay.bundle import BundleError
 from maker_core.replay.calibration import CALIBRATION_DATES
 
-FORMAT = "maker_core.replay.v2.ceiling_measurement.v0.1"
-RULE = "registration_v2_s9_n16_next_power_of_two_memory_2x_carried_plus_baseline_host_limited"
+FORMAT = "maker_core.replay.v2.ceiling_measurement.v0.2"
+RULE = ("registration_v2_s9_n16_next_power_of_two_memory_2x_carried_plus_baseline_host_limited"
+        "_pull_candidates_carried_x14_floordiv_3")
 N = 16
+QUOTE_DATES = 14  # registration §9: the scored run's quote dates (N less the 2 settlement-only dates)
 MEMORY_FACTOR = 2
 GIB = 1024**3
 COUNT_LIMIT = 2**31
@@ -34,7 +43,7 @@ MEMORY = ("peak_memory_above_baseline_bytes", "baseline_memory_bytes")
 MEASURED = (*MULTIPLIED, *MEMORY)
 HOST_LIMITS = dict(input_bytes=16 * GIB, records=COUNT_LIMIT, wakes=COUNT_LIMIT, decisions=COUNT_LIMIT,
                    span_runs=COUNT_LIMIT, report_bytes=1 * GIB, sidecar_bytes=8 * GIB, runtime_seconds=32_768,
-                   memory_bytes=16 * GIB)
+                   memory_bytes=16 * GIB, pull_candidates=COUNT_LIMIT)
 HOST = dict(host_id="DESKTOP-RFCD2GH", memory_percent_of_physical=70, whole_run_hours=12, free_bytes_at_start=100 * GIB)
 NOT_EXECUTABLE = "not executable on this host"
 EXECUTABLE = "executable on this host"
@@ -58,10 +67,20 @@ def _measured(value):
     return value
 
 
-def derive(per_date, carried):
+def pull_candidate_ceiling(pull_candidates):
+    """The §9 pull-candidate ceiling from the carried rehearsal's count: ``pull_candidates x 14 // 3``.
+
+    A missing (None), non-int, boolean or negative count refuses; the ceiling is never derived from nothing."""
+    if type(pull_candidates) is not int or pull_candidates < 0:
+        raise BundleError("incomplete_ceiling_measurement:pull_candidates")
+    return pull_candidates * QUOTE_DATES // len(CALIBRATION_DATES)
+
+
+def derive(per_date, carried, *, pull_candidates=None):
     """``per_date`` = {ISO calibration date: measured} for exactly the three calibration dates; ``carried`` = the
-    single carried 3-date run's measured block. Returns the derived document (``executable`` False when any
-    host limit binds; the binding names are listed, never clipped)."""
+    single carried 3-date run's measured block; ``pull_candidates`` = that run's top-level pull-candidate count
+    (required; None refuses). Returns the derived document (``executable`` False when any host limit binds; the
+    binding names are listed, never clipped)."""
     expected = [d.isoformat() for d in CALIBRATION_DATES]
     if not isinstance(per_date, dict) or sorted(per_date) != expected:
         raise BundleError("incomplete_ceiling_measurement")
@@ -72,10 +91,11 @@ def derive(per_date, carried):
     baseline = max(largest["baseline_memory_bytes"], carried["baseline_memory_bytes"])
     ceilings["memory_bytes"] = (next_power_of_two(MEMORY_FACTOR * carried["peak_memory_above_baseline_bytes"])
                                 + int(math.ceil(baseline)))
+    ceilings["pull_candidates"] = pull_candidate_ceiling(pull_candidates)
     binding = sorted(name for name, limit in HOST_LIMITS.items() if ceilings[name] > limit)
     return dict(format=FORMAT, rule=RULE, n=N, memory_factor=MEMORY_FACTOR, host=HOST, host_limits=HOST_LIMITS,
                 largest_per_date=largest, carried_peak_above_baseline_bytes=carried["peak_memory_above_baseline_bytes"],
-                baseline_memory_bytes=baseline, ceilings=ceilings, host_limit_binding=binding,
+                baseline_memory_bytes=baseline, carried_pull_candidates=pull_candidates, ceilings=ceilings, host_limit_binding=binding,
                 executable=not binding, verdict=NOT_EXECUTABLE if binding else EXECUTABLE)
 
 
@@ -90,7 +110,8 @@ def run_limits(derived):
     return dict(max_input_bytes=c["input_bytes"], max_records=c["records"], max_seconds=float(c["runtime_seconds"]),
                 max_output_bytes=c["report_bytes"], max_sidecar_bytes=c["sidecar_bytes"],
                 max_memory_bytes=c["memory_bytes"], max_wakes=c["wakes"],
-                max_outputs=min(c["decisions"] + c["span_runs"], COUNT_LIMIT))
+                max_outputs=min(c["decisions"] + c["span_runs"], COUNT_LIMIT),
+                max_pull_candidates=c["pull_candidates"])
 
 
 def e5_memory(per_date, carried, derived):
@@ -102,3 +123,19 @@ def e5_memory(per_date, carried, derived):
     within = derived["ceilings"]["memory_bytes"] <= HOST_LIMITS["memory_bytes"]
     return dict(status="PASS" if streams and within else "FAIL", days_do_not_accumulate=streams,
                 memory_ceiling_within_limit=within)
+
+
+def e6_pull_candidates(count, derived):
+    """Gate E6's pull-candidate clause: PASS iff the ceilings are executable and ``count`` (the panel-projected or the
+    scored pull-candidate count) <= the derived ``pull_candidates`` ceiling; the boundary passes, one above fails. A
+    count that is not a non-negative int, or a derivation without that ceiling, refuses."""
+    if type(count) is not int or count < 0:
+        raise BundleError("incomplete_ceiling_measurement:pull_candidates")
+    if (not isinstance(derived, dict) or derived.get("format") != FORMAT
+            or "pull_candidates" not in (derived.get("ceilings") or {})):
+        raise BundleError("invalid_ceiling_derivation")
+    ceiling = derived["ceilings"]["pull_candidates"]
+    executable = derived.get("executable") is True and not derived.get("host_limit_binding")
+    within = count <= ceiling
+    return dict(status="PASS" if executable and within else "FAIL", pull_candidates=count,
+                max_pull_candidates=ceiling, within_ceiling=within, ceilings_executable=executable)
