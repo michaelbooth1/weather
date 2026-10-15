@@ -355,7 +355,7 @@ def capture(args):
         stream, trades = PublicStream(store), PublicStream(store, trades_only=True)
         pilot_trades = PublicStream(store, trades_only=True, partition=PILOT_PARTITION)
         sweep, trigger = RewardSweep(reader), RewardTrigger(reader)
-        pilot_state = {"state": "OFF", "stratum": STRATUM, "cycles": 0, "failed_cycles": 0}
+        pilot_state = {"state": "OFF", "stratum": STRATUM, "cycles": 0, "failed_cycles": 0, "markets": [], "universe_size": 0}
         sweep_switch = {"enabled": True}
         start = time.monotonic()
         deadline = start + args.duration_seconds if args.duration_seconds else float("inf")

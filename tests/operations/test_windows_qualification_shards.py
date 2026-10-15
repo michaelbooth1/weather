@@ -93,6 +93,7 @@ EXPECTED_SHARDS = {
             "tests/operations/test_roll_verdict_script.py",
             "tests/operations/test_staleness_sweep_script.py",
             "tests/operations/test_status_capture_registry_health.py",
+            "tests/operations/test_status_maker_evidence_code_identity.py",
         ],
     ),
     "windows-lane-a": (

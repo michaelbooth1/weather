@@ -357,7 +357,7 @@ class EvidenceStore:
             for key in sorted(values):
                 self._roll()
                 raw = encoded(values[key])
-                change_key = f"{kind}:{key}"
+                change_key = f"{kind}:{partition or ''}:{key}"
                 prior = self.latest.get(change_key)
                 if prior and prior[0] == digest(raw):
                     continue
