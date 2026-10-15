@@ -33,7 +33,9 @@ the stage `remaining_rise_floor_v1` after the served final distribution **lowers
 serve form d2-r3f (anchor on the captured floor), exactly as D2 draft §5 and §7.1 specify:
 
 **Features at serve (the complete list; nothing else enters):**
-1. the captured 81a floor F, read as `guidance_physical_floor` (the METAR maximum since local midnight);
+1. the captured 81a floor F = max of the finite captured values of `guidance_physical_floor` (the METAR maximum
+   since local midnight), `high_so_far` and `trusted_current_max`, as the served 81a floor mask defines it; F is
+   missing only when all three are missing;
 2. B = round_half_up(F);
 3. the market's station;
 4. the local target month;
@@ -42,8 +44,10 @@ serve form d2-r3f (anchor on the captured floor), exactly as D2 draft §5 and §
    METAR, COR excluded, temp_f = round_half_up(T-group °C x 1.8 + 32), complete days >= 20 rows, history
    2024-05-01..2026-07-31, discrete Gaussian sd 1 °F, negative e folded to 0), its hash bound to the release.
 
-**Stage:** P(H = B + e) mapped to bands, then the 81a floor mask and renormalisation; fallback to served when F or the
-cell is missing, the METAR payload is flagged `stale`, or the floored mass is 0; placed **after** the final
+**Stage:** P(H = B + e) mapped to bands, then the 81a floor mask and renormalisation; fallback to served when the
+market's native unit is not °F, the artifact hash read at serve differs from the frozen hash, the snapshot's
+station-local date is not the target date, F or the cell is missing, the METAR payload is flagged `stale`, or the
+floored mass is 0 (each fallback row records its reason); placed **after** the final
 distribution so S7 cannot re-spread mass above B; **shadow only** (stored per snapshot, never served). No fitted
 parameter, no hour gate, no pooling with served, no recency rule, no refresh of the artifact during the holdout.
 
