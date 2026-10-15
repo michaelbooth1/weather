@@ -431,8 +431,9 @@ def test_token_set_swap_is_make_before_break(tmp_path, live):
     assert [[item["sha256"] for item in body["subscriptions"]] for body in wanted] == [[old], [new], []]
     trades = coverage(store)
     assert trades["wanted_basis"] == "stream_tokens_rows"
-    # The swap leaves no gap: the only dark time is each token's first connect.
-    assert set(trades["token_dark_seconds_by_cause"]) == {"awaiting_connect"}
+    # The swap leaves no gap: the only dark time is each token's first connect, which a
+    # same-millisecond connect can round away entirely.
+    assert set(trades["token_dark_seconds_by_cause"]) <= {"awaiting_connect"}
     assert trades["all_sockets_down_gap_seconds"]["n"] == 1  # The first connect, before any socket existed.
 
 
@@ -496,7 +497,9 @@ def test_a_real_outage_is_still_dark(tmp_path, live):
     stream.stop()
     trades = coverage(store)
     assert trades["token_dark_seconds_by_cause"]["venue_close"] >= 0.45
-    assert trades["all_sockets_down_seconds"] >= 0.45 + trades["token_dark_seconds_by_cause"]["awaiting_connect"]
+    # A first connect inside one timestamp tick leaves no awaiting_connect time, so the cause may be absent.
+    awaiting = trades["token_dark_seconds_by_cause"].get("awaiting_connect", 0.0)
+    assert trades["all_sockets_down_seconds"] >= 0.45 + awaiting
 
 
 def test_trade_identity_matches_the_execution_tape():

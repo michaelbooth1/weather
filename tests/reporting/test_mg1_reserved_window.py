@@ -174,7 +174,10 @@ def test_real_run_scores_pre_window_dates_and_discloses_counts_only(tmp_path):
                          "reserved_folders_dropped": 1, "unreadable_folders_dropped": 0,
                          "folders_refused_by_own_target_date": 2, "reserved_rows_dropped": 0, "unreadable_rows_dropped": 0}
     # The disclosure states the policy floor (window_start); nothing else may name a dropped date.
-    text = json.dumps({key: value for key, value in payload.items() if key != "mg1_reserved_window"})
+    # The run clock and the temp root are not disclosures, and either can carry today's date, so both are
+    # scrubbed first; folder names below the temp root are still checked.
+    kept = {key: value for key, value in payload.items() if key not in ("mg1_reserved_window", "generated_at_utc")}
+    text = json.dumps(kept).replace(json.dumps(str(tmp_path))[1:-1], "<tmp>")
     for leaked in ("2026-10-15", "2026-10-16", "2026-10-24", "october-16"):
         assert leaked not in text, leaked  # Counts only: no reserved date is disclosed.
 
