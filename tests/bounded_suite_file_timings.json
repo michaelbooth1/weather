@@ -282,6 +282,7 @@
   "tests/operations/test_settlement_backfill_scripts.py": 0.3,
   "tests/operations/test_settlement_hole_check.py": 0.3,
   "tests/operations/test_staleness_sweep_script.py": 5.0,
+  "tests/operations/test_status_capture_registry_health.py": 4.0,
   "tests/operations/test_status_script.py": 265.4,
   "tests/operations/test_storage_admission_observation_time.py": 0.7,
   "tests/operations/test_storage_classes.py": 0.7,

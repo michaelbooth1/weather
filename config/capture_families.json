@@ -29,7 +29,7 @@
   },
   "platform": {
     "contract": "docs/operations/DATA_LAYER_V2_CONTRACT.md",
-    "scope": "Data layer v2 platform registry (PL-3). Read by roll_verdict.ps1 and staleness_sweep.ps1 (roll_closures) and checked by tests/operations/test_capture_registry.py. The capture-family recorders above read only the families block; this block never selects, ranks or enumerates a market.",
+    "scope": "Data layer v2 platform registry (PL-3). Read by roll_verdict.ps1 and staleness_sweep.ps1 (roll_closures), health-checked by status.ps1 (CAPTURE_REGISTRY warn) and checked by tests/operations/test_capture_registry.py. The capture-family recorders above read only the families block; this block never selects, ranks or enumerates a market.",
     "embargo": {
       "windows": "maker_core.shadow.admission:EMBARGO_WINDOWS",
       "mg1": "weather.mg1_reserved_window:window",

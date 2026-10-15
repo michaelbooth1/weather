@@ -13,7 +13,7 @@ in [data storage classes](data-storage-class-contract.md). This file holds no st
 | Block | Read by | Contents |
 | --- | --- | --- |
 | `families` | `weather.market.maker_evidence_family.load_family`, `weather.reporting.market.capture_family_status`, `register_maker_evidence_family_capture.ps1`, `status.ps1` | Passive capture families (see [passive maker evidence capture](passive-maker-evidence-capture.md#capture-families)). Unchanged by S1. |
-| `platform` | `scripts/ops/roll_verdict.ps1`, `scripts/ops/staleness_sweep.ps1`, `tests/operations/test_capture_registry.py` | `roll_closures`, `evidence_families`, `storage_pending`, `embargo`, `contract`. Never selects, ranks or enumerates a market. |
+| `platform` | `scripts/ops/roll_verdict.ps1`, `scripts/ops/staleness_sweep.ps1`, `scripts/ops/status.ps1` (health only), `tests/operations/test_capture_registry.py` | `roll_closures`, `evidence_families`, `storage_pending`, `embargo`, `contract`. Never selects, ranks or enumerates a market. |
 
 `load_family` records the whole-file SHA-256 as `config_sha256` when a family recorder
 starts, so any edit to this file (including the `platform` block) changes that value at
@@ -36,7 +36,9 @@ verdict, in order. Fields: `id`, `status_path` (repo-relative, must match
 Readers fail closed: an unreadable, empty or malformed list makes `roll_verdict.ps1`
 print `UNDECIDABLE: capture closure registry unreadable: ...` and exit 1, and makes the
 staleness sweep raise a `closure/registry` CRITICAL. Neither ever falls back to a
-shorter list.
+shorter list. `status.ps1` applies the same acceptance rule (`Get-CaptureRegistryHealth`) and,
+when it fails, adds a `CAPTURE_REGISTRY:` WARN (not a flag: capture itself is unaffected) and
+reports `capture_registry` in `-Json` output.
 
 The rows reproduce the pre-S1 hand list exactly, including the retired
 `clob-enrichment` closure (dropping it changes verdict output and is a separate reviewed
@@ -95,6 +97,7 @@ changes, change the code owner first, then this table.
 | --- | --- |
 | `tests/operations/test_capture_registry.py` | the closure rows differ from the frozen pre-S1 list; a registered task is not in `scheduled_tasks.json`; an evidence or status path is unclassified (and not pending) or classifies to a different family than declared; a pending row is no longer pending; a budget or embargo reference does not resolve; the `platform` block holds a date; the embargo table above disagrees with the code; the existing `families` readers reject the file |
 | `tests/operations/test_roll_verdict_script.py` | the registry script's verdict output or exit code differs from the pre-S1 script for any fixture shape, or an unreadable registry yields anything but UNDECIDABLE |
+| `tests/operations/test_status_capture_registry_health.py` | status's registry-health check rejects the current registry or accepts a shape `roll_verdict.ps1` refuses |
 | `tests/operations/test_staleness_sweep_script.py` | the sweep's closure list differs from the registry for any arming shape, or an unreadable registry is not CRITICAL |
 
 ## Redeploy
@@ -105,6 +108,7 @@ The platform block is read fresh on every run; nothing long-running imports it.
 | --- | --- | --- |
 | `roll_verdict.ps1` | next invocation (on demand, including `quiet_window_merge.ps1`) | run it from the production checkout for a docs-only branch: same `closures:` line and verdict as before landing |
 | `staleness_sweep.ps1` (`WeatherStalenessSweep`) | its next scheduled run | the first post-landing sweep has no `closure/registry` finding and the same `closure/*` rows as the last pre-landing sweep |
+| `status.ps1` (`CAPTURE_REGISTRY` warn) | next status run | no `CAPTURE_REGISTRY:` warn; `-Json` shows `capture_registry.ok = true` with the five closure ids |
 | family recorders (`families` readers) | next recorder start | `config_sha256` in the family status changes; no other field does |
 
 ## Registry finding (recorded, ids not changed)
