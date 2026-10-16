@@ -1,22 +1,24 @@
 <#
-FC-11 host backlog run (DLv2 S0b), written for master-agent 2026-10-16 (revision 2, after the Fable review).
+FC-11 host backlog run (DLv2 S0b), written for master-agent 2026-10-16 (revision 3, after the Fable re-review).
 Copy to the host as text; run with Windows PowerShell 5.1:
 
   powershell -NoProfile -ExecutionPolicy Bypass -File fc11_host_run.ps1 -RepoRoot <production repo> -DryRun
   powershell -NoProfile -ExecutionPolicy Bypass -File fc11_host_run.ps1 -RepoRoot <production repo> -MaxDays 1
 
 Contract
-- Needs weather.collection.forecast_payload_pit on the checkout (branch claude/dlv2-s0b-fc11-20261016 b509a90aa, the streaming
+- Needs weather.collection.forecast_payload_pit on the checkout (branch claude/dlv2-s0b-fc11-20261016 4c1e64e34, the streaming
   revision or later).
 - Slot (host load policy 4f): start only 03:50-04:00 local; the extractor gets --deadline 04:30 (no new day starts
   after it); the wrapper hard-kills the child tree at 04:45. WeatherClobTiering 05:00, WeatherClobRawTapeTiering 06:00
   and ColdSnapshotNightly 06:50 hold the same lease, so the run must be gone well before them.
-- Takes the shared heavy-work lease (workload 'fc11_backlog_extract'); exits 4 at once if it is busy (an N11/N12
-  merge can hold it to ~03:50). One child, in a kill-on-close job. The lease is released only after teardown is
+- Takes the shared heavy-work lease (workload 'fc11_backlog_extract'). If it is busy (an N11/N12 merge can hold it
+  to ~03:50) it retries every 15 s and exits 4 if it has not got the lease by 04:00:59. One child, in a kill-on-close job. The lease is released only after teardown is
   proved (else poisoned, per the admission contract).
 - Chunked across nights: the extractor output lives in a stable <OutRoot>\backlog. A day with a receipt there is
   skipped; -MaxDays N counts only days extracted this run (default 1). An interrupted day has no receipt and is
-  extracted again; its leftover table is renamed *.orphan-<stamp>, never overwritten or deleted.
+  extracted again; its leftover table is renamed *.orphan-<stamp>, never overwritten or deleted. Only a matching day
+  is sealed (receipts\<day>.json); a mismatch writes receipts\<day>.mismatch-<stamp>.json and is redone after every
+  never-attempted day.
 - Each run's own files (child logs, wrapper_receipt.json) go to a fresh <OutRoot>\runs\fc11-<utc stamp>-<8 hex>.
 - Reads only event folders whose slug date is < 2026-09-30. The date is parsed from the folder NAME before anything
   inside is listed or opened (here for -DryRun; in the extractor for the run, which re-checks each manifest row before
@@ -32,7 +34,7 @@ Exit codes
   1  run finished, at least one day did not match (see the extractor run receipt)
   2  the extractor refused the request (embargo, out-dir inside the input tree, format)
   3  hard stop: the child tree was killed at 04:45 (days written before then keep their receipts)
-  4  not admitted: outside 03:50-04:00, or the lease is busy / admission threw
+  4  not admitted: outside 03:50-04:00, the lease stayed busy until 04:00:59, or admission threw
   5  preflight failed: no venv python, module missing, git HEAD unreadable, output under data, bad snapshots root
   6  teardown not proved (the lease was poisoned: needs the admission recovery procedure), or any wrapper fault
   7  memory stop: the child tree exceeded -TreeCapBytes and was killed
@@ -92,6 +94,12 @@ function Write-Json($Object, [string]$Path) {
 }
 function Get-FileSha([string]$Path) { (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash }
 function Test-DayDone([string]$Day) { [IO.File]::Exists((Join-Path $Backlog "receipts\$Day.json")) }
+function Get-MismatchCount([string]$Day) {
+    $dir = Join-Path $Backlog 'receipts'
+    if (-not [IO.Directory]::Exists($dir)) { return 0 }
+    @([IO.Directory]::EnumerateFiles($dir, "$Day.mismatch-*.json")).Count
+}
+$SealedReceipt = '^\d{4}-\d{2}-\d{2}\.json$'
 
 # ---- dry run: stat only
 if ($DryRun) {
@@ -109,7 +117,7 @@ if ($DryRun) {
             }
         }
         $k = $e.Date.ToString('yyyy-MM-dd')
-        if (-not $byDay.ContainsKey($k)) { $byDay[$k] = [ordered]@{ date = $k; done = (Test-DayDone $k); events = 0; files = 0; bytes = 0L } }
+        if (-not $byDay.ContainsKey($k)) { $byDay[$k] = [ordered]@{ date = $k; done = (Test-DayDone $k); mismatches = (Get-MismatchCount $k); events = 0; files = 0; bytes = 0L } }
         $byDay[$k].events++; $byDay[$k].files += $files; $byDay[$k].bytes += $bytes
     }
     $days = @($byDay.Keys | Sort-Object -Descending | ForEach-Object { [pscustomobject]$byDay[$_] })
@@ -146,9 +154,15 @@ $moduleSha = Get-FileSha $module
 # The dot-sourced helpers set StrictMode 2.0 in this scope; the receipt code below relies on lenient property access.
 Set-StrictMode -Off
 
-$lease = $null
-try { $lease = Enter-WeatherHeavyWorkloadLease -RepoRoot $RepoRoot -Workload $Workload } catch { Write-Output "NOT ADMITTED: $($_.Exception.Message)"; exit 4 }
-if ($null -eq $lease) { Write-Output "NOT ADMITTED: heavy-work lease busy"; exit 4 }
+$lease = $null; $leaseAttempts = 0
+while ($true) {
+    $leaseAttempts++
+    try { $lease = Enter-WeatherHeavyWorkloadLease -RepoRoot $RepoRoot -Workload $Workload } catch { Write-Output "NOT ADMITTED: $($_.Exception.Message)"; exit 4 }
+    if ($null -ne $lease) { break }
+    # Busy (an N11/N12 merge can hold it to ~03:50): retry every 15 s, never starting after $StartLatest.
+    if ((Get-Date).AddSeconds(15) -ge $StartLatest) { Write-Output "NOT ADMITTED: heavy-work lease busy until 04:01 ($leaseAttempts attempts)"; exit 4 }
+    Start-Sleep -Seconds 15
+}
 
 $job = $null; $child = $null; $output = $null; $proved = $false; $hardStop = $false; $memStop = $false; $code = $null; $fault = $null
 $peakTree = 0L; $peakAt = $null; $perProc = @{}; $samples = 0; $sampleErrors = 0; $lastSampleError = $null
@@ -224,15 +238,17 @@ catch { if (-not $fault) { $fault = "run receipt read: $($_.Exception.Message)" 
 # Killed runs (3, 7) write no run receipt: count the day receipts this run wrote instead.
 $dayReceiptsThisRun = @(Get-ChildItem -LiteralPath (Join-Path $Backlog 'receipts') -Filter '*.json' -File -ErrorAction SilentlyContinue |
     Where-Object { $_.LastWriteTime -ge $started })
-$daysComplete = @(Get-ChildItem -LiteralPath (Join-Path $Backlog 'receipts') -Filter '*.json' -File -ErrorAction SilentlyContinue).Count
+$daysComplete = @(Get-ChildItem -LiteralPath (Join-Path $Backlog 'receipts') -Filter '*.json' -File -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -match $SealedReceipt }).Count
 $outputs = @($dayReceiptsThisRun | ForEach-Object {
     $r = $null; try { $r = Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json } catch {}
     [ordered]@{ receipt = $_.Name; receipt_sha256 = Get-FileSha $_.FullName
                 table = if ($r) { $r.output.path } else { $null }; table_bytes = if ($r) { $r.output.bytes } else { $null }
                 table_sha256 = if ($r) { $r.output.sha256 } else { $null }; match = if ($r) { [bool]$r.match } else { $null } } })
 $receipt = [ordered]@{
-    receipt = 'fc11_host_wrapper_receipt'; receipt_revision = 2
-    repo_head = $head; module_sha256 = $moduleSha; workload = $Workload; leased = $true; teardown_proved = $proved; fault = $fault
+    receipt = 'fc11_host_wrapper_receipt'; receipt_revision = 3
+    repo_head = $head; module_sha256 = $moduleSha; workload = $Workload; leased = $true; lease_attempts = $leaseAttempts
+    teardown_proved = $proved; fault = $fault
     started_local = $started.ToString('o'); finished_local = (Get-Date).ToString('o')
     child_deadline_local = $ChildDeadline.ToString('o'); hard_kill_local = $HardKill.ToString('o')
     child_exit_code = $code; hard_stop = $hardStop; memory_stop = $memStop; wrapper_exit_code = $exit
