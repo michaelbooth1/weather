@@ -76,10 +76,10 @@ def _axis(name, values):
             raise ValueError("size_out_of_range")
         return out
     allowed = BAND_RULES if name == "band_rule" else INVENTORY
-    out = sorted(set(values), key=allowed.index)
-    if not out or any(v not in allowed for v in out):
+    chosen = set(values)
+    if not chosen or any(v not in allowed for v in chosen):
         raise ValueError("unknown_" + name)
-    return out
+    return sorted(chosen, key=allowed.index)
 
 
 def build(axes=None) -> tuple[GridPoint, ...]:
