@@ -241,6 +241,48 @@ constraint, or stop an uneconomic/infeasible experiment. Profit is not required
 to close this item honestly. A plan, green suite, paper fill, or no-fill lifecycle
 PASS alone cannot close it.
 
+## October 16 build 1: queue-aware fill model v3 and own-session reconciliation
+
+This is a design note. Nothing has been measured, and nothing goes into the findings digest.
+
+**Why.** The established findings (§8c) say that public prints prove price paths, not our fills. Replay v2 therefore
+brackets fills between the 89a strictly-through and at-price bounds. RE-1 had 5 own fills, 4 of them at price.
+Build 1 adds two things. The first is a third, queue-aware fill hypothesis. The second is a way to compare every
+rule against our own fills, which are the only proof of a fill.
+
+**Parts.** None of these modules is imported by the capture loops or the shadow runner, and no frozen file is
+edited, so the build is roll-free.
+
+- **`maker_core.replay.fill_v3`** (version `fill-v3.0`, opt-in).
+  - It reads `q_ahead`, the displayed size at our own bid level in the last public 88a book at placement.
+  - Eligible prints (at price or strictly through, on v2's YES axis) consume that queue before they fill us.
+  - The pure rule, `deplete`, aggregates per UTC minute.
+  - `EngineV3` subclasses `EngineV2` and replaces only the matcher. The caller injects it via
+    `engine_factory("v3", purpose=...)`. v2 stays the default, and `BOUNDS` is unchanged.
+  - A ratchet pins the frozen v2 files and a golden `EngineV2` summary.
+- **`maker_core.replay.fill_v3_reconcile`** (`python -m maker_core.replay.fill_v3_reconcile`), labelled
+  DESCRIPTIVE.
+  - It replays journaled own legs (RE-1 now) against 88a replay bundles.
+  - For each leg it reports actual own fills against the v2 bounds and v3.
+  - It reports `c_at` and `c_thr` per the LFC definitions, overall and by `q_ahead` tercile, with exact
+    Clopper–Pearson intervals. Prints are the units.
+  - It never pools with replay or shadow results (LFC §8).
+  - It enforces LFC panel exclusion. A leg on a 2026-10-16..11-13 local date is kept only if its band-day appears
+    in `panel_exclusions.jsonl`. Otherwise it is dropped before any outcome is read.
+- **`maker_core.replay.fill_v3_embargo`** guards every dated read: journal rows, local quote dates, bundle days
+  and `EngineV3` plan days.
+  - 2026-09-30..10-15 is refused for every purpose.
+  - Scored reads through 2026-11-13 are refused.
+  - Every scored read is refused until the
+    [v3 registration DRAFT](../../research/maker-fill-v3-replay-registration-DRAFT-2026-10-16.md) is signed.
+
+**Open.**
+
+- Should a strictly-through print sweep the whole level?
+- In the engine, the size of the first fill can depend on print order within a minute.
+- An LFC journal adapter is still needed.
+- 88a bundles for the RE-1 dates are not on the workstation, so a real RE-1 reconcile has not been run.
+
 ## 1. Decision and scope
 
 The experiment asks whether **gross trading P&L + paid maker rebates + paid
