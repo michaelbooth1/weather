@@ -301,5 +301,3 @@ def build_report(run, config, *, replicates=2000, seed=20260926, registration_ha
 
 def report_bytes(report) -> bytes:
     return canonical_bytes(report)
-
-

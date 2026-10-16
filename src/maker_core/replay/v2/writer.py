@@ -370,4 +370,3 @@ def file_digests(folder: Path, names: Iterable[str], chunk: int = 1024**2) -> di
                 size += len(block)
         out[name] = dict(bytes=size, sha256=digest.hexdigest())
     return out
-

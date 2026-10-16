@@ -62,7 +62,9 @@ From test-suite review K ([decision log](../docs/operations/DECISION_LOG.md) row
 
 - each new test module's docstring has a `Guards:` line naming the contract, EF/RF/HWGTW id or incident;
 - no `.ps1` text assert in a module that never executes PowerShell: add an execution test instead;
-- no `_private` imports from `src/` or `app`;
+- no `_private` imports from `src/` or `app` (approved raise 2026-10-15, six `private_src_import`
+  allowances for v1 replay tests in `tests/maker_core/` and `tests/market/`: "frozen v1 replay internals;
+  public alias would change hashed replay sources; drop when v1 replay retires");
 - tests that start git or PowerShell carry `@pytest.mark.spawns`.
 
 Guidelines (not mechanically checked): `pytest.raises(match=...)` only when the refusal reason is the
