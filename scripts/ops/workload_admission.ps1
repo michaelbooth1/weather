@@ -613,6 +613,7 @@ function Get-WeatherWorkstationOfflineModule {
     param()
 
     @(
+        "maker_core.replay.v2.transfer_cli",
         "tools.research.guidance_all_hours.run",
         "tools.research.maker_replay_v2.run",
         "tools.research.missing_information.run",

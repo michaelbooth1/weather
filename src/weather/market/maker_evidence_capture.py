@@ -28,7 +28,7 @@ from weather.market.maker_evidence_public import (
 )
 from weather.market.maker_evidence_store import (
     DEFAULT_STREAM_CAP, SCHEMA, EvidenceStore, WriterLock, RawFootprintLimit,
-    atomic_json, disk_band, digest, encoded, utc_now,
+    atomic_json, disk_band, digest, encoded, utc_now, write_status,
 )
 from weather.market.maker_evidence_archive import compress_closed_segments
 from weather.market.maker_evidence_family import family_universe, load_family
@@ -274,7 +274,7 @@ def capture(args):
                          journal_bytes_written=store.bytes_written,
                          raw_working_bytes=store.raw_bytes, peak_raw_working_bytes=store.peak_raw_bytes,
                          raw_working_limit_bytes=store.max_raw_bytes)
-            atomic_json(root / "status.json", state)
+            write_status(store, root / "status.json", state)
         specs = all_specs()
         status()
         universe = []

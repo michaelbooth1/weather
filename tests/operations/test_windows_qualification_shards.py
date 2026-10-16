@@ -94,6 +94,10 @@ EXPECTED_SHARDS = {
             "tests/operations/test_landing_preflight.py",
             "tests/operations/test_bounded_execution_tape_probe_script.py",
             "tests/operations/test_oracle_author_test_run_script.py",
+            "tests/operations/test_roll_verdict_script.py",
+            "tests/operations/test_staleness_sweep_script.py",
+            "tests/operations/test_status_capture_registry_health.py",
+            "tests/operations/test_schema_families_roll_verdict.py",
         ],
     ),
     "windows-lane-a": (
@@ -104,6 +108,7 @@ EXPECTED_SHARDS = {
             "tests/operations/test_production_baseline_scheduler_rpc.py",
             "tests/operations/test_monitoring_fixes.py",
             "tests/reporting/test_capture_family_status.py",
+            "tests/market/test_maker_evidence_status_replace.py",
             "tests/operations/test_bulk_cold_archive_crypt.py",
             "tests/operations/test_cold_snapshot_nightly.py",
             "tests/operations/test_cold_snapshot_nightly_schedule.py",
