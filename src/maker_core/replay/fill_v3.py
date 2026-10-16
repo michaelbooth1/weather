@@ -43,7 +43,7 @@ from maker_core.replay.v2.kernel import EPSILON
 from maker_core.replay.v2.money import add, mul, q, sub
 
 VERSION = "fill-v3.0"
-LABEL = "queue_v3"
+LABEL = "queue_aware"  # fill-bound label; VERSION carries the rule version
 KINDS = ("at", "thr")
 ZERO = Decimal(0)
 ONE = Decimal(1)

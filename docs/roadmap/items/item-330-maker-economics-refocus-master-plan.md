@@ -282,6 +282,9 @@ edited, so the build is roll-free.
 - In the engine, the size of the first fill can depend on print order within a minute.
 - An LFC journal adapter is still needed.
 - 88a bundles for the RE-1 dates are not on the workstation, so a real RE-1 reconcile has not been run.
+- The reconcile output id `maker-fill-v3-reconcile/0.1` is not in the schema registry yet. Registering it means
+  editing a capture-imported registry module, which is roll-sensitive. Do that in a quiet-window change before
+  any reconcile output is kept as durable evidence.
 
 ## 1. Decision and scope
 

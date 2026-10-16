@@ -48,7 +48,9 @@ from maker_core.replay.fill_v3 import VERSION, Print, deplete, eligibility, q_ah
 from maker_core.replay.fill_v3_embargo import RESERVED_LAST, SCORED_EMBARGO_LAST, check as embargo_check
 from maker_core.replay.payloads import Book, Trade, decode
 
-SCHEMA = "maker_fill_v3_reconcile_v0.1"
+# Research output id, deliberately not in registry form: registering it edits a capture-imported registry
+# module, which is roll-sensitive. Register it in a quiet-window change before the output becomes durable.
+SCHEMA = "maker-fill-v3-reconcile/0.1"
 LABEL = "DESCRIPTIVE"
 PURPOSE = "descriptive"
 FILL_MATCH_SECONDS = 120
