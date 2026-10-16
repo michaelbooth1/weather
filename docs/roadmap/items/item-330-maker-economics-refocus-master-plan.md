@@ -1,5 +1,24 @@
 # 330. Maker Economics And Liquidity Rewards Refocus Master Plan [PARTIAL 2026-09-05 - NON-LIVE IMPLEMENTATION STARTED; ECONOMIC PROOF OPEN]
 
+## October 16 counterfactual tape exporter for build 2 (built; host run pending)
+
+Build 2 (the toxicity table) fits on COUNTERFACTUAL minutes and fills dated on
+or before 2026-09-29. The workstation has no such tape, and the shadow-runner
+tapes start on 10-08. So `weather.market.maker_counterfactual_tape` builds the
+tape on the host from sealed 88a books and prints. It is a resumable,
+create-only zstd Parquet night job (claude/cf-tape-export-20261016). Its
+`to-jsonl` adapter emits build 2's neutral records.
+
+The reserved window 09-30..10-15 is never opened. The contract and the record
+semantics are in
+[the 88a runbook](../../operations/passive-maker-evidence-capture.md#counterfactual-fill-tape-item-330-build-2-input).
+
+Open:
+- the host run;
+- weather-context enrichment;
+- settlement inputs;
+- the choice of fill rule.
+
 ## October 7 maker replay v2 shadow-gate specification
 
 The current draft of the maker replay v2 "shadow agrees with replay" live-gate specification, with OD22 and the v1-exam
