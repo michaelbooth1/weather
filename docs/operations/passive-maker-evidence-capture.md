@@ -295,6 +295,9 @@ freeze (Swarm P audit F2, 2026-10-07).
 and subsequent triggers keep refusing capture until disk recovers. The worker
 never stops another process. `scripts/ops/status.ps1` reads `status.json`, flags
 missing/stale/non-capturing state when armed and displays band count/disk/cap.
+A reader holding `status.json` makes the replace fail on Windows; the recorder retries it
+(5 tries within 2 s) and, if still blocked, journals a WARN `status_write_failed` event, counts
+`status_write_misses` in the next status, and keeps capturing.
 After changing this worker, the production operator must explicitly re-adopt
 its task; it has no effect on the existing supervisors' adoption behavior.
 

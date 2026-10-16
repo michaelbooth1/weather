@@ -134,31 +134,51 @@ Add-Finding 'capture/reward_records' $rewardFinding.severity $rewardFinding.deta
 # alarm fatigue is what makes the next real one get waved through. So compute the unique surface
 # rather than assert it, and when it is non-empty NAME the files -- those are exactly the ones a
 # merge would roll blind. See RETRACTED_AND_FALSE_LEADS.md section 3.
-$closureFiles = [ordered]@{
-    "snapshot"            = "data\snapshots\loop_supervisor_status.json"
-    "clob"                = "data\snapshots\clob_loop_supervisor_status.json"
-    "observation-trigger" = "data\snapshots\observation_trigger_supervisor_status.json"
-    "clob-enrichment"     = "data\snapshots\clob_enrichment_status.json"
-}
-$executionTask = Get-ScheduledTask -TaskName "WeatherExecutionTapeSupervisor" -ErrorAction SilentlyContinue
-$executionWorkerStatus = Join-Path $repo "data\snapshots\execution_tape_status.json"
-$executionWriterLock = Join-Path $repo "data\snapshots\.execution_tape_status.json.writer.lock"
-$executionActive = $false
-if ($executionTask -and [string]$executionTask.State -ne "Disabled") {
-    $executionActive = $true
-}
-elseif (Test-Path -LiteralPath $executionWriterLock) {
-    $executionActive = $true
-}
-elseif (Test-Path -LiteralPath $executionWorkerStatus) {
-    try {
-        $executionWorker = Get-Content -LiteralPath $executionWorkerStatus -Raw | ConvertFrom-Json
-        $executionActive = [string]$executionWorker.state -ne "STOPPED"
+# The closure list is shared with roll_verdict.ps1 through config\capture_families.json
+# (platform.roll_closures, data layer v2 S1). An unreadable registry is itself a CRITICAL
+# finding: with no list, no closure can be checked.
+$closureFiles = [ordered]@{}
+try {
+    $closureRegistry = Get-Content -LiteralPath (Join-Path $repo "config\capture_families.json") -Raw -ErrorAction Stop |
+        ConvertFrom-Json -ErrorAction Stop
+    $closureRows = @($closureRegistry.platform.roll_closures)
+    if ($closureRows.Count -eq 0) { throw "no platform.roll_closures rows" }
+    foreach ($row in $closureRows) {
+        if ([string]$row.id -notmatch '^[a-z][a-z0-9-]*$' -or [string]$row.status_path -notmatch '^data/[A-Za-z0-9_./-]+\.json$' -or
+            [string]$row.arming -notin @("always", "while_armed_or_active")) {
+            throw ("malformed roll_closures row: {0}" -f [string]$row.id)
+        }
+        # Same rule as roll_verdict.ps1: an optional producer is judged by its task's state, so a
+        # row without one is malformed rather than silently "not armed".
+        if ([string]$row.arming -eq "while_armed_or_active" -and
+            -not [string]($row.PSObject.Properties["task"] | ForEach-Object { $_.Value })) {
+            throw ("malformed roll_closures row: {0} (optional producer without a task)" -f [string]$row.id)
+        }
+        $rel = [string]$row.status_path -replace '/', '\'
+        if ([string]$row.arming -eq "always") { $closureFiles[[string]$row.id] = $rel; continue }
+        # Optional producer: required only while armed or still running.
+        $optionalTask = Get-ScheduledTask -TaskName ([string]$row.task) -ErrorAction SilentlyContinue
+        $optionalActive = $false
+        if ($optionalTask -and [string]$optionalTask.State -ne "Disabled") {
+            $optionalActive = $true
+        }
+        elseif ($row.writer_lock -and (Test-Path -LiteralPath (Join-Path $repo ([string]$row.writer_lock -replace '/', '\')))) {
+            $optionalActive = $true
+        }
+        elseif ($row.worker_status -and (Test-Path -LiteralPath (Join-Path $repo ([string]$row.worker_status -replace '/', '\')))) {
+            try {
+                $optionalWorker = Get-Content -LiteralPath (Join-Path $repo ([string]$row.worker_status -replace '/', '\')) -Raw | ConvertFrom-Json
+                $optionalActive = [string]$optionalWorker.state -ne "STOPPED"
+            }
+            catch { $optionalActive = $false }
+        }
+        if ($optionalActive) { $closureFiles[[string]$row.id] = $rel }
     }
-    catch { $executionActive = $false }
 }
-if ($executionActive) {
-    $closureFiles["execution-tape"] = "data\snapshots\execution_tape_supervisor_status.json"
+catch {
+    $closureFiles = [ordered]@{}
+    Add-Finding "closure/registry" "CRITICAL" ("config\capture_families.json platform.roll_closures unreadable: {0}" -f $_.Exception.Message) `
+        "without the registry no capture closure is checked, and roll_verdict.ps1 refuses to judge" $null 1
 }
 function Get-ClosureStatus($path) {
     try { $j = Get-Content -LiteralPath $path -Raw -ErrorAction Stop | ConvertFrom-Json } catch { return $null }

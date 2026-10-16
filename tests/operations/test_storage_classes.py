@@ -236,3 +236,25 @@ def test_storage_5f_attribution_sidecar_matches_its_shadow_export_sibling():
     assert sidecar == sibling
     assert sidecar.artifact_family == "backtest_row_exports"
     assert sidecar.storage_class == ANALYSIS_PROJECTION
+
+
+@pytest.mark.parametrize(("path", "family", "storage_class"), [
+    ("data/evidence/ob1_metar/2026-01-02/03-0123456789ab/rows.jsonl.gz", "evidence_journal_segment",
+     CANONICAL_EVIDENCE),
+    ("data/evidence/ob1_metar/2026-01-02/03-0123456789ab/events.jsonl", "evidence_journal_segment",
+     CANONICAL_EVIDENCE),
+    ("data/evidence/ob1_metar/2026-01-02/03-0123456789ab/manifest.json", "evidence_journal_segment",
+     CANONICAL_EVIDENCE),
+    ("data/evidence/ob1_metar/2026-01-02/day_seal.json", "evidence_journal_segment", CANONICAL_EVIDENCE),
+    ("data/evidence/ob1_metar/ledger.jsonl", "evidence_journal_segment", CANONICAL_EVIDENCE),
+    ("data/evidence/identity/" + "a" * 64 + ".json.gz", "evidence_journal_segment", CANONICAL_EVIDENCE),
+    ("data/evidence/cas/sha256/ab/" + "ab" * 32 + ".blob", "evidence_raw_cas", CANONICAL_EVIDENCE),
+    ("data/evidence/ob1_metar/status.json", "operator_status_json", OPERATOR_CACHE),
+    ("data/evidence/host_status.json", "operator_status_json", OPERATOR_CACHE),
+    ("data/evidence/kill_receipts/20260102T030000Z-ob1_metar-abcdef.json", "operator_status_json", OPERATOR_CACHE),
+])
+def test_evidence_host_paths_are_classified(path, family, storage_class):
+    """Guards: Data Layer v2 S4 evidence host storage (docs/operations/DATA_LAYER_V2_CONTRACT.md storage_pending)."""
+    classification = classify_storage_path(path)
+    assert (classification.artifact_family, classification.storage_class) == (family, storage_class)
+    assert classification.protected is (storage_class == CANONICAL_EVIDENCE)
