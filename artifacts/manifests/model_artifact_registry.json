@@ -1,5 +1,5 @@
 {
-  "artifact_count": 103,
+  "artifact_count": 104,
   "artifact_root": "artifacts",
   "artifacts": [
     {
@@ -1060,6 +1060,26 @@
       "storage_managed": false,
       "suffix": ".json",
       "unmanaged_git_bytes": 57701,
+      "variant_refs": []
+    },
+    {
+      "artifact_id": "misc/remaining_rise_pmf_v1.json",
+      "bytes": 1356608,
+      "feature_schema_version": null,
+      "kind": "misc",
+      "managed_external_bytes": 0,
+      "model_schema_version": null,
+      "modified_at_utc": "2026-10-15T15:33:08.487746+00:00",
+      "path": "artifacts/misc/remaining_rise_pmf_v1.json",
+      "registry_use": "unreferenced",
+      "reproducibility_requirement": "manifest_only",
+      "restore_instruction": "git checkout -- artifacts/misc/remaining_rise_pmf_v1.json",
+      "schema_version": "remaining_rise_pmf_v1",
+      "sha256": "b727fe1a897f8786afcd89514f0bae4a82d9e03ad951f2d72db9e228dd2afb09",
+      "storage_backend": "git",
+      "storage_managed": false,
+      "suffix": ".json",
+      "unmanaged_git_bytes": 1356608,
       "variant_refs": []
     },
     {
@@ -2187,13 +2207,13 @@
       ]
     }
   ],
-  "generated_at_utc": "2026-09-26T04:09:52.212437+00:00",
+  "generated_at_utc": "2026-10-15T15:39:25.789295+00:00",
   "kind_counts": {
     "calibration": 51,
     "coefs_model": 24,
     "hgb_model": 26,
     "manifest": 1,
-    "misc": 1
+    "misc": 2
   },
   "managed_external_bytes": 380413985,
   "registry_use_counts": {
@@ -2201,14 +2221,14 @@
     "active_shadow": 4,
     "shadow_only": 1,
     "smoke_only": 2,
-    "unreferenced": 2,
+    "unreferenced": 3,
     "unregistered_runtime_artifact": 93
   },
   "schema_version": "model_artifact_registry_v0.1",
   "storage_backend_counts": {
-    "git": 77,
+    "git": 78,
     "git_lfs": 26
   },
-  "unmanaged_git_bytes": 7411870,
-  "working_tree_bytes": 387825855
+  "unmanaged_git_bytes": 8768478,
+  "working_tree_bytes": 389182463
 }

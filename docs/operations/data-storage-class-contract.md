@@ -44,6 +44,12 @@ with the same completeness policy and configured station set. Deletion requires
 a reviewed exact-path cleanup manifest naming those sources; no TTL applies.
 This classification grants no deletion authority for the shared blobs.
 
+The t3-r3 shadow tape `snapshots/<event>/remaining_rise_floor_shadow.jsonl` is
+canonical evidence: one outcome-blind row per served snapshot with the stage
+inputs, the served vector, the stage vector and the stage, config, code and
+artifact hashes (`weather.collection.remaining_rise_floor_shadow`). It never
+changes a served byte, and only the pre-registered look may join it to outcomes.
+
 Execution-tape `trades-*.jsonl`, `dedupe-*.jsonl`, `gaps-*.jsonl`,
 `seeds-*.jsonl`, and unrouted rejection parts are canonical evidence. Their
 atomic global and per-market-day status files are operator caches: they can be

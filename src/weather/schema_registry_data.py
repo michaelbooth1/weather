@@ -2633,6 +2633,12 @@ EXCLUDED_SCHEMA_LITERALS = (
         "Execution-host identity hash domain separator, not a serialized artifact schema.",
     ),
     SchemaLiteralExclusion(
+        "remaining_rise_floor_v1",
+        "weather.model.remaining_rise_floor",
+        "model_stage_id",
+        "t3-r3 pre-registered stage identifier bound on tape rows, not a serialized artifact schema.",
+    ),
+    SchemaLiteralExclusion(
         "international_live_execution_principal_v1",
         "weather.execution_host",
         "execution_principal_id_domain",

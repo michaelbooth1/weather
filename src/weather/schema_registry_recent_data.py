@@ -1340,4 +1340,18 @@ RECENT_REGISTERED_SCHEMAS = (
         "active",
         "Ordered night landing plan (heads and SHAs) whose canonical content hash the preflight verdict binds.",
     ),
+    SchemaSpec(
+        "remaining_rise_floor_shadow",
+        "remaining_rise_floor_shadow_v0.1",
+        "weather.collection.remaining_rise_floor_shadow",
+        "active",
+        "Outcome-blind t3-r3 stage tape: one row per snapshot binding floor, cell key, METAR freshness, stage and served vectors to stage/config/code/artifact hashes.",
+    ),
+    SchemaSpec(
+        "remaining_rise_pmf",
+        "remaining_rise_pmf_v1",
+        "weather.calibration.remaining_rise_pmf",
+        "active",
+        "Frozen t3-r3 remaining-rise pmf table (station x month x local hour) read by the remaining_rise_floor_v1 shadow stage.",
+    ),
 )

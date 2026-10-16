@@ -1,0 +1,43 @@
+{
+  "schema": "remaining_rise_floor_stage_v1",
+  "stage_id": "remaining_rise_floor_v1",
+  "owner_module": "weather.model.remaining_rise_floor",
+  "tape": "snapshots/<event>/remaining_rise_floor_shadow.jsonl",
+  "mode": "shadow_outcome_blind",
+  "preregistration": "docs/research/remaining-rise-13-16-preregistration-DRAFT-2026-10-13.md",
+  "preregistration_branch": "claude/model-preregs-20261013",
+  "owner_decisions": "OD-B1 build now; OD-B2 signed only once the artifact hash exists; OD-B4 sign consistency reported, not gating; OD-B3/B5 default (2026-10-15)",
+  "artifact": {
+    "artifact_id": "remaining_rise_pmf_v1",
+    "path": "artifacts/misc/remaining_rise_pmf_v1.json",
+    "sha256": "b727fe1a897f8786afcd89514f0bae4a82d9e03ad951f2d72db9e228dd2afb09",
+    "builder_module": "weather.calibration.remaining_rise_pmf",
+    "build_code_sha256": "a774e16004e5016507332b3aa7bcd17fee009e09cf74d1e815de01d3a6f7b7d8",
+    "history_local_dates": [
+      "2024-05-01",
+      "2026-07-31"
+    ]
+  },
+  "constants": {
+    "stage_id": "remaining_rise_floor_v1",
+    "candidate": "t3-r3",
+    "registry_sha256": "ae86d0350391219d1f96a91e944335eec2e9216f95b0fdc58e9cda3185456559",
+    "artifact_id": "remaining_rise_pmf_v1",
+    "artifact_sha256": "b727fe1a897f8786afcd89514f0bae4a82d9e03ad951f2d72db9e228dd2afb09",
+    "floor_fields": [
+      "guidance_physical_floor",
+      "high_so_far",
+      "trusted_current_max"
+    ],
+    "anchor": "B = round_half_up(F), F = max of finite floor_fields",
+    "cell_key": "station x local target month x local clock hour of captured_at",
+    "band_map": "P(H = B + e): eq [low, high] inclusive, lte <= high, gte >= low",
+    "floor_mask": "non-gte band with high < B set to 0, then renormalise",
+    "renormalise_tolerance": 1e-12,
+    "native_unit": "F",
+    "fallback": "captured served vector, unmasked",
+    "order": "after the served final distribution; shadow only"
+  },
+  "config_sha256": "5e97af37ab92c44a48b3f9006e5f039c000a311ee9c40698ab57c12a452cf678",
+  "code_sha256": "9bb4ba7f1d4af78163d7fe81288ffd65c307443662ac5a42f8c80d6e0a578fcc"
+}
