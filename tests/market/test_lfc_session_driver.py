@@ -661,6 +661,92 @@ def test_a_driver_exception_during_the_grace_waits_for_live_eof_before_closing(w
     assert pack['stop_code'] == 'driver_exception_RuntimeError'
 
 
+class GraceProc:
+    """A live child running its cleanup inside the grace: `lines` then EOF, or (lines=None) it never ends; `fails`
+    lists, per poll, an exception that poll raises (None = a normal poll)."""
+
+    def __init__(self, lines=None, fails=()):
+        self.pending, self.fails, self.polls, self.kills = lines, list(fails), 0, 0
+
+    def poll_line(self, timeout):
+        self.polls += 1
+        if self.fails:
+            failure = self.fails.pop(0)
+            if failure is not None:
+                raise failure
+        if self.pending is None:
+            return None
+        return self.pending.pop(0) if self.pending else D.EOF
+
+    def kill_tree(self):
+        self.kills += 1
+        return 'job'
+
+
+class RaisingClock(FakeClock):
+    def now(self):
+        raise RuntimeError('clock broken')
+
+
+def grace_wait(tmp_path, clock, proc, *, step=0.0):
+    """Run _wait_out_grace alone, as after a driver exception during live's grace; the monotonic source moves `step`
+    seconds per read. Returns the wait state and how many monotonic seconds passed."""
+    mono = {'t': 1000.0}
+
+    def monotonic():
+        mono['t'] += step
+        return mono['t']
+    cfg = D.DriverConfig(pin=tmp_path, expect_commit=SHA, root=tmp_path, snap_dir=tmp_path, python='py')
+    driver = D.SessionDriver(cfg, runner=None, clock=clock, console=FakeConsole(), monotonic=monotonic)
+    st = {'lines': [], 'deadline': NOW + timedelta(seconds=D.LIVE_INTERRUPT_GRACE_SECONDS), 'killed_at': None,
+          'presses': 0, 'eof': False, 'stuck': False}
+    driver._wait_out_grace(proc, st)
+    return st, mono['t'] - 1000.0
+
+
+def test_the_grace_wait_reads_live_to_eof_and_never_kills(tmp_path, clock):
+    proc = GraceProc(lines=['cleanup: cancelling ours', 'cleanup: done'])
+    st, _ = grace_wait(tmp_path, clock, proc, step=0.5)
+    assert st['eof'] and st['killed_at'] is None and proc.kills == 0
+    assert st['lines'] == ['cleanup: cancelling ours', 'cleanup: done']
+
+
+def test_a_frozen_clock_cannot_hold_the_grace_open_past_the_monotonic_cap(tmp_path, clock):
+    proc = GraceProc()  # live never ends; the injected clock never moves past the grace deadline
+    st, elapsed = grace_wait(tmp_path, clock, proc, step=0.5)
+    assert proc.kills == 1 and st['killed_at'] == NOW and not st['eof']
+    cap = D.LIVE_INTERRUPT_GRACE_SECONDS + D.KILL_EOF_SECONDS
+    assert cap <= elapsed <= cap + 1  # killed at the cap, not before
+
+
+def test_a_clock_that_raises_forever_is_bounded_by_the_monotonic_cap(tmp_path):
+    proc = GraceProc()
+    st, elapsed = grace_wait(tmp_path, RaisingClock(NOW), proc, step=30.0)
+    assert proc.kills == 1 and st['killed_at'] is not None  # killed_at stays the in-flight marker: now() raised
+    assert proc.polls < D.GRACE_EXCEPTION_LIMIT  # the cap, not the storm limit, ended it
+
+
+def test_a_clock_that_raises_forever_hits_the_exception_storm_limit(tmp_path):
+    proc = GraceProc()
+    st, _ = grace_wait(tmp_path, RaisingClock(NOW), proc, step=0.0)  # a monotonic source that never moves either
+    assert proc.kills == 1 and st['killed_at'] is not None
+    assert proc.polls == D.GRACE_EXCEPTION_LIMIT
+
+
+def test_an_exception_storm_kills_the_tree_and_ends_the_grace_wait(tmp_path, clock):
+    proc = GraceProc(fails=[RuntimeError('driver bug')] * 100)
+    st, _ = grace_wait(tmp_path, clock, proc)
+    assert proc.kills == 1 and st['killed_at'] == NOW and not st['eof']
+    assert proc.polls == D.GRACE_EXCEPTION_LIMIT
+
+
+def test_scattered_exceptions_are_not_a_storm(tmp_path, clock):
+    fails = ([RuntimeError('blip')] * (D.GRACE_EXCEPTION_LIMIT - 1) + [None]) * 3
+    proc = GraceProc(lines=['cleanup: done'], fails=fails)
+    st, _ = grace_wait(tmp_path, clock, proc)
+    assert st['eof'] and proc.kills == 0 and st['lines'] == ['cleanup: done']
+
+
 def test_a_ctrl_c_inside_kill_tree_still_arms_the_eof_watchdog(tmp_path, clock):
     world = World(tmp_path, clock, neg_risk=(None, None))
     world.stuck.add('live')

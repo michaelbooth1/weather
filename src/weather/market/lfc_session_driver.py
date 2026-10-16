@@ -37,6 +37,7 @@ import re
 import subprocess
 import sys
 import threading
+import time
 
 from weather.market import lfc_constants as LFC
 from weather.market.lfc_ledger import BASELINE_SCHEMA  # the field Compare-T40ToStart checks
@@ -72,6 +73,10 @@ BAND_CAP_FRACTION = Decimal('.98')
 LIVE_INTERRUPT_GRACE_SECONDS = 90
 # After a kill the child's pipe must reach EOF within this many seconds, or the driver says LIVE STILL RUNNING.
 KILL_EOF_SECONDS = 10
+# A driver exception escaped mid-grace (_wait_out_grace): the wait is also bounded without the injected clock, by a
+# monotonic cap of LIVE_INTERRUPT_GRACE_SECONDS + KILL_EOF_SECONDS and by this many consecutive swallowed exceptions;
+# either one kills the tree and ends the wait (a clock that raises or is frozen cannot hold live's job open).
+GRACE_EXCEPTION_LIMIT = 20
 _FAR = datetime.max.replace(tzinfo=timezone.utc)
 SECTION9_ACTION = ('If orders may rest: run `lfc_cli cancel-ours`, then `reconcile`, `verify`, `wallet-verify` and '
                    'Get-OpenOrderCount (runbook section 9). The driver never cancels.')
@@ -605,9 +610,10 @@ class _State:
 
 
 class SessionDriver:
-    def __init__(self, config, *, runner, clock=None, console=None):
+    def __init__(self, config, *, runner, clock=None, console=None, monotonic=None):
         self.config, self.runner = config, runner
         self.clock, self.console = clock or Clock(), console or Console()
+        self.monotonic = monotonic or time.monotonic  # seconds; independent of the injected clock
         self.state = _State()
         self.session0 = bool(config.session0_runs)
         self.pack_dir = None
@@ -729,7 +735,10 @@ class SessionDriver:
 
     def _wait_out_grace(self, proc, st):
         """An exception escaped while live's cleanup grace was pending: keep reading (nothing is shown) until EOF,
-        and kill only when the remaining grace runs out or on another Ctrl+C. Bounded by the grace deadline."""
+        and kill only when the remaining grace runs out or on another Ctrl+C. Bounded by the grace deadline and,
+        without the injected clock, by the monotonic cap and GRACE_EXCEPTION_LIMIT consecutive swallowed exceptions."""
+        cap = self.monotonic() + LIVE_INTERRUPT_GRACE_SECONDS + KILL_EOF_SECONDS
+        failures = 0
         while not st['eof'] and st['killed_at'] is None:
             try:
                 try:
@@ -739,13 +748,22 @@ class SessionDriver:
                     elif item is not None:
                         st['lines'].append(item)
                 finally:
-                    if not st['eof'] and st['killed_at'] is None and self.clock.now() >= st['deadline']:
+                    # the monotonic cap first: a raising or frozen clock is never consulted once it has passed
+                    if not st['eof'] and st['killed_at'] is None and (
+                            self.monotonic() >= cap or self.clock.now() >= st['deadline']):
                         self._kill(proc, st)
+                failures = 0
             except KeyboardInterrupt:
                 st['presses'] += 1
                 self._kill(proc, st)
-            except Exception:  # keep waiting; the deadline above still bounds this loop
-                pass
+            except Exception:  # keep waiting; the deadline, the monotonic cap and the storm limit bound this loop
+                failures += 1
+                if failures >= GRACE_EXCEPTION_LIMIT:
+                    try:
+                        self._kill(proc, st)  # marks killed_at before anything in it can raise
+                    except Exception:
+                        pass
+                    return
 
     def _kill(self, proc, st):
         if st['killed_at'] is None:
