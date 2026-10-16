@@ -24,6 +24,7 @@ from weather.market import lfc_cli
 from weather.market import lfc_session_driver as D
 
 SHA = 'a' * 40
+SEL = 'e' * 64  # the selection sha256 live prints; must never reach the console unscreened
 COND = '0xcond'
 T24_AT = '2026-10-17T14:00:00+00:00'
 NOW = datetime(2026, 10, 18, 15, 0, 0, tzinfo=timezone.utc)
@@ -32,9 +33,12 @@ ENOUGH = str(10 ** 9)
 
 class FakeClock:
     def __init__(self, now):
-        self.t = now
+        self.t, self.raise_next_now = now, False
 
     def now(self):
+        if self.raise_next_now:
+            self.raise_next_now = False
+            raise KeyboardInterrupt
         return self.t
 
     def sleep(self, seconds):
@@ -42,10 +46,13 @@ class FakeClock:
 
 
 class FakeConsole:
-    def __init__(self, tty=True):
-        self.lines, self.tty = [], tty
+    def __init__(self, tty=True, raise_on=None):
+        self.lines, self.tty, self.raise_on = [], tty, raise_on
 
     def say(self, text):
+        if self.raise_on is not None and text == self.raise_on:
+            self.raise_on = None
+            raise KeyboardInterrupt
         self.lines.extend(str(text).splitlines())
 
     def isatty(self):
@@ -54,18 +61,25 @@ class FakeConsole:
 
 class FakeProc:
     """A child: yields its lines (a callable line runs its side effect when the driver reads it), then EOF.
+    Like a real pipe, lines already buffered (a `Type: go` line included) still arrive after a kill; a killed child
+    runs no further side effect. `stuck` = the kill does not end it (no EOF; the clock moves 0.5 s per empty poll).
     `interrupts` lists, per Ctrl+C, how many lines must have been read before poll_line raises KeyboardInterrupt."""
 
-    def __init__(self, key, argv, interactive, lines, code, interrupts=()):
+    def __init__(self, key, argv, interactive, lines, code, interrupts=(), clock=None, stuck=False):
         self.key, self.argv, self.interactive = key, argv, interactive
         self.pending, self.code, self.interrupts = list(lines), code, list(interrupts)
-        self.killed, self.closed, self.yielded = None, False, []
+        self.killed, self.closed, self.yielded, self.clock, self.stuck = None, False, [], clock, stuck
 
     def poll_line(self, timeout):
         if self.interrupts and len(self.yielded) >= self.interrupts[0] and not self.killed:
             self.interrupts.pop(0)
             raise KeyboardInterrupt
-        if self.killed or not self.pending:
+        while self.killed and self.pending and callable(self.pending[0]):
+            self.pending.pop(0)
+        if not self.pending:
+            if self.killed and self.stuck:
+                self.clock.t += timedelta(seconds=0.5)
+                return None
             return D.EOF
         item = self.pending.pop(0)
         item = item() if callable(item) else item
@@ -111,7 +125,7 @@ class World:
         self.overrides, self.procs, self.counter = {}, [], 0
         self.live_mode, self.end_reason, self.cleanup_ok = 'ok', 'fixed_end', True
         self.final_collateral = '100'
-        self.interrupts = {}
+        self.interrupts, self.stuck, self.spenders = {}, set(), dict(D.SPENDERS)
         (self.root / 'ledger.jsonl').write_text('')  # init-ledger ran before any session
         if t24_at:
             write_baseline(self.root, 't24', datetime.fromisoformat(t24_at))
@@ -131,7 +145,8 @@ class World:
         key = self.keyed(argv)
         scripted = self.overrides.get(key)
         lines, code = scripted.pop(0) if scripted else getattr(self, 'h_' + key.replace('-', '_'))(argv)
-        proc = FakeProc(key, argv, interactive, lines, code, self.interrupts.pop(key, ()))
+        proc = FakeProc(key, argv, interactive, lines, code, self.interrupts.pop(key, ()), clock=self.clock,
+                        stuck=key in self.stuck)
         self.procs.append(proc)
         return proc
 
@@ -152,7 +167,7 @@ class World:
     def h_interpreter(self, argv):
         return ['econ_loaded=False', 'version=3.11.9', f"weather={self.pin / 'weather' / '__init__.py'}",
                 f"lfc_cli={self.pin / 'src' / 'weather' / 'market' / 'lfc_cli.py'}", f'repo_root={self.pin}',
-                'sdk=0.6.0'], 0
+                'sdk=0.6.0'] + [f'spender_{k}={v}' for k, v in self.spenders.items()], 0
 
     def h_assignment(self, argv):
         return [D.EXPECTED_ASSIGNMENT_LINE], 0
@@ -163,8 +178,8 @@ class World:
     def h_open_orders(self, argv):
         return ['0'], 0
 
-    def h_snapshot(self, argv):
-        return ['{"rows": []}'], 0
+    def h_snapshot(self, argv):  # raw reader output: an address, cash and positions (owner-private)
+        return ['{"maker_address": "0xmaker", "cash_pusd": "123.45", "positions": [{"asset": "t9", "size": "5"}]}'], 0
 
     def h_baseline(self, argv):
         label = argv[argv.index('--label') + 1]
@@ -204,8 +219,8 @@ class World:
                 'L_filled=0 L_resting=0 open_orders=0 fills=0')
 
     def h_live(self, argv):
-        confirm = str({'condition': COND, 'event_slug': 'nyc-high', 'quote': {'bid': '0.30'}, 'selection_sha256': 'b',
-                       'size': '40', 'run': None, 'minutes': 360})
+        confirm = str({'condition': COND, 'event_slug': 'nyc-high', 'quote': {'bid': '0.30'}, 'selection_sha256': SEL,
+                       'size': '40', 'run': None, 'minutes': 360, 'available_collateral': '123.45'})
         if self.live_mode == 'refused_gate':
             return [str({'status': 'REFUSED', 'refusals': ['baseline_t24_age']})], 1
         if self.live_mode == 'wrong_phrase':
@@ -273,7 +288,7 @@ def test_counted_session_runs_every_step_in_order_and_writes_the_pack(world, clo
     assert 'Type: go abc123' in console.lines  # released only after the screen
     assert console.lines.index('Type: go abc123') > next(i for i, l in enumerate(console.lines)
                                                          if l.startswith('SCREEN PASS'))
-    snaps = sorted(p.name for p in world.snap.iterdir())
+    snaps = sorted(p.name for p in world.snap.iterdir() if p.is_file())  # driver-transcripts/ is a folder
     assert len(snaps) == 6 and len(pack['snapshot_hash_lines']) == 6
 
 
@@ -289,6 +304,29 @@ def test_every_section8_field_is_in_the_pack_and_the_summary(world, clock):
     for key in D.MASTER_FIELDS:
         assert key in summary
     assert '0xmaker' not in summary and '0xmaker' not in json.dumps(pack)  # no address in the paste block
+
+
+def test_the_pack_folder_holds_no_balance_address_or_position(world, clock):
+    pack, _ = drive(world, clock)
+    folder = world.root / pack['pack_folder']
+    assert sorted(p.name for p in folder.iterdir()) == ['pack.json', 'summary.txt']
+    for path in folder.iterdir():
+        text = path.read_text(encoding='utf-8')
+        for needle in ('0xmaker', 'cash_pusd', '123.45', 'available_collateral', "'positions'", '"positions"',
+                       'maker_address', SEL):
+            assert needle not in text, (path.name, needle)
+    private = world.snap / 'driver-transcripts' / pack['pack_folder']
+    raw = '\n'.join(p.read_text(encoding='utf-8') for p in private.iterdir())
+    assert '0xmaker' in raw and '123.45' in raw  # the raw output is kept, owner-private
+    hashes = {s['transcript_sha256'] for s in pack['steps'] if s.get('transcript_sha256')}
+    assert hashes <= {hashlib.sha256(p.read_bytes()).hexdigest() for p in private.iterdir()}
+
+
+def test_the_pinned_sdk_spender_addresses_are_checked_at_setup(world, clock):
+    world.spenders['neg_risk_adapter'] = '0x' + '0' * 40
+    pack, _ = drive(world, clock)
+    assert (pack['stop_step'], pack['stop_code']) == ('setup_interpreter', 'pin_sdk_spenders_differ')
+    assert not world.of('preflight')
 
 
 def test_t24_phase_takes_the_snapshot_and_baseline_only(world, clock):
@@ -316,6 +354,32 @@ def test_a_rejected_first_neg_risk_post_is_flagged_as_a_signing_suspect(tmp_path
     pack, console = drive(world, clock)
     assert pack['runs'][0]['neg_risk_signing_suspect'] is True
     assert any('SIGNING-CONTRACT SUSPECT' in l for l in console.lines)
+
+
+def leaked(console):
+    return [l for l in console.lines if 'abc123' in l or SEL in l or 'Type: go' in l]
+
+
+def test_a_refused_screen_kills_first_and_drops_the_buffered_go_line(tmp_path, clock):
+    world = World(tmp_path, clock, neg_risk=(None, None))
+    world.h_live = lambda argv: ([str({'condition': COND, 'event_slug': 'e', 'selection_sha256': SEL, 'size': '40'}),
+                                  'Type: go abc123', 'more output', world.post], 0)
+    pack, console = drive(world, clock)
+    live = world.of('live')[0]
+    assert pack['stop_code'] == 'neg_risk_missing_or_not_bool' and live.killed == 'job'
+    assert 'Type: go abc123' in live.yielded  # the pipe delivered it after the kill ...
+    assert leaked(console) == [] and not posted(world)  # ... and the console never saw it
+    refused = console.lines.index(next(l for l in console.lines if l.startswith('SCREEN REFUSED')))
+    assert console.lines.index('DRIVER INFO kill_tree') < refused  # killed before anything was said
+
+
+def test_a_kill_without_eof_says_live_still_running(tmp_path, clock):
+    world = World(tmp_path, clock, neg_risk=(None, None))
+    world.stuck.add('live')
+    pack, console = drive(world, clock)
+    assert 'LIVE STILL RUNNING \u2014 Ctrl+C now, type nothing' in console.lines
+    assert pack['live_still_running'] is True and pack['stop_code'] == 'live_still_running_after_kill'
+    assert leaked(console) == [] and world.of('live')[0].closed
 
 
 @pytest.mark.parametrize('values,code', [
@@ -362,8 +426,13 @@ def test_a_plain_band_needs_the_standard_exchange_allowance_not_the_neg_risk_one
 
 
 def test_the_spender_addresses_match_the_pinned_sdk():
-    environments = pytest.importorskip('polymarket.environments')
-    config = environments.PRODUCTION._config
+    from importlib import metadata
+    try:
+        metadata.version('polymarket-client')
+    except metadata.PackageNotFoundError:
+        pytest.skip('polymarket-client is not installed in this interpreter')
+    from polymarket.environments import PRODUCTION  # installed: an import failure is a FAIL, never a skip
+    config = PRODUCTION._config
     for name, address in D.SPENDERS.items():
         assert getattr(config, name) == address
 
@@ -535,6 +604,51 @@ def test_ctrl_c_in_live_gives_its_cleanup_grace_then_a_second_kills_the_tree(wor
     assert any('running its own cleanup' in l for l in console.lines)
 
 
+@pytest.mark.parametrize('where', ['poll_line', 'live_hook', 'say', 'clock_now'])
+def test_a_first_ctrl_c_anywhere_in_live_keeps_its_cleanup_grace(world, clock, monkeypatch, where):
+    lines = ['live preamble', str({'condition': COND, 'event_slug': 'e', 'selection_sha256': SEL, 'size': '40'}),
+             'Type: go abc123', 'posting', 'cleanup: cancelling ours', 'cleanup: done']
+    console = FakeConsole(raise_on='posting' if where == 'say' else None)
+    if where == 'poll_line':
+        world.interrupts['live'] = [4]
+    if where == 'clock_now':
+        def armed(argv):
+            clock.raise_next_now = True
+            return lines, 1
+        world.h_live = armed
+    else:
+        world.h_live = lambda argv: (lines, 1)
+    if where == 'live_hook':
+        real, calls = D.parse_dicts, {'n': 0}
+
+        def parse(found):
+            if found == ['live preamble'] and not calls['n']:  # inside live's hook, once
+                calls['n'] += 1
+                raise KeyboardInterrupt
+            return real(found)
+        monkeypatch.setattr(D, 'parse_dicts', parse)
+    pack, console = drive(world, clock, console=console)
+    live = world.of('live')[0]
+    assert pack['stopped_reason'] == 'owner_interrupt'
+    assert live.killed is None and live.closed  # live ran its cleanup to EOF; the job closed only after that
+    assert any('running its own cleanup' in l for l in console.lines)
+
+
+def test_the_job_is_not_closed_while_the_grace_is_pending(world, clock):
+    """A failure while the grace runs must not close the job (kill-on-close would cut live's cleanup)."""
+    world.interrupts['live'] = [3]
+
+    def boom(argv):
+        def explode():
+            raise RuntimeError('driver bug')
+        return [str({'condition': COND, 'event_slug': 'e', 'selection_sha256': SEL, 'size': '40'}),
+                'Type: go abc123', 'posting', explode], 1
+    world.h_live = boom
+    drive(world, clock)
+    live = world.of('live')[0]
+    assert live.killed is None and not live.closed
+
+
 def test_ctrl_c_outside_a_child_still_writes_the_pack(world, clock):
     calls = {'n': 0}
     real = clock.sleep
@@ -554,8 +668,11 @@ def test_dry_run_never_releases_the_go_line_and_kills_live(world, clock):
     assert pack['stopped_reason'] == 'dry_run_complete' and pack['action'] is None
     live = world.of('live')[0]
     assert live.killed == 'job' and live.interactive
-    assert not any(str(y).startswith('Type: go') for y in live.yielded)  # never read, so never shown
-    assert not any(l.startswith('Type: go') for l in console.lines) and not posted(world)
+    assert 'Type: go abc123' in live.yielded  # buffered in the pipe, delivered after the kill
+    assert leaked(console) == [] and not posted(world)
+    dry = next(l for l in console.lines if l.startswith('DRY RUN'))
+    assert f'condition={COND}' in dry and 'event_slug=nyc-high' in dry and 'size=40' in dry
+    assert not any('available_collateral' in l or '123.45' in l for l in console.lines)
     assert world.procs[-1].key == 'host_free'  # clears the mutex the killed live left abandoned
     assert pack['selection_screen']['status'] == 'PASS'
 

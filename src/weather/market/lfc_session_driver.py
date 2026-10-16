@@ -70,6 +70,9 @@ BAND_CAP_FRACTION = Decimal('.98')
 # Owner Ctrl+C during `live`: the console delivers it to the live child as well, whose own cleanup cancels our
 # orders and reconciles (runbook section 9 step 1). The driver waits this long for that cleanup, then kills the tree.
 LIVE_INTERRUPT_GRACE_SECONDS = 90
+# After a kill the child's pipe must reach EOF within this many seconds, or the driver says LIVE STILL RUNNING.
+KILL_EOF_SECONDS = 10
+_FAR = datetime.max.replace(tzinfo=timezone.utc)
 SECTION9_ACTION = ('If orders may rest: run `lfc_cli cancel-ours`, then `reconcile`, `verify`, `wallet-verify` and '
                    'Get-OpenOrderCount (runbook section 9). The driver never cancels.')
 
@@ -79,7 +82,7 @@ MASTER_FIELDS = (
     'stopped_reason', 'stop_step', 'stop_code', 'pin_commit', 'session_kind', 'runs_planned', 't24',
     'latest_legal_live_start_utc', 'host_free_lines', 'reader_quiet_lines', 'snapshot_hash_lines', 't40_start_line',
     'compare_lines', 'preflight', 'selection_screen', 'runs', 'verify_lines', 'wallet_verify_line', 'attestation',
-    'refusal_codes', 'action')
+    'refusal_codes', 'action', 'live_still_running')
 RUN_FIELDS = ('run', 'folder', 'session_id', 'reason', 'cleanup_ok', 'panic', 'result_line', 'toast_delivered',
               'helper_open_orders_after', 'submit_expirations', 'session_selection_neg_risk',
               'session_selection_fee_class', 'neg_risk_signing_suspect', 'exit_code', 'refusal')
@@ -107,7 +110,10 @@ class Clock:
 
 class Console:
     def say(self, text):
-        print(text, flush=True)
+        try:
+            print(text, flush=True)
+        except UnicodeEncodeError:
+            print(str(text).encode('ascii', 'replace').decode('ascii'), flush=True)
 
     def isatty(self):
         return sys.stdin.isatty()
@@ -562,7 +568,10 @@ INTERPRETER_PY = ("import sys, weather.market.lfc_cli, weather.market.re1_eviden
                   "import weather, weather.paths, importlib.metadata as m\n"
                   "print('version=' + sys.version.split()[0]); print('weather=' + weather.__file__)\n"
                   "print('lfc_cli=' + weather.market.lfc_cli.__file__); print('repo_root=' + str(weather.paths.REPO_ROOT))\n"
-                  "print('sdk=' + m.version('polymarket-client'))")
+                  "print('sdk=' + m.version('polymarket-client'))\n"
+                  "from polymarket.environments import PRODUCTION\n"
+                  "for n in ('standard_exchange', 'neg_risk_exchange', 'neg_risk_adapter'):\n"
+                  " print('spender_' + n + '=' + getattr(PRODUCTION._config, n))")
 
 
 def _same_path(a, b):
@@ -614,10 +623,14 @@ class SessionDriver:
         return row
 
     def _transcript(self, name, lines):
+        """Raw child output holds reader JSON (positions, balances, the address) and live's table with
+        available_collateral: it stays owner-private beside the owner snapshots (Fable review fix 3). The pack folder
+        holds only each transcript's sha256 (per step)."""
         self.state.transcript_index += 1
         raw = ('\n'.join(lines) + '\n').encode('utf-8')
         if self.pack_dir is not None:
-            path = self.pack_dir / 'transcripts' / f'{self.state.transcript_index:02d}-{name}.txt'
+            folder = self.config.snap_dir / 'driver-transcripts' / self.pack_dir.name
+            path = folder / f'{self.state.transcript_index:02d}-{name}.txt'
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(raw)
         return hashlib.sha256(raw).hexdigest()
@@ -627,55 +640,95 @@ class SessionDriver:
 
     # --- children ---
     def _run_child(self, name, argv, *, interactive=False, echo=True, live_hook=None):
-        """Start a child, stream its lines, and handle Ctrl+C: a non-live child is killed at once; `live` gets
-        LIVE_INTERRUPT_GRACE_SECONDS for its own cleanup (the console gave it the Ctrl+C too), a second Ctrl+C or
-        the deadline kills its tree. Returns (exit code, lines, transcript sha256)."""
+        """Start a child and stream its lines. Ctrl+C anywhere in an iteration (poll, hook, console, clock) is one
+        owner press: a non-live child is killed at once; `live` (which got the Ctrl+C from the console too) keeps
+        LIVE_INTERRUPT_GRACE_SECONDS for its own cleanup, and a second press or the deadline kills its tree. The job
+        is never closed while that grace is pending. After any kill every further line is dropped, and EOF must come
+        within KILL_EOF_SECONDS or the driver says LIVE STILL RUNNING. A hook returns None (it echoed the line
+        itself) or a list of messages: kill FIRST, then say them. Returns (exit code, lines, transcript sha256)."""
         proc = self.runner.start(argv, interactive=interactive)
         self.state.current, self.state.current_is_live = proc, live_hook is not None
-        lines, deadline, killed = [], None, False
+        st = {'lines': [], 'deadline': None, 'killed_at': None, 'presses': 0, 'eof': False, 'stuck': False}
+        live = live_hook is not None
+        code = None
         try:
-            while True:
+            while not st['eof'] and not st['stuck']:
                 try:
-                    item = proc.poll_line(0.5)
+                    self._iteration(proc, st, live_hook, echo)
                 except KeyboardInterrupt:
-                    if not self.state.interrupted and live_hook is not None and not killed:
-                        self.state.interrupted = True
-                        deadline = self.clock.now() + timedelta(seconds=LIVE_INTERRUPT_GRACE_SECONDS)
-                        self.say('DRIVER owner Ctrl+C: live is running its own cleanup; Ctrl+C again kills its tree')
-                    elif not killed:
-                        self.state.interrupted = True
-                        self.kill(proc)
-                        killed = True
-                    continue
-                if deadline is not None and not killed and self.clock.now() >= deadline:
-                    self.kill(proc)
-                    killed = True
-                if item is None:
-                    continue
-                if item is EOF:
-                    break
-                lines.append(item)
-                if live_hook is not None:
-                    if live_hook(item, proc) is False:
-                        killed = True
-                elif echo:
-                    self.say(item)
-            while True:
+                    self._press(proc, st, live)
+            while st['eof']:
                 try:
                     code = proc.wait()
                     break
                 except KeyboardInterrupt:
-                    self.state.interrupted = True
-                    self.kill(proc)
+                    self._press(proc, st, live)
         finally:
             try:
-                proc.close()
+                if st['eof'] or st['killed_at'] is not None or st['deadline'] is None:
+                    proc.close()  # kill-on-close; never while live's own cleanup grace is pending
             finally:
                 self.state.current = None
-        sha = self._transcript(name, lines)
+        sha = self._transcript(name, st['lines'])
+        if st['stuck']:
+            raise DriverStop(name, 'live_still_running_after_kill' if live else 'child_still_running_after_kill',
+                             kind='INTERRUPT' if self.state.interrupted else 'FAIL')
         if self.state.interrupted:
             raise DriverStop(name, 'owner_interrupt', kind='INTERRUPT')
-        return code, lines, sha
+        return code, st['lines'], sha
+
+    def _iteration(self, proc, st, live_hook, echo):
+        item = proc.poll_line(0.5)
+        if item is EOF:
+            st['eof'] = True
+            return
+        now = self.clock.now()
+        if st['deadline'] is not None and st['killed_at'] is None and now >= st['deadline']:
+            self._kill(proc, st)
+        if (st['killed_at'] is not None and item is None and
+                now >= st['killed_at'] + timedelta(seconds=KILL_EOF_SECONDS)):
+            st['stuck'] = True
+            self.state.pack['live_still_running'] = True
+            self.say('LIVE STILL RUNNING \u2014 Ctrl+C now, type nothing')
+            return
+        if item is None:
+            return
+        st['lines'].append(item)
+        if st['killed_at'] is not None:
+            return  # after a kill nothing more reaches the console (a buffered `Type: go` line included)
+        if live_hook is None:
+            if echo:
+                self.say(item)
+            return
+        messages = live_hook(item)
+        if messages is not None:
+            self._kill(proc, st)
+            for message in messages:
+                self.say(message)
+
+    def _press(self, proc, st, live):
+        """One owner Ctrl+C; a press while this one is handled counts as the next press."""
+        st['presses'] += 1
+        self.state.interrupted = True
+        while True:
+            try:
+                if live and st['presses'] == 1 and st['killed_at'] is None:
+                    if st['deadline'] is None:
+                        st['deadline'] = _FAR  # grace pending before the clock is read
+                        st['deadline'] = self.clock.now() + timedelta(seconds=LIVE_INTERRUPT_GRACE_SECONDS)
+                    self.say('DRIVER owner Ctrl+C: live is running its own cleanup; Ctrl+C again kills its tree')
+                elif st['killed_at'] is None:
+                    self._kill(proc, st)
+                return
+            except KeyboardInterrupt:
+                st['presses'] += 1
+
+    def _kill(self, proc, st):
+        if st['killed_at'] is None:
+            st['killed_at'] = _FAR  # killed, before anything below can raise
+            method = proc.kill_tree()
+            st['killed_at'] = self.clock.now()
+            self.record('kill_tree', 'INFO', method=method)
 
     def kill(self, proc):
         method = proc.kill_tree()
@@ -793,6 +846,8 @@ class SessionDriver:
         if code != 0 or any(seen.get(k) != v for k, v in expected.items()) or \
                 any(not _same_path(seen.get(k, ''), v) for k, v in paths.items()):
             raise DriverStop('setup_interpreter', 'pin_interpreter_or_imports_unexpected', kind='REFUSED')
+        if any(seen.get('spender_' + k) != v for k, v in SPENDERS.items()):
+            raise DriverStop('setup_interpreter', 'pin_sdk_spenders_differ', kind='REFUSED')  # SF-1 addresses
         code, lines, _ = self._run_child('setup_assignment', ['powershell.exe', '-NoProfile', '-NonInteractive',
                                                               '-Command', HOST_ASSIGNMENT_PS])
         if code != 0 or EXPECTED_ASSIGNMENT_LINE not in [line.strip() for line in lines]:
@@ -836,6 +891,36 @@ class SessionDriver:
             raise DriverStop(name, refusal_code(row, 'preflight_failed'))
         self.record(name, 'PASS', transcript_sha256=sha)
 
+    def screen_selection(self, row):
+        """D8 neg_risk screen and SF-1 allowance screen of the printed selection; returns (ok, code, SCREEN line).
+        The line carries no selection sha256 and no go code."""
+        condition = row['condition']
+        receipt = latest_preflight(self.config.root)
+        try:
+            if json.loads((receipt / 'preflight.json').read_bytes()).get('status') != 'PASS':
+                raise ValueError('latest preflight is not PASS')
+            selection = json.loads((receipt / 'selection.json').read_bytes())
+        except (OSError, ValueError, TypeError, AttributeError):
+            selection = None
+        ok, code, values, fee_class = neg_risk_screen(selection, condition, session0=self.session0)
+        shown = None
+        if ok:  # SF-1: the band's exchange path must be approved per spender, from the preflight's own read
+            try:
+                allowances = preflight_allowances((receipt / 'journal.jsonl').read_bytes())
+            except (OSError, ValueError, TypeError):
+                ok, code = False, 'allowance_evidence_unreadable'
+            else:
+                ok, code, shown = allowance_screen(allowances, row.get('size'), next(iter(values.values())))
+        self.state.pack['selection_screen'] = {
+            'condition': condition, 'event_slug': row.get('event_slug'), 'quote': row.get('quote'),
+            'size': row.get('size'), 'minutes': row.get('minutes'), 'fee_class': fee_class,
+            'neg_risk_preflight': values, 'neg_risk_allowed': sorted(NEG_RISK_ALLOWED[self.session0]),
+            'allowances_atomic': shown, 'preflight_receipt_folder': receipt.name if receipt else None,
+            'status': 'PASS' if ok else code}
+        return ok, code, (f"SCREEN {'PASS' if ok else 'REFUSED ' + code} condition={condition} "
+                          f"event_slug={row.get('event_slug')} fee_class={fee_class} neg_risk={values} "
+                          f"allowed={sorted(NEG_RISK_ALLOWED[self.session0])} allowances_atomic={shown}")
+
     def live(self, run, seconds):
         """`live` with the owner's console as stdin. Its output is held from the selection line on until the
         neg_risk screen (D8) passes, so the owner cannot read `go <6 hex>` before it; a failed screen kills the tree
@@ -844,58 +929,35 @@ class SessionDriver:
         self.test_host_free('live')
         self.say(f"DRIVER latest legal live start {self.state.pack['latest_legal_live_start_utc']}; "
                  'type the go phrase only after the SCREEN PASS line')
-        screen = {'done': False, 'stop': None}
+        screen = {'state': 'pending', 'stop': None}
 
-        def hook(line, proc):
-            if screen['done']:
-                if self.config.to_go_prompt and line.startswith('Type: go '):
-                    return False  # never shown; the tree was killed when the screen passed
+        def hook(line):
+            """None = this hook echoed the line; a list = kill the live tree first, then say these messages."""
+            if screen['state'] == 'passed':
                 self.say(line)
                 return None
+            if screen['state'] != 'pending' or line.lstrip().startswith('Type:'):
+                return None  # nothing after the selection line is shown until the screens passed
             rows = parse_dicts([line])
             if not (rows and 'condition' in rows[0] and 'selection_sha256' in rows[0]):
                 self.say(line)
                 return None
-            screen['done'] = True
-            condition = rows[0]['condition']
-            receipt = latest_preflight(self.config.root)
-            try:
-                if json.loads((receipt / 'preflight.json').read_bytes()).get('status') != 'PASS':
-                    raise ValueError('latest preflight is not PASS')
-                selection = json.loads((receipt / 'selection.json').read_bytes())
-            except (OSError, ValueError, TypeError, AttributeError):
-                selection = None
-            ok, code, values, fee_class = neg_risk_screen(selection, condition, session0=self.session0)
-            shown = None
-            if ok:  # SF-1: the band's exchange path must be approved per spender, from the preflight's own read
-                try:
-                    allowances = preflight_allowances((receipt / 'journal.jsonl').read_bytes())
-                except (OSError, ValueError, TypeError):
-                    ok, code = False, 'allowance_evidence_unreadable'
-                else:
-                    ok, code, shown = allowance_screen(allowances, rows[0].get('size'), next(iter(values.values())))
-            self.state.pack['selection_screen'] = {
-                'condition': condition, 'event_slug': rows[0].get('event_slug'), 'quote': rows[0].get('quote'),
-                'size': rows[0].get('size'), 'minutes': rows[0].get('minutes'), 'fee_class': fee_class,
-                'neg_risk_preflight': values, 'neg_risk_allowed': sorted(NEG_RISK_ALLOWED[self.session0]),
-                'allowances_atomic': shown, 'preflight_receipt_folder': receipt.name if receipt else None,
-                'status': 'PASS' if ok else code}
-            self.say(f"SCREEN {'PASS' if ok else 'REFUSED ' + code} condition={condition} "
-                     f"event_slug={rows[0].get('event_slug')} fee_class={fee_class} neg_risk={values} "
-                     f"allowed={sorted(NEG_RISK_ALLOWED[self.session0])} allowances_atomic={shown}")
-            if ok and any(values.values()):
+            screen['state'] = 'screening'
+            ok, code, text = self.screen_selection(rows[0])
+            if not ok:
+                screen['state'], screen['stop'] = 'stopped', DriverStop('neg_risk_screen', code, kind='REFUSED')
+                return [text]
+            if self.config.to_go_prompt:
+                screen['state'] = 'stopped'
+                screen['stop'] = DriverStop('live_dry_run', 'dry_run_complete', kind='END')
+                return [text, f"DRY RUN stopped at the go prompt: condition={rows[0].get('condition')} "
+                              f"event_slug={rows[0].get('event_slug')} size={rows[0].get('size')} (nothing posted)"]
+            screen['state'] = 'passed'
+            self.say(text)
+            if any(self.state.pack['selection_screen']['neg_risk_preflight'].values()):
                 self.say('SCREEN neg-risk band: SDK 0.6.0 picks the exchange itself (pin review SF-2). If the first '
                          'post is rejected (submit_acknowledgment / exception), REPORT it as a signing-contract '
                          'suspect; do not retry.')
-            if not ok:
-                screen['stop'] = DriverStop('neg_risk_screen', code, kind='REFUSED')
-                self.kill(proc)
-                return False
-            if self.config.to_go_prompt:
-                self.say(line)  # the selection the owner would confirm; the `Type: go` line is never released
-                screen['stop'] = DriverStop('live_dry_run', 'dry_run_complete', kind='END')
-                self.kill(proc)
-                return False
             self.say(line)
             return None
 
@@ -1055,7 +1117,8 @@ class SessionDriver:
         pack = self.state.pack
         pack.update(schema_version=PACK_SCHEMA, phase=self.config.phase, to_go_prompt=self.config.to_go_prompt,
                     session_kind='session0' if self.session0 else 'counted', pin=str(self.config.pin),
-                    started_at_utc=utc_text(started), pack_folder=self.pack_dir.name)
+                    started_at_utc=utc_text(started), pack_folder=self.pack_dir.name,
+                    live_still_running=False)
         stop = None
         try:
             if not self.console.isatty():
