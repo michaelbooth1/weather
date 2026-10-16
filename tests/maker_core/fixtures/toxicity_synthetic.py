@@ -64,5 +64,5 @@ def synthetic_records(*, dates, markets, minutes_per_cell, seed, first=date(2026
                 fills.append(CounterfactualFill(
                     f"fill-{len(fills):05d}", condition, market, day, start, fill_at, side, PRICE,
                     float(rng.choice((10, 20, 30))), replace(context, at_utc=fill_at), marks,
-                    round(settlement, 6)))
+                    round(settlement, 6), fill_at + timedelta(hours=6)))
     return minutes, fills

@@ -17,7 +17,7 @@ def _prints(price_shift=0.0):
     return [
         {"at_utc": AT - timedelta(seconds=40), "band": "84-85", "size": 12, "price": .40 + price_shift},
         {"at_utc": AT - timedelta(seconds=20), "band": "86-87", "size": 7, "price": .30 + price_shift},
-        *({"at_utc": AT - timedelta(milliseconds=100 * i), "band": "82-83", "size": 20 + i,
+        *({"at_utc": AT - timedelta(milliseconds=100 * (i + 1)), "band": "82-83", "size": 20 + i,
            "price": .55 + price_shift} for i in range(5)),
         {"at_utc": AT - timedelta(minutes=5), "band": "88-89", "size": 300, "price": .10 + price_shift},
     ]
@@ -69,6 +69,8 @@ def test_scheduled_print_is_signed_and_nearest():
     {"decided_at_utc": AT + timedelta(seconds=1)},
     {"book": dict(_book(), as_of_utc=AT + timedelta(seconds=1))},
     {"prints": _prints() + [{"at_utc": AT + timedelta(milliseconds=1), "band": "82-83", "size": 1, "price": .5}]},
+    # The triggering print itself, planted exactly at the instant, must not leak into its own context.
+    {"prints": _prints() + [{"at_utc": AT, "band": "82-83", "size": 1, "price": .5}]},
 ])
 def test_feature_after_instant_raises(overrides):
     with pytest.raises(FeatureAfterInstant):
@@ -85,6 +87,14 @@ def test_adapter_refuses_embargoed_dates():
     later = datetime(2026, 10, 20, 17, 54, tzinfo=UTC)
     assert weather_fill_context(at_utc=later, station="KATL", maker_side="NO", horizon_days=1,
                                 close_utc=later + timedelta(hours=1), band="82-83")["sweep_bands"] == 0
+
+
+def test_close_on_the_next_utc_date_is_a_schedule_not_a_read():
+    # A 09-29 context whose market closes on 09-30 UTC reads nothing from the exam window.
+    evening = datetime(2026, 9, 29, 20, tzinfo=UTC)
+    payload = weather_fill_context(at_utc=evening, station="KATL", maker_side="YES", horizon_days=0,
+                                   close_utc=evening + timedelta(hours=8), band="82-83")
+    assert payload["minutes_to_close"] == pytest.approx(480.0)
 
 
 def test_adapter_refuses_unidentified_inputs():

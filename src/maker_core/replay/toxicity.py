@@ -113,6 +113,7 @@ class CounterfactualFill:
     context: FillContext
     marks: Mapping[str, Mark]
     settlement_p_yes: float | None
+    settlement_observed_at_utc: datetime | None = None
     basis: str = BASIS
 
     def __post_init__(self):
@@ -138,10 +139,18 @@ class CounterfactualFill:
         if self.settlement_p_yes is not None and (not math.isfinite(self.settlement_p_yes)
                                                   or not 0 <= self.settlement_p_yes <= 1):
             raise ToxicityError("invalid_settlement")
+        if (self.settlement_p_yes is None) != (self.settlement_observed_at_utc is None):
+            raise ToxicityError("settlement_needs_observation_time")
+        if self.settlement_observed_at_utc is not None:
+            utc_time(self.settlement_observed_at_utc)
+            if self.settlement_observed_at_utc < self.fill_at_utc:
+                raise PointInTimeError("settlement observed before the fill")
         object.__setattr__(self, "marks", MappingProxyType(marks))
 
     def dates(self):
-        return (self.event_date, self.minute_utc, self.fill_at_utc,
+        # The settlement observation is dated too: an event whose settlement was read on an
+        # embargoed date cannot be fitted or scored.
+        return (self.event_date, self.minute_utc, self.fill_at_utc, self.settlement_observed_at_utc,
                 *(m.observed_at_utc for m in self.marks.values()), *self.context.feature_times.values())
 
     def markout(self, horizon: str) -> float | None:
@@ -330,7 +339,10 @@ def _fill_payload(f: CounterfactualFill):
             "size": f.size, "context": f.context.as_dict(),
             "marks": {h: {"observed_at_utc": m.observed_at_utc.isoformat(), "mid_yes": m.mid_yes}
                       for h, m in sorted(f.marks.items())},
-            "settlement_p_yes": f.settlement_p_yes, "basis": f.basis}
+            "settlement_p_yes": f.settlement_p_yes,
+            "settlement_observed_at_utc": (None if f.settlement_observed_at_utc is None
+                                           else f.settlement_observed_at_utc.isoformat()),
+            "basis": f.basis}
 
 
 def record_payload(record) -> dict:
@@ -338,7 +350,8 @@ def record_payload(record) -> dict:
 
 
 def _payload_dates(payload: Mapping):
-    out = [payload.get("event_date"), payload.get("minute_utc"), payload.get("fill_at_utc")]
+    out = [payload.get("event_date"), payload.get("minute_utc"), payload.get("fill_at_utc"),
+           payload.get("settlement_observed_at_utc")]
     out += [m.get("observed_at_utc") for m in (payload.get("marks") or {}).values()]
     context = payload.get("context") or {}
     out += [context.get("at_utc"), *(context.get("feature_times") or {}).values()]
@@ -359,7 +372,9 @@ def parse_record(payload: Mapping, *, purpose: str = "read"):
         return CounterfactualFill(payload["fill_id"], payload["condition_id"], payload["market_id"],
                                   _day(payload["event_date"]), _time(payload["minute_utc"]),
                                   _time(payload["fill_at_utc"]), payload["maker_side"], payload["price"],
-                                  payload["size"], context, marks, payload["settlement_p_yes"], payload["basis"])
+                                  payload["size"], context, marks, payload["settlement_p_yes"],
+                                  None if payload.get("settlement_observed_at_utc") is None
+                                  else _time(payload["settlement_observed_at_utc"]), payload["basis"])
     raise ToxicityError("unknown_record_kind")
 
 

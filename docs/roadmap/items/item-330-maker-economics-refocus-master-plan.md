@@ -28,30 +28,38 @@ the v2 look.
   record, table and estimate is labelled `COUNTERFACTUAL`. They are other makers' price paths, not our
   fills, and **not f** (EF §1b, §8c).
 - **Provider** (`maker_core.quoting.fill_cost`): an injected `FillCostProvider` returns an upper-bound
-  envelope. It takes the max over the pooled row and every supported matching row (at least 30 fills)
-  of the hazard interval's upper end and of the loss implied by each horizon's markout interval lower
-  end. Burst or sweep is a veto. It has two modes:
+  envelope. It takes the max over the pooled row and every matching row of the hazard interval's upper
+  end and of the loss implied by each horizon's markout interval lower end. Each cell is gated on its own
+  fill count (at least 30): hazard on the row's fills, each markout horizon on that cell's fills. Burst or sweep is a veto. It has two modes:
   - `veto_action="cancel"` is the conservative default and withdraws a QUOTE or HOLD with reason
     `FILL_COST_VETO_*`.
   - `"widen"` moves every buy leg `widen_ticks` ticks further out with reason `*_WIDENED`, and withdraws a
     leg that would leave the book.
 
   Master-agent ruled on 10-16 that the choice between them is made at policy wiring, with evidence. The
-  envelope can only tighten. The markout is floored at the -0.43c constant (0.0043) and the caller's hazard is a floor.
+  envelope can only tighten. The markout is floored at the -0.43c constant (0.0043). The table only raises an
+  existing hazard bound: a missing or non-finite caller hazard is kept, so the policy's
+  `MISSING_CONSERVATIVE_FILL_BOUND` refusal still fires. `maker_core.toxicity_table.v0.1` accepts only the
+  default spec; other bucket edges need a new table version.
   `Unavailable` (no table, or the pooled row below support) returns the decision inputs unchanged, which
   is byte-identical to today's constant path. `decide_with_fill_cost` is the adapter policy could later
   adopt.
 - **Weather features** (`weather.market.maker_plugin.toxicity_features`): pure. Routine METAR minutes
   come from `clock.STATION_ROUTINE_MINUTES`. NBM availability later than the instant is ignored. A
-  decided probability, book or print after the instant raises. Market prices are never read; only sizes
-  and times are.
+  decided probability or book after the instant raises, and so does a print at or after it: the print at
+  the fill instant is the fill itself and must not enter its own context (`FillContext` enforces the same).
+  Market prices are never read; only sizes and times are.
 - **Embargo in code** (`maker_core.contracts.evidence_embargo`):
   - every dated read refuses 2026-09-30..10-15;
-  - the fit refuses any date after 2026-09-29, including a mark that crosses midnight;
+  - the fit refuses any date after 2026-09-29, including a mark that crosses midnight and the time a
+    settlement was observed (`settlement_observed_at_utc`), so a 09-29 event settled on 09-30 is not fittable;
   - a scored read (`score_table`) refuses 2026-09-30..11-13.
 
   Each dated entry point has a refusal test: the fit, `read_records`/`parse_record`, the CLI,
   `score_table`, `TableFillCostProvider.estimate`, `validate_table` and the plugin adapter.
+  The embargo reduces each instant to its UTC date, which excludes 09-29 local evenings (already 09-30
+  UTC) from the fit. That is conservative. A market close is a schedule, not a read, so the adapter does
+  not refuse a 09-29 context whose close falls on 09-30.
 - **Known conservatism (kept by ruling, 10-16):** the envelope is the maximum over the pooled row and every
   matching one-way row. A calm context therefore inherits the pooled loss bound, which includes toxic flow.
   It overstates cost for benign contexts and never understates it. A narrower combination, such as the

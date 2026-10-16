@@ -6,11 +6,15 @@ accepts (the plugin may not import the quoting kernel, so it returns data, not t
 
 Point in time: the context instant ``at_utc`` is the fill (or minute start).
 Model-cycle availability times after ``at_utc`` are not yet known and are ignored;
-a decided probability, book or print timestamped after ``at_utc`` is a leak and raises.
+a decided probability or book timestamped after ``at_utc`` is a leak and raises, and
+so is a print at or after ``at_utc`` (the print at the fill instant is the fill itself).
 
 Market prices never enter the information clock or the decided probability: the
 book and prints contribute sizes and timing only (imbalance, depth, print size,
 burst, cross-band sweep). Dated inputs are refused inside the evidence embargo.
+``close_utc`` is a schedule, not a read, so it is not embargo-checked. The embargo
+reduces instants to their UTC date, so a 2026-09-29 local evening (2026-09-30 UTC)
+is already refused; that is conservative and intended.
 """
 from __future__ import annotations
 
@@ -70,7 +74,7 @@ def weather_fill_context(*, at_utc, station: str, maker_side: str, horizon_days:
     decided_at = None if decided_at_utc is None else _time(decided_at_utc)
     book_at = None if book is None else _time(book["as_of_utc"])
     trades = [(_time(p["at_utc"]), str(p["band"]), _size(p["size"])) for p in prints]
-    refuse(at, close, *nbm, decided_at, book_at, *(t for t, _, _ in trades), purpose="read")
+    refuse(at, *nbm, decided_at, book_at, *(t for t, _, _ in trades), purpose="read")
     if close < at:
         raise ValueError("context instant after market close")
     if decided_probability is not None and decided_at is None:
@@ -78,8 +82,8 @@ def weather_fill_context(*, at_utc, station: str, maker_side: str, horizon_days:
     for name, when in (("decided", decided_at), ("book", book_at)):
         if when is not None and when > at:
             raise FeatureAfterInstant(f"{name} timestamped after the context instant")
-    if any(t > at for t, _, _ in trades):
-        raise FeatureAfterInstant("print timestamped after the context instant")
+    if any(t >= at for t, _, _ in trades):
+        raise FeatureAfterInstant("print at or after the context instant")
 
     known_cycles = [t for t in nbm if t <= at]   # Later availability is not yet known: ignore, never leak.
     latest_cycle = max(known_cycles) if known_cycles else None

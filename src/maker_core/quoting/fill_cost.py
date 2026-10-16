@@ -93,7 +93,8 @@ class FillContext:
     """Point-in-time context of one band at ``at_utc`` (trailing data only).
 
     ``feature_times`` names the newest input time behind each feature group;
-    every one must be at or before ``at_utc``. Market prices enter only the
+    every one must be at or before ``at_utc``, and ``prints`` strictly before it
+    (the print at the fill instant is the fill itself). Market prices enter only the
     ``book``/``prints`` groups (flow state), never ``decided`` or ``info_clock``.
     """
     at_utc: datetime
@@ -138,6 +139,9 @@ class FillContext:
             utc_time(at)
             if at > self.at_utc:
                 raise PointInTimeError(f"feature {group} timestamped after the context instant")
+            if group == "prints" and at >= self.at_utc:
+                # The print at the instant is the triggering print itself (train/serve leak).
+                raise PointInTimeError("prints must be strictly before the context instant")
         object.__setattr__(self, "feature_times", MappingProxyType(times))
 
     @classmethod
@@ -245,6 +249,9 @@ def validate_table(table: Mapping) -> TableSpec:
     spec = TableSpec.from_dict(table["spec"])
     if table.get("spec_digest") != digest(spec.as_dict()):
         raise ValueError("toxicity spec digest mismatch")
+    if spec != DEFAULT_SPEC:
+        # TABLE_VERSION pins the declared bucket edges; another spec needs a new version.
+        raise ValueError(f"{TABLE_VERSION} requires the default spec")
     if tuple(table.get("horizons", ())) != HORIZONS:
         raise ValueError("toxicity horizons mismatch")
     last = table.get("fit_window", {}).get("last_date")
@@ -272,8 +279,8 @@ class TableFillCostProvider:
         if ("pooled", "all") not in self.rows:
             raise ValueError("toxicity table lacks a pooled row")
 
-    def _supported(self, row):
-        return row["fills"] >= self.spec.min_fills_per_row
+    def _supported(self, cell):
+        return cell["fills"] >= self.spec.min_fills_per_row
 
     def estimate(self, context: FillContext) -> FillCostEstimate | Unavailable:
         refuse_embargo(context.at_utc, *context.feature_times.values(), purpose="read")
@@ -281,26 +288,33 @@ class TableFillCostProvider:
         flow = labels["flow"]
         veto = {"sweep": "SWEEP", "burst": "BURST"}.get(flow)
         keys = [("pooled", "all")] + [(d, labels[d]) for d in DIMENSIONS]
-        used = [self.rows[k] for k in keys if k in self.rows and self._supported(self.rows[k])]
-        if not used or used[0] is not self.rows[("pooled", "all")]:
+        if not self._supported(self.rows[("pooled", "all")]):
             if veto is None:
                 return Unavailable("counterfactual table below support", context.at_utc)
             return FillCostEstimate(None, CONSTANT_ADVERSE_MARKOUT, veto, "UNSUPPORTED", self.digest, ())
-        hazards, losses, statuses = [], [CONSTANT_ADVERSE_MARKOUT], set()
-        for row in used:
-            interval = row["hazard"]["interval"]
-            if interval:
-                hazards.append(min(1.0, max(0.0, interval[1])))
+        # Hazard cells are keyed by the exposure minute's context and markout cells by the fill
+        # instant's context, so each cell is gated on its own fill count.
+        hazards, losses, statuses, used = [], [CONSTANT_ADVERSE_MARKOUT], set(), []
+        for key in keys:
+            row = self.rows.get(key)
+            if row is None:
+                continue
+            contributed = False
+            if self._supported(row) and row["hazard"]["interval"]:
+                hazards.append(min(1.0, max(0.0, row["hazard"]["interval"][1])))
                 statuses.add(row["hazard"]["status"])
+                contributed = True
             for h in HORIZONS:
                 cell = row["markout"][h]
-                if cell["interval"]:
+                if self._supported(cell) and cell["interval"]:
                     losses.append(-cell["interval"][0])  # loss upper = -(markout lower)
                     statuses.add(cell["status"])
+                    contributed = True
+            if contributed:
+                used.append(f"{key[0]}={key[1]}")
         status = "OK" if statuses <= {"OK"} else "UNDERPOWERED"
         return FillCostEstimate(max(hazards) if hazards else None, max(losses), veto, status,
-                                self.digest, tuple(f"{d}={lv}" for d, lv in keys
-                                                   if (d, lv) in self.rows and self.rows[(d, lv)] in used))
+                                self.digest, tuple(used))
 
 
 @dataclass(frozen=True)
@@ -317,17 +331,19 @@ def policy_fill_inputs(result, *, caller_hazard: float | None,
     """Map a provider result onto the two ``DecisionInputs`` fields and a veto.
 
     ``Unavailable`` returns the caller's own values untouched (today's path).
-    An estimate can only raise either bound: hazard = max(caller, table) and
-    markout = max(caller, constant, table).
+    An estimate can only raise an existing bound: hazard = max(caller, table) and
+    markout = max(caller, constant, table). A missing (None) or non-finite caller
+    hazard is kept as is, so the policy's MISSING_CONSERVATIVE_FILL_BOUND refusal
+    still fires; the table never supplies a hazard the caller did not have.
     """
     if isinstance(result, Unavailable):
         return PolicyFillInputs(caller_hazard, caller_markout, None, "constant_fallback", "UNAVAILABLE")
     if not isinstance(result, FillCostEstimate):
         raise TypeError("provider must return FillCostEstimate or Unavailable")
     hazard = caller_hazard
-    if result.hazard_per_minute_upper is not None:
-        hazard = (result.hazard_per_minute_upper if caller_hazard is None
-                  or not math.isfinite(caller_hazard) else max(caller_hazard, result.hazard_per_minute_upper))
+    if (result.hazard_per_minute_upper is not None and caller_hazard is not None
+            and math.isfinite(caller_hazard)):
+        hazard = max(caller_hazard, result.hazard_per_minute_upper)
     markout = max(caller_markout, CONSTANT_ADVERSE_MARKOUT, result.adverse_markout_upper)
     return PolicyFillInputs(hazard, markout, result.veto, "counterfactual_table", result.status)
 
