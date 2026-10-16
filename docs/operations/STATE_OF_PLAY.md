@@ -1,6 +1,6 @@
 # State of play
 
-**Last updated: 2026-10-16 09:45 America/Toronto (Phase B PASS; LFC session 0 today 11:00-19:50; C 00:30 10-17. No
+**Last updated: 2026-10-16 12:45 America/Toronto (Phase B PASS; LFC session 0 ATTESTED 10-16; C 00:30 10-17. No
 roll-sensitive landing until C0. Owner 10-16 ~09:22: SD Option 1, MG-1 bound, S4 yes, t3-r3 signed, WRH no, reboot deferred).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
@@ -26,7 +26,7 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 - **Workstation: one Claude Code chat directed by the production agent** ([preamble](WORKSTATION_SESSION_PREAMBLE.md));
   relayed owner approvals bind it for serving-model and merges, never money or credentials; credentials never committed.
 - **Workstation tracks** (owner 10-13 ~10:50): T1 shadow MM / replay v2 (critical path), T2 88a 10-15 head, T3 model, T4
-  engineering. **Heavy freeze** 10-16 10:00 EDT until LFC session 0 is done (none 10-14); after it, a **second `workstation_heavy` slot**
+  engineering. **Heavy freeze** lifted 10-16 (LFC session 0 done); a **second `workstation_heavy` slot**
   for focused runs < 5 min (owner 10-13 ~14:35; workstation only, never capture PC or live; script change separate).
 - **Landed is not running:** a new loop, nightly, scorer or task is done only when its Open-commitments verify has run.
 
@@ -38,17 +38,18 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
   `data\maker_shadow\STOP`. Scoring embargo: `maker_shadow_panel.py` refuses UTC 09-30..10-15 and 10-15..11-13 (end stays 11-13: #263 N_req 706, DL 10-14).
 - **Journal pin:** `WeatherManualOrderJournal` pins five files incl. `wallet_reader_client.py`; a merge touching one makes it
   exit 3 until re-registered ([runbook](manual-order-journal.md)).
-- **Wallet reader (8765)** restarted by the owner 10-13 10:21 on `a1014edab` (any-LAN code). The LFC client config is **not** in the session-0 pin `C:\wt\lfc-pinned-e27909a76` yet: the owner re-enters it there on 10-16 before the 10:00 checks (session-0 runbook §3.6 step 3, owner only).
+- **Wallet reader (8765)** on `a1014edab` (any-LAN code) since 10-13. It is serial: space post-run reads and retry one
+  timeout after a quiet wait (session-0 finding, [wallet reader](wallet-reader.md)).
 - **Host Python: Phase B PASS 10-16** (3.11.9: bounded suite 21/21 on the stage venv, release case A, `qualification.json`
   PASS; attempt 1 false NO-GO from verifier r1, fixed by r2; B3 and E finished by hand after the `f611cf22c` wrapper defect:
   capture 10/10, `status.ps1` exit 2 only from 3 standing flags; [runbook](HOST_PYTHON_UPGRADE_RUNBOOK.md) revision notes).
   Venv still 3.11.0. Next: cutover C 00:30 10-17; G3 for the C0 HEAD move is met by the roll-free receipts.
 - Owner 10-13 08:53: C advance GO if every C0 check is clean; G4 amended (auto rollback; a failed one waits for the owner). **DST:**
   DST-H3 and DST-M2 (`41fa7bc57`) landed; OD30 (the 11-01 night rule) holds for 11-01 and lapses 11-02 (owner 10-15).
-- **LFC session 0: Fri 10-16 11:00-19:50 EDT on the workstation**, owner-attended, locked in (owner 10-14 16:22);
-  guard (owner "Keep B" 10-14 16:27; G7 exception): Phase B clean by 09:00 10-16, reader + capture re-checked, else it slips. Code deadline 10-25 00:00Z; new pin by master.
-- LFC logistics take the owner's chat yes in DECISION_LOG (owner 10-13 ~22:00). **No-trade window:** 10-16 T-40 (10:20 EDT)
-  to F2 (scope `--date 2026-10-16`). Session 1 >= 10-18 after a session-0 PASS, never 10-17; t24 the day before (20-30 h).
+- **LFC session 0 ATTESTED 10-16** (~16:35Z, pin `e27909a76`, 0 fills; final verify PASS, `counted_sessions` 0; DL row,
+  [record](../research/live-fill-calibration-session0-record-2026-10-16.md)). **Session 1 next:** >= 10-18, never 10-17, on
+  pin `6bc6f2bec`; t24 the day before (20-30 h); its date is an owner DL row. Code deadline 10-25 00:00Z.
+- LFC logistics take the owner's chat yes in DECISION_LOG (owner 10-13 ~22:00).
 - **Build line** `codex/maker-replay-v2-build-20261003` = `1fd0c295f` (W1/W2/F3, T1-T3, Q2 #269, F4; owner-approved); the
   export nightly stays unregistered until a separate owner yes (>= 10-16).
 - **Maker replay v2** (panel UTC 09-30..10-14 never read): spec v3.4 is the frozen oracle basis; handout r1 signed 10-12
@@ -76,7 +77,6 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 
 | What | Owner | Due | Verify |
 | --- | --- | --- | --- |
-| LFC session 0 re-pin and runbook re-date to 10-16: done; pin `e27909a76` recorded in DL 10-15; reader client config re-entry is an owner step 10-16 | owner | 10-16 10:00 | `config\local\wallet_reader_client.json` present in the pin (name check only) |
 | RF policy A (owner 10-15): roll-free heads land on workstation pre-gate + Windows CI once #274, #276/#284 green; then #209 deselect build | T4; workstation | after C | DL row; lane green |
 | Evening-fix scorer `8cdcb62ec` lands (prereg SIGNED 10-13, sha256 in DL; read 10-29 `--no-market`, item 337 owns it) | T3 | 10-28 | scorer on master |
 | Pinned watchdog redeploy from master, re-register only the watchdog task (owner yes 10-15) | production | after C, by 10-28 | watchdog CURRENT |
