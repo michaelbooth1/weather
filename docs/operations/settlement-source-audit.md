@@ -108,7 +108,7 @@ also on BLOCK days (it is written after the step loop). Its
 date. It does not record the blocker class, so it shows how often the barrier
 blocks, not why.
 
-**Owner question (open).** Choose one:
+**Owner question (decided 2026-10-16: Option 1).** The options were:
 
 1. **Disagreement-day policy.** A `SOURCE_DISAGREEMENT` row whose reconciliation is
    not yet decided (`not_closed`, `fetch_error`) defers the label instead of
@@ -119,9 +119,11 @@ blocks, not why.
    The 12:00-18:00 and 18:00-00:30 windows are protected, so "later" means the
    next Stage-A run, which must then re-check the earlier target date.
 
-Until the owner answers, such a day is a barrier `BLOCK`, which the
-[retracted-claims register](RETRACTED_AND_FALSE_LEADS.md) treats as a real fault;
-the answer decides whether an undecided disagreement stays one.
+The owner chose Option 1 and yes to recording the blocker class on the
+progress-ledger row ([DECISION_LOG](DECISION_LOG.md) 2026-10-16). Until that code
+lands (its own branch, after N12 under a roll verdict), such a day is still a
+barrier `BLOCK`, which the [retracted-claims register](RETRACTED_AND_FALSE_LEADS.md)
+treats as a real fault.
 
 ## Verification and acceptance
 
