@@ -127,6 +127,11 @@ re-reconciles only when every remaining blocker is `PROVISIONAL`; deferred rows
 are not blockers, so they neither prevent nor join that retry, and nothing
 re-reconciles them automatically (that was Option 2, not chosen).
 
+Follow-up candidate (new owner question, not decided): `PROVISIONAL` and
+`UNRECONCILED` rows with the same undecided reconciliation still block, so the
+rule is asymmetric; the owner approved deferral for `SOURCE_DISAGREEMENT` only
+(master-agent ruling 2026-10-16).
+
 **History.** `daily_refresh_status.json` and the audit JSON are overwritten each
 run. `data/backtest/daily_progress_ledger.jsonl` gets one row per non-dry run,
 also on BLOCK days (it is written after the step loop). Its

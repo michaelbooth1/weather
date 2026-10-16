@@ -1,7 +1,7 @@
 # State of play
 
-**Last updated: 2026-10-16 02:30 America/Toronto (Phase B PASS; LFC session 0 today 11:00-19:50; C 00:30 10-17. No
-roll-sensitive landing until C0. Owner 10-15 decisions stand: RF A, U6 10-20, #209, 91a A, watchdog, OD-B1, O9, DLv2 §9).**
+**Last updated: 2026-10-16 09:45 America/Toronto (Phase B PASS; LFC session 0 today 11:00-19:50; C 00:30 10-17. No
+roll-sensitive landing until C0. Owner 10-16 ~09:22: SD Option 1, MG-1 bound, S4 yes, t3-r3 signed, WRH no, reboot deferred).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended. At most 95 lines and about 9 KB, one fact per bullet, detail in the linked owner.** This file owns
@@ -43,14 +43,12 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
   PASS; attempt 1 false NO-GO from verifier r1, fixed by r2; B3 and E finished by hand after the `f611cf22c` wrapper defect:
   capture 10/10, `status.ps1` exit 2 only from 3 standing flags; [runbook](HOST_PYTHON_UPGRADE_RUNBOOK.md) revision notes).
   Venv still 3.11.0. Next: cutover C 00:30 10-17; G3 for the C0 HEAD move is met by the roll-free receipts.
-- Owner 10-13 08:53 (relayed): C advance GO if every C0 check is clean; G4 amended (auto rollback; a failed rollback waits for the owner). DECISION_LOG row.
-- Calendar-shift branch `claude/decisions-pyup-shift-20261013` `84c723ae2` (C 10-18) is **ON HOLD**; not a decision.
-- **DST:** DST-H3 landed; DST-M2 landed in N9 (`41fa7bc57`); OD30 (the 11-01 night rule) holds for 11-01 and lapses 11-02 (owner 10-15).
+- Owner 10-13 08:53: C advance GO if every C0 check is clean; G4 amended (auto rollback; a failed one waits for the owner). **DST:**
+  DST-H3 and DST-M2 (`41fa7bc57`) landed; OD30 (the 11-01 night rule) holds for 11-01 and lapses 11-02 (owner 10-15).
 - **LFC session 0: Fri 10-16 11:00-19:50 EDT on the workstation**, owner-attended, locked in (owner 10-14 16:22);
   guard (owner "Keep B" 10-14 16:27; G7 exception): Phase B clean by 09:00 10-16, reader + capture re-checked, else it slips. Code deadline 10-25 00:00Z; new pin by master.
-- Logistics (dates, times, session day) take the owner's chat yes in DECISION_LOG, no signature (owner 10-13 ~22:00). init-ledger done 10-13.
-- **LFC no-trade window:** 10-16 T-40 (10:20 EDT) to F2; all T-40 steps re-made 10-16 (scope `--date 2026-10-16`).
-- LFC session 1: >= 10-18 after a session-0 PASS, never 10-17; t24 the day before (20-30 h old at start).
+- LFC logistics take the owner's chat yes in DECISION_LOG (owner 10-13 ~22:00). **No-trade window:** 10-16 T-40 (10:20 EDT)
+  to F2 (scope `--date 2026-10-16`). Session 1 >= 10-18 after a session-0 PASS, never 10-17; t24 the day before (20-30 h).
 - **Build line** `codex/maker-replay-v2-build-20261003` = `1fd0c295f` (W1/W2/F3, T1-T3, Q2 #269, F4; owner-approved); the
   export nightly stays unregistered until a separate owner yes (>= 10-16).
 - **Maker replay v2** (panel UTC 09-30..10-14 never read): spec v3.4 is the frozen oracle basis; handout r1 signed 10-12
@@ -58,9 +56,11 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
   look by 11-15. **Lapse 10-30** (owner 10-15); §4 window start: whole minute (no amendment). Owner 10-15: C15/A8 = whole-minute
   intervals (M); E6 MEASURED pull-candidate ceiling (carried x 14/3); §9 trim kept; consolidated rows 13/16/17 binding (DL 10-15).
 - **Model:** MG-1 `b044e0f1` (scored >= 10-15) needs #190; 10-18: #190, then stage (roll verdict + parity); #162 on #190 >= 10-19.
+  MG-1 window BOUND (owner 10-16): D0 10-15, provisional last 11-28, may only move later. t3-r3 13-16 prereg SIGNED 10-16.
+- **Owner 10-16 ~09:22 (DL rows):** SOURCE_DISAGREEMENT Option 1 + ledger blocker class and the MG-1 bound land after N12 (roll
+  verdict); S4 evidence-host registration yes after the 10-18 BLAS receipt; WRH Synoptic token no; reboot deferred.
 - **No-go bar:** [exhaustion register](EXHAUSTION_REGISTER.md) (10-14; the owner keeps the no-go). Maker-track owner review 11-20 (was 10-31). Stratum-C and Aug-Sep gap numbers are tainted; a post-fix scoreboard is URGENT.
-- **Live seals** must be RESEALED before any sealed-lane attempt (#229); the LFC re1 lane consumes none. C3 rehearsal deferred.
-- **Pinned deployments:** watchdog `1794fd3b`, cold snapshot (91a `6e5ff47`), exam U6 `89618c30`; paths in the task actions.
+- **Live seals** must be RESEALED before any sealed-lane attempt (#229); the LFC re1 lane consumes none. C3 rehearsal deferred. **Pinned:** watchdog `1794fd3b`, cold snapshot (91a `6e5ff47`), exam U6 `89618c30`; paths in the task actions.
 - **88a retention hold:** keep UTC 09-27..10-15 (v2) and 10-15..10-30 (desk-study panel); lossless compression ok.
 
 ## Ordered critical path
