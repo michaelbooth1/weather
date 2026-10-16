@@ -80,6 +80,49 @@ A missing file, stale digest, or same-size/same-mtime content change fails the
 sealed build. Files outside the declared set remain uncached. There is no
 persistent cache, implicit seal, or scheduled live-input reuse.
 
+## Reconciliation timing and the learning barrier
+
+Traced from code 2026-10-16 (no host data read). `_classify` in the audit labels a
+row `SOURCE_DISAGREEMENT` when Polymarket reconciliation is `mismatch`, or when
+any supporting bucket (WU final, weather.com max-since-7, live normalized high,
+snapshot high, market resolution) differs from the canonical ledger value. That
+check runs before the `PROVISIONAL` and `UNRECONCILED` checks, so a row whose
+reconciliation is still `not_closed`, `fetch_error` or `not_requested` is labelled
+a disagreement as soon as one supporting source differs. The target-date gate
+rescues a blocking row only when its reconciliation status is `match`
+(`PROMOTION_RECONCILIATION_STATUSES`); nothing else overrides it.
+
+The daily retry (`_provisional_target_blocker_slugs` in
+`daily_refresh_trading_steps.py`) re-reconciles only when every blocker is
+`PROVISIONAL`; its docstring leaves disagreements to a human, so a
+`SOURCE_DISAGREEMENT` day gets no `reconciliation_retry` by design. A day can
+therefore block on a supporting-source difference that a later `match` would have
+cleared. Live and snapshot highs differ from the WU final routinely, so how often
+this blocks is an empirical question.
+
+**History.** `daily_refresh_status.json` and the audit JSON are overwritten each
+run. `data/backtest/daily_progress_ledger.jsonl` gets one row per non-dry run,
+also on BLOCK days (it is written after the step loop). Its
+`daily_refresh_blockers` field lists failed steps with `root_cause_class`
+(`settled_day_analysis_barrier` on a barrier BLOCK) and its error names the target
+date. It does not record the blocker class, so it shows how often the barrier
+blocks, not why.
+
+**Owner question (open).** Choose one:
+
+1. **Disagreement-day policy.** A `SOURCE_DISAGREEMENT` row whose reconciliation is
+   not yet decided (`not_closed`, `fetch_error`) defers the label instead of
+   blocking the learning lane: the label stays non-countable until reconciliation
+   returns `match`, and `mismatch` still blocks.
+2. **Reconcile later.** Make undecided disagreement rows retry-eligible like
+   `PROVISIONAL`, or re-run the audit and barrier once the market has resolved.
+   The 12:00-18:00 and 18:00-00:30 windows are protected, so "later" means the
+   next Stage-A run, which must then re-check the earlier target date.
+
+Until the owner answers, such a day is a barrier `BLOCK`, which the
+[retracted-claims register](RETRACTED_AND_FALSE_LEADS.md) treats as a real fault;
+the answer decides whether an undecided disagreement stays one.
+
 ## Verification and acceptance
 
 Use the project interpreter and the host's required admission wrapper. The
@@ -100,5 +143,5 @@ historical ledger, completed daily chain, promotion readiness, or market edge.
 ## Update this file when
 
 Update when revision ordering, index ownership, public APIs/CLI options,
-publication behavior, resource bounds, sealed hash rules, or consumer contracts
-change. Run the agent documentation audit and matching owner tests.
+publication behavior, resource bounds, sealed hash rules, consumer contracts,
+or the reconciliation retry and barrier policy change. Run the agent documentation audit and matching owner tests.
