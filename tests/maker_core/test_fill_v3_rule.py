@@ -56,7 +56,7 @@ def test_inputs_are_validated():
         deplete(D(1), D(-1), [])
     with pytest.raises(ValueError, match="v3_leg_size"):
         deplete(D(0), D(1), [])
-    with pytest.raises(ValueError, match="v3_print_kind"):
+    with pytest.raises(ValueError, match="v3_unknown_print_kind"):
         Print(T0, "near", D(1))
     with pytest.raises(ValueError, match="v3_naive_print_time"):
         Print(datetime(2020, 1, 1), "at", D(1))

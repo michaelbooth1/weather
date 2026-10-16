@@ -54,15 +54,18 @@ def as_day(value) -> date:
     if isinstance(value, date):
         return value
     if isinstance(value, str):
+        instant = None
         try:
             if len(value) == 10:
                 parsed = date.fromisoformat(value)
                 if parsed.isoformat() == value:
                     return parsed
             else:
-                return as_day(datetime.fromisoformat(value.replace("Z", "+00:00")))
+                instant = datetime.fromisoformat(value.replace("Z", "+00:00"))
         except ValueError:
-            pass
+            instant = None
+        if instant is not None:
+            return as_day(instant)
     raise EmbargoRefused("v3_embargo_day_required")
 
 
