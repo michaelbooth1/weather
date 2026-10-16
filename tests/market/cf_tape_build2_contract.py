@@ -1,7 +1,7 @@
 """Copied record contract of item 330 build 2, for the counterfactual tape's compatibility test.
 
 Not a test module. A verbatim-in-substance copy of the record-reading rules of
-``origin/claude/maker-toxicity-20261016`` @ f0725058c, so the tape test does not
+``origin/claude/maker-toxicity-20261016`` @ 4ae3602fa, so the tape test does not
 import that unmerged branch:
 
 * ``src/maker_core/contracts/evidence_embargo.py``: ``refusal`` / ``refuse``;
@@ -9,6 +9,11 @@ import that unmerged branch:
 * ``src/maker_core/replay/toxicity.py``: ``QuoteMinute``, ``Mark``,
   ``CounterfactualFill``, ``parse_record``, ``read_records`` and the identity
   checks at the top of ``fit`` (``check_fit_joins`` here).
+
+4ae3602fa adds two record rules copied here: ``FillContext`` prints strictly
+before ``at_utc``, and ``settlement_observed_at_utc`` (required with a
+settlement, dated, never before the fill). ``fill_cost.validate_table`` checks a
+fitted table, not records, so it is not copied.
 
 When build 2 merges, replace this copy with imports of the real modules.
 """
@@ -138,6 +143,9 @@ class FillContext:
             utc_time(at)
             if at > self.at_utc:
                 raise PointInTimeError(f"feature {group} timestamped after the context instant")
+            if group == "prints" and at >= self.at_utc:
+                # The print at the instant is the triggering print itself (train/serve leak).
+                raise PointInTimeError("prints must be strictly before the context instant")
         object.__setattr__(self, "feature_times", MappingProxyType(times))
 
     @classmethod
@@ -202,6 +210,7 @@ class CounterfactualFill:
     context: FillContext
     marks: Mapping[str, Mark]
     settlement_p_yes: float | None
+    settlement_observed_at_utc: datetime | None = None
     basis: str = BASIS
 
     def __post_init__(self):
@@ -227,11 +236,18 @@ class CounterfactualFill:
         if self.settlement_p_yes is not None and (not math.isfinite(self.settlement_p_yes)
                                                   or not 0 <= self.settlement_p_yes <= 1):
             raise ToxicityError("invalid_settlement")
+        if (self.settlement_p_yes is None) != (self.settlement_observed_at_utc is None):
+            raise ToxicityError("settlement_needs_observation_time")
+        if self.settlement_observed_at_utc is not None:
+            utc_time(self.settlement_observed_at_utc)
+            if self.settlement_observed_at_utc < self.fill_at_utc:
+                raise PointInTimeError("settlement observed before the fill")
         object.__setattr__(self, "marks", MappingProxyType(marks))
 
 
 def _payload_dates(payload):
-    out = [payload.get("event_date"), payload.get("minute_utc"), payload.get("fill_at_utc")]
+    out = [payload.get("event_date"), payload.get("minute_utc"), payload.get("fill_at_utc"),
+           payload.get("settlement_observed_at_utc")]
     out += [m.get("observed_at_utc") for m in (payload.get("marks") or {}).values()]
     context = payload.get("context") or {}
     out += [context.get("at_utc"), *(context.get("feature_times") or {}).values()]
@@ -251,7 +267,9 @@ def parse_record(payload, *, purpose="read"):
         return CounterfactualFill(payload["fill_id"], payload["condition_id"], payload["market_id"],
                                   _day(payload["event_date"]), _time(payload["minute_utc"]),
                                   _time(payload["fill_at_utc"]), payload["maker_side"], payload["price"],
-                                  payload["size"], context, marks, payload["settlement_p_yes"], payload["basis"])
+                                  payload["size"], context, marks, payload["settlement_p_yes"],
+                                  None if payload.get("settlement_observed_at_utc") is None
+                                  else _time(payload["settlement_observed_at_utc"]), payload["basis"])
     raise ToxicityError("unknown_record_kind")
 
 

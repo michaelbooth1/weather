@@ -3,7 +3,9 @@
 Guards: item 330 build 2 input contract (docs/operations/passive-maker-evidence-capture.md, "Counterfactual
   fill tape"): day-folder date filter before any open (reserved window 2026-09-30..10-15 never listed or opened),
   shared read/write/delete opens, create-only output with orphan set-aside, resume by day receipt, stat-only dry
-  run, and record compatibility with build 2's toxicity.read_records (copied contract, f0725058c).
+  run, record compatibility with build 2's toxicity.read_records (copied contract, 4ae3602fa), point-in-time
+  context (prints strictly before the instant, so a fill's own print is never its context), one fill rule per
+  backlog, and a damaged gzip journal leaving only its own day unsealed.
 """
 from __future__ import annotations
 
@@ -74,6 +76,8 @@ def write_day(root, day, *, cycles=10, gz=False):
     trades = [fill,
               _trade(NO_A, COND_A, minute + timedelta(seconds=30), "0.56", "5", "BUY"),   # above the NO bid
               _trade(YES_B, COND_B, minute + timedelta(seconds=10), "0.21", "7", "BUY"),  # above the B bid
+              # At the fill instant on another band of the event: must not enter the fill's context.
+              _trade(YES_B, COND_B, minute + timedelta(seconds=20), "0.22", "4", "BUY"),
               _trade(YES_C, COND_C, minute + timedelta(seconds=40), "0.30", "9")]         # reserved-dated event
     store.record("trades", json.dumps(trades).encode())
     store.record("trades", json.dumps([fill]).encode())   # an overlapping connection repeats the print
@@ -296,7 +300,8 @@ def test_records_satisfy_the_build2_reader_and_fit_joins(evidence, tmp_path):
     out = tmp_path / "out"
     assert tape.run(evidence, out, now=_clock())["all_match"]
     settlement = tmp_path / "settlement.json"
-    settlement.write_text(json.dumps({COND_A: 1.0}), encoding="utf-8")
+    settlement.write_text(json.dumps({COND_A: {"p_yes": 1.0, "observed_at_utc": "2026-09-29T05:00:00+00:00"}}),
+                          encoding="utf-8")
     for side in ("YES", "NO"):
         target = tmp_path / f"records-{side}.jsonl"
         summary = tape.to_jsonl(out, target, maker_side=side, settlement_path=settlement)
@@ -314,7 +319,12 @@ def test_records_satisfy_the_build2_reader_and_fit_joins(evidence, tmp_path):
     assert fill.minute_utc == datetime(2026, 9, 28, 14, 1, tzinfo=timezone.utc)
     assert sorted(fill.marks) == ["1m", "5m"] and fill.marks["1m"].mid_yes == pytest.approx(0.42)
     assert fill.settlement_p_yes == 1.0 and fill.context.horizon_days == 0
-    assert fill.context.last_print_size == 30.0 and fill.context.sweep_bands == 2   # A and B traded within 60 s
+    assert fill.settlement_observed_at_utc == datetime(2026, 9, 29, 5, tzinfo=timezone.utc)
+    # Strictly before the fill: the fill's own A print (size 30) and the B print at the same instant are
+    # excluded; only B's print 10 s earlier remains. Counting them would give 30.0 and 2 (and build 2 raises).
+    assert fill.context.last_print_size == 0.0 and fill.context.sweep_bands == 1 and fill.context.burst_prints == 0
+    assert fill.context.feature_times["prints"] == datetime(2026, 9, 28, 14, 1, 10, tzinfo=timezone.utc)
+    assert fill.context.feature_times["book"] < fill.fill_at_utc
     assert fill.context.book_imbalance == pytest.approx((110 - 60) / 170)
     first = min(minutes, key=lambda m: (m.condition_id, m.minute_utc))
     assert first.context.feature_times["book"] <= first.context.at_utc <= first.minute_utc
@@ -335,3 +345,48 @@ def test_adapter_refuses_a_table_that_differs_from_its_receipt(evidence, tmp_pat
     table.write_bytes(table.read_bytes() + b"x")
     with pytest.raises(tape.TapeRefused):
         tape.to_jsonl(out, tmp_path / "records.jsonl", maker_side="YES")
+
+
+def test_context_prints_are_strictly_before_the_instant(evidence, tmp_path):
+    out = tmp_path / "out"
+    tape.run(evidence, out, min_date=DAY_LATE, now=_clock())
+    day_dir = out / "tape" / f"utc_day={DAY_LATE.isoformat()}"
+    minutes = pq.read_table(day_dir / "cf_minutes.parquet").to_pylist()
+    fills = pq.read_table(day_dir / "cf_fills.parquet").to_pylist()
+    for row in minutes + fills:
+        assert row["ctx_ft_prints"] is None or row["ctx_ft_prints"] < row["ctx_at_utc"]
+    for row in fills:
+        assert row["ctx_at_utc"] == row["fill_at_utc"] and row["ctx_ft_book"] < row["fill_at_utc"]
+    # The 14:02 quote snapshot was taken at 14:01:10, the instant of B's print: that print is not its context.
+    snapshot = datetime(2026, 9, 28, 14, 1, 10, tzinfo=timezone.utc)
+    at_print = [r for r in minutes if r["quote_snapshot_at_utc"] == snapshot]
+    assert at_print and all(r["ctx_sweep_bands"] == 0 and r["ctx_ft_prints"] is None for r in at_print)
+    # The exporter's own contract check refuses a context that holds a print at its instant.
+    forged = {**{k: tape.to_us(v) if isinstance(v, datetime) else v for k, v in fills[0].items()}}
+    forged["ctx_ft_prints"] = forged["fill_at_utc"]
+    assert tape.contract_violation("fill", forged) == "prints_not_before_context"
+
+
+def test_a_backlog_holds_one_fill_rule(evidence, tmp_path):
+    out = tmp_path / "out"
+    tape.run(evidence, out, min_date=DAY_LATE, now=_clock())
+    with pytest.raises(tape.TapeRefused):
+        tape.run(evidence, out, fill_rule="strictly_through", now=_clock(STAMP_CLOCK + timedelta(hours=1)))
+    assert tape.main(["export", "--root", str(evidence), "--out-dir", str(out), "--fill-rule", "strictly_through"]) == 2
+    # The same rule resumes; a separate backlog takes the other rule.
+    assert tape.run(evidence, out, now=_clock(STAMP_CLOCK + timedelta(hours=2)))["days_extracted"] == 1
+    other = tape.run(evidence, tmp_path / "out-through", fill_rule="strictly_through", now=_clock())
+    assert other["fill_rule"] == "strictly_through" and other["days_extracted"] == 2
+
+
+def test_a_truncated_gzip_journal_leaves_only_its_day_unsealed(evidence, tmp_path):
+    segment = next(p for p in (evidence / DAY_LATE.isoformat()).iterdir() if p.name != UNSEALED)
+    journal = segment / "trades.jsonl.gz"
+    journal.write_bytes(journal.read_bytes()[:-12])
+    out = tmp_path / "out"
+    receipt = tape.run(evidence, out, now=_clock())
+    assert not receipt["all_match"] and receipt["days_extracted"] == 2
+    names = os.listdir(out / "receipts")
+    assert f"{DAY_EARLY.isoformat()}.json" in names and f"{DAY_LATE.isoformat()}.json" not in names
+    mismatch = json.loads((out / "receipts" / next(n for n in names if ".mismatch-" in n)).read_text())
+    assert not mismatch["checks"]["no_segment_or_journal_errors"] and mismatch["errors"]
