@@ -115,6 +115,16 @@ plan family id on the `evidence_host` row of `config/capture_families.json`.
   or inside its own `quiet_local`. Pause and resume are journalled.
 - `python -m weather.evidence.host kill-receipt` runs a deliberate over-cap child
   and must print `"killed": true`.
+- Measured peak (workstation, live fetches, S4 head `f250d0bfc`, 2026-10-16
+  10:05-10:30Z, 1500 s, private bytes sampled every 5 s over the host's process
+  tree; evidence root outside `data/`): the parent peaked at 18.7 MiB sampled
+  (27.5 MiB peak pagefile); each child at 26-29 MiB (ob1_metar 28.7, ob2_nws 27.6,
+  vr3_gamma 26.7, fc1_openmeteo_meta 26.6, fc4_mosmix 26.3, ob3_native 26.2).
+  The largest simultaneous total was 178.8 MiB; the sum of per-process peaks is
+  191.8 MiB; no process was left after `host.stop`. The configured caps bound the
+  worst case at 832 MiB (64 parent + 6 x 128); the S5 light lane, which runs
+  serially with its own 256 MiB Job cap, raises that to 1088 MiB. Re-measure
+  when a family, a cap or the child entry point changes.
 
 ## Commands and registration
 
