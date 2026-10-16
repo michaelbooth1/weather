@@ -665,8 +665,9 @@ class SessionDriver:
                     self._press(proc, st, live)
         finally:
             try:
-                if st['eof'] or st['killed_at'] is not None or st['deadline'] is None:
-                    proc.close()  # kill-on-close; never while live's own cleanup grace is pending
+                if not (st['eof'] or st['killed_at'] is not None or st['deadline'] is None):
+                    self._wait_out_grace(proc, st)  # a driver exception escaped mid-grace: let live finish first
+                proc.close()  # kill-on-close; never while live's own cleanup grace is pending
             finally:
                 self.state.current = None
         sha = self._transcript(name, st['lines'])
@@ -683,10 +684,13 @@ class SessionDriver:
             st['eof'] = True
             return
         now = self.clock.now()
+        if st['killed_at'] == _FAR:  # a Ctrl+C landed inside kill_tree: kill again, start the EOF watchdog now
+            st['killed_at'] = now
+            self.record('kill_tree', 'INFO', method=proc.kill_tree(), retried=True)
         if st['deadline'] is not None and st['killed_at'] is None and now >= st['deadline']:
             self._kill(proc, st)
-        if (st['killed_at'] is not None and item is None and
-                now >= st['killed_at'] + timedelta(seconds=KILL_EOF_SECONDS)):
+        # any output after a kill counts as still running: a killed child that keeps printing never reaches EOF
+        if st['killed_at'] is not None and now - st['killed_at'] >= timedelta(seconds=KILL_EOF_SECONDS):
             st['stuck'] = True
             self.state.pack['live_still_running'] = True
             self.say('LIVE STILL RUNNING \u2014 Ctrl+C now, type nothing')
@@ -722,6 +726,26 @@ class SessionDriver:
                 return
             except KeyboardInterrupt:
                 st['presses'] += 1
+
+    def _wait_out_grace(self, proc, st):
+        """An exception escaped while live's cleanup grace was pending: keep reading (nothing is shown) until EOF,
+        and kill only when the remaining grace runs out or on another Ctrl+C. Bounded by the grace deadline."""
+        while not st['eof'] and st['killed_at'] is None:
+            try:
+                try:
+                    item = proc.poll_line(0.5)
+                    if item is EOF:
+                        st['eof'] = True
+                    elif item is not None:
+                        st['lines'].append(item)
+                finally:
+                    if not st['eof'] and st['killed_at'] is None and self.clock.now() >= st['deadline']:
+                        self._kill(proc, st)
+            except KeyboardInterrupt:
+                st['presses'] += 1
+                self._kill(proc, st)
+            except Exception:  # keep waiting; the deadline above still bounds this loop
+                pass
 
     def _kill(self, proc, st):
         if st['killed_at'] is None:

@@ -62,13 +62,16 @@ class FakeConsole:
 class FakeProc:
     """A child: yields its lines (a callable line runs its side effect when the driver reads it), then EOF.
     Like a real pipe, lines already buffered (a `Type: go` line included) still arrive after a kill; a killed child
-    runs no further side effect. `stuck` = the kill does not end it (no EOF; the clock moves 0.5 s per empty poll).
+    runs no further side effect. `stuck` = the kill does not end it (no EOF; the clock moves 0.5 s per empty poll);
+    `chatty` = stuck and still printing after the kill. `kill_raises` = a Ctrl+C lands inside kill_tree (once).
     `interrupts` lists, per Ctrl+C, how many lines must have been read before poll_line raises KeyboardInterrupt."""
 
-    def __init__(self, key, argv, interactive, lines, code, interrupts=(), clock=None, stuck=False):
+    def __init__(self, key, argv, interactive, lines, code, interrupts=(), clock=None, stuck=False, chatty=False,
+                 kill_raises=False):
         self.key, self.argv, self.interactive = key, argv, interactive
         self.pending, self.code, self.interrupts = list(lines), code, list(interrupts)
-        self.killed, self.closed, self.yielded, self.clock, self.stuck = None, False, [], clock, stuck
+        self.killed, self.closed, self.yielded, self.clock, self.stuck = None, False, [], clock, stuck or chatty
+        self.chatty, self.kill_raises, self.kills = chatty, kill_raises, 0
 
     def poll_line(self, timeout):
         if self.interrupts and len(self.yielded) >= self.interrupts[0] and not self.killed:
@@ -79,6 +82,9 @@ class FakeProc:
         if not self.pending:
             if self.killed and self.stuck:
                 self.clock.t += timedelta(seconds=0.5)
+                if self.chatty:
+                    self.yielded.append('still printing')
+                    return 'still printing'
                 return None
             return D.EOF
         item = self.pending.pop(0)
@@ -90,7 +96,10 @@ class FakeProc:
         return 1 if self.killed else self.code
 
     def kill_tree(self):
-        self.killed = 'job'
+        self.killed, self.kills = 'job', self.kills + 1
+        if self.kill_raises:
+            self.kill_raises = False
+            raise KeyboardInterrupt
         return 'job'
 
     def close(self):
@@ -126,6 +135,7 @@ class World:
         self.live_mode, self.end_reason, self.cleanup_ok = 'ok', 'fixed_end', True
         self.final_collateral = '100'
         self.interrupts, self.stuck, self.spenders = {}, set(), dict(D.SPENDERS)
+        self.chatty, self.kill_raises = set(), set()
         (self.root / 'ledger.jsonl').write_text('')  # init-ledger ran before any session
         if t24_at:
             write_baseline(self.root, 't24', datetime.fromisoformat(t24_at))
@@ -146,7 +156,7 @@ class World:
         scripted = self.overrides.get(key)
         lines, code = scripted.pop(0) if scripted else getattr(self, 'h_' + key.replace('-', '_'))(argv)
         proc = FakeProc(key, argv, interactive, lines, code, self.interrupts.pop(key, ()), clock=self.clock,
-                        stuck=key in self.stuck)
+                        stuck=key in self.stuck, chatty=key in self.chatty, kill_raises=key in self.kill_raises)
         self.procs.append(proc)
         return proc
 
@@ -634,19 +644,43 @@ def test_a_first_ctrl_c_anywhere_in_live_keeps_its_cleanup_grace(world, clock, m
     assert any('running its own cleanup' in l for l in console.lines)
 
 
-def test_the_job_is_not_closed_while_the_grace_is_pending(world, clock):
-    """A failure while the grace runs must not close the job (kill-on-close would cut live's cleanup)."""
+def test_a_driver_exception_during_the_grace_waits_for_live_eof_before_closing(world, clock):
+    """A failure while the grace runs must not cut live's cleanup: the driver reads on to EOF, then closes."""
     world.interrupts['live'] = [3]
 
     def boom(argv):
         def explode():
             raise RuntimeError('driver bug')
         return [str({'condition': COND, 'event_slug': 'e', 'selection_sha256': SEL, 'size': '40'}),
-                'Type: go abc123', 'posting', explode], 1
+                'Type: go abc123', 'posting', explode, 'cleanup: cancelling ours', 'cleanup: done'], 1
     world.h_live = boom
-    drive(world, clock)
+    pack, console = drive(world, clock)
     live = world.of('live')[0]
-    assert live.killed is None and not live.closed
+    assert live.killed is None and live.closed and not live.pending  # read to EOF, never killed
+    assert 'cleanup: done' in live.yielded and 'cleanup: done' not in console.lines
+    assert pack['stop_code'] == 'driver_exception_RuntimeError'
+
+
+def test_a_ctrl_c_inside_kill_tree_still_arms_the_eof_watchdog(tmp_path, clock):
+    world = World(tmp_path, clock, neg_risk=(None, None))
+    world.stuck.add('live')
+    world.kill_raises.add('live')
+    pack, console = drive(world, clock)  # no OverflowError from the in-flight kill marker
+    live = world.of('live')[0]
+    assert live.kills == 2  # the interrupted kill is retried
+    assert 'LIVE STILL RUNNING \u2014 Ctrl+C now, type nothing' in console.lines
+    assert pack['live_still_running'] is True and pack['stopped_reason'] == 'owner_interrupt'
+    assert leaked(console) == [] and live.closed
+
+
+def test_a_killed_live_that_keeps_printing_still_triggers_the_watchdog(tmp_path, clock):
+    world = World(tmp_path, clock, neg_risk=(None, None))
+    world.chatty.add('live')
+    pack, console = drive(world, clock)
+    assert 'LIVE STILL RUNNING \u2014 Ctrl+C now, type nothing' in console.lines
+    assert pack['live_still_running'] is True and pack['stop_code'] == 'live_still_running_after_kill'
+    assert 'still printing' in world.of('live')[0].yielded and 'still printing' not in console.lines
+    assert leaked(console) == []
 
 
 def test_ctrl_c_outside_a_child_still_writes_the_pack(world, clock):

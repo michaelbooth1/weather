@@ -125,7 +125,8 @@ Every reader-touching step (open-order count, baseline, verify, wallet-verify, s
 **Ctrl+C.** Children run in a Windows job object with kill-on-close (fallback `taskkill /F /T`). Ctrl+C kills a
 non-live child at once. During `live` the console also delivers Ctrl+C to live, which runs its own cleanup; the driver
 waits up to 90 s for it, and a second Ctrl+C kills the tree. A first Ctrl+C never kills live, wherever it lands in
-the driver's loop, and the job is not closed while that grace is pending. Either way the pack is written with
+the driver's loop, and the job is not closed while that grace is pending. If the driver itself fails during the grace, it
+keeps reading until live's output ends (at most the remaining grace) before it closes the job. Either way the pack is written with
 `stopped_reason=owner_interrupt`; then follow RB §9.
 
 **Evidence pack.** `<campaign root>\driver-<UTC stamp>\` holds only `pack.json` and `summary.txt`. The raw child
