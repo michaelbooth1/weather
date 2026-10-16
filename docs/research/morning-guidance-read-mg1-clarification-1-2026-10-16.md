@@ -9,12 +9,15 @@ approval).
 ## Clarification 1
 
 1. **D0 = 2026-10-15, fixed by the owner.** It replaces the derivation in pre-registration §3, which defined D0 as the
-   first date satisfying conditions (a)-(e). In particular it sets aside §3 (b), the condition that parser v2 be landed
-   and verified in production before the first T+0 snapshot of D0.
-2. **Parser v2 verification stays a reporting caveat.** The read reports, per counted date, whether parser v2 was
-   landed and verified (the §3 (b) definition: all three capture workers recovered, and a full prior day of manifests
-   with `parser_version = 2` and v2 provenance on every US NBM row) before that date's first T+0 snapshot. It is
-   disclosed beside the result and is not a pass, void or exclusion condition.
+   first date satisfying conditions (a)-(e). It sets aside §3 (b), the condition that parser v2 be landed and verified
+   in production before the first T+0 snapshot of D0, and §3 (c), the condition that the MG-1 shadow stage and the
+   unfiltered v2 diagnostics be captured. §3 (a) holds by construction, and §3 (d) is satisfied anyway, since
+   2026-10-15 is after the 2026-10-04 signature.
+2. **Parser v2 verification and shadow-stage capture stay reporting caveats.** The read reports, per counted date,
+   whether parser v2 was landed and verified (the §3 (b) definition: all three capture workers recovered, and a full
+   prior day of manifests with `parser_version = 2` and v2 provenance on every US NBM row) before that date's first
+   T+0 snapshot, and whether the MG-1 shadow stage and the unfiltered v2 diagnostics were captured for it (§3 (c)).
+   Both are disclosed beside the result and are not pass, void or exclusion conditions.
 3. **The count is unchanged.** From D0 the evaluation counts each promotion-countable date, with no skipping and no
    choice, until 45 are counted (§3).
 4. **The reserved window follows from D0.** `MG1_D0 = 2026-10-15` and a provisional `MG1_LAST = 2026-11-28`
