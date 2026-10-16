@@ -13,11 +13,22 @@ The reserved window 09-30..10-15 is never opened. The contract and the record
 semantics are in
 [the 88a runbook](../../operations/passive-maker-evidence-capture.md#counterfactual-fill-tape-item-330-build-2-input).
 
+Rulings after the Fable review (RUN AFTER FIXES):
+- One fill rule per run, in separate backlogs (`backlog-at_price`,
+  `backlog-strictly_through`). Build 2's default fit uses `strictly_through`;
+  `at_price` is the declared sensitivity. `print_side` (aggressor) is kept as
+  recorded.
+- Contexts use only prints strictly before the instant, so a fill's own print
+  never enters its context (build 2 4ae3602fa raises otherwise).
+- Accepted as conservative: the tape never reads a neighbouring UTC day, so
+  minutes starting after midnight and marks due after midnight are dropped
+  and counted. Events dated on or before 09-29 also lose their hours on UTC
+  09-30, because that folder is reserved.
+
 Open:
 - the host run;
 - weather-context enrichment;
-- settlement inputs;
-- the choice of fill rule.
+- settlement inputs (with observation times).
 
 ## October 7 maker replay v2 shadow-gate specification
 

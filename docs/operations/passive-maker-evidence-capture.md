@@ -197,10 +197,18 @@ night job `cftape_host_run.ps1` (claude/night-plans), under the shared lease,
 with the same slot, caps and exit codes as FC-11.
 
 ```powershell
-python -m weather.market.maker_counterfactual_tape export --root <88a root> --out-dir C:\cftape-out\backlog --dry-run
-python -m weather.market.maker_counterfactual_tape export --root <88a root> --out-dir C:\cftape-out\backlog --max-days 1 --deadline <iso> --code-commit <head>
-python -m weather.market.maker_counterfactual_tape to-jsonl --tape-dir C:\cftape-out\backlog --maker-side YES --output <new file>.jsonl [--settlement-json <condition -> p_yes>]
+python -m weather.market.maker_counterfactual_tape export --root <88a root> --out-dir C:\cftape-out\backlog-strictly_through --fill-rule strictly_through --dry-run
+python -m weather.market.maker_counterfactual_tape export --root <88a root> --out-dir C:\cftape-out\backlog-strictly_through --fill-rule strictly_through --max-days 1 --deadline <iso> --code-commit <head>
+python -m weather.market.maker_counterfactual_tape to-jsonl --tape-dir C:\cftape-out\backlog-strictly_through --maker-side YES --output <new file>.jsonl [--settlement-json <file>]
 ```
+
+**Fill rule per run.** Each run uses one `--fill-rule` (default `at_price`),
+recorded in every receipt. A backlog holds one rule: `export` refuses (exit 2)
+an `--out-dir` that already holds day receipts of the other rule. The host
+wrapper writes `backlog-<rule>`, so the two rules are two runs. Build 2's
+default fit uses `strictly_through` (print < bid); `at_price` (print ≤ bid) is
+its declared sensitivity. `print_side` is the print's recorded aggressor (taker)
+side, kept as is; a resting BUY is hit by an aggressor SELL.
 
 **Embargo and reads**
 - Only dates on or before 2026-09-29 are read. A day folder's date comes from
@@ -214,6 +222,9 @@ python -m weather.market.maker_counterfactual_tape to-jsonl --tape-dir C:\cftape
   `.writer.lock` and `status.json` are never opened, and no lock is taken.
 - An unsealed segment is listed and counted, never read.
 - Every journal is checked against its manifest: decompressed bytes and SHA-256.
+- A damaged segment (unreadable file, bad or truncated gzip, manifest
+  mismatch) fails only its own day: that day gets a mismatch receipt and stays
+  unsealed, and the run continues.
 
 **Output**
 - Output goes under an `--out-dir` outside `data\` and outside the 88a root:
@@ -239,11 +250,11 @@ opens the exposure minute `ceil_minute(c)`.
 | Field | Semantics |
 | --- | --- |
 | `cf_minutes` row | One per token and minute. It is a hypothetical resting BUY of 20 shares at that token's best bid. The first snapshot in a minute wins. A row needs `0 < bid < 1`. Its context is taken at `c`. |
-| `cf_fills` row | The first `last_trade_price` print on the token in `[minute, minute + 60 s)` that crosses the bid under `maker_core.shadow.paper.crosses`. The default rule is `at_price`: print ≤ bid. `size = min(print size, 20)`, and `crossing_prints_in_minute` counts every crossing print. Prints repeated by overlapping connections count once. |
-| Context | Trailing only, as in build 2's `toxicity_features.weather_fill_context`. Imbalance and depth come from the latest YES book no more than 120 s old, summing all levels. `last_print_size`, `burst_prints` (1 s) and `sweep_bands` (60 s, distinct conditions of the event in the 88a universe) come from prints at or before the instant; the fill's own print is included. `horizon_days` is the event date minus the market-local date. Close is the end of the local event day. |
+| `cf_fills` row | The first `last_trade_price` print on the token in `[minute, minute + 60 s)` that crosses the bid under the run's rule (`maker_core.shadow.paper.crosses`): `at_price` print ≤ bid, `strictly_through` print < bid. `size = min(print size, 20)`, and `crossing_prints_in_minute` counts every crossing print. Prints repeated by overlapping connections count once. |
+| Context | Trailing only, as in build 2's `toxicity_features.weather_fill_context`. Imbalance and depth come from the latest YES book no more than 120 s old, summing all levels. `last_print_size`, `burst_prints` (1 s) and `sweep_bands` (60 s, distinct conditions of the event in the 88a universe) come from prints strictly before the instant, as build 2's `FillContext` requires (4ae3602fa): the fill's own print, and any print at or after the fill instant, are excluded. A fill's book is also strictly before the fill; a minute's book is its quote snapshot at the context instant. `horizon_days` is the event date minus the market-local date. Close is the end of the local event day. |
 | Weather fields | Scheduled print, model cycle and decided probability are null. `station` lets a workstation step add the scheduled-print clock. |
 | Marks | Marks `1m`, `5m` and `30m` are the first two-sided YES snapshot in `[fill + h, fill + h + 120 s]`, at mid. |
-| `settlement_p_yes` | Null in the tape. `to-jsonl --settlement-json` supplies it. |
+| `settlement_p_yes` | Null in the tape. `to-jsonl --settlement-json` supplies `{condition_id: {"p_yes", "observed_at_utc"}}`; build 2 requires the observation time, dates it against the embargo, and refuses one before the fill, so a settlement read on 09-30 or later cannot enter the fit. |
 
 **Build 2 mapping.** `to-jsonl` writes build 2's neutral records:
 
