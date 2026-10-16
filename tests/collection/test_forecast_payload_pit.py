@@ -128,6 +128,12 @@ def snapshots(tmp_path: Path) -> Path:
     return root
 
 
+def _mismatch_receipt(out: Path, day: str) -> dict:
+    assert not (out / "receipts" / f"{day}.json").exists()  # a mismatch never seals the day
+    (path,) = (out / "receipts").glob(f"{day}.mismatch-*.json")
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
 def _load(path: Path) -> list[dict]:
     if path.suffix == ".parquet":
         import pyarrow.parquet as pq
@@ -149,7 +155,7 @@ def test_day_receipt_matches_manifest_and_readback(snapshots, tmp_path, fmt):
         ("2026-09-29", True), ("2026-08-10", False)]
     assert receipt["event_skips"] == {"embargoed_event": 1, "unparsed_event_name": 1}
 
-    day = json.loads((tmp_path / "out" / "receipts" / "2026-08-10.json").read_text(encoding="utf-8"))
+    day = _mismatch_receipt(tmp_path / "out", "2026-08-10")
     assert day["manifest_rows"] == 10
     disp = day["dispositions"]
     assert disp["unparseable_row"] == 1
@@ -295,7 +301,7 @@ def test_streamed_output_is_in_table_order_across_write_batches(snapshots, tmp_p
     day = json.loads((tmp_path / "out" / "receipts" / "2026-09-29.json").read_text(encoding="utf-8"))
     assert day["match"] is True
     fc11.run([snapshots], tmp_path / "out", max_date=MAX, fmt=fmt)
-    day = json.loads((tmp_path / "out" / "receipts" / "2026-08-10.json").read_text(encoding="utf-8"))
+    day = _mismatch_receipt(tmp_path / "out", "2026-08-10")
     rows = _load(Path(day["output"]["path"]))
     order = [(r["event_slug"], r["source"], r["fetched_at"], r["model"], r["field"],
               -1 if r["member"] is None else r["member"], r["valid_time"]) for r in rows]
@@ -309,9 +315,37 @@ def test_max_days_counts_only_new_days_and_resumes(snapshots, tmp_path):
     second = fc11.run([snapshots], tmp_path / "out", max_date=MAX, fmt="jsonl_gz", max_days=1)
     assert [(row["target_date"], row["status"]) for row in second["days"]] == [
         ("2026-09-29", "already_extracted"), ("2026-08-10", "extracted")]
-    assert second["days_extracted"] == 1 and second["days_remaining"] == 0
+    # 08-10 cannot match (missing and tampered blobs), so it stays open.
+    assert second["days_extracted"] == 1 and second["days_remaining"] == 1 and second["all_match"] is False
     third = fc11.run([snapshots], tmp_path / "out", max_date=MAX, fmt="jsonl_gz", max_days=1)
-    assert third["days_extracted"] == 0 and third["stopped_reason"] is None
+    assert [(row["target_date"], row["status"]) for row in third["days"]] == [
+        ("2026-09-29", "already_extracted"), ("2026-08-10", "extracted")]
+    assert third["all_match"] is False
+
+
+def test_mismatched_day_is_redone_after_fresh_days_and_its_table_set_aside(snapshots, tmp_path):
+    out = tmp_path / "out"
+    first = fc11.run([snapshots], out, max_date=MAX, min_date=date(2026, 8, 10), max_days=1,
+                     fmt="jsonl_gz", now=lambda: datetime(2026, 10, 16, 8, 0, tzinfo=timezone.utc))
+    assert first["days"][0]["target_date"] == "2026-09-29"
+    second = fc11.run([snapshots], out, max_date=MAX, fmt="jsonl_gz", max_days=1,
+                      now=lambda: datetime(2026, 10, 16, 8, 1, tzinfo=timezone.utc))
+    assert second["days"][-1]["receipt"] == "2026-08-10.mismatch-20261016T080100Z.json"
+    # A new fresh day appears; it goes before the redo of the mismatched 08-10.
+    late = snapshots / "highest-temperature-in-nyc-on-september-1-2026"
+    late.mkdir()
+    blob = _blob(late, _open_meteo({"temperature_2m": [70.0, 71.0]}))
+    _write_manifest(late, [_row("open_meteo", blob, "2026-09-01T01:00:00-04:00", "2026-09-01T05:00:10+00:00",
+                                "2026-09-01")])
+    third = fc11.run([snapshots], out, max_date=MAX, fmt="jsonl_gz", max_days=1,
+                     now=lambda: datetime(2026, 10, 16, 8, 2, tzinfo=timezone.utc))
+    assert [row["target_date"] for row in third["days"] if row["status"] == "extracted"] == ["2026-09-01"]
+    fourth = fc11.run([snapshots], out, max_date=MAX, fmt="jsonl_gz", max_days=1,
+                      now=lambda: datetime(2026, 10, 16, 8, 3, tzinfo=timezone.utc))
+    assert [row["target_date"] for row in fourth["days"] if row["status"] == "extracted"] == ["2026-08-10"]
+    redo = json.loads((out / "receipts" / "2026-08-10.mismatch-20261016T080300Z.json").read_text(encoding="utf-8"))
+    assert len(redo["earlier_attempt_files_set_aside"]) == 1
+    assert len(list((out / "receipts").glob("2026-08-10.mismatch-*.json"))) == 2
 
 
 def test_interrupted_day_is_set_aside_not_overwritten(snapshots, tmp_path):

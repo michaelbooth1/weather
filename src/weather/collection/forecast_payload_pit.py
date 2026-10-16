@@ -37,6 +37,9 @@ Contract:
   days extracted now, so a backlog can be worked in short nightly chunks
   against one output directory. A table without a receipt is an interrupted
   attempt and is renamed ``*.orphan-<stamp>`` before the day is redone.
+  Only a matching day is sealed by ``receipts/<day>.json``; a mismatch is
+  recorded as ``receipts/<day>.mismatch-<stamp>.json`` and the day is redone
+  after every never-attempted day.
 
 This module is not imported by any capture loop; keep it that way (it must
 stay roll-free). The receipt identifies its format by a name plus an integer
@@ -775,9 +778,12 @@ def read_back(path: Path) -> Iterator[tuple[str, str, str, str]]:
         import pyarrow.parquet as pq
 
         parquet = pq.ParquetFile(long_path(path))
-        for batch in parquet.iter_batches(batch_size=WRITE_BATCH_ROWS, columns=list(names)):
-            columns = [batch.column(name).to_pylist() for name in names]
-            yield from zip(*columns)
+        try:
+            for batch in parquet.iter_batches(batch_size=WRITE_BATCH_ROWS, columns=list(names)):
+                columns = [batch.column(name).to_pylist() for name in names]
+                yield from zip(*columns)
+        finally:
+            parquet.close()  # released before the caller renames the table
         return
     with gzip.open(long_path(path), "rt", encoding="utf-8") as handle:
         for line in handle:
@@ -928,6 +934,13 @@ def run(
     stopped_reason = None
     stamp = started.strftime("%Y%m%dT%H%M%SZ")
     extracted = 0
+    def mismatched_before(day: date) -> bool:
+        receipts = out_dir / "receipts"
+        return any(name.startswith(f"{day.isoformat()}.mismatch-") for name in os.listdir(long_path(receipts)))
+
+    # Days never attempted go first (newest first), then days whose earlier attempt did not match, so a day that
+    # cannot match (a missing or tampered blob) is redone without blocking the rest of the backlog.
+    days = [day for day in days if not mismatched_before(day)] + [day for day in days if mismatched_before(day)]
     for day in days:
         receipt_path = out_dir / "receipts" / f"{day.isoformat()}.json"
         if os.path.exists(long_path(receipt_path)):
@@ -946,10 +959,15 @@ def run(
         receipt["code"] = {"module": __name__, "module_sha256": module_sha}
         receipt["started_at"] = utc_iso_precise(day_started)
         receipt["finished_at"] = utc_iso_precise(clock())
+        if not receipt["match"]:
+            # Only a matching day is sealed by receipts/<day>.json. A mismatch keeps its evidence under another name
+            # and the day stays open: the next run sets its table aside as an orphan and extracts it again.
+            receipt_path = out_dir / "receipts" / f"{day.isoformat()}.mismatch-{stamp}.json"
         _write_json(receipt_path, receipt)
         summaries.append({
             "target_date": receipt["target_date"],
             "status": "extracted",
+            "receipt": receipt_path.name,
             "match": receipt["match"],
             "manifest_rows": receipt["manifest_rows"],
             "manifest_rows_extracted": receipt["manifest_rows_extracted"],
