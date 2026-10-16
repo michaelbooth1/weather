@@ -39,6 +39,15 @@ Contract (docs/operations/passive-maker-evidence-capture.md, "Counterfactual fil
   gate only new days; never-attempted days run first (newest first).
 * ``export --dry-run`` is stat-only: it lists allowed day and segment folders
   and reads directory-entry sizes; it opens no file.
+* Point in time (build 2 ``FillContext``, 4ae3602fa). A context uses only prints
+  strictly before its instant: a fill's own print, and any print at or after the
+  fill instant, never enter its context. A fill's YES book is also strictly
+  before the fill; a minute's book is the quote snapshot at the context instant
+  (build 2 admits a book at the instant).
+* One fill rule per run, recorded in every receipt; a run refuses an output
+  directory sealed under the other rule, so each rule has its own backlog.
+  Build 2's default fit uses ``strictly_through``; ``at_price`` is its declared
+  sensitivity. ``print_side`` is the print's aggressor (taker) side as recorded.
 * Per UTC day only. Nothing reads a neighbouring day folder, so a minute that
   would start on the next UTC day, and a mark due after midnight, are omitted
   and counted. Every timestamp in a day's tape is on that UTC day.
@@ -64,6 +73,7 @@ import os
 from pathlib import Path
 import re
 import sys
+import zlib
 
 from maker_core.shadow.paper import FILL_RULES, crosses
 from weather.market.execution_tape_markout import market_close_utc, target_date_from_slug
@@ -487,11 +497,17 @@ class _EventPrints:
         self.times = [r[0] for r in self.rows]
 
     def window(self, start_us, end_us):
-        return self.rows[bisect_left(self.times, start_us):bisect_right(self.times, end_us)]
+        """Prints in ``[start_us, end_us)``: strictly before the context instant."""
+        return self.rows[bisect_left(self.times, start_us):bisect_left(self.times, end_us)]
 
 
-def _context(day: DayData, band: Band, side: str, at_us: int, event_prints: _EventPrints) -> dict | None:
-    """Build 2 ``FillContext`` fields at ``at_us`` from trailing data only; None if the band is closed."""
+def _context(day: DayData, band: Band, side: str, at_us: int, event_prints: _EventPrints, *,
+             book_strict: bool = False) -> dict | None:
+    """Build 2 ``FillContext`` fields at ``at_us`` from trailing data only; None if the band is closed.
+
+    Prints are strictly before ``at_us`` (the print at a fill instant is the fill itself). ``book_strict``
+    (fills) takes the YES book strictly before ``at_us`` too; a minute uses its quote snapshot at ``at_us``.
+    """
 
     spec = REGISTRY[band.market_id]
     at = from_us(at_us)
@@ -503,7 +519,7 @@ def _context(day: DayData, band: Band, side: str, at_us: int, event_prints: _Eve
     yes = day.books.get(band.yes_token)
     imbalance, depth, book_at = None, 0.0, None
     if yes is not None:
-        index = bisect_right(yes.times, at_us) - 1
+        index = (bisect_left(yes.times, at_us) if book_strict else bisect_right(yes.times, at_us)) - 1
         if index >= 0 and at_us - yes.times[index] <= BOOK_MAX_AGE_S * US:
             bid, ask = yes.bid_depth[index], yes.ask_depth[index]
             depth = bid + ask
@@ -600,7 +616,7 @@ def iter_day_rows(day: DayData, *, fill_rule: str, quote_size: float):
             if not hits:
                 continue
             hit = hits[0]
-            fill_context = _context(day, band, side, hit[0], events)
+            fill_context = _context(day, band, side, hit[0], events, book_strict=True)
             if fill_context is None:
                 counts["fill_after_close"] += 1
                 continue
@@ -639,6 +655,8 @@ def contract_violation(kind: str, row: dict, max_date: date = MAX_DATE) -> str |
     feature_times = [row["ctx_ft_info_clock"], row["ctx_ft_book"], row["ctx_ft_prints"]]
     if any(t is not None and t > row["ctx_at_utc"] for t in feature_times):
         return "feature_after_context"
+    if row["ctx_ft_prints"] is not None and row["ctx_ft_prints"] >= row["ctx_at_utc"]:
+        return "prints_not_before_context"
     if kind == "minute":
         return "context_after_minute" if row["ctx_at_utc"] > row["minute_utc"] else None
     if not 0 < row["price"] < 1 or not row["size"] > 0:
@@ -647,6 +665,8 @@ def contract_violation(kind: str, row: dict, max_date: date = MAX_DATE) -> str |
         return "fill_outside_minute"
     if row["ctx_at_utc"] > row["fill_at_utc"]:
         return "context_after_fill"
+    if row["ctx_ft_book"] is not None and row["ctx_ft_book"] >= row["fill_at_utc"]:
+        return "book_not_before_fill"
     for horizon, seconds in MARK_HORIZONS:
         at = row[f"mark_{horizon}_at_utc"]
         due = row["fill_at_utc"] + seconds * US
@@ -774,7 +794,9 @@ def export_day(root_day: Path, day: date, out_dir: Path, *, max_date: date, fill
     for segment in segments:
         try:
             data.read_segment(segment)
-        except (JournalMismatch, FileNotFoundError, ValueError, KeyError) as exc:
+        except (JournalMismatch, OSError, EOFError, zlib.error, ValueError, KeyError) as exc:
+            # A damaged segment (bad or truncated gzip, unreadable file) fails this day's checks: the day
+            # gets a mismatch receipt and stays unsealed; the run continues with the next day.
             data.errors.append(f"{segment.name}: {type(exc).__name__}: {exc}"[:400])
     day_dir = out_dir / "tape" / f"utc_day={day.isoformat()}"
     os.makedirs(long_path(day_dir), exist_ok=True)
@@ -887,6 +909,23 @@ def dry_run(root: Path, out_dir: Path, *, max_date: date = MAX_DATE, min_date: d
     }
 
 
+def check_backlog_fill_rule(out_dir: Path, fill_rule: str) -> None:
+    """Refuse an output directory holding day receipts written under another fill rule.
+
+    The resume key is the day receipt, so mixing rules in one backlog would silently skip days of
+    the requested rule. Each rule gets its own backlog (the host wrapper uses ``backlog-<rule>``).
+    """
+
+    for name in sorted(_receipt_names(out_dir)):
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}(\.mismatch-\d{8}T\d{6}Z)?\.json", name):
+            continue
+        with open(long_path(out_dir / "receipts" / name), encoding="utf-8") as handle:
+            found = json.load(handle).get("fill_rule")
+        if found != fill_rule:
+            raise TapeRefused(f"refused: {name} was written with fill rule {found!r}, not {fill_rule!r}; "
+                              "use a separate --out-dir per fill rule")
+
+
 def run(root: Path, out_dir: Path, *, max_date: date = MAX_DATE, min_date: date | None = None,
         fill_rule: str = "at_price", quote_size: float = QUOTE_SIZE, deadline: datetime | None = None,
         max_days: int | None = None, code_commit: str | None = None, now=None) -> dict:
@@ -898,6 +937,7 @@ def run(root: Path, out_dir: Path, *, max_date: date = MAX_DATE, min_date: date 
         raise TapeRefused("refused: --quote-size must be positive")
     if code_commit is not None and not COMMIT.fullmatch(code_commit):
         raise TapeRefused("refused: --code-commit must be a 40-hex commit")
+    check_backlog_fill_rule(out_dir, fill_rule)
     clock = now or (lambda: datetime.now(timezone.utc))
     started = clock()
     stamp = started.strftime("%Y%m%dT%H%M%SZ")
@@ -986,14 +1026,16 @@ def record_payloads(kind: str, row: dict, settlement: dict | None = None) -> dic
     if kind == "fill":
         marks = {h: {"observed_at_utc": _iso(row[f"mark_{h}_at_utc"]), "mid_yes": row[f"mark_{h}_mid_yes"]}
                  for h, _ in MARK_HORIZONS if row[f"mark_{h}_at_utc"] is not None}
-        p_yes = (settlement or {}).get(row["condition_id"], row["settlement_p_yes"])
+        p_yes, observed = (settlement or {}).get(row["condition_id"], (None, None))
         payload.update(fill_id=row["fill_id"], fill_at_utc=_iso(row["fill_at_utc"]), maker_side=row["maker_side"],
-                       price=row["price"], size=row["size"], marks=marks, settlement_p_yes=p_yes)
+                       price=row["price"], size=row["size"], marks=marks, settlement_p_yes=p_yes,
+                       settlement_observed_at_utc=observed)
     return payload
 
 
 def _payload_dates(payload: dict):
-    out = [payload["event_date"], payload["minute_utc"], payload.get("fill_at_utc"), payload["context"]["at_utc"]]
+    out = [payload["event_date"], payload["minute_utc"], payload.get("fill_at_utc"),
+           payload.get("settlement_observed_at_utc"), payload["context"]["at_utc"]]
     out += [m["observed_at_utc"] for m in (payload.get("marks") or {}).values()]
     out += list(payload["context"]["feature_times"].values())
     return [date.fromisoformat(v[:10]) for v in out if v is not None]
@@ -1013,10 +1055,18 @@ def to_jsonl(tape_dir: Path, output: Path, *, maker_side: str, settlement_path: 
         raise TapeRefused("refused: --maker-side must be YES or NO")
     settlement = None
     if settlement_path is not None:
+        # {condition_id: {"p_yes": float, "observed_at_utc": ISO time with offset}}; build 2 (4ae3602fa) needs
+        # the observation time, dates it against the embargo, and refuses one before the fill.
+        settlement = {}
         with open(settlement_path, encoding="utf-8") as handle:
-            settlement = {str(k).lower(): float(v) for k, v in json.load(handle).items()}
-        if any(not 0 <= v <= 1 for v in settlement.values()):
-            raise TapeRefused("refused: settlement p_yes must lie in [0, 1]")
+            for key, value in json.load(handle).items():
+                if not isinstance(value, dict) or "observed_at_utc" not in value:
+                    raise TapeRefused("refused: each settlement needs p_yes and observed_at_utc")
+                p_yes = float(value["p_yes"])
+                observed = datetime.fromisoformat(str(value["observed_at_utc"]).replace("Z", "+00:00"))
+                if not 0 <= p_yes <= 1 or observed.tzinfo is None:
+                    raise TapeRefused("refused: settlement p_yes must lie in [0, 1] with an offset-aware time")
+                settlement[str(key).lower()] = (p_yes, _iso(observed))
     sealed = sorted(date.fromisoformat(n[:-5]) for n in _receipt_names(tape_dir) if re.fullmatch(r"\d{4}-\d{2}-\d{2}\.json", n))
     chosen = [d for d in sealed if days is None or d in days]
     if days is not None and set(days) - set(chosen):
@@ -1039,6 +1089,10 @@ def to_jsonl(tape_dir: Path, output: Path, *, maker_side: str, settlement_path: 
                     if row["maker_side"] != maker_side:
                         continue
                     payload = record_payloads(kind, row, settlement)
+                    observed = payload.get("settlement_observed_at_utc")
+                    if observed is not None and (datetime.fromisoformat(observed)
+                                                 < datetime.fromisoformat(payload["fill_at_utc"])):
+                        raise TapeRefused("refused: a settlement was observed before its fill")
                     if any(is_reserved(d) or d > MAX_DATE for d in _payload_dates(payload)):
                         raise TapeRefused("refused: a record date lies after the tape's maximum date")
                     handle.write(json.dumps(payload, sort_keys=True, allow_nan=False) + "\n")
@@ -1078,7 +1132,8 @@ def main(argv=None) -> int:
     adapter.add_argument("--tape-dir", type=Path, required=True)
     adapter.add_argument("--output", type=Path, required=True)
     adapter.add_argument("--maker-side", choices=("YES", "NO"), required=True)
-    adapter.add_argument("--settlement-json", type=Path, default=None, help="{condition_id: p_yes} map.")
+    adapter.add_argument("--settlement-json", type=Path, default=None,
+                         help="{condition_id: {p_yes, observed_at_utc}} map.")
     adapter.add_argument("--day", type=date.fromisoformat, action="append", default=None)
     args = parser.parse_args(argv)
     try:
