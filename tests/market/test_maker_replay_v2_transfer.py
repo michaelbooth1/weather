@@ -117,7 +117,7 @@ def test_one_changed_stream_byte_refuses_in_pass_one(exports):
     # one byte, same size; bundle.json, export.json and the receipt untouched
     raw[raw.index(b'"sequence":') + 11 if stream.suffix == ".jsonl" else len(raw) // 2] ^= 1
     stream.write_bytes(bytes(raw))
-    with pytest.raises(BundleError, match="stream_hash_or_size_mismatch|stream_decompression_failed"):
+    with pytest.raises(BundleError, match="stream_hash_or_size_mismatch|stream_decompression_failed|stream_decoded_size_mismatch"):
         transfer.verify(doc, pairs)
 
 
