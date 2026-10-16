@@ -33,8 +33,17 @@ journal of the `book`, `price_change` and `tick_size_change` frames that the exe
   and 11:13Z.
 - **How the drops looked.** Every drop was an abrupt close with no close frame. There was no 429 and no policy close
   code. The meter used about 3.7% of one core, so this was not a slow consumer.
-- **Production.** The production host shares this egress. Whether its execution-tape sockets dropped at the same
-  minutes was not checked from the workstation. Ops can compare its `connection_events` for 12:49-12:57Z.
+- **Production comparison (added 10-16, read by master-agent on the host).** Master-agent read the production
+  execution tape's `gaps-00000.jsonl` and `status.json` for the 12 markets, shared-open and read-only.
+  - Production had **no disconnect in 12:49-12:57Z** on any connection group. Its last drop before the read was
+    12:25Z, on the nyc/sf/seattle/toronto group.
+  - Production groups drop together near the top of the hour (04, 05, 06, 07, 09 and 10:00Z). Its other drops cluster
+    across groups at 06:19, 06:36/37, 07:24, 07:53, 08:25, 08:33, 08:50, 09:52, 10:25 and 10:56Z.
+  - None of the meter's drops falls within a minute of a production drop. Its 4-drop burst is therefore specific to its own
+    connection, not a venue-wide event. The likely difference is subscription size: production caps tokens per
+    connection (`max_tokens_per_connection`), while the meter held all 792 on one socket. A per-connection size or
+    rate limit is the leading hypothesis; it is not proven.
+  - For a rerun (the 13Z-23Z hours), split the meter's tokens across connections no larger than production's cap.
 - **Coverage.** The full hours are 01Z-11Z (11 hours, 21:00-08:00 EDT), plus two partial hours: 00Z (3,008 s) and 12Z
   (3,371 s). The percentiles use full hours only.
 - **Not covered.** UTC hours 13Z-23Z (09:00-20:00 EDT) were not sampled at all. That includes the US daytime trading
