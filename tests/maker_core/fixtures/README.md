@@ -63,3 +63,10 @@ fixtures as produced by the engine before engine rulings W1(a), W2(a) and F3
 (build line `501f47579`). `test_replay_v2_attribution.py` requires the
 attribution tool's `frozen` variant to reproduce them exactly. Every value is
 computed from invented fixtures; nothing captured is read.
+
+`toxicity_synthetic.py` generates seeded COUNTERFACTUAL quote minutes and fills
+(stdlib `random`) with planted regimes: burst and sweep flow fill often and mark
+out toxic, calm flow fills rarely and marks out benign, and the scheduled-print
+window adds a further adverse markout. `toxicity_frozen.jsonl` is one frozen
+draw from it (seed 7, all fictional, dated 2026-09-01..09-04). The golden table
+digest in `test_toxicity.py` is pinned to it. Nothing captured is read.
