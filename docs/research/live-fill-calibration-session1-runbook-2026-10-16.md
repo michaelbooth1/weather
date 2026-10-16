@@ -9,6 +9,11 @@ should-fixes SF-1/SF-2 of the pin review
 [lfc-pin-review-e27909a76-6bc6f2bec-2026-10-16.md](lfc-pin-review-e27909a76-6bc6f2bec-2026-10-16.md).
 **Read when:** preparing or running a counted LFC session, or reviewing the driver.
 
+**Session 1 schedule (owner 2026-10-16 14:28, DECISION_LOG):** Sun 2026-10-18, `go` 12:00 EDT (16:00Z); t24
+(`--phase t24`) Sat 10-17 ~14:00 EDT (18:00Z); latest legal `go` 13:50 EDT. Fallback Mon 10-19, same times (t24 10-18
+~14:00 EDT). Manual trading is paused from the start of session 1 until the last campaign lot settles (PR §5, owner
+2026-10-16).
+
 ## 1. What changes from RB
 
 - **Pin.** `6bc6f2bec` plus the driver commit(s) on `claude/lfc-session-driver-20261016`; the driver tip becomes the
