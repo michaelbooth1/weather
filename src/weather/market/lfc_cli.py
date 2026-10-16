@@ -24,6 +24,16 @@ Governed by the owner-signed pre-registration and session-0 spec (2026-10-09, re
     shadow-scope-union --date D --out F
                                     the --shadow-scope file for session-0 UTC date D: every condition the shadow
                                     runner could select that day (registry markets x horizons 0-2; public Gamma only)
+    session-run --expect-commit SHA [--pin DIR] [--phase t24|session] [--to-go-prompt]
+                                    the owner-run session driver (weather.market.lfc_session_driver): runs THIS CLI's
+                                    steps above as children of the pinned worktree in runbook order (setup checks,
+                                    Test-HostFree, reader-quiet waits with one retry, snapshots, baselines,
+                                    Compare-T40ToStart, preflight, live, after-run reads, verify, wallet-verify), screens
+                                    neg_risk, fee class and per-spender allowances before the owner may type `go`, stops
+                                    on the first FAIL/refusal and writes driver-<stamp>/pack.json + summary.txt under the
+                                    campaign root. --phase t24 takes the T-24 h baseline; --to-go-prompt is the dry run
+                                    (kills live at the go prompt, nothing posted). Every phrase is still typed by the
+                                    owner into the pinned CLI's own prompt; session-0 runs 0a/0e only (--session0-run)
 
 Session-0 flags (S0 sections 2 and 4): --session0 --run 0a|0b|0c|0d|0e|0f|0g --event-slug SLUG (repeatable: at least
 three distinct owner-listed candidate events) --extra-conditions F (the 88a file in force) --shadow-scope F. Every command that reads the ledger
@@ -106,6 +116,21 @@ def parser():
     scope = modes.add_parser('shadow-scope-union')
     scope.add_argument('--date', required=True, help='session-0 UTC date YYYY-MM-DD')
     scope.add_argument('--out', type=Path, required=True, help='new file (refused if it exists)')
+    driver = modes.add_parser('session-run')
+    driver.add_argument('--pin', type=Path, help='the pinned, locked worktree (default: this checkout)')
+    driver.add_argument('--expect-commit', required=True, help='full 40-hex commit the pin must be at')
+    driver.add_argument('--phase', choices=('t24', 'session'), default='session',
+                        help='t24: the T-24 h snapshot and baseline; session (default): the whole session')
+    driver.add_argument('--to-go-prompt', action='store_true',
+                        help='dry run: everything up to the selection and neg_risk screens, then kill live at the go '
+                             'prompt (nothing posted)')
+    driver.add_argument('--session0-run', action='append', choices=('0a', '0e'),
+                        help='session 0 only: a sub-run the driver may run (repeatable, in order)')
+    driver.add_argument('--event-slug', action='append', default=[], help='session 0 only, passed through')
+    driver.add_argument('--extra-conditions', type=Path, help='session 0 only, passed through')
+    driver.add_argument('--shadow-scope', type=Path, help='session 0 only, passed through')
+    driver.add_argument('--s0-2-seconds', help='session 0 only: run session0-attest at the end with these values')
+    driver.add_argument('--s0-2-helper-zero-utc', help='session 0 only: see session0-attest')
     return result
 
 
@@ -1152,6 +1177,9 @@ def main(argv=None):
             return run_session0_attest(args)
         if args.mode == 'shadow-scope-union':
             return run_shadow_scope_union(args)
+        if args.mode == 'session-run':
+            from weather.market.lfc_session_driver import main as driver_main
+            return driver_main(args)
         from weather.market.lfc_panel_exclusion import main as exclusions_main
         return exclusions_main(['--exclusions', str(pilot_root() / EXCLUSION_FILE), '--output', str(args.output)])
     except BaseException as exc:

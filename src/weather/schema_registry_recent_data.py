@@ -1389,4 +1389,8 @@ RECENT_REGISTERED_SCHEMAS = (
         "lfc_analysis", "lfc_analysis_v0.1", "weather.market.lfc_analysis", "active",
         "Descriptive pilot fill and markout summary; never a decision gate by itself.",
     ),
+    SchemaSpec(
+        "lfc_session_driver_pack", "lfc_session_driver_pack_v0.1", "weather.market.lfc_session_driver", "active",
+        "Owner session-driver evidence pack: steps, stop reason, runbook section 8 fields, codes and hashes only.",
+    ),
 )
