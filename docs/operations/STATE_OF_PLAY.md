@@ -48,7 +48,7 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
   DST-H3 and DST-M2 (`41fa7bc57`) landed; OD30 (the 11-01 night rule) holds for 11-01 and lapses 11-02 (owner 10-15).
 - **LFC session 0 ATTESTED 10-16** (~16:35Z, pin `e27909a76`, 0 fills; final verify PASS, `counted_sessions` 0; DL row,
   [record](../research/live-fill-calibration-session0-record-2026-10-16.md)). **Session 1: Sun 10-18 `go` 12:00 EDT**
-  (owner 10-16 14:28; t24 Sat 10-17 ~14:00 EDT; fallback Mon 10-19) on the driver pin (DL row). Manual trading paused from
+  (owner 10-16 14:28; t24 Sat 10-17 ~14:00 EDT; fallback Mon 10-19) on pin `21cf1ed42` (DL row). Manual trading paused from
   session 1 until the last lot settles (prereg §5, owner 10-16). Logistics take the owner's chat yes in DL (10-13).
 - **Build line** `codex/maker-replay-v2-build-20261003` = `1fd0c295f` (W1/W2/F3, T1-T3, Q2 #269, F4; owner-approved); the
   export nightly stays unregistered until a separate owner yes (>= 10-16).
