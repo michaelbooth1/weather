@@ -60,7 +60,7 @@ def as_day(value) -> date:
                 parsed = date.fromisoformat(value)
                 if parsed.isoformat() == value:
                     return parsed
-            else:
+            elif len(value) > 10 and value[10] in "T " and date.fromisoformat(value[:10]).isoformat() == value[:10]:
                 instant = datetime.fromisoformat(value.replace("Z", "+00:00"))
         except ValueError:
             instant = None
