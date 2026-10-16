@@ -105,8 +105,13 @@ What it runs, in order (each a child of the pinned CLI, cwd = the pin, nothing w
 4. **Test-HostFree**, **preflight** (owner console; `owner_terminal_required` stays real) PASS.
 5. **Test-HostFree**, **live** (owner console). The driver holds back live's output from the selection line until
    the screens pass: `SCREEN PASS condition=... event_slug=... fee_class=... neg_risk={...} allowed=[...]
-   allowances_atomic={...}`. Only then does the owner see `Type: go <6 hex>`. A failed screen kills the live tree at
-   the prompt (= RB Ctrl+C at the prompt: nothing posted). The driver never types or relays a phrase.
+   allowances_atomic={...}`. Only then does the owner see `Type: go <6 hex>`. On a refused screen the driver kills
+   the live tree first and only then prints the `SCREEN REFUSED <code> ...` line; every later line of live's output
+   (a `Type: go` line still in the pipe included) is dropped, so no go code or selection sha is ever shown (= RB
+   Ctrl+C at the prompt: nothing posted). If live's output has not ended 10 s after the kill, the driver prints
+   `LIVE STILL RUNNING — Ctrl+C now, type nothing`, records `live_still_running` in the pack and stops with
+   `live_still_running_after_kill`: press Ctrl+C, type nothing, then RB §9. The driver never types or relays a
+   phrase.
 6. **after-run**: `session_end.json` (reason, `cleanup_ok`, `panic`, toast), the journal's submit expirations (one
    value), the session's own `selection.json` `neg_risk` and fee class (printed as `AFTER-RUN ...`),
    Get-OpenOrderCount = 0, `verify` PASS.
@@ -119,21 +124,25 @@ Every reader-touching step (open-order count, baseline, verify, wallet-verify, s
 
 **Ctrl+C.** Children run in a Windows job object with kill-on-close (fallback `taskkill /F /T`). Ctrl+C kills a
 non-live child at once. During `live` the console also delivers Ctrl+C to live, which runs its own cleanup; the driver
-waits up to 90 s for it, and a second Ctrl+C kills the tree. Either way the pack is written with
+waits up to 90 s for it, and a second Ctrl+C kills the tree. A first Ctrl+C never kills live, wherever it lands in
+the driver's loop, and the job is not closed while that grace is pending. Either way the pack is written with
 `stopped_reason=owner_interrupt`; then follow RB §9.
 
-**Evidence pack.** `<campaign root>\driver-<UTC stamp>\pack.json`, `summary.txt` and `transcripts\NN-<step>.txt`
-(owner-private; their sha256 is in the pack). Snapshot contents stay in the owner snapshot folder; only hash lines
-go to the pack. No balances, addresses or positions, only counts and codes.
+**Evidence pack.** `<campaign root>\driver-<UTC stamp>\` holds only `pack.json` and `summary.txt`. The raw child
+transcripts (reader JSON, live's table with `available_collateral`) are owner-private and go to
+`<owner snapshot folder>\driver-transcripts\driver-<UTC stamp>\NN-<step>.txt`; the pack carries only each one's
+sha256. Snapshot contents stay in the owner snapshot folder; only hash lines go to the pack. No balances, addresses
+or positions in the pack folder, only counts and codes.
 
 Driver stop codes (in addition to every pinned-CLI code it passes through): `owner_terminal_required`,
 `pin_head_not_expected_commit`, `pin_worktree_not_clean`, `pin_worktree_not_locked`,
-`pin_interpreter_or_imports_unexpected`, `wrong_workstation_or_principal`, `baseline_missing_t24`,
+`pin_interpreter_or_imports_unexpected`, `pin_sdk_spenders_differ` (the pinned SDK's three exchange/adapter
+addresses, printed at setup, differ from the driver's SF-1 spenders), `wrong_workstation_or_principal`, `baseline_missing_t24`,
 `driver_t24_younger_than_20h_until_<time>`, `driver_past_latest_legal_live_start`, `host_not_free`,
 `reader_<reason>`, `open_orders_<n>_expected_0`, `snapshot_<reason>`, `wallet_verify_reader_err`,
 `STOP <reasons>` (compare), `neg_risk_*`, `allowance_*`, `allowance_evidence_unreadable`,
 `session_directory_unknown`, `session_end_unreadable`, `cleanup_not_ok_or_panic`, `submit_expirations_differ`,
-`owner_interrupt`, `dry_run_complete` (the dry run's normal end).
+`owner_interrupt`, `live_still_running_after_kill`, `dry_run_complete` (the dry run's normal end).
 
 ## 5. Owner steps (T = `go`, primary 10-18 12:00 EDT)
 
@@ -142,7 +151,8 @@ Driver stop codes (in addition to every pinned-CLI code it passes through): `own
    agent). Confirm no open orders.
 3. **10-17 14:00 EDT:** `session-run --phase t24`. From here: no manual trades, cancels, redeems or transfers (G16).
 4. **10-18 before T-40 (e.g. 10:30 EDT), optional but recommended:** the dry run `session-run --to-go-prompt`. Read
-   the SCREEN line; expect `stopped_reason=dry_run_complete`. It runs a real preflight, a t40 baseline and reader
+   the SCREEN line and the `DRY RUN stopped at the go prompt: condition=... event_slug=... size=...` line (no go
+   code or sha is shown); expect `stopped_reason=dry_run_complete`. It runs a real preflight, a t40 baseline and reader
    reads, so leave a gap before step 6 and never run it after T-40.
 5. **10-18 by 11:00 EDT:** fund if needed (G17); sleep off, toasts on, Windows Update paused. Master confirms the
    heavy freeze and 88a health.
