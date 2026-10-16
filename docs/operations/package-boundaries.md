@@ -57,6 +57,9 @@ caller inputs, so the neutral package never imports `weather.paths`.
   journal use additive neutral contracts; runtime owns file orchestration and
   venue owns saved-read adaptation and optional LAN HTTP reads. See the
   [portfolio ledger](portfolio-ledger.md).
+- `maker_core.frontier` (the offline informed-v1 frontier, item 330 build 3) imports only contracts,
+  evidence, quoting and replay. No other core module imports it, so it stays outside the shadow
+  runner's import closure. `tests/maker_core/test_frontier_grid.py::test_frontier_package_edges` enforces both.
 - `weather.market.maker_plugin` imports only `maker_core.contracts`
   from the core. The fictional plugin follows the same rule.
 

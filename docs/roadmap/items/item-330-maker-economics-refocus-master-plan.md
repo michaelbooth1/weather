@@ -7,6 +7,86 @@ information arrival. The plan, kill rules and owner decisions live in
 [the forward plan](../../operations/forward-plan-2026-09-23.md). RE-1 session 1 ran 2026-09-23 under the owner's attended
 exception (see STATE_OF_PLAY); results in the findings digest.
 
+## October 16 design: build 3, informed-v1 candidate frontier and competitor-response model
+
+There is no status change and no live, shadow or scoring authority. Branch
+`claude/maker-informed-v1-frontier-20261016` is roll-free: it adds the new package `maker_core.frontier`,
+which nothing in `quoting`, `runtime` or the shadow runner imports, and it edits no frozen v2-engine,
+oracle, journal-pinned, 88a or `policy.py` file. Adding a shadow profile is a separate, later head.
+
+- **Grid** (`frontier.grid`): 120 points over four axes:
+  - width 1.0 to 3.0 c;
+  - size 20/30/50/75;
+  - band rule `depth_only` / `depth_share` / `depth_share_fv`;
+  - inventory `hold_to_settlement` / `resting_sell`.
+
+  The baselines are no-quote, `blind_re1` and informed-v0. Quotes are symmetric about the size-qualified
+  mid, with **no centre skew** (EF §1b); the fair value only gates a band. The grid hash
+  `17b85a248542c45a886228a25f63dce78bf150f7ad5d5fc12e09d5e7643bd457` is order-invariant and pinned by test.
+- **Preregistration**: the
+  [UNSIGNED draft](../../research/informed-v1-frontier-preregistration-DRAFT-2026-10-16.md). The runner
+  refuses `scored` unless `frontier.prereg.SIGNED_PREREGISTRATION_SHA256` is pinned by a reviewed change,
+  the document's bytes match it, it carries a signature and its grid hash matches. The read is
+  descriptive and bounds-only, because §10r makes the P&L sign undecidable on the allowed panels.
+- **Embargo** (`frontier.embargo`, a fourth copy of the window dates; see the open question below):
+  - 2026-09-30..10-15 is refused for every purpose;
+  - a fit may use no date after 09-29;
+  - descriptive and scored reads are refused through 11-13.
+
+  The entry points are `embargo.check`, `share_decay.fit`, `share_decay.re1_sessions` and `runner.run`.
+  The runner checks the day, the condition windows, every instant, trade times, close/settle times and
+  settlement facts.
+- **Seams**:
+  - `FillModel` (`place`, `on_trade`) has the stand-in `PricePathFillModel`, which is the frozen v2
+    `fill_model.match`. Build 1 plugs in as `QueueFillModel(fill_v3_module)`, which needs
+    `eligibility`, `q_ahead` and `QueueState`.
+  - `FillCostProvider` (`estimate(context)`) has the stand-in `ConstantFillCost`. Build 2's provider is
+    passed directly, with a caller `context_builder` that produces its `FillContext`. The markout never
+    falls below 0.0043, and a `BURST`/`SWEEP` veto suppresses the quote.
+- **Toy plugin**: a seeded two-dice plugin (`tests/maker_core/fixtures/toy_dice_domain.py`, contract-only)
+  replays end to end through the frozen v2 engine and the frontier runner with no core edits.
+
+**Competitor-response model** (`frontier.share_decay`), descriptive, fitted on the RE-1 decision
+projection fixture (sessions 2026-09-23..25):
+
+- The reaction is extra competing Q in units of own Q, x(a) = k(1 - e^(-a/τ)), fitted per session by grid
+  least squares in share space.
+- Six sessions have at least 13 samples. Their fits are:
+
+  | Attempt | k | τ (min) |
+  | --- | --- | --- |
+  | 1 | 11.66 | 5 |
+  | 5 | 10.0 | 20 |
+  | 6 | 5.01 | 3 |
+  | 9 | 1.0 | 60 |
+  | 10 | 2.0 | 5 |
+  | 12 | 5.01 | 5 |
+
+  Share RMSE is at most 0.12.
+- The bounds are:
+  - `none`: x = 0;
+  - `central`: median k = 5.01, median τ = 5.0 min;
+  - `full`: x = 59.6, the largest observed reaction (attempt 5 late in its 88 minutes), applied from
+    a = 0.
+- The central model halves an opening share of 0.5 / 0.63 / 0.95 in about 2.6 / 1.9 / 1.2 minutes.
+- The observed halving times reproduce the reported 2-4 minutes in the four long sessions: NYC (attempt 1)
+  4.07, Miami (attempt 5) 2.10, Atlanta (attempt 6) 2.10, and session 11 (attempt 12) 3.15 minutes.
+- They **do not** reproduce "in every session":
+  - sessions 8 and 9 (attempts 9 and 10) halve only after 12.1 and 14.1 minutes;
+  - attempt 4 has two samples;
+  - attempt 8 is censored by a fill at about 1 minute.
+
+  The findings-digest wording should say "in the four long sessions", not "every session". Owner or
+  research review is needed; this note does not edit the digest.
+- No 88a depth data exists on the workstation, so the fit uses RE-1 only. An 88a series in the same
+  `Session` shape fits unchanged, but only with dates on or before 09-29.
+
+Open:
+
+- consolidate the frontier, fill-v3 and toxicity embargo modules into one;
+- choose the panel dates (from 11-14) and the fill model to bind in the signed prereg;
+- decide whether the full-reaction bound (x = 59.6) is too pessimistic to be useful.
+
 ## September 20 design of the first paid reward epoch (RE-1)
 
 No status change and **no live authority**. The bounded successor that W6 asks for is designed and
