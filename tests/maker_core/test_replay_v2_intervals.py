@@ -504,6 +504,11 @@ def test_only_the_sanctioned_modules_name_the_raw_source_constructors():
         tree = ast.parse(path.read_text(encoding="utf-8-sig"))
         relative = path.relative_to(root).as_posix()
         replay = relative.startswith(("src/maker_core/replay/", "tools/research/maker_replay_v2/"))
+        # Docstrings are prose, never a getattr/vars target: master's shadow records describe the replay
+        # read path (``lockstep.stream_source``) in docstrings without naming it in code.
+        docstrings = {id(body[0].value) for body in (getattr(n, "body", None) for n in ast.walk(tree))
+                      if isinstance(body, list) and body and isinstance(body[0], ast.Expr)
+                      and isinstance(body[0].value, ast.Constant) and isinstance(body[0].value.value, str)}
         found = False
         for node in ast.walk(tree):
             if isinstance(node, ast.Name):
@@ -512,7 +517,7 @@ def test_only_the_sanctioned_modules_name_the_raw_source_constructors():
                 found |= bool(raw.fullmatch(node.attr))
             elif isinstance(node, ast.ImportFrom):
                 found |= any(raw.fullmatch(a.name) for a in node.names)
-            elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+            elif isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docstrings:
                 found |= bool(raw.search(node.value))
             elif isinstance(node, ast.Call):
                 name = ast.unparse(node.func)
