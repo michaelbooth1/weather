@@ -390,3 +390,36 @@ def test_a_truncated_gzip_journal_leaves_only_its_day_unsealed(evidence, tmp_pat
     assert f"{DAY_EARLY.isoformat()}.json" in names and f"{DAY_LATE.isoformat()}.json" not in names
     mismatch = json.loads((out / "receipts" / next(n for n in names if ".mismatch-" in n)).read_text())
     assert not mismatch["checks"]["no_segment_or_journal_errors"] and mismatch["errors"]
+
+
+@pytest.mark.parametrize("given, reason", [
+    (None, "no_settlement_given"),
+    ({}, "no_settlement_given"),
+    ({COND_A: {"p_yes": 1.0, "observed_at_utc": "2026-09-28T00:00:00+00:00"}}, "observed_before_fill"),
+    ({COND_A: {"p_yes": 1.0, "observed_at_utc": "2026-09-30T01:00:00+00:00"}}, "observed_on_or_after_2026_09_30"),
+    ({COND_A: {"p_yes": 1.0, "observed_at_utc": "2026-09-29T05:00:00+00:00"}}, None),
+])
+def test_adapter_receipt_counts_withheld_settlements(evidence, tmp_path, given, reason):
+    out = tmp_path / "out"
+    tape.run(evidence, out, min_date=DAY_LATE, now=_clock())
+    path = None
+    if given is not None:
+        path = tmp_path / "settlement.json"
+        path.write_text(json.dumps(given), encoding="utf-8")
+    target = tmp_path / "records.jsonl"
+    summary = tape.to_jsonl(out, target, maker_side="YES", settlement_path=path)
+    receipt = json.loads((tmp_path / "records.jsonl.receipt.json").read_text(encoding="utf-8"))
+    assert receipt == {k: v for k, v in summary.items() if k != "receipt_path"}
+    expected = {name: 0 for name in tape.SETTLEMENT_WITHHELD_REASONS}
+    if reason:
+        expected[reason] = 1
+    assert receipt["fills"] == 1 and receipt["fills_settlement_withheld"] == expected
+    assert receipt["fills_with_settlement"] == (0 if reason else 1)
+    # The fill is kept (the hazard denominator is unchanged); only its settlement label is withheld,
+    # so no 2026-09-30 date reaches build 2.
+    minutes, fills = build2.read_records(target, purpose="fit")
+    build2.check_fit_joins(minutes, fills)
+    assert len(fills) == 1 and (fills[0].settlement_p_yes is None) == bool(reason)
+    with pytest.raises(FileExistsError):   # the receipt is create-only, like the output
+        os.remove(target)
+        tape.to_jsonl(out, target, maker_side="YES", settlement_path=path)

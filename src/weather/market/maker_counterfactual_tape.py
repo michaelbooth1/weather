@@ -86,6 +86,8 @@ TAPE_REVISION = 1
 DAY_RECEIPT_NAME = "cf_tape_day_receipt"
 RUN_RECEIPT_NAME = "cf_tape_run_receipt"
 DRY_RUN_NAME = "cf_tape_dry_run"
+ADAPTER_RECEIPT_NAME = "cf_tape_jsonl_receipt"
+SETTLEMENT_WITHHELD_REASONS = ("no_settlement_given", "observed_before_fill", "observed_on_or_after_2026_09_30")
 RECEIPT_REVISION = 1
 BASIS = "counterfactual"
 
@@ -1049,6 +1051,11 @@ def to_jsonl(tape_dir: Path, output: Path, *, maker_side: str, settlement_path: 
     holds one maker side. Each table's SHA-256 is checked against its day
     receipt before it is read; every record date is checked against the
     reserved window and ``MAX_DATE`` before it is written.
+
+    Settlements: a fill's settlement label is withheld (``settlement_p_yes`` null) when none is given for
+    its condition, when it was observed before the fill, or when it was observed on or after 2026-09-30
+    (the reserved window; it can never enter the fit). The fill itself is kept so the exposure-minute
+    hazard is not biased, and each reason is counted in ``<output>.receipt.json`` (create-only).
     """
 
     if maker_side not in ("YES", "NO"):
@@ -1075,7 +1082,10 @@ def to_jsonl(tape_dir: Path, output: Path, *, maker_side: str, settlement_path: 
         raise TapeRefused("refused: a sealed day lies after the tape's maximum date")
     columns = list(_schemas()[FILLS_TABLE].names)
     minute_columns = list(_schemas()[MINUTES_TABLE].names)
-    counts = Counter()
+    counts, withheld = Counter(), Counter({reason: 0 for reason in SETTLEMENT_WITHHELD_REASONS})
+    receipt_path = Path(f"{output}.receipt.json")
+    if os.path.exists(receipt_path):
+        raise FileExistsError(str(receipt_path))
     with open(output, "x", encoding="utf-8", newline="\n") as handle:
         for day in chosen:
             with open(tape_dir / "receipts" / f"{day.isoformat()}.json", encoding="utf-8") as receipt_file:
@@ -1088,17 +1098,43 @@ def to_jsonl(tape_dir: Path, output: Path, *, maker_side: str, settlement_path: 
                     row = dict(zip(names, values))
                     if row["maker_side"] != maker_side:
                         continue
-                    payload = record_payloads(kind, row, settlement)
-                    observed = payload.get("settlement_observed_at_utc")
-                    if observed is not None and (datetime.fromisoformat(observed)
-                                                 < datetime.fromisoformat(payload["fill_at_utc"])):
-                        raise TapeRefused("refused: a settlement was observed before its fill")
+                    usable = None
+                    if kind == "fill":
+                        reason, usable = _settlement_for(row, settlement)
+                        if reason:
+                            withheld[reason] += 1
+                    payload = record_payloads(kind, row, usable)
                     if any(is_reserved(d) or d > MAX_DATE for d in _payload_dates(payload)):
                         raise TapeRefused("refused: a record date lies after the tape's maximum date")
                     handle.write(json.dumps(payload, sort_keys=True, allow_nan=False) + "\n")
                     counts[kind] += 1
-    return {"output": str(output), "maker_side": maker_side, "days": [d.isoformat() for d in chosen],
-            "minutes": counts["minute"], "fills": counts["fill"], "sha256": _sha256_file(output)}
+    summary = {"receipt": ADAPTER_RECEIPT_NAME, "receipt_revision": RECEIPT_REVISION,
+               "output": str(output), "maker_side": maker_side, "days": [d.isoformat() for d in chosen],
+               "settlement_json": None if settlement_path is None else str(settlement_path),
+               "settlement_json_sha256": None if settlement_path is None else _sha256_file(Path(settlement_path)),
+               "minutes": counts["minute"], "fills": counts["fill"],
+               "fills_with_settlement": counts["fill"] - sum(withheld.values()),
+               "fills_settlement_withheld": dict(withheld),
+               "settlement_withheld_note": "fill kept with settlement_p_yes null; settlement-horizon label lost",
+               "sha256": _sha256_file(output)}
+    _write_json_create_only(receipt_path, summary)
+    return {**summary, "receipt_path": str(receipt_path)}
+
+
+def _settlement_for(row: dict, settlement: dict | None) -> tuple[str | None, dict | None]:
+    """(withheld reason or None, ``{condition_id: (p_yes, observed)}`` for a usable settlement)."""
+
+    found = (settlement or {}).get(row["condition_id"])
+    if found is None:
+        return "no_settlement_given", None
+    observed = datetime.fromisoformat(found[1])
+    fill_at = row["fill_at_utc"] if isinstance(row["fill_at_utc"], datetime) else from_us(row["fill_at_utc"])
+    if observed < fill_at:
+        return "observed_before_fill", None
+    day = observed.astimezone(timezone.utc).date()
+    if is_reserved(day) or day > MAX_DATE:
+        return "observed_on_or_after_2026_09_30", None
+    return None, {row["condition_id"]: found}
 
 
 # ---------------------------------------------------------------- CLI
