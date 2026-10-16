@@ -3723,8 +3723,12 @@ Receipts: [S0 receipts](../research/data-layer-v2-s0-2026-10-15/README.md). Inpu
 - **`last_good_sources.json` is rewritten whole on every pass:** `model_sources.py:596-619` reloads and atomically
   rewrites the ~36 MB file (the NBM bulletin text in `raw_payload`) even when unchanged; est. 5.2 GB/day of writes per
   US station at the 10-minute default. The host cadence is not confirmed.
-- **Not established:** post-gzip savings of write-on-change; host process commit; FC-10 bytes per point; L2 delta bytes
-  (S0(a)).
+- **L2 deltas (S0(a), one public connection, 2026-10-16 01Z-11Z only):** raw `book`/`price_change`/`tick_size_change`
+  payload is ≈3.1 GB/day for the 264-token T+0 exec-tape universe and ≈7.0 GB/day with T+1; `price_change` is >98%.
+  Per-(token, hour) p95 is 1.8 MB (T+0) / 1.9 MB (T+0+T+1) and p99 7.7 / 5.7 MB; a p95 budget drops 45% / 26% of
+  bytes. The run ended on the reconnect abort rule at 12:56Z ([receipt](../research/data-layer-v2-s0-2026-10-15/s0a-l2-delta-bytes.md)).
+- **Not established:** post-gzip savings of write-on-change; host process commit; FC-10 bytes per point; post-gzip L2
+  bytes and L2 bytes in US daytime hours (13Z-23Z).
 
 ## Related
 

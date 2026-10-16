@@ -1,9 +1,9 @@
 # Data layer v2: S0 measurement pack receipts (workstation, 2026-10-15)
 
 Receipts for step S0 of the [data layer v2 plan](../../operations/DATA_LAYER_V2_PLAN.md). Items (b), (c) and (i) were
-measured on the workstation under the `workstation_heavy.ps1 -Queue` lease. The desk items (d), (e), (f), (h), (j) and
-(k) were done by read-only agents, and each has its own file here. Item (a) (L2 bytes, not before 2026-10-16 00:00Z)
-and the host stat (g) are still owed.
+measured on the workstation under the `workstation_heavy.ps1 -Queue` lease. Item (a) was measured on 2026-10-16 from one
+public connection; it has its own file. The desk items (d), (e), (f), (h), (j) and
+(k) were done by read-only agents, and each has its own file here. The host stat (g) is still owed.
 
 **Embargo compliance.** Every measured input is a workstation copy whose mtime and target date fall before
 2026-09-30. Nothing dated 2026-09-30..10-15 was read. No live observation, METAR, TAF, forecast or settlement source was
@@ -16,8 +16,22 @@ calls on objects dated before 09-30. The bench scripts and their raw JSON output
 | [s0d-open-meteo-field-map.md](s0d-open-meteo-field-map.md) | (d) every served Open-Meteo request, its fields and members, where it is stored, and what is not requested |
 | [s0ef-stations-and-licences.md](s0ef-stations-and-licences.md) | (e) MOSMIX ids for 51 airports, AMeDAS for RJTT, TAF TX/TN, AWC limits; (f) licence sheet |
 | [s0hjk-s3-prereg-sockets.md](s0hjk-s3-prereg-sockets.md) | (h) S3 `data_run/` feasibility; (j) 88a freeze check; (k) websocket counts; `last_good_sources.json` writer |
+| [s0a-l2-delta-bytes.md](s0a-l2-delta-bytes.md) | (a) L2 delta bytes per (token, hour) from one public market-channel connection, 2026-10-16 |
 
 ## Results
+
+### (a) L2 deltas are several GB/day raw and heavy-tailed (details in the s0a file)
+
+One public market-channel connection, 792 tokens (12 built-ins × event days 10-15..10-17), 2026-10-16 00:09Z-12:56Z.
+The run ended on the reconnect abort rule. Full hours were 01Z-11Z; 13Z-23Z were not sampled.
+
+- **Volume.** Raw payload is ≈3.1 GB/day for the T+0 exec-tape universe (264 tokens) and ≈7.0 GB/day with T+1.
+  `price_change` is over 98% of it.
+- **Budget.** The per-(token, hour) budget that binds in <5% of token-hours is **1.8 MB** (T+0) or **1.9 MB**
+  (T+0+T+1). For <1% it is 7.7 MB or 5.7 MB.
+- **Tail.** A p95 budget would drop 45% (T+0) or 26% (T+0+T+1) of the bytes.
+- **Peak.** 2,255 frames/s.
+- **Not measured.** The post-gzip ratio, and the US daytime hours.
 
 ### (b) Book write-on-change is lossless; about half the book rows repeat
 
@@ -137,7 +151,8 @@ Each module was imported 3 times in a fresh interpreter (3.11.9, numpy 2.4.6 wit
 
 ## Still owed
 
-- (a) L2 delta bytes: one public connection, no earlier than 2026-10-16 00:00Z, outside 12:00-18:00, byte totals only.
+- (a) follow-up: the US daytime hours (13Z-23Z) and a second weekday, before the VR-2 budget is fixed; the post-gzip
+  ratio of `price_change` JSON.
 - (g) Host stat: one pre-09-30 closed event's `observation_payloads` size, and the `last_good_sources.json` rewrite
   cadence.
 - Host check of capture-process private bytes against the OpenBLAS lead in (i).
