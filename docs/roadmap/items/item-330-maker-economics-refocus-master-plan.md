@@ -259,13 +259,23 @@ edited, so the build is roll-free.
   - The pure rule, `deplete`, aggregates per UTC minute.
   - `EngineV3` subclasses `EngineV2` and replaces only the matcher. The caller injects it via
     `engine_factory("v3", purpose=...)`. v2 stays the default, and `BOUNDS` is unchanged.
+  - A descriptive `EngineV3` plan touching a 2026-10-16..11-13 local quote date needs the LFC exclusion file
+    and each market's zone (`panel_exclusions=`, `time_zones=`), and refuses an unlisted band-day.
+    It cannot drop band-days, so it refuses rather than filters.
   - A ratchet pins the frozen v2 files and a golden `EngineV2` summary.
 - **`maker_core.replay.fill_v3_reconcile`** (`python -m maker_core.replay.fill_v3_reconcile`), labelled
   DESCRIPTIVE.
   - It replays journaled own legs (RE-1 now) against 88a replay bundles.
+  - Its journal adapter mirrors the RE-1 writer (`codex/re1-wallet-200-20260923` at `2b9a0ca9e`): envelope,
+    sequence, hash chain, and the writer's event list. An unknown event or a read event of another shape refuses.
+  - Token outcomes come from the journal's own order or fill rows, or from `--token-outcomes`. The scope's
+    token order alone refuses (`token_outcomes_unproven`).
+  - Each own fill is credited to one print: the eligible print nearest in time within
+    120 s before to 5 s after the fill, ties to the earlier print. LFC §1 fixes no window; this is the module's.
   - For each leg it reports actual own fills against the v2 bounds and v3.
   - It reports `c_at` and `c_thr` per the LFC definitions, overall and by `q_ahead` tercile, with exact
-    Clopper–Pearson intervals. Prints are the units.
+    Clopper–Pearson intervals. Prints are the units. The intervals are labelled nominal (`cp95_nominal`):
+    they treat prints within a leg as independent, which they are not.
   - It never pools with replay or shadow results (LFC §8).
   - It enforces LFC panel exclusion. A leg on a 2026-10-16..11-13 local date is kept only if its band-day appears
     in `panel_exclusions.jsonl`. Otherwise it is dropped before any outcome is read.
@@ -280,11 +290,14 @@ edited, so the build is roll-free.
 
 - Should a strictly-through print sweep the whole level?
 - In the engine, the size of the first fill can depend on print order within a minute.
-- An LFC journal adapter is still needed.
-- 88a bundles for the RE-1 dates are not on the workstation, so a real RE-1 reconcile has not been run.
+- 88a bundles for the RE-1 dates are not on the workstation, so a real RE-1 reconcile has not been run. The
+  adapter is tested only against a redacted writer-shaped session. Its first real input is one pre-09-30 RE-1
+  journal on the host that holds the 88a bundle, run by master with owner authorization.
+- LFC prefers venue trade records for own fills; the adapter reads user-stream trade events and the terminal
+  `size_matched` residual, not `terminal_trades`.
 - The reconcile output id `maker-fill-v3-reconcile/0.1` is not in the schema registry yet. Registering it means
   editing a capture-imported registry module, which is roll-sensitive. Do that in a quiet-window change before
-  any reconcile output is kept as durable evidence.
+  any reconcile output is kept as durable evidence. Until then the output is not durable evidence.
 
 ## 1. Decision and scope
 

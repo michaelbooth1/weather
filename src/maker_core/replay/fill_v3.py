@@ -29,15 +29,15 @@ depend on that order (disclosed; registration draft §4).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from functools import partial
 
 from maker_core.evidence.journal import digest
 from maker_core.quoting.policy import QuoteDecision
-from maker_core.replay.bundle import BundleError
+from maker_core.replay.bundle import BundleError, time_zone
 from maker_core.replay.fill_model import Fill
-from maker_core.replay.fill_v3_embargo import check as embargo_check
+from maker_core.replay.fill_v3_embargo import PANEL_FIRST, PANEL_LAST, check as embargo_check, local_dates
 from maker_core.replay.v2.engine import EngineV2
 from maker_core.replay.v2.kernel import EPSILON
 from maker_core.replay.v2.money import add, mul, q, sub
@@ -176,19 +176,56 @@ class QueueState:
 
 
 # -- the engine -------------------------------------------------------------------------------------------
+def check_panel(plan, purpose, panel_exclusions=None, time_zones=None) -> None:
+    """The LFC panel-exclusion rule for a descriptive engine run, as ``fill_v3_reconcile.admit`` applies it.
+
+    Every condition window of a plan day that can touch a panel local quote date (UTC days ``PANEL_FIRST`` ..
+    ``PANEL_LAST + 1``) is mapped to its local dates in its market's zone (``time_zones``: market_id -> IANA
+    name, required there). A panel local date needs ``panel_exclusions`` (the band-days ``(condition_id,
+    local_quote_date)`` of an LFC ``panel_exclusions.jsonl``, as ``fill_v3_reconcile.load_panel_exclusions``
+    returns them), and that band-day must be listed in it. The engine cannot drop a band-day from a plan, so an
+    unlisted one refuses the run. A scored run is refused on these days by the embargo already.
+    """
+    if purpose != "descriptive":
+        return
+    last_utc_day = PANEL_LAST + timedelta(days=1)  # a UTC day can hold the previous local date (western zones)
+    for day in plan.days:
+        if not PANEL_FIRST <= day.day <= last_utc_day:
+            continue
+        start, end = day.start, day.start + timedelta(days=1) - timedelta(microseconds=1)
+        for condition in day.conditions:
+            name = (time_zones or {}).get(condition.market_id)
+            if name is None:
+                raise BundleError("v3_panel_time_zone_required")
+            zone = time_zone(name)
+            for lo, hi in day.windows.get(condition.condition_id, ()):
+                lo, hi = max(lo, start), min(hi, end)
+                if lo > hi:
+                    continue
+                for local in local_dates(lo, hi, zone):
+                    if not PANEL_FIRST.isoformat() <= local <= PANEL_LAST.isoformat():
+                        continue
+                    if panel_exclusions is None:
+                        raise BundleError("panel_exclusions_required")
+                    if (condition.condition_id.lower(), local) not in panel_exclusions:
+                        raise BundleError("v3_panel_band_day_not_excluded")
+
+
 class EngineV3(EngineV2):
     """``EngineV2`` with the v3 queue matcher; every other behaviour is inherited unchanged.
 
     ``purpose`` is required ('descriptive' or 'scored'): every plan day passes ``fill_v3_embargo.check`` before
     the engine exists, so the reserved window is refused for any purpose and a scored run is refused inside the
-    shadow/panel embargo and while the v3 registration is unsigned.
+    shadow/panel embargo and while the v3 registration is unsigned. A descriptive plan touching a panel local
+    quote date also passes ``check_panel`` (an LFC exclusion file is required there, as in the reconciliation).
     """
 
     fill_model = VERSION
 
-    def __init__(self, config, plan, *, sink=None, purpose):
+    def __init__(self, config, plan, *, sink=None, purpose, panel_exclusions=None, time_zones=None):
         for day in plan.days:
             embargo_check(day.day, purpose)
+        check_panel(plan, purpose, panel_exclusions, time_zones)
         self.purpose = purpose
         self.queues = {}  # condition_id -> tuple[QueueState | None, ...] aligned with state.legs
         super().__init__(config, plan, sink=sink)
@@ -269,10 +306,12 @@ class EngineV3(EngineV2):
         return dict(super().summary(), fill_bound=LABEL, fill_model=VERSION, purpose=self.purpose)
 
 
-def engine_factory(fill_model: str = "v2", *, purpose: str = "descriptive"):
-    """The engine class to inject: ``EngineV2`` (the default) or ``EngineV3`` bound to ``purpose``."""
+def engine_factory(fill_model: str = "v2", *, purpose: str = "descriptive", panel_exclusions=None,
+                   time_zones=None):
+    """The engine class to inject: ``EngineV2`` (the default) or ``EngineV3`` bound to ``purpose`` (and, for a
+    descriptive plan on panel local dates, to its exclusions and market zones; see ``check_panel``)."""
     if fill_model == "v2":
         return EngineV2
     if fill_model == "v3":
-        return partial(EngineV3, purpose=purpose)
+        return partial(EngineV3, purpose=purpose, panel_exclusions=panel_exclusions, time_zones=time_zones)
     raise BundleError("unknown_fill_model")

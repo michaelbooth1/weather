@@ -65,6 +65,7 @@ attribution tool's `frozen` variant to reproduce them exactly. Every value is
 computed from invented fixtures; nothing captured is read.
 
 `fill_v3_scenarios.py` holds fictional inputs for the fill model v3 tests (item 330 build 1): a forced-QUOTE
-engine bundle with known queue depths, an RE-1-*shaped* session journal (event names and read fields only; no
-addresses, venue IDs, hashes or signatures), and an 88a-shaped replay bundle with hand-computed answers. Nothing
-is copied from a real journal or capture.
+engine bundle with known queue depths, a golden two-leg session journal, a whole RE-1 writer session
+(`re1_writer_rows`: the writer's event names and order, the read events with its exact fields, written with its
+envelope and hash chain), and an 88a-shaped replay bundle with hand-computed answers. All values are synthetic (no
+addresses, venue IDs, tokens, hashes or signatures); nothing is copied from a real journal or capture.

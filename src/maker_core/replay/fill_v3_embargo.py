@@ -8,7 +8,9 @@ or flag:
   descriptive or scored.
 - **Shadow/panel scoring embargo** through 2026-11-13 (the maker shadow panel's desk-study end). A *scored* read
   of any day 2026-09-30..2026-11-13 is refused. A descriptive read of a day after the reserved window is allowed
-  here; the reconciliation adds the LFC panel-exclusion rule on top (``fill_v3_reconcile``).
+  here; both descriptive readers add the LFC panel-exclusion rule on top for local quote dates
+  ``PANEL_FIRST..PANEL_LAST`` (``fill_v3_reconcile.admit`` for journaled legs, ``fill_v3.check_panel`` for
+  ``EngineV3`` plans): such a band-day is read only when an LFC ``panel_exclusions.jsonl`` lists it.
 
 A scored v3 read additionally needs a signed registration
 (``docs/research/maker-fill-v3-replay-registration-DRAFT-2026-10-16.md``). ``SIGNED_REGISTRATION_SHA256`` stays
@@ -24,6 +26,8 @@ from datetime import date, datetime, timedelta, timezone
 RESERVED_FIRST = date(2026, 9, 30)
 RESERVED_LAST = date(2026, 10, 15)
 SCORED_EMBARGO_LAST = date(2026, 11, 13)
+PANEL_FIRST = RESERVED_LAST + timedelta(days=1)  # the shadow/panel window of local quote dates
+PANEL_LAST = SCORED_EMBARGO_LAST
 PURPOSES = ("descriptive", "scored")
 SIGNED_REGISTRATION_SHA256: str | None = None
 
@@ -97,6 +101,12 @@ def check(value, purpose) -> date:
 def check_all(values, purpose) -> tuple:
     """``check`` every value (instants, dates or strings); the first refusal raises."""
     return tuple(check(v, purpose) for v in values)
+
+
+def local_dates(start: datetime, end: datetime, zone) -> tuple:
+    """ISO local dates in ``zone`` from ``start`` through ``end`` (both tz-aware instants), inclusive."""
+    first, last = start.astimezone(zone).date(), end.astimezone(zone).date()
+    return tuple((first + timedelta(days=n)).isoformat() for n in range((last - first).days + 1))
 
 
 def window_days(first: date, last: date):

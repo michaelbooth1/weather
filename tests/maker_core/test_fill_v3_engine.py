@@ -124,6 +124,38 @@ def test_engine_v3_refuses_embargoed_plan_days(tmp_path, day, purpose, code):
     assert caught.value.code == code
 
 
-def test_engine_v3_descriptive_after_the_reserved_window_is_allowed(tmp_path, monkeypatch):
-    e = run(tmp_path, monkeypatch, THROUGH, engine_factory("v3"), day=date(2026, 10, 16))
+def band_days(plan):
+    return {condition.condition_id.lower() for day in plan.days for condition in day.conditions}
+
+
+def test_engine_v3_descriptive_panel_day_requires_an_exclusion_file(tmp_path):
+    plan = run_plan([engine_source(tmp_path, [], day=date(2026, 10, 16))])
+    with pytest.raises(BundleError, match="panel_exclusions_required"):
+        engine_factory("v3", time_zones={"a": "UTC"})(CONFIG, plan)
+    with pytest.raises(BundleError, match="v3_panel_time_zone_required"):
+        engine_factory("v3", panel_exclusions=frozenset())(CONFIG, plan)
+    with pytest.raises(BundleError, match="v3_panel_band_day_not_excluded"):
+        engine_factory("v3", panel_exclusions=frozenset({("other", "2026-10-16")}), time_zones={"a": "UTC"})(
+            CONFIG, plan)
+    with pytest.raises(BundleError, match="v3_panel_band_day_not_excluded"):  # the right condition, wrong date
+        engine_factory("v3", panel_exclusions=frozenset((c, "2026-10-17") for c in band_days(plan)),
+                       time_zones={"a": "UTC"})(CONFIG, plan)
+
+
+def test_engine_v3_panel_rule_uses_local_quote_dates(tmp_path):
+    # 2026-11-14 00:00 UTC is 2026-11-13 in Chicago (a panel local date) but not in UTC.
+    plan = run_plan([engine_source(tmp_path, [], day=date(2026, 11, 14))])
+    engine_factory("v3", time_zones={"a": "UTC"})(CONFIG, plan)
+    with pytest.raises(BundleError, match="panel_exclusions_required"):
+        engine_factory("v3", time_zones={"a": "America/Chicago"})(CONFIG, plan)
+    exclusions = frozenset((c, "2026-11-13") for c in band_days(plan))
+    engine_factory("v3", panel_exclusions=exclusions, time_zones={"a": "America/Chicago"})(CONFIG, plan)
+
+
+def test_engine_v3_descriptive_after_the_reserved_window_is_allowed_with_exclusions(tmp_path, monkeypatch):
+    src = engine_source(tmp_path / "probe", [], day=date(2026, 10, 16))
+    exclusions = frozenset((c, "2026-10-16") for c in band_days(run_plan([src])))
+    assert exclusions  # one band-day per condition of the plan
+    e = run(tmp_path, monkeypatch, THROUGH,
+            engine_factory("v3", panel_exclusions=exclusions, time_zones={"a": "UTC"}), day=date(2026, 10, 16))
     assert [f.size for f in e.fills] == [D(5)]

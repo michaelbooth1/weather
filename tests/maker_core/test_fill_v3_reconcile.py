@@ -6,16 +6,27 @@ bundle whose prints and books give hand-computed answers (see the fixture's comm
 Dated read entry points covered by a refusal test: ``read_journal``, ``admit`` (local quote dates),
 ``bundle_day``/``read_bundle``, ``reconcile``, ``main`` (CLI) -- plus ``EngineV3`` in ``test_fill_v3_engine``.
 """
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal as D
 import json
+from types import SimpleNamespace
 
 import pytest
 
 from maker_core.replay import fill_v3_reconcile as R
 from maker_core.replay.fill_v3_embargo import EmbargoRefused
-from .fixtures.fill_v3_scenarios import journal_rows, reconcile_bundle, write_journal
+from .fixtures.fill_v3_scenarios import DAY, journal_rows, re1_writer_rows, reconcile_bundle, write_journal
 
+# Hand reasoning for the golden (fixtures/fill_v3_scenarios.py; prints are (s, price, size, outcome)):
+# - Predictions (q_ahead, the v2 bounds, fill-v3.0) do not read own fills and are unchanged by attribution.
+# - Attribution: each own fill goes to the eligible print with minimum |dt| in [fill - 120 s, fill + 5 s].
+#   L1 (YES .48, live 58..600 s, fill 5 at 160 s): window 40..165 holds 90 s (dt -70), 120 s (-40), 150 s (-10)
+#     -> the 150 s at-price print. c_at: 90 s add(0, min(25, 20)=20); 150 s add(5, min(8, 20)=8).
+#     c_thr: 120 s add(0, min(10, 20)=10). L1 at = 5/28, N 2, k 1.
+#   L2 (NO .47, live 60..305 s, fill 20 at 305 s): window 185..310 holds 200 s at price (dt -105) and 300 s
+#     through (dt -5) -> the 300 s through print. c_at: 200 s add(0, 6). c_thr: 300 s add(min(20, 12)=12, 12).
+#   Totals: c_at 5/34 = 0.147059 over N 3, k 1; c_thr 12/22 = 0.545455 over N 2, k 1.
+#   Terciles by q_ahead (cuts 10, 30): T1 = L2 at 0/6; T2 = L1 at 5/28 = 0.178571; T3 empty.
 EXPECTED_LEGS = {
     "ord-l1": dict(q_ahead="30", actual_filled="5", end_reason="canceled",
                    predicted={"strictly_through": "10", "at_price": "20", "fill-v3.0": "13"},
@@ -41,19 +52,55 @@ def test_golden_reconciliation(tmp_path):
         assert leg["status"] == "RECONCILED"
         for key, value in EXPECTED_LEGS[leg["order_id"]].items():
             assert leg[key] == value, (leg["order_id"], key)
-    assert result["c_at"] == {"ratio": "0.323529", "N": 3, "k_prints_with_own_fill": 2,
-                              "cp95": R.clopper_pearson(2, 3)}
-    assert result["c_thr"] == {"ratio": "0", "N": 1, "k_prints_with_own_fill": 0, "cp95": [0.0, 0.975]}
+    assert result["c_at"] == {"ratio": "0.147059", "N": 3, "k_prints_with_own_fill": 1,
+                              "cp95_nominal": R.clopper_pearson(1, 3)}
+    assert result["c_thr"] == {"ratio": "0.545455", "N": 2, "k_prints_with_own_fill": 1,
+                               "cp95_nominal": [0.012579, 0.987421]}
+    assert "nominal" in result["interval_note"] and "independent" in result["interval_note"]
     assert result["q_ahead_tercile_cuts"] == ["10", "30"]
     tercile = result["c_at_by_q_ahead_tercile"]
-    assert (tercile["T1"]["ratio"], tercile["T1"]["N"]) == ("1", 1)
+    assert (tercile["T1"]["ratio"], tercile["T1"]["N"]) == ("0", 1)
     assert (tercile["T2"]["ratio"], tercile["T2"]["N"]) == ("0.178571", 2)
-    assert (tercile["T3"]["ratio"], tercile["T3"]["N"], tercile["T3"]["cp95"]) == (None, 0, None)
+    assert (tercile["T3"]["ratio"], tercile["T3"]["N"], tercile["T3"]["cp95_nominal"]) == (None, 0, None)
     comparison = result["predicted_vs_actual"]
     assert {m: comparison[m]["predicted_shares"] for m in comparison} == {
         "strictly_through": "22", "at_price": "38", "fill-v3.0": "21"}
     assert all(comparison[m]["actual_shares"] == "25" for m in comparison)
     assert R.encode(result) == R.encode(golden(tmp_path / "again"))
+
+
+def prints_at(*seconds, price=".47"):
+    base = datetime(2020, 1, 1, tzinfo=timezone.utc)
+    return [SimpleNamespace(traded_at=base + timedelta(seconds=s), price=D(price)) for s in seconds]
+
+
+def fill_at(seconds, size="20"):
+    return (datetime(2020, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=seconds), D(size), "fill_event")
+
+
+def test_l2_fill_goes_to_the_nearest_print_not_the_first_eligible():
+    # The reviewed misattribution: L2's fill at 305 s has an at-price print 105 s earlier and a through print 5 s
+    # earlier. The nearest (through) print takes it; the earlier at-price print gets nothing.
+    assert R.attribute_fills([fill_at(305)], prints_at(200, 300)) == [D(0), D(20)]
+
+
+def test_attribution_ties_go_to_the_earlier_print():
+    assert R.attribute_fills([fill_at(100, "4")], prints_at(97, 103)) == [D(4), D(0)]
+    assert R.attribute_fills([fill_at(100, "4")], prints_at(100, 100)) == [D(4), D(0)]
+
+
+def test_attribution_window_is_one_sided_with_a_small_skew():
+    assert R.FILL_MATCH_SECONDS == 120 and R.FILL_PRINT_SKEW_SECONDS == 5
+    assert R.attribute_fills([fill_at(200)], prints_at(80)) == [D(20)]       # exactly 120 s before: eligible
+    assert R.attribute_fills([fill_at(200)], prints_at(79)) == [D(0)]        # 121 s before: outside
+    assert R.attribute_fills([fill_at(200)], prints_at(205)) == [D(20)]      # 5 s after (clock skew): eligible
+    assert R.attribute_fills([fill_at(200)], prints_at(206)) == [D(0)]       # 6 s after: outside
+    assert R.attribute_fills([fill_at(200)], prints_at(150, 206)) == [D(20), D(0)]
+
+
+def test_each_fill_is_credited_to_one_print_and_prints_can_take_several():
+    fills = [fill_at(100, "3"), fill_at(101, "2"), fill_at(300, "7")]
+    assert R.attribute_fills(fills, prints_at(99, 290)) == [D(5), D(7)]
 
 
 def test_clopper_pearson_known_values():
@@ -100,6 +147,184 @@ def test_conflicting_token_outcomes_refuse(tmp_path):
     journal = write_journal(tmp_path / "s" / "journal.jsonl", rows)
     with pytest.raises(R.ReconcileError, match="conflicting_token_outcome"):
         R.read_journal(journal)
+
+
+def strip_outcome_proof(rows):
+    for row in rows:
+        if row["event"] == "terminal_order":
+            del row["order"]["outcome"]
+        elif row["event"] == "fill":
+            del row["user_event"]["outcome"]
+    return rows
+
+
+def test_unproven_token_outcomes_refuse_without_a_declaration(tmp_path):
+    journal = write_journal(tmp_path / "s" / "journal.jsonl", strip_outcome_proof(journal_rows()))
+    with pytest.raises(R.ReconcileError, match="token_outcomes_unproven"):
+        R.read_journal(journal)  # the scope's token order alone proves nothing
+    with pytest.raises(R.ReconcileError, match="token_outcomes_unproven"):
+        R.reconcile([journal], [reconcile_bundle(tmp_path)], time_zone_name="UTC")
+
+
+def test_declared_token_outcomes_are_used(tmp_path):
+    journal = write_journal(tmp_path / "s" / "journal.jsonl", strip_outcome_proof(journal_rows()))
+    session = R.read_journal(journal, {"tok-yes": "YES"})
+    assert {leg.order_id: leg.outcome for leg in session.legs} == {"ord-l1": "YES", "ord-l2": "NO"}
+    result = R.reconcile([journal], [reconcile_bundle(tmp_path)], time_zone_name="UTC",
+                         token_outcomes={"tok-no": "NO"})
+    assert result["c_at"]["ratio"] == "0.147059"
+    with pytest.raises(R.ReconcileError, match="token_outcome_outside_scope"):
+        R.read_journal(journal, {"tok-other": "YES"})
+    proven = write_journal(tmp_path / "p" / "journal.jsonl", journal_rows())
+    with pytest.raises(R.ReconcileError, match="conflicting_token_outcome"):
+        R.read_journal(proven, {"tok-yes": "NO"})  # a declaration never overrides the journal's proof
+
+
+def test_cli_token_outcomes_flag(tmp_path, capsys):
+    journal = write_journal(tmp_path / "s" / "journal.jsonl", strip_outcome_proof(journal_rows()))
+    bundle = reconcile_bundle(tmp_path)
+    base = ["--journal", str(journal), "--bundle", str(bundle), "--time-zone", "UTC"]
+    refused = tmp_path / "refused.json"
+    with pytest.raises(R.ReconcileError, match="token_outcomes_unproven"):
+        R.main(base + ["--output", str(refused)])
+    assert not refused.exists()
+    out = tmp_path / "out.json"
+    assert R.main(base + ["--token-outcomes", "tok-yes=yes", "--output", str(out)]) == 0
+    assert json.loads(out.read_bytes())["c_thr"]["ratio"] == "0.545455"
+    for bad, code in (("tok-yes", "token_outcome_value"), ("tok-yes=MAYBE", "token_outcome_value")):
+        with pytest.raises(R.ReconcileError, match=code):
+            R.parse_token_outcomes([bad])
+    with pytest.raises(R.ReconcileError, match="conflicting_token_outcome"):
+        R.parse_token_outcomes(["tok-yes=YES", "tok-yes=NO"])
+    assert R.parse_token_outcomes([]) is None
+
+
+# -- the RE-1 writer's row stream (codex/re1-wallet-200-20260923 at 2b9a0ca9e, redacted) ----------------
+def test_writer_shaped_session_is_read(tmp_path):
+    journal = write_journal(tmp_path / "session-1" / "journal.jsonl", re1_writer_rows())
+    session = R.read_journal(journal)
+    assert session.condition_id == "c-synthetic"
+    legs = {leg.order_id: leg for leg in session.legs}
+    assert list(legs) == ["ord-a", "ord-b", "ord-c"]  # raw SDK reply (orderID/success) and rehearsal reply shapes
+    assert [(legs[o].outcome, str(legs[o].price)) for o in legs] == [("YES", "0.48"), ("NO", "0.47"), ("YES", "0.47")]
+    assert {o: (legs[o].end_reason, int((legs[o].ended_at - DAY).total_seconds())) for o in legs} == {
+        "ord-a": ("canceled", 300), "ord-b": ("canceled", 403), "ord-c": ("canceled", 403)}
+    assert all(leg.expires_at == DAY + timedelta(seconds=3660) for leg in session.legs)
+    R.attach_fills(session, session.legs)
+    assert {o: [(int((at - DAY).total_seconds()), str(size), source) for at, size, source in legs[o].fills]
+            for o in legs} == {"ord-a": [], "ord-b": [(402, "5", "fill_event")], "ord-c": []}
+
+
+def test_every_writer_event_is_classified():
+    events = {row["event"] for row in re1_writer_rows()}
+    assert events <= R.READ_EVENTS | R.IGNORED_EVENTS
+    assert R.READ_EVENTS.isdisjoint(R.IGNORED_EVENTS)
+
+
+def mutate(rows, event, change, nth=0):
+    hits = [row for row in rows if row["event"] == event]
+    change(hits[nth])
+    return rows
+
+
+@pytest.mark.parametrize("change,code", [
+    (lambda rows: rows.insert(5, dict(rows[5], event="brand_new_event")), "journal_unknown_event"),
+    (lambda rows: mutate(rows, "submit_request", lambda r: r["request"].pop("expiration")), "submit_request_shape"),
+    (lambda rows: mutate(rows, "submit_request", lambda r: r.update(extra=1)), "submit_request_shape"),
+    (lambda rows: mutate(rows, "submit_response", lambda r: r.update(response=["x"])), "submit_response_shape"),
+    (lambda rows: mutate(rows, "cancel_response", lambda r: r["response"].pop("canceled")), "cancel_response_shape"),
+    (lambda rows: mutate(rows, "terminal_order", lambda r: r["order"].pop("id")), "terminal_order_shape"),
+    (lambda rows: mutate(rows, "fill", lambda r: r.pop("rows")), None),  # (user_event,) is a writer form too
+    (lambda rows: mutate(rows, "fill", lambda r: r.update(order={})), "fill_shape"),
+    (lambda rows: mutate(rows, "fill", lambda r: r["user_event"].update(event_type="mystery")),
+     "fill_user_event_shape"),
+    (lambda rows: mutate(rows, "fill", lambda r: r["user_event"].pop("order_id")), "fill_user_event_shape"),
+    (lambda rows: mutate(rows, "opened", lambda r: r.pop("mode")), "opened_shape"),
+    (lambda rows: mutate(rows, "terminal", lambda r: r.update(unknown_submit=True)), "journal_unknown_submit"),
+    (lambda rows: rows.pop(), "journal_without_terminal"),
+    (lambda rows: rows.insert(3, dict(rows[-1])), "journal_without_terminal"),
+    (lambda rows: rows.pop(0), "journal_without_opened"),
+])
+def test_writer_shape_mutations_refuse(tmp_path, change, code):
+    rows = re1_writer_rows()
+    change(rows)
+    journal = write_journal(tmp_path / "s" / "journal.jsonl", rows)
+    if code is None:
+        R.read_journal(journal)
+        return
+    with pytest.raises(R.ReconcileError, match=code):
+        R.read_journal(journal)
+
+
+def rewrite_line(path, index, change):
+    lines = path.read_bytes().splitlines(keepends=True)
+    row = json.loads(lines[index])
+    change(row)
+    lines[index] = json.dumps(row, sort_keys=True, separators=(",", ":")).encode() + b"\n"
+    path.write_bytes(b"".join(lines))
+
+
+@pytest.mark.parametrize("index,change,code", [
+    (4, lambda row: row.update(previous_sha256="0" * 64), "journal_chain_broken"),
+    (4, lambda row: row.update(sequence=7), "journal_sequence"),
+    (4, lambda row: row.update(schema_version="other"), "journal_schema_version"),
+    (4, lambda row: row.update(kind="ledger"), "journal_row_envelope"),
+    (4, lambda row: row.pop("previous_sha256"), "journal_row_envelope"),
+])
+def test_writer_envelope_mutations_refuse(tmp_path, index, change, code):
+    journal = write_journal(tmp_path / "s" / "journal.jsonl", re1_writer_rows())
+    rewrite_line(journal, index, change)
+    with pytest.raises(R.ReconcileError, match=code):
+        R.read_journal(journal)
+
+
+def test_an_edited_line_breaks_the_next_rows_chain(tmp_path):
+    journal = write_journal(tmp_path / "s" / "journal.jsonl", re1_writer_rows())
+    rewrite_line(journal, 4, lambda row: row.update(tampered=True))  # its own envelope still parses
+    with pytest.raises(R.ReconcileError, match="journal_chain_broken"):
+        R.read_journal(journal)
+
+
+@pytest.mark.parametrize("raw,code", [
+    (b"\n", "journal_blank_line"), (b"not json\n", "journal_line_not_json"), (b"[1]\n", "journal_row_not_object"),
+])
+def test_unparseable_journal_lines_refuse(tmp_path, raw, code):
+    path = tmp_path / "journal.jsonl"
+    path.write_bytes(raw)
+    with pytest.raises(R.ReconcileError, match=code):
+        R.read_journal(path)
+
+
+def test_submit_pairing_refusals(tmp_path):
+    def read(rows):
+        return R.read_journal(write_journal(tmp_path / f"s{len(list(tmp_path.iterdir()))}" / "j.jsonl", rows))
+
+    rows = re1_writer_rows()
+    first = next(i for i, r in enumerate(rows) if r["event"] == "submit_response")
+    orphan = rows[:first] + rows[first + 1:]  # a request whose response is missing
+    with pytest.raises(R.ReconcileError, match="submit_request_without_response"):
+        read(orphan)
+    rows = re1_writer_rows()
+    request = next(i for i, r in enumerate(rows) if r["event"] == "submit_request")
+    without_request = rows[:request] + rows[request + 1:]  # an ok response with no request before it
+    with pytest.raises(R.ReconcileError, match="submit_response_without_request"):
+        read(without_request)
+    refused = rows[:request] + rows[request + 1:]
+    reply = next(r for r in refused if r["event"] == "submit_response")
+    reply["response"] = {"ok": False, "order_id": "", "status": "rejected"}  # even a refused reply needs a request
+    with pytest.raises(R.ReconcileError, match="submit_response_without_request"):
+        read(refused)
+
+
+@pytest.mark.parametrize("response,code", [
+    ({"ok": True, "order_id": "", "status": "live"}, "submit_ok_without_order_id"),
+    ({"order_id": "ord-x", "status": "live"}, "submit_response_ambiguous"),
+    ({"ok": True, "order_id": "ord-x", "status": "matched"}, "submit_response_not_live"),
+])
+def test_submit_response_refusals(tmp_path, response, code):
+    rows = mutate(re1_writer_rows(), "submit_response", lambda r: r.update(response=response))
+    with pytest.raises(R.ReconcileError, match=code):
+        R.read_journal(write_journal(tmp_path / "s" / "journal.jsonl", rows))
 
 
 # -- embargo refusals, one per dated read entry point ------------------------------------------------------
