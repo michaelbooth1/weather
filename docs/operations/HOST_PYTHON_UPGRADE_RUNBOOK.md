@@ -40,6 +40,17 @@ failed. The mask replaces only the 40-hex sha, only on that exact line, so a mis
 differs. HEAD itself is checked by G3 (C0), not by the freeze. §T, T-R, C1 and §R use the mask; Test-Venv already drops
 `-e` lines, and the B1a lock never contained them.
 
+Revision 2026-10-16 (B1b verifier r2): **Phase B attempt 1 stopped on a false NO-GO at 00:30:42.**
+The r1 `verify_wheels_vs_installed.py` (§6b) took the symmetric difference of the wheel and installed `RECORD`
+row sets, so rows that pip itself writes at install time counted as differences: the dist-info `INSTALLER`,
+`REQUESTED` and `direct_url.json`, the `../Scripts` launchers, and wheel `.data/` files installed under
+`../../share` or `../../etc`. 76 of 77 packages showed `DIFF`, but no wheel row actually differed. r2 (Fable
+RUN) requires the wheel rows to be a subset of the installed rows and allows only those pip-written kinds as
+installed-only rows, with `.data/` files matched by identical hash. Against that night's wheelhouse it
+returned rc 0 and 77 `OK`; attempt 2 started at 00:35:34. The pinned r2 sha256 is
+`FE9F7A574CF914E070AC9FD70C93C661D9DD2239AB9109B02E71263EE9DA668D`. The host file is canonical, and the Phase B
+wrapper r2 differs from r1 only in that pin.
+
 **Owns:** the procedure for moving the production checkout's `venv` from CPython 3.11.0 to 3.11.9
 on the 16 GB capture host. That covers a side-by-side install, an offline wheelhouse, a stage venv
 qualified by the bounded suite, the cutover through the guarded stop/restore path, verification,
@@ -394,31 +405,62 @@ open(sys.argv[2], "w", encoding="ascii").write("\n".join(out) + "\n")
 print(f"{len(out)} pins hashed")
 ```
 
-`verify_wheels_vs_installed.py` compares each wheel's hashed `RECORD` rows with the installed
-`RECORD` of the same distribution, ignoring `.pyc` and `.data/` rows. It prints `OK`, `DIFF`,
-`MISSING-INSTALLED` or `UNMATCHED-ALLOWED` per wheel:
+`verify_wheels_vs_installed.py` (r2, 2026-10-16) checks each wheel's hashed `RECORD` rows against the
+installed `RECORD` of the same distribution, ignoring `.pyc` rows. Every wheel row must be installed with
+the same hash. The installed side may add only the rows pip writes at install time: the dist-info
+`INSTALLER`, `REQUESTED` and `direct_url.json`, `../Scripts` launchers, and the wheel's own `.data/` files
+installed under `../../<scheme>` with an identical hash. It prints `OK`, `DIFF` (with up to five
+`WHEEL-ONLY` and `INSTALLED-ONLY` rows), `MISSING-INSTALLED` or `UNMATCHED-ALLOWED` per wheel. The host copy
+is canonical: `sha256 FE9F7A574CF914E070AC9FD70C93C661D9DD2239AB9109B02E71263EE9DA668D` (2710 bytes, ASCII,
+LF line endings, trailing LF). The text below is byte-identical to it, so a fresh copy must hash to that value:
 
 ```python
 import csv, io, pathlib, re, sys, zipfile
+# r2 (master-agent 2026-10-16 00:4x): r1 compared the two RECORD row sets symmetrically, so the rows pip itself
+# writes at install time (dist-info INSTALLER / REQUESTED / direct_url.json, ../Scripts launchers, and the wheel's own
+# .data/ files installed under ../../<scheme> with the same hash) failed every package (B NO-GO 00:30:42, 0 wheel rows actually differed). r2: every hashed wheel row must be in
+# the installed RECORD with the same hash, and installed-only rows may only be those pip-written kinds.
 wh, site = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
 allow_unmatched = {a.lower() for a in sys.argv[3:]}
 def rows(text):
     return {(p, h) for p, h, *_ in csv.reader(io.StringIO(text)) if h and ".data/" not in p and not p.endswith(".pyc")}
+def data_rows(text):
+    # wheel .data/<scheme>/<rel> rows install outside site-packages as ../../<scheme dir>/<rel>; keep (rel, hash)
+    out = set()
+    for p, h, *_ in csv.reader(io.StringIO(text)):
+        if h and ".data/" in p:
+            parts = p.split("/", 2)
+            if len(parts) == 3: out.add((parts[2], h))
+    return out
+def pip_written(path, h, dist, wdata):
+    if path in (f"{dist}/INSTALLER", f"{dist}/REQUESTED", f"{dist}/direct_url.json"):
+        return True
+    if path.startswith("../") and "/Scripts/" in path:
+        return True
+    # a .data/ file from this wheel, same bytes (hash), installed under its scheme directory
+    return path.startswith("../") and any(path.endswith("/" + rel) and h == wh_ for rel, wh_ in wdata)
 bad = 0
 for whl in sorted(wh.glob("*.whl")):
     with zipfile.ZipFile(whl) as z:
         rec = next(n for n in z.namelist() if n.endswith(".dist-info/RECORD") and n.count("/") == 1)
         dist = rec.split("/")[0]
-        wrows = rows(z.read(rec).decode("utf-8"))
+        rtext = z.read(rec).decode("utf-8"); wrows = rows(rtext); wdata = data_rows(rtext)
     inst = site / dist / "RECORD"
     name = re.split(r"-\d", dist, maxsplit=1)[0].lower().replace("_", "-")
     if not inst.exists():
         if name in allow_unmatched:
             print("UNMATCHED-ALLOWED", whl.name); continue
         print("MISSING-INSTALLED", whl.name); bad += 1; continue
-    diff = wrows ^ rows(inst.read_text("utf-8"))
-    print(("OK " if not diff else "DIFF ") + whl.name + ("" if not diff else f" ({len(diff)} rows)"))
-    bad += bool(diff)
+    irows = rows(inst.read_text("utf-8"))
+    missing = wrows - irows
+    extra = {r for r in irows - wrows if not pip_written(r[0], r[1], dist, wdata)}
+    if not missing and not extra:
+        print("OK " + whl.name)
+    else:
+        print(f"DIFF {whl.name} (wheel rows not installed: {len(missing)}; unexpected installed rows: {len(extra)})")
+        for p, h in sorted(missing)[:5]: print("  WHEEL-ONLY", p, h)
+        for p, h in sorted(extra)[:5]: print("  INSTALLED-ONLY", p, h)
+    bad += bool(missing or extra)
 sys.exit(1 if bad else 0)
 ```
 
