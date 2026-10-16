@@ -1,7 +1,7 @@
 # State of play
 
-**Last updated: 2026-10-15 11:30 America/Toronto (owner 10-15 "All as recommended" + batch 2 "approve all": RF A, U6 10-20,
-#209 build, 91a A, watchdog by 10-28, OD-B1 build, O9 UTC cutoff; replay v2 M/E6/13/16/17; DLv2 §9; review 11-20).**
+**Last updated: 2026-10-16 02:30 America/Toronto (Phase B PASS; LFC session 0 today 11:00-19:50; C 00:30 10-17. No
+roll-sensitive landing until C0. Owner 10-15 decisions stand: RF A, U6 10-20, #209, 91a A, watchdog, OD-B1, O9, DLv2 §9).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended. At most 95 lines and about 9 KB, one fact per bullet, detail in the linked owner.** This file owns
@@ -39,12 +39,14 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 - **Journal pin:** `WeatherManualOrderJournal` pins five files incl. `wallet_reader_client.py`; a merge touching one makes it
   exit 3 until re-registered ([runbook](manual-order-journal.md)).
 - **Wallet reader (8765)** restarted by the owner 10-13 10:21 on `a1014edab` (any-LAN code). The LFC client config is **not** in the session-0 pin `C:\wt\lfc-pinned-e27909a76` yet: the owner re-enters it there on 10-16 before the 10:00 checks (session-0 runbook §3.6 step 3, owner only).
-- **Host Python: A' PASS 10-14; §T + T-R PASS 10-15 00:31** (hash-locked tzdata 2026.3 into the production venv; capture
-  10/10 after). Venv still 3.11.0; 3.11.9 side by side. Next: B 00:30 10-16, cutover C 00:30 10-17 ([runbook](HOST_PYTHON_UPGRADE_RUNBOOK.md) §7a).
+- **Host Python: Phase B PASS 10-16** (3.11.9: bounded suite 21/21 on the stage venv, release case A, `qualification.json`
+  PASS; attempt 1 false NO-GO from verifier r1, fixed by r2; B3 and E finished by hand after the `f611cf22c` wrapper defect:
+  capture 10/10, `status.ps1` exit 2 only from 3 standing flags; [runbook](HOST_PYTHON_UPGRADE_RUNBOOK.md) revision notes).
+  Venv still 3.11.0. Next: cutover C 00:30 10-17; G3 for the C0 HEAD move is met by the roll-free receipts.
 - Owner 10-13 08:53 (relayed): C advance GO if every C0 check is clean; G4 amended (auto rollback; a failed rollback waits for the owner). DECISION_LOG row.
 - Calendar-shift branch `claude/decisions-pyup-shift-20261013` `84c723ae2` (C 10-18) is **ON HOLD**; not a decision.
 - **DST:** DST-H3 landed; DST-M2 landed in N9 (`41fa7bc57`); OD30 (the 11-01 night rule) holds for 11-01 and lapses 11-02 (owner 10-15).
-- **LFC session 0: Fri 10-16 from 11:00 EDT (~3 h) on the workstation**, owner-attended, locked in (owner 10-14 16:22);
+- **LFC session 0: Fri 10-16 11:00-19:50 EDT on the workstation**, owner-attended, locked in (owner 10-14 16:22);
   guard (owner "Keep B" 10-14 16:27; G7 exception): Phase B clean by 09:00 10-16, reader + capture re-checked, else it slips. Code deadline 10-25 00:00Z; new pin by master.
 - Logistics (dates, times, session day) take the owner's chat yes in DECISION_LOG, no signature (owner 10-13 ~22:00). init-ledger done 10-13.
 - **LFC no-trade window:** 10-16 T-40 (10:20 EDT) to F2; all T-40 steps re-made 10-16 (scope `--date 2026-10-16`).
@@ -64,7 +66,7 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 ## Ordered critical path
 
 1. **Maker replay v2 (T1):** oracle author on handout r1; P1-P4 on calibration dates only; gates; signature target 10-22..23.
-2. **Host Python:** B 00:30 10-16 (guard above); cutover C 00:30 10-17.
+2. **Host Python:** B PASS 10-16; cutover C 00:30 10-17; no roll-sensitive landing until C0.
 3. **#177 (T2, owner yes) moved to the 10-18 night:** the 10-15 suite failed on a new #177 test (timing) and a master date
    test (that date fix landed alone 10-15, `728f0d1b6`); fix head `claude/integration-20261018-88a-rs-r3` `9121de239` (tests only). 10-16/10-17 G5 no-merge; #182 + #172 10-18; #118 >= 10-18.
 4. **Item 337:** host no-METAR replay >= 10-15; on PASS flip, bump, quiet window (owner yes). NBS/NBH; NWP timing (#263 done 10-14, EF §10r).
