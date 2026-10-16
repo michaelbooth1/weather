@@ -344,12 +344,49 @@ def apply_fill_cost(inputs, provider: FillCostProvider, context: FillContext):
                    adverse_markout=mapped.adverse_markout), mapped
 
 
-def decide_with_fill_cost(inputs, provider: FillCostProvider, context: FillContext, decide=None):
-    """Adapter a later policy change could adopt; a veto withdraws any QUOTE/HOLD."""
+VETO_ACTIONS = ("cancel", "widen")
+
+
+def _withdraw(decision, inputs, veto):
+    return replace(decision, action="CANCEL" if inputs.existing else "NO_QUOTE", legs=(),
+                   reasons=(f"FILL_COST_VETO_{veto}",), share_many=0.0, net_per_minute=0.0)
+
+
+def _widen(decision, inputs, veto, widen_ticks):
+    """Move every resting buy leg ``widen_ticks`` ticks further from fair; drop legs that leave the book.
+
+    A widened leg may fall outside the reward band (it then earns no share); the
+    reported share and net are zeroed rather than re-estimated, so the widen path
+    can never look better than the policy's own estimate.
+    """
+    tick = inputs.market.tick
+    legs = tuple(replace(leg, price=leg.price - tick * widen_ticks) for leg in decision.legs
+                 if leg.price - tick * widen_ticks >= tick)
+    if not legs:
+        return _withdraw(decision, inputs, veto)
+    # A widened HOLD is a requote at the new prices.
+    return replace(decision, action="QUOTE", legs=legs,
+                   reasons=(*decision.reasons, f"FILL_COST_VETO_{veto}_WIDENED"),
+                   share_many=0.0, net_per_minute=0.0)
+
+
+def decide_with_fill_cost(inputs, provider: FillCostProvider, context: FillContext, decide=None, *,
+                          veto_action: str = "cancel", widen_ticks: int = 2):
+    """Adapter a later policy change could adopt.
+
+    On a burst/sweep veto a QUOTE/HOLD is withdrawn (``veto_action="cancel"``, the
+    conservative default) or widened by ``widen_ticks`` ticks (``"widen"``). Which one
+    policy adopts is decided at wiring time, with evidence.
+    """
+    if veto_action not in VETO_ACTIONS:
+        raise ValueError("veto_action must be cancel or widen")
+    if type(widen_ticks) is not int or widen_ticks < 1:
+        raise ValueError("widen_ticks must be a positive int")
     decide = decide or _policy.decide
     adjusted, mapped = apply_fill_cost(inputs, provider, context)
     decision = decide(adjusted)
     if mapped.veto and decision.action in ("QUOTE", "HOLD"):
-        return replace(decision, action="CANCEL" if inputs.existing else "NO_QUOTE", legs=(),
-                       reasons=(f"FILL_COST_VETO_{mapped.veto}",), share_many=0.0, net_per_minute=0.0)
+        if veto_action == "widen":
+            return _widen(decision, inputs, mapped.veto, widen_ticks)
+        return _withdraw(decision, inputs, mapped.veto)
     return decision

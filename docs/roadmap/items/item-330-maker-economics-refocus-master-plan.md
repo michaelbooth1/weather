@@ -30,8 +30,14 @@ the v2 look.
 - **Provider** (`maker_core.quoting.fill_cost`): an injected `FillCostProvider` returns an upper-bound
   envelope. It takes the max over the pooled row and every supported matching row (at least 30 fills)
   of the hazard interval's upper end and of the loss implied by each horizon's markout interval lower
-  end. Burst or sweep is a veto (`FILL_COST_VETO_*` withdraws a QUOTE/HOLD). The envelope can only
-  tighten. The markout is floored at the -0.43c constant (0.0043) and the caller's hazard is a floor.
+  end. Burst or sweep is a veto. It has two modes:
+  - `veto_action="cancel"` is the conservative default and withdraws a QUOTE or HOLD with reason
+    `FILL_COST_VETO_*`.
+  - `"widen"` moves every buy leg `widen_ticks` ticks further out with reason `*_WIDENED`, and withdraws a
+    leg that would leave the book.
+
+  Master-agent ruled on 10-16 that the choice between them is made at policy wiring, with evidence. The
+  envelope can only tighten. The markout is floored at the -0.43c constant (0.0043) and the caller's hazard is a floor.
   `Unavailable` (no table, or the pooled row below support) returns the decision inputs unchanged, which
   is byte-identical to today's constant path. `decide_with_fill_cost` is the adapter policy could later
   adopt.
@@ -46,6 +52,10 @@ the v2 look.
 
   Each dated entry point has a refusal test: the fit, `read_records`/`parse_record`, the CLI,
   `score_table`, `TableFillCostProvider.estimate`, `validate_table` and the plugin adapter.
+- **Known conservatism (kept by ruling, 10-16):** the envelope is the maximum over the pooled row and every
+  matching one-way row. A calm context therefore inherits the pooled loss bound, which includes toxic flow.
+  It overstates cost for benign contexts and never understates it. A narrower combination, such as the
+  matching rows only or a fitted cross, needs evidence first.
 - **Next:** first export the counterfactual minute and fill tape for dates on or before 09-29 on the
   capture host, then fit. Whether policy adopts the provider, and whether a veto should cancel or only
   widen, are owner decisions after the v2 look.

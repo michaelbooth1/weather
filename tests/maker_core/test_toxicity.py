@@ -200,6 +200,42 @@ def test_veto_withdraws_quote(inputs, planted):
     assert calm.input_hash != decide(inputs).input_hash  # A supported envelope tightened the inputs.
 
 
+def _unsupported_provider():
+    return TableFillCostProvider(tx.fit(*synthetic_records(dates=2, markets=2, minutes_per_cell=3, seed=4),
+                                        replicates=100))
+
+
+def test_veto_cancel_is_the_default_and_widen_moves_legs_out(inputs):
+    provider, sweep = _unsupported_provider(), _ctx(T0, sweep_bands=3)
+    base = decide(inputs)
+    assert base.action == "QUOTE" and base.legs
+    assert decide_with_fill_cost(inputs, provider, sweep) == decide_with_fill_cost(
+        inputs, provider, sweep, veto_action="cancel")
+    widened = decide_with_fill_cost(inputs, provider, sweep, veto_action="widen", widen_ticks=2)
+    tick = inputs.market.tick
+    assert widened.action == "QUOTE" and len(widened.legs) == len(base.legs)
+    for before, after in zip(base.legs, widened.legs):
+        assert (after.outcome, after.size) == (before.outcome, before.size)
+        assert after.price == before.price - 2 * tick
+    assert widened.reasons == (*base.reasons, "FILL_COST_VETO_SWEEP_WIDENED")
+    assert widened.share_many == 0.0 and widened.net_per_minute == 0.0
+    # No veto: the widen path is identical to the plain decision.
+    assert decide_with_fill_cost(inputs, provider, _ctx(T0), veto_action="widen") == decide(inputs)
+
+
+def test_widen_past_the_book_withdraws(inputs):
+    provider, burst = _unsupported_provider(), _ctx(T0, burst_prints=5)
+    base = decide(inputs)
+    ticks = int(max(leg.price for leg in base.legs) / inputs.market.tick)
+    withdrawn = decide_with_fill_cost(inputs, provider, burst, veto_action="widen", widen_ticks=ticks)
+    assert withdrawn.action == "NO_QUOTE" and withdrawn.legs == ()
+    assert withdrawn.reasons == ("FILL_COST_VETO_BURST",)
+    for bad in ({"veto_action": "ignore"}, {"veto_action": "widen", "widen_ticks": 0},
+                {"veto_action": "widen", "widen_ticks": 1.5}):
+        with pytest.raises(ValueError):
+            decide_with_fill_cost(inputs, provider, burst, **bad)
+
+
 def test_mapping_only_raises_bounds():
     estimate = fc.FillCostEstimate(.0001, .02, None, "OK", "d", ())
     mapped = fc.policy_fill_inputs(estimate, caller_hazard=.01, caller_markout=.03)
