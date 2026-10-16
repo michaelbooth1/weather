@@ -4,15 +4,18 @@ import pytest
 
 pytestmark = pytest.mark.ratchet
 
+# Anchor every scan on this file, not the process CWD: from another CWD the globs
+# come back empty and the ratchets pass vacuously.
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 APP_FILES = [
-    *Path("app").rglob("*.py"),
-    *Path("tests/app").rglob("*.py"),
+    *(REPO_ROOT / "app").rglob("*.py"),
+    *(REPO_ROOT / "tests" / "app").rglob("*.py"),
 ]
 
 WRAPPER_MODULE_NAMES = sorted(
     path.stem
-    for path in Path("src").glob("*.py")
+    for path in (REPO_ROOT / "src").glob("*.py")
     if path.name != "__init__.py"
 )
 
@@ -31,8 +34,8 @@ SYS_PATH_MUTATION_PATTERNS = (
     "sys.path" + ".insert",
     "sys.path" + ".append",
 )
-ROUTER_PATH = Path("app/streamlit_app.py")
-VIEW_ROOT = Path("app/views")
+ROUTER_PATH = REPO_ROOT / "app" / "streamlit_app.py"
+VIEW_ROOT = REPO_ROOT / "app" / "views"
 
 
 def test_app_files_do_not_mutate_sys_path_or_import_legacy_wrappers():
@@ -88,7 +91,7 @@ def test_streamlit_router_stays_thin_and_exposes_only_three_pages():
 def test_frontend_does_not_reintroduce_retired_page_modules_or_routes():
     app_text = "\n".join(
         path.read_text(encoding="utf-8")
-        for path in Path("app").rglob("*.py")
+        for path in (REPO_ROOT / "app").rglob("*.py")
     )
     retired = (
         "app.views.history",
@@ -104,3 +107,8 @@ def test_frontend_does_not_reintroduce_retired_page_modules_or_routes():
     )
 
     assert all(marker not in app_text for marker in retired)
+
+
+def test_scans_are_anchored_on_the_repository_root():
+    assert REPO_ROOT.joinpath("app", "streamlit_app.py").is_file()
+    assert APP_FILES and ROUTER_PATH.is_file() and VIEW_ROOT.is_dir()
