@@ -153,7 +153,7 @@ def test_engine_v3_panel_rule_uses_local_quote_dates(tmp_path):
 
 
 def test_engine_v3_descriptive_after_the_reserved_window_is_allowed_with_exclusions(tmp_path, monkeypatch):
-    src = engine_source(tmp_path / "probe", [], day=date(2026, 10, 16))
+    src = engine_source(tmp_path, [], day=date(2026, 10, 16), name="probe")
     exclusions = frozenset((c, "2026-10-16") for c in band_days(run_plan([src])))
     assert exclusions  # one band-day per condition of the plan
     e = run(tmp_path, monkeypatch, THROUGH,
