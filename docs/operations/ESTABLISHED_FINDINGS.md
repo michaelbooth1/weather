@@ -3637,8 +3637,8 @@ was made.
   figure; the difference is expected and does not change §1. Per-market tail sign cannot rank candidates here (98 of 99
   candidate vectors improve the tail); the separating quantity is the non-tail cost (MG-1 about −27% of the 00-16 tail
   excess vs about −6% for the history-fitted spread forms).
-- **Defects found:** **M0** — production keys METAR rows by AWC `reportTime` (nominal hour), so a 23:5x report enters the
-  next day's running max; confirmed on the captured floor at KLGA 2026-09-19 and KMIA 2026-08-29 (on KMIA every floored
+- **Defects found:** **M0** — production keyed METAR rows by AWC `reportTime` (nominal hour) until `metar-parser-v4`
+  landed on 2026-10-09 (`6ad52c89f`), so a 23:5x report entered the next day's running max; confirmed on the captured floor at KLGA 2026-09-19 and KMIA 2026-08-29 (on KMIA every floored
   candidate gave the winner 0 all day); 0.3-0.6% of station-days Aug-Sep, 2.2% Oct-Dec, up to 5.4% at KLGA; fix = key on
   `obsTime` (parse-only, versioned). `trusted_current_max` is null on 100% of extract rows. 31 rows carry a captured floor
   10 °F above the METAR max. Late S3 NBM uploads are upstream delays plus one transfer backlog, not re-uploads.
@@ -3653,7 +3653,8 @@ was made.
   12Z/13Z/19Z rejection was verified correct; MG-1 is SIGNED at `b044e0f1`, with a narrow-scope reservation
   ([reserved-confirmation-window.md](reserved-confirmation-window.md)); RV-1, t3-r3 and HG-1 are held until the evening fix
   is live; NBH-1 is declined; the M0 fix is built (PR #189), plus the DST fetch-window fix (item I). **There is no capture
-  case for any new source.**
+  case for any new source.** Landed since: v3 on 2026-10-06; the M0 fix (#189, `metar-parser-v4`) with lockin-anchor-v4
+  (#246, the same-day METAR floor before lock-in, `ML_MODEL_VERSION` v0.5.12) on 2026-10-09 (`6ad52c89f`).
 - **Evidence:** [synthesis](../research/model-parity-swarm-2026-10-04/SYNTHESIS.md) and per-agent reports in
   `docs/research/model-parity-swarm-2026-10-04/`; harness `8db69adc7fb9bee8c3db47707b8aea71bff825a415b950108e19e84a0fd29f74`;
   scores and acquired data on the workstation only (`C:\swarm\`).
