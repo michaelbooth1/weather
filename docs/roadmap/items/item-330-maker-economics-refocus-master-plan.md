@@ -7,6 +7,49 @@ information arrival. The plan, kill rules and owner decisions live in
 [the forward plan](../../operations/forward-plan-2026-09-23.md). RE-1 session 1 ran 2026-09-23 under the owner's attended
 exception (see STATE_OF_PLAY); results in the findings digest.
 
+## October 16 design: build 2, COUNTERFACTUAL toxicity cost model
+
+No status change, no live authority, **no measured result** (the workstation holds no counterfactual
+fill tape; nothing was fitted on real data). Branch `claude/maker-toxicity-20261016`, roll-free:
+every module is new, no `__init__.py` changed, and nothing on the capture or shadow-runner import path
+imports them. `quoting/policy.py` is **not** wired; that is a separate later roll-sensitive head after
+the v2 look.
+
+- **Table** (`maker_core.replay.toxicity`, version `maker_core.toxicity_table.v0.1`): fill hazard
+  (counterfactual fills per quoted band-minute) and maker-signed markout per share at 1, 5, 30 minutes
+  and to settlement, by context. The dimensions are information clock (scheduled METAR print window
+  -3/+10 min, NBM cycle freshness), decided probability, time to close, horizon, book imbalance toward
+  the maker, depth, last print size, and flow (burst = 5 prints of the band in 1 s; sweep = 3 or more
+  event bands in 60 s, because 94a puts a second band within 60 s at 52% of the time). Rows are pooled
+  plus one-way marginals (a full cross would be thousands of empty cells). Each row carries a crossed
+  date x market 90% cluster-bootstrap interval and is `UNDERPOWERED` below 10 date or 10 market clusters.
+  Hazard is keyed by the exposure minute's context; markouts by the trailing context at the fill instant.
+- **Inputs are counterfactual only.** They are hypothetical resting quotes matched to public prints. Every
+  record, table and estimate is labelled `COUNTERFACTUAL`. They are other makers' price paths, not our
+  fills, and **not f** (EF §1b, §8c).
+- **Provider** (`maker_core.quoting.fill_cost`): an injected `FillCostProvider` returns an upper-bound
+  envelope. It takes the max over the pooled row and every supported matching row (at least 30 fills)
+  of the hazard interval's upper end and of the loss implied by each horizon's markout interval lower
+  end. Burst or sweep is a veto (`FILL_COST_VETO_*` withdraws a QUOTE/HOLD). The envelope can only
+  tighten. The markout is floored at the -0.43c constant (0.0043) and the caller's hazard is a floor.
+  `Unavailable` (no table, or the pooled row below support) returns the decision inputs unchanged, which
+  is byte-identical to today's constant path. `decide_with_fill_cost` is the adapter policy could later
+  adopt.
+- **Weather features** (`weather.market.maker_plugin.toxicity_features`): pure. Routine METAR minutes
+  come from `clock.STATION_ROUTINE_MINUTES`. NBM availability later than the instant is ignored. A
+  decided probability, book or print after the instant raises. Market prices are never read; only sizes
+  and times are.
+- **Embargo in code** (`maker_core.contracts.evidence_embargo`):
+  - every dated read refuses 2026-09-30..10-15;
+  - the fit refuses any date after 2026-09-29, including a mark that crosses midnight;
+  - a scored read (`score_table`) refuses 2026-09-30..11-13.
+
+  Each dated entry point has a refusal test: the fit, `read_records`/`parse_record`, the CLI,
+  `score_table`, `TableFillCostProvider.estimate`, `validate_table` and the plugin adapter.
+- **Next:** first export the counterfactual minute and fill tape for dates on or before 09-29 on the
+  capture host, then fit. Whether policy adopts the provider, and whether a veto should cancel or only
+  widen, are owner decisions after the v2 look.
+
 ## September 20 design of the first paid reward epoch (RE-1)
 
 No status change and **no live authority**. The bounded successor that W6 asks for is designed and
