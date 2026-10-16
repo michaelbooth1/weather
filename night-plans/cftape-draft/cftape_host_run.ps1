@@ -1,10 +1,19 @@
 <#
-Counterfactual fill-tape host export (item 330 build 2 input). Written for master-agent on 2026-10-16 as revision 1,
-cloned from the FC-11 wrapper r3 (night-plans/2026-10-19/fc11_host_run.ps1).
+Counterfactual fill-tape host export (item 330 build 2 input). Written for master-agent on 2026-10-16; revision 2
+(after the Fable review: one backlog per fill rule). Cloned from the FC-11 wrapper r3
+(night-plans/2026-10-19/fc11_host_run.ps1).
 Copy it to the host as text and run it with Windows PowerShell 5.1:
 
   powershell -NoProfile -ExecutionPolicy Bypass -File cftape_host_run.ps1 -RepoRoot <production repo> -DryRun
   powershell -NoProfile -ExecutionPolicy Bypass -File cftape_host_run.ps1 -RepoRoot <production repo> -MaxDays 1
+  powershell -NoProfile -ExecutionPolicy Bypass -File cftape_host_run.ps1 -RepoRoot <production repo> -MaxDays 1 -FillRule at_price
+
+Fill rule
+- One rule per run, into <OutRoot>\backlog-<FillRule>. The default is strictly_through (build 2's default fit);
+  at_price is build 2's declared sensitivity and runs as its own backlog. The exporter refuses (exit 2) a backlog
+  that already holds receipts of the other rule.
+- Needs claude/cf-tape-export-20261016 at the post-review tip or later (the rule check and strict
+  point-in-time context).
 
 Contract
 
@@ -22,7 +31,7 @@ Slot and lease
   poisoned, per the admission contract.
 
 Output and resume
-- The work is chunked across nights. The exporter output lives in a stable <OutRoot>\backlog, outside data\ and
+- The work is chunked across nights. The exporter output lives in a stable <OutRoot>\backlog-<FillRule>, outside data\ and
   outside the 88a root.
 - A day with a receipt is skipped. -MaxDays N counts only days exported this run (default 1).
 - An interrupted day has no receipt and is exported again. Its leftover tables are renamed *.orphan-<stamp>, never
@@ -52,7 +61,7 @@ Rollback
 Exit codes
   0  run finished, and every day exported this run matched its manifests (or -DryRun finished)
   1  run finished, and at least one day did not match (see the exporter run receipt); also an unexpected child crash
-  2  the exporter refused the request (max date, out-dir inside an input tree, fill rule)
+  2  the exporter refused the request (max date, out-dir inside an input tree, a backlog sealed under the other rule)
   3  hard stop: the child tree was killed at 04:45 (days written before then keep their receipts)
   4  not admitted: outside 03:50-04:00, the lease stayed busy until 04:00:59, or admission threw
   5  preflight failed: no venv python, module missing, git HEAD unreadable, output under data or the 88a root, no 88a root
@@ -66,7 +75,7 @@ param(
     [string]$OutRoot = "C:\cftape-out",
     [string]$MinDate = "",
     [ValidateRange(1, 400)][int]$MaxDays = 1,
-    [ValidateSet('at_price', 'strictly_through')][string]$FillRule = 'at_price',
+    [ValidateSet('at_price', 'strictly_through')][string]$FillRule = 'strictly_through',
     [int64]$TreeCapBytes = 1GB,
     [switch]$DryRun
 )
@@ -83,7 +92,7 @@ $Module = 'weather.market.maker_counterfactual_tape'
 
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 if (-not $EvidenceRoot) { $EvidenceRoot = Join-Path $RepoRoot 'data\maker_evidence' }
-$Backlog = Join-Path $OutRoot 'backlog'
+$Backlog = Join-Path $OutRoot "backlog-$FillRule"   # one fill rule per backlog; the exporter refuses a mixed one (exit 2)
 
 function Get-FolderDate([string]$Name) {
     if ($Name -notmatch '^\d{4}-\d{2}-\d{2}$') { return $null }
@@ -270,7 +279,7 @@ $outputs = @($dayReceiptsThisRun | ForEach-Object {
     [ordered]@{ receipt = $_.Name; receipt_sha256 = Get-FileSha $_.FullName; match = if ($r) { [bool]$r.match } else { $null }
                 minutes = if ($r) { $r.outputs.cf_minutes } else { $null }; fills = if ($r) { $r.outputs.cf_fills } else { $null } } })
 $receipt = [ordered]@{
-    receipt = 'cftape_host_wrapper_receipt'; receipt_revision = 1
+    receipt = 'cftape_host_wrapper_receipt'; receipt_revision = 2
     repo_head = $head; module_sha256 = $moduleSha; workload = $Workload; leased = $true; lease_attempts = $leaseAttempts
     teardown_proved = $proved; fault = $fault
     started_local = $started.ToString('o'); finished_local = (Get-Date).ToString('o')

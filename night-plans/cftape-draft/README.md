@@ -14,7 +14,8 @@ a night is chosen.
 The wrapper is cloned from the FC-11 r3 wrapper (`night-plans/2026-10-19/fc11_host_run.ps1`). It keeps the same
 lease, kill-on-close child tree, hard stop, tree-memory sampler, StrictMode handling and exit codes.
 
-**Prerequisite:** branch `claude/cf-tape-export-20261016` (tip `f1ff9f139`) must be merged on the host.
+**Prerequisite:** branch `claude/cf-tape-export-20261016` at its post-review tip (after `f1ff9f139`; it carries the
+fill-rule check and the strict point-in-time context) must be merged on the host.
 
 - The new module, tests and docs are roll-free: nothing in a capture loop imports them.
 - One edit touches a `.ps1` file and the Codex hook allowlist (`scripts/ops/workload_admission.ps1`).
@@ -28,6 +29,18 @@ lease, kill-on-close child tree, hard stop, tree-memory sampler, StrictMode hand
 - **Stops:** no new day starts after 04:30. The child tree is hard-killed at 04:45.
 - **Do not schedule it on an FC-11 night (2026-10-19).** Both wrappers want the slot, and the second one would
   exit 4.
+
+## Fill rules: two runs, two backlogs
+
+Each run uses one rule and writes `C:\cftape-out\backlog-<rule>`. The exporter refuses (exit 2) a backlog that
+holds receipts of the other rule.
+
+- `strictly_through` (print < bid) is build 2's default fit and the wrapper default. Run it first.
+- `at_price` (print ≤ bid) is build 2's declared sensitivity. Run it with `-FillRule at_price` once the
+  `strictly_through` backlog is complete (the dry run shows remaining days per rule).
+- `print_side` (the print's aggressor side) is recorded as is in both.
+
+Both rules read the same input, so the IO and runtime below apply per rule.
 
 ## Expected runtime and IO (estimates, not measured on the host)
 
@@ -61,21 +74,21 @@ Optional parameters:
 - `-OutRoot` (default `C:\cftape-out`);
 - `-EvidenceRoot` (default `<RepoRoot>\data\maker_evidence`);
 - `-MinDate`;
-- `-FillRule at_price|strictly_through` (default `at_price`);
+- `-FillRule strictly_through|at_price` (default `strictly_through`);
 - `-TreeCapBytes`.
 
 `--max-date 2026-09-29` is fixed in the wrapper. Folders dated 2026-09-30..2026-10-15 are never listed or opened.
 
 ## Receipts
 
-All output is under `C:\cftape-out` (outside `data\`). Every file is create-only.
+All output is under `C:\cftape-out` (outside `data\`), one `backlog-<rule>` per fill rule. Every file is create-only.
 
 | Path | Contents |
 | --- | --- |
-| `backlog\tape\utc_day=<D>\cf_minutes.parquet`, `cf_fills.parquet` | The tape (zstd). |
-| `backlog\receipts\<D>.json` | Sealed day: row counts, input segments and journals, a sha256 for each output, the code commit, the match checks. |
-| `backlog\receipts\<D>.mismatch-<stamp>.json` | A day that did not match its manifests. It is not sealed and is retried later. |
-| `backlog\run_receipt_<stamp>.json` | Exporter run: input day list, days extracted and remaining, all_match, stopped_reason. |
+| `backlog-<rule>\tape\utc_day=<D>\cf_minutes.parquet`, `cf_fills.parquet` | The tape (zstd). |
+| `backlog-<rule>\receipts\<D>.json` | Sealed day: row counts, input segments and journals, a sha256 for each output, the code commit, the match checks. |
+| `backlog-<rule>\receipts\<D>.mismatch-<stamp>.json` | A day that did not match its manifests. It is not sealed and is retried later. |
+| `backlog-<rule>\run_receipt_<stamp>.json` | Exporter run: input day list, days extracted and remaining, all_match, stopped_reason. |
 | `runs\cftape-<stamp>-<hex>\wrapper_receipt.json` | Wrapper: exit code, lease, teardown proof, peak tree working set, summed minutes and fills, each day receipt's sha256, child log sha256s. |
 
 Exit codes: 0 ok, 1 mismatch, 2 refused, 3 hard stop, 4 not admitted, 5 preflight, 6 teardown or fault,
@@ -88,7 +101,7 @@ is nothing else to undo.
 
 ## After the host run
 
-Copy `C:\cftape-out\backlog` to the workstation. Then convert one maker side per file:
+Copy `C:\cftape-out\backlog-strictly_through` (and `backlog-at_price`) to the workstation. Then convert one maker side per file:
 
 ```powershell
 python -m weather.market.maker_counterfactual_tape to-jsonl --tape-dir <backlog> --output <file>.jsonl --maker-side YES|NO [--settlement-json <file>]
