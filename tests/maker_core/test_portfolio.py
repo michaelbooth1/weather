@@ -287,7 +287,7 @@ def test_lan_client_fixed_gets_and_no_secret_echo():
             self.calls.append(request.full_url)
             return Reply(request)
     opener = Opener()
-    config = dict(url="http://192.168.1.106:8765", token=token)
+    config = dict(url="http://192.168.1.20:8765", token=token)
     read_archive(config["url"], config, 0, opener=opener)
     assert opener.calls == [config["url"] + "/summary?include_resolved=true", config["url"] + "/trades?since=0"]
     for url in ("http://example.com:8765", "http://8.8.8.8:8765", config["url"] + "/orders"):

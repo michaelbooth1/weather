@@ -22,12 +22,38 @@ generated reports for dynamic state.
 - The modeled settlement source is the highest whole-degree value printed by
   the configured Weather Underground history source for the market's local
   target date. Rounding and band parsing use the canonical unit helpers.
+- The venue's own source is declared per location in `config/locations.json`
+  `settlement`. Hong Kong settles on a 0.1 °C HKO value that the venue
+  truncates (`band_mapping: floor_to_whole_degree`), so the release
+  settlement-rules contract declares rounding per location
+  (`settlement_band_degree` in `weather.operations.release_candidate_contract`);
+  never apply half-up rounding to an HKO value.
 - WU history is the settlement proxy and may establish a hard observed floor.
   When the WU observation path is empty, the serving contract also promotes
   the effective observed high already admitted by feature extraction: a
   target-date, cutoff-aligned current station observation or its captured
-  max-since-07:00 summary. This exception never admits forecast, climatology,
-  post-cutoff, unit-implausible, or missing evidence.
+  max-since-07:00 summary. This is the hard floor for every stage. This
+  exception never admits forecast, climatology, post-cutoff, unit-implausible,
+  or missing evidence.
+- The late-day lock-in stages (heuristic, learned, high-has-stood, expanded,
+  standing-high partial, late-day continuation) have a stricter anchor when WU
+  is empty. Owner decision 2026-10-05, PR #191, `lockin-anchor-v3`:
+  - The anchor is the observed same-day station high: the maximum of the
+    target-date station rows at or before model emission, same-day readings
+    before 07:00 included.
+  - METAR rows are keyed by observation time (AWC `obsTime`, or the raw
+    `DDHHMMZ` group), never by AWC's nominal `reportTime`. So the D-1 23:5x
+    report carried into D as a "00:00" row (the M0 defect) is excluded.
+  - Once any late-day stage acts, no mass is left below the anchor bucket: it
+    moves onto that bucket. Before lock-in (`lockin-anchor-v4`) the same move
+    applies at the same-day METAR high bucket, because the pre-lock-in hard
+    floor reads only the current reading and the max since 07:00. SWOB rows
+    keep their warm-bias hedge until lock-in; implausible readings never
+    anchor. The calibration floor is `max(hard floor, observed floor bucket)`.
+  - The owner accepted both trades: an exact zero below a METAR-derived anchor
+    (a non-resolution source), and the pre-07:00 widening of the observed
+    floor for these stages.
+  - With WU history present, the stages keep the WU high, unchanged.
 - A supporting observation can lead or disagree with the WU print. Model that
   uncertainty; outside the explicit empty-WU rescue contract, do not silently
   turn a non-resolution source into a hard floor.
@@ -35,13 +61,34 @@ generated reports for dynamic state.
   can advance before WU history prints a row. Any station rescue used as a
   floor must be captured by the build and must not use an observation after
   the model-emission time.
+- Station observation rows are keyed on the observation instant and its
+  station-local date, never on a provider's nominal report hour. AviationWeather
+  `reportTime` is the top of the hour for a routine METAR, so a 23:5x report
+  carries the next day's date; `metar-parser-v4` keys on `obsTime` (the IEM
+  `valid` key the training history uses), falls back to `reportTime` only when
+  `obsTime` is absent, and records `row_time_basis` per row. SPECI and COR rows
+  are kept as before. Rows captured under `metar-parser-v3` are not rewritten;
+  their raw payloads retain `obsTime` for an explicit v4 re-derivation.
 
 Paid weather-provider access is unsupported. Do not add credentials, required
 environment variables, operator commands, or roadmap dependencies for paid
 weather data. WU labels come from retained local artifacts, the public
 page-backed collector, or an explicit reviewed manual-override policy.
+Free WU history access that sends the apiKey token scraped from WU's public web
+page is acceptable under this rule: no account, purchase or issued credential
+(owner, 2026-10-06, OD15). Keep that token out of logs, status files, tapes and
+commits; WU history fetching stays off on production until the token-redaction
+change lands (owner, 2026-10-07, OD24).
 
 ## Evidence and model claims
+
+NBP guidance must satisfy the [target-period and parser-provenance
+contract](nbm-target-period-contract.md). Future guidance admission requires
+recorded maximum-period provenance; unversioned history remains legacy replay
+only. An artifact consumes NBM values only from the parser version it was
+trained on; undeclared NBM-selecting artifacts are version 1 and see v2 rows'
+NBM inputs as missing. No fitting, retirement, re-scoring or pooling crosses
+that boundary.
 
 The north-star claim is not “the forecast looks reasonable.” Evidence should
 compare model probabilities with captured market yes-prices and realized

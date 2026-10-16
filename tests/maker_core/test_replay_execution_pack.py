@@ -1,3 +1,8 @@
+"""Maker replay execution pack: manifest, receipt and CLI on fictional bundles.
+
+Guards: replay execution pack manifest/receipt binding (docs/operations/maker-replay-bundle.md, Clarified execution pack;
+  docs/research/maker-replay-execution-addendum-2026-09-27.md).
+"""
 from copy import deepcopy
 from dataclasses import replace
 from datetime import date, datetime, timezone

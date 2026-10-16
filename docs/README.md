@@ -27,6 +27,7 @@ research established) · **Generated** (edit the generator) · **History**
 | Doing model, measurement, or research work; or about to claim a number | [Findings digest](operations/FINDINGS_DIGEST.md) — short, mandatory; it cites the depth below | Distillation |
 | …and need the full derivation behind a digest entry | [Established findings](operations/ESTABLISHED_FINDINGS.md) (read the cited section, not the file) | Distillation, reference depth |
 | …and need to know what was claimed and was wrong | [Retracted claims and false leads](operations/RETRACTED_AND_FALSE_LEADS.md); the recurring error *shapes* are in [How we get things wrong](operations/HOW_WE_GET_THINGS_WRONG.md) | Distillation, reference depth |
+| …and are about to call something closed, exhausted, or a no-go | [Exhaustion register](operations/EXHAUSTION_REGISTER.md) — what survives the serving fixes, the free-source inventory, and each lead's exit criterion | Canonical register |
 | Spending a statistical decision on the sealed panel | [Campaign ledger](operations/CAMPAIGN_LEDGER.md) | Canonical control |
 | Reading dated evidence or settled days for evaluation | [Reserved confirmation window](operations/reserved-confirmation-window.md) — its status line says whether anything is reserved | Canonical contract |
 | Building a leakage-free evaluation or the PIT training corpus | [Point-in-time evaluation](operations/POINT_IN_TIME_EVALUATION.md), [PIT forecast training corpus](operations/PIT_FORECAST_TRAINING_CORPUS.md) | Canonical runbook |
@@ -36,12 +37,15 @@ research established) · **Generated** (edit the generator) · **History**
 | A guard, marker or lock blocks work and you must decide whether to clear it | [Fail-forward recovery table](operations/fail-forward-recovery.md) | Canonical decision record |
 | About to run anything heavy, on either host | [Host load policy](operations/HOST_LOAD_POLICY.md); generated numbers in [Operating reference](operations/OPERATING_REFERENCE.md) | Canonical policy; Generated |
 | Writing, executing, or verifying a cross-host mission | [Delegation contract](operations/DELEGATION_CONTRACT.md), [workstation session preamble](operations/WORKSTATION_SESSION_PREAMBLE.md), [roadmap agent guide](roadmap/AGENTS.md), [mission dispatch reconciliation](operations/mission-dispatch-reconciliation.md) | Canonical contract |
+| Freeing disk from old worktrees and agent scratch folders | [Workstation session preamble, scratch space](operations/WORKSTATION_SESSION_PREAMBLE.md#scratch-space) | Canonical contract |
 | Changing task names, loops, supervisors, or the dashboard role | [Operations design](operations/OPERATIONS_DESIGN.md) | Canonical guide |
 | Merging on the production host, or protecting capture during a change | [Capture-day grading and guarded merges](ops/streak-soak.md), [Immutable integration attempts](operations/INTEGRATION_ATTEMPT_RUNBOOK.md) | Canonical runbook |
 | Working on branches, worktrees, commits, pushes, or pull requests | [Git workflow SOP](git-workflow.md); LFS limits in [Git LFS policy](operations/git-lfs-policy.md) | Canonical runbook |
 | Triaging the open pull-request queue | [PR hygiene report](operations/pr-hygiene.md) | Canonical runbook |
+| Checking a head on the night's cumulative merge before handing it to production | [Landing preflight](operations/LANDING_PREFLIGHT.md) | Canonical runbook |
 | Working on the maker pilot, live trading, or maker economics | [International MM live pilot](operations/INTERNATIONAL_MM_LIVE_PILOT.md), [Item 330 master plan](roadmap/items/item-330-maker-economics-refocus-master-plan.md), [Maker incentive feasibility](operations/maker-incentive-feasibility.md), [Exchange economics snapshot runbook](operations/EXCHANGE_ECONOMICS_SNAPSHOT_RUNBOOK.md) | Canonical runbook; numbered item |
 | Moving the attended live executor to another PC | [Portable live execution host](operations/PORTABLE_LIVE_EXECUTION_HOST.md) | Canonical runbook |
+| Upgrading the capture host's Python interpreter | [Host Python upgrade runbook](operations/HOST_PYTHON_UPGRADE_RUNBOOK.md) | Proposed runbook — not approved |
 | Retraining, or building or sequencing a release | [Nightly retrain runbook](operations/NIGHTLY_RETRAIN_RUNBOOK.md), [Release #1 build runbook](operations/RELEASE_ONE_BUILD_RUNBOOK.md), [Release #1 is deferred](operations/release-one-deferred-until-a-retrained-candidate.md), [Release #1 and the MM clock](operations/release-one-is-not-the-mm-critical-path.md) | Canonical runbook; decision record |
 | Operating the project end to end | [Project operating SOP](operations/PROJECT_OPERATING_SOP.md) | Canonical runbook |
 | Looking for work, or an item's scope, status, and evidence | [Active backlog](roadmap/active-backlog.md) (generated), `roadmap/items/item-*.md` (one owner per item), [ROADMAP.md](roadmap/ROADMAP.md) (full taxonomy), [Open backlog](operations/OPEN_BACKLOG.md) (known-broken, unowned) | Generated; canonical per item |
@@ -49,7 +53,10 @@ research established) · **Generated** (edit the generator) · **History**
 | Setting up, testing, or checking the definition of done | [Development](development.md), [Python runtime audit gate](operations/PYTHON_RUNTIME_AUDIT_GATE.md), [Research audit harness](operations/RESEARCH_AUDIT_HARNESS.md) | Canonical guide |
 | Looking up product purpose, setup, dashboard, or an operator command | [Root README](../README.md) | Canonical guide |
 | Starting or using the read-only account LAN service | [Wallet reader](operations/wallet-reader.md) | Canonical runbook |
+| Measuring the owner's manual resting orders (rewards, fills, markouts) | [Manual order journal](operations/manual-order-journal.md) | Canonical runbook |
 | Attributing wallet lots and reconciling campaign books | [Portfolio ledger](operations/portfolio-ledger.md) | Canonical runbook |
+| Pausing, halting or clearing a maker runtime; the bleed-limit guard | [Maker trading guard](operations/maker-trading-guard.md) | Canonical runbook |
+| Running the public-reads-only maker shadow, reading its quotes tape, or scoring it against 88a | [Maker shadow runner](operations/maker-shadow-runner.md) | Canonical runbook |
 | Changing or adding documentation | [Documentation maintenance](documentation-maintenance.md), [docs/AGENTS.md](AGENTS.md) | Canonical guide |
 
 ## Durable technical contracts
@@ -67,6 +74,7 @@ Read the one that owns the thing you are changing.
 | Any repository path or default location | [Repository path policy](operations/path-policy.md) |
 | A file under `config/` | [Configuration inventory](operations/config-inventory.md) |
 | Tracked artifacts, LFS, or artifact size | [Artifact storage policy](operations/artifact-storage-policy.md) |
+| Building or changing data capture: new families, storage/RAM budgets, the venue-city pilot | [Data layer v2 plan](operations/DATA_LAYER_V2_PLAN.md) (canonical living plan: family table, budgets, build sequence S0-S16, open owner questions) |
 | What may be deleted, tiered, or compressed under `data/` | [Data storage classes](operations/data-storage-class-contract.md), [Data retention policy](operations/data-retention-policy.md) |
 | Closed market-day archives | [Closed market-day archive contract](operations/closed-market-day-parquet-archive-contract.md) |
 | Cold archive and restore | [Verified cold archive](operations/verified-cold-archive.md), [Production cold-archive staging](operations/production-cold-archive-staging.md), [Cold archive locations and restore cache](operations/cold-archive-locations.md), [Cold snapshot NTFS compression](operations/cold-snapshot-compression.md) |
@@ -87,6 +95,7 @@ how to interpret and update those sources; it does not copy volatile values.
 | [Overnight briefings](operations/OVERNIGHT_BRIEFINGS.md) | Hand-written notes from unattended overnight agents | Reconstructing a specific night |
 | Dated files in `operations/` (name ends in a date) | Incident and decision records | From [the operations index](operations/README.md), when touching the same subsystem |
 | `research/`, `roadmap/audits/`, other dated roadmap narratives | Research and audit evidence | For the detail behind a specific finding; start audits from [the audit index](roadmap/audits/README.md) |
+| [research/model-parity-swarm-2026-10-04/](research/model-parity-swarm-2026-10-04/SYNTHESIS.md) | Model-parity swarm v2 (workstation, night 2026-10-03/04): synthesis, per-agent reports, unsigned pre-registration and capture-plan drafts; every number development | Only behind EF §10q, or when a task names the swarm, one of its drafts, or one of its source routes; start from `SYNTHESIS.md` |
 | [Open questions](operations/OPEN_QUESTIONS.md), [decision log](operations/DECISION_LOG.md) | What is still unanswered and who owns it; dated owner decisions | Choosing what to analyse next; tracing when a decision was made |
 
 The correspondence is too large to read end to end, and it is not the current

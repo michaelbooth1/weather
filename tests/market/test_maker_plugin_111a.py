@@ -4,6 +4,8 @@ Each test reproduces one defect from docs/roadmap/evidence-110h-dry-run-20260926
 with the production writer's layout: the shared forecast-payload CAS, an
 over-cap CLOB token file, an over-cap settlement ledger, the T+0 capture
 coverage limit, and the per-run input budget. No production data or venue.
+
+Guards: weather plugin dry-run defects from evidence-110h (docs/operations/maker-core-contracts.md, Bounded weather plugin dry run).
 """
 import gzip
 import json

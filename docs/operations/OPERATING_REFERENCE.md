@@ -40,14 +40,14 @@ and no single constant expresses it, so it cannot be found by grepping.
 
 | Constant | Value | Meaning | Why it matters |
 | --- | ---: | --- | --- |
-| **`AFTERNOON_START_HOUR`**<br/>`weather.collection.collection_health` line 31 | `12` | Local hour the graded capture window opens. | A Toronto day's CLEAN/PARTIAL verdict is computed only over this window, so capture gaps outside it cannot cost a streak day — and anything heavy inside it can. |
-| **`AFTERNOON_END_HOUR`**<br/>`weather.collection.collection_health` line 32 | `18` | Local hour the graded capture window closes. | Once it closes the day's streak verdict is banked and cannot be changed by a later gap. |
-| **`EARLY_HOUR_START_HOUR`**<br/>`weather.collection.collection_health` line 33 | `0` | Local hour the early-hour evaluation window opens. | Early-hour model performance is scored over this window; it does not gate the streak. |
-| **`EARLY_HOUR_END_HOUR`**<br/>`weather.collection.collection_health` line 34 | `8` | Local hour the early-hour evaluation window closes. | Bounds the early-hour Brier comparison that blocks promotion. |
-| **`FREE_REPLACEMENT_MIN_HEALTHY_FAMILIES`**<br/>`weather.collection.collection_health` line 55 | `3` | Minimum healthy free source families required. | Paid weather providers are unsupported, so free-source health is the only path. |
-| **`COMPLETE_DAY_MIN_ROWS`**<br/>`weather.backtesting.settlement_ledger` line 34 | `18` | Minimum hourly rows for a settlement day to count as complete. | This is NOT a knob: it decides both whether settlement trusts the daily summary and whether a day counts toward the streak. Lowering it to unblock a retrain silently changes settlement truth. |
-| **`POOLED_PIT_MAX_LATEST_TARGET_AGE_DAYS`**<br/>`weather.calibration.pooled_training` line 54 | `7` | Maximum age, in days, of the selection universe's latest target date when a production point-in-time lock is taken. | THE CAPTURE STREAK HAS A SHELF LIFE AND THIS IS IT. A banked run of contiguous complete days stops being usable for a production PIT lock once its LATEST day is older than this. So a stalled settlement chain does not merely delay the retrain — it ages out evidence already earned. Found 2026-08-09; it was written nowhere and the relationship to the settlement backlog is invisible from either number alone. |
-| **`MATERIAL_COVERAGE_WINDOW`**<br/>`weather.backtesting.settlement_ledger` line 45 | `12:00-18:00 local` | Human-readable coverage window for material capture. | Should agree with the afternoon window above; disagreement is a defect. |
+| **`AFTERNOON_START_HOUR`**<br/>`weather.collection.collection_health` | `12` | Local hour the graded capture window opens. | A Toronto day's CLEAN/PARTIAL verdict is computed only over this window, so capture gaps outside it cannot cost a streak day — and anything heavy inside it can. |
+| **`AFTERNOON_END_HOUR`**<br/>`weather.collection.collection_health` | `18` | Local hour the graded capture window closes. | Once it closes the day's streak verdict is banked and cannot be changed by a later gap. |
+| **`EARLY_HOUR_START_HOUR`**<br/>`weather.collection.collection_health` | `0` | Local hour the early-hour evaluation window opens. | Early-hour model performance is scored over this window; it does not gate the streak. |
+| **`EARLY_HOUR_END_HOUR`**<br/>`weather.collection.collection_health` | `8` | Local hour the early-hour evaluation window closes. | Bounds the early-hour Brier comparison that blocks promotion. |
+| **`FREE_REPLACEMENT_MIN_HEALTHY_FAMILIES`**<br/>`weather.collection.collection_health` | `3` | Minimum healthy free source families required. | Paid weather providers are unsupported, so free-source health is the only path. |
+| **`COMPLETE_DAY_MIN_ROWS`**<br/>`weather.backtesting.settlement_ledger` | `18` | Minimum hourly rows for a settlement day to count as complete. | This is NOT a knob: it decides both whether settlement trusts the daily summary and whether a day counts toward the streak. Lowering it to unblock a retrain silently changes settlement truth. |
+| **`POOLED_PIT_MAX_LATEST_TARGET_AGE_DAYS`**<br/>`weather.calibration.pooled_training` | `7` | Maximum age, in days, of the selection universe's latest target date when a production point-in-time lock is taken. | THE CAPTURE STREAK HAS A SHELF LIFE AND THIS IS IT. A banked run of contiguous complete days stops being usable for a production PIT lock once its LATEST day is older than this. So a stalled settlement chain does not merely delay the retrain — it ages out evidence already earned. Found 2026-08-09; it was written nowhere and the relationship to the settlement backlog is invisible from either number alone. |
+| **`MATERIAL_COVERAGE_WINDOW`**<br/>`weather.backtesting.settlement_ledger` | `12:00-18:00 local` | Human-readable coverage window for material capture. | Should agree with the afternoon window above; disagreement is a defect. |
 
 ## Scheduled-task inventory
 
@@ -77,8 +77,11 @@ Active means maintained, not enabled. Owner holds and one-shot receipts still go
 | WeatherIntegrationSuite_* | one-shot | False | scripts/ops/register_integration_attempt.ps1 | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherLocationConfigRefresh | active | False | scripts/ops/register_location_config_refresh.ps1 | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherMakerEvidenceCapture | active | False | scripts/ops/register_maker_evidence_capture.ps1 | docs/operations/OPERATIONS_DESIGN.md |
-| WeatherMarketMakingDailyRoll | retired | True | scripts/ops/register_market_making_daily_roll.ps1 | docs/operations/OPERATIONS_DESIGN.md |
-| WeatherMarketMakingDailyRollSupervisor | retired | True | scripts/ops/register_market_making_daily_roll_supervisor.ps1 | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherMakerShadowRunner | active | False | scripts/ops/register_maker_shadow_runner.ps1 | docs/operations/maker-shadow-runner.md |
+| WeatherManualOrderJournal | active | False | scripts/ops/register_manual_order_journal.ps1 | docs/operations/manual-order-journal.md |
+| WeatherMakerEvidenceLowestTemperature | active | False | scripts/ops/register_maker_evidence_family_capture.ps1 | docs/operations/passive-maker-evidence-capture.md |
+| WeatherMarketMakingDailyRoll | retired | True | Host-local; XML not in repository | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherMarketMakingDailyRollSupervisor | retired | True | Host-local; XML not in repository | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherMemoryCommitGuard | active | False | scripts/ops/register_memory_commit_guard.ps1 | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherMergeQueueDriver | retired | True | Host-local; XML not in repository | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherMergeSensitiveDriver | retired | True | Host-local; XML not in repository | docs/operations/OPERATIONS_DESIGN.md |
@@ -94,11 +97,12 @@ Active means maintained, not enabled. Owner holds and one-shot receipts still go
 | WeatherStorageRecovery-* | one-shot | False | scripts/ops/register_storage_recovery_night.ps1 | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherStreakCaptureMonitor | active | False | Host-local; XML not in repository | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherSuite0969a | one-shot | True | Host-local; XML not in repository | docs/operations/OPERATIONS_DESIGN.md |
-| WeatherTakerBotDailyRoll | retired | True | scripts/ops/register_taker_bot_daily_roll.ps1 | docs/operations/OPERATIONS_DESIGN.md |
-| WeatherTakerBotDailyRollSupervisor | retired | True | scripts/ops/register_taker_bot_daily_roll_supervisor.ps1 | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherTakerBotDailyRoll | retired | True | Host-local; XML not in repository | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherTakerBotDailyRollSupervisor | retired | True | Host-local; XML not in repository | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherTrainingWindow | active | True | scripts/ops/register_training_window.ps1 | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherTrainingWindowReenable* | one-shot | False | Host-local; XML not in repository | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherTrainingWindowRestore | active | False | scripts/ops/register_training_window.ps1 | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherWalletReader | active | False | scripts/ops/register_wallet_reader_logon_task.ps1 | docs/operations/wallet-reader.md |
 
 ## Live timetable
 

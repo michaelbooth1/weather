@@ -7,6 +7,9 @@ descriptor instant until option M. The owner ruled C15/A8 = option M (DECISION_L
 builders now cut over ``horizon.minute_lines``; ``horizon.day_windows`` itself stays exact, and this table pins
 its difference from the minute rule at a captured descriptor change on both sides, including the 59 s edge.
 Fictional bundles only.
+
+Guards: maker replay v2 section 4 whole-minute window start and C15/A8 option M
+  (DECISION_LOG 2026-10-13 and 2026-10-15).
 """
 from __future__ import annotations
 

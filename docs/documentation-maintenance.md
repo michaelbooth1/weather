@@ -29,7 +29,9 @@ changing inventories, metrics, versions, or operational state.
 | Documentation routing/classification | `docs/README.md` |
 | Documentation writing rules | `docs/AGENTS.md` |
 | What the research established, in short mandatory form | `docs/operations/FINDINGS_DIGEST.md` |
+| What must be exhausted before a no-go: taint verdicts, free-source inventory, exit criteria | `docs/operations/EXHAUSTION_REGISTER.md` (rows never deleted; a closed row says how it closed) |
 | Full derivations; claims that were wrong; recurring error shapes | `docs/operations/ESTABLISHED_FINDINGS.md`; `RETRACTED_AND_FALSE_LEADS.md`; `HOW_WE_GET_THINGS_WRONG.md` (reference depth behind the digest) |
+| Data-capture design: family table, budgets, v2 build sequence and its status, open data-layer owner questions | `docs/operations/DATA_LAYER_V2_PLAN.md` (living; edited in place as steps land) |
 | Host windows, leases, heavy-work wrappers | `docs/operations/HOST_LOAD_POLICY.md`; generated numbers in `OPERATING_REFERENCE.md` |
 | Production-host agent role and authority | `docs/operations/OPERATIONS_AGENT_ROLE.md` |
 | Cross-host mission rules | `docs/operations/DELEGATION_CONTRACT.md` |
@@ -42,10 +44,13 @@ changing inventories, metrics, versions, or operational state.
 | Proposed workstation shadow runner, quotes tape, replay agreement and drills | `operations/maker-shadow-runner-design.md` |
 | Git branches, worktrees, staging, commits, and pull requests | `docs/git-workflow.md` |
 | Read-only open-PR hygiene report and its roll heuristic | `docs/operations/pr-hygiene.md` |
+| Workstation landing preflight, its exit codes and the night-plan schema | `docs/operations/LANDING_PREFLIGHT.md` |
 | Config classifications/freshness | `docs/operations/config-inventory.md` plus config/code |
 | Operational topology and procedures | `docs/operations/README.md` and linked runbooks |
 | Read-only wallet LAN routes (including the settlement watcher), startup, valuation and firewall | `docs/operations/wallet-reader.md` |
 | One-wallet attribution, neutral snapshots, FIFO and reconciliation | `docs/operations/portfolio-ledger.md` |
+| Maker pause/bleed/halt guard, owner-cleared latch and runtime placement contract | `docs/operations/maker-trading-guard.md` |
+| Maker shadow runner: public-read allowlist, quotes tape, nightly 88a diagnostics, scoring embargo | `docs/operations/maker-shadow-runner.md` |
 | Mission status, responsible actor, dependencies, landing slots, owner requests | `docs/roadmap/work/W-####.yaml`; [work registry contract](roadmap/work/README.md) |
 | Mission board and night planning | `weather.reporting.roadmap.worktrack`; only production writes `docs/roadmap/work-board.md` in its docs step |
 | Current engineering work | generated roadmap active backlog |
@@ -117,8 +122,21 @@ The knowledge audit also enforces the controls added after the 2026-09-18 audit
 | `LINE_BUDGETS`, `NESTED_AGENT_FILE_LINE_BUDGET` | Always-loaded files growing by accretion; every agent pays for them on every task | Move detail to its owner file and link. Raise a budget only as a reviewed decision, with a comment saying why |
 | `unindexed_operations_docs` | A document nobody can find: every `docs/operations/*.md` must be linked from the operations index or `docs/README.md` | Add the index row, with its true status, in the same change that adds the file |
 | `RETIRED_CLAIMS` | A retracted claim surviving in another canonical file, where an agent reads it first and acts on it | **When you retract a claim, add its phrase to `RETIRED_CLAIMS` in the same change** |
+| `control_character_errors` | A literal control character (C0 except LF and CR, including TAB, plus DEL) in `docs/**/*.md` or any `AGENTS.md`/`README.md`, usually a `\t` or `\b` path escape that a shell or script expanded (2026-10-05) | Write the intended text; there is no allowlist, fenced code included |
+| `trailing_blank_line_errors`, `TRAILING_BLANK_LINE_EXEMPT` | A tracked text file (any type git treats as text, outside `data/`) ending in a blank line, which `git diff --check` reports as "new blank line at EOF" and which fails the documentation landing transaction (2026-10-05) | End the file with exactly one newline. The exemption list holds only roll-sensitive Python modules left for a quiet-window fix; it may only shrink, and a stale entry fails |
 | `CLAUDE.md` must import `@AGENTS.md` | Two harnesses starting from two different entry points | Do not fork the entry point; add harness notes only |
 | `--max-state-age-days N` (off by default, so CI stays deterministic) | `STATE_OF_PLAY.md` going stale while nothing merges | `status.ps1` raises the same flag every morning at 3 days; rewrite or re-attest the file |
+
+**Host-pasted PowerShell blocks.** A runbook or night-plan block that the
+capture host pastes or saves as a `.ps1` must parse in Windows PowerShell 5.1.
+Before handing one off, run
+`scripts\ops\check_markdown_powershell_fences.ps1 -Path '<file.md>;<folder>'`.
+It parses every `powershell` fence and never executes one. Exit 0 is required.
+It also warns on non-ASCII characters, because 5.1 reads a BOM-less `.ps1` as
+ANSI. A `foreach (...) { } | Out-File` in the Python upgrade runbook's §4 failed
+on the host on 2026-10-13.
+Scope it to host-run files. Older runbooks use bare `<placeholder>` templates,
+which are intentionally not runnable.
 
 Freshness has three triggers, and only the first used to exist. **Event:** a
 change updates its owner document in the same commit (the table above and the
@@ -179,7 +197,17 @@ the documentation tip) and `reason` (why the document remains accurate for these
 integrations). Obtain the blob with `git rev-parse <documentation-tip>:<path>`.
 The same form may record other reviewed unchanged documents. A changed document
 must not be claimed unchanged. The documentation tip may equal the final
-integration tip when no follow-up changes are needed. Complete it with:
+integration tip when no follow-up changes are needed.
+
+Before completing, regenerate the correspondence index once for the night's
+landings (branches never commit it):
+`scripts\ops\correspondence_index_closeout.ps1 -Land` regenerates it on
+origin/master, refuses unless only the index files changed and the strict check
+passes, and lands the result through the docs light path. It is idempotent: on
+an already regenerated master it reports `unchanged`, and a rerun on the same
+origin/master reuses the pushed branch. `complete` re-runs the strict
+`correspondence_index --check` and fails while the index is stale. Complete it
+with:
 
 ```powershell
 .\venv\Scripts\python.exe -m weather.operations.documentation_transaction `
@@ -216,7 +244,9 @@ blocker, and never claim the refused code landed.
   `**Last updated: YYYY-MM-DD` line is machine-read by `status.ps1` and the
   knowledge audit, so keep that exact form and make it true.
 - Generated documents include generator metadata and should be reproduced, not
-  hand-edited.
+  hand-edited. The correspondence index is the exception to "regenerate in the
+  same change": branches never commit it, CI checks it structurally, and the
+  closeout regenerates it (see the closeout above).
 - Dynamic host inventories belong under ignored `data/`; a tracked generated
   document must depend only on repository-owned inputs.
 - Dated documents retain historical facts and commands. Add a visible historical

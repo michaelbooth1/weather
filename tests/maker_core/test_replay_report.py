@@ -1,3 +1,7 @@
+"""Maker replay comparison report and CLI on fictional panels.
+
+Guards: replay comparison report and diagnostic-only CLI (docs/operations/maker-replay-bundle.md, Diagnostic and scoring boundary).
+"""
 from datetime import date, timedelta
 import json
 import pytest

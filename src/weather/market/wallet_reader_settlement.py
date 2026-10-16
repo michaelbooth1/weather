@@ -15,7 +15,8 @@ import re
 
 from weather.market.wallet_reader_security import CONDITION, GAMMA, ReaderError
 
-LEDGER_MAX_BYTES = 64 * 1024 * 1024
+LEDGER_LINE_MAX_BYTES = 1024 * 1024
+SLUG = re.compile(r"[a-z0-9-]{1,256}")
 
 
 def band_key(label):
@@ -41,32 +42,57 @@ def configured_bands(events_config):
     return found
 
 
-def ledger_label(root, location_id, event_slug):
-    """Latest revision for one event from ``<root>/<location>/ledger.jsonl``; no pandas import."""
+def ledger_labels(root, location_id, event_slugs):
+    """Latest revision per event from ``<root>/<location>/ledger.jsonl`` in one streaming pass.
+
+    Memory is bounded by ``LEDGER_LINE_MAX_BYTES`` plus one row per requested slug, whatever the
+    file size. Lines longer than the limit are skipped; no pandas import.
+    Returns ``({slug: row}, status)``; ``status`` is ``None`` when the file was read.
+    """
     if not location_id or not re.fullmatch(r"[a-z0-9-]{1,64}", location_id):
-        return None, "proxy_not_applicable"
+        return {}, "proxy_not_applicable"
+    wanted = {s for s in event_slugs if isinstance(s, str) and s}
     path = Path(root) / location_id / "ledger.jsonl"
+    # Venue slugs are [a-z0-9-], which JSON never escapes, so a raw byte search safely skips the
+    # parse of rows for other events; any other slug falls back to parsing every row.
+    needles = [json.dumps(s).encode("ascii") for s in wanted] if all(SLUG.fullmatch(s) for s in wanted) else None
+    best = {}
     try:
         if not path.is_file() or path.is_symlink():
-            return None, "proxy_ledger_absent"
-        if path.stat().st_size > LEDGER_MAX_BYTES:
-            return None, "proxy_ledger_too_large"
-        best = None
-        with path.open("r", encoding="utf-8") as handle:
-            for index, line in enumerate(handle):
+            return {}, "proxy_ledger_absent"
+        if not wanted:
+            return {}, None
+        with path.open("rb") as handle:
+            index = 0
+            while line := handle.readline(LEDGER_LINE_MAX_BYTES + 1):
+                index += 1
+                if len(line) > LEDGER_LINE_MAX_BYTES and not line.endswith(b"\n"):
+                    while line and not line.endswith(b"\n"):
+                        line = handle.readline(LEDGER_LINE_MAX_BYTES)
+                    continue
+                if needles is not None and not any(n in line for n in needles):
+                    continue
                 try:
                     row = json.loads(line)
                 except ValueError:
                     continue
-                if isinstance(row, dict) and row.get("event_slug") == event_slug:
+                slug = row.get("event_slug") if isinstance(row, dict) else None
+                if isinstance(slug, str) and slug in wanted:
                     revision = row.get("revision_number")
                     key = (revision if isinstance(revision, int) and not isinstance(revision, bool) else 0, index)
-                    if best is None or key >= best[0]:
-                        best = (key, row)
+                    if slug not in best or key >= best[slug][0]:
+                        best[slug] = (key, row)
     except OSError:
-        return None, "proxy_ledger_unreadable"
-    return (best[1], None) if best else (None, "proxy_label_absent")
+        return {}, "proxy_ledger_unreadable"
+    return {slug: row for slug, (_, row) in best.items()}, None
 
+
+def ledger_label(root, location_id, event_slug):
+    """Latest revision for one event; see ``ledger_labels``."""
+    found, status = ledger_labels(root, location_id, [event_slug])
+    if status:
+        return None, status
+    return (found[event_slug], None) if event_slug in found else (None, "proxy_label_absent")
 
 def _terminal(prices):
     return [p if p in (0, 1) else None for p in prices]
@@ -92,6 +118,14 @@ def resolution_state(market, prices):
     if market.get("closed") is False:
         return "open"
     return "unknown"
+
+
+def _event_slug(held_rows, market):
+    slug = next((r.get("eventSlug") for r in held_rows if r.get("eventSlug")), None)
+    events = market.get("events")
+    if not slug and isinstance(events, list) and events and isinstance(events[0], dict):
+        slug = events[0].get("slug")
+    return slug
 
 
 def venue_basis(source):
@@ -140,20 +174,28 @@ def settlement(reader, since, *, ledger_root, events_config, now=None):
             errors["metadata"] = "resolution_metadata_unavailable"
     bands = configured_bands(events_config)
     markets, flags = [], {"disagreements": [], "unredeemed_winners": [], "resolved_unreconciled": []}
+    slugs = {c: _event_slug([r for r in held.values() if r["conditionId"].lower() == c], metadata.get(c, {}))
+             for c in conditions}
+    by_location = {}
+    for slug in slugs.values():
+        by_location.setdefault(event_location(slug, events_config), set()).add(slug)
+    # One streaming pass per location ledger, however many of its events are held or filled.
+    ledgers = {location: ledger_labels(ledger_root, location, wanted) for location, wanted in by_location.items()}
     for condition in conditions:
         market = metadata.get(condition, {})
         tokens, outcomes, prices = _market_outcomes(market, number)
         state = resolution_state(market, prices)
         held_rows = [r for r in held.values() if r["conditionId"].lower() == condition]
-        event_slug = next((r.get("eventSlug") for r in held_rows if r.get("eventSlug")), None)
+        event_slug = slugs[condition]
         events = market.get("events")
-        if not event_slug and isinstance(events, list) and events and isinstance(events[0], dict):
-            event_slug = events[0].get("slug")
         source = market.get("resolutionSource") or (events[0].get("resolutionSource")
                                                     if isinstance(events, list) and events and isinstance(events[0], dict) else None)
         winner = outcomes[prices.index(1)] if state == "resolved" else None
         band = bands.get(condition) or market.get("groupItemTitle")
-        label, proxy_status = ledger_label(ledger_root, event_location(event_slug, events_config), event_slug)
+        found, proxy_status = ledgers[event_location(event_slug, events_config)]
+        label = found.get(event_slug)
+        if label is None and proxy_status is None:
+            proxy_status = "proxy_label_absent"
         proxy = None
         if label is not None:
             proxy_status = "observed"

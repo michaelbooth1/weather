@@ -55,7 +55,10 @@ host-global mutex without producing live-readiness evidence; both profiles are
 bound to the assignment's exact Windows installation and attending principal,
 and both launch paths own their full child tree in a kill-on-close Windows Job.
 Finish heavy work before sealing as an operational attempt-preservation rule;
-inert sealed files alone are not live authority. These
+inert sealed files alone are not live authority. Launchers sealed before
+PR #229's runner stdin change must be resealed, and its keyless console
+rehearsal gate applies (live-pilot runbook, execution-host preparation).
+These
 workloads grant no capture, production-state,
 Scheduler, credential, exchange, unattended-trading, or live-order authority.
 

@@ -1,3 +1,8 @@
+"""Maker replay authorization verifier on fictional bytes.
+
+Guards: replay authorization verifier (docs/operations/maker-replay-authorization-verifier-design-2026-09-27.md;
+  docs/operations/maker-replay-bundle.md, Clarified execution pack).
+"""
 from datetime import datetime
 import json
 

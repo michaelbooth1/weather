@@ -78,11 +78,16 @@ CONFIG_POLICIES = {
         "freshness_policy": "review_and_merge_for_each_executor_reassignment",
         "max_age_days": None,
     },
+    "capture_families.json": {
+        "owner": "weather.market.maker_evidence_family",
+        "classification": "hand_authored_registry",
+        "freshness_policy": "review_with_desk_study_go_or_family_scope_changes",
+        "max_age_days": None,
+    },
 }
 
 
-def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+from weather.time import utc_now
 
 
 def parse_time(value):

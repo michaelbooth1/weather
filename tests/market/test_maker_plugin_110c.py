@@ -1,4 +1,7 @@
-"""110c: explicit expiry, release-method provenance and tracked parser controls."""
+"""110c: explicit expiry, release-method provenance and tracked parser controls.
+
+Guards: weather plugin explicit expiry and release-method provenance (docs/operations/maker-core-contracts.md, Weather adapter inputs).
+"""
 from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 import hashlib

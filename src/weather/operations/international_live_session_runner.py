@@ -356,8 +356,11 @@ def _default_launcher_runner(
             str(powershell), "-NoProfile", "-ExecutionPolicy", "Bypass",
             "-File", str(path),
         ]
+        # stdin on the null device: on Ctrl+Break PowerShell's debugger reads
+        # EOF and resumes, so an open caller stdin cannot block cleanup.
         process = subprocess.Popen(
             command,
+            stdin=subprocess.DEVNULL,
             creationflags=CREATE_SUSPENDED | CREATE_NEW_PROCESS_GROUP,
         )
         if not kernel32.AssignProcessToJobObject(job, int(process._handle)):

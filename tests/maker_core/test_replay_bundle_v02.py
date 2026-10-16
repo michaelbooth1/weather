@@ -1,4 +1,7 @@
-"""W1: bundle v0.2 stream reader, coverage groups and the exact v0.2 -> v0.1 expansion (fictional only)."""
+"""W1: bundle v0.2 stream reader, coverage groups and the exact v0.2 -> v0.1 expansion (fictional only).
+
+Guards: bundle v0.2 stream reader and exact v0.2 -> v0.1 expansion (docs/operations/maker-replay-bundle.md; docs/research/maker-replay-v2-registration-DRAFT.md).
+"""
 from datetime import date
 import json
 

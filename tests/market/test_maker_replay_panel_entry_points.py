@@ -69,7 +69,7 @@ def sources(extra=None, replace=None):
         for path in sorted((ROOT / folder).rglob("*.py")):
             if "__pycache__" in path.parts:
                 continue
-            found[module_name(path)] = path.read_text(encoding="utf-8")
+            found[module_name(path)] = path.read_text(encoding="utf-8-sig")
     found.update(replace or {})
     found.update(extra or {})
     return found

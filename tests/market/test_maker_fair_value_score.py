@@ -1,4 +1,8 @@
-"""110u: synthetic sealed bundles only; no production evidence or provider IO."""
+"""110u: synthetic sealed bundles only; no production evidence or provider IO.
+
+Guards: frozen T+1/T+2 fair-value reliability scorer on synthetic sealed bundles
+  (docs/operations/t1-fair-value-scoring.md; docs/research/t1-fair-value-preregistration-2026-09-25.md).
+"""
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 import hashlib

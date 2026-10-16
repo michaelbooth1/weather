@@ -5,6 +5,8 @@ event and the CLOB loop captures each market's local-today event. A T+1/T+2
 event folder therefore holds no rows on the run date. These tests reproduce that
 layout with the production writers (shared forecast-payload CAS, NBP attestation,
 CLOB token store, 88a evidence store, release-serving lineage). No production data.
+
+Guards: weather plugin T+1/T+2 band identity under T+0-only capture (docs/operations/maker-core-contracts.md, Bounded weather plugin dry run).
 """
 from datetime import timedelta
 import json

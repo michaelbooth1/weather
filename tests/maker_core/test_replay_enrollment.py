@@ -1,4 +1,8 @@
-"""Production enrollment procedure regression: synthetic bytes, no real authority."""
+"""Production enrollment procedure regression: synthetic bytes, no real authority.
+
+Guards: production enrollment procedure (docs/research/maker-replay-enrollment-template-2026-09-27.md;
+  docs/operations/maker-replay-bundle.md, Clarified execution pack).
+"""
 import json
 import re
 

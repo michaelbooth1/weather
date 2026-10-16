@@ -24,7 +24,10 @@ param(
     [string]$RepoRoot = "",
     [string]$ExpectedSelfSha256 = "",
     [string]$StatusScriptPath = "",
-    [string]$ExpectedStatusScriptSha256 = ""
+    [string]$ExpectedStatusScriptSha256 = "",
+    # Fixture evaluation only: evaluate windows, escalation and dedupe as of this local
+    # time instead of the clock. The registered task never passes it.
+    [string]$AsOf = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -120,7 +123,7 @@ $expectedDisabledTasks = [ordered]@{
 $expectedDisabledNotes = @()
 
 # ---- which window are we in? ----
-$now = Get-Date
+$now = if ($AsOf) { [datetime]::Parse($AsOf, [cultureinfo]::InvariantCulture) } else { Get-Date }
 $h = $now.Hour + ($now.Minute / 60.0)
 $inCapture = ($h -ge 12 -and $h -lt 18)
 $inChain = ($h -ge 9.5 -and $h -lt (11 + 55.0 / 60.0))
@@ -135,13 +138,17 @@ else { "off_peak" }
 # ---- classify each flag: what is it, how bad NOW, and when can it be acted on ----
 function Get-FlagClass($text) {
     if ($text -match "^RECONCILIATION_PUBLICATION_") { return "reconciliation_publication" }
+    # Swarm P audit 2026-10-07 G1/G3: these used to fall through to MEDIUM scheduled_job.
+    if ($text -match "^UNEXPECTED SHUTDOWN") { return "host_stability" }
+    if ($text -match "system clock (is not synchronized|has no successful|last received)") { return "capture_integrity" }
+    if ($text -match "^STALENESS_SWEEP") { return "staleness_sweep" }
     if ($text -match "capture loop DOWN|capture loop ERRORING|TODAY capture AT_RISK|capture alert raised") { return "capture" }
     if ($text -match "LOW RAM|HIGH COMMIT") { return "memory" }
     if ($text -match "LOW DISK|disk filling|disk headroom") { return "capacity" }
     if ($text -match "SETTLEMENT HOLE") { return "settlement" }
     if ($text -match "mirror") { return "durability" }
     if ($text -match "REBOOT PENDING|logon-dependent") { return "resilience" }
-    if ($text -match "streak checker failed|BLIND|MEMORY GUARD UNKNOWN") { return "observability" }
+    if ($text -match "streak checker failed|BLIND|MEMORY GUARD UNKNOWN|deployment PIN MISMATCH") { return "observability" }
     return "scheduled_job"
 }
 function Get-FlagAction($class) {
@@ -154,6 +161,9 @@ function Get-FlagAction($class) {
         durability    = "verify current archive and restore evidence; do not resume an operator-paused mirror or delete unverified source data"
         resilience    = "any time, but a reboot must not happen before it is fixed"
         observability = "NOW - nothing else is watching while this is broken"
+        host_stability = "NOW - verify today's capture grade and that all three capture workers recovered; an outage inside 12:00-18:00 ends the streak"
+        capture_integrity = "NOW - restore Windows Time sync (service running, valid source) and record the unsynchronized interval; capture timestamps from it are suspect"
+        staleness_sweep = "read data\alerts\STALENESS_SWEEP.md for the owning check; repair the producer in the admitted 00:30-09:00 window, never touch the artifact's timestamp"
         scheduled_job = "next scheduled run, or resume in the quiet window 01:00-04:00"
     }
     return [string]$actionWindow[[string]$class]
@@ -173,6 +183,12 @@ foreach ($f in @($status.flags)) {
         "reconciliation_publication" { "HIGH" }
         "observability" { "HIGH" }
         "capacity" { "HIGH" }
+        # Graded-window overlap and unclean-boot counts are applied in the second pass.
+        "host_stability" { "HIGH" }
+        "capture_integrity" { if ($inCapture) { "CRITICAL" } else { "HIGH" } }
+        # Carry the sweep's own severity through: its CRITICAL row is at least HIGH here;
+        # an unreadable/stale sweep snapshot starts at MEDIUM. Escalation is in the second pass.
+        "staleness_sweep" { if ($f -match "^STALENESS_SWEEP CRITICAL") { "HIGH" } else { "MEDIUM" } }
         # A settlement hole is not a scheduled-job hiccup. The evidence is already lost
         # for that date and no future run reclaims it, so this outranks anything whose
         # cost is bounded by "wait for the next run". It escalates with age because each
@@ -193,6 +209,139 @@ foreach ($f in @($status.flags)) {
     }
 }
 $rank = @{ CRITICAL = 0; HIGH = 1; MEDIUM = 2 }
+
+# ---- second pass: graded-window overlap, reviewed demotions, escalation, dedupe keys ----
+# Swarm P audit 2026-10-07 G1/G3/G4. Dedupe keys drop volatile numbers (ages, counts, byte
+# sizes, timestamps) so a standing condition whose numbers tick does not write a new
+# state_change row every pass. "Consecutive failures" counts how often the timestamps inside
+# an otherwise unchanged condition moved (a new failed run of the same job); the condition
+# age is how long the watchdog has seen it continuously.
+#
+# Two over-merges would be false silences (PR #255 Defender G4), so these keep identity:
+# - LOW DISK depth: the first "<n> GB" figure becomes a depth bucket (<50, <25, <10, <5 GiB,
+#   or >=50), so each step down is a new condition while ticks within a bucket still dedupe.
+# - SETTLEMENT HOLE dates: the sorted, de-duplicated missing-date set is appended, so a hole
+#   moving to (or adding) a date re-alerts while the same set in any order still dedupes.
+function Get-WeatherDiskDepthBucket([double]$FreeGiB) {
+    if ($FreeGiB -lt 5) { return "<5GiB" }
+    if ($FreeGiB -lt 10) { return "<10GiB" }
+    if ($FreeGiB -lt 25) { return "<25GiB" }
+    if ($FreeGiB -lt 50) { return "<50GiB" }
+    return ">=50GiB"
+}
+function Get-WeatherFlagDedupKey([string]$Text) {
+    $k = [string]$Text
+    $depthBucket = $null
+    if ($k -match '^LOW DISK') {
+        $depth = [regex]::Match($k, '(\d+(?:\.\d+)?) GB')
+        if ($depth.Success) {
+            $depthBucket = Get-WeatherDiskDepthBucket ([double]::Parse($depth.Groups[1].Value, [cultureinfo]::InvariantCulture))
+        }
+    }
+    $holeDates = $null
+    if ($k -match '^SETTLEMENT HOLE: .*?\[([^\]]*)\]') {
+        $holeDates = (@($Matches[1] -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }) |
+            Sort-Object -Unique) -join ","
+    }
+    $k = [regex]::Replace($k, '\d{4}-\d{2}-\d{2}(?:[T ]\d{1,2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?', '<ts>')
+    $k = [regex]::Replace($k, '\d{1,2}/\d{1,2}/\d{2,4}(?:\s+\d{1,2}:\d{2}(?::\d{2})?(?:\s*[AaPp][Mm])?)?', '<ts>')
+    $k = [regex]::Replace($k, '(?<![0-9A-Za-z_])\d{1,2}:\d{2}(?::\d{2})?(?:\s*[AaPp][Mm])?', '<ts>')
+    # Plain numbers become '#', but identifiers (Weather110nTask) and result codes (0x1) stay.
+    $k = [regex]::Replace($k, '(?<![0-9A-Za-z_])(?!0x[0-9A-Fa-f])\d+(?:[.,]\d+)*', '#')
+    # Bucket labels are applied after the '#' pass so their own digits survive.
+    if ($depthBucket) { $k = ([regex]'# GB').Replace($k, $depthBucket, 1) }
+    if ($null -ne $holeDates) { $k = "$k|dates=$holeDates" }
+    return $k
+}
+function Get-WeatherFlagTimestampTokens([string]$Text) {
+    $found = @([regex]::Matches([string]$Text,
+        '\d{4}-\d{2}-\d{2}(?:[T ]\d{1,2}:\d{2}(?::\d{2})?)?|\d{1,2}/\d{1,2}/\d{2,4}(?:\s+\d{1,2}:\d{2}(?::\d{2})?(?:\s*[AaPp][Mm])?)?') |
+        ForEach-Object { $_.Value })
+    return ($found -join "|")
+}
+function Test-WeatherOutageOverlapsGradedWindow([datetime]$Start, [datetime]$End) {
+    if ($End -lt $Start) { $swap = $Start; $Start = $End; $End = $swap }
+    for ($day = $Start.Date; $day -le $End.Date; $day = $day.AddDays(1)) {
+        if ($Start -lt $day.AddHours(18) -and $End -gt $day.AddHours(12)) { return $true }
+    }
+    return $false
+}
+
+# Reviewed, reasoned demotions of standing sweep CRITICALs: named checks only, never a blanket
+# silence. They stay visible at MEDIUM and never escalate; every other sweep row still does.
+$demotedSweepChecks = [ordered]@{
+    "learning/daily_learning"            = "standing since 2026-07-10; the daily-learning rollup is off the capture and settlement path (Swarm P audit 2026-10-07 G3)"
+    "learning/market_beating_scoreboard" = "standing since 2026-07-10; objective scoreboard staleness costs no capture evidence (Swarm P audit 2026-10-07 G3)"
+}
+
+$prev = $null
+if (Test-Path $statePath) { try { $prev = Get-Content $statePath -Raw | ConvertFrom-Json } catch {} }
+$prevTracking = @{}
+if ($prev -and $prev.tracking) {
+    foreach ($p in $prev.tracking.PSObject.Properties) { $prevTracking[$p.Name] = $p.Value }
+}
+$tracking = [ordered]@{}
+$invariant = [cultureinfo]::InvariantCulture
+foreach ($e in $entries) {
+    $key = "$($e.class)|$(Get-WeatherFlagDedupKey $e.flag)"
+    $demotedReason = $null
+    $uncleanBoots7d = $null
+    if ($e.class -eq "host_stability") {
+        $bootText = $null; $startText = $null
+        $outage = [regex]::Match($e.flag, 'outage (\d{4}-\d{2}-\d{2} \d{2}:\d{2}|start unknown) -> (\d{4}-\d{2}-\d{2} \d{2}:\d{2})')
+        if ($outage.Success) { $bootText = $outage.Groups[2].Value; $startText = $outage.Groups[1].Value }
+        $end = [datetime]::MinValue; $start = [datetime]::MinValue
+        $haveEnd = $false
+        if ($bootText) { $haveEnd = [datetime]::TryParseExact($bootText, 'yyyy-MM-dd HH:mm', $invariant, 'None', [ref]$end) }
+        elseif ($e.flag -match '^UNEXPECTED SHUTDOWN (.+?) - verify') {
+            # Pre-2026-10-07 status format: only the boot time, in the host culture.
+            $haveEnd = [datetime]::TryParse($Matches[1], [ref]$end)
+        }
+        if ($haveEnd) {
+            if (-not ($startText -and [datetime]::TryParseExact($startText, 'yyyy-MM-dd HH:mm', $invariant, 'None', [ref]$start))) { $start = $end }
+            if (Test-WeatherOutageOverlapsGradedWindow $start $end) { $e.severity = "CRITICAL" }
+            # A different unclean boot is a new condition, not a ticking number.
+            $key = "$key|boot=$($end.ToString('yyyy-MM-dd HH:mm', $invariant))"
+        }
+        if ($e.flag -match '(\d+) unclean boot\(s\) in 7d') { $uncleanBoots7d = [int]$Matches[1] }
+    }
+    $stamps = Get-WeatherFlagTimestampTokens $e.flag
+    $firstSeen = $now
+    $failures = 1
+    $before = $prevTracking[$key]
+    if ($before) {
+        try { $firstSeen = [datetime]::Parse([string]$before.first_seen, $invariant, [Globalization.DateTimeStyles]::RoundtripKind) } catch { $firstSeen = $now }
+        $failures = [int]$before.consecutive_failures
+        if ($failures -lt 1) { $failures = 1 }
+        if ([string]$before.timestamps -cne $stamps) { $failures++ }
+    }
+    if ($firstSeen -gt $now) { $firstSeen = $now }
+    $tracking[$key] = [ordered]@{ first_seen = $firstSeen.ToString("o"); timestamps = $stamps; consecutive_failures = $failures }
+    $ageHours = [math]::Round(($now - $firstSeen).TotalHours, 2)
+    if ($e.class -eq "staleness_sweep") {
+        $check = if ($e.flag -match '^STALENESS_SWEEP CRITICAL \[([^\]]+)\]') { $Matches[1] } else { $null }
+        if ($check -and $demotedSweepChecks.Contains($check)) {
+            $e.severity = "MEDIUM"
+            $demotedReason = [string]$demotedSweepChecks[$check]
+        }
+        elseif ($check) {
+            $reportedDays = 0.0
+            if ($e.flag -match '(\d+(?:\.\d+)?)d old') { $reportedDays = [double]::Parse($Matches[1], $invariant) }
+            if ($reportedDays -ge 3 -or $ageHours -ge 72 -or $failures -ge 3) { $e.severity = "CRITICAL" }
+        }
+        elseif ($ageHours -ge 24 -or $failures -ge 2) { $e.severity = "HIGH" }
+    }
+    elseif ($e.class -eq "scheduled_job") {
+        if ($failures -ge 5 -and $ageHours -ge 72) { $e.severity = "CRITICAL" }
+        elseif (($failures -ge 2 -or $ageHours -ge 24) -and $e.severity -eq "MEDIUM") { $e.severity = "HIGH" }
+    }
+    $e | Add-Member -NotePropertyName dedup_key -NotePropertyValue $key
+    $e | Add-Member -NotePropertyName consecutive_failures -NotePropertyValue $failures
+    $e | Add-Member -NotePropertyName condition_age_hours -NotePropertyValue $ageHours
+    $e | Add-Member -NotePropertyName demoted -NotePropertyValue $demotedReason
+    $e | Add-Member -NotePropertyName unclean_boots_7d -NotePropertyValue $uncleanBoots7d
+    if ($demotedReason) { $e.act = "$($e.act) [demoted: $demotedReason]" }
+}
 $entries = @($entries | Sort-Object { $rank[$_.severity] })
 $top = if ($entries.Count -gt 0) { $entries[0].severity } else { "OK" }
 $notes = @(@($status.warns) | Where-Object { $_ }) + $expectedDisabledNotes
@@ -200,14 +349,12 @@ $notes = @(@($status.warns) | Where-Object { $_ }) + $expectedDisabledNotes
 # ---- dedupe: log on change, on CRITICAL, or as a heartbeat ----
 $fingerprint = ""
 if ($entries.Count -gt 0) {
-    $fingerprint = (($entries | ForEach-Object { "$($_.severity)|$($_.flag)" } | Sort-Object) -join "##")
+    $fingerprint = (($entries | ForEach-Object { "$($_.severity)|$($_.dedup_key)" } | Sort-Object) -join "##")
 }
-$prev = $null
-if (Test-Path $statePath) { try { $prev = Get-Content $statePath -Raw | ConvertFrom-Json } catch {} }
 $prevFp = if ($prev) { [string]$prev.fingerprint } else { "<none>" }
 $lastLogged = $null
 if ($prev -and $prev.last_logged) { try { $lastLogged = [datetime]$prev.last_logged } catch {} }
-$hoursSince = if ($lastLogged) { ((Get-Date) - $lastLogged).TotalHours } else { 999 }
+$hoursSince = if ($lastLogged) { ($now - $lastLogged).TotalHours } else { 999 }
 
 $changed = ($fingerprint -ne $prevFp)
 $shouldLog = $changed -or ($top -eq "CRITICAL") -or ($hoursSince -ge $HEARTBEAT_HOURS)
@@ -218,9 +365,14 @@ $record = [ordered]@{
     top_severity = $top; log_reason = $reason
     streak = $(if ($status.streak) { "$($status.streak.days)/$($status.streak.target)" } else { "?" })
     today = $(if ($status.streak) { [string]$status.streak.today } else { "?" })
-    alerts = @($entries | ForEach-Object { [ordered]@{ severity = $_.severity; class = $_.class; flag = $_.flag; act = $_.act } })
+    alerts = @($entries | ForEach-Object { [ordered]@{ severity = $_.severity; class = $_.class; flag = $_.flag; act = $_.act
+                consecutive_failures = $_.consecutive_failures; condition_age_hours = $_.condition_age_hours
+                demoted = $_.demoted; unclean_boots_7d = $_.unclean_boots_7d } })
     notes = $notes
     expected_disabled_tasks = $expectedDisabledTasks
+    demoted_sweep_checks = $demotedSweepChecks
+    host_stability = $status.host_stability
+    watchdog_deployment = $status.watchdog_deployment
     reconciliation_publication = $status.reconciliation_publication
     memory_guard = $status.memory_guard
     status_script_path = $statusScript
@@ -235,11 +387,12 @@ if ($shouldLog) {
         exit 2
     }
 }
-[ordered]@{ fingerprint = $fingerprint; last_logged = $(if ($shouldLog) { $now.ToString("o") } elseif ($lastLogged) { $lastLogged.ToString("o") } else { $now.ToString("o") }) } |
-ConvertTo-Json | Set-Content -Path $statePath -Encoding utf8
+[ordered]@{ fingerprint = $fingerprint; last_logged = $(if ($shouldLog) { $now.ToString("o") } elseif ($lastLogged) { $lastLogged.ToString("o") } else { $now.ToString("o") })
+    tracking = $tracking } |
+ConvertTo-Json -Depth 5 | Set-Content -Path $statePath -Encoding utf8
 
 # ---- regenerate the human briefing (what happened while nobody was looking) ----
-$since = (Get-Date).AddHours(-24)
+$since = $now.AddHours(-24)
 $recent = @()
 $briefingFiles = @(Get-ChildItem -LiteralPath $alertDir -Filter 'host_health_alerts.*.jsonl' -File |
     Sort-Object Name -Descending | Select-Object -First 1)

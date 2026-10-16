@@ -484,15 +484,11 @@ class TestPromotionCorpus(unittest.TestCase):
             _write_label(folder)
             manifest = build_promotion_corpus([folder], snapshots_root=tmp, as_of="2026-06-04")
             corpus_path = write_manifest(manifest, Path(tmp) / "promotion_corpus.json")
-            forecast_tracker = Path(tmp) / "forecast_vs_realized.json"
-            forecast_tracker.write_text("[]", encoding="utf-8")
-
             args = SimpleNamespace(
                 corpus=str(corpus_path),
                 snapshots_root=str(tmp),
                 baseline=None,
                 no_baseline=True,
-                forecast_tracker=str(forecast_tracker),
                 out=str(Path(tmp) / "gauntlet.md"),
                 replay_report=str(Path(tmp) / "replay.md"),
                 tol=0.003,

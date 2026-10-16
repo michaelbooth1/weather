@@ -1,4 +1,8 @@
-"""Fixture tests for tools/exam_pull_cap_precheck.py; fictional bundle manifests only."""
+"""Fixture tests for tools/exam_pull_cap_precheck.py; fictional bundle manifests only.
+
+Guards: exam pull-cap precheck over fictional bundle manifests
+  (docs/research/maker-replay-clarification-4-draft.md).
+"""
 from datetime import date, datetime, timedelta, timezone
 import json
 import sys

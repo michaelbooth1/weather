@@ -1,5 +1,7 @@
 """CONSOLIDATED row 13 (binding, DECISION_LOG 2026-10-15): ``v2/host.py`` is the single memory probe on v2 paths, and
 the frozen ``maker_core/replay/ceilings.py`` stays untouched. No production data; the probe reads this process only.
+
+Guards: maker replay v2 single memory probe and frozen v1 ceilings (DECISION_LOG 2026-10-15, CONSOLIDATED row 13).
 """
 from __future__ import annotations
 

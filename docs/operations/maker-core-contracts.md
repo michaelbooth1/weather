@@ -89,6 +89,14 @@ exclude the current band's replaceable orders. Reserve every selected market
 before deciding another; `rank` does not reserve funds. Factor loading uses its
 absolute value, so offsets never silently increase available capital.
 
+When the caller has own resting legs, the book it passes is the decision book from
+`maker_core.quoting.book.compose_book`, the one canonical composition (engine ruling
+W1(a)): each leg on its own bid array and mirrored at `1 - p` on the complement's ask
+array, levels created and sizes summed. Both the replay v2 kernel and the shadow runner
+import it; do not copy it. Per OD23 (signed 2026-10-08), `decide()` keeps own size in
+the qualified mid and removes it only from the competing score and displayed depth;
+`own_size_moves_mid` is the count-only diagnostic of where own size moves that mid.
+
 `informed_v0` implements the design's freshness, pull/decided, qualified-mid,
 width/asymmetry, depth, size, positive-net and portfolio screens. Scheduled events
 are active from -3 to +10 minutes; detected and observed-only events remain active
@@ -246,13 +254,17 @@ the existing capture writer. T+1/T+2 estimators remain independent of market
 prices; T+0 is outside their frozen scoring protocol. See the
 [dated clarification](../research/t1-fair-value-preregistration-2026-09-25.md#clarification-1--2026-09-25-handoff-110c-before-scoring).
 
+`portfolio`, `venue`, `runtime` and `replay` began as docstring-only placeholders; the
+portfolio ledger and the runtime [trading guard](maker-trading-guard.md) have since landed, and
+`maker_core.shadow` (with `maker_core.venue.public_feed`) is the public-reads-only
+[shadow runner](maker-shadow-runner.md); its tape projects `DecisionInputs` exactly.
 Portfolio accounting and saved-read orchestration are owned by the
 [portfolio ledger contract](portfolio-ledger.md). The additive
 [replay bundle contract](maker-replay-bundle.md) supplies a bounded neutral
 envelope reader, capture-time snapshots and a diagnostic-only CLI; scored
 replay and weather bundle export remain unfinished. The fictional decision
 replay lives in tests. Session control, fitted hazard estimation, YouTube
-plugins, shadow scoring and live execution are later phases. The weather
+plugins, economic shadow scoring and live execution are later phases. The weather
 adapters consume caller-supplied captured records without provider or filesystem IO.
 
 ## Bounded weather plugin dry run

@@ -1,8 +1,18 @@
-"""Maker replay v2 W0/W1: one exact offline fixture-measurement module admitted, no guard relaxation."""
+"""Maker replay v2 W0/W1: one exact offline fixture-measurement module admitted, no guard relaxation.
+
+Guards: workstation offline-module allowlist (HOST_LOAD_POLICY workstation scope; maker replay v2 W0/W1) -
+  workload_admission.ps1 and the Codex hook admit exactly the same modules, no child module.
+"""
 import importlib.util
+import json
+import os
 from pathlib import Path
 import re
+import shutil
+import subprocess
 import sys
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 MODULE = "tools.research.maker_replay_v2.run"
@@ -21,3 +31,30 @@ def test_exact_module_and_guarded_launch():
     assert hook.evaluate({"tool_name": "Bash", "tool_input": {
         "command": f'& "{sys.executable}" -m {MODULE} s1 --out x'
     }}, constrained_capture_host=False) is not None
+
+
+@pytest.mark.spawns
+@pytest.mark.skipif(os.name != "nt" or shutil.which("powershell") is None, reason="runs workload_admission.ps1")
+def test_exec_admission_lists_exactly_the_hook_modules(tmp_path):
+    """Execution twin of the text asserts above: the real admission function, not its source text, lists
+    the same modules as the Codex hook, with MODULE exactly once and neither its package nor a child."""
+    lister = tmp_path / "list_offline_modules.ps1"
+    lister.write_text(
+        f". '{ROOT / 'scripts' / 'ops' / 'workload_admission.ps1'}'\n"
+        "ConvertTo-Json -InputObject @(Get-WeatherWorkstationOfflineModule) -Compress\n",
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", str(lister)],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+    listed = json.loads(result.stdout)
+    spec = importlib.util.spec_from_file_location("mrv2_hook_exec", ROOT / ".codex/hooks/pre_tool_use_host_load.py")
+    hook = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(hook)
+    assert set(listed) == hook._OFFLINE_WEATHER_MODULES
+    assert listed.count(MODULE) == 1
+    assert MODULE + ".child" not in listed and "tools.research.maker_replay_v2" not in listed

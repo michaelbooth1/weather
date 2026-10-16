@@ -63,3 +63,8 @@ fixtures as produced by the engine before engine rulings W1(a), W2(a) and F3
 (build line `501f47579`). `test_replay_v2_attribution.py` requires the
 attribution tool's `frozen` variant to reproduce them exactly. Every value is
 computed from invented fixtures; nothing captured is read.
+
+`shadow_rig.py` is the synthetic shadow-runner rig: one quoting band (the
+blind-width `informed_v0` QUOTE case), CLOB-shaped book and reward replies,
+fixture campaigns and complete/incomplete wallet books for the trading guard.
+No production data, account identity or credential is involved.

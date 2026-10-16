@@ -31,7 +31,6 @@ CONSUMER_FILES = (
     "src/weather/operations/event_day_manifest.py",
     "src/weather/operations/density_live_replay_parity.py",
     "src/weather/market/market_microstructure_features.py",
-    "src/weather/market/mm_paper_scoring.py",
     "src/weather/market/order_book_tape.py",
     "src/weather/calibration/residual_distribution_corpus.py",
     "src/weather/reporting/data_quality/data_layer_audit_collectors.py",

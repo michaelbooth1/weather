@@ -37,8 +37,14 @@
 param(
     [Parameter(Mandatory = $true)][ValidatePattern('^\d{4}-\d{2}-\d{2}$')][string]$TargetDate,
     [switch]$Refetch,
-    [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
+    [string]$RepoRoot = ""
 )
+# Windows PowerShell 5.1 leaves $PSScriptRoot and $PSCommandPath empty inside an
+# advanced script's param() defaults under `powershell -File`; derive the default
+# here. An explicit -RepoRoot always wins.
+if (-not $RepoRoot) {
+    $RepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
+}
 
 $ErrorActionPreference = 'Stop'
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot -ErrorAction Stop).Path

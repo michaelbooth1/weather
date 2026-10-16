@@ -24,7 +24,13 @@ def test_portable_status_is_repo_relative_and_execution_only() -> None:
     text = SCRIPT.read_text(encoding="utf-8-sig")
 
     assert "[string]$RepoRoot" in text
-    assert 'Join-Path $PSScriptRoot "..\\.."' in text
+    # Repo-relative default, derived in the body (PS 5.1 -File leaves
+    # $PSScriptRoot empty in an advanced script's param() defaults).
+    assert '[string]$RepoRoot = ""' in text
+    assert (
+        "$RepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))"
+        in text
+    )
     assert "international_live_execution_host_status_v0.3" in text
     assert 'status = $(if ($flags.Count -eq 0)' in text
     assert "international_live_execution_host_v2`0$machineGuid" in text

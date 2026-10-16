@@ -1,3 +1,7 @@
+"""Neutral replay bundle envelope reader on fictional bundles.
+
+Guards: bounded closed-day replay bundle envelope (docs/operations/maker-replay-bundle.md, Closed-day envelope and Bounded reads and outputs).
+"""
 from dataclasses import replace
 from datetime import timedelta
 import json

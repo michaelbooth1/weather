@@ -13,11 +13,14 @@ from __future__ import annotations
 import errno
 import hashlib
 import json
+import logging
 import os
+import re
 import stat
 import time
 import uuid
 from dataclasses import replace
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
@@ -39,6 +42,7 @@ from weather.sources.forecast_payload_fanout import (
     FanoutFetchResult,
     MarketInvariantFetchFanout,
 )
+from weather.market.market_registry import all_specs
 
 
 RECEIPT_SCHEMA_VERSION = "forecast_payload_cross_process_fanout_receipt_v0.1"
@@ -49,6 +53,91 @@ DEFAULT_POLL_SECONDS = 0.05
 MAX_RECEIPT_BYTES = 16 * 1024
 _FILE_ATTRIBUTE_REPARSE_POINT = 0x400
 _RECEIPT_CONTENT_SHA256_KEY = "_verified_receipt_content_sha256"
+_NBP_COMPLETENESS_POLICY = "configured-stations-txn-terminal-v1"
+_NBP_REQUIRED_ROWS = frozenset((
+    "TXNP1", "TXNP2", "TXNP5", "TXNP7", "TXNP9", "TXNMN", "TXNSD",
+    "SLPP1", "SLPP2", "SLPP5", "SLPP7", "SLPP9",
+))
+
+
+def _nbp_reuse_stations() -> tuple[str, ...]:
+    return tuple(sorted({spec.icao for spec in all_specs() if ":US" in spec.wu_history_id}))
+
+
+def _complete_nbp(text: str, cycle_key: str, stations: tuple[str, ...]) -> bool:
+    """Check configured blocks through their terminal rows without copying all lines."""
+    completed: set[str] = set()
+    station = None
+    rows: dict[str, int] = {}
+    groups = 0
+    for match in re.finditer(r"[^\n]+", text):
+        line = match.group().rstrip("\r")
+        if "NBP GUIDANCE" in line:
+            station = line.split()[0]
+            if station in completed:
+                return False
+            rows, groups = {}, 0
+            if station in stations and nbm_nbp_cycle_key_from_bulletin(line) != cycle_key:
+                return False
+        if station not in stations:
+            continue
+        code = line[:6].strip()
+        if code == "FHR":
+            groups = len(line[6:].split("|"))
+        elif code in _NBP_REQUIRED_ROWS:
+            cells = line[6:].split("|")
+            # Terminal pairs must be present too: a truncated last line is incomplete.
+            if groups and len(cells) == groups and all(
+                len(cell) >= 7 and re.fullmatch(r"\s*-?\d+\s+-?\d+\s*", cell)
+                for cell in cells
+            ):
+                rows[code] = groups
+            if code == "SLPP9" and _NBP_REQUIRED_ROWS <= rows.keys():
+                completed.add(station)
+    return bool(stations) and completed == set(stations)
+
+
+# On Windows an exclusive create of a claim that another process is deleting
+# (delete-pending while any handle, such as a follower's stat or a scanner,
+# is still open) or holding without delete sharing fails with EACCES, not
+# EEXIST.  POSIX never reports a racing O_EXCL create that way.
+_WINDOWS_CLAIM_DENIAL_IS_CONTENTION = os.name == "nt"
+
+
+class _ClaimDenied(Exception):
+    """A Windows claim create was refused; treat it as transient contention."""
+
+    def __init__(self, error: PermissionError):
+        super().__init__(str(error))
+        self.error = error
+
+
+logger = logging.getLogger(__name__)
+# On Windows an antivirus or indexer handle, or a peer's open read handle, can
+# briefly deny an unlink or read with a sharing violation (PermissionError).
+# Retry it with the same bounded budget that weather.io uses for its atomic
+# replace.  POSIX makes exactly one attempt, as before.
+_WINDOWS_TRANSIENT_DENIAL_RETRY = os.name == "nt"
+_TRANSIENT_DENIAL_RETRIES = 20
+_TRANSIENT_DENIAL_RETRY_SLEEP_SECONDS = 0.05
+
+
+def _retry_transient_denial(
+    operation: Callable[[], Any],
+    *,
+    sleep_fn: Callable[[float], None] = time.sleep,
+) -> Any:
+    """Run ``operation``, retrying a Windows PermissionError a bounded number of times."""
+
+    attempts = _TRANSIENT_DENIAL_RETRIES if _WINDOWS_TRANSIENT_DENIAL_RETRY else 1
+    for attempt in range(attempts):
+        try:
+            return operation()
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            sleep_fn(_TRANSIENT_DENIAL_RETRY_SLEEP_SECONDS)
+    return None
 
 
 def _canonical_json_bytes(payload: Mapping[str, Any]) -> bytes:
@@ -152,6 +241,8 @@ def _write_immutable_json(
     cas_root: Path,
     path: Path,
     payload: Mapping[str, Any],
+    *,
+    sleep_fn: Callable[[float], None] = time.sleep,
 ) -> None:
     """Publish one complete receipt without replacing an existing receipt."""
 
@@ -183,9 +274,22 @@ def _write_immutable_json(
         )
     finally:
         try:
-            staging.unlink()
+            _retry_transient_denial(staging.unlink, sleep_fn=sleep_fn)
         except FileNotFoundError:
             pass
+        except PermissionError as exc:
+            if not _WINDOWS_TRANSIENT_DENIAL_RETRY:
+                raise
+            # The staging name is unique and only aliases immutable receipt
+            # bytes, so a leaked alias is harmless; raising here would replace
+            # the publish outcome (or its original exception).
+            logger.warning(
+                "cross-process fan-out staging alias left after %d denied "
+                "unlink attempts: %s: %s",
+                _TRANSIENT_DENIAL_RETRIES,
+                staging,
+                exc,
+            )
 
 
 def _http_status(exc: BaseException) -> int | None:
@@ -308,6 +412,10 @@ class CrossProcessMarketInvariantFetchFanout:
             handle = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         except FileExistsError:
             return None
+        except PermissionError as exc:
+            if not _WINDOWS_CLAIM_DENIAL_IS_CONTENTION:
+                raise
+            raise _ClaimDenied(exc) from exc
         try:
             os.write(handle, _canonical_json_bytes(payload))
             os.fsync(handle)
@@ -321,22 +429,58 @@ class CrossProcessMarketInvariantFetchFanout:
         return token
 
     @staticmethod
-    def _release_claim(cas_root: Path, path: Path, token: str) -> None:
+    def _release_claim(
+        cas_root: Path,
+        path: Path,
+        token: str,
+        *,
+        sleep_fn: Callable[[float], None] = time.sleep,
+    ) -> None:
+        # Runs in the holder's ``finally``: on Windows a denial that outlasts
+        # the bounded retry is logged and the claim is left in place, so the
+        # holder's result or original exception is never replaced.  Followers
+        # then rely on the existing bounded wait.  POSIX is unchanged.
         _validate_receipt_ancestors(
             cas_root,
             path.parent,
             allow_missing=False,
         )
         try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except (FileNotFoundError, OSError, json.JSONDecodeError):
+            payload = json.loads(
+                _retry_transient_denial(
+                    lambda: path.read_text(encoding="utf-8"),
+                    sleep_fn=sleep_fn,
+                )
+            )
+        except PermissionError as exc:
+            if _WINDOWS_TRANSIENT_DENIAL_RETRY:
+                logger.warning(
+                    "cross-process fan-out claim left in place after %d "
+                    "denied read attempts: %s: %s",
+                    _TRANSIENT_DENIAL_RETRIES,
+                    path,
+                    exc,
+                )
             return
+        except (OSError, json.JSONDecodeError):
+            return
+        # Never delete a claim this holder does not own.
         if not isinstance(payload, dict) or payload.get("token") != token:
             return
         try:
-            path.unlink()
+            _retry_transient_denial(path.unlink, sleep_fn=sleep_fn)
         except FileNotFoundError:
             pass
+        except PermissionError as exc:
+            if not _WINDOWS_TRANSIENT_DENIAL_RETRY:
+                raise
+            logger.warning(
+                "cross-process fan-out claim left in place after %d denied "
+                "unlink attempts: %s: %s",
+                _TRANSIENT_DENIAL_RETRIES,
+                path,
+                exc,
+            )
         _validate_receipt_ancestors(
             cas_root,
             path.parent,
@@ -694,7 +838,9 @@ class CrossProcessMarketInvariantFetchFanout:
                     "physical_bytes_written"
                 ],
             }
-            _write_immutable_json(self.cas.root, receipt_path, receipt)
+            _write_immutable_json(
+                self.cas.root, receipt_path, receipt, sleep_fn=self.sleep_fn,
+            )
             published = self._read_receipt(self.cas.root, receipt_path)
             published_payload = {
                 key: value
@@ -739,10 +885,13 @@ class CrossProcessMarketInvariantFetchFanout:
                 self.cas.root,
                 receipt_path,
                 {**base_receipt, "status": "error", "error": _error_receipt(exc)},
+                sleep_fn=self.sleep_fn,
             )
             raise
         finally:
-            self._release_claim(self.cas.root, claim_path, claim_token)
+            self._release_claim(
+                self.cas.root, claim_path, claim_token, sleep_fn=self.sleep_fn,
+            )
 
     def _cross_process_fetch(
         self,
@@ -772,6 +921,11 @@ class CrossProcessMarketInvariantFetchFanout:
             "cycle_key": cycle_key,
             "scope_key": scope_key,
         }
+        # A Windows claim denial is retried as contention inside the same
+        # bounded wait.  If the latest attempt at the deadline was still
+        # denied, the denial is a real permission failure and is raised rather
+        # than failing open or being treated as a claim.
+        claim_denial: PermissionError | None = None
         while True:
             receipt = self._read_receipt(
                 self.cas.root, receipt_path, publication_claim=claim_path,
@@ -782,13 +936,25 @@ class CrossProcessMarketInvariantFetchFanout:
                     **key_fields,
                     waited_seconds=self.monotonic_fn() - started,
                 )
-            claim_token = self._try_claim(self.cas.root, claim_path, key_fields)
+            try:
+                claim_token = self._try_claim(
+                    self.cas.root, claim_path, key_fields,
+                )
+                claim_denial = None
+            except _ClaimDenied as denied:
+                claim_token = None
+                claim_denial = denied.error
             if claim_token is not None:
                 # Recheck after claiming in case another holder published just
                 # before releasing its claim.
                 receipt = self._read_receipt(self.cas.root, receipt_path)
                 if receipt is not None:
-                    self._release_claim(self.cas.root, claim_path, claim_token)
+                    self._release_claim(
+                        self.cas.root,
+                        claim_path,
+                        claim_token,
+                        sleep_fn=self.sleep_fn,
+                    )
                     return self._result_from_receipt(
                         receipt,
                         **key_fields,
@@ -804,6 +970,8 @@ class CrossProcessMarketInvariantFetchFanout:
                 )
             waited = self.monotonic_fn() - started
             if waited >= self.wait_timeout_seconds:
+                if claim_denial is not None:
+                    raise claim_denial
                 value = fetch_fn()
                 return FanoutFetchResult(
                     value,
@@ -835,6 +1003,102 @@ class CrossProcessMarketInvariantFetchFanout:
             )
         return result
 
+    def _cycle_index_path(self, source: str, request_key: str, cycle_key: str,
+                          stations: tuple[str, ...]) -> Path:
+        key = _canonical_json_bytes({
+            "source": source, "request_key": request_key, "cycle_key": cycle_key,
+            "policy": _NBP_COMPLETENESS_POLICY, "stations": stations,
+        })
+        digest = hashlib.sha256(key).hexdigest()
+        return self.cas.root / "nbp_cycle_index" / digest[:2] / f"{digest}.json"
+
+    @staticmethod
+    def _validate_reuse_time(receipt: Mapping[str, Any], cycle_key: str) -> None:
+        fetched = datetime.fromisoformat(str(receipt.get("fetched_at") or "").replace("Z", "+00:00"))
+        issued = datetime.strptime(cycle_key, "nbm-nbp:%Y%m%dT%HZ").replace(tzinfo=timezone.utc)
+        if fetched.tzinfo is None or not issued <= fetched <= datetime.now(timezone.utc):
+            raise ForecastPayloadCASIntegrityError("NBP reuse index fetch time invalid")
+
+    def _fetch_with_cycle_reuse(self, *, source, request_key, cycle_key, scope_key, fetch_fn):
+        """Optional, fail-open discovery of an earlier complete national fetch."""
+        source, request_key, cycle_key, scope_key = self._validated_key(
+            source, request_key, cycle_key, scope_key,
+        )
+        key = dict(source=source, request_key=request_key, cycle_key=cycle_key,
+                   scope_key=scope_key)
+        index_path = None
+        try:
+            stations = _nbp_reuse_stations()
+            index_path = self._cycle_index_path(source, request_key, cycle_key, stations)
+            receipt = self._read_receipt(self.cas.root, index_path)
+            if receipt is not None:
+                if (receipt.get("reuse_completeness_policy") != _NBP_COMPLETENESS_POLICY
+                        or receipt.get("reuse_stations") != list(stations)
+                        or receipt.get("status") != "success"):
+                    raise ForecastPayloadCASIntegrityError("NBP reuse index completeness mismatch")
+                # Read through the original verified receipt: its hash still binds
+                # the original network event, never a newly invented coordinator.
+                original_path, claim_path = self._paths(
+                    source, request_key, cycle_key, str(receipt.get("scope_key") or ""))
+                original = self._read_receipt(self.cas.root, original_path, publication_claim=claim_path)
+                if original is None or any(original.get(k) != v for k, v in receipt.items()
+                        if k not in {_RECEIPT_CONTENT_SHA256_KEY, "reuse_completeness_policy", "reuse_stations"}):
+                    raise ForecastPayloadCASIntegrityError("NBP reuse index original receipt mismatch")
+                self._validate_reuse_time(original, cycle_key)
+                result = self._result_from_receipt(original, source=source, request_key=request_key,
+                    cycle_key=cycle_key, scope_key=original["scope_key"], waited_seconds=0.)
+                if not _complete_nbp(result.value["text"], cycle_key, stations):
+                    raise ForecastPayloadCASIntegrityError("NBP indexed bulletin is incomplete")
+                # Reuse is not a coordinator network event in this capture pass.
+                return replace(result, coordination_status="cross_pass_complete_cycle_reused",
+                    coordinator_evidence_id=None, coordinator_receipt_ref=None,
+                    coordinator_receipt_sha256=None, coordinator_attribution_status="not_applicable",
+                    coordinator_network_fetch_count=0, coordinator_payload_blob_created=False,
+                    coordinator_payload_blob_reused=False, coordinator_physical_bytes_written=0)
+        except Exception:
+            # An optional index can never prevent the ordinary download path.
+            pass
+
+        downloaded = []
+        download_errors = []
+
+        def fetch_once():
+            if not downloaded:
+                try:
+                    downloaded.append(fetch_fn())
+                except Exception as exc:
+                    download_errors.append(exc)
+                    raise
+            return downloaded[0]
+
+        try:
+            result = self._cross_process_fetch(**key, fetch_fn=fetch_once)
+        except requests.RequestException:
+            raise  # Preserve per-pass HTTP failures; never index 403/404.
+        except Exception:
+            if download_errors:
+                raise download_errors[0]
+            result = FanoutFetchResult(fetch_once(), source, request_key, cycle_key,
+                fetched=True, reused=False, coordination_status="cycle_reuse_coordination_fail_open")
+        try:
+            if index_path is not None and _complete_nbp(result.value["text"], cycle_key, stations):
+                receipt_path, _ = self._paths(**key)
+                receipt = self._read_receipt(self.cas.root, receipt_path)
+                if receipt and receipt.get("status") == "success" and receipt.get("payload_hash") == result.prepublished_payload_hash:
+                    self._validate_reuse_time(receipt, cycle_key)
+                    receipt = {k: v for k, v in receipt.items() if k != _RECEIPT_CONTENT_SHA256_KEY}
+                    _write_immutable_json(self.cas.root, index_path, {
+                        **receipt, "reuse_completeness_policy": _NBP_COMPLETENESS_POLICY,
+                        "reuse_stations": list(stations),
+                    })
+        except Exception:
+            pass  # A successful fetch remains usable even if indexing fails.
+        return result
+
+    def fetch_reusable_nbp(self, **kwargs) -> FanoutFetchResult:
+        """Opt in only the live NBP call site; ordinary fan-out remains unchanged."""
+        return self.fetch(**kwargs, reuse_complete_nbp=True)
+
     def fetch(
         self,
         *,
@@ -843,6 +1107,7 @@ class CrossProcessMarketInvariantFetchFanout:
         cycle_key: str,
         fetch_fn: Callable[[], Any],
         scope_key: str | None = None,
+        reuse_complete_nbp: bool = False,
     ) -> FanoutFetchResult:
         if not str(scope_key or "").strip():
             return self._validate_result_cycle(
@@ -858,7 +1123,7 @@ class CrossProcessMarketInvariantFetchFanout:
             source=source,
             request_key=request_key,
             cycle_key=cycle_key,
-            fetch_fn=lambda: self._cross_process_fetch(
+            fetch_fn=lambda: (self._fetch_with_cycle_reuse if reuse_complete_nbp else self._cross_process_fetch)(
                 source=source,
                 request_key=request_key,
                 cycle_key=cycle_key,
@@ -907,3 +1172,8 @@ def fanout_from_environment(
             "cross-process forecast fan-out requires both CAS root and scope"
         )
     return CrossProcessMarketInvariantFetchFanout(cas_root), scope_key
+
+
+# Public names for the NBP national-cycle reuse checks (tests use these).
+nbp_reuse_stations = _nbp_reuse_stations
+complete_nbp = _complete_nbp

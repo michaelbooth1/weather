@@ -1,0 +1,30 @@
+{
+  "format_version": 1,
+  "scope": "Passive public capture families recorded by weather.market.maker_evidence_capture --family <id>, each in its own root data/maker_evidence_families/<id>. Minute books and reward terms only: no websocket, no ranking, no model, fair value, quoting or settlement input. Owner: docs/operations/passive-maker-evidence-capture.md.",
+  "families": {
+    "lowest_temperature": {
+      "source": "Lowest-temperature desk study 2026-10-02 (branch claude/lowest-temp-desk-study-20261002): fleet F1 SURVIVES, GO for passive capture after 10-14 for every city whose own F1 is not FALSIFIED.",
+      "markets": {
+        "toronto": "lowest-temperature-in-toronto-on",
+        "nyc": "lowest-temperature-in-nyc-on",
+        "atlanta": "lowest-temperature-in-atlanta-on",
+        "austin": "lowest-temperature-in-austin-on",
+        "dallas": "lowest-temperature-in-dallas-on",
+        "denver": "lowest-temperature-in-denver-on",
+        "houston": "lowest-temperature-in-houston-on",
+        "los-angeles": "lowest-temperature-in-los-angeles-on",
+        "miami": "lowest-temperature-in-miami-on",
+        "san-francisco": "lowest-temperature-in-san-francisco-on",
+        "seattle": "lowest-temperature-in-seattle-on"
+      },
+      "excluded_markets": {
+        "chicago": "F1 FALSIFIED on its own: undercut after 09:00 on 32.2% of days [30.9, 33.8] (desk study 2026-10-02); owner may override."
+      },
+      "day_ahead": [0, 1, 2],
+      "max_conditions": 600,
+      "reward_sweep_minutes": 15,
+      "max_reward_reads_per_cycle": 40,
+      "stop_below_free_gib": 70
+    }
+  }
+}

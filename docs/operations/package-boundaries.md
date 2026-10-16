@@ -30,6 +30,18 @@ listed as a transitional edge in `tests/operations/test_import_architecture.py`.
 - Not checked: relative imports, and the content of this document. The test only asserts that this file exists,
   so keeping the lists below aligned with the tables is a manual duty.
 
+## Shared execution helpers
+
+Live/pilot entrypoints import scalar parsing from `market.value_helpers`, identity
+checks and remediation metadata from `market.platform_contract`, and budget/schema
+constants from `market.execution_contract`. Public tape reads and watcher freshness
+belong to `market.public_capture_inputs` and `market.observation_status`; quote
+defaults belong to `market.quote_policy_defaults`. Paper modules re-export these
+names for compatibility, but the shared owners do not import paper policy or runs.
+`weather.time.utc_now` owns datetime clocks; module aliases remain patchable and
+explicit parser adapters preserve the strict and whitespace-tolerant callers.
+String-returning clocks keep their separate output contract.
+
 ## Domain-neutral maker boundary
 
 `src/maker_core/` is a separate setuptools-discovered package, never a weather
@@ -57,6 +69,12 @@ caller inputs, so the neutral package never imports `weather.paths`.
   journal use additive neutral contracts; runtime owns file orchestration and
   venue owns saved-read adaptation and optional LAN HTTP reads. See the
   [portfolio ledger](portfolio-ledger.md).
+- `maker_core.shadow` (the [shadow runner](maker-shadow-runner.md)) may import contracts,
+  evidence, quoting and `maker_core.runtime.guard`, never `venue`: public reads arrive
+  injected. `maker_core.venue.public_feed` is the GET-only public reader (four
+  allowlisted International Polymarket reads). The weather composition
+  `weather.market.maker_shadow` wires them and reads 88a through
+  `weather.market.maker_shadow_panel`.
 - `weather.market.maker_plugin` imports only `maker_core.contracts`
   from the core. The fictional plugin follows the same rule.
 
@@ -100,6 +118,7 @@ These packages are intentionally importable by any owner package:
 - `weather.runtime_identity`
 - `weather.schema_registry`
 - `weather.scoring`
+- `weather.shared_forecast_payload_cas` (the shared market-invariant forecast payload byte store; `weather.collection.forecast_payload_cas` re-exports it)
 - `weather.time`
 - `weather.units`
 - `weather.variant_registry`
@@ -201,7 +220,7 @@ forecast-history imports remain available as re-exports.
 Large compatibility facades should remain thin. Public module names can keep
 re-exporting stable helpers, but new shared logic should move to owner modules
 such as `weather.model.calibration_runtime`, `weather.market.mm_exchange_reports`,
-`weather.market.mm_paper_reports`, `weather.reporting.data_quality.data_layer_audit_report`,
+`weather.reporting.data_quality.data_layer_audit_report`,
 `weather.operations.supervisor`,
 `weather.calibration.pooled_feature_source_state`, or the shared utility modules
 above.

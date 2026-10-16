@@ -1,3 +1,7 @@
+"""Maker replay v1 engine on fictional scenarios.
+
+Guards: replay v1 engine determinism and decision lifecycle (docs/operations/maker-replay-bundle.md, Diagnostic and scoring boundary).
+"""
 from dataclasses import replace
 from decimal import Decimal as D
 

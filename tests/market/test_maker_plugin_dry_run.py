@@ -1,4 +1,7 @@
-"""110h: synthetic sealed-writer layouts only; no production or venue reads."""
+"""110h: synthetic sealed-writer layouts only; no production or venue reads.
+
+Guards: bounded weather plugin dry run on sealed-writer layouts (docs/operations/maker-core-contracts.md, Bounded weather plugin dry run).
+"""
 import argparse
 import builtins
 import csv

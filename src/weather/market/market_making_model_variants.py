@@ -13,13 +13,9 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 from weather.market.market_microstructure_features import snapshot_band_key
-from weather.market.mm_policy import (
-    clamp_probability,
-    decide_quote,
-    maybe_float,
-    policy_hash,
-    utc_now,
-)
+from weather.market.mm_policy import clamp_probability, decide_quote, policy_hash
+from weather.market.value_helpers import maybe_float
+from weather.time import utc_now
 
 
 SCHEMA_VERSION = "mm_model_variant_bakeoff_v0.1"

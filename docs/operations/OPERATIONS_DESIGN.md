@@ -14,34 +14,44 @@
 
 Status of machinery described here (owner decisions; [STATE_OF_PLAY](STATE_OF_PLAY.md) is
 the current authority): nightly training is disabled, Stage B evidence refresh is registered disabled by default,
-the taker track is paused, the workstation data mirror is paused
+the taker and paper maker are retired (runtime deleted 2026-09-29), the workstation data mirror is paused
 ([mirror-paused-2026-08-12](mirror-paused-2026-08-12.md)), and streak contiguity is not an objective
 ([ESTABLISHED_FINDINGS](ESTABLISHED_FINDINGS.md) section 0d). "Streak-critical" below names the three loops whose
 gaps are graded; it does not rank the streak above settlement evidence.
 
 ## Target Shape
 
-The legacy paper maker (`mm_policy`, `market_making_run*`, `mm_paper*`) is
-retired; retain code and evidence for historical replay. The Stage 2 hold build
-at `88aa7e43a` is frozen as fixtures only, not a runtime migration source.
-The replacement foundation is [maker core](maker-core-contracts.md). Production
-operations owns unregistering disabled paper tasks with backups in a separate
-operation; this retirement changes no scheduled task or capture worker.
+The legacy paper maker (`mm_policy`, `market_making_run*`, `mm_paper*`) and the
+paper taker (`taker_bot*`) are retired, and their scoring, daily-refresh steps,
+daily rolls and registrars were deleted on 2026-09-29 (110o part 3, owner decision 3
+of the 2026-09-26 repo-health audit). By owner decision the paper-run tool
+(`market_making_run` and the modules it imports) is retained only to produce the
+International live-pilot Stage 0/1 paper run until the informed maker's own live
+procedure replaces it; it has no scheduled task. Their run folders under `data/` are retained
+evidence; `trading_evidence` reads them through the read-only
+`weather.reporting.market.retired_trading_evidence` module, and git history holds
+the deleted code. The Stage 2 hold build at `88aa7e43a` is frozen as fixtures only,
+not a runtime migration source. The replacement foundation is
+[maker core](maker-core-contracts.md). Production operations owns unregistering
+the disabled paper tasks with backups in a separate operation; this retirement
+changes no scheduled task or capture worker.
 
 `config/scheduled_tasks.json` owns reviewed task lifecycle intent and registrar
 provenance. Its generated table is in [OPERATING_REFERENCE](OPERATING_REFERENCE.md);
 it is not a Scheduler snapshot. Missing host-local XML stays explicitly unverified.
-Nightly health reads the maker/taker lifecycle from this registry and emits
-`RETIRED` rows without reading old run folders or suggesting a forced restart.
-Resumption requires a reviewed lifecycle change as well as owner-started adoption.
-The six retired maker/taker, enrichment and disagreement registrars refuse the
-register path without `-AcknowledgeRetired`; the enrichment unregister path remains
-available. Acknowledgement alone does not grant live-trading authority.
+Nightly health reports the maker and taker bots as fixed `RETIRED` rows without
+reading old run folders or suggesting a restart, and fleet observability supervises
+only the three capture loops. The four retired bot tasks stay in the registry as
+`retired`/expected-Disabled with no registrar (their registrars were deleted), so
+`status.ps1` keeps classifying them. The retired enrichment and disagreement
+registrars refuse the register path without `-AcknowledgeRetired`; the enrichment
+unregister path remains available. Acknowledgement alone does not grant
+live-trading authority.
 
-Stage A passes `--skip-taker-finalization-watchdog`,
-`--skip-taker-edge-permission-map`, and `--skip-taker-tail-casebook` alongside
-`--paper-maker-paused`. Their explicit SKIPPED receipts are non-critical at the
-settled-day barrier; missing or failed settlement evidence remains blocking.
+Stage A no longer has taker or maker-paper-score steps, and the
+`--paper-maker-paused` and `--skip-taker-*` flags were removed with them; the
+contract script and the Python CLI must be adopted together. Missing or failed
+settlement evidence remains blocking at the settled-day barrier.
 
 The operating setup has three layers:
 
@@ -80,7 +90,16 @@ books and reward records, capped extra-condition window updates, continuous publ
 brakes and `data/maker_evidence/status.json`. It does not enter streak grading
 or the existing capture recovery contract. The registrar is
 `scripts/ops/register_maker_evidence_capture.ps1`; registration and readoption
-remain explicit production actions.
+remain explicit production actions. `WeatherMakerEvidenceLowestTemperature` runs the
+same module with `--family lowest_temperature` in its own root (books and reward
+terms, no websocket); its registrar is
+`scripts/ops/register_maker_evidence_family_capture.ps1`.
+
+The paper-only `WeatherMakerShadowRunner` (registrar
+`scripts/ops/register_maker_shadow_runner.ps1`) is a separate long-lived public-read
+process with its own stop file; it is not a capture worker, and no capture loop imports its
+modules. Its [owning contract](maker-shadow-runner.md) defines registration, stop and
+readout.
 
 Each supervisor invokes an idempotent `ensure` command at logon and on its
 repeating schedule. The command repairs or starts one detached worker; it is
@@ -89,7 +108,11 @@ launch exits `0`. Lock contention, restart backoff, an open restart circuit, or
 a failed launch exits nonzero so Task Scheduler does not report success while
 capture is down. Each ensure writes its latest decision and recovery-guard
 state to a separate atomic `*_supervisor_status.json` sidecar; the long-running
-worker remains the only writer of its loop status. Registration source, task
+worker remains the only writer of its loop status. Workers are started through
+`supervisor.launch_detached`, which sets `OPENBLAS_NUM_THREADS`, `OMP_NUM_THREADS`
+and `MKL_NUM_THREADS` to 1 unless they are already set. Without the cap, OpenBLAS
+commits about 30 MiB per logical CPU in every numpy-importing worker (established
+findings §10s). The short-lived `ensure` processes are not capped. Registration source, task
 names, cadences, and parameters live in:
 
 - `scripts/ops/register_snapshot_supervisor.ps1`
@@ -121,7 +144,7 @@ Re-verify rather than trusting this list):
 | Task | Executes | Consequence |
 | :--- | :--- | :--- |
 | `WeatherBootRecovery` | `boot_recovery.ps1` in the linked worktree `weather-integration-attempt-recovery`, optionally pinned by `-ExpectedSelfSha256` (`register_boot_recovery.ps1 -ExpectedScriptSha256`) | A merged boot-recovery fix is inert until the task is re-registered. |
-| `WeatherHostHealthWatchdog` | `health_watchdog.ps1` from a detached worktree named `weather-watchdog-deployed-<commit>`, with `-ExpectedSelfSha256`, `-StatusScriptPath` (that worktree's `status.ps1`) and `-ExpectedStatusScriptSha256` pinned in the action, and `-RepoRoot` set to the production checkout | A merged `status.ps1` or watchdog change does not reach the alarm path until a new pinned deployment is registered. An interactive `status.ps1` run from the production checkout can therefore disagree with the watchdog. The registrar requires reviewed watchdog and status SHA256 pins and checks the registered action. Source incorporates deployed tag `deployed/health-watchdog-aa99048` plus the newer bounded log rotation; any upgrade still requires owner-ops review and explicit re-registration. The watchdog also holds a reviewed, reasoned expected-disabled list (`$expectedDisabledTasks`): only the disabled-state flag of an exactly named task there becomes a standing note; every other flag still alerts. |
+| `WeatherHostHealthWatchdog` | `health_watchdog.ps1` from a detached worktree named `weather-watchdog-deployed-<commit>`, with `-ExpectedSelfSha256`, `-StatusScriptPath` (that worktree's `status.ps1`) and `-ExpectedStatusScriptSha256` pinned in the action, and `-RepoRoot` set to the production checkout | A merged `status.ps1` or watchdog change does not reach the alarm path until a new pinned deployment is registered. An interactive `status.ps1` run from the production checkout can therefore disagree with the watchdog. The registrar requires reviewed watchdog and status SHA256 pins and checks the registered action. Source incorporates deployed tag `deployed/health-watchdog-aa99048` plus the newer bounded log rotation; any upgrade still requires owner-ops review and explicit re-registration. The watchdog also holds a reviewed, reasoned expected-disabled list (`$expectedDisabledTasks`): only the disabled-state flag of an exactly named task there becomes a standing note; every other flag still alerts. `status.ps1` reports drift between this deployment and `master` read-only (`watchdog_deployment`; see [pinned watchdog redeploy](#pinned-watchdog-redeploy)). |
 | `WeatherMemoryCommitGuard` | `scripts\ops\memory_commit_guard.ps1` in the production checkout, no hash pin (`register_memory_commit_guard.ps1`) | A merge to `master` changes guard behavior at the next one-minute tick, with no redeploy and no review gate. |
 | Integration-attempt suite and merge tasks | the orchestration scripts of the checkout that ran `register_integration_attempt.ps1`, with every dependency hash frozen in the manifest | Drift fails closed; see [INTEGRATION_ATTEMPT_RUNBOOK](INTEGRATION_ATTEMPT_RUNBOOK.md). |
 
@@ -139,6 +162,49 @@ Read the path inside `Arguments` (`-File <path>` or an encoded wrapper contract)
 it against `git worktree list`. If it is not the production checkout, the code to read is
 `git -C <that worktree> show HEAD:<script>`, not `master`. When a fix must reach such a task, the work item is
 "merge **and** redeploy", and the redeploy is a Scheduler mutation that needs its own authorization.
+
+### Pinned watchdog redeploy
+
+`status.ps1` (and the watchdog's `host_health_latest.json`) reports `watchdog_deployment`:
+the registered action's paths and SHA256 pins, the deployed file hashes, git blob identity
+of each deployed file against `master`, the deployed commit, and commits behind `master`
+(total and touching the two scripts) when git is available. `CURRENT` means both files
+match `master`; `DRIFT` is a note; `PIN_MISMATCH` is a FLAG (the task will refuse to run, or
+the bytes changed under it); `UNVERIFIED`/`UNKNOWN`/`NOT_REGISTERED` say what could not be
+read. The check never changes the scheduler, the deployment, or either checkout.
+
+To clear `DRIFT`, master-agent runs a reviewed pinned redeploy on the production host,
+from the production `master` checkout, after the source has landed (owner-ops review and
+an explicit scheduler scope are still required; the watchdog and status scripts are
+roll-free, so no quiet window is needed):
+
+```powershell
+$productionRoot = ([string](git rev-parse --show-toplevel)).Trim()
+if (([string](git branch --show-current)).Trim() -cne 'master') { throw 'Use production master' }
+$reviewedTip = '<full reviewed master SHA>'
+git merge-base --is-ancestor $reviewedTip HEAD
+if ($LASTEXITCODE -ne 0) { throw 'Reviewed source has not landed' }
+$deploymentRoot = Join-Path (Split-Path $productionRoot -Parent) ('weather-watchdog-deployed-' + $reviewedTip.Substring(0, 8))
+$env:GIT_LFS_SKIP_SMUDGE = '1'
+git worktree add --detach $deploymentRoot $reviewedTip
+if ($LASTEXITCODE -ne 0) { throw 'Deployment checkout was not created; inspect before retrying' }
+git worktree lock --reason 'pinned WeatherHostHealthWatchdog deployment' $deploymentRoot
+$watchdog = Join-Path $deploymentRoot 'scripts\ops\health_watchdog.ps1'
+$status = Join-Path $deploymentRoot 'scripts\ops\status.ps1'
+$watchdogHash = (Get-FileHash -LiteralPath $watchdog -Algorithm SHA256).Hash.ToLowerInvariant()
+$statusHash = (Get-FileHash -LiteralPath $status -Algorithm SHA256).Hash.ToLowerInvariant()
+# Compare both hashes with the reviewed values recorded in the PR before registering.
+& (Join-Path $deploymentRoot 'scripts\ops\register_health_watchdog.ps1') `
+    -RepoRoot $productionRoot -WatchdogScriptPath $watchdog -ExpectedSelfSha256 $watchdogHash `
+    -StatusScriptPath $status -ExpectedStatusScriptSha256 $statusHash
+Start-ScheduledTask -TaskName 'WeatherHostHealthWatchdog'
+# Verify: host_health_latest.json is fresh and status.ps1 -Json shows watchdog_deployment.status CURRENT.
+```
+
+Keep the previous deployment worktree until the new one has produced a fresh
+`host_health_latest.json`; then record the adoption in the decision log and the state of
+play. The first run after a redeploy logs one `state_change` row (the fingerprint format
+changed with the 2026-10-07 dedupe keys).
 
 ## Startup After Reboot
 
@@ -168,6 +234,26 @@ it against `git worktree list`. If it is not the production checkout, the code t
 
 ### Weather Snapshot Loop
 
+Snapshot and CLOB registrar actions use `weather.operations.thin_ensure
+--ensure --loop snapshot|clob`. Its proven-healthy path imports only
+supervisor/status/runtime-identity helpers, checks the live PID, writer lock,
+heartbeat and loaded-source fingerprint, and writes the normal supervisor
+status. CLOB also checks its process inventory and healthy discovery results.
+Any uncertainty, pause, errors, stale code, missing lock, orphan or target-mode
+mismatch delegates to the unchanged canonical ensure routine after releasing
+the same supervisor lock. Recovery budgets and stop authority stay there.
+
+After separately authorized host adoption, re-register from the production
+checkout (these commands replace tasks and are not validation commands):
+`./scripts/ops/register_snapshot_supervisor.ps1 -RepoRoot (Get-Location).Path
+-TaskName WeatherSnapshotLoopSupervisor -EnsureEveryMinutes 2` and
+`./scripts/ops/register_clob_supervisor.ps1 -RepoRoot (Get-Location).Path
+-TaskName WeatherClobBookLoopSupervisor -EnsureEveryMinutes 1 -Market all
+-IntervalSeconds 60 -FastIntervalSeconds 15`. Preserve any deliberately
+reviewed host overrides instead of silently replacing them with defaults.
+Verify both tasks' Actions, Principal, Triggers and Settings with
+`Get-ScheduledTask`; the principal stays current-user S4U/Limited.
+
 - `data/snapshots/loop_status.json`
 - `data/snapshots/loop_supervisor_status.json`
 - `data/snapshots/diagnostics.jsonl`
@@ -181,6 +267,12 @@ next fully completed error-free iteration clears both fields and records the
 `last_completed_iteration` / `last_clean_iteration` markers. Cadence liveness
 such as 12/12 recently captured markets does not override a current iteration
 error for Stage-A admission.
+
+`last_heartbeat` is liveness, not progress. The loop also refreshes it when it
+plans its sleep and every 60 s of the idle sleep. Those writes leave every
+other field unchanged, including the error latch, outcome, pause flag, identity
+and sleep plan. The [replay-cache compression guide](replay-cache-compression.md)
+owns the storage-admission bound that this cadence keeps.
 
 ### CLOB Book Loop
 
@@ -261,6 +353,19 @@ as evidence loss rather than accepted by coarse market-day routing. An empty tap
 explicitly disconnected evidence, not a quiet market. After route proof, the
 connection also has an inbound-silence deadline: a server `PONG` or market frame
 must continue arriving, so local heartbeat sends cannot sustain green status.
+The deadline is judged only when a socket receive has just timed out. Each
+connection's thread only reads the socket, sends `PING`, stamps receipt time and
+proves routes; tape appends, status writes and gap transitions run on a
+per-session writer thread in arrival order, so a slow fsync or the shared
+coordinator lock cannot starve the socket or be mistaken for server silence.
+Frames already received are written before the session's gap row. A venue close
+frame is recorded in the gap reason with its close code; an empty data frame is
+inbound liveness, not a disconnect. Reconnects wait a jittered delay in
+[d/2, d], doubling to 30 s, and a session that kept its routes proven for 60 s
+resets the delay to the 1 s base.
+`python -m weather.market.execution_tape_disconnects --date <local date>`
+groups the gap ledgers into socket-level disconnects and reports causes by local
+hour, dark seconds and session lifetimes; it is read-only.
 Any invalid execution message, unrouted execution, or ambiguous token/condition
 route changes global status to `DEGRADED_EVIDENCE_LOSS`; a healthy socket cannot
 override evidence loss.
@@ -344,15 +449,32 @@ controls host processes. Status CLIs, their JSON files, and owning runbooks
 remain the fail-closed diagnostic and control surfaces when Streamlit is
 unavailable.
 
-Bot daily-roll workers and reporting jobs have their own launchers,
-supervisors, status artifacts, and evidence gates. They consume capture output
-but are not a fourth capture loop. The maker supervisor may launch or recover a
-worker only inside its configured local evidence window. A healthy worker is
-not killed at the end boundary, but a dead, idle, or stale-code worker remains
-stopped after that boundary so non-countable recovery cannot consume restart
-budget or create another run folder. The taker supervisor has no end boundary.
+Reporting jobs have their own launchers, status artifacts, and evidence gates.
+They consume capture output but are not a fourth capture loop. The former bot
+daily-roll workers and supervisors were deleted with the retired taker and paper
+maker on 2026-09-29.
 
 ## Daily Refresh Delegated-Child Tasks
+
+Per-step profiling is opt-in: add `--profile-steps --profile-out <run-directory>`
+to an otherwise approved, admitted daily-refresh invocation. It does not
+grant a new execution window or change child containment. The optional
+`requirements-profiling.txt` supplies pyinstrument; without it the JSON
+records pyinstrument as unavailable while tracemalloc/memory capture remains.
+No profiler is started and no profile files are written by default.
+
+Each executed step writes a small JSON report with wall time, top twenty
+tracemalloc allocation sites and traced peak bytes, plus sampled Windows
+PrivateUsage (100 ms, process only). Private memory is null when unavailable,
+including on unsupported platforms; it is never mislabeled RSS. A separate
+bounded text sidecar holds pyinstrument output when installed. Isolated
+children write `isolated_step` reports, and the parent writes separate
+`orchestrator` reports including its wait. Do not sum those wall times or
+treat parent memory as the child's peak. Hard-killed children may have no
+terminal profile; containment receipts remain authoritative. Diagnostic
+failures do not change step results, exceptions, resource caps or deadlines.
+See [pyinstrument's API](https://pyinstrument.readthedocs.io/en/latest/reference.html)
+for reading its sample-based output.
 
 `scripts/ops/register_daily_refresh.ps1` registers both daily stages as
 scheduled PowerShell wrapper actions:
@@ -719,18 +841,14 @@ gap-aware learning mode while carrying the exact promotion blocker forward.
 `market_beating_objective_scoreboard` admit work only with a current, target-bound
 settlement verdict. The barrier's `learning_status` depends on WU restoration,
 label finalization, settlement-source audit, the existing observed-floor policy,
-replay-status repair and settled-day freshness/countability. Maker/economics,
-taker and model-report readiness remain in its aggregate `status` for promotion;
+replay-status repair and settled-day freshness/countability. Economics, trading
+evidence and model-report readiness remain in its aggregate `status` for promotion;
 their blocks do not suppress these three settlement-valid learning producers.
 Missing, stale, generic-error and legacy blocked barrier receipts remain closed
 until the barrier reruns. Each producer still applies its own input-quality
 checks; admission does not claim successful learning or available maker evidence.
 
-Pass `--paper-maker-paused` only for an explicit owner-paused paper maker. Its
-score step then reports `NOT_APPLICABLE` with `counts_toward_maker_readiness=false`
-without reading old runs or launching a scoring child. The setting is carried
-in resume commands. Absence of run files does not imply a pause, and neither
-this flag nor learning admission changes live-readiness or exchange gates.
+Learning admission does not change live-readiness or exchange gates.
 Every learning result declares whether target coverage comes from its own
 corpus, named dependencies, or is not applicable, and records the requested
 target, observed corpus dates, inclusion, staleness, and gap reason without
@@ -861,6 +979,143 @@ the task name, executable, repository path, or wrapper action requires a
 deliberate re-registration; stale definitions fail closed rather than being
 treated as scheduled evidence.
 
+## Daily triggers and DST
+
+`New-ScheduledTaskTrigger -Daily -At` stores a zoned StartBoundary (`...Z` in memory, a fixed `-04:00` once Task
+Scheduler saves it). A zoned boundary is a fixed UTC instant, so after daylight saving time ends every such task
+fires one hour early on the local clock (DST audit 2026-10-07, finding DST-C1). Every daily registrar therefore
+dot-sources `scripts/ops/scheduled_task_local_trigger.ps1`, builds its trigger with `New-WeatherLocalDailyTrigger`
+(an unzoned `yyyy-MM-ddTHH:mm:ss` local boundary that follows DST) and reads it back with
+`Test-WeatherLocalDailyStartBoundary`, which refuses any zone suffix. A `[datetime]` cast is not a read-back: it
+converts `00:30:00-04:00` to local time and hides the offset. Repeating `-Once -RepetitionInterval` triggers and
+run-specific one-shot triggers are interval- or instant-based and stay as they are.
+`tests/operations/test_scheduled_task_local_daily_triggers.py` fails on any daily trigger built outside the helper,
+anywhere in the repository. It checks:
+- `New-ScheduledTaskTrigger -Daily/-Weekly/-Monthly`, including commands split with backticks; it uses the
+  PowerShell AST on Windows and joined lines elsewhere;
+- `-Once` triggers whose repetition is a day or longer;
+- COM `Triggers.Create(2..5)`;
+- `schtasks /sc daily|weekly|monthly`;
+- zoned `<StartBoundary>` task XML;
+- any registrar that emits a zoned daily boundary;
+- any PowerShell script that does not parse.
+
+For an existing task with no registrar, `scripts/ops/reset_daily_trigger_local.ps1` removes the zone from its
+calendar triggers in place (see the runbook below).
+
+### DST re-registration (OD28)
+
+Fixing the registrars changes nothing on the host until each daily task is re-registered from a checkout that
+contains the fix. A task with no registrar has its trigger re-set instead. The master-agent (production operator)
+does this; no other agent registers anything.
+
+**Scope.** Master's read-only host sweep (2026-10-07 09:46) found 21 enabled `Weather*` tasks, all with `-04:00`
+StartBoundaries. Only the calendar (daily) triggers below move on 2026-11-01. The "If left unfixed" column gives
+the local time each would fire from then on.
+
+| Pri | Task | Local time | If left unfixed | How |
+| --- | --- | --- | --- | --- |
+| **1** | `WeatherTrainingWindowRestore` | 04:15 | **03:15** | `register_training_window.ps1` |
+| 2 | `WeatherColdSnapshotNightly` | 06:50 (the host still has 00:30) | 05:50 (23:30) | `register_cold_snapshot_nightly.ps1` |
+| 3 | `WeatherDailySettlementPromotionRefresh` + `WeatherEveningEvidenceRefresh` | 09:30 / 00:35 | 08:30 / 23:35 | `register_daily_refresh.ps1` |
+| 4 | `WeatherClobTiering` | 05:00 | 04:00 | `register_clob_tiering.ps1` |
+| 5 | `WeatherClobRawTapeTiering` | 06:00 | 05:00 | `register_clob_raw_tape_tiering.ps1` |
+| 6 | `WeatherExchangeEconomicsSnapshotRefresh` | 06:50 | 05:50 | `register_exchange_economics_refresh.ps1` |
+| 7 | `WeatherLocationConfigRefresh` | 00:00, 06:00, 12:00, 18:00 | 23:00, 05:00, 11:00, 17:00 | `register_location_config_refresh.ps1` |
+| 8 | `WeatherStalenessSweep` | 08:10 | 07:10 | no registrar: `reset_daily_trigger_local.ps1 -ExpectedAt 08:10` |
+| 9 | `WeatherStreakCaptureMonitor` | 12:00, then every 30 minutes | 11:00, so the 12:00-18:00 watch starts an hour early | no registrar: `reset_daily_trigger_local.ps1 -ExpectedAt 12:00` |
+
+**`WeatherTrainingWindowRestore` is the highest priority.** At 03:15 its `RestoreOnly` run can start capture
+workers inside the 01:00-04:00 quiet merge window. A roll-sensitive merge in that window expects the workers to be
+stopped, or is proving their recovery. Do this task first. If the pass cannot finish, do this one alone.
+
+**Not affected; no action.**
+- Repeating `-Once` TimeTriggers fire after each elapsed interval through both DST transitions:
+  - the supervisors (PT1M/PT2M);
+  - the guards and watchdogs (PT1M/PT5M/PT15M);
+  - `WeatherMakerEvidenceCapture` (PT5M);
+  - `WeatherManualOrderJournal` (PT5M).
+- None of the repository's repeating triggers has a duration window anchored to its StartBoundary:
+  - the supervisors use a 3650-day duration;
+  - `WeatherMemoryCommitGuard` blanks its one-day duration to infinite after registration;
+  - the rest have no duration.
+- The streak monitor's 30-minute repetition hangs off its daily trigger and moves with it, which is why it is row 9.
+- `WeatherDataMirror` and `WeatherMirrorRestoreVerify` are not enabled on the host, so they do not apply.
+
+**When.** On 2026-10-29 or 2026-10-30, after the fix has landed and production is running it.
+- Work outside the 12:00-00:30 protected windows, and not while a Stage-A chain or bounded suite is running.
+- Just before each row, confirm that the task's `State` is not `Running`.
+- Finish before 01:00 on 2026-11-01. Row 1 at least must be done by then.
+
+**Steps.** For a registrar row, re-run the registrar with exactly the parameters the live task was registered
+with; read them from the live action first. None of these changes the task's command except row 6. Row 6 converts
+the live task from RunLevel Highest and `-Command` to Limited and `-File`, with a status file (Swarm P audit F1;
+see the [economics runbook](EXCHANGE_ECONOMICS_SNAPSHOT_RUNBOOK.md)).
+
+- Row 1: run with its current parameters. The training window stays disabled.
+- Row 2: pass the current approved policy path, its hash, `-ExpectedSourceTip` and `-Apply`
+  ([cold-snapshot-compression](cold-snapshot-compression.md)). This also moves the host's legacy 00:30 trigger to
+  the 06:50 slot approved on 2026-10-05.
+- Row 3: one run with the same Full or `-ProvenanceOnly` parameters as now. Stage B stays disabled; do not add
+  `-EnableEvidenceTask`.
+- Rows 8 and 9: neither has a repository registrar or task XML in the repository, so do not recreate them. Use
+  `scripts/ops/reset_daily_trigger_local.ps1`, which re-sets only the calendar trigger.
+  - It removes the zone suffix and keeps the registered wall time.
+  - It leaves the action, principal, settings, other triggers and the trigger's repetition unchanged.
+  - It refuses a `Z` boundary, a trigger count or time that differs from `-ExpectedAt`, and monthly triggers.
+  - Run it once without `-Apply`: it prints the plan and changes nothing. Then run it with `-Apply`, which calls
+    `Set-ScheduledTask -Trigger` and reads the result back.
+  - If `Set-ScheduledTask` is refused for the S4U principal, stop. Export the task XML for owner review rather
+    than recreating the task.
+
+> **DO NOT RUN `register_maker_evidence_capture.ps1` — not in this pass, and not at any time until the owner
+> answers the PT5M question.** Its registrar still writes **PT1M**, but the intended and live interval is **PT5M**.
+> Re-running it silently reverts the interval and brings back about 1,440 refused starts a day. The task needs no
+> DST action anyway ([passive maker evidence capture](passive-maker-evidence-capture.md)).
+
+**Verify afterwards (read-only).**
+1. For every task in the table, `(Get-ScheduledTask -TaskName <name>).Triggers.StartBoundary` must show no `Z` or
+   `+/-hh:mm` suffix on a daily trigger.
+2. List each task's next run times across the change with the `GetRunTimes` probe below. It uses Add-Type and COM
+   only, and registers and changes nothing.
+
+```powershell
+Add-Type -TypeDefinition @"
+using System;using System.Runtime.InteropServices;
+[StructLayout(LayoutKind.Sequential)] public struct ST{public ushort Y,Mo,Dow,D,H,Mi,S,Ms;public override string ToString(){return string.Format("{0:D4}-{1:D2}-{2:D2} {3:D2}:{4:D2}",Y,Mo,D,H,Mi);}}
+[ComImport,Guid("9c86f320-dee3-4dd1-b972-a303f26b061e"),InterfaceType(ComInterfaceType.InterfaceIsDual)] public interface IRT{
+[PreserveSig]int a(out IntPtr p);[PreserveSig]int b(out IntPtr p);[PreserveSig]int c(out int p);[PreserveSig]int d(out short p);[PreserveSig]int e(short p);
+[PreserveSig]int f(IntPtr a,out IntPtr b);[PreserveSig]int g(IntPtr a,int b,int c,IntPtr d,out IntPtr e);[PreserveSig]int h(int a,out IntPtr b);
+[PreserveSig]int i(out double p);[PreserveSig]int j(out int p);[PreserveSig]int k(out int p);[PreserveSig]int l(out double p);[PreserveSig]int m(out IntPtr p);
+[PreserveSig]int n(out IntPtr p);[PreserveSig]int o(int a,out IntPtr b);[PreserveSig]int q(IntPtr a,int b);[PreserveSig]int r(int a);
+[PreserveSig]int GetRunTimes(ref ST s,ref ST e,ref uint n,out IntPtr t);}
+public static class RTx{static ST S(DateTime d){var s=new ST();s.Y=(ushort)d.Year;s.Mo=(ushort)d.Month;s.D=(ushort)d.Day;return s;}
+public static string[] Get(object t,DateTime f,DateTime to){var a=S(f);var b=S(to);uint n=200;IntPtr p;int hr=((IRT)t).GetRunTimes(ref a,ref b,ref n,out p);if(hr<0)throw new Exception(hr.ToString("X"));
+var r=new string[n];int z=Marshal.SizeOf(typeof(ST));for(int i=0;i<n;i++)r[i]=Marshal.PtrToStructure(new IntPtr(p.ToInt64()+i*z),typeof(ST)).ToString();Marshal.FreeCoTaskMem(p);return r;}}
+"@
+$svc = New-Object -ComObject Schedule.Service; $svc.Connect()
+foreach ($n in 'WeatherTrainingWindowRestore','WeatherColdSnapshotNightly','WeatherDailySettlementPromotionRefresh',
+    'WeatherEveningEvidenceRefresh','WeatherClobTiering','WeatherClobRawTapeTiering',
+    'WeatherExchangeEconomicsSnapshotRefresh','WeatherLocationConfigRefresh','WeatherStalenessSweep',
+    'WeatherStreakCaptureMonitor') {
+  "$n : " + ([RTx]::Get($svc.GetFolder('\').GetTask($n), [datetime]'2026-10-30', [datetime]'2026-11-04') -join ' | ') }
+```
+
+**Pass:** every task keeps the same local times each day, including from 2026-11-02 onward. For example:
+`2026-10-31 04:15 | 2026-11-01 04:15 | 2026-11-02 04:15`. The streak monitor's first run each day stays at 12:00.
+
+**Fail:** a run one hour earlier from 2026-11-01 or 2026-11-02, for example `... | 2026-11-02 03:15 | ...`. That
+means the task still has a zoned boundary.
+
+- A disabled task (Stage B, unless enabled) may return no run times; check its StartBoundary instead.
+- If a task lives in a subfolder, change `GetFolder('\')`.
+
+**Around the change itself (owner decisions 2026-10-07).**
+
+- OD30: no merges and no bounded suites between 01:45 and 02:15 local on 2026-11-01; the 01:00-02:00 hour occurs
+  twice that night.
+- 05-F3: do not run the integration sequencer on the night of 2026-10-31 to 2026-11-01.
+
 ## Why Capture Is Not Packaged Into The Dashboard
 
 A shortcut or executable is useful for opening the dashboard, but it is not a
@@ -873,5 +1128,5 @@ the owners of evidence capture.
 
 Update when capture-loop ownership, supervisor tasks/commands, status or log
 contracts, dashboard controls, deployment/restart behavior, which checkout a task executes from, daily-chain step
-order or settlement recovery, or retraining
+order or settlement recovery, daily-trigger construction or the DST re-registration list, or retraining
 topology changes.

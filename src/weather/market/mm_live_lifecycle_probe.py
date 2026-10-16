@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
-from weather.market.market_making_run_constants import MAX_OPERATOR_PILOT_BUDGET_USDC
+from weather.market.execution_contract import MAX_OPERATOR_PILOT_BUDGET_USDC
 from weather.market.mm_geographic_eligibility import (
     validate_geographic_eligibility_receipt,
 )

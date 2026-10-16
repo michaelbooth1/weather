@@ -1,4 +1,7 @@
-"""Offline synthetic captured-shape checks for handoff 110b."""
+"""Offline synthetic captured-shape checks for handoff 110b.
+
+Guards: weather maker plugin captured-shape contract (handoff 110b; docs/operations/maker-core-contracts.md, Weather adapter inputs).
+"""
 from datetime import date, datetime, timedelta, timezone
 import hashlib
 import json

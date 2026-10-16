@@ -1,3 +1,7 @@
+"""Weather replay bundle export on synthetic sealed capture.
+
+Guards: weather replay bundle export from sealed capture (docs/operations/maker-replay-bundle.md, Remaining adapters and acceptance).
+"""
 from datetime import timedelta
 import json
 import socket

@@ -1,3 +1,8 @@
+"""Maker replay fill-hazard calibration on fictional bundles.
+
+Guards: replay calibration and Clopper-Pearson bound (docs/operations/maker-replay-bundle.md, Clarified execution pack;
+  docs/research/maker-replay-execution-addendum-2026-09-27.md).
+"""
 from dataclasses import replace
 from decimal import Decimal
 

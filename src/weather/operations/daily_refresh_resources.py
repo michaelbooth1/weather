@@ -62,21 +62,6 @@ STAGE_A_STEP_RESOURCE_POLICIES = {
     ),
     "market_day_labels_finalize": {"isolation": "in_process", "rationale": "one-day settlement finalization"},
     "exchange_economics_rule_drift": {"isolation": "in_process", "rationale": "small rule snapshot comparison"},
-    "taker_finalization_watchdog": _budget(
-        60,
-        5120,
-        2048,
-        "target-day cumulative taker tapes plus seven-strategy bakeoff and settlement materialization",
-    ),
-    "taker_edge_permission_map": _budget(45, 2048, 1536, "cumulative taker tapes; streaming aggregation required"),
-    "taker_tail_casebook": _budget(30, 2048, 1536, "multi-run taker evidence scan"),
-    "maker_paper_score": _budget(
-        60,
-        4096,
-        3072,
-        "latest-14-run maker scoring under 512 MiB input preflight",
-        admission_working_set_bytes=2048 * MIB,
-    ),
     "settlement_source_audit": _budget(45, 3072, 2048, "fleet settlement and prediction lineage scan"),
     "trading_evidence": _budget(45, 3072, 2048, "maker/taker evidence aggregation"),
     "clob_order_book_tiering": _budget(60, 2048, 1536, "CLOB inventory and bounded archive conversion"),
@@ -246,10 +231,6 @@ def bounded_resume_command(args, step_name):
         str(int(getattr(args, "stage_a_min_available_reserve_mb", DEFAULT_STAGE_A_MIN_AVAILABLE_RESERVE_MB))),
         "--stage-a-max-commit-percent",
         str(float(getattr(args, "stage_a_max_commit_percent", DEFAULT_STAGE_A_MAX_COMMIT_PERCENT))),
-        "--maker-paper-latest-active-runs",
-        str(int(getattr(args, "maker_paper_latest_active_runs", 14))),
-        "--maker-paper-max-input-bytes",
-        str(int(getattr(args, "maker_paper_max_input_bytes", 512 * MIB))),
     ]
     parts = [
         sys.executable,

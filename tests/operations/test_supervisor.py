@@ -13,7 +13,6 @@ from unittest import mock
 
 from weather import io as weather_io
 from weather.operations import supervisor
-from weather.operations import bot_daily_roll_supervisor
 from weather.operations import windows_processes
 
 
@@ -798,78 +797,6 @@ class TestSupervisorPrimitives(unittest.TestCase):
         self.assertEqual(payload["logger"], "py.warnings")
         self.assertIn("raw warning should be JSON", payload["message"])
 
-    def test_daily_roll_health_does_not_restart_content_only_starvation(self):
-        now = datetime(2026, 6, 18, 4, 20, tzinfo=timezone.utc)
-        status = {
-            "status": "started",
-            "target_date": "2026-06-18",
-            "started_at_utc": "2026-06-18T04:00:00+00:00",
-            "pid": 7654,
-            "artifact_liveness": {
-                "ok": False,
-                "status": "INFRA_STARVED_SNAPSHOT",
-                "root_cause_class": "infra_starved_snapshot",
-                "latest_useful_artifact": {
-                    "path": "run_summary.json",
-                    "modified_at_utc": "2026-06-18T04:19:30+00:00",
-                    "age_seconds": 30,
-                },
-            },
-            "latest_tick_scoring_liveness": {
-                "status": "BLOCK",
-                "classification": "infra_starved_snapshot",
-                "countability_status": "NON_COUNTABLE",
-                "latest_tick_rows": 132,
-                "restart_recommended": False,
-            },
-            "operator_report": {
-                "restart_recommended": False,
-                "evidence_countability_status": "NON_COUNTABLE",
-            },
-        }
-
-        health = bot_daily_roll_supervisor.daily_roll_health(
-            status,
-            target_date="2026-06-18",
-            now=now,
-            pid_alive=lambda pid, target_date=None: True,
-        )
-
-        self.assertEqual(health["state"], "RUNNING")
-        self.assertEqual(health["action"], "noop")
-        self.assertIsNone(health["restart_cause"])
-
-    def test_daily_roll_health_still_restarts_scoring_crash(self):
-        now = datetime(2026, 6, 18, 4, 20, tzinfo=timezone.utc)
-        status = {
-            "status": "started",
-            "target_date": "2026-06-18",
-            "started_at_utc": "2026-06-18T04:00:00+00:00",
-            "pid": 7654,
-            "artifact_liveness": {
-                "ok": False,
-                "status": "SCORING_CRASH",
-                "root_cause_class": "scoring_crash",
-            },
-            "latest_tick_scoring_liveness": {
-                "status": "BLOCK",
-                "classification": "scoring_crash",
-                "root_cause_class": "scoring_crash",
-                "restart_recommended": True,
-            },
-        }
-
-        health = bot_daily_roll_supervisor.daily_roll_health(
-            status,
-            target_date="2026-06-18",
-            now=now,
-            pid_alive=lambda pid, target_date=None: True,
-        )
-
-        self.assertEqual(health["state"], "IDLE")
-        self.assertEqual(health["action"], "restart")
-        self.assertEqual(health["restart_cause"], "scoring_crash")
-
     def test_module_command_and_detached_launch(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -883,12 +810,13 @@ class TestSupervisorPrimitives(unittest.TestCase):
             )
             calls = {}
 
-            def fake_popen(command, cwd=None, stdout=None, stderr=None, creationflags=0):
+            def fake_popen(command, cwd=None, stdout=None, stderr=None, creationflags=0, env=None):
                 calls["command"] = command
                 calls["cwd"] = cwd
                 calls["stdout_closed_during_call"] = stdout.closed
                 calls["stderr_is_stdout"] = stderr is stdout
                 calls["creationflags"] = creationflags
+                calls["env"] = env
                 return FakeProcess()
 
             child = supervisor.launch_detached(
@@ -905,6 +833,32 @@ class TestSupervisorPrimitives(unittest.TestCase):
             self.assertFalse(calls["stdout_closed_during_call"])
             self.assertTrue(calls["stderr_is_stdout"])
             self.assertEqual(calls["creationflags"], 7)
+            for name in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS"):
+                self.assertEqual(calls["env"][name], os.environ.get(name, "1"))
+            self.assertEqual(calls["env"].get("PATH"), os.environ.get("PATH"))
+
+    def test_capped_worker_env_sets_one_thread_and_keeps_operator_values(self):
+        env = supervisor.capped_worker_env({"PATH": "x", "OMP_NUM_THREADS": "4"})
+
+        self.assertEqual(env["OPENBLAS_NUM_THREADS"], "1")
+        self.assertEqual(env["MKL_NUM_THREADS"], "1")
+        self.assertEqual(env["OMP_NUM_THREADS"], "4")
+        self.assertEqual(env["PATH"], "x")
+
+    def test_detached_worker_inherits_the_thread_cap(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "console.log"
+            with mock.patch.dict(os.environ):
+                os.environ.pop("OPENBLAS_NUM_THREADS", None)
+                child = supervisor.launch_detached(
+                    [sys.executable, "-c", "import os; print(os.environ.get('OPENBLAS_NUM_THREADS'))"],
+                    cwd=tmp,
+                    console_log_path=log,
+                    creationflags=0,
+                )
+            child.wait(timeout=60)
+
+            self.assertEqual(log.read_text(encoding="utf-8").strip(), "1")
 
     def test_pid_checks_and_termination_are_injectable(self):
         class Result:

@@ -1,4 +1,8 @@
-"""Maker replay v2 streaming scorer and per-cell report (W5); fictional fixtures only."""
+"""Maker replay v2 streaming scorer and per-cell report (W5); fictional fixtures only.
+
+Guards: maker replay v2 streaming scorer and per-cell report
+  (docs/research/maker-replay-v2-registration-DRAFT.md; docs/research/maker-replay-v2-engineering-plan-DRAFT.md W5).
+"""
 from dataclasses import replace
 from datetime import date
 from decimal import Decimal as D

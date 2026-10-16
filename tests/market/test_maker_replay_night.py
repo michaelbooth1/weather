@@ -1,4 +1,7 @@
-"""Synthetic sealed capture only; no production paths, clocks or network."""
+"""Synthetic sealed capture only; no production paths, clocks or network.
+
+Guards: nightly weather replay export on synthetic sealed capture (docs/operations/maker-replay-bundle.md; docs/operations/maker-core-contracts.md, receipt summary).
+"""
 import builtins
 from datetime import timedelta
 import io

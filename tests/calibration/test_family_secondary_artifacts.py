@@ -699,5 +699,23 @@ class TestFamilySecondaryArtifacts(unittest.TestCase):
             )
 
 
+def _resealed_inventory(payload, **changes):
+    body = {key: value for key, value in payload.items() if key != "sha256"}
+    body.update(changes)
+    body["sha256"] = family_secondary._sha256_json(body)
+    return body
+
+
+def test_resealed_inventory_with_wrong_entry_count_is_rejected():
+    """Release binding: a validly re-hashed inventory whose entry_count disagrees with its entries fails (review K, A03)."""
+    import pytest
+
+    payload = family_secondary._hashed_inventory([{"a": 1}, {"b": 2}])
+    assert family_secondary._verify_hashed_inventory(payload, "inv") is payload
+    for bad_count in (3, 1, "two"):
+        with pytest.raises(ValueError, match="entry count"):
+            family_secondary._verify_hashed_inventory(_resealed_inventory(payload, entry_count=bad_count), "inv")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -52,8 +52,7 @@ def parse_valid_utc(value):
     return parsed.astimezone(timezone.utc)
 
 
-def utc_now():
-    return datetime.now(timezone.utc)
+from weather.time import utc_now
 
 
 def mean(values):
