@@ -283,3 +283,57 @@ def test_main_returns_2_on_refusal(snapshots, tmp_path, capsys):
                       "--max-date", "2026-10-01"])
     assert code == 2
     assert "embargo" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("fmt", ["jsonl_gz", "parquet"])
+def test_streamed_output_is_in_table_order_across_write_batches(snapshots, tmp_path, monkeypatch, fmt):
+    if fmt == "parquet":
+        pytest.importorskip("pyarrow")
+    monkeypatch.setattr(fc11, "WRITE_BATCH_ROWS", 2)
+    fc11.run([snapshots], tmp_path / "out", max_date=MAX, min_date=date(2026, 8, 10),
+             max_days=1, fmt=fmt)
+    day = json.loads((tmp_path / "out" / "receipts" / "2026-09-29.json").read_text(encoding="utf-8"))
+    assert day["match"] is True
+    fc11.run([snapshots], tmp_path / "out", max_date=MAX, fmt=fmt)
+    day = json.loads((tmp_path / "out" / "receipts" / "2026-08-10.json").read_text(encoding="utf-8"))
+    rows = _load(Path(day["output"]["path"]))
+    order = [(r["event_slug"], r["source"], r["fetched_at"], r["model"], r["field"],
+              -1 if r["member"] is None else r["member"], r["valid_time"]) for r in rows]
+    assert len(rows) == day["pit_rows_readback"] == 17 and order == sorted(order)
+
+
+def test_max_days_counts_only_new_days_and_resumes(snapshots, tmp_path):
+    first = fc11.run([snapshots], tmp_path / "out", max_date=MAX, fmt="jsonl_gz", max_days=1)
+    assert first["days_extracted"] == 1 and first["days_remaining"] == 1
+    assert first["stopped_reason"] == "max_days"
+    second = fc11.run([snapshots], tmp_path / "out", max_date=MAX, fmt="jsonl_gz", max_days=1)
+    assert [(row["target_date"], row["status"]) for row in second["days"]] == [
+        ("2026-09-29", "already_extracted"), ("2026-08-10", "extracted")]
+    assert second["days_extracted"] == 1 and second["days_remaining"] == 0
+    third = fc11.run([snapshots], tmp_path / "out", max_date=MAX, fmt="jsonl_gz", max_days=1)
+    assert third["days_extracted"] == 0 and third["stopped_reason"] is None
+
+
+def test_interrupted_day_is_set_aside_not_overwritten(snapshots, tmp_path):
+    day_dir = tmp_path / "out" / "pit" / "target_date=2026-09-29"
+    day_dir.mkdir(parents=True)
+    (day_dir / "fc11_served_payload_pit.jsonl.gz.partial").write_bytes(b"half")
+    (day_dir / "fc11_served_payload_pit.jsonl.gz").write_bytes(b"no receipt")
+    fc11.run([snapshots], tmp_path / "out", max_date=MAX, min_date=MAX, fmt="jsonl_gz")
+    day = json.loads((tmp_path / "out" / "receipts" / "2026-09-29.json").read_text(encoding="utf-8"))
+    assert day["match"] is True and len(day["earlier_attempt_files_set_aside"]) == 2
+    kept = sorted(p.read_bytes() for p in day_dir.glob("*.orphan-*"))
+    assert kept == [b"half", b"no receipt"]
+    assert not list(day_dir.glob("*.partial"))
+
+
+@pytest.mark.skipif(fc11.os.name != "nt", reason="Windows share modes")
+def test_open_input_lets_writers_rename_and_delete(tmp_path):
+    path = tmp_path / "manifest.jsonl"
+    path.write_text("x\n", encoding="utf-8")
+    with fc11.open_input(path, "r", encoding="utf-8") as handle:
+        path.rename(tmp_path / "moved.jsonl")
+        (tmp_path / "moved.jsonl").unlink()
+        assert handle.read() == "x\n"
+    with pytest.raises(ValueError):
+        fc11.open_input(tmp_path / "other", "w")

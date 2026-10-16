@@ -30,6 +30,13 @@ Contract:
 * Acceptance per day: every manifest row gets exactly one disposition, and
   the written file, read back, has exactly the expected row count per fetch.
   The per-day receipt records both.
+* Bounded memory and shared reads. A day is streamed to disk one fetch bucket
+  at a time, never held whole. Inputs are opened with share-read, write and
+  delete, so capture writers are never blocked.
+* Resumable. A day with a receipt is skipped and ``--max-days`` counts only
+  days extracted now, so a backlog can be worked in short nightly chunks
+  against one output directory. A table without a receipt is an interrupted
+  attempt and is renamed ``*.orphan-<stamp>`` before the day is redone.
 
 This module is not imported by any capture loop; keep it that way (it must
 stay roll-free). The receipt identifies its format by a name plus an integer
@@ -197,6 +204,38 @@ def long_path(path: Path) -> str:
             return "\\\\?\\UNC\\" + text[2:]
         return "\\\\?\\" + text
     return text
+
+
+_FILE_SHARE_READ_WRITE_DELETE = 0x1 | 0x2 | 0x4
+_FILE_ATTRIBUTE_NORMAL = 0x80
+
+
+def open_input(path: Path, mode: str = "rb", **kwargs):
+    """Open an input file read-only without blocking any writer, renamer or deleter.
+
+    CPython ``open()`` on Windows shares read and write but not delete, so a
+    capture writer that replaces a manifest by rename would fail while this
+    process holds it. Inputs are opened with ``FILE_SHARE_READ | WRITE |
+    DELETE`` instead. Elsewhere this is plain ``open()``.
+    """
+
+    if mode not in {"rb", "r"}:
+        raise ValueError(f"open_input is read-only, not {mode!r}")
+    if os.name != "nt":
+        return open(long_path(path), mode, **kwargs)
+    import _winapi
+    import msvcrt
+
+    handle = _winapi.CreateFile(
+        long_path(path), _winapi.GENERIC_READ, _FILE_SHARE_READ_WRITE_DELETE, 0,
+        _winapi.OPEN_EXISTING, _FILE_ATTRIBUTE_NORMAL, 0,
+    )
+    try:
+        fd = msvcrt.open_osfhandle(handle, os.O_RDONLY | getattr(os, "O_BINARY", 0))
+    except BaseException:
+        _winapi.CloseHandle(handle)
+        raise
+    return os.fdopen(fd, mode, **kwargs)
 
 
 def parse_timestamp(value) -> datetime | None:
@@ -430,7 +469,7 @@ def read_manifest_rows(event_dir: Path) -> tuple[list[dict], int, str | None]:
     if os.path.exists(long_path(jsonl)):
         rows: list[dict] = []
         bad = 0
-        with open(long_path(jsonl), "r", encoding="utf-8-sig") as handle:
+        with open_input(jsonl, "r", encoding="utf-8-sig") as handle:
             for line in handle:
                 if not line.strip():
                     continue
@@ -446,7 +485,7 @@ def read_manifest_rows(event_dir: Path) -> tuple[list[dict], int, str | None]:
         return rows, bad, MANIFEST_JSONL
     long_csv = event_dir / MANIFEST_CSV
     if os.path.exists(long_path(long_csv)):
-        with open(long_path(long_csv), "r", encoding="utf-8-sig", newline="") as handle:
+        with open_input(long_csv, "r", encoding="utf-8-sig", newline="") as handle:
             return [dict(row) for row in csv.DictReader(handle)], 0, MANIFEST_CSV
     return [], 0, None
 
@@ -602,7 +641,7 @@ def collect_day(events: list[EventRef], max_date: date, min_date: date | None) -
 
 
 def _read_blob(group: FetchGroup) -> dict:
-    with open(long_path(group.blob), "rb") as handle:
+    with open_input(group.blob, "rb") as handle:
         raw = handle.read()
     # The store appends one durability newline that is not part of the
     # addressed bytes (SnapshotStore.write_content_addressed_payload).
@@ -612,11 +651,43 @@ def _read_blob(group: FetchGroup) -> dict:
     return json.loads(raw.decode("utf-8"))
 
 
-def extract_day(
-    events: list[EventRef], max_date: date, min_date: date | None,
-) -> tuple[DayResult, list[dict]]:
-    result, groups = collect_day(events, max_date, min_date)
-    records: list[dict] = []
+def _record(group: FetchGroup, cell: Cell) -> dict:
+    return {
+        "market": group.event.market,
+        "event_slug": group.event.slug,
+        "target_date": group.event.target_date.isoformat(),
+        "source": group.source,
+        "model": cell.model,
+        "member": cell.member,
+        "fetched_at": group.fetched_at,
+        "first_seen_at": group.first_seen_at,
+        "run_init": cell.run_init,
+        "valid_time": cell.valid_time,
+        "valid_period": cell.valid_period,
+        "field": cell.field,
+        "value": cell.value,
+        "unit": cell.unit,
+        "availability_basis": AVAILABILITY_BASIS,
+        "payload_hash": group.payload_hash,
+    }
+
+
+def _cell_order(record: dict) -> tuple:
+    return (record["model"], record["field"], -1 if record["member"] is None else record["member"],
+            record["valid_time"])
+
+
+def iter_day_records(result: DayResult, groups: list[FetchGroup]) -> Iterator[list[dict]]:
+    """Yield the day's PIT records one ``(event, source, fetched_at)`` bucket at a time.
+
+    Groups are visited in ``(event, source, fetched_at, payload_hash)`` order and
+    each bucket is sorted by ``(model, field, member, valid_time)``, so the
+    concatenated output has the table's sort order while only one bucket of row
+    dicts is held in memory (FC-11 used to hold the whole day: 1-4M rows).
+    """
+
+    bucket_key = None
+    bucket: list[dict] = []
     for group in sorted(groups, key=lambda item: (item.event.slug, item.source, item.fetched_at, item.payload_hash)):
         key = _fetch_key(group)
         if not os.path.exists(long_path(group.blob)):
@@ -631,6 +702,7 @@ def extract_day(
             result.dispositions[f"{reason}_fetch"] += 1
             result.dispositions[f"{reason}_rows"] += group.manifest_rows
             continue
+        del payload
         result.null_cells_skipped += skipped
         result.fetches_by_source[group.source] += 1
         result.rows_by_source[group.source] += len(cells)
@@ -638,26 +710,16 @@ def extract_day(
         result.expected_by_fetch[key] = len(cells)
         if group.source == "open_meteo":
             result.open_meteo_fields_seen.update(cell.field for cell in cells)
-        for cell in cells:
-            records.append({
-                "market": group.event.market,
-                "event_slug": group.event.slug,
-                "target_date": group.event.target_date.isoformat(),
-                "source": group.source,
-                "model": cell.model,
-                "member": cell.member,
-                "fetched_at": group.fetched_at,
-                "first_seen_at": group.first_seen_at,
-                "run_init": cell.run_init,
-                "valid_time": cell.valid_time,
-                "valid_period": cell.valid_period,
-                "field": cell.field,
-                "value": cell.value,
-                "unit": cell.unit,
-                "availability_basis": AVAILABILITY_BASIS,
-                "payload_hash": group.payload_hash,
-            })
-    return result, records
+        this_bucket = (group.event.slug, group.source, group.fetched_at)
+        if this_bucket != bucket_key and bucket:
+            bucket.sort(key=_cell_order)
+            yield bucket
+            bucket = []
+        bucket_key = this_bucket
+        bucket.extend(_record(group, cell) for cell in cells)
+    if bucket:
+        bucket.sort(key=_cell_order)
+        yield bucket
 
 
 # ---------------------------------------------------------------- writers
@@ -667,38 +729,55 @@ def parquet_available() -> bool:
     return importlib.util.find_spec("pyarrow") is not None
 
 
-def _write_parquet(path: Path, records: list[dict]) -> None:
-    import pyarrow as pa
-    import pyarrow.parquet as pq
+class _JsonlGzWriter:
+    def __init__(self, path: Path):
+        self._handle = gzip.open(long_path(path), "wt", encoding="utf-8", compresslevel=6)
 
-    schema = pa.schema([
-        (name, pa.int32() if name == "member" else pa.float64() if name == "value" else pa.string())
-        for name in PIT_COLUMNS
-    ])
-    columns = {name: [record[name] for record in records] for name in PIT_COLUMNS}
-    table = pa.Table.from_pydict(columns, schema=schema)
-    table = table.replace_schema_metadata({
-        "pit_table": PIT_TABLE_NAME, "pit_table_revision": str(PIT_TABLE_REVISION),
-    })
-    pq.write_table(table, long_path(path), compression="zstd")
-
-
-def _write_jsonl_gz(path: Path, records: list[dict]) -> None:
-    with gzip.open(long_path(path), "wt", encoding="utf-8", compresslevel=6) as handle:
+    def write(self, records: list[dict]) -> None:
         for record in records:
-            handle.write(json.dumps({name: record[name] for name in PIT_COLUMNS}, sort_keys=True))
-            handle.write("\n")
+            self._handle.write(json.dumps({name: record[name] for name in PIT_COLUMNS}, sort_keys=True))
+            self._handle.write("\n")
+
+    def close(self) -> None:
+        self._handle.close()
+
+
+class _ParquetWriter:
+    def __init__(self, path: Path):
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        self._pa = pa
+        self._schema = pa.schema(
+            [(name, pa.int32() if name == "member" else pa.float64() if name == "value" else pa.string())
+             for name in PIT_COLUMNS],
+            metadata={"pit_table": PIT_TABLE_NAME, "pit_table_revision": str(PIT_TABLE_REVISION)},
+        )
+        self._writer = pq.ParquetWriter(long_path(path), self._schema, compression="zstd")
+
+    def write(self, records: list[dict]) -> None:
+        columns = {name: [record[name] for record in records] for name in PIT_COLUMNS}
+        self._writer.write_table(self._pa.Table.from_pydict(columns, schema=self._schema))
+
+    def close(self) -> None:
+        self._writer.close()
+
+
+# Rows buffered before a write; bounds memory independently of a bucket's size.
+WRITE_BATCH_ROWS = 50_000
 
 
 def read_back(path: Path) -> Iterator[tuple[str, str, str, str]]:
     """Yield ``(event_slug, source, payload_hash, fetched_at)`` per written row."""
 
-    if path.suffix == ".parquet":
+    names = ("event_slug", "source", "payload_hash", "fetched_at")
+    if path.name.endswith(".parquet") or path.name.endswith(".parquet.partial"):
         import pyarrow.parquet as pq
 
-        table = pq.read_table(long_path(path), columns=["event_slug", "source", "payload_hash", "fetched_at"])
-        columns = [table.column(name).to_pylist() for name in ("event_slug", "source", "payload_hash", "fetched_at")]
-        yield from zip(*columns)
+        parquet = pq.ParquetFile(long_path(path))
+        for batch in parquet.iter_batches(batch_size=WRITE_BATCH_ROWS, columns=list(names)):
+            columns = [batch.column(name).to_pylist() for name in names]
+            yield from zip(*columns)
         return
     with gzip.open(long_path(path), "rt", encoding="utf-8") as handle:
         for line in handle:
@@ -722,22 +801,58 @@ def _write_json(path: Path, payload: dict) -> None:
     os.replace(long_path(temp), long_path(path))
 
 
-def write_day(out_dir: Path, result: DayResult, records: list[dict], fmt: str) -> dict:
+def _set_aside(path: Path, stamp: str) -> str | None:
+    """Rename an earlier interrupted attempt's file out of the way; never delete it."""
+
+    if not os.path.exists(long_path(path)):
+        return None
+    target = path.with_name(f"{path.name}.orphan-{stamp}")
+    os.rename(long_path(path), long_path(target))
+    return str(target)
+
+
+def extract_and_write_day(
+    out_dir: Path, events: list[EventRef], max_date: date, min_date: date | None, fmt: str,
+    *, stamp: str = "",
+) -> dict:
+    """Extract one day and stream it to its table; return the day receipt.
+
+    The table is written as ``<name>.partial`` and renamed only after the
+    read-back checks ran, and the caller writes the receipt after that, so a
+    day without a receipt is an interrupted attempt. Its leftover files are
+    renamed ``*.orphan-<stamp>`` (never overwritten or deleted) before the day
+    is extracted again.
+    """
+
+    result, groups = collect_day(events, max_date, min_date)
     day = result.target_date.isoformat()
     day_dir = out_dir / "pit" / f"target_date={day}"
     os.makedirs(long_path(day_dir), exist_ok=True)
     suffix = ".parquet" if fmt == "parquet" else ".jsonl.gz"
     table_path = day_dir / f"{PIT_TABLE_NAME}{suffix}"
-    if os.path.exists(long_path(table_path)):
-        raise ExtractionRefused(f"refused: {table_path} already exists; this command never overwrites")
-    records.sort(key=lambda r: (r["event_slug"], r["source"], r["fetched_at"], r["model"],
-                                r["field"], -1 if r["member"] is None else r["member"], r["valid_time"]))
-    if fmt == "parquet":
-        _write_parquet(table_path, records)
-    else:
-        _write_jsonl_gz(table_path, records)
+    partial_path = day_dir / f"{PIT_TABLE_NAME}{suffix}.partial"
+    stamp = stamp or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    orphans = [p for p in (_set_aside(table_path, stamp), _set_aside(partial_path, stamp)) if p]
 
-    readback: Counter = Counter("|".join(key) for key in read_back(table_path))
+    writer = _ParquetWriter(partial_path) if fmt == "parquet" else _JsonlGzWriter(partial_path)
+    written = 0
+    pending: list[dict] = []
+    try:
+        for bucket in iter_day_records(result, groups):
+            pending.extend(bucket)
+            if len(pending) >= WRITE_BATCH_ROWS:
+                writer.write(pending)
+                written += len(pending)
+                pending = []
+        if pending or (fmt == "parquet" and written == 0):
+            writer.write(pending)
+            written += len(pending)
+            pending = []
+    finally:
+        writer.close()
+
+    readback: Counter = Counter("|".join(key) for key in read_back(partial_path))
+    os.replace(long_path(partial_path), long_path(table_path))
     expected = Counter({key: count for key, count in result.expected_by_fetch.items() if count})
     disposition_total = sum(
         count for name, count in result.dispositions.items()
@@ -753,7 +868,7 @@ def write_day(out_dir: Path, result: DayResult, records: list[dict], fmt: str) -
     checks = {
         "every_manifest_row_has_one_disposition": disposition_total == result.manifest_rows,
         "every_fetch_row_resolved": accounted_fetch_rows == fetch_rows,
-        "pit_rows_written_equal_expected": sum(readback.values()) == sum(expected.values()) == len(records),
+        "pit_rows_written_equal_expected": sum(readback.values()) == sum(expected.values()) == written,
         "pit_rows_per_fetch_equal_expected": readback == expected,
         "no_unreadable_fetch_rows": accounted_fetch_rows == result.dispositions["extracted_rows"],
     }
@@ -778,6 +893,7 @@ def write_day(out_dir: Path, result: DayResult, records: list[dict], fmt: str) -
         "open_meteo_served_fields_seen": sorted(result.open_meteo_fields_seen),
         "open_meteo_served_fields_missing": sorted(set(OPEN_METEO_SERVED_FIELDS) - result.open_meteo_fields_seen)
         if result.fetches_by_source.get("open_meteo") else [],
+        "earlier_attempt_files_set_aside": orphans,
         "checks": checks,
         "match": all(checks.values()),
         "output": {
@@ -787,7 +903,6 @@ def write_day(out_dir: Path, result: DayResult, records: list[dict], fmt: str) -
             "sha256": _sha256_file(table_path),
         },
     }
-
 
 # -------------------------------------------------------------------- run
 
@@ -808,22 +923,26 @@ def run(
     os.makedirs(long_path(out_dir / "receipts"), exist_ok=True)
     by_day, event_skips = discover_events(roots, max_date, min_date)
     days = sorted(by_day, reverse=True)
-    if max_days is not None:
-        days = days[:max_days]
     module_sha = _sha256_file(Path(__file__))
     summaries = []
     stopped_reason = None
+    stamp = started.strftime("%Y%m%dT%H%M%SZ")
+    extracted = 0
     for day in days:
+        receipt_path = out_dir / "receipts" / f"{day.isoformat()}.json"
+        if os.path.exists(long_path(receipt_path)):
+            # Resumable across runs: --max-days counts only days extracted now.
+            summaries.append({"target_date": day.isoformat(), "status": "already_extracted"})
+            continue
+        if max_days is not None and extracted >= max_days:
+            stopped_reason = "max_days"
+            break
         if deadline is not None and clock() >= deadline:
             stopped_reason = "deadline"
             break
-        receipt_path = out_dir / "receipts" / f"{day.isoformat()}.json"
-        if os.path.exists(long_path(receipt_path)):
-            summaries.append({"target_date": day.isoformat(), "status": "already_extracted"})
-            continue
         day_started = clock()
-        result, records = extract_day(by_day[day], max_date, min_date)
-        receipt = write_day(out_dir, result, records, fmt)
+        receipt = extract_and_write_day(out_dir, by_day[day], max_date, min_date, fmt, stamp=stamp)
+        extracted += 1
         receipt["code"] = {"module": __name__, "module_sha256": module_sha}
         receipt["started_at"] = utc_iso_precise(day_started)
         receipt["finished_at"] = utc_iso_precise(clock())
@@ -848,14 +967,15 @@ def run(
         "event_skips": dict(event_skips),
         "days_available": len(by_day),
         "days": summaries,
-        "days_extracted": sum(1 for row in summaries if row["status"] == "extracted"),
+        "days_extracted": extracted,
+        "days_remaining": sum(
+            1 for day in days if not os.path.exists(long_path(out_dir / "receipts" / f"{day.isoformat()}.json"))),
         "all_match": all(row.get("match", True) for row in summaries),
         "stopped_reason": stopped_reason,
         "started_at": utc_iso_precise(started),
         "finished_at": utc_iso_precise(clock()),
         "code": {"module": __name__, "module_sha256": module_sha},
     }
-    stamp = started.strftime("%Y%m%dT%H%M%SZ")
     _write_json(out_dir / f"run_receipt_{stamp}.json", run_receipt)
     return run_receipt
 
@@ -881,7 +1001,8 @@ def main(argv=None) -> int:
     parser.add_argument("--format", choices=("auto", "parquet", "jsonl_gz"), default="auto")
     parser.add_argument("--deadline", default=None,
                         help="ISO time with offset; no new day starts at or after it.")
-    parser.add_argument("--max-days", type=int, default=None)
+    parser.add_argument("--max-days", type=int, default=None,
+                        help="Extract at most N new days this run (days with a receipt are skipped and not counted).")
     args = parser.parse_args(argv)
     roots = args.snapshots_root or [data_path("snapshots")]
     try:
@@ -893,7 +1014,8 @@ def main(argv=None) -> int:
         print(str(exc), file=sys.stderr)
         return 2
     print(json.dumps({key: receipt[key] for key in (
-        "days_available", "days_extracted", "all_match", "stopped_reason", "format")}, sort_keys=True))
+        "days_available", "days_extracted", "days_remaining", "all_match", "stopped_reason", "format")},
+        sort_keys=True))
     return 0 if receipt["all_match"] else 1
 
 
