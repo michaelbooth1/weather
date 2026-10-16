@@ -145,11 +145,6 @@ blockers. Two additive JSON fields record per-row detail:
 lack them; the ledger schema version is unchanged because the fields are additive
 and the CSV writer keeps the union of columns.
 
-Follow-up candidate (new owner question, not decided): `PROVISIONAL` and
-`UNRECONCILED` rows with the same undecided reconciliation still block, so the
-rule is asymmetric; the owner approved deferral for `SOURCE_DISAGREEMENT` only
-(master-agent ruling 2026-10-16).
-
 ## Verification and acceptance
 
 Use the project interpreter and the host's required admission wrapper. The
