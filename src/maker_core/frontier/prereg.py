@@ -1,0 +1,51 @@
+"""The registration gate for a scored frontier read (item 330 build 3).
+
+A scored read is refused unless all four of these hold for the preregistration document's bytes:
+
+1. ``SIGNED_PREREGISTRATION_SHA256`` is pinned. Only a reviewed change after the owner signs may set it;
+   until then it is None and every scored read is refused.
+2. The SHA-256 of the raw bytes equals the pin.
+3. The document carries a ``Signed:`` line whose value is neither empty nor ``UNSIGNED``.
+4. The document's ``Grid hash:`` line equals ``grid.GRID_HASH``, so a changed grid cannot be scored under
+   an old signature.
+
+Descriptive reads need no registration. They still pass the date embargo.
+"""
+from __future__ import annotations
+
+import hashlib
+import re
+
+from maker_core.frontier.grid import GRID_HASH
+
+SIGNED_PREREGISTRATION_SHA256: str | None = None
+_SIGNED = re.compile(r"^Signed:[ \t]*(.*?)[ \t]*$", re.MULTILINE)
+_GRID = re.compile(r"^Grid hash:[ \t]*`?([0-9a-f]{64})`?[ \t]*$", re.MULTILINE)
+
+
+class PreregRefused(ValueError):
+    """The scored read has no matching signed preregistration."""
+
+
+def registration_hash(document: bytes) -> str:
+    return hashlib.sha256(document).hexdigest()
+
+
+def verify(document: bytes | None) -> str:
+    """Return the registration hash, or refuse. There is deliberately no caller-supplied pin."""
+    pinned = SIGNED_PREREGISTRATION_SHA256
+    if pinned is None:
+        raise PreregRefused("no_signed_preregistration")
+    if not isinstance(document, bytes):
+        raise PreregRefused("registration_document_required")
+    sha = registration_hash(document)
+    if sha != pinned:
+        raise PreregRefused("registration_hash_mismatch")
+    text = document.decode("utf-8")
+    signatures = _SIGNED.findall(text)
+    if len(signatures) != 1 or not signatures[0] or "UNSIGNED" in signatures[0].upper():
+        raise PreregRefused("preregistration_unsigned")
+    grids = _GRID.findall(text)
+    if len(grids) != 1 or grids[0] != GRID_HASH:
+        raise PreregRefused("grid_hash_mismatch")
+    return sha
