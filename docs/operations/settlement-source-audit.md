@@ -88,40 +88,57 @@ any supporting bucket (WU final, weather.com max-since-7, live normalized high,
 snapshot high, market resolution) differs from the canonical ledger value. That
 check runs before the `PROVISIONAL` and `UNRECONCILED` checks, so a row whose
 reconciliation is still `not_closed`, `fetch_error` or `not_requested` is labelled
-a disagreement as soon as one supporting source differs. The target-date gate
-rescues a blocking row only when its reconciliation status is `match`
-(`PROMOTION_RECONCILIATION_STATUSES`); nothing else overrides it.
+a disagreement as soon as one supporting source differs. Classification is
+unchanged by the policy below.
 
-The daily retry (`_provisional_target_blocker_slugs` in
-`daily_refresh_trading_steps.py`) re-reconciles only when every blocker is
-`PROVISIONAL`; its docstring leaves disagreements to a human, so a
-`SOURCE_DISAGREEMENT` day gets no `reconciliation_retry` by design. A day can
-therefore block on a supporting-source difference that a later `match` would have
-cleared. Live and snapshot highs differ from the WU final routinely, so how often
-this blocks is an empirical question.
+**Decided policy (owner, 2026-10-16, "Option 1"; implemented).** An undecided
+`SOURCE_DISAGREEMENT` row defers instead of blocking the settled-day analysis
+barrier, and stays non-countable:
+
+- `settlement_label_gate_for_target_dates(..., defer_undecided_disagreement=True)`
+  defers a blocking row only when all hold: status `SOURCE_DISAGREEMENT`;
+  reconciliation in `UNDECIDED_RECONCILIATION_STATUSES` (`not_closed`: event not
+  resolved; `fetch_error`: Gamma fetch failed; `not_requested`: Polymarket never
+  consulted, which a requested re-finalize would decide); and a
+  `disagreement_sources` list that does not contain `market_resolution`. A
+  disagreement with Polymarket's own winning band is a substantive mismatch, and a
+  row without the list cannot prove otherwise, so both keep blocking.
+- Still blocking, as before: `mismatch`; `unavailable` (closed event, no winning
+  band) and any empty or other status; `SOURCE_REVISION`, `PROVISIONAL`,
+  `UNRECONCILED` and every other class; missing audit rows. A deferred row never
+  hides another row's blocker on the same date.
+- Deferred rows are listed as `deferred_non_countable`
+  (`date:market:SOURCE_DISAGREEMENT:<reconciliation>`) with `deferral_policy`; the
+  gate adds both keys only in deferral mode, so default output is unchanged.
+- Only the daily `settlement_source_audit` step (the barrier's
+  `label_provenance_audit` dependency) uses deferral mode, and reports
+  `target_date_deferred_non_countable`; the status summary and run report carry it.
+- Non-countability is unchanged and enforced where it was: the audit row keeps
+  `promotion_blocker` true and `proof_grade_label` false; label
+  `promotion_countable` still requires reconciliation `match`
+  (`promotion_countability`, `PROMOTION_RECONCILIATION_STATUSES`); trading evidence
+  calls the strict gate, which still blocks the date. A deferred row becomes
+  countable only after a later finalize records `match`.
+
+A blocking row whose reconciliation is `match` is rescued as before and listed
+under `non_countable_reconciled`. The daily retry
+(`_provisional_target_blocker_slugs` in `daily_refresh_trading_steps.py`)
+re-reconciles only when every remaining blocker is `PROVISIONAL`; deferred rows
+are not blockers, so they neither prevent nor join that retry, and nothing
+re-reconciles them automatically (that was Option 2, not chosen).
 
 **History.** `daily_refresh_status.json` and the audit JSON are overwritten each
 run. `data/backtest/daily_progress_ledger.jsonl` gets one row per non-dry run,
 also on BLOCK days (it is written after the step loop). Its
-`daily_refresh_blockers` field lists failed steps with `root_cause_class`
-(`settled_day_analysis_barrier` on a barrier BLOCK) and its error names the target
-date. It does not record the blocker class, so it shows how often the barrier
-blocks, not why.
-
-**Owner question (open).** Choose one:
-
-1. **Disagreement-day policy.** A `SOURCE_DISAGREEMENT` row whose reconciliation is
-   not yet decided (`not_closed`, `fetch_error`) defers the label instead of
-   blocking the learning lane: the label stays non-countable until reconciliation
-   returns `match`, and `mismatch` still blocks.
-2. **Reconcile later.** Make undecided disagreement rows retry-eligible like
-   `PROVISIONAL`, or re-run the audit and barrier once the market has resolved.
-   The 12:00-18:00 and 18:00-00:30 windows are protected, so "later" means the
-   next Stage-A run, which must then re-check the earlier target date.
-
-Until the owner answers, such a day is a barrier `BLOCK`, which the
-[retracted-claims register](RETRACTED_AND_FALSE_LEADS.md) treats as a real fault;
-the answer decides whether an undecided disagreement stays one.
+`daily_refresh_blockers` field lists failed steps with `root_cause_class`; the
+barrier entry (`settled_day_analysis_barrier`) also carries
+`audit_blocker_classes`, the sorted classes of the audit step's target-date
+blockers. Two additive JSON fields record per-row detail:
+`settlement_audit_target_date_blockers` (`target_date`, `market_id`,
+`blocker_class`) and `settlement_audit_deferred_non_countable` (the same plus
+`reconciliation_status` and `countable: false`). Rows written before this change
+lack them; the ledger schema version is unchanged because the fields are additive
+and the CSV writer keeps the union of columns.
 
 ## Verification and acceptance
 
