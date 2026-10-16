@@ -155,7 +155,8 @@ addresses, printed at setup, differ from the driver's SF-1 spenders), `wrong_wor
 1. **By 10-17 noon:** answer the open questions (§7). Master records the DL rows (G4, G22).
 2. **10-17 ~13:30 EDT:** write the reader client config into the new pin (G13; type the token; never paste it to an
    agent). Confirm no open orders.
-3. **10-17 14:00 EDT:** `session-run --phase t24`. From here: no manual trades, cancels, redeems or transfers (G16).
+3. **10-17 14:00 EDT:** `session-run --phase t24`. From here, recommended (§1): no manual trades, cancels, redeems
+   or transfers. Required from the t40 baseline (G16); the signed PR §5 pause itself starts at session 1's start.
 4. **10-18 before T-40 (e.g. 10:30 EDT), optional but recommended:** the dry run `session-run --to-go-prompt`. Read
    the SCREEN line and the `DRY RUN stopped at the go prompt: condition=... event_slug=... size=...` line (no go
    code or sha is shown); expect `stopped_reason=dry_run_complete`. It runs a real preflight, a t40 baseline and reader
