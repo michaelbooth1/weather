@@ -501,7 +501,7 @@ def test_only_the_sanctioned_modules_name_the_raw_source_constructors():
     raw = re.compile(r"\b(stream_source|bundle_source|descriptor_source|DayPlan|windows_of)\b")
     offenders = []
     for path in sorted([*(root / "src").rglob("*.py"), *(root / "tools").rglob("*.py")]):
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"))
         relative = path.relative_to(root).as_posix()
         replay = relative.startswith(("src/maker_core/replay/", "tools/research/maker_replay_v2/"))
         found = False
