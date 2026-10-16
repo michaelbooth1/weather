@@ -53,12 +53,14 @@ pytestmark = pytest.mark.ratchet
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 # sha256 of the canonical core registry content on the S3 base d69842131 (stack6 + S1, before the PL-2 split;
-# re-pinned from 01cad4b91 for the stack6 feature_store v1.17 core change):
+# re-pinned from 01cad4b91 for the stack6 feature_store v1.17 core change, then for the OD-B1 t3-r3 stage:
+# remaining_rise_floor_shadow_v0.1 and remaining_rise_pmf_v1 specs plus the remaining_rise_floor_v1
+# exclusion, which the loop-imported shadow tape resolves from the core):
 # registry_payload(), every exclusion, the alias table and both lookup maps. The core is frozen;
 # a change here is a roll-sensitive landing that re-pins this digest on purpose, never in passing.
-CORE_REGISTRY_SHA256 = "a384a71a34fe96e3d136dd0345a053e7ed571f63302b0c087814a0d2893d6e4a"
-CORE_SCHEMA_COUNT = 645
-CORE_EXCLUSION_COUNT = 14
+CORE_REGISTRY_SHA256 = "39c9e236b6f07feb841760300e151166141721bca417ed990117b63d39dd53a1"
+CORE_SCHEMA_COUNT = 647
+CORE_EXCLUSION_COUNT = 15
 
 FAMILY_MODULE = '''from weather.schema_registry_types import SchemaLiteralExclusion, SchemaSpec
 
