@@ -63,3 +63,8 @@ fixtures as produced by the engine before engine rulings W1(a), W2(a) and F3
 (build line `501f47579`). `test_replay_v2_attribution.py` requires the
 attribution tool's `frozen` variant to reproduce them exactly. Every value is
 computed from invented fixtures; nothing captured is read.
+
+`fill_v3_scenarios.py` holds fictional inputs for the fill model v3 tests (item 330 build 1): a forced-QUOTE
+engine bundle with known queue depths, an RE-1-*shaped* session journal (event names and read fields only; no
+addresses, venue IDs, hashes or signatures), and an 88a-shaped replay bundle with hand-computed answers. Nothing
+is copied from a real journal or capture.
