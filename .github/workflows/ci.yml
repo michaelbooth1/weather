@@ -75,6 +75,7 @@ jobs:
           tests/operations/test_release_import_boundary.py
           tests/operations/test_research_harness.py
           tests/operations/test_runtime_utilities.py
+          tests/operations/test_schema_families_registry.py
           tests/operations/test_schema_registry.py
           tests/operations/test_structure_inventory.py
           tests/operations/test_workload_admission_script.py

@@ -2,6 +2,13 @@
 
 The registry is intentionally dependency-free: producer modules import schema
 constants from here, while this module never imports producers.
+
+Split (Data Layer v2 PL-2): this module and its ``schema_registry_*`` data shards
+are the frozen *core* that the capture loops import. New capture families
+register their schemas in ``weather/schema_families/<family>.py`` instead, which
+no loop imports, so adding one is roll-free. ``schema_version`` and the lookup
+maps answer for the core only; ``audit_payload`` (the strict audit) loads the
+families through ``weather.schema_registry_families`` and checks both halves.
 """
 from __future__ import annotations
 
@@ -76,8 +83,20 @@ def _iter_scan_files(paths, suffixes=DEFAULT_SCAN_SUFFIXES):
                 yield child
 
 
-def scan_schema_literals(paths=("src",), suffixes=DEFAULT_SCAN_SUFFIXES):
-    """Find schema-looking string literals in source files."""
+def scan_schema_literals(paths=("src",), suffixes=DEFAULT_SCAN_SUFFIXES, registry=None):
+    """Find schema-looking string literals in source files.
+
+    ``registry`` (a ``FamilyRegistry``) adds the family schemas and exclusions to
+    the core lookup; without it only the core is consulted.
+    """
+    by_version = SCHEMAS_BY_VERSION
+    exclusion_by_version = EXCLUDED_SCHEMA_LITERAL_BY_VERSION
+    if registry is not None:
+        by_version = {**SCHEMAS_BY_VERSION, **{spec.version: spec for spec in registry.family_schemas}}
+        exclusion_by_version = {
+            **EXCLUDED_SCHEMA_LITERAL_BY_VERSION,
+            **{item.version: item for item in registry.family_exclusions},
+        }
     rows = []
     for path in sorted(set(_iter_scan_files(paths, suffixes=suffixes))):
         try:
@@ -87,8 +106,8 @@ def scan_schema_literals(paths=("src",), suffixes=DEFAULT_SCAN_SUFFIXES):
         for line_no, line in enumerate(lines, start=1):
             for match in SCHEMA_LITERAL_RE.finditer(line):
                 version = match.group(1)
-                spec = SCHEMAS_BY_VERSION.get(version)
-                exclusion = EXCLUDED_SCHEMA_LITERAL_BY_VERSION.get(version)
+                spec = by_version.get(version)
+                exclusion = exclusion_by_version.get(version)
                 rows.append({
                     "path": str(path),
                     "line": line_no,
@@ -102,8 +121,14 @@ def scan_schema_literals(paths=("src",), suffixes=DEFAULT_SCAN_SUFFIXES):
     return rows
 
 
-def audit_payload(paths=("src",)) -> dict:
-    discovered = scan_schema_literals(paths)
+def audit_payload(paths=("src",), registry=None) -> dict:
+    """The literal audit over core plus families (``registry`` defaults to the installed families)."""
+    if registry is None:
+        # Deferred so the capture loops, which import this module, never load the family loader.
+        from weather.schema_registry_families import installed_families
+
+        registry = installed_families()
+    discovered = scan_schema_literals(paths, registry=registry)
     unregistered_versions = sorted({
         row["version"] for row in discovered if not row["registered"] and not row["excluded"]
     })
@@ -112,12 +137,25 @@ def audit_payload(paths=("src",)) -> dict:
     })
     return {
         "schema_version": SCHEMA_REGISTRY_SCHEMA_VERSION,
-        "registered_count": len(REGISTERED_SCHEMAS),
+        "registered_count": len(registry.schemas),
+        "core_registered_count": len(REGISTERED_SCHEMAS),
+        "family_registered_count": len(registry.family_schemas),
         "discovered_literal_count": len(discovered),
         "unregistered_version_count": len(unregistered_versions),
         "excluded_version_count": len(excluded_versions),
-        "registered_schemas": [asdict(spec) for spec in REGISTERED_SCHEMAS],
-        "excluded_schema_literals": [asdict(item) for item in EXCLUDED_SCHEMA_LITERALS],
+        "registered_schemas": [asdict(spec) for spec in registry.schemas],
+        "excluded_schema_literals": [asdict(item) for item in registry.exclusions],
+        "schema_families": [
+            {
+                "family": family.family,
+                "module": family.module,
+                "schemas": [spec.name for spec in family.schemas],
+                "excluded_versions": [item.version for item in family.exclusions],
+            }
+            for family in registry.families
+        ],
+        "family_error_count": len(registry.errors),
+        "family_errors": list(registry.errors),
         "unregistered_versions": unregistered_versions,
         "excluded_versions": excluded_versions,
         "discovered_literals": discovered,
@@ -149,9 +187,12 @@ def cmd_audit(args):
     print(
         "registered={registered_count} discovered={discovered_literal_count} "
         "unregistered_versions={unregistered_version_count} "
-        "excluded_versions={excluded_version_count}".format(**payload)
+        "excluded_versions={excluded_version_count} "
+        "family_registered={family_registered_count} family_errors={family_error_count}".format(**payload)
     )
-    if args.strict and payload["unregistered_version_count"]:
+    for error in payload["family_errors"]:
+        print(f"family error: {error}")
+    if args.strict and (payload["unregistered_version_count"] or payload["family_error_count"]):
         raise SystemExit(1)
 
 
