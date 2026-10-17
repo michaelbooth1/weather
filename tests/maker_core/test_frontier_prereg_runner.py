@@ -12,11 +12,12 @@ from pathlib import Path
 import pytest
 
 from maker_core.frontier import prereg, runner
+from maker_core.frontier.adapters import FILL_V3_BINDING
 from maker_core.frontier.grid import BASELINES, GRID, GRID_HASH
 from maker_core.frontier.prereg import PreregRefused, registration_hash, verify
 from maker_core.frontier.seams import (
     CONSTANT_ADVERSE_MARKOUT, ConstantFillCost, FillCostProvider, FillModel, PricePathFillModel, QueueFillModel,
-    fill_cost_terms,
+    binding, fill_cost_terms,
 )
 from maker_core.frontier.share_decay import DecayModel
 from maker_core.quoting.policy import Book, QuoteLeg
@@ -27,8 +28,8 @@ from .fixtures.replay_scenario import Scenario
 
 DRAFT = Path(__file__).parents[2] / "docs" / "research" / "informed-v1-frontier-preregistration-DRAFT-2026-10-16.md"
 DECAY = DecayModel(5.0, 5.0, 20.0, ())
-FILL = "v2-strictly_through"
-BOUND = dict(decay_digest=DECAY.digest(), fill_model_name=FILL)
+FILL = binding(PricePathFillModel())  # build 4: bound by class, version and name
+BOUND = dict(decay_digest=DECAY.digest(), fill_model_binding=FILL)
 DAY = date(2027, 2, 1)
 NOW = datetime(2027, 2, 1, tzinfo=timezone.utc)
 
@@ -60,7 +61,7 @@ def test_the_unsigned_draft_cannot_score_even_if_its_hash_were_pinned(monkeypatc
     draft = DRAFT.read_bytes()
     assert b"Signed: UNSIGNED" in draft
     assert ("Grid hash: `%s`" % GRID_HASH).encode() in draft
-    assert prereg._DECAY.findall(draft.decode()) and prereg._FILL.findall(draft.decode()) == [FILL]
+    assert prereg._DECAY.findall(draft.decode()) and prereg._FILL.findall(draft.decode()) == [FILL_V3_BINDING]
     monkeypatch.setattr(prereg, "SIGNED_PREREGISTRATION_SHA256", registration_hash(draft))
     with pytest.raises(PreregRefused, match="preregistration_unsigned"):
         verify(draft, **BOUND)

@@ -40,13 +40,15 @@ PINNED_V3_BINDING = ("maker_core.frontier.seams.QueueFillModel@queue-adapter.1+m
 PINNED_RE1_DECAY_DIGEST = "07a5507c72b052c90898b72751e786c6c2afcb7bbe187145f69c998f5adddaec"
 
 
-def source(tmp_path, day=DAY, name="b", minutes=8):
+def source(tmp_path, day=DAY, name="b", minutes=8, sweep=False):
     s = Scenario(day=day, minutes=minutes)
     for minute in range(minutes):
         for market in s.markets:
             s.book(market, minute * 60)
     s.trade("a", 125, price=".40", size="10")
     s.trade("a", 200, price=".55", size="30")
+    if sweep:  # through the 75 displayed at the touch and our 20
+        s.trade("a", 300, price=".40", size="120")
     s.settle("a", minutes * 60 - 30, p=0)
     return bundle_source(s.bundle(tmp_path / name)), s
 
@@ -133,8 +135,12 @@ def test_runner_with_the_real_fill_v3_records_its_binding(tmp_path):
     assert v3["fill_model_binding"] == FILL_V3_BINDING and v2["fill_model_binding"] == V2_BINDING
     assert v3["fill_model"] == "v3-queue"
     point = GRID[0].label
-    assert v3["strategies"][point]["fills"] >= 1 and v2["strategies"][point]["fills"] >= 1
-    assert v3["strategies"][point]["filled_shares"] <= D(GRID[0].size)
+    # a 10-share through-print fills the v2 price path but only eats 10 of the 75 queued ahead in v3
+    assert v2["strategies"][point]["fills"] >= 1 and v3["strategies"][point]["fills"] == 0
+    swept, _ = source(tmp_path, name="swept", sweep=True)
+    v3 = runner.run([swept], decay=DECAY, fill_model=fill_v3_model(), points=GRID[:4], baselines=("no-quote",))
+    assert v3["strategies"][point]["fills"] >= 1
+    assert 0 < v3["strategies"][point]["filled_shares"] <= D(GRID[0].size)
 
 
 # -- (d)(a) decay inputs in the digest ---------------------------------------------------------------------

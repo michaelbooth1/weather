@@ -127,10 +127,11 @@ def test_a_signed_scored_read_is_still_refused_on_embargoed_days(tmp_path, monke
     """The registration gate passes here (pinned, signed, matching), so the refusal is the embargo's."""
     from maker_core.frontier import prereg
     from maker_core.frontier.grid import GRID_HASH
-    doc = ("Grid hash: `%s`\nDecay digest: `%s`\nFill model: `v2-strictly_through`\nSigned: Owner, 2026-11-01\n"
-           % (GRID_HASH, DECAY.digest())).encode()
+    V2_BINDING = "maker_core.frontier.seams.PricePathFillModel@v2-price-path.1:v2-strictly_through"
+    doc = ("Grid hash: `%s`\nDecay digest: `%s`\nFill model: `%s`\nSigned: Owner, 2026-11-01\n"
+           % (GRID_HASH, DECAY.digest(), V2_BINDING)).encode()
     monkeypatch.setattr(prereg, "SIGNED_PREREGISTRATION_SHA256", prereg.registration_hash(doc))
-    assert prereg.verify(doc, decay_digest=DECAY.digest(), fill_model_name="v2-strictly_through")
+    assert prereg.verify(doc, decay_digest=DECAY.digest(), fill_model_binding=V2_BINDING)
     with pytest.raises(EmbargoRefused, match=reason):
         frontier_runner.run([_source(tmp_path, day)], decay=DECAY, mode="scored", registration=doc)
 
