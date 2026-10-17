@@ -4,7 +4,7 @@ Two commands. Both are offline and read-only on their inputs, write one new outp
 ``report.json`` and ``receipt.json``), and grant no authority.
 
 ``calibrate``
-    A DESCRIPTIVE run of the whole pipeline (runner per event-day cluster, then ``decision.evaluate``) on the
+    A DESCRIPTIVE run of the whole pipeline (runner per capture-day cluster, then ``decision.evaluate``) on the
     v0.2 calibration bundles (``panel.CALIBRATION_DATES``, 2026-09-27..29). Every bundle day passes
     ``embargo.check("fit", ...)`` before its bundle is opened. Its verdict is a rehearsal of the rule, never a
     decision: its output is labelled ``PIPELINE REHEARSAL`` (``REHEARSAL_LABEL``), is not a power estimate, and
@@ -15,7 +15,7 @@ Two commands. Both are offline and read-only on their inputs, write one new outp
     (``universe_v02.descriptors``), never another stream. For a dropped band no settlement, book, trade,
     outcome, terms, coverage or tape row is decoded, indexed or counted by this package: ``restrict`` removes
     its records by condition ID before any decode, and the cf tape adapter filters its rows out on the
-    ``condition_id`` column before a row is materialised. (The bundle and tape readers' integrity passes
+    ``condition_id`` column in the Parquet read itself. (The bundle and tape readers' integrity passes
     still hash every byte of each file and check each stream's total record count; those are file checks,
     not band reads.) The receipt lists ``embargoed_bands`` and kept and dropped counts per day and per
     horizon (a band's horizon is the ``horizon_days`` of its first descriptor that day). If any horizon has
@@ -27,16 +27,22 @@ Two commands. Both are offline and read-only on their inputs, write one new outp
 
     1. before ``embargo.SCORED_OPENS_AT`` (2026-11-14T00:00Z) by the real UTC clock (``clock`` is injectable
        for tests only; the command line always uses ``datetime.now(timezone.utc)``);
-    2. unless ``prereg.verify`` accepts the registration for the decay digest (refitted from the same RE-1
-       bytes), the fill-v3 binding (``adapters.FILL_V3_BINDING``), the grid hash and ``SCORED_RULE``'s
-       decision-rule digest; today no registration is pinned, so it always refuses here;
-    3. any bundle whose day is outside the scored panel 2026-10-16..2026-11-13 (``embargo.SCORED_PANEL``),
+    2. without ``--toxicity-table``, ``--toxicity-table-digest`` and ``--cf-tape`` (all three required);
+    3. while ``SCORED_RULE``'s margin is unsigned (``decision_rule_margin_unsigned``);
+    4. unless ``prereg.verify`` accepts the registration for the decay digest (refitted from the same RE-1
+       bytes), the fill-v3 binding (``adapters.FILL_V3_BINDING``), the grid hash, ``SCORED_RULE``'s
+       decision-rule digest and the toxicity table digest (its ``Toxicity table:`` line); today no
+       registration is pinned, so it always refuses here;
+    5. any bundle whose day is outside the scored panel 2026-10-17..2026-11-13 (``embargo.SCORED_PANEL``),
        checked before the bundle is opened;
-    4. always, today: no ``maker_core.replay.v2.panel.PANELS`` name covers the scored panel (``registered``
+    6. always, today: no ``maker_core.replay.v2.panel.PANELS`` name covers the scored panel (``registered``
        is the reserved 09-30..10-15 window, ``calibration`` is 09-27..29), so there is no sanctioned way to
        declare its windows (``score_has_no_intervals_panel``). Adding a panel is a separate reviewed change.
 
-    It uses the real fill v3 kernel, the run's hazard default and no free tuning parameter.
+    What it reads is bound: the fill v3 kernel, the decay model, the decision rule (margin included) and the
+    toxicity table are each pinned by a registration line; the panel days and the hazard (the runner's fixed
+    default, not a flag) are fixed in code. The bundles, inventory and tape are the data, hashed into the
+    receipt; they are not tunable.
 
 Sources: only v0.2 (stream) bundles, opened with ``open_stream_bundle`` and turned into day sources by
 ``maker_core.replay.v2.intervals.sources`` with the required ``--inventory`` (the weather producer's universe rows,
@@ -44,10 +50,12 @@ the rehearsal inventory document): the §4 rule and the owner exclusions declare
 bundle scores only through declared intervals (U1 Defender MF4). A v0.1 bundle is refused
 (``v01_bundle_unsupported``).
 
-Clusters: each bundle's descriptors are read first and each band is assigned its event day
-(``decision.event_day`` of its close). The runner then runs once per event day on the bundles restricted to
-that event day's bands. Grid points do not couple bands, so their cluster totals sum to an unrestricted run's;
-the baselines' ``active_other_bands`` count is then per event day rather than per capture day (disclosed).
+Clusters: one per UTC **capture day** (the bundle day; ``decision.CLUSTER_UNITS``). The runner already keeps
+no state across days, so a capture-day cluster is exactly one bundle run on its kept bands, and the clusters
+sum to one run over all of them. A capture day holds bands at horizon 1 (event T) and horizon 2 (event T+1)
+quoted on the same day; clustering on the capture day keeps those correlated quotes in one cluster instead of
+splitting them across event-day clusters, and every cluster is a fully observed day. The report discloses the
+horizon split (kept and dropped bands per day and horizon).
 
 The receipt carries the SHA-256 of every input (bundle manifests, RE-1 files, toxicity table, registration,
 cf-tape receipts), the code commit given on the command line plus the SHA-256 of every module the pipeline
@@ -85,7 +93,7 @@ MAX_MANIFEST_BYTES = 2 * 1024 * 1024
 INVENTORY_FORMAT = "maker_core.replay.v2.rehearsal_inventory.v0.1"
 INVENTORY_BYTES = 4 * 1024**2
 CALIBRATION_PANEL = "calibration"
-# No ``panel.PANELS`` name covers 2026-10-16..2026-11-13; ``score`` refuses until a reviewed change adds one.
+# No ``panel.PANELS`` name covers 2026-10-17..2026-11-13; ``score`` refuses until a reviewed change adds one.
 SCORED_INTERVALS_PANEL = None
 REHEARSAL_LABEL = "PIPELINE REHEARSAL"
 REHEARSAL_NOTE = "pipeline rehearsal only; not a power estimate; no number from it feeds the margin proposal"
@@ -231,15 +239,14 @@ def restrict(source: DaySource, keep) -> DaySource:
 
 
 def clusters(sources, schedules) -> dict:
-    """{event day ISO: [restricted DaySource, ...]} over all sources, in day order. ``schedules`` maps each
-    source's day to its ``Schedule``; only its kept bands enter, cut by their event day."""
+    """{capture day ISO: [restricted DaySource]} over all sources, in day order. ``schedules`` maps each
+    source's day to its ``Schedule``; only its kept bands enter."""
     out = {}
     for source in sorted(sources, key=lambda s: s.plan.day):
-        by_day = {}
-        for cid, day in schedules[source.plan.day].event_days.items():
-            by_day.setdefault(day, set()).add(cid)
-        for day, cids in sorted(by_day.items()):
-            out.setdefault(day.isoformat(), []).append(restrict(source, cids))
+        key = source.plan.day.isoformat()
+        if key in out:
+            raise CliRefused("duplicate_capture_day")
+        out[key] = [restrict(source, schedules[source.plan.day].event_days)]
     return out
 
 
@@ -284,13 +291,19 @@ def execute(args, *, clock=None) -> dict:
     registration = registration_sha = None
     if args.command == "score" and not embargo.scored_panel_open(now):
         raise CliRefused("score_refused_before_%s" % embargo.SCORED_OPENS_AT.isoformat())
+    if args.command == "score":
+        if args.toxicity_table is None or args.toxicity_table_digest is None or args.cf_tape is None:
+            raise CliRefused("score_requires_toxicity_table_digest_and_cf_tape")
+        if not SCORED_RULE.margin_signed:
+            raise CliRefused("decision_rule_margin_unsigned")
     decay, decay_sources = _decay(args)
     if args.command == "score":
         rule, mode, purpose, fill_model = SCORED_RULE, "scored", "scored", adapters.fill_v3_model()
         registration = Path(args.registration).read_bytes()
         registration_sha = prereg.verify(registration, decay_digest=decay.digest(),
                                          fill_model_binding=seams.binding(fill_model),
-                                         decision_rule_digest=rule.digest())
+                                         decision_rule_digest=rule.digest(),
+                                         toxicity_table_digest=args.toxicity_table_digest)
     else:
         rule = decision.PROPOSED_RULE if args.replicates is None else replace(decision.PROPOSED_RULE,
                                                                               replicates=args.replicates)
@@ -324,6 +337,8 @@ def execute(args, *, clock=None) -> dict:
     dropped = sorted((day.isoformat(), cid) for day, plan in schedules.items() for cid in plan.dropped)
     kept = frozenset(cid for plan in schedules.values() for cid in plan.event_days)
     cost, contexts, table_sha = _cost(args, purpose, now if mode == "scored" else None, kept)
+    if mode == "scored" and cost is None:
+        raise CliRefused("score_requires_toxicity_table_digest_and_cf_tape")
     runs = {}
     for key, cluster_sources in clusters(sources, schedules).items():
         runs[key] = runner.run(cluster_sources, decay=decay, mode=mode, registration=registration,
@@ -343,7 +358,10 @@ def execute(args, *, clock=None) -> dict:
               "decay": decay.summary(), "fill_cost": cost.summary() if cost is not None else None,
               "intervals": {"panel": panel, "windows": len(evaluation.windows),
                             "exclusions": len(evaluation.exclusions)},
-              "embargo": embargoed}
+              "embargo": embargoed,
+              "clusters": {"unit": rule.cluster_unit, "keys": sorted(runs),
+                           "horizon_split": counts,
+                           "note": "a capture day holds horizon-1 (event T) and horizon-2 (event T+1) bands"}}
     receipt = {
         "format": RECEIPT_FORMAT, "command": args.command, "label": label, "note": report["note"],
         "clock_utc": now.isoformat(), "embargo": embargoed,

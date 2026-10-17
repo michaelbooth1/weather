@@ -46,6 +46,16 @@ def test_fit_refuses_any_day_after_09_29(day):
         check("fit", day)
 
 
+def test_the_scored_panel_starts_on_10_17_even_with_an_open_clock():
+    """Round 3: 10-16 bundles hold bands closing inside the reserved window, so the panel starts on 10-17."""
+    assert embargo.SCORED_PANEL == (date(2026, 10, 17), date(2026, 11, 13))
+    opened = embargo.SCORED_OPENS_AT
+    check("scored", at(date(2026, 10, 17)), now=opened)
+    for day in (date(2026, 10, 16), date(2026, 10, 15)):
+        with pytest.raises(EmbargoRefused, match="shadow_embargo|reserved_window"):
+            check("scored", at(day), now=opened)
+
+
 def test_allowed_days_pass():
     check("fit", date(2026, 9, 29), at(date(2026, 9, 29), 23))
     for purpose in ("descriptive", "scored"):
@@ -128,12 +138,14 @@ def test_a_signed_scored_read_is_still_refused_on_embargoed_days(tmp_path, monke
     from maker_core.frontier import prereg
     from maker_core.frontier.grid import GRID_HASH
     V2_BINDING = "maker_core.frontier.seams.PricePathFillModel@v2-price-path.1:v2-strictly_through"
-    doc = ("Grid hash: `%s`\nDecay digest: `%s`\nFill model: `%s`\nSigned: Owner, 2026-11-01\n"
-           % (GRID_HASH, DECAY.digest(), V2_BINDING)).encode()
+    from .fixtures.frontier_cost_stub import SCORED_COST, STUB_TABLE_DIGEST, TOXICITY_LINE
+    doc = ("Grid hash: `%s`\nDecay digest: `%s`\nFill model: `%s`\n%sSigned: Owner, 2026-11-01\n"
+           % (GRID_HASH, DECAY.digest(), V2_BINDING, TOXICITY_LINE)).encode()
     monkeypatch.setattr(prereg, "SIGNED_PREREGISTRATION_SHA256", prereg.registration_hash(doc))
-    assert prereg.verify(doc, decay_digest=DECAY.digest(), fill_model_binding=V2_BINDING)
+    assert prereg.verify(doc, decay_digest=DECAY.digest(), fill_model_binding=V2_BINDING,
+                         toxicity_table_digest=STUB_TABLE_DIGEST)
     with pytest.raises(EmbargoRefused, match=reason):
-        frontier_runner.run([_source(tmp_path, day)], decay=DECAY, mode="scored", registration=doc)
+        frontier_runner.run([_source(tmp_path, day)], decay=DECAY, mode="scored", registration=doc, **SCORED_COST)
 
 
 def test_runner_refuses_a_market_whose_close_falls_in_the_window(tmp_path):

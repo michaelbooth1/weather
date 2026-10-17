@@ -22,6 +22,7 @@ from maker_core.frontier import adapters, cli, decision, embargo, prereg, runner
 from maker_core.frontier.grid import GRID, GRID_HASH
 from maker_core.frontier.share_decay import DecayModel
 from maker_core.replay.v2.panel import CALIBRATION_DATES
+from .fixtures.frontier_cost_stub import STUB_TABLE_DIGEST
 from .fixtures.panel_v02 import Panel, close_of
 from .fixtures.replay_scenario import Scenario
 from .fixtures.toxicity_synthetic import synthetic_records
@@ -103,7 +104,8 @@ def test_calibrate_writes_a_create_only_report_and_receipt(tmp_path, capsys):
     assert report["label"] == receipt["label"] == "PIPELINE REHEARSAL" and report["authority"] == "none"
     assert "margin" in receipt["note"] and "not a power estimate" in receipt["note"]
     assert report["intervals"]["panel"] == "calibration" and report["intervals"]["windows"] > 0
-    assert report["decision"]["verdict"] == "NO_GO" and report["decision"]["reasons"] == ["underpowered_clusters"]
+    assert report["decision"]["verdict"] == "NO_GO"
+    assert report["decision"]["reasons"] == ["underpowered_clusters", "margin_unsigned"]
     # bands closing on or after 09-30 are dropped, never handed to the runner
     embargo_block = receipt["embargo"]
     assert embargo_block == report["embargo"]
@@ -282,7 +284,7 @@ def test_the_runner_quotes_only_inside_declared_windows(tmp_path):
     assert all(silent[p.label]["quoted_seconds"] == 0 and silent[p.label]["quotes"] == 0 for p in GRID)
 
 
-def test_event_day_clusters_sum_to_one_run_over_the_kept_bands(tmp_path):
+def test_capture_day_clusters_sum_to_one_run_over_the_kept_bands(tmp_path):
     dirs, inventory = bundles(tmp_path, CALIBRATION_DATES[:2])
     rows, _ = cli.read_inventory(inventory, CALIBRATION_DATES[:2])
     opened, sources, _ = cli.open_sources(dirs, rows, "calibration")
@@ -298,6 +300,28 @@ def test_event_day_clusters_sum_to_one_run_over_the_kept_bands(tmp_path):
         assert sum(p[label]["reward"]["central"] for p in parts) == pytest.approx(whole[label]["reward"]["central"])
         assert sum(p[label]["filled_shares"] for p in parts) == whole[label]["filled_shares"]
     assert any(whole[p.label]["quoted_seconds"] for p in GRID)
+
+
+def test_clusters_are_capture_days_and_each_is_its_bundle_run_alone(tmp_path, capsys):
+    """Round 3: clusters are UTC capture days, not event days (h1 for T and h2 for T+1 are quoted on the same
+    day and must share a cluster); the report discloses the horizon split."""
+    dirs, inventory = bundles(tmp_path, CALIBRATION_DATES)
+    rows, _ = cli.read_inventory(inventory, CALIBRATION_DATES)
+    opened, sources, _ = cli.open_sources(dirs, rows, "calibration")
+    plans = schedules(opened)
+    split = cli.clusters(sources, plans)
+    assert sorted(split) == [d.isoformat() for d in CALIBRATION_DATES]
+    for source in sources:
+        (group,) = split[source.plan.day.isoformat()]
+        alone = runner.run([cli.restrict(source, plans[source.plan.day].event_days)], decay=DECAY)
+        assert runner.run([group], decay=DECAY)["digest"] == alone["digest"]
+    assert any({h for h, c in counts.items() if c["kept"]} >= {"1", "2"}
+               for counts in cli.drop_counts(plans).values())
+    assert cli.main(argv("calibrate", dirs, inventory, tmp_path / "out", "--replicates", "199")) == 0
+    report = json.loads((tmp_path / "out" / "report.json").read_bytes())
+    assert report["clusters"]["unit"] == "capture_day" == report["decision"]["rule"]["parameters"]["cluster_unit"]
+    assert report["clusters"]["keys"] == sorted(split) == report["decision"]["clusters"]
+    assert report["clusters"]["horizon_split"] == report["embargo"]["counts_by_day_and_horizon"]
 
 
 # -- runner regressions ------------------------------------------------------------------------------------
@@ -390,14 +414,19 @@ def test_calibrate_wires_the_real_fill_cost_and_the_tape(tmp_path, capsys):
 
 
 # -- score ---------------------------------------------------------------------------------------------------
-def registration(rule=None, fill=None, decay=None):
+SIGNED_RULE = replace(decision.PROPOSED_RULE, min_effect_pusd_per_cluster=0.0)  # a fictional owner signature
+
+
+def registration(rule=None, fill=None, decay=None, toxicity=STUB_TABLE_DIGEST):
     return ("# synthetic registration\n\nGrid hash: `%s`\n\nDecay digest: `%s`\n\nFill model: `%s`\n\n"
-            "Decision rule digest: `%s`\n\nSigned: Test Owner, 2026-11-01\n"
+            "Decision rule digest: `%s`\n\nToxicity table: `%s`\n\nSigned: Test Owner, 2026-11-01\n"
             % (GRID_HASH, decay or PINNED_RE1_DECAY_DIGEST, fill or adapters.FILL_V3_BINDING,
-               (rule or cli.SCORED_RULE).digest())).encode()
+               (rule or SIGNED_RULE).digest(), toxicity)).encode()
 
 
-def pinned(tmp_path, monkeypatch, document=None):
+def pinned(tmp_path, monkeypatch, document=None, *, sign_margin=True):
+    if sign_margin:
+        monkeypatch.setattr(cli, "SCORED_RULE", SIGNED_RULE)
     document = document or registration()
     path = tmp_path / "registration.md"
     path.write_bytes(document)
@@ -405,10 +434,13 @@ def pinned(tmp_path, monkeypatch, document=None):
     return path
 
 
-def score(tmp_path, days, *extra):
+COST_ARGS = ("--toxicity-table", "table.json", "--toxicity-table-digest", STUB_TABLE_DIGEST, "--cf-tape", "tape")
+
+
+def score(tmp_path, days, *extra, cost=COST_ARGS):
     dirs, inventory = manifest_only(tmp_path, days)
     return argv("score", dirs, inventory, tmp_path / "out", "--registration", str(tmp_path / "registration.md"),
-                *extra)
+                *cost, *extra)
 
 
 @pytest.mark.parametrize("now", [datetime(2026, 11, 13, 23, 59, 59, tzinfo=UTC),
@@ -428,29 +460,50 @@ def test_score_reads_the_real_utc_clock_by_default(tmp_path, capsys, monkeypatch
     assert refusal(capsys).startswith("score_refused_before")
 
 
-def test_score_refuses_without_a_pinned_registration(tmp_path, capsys):
+@pytest.mark.parametrize("drop", [0, 2, 4])
+def test_score_requires_the_toxicity_table_its_digest_and_the_tape(tmp_path, capsys, monkeypatch, drop):
+    """Round 3: whether a table or tape is supplied is not a free parameter of score."""
+    pinned(tmp_path, monkeypatch)
+    cost = COST_ARGS[:drop] + COST_ARGS[drop + 2:]
+    assert cli.main(score(tmp_path, PANEL_DAYS[:1], cost=cost), clock=lambda: AFTER) == 2
+    assert refusal(capsys) == "score_requires_toxicity_table_digest_and_cf_tape"
+
+
+def test_score_refuses_while_the_margin_is_unsigned(tmp_path, capsys, monkeypatch):
+    assert cli.SCORED_RULE is decision.PROPOSED_RULE and not decision.PROPOSED_RULE.margin_signed
+    pinned(tmp_path, monkeypatch, registration(rule=decision.PROPOSED_RULE), sign_margin=False)
+    assert cli.main(score(tmp_path, PANEL_DAYS[:1]), clock=lambda: AFTER) == 2
+    assert refusal(capsys) == "decision_rule_margin_unsigned"
+
+
+def test_score_refuses_without_a_pinned_registration(tmp_path, capsys, monkeypatch):
     assert prereg.SIGNED_PREREGISTRATION_SHA256 is None
+    monkeypatch.setattr(cli, "SCORED_RULE", SIGNED_RULE)
     (tmp_path / "registration.md").write_bytes(registration())
     assert cli.main(score(tmp_path, PANEL_DAYS[:1]), clock=lambda: AFTER) == 2
     assert refusal(capsys) == "no_signed_preregistration"
 
 
 @pytest.mark.parametrize("document,reason", [
-    (lambda: registration(rule=replace(decision.PROPOSED_RULE, min_effect_cents=.05)), "decision_rule_digest_mismatch"),
+    (lambda: registration(rule=replace(SIGNED_RULE, min_effect_pusd_per_cluster=.05)), "decision_rule_digest_mismatch"),
     (lambda: registration().replace(b"Decision rule digest", b"Decision digest"), "decision_rule_digest_mismatch"),
     (lambda: registration(fill="maker_core.frontier.seams.PricePathFillModel@v2-price-path.1:v2-strictly_through"),
      "fill_model_mismatch"),
     (lambda: registration(decay="0" * 64), "decay_digest_mismatch"),
+    (lambda: registration(toxicity="9" * 64), "toxicity_table_mismatch"),
+    (lambda: registration().replace(b"Toxicity table", b"Toxicity"), "toxicity_table_mismatch"),
     (lambda: registration().replace(b"Test Owner, 2026-11-01", b"UNSIGNED"), "preregistration_unsigned"),
 ])
 def test_score_refuses_a_registration_that_does_not_bind_this_run(tmp_path, capsys, monkeypatch, document, reason):
+    monkeypatch.setattr(cli, "SCORED_RULE", SIGNED_RULE)
     pinned(tmp_path, monkeypatch, document())
     assert cli.main(score(tmp_path, PANEL_DAYS[:1]), clock=lambda: AFTER) == 2
     assert refusal(capsys) == reason
 
 
-@pytest.mark.parametrize("day", [date(2026, 11, 20), date(2026, 10, 15), date(2026, 9, 28)])
+@pytest.mark.parametrize("day", [date(2026, 11, 20), date(2026, 10, 16), date(2026, 10, 15), date(2026, 9, 28)])
 def test_score_reads_only_the_panel_and_checks_before_opening(tmp_path, capsys, monkeypatch, day):
+    """10-16 is outside the panel since round 3 (it starts on 10-17)."""
     pinned(tmp_path, monkeypatch)
     opened = []
     monkeypatch.setattr(cli, "open_bundle", lambda d: opened.append(d))
@@ -460,7 +513,7 @@ def test_score_reads_only_the_panel_and_checks_before_opening(tmp_path, capsys, 
 
 def test_score_refuses_while_no_intervals_panel_covers_the_scored_panel(tmp_path, capsys, monkeypatch):
     """A matching pinned signed registration on panel days still stops here: no ``panel.PANELS`` name declares
-    windows for 10-16..11-13, and the CLI builds sources only through ``intervals.sources``."""
+    windows for 10-17..11-13, and the CLI builds sources only through ``intervals.sources``."""
     from maker_core.replay.v2 import panel
     assert cli.SCORED_INTERVALS_PANEL is None
     assert all(not set(PANEL_DAYS) & set(days) for days in (panel.QUOTE_DATES, panel.CALIBRATION_DATES))

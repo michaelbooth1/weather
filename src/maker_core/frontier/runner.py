@@ -198,6 +198,9 @@ def _exit_leg(position, width, tick):
 def run(sources, *, decay: DecayModel, mode: str = "descriptive", registration: bytes | None = None,
         fill_model=None, cost_provider=None, context_builder=no_context, hazard_per_minute: float | None = None,
         points=GRID, baselines=BASELINES, now=None, decision_rule_digest: str | None = None) -> dict:
+    """Replay ``sources`` once for every strategy (module doc). A scored run also needs a fill-cost provider
+    carrying a ``table_digest`` (the build 2 table, through ``adapters.RecordingFillCost``): the constant
+    stand-in or no provider is refused, and the digest must equal the registration's ``Toxicity table:`` line."""
     if mode not in MODES:
         raise FrontierRefused("unknown_mode")
     if not isinstance(decay, DecayModel):
@@ -226,8 +229,12 @@ def run(sources, *, decay: DecayModel, mode: str = "descriptive", registration: 
             raise FrontierRefused("scored_requires_all_baselines")
         if not is_bindable(fill_binding):
             raise FrontierRefused("scored_requires_registered_fill_model")
+        table_digest = getattr(cost_provider, "table_digest", None)
+        if isinstance(cost_provider, ConstantFillCost) or not isinstance(table_digest, str) or not table_digest:
+            raise FrontierRefused("scored_requires_fill_cost_table")
         registration_sha = prereg.verify(registration, decay_digest=decay.digest(), fill_model_binding=fill_binding,
-                                         decision_rule_digest=decision_rule_digest)
+                                         decision_rule_digest=decision_rule_digest,
+                                         toxicity_table_digest=table_digest)
     strategies = {name: name for name in baselines}
     strategies.update({p.label: p for p in sorted(points)})
     totals = {label: _totals() for label in strategies}

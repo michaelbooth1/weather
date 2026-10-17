@@ -38,6 +38,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 import math
+import sys
 from typing import Protocol, runtime_checkable
 
 from maker_core.replay.fill_model import BOUNDS, match
@@ -140,9 +141,13 @@ def binding(model) -> str:
         if not name.startswith("v3-"):
             raise FillBindingRefused("fill_model_name_contradicts_class")
         kernel = model.kernel
-        kernel_name = getattr(kernel, "__name__", None) or _qualified(type(kernel))
+        kernel_name = getattr(kernel, "__name__", None)
         kernel_version = getattr(kernel, "VERSION", None)
-        if not isinstance(kernel_version, str) or not kernel_version:
+        if not isinstance(kernel_name, str) or sys.modules.get(kernel_name) is not kernel:
+            # a kernel's own ``__name__`` is only a claim: it binds only as the loaded module of that name
+            kernel_name = "unloaded:" + (kernel_name if isinstance(kernel_name, str) else _qualified(type(kernel)))
+            kernel_version = UNVERSIONED
+        elif not isinstance(kernel_version, str) or not kernel_version:
             kernel_version = UNVERSIONED
         version = "%s+%s@%s" % (cls.VERSION, kernel_name, kernel_version)
     return "%s@%s:%s" % (_qualified(cls), version, name)

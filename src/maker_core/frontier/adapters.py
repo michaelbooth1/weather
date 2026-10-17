@@ -204,12 +204,16 @@ class CfTapeContexts:
     """``context_builder`` over a ``strictly_through`` cf tape backlog (module doc). Read-only."""
 
     def __init__(self, tape_dir, *, purpose: str, now=None, max_age_s: int = BOOK_MAX_AGE_S, conditions=None):
-        """``conditions``, when given, is the only bands whose rows are ever materialised: every other row is
-        filtered out on the ``condition_id`` column first, and a query for another band refuses."""
+        """``conditions``, when given, is the only bands whose rows are ever read: the Parquet read itself is
+        filtered on ``condition_id`` (``pq.read_table(filters=...)``), so another band's row is never
+        materialised, and a query for another band refuses. Tape condition IDs are compared as given and
+        lower-cased."""
         if purpose not in embargo.PURPOSES or purpose == "fit":
             raise AdapterRefused("cf_tape_purpose")
         self.root, self.purpose, self.now = Path(tape_dir), purpose, now
         self.conditions = None if conditions is None else frozenset(str(c).lower() for c in conditions)
+        self._filter_values = None if conditions is None else sorted(
+            {str(c) for c in conditions} | {str(c).lower() for c in conditions})
         self.max_age = timedelta(seconds=max_age_s)
         self._days, self.receipts = {}, {}
 
@@ -243,22 +247,22 @@ class CfTapeContexts:
             raise AdapterRefused("cf_tape_minutes_sha256_mismatch")
         import pyarrow.parquet as pq
 
-        table = pq.read_table(table_path)
-        schema = tuple((f.name, str(f.type)) for f in table.schema)
+        # schema, metadata and row count come from the file footer: file checks, not row reads
+        footer = pq.ParquetFile(table_path)
+        file_schema = footer.schema_arrow
+        schema = tuple((f.name, str(f.type)) for f in file_schema)
         if schema != CF_MINUTES_SCHEMA:
             raise AdapterRefused("cf_tape_schema_mismatch")
-        metadata = {k.decode(): v.decode() for k, v in (table.schema.metadata or {}).items()}
+        metadata = {k.decode(): v.decode() for k, v in (file_schema.metadata or {}).items()}
         if any(metadata.get(k) != v for k, v in CF_MINUTES_METADATA.items()):
             raise AdapterRefused("cf_tape_metadata_mismatch")
-        file_rows = table.num_rows
+        file_rows = footer.metadata.num_rows
         if file_rows != output.get("rows"):
-            raise AdapterRefused("cf_tape_row_count_mismatch")  # a file check, not a band read
-        if self.conditions is not None:
-            import pyarrow as pa
-            import pyarrow.compute as pc
-
-            keep = pa.array(sorted(self.conditions), type=pa.string())
-            table = table.filter(pc.is_in(pc.utf8_lower(table.column("condition_id")), value_set=keep))
+            raise AdapterRefused("cf_tape_row_count_mismatch")
+        if self.conditions is None:
+            table = pq.read_table(table_path)
+        else:
+            table = pq.read_table(table_path, filters=[("condition_id", "in", self._filter_values)])
         index = {}
         for row in table.to_pylist():
             if row["utc_day"] != day.isoformat() or row["basis"] != BASIS:

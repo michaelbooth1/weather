@@ -1,6 +1,6 @@
 """The registration gate for a scored frontier read (item 330 build 3).
 
-A scored read is refused unless all six (seven with a decision rule) of these hold for the preregistration document's bytes:
+A scored read is refused unless all six (up to eight with a decision rule and a toxicity table) of these hold for the preregistration document's bytes:
 
 1. ``SIGNED_PREREGISTRATION_SHA256`` is pinned. Only a reviewed change after the owner signs may set it;
    until then it is None and every scored read is refused.
@@ -13,6 +13,9 @@ A scored read is refused unless all six (seven with a decision rule) of these ho
    (``seams.binding``: exact class, version constants and name; never ``.name`` alone).
 7. When the caller passes ``decision_rule_digest`` (the frontier CLI's ``score`` always does), the document's
    ``Decision rule digest:`` line equals it (``decision.DecisionRule.digest``).
+8. When the caller passes ``toxicity_table_digest`` (the runner's scored mode and the CLI's ``score`` always
+   do, and refuse without one), the document's ``Toxicity table:`` line equals it (the build 2
+   ``TableFillCostProvider`` digest), so the fill-cost table is not a free parameter of a scored read.
 
 The runner also refuses a scored read over anything but the whole grid and every baseline, so a signature
 cannot be spent on a hand-picked subset.
@@ -32,6 +35,7 @@ _GRID = re.compile(r"^Grid hash:[ \t]*`?([0-9a-f]{64})`?[ \t]*$", re.MULTILINE)
 _DECAY = re.compile(r"^Decay digest:[ \t]*`?([0-9a-f]{64})`?[ \t]*$", re.MULTILINE)
 _FILL = re.compile(r"^Fill model:[ \t]*`?([^`\s]+)`?[ \t]*$", re.MULTILINE)
 _RULE = re.compile(r"^Decision rule digest:[ \t]*`?([0-9a-f]{64})`?[ \t]*$", re.MULTILINE)
+_TOXICITY = re.compile(r"^Toxicity table:[ \t]*`?([0-9a-f]{64})`?[ \t]*$", re.MULTILINE)
 
 
 class PreregRefused(ValueError):
@@ -43,7 +47,7 @@ def registration_hash(document: bytes) -> str:
 
 
 def verify(document: bytes | None, *, decay_digest: str, fill_model_binding: str,
-           decision_rule_digest: str | None = None) -> str:
+           decision_rule_digest: str | None = None, toxicity_table_digest: str | None = None) -> str:
     """Return the registration hash, or refuse. There is deliberately no caller-supplied pin."""
     pinned = SIGNED_PREREGISTRATION_SHA256
     if pinned is None:
@@ -70,4 +74,8 @@ def verify(document: bytes | None, *, decay_digest: str, fill_model_binding: str
         rules = _RULE.findall(text)
         if len(rules) != 1 or rules[0] != decision_rule_digest:
             raise PreregRefused("decision_rule_digest_mismatch")
+    if toxicity_table_digest is not None:
+        tables = _TOXICITY.findall(text)
+        if len(tables) != 1 or tables[0] != toxicity_table_digest:
+            raise PreregRefused("toxicity_table_mismatch")
     return sha

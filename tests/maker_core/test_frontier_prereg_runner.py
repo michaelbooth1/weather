@@ -24,6 +24,7 @@ from maker_core.quoting.policy import Book, QuoteLeg
 from maker_core.replay.fill_model import match
 from maker_core.replay.payloads import Trade
 from maker_core.replay.v2.lockstep import bundle_source
+from .fixtures.frontier_cost_stub import SCORED_COST, STUB_TABLE_DIGEST, TOXICITY_LINE
 from .fixtures.replay_scenario import Scenario
 
 DRAFT = Path(__file__).parents[2] / "docs" / "research" / "informed-v1-frontier-preregistration-DRAFT-2026-10-16.md"
@@ -47,14 +48,14 @@ def source(tmp_path, name="b", minutes=8):
 
 def document(signed="Michael Booth, 2027-01-31", grid=GRID_HASH, decay=None, fill=FILL):
     return ("# informed-v1 frontier preregistration\n\nGrid hash: `%s`\n\nDecay digest: `%s`\n\nFill model: `%s`\n\n"
-            "Signed: %s\n" % (grid, decay or DECAY.digest(), fill, signed)).encode()
+            "%sSigned: %s\n" % (grid, decay or DECAY.digest(), fill, TOXICITY_LINE, signed)).encode()
 
 
 # -- the registration gate ------------------------------------------------------------------------------
 def test_scored_read_is_refused_while_no_preregistration_is_pinned(tmp_path):
     assert prereg.SIGNED_PREREGISTRATION_SHA256 is None
     with pytest.raises(PreregRefused, match="no_signed_preregistration"):
-        runner.run([source(tmp_path)], decay=DECAY, mode="scored", registration=document())
+        runner.run([source(tmp_path)], decay=DECAY, mode="scored", registration=document(), **SCORED_COST)
 
 
 def test_the_unsigned_draft_cannot_score_even_if_its_hash_were_pinned(monkeypatch):
@@ -99,7 +100,7 @@ def test_a_pinned_signed_registration_scores_the_whole_grid_outside_the_windows(
     doc = document()
     monkeypatch.setattr(prereg, "SIGNED_PREREGISTRATION_SHA256", registration_hash(doc))
     result = runner.run([source(tmp_path)], decay=DECAY, mode="scored", registration=doc,
-                        points=tuple(reversed(GRID)))
+                        points=tuple(reversed(GRID)), **SCORED_COST)
     assert result["label"] == "SCORED" and result["registration_sha256"] == registration_hash(doc)
     assert set(result["strategies"]) == {p.label for p in GRID} | set(BASELINES)
 
@@ -114,10 +115,36 @@ def test_a_pinned_signed_registration_scores_the_whole_grid_outside_the_windows(
 def test_a_scored_run_must_match_what_was_signed(tmp_path, monkeypatch, kwargs, reason):
     doc = document()
     monkeypatch.setattr(prereg, "SIGNED_PREREGISTRATION_SHA256", registration_hash(doc))
-    arguments = dict(decay=DECAY, mode="scored", registration=doc)
+    arguments = dict(decay=DECAY, mode="scored", registration=doc, **SCORED_COST)
     arguments.update(kwargs)
     with pytest.raises((PreregRefused, runner.FrontierRefused), match=reason):
         runner.run([source(tmp_path)], **arguments)
+
+
+class _OtherTable:
+    table_digest = "8" * 64
+
+    def estimate(self, context):
+        return None
+
+
+@pytest.mark.parametrize("cost,reason", [
+    (dict(), "scored_requires_fill_cost_table"),
+    (dict(cost_provider=ConstantFillCost(), context_builder=lambda **_: None), "scored_requires_fill_cost_table"),
+    (dict(cost_provider=_OtherTable(), context_builder=lambda **_: None), "toxicity_table_mismatch"),
+])
+def test_a_scored_run_needs_the_registered_fill_cost_table(tmp_path, monkeypatch, cost, reason):
+    """Round 3: the toxicity table, and whether one is used at all, is not a free parameter of a scored read."""
+    doc = document()
+    assert TOXICITY_LINE.strip() in doc.decode() and STUB_TABLE_DIGEST in doc.decode()
+    monkeypatch.setattr(prereg, "SIGNED_PREREGISTRATION_SHA256", registration_hash(doc))
+    with pytest.raises((PreregRefused, runner.FrontierRefused), match=reason):
+        runner.run([source(tmp_path)], decay=DECAY, mode="scored", registration=doc, **cost)
+    without_line = doc.replace(TOXICITY_LINE.encode(), b"")
+    monkeypatch.setattr(prereg, "SIGNED_PREREGISTRATION_SHA256", registration_hash(without_line))
+    with pytest.raises(PreregRefused, match="toxicity_table_mismatch"):
+        runner.run([source(tmp_path, name="c")], decay=DECAY, mode="scored", registration=without_line,
+                   **SCORED_COST)
 
 
 def test_descriptive_read_is_labelled_and_needs_no_registration(tmp_path):

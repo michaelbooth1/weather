@@ -27,6 +27,7 @@ from maker_core.replay import fill_v3
 from maker_core.replay import toxicity as tx
 from maker_core.replay.payloads import Trade
 from maker_core.replay.v2.lockstep import bundle_source
+from .fixtures.frontier_cost_stub import SCORED_COST, TOXICITY_LINE
 from .fixtures.replay_scenario import Scenario
 from .fixtures.toxicity_synthetic import synthetic_records
 
@@ -73,12 +74,12 @@ def test_a_queue_model_named_like_v2_is_refused():
 
 
 def test_a_v2_registration_does_not_score_a_v3_model(tmp_path, monkeypatch):
-    doc = ("Grid hash: `%s`\nDecay digest: `%s`\nFill model: `%s`\nSigned: Owner, 2027-01-31\n"
-           % (GRID_HASH, DECAY.digest(), V2_BINDING)).encode()
+    doc = ("Grid hash: `%s`\nDecay digest: `%s`\nFill model: `%s`\n%sSigned: Owner, 2027-01-31\n"
+           % (GRID_HASH, DECAY.digest(), V2_BINDING, TOXICITY_LINE)).encode()
     monkeypatch.setattr(prereg, "SIGNED_PREREGISTRATION_SHA256", prereg.registration_hash(doc))
     src, _ = source(tmp_path, day=date(2027, 2, 1))
     with pytest.raises(prereg.PreregRefused, match="fill_model_mismatch"):
-        runner.run([src], decay=DECAY, mode="scored", registration=doc, fill_model=fill_v3_model())
+        runner.run([src], decay=DECAY, mode="scored", registration=doc, fill_model=fill_v3_model(), **SCORED_COST)
 
 
 def test_unregistered_or_unversioned_models_cannot_score(tmp_path, monkeypatch):
@@ -95,7 +96,19 @@ def test_unregistered_or_unversioned_models_cannot_score(tmp_path, monkeypatch):
     src, _ = source(tmp_path, day=date(2027, 2, 1))
     for model in (Subclass(), QueueFillModel(Kernel())):
         with pytest.raises(runner.FrontierRefused, match="scored_requires_registered_fill_model"):
-            runner.run([src], decay=DECAY, mode="scored", registration=doc, fill_model=model)
+            runner.run([src], decay=DECAY, mode="scored", registration=doc, fill_model=model, **SCORED_COST)
+
+
+def test_a_kernel_claiming_the_fill_v3_name_does_not_bind():
+    """Round 3: a kernel's ``__name__`` is a claim; it binds only when it is the loaded module of that name."""
+    import types
+    impostor = types.ModuleType("maker_core.replay.fill_v3")
+    for name in ("eligibility", "q_ahead", "QueueState", "VERSION"):
+        setattr(impostor, name, getattr(fill_v3, name))
+    spoof = binding(QueueFillModel(impostor, name="v3-queue"))
+    assert spoof != FILL_V3_BINDING and not seams.is_bindable(spoof)
+    assert "unloaded:maker_core.replay.fill_v3" in spoof
+    assert binding(QueueFillModel(fill_v3, name="v3-queue")) == FILL_V3_BINDING
 
 
 def test_the_v3_adapter_refuses_another_kernel_or_version(monkeypatch):
@@ -169,7 +182,11 @@ def test_the_draft_pins_the_re1_decay_digest_and_the_v3_binding():
              / "informed-v1-frontier-preregistration-DRAFT-2026-10-16.md").read_text(encoding="utf-8")
     assert prereg._DECAY.findall(draft) == [PINNED_RE1_DECAY_DIGEST]
     assert prereg._FILL.findall(draft) == [FILL_V3_BINDING]
-
+    # round 3: the rule line is the current (margin-unset) rule; the toxicity table is unset, so nothing matches
+    from maker_core.frontier.decision import PROPOSED_RULE
+    assert prereg._RULE.findall(draft) == [PROPOSED_RULE.digest()]
+    assert prereg._TOXICITY.findall(draft) == [] and draft.count("\nToxicity table:") == 1
+    assert "Signed: UNSIGNED" in draft
 
 # -- build 2: the real fill cost ---------------------------------------------------------------------------
 @pytest.fixture(scope="module")
@@ -279,6 +296,28 @@ def test_cf_tape_refuses_other_rules_hashes_and_schemas(tmp_path, kwargs, reason
     write_tape(tmp_path, T.date(), [tape_row("a-x", "YES", T)], **kwargs)
     with pytest.raises(AdapterRefused, match=reason):
         CfTapeContexts(tmp_path, purpose="descriptive")(condition_id="a-x", at=T + timedelta(seconds=5))
+
+
+def test_cf_tape_reads_only_the_kept_conditions_from_parquet(tmp_path, monkeypatch):
+    """Round 3: with ``conditions`` the Parquet read itself is filtered, so a foreign row is never materialised."""
+    import pyarrow.parquet as pq
+    rows = [tape_row(cid, side, T + timedelta(minutes=m)) for cid in ("a-x", "b-x") for side in ("YES", "NO")
+            for m in range(3)]
+    write_tape(tmp_path, T.date(), rows)
+    calls, real = [], pq.read_table
+
+    def spy(path, *args, **kwargs):
+        table = real(path, *args, **kwargs)
+        calls.append((kwargs.get("filters"), set(table.column("condition_id").to_pylist())))
+        return table
+
+    monkeypatch.setattr(pq, "read_table", spy)
+    contexts = CfTapeContexts(tmp_path, purpose="descriptive", conditions={"a-x"})
+    assert contexts(condition_id="a-x", at=T + timedelta(minutes=1)) is not None
+    assert calls == [([("condition_id", "in", ["a-x"])], {"a-x"})]
+    assert contexts.receipts[T.date().isoformat()]["rows"] == len(rows)  # the file's count, from its footer
+    with pytest.raises(AdapterRefused, match="cf_tape_condition_not_kept"):
+        contexts(condition_id="b-x", at=T + timedelta(minutes=1))
 
 
 def test_cf_tape_missing_day_is_refused(tmp_path):

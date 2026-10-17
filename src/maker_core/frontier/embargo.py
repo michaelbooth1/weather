@@ -10,7 +10,7 @@ Every entry point that reads dated evidence calls :func:`check` before it reads 
   (2026-09-30..2026-11-13). A scored read also needs a signed preregistration (``prereg.verify``). This
   module only owns the dates.
 
-The scored panel ``SCORED_PANEL`` (2026-10-16..2026-11-13) is the one exception to the shadow embargo, and
+The scored panel ``SCORED_PANEL`` (2026-10-17..2026-11-13) is the one exception to the shadow embargo, and
 only for ``scored``: it opens when the caller passes an aware ``now`` at or after ``SCORED_OPENS_AT``
 (2026-11-14T00:00Z), i.e. after the panel has closed. With no ``now`` (every earlier caller) nothing changes.
 The frontier CLI passes the real UTC clock; tests inject one. The reserved window never opens.
@@ -27,7 +27,9 @@ RESERVED = (date(2026, 9, 30), date(2026, 10, 15))
 FIT_LAST = date(2026, 9, 29)
 SHADOW_EMBARGO = (date(2026, 9, 30), date(2026, 11, 13))
 PURPOSES = ("fit", "descriptive", "scored")
-SCORED_PANEL = (date(2026, 10, 16), date(2026, 11, 13))
+# 10-17, not 10-16: a 10-16 bundle holds bands closing inside the reserved window, which would refuse the whole
+# scored run (score never drops bands). Owner/master decision, round 3.
+SCORED_PANEL = (date(2026, 10, 17), date(2026, 11, 13))
 SCORED_OPENS_AT = datetime(2026, 11, 14, tzinfo=timezone.utc)
 
 
