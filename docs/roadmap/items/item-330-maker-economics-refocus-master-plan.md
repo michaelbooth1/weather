@@ -1,5 +1,16 @@
 # 330. Maker Economics And Liquidity Rewards Refocus Master Plan [PARTIAL 2026-09-05 - NON-LIVE IMPLEMENTATION STARTED; ECONOMIC PROOF OPEN]
 
+## October 17 owner decisions for builds 1-4
+
+Owner, 2026-10-17 ~09:18 EDT (relayed by master-agent; DECISION_LOG rows):
+- The RE-1 09-23 session-1 journal (pre-embargo) may be copied over the LAN from the workstation
+  to the host for build 1's fill-v3 reconcile shape check. It never goes through git.
+- Descriptive reads of UTC 10-16..11-13 are refused everywhere until the panel closes. Build 4's
+  `score` opens that panel only for scored reads, after 2026-11-14T00:00Z and under a signed
+  preregistration; descriptive reads of it stay refused, as `maker_core.frontier.embargo` already does.
+- Host Python cutover C did not run 10-17; the next C night is 10-19 into 10-20. N11 lands 10-17/18
+  without C. Neither changes a build's scope.
+
 ## October 16 counterfactual tape exporter for build 2 (built; host run pending)
 
 Build 2 (the toxicity table) fits on COUNTERFACTUAL minutes and fills dated on

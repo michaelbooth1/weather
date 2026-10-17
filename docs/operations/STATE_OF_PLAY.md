@@ -1,7 +1,7 @@
 # State of play
 
-**Last updated: 2026-10-16 12:45 America/Toronto (Phase B PASS; LFC session 0 ATTESTED 10-16; C 00:30 10-17. No
-roll-sensitive landing until C0. Owner 10-16 ~09:22: SD Option 1, MG-1 bound, S4 yes, t3-r3 signed, WRH no, reboot deferred).**
+**Last updated: 2026-10-17 09:45 America/Toronto (C did not run 10-17; next C night 10-19/20; N11 tonight without C;
+descriptive reads of 10-16..11-13 refused. Owner 10-17 ~09:18 and 10-16 ~09:22 decisions are DL rows).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended. At most 95 lines and about 9 KB, one fact per bullet, detail in the linked owner.** This file owns
@@ -36,6 +36,7 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
   worker re-read `2e6c16e6c`, MG-1 test date fix `728f0d1b6`, python-dotenv 1.2.2 pin `3b48fa315`, S0 receipts, docs).
 - **Forward maker shadow ACTIVE** (`WeatherMakerShadowRunner`, 24/7, 12 bands, paper only); stop only with
   `data\maker_shadow\STOP`. Scoring embargo: `maker_shadow_panel.py` refuses UTC 09-30..10-15 and 10-15..11-13 (end stays 11-13: #263 N_req 706, DL 10-14).
+  **Descriptive reads of 10-16..11-13 are refused everywhere until the panel closes** (owner 10-17).
 - **Journal pin:** `WeatherManualOrderJournal` pins five files incl. `wallet_reader_client.py`; a merge touching one makes it
   exit 3 until re-registered ([runbook](manual-order-journal.md)).
 - **Wallet reader (8765)** on `a1014edab` (any-LAN code) since 10-13. It is serial: space post-run reads and retry one
@@ -43,7 +44,7 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 - **Host Python: Phase B PASS 10-16** (3.11.9: bounded suite 21/21 on the stage venv, release case A, `qualification.json`
   PASS; attempt 1 false NO-GO from verifier r1, fixed by r2; B3 and E finished by hand after the `f611cf22c` wrapper defect:
   capture 10/10, `status.ps1` exit 2 only from 3 standing flags; [runbook](HOST_PYTHON_UPGRADE_RUNBOOK.md) revision notes).
-  Venv still 3.11.0. Next: cutover C 00:30 10-17; G3 for the C0 HEAD move is met by the roll-free receipts.
+  Venv still 3.11.0. **C did not run 10-17** (no owner GO by 01:15); next C night Mon 10-19 into 10-20, owner GO in chat that night.
 - Owner 10-13 08:53: C advance GO if every C0 check is clean; G4 amended (auto rollback; a failed one waits for the owner). **DST:**
   DST-H3 and DST-M2 (`41fa7bc57`) landed; OD30 (the 11-01 night rule) holds for 11-01 and lapses 11-02 (owner 10-15).
 - **LFC session 0 ATTESTED 10-16** (~16:35Z, pin `e27909a76`, 0 fills; final verify PASS, `counted_sessions` 0; DL row,
@@ -67,9 +68,8 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 ## Ordered critical path
 
 1. **Maker replay v2 (T1):** oracle author on handout r1; P1-P4 on calibration dates only; gates; signature target 10-22..23.
-2. **Host Python:** B PASS 10-16; cutover C 00:30 10-17; no roll-sensitive landing until C0.
-3. **#177 (T2, owner yes) moved to the 10-18 night:** the 10-15 suite failed on a new #177 test (timing) and a master date
-   test (that date fix landed alone 10-15, `728f0d1b6`); fix head `claude/integration-20261018-88a-rs-r3` `9121de239` (tests only). 10-16/10-17 G5 no-merge; #182 + #172 10-18; #118 >= 10-18.
+2. **Host Python:** B PASS 10-16; C did not run 10-17; next C night 10-19/20 (owner GO that night); N11 lands 10-17/18 without C.
+3. **N11 (10-17/18) is `claude/integration-20261018-stack6-r` `802591bde`** (supersedes stack4/stack5/88a-rs-r3); N12 10-18/19; #118 >= 10-18.
 4. **Item 337:** host no-METAR replay >= 10-15; on PASS flip, bump, quiet window (owner yes). NBS/NBH; NWP timing (#263 done 10-14, EF §10r).
 5. **Data layer v2 (T3/T4, owner 10-14):** [plan](DATA_LAYER_V2_PLAN.md); S0 receipts landed 10-15; S0b FC-11 10-16; S1 10-19, S3 10-20, S2+S9+P1 10-21; §9 answered except Q6, Q9, Q14 (DL 10-14, 10-15).
 
@@ -85,8 +85,8 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 
 ## Standing decisions
 
-- International Polymarket only; no paid weather sources; backups deprioritized; streak contiguity is a diagnostic.
-- Capture-host heavy work is serial, admitted and time-gated; pushing never rolls capture; worktrees `GIT_LFS_SKIP_SMUDGE=1`.
+- International Polymarket only; no paid weather sources; backups deprioritized; streak contiguity is a diagnostic. Capture-host
+  heavy work is serial, admitted and time-gated; pushing never rolls capture; worktrees `GIT_LFS_SKIP_SMUDGE=1`.
 - Native units, WU cutoffs, probability mass, train/serve parity, replay, release binding and evidence retention stay mandatory.
 
 ## Update this file when
