@@ -2,6 +2,9 @@
 
 The RE-1 projection fixture is identity-free and owner-authorised, with sessions on 2026-09-23..25, so
 every date is before the fit cutoff. The synthetic sessions come from a seeded ``random.Random``.
+
+Guards: the reward-share decay model: RE-1 projection, the pinned central fit, ordered bounds, synthetic parameter
+  recovery, determinism, and disclosure of edge-of-grid or underpowered fits.
 """
 from datetime import datetime, timedelta, timezone
 import json

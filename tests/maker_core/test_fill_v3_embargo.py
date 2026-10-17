@@ -1,4 +1,8 @@
-"""The fill model v3 date embargo (item 330 build 1): window edges, purposes and input forms."""
+"""The fill model v3 date embargo (item 330 build 1): window edges, purposes and input forms.
+
+Guards: fill_v3_embargo refuses every reserved day 2026-09-30..10-15 for every purpose, reads instants on
+  their UTC day, and refuses malformed values and unknown purposes (docs/operations/reserved-confirmation-window.md).
+"""
 from datetime import date, datetime, timedelta, timezone
 
 import pytest

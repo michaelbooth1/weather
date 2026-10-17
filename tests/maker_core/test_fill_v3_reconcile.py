@@ -5,6 +5,9 @@ bundle whose prints and books give hand-computed answers (see the fixture's comm
 
 Dated read entry points covered by a refusal test: ``read_journal``, ``admit`` (local quote dates),
 ``bundle_day``/``read_bundle``, ``reconcile``, ``main`` (CLI) -- plus ``EngineV3`` in ``test_fill_v3_engine``.
+
+Guards: the DESCRIPTIVE own-fill reconcile: golden result, one print per credited fill, the RE-1 writer journal
+  shape and hash chain, token-outcome proof, panel exclusions, and reserved-window refusal at every dated entry point.
 """
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal as D

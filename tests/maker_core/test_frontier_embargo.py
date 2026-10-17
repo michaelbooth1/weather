@@ -1,4 +1,8 @@
-"""Item 330 build 3 (e): every dated frontier entry point refuses embargoed days."""
+"""Item 330 build 3 (e): every dated frontier entry point refuses embargoed days.
+
+Guards: every dated frontier entry point (decay fit, RE-1 loader, runner) refuses the reserved window 09-30..10-15,
+  descriptive and scored reads through 11-13 and fits after 09-29, on UTC days, signed preregistration or not.
+"""
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal as D
 import json

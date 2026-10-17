@@ -1,4 +1,8 @@
-"""Weather feature adapter for the COUNTERFACTUAL toxicity table (item 330 build 2)."""
+"""Weather feature adapter for the COUNTERFACTUAL toxicity table (item 330 build 2).
+
+Guards: the weather toxicity feature adapter is point-in-time (nothing after the instant; market prices never enter
+  information features), signs the scheduled print, and refuses embargoed dates and unidentified inputs.
+"""
 from datetime import datetime, timedelta, timezone
 
 import pytest

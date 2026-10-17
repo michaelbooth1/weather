@@ -1,4 +1,8 @@
-"""Item 330 build 3 (c): the frozen informed-v1 grid is deterministic, order-invariant and hashed."""
+"""Item 330 build 3 (c): the frozen informed-v1 grid is deterministic, order-invariant and hashed.
+
+Guards: the pinned informed-v1 grid hash, its order invariance and baselines, no schema-registry literals in the
+  frontier sources, and the package edges (imports only contracts/evidence/quoting/replay; no core module imports it).
+"""
 from decimal import Decimal as D
 from pathlib import Path
 import random

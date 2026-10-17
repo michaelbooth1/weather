@@ -3,6 +3,9 @@
 ``EngineV3`` is injected; v2 stays the default. The ratchet pins the frozen v2 files (at the build-line base
 1fd0c295f; ``kernel.py`` and ``lockstep.py`` re-pinned at the T1 tip b8b2caebe) and EngineV2's summary on a fixed fixture: if either moves, ``EngineV3.on_trade`` (a copy of the kernel's
 with only the matcher replaced) must be reviewed again before the pins are updated.
+
+Guards: EngineV3 fills only what is left after the displayed queue; v2 stays the default with a byte-identical
+  golden summary and frozen files; EngineV3 needs an explicit purpose and refuses embargoed or unexcluded panel days.
 """
 from dataclasses import replace
 from datetime import date

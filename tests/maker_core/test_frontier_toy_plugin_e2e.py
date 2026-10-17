@@ -3,6 +3,9 @@
 The dice plugin is contract-only. Its descriptor, fair value and settlement are sealed into a neutral
 bundle and then replayed twice: once through the frozen v2 engine under every policy, and once through
 the frontier runner over the whole grid and the three baselines. Nothing in the core knows about dice.
+
+Guards: core domain neutrality: a contract-only non-weather plugin replays through the frozen v2 engine and the
+  frontier runner with no core change.
 """
 import ast
 from datetime import timedelta

@@ -1,4 +1,8 @@
-"""Item 330 build 2: COUNTERFACTUAL toxicity table, fill-cost provider and evidence embargo."""
+"""Item 330 build 2: COUNTERFACTUAL toxicity table, fill-cost provider and evidence embargo.
+
+Guards: the COUNTERFACTUAL toxicity table and fill-cost provider (golden table hash, point-in-time features, veto
+  cancel/widen, never below the constant markout floor), the evidence_embargo windows, and the maker import boundaries.
+"""
 import copy
 from dataclasses import asdict, fields, replace
 from datetime import date, datetime, timedelta, timezone

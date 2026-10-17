@@ -1,5 +1,9 @@
 """Item 330 build 3 (a): the runner refuses to score without a matching signed preregistration. The seams
-for builds 1 and 2 are covered here too."""
+for builds 1 and 2 are covered here too.
+
+Guards: no scored frontier read without a pinned, signed preregistration matching grid, decay and fill model; runner
+  determinism and quoting rules; the build 1/2 seams (v2 stand-in equality, queue adapter, 0.0043 markout floor).
+"""
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal as D
