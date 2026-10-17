@@ -18,6 +18,11 @@ Modes:
 Per band and strategy, decisions are made at each book arrival. A quote is held until the next book for
 that band, and for at most ``HOLD_SECONDS``.
 
+A **declared** day plan (``plan.declared``: windows from ``maker_core.replay.v2.intervals.sources``, the §4
+rule and owner exclusions) is honoured (build 4): a band quotes only at a book inside one of its windows, and
+a quote earns and fills only until that window's end. A band with no window never quotes. An undeclared
+synthetic plan keeps the envelope behaviour of build 3.
+
 - **Rewards** accrue at rate/86400 per second times the share. The share is computed under each
   competitor-response bound (``share_decay.BOUNDS``), with age measured from the start of the band's
   continuous quoting spell.
@@ -81,6 +86,9 @@ class Band:
     settlement: float | None = None
 
 
+_INSTANT = timedelta(microseconds=1)
+
+
 @dataclass
 class Quote:
     legs: tuple | None = None
@@ -93,6 +101,7 @@ class Quote:
     rate: float = 0.0
     markout: float = 0.0043
     width: Decimal | None = None
+    window_end: datetime | None = None  # a declared plan's current window end; None when undeclared
     ended: bool = False
     positions: list = field(default_factory=list)  # [outcome, price, held size]
     exits: list = field(default_factory=list)      # [position index, leg, fill state]
@@ -225,15 +234,27 @@ def run(sources, *, decay: DecayModel, mode: str = "descriptive", registration: 
     days = []
     for source in sources:
         plan = source.plan
-        check(plan.day, *(t for c in plan.conditions for t in (c.active_from, c.active_until)))
+        # windows are half-open [from, until): the last instant read is just before ``active_until`` (a
+        # 09-29 envelope ends at 09-30T00:00Z without reading 09-30)
+        check(plan.day, *(t for c in plan.conditions for t in (c.active_from, c.active_until - _INSTANT)))
         days.append(plan.day.isoformat())
         bands, quotes = {}, {}
+        declared = bool(getattr(plan, "declared", False))
+
+        def window_end(cid, at, plan=plan):
+            """The end of the declared window holding ``at`` (None outside every window)."""
+            for start, end in plan.windows.get(cid, ()):
+                if start <= at < end:
+                    return end
+            return None
 
         def accrue(label, cid, until):
             q = quotes[label, cid]
             if q.legs is None or q.accrued_to is None:
                 return
             end = min(until, q.book_at + timedelta(seconds=HOLD_SECONDS))
+            if q.window_end is not None:
+                end = min(end, q.window_end)
             seconds = (end - q.accrued_to).total_seconds()
             if seconds <= 0:
                 return
@@ -255,7 +276,9 @@ def run(sources, *, decay: DecayModel, mode: str = "descriptive", registration: 
                     position[2] -= size
                     t["exit_pnl"] += size * (1 - position[1] - leg.price)
             if q.legs is None or (q.book_at is not None and at > q.book_at + timedelta(seconds=HOLD_SECONDS)):
-                return  # a quote is not fillable after its hold lapses, as it earns no reward then either
+                return
+            if q.window_end is not None and at >= q.window_end:
+                return  # outside its declared window the quote is gone  # a quote is not fillable after its hold lapses, as it earns no reward then either
             q.fill_state, hits = fill_model.on_trade(q.fill_state, trade)
             if not hits:
                 return
@@ -277,6 +300,10 @@ def run(sources, *, decay: DecayModel, mode: str = "descriptive", registration: 
             if q.ended:
                 return
             accrue(label, cid, at)
+            limit = window_end(cid, at) if declared else None
+            if declared and limit is None:  # outside every declared window: no quote, no cost query
+                q.legs, q.spell_start, q.accrued_to = None, None, None
+                return
             strategy = strategies[label]
             live = sum(1 for (l, c), other in quotes.items() if l == label and c != cid and other.legs)
             context = context_builder(condition_id=cid, at=at, band=band, strategy=label)
@@ -303,6 +330,7 @@ def run(sources, *, decay: DecayModel, mode: str = "descriptive", registration: 
                 q.spell_start = at
             q.legs, q.own, q.competing, q.markout = legs, own, competing, markout
             q.rate, q.accrued_to, q.book_at = float(band.terms.rate_per_day), at, at
+            q.window_end = limit
 
         last = None
         for at, batch in items(source):

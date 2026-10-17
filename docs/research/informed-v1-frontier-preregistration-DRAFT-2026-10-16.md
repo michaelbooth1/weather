@@ -200,7 +200,12 @@ times, and settlement facts.
   when the real UTC clock reaches 2026-11-14T00:00Z (`embargo.SCORED_OPENS_AT`). The reserved window
   never opens.
 - `python -m maker_core.frontier.cli score` checks, in order: the clock; this document; and every bundle
-  day inside the panel, before the bundle is opened. `calibrate` reads only dates ≤ 2026-09-29.
+  day inside the panel, before the bundle is opened. It then needs an intervals panel
+  (`maker_core.replay.v2.panel.PANELS`) that declares the scored panel's windows. None exists today, so it
+  refuses (`score_has_no_intervals_panel`) until a reviewed change adds one, before signing.
+- Sources come only from `maker_core.replay.v2.intervals.sources` (v0.2 bundles plus the universe
+  inventory), and the runner honours the declared windows. `calibrate` reads only the calibration days
+  2026-09-27..29, and drops any band whose close falls in a refused window.
 - A market whose close falls inside a refused window is refused even if its capture day is allowed.
 - Bundle hashes are recorded in the score receipt. The fill model binding, decay digest and decision rule
   digest are already bound above.

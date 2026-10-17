@@ -31,18 +31,31 @@ and nothing outside the frontier imports it.
   The `PROPOSED_RULE` digest is `3f7b56cdc8a022a580bd70daf372889cc62d92395e4045beb06892703b0aab9e`, and a
   golden test pins the rule and its result.
 - **CLI** (`python -m maker_core.frontier.cli`):
-  - `calibrate` reads only dates ≤ 09-29, through `embargo.check("fit")` before any bundle opens.
-  - `score` refuses, in order:
+  - **Sources.** The CLI reads only v0.2 bundles; a v0.1 bundle is refused (`v01_bundle_unsupported`). It
+    takes a required `--inventory` (the rehearsal inventory document: the weather producer's universe rows
+    for the bundle days). Day sources come only from `maker_core.replay.v2.intervals.sources`, so the §4
+    rule and the owner exclusions declare every window, and a captured bundle gets declared windows (U1
+    Defender MF4). `restrict` and `clusters` only re-cut plans that path built.
+  - **Runner.** The runner honours a declared plan's windows: no quote, cost query, reward or fill outside
+    them. Condition envelopes are checked as half-open, so a 09-29 envelope ending at 09-30T00:00Z is not
+    a read of 09-30.
+  - **`calibrate`** uses panel `calibration` (09-27..29), through `embargo.check("fit")` before any bundle
+    opens. A band whose close falls in a refused window is dropped and listed in `embargoed_bands`, never
+    handed to the runner; on 09-29 every band is dropped.
+  - **`score`** refuses, in order:
     - before 2026-11-14T00:00Z by the real UTC clock (injectable in tests only);
     - unless the pinned, signed registration matches the decay digest, the v3 binding, the grid hash and
       the rule digest;
-    - for any bundle day outside the 10-16..11-13 panel.
+    - for any bundle day outside the 10-16..11-13 panel;
+    - **always, today** (`score_has_no_intervals_panel`): no `panel.PANELS` name covers 10-16..11-13.
+      `registered` is the reserved window and `calibration` is 09-27..29. Declaring the scored panel's
+      windows needs a separate reviewed change to the intervals panels; this build adds none.
 
     It has been built and tested on synthetic bundles only.
   - Each command writes a create-only `report.json` and `receipt.json`. The receipt holds the input
     SHA-256s, the code commit given as an argument, every module's SHA-256 and the digests.
   - The runner runs once per event day, the UTC date of (close − 12 h), on bands restricted to that day.
-    Grid-point totals across clusters sum to the unrestricted run (tested).
+    Grid-point totals across clusters sum to one run over the kept bands (tested).
 - **Embargo**: `SCORED_PANEL` 10-16..11-13 opens to `scored` only when an aware clock reaches
   `SCORED_OPENS_AT`. The reserved window never opens. This addition lets the scored read exist at all;
   descriptive reads stay refused through 11-13.
@@ -80,6 +93,10 @@ Open:
 - The hazard is the runner's default, not a score parameter.
 - Captured v0.2 bundles need declared intervals; this is not wired.
 - At the start of a day, tape rows from the previous UTC day are not used.
+- `score` cannot run until an intervals panel covers 10-16..11-13. That change belongs to the replay v2
+  panel owners, not to this build.
+- `calibrate` keeps only bands closing by 09-29, so on the three calibration days it reads few bands. It
+  is a rehearsal of the pipeline, not a power estimate.
 - The full-bound guard tests the point's own full-bound metric ≥ 0. `delta_full` against the best baseline
   is reported but does not decide.
 
