@@ -160,10 +160,11 @@ def test_a_quote_is_not_fillable_after_its_hold_lapses(tmp_path):
         s.settle("a", 450, p=0)
         out = runner.run([bundle_source(s.bundle(tmp_path / str(trade_second)))], decay=DECAY, points=GRID[:1],
                          baselines=())["strategies"]
-        return out[GRID[0].label]
-    assert held(runner.HOLD_SECONDS - 20)["filled_shares"] == 10
-    late = held(runner.HOLD_SECONDS + 5)
-    assert late["filled_shares"] == 0 and late["quoted_seconds"] == runner.HOLD_SECONDS
+        return out[GRID[0].label], len(s.markets)
+    assert held(runner.HOLD_SECONDS - 20)[0]["filled_shares"] == 10
+    late, bands = held(runner.HOLD_SECONDS + 5)
+    # no fill, and every band earned reward for exactly one hold and no longer
+    assert late["filled_shares"] == 0 and late["quoted_seconds"] == runner.HOLD_SECONDS * bands
 
 
 def test_quotes_are_symmetric_about_the_mid_with_no_skew():
