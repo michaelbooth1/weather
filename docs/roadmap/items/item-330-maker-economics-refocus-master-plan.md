@@ -17,19 +17,47 @@ and nothing outside the frontier imports it.
     is copied from `maker_counterfactual_tape.py` at `54bf13edc` and read via `git show` only. It uses the
     `strictly_through` backlog. Before a day is opened it runs the embargo check, then verifies the
     receipt, size and SHA-256, the schema and metadata, the row count and the basis. It takes the latest
-    row at or before the instant within 120 s, per side, and refuses `fit`.
+    row at or before the instant within 120 s, per side, and refuses `fit`. With `conditions` (the kept
+    bands) the Parquet read itself is filtered on `condition_id`, so no other band's row is ever
+    materialised (round 3).
 - **Decision rule** (`frontier.decision`, pure; full definition in the
   [draft §4a](../../research/informed-v1-frontier-preregistration-DRAFT-2026-10-16.md)):
-  - the metric is net = reward − fill cost − exit fee (0.0125 per filled share), in cents per quoted
-    minute, under the central bound;
-  - inference is a paired event-day cluster bootstrap with B = 9999 and seed 20261114;
-  - Westfall–Young step-down max-T over the 120 points against the best baseline decides, and Holm is
+  - net = reward − fill cost − exit fee. The exit fee is 0.0125 per filled share, charged on
+    `resting_sell` points only;
+  - **the decision unit is mean net pUSD per capture day**, which is total net over the panel divided by K.
+    Cents per quoted minute is reported only, and is `None` for a strategy that never quoted;
+  - a point must quote at least 60 minutes per capture day on average to be eligible;
+  - **clusters are UTC capture days** in a paired bootstrap with B = 9999 and seed 20261114;
+  - **T_j = min over the three baselines of delta_jk / se_jk** (intersection-union), with each pair's null
+    centred on its bootstrap mean. Westfall–Young step-down max-T over the 120 points decides; Holm is
     disclosed as a sensitivity only;
-  - WINNER needs a significant WY p, a point estimate at least the margin above the best baseline, a
-    non-negative full-bound metric and at least 10 clusters. Otherwise the verdict is NO_GO.
+  - WINNER is the eligible point with the largest net per capture day among those that pass three tests:
+    WY significance, a smallest delta over the baselines of at least the margin, and a non-negative
+    full-bound net. It also needs at least 10 clusters. Otherwise the verdict is NO_GO;
+  - **the margin is an owner-signature field and is unset.** No point can win until it is signed, and
+    `score` refuses until then.
 
-  The `PROPOSED_RULE` digest is `3f7b56cdc8a022a580bd70daf372889cc62d92395e4045beb06892703b0aab9e`, and a
-  golden test pins the rule and its result.
+  The `PROPOSED_RULE` digest (`maker-core.frontier-decision.2`, margin unset) is
+  `bd54e8ee933630e881d74519be30e829faf2f7db757fb7d23807714b2baa0763`, and golden tests pin the rule and its
+  results.
+- **Review round 3** (Fable: SHIP AFTER FIXES on `3e1a689b8`). Each fix has a regression test that fails
+  on `3e1a689b8`.
+  - **Primary unit (decision 1).** Pooled cents per quoted minute rewarded sparse quoting. The rule now
+    decides in net pUSD per capture day, which also equals total net over the panel, plus a quoted-minutes
+    floor. One unit now serves the test, the margin and the selection, so a point cannot pass the test in
+    one unit and be chosen in another.
+  - **Intersection-union statistic.** It replaces re-taking the best baseline in each resample, which was
+    anti-conservative near ties (no-quote is 0 and `blind_re1` is about 0).
+  - **Clusters (decision 3).** Clusters are capture days, not event days. The runner keeps no state across
+    days, so a capture-day cluster is exactly one bundle run (tested). Horizon-1 and horizon-2 quotes of
+    the same day stay together, every cluster is a fully observed day, and the report discloses the
+    horizon split. A block bootstrap over event-day pairs was not chosen: its block boundaries would be a
+    new free choice, and the capture-day unit is exact.
+  - **Toxicity table.** It is bound by a `Toxicity table:` registration line. `score` requires the table,
+    its digest and the tape. A scored run refuses the constant stand-in or no provider.
+  - **Kernel binding.** A kernel binds only as the loaded module of its name (`sys.modules`).
+  - **Scored panel.** It now starts on 10-17, not 10-16, because `score` never drops bands. That was
+    master's decision, which Fable may revisit.
 - **CLI** (`python -m maker_core.frontier.cli`):
   - **Sources.** The CLI reads only v0.2 bundles; a v0.1 bundle is refused (`v01_bundle_unsupported`). It
     takes a required `--inventory` (the rehearsal inventory document: the weather producer's universe rows
@@ -57,19 +85,21 @@ and nothing outside the frontier imports it.
       depends on those closes; it was not run.
   - **`score`** refuses, in order:
     - before 2026-11-14T00:00Z by the real UTC clock (injectable in tests only);
-    - unless the pinned, signed registration matches the decay digest, the v3 binding, the grid hash and
-      the rule digest;
-    - for any bundle day outside the 10-16..11-13 panel;
-    - **always, today** (`score_has_no_intervals_panel`): no `panel.PANELS` name covers 10-16..11-13.
+    - without `--toxicity-table`, `--toxicity-table-digest` and `--cf-tape`;
+    - while the margin is unsigned;
+    - unless the pinned, signed registration matches the decay digest, the v3 binding, the grid hash, the
+      rule digest and the toxicity table digest;
+    - for any bundle day outside the 10-17..11-13 panel;
+    - **always, today** (`score_has_no_intervals_panel`): no `panel.PANELS` name covers 10-17..11-13.
       `registered` is the reserved window and `calibration` is 09-27..29. Declaring the scored panel's
       windows needs a separate reviewed change to the intervals panels; this build adds none.
 
     It has been built and tested on synthetic bundles only.
   - Each command writes a create-only `report.json` and `receipt.json`. The receipt holds the input
     SHA-256s, the code commit given as an argument, every module's SHA-256 and the digests.
-  - The runner runs once per event day, the UTC date of (close − 12 h), on bands restricted to that day.
-    Grid-point totals across clusters sum to one run over the kept bands (tested).
-- **Embargo**: `SCORED_PANEL` 10-16..11-13 opens to `scored` only when an aware clock reaches
+  - The runner runs once per capture day on its kept bands. The clusters sum to one run over the kept
+    bands (tested).
+- **Embargo**: `SCORED_PANEL` 10-17..11-13 opens to `scored` only when an aware clock reaches
   `SCORED_OPENS_AT`. The reserved window never opens. This addition lets the scored read exist at all;
   descriptive reads stay refused through 11-13.
 - **Build 3 follow-ups**:
@@ -82,10 +112,16 @@ and nothing outside the frontier imports it.
     `maker_core.frontier.seams.QueueFillModel@queue-adapter.1+maker_core.replay.fill_v3@fill-v3.0:v3-queue`.
 - **Draft prereg** (still UNSIGNED):
   - the fill model is switched to the v3 binding;
-  - it adds the `Decision rule digest:` line, the metric, WY and Holm, and the recomputed decay digest;
-  - the margin is PROPOSED at 0.02 ¢ per quoted minute. That is one extra 20-share fill at the 0.0043
-    floor (8.6¢) over about 430 quoted minutes, about 11% of the lowest decayed RE-1 rate (about
-    0.18 ¢/min), and far below §10r's delta, so the rule likely returns NO_GO. The owner signs the value.
+  - it adds the `Decision rule digest:` line, the rule's definition (§4a) and the recomputed decay digest;
+  - it adds a `Toxicity table:` line, unset until the owner binds the chosen table's digest;
+  - **the margin is an owner-signature field (round 3)**, in pUSD per capture day. The earlier proposal of
+    0.02 ¢ per quoted minute is withdrawn: the review put the detectable difference at 0.06–0.18 ¢/min,
+    so it would never have bound. The draft offers two ways to fill it:
+    - (A) the smallest daily net that justifies a shadow slot;
+    - (B) 0, with Westfall–Young and the 60-minute floor deciding;
+  - §6 states the power plainly: about 28 capture days, with the 120 points acting like about 8–15
+    independent ones. As built, the test asks whether rewards exceed the modelled fill cost, not whether
+    there is edge over the market.
 
 **Policy wiring design (no code; roll-sensitive, not started).** Once a scored WINNER exists, a separate head
 adds:
@@ -101,17 +137,17 @@ grants no live authority; live use needs the pilot's own gates.
 
 Open:
 
-- The exit fee is a uniform 0.0125 upper bound rather than 0.05·p(1−p) at the fill price.
-- The toxicity table digest is checked on the command line but not bound in the preregistration.
-- The hazard is the runner's default, not a score parameter.
-- Captured v0.2 bundles need declared intervals; this is not wired.
+- The exit fee is a uniform 0.0125 upper bound rather than 0.05·p(1−p) at the fill price. It is charged on
+  `resting_sell` points only, and it is conservative for a point's own net, not for a paired delta.
+- The hazard is the runner's fixed default, not a score parameter.
+- The margin (A or B) and the toxicity table digest must be chosen and signed before any scored read.
 - At the start of a day, tape rows from the previous UTC day are not used.
-- `score` cannot run until an intervals panel covers 10-16..11-13. That change belongs to the replay v2
+- `score` cannot run until an intervals panel covers 10-17..11-13. That change belongs to the replay v2
   panel owners, not to this build.
 - `calibrate` keeps only bands closing by 09-29, so on the three calibration days it reads few bands. It
   is a rehearsal of the pipeline, not a power estimate.
-- The full-bound guard tests the point's own full-bound metric ≥ 0. `delta_full` against the best baseline
-  is reported but does not decide.
+- The full-bound guard tests the point's own full-bound net per capture day ≥ 0. The full-bound nets of the
+  baselines are reported beside it, but no full-bound difference decides.
 
 ## October 16 design: build 3, informed-v1 candidate frontier and competitor-response model
 
