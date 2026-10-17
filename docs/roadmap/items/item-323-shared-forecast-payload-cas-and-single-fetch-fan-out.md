@@ -558,3 +558,7 @@ exactly one attempt and its previous behaviour. Deterministic tests cover a
 transient denial, a persistent denial (holder outcome preserved), the POSIX
 path, the claim-read case and the staging alias. Stacked on the item L repair
 and pending guarded runtime adoption with it.
+
+Landed: both Windows repairs (item L and the release retry, with the WU redaction and token-scan
+fixes) reached `master` in the 2026-10-11 `claude/integration-20261011-rs-v2` quiet-window
+integration (`2745f00da`). Live network proof and the real-root inventory stay open.

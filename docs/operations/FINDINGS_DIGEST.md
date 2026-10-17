@@ -140,6 +140,7 @@ never pooled across the 2026-07-31 provenance boundary.
 - Every numpy import commits ~756 MiB of private memory through OpenBLAS per-thread buffers (17 MiB with `OPENBLAS_NUM_THREADS=1`), about 2.9 GiB across the four numpy capture workers on the host (2026-10-15); workers started by `supervisor.launch_detached` now get a one-thread cap; the short-lived `ensure` processes do not. EF §10s.
 - The served GEFS "ensemble mean" `day_max` is the GEFS control run, not the member mean (parity holds; name wrong). EF §10s.
 - `last_good_sources.json` (~36 MB per US station) is rewritten whole on every snapshot pass, even unchanged: ~53 GiB/day of writes on the host. EF §10s.
+- Raw L2 deltas (VR-2 input) run ≈3.1 GB/day for the T+0 exec-tape universe and ≈7.0 GB/day with T+1; a p95 per-(token, hour) budget (~1.8-1.9 MB) drops 26-45% of bytes. One night, US daytime unsampled, post-gzip not measured. EF §10s.
 - Master does not describe everything production ran: the 2026-09-06 live test and other lanes executed from unmerged code. EF §10f; current reconciliation in [STATE_OF_PLAY.md](STATE_OF_PLAY.md).
 
 ## Closed threads — do not reopen
