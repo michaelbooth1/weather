@@ -82,7 +82,7 @@ def trade_event(order_id, size, price, outcome, token, condition_id):
     """``PairStream._normalize_event`` for a trade with one of our maker rows (synthetic values)."""
     return {"event_type": "trade", "official_event_type": "trade", "condition_id": condition_id,
             "order_id": order_id, "clob_token_id": token, "outcome": outcome, "side": "BUY", "fill_price": price,
-            "fill_size": size, "official_trade_status": "MATCHED", "raw_event_sha256": "0" * 64}
+            "fill_size": size, "official_trade_status": "CONFIRMED", "raw_event_sha256": "0" * 64}
 
 
 def order_row(order_id, token, outcome, price, status, matched, condition_id):

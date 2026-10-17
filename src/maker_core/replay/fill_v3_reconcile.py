@@ -135,7 +135,8 @@ IGNORED_EVENTS = frozenset({
 SUBMIT_REQUEST_FIELDS = ("expiration", "post_only", "price", "side", "size", "token_id")
 FILL_FORMS = (("rows", "user_event"), ("user_event",), ("order",))
 CREDIT_EVENT_TYPES = ("trade", "trade_pending")  # user events that carry order_id and fill_size
-NO_CREDIT_EVENT_TYPES = ("unmatched_trade_event", "failed_trade_event", "order", "canceled")
+# No fill size of their own: a FAILED trade ("rejected", mm_official_adapter), transport fallbacks, order events.
+NO_CREDIT_EVENT_TYPES = ("rejected", "unmatched_trade_event", "failed_trade_event", "order", "canceled")
 
 
 def _first(payload, *names):
@@ -385,8 +386,11 @@ def _token_outcomes(rows, tokens, declared=None):
 
 def attach_fills(session: Session, legs) -> None:
     """Read own fills for the admitted ``legs`` only: credit-bearing ``fill`` user events (``fill_size``), then
-    any terminal ``size_matched`` residual. Other fill evidence (order events, unmatched or failed trade events,
-    order reads) carries no fill size of its own and is covered by the terminal residual."""
+    any terminal ``size_matched`` residual. Other fill evidence (order events, rejected, unmatched or failed trade
+    events, order reads) carries no fill size of its own and is covered by the terminal residual.
+
+    A terminal ``size_matched`` below the credited fills (a ``trade_pending`` that later failed) refuses
+    (``credited_exceeds_size_matched``): the journal then contradicts itself about the leg's fills."""
     wanted = {leg.order_id: leg for leg in legs}
     matched = {}
     for at, row in session.rows:
@@ -402,6 +406,8 @@ def attach_fills(session: Session, legs) -> None:
     for oid, (at, size) in matched.items():
         leg = wanted[oid]
         residual = size - sum((s for _, s, _ in leg.fills), ZERO)
+        if residual < 0:
+            raise ReconcileError("credited_exceeds_size_matched")
         if residual > 0:
             leg.fills.append((at, residual, "terminal_size_matched"))
     for leg in legs:

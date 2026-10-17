@@ -215,6 +215,45 @@ def test_writer_shaped_session_is_read(tmp_path):
             for o in legs} == {"ord-a": [], "ord-b": [(402, "5", "fill_event")], "ord-c": []}
 
 
+
+def test_a_rejected_trade_event_is_read_and_credits_nothing(tmp_path):
+    # A FAILED trade reaches the writer's fill path as event_type "rejected" (mm_official_adapter); it carries
+    # no fill of its own, so the journal is read and the leg's fills come only from the terminal residual.
+    rows = re1_writer_rows()
+    for row in rows:
+        if row["event"] == "fill":
+            row["user_event"].update(event_type="rejected", official_trade_status="FAILED")
+        for item in [row.get("response"), row.get("order"), *(row.get("rows") or [])]:
+            if isinstance(item, dict) and item.get("id") == "ord-b":
+                item["size_matched"] = "0"
+    session = R.read_journal(write_journal(tmp_path / "s" / "journal.jsonl", rows))
+    R.attach_fills(session, session.legs)
+    assert {leg.order_id: leg.fills for leg in session.legs} == {"ord-a": [], "ord-b": [], "ord-c": []}
+    assert "rejected" in R.NO_CREDIT_EVENT_TYPES and "rejected" not in R.CREDIT_EVENT_TYPES
+
+
+def test_credited_fills_above_terminal_size_matched_refuse(tmp_path):
+    # A trade_pending credited 5 that later failed: the terminal order shows only 3 matched.
+    rows = re1_writer_rows()
+    for row in rows:
+        if row["event"] == "fill":
+            row["user_event"].update(event_type="trade_pending", official_trade_status="MATCHED")
+        if row["event"] == "terminal_order" and row["order"]["id"] == "ord-b":
+            row["order"]["size_matched"] = "3"
+    session = R.read_journal(write_journal(tmp_path / "s" / "journal.jsonl", rows))
+    with pytest.raises(R.ReconcileError, match="credited_exceeds_size_matched"):
+        R.attach_fills(session, session.legs)
+    golden_rows = journal_rows()
+    for row in golden_rows:
+        if row["event"] == "terminal_order":
+            row["order"]["size_matched"] = "12"  # L2 credited 20
+    journal = write_journal(tmp_path / "g" / "journal.jsonl", golden_rows)
+    with pytest.raises(R.ReconcileError, match="credited_exceeds_size_matched"):
+        R.reconcile([journal], [reconcile_bundle(tmp_path)], time_zone_name="UTC")
+    equal = re1_writer_rows()  # credited 5 == size_matched 5: no residual, no refusal
+    session = R.read_journal(write_journal(tmp_path / "e" / "journal.jsonl", equal))
+    R.attach_fills(session, session.legs)
+
 def test_every_writer_event_is_classified():
     events = {row["event"] for row in re1_writer_rows()}
     assert events <= R.READ_EVENTS | R.IGNORED_EVENTS

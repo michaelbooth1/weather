@@ -268,6 +268,8 @@ edited, so the build is roll-free.
   - It replays journaled own legs (RE-1 now) against 88a replay bundles.
   - Its journal adapter mirrors the RE-1 writer (`codex/re1-wallet-200-20260923` at `2b9a0ca9e`): envelope,
     sequence, hash chain, and the writer's event list. An unknown event or a read event of another shape refuses.
+    A FAILED (`rejected`) trade event credits nothing. Credited fills above a leg's terminal `size_matched`
+    refuse (`credited_exceeds_size_matched`).
   - Token outcomes come from the journal's own order or fill rows, or from `--token-outcomes`. The scope's
     token order alone refuses (`token_outcomes_unproven`).
   - Each own fill is credited to one print: the eligible print nearest in time within
