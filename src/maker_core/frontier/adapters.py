@@ -111,6 +111,9 @@ class CombinedEstimate:
     sides: tuple
 
 
+UNAVAILABLE_STATUSES = ("NO_CONTEXT", "UNAVAILABLE")
+
+
 class RecordingFillCost:
     """Build 2's real table provider behind a version/digest check, recording each decision (module doc)."""
 
@@ -172,13 +175,20 @@ class RecordingFillCost:
                                self.veto_action if veto else "quote", markout))
         return result
 
+    def unavailable(self) -> tuple[int, int]:
+        """(decisions without a provider markout, all decisions): the former fall back to the 0.0043 floor."""
+        missing = sum(1 for d in self.decisions if d[3] in UNAVAILABLE_STATUSES)
+        return missing, len(self.decisions)
+
     def summary(self) -> dict:
         counts = {}
         for _, _, _, status, veto, action, _ in self.decisions:
             key = "%s|%s|%s" % (status, veto or "-", action)
             counts[key] = counts.get(key, 0) + 1
+        missing, total = self.unavailable()
         return {"provider": "maker_core.quoting.fill_cost.TableFillCostProvider", "table_version": TABLE_VERSION,
-                "table_digest": self.table_digest, "veto_action": self.veto_action, "decisions": len(self.decisions),
+                "table_digest": self.table_digest, "veto_action": self.veto_action, "decisions": total,
+                "cost_unavailable": missing, "cost_unavailable_share": missing / total if total else 0.0,
                 "by_status_veto_action": dict(sorted(counts.items())),
                 "decision_log_digest": digest([list(d) for d in self.decisions])}
 
@@ -216,6 +226,7 @@ class CfTapeContexts:
             {str(c) for c in conditions} | {str(c).lower() for c in conditions})
         self.max_age = timedelta(seconds=max_age_s)
         self._days, self.receipts = {}, {}
+        self.queried = set()  # (day, condition_id lower) of every query, for ``bands_without_rows``
 
     def _check(self, *values):
         if self.now is None:
@@ -294,6 +305,16 @@ class CfTapeContexts:
             burst_prints=int(row["ctx_burst_prints"]), sweep_bands=int(row["ctx_sweep_bands"]),
             feature_times=times)
 
+    def bands_without_rows(self) -> list:
+        """[(day ISO, condition_id)] queried on a day whose tape holds no row at all for that band: a coverage
+        hole (or a case mismatch the filtered read could not match), never a silent fall back to the floor."""
+        missing = []
+        for day, cid in sorted(self.queried):
+            index = self._days.get(day, {})
+            if not any((cid, side) in index for side in ("YES", "NO")):
+                missing.append((day.isoformat(), cid))
+        return missing
+
     def __call__(self, *, condition_id, at, band=None, strategy=None):
         at = _utc(at)
         self._check(at)
@@ -303,6 +324,7 @@ class CfTapeContexts:
         index = self._days.get(day)
         if index is None:
             index = self._load(day)
+        self.queried.add((day, str(condition_id).lower()))
         contexts = []
         for side in ("YES", "NO"):
             times, rows = index.get((str(condition_id).lower(), side), ((), ()))

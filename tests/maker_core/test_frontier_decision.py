@@ -1,10 +1,11 @@
 """Item 330 build 4 (b): the informed-v1 frontier decision rule on synthetic per-cluster runner totals.
 
 Guards: the frontier decision rule (net pUSD per capture-day cluster decides and cents per quoted minute is only
-  reported, a pre-declared quoted-minutes floor, an intersection-union statistic against every baseline with
-  per-pair centred nulls, Westfall-Young step-down max-T, Holm reported only, an owner-signed margin, the
-  full-bound guard, the exit fee only on resting_sell points, NO_GO default) is deterministic given its seed
-  and pinned by a golden digest.
+  reported, a pre-declared quoted-minutes floor, an intersection-union statistic (observed min over the
+  baselines, null row max over the baselines, per-pair centred) that holds level at the least-favourable
+  configuration, Westfall-Young step-down max-T, Holm and a 2-day moving-block bootstrap reported only, an
+  owner-signed margin, the full-bound guard, the exit fee only on resting_sell points, NO_GO default) is
+  deterministic given its seed and pinned by a golden digest.
 """
 from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
@@ -20,9 +21,9 @@ from maker_core.frontier.grid import BASELINES, GRID, GRID_HASH
 RULE = replace(PROPOSED_RULE, replicates=199, seed=7, min_effect_pusd_per_cluster=0.0)
 STRONG = GRID[4].label  # a hold_to_settlement point
 assert GRID[4].inventory == "hold_to_settlement" and GRID[5].inventory == "resting_sell"
-GOLDEN_DIGEST = "904ee32482cb0820b4b7dfb04ed5d3144bc9776307154436a3b07058846b9b78"
-GOLDEN_PROPOSED_RESULT_DIGEST = "f208a02661403c454436c641654cf1ab6e21efd8053ceb83c697683c7c1a3c09"
-GOLDEN_PROPOSED_RULE_DIGEST = "bd54e8ee933630e881d74519be30e829faf2f7db757fb7d23807714b2baa0763"
+GOLDEN_DIGEST = "26248cbaf57a849bbc3f9c9a01ecfb76361404d4d2d0b9461c360eb9dae48723"
+GOLDEN_PROPOSED_RESULT_DIGEST = "5955aaac8b94220debd99a53e54150fa19e6f29078f73c115464e1b4d54c8e6a"
+GOLDEN_PROPOSED_RULE_DIGEST = "9216f1b903180b07d1ffb1bfbaa202ceff3bc803d44dca8e72a02766d71af810"
 
 
 def totals(net_central, minutes, *, full=None, fills=0, adverse=0.0):
@@ -70,7 +71,8 @@ def test_proposed_rule_parameters_and_digest_are_pinned():
     assert spec["parameters"] == {
         "replicates": 9999, "seed": 20261114, "cluster_unit": "capture_day", "alpha": .05,
         "min_effect_pusd_per_cluster": None, "min_quoted_minutes_per_cluster": 60.0,
-        "exit_fee_per_filled_share": .0125, "decision_bound": "central", "guard_bound": "full",
+        "exit_fee_per_filled_share": .0125, "max_cost_unavailable_share": .02, "sensitivity_block_length": 2,
+        "decision_bound": "central", "guard_bound": "full",
         "min_clusters": 10, "baselines": list(BASELINES)}
     assert spec["metric"] == "net_pusd_per_capture_day" and spec["exit_fee_applies_to"] == "resting_sell"
     assert PROPOSED_RULE.digest() == GOLDEN_PROPOSED_RULE_DIGEST
@@ -97,7 +99,8 @@ def test_every_rule_parameter_enters_the_digest():
     base = RULE.digest()
     for change in (dict(replicates=299), dict(seed=8), dict(alpha=.01), dict(min_effect_pusd_per_cluster=.03),
                    dict(min_effect_pusd_per_cluster=None), dict(min_quoted_minutes_per_cluster=30.0),
-                   dict(exit_fee_per_filled_share=.01), dict(decision_bound="none"), dict(guard_bound="central"),
+                   dict(exit_fee_per_filled_share=.01), dict(max_cost_unavailable_share=0.0),
+                   dict(sensitivity_block_length=3), dict(decision_bound="none"), dict(guard_bound="central"),
                    dict(min_clusters=11)):
         assert replace(RULE, **change).digest() != base, change
 
@@ -107,6 +110,8 @@ def test_every_rule_parameter_enters_the_digest():
     (dict(alpha=0), "alpha_out_of_range"), (dict(min_effect_pusd_per_cluster=-1), "min_effect_pusd_per_cluster_invalid"),
     (dict(min_quoted_minutes_per_cluster=-1), "min_quoted_minutes_per_cluster_invalid"),
     (dict(decision_bound="max"), "unknown_bound"), (dict(min_clusters=1), "min_clusters_invalid"),
+    (dict(max_cost_unavailable_share=1.5), "max_cost_unavailable_share_invalid"),
+    (dict(sensitivity_block_length=1), "sensitivity_block_length_invalid"),
     (dict(baselines=("no-quote",)), "rule_requires_all_baselines"),
 ])
 def test_rule_parameters_are_validated(change, reason):
@@ -169,6 +174,63 @@ def test_no_quoted_minutes_is_ineligible_not_zero():
     assert not strong["conditions"]["eligible_quoted_minutes"]
     assert result["baselines"]["no-quote"]["cents_per_quoted_minute"]["central"] is None
     assert decision.cents_per_quoted_minute([-1.0], [0.0]) is None
+
+
+# -- round 4 regressions -------------------------------------------------------------------------------------
+def _one_null_pair(rng, k=12):
+    """One point j: j - blind_re1 has mean 0 (the null pair); j - no-quote (+1) and j - informed-v0 (+2) are far
+    positive, with the pairs only partly correlated: the intersection-union least-favourable configuration."""
+    point = GRID[0].label
+    out = {}
+    for c in range(k):
+        blind, noise, informed = rng.gauss(1.0, .3), rng.gauss(0.0, .3), rng.gauss(-1.0, .3)
+        out[(date(2027, 1, 1) + timedelta(days=c)).isoformat()] = {
+            "grid_hash": GRID_HASH, "decay": "d" * 64, "fill_model_binding": "binding", "label": "DESCRIPTIVE",
+            "registration_sha256": None, "strategies": {
+                "no-quote": totals(0.0, 0.0), "blind_re1": totals(blind, 60), "informed-v0": totals(informed, 60),
+                point: totals(blind + noise, 70)}}
+    return out
+
+
+def test_the_intersection_union_test_holds_level_with_one_null_pair():
+    """Round 4 (A): with one pair at the null and two far positive, the min over pairs in the null row put the
+    null quantile below the single pair's, so the old rule rejected about 19% of the time at alpha 0.05 (400
+    seeded datasets, B = 199). The max over pairs in the null row holds level (about 6.5%, the small-K
+    bootstrap's own slack)."""
+    rng = random.Random(5)
+    rule = replace(PROPOSED_RULE, replicates=199, min_effect_pusd_per_cluster=0.0)
+    sims = 400
+    rejections = sum(evaluate(_one_null_pair(rng), rule)["points"][0]["p_westfall_young"] <= rule.alpha
+                     for _ in range(sims))
+    assert rejections / sims <= .10
+    assert PROPOSED_RULE.spec()["statistic"] == "observed_min_over_baselines_null_max_over_baselines_bootstrap_scaled_centred"
+
+
+def test_the_block_bootstrap_is_reported_and_never_decides(monkeypatch):
+    """Round 4 (D): the 2-day moving-block bootstrap is a sensitivity. Even a degenerate block scheme (every
+    resample one cluster, so no evidence) leaves the verdict, the winner and the deciding p-values unchanged."""
+    data = clusters()
+    base = evaluate(data, RULE)
+    assert all("block_sensitivity" in r for r in base["points"])
+    assert row(base, STRONG)["block_sensitivity"]["p_westfall_young"] <= 1.0
+
+    def degenerate(rule, k):
+        for _ in range(rule.replicates):
+            yield [k] + [0] * (k - 1)
+
+    monkeypatch.setattr(decision, "_block_resamples", degenerate)
+    broken = evaluate(data, RULE)
+    assert row(broken, STRONG)["block_sensitivity"]["p_westfall_young"] == 1.0
+    assert (broken["verdict"], broken["winner"]) == (base["verdict"], base["winner"]) == ("WINNER", STRONG)
+    assert [r["p_westfall_young"] for r in broken["points"]] == [r["p_westfall_young"] for r in base["points"]]
+    longer = evaluate(data, replace(RULE, sensitivity_block_length=4))
+    assert (longer["verdict"], longer["winner"]) == (base["verdict"], base["winner"])
+
+
+def test_moving_blocks_cover_k_clusters_in_consecutive_runs():
+    rule = replace(RULE, replicates=99)
+    for weights in decision._block_resamples(rule, 7):
+        assert sum(weights) == 7 and len(weights) == 7
 
 
 # -- unchanged behaviour ---------------------------------------------------------------------------------------

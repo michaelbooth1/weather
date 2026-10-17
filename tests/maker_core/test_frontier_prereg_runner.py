@@ -24,7 +24,9 @@ from maker_core.quoting.policy import Book, QuoteLeg
 from maker_core.replay.fill_model import match
 from maker_core.replay.payloads import Trade
 from maker_core.replay.v2.lockstep import bundle_source
-from .fixtures.frontier_cost_stub import SCORED_COST, STUB_TABLE_DIGEST, TOXICITY_LINE
+from .fixtures.frontier_cost_stub import (
+    SCORED_COST, STUB_TABLE_DIGEST, TOXICITY_LINE, DuckTable, recording_cost,
+)
 from .fixtures.replay_scenario import Scenario
 
 DRAFT = Path(__file__).parents[2] / "docs" / "research" / "informed-v1-frontier-preregistration-DRAFT-2026-10-16.md"
@@ -121,20 +123,28 @@ def test_a_scored_run_must_match_what_was_signed(tmp_path, monkeypatch, kwargs, 
         runner.run([source(tmp_path)], **arguments)
 
 
-class _OtherTable:
-    table_digest = "8" * 64
+def _other_table():
+    return dict(cost_provider=recording_cost(seed=12), context_builder=lambda **_: None)
 
-    def estimate(self, context):
-        return None
+
+def _inconsistent():
+    cost = recording_cost(seed=11)
+    cost.table_digest = "8" * 64  # claims another table than the one it wraps
+    return dict(cost_provider=cost, context_builder=lambda **_: None)
 
 
 @pytest.mark.parametrize("cost,reason", [
-    (dict(), "scored_requires_fill_cost_table"),
-    (dict(cost_provider=ConstantFillCost(), context_builder=lambda **_: None), "scored_requires_fill_cost_table"),
-    (dict(cost_provider=_OtherTable(), context_builder=lambda **_: None), "toxicity_table_mismatch"),
+    (dict, "scored_requires_fill_cost_table"),
+    (lambda: dict(cost_provider=ConstantFillCost(), context_builder=lambda **_: None), "scored_requires_fill_cost_table"),
+    # round 4 (E): a duck type carrying the right digest is not the recording adapter
+    (lambda: dict(cost_provider=DuckTable(), context_builder=lambda **_: None), "scored_requires_fill_cost_table"),
+    (_inconsistent, "scored_fill_cost_table_digest_inconsistent"),
+    (_other_table, "toxicity_table_mismatch"),
 ])
 def test_a_scored_run_needs_the_registered_fill_cost_table(tmp_path, monkeypatch, cost, reason):
-    """Round 3: the toxicity table, and whether one is used at all, is not a free parameter of a scored read."""
+    """Rounds 3-4: the toxicity table, and whether one is used at all, is not a free parameter of a scored read;
+    only the recording adapter, whose digest is its wrapped table's, is accepted."""
+    cost = cost()
     doc = document()
     assert TOXICITY_LINE.strip() in doc.decode() and STUB_TABLE_DIGEST in doc.decode()
     monkeypatch.setattr(prereg, "SIGNED_PREREGISTRATION_SHA256", registration_hash(doc))

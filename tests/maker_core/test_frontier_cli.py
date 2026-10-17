@@ -23,7 +23,7 @@ from maker_core.frontier.grid import GRID, GRID_HASH
 from maker_core.frontier.share_decay import DecayModel
 from maker_core.replay.v2.panel import CALIBRATION_DATES
 from .fixtures.frontier_cost_stub import STUB_TABLE_DIGEST
-from .fixtures.panel_v02 import Panel, close_of
+from .fixtures.panel_v02 import ZONES, Panel, cid_of, close_of
 from .fixtures.replay_scenario import Scenario
 from .fixtures.toxicity_synthetic import synthetic_records
 from .test_frontier_adapters import PINNED_RE1_DECAY_DIGEST, tape_row, write_tape
@@ -322,6 +322,123 @@ def test_clusters_are_capture_days_and_each_is_its_bundle_run_alone(tmp_path, ca
     assert report["clusters"]["unit"] == "capture_day" == report["decision"]["rule"]["parameters"]["cluster_unit"]
     assert report["clusters"]["keys"] == sorted(split) == report["decision"]["clusters"]
     assert report["clusters"]["horizon_split"] == report["embargo"]["counts_by_day_and_horizon"]
+
+
+# -- round 4: scored schedule, cost coverage ----------------------------------------------------------------
+class LateBands(Panel):
+    """The fixture plus a horizon -1 band per market (``payloads`` admits -1): captured 10-17T00:00-04:00Z it is
+    local 10-16, so its target is 10-15 and it closes 10-16T04:00/05:00Z, before the bundle's UTC day."""
+
+    def conditions_at(self, at):
+        from zoneinfo import ZoneInfo
+        out = super().conditions_at(at)
+        for market in self.markets:
+            target = at.astimezone(ZoneInfo(ZONES[market])).date() - timedelta(days=1)
+            for event_id, suffix in self.events(market, target):
+                cid = cid_of(market, target, 0, suffix)
+                out = [c for c in out if c[3] != cid] + [(market, target, event_id, cid, -1)]
+        return sorted(out, key=lambda c: c[3])
+
+
+def test_score_drops_a_band_closed_before_its_bundle_day_from_metadata_only(tmp_path, monkeypatch):
+    """Round 4 (B): a 10-17 bundle's horizon -1 band closing on 10-16 used to refuse the whole scored run
+    (shadow_embargo). It is now dropped (closed_before_day) before its close is checked; every other close
+    is still checked and refuses."""
+    from maker_core.replay.bundle_v02 import open_stream_bundle
+    from maker_core.replay.v2 import universe_v02
+    day = date(2026, 10, 17)
+    panel = LateBands(("austin", "toronto"), bands=1, step=60, full=True)
+    bundle = open_stream_bundle(panel.write(tmp_path / "late" / day.isoformat(), day))
+    late = {r["condition_id"] for r in panel.inventory([day])
+            if close_of(r["market_id"], date.fromisoformat(r["target_date"]))
+            <= datetime(2026, 10, 17, tzinfo=UTC)}
+    assert late
+
+    def scored(*values):
+        embargo.check("scored", *values, now=AFTER)
+
+    with pytest.raises(embargo.EmbargoRefused, match="shadow_embargo"):
+        cli.schedule(bundle, scored)  # the round 3 behaviour
+    reads = []
+    real = universe_v02.descriptors
+    monkeypatch.setattr(universe_v02, "descriptors", lambda b: reads.append(b.day) or real(b))
+    plan = cli.schedule(bundle, scored, drop_closed_before_day=True)
+    assert reads == [day]
+    assert plan.dropped == {cid: cli.CLOSED_BEFORE_DAY for cid in sorted(late)}
+    assert plan.event_days and not set(plan.event_days) & late
+    assert all(plan.horizons[cid] == -1 for cid in late)
+    # the hard refusal stays for any other embargoed close: shift the clock back so 10-17 is not yet open
+    with pytest.raises(embargo.EmbargoRefused, match="shadow_embargo"):
+        cli.schedule(bundle, lambda *v: embargo.check("scored", *v, now=datetime(2026, 11, 13, tzinfo=UTC)),
+                     drop_closed_before_day=True)
+
+
+def _coverage_run(tmp_path, *, upper=False, skip=None):
+    """Calibrate on 09-27 with a minute-by-minute tape for every band (``skip`` has none; ``upper`` writes the
+    condition IDs upper-cased)."""
+    from maker_core.quoting.fill_cost import TableFillCostProvider
+    from maker_core.replay import toxicity as tx
+    table = tx.fit(*synthetic_records(dates=12, markets=12, minutes_per_cell=12, seed=11), replicates=100)
+    table_path = tmp_path / "table.json"
+    table_path.write_text(json.dumps(table), encoding="utf-8")
+    expected = TableFillCostProvider(json.loads(table_path.read_text(encoding="utf-8"))).digest
+    day = CALIBRATION_DATES[0]
+    dirs, inventory = bundles(tmp_path, [day])
+    start = datetime.combine(day, time(), tzinfo=UTC)
+    cids = [r["condition_id"] for r in fixture().inventory([day]) if r["condition_id"] != skip]
+    write_tape(tmp_path / "tape", day, [tape_row(cid.upper() if upper else cid, side, start + timedelta(minutes=k))
+                                       for cid in cids for side in ("YES", "NO") for k in range(1440)])
+    out = tmp_path / "out"
+    args = argv("calibrate", dirs, inventory, out, "--replicates", "199", "--toxicity-table", str(table_path),
+                "--toxicity-table-digest", expected, "--cf-tape", str(tmp_path / "tape"))
+    assert cli.main(args) == 0
+    return json.loads((out / "receipt.json").read_bytes())["cost_coverage"]
+
+
+def test_full_tape_coverage_has_no_holes_and_a_reported_share(tmp_path, capsys):
+    coverage = _coverage_run(tmp_path)
+    assert coverage["bands_without_tape_rows"] == [] and coverage["decisions"] > 0
+    assert coverage["cost_unavailable_share"] <= coverage["max_cost_unavailable_share"] == .02
+
+
+def test_a_kept_band_without_tape_rows_is_a_hole_that_score_refuses(tmp_path, capsys):
+    """Round 4 (C, F): a missing tape row silently became the 0.0043 floor. A kept band queried on a day with no
+    tape row is now listed, and score refuses it, as it refuses an unavailable share above the bound."""
+    day = CALIBRATION_DATES[0]
+    dirs, inventory = bundles(tmp_path / "probe", [day])
+    rows, _ = cli.read_inventory(inventory, [day])
+    (bundle,), _, evaluation = cli.open_sources(dirs, rows, "calibration")
+    quoted = sorted(set(cli.schedule(bundle, fit_check, drop_embargoed=True).event_days)
+                    & {w["condition_id"] for w in evaluation.windows})  # kept and with a declared window
+    victim = quoted[0]
+    coverage = _coverage_run(tmp_path, skip=victim)
+    assert {b["condition_id"] for b in coverage["bands_without_tape_rows"]} == {victim}
+    contexts = adapters.CfTapeContexts(tmp_path / "tape", purpose="descriptive", conditions=quoted)
+    contexts(condition_id=victim, at=datetime.combine(day, time(9), tzinfo=UTC))
+    cost = adapters.RecordingFillCost.__new__(adapters.RecordingFillCost)
+    cost.decisions = [("t", victim, "s", "NO_CONTEXT", None, "quote", None)]
+    with pytest.raises(cli.CliRefused, match="cf_tape_band_without_rows"):
+        cli.cost_coverage(cost, contexts, SIGNED_RULE, refuse=True)
+    assert cli.cost_coverage(cost, contexts, SIGNED_RULE, refuse=False)["bands_without_tape_rows"]
+
+
+def test_an_unavailable_share_above_the_bound_refuses_score(tmp_path):
+    cost = adapters.RecordingFillCost.__new__(adapters.RecordingFillCost)
+    cost.decisions = [("t", "c", "s", "OK", None, "quote", .01)] * 97 + [("t", "c", "s", "UNAVAILABLE", None, "quote", None)] * 3
+    coverage = cli.cost_coverage(cost, None, SIGNED_RULE, refuse=False)
+    assert coverage["cost_unavailable_share"] == pytest.approx(.03)
+    with pytest.raises(cli.CliRefused, match="cost_unavailable_share_above_bound"):
+        cli.cost_coverage(cost, None, SIGNED_RULE, refuse=True)
+    cost.decisions = [("t", "c", "s", "OK", None, "quote", .01)] * 98 + [("t", "c", "s", "NO_CONTEXT", None, "quote", None)] * 2
+    assert cli.cost_coverage(cost, None, SIGNED_RULE, refuse=True)["cost_unavailable_share"] == pytest.approx(.02)
+
+
+def test_an_upper_case_tape_condition_id_is_a_hole_not_a_silent_floor(tmp_path, capsys):
+    """Round 4 (F): the Parquet filter is case-exact on the kept IDs; a tape written with other-case IDs shows
+    every quoted band as a hole, so score refuses instead of pricing every decision at the floor."""
+    coverage = _coverage_run(tmp_path, upper=True)
+    assert coverage["bands_without_tape_rows"]
+    assert coverage["cost_unavailable_share"] == 1.0
 
 
 # -- runner regressions ------------------------------------------------------------------------------------

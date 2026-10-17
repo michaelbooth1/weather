@@ -31,16 +31,29 @@ replacement are drawn by ``random.Random(seed).choices`` and shared by every str
 
 - For each grid point j and baseline k, ``delta_jk = m(j) - m(k)``; ``se_jk`` is the bootstrap standard
   deviation of ``delta*_jk``.
-- **Intersection-union statistic.** ``T_j = min_k delta_jk / se_jk``: a point must beat **every** baseline,
-  so no best baseline is re-chosen per resample. A pair with ``se_jk`` at most ``SE_FLOOR`` contributes 0
-  (no variation across clusters is no evidence).
-- The null draw centres each pair on its bootstrap mean: ``T*_j = min_k (delta*_jk - mean(delta*_jk)) / se_jk``.
+- **Intersection-union statistic.** The observed ``T_j = min_k delta_jk / se_jk``: a point must beat **every**
+  baseline, so no best baseline is re-chosen per resample. A pair with ``se_jk`` at most ``SE_FLOOR``
+  contributes 0 (no variation across clusters is no evidence).
+- **Null row: the max, not the min.** ``T*_j = max_k (delta*_jk - mean(delta*_jk)) / se_jk``. Under
+  intersection-union the least-favourable null is ONE pair at the null with the others far positive; the
+  observed min then equals that pair's statistic, and its null tail is bounded by the max over pairs of the
+  centred draws, so ``max_j max_k`` bounds every configuration (the min of centred draws would sit below a
+  single pair's quantile and over-reject). Westfall-Young, the marginal p-values and Holm all use this row.
   T is a bootstrap-scaled, centred statistic whose p-values are bootstrap tail frequencies; it is not a
   studentized (pivotal) bootstrap.
 - **Family-wise control (decides).** Westfall-Young step-down max-T, one-sided, over all grid points. With T
   sorted descending, ``p_(r) = (1 + #{b : max_{l >= r} T*_(l),b >= T_(r)}) / (B + 1)``, made monotone
   non-decreasing down the order.
 - **Holm (disclosed sensitivity, never decides)** on the marginal p-values ``(1 + #{b : T*_j,b >= T_j}) / (B + 1)``.
+
+**Serial dependence (sensitivity only).** Capture days are serially dependent (a band is quoted on two consecutive
+days, and weather regimes persist). A pre-declared moving-block bootstrap (``sensitivity_block_length`` = 2
+consecutive capture days, the same statistic and null row) is reported beside the main p-values. It **never
+decides**: the verdict reads only the i.i.d. cluster bootstrap.
+
+**Cost coverage (bound here, enforced by the CLI).** ``max_cost_unavailable_share`` is the largest share of
+fill-cost decisions without a provider markout (which fall back to the 0.0043 floor) that a scored read
+accepts. It lives in the rule so the digest binds it; ``evaluate`` does not read it.
 
 **Winner.** Among eligible points that pass all three conditions, the one with the largest primary metric
 (central):
@@ -96,6 +109,8 @@ class DecisionRule:
     min_effect_pusd_per_cluster: float | None = None  # the margin: an owner-signature field, unset until signed
     min_quoted_minutes_per_cluster: float = 60.0  # eligibility floor: total quoted minutes >= this times K
     exit_fee_per_filled_share: float = 0.0125  # resting_sell points only
+    max_cost_unavailable_share: float = 0.02  # PROPOSED; score refuses above it (enforced by the CLI)
+    sensitivity_block_length: int = 2  # moving-block bootstrap, reported only
     decision_bound: str = "central"
     guard_bound: str = "full"
     min_clusters: int = 10
@@ -113,6 +128,11 @@ class DecisionRule:
         _nonnegative("min_effect_pusd_per_cluster", self.min_effect_pusd_per_cluster, optional=True)
         _nonnegative("min_quoted_minutes_per_cluster", self.min_quoted_minutes_per_cluster)
         _nonnegative("exit_fee_per_filled_share", self.exit_fee_per_filled_share)
+        _nonnegative("max_cost_unavailable_share", self.max_cost_unavailable_share)
+        if self.max_cost_unavailable_share > 1:
+            raise DecisionRefused("max_cost_unavailable_share_invalid")
+        if type(self.sensitivity_block_length) is not int or self.sensitivity_block_length < 2:
+            raise DecisionRefused("sensitivity_block_length_invalid")
         if self.decision_bound not in BOUNDS or self.guard_bound not in BOUNDS:
             raise DecisionRefused("unknown_bound")
         if type(self.min_clusters) is not int or self.min_clusters < 2:
@@ -129,7 +149,8 @@ class DecisionRule:
         out["baselines"] = list(self.baselines)
         return {"version": RULE_VERSION, "metric": "net_pusd_per_capture_day",
                 "reported": "net_cents_per_quoted_minute",
-                "statistic": "intersection_union_min_over_baselines_bootstrap_scaled_centred",
+                "statistic": "observed_min_over_baselines_null_max_over_baselines_bootstrap_scaled_centred",
+                "sensitivity_block": "moving_block_consecutive_capture_days_reported_only",
                 "family": "westfall_young_stepdown_maxT_one_sided", "sensitivity": "holm_marginal_bootstrap",
                 "selection": "max_primary_metric_among_eligible_passing",
                 "exit_fee_applies_to": "resting_sell", "bootstrap": "paired_cluster_python_random_choices",
@@ -201,13 +222,68 @@ def _holm(pvalues: Mapping[str, float], order) -> dict:
 
 
 def _resamples(rule, k):
-    """The ``replicates`` resample weight vectors (cluster counts), regenerated identically on every call."""
+    """The ``replicates`` i.i.d. resample weight vectors (cluster counts), regenerated identically per call."""
     rng = random.Random(rule.seed)
     for _ in range(rule.replicates):
         weights = [0] * k
         for index in rng.choices(range(k), k=k):
             weights[index] += 1
         yield weights
+
+
+def _block_resamples(rule, k):
+    """Moving-block resamples over the clusters in key (date) order: blocks of ``sensitivity_block_length``
+    consecutive clusters, starts drawn uniformly, concatenated and cut to K. Sensitivity only."""
+    length = min(rule.sensitivity_block_length, k)
+    rng = random.Random(rule.seed + 1)
+    for _ in range(rule.replicates):
+        weights, drawn = [0] * k, 0
+        while drawn < k:
+            start = rng.randrange(k - length + 1)
+            for index in range(start, min(start + length, start + k - drawn)):
+                weights[index] += 1
+                drawn += 1
+        yield weights
+
+
+def _inference(draws, rule, series, names, points, delta, k):
+    """(se, pair t, t, Westfall-Young p, marginal p, Holm) for one resampling scheme (module doc)."""
+    pairs = list(delta)
+    mean, m2 = dict.fromkeys(pairs, 0.0), dict.fromkeys(pairs, 0.0)
+    count = 0
+    for count, weights in enumerate(draws(rule, k), start=1):  # Welford: identical draws give SD 0
+        sample = {s: sum(w * n for w, n in zip(weights, series[s]) if w) / k for s in names}
+        for pair in pairs:
+            d = sample[pair[0]] - sample[pair[1]]
+            step = d - mean[pair]
+            mean[pair] += step / count
+            m2[pair] += step * (d - mean[pair])
+    se = {p: _sd(m2[p], count) for p in pairs}
+    pair_t = {p: (delta[p] / se[p] if se[p] > SE_FLOOR else 0.0) for p in pairs}
+    t = {j: min(pair_t[j, base] for base in rule.baselines) for j in points}
+    null = []
+    for weights in draws(rule, k):  # the same draws again
+        sample = {s: sum(w * n for w, n in zip(weights, series[s]) if w) / k for s in names}
+        row = array("d")
+        for j in points:
+            row.append(max(((sample[j] - sample[base] - mean[j, base]) / se[j, base]
+                            if se[j, base] > SE_FLOOR else 0.0) for base in rule.baselines))
+        null.append(row)
+    # Westfall-Young step-down max-T (one-sided); ties in T keep canonical grid order.
+    order = sorted(range(len(points)), key=lambda i: (-t[points[i]], i))
+    exceed = [0] * len(order)
+    for row in null:  # successive maxima from the bottom of the order
+        acc = -math.inf
+        for r in range(len(order) - 1, -1, -1):
+            acc = max(acc, row[order[r]])
+            if acc >= t[points[order[r]]]:
+                exceed[r] += 1
+    wy, running = {}, 0.0
+    for r, i in enumerate(order):
+        running = max(running, (1 + exceed[r]) / (count + 1))
+        wy[points[i]] = running
+    marginal = {j: (1 + sum(1 for row in null if row[i] >= t[j])) / (count + 1) for i, j in enumerate(points)}
+    return se, pair_t, t, wy, marginal, _holm(marginal, points)
 
 
 def evaluate(clusters: Mapping[str, Mapping], rule: DecisionRule = PROPOSED_RULE) -> dict:
@@ -245,44 +321,8 @@ def evaluate(clusters: Mapping[str, Mapping], rule: DecisionRule = PROPOSED_RULE
     delta = {(j, base): central[j] - central[base] for j, base in pairs}
     series = nets[rule.decision_bound]
 
-    # Pass 1: bootstrap mean and SD of every paired difference (Welford, so identical draws give SD 0, not
-    # cancellation noise). Pass 2 regenerates the same resamples.
-    mean, m2 = dict.fromkeys(pairs, 0.0), dict.fromkeys(pairs, 0.0)
-    for count, weights in enumerate(_resamples(rule, k), start=1):
-        sample = {s: sum(w * n for w, n in zip(weights, series[s]) if w) / k for s in names}
-        for pair in pairs:
-            d = sample[pair[0]] - sample[pair[1]]
-            step = d - mean[pair]
-            mean[pair] += step / count
-            m2[pair] += step * (d - mean[pair])
-    se = {p: _sd(m2[p], rule.replicates) for p in pairs}
-    pair_t = {p: (delta[p] / se[p] if se[p] > SE_FLOOR else 0.0) for p in pairs}
-    t = {j: min(pair_t[j, base] for base in rule.baselines) for j in points}
-    null = []
-    for weights in _resamples(rule, k):
-        sample = {s: sum(w * n for w, n in zip(weights, series[s]) if w) / k for s in names}
-        row = array("d")
-        for j in points:
-            row.append(min(((sample[j] - sample[base] - mean[j, base]) / se[j, base]
-                            if se[j, base] > SE_FLOOR else 0.0) for base in rule.baselines))
-        null.append(row)
-
-    # Westfall-Young step-down max-T (one-sided); ties in T keep canonical grid order.
-    order = sorted(range(len(points)), key=lambda i: (-t[points[i]], i))
-    exceed = [0] * len(order)
-    for row in null:  # successive maxima from the bottom of the order
-        acc = -math.inf
-        for r in range(len(order) - 1, -1, -1):
-            acc = max(acc, row[order[r]])
-            if acc >= t[points[order[r]]]:
-                exceed[r] += 1
-    wy, running = {}, 0.0
-    for r, i in enumerate(order):
-        running = max(running, (1 + exceed[r]) / (rule.replicates + 1))
-        wy[points[i]] = running
-    marginal = {j: (1 + sum(1 for row in null if row[i] >= t[j])) / (rule.replicates + 1)
-                for i, j in enumerate(points)}
-    holm = _holm(marginal, points)
+    se, pair_t, t, wy, marginal, holm = _inference(_resamples, rule, series, names, points, delta, k)
+    _, _, block_t, block_wy, block_marginal, _ = _inference(_block_resamples, rule, series, names, points, delta, k)
 
     enough = k >= rule.min_clusters
     floor = rule.min_quoted_minutes_per_cluster * k
@@ -305,6 +345,8 @@ def evaluate(clusters: Mapping[str, Mapping], rule: DecisionRule = PROPOSED_RULE
             "t_vs_baseline": {base: pair_t[j, base] for base in rule.baselines},
             "min_delta_vs_baselines": worst, "t": t[j], "p_westfall_young": wy[j], "p_marginal": marginal[j],
             "p_holm_sensitivity": holm[j], "holm_significant_sensitivity": holm[j] <= rule.alpha,
+            "block_sensitivity": {"t": block_t[j], "p_westfall_young": block_wy[j],
+                                  "p_marginal": block_marginal[j]},
             "conditions": conditions})
     winner = max(passing, key=lambda j: (central[j], -points.index(j))) if passing else None
     reasons = []

@@ -159,16 +159,25 @@ class Schedule(NamedTuple):
     """One bundle day's band schedule, from its descriptor stream only."""
 
     event_days: dict  # kept condition_id -> event day
-    dropped: frozenset  # condition IDs dropped for a close in a refused window
+    dropped: dict  # dropped condition_id -> reason (EMBARGOED_CLOSE or CLOSED_BEFORE_DAY)
     horizons: dict  # condition_id -> horizon_days of its first descriptor that day
 
 
-def schedule(bundle, check, *, drop_embargoed=False) -> Schedule:
+EMBARGOED_CLOSE = "embargoed_close"
+CLOSED_BEFORE_DAY = "closed_before_day"
+
+
+def schedule(bundle, check, *, drop_embargoed=False, drop_closed_before_day=False) -> Schedule:
     """The day's band schedule from its **descriptor stream only** (``universe_v02.descriptors``).
 
-    Every close passes ``check``. With ``drop_embargoed`` a band whose close is refused is dropped instead of
-    refusing the run; nothing but its descriptors (schedule metadata) is read to decide it."""
-    out, dropped, horizons = {}, set(), {}
+    With ``drop_closed_before_day`` (scored mode) a band whose close is at or before the start of the bundle's
+    UTC day is dropped **before** its close is checked (``closed_before_day``): such a band (for example a
+    horizon -1 descriptor captured 10-17T00:00-04:00Z, local 10-16, target 10-15, close 10-16T04:00Z) can earn
+    nothing that day, and checking its close would refuse the whole scored run. Every other close passes
+    ``check``. With ``drop_embargoed`` (calibrate) a band whose close is refused is dropped instead of refusing
+    the run (``embargoed_close``). Nothing but descriptors (schedule metadata) is read to decide either."""
+    out, dropped, horizons = {}, {}, {}
+    day_start = datetime.combine(bundle.day, datetime.min.time(), tzinfo=timezone.utc)
     for record in universe_v02.descriptors(bundle):
         cid = record.condition_id
         if cid in dropped:
@@ -178,18 +187,22 @@ def schedule(bundle, check, *, drop_embargoed=False) -> Schedule:
             raise CliRefused("descriptor_stream_holds_other_value")
         horizons.setdefault(cid, value.horizon_days)
         close = value.market.close_at_utc
+        if drop_closed_before_day and close <= day_start:
+            dropped[cid] = CLOSED_BEFORE_DAY
+            out.pop(cid, None)
+            continue
         try:
             check(close)
         except embargo.EmbargoRefused:
             if not drop_embargoed:
                 raise
-            dropped.add(cid)
+            dropped[cid] = EMBARGOED_CLOSE
             out.pop(cid, None)
             continue
         day = decision.event_day(close)
         if out.setdefault(cid, day) != day:
             raise CliRefused("band_changes_event_day")
-    return Schedule(out, frozenset(dropped), horizons)
+    return Schedule(out, dict(sorted(dropped.items())), horizons)
 
 
 def drop_counts(schedules) -> dict:
@@ -268,6 +281,25 @@ def _cost(args, purpose, now, conditions=None):
     return provider, contexts, _sha256(raw)
 
 
+def cost_coverage(cost, contexts, rule, *, refuse: bool) -> dict | None:
+    """The fill-cost coverage of a run: decisions without a provider markout (which fall back to the 0.0043
+    floor) and kept bands queried on a day with no tape row at all. With ``refuse`` (score) a band without
+    rows refuses, and so does a share above ``rule.max_cost_unavailable_share``."""
+    if cost is None:
+        return None
+    missing, total = cost.unavailable()
+    share = missing / total if total else 0.0
+    holes = contexts.bands_without_rows() if contexts is not None else []
+    out = {"decisions": total, "cost_unavailable": missing, "cost_unavailable_share": share,
+           "max_cost_unavailable_share": rule.max_cost_unavailable_share,
+           "bands_without_tape_rows": [{"day": d, "condition_id": c} for d, c in holes]}
+    if refuse and holes:
+        raise CliRefused("cf_tape_band_without_rows: %s %s" % holes[0])
+    if refuse and share > rule.max_cost_unavailable_share:
+        raise CliRefused("cost_unavailable_share_above_bound")
+    return out
+
+
 def _write_create_only(out_dir: Path, report: dict, receipt: dict) -> None:
     out_dir.mkdir(parents=True, exist_ok=False)
     body = canonical_bytes(report)
@@ -330,11 +362,13 @@ def execute(args, *, clock=None) -> dict:
         raise CliRefused("score_has_no_intervals_panel")
     inventory, inventory_sha = read_inventory(args.inventory, [date.fromisoformat(b["day"]) for b in bundles])
     opened, sources, evaluation = open_sources(args.bundle, inventory, panel)
-    schedules = {b.day: schedule(b, check, drop_embargoed=mode != "scored") for b in opened}
+    schedules = {b.day: schedule(b, check, drop_embargoed=mode != "scored", drop_closed_before_day=mode == "scored")
+                 for b in opened}
     counts = drop_counts(schedules)
     if mode != "scored":
         refuse_fully_embargoed_horizons(counts)
-    dropped = sorted((day.isoformat(), cid) for day, plan in schedules.items() for cid in plan.dropped)
+    dropped = sorted((day.isoformat(), cid, reason) for day, plan in schedules.items()
+                     for cid, reason in plan.dropped.items())
     kept = frozenset(cid for plan in schedules.values() for cid in plan.event_days)
     cost, contexts, table_sha = _cost(args, purpose, now if mode == "scored" else None, kept)
     if mode == "scored" and cost is None:
@@ -348,9 +382,10 @@ def execute(args, *, clock=None) -> dict:
                                decision_rule_digest=rule.digest() if mode == "scored" else None)
     if not runs:
         raise CliRefused("no_bands")
+    coverage = cost_coverage(cost, contexts, rule, refuse=mode == "scored")
     verdict = decision.evaluate(runs, rule)
     label = "SCORED" if mode == "scored" else REHEARSAL_LABEL
-    embargoed = {"embargoed_bands": [{"day": d, "condition_id": c} for d, c in dropped],
+    embargoed = {"embargoed_bands": [{"day": d, "condition_id": c, "reason": r} for d, c, r in dropped],
                  "counts_by_day_and_horizon": counts}
     report = {"format": REPORT_FORMAT, "command": args.command, "label": label,
               "note": None if mode == "scored" else REHEARSAL_NOTE, "authority": "none", "decision": verdict,
@@ -364,7 +399,7 @@ def execute(args, *, clock=None) -> dict:
                            "note": "a capture day holds horizon-1 (event T) and horizon-2 (event T+1) bands"}}
     receipt = {
         "format": RECEIPT_FORMAT, "command": args.command, "label": label, "note": report["note"],
-        "clock_utc": now.isoformat(), "embargo": embargoed,
+        "clock_utc": now.isoformat(), "embargo": embargoed, "cost_coverage": coverage,
         "code": {"commit": args.code_commit,
                  "modules": {m.__name__: _sha256(Path(m.__file__).read_bytes()) for m in CODE_MODULES}},
         "inputs": {"bundles": bundles, "re1": decay_sources, "inventory_sha256": inventory_sha,
