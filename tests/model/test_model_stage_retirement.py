@@ -21,7 +21,10 @@ from weather.model_stage_retirement import (
     verify_stage_retirement_register,
     write_stage_retirement_register,
 )
-from weather.paths import REPO_ROOT
+
+# The checkout under test, anchored on this file: never the process CWD or an
+# installed (editable) package that may point at another checkout.
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 CANDIDATE_ID = "residual_distribution_v1"
