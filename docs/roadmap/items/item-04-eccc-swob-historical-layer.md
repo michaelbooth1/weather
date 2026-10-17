@@ -31,6 +31,10 @@ Detailed design (implemented 2026-05-28):
   proxy should use the maximum of observed air temperature and SWOB rolling
   one-hour max for same-day scoring, while retaining 6-hour and 24-hour maxima
   for diagnostics.
+  Its observation times (and those in `comparison_rows.csv`) are ISO 8601 local
+  times with a UTC offset since owner decision SWOB-a (2026-10-07); older files
+  keep bare `HH:MM` and still parse. The format contract is owned by
+  [maker core contracts](../../operations/maker-core-contracts.md).
 - Compare SWOB daily maxima with WU final daily highs by date and target-season
   window. Report bias, absolute error, bucket agreement, exceeds/misses, and
   lead timing: the first SWOB observation or rolling max at or above the WU

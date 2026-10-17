@@ -51,6 +51,11 @@ SCRIPT_INVENTORY = {
         "smoke": "compile_main_guard",
         "notes": "Historical local input-importance audit; durable outputs feed items 134-138.",
     },
+    "maker_clock_trigger_disclosure.py": {
+        "status": "fixture-only",
+        "smoke": "compile_main_guard",
+        "notes": "Read-only disclosure count for the maker clock supporting-trigger fix; refuses the reserved window.",
+    },
     "nyc_audit.py": {
         "status": "retired",
         "smoke": "help",

@@ -7,6 +7,7 @@ from datetime import date
 from pathlib import Path
 from weather.reporting.source_gates.source_redundancy import (  # noqa: E402
     build_payload,
+    earliest_minute,
     forecast_ensemble_features,
     supplemental_source_key,
     truth_csv_rows,
@@ -141,6 +142,41 @@ class TestSourceRedundancy(unittest.TestCase):
         self.assertAlmostEqual(market["source_bias_vs_wu"]["ghcnh"]["mean_peak_time_lead_minutes"], -60.0)
         commands = market["gap_fill"]["refetch_commands"]
         self.assertTrue(any(command["source"] == "wu" and command["start"] == "2026-06-02" for command in commands))
+
+    def test_swob_peak_minute_is_identical_for_old_hhmm_and_new_iso_daily_times(self):
+        """Owner decision SWOB-a (2026-10-07): the SWOB backfill daily CSV now writes ISO 8601 with a UTC
+        offset. An old (HH:MM) file on disk and a new (ISO) file give the same peak minute and lead."""
+        results = []
+        for times in ("16:30|14:00", "2026-06-01T16:30:00-04:00|2026-06-01T14:00:00-04:00"):
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                roots = {name: root / name for name in ("wu", "metar", "swob", "ghcnh", "reanalysis")}
+                (root / "snapshots").mkdir()
+                write_daily(roots["wu"], "cyyz", [
+                    {"local_date": "2026-06-01", "max_temp": 20.0, "max_temp_bucket": 20, "max_temp_times": "15:00"},
+                ])
+                write_daily(roots["swob"], "cyyz", [
+                    {"local_date": "2026-06-01", "max_temp": 21.0, "max_temp_bucket": 21, "max_temp_times": times},
+                ])
+                payload = build_payload(market_ids=["toronto"], start_date=date(2026, 6, 1),
+                                        end_date=date(2026, 6, 1), source_roots=roots,
+                                        snapshots_root=root / "snapshots")
+            market = payload["markets"]["toronto"]
+            results.append((market["daily_truth"][0]["source_values"]["swob"]["peak_minute"],
+                            market["source_bias_vs_wu"]["swob"]["mean_peak_time_lead_minutes"]))
+        self.assertEqual(results[0], results[1])
+        self.assertEqual(results[0], (14 * 60, -60.0))
+
+    def test_earliest_minute_keeps_the_legacy_parse_and_reads_only_aware_iso(self):
+        for text, expected in [
+            ("15:00", 900), ("15:00|09:05", 545), ("", None), (None, None), ("garbage", None),
+            ("15:00:59", 900), ("7:5", 425), ("2026-06-01T15:00:00-04:00", 900),
+            ("2026-11-01T01:30:00-05:00|2026-11-01T01:30:00-04:00", 90),
+            ("2026-06-01T15:00:00-04:00|14:10", 850),
+            ("2026-06-01T15:00:00", None),  # A naive ISO part is still skipped, never guessed.
+            ("2026-06-01T15:00:00Z", 900),
+        ]:
+            self.assertEqual(earliest_minute(text), expected, text)
 
     def test_daily_truth_includes_toronto_swob_and_consensus_high(self):
         with tempfile.TemporaryDirectory() as tmp:

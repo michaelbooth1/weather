@@ -60,6 +60,7 @@ right now is the generated `data/alerts/MORNING_BRIEFING.md` and `scripts\ops\st
 | [package-boundaries.md](package-boundaries.md) | Adding an import across packages. |
 | [PYTHON_RUNTIME_AUDIT_GATE.md](PYTHON_RUNTIME_AUDIT_GATE.md) | Running or changing the focused runtime lint, daily-refresh smoke, Streamlit-route smoke or log-signature checks. Its tracked baseline is [python-runtime-audit-baseline.json](python-runtime-audit-baseline.json). |
 | [RESEARCH_AUDIT_HARNESS.md](RESEARCH_AUDIT_HARNESS.md) | Running a research audit script; distinguishes fixture-only from networked entrypoints. |
+| [t1-fair-value-scoring.md](t1-fair-value-scoring.md) | Reviewing or executing the frozen T+1/T+2 reliability scorer on sealed replay bundles. |
 
 The root `README.md`, `pyproject.toml`, `pytest.ini` and `.github/workflows/ci.yml` are the
 authoritative setup and baseline-test surfaces; [`../development.md`](../development.md) owns
@@ -120,6 +121,7 @@ contract and a reviewed cleanup manifest.
 | [forward-plan-2026-09-23.md](forward-plan-2026-09-23.md) | Choosing the next mission or checking work against the owner's two-pillar strategy. |
 | [informed-maker-design-2026-09-25.md](informed-maker-design-2026-09-25.md) | Building or reviewing maker code, a domain plugin (weather, YouTube) or the replay harness. |
 | [maker-core-contracts.md](maker-core-contracts.md) | Implementing the v0.1 domain-neutral plugin API, conformance, pure proposals or journals. |
+| [maker-shadow-runner-design.md](maker-shadow-runner-design.md) | Designing the workstation public-read-only shadow runner, quotes tape, nightly scoring, replay agreement and drills; proposed, not run authority. |
 | [DATA_LAYER_V2_PLAN.md](DATA_LAYER_V2_PLAN.md) | Adding or changing any capture family, sizing its RAM/disk/request budget, or landing a v2 build step (S0-S16); its §9 holds the open owner questions. |
 | [DATA_LAYER_V2_CONTRACT.md](DATA_LAYER_V2_CONTRACT.md) | Adding or changing a capture closure, evidence-family row, storage-pending row or embargo reference in the `platform` block of `config/capture_families.json`. |
 | [free-registration-signup-list.md](free-registration-signup-list.md) | Adding a source that needs a free registration key, or checking where such a key may live (never in git). |

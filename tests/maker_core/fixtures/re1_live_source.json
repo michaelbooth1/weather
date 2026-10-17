@@ -1,0 +1,31 @@
+{
+  "source_commit": "2b9a0ca9e586d510b4aa879fad8f0e7331cfe2c8",
+  "branch": "codex/re1-wallet-200-20260923",
+  "files": {
+    "src/weather/market/re1_attended.py": {
+      "sha256": "48be54230afef7542825083a6a25a28f5be32b0b0528b7a21c897af917420a73",
+      "functions": {
+        "observe": {
+          "first": 75,
+          "last": 129
+        },
+        "replacement_price": {
+          "first": 132,
+          "last": 134
+        }
+      }
+    },
+    "src/weather/market/re1_transport.py": {
+      "sha256": "f10818f27d8bfd58b4b4e6b1ba51d3b7757e220f0ba6e1e39a7502ddf2691170"
+    },
+    "src/weather/market/re1_resilience.py": {
+      "sha256": "19a480e718cb5c73a426b3994f9dcb20af46663a476715ca9f731685a9e90840"
+    },
+    "src/weather/market/re1_sizing.py": {
+      "sha256": "bfa5cddc39422e52ed10cc0139f806fb1abc65b97686f9845883cf8308d78f9c"
+    },
+    "src/weather/market/reward_quote.py": {
+      "sha256": "05b87de1412856c55d7ea7f6dec9aacb5e4f0bb2a87fb51581bb9efda1245e49"
+    }
+  }
+}

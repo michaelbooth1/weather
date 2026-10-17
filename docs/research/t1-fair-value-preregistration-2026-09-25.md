@@ -1,0 +1,203 @@
+# T+1/T+2 weather maker fair-value pre-registration
+
+Frozen specification for handoff 110b. This file is committed before any real
+inputs are read. Implementation and verification use synthetic fixtures only.
+This is not a model-panel candidate, a promotion request, or an edge claim.
+
+## Inputs and fixed estimator
+
+Use local target-date leads one and two for registered markets. Admit only
+records captured at or before the query, with issue time no later than capture.
+Select the newest complete retained NBP issue with a unique target maximum:
+the parser-v2 00Z-valid token whose 12-hour-prior start and valid instant both
+fall on the target local date. Vendor the selector from parser integration
+`abd648c7c`; no runtime dependency on that branch. Missing sentinels, ambiguous
+slots, unknown station geography, reversed or repeated percentile knots, and
+conflicting records at the same issue time are unavailable, never repaired.
+
+Interpolate a CDF through p10/p25/p50/p75/p90. Extend the first and last
+segments linearly to probabilities zero and one and clamp beyond those tails.
+Integrate integer native-unit bands at half-degree boundaries: lte includes
+everything below value+0.5; gte includes everything above value-0.5; bounded
+bands include [value-0.5, value_hi+0.5]. Require a complete nonoverlapping event
+partition, then renormalise across siblings. NBP mainland values are Fahrenheit;
+no unknown-station or unverified Celsius NBP support is implied.
+
+Probability-unit stdev is exactly sqrt(p*(1-p))*(bulletin_age_hours/24+0.25).
+An exactly zero/one marginal is Unavailable because contracts v0.1 requires
+strictly positive stdev; no hidden epsilon changes this formula.
+Expected NBP availability is the 01/07/13/19Z cycle instant plus a fixed one-hour
+publication allowance, an engineering assumption, not measured latency.
+Expiry is the next such availability after issue, capped at issue+24 hours.
+Already expired issues are not revived by a late fetch.
+
+Fallback is only a captured daily_high forecast_high_c row with provider issue
+evidence and local issue-date lead one, target matching the requested event.
+The legacy _c field is native-unit. Use a Normal CDF with fixed climatological
+spread 2 C / 3.6 F. Source: the explicit zero-fit engineering prior in this
+pre-registration; it is not an estimated climatological error or a retained
+measured finding. This limitation must accompany results. No fitted parameter,
+source averaging, T+2 substitution, or market-price input is permitted.
+Fallback expires at provider issue+24 hours; use the same age-based probability
+stdev. Every fair-value result has calibration_grade="none".
+
+T+0 is separate: read long-row model_probability with matched snapshot identity,
+source-row release lineage and explanation sidecar; expose the captured
+afternoon_residual_centering context in provenance/model identity. Never
+recompute. Expiry is original snapshot capture+15 minutes. Missing release or
+stage evidence is unavailable. T+0 is excluded from this scoring protocol.
+
+## Frozen evaluation, after the panel closes
+
+Score once after 2026-10-08 on panel-B-aligned target dates 2026-09-25 through
+2026-10-08 inclusive, only against captured 88a T+1/T+2 two-sided mids and
+reconciled settlements. No production input is authorized by this document.
+First require the production agent's bounded hashed export and verify its
+capture/issue/target/settlement identities. Record export hashes and code tip.
+Do not replace missing dates, fill gaps, or retrospectively query providers.
+
+Use the first complete captured minute in each UTC hour per event/lead;
+compute paired mean band Brier difference (provider minus contemporaneous mid),
+then average hours within market-day before equally weighting market-days.
+Report lead one and lead two separately, NBP and fallback separately, and a
+predefined pooled descriptive table. Expect Brier to be worse than market mid.
+Report coverage, exclusions by reason, date clusters, market clusters and
+market-days; unavailable estimates never become 0.5 or zero losses.
+
+Reliability uses fixed bins [0,.1), ... [.9,1], reporting count, mean probability,
+observed YES frequency and mean declared stdev. Report paired Brier and
+reliability uncertainty with 10,000 fixed-seed (110b interpreted as integer 110)
+crossed date x market bootstrap replicates: independently resample dates and
+markets and multiply their multiplicities. Give two-sided 90% percentile
+intervals and date-only sensitivity. Report UNDERPOWERED if either cluster
+dimension has fewer than ten unique clusters. No significance/promotion gate,
+alpha spend, repeated looks, centre-skew selection, or live authorization.
+Report detectable-effect/power limitations; an interval crossing zero is not
+evidence of an improvement. Any estimator or scoring change requires a dated
+amendment before reading results, never an edit of this frozen specification.
+
+## Clarification 1 — 2026-09-25, handoff 110c (before scoring)
+
+The no-market-input claim applies to the T+1/T+2 NBP and PIT fallback estimators
+in this frozen scoring protocol. It is not a blanket claim about served T+0
+releases: `market_shrink` calibration can include market prices. The T+0 adapter
+now requires the release's calibration method, bound to the same verified release
+ID/manifest as the snapshot, records it in `model_id` and `inputs_hash`, and returns
+`Unavailable(kind="out_of_scope", reason="market_informed_release")` for
+`market_shrink`. Missing or ambiguous method evidence remains unavailable; do not
+assume identity. The bounded export must supply `release_calibration_method` on
+each matching source row from that release's probability-calibration artifact
+(`market_bin.method`); this is an export projection, not an existing capture field.
+No artifact, release, or production row was read to make this clarification.
+
+The additive pre-tag contract now represents an exactly decided marginal with
+`stdev=0` when p is 0 or 1. The frozen stdev formula is unchanged; these cases no
+longer require `Unavailable`, and no epsilon is introduced. Weather descriptors
+declare `group_relation="partition"`. Scheduled METAR pulls retain the -3/+10
+minute window; scheduled model events expire at issue/availability +10 minutes,
+detected bulletin arrivals at fetch +10 minutes. New-high pulls retain their
+existing lifetime pending fresh evidence; determined-band vetoes remain permanent. Core safety and
+freshness checks still govern re-entry. These are fixture-verified interface and
+clock repairs, not a scored estimator change, new panel, or live authority.
+
+## Amendment 1 — 2026-10-01, mission 111k (before scoring, owner decision)
+
+Owner decision (DECISION_LOG 2026-10-01): non-increasing percentile knots are a
+defect to fix, not to exclude. Traced on a tracked public bulletin (KAUS
+2026-09-17 01Z, `tests/fixtures/nbm_target_fix`): NBP prints whole degrees, so
+adjacent percentiles of a narrow forecast round to the same value (P75 = P90 =
+100 F). Of the 396 complete 00Z columns in the 44 tracked bulletins, 60 tie and
+none decrease. Tied knots are therefore read as atoms of the same piecewise-linear
+CDF (the reading 79a used): the CDF jumps at a tied knot, and a tied first or last
+segment is vertical, so that tail's mass sits on the atom. Band edges are half
+degrees and NBP knots whole degrees, so no edge meets an atom. Strictly increasing
+knots give exactly the values above and keep `model_id` `nbp-v2-piecewise-linear`;
+any tie is labelled `nbp-v2-piecewise-linear-atoms`. A decreasing knot remains
+unavailable (`decreasing_percentile_knots`). "Repeated percentile knots ... are
+unavailable" above is superseded by this amendment; nothing else changes, and no
+result was read before it.
+
+## Amendment 2 — 2026-10-01, mission 111l (before any panel export, owner decision)
+
+Owner decision 2026-10-01 (option A of the 111l review). Motivation: the
+2026-10-01 review of Amendment 1 found a structural rounding artefact; no
+export, score or result was read. When the first or last pair of knots ties
+(KAUS 2026-09-17 01Z: P75 = P90 = 100 F), Amendment 1 makes that end segment
+vertical, so the open tail band is exactly 0 (its complement exactly 1). NBP
+prints whole degrees, so a printed P90 of 100 means the true P90 lies in
+[99.5, 100.5) and the mass above 100.5 is not 0. Clarification 1 turns a 0/1
+marginal into `stdev=0`, which `informed_v0` reads as a veto.
+
+Estimator rule: a tied end pair is read as one degree apart, the print
+resolution. Its outer segment uses the frozen 0.15-per-degree slope
+(P75 -> P90 at the top, P10 -> P25 at the bottom): above p90 the CDF is
+0.90 + 0.15 * (x - p90), below p10 it is 0.10 - 0.15 * (p10 - x), clamped to
+[0, 1]. The tail therefore reaches 2/3 degree beyond the knot (KAUS 01Z:
+>=101 F = 0.025, >=102 F = 0). Interior atoms are unchanged. If every knot ties
+the read is unavailable (`degenerate_percentile_knots`), never repaired.
+
+Strictly increasing knots are unchanged: they give exactly the frozen values
+above and keep `model_id` `nbp-v2-piecewise-linear`. Their exact 0/1 bands beyond
+the linear extension's support also remain, as frozen behaviour; this amendment
+does not change them. Ties only inside the curve keep the Amendment 1 values and
+`nbp-v2-piecewise-linear-atoms`. A read whose first or last pair ties is labelled
+`nbp-v2-piecewise-linear-atoms-resolution-tails`.
+
+Scoring: tied reads must be scored, not silently dropped as an unknown model. The
+T+1 scorer accepts both tied identities and reports each as its own stratum,
+per lead, beside the plain-NBP and fallback strata: `nbp_atoms` for
+`-atoms` and `nbp_resolution_tails` for `-atoms-resolution-tails`. They are never
+pooled into the primary NBP strata or into the pooled descriptive table, which
+keeps exactly its frozen membership (plain NBP and fallback). An event still
+uses one estimator for all its bands. Nothing else changes.
+
+## Amendment 3 — 2026-10-02 (before scoring, owner decision; reported-only breakdown)
+
+Owner decision 2026-10-02 (DECISION_LOG). Written before scoring: no export,
+bundle, 88a record, settlement, fair value or score was read to write it. It adds
+one **reported-only** breakdown of the single 2026-10-15 read. It changes no
+estimator, estimand, panel, target dates, sampling rule, stratum, bootstrap,
+interval, threshold, status rule or decision rule above, and it authorizes no
+earlier or repeated look.
+
+Breakdown: assign each scored event-hour in `report.json` `selected_hours[]` to a
+bucket of minutes since the latest GFS availability, separately since the latest
+ECMWF availability, and separately since the latest of the two, using that row's
+`captured_at`. Buckets: [0, 60), [60, 120), [120, 240), [240, 360] minutes.
+Availability anchors are fixed engineering assumptions, not measured latency:
+
+- GFS: cycle 00/06/12/18Z + 210 minutes (the `nwp_release_cycles` default in
+  `src/weather/market/info_event_calendar.py`), i.e. 03:30, 09:30, 15:30, 21:30 UTC.
+- ECMWF IFS open data: cycle + 7 h 40 min, i.e. 07:40, 13:40, 19:40, 01:40 UTC.
+  Source: ECMWF's published real-time dissemination schedule (read 2026-10-02)
+  ends the 00Z/12Z medium-range control run at 07:34/19:34 UTC, and open data is
+  released at the end of that schedule; 06Z/18Z are given the same offset by
+  assumption. Any Open-Meteo ingestion lag is not included.
+
+Per lead and per bucket, report the paired provider-minus-mid Brier difference
+with exactly the frozen aggregation (bands, then hours within market-day, then
+market-days equally weighted), the frozen crossed date x market bootstrap
+(10,000 replicates, seed 110, two-sided 90% percentile intervals), the date-only
+sensitivity, cluster and event-hour counts, and the frozen `UNDERPOWERED` rule
+per cell. Membership is the frozen pooled descriptive table's (plain NBP and
+fallback); the tied-read strata are not broken down. No bucket is primary, none
+is compared against a threshold, and no difference between buckets is a finding
+or a selection rule for pull windows.
+
+Interpretation constraint, binding on the report: the plugin fair value updates
+only on NBM cycles (01/07/13/19Z, available by the frozen +1 h assumption at
+02:00, 08:00, 14:00 and 20:00 UTC), never on GFS or ECMWF. Disagreement between
+fair value and mid therefore changes at NBM times **by construction**, and the
+ECMWF anchors sit 20 minutes before NBM availability, so the ECMWF and "latest of
+either" breakdowns cannot separate an ECMWF effect from an NBM step. A bucket
+pattern here is not evidence about NWP-driven market moves; the market-only
+question is pre-registered separately in
+`docs/research/t12-nwp-timing-market-only-preregistration-2026-10-02.md`
+(branch `codex/t12-nwp-timing-prereg-20261002`).
+
+Execution: computed after the frozen scorer from its unchanged `report.json`
+(the scorer and its tables are untouched). If the reviewed post-processing step
+is not committed before the read, the breakdown is reported as not computed;
+it never delays, repeats or alters the frozen read. Note: the scorer records this
+file's SHA-256 from the scoring checkout, so the recorded hash reflects whether
+that checkout contains this amendment.

@@ -1,0 +1,57 @@
+{
+ "book_records": 66300,
+ "book_rows_per_minute": 2,
+ "engine": {
+  "decision_sha256": "a2010e7614595e77f8e8cc8986514a9897aab2e7262e6ceda9a0913cfd707d3a",
+  "decisions": 70645,
+  "exclusions": {},
+  "exclusions_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "fill_bound": "strictly_through",
+  "fills": 0,
+  "final_cash": "100.000000",
+  "instants": 69413,
+  "intervals": 54257,
+  "policy": "informed-v0",
+  "stale_timers": 132949,
+  "timer_pops": 286991,
+  "wakes": 70765
+ },
+ "fixture": {
+  "coverage_groups": 12,
+  "events": 32,
+  "instantaneous_max": 93,
+  "instantaneous_mean": 92.6,
+  "instantaneous_min": 85,
+  "local_midnight_utc": {
+   "city00": "2026-09-27T04:00:00+00:00",
+   "city01": "2026-09-27T05:00:00+00:00",
+   "city02": "2026-09-27T06:00:00+00:00",
+   "city03": "2026-09-27T07:00:00+00:00",
+   "city04": "2026-09-27T04:00:00+00:00",
+   "city05": "2026-09-27T03:00:00+00:00",
+   "city06": "2026-09-27T23:00:00+00:00",
+   "city07": "2026-09-27T22:00:00+00:00"
+  },
+  "t1_t2_share": 0.6702,
+  "union": 120
+ },
+ "fixture_build_seconds": 17.0,
+ "measurement": "S3",
+ "microseconds_per_wake": 85.3,
+ "minutes": 360,
+ "pass_seconds": [
+  6.379,
+  6.036,
+  6.118
+ ],
+ "pass_seconds_min": 6.036,
+ "process_peak_working_set_bytes": 1390051328,
+ "process_working_set_bytes": 1366020096,
+ "records": 176517,
+ "status": "MEASURED",
+ "traced_peak_bytes_per_pass": 11097126,
+ "trades": 2000,
+ "union": 120,
+ "view_cadence": "real",
+ "wakes_per_band_minute": 2.123
+}
