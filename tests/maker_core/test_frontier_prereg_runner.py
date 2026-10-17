@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from maker_core.frontier import prereg, runner
-from maker_core.frontier.grid import GRID, GRID_HASH
+from maker_core.frontier.grid import BASELINES, GRID, GRID_HASH
 from maker_core.frontier.prereg import PreregRefused, registration_hash, verify
 from maker_core.frontier.seams import (
     CONSTANT_ADVERSE_MARKOUT, ConstantFillCost, FillCostProvider, FillModel, PricePathFillModel, QueueFillModel,
@@ -23,6 +23,8 @@ from .fixtures.replay_scenario import Scenario
 
 DRAFT = Path(__file__).parents[2] / "docs" / "research" / "informed-v1-frontier-preregistration-DRAFT-2026-10-16.md"
 DECAY = DecayModel(5.0, 5.0, 20.0, ())
+FILL = "v2-strictly_through"
+BOUND = dict(decay_digest=DECAY.digest(), fill_model_name=FILL)
 DAY = date(2027, 2, 1)
 NOW = datetime(2027, 2, 1, tzinfo=timezone.utc)
 
@@ -38,8 +40,9 @@ def source(tmp_path, name="b", minutes=8):
     return bundle_source(s.bundle(tmp_path / name))
 
 
-def document(signed="Michael Booth, 2027-01-31", grid=GRID_HASH):
-    return ("# informed-v1 frontier preregistration\n\nGrid hash: `%s`\n\nSigned: %s\n" % (grid, signed)).encode()
+def document(signed="Michael Booth, 2027-01-31", grid=GRID_HASH, decay=None, fill=FILL):
+    return ("# informed-v1 frontier preregistration\n\nGrid hash: `%s`\n\nDecay digest: `%s`\n\nFill model: `%s`\n\n"
+            "Signed: %s\n" % (grid, decay or DECAY.digest(), fill, signed)).encode()
 
 
 # -- the registration gate ------------------------------------------------------------------------------
@@ -53,9 +56,10 @@ def test_the_unsigned_draft_cannot_score_even_if_its_hash_were_pinned(monkeypatc
     draft = DRAFT.read_bytes()
     assert b"Signed: UNSIGNED" in draft
     assert ("Grid hash: `%s`" % GRID_HASH).encode() in draft
+    assert prereg._DECAY.findall(draft.decode()) and prereg._FILL.findall(draft.decode()) == [FILL]
     monkeypatch.setattr(prereg, "SIGNED_PREREGISTRATION_SHA256", registration_hash(draft))
     with pytest.raises(PreregRefused, match="preregistration_unsigned"):
-        verify(draft)
+        verify(draft, **BOUND)
 
 
 @pytest.mark.parametrize("doc,reason", [
@@ -65,7 +69,7 @@ def test_the_unsigned_draft_cannot_score_even_if_its_hash_were_pinned(monkeypatc
 def test_a_document_must_match_the_pin(monkeypatch, doc, reason):
     monkeypatch.setattr(prereg, "SIGNED_PREREGISTRATION_SHA256", registration_hash(document()))
     with pytest.raises(PreregRefused, match=reason):
-        verify(doc)
+        verify(doc, **BOUND)
 
 
 @pytest.mark.parametrize("doc,reason", [
@@ -74,18 +78,41 @@ def test_a_document_must_match_the_pin(monkeypatch, doc, reason):
     (document() + b"Signed: a second line\n", "preregistration_unsigned"),
     (document(grid="0" * 64), "grid_hash_mismatch"),
     (document().replace(b"Grid hash", b"Grid digest"), "grid_hash_mismatch"),
+    (document(decay="0" * 64), "decay_digest_mismatch"),
+    (document().replace(b"Decay digest", b"Decay hash"), "decay_digest_mismatch"),
+    (document(fill="v2-at_price"), "fill_model_mismatch"),
+    (document().replace(b"Fill model", b"Fill rule"), "fill_model_mismatch"),
+    (document() + b"Fill model: v2-at_price\n", "fill_model_mismatch"),
 ])
-def test_signature_and_grid_hash_are_required(monkeypatch, doc, reason):
+def test_signature_grid_decay_and_fill_model_are_required(monkeypatch, doc, reason):
     monkeypatch.setattr(prereg, "SIGNED_PREREGISTRATION_SHA256", registration_hash(doc))
     with pytest.raises(PreregRefused, match=reason):
-        verify(doc)
+        verify(doc, **BOUND)
 
 
-def test_a_pinned_signed_registration_scores_outside_the_windows(tmp_path, monkeypatch):
+def test_a_pinned_signed_registration_scores_the_whole_grid_outside_the_windows(tmp_path, monkeypatch):
     doc = document()
     monkeypatch.setattr(prereg, "SIGNED_PREREGISTRATION_SHA256", registration_hash(doc))
-    result = runner.run([source(tmp_path)], decay=DECAY, mode="scored", registration=doc, points=GRID[:4])
+    result = runner.run([source(tmp_path)], decay=DECAY, mode="scored", registration=doc,
+                        points=tuple(reversed(GRID)))
     assert result["label"] == "SCORED" and result["registration_sha256"] == registration_hash(doc)
+    assert set(result["strategies"]) == {p.label for p in GRID} | set(BASELINES)
+
+
+@pytest.mark.parametrize("kwargs,reason", [
+    (dict(points=GRID[:4]), "scored_requires_full_grid"),
+    (dict(points=GRID + GRID[:1]), "scored_requires_full_grid"),
+    (dict(baselines=("no-quote", "blind_re1")), "scored_requires_all_baselines"),
+    (dict(decay=DecayModel(5.0, 5.0, 11.0, ())), "decay_digest_mismatch"),
+    (dict(fill_model=PricePathFillModel("at_price")), "fill_model_mismatch"),
+])
+def test_a_scored_run_must_match_what_was_signed(tmp_path, monkeypatch, kwargs, reason):
+    doc = document()
+    monkeypatch.setattr(prereg, "SIGNED_PREREGISTRATION_SHA256", registration_hash(doc))
+    arguments = dict(decay=DECAY, mode="scored", registration=doc)
+    arguments.update(kwargs)
+    with pytest.raises((PreregRefused, runner.FrontierRefused), match=reason):
+        runner.run([source(tmp_path)], **arguments)
 
 
 def test_descriptive_read_is_labelled_and_needs_no_registration(tmp_path):
@@ -102,6 +129,8 @@ def test_unknown_mode_baseline_or_missing_decay_are_refused(tmp_path):
         runner.run([src], decay=DECAY, baselines=("informed-v1",))
     with pytest.raises(runner.FrontierRefused, match="decay_model_required"):
         runner.run([src], decay=None)
+    with pytest.raises(runner.FrontierRefused, match="context_builder_required"):
+        runner.run([src], decay=DECAY, cost_provider=Provider(Estimate(.02)))
 
 
 # -- runner behaviour -----------------------------------------------------------------------------------
@@ -120,6 +149,21 @@ def test_hold_and_resting_sell_inventory(tmp_path):
     assert sell["exit_pnl"] == D("0.20") and sell["settlement_pnl"] == 0    # offered at 0.51, sold at 0.55
     assert hold["adverse_cost"] == pytest.approx(10 * CONSTANT_ADVERSE_MARKOUT)
     assert hold["reward"] == sell["reward"]
+
+
+def test_a_quote_is_not_fillable_after_its_hold_lapses(tmp_path):
+    def held(trade_second):
+        s = Scenario(day=DAY, minutes=8)
+        for market in s.markets:
+            s.book(market, 0)  # one book only: the quote lapses HOLD_SECONDS after it
+        s.trade("a", trade_second, price=".40", size="10")
+        s.settle("a", 450, p=0)
+        out = runner.run([bundle_source(s.bundle(tmp_path / str(trade_second)))], decay=DECAY, points=GRID[:1],
+                         baselines=())["strategies"]
+        return out[GRID[0].label]
+    assert held(runner.HOLD_SECONDS - 20)["filled_shares"] == 10
+    late = held(runner.HOLD_SECONDS + 5)
+    assert late["filled_shares"] == 0 and late["quoted_seconds"] == runner.HOLD_SECONDS
 
 
 def test_quotes_are_symmetric_about_the_mid_with_no_skew():
@@ -223,10 +267,33 @@ def test_injected_cost_provider_reaches_every_strategy(tmp_path):
         contexts.append(context)
         return context
 
-    strict = runner.run([src], decay=DECAY, points=GRID[:1], baselines=(), cost_provider=Provider(Estimate(.02)),
-                        context_builder=builder)["strategies"]
+    result = runner.run([src], decay=DECAY, points=GRID[:1], baselines=(), cost_provider=Provider(Estimate(.02)),
+                        context_builder=builder)
+    strict = result["strategies"]
     assert strict[GRID[0].label]["adverse_cost"] == pytest.approx(10 * .02)
+    assert strict[GRID[0].label]["cost_unavailable"] == 0
+    assert result["cost_provider"].endswith(".Provider")
     assert contexts and set(contexts[0]) == {"condition_id", "at", "band", "strategy"}
     vetoed = runner.run([src], decay=DECAY, points=GRID[:1], baselines=("blind_re1",),
-                        cost_provider=Provider(Estimate(.02, "SWEEP")))["strategies"]
+                        cost_provider=Provider(Estimate(.02, "SWEEP")), context_builder=builder)["strategies"]
     assert all(v["quotes"] == 0 and v["vetoes"] > 0 for v in vetoed.values())
+
+
+class UnavailableProvider:
+    """Like build 2 returning Unavailable: an object with no markout."""
+
+    def estimate(self, context):
+        return object()
+
+
+def test_an_unavailable_cost_estimate_is_counted_not_silent(tmp_path):
+    src = source(tmp_path)
+    fallback = runner.run([src], decay=DECAY, points=GRID[:1], baselines=(), cost_provider=UnavailableProvider(),
+                          context_builder=lambda **c: c)
+    totals = fallback["strategies"][GRID[0].label]
+    assert totals["cost_unavailable"] > 0
+    assert totals["adverse_cost"] == pytest.approx(10 * CONSTANT_ADVERSE_MARKOUT)
+    assert fallback["cost_provider"].endswith(".UnavailableProvider")
+    constant = runner.run([src], decay=DECAY, points=GRID[:1], baselines=())
+    assert constant["strategies"][GRID[0].label]["cost_unavailable"] > 0
+    assert constant["cost_provider"] == "maker_core.frontier.seams.ConstantFillCost"

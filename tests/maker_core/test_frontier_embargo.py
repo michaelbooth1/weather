@@ -117,6 +117,24 @@ def test_runner_refuses_embargoed_days(tmp_path, mode, day, reason):
         frontier_runner.run([_source(tmp_path, day)], decay=DECAY, mode=mode)
 
 
+@pytest.mark.parametrize("day,reason", [(date(2026, 10, 1), "reserved_window"), (date(2026, 11, 13), "shadow_embargo"),
+                                        (date(2026, 10, 20), "shadow_embargo")])
+def test_a_signed_scored_read_is_still_refused_on_embargoed_days(tmp_path, monkeypatch, day, reason):
+    """The registration gate passes here (pinned, signed, matching), so the refusal is the embargo's."""
+    from maker_core.frontier import prereg
+    from maker_core.frontier.grid import GRID_HASH
+    doc = ("Grid hash: `%s`
+Decay digest: `%s`
+Fill model: `v2-strictly_through`
+Signed: Owner, 2026-11-01
+"
+           % (GRID_HASH, DECAY.digest())).encode()
+    monkeypatch.setattr(prereg, "SIGNED_PREREGISTRATION_SHA256", prereg.registration_hash(doc))
+    assert prereg.verify(doc, decay_digest=DECAY.digest(), fill_model_name="v2-strictly_through")
+    with pytest.raises(EmbargoRefused, match=reason):
+        frontier_runner.run([_source(tmp_path, day)], decay=DECAY, mode="scored", registration=doc)
+
+
 def test_runner_refuses_a_market_whose_close_falls_in_the_window(tmp_path):
     # Day 09-28 is allowed, but Scenario markets close two days later, on 09-30.
     with pytest.raises(EmbargoRefused, match="reserved_window"):

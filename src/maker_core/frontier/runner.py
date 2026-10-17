@@ -8,7 +8,8 @@ Modes:
 
 - ``descriptive``: needs no registration. Its result is labelled DESCRIPTIVE. It is bounds-only by
   construction, and its numbers are not a P&L sign test (established findings §10r).
-- ``scored``: refused unless ``prereg.verify`` accepts the registration document. Both modes pass the date
+- ``scored``: refused unless it covers the whole grid and every baseline, and ``prereg.verify`` accepts
+  the registration document for this run's decay digest and fill model. Both modes pass the date
   embargo on the day, the condition windows, every instant, every trade time, every market close and
   settle time, and every settlement.
 
@@ -21,7 +22,9 @@ that band, and for at most ``HOLD_SECONDS``.
 - **Fills** come from the injected ``FillModel``. The first fill ends quoting on that band-day for every
   strategy.
 - **Adverse cost** is the filled shares times the markout from the injected ``FillCostProvider``, with
-  0.0043 as the floor. Realised settlement P&L is reported separately.
+  0.0043 as the floor. Every decision where the provider gave no markout is counted in ``cost_unavailable``,
+  and the provider type is recorded. A real provider without a ``context_builder`` is refused. Realised
+  settlement P&L is reported separately.
 - **Inventory** is either held to settlement or offered at entry plus twice the width. The offer is
   matched as the complementary BUY, since a NO buy at 1-q is a YES offer at q.
 
@@ -94,7 +97,7 @@ class Quote:
 def _totals():
     return {"reward": {b: 0.0 for b in BOUNDS}, "quoted_seconds": 0.0, "quotes": 0, "fills": 0,
             "filled_shares": D(0), "adverse_cost": 0.0, "exit_pnl": D(0), "settlement_pnl": D(0),
-            "unsettled_shares": D(0), "vetoes": 0}
+            "unsettled_shares": D(0), "vetoes": 0, "cost_unavailable": 0}
 
 
 def _external_depth(levels, mid, terms):
@@ -184,14 +187,23 @@ def run(sources, *, decay: DecayModel, mode: str = "descriptive", registration: 
         points=GRID, baselines=BASELINES) -> dict:
     if mode not in MODES:
         raise FrontierRefused("unknown_mode")
-    registration_sha = prereg.verify(registration) if mode == "scored" else None
     if not isinstance(decay, DecayModel):
         raise FrontierRefused("decay_model_required")
     fill_model = fill_model or PricePathFillModel()
     cost_provider = cost_provider or ConstantFillCost()
+    if not isinstance(cost_provider, ConstantFillCost) and context_builder is no_context:
+        raise FrontierRefused("context_builder_required")
     unknown = [b for b in baselines if b not in BASELINES]
     if unknown:
         raise FrontierRefused("unknown_baseline")
+    registration_sha = None
+    if mode == "scored":
+        if tuple(sorted(points)) != GRID:
+            raise FrontierRefused("scored_requires_full_grid")
+        if tuple(baselines) != BASELINES:
+            raise FrontierRefused("scored_requires_all_baselines")
+        registration_sha = prereg.verify(registration, decay_digest=decay.digest(),
+                                         fill_model_name=fill_model.name)
     strategies = {name: name for name in baselines}
     strategies.update({p.label: p for p in sorted(points)})
     totals = {label: _totals() for label in strategies}
@@ -227,8 +239,8 @@ def run(sources, *, decay: DecayModel, mode: str = "descriptive", registration: 
                     size = min(size, position[2])
                     position[2] -= size
                     t["exit_pnl"] += size * (1 - position[1] - leg.price)
-            if q.legs is None:
-                return
+            if q.legs is None or (q.book_at is not None and at > q.book_at + timedelta(seconds=HOLD_SECONDS)):
+                return  # a quote is not fillable after its hold lapses, as it earns no reward then either
             q.fill_state, hits = fill_model.on_trade(q.fill_state, trade)
             if not hits:
                 return
@@ -253,7 +265,10 @@ def run(sources, *, decay: DecayModel, mode: str = "descriptive", registration: 
             strategy = strategies[label]
             live = sum(1 for (l, c), other in quotes.items() if l == label and c != cid and other.legs)
             context = context_builder(condition_id=cid, at=at, band=band, strategy=label)
-            markout, veto = fill_cost_terms(cost_provider.estimate(context))
+            estimate = cost_provider.estimate(context)
+            if getattr(estimate, "adverse_markout_upper", None) is None:
+                totals[label]["cost_unavailable"] += 1
+            markout, veto = fill_cost_terms(estimate)
             if veto:
                 totals[label]["vetoes"] += 1
                 proposal = None
@@ -328,7 +343,8 @@ def run(sources, *, decay: DecayModel, mode: str = "descriptive", registration: 
         t["net_modelled"] = {b: t["reward"][b] - t["adverse_cost"] for b in BOUNDS}
     result = {"format": RUN_FORMAT, "label": "SCORED" if mode == "scored" else "DESCRIPTIVE",
               "registration_sha256": registration_sha, "grid_hash": GRID_HASH, "decay": decay.digest(),
-              "fill_model": fill_model.name, "days": days, "hazard_per_minute": hazard_per_minute,
+              "fill_model": fill_model.name,
+              "cost_provider": type(cost_provider).__module__ + "." + type(cost_provider).__qualname__, "days": days, "hazard_per_minute": hazard_per_minute,
               "strategies": totals}
     result["digest"] = digest(result)
     return result

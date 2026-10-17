@@ -57,10 +57,25 @@ def test_not_every_re1_session_halved_within_four_minutes(sessions):
 def test_central_fit_summary_is_pinned(model):
     assert model.k == pytest.approx(5.011872)
     assert model.tau_minutes == 5.0
-    assert model.x_full == pytest.approx(59.6305, abs=1e-3)
+    # Full bound: the largest identified plateau k (attempt 1), in extra competing Q per unit of own Q.
+    assert model.x_full == pytest.approx(11.659144)
+    assert 1 / (1 + model.x_full) == pytest.approx(.079, abs=.001)  # share ceiling with no other competition
     fitted = [f for f in model.fits if f.k is not None]
     assert len(fitted) == 6 and all(f.samples >= 13 for f in fitted)
-    assert all(f.rmse < .12 for f in fitted)
+    assert all(f.rmse < .12 for f in fitted)  # absolute share RMSE
+    # The raw largest observed ratio stays disclosed but is not the full bound (attempt 5 drifted off mid).
+    assert max(f.x_max for f in model.fits if f.x_max is not None) == pytest.approx(59.6305, abs=1e-3)
+
+
+def test_fits_with_tau_on_the_grid_edge_are_disclosed_and_excluded(model):
+    by_label = {f.label: f for f in model.fits}
+    assert by_label["attempt-9"].tau_at_bound and by_label["attempt-9"].tau_minutes == TAU_GRID_MINUTES[-1]
+    assert [f.label for f in model.fits if f.tau_at_bound] == ["attempt-9"]
+    assert by_label["attempt-10"].k == pytest.approx(1.995262)
+    edge = synthetic("edge", 3.0, 600.0, 5.0, seed=4)
+    assert fit_session(edge).tau_at_bound
+    with pytest.raises(ValueError, match="no_session"):
+        fit([edge])
 
 
 def test_central_model_halves_a_typical_share_within_two_to_four_minutes(model):

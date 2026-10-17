@@ -3,7 +3,8 @@
 **Status: UNSIGNED DRAFT.** This document grants no authority: no live, shadow or scoring authority, and no
 panel read. A scored read is impossible in code until three things happen: the owner signs this document; a
 reviewed change pins its SHA-256 in `maker_core.frontier.prereg.SIGNED_PREREGISTRATION_SHA256`; and the
-grid hash below still equals `maker_core.frontier.grid.GRID_HASH`. The design note is under item 330 (build
+grid hash, decay digest and fill model below still equal what the run uses. A scored run must cover all 120
+points and all 3 baselines. The design note is under item 330 (build
 3). **Read when:** reviewing, amending or signing the informed-v1 frontier read.
 
 ## 1. Question and hypotheses
@@ -73,11 +74,16 @@ All measurement comes from one offline pass of `maker_core.frontier.runner.run` 
 - **Reward.** At each book arrival a strategy proposes legs. Reward accrues at rate/86400 per quoted second
   times the share. The share is own Q / (own Q + competing Q in the replayed book + x(a) × own Q), where
   x(a) comes from the competitor-response model (§5) and a is the age of the band's quoting spell.
-- **Fills.** Fills come from the injected fill model. Until build 1 lands, the stand-in is the frozen v2
-  price-path predicate, reported under both `strictly_through` and `at_price`. After build 1 lands, the
-  primary fill model is fill v3 (queue-aware), with both v2 bounds kept as brackets.
+- **Fills.** Fills come from the injected fill model. The scored read uses exactly one fill model, named
+  on the line below; the code refuses any other. Until build 1 lands it is the frozen v2 price-path
+  predicate `strictly_through`, and `at_price` is reported as a descriptive bracket. If build 1 lands
+  first, this line is amended to fill v3 before signing.
+
+Fill model: `v2-strictly_through`
+
 - **Adverse cost.** The adverse cost per filled share is max(0.0043, the provider's markout upper bound).
   A provider veto (`BURST`, `SWEEP`) suppresses the quote. Until build 2 lands the provider is constant.
+  Decisions with no provider markout are counted (`cost_unavailable`) and the provider type is recorded.
 - **Inventory P&L.**
   - Held shares settle on the captured settlement fact.
   - A resting-sell fill is booked as the locked pair value, 1 − entry − complement price.
@@ -87,14 +93,23 @@ All measurement comes from one offline pass of `maker_core.frontier.runner.run` 
 
 The model is `maker_core.frontier.share_decay`. It is fitted on the RE-1 decision projection, with sessions
 on 2026-09-23..25. A grid least-squares fit in share space gives a per-session k and τ for
-x(a) = k(1 − e^(−a/τ)). The three bounds are:
+x(a) = k(1 − e^(−a/τ)). x and k are extra competing Q per unit of our own Q (dimensionless). A session
+whose τ lands on an edge of the τ grid is not identified: it is disclosed but excluded. The three bounds
+are:
 
 - `none`: x = 0;
-- `central`: the median k and median τ;
-- `full`: the largest reaction observed in any session, applied from a = 0.
+- `central`: the median k and median τ over identified sessions (k = 5.01, τ = 5.0 min);
+- `full`: the largest identified k (11.66, attempt 1), applied from a = 0. With no other competition it
+  caps our share at 1/(1 + 11.66) ≈ 7.9%.
 
-The fitted values and their digest are recorded in the item-330 build-3 note. The run result carries the
-digest, and **the model is not refitted on the panel**.
+`full` is a bound reported beside the central fit, never used on its own to decide. The largest raw
+observed ratio (59.6, attempt 5 after its quote drifted off mid) is kept in the fits as a diagnostic and is
+not the bound.
+
+Decay digest: `38c47129ae4a215f4b1abe77248ef09457f0563fc55394319cb4db0287cc9cd3`
+
+The run result carries the digest, the code refuses a scored run whose model digest differs from the line
+above, and **the model is not refitted on the panel**.
 
 ## 6. Power statement
 
@@ -130,8 +145,8 @@ times, and settlement facts.
 
 - A scored panel therefore starts no earlier than 2026-11-14.
 - A market whose close falls inside a refused window is refused even if its capture day is allowed.
-- Panel dates, bundle hashes and the bound fill model must be added in a signed amendment of this document
-  before a scored read.
+- Panel dates and bundle hashes must be added in a signed amendment of this document before a scored
+  read; the fill model and decay digest are already bound above.
 
 ## 9. Known simplifications
 

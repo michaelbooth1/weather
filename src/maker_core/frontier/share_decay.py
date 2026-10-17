@@ -12,7 +12,17 @@ competing Q, measured in units of our own Q, as a function of how long our quote
 
 - ``none``: x = 0, no reaction, the optimistic replay share;
 - ``central``: the median of per-session fits (k, tau), each a grid least-squares fit in share space;
-- ``full``: x = the largest reaction observed in any session, applied from a = 0.
+- ``full``: x = the largest fitted plateau k among identified sessions, applied from a = 0.
+
+Units: x and k are extra competing Q per unit of our own Q (dimensionless). With no historical competition,
+the full bound caps our share at 1 / (1 + x_full).
+
+A session fit whose tau lands on an edge of ``TAU_GRID_MINUTES`` is not identified (``tau_at_bound``). It is
+kept and disclosed in ``fits`` but excluded from the central medians and the full bound. The raw largest
+observed reaction (``x_max``) stays in each session fit as a diagnostic. It is not used as the full bound,
+because late in a session our quote can drift off mid, so own Q falls while the book grows, and the ratio
+then measures drift, not competitor reaction. The full bound is reported beside the central fit; it never
+decides anything on its own.
 
 Fits use only dates on or before 2026-09-29 (``embargo.check("fit", ...)``). The source is the RE-1
 decision projection (``re1_sessions``). A depth series in the same ``Session`` shape (for example, from 88a
@@ -83,6 +93,7 @@ class SessionFit:
     x_max: float | None
     share0: float
     halving_minutes: float | None
+    tau_at_bound: bool = False  # tau on an edge of TAU_GRID_MINUTES: not identified, excluded from medians
 
 
 @dataclass(frozen=True)
@@ -140,23 +151,25 @@ def fit_session(session: Session) -> SessionFit:
             if best is None or sse < best[0]:
                 best = (sse, k, tau)
     sse, k, tau = best
+    at_bound = tau in (TAU_GRID_MINUTES[0], TAU_GRID_MINUTES[-1])
+    # rmse is the absolute root-mean-square error in share (0..1), not a relative error
     return SessionFit(session.label, len(points), k, tau, math.sqrt(sse / len(points)), x_max,
-                      session.share0(), session.halving_minutes())
+                      session.share0(), session.halving_minutes(), at_bound)
 
 
 def fit(sessions: Sequence[Session], *, purpose: str = "fit") -> DecayModel:
-    """Embargo-checked fit. Central is the per-session median; full is the largest observed reaction."""
+    """Embargo-checked fit. Central is the median over identified sessions; full is their largest k."""
     if purpose != "fit":
         raise ValueError("decay_fit_purpose_must_be_fit")
     for session in sessions:
         check("fit", session.opened_at, *(s.at for s in session.samples))
     fits = tuple(fit_session(s) for s in sessions)
-    fitted = [f for f in fits if f.k is not None]
+    fitted = [f for f in fits if f.k is not None and not f.tau_at_bound]
     if not fitted:
         raise ValueError("no_session_with_enough_samples")
     k = statistics.median(f.k for f in fitted)
     tau = statistics.median(f.tau_minutes for f in fitted)
-    x_full = max([k] + [f.x_max for f in fits if f.x_max is not None])
+    x_full = max(f.k for f in fitted)
     return DecayModel(k, tau, x_full, fits)
 
 
