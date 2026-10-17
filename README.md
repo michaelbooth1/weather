@@ -245,6 +245,11 @@ The neutral replay entrypoint is
 `python -B -m maker_core.replay run --bundle <closed-day-dir> --policy blind_re1 --out <new-dir>`.
 It defaults to capture diagnostics. Explicit comparisons require an owner-reviewed
 registration hash; both fill bounds and clustered intervals are always reported.
+The descriptive own-fill reconciliation (item 330 build 1, fill model v3) is
+`python -B -m maker_core.replay.fill_v3_reconcile --journal <session/journal.jsonl> --bundle <closed-day-dir> --time-zone <IANA> --output <new.json>`
+(add `--panel-exclusions <panel_exclusions.jsonl>` for legs on 2026-10-16..2026-11-13 local dates, and
+`--token-outcomes <TOKEN_ID>=YES|NO` when the journal's own order or fill rows do not prove which token is YES).
+It refuses 2026-09-30..2026-10-15 in code and never feeds a scored read.
 The weather export command is
 `python -B -m weather.market.maker_replay_bundle bundle --date YYYY-MM-DD --markets nyc --out <new-dir>`.
 See the [bundle, export and admission contract](docs/operations/maker-replay-bundle.md).

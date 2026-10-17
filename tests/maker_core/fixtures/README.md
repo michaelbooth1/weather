@@ -68,3 +68,9 @@ computed from invented fixtures; nothing captured is read.
 blind-width `informed_v0` QUOTE case), CLOB-shaped book and reward replies,
 fixture campaigns and complete/incomplete wallet books for the trading guard.
 No production data, account identity or credential is involved.
+
+`fill_v3_scenarios.py` holds fictional inputs for the fill model v3 tests (item 330 build 1): a forced-QUOTE
+engine bundle with known queue depths, a golden two-leg session journal, a whole RE-1 writer session
+(`re1_writer_rows`: the writer's event names and order, the read events with its exact fields, written with its
+envelope and hash chain), and an 88a-shaped replay bundle with hand-computed answers. All values are synthetic (no
+addresses, venue IDs, tokens, hashes or signatures); nothing is copied from a real journal or capture.
