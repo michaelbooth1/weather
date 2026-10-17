@@ -588,6 +588,21 @@ def test_the_pin_must_be_the_expected_clean_locked_commit(world, clock):
 def test_no_terminal_refuses(world, clock):
     pack, _ = drive(world, clock, console=FakeConsole(tty=False))
     assert pack['stop_code'] == 'owner_terminal_required' and not world.procs
+    assert pack['console_tty'] is False
+
+
+def test_the_dry_run_without_a_terminal_refuses_before_any_child(world, clock):
+    pack, _ = drive(world, clock, console=FakeConsole(tty=False), to_go_prompt=True)
+    assert pack['stop_code'] == 'owner_terminal_required' and not world.procs
+
+
+def test_t24_runs_unattended_without_a_terminal_and_starts_no_interactive_child(world, clock):
+    pack, _ = drive(world, clock, console=FakeConsole(tty=False), phase='t24')
+    assert pack['stopped_reason'] == 't24_complete' and pack['console_tty'] is False
+    keys = [p.key for p in world.procs]
+    assert world.procs and not [p.key for p in world.procs if p.interactive]
+    assert 'preflight' not in keys and 'live' not in keys and 'session0-attest' not in keys
+    assert D.latest_baseline_row(world.root, 't24')['file'] == pack['t24']['file']
 
 
 def test_counted_sessions_take_no_session0_flags(capsys):

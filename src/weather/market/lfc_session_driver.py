@@ -8,6 +8,9 @@ by docs/research/live-fill-calibration-session1-runbook-2026-10-16.md). It is an
   cwd = the pinned worktree and PYTHONPATH = pin;pin\\src, runbook section 2), so `code_identity`, `clean_preflight`,
   `start_gates`, `start_refusals`, `confirmation`, the fee rule, the L ledger and every other refusal in lfc_cli,
   lfc_pilot and re1_owner_checks run unchanged; nothing is reimplemented or bypassed;
+- the t24 phase (open-order count, owner snapshot, baseline: reader reads only, nothing interactive) may run
+  unattended without a console (owner 10-17, automation first); every other phase still refuses at start with
+  `owner_terminal_required`;
 - `preflight`, `live` and `session0-attest` inherit the owner's console stdin, so their `owner_terminal_required`
   checks stay real and the `go <6 hex>` / `attest session0 <6 hex>` phrases are typed by the owner into the pinned
   CLI's own prompt. The driver never writes to a child's stdin and has no flag or variable that confirms anything;
@@ -1163,7 +1166,10 @@ class SessionDriver:
                     live_still_running=False)
         stop = None
         try:
-            if not self.console.isatty():
+            pack['console_tty'] = bool(self.console.isatty())
+            # t24 starts no interactive child, so it may run unattended; every other phase reaches preflight/live
+            # (the dry run included) and keeps the driver-wide gate on top of lfc_cli's own isatty checks.
+            if self.config.phase != 't24' and not pack['console_tty']:
                 raise DriverStop('start', 'owner_terminal_required', kind='REFUSED')
             if self.config.phase == 't24' and self.session0:
                 raise DriverStop('start', 'driver_t24_is_for_counted_sessions', kind='REFUSED')
