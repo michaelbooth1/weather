@@ -177,6 +177,7 @@ def test_settlement_needs_its_own_observation_time():
     _, fills = synthetic_records(dates=1, markets=1, minutes_per_cell=40, seed=2)
     fill = fills[0]
     assert fill.settlement_observed_at_utc in fill.dates()
+    assert None not in replace(fill, settlement_p_yes=None, settlement_observed_at_utc=None).dates()
     with pytest.raises(tx.ToxicityError, match="settlement_needs_observation_time"):
         replace(fill, settlement_observed_at_utc=None)
     with pytest.raises(tx.ToxicityError, match="settlement_needs_observation_time"):
@@ -329,11 +330,36 @@ def test_embargo_windows():
     assert refusal("2026-11-13", "scored").startswith("EMBARGO_SCORED_PANEL")
     assert refusal("2026-11-14", "scored") is None
     with pytest.raises(EmbargoRefused):
-        refuse(None, datetime(2026, 10, 1, tzinfo=UTC), purpose="read")
+        refuse(datetime(2026, 9, 1, tzinfo=UTC), datetime(2026, 10, 1, tzinfo=UTC), purpose="read")
     with pytest.raises(ValueError):
         refusal("2026-09-01", "peek")
-    with pytest.raises(ValueError):
-        refusal(datetime(2026, 9, 29, 23, tzinfo=timezone(timedelta(hours=-4))), "read")
+
+
+def test_embargo_refuses_undated_and_naive_values():
+    for purpose in ("read", "fit", "scored"):
+        with pytest.raises(EmbargoRefused, match="EMBARGO_UNDATED"):
+            refuse(None, purpose=purpose)
+        with pytest.raises(EmbargoRefused, match="EMBARGO_UNDATED"):
+            refuse(datetime(2026, 9, 1, tzinfo=UTC), None, purpose=purpose)
+        with pytest.raises(EmbargoRefused, match="EMBARGO_NAIVE_DATETIME"):
+            refuse(datetime(2026, 9, 1, 12), purpose=purpose)
+        with pytest.raises(EmbargoRefused, match="EMBARGO_NAIVE_DATETIME"):
+            refusal("2026-09-01T12:00:00", purpose)
+
+
+def test_embargo_converts_aware_datetimes_to_utc():
+    plus2, minus4 = timezone(timedelta(hours=2)), timezone(timedelta(hours=-4))
+    # 09-30 01:30 at +02:00 is 09-29 23:30 UTC: before the exam window and fittable.
+    early = datetime(2026, 9, 30, 1, 30, tzinfo=plus2)
+    for purpose in ("read", "fit", "scored"):
+        assert refusal(early, purpose) is None
+        assert refusal("2026-09-30T01:30:00+02:00", purpose) is None
+    refuse(early, purpose="fit")
+    # 09-29 23:00 at -04:00 is 09-30 03:00 UTC: inside the exam window.
+    assert refusal(datetime(2026, 9, 29, 23, tzinfo=minus4), "read") == "EMBARGO_EXAM_WINDOW:2026-09-30"
+    # 10-16 01:00 at +02:00 is 10-15 23:00 UTC: still inside; 03:00 at +02:00 is out for a read.
+    assert refusal(datetime(2026, 10, 16, 1, tzinfo=plus2), "read") == "EMBARGO_EXAM_WINDOW:2026-10-15"
+    assert refusal(datetime(2026, 10, 16, 3, tzinfo=plus2), "read") is None
 
 
 def _shift(record, days):

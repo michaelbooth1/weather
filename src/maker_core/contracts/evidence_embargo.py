@@ -14,12 +14,14 @@ Windows (owner instructions for item 330 build 2, 2026-10-16):
   panel's embargo end is 11-13; a scored read of a date inside it is refused.
 
 A record may carry several dates (event date, fill clock, mark clocks); callers
-pass every one of them. Dates are compared as calendar dates; a ``datetime``
-must be UTC-aware and is reduced to its UTC date.
+pass every one of them. Dates are compared as calendar dates. An aware
+``datetime`` (or ISO string with an offset) is converted to UTC and reduced to
+its UTC date; a naive one cannot be placed on the calendar and is refused
+(:class:`EmbargoRefused`), as is ``None``: an undated value is never admitted.
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timezone
 
 EXAM_EMBARGO = (date(2026, 9, 30), date(2026, 10, 15))
 FIT_LAST_DATE = date(2026, 9, 29)
@@ -32,10 +34,12 @@ class EmbargoRefused(ValueError):
 
 
 def as_date(value) -> date:
+    if value is None:
+        raise EmbargoRefused("EMBARGO_UNDATED:None")
     if isinstance(value, datetime):
-        if value.utcoffset() != timedelta(0):
-            raise ValueError("datetime must be UTC-aware")
-        return value.date()
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise EmbargoRefused(f"EMBARGO_NAIVE_DATETIME:{value.isoformat()}")
+        return value.astimezone(timezone.utc).date()
     if isinstance(value, date):
         return value
     if isinstance(value, str):
@@ -66,8 +70,6 @@ def refuse(*values, purpose: str) -> None:
     if purpose not in PURPOSES:
         raise ValueError("unknown embargo purpose")
     for value in values:
-        if value is None:
-            continue
         code = refusal(value, purpose)
         if code:
             raise EmbargoRefused(code)

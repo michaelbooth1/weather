@@ -74,7 +74,9 @@ def weather_fill_context(*, at_utc, station: str, maker_side: str, horizon_days:
     decided_at = None if decided_at_utc is None else _time(decided_at_utc)
     book_at = None if book is None else _time(book["as_of_utc"])
     trades = [(_time(p["at_utc"]), str(p["band"]), _size(p["size"])) for p in prints]
-    refuse(at, *nbm, decided_at, book_at, *(t for t, _, _ in trades), purpose="read")
+    # Absent optional inputs are not dates; every supplied one is checked.
+    optional = (t for t in (decided_at, book_at) if t is not None)
+    refuse(at, *nbm, *optional, *(t for t, _, _ in trades), purpose="read")
     if close < at:
         raise ValueError("context instant after market close")
     if decided_probability is not None and decided_at is None:

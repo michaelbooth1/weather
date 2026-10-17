@@ -57,7 +57,8 @@ the v2 look.
 
   Each dated entry point has a refusal test: the fit, `read_records`/`parse_record`, the CLI,
   `score_table`, `TableFillCostProvider.estimate`, `validate_table` and the plugin adapter.
-  The embargo reduces each instant to its UTC date, which excludes 09-29 local evenings (already 09-30
+  The embargo converts an aware instant (any offset) to UTC and refuses a naive instant or `None` with
+  `EmbargoRefused` (aligned with the canon, 10-16). It reduces each instant to its UTC date, which excludes 09-29 local evenings (already 09-30
   UTC) from the fit. That is conservative. A market close is a schedule, not a read, so the adapter does
   not refuse a 09-29 context whose close falls on 09-30.
 - **Known conservatism (kept by ruling, 10-16):** the envelope is the maximum over the pooled row and every

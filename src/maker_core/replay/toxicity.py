@@ -150,7 +150,8 @@ class CounterfactualFill:
     def dates(self):
         # The settlement observation is dated too: an event whose settlement was read on an
         # embargoed date cannot be fitted or scored.
-        return (self.event_date, self.minute_utc, self.fill_at_utc, self.settlement_observed_at_utc,
+        settled = () if self.settlement_observed_at_utc is None else (self.settlement_observed_at_utc,)
+        return (self.event_date, self.minute_utc, self.fill_at_utc, *settled,
                 *(m.observed_at_utc for m in self.marks.values()), *self.context.feature_times.values())
 
     def markout(self, horizon: str) -> float | None:
