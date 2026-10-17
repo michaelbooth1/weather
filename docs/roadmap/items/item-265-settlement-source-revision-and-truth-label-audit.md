@@ -90,6 +90,13 @@ Verification:
 - `python -m weather.reporting.source_gates.settlement_source_audit --json-out data\backtest\settlement_source_revision_audit.json --report-out data\backtest\settlement_source_revision_audit.md`
   generated status `BLOCK`, reflecting current non-proof-grade label rows.
 
+Follow-up 2026-10-16 (owner decision, "Option 1"): the daily settled-day
+barrier now defers an undecided-reconciliation `SOURCE_DISAGREEMENT` row as
+non-countable instead of blocking; promotion and trading consumers keep the
+strict gate. Policy, exact conditions and the progress-ledger blocker-class
+fields are owned by the
+[settlement-source audit contract](../../operations/settlement-source-audit.md#reconciliation-timing-and-the-learning-barrier).
+
 ## Completion Notes
 
 Validated in the 2026-06-24 complete-roadmap sweep:
