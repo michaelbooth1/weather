@@ -1,7 +1,7 @@
 """Fill model v3 in the replay engine, and the v2 byte-identical ratchet (item 330 build 1).
 
-``EngineV3`` is injected; v2 stays the default. The ratchet pins the frozen v2 files at the build-line base
-1fd0c295f and EngineV2's summary on a fixed fixture: if either moves, ``EngineV3.on_trade`` (a copy of the kernel's
+``EngineV3`` is injected; v2 stays the default. The ratchet pins the frozen v2 files (at the build-line base
+1fd0c295f; ``kernel.py`` and ``lockstep.py`` re-pinned at the T1 tip b8b2caebe) and EngineV2's summary on a fixed fixture: if either moves, ``EngineV3.on_trade`` (a copy of the kernel's
 with only the matcher replaced) must be reviewed again before the pins are updated.
 """
 from dataclasses import replace
@@ -23,13 +23,18 @@ from .fixtures.fill_v3_scenarios import engine_source, force
 
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG = V2Config(hazard_per_minute=.001, debug=True, keep=True)
+# Pins: 1fd0c295f for every file except kernel.py and lockstep.py, which are pinned at the reviewed, final
+# T1 tip b8b2caebe. T1 changed them twice: kernel.py gained the ``Kernel.hazard_for(state)`` hook (the decision
+# reads it instead of ``config.hazard_per_minute``; only the §11 R1 rehearsal overrides it), and lockstep.py
+# added ``descriptor_source`` and refuses a captured (non-synthetic) bundle without declared active intervals
+# (``captured_bundle_requires_declared_intervals``). The ratchet still proves build 1 does not modify v2.
 FROZEN = {
     "src/maker_core/replay/fill_model.py": "754c355976be4b9f5f49416e35538ee599fcbd1aeb58e207418f414f24ff6229",
     "src/maker_core/replay/_fill89a.py": "c03bcc311f4d94eea5d1b3646cf20930161fe91cd82f4249c6638672bfd97fb7",
-    "src/maker_core/replay/v2/kernel.py": "ed7bd477fc114fbb3f91336f7222e66acc96c9679ed118e7b1c0ce0c7d42d595",
+    "src/maker_core/replay/v2/kernel.py": "624d544440f053a23629611abc3778db2807046684cb04a8ceb24ea55ccb231a",
     "src/maker_core/replay/v2/engine.py": "5a28f80525e7f3f2c852a50909cf09daa524eb4ddd1c18e87829f570c99a3b7d",
     "src/maker_core/replay/v2/pipeline.py": "e119010d5a0ba63bcf86deec88b77ac31e1def3023844232bfa4299b509c5641",
-    "src/maker_core/replay/v2/lockstep.py": "2fbe46e9c7a178dac557bc4899bf003d8f837188acc9e7b455141ddd895a8efd",
+    "src/maker_core/replay/v2/lockstep.py": "068e656b0c036f902c61458dc1a5e128a5ff0a1dd3c92eecf7e91cc3cb15b9ca",
     "src/maker_core/replay/payloads.py": "16bf29493af39ad07f8b63534079abb22ffbfba71523d70e6ab0150b4193cdbd",
 }
 # EngineV2 on THROUGH below (pinned from the unchanged v2 engine at 1fd0c295f).
