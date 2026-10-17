@@ -78,8 +78,8 @@ The embargo windows have exactly two code owners, and the registry only names th
 date in the `platform` block):
 
 - `maker_core.shadow.admission:EMBARGO_WINDOWS` — full and outcome windows.
-- `weather.mg1_reserved_window:window` — the MG-1 reserved range (open-ended from the
-  floor until D0 and the last date are recorded; the
+- `weather.mg1_reserved_window:window` — the MG-1 reserved range (D0 to a provisional
+  last date that may only move later; the
   [reserved confirmation window](reserved-confirmation-window.md) owns the dating).
 
 Every evidence family declares `embargo_scope: capture_outcome_blind`: capture writes
@@ -93,7 +93,7 @@ changes, change the code owner first, then this table.
 | --- | --- | --- | --- |
 | maker_core | 2026-09-30 | 2026-10-15 | full |
 | maker_core | 2026-10-15 | 2026-11-13 | outcome |
-| mg1 | 2026-10-15 | open | mg1_reserved |
+| mg1 | 2026-10-15 | 2026-11-28 | mg1_reserved |
 <!-- embargo-table:end -->
 
 ## Ratchets

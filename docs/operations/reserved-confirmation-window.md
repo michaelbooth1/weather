@@ -1,8 +1,10 @@
 # Reserved confirmation window
 
-**Status: RESERVED (narrow scope, MG-1, signed 2026-10-04): the first 45 promotion-countable local target dates on or
-after D0 (first eligible date per MG-1 §3; D0 >= 2026-10-15; dated start recorded here once D0 is determined) are held
-out ONLY against NBM-guidance-to-band forecast candidates.** Everything else may use those dates (see the exemption below).
+**Status: RESERVED (narrow scope, MG-1, signed 2026-10-04; dated by the owner 2026-10-16, option 2 BOUND): the first
+45 promotion-countable local target dates from MG-1 D0 = 2026-10-15 through provisional MG-1 last = 2026-11-28
+(inclusive; D0 + 44 days) are held out ONLY against NBM-guidance-to-band forecast candidates. D0 is final; the last date
+is provisional and may only move later (each missed promotion-countable date moves it one day later).** Everything else
+may use those dates (see the exemption below).
 **Read further** before scoring any forecast candidate that reads NBM station guidance, or before freezing a retrain candidate.
 
 **Single source of truth for which dates are held out and what they are held out *for*.** Every
@@ -13,14 +15,15 @@ When a window is declared, replace the status line with the dated range and its 
 
 | | |
 | :--- | :--- |
-| **Reserved dates** | **MG-1 (narrow scope):** first 45 promotion-countable local target dates on or after D0 (MG-1 §3, D0 >= 2026-10-15; not yet dated). The retrain-triggered window below stays *armed but not dated*. |
+| **Reserved dates** | **MG-1 (narrow scope):** first 45 promotion-countable local target dates from D0 = 2026-10-15 (MG-1 §3) through a provisional last date of 2026-11-28, inclusive. The retrain-triggered window below stays *armed but not dated*. |
+| **MG-1 dating (owner, 2026-10-16 ~09:22, relayed by master-agent: option 2, BOUND)** | D0 = 2026-10-15, final; it sets aside MG-1 §3 (b) and (c), and parser v2 verification and shadow-stage capture stay reporting caveats ([Clarification 1](../research/morning-guidance-read-mg1-clarification-1-2026-10-16.md)). Provisional last = D0 + 44 days = 2026-11-28, the 45th calendar date, which is the 45th countable date only if every date from D0 is promotion-countable. MG-1 §3 counts countable dates from D0 with no skipping, so each date found not countable moves the 45th countable date, and the recorded last date, one day later. The last date **may only move later**: it is extended (same OD32 mechanics below) as soon as a non-countable date is known, and in any case before any date after the recorded last date is scored, enumerated or joined to an outcome by an NBM-guidance-to-band candidate. Before the change the window was open-ended from 2026-10-15; bounding it releases no date earlier than 2026-11-29. `tests/reporting/test_mg1_reserved_window.py` fails if D0 moves or the last date is set earlier than 2026-11-28 or D0 + 44 days. |
 | **MG-1 binding** | `docs/research/morning-guidance-read-mg1-preregistration-2026-10-04.md` at `02c410a5`, raw SHA-256 `b044e0f196512379d2f74a22a2a97a10cf58fdbcf5a255c4eb6a470f7f6ba665`, signed 2026-10-04T16:10Z (DECISION_LOG). |
 | **MG-1 scope and exemption (owner, 2026-10-04; explicit exemption under rule 4)** | Reserved **only** against reading or modifying the morning guidance-read (forecast-scoring) family: do not score, enumerate outcomes for, or join to an outcome the MG-1 vector or any other candidate that reads NBM station guidance into band probabilities (including the held RV-1 and HG-1), do not substitute reserved dates for such a candidate, and do not modify MG-1, without a new explicit owner decision. **Exempt and untouched:** the 88a desk-study decision panel (UTC 2026-10-15..10-30), MM paper scoring, and every other use of these dates' captures, served vectors and settlements; outcome-blind operational checks (coverage, PIT, replay reproduction, parser version) are permitted. |
 | **Maker shadow fair value (owner, 2026-10-07, OD3, OD31, OD32)** | The shadow's NBM-guidance view may be used on reserved dates for quoting and MM paper scoring only. Every view-vs-outcome metric on it (markouts on the view, Brier/PIT, fair-value score) stays reserved and is refused in code; plugin-view accuracy is never exempt, including inside the 88a panel. The item-190 NBM scorer drops reserved dates before any outcome join (filter, not refuse). D0 is recorded by whoever dates the status line above, in the same commit, test-enforced. |
 | **MG-1 dating format (OD32 mechanics)** | Date the status line with `MG-1 D0 = YYYY-MM-DD` and `MG-1 last = YYYY-MM-DD`, and record the same `MG1_D0`/`MG1_LAST` in `weather.mg1_reserved_window` (and, once landed, `maker_core.mg1_window`) in the same commit. `tests/reporting/test_mg1_reserved_window.py` fails if they differ; a recorded window shorter than 45 calendar days fails wide. Item-190 filter behaviour (counts-only disclosure, exit codes, `--as-of`): [item 190](../roadmap/items/item-190-nbm-probabilistic-tmax-consumption.md). |
 | **Trigger** | The reservation begins on the **first target date after the first retrain candidate is fitted and frozen**, and runs forward from there. |
 | **Size** | Computed at freeze time against endpoints that still stand — see *Sizing at freeze* below. Not fixed in advance. |
-| Status | MG-1 narrow reservation active from its signature; no date is held out against anything else. |
+| Status | MG-1 narrow reservation active from its signature, dated 2026-10-15..2026-11-28 (last provisional, may only move later); no date is held out against anything else. |
 | Declared | 2026-08-04 by the operator (re-base). Previously 2026-08-03. |
 | Supersedes | 2026-08-06 → 2026-11-03 (90 dates); before that, 2026-08-06 → 08-19 (14 dates) |
 
