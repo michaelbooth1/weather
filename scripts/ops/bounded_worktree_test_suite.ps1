@@ -996,7 +996,7 @@ $dirty = @((Invoke-SuiteCheckedLocalGit `
     -Root $WorktreeRoot -Arguments @("status", "--porcelain") `
     -Label "initial exact worktree status").Rows)
 if ($dirty.Count -ne 0) {
-    throw "suite worktree is dirty; exact-tip evidence would be ambiguous"
+    throw ("suite worktree is dirty; exact-tip evidence would be ambiguous: " + (($dirty | Select-Object -First 5) -join "; "))
 }
 
 if ([string]::IsNullOrEmpty($InterpreterPath)) {
