@@ -204,8 +204,11 @@ times, and settlement facts.
   (`maker_core.replay.v2.panel.PANELS`) that declares the scored panel's windows. None exists today, so it
   refuses (`score_has_no_intervals_panel`) until a reviewed change adds one, before signing.
 - Sources come only from `maker_core.replay.v2.intervals.sources` (v0.2 bundles plus the universe
-  inventory), and the runner honours the declared windows. `calibrate` reads only the calibration days
-  2026-09-27..29, and drops any band whose close falls in a refused window.
+  inventory), and the runner honours the declared windows.
+- `calibrate` reads only the calibration days 2026-09-27..29. It drops any band whose close falls in a
+  refused window, deciding from descriptor metadata alone, and refuses if a horizon loses every band.
+- Its output is labelled **PIPELINE REHEARSAL**. It is not a power estimate, and **no number from it
+  feeds the margin proposal** (§4a); the margin rests only on the reasoning given there.
 - A market whose close falls inside a refused window is refused even if its capture day is allowed.
 - Bundle hashes are recorded in the score receipt. The fill model binding, decay digest and decision rule
   digest are already bound above.

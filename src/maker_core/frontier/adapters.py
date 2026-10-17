@@ -203,10 +203,13 @@ def _utc(value):
 class CfTapeContexts:
     """``context_builder`` over a ``strictly_through`` cf tape backlog (module doc). Read-only."""
 
-    def __init__(self, tape_dir, *, purpose: str, now=None, max_age_s: int = BOOK_MAX_AGE_S):
+    def __init__(self, tape_dir, *, purpose: str, now=None, max_age_s: int = BOOK_MAX_AGE_S, conditions=None):
+        """``conditions``, when given, is the only bands whose rows are ever materialised: every other row is
+        filtered out on the ``condition_id`` column first, and a query for another band refuses."""
         if purpose not in embargo.PURPOSES or purpose == "fit":
             raise AdapterRefused("cf_tape_purpose")
         self.root, self.purpose, self.now = Path(tape_dir), purpose, now
+        self.conditions = None if conditions is None else frozenset(str(c).lower() for c in conditions)
         self.max_age = timedelta(seconds=max_age_s)
         self._days, self.receipts = {}, {}
 
@@ -247,8 +250,15 @@ class CfTapeContexts:
         metadata = {k.decode(): v.decode() for k, v in (table.schema.metadata or {}).items()}
         if any(metadata.get(k) != v for k, v in CF_MINUTES_METADATA.items()):
             raise AdapterRefused("cf_tape_metadata_mismatch")
-        if table.num_rows != output.get("rows"):
-            raise AdapterRefused("cf_tape_row_count_mismatch")
+        file_rows = table.num_rows
+        if file_rows != output.get("rows"):
+            raise AdapterRefused("cf_tape_row_count_mismatch")  # a file check, not a band read
+        if self.conditions is not None:
+            import pyarrow as pa
+            import pyarrow.compute as pc
+
+            keep = pa.array(sorted(self.conditions), type=pa.string())
+            table = table.filter(pc.is_in(pc.utf8_lower(table.column("condition_id")), value_set=keep))
         index = {}
         for row in table.to_pylist():
             if row["utc_day"] != day.isoformat() or row["basis"] != BASIS:
@@ -261,7 +271,7 @@ class CfTapeContexts:
             rows.sort(key=lambda pair: pair[0])
             index[key] = ([r[0] for r in rows], [r[1] for r in rows])
         self.receipts[day.isoformat()] = {"receipt_sha256": hashlib.sha256(raw).hexdigest(), "minutes_sha256": sha,
-                                          "rows": table.num_rows}
+                                          "rows": file_rows}
         self._days[day] = index
         return index
 
@@ -283,6 +293,8 @@ class CfTapeContexts:
     def __call__(self, *, condition_id, at, band=None, strategy=None):
         at = _utc(at)
         self._check(at)
+        if self.conditions is not None and str(condition_id).lower() not in self.conditions:
+            raise AdapterRefused("cf_tape_condition_not_kept")
         day = at.date()
         index = self._days.get(day)
         if index is None:

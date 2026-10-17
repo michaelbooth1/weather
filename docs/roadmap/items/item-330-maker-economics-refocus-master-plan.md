@@ -38,10 +38,23 @@ and nothing outside the frontier imports it.
     Defender MF4). `restrict` and `clusters` only re-cut plans that path built.
   - **Runner.** The runner honours a declared plan's windows: no quote, cost query, reward or fill outside
     them. Condition envelopes are checked as half-open, so a 09-29 envelope ending at 09-30T00:00Z is not
-    a read of 09-30.
+    a read of 09-30, while one reaching past it is refused. Each fix has a regression test that fails on
+    the build 3 runner.
   - **`calibrate`** uses panel `calibration` (09-27..29), through `embargo.check("fit")` before any bundle
-    opens. A band whose close falls in a refused window is dropped and listed in `embargoed_bands`, never
-    handed to the runner; on 09-29 every band is dropped.
+    opens. Its output is labelled **PIPELINE REHEARSAL**: it is not a power estimate, and no number from it
+    feeds the margin proposal. Master accepted dropping, rather than refusing, a band whose close falls in
+    a refused window, on these conditions (round 2):
+    - The drop is decided from the descriptor stream alone (close time against the refused window).
+    - For a dropped band, no other record is decoded or handed to the runner, and no tape row is
+      materialised: the tape adapter filters on the `condition_id` column first. The bundle and tape
+      readers' integrity passes still hash whole files and check stream record counts. Spies prove this
+      in the tests.
+    - The receipt carries `embargoed_bands` and kept/dropped counts per day and per horizon. A band's
+      horizon is its first descriptor's `horizon_days` that day.
+    - A horizon with every band dropped over the run refuses (`calibrate_horizon_fully_embargoed`).
+    - On the fixture schedule, 09-28 alone or 09-29 alone refuses. All three days pass only because 09-27's
+      horizon-2 bands (target 09-28) close on 09-29. Whether real 09-27..29 data refuses for horizon 2
+      depends on those closes; it was not run.
   - **`score`** refuses, in order:
     - before 2026-11-14T00:00Z by the real UTC clock (injectable in tests only);
     - unless the pinned, signed registration matches the decay digest, the v3 binding, the grid hash and

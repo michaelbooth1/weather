@@ -2,10 +2,13 @@
 
 Guards: the frontier CLI builds day sources only through ``intervals.sources`` (declared windows, a required
   inventory, v0.1 refused); calibrate reads only the calibration days, drops bands closing in a refused window
-  and writes a create-only report and receipt with input hashes, commit and digests; score refuses before
-  2026-11-14T00:00Z by the real clock, without a pinned signed registration matching decay, fill binding, grid
-  and decision rule, outside the 10-16..11-13 panel, and while no intervals panel covers it; the runner
-  honours declared windows; event-day clusters sum to one run over the kept bands.
+  from descriptor metadata alone (no other record or tape row of a dropped band is decoded or indexed),
+  receipts per-day and per-horizon kept/dropped counts, refuses a fully embargoed horizon, is labelled
+  PIPELINE REHEARSAL and writes a create-only report and receipt with input hashes, commit and digests; score
+  refuses before 2026-11-14T00:00Z by the real clock, without a pinned signed registration matching decay,
+  fill binding, grid and decision rule, outside the 10-16..11-13 panel, and while no intervals panel covers
+  it; the runner honours declared windows minute by minute and reads condition envelopes as half-open;
+  event-day clusters sum to one run over the kept bands.
 """
 from dataclasses import replace
 from datetime import date, datetime, time, timedelta, timezone
@@ -19,7 +22,7 @@ from maker_core.frontier import adapters, cli, decision, embargo, prereg, runner
 from maker_core.frontier.grid import GRID, GRID_HASH
 from maker_core.frontier.share_decay import DecayModel
 from maker_core.replay.v2.panel import CALIBRATION_DATES
-from .fixtures.panel_v02 import Panel
+from .fixtures.panel_v02 import Panel, close_of
 from .fixtures.replay_scenario import Scenario
 from .fixtures.toxicity_synthetic import synthetic_records
 from .test_frontier_adapters import PINNED_RE1_DECAY_DIGEST, tape_row, write_tape
@@ -77,19 +80,40 @@ def fit_check(*values):
     embargo.check("fit", *values)
 
 
+def schedules(bundles_opened):
+    return {b.day: cli.schedule(b, fit_check, drop_embargoed=True) for b in bundles_opened}
+
+
+def fixture_dropped(days):
+    """The bands the fixture closes on or after 09-30, from its own schedule (independent of the CLI)."""
+    cut = datetime(2026, 9, 30, tzinfo=UTC)
+    return {r["condition_id"] for r in fixture().inventory(days)
+            if close_of(r["market_id"], date.fromisoformat(r["target_date"])) >= cut}
+
+
 # -- calibrate -----------------------------------------------------------------------------------------------
 def test_calibrate_writes_a_create_only_report_and_receipt(tmp_path, capsys):
     dirs, inventory = bundles(tmp_path, CALIBRATION_DATES)
     out = tmp_path / "out"
     assert cli.main(argv("calibrate", dirs, inventory, out, "--replicates", "199")) == 0
+    printed = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert printed["label"] == "PIPELINE REHEARSAL" and "not a power estimate" in printed["note"]
     report = json.loads((out / "report.json").read_bytes())
     receipt = json.loads((out / "receipt.json").read_bytes())
-    assert report["label"] == "DESCRIPTIVE" and report["authority"] == "none"
+    assert report["label"] == receipt["label"] == "PIPELINE REHEARSAL" and report["authority"] == "none"
+    assert "margin" in receipt["note"] and "not a power estimate" in receipt["note"]
     assert report["intervals"]["panel"] == "calibration" and report["intervals"]["windows"] > 0
     assert report["decision"]["verdict"] == "NO_GO" and report["decision"]["reasons"] == ["underpowered_clusters"]
-    # every band of 09-29 closes on or after 09-30 and is dropped, never handed to the runner
-    dropped_days = {b["day"] for b in report["embargoed_bands"]}
-    assert "2026-09-29" in dropped_days and set(report["runs"]) and max(report["runs"]) <= "2026-09-29"
+    # bands closing on or after 09-30 are dropped, never handed to the runner
+    embargo_block = receipt["embargo"]
+    assert embargo_block == report["embargo"]
+    assert {b["condition_id"] for b in embargo_block["embargoed_bands"]} == fixture_dropped(CALIBRATION_DATES)
+    counts = embargo_block["counts_by_day_and_horizon"]
+    assert sum(c["dropped"] for d in CALIBRATION_DATES for c in counts[d.isoformat()].values()) == len(
+        embargo_block["embargoed_bands"])
+    assert all(c["kept"] == 0 for h, c in counts["2026-09-29"].items() if h in ("1", "2"))
+    assert all(c["kept"] > 0 for c in counts["all"].values())
+    assert set(report["runs"]) and max(report["runs"]) <= "2026-09-29"
     assert receipt["code"]["commit"] == COMMIT
     assert set(receipt["code"]["modules"]) >= {"maker_core.frontier.decision", "maker_core.replay.fill_v3",
                                                "maker_core.quoting.fill_cost", "maker_core.frontier.cli"}
@@ -115,6 +139,88 @@ def test_calibrate_refuses_any_day_after_the_fit_cutoff_before_opening_it(tmp_pa
     monkeypatch.setattr(cli, "open_bundle", lambda d: opened.append(d))
     assert cli.main(argv("calibrate", dirs, inventory, tmp_path / "out")) == 2
     assert refusal(capsys) == reason and opened == [] and not (tmp_path / "out").exists()
+
+
+@pytest.mark.parametrize("days,horizons", [((date(2026, 9, 28),), "2"), ((date(2026, 9, 29),), "1,2")])
+def test_a_horizon_with_every_band_dropped_refuses_calibrate(tmp_path, capsys, days, horizons):
+    """An empty calibration is never a pass."""
+    dirs, inventory = bundles(tmp_path, days)
+    assert cli.main(argv("calibrate", dirs, inventory, tmp_path / "out")) == 2
+    assert refusal(capsys) == "calibrate_horizon_fully_embargoed: horizon " + horizons
+    assert not (tmp_path / "out").exists()
+
+
+def test_a_dropped_band_is_decided_from_its_descriptors_and_nothing_else_is_read(tmp_path, capsys, monkeypatch):
+    """The drop reads schedule metadata only. Spies fail on: any non-descriptor record of a dropped band being
+    decoded (every replay decode goes through ``lockstep.decode_record``); any record of a dropped band, its
+    descriptors included, reaching the runner; and any tape row of a dropped band being materialised."""
+    from maker_core.quoting.fill_cost import TableFillCostProvider
+    from maker_core.replay import toxicity as tx
+    from maker_core.replay.v2 import lockstep, universe_v02
+    days = CALIBRATION_DATES
+    dropped = fixture_dropped(days)
+    assert dropped
+    dirs, inventory = bundles(tmp_path, days)
+    group_of = {"g-" + cid: cid for cid in dropped}
+    touched = []
+
+    real_decode = lockstep.decode_record
+
+    def decode_spy(record):
+        cid = getattr(record, "condition_id", None) or group_of.get(getattr(record, "group_id", None))
+        if cid in dropped and record.kind != "descriptor":  # descriptors are the schedule metadata
+            touched.append((record.kind, cid))
+            raise AssertionError("a dropped band's record was decoded: %s" % record.kind)
+        return real_decode(record)
+
+    real_items = runner.items
+
+    def runner_items_spy(source):
+        for at, batch in real_items(source):
+            hit = [item.kind for item in batch if item.condition_id in dropped]
+            if hit:
+                touched.extend(hit)
+                raise AssertionError("a dropped band reached the runner: %s" % hit)
+            yield at, batch
+
+    descriptor_reads = []
+    real_descriptors = universe_v02.descriptors
+
+    def descriptors_spy(bundle):
+        records = real_descriptors(bundle)
+        descriptor_reads.extend(r.kind for r in records)
+        return records
+
+    monkeypatch.setattr(lockstep, "decode_record", decode_spy)
+    monkeypatch.setattr(runner, "items", runner_items_spy)
+    monkeypatch.setattr(universe_v02, "descriptors", descriptors_spy)
+    real_load = adapters.CfTapeContexts._load
+
+    def load_spy(self, day):
+        index = real_load(self, day)
+        assert not {cid for cid, _ in index} & dropped, "a dropped band's tape row was materialised"
+        return index
+
+    monkeypatch.setattr(adapters.CfTapeContexts, "_load", load_spy)
+    table = tx.fit(*synthetic_records(dates=12, markets=12, minutes_per_cell=12, seed=11), replicates=100)
+    table_path = tmp_path / "table.json"
+    table_path.write_text(json.dumps(table), encoding="utf-8")
+    expected = TableFillCostProvider(json.loads(table_path.read_text(encoding="utf-8"))).digest
+    for day in days:  # tape rows for every band, dropped ones included
+        start = datetime.combine(day, time(), tzinfo=UTC)
+        write_tape(tmp_path / "tape", day, [tape_row(r["condition_id"], side, start + timedelta(minutes=k))
+                                           for r in fixture().inventory([day]) for side in ("YES", "NO")
+                                           for k in range(0, 1440, 60)])
+    args = argv("calibrate", dirs, inventory, tmp_path / "out", "--replicates", "199", "--toxicity-table",
+                str(table_path), "--toxicity-table-digest", expected, "--cf-tape", str(tmp_path / "tape"))
+    assert cli.main(args) == 0, capsys.readouterr().out
+    assert touched == [] and set(descriptor_reads) == {"descriptor"}
+    report = json.loads((tmp_path / "out" / "report.json").read_bytes())
+    assert {b["condition_id"] for b in report["embargo"]["embargoed_bands"]} == dropped
+    assert report["fill_cost"]["decisions"] > 0
+    contexts = adapters.CfTapeContexts(tmp_path / "tape", purpose="descriptive", conditions=set())
+    with pytest.raises(adapters.AdapterRefused, match="cf_tape_condition_not_kept"):
+        contexts(condition_id=sorted(dropped)[0], at=datetime.combine(days[0], time(1), tzinfo=UTC))
 
 
 def test_calibrate_reads_only_the_calibration_panel_days(tmp_path, capsys):
@@ -149,7 +255,7 @@ def test_a_commit_is_required(tmp_path, capsys):
 def test_a_captured_bundle_gets_declared_windows_through_intervals_sources(tmp_path, capsys):
     dirs, inventory = bundles(tmp_path, CALIBRATION_DATES, provenance="captured")
     rows, _ = cli.read_inventory(inventory, CALIBRATION_DATES)
-    sources, evaluation = cli.open_sources(dirs, rows, "calibration")
+    _, sources, evaluation = cli.open_sources(dirs, rows, "calibration")
     assert all(s.plan.declared and s.plan.provenance == "captured" for s in sources)
     declared = {(w["condition_id"], w["start"], w["end"]) for w in evaluation.windows}
     for s in sources:
@@ -166,8 +272,8 @@ def test_a_captured_bundle_gets_declared_windows_through_intervals_sources(tmp_p
 def test_the_runner_quotes_only_inside_declared_windows(tmp_path):
     dirs, inventory = bundles(tmp_path, CALIBRATION_DATES[:1])
     rows, _ = cli.read_inventory(inventory, CALIBRATION_DATES[:1])
-    (source,), _ = cli.open_sources(dirs, rows, "calibration")
-    kept = cli.clusters([source], fit_check, drop_embargoed=True)
+    opened, (source,), _ = cli.open_sources(dirs, rows, "calibration")
+    kept = cli.clusters([source], schedules(opened))
     sources = [s for group in kept.values() for s in group]
     quoting = runner.run(sources, decay=DECAY)["strategies"]
     assert any(quoting[p.label]["quoted_seconds"] > 0 for p in GRID)
@@ -179,11 +285,11 @@ def test_the_runner_quotes_only_inside_declared_windows(tmp_path):
 def test_event_day_clusters_sum_to_one_run_over_the_kept_bands(tmp_path):
     dirs, inventory = bundles(tmp_path, CALIBRATION_DATES[:2])
     rows, _ = cli.read_inventory(inventory, CALIBRATION_DATES[:2])
-    sources, _ = cli.open_sources(dirs, rows, "calibration")
-    dropped = set()
-    split = cli.clusters(sources, fit_check, drop_embargoed=True, dropped=dropped)
-    assert len(split) >= 2 and dropped
-    kept = [cli.restrict(s, cli.event_days(s, fit_check, drop_embargoed=True)[0]) for s in sources]
+    opened, sources, _ = cli.open_sources(dirs, rows, "calibration")
+    plans = schedules(opened)
+    split = cli.clusters(sources, plans)
+    assert len(split) >= 2 and any(p.dropped for p in plans.values())
+    kept = [cli.restrict(s, plans[s.plan.day].event_days) for s in sources]
     whole = runner.run(kept, decay=DECAY)["strategies"]
     parts = [runner.run(group, decay=DECAY)["strategies"] for group in split.values()]
     for point in GRID:
@@ -192,6 +298,68 @@ def test_event_day_clusters_sum_to_one_run_over_the_kept_bands(tmp_path):
         assert sum(p[label]["reward"]["central"] for p in parts) == pytest.approx(whole[label]["reward"]["central"])
         assert sum(p[label]["filled_shares"] for p in parts) == whole[label]["filled_shares"]
     assert any(whole[p.label]["quoted_seconds"] for p in GRID)
+
+
+# -- runner regressions ------------------------------------------------------------------------------------
+def test_a_declared_window_gap_stops_quote_cost_query_reward_and_fill_in_that_minute(tmp_path):
+    """Fails on the build 3 runner, which ignored ``plan.windows``: minute 3 of band a is outside its declared
+    windows and holds a 120-share print through the bid that would fill."""
+    from maker_core.replay.v2.lockstep import bundle_source
+    s = Scenario(day=date(2026, 9, 10), minutes=8)
+    for minute in range(8):
+        for market in s.markets:
+            s.book(market, minute * 60)
+    s.trade("a", 200, price=".40", size="120")
+    source = bundle_source(s.bundle(tmp_path / "b"))
+    a = s.cid("a")
+    windows = {a: ((s.at(0), s.at(180)), (s.at(240), s.at(480)))}  # b: no window at all
+    declared = replace(source, plan=replace(source.plan, windows=windows, declared=True))
+    queries = []
+
+    def builder(*, condition_id, at, band=None, strategy=None):
+        queries.append((condition_id, at))
+        return None
+
+    point = GRID[0]
+    gap = runner.run([declared], decay=DECAY, points=[point], baselines=("no-quote",), context_builder=builder)
+    envelope = runner.run([replace(declared, plan=replace(declared.plan, declared=False))], decay=DECAY,
+                          points=[point], baselines=("no-quote",))
+    assert envelope["strategies"][point.label]["fills"] >= 1  # the print fills when minute 3 is open
+    totals = gap["strategies"][point.label]
+    assert totals["fills"] == 0 and totals["filled_shares"] == 0
+    assert all(cid == a and not s.at(180) <= at < s.at(240) for cid, at in queries)
+    assert {at for _, at in queries} >= {s.at(0), s.at(120), s.at(240), s.at(420)}
+    # reward accrues over [0, 180) and [240, 480) only: 420 quoted seconds, nothing in the gap
+    assert totals["quoted_seconds"] == pytest.approx(420.0)
+    assert envelope["strategies"][point.label]["quoted_seconds"] > 0
+
+
+def _late_close(tmp_path, *, until=None):
+    """The synthetic 09-29 v0.2 calibration source cut to its kept bands (those closing on 09-29), whose
+    envelopes end at 09-30T00:00Z; ``until`` replaces every kept condition's ``active_until`` in the plan."""
+    day = date(2026, 9, 29)
+    dirs, inventory = bundles(tmp_path, [day])
+    rows, _ = cli.read_inventory(inventory, [day])
+    (bundle,), (source,), _ = cli.open_sources(dirs, rows, "calibration")
+    kept = cli.schedule(bundle, fit_check, drop_embargoed=True).event_days
+    assert kept
+    source = cli.restrict(source, kept)
+    assert {c.active_until for c in source.plan.conditions} == {datetime(2026, 9, 30, tzinfo=UTC)}
+    if until is not None:
+        source = replace(source, plan=replace(source.plan, conditions=tuple(
+            replace(c, active_until=until) for c in source.plan.conditions)))
+    return source
+
+
+def test_a_0929_envelope_ending_at_0930_midnight_is_accepted(tmp_path):
+    result = runner.run([_late_close(tmp_path)], decay=DECAY, points=GRID[:2], baselines=("no-quote",))
+    assert result["days"] == ["2026-09-29"]
+
+
+def test_an_envelope_reaching_into_0930_is_refused(tmp_path):
+    source = _late_close(tmp_path, until=datetime(2026, 9, 30, 0, 0, 1, tzinfo=UTC))
+    with pytest.raises(embargo.EmbargoRefused, match="reserved_window"):
+        runner.run([source], decay=DECAY, points=GRID[:2], baselines=("no-quote",))
 
 
 def test_calibrate_wires_the_real_fill_cost_and_the_tape(tmp_path, capsys):

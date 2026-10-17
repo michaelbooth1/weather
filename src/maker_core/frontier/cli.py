@@ -7,8 +7,20 @@ Two commands. Both are offline and read-only on their inputs, write one new outp
     A DESCRIPTIVE run of the whole pipeline (runner per event-day cluster, then ``decision.evaluate``) on the
     v0.2 calibration bundles (``panel.CALIBRATION_DATES``, 2026-09-27..29). Every bundle day passes
     ``embargo.check("fit", ...)`` before its bundle is opened. Its verdict is a rehearsal of the rule, never a
-    decision. A band whose descriptor close falls in a refused window (for example a 09-29 band closing on
-    09-30) is dropped from the clusters and counted in the report (``embargoed_bands``), not read.
+    decision: its output is labelled ``PIPELINE REHEARSAL`` (``REHEARSAL_LABEL``), is not a power estimate, and
+    no number from it feeds the margin proposal.
+
+    A band whose descriptor close falls in a refused window (for example a 09-29 band closing on 09-30) is
+    dropped. The drop is decided only from schedule metadata: the descriptor stream
+    (``universe_v02.descriptors``), never another stream. For a dropped band no settlement, book, trade,
+    outcome, terms, coverage or tape row is decoded, indexed or counted by this package: ``restrict`` removes
+    its records by condition ID before any decode, and the cf tape adapter filters its rows out on the
+    ``condition_id`` column before a row is materialised. (The bundle and tape readers' integrity passes
+    still hash every byte of each file and check each stream's total record count; those are file checks,
+    not band reads.) The receipt lists ``embargoed_bands`` and kept and dropped counts per day and per
+    horizon (a band's horizon is the ``horizon_days`` of its first descriptor that day). If any horizon has
+    all its bands dropped over the run, calibrate refuses (``calibrate_horizon_fully_embargoed``): an
+    empty calibration is never emitted as a pass.
 
 ``score``
     The preregistered read. It refuses, in this order:
@@ -52,6 +64,7 @@ from pathlib import Path
 import re
 import sys
 from types import MappingProxyType
+from typing import NamedTuple
 
 from maker_core.evidence.journal import canonical_bytes, digest
 from maker_core.frontier import adapters, decision, embargo, grid, prereg, runner, seams, share_decay
@@ -61,8 +74,8 @@ from maker_core.replay.bundle import FORMAT as FORMAT_V01, BundleError
 from maker_core.replay.bundle_v02 import GroupRecord, open_stream_bundle, read_format
 from maker_core.replay.pack_io import read_json
 from maker_core.replay.payloads import Descriptor
-from maker_core.replay.v2 import intervals
-from maker_core.replay.v2.lockstep import DaySource, items
+from maker_core.replay.v2 import intervals, universe_v02
+from maker_core.replay.v2.lockstep import DaySource
 
 REPORT_FORMAT = "maker-core.frontier-decision-report.1"
 RECEIPT_FORMAT = "maker-core.frontier-decision-receipt.1"
@@ -74,6 +87,8 @@ INVENTORY_BYTES = 4 * 1024**2
 CALIBRATION_PANEL = "calibration"
 # No ``panel.PANELS`` name covers 2026-10-16..2026-11-13; ``score`` refuses until a reviewed change adds one.
 SCORED_INTERVALS_PANEL = None
+REHEARSAL_LABEL = "PIPELINE REHEARSAL"
+REHEARSAL_NOTE = "pipeline rehearsal only; not a power estimate; no number from it feeds the margin proposal"
 _COMMIT = re.compile(r"[0-9a-f]{40}\Z")
 CODE_MODULES = (adapters, decision, embargo, grid, prereg, runner, seams, share_decay, fill_v3, fill_cost,
                 sys.modules[__name__])
@@ -125,35 +140,70 @@ def read_inventory(path, days) -> tuple[list, str]:
 
 
 def open_sources(directories, inventory, panel):
-    """Declared day sources through the sanctioned path, ``intervals.sources``; returns (sources, evaluation)."""
-    return intervals.sources([open_bundle(d) for d in directories], inventory, panel=panel)
+    """Declared day sources through the sanctioned path, ``intervals.sources``; returns
+    (bundles, sources, evaluation), each list in day order."""
+    bundles = sorted((open_bundle(d) for d in directories), key=lambda b: b.day)
+    sources, evaluation = intervals.sources(bundles, inventory, panel=panel)
+    return bundles, sources, evaluation
 
 
-def event_days(source: DaySource, check, *, drop_embargoed=False) -> tuple[dict, set]:
-    """({condition_id: event day}, dropped) from the source's descriptors; every close passes ``check`` first.
+class Schedule(NamedTuple):
+    """One bundle day's band schedule, from its descriptor stream only."""
 
-    With ``drop_embargoed`` a band whose close is refused by ``check`` is dropped (returned in ``dropped``)
-    instead of refusing the run; its other records are never handed to the runner."""
-    descriptors = DaySource(source.plan, lambda: (r for r in source.records() if r.kind == "descriptor"))
-    out, dropped = {}, set()
-    for _, batch in items(descriptors):
-        for item in batch:
-            if item.error is None and isinstance(item.value, Descriptor):
-                if item.condition_id in dropped:
-                    continue
-                close = item.value.market.close_at_utc
-                try:
-                    check(close)
-                except embargo.EmbargoRefused:
-                    if not drop_embargoed:
-                        raise
-                    dropped.add(item.condition_id)
-                    out.pop(item.condition_id, None)
-                    continue
-                day = decision.event_day(close)
-                if out.setdefault(item.condition_id, day) != day:
-                    raise CliRefused("band_changes_event_day")
-    return out, dropped
+    event_days: dict  # kept condition_id -> event day
+    dropped: frozenset  # condition IDs dropped for a close in a refused window
+    horizons: dict  # condition_id -> horizon_days of its first descriptor that day
+
+
+def schedule(bundle, check, *, drop_embargoed=False) -> Schedule:
+    """The day's band schedule from its **descriptor stream only** (``universe_v02.descriptors``).
+
+    Every close passes ``check``. With ``drop_embargoed`` a band whose close is refused is dropped instead of
+    refusing the run; nothing but its descriptors (schedule metadata) is read to decide it."""
+    out, dropped, horizons = {}, set(), {}
+    for record in universe_v02.descriptors(bundle):
+        cid = record.condition_id
+        if cid in dropped:
+            continue
+        value = universe_v02.decoded(record)
+        if not isinstance(value, Descriptor):
+            raise CliRefused("descriptor_stream_holds_other_value")
+        horizons.setdefault(cid, value.horizon_days)
+        close = value.market.close_at_utc
+        try:
+            check(close)
+        except embargo.EmbargoRefused:
+            if not drop_embargoed:
+                raise
+            dropped.add(cid)
+            out.pop(cid, None)
+            continue
+        day = decision.event_day(close)
+        if out.setdefault(cid, day) != day:
+            raise CliRefused("band_changes_event_day")
+    return Schedule(out, frozenset(dropped), horizons)
+
+
+def drop_counts(schedules) -> dict:
+    """{day ISO: {horizon: {"kept": n, "dropped": m}}} plus ``"all"``: the same per horizon over the run."""
+    out, total = {}, {}
+    for day, plan in sorted(schedules.items()):
+        per = out.setdefault(day.isoformat(), {})
+        for cid, horizon in sorted(plan.horizons.items()):
+            key = "dropped" if cid in plan.dropped else "kept" if cid in plan.event_days else None
+            if key is None:
+                continue
+            for bucket in (per, total):
+                bucket.setdefault(str(horizon), {"kept": 0, "dropped": 0})[key] += 1
+    out["all"] = total
+    return out
+
+
+def refuse_fully_embargoed_horizons(counts) -> None:
+    """An empty calibration is never a pass: a horizon whose bands were all dropped refuses the run."""
+    empty = sorted(h for h, c in counts["all"].items() if c["dropped"] and not c["kept"])
+    if empty:
+        raise CliRefused("calibrate_horizon_fully_embargoed: horizon " + ",".join(empty))
 
 
 def restrict(source: DaySource, keep) -> DaySource:
@@ -180,16 +230,13 @@ def restrict(source: DaySource, keep) -> DaySource:
     return DaySource(plan, records)
 
 
-def clusters(sources, check, *, drop_embargoed=False, dropped=None) -> dict:
-    """{event day ISO: [restricted DaySource, ...]} over all sources, in day order; ``dropped`` collects
-    (day, condition_id) of bands dropped for an embargoed close."""
+def clusters(sources, schedules) -> dict:
+    """{event day ISO: [restricted DaySource, ...]} over all sources, in day order. ``schedules`` maps each
+    source's day to its ``Schedule``; only its kept bands enter, cut by their event day."""
     out = {}
     for source in sorted(sources, key=lambda s: s.plan.day):
         by_day = {}
-        days, gone = event_days(source, check, drop_embargoed=drop_embargoed)
-        if dropped is not None:
-            dropped.update((source.plan.day.isoformat(), cid) for cid in gone)
-        for cid, day in days.items():
+        for cid, day in schedules[source.plan.day].event_days.items():
             by_day.setdefault(day, set()).add(cid)
         for day, cids in sorted(by_day.items()):
             out.setdefault(day.isoformat(), []).append(restrict(source, cids))
@@ -202,7 +249,7 @@ def _decay(args):
     return share_decay.fit(sessions, sources=sources), sources
 
 
-def _cost(args, purpose, now):
+def _cost(args, purpose, now, conditions=None):
     if args.toxicity_table is None and args.cf_tape is None:
         return None, None, None
     if args.toxicity_table is None or args.cf_tape is None or args.toxicity_table_digest is None:
@@ -210,7 +257,7 @@ def _cost(args, purpose, now):
     raw = Path(args.toxicity_table).read_bytes()
     provider = adapters.RecordingFillCost(fill_cost.TableFillCostProvider(json.loads(raw)),
                                           expected_table_digest=args.toxicity_table_digest)
-    contexts = adapters.CfTapeContexts(args.cf_tape, purpose=purpose, now=now)
+    contexts = adapters.CfTapeContexts(args.cf_tape, purpose=purpose, now=now, conditions=conditions)
     return provider, contexts, _sha256(raw)
 
 
@@ -269,11 +316,16 @@ def execute(args, *, clock=None) -> dict:
     if panel is None:
         raise CliRefused("score_has_no_intervals_panel")
     inventory, inventory_sha = read_inventory(args.inventory, [date.fromisoformat(b["day"]) for b in bundles])
-    sources, evaluation = open_sources(args.bundle, inventory, panel)
-    cost, contexts, table_sha = _cost(args, purpose, now if mode == "scored" else None)
-    dropped = set()
+    opened, sources, evaluation = open_sources(args.bundle, inventory, panel)
+    schedules = {b.day: schedule(b, check, drop_embargoed=mode != "scored") for b in opened}
+    counts = drop_counts(schedules)
+    if mode != "scored":
+        refuse_fully_embargoed_horizons(counts)
+    dropped = sorted((day.isoformat(), cid) for day, plan in schedules.items() for cid in plan.dropped)
+    kept = frozenset(cid for plan in schedules.values() for cid in plan.event_days)
+    cost, contexts, table_sha = _cost(args, purpose, now if mode == "scored" else None, kept)
     runs = {}
-    for key, cluster_sources in clusters(sources, check, drop_embargoed=mode != "scored", dropped=dropped).items():
+    for key, cluster_sources in clusters(sources, schedules).items():
         runs[key] = runner.run(cluster_sources, decay=decay, mode=mode, registration=registration,
                                fill_model=fill_model, cost_provider=cost,
                                context_builder=contexts if contexts is not None else seams.no_context,
@@ -282,15 +334,19 @@ def execute(args, *, clock=None) -> dict:
     if not runs:
         raise CliRefused("no_bands")
     verdict = decision.evaluate(runs, rule)
-    report = {"format": REPORT_FORMAT, "command": args.command, "label": "SCORED" if mode == "scored" else "DESCRIPTIVE",
-              "authority": "none", "decision": verdict,
+    label = "SCORED" if mode == "scored" else REHEARSAL_LABEL
+    embargoed = {"embargoed_bands": [{"day": d, "condition_id": c} for d, c in dropped],
+                 "counts_by_day_and_horizon": counts}
+    report = {"format": REPORT_FORMAT, "command": args.command, "label": label,
+              "note": None if mode == "scored" else REHEARSAL_NOTE, "authority": "none", "decision": verdict,
               "runs": {key: {"digest": r["digest"], "days": r["days"]} for key, r in sorted(runs.items())},
               "decay": decay.summary(), "fill_cost": cost.summary() if cost is not None else None,
               "intervals": {"panel": panel, "windows": len(evaluation.windows),
                             "exclusions": len(evaluation.exclusions)},
-              "embargoed_bands": [{"day": d, "condition_id": c} for d, c in sorted(dropped)]}
+              "embargo": embargoed}
     receipt = {
-        "format": RECEIPT_FORMAT, "command": args.command, "label": report["label"], "clock_utc": now.isoformat(),
+        "format": RECEIPT_FORMAT, "command": args.command, "label": label, "note": report["note"],
+        "clock_utc": now.isoformat(), "embargo": embargoed,
         "code": {"commit": args.code_commit,
                  "modules": {m.__name__: _sha256(Path(m.__file__).read_bytes()) for m in CODE_MODULES}},
         "inputs": {"bundles": bundles, "re1": decay_sources, "inventory_sha256": inventory_sha,
@@ -337,7 +393,8 @@ def main(argv=None, *, clock=None) -> int:
             decision.DecisionRefused, adapters.AdapterRefused, seams.FillBindingRefused, BundleError) as exc:
         print(json.dumps({"refused": str(exc), "type": type(exc).__name__}))
         return 2
-    print(json.dumps({"verdict": receipt["verdict"], "winner": receipt["winner"], "out_dir": args.out_dir}))
+    print(json.dumps({"label": receipt["label"], "note": receipt["note"], "verdict": receipt["verdict"],
+                      "winner": receipt["winner"], "out_dir": args.out_dir}))
     return 0
 
 
