@@ -107,6 +107,18 @@ the evidence canonical serializer, never weather, venue, runtime or credentials.
 110h reader/providers; it is outside the pure provider package. Its capture-time snapshot and envelope
 rules are owned by the [replay bundle contract](maker-replay-bundle.md).
 
+The item 330 build 2 COUNTERFACTUAL toxicity modules are listed below. They are not on any capture or
+shadow-runner import path, and `quoting/policy.py` does not import them:
+
+- `maker_core.contracts.evidence_embargo` holds embargo dates only, so the plugin can import it.
+- `maker_core.quoting.fill_cost` is the pure provider. It imports contracts, the embargo, the canonical
+  serializer and `policy`.
+- `maker_core.replay.toxicity` fits the table.
+- `weather.market.maker_plugin.toxicity_features` builds the pure features and imports only contracts and
+  plugin siblings.
+
+Design and embargo: [item 330](../roadmap/items/item-330-maker-economics-refocus-master-plan.md).
+
 ## Shared Utilities
 
 These packages are intentionally importable by any owner package:

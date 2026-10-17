@@ -74,3 +74,10 @@ engine bundle with known queue depths, a golden two-leg session journal, a whole
 (`re1_writer_rows`: the writer's event names and order, the read events with its exact fields, written with its
 envelope and hash chain), and an 88a-shaped replay bundle with hand-computed answers. All values are synthetic (no
 addresses, venue IDs, tokens, hashes or signatures); nothing is copied from a real journal or capture.
+
+`toxicity_synthetic.py` generates seeded COUNTERFACTUAL quote minutes and fills
+(stdlib `random`) with planted regimes: burst and sweep flow fill often and mark
+out toxic, calm flow fills rarely and marks out benign, and the scheduled-print
+window adds a further adverse markout. `toxicity_frozen.jsonl` is one frozen
+draw from it (seed 7, all fictional, dated 2026-09-01..09-04). The golden table
+digest in `test_toxicity.py` is pinned to it. Nothing captured is read.
