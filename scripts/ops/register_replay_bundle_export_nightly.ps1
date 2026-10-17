@@ -6,7 +6,7 @@
 # is the production checkout (venv, memory guard, lease helpers, host assignment). The two must be disjoint.
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
-    [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
+    [string]$RepoRoot = '',
     [Parameter(Mandatory = $true)][string]$DataRoot,
     [Parameter(Mandatory = $true)][string]$ReleaseRoot,
     [Parameter(Mandatory = $true)][string]$OutputRoot,
@@ -17,6 +17,9 @@ param(
     [ValidateSet('00:35')][string]$At = '00:35'
 )
 $ErrorActionPreference = 'Stop'
+# Windows PowerShell 5.1 leaves $PSScriptRoot empty in an advanced script's param() defaults under -File,
+# so the default is derived in the body; an explicit argument still wins.
+if (-not $RepoRoot) { $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot) }
 $taskName = 'WeatherReplayBundleExportNightly'
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 $ProductionRoot = (Resolve-Path -LiteralPath $ProductionRoot).Path
@@ -63,6 +66,7 @@ if ((Get-WeatherExecutionHostId) -cne [string]$assignment.dedicated_capture_exec
     throw 'registration requires assigned capture host'
 }
 . (Join-Path $RepoRoot 'scripts\ops\training_window_contract.ps1')
+. (Join-Path (Join-Path $RepoRoot 'scripts\ops') 'scheduled_task_local_trigger.ps1')
 $powerShell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 $tokens = @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', $runner,
     '-DeployRoot', $RepoRoot, '-ProductionRoot', $ProductionRoot, '-DataRoot', $DataRoot, '-ReleaseRoot', $ReleaseRoot,
@@ -70,7 +74,7 @@ $tokens = @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Fil
     '-MinAvailableMiB', [string]$MinAvailableMiB)
 $arguments = ConvertTo-ScheduledTaskArgumentString -Tokens $tokens
 $action = New-ScheduledTaskAction -Execute $powerShell -Argument $arguments -WorkingDirectory $RepoRoot
-$trigger = New-ScheduledTaskTrigger -Daily -At $At
+$trigger = New-WeatherLocalDailyTrigger -At $At
 $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -Hidden -WakeToRun `
     -ExecutionTimeLimit (New-TimeSpan -Minutes 50) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
 $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType S4U -RunLevel Limited
@@ -86,7 +90,7 @@ if ($task.TaskPath -ne '\' -or $task.State -eq 'Disabled' -or
     $actions[0].Arguments -cne $arguments -or $actions[0].WorkingDirectory -ine $RepoRoot -or
     $triggers.Count -ne 1 -or $triggers[0].CimClass.CimClassName -ne 'MSFT_TaskDailyTrigger' -or
     $triggers[0].DaysInterval -ne 1 -or -not $triggers[0].Enabled -or
-    ([datetime]$triggers[0].StartBoundary).ToString('HH:mm') -ne $At -or
+    -not (Test-WeatherLocalDailyStartBoundary -StartBoundary ([string]$triggers[0].StartBoundary) -At $At) -or
     -not [string]::IsNullOrWhiteSpace([string]$triggers[0].Repetition.Interval) -or
     $task.Settings.StartWhenAvailable -or $task.Settings.ExecutionTimeLimit -ne 'PT50M' -or
     $task.Settings.MultipleInstances -ne 'IgnoreNew' -or -not $task.Settings.Hidden -or

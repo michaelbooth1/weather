@@ -15,7 +15,7 @@
 # otherwise the export refuses at once, never waits.
 [CmdletBinding()]
 param(
-    [string]$DeployRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
+    [string]$DeployRoot = '',
     [Parameter(Mandatory = $true)][string]$ProductionRoot,
     [Parameter(Mandatory = $true)][string]$DataRoot,
     [Parameter(Mandatory = $true)][string]$ReleaseRoot,
@@ -28,6 +28,9 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2
+# Windows PowerShell 5.1 leaves $PSScriptRoot empty in an advanced script's param() defaults under -File,
+# so the default is derived in the body; an explicit argument still wins.
+if (-not $DeployRoot) { $DeployRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot) }
 $PanelGateExitCode = 3
 $JobMemoryLimitBytes = 2GB
 $WorkingSetLimitBytes = 2GB
