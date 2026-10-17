@@ -10,6 +10,11 @@ Every entry point that reads dated evidence calls :func:`check` before it reads 
   (2026-09-30..2026-11-13). A scored read also needs a signed preregistration (``prereg.verify``). This
   module only owns the dates.
 
+The scored panel ``SCORED_PANEL`` (2026-10-16..2026-11-13) is the one exception to the shadow embargo, and
+only for ``scored``: it opens when the caller passes an aware ``now`` at or after ``SCORED_OPENS_AT``
+(2026-11-14T00:00Z), i.e. after the panel has closed. With no ``now`` (every earlier caller) nothing changes.
+The frontier CLI passes the real UTC clock; tests inject one. The reserved window never opens.
+
 Days are UTC calendar dates. A UTC instant is checked on its UTC date, so a market whose local day is
 2026-09-29 but which closes on 2026-09-30 UTC is refused. The rule is conservative on purpose. A naive
 datetime is refused, as is any value that is not a date, a datetime or an ISO date string.
@@ -22,6 +27,8 @@ RESERVED = (date(2026, 9, 30), date(2026, 10, 15))
 FIT_LAST = date(2026, 9, 29)
 SHADOW_EMBARGO = (date(2026, 9, 30), date(2026, 11, 13))
 PURPOSES = ("fit", "descriptive", "scored")
+SCORED_PANEL = (date(2026, 10, 16), date(2026, 11, 13))
+SCORED_OPENS_AT = datetime(2026, 11, 14, tzinfo=timezone.utc)
 
 
 class EmbargoRefused(ValueError):
@@ -46,12 +53,22 @@ def utc_day(value) -> date:
     raise EmbargoRefused("undated_value")
 
 
-def check(purpose: str, *values) -> None:
+def scored_panel_open(now) -> bool:
+    """True when ``now`` (an aware instant) is at or after ``SCORED_OPENS_AT``; a naive ``now`` is refused."""
+    if now is None:
+        return False
+    if not isinstance(now, datetime) or now.tzinfo is None or now.utcoffset() is None:
+        raise EmbargoRefused("naive_or_undated_clock")
+    return now >= SCORED_OPENS_AT
+
+
+def check(purpose: str, *values, now=None) -> None:
     """Refuse when any value's UTC day is embargoed for ``purpose``; return None otherwise."""
     if purpose not in PURPOSES:
         raise EmbargoRefused("unknown_purpose")
     if not values:
         raise EmbargoRefused("undated_read")
+    panel_open = purpose == "scored" and scored_panel_open(now)
     for value in values:
         day = utc_day(value)
         if RESERVED[0] <= day <= RESERVED[1]:
@@ -59,4 +76,6 @@ def check(purpose: str, *values) -> None:
         if purpose == "fit" and day > FIT_LAST:
             raise EmbargoRefused("fit_after_cutoff")
         if purpose != "fit" and SHADOW_EMBARGO[0] <= day <= SHADOW_EMBARGO[1]:
+            if panel_open and SCORED_PANEL[0] <= day <= SCORED_PANEL[1]:
+                continue
             raise EmbargoRefused("shadow_embargo")

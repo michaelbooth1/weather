@@ -1,0 +1,272 @@
+"""The informed-v1 frontier decision rule (item 330 build 4). Pure: no IO, no clock, deterministic given the seed.
+
+It reads the runner's per-strategy totals for each **cluster** (one runner result per event day, built by the
+CLI) and returns one verdict, ``WINNER`` or ``NO_GO``. It grants no authority; a winner is a candidate for the
+shadow profile described in item 330, nothing more.
+
+**Primary metric.** For strategy s and decay bound b, net modelled P&L in pUSD is
+
+    N_b = reward_b - adverse_cost - exit_fee_per_filled_share * filled_shares
+
+where ``adverse_cost`` is the runner's filled shares times max(0.0043, the fill-cost provider's markout upper
+bound), and the exit fee is a per-filled-share upper bound for flattening a fill as a taker (weather taker fee
+``0.05 p (1 - p)`` pUSD per share, at most 0.0125 at p = 0.5; makers pay 0, EF §10o). The metric is cents per
+quoted minute over the pooled clusters,
+
+    m_b(s) = 100 * sum_c N_b(s, c) / (sum_c quoted_seconds(s, c) / 60),     and 0 when s never quoted,
+
+so ``no-quote`` is 0. The decision bound is ``central``; ``none`` and ``full`` are reported beside it.
+
+**Comparison.** Each grid point j is compared with the best baseline, ``delta_j = m(j) - max_k m(baseline_k)``
+over ``no-quote``, ``blind_re1`` and ``informed-v0``, with the best baseline re-taken inside every resample.
+
+**Inference.** A paired cluster bootstrap: ``replicates`` resamples of the K clusters with replacement (the
+cluster unit is the event day, ``event_day``), drawn by ``random.Random(seed).choices`` and shared by every
+strategy. ``se_j`` is the bootstrap standard deviation of ``delta*_j`` and ``T_j = delta_j / se_j`` (0 when
+``se_j`` is at most ``SE_FLOOR``: no variation across clusters is no evidence). The null distribution is the
+centred ``T*_j = (delta*_j - delta_j) / se_j``.
+
+- **Family-wise control (decides).** Westfall-Young step-down max-T, one-sided (H1: delta_j > 0), over all grid
+  points. With T sorted descending, ``p_(k) = (1 + #{b : max_{l >= k} T*_(l),b >= T_(k)}) / (B + 1)``, made
+  monotone non-decreasing down the order.
+- **Holm (disclosed sensitivity, never decides).** Holm's step-down on the marginal bootstrap p-values
+  ``(1 + #{b : T*_j,b >= T_j}) / (B + 1)``.
+
+**Winner.** The grid point with the largest central metric among those that pass all three conditions:
+
+1. Westfall-Young adjusted p <= ``alpha``;
+2. ``delta_j >= min_effect_cents`` (the point estimate beats the best baseline by the pre-declared margin);
+3. the point's own metric under the ``full`` competitor-response bound is >= 0.
+
+Ties go to canonical grid order. With no passing point, or fewer than ``min_clusters`` clusters, the verdict is
+``NO_GO`` (a significant point that misses the margin or the full-bound guard is still NO_GO). The full bound
+is a guard reported beside the central fit; it never selects.
+
+``DecisionRule`` carries every parameter the preregistration fixes; ``DecisionRule.digest()`` is the value of
+its ``Decision rule digest:`` line.
+"""
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass
+from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
+import math
+import random
+from typing import Mapping
+
+from maker_core.evidence.journal import digest
+from maker_core.frontier.grid import BASELINES, GRID, GridPoint
+from maker_core.frontier.share_decay import BOUNDS
+
+RULE_VERSION = "maker-core.frontier-decision.1"
+RESULT_FORMAT = "maker-core.frontier-decision-result.1"
+CLUSTER_UNITS = ("event_day",)
+VERDICTS = ("WINNER", "NO_GO")
+EVENT_DAY_OFFSET = timedelta(hours=12)
+SE_FLOOR = 1e-9  # cents per quoted minute; a bootstrap SD at or below it is float noise, so T = 0
+
+
+class DecisionRefused(ValueError):
+    """The inputs cannot be decided under this rule."""
+
+
+@dataclass(frozen=True)
+class DecisionRule:
+    replicates: int = 9999
+    seed: int = 20261114
+    cluster_unit: str = "event_day"
+    alpha: float = 0.05
+    min_effect_cents: float = 0.02  # cents per quoted minute; PROPOSED, the owner signs the value
+    exit_fee_per_filled_share: float = 0.0125
+    decision_bound: str = "central"
+    guard_bound: str = "full"
+    min_clusters: int = 10
+    baselines: tuple = BASELINES
+
+    def __post_init__(self):
+        if type(self.replicates) is not int or self.replicates < 99:
+            raise DecisionRefused("replicates_too_few")
+        if type(self.seed) is not int:
+            raise DecisionRefused("seed_must_be_int")
+        if self.cluster_unit not in CLUSTER_UNITS:
+            raise DecisionRefused("unknown_cluster_unit")
+        if not 0 < self.alpha < 1:
+            raise DecisionRefused("alpha_out_of_range")
+        for name in ("min_effect_cents", "exit_fee_per_filled_share"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
+                raise DecisionRefused(name + "_invalid")
+        if self.decision_bound not in BOUNDS or self.guard_bound not in BOUNDS:
+            raise DecisionRefused("unknown_bound")
+        if type(self.min_clusters) is not int or self.min_clusters < 2:
+            raise DecisionRefused("min_clusters_invalid")
+        if tuple(self.baselines) != BASELINES:
+            raise DecisionRefused("rule_requires_all_baselines")
+
+    def spec(self) -> dict:
+        out = asdict(self)
+        out["baselines"] = list(self.baselines)
+        return {"version": RULE_VERSION, "metric": "net_cents_per_quoted_minute",
+                "family": "westfall_young_stepdown_maxT_one_sided", "sensitivity": "holm_marginal_bootstrap",
+                "bootstrap": "paired_cluster_python_random_choices", "parameters": out}
+
+    def digest(self) -> str:
+        return digest(self.spec())
+
+
+PROPOSED_RULE = DecisionRule()
+
+
+def event_day(close_at_utc: datetime) -> date:
+    """The event day of a market: the UTC date of its close minus 12 hours.
+
+    Weather markets close at the local midnight after the target date; for any UTC offset within +-12 h this is
+    the target date. A naive instant is refused.
+    """
+    if not isinstance(close_at_utc, datetime) or close_at_utc.tzinfo is None or close_at_utc.utcoffset() is None:
+        raise DecisionRefused("naive_close")
+    return (close_at_utc.astimezone(timezone.utc) - EVENT_DAY_OFFSET).date()
+
+
+def _float(value) -> float:
+    if isinstance(value, Decimal):
+        value = float(value)
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        raise DecisionRefused("nonfinite_total")
+    return float(value)
+
+
+def _strategies(result) -> Mapping:
+    strategies = result.get("strategies") if isinstance(result, Mapping) else None
+    if not isinstance(strategies, Mapping):
+        raise DecisionRefused("runner_result_required")
+    return strategies
+
+
+def _cell(totals, rule, bound):
+    """(net pUSD under ``bound``, quoted minutes) for one strategy in one cluster."""
+    net = (_float(totals["reward"][bound]) - _float(totals["adverse_cost"])
+           - rule.exit_fee_per_filled_share * _float(totals["filled_shares"]))
+    return net, _float(totals["quoted_seconds"]) / 60
+
+
+def _metric(nets, minutes, weights):
+    num = den = 0.0
+    for w, n, q in zip(weights, nets, minutes):
+        if w:
+            num += w * n
+            den += w * q
+    return 100 * num / den if den > 0 else 0.0
+
+
+def _sd(values):
+    mean = sum(values) / len(values)
+    return math.sqrt(sum((v - mean) ** 2 for v in values) / (len(values) - 1))
+
+
+def _holm(pvalues: Mapping[str, float], order) -> dict:
+    ranked = sorted(order, key=lambda label: (pvalues[label], order.index(label)))
+    m, running, out = len(ranked), 0.0, {}
+    for i, label in enumerate(ranked):
+        running = max(running, min(1.0, (m - i) * pvalues[label]))
+        out[label] = running
+    return out
+
+
+def evaluate(clusters: Mapping[str, Mapping], rule: DecisionRule = PROPOSED_RULE) -> dict:
+    """The verdict over per-cluster runner results (``{cluster key: runner result}``); see the module doc."""
+    if not isinstance(rule, DecisionRule):
+        raise DecisionRefused("decision_rule_required")
+    keys = sorted(clusters)
+    if not keys:
+        raise DecisionRefused("no_clusters")
+    results = [clusters[k] for k in keys]
+    identity = {}
+    for field in ("grid_hash", "decay", "fill_model_binding", "label", "registration_sha256"):
+        values = {r.get(field) for r in results}
+        if len(values) != 1:
+            raise DecisionRefused("clusters_disagree_on_" + field)
+        identity[field] = values.pop()
+    labels = set(_strategies(results[0]))
+    if any(set(_strategies(r)) != labels for r in results):
+        raise DecisionRefused("clusters_disagree_on_strategies")
+    if not set(rule.baselines) <= labels:
+        raise DecisionRefused("missing_baseline")
+    by_label = {p.label: p for p in GRID}
+    points = [p.label for p in sorted(by_label[label] for label in labels if label in by_label)]
+    if not points or len(points) + len(rule.baselines) != len(labels):
+        raise DecisionRefused("unknown_or_missing_grid_points")
+    names = list(rule.baselines) + points
+    cells = {b: {s: [_cell(_strategies(r)[s], rule, b) for r in results] for s in names} for b in BOUNDS}
+    nets = {b: {s: [c[0] for c in cells[b][s]] for s in names} for b in BOUNDS}
+    minutes = {s: [c[1] for c in cells[rule.decision_bound][s]] for s in names}
+    ones = [1] * len(keys)
+    metric = {b: {s: _metric(nets[b][s], minutes[s], ones) for s in names} for b in BOUNDS}
+    central = metric[rule.decision_bound]
+    best_baseline = max(rule.baselines, key=lambda s: (central[s], -rule.baselines.index(s)))
+    best_value = central[best_baseline]
+    delta = {j: central[j] - best_value for j in points}
+
+    rng = random.Random(rule.seed)
+    k = len(keys)
+    draws = []
+    for _ in range(rule.replicates):
+        weights = [0] * k
+        for index in rng.choices(range(k), k=k):
+            weights[index] += 1
+        sample = {s: _metric(nets[rule.decision_bound][s], minutes[s], weights) for s in names}
+        top = max(sample[b] for b in rule.baselines)
+        draws.append([sample[j] - top for j in points])
+    columns = list(zip(*draws))
+    se = {j: _sd(columns[i]) for i, j in enumerate(points)}
+    t = {j: (delta[j] / se[j] if se[j] > SE_FLOOR else 0.0) for j in points}
+    null = [[((row[i] - delta[j]) / se[j] if se[j] > SE_FLOOR else 0.0) for i, j in enumerate(points)]
+            for row in draws]
+
+    # Westfall-Young step-down max-T (one-sided); ties in T keep canonical grid order.
+    order = sorted(range(len(points)), key=lambda i: (-t[points[i]], i))
+    wy, running = {}, 0.0
+    tails = []
+    for row in null:  # successive maxima from the bottom of the order: tails[b][r] = max over order[r:]
+        acc, tail = -math.inf, [0.0] * len(order)
+        for r in range(len(order) - 1, -1, -1):
+            acc = max(acc, row[order[r]])
+            tail[r] = acc
+        tails.append(tail)
+    for r, i in enumerate(order):
+        observed = t[points[i]]
+        exceed = sum(1 for tail in tails if tail[r] >= observed)
+        running = max(running, (1 + exceed) / (rule.replicates + 1))
+        wy[points[i]] = running
+    marginal = {j: (1 + sum(1 for row in null if row[i] >= t[j])) / (rule.replicates + 1)
+                for i, j in enumerate(points)}
+    holm = _holm(marginal, points)
+
+    enough = k >= rule.min_clusters
+    table, passing = [], []
+    for j in points:
+        conditions = {"westfall_young": wy[j] <= rule.alpha, "min_effect": delta[j] >= rule.min_effect_cents,
+                      "full_bound_non_negative": metric[rule.guard_bound][j] >= 0}
+        if enough and all(conditions.values()):
+            passing.append(j)
+        table.append({"strategy": j, "metric_cents_per_quoted_minute": {b: metric[b][j] for b in BOUNDS},
+                      "quoted_minutes": sum(minutes[j]), "delta_vs_best_baseline": delta[j],
+                      "delta_full_vs_best_baseline_full": metric["full"][j] - max(metric["full"][b] for b in rule.baselines),
+                      "se": se[j], "t": t[j], "p_westfall_young": wy[j], "p_marginal": marginal[j],
+                      "p_holm_sensitivity": holm[j], "holm_significant_sensitivity": holm[j] <= rule.alpha,
+                      "conditions": conditions})
+    winner = max(passing, key=lambda j: (central[j], -points.index(j))) if passing else None
+    reasons = []
+    if not enough:
+        reasons.append("underpowered_clusters")
+    if winner is None and enough:
+        reasons.append("no_point_passes_all_conditions")
+    result = {
+        "format": RESULT_FORMAT, "rule": rule.spec(), "decision_rule_digest": rule.digest(), **identity,
+        "clusters": keys, "cluster_count": k, "best_baseline": best_baseline,
+        "baselines": {b: {"metric_cents_per_quoted_minute": {x: metric[x][b] for x in BOUNDS},
+                          "quoted_minutes": sum(minutes[b])} for b in rule.baselines},
+        "points": table, "verdict": "WINNER" if winner else "NO_GO", "winner": winner, "reasons": reasons,
+    }
+    result["digest"] = digest(result)
+    return result

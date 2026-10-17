@@ -9,7 +9,9 @@ Modes:
 - ``descriptive``: needs no registration. Its result is labelled DESCRIPTIVE. It is bounds-only by
   construction, and its numbers are not a P&L sign test (established findings §10r).
 - ``scored``: refused unless it covers the whole grid and every baseline, and ``prereg.verify`` accepts
-  the registration document for this run's decay digest and fill model. Both modes pass the date
+  the registration document for this run's decay digest and fill-model binding (``seams.binding``; an
+  unregistered or unversioned fill model is refused). ``now`` (scored only) is passed to every embargo check,
+  so the scored panel opens only by the caller's clock (``embargo.SCORED_OPENS_AT``). Both modes pass the date
   embargo on the day, the condition windows, every instant, every trade time, every market close and
   settle time, and every settlement.
 
@@ -45,7 +47,9 @@ from maker_core.contracts import OutcomeView, SettlementFact, Unavailable
 from maker_core.evidence.journal import digest
 from maker_core.frontier import embargo, prereg
 from maker_core.frontier.grid import BASELINES, GRID, GRID_HASH, GridPoint
-from maker_core.frontier.seams import ConstantFillCost, PricePathFillModel, fill_cost_terms, no_context
+from maker_core.frontier.seams import (
+    ConstantFillCost, PricePathFillModel, binding, fill_cost_terms, is_bindable, no_context,
+)
 from maker_core.frontier.share_decay import BOUNDS, DecayModel
 from maker_core.quoting.policy import (
     Book, DecisionInputs, Portfolio, QuoteLeg, RewardTerms, _event_active, blind_re1, decide, informed_v0,
@@ -184,12 +188,21 @@ def _exit_leg(position, width, tick):
 
 def run(sources, *, decay: DecayModel, mode: str = "descriptive", registration: bytes | None = None,
         fill_model=None, cost_provider=None, context_builder=no_context, hazard_per_minute: float | None = None,
-        points=GRID, baselines=BASELINES) -> dict:
+        points=GRID, baselines=BASELINES, now=None, decision_rule_digest: str | None = None) -> dict:
     if mode not in MODES:
         raise FrontierRefused("unknown_mode")
     if not isinstance(decay, DecayModel):
         raise FrontierRefused("decay_model_required")
     fill_model = fill_model or PricePathFillModel()
+    fill_binding = binding(fill_model)
+    clock = now if mode == "scored" else None
+
+    def check(*values):
+        if clock is None:
+            embargo.check(mode, *values)
+        else:
+            embargo.check(mode, *values, now=clock)
+
     cost_provider = cost_provider or ConstantFillCost()
     if not isinstance(cost_provider, ConstantFillCost) and context_builder is no_context:
         raise FrontierRefused("context_builder_required")
@@ -202,15 +215,17 @@ def run(sources, *, decay: DecayModel, mode: str = "descriptive", registration: 
             raise FrontierRefused("scored_requires_full_grid")
         if tuple(baselines) != BASELINES:
             raise FrontierRefused("scored_requires_all_baselines")
-        registration_sha = prereg.verify(registration, decay_digest=decay.digest(),
-                                         fill_model_name=fill_model.name)
+        if not is_bindable(fill_binding):
+            raise FrontierRefused("scored_requires_registered_fill_model")
+        registration_sha = prereg.verify(registration, decay_digest=decay.digest(), fill_model_binding=fill_binding,
+                                         decision_rule_digest=decision_rule_digest)
     strategies = {name: name for name in baselines}
     strategies.update({p.label: p for p in sorted(points)})
     totals = {label: _totals() for label in strategies}
     days = []
     for source in sources:
         plan = source.plan
-        embargo.check(mode, plan.day, *(t for c in plan.conditions for t in (c.active_from, c.active_until)))
+        check(plan.day, *(t for c in plan.conditions for t in (c.active_from, c.active_until)))
         days.append(plan.day.isoformat())
         bands, quotes = {}, {}
 
@@ -291,7 +306,7 @@ def run(sources, *, decay: DecayModel, mode: str = "descriptive", registration: 
 
         last = None
         for at, batch in items(source):
-            embargo.check(mode, at)
+            check(at)
             last = at
             booked = []
             for item in batch:
@@ -301,7 +316,7 @@ def run(sources, *, decay: DecayModel, mode: str = "descriptive", registration: 
                 band = bands.setdefault(cid, Band())
                 if item.kind == "descriptor":
                     market = value.market
-                    embargo.check(mode, market.close_at_utc, *([market.settle_at_utc] if market.settle_at_utc else []))
+                    check(market.close_at_utc, *([market.settle_at_utc] if market.settle_at_utc else []))
                     band.descriptor = value
                     for label in strategies:
                         quotes.setdefault((label, cid), Quote())
@@ -317,10 +332,10 @@ def run(sources, *, decay: DecayModel, mode: str = "descriptive", registration: 
                 elif item.kind == "info_event":
                     band.events = value
                 elif item.kind == "settlement" and isinstance(value, SettlementFact):
-                    embargo.check(mode, value.as_of_utc)
+                    check(value.as_of_utc)
                     band.settlement = value.p_yes
                 elif item.kind == "trade" and isinstance(value, Trade):
-                    embargo.check(mode, value.traded_at)
+                    check(value.traded_at)
                     for label in strategies:
                         fill(label, cid, value, band, at)
             for cid in booked:
@@ -343,7 +358,7 @@ def run(sources, *, decay: DecayModel, mode: str = "descriptive", registration: 
         t["net_modelled"] = {b: t["reward"][b] - t["adverse_cost"] for b in BOUNDS}
     result = {"format": RUN_FORMAT, "label": "SCORED" if mode == "scored" else "DESCRIPTIVE",
               "registration_sha256": registration_sha, "grid_hash": GRID_HASH, "decay": decay.digest(),
-              "fill_model": fill_model.name,
+              "fill_model": fill_model.name, "fill_model_binding": fill_binding,
               "cost_provider": type(cost_provider).__module__ + "." + type(cost_provider).__qualname__, "days": days, "hazard_per_minute": hazard_per_minute,
               "strategies": totals}
     result["digest"] = digest(result)

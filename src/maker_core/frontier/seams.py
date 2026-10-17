@@ -21,6 +21,18 @@ behaviour. When build 1 or build 2 lands, its object is passed in; this package 
     - ``fill_cost_terms`` turns an estimate into ``(markout, veto)``. The markout never falls below the
       constant 0.0043 (the public-tape settlement markout), so a provider can only make the cost stricter.
     - ``context_builder`` (a runner argument) builds the provider's context. Its default returns None.
+
+Fill-model binding (``binding``)
+    A preregistration binds the fill model by ``binding(model)``, never by ``.name`` alone, because a name is
+    a free constructor argument (``QueueFillModel(kernel, name="v2-strictly_through")`` would otherwise pass
+    as the v2 model). The binding is ``<module>.<qualname>@<version>:<name>``:
+
+    - only the exact classes in ``REGISTERED_FILL_MODELS`` bind (a subclass or any other class gets an
+      ``unregistered:`` binding that a scored run refuses);
+    - the version is the class's ``VERSION`` constant; a ``QueueFillModel`` appends its kernel's module name
+      and ``VERSION`` (``unversioned`` when the kernel has none, which a scored run also refuses);
+    - a name that contradicts its class (a ``QueueFillModel`` not named ``v3-...``, a ``PricePathFillModel``
+      whose name is not ``v2-<bound>``) is refused outright (``FillBindingRefused``).
 """
 from __future__ import annotations
 
@@ -32,6 +44,12 @@ from maker_core.replay.fill_model import BOUNDS, match
 
 CONSTANT_ADVERSE_MARKOUT = 0.0043
 VETOES = (None, "BURST", "SWEEP")
+UNREGISTERED = "unregistered:"
+UNVERSIONED = "unversioned"
+
+
+class FillBindingRefused(ValueError):
+    """A fill model's name contradicts its class."""
 
 
 @runtime_checkable
@@ -45,6 +63,8 @@ class FillModel(Protocol):
 
 class PricePathFillModel:
     """Stand-in: the frozen v2 price-path predicate, one bound per instance."""
+
+    VERSION = "v2-price-path.1"
 
     def __init__(self, bound: str = "strictly_through"):
         if bound not in BOUNDS:
@@ -70,6 +90,8 @@ class PricePathFillModel:
 class QueueFillModel:
     """Adapter for build 1: a queue-aware fill through an injected fill-v3 kernel."""
 
+    VERSION = "queue-adapter.1"
+
     def __init__(self, kernel, name: str = "v3-queue"):
         for attribute in ("eligibility", "q_ahead", "QueueState"):
             if not hasattr(kernel, attribute):
@@ -94,6 +116,41 @@ class QueueFillModel:
                 fills.append((leg, size))
                 break  # one print fills at most one of our legs, as in v2
         return dict(state, left=left), tuple(fills)
+
+
+REGISTERED_FILL_MODELS = (PricePathFillModel, QueueFillModel)
+
+
+def _qualified(cls) -> str:
+    return cls.__module__ + "." + cls.__qualname__
+
+
+def binding(model) -> str:
+    """The identity a preregistration binds: exact class, version constant(s) and name; see the module doc."""
+    cls, name = type(model), getattr(model, "name", None)
+    if not isinstance(name, str) or not name or any(c.isspace() or c == "`" for c in name):
+        raise FillBindingRefused("fill_model_name_invalid")
+    if cls not in REGISTERED_FILL_MODELS:
+        return UNREGISTERED + _qualified(cls) + ":" + name
+    if cls is PricePathFillModel:
+        if name != "v2-" + model.bound:
+            raise FillBindingRefused("fill_model_name_contradicts_class")
+        version = cls.VERSION
+    else:
+        if not name.startswith("v3-"):
+            raise FillBindingRefused("fill_model_name_contradicts_class")
+        kernel = model.kernel
+        kernel_name = getattr(kernel, "__name__", None) or _qualified(type(kernel))
+        kernel_version = getattr(kernel, "VERSION", None)
+        if not isinstance(kernel_version, str) or not kernel_version:
+            kernel_version = UNVERSIONED
+        version = "%s+%s@%s" % (cls.VERSION, kernel_name, kernel_version)
+    return "%s@%s:%s" % (_qualified(cls), version, name)
+
+
+def is_bindable(value: str) -> bool:
+    """True when a binding may be signed: a registered class and a versioned kernel."""
+    return not value.startswith(UNREGISTERED) and "@" + UNVERSIONED + ":" not in value
 
 
 @runtime_checkable

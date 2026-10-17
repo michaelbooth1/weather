@@ -28,13 +28,21 @@ Fits use only dates on or before 2026-09-29 (``embargo.check("fit", ...)``). The
 decision projection (``re1_sessions``). A depth series in the same ``Session`` shape (for example, from 88a
 captures) fits through ``fit`` unchanged. The numbers are descriptive: twelve attempts in one week are not
 a calibrated estimate.
+
+``sources`` names the SHA-256 of every raw input the fit read (for RE-1, the projection and the selection
+parity file; ``load_re1`` computes them from the bytes). They are part of ``summary()`` and therefore of the
+digest, so a changed input byte changes the digest a preregistration binds, even when the fitted numbers
+happen not to move. A model built with no sources (a test stand-in) keeps its earlier summary and digest.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
+import hashlib
+import json
 import math
+import re
 import statistics
 from typing import Mapping, Sequence
 
@@ -46,6 +54,7 @@ BOUNDS = ("none", "central", "full")
 TAU_GRID_MINUTES = (0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 4.0, 5.0, 7.5, 10.0, 15.0, 20.0, 30.0, 45.0, 60.0)
 K_GRID = (0.0,) + tuple(round(0.01 * 10 ** (i / 30), 6) for i in range(121))  # 0, 0.01..100
 MIN_SAMPLES = 3
+_SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 
 
 @dataclass(frozen=True)
@@ -102,6 +111,10 @@ class DecayModel:
     tau_minutes: float
     x_full: float
     fits: tuple[SessionFit, ...]
+    sources: tuple[tuple[str, str], ...] = ()  # sorted (input name, sha256 of its raw bytes)
+
+    def __post_init__(self):
+        object.__setattr__(self, "sources", _sources(self.sources))
 
     def extra(self, bound: str, age_minutes: float) -> float:
         if bound not in BOUNDS:
@@ -127,11 +140,22 @@ class DecayModel:
                      if self.share(bound, 1.0, competing, n / 10) <= share0 / 2), None)
 
     def summary(self):
-        return {"k": self.k, "tau_minutes": self.tau_minutes, "x_full": self.x_full,
-                "sessions": [f.__dict__ for f in self.fits]}
+        out = {"k": self.k, "tau_minutes": self.tau_minutes, "x_full": self.x_full,
+               "sessions": [f.__dict__ for f in self.fits]}
+        if self.sources:
+            out["source_sha256"] = dict(self.sources)
+        return out
 
     def digest(self):
         return digest(self.summary())
+
+
+def _sources(sources) -> tuple[tuple[str, str], ...]:
+    pairs = tuple(sorted(dict(sources or {}).items()))
+    for name, sha in pairs:
+        if not isinstance(name, str) or not name or not isinstance(sha, str) or not _SHA256.match(sha):
+            raise ValueError("decay_source_sha256_invalid")
+    return pairs
 
 
 def fit_session(session: Session) -> SessionFit:
@@ -157,8 +181,11 @@ def fit_session(session: Session) -> SessionFit:
                       session.share0(), session.halving_minutes(), at_bound)
 
 
-def fit(sessions: Sequence[Session], *, purpose: str = "fit") -> DecayModel:
-    """Embargo-checked fit. Central is the median over identified sessions; full is their largest k."""
+def fit(sessions: Sequence[Session], *, purpose: str = "fit", sources: Mapping[str, str] | None = None) -> DecayModel:
+    """Embargo-checked fit. Central is the median over identified sessions; full is their largest k.
+
+    ``sources`` maps each raw input's name to the SHA-256 of its bytes; it enters ``summary()`` and the digest.
+    """
     if purpose != "fit":
         raise ValueError("decay_fit_purpose_must_be_fit")
     for session in sessions:
@@ -170,7 +197,7 @@ def fit(sessions: Sequence[Session], *, purpose: str = "fit") -> DecayModel:
     k = statistics.median(f.k for f in fitted)
     tau = statistics.median(f.tau_minutes for f in fitted)
     x_full = max(f.k for f in fitted)
-    return DecayModel(k, tau, x_full, fits)
+    return DecayModel(k, tau, x_full, fits, _sources(sources))
 
 
 # -- RE-1 decision projection adapter -------------------------------------------------------------------
@@ -225,3 +252,17 @@ def re1_sessions(projection: Mapping, selections: Sequence[Mapping], *, purpose:
             samples.append(Sample(datetime.fromisoformat(minute["observed_at"]), competing, own))
         out.append(Session("attempt-%d" % raw["attempt"], opened, own0, competing0, tuple(samples)))
     return tuple(out)
+
+
+RE1_SOURCES = ("re1_sessions.json", "re1_price_parity.json")
+
+
+def load_re1(projection: bytes, selections: bytes, *, purpose: str = "fit"):
+    """(sessions, sources) from the raw RE-1 projection and selection parity bytes; sources carry their SHA-256."""
+    if not isinstance(projection, bytes) or not isinstance(selections, bytes):
+        raise TypeError("raw input bytes are required")
+    sessions = re1_sessions(json.loads(projection.decode("utf-8")), json.loads(selections.decode("utf-8")),
+                            purpose=purpose)
+    sources = dict(zip(RE1_SOURCES, (hashlib.sha256(projection).hexdigest(),
+                                     hashlib.sha256(selections).hexdigest())))
+    return sessions, sources
