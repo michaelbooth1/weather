@@ -107,10 +107,10 @@ Toxicity table: `UNSET (owner binds the toxicity table digest before signing)`
 
 ## 4a. Decision rule (`maker_core.frontier.decision`)
 
-Decision rule digest: `bd54e8ee933630e881d74519be30e829faf2f7db757fb7d23807714b2baa0763`
+Decision rule digest: `9216f1b903180b07d1ffb1bfbaa202ceff3bc803d44dca8e72a02766d71af810`
 
-That is the digest of `decision.PROPOSED_RULE.spec()` (format `maker-core.frontier-decision.2`), which holds
-every parameter below. The margin is unset in it. Signing the margin changes the rule and its digest, and
+That is the digest of `decision.PROPOSED_RULE.spec()` (format `maker-core.frontier-decision.2`, revised in
+review round 4), which holds every parameter below. The margin is unset in it. Signing the margin changes the rule and its digest, and
 this line must then be recomputed. The code refuses a scored run whose rule digest differs from the line
 above, and `score` refuses while the margin is unset.
 
@@ -136,12 +136,27 @@ above, and `score` refuses while the margin is unset.
   and shared by every strategy.
   - For point j and each baseline k, delta_jk is the difference in the primary unit, and se_jk is the
     bootstrap SD of delta*_jk.
-  - **T_j = min over k of delta_jk / se_jk** (intersection-union): a point must beat every baseline. No
-    best baseline is re-chosen per resample.
-  - The null draw centres each pair on its bootstrap mean: T*_j = min over k of
-    (delta*_jk − mean delta*_jk) / se_jk.
+  - **Observed: T_j = min over k of delta_jk / se_jk** (intersection-union): a point must beat every
+    baseline. No best baseline is re-chosen per resample.
+  - **Null row: T*_j = max over k of (delta*_jk − mean delta*_jk) / se_jk.** Each pair is centred on its
+    bootstrap mean.
+    - Under intersection-union, the least-favourable null is one pair at the null while the others are far
+      positive. The observed minimum is then that pair's statistic.
+    - The maximum over pairs of the centred draws bounds that pair's null tail, so max over j of max over k
+      bounds every configuration.
+    - The minimum, used in round 3, sits below a single pair's quantile and over-rejects. In a seeded
+      simulation with one null pair and two far-positive pairs (K = 12, B = 199, 400 datasets, α = 0.05) it
+      rejected 19% of the time; the maximum rejected 6.5%, the small-K bootstrap's own slack.
+    - Westfall–Young, the marginal p-values and Holm all use this null row.
   - T is a bootstrap-scaled, centred statistic, and its p-values are bootstrap tail frequencies. It is
     **not** a studentized (pivotal) bootstrap. A pair whose bootstrap SD is at most 1e-12 contributes 0.
+- **Serial dependence (disclosed; sensitivity only).** Capture days are serially dependent: a band is quoted
+  on two consecutive days (horizons 2 then 1), and weather regimes persist. The i.i.d. day bootstrap
+  therefore understates the variance somewhat.
+  - A pre-declared moving-block bootstrap is reported beside every point: blocks of 2 consecutive capture
+    days (`sensitivity_block_length`), with the same statistic and null row.
+  - It **never decides**. The verdict reads only the i.i.d. bootstrap. A Westfall–Young p that passes there
+    but not under blocks is disclosed as fragile to serial dependence.
 - **Family-wise control (decides).** Westfall–Young step-down max-T, one-sided, over all 120 points, at
   α = 0.05.
 - **Holm (sensitivity only).** Holm-adjusted marginal bootstrap p-values are reported beside the
@@ -163,6 +178,34 @@ above, and `score` refuses while the margin is unset.
     that significantly beats every baseline with real quoting is a candidate.
 
   Either choice changes the decision rule digest above, which must then be recomputed before signing.
+  (Review round 4 agreed with B, conditional on the null-row fix above; the economic bar then belongs to
+  promotion, §10.)
+- **Cost coverage: at most 2% of decisions without a markout (PROPOSED; in the rule digest).** A
+  fill-cost decision whose tape context or table cell is missing falls back to the 0.0043 floor. That is
+  a silent substitution, so `score` bounds it and the receipt reports the share
+  (`max_cost_unavailable_share` = 0.02).
+  - A kept band queried on a day whose tape has **no row at all** for it is not counted in the share. It
+    is a coverage hole, and `score` refuses on it outright (an ID-case mismatch also shows up this way).
+  - What the 2% tolerates is the residue: isolated missed capture minutes that leave the latest row more
+    than 120 s old, and table cells the provider cannot price.
+  - 2% is about 29 minutes of a 1,440-minute day. Above it, the floor would be pricing a material part
+    of a point's fills.
+  - 0 would refuse a whole panel over one missed capture minute. The owner may set it to 0 instead.
+- **Toxicity keying (by design).** The build 2 table keys its hazard by the exposure minute's context and
+  its markouts by the trailing context at the fill instant. That is safe here, because the frontier reads
+  only `adverse_markout_upper`: the runner prices each fill at max(0.0043, that upper bound), and the
+  envelope max(pooled, rows) is never below the pooled value. The hazard keying never enters this rule.
+
+## 4b. Bands that closed before their capture day (scored mode)
+
+A capture day's first hours (10-17T00:00–04:00Z is local 10-16 in the US zones) can hold a horizon −1
+descriptor. For example, target 10-15 closes 10-16T04:00Z, inside the shadow embargo.
+
+- In `score`, `cli.schedule` drops such a band, one whose descriptor close is at or before the start of its
+  bundle's UTC day, **before** checking its close. It decides from the descriptor stream only, and lists the
+  band in `embargoed_bands` with reason `closed_before_day`.
+- A band that closed before the day began can earn nothing that day, so this loses nothing.
+- Every other embargoed close still refuses the whole scored run. `score` drops nothing else.
 
 ## 5. Competitor-response model (fitted before this read; dates ≤ 2026-09-29)
 
@@ -199,6 +242,8 @@ branch UNDECIDABLE_AT_DELTA. Accordingly:
   promotion claim;
 - **as built, the test asks whether a point's modelled rewards exceed its modelled fill cost by more than
   the baselines'**. It does not test edge over the market;
+- **serial dependence.** Capture days are not independent (§4a). The 2-day moving-block bootstrap is
+  reported as a sensitivity and never decides;
 - **power.** The panel is 2026-10-17..2026-11-13, about 28 capture days. At about 29 days the 120
   correlated points act like roughly 8–15 independent ones. The review (round 3) put the detectable
   difference at about 0.06–0.18 ¢ per quoted minute, so a margin of 0.02 ¢/min would never have bound.
@@ -262,6 +307,52 @@ times, and settlement facts.
 - The exit fee is a uniform upper bound (§4a), not a price-dependent fee, and it applies to `resting_sell`
   points only.
 
-## 10. Signature
+## 10. Shadow-to-live promotion bar (owner proposal) — DRAFT
+
+**PROPOSAL for the owner. Not signed, and not part of the scored rule above.** No shadow-to-live promotion
+preregistration exists yet: `docs/research/` has none, the live pilot runbook has none, and item 330 ties
+G4 to the hurdle H. Review round 4 asked for the economic bar to be written down **now**, before any scored
+result exists, so a winner cannot set its own bar.
+
+**Proposed bar: a shadow profile is promotable only if its net is at least 1.00 pUSD per capture day.**
+That net is measured on its own forward shadow days under the live envelope, which deploys at most
+100 pUSD. Net means modelled reward minus fill cost minus the exit fee bound.
+
+Derivation, from repository facts:
+
+1. **The hurdle.** H = 1.00 net per day per 100 deployed (DECISION_LOG 2026-09-22). It also governs G1 and
+   G4 (DECISION_LOG 2026-10-15), and G4 is item 330's go/no-go economic decision.
+2. **The capital.** The live pilot envelope caps the isolated wallet at 100 pUSD and each order at 10 pUSD
+   (`docs/operations/INTERNATIONAL_MM_LIVE_PILOT.md`, an immutable envelope that may only be lowered).
+   At that envelope, H is 1.00 pUSD per day.
+3. **No scaling down (proposed).** A smaller deployment does not lower the bar. The cost of a shadow or
+   live slot (operator attendance, capture, review) is per day, not per pUSD. The owner may choose to scale
+   the bar with capital instead (0.01 × deployed).
+4. **Units.** The frontier harness caps cash per band (100) but not across bands, so its scored
+   per-capture-day net can assume more than 100 pUSD at work. The bar therefore applies to the **shadow
+   profile's** net under the 100 pUSD envelope, never to the frontier's uncapped total.
+5. **Cross-check against the measured costs.** It is demanding but reachable:
+   - B2's counterfactual tape fits (fit 1 and fit 2, as relayed by master on 2026-10-17; not yet recorded
+     in an owning document) put short-horizon markouts at −0.5 to −3 c per share and settlement markouts at
+     −1.3 to −3.6 c per share, underpowered.
+   - One 20-share fill on each leg (40 shares) at the worst settlement markout costs about 1.44 pUSD. A
+     band-day with such a fill therefore needs about 2.4 pUSD of reward to clear the bar.
+   - That is about RE-1's one paid reward day (+2.13 against about 2.03 modelled, k ≈ 1.05; findings
+     digest). It is inside item 330's modelled 0.5–6 per band per day for contested next-day 20-share
+     bands.
+   - At the public maker markout of −0.43 c per share to settlement (item 330), 40 shares cost 0.17 pUSD.
+   - RE-1's realised −36.97 pUSD over five fills (exhaustion register §4) shows fills, not rewards, decide
+     the sign.
+6. **What it is not.** It is a bar on the modelled net of a forward shadow, not a realised P&L claim.
+   - Live use still needs the pilot's own gates.
+   - Kill rule K3 (realised fill losses above twice the shadow prediction: pause) applies once quoting.
+   - The live-fill calibration (LFC) sessions, starting with session 0 on 10-16, measure the real fill
+     rate and fill cost. No LFC result is recorded in the repository yet. The owner should re-check this
+     bar against session 0 to 1 before signing.
+
+The scored rule's margin stays an owner field (§4a). Review round 4 favours option B (0) for selection,
+with this bar governing promotion.
+
+## 11. Signature
 
 Signed: UNSIGNED

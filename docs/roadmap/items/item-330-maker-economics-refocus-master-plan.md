@@ -37,9 +37,28 @@ and nothing outside the frontier imports it.
   - **the margin is an owner-signature field and is unset.** No point can win until it is signed, and
     `score` refuses until then.
 
-  The `PROPOSED_RULE` digest (`maker-core.frontier-decision.2`, margin unset) is
-  `bd54e8ee933630e881d74519be30e829faf2f7db757fb7d23807714b2baa0763`, and golden tests pin the rule and its
+  The `PROPOSED_RULE` digest (`maker-core.frontier-decision.2`, margin unset, revised in round 4) is
+  `9216f1b903180b07d1ffb1bfbaa202ceff3bc803d44dca8e72a02766d71af810`, and golden tests pin the rule and its
   results.
+- **Review round 4** (Fable delta: SHIP AFTER FIXES on `f3cb41017`). Each fix has a regression test that
+  fails on `f3cb41017`.
+  - **A. The null row takes the max over baselines, not the min.** The observed T is still the min. In a
+    seeded simulation with one null pair and two far-positive pairs the old rule rejected 19% at α = 0.05;
+    the new one rejects 6.5%.
+  - **B. `score` drops bands that closed before their capture day.** It decides from descriptor metadata
+    only, with reason `closed_before_day`, before checking the close: a horizon −1 band in a 10-17 bundle
+    no longer refuses the whole run. Every other embargoed close still refuses.
+  - **C. Cost coverage is bounded.** The rule binds `max_cost_unavailable_share` = 0.02 (proposed),
+    `score` refuses above it, and the receipt reports the share.
+  - **F. Tape holes refuse.** A kept band queried on a day with no tape row refuses `score`; this catches
+    ID-case mismatches too.
+  - **D. Block-bootstrap sensitivity.** A 2-day moving-block bootstrap is reported and never decides.
+  - **E. The scored gate checks the class.** It requires exactly `RecordingFillCost` whose digest equals its
+    wrapped table's.
+  - **G.** The toxicity keying is stated in the draft.
+  - **H.** A draft **shadow-to-live promotion bar** (owner proposal) is added to the B4 prereg draft (§10):
+    1.00 pUSD net per capture day under the 100 pUSD live envelope, derived from H. No promotion
+    preregistration existed.
 - **Review round 3** (Fable: SHIP AFTER FIXES on `3e1a689b8`). Each fix has a regression test that fails
   on `3e1a689b8`.
   - **Primary unit (decision 1).** Pooled cents per quoted minute rewarded sparse quoting. The rule now
