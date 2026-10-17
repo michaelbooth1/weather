@@ -1,5 +1,9 @@
 # Live Fill-Calibration Session-0 Runbook (owner-attended)
 
+> **Run and ATTESTED 2026-10-16** (about 16:35Z). Evidence: the
+> [session-0 record](live-fill-calibration-session0-record-2026-10-16.md). Session 1 needs its own runbook revision
+> for its pin `6bc6f2bec`.
+
 Owns: the copy-pasteable owner procedure for session 0 of the live
 fill-calibration campaign on the workstation. Read when: preparing for or
 running session 0, or reviewing what the owner will do.
