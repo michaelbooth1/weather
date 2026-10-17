@@ -373,6 +373,67 @@ def test_score_drops_a_band_closed_before_its_bundle_day_from_metadata_only(tmp_
                      drop_closed_before_day=True)
 
 
+def test_a_reserved_window_close_is_never_dropped_as_closed_before_day(tmp_path):
+    """Round 5 (2): the closed_before_day drop runs before the close check, so it must never swallow a close in
+    the reserved window. A 10-16 bundle's horizon -1 band closes 10-15 (reserved): it refuses, never drops."""
+    from maker_core.replay.bundle_v02 import open_stream_bundle
+    day = date(2026, 10, 16)
+    panel = LateBands(("austin", "toronto"), bands=1, step=60, full=True)
+    bundle = open_stream_bundle(panel.write(tmp_path / "reserved" / day.isoformat(), day))
+    reserved = {r["condition_id"] for r in panel.inventory([day])
+                if embargo.RESERVED[0] <= close_of(r["market_id"], date.fromisoformat(r["target_date"])).date()
+                <= embargo.RESERVED[1]}
+    assert reserved and cli.in_reserved(datetime(2026, 10, 15, 5, tzinfo=UTC))
+    assert not cli.in_reserved(datetime(2026, 10, 16, 5, tzinfo=UTC))
+    seen = []
+
+    def reserved_only(*values):  # every other close passes, so only the reserved band can refuse
+        seen.extend(values)
+        if any(cli.in_reserved(v) for v in values):
+            embargo.check("scored", *values, now=AFTER)
+
+    with pytest.raises(embargo.EmbargoRefused, match="reserved_window"):
+        cli.schedule(bundle, reserved_only, drop_closed_before_day=True)
+    assert any(cli.in_reserved(v) for v in seen)
+
+
+def _decisions(day, ok, missing):
+    at = datetime.combine(day, time(9), tzinfo=UTC).isoformat()
+    return ([(at, "0xok", "s", "OK", None, "quote", .01)] * ok
+            + [(at, "0xhole", "s", "NO_CONTEXT", None, "quote", None)] * missing)
+
+
+def test_one_capture_day_of_holes_refuses_even_when_the_pooled_share_passes():
+    """Round 5 (1): pooled 6 of 450 (1.3%) passes the 2% bound, but one day at 6 of 50 (12%) exceeds the
+    per-capture-day bound of 10%, so score refuses. NO_CONTEXT rows carry their instant and band."""
+    cost = adapters.RecordingFillCost.__new__(adapters.RecordingFillCost)
+    cost.decisions = (_decisions(date(2026, 10, 18), 44, 6) + _decisions(date(2026, 10, 19), 200, 0)
+                      + _decisions(date(2026, 10, 20), 200, 0))
+    coverage = cli.cost_coverage(cost, None, SIGNED_RULE, refuse=False)
+    assert coverage["cost_unavailable_share"] == pytest.approx(6 / 450) and coverage["cost_unavailable_share"] < .02
+    assert coverage["per_cluster"]["2026-10-18"]["cost_unavailable_share"] == pytest.approx(.12)
+    assert coverage["max_cost_unavailable_share_per_cluster"] == .10
+    assert {(d["at"][:10], d["condition_id"]) for d in coverage["unavailable_decisions"]} == {("2026-10-18", "0xhole")}
+    with pytest.raises(cli.CliRefused, match="cost_unavailable_share_per_cluster_above_bound"):
+        cli.cost_coverage(cost, None, SIGNED_RULE, refuse=True)
+    cost.decisions = _decisions(date(2026, 10, 18), 45, 5) + _decisions(date(2026, 10, 19), 400, 0)
+    assert cli.cost_coverage(cost, None, SIGNED_RULE, refuse=True)["per_cluster"]["2026-10-18"][
+        "cost_unavailable_share"] == pytest.approx(.10)
+
+
+def test_a_tape_miss_is_logged_with_its_instant_and_band(tmp_path):
+    """Round 5 (1): a query with no fresh tape row reaches the recording adapter as an empty query, so the
+    NO_CONTEXT row names its instant and band instead of (None, None)."""
+    from .fixtures.frontier_cost_stub import recording_cost
+    write_tape(tmp_path, date(2026, 9, 10), [tape_row("0xa", "YES", datetime(2026, 9, 10, 1, tzinfo=UTC))])
+    contexts = adapters.CfTapeContexts(tmp_path, purpose="descriptive")
+    at = datetime(2026, 9, 10, 9, tzinfo=UTC)
+    query = contexts(condition_id="0xa", at=at, strategy="p")
+    cost = recording_cost()
+    assert cost.estimate(query) is None
+    assert cost.decisions[-1][:4] == (at.isoformat(), "0xa", "p", "NO_CONTEXT")
+
+
 def _coverage_run(tmp_path, *, upper=False, skip=None):
     """Calibrate on 09-27 with a minute-by-minute tape for every band (``skip`` has none; ``upper`` writes the
     condition IDs upper-cased)."""

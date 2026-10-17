@@ -146,6 +146,10 @@ class RecordingFillCost:
             return None
         if not isinstance(query, CostQuery):
             raise AdapterRefused("cost_query_required")
+        if not query.contexts:  # the tape had no fresh row: traceable to (at, condition_id), floor applies
+            self.decisions.append((query.at.isoformat(), query.condition_id, query.strategy, "NO_CONTEXT", None,
+                                   "quote", None))
+            return None
         sides, markouts, vetoes, statuses = [], [], [], []
         for context in query.contexts:
             estimate = self._side(context)
@@ -331,6 +335,5 @@ class CfTapeContexts:
             position = bisect_right(times, at) - 1
             if position >= 0 and at - times[position] <= self.max_age:
                 contexts.append(self._context(rows[position]))
-        if not contexts:
-            return None
+        # no fresh row: an empty query, so the recording adapter logs the miss with its instant and band
         return CostQuery(str(condition_id), at, str(strategy), tuple(contexts))

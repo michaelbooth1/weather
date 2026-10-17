@@ -282,8 +282,8 @@ def test_cf_contexts_use_the_latest_fresh_row_per_side(tmp_path):
     assert query.contexts[0].sweep_bands == 3 and query.contexts[0].at_utc == T + timedelta(minutes=1)
     later = contexts(condition_id="a-x", at=T + timedelta(seconds=150), strategy="p")
     assert [c.maker_side for c in later.contexts] == ["YES"]  # the NO row is older than 120 s
-    assert contexts(condition_id="a-x", at=T + timedelta(minutes=10), strategy="p") is None
-    assert contexts(condition_id="other", at=T + timedelta(seconds=90), strategy="p") is None
+    assert contexts(condition_id="a-x", at=T + timedelta(minutes=10), strategy="p").contexts == ()  # an empty query: the miss is logged
+    assert contexts(condition_id="other", at=T + timedelta(seconds=90), strategy="p").contexts == ()  # an empty query: the miss is logged
     assert set(contexts.receipts) == {T.date().isoformat()}
 
 

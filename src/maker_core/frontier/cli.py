@@ -167,13 +167,19 @@ EMBARGOED_CLOSE = "embargoed_close"
 CLOSED_BEFORE_DAY = "closed_before_day"
 
 
+def in_reserved(instant) -> bool:
+    """Whether ``instant``'s UTC date is in the reserved window: such a close is never dropped, always refused."""
+    return embargo.RESERVED[0] <= instant.astimezone(timezone.utc).date() <= embargo.RESERVED[1]
+
+
 def schedule(bundle, check, *, drop_embargoed=False, drop_closed_before_day=False) -> Schedule:
     """The day's band schedule from its **descriptor stream only** (``universe_v02.descriptors``).
 
     With ``drop_closed_before_day`` (scored mode) a band whose close is at or before the start of the bundle's
     UTC day is dropped **before** its close is checked (``closed_before_day``): such a band (for example a
     horizon -1 descriptor captured 10-17T00:00-04:00Z, local 10-16, target 10-15, close 10-16T04:00Z) can earn
-    nothing that day, and checking its close would refuse the whole scored run. Every other close passes
+    nothing that day, and checking its close would refuse the whole scored run. A close inside the reserved
+    window (09-30..10-15) is never dropped: it always reaches ``check`` and refuses (absolute contract). Every other close passes
     ``check``. With ``drop_embargoed`` (calibrate) a band whose close is refused is dropped instead of refusing
     the run (``embargoed_close``). Nothing but descriptors (schedule metadata) is read to decide either."""
     out, dropped, horizons = {}, {}, {}
@@ -187,7 +193,7 @@ def schedule(bundle, check, *, drop_embargoed=False, drop_closed_before_day=Fals
             raise CliRefused("descriptor_stream_holds_other_value")
         horizons.setdefault(cid, value.horizon_days)
         close = value.market.close_at_utc
-        if drop_closed_before_day and close <= day_start:
+        if drop_closed_before_day and close <= day_start and not in_reserved(close):
             dropped[cid] = CLOSED_BEFORE_DAY
             out.pop(cid, None)
             continue
@@ -290,13 +296,28 @@ def cost_coverage(cost, contexts, rule, *, refuse: bool) -> dict | None:
     missing, total = cost.unavailable()
     share = missing / total if total else 0.0
     holes = contexts.bands_without_rows() if contexts is not None else []
+    per_day = {}
+    for at, _, _, status, *_ in cost.decisions:
+        key = at[:10] if isinstance(at, str) else "unattributed"
+        counts = per_day.setdefault(key, [0, 0])
+        counts[0] += status in adapters.UNAVAILABLE_STATUSES
+        counts[1] += 1
+    per_cluster = {day: {"decisions": n, "cost_unavailable": m, "cost_unavailable_share": m / n}
+                   for day, (m, n) in sorted(per_day.items())}
+    worst = max((c["cost_unavailable_share"] for c in per_cluster.values()), default=0.0)
     out = {"decisions": total, "cost_unavailable": missing, "cost_unavailable_share": share,
            "max_cost_unavailable_share": rule.max_cost_unavailable_share,
-           "bands_without_tape_rows": [{"day": d, "condition_id": c} for d, c in holes]}
+           "max_cost_unavailable_share_per_cluster": rule.max_cost_unavailable_share_per_cluster,
+           "per_cluster": per_cluster,
+           "bands_without_tape_rows": [{"day": d, "condition_id": c} for d, c in holes],
+           "unavailable_decisions": [{"at": d[0], "condition_id": d[1]} for d in cost.decisions
+                                     if d[3] in adapters.UNAVAILABLE_STATUSES]}
     if refuse and holes:
         raise CliRefused("cf_tape_band_without_rows: %s %s" % holes[0])
     if refuse and share > rule.max_cost_unavailable_share:
         raise CliRefused("cost_unavailable_share_above_bound")
+    if refuse and worst > rule.max_cost_unavailable_share_per_cluster:
+        raise CliRefused("cost_unavailable_share_per_cluster_above_bound")
     return out
 
 

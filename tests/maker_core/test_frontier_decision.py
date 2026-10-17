@@ -21,9 +21,9 @@ from maker_core.frontier.grid import BASELINES, GRID, GRID_HASH
 RULE = replace(PROPOSED_RULE, replicates=199, seed=7, min_effect_pusd_per_cluster=0.0)
 STRONG = GRID[4].label  # a hold_to_settlement point
 assert GRID[4].inventory == "hold_to_settlement" and GRID[5].inventory == "resting_sell"
-GOLDEN_DIGEST = "26248cbaf57a849bbc3f9c9a01ecfb76361404d4d2d0b9461c360eb9dae48723"
-GOLDEN_PROPOSED_RESULT_DIGEST = "5955aaac8b94220debd99a53e54150fa19e6f29078f73c115464e1b4d54c8e6a"
-GOLDEN_PROPOSED_RULE_DIGEST = "9216f1b903180b07d1ffb1bfbaa202ceff3bc803d44dca8e72a02766d71af810"
+GOLDEN_DIGEST = "118b8d8bcca8abe73a618d45b531549c8003ab2d3641abdf5e46f9b1b59ff801"
+GOLDEN_PROPOSED_RESULT_DIGEST = "7650a08cba1e92f360ab7034a79eaf877bac8249a05d59038a8dfaa4caff5caa"
+GOLDEN_PROPOSED_RULE_DIGEST = "87de64bd51992826b4b631934a75e51c6aec514c58483c79aaf00035ebfd6d03"
 
 
 def totals(net_central, minutes, *, full=None, fills=0, adverse=0.0):
@@ -71,7 +71,8 @@ def test_proposed_rule_parameters_and_digest_are_pinned():
     assert spec["parameters"] == {
         "replicates": 9999, "seed": 20261114, "cluster_unit": "capture_day", "alpha": .05,
         "min_effect_pusd_per_cluster": None, "min_quoted_minutes_per_cluster": 60.0,
-        "exit_fee_per_filled_share": .0125, "max_cost_unavailable_share": .02, "sensitivity_block_length": 2,
+        "exit_fee_per_filled_share": .0125, "max_cost_unavailable_share": .02, "max_cost_unavailable_share_per_cluster": .10,
+        "sensitivity_block_length": 2,
         "decision_bound": "central", "guard_bound": "full",
         "min_clusters": 10, "baselines": list(BASELINES)}
     assert spec["metric"] == "net_pusd_per_capture_day" and spec["exit_fee_applies_to"] == "resting_sell"
@@ -100,6 +101,7 @@ def test_every_rule_parameter_enters_the_digest():
     for change in (dict(replicates=299), dict(seed=8), dict(alpha=.01), dict(min_effect_pusd_per_cluster=.03),
                    dict(min_effect_pusd_per_cluster=None), dict(min_quoted_minutes_per_cluster=30.0),
                    dict(exit_fee_per_filled_share=.01), dict(max_cost_unavailable_share=0.0),
+                   dict(max_cost_unavailable_share_per_cluster=.2),
                    dict(sensitivity_block_length=3), dict(decision_bound="none"), dict(guard_bound="central"),
                    dict(min_clusters=11)):
         assert replace(RULE, **change).digest() != base, change
@@ -111,6 +113,7 @@ def test_every_rule_parameter_enters_the_digest():
     (dict(min_quoted_minutes_per_cluster=-1), "min_quoted_minutes_per_cluster_invalid"),
     (dict(decision_bound="max"), "unknown_bound"), (dict(min_clusters=1), "min_clusters_invalid"),
     (dict(max_cost_unavailable_share=1.5), "max_cost_unavailable_share_invalid"),
+    (dict(max_cost_unavailable_share_per_cluster=-.1), "max_cost_unavailable_share_per_cluster_invalid"),
     (dict(sensitivity_block_length=1), "sensitivity_block_length_invalid"),
     (dict(baselines=("no-quote",)), "rule_requires_all_baselines"),
 ])

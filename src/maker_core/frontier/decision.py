@@ -48,12 +48,16 @@ replacement are drawn by ``random.Random(seed).choices`` and shared by every str
 
 **Serial dependence (sensitivity only).** Capture days are serially dependent (a band is quoted on two consecutive
 days, and weather regimes persist). A pre-declared moving-block bootstrap (``sensitivity_block_length`` = 2
-consecutive capture days, the same statistic and null row) is reported beside the main p-values. It **never
+consecutive **observed** clusters in key order, so a missing capture day joins its neighbours into one block;
+the same statistic and null row) is reported beside the main p-values. Block starts are uniform, so the first
+and last clusters are under-weighted (each sits in fewer blocks). It **never
 decides**: the verdict reads only the i.i.d. cluster bootstrap.
 
 **Cost coverage (bound here, enforced by the CLI).** ``max_cost_unavailable_share`` is the largest share of
 fill-cost decisions without a provider markout (which fall back to the 0.0043 floor) that a scored read
-accepts. It lives in the rule so the digest binds it; ``evaluate`` does not read it.
+accepts over the panel, and ``max_cost_unavailable_share_per_cluster`` the largest on any one capture day (a
+pooled bound alone lets one day at 50% holes pass). Both live in the rule so the digest binds them;
+``evaluate`` does not read them.
 
 **Winner.** Among eligible points that pass all three conditions, the one with the largest primary metric
 (central):
@@ -109,7 +113,8 @@ class DecisionRule:
     min_effect_pusd_per_cluster: float | None = None  # the margin: an owner-signature field, unset until signed
     min_quoted_minutes_per_cluster: float = 60.0  # eligibility floor: total quoted minutes >= this times K
     exit_fee_per_filled_share: float = 0.0125  # resting_sell points only
-    max_cost_unavailable_share: float = 0.02  # PROPOSED; score refuses above it (enforced by the CLI)
+    max_cost_unavailable_share: float = 0.02  # PROPOSED, pooled; score refuses above it (enforced by the CLI)
+    max_cost_unavailable_share_per_cluster: float = 0.10  # PROPOSED, any one capture day; same enforcement
     sensitivity_block_length: int = 2  # moving-block bootstrap, reported only
     decision_bound: str = "central"
     guard_bound: str = "full"
@@ -128,9 +133,10 @@ class DecisionRule:
         _nonnegative("min_effect_pusd_per_cluster", self.min_effect_pusd_per_cluster, optional=True)
         _nonnegative("min_quoted_minutes_per_cluster", self.min_quoted_minutes_per_cluster)
         _nonnegative("exit_fee_per_filled_share", self.exit_fee_per_filled_share)
-        _nonnegative("max_cost_unavailable_share", self.max_cost_unavailable_share)
-        if self.max_cost_unavailable_share > 1:
-            raise DecisionRefused("max_cost_unavailable_share_invalid")
+        for name in ("max_cost_unavailable_share", "max_cost_unavailable_share_per_cluster"):
+            _nonnegative(name, getattr(self, name))
+            if getattr(self, name) > 1:
+                raise DecisionRefused(name + "_invalid")
         if type(self.sensitivity_block_length) is not int or self.sensitivity_block_length < 2:
             raise DecisionRefused("sensitivity_block_length_invalid")
         if self.decision_bound not in BOUNDS or self.guard_bound not in BOUNDS:
