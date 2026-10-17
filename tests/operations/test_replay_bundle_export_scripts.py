@@ -127,6 +127,8 @@ function Get-WeatherExecutionHostId {return 'fixture'}
     (ops / "training_window_contract.ps1").write_text("""
 function ConvertTo-ScheduledTaskArgumentString {param($Tokens) return ($Tokens -join '|')}
 """)
+    # the real local-trigger helper: the registrar builds and reads back an unzoned local boundary with it
+    (ops / "scheduled_task_local_trigger.ps1").write_bytes((OPS / "scheduled_task_local_trigger.ps1").read_bytes())
     expected = hashlib.sha256(runner.read_bytes()).hexdigest()
     source = r"""
     $ErrorActionPreference='Stop'
