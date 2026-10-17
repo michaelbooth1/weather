@@ -123,11 +123,7 @@ def test_a_signed_scored_read_is_still_refused_on_embargoed_days(tmp_path, monke
     """The registration gate passes here (pinned, signed, matching), so the refusal is the embargo's."""
     from maker_core.frontier import prereg
     from maker_core.frontier.grid import GRID_HASH
-    doc = ("Grid hash: `%s`
-Decay digest: `%s`
-Fill model: `v2-strictly_through`
-Signed: Owner, 2026-11-01
-"
+    doc = ("Grid hash: `%s`\nDecay digest: `%s`\nFill model: `v2-strictly_through`\nSigned: Owner, 2026-11-01\n"
            % (GRID_HASH, DECAY.digest())).encode()
     monkeypatch.setattr(prereg, "SIGNED_PREREGISTRATION_SHA256", prereg.registration_hash(doc))
     assert prereg.verify(doc, decay_digest=DECAY.digest(), fill_model_name="v2-strictly_through")
