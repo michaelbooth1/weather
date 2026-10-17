@@ -649,6 +649,7 @@ SHARED_PACKAGE_ROOTS = {
     "runtime_identity",
     "schema_registry",
     "scoring",
+    "shared_forecast_payload_cas",
     "time",
     "units",
     "variant_registry",

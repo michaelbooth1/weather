@@ -33,7 +33,7 @@ the evidence and release gates.
 | `weather.operations` | Supervisors, scheduled pipelines, releases, and operational audits |
 | Shared `weather.*` modules | Paths, units, IO, schemas, artifacts, scoring, identity, and release contracts |
 
-The shared row covers two different things. Ten roots are declared importable by every owner
+The shared row covers two different things. Eleven roots are declared importable by every owner
 (`SHARED_PACKAGE_ROOTS`; `weather.scoring` is a package, the rest are flat modules). The remaining flat modules
 directly under `src/weather/` (release, point-in-time, experiment, execution-host and payload contracts) are not
 classified by the import ratchet at all: neither imports of them nor imports made by them are checked. Some already

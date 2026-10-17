@@ -214,6 +214,11 @@ def capture_snapshot(
     if callable(verified_bundle_loader):
         model_kwargs["serving_bundle"] = verified_bundle_loader()
     model_client = TorontoHighTempModel(**model_kwargs)
+    # The last-good source cache keeps market-invariant bodies (the national
+    # NBM bulletin) by reference to the CAS this snapshot writer publishes into.
+    # Direct access on purpose: a renamed store attribute must fail loudly, not
+    # silently restore the ~36 MB per-pass cache rewrite.
+    model_client.shared_forecast_payload_cas = store.shared_forecast_payload_cas
     if cross_process_fanout is not None and store.retain_raw_forecast_payloads:
         model_client.market_invariant_fetch_fanout = cross_process_fanout
         model_client.market_invariant_fetch_scope = fanout_scope

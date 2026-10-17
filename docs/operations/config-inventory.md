@@ -15,6 +15,7 @@ Checked-in files under `config/` are classified by owner and freshness policy:
 | `no_market_extra_locations.json` | Local shadow registry | Active entries must be backfilled before training eligibility; evidence-free diagnostic entries are retained under `archived_locations`. |
 | `storage_pressure.json` | Operator activation policy | **Activated `false` by the owner on 2026-09-19 (item 325).** `capture.write_order_books_long_csv=true` restores the long-CSV projection. Change it only in an operator-approved quiet window after the production dry-run; missing or invalid policy fails safe to writing the projection. |
 | `international_live_execution_host.json` | Hand-authored execution-role registry | Binds one active portable Windows installation and token principal per production tip, separately identifies the dedicated capture host, and is `UNASSIGNED` until a reviewed relocation assigns both public IDs. |
+| `capture_families.json` | Hand-authored capture-family registry | Per-city event-slug prefixes, exclusions and bounds for passive capture families recorded by `weather.market.maker_evidence_capture --family <id>` in `data/maker_evidence_families/<id>`. Change a family only with the desk-study or owner decision that admits or excludes its cities; see [passive maker evidence capture](passive-maker-evidence-capture.md#capture-families). |
 
 Generate the current inventory:
 
