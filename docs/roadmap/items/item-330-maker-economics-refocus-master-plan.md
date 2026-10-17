@@ -38,7 +38,7 @@ and nothing outside the frontier imports it.
     `score` refuses until then.
 
   The `PROPOSED_RULE` digest (`maker-core.frontier-decision.2`, margin unset, revised in round 4) is
-  `9216f1b903180b07d1ffb1bfbaa202ceff3bc803d44dca8e72a02766d71af810`, and golden tests pin the rule and its
+  `87de64bd51992826b4b631934a75e51c6aec514c58483c79aaf00035ebfd6d03`, and golden tests pin the rule and its
   results.
 - **Review round 4** (Fable delta: SHIP AFTER FIXES on `f3cb41017`). Each fix has a regression test that
   fails on `f3cb41017`.
@@ -59,6 +59,13 @@ and nothing outside the frontier imports it.
   - **H.** A draft **shadow-to-live promotion bar** (owner proposal) is added to the B4 prereg draft (§10):
     1.00 pUSD net per capture day under the 100 pUSD live envelope, derived from H. No promotion
     preregistration existed.
+- **Review round 5** (Fable final: SHIP on `400ff4cd8`; four non-blocking notes, done before signing):
+  - a per-capture-day bound of 10% on cost decisions without a markout, beside the pooled 2%; NO_CONTEXT
+    rows now name their instant and band;
+  - a guard so a reserved-window close is never dropped as `closed_before_day`;
+  - the block bootstrap's observed-cluster and edge-weight wording;
+  - §10 of the draft redone per capture day. Its estimator is a one-sided 80% lower bound on mean net per
+    forward day, which must be at least 1.00, over at least 28 forward capture days.
 - **Review round 3** (Fable: SHIP AFTER FIXES on `3e1a689b8`). Each fix has a regression test that fails
   on `3e1a689b8`.
   - **Primary unit (decision 1).** Pooled cents per quoted minute rewarded sparse quoting. The rule now

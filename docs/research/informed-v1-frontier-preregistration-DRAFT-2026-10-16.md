@@ -107,7 +107,7 @@ Toxicity table: `UNSET (owner binds the toxicity table digest before signing)`
 
 ## 4a. Decision rule (`maker_core.frontier.decision`)
 
-Decision rule digest: `9216f1b903180b07d1ffb1bfbaa202ceff3bc803d44dca8e72a02766d71af810`
+Decision rule digest: `87de64bd51992826b4b631934a75e51c6aec514c58483c79aaf00035ebfd6d03`
 
 That is the digest of `decision.PROPOSED_RULE.spec()` (format `maker-core.frontier-decision.2`, revised in
 review round 4), which holds every parameter below. The margin is unset in it. Signing the margin changes the rule and its digest, and
@@ -155,6 +155,10 @@ above, and `score` refuses while the margin is unset.
   therefore understates the variance somewhat.
   - A pre-declared moving-block bootstrap is reported beside every point: blocks of 2 consecutive capture
     days (`sensitivity_block_length`), with the same statistic and null row.
+    - "Consecutive" means consecutive **observed** clusters in date order. A missing capture day therefore
+      puts its two neighbours in one block.
+    - Block starts are drawn uniformly, so the first and last clusters sit in fewer blocks and are
+      **under-weighted**.
   - It **never decides**. The verdict reads only the i.i.d. bootstrap. A Westfall–Young p that passes there
     but not under blocks is disclosed as fragile to serial dependence.
 - **Family-wise control (decides).** Westfall–Young step-down max-T, one-sided, over all 120 points, at
@@ -180,10 +184,15 @@ above, and `score` refuses while the margin is unset.
   Either choice changes the decision rule digest above, which must then be recomputed before signing.
   (Review round 4 agreed with B, conditional on the null-row fix above; the economic bar then belongs to
   promotion, §10.)
-- **Cost coverage: at most 2% of decisions without a markout (PROPOSED; in the rule digest).** A
-  fill-cost decision whose tape context or table cell is missing falls back to the 0.0043 floor. That is
-  a silent substitution, so `score` bounds it and the receipt reports the share
-  (`max_cost_unavailable_share` = 0.02).
+- **Cost coverage: at most 2% of decisions without a markout over the panel, and at most 10% on any one
+  capture day (PROPOSED; both in the rule digest).** A fill-cost decision whose tape context or table cell
+  is missing falls back to the 0.0043 floor. That is a silent substitution, so `score` bounds it and the
+  receipt reports the shares (`max_cost_unavailable_share` = 0.02 and
+  `max_cost_unavailable_share_per_cluster` = 0.10).
+  - The per-day bound exists because a pooled bound alone lets one day at 50% holes pass at about 1.8%
+    overall.
+  - Every decision without a markout names its instant and band in the receipt (`unavailable_decisions`),
+    so each hole can be traced.
   - A kept band queried on a day whose tape has **no row at all** for it is not counted in the share. It
     is a coverage hole, and `score` refuses on it outright (an ID-case mismatch also shows up this way).
   - What the 2% tolerates is the residue: isolated missed capture minutes that leave the latest row more
@@ -206,6 +215,9 @@ descriptor. For example, target 10-15 closes 10-16T04:00Z, inside the shadow emb
   band in `embargoed_bands` with reason `closed_before_day`.
 - A band that closed before the day began can earn nothing that day, so this loses nothing.
 - Every other embargoed close still refuses the whole scored run. `score` drops nothing else.
+- **A close inside the reserved window (09-30..10-15) is never dropped this way.** It always reaches the
+  close check and refuses. The panel's first day, 10-17, cannot hold one, but the guard keeps the reserved
+  contract absolute (tested).
 
 ## 5. Competitor-response model (fitted before this read; dates ≤ 2026-09-29)
 
@@ -331,18 +343,50 @@ Derivation, from repository facts:
 4. **Units.** The frontier harness caps cash per band (100) but not across bands, so its scored
    per-capture-day net can assume more than 100 pUSD at work. The bar therefore applies to the **shadow
    profile's** net under the 100 pUSD envelope, never to the frontier's uncapped total.
-5. **Cross-check against the measured costs.** It is demanding but reachable:
-   - B2's counterfactual tape fits (fit 1 and fit 2, as relayed by master on 2026-10-17; not yet recorded
-     in an owning document) put short-horizon markouts at −0.5 to −3 c per share and settlement markouts at
-     −1.3 to −3.6 c per share, underpowered.
-   - One 20-share fill on each leg (40 shares) at the worst settlement markout costs about 1.44 pUSD. A
-     band-day with such a fill therefore needs about 2.4 pUSD of reward to clear the bar.
-   - That is about RE-1's one paid reward day (+2.13 against about 2.03 modelled, k ≈ 1.05; findings
-     digest). It is inside item 330's modelled 0.5–6 per band per day for contested next-day 20-share
-     bands.
-   - At the public maker markout of −0.43 c per share to settlement (item 330), 40 shares cost 0.17 pUSD.
-   - RE-1's realised −36.97 pUSD over five fills (exhaustion register §4) shows fills, not rewards, decide
-     the sign.
+5. **Cross-check against the measured costs, in the bar's own unit (pUSD per capture day).** The bar holds
+   when
+
+   bands per day × fill-pairs per band-day × cost per fill-pair + 1.00 ≤ reward per day.
+
+   Assumptions (illustrative, for the owner to replace):
+   - A fill-pair is one 20-share fill on each leg (40 shares). Since the first fill ends that band-day's
+     quoting, this over-counts.
+   - The cost per fill-pair is 40 shares × the settlement markout:
+     - about 1.44 pUSD at −3.6 c per share, the worst of B2's counterfactual tape fits (fit 1 and fit 2, as
+       relayed by master on 2026-10-17, short-horizon −0.5 to −3 c and settlement −1.3 to −3.6 c per share,
+       underpowered; not yet recorded in an owning document);
+     - about 0.17 pUSD at −0.43 c per share, the public maker markout to settlement (item 330).
+
+   Worked through, with 5 bands a day and 0.2 fill-pairs per band-day (one fill-pair a day):
+   - At −3.6 c the shadow profile needs at least 1 × 1.44 + 1.00 = 2.44 pUSD of reward per day.
+   - At −0.43 c it needs 0.17 + 1.00 = 1.17.
+   - Item 330 models 0.5–6 per band per day for contested next-day 20-share bands, so 5 bands would earn
+     about 2.5–30 per day.
+   - RE-1's one paid band-day earned +2.13 (k ≈ 1.05). That is below 2.44 for a single band, but within reach
+     across several.
+   - RE-1's realised −36.97 pUSD over five fills (exhaustion register §4) shows the fill rate, not the
+     reward, decides the sign: at 1.44 per fill-pair, each extra fill-pair a day needs 1.44 more reward.
+   - So the bar is demanding but reachable, and it is reachable only with a low fill rate per band-day.
+5a. **Estimator: a one-sided 80% lower bound on mean net per forward day must be at least 1.00 pUSD.**
+   The bound is LB = mean − 0.84 × SE, where SE is the day-level SD / √n. If the 2-day block estimate of
+   the SE is larger, it is used instead.
+   - **Why a lower bound, not the point estimate.** At the point estimate, a profile whose true net is
+     exactly 1.00 is promoted half the time, and promotion puts real capital at risk.
+   - **Why 80%, not 95%.** The live wallet is capped at 100 pUSD, and kill rule K3 pauses quoting on excess
+     fill losses. At 95% (1.645 × SE) the bar would demand 1.62–2.55 pUSD a day over 28 days, likely out of
+     reach for any profile.
+5b. **Minimum forward days: 28 capture days** (the scored panel's length), from the review's daily SD of
+   2–5 pUSD (Fable, round 5):
+
+   | Forward days n | √n | SE at SD 2 | SE at SD 5 | Mean needed at SD 2 | Mean needed at SD 5 |
+   | --- | --- | --- | --- | --- | --- |
+   | 14 | 3.74 | 0.53 | 1.34 | 1.45 | 2.12 |
+   | 28 | 5.29 | 0.38 | 0.94 | 1.32 | 1.79 |
+   | 42 | 6.48 | 0.31 | 0.77 | 1.26 | 1.65 |
+
+   The mean needed is 1.00 + 0.84 × SE. At 14 days the SE at SD 5 (1.34) exceeds the bar itself, so the
+   bound says little; 28 days is the first row where the SE is at most 1.0 across the review's range.
+   Fewer than 28 forward days is **inconclusive**, never a pass.
 6. **What it is not.** It is a bar on the modelled net of a forward shadow, not a realised P&L claim.
    - Live use still needs the pilot's own gates.
    - Kill rule K3 (realised fill losses above twice the shadow prediction: pause) applies once quoting.
