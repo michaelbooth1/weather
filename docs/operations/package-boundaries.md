@@ -78,6 +78,11 @@ caller inputs, so the neutral package never imports `weather.paths`.
 - `maker_core.frontier` (the offline informed-v1 frontier, item 330 build 3) imports only contracts,
   evidence, quoting and replay. No other core module imports it, so it stays outside the shadow
   runner's import closure. `tests/maker_core/test_frontier_grid.py::test_frontier_package_edges` enforces both.
+  Build 4 keeps these edges and adds three modules:
+  - `frontier.decision` is pure and imports only the standard library, evidence and the frontier;
+  - `frontier.adapters` imports `pyarrow` lazily, only when a cf-tape day is read;
+  - `frontier.cli` is the offline `python -m maker_core.frontier.cli` entry. It takes the code commit as an
+    argument, and calls no git, environment or network.
 - `weather.market.maker_plugin` imports only `maker_core.contracts`
   from the core. The fictional plugin follows the same rule.
 

@@ -3,9 +3,9 @@
 **Status: UNSIGNED DRAFT.** This document grants no authority: no live, shadow or scoring authority, and no
 panel read. A scored read is impossible in code until three things happen: the owner signs this document; a
 reviewed change pins its SHA-256 in `maker_core.frontier.prereg.SIGNED_PREREGISTRATION_SHA256`; and the
-grid hash, decay digest and fill model below still equal what the run uses. A scored run must cover all 120
-points and all 3 baselines. The design note is under item 330 (build
-3). **Read when:** reviewing, amending or signing the informed-v1 frontier read.
+grid hash, decay digest, fill model binding and decision rule digest below still equal what the run uses; and
+the code clock reaches 2026-11-14T00:00Z. A scored run must cover all 120 points and all 3 baselines. The
+design notes are under item 330 (builds 3 and 4). **Read when:** reviewing, amending or signing the informed-v1 frontier read.
 
 ## 1. Question and hypotheses
 
@@ -17,9 +17,11 @@ the RE-1 blind quote and informed-v0.
   reported with the `none` and `full` bounds around it. A point "earns more reward than a baseline" only
   if its `full`-bound reward exceeds that baseline's `none`-bound reward. This is the dominance rule: it
   holds under every response assumption.
-- **H2 (net, bounds only).** Reward minus the modelled adverse cost (filled shares × the markout from the
-  fill-cost provider, never below 0.0043) is reported per point under all three bounds. Realised
-  settlement and resting-sell P&L are reported beside it. **No sign claim is made for net P&L** (§6).
+- **H2 (net, the decision metric).** Each point's net modelled P&L is reward minus the modelled adverse
+  cost (filled shares × the fill-cost provider's markout, never below 0.0043) minus an exit fee bound per
+  filled share (§4a). It is reported under all three bounds, and the central bound decides (§4a). Realised
+  settlement and resting-sell P&L are reported beside it. The decision rule selects a candidate for shadow
+  quoting; it makes **no net-P&L sign claim** about live trading (§6).
 - **H3 (inventory).** For each (width, size, band rule), compare `resting_sell` against
   `hold_to_settlement` on filled shares, exit P&L and held-to-settlement shares. This is descriptive.
 
@@ -74,20 +76,67 @@ All measurement comes from one offline pass of `maker_core.frontier.runner.run` 
 - **Reward.** At each book arrival a strategy proposes legs. Reward accrues at rate/86400 per quoted second
   times the share. The share is own Q / (own Q + competing Q in the replayed book + x(a) × own Q), where
   x(a) comes from the competitor-response model (§5) and a is the age of the band's quoting spell.
-- **Fills.** Fills come from the injected fill model. The scored read uses exactly one fill model, named
-  on the line below; the code refuses any other. Until build 1 lands it is the frozen v2 price-path
-  predicate `strictly_through`, and `at_price` is reported as a descriptive bracket. If build 1 lands
-  first, this line is amended to fill v3 before signing.
+- **Fills.** Fills come from the injected fill model. The scored read uses exactly one fill model, bound
+  on the line below; the code refuses any other. It is build 1's queue-position kernel
+  `maker_core.replay.fill_v3` (`fill-v3.0`, `strictly_through` print rule) through the frontier's
+  `QueueFillModel` adapter (`maker_core.frontier.adapters.fill_v3_model`). The binding is the adapter's
+  module and class qualname, its version, the kernel module and version, and the declared name, so a model
+  that only claims a name cannot match (build 4). The v2 price-path predicate is a descriptive bracket in
+  `calibrate` only.
 
-Fill model: `v2-strictly_through`
+Fill model: `maker_core.frontier.seams.QueueFillModel@queue-adapter.1+maker_core.replay.fill_v3@fill-v3.0:v3-queue`
 
 - **Adverse cost.** The adverse cost per filled share is max(0.0043, the provider's markout upper bound).
-  A provider veto (`BURST`, `SWEEP`) suppresses the quote. Until build 2 lands the provider is constant.
-  Decisions with no provider markout are counted (`cost_unavailable`) and the provider type is recorded.
+  A provider veto (`BURST`, `SWEEP`) suppresses the quote (`cancel`; widening is not modelled). The provider
+  is build 2's `TableFillCostProvider` over the toxicity table, through the recording adapter
+  (`maker_core.frontier.adapters.RecordingFillCost`), which checks the table version and digest and records
+  every decision's status, veto and action. Its contexts come from the counterfactual tape's `cf_minutes`
+  rows (`strictly_through` backlog) for the panel days. Decisions with no provider markout are counted
+  (`cost_unavailable`) and the provider type is recorded.
 - **Inventory P&L.**
   - Held shares settle on the captured settlement fact.
   - A resting-sell fill is booked as the locked pair value, 1 − entry − complement price.
   - Shares with no settlement in the bundle are counted, not valued.
+
+## 4a. Decision rule (`maker_core.frontier.decision`)
+
+Decision rule digest: `3f7b56cdc8a022a580bd70daf372889cc62d92395e4045beb06892703b0aab9e`
+
+That is the digest of `decision.PROPOSED_RULE.spec()` (format `maker-core.frontier-decision.1`), which holds
+every parameter below. The code refuses a scored run whose rule digest differs from the line above.
+
+- **Primary metric.** Net modelled P&L in cents per quoted minute, pooled over clusters:
+  100 × Σ(reward − adverse cost − 0.0125 × filled shares) / (Σ quoted seconds / 60), under the `central`
+  bound. A strategy that never quotes scores 0.
+- **Exit fee.** 0.0125 pUSD per filled share. This is the weather taker fee 0.05·p(1−p) at its maximum
+  (p = 0.5): an upper bound on flattening a fill as a taker. Makers pay no fee (established findings §10o).
+- **Comparison.** Each grid point against the best of the three baselines by the same metric. The best
+  baseline is re-taken inside every resample.
+- **Inference.** A paired cluster bootstrap. The cluster unit is the **event day**, the UTC date of
+  (close − 12 h). B = 9999 resamples are drawn by `random.Random(20261114)`, shared by every strategy.
+  T = delta / bootstrap SD, and T is 0 when the SD is at most 1e-9.
+- **Family-wise control (decides).** Westfall–Young step-down max-T, one-sided, over all 120 points, at
+  α = 0.05.
+- **Holm (sensitivity only).** Holm-adjusted marginal bootstrap p-values are reported beside the
+  Westfall–Young values and never decide.
+- **WINNER.** The highest central-metric point that meets all three conditions:
+  - its Westfall–Young p ≤ 0.05;
+  - its point estimate beats the best baseline by at least the margin below;
+  - its own metric under the `full` competitor-response bound is ≥ 0.
+
+  It also needs at least 10 event-day clusters. Otherwise the verdict is **NO_GO**, and NO_GO is the
+  default.
+- **Margin (PROPOSED; owner signs).** 0.02 ¢ per quoted minute over the best baseline. The justification:
+  - One extra 20-share fill at the 0.0043 markout floor costs 8.6¢.
+  - Spread over a band-day's quoting of about 7 quoted hours (430 min), that is 0.02 ¢/min. The margin
+    therefore asks a winner to pay for one more floor-cost fill per band-day than the best baseline.
+  - It is about 11% of the lowest decayed RE-1 reward rate (about 0.18 ¢/min) and 2–4% of the
+    contested-band rates (0.53–1 ¢/min). It is small against the reward a point earns, and not below the
+    adverse-cost floor.
+  - It is far below §10r's 1.0 pUSD per band-day delta. The rule may therefore be underpowered on a 29-day
+    panel, and it will then return NO_GO (§6).
+  - The owner may change the value before signing. Any change alters the decision rule digest above, and
+    the line must be recomputed.
 
 ## 5. Competitor-response model (fitted before this read; dates ≤ 2026-09-29)
 
@@ -106,20 +155,24 @@ are:
 observed ratio (59.6, attempt 5 after its quote drifted off mid) is kept in the fits as a diagnostic and is
 not the bound.
 
-Decay digest: `38c47129ae4a215f4b1abe77248ef09457f0563fc55394319cb4db0287cc9cd3`
+Decay digest: `07a5507c72b052c90898b72751e786c6c2afcb7bbe187145f69c998f5adddaec`
 
-The run result carries the digest, the code refuses a scored run whose model digest differs from the line
+The digest covers the fitted parameters and the SHA-256 of both RE-1 input files (`re1_sessions.json`
+`192913fa…92499`, `re1_price_parity.json` `ef6a1017…462f2`), so a byte change in either input changes it
+(build 4). The run result carries the digest, the code refuses a scored run whose model digest differs from the line
 above, and **the model is not refitted on the panel**.
 
 ## 6. Power statement
 
 Established findings §10r applies (master, 2026-10-14). The maker-P&L sign is **not decidable** on any
 panel the governing preregistration allows: N_req = 706 event dates at delta = 1.0 pUSD per band-day,
-branch UNDECIDABLE_AT_DELTA. This read is therefore **descriptive and bounds-only**:
+branch UNDECIDABLE_AT_DELTA. Accordingly:
 
-- no net-P&L sign, no "edge" and no promotion claim may be drawn from it;
-- reward dominance (H1) is the only comparative statement, and it is a statement about bounds, not a
-  significance test;
+- the decision rule (§4a) is a pre-specified **selection** of a shadow-quoting candidate against the
+  harness's own baselines, with family-wise control. It is not a net-P&L sign claim, an "edge" claim or a
+  promotion claim;
+- on a panel of about 29 event days it is expected to be underpowered, and it then returns NO_GO;
+- reward dominance (H1) is reported as a bounds statement beside it;
 - the achieved spread across dates is reported.
 
 ## 7. Multiplicity
@@ -128,8 +181,8 @@ branch UNDECIDABLE_AT_DELTA. This read is therefore **descriptive and bounds-onl
 - No point is selected or reported as "best" without the full table beside it.
 - Any later confirmatory read of a selected point needs a new preregistration and a fresh panel that this
   read has not touched. A selection made on this panel is a hypothesis, not a result.
-- If a later amendment adds any interval statement, it uses a Holm adjustment over the 120 points × 3
-  baselines family. No such statement is preregistered here.
+- The only inferential statement is the decision rule's (§4a): Westfall–Young step-down max-T over the
+  120 points against the best baseline decides, and Holm is disclosed as a sensitivity.
 
 ## 8. Panels and embargo (enforced in code)
 
@@ -137,16 +190,20 @@ branch UNDECIDABLE_AT_DELTA. This read is therefore **descriptive and bounds-onl
 
 - the reserved window 2026-09-30..2026-10-15, for every purpose;
 - any fit date after 2026-09-29;
-- any descriptive or scored read dated 2026-09-30..2026-11-13 (the shadow embargo, which §10r left
-  unchanged).
+- any descriptive read dated 2026-09-30..2026-11-13 (the shadow embargo, which §10r left unchanged), and any
+  scored read in that range before 2026-11-14T00:00Z.
 
 The check covers the bundle day, the condition windows, every instant, trade times, market close and settle
 times, and settlement facts.
 
-- A scored panel therefore starts no earlier than 2026-11-14.
+- **The scored panel is 2026-10-16..2026-11-13** (`embargo.SCORED_PANEL`). It opens to a scored read only
+  when the real UTC clock reaches 2026-11-14T00:00Z (`embargo.SCORED_OPENS_AT`). The reserved window
+  never opens.
+- `python -m maker_core.frontier.cli score` checks, in order: the clock; this document; and every bundle
+  day inside the panel, before the bundle is opened. `calibrate` reads only dates ≤ 2026-09-29.
 - A market whose close falls inside a refused window is refused even if its capture day is allowed.
-- Panel dates and bundle hashes must be added in a signed amendment of this document before a scored
-  read; the fill model and decay digest are already bound above.
+- Bundle hashes are recorded in the score receipt. The fill model binding, decay digest and decision rule
+  digest are already bound above.
 
 ## 9. Known simplifications
 
@@ -154,6 +211,9 @@ times, and settlement facts.
 - The baselines do not model RE-1's hold/requote observer.
 - Coverage records are not used.
 - The competitor-response model is fitted on 6 RE-1 sessions with enough samples, in one week.
+- The runner runs once per event day on bands restricted to that event day. Grid points do not couple
+  bands, so their totals are unchanged. The baselines' count of other active bands becomes per event day.
+- The exit fee is a uniform upper bound (§4a), not a price-dependent fee.
 
 ## 10. Signature
 

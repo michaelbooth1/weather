@@ -1,5 +1,88 @@
 # 330. Maker Economics And Liquidity Rewards Refocus Master Plan [PARTIAL 2026-09-05 - NON-LIVE IMPLEMENTATION STARTED; ECONOMIC PROOF OPEN]
 
+## October 17 design: build 4, informed-v1 frontier decision pipeline
+
+There is no status change and no live, shadow or scoring authority. Branch
+`claude/maker-frontier-decision-20261017` (on the build 1-3 integration branch) is roll-free and add-only
+under `maker_core.frontier`. It edits no frozen v2-engine, oracle, journal-pinned, 88a or `policy.py` file,
+and nothing outside the frontier imports it.
+
+- **Adapters** (`frontier.adapters`):
+  - `fill_v3_model()` binds build 1's real `maker_core.replay.fill_v3` kernel and refuses another kernel,
+    version or label.
+  - `RecordingFillCost` wraps build 2's real `TableFillCostProvider`. It refuses another provider type,
+    table version or digest, and refuses `widen` (the runner models only `cancel`). It records every
+    decision's status, veto, action and markout under a decision-log digest.
+  - `CfTapeContexts` builds `FillContext`s from the counterfactual tape's `cf_minutes` Parquet. Its schema
+    is copied from `maker_counterfactual_tape.py` at `54bf13edc` and read via `git show` only. It uses the
+    `strictly_through` backlog. Before a day is opened it runs the embargo check, then verifies the
+    receipt, size and SHA-256, the schema and metadata, the row count and the basis. It takes the latest
+    row at or before the instant within 120 s, per side, and refuses `fit`.
+- **Decision rule** (`frontier.decision`, pure; full definition in the
+  [draft §4a](../../research/informed-v1-frontier-preregistration-DRAFT-2026-10-16.md)):
+  - the metric is net = reward − fill cost − exit fee (0.0125 per filled share), in cents per quoted
+    minute, under the central bound;
+  - inference is a paired event-day cluster bootstrap with B = 9999 and seed 20261114;
+  - Westfall–Young step-down max-T over the 120 points against the best baseline decides, and Holm is
+    disclosed as a sensitivity only;
+  - WINNER needs a significant WY p, a point estimate at least the margin above the best baseline, a
+    non-negative full-bound metric and at least 10 clusters. Otherwise the verdict is NO_GO.
+
+  The `PROPOSED_RULE` digest is `3f7b56cdc8a022a580bd70daf372889cc62d92395e4045beb06892703b0aab9e`, and a
+  golden test pins the rule and its result.
+- **CLI** (`python -m maker_core.frontier.cli`):
+  - `calibrate` reads only dates ≤ 09-29, through `embargo.check("fit")` before any bundle opens.
+  - `score` refuses, in order:
+    - before 2026-11-14T00:00Z by the real UTC clock (injectable in tests only);
+    - unless the pinned, signed registration matches the decay digest, the v3 binding, the grid hash and
+      the rule digest;
+    - for any bundle day outside the 10-16..11-13 panel.
+
+    It has been built and tested on synthetic bundles only.
+  - Each command writes a create-only `report.json` and `receipt.json`. The receipt holds the input
+    SHA-256s, the code commit given as an argument, every module's SHA-256 and the digests.
+  - The runner runs once per event day, the UTC date of (close − 12 h), on bands restricted to that day.
+    Grid-point totals across clusters sum to the unrestricted run (tested).
+- **Embargo**: `SCORED_PANEL` 10-16..11-13 opens to `scored` only when an aware clock reaches
+  `SCORED_OPENS_AT`. The reserved window never opens. This addition lets the scored read exist at all;
+  descriptive reads stay refused through 11-13.
+- **Build 3 follow-ups**:
+  - The RE-1 input SHA-256s now enter `DecayModel.summary()` and the decay digest; a byte change alters it.
+    The new decay digest is `07a5507c72b052c90898b72751e786c6c2afcb7bbe187145f69c998f5adddaec`. The
+    source-free digest `38c47129…` is unchanged.
+  - The fill model is bound by class qualname and version (`seams.binding`), not by `.name`. The spoof
+    `QueueFillModel(kernel, name="v2-strictly_through")` is refused, and an unregistered or unversioned
+    model cannot score. The v3 binding is
+    `maker_core.frontier.seams.QueueFillModel@queue-adapter.1+maker_core.replay.fill_v3@fill-v3.0:v3-queue`.
+- **Draft prereg** (still UNSIGNED):
+  - the fill model is switched to the v3 binding;
+  - it adds the `Decision rule digest:` line, the metric, WY and Holm, and the recomputed decay digest;
+  - the margin is PROPOSED at 0.02 ¢ per quoted minute. That is one extra 20-share fill at the 0.0043
+    floor (8.6¢) over about 430 quoted minutes, about 11% of the lowest decayed RE-1 rate (about
+    0.18 ¢/min), and far below §10r's delta, so the rule likely returns NO_GO. The owner signs the value.
+
+**Policy wiring design (no code; roll-sensitive, not started).** Once a scored WINNER exists, a separate head
+adds:
+
+- an `informed_v1` profile in `maker_core.quoting.policy`, behind a flag that defaults OFF. It takes the
+  winner's width, size, band rule and inventory as frozen parameters, quotes symmetrically about the
+  size-qualified mid, and adds no centre skew;
+- a matching shadow profile in the shadow runner, which reads the flag and journals decisions only.
+
+Both modules are in the capture supervisors' import closure, so the head is roll-sensitive. It lands only
+in the 01:00–04:00 quiet window through `scripts/ops/quiet_window_merge.ps1`, after `roll_verdict.ps1`. It
+grants no live authority; live use needs the pilot's own gates.
+
+Open:
+
+- The exit fee is a uniform 0.0125 upper bound rather than 0.05·p(1−p) at the fill price.
+- The toxicity table digest is checked on the command line but not bound in the preregistration.
+- The hazard is the runner's default, not a score parameter.
+- Captured v0.2 bundles need declared intervals; this is not wired.
+- At the start of a day, tape rows from the previous UTC day are not used.
+- The full-bound guard tests the point's own full-bound metric ≥ 0. `delta_full` against the best baseline
+  is reported but does not decide.
+
 ## October 16 design: build 3, informed-v1 candidate frontier and competitor-response model
 
 There is no status change and no live, shadow or scoring authority. Branch
