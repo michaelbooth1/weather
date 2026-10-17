@@ -75,6 +75,9 @@ caller inputs, so the neutral package never imports `weather.paths`.
   allowlisted International Polymarket reads). The weather composition
   `weather.market.maker_shadow` wires them and reads 88a through
   `weather.market.maker_shadow_panel`.
+- `maker_core.frontier` (the offline informed-v1 frontier, item 330 build 3) imports only contracts,
+  evidence, quoting and replay. No other core module imports it, so it stays outside the shadow
+  runner's import closure. `tests/maker_core/test_frontier_grid.py::test_frontier_package_edges` enforces both.
 - `weather.market.maker_plugin` imports only `maker_core.contracts`
   from the core. The fictional plugin follows the same rule.
 
