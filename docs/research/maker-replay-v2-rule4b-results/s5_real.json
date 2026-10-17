@@ -1,0 +1,944 @@
+{
+ "cases": [
+  {
+   "clock_trials": 2,
+   "divergences": [],
+   "engines_compared": 10,
+   "fills": {
+    "at_price": {
+     "blind_re1": 0,
+     "clock_only": 0,
+     "informed-v0": 0,
+     "no_quote": 0
+    },
+    "strictly_through": {
+     "blind_re1": 0,
+     "clock_only": 0,
+     "informed-v0": 0,
+     "no_quote": 0
+    }
+   },
+   "informed_decisions": 2298,
+   "matches": {
+    "at_price": {
+     "attempts": 2,
+     "fraction": "0.5",
+     "status": "MATCHED"
+    },
+    "strictly_through": {
+     "attempts": 2,
+     "fraction": "0.5",
+     "status": "MATCHED"
+    }
+   },
+   "quotes": {
+    "at_price": {
+     "blind_re1": 1,
+     "clock_only": 0,
+     "informed-v0": 1,
+     "no_quote": 0
+    },
+    "strictly_through": {
+     "blind_re1": 1,
+     "clock_only": 0,
+     "informed-v0": 1,
+     "no_quote": 0
+    }
+   },
+   "records": 3034,
+   "reference_seconds": 2.2,
+   "trades": 2000,
+   "union": 12,
+   "v2_seconds": 1.5,
+   "window": "w0 horizon roll 03:30-90 min"
+  },
+  {
+   "clock_trials": 0,
+   "divergences": [],
+   "engines_compared": 8,
+   "fills": {
+    "at_price": {
+     "blind_re1": 0,
+     "clock_only": 0,
+     "informed-v0": 0,
+     "no_quote": 0
+    },
+    "strictly_through": {
+     "blind_re1": 0,
+     "clock_only": 0,
+     "informed-v0": 0,
+     "no_quote": 0
+    }
+   },
+   "informed_decisions": 1804,
+   "matches": {
+    "at_price": {
+     "attempts": 1,
+     "fraction": "0",
+     "status": "MATCHED"
+    },
+    "strictly_through": {
+     "attempts": 1,
+     "fraction": "0",
+     "status": "MATCHED"
+    }
+   },
+   "quotes": {
+    "at_price": {
+     "blind_re1": 1,
+     "clock_only": 2,
+     "informed-v0": 1,
+     "no_quote": 0
+    },
+    "strictly_through": {
+     "blind_re1": 1,
+     "clock_only": 2,
+     "informed-v0": 1,
+     "no_quote": 0
+    }
+   },
+   "records": 2966,
+   "reference_seconds": 1.6,
+   "trades": 2000,
+   "union": 12,
+   "v2_seconds": 1.1,
+   "window": "w0 settlements 09:30-90 min"
+  },
+  {
+   "clock_trials": 19,
+   "divergences": [],
+   "engines_compared": 27,
+   "fills": {
+    "at_price": {
+     "blind_re1": 0,
+     "clock_only": 2,
+     "informed-v0": 0,
+     "no_quote": 0
+    },
+    "strictly_through": {
+     "blind_re1": 0,
+     "clock_only": 1,
+     "informed-v0": 0,
+     "no_quote": 0
+    }
+   },
+   "informed_decisions": 498,
+   "matches": {
+    "at_price": {
+     "attempts": 11,
+     "fraction": "0.4326171875",
+     "status": "MATCHED"
+    },
+    "strictly_through": {
+     "attempts": 10,
+     "fraction": "0.431640625",
+     "status": "MATCHED"
+    }
+   },
+   "quotes": {
+    "at_price": {
+     "blind_re1": 3,
+     "clock_only": 8,
+     "informed-v0": 5,
+     "no_quote": 0
+    },
+    "strictly_through": {
+     "blind_re1": 3,
+     "clock_only": 9,
+     "informed-v0": 5,
+     "no_quote": 0
+    }
+   },
+   "records": 3125,
+   "reference_seconds": 4.8,
+   "trades": 2000,
+   "union": 12,
+   "v2_seconds": 2.3,
+   "window": "dense 10:00-30 min"
+  },
+  {
+   "clock_trials": 2,
+   "divergences": [],
+   "engines_compared": 10,
+   "fills": {
+    "at_price": {
+     "blind_re1": 1,
+     "clock_only": 0,
+     "informed-v0": 0,
+     "no_quote": 0
+    },
+    "strictly_through": {
+     "blind_re1": 1,
+     "clock_only": 0,
+     "informed-v0": 0,
+     "no_quote": 0
+    }
+   },
+   "informed_decisions": 1518,
+   "matches": {
+    "at_price": {
+     "attempts": 2,
+     "fraction": "0.5",
+     "status": "MATCHED"
+    },
+    "strictly_through": {
+     "attempts": 2,
+     "fraction": "0.5",
+     "status": "MATCHED"
+    }
+   },
+   "quotes": {
+    "at_price": {
+     "blind_re1": 1,
+     "clock_only": 0,
+     "informed-v0": 0,
+     "no_quote": 0
+    },
+    "strictly_through": {
+     "blind_re1": 1,
+     "clock_only": 0,
+     "informed-v0": 0,
+     "no_quote": 0
+    }
+   },
+   "records": 5972,
+   "reference_seconds": 3.7,
+   "trades": 20000,
+   "union": 12,
+   "v2_seconds": 2.1,
+   "window": "w0 horizon roll 03:30-90 min"
+  },
+  {
+   "clock_trials": 2,
+   "divergences": [],
+   "engines_compared": 10,
+   "fills": {
+    "at_price": {
+     "blind_re1": 1,
+     "clock_only": 0,
+     "informed-v0": 1,
+     "no_quote": 0
+    },
+    "strictly_through": {
+     "blind_re1": 1,
+     "clock_only": 0,
+     "informed-v0": 1,
+     "no_quote": 0
+    }
+   },
+   "informed_decisions": 1410,
+   "matches": {
+    "at_price": {
+     "attempts": 2,
+     "fraction": "0.5",
+     "status": "MATCHED"
+    },
+    "strictly_through": {
+     "attempts": 2,
+     "fraction": "0.5",
+     "status": "MATCHED"
+    }
+   },
+   "quotes": {
+    "at_price": {
+     "blind_re1": 1,
+     "clock_only": 0,
+     "informed-v0": 1,
+     "no_quote": 0
+    },
+    "strictly_through": {
+     "blind_re1": 1,
+     "clock_only": 0,
+     "informed-v0": 1,
+     "no_quote": 0
+    }
+   },
+   "records": 5109,
+   "reference_seconds": 2.6,
+   "trades": 20000,
+   "union": 12,
+   "v2_seconds": 1.6,
+   "window": "w0 settlements 09:30-90 min"
+  },
+  {
+   "clock_trials": 6,
+   "divergences": [],
+   "engines_compared": 14,
+   "fills": {
+    "at_price": {
+     "blind_re1": 1,
+     "clock_only": 10,
+     "informed-v0": 2,
+     "no_quote": 0
+    },
+    "strictly_through": {
+     "blind_re1": 1,
+     "clock_only": 6,
+     "informed-v0": 1,
+     "no_quote": 0
+    }
+   },
+   "informed_decisions": 488,
+   "matches": {
+    "at_price": {
+     "attempts": 1,
+     "fraction": "0",
+     "status": "MATCHED"
+    },
+    "strictly_through": {
+     "attempts": 7,
+     "fraction": "0.421875",
+     "status": "MATCHED"
+    }
+   },
+   "quotes": {
+    "at_price": {
+     "blind_re1": 1,
+     "clock_only": 11,
+     "informed-v0": 5,
+     "no_quote": 0
+    },
+    "strictly_through": {
+     "blind_re1": 1,
+     "clock_only": 6,
+     "informed-v0": 5,
+     "no_quote": 0
+    }
+   },
+   "records": 3459,
+   "reference_seconds": 2.7,
+   "trades": 20000,
+   "union": 12,
+   "v2_seconds": 1.2,
+   "window": "dense 10:00-30 min"
+  },
+  {
+   "clock_trials": 2,
+   "divergences": [],
+   "engines_compared": 10,
+   "fills": {
+    "at_price": {
+     "blind_re1": 0,
+     "clock_only": 0,
+     "informed-v0": 0,
+     "no_quote": 0
+    },
+    "strictly_through": {
+     "blind_re1": 0,
+     "clock_only": 0,
+     "informed-v0": 0,
+     "no_quote": 0
+    }
+   },
+   "informed_decisions": 6444,
+   "matches": {
+    "at_price": {
+     "attempts": 2,
+     "fraction": "0.5",
+     "status": "MATCHED"
+    },
+    "strictly_through": {
+     "attempts": 2,
+     "fraction": "0.5",
+     "status": "MATCHED"
+    }
+   },
+   "quotes": {
+    "at_price": {
+     "blind_re1": 1,
+     "clock_only": 0,
+     "informed-v0": 2,
+     "no_quote": 0
+    },
+    "strictly_through": {
+     "blind_re1": 1,
+     "clock_only": 0,
+     "informed-v0": 2,
+     "no_quote": 0
+    }
+   },
+   "records": 9745,
+   "reference_seconds": 12.6,
+   "trades": 2000,
+   "union": 40,
+   "v2_seconds": 4.8,
+   "window": "w0 horizon roll 03:30-90 min"
+  },
+  {
+   "clock_trials": 2,
+   "divergences": [],
+   "engines_compared": 10,
+   "fills": {
+    "at_price": {
+     "blind_re1": 0,
+     "clock_only": 0,
+     "informed-v0": 0,
+     "no_quote": 0
+    },
+    "strictly_through": {
+     "blind_re1": 0,
+     "clock_only": 0,
+     "informed-v0": 0,
+     "no_quote": 0
+    }
+   },
+   "informed_decisions": 5621,
+   "matches": {
+    "at_price": {
+     "attempts": 2,
+     "fraction": "0.5",
+     "status": "MATCHED"
+    },
+    "strictly_through": {
+     "attempts": 2,
+     "fraction": "0.5",
+     "status": "MATCHED"
+    }
+   },
+   "quotes": {
+    "at_price": {
+     "blind_re1": 1,
+     "clock_only": 0,
+     "informed-v0": 1,
+     "no_quote": 0
+    },
+    "strictly_through": {
+     "blind_re1": 1,
+     "clock_only": 0,
+     "informed-v0": 1,
+     "no_quote": 0
+    }
+   },
+   "records": 10019,
+   "reference_seconds": 11.9,
+   "trades": 2000,
+   "union": 40,
+   "v2_seconds": 3.6,
+   "window": "w0 settlements 09:30-90 min"
+  },
+  {
+   "clock_trials": 20,
+   "divergences": [],
+   "engines_compared": 28,
+   "fills": {
+    "at_price": {
+     "blind_re1": 0,
+     "clock_only": 0,
+     "informed-v0": 0,
+     "no_quote": 0
+    },
+    "strictly_through": {
+     "blind_re1": 0,
+     "clock_only": 0,
+     "informed-v0": 0,
+     "no_quote": 0
+    }
+   },
+   "informed_decisions": 1618,
+   "matches": {
+    "at_price": {
+     "attempts": 11,
+     "fraction": "0.4326171875",
+     "status": "MATCHED"
+    },
+    "strictly_through": {
+     "attempts": 11,
+     "fraction": "0.4326171875",
+     "status": "MATCHED"
+    }
+   },
+   "quotes": {
+    "at_price": {
+     "blind_re1": 2,
+     "clock_only": 8,
+     "informed-v0": 8,
+     "no_quote": 0
+    },
+    "strictly_through": {
+     "blind_re1": 2,
+     "clock_only": 8,
+     "informed-v0": 8,
+     "no_quote": 0
+    }
+   },
+   "records": 10209,
+   "reference_seconds": 39.2,
+   "trades": 2000,
+   "union": 40,
+   "v2_seconds": 8.8,
+   "window": "dense 10:00-30 min"
+  },
+  {
+   "clock_trials": 12,
+   "divergences": [],
+   "engines_compared": 20,
+   "fills": {
+    "at_price": {
+     "blind_re1": 0,
+     "clock_only": 0,
+     "informed-v0": 0,
+     "no_quote": 0
+    },
+    "strictly_through": {
+     "blind_re1": 0,
+     "clock_only": 0,
+     "informed-v0": 0,
+     "no_quote": 0
+    }
+   },
+   "informed_decisions": 7281,
+   "matches": {
+    "at_price": {
+     "attempts": 7,
+     "fraction": "0.203125",
+     "status": "MATCHED"
+    },
+    "strictly_through": {
+     "attempts": 7,
+     "fraction": "0.203125",
+     "status": "MATCHED"
+    }
+   },
+   "quotes": {
+    "at_price": {
+     "blind_re1": 1,
+     "clock_only": 3,
+     "informed-v0": 4,
+     "no_quote": 0
+    },
+    "strictly_through": {
+     "blind_re1": 1,
+     "clock_only": 3,
+     "informed-v0": 4,
+     "no_quote": 0
+    }
+   },
+   "records": 14917,
+   "reference_seconds": 41.5,
+   "trades": 20000,
+   "union": 40,
+   "v2_seconds": 16.5,
+   "window": "w0 horizon roll 03:30-90 min"
+  },
+  {
+   "clock_trials": 8,
+   "divergences": [],
+   "engines_compared": 16,
+   "fills": {
+    "at_price": {
+     "blind_re1": 1,
+     "clock_only": 1,
+     "informed-v0": 0,
+     "no_quote": 0
+    },
+    "strictly_through": {
+     "blind_re1": 1,
+     "clock_only": 1,
+     "informed-v0": 0,
+     "no_quote": 0
+    }
+   },
+   "informed_decisions": 6460,
+   "matches": {
+    "at_price": {
+     "attempts": 5,
+     "fraction": "0.4375",
+     "status": "MATCHED"
+    },
+    "strictly_through": {
+     "attempts": 5,
+     "fraction": "0.4375",
+     "status": "MATCHED"
+    }
+   },
+   "quotes": {
+    "at_price": {
+     "blind_re1": 1,
+     "clock_only": 5,
+     "informed-v0": 1,
+     "no_quote": 0
+    },
+    "strictly_through": {
+     "blind_re1": 1,
+     "clock_only": 5,
+     "informed-v0": 1,
+     "no_quote": 0
+    }
+   },
+   "records": 15575,
+   "reference_seconds": 30.0,
+   "trades": 20000,
+   "union": 40,
+   "v2_seconds": 15.5,
+   "window": "w0 settlements 09:30-90 min"
+  },
+  {
+   "clock_trials": 24,
+   "divergences": [],
+   "engines_compared": 32,
+   "fills": {
+    "at_price": {
+     "blind_re1": 1,
+     "clock_only": 6,
+     "informed-v0": 1,
+     "no_quote": 0
+    },
+    "strictly_through": {
+     "blind_re1": 0,
+     "clock_only": 2,
+     "informed-v0": 0,
+     "no_quote": 0
+    }
+   },
+   "informed_decisions": 1597,
+   "matches": {
+    "at_price": {
+     "attempts": 13,
+     "fraction": "0.42138671875",
+     "status": "UNMATCHED"
+    },
+    "strictly_through": {
+     "attempts": 13,
+     "fraction": "0.431640625",
+     "status": "UNMATCHED"
+    }
+   },
+   "quotes": {
+    "at_price": {
+     "blind_re1": 2,
+     "clock_only": 6,
+     "informed-v0": 10,
+     "no_quote": 0
+    },
+    "strictly_through": {
+     "blind_re1": 5,
+     "clock_only": 8,
+     "informed-v0": 10,
+     "no_quote": 0
+    }
+   },
+   "records": 10575,
+   "reference_seconds": 52.7,
+   "trades": 20000,
+   "union": 40,
+   "v2_seconds": 12.2,
+   "window": "dense 10:00-30 min"
+  },
+  {
+   "clock_trials": 12,
+   "divergences": [],
+   "engines_compared": 20,
+   "fills": {
+    "at_price": {
+     "blind_re1": 1,
+     "clock_only": 0,
+     "informed-v0": 0,
+     "no_quote": 0
+    },
+    "strictly_through": {
+     "blind_re1": 1,
+     "clock_only": 0,
+     "informed-v0": 0,
+     "no_quote": 0
+    }
+   },
+   "informed_decisions": 25518,
+   "matches": {
+    "at_price": {
+     "attempts": 7,
+     "fraction": "0.203125",
+     "status": "MATCHED"
+    },
+    "strictly_through": {
+     "attempts": 7,
+     "fraction": "0.203125",
+     "status": "MATCHED"
+    }
+   },
+   "quotes": {
+    "at_price": {
+     "blind_re1": 2,
+     "clock_only": 4,
+     "informed-v0": 5,
+     "no_quote": 0
+    },
+    "strictly_through": {
+     "blind_re1": 2,
+     "clock_only": 4,
+     "informed-v0": 5,
+     "no_quote": 0
+    }
+   },
+   "records": 84711,
+   "reference_seconds": 356.7,
+   "trades": 2000,
+   "union": 170,
+   "v2_seconds": 59.2,
+   "window": "w0 horizon roll 03:30-90 min"
+  },
+  {
+   "clock_trials": 16,
+   "divergences": [],
+   "engines_compared": 24,
+   "fills": {
+    "at_price": {
+     "blind_re1": 0,
+     "clock_only": 0,
+     "informed-v0": 0,
+     "no_quote": 0
+    },
+    "strictly_through": {
+     "blind_re1": 0,
+     "clock_only": 0,
+     "informed-v0": 0,
+     "no_quote": 0
+    }
+   },
+   "informed_decisions": 22832,
+   "matches": {
+    "at_price": {
+     "attempts": 9,
+     "fraction": "0.44921875",
+     "status": "MATCHED"
+    },
+    "strictly_through": {
+     "attempts": 9,
+     "fraction": "0.44921875",
+     "status": "MATCHED"
+    }
+   },
+   "quotes": {
+    "at_price": {
+     "blind_re1": 2,
+     "clock_only": 5,
+     "informed-v0": 5,
+     "no_quote": 0
+    },
+    "strictly_through": {
+     "blind_re1": 2,
+     "clock_only": 5,
+     "informed-v0": 5,
+     "no_quote": 0
+    }
+   },
+   "records": 86702,
+   "reference_seconds": 433.2,
+   "trades": 2000,
+   "union": 170,
+   "v2_seconds": 60.9,
+   "window": "w0 settlements 09:30-90 min"
+  },
+  {
+   "clock_trials": 24,
+   "divergences": [],
+   "engines_compared": 32,
+   "fills": {
+    "at_price": {
+     "blind_re1": 0,
+     "clock_only": 0,
+     "informed-v0": 0,
+     "no_quote": 0
+    },
+    "strictly_through": {
+     "blind_re1": 0,
+     "clock_only": 0,
+     "informed-v0": 0,
+     "no_quote": 0
+    }
+   },
+   "informed_decisions": 6955,
+   "matches": {
+    "at_price": {
+     "attempts": 13,
+     "fraction": "0.43017578125",
+     "status": "UNMATCHED"
+    },
+    "strictly_through": {
+     "attempts": 13,
+     "fraction": "0.43017578125",
+     "status": "UNMATCHED"
+    }
+   },
+   "quotes": {
+    "at_price": {
+     "blind_re1": 5,
+     "clock_only": 12,
+     "informed-v0": 13,
+     "no_quote": 0
+    },
+    "strictly_through": {
+     "blind_re1": 5,
+     "clock_only": 12,
+     "informed-v0": 13,
+     "no_quote": 0
+    }
+   },
+   "records": 43286,
+   "reference_seconds": 992.9,
+   "trades": 2000,
+   "union": 170,
+   "v2_seconds": 82.4,
+   "window": "dense 10:00-30 min"
+  },
+  {
+   "clock_trials": 20,
+   "divergences": [],
+   "engines_compared": 28,
+   "fills": {
+    "at_price": {
+     "blind_re1": 0,
+     "clock_only": 0,
+     "informed-v0": 1,
+     "no_quote": 0
+    },
+    "strictly_through": {
+     "blind_re1": 0,
+     "clock_only": 0,
+     "informed-v0": 1,
+     "no_quote": 0
+    }
+   },
+   "informed_decisions": 33455,
+   "matches": {
+    "at_price": {
+     "attempts": 11,
+     "fraction": "0.2041015625",
+     "status": "MATCHED"
+    },
+    "strictly_through": {
+     "attempts": 11,
+     "fraction": "0.2041015625",
+     "status": "MATCHED"
+    }
+   },
+   "quotes": {
+    "at_price": {
+     "blind_re1": 1,
+     "clock_only": 10,
+     "informed-v0": 15,
+     "no_quote": 0
+    },
+    "strictly_through": {
+     "blind_re1": 1,
+     "clock_only": 10,
+     "informed-v0": 15,
+     "no_quote": 0
+    }
+   },
+   "records": 92934,
+   "reference_seconds": 779.5,
+   "trades": 20000,
+   "union": 170,
+   "v2_seconds": 171.4,
+   "window": "w0 horizon roll 03:30-90 min"
+  },
+  {
+   "clock_trials": 14,
+   "divergences": [],
+   "engines_compared": 22,
+   "fills": {
+    "at_price": {
+     "blind_re1": 0,
+     "clock_only": 0,
+     "informed-v0": 1,
+     "no_quote": 0
+    },
+    "strictly_through": {
+     "blind_re1": 0,
+     "clock_only": 0,
+     "informed-v0": 1,
+     "no_quote": 0
+    }
+   },
+   "informed_decisions": 31895,
+   "matches": {
+    "at_price": {
+     "attempts": 8,
+     "fraction": "0.4453125",
+     "status": "MATCHED"
+    },
+    "strictly_through": {
+     "attempts": 8,
+     "fraction": "0.4453125",
+     "status": "MATCHED"
+    }
+   },
+   "quotes": {
+    "at_price": {
+     "blind_re1": 2,
+     "clock_only": 13,
+     "informed-v0": 12,
+     "no_quote": 0
+    },
+    "strictly_through": {
+     "blind_re1": 2,
+     "clock_only": 13,
+     "informed-v0": 12,
+     "no_quote": 0
+    }
+   },
+   "records": 96223,
+   "reference_seconds": 602.3,
+   "trades": 20000,
+   "union": 170,
+   "v2_seconds": 153.0,
+   "window": "w0 settlements 09:30-90 min"
+  },
+  {
+   "clock_trials": 20,
+   "divergences": [],
+   "engines_compared": 28,
+   "fills": {
+    "at_price": {
+     "blind_re1": 0,
+     "clock_only": 0,
+     "informed-v0": 2,
+     "no_quote": 0
+    },
+    "strictly_through": {
+     "blind_re1": 0,
+     "clock_only": 0,
+     "informed-v0": 2,
+     "no_quote": 0
+    }
+   },
+   "informed_decisions": 6995,
+   "matches": {
+    "at_price": {
+     "attempts": 11,
+     "fraction": "0.4326171875",
+     "status": "MATCHED"
+    },
+    "strictly_through": {
+     "attempts": 11,
+     "fraction": "0.4326171875",
+     "status": "MATCHED"
+    }
+   },
+   "quotes": {
+    "at_price": {
+     "blind_re1": 2,
+     "clock_only": 12,
+     "informed-v0": 10,
+     "no_quote": 0
+    },
+    "strictly_through": {
+     "blind_re1": 2,
+     "clock_only": 12,
+     "informed-v0": 10,
+     "no_quote": 0
+    }
+   },
+   "records": 43705,
+   "reference_seconds": 829.2,
+   "trades": 20000,
+   "union": 170,
+   "v2_seconds": 81.9,
+   "window": "dense 10:00-30 min"
+  }
+ ],
+ "measurement": "S5",
+ "pass": true,
+ "status": "MEASURED",
+ "view_cadence": "real"
+}

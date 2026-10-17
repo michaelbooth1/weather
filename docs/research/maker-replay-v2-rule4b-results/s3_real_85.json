@@ -1,0 +1,55 @@
+{
+ "book_records": 46268,
+ "book_rows_per_minute": 2,
+ "engine": {
+  "decision_sha256": "8a41419ec0126d01e046b5b302df50e5df85593a3b84145fccc23dc4cfb30d28",
+  "decisions": 49883,
+  "exclusions": {},
+  "exclusions_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "fill_bound": "strictly_through",
+  "fills": 0,
+  "final_cash": "100.000000",
+  "instants": 49398,
+  "intervals": 38453,
+  "policy": "informed-v0",
+  "stale_timers": 92513,
+  "timer_pops": 201643,
+  "wakes": 49968
+ },
+ "fixture": {
+  "coverage_groups": 10,
+  "events": 24,
+  "instantaneous_max": 66,
+  "instantaneous_mean": 64.81,
+  "instantaneous_min": 57,
+  "local_midnight_utc": {
+   "city00": "2026-09-27T04:00:00+00:00",
+   "city01": "2026-09-27T05:00:00+00:00",
+   "city02": "2026-09-27T06:00:00+00:00",
+   "city03": "2026-09-27T07:00:00+00:00",
+   "city04": "2026-09-27T04:00:00+00:00",
+   "city05": "2026-09-27T03:00:00+00:00"
+  },
+  "t1_t2_share": 0.6786,
+  "union": 85
+ },
+ "fixture_build_seconds": 12.2,
+ "measurement": "S3",
+ "microseconds_per_wake": 99.8,
+ "minutes": 360,
+ "pass_seconds": [
+  5.222,
+  4.988,
+  5.142
+ ],
+ "pass_seconds_min": 4.988,
+ "process_peak_working_set_bytes": 1000816640,
+ "process_working_set_bytes": 981467136,
+ "records": 125322,
+ "status": "MEASURED",
+ "traced_peak_bytes_per_pass": 9704511,
+ "trades": 2000,
+ "union": 85,
+ "view_cadence": "real",
+ "wakes_per_band_minute": 2.142
+}

@@ -166,7 +166,7 @@ def test_sizing_adverse_leg_omission_and_cooldown(inputs):
 
 
 def test_share_pull_floor_and_terms_change_precede_hold(inputs):
-    i = replace(inputs, profile=blind_re1)
+    i = inputs
     legs = decide(i).legs
     crowded = replace(i.book, yes_bids=((D('.49'), D(10000)),), yes_asks=((D('.51'), D(10000)),))
     assert decide(replace(i, existing=legs, book=crowded)).reasons == ("SHARE_BELOW_PULL_FLOOR",)

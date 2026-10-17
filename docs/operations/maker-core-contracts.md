@@ -133,12 +133,14 @@ Net uses hazard times adverse loss times size, with no rebate credit. Its unit
 contract is a conservative upper bound on total band shares filled per minute;
 it must include either-leg exposure. No empirical hazard estimator ships here.
 
-`blind_re1` freezes 1.5-cent outward pricing, the [1,3]-cent hold window,
-20/30/50/75 sizes, one band and first-fill termination. Historical public quote
-fixtures prove **first-minute price parity only**. Per-leg replacement and the
-RE-1 five-requote limit are not reproduced; account, transport and full-minute
-runtime parity are not claimed. The attempt-1..12 replay skeleton is skipped
-until an authorized sanitized journal export is available.
+`blind_re1` freezes RE-1's 1.5-cent outward pricing, inclusive [1,3]-cent hold
+window, 20/30/50/75 sizes, one band and first-fill termination. Its resting
+observer has no share-floor pull; the informed 5% rule above does not apply.
+The offline lifecycle implements affected-leg cancel-then-post and ends before
+the fifth requote. Recorded fixtures match all 313 minute projections; terminal
+findings remain explicit strict xfails with an evidenced ledger. See the
+[replay contract](maker-replay-bundle.md#scoring) for timing, sizing, transport
+assumptions and the boundary between projected equality and full qualification.
 `inventory_action` is advisory hold/resting-sell/exit-review using the
 specified taker fee, not a live liquidation path.
 
@@ -160,13 +162,263 @@ not authentication. Journal IO failure poisons that writer; never retry append.
 If the opening record fails, the newly created journal is closed and unlinked;
 an existing file is never overwritten or removed.
 
+## Weather adapter inputs
+
+The weather plugin supplies partition descriptors and exact zero stdev for
+decided 0/1 marginals. Scheduled METAR and model-cycle events expire ten minutes
+after their scheduled instant; detected model-cycle events expire ten minutes
+after fetch. New-high pulls and determined-band vetoes retain their original
+no-expiry behavior. Core windows/freshness and other admission checks still apply.
+Observation triggers: only the captured WU printed high (`wu_history_high_increased` from
+`wu_history`) can produce a `decided` veto. A rising supporting METAR, ECCC SWOB or WU-current
+trigger (the `*_bucket_crossed` and `*_above_wu_floor` pairs in `clock.SUPPORTING_TRIGGERS`) produces
+a `new_high` pull only. Value-less (`*_became_fresh`), non-rising, unknown or mismatched
+reason/source rows are ignored; the date, market, unit and point-in-time filters apply to all rows.
+"Rising" is relative to the previous poll, not the day's running high, and a new-high pull never
+expires. Owner decision (2026-10-07): keep this previous-poll rule for now, and switch supporting pulls
+to a rise above the day's running maximum before any policy quotes T+0. Because a trigger's local detection date must equal the target date, these events reach
+lead-0 (T+0) conditions only. Actions, legs, fills, P&L, pulled seconds and cell sums are
+unchanged for every policy. What changes on a day with T+0 supporting pulls: `blind_re1`'s band-day
+`fills_in_events`/`fills_outside_events` split (every policy's fill event window reads the info
+events) and its `FIRST_FILL_ENDS` decision digest (the decision hashes the fill, which carries
+`in_event_window`); `informed-v0`'s refusal reasons, wake/decision/interval counts and decision
+digests (each new info event is a wake); and therefore the report traces, sidecar rows, sidecar
+binding hash and report hash. Measure any v2 output limits on post-fix exports. **Trigger
+`observed_at`:** the live producers write ISO-8601 with a UTC offset (SWOB: station local time with
+its offset, from `model_sources.parse_swob_xml`), which the clock parses, so SWOB pulls work and DST is
+unambiguous. Anything that is not an aware instant (a bare local `HH:MM`, a naive ISO string, garbage)
+is refused, never interpreted (owner decision OD37,
+2026-10-07): that row is skipped and counted in the runner coverage as
+`clock.trigger_rows_skipped.observed_at_unparseable` (once per row per evaluated band-minute); it
+never makes the clock unavailable. A row detected after `as_of` is neither used nor counted.
+**Backfill CSV format (owner decision SWOB-a, 2026-10-07).** The ECCC SWOB backfill
+(`weather.sources.eccc_swob_history`) writes every observation time in its CSVs (`daily_summary.csv`
+`first_time`, `last_time`, `max_temp_times`, `swob_air_temp_max_times`, `swob_max_1h_times`;
+`comparison_rows.csv` `swob_times`, `swob_first_reach_time`) as ISO 8601 local time with its UTC offset
+(the hourly row's `valid_time_local`), so its rows are never refused if they ever feed the trigger file.
+Files written before then carry bare `HH:MM`; they are not rewritten and still parse. Its readers
+(`eccc_swob_history.time_to_minutes` and `source_redundancy.earliest_minute`) try the old `HH:MM`
+parse first, unchanged, and read only an aware ISO value they could not parse before, taking the
+string's own wall-clock minute, so every minute, peak minute and lead is unchanged. The hourly JSONL
+`local_time` stays `HH:MM` (WU-shaped; that file already carries `valid_time_local` and `valid_time_utc`).
+**Receipt summary (owner decision SWOB-b, 2026-10-07).** The night/calibration receipts (v0.1 and
+v0.2) carry `bundle.clock_trigger_rows_skipped`, built by
+`maker_plugin_runner.clock_trigger_rows_skipped` from these coverage keys, with
+`observed_at_unparseable` always present (an explicit 0). It survives the receipt byte-cap trim that
+drops `reader_coverage`, and it carries the same lower-bound caveat as the coverage key below. It is
+receipt-only: `export.json` and bundle bytes are unchanged. Hash-pin impact: SWOB-b changes
+`maker_plugin_runner.py`, `maker_replay_night.py` and `maker_replay_night_v02.py`, which are in the
+night exporters' module closure, so the v0.2 `module-hash` (the nightly export's registered
+`-ExpectedModuleSha256` since U6), the v0.1 `replay_export module-hash` and `execution_manifest.source_hashes` change and must
+be re-pinned from the landed checkout; `maker_fair_value_score`'s `implementation_hashes`
+(`maker_plugin/*.py` only) does not. SWOB-a's modules are outside that closure and change no pin.
+**Scope of the observed_at change (not T+0 only).** The v1-exam clock parsed every truthy
+`observed_at` of an event's rows before the point-in-time filter, and the exporter keeps every row
+detected up to the end of the UTC bundle day, so one unparseable value made that event's clock
+unavailable for the whole UTC bundle day. That day can include lead-1 minutes before local midnight
+(for New York, 00:00-05:00 UTC), which are scored `informed-v0` T+1 band-minutes. A `clock:` failure
+makes `maker_plugin_runner.evaluate_event` record the band-minute unavailable and skip `decide` for
+that minute, so a minute lost this way had no decision at all. The refusal therefore can change T+1
+band-minute availability and with it scored `informed-v0` T+1 decisions, legs, fills and P&L (and
+the cell sums built from them), not only T+1 inputs, wherever such a row exists; only the
+supporting-pull change is lead-0 only. Expected incidence is 0, because live producers write aware
+times. Measure the incidence with `tools/research/maker_clock_trigger_disclosure.py`
+(`old_clock_unavailable_observed_at` per cell, `events_old_clock_unavailable_observed_at` per day)
+and check `clock.trigger_rows_skipped.observed_at_unparseable` on post-fix exports. **Both are lower
+bounds, not exact counts:**
+
+- The disclosure tool emits a cell only for an event that has a trigger row detected on the
+  `--date` day d. The v1 clock also read every earlier row of the event kept in d's bundle. So when the
+  bad row was detected on d-1 and the event has no row detected on d, the v1 clock lost day d (its
+  lead-1 minutes included) but no cell is emitted for d, and neither per-cell nor per-day field
+  counts it. Rows from d-2 or earlier are missed the same way, as is a row stamped exactly 00:00:00 of
+  d+1. Round 2's `clock_unavailable` has the same cell rule and the same limit.
+- `clock.trigger_rows_skipped.*` is runner coverage: one count per refused row per band-minute whose
+  clock step completed. It does count a bad d-1 row on d's minutes (d's bundle keeps it), but it misses
+  every band-minute that never reached a completed `observe` (a descriptor failure, a corrupt
+  `triggers` source, or another raise inside `observe`). Read it as "at least this many".
+
+The pre-signature check of `clock.trigger_rows_skipped.observed_at_unparseable` (and of the disclosure
+fields) on the post-fix calibration exports must carry these lower-bound caveats: a zero there does
+not by itself prove that no event-day lost its v1 clock to defect 2. **Re-pin** after
+this change: `execution_manifest.source_hashes` and the exporter hashes over `maker_plugin/*.py` and
+`maker_plugin_runner.py`, and `maker_fair_value_score`'s `implementation_hashes` over
+`maker_plugin/*.py` (fair-value score report bytes change on a rerun).
+
+Served T+0 joins require the bounded export to project `release_calibration_method`
+from the verified release's calibration artifact (`market_bin.method`) onto each
+matching source row. Missing or conflicting method evidence is unavailable;
+`market_shrink` returns `Unavailable(kind="out_of_scope")`. The method enters
+both model identity and input hash. This extra export field is not provided by
+the existing capture writer. T+1/T+2 estimators remain independent of market
+prices; T+0 is outside their frozen scoring protocol. See the
+[dated clarification](../research/t1-fair-value-preregistration-2026-09-25.md#clarification-1--2026-09-25-handoff-110c-before-scoring).
+
 `portfolio`, `venue`, `runtime` and `replay` began as docstring-only placeholders; the
 portfolio ledger and the runtime [trading guard](maker-trading-guard.md) have since landed, and
 `maker_core.shadow` (with `maker_core.venue.public_feed`) is the public-reads-only
 [shadow runner](maker-shadow-runner.md); its tape projects `DecisionInputs` exactly.
-The fictional replay lives in tests. Production evidence loading, portfolio
-accounting, venue/credential access, session control, fitted hazard estimation,
-weather and YouTube plugins, economic shadow scoring and live execution are later phases.
+Portfolio accounting and saved-read orchestration are owned by the
+[portfolio ledger contract](portfolio-ledger.md). The additive
+[replay bundle contract](maker-replay-bundle.md) supplies a bounded neutral
+envelope reader, capture-time snapshots and a diagnostic-only CLI; scored
+replay and weather bundle export remain unfinished. The fictional decision
+replay lives in tests. Session control, fitted hazard estimation, YouTube
+plugins, economic shadow scoring and live execution are later phases. The weather
+adapters consume caller-supplied captured records without provider or filesystem IO.
+
+## Bounded weather plugin dry run
+
+`python -B -m weather.market.maker_plugin.dry_run --date YYYY-MM-DD --data-root <data>
+--output <new-dir> [--markets nyc chicago] [--max-seconds 2700]
+[--max-output-bytes 200000000] [--max-input-bytes 1073741824]
+[--max-cache-bytes 536870912] [--minute-stride 1]` is an offline diagnostic caller.
+Use the topic's installed packages, or set `PYTHONPATH` to its absolute `src` directory.
+The interpreter's `-B` is required for the no-writes-outside-output invocation:
+it suppresses import-cache writes even before the entrypoint loads.
+Production runs remain subject to the host-load lease and window.
+Before it opens any input, `maker_plugin_runner.run` calls the maker replay v2 panel gate
+(`export_gate.read_permitted`), so a `--date` in 2026-09-30..2026-10-15 is refused until the
+`maker-replay-v2-v1` registration is signed (see [maker-replay-bundle.md](maker-replay-bundle.md)).
+
+It reads only sealed `maker_evidence/<UTC-date>/<hh>-<segment>/` manifests and their
+discovery, books, reward journals and referenced book shards. Raw and gzip forms
+are supported; no status, temporary file, stream, venue or credential is read.
+Only consumed files are hash/size/offset/count verified against the seal.
+References are confined to the same manifest; unchanged bodies are verified
+against their canonical hash while retaining the new response's capture time.
+Each input is opened, read and closed before another input or policy evaluation.
+Redirected paths, arbitrary payload paths and output overlap with source trees refuse.
+
+For registered events, explicit supporting paths beneath `--data-root` are:
+
+- `snapshots/<event>/snapshots_long.csv[.gz]` for captured bands and probabilities;
+- `forecasts_long.csv[.gz]`, `snapshot_explanations.jsonl[.gz]`,
+  `forecast_payloads.jsonl[.gz]` and `observation_payloads.jsonl[.gz]` in that event folder;
+- `snapshots/<event>/clob_tokens.jsonl[.gz]`, else `clob_tokens.csv[.gz]`, for band
+  metadata before the event has point-in-time snapshot rows (T+1/T+2): the first complete
+  token batch (both outcomes of every condition, identical native bin fields, numeric token
+  ids, no negative label) is streamed and the read stops there. Production capture is
+  local-T+0 only (the snapshot loop's pre-local-day guard; the CLOB loop's
+  `market_local_date`), so a T+1/T+2 event's first batch is normally captured after the run
+  date. A batch at or before the minute is a point-in-time band capture. A later batch is
+  used only as **condition identity** (a band is part of its condition's immutable
+  question): only when no band capture exists at the minute, and only when that minute's
+  88a discovery lists exactly the batch's conditions with the same YES/NO token ids.
+  `WeatherUniverse.bands` enforces this for every caller (descriptors, fair value, clock,
+  settlement) against the discovery the universe holds at that minute: other contracts are
+  `band_identity_mismatch`, no discovery at the minute is `band_identity_unverified`. The
+  runner feeds each event's replayed discovery to the shared universe (one capture per
+  content change). Partition membership, books and prices stay point in time. The basis is reported per band (`band_basis`), in the
+  descriptor's `source_hashes` and in the fair-value input digest; no batch at all remains
+  `descriptor:missing_captured_band_metadata`;
+- NBP manifests from every run-window event folder of the market
+  (`snapshots/<event>/forecast_payloads.jsonl`, read once per market per run as
+  `nbp_pool_manifests`): an NBP cycle is a national product, and the copy captured for the
+  T+0 event also carries T+1/T+2 maxima. Each manifest is verified against the event it was
+  captured for; the provider selects its own target's slot and skips a cycle without it.
+  An unreadable pooled manifest makes that market's fair value and clock corrupt, never fallback;
+- shared NBP bulletins (`payload_storage_scope=shared_market_invariant`) at
+  `forecast_payload_cas/sha256/<prefix>/<payload_hash>.blob`, the path produced by the
+  store's own `shared_payload_ref`; the manifest's CAS kind, raw-bytes hash algorithm,
+  encoding, media type, ref and station/target identity are checked, and the SHA-256 and
+  byte count cover the exact national blob bytes (strict UTF-8). Each blob is streamed
+  once per run and only requested station blocks are kept; the provider receives the
+  verified station extract with the national hash as lineage. Legacy market-local rows
+  still use `forecast_payloads/sha256/<prefix>/<payload_hash>.json[.gz]` (hash over the
+  JSON bytes without the trailing newline). `raw_payload_path` is never followed;
+- `snapshots/observation_triggers.jsonl[.gz]` and `settlements/<market>/ledger.jsonl[.gz]`,
+  each streamed once per run and indexed by run-window event.
+
+The source manifests supply release lineage; the runner never manufactures the
+missing `release_calibration_method` projection or reads ambient model artifacts.
+All provider joins are point-in-time. A payload's first manifest capture also
+bounds its availability. Missing joins produce explicit coverage/Unavailable
+reasons; corrupt NBP or clock inputs cannot silently become fallback or an empty clock.
+Append/change during a file read refuses that input. Whole-file reads (the per-event
+tables above) above 64 MiB decoded or 100,000 rows refuse with a reported input reason;
+decoded segment bodies and the per-segment journal cache each have a 64 MiB limit.
+Streamed files (tokens, triggers, ledgers, shared blobs) keep one 1 MiB line in memory
+and at most 100,000 retained rows. Rows that cannot be point in time for any minute of
+the run date are not loaded: anything captured/recorded after the date, and forecast
+or NBP manifest rows more than 48 hours before it (a daily-high forecast or NBP issue
+is eligible for at most 24 hours after issue, and issue precedes capture).
+
+Each event's supporting inputs are loaded once per run and kept within
+`--max-cache-bytes` (encoded rows); over-budget events are reloaded and counted
+(`cache.*`). Providers are built once per cached event. Each segment is indexed once,
+so a minute reads no files. Coverage reports `input_bytes.<source>` and
+`files_read.<source>` for every source, and `unavailable.lead<N>.<reason>` by local lead.
+`--minute-stride N` evaluates only UTC minutes of the day divisible by N; it is recorded
+in the summary and counted as `segment_minutes.skipped_by_stride`.
+`band_basis.lead<N>.<basis>` counts band-minutes by band basis, and `end_to_end.lead<N>`
+counts bands whose descriptor, fair value (`OutcomeView`), clock, settlement join, book,
+terms and policy decision all ran. At the default hazard every informed decision is
+`MISSING_CONSERVATIVE_FILL_BOUND` (0 legs) by design, and `informed-v0` refuses T+0
+(`HORIZON_NOT_ELIGIBLE`) before reading fair value; legs need an explicit hypothetical hazard.
+On a host without an active release pointer, served T+0 rows carry
+`release_identity_status=research_unbound_non_countable` and stay
+`served_snapshot_release_unbound`; no release is inferred.
+
+T+1/T+2 NBP knots are whole degrees, so adjacent percentiles often tie. A tie is an
+atom of the piecewise-linear CDF
+([amendment 1](../research/t1-fair-value-preregistration-2026-09-25.md#amendment-1--2026-10-01-mission-111k-before-scoring-owner-decision)).
+A tied end pair is read one degree apart, the print resolution, so its tail falls at the
+frozen 0.15 per degree and ends 2/3 degree beyond the knot
+([amendment 2](../research/t1-fair-value-preregistration-2026-09-25.md#amendment-2--2026-10-01-mission-111l-before-any-panel-export-owner-decision)).
+Strictly increasing knots keep `nbp-v2-piecewise-linear`, interior-only ties report
+`nbp-v2-piecewise-linear-atoms`, a tied end pair `nbp-v2-piecewise-linear-atoms-resolution-tails`,
+counted as `fair_value_model.lead<N>.<model_id>`. A decreasing knot refuses
+(`decreasing_percentile_knots`), and so do all-equal knots (`degenerate_percentile_knots`). Each
+`fair_value:missing_point_in_time_forecast` carries a `forecast_gap`, counted as
+`missing_forecast.lead<N>.<gap>`: `expired_next_cycle_fetched_late` (the newest
+target-bearing issue passed its pre-registered expiry, next cycle + 1 h, before the next
+cycle was captured), `expired_next_cycle_not_captured`, `fetched_after_expiry`,
+`no_cycle_with_target` or `no_bulletin`. Each pooled station extract's earliest capture is
+also counted against its expected availability (`nbp_capture_vs_expected_availability.<bucket>`:
+`on_time`, `late_0_15m`, `late_15_30m`, `late_30_60m`, `late_over_60m`); a late cycle is a
+gap in which the previous issue has already expired.
+
+The last books capture in each segment's minute is the decision clock. Split
+minutes across segment boundaries are explicitly flagged, not silently deduplicated.
+Each discovered active band gets a descriptor attempt; missing both-token rules
+do not erase valid siblings. 88a books only its selected, reward-eligible bands
+(at most ten per city), judged on the UTC date; a band with no captured book is
+`descriptor:book_not_captured`, a capture coverage limit rather than an input fault. The JSON and Markdown contain available probability
+mass sums, expected/available bands, partial-mass flags, joins, provider refusals,
+clock events (JSON), settlement Pending/facts, policy reasons and leg counts.
+
+Probability mass is judged over **the band set 88a captures** (owner bar, DECISION_LOG
+2026-10-01): a band is captured when both token books exist at or before the minute
+(`captured_by_88a`). A record's `probability_mass.captured_set` is `complete_unit_mass`
+when every captured band has a fair value, all from one joint over the full partition,
+and that joint sums to one; otherwise `partial`, `complete_without_one_joint`,
+`complete_nonunit_mass` or `no_captured_bands`. The summary counts these by lead
+(`captured_set_mass`), the reasons on captured bands (`captured_set_reasons`), and,
+beside them, the all-band classes by lead (`all_band_mass`; `mass_coverage` keeps the
+lead-free all-band count). The summary's `verdict`, the first section of `report.md`,
+computes the exam-line bar: status COMPLETE, `end_to_end.lead1` > 0, no
+`band_identity_mismatch` or `band_identity_unverified`, and at least one lead-1 record
+with complete unit mass over the captured set. The hand check of one T+1 fair value
+against its bulletin stays manual.
+Not-evaluable inputs are counted separately from a policy decision with zero legs.
+
+`informed_v0` supplies profile name `informed-v0`. Every decision is independent
+with disclosed hypothetical 100-unit caps, empty inventory and no resting orders.
+This is not a portfolio replay. The default hazard is None: 88a supplies no
+measured conservative fill bound, so `MISSING_CONSERVATIVE_FILL_BOUND` is expected
+unless an earlier gate refuses. Optional `--hypothetical-hazard-per-minute`
+is an explicit synthetic control passed unchanged to the policy, never a fitted
+estimate or live authority. Book and reward capture clocks are preserved.
+
+`report.json` and `report.md` are create-only in a new/empty output directory.
+The combined final byte count includes both files; 32 KiB is reserved for their
+terminal summary, and output caps below 64 KiB are rejected before writing.
+Input bytes count decompressed reads including rereads. Time checks run between
+bounded reads/records/provider calls; terminal report flushing can add overhead.
+Time/input/output cap stops leave valid partial reports. Exit 0 means processing
+completed (coverage gaps may still exist); exit 2 means partial, input error,
+no event-minute coverage or invalid invocation. No score, fill or edge is inferred.
 
 ## Update when
 

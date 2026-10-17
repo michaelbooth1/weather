@@ -41,6 +41,7 @@ changing inventories, metrics, versions, or operational state.
 | Architecture/data flow | `docs/architecture.md` |
 | Package edges and facade ownership | operations boundary/ownership docs |
 | Domain-neutral maker plugin contracts, pure inputs and evidence format | `operations/maker-core-contracts.md` |
+| Proposed workstation shadow runner, quotes tape, replay agreement and drills | `operations/maker-shadow-runner-design.md` |
 | Git branches, worktrees, staging, commits, and pull requests | `docs/git-workflow.md` |
 | Read-only open-PR hygiene report and its roll heuristic | `docs/operations/pr-hygiene.md` |
 | Workstation landing preflight, its exit codes and the night-plan schema | `docs/operations/LANDING_PREFLIGHT.md` |
