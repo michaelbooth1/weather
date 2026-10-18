@@ -110,7 +110,7 @@ Toxicity table: `UNSET (owner binds the toxicity table digest before signing)`
 Decision rule digest: `87de64bd51992826b4b631934a75e51c6aec514c58483c79aaf00035ebfd6d03`
 
 That is the digest of `decision.PROPOSED_RULE.spec()` (format `maker-core.frontier-decision.2`, revised in
-review round 4), which holds every parameter below. The margin is unset in it. Signing the margin changes the rule and its digest, and
+review round 5), which holds every parameter below. The margin is unset in it. Signing the margin changes the rule and its digest, and
 this line must then be recomputed. The code refuses a scored run whose rule digest differs from the line
 above, and `score` refuses while the margin is unset.
 
@@ -192,7 +192,7 @@ above, and `score` refuses while the margin is unset.
   - The per-day bound exists because a pooled bound alone lets one day at 50% holes pass at about 1.8%
     overall.
   - The receipt lists each hole once per (capture day, condition_id) in `unavailable_by_day_and_band`,
-    with its instants, the strategies affected, the decisions counted and the first and last instant, so
+    with counts of its instants, the strategies affected and the decisions, and the first and last instant, so
     each hole can be traced and the receipt does not grow with the strategy count. The shares and bounds
     still count every decision.
   - A kept band queried on a day whose tape has **no row at all** for it is not counted in the share. It
@@ -379,7 +379,7 @@ Derivation, from repository facts:
      - Blocks are concatenated and the last is cut so each resample has exactly n days. There is no
        circular wrap, so the first and last days sit in only one block start and are under-weighted.
      - 9,999 resamples (`replicates`), seeded `random.Random(20261114 + 1)` (`seed + 1`).
-     - The SE is the sample SD (n − 1) of the 9,999 resampled means of daily net.
+     - The SE is the sample SD of the 9,999 resampled means of daily net (divisor replicates − 1 = 9,998).
    - **Why a lower bound, not the point estimate.** At the point estimate, a profile whose true net is
      exactly 1.00 is promoted half the time, and promotion puts real capital at risk.
    - **Why 80%, not 95%.** The live wallet is capped at 100 pUSD, and kill rule K3 pauses quoting on excess
