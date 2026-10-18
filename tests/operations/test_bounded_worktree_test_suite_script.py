@@ -1704,16 +1704,17 @@ function Get-HealthyCaptureWorkerCount {
     }
 }
 function Start-Sleep { param([int]$Seconds) $script:sleeps++ }
-function Write-SuiteLog { param([string]$Message) $script:logs.Add($Message) }
+# Like the real logger, the mock also emits its line to the pipeline.
+function Write-SuiteLog { param([string]$Message) $script:logs.Add($Message); Write-Output $Message }
 function Get-CommitPercent { return 50 }
 $count = Get-ConfirmedHealthyCaptureWorkerCount -Phase 'chunk-7-running'
 $countPolls = $script:pollIndex
 $countSleeps = $script:sleeps
 $failure = $null
 $script:pollIndex = 0
-try { Assert-HostAdmission -CommitCeiling 66 -Phase 'chunk-7-running' } catch { $failure = $_.Exception.Message }
+try { $null = Assert-HostAdmission -CommitCeiling 66 -Phase 'chunk-7-running' } catch { $failure = $_.Exception.Message }
 [pscustomobject]@{
-    count = [int]$count; polls = [int]$countPolls; sleeps = [int]$countSleeps
+    count = $count; count_type = $count.GetType().Name; polls = [int]$countPolls; sleeps = [int]$countSleeps
     logs = @($script:logs); failure = $failure; read_args = $script:readArgs
 } | ConvertTo-Json -Compress -Depth 4
 """
@@ -1755,6 +1756,7 @@ def test_capture_admission_confirms_a_bad_poll_before_refusing(case):
     )
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
+    assert payload["count_type"] == "Int32"
     assert payload["count"] == count
     assert payload["polls"] == n_polls
     assert payload["sleeps"] == n_polls - 1

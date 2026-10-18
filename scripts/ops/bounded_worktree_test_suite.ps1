@@ -557,7 +557,9 @@ function Get-ConfirmedHealthyCaptureWorkerCount {
         $rows = @(Get-HealthyCaptureWorkerCount -Detail -ReadAttempts 5 -RetryDelaySeconds 2)
         $bad = @($rows | Where-Object { -not $_.Healthy })
         foreach ($row in $bad) {
-            Write-SuiteLog "$Phase capture worker unhealthy (poll $poll): $($row.Name): $($row.Reason)"
+            # Write-SuiteLog also emits its line to the pipeline; discard it so
+            # this function returns only the count.
+            $null = Write-SuiteLog "$Phase capture worker unhealthy (poll $poll): $($row.Name): $($row.Reason)"
         }
         $healthy = @($rows | Where-Object { $_.Healthy }).Count
         if ($bad.Count -eq 0) { return $healthy }

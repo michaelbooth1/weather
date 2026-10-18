@@ -429,7 +429,9 @@ Stage-A, workstation or live authority is added.
    Their capture-worker admission refuses at once on a dead worker pid; any
    other unhealthy worker (unreadable status, pid mismatch, stale heartbeat)
    is re-read after 8 s and refuses only when the same worker fails two
-   consecutive polls. Each unhealthy worker's reason is written to the suite log.
+   consecutive polls, with at most three polls. Each poll reads every status
+   and lock file with up to 5 attempts 2 s apart. Each unhealthy worker's
+   reason is written to the suite log.
    **Disk thresholds are binary units (GiB), whatever a log line prints.** The
    bounded suite requires 53,687,091,200 bytes = 50 GiB
    (`scripts/ops/bounded_worktree_test_suite.ps1`, `Assert-SuiteDiskHeadroom`);
