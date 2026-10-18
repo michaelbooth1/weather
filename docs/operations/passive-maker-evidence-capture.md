@@ -305,6 +305,88 @@ The central schema registration is additive. Its shared-registry placement
 means deployment must use the repository roll-verdict tool; independence of
 the worker does not itself prove the entire branch roll-free.
 
+## Counterfactual fill tape (item 330 build 2 input)
+
+`weather.market.maker_counterfactual_tape` is an offline, read-only reader of
+sealed 88a days. It writes the COUNTERFACTUAL quote-minute and fill tape that
+the item 330 build 2 toxicity fit (`maker_core.replay.toxicity`) consumes. It
+is not imported by the capture worker, so it is roll-free. It is on the
+workstation-heavy offline allowlist. On the capture host it runs only as the
+night job `cftape_host_run.ps1` (claude/night-plans), under the shared lease,
+with the same slot, caps and exit codes as FC-11.
+
+```powershell
+python -m weather.market.maker_counterfactual_tape export --root <88a root> --out-dir C:\cftape-out\backlog-strictly_through --fill-rule strictly_through --dry-run
+python -m weather.market.maker_counterfactual_tape export --root <88a root> --out-dir C:\cftape-out\backlog-strictly_through --fill-rule strictly_through --max-days 1 --deadline <iso> --code-commit <head>
+python -m weather.market.maker_counterfactual_tape to-jsonl --tape-dir C:\cftape-out\backlog-strictly_through --maker-side YES --output <new file>.jsonl [--settlement-json <file>]
+```
+
+**Fill rule per run.** Each run uses one `--fill-rule` (default `at_price`),
+recorded in every receipt. A backlog holds one rule: `export` refuses (exit 2)
+an `--out-dir` that already holds day receipts of the other rule. The host
+wrapper writes `backlog-<rule>`, so the two rules are two runs. Build 2's
+default fit uses `strictly_through` (print < bid); `at_price` (print ≤ bid) is
+its declared sensitivity. `print_side` is the print's recorded aggressor (taker)
+side, kept as is; a resting BUY is hit by an aggressor SELL.
+
+**Embargo and reads**
+- Only dates on or before 2026-09-29 are read. A day folder's date comes from
+  its name. Folders dated 2026-09-30..2026-10-15, or after `--max-date`, are
+  never listed, stat'ed or opened. A `--max-date` after 09-29 is refused
+  (exit 2).
+- Inside an allowed day, a universe band whose event date (from its slug) is
+  after 09-29 is dropped before any of its `book-<asset>` journals is opened.
+  Its prints are parsed and discarded. Both are counted in the day receipt.
+- Inputs are opened read-only with share read/write/delete.
+  `.writer.lock` and `status.json` are never opened, and no lock is taken.
+- An unsealed segment is listed and counted, never read.
+- Every journal is checked against its manifest: decompressed bytes and SHA-256.
+- A damaged segment (unreadable file, bad or truncated gzip, manifest
+  mismatch) fails only its own day: that day gets a mismatch receipt and stays
+  unsealed, and the run continues.
+
+**Output**
+- Output goes under an `--out-dir` outside `data\` and outside the 88a root:
+  - `tape/utc_day=<D>/cf_minutes.parquet` and `cf_fills.parquet`, zstd;
+  - `receipts/<D>.json`, which records input segments with manifest SHA-256,
+    dispositions, row counts, the SHA-256 and bytes of each output, module
+    SHA-256 and commit;
+  - `run_receipt_<stamp>.json`.
+- Files are create-only. A day without a receipt is an interrupted attempt; its
+  leftover tables are renamed `*.orphan-<stamp>`.
+- Only a day whose checks all match is sealed. A mismatch writes
+  `receipts/<D>.mismatch-<stamp>.json` and is redone after the
+  never-attempted days.
+- `--dry-run` lists folders and reads directory-entry sizes only. Its output
+  estimate is an unmeasured placeholder.
+- Rollback: delete the output folder. Nothing else is written.
+
+**Record semantics.** The tape is per UTC day. It never reads a neighbouring
+day, so a minute that would start after midnight, and a mark due after
+midnight, are omitted and counted. A token's 88a book snapshot captured at `c`
+opens the exposure minute `ceil_minute(c)`.
+
+| Field | Semantics |
+| --- | --- |
+| `cf_minutes` row | One per token and minute. It is a hypothetical resting BUY of 20 shares at that token's best bid. The first snapshot in a minute wins. A row needs `0 < bid < 1`. Its context is taken at `c`. |
+| `cf_fills` row | The first `last_trade_price` print on the token in `[minute, minute + 60 s)` that crosses the bid under the run's rule (`maker_core.shadow.paper.crosses`): `at_price` print ≤ bid, `strictly_through` print < bid. `size = min(print size, 20)`, and `crossing_prints_in_minute` counts every crossing print. Prints repeated by overlapping connections count once. |
+| Context | Trailing only, as in build 2's `toxicity_features.weather_fill_context`. Imbalance and depth come from the latest YES book no more than 120 s old, summing all levels. `last_print_size`, `burst_prints` (1 s) and `sweep_bands` (60 s, distinct conditions of the event in the 88a universe) come from prints strictly before the instant, as build 2's `FillContext` requires (4ae3602fa): the fill's own print, and any print at or after the fill instant, are excluded. A fill's book is also strictly before the fill; a minute's book is its quote snapshot at the context instant. `horizon_days` is the event date minus the market-local date. Close is the end of the local event day. |
+| Weather fields | Scheduled print, model cycle and decided probability are null. `station` lets a workstation step add the scheduled-print clock. |
+| Marks | Marks `1m`, `5m` and `30m` are the first two-sided YES snapshot in `[fill + h, fill + h + 120 s]`, at mid. |
+| `settlement_p_yes` | Null in the tape. `to-jsonl --settlement-json` supplies `{condition_id: {"p_yes", "observed_at_utc"}}`; build 2 requires the observation time, dates it against the embargo, and refuses one before the fill, so a settlement read on 09-30 or later cannot enter the fit. The adapter withholds the settlement label (the fill is kept with `settlement_p_yes` null, so the exposure-minute hazard is unbiased) when none is given, when it was observed before the fill, or when it was observed on or after 09-30, and counts each reason in the create-only `<output>.receipt.json` (`fills_settlement_withheld`, `fills_with_settlement`). |
+
+**Build 2 mapping.** `to-jsonl` writes build 2's neutral records:
+
+- columns `ctx_*` map to `context.*`, and `ctx_ft_*` map to
+  `context.feature_times`;
+- `mark_<h>_*` map to `marks`;
+- `quote_price` maps to fill `price`, on the maker token's axis.
+
+Build 2 keys exposure minutes by `(condition_id, minute_utc)`, so one JSONL
+file holds one `--maker-side`. The tape keeps both sides. Before a table is
+read, the adapter checks its SHA-256 against the day receipt. Any record date
+after 09-29 is refused.
+
 ## Update when
 
 Update with selection, endpoints, timing, CLI, byte/disk brakes, storage,

@@ -48,6 +48,7 @@ _COMMAND_BOUNDARY = r"(?:\A|[;&|\r\n{}()])"
 _COMMAND_TOKEN_END = r"(?=\s|[;&|{}()]|\Z)"
 _OFFLINE_WEATHER_MODULES = frozenset(
     {
+        "maker_core.replay.toxicity",
         "maker_core.replay.v2.transfer_cli",
         "tools.research.guidance_all_hours.run",
         "tools.research.missing_information.run",
@@ -64,6 +65,7 @@ _OFFLINE_WEATHER_MODULES = frozenset(
         "weather.calibration.pooled_candidate_replay_diagnostics",
         "weather.calibration.pooled_candidate_replay_report",
         "weather.market.maker_evidence_inspect",
+        "weather.market.maker_counterfactual_tape",
         "weather.operations.base_retrain",
         "weather.operations.density_live_replay_parity",
         "weather.operations.nightly_retrain",

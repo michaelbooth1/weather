@@ -1,4 +1,4 @@
-# 336. Landing Preflight [PARTIAL 2026-10-06 - WORKSTATION TOOL IN REVIEW; LANDING AND ADOPTION OPEN]
+# 336. Landing Preflight [PARTIAL 2026-10-08 - LANDED ON MASTER (1becbaf75); PRODUCTION ADOPTION DECISION OPEN]
 
 Goal: land approved work on the first attempt by judging each head on the night's
 cumulative merge on a workstation before production spends a lease on it.
@@ -30,9 +30,9 @@ Acceptance:
 - [x] Defender sign-off conditions C1–C14 met with a test per condition.
 - [x] Dog-food on the real night plans with `--tests none` (the #189 interaction
   reproduced through the tool).
-- [ ] CI green, review, and the guarded landing. The branch adds two rows to
+- [x] CI green, review, and the guarded landing: landed in the 2026-10-08 rs1b quiet-window
+  integration (`1becbaf75`). The branch added two rows to
   `src/weather/schema_registry_recent_data.py`, which is in the capture closure, so
-  it is expected roll-sensitive and lands in the quiet window paired with another
-  roll-sensitive head.
+  it was roll-sensitive and landed in the quiet window with the maker-core heads.
 - [ ] Production decides whether and how the verdict feeds its landing checklist;
   until then it is non-binding pre-evidence only.
