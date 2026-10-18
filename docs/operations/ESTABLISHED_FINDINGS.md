@@ -3731,6 +3731,58 @@ Receipts: [S0 receipts](../research/data-layer-v2-s0-2026-10-15/README.md). Inpu
 - **Not established:** post-gzip savings of write-on-change; host process commit; FC-10 bytes per point; post-gzip L2
   bytes and L2 bytes in US daytime hours (13Z-23Z).
 
+### 10t. First counterfactual-tape toxicity fit: CF fills are adverse at every horizon, settlement unresolved (DESCRIPTIVE, UNDERPOWERED) — item 330 build 2, workstation, 2026-10-17
+
+**Status: DESCRIPTIVE ONLY.** Every cell is `UNDERPOWERED` (`maker_core.replay.inference`: fewer than 10 date
+clusters). This is not a test of the `-0.43 c` settlement constant (`maker_core.quoting.fill_cost.CONSTANT_ADVERSE_MARKOUT`
+= 0.0043, the 2026-09-20 public-tape run, 30 dates, 23 settlement clusters), and it changes no cost floor.
+
+**Input.** The host counterfactual tape (`weather.market.maker_counterfactual_tape`, landed `30ec100f0`, host run
+2026-10-17) over sealed 88a days UTC 2026-09-25..09-29 only: 1,164,086 hypothetical 20-share best-bid quote-minutes, every
+day `all_match=True`. Two fill rules as two backlogs: `strictly_through` (print < bid, the default) and `at_price`
+(print ≤ bid, the declared sensitivity). `to-jsonl` (master `5937c03a1`) wrote one file per maker side, YES and NO.
+
+**Fit.** Build 2 `maker_core.replay.toxicity fit` (branch `claude/maker-toxicity-20261016` code, run from a never-landed
+scratch tree `dfb3bc9d4`): 200 replicates, seed 20261016, a crossed date x market cluster bootstrap with a 90% interval.
+The estimate is the unweighted mean over date x market cells, in cents per share, maker-signed (negative is adverse).
+Clusters: 5 dates x 12 markets for 1/5/30 min; 4 dates x 12 markets at settlement.
+
+**Settlement labels (provenance).** The public International Polymarket Gamma endpoint (`/markets?condition_ids=<id>&closed=true`,
+unauthenticated, paced at 0.6 s or more) was queried only for the 201 condition_ids with fills whose event date is ≤ 09-28,
+taken from the tape and written to a request manifest before any call. Value: `outcomePrices` over `["Yes","No"]`. Time:
+`closedTime` (equal to `umaEndDate` in all 201). All 201 resolved (48 YES, 153 NO; one YES band per event), between
+09-26T05:18Z and 09-29T11:57Z, so the ≥ 09-30 rule withheld none. 09-29 events are unlabelled (they resolve on or after
+09-30). No local settlement file (the per-station `daily_summary.csv` and per-market ledgers mix 09-30+ rows) and no
+snapshot was read.
+
+| Rule, side | Fills / quote-min | Hazard per min | 1 min | 5 min | 30 min | Settlement (labelled fills) |
+| --- | --- | --- | --- | --- | --- | --- |
+| strictly_through YES | 1,344 / 596,691 | 0.00225 | -2.25 [-2.88, -1.66] | -2.32 [-3.28, -1.54] | -0.64 [-1.97, +1.16] | -3.59 [-8.54, +0.44] (1,023) |
+| strictly_through NO | 1,186 / 567,395 | 0.00209 | -2.93 [-3.77, -2.07] | -3.06 [-3.95, -2.21] | -3.00 [-4.16, -1.98] | -2.42 [-6.59, +2.17] (892) |
+| at_price YES | 2,893 / 596,691 | 0.00485 | -0.50 [-0.85, -0.21] | -0.64 [-1.31, -0.17] | +0.40 [-0.39, +1.44] | -1.31 [-5.63, +2.69] (2,256) |
+| at_price NO | 2,791 / 567,395 | 0.00492 | -1.12 [-1.74, -0.28] | -1.25 [-1.87, -0.46] | -1.56 [-2.30, -0.81] | -1.51 [-5.44, +2.34] (2,089) |
+
+Table digests (fit1, without labels; the 1/5/30 min rows are identical in the labelled refit): strictly_through YES
+`d6a951bf0f932274…`, NO `d3d100de7eba687c…`; at_price YES `42c9a985a52d64c4…`, NO `998b7015fcbb3f17…`.
+
+**What it shows, and what it does not.**
+- Short-horizon counterfactual markouts are adverse at 1 and 5 minutes in all four tables, unlike the public-tape run's
+  +0.38 c (1 min) and +0.19 c (5 min). The rule choice moves them 2-4x. Part of this is construction: a
+  `strictly_through` fill exists only when a print trades through the bid, which selects for downward moves. The live
+  fill rule is what the LFC campaign measures.
+- Settlement point estimates are 3-8x more adverse than -0.43 c, but every interval spans both 0 and -0.43 c on 4 date
+  clusters. The constant is neither confirmed nor refuted.
+- Sweeps and large prints are the worst cells (about -3.5 to -6 c at 1 minute); calm minutes with no prior print are near 0
+  under `at_price`. These cells are underpowered too.
+- The tape nulls the weather fields, so the clock and decided dimensions are all `unknown`, and depth is almost all
+  `deep`. The hazard row is keyed by exposure minute and the markout by fill instant, so a row's fill count can differ
+  from its markout `n` (intended).
+- 09-29 is thin (about 103k minutes), because bands whose event date is after 09-29 are dropped.
+
+**Next readable labels.** Events 10-16..11-13 are inside the shadow panel: descriptive reads are refused (owner
+2026-10-17) and scored reads open 2026-11-14 under a signed prereg. Build 2's fit stops at `FIT_LAST` 09-29, so fitting on
+any later label needs an owner amendment of the fit window.
+
 ## Related
 
 - [FINDINGS_DIGEST.md](FINDINGS_DIGEST.md) — the one-screen digest of this file; read it first
