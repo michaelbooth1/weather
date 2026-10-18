@@ -156,7 +156,7 @@ $pregateContentPins = [ordered]@{
     "hard_stop" = "3bec13e905618f7534c82e46ca5ca53083903b3a5c2bb40df178e7dde4d89063"
     "lease" = "6da71e74b2ffcbff42b7cd2068aa97e9e04e887a4fa09638cfbb3b22c8d443b7"
     "lease_check" = "ba9ebf8c7cc87f21602b0e55028929a9342ee38678645d1aa0136748eb92aa55"
-    "Assert-HostAdmission" = "36a3583bc670163c70828e7ddea0de0a3f2b5bec61f1954a2c6ece026df05a00"
+    "Assert-HostAdmission" = "0ba86f143cd4be67ed36fd57f14ecb178388f324838c904a32246789043a5a23"
 }
 function Get-WorkstationPregateTextSha256 {
     param([Parameter(Mandatory = $true)][string]$Text)
