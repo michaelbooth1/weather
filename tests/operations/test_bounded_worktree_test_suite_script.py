@@ -611,7 +611,8 @@ function Get-CommitPercent {
     if ($env:WEATHER_BOUNDED_SUITE_BREACH -ceq 'commit') { return 67 }
     return 60
 }
-function Get-HealthyCaptureWorkerCount {
+function Get-ConfirmedHealthyCaptureWorkerCount {
+    param([string]$Phase)
     if ($env:WEATHER_BOUNDED_SUITE_BREACH -ceq 'capture') { return 2 }
     return 3
 }
@@ -1660,3 +1661,175 @@ def test_every_merge_evidence_reader_refuses_an_override_log(verdict_logs):
             "SUITE GATE REFUSED: suite task action passes -InterpreterPath; "
             "an interpreter qualification run is not merge evidence"
         ), outcome[name]
+
+
+# Get-ConfirmedHealthyCaptureWorkerCount over scripted per-worker polls (host
+# 2026-10-18: three suite refusals from single bad polls under pytest load, no
+# worker restarted). A worker must fail two consecutive polls to count as
+# unhealthy; a dead pid counts at once; every unhealthy row is logged.
+CONFIRM_HARNESS = r"""
+$ErrorActionPreference = 'Stop'
+$tokens = $null
+$errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile(
+    $env:WEATHER_BOUNDED_SUITE_SCRIPT, [ref]$tokens, [ref]$errors)
+if (@($errors).Count -ne 0) { throw 'bounded suite does not parse' }
+foreach ($name in @('Get-ConfirmedHealthyCaptureWorkerCount', 'Assert-HostAdmission')) {
+    $functionAst = @($ast.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+            $node.Name -ceq $name
+    }, $true)) | Select-Object -First 1
+    if ($null -eq $functionAst) { throw "missing $name" }
+    Invoke-Expression $functionAst.Extent.Text
+}
+# PS 5.1 ConvertFrom-Json emits a JSON array as one object; enumerate it explicitly.
+$script:polls = @()
+foreach ($entry in (ConvertFrom-Json $env:WEATHER_CONFIRM_POLLS)) { $script:polls += $entry }
+$script:pollIndex = 0
+$script:sleeps = 0
+$script:logs = New-Object System.Collections.Generic.List[string]
+$script:readArgs = ''
+function Get-HealthyCaptureWorkerCount {
+    param([switch]$Detail, [int]$ReadAttempts, [int]$RetryDelaySeconds)
+    $script:readArgs = "detail=$([bool]$Detail) attempts=$ReadAttempts delay=$RetryDelaySeconds"
+    $poll = $script:polls[$script:pollIndex]
+    $script:pollIndex++
+    foreach ($name in @('loop_status.json', 'clob_loop_status.json', 'observation_trigger_status.json')) {
+        $state = [string]$poll.$name
+        [pscustomobject]@{
+            Name = $name; Healthy = ($state -ceq 'ok'); Dead = ($state -ceq 'dead')
+            Reason = $(if ($state -ceq 'ok') { '' } else { "fake $state" })
+        }
+    }
+}
+function Start-Sleep { param([int]$Seconds) $script:sleeps++ }
+# Like the real logger, the mock also emits its line to the pipeline.
+function Write-SuiteLog { param([string]$Message) $script:logs.Add($Message); Write-Output $Message }
+function Get-CommitPercent { return 50 }
+$count = Get-ConfirmedHealthyCaptureWorkerCount -Phase 'chunk-7-running'
+$countPolls = $script:pollIndex
+$countSleeps = $script:sleeps
+$failure = $null
+$script:pollIndex = 0
+try { $null = Assert-HostAdmission -CommitCeiling 66 -Phase 'chunk-7-running' } catch { $failure = $_.Exception.Message }
+[pscustomobject]@{
+    count = $count; count_type = $count.GetType().Name; polls = [int]$countPolls; sleeps = [int]$countSleeps
+    logs = @($script:logs); failure = $failure; read_args = $script:readArgs
+} | ConvertTo-Json -Compress -Depth 4
+"""
+
+OK = {"loop_status.json": "ok", "clob_loop_status.json": "ok", "observation_trigger_status.json": "ok"}
+
+
+def _poll(**states):
+    return {**OK, **{name + ".json": state for name, state in states.items()}}
+
+
+REFUSED = "chunk-7-running refused: expected three healthy capture workers, found 2"
+CONFIRM_CASES = {
+    # one transient bad poll on one worker passes after a single re-read
+    "transient": ([_poll(clob_loop_status="stale"), OK], 3, 2, None),
+    # the same worker unhealthy on two consecutive polls refuses
+    "persistent": ([_poll(clob_loop_status="stale"), _poll(clob_loop_status="stale")], 2, 2, REFUSED),
+    # a dead pid refuses on the first poll, with no re-read
+    "dead": ([_poll(loop_status="dead")], 2, 1, REFUSED),
+    # different workers on consecutive polls: the second must also fail twice
+    "moving_then_clean": ([_poll(loop_status="stale"), _poll(clob_loop_status="stale"), OK], 3, 3, None),
+    "moving_then_repeat": ([_poll(loop_status="stale"), _poll(clob_loop_status="stale"),
+                            _poll(clob_loop_status="stale")], 2, 3, REFUSED),
+    "all_healthy": ([OK], 3, 1, None),
+}
+
+
+@WINDOWS_POWERSHELL_REQUIRED
+@pytest.mark.spawns
+@pytest.mark.parametrize("case", sorted(CONFIRM_CASES))
+def test_capture_admission_confirms_a_bad_poll_before_refusing(case):
+    polls, count, n_polls, failure = CONFIRM_CASES[case]
+    env = dict(os.environ)
+    env["WEATHER_BOUNDED_SUITE_SCRIPT"] = str(SCRIPT)
+    env["WEATHER_CONFIRM_POLLS"] = json.dumps(polls)
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", CONFIRM_HARNESS],
+        cwd=REPO_ROOT, env=env, check=False, capture_output=True, text=True, timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["count_type"] == "Int32"
+    assert payload["count"] == count
+    assert payload["polls"] == n_polls
+    assert payload["sleeps"] == n_polls - 1
+    assert payload["failure"] == failure
+    assert payload["read_args"] == "detail=True attempts=5 delay=2"
+    bad = sum(1 for poll in polls for state in poll.values() if state != "ok")
+    # every unhealthy row is logged, once per call (the count probe and Assert-HostAdmission)
+    unhealthy = [line for line in payload["logs"] if "capture worker unhealthy" in line]
+    assert len(unhealthy) == 2 * bad
+    assert all(line.startswith("chunk-7-running capture worker unhealthy (poll ") for line in unhealthy)
+    assert all(": fake " in line for line in unhealthy)
+
+
+# -Detail against a real data\snapshots tree: a dead pid is flagged Dead with a
+# reason, a stale heartbeat and a pid mismatch carry their own reasons, and the
+# plain count (no -Detail) is unchanged.
+DETAIL_HARNESS = r"""
+$ErrorActionPreference = 'Stop'
+$tokens = $null
+$errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile(
+    $env:WEATHER_BOUNDED_SUITE_SCRIPT, [ref]$tokens, [ref]$errors)
+if (@($errors).Count -ne 0) { throw 'bounded suite does not parse' }
+foreach ($name in @('ConvertTo-StatusInstant', 'ConvertTo-StatusUtcInstant', 'Get-HealthyCaptureWorkerCount')) {
+    $functionAst = @($ast.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+            $node.Name -eq $name
+    }, $true)) | Select-Object -First 1
+    if ($null -eq $functionAst) { throw "missing $name" }
+    Invoke-Expression $functionAst.Extent.Text
+}
+$RepoRoot = $env:WEATHER_BOUNDED_SUITE_ROOT
+$snapshotRoot = Join-Path $RepoRoot 'data\snapshots'
+New-Item -ItemType Directory -Force -Path $snapshotRoot | Out-Null
+$utf8 = New-Object System.Text.UTF8Encoding($false)
+$now = [datetimeoffset]::UtcNow
+$exited = Start-Process -FilePath 'cmd.exe' -ArgumentList '/c', 'exit 0' -PassThru -WindowStyle Hidden
+$exited.WaitForExit()
+$deadPid = $exited.Id
+function Write-Worker([string]$Name, [int]$StatusPid, [int]$LockPid, [datetimeoffset]$Beat) {
+    [IO.File]::WriteAllText((Join-Path $snapshotRoot $Name),
+        ('{"pid": ' + $StatusPid + ', "last_heartbeat": "' + $Beat.ToString('o') + '"}'), $utf8)
+    [IO.File]::WriteAllText((Join-Path $snapshotRoot ".$Name.writer.lock"), ('{"pid": ' + $LockPid + '}'), $utf8)
+}
+Write-Worker 'loop_status.json' $deadPid $deadPid $now
+Write-Worker 'clob_loop_status.json' $PID $PID $now.AddSeconds(-600)
+Write-Worker 'observation_trigger_status.json' $PID ($PID + 1) $now
+$rows = @(Get-HealthyCaptureWorkerCount -Now $now -Detail -RetryDelaySeconds 0)
+[pscustomobject]@{
+    rows = $rows; count = [int](Get-HealthyCaptureWorkerCount -Now $now -RetryDelaySeconds 0); dead_pid = $deadPid
+} | ConvertTo-Json -Compress -Depth 4
+"""
+
+
+@WINDOWS_POWERSHELL_REQUIRED
+@pytest.mark.spawns
+def test_capture_worker_detail_names_each_failure(tmp_path):
+    env = dict(os.environ)
+    env["WEATHER_BOUNDED_SUITE_SCRIPT"] = str(SCRIPT)
+    env["WEATHER_BOUNDED_SUITE_ROOT"] = str(tmp_path)
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", DETAIL_HARNESS],
+        cwd=REPO_ROOT, env=env, check=False, capture_output=True, text=True, timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    rows = {row["Name"]: row for row in payload["rows"]}
+    assert payload["count"] == 0
+    assert rows["loop_status.json"]["Dead"] is True and not rows["loop_status.json"]["Healthy"]
+    assert rows["loop_status.json"]["Reason"] == f"pid {payload['dead_pid']} is not running"
+    assert rows["clob_loop_status.json"]["Dead"] is False
+    assert rows["clob_loop_status.json"]["Reason"].startswith("heartbeat age 600")
+    assert rows["clob_loop_status.json"]["Reason"].endswith("outside 0..180 s")
+    assert rows["observation_trigger_status.json"]["Dead"] is False
+    assert rows["observation_trigger_status.json"]["Reason"].startswith("pid mismatch: status ")

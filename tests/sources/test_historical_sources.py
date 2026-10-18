@@ -56,6 +56,7 @@ GHCNH_SAMPLE = """STATION|Station_name|DATE|Year|Month|Day|Hour|Minute|LATITUDE|
 USW00014732|LAGUARDIA AP|2023-06-01T12:51:00|2023|06|01|12|51|40.78|-73.88|3.0|23.3||FM-15|12.0||1010.1|1012.4|180|9.3|49
 USW00014732|LAGUARDIA AP|2023-06-01T13:51:00|2023|06|01|13|51|40.78|-73.88|3.0|25.0||FM-15|13.0||1009.1|1011.4|190|11.1|47
 """
+REPO_ROOT = Path(__file__).resolve().parents[2]  # The checkout under test, never the process CWD.
 FIXTURES_ROOT = Path(__file__).resolve().parents[1] / "fixtures"
 
 
@@ -141,8 +142,8 @@ class TestHistoricalSources(unittest.TestCase):
 
     def test_provider_key_defaults_are_not_embedded_in_source(self):
         for path in [
-            Path("src/weather/model/model_constants.py"),
-            Path("src/weather/sources/wu_history.py"),
+            REPO_ROOT / "src/weather/model/model_constants.py",
+            REPO_ROOT / "src/weather/sources/wu_history.py",
         ]:
             text = path.read_text(encoding="utf-8")
             self.assertIsNone(

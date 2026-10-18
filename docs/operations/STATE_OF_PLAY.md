@@ -1,7 +1,7 @@
 # State of play
 
-**Last updated: 2026-10-15 11:30 America/Toronto (owner 10-15 "All as recommended" + batch 2 "approve all": RF A, U6 10-20,
-#209 build, 91a A, watchdog by 10-28, OD-B1 build, O9 UTC cutoff; replay v2 M/E6/13/16/17; DLv2 §9; review 11-20).**
+**Last updated: 2026-10-17 09:45 America/Toronto (C did not run 10-17; next C night 10-19/20; N11 tonight without C;
+descriptive reads of 10-16..11-13 refused. Owner 10-17 ~09:18 and 10-16 ~09:22 decisions are DL rows).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended. At most 95 lines and about 9 KB, one fact per bullet, detail in the linked owner.** This file owns
@@ -26,29 +26,31 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 - **Workstation: one Claude Code chat directed by the production agent** ([preamble](WORKSTATION_SESSION_PREAMBLE.md));
   relayed owner approvals bind it for serving-model and merges, never money or credentials; credentials never committed.
 - **Workstation tracks** (owner 10-13 ~10:50): T1 shadow MM / replay v2 (critical path), T2 88a 10-15 head, T3 model, T4
-  engineering. **Heavy freeze** 10-16 10:00 EDT until LFC session 0 is done (none 10-14); after it, a **second `workstation_heavy` slot**
+  engineering. **Heavy freeze** lifted 10-16 (LFC session 0 done); a **second `workstation_heavy` slot**
   for focused runs < 5 min (owner 10-13 ~14:35; workstation only, never capture PC or live; script change separate).
 - **Landed is not running:** a new loop, nightly, scorer or task is done only when its Open-commitments verify has run.
 
 ## Current truth
 
-- **Production source:** read `origin/master` with git. Since N9 only docs, `.ps1` and tests have landed (10-15: the suite
-  capture-worker re-read `2e6c16e6c`, the data-layer v2 S0 receipts and five docs batches).
+- **Production source:** read `origin/master` with git. Since N9 only docs, `.ps1`, tests and one pin have landed (10-15: suite
+  worker re-read `2e6c16e6c`, MG-1 test date fix `728f0d1b6`, python-dotenv 1.2.2 pin `3b48fa315`, S0 receipts, docs).
 - **Forward maker shadow ACTIVE** (`WeatherMakerShadowRunner`, 24/7, 12 bands, paper only); stop only with
   `data\maker_shadow\STOP`. Scoring embargo: `maker_shadow_panel.py` refuses UTC 09-30..10-15 and 10-15..11-13 (end stays 11-13: #263 N_req 706, DL 10-14).
+  **Descriptive reads of 10-16..11-13 are refused everywhere until the panel closes** (owner 10-17).
 - **Journal pin:** `WeatherManualOrderJournal` pins five files incl. `wallet_reader_client.py`; a merge touching one makes it
   exit 3 until re-registered ([runbook](manual-order-journal.md)).
-- **Wallet reader (8765)** restarted by the owner 10-13 10:21 on `a1014edab` (any-LAN code). The LFC client config is **not** in the session-0 pin `C:\wt\lfc-pinned-e27909a76` yet: the owner re-enters it there on 10-16 before the 10:00 checks (session-0 runbook §3.6 step 3, owner only).
-- **Host Python: A' PASS 10-14; §T + T-R PASS 10-15 00:31** (hash-locked tzdata 2026.3 into the production venv; capture
-  10/10 after). Venv still 3.11.0; 3.11.9 side by side. Next: B 00:30 10-16, cutover C 00:30 10-17 ([runbook](HOST_PYTHON_UPGRADE_RUNBOOK.md) §7a).
-- Owner 10-13 08:53 (relayed): C advance GO if every C0 check is clean; G4 amended (auto rollback; a failed rollback waits for the owner). DECISION_LOG row.
-- Calendar-shift branch `claude/decisions-pyup-shift-20261013` `84c723ae2` (C 10-18) is **ON HOLD**; not a decision.
-- **DST:** DST-H3 landed; DST-M2 lands in N9; OD30 (the 11-01 night rule) holds for 11-01 and lapses 11-02 (owner 10-15).
-- **LFC session 0: Fri 10-16 from 11:00 EDT (~3 h) on the workstation**, owner-attended, locked in (owner 10-14 16:22);
-  guard (owner "Keep B" 10-14 16:27; G7 exception): Phase B clean by 09:00 10-16, reader + capture re-checked, else it slips. Code deadline 10-25 00:00Z; new pin by master.
-- Logistics (dates, times, session day) take the owner's chat yes in DECISION_LOG, no signature (owner 10-13 ~22:00). init-ledger done 10-13.
-- **LFC no-trade window:** 10-16 T-40 (10:20 EDT) to F2; all T-40 steps re-made 10-16 (scope `--date 2026-10-16`).
-- LFC session 1: >= 10-18 after a session-0 PASS, never 10-17; t24 the day before (20-30 h old at start).
+- **Wallet reader (8765)** on `a1014edab` (any-LAN code) since 10-13. It is serial: space post-run reads and retry one
+  timeout after a quiet wait (session-0 finding, [wallet reader](wallet-reader.md)).
+- **Host Python: Phase B PASS 10-16** (3.11.9: bounded suite 21/21 on the stage venv, release case A, `qualification.json`
+  PASS; attempt 1 false NO-GO from verifier r1, fixed by r2; B3 and E finished by hand after the `f611cf22c` wrapper defect:
+  capture 10/10, `status.ps1` exit 2 only from 3 standing flags; [runbook](HOST_PYTHON_UPGRADE_RUNBOOK.md) revision notes).
+  Venv still 3.11.0. **C did not run 10-17** (no owner GO by 01:15); next C night Mon 10-19 into 10-20, owner GO in chat that night.
+- Owner 10-13 08:53: C advance GO if every C0 check is clean; G4 amended (auto rollback; a failed one waits for the owner). **DST:**
+  DST-H3 and DST-M2 (`41fa7bc57`) landed; OD30 (the 11-01 night rule) holds for 11-01 and lapses 11-02 (owner 10-15).
+- **LFC session 0 ATTESTED 10-16** (~16:35Z, pin `e27909a76`, 0 fills; final verify PASS, `counted_sessions` 0; DL row,
+  [record](../research/live-fill-calibration-session0-record-2026-10-16.md)). **Session 1: Sun 10-18 `go` 12:00 EDT**
+  (owner 10-16 14:28; t24 Sat 10-17 ~14:00 EDT; fallback Mon 10-19) on pin `21cf1ed42` (DL row). Manual trading paused from
+  session 1 until the last lot settles (prereg §5, owner 10-16). Logistics take the owner's chat yes in DL (10-13).
 - **Build line** `codex/maker-replay-v2-build-20261003` = `1fd0c295f` (W1/W2/F3, T1-T3, Q2 #269, F4; owner-approved); the
   export nightly stays unregistered until a separate owner yes (>= 10-16).
 - **Maker replay v2** (panel UTC 09-30..10-14 never read): spec v3.4 is the frozen oracle basis; handout r1 signed 10-12
@@ -56,17 +58,18 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
   look by 11-15. **Lapse 10-30** (owner 10-15); §4 window start: whole minute (no amendment). Owner 10-15: C15/A8 = whole-minute
   intervals (M); E6 MEASURED pull-candidate ceiling (carried x 14/3); §9 trim kept; consolidated rows 13/16/17 binding (DL 10-15).
 - **Model:** MG-1 `b044e0f1` (scored >= 10-15) needs #190; 10-18: #190, then stage (roll verdict + parity); #162 on #190 >= 10-19.
+  MG-1 window BOUND (owner 10-16): D0 10-15, provisional last 11-28, may only move later. t3-r3 13-16 prereg SIGNED 10-16.
+- **Owner 10-16 ~09:22 (DL rows):** SOURCE_DISAGREEMENT Option 1 + ledger blocker class and the MG-1 bound land after N12 (roll
+  verdict); S4 evidence-host registration yes after the 10-18 BLAS receipt; WRH Synoptic token no; reboot deferred.
 - **No-go bar:** [exhaustion register](EXHAUSTION_REGISTER.md) (10-14; the owner keeps the no-go). Maker-track owner review 11-20 (was 10-31). Stratum-C and Aug-Sep gap numbers are tainted; a post-fix scoreboard is URGENT.
-- **Live seals** must be RESEALED before any sealed-lane attempt (#229); the LFC re1 lane consumes none. C3 rehearsal deferred.
-- **Pinned deployments:** watchdog `1794fd3b`, cold snapshot (91a `6e5ff47`), exam U6 `89618c30`; paths in the task actions.
+- **Live seals** must be RESEALED before any sealed-lane attempt (#229); the LFC re1 lane consumes none. C3 rehearsal deferred. **Pinned:** watchdog `1794fd3b`, cold snapshot (91a `6e5ff47`), exam U6 `89618c30`; paths in the task actions.
 - **88a retention hold:** keep UTC 09-27..10-15 (v2) and 10-15..10-30 (desk-study panel); lossless compression ok.
 
 ## Ordered critical path
 
 1. **Maker replay v2 (T1):** oracle author on handout r1; P1-P4 on calibration dates only; gates; signature target 10-22..23.
-2. **Host Python:** B 00:30 10-16 (guard above); cutover C 00:30 10-17.
-3. **#177 (T2, owner yes) moved to the 10-18 night:** the 10-15 suite failed on a new #177 test (timing) and a master date
-   test; fix head `claude/integration-20261018-88a-rs-r3` `9121de239` (tests only). 10-16/10-17 G5 no-merge; #182 + #172 10-18; #118 >= 10-18.
+2. **Host Python:** B PASS 10-16; C did not run 10-17; next C night 10-19/20 (owner GO that night); N11 lands 10-17/18 without C.
+3. **N11 (10-17/18) is `claude/integration-20261018-stack6-r` `802591bde`** (supersedes stack4/stack5/88a-rs-r3); N12 10-18/19; #118 >= 10-18.
 4. **Item 337:** host no-METAR replay >= 10-15; on PASS flip, bump, quiet window (owner yes). NBS/NBH; NWP timing (#263 done 10-14, EF §10r).
 5. **Data layer v2 (T3/T4, owner 10-14):** [plan](DATA_LAYER_V2_PLAN.md); S0 receipts landed 10-15; S0b FC-11 10-16; S1 10-19, S3 10-20, S2+S9+P1 10-21; §9 answered except Q6, Q9, Q14 (DL 10-14, 10-15).
 
@@ -74,7 +77,6 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 
 | What | Owner | Due | Verify |
 | --- | --- | --- | --- |
-| LFC session 0 re-pin and runbook re-date to 10-16: done; pin `e27909a76` recorded in DL 10-15; reader client config re-entry is an owner step 10-16 | owner | 10-16 10:00 | `config\local\wallet_reader_client.json` present in the pin (name check only) |
 | RF policy A (owner 10-15): roll-free heads land on workstation pre-gate + Windows CI once #274, #276/#284 green; then #209 deselect build | T4; workstation | after C | DL row; lane green |
 | Evening-fix scorer `8cdcb62ec` lands (prereg SIGNED 10-13, sha256 in DL; read 10-29 `--no-market`, item 337 owns it) | T3 | 10-28 | scorer on master |
 | Pinned watchdog redeploy from master, re-register only the watchdog task (owner yes 10-15) | production | after C, by 10-28 | watchdog CURRENT |
@@ -83,8 +85,8 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 
 ## Standing decisions
 
-- International Polymarket only; no paid weather sources; backups deprioritized; streak contiguity is a diagnostic.
-- Capture-host heavy work is serial, admitted and time-gated; pushing never rolls capture; worktrees `GIT_LFS_SKIP_SMUDGE=1`.
+- International Polymarket only; no paid weather sources; backups deprioritized; streak contiguity is a diagnostic. Capture-host
+  heavy work is serial, admitted and time-gated; pushing never rolls capture; worktrees `GIT_LFS_SKIP_SMUDGE=1`.
 - Native units, WU cutoffs, probability mass, train/serve parity, replay, release binding and evidence retention stay mandatory.
 
 ## Update this file when
