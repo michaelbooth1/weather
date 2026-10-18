@@ -413,12 +413,54 @@ def test_one_capture_day_of_holes_refuses_even_when_the_pooled_share_passes():
     assert coverage["cost_unavailable_share"] == pytest.approx(6 / 450) and coverage["cost_unavailable_share"] < .02
     assert coverage["per_cluster"]["2026-10-18"]["cost_unavailable_share"] == pytest.approx(.12)
     assert coverage["max_cost_unavailable_share_per_cluster"] == .10
-    assert {(d["at"][:10], d["condition_id"]) for d in coverage["unavailable_decisions"]} == {("2026-10-18", "0xhole")}
+    assert [(d["day"], d["condition_id"], d["instants"], d["decisions"]) for d in coverage["unavailable_by_day_and_band"]] == [
+        ("2026-10-18", "0xhole", 1, 6)]
     with pytest.raises(cli.CliRefused, match="cost_unavailable_share_per_cluster_above_bound"):
         cli.cost_coverage(cost, None, SIGNED_RULE, refuse=True)
     cost.decisions = _decisions(date(2026, 10, 18), 45, 5) + _decisions(date(2026, 10, 19), 400, 0)
     assert cli.cost_coverage(cost, None, SIGNED_RULE, refuse=True)["per_cluster"]["2026-10-18"][
         "cost_unavailable_share"] == pytest.approx(.10)
+
+
+def _strategy_holes(strategies):
+    """Two capture days, three hole instants on two bands, each decided once per strategy, plus OK rows."""
+    rows = []
+    for name in (f"s{i}" for i in range(strategies)):
+        for day, cid, hours in ((date(2026, 10, 18), "0xhole", (9, 10)), (date(2026, 10, 19), "0xgap", (3,))):
+            for hour in hours:
+                at = datetime.combine(day, time(hour), tzinfo=UTC).isoformat()
+                rows.append((at, cid, name, "NO_CONTEXT", None, "quote", None))
+            rows += [(datetime.combine(day, time(12), tzinfo=UTC).isoformat(), "0xok", name, "OK", None,
+                      "quote", .01)] * 40
+    return rows
+
+
+def test_the_hole_receipt_does_not_grow_with_the_strategy_count():
+    """Round 6 (1): the same holes decided by 3 or by 123 strategies give the same hole list, and the same
+    serialised size up to the strategy count itself; the shares are unchanged and still count decisions."""
+    cost = adapters.RecordingFillCost.__new__(adapters.RecordingFillCost)
+    receipts = {}
+    for n in (3, 123):
+        cost.decisions = _strategy_holes(n)
+        coverage = cli.cost_coverage(cost, None, SIGNED_RULE, refuse=False)
+        assert coverage["cost_unavailable_share"] == pytest.approx(3 / 83)
+        assert coverage["per_cluster"]["2026-10-18"]["cost_unavailable_share"] == pytest.approx(2 / 42)
+        holes = coverage["unavailable_by_day_and_band"]
+        assert [(h["day"], h["condition_id"], h["instants"], h["strategies"], h["decisions"]) for h in holes] == [
+            ("2026-10-18", "0xhole", 2, n, 2 * n), ("2026-10-19", "0xgap", 1, n, n)]
+        assert holes[0]["first"] == "2026-10-18T09:00:00+00:00" and holes[0]["last"] == "2026-10-18T10:00:00+00:00"
+        receipts[n] = json.dumps(coverage, sort_keys=True)
+    assert len(receipts[123]) - len(receipts[3]) <= 32
+
+
+def test_in_reserved_reads_the_embargo_utc_day():
+    """Round 6 (5): ``in_reserved`` uses ``embargo.utc_day``, so a naive instant refuses as the embargo does
+    and a non-UTC aware instant is judged by its UTC date."""
+    with pytest.raises(ValueError):
+        cli.in_reserved(datetime(2026, 10, 15, 5))
+    plus_ten = timezone(timedelta(hours=10))
+    assert not cli.in_reserved(datetime(2026, 9, 30, 5, tzinfo=plus_ten))
+    assert cli.in_reserved(datetime(2026, 10, 16, 5, tzinfo=plus_ten))
 
 
 def test_a_tape_miss_is_logged_with_its_instant_and_band(tmp_path):

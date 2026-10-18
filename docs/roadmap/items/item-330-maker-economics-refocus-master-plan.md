@@ -66,6 +66,13 @@ and nothing outside the frontier imports it.
   - the block bootstrap's observed-cluster and edge-weight wording;
   - §10 of the draft redone per capture day. Its estimator is a one-sided 80% lower bound on mean net per
     forward day, which must be at least 1.00, over at least 28 forward capture days.
+- **Review round 6** (Fable delta: SHIP on `b3158209c`; five non-blocking notes, done in a new commit):
+  - the cost receipt lists each hole once per (capture day, condition_id) with counts, so it no longer
+    grows with the strategy count (shares unchanged);
+  - the §10.5a block SE is pinned to the decision rule's own 2-day moving-block resamples
+    (`decision.mean_se_moving_block`);
+  - the daily SD of 2–5 pUSD in §10.5b is labelled an assumption, to be re-estimated forward;
+  - stale docstrings fixed, and `in_reserved` reads `embargo.utc_day`. The rule digest is unchanged.
 - **Review round 3** (Fable: SHIP AFTER FIXES on `3e1a689b8`). Each fix has a regression test that fails
   on `3e1a689b8`.
   - **Primary unit (decision 1).** Pooled cents per quoted minute rewarded sparse quoting. The rule now

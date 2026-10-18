@@ -252,6 +252,27 @@ def _block_resamples(rule, k):
         yield weights
 
 
+def mean_se_moving_block(values, rule: DecisionRule = PROPOSED_RULE) -> float:
+    """The moving-block bootstrap SE of the mean of ``values`` (one per observed day, in date order).
+
+    It reuses ``_block_resamples`` exactly: blocks of ``rule.sensitivity_block_length`` consecutive observed
+    days, overlapping (moving) starts drawn uniformly from 0..n-L with ``random.Random(rule.seed + 1)``,
+    concatenated and cut to n, no circular wrap (so the first and last days are under-weighted),
+    ``rule.replicates`` resamples; the SE is the sample SD (n - 1) of the resampled means. For the draft
+    promotion bar (prereg §10.5a)."""
+    values = [_float(v) for v in values]
+    n = len(values)
+    if n < 2:
+        raise DecisionRefused("block_se_needs_two_days")
+    mean, m2, count = 0.0, 0.0, 0
+    for count, weights in enumerate(_block_resamples(rule, n), start=1):
+        sample = sum(w * v for w, v in zip(weights, values)) / n
+        step = sample - mean
+        mean += step / count
+        m2 += step * (sample - mean)
+    return _sd(m2, count)
+
+
 def _inference(draws, rule, series, names, points, delta, k):
     """(se, pair t, t, Westfall-Young p, marginal p, Holm) for one resampling scheme (module doc)."""
     pairs = list(delta)

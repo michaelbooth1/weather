@@ -320,3 +320,19 @@ def test_decision_module_is_pure():
     names |= {(n.module or "").split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
     assert names <= {"__future__", "array", "dataclasses", "datetime", "decimal", "math", "random", "typing",
                      "maker_core"}
+
+
+def test_the_promotion_block_se_reuses_the_decision_moving_blocks():
+    """Round 6 (2): prereg §10.5a's block SE is the SD (n - 1) of the means of ``_block_resamples`` (moving
+    2-day blocks, seed + 1, ``replicates`` draws, no wrap), deterministic, and zero for a constant series."""
+    rule = replace(PROPOSED_RULE, replicates=499)
+    values = [((7 * i) % 11) - 3.0 for i in range(28)]
+    means = [sum(w * v for w, v in zip(weights, values)) / 28 for weights in decision._block_resamples(rule, 28)]
+    centre = sum(means) / len(means)
+    expected = (sum((m - centre) ** 2 for m in means) / (len(means) - 1)) ** .5
+    assert decision.mean_se_moving_block(values, rule) == pytest.approx(expected, rel=1e-12)
+    assert decision.mean_se_moving_block(values, rule) == decision.mean_se_moving_block(values, rule)
+    assert decision.mean_se_moving_block([2.0] * 28, rule) == pytest.approx(0, abs=1e-12)
+    assert PROPOSED_RULE.sensitivity_block_length == 2 and PROPOSED_RULE.replicates == 9999
+    with pytest.raises(DecisionRefused, match="block_se_needs_two_days"):
+        decision.mean_se_moving_block([1.0], rule)

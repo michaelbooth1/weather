@@ -169,7 +169,7 @@ CLOSED_BEFORE_DAY = "closed_before_day"
 
 def in_reserved(instant) -> bool:
     """Whether ``instant``'s UTC date is in the reserved window: such a close is never dropped, always refused."""
-    return embargo.RESERVED[0] <= instant.astimezone(timezone.utc).date() <= embargo.RESERVED[1]
+    return embargo.RESERVED[0] <= embargo.utc_day(instant) <= embargo.RESERVED[1]
 
 
 def schedule(bundle, check, *, drop_embargoed=False, drop_closed_before_day=False) -> Schedule:
@@ -287,10 +287,33 @@ def _cost(args, purpose, now, conditions=None):
     return provider, contexts, _sha256(raw)
 
 
+def _holes_by_day_and_band(decisions) -> list:
+    """Decisions without a markout, grouped by (capture day, condition_id): the instants, the strategies
+    affected and the decisions, counted; the first and last instant name the span."""
+    groups = {}
+    for at, cid, strategy, status, *_ in decisions:
+        if status not in adapters.UNAVAILABLE_STATUSES:
+            continue
+        key = (at[:10] if isinstance(at, str) else "unattributed", cid)
+        group = groups.setdefault(key, [set(), set(), 0])
+        if at is not None:
+            group[0].add(at)
+        group[1].add(strategy)
+        group[2] += 1
+    return [{"day": day, "condition_id": cid, "instants": len(at), "strategies": len(strategies),
+             "decisions": n, "first": min(at) if at else None, "last": max(at) if at else None}
+            for (day, cid), (at, strategies, n) in sorted(groups.items(), key=lambda kv: (kv[0][0], str(kv[0][1])))]
+
+
 def cost_coverage(cost, contexts, rule, *, refuse: bool) -> dict | None:
     """The fill-cost coverage of a run: decisions without a provider markout (which fall back to the 0.0043
     floor) and kept bands queried on a day with no tape row at all. With ``refuse`` (score) a band without
-    rows refuses, and so does a share above ``rule.max_cost_unavailable_share``."""
+    rows refuses, and so does a pooled share above ``rule.max_cost_unavailable_share`` or any capture day's
+    share above ``rule.max_cost_unavailable_share_per_cluster``.
+
+    Shares count every decision (one per strategy per instant), exactly as the bounds are defined. The holes
+    are listed once per (capture day, condition_id) with counts (``unavailable_by_day_and_band``), so the
+    receipt does not grow with the number of strategies."""
     if cost is None:
         return None
     missing, total = cost.unavailable()
@@ -310,8 +333,7 @@ def cost_coverage(cost, contexts, rule, *, refuse: bool) -> dict | None:
            "max_cost_unavailable_share_per_cluster": rule.max_cost_unavailable_share_per_cluster,
            "per_cluster": per_cluster,
            "bands_without_tape_rows": [{"day": d, "condition_id": c} for d, c in holes],
-           "unavailable_decisions": [{"at": d[0], "condition_id": d[1]} for d in cost.decisions
-                                     if d[3] in adapters.UNAVAILABLE_STATUSES]}
+           "unavailable_by_day_and_band": _holes_by_day_and_band(cost.decisions)}
     if refuse and holes:
         raise CliRefused("cf_tape_band_without_rows: %s %s" % holes[0])
     if refuse and share > rule.max_cost_unavailable_share:

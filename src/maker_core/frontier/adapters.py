@@ -23,8 +23,11 @@ cannot be scored silently under an older binding.
     embargo on the day **before** opening anything, then the day receipt (name, revisions, basis, fill rule,
     ``match``), the Parquet file's size and SHA-256 against the receipt, and the schema and metadata against
     ``CF_MINUTES_SCHEMA``. For a decision at ``at`` it uses, per leg side, the latest tape context at or before
-    ``at`` and no older than ``BOOK_MAX_AGE_S``; with neither leg found it returns None (the runner counts that
-    decision in ``cost_unavailable`` and the 0.0043 floor applies).
+    ``at`` and no older than ``BOOK_MAX_AGE_S``. With neither leg found it returns a ``CostQuery`` with no
+    contexts: ``RecordingFillCost`` logs it as ``NO_CONTEXT`` with its instant and band and returns None, the
+    runner counts the decision in ``cost_unavailable`` and the 0.0043 floor applies. With ``conditions`` the
+    Parquet read is filtered to the kept bands; ``bands_without_rows`` lists kept bands queried on a day whose
+    tape holds no row for them.
 """
 from __future__ import annotations
 

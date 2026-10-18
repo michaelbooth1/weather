@@ -191,8 +191,10 @@ above, and `score` refuses while the margin is unset.
   `max_cost_unavailable_share_per_cluster` = 0.10).
   - The per-day bound exists because a pooled bound alone lets one day at 50% holes pass at about 1.8%
     overall.
-  - Every decision without a markout names its instant and band in the receipt (`unavailable_decisions`),
-    so each hole can be traced.
+  - The receipt lists each hole once per (capture day, condition_id) in `unavailable_by_day_and_band`,
+    with its instants, the strategies affected, the decisions counted and the first and last instant, so
+    each hole can be traced and the receipt does not grow with the strategy count. The shares and bounds
+    still count every decision.
   - A kept band queried on a day whose tape has **no row at all** for it is not counted in the share. It
     is a coverage hole, and `score` refuses on it outright (an ID-case mismatch also shows up this way).
   - What the 2% tolerates is the residue: isolated missed capture minutes that leave the latest row more
@@ -368,15 +370,25 @@ Derivation, from repository facts:
      reward, decides the sign: at 1.44 per fill-pair, each extra fill-pair a day needs 1.44 more reward.
    - So the bar is demanding but reachable, and it is reachable only with a low fill rate per band-day.
 5a. **Estimator: a one-sided 80% lower bound on mean net per forward day must be at least 1.00 pUSD.**
-   The bound is LB = mean − 0.84 × SE, where SE is the day-level SD / √n. If the 2-day block estimate of
-   the SE is larger, it is used instead.
+   The bound is LB = mean − 0.84 × SE, where SE is the larger of two estimates:
+   - **Analytic:** the day-level sample SD (n − 1) / √n.
+   - **2-day moving-block bootstrap:** `decision.mean_se_moving_block`, which reuses the decision rule's
+     own `_block_resamples` unchanged.
+     - Blocks are 2 consecutive observed forward days in date order (`sensitivity_block_length`), and they
+       overlap: a start may be any day 0..n−2, drawn uniformly.
+     - Blocks are concatenated and the last is cut so each resample has exactly n days. There is no
+       circular wrap, so the first and last days sit in only one block start and are under-weighted.
+     - 9,999 resamples (`replicates`), seeded `random.Random(20261114 + 1)` (`seed + 1`).
+     - The SE is the sample SD (n − 1) of the 9,999 resampled means of daily net.
    - **Why a lower bound, not the point estimate.** At the point estimate, a profile whose true net is
      exactly 1.00 is promoted half the time, and promotion puts real capital at risk.
    - **Why 80%, not 95%.** The live wallet is capped at 100 pUSD, and kill rule K3 pauses quoting on excess
      fill losses. At 95% (1.645 × SE) the bar would demand 1.62–2.55 pUSD a day over 28 days, likely out of
      reach for any profile.
-5b. **Minimum forward days: 28 capture days** (the scored panel's length), from the review's daily SD of
-   2–5 pUSD (Fable, round 5):
+5b. **Minimum forward days: 28 capture days** (the scored panel's length), from a daily SD of 2–5 pUSD.
+   That SD is an **ASSUMPTION** from review (Fable, round 5), not a measurement. It will be re-estimated
+   from the shadow profile's own forward days, and the bound always uses that measured SE (5a), never this
+   table.
 
    | Forward days n | √n | SE at SD 2 | SE at SD 5 | Mean needed at SD 2 | Mean needed at SD 5 |
    | --- | --- | --- | --- | --- | --- |
@@ -385,7 +397,7 @@ Derivation, from repository facts:
    | 42 | 6.48 | 0.31 | 0.77 | 1.26 | 1.65 |
 
    The mean needed is 1.00 + 0.84 × SE. At 14 days the SE at SD 5 (1.34) exceeds the bar itself, so the
-   bound says little; 28 days is the first row where the SE is at most 1.0 across the review's range.
+   bound says little; 28 days is the first row where the SE is at most 1.0 across the assumed range.
    Fewer than 28 forward days is **inconclusive**, never a pass.
 6. **What it is not.** It is a bar on the modelled net of a forward shadow, not a realised P&L claim.
    - Live use still needs the pilot's own gates.
