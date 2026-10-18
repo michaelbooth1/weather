@@ -426,6 +426,10 @@ Stage-A, workstation or live authority is added.
    Only the settlement Stage-A wrapper can request the explicit
    09:30–11:55 exception. Bounded test suites additionally kill their complete
    Job-owned child tree at 09:00 rather than merely checking the start time.
+   Their capture-worker admission refuses at once on a dead worker pid; any
+   other unhealthy worker (unreadable status, pid mismatch, stale heartbeat)
+   is re-read after 8 s and refuses only when the same worker fails two
+   consecutive polls. Each unhealthy worker's reason is written to the suite log.
    **Disk thresholds are binary units (GiB), whatever a log line prints.** The
    bounded suite requires 53,687,091,200 bytes = 50 GiB
    (`scripts/ops/bounded_worktree_test_suite.ps1`, `Assert-SuiteDiskHeadroom`);
