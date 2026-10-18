@@ -36,7 +36,7 @@ Findings so far (workstation code trace at 91bf07863; host read of the three row
   with-midnight band (2026-06-14: 24 with midnight, 23 without, resolved 24; 2026-08-02: 24 with, 22 without, resolved
   24). Our `settlement_high` is read from `daily_summary`, so it is circular; the independent check is the Polymarket
   closed-market winner: with-midnight 2, without 0. **n = 2, no counterexample.** So a floor at an observed hour-0 high
-  is consistent with venue settlement on the evidence so far; it is not proof. EF §10r.
+  is consistent with venue settlement on the evidence so far; it is not proof. EF §10qq.
 
 Acceptance:
 
