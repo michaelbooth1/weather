@@ -471,10 +471,14 @@ function Get-HealthyCaptureWorkerCount {
     # mid-write and fail to parse. Such a read is retried (up to $ReadAttempts
     # reads, $RetryDelaySeconds apart) before the worker counts as unhealthy;
     # a missing file or a parsed-but-failing status is judged at once.
+    # -Detail returns one row per worker (Name, Healthy, Dead, Reason) instead of
+    # the count, so admission can log why a worker failed and tell a dead pid
+    # (refused at once) from a transient read or age miss (confirmed first).
     param(
         [datetimeoffset]$Now = [datetimeoffset]::UtcNow,
         [ValidateRange(1, 10)][int]$ReadAttempts = 3,
-        [ValidateRange(0, 10)][int]$RetryDelaySeconds = 1
+        [ValidateRange(0, 10)][int]$RetryDelaySeconds = 1,
+        [switch]$Detail
     )
     $snapshotRoot = Join-Path $RepoRoot "data\snapshots"
     $specs = @(
@@ -485,7 +489,10 @@ function Get-HealthyCaptureWorkerCount {
         @{ Status = "observation_trigger_status.json"; Lock = ".observation_trigger_status.json.writer.lock"; MaxAge = 180 }
     )
     $healthy = 0
+    $rows = New-Object System.Collections.Generic.List[object]
     foreach ($spec in $specs) {
+        $row = [pscustomobject]@{ Name = [string]$spec.Status; Healthy = $false; Dead = $false; Reason = "" }
+        $rows.Add($row)
         try {
             $statusPath = Join-Path $snapshotRoot $spec.Status
             $lockPath = Join-Path $snapshotRoot $spec.Lock
@@ -498,13 +505,14 @@ function Get-HealthyCaptureWorkerCount {
                 }
                 catch {
                     $present = (Test-Path -LiteralPath $statusPath) -and (Test-Path -LiteralPath $lockPath)
+                    if (-not $present) { $row.Reason = "missing status or lock file" }
                     if (-not $present -or $attempt -ge $ReadAttempts) { throw }
                     Start-Sleep -Seconds $RetryDelaySeconds
                 }
             }
             $pidValue = [int]$status.pid
             $heartbeat = ConvertTo-StatusUtcInstant $status.last_heartbeat
-            if ($null -eq $heartbeat) { continue }
+            if ($null -eq $heartbeat) { $row.Reason = "no parseable last_heartbeat"; continue }
             $ageSeconds = ($Now - $heartbeat).TotalSeconds
             $alive = $null -ne (Get-Process -Id $pidValue -ErrorAction SilentlyContinue)
             if (
@@ -515,11 +523,55 @@ function Get-HealthyCaptureWorkerCount {
                 $ageSeconds -le [double]$spec.MaxAge
             ) {
                 $healthy++
+                $row.Healthy = $true
+            }
+            elseif ($pidValue -le 0) { $row.Reason = "status pid $pidValue is not positive" }
+            elseif ([int]$lock.pid -ne $pidValue) { $row.Reason = "pid mismatch: status $pidValue, lock $([int]$lock.pid)" }
+            elseif (-not $alive) { $row.Dead = $true; $row.Reason = "pid $pidValue is not running" }
+            else {
+                $row.Reason = "heartbeat age $([math]::Round($ageSeconds, 1)) s outside 0..$($spec.MaxAge) s"
             }
         }
-        catch { }
+        catch {
+            if (-not $row.Reason) { $row.Reason = "read failed: $($_.Exception.Message)" }
+        }
     }
+    if ($Detail) { return $rows.ToArray() }
     return $healthy
+}
+
+function Get-ConfirmedHealthyCaptureWorkerCount {
+    # One admission poll can land on a worker mid-write under pytest load (host
+    # 2026-10-18 01:20-01:49: three refusals, no worker restarted, every status
+    # healthy right after). A worker that is unhealthy on one poll is re-read
+    # after $ConfirmDelaySeconds; only a worker unhealthy on two consecutive
+    # polls is counted unhealthy. A dead pid is never retried. Every unhealthy
+    # row is logged with its reason. MaxAge thresholds are unchanged.
+    param(
+        [Parameter(Mandatory = $true)][string]$Phase,
+        [ValidateRange(0, 60)][int]$ConfirmDelaySeconds = 8,
+        [ValidateRange(2, 5)][int]$MaxPolls = 3
+    )
+    $previous = @{}
+    for ($poll = 1; $poll -le $MaxPolls; $poll++) {
+        $rows = @(Get-HealthyCaptureWorkerCount -Detail -ReadAttempts 5 -RetryDelaySeconds 2)
+        $bad = @($rows | Where-Object { -not $_.Healthy })
+        foreach ($row in $bad) {
+            # Write-SuiteLog also emits its line to the pipeline; discard it so
+            # this function returns only the count.
+            $null = Write-SuiteLog "$Phase capture worker unhealthy (poll $poll): $($row.Name): $($row.Reason)"
+        }
+        $healthy = @($rows | Where-Object { $_.Healthy }).Count
+        if ($bad.Count -eq 0) { return $healthy }
+        if (@($bad | Where-Object { $_.Dead }).Count -gt 0) { return $healthy }
+        if (@($bad | Where-Object { $previous.ContainsKey($_.Name) }).Count -gt 0) {
+            return $healthy
+        }
+        if ($poll -eq $MaxPolls) { return $healthy }
+        $previous = @{}
+        foreach ($row in $bad) { $previous[$row.Name] = $true }
+        Start-Sleep -Seconds $ConfirmDelaySeconds
+    }
 }
 
 function Assert-HostAdmission {
@@ -528,7 +580,7 @@ function Assert-HostAdmission {
         [Parameter(Mandatory = $true)][string]$Phase
     )
 
-    $workers = Get-HealthyCaptureWorkerCount
+    $workers = Get-ConfirmedHealthyCaptureWorkerCount -Phase $Phase
     $commit = Get-CommitPercent
     Write-SuiteLog "$Phase admission: capture_workers=$workers commit=$commit% ceiling=$CommitCeiling%"
     if ($workers -ne 3) {
