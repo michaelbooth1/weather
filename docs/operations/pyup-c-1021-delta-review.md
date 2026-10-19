@@ -86,6 +86,24 @@ re-merged on post-N12 master, #190 should therefore be **tests-only and roll-fre
 #190 is met by N12. Verify this on the Tuesday tip:
 `git diff --stat <post-N12 master> <#190 tip> -- . ':!tests'` should print nothing, and `roll_verdict.ps1` should exit 0.
 
+## 4a. Master-agent decisions of 2026-10-19 (after this review's first draft)
+
+- **Option A chosen.** The calendar is: Tue 10-20 04:30-08:30 the lever-5 Toronto run; **night 10-20/21 (Wed 00:30-09:00) =
+  B-R only**; **night 10-21/22 = C only**.
+- **Q12b is not needed this time.** Master checked the host: `WeatherMakerEvidenceLowestTemperature`, `WeatherEvidenceHost`
+  and the U6 export are not registered. N12 registers none of them, and they stay unregistered until after a C PASS.
+  The runbook's capture-family steps stay in place but act only when such a task is registered: C0 discovers registered
+  `WeatherMakerEvidence<Family>` tasks, and with none, C0, C2 and C9c skip the family steps and `q12b.txt` is not read.
+- **Exclusive nights.** Neither 10-20/21 nor 10-21/22 carries any of these:
+  - data layer v2 S2+S9+P1;
+  - the S4 evidence host;
+  - the maker replay v2 transfer;
+  - the item 337 replay;
+  - U6;
+  - the training window.
+
+  The 88a restart that S2+S9 needs waits until after a C PASS.
+
 ## 5. Re-takes and their order
 
 1. **Night 10-19/20:** N12 lands (quiet-window merge).
@@ -118,15 +136,10 @@ G5 requires that no other lease user and no task change touches that night. Chec
 
 ## 7. Open questions
 
-1. Option A or B in section 5, and where #190's remainder lands (master, owner).
-2. Will `WeatherMakerEvidenceLowestTemperature` (and S4's `WeatherEvidenceHost`) be registered before C? If so,
-   the owner records Q12b. Registering them after a C PASS is simpler.
-3. Which calendar nights do "10-21 night" (S2+S9+P1, A9 transfer) and "10-22 night" (S4) mean? Neither may be the
-   C night or a B-R night.
-4. The U6 first night (row 4).
-5. MG-1 window (D0 10-15, bound 10-16): does a 20-47 minute capture gap at about 01:15-02:00 local on 10-22 make
-   10-22 non-countable? The owner accepted the gap inside 10-15..10-30 on 10-12, before the bound. This review read
-   no evidence.
-6. G4 and escalation: DL 10-13 says "advance GO + sleep, auto rollback"; DL 10-17 requires the owner's own GO in chat
-   that night. Confirm who is reachable if §R escalates before 09:00.
+1. **Answered (section 4a).** Option A: B-R on 10-20/21, C on 10-21/22. #190's tests-only remainder lands after C.
+2. **Answered (section 4a).** The family task, `WeatherEvidenceHost` and U6 are not registered, and they stay unregistered until after a C PASS. Q12b is not needed.
+3. **Answered (section 4a).** S2+S9+P1, S4 and the maker replay v2 transfer are on neither 10-20/21 nor 10-21/22.
+4. **Answered (section 4a).** U6 stays unregistered until after a C PASS, so its first night follows the C PASS.
+5. **Answered.** MG-1 and the 10-22 gap: "Test's own rule decides" (owner 2026-10-19 ~13:1x EDT, selected options relayed by master-agent). MG-1's signed promotion-countable rule (prereg §3 (e), §4 population, §6 void conditions; `docs/research/morning-guidance-read-mg1-preregistration-2026-10-04.md`, bound by sha in [the reserved confirmation window](reserved-confirmation-window.md)) alone decides whether 2026-10-22 counts. There is no special exception either way. No 10-16+ evidence was read. The runbook's §11 records it.
+6. **Answered.** §R escalation: "Auto net, you in the morning" (owner 2026-10-19 ~13:1x EDT, selected options relayed by master-agent). If capture is not 3/3 by 03:45, the 04:15 `WeatherTrainingWindowRestore` task stays the automatic net. Master-agent records everything and messages the owner, who acts when up. For C on 10-21/22 this supersedes DL 10-13 and DL 10-17 on who answers. It is in the runbook's G4, Phase C table and §R "Escalation". The DL row is master's (Tue).
 7. G7: the LFC campaign was backlogged on 10-19 (relayed, no DL row yet). Confirm that no session is set for 10-22.
