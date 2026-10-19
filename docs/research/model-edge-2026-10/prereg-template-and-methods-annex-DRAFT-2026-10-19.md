@@ -166,7 +166,9 @@ For the EDGE-1 schedule t = 20/45 = 0.4444, β(t) = 0.05456:
   non-binding rule whose purpose is to stop work early only when an arm is clearly not heading to the final pass.
 - Recomputing with β = 0.10 gives c = −0.0472 at α_d = 0.025 (owner option; fewer stops, slightly more power kept).
 - The design alternative is the effect at which the 45-date fixed design has 80% power (its MDE80); the power cost of
-  the interim, if the boundary were treated as binding, is **`<SLOT: computed by H3/H7 — not stated before then>`**.
+  the interim, if the boundary were treated as binding, is **computed: <= 0.0013 power (parametric)** (H7, harness v3
+  addendum 2026-10-20; c reproduced in closed form as 0.26560). On an R-vs-market statistic an arm that trails the
+  market crosses this boundary almost surely (P(stop) 1.000 at the dev-observed and half effects; 0.617 under R = 1).
 - If the interim falls at a different countable-date count than declared (a missed date, an operational postponement),
   the boundary is recomputed **with the formula above at the actual t**, before the join, and the recomputation is
   recorded in the look receipt (M5.4).
@@ -189,10 +191,16 @@ For the EDGE-1 schedule t = 20/45 = 0.4444, β(t) = 0.05456:
   measured null. Bars: E1 — MDE80 on R greater than 0.05 (a 5% Brier gain over market; the same 5% scale as the EF §1d bar and the harness
   `LEAD_GAP_SHARE`) [PROPOSED; owner may set another]; E2 — MDE80 on D greater than 5% of market Brier (the
   GO (b) materiality line).
-- First H3 numbers (H3 = harness v3, `claude/harness-v3-20261019` @ `74a85c7f6e48c929f1a16a9fdb97e8800c998fde`, `docs/research/harness-v3-2026-10-19.md` ("H3 on MG-1's own development variance components")): power 0.32 / 0.40 / 0.43 at 20 / 45 / 90 forward dates, MDE80 0.0097 / 0.0085 /
-  0.0079, TESTABLE against a 0.0133 bar. MG-1 development variance (dates <= 2026-09-29), half effect −0.0050 Brier at 00-16, bar 0.0133; the market component holds power near 40% at any season length (EF §10j). **Calibration caveat:** H3 over-predicted power by 2-5 points in the high-power regime (its injected-skill control); a mid-power calibration control is being added by Wed 10-21. These are MG-1-variance proxies; per-arm H3 runs on the frozen A0/A1/A2 hashes are still required before D0 (M4.4).
-- Any statement such as "NO-GO is likely within ~20 dates" is **INFERENCE** until H3 shows it:
-  **`<SLOT: H3 projected probability of futility at n = 20, per hypothesis>`**.
+- **Power estimator for pre-registration statements:** `v3_power.resampled_power` (crossed resampling of the
+  development cells, re-centred and shifted). The parametric H3 power is biased **high by 0.07-0.11 absolute** on real
+  noise (harness v3 (H3/H7), `claude/harness-v3-20261019` @ `2f3f3e8e6b542a419204afe802dae4545abc10d7`, `docs/research/harness-v3-2026-10-19.md` and its "Addendum 2026-10-20: master-agent rulings"; `HARNESS_V3_SHA256` at that tip `987e171775c596f6e50ac72b9bd54880399e4fafcc11865cdec0a2375970b4cf` (recomputed on the workstation with `v3_score.harness_v3_sha256()`; the addendum's runs used `35024814…`). Development reads only (dev dates 08-01..09-29)); if a parametric figure is quoted, subtract ~0.10 at 20 dates and ~0.07-0.09 at 45, and label it
+  parametric. Example: MG-1's half-effect parametric 0.32 / 0.40 / 0.43 at 20 / 45 / 90 dates is roughly
+  **0.22-0.35** corrected; the parametric MDE80 (0.0097 / 0.0085 / 0.0079, TESTABLE against 0.0133) is optimistic in
+  the same direction and is re-confirmed with `resampled_power` before D0.
+- **NO-GO reachability** must be simulated with the NO-GO rule applied verbatim (harness `simulate_nogo`); a frozen
+  non-zero E2 blend weight requires a re-run (the development fit is 0.00 at 00-16).
+- Any statement such as "NO-GO is likely within ~20 dates" stays **INFERENCE**; cite the supporting computation
+  (for EDGE-1: P(NO-GO at 20) = 0.821 under the dev-observed R, MG-1-like variance).
 
 ## M5. Single-shot scoring with pre-registration SHA and arm-hash verification
 

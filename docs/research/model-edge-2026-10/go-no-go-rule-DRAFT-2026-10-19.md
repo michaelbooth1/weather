@@ -89,25 +89,57 @@ then INCONCLUSIVE unless another clause decides it.
 
 §1 requires both branches shown reachable before signing. Status:
 
-- **H3 power (filled 2026-10-19 from H3 = harness v3, `claude/harness-v3-20261019` @ `74a85c7f6e48c929f1a16a9fdb97e8800c998fde`, `docs/research/harness-v3-2026-10-19.md` ("H3 on MG-1's own development variance components")):**
+- **Source (updated 2026-10-20):** harness v3 (H3/H7), `claude/harness-v3-20261019` @ `2f3f3e8e6b542a419204afe802dae4545abc10d7`, `docs/research/harness-v3-2026-10-19.md` and its "Addendum 2026-10-20: master-agent rulings"; `HARNESS_V3_SHA256` at that tip `987e171775c596f6e50ac72b9bd54880399e4fafcc11865cdec0a2375970b4cf` (recomputed on the workstation with `v3_score.harness_v3_sha256()`; the addendum's runs used `35024814…`). Development reads only (dev dates 08-01..09-29).
+- **GO power:**
 
-  | Forward dates x 11 markets | MDE80 | Simulated P(GO given effect) | P(GO given null) | Verdict vs bar 0.0133 |
-  | --- | --- | --- | --- | --- |
-  | 20 | 0.0097 | 0.32 | 0.026 | TESTABLE (both branches reachable) |
-  | 45 | 0.0085 | 0.40 | 0.027 | TESTABLE |
-  | 90 | 0.0079 | 0.43 | 0.040 | TESTABLE |
+  | Forward dates x 11 markets | Parametric MDE80 | Parametric P(GO given effect) | Corrected (real-noise calibration) | P(GO given null) | Verdict vs bar 0.0133 |
+  | --- | --- | --- | --- | --- | --- |
+  | 20 | 0.0097 | 0.32 | ~0.22 | 0.026 | TESTABLE on the parametric MDE80 (re-confirm with `resampled_power`) |
+  | 45 | 0.0085 | 0.40 | ~0.31-0.33 | 0.027 | TESTABLE on the parametric MDE80 (re-confirm) |
+  | 90 | 0.0079 | 0.43 | ~0.35 | 0.040 | TESTABLE on the parametric MDE80 (re-confirm) |
 
-  MG-1 development variance (dates <= 2026-09-29), half effect −0.0050 Brier at 00-16, bar 0.0133; the market component holds power near 40% at any season length (EF §10j). **Calibration caveat:** H3 over-predicted power by 2-5 points in the high-power regime (its injected-skill control); a mid-power calibration control is being added by Wed 10-21. These are MG-1-variance proxies; per-arm H3 runs on the frozen A0/A1/A2 hashes are still required before D0 (M4.4).
-- **GO reachable:** H3 marks the design TESTABLE with both branches reachable at 20 dates (P(GO given effect) 0.32,
-  P(GO given null) 0.026). At the half effect it is underpowered (0.40 at 45 dates).
-- **NO-GO reachable:** H3's TESTABLE verdict covers the GO/no-GO branches of the primary test; the §1 NO-GO clause's
-  sub-block lower-bound test (every 00-16 sub-block above 1.05) was not simulated. Workstation note, not a measurement: with 11 market
-  clusters and four sub-blocks per arm, a lower bound above 1.05 in **every** sub-block needs a true ratio well above
-  1.05 everywhere; the development served-to-market ratios of 1.43-1.84 per 00-16 sub-block (EF §10q, from stratum, before the repairs) suggest it can be
-  reachable for A0, but that is INFERENCE until H3 shows it.
-- **"NO-GO likely within ~20 dates" remains INFERENCE.** H3 (above) gives power, not the futility-crossing probability
-  at n = 20; that number is still `<SLOT: H3 futility probability at n = 20>`.
-- **Interim cost:** `<SLOT: computed by H3/H7>`. No figure is stated before then.
+  MG-1 development variance, half effect −0.0050 Brier at 00-16. **The parametric figures 0.32/0.40/0.43 are
+  over-optimistic:** on real MG-1-like noise H3's parametric power is biased **high by 0.07-0.11 absolute**
+  (predicted 0.581/0.410 at 20 dates vs empirical 0.473/0.309; at 45 dates 0.584/0.411 vs 0.516/0.323), so the
+  half-effect power is **roughly 0.22-0.35** across 20-90 dates. Pre-registration power statements use the resampling
+  estimator `v3_power.resampled_power`; a quoted parametric figure is reduced by ~0.10 at 20 dates and ~0.07-0.09 at
+  45. The parametric MDE80 is optimistic in the same direction, so the TESTABLE verdict (0.0097 / 0.0085 / 0.0079
+  against 0.0133) must be re-confirmed with `resampled_power` on the frozen arms before D0 (M4.4). The market
+  component holds power near 40% or below at any season length (EF §10j).
+
+- **Both branches reachable (filled from the 2026-10-20 addendum).** GO: P(GO given null) 0.026-0.040 and, on
+  arm − served, 0.47-0.95 parametric under half-to-full effect (less ~0.07-0.10 after calibration). NO-GO:
+
+  **NO-GO reachability** (the §1 NO-GO rule applied verbatim per arm: lower bound of R above 1.05 in every 00-16
+  block and E2 upper bound above −0.5% of market Brier; MG-1-like arm variance; 20,000 simulations per cell):
+
+  | Scenario | P(NO-GO) at 20 dates | 45 dates | 90 dates |
+  | --- | --- | --- | --- |
+  | dev-observed R (1.171 / 1.205 / 1.250 / 1.945 by block) | 0.821 | 0.988 | 1.000 |
+  | half effect, R = 1 + (R_dev − 1)/2 | 0.087 | 0.207 | 0.358 |
+  | null, R = 1 | 0 | 0 | 0 |
+
+  Sensitivity with served-vs-market variance components: 0.28-0.43 at the dev-observed R (20-90 dates). The
+  development-fit 00-16 blend weight is **0.00**, so E2 equals the market and the E2 clause always holds: NO-GO rests on
+  the R clause alone. **If a draft freezes a non-zero blend weight, this simulation must be re-run.**
+
+- **"NO-GO likely within ~20 dates" remains INFERENCE.** The supporting computation is P(NO-GO at 20 dates) = 0.821
+  under the dev-observed R (MG-1-like variance); it falls to 0.087 at the half effect and 0.28 with served-vs-market
+  variance, and forward dates are out of season, so it is not a forecast of the outcome.
+- **Interim:**
+
+  **Interim futility** (c = 0.2656, computed in closed form as 0.26560 at t = 20/45):
+
+  | Statistic | Scenario | P(stop at 20) | Power cost of obeying the non-binding stop |
+  | --- | --- | --- | --- |
+  | arm − served, 00-16 | dev-observed (−0.0100) | 0.002 | 0.0002 |
+  | arm − served, 00-16 | half effect (−0.0050) | 0.100 | 0.0013 |
+  | arm − served, 00-16 | null | 0.603 | 0.0003 |
+  | R vs market, 00-16 | dev-observed or half effect (arm worse than the market) | 1.000 | 0 |
+  | R vs market, 00-16 | null, R = 1 | 0.617 | 0.0006 |
+
+  Power cost: **computed, <= 0.0013 power (parametric)**. On the R-vs-market statistic any arm that trails the market
+  crosses futility almost surely.
 
 ## 5. Owner questions for Fri 10-23 (one line each; master-agent lifts these verbatim)
 

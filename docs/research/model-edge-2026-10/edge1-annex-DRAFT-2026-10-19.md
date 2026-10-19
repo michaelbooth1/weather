@@ -178,20 +178,54 @@ spends no CAMPAIGN_LEDGER decision. Rows: [alpha ledger](alpha-ledger-DRAFT-2026
 
 ## 8. Power
 
-- **Power simulator:** H3 = harness v3, `claude/harness-v3-20261019` @ `74a85c7f6e48c929f1a16a9fdb97e8800c998fde`, `docs/research/harness-v3-2026-10-19.md` ("H3 on MG-1's own development variance components").
+- **Power simulator (updated 2026-10-20):** harness v3 (H3/H7), `claude/harness-v3-20261019` @ `2f3f3e8e6b542a419204afe802dae4545abc10d7`, `docs/research/harness-v3-2026-10-19.md` and its "Addendum 2026-10-20: master-agent rulings"; `HARNESS_V3_SHA256` at that tip `987e171775c596f6e50ac72b9bd54880399e4fafcc11865cdec0a2375970b4cf` (recomputed on the workstation with `v3_score.harness_v3_sha256()`; the addendum's runs used `35024814…`). Development reads only (dev dates 08-01..09-29).
 
-  | Forward dates x 11 markets | MDE80 | Simulated P(GO given effect) | P(GO given null) | Verdict vs bar 0.0133 |
-  | --- | --- | --- | --- | --- |
-  | 20 | 0.0097 | 0.32 | 0.026 | TESTABLE (both branches reachable) |
-  | 45 | 0.0085 | 0.40 | 0.027 | TESTABLE |
-  | 90 | 0.0079 | 0.43 | 0.040 | TESTABLE |
+  | Forward dates x 11 markets | Parametric MDE80 | Parametric P(GO given effect) | Corrected (real-noise calibration) | P(GO given null) | Verdict vs bar 0.0133 |
+  | --- | --- | --- | --- | --- | --- |
+  | 20 | 0.0097 | 0.32 | ~0.22 | 0.026 | TESTABLE on the parametric MDE80 (re-confirm with `resampled_power`) |
+  | 45 | 0.0085 | 0.40 | ~0.31-0.33 | 0.027 | TESTABLE on the parametric MDE80 (re-confirm) |
+  | 90 | 0.0079 | 0.43 | ~0.35 | 0.040 | TESTABLE on the parametric MDE80 (re-confirm) |
 
-  MG-1 development variance (dates <= 2026-09-29), half effect −0.0050 Brier at 00-16, bar 0.0133; the market component holds power near 40% at any season length (EF §10j). **Calibration caveat:** H3 over-predicted power by 2-5 points in the high-power regime (its injected-skill control); a mid-power calibration control is being added by Wed 10-21. These are MG-1-variance proxies; per-arm H3 runs on the frozen A0/A1/A2 hashes are still required before D0 (M4.4).
-- **MDE80 at 45 dates:** 0.0085 on the MG-1 proxy (TESTABLE vs 0.0133); per-hypothesis MDE80 for H-A0/H-A1/H-A2
-  `<SLOT: H3 per-arm run before D0>`; UNTESTABLE test per M4.4 applied before D0.
-- **Projected futility probability at 20 dates: `<SLOT: H3>`.** Until it exists, "NO-GO is likely within ~20 dates"
-  is INFERENCE.
-- **Power cost of the interim: `<SLOT: computed by H3/H7>`.**
+  MG-1 development variance, half effect −0.0050 Brier at 00-16. **The parametric figures 0.32/0.40/0.43 are
+  over-optimistic:** on real MG-1-like noise H3's parametric power is biased **high by 0.07-0.11 absolute**
+  (predicted 0.581/0.410 at 20 dates vs empirical 0.473/0.309; at 45 dates 0.584/0.411 vs 0.516/0.323), so the
+  half-effect power is **roughly 0.22-0.35** across 20-90 dates. Pre-registration power statements use the resampling
+  estimator `v3_power.resampled_power`; a quoted parametric figure is reduced by ~0.10 at 20 dates and ~0.07-0.09 at
+  45. The parametric MDE80 is optimistic in the same direction, so the TESTABLE verdict (0.0097 / 0.0085 / 0.0079
+  against 0.0133) must be re-confirmed with `resampled_power` on the frozen arms before D0 (M4.4). The market
+  component holds power near 40% or below at any season length (EF §10j).
+- **MDE80 per hypothesis H-A0/H-A1/H-A2:** `<SLOT: per-arm resampled_power run on the frozen hashes before D0>`;
+  UNTESTABLE test per M4.4 applied before D0.
+- **NO-GO reachability:**
+
+  **NO-GO reachability** (the §1 NO-GO rule applied verbatim per arm: lower bound of R above 1.05 in every 00-16
+  block and E2 upper bound above −0.5% of market Brier; MG-1-like arm variance; 20,000 simulations per cell):
+
+  | Scenario | P(NO-GO) at 20 dates | 45 dates | 90 dates |
+  | --- | --- | --- | --- |
+  | dev-observed R (1.171 / 1.205 / 1.250 / 1.945 by block) | 0.821 | 0.988 | 1.000 |
+  | half effect, R = 1 + (R_dev − 1)/2 | 0.087 | 0.207 | 0.358 |
+  | null, R = 1 | 0 | 0 | 0 |
+
+  Sensitivity with served-vs-market variance components: 0.28-0.43 at the dev-observed R (20-90 dates). The
+  development-fit 00-16 blend weight is **0.00**, so E2 equals the market and the E2 clause always holds: NO-GO rests on
+  the R clause alone. **If a draft freezes a non-zero blend weight, this simulation must be re-run.**
+- **"NO-GO likely within ~20 dates" is INFERENCE;** supporting computation P(NO-GO at 20) = 0.821 under the
+  dev-observed R.
+- **Interim:**
+
+  **Interim futility** (c = 0.2656, computed in closed form as 0.26560 at t = 20/45):
+
+  | Statistic | Scenario | P(stop at 20) | Power cost of obeying the non-binding stop |
+  | --- | --- | --- | --- |
+  | arm − served, 00-16 | dev-observed (−0.0100) | 0.002 | 0.0002 |
+  | arm − served, 00-16 | half effect (−0.0050) | 0.100 | 0.0013 |
+  | arm − served, 00-16 | null | 0.603 | 0.0003 |
+  | R vs market, 00-16 | dev-observed or half effect (arm worse than the market) | 1.000 | 0 |
+  | R vs market, 00-16 | null, R = 1 | 0.617 | 0.0006 |
+
+  Power cost: **computed, <= 0.0013 power (parametric)**. On the R-vs-market statistic any arm that trails the market
+  crosses futility almost surely.
 - Development sizing context only (dates <= 2026-09-29, EF §10q): A0-like served/market 00-16 ratio 1.49 (1.29 after
   both repairs, which includes MG-1, not an EDGE-1 arm). An E1 pass for A0 would need the post-fix out-of-season
   ratio to fall below 1 from that region; this draft predicts nothing.
