@@ -403,3 +403,11 @@ def test_mom_cov_recovers_components_and_nogo_interim_branches():
     assert good["p_futility_at_interim"] < zero["p_futility_at_interim"]
     assert 0 <= good["power_cost"] <= good["p_go_final_ignoring_interim"]
     assert v3_sequential.boundaries([20 / 45, 1.0])["looks"][0]["futility_z"] == pytest.approx(0.2656, abs=5e-4)
+
+
+def test_resampled_power_moves_with_effect_and_holds_size():
+    rng = np.random.default_rng(5)
+    table = rng.normal(0, 0.01, (40, 1)) + rng.normal(0, 0.005, (1, 11)) + rng.normal(0, 0.02, (40, 11))
+    null = v3_power.resampled_power(table, 0.0, 30, experiments=600)
+    strong = v3_power.resampled_power(table, -0.01, 30, experiments=600)
+    assert null < 0.15 and strong > 0.8

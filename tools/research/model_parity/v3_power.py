@@ -221,6 +221,20 @@ def simulate_interim(effect, comps, interim_dates, final_dates, markets, futilit
             "futility_z": futility_z}
 
 
+def resampled_power(centred_table, effect, dates, experiments=8000, seed=20261021):
+    """Nonparametric power (2026-10-20): GO rate over crossed resamples (dates and markets with
+    replacement) of a development (D, M) table of cell deltas re-centred to 0 and shifted by
+    ``effect``. Recommended over ``simulate`` near 30-60% power: on real MG-1-like noise the
+    parametric simulator over-predicted by 0.07-0.11 (docs/research/harness-v3-2026-10-19.md)."""
+    x = np.asarray(centred_table, float) - np.asarray(centred_table, float).mean() + effect
+    rng = np.random.default_rng(seed)
+    go = 0
+    for _ in range(experiments):
+        sub = x[rng.integers(0, x.shape[0], dates)][:, rng.integers(0, x.shape[1], x.shape[1])]
+        go += int(sub.mean() + Z95 * crossed_se(sub) < 0)
+    return go / experiments
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--stats", help="development stats JSON holding the variance-component entry")
