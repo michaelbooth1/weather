@@ -616,6 +616,7 @@ function Get-WeatherWorkstationOfflineModule {
         "maker_core.replay.toxicity",
         "tools.research.guidance_all_hours.run",
         "tools.research.missing_information.run",
+        "tools.research.model_edge_lever5.run",
         "tools.research.morning_guidance.run",
         "tools.research.nbm_target_trace.run",
         "weather.backtesting.backtest",
