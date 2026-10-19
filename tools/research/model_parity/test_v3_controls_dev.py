@@ -169,3 +169,19 @@ def test_v3_nogo_reachability_dev():
     record["nogo"] = c.nogo_reachability(dev)
     (out / "nogo.json").write_text(json.dumps(record, indent=1, default=float), encoding="utf-8")
     assert len(record["nogo"]["nogo"]) == 18 and len(record["nogo"]["interim"]) == 6
+
+
+def test_v3_power_calibration_real_noise_dev():
+    """2026-10-20 ruling: injected effect on the MG-1-like arm's real (re-centred) noise at ~0.575
+    and ~0.40 predicted power, 20 and 45 dates."""
+    from tools.research.model_parity import v3_controls as c, v3_gate, v3_score
+    stamp = datetime.now().strftime("%Y%m%dT%H%M%S") + "_realnoise"
+    out = OUT / stamp
+    out.mkdir(parents=True)
+    gate = v3_gate.default_gate()
+    record = {"stamp": stamp, "HARNESS_V3_SHA256": v3_score.harness_v3_sha256(), "gate": gate.identity(),
+              "git_head": subprocess.run(["git", "-C", str(REPO), "rev-parse", "HEAD"], capture_output=True,
+                                         text=True).stdout.strip()}
+    record["b3_real_noise"] = c.power_calibration_real_noise(c.Dev(LAYOUT, gate))
+    (out / "power_real_noise.json").write_text(json.dumps(record, indent=1, default=float), encoding="utf-8")
+    assert len(record["b3_real_noise"]["designs"]) == 4

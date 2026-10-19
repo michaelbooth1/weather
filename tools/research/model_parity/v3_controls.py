@@ -322,7 +322,7 @@ def _empirical_power(x, d_sub, experiments, seed):
     return go
 
 
-def power_calibration(dev, targets=(0.575, 0.40), effects=(-0.0015, -0.002, -0.0025, -0.003, -0.004, -0.005),
+def power_calibration(dev, targets=(0.575, 0.40), effects=(-0.0004, -0.0005, -0.0006, -0.0007, -0.0008, -0.001, -0.0012, -0.0015),
                       min_dates=8, experiments=4000, sims=20000, seed=20261020):
     """For each target power choose (injected effect, new dates) from H3's analytic power, then
     compare H3's simulated prediction (bootstrap-SD components, as H3 ships, and two-way MoM
@@ -468,3 +468,56 @@ def nogo_reachability(dev, forward=(20, 45, 90), sims=20000, interim=20, final=4
                                           seed=seed + 7)
             out["interim"].append({"statistic": sname, "scenario": label, "effect": eff, **r})
     return out
+
+
+
+def power_calibration_real_noise(dev, targets=(0.575, 0.40), designs=(20, 45), experiments=8000, sims=20000,
+                                 seed=20261021):
+    """Injected effect on REAL candidate noise: the MG-1-like arm's 00-16 (arm - served) cells,
+    re-centred to exactly the injected effect. That is a synthetic candidate whose true effect is
+    known and whose date/market/residual structure is the real one (the regime EDGE-1 lives in).
+    The effect is chosen per (dates, target) from H3's analytic power; H3's simulated prediction
+    (bootstrap-SD components, as shipped, and two-way MoM) is compared with ``experiments`` crossed
+    resamples (dates and markets with replacement) of the re-centred cells."""
+    from scipy.stats import norm
+    from tools.research.model_parity import v3_arms
+    arm = v3_arms.load_arm(HERE / "v3_arm_mg1_like.py")
+    p = dev.t.candidate_vector(v3_arms.build(arm, dev.snaps, dev.bands))[0]
+    idx, cells = dev.delta_cells(p)
+    keys = [dev.t.keys[i] for i in idx]
+    x0 = pd.DataFrame({"date": [k[0] for k in keys], "market": [k[1] for k in keys], "v": cells}).pivot(
+        index="date", columns="market", values="v").dropna().to_numpy(float)
+    centred = x0 - x0.mean()
+    comp = v3_power.components_from_entry(_components(dev, idx, cells - cells.mean()))
+    mom = v3_power.components_from_table(centred)
+    args = lambda c: (c["var_date"], c["var_market"], c["var_resid"])
+    m = x0.shape[1]
+    out = {"source": "mg1_like arm - served, 00-16 cells, re-centred", "arm_code_sha256": arm.CODE_SHA256,
+           "dev_estimate": float(cells.mean()), "balanced_dates": int(x0.shape[0]), "markets": m,
+           "components_bootstrap_sd": {k: comp[k] for k in ("var_date", "var_market", "var_resid")},
+           "components_mom": {k: mom[k] for k in ("var_date", "var_market", "var_resid")},
+           "experiments": experiments, "sims": sims, "designs": []}
+    k = 0
+    for d in designs:
+        se = v3_power.analytic_se(*args(comp), d, m)
+        for target in targets:
+            effect = -float((Z975_ + norm.ppf(target)) * se)
+            pred = v3_power.simulate(effect, *args(comp), d, m, sims=sims, seed=seed + k)
+            pred_mom = v3_power.simulate(effect, *args(mom), d, m, sims=sims, seed=seed + k + 1)
+            go = _empirical_power(centred + effect, d, experiments, seed + k + 2)
+            emp = go / experiments
+            se_b = float(np.sqrt(emp * (1 - emp) / experiments + pred * (1 - pred) / sims))
+            se_m = float(np.sqrt(emp * (1 - emp) / experiments + pred_mom * (1 - pred_mom) / sims))
+            out["designs"].append({
+                "target": target, "dates": d, "markets": m, "injected_effect": effect,
+                "h3_analytic_power": float(norm.cdf(-effect / se - Z975_)), "h3_predicted_power": pred,
+                "h3_mom_predicted_power": pred_mom, "empirical_power": emp,
+                "empirical_ci95_wilson": _wilson(go, experiments), "empirical_go": go,
+                "bias_h3_minus_empirical": pred - emp, "bias_ci95": [pred - emp - 1.96 * se_b, pred - emp + 1.96 * se_b],
+                "bias_mom_minus_empirical": pred_mom - emp,
+                "bias_mom_ci95": [pred_mom - emp - 1.96 * se_m, pred_mom - emp + 1.96 * se_m]})
+            k += 10
+    return out
+
+
+Z975_ = 1.959963984540054
