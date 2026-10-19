@@ -342,3 +342,47 @@ def test_arm_protocol_rejects_label_inputs(tmp_path):
                  "def build(s, b):\n    return None\n", encoding="utf-8")
     with pytest.raises(v3_arms.ArmError):
         v3_arms.load_arm(p)
+
+
+# ----------------------------------------------------------------------------- 2026-10-20 rulings
+
+def test_committed_ledger_reserves_stage_b_and_allows_only_the_floor_fixture_control():
+    g = v3_gate.default_gate()
+    stage_b = next(r for r in g.rows if r["row_id"] == "reserved-stageB-20260603-20260730")
+    assert (stage_b["status"], stage_b["scope"], stage_b["max_decisions"], stage_b["stratum"], stage_b["q"]) == \
+        ("reserved", "join", 2, "B", 3.1098893)
+    assert not any(r["status"] == "spent" and r["date_start"] <= "2026-07-30" and r["date_end"] >= "2026-06-03"
+                   for r in g.rows)
+    fixture = next(r for r in g.rows if r["status"] == "control_only")
+    assert (fixture["family"], fixture["date_start"], fixture["date_end"]) == \
+        ("serving_floor_control", "2026-07-02", "2026-07-10")
+    assert "ba748b76" in fixture["fixture"] and "8ac77c08" in fixture["fixture"]
+    for day in ("2026-06-03", "2026-07-05", "2026-07-30"):
+        for purpose in ("development", "confirmation"):
+            for fam in ("serving_floor_control", "nbm_guidance_band"):
+                assert not g.decide(fam, day, purpose, False).allowed
+        assert not g.decide("nbm_guidance_band", day, "control", False).allowed
+        assert g.decide("nbm_guidance_band", day, "coverage", False).allowed       # outcome-free only
+    assert g.decide("serving_floor_control", "2026-07-02", "control", False).allowed
+    assert g.decide("serving_floor_control", "2026-07-10", "control", False).allowed
+    assert not g.decide("serving_floor_control", "2026-07-11", "control", False).allowed
+    assert not g.decide("serving_floor_control", "2026-06-20", "control", False).allowed
+
+
+def test_control_only_never_lifts_embargo_closed_dates_or_other_families(tmp_path):
+    rows = [dict(row_id="stage-b", family="*", date_start="2026-06-03", date_end="2026-07-30", status="reserved",
+                 scope="join", max_decisions=2, stratum="B", q=3.1098893),
+            dict(row_id="ctl", family="c", date_start="2026-06-01", date_end="2026-12-31", status="control_only",
+                 scope="join", fixture="test")]
+    g = make_gate(tmp_path, extra=rows)
+    assert g.decide("c", "2026-07-01", "control", False).allowed
+    assert not g.decide("c", "2026-07-01", "development", False).allowed
+    assert not g.decide("d", "2026-07-01", "control", False).allowed
+    assert not g.decide("c", "2026-10-01", "control", False).allowed       # closed_by_default stays
+    assert not g.decide("c", "2026-10-20", "control", False).allowed       # scope-all embargo stays
+    for bad in (dict(row_id="b1", family="*", date_start="2026-06-01", date_end="2026-06-02",
+                     status="control_only", scope="join"),
+                dict(row_id="b2", family="c", date_start="2026-06-01", date_end="2026-06-02",
+                     status="control_only", scope="all")):
+        with pytest.raises(v3_gate.GateError):
+            make_gate(tmp_path, extra=[bad])

@@ -17,6 +17,12 @@ time, failing closed when either is missing or unparseable:
    - ``open``         the range is opened for ``confirmation`` scoring of that family only.
    - ``spent``        the range was already read for the family: development and controls may
                       use it; a confirmation may not.
+   - ``control_only`` (2026-10-20) purpose ``control`` of the named family may join labels on the
+                      range even where a scope-``join`` reservation covers it; no decision, no other
+                      purpose, never a scope-``all`` reservation or a closed/window date.
+
+   Optional fields: ``alpha``, ``max_decisions``, ``stratum``, ``q`` (decision quantile), ``fixture``
+   (provenance of a control_only population).
 
 Purposes: ``coverage`` (outcome-free counts, no label or market file opened), ``development`` and
 ``control`` (label/market joins on dates nobody has closed), ``confirmation`` (joins only on dates an
@@ -38,13 +44,15 @@ LEDGER_SCHEMA = "forward_alpha_ledger/1"
 
 PURPOSES = ("coverage", "development", "control", "confirmation")
 JOIN_PURPOSES = ("development", "control", "confirmation")
-STATUSES = ("reserved", "closed_by_default", "open", "spent")
+STATUSES = ("reserved", "closed_by_default", "open", "spent", "control_only")
 SCOPES = ("join", "all")
 ANY_FAMILY = "*"
 NBM_GUIDANCE_RESERVATION = "mg1_reserved_window"
 ROW_FIELDS = {"schema", "row_id", "family", "date_start", "date_end", "status", "scope", "alpha",
               "decided_by", "decided_at", "reason", "source"}
-REQUIRED_FIELDS = ROW_FIELDS - {"alpha"}
+OPTIONAL_FIELDS = {"alpha", "max_decisions", "stratum", "q", "fixture"}
+ROW_FIELDS = ROW_FIELDS | OPTIONAL_FIELDS
+REQUIRED_FIELDS = ROW_FIELDS - OPTIONAL_FIELDS
 _ISO = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
@@ -130,8 +138,10 @@ def validate_row(row):
         raise GateError(f"ledger row {row['row_id']!r} ends before it starts")
     if not isinstance(row["family"], str) or not row["family"]:
         raise GateError(f"ledger row {row['row_id']!r} has no family")
-    if row["status"] == "open" and row["family"] == ANY_FAMILY:
-        raise GateError("an open row must name one family, never '*'")
+    if row["status"] in ("open", "control_only") and row["family"] == ANY_FAMILY:
+        raise GateError(f"an {row['status']} row must name one family, never '*'")
+    if row["status"] == "control_only" and row["scope"] != "join":
+        raise GateError("a control_only row has scope 'join'")
     if row.get("alpha") is not None and not (0 < float(row["alpha"]) < 1):
         raise GateError(f"ledger row {row['row_id']!r} alpha out of (0, 1)")
     return row
@@ -214,8 +224,14 @@ class Gate:
         rows = self._covering(family, day)
         reasons = []
         join = purpose in JOIN_PURPOSES
+        # a control_only row naming this family lifts a scope-"join" reservation for purpose
+        # "control" only; it never lifts a scope-"all" reservation, closed_by_default or the window
+        lift = purpose == "control" and any(
+            r["status"] == "control_only" and r["family"] == family for r in rows)
         for r in rows:
             if r["status"] == "reserved" and (r["scope"] == "all" or join):
+                if lift and r["scope"] == "join":
+                    continue
                 reasons.append(f"reserved by ledger row {r['row_id']}")
         w = self.window
         if reads_nbm_guidance and w["state"] != "none" and join:
