@@ -1,8 +1,15 @@
 # YouTube-views maker plugin: scoping (2026-10-19)
 
 Status: dated research scoping, docs only. **Outcome-free:** no labels, settlements, market prices or
-evidence dated 2026-09-30 or later were read. Nothing was fetched from the internet, and no key was
-created or requested.
+evidence dated 2026-09-30 or later were read. No key was created or requested.
+
+Revision r2 (same day): the master agent ruled out reading the 10-01 scan files. Instead it allowed one
+narrow public read of today's Gamma YouTube events: two unauthenticated GETs at 2026-10-19 16:16Z.
+Only allowlisted text fields were extracted; prices, volumes, token ids and resolution fields were not
+read. The extract is in
+[`gamma-rules-extract-20261019.json`](youtube-maker-scope-2026-10-19/gamma-rules-extract-20261019.json),
+together with each request's URL and raw sha256. Raw replies stay outside git at `C:\t\ytgamma\`.
+Section 2.4 answers the settlement-basis question from that rule text.
 
 - **Owns:** what a YouTube-view plugin for `maker_core` would have to implement, which capture and
   data it needs, the YouTube Data API quota plan, and an effort and risk estimate.
@@ -65,10 +72,13 @@ A YouTube plugin must:
   `WeatherUniverse` pattern. The tick and minimum size must come from both-token CLOB books, never from
   `rewardsMinSize`.
 - Set `domain_id="youtube"`, `event_id` = Gamma event slug, and `native_unit="views"`.
-- Set `close_at_utc` from the captured rules' measurement instant, not from `endDate` unless the rules
-  say they are the same (open question Q1).
-- Declare `group_relation` from the rules: `partition` for mutually exclusive range bands such as
-  "30-35 M", and `nested_ge` for ">= N views" ladders. Never infer it from a title.
+- Set `close_at_utc` to the rules' measurement instant: the video's posting time plus the stated
+  duration (2.4). Use Gamma `endDate` only after checking that it equals that instant. For a "next video"
+  event before the upload, `endDate` is the no-post deadline, so return `Unavailable`
+  (`out_of_scope`) until the upload is detected.
+- Declare `group_relation` from the rules. All 25 views events read on 10-19 are `negRisk` range
+  brackets, which are `partition`. Channel-total and subscriber ladders, and the YouTube Charts daily
+  "hits" event, are `nested_ge` (`negRisk` false). Never infer the relation from a title.
 - Read `horizon_days` as an upper bound on time-to-close. YouTube events are keyed on hours after an
   upload or a fixed instant, not on local calendar days (see 1.6).
 
@@ -160,8 +170,8 @@ identical reward rules across both domains.
 
 ## 2. Capture needed
 
-Every request below is a public International Polymarket or Google read. None were made for this
-document.
+Every request below is a public International Polymarket or Google read. The only reads made for this
+document are the two r2 Gamma GETs.
 
 1. **Discovery.** Gamma `events?tag_slug=youtube` (and/or a series id), hourly, with change-only
    storage of the full event object, including `description`, `resolutionSource`, `negRisk`,
@@ -191,15 +201,44 @@ document.
      how often YouTube refreshes `viewCount` (Q4). Polling faster than the refresh buys nothing.
    - Each poll writes `{video_id, viewCount, local receipt UTC, HTTP status, response sha256}` with the
      key redacted, as the free-registration rule requires.
-4. **Settlement source: open question.** No YouTube rule text exists in any repository fixture or doc.
-   The only description is second-hand: a "views counter" at 24 h / 72 h / 7 d, marked **UNVERIFIED** in
-   the exam pre-mortem. It is unknown whether the venue resolves on the watch-page counter, the API
-   `viewCount`, a screenshot by a resolver, or a third-party tracker. It is also unknown at what instant
-   and timezone, and with what treatment of later downward revisions. The 10-01 scan raw replies outside
-   git (`scratch/reward-scan-20261001-final/`) probably contain the Gamma `description` field. They were
-   **not** opened here (brief: repository fixtures/docs only; those files also carry 10-01 prices). A
-   description-only projection of them, or the VR-3 rules journal, answers Q1-Q2 without reading any
-   price.
+4. **Settlement basis.** Answered in 2.4 from the rule text read on 10-19.
+
+### 2.4 Settlement basis from the public rule text (read 2026-10-19)
+
+The `youtube` tag returned 10 open and 30 recently closed events (65 and 258 markets). The tag is broad:
+it also covers word-mention markets (Joe Rogan, MrBeast "what will be said"), a GOOGL ad-revenue KPI,
+and celebrity events. Discovery therefore has to filter on rule shape, not just on the tag. **25 events
+are views-bracket events** (slug prefix `of-views-of-`): MrBeast main channel, MrBeast Gaming, and the
+Rockstar GTA VI launch trailer. Every one of them is `negRisk` with 5-10 YES/NO range brackets.
+
+| Question | Answer from the rules (count of the 25 views events) |
+| --- | --- |
+| Which count | "the number of views the [video] gets in the first N hours/days after being posted". N is 24, 48, 72, 96, 120, 144 or 168 hours, or 7 or 14 days. It is one cumulative count at one instant, not a daily figure (25/25). |
+| Which source | "the resolution source ... is [channel]'s YouTube channel ..., specifically the **'views' counter** for the described video" (25/25). That is the public watch-page counter. **The Data API `viewCount` is not named**, so the poller is a proxy with basis risk, as WU-vs-METAR is for weather. `resolutionSource` is usually empty; 4 events give the watch URL. |
+| Which timestamp | Posting time plus N hours. The rules never define "posted" more precisely (premiere start, publish second, timezone). Where the video was known, Gamma `endDate` matched posting plus N to the second (for example two events on the same video both end at `…16:00:18Z`, 48 h and 7 d apart). "Next video" events carry the no-post deadline as `endDate` instead. |
+| Early hits | "may not resolve until the [N] hours are complete, regardless of whether a strike is reached earlier" (19/25). A bracket is not decided by an intermediate count. |
+| Ties | "If the reported value falls exactly between two brackets, ... the **higher** range bracket" (25/25). Bracket edges are upper-exclusive. |
+| Source unavailable | "resolve according to most recent number of views available before the end of the specified duration" (19/25). |
+| No upload | "If [channel] does not post a YouTube video by [date] 11:59 PM ET, ... the **lowest** range bracket" (7/7 "next video" events). Shorts, previews and other videos are excluded (7/7). |
+| Decreases and revisions | **Not addressed** in any views-event rule (0/25). Because the count is read at the instant, a later downward revision of the counter after the instant is not covered by the text. A crossing before the instant does not decide the band. |
+
+Contrast: the open Taylor Swift event resolves on **YouTube Charts daily global views** for an artist.
+That is a different source, a `nested_ge` "any single day >= X" ladder, and its rules explicitly count
+revisions until expiry. The MrBeast channel ladders (total views, subscribers by 10-31 23:59 ET) are
+`nested_ge` on the channel page, and one of them allows "a consensus of credible reporting".
+
+Consequences for the plugin:
+
+- **`decided` is only safe after the measurement instant.** Before it, a brackets event is decided only
+  in the sense that a crossed upper edge rules out the lower brackets, and only if the counter is
+  monotone. Because the rules are silent on decreases, the `InformationClock` should emit `pull`, not
+  `decided`, on a crossing.
+- **The `SettlementResolver` needs a capture of the watch-page counter at the measurement instant.** An
+  API `viewCount` alone is a proxy. A free public read of the watch page is a terms question, listed as
+  O2. Otherwise settlement reconciles the venue's resolved bracket against the API value and records
+  any disagreement.
+- **Overlapping partitions on one quantity**, such as GTA VI day-1 and day-1 "lower strikes", or day-2
+  and week-1 on the same video, share an `ExposureModel` factor `youtube:video:<id>`.
 
 ## 3. API key and data plan (YouTube Data API v3, free tier only)
 
@@ -290,8 +329,9 @@ That assumes replay v2 lands on its current plan; YouTube reuses it and does not
 - **Concentrated informed flow.** The richest bands sit on near-resolution events, where informed
   traders (including the channel's own audience) are heaviest. The adverse markout is unmeasured and
   probably above weather's 0.0043.
-- **Settlement basis risk.** Counter vs API value, refresh lag, a reported 2026-08-24 counting-regime
-  change, and non-monotone counts (spam-view removal) are all UNVERIFIED. A `decided` signal could be
+- **Settlement basis risk.** The rules name the watch-page counter, not the API (2.4). Still
+  UNVERIFIED: the counter vs API gap, refresh lag, a reported 2026-08-24 counting-regime change, and
+  non-monotone counts (spam-view removal). A `decided` signal before the measurement instant could be
   wrong.
 - **Size floors vs caps.** 50-share floors on most YouTube bands exceed grade-`none` caps and the
   existing per-band cash caps (EF §10a finding on 20-share quotes already binds).
@@ -332,18 +372,22 @@ That assumes replay v2 lands on its current plan; YouTube reuses it and does not
 - **O1:** create a free Google Cloud project, enable the YouTube Data API v3, issue a key restricted to
   that API, and place it in `config/local/` on the chosen host. Agents do not do this.
 - **O2:** read the current YouTube API Services terms (storage and refresh limits, quota) and set the
-  retention class for view polls.
+  retention class for view polls. Also decide whether a public watch-page counter read at the measurement
+  instant (the named settlement source) is acceptable.
 - **O3:** choose the capture host (workstation, third box, or production), resolving DECISION_LOG
   09-27 against the exam pre-mortem decision 6.
 - **O4:** decide whether to revive the #107 template (`archive/pr-107-5fc4e7d4`) as the canonical
   plugin guide.
 - **O5:** provide or point to the external model's interface and its record format. Any edge claim
   needs a pre-registration before it is scored here.
-- **Q1:** the exact measurement instant and timezone for each event type, and whether it equals Gamma
-  `endDate`.
-- **Q2:** the named resolution source (watch-page counter, API, other) and the dispute and revision
-  policy.
-- **Q3:** whether counts can decrease after a threshold is crossed, and how the venue treats that.
+- **Q1 (answered r2, 2.4):** the measurement instant is posting time plus N hours. `endDate` matched
+  it where the video was known. Still open: how "posted" is defined for premieres, and the second
+  precision.
+- **Q2 (answered r2, 2.4):** the source is the watch-page 'views' counter. If it is unavailable, the
+  most recent value before the instant is used. Ties go to the higher bracket. Still open: the UMA
+  dispute practice for views markets.
+- **Q3 (partly answered r2):** the rules are silent on decreases. Whether real counters fall after a
+  crossing must be measured (Y0).
 - **Q4:** how often `viewCount` refreshes through the API compared with the page counter.
 - **Q5:** how long after an upload or announcement Gamma lists "next video" markets, and when rewards
   attach.

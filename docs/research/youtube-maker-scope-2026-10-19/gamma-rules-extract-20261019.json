@@ -1,0 +1,3652 @@
+{
+ "schema": "youtube_gamma_rules_extract (ad hoc, docs only)",
+ "fetched_utc": "2026-10-19T16:16Z",
+ "note": "Allowlisted text fields only from two public unauthenticated Gamma GETs; no prices, volumes, liquidity, token ids or resolution fields. Raw replies kept outside git at C:/t/ytgamma/.",
+ "requests": [
+  {
+   "name": "open",
+   "url": "https://gamma-api.polymarket.com/events?tag_slug=youtube&closed=false&limit=100",
+   "status": 200,
+   "bytes": 273525,
+   "sha256": "e6899efd37078220dbf2cd8eb6f022b793593bac998868481696a02b371efd6e",
+   "requested_utc": "20261019T161619Z"
+  },
+  {
+   "name": "closed",
+   "url": "https://gamma-api.polymarket.com/events?tag_slug=youtube&closed=true&limit=30&order=endDate&ascending=false",
+   "status": 200,
+   "bytes": 990536,
+   "sha256": "c7a1d93536babbd74f9b0d73dfcd62a8ac6b2424618fd9af31c0c62adef71e4c",
+   "requested_utc": "20261019T161620Z"
+  }
+ ],
+ "fields": {
+  "event": [
+   "slug",
+   "title",
+   "description",
+   "resolutionSource",
+   "endDate",
+   "negRisk",
+   "tags"
+  ],
+  "market": [
+   "slug",
+   "question",
+   "groupItemTitle",
+   "groupItemThreshold",
+   "outcomes",
+   "endDate",
+   "resolutionSource",
+   "description (only when it differs from the event)"
+  ]
+ },
+ "events": {
+  "open": [
+   {
+    "slug": "jack-doherty-prison-time",
+    "title": "Jack Doherty Prison Time?",
+    "description": "YouTuber Jack Doherty was recently arrested in Miami, Florida and charged with possession of a controlled substance (amphetamine), possession of 20 grams or less of marijuana, and resisting an officer without violence.\n\nThis market will resolve according to the prison sentence, if any, imposed on Jack Doherty in relation to these charges by October 31, 2026, 11:59 PM ET.\n\nThis market will resolve immediately based on the first sentence rendered in relation to these charges, regardless of any appeals. If the charges are tried separately, this market will stay open until the first sentence has been rendered for all three charges and will resolve based on the cumulative sentence imposed across all three charges. If sentencing has taken place for some, but not all, of these charges on October 31, 2026, 11:59 PM ET, this market will resolve based on sentencing up to that point.\n\nIf Doherty is found not guilty, there is a mistrial, or if his sentencing does not include any jail or prison time, this market will resolve to \"No Prison Time.\"\n\nIf no sentencing takes place by October 31, 2026, 11:59 PM ET, this market will also resolve to \"No Prison Time.\"\n\nIf the sentence falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nFor the purposes of this market, it does not matter whether the sentence is concurrent or consecutive to any existing sentence Doherty is already serving. The market will resolve based on the total prison sentence imposed in this case.\n\nThe primary resolution source for this market will be official information from the Florida court system or other involved U.S. government sources; however, a consensus of credible reporting may also be used.",
+    "resolutionSource": "",
+    "endDate": "2026-11-01T03:59:00Z",
+    "negRisk": true,
+    "tags": [
+     "celebrities",
+     "youtube"
+    ],
+    "markets": [
+     {
+      "slug": "will-jack-doherty-be-sentenced-to-no-prison-time",
+      "question": "Will Jack Doherty be sentenced to no prison time?",
+      "groupItemTitle": "No Prison Time",
+      "groupItemThreshold": "0",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-11-01T03:59:00Z",
+      "resolutionSource": null
+     },
+     {
+      "slug": "will-jack-doherty-be-sentenced-to-less-than-2-years-in-prison",
+      "question": "Will Jack Doherty be sentenced to less than 2 years in prison?",
+      "groupItemTitle": "<2 Years",
+      "groupItemThreshold": "1",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-11-01T03:59:00Z",
+      "resolutionSource": null
+     },
+     {
+      "slug": "will-jack-doherty-be-sentenced-to-2-to-5-years-in-prison",
+      "question": "Will Jack Doherty be sentenced to 2 to 5 years in prison?",
+      "groupItemTitle": "2-5 Years",
+      "groupItemThreshold": "2",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-11-01T03:59:00Z",
+      "resolutionSource": null
+     },
+     {
+      "slug": "will-jack-doherty-be-sentenced-to-at-least-5-years-in-prison",
+      "question": "Will Jack Doherty be sentenced to at least 5 years in prison?",
+      "groupItemTitle": "5+ Years",
+      "groupItemThreshold": "3",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-11-01T03:59:00Z",
+      "resolutionSource": null
+     }
+    ]
+   },
+   {
+    "slug": "will-mrbeast-hit-million-subscribers-by-october-31-2026",
+    "title": "Will MrBeast hit ___ Million subscribers by October 31?",
+    "description": "This market will resolve to \"Yes\" if the MrBeast YouTube channel (https://www.youtube.com/@MrBeast) hits at least the specified number of subscribers by October 31, 2026, 11:59 PM ET.  Otherwise, this market will resolve to \"No\".\n\nThe primary resolution source for this market will be the MrBeast YouTube channel (https://www.youtube.com/@MrBeast) or a consensus of credible reporting.",
+    "resolutionSource": "",
+    "endDate": "2026-10-31T23:59:00Z",
+    "negRisk": false,
+    "tags": [
+     "mrbeast",
+     "pop-culture",
+     "recurring",
+     "youtube"
+    ],
+    "markets": [
+     {
+      "slug": "will-mrbeast-hit-521-million-subscribers-by-october-31-2026",
+      "question": "Will MrBeast hit 521 million subscribers by October 31?",
+      "groupItemTitle": "521m",
+      "groupItemThreshold": "0",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-31T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-hit-522-million-subscribers-by-october-31-2026",
+      "question": "Will MrBeast hit 522 million subscribers by October 31?",
+      "groupItemTitle": "522m",
+      "groupItemThreshold": "1",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-31T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-hit-523-million-subscribers-by-october-31-2026",
+      "question": "Will MrBeast hit 523 million subscribers by October 31?",
+      "groupItemTitle": "523m",
+      "groupItemThreshold": "2",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-31T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-hit-524-million-subscribers-by-october-31-2026",
+      "question": "Will MrBeast hit 524 million subscribers by October 31?",
+      "groupItemTitle": "524m",
+      "groupItemThreshold": "3",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-31T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-hit-525-million-subscribers-by-october-31-2026",
+      "question": "Will MrBeast hit 525 million subscribers by October 31?",
+      "groupItemTitle": "525m",
+      "groupItemThreshold": "4",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-31T23:59:00Z",
+      "resolutionSource": ""
+     }
+    ]
+   },
+   {
+    "slug": "will-mrbeast-hit-billion-views-by-october-31-2026",
+    "title": "Will MrBeast hit ___ Billion views by October 31?",
+    "description": "This market will resolve to \"Yes\" if the MrBeast YouTube channel (https://www.youtube.com/@MrBeast) hits at least the specified number of views by October 31, 2026, 11:59 PM ET.  Otherwise, this market will resolve to \"No\".\n\nThe primary resolution source for this market will be the MrBeast YouTube channel (https://www.youtube.com/@MrBeast).",
+    "resolutionSource": "",
+    "endDate": "2026-10-31T23:59:00Z",
+    "negRisk": false,
+    "tags": [
+     "internet",
+     "mrbeast",
+     "pop-culture",
+     "recurring",
+     "youtube"
+    ],
+    "markets": [
+     {
+      "slug": "will-mrbeast-hit-143-billion-views-by-october-31-2026",
+      "question": "Will MrBeast hit 143 billion views by October 31?",
+      "groupItemTitle": "143 billion",
+      "groupItemThreshold": "0",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-31T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-hit-143pt5-billion-views-by-october-31-2026",
+      "question": "Will MrBeast hit 143.5 billion views by October 31?",
+      "groupItemTitle": "143.5 billion",
+      "groupItemThreshold": "1",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-31T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-hit-144-billion-views-by-october-31-2026",
+      "question": "Will MrBeast hit 144 billion views by October 31?",
+      "groupItemTitle": "144 billion",
+      "groupItemThreshold": "2",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-31T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-hit-144pt5-billion-views-by-october-31-2026",
+      "question": "Will MrBeast hit 144.5 billion views by October 31?",
+      "groupItemTitle": "144.5 billion",
+      "groupItemThreshold": "3",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-31T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-hit-145-billion-views-by-october-31-2026",
+      "question": "Will MrBeast hit 145 billion views by October 31?",
+      "groupItemTitle": "145 billion",
+      "groupItemThreshold": "4",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-31T23:59:00Z",
+      "resolutionSource": ""
+     }
+    ]
+   },
+   {
+    "slug": "taylor-swift-daily-view-count-hits-in-october",
+    "title": "Taylor Swift daily view count hits ___ in October?",
+    "description": "This market will immediately resolve to \"Yes\" if Taylor Swift's daily global YouTube view count for any single day in October 2026 is reported at or above the specified number by market expiry. Otherwise, this market will resolve to \"No\".\n\nThis market will consider figures reported for all calendar days within the specified timeframe, including revisions to those figures, until market expiry.\n\nThis market will expire at the earliest of: (i) the first release of the figure for the final specified calendar day; OR (ii) the seventh day after the final specified calendar day, 11:59 PM ET.\n\nOnly global view counts will be used. Regional and country-specific figures will not be used.\n\nThis market will resolve according to the figures attributed to the specified artist by the resolution source, regardless of which channel the views occurred on. If the resolution source attributes views to the specified artist for a video on which the specified artist is a featured or credited contributor, those views will count.\n\nThe resolution source for this market will be the daily global view counts on Taylor Swift's artist profile published on YouTube Charts (https://charts.youtube.com/artist/%2Fm%2F0dl567).",
+    "resolutionSource": "https://charts.youtube.com/artist/%2Fm%2F0dl567",
+    "endDate": "2026-10-31T23:59:00Z",
+    "negRisk": false,
+    "tags": [
+     "music",
+     "pop-culture",
+     "youtube"
+    ],
+    "markets": [
+     {
+      "slug": "will-taylor-swifts-daily-youtube-view-count-hit-27m-in-october",
+      "question": "Will Taylor Swift's daily YouTube view count hit 27M in October?",
+      "groupItemTitle": "↑27M",
+      "groupItemThreshold": "0",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-31T23:59:00Z",
+      "resolutionSource": "https://charts.youtube.com/artist/%2Fm%2F0dl567"
+     },
+     {
+      "slug": "will-taylor-swifts-daily-youtube-view-count-hit-26m-in-october",
+      "question": "Will Taylor Swift's daily YouTube view count hit 26M in October?",
+      "groupItemTitle": "↑26M",
+      "groupItemThreshold": "1",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-31T23:59:00Z",
+      "resolutionSource": "https://charts.youtube.com/artist/%2Fm%2F0dl567"
+     },
+     {
+      "slug": "will-taylor-swifts-daily-youtube-view-count-hit-25m-in-october",
+      "question": "Will Taylor Swift's daily YouTube view count hit 25M in October?",
+      "groupItemTitle": "↑25M",
+      "groupItemThreshold": "2",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-31T23:59:00Z",
+      "resolutionSource": "https://charts.youtube.com/artist/%2Fm%2F0dl567"
+     },
+     {
+      "slug": "will-taylor-swifts-daily-youtube-view-count-hit-24m-in-october",
+      "question": "Will Taylor Swift's daily YouTube view count hit 24M in October?",
+      "groupItemTitle": "↑24M",
+      "groupItemThreshold": "3",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-31T23:59:00Z",
+      "resolutionSource": "https://charts.youtube.com/artist/%2Fm%2F0dl567"
+     }
+    ]
+   },
+   {
+    "slug": "of-views-of-next-mrbeast-video-on-week-1-20261012",
+    "title": "# of views of next MrBeast video on week 1?",
+    "description": "This market will resolve according to the number of views the next YouTube video posted by MrBeast after this market's creation gets in the first 7 days after being posted.\n\nIf MrBeast does not post a YouTube video by November 30, 2026, 11:59 PM ET, this market will resolve to the lowest range bracket.\n\nIf the reported value falls exactly between two brackets, this market will resolve to the higher range bracket.\n\nIf the resolution source is not available at the end of the specified duration, this market will resolve according to most recent number of views available before the end of the specified duration.\n\nThe resolution source for this is MrBeast's YouTube channel (https://www.youtube.com/@MrBeast), specifically the 'views' counter for the described video.\n\nNote: This market refers to MrBeast's next video posted. Shorts, previews, or other videos released other than the referenced video will not be considered.",
+    "resolutionSource": "",
+    "endDate": "2026-12-01T04:59:00Z",
+    "negRisk": true,
+    "tags": [
+     "mrbeast",
+     "pop-culture",
+     "recurring",
+     "youtube"
+    ],
+    "markets": [
+     {
+      "slug": "will-mrbeasts-next-video-get-less-than-70-million-views-on-week-1-20261012",
+      "question": "Will MrBeast's next video get less than 70 million views on week 1?",
+      "groupItemTitle": "<70M",
+      "groupItemThreshold": "0",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-12-01T04:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-70-and-80-million-views-on-week-1-20261012",
+      "question": "Will MrBeast's next video get between 70 and 80 million views on week 1?",
+      "groupItemTitle": "70-80M",
+      "groupItemThreshold": "1",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-12-01T04:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-80-and-90-million-views-on-week-1-20261012",
+      "question": "Will MrBeast's next video get between 80 and 90 million views on week 1?",
+      "groupItemTitle": "80-90M",
+      "groupItemThreshold": "2",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-12-01T04:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-90-and-100-million-views-on-week-1-20261012",
+      "question": "Will MrBeast's next video get between 90 and 100 million views on week 1?",
+      "groupItemTitle": "90-100M",
+      "groupItemThreshold": "3",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-12-01T04:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-100-and-110-million-views-on-week-1-20261012",
+      "question": "Will MrBeast's next video get between 100 and 110 million views on week 1?",
+      "groupItemTitle": "100-110M",
+      "groupItemThreshold": "4",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-12-01T04:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-110-and-120-million-views-on-week-1-20261012",
+      "question": "Will MrBeast's next video get between 110 and 120 million views on week 1?",
+      "groupItemTitle": "110-120M",
+      "groupItemThreshold": "5",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-12-01T04:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-at-least-120-million-views-on-week-1-20261012",
+      "question": "Will MrBeast's next video get at least 120 million views on week 1?",
+      "groupItemTitle": "120M+",
+      "groupItemThreshold": "6",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-12-01T04:59:00Z",
+      "resolutionSource": ""
+     }
+    ]
+   },
+   {
+    "slug": "will-google-googl-q3-youtube-ads-revenue-be-above-20261008120051000",
+    "title": "Will Google (GOOGL) Q3 YouTube ads revenue be above __?",
+    "description": "This market will resolve to \"Yes\" if Google's YouTube ads revenue for the upcoming third fiscal quarter, as reported in its official company earnings materials, is above the listed amount. Otherwise, this market will resolve to \"No\".\n\nThe specified metric will be considered as reported in the company's official earnings materials. Subsequent revisions will not be considered.\n\nIf the specified company's official earnings materials for the specified quarter are released, and the specified metric is not included, this market will resolve to \"No\".\n\nIf the specified company does not release quarterly earnings materials for the specified quarter by November 30, 2026, 11:59 PM ET, this market will resolve to \"No\".\n\nIf the specified metric is reported as a range rather than a specific number, the midpoint of the range will be used for resolution of this market.\n\nThe resolution source for this market is the specified company's official company earnings materials, including press releases, investor presentations, and regulatory filings. If the specified metric is not reported in these materials, recordings or transcripts of the company's earnings webcast may also be used.\n\nNote: This market will resolve based on the most numerically precise version of the specified metric reported in the company's official earnings materials. Only the specified metric will be considered; alternate versions that differ in definition or scope from the specified metric will not be considered.",
+    "resolutionSource": "",
+    "endDate": "2026-10-28T22:00:00Z",
+    "negRisk": false,
+    "tags": [
+     "finance",
+     "googl",
+     "google",
+     "kpis",
+     "recurring",
+     "youtube"
+    ],
+    "markets": [
+     {
+      "slug": "will-google-googl-q3-youtube-ads-revenue-be-above-20261008120051000-11pt2b",
+      "question": "Will Google (GOOGL) Q3 YouTube ads revenue be above $11.2B?",
+      "groupItemTitle": "$11.2B",
+      "groupItemThreshold": "0",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-28T22:00:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-google-googl-q3-youtube-ads-revenue-be-above-20261008120051000-11pt4b",
+      "question": "Will Google (GOOGL) Q3 YouTube ads revenue be above $11.4B?",
+      "groupItemTitle": "$11.4B",
+      "groupItemThreshold": "1",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-28T22:00:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-google-googl-q3-youtube-ads-revenue-be-above-20261008120051000-11pt6b",
+      "question": "Will Google (GOOGL) Q3 YouTube ads revenue be above $11.6B?",
+      "groupItemTitle": "$11.6B",
+      "groupItemThreshold": "2",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-28T22:00:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-google-googl-q3-youtube-ads-revenue-be-above-20261008120051000-11pt8b",
+      "question": "Will Google (GOOGL) Q3 YouTube ads revenue be above $11.8B?",
+      "groupItemTitle": "$11.8B",
+      "groupItemThreshold": "3",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-28T22:00:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-google-googl-q3-youtube-ads-revenue-be-above-20261008120051000-12b",
+      "question": "Will Google (GOOGL) Q3 YouTube ads revenue be above $12B?",
+      "groupItemTitle": "$12B",
+      "groupItemThreshold": "4",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-28T22:00:00Z",
+      "resolutionSource": ""
+     }
+    ]
+   },
+   {
+    "slug": "what-will-be-said-on-the-first-joe-rogan-experience-episode-of-the-week-october-19",
+    "title": "What will be said on the first Joe Rogan Experience episode of the week? (October 19)",
+    "description": "The Joe Rogan Experience podcast releases episodes on https://www.youtube.com/@joerogan.\n\nThis market will resolve to \"Yes\" if the listed term is mentioned by anyone during the first released episode of the Joe Rogan Experience Podcast between October 19, 2026 and October 25, 2026. Otherwise, the market will resolve to \"No\".\n\nIf no such episode of the Joe Rogan Experience Podcast is aired by October 25, 2026, 11:59 PM ET, \"-No Qualifying Event-\" will resolve to \"Yes\" and all other brackets will resolve to \"No\". \n\nJRE MMA Show episodes will not count for this market, only Joe Rogan Experience episodes.\n\nThe resolution source will be the specified episode from (https://www.youtube.com/@joerogan).\n\nFor full rules, see: https://polymarket-upload.s3.us-east-2.amazonaws.com/market_products/Mentions/Event+Mentions+Contract+DeFi.pdf",
+    "resolutionSource": "",
+    "endDate": "2026-10-26T03:59:00Z",
+    "negRisk": false,
+    "tags": [
+     "joe-rogan",
+     "mention-markets",
+     "podcast",
+     "politics",
+     "pop-culture",
+     "recurring",
+     "rogan",
+     "youtube"
+    ],
+    "markets": [
+     {
+      "slug": "will-people-100-be-said-during-the-first-joe-rogan-experience-of-the-week-of-october-19",
+      "question": "Will \"People\" be said 100+ times during the first Joe Rogan Experience of the week of October 19?",
+      "groupItemTitle": "People 100+ times",
+      "groupItemThreshold": "0",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-26T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-dude-20-be-said-during-the-first-joe-rogan-experience-of-the-week-of-october-19",
+      "question": "Will \"Dude\" be said 20+ times during the first Joe Rogan Experience of the week of October 19?",
+      "groupItemTitle": "Dude 20+ times",
+      "groupItemThreshold": "1",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-26T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-hundred-10-be-said-during-the-first-joe-rogan-experience-of-the-week-of-october-19",
+      "question": "Will \"Hundred\" or \"Thousand\" or \"Million\" be said 10+ times during the first Joe Rogan Experience of the week of October 19?",
+      "groupItemTitle": "Hundred / Thousand / Million 10+ times",
+      "groupItemThreshold": "2",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-26T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-fuck-10-be-said-during-the-first-joe-rogan-experience-of-the-week-of-october-19",
+      "question": "Will \"Fuck\" or \"Fucking\" be said 10+ times during the first Joe Rogan Experience of the week of October 19?",
+      "groupItemTitle": "Fuck / Fucking 10+ times",
+      "groupItemThreshold": "3",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-26T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-shit-5-be-said-during-the-first-joe-rogan-experience-of-the-week-of-october-19",
+      "question": "Will \"Shit\" be said 5+ times during the first Joe Rogan Experience of the week of October 19?",
+      "groupItemTitle": "Shit 5+ times",
+      "groupItemThreshold": "4",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-26T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-right-5-be-said-during-the-first-joe-rogan-experience-of-the-week-of-october-19",
+      "question": "Will \"Right\" be said 5+ times during the first Joe Rogan Experience of the week of October 19?",
+      "groupItemTitle": "Right 5+ times",
+      "groupItemThreshold": "5",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-26T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-buddy-of-mine-be-said-during-the-first-joe-rogan-experience-of-the-week-of-october-19",
+      "question": "Will \"Buddy of Mine\" be said during the first Joe Rogan Experience of the week of October 19?",
+      "groupItemTitle": "Buddy of Mine",
+      "groupItemThreshold": "6",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-26T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-dmt-be-said-during-the-first-joe-rogan-experience-of-the-week-of-october-19",
+      "question": "Will \"DMT\" be said during the first Joe Rogan Experience of the week of October 19?",
+      "groupItemTitle": "DMT",
+      "groupItemThreshold": "7",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-26T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-alien-be-said-during-the-first-joe-rogan-experience-of-the-week-of-october-19",
+      "question": "Will \"Alien\" be said during the first Joe Rogan Experience of the week of October 19?",
+      "groupItemTitle": "Alien",
+      "groupItemThreshold": "8",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-26T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-chimp-be-said-during-the-first-joe-rogan-experience-of-the-week-of-october-19",
+      "question": "Will \"Chimp\" or \"Monkey\" be said during the first Joe Rogan Experience of the week of October 19?",
+      "groupItemTitle": "Chimp / Monkey",
+      "groupItemThreshold": "9",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-26T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-elon-be-said-during-the-first-joe-rogan-experience-of-the-week-of-october-19",
+      "question": "Will \"Elon\" or \"Musk\" be said during the first Joe Rogan Experience of the week of October 19?",
+      "groupItemTitle": "Elon / Musk",
+      "groupItemThreshold": "10",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-26T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-bill-gates-be-said-during-the-first-joe-rogan-experience-of-the-week-of-october-19",
+      "question": "Will \"Bill Gates\" be said during the first Joe Rogan Experience of the week of October 19?",
+      "groupItemTitle": "Bill Gates",
+      "groupItemThreshold": "11",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-26T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-preposterous-be-said-during-the-first-joe-rogan-experience-of-the-week-of-october-19",
+      "question": "Will \"Preposterous\" be said during the first Joe Rogan Experience of the week of October 19?",
+      "groupItemTitle": "Preposterous",
+      "groupItemThreshold": "12",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-26T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-no-rogan-episode-air-20261025",
+      "question": "Will no Rogan episode air?",
+      "groupItemTitle": "-No Qualifying Event-",
+      "groupItemThreshold": "13",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-26T03:59:00Z",
+      "resolutionSource": ""
+     }
+    ]
+   },
+   {
+    "slug": "of-views-of-grand-theft-auto-vi-launch-trailer-on-week-1",
+    "title": "# of views of Grand Theft Auto VI Launch Trailer on week 1?",
+    "description": "This market will resolve according to the number of views the Grand Theft Auto VI Launch Trailer video gets in the first 7 days after being posted on the Rockstar Games YouTube channel. This market may not resolve until the 7 days are complete, regardless of whether a strike is reached earlier.\n\nIf the reported value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nThe resolution source for this market is Rockstar Games' YouTube channel (https://www.youtube.com/@RockstarGames), specifically the 'views' counter for the described video.\n\nNote: This market refers only to the \"Grand Theft Auto VI Launch Trailer\" video posted by Rockstar Games (see: https://www.youtube.com/watch?v=rz1B4B2yBZY).",
+    "resolutionSource": "https://www.youtube.com/watch?v=rz1B4B2yBZY",
+    "endDate": "2026-10-23T03:59:00Z",
+    "negRisk": true,
+    "tags": [
+     "gta-vi",
+     "pop-culture",
+     "rockstar",
+     "youtube"
+    ],
+    "markets": [
+     {
+      "slug": "will-grand-theft-auto-vi-launch-trailer-get-less-than-40-million-views-on-week-1",
+      "question": "Will \"Grand Theft Auto VI Launch Trailer\" get less than 40 million views on week 1?",
+      "groupItemTitle": "<40M",
+      "groupItemThreshold": "0",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-23T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=rz1B4B2yBZY"
+     },
+     {
+      "slug": "will-grand-theft-auto-vi-launch-trailer-get-between-40-and-60-million-views-on-week-1",
+      "question": "Will \"Grand Theft Auto VI Launch Trailer\" get between 40 and 60 million views on week 1?",
+      "groupItemTitle": "40-60M",
+      "groupItemThreshold": "1",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-23T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=rz1B4B2yBZY"
+     },
+     {
+      "slug": "will-grand-theft-auto-vi-launch-trailer-get-between-60-and-80-million-views-on-week-1",
+      "question": "Will \"Grand Theft Auto VI Launch Trailer\" get between 60 and 80 million views on week 1?",
+      "groupItemTitle": "60-80M",
+      "groupItemThreshold": "2",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-23T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=rz1B4B2yBZY"
+     },
+     {
+      "slug": "will-grand-theft-auto-vi-launch-trailer-get-between-80-and-100-million-views-on-week-1",
+      "question": "Will \"Grand Theft Auto VI Launch Trailer\" get between 80 and 100 million views on week 1?",
+      "groupItemTitle": "80-100M",
+      "groupItemThreshold": "3",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-23T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=rz1B4B2yBZY"
+     },
+     {
+      "slug": "will-grand-theft-auto-vi-launch-trailer-get-between-100-and-120-million-views-on-week-1",
+      "question": "Will \"Grand Theft Auto VI Launch Trailer\" get between 100 and 120 million views on week 1?",
+      "groupItemTitle": "100-120M",
+      "groupItemThreshold": "4",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-23T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=rz1B4B2yBZY"
+     },
+     {
+      "slug": "will-grand-theft-auto-vi-launch-trailer-get-between-120-and-140-million-views-on-week-1",
+      "question": "Will \"Grand Theft Auto VI Launch Trailer\" get between 120 and 140 million views on week 1?",
+      "groupItemTitle": "120-140M",
+      "groupItemThreshold": "5",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-23T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=rz1B4B2yBZY"
+     },
+     {
+      "slug": "will-grand-theft-auto-vi-launch-trailer-get-at-least-140-million-views-on-week-1",
+      "question": "Will \"Grand Theft Auto VI Launch Trailer\" get at least 140 million views on week 1?",
+      "groupItemTitle": "140M+",
+      "groupItemThreshold": "6",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-23T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=rz1B4B2yBZY"
+     }
+    ]
+   },
+   {
+    "slug": "of-views-of-mrbeast-video-on-day-2-20261017",
+    "title": "# of views of MrBeast video on day 2?",
+    "description": "This market will resolve according to the number of views the latest YouTube video posted by MrBeast gets in the first 48 hours after being posted. This market may not resolve until the 48 hours are complete, regardless of whether a strike is reached earlier.\n\nIf the reported value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nThe resolution source for this market is MrBeast's YouTube channel (https://www.youtube.com/@MrBeast), specifically the 'views' counter for the described video.\n\nIf the resolution source is not available at the end of the specified duration, this market will resolve according to most recent number of views available before the end of the specified duration.\n\nNote: This market refers only to the video \"Lose 150 Lbs Together, Win $250,000\" by MrBeast (see: https://www.youtube.com/watch?v=RE3_PGwDwhw).",
+    "resolutionSource": "",
+    "endDate": "2026-10-19T16:00:18Z",
+    "negRisk": true,
+    "tags": [
+     "mrbeast",
+     "pop-culture",
+     "recurring",
+     "views",
+     "youtube"
+    ],
+    "markets": [
+     {
+      "slug": "will-mrbeasts-next-video-get-less-than-84-million-views-on-day-2-20261017",
+      "question": "Will MrBeast's next video get less than 84 million views on day 2?",
+      "groupItemTitle": "<84M",
+      "groupItemThreshold": "0",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-19T16:00:18Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-84-and-88-million-views-on-day-2-20261017",
+      "question": "Will MrBeast's next video get between 84 and 88 million views on day 2?",
+      "groupItemTitle": "84-88M",
+      "groupItemThreshold": "1",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-19T16:00:18Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-88-and-92-million-views-on-day-2-20261017",
+      "question": "Will MrBeast's next video get between 88 and 92 million views on day 2?",
+      "groupItemTitle": "88-92M",
+      "groupItemThreshold": "2",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-19T16:00:18Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-92-and-96-million-views-on-day-2-20261017",
+      "question": "Will MrBeast's next video get between 92 and 96 million views on day 2?",
+      "groupItemTitle": "92-96M",
+      "groupItemThreshold": "3",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-19T16:00:18Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-96-and-100-million-views-on-day-2-20261017",
+      "question": "Will MrBeast's next video get between 96 and 100 million views on day 2?",
+      "groupItemTitle": "96-100M",
+      "groupItemThreshold": "4",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-19T16:00:18Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-100-and-104-million-views-on-day-2-20261017",
+      "question": "Will MrBeast's next video get between 100 and 104 million views on day 2?",
+      "groupItemTitle": "100-104M",
+      "groupItemThreshold": "5",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-19T16:00:18Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-104-million-or-more-views-on-day-2-20261017",
+      "question": "Will MrBeast's next video get 104 million or more views on day 2?",
+      "groupItemTitle": "104M+",
+      "groupItemThreshold": "6",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-19T16:00:18Z",
+      "resolutionSource": ""
+     }
+    ]
+   },
+   {
+    "slug": "of-views-of-next-mrbeast-video-on-week-1-higher-brackets-20261017",
+    "title": "# of views of next MrBeast video on week 1? (Higher Brackets)",
+    "description": "This market will resolve according to the number of views the YouTube video \"Lose 150 Lbs Together, Win $250,000\" by MrBeast gets in the first 7 days after being posted.\n\nIf the reported value falls exactly between two brackets, this market will resolve to the higher range bracket.\n\nIf the resolution source is not available at the end of the specified duration, this market will resolve according to most recent number of views available before the end of the specified duration.\n\nThe resolution source for this is MrBeast's YouTube channel (https://www.youtube.com/@MrBeast), specifically the 'views' counter for the described video.\n\nNote: This market refers only to the video \"Lose 150 Lbs Together, Win $250,000\" by MrBeast (see: https://www.youtube.com/watch?v=RE3_PGwDwhw).",
+    "resolutionSource": "",
+    "endDate": "2026-10-24T16:00:18Z",
+    "negRisk": true,
+    "tags": [
+     "mrbeast",
+     "pop-culture",
+     "recurring",
+     "youtube"
+    ],
+    "markets": [
+     {
+      "slug": "will-mrbeasts-next-video-get-less-than-150-million-views-on-week-1-20261017",
+      "question": "Will MrBeast's next video get less than 150 million views on week 1?",
+      "groupItemTitle": "<150M",
+      "groupItemThreshold": "0",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-24T16:00:18Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-150-and-160-million-views-on-week-1-20261017",
+      "question": "Will MrBeast's next video get between 150 and 160 million views on week 1?",
+      "groupItemTitle": "150-160M",
+      "groupItemThreshold": "1",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-24T16:00:18Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-160-and-170-million-views-on-week-1-20261017",
+      "question": "Will MrBeast's next video get between 160 and 170 million views on week 1?",
+      "groupItemTitle": "160-170M",
+      "groupItemThreshold": "2",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-24T16:00:18Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-170-and-180-million-views-on-week-1-20261017",
+      "question": "Will MrBeast's next video get between 170 and 180 million views on week 1?",
+      "groupItemTitle": "170-180M",
+      "groupItemThreshold": "3",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-24T16:00:18Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-180-and-190-million-views-on-week-1-20261017",
+      "question": "Will MrBeast's next video get between 180 and 190 million views on week 1?",
+      "groupItemTitle": "180-190M",
+      "groupItemThreshold": "4",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-24T16:00:18Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-190-and-200-million-views-on-week-1-20261017",
+      "question": "Will MrBeast's next video get between 190 and 200 million views on week 1?",
+      "groupItemTitle": "190-200M",
+      "groupItemThreshold": "5",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-24T16:00:18Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-200-million-or-more-views-on-week-1-20261017",
+      "question": "Will MrBeast's next video get 200 million or more views on week 1?",
+      "groupItemTitle": "200M+",
+      "groupItemThreshold": "6",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-24T16:00:18Z",
+      "resolutionSource": ""
+     }
+    ]
+   }
+  ],
+  "closed": [
+   {
+    "slug": "clavicular-pregnancy-in-2026",
+    "title": "Clavicular pregnancy in 2026?",
+    "description": "This market will resolve to \"Yes\" if Clavicular announces that he and a partner are expecting a baby through pregnancy between market creation and December 31, 2026, 11:59 PM ET. Otherwise, this market will resolve to \"No\".\n\nOnly credible announcements will qualify. Pregnancy announcements that are not credible, for example jokes, will not suffice. This market will resolve based on the date of announcement, regardless of when the child is born.  \n\nThe resolution source will be statements from Clavicular or his representatives; however, a definitive consensus of credible media reporting may be considered.",
+    "resolutionSource": "",
+    "endDate": "2026-12-31T00:00:00Z",
+    "negRisk": null,
+    "tags": [
+     "clavicular",
+     "kick",
+     "looksmaxxing",
+     "mog",
+     "mogging",
+     "pop-culture",
+     "youtube"
+    ],
+    "markets": [
+     {
+      "slug": "clavicular-pregnancy-in-2026",
+      "question": "Clavicular pregnancy in 2026?",
+      "groupItemTitle": "",
+      "groupItemThreshold": "0",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-12-31T00:00:00Z",
+      "resolutionSource": ""
+     }
+    ]
+   },
+   {
+    "slug": "will-mrbeast-get-married-by-december-31",
+    "title": "Will MrBeast get married by December 31?",
+    "description": "This market will resolve to \"Yes\" if Jimmy Donaldson's (aka MrBeast) marriage takes place by December 31, 2026, 11:59 PM. Otherwise, this market will resolve to \"No\".\n\nOnly announcements made within this market's timeframe will qualify. No announcements made after December 31, 2026, 11:59PM ET will be considered, even if the marriage itself is announced to have taken place within the market's timeframe.\n\nThe primary resolution source for this market will be information from MrBeast, however a consensus of credible reporting will also be used.",
+    "resolutionSource": "",
+    "endDate": "2026-12-31T00:00:00Z",
+    "negRisk": null,
+    "tags": [
+     "celebrities",
+     "mrbeast",
+     "pop-culture",
+     "youtube"
+    ],
+    "markets": [
+     {
+      "slug": "will-mrbeast-get-married-by-december-31",
+      "question": "Will MrBeast get married by December 31?",
+      "groupItemTitle": "",
+      "groupItemThreshold": "0",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-12-31T00:00:00Z",
+      "resolutionSource": ""
+     }
+    ]
+   },
+   {
+    "slug": "of-views-of-next-mrbeast-video-on-day-1-20261012",
+    "title": "# of views of next MrBeast video on day 1?",
+    "description": "This market will resolve according to the number of views the next YouTube video posted by MrBeast gets in the first 24 hours after being posted. This market may not resolve until the 24 hours are complete, regardless of whether a strike is reached earlier.\n\nIf MrBeast does not post a YouTube video by November 30, 2026, 11:59 PM ET, this market will resolve to the lowest range bracket.\n\nIf the reported value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nIf the resolution source is not available at the end of the specified duration, this market will resolve according to most recent number of views available before the end of the specified duration.\n\nThe resolution source for this market is MrBeast's YouTube channel (https://www.youtube.com/@MrBeast), specifically the 'views' counter for the described video.\n\nNote: This market refers to MrBeast's next video to be posted. Shorts, previews, or other videos released other than the referenced video will not be considered.",
+    "resolutionSource": "",
+    "endDate": "2026-12-01T04:59:00Z",
+    "negRisk": true,
+    "tags": [
+     "mrbeast",
+     "pop-culture",
+     "recurring",
+     "views",
+     "youtube"
+    ],
+    "markets": [
+     {
+      "slug": "will-mrbeasts-next-video-get-less-than-30-million-views-on-day-1-20261012",
+      "question": "Will MrBeast's next video get less than 30 million views on day 1?",
+      "groupItemTitle": "<30M",
+      "groupItemThreshold": "0",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-12-01T04:59:00Z",
+      "resolutionSource": "",
+      "description": "This market will resolve according to the number of views the next YouTube video posted by MrBeast gets in the first 24 hours after being posted. This market may not resolve until the 24 hours are complete, regardless of whether a strike is reached earlier.\n\nIf MrBeast does not post a YouTube video by November 30, 2026, 11:59 PM ET, this market will resolve to the lowest range bracket.\n\nIf the reported value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nThe resolution source for this market is MrBeast's YouTube channel (https://www.youtube.com/@MrBeast), specifically the 'views' counter for the described video.\n\nNote: This market refers to MrBeast's next video to be posted. Shorts, previews, or other videos released other than the referenced video will not be considered."
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-30-and-35-million-views-on-day-1-20261012",
+      "question": "Will MrBeast's next video get between 30 and 35 million views on day 1?",
+      "groupItemTitle": "30-35M",
+      "groupItemThreshold": "1",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-12-01T04:59:00Z",
+      "resolutionSource": "",
+      "description": "This market will resolve according to the number of views the next YouTube video posted by MrBeast gets in the first 24 hours after being posted. This market may not resolve until the 24 hours are complete, regardless of whether a strike is reached earlier.\n\nIf MrBeast does not post a YouTube video by November 30, 2026, 11:59 PM ET, this market will resolve to the lowest range bracket.\n\nIf the reported value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nThe resolution source for this market is MrBeast's YouTube channel (https://www.youtube.com/@MrBeast), specifically the 'views' counter for the described video.\n\nNote: This market refers to MrBeast's next video to be posted. Shorts, previews, or other videos released other than the referenced video will not be considered."
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-35-and-40-million-views-on-day-1-20261012",
+      "question": "Will MrBeast's next video get between 35 and 40 million views on day 1?",
+      "groupItemTitle": "35-40M",
+      "groupItemThreshold": "2",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-12-01T04:59:00Z",
+      "resolutionSource": "",
+      "description": "This market will resolve according to the number of views the next YouTube video posted by MrBeast gets in the first 24 hours after being posted. This market may not resolve until the 24 hours are complete, regardless of whether a strike is reached earlier.\n\nIf MrBeast does not post a YouTube video by November 30, 2026, 11:59 PM ET, this market will resolve to the lowest range bracket.\n\nIf the reported value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nThe resolution source for this market is MrBeast's YouTube channel (https://www.youtube.com/@MrBeast), specifically the 'views' counter for the described video.\n\nNote: This market refers to MrBeast's next video to be posted. Shorts, previews, or other videos released other than the referenced video will not be considered."
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-40-and-45-million-views-on-day-1-20261012",
+      "question": "Will MrBeast's next video get between 40 and 45 million views on day 1?",
+      "groupItemTitle": "40-45M",
+      "groupItemThreshold": "3",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-12-01T04:59:00Z",
+      "resolutionSource": "",
+      "description": "This market will resolve according to the number of views the next YouTube video posted by MrBeast gets in the first 24 hours after being posted. This market may not resolve until the 24 hours are complete, regardless of whether a strike is reached earlier.\n\nIf MrBeast does not post a YouTube video by November 30, 2026, 11:59 PM ET, this market will resolve to the lowest range bracket.\n\nIf the reported value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nThe resolution source for this market is MrBeast's YouTube channel (https://www.youtube.com/@MrBeast), specifically the 'views' counter for the described video.\n\nNote: This market refers to MrBeast's next video to be posted. Shorts, previews, or other videos released other than the referenced video will not be considered."
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-45-and-50-million-views-on-day-1-20261012",
+      "question": "Will MrBeast's next video get between 45 and 50 million views on day 1?",
+      "groupItemTitle": "45-50M",
+      "groupItemThreshold": "4",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-12-01T04:59:00Z",
+      "resolutionSource": "",
+      "description": "This market will resolve according to the number of views the next YouTube video posted by MrBeast gets in the first 24 hours after being posted. This market may not resolve until the 24 hours are complete, regardless of whether a strike is reached earlier.\n\nIf MrBeast does not post a YouTube video by November 30, 2026, 11:59 PM ET, this market will resolve to the lowest range bracket.\n\nIf the reported value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nThe resolution source for this market is MrBeast's YouTube channel (https://www.youtube.com/@MrBeast), specifically the 'views' counter for the described video.\n\nNote: This market refers to MrBeast's next video to be posted. Shorts, previews, or other videos released other than the referenced video will not be considered."
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-50-and-55-million-views-on-day-1-20261012",
+      "question": "Will MrBeast's next video get between 50 and 55 million views on day 1?",
+      "groupItemTitle": "50-55M",
+      "groupItemThreshold": "5",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-12-01T04:59:00Z",
+      "resolutionSource": "",
+      "description": "This market will resolve according to the number of views the next YouTube video posted by MrBeast gets in the first 24 hours after being posted. This market may not resolve until the 24 hours are complete, regardless of whether a strike is reached earlier.\n\nIf MrBeast does not post a YouTube video by November 30, 2026, 11:59 PM ET, this market will resolve to the lowest range bracket.\n\nIf the reported value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nThe resolution source for this market is MrBeast's YouTube channel (https://www.youtube.com/@MrBeast), specifically the 'views' counter for the described video.\n\nNote: This market refers to MrBeast's next video to be posted. Shorts, previews, or other videos released other than the referenced video will not be considered."
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-55-and-60-million-views-on-day-1-20261012",
+      "question": "Will MrBeast's next video get between 55 and 60 million views on day 1?",
+      "groupItemTitle": "55-60M",
+      "groupItemThreshold": "6",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-12-01T04:59:00Z",
+      "resolutionSource": "",
+      "description": "This market will resolve according to the number of views the next YouTube video posted by MrBeast gets in the first 24 hours after being posted. This market may not resolve until the 24 hours are complete, regardless of whether a strike is reached earlier.\n\nIf MrBeast does not post a YouTube video by November 30, 2026, 11:59 PM ET, this market will resolve to the lowest range bracket.\n\nIf the reported value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nThe resolution source for this market is MrBeast's YouTube channel (https://www.youtube.com/@MrBeast), specifically the 'views' counter for the described video.\n\nNote: This market refers to MrBeast's next video to be posted. Shorts, previews, or other videos released other than the referenced video will not be considered."
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-at-least-60-million-views-on-day-1-20261012",
+      "question": "Will MrBeast's next video get at least 60 million views on day 1?",
+      "groupItemTitle": "60M+",
+      "groupItemThreshold": "7",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-12-01T04:59:00Z",
+      "resolutionSource": "",
+      "description": "This market will resolve according to the number of views the next YouTube video posted by MrBeast gets in the first 24 hours after being posted. This market may not resolve until the 24 hours are complete, regardless of whether a strike is reached earlier.\n\nIf MrBeast does not post a YouTube video by November 30, 2026, 11:59 PM ET, this market will resolve to the lowest range bracket.\n\nIf the reported value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nThe resolution source for this market is MrBeast's YouTube channel (https://www.youtube.com/@MrBeast), specifically the 'views' counter for the described video.\n\nNote: This market refers to MrBeast's next video to be posted. Shorts, previews, or other videos released other than the referenced video will not be considered."
+     }
+    ]
+   },
+   {
+    "slug": "what-will-mrbeast-say-during-his-next-gaming-youtube-video-20261006222126545",
+    "title": "What will MrBeast say during his next gaming YouTube video?",
+    "description": "MrBeast Gaming releases videos on https://www.youtube.com/@MrBeastGaming.\n\nThis market will resolve to \"Yes\" if MrBeast says the listed term during the next video he releases on his gaming channel on YouTube. Otherwise, the market will resolve to \"No\".\n\nIf no such video is posted by MrBeast by November 30, 2026, 11:59 PM ET, \"-No Qualifying Event-\" will resolve to \"Yes\" and all other brackets will resolve to \"No\".\n\nThe resolution source will be the released video from (https://www.youtube.com/@MrBeastGaming).\n\nNote: This market refers to MrBeast's next gaming video posted. Shorts, previews, or other videos released other than the referenced video will not be considered.\n\nFor full rules, see: https://polymarket-upload.s3.us-east-2.amazonaws.com/market_products/Mentions/Event+Mentions+Contract+DeFi.pdf",
+    "resolutionSource": "",
+    "endDate": "2026-11-30T23:59:00Z",
+    "negRisk": false,
+    "tags": [
+     "mention-markets",
+     "mrbeast",
+     "pop-culture",
+     "recurring",
+     "youtube"
+    ],
+    "markets": [
+     {
+      "slug": "will-mrbeast-say-minecraft-during-his-next-gaming-youtube-video-20261006222126545",
+      "question": "Will MrBeast say \"Minecraft\" during his next gaming YouTube video?",
+      "groupItemTitle": "Minecraft",
+      "groupItemThreshold": "0",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-11-30T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-say-gta-or-grand-theft-auto-during-his-next-gaming-youtube-video-20261006222126545",
+      "question": "Will MrBeast say \"GTA\" or \"Grand Theft Auto\" during his next gaming YouTube video?",
+      "groupItemTitle": "GTA / Grand Theft Auto",
+      "groupItemThreshold": "1",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-11-30T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-say-chameleon-during-his-next-gaming-youtube-video-20261006222126545",
+      "question": "Will MrBeast say \"Chameleon\" during his next gaming YouTube video?",
+      "groupItemTitle": "Chameleon",
+      "groupItemThreshold": "2",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-11-30T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-say-karl-during-his-next-gaming-youtube-video-20261006222126545",
+      "question": "Will MrBeast say \"Karl\" during his next gaming YouTube video?",
+      "groupItemTitle": "Karl",
+      "groupItemThreshold": "3",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-11-30T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-say-chandler-during-his-next-gaming-youtube-video-20261006222126545",
+      "question": "Will MrBeast say \"Chandler\" during his next gaming YouTube video?",
+      "groupItemTitle": "Chandler",
+      "groupItemThreshold": "4",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-11-30T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-say-dream-during-his-next-gaming-youtube-video-20261006222126545",
+      "question": "Will MrBeast say \"Dream\" during his next gaming YouTube video?",
+      "groupItemTitle": "Dream",
+      "groupItemThreshold": "5",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-11-30T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-say-build-during-his-next-gaming-youtube-video-20261006222126545",
+      "question": "Will MrBeast say \"Build\" during his next gaming YouTube video?",
+      "groupItemTitle": "Build",
+      "groupItemThreshold": "6",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-11-30T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-say-fight-during-his-next-gaming-youtube-video-20261006222126545",
+      "question": "Will MrBeast say \"Fight\" during his next gaming YouTube video?",
+      "groupItemTitle": "Fight",
+      "groupItemThreshold": "7",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-11-30T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-say-race-during-his-next-gaming-youtube-video-20261006222126545",
+      "question": "Will MrBeast say \"Race\" during his next gaming YouTube video?",
+      "groupItemTitle": "Race",
+      "groupItemThreshold": "8",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-11-30T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-say-hide-or-find-during-his-next-gaming-youtube-video-20261006222126545",
+      "question": "Will MrBeast say \"Hide\" or \"Find\" during his next gaming YouTube video?",
+      "groupItemTitle": "Hide / Find",
+      "groupItemThreshold": "9",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-11-30T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-say-prize-during-his-next-gaming-youtube-video-20261006222126545",
+      "question": "Will MrBeast say \"Prize\" during his next gaming YouTube video?",
+      "groupItemTitle": "Prize",
+      "groupItemThreshold": "10",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-11-30T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-say-contestant-during-his-next-gaming-youtube-video-20261006222126545",
+      "question": "Will MrBeast say \"Contestant\" during his next gaming YouTube video?",
+      "groupItemTitle": "Contestant",
+      "groupItemThreshold": "11",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-11-30T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-say-feastable-or-feastables-during-his-next-gaming-youtube-video-20261006222126545",
+      "question": "Will MrBeast say \"Feastable\" or \"Feastables\" during his next gaming YouTube video?",
+      "groupItemTitle": "Feastable / Feastables",
+      "groupItemThreshold": "12",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-11-30T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-no-mrbeast-gaming-video-be-posted-20261006222126545",
+      "question": "Will no MrBeast gaming video be posted?",
+      "groupItemTitle": "-No Qualifying Event-",
+      "groupItemThreshold": "13",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-11-30T23:59:00Z",
+      "resolutionSource": ""
+     }
+    ]
+   },
+   {
+    "slug": "what-will-mrbeast-say-during-his-next-gaming-youtube-video-20260926",
+    "title": "What will MrBeast say during his next gaming YouTube video?",
+    "description": "MrBeast Gaming releases videos on https://www.youtube.com/@MrBeastGaming.\n\nThis market will resolve to \"Yes\" if MrBeast says the listed term during the next video he releases on his gaming channel on YouTube. Otherwise, the market will resolve to \"No\".\n\nIf no such video is posted by MrBeast by October 31, 2026, 11:59 PM ET, \"-No Qualifying Event-\" will resolve to \"Yes\" and all other brackets will resolve to \"No\".\n\nThe resolution source will be the released video from (https://www.youtube.com/@MrBeastGaming).\n\nNote: This market refers to MrBeast's next gaming video posted. Shorts, previews, or other videos released other than the referenced video will not be considered.\n\nFor full rules, see: https://polymarket-upload.s3.us-east-2.amazonaws.com/market_products/Mentions/Event+Mentions+Contract+DeFi.pdf",
+    "resolutionSource": "",
+    "endDate": "2026-10-31T23:59:00Z",
+    "negRisk": false,
+    "tags": [
+     "mention-markets",
+     "mrbeast",
+     "pop-culture",
+     "recurring",
+     "youtube"
+    ],
+    "markets": [
+     {
+      "slug": "will-mrbeast-say-minecraft-during-his-next-gaming-youtube-video-20260926",
+      "question": "Will MrBeast say \"Minecraft\" during his next gaming YouTube video?",
+      "groupItemTitle": "Minecraft",
+      "groupItemThreshold": "0",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-31T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/@MrBeastGaming"
+     },
+     {
+      "slug": "will-mrbeast-say-gta-or-grand-theft-auto-during-his-next-gaming-youtube-video-20260926",
+      "question": "Will MrBeast say \"GTA\" or \"Grand Theft Auto\" during his next gaming YouTube video?",
+      "groupItemTitle": "GTA / Grand Theft Auto",
+      "groupItemThreshold": "1",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-31T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/@MrBeastGaming"
+     },
+     {
+      "slug": "will-mrbeast-say-chameleon-during-his-next-gaming-youtube-video-20260926",
+      "question": "Will MrBeast say \"Chameleon\" during his next gaming YouTube video?",
+      "groupItemTitle": "Chameleon",
+      "groupItemThreshold": "2",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-31T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/@MrBeastGaming"
+     },
+     {
+      "slug": "will-mrbeast-say-karl-during-his-next-gaming-youtube-video-20260926",
+      "question": "Will MrBeast say \"Karl\" during his next gaming YouTube video?",
+      "groupItemTitle": "Karl",
+      "groupItemThreshold": "3",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-31T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/@MrBeastGaming"
+     },
+     {
+      "slug": "will-mrbeast-say-chandler-during-his-next-gaming-youtube-video-20260926",
+      "question": "Will MrBeast say \"Chandler\" during his next gaming YouTube video?",
+      "groupItemTitle": "Chandler",
+      "groupItemThreshold": "4",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-31T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/@MrBeastGaming"
+     },
+     {
+      "slug": "will-mrbeast-say-dream-during-his-next-gaming-youtube-video-20260926",
+      "question": "Will MrBeast say \"Dream\" during his next gaming YouTube video?",
+      "groupItemTitle": "Dream",
+      "groupItemThreshold": "5",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-31T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/@MrBeastGaming"
+     },
+     {
+      "slug": "will-mrbeast-say-build-during-his-next-gaming-youtube-video-20260926",
+      "question": "Will MrBeast say \"Build\" during his next gaming YouTube video?",
+      "groupItemTitle": "Build",
+      "groupItemThreshold": "6",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-31T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/@MrBeastGaming"
+     },
+     {
+      "slug": "will-mrbeast-say-fight-during-his-next-gaming-youtube-video-20260926",
+      "question": "Will MrBeast say \"Fight\" during his next gaming YouTube video?",
+      "groupItemTitle": "Fight",
+      "groupItemThreshold": "7",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-31T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/@MrBeastGaming"
+     },
+     {
+      "slug": "will-mrbeast-say-race-during-his-next-gaming-youtube-video-20260926",
+      "question": "Will MrBeast say \"Race\" during his next gaming YouTube video?",
+      "groupItemTitle": "Race",
+      "groupItemThreshold": "8",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-31T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/@MrBeastGaming"
+     },
+     {
+      "slug": "will-mrbeast-say-hide-or-find-during-his-next-gaming-youtube-video-20260926",
+      "question": "Will MrBeast say \"Hide\" or \"Find\" during his next gaming YouTube video?",
+      "groupItemTitle": "Hide / Find",
+      "groupItemThreshold": "9",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-31T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/@MrBeastGaming"
+     },
+     {
+      "slug": "will-mrbeast-say-prize-during-his-next-gaming-youtube-video-20260926",
+      "question": "Will MrBeast say \"Prize\" during his next gaming YouTube video?",
+      "groupItemTitle": "Prize",
+      "groupItemThreshold": "10",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-31T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/@MrBeastGaming"
+     },
+     {
+      "slug": "will-mrbeast-say-contestant-during-his-next-gaming-youtube-video-20260926",
+      "question": "Will MrBeast say \"Contestant\" during his next gaming YouTube video?",
+      "groupItemTitle": "Contestant",
+      "groupItemThreshold": "11",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-31T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/@MrBeastGaming"
+     },
+     {
+      "slug": "will-mrbeast-say-feastable-or-feastables-during-his-next-gaming-youtube-video-20260926",
+      "question": "Will MrBeast say \"Feastable\" or \"Feastables\" during his next gaming YouTube video?",
+      "groupItemTitle": "Feastable / Feastables",
+      "groupItemThreshold": "12",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-31T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/@MrBeastGaming"
+     },
+     {
+      "slug": "will-no-mrbeast-gaming-video-be-posted-20260926",
+      "question": "Will no MrBeast gaming video be posted?",
+      "groupItemTitle": "-No Qualifying Event-",
+      "groupItemThreshold": "13",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-31T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/@MrBeastGaming"
+     }
+    ]
+   },
+   {
+    "slug": "what-will-be-said-on-the-first-joe-rogan-experience-episode-of-the-week-october-12",
+    "title": "What will be said on the first Joe Rogan Experience episode of the week? (October 12)",
+    "description": "The Joe Rogan Experience podcast releases episodes on https://www.youtube.com/@joerogan.\n\nThis market will resolve to \"Yes\" if the listed term is mentioned by anyone during the first released episode of the Joe Rogan Experience Podcast between October 12, 2026 and October 18, 2026. Otherwise, the market will resolve to \"No\".\n\nIf no such episode of the Joe Rogan Experience Podcast is aired by October 18, 2026, 11:59 PM ET, \"-No Qualifying Event-\" will resolve to \"Yes\" and all other brackets will resolve to \"No\". \n\nJRE MMA Show episodes will not count for this market, only Joe Rogan Experience episodes.\n\nThe resolution source will be the specified episode from (https://www.youtube.com/@joerogan).\n\nFor full rules, see: https://polymarket-upload.s3.us-east-2.amazonaws.com/market_products/Mentions/Event+Mentions+Contract+DeFi.pdf",
+    "resolutionSource": "",
+    "endDate": "2026-10-19T03:59:00Z",
+    "negRisk": false,
+    "tags": [
+     "joe-rogan",
+     "mention-markets",
+     "podcast",
+     "politics",
+     "pop-culture",
+     "recurring",
+     "rogan",
+     "youtube"
+    ],
+    "markets": [
+     {
+      "slug": "will-people-100-be-said-during-the-first-joe-rogan-experience-of-the-week-of-october-12",
+      "question": "Will \"People\" be said 100+ times during the first Joe Rogan Experience of the week of October 12?",
+      "groupItemTitle": "People 100+ times",
+      "groupItemThreshold": "0",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-19T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-dude-20-be-said-during-the-first-joe-rogan-experience-of-the-week-of-october-12",
+      "question": "Will \"Dude\" be said 20+ times during the first Joe Rogan Experience of the week of October 12?",
+      "groupItemTitle": "Dude 20+ times",
+      "groupItemThreshold": "1",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-19T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-hundred-10-be-said-during-the-first-joe-rogan-experience-of-the-week-of-october-12",
+      "question": "Will \"Hundred\" or \"Thousand\" or \"Million\" be said 10+ times during the first Joe Rogan Experience of the week of October 12?",
+      "groupItemTitle": "Hundred / Thousand / Million 10+ times",
+      "groupItemThreshold": "2",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-19T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-fuck-10-be-said-during-the-first-joe-rogan-experience-of-the-week-of-october-12",
+      "question": "Will \"Fuck\" or \"Fucking\" be said 10+ times during the first Joe Rogan Experience of the week of October 12?",
+      "groupItemTitle": "Fuck / Fucking 10+ times",
+      "groupItemThreshold": "3",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-19T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-shit-5-be-said-during-the-first-joe-rogan-experience-of-the-week-of-october-12",
+      "question": "Will \"Shit\" be said 5+ times during the first Joe Rogan Experience of the week of October 12?",
+      "groupItemTitle": "Shit 5+ times",
+      "groupItemThreshold": "4",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-19T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-right-be-said-5-times-during-the-first-joe-rogan-experience-of-the-week-of-october-12",
+      "question": "Will \"Right\" be said 5+ times during the first Joe Rogan Experience of the week of October 12?",
+      "groupItemTitle": "Right 5+ times",
+      "groupItemThreshold": "5",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-19T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-buddy-of-mine-be-said-during-the-first-joe-rogan-experience-of-the-week-of-october-12",
+      "question": "Will \"Buddy of Mine\" be said during the first Joe Rogan Experience of the week of October 12?",
+      "groupItemTitle": "Buddy of Mine",
+      "groupItemThreshold": "6",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-19T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-dmt-be-said-during-the-first-joe-rogan-experience-of-the-week-of-october-12",
+      "question": "Will \"DMT\" be said during the first Joe Rogan Experience of the week of October 12?",
+      "groupItemTitle": "DMT",
+      "groupItemThreshold": "7",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-19T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-alien-be-said-during-the-first-joe-rogan-experience-of-the-week-of-october-12",
+      "question": "Will \"Alien\" be said during the first Joe Rogan Experience of the week of October 12?",
+      "groupItemTitle": "Alien",
+      "groupItemThreshold": "8",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-19T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-chimp-be-said-during-the-first-joe-rogan-experience-of-the-week-of-october-12",
+      "question": "Will \"Chimp\" or \"Monkey\" be said during the first Joe Rogan Experience of the week of October 12?",
+      "groupItemTitle": "Chimp / Monkey",
+      "groupItemThreshold": "9",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-19T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-elon-be-said-during-the-first-joe-rogan-experience-of-the-week-of-october-12",
+      "question": "Will \"Elon\" or \"Musk\" be said during the first Joe Rogan Experience of the week of October 12?",
+      "groupItemTitle": "Elon / Musk",
+      "groupItemThreshold": "10",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-19T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-bill-gates-be-said-during-the-first-joe-rogan-experience-of-the-week-of-october-12",
+      "question": "Will \"Bill Gates\" be said during the first Joe Rogan Experience of the week of October 12?",
+      "groupItemTitle": "Bill Gates",
+      "groupItemThreshold": "11",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-19T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-preposterous-be-said-during-the-first-joe-rogan-experience-of-the-week-of-october-12",
+      "question": "Will \"Preposterous\" be said during the first Joe Rogan Experience of the week of October 12?",
+      "groupItemTitle": "Preposterous",
+      "groupItemThreshold": "12",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-19T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-no-rogan-episode-air-20261018",
+      "question": "Will no Rogan episode air?",
+      "groupItemTitle": "-No Qualifying Event-",
+      "groupItemThreshold": "13",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-19T03:59:00Z",
+      "resolutionSource": ""
+     }
+    ]
+   },
+   {
+    "slug": "of-views-of-grand-theft-auto-vi-launch-trailer-on-day-2",
+    "title": "# of views of Grand Theft Auto VI Launch Trailer on day 2?",
+    "description": "This market will resolve according to the number of views the Grand Theft Auto VI Launch Trailer video gets in the first 48 hours after being posted on the Rockstar Games YouTube channel. This market may not resolve until the 48 hours are complete, regardless of whether a strike is reached earlier.\n\nIf the reported value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nThe resolution source for this market is Rockstar Games' YouTube channel (https://www.youtube.com/@RockstarGames), specifically the 'views' counter for the described video.\n\nIf the resolution source is not available at the end of the specified duration, this market will resolve according to most recent number of views available before the end of the specified duration.\n\nNote: This market refers only to the \"Grand Theft Auto VI Launch Trailer\" video posted by Rockstar Games (see: https://www.youtube.com/watch?v=rz1B4B2yBZY).",
+    "resolutionSource": "https://www.youtube.com/watch?v=rz1B4B2yBZY",
+    "endDate": "2026-10-18T03:59:00Z",
+    "negRisk": true,
+    "tags": [
+     "gta-vi",
+     "pop-culture",
+     "rockstar",
+     "youtube"
+    ],
+    "markets": [
+     {
+      "slug": "will-grand-theft-auto-vi-launch-trailer-get-less-than-30-million-views-on-day-2",
+      "question": "Will \"Grand Theft Auto VI Launch Trailer\" get less than 30 million views on day 2?",
+      "groupItemTitle": "<30M",
+      "groupItemThreshold": "0",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-18T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=rz1B4B2yBZY"
+     },
+     {
+      "slug": "will-grand-theft-auto-vi-launch-trailer-get-between-30-and-32-million-views-on-day-2",
+      "question": "Will \"Grand Theft Auto VI Launch Trailer\" get between 30 and 32 million views on day 2?",
+      "groupItemTitle": "30-32M",
+      "groupItemThreshold": "1",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-18T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=rz1B4B2yBZY"
+     },
+     {
+      "slug": "will-grand-theft-auto-vi-launch-trailer-get-between-32-and-34-million-views-on-day-2",
+      "question": "Will \"Grand Theft Auto VI Launch Trailer\" get between 32 and 34 million views on day 2?",
+      "groupItemTitle": "32-34M",
+      "groupItemThreshold": "2",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-18T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=rz1B4B2yBZY"
+     },
+     {
+      "slug": "will-grand-theft-auto-vi-launch-trailer-get-between-34-and-36-million-views-on-day-2",
+      "question": "Will \"Grand Theft Auto VI Launch Trailer\" get between 34 and 36 million views on day 2?",
+      "groupItemTitle": "34-36M",
+      "groupItemThreshold": "3",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-18T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=rz1B4B2yBZY"
+     },
+     {
+      "slug": "will-grand-theft-auto-vi-launch-trailer-get-between-36-and-38-million-views-on-day-2",
+      "question": "Will \"Grand Theft Auto VI Launch Trailer\" get between 36 and 38 million views on day 2?",
+      "groupItemTitle": "36-38M",
+      "groupItemThreshold": "4",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-18T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=rz1B4B2yBZY"
+     },
+     {
+      "slug": "will-grand-theft-auto-vi-launch-trailer-get-between-38-and-40-million-views-on-day-2",
+      "question": "Will \"Grand Theft Auto VI Launch Trailer\" get between 38 and 40 million views on day 2?",
+      "groupItemTitle": "38-40M",
+      "groupItemThreshold": "5",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-18T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=rz1B4B2yBZY"
+     },
+     {
+      "slug": "will-grand-theft-auto-vi-launch-trailer-get-at-least-40-million-views-on-day-2",
+      "question": "Will \"Grand Theft Auto VI Launch Trailer\" get at least 40 million views on day 2?",
+      "groupItemTitle": "40M+",
+      "groupItemThreshold": "6",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-18T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=rz1B4B2yBZY"
+     }
+    ]
+   },
+   {
+    "slug": "what-will-mrbeast-say-during-his-next-youtube-video-20261017",
+    "title": "What will MrBeast say during his next YouTube video?",
+    "description": "MrBeast releases videos on https://www.youtube.com/@MrBeast.\n\nThis market will resolve to \"Yes\" if Mr Beast says the listed term during the next video he releases on YouTube. Otherwise, the market will resolve to \"No\".\n\nIf no such video is posted by MrBeast by November 30, 2026, 11:59 PM ET, \"-No Qualifying Event-\" will resolve to \"Yes\" and all other brackets will resolve to \"No\".\n\nThe resolution source will be the released video from (https://www.youtube.com/@MrBeast).\n\nNote: This market refers to MrBeast's next video posted. Shorts, previews, or other videos released other than the referenced video will not be considered.\n\nFor full rules, see:  https://polymarket-upload.s3.us-east-2.amazonaws.com/market_products/Mentions/Event+Mentions+Contract+DeFi.pdf",
+    "resolutionSource": "",
+    "endDate": "2026-10-18T03:59:00Z",
+    "negRisk": false,
+    "tags": [
+     "internet",
+     "mention-markets",
+     "mrbeast",
+     "pop-culture",
+     "recurring",
+     "youtube"
+    ],
+    "markets": [
+     {
+      "slug": "will-mrbeast-say-hundred-during-his-next-video-20261017",
+      "question": "Will MrBeast say \"Hundred\" or \"Thousand\" or \"Million\" 10+ times during his next video?",
+      "groupItemTitle": "Hundred / Thousand / Million 10+ times",
+      "groupItemThreshold": "0",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-18T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-say-dollar-during-his-next-video-20261017",
+      "question": "Will MrBeast say \"Dollar\" 10+ times during his next video?",
+      "groupItemTitle": "Dollar 10+ times",
+      "groupItemThreshold": "1",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-18T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-say-feastable-during-his-next-video-20261017",
+      "question": "Will MrBeast say \"Feastable\" or \"Feastables\" during his next video?",
+      "groupItemTitle": "Feastable / Feastables",
+      "groupItemThreshold": "2",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-18T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-say-insane-during-his-next-video-20261017",
+      "question": "Will MrBeast say \"Insane\" during his next video?",
+      "groupItemTitle": "Insane",
+      "groupItemThreshold": "3",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-18T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-say-challenge-during-his-next-video-20261017",
+      "question": "Will MrBeast say \"Challenge\" during his next video?",
+      "groupItemTitle": "Challenge",
+      "groupItemThreshold": "4",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-18T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-say-contestant-during-his-next-video-20261017",
+      "question": "Will MrBeast say \"Contestant\" during his next video?",
+      "groupItemTitle": "Contestant",
+      "groupItemThreshold": "5",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-18T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-say-karl-during-his-next-video-20261017",
+      "question": "Will MrBeast say \"Karl\" during his next video?",
+      "groupItemTitle": "Karl",
+      "groupItemThreshold": "6",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-18T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-say-huge-during-his-next-video-20261017",
+      "question": "Will MrBeast say \"Huge\" during his next video?",
+      "groupItemTitle": "Huge",
+      "groupItemThreshold": "7",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-18T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-say-sponsor-during-his-next-video-20261017",
+      "question": "Will MrBeast say \"Sponsor\" or \"Sponsored\" during his next video?",
+      "groupItemTitle": "Sponsor / Sponsored",
+      "groupItemThreshold": "8",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-18T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-say-subscribe-during-his-next-video-20261017",
+      "question": "Will MrBeast say \"Subscribe\" or \"Subscribes\" during his next video?",
+      "groupItemTitle": "Subscribe / Subscribes",
+      "groupItemThreshold": "9",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-18T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-say-ai-during-his-next-video-20261017",
+      "question": "Will MrBeast say \"AI\" or \"Artificial Intelligence\" during his next video?",
+      "groupItemTitle": "AI / Artificial Intelligence",
+      "groupItemThreshold": "10",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-18T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-say-africa-during-his-next-video-20261017",
+      "question": "Will MrBeast say \"Africa\" during his next video?",
+      "groupItemTitle": "Africa",
+      "groupItemThreshold": "11",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-18T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-not-post-a-video-20261017",
+      "question": "Will no video be posted?",
+      "groupItemTitle": "-No Qualifying Event-",
+      "groupItemThreshold": "12",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-18T03:59:00Z",
+      "resolutionSource": ""
+     }
+    ]
+   },
+   {
+    "slug": "of-views-of-next-mrbeast-video-on-week-2-20261003",
+    "title": "# of views of next MrBeast video on week 2?",
+    "description": "This market will resolve according to the number of views the most recent YouTube video posted by MrBeast gets in the first 14 days after being posted.\n\nIf the reported value falls exactly between two brackets, this market will resolve to the higher range bracket.\n\nIf the resolution source is not available at the end of the specified duration, this market will resolve according to most recent number of views available before the end of the specified duration.\n\nThe resolution source for this is MrBeast's YouTube channel (https://www.youtube.com/@MrBeast), specifically the 'views' counter for the described video.\n\nNote: This market refers only to the video \"Eat Everything In A Grocery Store, Win $1,000,000\" by MrBeast (see: https://www.youtube.com/watch?v=plN7JMbadRg).",
+    "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg",
+    "endDate": "2026-10-18T03:59:00Z",
+    "negRisk": true,
+    "tags": [
+     "mrbeast",
+     "pop-culture",
+     "recurring",
+     "youtube"
+    ],
+    "markets": [
+     {
+      "slug": "will-mrbeasts-next-video-get-less-than-250-million-views-on-week-2-20261003",
+      "question": "Will MrBeast's next video get less than 250 million views on week 2?",
+      "groupItemTitle": "<250M",
+      "groupItemThreshold": "0",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-18T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-250-and-260-million-views-on-week-2-20261003",
+      "question": "Will MrBeast's next video get between 250 and 260 million views on week 2?",
+      "groupItemTitle": "250-260M",
+      "groupItemThreshold": "1",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-18T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-260-and-270-million-views-on-week-2-20261003",
+      "question": "Will MrBeast's next video get between 260 and 270 million views on week 2?",
+      "groupItemTitle": "260-270M",
+      "groupItemThreshold": "2",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-18T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-270-and-280-million-views-on-week-2-20261003",
+      "question": "Will MrBeast's next video get between 270 and 280 million views on week 2?",
+      "groupItemTitle": "270-280M",
+      "groupItemThreshold": "3",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-18T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-280-and-290-million-views-on-week-2-20261003",
+      "question": "Will MrBeast's next video get between 280 and 290 million views on week 2?",
+      "groupItemTitle": "280-290M",
+      "groupItemThreshold": "4",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-18T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-290-and-300-million-views-on-week-2-20261003",
+      "question": "Will MrBeast's next video get between 290 and 300 million views on week 2?",
+      "groupItemTitle": "290-300M",
+      "groupItemThreshold": "5",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-18T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-300-and-310-million-views-on-week-2-20261003",
+      "question": "Will MrBeast's next video get between 300 and 310 million views on week 2?",
+      "groupItemTitle": "300-310M",
+      "groupItemThreshold": "6",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-18T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-at-least-310-million-views-on-week-2-20261003",
+      "question": "Will MrBeast's next video get at least 310 million views on week 2?",
+      "groupItemTitle": "310M+",
+      "groupItemThreshold": "7",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-18T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     }
+    ]
+   },
+   {
+    "slug": "of-views-of-mrbeast-gaming-video-week-1-20261010",
+    "title": "# of views of MrBeast Gaming video week 1?",
+    "description": "This market will resolve according to the number of views the next YouTube video posted by MrBeast Gaming gets in the first 168 hours after being posted. This market may not resolve until the 168 hours are complete, regardless of whether a strike is reached earlier.\n\nIf MrBeast Gaming does not post a YouTube video by October 31, 2026, 11:59 PM ET, this market will resolve to the lowest range bracket.\n\nIf the reported value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nThe resolution source for this market is MrBeast Gaming's YouTube channel (https://www.youtube.com/@MrBeastGaming), specifically the 'views' counter for the described video.\n\nNote: This market refers to MrBeast Gaming's next video to be posted. Shorts, previews, or other videos released other than the referenced video will not be considered.",
+    "resolutionSource": "",
+    "endDate": "2026-10-18T03:59:00Z",
+    "negRisk": true,
+    "tags": [
+     "gaming",
+     "mrbeast",
+     "pop-culture",
+     "recurring",
+     "views",
+     "youtube"
+    ],
+    "markets": [
+     {
+      "slug": "will-mrbeast-gamings-next-video-get-less-than-25-million-views-in-week-1-20261010",
+      "question": "Will MrBeast Gaming's next video get less than 25 million views in week 1?",
+      "groupItemTitle": "<25M",
+      "groupItemThreshold": "0",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-18T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-gamings-next-video-get-between-25-and-30-million-views-in-week-1-20261010",
+      "question": "Will MrBeast Gaming's next video get between 25 and 30 million views in week 1?",
+      "groupItemTitle": "25–30M",
+      "groupItemThreshold": "1",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-18T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-gamings-next-video-get-between-30-and-35-million-views-in-week-1-20261010",
+      "question": "Will MrBeast Gaming's next video get between 30 and 35 million views in week 1?",
+      "groupItemTitle": "30–35M",
+      "groupItemThreshold": "2",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-18T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-gamings-next-video-get-between-35-and-40-million-views-in-week-1-20261010",
+      "question": "Will MrBeast Gaming's next video get between 35 and 40 million views in week 1?",
+      "groupItemTitle": "35–40M",
+      "groupItemThreshold": "3",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-18T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-gamings-next-video-get-between-40-and-45-million-views-in-week-1-20261010",
+      "question": "Will MrBeast Gaming's next video get between 40 and 45 million views in week 1?",
+      "groupItemTitle": "40–45M",
+      "groupItemThreshold": "4",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-18T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-gamings-next-video-get-between-45-and-50-million-views-in-week-1-20261010",
+      "question": "Will MrBeast Gaming's next video get between 45 and 50 million views in week 1?",
+      "groupItemTitle": "45–50M",
+      "groupItemThreshold": "5",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-18T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-gamings-next-video-get-between-50-and-55-million-views-in-week-1-20261010",
+      "question": "Will MrBeast Gaming's next video get between 50 and 55 million views in week 1?",
+      "groupItemTitle": "50–55M",
+      "groupItemThreshold": "6",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-18T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-gamings-next-video-get-55-million-or-more-views-in-week-1-20261010",
+      "question": "Will MrBeast Gaming's next video get 55 million or more views in week 1?",
+      "groupItemTitle": "55M+",
+      "groupItemThreshold": "7",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-18T03:59:00Z",
+      "resolutionSource": ""
+     }
+    ]
+   },
+   {
+    "slug": "of-views-of-grand-theft-auto-vi-launch-trailer-on-day-1-lower-strikes",
+    "title": "# of views of Grand Theft Auto VI Launch Trailer on day 1? (Lower Strikes)",
+    "description": "This market will resolve according to the number of views the Grand Theft Auto VI Launch Trailer video gets in the first 24 hours after being posted on the Rockstar Games YouTube channel. This market may not resolve until the 24 hours are complete, regardless of whether a strike is reached earlier.\n\nIf the reported value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nThe resolution source for this market is Rockstar Games' YouTube channel (https://www.youtube.com/@RockstarGames), specifically the 'views' counter for the described video.\n\nNote: This market refers only to the \"Grand Theft Auto VI Launch Trailer\" video posted by Rockstar Games (see: https://www.youtube.com/watch?v=rz1B4B2yBZY).",
+    "resolutionSource": "https://www.youtube.com/watch?v=rz1B4B2yBZY",
+    "endDate": "2026-10-17T03:59:00Z",
+    "negRisk": true,
+    "tags": [
+     "gta-vi",
+     "pop-culture",
+     "rockstar",
+     "youtube"
+    ],
+    "markets": [
+     {
+      "slug": "will-grand-theft-auto-vi-launch-trailer-get-less-than-12-million-views-on-day-1",
+      "question": "Will \"Grand Theft Auto VI Launch Trailer\" get less than 12 million views on day 1?",
+      "groupItemTitle": "<12M",
+      "groupItemThreshold": "0",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-17T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=rz1B4B2yBZY"
+     },
+     {
+      "slug": "will-grand-theft-auto-vi-launch-trailer-get-between-12-and-13-million-views-on-day-1",
+      "question": "Will \"Grand Theft Auto VI Launch Trailer\" get between 12 and 13 million views on day 1?",
+      "groupItemTitle": "12-13M",
+      "groupItemThreshold": "1",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-17T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=rz1B4B2yBZY"
+     },
+     {
+      "slug": "will-grand-theft-auto-vi-launch-trailer-get-between-13-and-14-million-views-on-day-1",
+      "question": "Will \"Grand Theft Auto VI Launch Trailer\" get between 13 and 14 million views on day 1?",
+      "groupItemTitle": "13-14M",
+      "groupItemThreshold": "2",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-17T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=rz1B4B2yBZY"
+     },
+     {
+      "slug": "will-grand-theft-auto-vi-launch-trailer-get-between-14-and-15-million-views-on-day-1",
+      "question": "Will \"Grand Theft Auto VI Launch Trailer\" get between 14 and 15 million views on day 1?",
+      "groupItemTitle": "14-15M",
+      "groupItemThreshold": "3",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-17T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=rz1B4B2yBZY"
+     },
+     {
+      "slug": "will-grand-theft-auto-vi-launch-trailer-get-between-15-and-16-million-views-on-day-1",
+      "question": "Will \"Grand Theft Auto VI Launch Trailer\" get between 15 and 16 million views on day 1?",
+      "groupItemTitle": "15-16M",
+      "groupItemThreshold": "4",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-17T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=rz1B4B2yBZY"
+     },
+     {
+      "slug": "will-grand-theft-auto-vi-launch-trailer-get-between-16-and-17-million-views-on-day-1",
+      "question": "Will \"Grand Theft Auto VI Launch Trailer\" get between 16 and 17 million views on day 1?",
+      "groupItemTitle": "16-17M",
+      "groupItemThreshold": "5",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-17T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=rz1B4B2yBZY"
+     },
+     {
+      "slug": "will-grand-theft-auto-vi-launch-trailer-get-between-17-and-18-million-views-on-day-1",
+      "question": "Will \"Grand Theft Auto VI Launch Trailer\" get between 17 and 18 million views on day 1?",
+      "groupItemTitle": "17-18M",
+      "groupItemThreshold": "6",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-17T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=rz1B4B2yBZY"
+     },
+     {
+      "slug": "will-grand-theft-auto-vi-launch-trailer-get-between-18-and-19-million-views-on-day-1",
+      "question": "Will \"Grand Theft Auto VI Launch Trailer\" get between 18 and 19 million views on day 1?",
+      "groupItemTitle": "18-19M",
+      "groupItemThreshold": "7",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-17T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=rz1B4B2yBZY"
+     },
+     {
+      "slug": "will-grand-theft-auto-vi-launch-trailer-get-between-19-and-20-million-views-on-day-1",
+      "question": "Will \"Grand Theft Auto VI Launch Trailer\" get between 19 and 20 million views on day 1?",
+      "groupItemTitle": "19-20M",
+      "groupItemThreshold": "8",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-17T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=rz1B4B2yBZY"
+     },
+     {
+      "slug": "will-grand-theft-auto-vi-launch-trailer-get-at-least-20-million-views-on-day-1",
+      "question": "Will \"Grand Theft Auto VI Launch Trailer\" get at least 20 million views on day 1?",
+      "groupItemTitle": "20M+",
+      "groupItemThreshold": "9",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-17T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=rz1B4B2yBZY"
+     }
+    ]
+   },
+   {
+    "slug": "of-views-of-grand-theft-auto-vi-launch-trailer-on-day-1",
+    "title": "# of views of Grand Theft Auto VI Launch Trailer on day 1?",
+    "description": "This market will resolve according to the number of views the Grand Theft Auto VI Launch Trailer video gets in the first 24 hours after being posted on the Rockstar Games YouTube channel. This market may not resolve until the 24 hours are complete, regardless of whether a strike is reached earlier.\n\nIf the reported value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nThe resolution source for this market is Rockstar Games' YouTube channel (https://www.youtube.com/@RockstarGames), specifically the 'views' counter for the described video.\n\nNote: This market refers only to the \"Grand Theft Auto VI Launch Trailer\" video posted by Rockstar Games (see: https://www.youtube.com/watch?v=rz1B4B2yBZY).",
+    "resolutionSource": "https://www.youtube.com/watch?v=rz1B4B2yBZY",
+    "endDate": "2026-10-17T03:59:00Z",
+    "negRisk": true,
+    "tags": [
+     "gta-vi",
+     "pop-culture",
+     "rockstar",
+     "youtube"
+    ],
+    "markets": [
+     {
+      "slug": "will-grand-theft-auto-vi-launch-trailer-get-less-than-20-million-views-on-day-1",
+      "question": "Will \"Grand Theft Auto VI Launch Trailer\" get less than 20 million views on day 1?",
+      "groupItemTitle": "<20M",
+      "groupItemThreshold": "0",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-17T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=rz1B4B2yBZY"
+     },
+     {
+      "slug": "will-grand-theft-auto-vi-launch-trailer-get-between-20-and-40-million-views-on-day-1",
+      "question": "Will \"Grand Theft Auto VI Launch Trailer\" get between 20 and 40 million views on day 1?",
+      "groupItemTitle": "20-40M",
+      "groupItemThreshold": "1",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-17T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=rz1B4B2yBZY"
+     },
+     {
+      "slug": "will-grand-theft-auto-vi-launch-trailer-get-between-40-and-60-million-views-on-day-1",
+      "question": "Will \"Grand Theft Auto VI Launch Trailer\" get between 40 and 60 million views on day 1?",
+      "groupItemTitle": "40-60M",
+      "groupItemThreshold": "2",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-17T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=rz1B4B2yBZY"
+     },
+     {
+      "slug": "will-grand-theft-auto-vi-launch-trailer-get-between-60-and-80-million-views-on-day-1",
+      "question": "Will \"Grand Theft Auto VI Launch Trailer\" get between 60 and 80 million views on day 1?",
+      "groupItemTitle": "60-80M",
+      "groupItemThreshold": "3",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-17T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=rz1B4B2yBZY"
+     },
+     {
+      "slug": "will-grand-theft-auto-vi-launch-trailer-get-at-least-80-million-views-on-day-1",
+      "question": "Will \"Grand Theft Auto VI Launch Trailer\" get at least 80 million views on day 1?",
+      "groupItemTitle": "80M+",
+      "groupItemThreshold": "4",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-17T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=rz1B4B2yBZY"
+     }
+    ]
+   },
+   {
+    "slug": "of-views-of-mrbeast-gaming-video-on-day-4-20261013",
+    "title": "# of views of MrBeast gaming video on day 4?",
+    "description": "This market will resolve according to the number of views the latest YouTube video posted by MrBeast Gaming gets in the first 96 hours after being posted. This market may not resolve until the 96 hours are complete, regardless of whether a strike is reached earlier.\n\nIf the reported value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nThe resolution source for this market is MrBeast Gaming's YouTube channel (https://www.youtube.com/@MrBeastGaming), specifically the 'views' counter for the described video.\n\nIf the resolution source is not available at the end of the specified duration, this market will resolve according to most recent number of views available before the end of the specified duration.\n\nNote: This market refers only to the video \"$10,000 Every Day You Survive In Minecraft\" by MrBeast Gaming (see: https://www.youtube.com/watch?v=h8VE9_aHd94).",
+    "resolutionSource": "https://www.youtube.com/watch?v=h8VE9_aHd94",
+    "endDate": "2026-10-15T03:59:00Z",
+    "negRisk": true,
+    "tags": [
+     "gaming",
+     "mrbeast",
+     "pop-culture",
+     "recurring",
+     "views",
+     "youtube"
+    ],
+    "markets": [
+     {
+      "slug": "will-mrbeast-gamings-next-video-get-less-than-40-million-views-on-day-4-20261013",
+      "question": "Will MrBeast Gaming's next video get less than 40 million views on day 4?",
+      "groupItemTitle": "<40M",
+      "groupItemThreshold": "0",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-15T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=h8VE9_aHd94"
+     },
+     {
+      "slug": "will-mrbeast-gamings-next-video-get-between-40-and-41-million-views-on-day-4-20261013",
+      "question": "Will MrBeast Gaming's next video get between 40 and 41 million views on day 4?",
+      "groupItemTitle": "40-41M",
+      "groupItemThreshold": "1",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-15T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=h8VE9_aHd94"
+     },
+     {
+      "slug": "will-mrbeast-gamings-next-video-get-between-41-and-42-million-views-on-day-4-20261013",
+      "question": "Will MrBeast Gaming's next video get between 41 and 42 million views on day 4?",
+      "groupItemTitle": "41-42M",
+      "groupItemThreshold": "2",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-15T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=h8VE9_aHd94"
+     },
+     {
+      "slug": "will-mrbeast-gamings-next-video-get-between-42-and-43-million-views-on-day-4-20261013",
+      "question": "Will MrBeast Gaming's next video get between 42 and 43 million views on day 4?",
+      "groupItemTitle": "42-43M",
+      "groupItemThreshold": "3",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-15T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=h8VE9_aHd94"
+     },
+     {
+      "slug": "will-mrbeast-gamings-next-video-get-between-43-and-44-million-views-on-day-4-20261013",
+      "question": "Will MrBeast Gaming's next video get between 43 and 44 million views on day 4?",
+      "groupItemTitle": "43-44M",
+      "groupItemThreshold": "4",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-15T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=h8VE9_aHd94"
+     },
+     {
+      "slug": "will-mrbeast-gamings-next-video-get-between-44-and-45-million-views-on-day-4-20261013",
+      "question": "Will MrBeast Gaming's next video get between 44 and 45 million views on day 4?",
+      "groupItemTitle": "44-45M",
+      "groupItemThreshold": "5",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-15T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=h8VE9_aHd94"
+     },
+     {
+      "slug": "will-mrbeast-gamings-next-video-get-45-million-or-more-views-on-day-4-20261013",
+      "question": "Will MrBeast Gaming's next video get 45 million or more views on day 4?",
+      "groupItemTitle": "45M+",
+      "groupItemThreshold": "6",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-15T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=h8VE9_aHd94"
+     }
+    ]
+   },
+   {
+    "slug": "of-views-of-mrbeast-gaming-video-on-day-3-20261012",
+    "title": "# of views of MrBeast gaming video on day 3?",
+    "description": "This market will resolve according to the number of views the latest YouTube video posted by MrBeast Gaming gets in the first 72 hours after being posted. This market may not resolve until the 72 hours are complete, regardless of whether a strike is reached earlier.\n\nIf the reported value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nThe resolution source for this market is MrBeast Gaming's YouTube channel (https://www.youtube.com/@MrBeastGaming), specifically the 'views' counter for the described video.\n\nIf the resolution source is not available at the end of the specified duration, this market will resolve according to most recent number of views available before the end of the specified duration.\n\nNote: This market refers only to the video \"$10,000 Every Day You Survive In Minecraft\" by MrBeast Gaming (see: https://www.youtube.com/watch?v=h8VE9_aHd94).",
+    "resolutionSource": "https://www.youtube.com/watch?v=h8VE9_aHd94",
+    "endDate": "2026-10-14T03:59:00Z",
+    "negRisk": true,
+    "tags": [
+     "gaming",
+     "mrbeast",
+     "pop-culture",
+     "recurring",
+     "views",
+     "youtube"
+    ],
+    "markets": [
+     {
+      "slug": "will-mrbeast-gamings-next-video-get-less-than-37-million-views-on-day-3-20261012",
+      "question": "Will MrBeast Gaming's next video get less than 37 million views on day 3?",
+      "groupItemTitle": "<37M",
+      "groupItemThreshold": "0",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-14T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=h8VE9_aHd94"
+     },
+     {
+      "slug": "will-mrbeast-gamings-next-video-get-between-37-and-38-5-million-views-on-day-3-20261012",
+      "question": "Will MrBeast Gaming's next video get between 37 and 38.5 million views on day 3?",
+      "groupItemTitle": "37-38.5M",
+      "groupItemThreshold": "1",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-14T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=h8VE9_aHd94"
+     },
+     {
+      "slug": "will-mrbeast-gamings-next-video-get-between-38-5-and-40-million-views-on-day-3-20261012",
+      "question": "Will MrBeast Gaming's next video get between 38.5 and 40 million views on day 3?",
+      "groupItemTitle": "38.5-40M",
+      "groupItemThreshold": "2",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-14T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=h8VE9_aHd94"
+     },
+     {
+      "slug": "will-mrbeast-gamings-next-video-get-between-40-and-41-5-million-views-on-day-3-20261012",
+      "question": "Will MrBeast Gaming's next video get between 40 and 41.5 million views on day 3?",
+      "groupItemTitle": "40-41.5M",
+      "groupItemThreshold": "3",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-14T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=h8VE9_aHd94"
+     },
+     {
+      "slug": "will-mrbeast-gamings-next-video-get-between-41-5-and-43-million-views-on-day-3-20261012",
+      "question": "Will MrBeast Gaming's next video get between 41.5 and 43 million views on day 3?",
+      "groupItemTitle": "41.5-43M",
+      "groupItemThreshold": "4",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-14T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=h8VE9_aHd94"
+     },
+     {
+      "slug": "will-mrbeast-gamings-next-video-get-between-43-and-44-5-million-views-on-day-3-20261012",
+      "question": "Will MrBeast Gaming's next video get between 43 and 44.5 million views on day 3?",
+      "groupItemTitle": "43-44.5M",
+      "groupItemThreshold": "5",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-14T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=h8VE9_aHd94"
+     },
+     {
+      "slug": "will-mrbeast-gamings-next-video-get-44-5-million-or-more-views-on-day-3-20261012",
+      "question": "Will MrBeast Gaming's next video get 44.5 million or more views on day 3?",
+      "groupItemTitle": "44.5M+",
+      "groupItemThreshold": "6",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-14T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=h8VE9_aHd94"
+     }
+    ]
+   },
+   {
+    "slug": "of-views-of-mrbeast-gaming-video-on-day-2-20261011",
+    "title": "# of views of MrBeast gaming video on day 2?",
+    "description": "This market will resolve according to the number of views the latest YouTube video posted by MrBeast Gaming gets in the first 48 hours after being posted. This market may not resolve until the 48 hours are complete, regardless of whether a strike is reached earlier.\n\nIf the reported value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nThe resolution source for this market is MrBeast Gaming's YouTube channel (https://www.youtube.com/@MrBeastGaming), specifically the 'views' counter for the described video.\n\nIf the resolution source is not available at the end of the specified duration, this market will resolve according to most recent number of views available before the end of the specified duration.\n\nNote: This market refers only to the video \"$10,000 Every Day You Survive In Minecraft\" by MrBeast Gaming (see: https://www.youtube.com/watch?v=h8VE9_aHd94).",
+    "resolutionSource": "https://www.youtube.com/watch?v=h8VE9_aHd94",
+    "endDate": "2026-10-13T03:59:00Z",
+    "negRisk": true,
+    "tags": [
+     "gaming",
+     "mrbeast",
+     "pop-culture",
+     "recurring",
+     "views",
+     "youtube"
+    ],
+    "markets": [
+     {
+      "slug": "will-mrbeast-gamings-next-video-get-less-than-26-million-views-on-day-2-20261011",
+      "question": "Will MrBeast Gaming's next video get less than 26 million views on day 2?",
+      "groupItemTitle": "<26M",
+      "groupItemThreshold": "0",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-13T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=h8VE9_aHd94"
+     },
+     {
+      "slug": "will-mrbeast-gamings-next-video-get-between-26-and-27-million-views-on-day-2-20261011",
+      "question": "Will MrBeast Gaming's next video get between 26 and 27 million views on day 2?",
+      "groupItemTitle": "26-27M",
+      "groupItemThreshold": "1",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-13T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=h8VE9_aHd94"
+     },
+     {
+      "slug": "will-mrbeast-gamings-next-video-get-between-27-and-28-million-views-on-day-2-20261011",
+      "question": "Will MrBeast Gaming's next video get between 27 and 28 million views on day 2?",
+      "groupItemTitle": "27-28M",
+      "groupItemThreshold": "2",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-13T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=h8VE9_aHd94"
+     },
+     {
+      "slug": "will-mrbeast-gamings-next-video-get-between-28-and-29-million-views-on-day-2-20261011",
+      "question": "Will MrBeast Gaming's next video get between 28 and 29 million views on day 2?",
+      "groupItemTitle": "28-29M",
+      "groupItemThreshold": "3",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-13T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=h8VE9_aHd94"
+     },
+     {
+      "slug": "will-mrbeast-gamings-next-video-get-between-29-and-30-million-views-on-day-2-20261011",
+      "question": "Will MrBeast Gaming's next video get between 29 and 30 million views on day 2?",
+      "groupItemTitle": "29-30M",
+      "groupItemThreshold": "4",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-13T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=h8VE9_aHd94"
+     },
+     {
+      "slug": "will-mrbeast-gamings-next-video-get-between-30-and-31-million-views-on-day-2-20261011",
+      "question": "Will MrBeast Gaming's next video get between 30 and 31 million views on day 2?",
+      "groupItemTitle": "30-31M",
+      "groupItemThreshold": "5",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-13T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=h8VE9_aHd94"
+     },
+     {
+      "slug": "will-mrbeast-gamings-next-video-get-31-million-or-more-views-on-day-2-20261011",
+      "question": "Will MrBeast Gaming's next video get 31 million or more views on day 2?",
+      "groupItemTitle": "31M+",
+      "groupItemThreshold": "6",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-13T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=h8VE9_aHd94"
+     }
+    ]
+   },
+   {
+    "slug": "of-views-of-next-mrbeast-gaming-video-on-day-1-20261010",
+    "title": "# of views of next MrBeast Gaming video on day 1?",
+    "description": "This market will resolve according to the number of views the next YouTube video posted by MrBeast Gaming gets in the first 24 hours after being posted. This market may not resolve until the 24 hours are complete, regardless of whether a strike is reached earlier.\n\nIf MrBeast Gaming does not post a YouTube video by October 31, 2026, 11:59 PM ET, this market will resolve to the lowest range bracket.\n\nIf the reported value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nThe resolution source for this market is MrBeast Gaming's YouTube channel (https://www.youtube.com/@MrBeastGaming), specifically the 'views' counter for the described video.\n\nNote: This market refers to MrBeast Gaming's next video to be posted. Shorts, previews, or other videos released other than the referenced video will not be considered.",
+    "resolutionSource": "",
+    "endDate": "2026-10-12T03:59:00Z",
+    "negRisk": true,
+    "tags": [
+     "gaming",
+     "mrbeast",
+     "pop-culture",
+     "recurring",
+     "views",
+     "youtube"
+    ],
+    "markets": [
+     {
+      "slug": "will-mrbeast-gamings-next-video-get-less-than-10-million-views-on-day-1-20261010",
+      "question": "Will MrBeast Gaming's next video get less than 10 million views on day 1?",
+      "groupItemTitle": "<10M",
+      "groupItemThreshold": "0",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-12T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-gamings-next-video-get-between-10-and-12-5-million-views-on-day-1-20261010",
+      "question": "Will MrBeast Gaming's next video get between 10 and 12.5 million views on day 1?",
+      "groupItemTitle": "10–12.5M",
+      "groupItemThreshold": "1",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-12T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-gamings-next-video-get-between-12-5-and-15-million-views-on-day-1-20261010",
+      "question": "Will MrBeast Gaming's next video get between 12.5 and 15 million views on day 1?",
+      "groupItemTitle": "12.5–15M",
+      "groupItemThreshold": "2",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-12T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-gamings-next-video-get-between-15-and-17-5-million-views-on-day-1-20261010",
+      "question": "Will MrBeast Gaming's next video get between 15 and 17.5 million views on day 1?",
+      "groupItemTitle": "15–17.5M",
+      "groupItemThreshold": "3",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-12T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-gamings-next-video-get-between-17-5-and-20-million-views-on-day-1-20261010",
+      "question": "Will MrBeast Gaming's next video get between 17.5 and 20 million views on day 1?",
+      "groupItemTitle": "17.5–20M",
+      "groupItemThreshold": "4",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-12T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-gamings-next-video-get-between-20-and-22-5-million-views-on-day-1-20261010",
+      "question": "Will MrBeast Gaming's next video get between 20 and 22.5 million views on day 1?",
+      "groupItemTitle": "20–22.5M",
+      "groupItemThreshold": "5",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-12T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-gamings-next-video-get-22-5-million-or-more-views-on-day-1-20261010",
+      "question": "Will MrBeast Gaming's next video get 22.5 million or more views on day 1?",
+      "groupItemTitle": "22.5M+",
+      "groupItemThreshold": "6",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-12T03:59:00Z",
+      "resolutionSource": ""
+     }
+    ]
+   },
+   {
+    "slug": "what-will-be-said-on-the-first-joe-rogan-experience-episode-of-the-week-october-5",
+    "title": "What will be said on the first Joe Rogan Experience episode of the week? (October 5)",
+    "description": "The Joe Rogan Experience podcast releases episodes on https://www.youtube.com/@joerogan.\n\nThis market will resolve to \"Yes\" if the listed term is mentioned by anyone during the first released episode of the Joe Rogan Experience Podcast between October 5, 2026 and October 11, 2026. Otherwise, the market will resolve to \"No\".\n\nIf no such episode of the Joe Rogan Experience Podcast is aired by October 11, 2026, 11:59 PM ET, \"-No Qualifying Event-\" will resolve to \"Yes\" and all other brackets will resolve to \"No\".\n\nJRE MMA Show episodes will not count for this market, only Joe Rogan Experience episodes.\n\nThe resolution source will be the specified episode from (https://www.youtube.com/@joerogan).\n\nFor full rules, see: https://polymarket-upload.s3.us-east-2.amazonaws.com/market_products/Mentions/Event+Mentions+Contract+DeFi.pdf",
+    "resolutionSource": "",
+    "endDate": "2026-10-11T23:59:00Z",
+    "negRisk": false,
+    "tags": [
+     "joe-rogan",
+     "mention-markets",
+     "podcast",
+     "politics",
+     "pop-culture",
+     "recurring",
+     "rogan",
+     "youtube"
+    ],
+    "markets": [
+     {
+      "slug": "will-people-200-be-said-during-the-first-joe-rogan-experience-of-the-week-of-october-5",
+      "question": "Will \"People\" be said 200+ times during the first Joe Rogan Experience of the week of October 5?",
+      "groupItemTitle": "People 200+ times",
+      "groupItemThreshold": "0",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-11T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-people-100-be-said-during-the-first-joe-rogan-experience-of-the-week-of-october-5",
+      "question": "Will \"People\" be said 100+ times during the first Joe Rogan Experience of the week of October 5?",
+      "groupItemTitle": "People 100+ times",
+      "groupItemThreshold": "1",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-11T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-dude-be-said-during-the-first-joe-rogan-experience-of-the-week-of-october-5",
+      "question": "Will \"Dude\" be said 20+ times during the first Joe Rogan Experience of the week of October 5?",
+      "groupItemTitle": "Dude 20+ times",
+      "groupItemThreshold": "2",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-11T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-trump-be-said-during-the-first-joe-rogan-experience-of-the-week-of-october-5",
+      "question": "Will \"Trump\" be said 10+ times during the first Joe Rogan Experience of the week of October 5?",
+      "groupItemTitle": "Trump 10+ times",
+      "groupItemThreshold": "3",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-11T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-fuck-or-fucking-be-said-during-the-first-joe-rogan-experience-of-the-week-of-october-5",
+      "question": "Will \"Fuck\" or \"Fucking\" be said 10+ times during the first Joe Rogan Experience of the week of October 5?",
+      "groupItemTitle": "Fuck / Fucking 10+ times",
+      "groupItemThreshold": "4",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-11T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-world-cup-be-said-during-the-first-joe-rogan-experience-of-the-week-of-october-5",
+      "question": "Will \"World Cup\" be said during the first Joe Rogan Experience of the week of October 5?",
+      "groupItemTitle": "World Cup",
+      "groupItemThreshold": "5",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-11T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-alien-be-said-during-the-first-joe-rogan-experience-of-the-week-of-october-5",
+      "question": "Will \"Alien\" be said during the first Joe Rogan Experience of the week of October 5?",
+      "groupItemTitle": "Alien",
+      "groupItemThreshold": "6",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-11T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-tesla-be-said-during-the-first-joe-rogan-experience-of-the-week-of-october-5",
+      "question": "Will \"Tesla\" be said during the first Joe Rogan Experience of the week of October 5?",
+      "groupItemTitle": "Tesla",
+      "groupItemThreshold": "7",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-11T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-microsoft-be-said-during-the-first-joe-rogan-experience-of-the-week-of-october-5",
+      "question": "Will \"Microsoft\" be said during the first Joe Rogan Experience of the week of October 5?",
+      "groupItemTitle": "Microsoft",
+      "groupItemThreshold": "8",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-11T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-spacex-be-said-during-the-first-joe-rogan-experience-of-the-week-of-october-5",
+      "question": "Will \"SpaceX\" be said during the first Joe Rogan Experience of the week of October 5?",
+      "groupItemTitle": "SpaceX",
+      "groupItemThreshold": "9",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-11T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-right-be-said-during-the-first-joe-rogan-experience-of-the-week-of-october-5",
+      "question": "Will \"Right\" be said during the first Joe Rogan Experience of the week of October 5?",
+      "groupItemTitle": "Right",
+      "groupItemThreshold": "10",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-11T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-left-be-said-during-the-first-joe-rogan-experience-of-the-week-of-october-5",
+      "question": "Will \"Left\" be said during the first Joe Rogan Experience of the week of October 5?",
+      "groupItemTitle": "Left",
+      "groupItemThreshold": "11",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-11T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-red-be-said-during-the-first-joe-rogan-experience-of-the-week-of-october-5",
+      "question": "Will \"Red\" be said during the first Joe Rogan Experience of the week of October 5?",
+      "groupItemTitle": "Red",
+      "groupItemThreshold": "12",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-11T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-blue-be-said-during-the-first-joe-rogan-experience-of-the-week-of-october-5",
+      "question": "Will \"Blue\" be said during the first Joe Rogan Experience of the week of October 5?",
+      "groupItemTitle": "Blue",
+      "groupItemThreshold": "13",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-11T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-obsolete-be-said-during-the-first-joe-rogan-experience-of-the-week-of-october-5",
+      "question": "Will \"Obsolete\" be said during the first Joe Rogan Experience of the week of October 5?",
+      "groupItemTitle": "Obsolete",
+      "groupItemThreshold": "14",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-11T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-no-rogan-episode-air-20261011",
+      "question": "Will no Rogan episode air?",
+      "groupItemTitle": "-No Qualifying Event-",
+      "groupItemThreshold": "15",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-11T23:59:00Z",
+      "resolutionSource": ""
+     }
+    ]
+   },
+   {
+    "slug": "of-views-of-next-mrbeast-video-on-week-1-even-higher-brackets-20261003",
+    "title": "# of views of next MrBeast video on week 1? (Even Higher Brackets)",
+    "description": "This market will resolve according to the number of views the most recent YouTube video posted by MrBeast gets in the first 7 days after being posted.\n\nIf the reported value falls exactly between two brackets, this market will resolve to the higher range bracket.\n\nIf the resolution source is not available at the end of the specified duration, this market will resolve according to most recent number of views available before the end of the specified duration.\n\nThe resolution source for this is MrBeast's YouTube channel (https://www.youtube.com/@MrBeast), specifically the 'views' counter for the described video.\n\nNote: This market refers only to the video \"Eat Everything In A Grocery Store, Win $1,000,000\" by MrBeast (see: https://www.youtube.com/watch?v=plN7JMbadRg).",
+    "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg",
+    "endDate": "2026-10-11T03:59:00Z",
+    "negRisk": true,
+    "tags": [
+     "mrbeast",
+     "pop-culture",
+     "recurring",
+     "youtube"
+    ],
+    "markets": [
+     {
+      "slug": "will-mrbeasts-next-video-get-less-than-175-million-views-on-week-1-even-higher-brackets-20261003",
+      "question": "Will MrBeast's next video get less than 175 million views on week 1?",
+      "groupItemTitle": "<175M",
+      "groupItemThreshold": "0",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-11T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-175-and-183-million-views-on-week-1-even-higher-brackets-20261003",
+      "question": "Will MrBeast's next video get between 175 and 183 million views on week 1?",
+      "groupItemTitle": "175-183M",
+      "groupItemThreshold": "1",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-11T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-183-and-191-million-views-on-week-1-even-higher-brackets-20261003",
+      "question": "Will MrBeast's next video get between 183 and 191 million views on week 1?",
+      "groupItemTitle": "183-191M",
+      "groupItemThreshold": "2",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-11T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-191-and-199-million-views-on-week-1-even-higher-brackets-20261003",
+      "question": "Will MrBeast's next video get between 191 and 199 million views on week 1?",
+      "groupItemTitle": "191-199M",
+      "groupItemThreshold": "3",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-11T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-199-and-207-million-views-on-week-1-even-higher-brackets-20261003",
+      "question": "Will MrBeast's next video get between 199 and 207 million views on week 1?",
+      "groupItemTitle": "199-207M",
+      "groupItemThreshold": "4",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-11T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-207-and-215-million-views-on-week-1-even-higher-brackets-20261003",
+      "question": "Will MrBeast's next video get between 207 and 215 million views on week 1?",
+      "groupItemTitle": "207-215M",
+      "groupItemThreshold": "5",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-11T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-215-and-223-million-views-on-week-1-even-higher-brackets-20261003",
+      "question": "Will MrBeast's next video get between 215 and 223 million views on week 1?",
+      "groupItemTitle": "215-223M",
+      "groupItemThreshold": "6",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-11T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-at-least-223-million-views-on-week-1-even-higher-brackets-20261003",
+      "question": "Will MrBeast's next video get at least 223 million views on week 1?",
+      "groupItemTitle": "223M+",
+      "groupItemThreshold": "7",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-11T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     }
+    ]
+   },
+   {
+    "slug": "of-views-of-next-mrbeast-video-on-week-1-higher-brackets-20261004",
+    "title": "# of views of next MrBeast video on week 1? (Higher Brackets)",
+    "description": "This market will resolve according to the number of views the most recent YouTube video posted by MrBeast gets in the first 7 days after being posted.\n\nIf the reported value falls exactly between two brackets, this market will resolve to the higher range bracket.\n\nIf the resolution source is not available at the end of the specified duration, this market will resolve according to most recent number of views available before the end of the specified duration.\n\nThe resolution source for this is MrBeast's YouTube channel (https://www.youtube.com/@MrBeast), specifically the 'views' counter for the described video.\n\nNote: This market refers only to the video \"Eat Everything In A Grocery Store, Win $1,000,000\" by MrBeast (see: https://www.youtube.com/watch?v=plN7JMbadRg).",
+    "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg",
+    "endDate": "2026-10-10T23:59:00Z",
+    "negRisk": true,
+    "tags": [
+     "mrbeast",
+     "pop-culture",
+     "recurring",
+     "youtube"
+    ],
+    "markets": [
+     {
+      "slug": "will-mrbeasts-next-video-get-less-than-110-million-views-on-week-1-higher-brackets-20261004",
+      "question": "Will MrBeast's next video get less than 110 million views on week 1?",
+      "groupItemTitle": "<110M",
+      "groupItemThreshold": "0",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-11T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-110-and-120-million-views-on-week-1-higher-brackets-20261004",
+      "question": "Will MrBeast's next video get between 110 and 120 million views on week 1?",
+      "groupItemTitle": "110-120M",
+      "groupItemThreshold": "1",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-11T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-120-and-130-million-views-on-week-1-higher-brackets-20261004",
+      "question": "Will MrBeast's next video get between 120 and 130 million views on week 1?",
+      "groupItemTitle": "120-130M",
+      "groupItemThreshold": "2",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-11T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-130-and-140-million-views-on-week-1-higher-brackets-20261004",
+      "question": "Will MrBeast's next video get between 130 and 140 million views on week 1?",
+      "groupItemTitle": "130-140M",
+      "groupItemThreshold": "3",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-11T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-140-and-150-million-views-on-week-1-higher-brackets-20261004",
+      "question": "Will MrBeast's next video get between 140 and 150 million views on week 1?",
+      "groupItemTitle": "140-150M",
+      "groupItemThreshold": "4",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-11T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-at-least-150-million-views-on-week-1-higher-brackets-20261004",
+      "question": "Will MrBeast's next video get at least 150 million views on week 1?",
+      "groupItemTitle": "150M+",
+      "groupItemThreshold": "5",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-11T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     }
+    ]
+   },
+   {
+    "slug": "of-views-of-next-mrbeast-video-on-week-1-20261003",
+    "title": "# of views of next MrBeast video on week 1?",
+    "description": "This market will resolve according to the number of views the next YouTube video posted by MrBeast after this market's creation gets in the first 7 days after being posted.\n\nIf MrBeast does not post a YouTube video by October 31, 2026, 11:59 PM ET, this market will resolve to the lowest range bracket.\n\nIf the reported value falls exactly between two brackets, this market will resolve to the higher range bracket.\n\nIf the resolution source is not available at the end of the specified duration, this market will resolve according to most recent number of views available before the end of the specified duration.\n\nThe resolution source for this is MrBeast's YouTube channel (https://www.youtube.com/@MrBeast), specifically the 'views' counter for the described video.\n\nNote: This market refers to MrBeast's next video posted. Shorts, previews, or other videos released other than the referenced video will not be considered.",
+    "resolutionSource": "",
+    "endDate": "2026-10-10T23:59:00Z",
+    "negRisk": true,
+    "tags": [
+     "mrbeast",
+     "pop-culture",
+     "recurring",
+     "youtube"
+    ],
+    "markets": [
+     {
+      "slug": "will-mrbeasts-next-video-get-less-than-50-million-views-on-week-1-20261003",
+      "question": "Will MrBeast's next video get less than 50 million views on week 1?",
+      "groupItemTitle": "<50M",
+      "groupItemThreshold": "0",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-11T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-50-and-60-million-views-on-week-1-20261003",
+      "question": "Will MrBeast's next video get between 50 and 60 million views on week 1?",
+      "groupItemTitle": "50-60M",
+      "groupItemThreshold": "1",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-11T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-60-and-70-million-views-on-week-1-20261003",
+      "question": "Will MrBeast's next video get between 60 and 70 million views on week 1?",
+      "groupItemTitle": "60-70M",
+      "groupItemThreshold": "2",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-11T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-70-and-80-million-views-on-week-1-20261003",
+      "question": "Will MrBeast's next video get between 70 and 80 million views on week 1?",
+      "groupItemTitle": "70-80M",
+      "groupItemThreshold": "3",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-11T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-80-and-90-million-views-on-week-1-20261003",
+      "question": "Will MrBeast's next video get between 80 and 90 million views on week 1?",
+      "groupItemTitle": "80-90M",
+      "groupItemThreshold": "4",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-11T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-90-and-100-million-views-on-week-1-20261003",
+      "question": "Will MrBeast's next video get between 90 and 100 million views on week 1?",
+      "groupItemTitle": "90-100M",
+      "groupItemThreshold": "5",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-11T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-at-least-100-million-views-on-week-1-20261003",
+      "question": "Will MrBeast's next video get at least 100 million views on week 1?",
+      "groupItemTitle": "100M+",
+      "groupItemThreshold": "6",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-11T23:59:00Z",
+      "resolutionSource": ""
+     }
+    ]
+   },
+   {
+    "slug": "of-views-of-mrbeast-video-on-day-6-20261003",
+    "title": "# of views of MrBeast video on day 6?",
+    "description": "This market will resolve according to the number of views the latest YouTube video posted by MrBeast gets in the first 144 hours after being posted. This market may not resolve until the 144 hours are complete, regardless of whether a strike is reached earlier.\n\nIf the reported value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nThe resolution source for this market is MrBeast's YouTube channel (https://www.youtube.com/@MrBeast), specifically the 'views' counter for the described video.\n\nIf the resolution source is not available at the end of the specified duration, this market will resolve according to most recent number of views available before the end of the specified duration.\n\nNote: This market refers only to the video \"Eat Everything In A Grocery Store, Win $1,000,000\" by MrBeast (see: https://www.youtube.com/watch?v=plN7JMbadRg).",
+    "resolutionSource": "",
+    "endDate": "2026-10-10T03:59:00Z",
+    "negRisk": true,
+    "tags": [
+     "mrbeast",
+     "pop-culture",
+     "recurring",
+     "views",
+     "youtube"
+    ],
+    "markets": [
+     {
+      "slug": "will-mrbeasts-next-video-get-less-than-194-million-views-on-day-6-20261003",
+      "question": "Will MrBeast's next video get less than 194 million views on day 6?",
+      "groupItemTitle": "<194M",
+      "groupItemThreshold": "0",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-10T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-194-and-196-million-views-on-day-6-20261003",
+      "question": "Will MrBeast's next video get between 194 and 196 million views on day 6?",
+      "groupItemTitle": "194-196M",
+      "groupItemThreshold": "1",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-10T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-196-and-198-million-views-on-day-6-20261003",
+      "question": "Will MrBeast's next video get between 196 and 198 million views on day 6?",
+      "groupItemTitle": "196-198M",
+      "groupItemThreshold": "2",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-10T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-198-and-200-million-views-on-day-6-20261003",
+      "question": "Will MrBeast's next video get between 198 and 200 million views on day 6?",
+      "groupItemTitle": "198-200M",
+      "groupItemThreshold": "3",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-10T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-200-and-202-million-views-on-day-6-20261003",
+      "question": "Will MrBeast's next video get between 200 and 202 million views on day 6?",
+      "groupItemTitle": "200-202M",
+      "groupItemThreshold": "4",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-10T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-202-and-204-million-views-on-day-6-20261003",
+      "question": "Will MrBeast's next video get between 202 and 204 million views on day 6?",
+      "groupItemTitle": "202-204M",
+      "groupItemThreshold": "5",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-10T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-204-and-206-million-views-on-day-6-20261003",
+      "question": "Will MrBeast's next video get between 204 and 206 million views on day 6?",
+      "groupItemTitle": "204-206M",
+      "groupItemThreshold": "6",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-10T03:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-206-million-or-more-views-on-day-6-20261003",
+      "question": "Will MrBeast's next video get 206 million or more views on day 6?",
+      "groupItemTitle": "206M+",
+      "groupItemThreshold": "7",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-10T03:59:00Z",
+      "resolutionSource": ""
+     }
+    ]
+   },
+   {
+    "slug": "of-views-of-mrbeast-video-on-day-5-20261003c",
+    "title": "# of views of MrBeast video on day 5?",
+    "description": "This market will resolve according to the number of views the latest YouTube video posted by MrBeast gets in the first 120 hours after being posted. This market may not resolve until the 120 hours are complete, regardless of whether a strike is reached earlier.\n\nIf the reported value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nThe resolution source for this market is MrBeast's YouTube channel (https://www.youtube.com/@MrBeast), specifically the 'views' counter for the described video.\n\nIf the resolution source is not available at the end of the specified duration, this market will resolve according to most recent number of views available before the end of the specified duration.\n\nNote: This market refers only to the video \"Eat Everything In A Grocery Store, Win $1,000,000\" by MrBeast (see: https://www.youtube.com/watch?v=plN7JMbadRg).",
+    "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg",
+    "endDate": "2026-10-09T03:59:00Z",
+    "negRisk": true,
+    "tags": [
+     "mrbeast",
+     "pop-culture",
+     "recurring",
+     "views",
+     "youtube"
+    ],
+    "markets": [
+     {
+      "slug": "will-mrbeasts-next-video-get-less-than-164-million-views-on-day-5-20261003c",
+      "question": "Will MrBeast's next video get less than 164 million views on day 5?",
+      "groupItemTitle": "<164M",
+      "groupItemThreshold": "0",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-09T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-164-and-166-million-views-on-day-5-20261003c",
+      "question": "Will MrBeast's next video get between 164 and 166 million views on day 5?",
+      "groupItemTitle": "164-166M",
+      "groupItemThreshold": "1",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-09T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-166-and-168-million-views-on-day-5-20261003c",
+      "question": "Will MrBeast's next video get between 166 and 168 million views on day 5?",
+      "groupItemTitle": "166-168M",
+      "groupItemThreshold": "2",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-09T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-168-and-170-million-views-on-day-5-20261003c",
+      "question": "Will MrBeast's next video get between 168 and 170 million views on day 5?",
+      "groupItemTitle": "168-170M",
+      "groupItemThreshold": "3",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-09T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-170-and-172-million-views-on-day-5-20261003c",
+      "question": "Will MrBeast's next video get between 170 and 172 million views on day 5?",
+      "groupItemTitle": "170-172M",
+      "groupItemThreshold": "4",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-09T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-172-and-174-million-views-on-day-5-20261003c",
+      "question": "Will MrBeast's next video get between 172 and 174 million views on day 5?",
+      "groupItemTitle": "172-174M",
+      "groupItemThreshold": "5",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-09T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-174-and-176-million-views-on-day-5-20261003c",
+      "question": "Will MrBeast's next video get between 174 and 176 million views on day 5?",
+      "groupItemTitle": "174-176M",
+      "groupItemThreshold": "6",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-09T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-176-million-or-more-views-on-day-5-20261003c",
+      "question": "Will MrBeast's next video get 176 million or more views on day 5?",
+      "groupItemTitle": "176M+",
+      "groupItemThreshold": "7",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-09T03:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     }
+    ]
+   },
+   {
+    "slug": "of-views-of-mrbeast-video-on-day-4-20261003",
+    "title": "# of views of MrBeast video on day 4?",
+    "description": "This market will resolve according to the number of views the latest YouTube video posted by MrBeast gets in the first 96 hours after being posted. This market may not resolve until the 96 hours are complete, regardless of whether a strike is reached earlier.\n\nIf the reported value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nThe resolution source for this market is MrBeast's YouTube channel (https://www.youtube.com/@MrBeast), specifically the 'views' counter for the described video.\n\nIf the resolution source is not available at the end of the specified duration, this market will resolve according to most recent number of views available before the end of the specified duration.\n\nNote: This market refers only to the video \"Eat Everything In A Grocery Store, Win $1,000,000\" by MrBeast (see: https://www.youtube.com/watch?v=plN7JMbadRg).",
+    "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg",
+    "endDate": "2026-10-07T23:59:00Z",
+    "negRisk": true,
+    "tags": [
+     "mrbeast",
+     "pop-culture",
+     "recurring",
+     "views",
+     "youtube"
+    ],
+    "markets": [
+     {
+      "slug": "will-mrbeasts-next-video-get-less-than-135-million-views-on-day-4-20261003",
+      "question": "Will MrBeast's next video get less than 135 million views on day 4?",
+      "groupItemTitle": "<135M",
+      "groupItemThreshold": "0",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-07T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-135-and-137-million-views-on-day-4-20261003",
+      "question": "Will MrBeast's next video get between 135 and 137 million views on day 4?",
+      "groupItemTitle": "135-137M",
+      "groupItemThreshold": "1",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-07T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-137-and-139-million-views-on-day-4-20261003",
+      "question": "Will MrBeast's next video get between 137 and 139 million views on day 4?",
+      "groupItemTitle": "137-139M",
+      "groupItemThreshold": "2",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-07T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-139-and-141-million-views-on-day-4-20261003",
+      "question": "Will MrBeast's next video get between 139 and 141 million views on day 4?",
+      "groupItemTitle": "139-141M",
+      "groupItemThreshold": "3",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-07T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-141-and-143-million-views-on-day-4-20261003",
+      "question": "Will MrBeast's next video get between 141 and 143 million views on day 4?",
+      "groupItemTitle": "141-143M",
+      "groupItemThreshold": "4",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-07T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-143-and-145-million-views-on-day-4-20261003",
+      "question": "Will MrBeast's next video get between 143 and 145 million views on day 4?",
+      "groupItemTitle": "143-145M",
+      "groupItemThreshold": "5",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-07T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-145-and-147-million-views-on-day-4-20261003",
+      "question": "Will MrBeast's next video get between 145 and 147 million views on day 4?",
+      "groupItemTitle": "145-147M",
+      "groupItemThreshold": "6",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-07T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-147-million-or-more-views-on-day-4-20261003",
+      "question": "Will MrBeast's next video get 147 million or more views on day 4?",
+      "groupItemTitle": "147M+",
+      "groupItemThreshold": "7",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-07T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     }
+    ]
+   },
+   {
+    "slug": "of-views-of-mrbeast-video-on-day-3-20261003",
+    "title": "# of views of MrBeast video on day 3?",
+    "description": "This market will resolve according to the number of views the latest YouTube video posted by MrBeast gets in the first 72 hours after being posted. This market may not resolve until the 72 hours are complete, regardless of whether a strike is reached earlier.\n\nIf the reported value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nThe resolution source for this market is MrBeast's YouTube channel (https://www.youtube.com/@MrBeast), specifically the 'views' counter for the described video.\n\nIf the resolution source is not available at the end of the specified duration, this market will resolve according to most recent number of views available before the end of the specified duration.\n\nNote: This market refers only to the video \"Eat Everything In A Grocery Store, Win $1,000,000\" by MrBeast (see: https://www.youtube.com/watch?v=plN7JMbadRg).",
+    "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg",
+    "endDate": "2026-10-06T23:59:00Z",
+    "negRisk": true,
+    "tags": [
+     "mrbeast",
+     "pop-culture",
+     "recurring",
+     "views",
+     "youtube"
+    ],
+    "markets": [
+     {
+      "slug": "will-mrbeasts-next-video-get-less-than-110-million-views-on-day-3-20261003",
+      "question": "Will MrBeast's next video get less than 110 million views on day 3?",
+      "groupItemTitle": "<110M",
+      "groupItemThreshold": "0",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-06T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-110-and-113-million-views-on-day-3-20261003",
+      "question": "Will MrBeast's next video get between 110 and 113 million views on day 3?",
+      "groupItemTitle": "110-113M",
+      "groupItemThreshold": "1",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-06T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-113-and-116-million-views-on-day-3-20261003",
+      "question": "Will MrBeast's next video get between 113 and 116 million views on day 3?",
+      "groupItemTitle": "113-116M",
+      "groupItemThreshold": "2",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-06T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-116-and-119-million-views-on-day-3-20261003",
+      "question": "Will MrBeast's next video get between 116 and 119 million views on day 3?",
+      "groupItemTitle": "116-119M",
+      "groupItemThreshold": "3",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-06T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-119-and-122-million-views-on-day-3-20261003",
+      "question": "Will MrBeast's next video get between 119 and 122 million views on day 3?",
+      "groupItemTitle": "119-122M",
+      "groupItemThreshold": "4",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-06T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-122-and-125-million-views-on-day-3-20261003",
+      "question": "Will MrBeast's next video get between 122 and 125 million views on day 3?",
+      "groupItemTitle": "122-125M",
+      "groupItemThreshold": "5",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-06T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-125-million-or-more-views-on-day-3-20261003",
+      "question": "Will MrBeast's next video get 125 million or more views on day 3?",
+      "groupItemTitle": "125M+",
+      "groupItemThreshold": "6",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-06T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     }
+    ]
+   },
+   {
+    "slug": "of-views-of-mrbeast-video-on-day-2-20261003",
+    "title": "# of views of MrBeast video on day 2?",
+    "description": "This market will resolve according to the number of views the latest YouTube video posted by MrBeast gets in the first 48 hours after being posted. This market may not resolve until the 48 hours are complete, regardless of whether a strike is reached earlier.\n\nIf the reported value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nThe resolution source for this market is MrBeast's YouTube channel (https://www.youtube.com/@MrBeast), specifically the 'views' counter for the described video.\n\nIf the resolution source is not available at the end of the specified duration, this market will resolve according to most recent number of views available before the end of the specified duration.\n\nNote: This market refers only to the video \"Eat Everything In A Grocery Store, Win $1,000,000\" by MrBeast (see: https://www.youtube.com/watch?v=plN7JMbadRg).",
+    "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg",
+    "endDate": "2026-10-05T23:59:00Z",
+    "negRisk": true,
+    "tags": [
+     "mrbeast",
+     "pop-culture",
+     "recurring",
+     "views",
+     "youtube"
+    ],
+    "markets": [
+     {
+      "slug": "will-mrbeasts-next-video-get-less-than-80-million-views-on-day-2-20261003b",
+      "question": "Will MrBeast's next video get less than 80 million views on day 2?",
+      "groupItemTitle": "<80M",
+      "groupItemThreshold": "0",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-05T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-80-and-84-million-views-on-day-2-20261003b",
+      "question": "Will MrBeast's next video get between 80 and 84 million views on day 2?",
+      "groupItemTitle": "80-84M",
+      "groupItemThreshold": "1",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-05T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-84-and-88-million-views-on-day-2-20261003b",
+      "question": "Will MrBeast's next video get between 84 and 88 million views on day 2?",
+      "groupItemTitle": "84-88M",
+      "groupItemThreshold": "2",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-05T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-88-and-92-million-views-on-day-2-20261003b",
+      "question": "Will MrBeast's next video get between 88 and 92 million views on day 2?",
+      "groupItemTitle": "88-92M",
+      "groupItemThreshold": "3",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-05T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-92-and-96-million-views-on-day-2-20261003b",
+      "question": "Will MrBeast's next video get between 92 and 96 million views on day 2?",
+      "groupItemTitle": "92-96M",
+      "groupItemThreshold": "4",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-05T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-96-and-100-million-views-on-day-2-20261003b",
+      "question": "Will MrBeast's next video get between 96 and 100 million views on day 2?",
+      "groupItemTitle": "96-100M",
+      "groupItemThreshold": "5",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-05T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-100-million-or-more-views-on-day-2-20261003b",
+      "question": "Will MrBeast's next video get 100 million or more views on day 2?",
+      "groupItemTitle": "100M+",
+      "groupItemThreshold": "6",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-05T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=plN7JMbadRg"
+     }
+    ]
+   },
+   {
+    "slug": "of-views-of-next-mrbeast-video-on-day-1-20261003",
+    "title": "# of views of next MrBeast video on day 1?",
+    "description": "This market will resolve according to the number of views the next YouTube video posted by MrBeast gets in the first 24 hours after being posted. This market may not resolve until the 24 hours are complete, regardless of whether a strike is reached earlier.\n\nIf MrBeast does not post a YouTube video by October 31, 2026, 11:59 PM ET, this market will resolve to the lowest range bracket.\n\nIf the reported value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nThe resolution source for this market is MrBeast's YouTube channel (https://www.youtube.com/@MrBeast), specifically the 'views' counter for the described video.\n\nIf the resolution source is not available at the end of the specified duration, this market will resolve according to most recent number of views available before the end of the specified duration.\n\nNote: This market refers to MrBeast's next video to be posted. Shorts, previews, or other videos released other than the referenced video will not be considered.",
+    "resolutionSource": "",
+    "endDate": "2026-10-04T23:59:00Z",
+    "negRisk": true,
+    "tags": [
+     "mrbeast",
+     "pop-culture",
+     "recurring",
+     "views",
+     "youtube"
+    ],
+    "markets": [
+     {
+      "slug": "will-mrbeasts-next-video-get-less-than-20-million-views-on-day-1-20261003",
+      "question": "Will MrBeast's next video get less than 20 million views on day 1?",
+      "groupItemTitle": "<20M",
+      "groupItemThreshold": "0",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-06T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-20-and-25-million-views-on-day-1-20261003",
+      "question": "Will MrBeast's next video get between 20 and 25 million views on day 1?",
+      "groupItemTitle": "20–25M",
+      "groupItemThreshold": "1",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-06T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-25-and-30-million-views-on-day-1-20261003",
+      "question": "Will MrBeast's next video get between 25 and 30 million views on day 1?",
+      "groupItemTitle": "25–30M",
+      "groupItemThreshold": "2",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-06T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-30-and-35-million-views-on-day-1-20261003",
+      "question": "Will MrBeast's next video get between 30 and 35 million views on day 1?",
+      "groupItemTitle": "30–35M",
+      "groupItemThreshold": "3",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-06T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-35-and-40-million-views-on-day-1-20261003",
+      "question": "Will MrBeast's next video get between 35 and 40 million views on day 1?",
+      "groupItemTitle": "35–40M",
+      "groupItemThreshold": "4",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-06T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-between-40-and-45-million-views-on-day-1-20261003",
+      "question": "Will MrBeast's next video get between 40 and 45 million views on day 1?",
+      "groupItemTitle": "40–45M",
+      "groupItemThreshold": "5",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-06T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeasts-next-video-get-at-least-45-million-views-on-day-1-20261003",
+      "question": "Will MrBeast's next video get at least 45 million views on day 1?",
+      "groupItemTitle": "45M+",
+      "groupItemThreshold": "6",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-06T23:59:00Z",
+      "resolutionSource": ""
+     }
+    ]
+   },
+   {
+    "slug": "what-will-be-said-on-the-first-joe-rogan-experience-episode-of-the-week-september-28",
+    "title": "What will be said on the first Joe Rogan Experience episode of the week? (September 28)",
+    "description": "The Joe Rogan Experience podcast releases episodes on https://www.youtube.com/@joerogan.\n\nThis market will resolve to \"Yes\" if the listed term is mentioned by anyone during the first released episode of the Joe Rogan Experience Podcast between September 28, 2026 and October 4, 2026. Otherwise, the market will resolve to \"No\".\n\nIf no such episode of the Joe Rogan Experience Podcast is aired by October 4, 2026, 11:59 PM ET, \"-No Qualifying Event-\" will resolve to \"Yes\" and all other brackets will resolve to \"No\". \n\nJRE MMA Show episodes will not count for this market, only Joe Rogan Experience episodes.\n\nThe resolution source will be the specified episode from (https://www.youtube.com/@joerogan).\n\nFor full rules, see: https://polymarket-upload.s3.us-east-2.amazonaws.com/market_products/Mentions/Event+Mentions+Contract+DeFi.pdf",
+    "resolutionSource": "",
+    "endDate": "2026-10-04T23:59:00Z",
+    "negRisk": false,
+    "tags": [
+     "joe-rogan",
+     "mention-markets",
+     "podcast",
+     "politics",
+     "pop-culture",
+     "recurring",
+     "rogan",
+     "youtube"
+    ],
+    "markets": [
+     {
+      "slug": "will-people-be-said-200-times-during-the-first-joe-rogan-experience-of-the-week-of-september-28",
+      "question": "Will \"People\" be said 200+ times during the first Joe Rogan Experience of the week of September 28?",
+      "groupItemTitle": "People 200+ times",
+      "groupItemThreshold": "0",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-04T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/@joerogan"
+     },
+     {
+      "slug": "will-people-be-said-100-times-during-the-first-joe-rogan-experience-of-the-week-of-september-28",
+      "question": "Will \"People\" be said 100+ times during the first Joe Rogan Experience of the week of September 28?",
+      "groupItemTitle": "People 100+ times",
+      "groupItemThreshold": "1",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-04T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/@joerogan"
+     },
+     {
+      "slug": "will-dude-be-said-20-times-during-the-first-joe-rogan-experience-of-the-week-of-september-28",
+      "question": "Will \"Dude\" be said 20+ times during the first Joe Rogan Experience of the week of September 28?",
+      "groupItemTitle": "Dude 20+ times",
+      "groupItemThreshold": "2",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-04T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/@joerogan"
+     },
+     {
+      "slug": "will-trump-be-said-10-times-during-the-first-joe-rogan-experience-of-the-week-of-september-28",
+      "question": "Will \"Trump\" be said 10+ times during the first Joe Rogan Experience of the week of September 28?",
+      "groupItemTitle": "Trump 10+ times",
+      "groupItemThreshold": "3",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-04T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/@joerogan"
+     },
+     {
+      "slug": "will-fuck-or-fucking-be-said-10-times-during-the-first-joe-rogan-experience-of-the-week-of-september-28",
+      "question": "Will \"Fuck\" or \"Fucking\" be said 10+ times during the first Joe Rogan Experience of the week of September 28?",
+      "groupItemTitle": "Fuck / Fucking 10+ times",
+      "groupItemThreshold": "4",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-04T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/@joerogan"
+     },
+     {
+      "slug": "will-world-cup-be-said-during-the-first-joe-rogan-experience-of-the-week-of-september-28",
+      "question": "Will \"World Cup\" be said during the first Joe Rogan Experience of the week of September 28?",
+      "groupItemTitle": "World Cup",
+      "groupItemThreshold": "5",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-04T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/@joerogan"
+     },
+     {
+      "slug": "will-alien-be-said-during-the-first-joe-rogan-experience-of-the-week-of-september-28",
+      "question": "Will \"Alien\" be said during the first Joe Rogan Experience of the week of September 28?",
+      "groupItemTitle": "Alien",
+      "groupItemThreshold": "6",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-04T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/@joerogan"
+     },
+     {
+      "slug": "will-tesla-be-said-during-the-first-joe-rogan-experience-of-the-week-of-september-28",
+      "question": "Will \"Tesla\" be said during the first Joe Rogan Experience of the week of September 28?",
+      "groupItemTitle": "Tesla",
+      "groupItemThreshold": "7",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-04T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/@joerogan"
+     },
+     {
+      "slug": "will-microsoft-be-said-during-the-first-joe-rogan-experience-of-the-week-of-september-28",
+      "question": "Will \"Microsoft\" be said during the first Joe Rogan Experience of the week of September 28?",
+      "groupItemTitle": "Microsoft",
+      "groupItemThreshold": "8",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-04T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/@joerogan"
+     },
+     {
+      "slug": "will-openai-be-said-during-the-first-joe-rogan-experience-of-the-week-of-september-28",
+      "question": "Will \"OpenAI\" be said during the first Joe Rogan Experience of the week of September 28?",
+      "groupItemTitle": "OpenAI",
+      "groupItemThreshold": "9",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-04T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/@joerogan"
+     },
+     {
+      "slug": "will-spacex-be-said-during-the-first-joe-rogan-experience-of-the-week-of-september-28",
+      "question": "Will \"SpaceX\" be said during the first Joe Rogan Experience of the week of September 28?",
+      "groupItemTitle": "SpaceX",
+      "groupItemThreshold": "10",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-04T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/@joerogan"
+     },
+     {
+      "slug": "will-right-be-said-during-the-first-joe-rogan-experience-of-the-week-of-september-28",
+      "question": "Will \"Right\" be said during the first Joe Rogan Experience of the week of September 28?",
+      "groupItemTitle": "Right",
+      "groupItemThreshold": "11",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-04T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/@joerogan"
+     },
+     {
+      "slug": "will-left-be-said-during-the-first-joe-rogan-experience-of-the-week-of-september-28",
+      "question": "Will \"Left\" be said during the first Joe Rogan Experience of the week of September 28?",
+      "groupItemTitle": "Left",
+      "groupItemThreshold": "12",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-04T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/@joerogan"
+     },
+     {
+      "slug": "will-red-be-said-during-the-first-joe-rogan-experience-of-the-week-of-september-28",
+      "question": "Will \"Red\" be said during the first Joe Rogan Experience of the week of September 28?",
+      "groupItemTitle": "Red",
+      "groupItemThreshold": "13",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-04T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/@joerogan"
+     },
+     {
+      "slug": "will-blue-be-said-during-the-first-joe-rogan-experience-of-the-week-of-september-28",
+      "question": "Will \"Blue\" be said during the first Joe Rogan Experience of the week of September 28?",
+      "groupItemTitle": "Blue",
+      "groupItemThreshold": "14",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-04T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/@joerogan"
+     },
+     {
+      "slug": "will-obsolete-be-said-during-the-first-joe-rogan-experience-of-the-week-of-september-28",
+      "question": "Will \"Obsolete\" be said during the first Joe Rogan Experience of the week of September 28?",
+      "groupItemTitle": "Obsolete",
+      "groupItemThreshold": "15",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-04T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/@joerogan"
+     },
+     {
+      "slug": "will-no-rogan-episode-air-20261004",
+      "question": "Will no Rogan episode air?",
+      "groupItemTitle": "-No Qualifying Event-",
+      "groupItemThreshold": "16",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-04T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/@joerogan"
+     }
+    ]
+   },
+   {
+    "slug": "of-views-of-mrbeast-gaming-video-week-1-20260922",
+    "title": "# of views of MrBeast Gaming video week 1?",
+    "description": "This market will resolve according to the number of views the next YouTube video posted by MrBeast Gaming gets in the first 168 hours after being posted. This market may not resolve until the 168 hours are complete, regardless of whether a strike is reached earlier.\n\nIf MrBeast Gaming does not post a YouTube video by October 31, 2026, 11:59 PM ET, this market will resolve to the lowest range bracket.\n\nIf the reported value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nThe resolution source for this market is MrBeast Gaming's YouTube channel (https://www.youtube.com/@MrBeastGaming), specifically the 'views' counter for the described video.\n\nNote: This market refers to MrBeast Gaming's next video to be posted. Shorts, previews, or other videos released other than the referenced video will not be considered.",
+    "resolutionSource": "",
+    "endDate": "2026-10-03T23:59:00Z",
+    "negRisk": true,
+    "tags": [
+     "gaming",
+     "mrbeast",
+     "pop-culture",
+     "recurring",
+     "views",
+     "youtube"
+    ],
+    "markets": [
+     {
+      "slug": "will-mrbeast-gamings-next-video-get-less-than-25-million-views-in-week-1-20260922",
+      "question": "Will MrBeast Gaming's next video get less than 25 million views in week 1?",
+      "groupItemTitle": "<25M",
+      "groupItemThreshold": "0",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-03T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/@MrBeastGaming"
+     },
+     {
+      "slug": "will-mrbeast-gamings-next-video-get-between-25-and-30-million-views-in-week-1-20260922",
+      "question": "Will MrBeast Gaming's next video get between 25 and 30 million views in week 1?",
+      "groupItemTitle": "25–30M",
+      "groupItemThreshold": "1",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-03T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/@MrBeastGaming"
+     },
+     {
+      "slug": "will-mrbeast-gamings-next-video-get-between-30-and-35-million-views-in-week-1-20260922",
+      "question": "Will MrBeast Gaming's next video get between 30 and 35 million views in week 1?",
+      "groupItemTitle": "30–35M",
+      "groupItemThreshold": "2",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-03T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/@MrBeastGaming"
+     },
+     {
+      "slug": "will-mrbeast-gamings-next-video-get-between-35-and-40-million-views-in-week-1-20260922",
+      "question": "Will MrBeast Gaming's next video get between 35 and 40 million views in week 1?",
+      "groupItemTitle": "35–40M",
+      "groupItemThreshold": "3",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-03T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/@MrBeastGaming"
+     },
+     {
+      "slug": "will-mrbeast-gamings-next-video-get-between-40-and-45-million-views-in-week-1-20260922",
+      "question": "Will MrBeast Gaming's next video get between 40 and 45 million views in week 1?",
+      "groupItemTitle": "40–45M",
+      "groupItemThreshold": "4",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-03T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/@MrBeastGaming"
+     },
+     {
+      "slug": "will-mrbeast-gamings-next-video-get-between-45-and-50-million-views-in-week-1-20260922",
+      "question": "Will MrBeast Gaming's next video get between 45 and 50 million views in week 1?",
+      "groupItemTitle": "45–50M",
+      "groupItemThreshold": "5",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-03T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/@MrBeastGaming"
+     },
+     {
+      "slug": "will-mrbeast-gamings-next-video-get-between-50-and-55-million-views-in-week-1-20260922",
+      "question": "Will MrBeast Gaming's next video get between 50 and 55 million views in week 1?",
+      "groupItemTitle": "50–55M",
+      "groupItemThreshold": "6",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-03T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/@MrBeastGaming"
+     },
+     {
+      "slug": "will-mrbeast-gamings-next-video-get-55-million-or-more-views-in-week-1-20260922",
+      "question": "Will MrBeast Gaming's next video get 55 million or more views in week 1?",
+      "groupItemTitle": "55M+",
+      "groupItemThreshold": "7",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-03T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/@MrBeastGaming"
+     }
+    ]
+   },
+   {
+    "slug": "what-will-mrbeast-say-during-his-next-youtube-video-october-3",
+    "title": "What will MrBeast say during his next YouTube video?",
+    "description": "MrBeast releases videos on https://www.youtube.com/@MrBeast.\n\nThis market will resolve to \"Yes\" if Mr Beast says the listed term during the next video he releases on YouTube. Otherwise, the market will resolve to \"No\".\n\nIf no such video is posted by MrBeast by October 31, 2026, 11:59 PM ET, \"-No Qualifying Event-\" will resolve to \"Yes\" and all other brackets will resolve to \"No\".\n\nThe resolution source will be the released video from (https://www.youtube.com/@MrBeast).\n\nNote: This market refers to MrBeast's next video posted. Shorts, previews, or other videos released other than the referenced video will not be considered.\n\nFor full rules, see:  https://polymarket-upload.s3.us-east-2.amazonaws.com/market_products/Mentions/Event+Mentions+Contract+DeFi.pdf",
+    "resolutionSource": "",
+    "endDate": "2026-10-03T15:59:00Z",
+    "negRisk": false,
+    "tags": [
+     "internet",
+     "mention-markets",
+     "mrbeast",
+     "pop-culture",
+     "recurring",
+     "youtube"
+    ],
+    "markets": [
+     {
+      "slug": "will-mrbeast-say-hundred-or-thousand-or-million-10-times-during-his-next-youtube-video-october-3",
+      "question": "Will MrBeast say \"Hundred\" or \"Thousand\" or \"Million\" 10+ times during his next YouTube video?",
+      "groupItemTitle": "Hundred / Thousand / Million 10+ times",
+      "groupItemThreshold": "0",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-03T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-say-dollar-10-times-during-his-next-youtube-video-october-3",
+      "question": "Will MrBeast say \"Dollar\" 10+ times during his next YouTube video?",
+      "groupItemTitle": "Dollar 10+ times",
+      "groupItemThreshold": "1",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-03T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-say-feastable-during-his-next-youtube-video-october-3",
+      "question": "Will MrBeast say \"Feastable\" or \"Feastables\" during his next YouTube video?",
+      "groupItemTitle": "Feastable / Feastables",
+      "groupItemThreshold": "2",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-03T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-say-insane-during-his-next-youtube-video-october-3",
+      "question": "Will MrBeast say \"Insane\" during his next YouTube video?",
+      "groupItemTitle": "Insane",
+      "groupItemThreshold": "3",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-03T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-say-challenge-during-his-next-youtube-video-october-3",
+      "question": "Will MrBeast say \"Challenge\" during his next YouTube video?",
+      "groupItemTitle": "Challenge",
+      "groupItemThreshold": "4",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-03T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-say-contestant-during-his-next-youtube-video-october-3",
+      "question": "Will MrBeast say \"Contestant\" during his next YouTube video?",
+      "groupItemTitle": "Contestant",
+      "groupItemThreshold": "5",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-03T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-say-karl-during-his-next-youtube-video-october-3",
+      "question": "Will MrBeast say \"Karl\" during his next YouTube video?",
+      "groupItemTitle": "Karl",
+      "groupItemThreshold": "6",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-03T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-say-huge-during-his-next-youtube-video-october-3",
+      "question": "Will MrBeast say \"Huge\" during his next YouTube video?",
+      "groupItemTitle": "Huge",
+      "groupItemThreshold": "7",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-03T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-say-sponsor-during-his-next-youtube-video-october-3",
+      "question": "Will MrBeast say \"Sponsor\" or \"Sponsored\" during his next YouTube video?",
+      "groupItemTitle": "Sponsor / Sponsored",
+      "groupItemThreshold": "8",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-03T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-say-subscribe-during-his-next-youtube-video-october-3",
+      "question": "Will MrBeast say \"Subscribe\" or \"Subscribes\" during his next YouTube video?",
+      "groupItemTitle": "Subscribe / Subscribes",
+      "groupItemThreshold": "9",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-03T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-say-ai-during-his-next-youtube-video-october-3",
+      "question": "Will MrBeast say \"AI\" or \"Artificial Intelligence\" during his next YouTube video?",
+      "groupItemTitle": "AI / Artificial Intelligence",
+      "groupItemThreshold": "10",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-03T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-say-africa-during-his-next-youtube-video-october-3",
+      "question": "Will MrBeast say \"Africa\" during his next YouTube video?",
+      "groupItemTitle": "Africa",
+      "groupItemThreshold": "11",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-03T23:59:00Z",
+      "resolutionSource": ""
+     },
+     {
+      "slug": "will-mrbeast-not-post-a-video-october-3",
+      "question": "Will MrBeast not post a qualifying video?",
+      "groupItemTitle": "-No Qualifying Event-",
+      "groupItemThreshold": "12",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-03T23:59:00Z",
+      "resolutionSource": ""
+     }
+    ]
+   },
+   {
+    "slug": "of-views-of-mrbeast-gaming-video-on-day-6-20260922",
+    "title": "# of views of MrBeast Gaming video on day 6?",
+    "description": "This market will resolve according to the number of views the latest YouTube video posted by MrBeast Gaming gets in the first 144 hours after being posted. This market may not resolve until the 144 hours are complete, regardless of whether a strike is reached earlier.\n\nIf the reported value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nThe resolution source for this market is MrBeast Gaming's YouTube channel (https://www.youtube.com/@MrBeastGaming), specifically the 'views' counter for the described video.\n\nIf the resolution source is not available at the end of the specified duration, this market will resolve according to most recent number of views available before the end of the specified duration.\n\nNote: This market refers only to the video \"I Found My 13 Year Old Minecraft World\" by MrBeast Gaming (see: https://www.youtube.com/watch?v=PyLGTmWz37U).",
+    "resolutionSource": "https://www.youtube.com/watch?v=PyLGTmWz37U",
+    "endDate": "2026-10-02T23:59:00Z",
+    "negRisk": true,
+    "tags": [
+     "gaming",
+     "mrbeast",
+     "pop-culture",
+     "recurring",
+     "views",
+     "youtube"
+    ],
+    "markets": [
+     {
+      "slug": "will-mrbeast-gamings-next-video-get-less-than-30-5-million-views-on-day-6-20260922",
+      "question": "Will MrBeast Gaming's next video get less than 30.5 million views on day 6?",
+      "groupItemTitle": "<30.5M",
+      "groupItemThreshold": "0",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-02T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=PyLGTmWz37U"
+     },
+     {
+      "slug": "will-mrbeast-gamings-next-video-get-between-30-5-and-31-million-views-on-day-6-20260922",
+      "question": "Will MrBeast Gaming's next video get between 30.5 and 31 million views on day 6?",
+      "groupItemTitle": "30.5–31M",
+      "groupItemThreshold": "1",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-02T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=PyLGTmWz37U"
+     },
+     {
+      "slug": "will-mrbeast-gamings-next-video-get-between-31-and-31-5-million-views-on-day-6-20260922",
+      "question": "Will MrBeast Gaming's next video get between 31 and 31.5 million views on day 6?",
+      "groupItemTitle": "31–31.5M",
+      "groupItemThreshold": "2",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-02T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=PyLGTmWz37U"
+     },
+     {
+      "slug": "will-mrbeast-gamings-next-video-get-between-31-5-and-32-million-views-on-day-6-20260922",
+      "question": "Will MrBeast Gaming's next video get between 31.5 and 32 million views on day 6?",
+      "groupItemTitle": "31.5–32M",
+      "groupItemThreshold": "3",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-02T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=PyLGTmWz37U"
+     },
+     {
+      "slug": "will-mrbeast-gamings-next-video-get-between-32-and-32-5-million-views-on-day-6-20260922",
+      "question": "Will MrBeast Gaming's next video get between 32 and 32.5 million views on day 6?",
+      "groupItemTitle": "32–32.5M",
+      "groupItemThreshold": "4",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-02T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=PyLGTmWz37U"
+     },
+     {
+      "slug": "will-mrbeast-gamings-next-video-get-between-32-5-and-33-million-views-on-day-6-20260922",
+      "question": "Will MrBeast Gaming's next video get between 32.5 and 33 million views on day 6?",
+      "groupItemTitle": "32.5–33M",
+      "groupItemThreshold": "5",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-02T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=PyLGTmWz37U"
+     },
+     {
+      "slug": "will-mrbeast-gamings-next-video-get-33-million-or-more-views-on-day-6-20260922",
+      "question": "Will MrBeast Gaming's next video get 33 million or more views on day 6?",
+      "groupItemTitle": "33M+",
+      "groupItemThreshold": "6",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "endDate": "2026-10-02T23:59:00Z",
+      "resolutionSource": "https://www.youtube.com/watch?v=PyLGTmWz37U"
+     }
+    ]
+   }
+  ]
+ }
+}
