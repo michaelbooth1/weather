@@ -31,6 +31,36 @@ the workstation's installer-built 3.11.9 home, and A4 proves the SHA-256 values.
 the elevated operator session on an owner-named morning; the §7a dates are re-set by the owner in
 the decision log and the state of play.
 
+Revision 2026-10-14 (A' r2): **every comparison of a stored `pip freeze` against the live production venv masks the
+weather editable line's commit sha** (`Mask-Editable`, §6). That line,
+`-e git+https://github.com/michaelbooth1/weather.git@<sha>#egg=weather_market`, records the production HEAD and so changes
+on every master merge. A' r1 (10-14 05:16) stopped on a false NO-GO for exactly that line (HEAD `4bc93ae5d` to
+`378256d49`; nothing installed); r2 masked it and passed at 05:23, and a negative control (a changed pip version) still
+failed. The mask replaces only the 40-hex sha, only on that exact line, so a missing or different weather install still
+differs. HEAD itself is checked by G3 (C0), not by the freeze. §T, T-R, C1 and §R use the mask; Test-Venv already drops
+`-e` lines, and the B1a lock never contained them.
+
+Revision 2026-10-16 (B1b verifier r2): **Phase B attempt 1 stopped on a false NO-GO at 00:30:42.**
+The r1 `verify_wheels_vs_installed.py` (§6b) took the symmetric difference of the wheel and installed `RECORD`
+row sets, so rows that pip itself writes at install time counted as differences: the dist-info `INSTALLER`,
+`REQUESTED` and `direct_url.json`, the `../Scripts` launchers, and wheel `.data/` files installed under
+`../../share` or `../../etc`. 76 of 77 packages showed `DIFF`, but no wheel row actually differed. r2 (Fable
+RUN) requires the wheel rows to be a subset of the installed rows and allows only those pip-written kinds as
+installed-only rows, with `.data/` files matched by identical hash. Against that night's wheelhouse it
+returned rc 0 and 77 `OK`; attempt 2 started at 00:35:34. The pinned r2 sha256 is
+`FE9F7A574CF914E070AC9FD70C93C661D9DD2239AB9109B02E71263EE9DA668D`. The host file is canonical, and the Phase B
+wrapper r2 differs from r1 only in that pin.
+
+Revision 2026-10-16 (Phase B wrapper defects, also in C): Phase B qualified (bounded suite 21/21), but the wrapper
+stopped at B3, and master-agent finished B3 and E by hand. Two defects would have hit Phase C as well.
+(1) `Get-ReleaseActive` read the release CLI output through a `[string]` cast of `Get-Content -Raw`, which is `$null` for an
+empty file in PowerShell 5.1, so the expected BLOCK case (empty stdout) threw at `$o.Trim()`; it now uses
+`"$(...)"`. It runs at B3, C0, C8 and §R. No other block of this file casts `Get-Content -Raw` directly.
+(2) `status.ps1 -Json` exits 2 on any flag, and the host carries standing flags that predate the night
+(an overdue documentation transaction and two STALENESS_SWEEP CRITICAL rows), so an exit-0 test never
+passes. B0 and C0 now save a flag baseline (`Save-StatusBaseline`), and C8 and C9c judge only new flags
+(`Get-NewStatusFlags`). A wrapper must never gate on that exit code.
+
 **Owns:** the procedure for moving the production checkout's `venv` from CPython 3.11.0 to 3.11.9
 on the 16 GB capture host. That covers a side-by-side install, an offline wheelhouse, a stage venv
 qualified by the bounded suite, the cutover through the guarded stop/restore path, verification,
@@ -74,7 +104,7 @@ The live SDK portability check accepts any 3.11 patch release
 | G4 | The owner is reachable from 00:30 to 03:45 on the cutover night: GO at C0, and any escalation up to the end of §R. Phase A needs no owner click since the 2026-10-13 revision (A4 has no installer). | C0 |
 | G5 | No other lease user is due that night. Specifically: <br>- `WeatherTrainingWindow` (a 01:00 one-shot, `register_training_window.ps1:3`) is disabled or has no trigger that night; <br>- Stage B `WeatherEveningEvidenceRefresh` (00:35, holds the lease to 09:00 when enabled; `register_daily_refresh.ps1:20-24`) is disabled; <br>- a U6 export registered at 00:35 (Q3) is disabled (enforced in B0 and C0 by `Assert-NoU6At0035`);<br>- no integration attempt, quiet-window merge, storage one-shot or held-head work is scheduled. | Phase B (B0), C0 |
 | G6 | Release case A: `artifacts\releases\current_release.json` is absent (H5, B3, C0). Case B or C is NO-GO for this runbook (§8). | H5, B3, C0 |
-| G7 (LFC) | The cutover night (and any Phase B prep night) is not the night before or the night of a scheduled LFC session. Revised 2026-10-12 (owner-confirmed): it no longer waits for LFC session 0, which the owner postponed. | Phase B (B0), C0 |
+| G7 (LFC) | The cutover night (and any Phase B prep night) is not the night before or the night of a scheduled LFC session. Revised 2026-10-12 (owner-confirmed): it no longer waits for LFC session 0, which the owner postponed. **Dated exception 2026-10-14** (owner: "Keep B" (2026-10-14 16:27 EDT, relayed verbatim by master-agent); DECISION_LOG 2026-10-13 LFC session 0 row): Phase B runs at 00:30 on 10-16, the morning of LFC session 0 (Fri 10-16), on the guard that B ends clean by 09:00 with the 8765 reader and capture re-checked, else session 0 slips; C stays at 00:30 on 10-17. | Phase B (B0), C0 |
 | G8 (88a) | The night is after the 88a merge freeze in the state of play. `$R\q12.txt` records the owner's Q12 choice as `STOP_AUTHORIZED` with its DECISION_LOG reference. Any other value means NO-GO, because the 88a worker would hold the venv. | Sign-off, C0, C2 |
 | G9 (tzdata) | The tzdata sequencing is decided (Q13), so the freeze comparison in `Test-Venv` cannot false-fail. | Before Phase B |
 | G10 (seals) | No live attempt is planned between the cutover and the reseal. | Sign-off |
@@ -232,6 +262,10 @@ $global:Lease = $null; $global:ReleaseOnNoGo = $false
 function Release-Lease { if ($global:Lease) { Exit-WeatherHeavyWorkloadLease -Lease $global:Lease; $global:Lease = $null; Log 'lease released' } }
 function NoGo($m){ Log "NO-GO: $m"; if ($global:ReleaseOnNoGo) { $global:ReleaseOnNoGo = $false; Release-Lease }; throw "NO-GO: $m" }
 function Sha($f){ (Get-FileHash -LiteralPath $f -Algorithm SHA256).Hash.ToUpper() }
+# pip freeze records the production HEAD on the weather editable line, so it changes on every master merge (A' r2, 2026-10-14).
+# Mask only that 40-hex sha, only on that exact line; every other line, and any other form of that line, is compared as is.
+function Mask-Editable([string[]]$Lines) { foreach ($line in $Lines) {
+  if ($line -cmatch '^-e git\+https://github\.com/michaelbooth1/weather\.git@[0-9a-f]{40}#egg=weather_market$') { $line -creplace '@[0-9a-f]{40}#', '@<HEAD>#' } else { $line } } }
 # Native calls whose stderr matters go through Invoke-Native. Never use 2>&1 or 2> on a native command while
 # $ErrorActionPreference is 'Stop': Windows PowerShell 5.1 turns each stderr line into a terminating error.
 function Invoke-Native([string]$Exe, [string[]]$Arguments, [string]$OutBase) {
@@ -243,7 +277,9 @@ function Invoke-Native([string]$Exe, [string[]]$Arguments, [string]$OutBase) {
 # Release readiness as parsed fields (release_lifecycle_cli prints JSON; a BLOCK goes to stderr with a non-zero exit)
 function Get-ReleaseActive([string]$Exe, [string]$OutBase) {
   $code = Invoke-Native $Exe @('-m','weather.operations.release_lifecycle_cli','--repo-root',$P,'active') $OutBase
-  $o = [string](Get-Content -LiteralPath "$OutBase.out.txt" -Raw); $e = [string](Get-Content -LiteralPath "$OutBase.err.txt" -Raw)
+  # "$(...)" not [string](...): Get-Content -Raw of an empty file is $null and [string]$null stays $null in PS 5.1,
+  # so the BLOCK case (empty stdout) threw at $o.Trim() (Phase B B3, 2026-10-16).
+  $o = "$(Get-Content -LiteralPath "$OutBase.out.txt" -Raw)"; $e = "$(Get-Content -LiteralPath "$OutBase.err.txt" -Raw)"
   # PASS prints indented JSON on stdout; BLOCK prints one JSON line on stderr (release_lifecycle_cli.py:191).
   # Take only that last JSON line from stderr, so a stray warning line cannot break the parse.
   $raw = if ($o.Trim()) { $o } else { @($e -split "`r?`n" | Where-Object { $_.Trim().StartsWith('{') }) | Select-Object -Last 1 }
@@ -261,6 +297,23 @@ function Get-GapChoice { $c = if (Test-Path -LiteralPath "$R\gap-overrun.txt") {
 function Assert-CaseA($ra, $tag) {
   if ($ra.status -ne 'BLOCK' -or $ra.error -notlike '*active release pointer is missing*') { NoGo "$tag release is not case A: $($ra | ConvertTo-Json -Compress)" }
   if (Test-Path -LiteralPath (Join-Path $P 'artifacts\releases\current_release.json')) { NoGo "$tag active release pointer exists" } }
+# status.ps1 -Json exits 2 on ANY flag, and the host can carry standing flags that predate the night (2026-10-16: an
+# overdue documentation transaction and two STALENESS_SWEEP CRITICAL rows). Never gate on its exit code; compare its
+# flags with a baseline taken before the phase. Keys mask 64-hex hashes and numbers, so an ageing standing flag
+# ("63 days" -> "64 days") keeps its key while a new kind of flag does not.
+function Get-StatusFlagKeys([string]$OutBase) {
+  $raw = "$(Get-Content -LiteralPath "$OutBase.out.txt" -Raw)"; if (-not $raw.Trim()) { NoGo "status.ps1 printed nothing ($OutBase)" }
+  try { $j = $raw | ConvertFrom-Json } catch { NoGo "status.ps1 output is not JSON ($OutBase)" }
+  if ($null -eq $j -or -not $j.PSObject.Properties['flags']) { NoGo "status.ps1 JSON has no flags field ($OutBase)" }
+  @(@($j.flags) | ForEach-Object { ([string]$_ -replace '[0-9a-fA-F]{64}','<sha>') -replace '\d+(\.\d+)?','#' } | Sort-Object -Unique) }
+function Save-StatusBaseline([string]$OutBase, [string]$Path) {
+  $k = @(Get-StatusFlagKeys $OutBase); $k | Set-Content -LiteralPath $Path -Encoding utf8; Log "status baseline $Path ($($k.Count) flags)" }
+function Get-NewStatusFlags([string]$OutBase, [string]$Baseline, [string]$Tag) {
+  if (-not (Test-Path -LiteralPath $Baseline)) { NoGo "$Tag status baseline $Baseline is missing" }
+  $base = @(Get-Content -LiteralPath $Baseline | Where-Object { $_ })
+  $new = @(Get-StatusFlagKeys $OutBase | Where-Object { $base -notcontains $_ })
+  $new | Set-Content -LiteralPath "$OutBase.new-flags.txt" -Encoding utf8
+  Log "$Tag status: $($new.Count) new flag(s) vs $(Split-Path -Leaf $Baseline)"; $new }
 . (Join-Path $P 'scripts\ops\workload_admission.ps1')
 . (Join-Path $P 'scripts\ops\memory_guard_status_reader.ps1')
 Log "session start host=$env:COMPUTERNAME head=$(git -C $P rev-parse HEAD)"
@@ -381,31 +434,62 @@ open(sys.argv[2], "w", encoding="ascii").write("\n".join(out) + "\n")
 print(f"{len(out)} pins hashed")
 ```
 
-`verify_wheels_vs_installed.py` compares each wheel's hashed `RECORD` rows with the installed
-`RECORD` of the same distribution, ignoring `.pyc` and `.data/` rows. It prints `OK`, `DIFF`,
-`MISSING-INSTALLED` or `UNMATCHED-ALLOWED` per wheel:
+`verify_wheels_vs_installed.py` (r2, 2026-10-16) checks each wheel's hashed `RECORD` rows against the
+installed `RECORD` of the same distribution, ignoring `.pyc` rows. Every wheel row must be installed with
+the same hash. The installed side may add only the rows pip writes at install time: the dist-info
+`INSTALLER`, `REQUESTED` and `direct_url.json`, `../Scripts` launchers, and the wheel's own `.data/` files
+installed under `../../<scheme>` with an identical hash. It prints `OK`, `DIFF` (with up to five
+`WHEEL-ONLY` and `INSTALLED-ONLY` rows), `MISSING-INSTALLED` or `UNMATCHED-ALLOWED` per wheel. The host copy
+is canonical: `sha256 FE9F7A574CF914E070AC9FD70C93C661D9DD2239AB9109B02E71263EE9DA668D` (2710 bytes, ASCII,
+LF line endings, trailing LF). The text below is byte-identical to it, so a fresh copy must hash to that value:
 
 ```python
 import csv, io, pathlib, re, sys, zipfile
+# r2 (master-agent 2026-10-16 00:4x): r1 compared the two RECORD row sets symmetrically, so the rows pip itself
+# writes at install time (dist-info INSTALLER / REQUESTED / direct_url.json, ../Scripts launchers, and the wheel's own
+# .data/ files installed under ../../<scheme> with the same hash) failed every package (B NO-GO 00:30:42, 0 wheel rows actually differed). r2: every hashed wheel row must be in
+# the installed RECORD with the same hash, and installed-only rows may only be those pip-written kinds.
 wh, site = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
 allow_unmatched = {a.lower() for a in sys.argv[3:]}
 def rows(text):
     return {(p, h) for p, h, *_ in csv.reader(io.StringIO(text)) if h and ".data/" not in p and not p.endswith(".pyc")}
+def data_rows(text):
+    # wheel .data/<scheme>/<rel> rows install outside site-packages as ../../<scheme dir>/<rel>; keep (rel, hash)
+    out = set()
+    for p, h, *_ in csv.reader(io.StringIO(text)):
+        if h and ".data/" in p:
+            parts = p.split("/", 2)
+            if len(parts) == 3: out.add((parts[2], h))
+    return out
+def pip_written(path, h, dist, wdata):
+    if path in (f"{dist}/INSTALLER", f"{dist}/REQUESTED", f"{dist}/direct_url.json"):
+        return True
+    if path.startswith("../") and "/Scripts/" in path:
+        return True
+    # a .data/ file from this wheel, same bytes (hash), installed under its scheme directory
+    return path.startswith("../") and any(path.endswith("/" + rel) and h == wh_ for rel, wh_ in wdata)
 bad = 0
 for whl in sorted(wh.glob("*.whl")):
     with zipfile.ZipFile(whl) as z:
         rec = next(n for n in z.namelist() if n.endswith(".dist-info/RECORD") and n.count("/") == 1)
         dist = rec.split("/")[0]
-        wrows = rows(z.read(rec).decode("utf-8"))
+        rtext = z.read(rec).decode("utf-8"); wrows = rows(rtext); wdata = data_rows(rtext)
     inst = site / dist / "RECORD"
     name = re.split(r"-\d", dist, maxsplit=1)[0].lower().replace("_", "-")
     if not inst.exists():
         if name in allow_unmatched:
             print("UNMATCHED-ALLOWED", whl.name); continue
         print("MISSING-INSTALLED", whl.name); bad += 1; continue
-    diff = wrows ^ rows(inst.read_text("utf-8"))
-    print(("OK " if not diff else "DIFF ") + whl.name + ("" if not diff else f" ({len(diff)} rows)"))
-    bad += bool(diff)
+    irows = rows(inst.read_text("utf-8"))
+    missing = wrows - irows
+    extra = {r for r in irows - wrows if not pip_written(r[0], r[1], dist, wdata)}
+    if not missing and not extra:
+        print("OK " + whl.name)
+    else:
+        print(f"DIFF {whl.name} (wheel rows not installed: {len(missing)}; unexpected installed rows: {len(extra)})")
+        for p, h in sorted(missing)[:5]: print("  WHEEL-ONLY", p, h)
+        for p, h in sorted(extra)[:5]: print("  INSTALLED-ONLY", p, h)
+    bad += bool(missing or extra)
 sys.exit(1 if bad else 0)
 ```
 
@@ -426,7 +510,7 @@ is why the suite starts no later than 03:00. Using the tiering hole (HOST_LOAD_P
 later needs at least 100 GiB free and skips tiering that night; that is an owner choice, not a
 default.
 
-### 7a. Phase calendar (owner-confirmed 2026-10-12)
+### 7a. Phase calendar (owner-confirmed 2026-10-12; Phase A done 2026-10-14)
 
 The owner confirmed this calendar on 2026-10-12, including the fallbacks, and named the cutover
 night 00:30 on 10-17 (owner reachable 00:30-03:45, G4), accepting the short gap inside the 88a
@@ -436,7 +520,7 @@ morning: "00:30 on 10-16" is the night of 10-15 to 10-16.
 
 | Phase | Primary | Fallback | Reason |
 | --- | --- | --- | --- |
-| A install (elevated operator session; no owner click since 2026-10-13) | owner-named morning, about 07:30-09:00 (the 10-13 attempt stopped at A4; re-set in the state of play) | owner-named | It shares the morning of the N8 merge night. It takes no lease and starts only after the N8 sequence has handed back; if a landing is still running or needs recovery, A moves to the fallback. It overlaps the 06:50 91a run with light I/O only. It runs before §T, so §T ends with T-R. |
+| A install (elevated operator session; no owner click since 2026-10-13) | **done**: P0-A2 10-13 08:54-08:57 (A4 NO-GO on the installer route); A' (A3 + A4, NuGet route) **PASS 10-14 05:23** after N9 handed back | none needed | It ran before §T, so §T ends with T-R. |
 | §T tzdata + T-R | 00:30-02:00 on Thu 10-15 | 00:30 on Fri 10-16 | First admitted night after N9 (00:30 on 10-14). |
 | B prep night | 00:30-04:45 on Fri 10-16 | 00:30 on Sat 10-17 | After A and after §T's T-R (B builds its lock from the refreshed freeze). |
 | C cutover | 00:30-02:25 on Sat 10-17 (owner-named) | the next night inside 10-15..10-30 that meets G4 and G5, named by the owner (G0) | The night after B, so the qualified tip has little time to move (G3); after the freeze (G8). If B uses its fallback (10-17), C moves too. |
@@ -451,6 +535,9 @@ scheduled LFC session) are checked again before each Phase B and Phase C night.
 ### §T. tzdata 2026.3 on the current 3.11.0 venv (if Q13 chooses an earlier night)
 
 This is light pip work under the lease, with the workers left running.
+- **Precondition:** `$Tools\pypi_hash_lock.py` exists, copied verbatim from §6b. No step creates it (§6 makes only
+  the folder), so on a §T night that runs before Phase B, copy it in after the §6 session header and before the block
+  below (the 10-15 §T run found it missing).
 - **Not a code roll.** The source fingerprint excludes the venv (`runtime_identity.py` lines 19-28 and
   141-145), so installing tzdata cannot trigger `STALE_CODE`.
 - **Capture does read tzdata.** On Windows, `ZoneInfo("America/Toronto")` (`model_constants.py:13`,
@@ -467,7 +554,7 @@ try {
   & $Py -m pip download --isolated --no-cache-dir --require-hashes --only-binary=:all: --no-deps -r "$R\lock-tz-hashed.txt" -d "$R\tzdata"; if ($LASTEXITCODE) { NoGo 'tzdata download' }
   & $Py -m pip install --isolated --no-index --no-deps --require-hashes --find-links "$R\tzdata" -r "$R\lock-tz-hashed.txt"; if ($LASTEXITCODE) { NoGo 'tzdata install' }
   & $Py -m pip freeze --all | Out-File "$R\freeze-after-tzdata.txt" -Encoding utf8
-  $d = Compare-Object (Get-Content "$R\freeze-before-tzdata.txt") (Get-Content "$R\freeze-after-tzdata.txt"); $d | Out-File "$R\freeze-diff-tzdata.txt"
+  $d = Compare-Object (Mask-Editable (Get-Content "$R\freeze-before-tzdata.txt")) (Mask-Editable (Get-Content "$R\freeze-after-tzdata.txt")); $d | Out-File "$R\freeze-diff-tzdata.txt"
   if ($d | Where-Object { $_.InputObject -notmatch '^tzdata==' }) { NoGo 'a line other than tzdata changed - roll back tzdata and inspect' }
   if (-not ($d | Where-Object { $_.SideIndicator -eq '=>' -and $_.InputObject -eq 'tzdata==2026.3' })) { NoGo 'tzdata==2026.3 not in the after-freeze' }
 } finally { Release-Lease }
@@ -489,7 +576,7 @@ Push-Location -LiteralPath $P
 & $Py -c "import json; from weather.release_artifacts import capture_runtime_versions as c; print(json.dumps(c(), indent=1, sort_keys=True))" | Set-Content "$A\rtv-3110.json" -Encoding utf8
 Pop-Location
 if (-not (Select-String -LiteralPath "$A\freeze-3110.txt" -Pattern '^tzdata==2026\.3$' -Quiet)) { NoGo 'T-R: freeze-3110 lacks tzdata==2026.3' }
-$d = Compare-Object (Get-Content "$A\freeze-3110.txt.pre-tzdata") (Get-Content "$A\freeze-3110.txt")
+$d = Compare-Object (Mask-Editable (Get-Content "$A\freeze-3110.txt.pre-tzdata")) (Mask-Editable (Get-Content "$A\freeze-3110.txt"))
 if ($d | Where-Object { $_.InputObject -notmatch '^tzdata==' }) { NoGo 'T-R: a line other than tzdata changed since Phase A' }
 Log 'T-R PASS'
 ```
@@ -647,6 +734,8 @@ foreach ($tn in 'WeatherTrainingWindow','WeatherEveningEvidenceRefresh') { $x = 
 Assert-NoU6At0035 'B0'
 $mg = Read-WeatherMemoryGuardStatus -Path (Join-Path $P 'data\logs\memory_commit_guard_status.json'); Log "memory $($mg | ConvertTo-Json -Compress)"
 if ((Get-Volume -DriveLetter C).SizeRemaining -lt 55GB) { NoGo 'disk below the bounded-suite floor plus margin' }
+$null = Invoke-Native 'powershell.exe' @('-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $P 'scripts\ops\status.ps1'),'-Json') "$R\b0-status"
+Save-StatusBaseline "$R\b0-status" "$R\b0-status-flags.txt"   # standing flags; any later Phase B status check uses Get-NewStatusFlags against it
 $global:Lease = Enter-WeatherHeavyWorkloadLease -RepoRoot $P -Workload 'py3119_prep'; if (-not $global:Lease) { NoGo 'lease busy' }
 $global:ReleaseOnNoGo = $true     # any NoGo from here to the end of B1e releases the lease
 ```
@@ -702,7 +791,11 @@ Build-Venv $StagePy $Stage
 The editable install builds in an isolated environment. That environment gets `setuptools` from
 `$WH`, because pip passes `--no-index --find-links` to it (Q10).
 
-**B1d. Test-Venv (reused in C6).**
+**B1d. Test-Venv (reused in C6).** `rtv.json` records each direct dependency's *declared* string from
+`pyproject.toml` as well as its installed version (`capture_runtime_versions`, `release_artifacts.py`). So if a
+`pyproject.toml` pin changes on master after `$A\rtv-3110.json` was taken, re-take that receipt from the merged
+production checkout before B1d, keeping the old one beside it (the T-R `rtv` line). The 2026-10-15 `python-dotenv`
+1.2.3 to 1.2.2 pin was such a change. Otherwise the stage compare stops with `direct dependencies moved`.
 
 ```powershell
 function Test-Venv($vpy, $root, $tag) {
@@ -756,19 +849,27 @@ $global:ReleaseOnNoGo = $false; Release-Lease
 
 **B2. Bounded suite on the stage interpreter.** The suite takes its own lease, needs at least
 50 GiB free, and starts by 03:00 (§7). Run it in a child PowerShell, so that a throw cannot skip the
-qualification record.
+qualification record. Bind the suite's Git executable explicitly. Without the binding the suite resolves `git.exe`
+from PATH and refuses when it finds more than one, which is the case on the capture host: User PATH `Git\bin` and
+Machine PATH `Git\cmd` (Fable review of the Phase B wrapper, 2026-10-15). Use the reviewed binding the night
+sequencers pass: its path, SHA-256 and file version, read on the host with `Get-FileHash` and
+`(Get-Item).VersionInfo.FileVersion`.
 
 ```powershell
 if ((Get-Date) -gt (Get-Date).Date.AddHours(3)) { NoGo 'past the 03:00 suite start limit' }
 $SuiteLog = Join-Path $R ('bounded-suite-' + (Get-Date -Format yyyyMMdd) + '.log')
 $suite = Join-Path $P 'scripts\ops\bounded_worktree_test_suite.ps1'
+$GitExe = '<reviewed git.exe, e.g. C:\Program Files\Git\cmd\git.exe>'; $GitSha = '<its SHA-256>'; $GitVer = '<its file version, e.g. 2.45.2.windows.1>'
+if ((Sha $GitExe) -ne $GitSha.ToUpper() -or (Get-Item -LiteralPath $GitExe).VersionInfo.FileVersion -ne $GitVer) { NoGo 'B2 git binding does not match the host git.exe' }
 $SuiteExit = 99
 try {
   powershell -NoProfile -ExecutionPolicy Bypass -File $suite -RepoRoot $P -WorktreeRoot $Stage -ExpectedTip $Tip -BranchRef $QBranch `
-    -LogPath "$SuiteLog.preflight" -PreflightOnly -InterpreterPath $StagePy -ExpectedInterpreterVersion '3.11.9'
+    -LogPath "$SuiteLog.preflight" -PreflightOnly -InterpreterPath $StagePy -ExpectedInterpreterVersion '3.11.9' `
+    -GitExecutablePath $GitExe -ExpectedGitExecutableSha256 $GitSha -ExpectedGitExecutableFileVersion $GitVer
   if ($LASTEXITCODE -eq 0) {
     powershell -NoProfile -ExecutionPolicy Bypass -File $suite -RepoRoot $P -WorktreeRoot $Stage -ExpectedTip $Tip -BranchRef $QBranch `
-      -LogPath $SuiteLog -InterpreterPath $StagePy -ExpectedInterpreterVersion '3.11.9'
+      -LogPath $SuiteLog -InterpreterPath $StagePy -ExpectedInterpreterVersion '3.11.9' `
+      -GitExecutablePath $GitExe -ExpectedGitExecutableSha256 $GitSha -ExpectedGitExecutableFileVersion $GitVer
   }
   $SuiteExit = $LASTEXITCODE
 } finally {
@@ -781,6 +882,7 @@ try {
 **Go/no-go B2:**
 - the suite exits 0;
 - its interpreter-override line names `$StagePy` and 3.11.9;
+- its `selected_git=` and `expected_git_*` values name `$GitExe`, `$GitSha` and `$GitVer`;
 - the stage worktree is clean;
 - the #259 `constructor` / `pre_3_11_2` tests pass.
 
@@ -839,6 +941,7 @@ foreach ($tn in 'WeatherTrainingWindow','WeatherEveningEvidenceRefresh') { $x = 
 $mg = Read-WeatherMemoryGuardStatus -Path (Join-Path $P 'data\logs\memory_commit_guard_status.json'); Log "memory $($mg | ConvertTo-Json -Compress)"
 Log "lease state $((Get-WeatherHeavyWorkloadLeaseState -RepoRoot $P) | ConvertTo-Json -Compress)"
 $st0 = Invoke-Native 'powershell.exe' @('-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $P 'scripts\ops\status.ps1'),'-Json') "$R\c0-status"
+Save-StatusBaseline "$R\c0-status" "$R\c0-status-flags.txt"   # exit $st0 is 2 whenever any standing flag exists; not a gate
 $ra0 = Get-ReleaseActive $Py "$R\c0-release-active"; Assert-CaseA $ra0 'C0'
 $Exempt = @('WeatherMemoryCommitGuard','WeatherSnapshotLoopSupervisor','WeatherClobBookLoopSupervisor','WeatherObservationTriggerSupervisor','WeatherTrainingWindowRestore') +
           @(Get-Content -LiteralPath "$R\aux-tasks.txt" | Where-Object { $_.Trim() })
@@ -848,7 +951,8 @@ Log "C0 complete (status.ps1 exit $st0) - awaiting owner GO"
 ```
 
 **Go/no-go C0:**
-- `c0-status.out.txt` shows capture healthy (3/3), with no FLAG the owner has not accepted;
+- `c0-status.out.txt` shows capture healthy (3/3), with no FLAG the owner has not accepted. The flags in
+  `c0-status-flags.txt` are the accepted baseline for C8 and C9c; `status.ps1` exit 2 alone is not a NO-GO;
 - the release is case A (already asserted);
 - `c0-next-runs.txt` is empty. The exempt tasks are the memory guard, the three supervisors, the 04:15 restore, and the aux tasks that C2 disables. Any other task due before 04:00 goes to the owner;
 - G3, G5, G7, G8 and G11 hold;
@@ -863,7 +967,7 @@ while (-not $global:Lease) { $global:Lease = Enter-WeatherHeavyWorkloadLease -Re
 $global:ReleaseOnNoGo = $true     # until the C4 rename, any NoGo releases the lease; after it, §R needs the lease
 $N = Join-Path $R ('night-' + (Get-Date -Format yyyyMMdd)); New-Item -ItemType Directory -Force $N | Out-Null
 & $Py -m pip freeze --all | Set-Content "$N\freeze-3110-tonight.txt"
-if (Compare-Object (Get-Content "$A\freeze-3110.txt") (Get-Content "$N\freeze-3110-tonight.txt")) { NoGo 'prod venv changed since Phase B - requalify' }
+if (Compare-Object (Mask-Editable (Get-Content "$A\freeze-3110.txt")) (Mask-Editable (Get-Content "$N\freeze-3110-tonight.txt"))) { NoGo 'prod venv changed since Phase B - requalify' }
 foreach ($f in 'loop_status.json','clob_loop_status.json','observation_trigger_status.json') { Copy-Item -LiteralPath (Join-Path $P "data\snapshots\$f") "$N\pre-$f" }
 $shadowTask = Get-ScheduledTask -TaskName WeatherMakerShadowRunner -ErrorAction SilentlyContinue
 $ShadowStop = $null
@@ -1054,6 +1158,7 @@ $ra1 = Get-ReleaseActive $Py "$N\release-active-3119"; Assert-CaseA $ra1 'C8'
 if ($ra1.status -ne $ra0.status -or $ra1.error -ne $ra0.error) { NoGo 'release active fields changed across the swap -> ROLLBACK' }
 # d) host status
 $st1 = Invoke-Native 'powershell.exe' @('-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $P 'scripts\ops\status.ps1'),'-Json') "$N\status-core"
+$new1 = Get-NewStatusFlags "$N\status-core" "$R\c0-status-flags.txt" 'C8'   # judged below; aux flags are expected until C9b
 # e) native-library receipt, old and new
 $null = Invoke-Native $Py @('-I','-c','import ssl, sqlite3, zlib, pyexpat; print(ssl.OPENSSL_VERSION); print(sqlite3.sqlite_version); print(zlib.ZLIB_RUNTIME_VERSION); print(pyexpat.EXPAT_VERSION)') "$N\native-3119"
 ```
@@ -1061,7 +1166,8 @@ $null = Invoke-Native $Py @('-I','-c','import ssl, sqlite3, zlib, pyexpat; print
 **Go/no-go C8:**
 - (a) all three status files report 3.11.9;
 - (c) `status` and `error` are identical to C0, a missing-pointer BLOCK;
-- (d) capture shows no new FLAG (aux-task flags are expected until C9b);
+- (d) `status-core.new-flags.txt` (new flags against the C0 baseline) lists nothing but aux-task flags, which are
+  expected until C9b; a new capture flag is a fail. The `status.ps1` exit code is not the test;
 - (e) is a receipt only.
 
 **C9. Core decision (by 02:15).** PASS needs C6, C7 and C8 all green, and either a gap of
@@ -1100,6 +1206,7 @@ if ($tapeWanted) { $t0 = Get-Date
 $m = Get-Content -LiteralPath (Join-Path $P 'data\maker_evidence\status.json') -Raw | ConvertFrom-Json
 Log "88a state=$($m.state) updated=$($m.updated_at_utc) cycles=$($m.cycles) last_error=$($m.last_error)"
 $st2 = Invoke-Native 'powershell.exe' @('-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $P 'scripts\ops\status.ps1'),'-Json') "$N\status-full"
+$new2 = Get-NewStatusFlags "$N\status-full" "$R\c0-status-flags.txt" 'C9c'
 ```
 
 **Go/no-go C9c:**
@@ -1108,6 +1215,8 @@ $st2 = Invoke-Native 'powershell.exe' @('-NoProfile','-ExecutionPolicy','Bypass'
   passes, and the connection state is `CONNECTED`.
 - **Shadow:** running again, with the STOP file gone.
 - **88a:** `status.json` has an `updated_at_utc` after `$AuxRestart`, `state` is `CAPTURING` or `NO_ELIGIBLE_BANDS`, and no `last_error` mentions a torn journal.
+- **Status:** `status-full.new-flags.txt` is empty: no flag beyond the C0 baseline. A new flag names the component
+  to judge under the rules above; the `status.ps1` exit code (2 while any standing flag exists) is not the test.
 
 If the tape or shadow fails with an import or runtime error on the new venv, run §R. It must start
 by 02:45.
@@ -1189,7 +1298,7 @@ elseif (-not (Stop-Capture $X -Soft)) { Log 'ESCALATE: capture stop not confirme
 if (Test-Path -LiteralPath "$P\venv") { if (-not (Rename-WithSweep "$P\venv" 'venv-cp3119-failed' 'r1')) { NoGo 'ROLLBACK: new venv still held - ESCALATE (holders file in $N); lease kept, see below' } }
 if (-not (Rename-WithSweep $Old 'venv' 'r2')) { NoGo 'ROLLBACK: venv-cp3110 cannot be renamed back - ESCALATE (holders file in $N); lease kept, see below' }
 if ((& "$P\venv\Scripts\python.exe" -VV) -notlike 'Python 3.11.0*') { Log 'ESCALATE: venv not 3.11.0' }
-if (Compare-Object (Get-Content "$A\freeze-3110.txt") (& "$P\venv\Scripts\python.exe" -m pip freeze --all)) { Log 'ESCALATE: freeze differs' }
+if (Compare-Object (Mask-Editable (Get-Content "$A\freeze-3110.txt")) (Mask-Editable (& "$P\venv\Scripts\python.exe" -m pip freeze --all))) { Log 'ESCALATE: freeze differs' }
 foreach ($tn in $Sup) { Enable-ScheduledTask -TaskName $tn | Out-Null }
 $rb = Wait-Restore (Get-Date)
 if ($rb) { Undo-Aux; Start-AuxHolders }
@@ -1301,7 +1410,7 @@ started on 3.11.9 against a 3.11.0-bound release would fail `check_runtime`
 | 09:30-11:55 Stage-A | Nothing |
 | 12:00-18:00 graded and 18:00-00:30 near-close | Nothing |
 | DST night 10-31 to 11-01 | Nothing (G11); §7a keeps the last attempt two nights earlier |
-| Night before or night of a scheduled LFC session | No Phase B or Phase C (G7) |
+| Night before or night of a scheduled LFC session | No Phase B or Phase C (G7), except the dated 2026-10-14 exception in G7 (B 00:30 10-16) |
 
 ## 11. Owner sign-off checklist
 

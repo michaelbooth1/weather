@@ -1,5 +1,46 @@
 # 330. Maker Economics And Liquidity Rewards Refocus Master Plan [PARTIAL 2026-09-05 - NON-LIVE IMPLEMENTATION STARTED; ECONOMIC PROOF OPEN]
 
+## October 17 owner decisions for builds 1-4
+
+Owner, 2026-10-17 ~09:18 EDT (relayed by master-agent; DECISION_LOG rows):
+- The RE-1 09-23 session-1 journal (pre-embargo) may be copied over the LAN from the workstation
+  to the host for build 1's fill-v3 reconcile shape check. It never goes through git.
+- Descriptive reads of UTC 10-16..11-13 are refused everywhere until the panel closes. Build 4's
+  `score` opens that panel only for scored reads, after 2026-11-14T00:00Z and under a signed
+  preregistration; descriptive reads of it stay refused, as `maker_core.frontier.embargo` already does.
+- Host Python cutover C did not run 10-17; the next C night is 10-19 into 10-20. N11 lands 10-17/18
+  without C. Neither changes a build's scope.
+
+## October 16 counterfactual tape exporter for build 2 (built; host run pending)
+
+Build 2 (the toxicity table) fits on COUNTERFACTUAL minutes and fills dated on
+or before 2026-09-29. The workstation has no such tape, and the shadow-runner
+tapes start on 10-08. So `weather.market.maker_counterfactual_tape` builds the
+tape on the host from sealed 88a books and prints. It is a resumable,
+create-only zstd Parquet night job (claude/cf-tape-export-20261016). Its
+`to-jsonl` adapter emits build 2's neutral records.
+
+The reserved window 09-30..10-15 is never opened. The contract and the record
+semantics are in
+[the 88a runbook](../../operations/passive-maker-evidence-capture.md#counterfactual-fill-tape-item-330-build-2-input).
+
+Rulings after the Fable review (RUN AFTER FIXES):
+- One fill rule per run, in separate backlogs (`backlog-at_price`,
+  `backlog-strictly_through`). Build 2's default fit uses `strictly_through`;
+  `at_price` is the declared sensitivity. `print_side` (aggressor) is kept as
+  recorded.
+- Contexts use only prints strictly before the instant, so a fill's own print
+  never enters its context (build 2 4ae3602fa raises otherwise).
+- Accepted as conservative: the tape never reads a neighbouring UTC day, so
+  minutes starting after midnight and marks due after midnight are dropped
+  and counted. Events dated on or before 09-29 also lose their hours on UTC
+  09-30, because that folder is reserved.
+
+Open:
+- the host run;
+- weather-context enrichment;
+- settlement inputs (with observation times).
+
 ## October 7 maker replay v2 shadow-gate specification
 
 The current draft of the maker replay v2 "shadow agrees with replay" live-gate specification, with OD22 and the v1-exam
@@ -12,6 +53,13 @@ Its superseded bases, in redacted repository copies:
 The amendment of v3.3's oracle-handout section, **accepted by the owner 2026-10-07** (it replaces v3.3 §6.2):
 [v3.4 DRAFT](../maker-replay-v2-shadow-gate-spec-v3.4-DRAFT-2026-10-07.md), with its
 [oracle rulings sheet](../maker-replay-v2-shadow-gate-spec-v3.4-oracle-rulings-2026-10-07.md).
+Proposed for owner signature 2026-10-12 (DRAFTS, not in force; v3.4 is unchanged):
+[erratum 1](../maker-replay-v2-shadow-gate-spec-v3.4-erratum-1-DRAFT-2026-10-12.md) (§2/§5/§8: cover prompt, re-bind
+scope, cut output controls, host isolation, revisions), with the
+[rulings sheet r2](../maker-replay-v2-shadow-gate-spec-v3.4-oracle-rulings-r2-DRAFT-2026-10-12.md), the
+[H-12 cover-note input](../maker-replay-v2-shadow-gate-spec-v3.4-oracle-cover-note-H12-DRAFT-2026-10-12.md) for the
+production agent and the
+[host isolation runbook](../maker-replay-v2-shadow-gate-spec-v3.4-oracle-host-isolation-runbook-DRAFT-2026-10-12.md).
 
 ## September 23 strategy and status
 
@@ -158,8 +206,8 @@ concrete to decide against; none is needed for non-live work to continue):
 
 | Decision | Why it is open |
 | --- | --- |
-| Hurdle `H` | Section 7 "minimum worthwhile return" has no value. Without it G1 and G4 can only return a negative. |
-| Stop rule and date for G1 | No project-level stop date, spend cap or capture-only fallback exists; only a negative desk outcome is currently executable. |
+| Hurdle `H` | **Decided 2026-09-22** ([DECISION_LOG](../../operations/DECISION_LOG.md)): H = 1.00 net per day per 100 deployed; replay v2's reference effect equals the signed hurdle (DL 2026-10-03); it also governs G1 and G4 (owner 2026-10-15). No longer open. |
+| Stop rule and date for G1 | **Partly decided 2026-09-23** (RE-1 addendum, DECISION_LOG): 2026-10-31 is an owner **review**, not an automatic closure. The owner moved that review to **2026-11-20** (DL 2026-10-15), after the replay v2 look and the 11-13 shadow embargo end. Spend cap and capture-only fallback remain open. |
 | Caps | Whether the per-band ceiling moves to admit a 20-share (about 25 pUSD) or 100-share (about 100 pUSD) two-sided quote, and the total capital at risk. |
 | Dedicated wallet | The 2026-09-06 test used the owner's existing wallet under a declared allocation; account-wide cancel-all reaches personal orders. A dedicated wallet funded to the cap restores the documented isolated-wallet control. |
 | Live authority | Standing instruction is no live trading. A fresh Stage 0/1 is required before any Stage 2 in any case. |

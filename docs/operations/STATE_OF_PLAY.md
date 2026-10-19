@@ -1,6 +1,7 @@
 # State of play
 
-**Last updated: 2026-10-12 21:00 America/Toronto (build line at 15584831; OD23 signed wording recorded; owner back; LFC session 0 un-postponed to 10-14 15:00Z; N7 landed; N8/N9 planned; DST-M2, build-line merges and the host Python upgrade approved, upgrade calendar confirmed: Phase A 10-13, cutover 00:30 on 10-17).**
+**Last updated: 2026-10-17 09:45 America/Toronto (C did not run 10-17; next C night 10-19/20; N11 tonight without C;
+descriptive reads of 10-16..11-13 refused. Owner 10-17 ~09:18 and 10-16 ~09:22 decisions are DL rows).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended. At most 95 lines and about 9 KB, one fact per bullet, detail in the linked owner.** This file owns
@@ -15,79 +16,78 @@ supports it — takes a side. Going in blind is ruled out. Plan: [informed maker
 
 ## Current authority
 
-- **Live trading paused (owner 2026-09-25)**, except the owner-attended LFC session 0: **10-14 from 15:00Z (11:00 EDT)**
-  on the workstation (owner 10-12 19:35, un-postponing it); hard stop 23:50Z, code deadline 10-15 00:00Z; session 1
-  10-15 afternoon or >= 10-18, never 10-16/17. No agent places, cancels or signs orders. Owner trades stay
-  `owner-discretionary`.
-- **Owner back as of 2026-10-12** (away 10-10 22:02 to 10-12); owner-only steps resume.
-- Heavy work only 00:30-09:00 under the shared lease ([host load policy](HOST_LOAD_POLICY.md)). Merges: roll-sensitive
-  01:00-04:00 only; roll-free 00:30-09:00 (the lease refuses later); docs-only by the light path before 12:00; never 12:00-00:30.
-- **Merge freeze lifted 2026-10-03, except 88a** (owner reading 10-07): the bytes of `maker_evidence_capture.py`,
-  `maker_evidence_store.py` and the 88a schema record, and 88a capture behaviour (#118, #172, #177, stacked #182), wait until
-  after 2026-10-14. Shared schema-registry record additions are not frozen.
-- Owner decisions 2026-09-30..10-12 are rows in [DECISION_LOG](DECISION_LOG.md).
+- **Live trading paused** (owner 09-25) except owner-attended LFC sessions; no agent places, cancels or signs orders.
+- Capture host: heavy work 00:30-09:00 under the lease ([host load policy](HOST_LOAD_POLICY.md)); roll-sensitive merges
+  01:00-04:00; roll-free 00:30-09:00; docs-only by the light path before 12:00; never 12:00-00:30.
+- The 88a code freeze (owner 10-07) **lapsed after 2026-10-14**; 88a changes follow the host roll verdict like any other
+  code. Owner decisions since 09-30 are rows in [DECISION_LOG](DECISION_LOG.md).
 - **Testing (owner 10-04, PR #205):** focused + affected tests, PR CI (Windows lane #262 on 3.11.0) as full-suite evidence;
-  every night head pre-gated on its stacked base; host-only behaviour (3.11.0 stdlib) needs a host run.
-- **Workstation: one Claude Code chat directed by the production agent** (owner 10-03; [preamble](WORKSTATION_SESSION_PREAMBLE.md)).
-  Relayed owner approvals bind it for serving-model and merge decisions, never for money or credentials (owner 10-06).
-  Credentials are never committed or pushed (owner 10-09; ratchet `test_no_tracked_credentials.py`).
-- **Landed is not running.** A merge that adds a loop, nightly, scorer or task is finished only when its activation row
-  (host, who, when, verify command) is in Open commitments below and the verify command has run once.
+  every night head pre-gated on its stacked base; host-only behaviour needs a host run.
+- **Workstation: one Claude Code chat directed by the production agent** ([preamble](WORKSTATION_SESSION_PREAMBLE.md));
+  relayed owner approvals bind it for serving-model and merges, never money or credentials; credentials never committed.
+- **Workstation tracks** (owner 10-13 ~10:50): T1 shadow MM / replay v2 (critical path), T2 88a 10-15 head, T3 model, T4
+  engineering. **Heavy freeze** lifted 10-16 (LFC session 0 done); a **second `workstation_heavy` slot**
+  for focused runs < 5 min (owner 10-13 ~14:35; workstation only, never capture PC or live; script change separate).
+- **Landed is not running:** a new loop, nightly, scorer or task is done only when its Open-commitments verify has run.
 
 ## Current truth
 
-- **Production source:** `master` = `origin/master` (read it with git). N7 landed 10-12 01:22 as one RF head `d67b5798`
-  (DST-M5 + M6 UTC merge deadlines, DST-M4 S4U guard UTC ages, Defender follow-ups), after N5/N6 on 10-11.
-- **Forward maker shadow ACTIVE** (`WeatherMakerShadowRunner`, 24/7, 12 bands, hazard 0.001, paper only), restarted by the STOP
-  file at 10-11 02:22 on the RS-B code. Stop only with `data\maker_shadow\STOP`, never a kill. Parity definition: DECISION_LOG
-  10-08. Scoring embargo: `maker_shadow_panel.py` refuses UTC 09-30..10-15 and 10-15..11-13 (a reviewed code change lifts it).
-- **Journal pin:** `WeatherManualOrderJournal` pins five module files including `wallet_reader_client.py`; any merge touching
-  one makes it exit 3 until re-registered ([runbook](manual-order-journal.md)).
-- **Host Python is 3.11.0;** upgrade approved as the [runbook](HOST_PYTHON_UPGRADE_RUNBOOK.md) §11 sign-off (owner 2026-10-12):
-  Q12 `STOP_AUTHORIZED`, `ACCEPT_OVERRUN`, cutover 00:30 on 10-17 (owner-named). Phase A: owner at the machine
-  10-13 ~07:30 after N8 hands back; then §T + T-R, B, C per runbook §7a. No host release store (case A).
-- **DST audit:** DST-H3 landed, so its interim merge guard is retired; OD30 (the 11-01 night rule) stays until the owner retires it.
-- **LFC** (session 0 on 10-14, above): pinned worktree `acd052a2d`; signed documents stay SIGNED; T-24h steps 10-13
-  ~15:00Z; the 8765 reader restarts on master after N8. N-11/N-12 fix `fe5f54cf` touches `wallet_reader_client.py`.
-- **Build line** `codex/maker-replay-v2-build-20261003` = `15584831` (inventory fix `f22bea07` and U6 D6 `07dd7825` merged,
-  owner 10-12). `WeatherReplayBundleExportNightly` stays unregistered until a separate owner yes (>= 10-16).
-- **Maker replay v2** (panel UTC 09-30..10-14 never read): gate spec v3.4 is the frozen oracle basis; OD18 fresh oracle
-  author on this host from a filtered standalone handout. OD23 signed (10-08): `decide()` mid keeps own size; diagnostic
-  built. Signature when the gates pass (~10-18..20); look by 11-15.
-- **Model, morning:** MG-1 SIGNED 10-04 at `b044e0f1`; needs parser v2 (#190); scored on dates >= 10-15.
-- **Live seals** must all be RESEALED before any sealed-lane live attempt (#229); the LFC re1 lane consumes no seal. **C3 console rehearsal** never ran on the host; deferred (owner 10-09).
-- **Pinned deployments (detached, locked worktrees):** watchdog `1794fd3b`, cold snapshot (91a `6e5ff47`; `979c0e7`
-  removed 10-11), exam U6 `89618c30`; exact paths are the task actions (`Get-ScheduledTask`).
-- **Disk / 91a:** the unresolved 10-09 attempt was resolved 10-11 07:01 (manual run PASSED, ~16 GiB freed); policy expires 10-30.
-- **88a retention hold:** keep 88a data for UTC 09-27..10-15 (v2) and 10-15..10-30 (desk-study panel); lossless compression ok.
+- **Production source:** read `origin/master` with git. Since N9 only docs, `.ps1`, tests and one pin have landed (10-15: suite
+  worker re-read `2e6c16e6c`, MG-1 test date fix `728f0d1b6`, python-dotenv 1.2.2 pin `3b48fa315`, S0 receipts, docs).
+- **Forward maker shadow ACTIVE** (`WeatherMakerShadowRunner`, 24/7, 12 bands, paper only); stop only with
+  `data\maker_shadow\STOP`. Scoring embargo: `maker_shadow_panel.py` refuses UTC 09-30..10-15 and 10-15..11-13 (end stays 11-13: #263 N_req 706, DL 10-14).
+  **Descriptive reads of 10-16..11-13 are refused everywhere until the panel closes** (owner 10-17).
+- **Journal pin:** `WeatherManualOrderJournal` pins five files incl. `wallet_reader_client.py`; a merge touching one makes it
+  exit 3 until re-registered ([runbook](manual-order-journal.md)).
+- **Wallet reader (8765)** on `a1014edab` (any-LAN code) since 10-13. It is serial: space post-run reads and retry one
+  timeout after a quiet wait (session-0 finding, [wallet reader](wallet-reader.md)).
+- **Host Python: Phase B PASS 10-16** (3.11.9: bounded suite 21/21 on the stage venv, release case A, `qualification.json`
+  PASS; attempt 1 false NO-GO from verifier r1, fixed by r2; B3 and E finished by hand after the `f611cf22c` wrapper defect:
+  capture 10/10, `status.ps1` exit 2 only from 3 standing flags; [runbook](HOST_PYTHON_UPGRADE_RUNBOOK.md) revision notes).
+  Venv still 3.11.0. **C did not run 10-17** (no owner GO by 01:15); next C night Mon 10-19 into 10-20, owner GO in chat that night.
+- Owner 10-13 08:53: C advance GO if every C0 check is clean; G4 amended (auto rollback; a failed one waits for the owner). **DST:**
+  DST-H3 and DST-M2 (`41fa7bc57`) landed; OD30 (the 11-01 night rule) holds for 11-01 and lapses 11-02 (owner 10-15).
+- **LFC session 0 ATTESTED 10-16** (~16:35Z, pin `e27909a76`, 0 fills; final verify PASS, `counted_sessions` 0; DL row,
+  [record](../research/live-fill-calibration-session0-record-2026-10-16.md)). **Session 1: Sun 10-18 `go` 12:00 EDT**
+  (owner 10-16 14:28; t24 Sat 10-17 ~14:00 EDT; fallback Mon 10-19) on pin `21cf1ed42` (DL row). Manual trading paused from
+  session 1 until the last lot settles (prereg §5, owner 10-16). Logistics take the owner's chat yes in DL (10-13).
+- **Build line** `codex/maker-replay-v2-build-20261003` = `1fd0c295f` (W1/W2/F3, T1-T3, Q2 #269, F4; owner-approved); the
+  export nightly stays unregistered until a separate owner yes (>= 10-16).
+- **Maker replay v2** (panel UTC 09-30..10-14 never read): spec v3.4 is the frozen oracle basis; handout r1 signed 10-12
+  (H-11 r2, erratum 1, H-12 r1, I-1..I-8); fresh oracle author on the host. Signature target 10-22..23;
+  look by 11-15. **Lapse 10-30** (owner 10-15); §4 window start: whole minute (no amendment). Owner 10-15: C15/A8 = whole-minute
+  intervals (M); E6 MEASURED pull-candidate ceiling (carried x 14/3); §9 trim kept; consolidated rows 13/16/17 binding (DL 10-15).
+- **Model:** MG-1 `b044e0f1` (scored >= 10-15) needs #190; 10-18: #190, then stage (roll verdict + parity); #162 on #190 >= 10-19.
+  MG-1 window BOUND (owner 10-16): D0 10-15, provisional last 11-28, may only move later. t3-r3 13-16 prereg SIGNED 10-16.
+- **Owner 10-16 ~09:22 (DL rows):** SOURCE_DISAGREEMENT Option 1 + ledger blocker class and the MG-1 bound land after N12 (roll
+  verdict); S4 evidence-host registration yes after the 10-18 BLAS receipt; WRH Synoptic token no; reboot deferred.
+- **No-go bar:** [exhaustion register](EXHAUSTION_REGISTER.md) (10-14; the owner keeps the no-go). Maker-track owner review 11-20 (was 10-31). Stratum-C and Aug-Sep gap numbers are tainted; a post-fix scoreboard is URGENT.
+- **Live seals** must be RESEALED before any sealed-lane attempt (#229); the LFC re1 lane consumes none. C3 rehearsal deferred. **Pinned:** watchdog `1794fd3b`, cold snapshot (91a `6e5ff47`), exam U6 `89618c30`; paths in the task actions.
+- **88a retention hold:** keep UTC 09-27..10-15 (v2) and 10-15..10-30 (desk-study panel); lossless compression ok.
 
 ## Ordered critical path
 
-1. **Maker replay v2:** W1/W2/F3 kernel fixes (gate-logic T1-T3 on the build line); Q2 horizon follow-up (#269); oracle
-   handout cut then the fresh oracle author; P1-P4 on calibration dates only; gates; signature ~10-18..20.
-2. **Merges:** N8, night of 10-13: RS `claude/integration-20261013-n8-rs` `c6977df5`, then RF2 `...-n8-rf2` `1c64f917`
-   (fallback RF `...-n8-rf` `9bf466af`). N9, night of 10-14, roll-sensitive, only after N8 lands: DST-M2 via
-   `claude/integration-20261014-m2-rs` `fc136e2c`. After 10-14: #118, #172 + #182, #177.
-3. **Host Python upgrade:** Phase A 10-13 ~07:30; §T + T-R 10-15; B 10-16; cutover 00:30 on 10-17 (runbook §7a).
-4. **Measurements (09-29 only; never 88a 09-30..10-14):** desk-study power rule #263. **Research:** NBS/NBH probe; T+1/T+2
-   NWP timing; no-METAR floor gap (item 337).
+1. **Maker replay v2 (T1):** oracle author on handout r1; P1-P4 on calibration dates only; gates; signature target 10-22..23.
+2. **Host Python:** B PASS 10-16; C did not run 10-17; next C night 10-19/20 (owner GO that night); N11 lands 10-17/18 without C.
+3. **N11 (10-17/18) is `claude/integration-20261018-stack6-r` `802591bde`** (supersedes stack4/stack5/88a-rs-r3); N12 10-18/19; #118 >= 10-18.
+4. **Item 337:** host no-METAR replay >= 10-15; on PASS flip, bump, quiet window (owner yes). NBS/NBH; NWP timing (#263 done 10-14, EF §10r).
+5. **Data layer v2 (T3/T4, owner 10-14):** [plan](DATA_LAYER_V2_PLAN.md); S0 receipts landed 10-15; S0b FC-11 10-16; S1 10-19, S3 10-20, S2+S9+P1 10-21; §9 answered except Q6, Q9, Q14 (DL 10-14, 10-15).
 
 ## Open commitments (every row: owner, due, verify)
 
 | What | Owner | Due | Verify |
 | --- | --- | --- | --- |
-| Evening-fix scoring prereg; OD30 retirement | owner | open | DECISION_LOG rows |
-| Restart the wallet reader on master after N8; LFC client json in the pinned worktree | owner | 10-13 before 15:00Z | `summary` from both PCs |
-| Scope and run the pinned watchdog redeploy + re-register (DRIFT since #273, DST-H3) | owner scope, production runs | before 11-01 | `status.ps1 -Json` watchdog CURRENT |
-| 91a policy renewal | owner (production prepares) | week of 10-26 | new policy sha, expiry > 10-30 |
+| RF policy A (owner 10-15): roll-free heads land on workstation pre-gate + Windows CI once #274, #276/#284 green; then #209 deselect build | T4; workstation | after C | DL row; lane green |
+| Evening-fix scorer `8cdcb62ec` lands (prereg SIGNED 10-13, sha256 in DL; read 10-29 `--no-market`, item 337 owns it) | T3 | 10-28 | scorer on master |
+| Pinned watchdog redeploy from master, re-register only the watchdog task (owner yes 10-15) | production | after C, by 10-28 | watchdog CURRENT |
+| U6 replay-bundle export registered 04:10 from the 3.11.9 build-line tip (owner yes 10-15) | production | night 10-20 | task registered; first receipt |
+| 91a policy renewal unchanged (owner A 10-15; CP-5 LZX later, own change) | production | ~10-27 (expires 10-30) | new policy sha |
 
 ## Standing decisions
 
-- International Polymarket only; no paid weather sources; backups deprioritized; streak contiguity is a diagnostic.
-- Capture-host heavy work is serial, admitted and time-gated; pushing never rolls capture. Worktrees: `GIT_LFS_SKIP_SMUDGE=1`;
-  pytest: `--basetemp`, `TEMP`/`TMP` inside a cleaned root. Long agent jobs run detached, not as tool background calls.
-- Native settlement units, WU cutoffs, probability mass, train/serve parity, captured-input replay, release binding and
-  evidence retention remain mandatory; approved workstation work is never parked.
+- International Polymarket only; no paid weather sources; backups deprioritized; streak contiguity is a diagnostic. Capture-host
+  heavy work is serial, admitted and time-gated; pushing never rolls capture; worktrees `GIT_LFS_SKIP_SMUDGE=1`.
+- Native units, WU cutoffs, probability mass, train/serve parity, replay, release binding and evidence retention stay mandatory.
 
 ## Update this file when
 

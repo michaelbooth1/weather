@@ -43,6 +43,7 @@ citing it in a new decision.
 | [FINDINGS_DIGEST.md](FINDINGS_DIGEST.md) | *What is the short version?* — read first for model, measurement or research work; it cites the sections below worth opening. |
 | [ESTABLISHED_FINDINGS.md](ESTABLISHED_FINDINGS.md) | *What do we know?* — every measured result and interval. Read before model, measurement or research work. |
 | [RETRACTED_AND_FALSE_LEADS.md](RETRACTED_AND_FALSE_LEADS.md) | *What is false?* — withdrawn claims, and alarms that look real and are not. |
+| [EXHAUSTION_REGISTER.md](EXHAUSTION_REGISTER.md) | *What is left before a no-go?* — which conclusions survive the serving fixes, which free sources were tested, and each open lead's exit criterion. |
 | [HOW_WE_GET_THINGS_WRONG.md](HOW_WE_GET_THINGS_WRONG.md) | *What shape do our mistakes take?* — read before designing a gate or trusting a green signal. |
 | [CAMPAIGN_LEDGER.md](CAMPAIGN_LEDGER.md) | *How much α is spent, and on what?* — the binding decision ledger. Read before proposing any confirmatory look; only the operator allocates. |
 
@@ -119,6 +120,8 @@ contract and a reviewed cleanup manifest.
 | [forward-plan-2026-09-23.md](forward-plan-2026-09-23.md) | Choosing the next mission or checking work against the owner's two-pillar strategy. |
 | [informed-maker-design-2026-09-25.md](informed-maker-design-2026-09-25.md) | Building or reviewing maker code, a domain plugin (weather, YouTube) or the replay harness. |
 | [maker-core-contracts.md](maker-core-contracts.md) | Implementing the v0.1 domain-neutral plugin API, conformance, pure proposals or journals. |
+| [DATA_LAYER_V2_PLAN.md](DATA_LAYER_V2_PLAN.md) | Adding or changing any capture family, sizing its RAM/disk/request budget, or landing a v2 build step (S0-S16); its §9 holds the open owner questions. |
+| [free-registration-signup-list.md](free-registration-signup-list.md) | Adding a source that needs a free registration key, or checking where such a key may live (never in git). |
 | [storage-plan-2026-09-23.md](storage-plan-2026-09-23.md) | Free space below the green band, a heavy job refusing on disk, or before any compress/archive/reclaim. |
 | [live-testing-plan-2026-09-25.md](live-testing-plan-2026-09-25.md) | Preparing the last RE-1 session or proposing post-RE-1 live experiments. |
 | [OPEN_QUESTIONS.md](OPEN_QUESTIONS.md) | Choosing what to analyse next; naming the question ids a handoff serves; updating rows on handback. |

@@ -105,6 +105,7 @@ sequence numbers, not calendar dates.
 | 10o | Weather takers pay fees and makers earn fee-funded rebates |
 | 10p | `2026-09-111h`: NBM guidance at all hours (parser v2) does not carry the morning lead into the afternoon; the US all-hours route is closed |
 | 10q | Model-parity swarm v2 (2026-10-04, development; landed by production 2026-10-04): two serving repairs on captured data close about half of the 111h table's gap (evening lock-in defect; morning v2 read); no external free source adds information; 13-16 residual |
+| 10r | Desk-study power rule (2026-10-14, pre-registered, n = 4 pilot dates): N_req = 706 event dates, branch UNDECIDABLE_AT_DELTA; the 11-13 embargo end stands |
 
 ---
 
@@ -3645,8 +3646,8 @@ was made.
   figure; the difference is expected and does not change §1. Per-market tail sign cannot rank candidates here (98 of 99
   candidate vectors improve the tail); the separating quantity is the non-tail cost (MG-1 about −27% of the 00-16 tail
   excess vs about −6% for the history-fitted spread forms).
-- **Defects found:** **M0** — production keys METAR rows by AWC `reportTime` (nominal hour), so a 23:5x report enters the
-  next day's running max; confirmed on the captured floor at KLGA 2026-09-19 and KMIA 2026-08-29 (on KMIA every floored
+- **Defects found:** **M0** — production keyed METAR rows by AWC `reportTime` (nominal hour) until `metar-parser-v4`
+  landed on 2026-10-09 (`6ad52c89f`), so a 23:5x report entered the next day's running max; confirmed on the captured floor at KLGA 2026-09-19 and KMIA 2026-08-29 (on KMIA every floored
   candidate gave the winner 0 all day); 0.3-0.6% of station-days Aug-Sep, 2.2% Oct-Dec, up to 5.4% at KLGA; fix = key on
   `obsTime` (parse-only, versioned). `trusted_current_max` is null on 100% of extract rows. 31 rows carry a captured floor
   10 °F above the METAR max. Late S3 NBM uploads are upstream delays plus one transfer backlog, not re-uploads.
@@ -3661,10 +3662,135 @@ was made.
   12Z/13Z/19Z rejection was verified correct; MG-1 is SIGNED at `b044e0f1`, with a narrow-scope reservation
   ([reserved-confirmation-window.md](reserved-confirmation-window.md)); RV-1, t3-r3 and HG-1 are held until the evening fix
   is live; NBH-1 is declined; the M0 fix is built (PR #189), plus the DST fetch-window fix (item I). **There is no capture
-  case for any new source.**
+  case for any new source.** Landed since: v3 on 2026-10-06; the M0 fix (#189, `metar-parser-v4`) with lockin-anchor-v4
+  (#246, the same-day METAR floor before lock-in, `ML_MODEL_VERSION` v0.5.12) on 2026-10-09 (`6ad52c89f`).
 - **Evidence:** [synthesis](../research/model-parity-swarm-2026-10-04/SYNTHESIS.md) and per-agent reports in
   `docs/research/model-parity-swarm-2026-10-04/`; harness `8db69adc7fb9bee8c3db47707b8aea71bff825a415b950108e19e84a0fd29f74`;
   scores and acquired data on the workstation only (`C:\swarm\`).
+
+### 10r. WU's Toronto daily high counts the 00:00 local observation; the venue paid the with-midnight band on both discriminating days (n = 2) — host read, 2026-10-13
+
+Read by the master agent on the capture host for [item 337](../roadmap/items/item-337-no-metar-observed-floor-gap.md);
+pre-embargo dates only (nothing from 2026-09-30 on).
+
+- **WU day files:** the CYYZ raw WU day files hold 24 observations, 00:00-23:00 local, so the 00:00 reading is inside
+  day D's history.
+- **The three B-replay rows do not discriminate:** settled highs 09-06 = 22 (max at 13h), 09-21 = 15 (00:00 ties
+  14-17h), 09-26 = 23 (14-15h); all reconcile with the Polymarket outcome under either reading.
+- **Discriminating days:** of Toronto raw days 2025-01-01..2026-09-29, 23 had the maximum only at 00:00; 2 have
+  settlement rows. 2026-06-14: 24 with midnight, 23 without; resolved 24. 2026-08-02: 24 with, 22 without; resolved 24.
+- **Independence:** our `settlement_high` comes from `daily_summary` and would agree by construction; the Polymarket
+  closed-market winner is the independent check: **with-midnight 2, without 0.**
+- **Consequence:** an observed hour-0 same-day high is consistent with venue settlement as a floor, on n = 2 with no
+  counterexample. It is evidence for the owner's hedge-vs-floor decision on item 337, not a decision; the host
+  `--with-no-metar-arm` replay over 2026-08-25..09-29 is still open.
+
+### 10r. The maker-P&L desk study is not powerable at delta = 1.0: N_req = 706 event dates from a 4-date pilot — power rule #263, 2026-10-14
+
+Pre-registered computation, run once: `docs/research/maker-pnl-adverse-selection-preregistration-2026-10-01.md`
+(frozen at `574f8369b`, lines 118-133) with Clarification 1 point 3 (`67e44273b`), on the owner's 2026-10-07 instruction
+to run the power rule now (DECISION_LOG 2026-10-07). Input: the 88a variance pilot only (UTC days 2026-09-25..09-29,
+event dates 2026-09-26..09-29; the script refuses any later date) and the 12 settlement ledgers. Nothing fitted, no α,
+no panel read. Source: host run by master-agent 2026-10-14 03:09-03:11 EDT, head `69af7d613` (`claude/desk-study-power-rule-r2-20261014`, draft PR #283), result_sha256 `e4061d78aeb254680e63d1e7962c4f43b63b44ef6afd8bb32fab2d264268efae`; output `C:\tmp\pwr-20261014\results\power-rule.json` on the capture host.
+
+- **Inputs read:** dry run 311,061,393 bytes, 121 sealed segments, no missing day, all 12 ledgers present.
+- **Result (verbatim):** n = 4 date clusters; sigma_d = 4.713343445231315 pUSD per band-day (sample SD of the date-mean
+  NP_S); c = 0.5843743741551835 (the 0.10 lower-tail chi-square quantile, 3 df; a fixed function of n);
+  sigma_up = 10.679333086154092; delta = 1.0 pUSD per band-day (fixed in the pre-registration, not from the pilot);
+  **N_req = 706**; branch **UNDECIDABLE_AT_DELTA** (N_req > 28); decision **EMBARGO_END_UNCHANGED**.
+- **Caveat:** sigma_up is the one-sided 90% upper bound on sigma from 4 dates (3 degrees of freedom), so it is 2.27x
+  sigma_d by construction. With sigma_d itself in place of sigma_up the same formula gives about 138 dates; both are far
+  above the 28-date ceiling, so the branch does not depend on that choice.
+- **Consequences under the pre-registration, nothing more:** the panel stays 14 dates and runs descriptive only, with the
+  achieved MDE reported; the owner's conditional (N_req <= 14 moves the embargo end 11-13 -> 10-31) does not fire, so the
+  shadow scoring embargo end stays 2026-11-13. As a gate, the desk-study P&L comparison cannot decide the sign question at
+  delta = 1.0 pUSD per band-day on any panel the pre-registration allows; no maker decision may treat its outcome as
+  powered.
+- **Not established:** the size or sign of NP_S; whether the pilot's variance holds on later dates; any figure for a
+  different delta.
+
+### 10s. Data layer v2 S0 measurement pack — workstation, 2026-10-15
+
+Receipts: [S0 receipts](../research/data-layer-v2-s0-2026-10-15/README.md). Inputs are workstation copies dated before
+2026-09-30 only; repository facts are read at commit `9fc1ff062`.
+
+- **Book write-on-change is lossless:** on 2026-08-05 (3 events, 246,224 captures, median per-token interval 15 s), 50.3%
+  of consecutive per-token captures repeat their quote content and 44.7% repeat the venue hash. The hash never stayed
+  fixed while content changed. A write-on-change journal replays exactly at heartbeats of 0-3,600 s and keeps 48-49% of
+  the plaintext bytes.
+- **Codecs:** WOF LZX beats NTFS LZNT1 by 3.0-7.3x on every family tested, and stdlib xz-6 beats gzip-6 by 1.2-3.4x.
+  xz-6 compresses JSONL at 16-27 MiB/s but forecast blobs at about 4 MiB/s (32-thread workstation).
+- **numpy import commits ~756 MiB of private memory** with no thread cap: OpenBLAS (scipy-openblas 0.3.31,
+  `MAX_THREADS=24`) reserves about 30 MiB per thread. It is 113 MiB at `OPENBLAS_NUM_THREADS=4` and 17 MiB at 1.
+  `snapshot_tracker`, `observation_trigger`, `market_microstructure` and `execution_tape_supervisor` each commit
+  775-816 MiB after import; the 88a and exec-tape capture modules commit about 23 MiB. Only `experiment_executor.py`
+  sets a cap. On the host each numpy-importing capture process likely commits min(logical CPUs, 24) × 30 MiB (not
+  measured on the host).
+- **The GEFS "ensemble mean" is the control run:** `fetch_global_ensemble` reads the unsuffixed `temperature_2m` column
+  of the GEFS payload as the mean, but it sits 0.26-0.54 °F (max 1.26 °F) from the 30-member mean on stored 2026-08-10
+  San Francisco payloads, at a moving rank (0.17-0.73). There are 31 columns, one of which is the control. Train and
+  serve read the same column, so parity holds; only the name is wrong.
+- **`last_good_sources.json` is rewritten whole on every pass:** `model_sources.py:596-619` reloads and atomically
+  rewrites the ~36 MB file (the NBM bulletin text in `raw_payload`) even when unchanged; est. 5.2 GB/day of writes per
+  US station at the 10-minute default. The host cadence is not confirmed.
+- **L2 deltas (S0(a), one public connection, 2026-10-16 01Z-11Z only):** raw `book`/`price_change`/`tick_size_change`
+  payload is ≈3.1 GB/day for the 264-token T+0 exec-tape universe and ≈7.0 GB/day with T+1; `price_change` is >98%.
+  Per-(token, hour) p95 is 1.8 MB (T+0) / 1.9 MB (T+0+T+1) and p99 7.7 / 5.7 MB; a p95 budget drops 45% / 26% of
+  bytes. The run ended on the reconnect abort rule at 12:56Z ([receipt](../research/data-layer-v2-s0-2026-10-15/s0a-l2-delta-bytes.md)).
+- **Not established:** post-gzip savings of write-on-change; host process commit; FC-10 bytes per point; post-gzip L2
+  bytes and L2 bytes in US daytime hours (13Z-23Z).
+
+### 10t. First counterfactual-tape toxicity fit: CF fills are adverse at every horizon, settlement unresolved (DESCRIPTIVE, UNDERPOWERED) — item 330 build 2, workstation, 2026-10-17
+
+**Status: DESCRIPTIVE ONLY.** Every cell is `UNDERPOWERED` (`maker_core.replay.inference`: fewer than 10 date
+clusters). This is not a test of the `-0.43 c` settlement constant (`maker_core.quoting.fill_cost.CONSTANT_ADVERSE_MARKOUT`
+= 0.0043, the 2026-09-20 public-tape run, 30 dates, 23 settlement clusters), and it changes no cost floor.
+
+**Input.** The host counterfactual tape (`weather.market.maker_counterfactual_tape`, landed `30ec100f0`, host run
+2026-10-17) over sealed 88a days UTC 2026-09-25..09-29 only: 1,164,086 hypothetical 20-share best-bid quote-minutes, every
+day `all_match=True`. Two fill rules as two backlogs: `strictly_through` (print < bid, the default) and `at_price`
+(print ≤ bid, the declared sensitivity). `to-jsonl` (master `5937c03a1`) wrote one file per maker side, YES and NO.
+
+**Fit.** Build 2 `maker_core.replay.toxicity fit` (branch `claude/maker-toxicity-20261016` code, run from a never-landed
+scratch tree `dfb3bc9d4`): 200 replicates, seed 20261016, a crossed date x market cluster bootstrap with a 90% interval.
+The estimate is the unweighted mean over date x market cells, in cents per share, maker-signed (negative is adverse).
+Clusters: 5 dates x 12 markets for 1/5/30 min; 4 dates x 12 markets at settlement.
+
+**Settlement labels (provenance).** The public International Polymarket Gamma endpoint (`/markets?condition_ids=<id>&closed=true`,
+unauthenticated, paced at 0.6 s or more) was queried only for the 201 condition_ids with fills whose event date is ≤ 09-28,
+taken from the tape and written to a request manifest before any call. Value: `outcomePrices` over `["Yes","No"]`. Time:
+`closedTime` (equal to `umaEndDate` in all 201). All 201 resolved (48 YES, 153 NO; one YES band per event), between
+09-26T05:18Z and 09-29T11:57Z, so the ≥ 09-30 rule withheld none. 09-29 events are unlabelled (they resolve on or after
+09-30). No local settlement file (the per-station `daily_summary.csv` and per-market ledgers mix 09-30+ rows) and no
+snapshot was read.
+
+| Rule, side | Fills / quote-min | Hazard per min | 1 min | 5 min | 30 min | Settlement (labelled fills) |
+| --- | --- | --- | --- | --- | --- | --- |
+| strictly_through YES | 1,344 / 596,691 | 0.00225 | -2.25 [-2.88, -1.66] | -2.32 [-3.28, -1.54] | -0.64 [-1.97, +1.16] | -3.59 [-8.54, +0.44] (1,023) |
+| strictly_through NO | 1,186 / 567,395 | 0.00209 | -2.93 [-3.77, -2.07] | -3.06 [-3.95, -2.21] | -3.00 [-4.16, -1.98] | -2.42 [-6.59, +2.17] (892) |
+| at_price YES | 2,893 / 596,691 | 0.00485 | -0.50 [-0.85, -0.21] | -0.64 [-1.31, -0.17] | +0.40 [-0.39, +1.44] | -1.31 [-5.63, +2.69] (2,256) |
+| at_price NO | 2,791 / 567,395 | 0.00492 | -1.12 [-1.74, -0.28] | -1.25 [-1.87, -0.46] | -1.56 [-2.30, -0.81] | -1.51 [-5.44, +2.34] (2,089) |
+
+Table digests (fit1, without labels; the 1/5/30 min rows are identical in the labelled refit): strictly_through YES
+`d6a951bf0f932274…`, NO `d3d100de7eba687c…`; at_price YES `42c9a985a52d64c4…`, NO `998b7015fcbb3f17…`.
+
+**What it shows, and what it does not.**
+- Short-horizon counterfactual markouts are adverse at 1 and 5 minutes in all four tables, unlike the public-tape run's
+  +0.38 c (1 min) and +0.19 c (5 min). The rule choice moves them 2-4x. Part of this is construction: a
+  `strictly_through` fill exists only when a print trades through the bid, which selects for downward moves. The live
+  fill rule is what the LFC campaign measures.
+- Settlement point estimates are 3-8x more adverse than -0.43 c, but every interval spans both 0 and -0.43 c on 4 date
+  clusters. The constant is neither confirmed nor refuted.
+- Sweeps and large prints are the worst cells (about -3.5 to -6 c at 1 minute); calm minutes with no prior print are near 0
+  under `at_price`. These cells are underpowered too.
+- The tape nulls the weather fields, so the clock and decided dimensions are all `unknown`, and depth is almost all
+  `deep`. The hazard row is keyed by exposure minute and the markout by fill instant, so a row's fill count can differ
+  from its markout `n` (intended).
+- 09-29 is thin (about 103k minutes), because bands whose event date is after 09-29 are dropped.
+
+**Next readable labels.** Events 10-16..11-13 are inside the shadow panel: descriptive reads are refused (owner
+2026-10-17) and scored reads open 2026-11-14 under a signed prereg. Build 2's fit stops at `FIT_LAST` 09-29, so fitting on
+any later label needs an owner amendment of the fit window.
 
 ## Related
 

@@ -108,6 +108,12 @@ workstation.
   `serial` even without the marker (see *Exemption* below).
 - **FIFO queue.** Full suites and larger runs wait their turn first-in first-out (`workstation_heavy.ps1
   -Queue`) instead of polling a refusal, with one wait-log line per enqueue, start, finish and give-up.
+- **Second lease slot (owner decision 2026-10-13; [decision log](DECISION_LOG.md) row of 2026-10-13).** On the
+  non-capture workstation only, a second `workstation_heavy` lease slot is allowed for focused runs that finish
+  in under 5 minutes, beside the one ordinary heavy run. It applies only after LFC session 0 (2026-10-14) is
+  declared done. It never applies on the capture PC and never while a live session runs (a portable live stage
+  holding the host-global mutex refuses it as today). **Not yet implemented:** `workstation_heavy.ps1` still has
+  one slot, so until a separate code item adds the slot heavy runs stay one at a time through the queue.
 - **xdist.** `pytest -n` (`--dist loadfile`, `-m "not serial"`, then the `serial` set in one process) runs only
   on the workstation, only through the wrapper, and only after an identical pass set (same test ids, same
   outcomes) has been shown against a serial run.
@@ -420,6 +426,12 @@ Stage-A, workstation or live authority is added.
    Only the settlement Stage-A wrapper can request the explicit
    09:30–11:55 exception. Bounded test suites additionally kill their complete
    Job-owned child tree at 09:00 rather than merely checking the start time.
+   Their capture-worker admission refuses at once on a dead worker pid; any
+   other unhealthy worker (unreadable status, pid mismatch, stale heartbeat)
+   is re-read after 8 s and refuses only when the same worker fails two
+   consecutive polls, with at most three polls. Each poll reads every status
+   and lock file with up to 5 attempts 2 s apart. Each unhealthy worker's
+   reason is written to the suite log.
    **Disk thresholds are binary units (GiB), whatever a log line prints.** The
    bounded suite requires 53,687,091,200 bytes = 50 GiB
    (`scripts/ops/bounded_worktree_test_suite.ps1`, `Assert-SuiteDiskHeadroom`);

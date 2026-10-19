@@ -613,6 +613,7 @@ function Get-WeatherWorkstationOfflineModule {
     param()
 
     @(
+        "maker_core.replay.toxicity",
         "tools.research.guidance_all_hours.run",
         "tools.research.missing_information.run",
         "tools.research.morning_guidance.run",
@@ -628,6 +629,7 @@ function Get-WeatherWorkstationOfflineModule {
         "weather.calibration.pooled_candidate_replay_diagnostics",
         "weather.calibration.pooled_candidate_replay_report",
         "weather.market.maker_evidence_inspect",
+        "weather.market.maker_counterfactual_tape",
         "weather.operations.base_retrain",
         "weather.operations.density_live_replay_parity",
         "weather.operations.nightly_retrain",

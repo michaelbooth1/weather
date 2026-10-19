@@ -181,6 +181,7 @@ WRAPPERS = (
     "clob_tiering_run.ps1",
     "clob_raw_tape_tiering_run.ps1",
     "daily_refresh.ps1",
+    "oracle_author_test_run.ps1",
 )
 
 
@@ -451,6 +452,7 @@ def test_workstation_offline_allowlist_narrowly_admits_cold_archive_stage_and_re
     assert all(
         module.startswith("weather.")
         or module in {
+            "maker_core.replay.toxicity",
             "tools.research.guidance_all_hours.run",
             "tools.research.missing_information.run",
             "tools.research.morning_guidance.run",
