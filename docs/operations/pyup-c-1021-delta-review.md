@@ -103,6 +103,7 @@ re-merged on post-N12 master, #190 should therefore be **tests-only and roll-fre
   - the training window.
 
   The 88a restart that S2+S9 needs waits until after a C PASS.
+- **B-R night kit:** `night-plans/2026-10-21/pyup-phase-br/` on `claude/night-plans-br-20261020`. It holds `phase-br-run.ps1`, with HEAD pinned by `-ExpectedHead`, installs only from the offline wheelhouse, a new stage path, and `qualification.json` written only on PASS. A `-DryRun` option checks the gates without changing anything. No Phase B night script was ever in git.
 
 ## 5. Re-takes and their order
 

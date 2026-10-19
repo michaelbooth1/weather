@@ -66,8 +66,8 @@ long-running holder of the production venv with no stop verb, the capture-family
 `WeatherMakerEvidenceLowestTemperature` (`maker_evidence_capture --family`, `register_maker_evidence_family_capture.ps1`).
 C0 now requires every registered `WeatherMakerEvidence<Family>` task to be in `aux-tasks.txt` and its stop to be
 recorded as `STOP_AUTHORIZED` in `$R\q12b.txt` (Q12b); C2 stops it with the 88a worker; C9c checks it. **Every family step is conditional on registration:** C0 lists the registered `WeatherMakerEvidence<Family>` tasks, and with none, C0, C2 and C9c skip the family steps and never read `q12b.txt`. G3 now names the
-exact `roll_verdict.ps1` call, and **B-R** requalifies a stage venv when HEAD moved roll-sensitively after Phase B
-(N12 does). No date in this file changed; the state of play and the decision log own the cutover night.
+exact `roll_verdict.ps1` call, and **B-R** requalifies a stage venv in a new stage path when HEAD moved roll-sensitively after Phase B
+(N12 does), and §D now removes every qualification worktree. No date in this file changed; the state of play and the decision log own the cutover night.
 
 **Owns:** the procedure for moving the production checkout's `venv` from CPython 3.11.0 to 3.11.9
 on the 16 GB capture host. That covers a side-by-side install, an offline wheelhouse, a stage venv
@@ -913,18 +913,19 @@ Keep `$Stage` until §D.
 tested. When HEAD has since moved by a roll-sensitive change (G3), run B-R on an admitted night **before**
 the cutover night, under the Phase B rules (B0 window, G5, G7, suite start by 03:00); never on the cutover night.
 It reuses the wheelhouse and the A1 receipts, so it downloads nothing:
-1. archive the old record, then run §D, which removes the old stage worktree and its `py3119-qual-*` branch
-   (B1c refuses an existing `$Stage`);
+1. archive the old record, and set `$Stage` to a **new** path (B1c refuses an existing one). The old stage and its
+   `py3119-qual-*` branch stay until §D, which removes every qualification worktree;
 2. run B0;
 3. run the block below, which proves the wheelhouse and the 3.11.0 freeze are unchanged since Phase B. If it
    stops, run the full Phase B from B1a instead;
 4. run B1c, B1d (re-take `rtv-3110.json` first only if a `pyproject.toml` pin changed), B1e, B2 (re-read the git
-   binding on the host) and B3 as written. The new `qualification.json` then names the new tip.
+   binding on the host) and B3 as written. The new `qualification.json` then names the new tip. A night wrapper
+   should replace `qualification.json` only on PASS, so that a failed B-R leaves the old tip and G3 stops C.
 
 ```powershell
 $old = Get-Content -LiteralPath "$R\qualification.json" -Raw | ConvertFrom-Json
 Copy-Item -LiteralPath "$R\qualification.json" ("$R\qualification-" + ([string]$old.tip).Substring(0,12) + '.json')
-# after the section D cleanup and B0:
+# after B0:
 $wh = Get-ChildItem -LiteralPath $WH -File | ForEach-Object { '{0}  {1}' -f (Sha $_.FullName), $_.Name }
 if (Compare-Object (Get-Content -LiteralPath "$R\wheelhouse-sha256.txt") $wh) { NoGo 'B-R: wheelhouse changed since Phase B - run the full Phase B' }
 $fz = Join-Path $R ('freeze-3110-br-' + (Get-Date -Format yyyyMMdd) + '.txt'); & $Py -m pip freeze --all | Set-Content -LiteralPath $fz -Encoding utf8
@@ -1407,10 +1408,15 @@ on who answers an escalation for that night.
 ### §D. Cleanup after PASS (a later admitted night)
 
 ```powershell
-$QBranch = @(git -C $P branch --list 'py3119-qual-*' --format='%(refname:short)')   # B1 set it in an earlier session
-if ($QBranch.Count -ne 1) { throw "expected one py3119-qual-* branch, found $($QBranch.Count)" }
-git -C $P worktree remove $Stage      # use --force only if git refuses because of the ignored stage venv
-git -C $P branch -D $QBranch[0]
+# Every qualification worktree and branch (Phase B, and B-R if it ran); they were made in earlier sessions.
+$QBranches = @(git -C $P branch --list 'py3119-qual-*' --format='%(refname:short)')
+if (-not $QBranches.Count) { throw 'no py3119-qual-* branch' }
+$wtl = @(git -C $P worktree list --porcelain)
+foreach ($qb in $QBranches) {
+  $wi = [array]::IndexOf($wtl, "branch refs/heads/$qb"); if ($wi -lt 2) { throw "no worktree for $qb" }
+  $qwt = $wtl[$wi - 2] -replace '^worktree ', ''
+  git -C $P worktree remove $qwt      # use --force only if git refuses because of the ignored stage venv
+  git -C $P branch -D $qb }
 ```
 
 ## 8. Release cases
