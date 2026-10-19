@@ -120,7 +120,7 @@ class Dev:
         return self.t.candidate_vector(cand, floor=True)[0]
 
 
-def _inject(dev, lam, rng, centre=0.6, spread=0.5):
+def _inject(dev, lam, rng, centre=0.55, spread=1.0):
     """Cell-level injection with date and market structure (so power is not trivially 1).
 
     Each (date, market) cell moves every snapshot lam toward the truth with probability
@@ -200,7 +200,7 @@ def injected_skill(dev, experiments=400, seed=20261019, target_power=0.6):
     emp = go / experiments
     pp = pred["simulated_power_go_given_effect"]
     mc_se = float(np.sqrt(pp * (1 - pp) / experiments + pp * (1 - pp) / pred["sims"]))
-    return {"lambda": lam, "injection": "cell-level, date/market structured (centre 0.6, spread 0.5)", "group": GROUP,
+    return {"lambda": lam, "injection": "cell-level, date/market structured (centre 0.55, spread 1.0)", "group": GROUP,
             "target_effect": TARGET_EFFECT, "recovered_full_dev": w_based, "components": comp,
             "design": {"dates": d_sub, "markets": int(x.shape[1])},
             "h3_predicted_power": pp, "h3_analytic_power": pred["analytic_power"], "h3_mde80": pred["mde80"],
