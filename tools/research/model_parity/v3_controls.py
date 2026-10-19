@@ -120,18 +120,18 @@ class Dev:
         return self.t.candidate_vector(cand, floor=True)[0]
 
 
-def _inject(dev, lam, rng, spread=0.35):
+def _inject(dev, lam, rng, centre=0.6, spread=0.5):
     """Cell-level injection with date and market structure (so power is not trivially 1).
 
     Each (date, market) cell moves every snapshot lam toward the truth with probability
-    q = clip(0.7 + spread * (z_date + z_market) / sqrt(2), 0, 1), otherwise toward one random band
+    q = clip(centre + spread * (z_date + z_market) / sqrt(2), 0, 1), otherwise toward one random band
     chosen per cell. The net effect is negative on average but varies by date, market and cell."""
     t = dev.t
     dates = sorted(t.snaps.date.astype(str).unique())
     markets = sorted(t.snaps.market.astype(str).unique())
     zd = dict(zip(dates, rng.normal(size=len(dates))))
     zm = dict(zip(markets, rng.normal(size=len(markets))))
-    q = np.array([min(1.0, max(0.0, 0.7 + spread * (zd[k[0]] + zm[k[1]]) / np.sqrt(2))) for k in t.keys])
+    q = np.array([min(1.0, max(0.0, centre + spread * (zd[k[0]] + zm[k[1]]) / np.sqrt(2))) for k in t.keys])
     truthful_cell = rng.random(len(t.keys)) < q
     rand_rank = rng.random(len(t.keys))
     truthful = truthful_cell[t.cell]
@@ -166,11 +166,16 @@ def injected_skill(dev, experiments=400, seed=20261019, target_power=0.6):
     from its own dev cells; choose the date count whose H3-predicted power is nearest target_power;
     compare with the empirical GO rate of crossed resamples (dates and markets with replacement)."""
     rng_seed = seed
-    lo, hi = 0.0, 1.0
+    effect = lambda lam: dev.delta_cells(dev.floored(_inject(dev, lam, np.random.default_rng(rng_seed))))[1].mean()
+    grid = np.linspace(0, 1, 41)
+    curve = [effect(x) for x in grid]
+    first = next((i for i, e in enumerate(curve) if e <= TARGET_EFFECT), None)
+    if first is None or first == 0:
+        return {"pass": False, "status": "TARGET_EFFECT_NOT_REACHABLE", "curve": list(zip(grid.tolist(), curve))}
+    lo, hi = grid[first - 1], grid[first]
     for _ in range(30):
         lam = (lo + hi) / 2
-        est = dev.delta_cells(dev.floored(_inject(dev, lam, np.random.default_rng(rng_seed))))[1].mean()
-        lo, hi = (lam, hi) if est > TARGET_EFFECT else (lo, lam)
+        lo, hi = (lam, hi) if effect(lam) > TARGET_EFFECT else (lo, lam)
     lam = (lo + hi) / 2
     p = dev.floored(_inject(dev, lam, np.random.default_rng(rng_seed)))
     idx, cells = dev.delta_cells(p)
@@ -195,7 +200,7 @@ def injected_skill(dev, experiments=400, seed=20261019, target_power=0.6):
     emp = go / experiments
     pp = pred["simulated_power_go_given_effect"]
     mc_se = float(np.sqrt(pp * (1 - pp) / experiments + pp * (1 - pp) / pred["sims"]))
-    return {"lambda": lam, "injection": "cell-level, date/market structured (spread 0.35)", "group": GROUP,
+    return {"lambda": lam, "injection": "cell-level, date/market structured (centre 0.6, spread 0.5)", "group": GROUP,
             "target_effect": TARGET_EFFECT, "recovered_full_dev": w_based, "components": comp,
             "design": {"dates": d_sub, "markets": int(x.shape[1])},
             "h3_predicted_power": pp, "h3_analytic_power": pred["analytic_power"], "h3_mde80": pred["mde80"],
