@@ -186,8 +186,8 @@ one market per admitted window and resume.
 $env:PYTHONPATH = '<worktree>\src;<worktree>'
 <venv>\Scripts\python.exe -m tools.research.model_edge_lever5.run replay `
   --market toronto --data-root <host repo>\data --config-root <host repo>\config `
-  --budget-minutes 230 --out C:	mp\lever5eplay-toronto.jsonl `
-  --summary-out C:	mp\lever5\summary-toronto.json
+  --budget-minutes 230 --out C:\tmp\lever5\replay-toronto.jsonl `
+  --summary-out C:\tmp\lever5\summary-toronto.json
 ```
 
 Re-running the same command resumes (folders with a `folder_done` row are skipped). Expected:
