@@ -120,18 +120,26 @@ class Dev:
         return self.t.candidate_vector(cand, floor=True)[0]
 
 
-def _inject(dev, lam, truth_share, rng):
-    """Per snapshot: half untouched; else move lam toward the truth (truth_share) or a random band."""
+def _inject(dev, lam, rng, spread=0.35):
+    """Cell-level injection with date and market structure (so power is not trivially 1).
+
+    Each (date, market) cell moves every snapshot lam toward the truth with probability
+    q = clip(0.7 + spread * (z_date + z_market) / sqrt(2), 0, 1), otherwise toward one random band
+    chosen per cell. The net effect is negative on average but varies by date, market and cell."""
     t = dev.t
-    n_s = len(t.snaps)
-    picked = rng.random(n_s) < 0.5
-    truthful = rng.random(n_s) < truth_share
-    rand_band = (rng.random(n_s) * t.n).astype(int)
+    dates = sorted(t.snaps.date.astype(str).unique())
+    markets = sorted(t.snaps.market.astype(str).unique())
+    zd = dict(zip(dates, rng.normal(size=len(dates))))
+    zm = dict(zip(markets, rng.normal(size=len(markets))))
+    q = np.array([min(1.0, max(0.0, 0.7 + spread * (zd[k[0]] + zm[k[1]]) / np.sqrt(2))) for k in t.keys])
+    truthful_cell = rng.random(len(t.keys)) < q
+    rand_rank = rng.random(len(t.keys))
+    truthful = truthful_cell[t.cell]
+    rand_band = np.minimum((rand_rank[t.cell] * t.n).astype(int), t.n - 1)
     target = np.where(truthful, -1, rand_band)
     tgt = np.where(np.repeat(target, t.n) < 0, dev.y,
                    (dev.bands.band_index.to_numpy(int) == np.repeat(target, t.n)).astype(float))
-    lam_b = np.repeat(np.where(picked, lam, 0.0), t.n)
-    return (1 - lam_b) * t.p_served + lam_b * tgt
+    return (1 - lam) * t.p_served + lam * tgt
 
 
 def _components(dev, idx, cells, seed=20261019, draws=2000):
@@ -153,23 +161,28 @@ def _components(dev, idx, cells, seed=20261019, draws=2000):
             "market_only_ci95": [float(cells.mean() - z * est(wm).std()), float(cells.mean() + z * est(wm).std())]}
 
 
-def injected_skill(dev, d_sub=12, experiments=400, seed=20261019):
-    """(b): calibrate lam so the injection's GROUP delta is TARGET_EFFECT, then compare the
-    H3-predicted power at d_sub dates x 11 markets with the empirical GO rate of crossed resamples."""
+def injected_skill(dev, experiments=400, seed=20261019, target_power=0.6):
+    """(b): calibrate lam so the injection's GROUP delta is TARGET_EFFECT; take variance components
+    from its own dev cells; choose the date count whose H3-predicted power is nearest target_power;
+    compare with the empirical GO rate of crossed resamples (dates and markets with replacement)."""
+    rng_seed = seed
     lo, hi = 0.0, 1.0
     for _ in range(30):
         lam = (lo + hi) / 2
-        p = dev.floored(_inject(dev, lam, 0.62, np.random.default_rng(seed)))
-        est = dev.delta_cells(p)[1].mean()
+        est = dev.delta_cells(dev.floored(_inject(dev, lam, np.random.default_rng(rng_seed))))[1].mean()
         lo, hi = (lam, hi) if est > TARGET_EFFECT else (lo, lam)
     lam = (lo + hi) / 2
-    p = dev.floored(_inject(dev, lam, 0.62, np.random.default_rng(seed)))
+    p = dev.floored(_inject(dev, lam, np.random.default_rng(rng_seed)))
     idx, cells = dev.delta_cells(p)
     w_based = dev.t.interval(idx, cells, effect=v3_core.MDE_EFFECT)
     comp = v3_power.components_from_entry(_components(dev, idx, cells))
-    pred = v3_power.plan(comp["var_date"], comp["var_market"], comp["var_resid"], d_sub, comp["dev_markets"],
-                         dev_estimate=float(cells.mean()), effect_fraction=1.0, sims=2000, seed=seed)
-    # empirical: crossed resamples of the real cells (dates and markets drawn with replacement)
+    args = (comp["var_date"], comp["var_market"], comp["var_resid"])
+    m = comp["dev_markets"]
+    analytic = {n: v3_power.plan(*args, n, m, float(cells.mean()), 1.0, sims=1, seed=seed)["analytic_power"]
+                for n in range(4, 57)}
+    d_sub = min(analytic, key=lambda n: abs(analytic[n] - target_power))
+    pred = v3_power.plan(*args, d_sub, m, dev_estimate=float(cells.mean()), effect_fraction=1.0,
+                         sims=2000, seed=seed)
     keys = [dev.t.keys[i] for i in idx]
     table = pd.DataFrame({"date": [k[0] for k in keys], "market": [k[1] for k in keys], "v": cells}).pivot(
         index="date", columns="market", values="v").dropna()
@@ -180,14 +193,15 @@ def injected_skill(dev, d_sub=12, experiments=400, seed=20261019):
         sub = x[rng.integers(0, x.shape[0], d_sub)][:, rng.integers(0, x.shape[1], x.shape[1])]
         go += int(sub.mean() + 1.959963984540054 * v3_power.crossed_se(sub) < 0)
     emp = go / experiments
-    mc_se = float(np.sqrt(pred["simulated_power_go_given_effect"] * (1 - pred["simulated_power_go_given_effect"])
-                          / experiments))
-    return {"lambda": lam, "truth_share": 0.62, "group": GROUP, "target_effect": TARGET_EFFECT,
-            "recovered_full_dev": w_based, "components": comp, "design": {"dates": d_sub, "markets": x.shape[1]},
-            "h3_predicted_power": pred["simulated_power_go_given_effect"], "h3_analytic_power": pred["analytic_power"],
-            "h3_mde80": pred["mde80"], "empirical_power": emp, "experiments": experiments,
-            "balanced_dates_available": int(x.shape[0]),
-            "pass": bool(abs(emp - pred["simulated_power_go_given_effect"]) <= max(0.10, 3 * mc_se)
+    pp = pred["simulated_power_go_given_effect"]
+    mc_se = float(np.sqrt(pp * (1 - pp) / experiments + pp * (1 - pp) / pred["sims"]))
+    return {"lambda": lam, "injection": "cell-level, date/market structured (spread 0.35)", "group": GROUP,
+            "target_effect": TARGET_EFFECT, "recovered_full_dev": w_based, "components": comp,
+            "design": {"dates": d_sub, "markets": int(x.shape[1])},
+            "h3_predicted_power": pp, "h3_analytic_power": pred["analytic_power"], "h3_mde80": pred["mde80"],
+            "h3_go_given_null": pred["simulated_go_given_null"], "empirical_power": emp,
+            "experiments": experiments, "mc_se": mc_se, "balanced_dates_available": int(x.shape[0]),
+            "pass": bool(abs(emp - pp) <= max(0.10, 3 * mc_se)
                          and w_based["ci95"][0] <= TARGET_EFFECT <= w_based["ci95"][1])}
 
 
