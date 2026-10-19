@@ -61,6 +61,14 @@ empty file in PowerShell 5.1, so the expected BLOCK case (empty stdout) threw at
 passes. B0 and C0 now save a flag baseline (`Save-StatusBaseline`), and C8 and C9c judge only new flags
 (`Get-NewStatusFlags`). A wrapper must never gate on that exit code.
 
+Revision 2026-10-19 (delta review for a post-N12 cutover; [review](pyup-c-1021-delta-review.md)). N12 adds a second
+long-running holder of the production venv with no stop verb, the capture-family task
+`WeatherMakerEvidenceLowestTemperature` (`maker_evidence_capture --family`, `register_maker_evidence_family_capture.ps1`).
+C0 now requires every registered `WeatherMakerEvidence<Family>` task to be in `aux-tasks.txt` and its stop to be
+recorded as `STOP_AUTHORIZED` in `$R\q12b.txt` (Q12b); C2 stops it with the 88a worker; C9c checks it. G3 now names the
+exact `roll_verdict.ps1` call, and **B-R** requalifies a stage venv when HEAD moved roll-sensitively after Phase B
+(N12 does). No date in this file changed; the state of play and the decision log own the cutover night.
+
 **Owns:** the procedure for moving the production checkout's `venv` from CPython 3.11.0 to 3.11.9
 on the 16 GB capture host. That covers a side-by-side install, an offline wheelhouse, a stage venv
 qualified by the bounded suite, the cutover through the guarded stop/restore path, verification,
@@ -100,9 +108,9 @@ The live SDK portability check accepts any 3.11 patch release
 | G0 | The owner has signed §11 for this runbook revision and has named the morning or night of the phase about to run (Phase A: its owner-attended morning; Phase B and C: their nights). Revised 2026-10-12 (owner-confirmed). | Before Phase A, B0, C0 |
 | G1 | The bounded suite supports `-InterpreterPath` and `-ExpectedInterpreterVersion` (`scripts/ops/bounded_worktree_test_suite.ps1:44-52`). | Met on master; re-read `param(` if the script changed |
 | G2 | Phase A and Phase B passed on earlier nights, and `$R\qualification.json` has `"result":"PASS"`. | C0 |
-| G3 | The production HEAD equals the qualified tip, or `roll_verdict.ps1 -Branch` on the difference is roll-free. | C0 |
+| G3 | The production HEAD equals the qualified tip, or `scripts\ops\roll_verdict.ps1 -Branch <HEAD sha> -Base <qualified tip sha>` exits 0 (ROLL-FREE; exit 3 or 1 fails G3). A failed G3 needs B-R (requalify on the new tip) on an earlier night, or an owner ruling. | C0 |
 | G4 | The owner is reachable from 00:30 to 03:45 on the cutover night: GO at C0, and any escalation up to the end of §R. Phase A needs no owner click since the 2026-10-13 revision (A4 has no installer). | C0 |
-| G5 | No other lease user is due that night. Specifically: <br>- `WeatherTrainingWindow` (a 01:00 one-shot, `register_training_window.ps1:3`) is disabled or has no trigger that night; <br>- Stage B `WeatherEveningEvidenceRefresh` (00:35, holds the lease to 09:00 when enabled; `register_daily_refresh.ps1:20-24`) is disabled; <br>- a U6 export registered at 00:35 (Q3) is disabled (enforced in B0 and C0 by `Assert-NoU6At0035`);<br>- no integration attempt, quiet-window merge, storage one-shot or held-head work is scheduled. | Phase B (B0), C0 |
+| G5 | No other lease user is due that night. Specifically: <br>- `WeatherTrainingWindow` (a 01:00 one-shot, `register_training_window.ps1:3`) is disabled or has no trigger that night; <br>- Stage B `WeatherEveningEvidenceRefresh` (00:35, holds the lease to 09:00 when enabled; `register_daily_refresh.ps1:20-24`) is disabled; <br>- a U6 export registered at 00:35 (Q3) is disabled (enforced in B0 and C0 by `Assert-NoU6At0035`);<br>- no integration attempt, quiet-window merge, storage one-shot or held-head work is scheduled;<br>- no host replay or research batch (for example a lever-5 or item 337 replay) is scheduled or still running, and none holds the lease. | Phase B (B0), C0 |
 | G6 | Release case A: `artifacts\releases\current_release.json` is absent (H5, B3, C0). Case B or C is NO-GO for this runbook (§8). | H5, B3, C0 |
 | G7 (LFC) | The cutover night (and any Phase B prep night) is not the night before or the night of a scheduled LFC session. Revised 2026-10-12 (owner-confirmed): it no longer waits for LFC session 0, which the owner postponed. **Dated exception 2026-10-14** (owner: "Keep B" (2026-10-14 16:27 EDT, relayed verbatim by master-agent); DECISION_LOG 2026-10-13 LFC session 0 row): Phase B runs at 00:30 on 10-16, the morning of LFC session 0 (Fri 10-16), on the guard that B ends clean by 09:00 with the 8765 reader and capture re-checked, else session 0 slips; C stays at 00:30 on 10-17. | Phase B (B0), C0 |
 | G8 (88a) | The night is after the 88a merge freeze in the state of play. `$R\q12.txt` records the owner's Q12 choice as `STOP_AUTHORIZED` with its DECISION_LOG reference. Any other value means NO-GO, because the 88a worker would hold the venv. | Sign-off, C0, C2 |
@@ -135,6 +143,7 @@ recommendations on 2026-10-12 (DECISION_LOG); the H-reads that Q4 and Q5 still n
 | Q10 | Build backend for the editable install | **RESOLVED** (H2 records versions) | `pyproject.toml` requires `setuptools>=69`, but a fresh 3.11.9 venv bundles setuptools 65.5.0. The editable install therefore uses build isolation fed from the wheelhouse: pip passes `--no-index --find-links` to the isolated build. Pin a setuptools release of 70.1 or later in `lock-build`. From 70.1 setuptools ships `bdist_wheel` itself; if you pin an older release, add `wheel` to `lock-build`. The B1a hash script fails closed if a wheel is missing. |
 | Q11 | Names on master (memory guard reader, tape stop verb, status key, gate flags) | **RESOLVED** (closed earlier) | `Read-WeatherMemoryGuardStatus -Path` (`memory_guard_status_reader.ps1:13-17`); `execution_tape_supervisor stop` has no arguments (`execution_tape_supervisor.py:880`); `updated_at` (`training_window.ps1:144`). |
 | Q12 (new) | How does the 88a worker release the venv? | **OWNER-DECISION**, recorded in `$R\q12.txt` (G8) | `WeatherMakerEvidenceCapture` runs one long-lived worker that holds the lock ([passive maker evidence capture](passive-maker-evidence-capture.md), "Commands and registration"). Its CLI has no stop verb and no stop file (`maker_evidence_capture.py:365-372`), so disabling the task does not end it, and the rename fails while it runs. **Recommendation:** after the 88a freeze, the owner authorizes `Stop-ScheduledTask -TaskName WeatherMakerEvidenceCapture` at C2 (record `STOP_AUTHORIZED`), with the resume check in C9c. Risk: an abrupt stop skips `store.seal()` (`maker_evidence_capture.py:343-360`), and the store raises "torn journal" on a partial last line (`maker_evidence_store.py:142-143`). Alternative: wait for a reviewed graceful-stop verb, which is 88a capture behaviour and waits for the freeze to end. Until one exists, the cutover is NO-GO. |
+| Q12b (2026-10-19) | How does a capture-family task (`WeatherMakerEvidence<Family>`, N12) release the venv? | **OWNER-DECISION**, recorded in `$R\q12b.txt`; needed only if such a task is registered on the cutover night | Same code and the same risk as Q12: `maker_evidence_capture --family` has no stop verb, its S4U task repeats every minute with `IgnoreNew`, so only disable-then-`Stop-ScheduledTask` ends it, and an abrupt stop can leave a partial last journal line in its own root `data\maker_evidence_families\<id>`. **Recommendation:** `STOP_AUTHORIZED` (C2 stops it next to the 88a worker; C9c checks it). Alternative: leave it unregistered until after the cutover. |
 | Q13 (new) | When should tzdata 2026.3 be installed? | **OWNER-DECISION** | `tzdata` is not pinned in `requirements.txt`. If the lock forces `tzdata==2026.3` while the 3.11.0 freeze holds another version, `Test-Venv` and C1 compare the freeze and false-fail. **Recommendation:** run §T on an earlier admitted night, then take the A1 receipts so the freeze already contains 2026.3. Alternative: exempt the `tzdata` line in both comparisons and record the exemption. |
 | Q14 (new) | Do the moved deployments behave the same on 3.11.9? | **RESOLVED to a verification step** | They run the same code and pinned dependencies on the new interpreter. The first post-cutover run of each is checked in §9; 91a fires at 06:50 the same morning. |
 
@@ -617,6 +626,7 @@ Copy-Item -LiteralPath "$R\host-reads\h3-tasks.csv" "$A\tasks-venv.csv"   # §4 
 | --- |
 | `WeatherExecutionTapeSupervisor` |
 | `WeatherMakerEvidenceCapture` |
+| every registered capture-family task `WeatherMakerEvidence<Family>` (N12: `WeatherMakerEvidenceLowestTemperature`; Q12b) |
 | `WeatherMakerShadowRunner` |
 | `WeatherManualOrderJournal` |
 | `WeatherHostHealthWatchdog` |
@@ -899,6 +909,29 @@ $q | ConvertTo-Json | Set-Content "$R\qualification.json" -Encoding utf8
 
 Keep `$Stage` until §D.
 
+**B-R. Requalify on a moved tip (only when G3 fails; added 2026-10-19).** A qualification binds the tip it
+tested. When HEAD has since moved by a roll-sensitive change (G3), run B-R on an admitted night **before**
+the cutover night, under the Phase B rules (B0 window, G5, G7, suite start by 03:00); never on the cutover night.
+It reuses the wheelhouse and the A1 receipts, so it downloads nothing:
+1. archive the old record, then run §D, which removes the old stage worktree and its `py3119-qual-*` branch
+   (B1c refuses an existing `$Stage`);
+2. run B0;
+3. run the block below, which proves the wheelhouse and the 3.11.0 freeze are unchanged since Phase B. If it
+   stops, run the full Phase B from B1a instead;
+4. run B1c, B1d (re-take `rtv-3110.json` first only if a `pyproject.toml` pin changed), B1e, B2 (re-read the git
+   binding on the host) and B3 as written. The new `qualification.json` then names the new tip.
+
+```powershell
+$old = Get-Content -LiteralPath "$R\qualification.json" -Raw | ConvertFrom-Json
+Copy-Item -LiteralPath "$R\qualification.json" ("$R\qualification-" + ([string]$old.tip).Substring(0,12) + '.json')
+# after the section D cleanup and B0:
+$wh = Get-ChildItem -LiteralPath $WH -File | ForEach-Object { '{0}  {1}' -f (Sha $_.FullName), $_.Name }
+if (Compare-Object (Get-Content -LiteralPath "$R\wheelhouse-sha256.txt") $wh) { NoGo 'B-R: wheelhouse changed since Phase B - run the full Phase B' }
+$fz = Join-Path $R ('freeze-3110-br-' + (Get-Date -Format yyyyMMdd) + '.txt'); & $Py -m pip freeze --all | Set-Content -LiteralPath $fz -Encoding utf8
+if (Compare-Object (Mask-Editable (Get-Content -LiteralPath "$A\freeze-3110.txt")) (Mask-Editable (Get-Content -LiteralPath $fz))) { NoGo 'B-R: prod venv changed since Phase B - run the full Phase B' }
+Log 'B-R inputs unchanged; continue at B1c'
+```
+
 ### Phase C. Cutover night
 
 | Clock (local) | Step | Hard stop |
@@ -932,7 +965,14 @@ if (((Get-Content -LiteralPath "$R\q12.txt" -TotalCount 1) -split '\s+')[0] -ne 
 $GapChoice = Get-GapChoice; Log "gap-overrun choice: $GapChoice"
 Assert-NoU6At0035 'C0'     # enforced here, not left to the C0 next-runs exemption of the aux list
 $Head = (git -C $P rev-parse HEAD).Trim()
-if ($Head -ne $q.tip) { Log "HEAD moved from the qualified tip; master must attach roll_verdict.ps1 output showing roll-free before GO" }
+if ($Head -ne $q.tip) { Log "HEAD moved from the qualified tip; G3 needs roll_verdict.ps1 -Branch $Head -Base $($q.tip) exit 0 (ROLL-FREE) attached before GO, else B-R" }
+# Q12b: a capture-family task (N12) holds the venv like the 88a worker; it must be quiesced at C2 under a recorded choice
+$FamilyTasks = @(Get-ScheduledTask -TaskName 'WeatherMakerEvidence*' -ErrorAction SilentlyContinue | Where-Object { $_.TaskName -ne 'WeatherMakerEvidenceCapture' } | ForEach-Object { $_.TaskName })
+Log "capture-family tasks: $($FamilyTasks -join ',')"
+if ($FamilyTasks.Count) {
+  if (-not (Test-Path -LiteralPath "$R\q12b.txt") -or ((Get-Content -LiteralPath "$R\q12b.txt" -TotalCount 1) -split '\s+')[0] -ne 'STOP_AUTHORIZED') { NoGo 'a capture-family task is registered but Q12b is not STOP_AUTHORIZED' }
+  $auxNames = @(Get-Content -LiteralPath "$R\aux-tasks.txt" | ForEach-Object { $_.Trim() })
+  foreach ($ft in $FamilyTasks) { if ($auxNames -notcontains $ft) { NoGo "$ft is not in aux-tasks.txt (A1 review)" } } }
 if (git -C $P status --porcelain --untracked-files=no) { NoGo 'prod tree dirty' }
 if (Test-Path -LiteralPath $Old) { NoGo "$Old exists" }
 if ((Get-Volume -DriveLetter C).SizeRemaining -lt 10GB) { NoGo 'disk' }
@@ -955,7 +995,7 @@ Log "C0 complete (status.ps1 exit $st0) - awaiting owner GO"
   `c0-status-flags.txt` are the accepted baseline for C8 and C9c; `status.ps1` exit 2 alone is not a NO-GO;
 - the release is case A (already asserted);
 - `c0-next-runs.txt` is empty. The exempt tasks are the memory guard, the three supervisors, the 04:15 restore, and the aux tasks that C2 disables. Any other task due before 04:00 goes to the owner;
-- G3, G5, G7, G8 and G11 hold;
+- G3, G5, G7, G8 and G11 hold; with a capture-family task registered, Q12b is recorded (asserted above);
 - the owner types GO.
 
 **C1. Lease and fresh receipts.**
@@ -967,7 +1007,7 @@ while (-not $global:Lease) { $global:Lease = Enter-WeatherHeavyWorkloadLease -Re
 $global:ReleaseOnNoGo = $true     # until the C4 rename, any NoGo releases the lease; after it, §R needs the lease
 $N = Join-Path $R ('night-' + (Get-Date -Format yyyyMMdd)); New-Item -ItemType Directory -Force $N | Out-Null
 & $Py -m pip freeze --all | Set-Content "$N\freeze-3110-tonight.txt"
-if (Compare-Object (Mask-Editable (Get-Content "$A\freeze-3110.txt")) (Mask-Editable (Get-Content "$N\freeze-3110-tonight.txt"))) { NoGo 'prod venv changed since Phase B - requalify' }
+if (Compare-Object (Mask-Editable (Get-Content "$A\freeze-3110.txt")) (Mask-Editable (Get-Content "$N\freeze-3110-tonight.txt"))) { NoGo 'prod venv changed since Phase B - requalify (full Phase B on another night)' }
 foreach ($f in 'loop_status.json','clob_loop_status.json','observation_trigger_status.json') { Copy-Item -LiteralPath (Join-Path $P "data\snapshots\$f") "$N\pre-$f" }
 $shadowTask = Get-ScheduledTask -TaskName WeatherMakerShadowRunner -ErrorAction SilentlyContinue
 $ShadowStop = $null
@@ -987,7 +1027,7 @@ reused by C3, C9b and §R.
 
 ```powershell
 $Sup = 'WeatherSnapshotLoopSupervisor','WeatherClobBookLoopSupervisor','WeatherObservationTriggerSupervisor'
-$Holders = 'WeatherExecutionTapeSupervisor','WeatherMakerShadowRunner','WeatherMakerEvidenceCapture'
+$Holders = @('WeatherExecutionTapeSupervisor','WeatherMakerShadowRunner','WeatherMakerEvidenceCapture') + $FamilyTasks   # $FamilyTasks from C0
 function Undo-Aux { foreach ($row in Import-Csv "$N\aux-prestate.csv") { if ($row.State -ne 'Disabled') { Enable-ScheduledTask -TaskName $row.Task | Out-Null } }
   if ($ShadowStop) { Remove-Item -LiteralPath $ShadowStop -ErrorAction SilentlyContinue } }
 function Start-AuxHolders {   # restart the long-running holders that C2 stopped, only where their pre-state was enabled
@@ -1025,7 +1065,9 @@ function Quiesce-Aux([string]$Exe, [switch]$Soft) {
   Invoke-QStep 'tape' { Stop-Tape $Exe } $Soft.IsPresent
   Invoke-QStep '88a' {   # only with the recorded owner choice (G8, Q12)
     if (((Get-Content -LiteralPath "$R\q12.txt" -TotalCount 1) -split '\s+')[0] -ne 'STOP_AUTHORIZED') { NoGo 'Q12 not STOP_AUTHORIZED' }
-    if ([string](Get-ScheduledTask -TaskName WeatherMakerEvidenceCapture).State -eq 'Running') { Stop-ScheduledTask -TaskName WeatherMakerEvidenceCapture; Log '88a worker stopped (Q12)' } } $Soft.IsPresent
+    if ([string](Get-ScheduledTask -TaskName WeatherMakerEvidenceCapture).State -eq 'Running') { Stop-ScheduledTask -TaskName WeatherMakerEvidenceCapture; Log '88a worker stopped (Q12)' }
+    foreach ($ft in $FamilyTasks) {   # Q12b, asserted at C0; disabled above, so its one-minute trigger cannot restart it
+      if ([string](Get-ScheduledTask -TaskName $ft).State -eq 'Running') { Stop-ScheduledTask -TaskName $ft; Log "$ft worker stopped (Q12b)" } } } $Soft.IsPresent
 }
 try { Quiesce-Aux $Py; Log 'C2 quiesced' }
 catch { $msg = $_.Exception.Message; Log "C2 failed: $msg - undoing"
@@ -1205,6 +1247,10 @@ if ($tapeWanted) { $t0 = Get-Date
   if (-not $tapeOk) { NoGo 'tape not RUNNING/DEGRADED after 5 min - inspect the tape status files; import or runtime error -> ROLLBACK' } }
 $m = Get-Content -LiteralPath (Join-Path $P 'data\maker_evidence\status.json') -Raw | ConvertFrom-Json
 Log "88a state=$($m.state) updated=$($m.updated_at_utc) cycles=$($m.cycles) last_error=$($m.last_error)"
+foreach ($ft in $FamilyTasks) {   # family id from the task name: WeatherMakerEvidenceLowestTemperature -> lowest_temperature
+  $fid = (($ft -replace '^WeatherMakerEvidence','') -creplace '([a-z0-9])([A-Z])','$1_$2').ToLowerInvariant()
+  $fs = Get-Content -LiteralPath (Join-Path $P "data\maker_evidence_families\$fid\status.json") -Raw | ConvertFrom-Json
+  Log "family $fid state=$($fs.state) updated=$($fs.updated_at_utc) cycles=$($fs.cycles) last_error=$($fs.last_error)" }
 $st2 = Invoke-Native 'powershell.exe' @('-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $P 'scripts\ops\status.ps1'),'-Json') "$N\status-full"
 $new2 = Get-NewStatusFlags "$N\status-full" "$R\c0-status-flags.txt" 'C9c'
 ```
@@ -1215,13 +1261,17 @@ $new2 = Get-NewStatusFlags "$N\status-full" "$R\c0-status-flags.txt" 'C9c'
   passes, and the connection state is `CONNECTED`.
 - **Shadow:** running again, with the STOP file gone.
 - **88a:** `status.json` has an `updated_at_utc` after `$AuxRestart`, `state` is `CAPTURING` or `NO_ELIGIBLE_BANDS`, and no `last_error` mentions a torn journal.
+- **Capture family (Q12b, if registered):** its `status.json` has an `updated_at_utc` after `$AuxRestart`, `state` is
+  `CAPTURING` (`STOPPED_FAMILY_DISK_FLOOR` is its own disk brake, a WARN), and no `last_error` mentions a torn journal.
+  Its task restarts on its one-minute trigger, so run `status.ps1` only after its first fresh status; a family failure
+  is handled like an 88a failure below.
 - **Status:** `status-full.new-flags.txt` is empty: no flag beyond the C0 baseline. A new flag names the component
   to judge under the rules above; the `status.ps1` exit code (2 while any standing flag exists) is not the test.
 
 If the tape or shadow fails with an import or runtime error on the new venv, run §R. It must start
 by 02:45.
 
-If 88a fails with a journal or store error (the Q12 risk), do **not** roll back and do not delete or
+If 88a or a capture family fails with a journal or store error (the Q12 or Q12b risk), do **not** roll back and do not delete or
 rewrite any journal. The production agent records the evidence and escalates to the owner, who
 decides the remediation under the 88a retention hold.
 
@@ -1390,7 +1440,7 @@ started on 3.11.9 against a 3.11.0-bound release would fail `check_runtime`
    needs an SDK audit on 3.11.9, the owner's credential receipt and a fresh seal. Nothing here
    authorizes a live action.
 5. **Follow-up changes (separate branches):**
-   - repin the Windows qualification lane from `3.11.0` to `3.11.9` (`.github/workflows/windows-qualification.yml:244`);
+   - repin the Windows qualification lane from `3.11.0` to `3.11.9` (the `python-version: '3.11.0'` line of `.github/workflows/windows-qualification.yml`; its line number moves with the shard lists);
    - update the `src/` comments that say the host runs 3.11.0 (`wallet_reader_transport.py:73`, `wu_history.py:157`, `wu_redaction.py:255`). They are roll-sensitive, so send them through `roll_verdict.ps1`;
    - update the findings that cite pre-3.11.2 behaviour.
 6. **State.** Production rewrites [the state of play](STATE_OF_PLAY.md) (host Python) and records the
@@ -1423,6 +1473,9 @@ The owner initials each line in the decision log. Recommendations come first.
       -TaskName WeatherMakerEvidenceCapture` at C2 and accepting a short 88a gap and an untested
       abrupt stop (recommended). The alternative is to wait for a reviewed graceful-stop verb; the
       cutover stays NO-GO until then.
+- [ ] **Q12b, capture-family stop (2026-10-19; only if a `WeatherMakerEvidence<Family>` task is registered):**
+      record `STOP_AUTHORIZED` in `$R\q12b.txt`, authorizing its stop at C2 on the same terms as Q12
+      (recommended), or keep the task unregistered until after the cutover. C0 is NO-GO without it.
 - [ ] **Capture gap:** about 20-35 minutes for the capture workers, and somewhat longer for the
       execution tape, the maker shadow and 88a (they restart at C9b). Confirm this is within the
       approved one-gap budget, and that the gap's timing against the desk-study panel window is
