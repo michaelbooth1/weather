@@ -122,11 +122,13 @@ def bucket_transition_census(rows, model_factory):
         if r["high_so_far"] is not None and r["cutoff_hour"] is not None:
             groups[(r["market"], str(r["target_date"])[:10])].append(r)
     weights, samples, changed, n = [], [], 0, 0
+    cache_days = []
     per_market = defaultdict(lambda: [0, 0])
     models = {}
     for (market, target), group in sorted(groups.items()):
         model = models.setdefault(market, model_factory(market))
         model.set_target_date(date.fromisoformat(target))
+        cache_days.append(len(model.historical_target_cache()["daily"]))
         for r in group:
             cutoff = int(r["cutoff_hour"])
             observed = model.round_half_up(float(r["high_so_far"]))
@@ -150,6 +152,7 @@ def bucket_transition_census(rows, model_factory):
                 per_market[market][0] += 1
     return {
         "snapshots_with_high_so_far": n,
+        "climatology_cache_days_per_market_day": _quantiles(cache_days),
         "changed_snapshots": changed,
         "changed_fraction": changed / n if n else None,
         "min_sample": BUCKET_TRANSITION_MIN_SAMPLE,
@@ -175,8 +178,13 @@ def run(cache_dir, out_path):
 
     regimes = {m: factory(m).afternoon_residual_regime_id() for m in sorted({r["market"] for r in rows})}
     artifact = factory(rows[0]["market"]).afternoon_residual_centering or {}
+    import weather.paths
+
+    climatology_root = factory(rows[0]["market"]).spec.data_root
     result = {
         "columns_read": SAFE_COLUMNS,
+        "climatology_data_root": str(weather.paths.DATA_ROOT),
+        "climatology_example_summary_exists": (climatology_root / "daily" / "daily_summary.csv").exists(),
         "task4": task4_coverage(rows),
         "centering_110g_reenabled": centering_census(rows, artifact, regimes),
         "bucket_transition_repointed": bucket_transition_census(rows, factory),

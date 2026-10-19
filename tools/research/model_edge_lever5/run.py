@@ -30,7 +30,15 @@ def main(argv=None):
     parser = argparse.ArgumentParser(prog="model_edge_lever5 census")
     parser.add_argument("--cache", required=True)
     parser.add_argument("--out", required=True)
+    parser.add_argument("--climatology-data-root", default=None,
+                        help="data/ tree whose wunderground/<icao> prior-year climatology the "
+                             "bucket-transition census reads (default: this checkout's data/).")
     args = parser.parse_args(rest)
+    if args.climatology_data_root:
+        import weather.paths
+        from pathlib import Path
+
+        weather.paths.DATA_ROOT = Path(args.climatology_data_root).resolve()
     result = census.run(args.cache, args.out)
     print(json.dumps({k: result[k] for k in result if k != "columns_read"}, indent=2,
                      sort_keys=True, default=str)[:6000])
