@@ -24,6 +24,22 @@ When a window is declared, replace the status line with the dated range and its 
 | Declared | 2026-08-04 by the operator (re-base). Previously 2026-08-03. |
 | Supersedes | 2026-08-06 → 2026-11-03 (90 dates); before that, 2026-08-06 → 08-19 (14 dates) |
 
+### DRAFT, NOT IN FORCE — proposed t3-r3 reservation row (2026-10-19)
+
+> **DRAFT. Reserves nothing.** This block is outside the reservation table on purpose: the table and the `Status:`
+> line change together (*Changing this file*), and neither is changed here. It becomes a table row, with the status
+> line updated in the same edit, only after the owner confirms it in a DECISION_LOG row. Proposed by the workstation
+> (model-edge week 1, `claude/edge1-prereg-drafts-20261019`) because DL 2026-10-15 took the t3-r3 OD-B5 narrow
+> default ("B3 and B5 at default (narrow reservation, MG-1 overlap allowed)") but no row was recorded here.
+
+| Proposed row | Text (from the signed t3-r3 pre-registration §5 and §9 and DL 2026-10-15/16) |
+| :--- | :--- |
+| **t3-r3 reserved dates** | The first 45 promotion-countable local target dates on or after the t3-r3 first eligible date (prereg §5: D >= 2026-10-16; the stage and frozen artifact deployed in shadow before D's first T+0 snapshot in the earliest US timezone, with one full prior day of stored stage vectors carrying the bound artifact hash; D after the Toronto date of the freeze; D promotion-countable). **Not yet dated.** |
+| **t3-r3 binding** | `docs/research/remaining-rise-13-16-preregistration-DRAFT-2026-10-13.md`, signed file SHA-256 `71cdb452cb9f03aba1aa2464faafceaf7d2f42970c910b33424c583c61503081`, artifact SHA-256 `b727fe1a897f8786afcd89514f0bae4a82d9e03ad951f2d72db9e228dd2afb09` (DECISION_LOG 2026-10-16). |
+| **t3-r3 scope (narrow, OD-B5 default)** | Reserved **only** against reading, scoring or modifying the remaining-rise / decided-band / evening-collapse family, and against modifying t3-r3 or its artifact, without a new explicit owner decision (prereg §9). Includes any composite arm that contains the t3-r3 stage (for example EDGE-1 A1): no outcome join for it on these dates before the t3-r3 look (prereg §6, §8 leakage). |
+| **t3-r3 exempt** | Unrelated research and scoring (the candidate is frozen and zero-parameter, prereg §9); outcome-blind checks (stage vectors stored, artifact hash, coverage, fallback reasons, METAR freshness, countability). **MG-1 overlap allowed** (DL 2026-10-15): both shadow stages may run on the same dates; neither modifies the other. |
+| **t3-r3 look** | One look, on the second local day after the 45th countable date's settlement is final (prereg §6). |
+
 ### OPERATOR DECISION 2026-08-04 — re-base the reservation to the retrain
 
 **Decided by the operator on 2026-08-04, with reasons recorded here as this file requires.**

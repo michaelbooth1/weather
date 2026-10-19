@@ -189,6 +189,8 @@ For the EDGE-1 schedule t = 20/45 = 0.4444, β(t) = 0.05456:
   measured null. Bars: E1 — MDE80 on R greater than 0.05 (a 5% Brier gain over market; the same 5% scale as the EF §1d bar and the harness
   `LEAD_GAP_SHARE`) [PROPOSED; owner may set another]; E2 — MDE80 on D greater than 5% of market Brier (the
   GO (b) materiality line).
+- First H3 numbers (H3 = harness v3, `claude/harness-v3-20261019` @ `74a85c7f6e48c929f1a16a9fdb97e8800c998fde`, `docs/research/harness-v3-2026-10-19.md` ("H3 on MG-1's own development variance components")): power 0.32 / 0.40 / 0.43 at 20 / 45 / 90 forward dates, MDE80 0.0097 / 0.0085 /
+  0.0079, TESTABLE against a 0.0133 bar. MG-1 development variance (dates <= 2026-09-29), half effect −0.0050 Brier at 00-16, bar 0.0133; the market component holds power near 40% at any season length (EF §10j). **Calibration caveat:** H3 over-predicted power by 2-5 points in the high-power regime (its injected-skill control); a mid-power calibration control is being added by Wed 10-21. These are MG-1-variance proxies; per-arm H3 runs on the frozen A0/A1/A2 hashes are still required before D0 (M4.4).
 - Any statement such as "NO-GO is likely within ~20 dates" is **INFERENCE** until H3 shows it:
   **`<SLOT: H3 projected probability of futility at n = 20, per hypothesis>`**.
 
@@ -275,6 +277,15 @@ rescued by amendment on the same dates.
 - **Leakage:** any outcome, market price or score on a window date read before its look, by anyone, including
   descriptive reads the owner has refused (DL 2026-10-17).
 - **Label source:** any label not from the settlement ledger.
+
+# Part C. Prereg-only candidates (named; no instrument, no alpha, no date yet)
+
+A candidate listed here may be scored on dates >= 2026-09-30 **only** through its own signed pre-registration built
+from Part A; it is never run as a development read on new dates, and it gets an alpha-ledger row when drafted.
+
+| Candidate | Definition | Why prereg-only | Constraints fixed now |
+| --- | --- | --- | --- |
+| **110g re-fit** | Re-fit the afternoon residual-centering stage's per-context residual shifts against **settlement** (ledger labels), on the post-2026-06-30 serving pipeline, and score the re-fitted stage on A0. | EF §2 (110g owner decision 2026-09-25): the stage is disabled "pending a separate measurement" and "must never trigger a refit on its own output"; EXHAUSTION_REGISTER L19 and §5 order 16: "whether a re-fitted centering helps the post-10-09 path is unmeasured". | Fit on development dates 2026-07-31..2026-09-29 only, against captured-input replays of the frozen A0 (not the served vectors of record, which carried the pre-10-06 lock-in defect); contexts and shifts frozen into an arm hash; the fit's own training score reported first (EF §5); the W-0004 activation receipt verified before any forward look (register order 16); forward scoring as an E1 arm with A0 as its input-removed twin. |
 
 ## 9. Signature
 

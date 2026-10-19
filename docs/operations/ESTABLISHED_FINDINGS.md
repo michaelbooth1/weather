@@ -3312,7 +3312,10 @@ date clusters, 12 markets). Crossed date x market bootstrap, 2,000 draws. Values
   differs from the settlement bucket on 2 / 239 and 2 / 264 market-days (upper bounds 3.35% / 3.41%); model
   mass below its own captured floor is zero throughout.
 - A captured Atlanta row traced through the canonical selection and imputation path: 27 selected columns
-  per cutoff, no NBM, NWS-grid or HRRR column; removing NBM changes no model input.
+  per cutoff, no NBM, NWS-grid or HRRR column; removing NBM changes no model input. **Correction 2026-10-19:** an NWS
+  product does reach the bands: the NWS hourly point forecast (`nws_hourly`, not the `nws_grid` column) is one vote in the
+  `forecast_high` median (`forecast_ensemble_metrics`, `model_features.py:365-414`); no NBM, NWS-grid or HRRR column
+  does (code check `docs/research/model-edge-lever5-2026-10-19.md` §1, branch `claude/model-edge-codecheck-20261019`).
 - **Caveats, binding:** the NBM read is conditional on guidance being present — fill is 24.6-38.3% of
   snapshots, none for Toronto, almost none after 10:00 local (and those rows score 0.16-0.18; cause
   untraced), and the feature builder writes NBM only when it is valid against the observed floor. Power

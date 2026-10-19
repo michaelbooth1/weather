@@ -89,17 +89,35 @@ then INCONCLUSIVE unless another clause decides it.
 
 §1 requires both branches shown reachable before signing. Status:
 
-- **GO reachable:** `<SLOT: H3 — for each EDGE-1 hypothesis, the probability under the planning alternative of a GO
-  including the falsifiers>`.
-- **NO-GO reachable:** `<SLOT: H3 — probability under R = 1.10 (or the owner's chosen null-side scenario) that every
-  arm's 00-16 sub-block lower bounds exceed 1.05 at 45 dates>`. Workstation note, not a measurement: with 11 market
+- **H3 power (filled 2026-10-19 from H3 = harness v3, `claude/harness-v3-20261019` @ `74a85c7f6e48c929f1a16a9fdb97e8800c998fde`, `docs/research/harness-v3-2026-10-19.md` ("H3 on MG-1's own development variance components")):**
+
+  | Forward dates x 11 markets | MDE80 | Simulated P(GO given effect) | P(GO given null) | Verdict vs bar 0.0133 |
+  | --- | --- | --- | --- | --- |
+  | 20 | 0.0097 | 0.32 | 0.026 | TESTABLE (both branches reachable) |
+  | 45 | 0.0085 | 0.40 | 0.027 | TESTABLE |
+  | 90 | 0.0079 | 0.43 | 0.040 | TESTABLE |
+
+  MG-1 development variance (dates <= 2026-09-29), half effect −0.0050 Brier at 00-16, bar 0.0133; the market component holds power near 40% at any season length (EF §10j). **Calibration caveat:** H3 over-predicted power by 2-5 points in the high-power regime (its injected-skill control); a mid-power calibration control is being added by Wed 10-21. These are MG-1-variance proxies; per-arm H3 runs on the frozen A0/A1/A2 hashes are still required before D0 (M4.4).
+- **GO reachable:** H3 marks the design TESTABLE with both branches reachable at 20 dates (P(GO given effect) 0.32,
+  P(GO given null) 0.026). At the half effect it is underpowered (0.40 at 45 dates).
+- **NO-GO reachable:** H3's TESTABLE verdict covers the GO/no-GO branches of the primary test; the §1 NO-GO clause's
+  sub-block lower-bound test (every 00-16 sub-block above 1.05) was not simulated. Workstation note, not a measurement: with 11 market
   clusters and four sub-blocks per arm, a lower bound above 1.05 in **every** sub-block needs a true ratio well above
   1.05 everywhere; the development served-to-market ratios of 1.43-1.84 per 00-16 sub-block (EF §10q, from stratum, before the repairs) suggest it can be
   reachable for A0, but that is INFERENCE until H3 shows it.
-- **"NO-GO likely within ~20 dates" is INFERENCE** until H3 shows it: `<SLOT: H3 futility probability at n = 20>`.
+- **"NO-GO likely within ~20 dates" remains INFERENCE.** H3 (above) gives power, not the futility-crossing probability
+  at n = 20; that number is still `<SLOT: H3 futility probability at n = 20>`.
 - **Interim cost:** `<SLOT: computed by H3/H7>`. No figure is stated before then.
 
-## 5. Owner decisions
+## 5. Owner questions for Fri 10-23 (one line each; master-agent lifts these verbatim)
+
+- **(a) OD-A6:** Do the snapshot market vectors fall under the 88a panel hold for pre-registered forecast scoring? Default (recommended): not held, so EDGE-1 D0 = 2026-10-25 (held would give D0 = 2026-10-28).
+- **(b) A1 vs t3-r3 no-peek:** EDGE-1 arm A1 contains the signed t3-r3 stage, whose no-peeking rule forbids outcome reads on its holdout before its look; how should A1 be scored? Default (recommended): A1's looks are deferred until after the t3-r3 look.
+- **(c) E3 / OD-G2:** Does maker replay v2's `informed-v0` minus `blind_re1` count as the "model-gated vs blind_re1" arm of GO clause (c)? Default (recommended): it does not count, so E3 is UNTESTABLE for weather in this programme.
+- **(d) NBM-2 window:** NBM-2 reads NBM guidance and so falls in MG-1's reserved family; may it use dates in MG-1's window (2026-10-15..provisional 2026-11-28)? Default (recommended): no, NBM-2 needs its own window unless the owner rules otherwise.
+- **(e) Thresholds:** Accept the crossed falsifier at a one-sided 80% bound, UNTESTABLE at MDE80 > 0.05 on R, and A2 blending A0 (not A1)? Default (recommended): accept all three as drafted.
+
+## 6. Owner decisions
 
 - **OD-G1:** sign §1 as relayed (with any further master-agent paste) and §2-§3.
 - **OD-G2:** whether replay v2's `informed-v0` − `blind_re1` counts as the §1 (c) "model-gated" arm; default: no, E3

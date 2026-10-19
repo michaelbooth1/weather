@@ -178,8 +178,17 @@ spends no CAMPAIGN_LEDGER decision. Rows: [alpha ledger](alpha-ledger-DRAFT-2026
 
 ## 8. Power
 
-- **Power simulator run: `<SLOT: H3 (claude/harness-v3-20261019) run id and output SHA-256>`.**
-- **MDE80 at 45 dates per hypothesis: `<SLOT: H3>`;** UNTESTABLE test per M4.4 applied before D0.
+- **Power simulator:** H3 = harness v3, `claude/harness-v3-20261019` @ `74a85c7f6e48c929f1a16a9fdb97e8800c998fde`, `docs/research/harness-v3-2026-10-19.md` ("H3 on MG-1's own development variance components").
+
+  | Forward dates x 11 markets | MDE80 | Simulated P(GO given effect) | P(GO given null) | Verdict vs bar 0.0133 |
+  | --- | --- | --- | --- | --- |
+  | 20 | 0.0097 | 0.32 | 0.026 | TESTABLE (both branches reachable) |
+  | 45 | 0.0085 | 0.40 | 0.027 | TESTABLE |
+  | 90 | 0.0079 | 0.43 | 0.040 | TESTABLE |
+
+  MG-1 development variance (dates <= 2026-09-29), half effect −0.0050 Brier at 00-16, bar 0.0133; the market component holds power near 40% at any season length (EF §10j). **Calibration caveat:** H3 over-predicted power by 2-5 points in the high-power regime (its injected-skill control); a mid-power calibration control is being added by Wed 10-21. These are MG-1-variance proxies; per-arm H3 runs on the frozen A0/A1/A2 hashes are still required before D0 (M4.4).
+- **MDE80 at 45 dates:** 0.0085 on the MG-1 proxy (TESTABLE vs 0.0133); per-hypothesis MDE80 for H-A0/H-A1/H-A2
+  `<SLOT: H3 per-arm run before D0>`; UNTESTABLE test per M4.4 applied before D0.
 - **Projected futility probability at 20 dates: `<SLOT: H3>`.** Until it exists, "NO-GO is likely within ~20 dates"
   is INFERENCE.
 - **Power cost of the interim: `<SLOT: computed by H3/H7>`.**
