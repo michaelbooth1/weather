@@ -76,3 +76,33 @@ print(h.markdown(result))
 Tests (workstation): run
 `python -m pytest -q -p no:cacheprovider --basetemp <scratch> tools/research/model_parity/test_harness.py`,
 then delete the basetemp.
+
+## HARNESS v3 (2026-10-19, model-edge programme)
+
+`harness.py` is unchanged, so `score()` and its positive control still reproduce under
+`HARNESS_SHA256 = 8db69adc…`. v3 adds modules beside it; `v3_score.harness_v3_sha256()` hashes
+`harness.py`, `__init__.py` and every `v3_*.py` module listed in `v3_score.V3_FILES`. Controls and
+their numbers: [docs/research/harness-v3-2026-10-19.md](../../../docs/research/harness-v3-2026-10-19.md).
+
+- `v3_gate.py` (H1) decides every request by (family, date, purpose). It reads the status paragraph of
+  `docs/operations/reserved-confirmation-window.md` and `forward_alpha_ledger.jsonl` (schema
+  `forward_alpha_ledger/1`; statuses `reserved`, `closed_by_default`, `open`, `spent`; scope `join` or
+  `all`). It fails closed if either source is missing or unparseable. Append rows with
+  `v3_gate.append_row`; never edit earlier rows.
+- `v3_inputs.py` and `v3_outcomes.py` split a layout into outcome-free inputs and outcome files
+  (labels, market prices). Only `v3_outcomes` names, opens or writes the outcome files, and only with a gate
+  `Ticket`. `split_v2_cache` derives a layout from the v2 cache (dates <= 2026-09-29).
+- `v3_dryrun.py` (H2) reports coverage and countability only, and never imports or opens the outcome side.
+- `v3_power.py` (H3) is an outcome-free crossed power/MDE simulator. Its variance components come from
+  a dev stats entry.
+- `v3_sequential.py` (H7) computes non-binding O'Brien-Fleming-type futility boundaries.
+- `v3_score.py` (H4/H5/H6) is the single-shot scorer. Its exit codes: 2 for a hash mismatch, 3 when
+  a sealed result exists, 4 for a planted label, 5 for a gate refusal. E1 is R = Brier_arm/Brier_market
+  per block. E2 is a frozen-weight blend, labelled complementary information, not edge.
+  Every arm is also scored as its input-removed twin. It also writes the label ledger.
+- Arms are single files that declare `NAME`, `FAMILY`, `READS_NBM_GUIDANCE`, `INPUTS` and `build()`
+  (see `v3_arms.py`). `v3_arm_mg1_like.py` and `v3_arm_served.py` are control arms.
+  `v3_arm_mg1_like.py` is not the signed MG-1 vector.
+- `test_harness_v3.py` holds the synthetic unit tests. `test_v3_controls_dev.py` holds the dev
+  controls: it is skipped unless `HARNESS_V3_DEV=1`, and runs only through
+  `scripts\ops\workstation_heavy.ps1 -Kind pytest`.
