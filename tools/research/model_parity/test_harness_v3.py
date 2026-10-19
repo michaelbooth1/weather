@@ -386,3 +386,20 @@ def test_control_only_never_lifts_embargo_closed_dates_or_other_families(tmp_pat
                      status="control_only", scope="all")):
         with pytest.raises(v3_gate.GateError):
             make_gate(tmp_path, extra=[bad])
+
+
+def test_mom_cov_recovers_components_and_nogo_interim_branches():
+    rng = np.random.default_rng(3)
+    d, m = 200, 11
+    x = rng.normal(0, 0.02, (d, 1, 1)) + rng.normal(0, 0.01, (1, m, 1)) + rng.normal(0, 0.03, (d, m, 1))
+    sd, sm, se = v3_power.mom_cov(x)
+    assert sd[0, 0] == pytest.approx(4e-4, rel=0.3) and se[0, 0] == pytest.approx(9e-4, rel=0.1)
+    comps = (np.diag([1e-4] * 3), np.diag([5e-5] * 3), np.diag([1e-4] * 3))
+    hi = v3_power.simulate_nogo([1.3, 1.3], 0.0, comps, 45, 11, sims=400)
+    null = v3_power.simulate_nogo([1.0, 1.0], 0.0, comps, 45, 11, sims=400)
+    assert hi["nogo"] > 0.9 and null["nogo"] == 0.0
+    good = v3_power.simulate_interim(-0.01, tuple(c[:1, :1] for c in comps), 20, 45, 11, 0.2656, sims=400)
+    zero = v3_power.simulate_interim(0.0, tuple(c[:1, :1] for c in comps), 20, 45, 11, 0.2656, sims=400)
+    assert good["p_futility_at_interim"] < zero["p_futility_at_interim"]
+    assert 0 <= good["power_cost"] <= good["p_go_final_ignoring_interim"]
+    assert v3_sequential.boundaries([20 / 45, 1.0])["looks"][0]["futility_z"] == pytest.approx(0.2656, abs=5e-4)

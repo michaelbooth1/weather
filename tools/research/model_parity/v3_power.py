@@ -49,6 +49,23 @@ def components_from_entry(entry, markets=None):
             "var_resid": d * m * r}
 
 
+def components_from_table(table):
+    """Two-way method-of-moments components from a balanced D x M table of cell deltas (2026-10-20).
+
+    var_e = MS_resid, var_a = (MS_date - MS_resid) / M, var_b = (MS_market - MS_resid) / D, each
+    clamped at 0. An alternative to ``components_from_entry`` when the cells themselves are at hand."""
+    x = np.asarray(table, float)
+    d, m = x.shape
+    grand = x.mean()
+    rows, cols = x.mean(axis=1), x.mean(axis=0)
+    ms_d = m * ((rows - grand) ** 2).sum() / (d - 1)
+    ms_m = d * ((cols - grand) ** 2).sum() / (m - 1)
+    ms_e = ((x - rows[:, None] - cols[None, :] + grand) ** 2).sum() / ((d - 1) * (m - 1))
+    return {"dev_estimate": float(grand), "dev_dates": d, "dev_markets": m, "method": "two-way MoM",
+            "var_date": max(0.0, (ms_d - ms_e) / m), "var_market": max(0.0, (ms_m - ms_e) / d),
+            "var_resid": float(ms_e)}
+
+
 def load_components(path, key, markets=None):
     with open(path, "rb") as stream:
         node = json.loads(stream.read().decode("utf-8"))
@@ -104,6 +121,104 @@ def plan(var_date, var_market, var_resid, dates, markets, dev_estimate, effect_f
             "simulated_power_go_given_effect": p_go_alt, "simulated_go_given_null": p_go_null,
             "branches_reachable": reachable, "both_branches_reachable": all(reachable.values()),
             "verdict": verdict, "sims": sims, "seed": seed, "outcome_free": True}
+
+
+# ----------------------------------------------------------------------------- NO-GO clause and interim
+# Added 2026-10-20. Outcome-free: means and (K x K) crossed covariance components are inputs.
+
+Z975 = 1.959963984540054
+
+
+def mom_cov(table):
+    """Two-way MoM covariance components of a balanced (D, M, K) table: (Sigma_date, Sigma_market,
+    Sigma_resid), each projected onto the PSD cone."""
+    x = np.asarray(table, float)
+    d, m, k = x.shape
+    g = x.mean(axis=(0, 1))
+    r = x.mean(axis=1) - g
+    c = x.mean(axis=0) - g
+    e = x - x.mean(axis=1)[:, None, :] - x.mean(axis=0)[None, :, :] + g
+    ms_d = m * np.einsum("di,dj->ij", r, r) / (d - 1)
+    ms_m = d * np.einsum("mi,mj->ij", c, c) / (m - 1)
+    ms_e = np.einsum("dmi,dmj->ij", e, e) / ((d - 1) * (m - 1))
+
+    def psd(a):
+        w, v = np.linalg.eigh((a + a.T) / 2)
+        return (v * np.clip(w, 0, None)) @ v.T
+    return psd((ms_d - ms_e) / m), psd((ms_m - ms_e) / d), psd(ms_e)
+
+
+def _draw(rng, sims, dates, markets, sd, sm, se):
+    k = sd.shape[0]
+    a = rng.multivariate_normal(np.zeros(k), sd, size=(sims, dates))
+    b = rng.multivariate_normal(np.zeros(k), sm, size=(sims, markets))
+    e = rng.multivariate_normal(np.zeros(k), se, size=(sims, dates, markets))
+    return a[:, :, None, :] + b[:, None, :, :] + e
+
+
+def batch_mean_se(x):
+    """Grand mean and two-way MoM crossed SE for x of shape (S, D, M, K)."""
+    s, d, m, k = x.shape
+    g = x.mean(axis=(1, 2))
+    rows, cols = x.mean(axis=2), x.mean(axis=1)
+    ms_d = m * ((rows - g[:, None]) ** 2).sum(axis=1) / (d - 1)
+    ms_m = d * ((cols - g[:, None]) ** 2).sum(axis=1) / (m - 1)
+    resid = x - rows[:, :, None] - cols[:, None] + g[:, None, None]
+    ms_e = (resid ** 2).sum(axis=(1, 2)) / ((d - 1) * (m - 1))
+    return g, np.sqrt(np.maximum(ms_d + ms_m - ms_e, ms_e) / (d * m))
+
+
+def simulate_nogo(r_means, e2_mean, comps, dates, markets, sims=20000, lb_bar=1.05, e2_bar=-0.005,
+                  seed=20261020, chunk=1000):
+    """P(NO-GO) for one arm. Variables 0..K-1 are the 00-16 blocks' R (influence scale, so a
+    variable's simulated mean shifts R); variable K is E2 = Brier_blend / Brier_market - 1.
+
+    NO-GO (verbatim rule): the lower bound of R is above 1.05 in every 00-16 block, AND the E2
+    upper bound is above -0.5% of market Brier."""
+    sd, sm, se = comps
+    rng = np.random.default_rng(seed)
+    r_means = np.asarray(r_means, float)
+    hits = {"clause_R_all_blocks": 0, "clause_E2": 0, "nogo": 0}
+    done = 0
+    while done < sims:
+        n = min(chunk, sims - done)
+        g, s = batch_mean_se(_draw(rng, n, dates, markets, sd, sm, se))
+        lower = r_means[None, :] + g[:, :-1] - Z975 * s[:, :-1]
+        upper_e2 = e2_mean + g[:, -1] + Z975 * s[:, -1]
+        c1 = (lower > lb_bar).all(axis=1)
+        c2 = upper_e2 > e2_bar
+        hits["clause_R_all_blocks"] += int(c1.sum())
+        hits["clause_E2"] += int(c2.sum())
+        hits["nogo"] += int((c1 & c2).sum())
+        done += n
+    return {k: v / sims for k, v in hits.items()} | {"sims": sims, "dates": dates, "markets": markets}
+
+
+def simulate_interim(effect, comps, interim_dates, final_dates, markets, futility_z, sims=20000,
+                     seed=20261020, chunk=1000):
+    """Non-binding futility interim on a univariate crossed statistic whose positive mean is HARM
+    (e.g. arm - served Brier, or R - 1). Z = -mean / SE; futility if Z_interim < futility_z;
+    GO if Z_final > 1.96. Interim = the first ``interim_dates`` dates, same markets."""
+    sd, sm, se = (np.atleast_2d(c) for c in comps)
+    rng = np.random.default_rng(seed)
+    fut = go = go_kept = 0
+    done = 0
+    while done < sims:
+        n = min(chunk, sims - done)
+        x = effect + _draw(rng, n, final_dates, markets, sd, sm, se)
+        gi, si = batch_mean_se(x[:, :interim_dates])
+        gf, sf = batch_mean_se(x)
+        zi, zf = -gi[:, 0] / si[:, 0], -gf[:, 0] / sf[:, 0]
+        f = zi < futility_z
+        gg = zf > Z975
+        fut += int(f.sum())
+        go += int(gg.sum())
+        go_kept += int((gg & ~f).sum())
+        done += n
+    return {"p_futility_at_interim": fut / sims, "p_go_final_ignoring_interim": go / sims,
+            "p_go_final_if_futility_obeyed": go_kept / sims, "power_cost": (go - go_kept) / sims,
+            "sims": sims, "interim_dates": interim_dates, "final_dates": final_dates, "markets": markets,
+            "futility_z": futility_z}
 
 
 def main(argv=None):

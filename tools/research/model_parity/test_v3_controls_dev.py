@@ -124,3 +124,48 @@ def test_v3_development_controls():
     assert abs(record["v2_v3_parity"]["mg1_like_00_16_v2"] - record["v2_v3_parity"]["mg1_like_00_16_v3"]) < 1e-12
     assert abs(record["v2_v3_parity"]["served_over_market_v2"] - record["v2_v3_parity"]["served_over_market_v3"]) < 1e-12
     assert not record["d_single_shot"]["leakage_suspects"]
+
+
+
+def test_v3_power_calibration_dev():
+    """2026-10-20 ruling: H3 calibration at ~0.575 and ~0.40 power, plus control (a) re-run under the
+    revised ledger (06-03..07-30 reserved for Stage-B; control_only row for the fixture)."""
+    from tools.research.model_parity import v3_controls as c, v3_gate, v3_score
+    stamp = datetime.now().strftime("%Y%m%dT%H%M%S") + "_power"
+    out = OUT / stamp
+    out.mkdir(parents=True)
+    gate = v3_gate.default_gate()
+    record = {"stamp": stamp, "HARNESS_V3_SHA256": v3_score.harness_v3_sha256(), "gate": gate.identity(),
+              "git_head": subprocess.run(["git", "-C", str(REPO), "rev-parse", "HEAD"], capture_output=True,
+                                         text=True).stdout.strip()}
+    fixture = subprocess.run(["git", "-C", str(REPO), "show", f"{c.FLOOR_FIXTURE_COMMIT}:{c.FLOOR_FIXTURE_PATH}"],
+                             capture_output=True, check=True).stdout
+    record["a_floor_shift"] = c.floor_shift(fixture, gate)
+    try:
+        gate.require("nbm_guidance_band", ["2026-07-05"], "control", False)
+        record["stage_b_control_refused_for_other_family"] = False
+    except v3_gate.GateRefused:
+        record["stage_b_control_refused_for_other_family"] = True
+    dev = c.Dev(LAYOUT, gate)
+    record["b2_power_calibration"] = c.power_calibration(dev)
+    (out / "power_calibration.json").write_text(json.dumps(record, indent=1, default=float), encoding="utf-8")
+    assert record["a_floor_shift"]["pass"] and record["stage_b_control_refused_for_other_family"]
+    assert all("empirical_power" in d for d in record["b2_power_calibration"]["designs"])
+
+
+
+def test_v3_nogo_reachability_dev():
+    """2026-10-20 ruling: P(NO-GO) at 20/45/90 forward dates under dev / half / null, and the
+    20-of-45-date interim futility crossing and power cost."""
+    from tools.research.model_parity import v3_controls as c, v3_gate, v3_score
+    stamp = datetime.now().strftime("%Y%m%dT%H%M%S") + "_nogo"
+    out = OUT / stamp
+    out.mkdir(parents=True)
+    gate = v3_gate.default_gate()
+    record = {"stamp": stamp, "HARNESS_V3_SHA256": v3_score.harness_v3_sha256(), "gate": gate.identity(),
+              "git_head": subprocess.run(["git", "-C", str(REPO), "rev-parse", "HEAD"], capture_output=True,
+                                         text=True).stdout.strip()}
+    dev = c.Dev(LAYOUT, gate)
+    record["nogo"] = c.nogo_reachability(dev)
+    (out / "nogo.json").write_text(json.dumps(record, indent=1, default=float), encoding="utf-8")
+    assert len(record["nogo"]["nogo"]) == 18 and len(record["nogo"]["interim"]) == 6

@@ -52,6 +52,9 @@ def boundaries(looks, alpha=0.025, beta=0.2):
         j = int(np.searchsorted(cum, target))
         s_b = grid[min(j, len(grid) - 1)]
         b = s_b / math.sqrt(t)
+        if k == 0:   # first look is closed form (2026-10-20): Z1 ~ N(theta sqrt(t), 1)
+            b = float(theta * math.sqrt(t) + norm.ppf(target))
+            s_b = b * math.sqrt(t)
         out.append({"look": k + 1, "information_fraction": t, "kind": "interim_futility_nonbinding",
                     "futility_z": float(b), "beta_spent_increment": float(target),
                     "beta_spent_cumulative": beta_spent(t, beta)})

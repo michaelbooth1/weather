@@ -283,3 +283,188 @@ def summarise_run(payload):
                          "coverage": x["arm_coverage_share"], "market_days": x["market_days"]}
                      for g, x in r["groups"].items() if "E1_R_arm_over_market" in x}
     return out
+
+
+
+# ----------------------------------------------------------------------------- (b2) mid-power calibration
+# Added 2026-10-20 (master-agent ruling): H3 predicted vs empirical power where it matters, ~0.40 and
+# ~0.55-0.60, with tight empirical intervals.
+
+def _wilson(k, n, z=1.959963984540054):
+    p = k / n
+    centre = (p + z * z / (2 * n)) / (1 + z * z / n)
+    half = z * np.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / (1 + z * z / n)
+    return [float(centre - half), float(centre + half)]
+
+
+def _calibrated_cells(dev, target, seed):
+    effect = lambda lam: dev.delta_cells(dev.floored(_inject(dev, lam, np.random.default_rng(seed))))[1].mean()
+    grid = np.linspace(0, 0.5, 21)
+    curve = [effect(x) for x in grid]
+    first = next((i for i, e in enumerate(curve) if e <= target), None)
+    if first is None or first == 0:
+        return None
+    lo, hi = grid[first - 1], grid[first]
+    for _ in range(22):
+        lam = (lo + hi) / 2
+        lo, hi = (lam, hi) if effect(lam) > target else (lo, lam)
+    lam = (lo + hi) / 2
+    idx, cells = dev.delta_cells(dev.floored(_inject(dev, lam, np.random.default_rng(seed))))
+    return lam, idx, cells
+
+
+def _empirical_power(x, d_sub, experiments, seed):
+    rng = np.random.default_rng(seed)
+    go = 0
+    for _ in range(experiments):
+        sub = x[rng.integers(0, x.shape[0], d_sub)][:, rng.integers(0, x.shape[1], x.shape[1])]
+        go += int(sub.mean() + 1.959963984540054 * v3_power.crossed_se(sub) < 0)
+    return go
+
+
+def power_calibration(dev, targets=(0.575, 0.40), effects=(-0.0015, -0.002, -0.0025, -0.003, -0.004, -0.005),
+                      min_dates=8, experiments=4000, sims=20000, seed=20261020):
+    """For each target power choose (injected effect, new dates) from H3's analytic power, then
+    compare H3's simulated prediction (bootstrap-SD components, as H3 ships, and two-way MoM
+    components) with the empirical GO rate of ``experiments`` crossed resamples of the real cells."""
+    from scipy.stats import norm
+    pool = []
+    for eff in effects:
+        got = _calibrated_cells(dev, eff, seed)
+        if got is None:
+            continue
+        lam, idx, cells = got
+        keys = [dev.t.keys[i] for i in idx]
+        table = pd.DataFrame({"date": [k[0] for k in keys], "market": [k[1] for k in keys], "v": cells}).pivot(
+            index="date", columns="market", values="v").dropna()
+        x = table.to_numpy(float)
+        comp = v3_power.components_from_entry(_components(dev, idx, cells))
+        mom = v3_power.components_from_table(x)
+        for d in range(min_dates, x.shape[0] + 1):
+            se = v3_power.analytic_se(comp["var_date"], comp["var_market"], comp["var_resid"], d, x.shape[1])
+            power = float(norm.cdf(abs(cells.mean()) / se - 1.959963984540054))
+            pool.append({"effect": eff, "lam": lam, "dates": d, "analytic": power, "x": x, "comp": comp,
+                         "mom": mom, "estimate": float(cells.mean())})
+    out = {"targets": list(targets), "experiments": experiments, "sims": sims, "min_dates": min_dates,
+           "rule": "GO iff mean + 1.96 * two-way MoM crossed SE < 0 (H3's own rule) in both worlds",
+           "designs": []}
+    for k, target in enumerate(targets):
+        if not pool:
+            out["designs"].append({"target": target, "status": "NO_DESIGN"})
+            continue
+        best = min(pool, key=lambda r: (abs(r["analytic"] - target), -r["dates"]))
+        x, d, m = best["x"], best["dates"], best["x"].shape[1]
+
+        def args(c):
+            return c["var_date"], c["var_market"], c["var_resid"]
+        pred = v3_power.simulate(best["estimate"], *args(best["comp"]), d, m, sims=sims, seed=seed + 10 * k)
+        pred_mom = v3_power.simulate(best["estimate"], *args(best["mom"]), d, m, sims=sims, seed=seed + 10 * k + 1)
+        null = v3_power.simulate(0.0, *args(best["comp"]), d, m, sims=sims, seed=seed + 10 * k + 2)
+        go = _empirical_power(x, d, experiments, seed + 10 * k + 3)
+        emp = go / experiments
+        se_diff = float(np.sqrt(emp * (1 - emp) / experiments + pred * (1 - pred) / sims))
+        se_diff_mom = float(np.sqrt(emp * (1 - emp) / experiments + pred_mom * (1 - pred_mom) / sims))
+        out["designs"].append({
+            "target": target, "injected_effect": best["effect"], "realised_estimate": best["estimate"],
+            "lambda": best["lam"], "dates": d, "markets": m, "balanced_dates_available": int(x.shape[0]),
+            "components_bootstrap_sd": {kk: best["comp"][kk] for kk in ("var_date", "var_market", "var_resid")},
+            "components_mom": {kk: best["mom"][kk] for kk in ("var_date", "var_market", "var_resid")},
+            "h3_analytic_power": best["analytic"], "h3_predicted_power": pred, "h3_go_given_null": null,
+            "h3_mom_predicted_power": pred_mom,
+            "empirical_power": emp, "empirical_ci95_wilson": _wilson(go, experiments), "empirical_go": go,
+            "bias_h3_minus_empirical": pred - emp,
+            "bias_ci95": [pred - emp - 1.96 * se_diff, pred - emp + 1.96 * se_diff],
+            "bias_mom_minus_empirical": pred_mom - emp,
+            "bias_mom_ci95": [pred_mom - emp - 1.96 * se_diff_mom, pred_mom - emp + 1.96 * se_diff_mom]})
+    return out
+
+
+
+# ----------------------------------------------------------------------------- NO-GO reachability (2026-10-20)
+
+NOGO_BLOCKS = ("00-05", "06-09", "10-12", "13-16")
+
+
+def _arm_vector(dev, arm_file):
+    from tools.research.model_parity import v3_arms
+    arm = v3_arms.load_arm(HERE / arm_file)
+    return dev.t.candidate_vector(v3_arms.build(arm, dev.snaps, dev.bands))[0], arm.CODE_SHA256
+
+
+def _block_table(dev, p, e2_weight):
+    """Balanced (D, M, K+1) influence table: K 00-16 blocks' R plus E2 (00-16 group)."""
+    t = dev.t
+    arm = t.snapshot_brier(p, dev.y)
+    mkt = t.snapshot_brier(dev.pm, dev.y)
+    blend = t.snapshot_brier(e2_weight * p + (1 - e2_weight) * dev.pm, dev.y)
+    frames = []
+    for name in NOGO_BLOCKS + ("E2",):
+        mask = t.group_mask("00-16" if name == "E2" else name)
+        idx, a = t.cells(blend if name == "E2" else arm, mask)
+        _, m = t.cells(mkt, mask)
+        frames.append(pd.DataFrame({"key": idx, f"a_{name}": a, f"m_{name}": m}).set_index("key"))
+    cells = pd.concat(frames, axis=1, join="inner")
+    cells["date"] = [t.keys[i][0] for i in cells.index]
+    cells["market"] = [t.keys[i][1] for i in cells.index]
+    full = cells.groupby("date").market.transform("size") == cells.market.nunique()
+    cells = cells[full]
+    names = NOGO_BLOCKS + ("E2",)
+    ratio = {n: float(cells[f"a_{n}"].sum() / cells[f"m_{n}"].sum()) for n in names}
+    for n in names:
+        cells[f"z_{n}"] = (cells[f"a_{n}"] - ratio[n] * cells[f"m_{n}"]) / cells[f"m_{n}"].mean()
+    dates, markets = sorted(cells.date.unique()), sorted(cells.market.unique())
+    cube = np.stack([cells.pivot(index="date", columns="market", values=f"z_{n}").loc[dates, markets].to_numpy()
+                     for n in names], axis=-1)
+    return ratio, cube
+
+
+def nogo_reachability(dev, forward=(20, 45, 90), sims=20000, interim=20, final=45, futility_z=0.2656,
+                      seed=20261020):
+    pm1, sha_mg1 = _arm_vector(dev, "v3_arm_mg1_like.py")
+    psv, _ = _arm_vector(dev, "v3_arm_served.py")
+    dates = sorted(dev.snaps.date.astype(str).unique())
+    w = v3_score.fit_blend_weights(dev.t, pm1, dev.y, dev.pm, dates)["00-16"]
+    ratio, cube = _block_table(dev, pm1, w)
+    _, cube_served = _block_table(dev, psv, w)
+    comps = {"mg1_like": v3_power.mom_cov(cube), "served": v3_power.mom_cov(cube_served)}
+    r_dev = np.array([ratio[b] for b in NOGO_BLOCKS])
+    e2_dev = ratio["E2"] - 1.0
+    scen = {"dev_observed": (r_dev, e2_dev), "half_effect": (1 + (r_dev - 1) / 2, e2_dev / 2),
+            "null_R_eq_1": (np.ones(len(NOGO_BLOCKS)), 0.0)}
+    out = {"arm_code_sha256": sha_mg1, "e2_weight_00_16_fit_on_dev": w, "dev_R": dict(zip(NOGO_BLOCKS, r_dev.tolist())),
+           "dev_E2_minus_1": e2_dev, "balanced_dates": int(cube.shape[0]), "markets": int(cube.shape[1]),
+           "components_diag": {k: {"date": np.diag(c[0]).tolist(), "market": np.diag(c[1]).tolist(),
+                                   "resid": np.diag(c[2]).tolist()} for k, c in comps.items()},
+           "rule": "NO-GO: lower 95% bound of R > 1.05 in every 00-16 block AND E2 upper bound > -0.5% of market Brier",
+           "half_effect_definition": "R = 1 + (R_dev - 1) / 2 per block; E2 halved",
+           "nogo": []}
+    for cname, cc in comps.items():
+        for sname, (rm, em) in scen.items():
+            for n in forward:
+                r = v3_power.simulate_nogo(rm, em, cc, n, cube.shape[1], sims=sims, seed=seed + n)
+                out["nogo"].append({"components": cname, "scenario": sname, **r})
+    # interim futility (H7 boundary at t = 20/45) on two statistics
+    idx, delta = dev.delta_cells(pm1)
+    keys = [dev.t.keys[i] for i in idx]
+    dtab = pd.DataFrame({"date": [k[0] for k in keys], "market": [k[1] for k in keys], "v": delta}).pivot(
+        index="date", columns="market", values="v").dropna().to_numpy()[:, :, None]
+    t = dev.t
+    mask = t.group_mask("00-16")
+    i1, a = t.cells(t.snapshot_brier(pm1, dev.y), mask)
+    _, m = t.cells(t.snapshot_brier(dev.pm, dev.y), mask)
+    r16 = float(a.sum() / m.sum())
+    z16 = (a - r16 * m) / m.mean()
+    k16 = [t.keys[i] for i in i1]
+    rtab = pd.DataFrame({"date": [k[0] for k in k16], "market": [k[1] for k in k16], "v": z16}).pivot(
+        index="date", columns="market", values="v").dropna().to_numpy()[:, :, None]
+    stats = {"arm_minus_served_00_16": (float(delta.mean()), v3_power.mom_cov(dtab)),
+             "R_minus_1_00_16": (r16 - 1.0, v3_power.mom_cov(rtab))}
+    from tools.research.model_parity import v3_sequential
+    out["h7_boundary_check"] = v3_sequential.boundaries([interim / final, 1.0])["looks"][0]
+    out["interim"] = []
+    for sname, (dev_eff, cc) in stats.items():
+        for label, eff in (("dev_observed", dev_eff), ("half_effect", dev_eff / 2), ("null", 0.0)):
+            r = v3_power.simulate_interim(eff, cc, interim, final, dtab.shape[1], futility_z, sims=sims,
+                                          seed=seed + 7)
+            out["interim"].append({"statistic": sname, "scenario": label, "effect": eff, **r})
+    return out
