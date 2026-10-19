@@ -169,16 +169,30 @@ stage is not closed by the outcome-blind test; scoring it needs a registered loo
 
 ### 3.4 Host command (for the production agent; read-only, closed dates)
 
+Master-agent review 2026-10-19: SAFE-WITH-CHANGES; the changes are in `stage_replay.py` (required
+`--data-root`, fail-closed `folder_error` rows when the climatology / bucket-transition prior is empty or
+the served HGB pickle does not load, base-run errors as rows, both outputs refused inside `data/`,
+`--market`, `--max-folders`, `--budget-minutes`, resumable append-only `--out` with a header check,
+one `TIMING` line per folder, incremental `--summary-out`, `--config-root` with the effective registry
+path and the sha256 of `markets.json` and `locations.json` recorded in the summary).
+
+Throughput on the workstation (synthetic Atlanta folder, real HGB, 9 runs per snapshot): 7 snapshots in
+8.4 s, about 1.2 s per snapshot. At ~11k snapshots per market that is roughly 3.5-4 h per market, so run
+one market per admitted window and resume.
+
 ```powershell
-# capture host, 00:30-09:00, under the workload lease; out file outside data\
-.\venv\Scripts\python.exe -m tools.research.model_edge_lever5.run replay `
-  --snapshots-root data\snapshots --out C:\tmp\lever5\replay.jsonl --summary-out C:\tmp\lever5\summary.json
+# capture host, 00:30-09:00, under the workload lease; serial; from a worktree of this branch with
+# `git lfs checkout artifacts/models/hgb` done (artifacts resolve from the code checkout)
+$env:PYTHONPATH = '<worktree>\src;<worktree>'
+<venv>\Scripts\python.exe -m tools.research.model_edge_lever5.run replay `
+  --market toronto --data-root <host repo>\data --config-root <host repo>\config `
+  --budget-minutes 230 --out C:	mp\lever5eplay-toronto.jsonl `
+  --summary-out C:	mp\lever5\summary-toronto.json
 ```
 
-It needs this branch's `tools/research/model_edge_lever5/` on the host (roll-free: `tools/`, tests, one
-`.ps1`, one Codex hook allowlist line). The summary is per variant per hour block: snapshots, changed
-fraction, mean/max TV, mean/max bucket change. Expected: `nbm_removed`, `nbm_perturbed`,
-`intraday_tail_repointed`, `metar_live_signal_repointed` exactly 0 everywhere.
+Re-running the same command resumes (folders with a `folder_done` row are skipped). Expected:
+`nbm_removed`, `nbm_perturbed`, `intraday_tail_repointed`, `metar_live_signal_repointed` exactly 0
+everywhere; any `folder_error` means the base would not have been the served vector for that folder.
 
 ## 4. What "110g re-fit" is
 
