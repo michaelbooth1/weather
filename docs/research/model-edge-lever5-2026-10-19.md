@@ -36,7 +36,7 @@ observation floor and consumes no guidance.
 ### 1.2 One served instance end to end (Atlanta, US morning, captured feature vector)
 
 The concrete instance is an Atlanta snapshot from the 111h extract (identifiers and captured feature
-values only; see section 3.1 for the row). Its captured `feature_vector` carries NBM v1 values
+values only; see section 3.2 for the row). Its captured `feature_vector` carries NBM v1 values
 (`nbm_prob_tmax_p10/p50/p90/mean`), because the live feature builder writes them. Path through the code:
 
 1. Sources: `model_sources.py:208,226-228` adds `nbm_probabilistic_tmax` to every US market's sources;
@@ -124,11 +124,48 @@ instead:
   swarm cache allows (explicit column list; no `winner`, `settlement_*`, `floor*`, `bands.parquet` or
   price column is decoded).
 
-CENSUS_PLACEHOLDER
+### 3.2 Census results (111h swarm cache, 110,807 snapshots, 626 market-days, 11 US markets, targets 08-01..09-29)
+
+Run: `workstation_heavy.ps1 -Kind weather_heavy -Queue` (lease ticket 1), code at `1a711fa12`, climatology
+read from the workstation's prior-year `data/wunderground/<icao>/daily` copy (the serving cache drops every
+row of the target year, so nothing dated 2026 enters). Output JSON sha256
+`261a4ff17ace53e060231538af603317dee55a9361a8c8f2e94684fb5f4deabe` (workstation scratch, not committed).
+Columns decoded: identifiers, local/cutoff hour, `model_version`, `high_so_far`,
+`guidance_physical_floor`, `forecast_high`, `nbm_prob_tmax_{p10,p50,p90,mean,physical_valid_flag}`.
+
+- **Task 4 coverage:** 36,498 of 110,807 served snapshots (32.9%) carried NBM v1 values in the captured
+  feature vector (per market 26.9-39.2%); every row was served as `v0.5.10 HGBC`. Concrete instance:
+  `atlanta|20260903T080212918889-0400` (target 2026-09-03, 08:02 local, cutoff 8):
+  `nbm_prob_tmax_p10/p50/p90 = 93/95/97 °F`, `mean 95`, valid flag 1, `high_so_far 78.08`,
+  `guidance_physical_floor 82.94`, `forecast_high 96.425`. By section 1.2 step 3 the HGB saw none of the
+  NBM values; the band vector is a function of the 27 columns plus observation/forecast post-processing.
+- **110g centering, re-enabled as fitted:** every one of the 18,548 snapshots at local hour 15-18
+  (16.7% of all snapshots) selects a `market=<m>|hour=<h>` context with a non-zero shift, so 100% of
+  in-window vectors change (lower bound; the disagreement smoothing term is extra). Stage-level |shift|
+  (an upper bound on the stage's TV on integer buckets): mean 0.49, median 0.39, p90 1.00, max 1.31 °F.
+- **Bucket transition, re-pointed on the station high at the cutoff:** the serving code's own sample
+  reaches the 20-day minimum on 14,660 of 110,077 snapshots (13.3%), blend weight 0.012-0.0588 (mean
+  0.031 when active), so stage-level TV <= 0.0588. Changed share by market: Miami 57%, Houston 35%,
+  San Francisco 15%, Austin 13%, Los Angeles 11%, Atlanta 7%, others 1-3%. Sample size median 10, max 49.
 
 ### 3.3 Per-stage result
 
-PERSTAGE_PLACEHOLDER
+Final-vector numbers (max/mean band change, fraction of snapshots changed) need the host replay of
+section 3.4; the stage-level numbers above bound one stage, not the vector after the later floors,
+lock-ins and calibration temperature.
+
+| Stage | Change tested | Result | Status |
+| --- | --- | --- | --- |
+| 10 Intraday tail | give it the station bucket | cannot act: `intraday` is `None` on the feature path for all 12 markets (ml gate); synthetic replay TV 0 | **CLOSED** (code; host replay re-confirms) |
+| 11 Learned METAR live signal | give it the station high | the feature-path signal list never carries it; synthetic TV 0 | **CLOSED** (code; host replay re-confirms) |
+| 12 WU-floor residual | read the station high | acts only when live support exceeds the anchor, which is the max of the same rows; synthetic TV 0 | expected inert; **open until the host replay** |
+| 13 Trusted current max (Miami floor + live-signal member) | validate METAR max-since-07:00 against the station high | changes vectors: synthetic Atlanta TV up to 0.10 (08-18 h) | **changes the vector; open**, magnitude by host replay, then a scored look |
+| 9 Bucket transition | re-point on the station high at the cutoff | changes 13.3% of dev snapshots, stage TV <= 0.0588 | **changes the vector; open** |
+| 110g centering | re-enable as fitted | changes 100% of 15-18 h snapshots, stage |shift| mean 0.49, max 1.31 °F | **changes the vector; open**; a re-fit is label-defined (section 4) |
+| Task 4 (NBM) | remove / +10 °F | synthetic TV 0 at every hour; host replay variants `nbm_removed`, `nbm_perturbed` | **confirmed: NBM does not reach the bands** |
+
+Nothing here is evidence of benefit or harm: no outcome was read. "Changes the vector" only means the
+stage is not closed by the outcome-blind test; scoring it needs a registered look on permitted dates.
 
 ### 3.4 Host command (for the production agent; read-only, closed dates)
 
@@ -147,7 +184,7 @@ fraction, mean/max TV, mean/max bucket change. Expected: `nbm_removed`, `nbm_per
 
 Handoff `docs/roadmap/workstation-handoff-2026-09-110g-disable-afternoon-centering.md` and report
 `docs/roadmap/agent-report-2026-09-110g-disable-afternoon-centering.md`: the owner switched the June
-in-sample afternoon (15-18 h) residual-centering artifact off on 2026-09-25 (active since 09-28), "pending a separate
+in-sample afternoon (15-18 h) residual-centering artifact off on 2026-09-25 (disabled in serving since 09-28), "pending a separate
 measurement" (EF §2); EXHAUSTION_REGISTER L19 / order 16 asks for a re-fitted centering. A re-fit is a
 fit of per-context mean residuals against settlement, so it cannot be specified, let alone closed,
 outcome-blind: any non-zero fitted shift changes every 15-18 h vector in its context. Section 3 measures
