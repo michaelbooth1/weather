@@ -13,7 +13,7 @@ place on the A1 list for a pre-registration on new dates.
 Branch `claude/model-edge-screens-20261019`, created off the HARNESS v3 tip `74a85c7f6e48c929f1a16a9fdb97e8800c998fde`
 (not master) so that `v3_*.py` is available. HARNESS v3 design and controls:
 [harness-v3-2026-10-19.md](harness-v3-2026-10-19.md). Lever 5 (serving-stage re-trace):
-[model-edge-lever5-2026-10-19.md](model-edge-lever5-2026-10-19.md) on `claude/model-edge-codecheck-20261019`.
+`docs/research/model-edge-lever5-2026-10-19.md` on `claude/model-edge-codecheck-20261019` @ `4743a7048dc00b3a4bda2b8a3a85817ea16d0109` (not on this branch).
 
 ## 1. Boundaries and how the screens ran
 
@@ -146,6 +146,151 @@ AIGFS/GraphCast (inside the `open_meteo_global_models` vote), S13 GEM/HRDPS (Tor
 NAM (US multimodel feed). EF §10q's "no external free source adds information" covers the sources the swarm
 *acquired*, not these. None of their per-source values is in the workstation's dev table (they sit in the host's
 captured payloads), so they cannot be screened here without a host extract; no download was made.
+
+## 6. Scoring run and controls
+
+Run `score_20261019T123125` through the heavy wrapper at code `efcd93dadc9d91957d51ffe42fe07cc874b32dcd` (the
+declaring commit; `check_declared` passed, doc sha256 at that commit `a837040d…`). `HARNESS_V3_SHA256`
+`b1e8fb167e3e4a331d3dad12e8ba8144a4f252ca9ca257e81d1a7403e818fd48` (unchanged from the harness record). Sealed
+single-shot pass: prereg sha256 `955d5643f8e0576c52b5194d063a8f2badc44589a196e84a3021a5aca999ac39`, result
+`C:\swarm\out\mescr\score_20261019T123125\sealed\955d5643f8e0576c.result.json`, sha256
+`b83ac660910d0ff395ebf2ac21317ace9306ca20f8639835bd45327520820be1`, read-only, verified; label ledger written; **no
+leakage suspects**; planted-label screen passed. Screen output `screens.json` sha256
+`af95b8db8cd7666114fe3f0cdd6b211b426fcfddf28ff16f227c08f27ac3de21` (workstation, not committed). Scored: 57 dates
+2026-08-01..09-29, 626 market-days, 11 markets.
+
+Controls inside the run (all reproduce, so the screen machinery matches HARNESS v3 / swarm v2):
+- MG-1-like arm, 00-16 − served = **−0.0100457 [−0.01693, −0.00406]**, 10/11: the harness record's −0.0100457.
+- Tail lens on this table: **6.0749% of band rows carry 70.376% of the positive excess** (74,046 of 1,218,877
+  rows): EF §10q's 6.075% / 70.38%.
+- Every input-removed twin of an input-reading arm scores exactly 0.0 − served in every block (it falls back).
+
+## 7. Results per candidate (development; equal market-day cells, crossed W 95% intervals)
+
+### C-L7-V2Q (lever 7, captured NBM v2 quantiles)
+
+| Block | candidate − served | markets < 0 | candidate − market |
+| --- | --- | --- | --- |
+| 00-05 | −0.01282 [−0.02137, −0.00579] | 11/11 | +0.01138 |
+| 06-09 | −0.01356 [−0.02171, −0.00660] | 11/11 | +0.01279 |
+| 10-12 | −0.00906 [−0.01518, −0.00333] | 10/11 | +0.01488 |
+| 13-16 | +0.00081 [−0.00622, +0.00707] | 2/11 | +0.02508 |
+| 17-23 | +0.00794 [−0.00553, +0.01827] | 2/11 | +0.03901 |
+| **00-16 (declared)** | **−0.00906 [−0.01606, −0.00322]** | **11/11** | +0.01556 |
+
+Twin −served 0.0 (share 0). **Kill rule: SURVIVES.** Declared secondary: paired increment over the MG-1-like arm,
+00-16 **+0.00099 [−0.00094, +0.00292], 4/11 negative** (06-09 +0.00169; 13-16 −0.00180 [−0.00446, +0.00096]; 17-23
+−0.00778 [−0.01024, −0.00539], the evening leg where MG-1 itself harms). The quantile shape adds nothing over the
+mean/stddev read in the declared block, so by the declared rule it is **not an A1 candidate**: it is the MG-1 family
+(S1, signed `b044e0f1`), not a new source. H3 (for the record): 20 dates MDE80 0.0099, power 0.27; 45 dates MDE80
+0.0084, power 0.35; TESTABLE.
+
+### C-L13-BT (lever-5 open stage 9, bucket transition, stage-level approximation)
+
+| Block | candidate − served | markets < 0 | coverage |
+| --- | --- | --- | --- |
+| 00-05 | −0.000087 [−0.00020, −0.00001] | 8/11 | 0.169 |
+| 06-09 | −0.000083 [−0.00020, −0.00001] | 8/11 | 0.169 |
+| 10-12 | −0.000068 [−0.00019, −0.00001] | 8/11 | 0.142 |
+| 13-16 | −0.000040 [−0.00009, −0.00001] | 9/11 | 0.104 |
+| 17-23 | −0.000088 [−0.00021, −0.00002] | 8/11 | 0.092 |
+| **00-16 (declared)** | **−0.000073 [−0.00016, −0.00001]** | **8/11** | 0.149 |
+
+Twin 0.0 (share 0). **Kill rule: SURVIVES** — but the effect is tiny: about **0.3%** of the 00-16 served − market
+gap on this table (+0.0246), against a 5% bar of about −0.0012 and EF §1d's 3.2% floor. It is a stage-level
+approximation on the final served vector; serving blends earlier, before the floors, lock-ins and calibration, so
+the real final-vector effect needs lever 5's host replay. H3 at one half of the effect (−0.000037): 20 dates MDE80
+0.000107, power **0.19** (simulated; analytic 0.16), GO given null 0.030; 45 dates MDE80 0.000100, power **0.20**;
+**TESTABLE by the v3 rule** (MDE80 <= 0.0133) **but underpowered**: the market component (var_market 1.24e-8 vs
+var_date 6.6e-9) caps power near 20% at any season length.
+
+### Lever 8: the E2 frozen blend — CLOSED
+
+Weights per block on the 0.00..1.00 grid, fit on dev dates only (`v3_score.fit_blend_weights`):
+
+| Blend | full-dev weights (00-05/06-09/10-12/13-16/17-23/00-16) | fold A fit | fold B fit |
+| --- | --- | --- | --- |
+| C-L8-E2S served + market | 0.00 everywhere | 0.00 everywhere | 0.00 everywhere |
+| C-L8-E2M MG-1-like + market | 0.01 / 0.02 / 0.02 / 0.00 / 0.00 / **0.00** | 0.02 / 0.00 / 0.02 / 0 / 0 / 0 | 0.01 / 0.04 / 0.02 / 0 / 0 / 0 |
+
+Out-of-fold blend − market: C-L8-E2S is the market itself in every block (0.0 exactly, R = 1.0 [1.0, 1.0]);
+C-L8-E2M 00-16 0.0 exactly (weight 0), and the only non-zero blocks are 00-05 −0.000004 [−0.00006, +0.00005] (5/11),
+06-09 +0.000011 [−0.00007, +0.00009] (4/11), 10-12 −0.000011 [−0.00009, +0.00008] (4/11); out-of-fold R 0.9989-1.0003,
+every interval containing 1. **Both KILLED** (point >= 0 in 00-16; 0/11 markets). Neither the served model nor the
+MG-1-like read adds complementary information to the market price on these dates, in or out of fold; this
+quantifies the harness controls' "weights 0.00-0.02". **Lever 8 is closed** for the served and MG-1-like arms.
+
+## 8. Lever 13: tail diagnostic (descriptive, development)
+
+Tail (EF §1/§1f lens, this table): 74,046 band rows (6.07%) carry 70.38% of the positive served − market excess.
+Who owns it (share of all tail excess):
+
+- **Band position and direction:** the winner band, under-weighted by served relative to the market, owns 62.2%
+  (above the floor bucket by > 2 °F: 31.6%; the band holding the floor bucket: 26.7%; just above it: 3.3%).
+  Over-weighted losing bands own 37.8%, mostly within 2 °F above the floor (16.5%) or further above (13.4%) or the
+  floor-bucket band (7.2%). Bands below the floor own 0.5% (the 81a mask already removes them). The band holding the
+  floor bucket is in the tail on 23.6% of its rows, bands up to 2 °F above it on 20.4%, bands further above on 4.3%,
+  bands below the floor on 0.1%.
+- **Hours:** 17-23 owns 32.4% (tail rate 7.5%, highest 17-18 h at 8.0-8.4%); 00-05 22.2%, 06-09 16.9%, 10-12 12.1%,
+  13-16 16.3%. These served vectors predate the evening lock-in restoration (PR #191, landed after the table), so most
+  of the 17-23 share is the EF §10e/§10q serving defect, not missing information.
+- **Markets:** Los Angeles owns 18.6% (tail rate 11.1%, the highest), Dallas 13.1%, Chicago 10.6%, Austin 9.5%; the
+  other seven 5.1-8.4% each.
+- **Strata:** before 08-23 39.6% (rate 6.9%), from 08-23 60.4% (rate 5.6%).
+- **MG-1 coverage:** 99.2% of tail excess sits on snapshots the MG-1-like read covers.
+
+Does anything screened here move it? Share of tail excess removed (cell-clustered W interval):
+
+| Arm | 00-16 | 17-23 | all |
+| --- | --- | --- | --- |
+| MG-1-like (context) | 69.3% [61.8, 75.9] | 33.3% [10.2, 50.3] | 57.7% [46.5, 66.6] |
+| C-L7-V2Q | 69.0% [61.5, 75.8] | 43.9% [22.8, 58.6] | 60.8% [50.8, 69.0] |
+| C-L13-BT | 0.22% [0.05, 0.48] | 0.28% [0.05, 0.67] | 0.24% [0.06, 0.51] |
+| served with the 81a floor only | 0.2% [−0.6, 1.2] | 0.7% [−1.5, 4.1] | 0.4% [−0.8, 2.0] |
+
+The NBM v2 reads remove most of the 00-16 tail excess on tail rows, but EF §10q already says the tail sign cannot rank
+candidates here (98 of 99 v2 candidate vectors improve the tail; the non-tail cost separates them), and their net
+00-16 effect is the −0.009/−0.010 above. The bucket-transition stage does not move the tail. Trusted current max
+(lever-5 stage 13) cannot be screened here: `trusted_current_max` is null on every row and the restored input (METAR
+max since 07:00 validated against the station high) is not in the table; its floor part is the registered METAR
+fast-floor rule t17-r1 and the remaining-rise family (t3-r3), which are not re-tested. Its final-vector effect needs
+the lever-5 host replay.
+
+## 9. Kill / survive summary
+
+| Candidate | Lever | 00-16 estimate | Markets | Twin share | Verdict | H3 (20 / 45 dates, half effect) |
+| --- | --- | --- | --- | --- | --- | --- |
+| C-L7-V2Q | 7 | −0.00906 [−0.01606, −0.00322] | 11/11 | 0 | SURVIVES the kill rule; **not A1** (increment over MG-1 +0.00099 [−0.00094, +0.00292], 4/11) | 0.27 / 0.35, TESTABLE |
+| C-L13-BT | 13 / lever 5 stage 9 | −0.000073 [−0.00016, −0.00001] | 8/11 | 0 | **SURVIVES** (tiny; stage-level approximation) | 0.19 / 0.20, TESTABLE but underpowered |
+| C-L8-E2S | 8 | 0.0 (weight 0) | 0/11 | — | **KILLED** | — |
+| C-L8-E2M | 8 | 0.0 (weight 0) | 0/11 | 0 | **KILLED** | — |
+| Lever 6 (Toronto GEM/HRDPS, ensemble members) | 6 | — | — | — | **NOT SCREENABLE here** (input only on the capture host) | — |
+| Lever 7 captured-not-scored sources S9, S11, S13, S26, S29, S32 | 7 | — | — | — | **NOT SCREENABLE here** (per-source values only in host payloads) | — |
+
+## 10. A1 survivor list (for the EDGE-1 annex; deadline Thu 2026-10-22 12:00 local)
+
+One candidate. It is frozen by hash as screened; any change makes it a different candidate.
+
+**A1-1 = C-L13-BT, bucket-transition stage re-pointed on the observed station high at the cutoff.**
+
+| Field | Frozen value |
+| --- | --- |
+| Arm file | `tools/research/model_parity/me_arm_l13_bt.py`, sha256 `9bcfdd258981e7e0b265abcc6d18757b034948bf8362dc75b6e5e7dbe039f41c` (branch `claude/model-edge-screens-20261019`, first at `169512b4b360ce570216a2b593200cef7297bf60`) |
+| Definition | p = (1 − w)·p_served + w·P_prior(band) where the prior and w are serving's own `bucket_transition_model` / `bucket_transition_blend_weight` with the observed bucket = round_half_up(captured `high_so_far`) and cutoff = captured `cutoff_hour`; `BUCKET_TRANSITION_MIN_SAMPLE` 20, `BUCKET_TRANSITION_BLEND_MAX` 0.12; rows with w = 0 fall back to served; then the 81a floor mask |
+| Serving code read (sha256 at `74a85c7f6`) | `model_features.py` `16df3a3d…c32e5`; `model_distribution_signals.py` `4f3952b2…51dd`; `model_distribution_constants.py` `4c99ce64…4048`; `model_climatology.py` `2d69cb04…f43d`; `model_distribution.py` `a8d36e46…7251` |
+| Climatology input | prior-year rows only (the serving cache drops the target year) from `data\wunderground\<icao>\` on the workstation; `daily_summary.csv` sha256: KATL `1f013bb6…`, KAUS `05852251…`, KBKF `52ee5938…`, KDAL `db631cf6…`, KHOU `2ba8271c…`, KLAX `7e05d5d8…`, KLGA `90e89fb6…`, KMIA `a3d2c6d9…`, KORD `1eff2c8a…`, KSEA `c2c5eebc…`, KSFO `5f1560c0…` (the hourly partitions it also reads must be fingerprinted when the prereg is written) |
+| Family / NBM | `serving_stage_bucket_transition`, `READS_NBM_GUIDANCE = False` |
+| Declared block and estimand | 00-16, candidate − served Brier |
+| Development read | −0.000073 [−0.00016, −0.00001], 8/11, twin 0; 13.2% of snapshots active |
+| H3 | power 0.19 (20 dates) / 0.20 (45 dates) at half effect; TESTABLE by the v3 rule, underpowered |
+
+Conditions the annex should carry with A1-1: (1) the lever-5 host replay must give the final-vector form before a
+pre-registration is written, because this screen applies the stage after the later stages; (2) its effect is about
+0.3% of the 00-16 gap, below the 5% bar and EF §1d's 3.2% floor, so a forward read can at best show it is real, not
+that it matters; (3) it is a serving-stage restoration (lever 5), not new information.
+
+Not on A1: C-L7-V2Q (no increment over MG-1, declared rule), both E2 blends (killed), lever 6 and the six
+captured-not-scored lever-7 sources (not screenable on the workstation).
 
 ## Update when
 
