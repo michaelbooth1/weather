@@ -38,11 +38,39 @@
 | **A1** | A0 + the t3-r3 stage `remaining_rise_floor_v1` (artifact sha256 `b727fe1a897f8786afcd89514f0bae4a82d9e03ad951f2d72db9e228dd2afb09`, as signed DL 2026-10-16) + the non-NBM development survivors listed below, composed in the listed order, **frozen as one hash**; shadow only. | E1 | one hash before D0 | A0 (A1 with every added stage removed) |
 | **A2** | The E2 blend (M2): linear pool per block of **A0** and the snapshot market vector, weights w_b fit on 2026-07-31..2026-09-29 only, weight file frozen into the hash. | E2 | weight fit and hash before D0 | the same blend with A0 replaced by A0's twin |
 
-**A1 survivor list — PLACEHOLDER, filled from the development screens by Thu 2026-10-22:**
+**A1 survivor list — filled 2026-10-20 from the development screens.** Source: `claude/model-edge-screens-20261019`
+@ `4d3e25699a8afe3a34d9e979c6aa950b6ca16389`, `docs/research/model-edge-screens-2026-10-19.md` §2 (kill rule declared
+before scoring at `efcd93dadc9d91957d51ffe42fe07cc874b32dcd`), §9 and §10; sealed single-shot pass: prereg sha256
+`955d5643f8e0576c52b5194d063a8f2badc44589a196e84a3021a5aca999ac39`, result sha256
+`b83ac660910d0ff395ebf2ac21317ace9306ca20f8639835bd45327520820be1`. Development dates <= 2026-09-29 only.
 
-| # | Survivor id | Registry / screen output hash | Reads NBM? (must be NO) | Order in A1 |
-| --- | --- | --- | --- | --- |
-| 1 | `<PLACEHOLDER>` | `<sha256>` | NO | `<n>` |
+| # | Survivor id | Arm file and sha256 | Reads NBM? | Order in A1 | Development read (00-16, candidate − served) |
+| --- | --- | --- | --- | --- | --- |
+| A1-1 | **C-L13-BT**: the lever-5 bucket-transition stage re-pointed on the observed station high (bucket = round_half_up(captured `high_so_far`), serving's own prior and blend weight, max 0.12; then the 81a floor mask) | `tools/research/model_parity/me_arm_l13_bt.py`, `9bcfdd258981e7e0b265abcc6d18757b034948bf8362dc75b6e5e7dbe039f41c` (full serving-code and climatology hashes: screens doc §10) | NO (`READS_NBM_GUIDANCE = False`) | after the t3-r3 stage [PROPOSED; fixed with the A1 hash] | −0.000073 [−0.00016, −0.00001], 8/11 markets, input-removed twin 0; active on 13.2% of snapshots |
+
+**A1-1 is negligible.** Its effect is about 0.3% of the 00-16 served-minus-market gap, below the 5% bar and below EF
+§1d's 3.2% floor; power at the half effect is 0.19 / 0.20 at 20 / 45 dates (parametric, and over-optimistic per the
+harness v3 2026-10-20 addendum). It is a serving-stage restoration (lever 5), not new information. It was screened as
+a stage-level approximation **applied to the final served vector**; the lever-5 host replay must give its final-vector
+form before the A1 hash is frozen.
+
+**So A1 = A0 + t3-r3 + A1-1, and A1 differs from A0 essentially by t3-r3 only.** A1 is kept as a separate arm by
+default because t3-r3 is signed and A1 is its composite carrier against the market (its looks deferred per section
+6.3); the owner may instead drop A1-1 from it (OD-E6).
+
+**Screened and not in A1:**
+- **C-L7-V2Q** (captured NBM v2 quantiles): survives the kill rule but adds nothing over MG-1 (+0.00099 [−0.00094,
+  +0.00292], 4/11), and it reads NBM guidance, so it belongs to MG-1's reserved family in any case.
+- **Lever 8, the E2 blends (C-L8-E2S, C-L8-E2M):** killed; the development 00-16 blend weight is **0.00**. Consequence
+  for A2: with the frozen development fit, A2 equals the market exactly at 00-16, so H-A2 cannot show a gain; it is
+  marked UNTESTABLE before D0 under M4.4 unless the owner changes A2's definition (OD-E5), and the NO-GO E2 clause then
+  always holds (GO/NO-GO rule §4).
+
+**Not screened — host extract required (nothing here implies they were tested):**
+- **Lever 6:** Toronto GEM/HRDPS and the captured-but-unscored ensemble members; the input is only on the capture host.
+- **Six captured-not-scored sources:** S9 (GEFS `global_ensemble`), S11 (ECMWF AIFS), S13 (GEM/HRDPS, Toronto), S26
+  (MRMS precipitation), S29 (AIGFS/GraphCast), S32; per-source values exist only in host payloads (screens doc §4-§5,
+  EXHAUSTION_REGISTER order 12).
 
 Rules for the list: a survivor must come from a development screen on dates <= 2026-09-29, read **no NBM station
 guidance** (anything that does belongs to the MG-1 reserved family, reserved-confirmation-window.md), carry zero or
@@ -254,7 +282,8 @@ only if the arm definitions above are unchanged).
 - **OD-E1:** the t3-r3 conflict (section 6.3): (a) default, (b), or (c).
 - **OD-E2:** sign or amend (arms, N 20/45, Holm over H-A0/H-A1/H-A2).
 - **OD-E3:** 00-16 declared block (default) or per-block hypotheses.
-- **OD-E4:** the A1 survivor list as filled on 10-22 (logistics if it meets the section 1 rules).
+- **OD-E4:** the A1 survivor list as filled (A1-1 = C-L13-BT; logistics if it meets the section 1 rules).
+- **OD-E6:** keep A1 as a separate arm (default) or drop A1-1 from it.
 - **OD-E5:** A2 blends A0 (default) or A1.
 
 ## Sources
