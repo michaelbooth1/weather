@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "docs/research/model-edge-2026-10/alpha-ledger.schema.json",
+  "title": "Forward alpha ledger row (DRAFT-UNSIGNED)",
+  "description": "One row per (family, date range, alpha spent or reserved, pre-registration SHA-256). Append-only: a change is a new row whose `supersedes` names the old row_id. Owner: docs/research/model-edge-2026-10/alpha-ledger-DRAFT-2026-10-19.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "row_id", "instrument", "family", "status", "date_rule", "alpha", "alpha_sidedness",
+    "alpha_state", "multiplicity", "prereg_path", "prereg_sha256", "provenance", "recorded_at"
+  ],
+  "properties": {
+    "row_id": {"type": "string", "pattern": "^[A-Z0-9][A-Z0-9-]*$", "description": "Never renumbered or reused."},
+    "instrument": {"type": "string", "description": "Instrument id, e.g. MG-1, EDGE-1/H-A0."},
+    "family": {"type": "string", "pattern": "^[a-z0-9-]+/[a-z0-9-]+$", "description": "Hypothesis family <area>/<family>. A (family, date) cell may be held by one row only."},
+    "status": {"enum": ["SIGNED", "DRAFT", "PROPOSED", "PLACEHOLDER", "SPENT", "VOID", "UNTESTABLE", "CLOSED_UNUSED"]},
+    "date_start": {"type": ["string", "null"], "format": "date", "description": "First local target date, or null when not yet dated."},
+    "date_end": {"type": ["string", "null"], "format": "date", "description": "Last local target date (provisional ends say so in date_rule), or null."},
+    "date_rule": {"type": "string", "description": "The non-outcome rule that fixes the dates, quoted or paraphrased from the owner."},
+    "n_countable": {"type": ["integer", "null"], "minimum": 1},
+    "alpha": {"type": ["number", "null"], "minimum": 0, "maximum": 1, "description": "Family-wise alpha of this row; null for placeholders."},
+    "alpha_sidedness": {"enum": ["one-sided", "two-sided", "n/a"]},
+    "alpha_state": {"enum": ["reserved", "spent", "proposed", "none"]},
+    "multiplicity": {"type": "string", "description": "e.g. single primary; Holm over k; fixed sequence; CAMPAIGN_LEDGER per-decision."},
+    "looks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["look", "rule"],
+        "properties": {
+          "look": {"enum": ["interim", "final", "single"]},
+          "rule": {"type": "string"},
+          "earliest_date": {"type": ["string", "null"], "format": "date"},
+          "spends_alpha": {"type": "boolean"}
+        }
+      }
+    },
+    "prereg_path": {"type": ["string", "null"]},
+    "prereg_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+    "artifact_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+    "provenance": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source", "locator"],
+        "properties": {
+          "source": {"type": "string", "description": "Repository-relative path or a named relay."},
+          "locator": {"type": "string", "description": "Row date, section or line that carries the fact."},
+          "quote": {"type": "string", "description": "Short verbatim fragment, when the fact is a quotation."}
+        }
+      }
+    },
+    "notes": {"type": "string"},
+    "recorded_at": {"type": "string", "format": "date"},
+    "supersedes": {"type": ["string", "null"]}
+  }
+}
