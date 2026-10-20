@@ -54,13 +54,17 @@ with no bound release (``artifacts/releases`` absent), the serving model reads
 no ``locations.json`` field (only ``toronto_model.py:159`` does, under a bound
 release); the market registry reads ``<config-root>/markets.json`` at import,
 and external rows there override built-in specs. The summary records the
-effective registry path and the sha256 of ``markets.json`` and
-``locations.json`` under the config root. The climatology loaders drop every
+effective registry path, the sha256 of ``markets.json`` and
+``locations.json`` under the config root, and the resolved ``weather.__file__``
+and this module's ``__file__`` (which checkout served). The climatology loaders drop every
 row of the target year, so no 2026 value is used.
 
 Output. ``--out`` is an append-only JSONL with a header line (schema, variants);
 re-running with the same ``--out`` resumes: folders with a ``folder_done`` row
-are skipped, a header mismatch is refused. Each folder prints one timing line
+are skipped, a header mismatch is refused. A folder that ends in a
+``folder_error`` gets no ``folder_done``, so a rerun (e.g. after an LFS fix)
+re-attempts it; only rows of a folder's ``folder_done`` attempt are carried
+forward, so no prior row is duplicated. Each folder prints one timing line
 ``TIMING folder=<name> snapshots=<n> seconds=<s> cumulative=<s>`` and rewrites
 ``--summary-out`` (atomic replace) so a killed run leaves a valid partial
 summary. ``--budget-minutes`` stops starting new folders of a market once that
@@ -147,6 +151,8 @@ def root_info():
         "markets_json_sha256": _sha256(config / "markets.json"),
         "locations_json_sha256": _sha256(config / "locations.json"),
         "registry_env_override": os.environ.get(market_registry.MARKET_REGISTRY_ENV),
+        "weather_module_file": str(Path(weather.__file__).resolve()),
+        "stage_replay_file": str(Path(__file__).resolve()),
     }
 
 
@@ -516,9 +522,11 @@ def run(folders, out_path, variants, *, summary_path=None, budget_minutes=None,
                 row.update({"folder": folder.name, "attempt": attempt})
                 handle.write(json.dumps(row, sort_keys=True) + "\n")
             snaps = sum(1 for r in folder_rows if r.get("kind") == "snapshot")
-            handle.write(json.dumps({"kind": "folder_done", "folder": folder.name, "attempt": attempt,
-                                     "market_id": market_id, "snapshots": snaps,
-                                     "seconds": round(seconds, 3)}, sort_keys=True) + "\n")
+            if not error:  # an errored folder stays not-done, so a resume re-attempts it
+                handle.write(json.dumps({"kind": "folder_done", "folder": folder.name,
+                                         "attempt": attempt, "market_id": market_id,
+                                         "snapshots": snaps, "seconds": round(seconds, 3)},
+                                        sort_keys=True) + "\n")
             handle.flush()
             rows.extend(folder_rows)
             status["folders_run"] += 1

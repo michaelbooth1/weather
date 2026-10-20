@@ -190,7 +190,8 @@ $env:PYTHONPATH = '<worktree>\src;<worktree>'
   --summary-out C:\tmp\lever5\summary-toronto.json
 ```
 
-Re-running the same command resumes (folders with a `folder_done` row are skipped). Expected:
+Re-running the same command resumes (folders with a `folder_done` row are skipped; a folder that
+ended in a `folder_error` has no `folder_done` and is re-attempted, e.g. after `git lfs checkout`). Expected:
 `nbm_removed`, `nbm_perturbed`, `intraday_tail_repointed`, `metar_live_signal_repointed` exactly 0
 everywhere; any `folder_error` means the base would not have been the served vector for that folder.
 

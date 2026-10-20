@@ -107,7 +107,7 @@ def test_empty_climatology_fails_closed_per_folder(tmp_path, roots, summary_csv,
     summary = l5.run(l5.select_folders(tmp_path / "snaps"), tmp_path / "out.jsonl",
                      ["nbm_removed"], model_factory=_factory, emit=lambda line: None)
     rows = _rows(tmp_path / "out.jsonl")
-    assert [r["kind"] for r in rows] == ["header", "folder_error", "folder_done"]
+    assert [r["kind"] for r in rows] == ["header", "folder_error"]
     assert summary["folder_errors"] == 1 and summary["snapshots"] == 0
     assert rows[1]["error"].startswith(("missing_climatology_summary", "empty_climatology_cache"))
 
@@ -201,3 +201,45 @@ def test_unloadable_hgb_fails_closed(tmp_path, roots, monkeypatch):
     summary = l5.run(l5.select_folders(tmp_path / "snaps"), tmp_path / "out.jsonl",
                      ["nbm_removed"], model_factory=factory, emit=lambda line: None)
     assert summary["folder_errors"] == 1 and summary["snapshots"] == 0
+
+
+def test_folder_error_is_retried_on_resume_without_duplicating_done_rows(tmp_path, roots, monkeypatch):
+    monkeypatch.setattr(l5, "climatology_error", lambda model: None)
+    broken = {"2026-09-21"}
+    monkeypatch.setattr(l5, "hgb_error", lambda model: (
+        "hgb_artifact_unavailable" if model.target_date.isoformat() in broken else None))
+    snaps, out = tmp_path / "snaps", tmp_path / "out.jsonl"
+    _folder(snaps, 20, (9,))
+    _folder(snaps, 21, (9, 16))
+
+    def run_once():
+        return l5.run(l5.select_folders(snaps), out, ["nbm_removed"], model_factory=_factory,
+                      emit=lambda line: None)
+
+    first = run_once()
+    assert first["folder_errors"] == 1 and first["snapshots"] == 1
+    assert [r["folder"] for r in _rows(out) if r["kind"] == "folder_done"] == [SLUG.format(day=20)]
+    broken.clear()  # e.g. git lfs checkout done
+    second = run_once()
+    assert second["status"]["folders_done_before"] == 1 and second["status"]["folders_run"] == 1
+    assert second["folder_errors"] == 0 and second["snapshots"] == 3
+    rows = _rows(out)
+    keys = [(r["folder"], r["snapshot_id"]) for r in rows if r["kind"] == "snapshot"]
+    assert len(keys) == len(set(keys)) == 3
+    assert sorted(r["folder"] for r in rows if r["kind"] == "folder_done") == [
+        SLUG.format(day=20), SLUG.format(day=21)]
+    third = run_once()
+    assert third["status"]["folders_done_before"] == 2 and third["status"]["folders_run"] == 0
+    assert third["snapshots"] == 3 and third["folder_errors"] == 0
+
+
+def test_root_info_records_serving_checkout_paths(roots):
+    from pathlib import Path
+
+    import weather
+
+    info = l5.root_info()
+    assert info["weather_module_file"] == str(Path(weather.__file__).resolve())
+    assert info["stage_replay_file"] == str(Path(l5.__file__).resolve())
+    assert Path(info["stage_replay_file"]).is_file()
+    assert Path(info["weather_module_file"]).is_absolute()
