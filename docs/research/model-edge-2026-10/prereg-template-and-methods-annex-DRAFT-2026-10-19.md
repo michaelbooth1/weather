@@ -191,9 +191,14 @@ For the EDGE-1 schedule t = 20/45 = 0.4444, β(t) = 0.05456:
   hypothesis, the MDE80 at n_final under M3, from development dates <= 2026-09-29 only.
 - **UNTESTABLE** (pre-declared): a hypothesis whose MDE80 exceeds its bar is marked UNTESTABLE **before D0**; it keeps
   no alpha (it leaves the Holm family, and the family's k drops), and it cannot produce GO or count towards NO-GO as a
-  measured null. Bars: E1 — MDE80 on R greater than 0.05 (a 5% Brier gain over market; the same 5% scale as the EF §1d bar and the harness
-  `LEAD_GAP_SHARE`) [PROPOSED; owner may set another]; E2 — MDE80 on D greater than 5% of market Brier (the
-  GO (b) materiality line).
+  measured null. Bars: E1 — **MDE80 on R greater than 0.05**, i.e. a 5% Brier gain over the **market's own Brier**
+  (about 0.0025 Brier at a 00-16 market Brier near 0.049); the same materiality scale as the E2 GO (b) line
+  [PROPOSED; owner may set another]. **Correction 2026-10-20 (review finding M3):** this is **not** the scale of the
+  EF §1d bar or of harness `LEAD_GAP_SHARE` (`harness.py:57`), which is 5% of the served − market **gap**: about 1.45%
+  of market Brier at 1.29x, i.e. **about 0.015 on R**. That gap-share bar is stated for contrast only; it is stricter
+  (it would mark UNTESTABLE anything the 0.05 bar does, and more). E2 — MDE80 on D greater than 5% of market Brier
+  (the GO (b) materiality line). The MDE80 is computed on the **endpoint's own scale** (R vs market, served-vs-market
+  variance), never by borrowing an arm − served MDE in Brier units.
 - **Power estimator for pre-registration statements:** `v3_power.resampled_power` (crossed resampling of the
   development cells, re-centred and shifted). The parametric H3 power is biased **high by 0.07-0.11 absolute** on real
   noise (harness v3 (H3/H7), `claude/harness-v3-20261019` @ `2f3f3e8e6b542a419204afe802dae4545abc10d7`, `docs/research/harness-v3-2026-10-19.md` and its "Addendum 2026-10-20: master-agent rulings"; `HARNESS_V3_SHA256` at that tip `987e171775c596f6e50ac72b9bd54880399e4fafcc11865cdec0a2375970b4cf` (recomputed on the workstation with `v3_score.harness_v3_sha256()`; the addendum's runs used `35024814…`). Development reads only (dev dates 08-01..09-29)); if a parametric figure is quoted, subtract ~0.10 at 20 dates and ~0.07-0.09 at 45, and label it
@@ -319,7 +324,8 @@ UNSIGNED. On signature the owner adds a DECISION_LOG row carrying this file's ra
 ## 10. Owner decisions this draft needs
 
 - **OD-T1** Sign or amend M1-M8.
-- **OD-T2** The E1 UNTESTABLE bar (proposed MDE80 > 0.05 on R) and the crossed falsifier level (proposed 80%).
+- **OD-T2** The E1 UNTESTABLE bar (proposed MDE80 > 0.05 on R = 5% of market Brier; contrast 5% of the gap, about
+  0.015 on R) and the crossed falsifier level (proposed 80%).
 - **OD-T3** Futility β (0.20 default; 0.10 option) and the single boundary c = 0.2656 for all hypotheses.
 - **OD-T4** E2 blend form (linear pool per block, default) or a log pool.
 

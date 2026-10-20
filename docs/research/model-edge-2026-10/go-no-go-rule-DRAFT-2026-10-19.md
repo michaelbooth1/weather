@@ -138,6 +138,9 @@ INCONCLUSIVE), and early NO-GO stays as written.
   90 dates may be signed without a type-I correction** (a recalibrated critical value or a resampling check at that
   N); the 90-date row is sizing context only.
 
+  **Scale (review finding M3):** this table is **MG-1's paired arm − served Brier against MG-1's own bar 0.0133
+  Brier**, not the E1 test of R against the market. It sizes an arm − served contrast; it says nothing about whether
+  H-A0 (R < 1) is TESTABLE. The E1 figure on R is below ("MDE80 per hypothesis").
   MG-1 development variance, half effect −0.0050 Brier at 00-16. **The parametric figures 0.32/0.40/0.43 are
   over-optimistic:** on real MG-1-like noise H3's parametric power is biased **high by 0.07-0.11 absolute**
   (predicted 0.581/0.410 at 20 dates vs empirical 0.473/0.309; at 45 dates 0.584/0.411 vs 0.516/0.323), so the
