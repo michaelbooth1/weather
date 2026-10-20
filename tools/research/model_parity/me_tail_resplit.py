@@ -81,6 +81,7 @@ class Tail:
         t = self.t = v3_core.Table(snaps, bands)
         lab = labels.set_index("row_key").reindex(t.snaps.row_key)
         self.winner = lab.winner.to_numpy(int)
+        self.settled = pd.to_numeric(lab.settlement_high, errors="coerce").to_numpy(float)
         self.y = (bands.band_index.to_numpy(int) == np.repeat(self.winner, t.n)).astype(float)
         self.pm = market.set_index(["row_key", "band_index"]).p_market_yes.reindex(
             pd.MultiIndex.from_arrays([bands.row_key, bands.band_index])).to_numpy(float)
@@ -251,12 +252,35 @@ class Tail:
                 er = pd.Series(snap_exc[ok]).rank().to_numpy()
                 ax = pd.Series(np.abs(x[ok])).rank().to_numpy()
                 tl = snap_tail[ok]
+                # mechanical baseline: the same feature shuffled within (market, block) keeps the -r2 centre
+                # term shared with the market gap but destroys the column's own information
+                rng = np.random.default_rng(20261020)
+                xo = x[ok]
+                grp = pd.Series(np.arange(ok.sum())).groupby(
+                    [s.market.astype(str).to_numpy()[ok], s.block.astype(str).to_numpy()[ok]])
+                perm = np.empty(ok.sum(), int)
+                for _, ix in grp.indices.items():
+                    perm[ix] = rng.permutation(ix)
+                if k.endswith("_minus_r2_centre"):          # x = column - r2 centre: shuffle the column only
+                    base_resid = (xo + c_r2[ok])[perm] - c_r2[ok]
+                elif k == "r2_centre_minus_floor":          # x = r2 centre - floor: shuffle the floor only
+                    base_resid = c_r2[ok] - (c_r2[ok] - xo)[perm]
+                else:                                       # no r2 term: plain shuffle
+                    base_resid = xo[perm]
+                tg = (self.settled[ok] - c_r2[ok])
+                tok = ~np.isnan(tg)
                 res["features"][k] = {
                     "n": int(ok.sum()),
                     "spearman_with_market_minus_r2_centre": float(np.corrcoef(xr, gr)[0, 1]),
                     "sign_agreement_with_market_gap_when_abs_ge_1": float(np.mean(
                         np.sign(x[ok][np.abs(x[ok]) >= 1]) == np.sign(gap[ok][np.abs(x[ok]) >= 1])))
                     if (np.abs(x[ok]) >= 1).sum() >= 50 else None,
+                    "spearman_shuffled_baseline_with_market_gap": float(np.corrcoef(
+                        pd.Series(base_resid).rank().to_numpy(), gr)[0, 1]),
+                    "spearman_with_settled_minus_r2_centre": float(np.corrcoef(
+                        pd.Series(xo[tok]).rank().to_numpy(), pd.Series(tg[tok]).rank().to_numpy())[0, 1]),
+                    "spearman_shuffled_baseline_with_settled_gap": float(np.corrcoef(
+                        pd.Series(base_resid[tok]).rank().to_numpy(), pd.Series(tg[tok]).rank().to_numpy())[0, 1]),
                     "spearman_abs_with_residual_tail_excess": float(np.corrcoef(ax, er)[0, 1]),
                     "mean_abs_in_tail_snapshots": float(np.nanmean(np.abs(x[ok][tl]))) if tl.any() else None,
                     "mean_abs_in_other_snapshots": float(np.nanmean(np.abs(x[ok][~tl]))) if (~tl).any() else None}
