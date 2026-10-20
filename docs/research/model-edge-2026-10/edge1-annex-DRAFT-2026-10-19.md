@@ -34,9 +34,61 @@
 
 | Arm | Definition | Endpoint | Frozen when | Input-removed twin (M7.3) |
 | --- | --- | --- | --- | --- |
-| **A0** | The served model as served after 2026-10-09: `ML_MODEL_VERSION` v0.5.12 (lock-in v3 + v4 pre-lock-in floor + #189 keying), default switches, the active bundle; the captured served vector of record, release id per row. | E1 | arm hash taken at signature from the served release manifest | A0 with its forecast-feature inputs removed: the same post-processing (floor mask, lock-in stages, fallbacks) applied to a climatology-only centre [PLACEHOLDER: twin spec frozen by Thu 10-22] |
-| **A1** | A0 + the t3-r3 stage `remaining_rise_floor_v1` (artifact sha256 `b727fe1a897f8786afcd89514f0bae4a82d9e03ad951f2d72db9e228dd2afb09`, as signed DL 2026-10-16) + the non-NBM development survivors listed below, composed in the listed order, **frozen as one hash**; shadow only. | E1 | one hash before D0 | A0 (A1 with every added stage removed) |
-| **A2** | The E2 blend (M2): linear pool per block of **A0** and the snapshot market vector, weights w_b fit on 2026-07-31..2026-09-29 only, weight file frozen into the hash. | E2 | weight fit and hash before D0 | the same blend with A0 replaced by A0's twin |
+| **A0** | The served model as served after 2026-10-09: `ML_MODEL_VERSION` v0.5.12 (lock-in v3 + v4 pre-lock-in floor + #189 keying), default switches, the active bundle; the captured served vector of record, release id per row. | E1 | code hash frozen on the **post-N12 master** (after N12 lands, now the 10-22/23 night) and before D0 (section 1.2) | **T0, forecast-removed / climatology-prior twin** (section 1.1) |
+| **A1** | A0 + the t3-r3 stage `remaining_rise_floor_v1` (artifact sha256 `b727fe1a897f8786afcd89514f0bae4a82d9e03ad951f2d72db9e228dd2afb09`, as signed DL 2026-10-16) + the non-NBM development survivors listed below, composed in the listed order, **frozen as one hash**; shadow only. | E1 | one hash before D0, on the post-N12 A0 | A1 with the t3-r3 and A1-1 inputs blanked = **A0 exactly** (section 1.1) |
+| **A2** | The E2 blend (M2): linear pool per block of **A0** and the snapshot market vector, weights w_b fit on 2026-07-31..2026-09-29 only, weight file frozen into the hash. | E2 | weight fit and hash before D0 | none needed: **H-A2 is UNTESTABLE before D0** (development 00-16 blend weight 0.00, so A2 equals the market; see below) |
+
+### 1.1 Input-removed twins (M7.3), consistent with harness v3 control (f)
+
+Harness v3 (`claude/harness-v3-20261019` @ `2f3f3e8e6`, `docs/research/harness-v3-2026-10-19.md` control (f);
+`tools/research/model_parity/v3_arms.py` `input_removed`) builds every arm's twin by blanking the arm's declared
+`INPUTS` and letting the arm fall back to served where it cannot build. That definition is used unchanged for A1. For
+A0 it is degenerate: "the served arm has no inputs, so its twin is identical to it", which would make
+effect_twin / effect_arm = 1 and fail falsifier 3 by construction. A0 therefore gets its own twin, declared here as the
+one deviation from the generic mechanism (section 9).
+
+**T0, the A0 twin (forecast inputs removed, climatology prior in their place):**
+- **Ablated inputs:** every forecast source the served path reads into `forecast_high`, i.e. the votes pooled by
+  `forecast_ensemble_metrics` (`model_features.py:365-414`): `open_meteo`, `weather_forecast`, `eccc_citypage`,
+  `nws_hourly` (the NWS hourly point forecast, FD correction of 2026-10-19), `global_ensemble` and
+  `open_meteo_global_models` (the latter also enters the HGB `forecast_high` feature directly,
+  `model_features.py:1053-1061`). Their payloads are emptied in a captured-input replay of the frozen A0 code.
+- **Replacement:** `forecast_high` is set to the station's climatological daily high for the target's calendar month
+  from prior-year rows only (the serving climatology input, `daily_summary.csv` per station, target year dropped as the
+  serving cache does), and `forecast_gap` is recomputed from it as serving does (`model_features.py:1064-1068`). A
+  value, not a missing marker: blanking would send the HGB and the LR fallback down their missing-value paths, which
+  would test the imputation rather than "no forecast information".
+- **Kept unchanged:** every observation input (`high_so_far`, `current_temp`, the METAR and live-reading features), the
+  bundle and its calibration, and all post-processing (hard floor, observed floors, lock-in anchor and stages, v4
+  pre-lock-in floor, calibration, overlock guard). NBM, NWS-grid and HRRR are already unused by A0 (lever-5 code check).
+- **Why this is the right falsifier:** T0 keeps everything that is calibration, shape or observation handling and
+  removes only the forecast information. If T0 reproduces 75% or more of A0's improvement over the market
+  (effect = 1 − R), then R is being driven by the model's calibration and its handling of observations the market also
+  sees, not by forecast information, and there is no GO (M7.3).
+- **Produced how:** by the host captured-input replay, outcome-blind, before any join; the twin vector enters the
+  scorer as a precomputed arm input pinned by its own hash (replay commit, climatology file hashes, the substitution
+  rule). Reported beside it with no binding role: **T0-prior**, which also removes the live observation features except
+  the observed floor mask.
+
+**A1 twin:** harness-v3-consistent. The declared inputs of the two added stages are blanked (t3-r3: its floor F
+components and cell keys; A1-1: the observed bucket and cutoff), each stage falls back to served by its own rule, so the
+twin is **A0 exactly**. Falsifier 3 then asks whether A0 alone already carries 75% or more of A1's improvement over the
+market, i.e. whether t3-r3 + A1-1 contribute less than a quarter of it.
+
+**A2:** no twin is specified. The development 00-16 blend weight is 0.00 (lever 8, screens doc §9), so A2 equals the
+market and **H-A2 is UNTESTABLE before D0** (M4.4) unless the owner changes A2's definition (OD-E5).
+
+### 1.2 Freezing A0 after N12 (calendar, master-agent 2026-10-20)
+
+- **N12** (`chain-r3` `739c03eff`, which includes #190, NBM parser v2) moved from the 10-19/20 night to the **10-22/23**
+  night. `ML_MODEL_VERSION` stays **v0.5.12** in N12, so A0's version is unchanged, but N12 changes serving-path source
+  (`model_features.py` and others). **A0's code hash is therefore frozen on the post-N12 master, after N12 lands and
+  before D0**; T0, A1 and A2 are frozen on that A0.
+- **If N12 slips past 10-24, D0 = 2026-10-25 is not reachable and D0 = 2026-10-28 applies** whatever OD-A6 says (the
+  freeze plus one full prior day of stored vectors must precede D0). If it slips further, D0 is the first date satisfying
+  the section 2 non-outcome conditions after the post-N12 freeze.
+- **MG-1:** its bound-window change (`e342baca1`) moves to the **10-23/24** night, and MG-1's staging needs #190, so it
+  is after 10-22/23. Neither changes EDGE-1 (section 6.1).
 
 **A1 survivor list — filled 2026-10-20 from the development screens.** Source: `claude/model-edge-screens-20261019`
 @ `4d3e25699a8afe3a34d9e979c6aa950b6ca16389`, `docs/research/model-edge-screens-2026-10-19.md` §2 (kill rule declared
@@ -108,6 +160,7 @@ branches are drafted; the owner's ruling selects one, and that ruling is a dated
 
 - The calendar columns assume every date is countable; each missed date moves the look one date later. They are
   logistics (DL 2026-10-13), not rules.
+- **The 10-25 branch also needs N12 landed by 10-24** (section 1.2); otherwise D0 = 2026-10-28.
 - **Embargo, binding in both branches:** the owner refused all descriptive reads of UTC 2026-10-16..11-13 until the
   panel closes, with scored reads only after the close under a signed pre-registration (DL 2026-10-17). Every EDGE-1
   join therefore happens after 11-13 whatever the branch; under the not-held branch the interim's 20th date is the
@@ -260,7 +313,9 @@ spends no CAMPAIGN_LEDGER decision. Rows: [alpha ledger](alpha-ledger-DRAFT-2026
 
 ## 9. Deviations from the methods annex
 
-None.
+One, motivated in section 1.1: A0's input-removed twin (M7.3) is the forecast-removed climatology-prior twin T0, not
+the harness-v3 generic blank-inputs-and-fall-back twin, which is identical to A0 for a served arm and would fail
+falsifier 3 by construction. A1 uses the generic mechanism unchanged.
 
 ## 10. What this draft does NOT claim
 

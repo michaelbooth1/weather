@@ -143,7 +143,7 @@ then INCONCLUSIVE unless another clause decides it.
 
 ## 5. Owner questions for Fri 10-23 (one line each; master-agent lifts these verbatim)
 
-- **(a) OD-A6:** Do the snapshot market vectors fall under the 88a panel hold for pre-registered forecast scoring? Default (recommended): not held, so EDGE-1 D0 = 2026-10-25 (held would give D0 = 2026-10-28).
+- **(a) OD-A6:** Do the snapshot market vectors fall under the 88a panel hold for pre-registered forecast scoring? Default (recommended): not held, so EDGE-1 D0 = 2026-10-25 provided N12 lands by 10-24 (held, or N12 later, gives D0 = 2026-10-28).
 - **(b) A1 vs t3-r3 no-peek:** EDGE-1 arm A1 contains the signed t3-r3 stage, whose no-peeking rule forbids outcome reads on its holdout before its look; how should A1 be scored? Default (recommended): A1's looks are deferred until after the t3-r3 look.
 - **(c) E3 / OD-G2:** Does maker replay v2's `informed-v0` minus `blind_re1` count as the "model-gated vs blind_re1" arm of GO clause (c)? Default (recommended): it does not count, so E3 is UNTESTABLE for weather in this programme.
 - **(d) NBM-2 window:** NBM-2 reads NBM guidance and so falls in MG-1's reserved family; may it use dates in MG-1's window (2026-10-15..provisional 2026-11-28)? Default (recommended): no, NBM-2 needs its own window unless the owner rules otherwise.

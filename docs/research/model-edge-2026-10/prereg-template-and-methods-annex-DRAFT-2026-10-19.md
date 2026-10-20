@@ -272,6 +272,9 @@ rescued by amendment on the same dates.
    with the arm. With effect = 1 − R (E1) or −D (E2), the falsifier **holds only if effect_twin / effect_arm < 0.75**
    on the same rows. If the twin captures 75% or more of the effect, the effect is not attributable to the claimed
    information, and there is no GO.
+   The default construction is harness v3 control (f) (`v3_arms.input_removed`: blank the arm's declared inputs and
+   fall back to served). For a served-model arm that construction returns the arm itself, so such an arm must declare
+   a substitution twin (its information inputs replaced by a prior), as a section-9 deviation (EDGE-1 T0 is the example).
 
 ## M8. Validity conditions (failure makes the look VOID; the dates are spent)
 
