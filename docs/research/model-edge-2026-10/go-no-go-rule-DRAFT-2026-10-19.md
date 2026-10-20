@@ -134,6 +134,10 @@ INCONCLUSIVE), and early NO-GO stays as written.
   | 45 | 0.0085 | 0.40 | ~0.31-0.33 | 0.027 | TESTABLE on the parametric MDE80 (re-confirm) |
   | 90 | 0.0079 | 0.43 | ~0.35 | 0.040 | TESTABLE on the parametric MDE80 (re-confirm) |
 
+  **90 dates (finding 12):** P(GO given null) = 0.040 exceeds the 0.025 design level, so **no extension of EDGE-1 to
+  90 dates may be signed without a type-I correction** (a recalibrated critical value or a resampling check at that
+  N); the 90-date row is sizing context only.
+
   MG-1 development variance, half effect −0.0050 Brier at 00-16. **The parametric figures 0.32/0.40/0.43 are
   over-optimistic:** on real MG-1-like noise H3's parametric power is biased **high by 0.07-0.11 absolute**
   (predicted 0.581/0.410 at 20 dates vs empirical 0.473/0.309; at 45 dates 0.584/0.411 vs 0.516/0.323), so the
