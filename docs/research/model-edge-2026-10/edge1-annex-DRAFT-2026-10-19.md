@@ -34,7 +34,7 @@
 
 | Arm | Definition | Endpoint | Frozen when | Input-removed twin (M7.3) |
 | --- | --- | --- | --- | --- |
-| **A0** | The served model as served after 2026-10-09: `ML_MODEL_VERSION` v0.5.12 (lock-in v3 + v4 pre-lock-in floor + #189 keying), default switches, the active bundle; the captured served vector of record, release id per row. | E1 | code hash frozen on the **post-N12 master** (after N12 lands, now the 10-22/23 night) and before D0 (section 1.2) | **T0, forecast-removed / climatology-prior twin** (section 1.1) |
+| **A0** | The served model as served after 2026-10-09: `ML_MODEL_VERSION` v0.5.12 (lock-in v3 + v4 pre-lock-in floor + #189 keying), default switches, the active bundle; the captured served vector of record, release id per row. | E1 | code hash frozen on the **post-N12 master** (after N12 lands, now the 10-22/23 night) and before D0 (section 1.2) | **T1, public-forecast twin (binding):** `forecast_high` from the NWS hourly point forecast alone (section 1.1); T0 climatology-prior twin kept as a **non-binding** sanity control |
 | **A1** | A0 + the t3-r3 stage `remaining_rise_floor_v1` (artifact sha256 `b727fe1a897f8786afcd89514f0bae4a82d9e03ad951f2d72db9e228dd2afb09`, as signed DL 2026-10-16) + the non-NBM development survivors listed below, composed in the listed order, **frozen as one hash**; shadow only. | E1 | one hash before D0, on the post-N12 A0 | A1 with the t3-r3 and A1-1 inputs blanked = **A0 exactly** (section 1.1) |
 | **A2** | The E2 blend (M2): linear pool per block of **A0** and the snapshot market vector, weights w_b fit on 2026-07-31..2026-09-29 only, weight file frozen into the hash. | E2 | not frozen: **E2 closed in development** (w_b = 0.00 in each sub-block on 07-31..09-29); no forward E2 instrument; H-A2 not in the family (k = 2) | none (A2 is the market itself; see section 1.1) |
 
@@ -47,7 +47,30 @@ A0 it is degenerate: "the served arm has no inputs, so its twin is identical to 
 effect_twin / effect_arm = 1 and fail falsifier 3 by construction. A0 therefore gets its own twin, declared here as the
 one deviation from the generic mechanism (section 9).
 
-**T0, the A0 twin (forecast inputs removed, climatology prior in their place):**
+**T1, the binding A0 twin (revised 2026-10-20, review finding M4): A0 with only the forecast the market plainly has.**
+- **Definition:** a captured-input replay of the frozen A0 code in which **every forecast payload except
+  `nws_hourly` is emptied** (`open_meteo`, `weather_forecast`, `eccc_citypage`, `global_ensemble`,
+  `open_meteo_global_models`). `forecast_ensemble_metrics` then returns `forecast_high` = the NWS hourly point
+  forecast's day maximum alone, and `forecast_gap` is recomputed from it by serving's own code
+  (`model_features.py:1064-1068`); the `open_meteo_global_models` HGB feature is absent as its payload is. Every
+  observation input, the bundle, its calibration and all post-processing are unchanged (as for T0 below).
+- **Why `nws_hourly` (default):** the NWS point forecast for the settlement station's location is the free, public
+  forecast any US market participant sees on weather.gov without querying an API; all 11 EDGE-1 markets are US.
+  **Named alternative: Open-Meteo alone** (`open_meteo` kept, every other payload emptied), a free API but one a
+  participant must query, so less plainly "had" by the market. The owner may choose it under OD-E7.
+- **Rows with no captured `nws_hourly` value:** the twin takes A0's own vector on that row (counted and disclosed).
+  This pulls effect_twin towards effect_arm, i.e. it makes falsifier 3 harder to pass, never easier.
+- **What it tests:** whether A0's improvement over the market survives when its forecast information is cut down to
+  what the market plainly has. If T1 reproduces 75% or more of A0's effect, the gain is not information the market
+  lacks, and there is no GO (M7.3).
+- **Produced how:** as T0 below (host captured-input replay, outcome-blind, before any join; pinned by its own hash).
+  Spec only: the twin is not built in this draft.
+
+**T0, non-binding sanity control (forecast inputs removed, climatology prior in their place).** Kept beside T1 with no
+binding role, because it cannot fail: a climatological `forecast_high` removes all forecast skill in 00-09, so
+R_T0 ≫ 1 and effect_twin / effect_arm < 0.75 whenever H-A0 is rejected. It shows only that forecasts matter, not that
+the gain is information the market lacks. It is not leaky (`model_climatology.py:121,234` drop every row with
+year >= the target year), only trivially beaten. Its specification as drafted:
 - **Ablated inputs:** every forecast source the served path reads into `forecast_high`, i.e. the votes pooled by
   `forecast_ensemble_metrics` (`model_features.py:365-414`): `open_meteo`, `weather_forecast`, `eccc_citypage`,
   `nws_hourly` (the NWS hourly point forecast, FD correction of 2026-10-19), `global_ensemble` and
@@ -61,10 +84,9 @@ one deviation from the generic mechanism (section 9).
 - **Kept unchanged:** every observation input (`high_so_far`, `current_temp`, the METAR and live-reading features), the
   bundle and its calibration, and all post-processing (hard floor, observed floors, lock-in anchor and stages, v4
   pre-lock-in floor, calibration, overlock guard). NBM, NWS-grid and HRRR are already unused by A0 (lever-5 code check).
-- **Why this is the right falsifier:** T0 keeps everything that is calibration, shape or observation handling and
-  removes only the forecast information. If T0 reproduces 75% or more of A0's improvement over the market
-  (effect = 1 − R), then R is being driven by the model's calibration and its handling of observations the market also
-  sees, not by forecast information, and there is no GO (M7.3).
+- **What it shows (non-binding):** T0 keeps everything that is calibration, shape or observation handling and
+  removes only the forecast information, so it separates "forecasts matter" from "calibration and observation
+  handling matter". It is reported beside T1 with no binding role.
 - **Produced how:** by the host captured-input replay, outcome-blind, before any join; the twin vector enters the
   scorer as a precomputed arm input pinned by its own hash (replay commit, climatology file hashes, the substitution
   rule). Reported beside it with no binding role: **T0-prior**, which also removes the live observation features except
@@ -220,7 +242,9 @@ branches are drafted; the owner's ruling selects one, and that ruling is a dated
 1. **Crossed (date × market):** crossed point estimate on the same side and crossed one-sided 80% upper bound below 1
    (E1) or 0 (E2) [80% PROPOSED, OD-T2].
 2. **Per-market sign:** R_m < 1 (E1) or D_m < 0 (E2) in **at least 8 of 11** markets, block 00-16.
-3. **Input-removed twin:** effect_twin / effect_arm **< 0.75** on the same rows, using the section 1 twins.
+3. **Input-removed twin:** effect_twin / effect_arm **< 0.75** on the same rows, using the section 1 twins (A0: T1;
+   A1: A0). Evaluated **only for hypotheses rejected under M6**; **effect_twin <= 0 counts as < 0.75**. For A0 it is
+   valid only under the section 7 replay condition.
 
 All three must hold for a GO; failing any one gives no GO from that hypothesis, with no amendment on the same dates.
 
@@ -272,6 +296,9 @@ spends no CAMPAIGN_LEDGER decision. Rows: [alpha ledger](alpha-ledger-DRAFT-2026
 - A served-release change on the 00-16 path inside the window voids the A0/A2 dates after it unless a segment rule is
   signed before it lands; the #162 landing and any item-337 flip are such changes (EXHAUSTION_REGISTER L18).
 - The A1 and A2 shadow stages must store their arm hash per snapshot; coverage below 90% in 00-16 voids that arm.
+- **Falsifier 3 for A0 is valid only if the unmodified A0 captured-input replay reproduces the served vector of record
+  per M8 (within 1e-9 on at least 99% of rows).** T1 is a replay joined to the served vector, the join EF §1k warns
+  about; if the reproduction fails, falsifier 3 cannot be evaluated for H-A0 and does not hold (no GO from H-A0).
 
 ## 8. Power
 
@@ -329,9 +356,10 @@ spends no CAMPAIGN_LEDGER decision. Rows: [alpha ledger](alpha-ledger-DRAFT-2026
 
 ## 9. Deviations from the methods annex
 
-One, motivated in section 1.1: A0's input-removed twin (M7.3) is the forecast-removed climatology-prior twin T0, not
-the harness-v3 generic blank-inputs-and-fall-back twin, which is identical to A0 for a served arm and would fail
-falsifier 3 by construction. A1 uses the generic mechanism unchanged.
+One, motivated in section 1.1: A0's input-removed twin (M7.3) is the public-forecast substitution twin T1
+(`forecast_high` from `nws_hourly` alone), not the harness-v3 generic blank-inputs-and-fall-back twin, which is
+identical to A0 for a served arm and would fail falsifier 3 by construction. T0 (climatology prior) is reported beside,
+non-binding. A1 uses the generic mechanism unchanged.
 
 ## 10. What this draft does NOT claim
 
@@ -356,6 +384,8 @@ only if the arm definitions above are unchanged).
 - **OD-E3:** 00-16 declared block (default) or per-block hypotheses.
 - **OD-E4:** the A1 survivor list as filled (A1-1 = C-L13-BT; logistics if it meets the section 1 rules).
 - **OD-E6:** keep A1 as a separate arm (default) or drop A1-1 from it.
+- **OD-E7:** A0's binding twin T1 keeps `nws_hourly` alone (default) or Open-Meteo alone (section 1.1); T0 stays a
+  non-binding sanity control either way.
 - **OD-E5:** E2 closed in development (w_b = 0.00 in each sub-block on 07-31..09-29; no forward E2 instrument; H-A2
   not in the family, k = 2) unless the owner redefines A2 (default: closed; the model added nothing beyond the market
   price on those dates). Proposed EXHAUSTION_REGISTER entry at signature (production docs change, not in this

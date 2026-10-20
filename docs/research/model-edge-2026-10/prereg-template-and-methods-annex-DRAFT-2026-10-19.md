@@ -282,7 +282,11 @@ rescued by amendment on the same dates.
    information, and there is no GO.
    The default construction is harness v3 control (f) (`v3_arms.input_removed`: blank the arm's declared inputs and
    fall back to served). For a served-model arm that construction returns the arm itself, so such an arm must declare
-   a substitution twin (its information inputs replaced by a prior), as a section-9 deviation (EDGE-1 T0 is the example).
+   a substitution twin, as a section-9 deviation. The binding substitution must be one that **can fail**: replace the
+   claimed information with what the market plainly has (EDGE-1 T1: the public NWS point forecast alone), not with a
+   no-skill prior, which any skilled arm beats trivially (EDGE-1 T0, kept non-binding). The falsifier is evaluated only
+   for hypotheses rejected under M6; effect_twin <= 0 counts as < 0.75; a replayed twin is valid only if the
+   unmodified arm's replay reproduces its vector per M8.
 
 ## M8. Validity conditions (failure makes the look VOID; the dates are spent)
 
