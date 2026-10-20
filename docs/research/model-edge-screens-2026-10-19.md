@@ -292,6 +292,124 @@ that it matters; (3) it is a serving-stage restoration (lever 5), not new inform
 Not on A1: C-L7-V2Q (no increment over MG-1, declared rule), both E2 blends (killed), lever 6 and the six
 captured-not-scored lever-7 sources (not screenable on the workstation).
 
+## 11. Lever 13 follow-up: tail re-split (descriptive, development; master-agent request 2026-10-20)
+
+**How it ran.** Phase `tail` of `test_me_screens_dev.py` through `workstation_heavy.ps1 -Kind pytest -Queue`, code
+`tools/research/model_parity/me_tail_resplit.py` at `d8e3af7c6b35d293c13f106f4c84d2f3fda46755`; output
+`C:\swarm\out\mescr\tail_20261020T174023\tail_resplit.json`, sha256
+`9d5b46b360a8b76321dbb3a99d9a95e04adbbf8da4cbf3ae49e1d3e344b8a1aa` (an earlier run at `318b9b098`,
+`tail_20261020T173842`, gave identical sections 11.1-11.3; the rerun only added the correlate baselines of 11.4).
+Gate family `model_edge_tail_resplit`, purpose `development`, dates 2026-07-31..09-29 (57 dates 08-01..09-29, 626
+market-days). Nothing is scored for a decision; no new candidate.
+
+Vectors (all with the 81a floor mask and served fallback):
+- **served** = what ran; every dev date is pre-#191 (PR #191 landed 2026-10-06), so "served before #191" is the
+  whole table and there is no observed post-#191 serving on these dates.
+- **r1 (post-#191 emulation)** = the v2 swarm ladder rung 1 = registered rule d-defect-r2 (S1 heuristic + S2 learned
+  late-day lock-in restored on the served final bands, production constants, anchor
+  `max(history_max, guidance_floor)` per EF §10q, not the v3 anchor #191 actually serves). Rebuilt with
+  `ladder_parity` / `d_defect_evening_stage` unchanged; its per-snapshot Brier equals the swarm's saved
+  `C:\swarm\out\ladder\snapb_ladder-r1.npy` exactly (max |diff| 0.0 over 110,807 snapshots).
+- **MG-1-like** = the HARNESS v3 arm; **c1** = the ladder's MG-1 read in H = max(B, X) form; **r2** = ladder rung 2
+  (c1 where covered + the restored lock-in), equal to `snapb_ladder-r2.npy` exactly (max |diff| 0.0).
+- Tail = band rows with served SE > market SE and |p_served − p_market| >= 0.30: 74,046 rows (6.075%) carrying
+  70.38% of the positive excess, as before. Band position: **winner**, **adjacent** (one band from the winner),
+  **far** (two or more). "Share" = share of all tail excess unless stated; "removed" = share of the tail excess on
+  those rows that the vector removes, with a cell-clustered crossed W 95% interval.
+
+### 11.1 Re-split: hour block x market x band position
+
+By position: winner 62.2% (tail on 34.2% of winner rows), adjacent 25.1% (9.9%), far 12.7% (1.6%).
+
+| Block | winner | adjacent | far | block total |
+| --- | --- | --- | --- | --- |
+| 00-05 | 14.1% | 3.5% | 4.6% | 22.2% |
+| 06-09 | 11.0% | 2.6% | 3.3% | 16.9% |
+| 10-12 | 7.7% | 2.4% | 2.1% | 12.1% |
+| 13-16 | 9.7% | 5.2% | 1.4% | 16.3% |
+| 17-23 | 19.7% | 11.4% | 1.3% | 32.4% |
+
+Largest block x market cells: 17-23 Los Angeles 6.7% (tail rate 13.2% of its rows), 00-05 Los Angeles 4.4%, 17-23
+Dallas 3.8%, 17-23 Denver 3.6%, 00-05 Dallas 3.4%, 06-09 Los Angeles 3.3%, 17-23 NYC 3.1%, 17-23 Austin 3.0%, 17-23
+Chicago 3.0%, 00-05 Chicago 2.8%. Largest block x market x position cells: 17-23 Los Angeles winner 3.7% (72% of
+those winner rows are in the tail), 17-23 Los Angeles adjacent 2.9%, 00-05 Los Angeles winner 2.7%, 00-05 Dallas
+winner 2.5%, 17-23 Denver winner 2.3%, 17-23 Dallas winner 2.2%. Los Angeles carries the most tail in every block.
+
+### 11.2 Before vs after #191 (17-23, emulated)
+
+All dev snapshots are pre-#191. The emulated post-#191 lock-in (r1) **removes 85.9% [80.5, 90.3] of the 17-23 tail
+excess** (26,229 tail rows; the lock-in is active on 96.5% of them); r2 (adding the MG-1 read) removes 89.5% [82.8,
+93.9]. By position: winner 86.0%, adjacent 85.9%, far 84.3%. By hour: 17 h 63.9% [47.8, 79.0], 18 h 79.1%, 19-23 h
+90.0-92.4%. By market: San Francisco 96.5%, Houston 95.3%, Chicago 90.4%, Los Angeles 88.7%, Denver 87.9%, Austin
+87.2%, Atlanta 84.1%, Miami 83.2% [49.2, 97.1], Dallas 79.5%, NYC 76.7%, Seattle 71.8% [64.3, 76.9]. So roughly a
+third of the whole tail (32.4% x 0.86 ≈ 28% of all tail excess) is the evening serving defect that #191 fixes,
+assuming the v3 anchor acts like the emulated one; a host read of post-#191 served vectors would confirm it.
+
+### 11.3 Attribution of the 00-16 tail (67.6% of all tail excess)
+
+Share of the block's tail excess removed:
+
+| Block (share of all tail excess) | floor mask only | MG-1-like | c1 | lock-in r1 | r2 (c1 + lock-in) | residual after r2 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 00-05 (22.2%) | 0.2% | 77.4% [68.3, 84.6] | 77.4% | 0.2% | 77.4% [68.3, 84.8] | 22.6% |
+| 06-09 (16.9%) | 0.2% | 75.3% [68.0, 82.0] | 75.4% | 0.2% | 75.4% [68.2, 82.3] | 24.6% |
+| 10-12 (12.1%) | −0.1% | 70.0% [62.3, 76.7] | 70.0% | −0.1% | 70.0% [62.1, 76.9] | 30.0% |
+| 13-16 (16.3%) | 0.5% | 51.7% [42.6, 60.1] | 57.2% | 2.6% [0.6, 4.6] | 58.2% [49.8, 65.9] | 41.8% |
+| **00-16 (67.6%)** | 0.2% | **69.3% [61.8, 75.9]** | 70.7% | 0.7% | **70.9% [64.0, 77.6]** | **29.1%** |
+
+Point decomposition of 00-16: floor mask 0.2%, NBM read (MG-1-like beyond the floor) 69.1%, c1 form over MG-1-like
+1.4% (all in 13-16: 5.5%), lock-in on top of c1 0.2% (13-16: 1.0%), residual 29.1%. The ~69% NBM share is confirmed
+in every block (77/75/70/52%) and every market: MG-1-like removes 50.7% (San Francisco) to 87.2% (Miami) of each
+market's 00-16 tail excess (Atlanta 59.6, Austin 66.6, Chicago 76.7, Dallas 77.3, Denver 63.4, Houston 62.4, Los
+Angeles 73.0, NYC 51.9, Seattle 67.2%). Floor and lock-in stages remove almost nothing before 13 h; NYC is the only
+market where the floor mask alone removes a visible share (3.6%).
+
+### 11.4 The residual tail after MG-1 + restored lock-in (r2)
+
+Re-defining the tail on r2 itself (r2 SE > market SE and |p_r2 − p_market| >= 0.30): **25,514 rows (2.09%) carrying
+42.2% of r2's positive excess**; its excess is 32.4% of the served tail's. Who owns it:
+- **Hours:** 13-16 39.8% (tail rate 4.9%; 15-16 h alone 23.5%), then 17-23 15.7%, 00-05 15.3%, 10-12 15.2%, 06-09
+  14.1%. Every market's 13-16 cell is in the top 15 (San Francisco 4.7%, NYC 4.1%, Denver 3.9%, Dallas 3.9%, Miami
+  3.6%, ...); outside 13-16 the largest cells are Los Angeles 00-05 3.6%, 10-12 3.1%, 06-09 3.0% and Dallas 00-05 2.7%.
+- **Markets:** Los Angeles 14.2%, Dallas 12.2%, Denver 10.6%, NYC 10.3%; Houston lowest at 5.5%.
+- **Position and direction:** 72.5% is the winner band with r2 **below** the market; the rest is r2 over-weighting
+  adjacent (17.6%) or far (9.9%) losing bands. r2 never sits above the market on a winner tail row.
+
+**Do non-NBM captured columns on the workstation correlate with it?** (00-16 snapshots, Spearman; "market gap" =
+market centre − r2 centre, "settled gap" = settled high − r2 centre, band-midpoint centres; "baseline" = the same
+column shuffled within market x block, seed 20261020.)
+
+| Column | vs market gap (baseline) | vs settled gap (baseline) | sign agrees with market gap when |x| >= 1 °F | 13-16: vs settled gap |
+| --- | --- | --- | --- | --- |
+| `hrrr_high` − r2 centre | +0.46 (−0.03) | +0.30 (0.00) | 74% | +0.30 |
+| `forecast_high` − r2 centre | +0.50 (−0.04) | +0.26 (0.00) | 77% | +0.34 |
+| `nws_grid_high_raw` − r2 centre | +0.33 (−0.04) | +0.18 (+0.01) | 71% | +0.02 |
+| `hrrr_high` − v2_mean | +0.47 (+0.05) | +0.29 (0.00) | 72% | +0.36 |
+| `forecast_high` − v2_mean | +0.48 (+0.09) | +0.23 (−0.01) | 74% | +0.39 |
+| r2 centre − floor | −0.13 (+0.07) | −0.05 (+0.06) | — | **−0.53** |
+| `v2_age_hours` | −0.09 (−0.10) | −0.12 (−0.12) | — | −0.07 |
+
+Reading, with caveats: where captured HRRR and the served consensus `forecast_high` disagree with the NBM-centred r2,
+the market and the settled high tend to sit on their side (correlations +0.2 to +0.5, shuffled baselines near 0).
+In 13-16 the strongest signal is r2's centre sitting far above the floor when the high ends lower (−0.53 with the
+settled gap): r2 still expects a remaining rise the afternoon does not deliver. These are descriptive. The shuffled
+baseline is weak (it scrambles day-to-day temperature, not only the shared r2 term), and every column here was already
+tested as a source: HRRR (t8-c2, t9-c2), `forecast_high` and NWS grid (t15-r1..r4, t12-r1/r2), and all three
+together with v2 in the fitted EMOS t18-r1 (EF §10q: fitted forms differ from MG-1 "by spread modelling on captured v2,
+not by a source", RV-1 − MG-1 00-16 −0.0034 [−0.0078, +0.0007]). The 13-16 remaining-rise pattern is the t3-r3 family
+(EF §10q; fragile, WEAK at +1 h staleness).
+
+**Prereg-only candidates for the template (not scored; each overlaps a registered family, cited):**
+- **P-T1 (13-16 remaining-rise cap):** in 13-16, shrink r2's mass above the floor bucket by the station x hour
+  historical remaining-rise distribution (IEM METAR history <= 2026-07-31). Family t3-r3 / D2 draft; must carry
+  t3-r3's staleness sensitivity (t3-r3s) and the D2 power caveat.
+- **P-T2 (consensus disagreement re-centre, 00-16):** when |`forecast_high` − v2_mean| >= 1 °F and `hrrr_high` agrees
+  in sign, move the MG-1 centre a fixed fraction (declared in the prereg, not fitted on these dates) toward their
+  mean. Family t18-r1 / RV-1; the prereg must state its paired increment over MG-1 as the primary estimand.
+- **P-T3 (Los Angeles overnight/morning):** LA owns the most residual tail outside 13-16 (00-12). A per-market
+  question, not a rule: what LA's marine-layer days look like in captured inputs (EXHAUSTION_REGISTER S27 marine
+  data is dark since 2026-06-13) — a capture question before any candidate.
+
 ## Update when
 
 Never rewrite this record after the A1 list is frozen; add a dated follow-up instead.
