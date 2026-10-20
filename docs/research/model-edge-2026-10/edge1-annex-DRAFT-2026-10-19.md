@@ -130,7 +130,7 @@ frozen parameters, and pass the screen's own training-score check (EF §5). An e
 Nothing may be added after the arm hash is frozen.
 
 **A2 uses A0, not A1,** because A1 is not frozen before 10-22 and A1 inherits the t3-r3 conflict (section 6.3). Owner
-option OD-E5: blend A1 instead.
+option OD-E5 is now: drop A2 as UNTESTABLE (default) or redefine it.
 
 ## 2. Population, D0 and looks
 
@@ -339,7 +339,8 @@ only if the arm definitions above are unchanged).
 - **OD-E3:** 00-16 declared block (default) or per-block hypotheses.
 - **OD-E4:** the A1 survivor list as filled (A1-1 = C-L13-BT; logistics if it meets the section 1 rules).
 - **OD-E6:** keep A1 as a separate arm (default) or drop A1-1 from it.
-- **OD-E5:** A2 blends A0 (default) or A1.
+- **OD-E5:** A2 dropped as UNTESTABLE unless the owner redefines it (default: drop; the development blend weight was
+  0.00, i.e. the model added nothing beyond the market price on those dates).
 
 ## Sources
 

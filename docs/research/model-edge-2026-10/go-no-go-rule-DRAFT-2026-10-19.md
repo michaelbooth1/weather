@@ -147,8 +147,9 @@ then INCONCLUSIVE unless another clause decides it.
 - **(b) A1 vs t3-r3 no-peek:** EDGE-1 arm A1 contains the signed t3-r3 stage, whose no-peeking rule forbids outcome reads on its holdout before its look; how should A1 be scored? Default (recommended): A1's looks are deferred until after the t3-r3 look.
 - **(c) E3 / OD-G2:** Does maker replay v2's `informed-v0` minus `blind_re1` count as the "model-gated vs blind_re1" arm of GO clause (c)? Default (recommended): it does not count, so E3 is UNTESTABLE for weather in this programme.
 - **(d) NBM-2 window:** NBM-2 reads NBM guidance and so falls in MG-1's reserved family; may it use dates in MG-1's window (2026-10-15..provisional 2026-11-28)? Default (recommended): no, NBM-2 needs its own window unless the owner rules otherwise.
-- **(e) Thresholds:** Accept the crossed falsifier at a one-sided 80% bound, UNTESTABLE at MDE80 > 0.05 on R, and A2 blending A0 (not A1)? Default (recommended): accept all three as drafted.
+- **(e) A2:** A2 dropped as UNTESTABLE unless the owner redefines it? Default (recommended): drop. In plain terms: the blend weight fitted on development dates was 0.00, meaning the model added nothing beyond the market price on those dates.
 - **(f) A1 composition:** A1 = A0 + t3-r3 + A1-1 (C-L13-BT, about 0.3% of the 00-16 gap, negligible), so A1 differs from A0 essentially by t3-r3; keep A1 as a separate arm, or drop A1-1 from it? Default (recommended): keep A1 as a separate arm, since t3-r3 is signed and A1 is its composite carrier, with its looks deferred per question (b).
+- **(g) Thresholds:** Accept the crossed falsifier at a one-sided 80% bound and UNTESTABLE at MDE80 > 0.05 on R? Default (recommended): accept both as drafted.
 
 ## 6. Owner decisions
 
