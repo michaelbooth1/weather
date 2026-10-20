@@ -219,7 +219,8 @@ formal verdict is `scripts\ops\roll_verdict.ps1`'s) refuses to compute anything 
 3. **Look identity:** the look id (`interim` or `final`) has no earlier receipt in the instrument's append-only receipt
    file; a second run of the same look refuses (exit non-zero, nothing printed beyond the refusal).
 4. **Date gate:** the countable-date count reaches the look's n from countability metadata alone, and the local run
-   date is on or after the look's earliest read date.
+   date is on or after the look's earliest read date. **The date gate is not run on embargoed dates before the close**
+   (today: UTC 2026-10-16..11-13 before the panel closes; not even the outcome-free count).
 5. **Embargo and reservation gates:** no date the alpha ledger marks as reserved against this instrument's family, and
    no date inside an owner embargo in force (today: UTC 2026-10-16..11-13 refused until the panel closes, DL
    2026-10-17), is joined. A date the gate drops is counted, not read.
