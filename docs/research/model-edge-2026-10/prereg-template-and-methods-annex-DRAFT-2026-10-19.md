@@ -129,7 +129,7 @@ For arm a and block b over the countable market-days of the look:
 
 - **Primary: fixed-market, date-clustered** (DECISION_LOG 2026-09-30 guardrails, verbatim in MG-1 §4). The market
   list is fixed in advance; dates are resampled as clusters, multinomial date bootstrap, **10,000 draws** (enough for
-  percentile tails at the smallest Holm level, 0.025/k), seed fixed in the instrument file at signature.
+  percentile tails at the smallest per-hypothesis level, 0.025/k), seed fixed in the instrument file at signature.
 - **Statistic:** log R*_ab per draw (ratio of re-weighted sums, M1); D*_E2 per draw.
 - **One-sided p-value:** p = (1 + #{draws with log R* >= 0}) / (1 + draws) for E1; the same with D* >= 0 for E2. The
   instrument's level-α_j decision is equivalent to the one-sided (1 − α_j) percentile upper bound of R being below 1
@@ -249,7 +249,12 @@ SHA-256 of the result payload. The result is written once into the owning item a
 
 - **Within an instrument:** every declared (arm, endpoint, block) hypothesis is one member of the instrument's family.
   Family-wise one-sided α = 0.025, **Holm step-down** on the M3 p-values: order p_(1) <= ... <= p_(k); reject
-  H_(j) while p_(j) <= 0.025/(k − j + 1); stop at the first non-rejection.
+  H_(j) while p_(j) <= 0.025/(k − j + 1); stop at the first non-rejection. Holm needs every member's p-value at one
+  look.
+- **Staggered finals:** when the members' finals fall on different dates, Holm cannot run. The instrument then
+  pre-specifies, before signature, **either** a fixed sequence (the earliest final first at the full 0.025; each later
+  hypothesis tested at 0.025 only if every earlier one was rejected) **or** Bonferroni 0.025/k per hypothesis at its
+  own final, with Holm only among members sharing a look. k is recorded at D0, after UNTESTABLE markings.
 - **Interim:** spends nothing (M4.1).
 - **Reported-beside quantities** carry no alpha and can neither rescue a failed primary nor create a GO.
 - **Across instruments:** each signed instrument is its own family at its own alpha, recorded in the

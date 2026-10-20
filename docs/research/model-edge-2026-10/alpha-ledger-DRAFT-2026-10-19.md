@@ -26,7 +26,7 @@
 3. **No double-spend.** A (family, local target date) cell is held by at most one non-superseded row with
    `alpha_state` `reserved` or `spent`. Different families may share dates **only** where no reservation forbids it
    and no signed no-peeking rule is broken by the later instrument's looks (example: EDGE-1 annex §6.3).
-4. **Alpha is per family.** Rows that share a `family` and a `prereg_path` are one Holm family; the `alpha` field
+4. **Alpha is per family.** Rows that share a `family` and a `prereg_path` are one multiplicity family; the `alpha` field
    repeats the family's level, it is not additive across those rows.
 5. **Provenance per row.** Every row cites the file and the row/section that carries each fact; owner facts cite a
    DECISION_LOG row, and verbatim fragments are quoted.
@@ -50,7 +50,7 @@ Proposed and placeholder rows (this programme):
 | Row | Instrument | Family | Dates | Alpha | Status |
 | --- | --- | --- | --- | --- | --- |
 | `CL-B` | Model-edge Stage-B sealed-panel decisions | sealed-panel (mirror) | stratum B only | at most 2 x 0.0025 two-sided from CAMPAIGN_LEDGER, q = 3.1098893; batched survivors only | PROPOSED (master-agent synthesis caveat, relayed 2026-10-19) |
-| `EDGE1-A0`, `EDGE1-A1` | EDGE-1 H-A0 / H-A1 | forecast/model-vs-market-edge1 | D0 2026-10-25 (OD-A6 not held) or 2026-10-28 (held); 45 countable; interim 20 | one family, 0.025 one-sided, Holm over 3; interim spends nothing | DRAFT ([EDGE-1 annex](edge1-annex-DRAFT-2026-10-19.md)) |
+| `EDGE1-A0`, `EDGE1-A1` | EDGE-1 H-A0 / H-A1 | forecast/model-vs-market-edge1 | D0 2026-10-25 (OD-A6 not held) or 2026-10-28 (held); 45 countable; interim 20 | one family, 0.025 one-sided, k = 2, fixed sequence H-A0 then H-A1 (default; Bonferroni 0.0125 each the alternative); interim spends nothing | DRAFT ([EDGE-1 annex](edge1-annex-DRAFT-2026-10-19.md)) |
 | `EDGE1-A2` | EDGE-1 A2 (E2) | forecast/model-vs-market-edge1 | none | none | CLOSED_UNUSED: E2 closed in development, all four w_b 0.00 (EDGE-1 annex §1.1) |
 | `NBM2` | NBM-2 | forecast/morning-nbm-guidance-read | none; may not use MG-1's window without a new owner decision | none yet | PLACEHOLDER (named in the synthesis; no pre-registration) |
 | `E3` | Maker markout, model-gated vs `blind_re1` | maker/model-gated-vs-blind | none | none | PLACEHOLDER; UNTESTABLE on forward weather dates ([GO/NO-GO rule](go-no-go-rule-DRAFT-2026-10-19.md) §2.3) |

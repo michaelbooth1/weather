@@ -38,6 +38,8 @@ Reading notes (workstation, not part of the quoted text):
   should block instead is owner question (i) (§5).
 - "EDGE-1 (D0 2026-10-28)" is the OD-A6 "held" branch; if the owner rules OD-A6 "not held", D0 is 2026-10-25 (EDGE-1
   annex §2.1). The rest of the rule does not depend on the branch.
+- "after Holm" is read as "after the instrument's pre-specified multiplicity rule (M6)": EDGE-1's finals are staggered,
+  so it uses a fixed sequence by default (annex §3; finding B2).
 - "DL:17" is quoted as relayed. The hurdle it names is in DECISION_LOG 2026-09-22 (H = 1.00 net/day per 100 deployed)
   and 2026-10-15 (H also governs G1 and G4).
 - "MG-1 is not GO" reads MG-1's own signed pass rule (MG-1 §4) plus the binding falsifiers of methods annex M7, which
@@ -50,7 +52,7 @@ Reading notes (workstation, not part of the quoted text):
 
 | Label | Condition | Notes |
 | --- | --- | --- |
-| **GO-eligible** | Rejected by Holm at the final look (M6) **and** every falsifier holds (M7: crossed, >= 8/11 per-market sign, input-removed twin < 75% of the effect) **and** the GO thresholds of §1 (a) or (b) are met | E2 additionally needs the 5%-of-market-Brier gain. |
+| **GO-eligible** | Rejected under the instrument's multiplicity rule at its own final look (M6; EDGE-1: fixed sequence, annex §3) **and** every falsifier holds (M7: crossed, >= 8/11 per-market sign, input-removed twin < 75% of the effect) **and** the GO thresholds of §1 (a) or (b) are met | E2 additionally needs the 5%-of-market-Brier gain. |
 | **NO-GO (futility)** | Interim Z below the M4 boundary (c = 0.2656 for EDGE-1). Non-binding: the arm may keep accruing, but it counts as "crossed futility" for Gate 1. | Spends no alpha. |
 | **NO-GO (final)** | Not rejected at the final look, or rejected but a falsifier fails. | No re-test on the same dates. |
 | **UNTESTABLE** | The H3 power simulator, run before D0, gives MDE80 above the bar (M4.4). | Not a measured null; **neither blocks nor satisfies NO-GO** (§1 as amended, §2.4); leaves the Holm family. |

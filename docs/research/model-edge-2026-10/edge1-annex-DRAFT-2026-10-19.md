@@ -181,7 +181,7 @@ branches are drafted; the owner's ruling selects one, and that ruling is a dated
 - **Seasonal segments reported, no alpha:** before/after DST end 2026-11-01 (OD30 lapses 11-02); before/after any
   served-release change.
 
-## 3. Hypotheses (the Holm family, M6)
+## 3. Hypotheses (the EDGE-1 family, M6)
 
 | Id | Arm | Endpoint | Declared block | H1 |
 | --- | --- | --- | --- | --- |
@@ -189,10 +189,18 @@ branches are drafted; the owner's ruling selects one, and that ruling is a dated
 | H-A1 | A1 | E1 | 00-16 | R < 1 |
 | ~~H-A2~~ | A2 | E2 | 00-16 | not in the family: E2 closed in development (section 1.1; OD-E5) |
 
-- **Family: one-sided α 0.025, Holm across the three** (0.025/3, then 0.025/2, then 0.025). A hypothesis marked
-  UNTESTABLE before D0 (M4.4) leaves the family and k drops.
-- **Why 00-16 and not each sub-block:** declaring the four sub-blocks for each arm would make k = 12 and the first Holm
-  step 0.0021. The sub-blocks 00-05, 06-09, 10-12, 13-16 are reported with their intervals, no alpha; the GO/NO-GO
+- **Family: one-sided α 0.025, finals staggered** (H-A0's final is earliest 12-10 / 12-13; H-A1's is after the t3-r3
+  look under OD-E1 (a), so a single Holm step at one final cannot run). **Default: fixed sequence.** H-A0 is tested
+  first, at its own final, at 0.025; H-A1 is tested at its own final, at 0.025, **only if H-A0 was rejected**; if
+  H-A0 is not rejected, H-A1 spends nothing and is reported with its intervals only (they still feed the NO-GO
+  clause). This keeps the full 0.025 on the arm whose final is read first and on which the power figures (section 8)
+  are computed; its cost is that an A1 that beats the market while A0 does not cannot give a GO.
+  **Owner-visible alternative:** Bonferroni, each hypothesis at 0.025/k at its own final, with Holm only among
+  hypotheses whose finals share one look (none under the defaults).
+- **k is recorded at D0** in the signing follow-up row, after any UNTESTABLE marking (M4.4) and OD-E5: under the
+  defaults k = 2 (H-A0, H-A1; H-A2 is not in the family), so the alternative would test each at 0.0125.
+- **Why 00-16 and not each sub-block:** declaring the four sub-blocks for each arm would make k = 8 and, under the
+  Bonferroni alternative, each level 0.0031. The sub-blocks 00-05, 06-09, 10-12, 13-16 are reported with their intervals, no alpha; the GO/NO-GO
   rule's NO-GO test reads their **lower** bounds, which needs no alpha. Owner option OD-E3: declare per-block
   hypotheses instead.
 - 17-23: differences only (M0 ratio floor), no alpha.
@@ -203,8 +211,8 @@ branches are drafted; the owner's ruling selects one, and that ruling is a dated
 - **Interim (20 countable dates): futility only, non-binding, spends nothing.** Boundary per M4.2: **c = 0.2656** for
   each of H-A0, H-A1, H-A2 (α_d 0.025, β 0.20, t = 20/45). "EDGE-1 crossed futility in every arm" (GO/NO-GO Gate 1)
   means Z < c for **every EDGE-1 hypothesis whose interim has been read** by 12-07 (GO/NO-GO rule §1, §2.4).
-- **Final (45 countable dates):** Holm on the three p-values, then the falsifiers (section 5) for each rejected
-  hypothesis.
+- **Final (45 countable dates, per hypothesis at its own final):** the section 3 multiplicity rule (default fixed
+  sequence H-A0 then H-A1), then the falsifiers (section 5) for each rejected hypothesis.
 - **H-A1's interim and final are additionally gated by section 6.3** (the t3-r3 look).
 
 ## 5. Falsifiers binding on any GO (M7, restated with EDGE-1 values)
@@ -255,7 +263,8 @@ Options (default **a**):
 
 ### 6.4 Alpha ledger
 
-EDGE-1 adds one family (three hypotheses, 0.025 one-sided, Holm) and reserves no date against any other family. It
+EDGE-1 adds one family (k = 2 under the defaults: H-A0, H-A1; 0.025 one-sided; fixed sequence by default, section 3)
+and reserves no date against any other family. It
 spends no CAMPAIGN_LEDGER decision. Rows: [alpha ledger](alpha-ledger-DRAFT-2026-10-19.md) `EDGE1-*`.
 
 ## 7. Validity (M8) plus EDGE-1 specifics
@@ -342,7 +351,8 @@ only if the arm definitions above are unchanged).
 - **OD-A6 (88a hold for snapshot market vectors):** not held → D0 2026-10-25 (master-agent recommendation); held →
   D0 2026-10-28.
 - **OD-E1:** the t3-r3 conflict (section 6.3): (a) default, (b), or (c).
-- **OD-E2:** sign or amend (arms, N 20/45, Holm over H-A0/H-A1/H-A2).
+- **OD-E2:** sign or amend (arms, N 20/45, multiplicity: fixed sequence H-A0 then H-A1 (default) or Bonferroni
+  0.025/k at each own final, k recorded at D0).
 - **OD-E3:** 00-16 declared block (default) or per-block hypotheses.
 - **OD-E4:** the A1 survivor list as filled (A1-1 = C-L13-BT; logistics if it meets the section 1 rules).
 - **OD-E6:** keep A1 as a separate arm (default) or drop A1-1 from it.
