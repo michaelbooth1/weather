@@ -1,7 +1,8 @@
 # Host Python upgrade runbook (capture host, 3.11.0 to 3.11.9)
 
 > **APPROVED by the owner 2026-10-12 (DECISION_LOG, §11)**, including the 2026-10-12 G0/G7 revisions
-> and the §7a calendar. The cutover night is 00:30 on 10-17.
+> and the §7a calendar. The cutover night was 00:30 on 10-17 and did not run; it is now 00:30 on Thu 10-22
+> (the night of 10-21 to 10-22; owner 2026-10-20 ~16:4x EDT, verbatim "Keep Python 10-21/22 (Recommended)", relayed by master-agent), on pre-N12 master. The state of play owns the date.
 > Nothing in this file authorizes a download, an install, a capture gap, a task change or a merge.
 > [The owner sign-off checklist](#11-owner-sign-off-checklist) lists what the owner must sign first.
 > Live orders, cancels and signing are out of scope here; the live launcher is resealed under its
@@ -67,7 +68,8 @@ long-running holder of the production venv with no stop verb, the capture-family
 C0 now requires every registered `WeatherMakerEvidence<Family>` task to be in `aux-tasks.txt` and its stop to be
 recorded as `STOP_AUTHORIZED` in `$R\q12b.txt` (Q12b); C2 stops it with the 88a worker; C9c checks it. **Every family step is conditional on registration:** C0 lists the registered `WeatherMakerEvidence<Family>` tasks, and with none, C0, C2 and C9c skip the family steps and never read `q12b.txt`. G3 now names the
 exact `roll_verdict.ps1` call, and **B-R** requalifies a stage venv in a new stage path when HEAD moved roll-sensitively after Phase B
-(N12 does), and §D now removes every qualification worktree. No date in this file changed; the state of play and the decision log own the cutover night.
+(N12 would), and §D now removes every qualification worktree. **B-R is parked:** C on 10-22 runs on pre-N12 master, so G3 rests on
+the Phase B tip; B-R is used only if C fails and N12 lands first. No date in this file changed; the state of play and the decision log own the cutover night.
 
 **Owns:** the procedure for moving the production checkout's `venv` from CPython 3.11.0 to 3.11.9
 on the 16 GB capture host. That covers a side-by-side install, an offline wheelhouse, a stage venv
@@ -532,7 +534,7 @@ morning: "00:30 on 10-16" is the night of 10-15 to 10-16.
 | A install (elevated operator session; no owner click since 2026-10-13) | **done**: P0-A2 10-13 08:54-08:57 (A4 NO-GO on the installer route); A' (A3 + A4, NuGet route) **PASS 10-14 05:23** after N9 handed back | none needed | It ran before §T, so §T ends with T-R. |
 | §T tzdata + T-R | 00:30-02:00 on Thu 10-15 | 00:30 on Fri 10-16 | First admitted night after N9 (00:30 on 10-14). |
 | B prep night | 00:30-04:45 on Fri 10-16 | 00:30 on Sat 10-17 | After A and after §T's T-R (B builds its lock from the refreshed freeze). |
-| C cutover | 00:30-02:25 on Sat 10-17 (owner-named) | the next night inside 10-15..10-30 that meets G4 and G5, named by the owner (G0) | The night after B, so the qualified tip has little time to move (G3); after the freeze (G8). If B uses its fallback (10-17), C moves too. |
+| C cutover | 00:30-02:25 on Sat 10-17 (owner-named; did not run). **Now 00:30-02:25 on Thu 10-22** (owner 2026-10-20 ~16:4x EDT, verbatim "Keep Python 10-21/22 (Recommended)", relayed by master-agent), before N12 | the next night inside 10-15..10-30 that meets G4 and G5, named by the owner (G0) | The night after B, so the qualified tip has little time to move (G3); after the freeze (G8). If B uses its fallback (10-17), C moves too. |
 | Latest second attempt | 00:30 on Thu 10-29 | none | Keeps 10-30 and 10-31 spare; never 11-01 (G11). |
 | §D cleanup | first admitted night after a C PASS that has no other lease user | any later night | Removes the stage worktree; not urgent. |
 
@@ -909,7 +911,7 @@ $q | ConvertTo-Json | Set-Content "$R\qualification.json" -Encoding utf8
 
 Keep `$Stage` until §D.
 
-**B-R. Requalify on a moved tip (only when G3 fails; added 2026-10-19).** A qualification binds the tip it
+**B-R. Requalify on a moved tip (only when G3 fails; added 2026-10-19; parked: used only if C fails and N12 lands first).** A qualification binds the tip it
 tested. When HEAD has since moved by a roll-sensitive change (G3), run B-R on an admitted night **before**
 the cutover night, under the Phase B rules (B0 window, G5, G7, suite start by 03:00); never on the cutover night.
 It reuses the wheelhouse and the A1 receipts, so it downloads nothing:

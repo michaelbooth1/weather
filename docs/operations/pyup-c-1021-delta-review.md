@@ -1,11 +1,13 @@
-# Phase C delta review for a post-N12 cutover (2026-10-19)
+# Phase C delta review for the 10-22 cutover (2026-10-19, replanned 2026-10-20)
 
 Status: **dated review, evidence only.** It records what the host Python upgrade kit assumed when it was
 last checked (Phase B, 2026-10-16) and what changes once N12 and #190 land. The procedure itself lives in
 [the host Python upgrade runbook](HOST_PYTHON_UPGRADE_RUNBOOK.md). The cutover night, and the owner's GO,
 live in [the state of play](STATE_OF_PLAY.md) and [the decision log](DECISION_LOG.md).
 
-Read when: you prepare or run the Phase C night that follows N12 (`claude/integration-20261019-chain-r3`) and #190.
+Read when: you prepare or run the Phase C night of 10-21 to 10-22. **Read section 4b first:** after the 10-20 replan, C runs
+on pre-N12 master, and sections 2, 4, 4a, 5 and 6 describe the superseded post-N12 plan. They now apply only to
+a C that has to run after N12 lands (N12 is now 10-22/23).
 Read it together with the runbook's 2026-10-19 revision note. This review ran nothing on or against the capture host.
 
 ## 0. Inputs (git, read on the workstation)
@@ -105,6 +107,44 @@ re-merged on post-N12 master, #190 should therefore be **tests-only and roll-fre
   The 88a restart that S2+S9 needs waits until after a C PASS.
 - **B-R night kit:** `night-plans/2026-10-21/pyup-phase-br/` on `claude/night-plans-br-20261020`. It holds `phase-br-run.ps1`, with HEAD pinned by `-ExpectedHead`, installs only from the offline wheelhouse, a new stage path, and `qualification.json` written only on PASS. A `-DryRun` option checks the gates without changing anything. No Phase B night script was ever in git.
 
+## 4b. Replan of 2026-10-20 (supersedes 4a's calendar)
+
+- **Owner:** "Keep Python 10-21/22 (Recommended)" (owner 2026-10-20 ~16:4x EDT, relayed by master-agent).
+  N12 did **not** land on 10-19/20.
+- **Calendar:**
+  - 10-20/21 has no merge and no B-R; it carries the lever-5 Toronto replay only;
+  - **10-21/22 is Phase C** on master `6aac6de81a25bd939b954c5e7f29db02b2fd2fee`, or on master after master's Wed docs-only head;
+  - 10-22/23 is N12 = chain-r3 `739c03eff` (including #190);
+  - 10-23/24 is the MG-1 bound, then SD-1.
+  - U6, the capture-family task, `WeatherEvidenceHost` and the 88a S2+S9 restart all stay after a C PASS.
+- **G3:** the qualified tip is the Phase B tip `90b2e1844`, which is an ancestor of `6aac6de81`. The check is
+  `roll_verdict.ps1 -Branch <HEAD> -Base 90b2e1844…` and must exit 0. Master runs it on the host, and the C0 log line names it.
+- **B-R:** parked. It runs only if C fails and N12 lands first. Its kit stays on `claude/night-plans-br-20261020`.
+- **Non-doc, non-test changes from `90b2e1844` to `6aac6de81`, and what each does to the kit:**
+
+  | Path | What it is | Effect on C |
+  | --- | --- | --- |
+  | `config/locations.json` | one line: `event_metadata.last_refreshed_at_utc`, 10-15 → 10-18 | none |
+  | `config/location_market_events.json` | event refresh | none |
+  | `src/weather/market/maker_counterfactual_tape.py` | new offline exporter (item 330 build 2) | none |
+  | `scripts/ops/bounded_worktree_test_suite.ps1` | the 10-16 dirty-paths change and the 10-18 capture-probe fix | none: C runs no suite (it would matter only to a B-R) |
+  | `scripts/ops/workload_admission.ps1` | the workstation offline allowlist only | none: the lease functions §6 dot-sources are unchanged |
+  | `scripts/ops/workstation_pregate_driver.ps1` | workstation pregate driver | none |
+  | `.codex/hooks/pre_tool_use_host_load.py` | a Codex hook | none: no runtime role |
+
+  Why the config files and the new module do not matter:
+  - Both config files are host-generated drift that the "preserve fleet-generated drift" commits (`77ccac5ef`,
+    `d813243f3`) copied from the production tree, so the host already holds those bytes.
+  - `config/` is outside `runtime_identity.SOURCE_PATTERNS` and outside every loaded-module closure.
+  - Nothing that C compares or proves reads either config file: not the C1 freeze, not `Test-Venv`, not
+    `capture_runtime_versions` (which reads `pyproject.toml`), not release `active`.
+  - `maker_counterfactual_tape.py` is imported by no `src/`, `app/`, `tools/` or `scripts/` module. Its only mention
+    is the workstation offline allowlist string in `workload_admission.ps1`, so it is in no capture-loop closure.
+
+  No `pyproject.toml`, `requirements*.txt` or pin file changed, so `freeze-3110`, `rtv-3110`, the wheelhouse and
+  `constants.json` stand. **Delta for C: none beyond the calendar.** Two caveats: G3's `roll_verdict.ps1` exit 0 is
+  confirmed on the host, and the Q12b, G5 and §R edits on this branch stay in force.
+
 ## 5. Re-takes and their order
 
 1. **Night 10-19/20:** N12 lands (quiet-window merge).
@@ -137,7 +177,7 @@ G5 requires that no other lease user and no task change touches that night. Chec
 
 ## 7. Open questions
 
-1. **Answered (section 4a).** Option A: B-R on 10-20/21, C on 10-21/22. #190's tests-only remainder lands after C.
+1. **Answered, then superseded by section 4b.** Option A (B-R on 10-20/21) was replaced on 10-20: C runs on 10-21/22 on pre-N12 master, with G3 on 90b2e1844. N12, including #190, follows on 10-22/23.
 2. **Answered (section 4a).** The family task, `WeatherEvidenceHost` and U6 are not registered, and they stay unregistered until after a C PASS. Q12b is not needed.
 3. **Answered (section 4a).** S2+S9+P1, S4 and the maker replay v2 transfer are on neither 10-20/21 nor 10-21/22.
 4. **Answered (section 4a).** U6 stays unregistered until after a C PASS, so its first night follows the C PASS.
