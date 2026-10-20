@@ -16,14 +16,13 @@
   ([alpha ledger](alpha-ledger-DRAFT-2026-10-19.md)). MG-1 keeps its own signed pass rule; this file only reads
   MG-1's outcome.
 
-## 1. Master-agent synthesis (verbatim; binding text of the programme rule)
+## 1. Master-agent synthesis (relayed, amended where marked; binding text of the programme rule)
 
 > **Source: master-agent model-edge synthesis 2026-10-19, relayed.** The full synthesis is on the capture host at
 > `C:\tmp\agent-kit\model-edge-plan-20261019.md` and was not readable from the workstation; the block below is the
-> excerpt master-agent relayed for verbatim inclusion. **PLACEHOLDER for any further synthesis text:** master-agent
-> pastes any other section it wants bound here, verbatim, before the owner signs; nothing below was invented.
+> excerpt master-agent relayed for inclusion, amended only where marked (reading notes). Nothing below was invented.
 
-> "Instruments EDGE-1 (D0 2026-10-28), MG-1 (as signed) and NBM-2 are scored once each at their declared looks on promotion-countable dates, labels from the settlement ledger only. The primary estimand is fixed-market date-clustered, with crossed, per-market sign and input-removed falsifiers binding on any GO.
+> "Instruments EDGE-1 (D0 per EDGE-1 annex §2.1), MG-1 (as signed) and NBM-2 are scored once each at their declared looks on promotion-countable dates, labels from the settlement ledger only. The primary estimand is fixed-market date-clustered, with crossed, per-market sign and input-removed falsifiers binding on any GO.
 > GO (weather keeps maker priority): any arm, after Holm, has (a) an upper bound of R below 1.00 in a pre-declared block; or (b) a blend-minus-market upper bound below 0 with a gain of at least 5% of market Brier; or (c) a model-gated vs blind_re1 markout lower bound above 0 under both strictly_through and at_price fill rules, with net value clearing H = 1.00 per day per 100 deployed (DL:17).
 > NO-GO (maker engineering moves to YouTube; weather capture and signed reads continue; a late GO reopens weather): for every one of A0, A1, A2, MG-1 and the NBM-2 arms **whose declared look has been read by the decision date** [B1], the lower bound of R is above 1.05 in every 00-16 block, the E2 upper bound is above -0.5% of market Brier **or E2 is UNTESTABLE or not scored** [B1], and E3 is either below 0.2 c/share upper bound or UNTESTABLE. **An arm that is UNTESTABLE, dropped, deferred past the decision date or unsigned neither blocks nor satisfies NO-GO; at least one arm must have been read** [B1]. The retrain is either scored or explicitly waived.
 > Early NO-GO at Gate 1 (2026-12-07) if MG-1 is not GO, EDGE-1 has crossed futility in **every EDGE-1 hypothesis whose interim has been read** [B1], and no development survivor is queued.
@@ -36,8 +35,9 @@ Reading notes (workstation, not part of the quoted text):
   so NO-GO was unreachable and 12-21 could only give GO or INCONCLUSIVE. The relayed wording is in git at
   `2fa95f0fb99e90ab74c612800632f1abd5f53884`. Which arms count at each decision date: §2.4. Whether absent arms
   should block instead is owner question (i) (§5).
-- "EDGE-1 (D0 2026-10-28)" is the OD-A6 "held" branch; if the owner rules OD-A6 "not held", D0 is 2026-10-25 (EDGE-1
-  annex §2.1). The rest of the rule does not depend on the branch.
+- "EDGE-1 (D0 per EDGE-1 annex §2.1)" replaces the relayed "(D0 2026-10-28)", which was the OD-A6 "held" branch
+  only; D0 is 2026-10-25 or 2026-10-28 by the owner's OD-A6 ruling and the N12 clock (finding 9). The rest of the rule
+  does not depend on the branch.
 - **"No development survivor is queued"** means: no development survivor holds a `DRAFT` alpha-ledger row dated
   (`recorded_at`) before 2026-12-07 (finding 8).
 - "after Holm" is read as "after the instrument's pre-specified multiplicity rule (M6)": EDGE-1's finals are staggered,
