@@ -70,6 +70,11 @@ market Brier, or E2 UNTESTABLE or not scored. These are read at the final look f
 lower bound of R is at or below 1.05 in some 00-16 sub-block does **not** satisfy the NO-GO clause; the programme is
 then INCONCLUSIVE unless another clause decides it.
 
+**MG-1 (finding 10).** MG-1 as signed reports a ratio to market for 00-16, not per sub-block (MG-1 prereg §6 reporting
+list). **Default: MG-1's NO-GO clause reads its 00-16 interval only** (lower bound of R above 1.05 at 00-16). Reading a
+per-sub-block R for MG-1 instead would be a **new read of MG-1's reserved dates**, outside its signed reporting, and
+would need its own owner decision before MG-1's look.
+
 ### 2.4 Which arms count at a decision date (B1)
 
 An arm counts towards NO-GO at a decision date only if its declared look (the final; for early NO-GO, the interim)
