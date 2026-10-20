@@ -69,7 +69,7 @@ C0 now requires every registered `WeatherMakerEvidence<Family>` task to be in `a
 recorded as `STOP_AUTHORIZED` in `$R\q12b.txt` (Q12b); C2 stops it with the 88a worker; C9c checks it. **Every family step is conditional on registration:** C0 lists the registered `WeatherMakerEvidence<Family>` tasks, and with none, C0, C2 and C9c skip the family steps and never read `q12b.txt`. G3 now names the
 exact `roll_verdict.ps1` call, and **B-R** requalifies a stage venv in a new stage path when HEAD moved roll-sensitively after Phase B
 (N12 would), and §D now removes every qualification worktree. **B-R is parked:** C on 10-22 runs on pre-N12 master, so G3 rests on
-the Phase B tip; B-R is used only if C fails and N12 lands first. No date in this file changed; the state of play and the decision log own the cutover night.
+the Phase B tip; B-R is used only if C fails and N12 lands first. Dates changed in this revision (2026-10-20 replan): the header and the §7a C row now name 00:30 on Thu 10-22, G4 and §R "Escalation" carry the owner's ruling for that night, and G7's 10-17 C date is marked as history. The state of play and the decision log still own the cutover night.
 
 **Owns:** the procedure for moving the production checkout's `venv` from CPython 3.11.0 to 3.11.9
 on the 16 GB capture host. That covers a side-by-side install, an offline wheelhouse, a stage venv
@@ -111,10 +111,10 @@ The live SDK portability check accepts any 3.11 patch release
 | G1 | The bounded suite supports `-InterpreterPath` and `-ExpectedInterpreterVersion` (`scripts/ops/bounded_worktree_test_suite.ps1:44-52`). | Met on master; re-read `param(` if the script changed |
 | G2 | Phase A and Phase B passed on earlier nights, and `$R\qualification.json` has `"result":"PASS"`. | C0 |
 | G3 | The production HEAD equals the qualified tip, or `scripts\ops\roll_verdict.ps1 -Branch <HEAD sha> -Base <qualified tip sha>` exits 0 (ROLL-FREE; exit 3 or 1 fails G3). A failed G3 needs B-R (requalify on the new tip) on an earlier night, or an owner ruling. | C0 |
-| G4 | The owner is reachable from 00:30 to 03:45 on the cutover night: GO at C0, and any escalation up to the end of §R. Phase A needs no owner click since the 2026-10-13 revision (A4 has no installer).  **For C on the night of 10-21 to 10-22** the escalation rule is the owner's "Auto net, you in the morning" (owner 2026-10-19 ~13:1x EDT, selected options relayed by master-agent), which supersedes the DECISION_LOG rows of 2026-10-13 (advance GO, automatic rollback) and 2026-10-17 (the owner's own GO that night) on who answers an escalation; GO at C0 still comes from the owner in chat (§R, "Escalation"). | C0 |
+| G4 | The owner is reachable from 00:30 to 03:45 on the cutover night: GO at C0, and any escalation up to the end of §R. Phase A needs no owner click since the 2026-10-13 revision (A4 has no installer).  **For C on the night of 10-21 to 10-22** the escalation rule is the owner's "Auto net, you in the morning (Recommended)" (owner 2026-10-19 ~13:1x EDT, selected options relayed by master-agent), which supersedes the DECISION_LOG rows of 2026-10-13 (advance GO, automatic rollback) and 2026-10-17 (the owner's own GO that night) on who answers an escalation; GO at C0 still comes from the owner in chat (§R, "Escalation"). | C0 |
 | G5 | No other lease user is due that night. Specifically: <br>- `WeatherTrainingWindow` (a 01:00 one-shot, `register_training_window.ps1:3`) is disabled or has no trigger that night; <br>- Stage B `WeatherEveningEvidenceRefresh` (00:35, holds the lease to 09:00 when enabled; `register_daily_refresh.ps1:20-24`) is disabled; <br>- a U6 export registered at 00:35 (Q3) is disabled (enforced in B0 and C0 by `Assert-NoU6At0035`);<br>- no integration attempt, quiet-window merge, storage one-shot or held-head work is scheduled;<br>- no host replay or research batch (for example a lever-5 or item 337 replay) is scheduled or still running, and none holds the lease. | Phase B (B0), C0 |
 | G6 | Release case A: `artifacts\releases\current_release.json` is absent (H5, B3, C0). Case B or C is NO-GO for this runbook (§8). | H5, B3, C0 |
-| G7 (LFC) | The cutover night (and any Phase B prep night) is not the night before or the night of a scheduled LFC session. Revised 2026-10-12 (owner-confirmed): it no longer waits for LFC session 0, which the owner postponed. **Dated exception 2026-10-14** (owner: "Keep B" (2026-10-14 16:27 EDT, relayed verbatim by master-agent); DECISION_LOG 2026-10-13 LFC session 0 row): Phase B runs at 00:30 on 10-16, the morning of LFC session 0 (Fri 10-16), on the guard that B ends clean by 09:00 with the 8765 reader and capture re-checked, else session 0 slips; C stays at 00:30 on 10-17. | Phase B (B0), C0 |
+| G7 (LFC) | The cutover night (and any Phase B prep night) is not the night before or the night of a scheduled LFC session. Revised 2026-10-12 (owner-confirmed): it no longer waits for LFC session 0, which the owner postponed. **Dated exception 2026-10-14** (owner: "Keep B" (2026-10-14 16:27 EDT, relayed verbatim by master-agent); DECISION_LOG 2026-10-13 LFC session 0 row): Phase B runs at 00:30 on 10-16, the morning of LFC session 0 (Fri 10-16), on the guard that B ends clean by 09:00 with the 8765 reader and capture re-checked, else session 0 slips; C stays at 00:30 on 10-17 (history: 10-17 plan; C is now 00:30 on 10-22, §7a). | Phase B (B0), C0 |
 | G8 (88a) | The night is after the 88a merge freeze in the state of play. `$R\q12.txt` records the owner's Q12 choice as `STOP_AUTHORIZED` with its DECISION_LOG reference. Any other value means NO-GO, because the 88a worker would hold the venv. | Sign-off, C0, C2 |
 | G9 (tzdata) | The tzdata sequencing is decided (Q13), so the freeze comparison in `Test-Venv` cannot false-fail. | Before Phase B |
 | G10 (seals) | No live attempt is planned between the cutover and the reseal. | Sign-off |
@@ -1400,7 +1400,7 @@ Keep `venv-cp3119-failed` and `$R` for diagnosis. If 3/3 is not reached by 03:45
 owner. The aux tasks stay disabled, so a 04:10 U6 export cannot start on a half-restored venv. The
 04:15 restore trigger stays armed.
 
-**Escalation (C on the night of 10-21 to 10-22).** The owner's ruling, verbatim: "Auto net, you in the morning"
+**Escalation (C on the night of 10-21 to 10-22).** The owner's ruling, verbatim: "Auto net, you in the morning (Recommended)"
 (owner 2026-10-19 ~13:1x EDT, selected options relayed by master-agent). If capture is not 3/3 by 03:45, the 04:15 `WeatherTrainingWindowRestore` task stays the automatic
 net and nobody improvises a further repair overnight. Master-agent records everything (`night.log`, `$N`, the holders
 files, the lease state) and messages the owner, who acts when up. The lease rules above still apply, including the
@@ -1494,7 +1494,7 @@ The owner initials each line in the decision log. Recommendations come first.
 - [ ] **Capture gap:** about 20-35 minutes for the capture workers, and somewhat longer for the
       execution tape, the maker shadow and 88a (they restart at C9b). Confirm this is within the
       approved one-gap budget, and that the gap's timing against the desk-study panel window is
-      acceptable. **MG-1 and the 10-22 gap** (C on the night of 10-21 to 10-22): "Test's own rule decides" (owner 2026-10-19 ~13:1x EDT, selected options relayed by master-agent):
+      acceptable. **MG-1 and the 10-22 gap** (C on the night of 10-21 to 10-22): "Test's own rule decides (Recommended)" (owner 2026-10-19 ~13:1x EDT, selected options relayed by master-agent):
       MG-1's signed rule alone decides whether 2026-10-22 counts. That is the promotion-countable condition, MG-1
       §3 (e), with the countable-date population of §4 and the void conditions of §6
       (`docs/research/morning-guidance-read-mg1-preregistration-2026-10-04.md`, binding sha in

@@ -6,8 +6,9 @@ last checked (Phase B, 2026-10-16) and what changes once N12 and #190 land. The 
 live in [the state of play](STATE_OF_PLAY.md) and [the decision log](DECISION_LOG.md).
 
 Read when: you prepare or run the Phase C night of 10-21 to 10-22. **Read section 4b first:** after the 10-20 replan, C runs
-on pre-N12 master, and sections 2, 4, 4a, 5 and 6 describe the superseded post-N12 plan. They now apply only to
-a C that has to run after N12 lands (N12 is now 10-22/23).
+on pre-N12 master, and sections 2, 4, 4a and 5 describe the superseded post-N12 plan. They now apply only to
+a C that has to run after N12 lands (N12 is now 10-22/23). Section 6 stays live: it is the G5 exclusivity checklist
+that binds the 10-21/22 night.
 Read it together with the runbook's 2026-10-19 revision note. This review ran nothing on or against the capture host.
 
 ## 0. Inputs (git, read on the workstation)
@@ -16,15 +17,16 @@ Read it together with the runbook's 2026-10-19 revision note. This review ran no
 | --- | --- | --- |
 | `origin/master` | `6aac6de81a25bd939b954c5e7f29db02b2fd2fee` | today's production source |
 | N12 `claude/integration-20261019-chain-r3` | `739c03eff1e2f26c49759899e4e39b669d2c6628` | post-N12 master tree; 218 files change against master |
-| #190 `claude/nbm-parser-v2-r2-20261019` | `44a8c50e9a829cfca167bfdc387929b7adbaf421` | re-merged on post-N12 master on Tue 10-20 |
+| #190 `claude/nbm-parser-v2-r2-20261019` | `44a8c50e9a829cfca167bfdc387929b7adbaf421` | lands inside N12 chain-r3 on the night of 10-22/23 (section 4), after C |
 | `git merge-tree --write-tree 739c03eff 44a8c50e9` | tree `481a6590b3eb4f788f6fd61edad914b27ed4beb2` | simulated post-#190 tree; it conflicts in two test files only |
 
 ## 1. Why Phase C has not run, and what is still open
 
 - **10-17:** C did not run because the owner had not given GO by 01:15. Nothing was touched (DECISION_LOG
   2026-10-17). The kit itself was not the cause.
-- **10-19/20:** the owner's 10-19 ruling, "10-21/22 for python", relayed by master-agent, replaces this night. N12 also
-  runs as a quiet-window merge that night, and G5 forbids a merge on a C night. The DL row and the re-dating belong
+- **10-19/20:** the owner's 10-19 ruling, "10-21/22 for python.", relayed by master-agent, replaces this night. N12 was
+  planned as a quiet-window merge that night (G5 forbids a merge on a C night), but it did not land on 10-19/20;
+  it is now the night of 10-22/23, after C (section 4b). The DL row and the re-dating belong
   to master.
 - Still unresolved from Phase B:
   - (a) There is no procedure for a HEAD that moves after qualification. G3 says only that the move must be
@@ -43,7 +45,7 @@ Read it together with the runbook's 2026-10-19 revision note. This review ran no
 | 2 | The venv holders are capture, the tape, the shadow and 88a (C2 `$Holders`; Q12). | N12 adds `WeatherMakerEvidenceLowestTemperature` (`config/scheduled_tasks.json` state `active`; registrar `register_maker_evidence_family_capture.ps1`). It is S4U `pythonw -m weather.market.maker_evidence_capture --family lowest_temperature`, with a 1-minute `IgnoreNew` trigger and no stop verb. If registered and not stopped, the C4 holder sweep refuses the rename, and the night is NO-GO with no swap. | Runbook edits: the Disabled-at-C2 list; C0 asserts it is in `aux-tasks.txt` and that `$R\q12b.txt` = `STOP_AUTHORIZED` (new owner choice Q12b); C2 stops it next to 88a; C9b restarts it through `$Holders`; C9c checks `data\maker_evidence_families\<id>\status.json`. |
 | 3 | `aux-tasks.txt` and `tasks-venv.csv` come from the 10-13..16 H3 dumps. | The task set changed (row 2). | Before C0, re-take §4 H3 and rebuild `aux-tasks.txt` (A1 review). List only registered tasks: C2 throws on a wrong name. |
 | 4 | U6 first night "2026-10-20 ... after cutover C" (DECISION_LOG 2026-10-15). | 10-20 now comes before C. | Re-date U6 to after a C PASS (earliest 04:10 on Fri 10-23), or record that it runs on 3.11.0 until C. Either way C2 disables it from C2 to C9b, and `Assert-NoU6At0035` only covers a 00:35 slot. |
-| 5 | The calendar text: the header "cutover night is 00:30 on 10-17", G7's dated exception "C stays at 00:30 on 10-17", the §7a C row, and the state of play's "next C night 10-19/20". | Superseded by the owner's 10-19 ruling. | Master re-dates it (a DL row plus a state-of-play rewrite). **Not edited on this branch.** |
+| 5 | The calendar text: the header "cutover night is 00:30 on 10-17", G7's dated exception "C stays at 00:30 on 10-17", the §7a C row, and the state of play's "next C night 10-19/20". | Superseded by the owner's 10-19 ruling. | Master re-dates the state of play and the DL row. **Edited on this branch (2026-10-20 replan):** the runbook header and §7a C row now name 00:30 on Thu 10-22, G7's 10-17 C date is marked as history, and the revision note lists these changes. |
 | 6 | Line citations | After N12: `snapshot_tracker.py` `LOOP_STATUS_PATH` :240 → :245, stop authorization :796 → :801, `--stop` :2413-2415 → :2418-2420; `maker_evidence_capture.py` parser :365-372 → :397-405 (still no stop verb), `store.seal()` :355 → :387; `maker_evidence_store.py` torn journal :143 → :179; `windows-qualification.yml` `python-version: '3.11.0'` :244 → :247 on master and :254 after N12. `supervisor.py` citations (≤ :1361) do not move, because N12 adds code only from :1578. | Behaviour is unchanged. §9 now cites the lane pin by its content. The other citations are evidence pointers and are left as they are. |
 | 7 | `status.ps1` output | After N12 it also runs `venv python -m weather.reporting.market.capture_family_status`, which adds `CAPTURE_FAMILY` flags (a disabled family is informational) and a `CAPTURE_REGISTRY` warn. | No change: the baseline is taken per night at C0. At C8 a disabled family raises no flag. The new C9c bullet waits for the family's first fresh status, because `STARTING` would otherwise be a new flag. |
 | 8 | `roll_verdict.ps1` closures | After N12 it reads `config/capture_families.json` `platform.roll_closures` fail-closed (a bad registry gives exit 1, UNDECIDABLE). Its parameters and exit codes are unchanged. | G3 treats exit 1 as a failure (runbook edit). |
@@ -74,7 +76,7 @@ Read it together with the runbook's 2026-10-19 revision note. This review ran no
   (`Get-ConfirmedHealthyCaptureWorkerCount` :543, used by `Assert-HostAdmission` :577) matters only to a B-R B2,
   where capture is running. Phase C runs no suite.
 - **git.exe binding:** it is only used by B2. Re-read the host values (path, SHA-256, file version) if B-R runs.
-- **STALE_CODE:** N12 rolls capture at its own merge (10-19/20). The C swap does not, because `venv` is outside the
+- **STALE_CODE:** N12 rolls capture at its own merge (now the night of 10-22/23). The C swap does not, because `venv` is outside the
   fingerprint. N12 also starts workers with BLAS threads capped at 1 (`supervisor.capped_worker_env`), and C7
   inherits that.
 
@@ -167,7 +169,7 @@ re-merged on post-N12 master, #190 should therefore be **tests-only and roll-fre
 ## 6. The 10-21/22 night (and any B-R night) is exclusive
 
 G5 requires that no other lease user and no task change touches that night. Check each of these against the night plan:
-- the lever-5 final-vector host replay (master, after N12, from `4743a7048`) and the item 337 no-METAR replay;
+- the lever-5 Toronto host replay (tool `bd75f710a`, run on the night of 10-20/21; it must have ended and released the lease before C0) and the item 337 no-METAR replay;
 - data layer v2 S2+S9+P1, "10-21 night": an 88a code change through an integration attempt, with an 88a restart
   at 00:30-01:00;
 - S4 evidence host, "10-22 night": a new venv holder, `WeatherEvidenceHost`;
@@ -181,6 +183,6 @@ G5 requires that no other lease user and no task change touches that night. Chec
 2. **Answered (section 4a).** The family task, `WeatherEvidenceHost` and U6 are not registered, and they stay unregistered until after a C PASS. Q12b is not needed.
 3. **Answered (section 4a).** S2+S9+P1, S4 and the maker replay v2 transfer are on neither 10-20/21 nor 10-21/22.
 4. **Answered (section 4a).** U6 stays unregistered until after a C PASS, so its first night follows the C PASS.
-5. **Answered.** MG-1 and the 10-22 gap: "Test's own rule decides" (owner 2026-10-19 ~13:1x EDT, selected options relayed by master-agent). MG-1's signed promotion-countable rule (prereg §3 (e), §4 population, §6 void conditions; `docs/research/morning-guidance-read-mg1-preregistration-2026-10-04.md`, bound by sha in [the reserved confirmation window](reserved-confirmation-window.md)) alone decides whether 2026-10-22 counts. There is no special exception either way. No 10-16+ evidence was read. The runbook's §11 records it.
-6. **Answered.** §R escalation: "Auto net, you in the morning" (owner 2026-10-19 ~13:1x EDT, selected options relayed by master-agent). If capture is not 3/3 by 03:45, the 04:15 `WeatherTrainingWindowRestore` task stays the automatic net. Master-agent records everything and messages the owner, who acts when up. For C on 10-21/22 this supersedes DL 10-13 and DL 10-17 on who answers. It is in the runbook's G4, Phase C table and §R "Escalation". The DL row is master's (Tue).
+5. **Answered.** MG-1 and the 10-22 gap: "Test's own rule decides (Recommended)" (owner 2026-10-19 ~13:1x EDT, selected options relayed by master-agent). MG-1's signed promotion-countable rule (prereg §3 (e), §4 population, §6 void conditions; `docs/research/morning-guidance-read-mg1-preregistration-2026-10-04.md`, bound by sha in [the reserved confirmation window](reserved-confirmation-window.md)) alone decides whether 2026-10-22 counts. There is no special exception either way. No 10-16+ evidence was read. The runbook's §11 records it.
+6. **Answered.** §R escalation: "Auto net, you in the morning (Recommended)" (owner 2026-10-19 ~13:1x EDT, selected options relayed by master-agent). If capture is not 3/3 by 03:45, the 04:15 `WeatherTrainingWindowRestore` task stays the automatic net. Master-agent records everything and messages the owner, who acts when up. For C on 10-21/22 this supersedes DL 10-13 and DL 10-17 on who answers. It is in the runbook's G4, Phase C table and §R "Escalation". The DL row is master's (Tue).
 7. G7: the LFC campaign was backlogged on 10-19 (relayed, no DL row yet). Confirm that no session is set for 10-22.
