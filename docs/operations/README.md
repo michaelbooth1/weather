@@ -124,6 +124,7 @@ contract and a reviewed cleanup manifest.
 | [free-registration-signup-list.md](free-registration-signup-list.md) | Adding a source that needs a free registration key, or checking where such a key may live (never in git). |
 | [storage-plan-2026-09-23.md](storage-plan-2026-09-23.md) | Free space below the green band, a heavy job refusing on disk, or before any compress/archive/reclaim. |
 | [live-testing-plan-2026-09-25.md](live-testing-plan-2026-09-25.md) | Preparing the last RE-1 session or proposing post-RE-1 live experiments. |
+| [lever2-learning-registration-proposal-2026-10-20.md](lever2-learning-registration-proposal-2026-10-20.md) | Dated proposal: before enabling Stage B or registering any `daily_learning` / scoreboard task (Q-11, exhaustion-register order 1). |
 | [OPEN_QUESTIONS.md](OPEN_QUESTIONS.md) | Choosing what to analyse next; naming the question ids a handoff serves; updating rows on handback. |
 | [DECISION_LOG.md](DECISION_LOG.md) | When and why the owner decided something, or whether a decision was superseded. |
 | [fail-forward-recovery.md](fail-forward-recovery.md) | A guard, marker or lock blocks work and you must decide whether to clear it or stop. |
