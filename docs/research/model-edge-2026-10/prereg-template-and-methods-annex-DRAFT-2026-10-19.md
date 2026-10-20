@@ -118,6 +118,9 @@ For arm a and block b over the countable market-days of the look:
 - **Label: "complementary information".** A blend that beats the market shows the model carries information the
   market's prices do not; it is **not** a claim that the model alone beats the market (that is E1), and it is not by
   itself an edge or a trading result. It is reported under that label in every summary.
+- **Degenerate fit:** if every w_b the instrument declares is 0.00, the blend **is** the market and D ≡ 0. The arm is
+  then **closed in development** (a measured development null for the exhaustion register), not UNTESTABLE (M4.4): it
+  gets no forward instrument and no hypothesis, and it neither blocks nor satisfies a NO-GO clause.
 - **Training-score rule (EF §5):** the frozen blend's Brier on its own development fit dates is computed and reported
   first; a blend that does not beat the market on its own training dates is reported and its forward look still
   runs, but GO under E2 then also needs the owner's explicit acceptance.

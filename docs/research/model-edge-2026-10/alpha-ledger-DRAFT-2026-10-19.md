@@ -50,7 +50,8 @@ Proposed and placeholder rows (this programme):
 | Row | Instrument | Family | Dates | Alpha | Status |
 | --- | --- | --- | --- | --- | --- |
 | `CL-B` | Model-edge Stage-B sealed-panel decisions | sealed-panel (mirror) | stratum B only | at most 2 x 0.0025 two-sided from CAMPAIGN_LEDGER, q = 3.1098893; batched survivors only | PROPOSED (master-agent synthesis caveat, relayed 2026-10-19) |
-| `EDGE1-A0`, `EDGE1-A1`, `EDGE1-A2` | EDGE-1 H-A0 / H-A1 / H-A2 | forecast/model-vs-market-edge1 | D0 2026-10-25 (OD-A6 not held) or 2026-10-28 (held); 45 countable; interim 20 | one family, 0.025 one-sided, Holm over 3; interim spends nothing | DRAFT ([EDGE-1 annex](edge1-annex-DRAFT-2026-10-19.md)) |
+| `EDGE1-A0`, `EDGE1-A1` | EDGE-1 H-A0 / H-A1 | forecast/model-vs-market-edge1 | D0 2026-10-25 (OD-A6 not held) or 2026-10-28 (held); 45 countable; interim 20 | one family, 0.025 one-sided, Holm over 3; interim spends nothing | DRAFT ([EDGE-1 annex](edge1-annex-DRAFT-2026-10-19.md)) |
+| `EDGE1-A2` | EDGE-1 A2 (E2) | forecast/model-vs-market-edge1 | none | none | CLOSED_UNUSED: E2 closed in development, all four w_b 0.00 (EDGE-1 annex §1.1) |
 | `NBM2` | NBM-2 | forecast/morning-nbm-guidance-read | none; may not use MG-1's window without a new owner decision | none yet | PLACEHOLDER (named in the synthesis; no pre-registration) |
 | `E3` | Maker markout, model-gated vs `blind_re1` | maker/model-gated-vs-blind | none | none | PLACEHOLDER; UNTESTABLE on forward weather dates ([GO/NO-GO rule](go-no-go-rule-DRAFT-2026-10-19.md) §2.3) |
 

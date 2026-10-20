@@ -36,7 +36,7 @@
 | --- | --- | --- | --- | --- |
 | **A0** | The served model as served after 2026-10-09: `ML_MODEL_VERSION` v0.5.12 (lock-in v3 + v4 pre-lock-in floor + #189 keying), default switches, the active bundle; the captured served vector of record, release id per row. | E1 | code hash frozen on the **post-N12 master** (after N12 lands, now the 10-22/23 night) and before D0 (section 1.2) | **T0, forecast-removed / climatology-prior twin** (section 1.1) |
 | **A1** | A0 + the t3-r3 stage `remaining_rise_floor_v1` (artifact sha256 `b727fe1a897f8786afcd89514f0bae4a82d9e03ad951f2d72db9e228dd2afb09`, as signed DL 2026-10-16) + the non-NBM development survivors listed below, composed in the listed order, **frozen as one hash**; shadow only. | E1 | one hash before D0, on the post-N12 A0 | A1 with the t3-r3 and A1-1 inputs blanked = **A0 exactly** (section 1.1) |
-| **A2** | The E2 blend (M2): linear pool per block of **A0** and the snapshot market vector, weights w_b fit on 2026-07-31..2026-09-29 only, weight file frozen into the hash. | E2 | weight fit and hash before D0 | none needed: **H-A2 is UNTESTABLE before D0** (development 00-16 blend weight 0.00, so A2 equals the market; see below) |
+| **A2** | The E2 blend (M2): linear pool per block of **A0** and the snapshot market vector, weights w_b fit on 2026-07-31..2026-09-29 only, weight file frozen into the hash. | E2 | not frozen: **E2 closed in development** (w_b = 0.00 in each sub-block on 07-31..09-29); no forward E2 instrument; H-A2 not in the family (k = 2) | none (A2 is the market itself; see section 1.1) |
 
 ### 1.1 Input-removed twins (M7.3), consistent with harness v3 control (f)
 
@@ -75,8 +75,13 @@ components and cell keys; A1-1: the observed bucket and cutoff), each stage fall
 twin is **A0 exactly**. Falsifier 3 then asks whether A0 alone already carries 75% or more of A1's improvement over the
 market, i.e. whether t3-r3 + A1-1 contribute less than a quarter of it.
 
-**A2:** no twin is specified. The development 00-16 blend weight is 0.00 (lever 8, screens doc §9), so A2 equals the
-market and **H-A2 is UNTESTABLE before D0** (M4.4) unless the owner changes A2's definition (OD-E5).
+**A2:** **E2 closed in development** (w_b = 0.00 in each sub-block on 07-31..09-29); no forward E2 instrument; H-A2 not in the family (k = 2). With w = 0 in every block, A2 **is** the market and D ≡ 0: the arm is degenerate, not
+under-powered, so it is a **measured development null** (for the exhaustion register), not UNTESTABLE (M2, M4.4).
+Verified against the development screen record (screens doc §9, lever 8, `claude/model-edge-screens-20261019` @
+`4d3e25699a8afe3a34d9e979c6aa950b6ca16389`): C-L8-E2S (served + market, A2's construction) has full-development
+weights **0.00 / 0.00 / 0.00 / 0.00** for 00-05 / 06-09 / 10-12 / 13-16 (and 0.00 at 17-23 and 00-16), and 0.00 in both
+2-fold fits; its out-of-fold blend − market is 0.0 exactly in every block. No date >= 2026-09-30 was read for this. The
+owner may redefine A2 (OD-E5); a redefined A2 would need its own development fit and a re-run of the NO-GO simulation.
 
 ### 1.2 Freezing A0 after N12 (calendar, master-agent 2026-10-20)
 
@@ -113,9 +118,10 @@ default because t3-r3 is signed and A1 is its composite carrier against the mark
 **Screened and not in A1:**
 - **C-L7-V2Q** (captured NBM v2 quantiles): survives the kill rule but adds nothing over MG-1 (+0.00099 [−0.00094,
   +0.00292], 4/11), and it reads NBM guidance, so it belongs to MG-1's reserved family in any case.
-- **Lever 8, the E2 blends (C-L8-E2S, C-L8-E2M):** killed; the development 00-16 blend weight is **0.00**. Consequence
-  for A2: with the frozen development fit, A2 equals the market exactly at 00-16, so H-A2 cannot show a gain; it is
-  marked UNTESTABLE before D0 under M4.4 unless the owner changes A2's definition (OD-E5); E2 is then not scored,
+- **Lever 8, the E2 blends (C-L8-E2S, C-L8-E2M):** killed; the development blend weight of C-L8-E2S is **0.00 in each
+  of the four sub-blocks** (00-05, 06-09, 10-12, 13-16). Consequence for A2: A2 equals the market exactly, so E2 is
+  **closed in development** (a measured development null, not UNTESTABLE); there is no forward E2 instrument and H-A2
+  is not in the family (k = 2) unless the owner redefines A2 (OD-E5); E2 is then not scored,
   which under the amended NO-GO E2 clause ("or E2 is UNTESTABLE or not scored", GO/NO-GO rule §1, §2.4) neither
   blocks nor satisfies NO-GO.
 
@@ -130,8 +136,8 @@ guidance** (anything that does belongs to the MG-1 reserved family, reserved-con
 frozen parameters, and pass the screen's own training-score check (EF §5). An empty list is allowed (A1 = A0 + t3-r3).
 Nothing may be added after the arm hash is frozen.
 
-**A2 uses A0, not A1,** because A1 is not frozen before 10-22 and A1 inherits the t3-r3 conflict (section 6.3). Owner
-option OD-E5 is now: drop A2 as UNTESTABLE (default) or redefine it.
+**A2 would use A0, not A1,** because A1 is not frozen before 10-22 and A1 inherits the t3-r3 conflict (section 6.3).
+Owner option OD-E5 is now: record E2 as closed in development and carry no A2 (default), or redefine A2.
 
 ## 2. Population, D0 and looks
 
@@ -181,7 +187,7 @@ branches are drafted; the owner's ruling selects one, and that ruling is a dated
 | --- | --- | --- | --- | --- |
 | H-A0 | A0 | E1 | 00-16 | R < 1 |
 | H-A1 | A1 | E1 | 00-16 | R < 1 |
-| H-A2 | A2 | E2 | 00-16 | D_E2 < 0 |
+| ~~H-A2~~ | A2 | E2 | 00-16 | not in the family: E2 closed in development (section 1.1; OD-E5) |
 
 - **Family: one-sided α 0.025, Holm across the three** (0.025/3, then 0.025/2, then 0.025). A hypothesis marked
   UNTESTABLE before D0 (M4.4) leaves the family and k drops.
@@ -340,8 +346,10 @@ only if the arm definitions above are unchanged).
 - **OD-E3:** 00-16 declared block (default) or per-block hypotheses.
 - **OD-E4:** the A1 survivor list as filled (A1-1 = C-L13-BT; logistics if it meets the section 1 rules).
 - **OD-E6:** keep A1 as a separate arm (default) or drop A1-1 from it.
-- **OD-E5:** A2 dropped as UNTESTABLE unless the owner redefines it (default: drop; the development blend weight was
-  0.00, i.e. the model added nothing beyond the market price on those dates).
+- **OD-E5:** E2 closed in development (w_b = 0.00 in each sub-block on 07-31..09-29; no forward E2 instrument; H-A2
+  not in the family, k = 2) unless the owner redefines A2 (default: closed; the model added nothing beyond the market
+  price on those dates). Proposed EXHAUSTION_REGISTER entry at signature (production docs change, not in this
+  draft): "E2 frozen blend, served + market: CLOSED in development, all four w_b 0.00 (screens doc §9)".
 
 ## Sources
 
