@@ -395,12 +395,45 @@ also carries the full SHA of the pinned post-N12 master commit (section 1.2). k 
 - **OD-E3:** 00-16 declared block (default) or per-block hypotheses.
 - **OD-E4:** the A1 survivor list as filled (A1-1 = C-L13-BT; logistics if it meets the section 1 rules).
 - **OD-E6:** keep A1 as a separate arm (default) or drop A1-1 from it.
+- **Question (h):** LA and SF live marine and the SST refresh, capture only (section 13); default yes.
 - **OD-E7:** A0's binding twin T1 keeps `nws_hourly` alone (default) or Open-Meteo alone (section 1.1); T0 stays a
   non-binding sanity control either way.
 - **OD-E5:** E2 closed in development (w_b = 0.00 in each sub-block on 07-31..09-29; no forward E2 instrument; H-A2
   not in the family, k = 2) unless the owner redefines A2 (default: closed; the model added nothing beyond the market
   price on those dates). Proposed EXHAUSTION_REGISTER entry at signature (production docs change, not in this
   draft): "E2 frozen blend, served + market: CLOSED in development, all four w_b 0.00 (screens doc §9)".
+
+## 13. Owner question (h): LA and SF live marine and the SST refresh (capture only; not an EDGE-1 arm)
+
+Question (GO/NO-GO rule §5 (h)), default **yes**: build LA and SF live-marine registry entries and a scheduled SST
+water-contrast refresh, **outcome-blind, as capture and features only**. Any model use goes through a later
+pre-registration; nothing here enters A0, A1, T1 or any EDGE-1 date.
+
+- **What the code has (checked 2026-10-20 on this branch's base, no data read):** `MARINE_CONTEXT_REGISTRY`
+  (`src/weather/sources/marine_context.py:50-198`) is keyed by market id. It **does** hold one CO-OPS entry each under
+  `los-angeles` (9410660, Los Angeles) and `san-francisco` (9414290, San Francisco), and both markets list the
+  `marine_context` source (`src/weather/market/market_registry.py`). So the gap is not a missing key. It is that
+  **live marine data has been dark since 2026-06-13** because the sidecar refresh is unscheduled, and
+  `marine_water_contrast` is `disabled_unpinned` (EXHAUSTION_REGISTER S27; `pooled_training.py`). The LA/SF station
+  choice has never been reviewed under the Q-20 rule. Whether the host's capture writes LA/SF marine rows today was
+  not checked; it is a host coverage count.
+- **Q-20 mechanism rule (OPEN_QUESTIONS Q-20; EXHAUSTION_REGISTER order 13):** a stated physical mechanism and a
+  no-source control **before** capture. Stations are chosen on geography and mechanism only, without reading labels,
+  scores or market prices.
+- **LA candidates:** NDBC **46025** (Santa Monica Basin buoy: offshore SST and onshore-flow wind upstream of KLAX in
+  sea-breeze and marine-layer regimes); CO-OPS **9410660** (Los Angeles, already registered: nearshore water and air
+  temperature). Proposed: both, 46025 as the upstream SST source and 9410660 as the nearshore contrast.
+- **SF candidates (proposed by the same rule):** NDBC **46026** (San Francisco bar, about 18 NM west: the Pacific SST and
+  upwelling signal that drives the marine layer through the Golden Gate and San Bruno Gap towards KSFO); CO-OPS
+  **9414290** (San Francisco, already registered: water at the Gate). Proposed: both. A south-bay CO-OPS gauge nearer
+  KSFO is a third option, to be named at build time.
+- **No-source control (declared now):** the same features computed from the climatological SST for the station and
+  calendar day (prior years only), so that a later pre-registration can separate live marine information from
+  seasonality.
+- **Station IDs are proposed from public station listings and are to be verified against the NOAA station pages at
+  build time.** No external fetch was made for this draft.
+- **Cost:** one capture build (registry rows, a refresh entry point, tests on fixtures) plus one scheduled task, after
+  the host Python C upgrade. It is a roll-sensitive serving-source change if a loop imports it (roll verdict decides).
 
 ## Sources
 
