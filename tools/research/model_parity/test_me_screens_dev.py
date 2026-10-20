@@ -54,4 +54,10 @@ def test_me_screens_phase():
         (out / "screens.json").write_text(json.dumps(rec, indent=1, default=float), encoding="utf-8")
         assert not rec["leakage_suspects"]
         return
+    if phase == "tail":
+        from tools.research.model_parity import me_tail_resplit
+        rec = me_tail_resplit.run(LAYOUT)
+        rec["git_head"] = _head()
+        (out / "tail_resplit.json").write_text(json.dumps(rec, indent=1, default=float), encoding="utf-8")
+        return
     raise AssertionError(f"unknown phase {phase!r}")
