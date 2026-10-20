@@ -110,9 +110,15 @@ owner may redefine A2 (OD-E5); a redefined A2 would need its own development fit
 - **N12** (`chain-r3` `739c03eff`, which includes #190, NBM parser v2) moved from the 10-19/20 night to the **10-22/23**
   night. `ML_MODEL_VERSION` stays **v0.5.12** in N12, so A0's version is unchanged, but N12 changes serving-path source
   (`model_features.py` and others). **A0's code hash is therefore frozen on the post-N12 master, after N12 lands and
-  before D0**; T0, A1 and A2 are frozen on that A0.
-- **If N12 slips past 10-24, D0 = 2026-10-25 is not reachable and D0 = 2026-10-28 applies** whatever OD-A6 says (the
-  freeze plus one full prior day of stored vectors must precede D0). If it slips further, D0 is the first date satisfying
+  before D0**; T1, T0 and A1 are frozen on that A0.
+- **"Post-N12 master" is pinned** as **the first `master` commit containing `739c03eff1e2f26c49759899e4e39b669d2c6628`**
+  (N12's `chain-r3` tip, full SHA from `git rev-parse`). Its own full SHA goes in the A0 logistics row:
+  `<SHA SLOT: first master commit containing 739c03eff1e2, filled once landed>`. Filling that slot is a
+  **logistics fill, not a rule change** (DL 2026-10-13): the rule (that commit) is fixed here; only its identity is
+  looked up after the landing.
+- **Clock for "N12 lands by 10-24":** post-N12 code serving before the first T+0 snapshot of local 2026-10-24 in the earliest US timezone (one full prior day of stored
+  vectors before D0 = 10-25). **If that is missed, D0 = 2026-10-25 is not reachable and D0 = 2026-10-28 applies**
+  whatever OD-A6 says (the freeze plus one full prior day of stored vectors must precede D0). If it slips further, D0 is the first date satisfying
   the section 2 non-outcome conditions after the post-N12 freeze.
 - **MG-1:** its bound-window change (`e342baca1`) moves to the **10-23/24** night, and MG-1's staging needs #190, so it
   is after 10-22/23. Neither changes EDGE-1 (section 6.1).
@@ -189,7 +195,7 @@ branches are drafted; the owner's ruling selects one, and that ruling is a dated
 
 - The calendar columns assume every date is countable; each missed date moves the look one date later. They are
   logistics (DL 2026-10-13), not rules.
-- **The 10-25 branch also needs N12 landed by 10-24** (section 1.2); otherwise D0 = 2026-10-28.
+- **The 10-25 branch also needs post-N12 code serving before the first T+0 snapshot of local 2026-10-24 in the earliest US timezone** (section 1.2); otherwise D0 = 2026-10-28.
 - **Embargo, binding in both branches:** the owner refused all descriptive reads of UTC 2026-10-16..11-13 until the
   panel closes, with scored reads only after the close under a signed pre-registration (DL 2026-10-17). Every EDGE-1
   join therefore happens after 11-13 whatever the branch; under the not-held branch the interim's 20th date is the
@@ -371,8 +377,9 @@ non-binding. A1 uses the generic mechanism unchanged.
 ## 11. Signature
 
 UNSIGNED. On signature the owner adds one DECISION_LOG row with this file's raw SHA-256, the methods annex's raw
-SHA-256, the OD-A6 branch (D0), and the A0/A1/A2 arm hashes (A1/A2 may follow in a second row before D0, logistics
-only if the arm definitions above are unchanged).
+SHA-256, the OD-A6 branch (D0), and the A0/A1 arm hashes. **The A0 hash (with T1/T0) may follow in a second logistics
+row before D0, like A1's, provided section 1 is unchanged**, because N12 may not be on master by the signing; that row
+also carries the full SHA of the pinned post-N12 master commit (section 1.2). k is recorded in the same row (section 3).
 
 ## 12. Owner decisions this draft needs
 
