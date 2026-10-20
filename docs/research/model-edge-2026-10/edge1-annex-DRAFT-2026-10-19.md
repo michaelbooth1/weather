@@ -115,8 +115,9 @@ default because t3-r3 is signed and A1 is its composite carrier against the mark
   +0.00292], 4/11), and it reads NBM guidance, so it belongs to MG-1's reserved family in any case.
 - **Lever 8, the E2 blends (C-L8-E2S, C-L8-E2M):** killed; the development 00-16 blend weight is **0.00**. Consequence
   for A2: with the frozen development fit, A2 equals the market exactly at 00-16, so H-A2 cannot show a gain; it is
-  marked UNTESTABLE before D0 under M4.4 unless the owner changes A2's definition (OD-E5), and the NO-GO E2 clause then
-  always holds (GO/NO-GO rule §4).
+  marked UNTESTABLE before D0 under M4.4 unless the owner changes A2's definition (OD-E5); E2 is then not scored,
+  which under the amended NO-GO E2 clause ("or E2 is UNTESTABLE or not scored", GO/NO-GO rule §1, §2.4) neither
+  blocks nor satisfies NO-GO.
 
 **Not screened — host extract required (nothing here implies they were tested):**
 - **Lever 6:** Toronto GEM/HRDPS and the captured-but-unscored ensemble members; the input is only on the capture host.
@@ -195,7 +196,7 @@ branches are drafted; the owner's ruling selects one, and that ruling is a dated
 
 - **Interim (20 countable dates): futility only, non-binding, spends nothing.** Boundary per M4.2: **c = 0.2656** for
   each of H-A0, H-A1, H-A2 (α_d 0.025, β 0.20, t = 20/45). "EDGE-1 crossed futility in every arm" (GO/NO-GO Gate 1)
-  means Z < c for every hypothesis still in the family.
+  means Z < c for **every EDGE-1 hypothesis whose interim has been read** by 12-07 (GO/NO-GO rule §1, §2.4).
 - **Final (45 countable dates):** Holm on the three p-values, then the falsifiers (section 5) for each rejected
   hypothesis.
 - **H-A1's interim and final are additionally gated by section 6.3** (the t3-r3 look).
@@ -288,9 +289,9 @@ spends no CAMPAIGN_LEDGER decision. Rows: [alpha ledger](alpha-ledger-DRAFT-2026
   | half effect, R = 1 + (R_dev − 1)/2 | 0.087 | 0.207 | 0.358 |
   | null, R = 1 | 0 | 0 | 0 |
 
-  Sensitivity with served-vs-market variance components: 0.28-0.43 at the dev-observed R (20-90 dates). The
-  development-fit 00-16 blend weight is **0.00**, so E2 equals the market and the E2 clause always holds: NO-GO rests on
-  the R clause alone. **If a draft freezes a non-zero blend weight, this simulation must be re-run.**
+  Sensitivity with served-vs-market variance components: 0.28-0.43 at the dev-observed R (20-90 dates). Every
+  development-fit blend weight is **0.00**, so E2 is not scored; under the amended NO-GO (GO/NO-GO rule §1, §2.4) that
+  neither blocks nor satisfies NO-GO, and the per-arm NO-GO rests on the R clause alone. **If a draft freezes a non-zero blend weight, this simulation must be re-run.**
 - **"NO-GO likely within ~20 dates" is INFERENCE;** supporting computation P(NO-GO at 20) = 0.821 under the
   dev-observed R.
 - **Interim:**

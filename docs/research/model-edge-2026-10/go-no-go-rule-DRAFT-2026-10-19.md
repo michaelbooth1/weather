@@ -25,11 +25,17 @@
 
 > "Instruments EDGE-1 (D0 2026-10-28), MG-1 (as signed) and NBM-2 are scored once each at their declared looks on promotion-countable dates, labels from the settlement ledger only. The primary estimand is fixed-market date-clustered, with crossed, per-market sign and input-removed falsifiers binding on any GO.
 > GO (weather keeps maker priority): any arm, after Holm, has (a) an upper bound of R below 1.00 in a pre-declared block; or (b) a blend-minus-market upper bound below 0 with a gain of at least 5% of market Brier; or (c) a model-gated vs blind_re1 markout lower bound above 0 under both strictly_through and at_price fill rules, with net value clearing H = 1.00 per day per 100 deployed (DL:17).
-> NO-GO (maker engineering moves to YouTube; weather capture and signed reads continue; a late GO reopens weather): for every one of A0, A1, A2, MG-1 and the NBM-2 arms, the lower bound of R is above 1.05 in every 00-16 block, the E2 upper bound is above -0.5% of market Brier, and E3 is either below 0.2 c/share upper bound or UNTESTABLE. The retrain is either scored or explicitly waived.
-> Early NO-GO at Gate 1 (2026-12-07) if MG-1 is not GO, EDGE-1 has crossed futility in every arm, and no development survivor is queued.
+> NO-GO (maker engineering moves to YouTube; weather capture and signed reads continue; a late GO reopens weather): for every one of A0, A1, A2, MG-1 and the NBM-2 arms **whose declared look has been read by the decision date** [B1], the lower bound of R is above 1.05 in every 00-16 block, the E2 upper bound is above -0.5% of market Brier **or E2 is UNTESTABLE or not scored** [B1], and E3 is either below 0.2 c/share upper bound or UNTESTABLE. **An arm that is UNTESTABLE, dropped, deferred past the decision date or unsigned neither blocks nor satisfies NO-GO; at least one arm must have been read** [B1]. The retrain is either scored or explicitly waived.
+> Early NO-GO at Gate 1 (2026-12-07) if MG-1 is not GO, EDGE-1 has crossed futility in **every EDGE-1 hypothesis whose interim has been read** [B1], and no development survivor is queued.
 > Otherwise INCONCLUSIVE: the owner decides on 2026-12-21. Both branches must be shown reachable before signing."
 
 Reading notes (workstation, not part of the quoted text):
+- **Amended 2026-10-20 (independent review of bundle B, finding B1).** The quoted text is no longer verbatim at the
+  points marked [B1]: as relayed, it required a bound for every one of A0, A1, A2, MG-1 and NBM-2, but under this
+  bundle's own defaults A2 is closed in development, A1's look falls after 12-21 and NBM-2 has no dates before 2027,
+  so NO-GO was unreachable and 12-21 could only give GO or INCONCLUSIVE. The relayed wording is in git at
+  `2fa95f0fb99e90ab74c612800632f1abd5f53884`. Which arms count at each decision date: §2.4. Whether absent arms
+  should block instead is owner question (i) (§5).
 - "EDGE-1 (D0 2026-10-28)" is the OD-A6 "held" branch; if the owner rules OD-A6 "not held", D0 is 2026-10-25 (EDGE-1
   annex §2.1). The rest of the rule does not depend on the branch.
 - "DL:17" is quoted as relayed. The hurdle it names is in DECISION_LOG 2026-09-22 (H = 1.00 net/day per 100 deployed)
@@ -47,16 +53,37 @@ Reading notes (workstation, not part of the quoted text):
 | **GO-eligible** | Rejected by Holm at the final look (M6) **and** every falsifier holds (M7: crossed, >= 8/11 per-market sign, input-removed twin < 75% of the effect) **and** the GO thresholds of §1 (a) or (b) are met | E2 additionally needs the 5%-of-market-Brier gain. |
 | **NO-GO (futility)** | Interim Z below the M4 boundary (c = 0.2656 for EDGE-1). Non-binding: the arm may keep accruing, but it counts as "crossed futility" for Gate 1. | Spends no alpha. |
 | **NO-GO (final)** | Not rejected at the final look, or rejected but a falsifier fails. | No re-test on the same dates. |
-| **UNTESTABLE** | The H3 power simulator, run before D0, gives MDE80 above the bar (M4.4). | Not a measured null; cannot satisfy a NO-GO clause that needs a bound; leaves the Holm family. |
+| **UNTESTABLE** | The H3 power simulator, run before D0, gives MDE80 above the bar (M4.4). | Not a measured null; **neither blocks nor satisfies NO-GO** (§1 as amended, §2.4); leaves the Holm family. |
+| **CLOSED IN DEVELOPMENT** | The arm is degenerate on development dates (for EDGE-1 A2: every E2 blend weight w_b is 0.00, so A2 is the market and D ≡ 0). | A measured development null (exhaustion register), not UNTESTABLE; no forward instrument, no alpha; not scored, so it neither blocks nor satisfies NO-GO. |
 | **VOID** | A validity condition fails (M8). | Dates spent; reported with the reason. |
 
 ### 2.2 The NO-GO clause needs bounds, not only failed passes
 
-The §1 NO-GO requires, for every arm, **lower** bounds of R above 1.05 in every 00-16 sub-block (00-05, 06-09, 10-12,
-13-16) and an E2 upper bound above −0.5% of market Brier. These are read at the final look from the reported
-sub-block intervals (fixed-market, 95% two-sided percentile, no alpha). An arm that merely fails its GO test but whose
+The §1 NO-GO requires, for every arm **whose declared look has been read by the decision date** (§2.4), **lower**
+bounds of R above 1.05 in every 00-16 sub-block (00-05, 06-09, 10-12, 13-16) and an E2 upper bound above −0.5% of
+market Brier, or E2 UNTESTABLE or not scored. These are read at the final look from the reported sub-block intervals
+(fixed-market, 95% two-sided percentile, no alpha). An arm that merely fails its GO test but whose
 lower bound of R is at or below 1.05 in some 00-16 sub-block does **not** satisfy the NO-GO clause; the programme is
 then INCONCLUSIVE unless another clause decides it.
+
+### 2.4 Which arms count at a decision date (B1)
+
+An arm counts towards NO-GO at a decision date only if its declared look (the final; for early NO-GO, the interim)
+has been read by that date. An arm that is UNTESTABLE, CLOSED IN DEVELOPMENT, dropped, deferred past the date, or
+unsigned **neither blocks nor satisfies NO-GO**. At least one arm must have been read, otherwise the outcome is
+INCONCLUSIVE. Under the bundle defaults:
+
+| Arm | Look read by Gate 1 (12-07)? | Look read by 12-21? | Why |
+| --- | --- | --- | --- |
+| A0 | interim yes (earliest 11-15 / 11-18) | final yes (earliest 12-10 / 12-13) | EDGE-1 annex §2.1 |
+| A1 | no | no | looks deferred past the t3-r3 look (OD-E1 default (a)), which lands in Dec/Jan (question (b)) |
+| A2 | — | — | CLOSED IN DEVELOPMENT (all four w_b = 0.00; annex §1.1); E2 not scored |
+| MG-1 | its single look, if read by then | yes (45th countable date from D0 10-15, provisional last 11-28) | MG-1 §4-§6 as signed; its 00-16 interval only (§2.2 note) |
+| NBM-2 | no | no | unsigned; no dates before 2027 under question (d)'s default |
+
+So under the defaults the 12-21 NO-GO rests on A0 and MG-1, and early NO-GO on MG-1 not GO plus A0's interim. If
+the owner answers question (i) "absent arms block", NO-GO at 12-21 is unreachable under the defaults (only GO or
+INCONCLUSIVE), and early NO-GO stays as written.
 
 ### 2.3 E3 (maker markout) — which document holds a model-gated arm
 
@@ -119,9 +146,10 @@ then INCONCLUSIVE unless another clause decides it.
   | half effect, R = 1 + (R_dev − 1)/2 | 0.087 | 0.207 | 0.358 |
   | null, R = 1 | 0 | 0 | 0 |
 
-  Sensitivity with served-vs-market variance components: 0.28-0.43 at the dev-observed R (20-90 dates). The
-  development-fit 00-16 blend weight is **0.00**, so E2 equals the market and the E2 clause always holds: NO-GO rests on
-  the R clause alone. **If a draft freezes a non-zero blend weight, this simulation must be re-run.**
+  Sensitivity with served-vs-market variance components: 0.28-0.43 at the dev-observed R (20-90 dates). Every
+  development-fit blend weight is **0.00**, so A2 is CLOSED IN DEVELOPMENT and E2 is not scored; under the amended §1
+  that neither blocks nor satisfies NO-GO, and the per-arm NO-GO rests on the R clause alone. **If a draft freezes a
+  non-zero blend weight, this simulation must be re-run.**
 
 - **"NO-GO likely within ~20 dates" remains INFERENCE.** The supporting computation is P(NO-GO at 20 dates) = 0.821
   under the dev-observed R (MG-1-like variance); it falls to 0.087 at the half effect and 0.28 with served-vs-market
@@ -150,6 +178,7 @@ then INCONCLUSIVE unless another clause decides it.
 - **(e) A2:** A2 dropped as UNTESTABLE unless the owner redefines it? Default (recommended): drop. In plain terms: the blend weight fitted on development dates was 0.00, meaning the model added nothing beyond the market price on those dates.
 - **(f) A1 composition:** A1 = A0 + t3-r3 + A1-1 (C-L13-BT, about 0.3% of the 00-16 gap, negligible), so A1 differs from A0 essentially by t3-r3; keep A1 as a separate arm, or drop A1-1 from it? Default (recommended): keep A1 as a separate arm, since t3-r3 is signed and A1 is its composite carrier, with its looks deferred per question (b).
 - **(g) Thresholds:** Accept the crossed falsifier at a one-sided 80% bound and UNTESTABLE at MDE80 > 0.05 on R? Default (recommended): accept both as drafted.
+- **(i) Absent arms at a decision date:** Should an arm whose look has not been read by the decision date (A1, deferred past t3-r3; NBM-2, unsigned) block NO-GO, so that 12-21 can only give GO or INCONCLUSIVE under the defaults? Default (recommended): no; such an arm neither blocks nor satisfies NO-GO, which then rests on A0 and MG-1 (§2.4).
 
 ## 6. Owner decisions
 
