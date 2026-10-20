@@ -38,6 +38,8 @@ Reading notes (workstation, not part of the quoted text):
   should block instead is owner question (i) (§5).
 - "EDGE-1 (D0 2026-10-28)" is the OD-A6 "held" branch; if the owner rules OD-A6 "not held", D0 is 2026-10-25 (EDGE-1
   annex §2.1). The rest of the rule does not depend on the branch.
+- **"No development survivor is queued"** means: no development survivor holds a `DRAFT` alpha-ledger row dated
+  (`recorded_at`) before 2026-12-07 (finding 8).
 - "after Holm" is read as "after the instrument's pre-specified multiplicity rule (M6)": EDGE-1's finals are staggered,
   so it uses a fixed sequence by default (annex §3; finding B2).
 - "DL:17" is quoted as relayed. The hurdle it names is in DECISION_LOG 2026-09-22 (H = 1.00 net/day per 100 deployed)
