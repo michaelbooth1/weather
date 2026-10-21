@@ -6,6 +6,7 @@ UTC instant, never by naive label, and a true-local series must keep its 23/25-h
 Fixture bytes only; no network.
 """
 
+import hashlib
 import json
 import socket
 from datetime import datetime, timedelta
@@ -14,12 +15,16 @@ import pytest
 
 from weather.sources import forecast_training_corpus_fetch as fetch
 from weather.sources.forecast_training_corpus import (
+    PlanValidationError,
     StagingValidationError,
     build_plan,
     hours_in_local_date,
+    load_plan,
     materialize_corpus,
     resolve_provider_times,
+    resume_ledger,
     stage_response,
+    verify_plan,
     write_immutable_plan,
 )
 
@@ -202,3 +207,155 @@ def test_resolve_provider_times_modes():
         ["2021-11-07T01:00", "2021-11-07T01:00"], "America/New_York", -14400
     )
     assert mode == "true_local"
+
+
+# --- Request padding (master GO 2026-10-21): the pad supplies the edge hour. ---
+
+def _rehash(plan):
+    body = {key: value for key, value in plan.items() if key != "plan_sha256"}
+    plan["plan_sha256"] = hashlib.sha256(
+        json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+    return plan
+
+
+def _oct_dec_plan(tmp_path, *, pad, name="plan.json"):
+    plan = build_plan(
+        years=(2021,),
+        target_year=2026,
+        market_ids=("nyc",),
+        season_start=(10, 1),
+        season_end=(12, 31),
+        cutoff_hours=(7, 20),
+        planned_at_utc="2026-10-21T00:00:00+00:00",
+        source_fields=("temperature_2m",),
+        pad_request_days=pad,
+    )
+    path = tmp_path / name
+    write_immutable_plan(path, plan)
+    return plan, path
+
+
+def test_default_plan_hash_is_unchanged_with_padding_off():
+    kwargs = dict(
+        years=(2021,),
+        target_year=2026,
+        market_ids=("toronto",),
+        season_start=(5, 10),
+        season_end=(5, 10),
+        cutoff_hours=(10,),
+        planned_at_utc="2026-01-01T00:00:00+00:00",
+    )
+    expected = "951b52dc6a543ce70726cc61d152bb9039f5b1f7c139f2e9c8cad5c0973ef5c7"
+    assert build_plan(**kwargs)["plan_sha256"] == expected
+    assert build_plan(**kwargs, pad_request_days=0)["plan_sha256"] == expected
+    assert "request_padding" not in build_plan(**kwargs)
+
+
+def test_padded_plan_records_pad_and_keeps_target_dates(tmp_path):
+    plan, _path = _oct_dec_plan(tmp_path, pad=1)
+    request = plan["requests"][0]
+    assert plan["request_padding"]["enabled"] is True and plan["request_padding"]["days"] == 1
+    assert request["request_pad_days"] == 1
+    assert (request["params"]["start_date"], request["params"]["end_date"]) == ("2021-09-30", "2022-01-01")
+    assert (request["window_start"], request["window_end"]) == ("2021-10-01", "2021-12-31")
+    assert len(request["expected_local_dates"]) == 92
+    assert plan["summary"]["expected_market_dates"] == 92
+    with pytest.raises(PlanValidationError, match="target year"):
+        build_plan(years=(2025,), target_year=2026, market_ids=("nyc",), season_start=(12, 1),
+                   season_end=(12, 31), source_fields=("temperature_2m",), pad_request_days=1)
+    with pytest.raises(PlanValidationError, match="between 0 and"):
+        build_plan(years=(2021,), market_ids=("nyc",), pad_request_days=9)
+
+
+def test_realistic_edt_labelled_oct_dec_series_passes_with_padding(tmp_path):
+    plan, path = _oct_dec_plan(tmp_path, pad=1)
+    request = plan["requests"][0]
+    labels = _labels("2021-09-30T00:00", 94 * 24)  # 2021-09-30 .. 2022-01-01, EDT-labelled
+    body = json.loads(_body(request, labels, utc_offset_seconds=-14400))
+    field = request["variables"][0]["request_field"]
+    body["hourly"][field][-1] = None  # a null in a pad-only row never fails a planned date
+    stage_response(
+        path,
+        tmp_path / "staging",
+        request["request_hash"],
+        json.dumps(body).encode("utf-8"),
+        http_status=200,
+        retrieved_at_utc="2026-10-21T01:00:00Z",
+        issue_evidence=fetch.issue_evidence_for(request),
+    )
+    manifest_path = materialize_corpus(path, tmp_path / "staging", tmp_path / "publish")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["request_padding"] == plan["request_padding"]
+    hourly = _rows(manifest_path, "forecast_hourly.jsonl")
+    by_date = {}
+    for row in hourly:
+        by_date.setdefault(row["target_date"], []).append(row)
+
+    # (b) pad rows never reach the output or any completeness count.
+    assert sorted(by_date) == request["expected_local_dates"]
+    assert len(hourly) == 91 * 24 + 25
+    assert manifest["row_counts"]["daily"] == 92 * 2
+    assert manifest["row_counts"]["coverage"] == 92 * 2
+    assert max(row["values"]["target_temp_native"] for row in hourly) == 2232.0
+    assert min(row["values"]["target_temp_native"] for row in hourly) == 24.0
+
+    oct1 = by_date["2021-10-01"]
+    assert len(oct1) == 24
+    assert oct1[0]["valid_time_utc"] == "2021-10-01T04:00:00+00:00"
+    nov7 = by_date["2021-11-07"]
+    assert len(nov7) == 25
+    assert nov7[0]["valid_time_utc"] == "2021-11-07T04:00:00+00:00"
+    assert nov7[-1]["valid_time_utc"] == "2021-11-08T04:00:00+00:00"
+    assert nov7[-1]["valid_time_local"] == "2021-11-07T23:00:00-05:00"
+    dec31 = by_date["2021-12-31"]
+    assert len(dec31) == 24
+    assert dec31[0]["valid_time_utc"] == "2021-12-31T05:00:00+00:00"
+    assert dec31[-1]["valid_time_utc"] == "2022-01-01T04:00:00+00:00"
+    assert dec31[-1]["values"]["target_temp_native"] == 2232.0  # label 2022-01-01T00:00
+    daily = {(r["target_date"], r["cutoff_hour_local"]): r for r in _rows(manifest_path, "forecast_daily.jsonl")}
+    assert daily[("2021-12-31", 7)]["forecast_high_native"] == 2232.0
+    assert daily[("2021-12-31", 7)]["feature_as_of_utc"] == "2021-12-31T12:00:00+00:00"
+
+
+def test_realistic_series_without_padding_still_fails_closed(tmp_path):
+    plan, path = _oct_dec_plan(tmp_path, pad=0)
+    request = plan["requests"][0]
+    labels = _labels("2021-10-01T00:00", 92 * 24)
+    with pytest.raises(StagingValidationError, match="incomplete_hourly_envelope:2021-12-31:23"):
+        _stage(path, tmp_path / "staging", request, labels, utc_offset_seconds=-14400)
+
+
+def test_pad_mismatch_is_refused_by_verify_and_resume(tmp_path):
+    padded, padded_path = _oct_dec_plan(tmp_path, pad=1, name="padded.json")
+    _plain, plain_path = _oct_dec_plan(tmp_path, pad=0, name="plain.json")
+
+    dropped = _rehash({k: v for k, v in json.loads(json.dumps(padded)).items() if k != "request_padding"})
+    with pytest.raises(PlanValidationError, match="request padding differs"):
+        verify_plan(dropped)
+    widened = json.loads(json.dumps(padded))
+    widened["request_padding"]["days"] = 2
+    with pytest.raises(PlanValidationError):
+        verify_plan(_rehash(widened))
+    tampered_path = tmp_path / "tampered.json"
+    tampered_path.write_text(json.dumps(dropped), encoding="utf-8")
+    with pytest.raises(PlanValidationError):
+        resume_ledger(tampered_path, tmp_path / "staging")
+
+    # Units staged for the unpadded plan never resume as complete for the padded one.
+    request = load_plan(plain_path)["requests"][0]
+    labels = _true_local(request["expected_local_dates"], repeat="2021-11-07T01:00")
+    _stage(plain_path, tmp_path / "staging", request, labels)
+    assert resume_ledger(plain_path, tmp_path / "staging")["complete_units"] == 1
+    assert resume_ledger(padded_path, tmp_path / "staging")["complete_units"] == 0
+
+
+def test_cli_plan_accepts_pad_request_days(tmp_path, capsys):
+    from weather.sources.forecast_training_corpus import main as corpus_main
+
+    out = tmp_path / "cli.json"
+    corpus_main(["plan", "--out", str(out), "--years", "2021", "--markets", "nyc",
+                 "--season-start", "10-01", "--season-end", "12-31", "--fields", "temperature_2m",
+                 "--pad-request-days", "1", "--planned-at-utc", "2026-10-21T00:00:00+00:00"])
+    capsys.readouterr()
+    assert load_plan(out)["request_padding"]["days"] == 1

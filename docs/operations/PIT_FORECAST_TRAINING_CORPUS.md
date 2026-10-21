@@ -119,7 +119,7 @@ directory) is refused before any request.
 python -m weather.sources.forecast_training_corpus plan `
   --out <run-root>\plan.json --years 2021,2022,2023 `
   --markets atlanta,austin,chicago,dallas,denver,houston,los-angeles,miami,nyc,san-francisco,seattle `
-  --season-start 10-01 --season-end 12-31 --fields temperature_2m
+  --season-start 10-01 --season-end 12-31 --fields temperature_2m --pad-request-days 1
 python -m weather.sources.forecast_training_corpus_fetch `
   --plan <run-root>\plan.json --staging-root <run-root>\staging [--max-requests 1]
 python -m weather.sources.forecast_training_corpus resume-status `
@@ -175,15 +175,27 @@ exist in the zone is rejected. Every local date must then hold exactly one
 on-the-hour row per real hour (23, 24 or 25; `hours_in_local_date`), with
 distinct UTC instants. Cutoffs and issue checks use the same UTC instants.
 
-**Consequence:** a fixed-offset response whose window crosses a DST change is
-always one real hour short at one edge date (the window's last date if
-retrieved under daylight time, its first date if under standard time), so the
-unit fails closed with `incomplete_hourly_envelope`. Before 2026-10-21 that
+**Consequence:** an unpadded fixed-offset response whose window crosses a DST
+change is always one real hour short at one edge date (the window's last date
+if retrieved under daylight time, its first date if under standard time), so
+the unit fails closed with `incomplete_hourly_envelope`. Before 2026-10-21 that
 case passed and every row on the far side of the change was silently one hour
-off. An October-December plan cannot materialize under the current request
-shape until the request covers the missing edge hour (for example a UTC or
-day-padded request window whose rows are filtered to the planned local dates).
-That is a plan-contract change and needs its own review.
+off.
+
+**Request padding (`plan --pad-request-days N`, opt-in, 1-3).** Each request's
+provider window becomes `window_start - N` to `window_end + N`; the planned
+target dates, `expected_local_dates` and every coverage count are unchanged.
+The plan records `request_padding` (`enabled`, `days`, `purpose`) and each
+request `request_pad_days`, so `verify_plan`, `resume-status` and the manifest
+refuse a plan or corpus whose padding disagrees, and a padded plan's request
+hashes never match units staged for an unpadded one. A pad that would reach
+the target year is refused. Staging and `materialize` resolve every label to
+its UTC instant first, then keep a row only if that instant's market-local
+date is a planned target date; pad rows (and nulls inside them) never count
+toward any planned date and never reach the published files. The per-date
+check (23/24/25 distinct UTC instants) runs on planned dates only. Without the
+flag the plan is byte-identical to before. **Every October-December plan needs
+`--pad-request-days 1`.**
 
 ## Retraining input
 

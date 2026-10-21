@@ -299,6 +299,39 @@ def _window_for_year(year, season_start, season_end):
     return start, end
 
 
+MAX_REQUEST_PAD_DAYS = 3
+
+
+def plan_request_pad_days(plan):
+    """Pad days a plan declares; 0 for a plan without the padding record."""
+    padding = plan.get("request_padding")
+    if padding is None:
+        return 0
+    if (
+        not isinstance(padding, Mapping)
+        or padding.get("enabled") is not True
+        or set(padding) != {"enabled", "days", "purpose"}
+        or padding.get("purpose") != REQUEST_PADDING_PURPOSE
+    ):
+        raise PlanValidationError("plan request padding record is invalid")
+    days = padding.get("days")
+    if isinstance(days, bool) or not isinstance(days, int) or not 1 <= days <= MAX_REQUEST_PAD_DAYS:
+        raise PlanValidationError("plan request padding days are invalid")
+    return days
+
+
+REQUEST_PADDING_PURPOSE = (
+    "provider labels the whole series with one retrieval-time UTC offset; pad rows "
+    "supply the edge hour of a planned date across a DST change and are dropped "
+    "unless their corrected UTC instant falls on a planned local date"
+)
+
+
+def _request_dates(start, end, pad_days):
+    pad = timedelta(days=int(pad_days))
+    return start - pad, end + pad
+
+
 def _market_specs(market_ids=None):
     registry = {spec.id: spec for spec in all_specs()}
     selected = sorted(set(market_ids or registry))
@@ -332,8 +365,16 @@ def build_plan(
     lead_days=DEFAULT_LEAD_DAYS,
     planned_at_utc=None,
     source_fields=None,
+    pad_request_days=0,
 ):
     source_fields = normalize_source_fields(source_fields)
+    if isinstance(pad_request_days, bool) or int(pad_request_days) != pad_request_days:
+        raise PlanValidationError("pad_request_days must be an integer")
+    pad_request_days = int(pad_request_days)
+    if not 0 <= pad_request_days <= MAX_REQUEST_PAD_DAYS:
+        raise PlanValidationError(
+            f"pad_request_days must be between 0 and {MAX_REQUEST_PAD_DAYS}"
+        )
     years = tuple(sorted({int(year) for year in years}))
     target_year = int(target_year)
     cutoff_hours = tuple(sorted({int(hour) for hour in cutoff_hours}))
@@ -358,7 +399,10 @@ def build_plan(
         bindings = [_binding_for(field, spec, lead_days) for field in source_fields]
         for year in years:
             start, end = _window_for_year(year, season_start, season_end)
-            day_count = (end - start).days + 1
+            request_start, request_end = _request_dates(start, end, pad_request_days)
+            if request_end.year >= target_year:
+                raise PlanValidationError("request padding would reach the target year")
+            day_count = (request_end - request_start).days + 1
             call_equivalents = day_count / 14.0 * max(1.0, len(bindings) / 10.0)
             request = {
                 "provider": PROVIDER,
@@ -378,8 +422,8 @@ def build_plan(
                 "params": {
                     "latitude": spec.lat,
                     "longitude": spec.lon,
-                    "start_date": start.isoformat(),
-                    "end_date": end.isoformat(),
+                    "start_date": request_start.isoformat(),
+                    "end_date": request_end.isoformat(),
                     "hourly": ",".join(binding["request_field"] for binding in bindings),
                     "temperature_unit": spec.om_temperature_unit,
                     "wind_speed_unit": "kmh",
@@ -393,6 +437,8 @@ def build_plan(
                 "provider_contract_status": "probe_required_before_collection",
                 "estimated_call_equivalents": round(call_equivalents, 6),
             }
+            if pad_request_days:
+                request["request_pad_days"] = pad_request_days
             request["request_hash"] = _self_hash(request, "request_hash")
             requests.append(request)
             total_call_equivalents += call_equivalents
@@ -459,6 +505,12 @@ def build_plan(
             key=lambda item: (item["market_id"], item["year"], item["request_hash"]),
         ),
     }
+    if pad_request_days:
+        plan["request_padding"] = {
+            "enabled": True,
+            "days": pad_request_days,
+            "purpose": REQUEST_PADDING_PURPOSE,
+        }
     plan["plan_sha256"] = _self_hash(plan, "plan_sha256")
     verify_plan(plan)
     return plan
@@ -521,6 +573,7 @@ def verify_plan(plan):
     if not market_ids or market_ids != list(plan.get("market_ids") or []):
         raise PlanValidationError("plan market matrix must be sorted and unique")
     specs = {spec.id: spec for spec in _market_specs(market_ids)}
+    pad_days = plan_request_pad_days(plan)
     expected_request_keys = {
         (market_id, year) for market_id in market_ids for year in years
     }
@@ -574,11 +627,19 @@ def verify_plan(plan):
             raise PlanValidationError("request window crosses its planned year")
         if int(request.get("expected_hourly_rows_per_date") or 0) != 24:
             raise PlanValidationError("request hourly envelope must contain 24 rows per date")
+        if pad_days:
+            if request.get("request_pad_days") != pad_days:
+                raise PlanValidationError("request padding differs from the plan padding")
+        elif "request_pad_days" in request:
+            raise PlanValidationError("request padding differs from the plan padding")
+        request_start, request_end = _request_dates(start, end, pad_days)
+        if request_end.year >= target_year:
+            raise PlanValidationError("request padding would reach the target year")
         expected_params = {
             "latitude": spec.lat,
             "longitude": spec.lon,
-            "start_date": start.isoformat(),
-            "end_date": end.isoformat(),
+            "start_date": request_start.isoformat(),
+            "end_date": request_end.isoformat(),
             "hourly": ",".join(binding["request_field"] for binding in expected_bindings),
             "temperature_unit": spec.om_temperature_unit,
             "wind_speed_unit": "kmh",
@@ -588,7 +649,9 @@ def verify_plan(plan):
         if request.get("params") != expected_params:
             raise PlanValidationError("request parameters differ from the frozen contract")
         expected_call_equivalents = round(
-            len(expected_dates) / 14.0 * max(1.0, len(expected_bindings) / 10.0),
+            ((request_end - request_start).days + 1)
+            / 14.0
+            * max(1.0, len(expected_bindings) / 10.0),
             6,
         )
         if float(request.get("estimated_call_equivalents") or -1) != expected_call_equivalents:
@@ -724,21 +787,28 @@ def _basic_response_validation(
     if row_count == 0:
         errors.append("zero_rows")
     expected_dates = set(request.get("expected_local_dates") or [])
+    pad_dates = _pad_local_dates(request)
     rows_by_date = defaultdict(list)
+    planned_indices = set()
     resolved, _mode, time_errors = resolve_provider_times(
         times or [],
         request["source_timezone"],
         _response_utc_offset(payload),
     )
     errors.extend(time_errors)
-    for valid_local in resolved:
+    for index, valid_local in enumerate(resolved):
         if valid_local is None:
             continue
         target_date = valid_local.date().isoformat()
         if valid_local.year == int(target_year):
             errors.append(f"target_year_row:{target_date}")
-        if target_date not in expected_dates:
+        if target_date in expected_dates:
+            planned_indices.add(index)
+        elif target_date not in pad_dates:
             errors.append(f"row_outside_request_window:{target_date}")
+            continue
+        else:
+            continue
         rows_by_date[target_date].append(valid_local)
     for target_date in sorted(expected_dates):
         envelope_error = _hourly_envelope_error(
@@ -760,7 +830,11 @@ def _basic_response_validation(
         series = hourly.get(field)
         if not isinstance(series, list) or len(series) != row_count:
             errors.append(f"field_row_count_mismatch:{field}")
-        elif any(to_float(value) is None for value in series):
+        elif any(
+            to_float(value) is None
+            for index, value in enumerate(series)
+            if not pad_dates or index in planned_indices
+        ):
             errors.append(f"null_or_invalid_field_value:{field}")
         actual_unit = (hourly_units or {}).get(field) if isinstance(hourly_units, Mapping) else None
         if not _provider_unit_valid(binding["source_unit"], actual_unit):
@@ -933,6 +1007,27 @@ def resume_ledger(plan_path, staging_root):
     }
 
 
+def _pad_local_dates(request):
+    """Local dates a padded request may legitimately return outside its plan.
+
+    The request window is padded by ``request_pad_days``; with a fixed provider
+    offset a corrected instant can land one further local day out, so the
+    tolerance is one day beyond the pad.  An unpadded request has none.
+    """
+    pad_days = int(request.get("request_pad_days") or 0)
+    if not pad_days:
+        return set()
+    start = date.fromisoformat(request["window_start"])
+    end = date.fromisoformat(request["window_end"])
+    reach = timedelta(days=pad_days + 1)
+    expected = set(request.get("expected_local_dates") or [])
+    return {
+        day.isoformat()
+        for day in _iter_dates(start - reach, end + reach)
+        if day.isoformat() not in expected
+    }
+
+
 def _response_utc_offset(payload):
     if not isinstance(payload, Mapping) or "utc_offset_seconds" not in payload:
         return None
@@ -1083,6 +1178,7 @@ def _normalize_request(plan, request, staging_root):
         raise MaterializationBlocked(
             f"invalid provider hourly times: {', '.join(time_errors)}"
         )
+    pad_dates = _pad_local_dates(request)
     for index, valid_local in enumerate(resolved):
         target_date = valid_local.date().isoformat()
         if valid_local.year == int(plan["target_year"]):
@@ -1090,6 +1186,9 @@ def _normalize_request(plan, request, staging_root):
                 f"target-year response row rejected from training role: {valid_local.isoformat()}"
             )
         if target_date not in expected_dates:
+            if target_date in pad_dates:
+                # A pad row: dropped before any cutoff or completeness check.
+                continue
             raise MaterializationBlocked(
                 f"response row is outside immutable request window: {valid_local.isoformat()}"
             )
@@ -1495,6 +1594,8 @@ def materialize_corpus(
             },
             "files": files,
         }
+        if "request_padding" in plan:
+            manifest["request_padding"] = plan["request_padding"]
         manifest["manifest_sha256"] = _self_hash(manifest, "manifest_sha256")
         manifest_path = temp_dir / "manifest.json"
         manifest_path.write_text(
@@ -1564,6 +1665,8 @@ def verify_corpus_manifest(manifest_path):
         raise CorpusVerificationError("manifest consumer dispositions differ from the plan")
     if manifest.get("source_fields") != plan["source_fields"]:
         raise CorpusVerificationError("manifest source-field set differs from the plan")
+    if manifest.get("request_padding") != plan.get("request_padding"):
+        raise CorpusVerificationError("manifest request padding differs from the plan")
     try:
         exclusions = json.loads(
             (manifest_path.parent / "exclusions.json").read_text(encoding="utf-8")
@@ -1750,6 +1853,15 @@ def build_parser():
     plan.add_argument("--lead-days", type=int, default=DEFAULT_LEAD_DAYS)
     plan.add_argument("--planned-at-utc", default="")
     plan.add_argument(
+        "--pad-request-days",
+        type=int,
+        default=0,
+        help=(
+            "Pad each request window by this many days on both sides (default 0, off). "
+            "Planned target dates are unchanged; pad rows are dropped at materialize."
+        ),
+    )
+    plan.add_argument(
         "--fields",
         default="",
         help=(
@@ -1795,6 +1907,7 @@ def main(argv=None):
             lead_days=args.lead_days,
             planned_at_utc=args.planned_at_utc or None,
             source_fields=_parse_market_list(args.fields) or None,
+            pad_request_days=args.pad_request_days,
         )
         path = write_immutable_plan(args.out, plan)
         print(
