@@ -203,7 +203,7 @@ branches are drafted; the owner's ruling selects one, and that ruling is a dated
 
 | Branch | D0 | 20th countable date (interim N), earliest | 45th countable date (final N), earliest | Interim read, earliest | Final read, earliest |
 | --- | --- | --- | --- | --- | --- |
-| **Not held** (master-agent recommendation) | **2026-10-25** | 2026-11-13 | 2026-12-08 | 2026-11-15 (second local day after the 20th date's settlement; also after the 11-13 panel close) | 2026-12-10 |
+| **Not held** (master-agent recommendation) | **2026-10-25** | 2026-11-13 | 2026-12-08 | 2026-11-15 (second local day after the 20th date's settlement; also after the 11-13 close of the maker-shadow scoring embargo, DL 2026-10-14/17; not the 88a desk-study panel, UTC 10-15..10-30) | 2026-12-10 |
 | **Held** | **2026-10-28** | 2026-11-16 | 2026-12-11 | 2026-11-18 | 2026-12-13 |
 
 - The calendar columns assume every date is countable; each missed date moves the look one date later. They are
