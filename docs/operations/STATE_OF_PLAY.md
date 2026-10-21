@@ -50,7 +50,7 @@ views (owner 10-19). Plan: [informed maker design](informed-maker-design-2026-09
 - **Build line** `codex/maker-replay-v2-build-20261003` = `1fd0c295f`; the export nightly stays unregistered.
 - **Maker replay v2** (panel 09-30..10-14 never read): spec v3.4; handout r1 signed 10-12; parked; lapse 10-30 (owner 10-15).
 - **Model-edge programme** (owner 10-19): harness v3 (`claude/harness-v3-20261019`); dates <= 09-29 are development only.
-  **Bundle B decided 10-21, every default** (DL; drafts `daed5c54e`): absent arms neither block nor satisfy NO-GO; Gate 1
+  **Bundle B decided 10-21, every default** (DL; questions as listed at `d138c3c54`): absent arms neither block nor satisfy NO-GO; Gate 1
   folds into 12-21 (H-A0, H-A1 UNTESTABLE), so NO-GO rests on MG-1; T1 = NWS hourly; E3 UNTESTABLE; retrain waived for
   12-21 (best case futility-only R0 from 11-17), its reservation narrow ([RCW](reserved-confirmation-window.md)). **12-21
   primary, overturn-only 2027-01-25.** Dev replay base is current code, not served (EF §10v); NBM reaches no band (EF §10u).
@@ -79,7 +79,7 @@ views (owner 10-19). Plan: [informed maker design](informed-maker-design-2026-09
 | Pinned watchdog redeploy from master, re-register only the watchdog task (owner yes 10-15) | production | after C, by 10-28 | watchdog CURRENT |
 | U6 replay-bundle export registered 04:10 from the 3.11.9 build-line tip (owner yes 10-15) | production | first night after C PASS (earliest 10-23 04:10) | task registered; first receipt |
 | 91a policy renewal unchanged (owner A 10-15; CP-5 LZX later, own change) | production | ~10-27 (expires 10-30) | new policy sha |
-| Signed bundle-B copies (GNG, EDGE-1 and methods annexes) land with their raw SHA-256 rows | production; workstation | before D0 | DL signing rows |
+| Signed bundle-B copies (GNG, EDGE-1 and methods annexes) land with their signing rows, after the Fable delta | production; workstation | before D0 | DL signing rows |
 | Retrain column allowlist head `claude/retrain-column-allowlist-<date>` (bundle-B prerequisite) | workstation | build 10-27, land 10-30 | roll verdict; on master |
 | Open-Meteo Previous Runs fetch 2021-2023 Oct-Dec US11 (owner yes 10-21, (j)) under `workstation_heavy.ps1` | workstation | before R0 11-17 | corpus in `data/training/pit_forecast_corpus/` |
 
