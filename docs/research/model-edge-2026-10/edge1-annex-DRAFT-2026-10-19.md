@@ -347,7 +347,7 @@ spends no CAMPAIGN_LEDGER decision. Rows: [alpha ledger](alpha-ledger-DRAFT-2026
     0.80 (found as the 80th percentile of the per-resample GO thresholds in the estimator's own draw order, then
     re-checked: resampled_power at the MDE80 = 0.800). Not MG-1 paired variance.
   - **Inputs and provenance:** dev table 2026-08-01..2026-09-29 (the gate ticket covers 07-31..09-29; 55 balanced
-    dates x 11 markets), `C:\swarm3layout` (manifest sha256 `4d53fdbdc551f33e331fa3b51cc425e354eec4426c8c7b52910b2e7340915f22`),
+    dates x 11 markets), `C:\swarm\v3layout` (manifest sha256 `4d53fdbdc551f33e331fa3b51cc425e354eec4426c8c7b52910b2e7340915f22`),
     read through the harness-v3 gate (family `harness_v3_controls`, purpose control; `v3_controls.Dev` asserts no row
     after 09-29). Code: read-only `C:\wt\hv3` at `2f3f3e8e6b542a419204afe802dae4545abc10d7` (`HARNESS_V3_SHA256`
     `987e171775c596f6e50ac72b9bd54880399e4fafcc11865cdec0a2375970b4cf`; `v3_power.py` sha256
