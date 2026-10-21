@@ -107,6 +107,22 @@ decision (`afternoon_residual_centering.json` `component.enabled: false`, sha256
 So of the 13, eight are live again (v3/v4 lock-in work) and five are still no-ops: two structural
 (10, 11) and three because their only input is WU history (9, 12, 13).
 
+**Zero-variant audit (2026-10-21, Toronto host run on `bd75f710a`).** `wu_residual_repointed`,
+`metar_live_signal_repointed` and `intraday_tail_repointed` read exactly 0.000 in every hour band. All
+three shims patch instance methods called as `self.<name>` (no import-by-value), and
+`test_metar_signal_and_intraday_tail_shims_reach_the_call_site` proves the repointed value reaches the
+call. Verdicts: intraday tail and METAR live signal are **structurally inert on any HGB market**, so their
+variants cannot move the vector by construction (tail needs `intraday`, which the feature path leaves
+`None`, `model_distribution.py:788`/`:838`, gate `:993`; the METAR vote is computed at `:423` but the
+feature-path live-signal list at `:1579-1607` never includes it; also the repointed station high includes
+the METAR rows, so `metar_bucket <= history_bucket` returns `None` at `signals.py:317`). The WU residual is
+**data-conditional, not dead**: it fires only when the observed-support bucket (max of current temp, SWOB
+same-day max, METAR temp) rounds above the repointed station high and that bucket's mass is below 0.001
+(`signals.py:344-352`); `test_wu_residual_variant_can_change_the_served_vector` shows a synthetic case
+moving the vector. For Toronto the station order is SWOB-first (`model_sources.py:279-283`), so SWOB rows
+are already inside the repointed high and the gate can open only if the SWOB same-day-max field exceeds its
+own rows; a single-snapshot trace confirms which gate condition closed.
+
 ## 3. Outcome-blind restoration check
 
 ### 3.1 What could be run on the workstation

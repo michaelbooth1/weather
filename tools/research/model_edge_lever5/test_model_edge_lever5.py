@@ -243,3 +243,79 @@ def test_root_info_records_serving_checkout_paths(roots):
     assert info["stage_replay_file"] == str(Path(l5.__file__).resolve())
     assert Path(info["stage_replay_file"]).is_file()
     assert Path(info["weather_module_file"]).is_absolute()
+
+
+# --- the three variants that read 0.000 on Toronto: live wiring vs structural --
+
+def _late_record(swob_max=None):
+    from weather.backtesting.replay import parse_built_at
+
+    record = _record("late", 17)
+    if swob_max is not None:
+        record["sources"]["eccc_swob"] = {"ok": True, "data": {
+            "same_day_max_native": swob_max, "same_day_max_c": swob_max}}
+    model = _factory("atlanta")
+    model.set_target_date(datetime(2026, 9, 20).date())
+    return model, record, parse_built_at(record)
+
+
+def _variant_tv(model, record, now, variant):
+    base, _ = l5._run(model, record["sources"], now)
+    with l5.variant_context(model, variant, record["sources"], now) as srcs:
+        alt, _ = l5._run(model, srcs, now)
+    return l5._delta(alt, base)["tv"]
+
+
+def test_wu_residual_variant_can_change_the_served_vector(roots):
+    # Station high 89.06F (bucket 89); a SWOB same-day max of 96F leads it, so the
+    # observed-floor stage pushes bucket 89 below the 0.001 residual and the
+    # repointed residual restores it. Without a leading support source: no-op.
+    model, record, now = _late_record(swob_max=96.0)
+    assert l5._station_high(model, record["sources"], now) == pytest.approx(89.06)
+    assert _variant_tv(model, record, now, "wu_residual_repointed") > 1e-4
+    model, record, now = _late_record()
+    assert _variant_tv(model, record, now, "wu_residual_repointed") == 0.0
+
+
+def test_metar_signal_and_intraday_tail_shims_reach_the_call_site(roots):
+    model, record, now = _late_record()
+    seen = {}
+
+    def metar_spy(metar_temp, history_max, hour=None):
+        seen.setdefault("metar", []).append(history_max)
+        return (95.0, 1.0, 1.0)  # a forced strong vote
+
+    def tail_spy(scores, *, observed_bucket, intraday, **kwargs):
+        seen.setdefault("tail", []).append((observed_bucket, intraday))
+        return scores
+
+    model.learned_metar_live_signal = metar_spy
+    model.distribution_intraday_tail_stage = tail_spy
+    with l5.variant_context(model, "metar_live_signal_repointed", record["sources"], now) as srcs:
+        l5._run(model, srcs, now)
+    with l5.variant_context(model, "intraday_tail_repointed", record["sources"], now) as srcs:
+        l5._run(model, srcs, now)
+    # the shim delivers the station high, so neither variant is a wiring no-op ...
+    assert seen["metar"][0] == pytest.approx(89.06)  # repointed call (WU history is empty)
+    assert seen["metar"][1] is None  # the unshimmed call in the tail run
+    assert seen["tail"] == [(None, None), (89, None)]
+    # ... but on the feature (hgb) path the METAR vote is discarded (the feature
+    # live-signal list never includes it) and the tail has no intraday input.
+    base_model, record, now = _late_record()
+    base, _ = l5._run(base_model, record["sources"], now)
+    forced_model, _, _ = _late_record()
+    forced_model.learned_metar_live_signal = lambda *a, **k: (95.0, 1.0, 1.0)
+    forced, _ = l5._run(forced_model, record["sources"], now)
+    assert l5._delta(forced, base)["tv"] == 0.0
+
+
+def test_intraday_tail_shim_changes_the_stage_when_intraday_exists(roots):
+    model, record, now = _late_record()
+    scores = {b: 1.0 for b in range(80, 100)}
+    kwargs = dict(intraday={"probabilities": {89: 0.9, 90: 0.1}}, hour=15,
+                  weather_forecast_max=None, open_meteo_max=None, nws_forecast_max=None,
+                  global_ensemble_max=None, eccc_forecast_high=None)
+    base = model.distribution_intraday_tail_stage(dict(scores), observed_bucket=None, **kwargs)
+    with l5.variant_context(model, "intraday_tail_repointed", record["sources"], now):
+        alt = model.distribution_intraday_tail_stage(dict(scores), observed_bucket=None, **kwargs)
+    assert l5._delta(model.normalize_scores(alt), model.normalize_scores(base))["tv"] > 1e-3
