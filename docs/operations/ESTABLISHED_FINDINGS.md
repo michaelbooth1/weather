@@ -110,6 +110,7 @@ sequence numbers, not calendar dates.
 | 10s | Data layer v2 S0 measurement pack (workstation, 2026-10-15; inputs dated before 2026-09-30 only) |
 | 10t | First counterfactual-tape toxicity fit (item 330 build 2, workstation, 2026-10-17): CF fills adverse at every horizon, settlement unresolved; DESCRIPTIVE, every cell UNDERPOWERED |
 | 10u | HGB path: the intraday-tail and METAR-live-signal stages never act (code-traced + Toronto replay, 2026-10-21); the WU-floor residual is only data-inert |
+| 10v | Dev replay with current code does not reproduce the served vector (M8 check, 2026-10-21, outcome-blind): code drift, not artifacts; replay deltas are "current code ± variant" |
 
 ---
 
@@ -3834,6 +3835,49 @@ the Toronto host replay and in the 12-market workstation replay. Outcome-blind: 
   Atlanta 2026-08-10 snapshot `20260810T150843696523-0400`: "support 92 <= history 92"); only a SWOB same-day max
   above its own rows, so Toronto alone, could open the gate. That is a code inference checked on one snapshot,
   not a fleet statistic. The same replay closes the NBM arm (lever-5 note §1 and §3.5). Record: [lever-5 note](../research/model-edge-lever5-2026-10-19.md) §2 and §3.5.
+
+### 10v. Dev replay with current code does not reproduce the served vector; the drift is code, not artifacts — M8 check, 2026-10-21
+
+**Claim, at exactly this scope:** on dev target dates 2026-07-31..2026-09-29, replaying each captured snapshot
+unmodified with current code reproduces the served vector of record within 1e-9 on only 4.0-22.4% of snapshots
+per market, and the difference is large in the late hours. So every dev replay delta (lever 5, EDGE-1 twin) is
+"current code ± variant on captured inputs", not a delta from what was served. Outcome-blind: no label,
+settlement or market price was read.
+
+- **Mechanism:** code drift since capture. Comparing each record's capture-time `model_identity` with the
+  replay identity: `model_version` differs on 100% of rows; `code_changed` includes
+  `src/weather/model/model_constants.py` and `model_distribution.py` on 100% of rows, `market_registry.py` on
+  75,116 rows, and `feature_store.py` and `model_features.py` on 19,230 rows each. Dev captures span 490 distinct
+  capture commits. The hour profile fits the lock-in serving changes made after capture (lever-5 note §2,
+  stages 1-8): share within 1e-9 / median `max_abs` by local hour band, all markets, 00-05 0.247 / 0.0017;
+  06-09 0.112 / 0.0063; 10-12 0.098 / ~0; 13-16 0.042 / 0.060; 17-23 0.004 / 0.275.
+- **Evidence:** `python -m tools.research.model_edge_lever5.run served`, module
+  `tools/research/model_edge_lever5/served_repro.py` (added in `64cbecca4`), branch
+  `claude/model-edge-codecheck-20261019` at `0941dc432afe8ff47291938479d17c2931ef3a6b`. It compares the
+  unmodified replay with the record's `recorded_distribution`, which `src/weather/collection/snapshot_store.py`
+  writes as `model.get("distribution")` beside the sources it consumed (the replay fidelity canary); that field
+  is a model output, not an outcome. Run: 732 folders, 128,594 snapshots, 0 folder errors, 0 base errors.
+  Per market n / share within 1e-9 / p99 `max_abs` / max `max_abs` (`max_abs` = max absolute per-bucket
+  difference): atlanta 10805 / 0.056 / 0.784 / 0.872; austin 10875 / 0.100 / 0.725 / 0.956; chicago
+  10819 / 0.062 / 0.883 / 0.952; dallas 10662 / 0.040 / 0.769 / 0.830; denver 10769 / 0.116 / 0.844 / 0.917;
+  houston 10584 / 0.079 / 0.758 / 0.799; los-angeles 10432 / 0.043 / 0.869 / 0.968; miami 10561 / 0.171 /
+  0.754 / 0.976; nyc 10551 / 0.059 / 0.814 / 0.982; san-francisco 10512 / 0.224 / 0.859 / 0.971; seattle
+  10726 / 0.115 / 0.709 / 0.941; toronto 11298 / 0.143 / 0.662 / 0.891.
+- **Not claimed:**
+  - No outcome was read; nothing here says whether current code or capture-time code forecasts better.
+  - Not the artifacts: `artifact_hash` changed on 0 rows, `active_model_kind` (`hgb`) differs on 0 rows, and
+    0 mismatched rows carry an identical identity.
+  - Nothing about pre-07-31 dates or forward rows.
+- **Relation to §1k:** consistent with, and narrower than, §1k (`-09-74a`..`-09-76a`) and RF "Check out the
+  recorded runtime commit and replay reproduces what we served". §1k replayed at each row's runtime commit and
+  still failed because served bytes were never committed; this check replays at one current commit and fails
+  because the code moved. Whether dev-window identities resolve to reachable blobs was not measured.
+- **Implication for replay-based evidence:** the base of a dev replay is current code. Lever-5 deltas
+  ([note](../research/model-edge-lever5-2026-10-19.md) §3.3-3.5) and the EDGE-1 twin (T1/T0) dev deltas are
+  "current code ± variant", not "served ± variant". Reproducing the served vector to 1e-9 on dev dates needs a
+  per-row replay at each row's capture commit, which no tool does; forward reproduction (M8) is checkable only at
+  a frozen hash on forward rows. Evidence scored against the served vector of record (for example the A0 power
+  figure) is unaffected. Record: [lever-5 note](../research/model-edge-lever5-2026-10-19.md) §3.6.
 
 ## Related
 

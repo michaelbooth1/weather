@@ -132,7 +132,8 @@ June pilot folder). A full served-vector recompute on 07-31..09-29 therefore **c
 instead:
 
 - `tools/research/model_edge_lever5/stage_replay.py` (`python -m tools.research.model_edge_lever5.run
-  replay`): re-runs the current pipeline on each captured snapshot as served and once per variant,
+  replay`): re-runs the current pipeline on each captured snapshot unmodified (the base: current code
+  on captured inputs, **not** the served vector of record; section 3.6) and once per variant,
   reports total-variation distance (an exact upper bound on any band's absolute change, for any banding;
   0 if and only if no band changes) and max bucket change, per hour block. Read-only, refuses targets
   outside 07-31..09-29, reads only `replay_inputs.jsonl`.
@@ -167,8 +168,9 @@ Columns decoded: identifiers, local/cutoff hour, `model_version`, `high_so_far`,
 ### 3.3 Per-stage result
 
 Final-vector numbers (max/mean band change, fraction of snapshots changed) come from the 12-market
-replay of section 3.5; the stage-level numbers above bound one stage, not the vector after the later floors,
-lock-ins and calibration temperature.
+replay of section 3.5 and are measured against the current-code base, not the served vector (3.6);
+the stage-level numbers above bound one stage, not the vector after the later floors, lock-ins and
+calibration temperature.
 
 | Stage | Change tested | Result | Status |
 | --- | --- | --- | --- |
@@ -209,7 +211,8 @@ $env:PYTHONPATH = '<worktree>\src;<worktree>'
 Re-running the same command resumes (folders with a `folder_done` row are skipped; a folder that
 ended in a `folder_error` has no `folder_done` and is re-attempted, e.g. after `git lfs checkout`). Expected:
 `nbm_removed`, `nbm_perturbed`, `intraday_tail_repointed`, `metar_live_signal_repointed` exactly 0
-everywhere; any `folder_error` means the base would not have been the served vector for that folder.
+everywhere; any `folder_error` means no current-code base could be computed for that folder (the base is
+never the served vector of record; section 3.6).
 
 ### 3.5 Final-vector replay, 12 markets (2026-10-21)
 
@@ -245,6 +248,52 @@ Real trace, Atlanta 2026-08-10 snapshot `20260810T150843696523-0400`, 15 h, `hgb
 `nbm_prob_tmax_*` and the NBM guidance state; perturbing moves the reader's p10..p90 from 73..77 to 83..87 and
 the state's representative 77 → 87; in both the served HGB row is identical (`model_features.py:1269`) and
 final TV is 0. So the served HGB fleet does not consume NBM; NBM's only route to value is a new model.
+
+### 3.6 Base = current code, not the served vector of record (M8 check, 2026-10-21)
+
+Every delta in sections 3.3-3.5 is "current code ± variant on captured inputs". It is **not** a delta
+from what was served: the unmodified replay does not reproduce the served vector on dev dates.
+
+Check (outcome-blind): `python -m tools.research.model_edge_lever5.run served`
+(`tools/research/model_edge_lever5/served_repro.py`, added in `64cbecca4`; branch
+`claude/model-edge-codecheck-20261019` at `0941dc432afe8ff47291938479d17c2931ef3a6b`) compares the
+unmodified replay of each snapshot with the record's `recorded_distribution`, which
+`snapshot_store.py` writes as `model.get("distribution")` next to the sources it consumed (the replay
+fidelity canary). It is a model output, not an outcome. Run: 732 folders, 128,594 snapshots, 0 folder
+errors, 0 base errors. `max_abs` = max absolute per-bucket difference.
+
+| market | n | share within 1e-9 | p99 max_abs | max max_abs |
+| --- | --- | --- | --- | --- |
+| atlanta | 10805 | 0.056 | 0.784 | 0.872 |
+| austin | 10875 | 0.100 | 0.725 | 0.956 |
+| chicago | 10819 | 0.062 | 0.883 | 0.952 |
+| dallas | 10662 | 0.040 | 0.769 | 0.830 |
+| denver | 10769 | 0.116 | 0.844 | 0.917 |
+| houston | 10584 | 0.079 | 0.758 | 0.799 |
+| los-angeles | 10432 | 0.043 | 0.869 | 0.968 |
+| miami | 10561 | 0.171 | 0.754 | 0.976 |
+| nyc | 10551 | 0.059 | 0.814 | 0.982 |
+| san-francisco | 10512 | 0.224 | 0.859 | 0.971 |
+| seattle | 10726 | 0.115 | 0.709 | 0.941 |
+| toronto | 11298 | 0.143 | 0.662 | 0.891 |
+
+By local hour band, all markets (share within 1e-9 / median `max_abs`): 00-05 0.247 / 0.0017; 06-09
+0.112 / 0.0063; 10-12 0.098 / ~0; 13-16 0.042 / 0.060; 17-23 0.004 / 0.275. The late hours dominate,
+matching the lock-in serving changes made after capture (section 2, stages 1-8).
+
+Cause, code drift since capture (capture `model_identity` against the replay identity):
+`model_version` differs on 100% of rows; `code_changed` includes `src/weather/model/model_constants.py`
+and `model_distribution.py` on 100%, `market_registry.py` on 75,116 rows, `feature_store.py` and
+`model_features.py` on 19,230 rows each. Not the artifacts: `artifact_hash` changed on 0 rows,
+`active_model_kind` (`hgb`) differs on 0 rows, and 0 mismatched rows have an identical identity. Dev
+captures span 490 distinct capture commits.
+
+Consequences: the base of every lever-5 delta is current code. The EDGE-1 twin (T1/T0) dev deltas are
+likewise "current code ± twin", not "served ± twin". Reproducing the served vector to 1e-9 on dev dates
+would need a per-row replay at each row's capture commit, which no tool does (and EF §1k found the
+June-July served bytes often never committed); forward reproduction (M8) is checkable only at a frozen
+hash on forward rows. The A0 power figure used the served vector of record, so it is unaffected. Nothing
+here says which code is better: no outcome was read. EF §10v.
 
 ## 4. What "110g re-fit" is
 
