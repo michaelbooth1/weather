@@ -153,7 +153,7 @@ INCONCLUSIVE), and early NO-GO stays as written.
 - **Both branches reachable (filled from the 2026-10-20 addendum).** GO: P(GO given null) 0.026-0.040 and, on
   arm − served, 0.47-0.95 parametric under half-to-full effect (less ~0.07-0.10 after calibration). NO-GO:
 
-  **NO-GO reachability** (the §1 NO-GO rule applied verbatim per arm: lower bound of R above 1.05 in every 00-16
+  **Per-arm NO-GO reachability, one arm in isolation** (harness-v3 addendum; the relayed §1 rule applied per arm: lower bound of R above 1.05 in every 00-16
   block and E2 upper bound above −0.5% of market Brier; MG-1-like arm variance; 20,000 simulations per cell):
 
   | Scenario | P(NO-GO) at 20 dates | 45 dates | 90 dates |
@@ -166,6 +166,37 @@ INCONCLUSIVE), and early NO-GO stays as written.
   development-fit blend weight is **0.00**, so A2 is CLOSED IN DEVELOPMENT and E2 is not scored; under the amended §1
   that neither blocks nor satisfies NO-GO, and the per-arm NO-GO rests on the R clause alone. **If a draft freezes a
   non-zero blend weight, this simulation must be re-run.**
+
+  **Programme-level reachability (re-run 2026-10-20, review finding B1; supersedes the per-arm table as the §1
+  test).** The amended §1 rule is applied over the arms read by each decision date under the bundle defaults (§2.4):
+  at 12-21 A0 (45 dates) and MG-1 (45 dates from 10-15, its 00-16 interval only); A1, A2 and NBM-2 absent; E2 not
+  scored and E3 UNTESTABLE hold. Early NO-GO at Gate 1 = MG-1 not GO (upper 95% bound of MG-1 − served not below 0;
+  MG-1's other falsifiers ignored, so this is a lower bound) **and** A0's 20-date interim Z < 0.2656; "no survivor
+  queued" is assumed. One joint draw per simulation over MG-1's and A0's overlapping windows (A0 starts 10 countable
+  dates after MG-1 in the not-held branch, 13 in the held one), two-way MoM components (PSD) of a balanced
+  55-date x 11-market development table of the seven variables (A0 = served-vs-market influence per block and at
+  00-16; MG-1-like vs market at 00-16; MG-1-like − served at 00-16), 20,000 simulations, seed 20261032 / 20261035.
+  Same run and provenance as the EDGE-1 annex §8 MDE80 (`provenance/edge1-rpower-2026-10-20.json`).
+
+  | Scenario (R means) | A0 clause | MG-1 clause | **P(NO-GO), A0 counted** | **P(NO-GO), A0 UNTESTABLE (default bar): MG-1 alone** | P(early NO-GO) |
+  | --- | --- | --- | --- | --- | --- |
+  | A0 at served dev R (1.43 / 1.48 / 1.47 / 1.86), MG-1 at 1.302 | 0.995 | 1.000 | **0.995** | **1.000** | 0.061 |
+  | A0 at MG-1-like dev R (1.17 / 1.20 / 1.25 / 1.95), MG-1 at 1.302 | 0.375 | 1.000 | **0.375** | **1.000** | 0.060 |
+  | half effect, served-based | 0.438 | 0.833 | **0.412** | **0.833** | 0.539 |
+  | half effect, MG-1-like-based | 0.073 | 0.833 | **0.072** | **0.833** | 0.515 |
+  | null, R = 1 and MG-1 = served | 0.001 | 0.000 | **0.000** | **0.000** | 0.565 |
+
+  Not-held branch shown; the held branch differs by at most 0.004 in every cell. Reading:
+  - **NO-GO is reachable at the programme level** under the defaults (0.37-1.00 at the development-like R), and 0
+    under the null. If the owner answers (i) "absent arms block", P(NO-GO at 12-21) = 0 by construction.
+  - **With H-A0 UNTESTABLE** (the default bar, EDGE-1 annex §8), the EDGE-1 condition of early NO-GO has no
+    hypothesis left; it is then read as vacuously met, and early NO-GO = MG-1 not GO (0.06 at the dev effect, 0.54 at
+    half, 0.96 under the null), with the survivor condition.
+  - **Early NO-GO fires about 0.56 of the time under the null** (model = market, MG-1 = served). That is a no-alpha
+    owner decision, and "no edge" is the null, so it is not an error rate; it is stated so that it is not a surprise.
+  - **GO side (INFERENCE, not simulated here):** with H-A0 UNTESTABLE and A1 deferred, the only E1 GO route at 12-21
+    is an MG-1 upper bound of R below 1, about 0.025 under R = 1 and near 0 at the development R of 1.30; GO is
+    reachable in name only under the defaults. With H-A0 in the family, its power at R = 0.95 is 0.17 (annex §8).
 
 - **"NO-GO likely within ~20 dates" remains INFERENCE.** The supporting computation is P(NO-GO at 20 dates) = 0.821
   under the dev-observed R (MG-1-like variance); it falls to 0.087 at the half effect and 0.28 with served-vs-market

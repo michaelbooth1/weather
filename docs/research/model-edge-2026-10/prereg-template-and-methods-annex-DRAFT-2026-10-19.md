@@ -205,10 +205,10 @@ For the EDGE-1 schedule t = 20/45 = 0.4444, β(t) = 0.05456:
   parametric. Example: MG-1's half-effect parametric 0.32 / 0.40 / 0.43 at 20 / 45 / 90 dates is roughly
   **0.22-0.35** corrected; the parametric MDE80 (0.0097 / 0.0085 / 0.0079, TESTABLE against 0.0133) is optimistic in
   the same direction and is re-confirmed with `resampled_power` before D0.
-- **NO-GO reachability** must be simulated with the NO-GO rule applied verbatim (harness `simulate_nogo`); a frozen
+- **NO-GO reachability** must be simulated on the **programme rule** (the arms read by each decision date, jointly; GO/NO-GO rule §2.4, §4), not per arm in isolation; harness `simulate_nogo` is the per-arm building block; a frozen
   non-zero E2 blend weight requires a re-run (the development fit is 0.00 at 00-16).
 - Any statement such as "NO-GO is likely within ~20 dates" stays **INFERENCE**; cite the supporting computation
-  (for EDGE-1: P(NO-GO at 20) = 0.821 under the dev-observed R, MG-1-like variance).
+  (for EDGE-1: programme P(NO-GO at 12-21) 0.37-1.00 at development-like R, 0 under the null; GO/NO-GO rule §4).
 
 ## M5. Single-shot scoring with pre-registration SHA and arm-hash verification
 
