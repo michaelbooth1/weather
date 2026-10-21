@@ -3,6 +3,8 @@
   python -m tools.research.model_edge_lever5.run census --cache C:\\swarm\\cache --out <new.json>
   python -m tools.research.model_edge_lever5.run replay --out <new.jsonl> [--snapshots-root ...]
       [--market M] [--variants a,b] [--summary-out <new.json>]
+  python -m tools.research.model_edge_lever5.run served --data-root <data> --out <new.jsonl>
+      [--snapshots-root ...] [--market M] [--summary-out <new.json>]
 
 ``census`` reads the 111h swarm cache (workstation); ``replay`` re-runs the
 serving pipeline over captured ``replay_inputs.jsonl`` (where they exist: the
@@ -17,10 +19,14 @@ import sys
 
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
-    if not argv or argv[0] not in {"census", "replay"}:
+    if not argv or argv[0] not in {"census", "replay", "served"}:
         print(__doc__, file=sys.stderr)
         return 2
     command, rest = argv[0], argv[1:]
+    if command == "served":
+        from tools.research.model_edge_lever5 import served_repro
+
+        return served_repro.main(rest)
     if command == "replay":
         from tools.research.model_edge_lever5 import stage_replay
 

@@ -319,3 +319,40 @@ def test_intraday_tail_shim_changes_the_stage_when_intraday_exists(roots):
     with l5.variant_context(model, "intraday_tail_repointed", record["sources"], now):
         alt = model.distribution_intraday_tail_stage(dict(scores), observed_bucket=None, **kwargs)
     assert l5._delta(model.normalize_scores(alt), model.normalize_scores(base))["tv"] > 1e-3
+
+
+# --- M8 served-vector reproduction ------------------------------------------
+
+def test_served_repro_compares_recorded_distribution(tmp_path, roots, climatology_ok):
+    from tools.research.model_edge_lever5 import served_repro as sr
+    from weather.backtesting.replay import parse_built_at
+
+    model = _factory("atlanta")
+    exact, shifted = _record("exact", 16), _record("shifted", 16)
+    model.set_target_date(datetime(2026, 9, 20).date())
+    served, _ = l5._run(model, exact["sources"], parse_built_at(exact))
+    exact["recorded_distribution"] = {str(k): v for k, v in served.items()}
+    moved = dict(served)
+    top = max(moved, key=moved.get)
+    moved[top] -= 0.01
+    moved[top + 1] = moved.get(top + 1, 0.0) + 0.01
+    shifted["recorded_distribution"] = {str(k): v for k, v in moved.items()}
+    folder = tmp_path / "snaps" / SLUG.format(day=20)
+    folder.mkdir(parents=True)
+    with (folder / "replay_inputs.jsonl").open("w", encoding="utf-8") as handle:
+        for record in (exact, shifted, _record("none", 9)):
+            handle.write(json.dumps(record) + "\n")
+    summary = sr.run(l5.select_folders(tmp_path / "snaps"), tmp_path / "served.jsonl",
+                     model_factory=_factory, emit=lambda line: None)
+    market = summary["markets"]["atlanta"]
+    assert market["n"] == 3 and market["errors"] == 1  # "none" has no recorded_distribution
+    assert market["mismatches"] == 1 and market["share_within_tol"] == 0.5
+    assert market["max_max_abs"] == pytest.approx(0.01)
+    rows = {r["snapshot_id"]: r for r in _rows(tmp_path / "served.jsonl") if r.get("kind") == "snapshot"}
+    assert rows["exact"]["max_abs"] <= sr.TOL and rows["none"]["error"] == "no_recorded_distribution"
+    assert sr.identity_reasons(None, {}) == ["recorded_identity_missing"]
+    recorded = {"model_version": "a", "active_model_kind": "hgb", "code_hash": "x", "artifact_hash": "y",
+                "code_files": [{"path": "src/m.py", "sha256": "1"}], "artifact_files": []}
+    replayed = dict(recorded, code_hash="z", code_files=[{"path": "src/m.py", "sha256": "2"}])
+    assert sr.identity_reasons(recorded, replayed) == ["code_changed:src/m.py"]
+    assert sr.identity_reasons(recorded, dict(recorded)) == []
