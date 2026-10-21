@@ -316,21 +316,43 @@ folders, 128,594 snapshots, 0 errors, `hgb` only, dev targets 07-31..09-29.
   `forecast_high` and `forecast_gap`, plus `forecast_source_count` and `forecast_disagreement` in Miami and
   Toronto.
 
-T1 mean TV by local hour band (US markets; changed fraction 0.89-1.00 in every band 00-16):
+T1 against the current-code base, per market and local hour band; each cell is changed fraction / mean
+TV / max TV (changed = TV > 1e-12). Source: `l5_twin_tables.py` (scratch) over the run's `twin.jsonl`,
+0 base errors and 0 variant errors in every market; the output stays uncommitted.
 
-| market | 00-16 mean TV | 17-23 mean TV |
-| --- | --- | --- |
-| chicago | ~0.28-0.31 | within 0.010-0.081 |
-| san-francisco | 0.20-0.31 | within 0.010-0.081 |
-| nyc | 0.22-0.25 | within 0.010-0.081 |
-| dallas | 0.06-0.16 (lowest) | within 0.010-0.081 |
-| other US markets | within 0.06-0.31 | within 0.010-0.081 |
-| toronto | 0 (T1 = base) | 0 |
+| market | 00-05 | 06-09 | 10-12 | 13-16 | 17-23 | all hours |
+| --- | --- | --- | --- | --- | --- | --- |
+| atlanta | 0.912 / 0.156 / 0.706 | 0.906 / 0.149 / 0.741 | 0.916 / 0.145 / 0.736 | 0.996 / 0.157 / 0.707 | 0.949 / 0.029 / 0.839 | 0.936 / 0.117 / 0.839 |
+| austin | 0.968 / 0.120 / 0.726 | 0.972 / 0.094 / 0.667 | 0.986 / 0.096 / 0.627 | 0.999 / 0.139 / 0.783 | 0.943 / 0.037 / 0.840 | 0.969 / 0.092 / 0.840 |
+| chicago | 0.968 / 0.279 / 0.945 | 0.966 / 0.273 / 0.911 | 0.966 / 0.303 / 0.889 | 0.995 / 0.313 / 0.917 | 0.936 / 0.045 / 0.836 | 0.962 / 0.219 / 0.945 |
+| dallas | 0.965 / 0.064 / 0.582 | 0.943 / 0.061 / 0.695 | 0.981 / 0.068 / 0.749 | 0.999 / 0.164 / 0.787 | 0.974 / 0.081 / 0.700 | 0.972 / 0.085 / 0.787 |
+| denver | 0.984 / 0.213 / 0.811 | 0.978 / 0.191 / 0.763 | 0.992 / 0.221 / 0.904 | 0.992 / 0.196 / 0.858 | 0.609 / 0.043 / 0.864 | 0.873 / 0.157 / 0.904 |
+| houston | 0.975 / 0.205 / 0.833 | 0.952 / 0.192 / 0.854 | 0.983 / 0.199 / 0.911 | 0.999 / 0.164 / 0.806 | 0.995 / 0.028 / 0.750 | 0.982 / 0.143 / 0.911 |
+| los-angeles | 0.950 / 0.092 / 0.732 | 0.922 / 0.099 / 0.706 | 0.933 / 0.187 / 0.675 | 0.998 / 0.228 / 0.797 | 0.988 / 0.046 / 0.486 | 0.962 / 0.114 / 0.797 |
+| miami | 0.945 / 0.203 / 0.884 | 0.954 / 0.194 / 0.871 | 0.886 / 0.125 / 0.665 | 0.934 / 0.099 / 0.575 | 0.734 / 0.010 / 0.916 | 0.876 / 0.118 / 0.916 |
+| nyc | 0.984 / 0.245 / 0.872 | 0.977 / 0.224 / 0.893 | 0.979 / 0.216 / 0.763 | 0.999 / 0.241 / 0.855 | 0.965 / 0.044 / 0.910 | 0.979 / 0.179 / 0.910 |
+| san-francisco | 0.997 / 0.306 / 0.758 | 1.000 / 0.284 / 0.764 | 1.000 / 0.254 / 0.768 | 0.997 / 0.201 / 0.820 | 1.000 / 0.017 / 0.519 | 0.999 / 0.193 / 0.820 |
+| seattle | 0.999 / 0.209 / 0.923 | 0.991 / 0.208 / 0.960 | 0.972 / 0.196 / 0.837 | 0.991 / 0.229 / 0.874 | 0.951 / 0.043 / 0.547 | 0.979 / 0.162 / 0.960 |
+| toronto | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 (T1 = base) |
 
-Max TV reaches 0.96. The full per-market, per-band table was produced by a scratch summary script from the
-run output, which stays uncommitted. T0: changed fraction 0.95-1.00 in every band; all-hours mean TV
-0.15-0.43 (Chicago 0.429), max up to 0.98; largest in 00-12 (mean TV 0.16-0.65), smallest in 17-23
-(0.009-0.069).
+T1 fallback rows (no NWS day max, variant = base): Los Angeles 34, Miami 19, Seattle 7, Toronto 11,298;
+every other market 0. The 17-23 band changes least in mean TV everywhere, and its changed fraction drops
+to 0.609 in Denver and 0.734 in Miami.
+
+T0 against the same base, all hours (changed fraction / mean TV / max TV); 17-23 is again the smallest
+band in mean TV (0.009-0.069) and 00-12 the largest (0.16-0.65):
+
+| market | all hours | market | all hours |
+| --- | --- | --- | --- |
+| atlanta | 0.985 / 0.155 / 0.905 | miami | 0.991 / 0.207 / 0.899 |
+| austin | 1.000 / 0.270 / 0.788 | nyc | 1.000 / 0.328 / 0.978 |
+| chicago | 1.000 / 0.429 / 0.968 | san-francisco | 1.000 / 0.222 / 0.758 |
+| dallas | 1.000 / 0.150 / 0.748 | seattle | 1.000 / 0.319 / 0.941 |
+| denver | 0.994 / 0.302 / 0.926 | toronto | 1.000 / 0.224 / 0.882 |
+| houston | 1.000 / 0.299 / 0.772 | los-angeles | 1.000 / 0.190 / 0.863 |
+
+Both tables are vector deltas only: no score was read, nothing here is evidence of edge, and the binding
+T1/T0 comparison is forward at the frozen hash.
 
 Throughput: uncapped HGB predicts used ~17 cores at ~27 s/folder; with `OMP_NUM_THREADS`,
 `OPENBLAS_NUM_THREADS` and `MKL_NUM_THREADS` = 1 the run took ~3 s/folder (fix on its own branch;
