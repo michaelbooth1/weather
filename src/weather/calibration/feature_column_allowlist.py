@@ -3,9 +3,14 @@
 A retrain that must change only the fit dates (not the feature set) pins each
 market's served column list: the ``feature_names`` of the bundles that serve
 today. This module resolves such a list, validates that serving can rebuild
-every column, and reports any column that the registry training policy would
-otherwise exclude. It never edits that policy: an allowlist that keeps a
-policy-excluded column is recorded as an explicit override, not dropped.
+every column, and records how it relates to the registry training policy.
+
+R0 uses ``served-policy:<market>`` (owner decision 2026-10-21, "Drop pressure"):
+the served list minus the policy exclusions, with the difference from served
+recorded (``policy_exclusions_applied``, ``differs_from_served``). Plain
+``served:<market>`` keeps the served list exactly and records any kept
+policy-excluded column as an override; it stays available but is not R0's mode.
+The policy itself is never edited here.
 """
 
 from __future__ import annotations
@@ -18,12 +23,17 @@ from pathlib import Path
 from typing import Any
 
 from weather.artifacts import resolve_artifact_path
-from weather.calibration.feature_training_policy import training_feature_exclusions
+from weather.calibration.feature_training_policy import (
+    TRAINING_FEATURE_POLICY_ID,
+    training_feature_exclusions,
+    training_feature_names,
+)
 from weather.market.market_registry import MarketSpec, spec_for_id
 from weather.model.feature_safety import validate_feature_names_are_label_free
 from weather.model.feature_store import FEATURE_COLUMNS
 
 SERVED_ALLOWLIST_PREFIX = "served:"
+SERVED_POLICY_ALLOWLIST_PREFIX = "served-policy:"
 WIND_PREFIX = "wind_"
 CLOUD_PREFIX = "cloud_"
 GROUP_SOURCE_COLUMNS = frozenset({"wind_group", "cloud_group"})
@@ -104,24 +114,50 @@ def served_feature_names(
     return hgb_names
 
 
-def load_column_allowlist(value: str, *, market_spec: MarketSpec) -> tuple[list[str], str]:
-    """Resolve ``served:<market>`` or a JSON-list file into ``(columns, source)``.
+def load_column_allowlist(value: str, *, market_spec: MarketSpec) -> dict[str, Any]:
+    """Resolve an allowlist spec into its columns and provenance.
 
-    ``served:<market>`` must name the market being trained: a list served for a
+    Modes:
+
+    - ``served-policy:<market>`` (**the R0 mode**, owner 2026-10-21): the served
+      list with the registry training-policy exclusions removed, order kept. In
+      F markets that drops exactly ``pressure`` and ``pressure_trend_3h``; in the
+      C market (Toronto) the policy excludes nothing, so it equals the served list.
+    - ``served:<market>``: the served list exactly; any policy-excluded column it
+      keeps is reported as an override (not used by R0).
+    - a JSON file holding a list, or an object with ``feature_names``.
+
+    A served mode must name the market being trained: a list served for a
     different market is never silently transplanted.
     """
 
     text = str(value or "").strip()
     if not text:
         raise ColumnAllowlistError("empty --column-allowlist")
-    if text.startswith(SERVED_ALLOWLIST_PREFIX):
-        market_id = text[len(SERVED_ALLOWLIST_PREFIX):]
-        served_spec = spec_for_id(market_id)
+    for prefix, mode in (
+        (SERVED_POLICY_ALLOWLIST_PREFIX, "served-policy"),
+        (SERVED_ALLOWLIST_PREFIX, "served"),
+    ):
+        if not text.startswith(prefix):
+            continue
+        served_spec = spec_for_id(text[len(prefix):])
         if served_spec.id != market_spec.id:
             raise ColumnAllowlistError(
                 f"{text} names a different market than the one being trained ({market_spec.id})"
             )
-        return served_feature_names(served_spec), text
+        served = served_feature_names(served_spec)
+        applied: list[str] = []
+        columns = list(served)
+        if mode == "served-policy":
+            columns = training_feature_names(served, market_spec=market_spec)
+            applied = [name for name in served if name not in columns]
+        return {
+            "columns": columns,
+            "source": text,
+            "mode": mode,
+            "served_feature_names": served,
+            "policy_exclusions_applied": applied,
+        }
     path = Path(text)
     if not path.is_file():
         raise ColumnAllowlistError(f"column allowlist file not found: {path}")
@@ -133,7 +169,13 @@ def load_column_allowlist(value: str, *, market_spec: MarketSpec) -> tuple[list[
         raise ColumnAllowlistError(
             f"{path}: expected a JSON list of column names or an object with 'feature_names'"
         )
-    return list(payload), str(path)
+    return {
+        "columns": list(payload),
+        "source": str(path),
+        "mode": "file",
+        "served_feature_names": None,
+        "policy_exclusions_applied": [],
+    }
 
 
 def column_allowlist_plan(
@@ -143,6 +185,9 @@ def column_allowlist_plan(
     source: str,
     known_wind_groups: Sequence[str],
     known_cloud_groups: Sequence[str],
+    mode: str = "file",
+    served_feature_names: Sequence[str] | None = None,
+    policy_exclusions_applied: Sequence[str] = (),
 ) -> dict[str, Any]:
     """Validate an allowlist against the serving contract and describe it.
 
@@ -185,17 +230,41 @@ def column_allowlist_plan(
         )
     excluded = set(training_feature_exclusions(market_spec))
     canonical = json.dumps(columns, separators=(",", ":"))
+    served = None if served_feature_names is None else [str(name) for name in served_feature_names]
     return {
         "source": source,
+        "mode": mode,
         "feature_names": columns,
         "numeric_feature_names": numeric,
         "all_wind_groups": wind_groups,
         "all_cloud_groups": cloud_groups,
         "sha256": hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
+        "training_feature_policy_id": TRAINING_FEATURE_POLICY_ID,
+        "served_feature_names": served,
+        "policy_exclusions_applied": [str(name) for name in policy_exclusions_applied],
+        "differs_from_served": None if served is None else served != columns,
         "training_policy_exclusions_overridden": [
             name for name in columns if name in excluded
         ],
     }
+
+
+# Keys copied into the trained artifacts' ``training_column_allowlist`` record.
+ALLOWLIST_RECORD_KEYS = (
+    "source",
+    "mode",
+    "sha256",
+    "feature_names",
+    "training_feature_policy_id",
+    "served_feature_names",
+    "policy_exclusions_applied",
+    "differs_from_served",
+    "training_policy_exclusions_overridden",
+)
+
+
+def allowlist_record(plan: Mapping[str, Any]) -> dict[str, Any]:
+    return {key: plan[key] for key in ALLOWLIST_RECORD_KEYS}
 
 
 def resolve_column_allowlist(
@@ -205,19 +274,25 @@ def resolve_column_allowlist(
     known_wind_groups: Sequence[str],
     known_cloud_groups: Sequence[str],
 ) -> dict[str, Any]:
-    columns, source = load_column_allowlist(value, market_spec=market_spec)
+    loaded = load_column_allowlist(value, market_spec=market_spec)
     return column_allowlist_plan(
-        columns,
+        loaded["columns"],
         market_spec=market_spec,
-        source=source,
+        source=loaded["source"],
         known_wind_groups=known_wind_groups,
         known_cloud_groups=known_cloud_groups,
+        mode=loaded["mode"],
+        served_feature_names=loaded["served_feature_names"],
+        policy_exclusions_applied=loaded["policy_exclusions_applied"],
     )
 
 
 __all__ = [
+    "ALLOWLIST_RECORD_KEYS",
     "ColumnAllowlistError",
     "SERVED_ALLOWLIST_PREFIX",
+    "SERVED_POLICY_ALLOWLIST_PREFIX",
+    "allowlist_record",
     "bundle_feature_names",
     "column_allowlist_plan",
     "load_column_allowlist",

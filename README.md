@@ -468,17 +468,38 @@ Use `--market toronto` for Celsius artifacts and an F-market such as `nyc` for
 F-family artifacts. For the local multi-market helper, use
 `.\tools\train_all_markets.ps1`.
 
-`--column-allowlist served:<market>` (or a JSON list file) trains the
-cutoff-hour HGB/LR on exactly that ordered column list instead of the
-policy-filtered schema, so a retrain changes the fit dates and not the feature
-set. `served:<market>` must name the market being trained and reads the served
-bundles' `feature_names`, failing closed unless the HGB pickle and LR coefs
-agree. Any listed column the training frame or serving cannot build fails
-closed. A kept column that the training policy excludes (today `pressure` and
-`pressure_trend_3h` in F markets) is not dropped: it is printed and recorded as
-`training_column_allowlist.training_policy_exclusions_overridden` in both
-artifacts. Late-day continuation models keep their own columns. The trainer
-still writes to `artifacts/models/`; candidate runs must redirect that output.
+`--column-allowlist` trains the cutoff-hour HGB/LR on exactly one ordered
+column list instead of the policy-filtered schema, so a retrain changes the fit
+dates and not the feature set. Its value can be one of three things:
+
+- `served-policy:<market>`: the served bundles' `feature_names` minus the
+  training-policy exclusions, in served order. This is the R0 mode (owner
+  decision 2026-10-21). In F markets it drops exactly `pressure` and
+  `pressure_trend_3h`; Toronto loses nothing.
+- `served:<market>`: the served list as is. Any column the policy would
+  exclude is kept and recorded as an override. R0 does not use this mode.
+- A JSON list file.
+
+A served mode must name the market being trained, and it fails closed unless
+the HGB pickle and the LR coefs agree. Any listed column that the training
+frame or serving cannot build also fails closed. Both artifacts record the
+mode, the served list, `policy_exclusions_applied` and `differs_from_served`
+under `training_column_allowlist`.
+
+`--output-root <dir>` runs the base models only, as R0 does:
+
+- The cutoff-hour HGB/LR and the report are written to a new directory under
+  that root.
+- Late-day continuation is not trained, so the served late-day models stay as
+  they are.
+- Nothing is written to `artifacts/models/`.
+- It refuses `artifacts/` (except a child of `artifacts/candidates/`), the
+  releases, `src/`, the repository root and existing output.
+- It cannot be combined with `--late-day-only` or `--item27-report-only`.
+
+An R0 fit is
+`--market <id> --column-allowlist served-policy:<id> --output-root <dir>`,
+run through `scripts\ops\workstation_heavy.ps1`.
 
 METAR keying replay (read-only, target dates up to 2026-09-29 only). It
 re-parses the raw AWC payloads retained in each market-day folder's

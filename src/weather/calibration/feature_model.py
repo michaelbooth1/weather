@@ -4,12 +4,18 @@ import os
 import pickle
 import time
 import warnings
+from pathlib import Path
 import numpy as np
 import pandas as pd
 from datetime import datetime
 from collections import Counter, defaultdict
 
-from weather.artifacts import writable_artifact_path
+from weather.artifacts import (
+    DEFAULT_IMMUTABLE_RELEASE_ROOT,
+    CandidateArtifactPathError,
+    assert_candidate_artifact_output,
+    writable_artifact_path,
+)
 from weather.calibration.blocked_validation import blocked_validation_audit, validation_splits
 from weather.calibration.feature_model_reports import (
     _as_date,
@@ -26,6 +32,7 @@ from weather.calibration.feature_model_reports import (
 )
 from weather.calibration.feature_column_allowlist import (
     ColumnAllowlistError,
+    allowlist_record,
     resolve_column_allowlist,
 )
 from weather.calibration.feature_probability_calibration import (
@@ -62,6 +69,7 @@ from weather.sources.reanalysis_synoptic import (
     load_reanalysis_synoptic_features,
 )
 from weather.sources.marine_water_contrast import load_marine_water_contrast_features
+from weather.paths import ARTIFACTS_ROOT, SRC_ROOT
 from weather.units import round_half_up
 
 # LOO must stay ON: without it the retrain exports artifacts with no
@@ -1211,12 +1219,60 @@ def main_late_day(market_id="toronto"):
     print(f"Saved late-day validation report to {report_path}")
 
 
-def main(market_id="toronto", column_allowlist=None):
+def base_only_output_paths(output_root, suffix):
+    """Resolve the redirected, base-models-only output files for ``--output-root``.
+
+    Fails closed (``CandidateArtifactPathError``) when the root is inside
+    ``artifacts/`` anywhere but a child of ``artifacts/candidates/`` (so never
+    ``artifacts/models/``, the immutable releases or the active pointer), inside
+    ``src/`` (the legacy serving fallback location), or when any target file
+    already exists (a candidate is written once, never overwritten).
+    """
+    root = Path(output_root).resolve()
+    artifacts = ARTIFACTS_ROOT.resolve()
+    if root == artifacts or root.is_relative_to(artifacts) or artifacts.is_relative_to(root):
+        if artifacts.is_relative_to(root):
+            raise CandidateArtifactPathError(
+                f"--output-root must not contain the artifacts tree: {root}"
+            )
+        root = assert_candidate_artifact_output(root)
+    for protected in (SRC_ROOT.resolve(), DEFAULT_IMMUTABLE_RELEASE_ROOT.resolve()):
+        if root == protected or root.is_relative_to(protected):
+            raise CandidateArtifactPathError(
+                f"--output-root is inside a served or source path: {root}"
+            )
+    paths = {
+        "coefs": root / f"feature_model_coefs{suffix}.json",
+        "hgb": root / f"feature_model_hgb{suffix}.pkl",
+        "report": root / f"feature_model_report{suffix}.md",
+    }
+    existing = [str(path) for path in paths.values() if path.exists()]
+    if existing:
+        raise CandidateArtifactPathError(
+            f"--output-root already holds trainer output (never overwritten): {existing}"
+        )
+    return paths
+
+
+def main(market_id="toronto", column_allowlist=None, output_root=None):
+    """Train one market's feature model.
+
+    Default: cutoff-hour HGB/LR plus late-day continuation, written to the
+    served artifact paths. With ``output_root`` (the R0 path) the run is base
+    models only: the cutoff-hour HGB/LR and report go under that root, late-day
+    continuation is not trained, and nothing is written to ``artifacts/models``.
+    R0 pairs it with ``column_allowlist="served-policy:<market>"``.
+    """
     model = TorontoHighTempModel(market_id=market_id)
     spec = model.spec
     suffix = spec.artifact_suffix
     print(f"Training feature model for market '{spec.id}' (unit {spec.unit}, "
           f"artifacts '*{suffix}').")
+    redirected = None
+    if output_root is not None:
+        redirected = base_only_output_paths(output_root, suffix)
+        print(f"Base models only; output redirected to {redirected['hgb'].parent} "
+              "(late-day continuation not trained; served late-day models untouched).")
     allowlist_plan = None
     if column_allowlist is not None:
         # Resolve before any data load so a bad list fails in seconds.
@@ -1229,6 +1285,10 @@ def main(market_id="toronto", column_allowlist=None):
         print(f"Column allowlist {allowlist_plan['source']}: "
               f"{len(allowlist_plan['feature_names'])} columns, "
               f"sha256 {allowlist_plan['sha256']}.")
+        if allowlist_plan["policy_exclusions_applied"]:
+            print(f"Policy {TRAINING_FEATURE_POLICY_ID} removed "
+                  f"{allowlist_plan['policy_exclusions_applied']} from the served list "
+                  f"({len(allowlist_plan['served_feature_names'])} served columns).")
         overridden = allowlist_plan["training_policy_exclusions_overridden"]
         if overridden:
             print(f"WARNING: the allowlist keeps columns that training policy "
@@ -1322,17 +1382,11 @@ def main(market_id="toronto", column_allowlist=None):
         "training_feature_exclusions": list(training_feature_exclusions(spec)),
     }
     if allowlist_plan is not None:
-        allowlist_record = {
-            key: allowlist_plan[key]
-            for key in (
-                "source",
-                "sha256",
-                "feature_names",
-                "training_policy_exclusions_overridden",
-            )
-        }
-        trained_models_info["training_column_allowlist"] = allowlist_record
-        hgb_models_info["training_column_allowlist"] = dict(allowlist_record)
+        trained_models_info["training_column_allowlist"] = allowlist_record(allowlist_plan)
+        hgb_models_info["training_column_allowlist"] = allowlist_record(allowlist_plan)
+    if redirected is not None:
+        for info in (trained_models_info, hgb_models_info):
+            info["base_models_only"] = True
 
     for hour in INTRADAY_CUTOFF_HOURS:
         records = raw_data[hour]
@@ -1735,38 +1789,49 @@ def main(market_id="toronto", column_allowlist=None):
         }
         
     # Write coefficients json (per-unit artifact: '' for C, '_f' for F)
-    coefs_path = writable_artifact_path(f"feature_model_coefs{suffix}.json")
+    if redirected is not None:
+        redirected["coefs"].parent.mkdir(parents=True, exist_ok=True)
+        coefs_path = redirected["coefs"]
+    else:
+        coefs_path = writable_artifact_path(f"feature_model_coefs{suffix}.json")
     with open(coefs_path, "w", encoding="utf-8") as f:
         json.dump(trained_models_info, f, indent=2, sort_keys=True)
     print(f"\nSaved final model coefficients to {coefs_path}")
 
     # Write HGBC pickle (per-unit artifact)
-    hgb_path = writable_artifact_path(f"feature_model_hgb{suffix}.pkl")
+    if redirected is not None:
+        hgb_path = redirected["hgb"]
+    else:
+        hgb_path = writable_artifact_path(f"feature_model_hgb{suffix}.pkl")
     with open(hgb_path, "wb") as f:
         pickle.dump(hgb_models_info, f)
     print(f"Saved final HGBC models to {hgb_path}")
 
-    # --- Train Late-Day Continuation Models ---
-    print("\n--- Training Late-Day Continuation Models (Roadmap Item 8) ---")
-    # The column allowlist binds the cutoff-hour model only; late-day
-    # continuation keeps its own columns and the full group lists.
-    late_day_info, late_day_validation_rows, late_day_ablation_rows = (
-        train_late_day_continuation_models(
-            model,
-            daily,
-            by_date,
-            forecast_index,
-            WIND_GROUPS,
-            CLOUD_GROUPS,
-            trained_at,
+    if redirected is None:
+        # --- Train Late-Day Continuation Models ---
+        print("\n--- Training Late-Day Continuation Models (Roadmap Item 8) ---")
+        # The column allowlist binds the cutoff-hour model only; late-day
+        # continuation keeps its own columns and the full group lists.
+        late_day_info, late_day_validation_rows, late_day_ablation_rows = (
+            train_late_day_continuation_models(
+                model,
+                daily,
+                by_date,
+                forecast_index,
+                WIND_GROUPS,
+                CLOUD_GROUPS,
+                trained_at,
+            )
         )
-    )
-        
-    # Save late day coefficients JSON (per-unit artifact)
-    ld_coefs_path = writable_artifact_path(f"late_day_model_coefs{suffix}.json")
-    with open(ld_coefs_path, "w", encoding="utf-8") as f:
-        json.dump(late_day_info, f, indent=2, sort_keys=True)
-    print(f"Saved final late-day model coefficients to {ld_coefs_path}")
+
+        # Save late day coefficients JSON (per-unit artifact)
+        ld_coefs_path = writable_artifact_path(f"late_day_model_coefs{suffix}.json")
+        with open(ld_coefs_path, "w", encoding="utf-8") as f:
+            json.dump(late_day_info, f, indent=2, sort_keys=True)
+        print(f"Saved final late-day model coefficients to {ld_coefs_path}")
+    else:
+        # Base models only (owner 2026-10-21): no continuation fit, no write.
+        late_day_validation_rows, late_day_ablation_rows = [], []
     
     if RUN_LOO:
         if training_metric_rows:
@@ -1918,13 +1983,16 @@ def main(market_id="toronto", column_allowlist=None):
                 report_lines.append(ablation_table_row(row, include_hour=True))
 
         # Save Report file
-        report_path = os.path.join(str(spec.data_root), "analysis", f"feature_model_report{suffix}.md")
+        if redirected is not None:
+            report_path = str(redirected["report"])
+        else:
+            report_path = os.path.join(str(spec.data_root), "analysis", f"feature_model_report{suffix}.md")
         os.makedirs(os.path.dirname(report_path), exist_ok=True)
         with open(report_path, "w", encoding="utf-8") as f:
             f.write("\n".join(report_lines) + "\n")
         print(f"Saved model report to {report_path}")
 
-if __name__ == "__main__":
+def parse_cli_args(argv=None):
     import argparse
 
     parser = argparse.ArgumentParser(
@@ -1947,13 +2015,27 @@ if __name__ == "__main__":
     parser.add_argument(
         "--column-allowlist", default=None,
         help="Train the cutoff-hour HGB/LR on exactly this ordered column list: "
-             "'served:<market>' (the served bundles' feature_names; HGB and coefs "
-             "must agree) or a JSON list file. Fails closed on any column the "
-             "training frame or serving cannot build. Default: policy columns.")
-    args = parser.parse_args()
-    if args.column_allowlist is not None and (args.item27_report_only or args.late_day_only):
-        parser.error("--column-allowlist applies to the cutoff-hour model only; "
-                     "it cannot be combined with --late-day-only or --item27-report-only")
+             "'served-policy:<market>' (R0: the served bundles' feature_names minus "
+             "the training-policy exclusions), 'served:<market>' (the served list "
+             "as is) or a JSON list file. Fails closed on any column the training "
+             "frame or serving cannot build. Default: policy columns.")
+    parser.add_argument(
+        "--output-root", default=None,
+        help="Base models only (R0): write the cutoff-hour HGB/LR and report under "
+             "this new directory and skip late-day continuation. Refuses "
+             "artifacts/models, releases, src and existing output. Default: the "
+             "served artifact paths (unchanged).")
+    args = parser.parse_args(argv)
+    for flag in ("column_allowlist", "output_root"):
+        if getattr(args, flag) is not None and (args.item27_report_only or args.late_day_only):
+            parser.error(f"--{flag.replace('_', '-')} applies to the base cutoff-hour model "
+                         "only; it cannot be combined with --late-day-only or "
+                         "--item27-report-only")
+    return args
+
+
+if __name__ == "__main__":
+    args = parse_cli_args()
     if args.item27_report_only:
         main_item27_feature_value_report(
             market_id=args.market,
@@ -1965,4 +2047,8 @@ if __name__ == "__main__":
         raise SystemExit(0)
     if args.skip_loo:
         RUN_LOO = False
-    main(market_id=args.market, column_allowlist=args.column_allowlist)
+    main(
+        market_id=args.market,
+        column_allowlist=args.column_allowlist,
+        output_root=args.output_root,
+    )

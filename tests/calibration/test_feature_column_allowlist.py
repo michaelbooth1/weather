@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import pickle
+from collections import defaultdict
 from datetime import date, timedelta
 
 import numpy as np
@@ -14,8 +15,11 @@ import pytest
 from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.impute import SimpleImputer
 
+from weather.artifacts import CandidateArtifactPathError
 from weather.calibration.feature_column_allowlist import (
+    ALLOWLIST_RECORD_KEYS,
     ColumnAllowlistError,
+    allowlist_record,
     bundle_feature_names,
     column_allowlist_plan,
     load_column_allowlist,
@@ -25,15 +29,20 @@ from weather.calibration.feature_column_allowlist import (
 from weather.calibration.feature_model import (
     CLOUD_GROUPS,
     WIND_GROUPS,
+    base_only_output_paths,
     feature_model_columns,
     feature_model_frame,
+    parse_cli_args,
 )
 from weather.calibration.feature_training_policy import (
     F_MARKET_UNSERVABLE_TRAINING_FEATURES,
+    TRAINING_FEATURE_POLICY_ID,
+    training_feature_exclusions,
 )
 from weather.market.market_registry import NYC, TORONTO
 from weather.model.feature_store import FEATURE_COLUMNS
 from weather.model.toronto_model import TorontoHighTempModel
+from weather.paths import ARTIFACTS_ROOT, REPO_ROOT, SRC_ROOT
 
 # Shape of a served v0.3 F-market list (numeric block, then the one-hot block),
 # including the two pressure columns the current policy excludes for F markets.
@@ -289,3 +298,206 @@ def test_smoke_fit_bundle_feature_names_equal_allowlist_and_serving_accepts():
     assert kind == "hgb"
     assert set(distribution) == {80, 81, 82}
     assert sum(distribution.values()) == pytest.approx(1.0)
+
+
+# R0 mode: served-policy:<market> (owner 2026-10-21, "Drop pressure") ---------
+
+
+@pytest.fixture
+def served_fixture(monkeypatch):
+    """Serve SERVED_STYLE for every market without touching LFS artifacts."""
+    import weather.calibration.feature_column_allowlist as allowlist_module
+
+    monkeypatch.setattr(
+        allowlist_module, "served_feature_names", lambda spec, **_: list(SERVED_STYLE)
+    )
+    return allowlist_module
+
+
+def _resolve(value, spec):
+    return resolve_column_allowlist(
+        value, market_spec=spec, known_wind_groups=WIND_GROUPS, known_cloud_groups=CLOUD_GROUPS,
+    )
+
+
+PRESSURE = ["pressure", "pressure_trend_3h"]
+POLICY_STYLE = [name for name in SERVED_STYLE if name not in PRESSURE]
+
+
+def test_policy_mode_drops_exactly_the_two_pressure_columns_in_f_markets(served_fixture):
+    plan = _resolve("served-policy:nyc", NYC)
+    assert plan["feature_names"] == POLICY_STYLE
+    assert len(plan["feature_names"]) == len(SERVED_STYLE) - 2
+    assert plan["mode"] == "served-policy"
+    assert plan["served_feature_names"] == SERVED_STYLE
+    assert plan["policy_exclusions_applied"] == PRESSURE
+    assert plan["differs_from_served"] is True
+    assert plan["training_policy_exclusions_overridden"] == []
+    assert plan["training_feature_policy_id"] == TRAINING_FEATURE_POLICY_ID
+
+
+def test_policy_mode_excludes_nothing_for_the_celsius_market(served_fixture):
+    assert training_feature_exclusions(TORONTO) == ()
+    plan = _resolve("served-policy:toronto", TORONTO)
+    assert plan["feature_names"] == SERVED_STYLE
+    assert plan["policy_exclusions_applied"] == []
+    assert plan["differs_from_served"] is False
+    assert plan["training_policy_exclusions_overridden"] == []
+
+
+def test_plain_served_mode_keeps_the_list_and_records_overrides(served_fixture):
+    plan = _resolve("served:nyc", NYC)
+    assert plan["feature_names"] == SERVED_STYLE
+    assert plan["mode"] == "served"
+    assert plan["policy_exclusions_applied"] == []
+    assert plan["differs_from_served"] is False
+    assert plan["training_policy_exclusions_overridden"] == PRESSURE
+
+
+def test_policy_mode_refuses_another_market(served_fixture):
+    with pytest.raises(ColumnAllowlistError, match="different market"):
+        _resolve("served-policy:toronto", NYC)
+
+
+def test_allowlist_record_carries_the_served_difference(served_fixture):
+    record = allowlist_record(_resolve("served-policy:nyc", NYC))
+    assert tuple(record) == ALLOWLIST_RECORD_KEYS
+    assert record["policy_exclusions_applied"] == PRESSURE
+    assert record["differs_from_served"] is True
+    file_plan = _plan(SERVED_STYLE)
+    assert file_plan["differs_from_served"] is None
+    assert file_plan["served_feature_names"] is None
+
+
+# R0 output redirect and base-only enforcement --------------------------------
+
+
+@pytest.mark.parametrize(
+    "root",
+    [
+        ARTIFACTS_ROOT / "models",
+        ARTIFACTS_ROOT / "models" / "hgb",
+        ARTIFACTS_ROOT,
+        ARTIFACTS_ROOT / "releases",
+        ARTIFACTS_ROOT / "misc" / "r0",
+        ARTIFACTS_ROOT / "candidates",
+        REPO_ROOT,
+        SRC_ROOT,
+        SRC_ROOT / "weather",
+    ],
+)
+def test_output_root_refuses_served_and_source_paths(root):
+    with pytest.raises(CandidateArtifactPathError):
+        base_only_output_paths(root, "_nyc")
+
+
+def test_output_root_allows_a_candidate_child_or_scratch_dir(tmp_path):
+    candidate = ARTIFACTS_ROOT / "candidates" / "retrain-r0-test-never-created"
+    paths = base_only_output_paths(candidate, "_nyc")
+    assert paths["hgb"] == candidate.resolve() / "feature_model_hgb_nyc.pkl"
+    assert not candidate.exists()
+    scratch = base_only_output_paths(tmp_path / "r0", "_nyc")
+    assert set(scratch) == {"coefs", "hgb", "report"}
+
+
+def test_output_root_never_overwrites(tmp_path):
+    (tmp_path / "feature_model_hgb_nyc.pkl").write_bytes(b"x")
+    with pytest.raises(CandidateArtifactPathError, match="never overwritten"):
+        base_only_output_paths(tmp_path, "_nyc")
+
+
+@pytest.mark.parametrize("flag", ["--late-day-only", "--item27-report-only"])
+@pytest.mark.parametrize(
+    "option", [["--output-root", "x"], ["--column-allowlist", "served-policy:nyc"]],
+)
+def test_cli_refuses_base_only_options_with_other_modes(flag, option):
+    with pytest.raises(SystemExit) as raised:
+        parse_cli_args(["--market", "nyc", flag, *option])
+    assert raised.value.code == 2
+
+
+def test_cli_default_is_unchanged():
+    args = parse_cli_args([])
+    assert (args.market, args.column_allowlist, args.output_root) == ("toronto", None, None)
+
+
+class _FakeModel:
+    def __init__(self, market_id="toronto"):
+        self.spec = NYC
+        self.calibrated_weights = None
+
+    def historical_target_cache(self):
+        return {"daily": [], "by_date": {}, "bucket_space": [80, 81, 82]}
+
+
+def _patch_trainer(monkeypatch, *, records, late_day):
+    import weather.calibration.feature_model as trainer
+
+    monkeypatch.setattr(trainer, "TorontoHighTempModel", _FakeModel)
+    monkeypatch.setattr(trainer, "RUN_LOO", False)
+    for loader in (
+        "load_forecast_daily",
+        "load_forecast_profiles",
+        "load_marine_water_contrast_features",
+        "load_reanalysis_synoptic_features",
+    ):
+        monkeypatch.setattr(trainer, loader, lambda *args, **kwargs: {})
+    monkeypatch.setattr(
+        trainer,
+        "build_feature_records_for_model",
+        lambda *args, **kwargs: defaultdict(list, {12: records}),
+    )
+    monkeypatch.setattr(trainer, "train_late_day_continuation_models", late_day)
+    return trainer
+
+
+def test_r0_main_is_base_only_and_writes_only_under_output_root(
+    tmp_path, monkeypatch, served_fixture,
+):
+    def no_late_day(*args, **kwargs):
+        raise AssertionError("R0 must not train late-day continuation models")
+
+    def no_served_write(*args, **kwargs):
+        raise AssertionError("R0 must not resolve a served artifact path")
+
+    trainer = _patch_trainer(monkeypatch, records=_records(), late_day=no_late_day)
+    monkeypatch.setattr(trainer, "writable_artifact_path", no_served_write)
+    out = tmp_path / "retrain-r0"
+    trainer.main("nyc", column_allowlist="served-policy:nyc", output_root=str(out))
+
+    assert sorted(path.name for path in out.iterdir()) == [
+        "feature_model_coefs_nyc.json",
+        "feature_model_hgb_nyc.pkl",
+    ]
+    hgb = pickle.loads((out / "feature_model_hgb_nyc.pkl").read_bytes())
+    coefs = json.loads((out / "feature_model_coefs_nyc.json").read_text(encoding="utf-8"))
+    assert hgb["12"]["feature_names"] == POLICY_STYLE
+    assert coefs["12"]["feature_names"] == POLICY_STYLE
+    for info in (hgb, coefs):
+        assert info["base_models_only"] is True
+        record = info["training_column_allowlist"]
+        assert record["mode"] == "served-policy"
+        assert record["policy_exclusions_applied"] == PRESSURE
+        assert record["differs_from_served"] is True
+
+
+def test_default_main_still_trains_late_day_into_served_paths(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_late_day(*args, **kwargs):
+        calls.append(args)
+        return {}, [], []
+
+    trainer = _patch_trainer(monkeypatch, records=_records(), late_day=fake_late_day)
+    monkeypatch.setattr(trainer, "writable_artifact_path", lambda name: tmp_path / name)
+    trainer.main("nyc")
+    assert len(calls) == 1
+    assert sorted(path.name for path in tmp_path.iterdir()) == [
+        "feature_model_coefs_nyc.json",
+        "feature_model_hgb_nyc.pkl",
+        "late_day_model_coefs_nyc.json",
+    ]
+    hgb = pickle.loads((tmp_path / "feature_model_hgb_nyc.pkl").read_bytes())
+    assert "training_column_allowlist" not in hgb
+    assert "base_models_only" not in hgb
+    assert "pressure" not in hgb["12"]["feature_names"]
