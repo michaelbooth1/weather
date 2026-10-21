@@ -8,6 +8,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from weather.sources.grib_probe import probe_grib_payload
 from weather.sources.historical_schema import to_float
+from weather.time import provider_hourly_local_times
 
 
 ECCC_GRIDDED_SCHEMA_VERSION = "eccc_gridded_v0.1"
@@ -140,15 +141,18 @@ def normalize_open_meteo_gem_payload(payload, spec, target_date, now=None):
     rows = []
     model_day_temps = {model: [] for model in GEM_MODELS}
     fetched_at_local = _to_aware_local(now, spec.tz)
-    now = fetched_at_local.replace(tzinfo=None)
+    now = fetched_at_local
     fetched_at = fetched_at_local.isoformat()
     payload_hash_value = payload_hash(payload)
-    for index, raw_time in enumerate(hourly.get("time") or []):
-        try:
-            dt = datetime.fromisoformat(str(raw_time))
-        except ValueError:
-            continue
-        if dt.date() != target:
+    # Open-Meteo labels carry one fixed response offset; read them as UTC
+    # instants so a DST change inside the horizon keeps the true local hour.
+    local_times = provider_hourly_local_times(
+        hourly.get("time") or [],
+        spec.tz,
+        (payload or {}).get("utc_offset_seconds"),
+    )
+    for index, dt in enumerate(local_times):
+        if dt is None or dt.date() != target:
             continue
         model_payloads = {}
         model_temps = []
@@ -167,7 +171,7 @@ def normalize_open_meteo_gem_payload(payload, spec, target_date, now=None):
             "schema_version": ECCC_GRIDDED_SCHEMA_VERSION,
             "source": SOURCE,
             "time": dt.strftime("%H:%M"),
-            "valid_time": dt.replace(tzinfo=spec.tz).isoformat(),
+            "valid_time": dt.isoformat(),
             "run_time": None,
             "run_time_status": OPEN_METEO_RUN_TIME_STATUS,
             "forecast_hour": None,
