@@ -84,7 +84,7 @@ INCONCLUSIVE. Under the bundle defaults:
 
 | Arm | Look read by Gate 1 (12-07)? | Look read by 12-21? | Why |
 | --- | --- | --- | --- |
-| A0 | interim yes (earliest 11-15 / 11-18) | final yes (earliest 12-10 / 12-13) | EDGE-1 annex §2.1 |
+| A0 | interim yes, if TESTABLE (not under the default bar) (earliest 11-15 / 11-18) | final yes, if TESTABLE (not under the default bar) (earliest 12-10 / 12-13) | EDGE-1 annex §2.1, §8 |
 | A1 | no | no | looks deferred past the t3-r3 look (OD-E1 default (a)), which lands in Dec/Jan (question (b)) |
 | A2 | — | — | CLOSED IN DEVELOPMENT (all four w_b = 0.00; annex §1.1); E2 not scored |
 | MG-1 | its single look, if read by then | yes (45th countable date from D0 10-15, provisional last 11-28) | MG-1 §4-§6 as signed; its 00-16 interval only (§2.2 note) |
