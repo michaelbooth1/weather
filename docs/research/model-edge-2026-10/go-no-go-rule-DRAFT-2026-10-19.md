@@ -152,8 +152,11 @@ INCONCLUSIVE), and early NO-GO stays as written.
   against 0.0133) must be re-confirmed with `resampled_power` on the frozen arms before D0 (M4.4). The market
   component holds power near 40% or below at any season length (EF §10j).
 
-- **Both branches reachable (filled from the 2026-10-20 addendum).** GO: P(GO given null) 0.026-0.040 and, on
-  arm − served, 0.47-0.95 parametric under half-to-full effect (less ~0.07-0.10 after calibration). NO-GO:
+- **Reachability of each branch (revised 2026-10-20, delta review item 4).** GO (default bar): only via MG-1's upper
+  bound of R below 1, ≈ 0.025 under R = 1 and ≈ 0 at the development R; with H-A0 kept (bar ≥ 0.27), 0.17 at R = 0.95.
+  GO is not meaningfully reachable under the defaults; the owner signs this as a NO-GO/INCONCLUSIVE instrument or
+  raises the bar. (The 0.47-0.95 figures previously quoted here are MG-1's paired arm − served scale, not GO clause (a).)
+  NO-GO:
 
   **Per-arm NO-GO reachability, one arm in isolation** (harness-v3 addendum; the relayed §1 rule applied per arm: lower bound of R above 1.05 in every 00-16
   block and E2 upper bound above −0.5% of market Brier; MG-1-like arm variance; 20,000 simulations per cell):
