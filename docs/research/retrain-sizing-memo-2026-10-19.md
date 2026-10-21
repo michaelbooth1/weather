@@ -46,9 +46,15 @@ Section 5 sets out what "explicitly waived" must say.
 
 - **Per-market HGB pickles.** There are 12, at `artifacts/models/hgb/feature_model_hgb{,_<market>}.pkl`. Each carries
   14 cutoff bundles (07-20 h).
-- **Selected columns.** Each bundle selects 24-29 columns: Atlanta, Dallas, Denver, NYC and San Francisco 27; Austin,
-  Chicago, Houston, Los Angeles and Seattle 24; Miami 29. These are bundle `feature_names`, read from the pickles on the
-  workstation.
+- **Selected columns.** Each bundle selects 24-29 columns, in two schemas:
+  - `toronto_feature_store_v0.3`, 27 columns: Atlanta, Dallas, Denver, NYC, San Francisco;
+  - `toronto_feature_store_v0.2`, **24 columns**: Austin, Chicago, Houston, Los Angeles, Seattle. These lack
+    `minutes_since_cutoff`, `live_reading_temp` and `live_reading_minus_high`;
+  - 29 columns: Miami and Toronto.
+
+  These are bundle `feature_names`. *Corrected r3 (2026-10-21)*: r1/r2 implied every market was v0.3. Source: the
+  served-list extraction on `claude/retrain-column-allowlist-20261021`, where HGB bundles and LR coefficients agree in all
+  12 markets across 14 cutoffs.
 - **Fit dates.** The artifacts were fitted 2026-06-10..13 (EF §4b) and committed `fd728d4a4` (06-13) and `5b6f5af2d`
   (06-20). The pickles carry no `trained_at` field.
 - **No release is bound.** `artifacts/releases/` is absent, so `release_serving` is RESEARCH_UNBOUND and the global
@@ -102,8 +108,9 @@ Section 5 sets out what "explicitly waived" must say.
   An October-December target needs a fresh completeness scan. Any newly failing station-day must be added to the
   code-owned list. **Never lower the 18-row floor** (EF §4g). The legacy trainer's own floor is 20 rows, a different
   constant from the 18 used by settlement.
-- **PIT corpus season.** `forecast_training_corpus.py:52-53` defaults to May 10-Aug 31. A November target is outside the
-  lane's corpus contract without a code change.
+- **PIT corpus season.** `forecast_training_corpus.py:52-53` defaults to May 10-Aug 31. The season is a plan flag
+  (r2), but see the r3 correction under §r2.1: that module has no HTTP client, and on master it always requires all 21
+  fields.
 - **Release machinery is off the critical path** (EF §0b, owner 2026-08-09). A release is needed only if a retrain is
   ever to be served.
 
@@ -350,9 +357,16 @@ Everything downstream is unchanged:
   `temperature_2m_previous_day{1..7}`.
 - EF §1m measured `temperature_2m` as complete for 2021-2025 on that host. The same host produced the existing 2,135
   fixed-lead rows per station (EF §4f).
-- The repository's own collector covers it:
-  `python -m weather.sources.forecast_training_corpus plan --years 2021,2022,2023 --season-start <MM-DD> --season-end <MM-DD>`,
-  then `resume` and `materialize`.
+- ~~The repository's own collector covers it: `forecast_training_corpus plan ...`, then `resume` and `materialize`.~~
+  **Corrected r3 (2026-10-21):** `weather.sources.forecast_training_corpus` has **no HTTP client**. Its docstring says the
+  bytes come from "a separately authorized collector". Its CLI is `plan` / `resume-status` / `materialize` only.
+
+  On master the plan always requests all 21 `DEFAULT_SOURCE_FIELDS`, and `materialize` requires every one of them. Only
+  `temperature_2m` exists for 2021-2023 on the free tier, so master cannot build this corpus as is.
+
+  A downloader and a `--fields` option are now built on `claude/pit-corpus-fetch-20261021` @
+  `b28c3d94151d2e65eff675a4dc1913007da863b0`, pending master review. That change is **roll-sensitive** and lands through
+  the quiet-window merge after N12. **The fetch is not yet run.**
 - Scale: the July window took about 60 free-tier calls for 12 markets (EF §4b). The research collections ran 96-120
   units each (EF §1m).
 - Other fields are not available for 2021-2023 on the free tier (EF §1m), so a temperature-only forecast feature is the
@@ -374,7 +388,7 @@ Option 2 trains a model that rarely sees the column which serving always fills: 
 | Centre date | One pinned date per window, frozen in the hash. Proposal: **2026-11-28** (window 11-21..12-05 of prior years), the middle of the dates an 11-17 D0 would score. INFERENCE: one artifact covers ±7 days; the 34 days from 11-17 to 12-19 need **two** centres (for example 11-24 and 12-10, switched on 12-02) or a frozen nightly-refit rule. Two frozen artifacts are simpler and hash cleanly. |
 | Labels and observations | Prior-year WU `daily_summary.csv` (rows ≥ 20) and hourly observations, ±7 days, years < 2026, as `historical_target_cache()` already does. Plus a completeness scan of the window; any station-day below the 18-row settlement floor goes on a code-owned exclusion list (EF §4g). |
 | `forecast_high` / `forecast_gap` | PIT lead-1 daily maximum from `temperature_2m_previous_day1` (the "honest" variant A of `-09-42a`). 2024-2025 come from the workstation research corpus; 2021-2023 come from the fetch above (owner yes). Built into a candidate `forecast_daily.csv` under a scratch data root, **never** the production `data/forecast_history/`. |
-| Columns | **Pin each market's served column list** (24-29 columns: the bundle `feature_names` of today's pickles, `feature_schema_version` `toronto_feature_store_v0.3`). See the parity note below. |
+| Columns | **Pin each market's served column list** (24-29 columns: the bundle `feature_names` of today's pickles, schema v0.2 or v0.3 by market, §1.1; **minus `pressure` and `pressure_trend_3h`, owner 2026-10-21, §r3**). See the parity note below. |
 | Model and hyperparameters | Unchanged: `HistGradientBoostingClassifier(max_iter=50, max_leaf_nodes=15, learning_rate=0.05)`, LR fallback, late-day coefficients, leave-one-out per-hour temperature and blend tuning (`RUN_LOO = True`). |
 | Output path | `artifacts/candidates/retrain-r0-<centre>/` (ignored by git; artifacts/AGENTS.md). Never `artifacts/models/`. |
 | Arm hash | sha256 over the artifact bytes, code commit, column lists, centre dates, data manifests and the exclusion list. |
@@ -495,6 +509,37 @@ What R0 could contribute by Gate 1 is one of two things:
 
 Binding constraint, unchanged: the calendar. A missed owner step by 10-30 or a late fetch moves D0 past 11-16, and R0
 then has no read before Gate 1.
+
+## r3 (2026-10-21): owner decisions
+
+Relayed by master-agent, about 16:1x on 2026-10-21. The answers are quoted verbatim.
+
+- **Pressure columns: "Drop pressure (Recommended)".**
+  - R0 = the served base columns **minus `pressure` and `pressure_trend_3h`**, per training policy
+    `native_station_pressure_train_serve_v1` (`calibration/feature_training_policy.py`).
+  - **Difference from served, recorded:** every served bundle that selects those two columns loses them in R0. All other
+    columns stay exactly as served, per market and per schema (v0.2 24 / v0.3 27 / 29; §1.1). That includes the served
+    Atlanta bundle (§r2.2).
+  - This is option (a) of §r2.2.
+- **Late-day models: "No, base models only (Recommended)".**
+  - R0 refits the **base models only**: the per-market HGB and LR feature models.
+  - The served late-day continuation models (`late_day_model_coefs*.json`) stay unchanged. R0's arm hash must bind the
+    served late-day bytes.
+  - The trainer's late-day output (written by `feature_model.main`, §1.2) is discarded.
+- **EDGE-1 bundle questions approved by the owner on 2026-10-21:**
+  - **OD-G3:** the retrain is **waived for the 12-21 decision**. The best case remains a futility-only R0 from 11-17
+    (§r2.4).
+  - **(j):** the 2021-2023 Previous Runs fetch: **yes**. It is still not run; it waits on
+    `claude/pit-corpus-fetch-20261021` (§r2.1).
+  - **(k):** the narrow reservation ruling of §r2.2: **yes**.
+- **Consequences for §r2.4:**
+  - The waiver now stands as decided.
+  - Two of the three conditions for an 11-17 D0 are met (owner yes on fetch and reservation).
+  - What remains:
+    - the fetch branch landing and running;
+    - the column-allowlist trainer change (`claude/retrain-column-allowlist-20261021`) landing;
+    - R0 freezing by 11-16 with a signed futility-only pre-registration.
+  - A 20-date look still cannot give GO.
 
 ## 6. What this memo does not claim
 
