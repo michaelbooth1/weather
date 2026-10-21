@@ -724,14 +724,14 @@ def _basic_response_validation(
         errors.append("zero_rows")
     expected_dates = set(request.get("expected_local_dates") or [])
     rows_by_date = defaultdict(list)
-    for raw_time in times or []:
-        try:
-            valid_local = _parse_provider_local_time(
-                raw_time,
-                request["source_timezone"],
-            )
-        except MaterializationBlocked:
-            errors.append(f"invalid_hourly_time:{raw_time}")
+    resolved, _mode, time_errors = resolve_provider_times(
+        times or [],
+        request["source_timezone"],
+        _response_utc_offset(payload),
+    )
+    errors.extend(time_errors)
+    for valid_local in resolved:
+        if valid_local is None:
             continue
         target_date = valid_local.date().isoformat()
         if valid_local.year == int(target_year):
@@ -740,10 +740,13 @@ def _basic_response_validation(
             errors.append(f"row_outside_request_window:{target_date}")
         rows_by_date[target_date].append(valid_local)
     for target_date in sorted(expected_dates):
-        day_rows = rows_by_date.get(target_date) or []
-        clock_hours = {(item.hour, item.minute) for item in day_rows}
-        if len(day_rows) != 24 or clock_hours != {(hour, 0) for hour in range(24)}:
-            errors.append(f"incomplete_hourly_envelope:{target_date}:{len(day_rows)}")
+        envelope_error = _hourly_envelope_error(
+            target_date,
+            rows_by_date.get(target_date) or [],
+            request["source_timezone"],
+        )
+        if envelope_error:
+            errors.append(envelope_error)
     response_timezone = (payload or {}).get("timezone") if isinstance(payload, Mapping) else None
     if response_timezone and response_timezone != request.get("source_timezone"):
         errors.append(f"response_timezone_mismatch:{response_timezone}")
@@ -929,17 +932,103 @@ def resume_ledger(plan_path, staging_root):
     }
 
 
-def _parse_provider_local_time(value, source_timezone):
-    try:
-        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-    except (TypeError, ValueError) as exc:
-        raise MaterializationBlocked(f"invalid provider hourly time: {value!r}") from exc
+def _response_utc_offset(payload):
+    if not isinstance(payload, Mapping) or "utc_offset_seconds" not in payload:
+        return None
+    value = payload.get("utc_offset_seconds")
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return "invalid"
+    return int(value)
+
+
+def hours_in_local_date(target_date, source_timezone):
+    """Number of real hours (23, 24 or 25) in a local calendar date."""
     zone = ZoneInfo(source_timezone)
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=zone)
-    else:
-        parsed = parsed.astimezone(zone)
-    return parsed
+    day = date.fromisoformat(str(target_date))
+    start = datetime.combine(day, time(0, 0), tzinfo=zone).astimezone(timezone.utc)
+    end = datetime.combine(day + timedelta(days=1), time(0, 0), tzinfo=zone).astimezone(
+        timezone.utc
+    )
+    return int((end - start).total_seconds() // 3600)
+
+
+def resolve_provider_times(times, source_timezone, utc_offset_seconds=None):
+    """Map provider hourly labels to aware market-local instants.
+
+    Returns ``(instants, mode, errors)``; a label that cannot be placed yields
+    ``None`` and an error.  Naive labels are read one of two ways:
+
+    * ``fixed_offset``: the response carries one scalar ``utc_offset_seconds``
+      and no label repeats, so each label is ``UTC + offset``.  The UTC instant
+      is ``label - offset``; local date and hour then come from the market
+      zone, so a fixed offset across a DST change is not a one-hour shift.
+    * ``true_local``: no scalar offset, or a label repeats (a fall-back hour,
+      which a fixed-offset series can never produce).  Each label is local wall
+      time and the second occurrence of a label takes ``fold=1``.  A label that
+      does not exist in the zone (spring-forward gap), a repeat of an
+      unambiguous label, or a third occurrence is rejected.
+    """
+    zone = ZoneInfo(source_timezone)
+    if utc_offset_seconds == "invalid":
+        return [None for _ in times], "invalid", ["invalid_utc_offset_seconds"]
+    errors = []
+    labels = []
+    for raw_time in times:
+        try:
+            labels.append(datetime.fromisoformat(str(raw_time).replace("Z", "+00:00")))
+        except (TypeError, ValueError):
+            labels.append(None)
+            errors.append(f"invalid_hourly_time:{raw_time}")
+    naive = [label for label in labels if label is not None and label.tzinfo is None]
+    repeated = len(naive) != len(set(naive))
+    mode = "fixed_offset" if utc_offset_seconds is not None and not repeated else "true_local"
+    seen = defaultdict(int)
+    instants = []
+    for raw_time, label in zip(times, labels):
+        if label is None:
+            instants.append(None)
+            continue
+        if label.tzinfo is not None:
+            instants.append(label.astimezone(zone))
+            continue
+        if mode == "fixed_offset":
+            valid_utc = (label - timedelta(seconds=int(utc_offset_seconds))).replace(
+                tzinfo=timezone.utc
+            )
+            instants.append(valid_utc.astimezone(zone))
+            continue
+        occurrence = seen[label]
+        seen[label] += 1
+        if occurrence > 1:
+            instants.append(None)
+            errors.append(f"duplicate_hourly_label:{raw_time}")
+            continue
+        first = label.replace(tzinfo=zone, fold=0)
+        local = label.replace(tzinfo=zone, fold=occurrence)
+        if occurrence == 1 and local.utcoffset() == first.utcoffset():
+            instants.append(None)
+            errors.append(f"duplicate_hourly_label:{raw_time}")
+            continue
+        round_trip = local.astimezone(timezone.utc).astimezone(zone)
+        if round_trip.replace(tzinfo=None) != label:
+            instants.append(None)
+            errors.append(f"nonexistent_local_time:{raw_time}")
+            continue
+        instants.append(round_trip)
+    return instants, mode, sorted(set(errors))
+
+
+def _hourly_envelope_error(target_date, day_rows, source_timezone):
+    """Fail closed unless the date has one on-the-hour row per real local hour."""
+    instants = {row.astimezone(timezone.utc) for row in day_rows}
+    expected = hours_in_local_date(target_date, source_timezone)
+    if (
+        len(day_rows) != expected
+        or len(instants) != len(day_rows)
+        or any(row.minute or row.second or row.microsecond for row in day_rows)
+    ):
+        return f"incomplete_hourly_envelope:{target_date}:{len(day_rows)}"
+    return None
 
 
 def _provider_unit_valid(expected, actual):
@@ -984,8 +1073,16 @@ def _normalize_request(plan, request, staging_root):
         evidence_by_date[target_date] = evidence
 
     rows_by_date = defaultdict(list)
-    for index, raw_time in enumerate(times):
-        valid_local = _parse_provider_local_time(raw_time, request["source_timezone"])
+    resolved, _mode, time_errors = resolve_provider_times(
+        times,
+        request["source_timezone"],
+        _response_utc_offset(payload),
+    )
+    if time_errors:
+        raise MaterializationBlocked(
+            f"invalid provider hourly times: {', '.join(time_errors)}"
+        )
+    for index, valid_local in enumerate(resolved):
         target_date = valid_local.date().isoformat()
         if valid_local.year == int(plan["target_year"]):
             raise MaterializationBlocked(
@@ -1055,23 +1152,13 @@ def _normalize_request(plan, request, staging_root):
         if evidence.get("run_id_exposed") and not evidence.get("run_id"):
             errors.append(f"missing_exposed_run_id:{target_date_text}")
             continue
-        distinct_hours = {row["valid_time_local"] for row in day_rows}
-        expected_clock_hours = {(hour, 0) for hour in range(24)}
-        actual_clock_hours = {
-            (
-                datetime.fromisoformat(row["valid_time_local"]).hour,
-                datetime.fromisoformat(row["valid_time_local"]).minute,
-            )
-            for row in day_rows
-        }
-        if (
-            len(day_rows) != int(request["expected_hourly_rows_per_date"])
-            or len(distinct_hours) != len(day_rows)
-            or actual_clock_hours != expected_clock_hours
-        ):
-            errors.append(
-                f"incomplete_hourly_envelope:{target_date_text}:{len(day_rows)}"
-            )
+        envelope_error = _hourly_envelope_error(
+            target_date_text,
+            [datetime.fromisoformat(row["valid_time_utc"]) for row in day_rows],
+            request["source_timezone"],
+        )
+        if envelope_error:
+            errors.append(envelope_error)
             continue
         field_complete = {
             binding["source_field"]: all(

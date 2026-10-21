@@ -146,12 +146,44 @@ python -m weather.sources.forecast_training_corpus materialize `
   cutoffs from 07:00 local it does. The lead semantics are the provider's
   documented ones and are not independently proven
   (`HISTORICAL_FIRST_AVAILABILITY_UNPROVEN`, EF §1m).
-- **DST.** The hourly envelope check requires exactly 24 distinct local clock
-  hours per date, and naive provider times are read as the market's zone. How
-  the provider labels a window that crosses the November fall-back (a 25-hour
-  date, or one fixed `utc_offset_seconds` for the whole response) is unproven.
-  The first bounded trial must cover a fall-back date and check both before
-  a full run.
+- **Retry-After cap.** A `Retry-After` longer than `--backoff-cap-seconds` is
+  not slept: the run stops (exit 2) and nothing is staged for that unit.
+- **No redirects.** A 3xx is never followed; it is staged as a failed unit.
+- **Protected roots.** Staging and publish roots under `src/` or `artifacts/`
+  (via `weather.paths`) are refused as well as any `forecast_history` path.
+- **Manifest.** `issue_evidence_bases` records each distinct
+  `issue_time_basis`, `availability_latency_hours` and `run_id_exposed` the
+  collector staged.
+
+### DST and provider time labels
+
+**Measured, not assumed (2026-10-21, from responses already on the
+workstation, no fetch):** with `timezone=<IANA zone>` the Previous Runs API
+labels the whole series with **one** offset, `utc_offset_seconds`, and that
+offset is the zone's offset **at retrieval time**, not at the window start. An
+Atlanta 2024 Jan 1-Feb 29 response retrieved in September 2026 carries
+`-14400` (`GMT-4`) although January is EST; a Nov 1-Dec 31 response carries
+`-14400` for all 1,464 hours with no repeated label.
+
+Staging and `materialize` therefore never read a naive label as wall time when
+the response carries a scalar `utc_offset_seconds` and no label repeats: the
+UTC instant is `label - offset`, and the local date and hour come from the
+market zone (`resolve_provider_times`). A response with no offset, or with a
+repeated label (a fall-back hour, which a fixed-offset series cannot produce),
+is read as true local time with `fold=1` on the repeat; a label that does not
+exist in the zone is rejected. Every local date must then hold exactly one
+on-the-hour row per real hour (23, 24 or 25; `hours_in_local_date`), with
+distinct UTC instants. Cutoffs and issue checks use the same UTC instants.
+
+**Consequence:** a fixed-offset response whose window crosses a DST change is
+always one real hour short at one edge date (the window's last date if
+retrieved under daylight time, its first date if under standard time), so the
+unit fails closed with `incomplete_hourly_envelope`. Before 2026-10-21 that
+case passed and every row on the far side of the change was silently one hour
+off. An October-December plan cannot materialize under the current request
+shape until the request covers the missing edge hour (for example a UTC or
+day-padded request window whose rows are filtered to the planned local dates).
+That is a plan-contract change and needs its own review.
 
 ## Retraining input
 
