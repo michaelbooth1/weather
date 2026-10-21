@@ -96,6 +96,9 @@ non-countable instead of blocking; promotion and trading consumers keep the
 strict gate. Policy, exact conditions and the progress-ledger blocker-class
 fields are owned by the
 [settlement-source audit contract](../../operations/settlement-source-audit.md#reconciliation-timing-and-the-learning-barrier).
+Lever-2 dependency: model-edge lever 2 (the post-11-13 harness v3 analysis of
+per-block R) depends on the always-fill settlement backfill that this change
+enables; SD-1 alone does not deliver lever 2.
 
 ## Completion Notes
 
