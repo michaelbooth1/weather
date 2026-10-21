@@ -90,7 +90,9 @@ INCONCLUSIVE. Under the bundle defaults:
 | MG-1 | its single look, if read by then | yes (45th countable date from D0 10-15, provisional last 11-28) | MG-1 §4-§6 as signed; its 00-16 interval only (§2.2 note) |
 | NBM-2 | no | no | unsigned; no dates before 2027 under question (d)'s default |
 
-So under the defaults the 12-21 NO-GO rests on A0 and MG-1, and early NO-GO on MG-1 not GO plus A0's interim. If
+So under the defaults the 12-21 NO-GO rests on A0 and MG-1, and early NO-GO on MG-1 not GO plus A0's interim. **But
+under the default E1 bar H-A0 is UNTESTABLE** (MDE80 0.263 on R at 45 dates, EDGE-1 annex §8), so A0 drops out too and
+both rest on MG-1 alone (§4; question (g)). If
 the owner answers question (i) "absent arms block", NO-GO at 12-21 is unreachable under the defaults (only GO or
 INCONCLUSIVE), and early NO-GO stays as written.
 
