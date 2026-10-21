@@ -9,12 +9,23 @@
 ``census`` reads the 111h swarm cache (workstation); ``replay`` re-runs the
 serving pipeline over captured ``replay_inputs.jsonl`` (where they exist: the
 capture host). See ``stage_replay`` and ``census`` for the contracts.
+
+Thread caps: importing this module sets ``OMP_NUM_THREADS``, ``OPENBLAS_NUM_THREADS`` and
+``MKL_NUM_THREADS`` to 1 when unset (before numpy/sklearn load; uncapped HGB predicts ran ~9x slower).
 """
 from __future__ import annotations
 
-import argparse
-import json
-import sys
+import os
+
+# Before any numpy/sklearn/weather import (also transitive via stage_replay or served_repro):
+# per-snapshot HGB predicts are tiny, and uncapped OpenMP/BLAS pools oversubscribe the host.
+THREAD_CAP_VARS = ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS")
+for _name in THREAD_CAP_VARS:
+    os.environ.setdefault(_name, "1")
+
+import argparse  # noqa: E402
+import json  # noqa: E402
+import sys  # noqa: E402
 
 
 def main(argv=None):

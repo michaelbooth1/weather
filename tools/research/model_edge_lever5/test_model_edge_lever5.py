@@ -424,3 +424,31 @@ def test_t0_twin_uses_prior_year_monthly_climatology_only(roots):
     assert twin["forecast_gap"] == pytest.approx(85.0 - base["high_so_far"])
     assert {c for c in SERVED_COLUMNS if base[c] != twin[c]} == {"forecast_high", "forecast_gap"}
     assert twin["forecast_source_count"] == 0 and twin["forecast_disagreement"] is None
+
+
+# --- thread caps set by the driver ---------------------------------------------
+
+def _import_run_in_subprocess(preset):
+    import os
+    import subprocess
+    import sys
+
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS")}
+    env.update(preset)
+    code = ("import os, sys; import tools.research.model_edge_lever5.run as r; "
+            "print(','.join(os.environ.get(n, '') for n in r.THREAD_CAP_VARS)); "
+            "print('numpy' in sys.modules)")
+    out = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True,
+                         check=True, timeout=120)
+    return out.stdout.split()
+
+
+def test_run_caps_threads_when_unset_before_numpy():
+    values, numpy_loaded = _import_run_in_subprocess({})
+    assert values == "1,1,1" and numpy_loaded == "False"
+
+
+def test_run_preserves_a_preset_thread_count():
+    values, _ = _import_run_in_subprocess({"OMP_NUM_THREADS": "4"})
+    assert values == "4,1,1"
