@@ -166,19 +166,19 @@ Columns decoded: identifiers, local/cutoff hour, `model_version`, `high_so_far`,
 
 ### 3.3 Per-stage result
 
-Final-vector numbers (max/mean band change, fraction of snapshots changed) need the host replay of
-section 3.4; the stage-level numbers above bound one stage, not the vector after the later floors,
+Final-vector numbers (max/mean band change, fraction of snapshots changed) come from the 12-market
+replay of section 3.5; the stage-level numbers above bound one stage, not the vector after the later floors,
 lock-ins and calibration temperature.
 
 | Stage | Change tested | Result | Status |
 | --- | --- | --- | --- |
-| 10 Intraday tail | give it the station bucket | cannot act: `intraday` is `None` on the feature path for all 12 markets (ml gate); synthetic replay TV 0 | **CLOSED** (code; host replay re-confirms) |
-| 11 Learned METAR live signal | give it the station high | the feature-path signal list never carries it; synthetic TV 0 | **CLOSED** (code; host replay re-confirms) |
-| 12 WU-floor residual | read the station high | acts only when live support exceeds the anchor, which is the max of the same rows; synthetic TV 0 | expected inert; **open until the host replay** |
-| 13 Trusted current max (Miami floor + live-signal member) | validate METAR max-since-07:00 against the station high | changes vectors: synthetic Atlanta TV up to 0.10 (08-18 h) | **changes the vector; open**, magnitude by host replay, then a scored look |
-| 9 Bucket transition | re-point on the station high at the cutoff | changes 13.3% of dev snapshots, stage TV <= 0.0588 | **changes the vector; open** |
-| 110g centering | re-enable as fitted | changes 100% of 15-18 h snapshots, stage |shift| mean 0.49, max 1.31 °F | **changes the vector; open**; a re-fit is label-defined (section 4) |
-| Task 4 (NBM) | remove / +10 °F | synthetic TV 0 at every hour; host replay variants `nbm_removed`, `nbm_perturbed` | **confirmed: NBM does not reach the bands** |
+| 10 Intraday tail | give it the station bucket | cannot act: `intraday` is `None` on the feature path for all 12 markets (ml gate); replay changed fraction 0 in all 12 markets (3.5) | **CLOSED** (code + 12-market replay) |
+| 11 Learned METAR live signal | give it the station high | the feature-path signal list never carries it; replay changed fraction 0 in all 12 markets | **CLOSED** (code + 12-market replay) |
+| 12 WU-floor residual | read the station high | acts only when live support exceeds the anchor, which is the max of the same rows; replay changed fraction 0 in all 12 markets | **CLOSED for the dev window** (data-inert on every captured snapshot; the gate can still open in principle) |
+| 13 Trusted current max (Miami floor + live-signal member) | validate METAR max-since-07:00 against the station high | final vector changes on 1-11% of snapshots outside Miami; Miami 62% (3.5) | **changes the vector; open** for a scored look |
+| 9 Bucket transition | re-point on the station high at the cutoff | final vector: Toronto 99%, Miami 56%, Houston 36%, others 1-16% (3.5) | **changes the vector; open** |
+| 110g centering | re-enable as fitted | final vector changes on 16-17% of all snapshots in every market, none before 13 h; largest mover (3.5) | **changes the vector; open**; a re-fit is label-defined (section 4) |
+| Task 4 (NBM) | remove / +10 °F | replay changed fraction 0 in all 12 markets, while NBM values are present in nearly every US snapshot | **confirmed: NBM does not reach the bands** |
 
 Nothing here is evidence of benefit or harm: no outcome was read. "Changes the vector" only means the
 stage is not closed by the outcome-blind test; scoring it needs a registered look on permitted dates.
@@ -210,6 +210,31 @@ Re-running the same command resumes (folders with a `folder_done` row are skippe
 ended in a `folder_error` has no `folder_done` and is re-attempted, e.g. after `git lfs checkout`). Expected:
 `nbm_removed`, `nbm_perturbed`, `intraday_tail_repointed`, `metar_live_signal_repointed` exactly 0
 everywhere; any `folder_error` means the base would not have been the served vector for that folder.
+
+### 3.5 Final-vector replay, 12 markets (2026-10-21)
+
+Toronto ran on the capture host (`bd75f710a`, 00:32-00:53 under the workload lease); all 12 markets then
+ran on the workstation (code `a653a7c14`, tool `6a4c92d7b`, finished 08:06) from a checksum-verified copy of
+the captured `replay_inputs.jsonl` files dated 07-31..09-29. Every market: 61 folders, 0 folder errors,
+0 base errors, model kind `hgb` only. The workstation's Toronto file reproduces the host file row for row
+(11,360 rows; identical `tv` and `max_bucket`; only the `attempt` and `seconds` run fields differ).
+Outputs stay in the two hosts' scratch directories, not committed.
+
+All-hours changed fraction / mean TV / max TV:
+
+- **110g centering re-enabled:** 0.160-0.173 in every market, exactly 0 before 13 h (13-16 h about 0.50,
+  17-23 h about 0.29). The largest mover: mean TV 0.0014 (Miami) to 0.0313 (Austin); max TV up to 0.871
+  (Los Angeles), 0.763 (San Francisco), 0.749 (Chicago), 0.705 (Austin).
+- **Bucket transition re-pointed:** Toronto 0.989 / 0.0178 / 0.295, Miami 0.557 / 0.0035 / 0.045,
+  Houston 0.355 / 0.0043 / 0.049, Austin 0.158 / 0.0021 / 0.123, San Francisco 0.157 / 0.0014 / 0.034,
+  Los Angeles 0.088 / 0.0026 / 0.119; the other six 0.012-0.047 with max TV <= 0.024.
+- **Trusted current max re-pointed:** Miami 0.619 / 0.0022 / 0.146 (06-09 h 0.79, 10-12 h 0.99);
+  elsewhere 0.010-0.105 (Denver 0.105 / 0.0020 / 0.181, Chicago 0.064 / 0.0011 / 0.176, Toronto
+  0.042 / 0.0002 / 0.078).
+- **Exactly 0 in every market and band:** intraday tail, METAR live signal, WU-floor residual,
+  `nbm_perturbed`, `nbm_removed`. NBM values are present in nearly every US snapshot (for example
+  Atlanta 10,796 of 10,805, Denver 10,769 of 10,769), so the two NBM zeros are measured on real NBM
+  input, as section 1 predicts.
 
 ## 4. What "110g re-fit" is
 

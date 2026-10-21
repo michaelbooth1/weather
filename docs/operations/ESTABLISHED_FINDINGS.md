@@ -3791,8 +3791,8 @@ any later label needs an owner amendment of the fit window.
 
 **Claim, at exactly this scope:** on the HGB feature path, the intraday-tail stage and the learned METAR live
 signal cannot change the served vector, even when their WU-history input is repointed to the observed station
-high. Code-traced on master `6aac6de81a25bd939b954c5e7f29db02b2fd2fee`; checked on one real Toronto snapshot and
-in the Toronto host replay. Outcome-blind: no label, score or market price was read.
+high. Code-traced on master `6aac6de81a25bd939b954c5e7f29db02b2fd2fee`; checked on one real Toronto snapshot, in
+the Toronto host replay and in the 12-market workstation replay. Outcome-blind: no label, score or market price was read.
 
 - **Mechanism, intraday tail:** `distribution_model_path_stage` starts with `intraday = None`
   (`model_distribution.py:788`). On the feature path (`:808`) it returns at `:838` with `intraday` still `None`;
@@ -3823,8 +3823,13 @@ in the Toronto host replay. Outcome-blind: no label, score or market price was r
     station order is SWOB first (`model_sources.py:279-283`), so the repointed high already holds the SWOB rows. The
     residual can fire: `test_wu_residual_variant_can_change_the_served_vector` moves the final vector by TV 0.0055 on
     a synthetic SWOB-led case.
-- **Fleet-wide confirmation pending the 11-market WS replay.** Record:
-  [lever-5 note](../research/model-edge-lever5-2026-10-19.md) §2.
+- **Fleet-wide confirmation (workstation replay, 2026-10-21, code `a653a7c14`, tool `6a4c92d7b`):** all 12
+  markets, 61 folders each, 0 folder errors, 0 base errors, model kind `hgb` only. `intraday_tail`,
+  `metar_live_signal` and `wu_residual` read changed fraction exactly 0 in every market and every hour band, so
+  the claim holds fleet-wide for the HGB path, and the WU-floor residual's gate stayed closed on every dev snapshot
+  of every market. The workstation's Toronto file reproduces the host file row for row (11,360 rows, identical
+  `tv` and `max_bucket`; only the `attempt` and `seconds` run fields differ) across the tool change
+  `bd75f710a` → `6a4c92d7b`. Record: [lever-5 note](../research/model-edge-lever5-2026-10-19.md) §2 and §3.5.
 
 ## Related
 
