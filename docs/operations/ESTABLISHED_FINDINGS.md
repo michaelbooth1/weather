@@ -3829,7 +3829,11 @@ the Toronto host replay and in the 12-market workstation replay. Outcome-blind: 
   the claim holds fleet-wide for the HGB path, and the WU-floor residual's gate stayed closed on every dev snapshot
   of every market. The workstation's Toronto file reproduces the host file row for row (11,360 rows, identical
   `tv` and `max_bucket`; only the `attempt` and `seconds` run fields differ) across the tool change
-  `bd75f710a` → `6a4c92d7b`. Record: [lever-5 note](../research/model-edge-lever5-2026-10-19.md) §2 and §3.5.
+  `bd75f710a` → `6a4c92d7b`. On US markets the residual is inert by construction, not only by data: US
+  support is the current temperature and METAR, both already inside the repointed station high (traced on
+  Atlanta 2026-08-10 snapshot `20260810T150843696523-0400`: "support 92 <= history 92"); only a SWOB same-day max
+  above its own rows, so Toronto alone, could open the gate. That is a code inference checked on one snapshot,
+  not a fleet statistic. The same replay closes the NBM arm (lever-5 note §1 and §3.5). Record: [lever-5 note](../research/model-edge-lever5-2026-10-19.md) §2 and §3.5.
 
 ## Related
 

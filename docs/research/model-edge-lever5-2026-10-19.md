@@ -236,6 +236,16 @@ All-hours changed fraction / mean TV / max TV:
   Atlanta 10,796 of 10,805, Denver 10,769 of 10,769), so the two NBM zeros are measured on real NBM
   input, as section 1 predicts.
 
+**NBM zeros are real, not a wiring no-op** (workstation check, 2026-10-21). The `nbm_removed` shim
+(`stage_replay.py:220-222`) drops `nbm_probabilistic_tmax`; `nbm_perturbed` (`:223-225`, `_perturb_nbm`
+`:182-196`) adds +10 native degrees to a deep copy that the pipeline reads. Served columns: none of the 12
+markets' HGB bundles (14 cutoffs each), no feature or late-day coefs manifest and the `f_family_secondary`
+manifest selects an NBM-derived column (`open_meteo_nbm_*` included); per-market name counts are 24, 27 or 29.
+Real trace, Atlanta 2026-08-10 snapshot `20260810T150843696523-0400`, 15 h, `hgb`: removing NBM nulls
+`nbm_prob_tmax_*` and the NBM guidance state; perturbing moves the reader's p10..p90 from 73..77 to 83..87 and
+the state's representative 77 → 87; in both the served HGB row is identical (`model_features.py:1269`) and
+final TV is 0. So the served HGB fleet does not consume NBM; NBM's only route to value is a new model.
+
 ## 4. What "110g re-fit" is
 
 Handoff `docs/roadmap/workstation-handoff-2026-09-110g-disable-afternoon-centering.md` and report
