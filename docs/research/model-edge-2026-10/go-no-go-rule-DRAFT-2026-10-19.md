@@ -247,7 +247,7 @@ INCONCLUSIVE), and early NO-GO stays as written.
 
 ## 6. Owner decisions
 
-- **OD-G1:** sign §1 as relayed (with any further master-agent paste) and §2-§3.
+- **OD-G1:** sign §1 as amended at the [B1] marks, and §2-§3.
 - **OD-G2:** whether replay v2's `informed-v0` − `blind_re1` counts as the §1 (c) "model-gated" arm; default: no, E3
   is UNTESTABLE for weather in this programme.
 - **OD-G3:** the retrain: scored (which lane, which look) or explicitly waived, before any NO-GO is final.
