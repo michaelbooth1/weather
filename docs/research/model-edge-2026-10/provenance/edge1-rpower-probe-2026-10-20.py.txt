@@ -1,0 +1,165 @@
+"""EDGE-1 bundle-B review fixes M3(ii) and B1: development-only sizing (dates 2026-07-31..2026-09-29).
+
+Run ONLY through scripts\\ops\\workstation_heavy.ps1 -Kind pytest -Queue. Uses the read-only harness-v3
+checkout C:\\wt\\hv3 at 2f3f3e8e6b542a419204afe802dae4545abc10d7 (never modified). Every label/market read
+goes through the harness-v3 gate (family harness_v3_controls, purpose control) and v3_controls.Dev, which
+asserts that no row is after 2026-09-29. Outputs: <scratch>\\edge1probe\\out\\edge1_rpower.json.
+
+(1) H-A0 MDE80 on R (A0 vs market, 00-16) by v3_power.resampled_power on the SERVED-vs-market influence
+    table (z = (a - R m) / mean(m) per (date, market) cell), at 20 / 45 / 90 forward dates.
+(2) Programme-level NO-GO reachability under the bundle defaults at 12-21: arms read by then are A0 (final)
+    and MG-1; A1 deferred, A2 closed in development, NBM-2 unsigned -> neither block nor satisfy.
+    Early NO-GO at Gate 1: MG-1 not GO and A0's interim crossed futility.
+"""
+import hashlib
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+HV3 = r"C:\wt\hv3"
+HV3_SHA = "2f3f3e8e6b542a419204afe802dae4545abc10d7"
+sys.path.insert(0, HV3)
+for _k in [k for k in list(sys.modules) if k == "tools" or k.startswith("tools.")]:
+    del sys.modules[_k]
+
+import numpy as np  # noqa: E402
+import pandas as pd  # noqa: E402
+
+OUT = Path(__file__).resolve().parent / "out"
+LAYOUT = Path(r"C:\swarm\v3layout")
+BLOCKS = ("00-05", "06-09", "10-12", "13-16")
+Z975 = 1.959963984540054
+
+
+def _sha(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def _cells(dev, values, group):
+    t = dev.t
+    idx, v = t.cells(values, t.group_mask(group))
+    return pd.Series(v, index=pd.MultiIndex.from_tuples([t.keys[i] for i in idx], names=["date", "market"]))
+
+
+def _influence(a, m):
+    r = float(a.sum() / m.sum())
+    return r, (a - r * m) / m.mean()
+
+
+def test_edge1_rpower_probe():
+    from tools.research.model_parity import v3_controls as c, v3_gate, v3_power, v3_score
+    head = subprocess.run(["git", "-C", HV3, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+    dirty = subprocess.run(["git", "-C", HV3, "status", "--short"], capture_output=True, text=True).stdout.strip()
+    assert head == HV3_SHA and dirty == "", (head, dirty)
+    assert str(Path(c.__file__).resolve()).lower().startswith(HV3.lower())
+    OUT.mkdir(parents=True, exist_ok=True)
+
+    gate = v3_gate.default_gate()
+    dev = c.Dev(LAYOUT, gate)
+    t = dev.t
+    psv, sha_served = c._arm_vector(dev, "v3_arm_served.py")
+    pm1, sha_mg1 = c._arm_vector(dev, "v3_arm_mg1_like.py")
+    b_srv, b_mg1, b_mkt = t.snapshot_brier(psv, dev.y), t.snapshot_brier(pm1, dev.y), t.snapshot_brier(dev.pm, dev.y)
+
+    cols, ratios, mkt_brier = {}, {}, {}
+    for g in BLOCKS + ("00-16",):
+        a, m1, m = _cells(dev, b_srv, g), _cells(dev, b_mg1, g), _cells(dev, b_mkt, g)
+        ratios[f"served_{g}"], cols[f"A0_{g}"] = _influence(a, m)
+        ratios[f"mg1like_{g}"], cols[f"MG1like_{g}"] = _influence(m1, m)
+        mkt_brier[g] = {"cell_mean": float(m.mean()), "served_cell_mean": float(a.mean())}
+    cols["MG1_minus_served_00-16"] = _cells(dev, b_mg1, "00-16") - _cells(dev, b_srv, "00-16")
+    frame = pd.DataFrame(cols).dropna()
+    frame = frame.reset_index()
+    nm = frame.market.nunique()
+    frame = frame[frame.groupby("date").market.transform("size") == nm]
+    dates, markets = sorted(frame.date.unique()), sorted(frame.market.unique())
+    names = list(cols)
+
+    def table(name):
+        return frame.pivot(index="date", columns="market", values=name).loc[dates, markets].to_numpy(float)
+
+    cube = np.stack([table(n) for n in names], axis=-1)
+    rec = {"hv3_head": head, "HARNESS_V3_SHA256": v3_score.harness_v3_sha256(),
+           "code_sha256": {"v3_power.py": _sha(Path(HV3) / "tools/research/model_parity/v3_power.py"),
+                           "v3_controls.py": _sha(Path(HV3) / "tools/research/model_parity/v3_controls.py"),
+                           "probe": _sha(__file__)},
+           "arm_code_sha256": {"served": sha_served, "mg1_like": sha_mg1},
+           "gate": gate.identity(), "layout_manifest_sha256": _sha(LAYOUT / "manifest.json"),
+           "layout_files_sha256": {p.name: _sha(p) for p in sorted(LAYOUT.glob("*.parquet"))},
+           "dev_dates_first_last": [str(dates[0]), str(dates[-1])], "balanced_dates": len(dates), "markets": len(markets),
+           "dev_ratio_of_sums": ratios, "market_brier": mkt_brier, "variables": names}
+
+    # (1) H-A0 MDE80 on R, resampled_power on the served-vs-market 00-16 influence table.
+    x = cube[:, :, names.index("A0_00-16")]
+    mde = {}
+    for n in (20, 45, 90):
+        rng = np.random.default_rng(20261021)
+        xc = x - x.mean()
+        thr = np.empty(8000)
+        for i in range(8000):     # identical draw order to v3_power.resampled_power
+            sub = xc[rng.integers(0, xc.shape[0], n)][:, rng.integers(0, xc.shape[1], xc.shape[1])]
+            thr[i] = sub.mean() + Z975 * v3_power.crossed_se(sub)
+        d80 = float(np.quantile(thr, 0.80))
+        check = v3_power.resampled_power(x, -(d80 + 1e-9), n, experiments=8000, seed=20261021)
+        mde[n] = {"mde80_R": d80, "resampled_power_at_mde80": check,
+                  "mde80_brier_00_16": d80 * mkt_brier["00-16"]["cell_mean"],
+                  "verdict_bar_0.05_on_R": "UNTESTABLE" if d80 > 0.05 else "TESTABLE",
+                  "power_at_R_0.95": v3_power.resampled_power(x, -0.05, n, experiments=8000, seed=20261021),
+                  "power_at_R_0.985": v3_power.resampled_power(x, -0.015, n, experiments=8000, seed=20261021)}
+    rec["H_A0_mde80"] = mde
+
+    # (2) Programme NO-GO reachability, joint draw over MG-1's and A0's (offset) windows.
+    sel = [f"A0_{b}" for b in BLOCKS] + ["A0_00-16", "MG1like_00-16", "MG1_minus_served_00-16"]
+    sub = cube[:, :, [names.index(s) for s in sel]]
+    comps = v3_power.mom_cov(sub)
+    rec["programme_components_diag"] = {k: np.diag(cc).tolist() for k, cc in zip(("date", "market", "resid"), comps)}
+    r_srv = np.array([ratios[f"served_{b}"] for b in BLOCKS])
+    r_m1b = np.array([ratios[f"mg1like_{b}"] for b in BLOCKS])
+    r_srv16, r_m116 = ratios["served_00-16"], ratios["mg1like_00-16"]
+    d_mg1 = float(cube[:, :, names.index("MG1_minus_served_00-16")].mean())
+    half = lambda r: 1 + (np.asarray(r) - 1) / 2
+    scen = {
+        "A0_at_served_dev_R": (r_srv, r_srv16, r_m116, d_mg1),
+        "A0_at_mg1like_dev_R": (r_m1b, r_m116, r_m116, d_mg1),
+        "half_effect_served": (half(r_srv), float(half(r_srv16)), float(half(r_m116)), d_mg1 / 2),
+        "half_effect_mg1like": (half(r_m1b), float(half(r_m116)), float(half(r_m116)), d_mg1 / 2),
+        "null_R_eq_1": (np.ones(4), 1.0, 1.0, 0.0),
+    }
+    sims, chunk = 20000, 1000
+    res = []
+    for branch, offset in (("not_held_D0_10-25", 10), ("held_D0_10-28", 13)):
+        for sname, (ra0, ra016, rmg, dmg) in scen.items():
+            rng = np.random.default_rng(20261022 + offset)
+            hits = dict.fromkeys(("A0_clause", "MG1_clause", "nogo_programme", "MG1_not_GO",
+                                  "A0_interim_futility", "early_nogo"), 0)
+            done = 0
+            while done < sims:
+                k = min(chunk, sims - done)
+                draw = v3_power._draw(rng, k, offset + 45, nm, *comps)
+                ga, sa = v3_power.batch_mean_se(draw[:, offset:offset + 45])
+                gm, sm = v3_power.batch_mean_se(draw[:, :45])
+                gi, si = v3_power.batch_mean_se(draw[:, offset:offset + 20])
+                a0 = ((ra0[None, :] + ga[:, :4] - Z975 * sa[:, :4]) > 1.05).all(axis=1)
+                mg = (rmg + gm[:, 5] - Z975 * sm[:, 5]) > 1.05
+                mg_go = (dmg + gm[:, 6] + Z975 * sm[:, 6]) < 0
+                z_int = -((ra016 - 1) + gi[:, 4]) / si[:, 4]
+                fut = z_int < 0.2656
+                hits["A0_clause"] += int(a0.sum())
+                hits["MG1_clause"] += int(mg.sum())
+                hits["nogo_programme"] += int((a0 & mg).sum())
+                hits["MG1_not_GO"] += int((~mg_go).sum())
+                hits["A0_interim_futility"] += int(fut.sum())
+                hits["early_nogo"] += int((~mg_go & fut).sum())
+                done += k
+            res.append({"branch": branch, "scenario": sname, "sims": sims,
+                        **{kk: vv / sims for kk, vv in hits.items()}})
+    rec["programme_nogo"] = res
+    rec["programme_rule"] = ("NO-GO at 12-21 over arms read by then: A0 lower 95% bound of R > 1.05 in every 00-16 "
+                             "block (45 dates) AND MG-1 lower bound of R > 1.05 on its 00-16 interval (45 dates, "
+                             "offset window); E2 not scored and E3 UNTESTABLE hold; absent arms ignored. Early NO-GO: "
+                             "MG-1 not GO (upper bound of MG-1 - served >= 0; falsifiers ignored) AND A0 interim "
+                             "Z < 0.2656 at its 20th date; 'no survivor queued' assumed.")
+    (OUT / "edge1_rpower.json").write_text(json.dumps(rec, indent=1, default=float), encoding="utf-8")
+    assert mde[45]["mde80_R"] > 0

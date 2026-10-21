@@ -1,0 +1,252 @@
+{
+ "hv3_head": "2f3f3e8e6b542a419204afe802dae4545abc10d7",
+ "HARNESS_V3_SHA256": "987e171775c596f6e50ac72b9bd54880399e4fafcc11865cdec0a2375970b4cf",
+ "code_sha256": {
+  "v3_power.py": "8d22ae13566b59e9ec1d642d2aebdc20fb2444eb0e2eb6843e0d16c6e0d22b37",
+  "v3_controls.py": "a7d6b7fb7dd0bd2795a41b5279d35f6730da0428e12667ef699be4b514be0897",
+  "probe": "088939af2af4940db65da0767e193e1657a6a25ea1ab2f83fea17faf2749bba7"
+ },
+ "arm_code_sha256": {
+  "served": "b4e932e3763a7cab9fda2e5d0e201c938c9d7710ca9742dce3652620a037208a",
+  "mg1_like": "5844c50cc341a47f9cc4ccbb7db2b04ff26461423fb92a8a9dccca21679dbdae"
+ },
+ "gate": {
+  "window_path": "C:\\wt\\hv3\\docs\\operations\\reserved-confirmation-window.md",
+  "window_sha256": "e5c3d770ae9f83a50c93f296e18b0e03b37d4688441d4ca4fbffb13514f95c98",
+  "window": {
+   "state": "reserved_undated",
+   "start": "2026-10-15"
+  },
+  "ledger_path": "C:\\wt\\hv3\\tools\\research\\model_parity\\forward_alpha_ledger.jsonl",
+  "ledger_sha256": "d67bc86a8ed5b9dd59784b0c7a05a3be622ae29273427c734a895dbeac25d2cc",
+  "ledger_rows": 5
+ },
+ "layout_manifest_sha256": "4d53fdbdc551f33e331fa3b51cc425e354eec4426c8c7b52910b2e7340915f22",
+ "layout_files_sha256": {
+  "inputs_bands.parquet": "78222f8c10e43d1e95b681ff8ebb8b6e5e7670ab70abdf0565880b8f3c187e80",
+  "inputs_snapshots.parquet": "0199a026d22ad0ca2076d59818cf489dc529acb2d1f034490c78007bef34578f",
+  "labels.parquet": "1ea636e9e655670012bc3b5d5ef02aec9feda65cc7839434631bbb09c65f067e",
+  "market.parquet": "72d262a71fc75a227d369d5c7d89ded018d0113a26201d37a55b3e0b719d5318"
+ },
+ "dev_dates_first_last": [
+  "2026-08-01",
+  "2026-09-29"
+ ],
+ "balanced_dates": 55,
+ "markets": 11,
+ "dev_ratio_of_sums": {
+  "served_00-05": 1.4321804767729869,
+  "mg1like_00-05": 1.1710772165799803,
+  "served_06-09": 1.4826954865780406,
+  "mg1like_06-09": 1.2030648558004882,
+  "served_10-12": 1.4667666862616835,
+  "mg1like_10-12": 1.249312123521715,
+  "served_13-16": 1.8550300696418052,
+  "mg1like_13-16": 1.9512638738357837,
+  "served_00-16": 1.5098547468714776,
+  "mg1like_00-16": 1.3021054627254716
+ },
+ "market_brier": {
+  "00-05": {
+   "cell_mean": 0.05592545442336011,
+   "served_cell_mean": 0.08009534397979383
+  },
+  "06-09": {
+   "cell_mean": 0.05468067792796155,
+   "served_cell_mean": 0.08107479436681608
+  },
+  "10-12": {
+   "cell_mean": 0.051380655392930435,
+   "served_cell_mean": 0.07536343364864206
+  },
+  "13-16": {
+   "cell_mean": 0.02825898218042223,
+   "served_cell_mean": 0.05242126168215518
+  },
+  "00-16": {
+   "cell_mean": 0.048253725484517694,
+   "served_cell_mean": 0.07285611647703223
+  }
+ },
+ "variables": [
+  "A0_00-05",
+  "MG1like_00-05",
+  "A0_06-09",
+  "MG1like_06-09",
+  "A0_10-12",
+  "MG1like_10-12",
+  "A0_13-16",
+  "MG1like_13-16",
+  "A0_00-16",
+  "MG1like_00-16",
+  "MG1_minus_served_00-16"
+ ],
+ "H_A0_mde80": {
+  "20": {
+   "mde80_R": 0.3075026087208383,
+   "resampled_power_at_mde80": 0.8,
+   "mde80_brier_00_16": 0.014838146466988387,
+   "verdict_bar_0.05_on_R": "UNTESTABLE",
+   "power_at_R_0.95": 0.12425,
+   "power_at_R_0.985": 0.068625
+  },
+  "45": {
+   "mde80_R": 0.26254325635393955,
+   "resampled_power_at_mde80": 0.8,
+   "mde80_brier_00_16": 0.012668690219914354,
+   "verdict_bar_0.05_on_R": "UNTESTABLE",
+   "power_at_R_0.95": 0.1655,
+   "power_at_R_0.985": 0.0975
+  },
+  "90": {
+   "mde80_R": 0.2417398191597973,
+   "resampled_power_at_mde80": 0.8,
+   "mde80_brier_00_16": 0.011664846872413811,
+   "verdict_bar_0.05_on_R": "UNTESTABLE",
+   "power_at_R_0.95": 0.195875,
+   "power_at_R_0.985": 0.11625
+  }
+ },
+ "programme_components_diag": {
+  "date": [
+   0.013389244825307466,
+   0.016920134718072986,
+   0.01837205517729798,
+   0.00024847005606650776,
+   0.01250930517184616,
+   0.0038366755063603216,
+   1.4345532363744853e-05
+  ],
+  "market": [
+   0.0441156879021351,
+   0.05464623818505972,
+   0.03665834763796895,
+   0.22932091423330114,
+   0.047903133857580965,
+   0.0025636457645420727,
+   5.713041887139693e-05
+  ],
+  "resid": [
+   0.647366838470741,
+   0.7402657122938311,
+   0.765252548792463,
+   2.73735833509666,
+   0.6542611055166575,
+   0.40251621619380856,
+   0.0011464944542439765
+  ]
+ },
+ "programme_nogo": [
+  {
+   "branch": "not_held_D0_10-25",
+   "scenario": "A0_at_served_dev_R",
+   "sims": 20000,
+   "A0_clause": 0.9953,
+   "MG1_clause": 1.0,
+   "nogo_programme": 0.9953,
+   "MG1_not_GO": 0.06055,
+   "A0_interim_futility": 1.0,
+   "early_nogo": 0.06055
+  },
+  {
+   "branch": "not_held_D0_10-25",
+   "scenario": "A0_at_mg1like_dev_R",
+   "sims": 20000,
+   "A0_clause": 0.375,
+   "MG1_clause": 1.0,
+   "nogo_programme": 0.375,
+   "MG1_not_GO": 0.06055,
+   "A0_interim_futility": 0.99985,
+   "early_nogo": 0.0604
+  },
+  {
+   "branch": "not_held_D0_10-25",
+   "scenario": "half_effect_served",
+   "sims": 20000,
+   "A0_clause": 0.43835,
+   "MG1_clause": 0.83255,
+   "nogo_programme": 0.41215,
+   "MG1_not_GO": 0.53975,
+   "A0_interim_futility": 0.99945,
+   "early_nogo": 0.5392
+  },
+  {
+   "branch": "not_held_D0_10-25",
+   "scenario": "half_effect_mg1like",
+   "sims": 20000,
+   "A0_clause": 0.0728,
+   "MG1_clause": 0.83255,
+   "nogo_programme": 0.072,
+   "MG1_not_GO": 0.53975,
+   "A0_interim_futility": 0.9753,
+   "early_nogo": 0.51545
+  },
+  {
+   "branch": "not_held_D0_10-25",
+   "scenario": "null_R_eq_1",
+   "sims": 20000,
+   "A0_clause": 0.00075,
+   "MG1_clause": 0.0003,
+   "nogo_programme": 0.0,
+   "MG1_not_GO": 0.96065,
+   "A0_interim_futility": 0.60385,
+   "early_nogo": 0.56475
+  },
+  {
+   "branch": "held_D0_10-28",
+   "scenario": "A0_at_served_dev_R",
+   "sims": 20000,
+   "A0_clause": 0.995,
+   "MG1_clause": 1.0,
+   "nogo_programme": 0.995,
+   "MG1_not_GO": 0.05755,
+   "A0_interim_futility": 1.0,
+   "early_nogo": 0.05755
+  },
+  {
+   "branch": "held_D0_10-28",
+   "scenario": "A0_at_mg1like_dev_R",
+   "sims": 20000,
+   "A0_clause": 0.37665,
+   "MG1_clause": 1.0,
+   "nogo_programme": 0.37665,
+   "MG1_not_GO": 0.05755,
+   "A0_interim_futility": 0.99985,
+   "early_nogo": 0.0574
+  },
+  {
+   "branch": "held_D0_10-28",
+   "scenario": "half_effect_served",
+   "sims": 20000,
+   "A0_clause": 0.44045,
+   "MG1_clause": 0.83045,
+   "nogo_programme": 0.4099,
+   "MG1_not_GO": 0.5363,
+   "A0_interim_futility": 0.99925,
+   "early_nogo": 0.53555
+  },
+  {
+   "branch": "held_D0_10-28",
+   "scenario": "half_effect_mg1like",
+   "sims": 20000,
+   "A0_clause": 0.0762,
+   "MG1_clause": 0.83045,
+   "nogo_programme": 0.07525,
+   "MG1_not_GO": 0.5363,
+   "A0_interim_futility": 0.97535,
+   "early_nogo": 0.5117
+  },
+  {
+   "branch": "held_D0_10-28",
+   "scenario": "null_R_eq_1",
+   "sims": 20000,
+   "A0_clause": 0.00075,
+   "MG1_clause": 0.0004,
+   "nogo_programme": 0.0,
+   "MG1_not_GO": 0.9585,
+   "A0_interim_futility": 0.60705,
+   "early_nogo": 0.56585
+  }
+ ],
+ "programme_rule": "NO-GO at 12-21 over arms read by then: A0 lower 95% bound of R > 1.05 in every 00-16 block (45 dates) AND MG-1 lower bound of R > 1.05 on its 00-16 interval (45 dates, offset window); E2 not scored and E3 UNTESTABLE hold; absent arms ignored. Early NO-GO: MG-1 not GO (upper bound of MG-1 - served >= 0; falsifiers ignored) AND A0 interim Z < 0.2656 at its 20th date; 'no survivor queued' assumed."
+}

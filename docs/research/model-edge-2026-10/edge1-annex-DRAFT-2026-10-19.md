@@ -331,8 +331,44 @@ spends no CAMPAIGN_LEDGER decision. Rows: [alpha ledger](alpha-ledger-DRAFT-2026
   45. The parametric MDE80 is optimistic in the same direction, so the TESTABLE verdict (0.0097 / 0.0085 / 0.0079
   against 0.0133) must be re-confirmed with `resampled_power` on the frozen arms before D0 (M4.4). The market
   component holds power near 40% or below at any season length (EF §10j).
-- **MDE80 per hypothesis H-A0/H-A1/H-A2:** `<SLOT: per-arm resampled_power run on the frozen hashes before D0>`;
-  UNTESTABLE test per M4.4 applied before D0.
+- **MDE80 per hypothesis (filled 2026-10-20, review finding M3(ii); development dates only):**
+
+  | Hypothesis | Forward dates x 11 | MDE80 on R (resampled_power) | Same in 00-16 Brier | Resampled power at R = 0.95 / 0.985 | Verdict vs bar 0.05 on R (vs ~0.015 contrast) |
+  | --- | --- | --- | --- | --- | --- |
+  | H-A0 | 20 | 0.308 | 0.0148 | 0.12 / 0.07 | UNTESTABLE (UNTESTABLE) |
+  | **H-A0** | **45** | **0.263** | **0.0127** | **0.17 / 0.10** | **UNTESTABLE (UNTESTABLE)** |
+  | H-A0 | 90 | 0.242 | 0.0117 | 0.20 / 0.12 | UNTESTABLE (UNTESTABLE) |
+  | H-A1 | 45 | not run; expected of the same size (A1 differs from A0 essentially by the 13-16 t3-r3 stage) | — | — | run on the frozen hash before D0 |
+  | H-A2 | — | none: E2 closed in development (section 1.1) | — | — | not in the family |
+
+  - **Method:** `v3_power.resampled_power` (8,000 crossed resamples of dates and markets, seed 20261021) on the
+    **served-vs-market** 00-16 influence table, z = (Brier_served − R̂·Brier_market) / mean(Brier_market) per (date,
+    market) cell, re-centred and shifted; MDE80 is the shift at which the GO rate (upper 95% bound of R below 1) is
+    0.80 (found as the 80th percentile of the per-resample GO thresholds in the estimator's own draw order, then
+    re-checked: resampled_power at the MDE80 = 0.800). Not MG-1 paired variance.
+  - **Inputs and provenance:** dev table 2026-08-01..2026-09-29 (the gate ticket covers 07-31..09-29; 55 balanced
+    dates x 11 markets), `C:\swarm3layout` (manifest sha256 `4d53fdbdc551f33e331fa3b51cc425e354eec4426c8c7b52910b2e7340915f22`),
+    read through the harness-v3 gate (family `harness_v3_controls`, purpose control; `v3_controls.Dev` asserts no row
+    after 09-29). Code: read-only `C:\wt\hv3` at `2f3f3e8e6b542a419204afe802dae4545abc10d7` (`HARNESS_V3_SHA256`
+    `987e171775c596f6e50ac72b9bd54880399e4fafcc11865cdec0a2375970b4cf`; `v3_power.py` sha256
+    `8d22ae13566b59e9ec1d642d2aebdc20fb2444eb0e2eb6843e0d16c6e0d22b37`; served arm code sha256 `b4e932e3…`). Probe:
+    [`provenance/edge1-rpower-probe-2026-10-20.py.txt`](provenance/edge1-rpower-probe-2026-10-20.py.txt) (sha256 as run
+    `088939af2af4940db65da0767e193e1657a6a25ea1ab2f83fea17faf2749bba7`), run once through
+    `workstation_heavy.ps1 -Kind pytest -Queue` on 2026-10-20; output
+    [`provenance/edge1-rpower-2026-10-20.json`](provenance/edge1-rpower-2026-10-20.json) (sha256 as written
+    `d0ba9ff4ff34d7f65470ba0601afa74b736b5717f0ae07817846d6b88d7fcdcf`).
+  - **Development context from the same run (sizing only):** served/market R 1.432 / 1.483 / 1.467 / 1.855 by block,
+    1.510 at 00-16; market Brier 00-16 0.0483 (cell mean).
+  - **Caveats:** the served vector of record stands in for A0 (it predates the 10-06 lock-in and 10-09 fixes and N12);
+    the estimator resamples markets as well as dates, so it is more conservative than the fixed-market primary (M3).
+    INFERENCE from the variance components in the same output: the market component dominates the crossed SE, so a
+    dates-only resample would shrink the MDE80 by roughly half, to about 0.15 on R, still far above 0.05. The verdict
+    is re-confirmed on the frozen hash before D0 (M4.4).
+  - **What the default bar does to H-A0 (M3(iii)):** under MDE80 > 0.05 on R (and equally under the ~0.015 contrast),
+    **H-A0 is UNTESTABLE before D0**: it leaves the family (k drops), it cannot give a GO, and under the amended NO-GO
+    rule it neither blocks nor satisfies NO-GO. The EDGE-1 programme contribution then reduces to A1 (deferred past
+    12-21), so the 12-21 NO-GO rests on MG-1 alone (GO/NO-GO rule §4). Owner question (g) carries the choice.
+- UNTESTABLE test per M4.4 applied before D0 on the frozen hashes.
 - **NO-GO reachability:**
 
   **NO-GO reachability** (the §1 NO-GO rule applied verbatim per arm: lower bound of R above 1.05 in every 00-16
