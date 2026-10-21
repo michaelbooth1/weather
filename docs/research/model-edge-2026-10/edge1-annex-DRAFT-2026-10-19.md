@@ -245,6 +245,10 @@ branches are drafted; the owner's ruling selects one, and that ruling is a dated
 - **Final (45 countable dates, per hypothesis at its own final):** the section 3 multiplicity rule (default fixed
   sequence H-A0 then H-A1), then the falsifiers (section 5) for each rejected hypothesis.
 - **H-A1's interim and final are additionally gated by section 6.3** (the t3-r3 look).
+- **UNTESTABLE arms are still scored (M4.4).** An UNTESTABLE hypothesis's arm is still scored at its declared looks with
+  intervals only (no alpha, no Z, reported beside; it neither blocks nor satisfies NO-GO), so the L1 measurement is
+  made whatever the bar (section 0: EDGE-1 is the exhaustion register's L1 exit measurement). The owner's other option
+  is to read an UNTESTABLE arm's bounds for NO-GO as well (GO/NO-GO rule question (g), third alternative).
 
 ## 5. Falsifiers binding on any GO (M7, restated with EDGE-1 values)
 

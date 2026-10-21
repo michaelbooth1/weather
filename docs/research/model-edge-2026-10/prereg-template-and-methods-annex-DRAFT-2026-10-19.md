@@ -191,7 +191,10 @@ For the EDGE-1 schedule t = 20/45 = 0.4444, β(t) = 0.05456:
   hypothesis, the MDE80 at n_final under M3, from development dates <= 2026-09-29 only.
 - **UNTESTABLE** (pre-declared): a hypothesis whose MDE80 exceeds its bar is marked UNTESTABLE **before D0**; it keeps
   no alpha (it leaves the Holm family, and the family's k drops), and it cannot produce GO or count towards NO-GO as a
-  measured null. Bars: E1 — **MDE80 on R greater than 0.05**, i.e. a 5% Brier gain over the **market's own Brier**
+  measured null. **An UNTESTABLE hypothesis's arm is still scored at its declared looks with intervals only (no alpha,
+  no Z, reported beside; it neither blocks nor satisfies NO-GO), so the L1 measurement is made whatever the bar.** The
+  owner's other option is to read an UNTESTABLE arm's bounds for NO-GO as well (GO/NO-GO rule question (g), third
+  alternative). Bars: E1 — **MDE80 on R greater than 0.05**, i.e. a 5% Brier gain over the **market's own Brier**
   (about 0.0025 Brier at a 00-16 market Brier near 0.049); the same materiality scale as the E2 GO (b) line
   [PROPOSED; owner may set another]. **Correction 2026-10-20 (review finding M3):** this is **not** the scale of the
   EF §1d bar or of harness `LEAD_GAP_SHARE` (`harness.py:57`), which is 5% of the served − market **gap**: about 1.45%
