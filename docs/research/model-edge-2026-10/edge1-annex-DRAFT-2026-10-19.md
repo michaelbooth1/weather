@@ -358,7 +358,7 @@ spends no CAMPAIGN_LEDGER decision. Rows: [alpha ledger](alpha-ledger-DRAFT-2026
   | H-A0 | 20 | 0.308 | 0.0148 | 0.12 / 0.07 | UNTESTABLE (UNTESTABLE) |
   | **H-A0** | **45** | **0.263** | **0.0127** | **0.17 / 0.10** | **UNTESTABLE (UNTESTABLE)** |
   | H-A0 | 90 | 0.242 | 0.0117 | 0.20 / 0.12 | UNTESTABLE (UNTESTABLE) |
-  | H-A1 | 45 | not run; expected of the same size (A1 differs from A0 essentially by the 13-16 t3-r3 stage) | — | — | run on the frozen hash before D0 |
+  | H-A1 | 45 | not run; expected of the same size (A1 differs from A0 essentially by the 13-16 t3-r3 stage) | — | — | filled by the workstation in the A1 logistics row before D0, with its output hash; if above the bar, k drops per M4.4 and this row is updated |
   | H-A2 | — | none: E2 closed in development (section 1.1) | — | — | not in the family |
 
   - **Method:** `v3_power.resampled_power` (8,000 crossed resamples of dates and markets, seed 20261021) on the
