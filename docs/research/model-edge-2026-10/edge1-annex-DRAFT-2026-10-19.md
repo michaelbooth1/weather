@@ -237,7 +237,7 @@ branches are drafted; the owner's ruling selects one, and that ruling is a dated
 ## 4. Looks
 
 - **Interim (20 countable dates): futility only, non-binding, spends nothing.** Boundary per M4.2: **c = 0.2656** for
-  each of H-A0, H-A1, H-A2 (α_d 0.025, β 0.20, t = 20/45). "EDGE-1 crossed futility in every arm" (GO/NO-GO Gate 1)
+  each of H-A0 and H-A1 (α_d 0.025, β 0.20, t = 20/45). "EDGE-1 crossed futility in every arm" (GO/NO-GO Gate 1)
   means Z < c for **every EDGE-1 hypothesis whose interim has been read** by 12-07 (GO/NO-GO rule §1, §2.4).
 - **Final (45 countable dates, per hypothesis at its own final):** the section 3 multiplicity rule (default fixed
   sequence H-A0 then H-A1), then the falsifiers (section 5) for each rejected hypothesis.
