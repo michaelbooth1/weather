@@ -24,6 +24,7 @@ materialization then enforce that bound against every feature cutoff.
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import sys
 import time as time_module
@@ -39,6 +40,7 @@ from weather.sources.forecast_training_corpus import (
     ACTIVE_FORECAST_ARCHIVE_ROOT,
     ISSUE_EVIDENCE_KIND,
     PREVIOUS_RUNS_ENDPOINT,
+    PROTECTED_REPOSITORY_ROOTS,
     StagingValidationError,
     _path_overlaps,
     inspect_staged_unit,
@@ -78,6 +80,9 @@ def assert_collector_staging_root(staging_root, active_archive_roots=None):
     for root in roots:
         if _path_overlaps(path, root):
             raise CollectorRefused(f"staging root overlaps the active forecast archive: {root}")
+    for root in PROTECTED_REPOSITORY_ROOTS:
+        if _path_overlaps(path, root):
+            raise CollectorRefused(f"staging root overlaps a tracked repository root: {root}")
     resolved = path.resolve()
     if any(part.lower() == "forecast_history" for part in resolved.parts):
         raise CollectorRefused(
@@ -126,11 +131,21 @@ def request_url(request):
     return f"{PREVIOUS_RUNS_ENDPOINT}?{urllib.parse.urlencode(sorted(params.items()))}"
 
 
+class _RefuseRedirects(urllib.request.HTTPRedirectHandler):
+    """Never follow a redirect: the 3xx is returned as a non-retryable status."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_OPENER = urllib.request.build_opener(_RefuseRedirects)
+
+
 def urllib_get(url, timeout):
-    """Default transport: one anonymous GET. Returns (status, headers, body)."""
+    """Default transport: one anonymous GET, no redirects. Returns (status, headers, body)."""
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT}, method="GET")
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as response:
+        with _OPENER.open(req, timeout=timeout) as response:
             return int(response.status), dict(response.headers.items()), response.read()
     except urllib.error.HTTPError as exc:
         return int(exc.code), dict((exc.headers or {}).items()), exc.read() or b""
@@ -169,12 +184,24 @@ def fetch_with_retries(
     timeout_seconds=DEFAULT_TIMEOUT_SECONDS,
     log=None,
 ):
-    """GET with exponential backoff; 429 waits at least its Retry-After."""
+    """GET with exponential backoff; 429 waits at least its Retry-After.
+
+    A Retry-After longer than ``backoff_cap_seconds`` is not slept: the unit is
+    refused instead, so a far-future hint can never park the run for hours.
+    """
+    if int(max_attempts) < 1:
+        raise CollectorRefused("max attempts must be at least 1")
     last_error = None
+    status = None
     for attempt in range(1, int(max_attempts) + 1):
         try:
             status, headers, body = http_get(url, timeout_seconds)
-        except (urllib.error.URLError, OSError, TimeoutError) as exc:
+        except (
+            urllib.error.URLError,
+            http.client.HTTPException,
+            OSError,
+            TimeoutError,
+        ) as exc:
             status, headers, body = None, {}, b""
             last_error = f"{type(exc).__name__}: {exc}"
         if status is not None and status not in RETRYABLE_STATUSES:
@@ -189,6 +216,11 @@ def fetch_with_retries(
         )
         if status == 429:
             hinted = retry_after_seconds(headers)
+            if hinted is not None and hinted > float(backoff_cap_seconds):
+                raise CollectorRefused(
+                    f"Retry-After of {hinted:.0f}s exceeds the {float(backoff_cap_seconds):.0f}s "
+                    "backoff cap; stopping instead of waiting"
+                )
             if hinted is not None:
                 delay = max(delay, hinted)
         if log:
@@ -203,7 +235,7 @@ def collect(
     plan_path,
     staging_root,
     *,
-    http_get=urllib_get,
+    http_get=None,
     sleep=time_module.sleep,
     clock=time_module.monotonic,
     min_interval_seconds=DEFAULT_MIN_INTERVAL_SECONDS,
@@ -220,6 +252,9 @@ def collect(
     assert_collector_staging_root(staging_root, active_archive_roots=active_archive_roots)
     if float(min_interval_seconds) < 1.0:
         raise CollectorRefused("min interval below 1 second is not polite")
+    if int(max_attempts) < 1:
+        raise CollectorRefused("max attempts must be at least 1")
+    http_get = http_get or urllib_get
     plan = load_plan(plan_path)
     fetched = []
     skipped = []

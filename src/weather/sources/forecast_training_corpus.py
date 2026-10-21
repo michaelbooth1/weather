@@ -23,7 +23,7 @@ from zoneinfo import ZoneInfo
 
 from weather.io import sha256_file, write_json_atomic
 from weather.market.market_registry import all_specs
-from weather.paths import data_path
+from weather.paths import ARTIFACTS_ROOT, SRC_ROOT, data_path
 from weather.schema_registry import schema_version
 from weather.sources.daily_summary import native_to_c
 from weather.units import to_float
@@ -55,6 +55,7 @@ DEFAULT_CUTOFF_HOURS = tuple(range(7, 21))
 DEFAULT_LEAD_DAYS = 1
 DEFAULT_PUBLISH_ROOT = data_path("training", "pit_forecast_corpus")
 ACTIVE_FORECAST_ARCHIVE_ROOT = data_path("forecast_history")
+PROTECTED_REPOSITORY_ROOTS = (SRC_ROOT, ARTIFACTS_ROOT)
 
 
 SOURCE_FIELD_SPECS = {
@@ -1296,7 +1297,36 @@ def assert_training_only_publish_root(publish_root, active_archive_roots=None):
             raise MaterializationBlocked(
                 f"training corpus publication overlaps active forecast archive: {root}"
             )
+    for root in PROTECTED_REPOSITORY_ROOTS:
+        if _path_overlaps(publish_root, root):
+            raise MaterializationBlocked(
+                f"training corpus publication overlaps a tracked repository root: {root}"
+            )
     return Path(publish_root)
+
+
+def _issue_evidence_bases(plan, staging_root):
+    """Distinct issue-evidence bases recorded by the collector, for the manifest."""
+    bases = set()
+    for request in plan["requests"]:
+        _root, _body, receipt_path = _unit_paths(staging_root, request["request_hash"])
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        for evidence in receipt.get("issue_evidence") or []:
+            bases.add(
+                (
+                    str(evidence.get("issue_time_basis") or "unrecorded"),
+                    evidence.get("availability_latency_hours"),
+                    bool(evidence.get("run_id_exposed")),
+                )
+            )
+    return [
+        {
+            "issue_time_basis": basis,
+            "availability_latency_hours": latency,
+            "run_id_exposed": exposed,
+        }
+        for basis, latency, exposed in sorted(bases, key=lambda item: json.dumps(item))
+    ]
 
 
 def _write_jsonl(path, rows):
@@ -1440,6 +1470,7 @@ def materialize_corpus(
             "cutoff_hours_local": plan["cutoff_hours_local"],
             "source_fields": plan["source_fields"],
             "issue_contract": plan["issue_contract"],
+            "issue_evidence_bases": _issue_evidence_bases(plan, staging_root),
             "normalizer_version": plan["normalizer_version"],
             "consumer_dispositions": plan["consumer_dispositions"],
             "active_archive_pinned": True,

@@ -426,3 +426,192 @@ def test_request_url_refuses_non_previous_runs_endpoint(tmp_path):
     url = fetch.request_url(plan["requests"][0])
     assert url.startswith("https://previous-runs-api.open-meteo.com/v1/forecast?")
     assert "models=gfs_seamless" in url
+
+
+def test_retry_after_beyond_cap_refuses_instead_of_sleeping():
+    clock = FakeClock()
+    with pytest.raises(fetch.CollectorRefused, match="exceeds the 600s backoff cap"):
+        fetch.fetch_with_retries(
+            "u",
+            http_get=lambda u, t: (429, {"Retry-After": "86400"}, b"later"),
+            sleep=clock.sleep,
+            backoff_cap_seconds=600,
+        )
+    assert clock.sleeps == []
+    future = datetime.now(timezone.utc) + timedelta(days=1)
+    with pytest.raises(fetch.CollectorRefused, match="backoff cap"):
+        fetch.fetch_with_retries(
+            "u",
+            http_get=lambda u, t: (
+                429,
+                {"Retry-After": future.strftime("%a, %d %b %Y %H:%M:%S GMT")},
+                b"",
+            ),
+            sleep=clock.sleep,
+        )
+    assert clock.sleeps == []
+
+
+def test_zero_attempts_is_refused(tmp_path):
+    with pytest.raises(fetch.CollectorRefused, match="at least 1"):
+        fetch.fetch_with_retries("u", http_get=lambda u, t: (200, {}, b""), max_attempts=0)
+    _plan_obj, path = _temperature_plan(tmp_path)
+    with pytest.raises(fetch.CollectorRefused, match="at least 1"):
+        fetch.collect(path, tmp_path / "staging", http_get=lambda u, t: None, max_attempts=0)
+    assert fetch.main(["--plan", str(path), "--staging-root", str(tmp_path / "s"), "--max-attempts", "0"]) == 2
+
+
+def test_http_exception_is_retried():
+    import http.client
+
+    clock = FakeClock()
+    outcomes = [http.client.RemoteDisconnected("gone"), (200, {}, b"{}")]
+
+    def flaky(url, timeout):
+        outcome = outcomes.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    status, _h, _b, attempts = fetch.fetch_with_retries(
+        "u", http_get=flaky, sleep=clock.sleep, backoff_base_seconds=7
+    )
+    assert (status, attempts, clock.sleeps) == (200, 2, [7])
+
+
+class _FakeResponse:
+    def __init__(self, status, headers, body):
+        self.status = status
+        self.headers = _Headers(headers)
+        self._body = body
+
+    def read(self):
+        return self._body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+class _Headers(dict):
+    def items(self):
+        return list(super().items())
+
+
+class _FakeOpener:
+    def __init__(self, handler):
+        self.handler = handler
+        self.requests = []
+
+    def open(self, req, timeout=None):
+        self.requests.append(req)
+        return self.handler(req)
+
+
+def test_redirects_are_not_followed_and_fail_closed(tmp_path, monkeypatch):
+    import urllib.error
+
+    handler = fetch._RefuseRedirects()
+    assert handler.redirect_request(None, None, 302, "Found", {}, "https://elsewhere.test/") is None
+
+    def redirect(req):
+        raise urllib.error.HTTPError(req.full_url, 302, "Found", {"Location": "https://elsewhere.test/"}, None)
+
+    monkeypatch.setattr(fetch, "_OPENER", _FakeOpener(redirect))
+    status, headers, body = fetch.urllib_get("https://previous-runs-api.open-meteo.com/v1/forecast?x=1", 5)
+    assert status == 302 and body == b""
+
+    plan, path = _temperature_plan(tmp_path)
+    transport = FakeTransport(plan, [(302, {"Location": "https://elsewhere.test/"}, b"")])
+    with pytest.raises(StagingValidationError, match="http_status_302"):
+        fetch.collect(path, tmp_path / "staging", http_get=transport, sleep=lambda _s: None)
+    assert len(transport.calls) == 1
+
+
+def test_main_and_urllib_get_with_a_fake_opener(tmp_path, monkeypatch, capsys):
+    plan, path = _temperature_plan(tmp_path)
+    request = plan["requests"][0]
+    opener = _FakeOpener(
+        lambda req: _FakeResponse(200, {"Content-Type": "application/json"}, _body_for(request))
+    )
+    monkeypatch.setattr(fetch, "_OPENER", opener)
+    assert fetch.main(["--plan", str(path), "--staging-root", str(tmp_path / "staging")]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["all_complete"] is True and len(result["fetched"]) == 1
+    sent = opener.requests[0]
+    assert sent.full_url == fetch.request_url(load_plan(path)["requests"][0])
+    assert sent.get_method() == "GET"
+    assert sent.get_header("User-agent") == fetch.USER_AGENT
+    assert not any(
+        key.lower() in {"authorization", "cookie"} for key, _value in sent.header_items()
+    )
+
+
+def test_staging_and_publish_roots_refuse_src_and_artifacts(tmp_path):
+    from weather.paths import ARTIFACTS_ROOT, SRC_ROOT
+
+    plan, path = _temperature_plan(tmp_path)
+    transport = FakeTransport(plan)
+    for root in (SRC_ROOT / "pit-staging", ARTIFACTS_ROOT / "pit-staging", SRC_ROOT.parent):
+        with pytest.raises(fetch.CollectorRefused):
+            fetch.collect(path, root, http_get=transport, sleep=lambda _s: None)
+    assert transport.calls == []
+    fetch.collect(path, tmp_path / "staging", http_get=transport, sleep=lambda _s: None)
+    with pytest.raises(MaterializationBlocked, match="tracked repository root"):
+        materialize_corpus(path, tmp_path / "staging", ARTIFACTS_ROOT / "pit-corpus")
+    assert not (ARTIFACTS_ROOT / "pit-corpus").exists()
+
+
+def test_manifest_carries_issue_evidence_basis(tmp_path):
+    plan, path = _temperature_plan(tmp_path)
+    fetch.collect(path, tmp_path / "staging", http_get=FakeTransport(plan), sleep=lambda _s: None)
+    manifest = verify_corpus_manifest(materialize_corpus(path, tmp_path / "staging", tmp_path / "pub"))
+    assert manifest["issue_evidence_bases"] == [
+        {
+            "issue_time_basis": fetch.ISSUE_TIME_BASIS,
+            "availability_latency_hours": 6,
+            "run_id_exposed": False,
+        }
+    ]
+
+
+def test_corrupt_staged_body_is_refetched(tmp_path):
+    plan, path = _temperature_plan(tmp_path)
+    transport = FakeTransport(plan)
+    staging = tmp_path / "staging"
+    fetch.collect(path, staging, http_get=transport, sleep=lambda _s: None)
+    body = staging / "requests" / plan["requests"][0]["request_hash"] / "response.json"
+    body.write_bytes(body.read_bytes()[:-5] + b"XXXXX")
+    assert resume_ledger(path, staging)["all_complete"] is False
+    result = fetch.collect(path, staging, http_get=transport, sleep=lambda _s: None)
+    assert len(result["fetched"]) == 1 and result["all_complete"] is True
+    assert len(transport.calls) == 2
+
+
+def test_relative_and_symlinked_roots(tmp_path, monkeypatch):
+    plan, path = _temperature_plan(tmp_path)
+    transport = FakeTransport(plan)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(fetch.CollectorRefused, match="forecast_history"):
+        fetch.collect(path, "x/forecast_history/y", http_get=transport, sleep=lambda _s: None)
+    result = fetch.collect(path, "rel-staging", http_get=transport, sleep=lambda _s: None)
+    assert result["all_complete"] is True
+    assert (tmp_path / "rel-staging" / "requests").is_dir()
+
+    target = tmp_path / "real" / "forecast_history"
+    target.mkdir(parents=True)
+    link = tmp_path / "innocent-link"
+    try:
+        link.symlink_to(target, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        try:
+            import _winapi
+
+            _winapi.CreateJunction(str(target), str(link))
+        except (ImportError, AttributeError, OSError):
+            pytest.skip("neither a symlink nor a junction can be created on this host")
+    with pytest.raises(fetch.CollectorRefused, match="forecast_history"):
+        fetch.collect(path, link / "staging", http_get=transport, sleep=lambda _s: None)
+    assert not any(target.iterdir())
