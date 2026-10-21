@@ -1,6 +1,8 @@
 # DRAFT, UNSIGNED: model-edge pre-registration template and methods annex, 2026-10-19
 
-> **Status: DRAFT-UNSIGNED, NOT ACTIVE.** Written on the workstation (model-edge week 1) for the owner's single
+> **Status: APPROVED 2026-10-21 by the owner (relayed by master-agent; GO/NO-GO rule §5 decision block).
+> The signature binds with the DECISION_LOG signing row carrying this file's raw SHA-256 (not yet written); the
+> DRAFT/UNSIGNED wording below is the text as approved.** Previously: DRAFT-UNSIGNED, NOT ACTIVE. Written on the workstation (model-edge week 1) for the owner's single
 > sign-off on Fri 2026-10-23. It authorises nothing: no scoring, no reservation, no alpha, no code, no serving change.
 > It binds only once the owner signs it (section 9). Once signed it is never edited; a change is a new dated amendment
 > file that names this file and its signed SHA-256, states its motivation, and is written before the affected
@@ -332,12 +334,12 @@ UNSIGNED. On signature the owner adds a DECISION_LOG row carrying this file's ra
 
 ## 10. Owner decisions this draft needs
 
-- **OD-T1** Sign or amend M1-M8.
-- **OD-T2** The E1 UNTESTABLE bar (proposed MDE80 > 0.05 on R = 5% of market Brier; contrast 5% of the gap, about
+- **OD-T1** **[decided 2026-10-21 by owner (relayed by master-agent; GO/NO-GO rule §5 decision block): sign M1-M8 as amended.]** Sign or amend M1-M8.
+- **OD-T2** **[decided 2026-10-21 by owner (relayed by master-agent; GO/NO-GO rule §5 decision block): MDE80 > 0.05 on R and the 80% crossed level.]** The E1 UNTESTABLE bar (proposed MDE80 > 0.05 on R = 5% of market Brier; contrast 5% of the gap, about
   0.015 on R) and the crossed falsifier level (proposed 80%).
-- **OD-T3** Futility β (0.20 default; 0.10 option) and the single boundary c = 0.2656 for all hypotheses.
-- **OD-T4** E2 blend form (linear pool per block, default) or a log pool.
-- **OD-T5** M2 "wherever the replay reproduces": (1) "reproduces the served vector" or (2) "the replay runs". Reading
+- **OD-T3** **[decided 2026-10-21 by owner (relayed by master-agent; GO/NO-GO rule §5 decision block): β 0.20, c = 0.2656.]** Futility β (0.20 default; 0.10 option) and the single boundary c = 0.2656 for all hypotheses.
+- **OD-T4** **[decided 2026-10-21 by owner (relayed by master-agent; GO/NO-GO rule §5 decision block): linear pool per block.]** E2 blend form (linear pool per block, default) or a log pool.
+- **OD-T5** **[decided 2026-10-21 by owner (relayed by master-agent; GO/NO-GO rule §5 decision block): the recommended reading.]** M2 "wherever the replay reproduces": (1) "reproduces the served vector" or (2) "the replay runs". Reading
   (1) drops 75-96% of development rows, because only 4-22% reproduce within 1e-9 on development dates through code
   drift (M8, EDGE-1 annex §7); reading (2) keeps them. Either way, A2's 0.00 development fit was made on the served
   vector of record, not on M2's replay. **(Recommended)** "wherever the replay runs, at the frozen hash on forward

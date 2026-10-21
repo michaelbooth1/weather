@@ -1,6 +1,8 @@
 # DRAFT, UNSIGNED: forward alpha ledger for new-date instruments, 2026-10-19
 
-> **Status: DRAFT-UNSIGNED, NOT ACTIVE.** Written on the workstation (model-edge week 1) for the owner's single
+> **Status: APPROVED 2026-10-21 by the owner (relayed by master-agent; GO/NO-GO rule §5 decision block).
+> The signature binds with the DECISION_LOG signing row carrying this file's raw SHA-256 (not yet written); the
+> DRAFT/UNSIGNED wording below is the text as approved.** Previously: DRAFT-UNSIGNED, NOT ACTIVE. Written on the workstation (model-edge week 1) for the owner's single
 > sign-off on Fri 2026-10-23. Until signed it is a proposed control, not the control; it changes nothing that is
 > already signed.
 >
@@ -81,9 +83,9 @@ commit as the DECISION_LOG row.
 
 ## 4. Owner decisions
 
-- **OD-L1:** adopt the forward ledger (rules §1) for every new-date instrument from signature.
-- **OD-L2:** confirm `CL-B` (at most 2 sealed-panel decisions, stratum B, batched survivors).
-- **OD-L3:** record t3-r3's reservation in reserved-confirmation-window.md (DL 2026-10-15 took the narrow default; the
+- **OD-L1:** **[decided 2026-10-21 by owner (relayed by master-agent; GO/NO-GO rule §5 decision block): adopt.]** adopt the forward ledger (rules §1) for every new-date instrument from signature.
+- **OD-L2:** **[decided 2026-10-21 by owner (relayed by master-agent; GO/NO-GO rule §5 decision block): confirm `CL-B`.]** confirm `CL-B` (at most 2 sealed-panel decisions, stratum B, batched survivors).
+- **OD-L3:** **[decided 2026-10-21 by owner (relayed by master-agent; GO/NO-GO rule §5 decision block): record it (a production docs change).]** record t3-r3's reservation in reserved-confirmation-window.md (DL 2026-10-15 took the narrow default; the
   file still says no other date is held out). A production docs change, not part of this draft.
 
 ## Sources

@@ -1,6 +1,8 @@
 # DRAFT, UNSIGNED: EDGE-1 — model versus market, forward instrument annex, 2026-10-19
 
-> **Status: DRAFT-UNSIGNED, NOT ACTIVE.** Written on the workstation (model-edge week 1) for the owner's single
+> **Status: APPROVED 2026-10-21 by the owner (relayed by master-agent; GO/NO-GO rule §5 decision block).
+> The signature binds with the DECISION_LOG signing row carrying this file's raw SHA-256 (not yet written); the
+> DRAFT/UNSIGNED wording below is the text as approved.** Previously: DRAFT-UNSIGNED, NOT ACTIVE. Written on the workstation (model-edge week 1) for the owner's single
 > sign-off on Fri 2026-10-23. It authorises nothing: no scoring, no reservation, no alpha, no code, no stage, no
 > serving change. It binds only once the owner signs it together with the
 > [methods annex](prereg-template-and-methods-annex-DRAFT-2026-10-19.md) (section 11).
@@ -535,18 +537,18 @@ also carries the full SHA of the pinned post-N12 master commit (section 1.2). k 
 
 ## 12. Owner decisions this draft needs
 
-- **OD-A6 (88a hold for snapshot market vectors):** not held → D0 2026-10-25 (master-agent recommendation); held →
+- **OD-A6 (88a hold for snapshot market vectors):** **[decided 2026-10-21 by owner (relayed by master-agent; GO/NO-GO rule §5 decision block): not held.]** not held → D0 2026-10-25 (master-agent recommendation); held →
   D0 2026-10-28.
-- **OD-E1:** the t3-r3 conflict (section 6.3): (a) default, (b), or (c).
-- **OD-E2:** sign or amend (arms, N 20/45, multiplicity: fixed sequence H-A0 then H-A1 (default) or Bonferroni
+- **OD-E1:** **[decided 2026-10-21 by owner (relayed by master-agent; GO/NO-GO rule §5 decision block): (a), A1's looks deferred until after the t3-r3 look.]** the t3-r3 conflict (section 6.3): (a) default, (b), or (c).
+- **OD-E2:** **[decided 2026-10-21 by owner (relayed by master-agent; GO/NO-GO rule §5 decision block): sign as drafted.]** sign or amend (arms, N 20/45, multiplicity: fixed sequence H-A0 then H-A1 (default) or Bonferroni
   0.025/k at each own final, k recorded at D0).
-- **OD-E3:** 00-16 declared block (default) or per-block hypotheses.
-- **OD-E4:** the A1 survivor list as filled (A1-1 = C-L13-BT; logistics if it meets the section 1 rules).
-- **OD-E6:** keep A1 as a separate arm (default) or drop A1-1 from it.
-- **Question (h):** LA and SF live marine and the SST refresh, capture only (section 13); default yes.
-- **OD-E7:** A0's binding twin T1 keeps `nws_hourly` alone (default) or Open-Meteo alone (section 1.1); T0 stays a
+- **OD-E3:** **[decided 2026-10-21 by owner (relayed by master-agent; GO/NO-GO rule §5 decision block): 00-16 only.]** 00-16 declared block (default) or per-block hypotheses.
+- **OD-E4:** **[decided 2026-10-21 by owner (relayed by master-agent; GO/NO-GO rule §5 decision block): the A1 survivor list as filled.]** the A1 survivor list as filled (A1-1 = C-L13-BT; logistics if it meets the section 1 rules).
+- **OD-E6:** **[decided 2026-10-21 by owner (relayed by master-agent; GO/NO-GO rule §5 decision block): keep A1 as a separate arm.]** keep A1 as a separate arm (default) or drop A1-1 from it.
+- **Question (h):** **[decided 2026-10-21 by owner (relayed by master-agent; GO/NO-GO rule §5 decision block): yes.]** LA and SF live marine and the SST refresh, capture only (section 13); default yes.
+- **OD-E7:** **[decided 2026-10-21 by owner (relayed by master-agent; GO/NO-GO rule §5 decision block): `nws_hourly` alone.]** A0's binding twin T1 keeps `nws_hourly` alone (default) or Open-Meteo alone (section 1.1); T0 stays a
   non-binding sanity control either way.
-- **OD-E5:** E2 closed in development (w_b = 0.00 in each sub-block on 07-31..09-29; no forward E2 instrument; H-A2
+- **OD-E5:** **[decided 2026-10-21 by owner (relayed by master-agent; GO/NO-GO rule §5 decision block): E2 closed in development.]** E2 closed in development (w_b = 0.00 in each sub-block on 07-31..09-29; no forward E2 instrument; H-A2
   not in the family) unless the owner redefines A2 (default: closed; the model added nothing beyond the market
   price on those dates). Proposed EXHAUSTION_REGISTER entry at signature (production docs change, not in this
   draft): "E2 frozen blend, served + market: CLOSED in development, all four w_b 0.00 (screens doc §9)".
