@@ -415,8 +415,10 @@ spends no CAMPAIGN_LEDGER decision. Rows: [alpha ledger](alpha-ledger-DRAFT-2026
   - **With H-A0 UNTESTABLE** (the default bar, EDGE-1 annex §8), the EDGE-1 condition of early NO-GO has no
     hypothesis left; it is then read as vacuously met, and early NO-GO = MG-1 not GO (0.06 at the dev effect, 0.54 at
     half, 0.96 under the null), with the survivor condition.
-  - **Early NO-GO fires about 0.56 of the time under the null** (model = market, MG-1 = served). That is a no-alpha
-    owner decision, and "no edge" is the null, so it is not an error rate; it is stated so that it is not a surprise.
+  - **Under the defaults Gate 1 = "MG-1 not GO": P(early NO-GO) ≈ 0.96 under the null (correct), ≈ 0.54 if MG-1 has a
+    true half effect (a false redirect; EDGE-1 then has no hypothesis to reopen weather).** (Simulated MG-1-not-GO
+    column: 0.961 / 0.540 not held, 0.959 / 0.536 held. The 0.56-0.57 null figure in the early NO-GO column is the
+    A0-counted variant, which needs A0's interim and so does not apply under the default bar.) GO/NO-GO rule question (l).
   - **GO side (INFERENCE, not simulated here):** with H-A0 UNTESTABLE and A1 deferred, the only E1 GO route at 12-21
     is an MG-1 upper bound of R below 1, about 0.025 under R = 1 and near 0 at the development R of 1.30; GO is
     reachable in name only under the defaults. With H-A0 in the family, its power at R = 0.95 is 0.17 (annex §8).
