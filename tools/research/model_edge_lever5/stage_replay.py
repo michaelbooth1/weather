@@ -38,6 +38,15 @@ Variants:
 - ``bucket_transition_repointed``: the bucket-transition prior reads the
   observed station high at the cutoff.
 
+Twins (EDGE-1 annex, bundle B ``83ba04f96`` section 1.1; only via ``--variants``):
+- ``t1_nws_hourly_only``: every forecast payload except ``nws_hourly`` emptied
+  (``T1_EMPTIED``); serving's own code then yields ``forecast_high`` = the NWS
+  day max and recomputes ``forecast_gap``. A row with no captured NWS day max
+  falls back to base (row field ``t1_nws_filled``).
+- ``t0_climatology_prior``: every forecast payload emptied, ``forecast_high``
+  set to the prior-year monthly mean daily high (``monthly_climatology_high``),
+  ``forecast_gap`` recomputed.
+
 Per snapshot and variant: ``tv`` = sum|delta|/2 over native 1-degree buckets
 (an exact upper bound on the absolute change of any band probability for any
 banding; 0 iff no band changes) and ``max_bucket``.
@@ -102,6 +111,14 @@ VARIANTS = (
     "bucket_transition_repointed",
     "intraday_tail_repointed",
 )
+# EDGE-1 annex twins (bundle B, 83ba04f96, edge1-annex-DRAFT-2026-10-19.md section 1.1). Not in the
+# default set: select with --variants. Vector deltas only, no scoring.
+TWIN_VARIANTS = ("t1_nws_hourly_only", "t0_climatology_prior")
+ALL_VARIANTS = VARIANTS + TWIN_VARIANTS
+# T1 empties every forecast payload except nws_hourly; T0 empties nws_hourly as well.
+T1_EMPTIED = ("open_meteo", "weather_forecast", "eccc_citypage", "global_ensemble",
+              "open_meteo_global_models")
+T0_EMPTIED = T1_EMPTIED + ("nws_hourly",)
 
 
 class Refused(ValueError):
@@ -212,6 +229,65 @@ def _patched(obj, name, value):
             delattr(obj, name)
 
 
+def nws_hourly_day_max(model, sources):
+    """The captured NWS hourly point forecast's day maximum, or None (T1 fallback)."""
+    return model.forecast_day_max(model.source_data(sources, "nws_hourly") or {})
+
+
+def monthly_climatology_high(model):
+    """Mean daily high of the target's calendar month over prior years only.
+
+    Reads ``<data_root>/daily/daily_summary.csv`` like the serving climatology
+    (rows with year >= the target year are dropped before use, as
+    ``model_climatology`` does; rows below ``HISTORY_MIN_ROW_COUNT`` skipped).
+    """
+    import csv
+
+    from weather.model.model_constants import HISTORY_MIN_ROW_COUNT
+    from weather.sources.daily_summary import native_high
+
+    target = model.target_date
+    cache = model.__dict__.setdefault("_l5_monthly_clim", {})
+    key = (str(model.spec.data_root), target.year, target.month)
+    if key not in cache:
+        values = []
+        path = model.spec.data_root / "daily" / "daily_summary.csv"
+        if path.is_file():
+            with path.open("r", encoding="utf-8", newline="") as handle:
+                for row in csv.DictReader(handle):
+                    try:
+                        local = date.fromisoformat(row["local_date"])
+                    except (KeyError, ValueError):
+                        continue
+                    if local.year >= target.year or local.month != target.month:
+                        continue
+                    if int(row.get("row_count") or 0) < HISTORY_MIN_ROW_COUNT:
+                        continue
+                    value = native_high(row)
+                    if value is not None:
+                        values.append(float(value))
+        cache[key] = sum(values) / len(values) if values else None
+    return cache[key]
+
+
+@contextlib.contextmanager
+def _forecast_feature_override(model, forecast_high):
+    """Set the served ``forecast_high`` feature; recompute ``forecast_gap`` as serving does."""
+    original = model.extract_live_features
+
+    def extract(*args, **kwargs):
+        feats = original(*args, **kwargs)
+        if feats is not None:
+            high = feats.get("high_so_far")
+            feats["forecast_high"] = forecast_high
+            feats["forecast_gap"] = (forecast_high - high
+                                     if forecast_high is not None and high is not None else None)
+        return feats
+
+    with _patched(model, "extract_live_features", extract):
+        yield
+
+
 @contextlib.contextmanager
 def variant_context(model, variant, sources, now):
     """Yield the sources to use; patch the model instance for one variant."""
@@ -230,6 +306,24 @@ def variant_context(model, variant, sources, now):
         artifact.setdefault("component", {})["enabled"] = True
         with _patched(model, "afternoon_residual_centering", artifact):
             yield sources
+        return
+    if variant == "t1_nws_hourly_only":
+        # Annex T1: a captured-input replay with every forecast payload except nws_hourly
+        # emptied; forecast_high / forecast_gap then come from serving's own code. A row
+        # with no captured nws_hourly day max takes A0's own vector (the annex fallback).
+        if nws_hourly_day_max(model, sources) is None:
+            yield sources
+        else:
+            yield {k: v for k, v in sources.items() if k not in T1_EMPTIED}
+        return
+    if variant == "t0_climatology_prior":
+        # Annex T0: every forecast payload emptied (nws_hourly too) and the forecast_high
+        # feature set to the prior-year monthly climatological high, gap recomputed.
+        clim = monthly_climatology_high(model)
+        if clim is None:
+            raise RuntimeError("no prior-year monthly climatology")
+        with _forecast_feature_override(model, clim):
+            yield {k: v for k, v in sources.items() if k not in T0_EMPTIED}
         return
     high = _station_high(model, sources, now)
     if variant == "trusted_current_max_repointed":
@@ -353,6 +447,8 @@ def compare_record(model, record, market_id, variants):
         "nbm_present": bool((sources.get("nbm_probabilistic_tmax") or {}).get("data")),
         "variants": {},
     }
+    if "t1_nws_hourly_only" in variants:
+        row["t1_nws_filled"] = nws_hourly_day_max(model, sources) is not None
     try:
         base, payload = _run(model, sources, now)
     except Exception as exc:  # error row, the run continues
@@ -380,6 +476,9 @@ def summarize(rows, variants):
         "model_kinds": sorted({str(r.get("active_model_kind")) for r in ok}),
         "variants": {},
     }
+    if "t1_nws_hourly_only" in variants:
+        out["t1_nws_filled"] = sum(1 for r in ok if r.get("t1_nws_filled"))
+        out["t1_fallback_to_base"] = sum(1 for r in ok if r.get("t1_nws_filled") is False)
     for variant in variants:
         per_block = {}
         for label, start, end in HOUR_BLOCKS + (("all", 0, 23),):
@@ -549,12 +648,13 @@ def main(argv=None):
     parser.add_argument("--market", default=None)
     parser.add_argument("--max-folders", type=int, default=None)
     parser.add_argument("--budget-minutes", type=float, default=None)
-    parser.add_argument("--variants", default=",".join(VARIANTS))
+    parser.add_argument("--variants", default=",".join(VARIANTS),
+                        help=f"default: the 8 stage variants; twins: {','.join(TWIN_VARIANTS)}")
     parser.add_argument("--out", required=True)
     parser.add_argument("--summary-out", default=None)
     args = parser.parse_args(argv)
     variants = [v for v in args.variants.split(",") if v]
-    unknown = sorted(set(variants) - set(VARIANTS))
+    unknown = sorted(set(variants) - set(ALL_VARIANTS))
     if unknown:
         print(f"unknown variants: {unknown}", file=sys.stderr)
         return 2

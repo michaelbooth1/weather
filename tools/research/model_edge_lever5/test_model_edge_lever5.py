@@ -356,3 +356,71 @@ def test_served_repro_compares_recorded_distribution(tmp_path, roots, climatolog
     replayed = dict(recorded, code_hash="z", code_files=[{"path": "src/m.py", "sha256": "2"}])
     assert sr.identity_reasons(recorded, replayed) == ["code_changed:src/m.py"]
     assert sr.identity_reasons(recorded, dict(recorded)) == []
+
+
+# --- EDGE-1 annex twins T1 / T0 -----------------------------------------------
+
+SERVED_COLUMNS = (  # union of the served HGB bundles' columns minus the one-hot groups
+    "current_temp", "dewpoint_c", "forecast_gap", "forecast_high", "high_so_far", "hours_at_peak",
+    "humidity", "live_reading_minus_high", "live_reading_temp", "minutes_since_cutoff", "pressure",
+    "pressure_trend_3h", "rise_from_7am", "warming_rate_2h", "wind_speed_kmh", "wind_group", "cloud_group")
+MIAMI_ONLY = ("forecast_source_count", "forecast_disagreement")
+
+
+def _twin_record(hour=13, nws=True):
+    from weather.backtesting.replay import parse_built_at
+
+    record = _record("twin", hour)
+    record["sources"]["open_meteo"] = {"ok": True, "data": {"day_max_native": 95.0}}
+    record["sources"]["global_ensemble"] = {"ok": True, "data": {"day_max_native": 97.0}}
+    if nws:
+        record["sources"]["nws_hourly"] = {"ok": True, "data": {"day_max_native": 92.0}}
+    model = _factory("atlanta")
+    model.set_target_date(datetime(2026, 9, 20).date())
+    return model, record, parse_built_at(record)
+
+
+def _served(model, sources, now):
+    feats = model.extract_live_features(sources, now.hour, now=now)
+    return {c: feats.get(c) for c in SERVED_COLUMNS + MIAMI_ONLY}
+
+
+def test_t1_twin_changes_only_the_forecast_columns(roots):
+    model, record, now = _twin_record()
+    base = _served(model, record["sources"], now)
+    with l5.variant_context(model, "t1_nws_hourly_only", record["sources"], now) as srcs:
+        twin = _served(model, srcs, now)
+    assert base["forecast_high"] == 95.0 and twin["forecast_high"] == 92.0
+    assert twin["forecast_gap"] == pytest.approx(92.0 - base["high_so_far"])
+    changed = {c for c in SERVED_COLUMNS if base[c] != twin[c]}
+    assert changed == {"forecast_high", "forecast_gap"}
+    # Miami/Toronto-only columns: serving's own code gives one source and a MISSING
+    # disagreement (model_features.py, forecast_ensemble_metrics), not zero spread.
+    assert (base["forecast_source_count"], twin["forecast_source_count"]) == (3, 1)
+    assert base["forecast_disagreement"] == 5.0 and twin["forecast_disagreement"] is None
+
+
+def test_t1_twin_falls_back_to_base_without_nws_hourly(roots):
+    model, record, now = _twin_record(nws=False)
+    with l5.variant_context(model, "t1_nws_hourly_only", record["sources"], now) as srcs:
+        assert srcs is record["sources"]
+    row = l5.compare_record(model, record, "atlanta", ["t1_nws_hourly_only"])
+    assert row["t1_nws_filled"] is False and row["variants"]["t1_nws_hourly_only"]["tv"] == 0.0
+
+
+def test_t0_twin_uses_prior_year_monthly_climatology_only(roots):
+    daily = roots / "wunderground" / "katl" / "daily"
+    daily.mkdir(parents=True)
+    (daily / "daily_summary.csv").write_text(
+        "local_date,row_count,max_temp_native\n"
+        "2024-09-10,24,80\n2025-09-11,24,90\n2025-08-30,24,60\n2025-09-12,5,10\n2026-09-01,24,200\n")
+    model, record, now = _twin_record()
+    assert l5.monthly_climatology_high(model) == 85.0  # Sep rows of 2024-2025 with >= 20 rows
+    base = _served(model, record["sources"], now)
+    with l5.variant_context(model, "t0_climatology_prior", record["sources"], now) as srcs:
+        twin = _served(model, srcs, now)
+        assert not {"nws_hourly", "open_meteo", "global_ensemble"} & set(srcs)
+    assert twin["forecast_high"] == 85.0
+    assert twin["forecast_gap"] == pytest.approx(85.0 - base["high_so_far"])
+    assert {c for c in SERVED_COLUMNS if base[c] != twin[c]} == {"forecast_high", "forecast_gap"}
+    assert twin["forecast_source_count"] == 0 and twin["forecast_disagreement"] is None
