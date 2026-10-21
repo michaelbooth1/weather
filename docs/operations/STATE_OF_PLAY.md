@@ -65,7 +65,7 @@ views (owner 10-19). Plan: [informed maker design](informed-maker-design-2026-09
 
 1. **Model-edge programme:** EDGE-1 D0 10-25 if N12 lands by 10-24, else 10-28; land the signed bundle-B copies before D0;
    retrain column-allowlist head (build 10-27, land 10-30); Open-Meteo Previous Runs fetch (owner yes); lever 6 on the workstation.
-2. **Host Python:** C 10-21/22 (owner GO); then N12 10-22/23, MG-1 bound + SD-1 10-23/24, the waiting registrations and the 88a restart.
+2. **Host Python:** C 10-21/22 (owner GO); then N12 10-22/23, MG-1 bound + SD-1 + DST label fix (EF §10w; deferred past 12-21 if that chain fails) 10-23/24, the waiting registrations and the 88a restart.
 3. **YouTube-maker scoping** (documents only): owner actions O1-O5 in the 10-23 bundle.
 4. **Item 337:** host no-METAR replay after C; on PASS flip, bump, quiet window (owner yes).
 5. **Data layer v2:** [plan](DATA_LAYER_V2_PLAN.md); S2+S9+P1 and S4 re-dated after C.
