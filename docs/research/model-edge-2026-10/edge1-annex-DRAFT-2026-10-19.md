@@ -36,7 +36,7 @@
 | --- | --- | --- | --- | --- |
 | **A0** | The served model as served after 2026-10-09: `ML_MODEL_VERSION` v0.5.12 (lock-in v3 + v4 pre-lock-in floor + #189 keying), default switches, the active bundle; the captured served vector of record, release id per row. | E1 | code hash frozen on the **post-N12 master** (after N12 lands, now the 10-22/23 night) and before D0 (section 1.2) | **T1, public-forecast twin (binding):** `forecast_high` from the NWS hourly point forecast alone (section 1.1); T0 climatology-prior twin kept as a **non-binding** sanity control |
 | **A1** | A0 + the t3-r3 stage `remaining_rise_floor_v1` (artifact sha256 `b727fe1a897f8786afcd89514f0bae4a82d9e03ad951f2d72db9e228dd2afb09`, as signed DL 2026-10-16) + the non-NBM development survivors listed below, composed in the listed order, **frozen as one hash**; shadow only. | E1 | one hash before D0, on the post-N12 A0 | A1 with the t3-r3 and A1-1 inputs blanked = **A0 exactly** (section 1.1) |
-| **A2** | The E2 blend (M2): linear pool per block of **A0** and the snapshot market vector, weights w_b fit on 2026-07-31..2026-09-29 only, weight file frozen into the hash. | E2 | not frozen: **E2 closed in development** (w_b = 0.00 in each sub-block on 07-31..09-29); no forward E2 instrument; H-A2 not in the family (k = 2) | none (A2 is the market itself; see section 1.1) |
+| **A2** | The E2 blend (M2): linear pool per block of **A0** and the snapshot market vector, weights w_b fit on 2026-07-31..2026-09-29 only, weight file frozen into the hash. | E2 | not frozen: **E2 closed in development** (w_b = 0.00 in each sub-block on 07-31..09-29); no forward E2 instrument; H-A2 not in the family (k recorded at D0, section 3) | none (A2 is the market itself; see section 1.1) |
 
 ### 1.1 Input-removed twins (M7.3), consistent with harness v3 control (f)
 
@@ -97,7 +97,7 @@ components and cell keys; A1-1: the observed bucket and cutoff), each stage fall
 twin is **A0 exactly**. Falsifier 3 then asks whether A0 alone already carries 75% or more of A1's improvement over the
 market, i.e. whether t3-r3 + A1-1 contribute less than a quarter of it.
 
-**A2:** **E2 closed in development** (w_b = 0.00 in each sub-block on 07-31..09-29); no forward E2 instrument; H-A2 not in the family (k = 2). With w = 0 in every block, A2 **is** the market and D ≡ 0: the arm is degenerate, not
+**A2:** **E2 closed in development** (w_b = 0.00 in each sub-block on 07-31..09-29); no forward E2 instrument; H-A2 not in the family (k recorded at D0, section 3). With w = 0 in every block, A2 **is** the market and D ≡ 0: the arm is degenerate, not
 under-powered, so it is a **measured development null** (for the exhaustion register), not UNTESTABLE (M2, M4.4).
 Verified against the development screen record (screens doc §9, lever 8, `claude/model-edge-screens-20261019` @
 `4d3e25699a8afe3a34d9e979c6aa950b6ca16389`): C-L8-E2S (served + market, A2's construction) has full-development
@@ -149,7 +149,7 @@ default because t3-r3 is signed and A1 is its composite carrier against the mark
 - **Lever 8, the E2 blends (C-L8-E2S, C-L8-E2M):** killed; the development blend weight of C-L8-E2S is **0.00 in each
   of the four sub-blocks** (00-05, 06-09, 10-12, 13-16). Consequence for A2: A2 equals the market exactly, so E2 is
   **closed in development** (a measured development null, not UNTESTABLE); there is no forward E2 instrument and H-A2
-  is not in the family (k = 2) unless the owner redefines A2 (OD-E5); E2 is then not scored,
+  is not in the family unless the owner redefines A2 (OD-E5); E2 is then not scored,
   which under the amended NO-GO E2 clause ("or E2 is UNTESTABLE or not scored", GO/NO-GO rule §1, §2.4) neither
   blocks nor satisfies NO-GO.
 
@@ -218,15 +218,18 @@ branches are drafted; the owner's ruling selects one, and that ruling is a dated
 | ~~H-A2~~ | A2 | E2 | 00-16 | not in the family: E2 closed in development (section 1.1; OD-E5) |
 
 - **Family: one-sided α 0.025, finals staggered** (H-A0's final is earliest 12-10 / 12-13; H-A1's is after the t3-r3
-  look under OD-E1 (a), so a single Holm step at one final cannot run). **Default: fixed sequence.** H-A0 is tested
+  look under OD-E1 (a), so a single Holm step at one final cannot run). **Default: fixed sequence** over the members
+  remaining in the family at D0, earliest final first. If both remain, H-A0 is tested
   first, at its own final, at 0.025; H-A1 is tested at its own final, at 0.025, **only if H-A0 was rejected**; if
   H-A0 is not rejected, H-A1 spends nothing and is reported with its intervals only (they still feed the NO-GO
   clause). This keeps the full 0.025 on the arm whose final is read first and on which the power figures (section 8)
   are computed; its cost is that an A1 that beats the market while A0 does not cannot give a GO.
   **Owner-visible alternative:** Bonferroni, each hypothesis at 0.025/k at its own final, with Holm only among
   hypotheses whose finals share one look (none under the defaults).
-- **k is recorded at D0** in the signing follow-up row, after any UNTESTABLE marking (M4.4) and OD-E5: under the
-  defaults k = 2 (H-A0, H-A1; H-A2 is not in the family), so the alternative would test each at 0.0125.
+- **k is recorded at D0 after UNTESTABLE marking.** Under the default bar and the section 8 figures k is expected to be
+  0 (H-A0 0.263; H-A1 of the same size): EDGE-1 would then carry no hypothesis, no alpha and no GO route. The fixed
+  sequence runs over the members remaining in the family at D0, earliest final first. (k is written in the signing
+  follow-up row; with both members kept, the Bonferroni alternative would test each at 0.0125.)
 - **Why 00-16 and not each sub-block:** declaring the four sub-blocks for each arm would make k = 8 and, under the
   Bonferroni alternative, each level 0.0031. The sub-blocks 00-05, 06-09, 10-12, 13-16 are reported with their intervals, no alpha; the GO/NO-GO
   rule's NO-GO test reads their **lower** bounds, which needs no alpha. Owner option OD-E3: declare per-block
@@ -293,8 +296,8 @@ Options (default **a**):
 
 ### 6.4 Alpha ledger
 
-EDGE-1 adds one family (k = 2 under the defaults: H-A0, H-A1; 0.025 one-sided; fixed sequence by default, section 3)
-and reserves no date against any other family. It
+EDGE-1 adds one family (members H-A0, H-A1 before UNTESTABLE marking; k recorded at D0 and expected to be 0 under the
+default bar, section 3; 0.025 one-sided; fixed sequence by default) and reserves no date against any other family. It
 spends no CAMPAIGN_LEDGER decision. Rows: [alpha ledger](alpha-ledger-DRAFT-2026-10-19.md) `EDGE1-*`.
 
 ## 7. Validity (M8) plus EDGE-1 specifics
@@ -469,7 +472,7 @@ also carries the full SHA of the pinned post-N12 master commit (section 1.2). k 
 - **OD-E7:** A0's binding twin T1 keeps `nws_hourly` alone (default) or Open-Meteo alone (section 1.1); T0 stays a
   non-binding sanity control either way.
 - **OD-E5:** E2 closed in development (w_b = 0.00 in each sub-block on 07-31..09-29; no forward E2 instrument; H-A2
-  not in the family, k = 2) unless the owner redefines A2 (default: closed; the model added nothing beyond the market
+  not in the family) unless the owner redefines A2 (default: closed; the model added nothing beyond the market
   price on those dates). Proposed EXHAUSTION_REGISTER entry at signature (production docs change, not in this
   draft): "E2 frozen blend, served + market: CLOSED in development, all four w_b 0.00 (screens doc §9)".
 

@@ -258,9 +258,10 @@ SHA-256 of the result payload. The result is written once into the owning item a
   H_(j) while p_(j) <= 0.025/(k − j + 1); stop at the first non-rejection. Holm needs every member's p-value at one
   look.
 - **Staggered finals:** when the members' finals fall on different dates, Holm cannot run. The instrument then
-  pre-specifies, before signature, **either** a fixed sequence (the earliest final first at the full 0.025; each later
-  hypothesis tested at 0.025 only if every earlier one was rejected) **or** Bonferroni 0.025/k per hypothesis at its
-  own final, with Holm only among members sharing a look. k is recorded at D0, after UNTESTABLE markings.
+  pre-specifies, before signature, **either** a fixed sequence over the members remaining in the family at D0 (the
+  earliest final first at the full 0.025; each later hypothesis tested at 0.025 only if every earlier one was rejected) **or** Bonferroni 0.025/k per hypothesis at its
+  own final, with Holm only among members sharing a look. k is recorded at D0, after UNTESTABLE markings; k = 0 means
+  the instrument carries no hypothesis, no alpha and no GO route.
 - **Interim:** spends nothing (M4.1).
 - **Reported-beside quantities** carry no alpha and can neither rescue a failed primary nor create a GO.
 - **Across instruments:** each signed instrument is its own family at its own alpha, recorded in the
