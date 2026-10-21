@@ -105,7 +105,11 @@ sequence numbers, not calendar dates.
 | 10o | Weather takers pay fees and makers earn fee-funded rebates |
 | 10p | `2026-09-111h`: NBM guidance at all hours (parser v2) does not carry the morning lead into the afternoon; the US all-hours route is closed |
 | 10q | Model-parity swarm v2 (2026-10-04, development; landed by production 2026-10-04): two serving repairs on captured data close about half of the 111h table's gap (evening lock-in defect; morning v2 read); no external free source adds information; 13-16 residual |
+| 10qq | WU's Toronto daily high counts the 00:00 local observation; the venue paid the with-midnight band on both discriminating days (n = 2; host read, 2026-10-13) |
 | 10r | Desk-study power rule (2026-10-14, pre-registered, n = 4 pilot dates): N_req = 706 event dates, branch UNDECIDABLE_AT_DELTA; the 11-13 embargo end stands |
+| 10s | Data layer v2 S0 measurement pack (workstation, 2026-10-15; inputs dated before 2026-09-30 only) |
+| 10t | First counterfactual-tape toxicity fit (item 330 build 2, workstation, 2026-10-17): CF fills adverse at every horizon, settlement unresolved; DESCRIPTIVE, every cell UNDERPOWERED |
+| 10u | HGB path: the intraday-tail and METAR-live-signal stages never act (code-traced + Toronto replay, 2026-10-21); the WU-floor residual is only data-inert |
 
 ---
 
@@ -3668,7 +3672,7 @@ was made.
   `docs/research/model-parity-swarm-2026-10-04/`; harness `8db69adc7fb9bee8c3db47707b8aea71bff825a415b950108e19e84a0fd29f74`;
   scores and acquired data on the workstation only (`C:\swarm\`).
 
-### 10r. WU's Toronto daily high counts the 00:00 local observation; the venue paid the with-midnight band on both discriminating days (n = 2) — host read, 2026-10-13
+### 10qq. WU's Toronto daily high counts the 00:00 local observation; the venue paid the with-midnight band on both discriminating days (n = 2) — host read, 2026-10-13
 
 Read by the master agent on the capture host for [item 337](../roadmap/items/item-337-no-metar-observed-floor-gap.md);
 pre-embargo dates only (nothing from 2026-09-30 on).
@@ -3740,7 +3744,7 @@ Receipts: [S0 receipts](../research/data-layer-v2-s0-2026-10-15/README.md). Inpu
   payload is ≈3.1 GB/day for the 264-token T+0 exec-tape universe and ≈7.0 GB/day with T+1; `price_change` is >98%.
   Per-(token, hour) p95 is 1.8 MB (T+0) / 1.9 MB (T+0+T+1) and p99 7.7 / 5.7 MB; a p95 budget drops 45% / 26% of
   bytes. The run ended on the reconnect abort rule at 12:56Z ([receipt](../research/data-layer-v2-s0-2026-10-15/s0a-l2-delta-bytes.md)).
-- **Not established:** post-gzip savings of write-on-change; host process commit; FC-10 bytes per point; post-gzip L2
+- **Not established:** post-gzip savings of write-on-change; FC-10 bytes per point; post-gzip L2
   bytes and L2 bytes in US daytime hours (13Z-23Z).
 
 ### 10t. First counterfactual-tape toxicity fit: CF fills are adverse at every horizon, settlement unresolved (DESCRIPTIVE, UNDERPOWERED) — item 330 build 2, workstation, 2026-10-17
@@ -3794,6 +3798,54 @@ Table digests (fit1, without labels; the 1/5/30 min rows are identical in the la
 **Next readable labels.** Events 10-16..11-13 are inside the shadow panel: descriptive reads are refused (owner
 2026-10-17) and scored reads open 2026-11-14 under a signed prereg. Build 2's fit stops at `FIT_LAST` 09-29, so fitting on
 any later label needs an owner amendment of the fit window.
+
+### 10u. HGB path: the intraday-tail and METAR-live-signal stages never act — code-traced plus Toronto replay, lever 5, 2026-10-21
+
+**Claim, at exactly this scope:** on the HGB feature path, the intraday-tail stage and the learned METAR live
+signal cannot change the served vector, even when their WU-history input is repointed to the observed station
+high. Code-traced on master `6aac6de81a25bd939b954c5e7f29db02b2fd2fee`; checked on one real Toronto snapshot, in
+the Toronto host replay and in the 12-market workstation replay. Outcome-blind: no label, score or market price was read.
+
+- **Mechanism, intraday tail:** `distribution_model_path_stage` starts with `intraday = None`
+  (`model_distribution.py:788`). On the feature path (`:808`) it returns at `:838` with `intraday` still `None`;
+  only the empirical branches build it. The stage acts only under `if intraday and observed_bucket is not None`
+  (`:993`), so repointing `observed_bucket` cannot open it.
+- **Mechanism, METAR live signal:** the vote is computed at `model_distribution.py:423`, but the feature-path
+  live-signal list (`distribution_live_signals`, `:1580-1611`) does not include it; only the empirical lists do
+  (`:1620`, `:1642`). It is also `None` whenever `metar_bucket <= history_bucket`
+  (`model_distribution_signals.py:318`), which always holds once the history high is the station high, because
+  that high already includes the METAR rows.
+- **Evidence:**
+  - Synthetic tests on `claude/model-edge-codecheck-20261019` (`tools/research/model_edge_lever5/test_model_edge_lever5.py`):
+    `test_metar_signal_and_intraday_tail_shims_reach_the_call_site` shows that the repointed value reaches both call
+    sites (so the zeros are not a wiring no-op) and that a forced METAR vote of (95, 1.0, 1.0) gives final TV exactly 0
+    on the feature path. `test_intraday_tail_shim_changes_the_stage_when_intraday_exists` shows that the tail stage
+    does act once an `intraday` input exists.
+  - Real-snapshot trace (`l5_variant_trace.py`, code `6a4c92d7b`): Toronto 2026-08-10 snapshot
+    `20260810T151157359564-0400`, 15 h, `hgb`. Each shim was called once in base and once in the variant. METAR
+    signal: history bucket 28, METAR bucket 28, returned `None`. Tail: `observed_bucket` `None` → 28, no `intraday`
+    input, stage not entered. Final TV 0 for both.
+  - Toronto host replay (`stage_replay.py` at `bd75f710a`): 61/61 folders, 11,298 snapshots, 0 errors, model kind
+    `hgb` only, `changed_fraction` exactly 0.000 in every hour band for both variants.
+- **Not claimed:**
+  - Nothing about non-HGB (empirical or calibrated-empirical) markets, where both stages are wired.
+  - Nothing about whether enabling these stages would help: no score was read.
+  - The WU-floor residual is **not** structurally inert. It read 0.000 on Toronto because the data never opened its
+    gate (`model_distribution_signals.py:344-352`; on the traced snapshot "support 28 <= history 28"). Toronto's
+    station order is SWOB first (`model_sources.py:279-283`), so the repointed high already holds the SWOB rows. The
+    residual can fire: `test_wu_residual_variant_can_change_the_served_vector` moves the final vector by TV 0.0055 on
+    a synthetic SWOB-led case.
+- **Fleet-wide confirmation (workstation replay, 2026-10-21, code `a653a7c14`, tool `6a4c92d7b`):** all 12
+  markets, 61 folders each, 0 folder errors, 0 base errors, model kind `hgb` only. `intraday_tail`,
+  `metar_live_signal` and `wu_residual` read changed fraction exactly 0 in every market and every hour band, so
+  the claim holds fleet-wide for the HGB path, and the WU-floor residual's gate stayed closed on every dev snapshot
+  of every market. The workstation's Toronto file reproduces the host file row for row (11,360 rows, identical
+  `tv` and `max_bucket`; only the `attempt` and `seconds` run fields differ) across the tool change
+  `bd75f710a` → `6a4c92d7b`. On US markets the residual is inert by construction, not only by data: US
+  support is the current temperature and METAR, both already inside the repointed station high (traced on
+  Atlanta 2026-08-10 snapshot `20260810T150843696523-0400`: "support 92 <= history 92"); only a SWOB same-day max
+  above its own rows, so Toronto alone, could open the gate. That is a code inference checked on one snapshot,
+  not a fleet statistic. The same replay closes the NBM arm (lever-5 note §1 and §3.5). Record: [lever-5 note](../research/model-edge-lever5-2026-10-19.md) §2 and §3.5.
 
 ## Related
 
