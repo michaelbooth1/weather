@@ -54,6 +54,19 @@ one deviation from the generic mechanism (section 9).
   forecast's day maximum alone, and `forecast_gap` is recomputed from it by serving's own code
   (`model_features.py:1064-1068`); the `open_meteo_global_models` HGB feature is absent as its payload is. Every
   observation input, the bundle, its calibration and all post-processing are unchanged (as for T0 below).
+- **Per-source forecast features (delta review item 6).** Emptying the other payloads also makes the per-source
+  features derived from them missing (`model_features.py:669-716`, `:1069-1071`), which is T0's own objection to a
+  missing marker. Rule: **per-source forecast features (`open_meteo_high`, `weather_high`, `eccc_city_high`,
+  `open_meteo_global_models_*`) take the NWS day-max where the served bundle's 27 columns select them, or are declared
+  missing with the T0 objection withdrawn for T1; verified against the bundle's column list before the T1 hash is
+  frozen.** What the tracked artifacts show (code and manifests only, no labels): the per-market
+  `artifacts/models/coefs/feature_model_coefs_<market>.json` (last changed `fe6881fea`, 2026-06-15; 24-29
+  `feature_names` per cutoff hour, the same counts as the served bundles) select **none** of those per-source
+  features in any US11 market. Their only forecast columns are `forecast_high` and `forecast_gap`, and **Miami** (29
+  columns, as does the default `feature_model_coefs.json`) also selects `forecast_source_count` and
+  `forecast_disagreement`. Under T1 these take one source and zero spread, which is the intended "one public forecast"
+  state, not a missing marker. The HGB pickles' own `feature_names` were not opened (binary artifacts); the check
+  against them is the pre-freeze verification above.
 - **Why `nws_hourly` (default):** the NWS point forecast for the settlement station's location is the free, public
   forecast any US market participant sees on weather.gov without querying an API; all 11 EDGE-1 markets are US.
   **Named alternative: Open-Meteo alone** (`open_meteo` kept, every other payload emptied), a free API but one a
