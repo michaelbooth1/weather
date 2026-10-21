@@ -100,6 +100,64 @@ class ProviderHourlyLocalTimesTest(unittest.TestCase):
         self.assertEqual(explicit[0].isoformat(), "2026-11-01T13:00:00-05:00")
         self.assertIsNone(explicit[1])
 
+    def test_numeric_string_and_float_offsets_are_accepted(self):
+        times = contiguous_labels("2026-11-01T00:00", 48)
+        expected = [value.isoformat() for value in provider_hourly_local_times(times, NEW_YORK, -14400)]
+        for offset in ("-14400", "-14400.0", -14400.0, " -14400 "):
+            with self.subTest(offset=offset):
+                local = provider_hourly_local_times(times, NEW_YORK, offset)
+                self.assertEqual([value.isoformat() for value in local], expected)
+                self.assertEqual(local[14].isoformat(), "2026-11-01T13:00:00-05:00")
+
+    def test_sub_hourly_fixed_offset_labels_cross_the_fall_back(self):
+        # No live site requests minutely_15; the helper still handles 15-minute steps.
+        first = datetime.fromisoformat("2026-11-01T00:00")
+        times = [(first + timedelta(minutes=15 * step)).strftime("%Y-%m-%dT%H:%M") for step in range(96)]
+        local = by_label(times, provider_hourly_local_times(times, NEW_YORK, -14400))
+
+        self.assertEqual(local["2026-11-01T01:45"].isoformat(), "2026-11-01T01:45:00-04:00")
+        self.assertEqual(local["2026-11-01T02:15"].isoformat(), "2026-11-01T01:15:00-05:00")
+        self.assertEqual(local["2026-11-01T02:15"].fold, 1)
+        self.assertEqual(local["2026-11-01T14:30"].isoformat(), "2026-11-01T13:30:00-05:00")
+        self.assertEqual(len({value.astimezone(timezone.utc) for value in local.values()}), 96)
+
+    def test_fixed_offset_with_a_gap_falls_back_to_zone_local(self):
+        times = ["2026-11-01T12:00", "2026-11-01T13:00", "2026-11-01T15:00"]
+        local = provider_hourly_local_times(times, NEW_YORK, -14400)
+        self.assertEqual(
+            [value.isoformat() for value in local],
+            ["2026-11-01T12:00:00-05:00", "2026-11-01T13:00:00-05:00", "2026-11-01T15:00:00-05:00"],
+        )
+
+    def test_empty_or_non_sequence_time_arrays_yield_no_rows(self):
+        for times in ([], (), None, "2026-11-01T12:00", {"time": []}, 5):
+            with self.subTest(times=times):
+                self.assertEqual(provider_hourly_local_times(times, NEW_YORK, -14400), [])
+
+    def test_unusable_offsets_fall_back_to_zone_local_without_raising(self):
+        times = contiguous_labels("2026-11-01T12:00", 3)
+        zone_local = ["2026-11-01T12:00:00-05:00", "2026-11-01T13:00:00-05:00", "2026-11-01T14:00:00-05:00"]
+        for offset in (float("nan"), float("inf"), "abc", "", True, [], {}, 10 ** 400, 2 * 86400, -86400):
+            with self.subTest(offset=offset):
+                local = provider_hourly_local_times(times, NEW_YORK, offset)
+                self.assertEqual([value.isoformat() for value in local], zone_local)
+
+    def test_overflowing_arithmetic_falls_back_without_raising(self):
+        late = provider_hourly_local_times(["9999-12-31T22:00", "9999-12-31T23:00"], NEW_YORK, -14400)
+        self.assertEqual([value.isoformat() for value in late],
+                         ["9999-12-31T22:00:00-05:00", "9999-12-31T23:00:00-05:00"])
+        early = provider_hourly_local_times(["0001-01-01T00:00", "0001-01-01T01:00"], NEW_YORK, 50400)
+        self.assertEqual(early[0].replace(tzinfo=None), datetime(1, 1, 1, 0, 0))
+        self.assertIs(early[0].tzinfo, NEW_YORK)
+        aware = provider_hourly_local_times(["0001-01-01T00:00+14:00"], NEW_YORK, None)
+        self.assertEqual(aware[0].replace(tzinfo=None), datetime(1, 1, 1, 0, 0))
+        self.assertIs(aware[0].tzinfo, NEW_YORK)
+
+    def test_unparseable_labels_are_none_without_raising(self):
+        local = provider_hourly_local_times([None, 123, object(), "2026-11-01T14:00"], NEW_YORK, -18000)
+        self.assertEqual(local[:3], [None, None, None])
+        self.assertEqual(local[3].isoformat(), "2026-11-01T14:00:00-05:00")
+
 
 def open_meteo_payload(times, offset):
     temps = [50.0 + index for index in range(len(times))]
@@ -138,6 +196,41 @@ class OpenMeteoFetchDstTest(unittest.TestCase):
         self.assertEqual(len(clock), 23)
         self.assertNotIn("02:00", clock)
         self.assertEqual(data["day_rows"][14]["valid_time"], "2026-03-08T15:00:00-04:00")
+
+    def test_fetch_open_meteo_multimodel_rows_carry_true_local_hour(self):
+        model = TorontoHighTempModel(target_date="2026-11-01", market_id="nyc")
+        times = contiguous_labels("2026-11-01T00:00", 48)
+        models = ("gfs_seamless", "ncep_hrrr_conus", "ncep_nbm_conus", "ncep_nam_conus")
+        hourly = {"time": times}
+        for offset, name in enumerate(models):
+            hourly[f"temperature_2m_{name}"] = [50.0 + index + offset for index in range(48)]
+        model.get_json = lambda url, params: {"utc_offset_seconds": -14400, "hourly": hourly}
+
+        data = model.fetch_open_meteo_multimodel()
+
+        rows = {row["valid_time"]: row for row in data["day_rows"]}
+        self.assertEqual(len(data["day_rows"]), 25)
+        row = rows["2026-11-01T13:00:00-05:00"]
+        self.assertEqual(row["time"], "13:00")
+        self.assertEqual(row["models"]["gfs_seamless"]["temp_native"], 64.0)
+        self.assertEqual(row["models"]["ncep_nam_conus"]["temp_native"], 67.0)
+        self.assertEqual(data["day_model_highs"]["gfs_seamless"], 74.0)
+
+    def test_fetch_open_meteo_air_quality_rows_carry_true_local_hour(self):
+        model = TorontoHighTempModel(target_date="2026-11-01", market_id="nyc")
+        times = contiguous_labels("2026-11-01T00:00", 48)
+        payload = {
+            "utc_offset_seconds": "-14400",
+            "hourly": {"time": times, "pm2_5": [float(index) for index in range(48)]},
+        }
+        model.get_json = lambda url, params: payload
+
+        data = model.fetch_open_meteo_air_quality()
+
+        rows = {row["valid_time"]: row for row in data["day_rows"]}
+        self.assertEqual(len(data["day_rows"]), 25)
+        self.assertEqual(rows["2026-11-01T13:00:00-05:00"]["pm2_5"], 14.0)
+        self.assertEqual(rows["2026-11-01T13:00:00-05:00"]["time"], "13:00")
 
     def test_summer_fetch_is_unchanged(self):
         model = TorontoHighTempModel(target_date="2026-07-15", market_id="nyc")
