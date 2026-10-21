@@ -449,7 +449,7 @@ Without this ruling, R0 must not freeze inside the programme.
   hook, and the two allowlist tests. The test file passes alone (28 passed, 15 skipped). Run alongside the other two
   files, 3 mutex/teardown tests failed. Those 3 skip when run alone, so the failure looks environmental, not caused by
   this change.
-- Reads came from the main checkout's `data/` and `artifacts/`. Every write was redirected to `C:	tp`.
+- Reads came from the main checkout's `data/` and `artifacts/`. Every write was redirected to `C:\t\rtp`.
 - The trainer's stdout (which holds leave-one-out scores) went to a file that was **not read**. Only the
   "Loaded …" and "Cutoff Hour … (N days)" lines were extracted.
 
