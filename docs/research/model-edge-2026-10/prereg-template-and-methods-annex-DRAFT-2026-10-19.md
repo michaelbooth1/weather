@@ -111,7 +111,7 @@ For arm a and block b over the countable market-days of the look:
   and the resulting w vector are frozen into the arm hash (M5.2) **before D0**.
 - **Model component on development dates:** the captured-input replay of the frozen model arm (not the served vector
   of record, which carried the pre-10-06 lock-in defect, EXHAUSTION_REGISTER §0.2) wherever the replay reproduces;
-  rows the replay cannot produce are dropped from the fit, counted and disclosed.
+  rows the replay cannot produce are dropped from the fit, counted and disclosed. (Reading: see OD-T5.)
 - **Endpoint:** D_E2 = Brier(q_blend) − Brier(market), per declared block, M0 weights, with the materiality test
   stated against market Brier (E2 GO needs a gain of at least 5% of market Brier; [GO/NO-GO rule](go-no-go-rule-DRAFT-2026-10-19.md)).
   R_E2 = Brier(q_blend)/Brier(market) is reported beside.
@@ -335,6 +335,11 @@ UNSIGNED. On signature the owner adds a DECISION_LOG row carrying this file's ra
   0.015 on R) and the crossed falsifier level (proposed 80%).
 - **OD-T3** Futility β (0.20 default; 0.10 option) and the single boundary c = 0.2656 for all hypotheses.
 - **OD-T4** E2 blend form (linear pool per block, default) or a log pool.
+- **OD-T5** M2 "wherever the replay reproduces": (1) "reproduces the served vector" or (2) "the replay runs". Reading
+  (1) drops 75-96% of development rows, because only 4-22% reproduce within 1e-9 on development dates through code
+  drift (M8, EDGE-1 annex §7); reading (2) keeps them. Either way, A2's 0.00 development fit was made on the served
+  vector of record, not on M2's replay. **(Recommended)** "wherever the replay runs, at the frozen hash on forward
+  rows; development fits use the served vector of record".
 
 ## Sources
 
