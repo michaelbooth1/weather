@@ -45,6 +45,7 @@ Acceptance:
 - [x] Owner answers to bundle B (GNG §5 (a)-(r), §6): every default, 2026-10-21.
 - [ ] Fable delta review of the bundle; signed copies land with their signing rows before D0.
 - [ ] D0 recorded (10-25 or 10-28) once N12's serving time is known.
-- [ ] Retrain prerequisite: per-model column allowlist head built by 10-27, landed by 10-30.
+- [ ] Retrain prerequisite: per-model column allowlist head `claude/retrain-column-allowlist-20261021` built by 10-27,
+  landed by 10-30. R0 drops `pressure` and `pressure_trend_3h` and retrains base models only (DECISION_LOG 2026-10-21).
 - [ ] Each declared look read once at its date under the signed rule; result recorded in EF and the digest.
 - [ ] Programme decision 2026-12-21 recorded by the owner (DECISION_LOG), or Gate 1 if it applies.

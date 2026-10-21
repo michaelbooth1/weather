@@ -80,7 +80,7 @@ views (owner 10-19). Plan: [informed maker design](informed-maker-design-2026-09
 | U6 replay-bundle export registered 04:10 from the 3.11.9 build-line tip (owner yes 10-15) | production | first night after C PASS (earliest 10-23 04:10) | task registered; first receipt |
 | 91a policy renewal unchanged (owner A 10-15; CP-5 LZX later, own change) | production | ~10-27 (expires 10-30) | new policy sha |
 | Signed bundle-B copies (GNG, EDGE-1 and methods annexes) land with their signing rows, after the Fable delta | production; workstation | before D0 | DL signing rows |
-| Retrain column allowlist head `claude/retrain-column-allowlist-<date>` (bundle-B prerequisite) | workstation | build 10-27, land 10-30 | roll verdict; on master |
+| Retrain column allowlist head `claude/retrain-column-allowlist-20261021` (bundle-B prerequisite; R0 drops pressure, base models only, DL 10-21) | workstation | build 10-27, land 10-30 | roll verdict; on master |
 | Open-Meteo Previous Runs fetch 2021-2023 Oct-Dec US11 (owner yes 10-21, (j)) under `workstation_heavy.ps1` | workstation | before R0 11-17 | corpus in `data/training/pit_forecast_corpus/` |
 
 ## Standing decisions
