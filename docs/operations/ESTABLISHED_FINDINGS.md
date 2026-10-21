@@ -111,6 +111,7 @@ sequence numbers, not calendar dates.
 | 10t | First counterfactual-tape toxicity fit (item 330 build 2, workstation, 2026-10-17): CF fills adverse at every horizon, settlement unresolved; DESCRIPTIVE, every cell UNDERPOWERED |
 | 10u | HGB path: the intraday-tail and METAR-live-signal stages never act (code-traced + Toronto replay, 2026-10-21); the WU-floor residual is only data-inert |
 | 10v | Dev replay with current code does not reproduce the served vector (M8 check, 2026-10-21, outcome-blind): code drift, not artifacts; replay deltas are "current code ± variant" |
+| 10w | Open-Meteo hourly labels are fixed-offset per response; serving reads them as zone wall time, so labels on the far side of a DST change are 1 h late (code trace on master `1c19ae10b`, 2026-10-21; live behaviour inferred) |
 
 ---
 
@@ -3904,6 +3905,48 @@ settlement or market price was read.
   0.06-0.31, 17-23 0.010-0.081; Toronto has no NWS hourly, so T1 = base) and T0 (`t0_climatology_prior`)
   changes 95-100% in every band (all-hours mean TV 0.15-0.43). Vector deltas only: no score, no edge claim;
   the binding comparison is forward at the frozen hash. Record: [lever-5 note](../research/model-edge-lever5-2026-10-19.md) §3.7.
+
+### 10w. Open-Meteo hourly labels are fixed-offset per response; read as zone wall time they are 1 h late across a DST change — code trace, 2026-10-21
+
+**Claim, at exactly this scope:** Open-Meteo returns one `utc_offset_seconds` per response, the zone offset when the
+request is served, and applies it to every hourly label. Code that requests `timezone=<IANA zone>` and then does
+`replace(tzinfo=zone)` therefore puts every label on the far side of a DST change one hour late. Traced read-only on
+master `1c19ae10b`. Archive behaviour is measured; **live Forecast API behaviour is INFERRED** from the same provider's
+Archive API, because no live capture crosses a DST change (the project started 2026-05-29). No label, outcome or price
+was read.
+
+- **Evidence (Archive payloads downloaded in June):** `katl` 2025-10-07..11-06 carries GMT-4 / −14400 on all 744 labels;
+  label `2025-11-02T14:00` is truly 13:00 EST but the code assigns 14:00 EST (+1 h). `cyyz` over the same window is
+  identical. `katl` 2026-02-13..03-15 crosses the spring change with −14400 throughout. The labels are contiguous in UTC:
+  no repeated or skipped hour.
+- **Live-served sites (real):** `model_sources.py:1549`, `:1622`, `:1667`, `:2143`, `:2249` (`open_meteo`,
+  `air_quality`, `global_models`, `multimodel`, `global_ensemble`) and `eccc_gridded.py:146/170` (Toronto `eccc_gem`);
+  all use `timezone=` IANA plus `replace(tzinfo)`.
+- **Blast radius (inferred):** only 2026-11-01. Fetches before 06:00Z get the −4 h offset, so afternoon labels are +1 h
+  and the `forecast_high` day window drops the true 23:00 EST hour. Later fetches are correct except that the true
+  00:00 EDT hour is missing. From 11-02 on the data is correct. The served headline HGB reads only `forecast_high` and
+  `forecast_gap` from these sources (Toronto adds `forecast_disagreement` and `forecast_source_count`), so only a max
+  that falls in an edge hour can move: **small**. Hour-keyed features exist only in shadow candidates.
+- **Latent readers (training and research):** `forecast_history.py:340` `local_valid_datetime` (training; reaches
+  serving only through the `forecast_daily.csv` analogs, `model_features.py:1775`, `toronto_model.py:321`);
+  `forecast_training_corpus.py:898` (master; fixed on the PIT-fetch branch); `open_meteo_archives.py:154`;
+  `reanalysis_history.py:83`; `historical_fallbacks.py:154/219` (research). **Train/serve parity:** training and
+  archive labels are +1 h on every date whose offset differs from the download season, not only on the change day.
+- **Not affected:** `marine_context.py:256` (CO-OPS `lst_ldt` is true local time), NWS, METAR, SWOB, ASOS, MRMS and NBM
+  (offset-aware or UTC).
+- **Fix:** branch `claude/dst-provider-labels-fix-20261021` at `5588c40799855bd22f0b65cd099b836c2e1baff4` reads
+  fixed-offset labels as label − offset in UTC (`weather.time.provider_hourly_local_times`) on the live served
+  fetchers only; training readers are unchanged, pending master's decision. Host `roll_verdict.ps1`: ROLL-SENSITIVE;
+  landing is the owner's call.
+- **Not claimed:** no measured live payload across a DST change; no forecast-skill effect; nothing about the size of
+  the training-label shift's effect on any fitted model.
+- **Relation to other records:** the same provider behaviour explains the §1m calendar-extension note (standard-time
+  dates shifted 1 h); this section traces the `forecast_history.local_valid_datetime` path that note left untraced.
+  **Supersedes in part** [DST audit 2026-10-07](../roadmap/audits/dst-audit-2026-10-07.md): DST-M3 left the
+  per-response offset "not verified" and framed the effect as every label on 11-01; it is fixed-offset, the live
+  effect is limited to pre-06:00Z fetches on 11-01, and the archive/training readers it lists are shifted on every
+  standard-time date. DST-L9's "latent: the season is May-Aug" no longer holds once the Oct-Dec PIT fetch exists. The
+  audit does not list `eccc_gridded.py`, `reanalysis_history.py` or `historical_fallbacks.py`.
 
 ## Related
 
