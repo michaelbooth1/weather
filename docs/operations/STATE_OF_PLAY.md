@@ -1,7 +1,7 @@
 # State of play
 
-**Last updated: 2026-10-21 02:16 America/Toronto (LFC backlogged; model-edge programme approved, decision 12-21;
-Python C 10-21/22 on the pre-N12 master with owner GO; N12 10-22/23; owner 10-18 to 10-20 decisions are DL rows).**
+**Last updated: 2026-10-21 12:30 America/Toronto (owner accepted every EDGE-1 bundle-B default 10-21 12:14, DL rows;
+Python C 10-21/22 on the pre-N12 master with owner GO; N12 10-22/23; EDGE-1 D0 10-25 if N12 by 10-24, else 10-28).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended. At most 95 lines and about 9 KB, one fact per bullet, detail in the linked owner.** This file owns
@@ -27,7 +27,7 @@ views (owner 10-19). Plan: [informed maker design](informed-maker-design-2026-09
 - **Workstation: one Claude Code chat directed by the production agent** ([preamble](WORKSTATION_SESSION_PREAMBLE.md));
   relayed owner approvals bind it for serving-model and merges, never money or credentials; credentials never committed.
 - **Workstation tracks** (owner 10-19): the model-edge programme first (harness v3, development screens, EDGE-1 drafts,
-  retrain sizing memo by 11-06); YouTube-maker scoping in parallel, documents only. Testing-side work is parked on its branches.
+  retrain sizing memo by 11-06; bundle B decided 10-21); YouTube-maker scoping in parallel, documents only. Testing-side work is parked on its branches.
 - **Landed is not running:** a new loop, nightly, scorer or task is done only when its Open-commitments verify has run.
 
 ## Current truth
@@ -46,16 +46,14 @@ views (owner 10-19). Plan: [informed maker design](informed-maker-design-2026-09
   04:15 restore and the owner in the morning (DL 10-19). ([runbook](HOST_PYTHON_UPGRADE_RUNBOOK.md))
 - **Unregistered until C passes:** `WeatherMakerEvidenceLowestTemperature`, `WeatherEvidenceHost` (S4, owner yes 10-16),
   U6 replay-bundle export (owner yes 10-15); the 88a S2+S9 restart also waits for C.
-- **LFC:** session 0 ATTESTED 10-16; campaign backlogged 10-19 before session 1; pin `21cf1ed42` recorded, idle
-  ([record](../research/live-fill-calibration-session0-record-2026-10-16.md)).
+- **LFC:** session 0 ATTESTED 10-16; backlogged 10-19; pin `21cf1ed42` idle ([record](../research/live-fill-calibration-session0-record-2026-10-16.md)).
 - **Build line** `codex/maker-replay-v2-build-20261003` = `1fd0c295f`; the export nightly stays unregistered.
-- **Maker replay v2** (panel UTC 09-30..10-14 never read): spec v3.4 frozen oracle basis; handout r1 signed 10-12; parked
-  with the testing backlog; lapse 10-30 (owner 10-15) stands unless the owner re-dates it.
-- **Model-edge programme** (owner 10-19, DL): harness v3 `claude/harness-v3-20261019` (controls pass on dev dates); dates
-  <= 09-29 are development only (inputs copied to the workstation, owner 10-20); fair verdicts use new settled dates. Lever 2:
-  the pipeline scoreboard cannot give per-block R, so harness v3 answers it after 11-13 (no new lane, no Stage B). EDGE-1
-  drafts `claude/edge1-prereg-drafts-20261019` for owner sign-off Fri 10-23; **Gate 1 early no-go 12-07, primary 12-21,
-  overturn-only 2027-01-25.** Code check: no NBM value reaches the served bands; the NWS hourly point forecast does; on the HGB path the intraday tail and METAR live signal never act (EF §10u).
+- **Maker replay v2** (panel 09-30..10-14 never read): spec v3.4; handout r1 signed 10-12; parked; lapse 10-30 (owner 10-15).
+- **Model-edge programme** (owner 10-19): harness v3 (`claude/harness-v3-20261019`); dates <= 09-29 are development only.
+  **Bundle B decided 10-21, every default** (DL; drafts `daed5c54e`): absent arms neither block nor satisfy NO-GO; Gate 1
+  folds into 12-21 (H-A0, H-A1 UNTESTABLE), so NO-GO rests on MG-1; T1 = NWS hourly; E3 UNTESTABLE; retrain waived for
+  12-21 (best case futility-only R0 from 11-17), its reservation narrow ([RCW](reserved-confirmation-window.md)). **12-21
+  primary, overturn-only 2027-01-25.** Dev replay base is current code, not served (EF §10v); NBM reaches no band (EF §10u).
 - **Model windows:** MG-1 `b044e0f1` scored >= 10-15, BOUND D0 10-15, provisional last 11-28 (owner 10-16). t3-r3 13-16
   prereg SIGNED 10-16. Evening-fix scorer read 10-29 `--no-market`. SOURCE_DISAGREEMENT Option 1 (SD-1 `ecec210c2`) and the
   MG-1 bound (`e342baca1`) land night 10-23/24 after N12, MG-1 bound first, under a roll verdict (owner 10-16; DL 10-20). **DST:** OD30 holds 11-01, lapses 11-02.
@@ -65,8 +63,8 @@ views (owner 10-19). Plan: [informed maker design](informed-maker-design-2026-09
 
 ## Ordered critical path
 
-1. **Model-edge programme:** bundle-B fixed tip Thu 10-22 -> delta review -> owner sign-off Fri 10-23; EDGE-1 D0 10-25 if
-   N12 lands by 10-24, else 10-28; lever-5 Toronto host replay done 10-21; the other 11 markets and lever 6 on the workstation.
+1. **Model-edge programme:** EDGE-1 D0 10-25 if N12 lands by 10-24, else 10-28; land the signed bundle-B copies before D0;
+   retrain column-allowlist head (build 10-27, land 10-30); Open-Meteo Previous Runs fetch (owner yes); lever 6 on the workstation.
 2. **Host Python:** C 10-21/22 (owner GO); then N12 10-22/23, MG-1 bound + SD-1 10-23/24, the waiting registrations and the 88a restart.
 3. **YouTube-maker scoping** (documents only): owner actions O1-O5 in the 10-23 bundle.
 4. **Item 337:** host no-METAR replay after C; on PASS flip, bump, quiet window (owner yes).
@@ -81,7 +79,9 @@ views (owner 10-19). Plan: [informed maker design](informed-maker-design-2026-09
 | Pinned watchdog redeploy from master, re-register only the watchdog task (owner yes 10-15) | production | after C, by 10-28 | watchdog CURRENT |
 | U6 replay-bundle export registered 04:10 from the 3.11.9 build-line tip (owner yes 10-15) | production | first night after C PASS (earliest 10-23 04:10) | task registered; first receipt |
 | 91a policy renewal unchanged (owner A 10-15; CP-5 LZX later, own change) | production | ~10-27 (expires 10-30) | new policy sha |
-| Owner bundle B (EDGE-1 prereg, OD rulings, YouTube O1-O5) | production -> owner | Fri 10-23 | DL rows |
+| Signed bundle-B copies (GNG, EDGE-1 and methods annexes) land with their raw SHA-256 rows | production; workstation | before D0 | DL signing rows |
+| Retrain column allowlist head `claude/retrain-column-allowlist-<date>` (bundle-B prerequisite) | workstation | build 10-27, land 10-30 | roll verdict; on master |
+| Open-Meteo Previous Runs fetch 2021-2023 Oct-Dec US11 (owner yes 10-21, (j)) under `workstation_heavy.ps1` | workstation | before R0 11-17 | corpus in `data/training/pit_forecast_corpus/` |
 
 ## Standing decisions
 
