@@ -1422,6 +1422,27 @@ information and no established harm.** All three evaluations are spent; a furthe
 design with more independent year support (2021-2023 are temperature-only). A reproduction-and-power preflight
 (`codex/48h-residual-preflight-20260911` @ `cbaa7cf9f`) was built and never executed.
 
+### The calendar-extension hours are fixed-offset, read as wall time: standard-time dates are shifted 1 h (audit 2026-10-21)
+
+Open-Meteo returns one scalar `utc_offset_seconds` per response, the offset at **download** time. All 96 calendar-extension
+units (downloaded 2026-09-02, daylight time) carry the daylight offset (New York/Toronto −14400, Chicago −18000, Denver
+−21600, Los Angeles −25200) for every window, January and December included; Atlanta Nov 1-Dec 31 2024 is 1,464 labels, no
+repeat. The collector (`previous_runs_research_collection.py` `_normalize_response`, 89a @ `7839340f2`, ~line 1320) never reads
+the offset and writes the naive label as `target_datetime_local`; the 90a consumer (`calendar_residual_replication.py`
+`load_feature_surfaces`, @ `e4d6588eb`, ~line 902) takes `datetime.fromisoformat(row[1])` as market wall time and feeds
+`.date()` and `.hour` to 88a's `_summary_targets`. Traced, Atlanta lead 1: label `2024-12-10T07:00` (offset −14400, 61.8 °F)
+is 11:00 UTC = 06:00 EST, but the consumer counts it as hour 7 (inside the 07-20 window), +1 h; control `2024-09-15T07:00`
+is 07:00 EDT, shift 0. The shortwave peak sits on label 14:00 in December and in September, which confirms the fixed offset.
+
+On standard-time dates every label is one hour ahead of local wall time: 97 of 335 frozen 90a training dates and 96 of 220
+evaluation dates. Affected: the 07-20 and 09-18 hour-window summaries (true local 06-19 / 08-17) and the calendar-day
+boundary (the day runs 23:00 the previous evening to 22:00). The daily max, total and CAPE/gust summaries, including the
+temperature anchor, are robust except when the extreme falls in the edge hour. No cutoff or issue-time check reads these
+hours. **So the `90a` result (+0.045130) was measured on a misaligned surface for those dates. It is not retracted; it is
+unverified as an aligned measurement.** Not affected: the May-Aug corpus and `88a`/`100h`, whose dates are all daylight time
+and match the download offset. Master's `forecast_history.local_valid_datetime` has the same `replace(tzinfo=…)` pattern;
+it was not traced here.
+
 ### No free source satisfies the v2 point-in-time contract (research `2026-09-82a`, 2026-09-01)
 
 **`NO_GO_PROVIDER_BOUND_AVAILABILITY_AND_PARITY`** from official documentation only (no provider called): NOAA GFS, ECMWF Open
