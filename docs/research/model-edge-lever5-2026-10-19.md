@@ -114,8 +114,8 @@ three shims patch instance methods called as `self.<name>` (no import-by-value),
 call. Verdicts: intraday tail and METAR live signal are **structurally inert on any HGB market**, so their
 variants cannot move the vector by construction (tail needs `intraday`, which the feature path leaves
 `None`, `model_distribution.py:788`/`:838`, gate `:993`; the METAR vote is computed at `:423` but the
-feature-path live-signal list at `:1579-1607` never includes it; also the repointed station high includes
-the METAR rows, so `metar_bucket <= history_bucket` returns `None` at `signals.py:317`). The WU residual is
+feature-path live-signal list at `:1580-1611` never includes it; also the repointed station high includes
+the METAR rows, so `metar_bucket <= history_bucket` returns `None` at `signals.py:318`). The WU residual is
 **data-conditional, not dead**: it fires only when the observed-support bucket (max of current temp, SWOB
 same-day max, METAR temp) rounds above the repointed station high and that bucket's mass is below 0.001
 (`signals.py:344-352`); `test_wu_residual_variant_can_change_the_served_vector` shows a synthetic case
