@@ -11,6 +11,10 @@ is this memo's estimate and is not a measurement.
 
 ## 0. Verdict
 
+> **r2 (2026-10-20), §r2.4:** still waiver-only for the programme decision. At best, a futility-only arm R0 with D0 on
+> 11-17, and only if the owner approves the 2021-2023 Previous Runs fetch and a narrow reservation ruling by about 10-30.
+> A 20-date look cannot give GO. One-market timing pilot (§r2.3): 4 h 50 min for Atlanta on today's trainer.
+
 **NOT FEASIBLE as a scored programme arm. FEASIBLE ONLY AS an explicit, scoped waiver**, optionally backed by an
 outcome-blind build rehearsal. That rehearsal is not a score and authorises nothing.
 
@@ -297,10 +301,205 @@ The alternative, **scored**, would have to name:
 The programme decision would then sit at INCONCLUSIVE on 12-21 for that arm, and the owner would decide with a partial
 read.
 
+## r2 (2026-10-20): season-coverage candidate, what can freeze by 11-16, and the restated verdict
+
+Requested by master-agent on 2026-10-20 (lever 9; the owner wants more pace on model leads). Same boundaries as above,
+with one addition: a ONE-market timing pilot was run under `scripts\ops\workstation_heavy.ps1 -Kind weather_heavy -Queue`.
+It trained on prior-year WU rows only, wrote only to `C:\t\rtp`, and no score was read (§r2.3).
+
+**Corrections to r1:**
+- §1.4 said a November target is outside the PIT corpus contract "without a code change". That is wrong. The season is
+  a CLI flag: `python -m weather.sources.forecast_training_corpus plan --season-start MM-DD --season-end MM-DD --years ...`
+  (`forecast_training_corpus.py:1576-1577`). Only the default is May 10-Aug 31.
+- §1.1 understated the parity problem. Today's trainer does not reproduce the served column set; see §r2.2.
+
+### r2.1 The season-coverage fix for the cool bias
+
+**What is documented (DOC):**
+- The base HGB centre is cool by **−0.64387 C-eq** on the current surface (EF §2).
+- The cause is measured as **seasonal coverage**, not staleness. The contrast is in-season about −0.18 against
+  out-of-season about −1.02 C-eq, a difference of **−0.8346 [−1.4378, −0.2159]** (EF §2, `-09-31a`; register row 7).
+- Every served HGB was fitted 2026-06-10..13 on a training window of prior years ±7 days around the run date (EF §4b;
+  §1.2 above). Every date served since about July is therefore out of the model's training season.
+- Scored in its own season, the same model is still at **1.4233x [1.2428, 1.6589]** the market (EF §4e). The retrain fixes
+  the centre, not the information gap (EF §1c, §4e).
+
+**What a season-coverage retrain changes (CODE):** exactly one thing, the date the model is fitted for.
+`historical_target_cache()` keeps prior-year days within `HISTORY_WINDOW_DAYS = 7` of the model's target date
+(`model_climatology.py:112-122`). The target date defaults to the run date (`toronto_model.py:125`, `config_for_date`).
+
+The candidate is fitted for a **pinned centre date inside the scoring window**. Labels and observations are prior-year
+WU daily and hourly rows in that ±7-day window. No 2026 row is used: the trainer skips the target year.
+
+Everything downstream is unchanged:
+- the climatology prior at serve time (already season-matched, because it is computed for the serving date);
+- the post-processing stages;
+- the lock-ins;
+- the calibration.
+
+**Forecast inputs for an October-December centre:**
+
+| Years | `forecast_high` source available | Status |
+| --- | --- | --- |
+| 2018-2020 | none | The trainer sets the feature to missing before 2018 (`feature_model.py:1189`). 2018-2020 have no PIT rows (EF §6). |
+| 2021-2023 | **none** | **Missing.** |
+| 2024-2025 | `temperature_2m_previous_day1..7`, Sep 1-Dec 31 | Workstation research corpus `pit-11field-2024-2025-calendar-extension`, manifest `501e5d0e22a0…`, PARTIAL with explicit gaps. `HISTORICAL_FIRST_AVAILABILITY_UNPROVEN`; not the production PIT contract (EF §1m). |
+
+- **The free source for the missing 2021-2023 rows** is the Open-Meteo **Previous Runs API**
+  (`previous-runs-api.open-meteo.com`, `PREVIOUS_RUNS_URL` in `sources/forecast_history.py:39`), field
+  `temperature_2m_previous_day{1..7}`.
+- EF §1m measured `temperature_2m` as complete for 2021-2025 on that host. The same host produced the existing 2,135
+  fixed-lead rows per station (EF §4f).
+- The repository's own collector covers it:
+  `python -m weather.sources.forecast_training_corpus plan --years 2021,2022,2023 --season-start <MM-DD> --season-end <MM-DD>`,
+  then `resume` and `materialize`.
+- Scale: the July window took about 60 free-tier calls for 12 markets (EF §4b). The research collections ran 96-120
+  units each (EF §1m).
+- Other fields are not available for 2021-2023 on the free tier (EF §1m), so a temperature-only forecast feature is the
+  honest surface.
+- **Fetching this needs an owner yes, and it is a production or master action. It was not done here.**
+
+**Without that fetch**, the only honest choices are:
+1. fit on 2024-2025 only (30 days per market per cutoff, too thin for a 14-hour per-market HGB; INFERENCE); or
+2. fit 1995/2021-2025 with `forecast_high` missing on every row that has no PIT value.
+
+Option 2 trains a model that rarely sees the column which serving always fills: a parity defect by construction (§2.2).
+
+### r2.2 Minimal candidate that could freeze by 11-16 ("R0")
+
+| Element | Definition |
+| --- | --- |
+| Lane | Legacy per-market trainer `weather.calibration.feature_model.main`, run through a wrapper that redirects every write. `base_retrain` stays blocked on official corpus manifests (§1.4) and adds no value for a futility-only arm. |
+| Markets | US11 (EDGE-1 population). Toronto is optional; it has about 4x the rows of a US market, so up to 16x the fit time under the O(n²) cost (INFERENCE). |
+| Centre date | One pinned date per window, frozen in the hash. Proposal: **2026-11-28** (window 11-21..12-05 of prior years), the middle of the dates an 11-17 D0 would score. INFERENCE: one artifact covers ±7 days; the 34 days from 11-17 to 12-19 need **two** centres (for example 11-24 and 12-10, switched on 12-02) or a frozen nightly-refit rule. Two frozen artifacts are simpler and hash cleanly. |
+| Labels and observations | Prior-year WU `daily_summary.csv` (rows ≥ 20) and hourly observations, ±7 days, years < 2026, as `historical_target_cache()` already does. Plus a completeness scan of the window; any station-day below the 18-row settlement floor goes on a code-owned exclusion list (EF §4g). |
+| `forecast_high` / `forecast_gap` | PIT lead-1 daily maximum from `temperature_2m_previous_day1` (the "honest" variant A of `-09-42a`). 2024-2025 come from the workstation research corpus; 2021-2023 come from the fetch above (owner yes). Built into a candidate `forecast_daily.csv` under a scratch data root, **never** the production `data/forecast_history/`. |
+| Columns | **Pin each market's served column list** (24-29 columns: the bundle `feature_names` of today's pickles, `feature_schema_version` `toronto_feature_store_v0.3`). See the parity note below. |
+| Model and hyperparameters | Unchanged: `HistGradientBoostingClassifier(max_iter=50, max_leaf_nodes=15, learning_rate=0.05)`, LR fallback, late-day coefficients, leave-one-out per-hour temperature and blend tuning (`RUN_LOO = True`). |
+| Output path | `artifacts/candidates/retrain-r0-<centre>/` (ignored by git; artifacts/AGENTS.md). Never `artifacts/models/`. |
+| Arm hash | sha256 over the artifact bytes, code commit, column lists, centre dates, data manifests and the exclusion list. |
+
+**Parity note: the trainer on master does not reproduce the served columns (CODE).** On master,
+`feature_model_columns()` builds 217 numeric + 12 one-hot = **229 columns** for Atlanta from the
+`toronto_feature_store_v1.16` schema (221 `FEATURE_COLUMNS`, minus the two F-market pressure columns). Most of those
+columns are always missing in historical rows (guidance, MRMS, ECCC gridded; see §1.2).
+
+The served Atlanta bundle has **27 columns of schema v0.3**, and it still selects `pressure` and `pressure_trend_3h`. The
+current training policy `native_station_pressure_train_serve_v1` excludes those as unservable in F markets
+(`feature_training_policy.py`; EF §4 "dead in F markets by design").
+
+So R0 needs:
+- a **column-allowlist option** in the trainer (small code; `calibration/feature_model.py` was roll-free in
+  the 2026-08-12 report, but the verdict must be re-taken with `scripts\ops\roll_verdict.ps1`);
+- an owner or programme choice between:
+  - **(a) the served columns minus the two dead F-market pressure columns.** Recommended: it isolates the season effect
+    and removes a known train/serve skew;
+  - **(b) the served columns as is,** which isolates the season effect exactly but keeps the skew.
+
+**Build steps and wall-clock on this 32 GB workstation:**
+
+| # | Step | Who | Estimated wall-clock |
+| --- | --- | --- | --- |
+| 1 | Owner yes: R0 scope, the 2021-2023 Previous Runs fetch, the reservation ruling (below) | owner | the next sign-off session |
+| 2 | Fetch plan, collect and materialize 2021-2023 (US11, two windows) | production / master | about 1 day, including the manifest (INFERENCE from EF §4b scale) |
+| 3 | Column allowlist plus pinned centre option in the trainer; candidate `forecast_daily.csv` builder from PIT rows; completeness scan; focused tests | workstation | 2-3 days of work |
+| 4 | Fit 11 markets x 2 centres under `workstation_heavy.ps1` | workstation | **measured 4.84 h for one US market** with the current trainer (229 columns, full leave-one-out; §r2.3), so about 53 h per centre for US11 and about 106 h for two centres, serially. INFERENCE: with the 27-column allowlist, much less (the HGB histogram and split cost scales with column count), probably under one day for both centres. Re-time one market after the allowlist lands, before scheduling the fleet. |
+| 5 | Train-on-own-training-set check (EF §5); `train_serve_feature_parity` scorecard against the known-defects file; captured-input replay mass checks on dev dates <= 09-29 (mass error <= 1e-10, no empty distribution) | workstation + host replay window | 1-2 host nights |
+| 6 | Research-only immutable release holding R0's base components, **no active pointer** (`all_shadow_release_bootstrap` / `release_candidate_build`; the `first_party_corpus_assembly` lineage branch exists, EF §4a-bis). The vector of record binds R0 through `serving_bundle` (`model_features.py:59-71` `_bound_base_component`), not the global pickles | workstation + production | 1-2 days |
+| 7 | Vector of record: a paired host replay of R0 against replayed A0 on each forward date's captured inputs (no capture-loop code, so no roll), or a shadow stage (roll-sensitive, quiet window) | production | host nights from D0 |
+| 8 | Pre-registration (methods annex, own family, futility-only interim) signed with the arm hash | owner | at freeze |
+
+INFERENCE: steps 1-8 fit between the next owner session and **11-16** only if step 1 happens by about 10-30 and step 2
+by about 11-04. Steps 5-6 are the long poles.
+
+**Reservation interaction (DOC: `reserved-confirmation-window.md`).** Freezing "the first retrain candidate" triggers the
+armed window on the next target date. Once declared it is **absolute** (rule 3):
+- not read, enumerated, evaluated or substituted;
+- **MM paper scoring must stop** on those dates (rule 4).
+
+An R0 freeze on 11-16 would therefore hold 11-17 onward. That collides with:
+- EDGE-1 A0/A1/A2 dates up to 12-08 / 12-11;
+- MG-1's tail, provisional last 11-28;
+- the maker shadow and paper scoring.
+
+The file also says that if no endpoint is powered at achievable N, say so and **do not declare a confirmation**. A
+20-date futility-only arm confirms nothing.
+
+**The narrowest owner ruling that avoids the collision** is a DECISION_LOG row, modelled on the MG-1 narrow scope of
+2026-10-04, with five parts:
+1. The retrain-triggered window is declared at R0's freeze with **narrow scope**: the dates are held out **only** against
+   retrain-family candidates. That means any base HGB/LR/late-day artifact not byte-identical to the June-fit artifacts,
+   plus any re-selection, re-tuning or re-centring of R0.
+2. **Explicit exemption**, identical in form to MG-1's: EDGE-1 arms, MG-1, the evening-fix scorer, t3-r3, maker shadow and
+   paper scoring, and every other use of these dates' captures, served vectors and settlements.
+3. R0's looks are a futility interim only. It is non-confirmatory, so N is not sized as a confirmation (Sizing at freeze).
+4. Rule 5 still binds: the freeze is not timed to dodge dates.
+5. The window's size is R0's 45 dates. A later confirmatory retrain needs its own fresh window.
+
+Without this ruling, R0 must not freeze inside the programme.
+
+### r2.3 One-market timing pilot (measured)
+
+**Run.**
+- Tool: `python -m tools.research.retrain_pilot.run --market atlanta --target-date 2026-10-20`, under
+  `scripts\ops\workstation_heavy.ps1 -Kind weather_heavy -Queue`. Ticket 1; no other ticket was queued.
+- Started 2026-10-20 17:41 local; exit 0 at 22:31.
+- Code: this branch at `17a398fa04c64f93f657b640f0f68191811a7384`.
+- The tool is admitted to the offline allowlist on this branch: one line each in `workload_admission.ps1` and the Codex
+  hook, and the two allowlist tests. The test file passes alone (28 passed, 15 skipped). Run alongside the other two
+  files, 3 mutex/teardown tests failed. Those 3 skip when run alone, so the failure looks environmental, not caused by
+  this change.
+- Reads came from the main checkout's `data/` and `artifacts/`. Every write was redirected to `C:	tp`.
+- The trainer's stdout (which holds leave-one-out scores) went to a file that was **not read**. Only the
+  "Loaded …" and "Cutoff Hour … (N days)" lines were extracted.
+
+**Measured.**
+
+| Quantity | Value | Source |
+| --- | --- | --- |
+| Wall-clock, one US market, full LOO, all 14 cutoffs | **17,428.8 s (4 h 50 min)** | tool summary |
+| CPU time | **more than 346,479 CPU-s** at 21:55, about 4 h 14 min in (about 22 of 32 logical cores busy on average; HGB OpenMP) | `Get-Process` sample |
+| Peak working set | **265,850,880 B (253.5 MiB)**, sampled during the run | `Get-Process` `PeakWorkingSet64`; the tool's own reading returned null |
+| Training days per cutoff hour | **165** for each of the 14 hours (prior-year days within ±7 of 10-20, WU rows ≥ 20; 2026 excluded) | trainer stdout, structural lines |
+| Forecast-history days loaded | 461, all inside May 10-Jun 30 (manifest), so **zero** fall in the Oct 13-27 window: `forecast_high` was missing on every training row | trainer stdout; §2.2 |
+| Columns fitted | **229** (schema `toronto_feature_store_v1.16`), against 27 in the served Atlanta bundle (schema v0.3) | scratch pickle structure |
+| Output | 14 cutoff bundles; HGB pickle 18,214,472 B, sha256 `135d886b80c014dfad4080f14e5397979066b646e8762f85ebeba31607fcdc50` (scratch, then deleted; not a candidate) | scratch dir |
+
+**Guards checked after the run.** In the main checkout:
+- `git status --short artifacts` was empty;
+- `data/wunderground/katl/analysis/feature_model_report_atlanta.md` still had its 2026-06-10 mtime;
+- this worktree's `artifacts/` was unchanged.
+
+**What the pilot shows** (no score was read):
+1. Compute is hours per market. It is not binding for one market, but it is for a fleet of two centres on today's
+   trainer (about 4.4 days serial).
+2. The trainer on master cannot reproduce the served model's column contract. R0 needs the allowlist (§r2.2).
+3. An October-centred fit has no forecast feature at all until the PIT rows of §r2.1 exist. This confirms §2.2 on real
+   data.
+
+### r2.4 Verdict, restated
+
+**Waiver-only for the programme decision. Feasible at best as a futility-only arm with D0 on 11-17**, and only if all of
+the following happen in time:
+- the owner approves by about 10-30 both the 2021-2023 Previous Runs fetch and the narrow reservation ruling above;
+- the column-allowlist trainer change lands;
+- R0 freezes with a signed futility-only pre-registration by 11-16.
+
+**A 20-date look cannot give GO.** The interim is futility-only and spends no alpha (EDGE-1 §4; methods M4). GO requires
+a final-look Holm rejection plus the falsifiers. Even at a final look, GO clause (a) needs R below 1, against a
+season-matched in-season ratio of 1.4233 [1.2428, 1.6589] (EF §4e).
+
+What R0 could contribute by Gate 1 is one of two things:
+1. A futility crossing. This makes the OD-G3 waiver unnecessary: "scored: futility".
+2. No crossing. That leaves the retrain row OPEN for the 12-21 INCONCLUSIVE decision.
+
+Binding constraint, unchanged: the calendar. A missed owner step by 10-30 or a late fetch moves D0 past 11-16, and R0
+then has no read before Gate 1.
+
 ## 6. What this memo does not claim
 
 - No retrain effect size; no power figure computed here. The figures quoted come from their cited sections.
-- No timing measurement (§3 is labelled INFERENCE).
+- No timing measurement in r1 (§3 is labelled INFERENCE); r2.3 adds one measured one-market timing.
 - Nothing about in-season edge.
 
 ## Sources
