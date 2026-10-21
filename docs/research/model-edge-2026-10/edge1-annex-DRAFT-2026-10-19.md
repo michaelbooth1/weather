@@ -77,7 +77,10 @@ one deviation from the generic mechanism (section 9).
   what the market plainly has. If T1 reproduces 75% or more of A0's effect, the gain is not information the market
   lacks, and there is no GO (M7.3).
 - **Produced how:** as T0 below (host captured-input replay, outcome-blind, before any join; pinned by its own hash).
-  Spec only: the twin is not built in this draft.
+  Spec only: the twin is not built in this draft. The binding T1 comparison is made on **forward** rows replayed at
+  the frozen A0 hash (section 7). Any development-date T1 or T0 delta is "current-code replay ± twin", not
+  "served ± twin" (the current code does not reproduce the development served vectors; section 7 evidence), and is
+  sizing context only.
 
 **T0, non-binding sanity control (forecast inputs removed, climatology prior in their place).** Kept beside T1 with no
 binding role, because it cannot fail: a climatological `forecast_high` removes all forecast skill in 00-09, so
@@ -113,7 +116,8 @@ market, i.e. whether t3-r3 + A1-1 contribute less than a quarter of it.
 **A2:** **E2 closed in development** (w_b = 0.00 in each sub-block on 07-31..09-29); no forward E2 instrument; H-A2 not in the family (k recorded at D0, section 3). With w = 0 in every block, A2 **is** the market and D ≡ 0: the arm is degenerate, not
 under-powered, so it is a **measured development null** (for the exhaustion register), not UNTESTABLE (M2, M4.4).
 Verified against the development screen record (screens doc §9, lever 8, `claude/model-edge-screens-20261019` @
-`4d3e25699a8afe3a34d9e979c6aa950b6ca16389`): C-L8-E2S (served + market, A2's construction) has full-development
+`4d3e25699a8afe3a34d9e979c6aa950b6ca16389`): C-L8-E2S (served + market, A2's construction, fit on the **served vector of
+record**, not on M2's frozen-arm replay; see the methods annex M2 flag) has full-development
 weights **0.00 / 0.00 / 0.00 / 0.00** for 00-05 / 06-09 / 10-12 / 13-16 (and 0.00 at 17-23 and 00-16), and 0.00 in both
 2-fold fits; its out-of-fold blend − market is 0.0 exactly in every block. No date >= 2026-09-30 was read for this. The
 owner may redefine A2 (OD-E5); a redefined A2 would need its own development fit and a re-run of the NO-GO simulation.
@@ -150,7 +154,8 @@ before scoring at `efcd93dadc9d91957d51ffe42fe07cc874b32dcd`), §9 and §10; sea
 §1d's 3.2% floor; power at the half effect is 0.19 / 0.20 at 20 / 45 dates (parametric, and over-optimistic per the
 harness v3 2026-10-20 addendum). It is a serving-stage restoration (lever 5), not new information. It was screened as
 a stage-level approximation **applied to the final served vector**; the lever-5 host replay must give its final-vector
-form before the A1 hash is frozen.
+form before the A1 hash is frozen. Any development delta from that replay is "current code + stage − current code",
+not "served + stage − served" (section 7 evidence); it sizes the stage, it does not reproduce the served vector.
 
 **So A1 = A0 + t3-r3 + A1-1, and A1 differs from A0 essentially by t3-r3 only.** A1 is kept as a separate arm by
 default because t3-r3 is signed and A1 is its composite carrier against the market (its looks deferred per section
@@ -325,6 +330,19 @@ spends no CAMPAIGN_LEDGER decision. Rows: [alpha ledger](alpha-ledger-DRAFT-2026
 - **Falsifier 3 for A0 is valid only if the unmodified A0 captured-input replay reproduces the served vector of record
   per M8 (within 1e-9 on at least 99% of rows).** T1 is a replay joined to the served vector, the join EF §1k warns
   about; if the reproduction fails, falsifier 3 cannot be evaluated for H-A0 and does not hold (no GO from H-A0).
+  **M8 is evaluated on forward rows replayed at the frozen A0 hash; development rows predate the freeze and are exempt
+  (code drift, 490 capture commits).**
+- **Evidence for the exemption (outcome-blind, development dates; 2026-10-21).** The unmodified current-code replay
+  of each development snapshot was compared with the record's `recorded_distribution`, the served vector written by
+  `snapshot_store.py` (a model output, not an outcome): codecheck branch `0941dc432afe8ff47291938479d17c2931ef3a6b`,
+  `tools/research/model_edge_lever5/served_repro.py` (`run.py served`), 732 folders, 128,594 snapshots, 0 errors.
+  **0 of 12 markets reach 99% within 1e-9**: the per-market share within 1e-9 is 0.040 (dallas) to 0.224
+  (san-francisco), p99 max_abs 0.66-0.88. By hour band (share within 1e-9 / median max_abs): 00-05 0.247 / 0.0017;
+  06-09 0.112 / 0.0063; 10-12 0.098 / ~0; 13-16 0.042 / 0.060; 17-23 0.004 / 0.275. Cause: code drift since capture.
+  `model_version` differs on 100% of rows and `model_constants.py` / `model_distribution.py` changed on 100%; artifacts
+  changed on 0 rows and model kind (hgb) differs on 0; no mismatched row has an identical identity; the development
+  captures span 490 distinct capture commits. Consequence: any development "replay" is **current code**, not the
+  served vector of record, and development twin or stage deltas are "current code ± twin", not "served ± twin".
 
 ## 8. Power
 

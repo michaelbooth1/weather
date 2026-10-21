@@ -296,14 +296,17 @@ rescued by amendment on the same dates.
    claimed information with what the market plainly has (EDGE-1 T1: the public NWS point forecast alone), not with a
    no-skill prior, which any skilled arm beats trivially (EDGE-1 T0, kept non-binding). The falsifier is evaluated only
    for hypotheses rejected under M6; effect_twin <= 0 counts as < 0.75; a replayed twin is valid only if the
-   unmodified arm's replay reproduces its vector per M8.
+   unmodified arm's replay reproduces its vector per M8 (forward rows, at the frozen arm hash).
 
 ## M8. Validity conditions (failure makes the look VOID; the dates are spent)
 
 - **PIT:** any arm input with an availability time after the snapshot's `captured_at_utc`.
 - **Arm hash:** mismatch on any eligible row (M5.2).
 - **Replay reproduction:** where an arm is replayed, it reproduces its stored shadow vector within 1e-12 L1 on 100% of
-  rows (shadow stages) or the served vector within 1e-9 on at least 99% (served arms; evening-fix §6.2 form).
+  rows (shadow stages) or the served vector within 1e-9 on at least 99% (served arms; evening-fix §6.2 form). **M8 is
+  evaluated on forward rows replayed at the frozen arm hash (for EDGE-1, A0's); development rows predate the freeze
+  and are exempt (code drift, 490 capture commits; EDGE-1 annex §7 evidence: 0 of 12 markets reach 99% within 1e-9 on
+  development dates).**
 - **Coverage:** arm coverage below 90% of snapshots in a declared block.
 - **Comparator change:** a served-release change on a declared block's path inside the window voids the dates after
   it unless a segment rule was declared before it landed.
