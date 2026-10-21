@@ -296,7 +296,9 @@ rescued by amendment on the same dates.
    claimed information with what the market plainly has (EDGE-1 T1: the public NWS point forecast alone), not with a
    no-skill prior, which any skilled arm beats trivially (EDGE-1 T0, kept non-binding). The falsifier is evaluated only
    for hypotheses rejected under M6; effect_twin <= 0 counts as < 0.75; a replayed twin is valid only if the
-   unmodified arm's replay reproduces its vector per M8 (forward rows, at the frozen arm hash).
+   unmodified arm's replay reproduces its vector per M8 (forward rows, at the frozen arm hash). A substitution twin
+   built by captured-input replay changes every stage that reads the substituted inputs, not only the model features
+   (spec clarification, not a result; EDGE-1 annex §1.1 T1).
 
 ## M8. Validity conditions (failure makes the look VOID; the dates are spent)
 

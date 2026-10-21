@@ -64,15 +64,26 @@ one deviation from the generic mechanism (section 9).
   `feature_names` per cutoff hour, the same counts as the served bundles) select **none** of those per-source
   features in any US11 market. Their only forecast columns are `forecast_high` and `forecast_gap`, and **Miami** (29
   columns, as does the default `feature_model_coefs.json`) also selects `forecast_source_count` and
-  `forecast_disagreement`. Under T1 these take one source and zero spread, which is the intended "one public forecast"
-  state, not a missing marker. The HGB pickles' own `feature_names` were not opened (binary artifacts); the check
+  `forecast_disagreement`. **Spec clarification, not a result (2026-10-21):** under T1 these take serving's own
+  one-source values, `forecast_source_count` = 1 and `forecast_disagreement` = None (missing), because serving sets the
+  disagreement only when at least two sources are present (`model_features.py:456-459`); this replaces the earlier
+  "zero spread" wording. That is the intended "one public forecast" state as serving encodes it. The HGB pickles' own `feature_names` were not opened (binary artifacts); the check
   against them is the pre-freeze verification above.
 - **Why `nws_hourly` (default):** the NWS point forecast for the settlement station's location is the free, public
   forecast any US market participant sees on weather.gov without querying an API; all 11 EDGE-1 markets are US.
   **Named alternative: Open-Meteo alone** (`open_meteo` kept, every other payload emptied), a free API but one a
   participant must query, so less plainly "had" by the market. The owner may choose it under OD-E7.
+- **Not a feature-only swap (spec clarification, not a result, 2026-10-21).** T1 is a captured-input replay, so
+  emptying the non-NWS payloads (`open_meteo`, `weather_forecast`, `eccc_citypage`, `global_ensemble`,
+  `open_meteo_global_models`) also removes those sources from every post-processing step that reads the forecast
+  votes, by construction; only the model features are named above, but the whole served path sees one source.
 - **Rows with no captured `nws_hourly` value:** the twin takes A0's own vector on that row (counted and disclosed).
   This pulls effect_twin towards effect_arm, i.e. it makes falsifier 3 harder to pass, never easier.
+- **Toronto (spec clarification, not a result, 2026-10-21).** Toronto has no `nws_hourly`, so T1 equals A0 (variant =
+  base) on every Toronto row and Toronto contributes nothing to T1. No rule changes: Toronto is outside the US11
+  population and is reported beside with no alpha (section 2), so falsifier 3 (computed on the declared US11 rows)
+  and the 90% coverage clause (section 7, US11 arm coverage) are unaffected; the disclosed fallback count above will
+  include every Toronto row if Toronto is reported beside.
 - **What it tests:** whether A0's improvement over the market survives when its forecast information is cut down to
   what the market plainly has. If T1 reproduces 75% or more of A0's effect, the gain is not information the market
   lacks, and there is no GO (M7.3).
@@ -97,6 +108,7 @@ year >= the target year), only trivially beaten. Its specification as drafted:
   serving cache does), and `forecast_gap` is recomputed from it as serving does (`model_features.py:1064-1068`). A
   value, not a missing marker: blanking would send the HGB and the LR fallback down their missing-value paths, which
   would test the imputation rather than "no forecast information".
+- **Note:** T0's handling of `forecast_source_count` / `forecast_disagreement` is unspecified here and follows serving.
 - **Kept unchanged:** every observation input (`high_so_far`, `current_temp`, the METAR and live-reading features), the
   bundle and its calibration, and all post-processing (hard floor, observed floors, lock-in anchor and stages, v4
   pre-lock-in floor, calibration, overlock guard). NBM, NWS-grid and HRRR are already unused by A0 (lever-5 code check).
