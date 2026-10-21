@@ -359,3 +359,27 @@ def test_cli_plan_accepts_pad_request_days(tmp_path, capsys):
                  "--pad-request-days", "1", "--planned-at-utc", "2026-10-21T00:00:00+00:00"])
     capsys.readouterr()
     assert load_plan(out)["request_padding"]["days"] == 1
+
+
+@pytest.mark.parametrize("style", ["aware_z", "naive_gmt_offset_zero"])
+def test_utc_labelled_series_across_fall_back_maps_correctly(tmp_path, style):
+    plan, path = _plan(tmp_path, (11, 6), (11, 8), year=2021)
+    request = plan["requests"][0]
+    first = datetime.fromisoformat("2021-11-06T04:00")  # local 2021-11-06 00:00 EDT
+    hours = [first + timedelta(hours=index) for index in range(73)]
+    if style == "aware_z":
+        labels = [hour.strftime("%Y-%m-%dT%H:%MZ") for hour in hours]
+        offset = None
+    else:
+        labels = [hour.strftime("%Y-%m-%dT%H:%M") for hour in hours]
+        offset = 0
+    _stage(path, tmp_path / "staging", request, labels, utc_offset_seconds=offset)
+    manifest = materialize_corpus(path, tmp_path / "staging", tmp_path / "publish")
+    hourly = _rows(manifest, "forecast_hourly.jsonl")
+    counts = {d: sum(r["target_date"] == d for r in hourly) for d in ("2021-11-06", "2021-11-07", "2021-11-08")}
+    assert counts == {"2021-11-06": 24, "2021-11-07": 25, "2021-11-08": 24}
+    by_utc = {row["valid_time_utc"]: row for row in hourly}
+    assert by_utc["2021-11-07T05:00:00+00:00"]["valid_time_local"] == "2021-11-07T01:00:00-04:00"
+    assert by_utc["2021-11-07T06:00:00+00:00"]["valid_time_local"] == "2021-11-07T01:00:00-05:00"
+    assert by_utc["2021-11-08T04:00:00+00:00"]["target_date"] == "2021-11-07"
+    assert by_utc["2021-11-08T05:00:00+00:00"]["valid_time_local"] == "2021-11-08T00:00:00-05:00"

@@ -21,7 +21,10 @@
 > corpus module cannot fetch. The separate collector
 > `weather.sources.forecast_training_corpus_fetch` exists; running it is an
 > external fetch that needs its own owner approval, free source only (no paid
-> weather APIs, no key).
+> weather APIs, no key). One owner-approved collection ran on 2026-10-21 (US11,
+> October-December 2021-2023, temperature only); see
+> [the measured provider gap](#measured-provider-gap-2023-12-30-onward-2026-10-21).
+> It authorizes no further collection, fit or retrain.
 
 This contract owns the training-only forecast input used to repair historical
 forecast blindness without changing the active serving archive. The corpus is
@@ -196,6 +199,48 @@ toward any planned date and never reach the published files. The per-date
 check (23/24/25 distinct UTC instants) runs on planned dates only. Without the
 flag the plan is byte-identical to before. **Every October-December plan needs
 `--pad-request-days 1`.**
+
+Because the pad must not reach the target year, a padded plan whose window
+ends on Dec 31 is refused when its years include `target_year - 1` (for
+example `--years 2025` with the default `--target-year 2026`). Plan such a year
+with a window ending before Dec 31, or leave it out.
+
+`expected_hourly_rows_per_date` in each request is vestigial: it stays `24` so
+plan and request hashes are stable, and nothing enforces it beyond that shape
+check. The real per-date requirement is the 23/24/25-hour envelope above.
+
+### Measured provider gap: 2023-12-30 onward (2026-10-21)
+
+The first collection (US11, October-December 2021-2023, temperature only,
+`--pad-request-days 1`, run from `072f4d5b9`) found that the Previous Runs API
+returns **null `temperature_2m_previous_day1` from 2023-12-30T00:00Z** through
+at least 2024-01-01 local. The instant was verified read-only from all 11
+staged 2023 bodies (`C:\wt\pitfetch-2023\staging\requests\*\response.json`): in
+every market the first null hour, converted with that response's
+`utc_offset_seconds`, is `2023-12-30T00:00Z`, and the nulls run contiguously to
+the end of the response.
+
+- Atlanta, full window: the first null hour is 2023-12-29 19:00 EST (true
+  local; it is labelled `20:00` in the provider's retrieval-time EDT labels).
+  Null hours per local date: 12-29 5, 12-30 24, 12-31 24, 2024-01-01 23.
+- In the 2023 run ending 12-28 with a 1-day pad, pad day 12-29 had null hours
+  in all 11 markets: seattle, san-francisco and los-angeles 7; denver 6;
+  austin, chicago, dallas and houston 5; nyc, miami and atlanta 4. Each is the
+  number of that response's labels at or after 00:00Z on 12-30.
+- The pad logic accepted those pad-day nulls without counting them, as
+  designed. The run had no 429s and no retries.
+
+Consequence: 2023 is published only to 12-28, as a separate corpus. The
+corpora under `data/training/pit_forecast_corpus/corpora/` (local runtime state,
+not committed) are:
+
+| Corpus id | Plan | Units | Market-dates | Window |
+| --- | --- | ---: | ---: | --- |
+| `cd0ba2bb004dc89f070ec9b1406e77f38cd2396dedd93ce1b377e727baefe9be` | `c9d3f70b…` | 22 | 2,024 | 2021-2022, Oct 1-Dec 31 |
+| `23ac87fa5f058f8eeb7f49f0268f483939d4070f7f65e38063727c6749aa2a8d` | `442e92bd…` | 11 | 979 | 2023, Oct 1-Dec 28 |
+
+A consumer that needs 2023-12-29..12-31 has no point-in-time lead-1 value from
+this source; do not fill those dates from the settled archive.
 
 ## Retraining input
 

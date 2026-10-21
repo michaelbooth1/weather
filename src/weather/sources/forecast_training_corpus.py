@@ -431,6 +431,10 @@ def build_plan(
                     "models": str(source_model),
                 },
                 "expected_local_dates": expected_dates_by_year[str(year)],
+                # Vestigial and hash-bound: kept at 24 so existing plan and request
+                # hashes stay stable. Staging and materialize ignore it and require
+                # one row per real hour of each local date (23/24/25), see
+                # hours_in_local_date and _hourly_envelope_error.
                 "expected_hourly_rows_per_date": 24,
                 "issue_time_required": True,
                 "available_at_utc_required": True,
@@ -625,6 +629,8 @@ def verify_plan(plan):
             raise PlanValidationError("request dates differ from the plan year matrix")
         if any(int(day[:4]) != request_key[1] for day in expected_dates):
             raise PlanValidationError("request window crosses its planned year")
+        # Vestigial field (see build_plan): checked only to keep the frozen request
+        # shape; the real per-date envelope is enforced by _hourly_envelope_error.
         if int(request.get("expected_hourly_rows_per_date") or 0) != 24:
             raise PlanValidationError("request hourly envelope must contain 24 rows per date")
         if pad_days:
