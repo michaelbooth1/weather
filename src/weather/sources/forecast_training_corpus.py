@@ -99,6 +99,29 @@ SOURCE_FIELD_SPECS = {
     },
 }
 DEFAULT_SOURCE_FIELDS = tuple(SOURCE_FIELD_SPECS)
+REQUIRED_SOURCE_FIELDS = ("temperature_2m",)
+
+
+def normalize_source_fields(fields=None):
+    """Return the planned field set in canonical contract order.
+
+    ``None`` (or an empty selection) is the frozen default, so a plan built
+    without ``--fields`` is byte-identical to one built before the option
+    existed.  A subset must name known fields only and must keep
+    ``temperature_2m``, which carries the daily-high feature.
+    """
+    if not fields:
+        return DEFAULT_SOURCE_FIELDS
+    requested = [str(field).strip() for field in fields if str(field).strip()]
+    unknown = sorted(set(requested) - set(SOURCE_FIELD_SPECS))
+    if unknown:
+        raise PlanValidationError(f"unknown source fields: {', '.join(unknown)}")
+    if len(requested) != len(set(requested)):
+        raise PlanValidationError("source fields must be unique")
+    missing = [field for field in REQUIRED_SOURCE_FIELDS if field not in requested]
+    if missing:
+        raise PlanValidationError(f"source fields must include: {', '.join(missing)}")
+    return tuple(field for field in DEFAULT_SOURCE_FIELDS if field in set(requested))
 
 
 PROFILE_FEATURE_SOURCE_FIELDS = {
@@ -307,7 +330,9 @@ def build_plan(
     source_model=DEFAULT_MODEL,
     lead_days=DEFAULT_LEAD_DAYS,
     planned_at_utc=None,
+    source_fields=None,
 ):
+    source_fields = normalize_source_fields(source_fields)
     years = tuple(sorted({int(year) for year in years}))
     target_year = int(target_year)
     cutoff_hours = tuple(sorted({int(hour) for hour in cutoff_hours}))
@@ -329,7 +354,7 @@ def build_plan(
         start, end = _window_for_year(year, season_start, season_end)
         expected_dates_by_year[str(year)] = [day.isoformat() for day in _iter_dates(start, end)]
     for spec in _market_specs(market_ids):
-        bindings = [_binding_for(field, spec, lead_days) for field in DEFAULT_SOURCE_FIELDS]
+        bindings = [_binding_for(field, spec, lead_days) for field in source_fields]
         for year in years:
             start, end = _window_for_year(year, season_start, season_end)
             day_count = (end - start).days + 1
@@ -401,7 +426,7 @@ def build_plan(
             "empty_issue_allowed": False,
         },
         "normalizer_version": NORMALIZER_VERSION,
-        "source_fields": list(DEFAULT_SOURCE_FIELDS),
+        "source_fields": list(source_fields),
         "expected_dates_by_year": expected_dates_by_year,
         "consumer_dispositions": CONSUMER_DISPOSITIONS,
         "publication_contract": {
@@ -415,7 +440,7 @@ def build_plan(
             "market_count": len(market_ids_sorted),
             "year_count": len(years),
             "market_year_count": len(requests),
-            "variable_bindings": len(requests) * len(DEFAULT_SOURCE_FIELDS),
+            "variable_bindings": len(requests) * len(source_fields),
             "expected_market_dates": len(market_ids_sorted) * expected_date_count,
             "expected_market_date_cutoffs": (
                 len(market_ids_sorted) * expected_date_count * len(cutoff_hours)
@@ -424,7 +449,7 @@ def build_plan(
                 len(market_ids_sorted)
                 * expected_date_count
                 * len(cutoff_hours)
-                * len(DEFAULT_SOURCE_FIELDS)
+                * len(source_fields)
             ),
             "estimated_call_equivalents": round(total_call_equivalents, 3),
         },
@@ -471,7 +496,16 @@ def verify_plan(plan):
         or any(hour < 0 or hour > 23 for hour in cutoff_hours)
     ):
         raise PlanValidationError("plan cutoff matrix is invalid")
-    if plan.get("source_fields") != list(DEFAULT_SOURCE_FIELDS):
+    planned_fields = plan.get("source_fields")
+    if not isinstance(planned_fields, list) or not planned_fields:
+        raise PlanValidationError("plan source-field matrix differs from the frozen contract")
+    try:
+        canonical_fields = normalize_source_fields(planned_fields)
+    except PlanValidationError as exc:
+        raise PlanValidationError(
+            f"plan source-field matrix differs from the frozen contract: {exc}"
+        ) from exc
+    if planned_fields != list(canonical_fields):
         raise PlanValidationError("plan source-field matrix differs from the frozen contract")
     issue_contract = plan.get("issue_contract") or {}
     if (
@@ -522,7 +556,7 @@ def verify_plan(plan):
         spec = specs[request["market_id"]]
         expected_bindings = [
             _binding_for(field, spec, lead_days)
-            for field in DEFAULT_SOURCE_FIELDS
+            for field in canonical_fields
         ]
         if request.get("variables") != expected_bindings:
             raise PlanValidationError("request variable bindings differ from the frozen contract")
@@ -572,11 +606,11 @@ def verify_plan(plan):
         "market_count": len(market_ids),
         "year_count": len(years),
         "market_year_count": len(expected_request_keys),
-        "variable_bindings": len(expected_request_keys) * len(DEFAULT_SOURCE_FIELDS),
+        "variable_bindings": len(expected_request_keys) * len(canonical_fields),
         "expected_market_dates": expected_market_dates,
         "expected_market_date_cutoffs": expected_market_dates * len(cutoff_hours),
         "expected_field_date_cutoff_cells": (
-            expected_market_dates * len(cutoff_hours) * len(DEFAULT_SOURCE_FIELDS)
+            expected_market_dates * len(cutoff_hours) * len(canonical_fields)
         ),
     }
     for key, expected in expected_summary.items():
@@ -1231,6 +1265,22 @@ def materialize_corpus(
             },
         )
         raise
+    planned_fields = set(plan["source_fields"])
+    for row in coverage_rows:
+        if set(row["field_status"]) != planned_fields:
+            _append_failure(
+                staging_root,
+                {
+                    "failure_class": "field_set_mismatch",
+                    "plan_sha256": plan["plan_sha256"],
+                    "market_id": row["market_id"],
+                    "target_date": row["target_date"],
+                },
+            )
+            raise MaterializationBlocked(
+                f"coverage field set differs from the planned field set: "
+                f"{row['market_id']} {row['target_date']}"
+            )
     if not hourly_rows or not daily_rows or not coverage_rows:
         _append_failure(
             staging_root,
@@ -1394,6 +1444,8 @@ def verify_corpus_manifest(manifest_path):
         raise CorpusVerificationError("published plan does not match corpus manifest")
     if plan["consumer_dispositions"] != manifest.get("consumer_dispositions"):
         raise CorpusVerificationError("manifest consumer dispositions differ from the plan")
+    if manifest.get("source_fields") != plan["source_fields"]:
+        raise CorpusVerificationError("manifest source-field set differs from the plan")
     try:
         exclusions = json.loads(
             (manifest_path.parent / "exclusions.json").read_text(encoding="utf-8")
@@ -1579,6 +1631,14 @@ def build_parser():
     plan.add_argument("--source-model", default=DEFAULT_MODEL)
     plan.add_argument("--lead-days", type=int, default=DEFAULT_LEAD_DAYS)
     plan.add_argument("--planned-at-utc", default="")
+    plan.add_argument(
+        "--fields",
+        default="",
+        help=(
+            "Comma-separated source fields to plan (canonical order is enforced). "
+            "Default: the full frozen contract. temperature_2m is required."
+        ),
+    )
 
     resume = subparsers.add_parser("resume-status", help="Verify staged request units by hash.")
     resume.add_argument("--plan", required=True)
@@ -1616,6 +1676,7 @@ def main(argv=None):
             source_model=args.source_model,
             lead_days=args.lead_days,
             planned_at_utc=args.planned_at_utc or None,
+            source_fields=_parse_market_list(args.fields) or None,
         )
         path = write_immutable_plan(args.out, plan)
         print(
@@ -1625,6 +1686,7 @@ def main(argv=None):
                     "network_authorized": False,
                     "path": str(path),
                     "plan_sha256": plan["plan_sha256"],
+                    "source_fields": plan["source_fields"],
                     "summary": plan["summary"],
                 },
                 indent=2,

@@ -2,8 +2,9 @@
 
 - **Owns:** the immutable training-only forecast corpus contract:
   `weather.sources.forecast_training_corpus` (`plan`, `resume-status`,
-  `materialize`), staging/publication rules, and how retraining consumes the
-  manifest.
+  `materialize`), its free Previous Runs collector
+  `weather.sources.forecast_training_corpus_fetch`, staging/publication rules,
+  and how retraining consumes the manifest.
 - **Read when:** planning, staging, verifying or consuming a PIT forecast corpus,
   or debugging a base-retrain PIT-manifest preflight refusal.
 - **Do not use for:** which forecast source/population was chosen
@@ -11,13 +12,16 @@
   the retrain procedure ([NIGHTLY_RETRAIN_RUNBOOK.md](NIGHTLY_RETRAIN_RUNBOOK.md)).
 - **Verify with:** the subparsers at the end of
   `src/weather/sources/forecast_training_corpus.py` and
+  `src/weather/sources/forecast_training_corpus_fetch.py`, and
   `FIRST_RETRAIN_*` / the station-day exclusion registry in
   `src/weather/operations/base_retrain.py`.
 
 > **Status:** dormant. No collection, fit or retrain is authorized or scheduled
 > (training disabled, new model-alpha work paused — `STATE_OF_PLAY.md`). The
-> module cannot fetch; any collector is a separate reviewed action and must use
-> a free source only (no paid weather APIs).
+> corpus module cannot fetch. The separate collector
+> `weather.sources.forecast_training_corpus_fetch` exists; running it is an
+> external fetch that needs its own owner approval, free source only (no paid
+> weather APIs, no key).
 
 This contract owns the training-only forecast input used to repair historical
 forecast blindness without changing the active serving archive. The corpus is
@@ -30,9 +34,10 @@ retraining. It is not a serving fallback and is never discovered through
 - `weather.sources.forecast_training_corpus` contains no HTTP client. Its
   planner is always `dry_run_no_network` and never authorizes a provider probe
   or collection.
-- A separately reviewed collector may submit raw response bytes to
-  `stage_response` only after an immutable plan exists and provider semantics
-  have been probed. Each unit is keyed by the plan's request hash.
+- The separately reviewed collector `weather.sources.forecast_training_corpus_fetch`
+  submits raw response bytes to `stage_response` only after an immutable plan
+  exists. Each unit is keyed by the plan's request hash. See
+  [Collector](#collector) below.
 - Staging records the allowlisted HTTP metadata, retrieval timestamp, response
   SHA-256, byte and row counts, validation result, and issue/run evidence.
   Zero-row or invalid units are failures. Resume skips only a complete unit
@@ -71,6 +76,82 @@ different content to an existing plan path is refused.
 Use the same module's `resume-status` and `materialize` commands after an
 authorized collector has populated request-keyed staging. Neither command
 fetches data. Failed units are recorded in `failure_ledger.jsonl`.
+
+### Field set (`--fields`)
+
+`plan --fields temperature_2m` plans a subset of the frozen field contract.
+Without `--fields` the plan is byte-identical to the pre-option planner (all 21
+fields), so existing plans and manifests verify exactly as before. A subset is
+written in canonical contract order, must contain `temperature_2m` (it carries
+the daily high), and is carried by the plan's `source_fields`, every request's
+variable bindings and URL, the coverage rows' `field_status`, and the
+manifest's `source_fields`. Staging, `materialize` and manifest verification
+check completeness against that planned set, never against the default.
+
+**The free Previous Runs surface is temperature-only** (EF §4f, 441-cell probe:
+only `temperature_2m_previous_dayN` returns data; the other fields are all-null
+or HTTP 400). A 2021-2023 plan must therefore use `--fields temperature_2m`;
+a 21-field plan for those years can never materialize. The consumer
+dispositions in a subset plan are unchanged, so a pooled/base-retrain consumer
+would see the non-temperature profile columns as missing; that consumer
+question is separate from this corpus.
+
+**Correction to the retrain sizing memo** (`docs/research/retrain-sizing-memo-2026-10-19.md`,
+branch `claude/retrain-sizing-memo-20261019`, §2.2 and r2.1; not on master).
+The memo says the repository's collector covers the 2021-2023 Previous Runs
+fetch with `plan`, then `resume` and `materialize`. Before 2026-10-21 none of
+those subcommands could fetch, nothing in the repository called
+`stage_response`, and a default (21-field) plan for those years could never
+materialize. The fetch step is the collector below, and the plan needs
+`--fields temperature_2m`.
+
+## Collector
+
+`weather.sources.forecast_training_corpus_fetch` is the only repository-owned
+network collector for this corpus. It fetches the free
+`previous-runs-api.open-meteo.com` endpoint with no API key, credential or
+environment variable, and writes nothing itself: every byte goes through
+`stage_response` under the `--staging-root` you pass. A staging root that is,
+contains or lies under `data/forecast_history` (or any `forecast_history`
+directory) is refused before any request.
+
+```powershell
+python -m weather.sources.forecast_training_corpus plan `
+  --out <run-root>\plan.json --years 2021,2022,2023 `
+  --markets atlanta,austin,chicago,dallas,denver,houston,los-angeles,miami,nyc,san-francisco,seattle `
+  --season-start 10-01 --season-end 12-31 --fields temperature_2m
+python -m weather.sources.forecast_training_corpus_fetch `
+  --plan <run-root>\plan.json --staging-root <run-root>\staging [--max-requests 1]
+python -m weather.sources.forecast_training_corpus resume-status `
+  --plan <run-root>\plan.json --staging-root <run-root>\staging
+python -m weather.sources.forecast_training_corpus materialize `
+  --plan <run-root>\plan.json --staging-root <run-root>\staging `
+  --publish-root data\training\pit_forecast_corpus
+```
+
+- **Politeness.** Strictly serial; at least `--min-interval-seconds` (default
+  10) between requests; transport errors and 429/5xx retry with exponential
+  backoff (`--backoff-base-seconds` 30, doubling, capped at 600,
+  `--max-attempts` 5); a 429 waits at least its `Retry-After`. A unit that
+  still fails is staged as a failed receipt (failure ledger) and the run stops.
+- **Resume.** A hash-verified complete unit is skipped with no network call, so
+  re-running the same command continues where it stopped. `--max-requests N`
+  bounds a trial.
+- **Issue evidence.** The API exposes no run id (`run_id_exposed: false`). For
+  lead `N`, every hourly value on local date `D` comes from a run at least
+  `N x 24 h` before that hour, so the collector records an upper bound: the
+  latest 6-hourly UTC cycle at or before local 23:00 on `D` minus `N x 24 h`,
+  plus `--availability-latency-hours` (default 6). Staging and `materialize`
+  then require that bound to precede every feature cutoff. For US markets and
+  cutoffs from 07:00 local it does. The lead semantics are the provider's
+  documented ones and are not independently proven
+  (`HISTORICAL_FIRST_AVAILABILITY_UNPROVEN`, EF §1m).
+- **DST.** The hourly envelope check requires exactly 24 distinct local clock
+  hours per date, and naive provider times are read as the market's zone. How
+  the provider labels a window that crosses the November fall-back (a 25-hour
+  date, or one fixed `utc_offset_seconds` for the whole response) is unproven.
+  The first bounded trial must cover a fall-back date and check both before
+  a full run.
 
 ## Retraining input
 
