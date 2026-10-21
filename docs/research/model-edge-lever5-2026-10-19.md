@@ -295,6 +295,47 @@ June-July served bytes often never committed); forward reproduction (M8) is chec
 hash on forward rows. The A0 power figure used the served vector of record, so it is unaffected. Nothing
 here says which code is better: no outcome was read. EF §10v.
 
+### 3.7 EDGE-1 twin variants on dev inputs (3b, 2026-10-21; codecheck level)
+
+Vector deltas against the current-code base (section 3.6), outcome-blind. No score was read and nothing
+here is an edge claim: a dev delta is "current code ± twin", and the binding T1/T0 comparison is forward,
+at the frozen hash. Tool: `claude/model-edge-codecheck-20261019` at
+`0941dc432afe8ff47291938479d17c2931ef3a6b`; the twins run only when named in `--variants`. Run: 732
+folders, 128,594 snapshots, 0 errors, `hgb` only, dev targets 07-31..09-29.
+
+- **`t1_nws_hourly_only`** (EDGE-1 annex §1.1, the binding twin) empties the `open_meteo`,
+  `weather_forecast`, `eccc_citypage`, `global_ensemble` and `open_meteo_global_models` payloads. Serving's
+  own code then sets `forecast_high` to the NWS hourly day max and recomputes `forecast_gap`; with no NWS
+  day max the variant equals the base. By construction T1 also removes those sources from the
+  post-processing forecast votes. Miami: source count 1, disagreement `None`. Toronto has no
+  `nws_hourly`, so T1 = base on all 11,298 rows. NWS fill is 1.000 elsewhere, except Los Angeles 0.997,
+  Miami 0.998, Seattle 0.999.
+- **`t0_climatology_prior`** (non-binding) empties every forecast payload; `forecast_high` becomes the
+  target month's mean daily high from prior years only, and `forecast_gap` is recomputed.
+- Served columns: no bundle selects a per-source forecast column. The forecast columns are
+  `forecast_high` and `forecast_gap`, plus `forecast_source_count` and `forecast_disagreement` in Miami and
+  Toronto.
+
+T1 mean TV by local hour band (US markets; changed fraction 0.89-1.00 in every band 00-16):
+
+| market | 00-16 mean TV | 17-23 mean TV |
+| --- | --- | --- |
+| chicago | ~0.28-0.31 | within 0.010-0.081 |
+| san-francisco | 0.20-0.31 | within 0.010-0.081 |
+| nyc | 0.22-0.25 | within 0.010-0.081 |
+| dallas | 0.06-0.16 (lowest) | within 0.010-0.081 |
+| other US markets | within 0.06-0.31 | within 0.010-0.081 |
+| toronto | 0 (T1 = base) | 0 |
+
+Max TV reaches 0.96. The full per-market, per-band table was produced by a scratch summary script from the
+run output, which stays uncommitted. T0: changed fraction 0.95-1.00 in every band; all-hours mean TV
+0.15-0.43 (Chicago 0.429), max up to 0.98; largest in 00-12 (mean TV 0.16-0.65), smallest in 17-23
+(0.009-0.069).
+
+Throughput: uncapped HGB predicts used ~17 cores at ~27 s/folder; with `OMP_NUM_THREADS`,
+`OPENBLAS_NUM_THREADS` and `MKL_NUM_THREADS` = 1 the run took ~3 s/folder (fix on its own branch;
+[host load policy](../operations/HOST_LOAD_POLICY.md) rule 11).
+
 ## 4. What "110g re-fit" is
 
 Handoff `docs/roadmap/workstation-handoff-2026-09-110g-disable-afternoon-centering.md` and report

@@ -3878,6 +3878,11 @@ settlement or market price was read.
   per-row replay at each row's capture commit, which no tool does; forward reproduction (M8) is checkable only at
   a frozen hash on forward rows. Evidence scored against the served vector of record (for example the A0 power
   figure) is unaffected. Record: [lever-5 note](../research/model-edge-lever5-2026-10-19.md) §3.6.
+- **EDGE-1 twins on the same dev inputs (3b, 2026-10-21, same tool sha, opt-in `--variants`):** against the
+  current-code base, T1 (`t1_nws_hourly_only`) changes 89-100% of US vectors in every band 00-16 (mean TV
+  0.06-0.31, 17-23 0.010-0.081; Toronto has no NWS hourly, so T1 = base) and T0 (`t0_climatology_prior`)
+  changes 95-100% in every band (all-hours mean TV 0.15-0.43). Vector deltas only: no score, no edge claim;
+  the binding comparison is forward at the frozen hash. Record: [lever-5 note](../research/model-edge-lever5-2026-10-19.md) §3.7.
 
 ## Related
 
