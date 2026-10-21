@@ -245,7 +245,7 @@ branches are drafted; the owner's ruling selects one, and that ruling is a dated
   **Owner-visible alternative:** Bonferroni, each hypothesis at 0.025/k at its own final, with Holm only among
   hypotheses whose finals share one look (none under the defaults).
 - **k is recorded at D0 after UNTESTABLE marking.** Under the default bar and the section 8 figures k is expected to be
-  0 (H-A0 0.263; H-A1 of the same size): EDGE-1 would then carry no hypothesis, no alpha and no GO route. The fixed
+  0 (H-A0 0.263; H-A1 measured, preliminary: UNTESTABLE at 20/45/90 dates, same as H-A0): EDGE-1 would then carry no hypothesis, no alpha and no GO route. The fixed
   sequence runs over the members remaining in the family at D0, earliest final first. (k is written in the signing
   follow-up row; with both members kept, the Bonferroni alternative would test each at 0.0125.)
 - **Why 00-16 and not each sub-block:** declaring the four sub-blocks for each arm would make k = 8 and, under the
@@ -376,7 +376,9 @@ spends no CAMPAIGN_LEDGER decision. Rows: [alpha ledger](alpha-ledger-DRAFT-2026
   | H-A0 | 20 | 0.308 | 0.0148 | 0.12 / 0.07 | UNTESTABLE (UNTESTABLE) |
   | **H-A0** | **45** | **0.263** | **0.0127** | **0.17 / 0.10** | **UNTESTABLE (UNTESTABLE)** |
   | H-A0 | 90 | 0.242 | 0.0117 | 0.20 / 0.12 | UNTESTABLE (UNTESTABLE) |
-  | H-A1 | 45 | not run; expected of the same size (A1 differs from A0 essentially by the 13-16 t3-r3 stage) | — | — | filled by the workstation in the A1 logistics row before D0, with its output hash; if above the bar, k drops per M4.4 and this row is updated |
+  | H-A1 (PRELIMINARY) | 20 | 0.308 (A1-1 envelope 0.302-0.312) | — | 0.124 / 0.069 | UNTESTABLE (UNTESTABLE) |
+  | **H-A1 (PRELIMINARY)** | **45** | **0.263 (0.258-0.267)** | — | **0.166 / 0.098** | **UNTESTABLE (UNTESTABLE)** |
+  | H-A1 (PRELIMINARY) | 90 | 0.242 (0.238-0.246) | — | 0.196 / 0.116 | UNTESTABLE (UNTESTABLE) |
   | H-A2 | — | none: E2 closed in development (section 1.1) | — | — | not in the family |
 
   - **Method:** `v3_power.resampled_power` (8,000 crossed resamples of dates and markets, seed 20261021) on the
@@ -395,6 +397,30 @@ spends no CAMPAIGN_LEDGER decision. Rows: [alpha ledger](alpha-ledger-DRAFT-2026
     `workstation_heavy.ps1 -Kind pytest -Queue` on 2026-10-20; output
     [`provenance/edge1-rpower-2026-10-20.json`](provenance/edge1-rpower-2026-10-20.json) (sha256 as written
     `d0ba9ff4ff34d7f65470ba0601afa74b736b5717f0ae07817846d6b88d7fcdcf`).
+  - **H-A1, PRELIMINARY (filled 2026-10-21, master-approved; the A1 hash is not frozen and the t3-r3 stage is
+    excluded: A1 = A0 + t3-r3 + A1-1, and this sizes served + A1-1 only).** MDE80 on R with served variance, the A1-1
+    deviation envelope in brackets (table above); power at R = 0.95 / 0.985 as tabled, the worst envelope within 0.003
+    of nominal. n: 55 balanced development dates (2026-08-01..09-29) x 11 markets, 00-16. Verdict: UNTESTABLE against
+    both the 0.05 bar and the ~0.015 contrast. **No effect estimate exists: the arm's Brier was never computed (no R,
+    sign, interval or per-cell value).**
+    - Method: `v3_power.resampled_power` on the served-vs-market 00-16 influence table, z = (Brier_srv − R̂·Brier_mkt) /
+      mean(Brier_mkt) per cell, 8,000 crossed resamples, seed 20261021; the served-variance figures reproduce the A0
+      run exactly (asserted). A1-1 enters as a **bound, not a measurement**, because the lever-5 rows hold tv, not
+      vectors: per-snapshot |ΔBrier| ≤ 4·tv/n_bands, under 2 adversarial and 32 random sign patterns; worst case 0.145
+      R per cell. Those tv deltas are **current-code replay deltas** (section 7 M8 note), not served ± stage.
+    - Provenance: harness `C:\wt\hv3` `2f3f3e8e6b542a419204afe802dae4545abc10d7`; `HARNESS_V3_SHA256`
+      `987e171775c596f6e50ac72b9bd54880399e4fafcc11865cdec0a2375970b4cf`; `v3_power.py`
+      `8d22ae13566b59e9ec1d642d2aebdc20fb2444eb0e2eb6843e0d16c6e0d22b37`; labels and prices via the `v3_controls.Dev`
+      gate (<= 09-29); manifest `C:\swarm\v3layout\manifest.json`
+      `4d53fdbdc551f33e331fa3b51cc425e354eec4426c8c7b52910b2e7340915f22`; inputs: the lever-5 workstation replay rows
+      (variant `bucket_transition_repointed`), archived at `C:\wt\workstation-chat\l-data\model-edge\lever5-ws-20261021`;
+      probe [`provenance/edge1-a1-rpower-prelim-probe-2026-10-21.py.txt`](provenance/edge1-a1-rpower-prelim-probe-2026-10-21.py.txt)
+      (sha256 as run `b3af958c8ec21273a824c09e830202f4f1b80b9059e8d8045f1cece96dd268cb`), output
+      [`provenance/edge1-a1-rpower-prelim-2026-10-21.json`](provenance/edge1-a1-rpower-prelim-2026-10-21.json) (sha256 as
+      written `294ca06a9b5bb26eaebd1c5c94bf34e9b1502f633f5f26508c9b3c8293f0aa23`; git normalises line endings, so the
+      committed blob may hash differently); one run via `workstation_heavy`, 1 passed in 27 s.
+    - The final H-A1 figure is still filled in the A1 logistics row before D0 on the frozen hash (t3-r3 included);
+      k stays recorded at D0.
   - **Development context from the same run (sizing only):** served/market R 1.432 / 1.483 / 1.467 / 1.855 by block,
     1.510 at 00-16; market Brier 00-16 0.0483 (cell mean).
   - **Caveats:** the served vector of record stands in for A0 (it predates the 10-06 lock-in and 10-09 fixes and N12);

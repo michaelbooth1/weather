@@ -1,0 +1,172 @@
+"""PRELIMINARY (A1 hash not frozen) EDGE-1 H-A1 sizing: MDE80 on R = Brier_arm / Brier_market, 00-16,
+development dates 2026-07-31..2026-09-29 only. Mirrors the H-A0 probe (edge1-rpower-probe-2026-10-20).
+
+Run ONLY through scripts\\ops\\workstation_heavy.ps1 -Kind pytest -Queue. Read-only harness-v3 checkout C:\\wt\\hv3 at
+2f3f3e8e6b542a419204afe802dae4545abc10d7. Labels/market read only through the harness-v3 gate (v3_controls.Dev,
+which asserts no row after 2026-09-29).
+
+Arm A1-1 = C-L13-BT (lever-5 bucket_transition_repointed). The lever-5 replay rows hold only tv / max_bucket, not
+probability vectors, so the arm's Brier is NEVER computed here. Method (option a): the served-vs-market 00-16
+influence table of the A0 run (z = (a - R m) / mean(m) per (date, market) cell), plus a TV-bounded envelope for the
+arm's deviation: per snapshot |Brier_arm - Brier_served| <= 4 * tv / n_bands (Brier = band mean of squared error,
+sum|dp| = 2 tv, |p_a + p_s - 2y| <= 2); cell bound c = equal-weight cell mean of that. Perturbed tables
+z + (c*s - (sum c*s / sum m) * m) / mean(m) for adversarial and random sign tables s. Emits ONLY MDE80 at 20/45/90 dates
+and resampled power at R = 0.95 / 0.985 (nominal and envelope). No effect, sign, interval or per-cell value is stored.
+"""
+import hashlib
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+HV3 = r"C:\wt\hv3"
+HV3_SHA = "2f3f3e8e6b542a419204afe802dae4545abc10d7"
+sys.path.insert(0, HV3)
+for _k in [k for k in list(sys.modules) if k == "tools" or k.startswith("tools.")]:
+    del sys.modules[_k]
+
+import numpy as np  # noqa: E402
+import pandas as pd  # noqa: E402
+
+OUT = Path(__file__).resolve().parent / "out"
+LAYOUT = Path(r"C:\swarm\v3layout")
+REPLAY = Path(r"C:\wt\workstation-chat\l-data\model-edge\lever5-ws-20261021")
+VARIANT = "bucket_transition_repointed"
+BLOCKS = ("00-05", "06-09", "10-12", "13-16")
+Z975 = 1.959963984540054
+DEV_FIRST, DEV_LAST = "2026-07-31", "2026-09-29"
+A0_MDE80 = {20: 0.3075026087208383, 45: 0.26254325635393955, 90: 0.2417398191597973}
+RANDOM_SIGNS = 32
+
+
+def _sha(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def _cells(t, values, group):
+    idx, v = t.cells(values, t.group_mask(group))
+    return pd.Series(v, index=pd.MultiIndex.from_tuples([t.keys[i] for i in idx], names=["date", "market"]))
+
+
+def _mde80(v3_power, x, n):
+    rng = np.random.default_rng(20261021)
+    xc = x - x.mean()
+    thr = np.empty(8000)
+    for i in range(8000):     # identical draw order to v3_power.resampled_power
+        sub = xc[rng.integers(0, xc.shape[0], n)][:, rng.integers(0, xc.shape[1], xc.shape[1])]
+        thr[i] = sub.mean() + Z975 * v3_power.crossed_se(sub)
+    return float(np.quantile(thr, 0.80))
+
+
+def _replay_tv(markets):
+    """row_key -> tv for VARIANT, dev target dates only (later rows skipped unparsed beyond the date)."""
+    tv, files = {}, {}
+    for mk in markets:
+        p = REPLAY / f"replay-{mk}.jsonl"
+        files[p.name] = _sha(p)
+        with open(p, encoding="utf-8") as fh:
+            for line in fh:
+                r = json.loads(line)
+                if r.get("kind") != "snapshot":
+                    continue
+                d = str(r.get("target_date"))
+                if not (DEV_FIRST <= d <= DEV_LAST):
+                    continue
+                v = r["variants"].get(VARIANT, {})
+                if "tv" in v:
+                    tv[f"{r['market_id']}|{r['snapshot_id']}"] = float(v["tv"])
+    return tv, files
+
+
+def test_edge1_a1_rpower_prelim():
+    from tools.research.model_parity import v3_controls as c, v3_gate, v3_power, v3_score
+    head = subprocess.run(["git", "-C", HV3, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+    dirty = subprocess.run(["git", "-C", HV3, "status", "--short"], capture_output=True, text=True).stdout.strip()
+    assert head == HV3_SHA and dirty == "", (head, dirty)
+    assert str(Path(c.__file__).resolve()).lower().startswith(HV3.lower())
+    OUT.mkdir(parents=True, exist_ok=True)
+
+    gate = v3_gate.default_gate()
+    dev = c.Dev(LAYOUT, gate)
+    t = dev.t
+    psv, sha_served = c._arm_vector(dev, "v3_arm_served.py")
+    b_srv, b_mkt = t.snapshot_brier(psv, dev.y), t.snapshot_brier(dev.pm, dev.y)
+
+    # Served-vs-market influence table exactly as the A0 run (same balancing over the block columns).
+    cols = {}
+    for g in BLOCKS + ("00-16",):
+        a, m = _cells(t, b_srv, g), _cells(t, b_mkt, g)
+        r = float(a.sum() / m.sum())
+        cols[f"A0_{g}"] = (a - r * m) / m.mean()
+    cols["mkt_00-16"] = _cells(t, b_mkt, "00-16")
+
+    # Outcome-free TV bound per snapshot from the lever-5 replay.
+    snaps = t.snaps
+    tv_map, replay_files = _replay_tv(sorted(snaps.market.astype(str).unique()))
+    tv = snaps.row_key.map(tv_map).to_numpy(float)
+    mask = t.group_mask("00-16")
+    covered = ~np.isnan(tv)
+    cov_00_16 = float(covered[mask].mean())
+    tv_max = float(np.nanmax(tv[mask]))
+    tv_fill = np.where(covered, tv, tv_max)          # uncovered snapshots get the observed maximum (conservative)
+    bound = 4.0 * tv_fill / t.n
+    cols["bound_00-16"] = _cells(t, bound, "00-16")
+
+    frame = pd.DataFrame(cols).dropna().reset_index()
+    nm = frame.market.nunique()
+    frame = frame[frame.groupby("date").market.transform("size") == nm]
+    dates, markets = sorted(frame.date.unique()), sorted(frame.market.unique())
+    assert DEV_FIRST <= str(dates[0]) and str(dates[-1]) <= DEV_LAST
+
+    def table(name):
+        return frame.pivot(index="date", columns="market", values=name).loc[dates, markets].to_numpy(float)
+
+    x, mtab, ctab = table("A0_00-16"), table("mkt_00-16"), table("bound_00-16")
+    mbar = mtab.mean()
+
+    def perturbed(s):
+        da = ctab * s
+        return x + (da - (da.sum() / mtab.sum()) * mtab) / mbar
+
+    xs = x - x.mean()
+    rng = np.random.default_rng(20261025)
+    scen = {"adversarial_plus": perturbed(np.sign(xs)), "adversarial_minus": perturbed(-np.sign(xs))}
+    for i in range(RANDOM_SIGNS):
+        scen[f"random_{i}"] = perturbed(rng.choice([-1.0, 1.0], size=x.shape))
+
+    rec = {"PRELIMINARY": "A1 hash not frozen; arm = served + A1-1 (C-L13-BT) deviation envelope only, "
+                          "t3-r3 stage not included; arm Brier never computed",
+           "hv3_head": head, "HARNESS_V3_SHA256": v3_score.harness_v3_sha256(),
+           "code_sha256": {"v3_power.py": _sha(Path(HV3) / "tools/research/model_parity/v3_power.py"),
+                           "v3_controls.py": _sha(Path(HV3) / "tools/research/model_parity/v3_controls.py"),
+                           "probe": _sha(__file__)},
+           "served_arm_code_sha256": sha_served, "gate": gate.identity(),
+           "layout_manifest_sha256": _sha(LAYOUT / "manifest.json"),
+           "layout_files_sha256": {p.name: _sha(p) for p in sorted(LAYOUT.glob("*.parquet"))},
+           "replay_variant": VARIANT, "replay_files_sha256": replay_files,
+           "replay_coverage_00_16_dev_snapshots": cov_00_16,
+           "replay_tv_00_16": {"mean": float(np.nanmean(tv[mask])), "max": tv_max,
+                               "changed_fraction": float((tv[mask & covered] > 1e-12).mean())},
+           "envelope_max_abs_cell_shift_R_units": float(max(np.abs(v - x).max() for v in scen.values())),
+           "balanced_dates": len(dates), "markets": len(markets),
+           "dev_dates_first_last": [str(dates[0]), str(dates[-1])]}
+
+    res = {}
+    for n in (20, 45, 90):
+        nominal = _mde80(v3_power, x, n)
+        env = {k: _mde80(v3_power, v, n) for k, v in scen.items()}
+        worst_key = max(env, key=env.get)
+        worst = scen[worst_key]
+        res[n] = {"mde80_R_nominal": nominal, "a0_reproduced": abs(nominal - A0_MDE80[n]) < 1e-12,
+                  "mde80_R_envelope_min": min(env.values()), "mde80_R_envelope_max": env[worst_key],
+                  "envelope_worst_scenario": worst_key,
+                  "resampled_power_at_mde80_nominal": v3_power.resampled_power(x, -(nominal + 1e-9), n, 8000, 20261021),
+                  "power_at_R_0.95": {"nominal": v3_power.resampled_power(x, -0.05, n, 8000, 20261021),
+                                      "envelope_worst": v3_power.resampled_power(worst, -0.05, n, 8000, 20261021)},
+                  "power_at_R_0.985": {"nominal": v3_power.resampled_power(x, -0.015, n, 8000, 20261021),
+                                       "envelope_worst": v3_power.resampled_power(worst, -0.015, n, 8000, 20261021)},
+                  "verdict_bar_0.05_on_R": "UNTESTABLE" if env[worst_key] > 0.05 or nominal > 0.05 else "TESTABLE",
+                  "verdict_contrast_0.015_on_R": "UNTESTABLE" if env[worst_key] > 0.015 or nominal > 0.015 else "TESTABLE"}
+    rec["H_A1_prelim_mde80"] = res
+    (OUT / "edge1_a1_rpower_prelim.json").write_text(json.dumps(rec, indent=1, default=float), encoding="utf-8")
+    assert res[45]["a0_reproduced"]
