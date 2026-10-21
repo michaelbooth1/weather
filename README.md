@@ -468,6 +468,18 @@ Use `--market toronto` for Celsius artifacts and an F-market such as `nyc` for
 F-family artifacts. For the local multi-market helper, use
 `.\tools\train_all_markets.ps1`.
 
+`--column-allowlist served:<market>` (or a JSON list file) trains the
+cutoff-hour HGB/LR on exactly that ordered column list instead of the
+policy-filtered schema, so a retrain changes the fit dates and not the feature
+set. `served:<market>` must name the market being trained and reads the served
+bundles' `feature_names`, failing closed unless the HGB pickle and LR coefs
+agree. Any listed column the training frame or serving cannot build fails
+closed. A kept column that the training policy excludes (today `pressure` and
+`pressure_trend_3h` in F markets) is not dropped: it is printed and recorded as
+`training_column_allowlist.training_policy_exclusions_overridden` in both
+artifacts. Late-day continuation models keep their own columns. The trainer
+still writes to `artifacts/models/`; candidate runs must redirect that output.
+
 METAR keying replay (read-only, target dates up to 2026-09-29 only). It
 re-parses the raw AWC payloads retained in each market-day folder's
 `observation_payloads/` under the retired `reportTime` keying

@@ -24,6 +24,10 @@ from weather.calibration.feature_model_reports import (
     write_item27_feature_value_report,
     write_late_day_continuation_report,
 )
+from weather.calibration.feature_column_allowlist import (
+    ColumnAllowlistError,
+    resolve_column_allowlist,
+)
 from weather.calibration.feature_probability_calibration import (
     fit_temperature_blend_grid,
     temperature_scale_distribution,
@@ -400,7 +404,26 @@ def neutralize_feature_family(row, train_matrix, feature_cols, family_columns):
     return out
 
 
-def feature_model_columns(all_wind_groups, all_cloud_groups, *, market_spec):
+def feature_model_columns(
+    all_wind_groups,
+    all_cloud_groups,
+    *,
+    market_spec,
+    column_allowlist=None,
+):
+    """Return ``(numeric_cols, feature_cols)`` for one market's training matrix.
+
+    With ``column_allowlist`` (a plan from ``resolve_column_allowlist``) the
+    columns are exactly that list, in its order, and the wind/cloud groups come
+    from it; the registry policy is not re-applied, so any policy-excluded column
+    the list keeps is an explicit, recorded override. Without it the default
+    policy-filtered ``FEATURE_COLUMNS`` set is unchanged.
+    """
+    if column_allowlist is not None:
+        return (
+            list(column_allowlist["numeric_feature_names"]),
+            list(column_allowlist["feature_names"]),
+        )
     numeric_cols = [
         column
         for column in training_feature_names(
@@ -430,13 +453,30 @@ def feature_model_frame(
     all_cloud_groups,
     *,
     market_spec,
+    column_allowlist=None,
 ):
+    if column_allowlist is not None:
+        all_wind_groups = list(column_allowlist["all_wind_groups"])
+        all_cloud_groups = list(column_allowlist["all_cloud_groups"])
     numeric_cols, feature_cols = feature_model_columns(
         all_wind_groups,
         all_cloud_groups,
         market_spec=market_spec,
+        column_allowlist=column_allowlist,
     )
     source = pd.DataFrame(records)
+    if column_allowlist is not None:
+        # Fail closed: reindex would silently fabricate an all-NaN column.
+        required = list(numeric_cols)
+        if column_allowlist["all_wind_groups"]:
+            required.append("wind_group")
+        if column_allowlist["all_cloud_groups"]:
+            required.append("cloud_group")
+        missing = [column for column in required if column not in source.columns]
+        if missing:
+            raise ColumnAllowlistError(
+                f"allowlisted columns are missing from the training frame: {missing}"
+            )
     df = source.reindex(
         columns=[*numeric_cols, "wind_group", "cloud_group"],
     ).copy()
@@ -1171,12 +1211,29 @@ def main_late_day(market_id="toronto"):
     print(f"Saved late-day validation report to {report_path}")
 
 
-def main(market_id="toronto"):
+def main(market_id="toronto", column_allowlist=None):
     model = TorontoHighTempModel(market_id=market_id)
     spec = model.spec
     suffix = spec.artifact_suffix
     print(f"Training feature model for market '{spec.id}' (unit {spec.unit}, "
           f"artifacts '*{suffix}').")
+    allowlist_plan = None
+    if column_allowlist is not None:
+        # Resolve before any data load so a bad list fails in seconds.
+        allowlist_plan = resolve_column_allowlist(
+            column_allowlist,
+            market_spec=spec,
+            known_wind_groups=WIND_GROUPS,
+            known_cloud_groups=CLOUD_GROUPS,
+        )
+        print(f"Column allowlist {allowlist_plan['source']}: "
+              f"{len(allowlist_plan['feature_names'])} columns, "
+              f"sha256 {allowlist_plan['sha256']}.")
+        overridden = allowlist_plan["training_policy_exclusions_overridden"]
+        if overridden:
+            print(f"WARNING: the allowlist keeps columns that training policy "
+                  f"{TRAINING_FEATURE_POLICY_ID} excludes for this market: "
+                  f"{overridden}. Recorded as an explicit override in the artifacts.")
     print("Loading historical data cache...")
     cache = model.historical_target_cache()
 
@@ -1219,6 +1276,9 @@ def main(market_id="toronto"):
     # Available wind and cloud categories for one-hot encoding consistency
     all_wind_groups = WIND_GROUPS
     all_cloud_groups = CLOUD_GROUPS
+    if allowlist_plan is not None:
+        all_wind_groups = list(allowlist_plan["all_wind_groups"])
+        all_cloud_groups = list(allowlist_plan["all_cloud_groups"])
 
     # We will build and validate models for each hour
     print("\n--- Model Evaluation and Leave-One-Out validation ---")
@@ -1261,6 +1321,18 @@ def main(market_id="toronto"):
         "training_feature_policy_id": TRAINING_FEATURE_POLICY_ID,
         "training_feature_exclusions": list(training_feature_exclusions(spec)),
     }
+    if allowlist_plan is not None:
+        allowlist_record = {
+            key: allowlist_plan[key]
+            for key in (
+                "source",
+                "sha256",
+                "feature_names",
+                "training_policy_exclusions_overridden",
+            )
+        }
+        trained_models_info["training_column_allowlist"] = allowlist_record
+        hgb_models_info["training_column_allowlist"] = dict(allowlist_record)
 
     for hour in INTRADAY_CUTOFF_HOURS:
         records = raw_data[hour]
@@ -1276,11 +1348,13 @@ def main(market_id="toronto"):
                 all_wind_groups,
                 all_cloud_groups,
                 market_spec=spec,
+                column_allowlist=allowlist_plan,
             )
             numeric_cols, _ = feature_model_columns(
                 all_wind_groups,
                 all_cloud_groups,
                 market_spec=spec,
+                column_allowlist=allowlist_plan,
             )
             n_numeric = len(numeric_cols)
             feature_families = feature_family_columns(feature_cols)
@@ -1674,14 +1748,16 @@ def main(market_id="toronto"):
 
     # --- Train Late-Day Continuation Models ---
     print("\n--- Training Late-Day Continuation Models (Roadmap Item 8) ---")
+    # The column allowlist binds the cutoff-hour model only; late-day
+    # continuation keeps its own columns and the full group lists.
     late_day_info, late_day_validation_rows, late_day_ablation_rows = (
         train_late_day_continuation_models(
             model,
             daily,
             by_date,
             forecast_index,
-            all_wind_groups,
-            all_cloud_groups,
+            WIND_GROUPS,
+            CLOUD_GROUPS,
             trained_at,
         )
     )
@@ -1868,7 +1944,16 @@ if __name__ == "__main__":
     parser.add_argument(
         "--item27-folds", type=int, default=5,
         help="Day-fold count for --item27-report-only validation.")
+    parser.add_argument(
+        "--column-allowlist", default=None,
+        help="Train the cutoff-hour HGB/LR on exactly this ordered column list: "
+             "'served:<market>' (the served bundles' feature_names; HGB and coefs "
+             "must agree) or a JSON list file. Fails closed on any column the "
+             "training frame or serving cannot build. Default: policy columns.")
     args = parser.parse_args()
+    if args.column_allowlist is not None and (args.item27_report_only or args.late_day_only):
+        parser.error("--column-allowlist applies to the cutoff-hour model only; "
+                     "it cannot be combined with --late-day-only or --item27-report-only")
     if args.item27_report_only:
         main_item27_feature_value_report(
             market_id=args.market,
@@ -1880,4 +1965,4 @@ if __name__ == "__main__":
         raise SystemExit(0)
     if args.skip_loo:
         RUN_LOO = False
-    main(market_id=args.market)
+    main(market_id=args.market, column_allowlist=args.column_allowlist)
