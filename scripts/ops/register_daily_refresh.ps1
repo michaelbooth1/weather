@@ -206,6 +206,9 @@ if ($evidenceTaskReadback.Count -ne 1) {
     throw "expected exactly one registered evidence task '$EvidenceTaskName'"
 }
 $evidenceTaskState = [string]$evidenceTaskReadback[0].State
+# Settings.Enabled proves the enable/disable above; State stays 'Running' while
+# an instance runs, whatever the enabled flag.
+$evidenceTaskEnabled = $evidenceTaskReadback[0].Settings.Enabled
 $evidenceTaskTriggers = @($evidenceTaskReadback[0].Triggers)
 if (
     $evidenceTaskTriggers.Count -ne 1 -or
@@ -222,10 +225,10 @@ if (
 ) {
     throw "settlement task '$TaskName' trigger is not one local (unzoned) daily boundary at $At"
 }
-if (-not $EnableEvidenceTask -and $evidenceTaskState -ne "Disabled") {
+if (-not $EnableEvidenceTask -and $evidenceTaskEnabled -ne $false) {
     throw "evidence task '$EvidenceTaskName' must remain disabled without -EnableEvidenceTask"
 }
-if ($EnableEvidenceTask -and $evidenceTaskState -eq "Disabled") {
+if ($EnableEvidenceTask -and $evidenceTaskEnabled -ne $true) {
     throw "evidence task '$EvidenceTaskName' was explicitly enabled but read back Disabled"
 }
 

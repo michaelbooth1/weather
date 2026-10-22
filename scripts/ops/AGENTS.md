@@ -149,9 +149,9 @@ propagate.
 ## Verification
 
 Validate PowerShell syntax without executing scripts (a clean parse does not
-prove parameter binding), run the focused Python tests for the affected
-operation, and update the operations design or owning runbook whenever a task
-name, cadence, parameter, status path, or supervision contract changes.
+prove parameter binding) and run the affected focused tests. Prove a disable by
+`Settings.Enabled`; State stays `Running` while an instance runs (C2, 2026-10-22).
+Update the operations design or owning runbook when a task contract changes.
 
 ## Update this file when
 

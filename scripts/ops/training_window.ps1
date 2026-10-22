@@ -166,7 +166,8 @@ function Restore-Capture {
         try {
             Enable-ScheduledTask -TaskName $task -ErrorAction Stop | Out-Null
             $readback = Get-ScheduledTask -TaskName $task -ErrorAction Stop
-            if ([string]$readback.State -eq "Disabled") {
+            # State can read 'Running' for a task that is still disabled.
+            if ($readback.Settings.Enabled -ne $true) {
                 throw "task remains disabled after enable"
             }
             Write-WindowLog "RESTORE" "enabled $task (readback $($readback.State))"
@@ -257,8 +258,10 @@ function Wait-CaptureStopped([double]$TimeoutSeconds) {
 function Assert-CaptureStoppedForTraining {
     foreach ($task in $supervisorTasks) {
         $taskState = Get-ScheduledTask -TaskName $task -ErrorAction Stop
-        if ([string]$taskState.State -ne "Disabled") {
-            throw "capture supervisor is not disabled before retrain: $task=$($taskState.State)"
+        # Settings.Enabled, not State: a disabled task with a running instance
+        # reads State 'Running'. The no-live-capture gate below proves the loops.
+        if ($taskState.Settings.Enabled -ne $false) {
+            throw "capture supervisor is not disabled before retrain: $task=$($taskState.State) enabled=$($taskState.Settings.Enabled)"
         }
     }
     & $python -m weather.operations.capture_resource_gate `
@@ -396,8 +399,10 @@ if ($dirtyPaths.Count -gt 0) {
     foreach ($task in $supervisorTasks) {
         Disable-ScheduledTask -TaskName $task -ErrorAction Stop | Out-Null
         $disabledTask = Get-ScheduledTask -TaskName $task -ErrorAction Stop
-        if ([string]$disabledTask.State -ne "Disabled") {
-            throw "capture supervisor did not disable: $task=$($disabledTask.State)"
+        # Prove the disable with Settings.Enabled: a running instance keeps
+        # State 'Running' after Disable-ScheduledTask (pyup C2 NO-GO 2026-10-22).
+        if ($disabledTask.Settings.Enabled -ne $false) {
+            throw "capture supervisor did not disable: $task=$($disabledTask.State) enabled=$($disabledTask.Settings.Enabled)"
         }
         Write-WindowLog "STOP" "disabled $task (exact readback)"
     }

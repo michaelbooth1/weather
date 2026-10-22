@@ -342,3 +342,99 @@ function Invoke-Probe([string]$AsOf, [string]$Candidate) {
     payload = json.loads(result.stdout)
     assert "must not already exist" in payload["existing"]
     assert "ISO-8601" in payload["natural"]
+
+
+@WINDOWS_POWERSHELL_REQUIRED
+@pytest.mark.spawns
+def test_supervisor_disable_and_enable_are_proved_by_settings_enabled_not_state() -> None:
+    """A task with a running instance keeps State 'Running' after Disable-ScheduledTask.
+
+    Guards the pyup C2 NO-GO of 2026-10-22: the real stop loop, pre-retrain assert and
+    restore run against stubbed Scheduler cmdlets whose State never leaves 'Running'.
+    """
+    env = os.environ.copy()
+    env["WEATHER_TRAINING_WINDOW_SCRIPT"] = str(SCRIPT)
+    script = r"""
+$ErrorActionPreference = 'Stop'
+$tokens = $null; $errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile(
+    $env:WEATHER_TRAINING_WINDOW_SCRIPT, [ref]$tokens, [ref]$errors)
+if ($errors.Count -ne 0) { throw "parse error: $($errors[0].Message)" }
+foreach ($name in @('Restore-Capture', 'Assert-CaptureStoppedForTraining')) {
+    $fn = $ast.Find({ param($n)
+        $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }, $true)
+    . ([scriptblock]::Create($fn.Extent.Text))
+}
+$stopLoop = $ast.Find({ param($n)
+    $n -is [System.Management.Automation.Language.ForEachStatementAst] -and
+    $n.Extent.Text -match 'Disable-ScheduledTask' }, $true)
+$stopLoop = [scriptblock]::Create($stopLoop.Extent.Text)
+
+$supervisorTasks = @('WeatherSnapshotLoopSupervisor', 'WeatherClobBookLoopSupervisor',
+    'WeatherObservationTriggerSupervisor')
+$RepoRoot = 'C:\not-used'
+$CaptureRecoveryTimeoutSeconds = 5
+function Write-WindowLog { param($Level, $Message) }
+function Invoke-StubPython {
+    $global:LASTEXITCODE = 0
+    if ($args -contains 'weather.operations.capture_recovery_check') {
+        '{"ok": true, "workers": [{"ok": true}, {"ok": true}, {"ok": true}]}'
+    }
+}
+$python = 'Invoke-StubPython'
+# Stubs only: State stays 'Running' whatever the cmdlet does, as on the host.
+$global:tasks = @{}
+foreach ($n in $supervisorTasks) {
+    $global:tasks[$n] = [pscustomobject]@{ State = 'Running'; Settings = [pscustomobject]@{ Enabled = $true } }
+}
+$global:mutationTakes = $true
+function Get-ScheduledTask { param([string]$TaskName, $ErrorAction) $global:tasks[$TaskName] }
+function Disable-ScheduledTask { param([string]$TaskName, $ErrorAction)
+    if ($global:mutationTakes) { $global:tasks[$TaskName].Settings.Enabled = $false }
+    $global:tasks[$TaskName] }
+function Enable-ScheduledTask { param([string]$TaskName, $ErrorAction)
+    if ($global:mutationTakes) { $global:tasks[$TaskName].Settings.Enabled = $true }
+    $global:tasks[$TaskName] }
+function Invoke-Probe([scriptblock]$Body) {
+    try { & $Body | Out-Null; return 'accepted' } catch { return $_.Exception.Message }
+}
+$result = [ordered]@{}
+$result.stop_running = Invoke-Probe { . $stopLoop }
+$result.assert_running = Invoke-Probe { Assert-CaptureStoppedForTraining }
+$result.restore_running = Invoke-Probe { Restore-Capture }
+$result.restore_outcome = $script:restoreOutcome
+$global:mutationTakes = $false
+$result.stop_ignored = Invoke-Probe { . $stopLoop }
+$result.assert_enabled = Invoke-Probe { Assert-CaptureStoppedForTraining }
+foreach ($t in $global:tasks.Values) { $t.Settings.Enabled = $false }
+$result.restore_ignored = Invoke-Probe { Restore-Capture }
+$result.states = (@($global:tasks.Values | ForEach-Object { $_.State } | Sort-Object -Unique) -join ',')
+[pscustomobject]$result | ConvertTo-Json -Compress
+"""
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["states"] == "Running"
+    assert payload["stop_running"] == "accepted"
+    assert payload["assert_running"] == "accepted"
+    assert payload["restore_running"] == "accepted"
+    assert payload["restore_outcome"] == "PASS"
+    assert payload["stop_ignored"] == (
+        "capture supervisor did not disable: WeatherSnapshotLoopSupervisor=Running enabled=True"
+    )
+    assert payload["assert_enabled"] == (
+        "capture supervisor is not disabled before retrain: "
+        "WeatherSnapshotLoopSupervisor=Running enabled=True"
+    )
+    assert "enable_WeatherSnapshotLoopSupervisor:task remains disabled after enable" in (
+        payload["restore_ignored"]
+    )
+    assert payload["restore_ignored"].count("task remains disabled after enable") == 3
