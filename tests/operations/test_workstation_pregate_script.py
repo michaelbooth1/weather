@@ -656,18 +656,27 @@ $ast = [Management.Automation.Language.Parser]::ParseFile($env:PG_PREGATE, [ref]
 $last = $ast.EndBlock.Statements[-1]
 $finally = if ($last -is [Management.Automation.Language.TryStatementAst]) { $last.Finally } else { $null }
 $inner = if ($finally) { $finally.Statements[-1] } else { $null }
-$exit = if ($inner -is [Management.Automation.Language.TryStatementAst] -and $inner.Finally) { $inner.Finally.Statements[-1].Extent.Text } else { $null }
+$innerFinally = if ($inner -is [Management.Automation.Language.TryStatementAst] -and $inner.Finally) { $inner.Finally.Statements } else { $null }
+$exit = if ($innerFinally) { $innerFinally[-1].Extent.Text } else { $null }
+$hostExit = if ($innerFinally -and $innerFinally.Count -ge 2) { $innerFinally[-2].Extent.Text } else { $null }
+$advanced = [bool]($ast.ParamBlock -and ($ast.ParamBlock.Attributes | Where-Object { $_.TypeName.Name -eq 'CmdletBinding' }))
 $writes = if ($finally) { @($finally.FindAll({ param($n) $n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -in @('Write-Output', 'Write-Host') }, $true)).Count } else { -1 }
-ConvertTo-Json -Compress -InputObject @{ last_is_try = [bool]$finally; exit = $exit; writes = $writes }
+ConvertTo-Json -Compress -InputObject @{ last_is_try = [bool]$finally; exit = $exit; host_exit = $hostExit; advanced = $advanced; writes = $writes }
 """
 
 
 def test_pregate_exit_is_issued_from_the_final_finally():
     # A stopped (Ctrl+C) PS 5.1 -File script skips statements after its finally
-    # and exits 0, and Write-Output during a stop aborts the finally.
+    # and exits 0, and Write-Output during a stop aborts the finally. An advanced
+    # script ([CmdletBinding()] or Mandatory parameters) stopped by Ctrl+C also
+    # drops the code of that final `exit` and exits 0 (observed 2026-10-22 on PS
+    # 5.1.26100.9711), so the host exit code is set first.
     result = _run([*POWERSHELL, "-Command", EXIT_SHAPE], env={**os.environ, "PG_PREGATE": str(PREGATE)}, timeout=60)
     assert result.returncode == 0, result.stderr
-    assert json.loads(result.stdout) == {"last_is_try": True, "exit": "exit $exitCode", "writes": 0}
+    assert json.loads(result.stdout) == {
+        "last_is_try": True, "exit": "exit $exitCode", "host_exit": "$Host.SetShouldExit($exitCode)",
+        "advanced": True, "writes": 0,
+    }
 
 
 # ------------------------------------------------------------------ content pins
