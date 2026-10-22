@@ -581,6 +581,11 @@ finally {
     }
     finally {
         if (-not $receiptWritten -and $exitCode -eq 0) { $exitCode = 1 }
+        # This is an advanced script ([CmdletBinding()], Mandatory parameters).
+        # Stopped by Ctrl+C, a PS 5.1 -File advanced script drops the code of an
+        # `exit` issued here and exits 0; a plain script keeps it. Setting the
+        # host exit code first survives the stop.
+        $Host.SetShouldExit($exitCode)
         exit $exitCode
     }
 }
