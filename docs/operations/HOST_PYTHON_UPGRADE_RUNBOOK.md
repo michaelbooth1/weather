@@ -69,7 +69,8 @@ C0 now requires every registered `WeatherMakerEvidence<Family>` task to be in `a
 recorded as `STOP_AUTHORIZED` in `$R\q12b.txt` (Q12b); C2 stops it with the 88a worker; C9c checks it. **Every family step is conditional on registration:** C0 lists the registered `WeatherMakerEvidence<Family>` tasks, and with none, C0, C2 and C9c skip the family steps and never read `q12b.txt`. G3 now names the
 exact `roll_verdict.ps1` call, and **B-R** requalifies a stage venv in a new stage path when HEAD moved roll-sensitively after Phase B
 (N12 would), and §D now removes every qualification worktree. **B-R is parked:** C on 10-22 runs on pre-N12 master, so G3 rests on
-the Phase B tip; B-R is used only if C fails and N12 lands first. Dates changed in this revision (2026-10-20 replan): the header and the §7a C row now name 00:30 on Thu 10-22, G4 and §R "Escalation" carry the owner's ruling for that night, and G7's 10-17 C date is marked as history. The state of play and the decision log still own the cutover night.
+the Phase B tip; B-R is used only if C fails and N12 lands first. (G3 and the B-R timing are superseded by the
+2026-10-22 G3 ruling, revision below.) Dates changed in this revision (2026-10-20 replan): the header and the §7a C row now name 00:30 on Thu 10-22, G4 and §R "Escalation" carry the owner's ruling for that night, and G7's 10-17 C date is marked as history. The state of play and the decision log still own the cutover night.
 
 Revision 2026-10-22 (C2 disable check): **Phase C on the night of 10-21 to 10-22 stopped at C2 at 01:02:11 on a false
 NO-GO, "disable WeatherMakerEvidenceCapture".** Nothing was swapped, `Undo-Aux` re-enabled every aux task, and capture
@@ -152,6 +153,15 @@ soft step (a throw counts as not ok), so its undo pair always runs; C9b runs the
 then judges the evidence; §R re-enables the supervisors and runs `Wait-Restore` as soft steps (a throw counts as not
 3/3, which already logs `ESCALATE` and leaves the aux tasks disabled) and runs its undo pair as two soft steps.
 
+Revision 2026-10-22 (G3 ruling, master-agent, for the C night 10-23/24 after N12 lands on 10-22/23). G3 no longer
+uses `roll_verdict.ps1`. Verbatim ruling: "G3 holds if HEAD equals the qualified tip, OR all of these hold: (i) no dependency file (requirements*, pyproject.toml, *.lock, constraints*, setup.cfg, setup.py) differs between the qualified tip 90b2e1844 and HEAD; (ii) the exact HEAD tree, or a tree whose non-docs diff vs HEAD is empty, has a full WS pregate PASS run on Python 3.11.9; (iii) C0's other checks are clean. Otherwise B-R is needed, and B-R may run in any 00:30-09:00 heavy window before the cutover night, including the same night after a landing." C0 implements it read-only (code below): (i) is
+`git diff --name-only <qualified tip> HEAD` matched by leaf name at any depth; (ii) takes the workstation pregate
+receipt id, its tested full sha and a 3.11.9 attestation as operator-supplied values (the receipt is not on the
+host), and "non-docs diff empty" is `git diff --name-only <tested sha> HEAD` with every path matching
+`^docs/.+\.md$`; (iii) is every other C0 check. C0 prints `G3 PASS branch=HEAD==tip tip=<sha>` or
+`G3 PASS branch=(i)+(ii)+(iii) deps_changed=none pregate=<id> tested=<sha> nondocs_diff=empty`; a fail logs
+`G3 FAIL reason=<token>` and NO-GOes before anything is touched. A G3 fail is deterministic and never retried.
+
 **Owns:** the procedure for moving the production checkout's `venv` from CPython 3.11.0 to 3.11.9
 on the 16 GB capture host. That covers a side-by-side install, an offline wheelhouse, a stage venv
 qualified by the bounded suite, the cutover through the guarded stop/restore path, verification,
@@ -191,7 +201,7 @@ The live SDK portability check accepts any 3.11 patch release
 | G0 | The owner has signed §11 for this runbook revision and has named the morning or night of the phase about to run (Phase A: its owner-attended morning; Phase B and C: their nights). Revised 2026-10-12 (owner-confirmed). | Before Phase A, B0, C0 |
 | G1 | The bounded suite supports `-InterpreterPath` and `-ExpectedInterpreterVersion` (`scripts/ops/bounded_worktree_test_suite.ps1:44-52`). | Met on master; re-read `param(` if the script changed |
 | G2 | Phase A and Phase B passed on earlier nights, and `$R\qualification.json` has `"result":"PASS"`. | C0 |
-| G3 | The production HEAD equals the qualified tip, or `scripts\ops\roll_verdict.ps1 -Branch <HEAD sha> -Base <qualified tip sha>` exits 0 (ROLL-FREE; exit 3 or 1 fails G3). A failed G3 needs B-R (requalify on the new tip) on an earlier night, or an owner ruling. | C0 |
+| G3 | Master ruling 2026-10-22 (replaces the `roll_verdict.ps1` rule): "G3 holds if HEAD equals the qualified tip, OR all of these hold: (i) no dependency file (requirements*, pyproject.toml, *.lock, constraints*, setup.cfg, setup.py) differs between the qualified tip 90b2e1844 and HEAD; (ii) the exact HEAD tree, or a tree whose non-docs diff vs HEAD is empty, has a full WS pregate PASS run on Python 3.11.9; (iii) C0's other checks are clean. Otherwise B-R is needed, and B-R may run in any 00:30-09:00 heavy window before the cutover night, including the same night after a landing." C0 checks (i) and (ii) mechanically from operator-supplied values (qualified tip, WS pregate receipt id, tested sha, 3.11.9 attestation) and prints `G3 PASS branch=...` only when (iii) also holds; any other outcome is `G3 FAIL` (NO-GO, never retried). | C0 |
 | G4 | The owner is reachable from 00:30 to 03:45 on the cutover night: GO at C0, and any escalation up to the end of §R. Phase A needs no owner click since the 2026-10-13 revision (A4 has no installer).  **For C on the night of 10-21 to 10-22** the escalation rule is the owner's "Auto net, you in the morning (Recommended)" (owner 2026-10-19 ~13:1x EDT, selected options relayed by master-agent), which supersedes the DECISION_LOG rows of 2026-10-13 (advance GO, automatic rollback) and 2026-10-17 (the owner's own GO that night) on who answers an escalation; GO at C0 still comes from the owner in chat (§R, "Escalation"). | C0 |
 | G5 | No other lease user is due that night. Specifically: <br>- `WeatherTrainingWindow` (a 01:00 one-shot, `register_training_window.ps1:3`) is disabled or has no trigger that night; <br>- Stage B `WeatherEveningEvidenceRefresh` (00:35, holds the lease to 09:00 when enabled; `register_daily_refresh.ps1:20-24`) is disabled; <br>- a U6 export registered at 00:35 (Q3) is disabled (enforced in B0 and C0 by `Assert-NoU6At0035`);<br>- no integration attempt, quiet-window merge, storage one-shot or held-head work is scheduled;<br>- no host replay or research batch (for example a lever-5 or item 337 replay) is scheduled or still running, and none holds the lease. | Phase B (B0), C0 |
 | G6 | Release case A: `artifacts\releases\current_release.json` is absent (H5, B3, C0). Case B or C is NO-GO for this runbook (§8). | H5, B3, C0 |
@@ -997,9 +1007,10 @@ $q | ConvertTo-Json | Set-Content "$R\qualification.json" -Encoding utf8
 
 Keep `$Stage` until §D.
 
-**B-R. Requalify on a moved tip (only when G3 fails; added 2026-10-19; parked: used only if C fails and N12 lands first).** A qualification binds the tip it
-tested. When HEAD has since moved by a roll-sensitive change (G3), run B-R on an admitted night **before**
-the cutover night, under the Phase B rules (B0 window, G5, G7, suite start by 03:00); never on the cutover night.
+**B-R. Requalify on a moved tip (only when G3 fails; added 2026-10-19; timing per the 2026-10-22 G3 ruling).** A qualification binds the tip it
+tested. When G3 fails (master ruling 2026-10-22, gate G3), B-R may run in any 00:30-09:00 heavy window **before** the
+cutover night, including the same night after a landing, under the Phase B rules (G5, G7, the shared lease, suite start by
+03:00 and finished by 04:45); never on the cutover night itself.
 It reuses the wheelhouse and the A1 receipts, so it downloads nothing:
 1. archive the old record, and set `$Stage` to a **new** path (B1c refuses an existing one). The old stage and its
    `py3119-qual-*` branch stay until §D, which removes every qualification worktree;
@@ -1054,7 +1065,27 @@ if (((Get-Content -LiteralPath "$R\q12.txt" -TotalCount 1) -split '\s+')[0] -ne 
 $GapChoice = Get-GapChoice; Log "gap-overrun choice: $GapChoice"
 Assert-NoU6At0035 'C0'     # enforced here, not left to the C0 next-runs exemption of the aux list
 $Head = (git -C $P rev-parse HEAD).Trim()
-if ($Head -ne $q.tip) { Log "HEAD moved from the qualified tip; G3 needs roll_verdict.ps1 -Branch $Head -Base $($q.tip) exit 0 (ROLL-FREE) attached before GO, else B-R" }
+# G3 (master ruling 2026-10-22). Operator-supplied values: $G3Tip (full qualified tip, must equal qualification.json tip),
+# $G3Receipt (WS pregate PASS receipt id pg-<12 hex>-...), $G3Tested (its tested full sha), $G3Py ('3.11.9', attested).
+function Test-G3Gate([string]$Head, [string]$QualTip, [string]$Receipt, [string]$Tested, [string]$PyAttest) {
+  $f = { param($r) [pscustomobject]@{ Pass = $false; Branch = 'none'; Detail = $r } }
+  if ("$QualTip" -cnotmatch '^[0-9a-f]{40}$') { return (& $f 'qualified_tip_not_supplied_as_40hex') }
+  if ($Head -ceq $QualTip) { return [pscustomobject]@{ Pass = $true; Branch = 'HEAD==tip'; Detail = "tip=$QualTip" } }
+  $names = @(git -C $P diff --name-only $QualTip $Head); if ($LASTEXITCODE) { return (& $f 'diff_tip_head_failed') }
+  $deps = @($names | Where-Object { $leaf = ("$_" -split '/')[-1]; $leaf -like 'requirements*' -or $leaf -like 'constraints*' -or $leaf -like '*.lock' -or $leaf -in 'pyproject.toml','setup.cfg','setup.py' })   # (i) any depth
+  if ($deps.Count) { return (& $f "deps_changed=$(@($deps | Select-Object -First 5) -join ',')") }
+  if ("$Receipt" -cnotmatch '^pg-([0-9a-f]{12})-[0-9]{8}T[0-9]{6}-[0-9]+$') { return (& $f 'pregate_receipt_not_supplied_or_malformed') }   # (ii)
+  $rp = $Matches[1]
+  if ("$Tested" -cnotmatch '^[0-9a-f]{40}$' -or -not $Tested.StartsWith($rp)) { return (& $f 'tested_sha_not_40hex_or_not_the_receipt_head') }
+  if ("$PyAttest" -cne '3.11.9') { return (& $f 'pregate_python_3.11.9_not_attested') }
+  $null = @(git -C $P cat-file -t "$Tested^{commit}"); if ($LASTEXITCODE) { return (& $f 'tested_sha_not_in_production_repo') }
+  $td = @(git -C $P diff --name-only $Tested $Head); if ($LASTEXITCODE) { return (& $f 'diff_tested_head_failed') }
+  $nd = @($td | Where-Object { "$_" -cnotmatch '^docs/.+\.md$' })   # "non-docs diff empty"
+  if ($nd.Count) { return (& $f "nondocs_diff=$($nd.Count):$(@($nd | Select-Object -First 5) -join ',')") }
+  [pscustomobject]@{ Pass = $true; Branch = '(i)+(ii)+(iii)'; Detail = "deps_changed=none pregate=$Receipt tested=$Tested nondocs_diff=empty" } }
+if ($G3Tip -cne ([string]$q.tip).Trim().ToLowerInvariant()) { Log "G3 FAIL reason=operator_tip_ne_qualification_json"; NoGo 'G3 FAIL: the supplied qualified tip is not qualification.json tip' }
+$G3 = Test-G3Gate $Head $G3Tip $G3Receipt $G3Tested $G3Py
+if (-not $G3.Pass) { Log "G3 FAIL reason=$($G3.Detail) head=$Head tip=$G3Tip"; NoGo "G3 FAIL: $($G3.Detail) (deterministic; B-R, never a retry)" }
 # Q12b: a capture-family task (N12) holds the venv like the 88a worker; it must be quiesced at C2 under a recorded choice
 $FamilyTasks = @(Get-ScheduledTask -TaskName 'WeatherMakerEvidence*' -ErrorAction SilentlyContinue | Where-Object { $_.TaskName -ne 'WeatherMakerEvidenceCapture' } | ForEach-Object { $_.TaskName })
 Log "capture-family tasks: $($FamilyTasks -join ',')"
@@ -1080,6 +1111,7 @@ $Exempt = @('WeatherMemoryCommitGuard','WeatherSnapshotLoopSupervisor','WeatherC
           @(Get-Content -LiteralPath "$R\aux-tasks.txt" | Where-Object { $_.Trim() })
 Get-ScheduledTask | Where-Object { [string]$_.State -ne 'Disabled' -and $Exempt -notcontains $_.TaskName } | ForEach-Object { $i = Get-ScheduledTaskInfo $_
   if ($i.NextRunTime -and $i.NextRunTime -lt (Get-Date).Date.AddHours(4)) { "$($_.TaskName) next=$($i.NextRunTime)" } } | Tee-Object -FilePath "$R\c0-next-runs.txt"
+Log "G3 PASS branch=$($G3.Branch) $($G3.Detail)"   # (iii): printed only when every other C0 check above passed
 Log "C0 complete (status.ps1 exit $st0) - awaiting owner GO"
 ```
 
