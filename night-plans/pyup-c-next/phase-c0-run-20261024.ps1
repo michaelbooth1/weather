@@ -156,17 +156,19 @@ function Test-Venv($vpy, $root, $tag) {
 
 # ---- WRAPPER G3 gate (master ruling 2026-10-22 and its -G3Mode amendment; text verbatim in night-plans\pyup-c-next\README.md "G3"). Read-only git.
 # WRAPPER   -G3Mode is mandatory (strict|dependency, case-sensitive, no default); the owner's D1 answer picks it; C0 records it on the flag line.
-# WRAPPER   strict:     PASS only when HEAD equals the qualified tip (the rule before the ruling); else G3 FAIL reason=STRICT_HEAD_NE_TIP.
+# WRAPPER   strict:     the rule before the ruling, exactly as at 353167c0e:250-251: HEAD == tip is PASS; otherwise DEFER: C0 logs the
+# WRAPPER     original roll_verdict note and goes on, and the night proceeds only if the GO review attaches roll_verdict.ps1 exit 0 (ROLL-FREE)
+# WRAPPER     for that HEAD before writing the GO file (no ROLL-FREE = no GO = the attempt's preflight refuses: a deterministic gate, no retry).
 # WRAPPER   dependency: PASS when HEAD equals the tip, or (i) no dependency file differs tip..HEAD, (ii) the operator-supplied WS pregate PASS
 # WRAPPER     (receipt id + tested sha, Python 3.11.9 attested) tested a commit whose diff to HEAD is docs/*.md only, apart from exactly the two
 # WRAPPER     fleet-generated paths config/locations.json and config/location_market_events.json (no globbing), and (iii) the rest of C0 has no NO-GO
 # WRAPPER     (so the PASS line is printed only at the end of C0). A FAIL is a deterministic NO-GO: never retried.
 function Test-G3Gate([string]$Mode, [string]$Head, [string]$QualTip, [string]$Receipt, [string]$Tested, [string]$PyAttest) {   # WRAPPER
-  $wf = { param($r) [pscustomobject]@{ Pass = $false; Mode = $Mode; Branch = 'none'; Detail = $r } }   # WRAPPER
+  $wf = { param($r) [pscustomobject]@{ Pass = $false; Status = 'FAIL'; Mode = $Mode; Branch = 'none'; Detail = $r } }   # WRAPPER
   if (@('strict','dependency') -cnotcontains "$Mode") { return (& $wf 'g3mode_missing_or_invalid') }   # WRAPPER
   if ("$QualTip" -cnotmatch '^[0-9a-f]{40}$') { return (& $wf 'qualified_tip_not_supplied_as_40hex') }   # WRAPPER
-  if ($Head -ceq $QualTip) { return [pscustomobject]@{ Pass = $true; Mode = $Mode; Branch = 'HEAD==tip'; Detail = "tip=$QualTip" } }   # WRAPPER
-  if ($Mode -ceq 'strict') { return (& $wf 'STRICT_HEAD_NE_TIP') }   # WRAPPER
+  if ($Head -ceq $QualTip) { return [pscustomobject]@{ Pass = $true; Status = 'PASS'; Mode = $Mode; Branch = 'HEAD==tip'; Detail = "tip=$QualTip" } }   # WRAPPER
+  if ($Mode -ceq 'strict') { return [pscustomobject]@{ Pass = $true; Status = 'DEFER'; Mode = $Mode; Branch = 'HEAD!=tip'; Detail = 'requires=ROLL-FREE-at-GO-review' } }   # pre-ruling path: not a refusal here   # WRAPPER
   $wNames = @(git -C $P diff --name-only $QualTip $Head); if ($LASTEXITCODE) { return (& $wf 'diff_tip_head_failed') }   # WRAPPER
   $wDeps = @($wNames | Where-Object { $wLeaf = ("$_" -split '/')[-1]; $wLeaf -like 'requirements*' -or $wLeaf -like 'constraints*' -or $wLeaf -like '*.lock' -or $wLeaf -in 'pyproject.toml','setup.cfg','setup.py' })   # WRAPPER (i) any depth, unchanged
   if ($wDeps.Count) { return (& $wf "deps_changed=$(@($wDeps | Select-Object -First 5) -join ',')") }   # WRAPPER
@@ -182,16 +184,16 @@ function Test-G3Gate([string]$Mode, [string]$Head, [string]$QualTip, [string]$Re
   $wRest = @($wNd | Where-Object { $wFleet -cnotcontains "$_" })   # WRAPPER
   if ($wRest.Count) { return (& $wf "nondocs_diff=$($wRest.Count):$(@($wRest | Select-Object -First 5) -join ',')") }   # WRAPPER
   $wExS = if ($wEx.Count) { $wEx -join ',' } else { 'none' }   # WRAPPER
-  [pscustomobject]@{ Pass = $true; Mode = $Mode; Branch = '(i)+(ii)+(iii)'; Detail = "deps_changed=none pregate=$Receipt tested=$Tested nondocs_diff=empty fleet_drift_exempt=$wExS" } }   # WRAPPER
+  [pscustomobject]@{ Pass = $true; Status = 'PASS'; Mode = $Mode; Branch = '(i)+(ii)+(iii)'; Detail = "deps_changed=none pregate=$Receipt tested=$Tested nondocs_diff=empty fleet_drift_exempt=$wExS" } }   # WRAPPER
 # ---- WRAPPER C0. GO checks (verbatim)
 $q = Get-Content "$R\qualification.json" -Raw | ConvertFrom-Json; if ($q.result -ne 'PASS' -or $q.release_case -ne 'A') { NoGo 'not qualified for case A' }
 if (((Get-Content -LiteralPath "$R\q12.txt" -TotalCount 1) -split '\s+')[0] -ne 'STOP_AUTHORIZED') { NoGo 'Q12 not recorded as STOP_AUTHORIZED (G8)' }
 $GapChoice = Get-GapChoice; Log "gap-overrun choice: $GapChoice"
 Assert-NoU6At0035 'C0'     # enforced here, not left to the C0 next-runs exemption of the aux list
 $Head = (git -C $P rev-parse HEAD).Trim()
-if ($G3QualifiedTip -cne ([string]$q.tip).Trim().ToLowerInvariant()) { Log "G3 FAIL reason=operator_tip_ne_qualification_json supplied=$G3QualifiedTip qualification=$($q.tip)"; NoGo 'G3 FAIL: the operator-supplied qualified tip is not qualification.json tip' }   # WRAPPER 10-24 (replaces the roll_verdict G3 log line; master ruling)
-$G3 = Test-G3Gate $G3Mode $Head $G3QualifiedTip $G3PregateReceipt $G3TestedSha $G3PregatePython   # WRAPPER 10-24
-if (-not $G3.Pass -and $G3.Detail -ceq 'STRICT_HEAD_NE_TIP') { Log "HEAD moved from the qualified tip; G3 needs roll_verdict.ps1 -Branch $Head -Base $($q.tip) exit 0 (ROLL-FREE) attached before GO, else B-R" }   # WRAPPER 10-24 strict-mode hint: the pre-ruling kit line, verbatim
+if ($G3Mode -ceq 'dependency' -and $G3QualifiedTip -cne ([string]$q.tip).Trim().ToLowerInvariant()) { Log "G3 FAIL reason=operator_tip_ne_qualification_json supplied=$G3QualifiedTip qualification=$($q.tip)"; NoGo 'G3 FAIL: the operator-supplied qualified tip is not qualification.json tip' }   # WRAPPER 10-24 (replaces the roll_verdict G3 log line; master ruling)
+$G3 = Test-G3Gate $G3Mode $Head $(if ($G3Mode -ceq 'strict') { ([string]$q.tip).Trim().ToLowerInvariant() } else { $G3QualifiedTip }) $G3PregateReceipt $G3TestedSha $G3PregatePython   # WRAPPER 10-24
+if ($G3.Status -ceq 'DEFER') { Log "HEAD moved from the qualified tip; G3 needs roll_verdict.ps1 -Branch $Head -Base $($q.tip) exit 0 (ROLL-FREE) attached before GO, else B-R" }   # WRAPPER 10-24 strict mode: the 353167c0e:251 line, verbatim
 if (-not $G3.Pass) { Log "G3 FAIL reason=$($G3.Detail) mode=$G3Mode head=$Head tip=$G3QualifiedTip"; NoGo "G3 FAIL: $($G3.Detail) (deterministic; B-R per the ruling, never a retry)" }   # WRAPPER 10-24
 # Q12b: a capture-family task (N12) holds the venv like the 88a worker; it must be quiesced at C2 under a recorded choice
 $FamilyTasks = @(Get-ScheduledTask -TaskName 'WeatherMakerEvidence*' -ErrorAction SilentlyContinue | Where-Object { $_.TaskName -ne 'WeatherMakerEvidenceCapture' } | ForEach-Object { $_.TaskName })
@@ -219,14 +221,14 @@ $Exempt = @('WeatherMemoryCommitGuard','WeatherSnapshotLoopSupervisor','WeatherC
 Get-ScheduledTask | Where-Object { [string]$_.State -ne 'Disabled' -and $Exempt -notcontains $_.TaskName } | ForEach-Object { $i = Get-ScheduledTaskInfo $_
   if ($i.NextRunTime -and $i.NextRunTime -lt (Get-Date).Date.AddHours(4)) { "$($_.TaskName) next=$($i.NextRunTime)" } } | Tee-Object -FilePath "$R\c0-next-runs.txt"
 $wr = Get-ScheduledTask -TaskName WeatherTrainingWindowRestore; if ([string]$wr.State -eq 'Disabled' -or -not @($wr.Triggers | Where-Object { [string]$_.StartBoundary -match 'T04:15' -and $_.Enabled }).Count) { NoGo 'WeatherTrainingWindowRestore (04:15 net) is not armed' }   # WRAPPER Fable 10-20 #5
-Log "G3 PASS mode=$($G3.Mode) branch=$($G3.Branch) $($G3.Detail)"   # WRAPPER 10-24 (iii): printed only when every other C0 check passed
+Log "G3 $($G3.Status) mode=$($G3.Mode) branch=$($G3.Branch) $($G3.Detail)"   # WRAPPER 10-24 (iii): printed only when every other C0 check passed
 Log "C0 complete (status.ps1 exit $st0) - awaiting owner GO"
 
 # ---- WRAPPER end of C0: flag + operator check
 $wNextRuns = @(if (Test-Path -LiteralPath "$R\c0-next-runs.txt") { Get-Content -LiteralPath "$R\c0-next-runs.txt" | Where-Object { "$_".Trim() } })   # WRAPPER
 Log "WRAPPER: c0-next-runs.txt has $($wNextRuns.Count) line(s) (must be empty, else the task goes to the owner)"   # WRAPPER
-Log "OPERATOR CHECK: owner GO point. Master reviews $R\c0-status.out.txt (capture 3/3, no unaccepted FLAG), $R\c0-status-flags.txt (the C8/C9c baseline), $R\c0-next-runs.txt (must be empty), the G3 PASS mode=... branch=... line above (10-24 master ruling; no roll_verdict for G3), G5/G7/G8/G11; the owner's GO goes in C:\pyup\cp3119\owner-go-20261024.txt (first token GO)."   # WRAPPER
-Set-Content -LiteralPath 'C:\pyup\cp3119\c0-done-20261024.flag' -Value @("C0 PASS head=$Head at=$(Get-Date -Format o)", ("G3 mode={5} branch={0} tip={1} pregate={2} tested={3} py={4}" -f $G3.Branch, $G3QualifiedTip, $(if ($G3PregateReceipt) { $G3PregateReceipt } else { 'none' }), $(if ($G3TestedSha) { $G3TestedSha } else { 'none' }), $(if ($G3PregatePython) { $G3PregatePython } else { 'none' }), $G3Mode)) -Encoding ascii   # WRAPPER (10-24: line 2 = the G3 operator values the C wrapper re-checks)
+Log "OPERATOR CHECK: owner GO point. Master reviews $R\c0-status.out.txt (capture 3/3, no unaccepted FLAG), $R\c0-status-flags.txt (the C8/C9c baseline), $R\c0-next-runs.txt (must be empty), the G3 PASS|DEFER mode=... branch=... line above (10-24 master ruling; on G3 DEFER mode=strict branch=HEAD!=tip also the G3 output of roll_verdict.ps1 -Branch $Head -Base $($q.tip) (must exit 0, ROLL-FREE), else no GO), G5/G7/G8/G11; the owner's GO goes in C:\pyup\cp3119\owner-go-20261024.txt (first token GO)."   # WRAPPER
+Set-Content -LiteralPath 'C:\pyup\cp3119\c0-done-20261024.flag' -Value @("C0 PASS head=$Head at=$(Get-Date -Format o)", ("G3 mode={5} branch={0} tip={1} pregate={2} tested={3} py={4}" -f $G3.Branch, $(if ($G3QualifiedTip) { $G3QualifiedTip } else { 'none' }), $(if ($G3PregateReceipt) { $G3PregateReceipt } else { 'none' }), $(if ($G3TestedSha) { $G3TestedSha } else { 'none' }), $(if ($G3PregatePython) { $G3PregatePython } else { 'none' }), $G3Mode)) -Encoding ascii   # WRAPPER (10-24: line 2 = the G3 operator values the C wrapper re-checks)
 Log 'PHASE-C0 DONE flag written'   # WRAPPER
 } catch { Write-Host "PHASE-C0 STOPPED: $($_.Exception.Message)"; try { Log "PHASE-C0 STOPPED: $($_.Exception.Message)" } catch {}; try { $global:ReleaseOnNoGo = $false; Release-Lease } catch { Write-Host "Release-Lease failed: $($_.Exception.Message)" }; Stop-Transcript | Out-Null; exit 1 }   # WRAPPER
 Stop-Transcript | Out-Null   # WRAPPER

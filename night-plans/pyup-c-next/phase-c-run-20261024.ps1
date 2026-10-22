@@ -308,17 +308,19 @@ function Test-Venv($vpy, $root, $tag) {
 
 # ---- WRAPPER G3 gate (master ruling 2026-10-22 and its -G3Mode amendment; text verbatim in night-plans\pyup-c-next\README.md "G3"). Read-only git.
 # WRAPPER   -G3Mode is mandatory (strict|dependency, case-sensitive, no default); the owner's D1 answer picks it; C0 records it on the flag line.
-# WRAPPER   strict:     PASS only when HEAD equals the qualified tip (the rule before the ruling); else G3 FAIL reason=STRICT_HEAD_NE_TIP.
+# WRAPPER   strict:     the rule before the ruling, exactly as at 353167c0e:250-251: HEAD == tip is PASS; otherwise DEFER: C0 logs the
+# WRAPPER     original roll_verdict note and goes on, and the night proceeds only if the GO review attaches roll_verdict.ps1 exit 0 (ROLL-FREE)
+# WRAPPER     for that HEAD before writing the GO file (no ROLL-FREE = no GO = the attempt's preflight refuses: a deterministic gate, no retry).
 # WRAPPER   dependency: PASS when HEAD equals the tip, or (i) no dependency file differs tip..HEAD, (ii) the operator-supplied WS pregate PASS
 # WRAPPER     (receipt id + tested sha, Python 3.11.9 attested) tested a commit whose diff to HEAD is docs/*.md only, apart from exactly the two
 # WRAPPER     fleet-generated paths config/locations.json and config/location_market_events.json (no globbing), and (iii) the rest of C0 has no NO-GO
 # WRAPPER     (so the PASS line is printed only at the end of C0). A FAIL is a deterministic NO-GO: never retried.
 function Test-G3Gate([string]$Mode, [string]$Head, [string]$QualTip, [string]$Receipt, [string]$Tested, [string]$PyAttest) {   # WRAPPER
-  $wf = { param($r) [pscustomobject]@{ Pass = $false; Mode = $Mode; Branch = 'none'; Detail = $r } }   # WRAPPER
+  $wf = { param($r) [pscustomobject]@{ Pass = $false; Status = 'FAIL'; Mode = $Mode; Branch = 'none'; Detail = $r } }   # WRAPPER
   if (@('strict','dependency') -cnotcontains "$Mode") { return (& $wf 'g3mode_missing_or_invalid') }   # WRAPPER
   if ("$QualTip" -cnotmatch '^[0-9a-f]{40}$') { return (& $wf 'qualified_tip_not_supplied_as_40hex') }   # WRAPPER
-  if ($Head -ceq $QualTip) { return [pscustomobject]@{ Pass = $true; Mode = $Mode; Branch = 'HEAD==tip'; Detail = "tip=$QualTip" } }   # WRAPPER
-  if ($Mode -ceq 'strict') { return (& $wf 'STRICT_HEAD_NE_TIP') }   # WRAPPER
+  if ($Head -ceq $QualTip) { return [pscustomobject]@{ Pass = $true; Status = 'PASS'; Mode = $Mode; Branch = 'HEAD==tip'; Detail = "tip=$QualTip" } }   # WRAPPER
+  if ($Mode -ceq 'strict') { return [pscustomobject]@{ Pass = $true; Status = 'DEFER'; Mode = $Mode; Branch = 'HEAD!=tip'; Detail = 'requires=ROLL-FREE-at-GO-review' } }   # pre-ruling path: not a refusal here   # WRAPPER
   $wNames = @(git -C $P diff --name-only $QualTip $Head); if ($LASTEXITCODE) { return (& $wf 'diff_tip_head_failed') }   # WRAPPER
   $wDeps = @($wNames | Where-Object { $wLeaf = ("$_" -split '/')[-1]; $wLeaf -like 'requirements*' -or $wLeaf -like 'constraints*' -or $wLeaf -like '*.lock' -or $wLeaf -in 'pyproject.toml','setup.cfg','setup.py' })   # WRAPPER (i) any depth, unchanged
   if ($wDeps.Count) { return (& $wf "deps_changed=$(@($wDeps | Select-Object -First 5) -join ',')") }   # WRAPPER
@@ -334,7 +336,7 @@ function Test-G3Gate([string]$Mode, [string]$Head, [string]$QualTip, [string]$Re
   $wRest = @($wNd | Where-Object { $wFleet -cnotcontains "$_" })   # WRAPPER
   if ($wRest.Count) { return (& $wf "nondocs_diff=$($wRest.Count):$(@($wRest | Select-Object -First 5) -join ',')") }   # WRAPPER
   $wExS = if ($wEx.Count) { $wEx -join ',' } else { 'none' }   # WRAPPER
-  [pscustomobject]@{ Pass = $true; Mode = $Mode; Branch = '(i)+(ii)+(iii)'; Detail = "deps_changed=none pregate=$Receipt tested=$Tested nondocs_diff=empty fleet_drift_exempt=$wExS" } }   # WRAPPER
+  [pscustomobject]@{ Pass = $true; Status = 'PASS'; Mode = $Mode; Branch = '(i)+(ii)+(iii)'; Detail = "deps_changed=none pregate=$Receipt tested=$Tested nondocs_diff=empty fleet_drift_exempt=$wExS" } }   # WRAPPER
 # ---- WRAPPER C0 re-run (read-only) to re-derive $q, $GapChoice, $Head, $ra0, $st0, $Exempt in this session; keep the GO-reviewed receipts first
 $WStep = 'C0'; Write-WMark 'C0'   # WRAPPER (10-24 marker)
 $WRev = Join-Path $R 'c0-go-reviewed-20261024'; New-Item -ItemType Directory -Force $WRev | Out-Null   # WRAPPER 10-24 dated: a 10-22 copy must never stand in for tonight's GO review
@@ -348,9 +350,9 @@ if (((Get-Content -LiteralPath "$R\q12.txt" -TotalCount 1) -split '\s+')[0] -ne 
 $GapChoice = Get-GapChoice; Log "gap-overrun choice: $GapChoice"
 Assert-NoU6At0035 'C0'     # enforced here, not left to the C0 next-runs exemption of the aux list
 $Head = (git -C $P rev-parse HEAD).Trim()
-if ($WG3Tip -cne ([string]$q.tip).Trim().ToLowerInvariant()) { Log "G3 FAIL reason=operator_tip_ne_qualification_json supplied=$WG3Tip qualification=$($q.tip)"; $script:WGate = 'G3'; NoGo 'G3 FAIL: the operator-supplied qualified tip is not qualification.json tip' }   # WRAPPER 10-24 (replaces the roll_verdict G3 log line; master ruling)
-$G3 = Test-G3Gate $WG3Mode $Head $WG3Tip $WG3Receipt $WG3Tested $WG3Py   # WRAPPER 10-24 same values C0 recorded
-if (-not $G3.Pass -and $G3.Detail -ceq 'STRICT_HEAD_NE_TIP') { Log "HEAD moved from the qualified tip; G3 needs roll_verdict.ps1 -Branch $Head -Base $($q.tip) exit 0 (ROLL-FREE) attached before GO, else B-R" }   # WRAPPER 10-24 strict-mode hint: the pre-ruling kit line, verbatim
+if ($WG3Mode -ceq 'dependency' -and $WG3Tip -cne ([string]$q.tip).Trim().ToLowerInvariant()) { Log "G3 FAIL reason=operator_tip_ne_qualification_json supplied=$WG3Tip qualification=$($q.tip)"; $script:WGate = 'G3'; NoGo 'G3 FAIL: the operator-supplied qualified tip is not qualification.json tip' }   # WRAPPER 10-24 (replaces the roll_verdict G3 log line; master ruling)
+$G3 = Test-G3Gate $WG3Mode $Head $(if ($WG3Mode -ceq 'strict') { ([string]$q.tip).Trim().ToLowerInvariant() } else { $WG3Tip }) $WG3Receipt $WG3Tested $WG3Py   # WRAPPER 10-24 same values C0 recorded
+if ($G3.Status -ceq 'DEFER') { Log "HEAD moved from the qualified tip; G3 needs roll_verdict.ps1 -Branch $Head -Base $($q.tip) exit 0 (ROLL-FREE) attached before GO, else B-R" }   # WRAPPER 10-24 strict mode: the 353167c0e:251 line, verbatim
 if (-not $G3.Pass) { Log "G3 FAIL reason=$($G3.Detail) mode=$WG3Mode head=$Head tip=$WG3Tip"; $script:WGate = 'G3'; NoGo "G3 FAIL: $($G3.Detail) (deterministic; B-R per the ruling, never a retry)" }   # WRAPPER 10-24
 # Q12b: a capture-family task (N12) holds the venv like the 88a worker; it must be quiesced at C2 under a recorded choice
 $FamilyTasks = @(Get-ScheduledTask -TaskName 'WeatherMakerEvidence*' -ErrorAction SilentlyContinue | Where-Object { $_.TaskName -ne 'WeatherMakerEvidenceCapture' } | ForEach-Object { $_.TaskName })
@@ -377,7 +379,7 @@ $Exempt = @('WeatherMemoryCommitGuard','WeatherSnapshotLoopSupervisor','WeatherC
           @(Get-Content -LiteralPath "$R\aux-tasks.txt" | Where-Object { $_.Trim() })
 Get-ScheduledTask | Where-Object { [string]$_.State -ne 'Disabled' -and $Exempt -notcontains $_.TaskName } | ForEach-Object { $i = Get-ScheduledTaskInfo $_
   if ($i.NextRunTime -and $i.NextRunTime -lt (Get-Date).Date.AddHours(4)) { "$($_.TaskName) next=$($i.NextRunTime)" } } | Tee-Object -FilePath "$R\c0-next-runs.txt"
-Log "G3 PASS mode=$($G3.Mode) branch=$($G3.Branch) $($G3.Detail)"   # WRAPPER 10-24 (iii): every other C0 check passed in this re-run
+Log "G3 $($G3.Status) mode=$($G3.Mode) branch=$($G3.Branch) $($G3.Detail)"   # WRAPPER 10-24 (iii): every other C0 check passed in this re-run
 Log "C0 complete (status.ps1 exit $st0) - awaiting owner GO"
 # ---- WRAPPER post-C0 checks: the GO was given on the C0 run's HEAD, baseline and next-runs; anything new since then goes back to the owner (exit 4, nothing touched)
 if ($Head -ne $WFlagHead) { Log "OPERATOR CHECK: HEAD $Head differs from the GO-reviewed C0 HEAD $WFlagHead (the roll verdict covered the latter); nothing touched"; Exit-Wrapper 4 }   # WRAPPER
