@@ -1,6 +1,8 @@
 """Per-model training column allowlist (retrain R0 prerequisite).
 
 Fixtures are built in-test; nothing here reads LFS artifacts.
+
+Guards: retrain R0 train/serve column parity (a refit uses only the served model's feature columns).
 """
 
 from __future__ import annotations
