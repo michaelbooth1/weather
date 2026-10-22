@@ -16,16 +16,22 @@ A folder is reused only when every input that ``build_label`` reads is proved
 unchanged against a per-folder entry in the finalize index written by an
 earlier run of this step:
 
-* the snapshot tape (size and mtime, falling back to SHA-256 on any change);
+* the snapshot tape's SHA-256 (size and mtime only decide whether to re-hash;
+  a byte-identical rewrite is reused);
 * the daily-summary path and its normalized row for the folder's target date
   (a late WU correction changes that row and forces a re-finalize);
 * the market spec (``repr`` of the registry entry plus its resolution spec);
+* the resolved ledger root;
 * the label-logic key: the source bytes of the modules that compute a label,
   the ledger schema version, the coverage interval and tolerance, and
   ``INCREMENTAL_FINALIZE_LOGIC_VERSION``;
 * the folder's ``settlement.json`` still carries the revision this index
   recorded (no other finalize path has written it since);
-* the recorded reconciliation is terminal: ``match`` on a closed event;
+* the ledger, which is the source of truth, agrees: its current revision for
+  the slug is the sidecar's, and the sidecar's content hashes to the recorded
+  ``label_hash`` (a truncated ledger or a hand-edited sidecar re-finalizes);
+* the recorded reconciliation is terminal: ``match`` on a closed event with a
+  matching winner that is UMA-resolved or priced at 0.999 or above;
 * no manual override applies to the folder;
 * the target date is older than the recheck window.
 
@@ -147,18 +153,21 @@ def _read_sidecar(folder):
 
 
 def _tape_identity(tape, previous):
+    """Return ``(sha256, stat)`` for the tape.
+
+    Only the SHA-256 is compared; size and mtime are a fast path that skips
+    re-hashing an untouched tape. A byte-identical rewrite (new mtime) is
+    re-hashed, matches, and is reused.
+    """
+
     stat = tape.stat()
-    identity = {"size": int(stat.st_size), "mtime_ns": int(stat.st_mtime_ns)}
-    prior = (previous or {}).get("tape") or {}
-    if (
-        prior.get("size") == identity["size"]
-        and prior.get("mtime_ns") == identity["mtime_ns"]
-        and prior.get("sha256")
-    ):
-        identity["sha256"] = prior["sha256"]
-    else:
-        identity["sha256"] = settlement_ledger.file_sha256(tape)
-    return identity
+    tape_stat = {"size": int(stat.st_size), "mtime_ns": int(stat.st_mtime_ns)}
+    previous = previous or {}
+    prior_stat = previous.get("tape_stat") or {}
+    prior_sha = (previous.get("key") or {}).get("tape_sha256")
+    if prior_sha and prior_stat == tape_stat:
+        return prior_sha, tape_stat
+    return settlement_ledger.file_sha256(tape), tape_stat
 
 
 class _SummaryCache:
@@ -173,25 +182,46 @@ class _SummaryCache:
         return settlement_ledger.normalize_summary(self._by_path[key].get(iso))
 
 
-def folder_input_key(folder, *, daily_summary_path, overrides, logic_key, summaries, previous=None):
-    """Return ``(key, reason)``; ``key`` is None when the folder must not be reused."""
+class _LedgerCache:
+    """Reads each market's ledger.jsonl once per planning pass."""
+
+    def __init__(self, ledger_root):
+        self.root = settlement_ledger.resolve_ledger_root(ledger_root)
+        self._rows_by_market = {}
+
+    def current(self, slug):
+        spec = spec_for_slug(slug)
+        if spec is None:
+            return None
+        if spec.id not in self._rows_by_market:
+            self._rows_by_market[spec.id] = settlement_ledger.read_jsonl(
+                settlement_ledger.ledger_path_for_market(spec.id, self.root)
+            )
+        return settlement_ledger.current_ledger_label(self._rows_by_market[spec.id], slug)
+
+
+def folder_input_key(
+    folder, *, daily_summary_path, overrides, logic_key, summaries, ledger_root, previous=None
+):
+    """Return ``(key, tape_stat, reason)``; ``key`` is None when the folder must not be reused."""
 
     folder = Path(folder)
     tape = folder / "snapshots_long.csv"
     if not tape.exists():
-        return None, "no_tape"
+        return None, None, "no_tape"
     slug = folder.name
     spec = spec_for_slug(slug)
     target_date = date_from_event_slug(slug)
     if spec is None or target_date is None:
-        return None, "unregistered_slug"
+        return None, None, "unregistered_slug"
     if settlement_ledger.override_bucket(overrides or {}, spec, target_date, slug) is not None:
-        return None, "override_applies"
+        return None, None, "override_applies"
     summary_path = (
         Path(daily_summary_path)
         if daily_summary_path
         else settlement_ledger.daily_summary_path_for_spec(spec)
     )
+    tape_sha256, tape_stat = _tape_identity(tape, previous)
     key = {
         "logic_key": logic_key,
         "spec_sha256": _canonical(
@@ -199,16 +229,49 @@ def folder_input_key(folder, *, daily_summary_path, overrides, logic_key, summar
         ),
         "daily_summary_path": str(summary_path),
         "summary_row_sha256": _canonical(summaries.row(summary_path, target_date)),
-        "tape": _tape_identity(tape, previous),
+        "ledger_root": str(settlement_ledger.resolve_ledger_root(ledger_root)),
+        "tape_sha256": tape_sha256,
     }
-    return key, None
+    return key, tape_stat, None
 
 
 def _reconciliation_terminal(label):
+    """``match`` on a closed event whose matching winner is actually resolved.
+
+    ``polymarket_winning_markets`` admits a winner on ``closed`` with a Yes
+    price above 0.5, so a closed but unresolved event priced 0.6/0.4 can read
+    as a ``match``. That is provisional and must be re-fetched.
+    """
+
     reconciliation = label.get("polymarket_reconciliation") or {}
-    return bool(
+    if not (
         label.get("reconciliation_status") in TERMINAL_RECONCILIATION_STATUSES
         and reconciliation.get("event_closed") is True
+    ):
+        return False
+    for market in reconciliation.get("matching_winning_markets") or []:
+        if not isinstance(market, dict):
+            continue
+        yes_price = settlement_ledger.safe_float(market.get("yes_price"))
+        if market.get("resolved") is True or (yes_price is not None and yes_price >= 0.999):
+            return True
+    return False
+
+
+def _sidecar_matches_ledger(sidecar, current):
+    """The sidecar is the current ledger revision, byte-for-byte in content.
+
+    The ledger is the source of truth: the sidecar must carry the ledger's
+    current revision id, and its label content must hash to both its own
+    recorded ``label_hash`` and the ledger row's (a hand edit breaks either).
+    """
+
+    if current is None or current.get("revision_id") != sidecar.get("revision_id"):
+        return False
+    content_hash = settlement_ledger._canonical_sha256(settlement_ledger._label_payload(sidecar))
+    return (
+        content_hash == sidecar.get("label_hash")
+        and content_hash == settlement_ledger._label_hash(current)
     )
 
 
@@ -220,6 +283,7 @@ def plan_incremental_finalize(
     overrides,
     interval_minutes,
     gap_tolerance,
+    ledger_root=None,
     recheck_days=DEFAULT_RECHECK_DAYS,
     today=None,
     force_full=False,
@@ -227,28 +291,31 @@ def plan_incremental_finalize(
     """Split ``folders`` into ``(to_finalize, reused, keys, reasons)``.
 
     ``reused`` maps folder path to its current ``settlement.json`` label.
-    ``keys`` holds the input key of every folder that has one, computed before
-    finalization so the index records the inputs the label was built from.
+    ``keys`` maps folder path to ``{"key", "tape_stat"}`` for every folder that
+    has a key, computed before finalization so the index records the inputs
+    the label was built from.
     """
 
     today = today or datetime.now(TORONTO_TZ).date()
     recheck_floor = today - timedelta(days=max(0, int(recheck_days)))
     logic_key = label_logic_key(interval_minutes, gap_tolerance)
     summaries = _SummaryCache()
+    ledgers = _LedgerCache(ledger_root)
     to_finalize, reused, keys, reasons = [], {}, {}, {}
     for folder in folders:
         folder = Path(folder)
         previous = index.get(folder.name)
-        key, reason = folder_input_key(
+        key, tape_stat, reason = folder_input_key(
             folder,
             daily_summary_path=daily_summary_path,
             overrides=overrides,
             logic_key=logic_key,
             summaries=summaries,
+            ledger_root=ledger_root,
             previous=previous,
         )
         if key is not None:
-            keys[str(folder)] = key
+            keys[str(folder)] = {"key": key, "tape_stat": tape_stat}
         target_date = date_from_event_slug(folder.name)
         sidecar = _read_sidecar(folder)
         if reason is None and force_full:
@@ -266,6 +333,8 @@ def plan_incremental_finalize(
             or sidecar.get("label_hash") != previous.get("label_hash")
         ):
             reason = "sidecar_revision_changed"
+        if reason is None and not _sidecar_matches_ledger(sidecar, ledgers.current(folder.name)):
+            reason = "ledger_disagrees"
         if reason is None and not _reconciliation_terminal(sidecar):
             reason = "reconciliation_not_terminal"
         if reason is None:
@@ -282,9 +351,10 @@ def build_finalize_index(folders, *, keys, labels_by_slug, reused, previous_inde
     entries = {}
     for folder in folders:
         folder = Path(folder)
-        key = keys.get(str(folder))
-        if key is None:
+        identity = keys.get(str(folder))
+        if identity is None:
             continue
+        key = identity["key"]
         label = labels_by_slug.get(folder.name)
         if label is None and str(folder) in reused:
             label = reused[str(folder)]
@@ -295,6 +365,7 @@ def build_finalize_index(folders, *, keys, labels_by_slug, reused, previous_inde
             continue
         entries[folder.name] = {
             "key": key,
+            "tape_stat": identity["tape_stat"],
             "revision_id": label.get("revision_id"),
             "label_hash": label.get("label_hash"),
         }
@@ -349,6 +420,7 @@ def finalize_incrementally(
         overrides=overrides,
         interval_minutes=interval_minutes,
         gap_tolerance=gap_tolerance,
+        ledger_root=ledger_root,
         recheck_days=recheck_days,
         today=today,
         force_full=force_full,
