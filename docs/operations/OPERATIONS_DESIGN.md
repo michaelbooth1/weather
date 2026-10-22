@@ -535,6 +535,19 @@ JSON and nightly retrain status
 publish by atomic replacement, so containment teardown cannot expose a
 partially written status document.
 
+Stage A also publishes a **checkpoint** after every step, because the wrapper's
+11:55 teardown kills the child before the end-of-run writes. The checkpoint
+rewrites the Markdown report and the Stage-A manifest from the running payload:
+manifest `status` is `RUNNING` (never `COMPLETED`), `completed_at_utc` is empty,
+`completed_steps` lists only steps that ran, no `evidence_trigger` is written,
+and a `checkpoint` block names the last step (`after_step`, `written_at_utc`,
+`final: false`). Every consumer that needs `COMPLETED` (the Stage-B start gate,
+the production-evidence ledger) therefore still fails closed, now with
+`stage_a_not_completed` for the current target instead of
+`stale_stage_a_manifest`. The end-of-run publication replaces it and carries no
+`checkpoint` block. Checkpoints are best effort and never fail the run; bounded
+recovery slices, dry runs and unsplit (`all`) runs do not write them.
+
 ### Settlement in the chain: what it does and does not do
 
 The step order is `STEP_REGISTRY` in `src/weather/operations/daily_refresh_registry.py`; Stage A is every step
@@ -549,6 +562,21 @@ through `fleet_observability`, Stage B starts at `promotion_refresh`. Facts that
   five, behind three learning-lane steps (`reanalysis_recent_refresh`, `ingest_quality_gate`,
   `event_metadata_validation`) that have nothing to do with settlement. A global hard stop in one of those
   (physical-resource deferral, isolated-child failure) ends the run before settlement is attempted.
+- **Finalization is incremental.** On the default discovered folder set with Polymarket reconciliation on,
+  `market_day_labels_finalize` re-finalizes only folders a full run could change and reuses the rest
+  (`src/weather/operations/daily_refresh_incremental_finalize.py`; its docstring owns the exact reuse predicate).
+  A folder is reused only when its tape (size/mtime, else SHA-256), its daily-summary path and target-date row,
+  its market spec, the label-logic key (source bytes of the label modules plus the ledger schema, coverage
+  interval/tolerance and `INCREMENTAL_FINALIZE_LOGIC_VERSION`) all match the entry recorded in
+  `market_day_labels_finalize_index.json` beside the labels CSV, its `settlement.json` still carries the recorded
+  revision, its reconciliation is `match` on a closed event, no `--settle` override applies, and its target date
+  is older than `--finalize-recheck-days` (default 3). Reused folders get no Gamma request and no new ledger
+  revision; their existing `settlement.json` label feeds the CSV and the step summary. A full run would differ
+  only in revision metadata and `finalized_at_utc` (`VOLATILE_LABEL_COLUMNS`), which it rewrites every pass
+  without any input change. `--finalize-full` restores the full rebuild and re-seeds the index; an explicit
+  `--folders` list or `--skip-polymarket-reconciliation` keeps the original direct call. The step result reports
+  `finalize_mode` and `finalize_plan` (finalized, reused and per-reason re-finalize counts). The first run after
+  landing has no index and costs one full pass.
 - **The commit gate is relative to the live commit limit.** Stage A refuses above
   `DEFAULT_STAGE_A_MAX_COMMIT_PERCENT` (70, `daily_refresh_resources.py`; the CLI may only lower it) of the
   host's *current* commit limit, which moves with pagefile size. Never reason from a remembered limit. Read the
