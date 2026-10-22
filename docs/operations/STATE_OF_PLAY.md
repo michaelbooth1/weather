@@ -45,7 +45,7 @@ views (owner 10-19). Plan: [informed maker design](informed-maker-design-2026-09
   restored. Fix: runbook `claude/pyup-c2-enabled-check-20261022` (light path 10-23), kit `claude/night-plans-pyup-c-next-20261022`.
   **Next C night: owner** (GO, escalation, G0): 10-26/27 with D0 ~10-28 (amendment (s-C)) or after 12-21. ([runbook](HOST_PYTHON_UPGRADE_RUNBOOK.md))
 - **Unregistered until C passes:** `WeatherMakerEvidenceLowestTemperature`, `WeatherEvidenceHost` (S4, owner yes 10-16),
-  U6 replay-bundle export (owner yes 10-15). S2+S9 lands 10-24/25 from `f956f4159`; its 88a restart is 10-25/26 00:30-01:00 (restart script, never re-register).
+  U6 replay-bundle export (owner yes 10-15). S2+S9 lands 10-24/25 from `f956f4159`; 88a restart: the C night under Option 1, else 10-25/26 via the restart script (never re-register); owner's choice (Q5).
 - **LFC:** session 0 ATTESTED 10-16; backlogged 10-19; pin `21cf1ed42` idle ([record](../research/live-fill-calibration-session0-record-2026-10-16.md)).
 - **Build line** `codex/maker-replay-v2-build-20261003` = `1fd0c295f`; the export nightly stays unregistered.
 - **Maker replay v2** (panel 09-30..10-14 never read): spec v3.4; handout r1 signed 10-12; parked; lapse 10-30 (owner 10-15).
