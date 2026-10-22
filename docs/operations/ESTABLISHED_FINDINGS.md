@@ -3938,6 +3938,13 @@ was read.
   fixed-offset labels as label − offset in UTC (`weather.time.provider_hourly_local_times`) on the live served
   fetchers only; training readers are unchanged, pending master's decision. Host `roll_verdict.ps1`: ROLL-SENSITIVE;
   landing is the owner's call.
+- **Training readers (measured, 2026-10-21):** branch `claude/dst-training-readers-fix-20261021` at
+  `a399941e32932c3ac3704fad3984cc673d608c70` (held until after 2026-12-21, behind the fix above) re-reads the 4,786
+  stored reanalysis payloads (dates ≤ 2026-09-29). On standard-time dates nearly every hour label shifts and the daily
+  max changes on 0.7% (Los Angeles) to 17.4% (Chicago) of days, largest 11.4 °F; `reanalysis_prev_day_avg_temp`,
+  the pressure features and the `heat_anomaly` features change on ~97–99% of standard-time days, `min_temp` on 22%,
+  `max_temp` on 8%, and `source_reanalysis_bias` reads the same max. **Any past research that used reanalysis-derived
+  features over Nov–Mar dates is affected.** Served headline features are unaffected (they do not read reanalysis).
 - **Not claimed:** no measured live payload across a DST change; no forecast-skill effect; nothing about the size of
   the training-label shift's effect on any fitted model.
 - **Relation to other records:** the same provider behaviour explains the §1m calendar-extension note (standard-time
