@@ -1564,12 +1564,3 @@ read-only, nothing is executed):
 ```text
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\ops\check_markdown_powershell_fences.ps1 -Path 'docs\operations\HOST_PYTHON_UPGRADE_RUNBOOK.md;<night-plans folder>'
 ```
-
-The Phase C kit, `night-plans/undated/pyup-phase-c/` (2026-10-22), is generated from §6, B1c, B1d and Phase C of
-this file. After any change there, regenerate it and check it (stdlib only; it reads this file and writes only the
-kit; `PHASE-C.md` in the kit lists the remaining parse checks):
-
-```text
-.\venv\Scripts\python.exe -I night-plans\undated\pyup-phase-c\make_kit.py
-.\venv\Scripts\python.exe -I night-plans\undated\pyup-phase-c\make_kit.py --check
-```
