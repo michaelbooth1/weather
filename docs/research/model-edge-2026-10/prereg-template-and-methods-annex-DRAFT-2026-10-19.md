@@ -284,6 +284,12 @@ mismatch, and M5.1 item 2 and M8 then VOID every later row. Amended code identit
   to 12-21, docs included, or the later rows are VOID. Operationally: no DST follow-ups (the 11-01 transition and
   its fixes), no S2+S9 (88a recorder) after the freeze, no docs heads (DECISION_LOG, STATE_OF_PLAY and findings
   updates could not land on master), and no Python follow-ups (cutover fixes) until 12-21.
+- **PROPOSED AMENDMENT 2026-10-22 (pending owner; GO/NO-GO rule question (s-C)): interpreter and library versions.**
+  The source fingerprint does not see an interpreter or library upgrade, which can change the arm's numbers with the
+  `.py` files unchanged. The arm hash manifest therefore also records the interpreter version and the installed versions
+  of the libraries the arm imports, and the residual rule above forbids any change to them from D0 to 12-21. A
+  host Python-upgrade night before or at D0 re-pins the frozen identity **once**, with D0 = the first full day after
+  the C PASS night (EDGE-1 annex §1.2 (s-C) bullet). This is a single epoch, never a mid-test re-pin.
 
 ### M5.3 One look per declared look
 
