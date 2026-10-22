@@ -3,6 +3,8 @@
 **Status: RESERVED (narrow scope, MG-1, signed 2026-10-04): the first 45 promotion-countable local target dates on or
 after D0 (first eligible date per MG-1 §3; D0 >= 2026-10-15; dated start recorded here once D0 is determined) are held
 out ONLY against NBM-guidance-to-band forecast candidates.** Everything else may use those dates (see the exemption below).
+**Retrain window: ARMED, not dated, narrow scope (owner 2026-10-21, bundle-B (k)): once declared it holds its dates ONLY
+against retrain-family candidates; EDGE-1, MG-1, the evening-fix scorer, t3-r3, maker scoring and every other use are exempt.**
 **Read further** before scoring any forecast candidate that reads NBM station guidance, or before freezing a retrain candidate.
 
 **Single source of truth for which dates are held out and what they are held out *for*.** Every
@@ -13,14 +15,15 @@ When a window is declared, replace the status line with the dated range and its 
 
 | | |
 | :--- | :--- |
-| **Reserved dates** | **MG-1 (narrow scope):** first 45 promotion-countable local target dates on or after D0 (MG-1 §3, D0 >= 2026-10-15; not yet dated). The retrain-triggered window below stays *armed but not dated*. |
+| **Reserved dates** | **MG-1 (narrow scope):** first 45 promotion-countable local target dates on or after D0 (MG-1 §3, D0 >= 2026-10-15; not yet dated). The retrain-triggered window below stays *armed but not dated*, and narrow when declared (retrain scope row). |
 | **MG-1 binding** | `docs/research/morning-guidance-read-mg1-preregistration-2026-10-04.md` at `02c410a5`, raw SHA-256 `b044e0f196512379d2f74a22a2a97a10cf58fdbcf5a255c4eb6a470f7f6ba665`, signed 2026-10-04T16:10Z (DECISION_LOG). |
 | **MG-1 scope and exemption (owner, 2026-10-04; explicit exemption under rule 4)** | Reserved **only** against reading or modifying the morning guidance-read (forecast-scoring) family: do not score, enumerate outcomes for, or join to an outcome the MG-1 vector or any other candidate that reads NBM station guidance into band probabilities (including the held RV-1 and HG-1), do not substitute reserved dates for such a candidate, and do not modify MG-1, without a new explicit owner decision. **Exempt and untouched:** the 88a desk-study decision panel (UTC 2026-10-15..10-30), MM paper scoring, and every other use of these dates' captures, served vectors and settlements; outcome-blind operational checks (coverage, PIT, replay reproduction, parser version) are permitted. |
 | **Maker shadow fair value (owner, 2026-10-07, OD3, OD31, OD32)** | The shadow's NBM-guidance view may be used on reserved dates for quoting and MM paper scoring only. Every view-vs-outcome metric on it (markouts on the view, Brier/PIT, fair-value score) stays reserved and is refused in code; plugin-view accuracy is never exempt, including inside the 88a panel. The item-190 NBM scorer drops reserved dates before any outcome join (filter, not refuse). D0 is recorded by whoever dates the status line above, in the same commit, test-enforced. |
 | **MG-1 dating format (OD32 mechanics)** | Date the status line with `MG-1 D0 = YYYY-MM-DD` and `MG-1 last = YYYY-MM-DD`, and record the same `MG1_D0`/`MG1_LAST` in `weather.mg1_reserved_window` (and, once landed, `maker_core.mg1_window`) in the same commit. `tests/reporting/test_mg1_reserved_window.py` fails if they differ; a recorded window shorter than 45 calendar days fails wide. Item-190 filter behaviour (counts-only disclosure, exit codes, `--as-of`): [item 190](../roadmap/items/item-190-nbm-probabilistic-tmax-consumption.md). |
-| **Trigger** | The reservation begins on the **first target date after the first retrain candidate is fitted and frozen**, and runs forward from there. |
+| **Retrain scope (owner, 2026-10-21, bundle-B question (k); DECISION_LOG)** | Narrow, MG-1-style, exactly: *"hold the dates only against retrain-family candidates; exempt EDGE-1, MG-1, the evening-fix scorer, t3-r3, maker scoring and every other use of those dates; the 20-date look is futility-only; the freeze is not timed to dodge dates."* This replaces the as-written scope under which freezing the first retrain candidate held **every** date from the trigger absolutely and stopped MM paper scoring (binding rules 3-4 below, as amended). |
+| **Trigger** | The retrain window begins on the **first target date after the first retrain candidate is fitted and frozen** (earliest R0 start 11-17), and runs forward from there, at the narrow scope above. |
 | **Size** | Computed at freeze time against endpoints that still stand — see *Sizing at freeze* below. Not fixed in advance. |
-| Status | MG-1 narrow reservation active from its signature; no date is held out against anything else. |
+| Status | MG-1 narrow reservation active from its signature; retrain window armed, not dated, narrow scope (2026-10-21); no date is held out against anything else. |
 | Declared | 2026-08-04 by the operator (re-base). Previously 2026-08-03. |
 | Supersedes | 2026-08-06 → 2026-11-03 (90 dates); before that, 2026-08-06 → 08-19 (14 dates) |
 
@@ -46,6 +49,15 @@ window's own start date of 2026-08-06. **Not one reserved date had elapsed, so n
 consumed and nothing was un-reserved after the fact** — the specific hazard the *Changing this file*
 section below warns about does not apply.
 
+### OWNER DECISION 2026-10-21 — the retrain window is narrow
+
+Decided by the owner on 2026-10-21 (bundle-B question (k), every Recommended default accepted; relayed by
+master-agent; DECISION_LOG row of that date). **Reason:** the model-edge programme's retrain arm R0 could
+freeze from 11-17, and under the as-written rules that freeze would have held every later date absolutely
+and stopped maker paper scoring, colliding with EDGE-1 and MG-1 on the same dates. The retrain look is
+futility-only, so a narrow hold protects what it needs. **No date had been declared, so nothing was
+un-reserved after the fact.** Rules 1, 2 and 5 below are unchanged; rules 3 and 4 are amended in place.
+
 ### Why this does not collide with market making
 
 The two tracks become **sequential instead of overlapping**. MM consumes *current* dates for its
@@ -59,10 +71,11 @@ before any retrain candidate is frozen. Once MM is live it no longer needs count
    use any settled date.
 2. **At candidate freeze, the window is declared here immediately** — dated, sized, and with its
    endpoints named — *before* any confirmation scoring begins. An undeclared window reserves nothing.
-3. **Once declared, the window is absolute again** and every rule below applies unchanged: not read,
-   not enumerated, not evaluated, not substituted. Reading one destroys it permanently.
-4. **MM paper scoring must stop on declared confirmation dates**, or be granted a fresh explicit
-   exemption recorded here. It does **not** inherit an exemption from this decision.
+3. **Once declared, the window holds its dates against retrain-family candidates only** (owner
+   2026-10-21, (k); was "absolute again"): for those candidates they are not read, not enumerated, not
+   evaluated, not substituted, and reading one destroys it permanently. Every other use is exempt.
+4. **MM paper scoring continues on declared retrain dates** under the 2026-10-21 exemption in the
+   retrain scope row (was: must stop unless granted a fresh exemption here).
 5. **The freeze must not be timed to dodge the reservation.** Declaring a candidate frozen only after
    convenient dates have been consumed would defeat the protection this file exists to provide.
 

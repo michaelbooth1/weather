@@ -110,6 +110,8 @@ sequence numbers, not calendar dates.
 | 10s | Data layer v2 S0 measurement pack (workstation, 2026-10-15; inputs dated before 2026-09-30 only) |
 | 10t | First counterfactual-tape toxicity fit (item 330 build 2, workstation, 2026-10-17): CF fills adverse at every horizon, settlement unresolved; DESCRIPTIVE, every cell UNDERPOWERED |
 | 10u | HGB path: the intraday-tail and METAR-live-signal stages never act (code-traced + Toronto replay, 2026-10-21); the WU-floor residual is only data-inert |
+| 10v | Dev replay with current code does not reproduce the served vector (M8 check, 2026-10-21, outcome-blind): code drift, not artifacts; replay deltas are "current code ± variant" |
+| 10w | Open-Meteo hourly labels are fixed-offset per response; serving reads them as zone wall time, so labels on the far side of a DST change are 1 h late (code trace on master `1c19ae10b`, 2026-10-21; live behaviour inferred) |
 
 ---
 
@@ -1420,6 +1422,27 @@ the outside-window replication is an order of magnitude smaller with one adverse
 information and no established harm.** All three evaluations are spent; a further test needs a new independently pre-committed
 design with more independent year support (2021-2023 are temperature-only). A reproduction-and-power preflight
 (`codex/48h-residual-preflight-20260911` @ `cbaa7cf9f`) was built and never executed.
+
+### The calendar-extension hours are fixed-offset, read as wall time: standard-time dates are shifted 1 h (audit 2026-10-21)
+
+Open-Meteo returns one scalar `utc_offset_seconds` per response, the offset at **download** time. All 96 calendar-extension
+units (downloaded 2026-09-02, daylight time) carry the daylight offset (New York/Toronto −14400, Chicago −18000, Denver
+−21600, Los Angeles −25200) for every window, January and December included; Atlanta Nov 1-Dec 31 2024 is 1,464 labels, no
+repeat. The collector (`previous_runs_research_collection.py` `_normalize_response`, 89a @ `7839340f2`, ~line 1320) never reads
+the offset and writes the naive label as `target_datetime_local`; the 90a consumer (`calendar_residual_replication.py`
+`load_feature_surfaces`, @ `e4d6588eb`, ~line 902) takes `datetime.fromisoformat(row[1])` as market wall time and feeds
+`.date()` and `.hour` to 88a's `_summary_targets`. Traced, Atlanta lead 1: label `2024-12-10T07:00` (offset −14400, 61.8 °F)
+is 11:00 UTC = 06:00 EST, but the consumer counts it as hour 7 (inside the 07-20 window), +1 h; control `2024-09-15T07:00`
+is 07:00 EDT, shift 0. The shortwave peak sits on label 14:00 in December and in September, which confirms the fixed offset.
+
+On standard-time dates every label is one hour ahead of local wall time: 97 of 335 frozen 90a training dates and 96 of 220
+evaluation dates. Affected: the 07-20 and 09-18 hour-window summaries (true local 06-19 / 08-17) and the calendar-day
+boundary (the day runs 23:00 the previous evening to 22:00). The daily max, total and CAPE/gust summaries, including the
+temperature anchor, are robust except when the extreme falls in the edge hour. No cutoff or issue-time check reads these
+hours. **So the `90a` result (+0.045130) was measured on a misaligned surface for those dates. It is not retracted; it is
+unverified as an aligned measurement.** Not affected: the May-Aug corpus and `88a`/`100h`, whose dates are all daylight time
+and match the download offset. Master's `forecast_history.local_valid_datetime` has the same `replace(tzinfo=…)` pattern;
+it was not traced here.
 
 ### No free source satisfies the v2 point-in-time contract (research `2026-09-82a`, 2026-09-01)
 
@@ -3834,6 +3857,103 @@ the Toronto host replay and in the 12-market workstation replay. Outcome-blind: 
   Atlanta 2026-08-10 snapshot `20260810T150843696523-0400`: "support 92 <= history 92"); only a SWOB same-day max
   above its own rows, so Toronto alone, could open the gate. That is a code inference checked on one snapshot,
   not a fleet statistic. The same replay closes the NBM arm (lever-5 note §1 and §3.5). Record: [lever-5 note](../research/model-edge-lever5-2026-10-19.md) §2 and §3.5.
+
+### 10v. Dev replay with current code does not reproduce the served vector; the drift is code, not artifacts — M8 check, 2026-10-21
+
+**Claim, at exactly this scope:** on dev target dates 2026-07-31..2026-09-29, replaying each captured snapshot
+unmodified with current code reproduces the served vector of record within 1e-9 on only 4.0-22.4% of snapshots
+per market, and the difference is large in the late hours. So every dev replay delta (lever 5, EDGE-1 twin) is
+"current code ± variant on captured inputs", not a delta from what was served. Outcome-blind: no label,
+settlement or market price was read.
+
+- **Mechanism:** code drift since capture. Comparing each record's capture-time `model_identity` with the
+  replay identity: `model_version` differs on 100% of rows; `code_changed` includes
+  `src/weather/model/model_constants.py` and `model_distribution.py` on 100% of rows, `market_registry.py` on
+  75,116 rows, and `feature_store.py` and `model_features.py` on 19,230 rows each. Dev captures span 490 distinct
+  capture commits. The hour profile fits the lock-in serving changes made after capture (lever-5 note §2,
+  stages 1-8): share within 1e-9 / median `max_abs` by local hour band, all markets, 00-05 0.247 / 0.0017;
+  06-09 0.112 / 0.0063; 10-12 0.098 / ~0; 13-16 0.042 / 0.060; 17-23 0.004 / 0.275.
+- **Evidence:** `python -m tools.research.model_edge_lever5.run served`, module
+  `tools/research/model_edge_lever5/served_repro.py` (added in `64cbecca4`), branch
+  `claude/model-edge-codecheck-20261019` at `0941dc432afe8ff47291938479d17c2931ef3a6b`. It compares the
+  unmodified replay with the record's `recorded_distribution`, which `src/weather/collection/snapshot_store.py`
+  writes as `model.get("distribution")` beside the sources it consumed (the replay fidelity canary); that field
+  is a model output, not an outcome. Run: 732 folders, 128,594 snapshots, 0 folder errors, 0 base errors.
+  Per market n / share within 1e-9 / p99 `max_abs` / max `max_abs` (`max_abs` = max absolute per-bucket
+  difference): atlanta 10805 / 0.056 / 0.784 / 0.872; austin 10875 / 0.100 / 0.725 / 0.956; chicago
+  10819 / 0.062 / 0.883 / 0.952; dallas 10662 / 0.040 / 0.769 / 0.830; denver 10769 / 0.116 / 0.844 / 0.917;
+  houston 10584 / 0.079 / 0.758 / 0.799; los-angeles 10432 / 0.043 / 0.869 / 0.968; miami 10561 / 0.171 /
+  0.754 / 0.976; nyc 10551 / 0.059 / 0.814 / 0.982; san-francisco 10512 / 0.224 / 0.859 / 0.971; seattle
+  10726 / 0.115 / 0.709 / 0.941; toronto 11298 / 0.143 / 0.662 / 0.891.
+- **Not claimed:**
+  - No outcome was read; nothing here says whether current code or capture-time code forecasts better.
+  - Not the artifacts: `artifact_hash` changed on 0 rows, `active_model_kind` (`hgb`) differs on 0 rows, and
+    0 mismatched rows carry an identical identity.
+  - Nothing about pre-07-31 dates or forward rows.
+- **Relation to §1k:** consistent with, and narrower than, §1k (`-09-74a`..`-09-76a`) and RF "Check out the
+  recorded runtime commit and replay reproduces what we served". §1k replayed at each row's runtime commit and
+  still failed because served bytes were never committed; this check replays at one current commit and fails
+  because the code moved. Whether dev-window identities resolve to reachable blobs was not measured.
+- **Implication for replay-based evidence:** the base of a dev replay is current code. Lever-5 deltas
+  ([note](../research/model-edge-lever5-2026-10-19.md) §3.3-3.5) and the EDGE-1 twin (T1/T0) dev deltas are
+  "current code ± variant", not "served ± variant". Reproducing the served vector to 1e-9 on dev dates needs a
+  per-row replay at each row's capture commit, which no tool does; forward reproduction (M8) is checkable only at
+  a frozen hash on forward rows. Evidence scored against the served vector of record (for example the A0 power
+  figure) is unaffected. Record: [lever-5 note](../research/model-edge-lever5-2026-10-19.md) §3.6.
+- **EDGE-1 twins on the same dev inputs (3b, 2026-10-21, same tool sha, opt-in `--variants`):** against the
+  current-code base, T1 (`t1_nws_hourly_only`) changes 89-100% of US vectors in every band 00-16 (mean TV
+  0.06-0.31, 17-23 0.010-0.081; Toronto has no NWS hourly, so T1 = base) and T0 (`t0_climatology_prior`)
+  changes 95-100% in every band (all-hours mean TV 0.15-0.43). Vector deltas only: no score, no edge claim;
+  the binding comparison is forward at the frozen hash. Record: [lever-5 note](../research/model-edge-lever5-2026-10-19.md) §3.7.
+
+### 10w. Open-Meteo hourly labels are fixed-offset per response; read as zone wall time they are 1 h late across a DST change — code trace, 2026-10-21
+
+**Claim, at exactly this scope:** Open-Meteo returns one `utc_offset_seconds` per response, the zone offset when the
+request is served, and applies it to every hourly label. Code that requests `timezone=<IANA zone>` and then does
+`replace(tzinfo=zone)` therefore puts every label on the far side of a DST change one hour late. Traced read-only on
+master `1c19ae10b`. Archive behaviour is measured; **live Forecast API behaviour is INFERRED** from the same provider's
+Archive API, because no live capture crosses a DST change (the project started 2026-05-29). No label, outcome or price
+was read.
+
+- **Evidence (Archive payloads downloaded in June):** `katl` 2025-10-07..11-06 carries GMT-4 / −14400 on all 744 labels;
+  label `2025-11-02T14:00` is truly 13:00 EST but the code assigns 14:00 EST (+1 h). `cyyz` over the same window is
+  identical. `katl` 2026-02-13..03-15 crosses the spring change with −14400 throughout. The labels are contiguous in UTC:
+  no repeated or skipped hour.
+- **Live-served sites (real):** `model_sources.py:1549`, `:1622`, `:1667`, `:2143`, `:2249` (`open_meteo`,
+  `air_quality`, `global_models`, `multimodel`, `global_ensemble`) and `eccc_gridded.py:146/170` (Toronto `eccc_gem`);
+  all use `timezone=` IANA plus `replace(tzinfo)`.
+- **Blast radius (inferred):** only 2026-11-01. Fetches before 06:00Z get the −4 h offset, so afternoon labels are +1 h
+  and the `forecast_high` day window drops the true 23:00 EST hour. Later fetches are correct except that the true
+  00:00 EDT hour is missing. From 11-02 on the data is correct. The served headline HGB reads only `forecast_high` and
+  `forecast_gap` from these sources (Toronto adds `forecast_disagreement` and `forecast_source_count`), so only a max
+  that falls in an edge hour can move: **small**. Hour-keyed features exist only in shadow candidates.
+- **Latent readers (training and research):** `forecast_history.py:340` `local_valid_datetime` (training; reaches
+  serving only through the `forecast_daily.csv` analogs, `model_features.py:1775`, `toronto_model.py:321`);
+  `forecast_training_corpus.py:898` (master; fixed on the PIT-fetch branch); `open_meteo_archives.py:154`;
+  `reanalysis_history.py:83`; `historical_fallbacks.py:154/219` (research). **Train/serve parity:** training and
+  archive labels are +1 h on every date whose offset differs from the download season, not only on the change day.
+- **Not affected:** `marine_context.py:256` (CO-OPS `lst_ldt` is true local time), NWS, METAR, SWOB, ASOS, MRMS and NBM
+  (offset-aware or UTC).
+- **Fix:** branch `claude/dst-provider-labels-fix-20261021` at `5588c40799855bd22f0b65cd099b836c2e1baff4` reads
+  fixed-offset labels as label − offset in UTC (`weather.time.provider_hourly_local_times`) on the live served
+  fetchers only; training readers are unchanged, pending master's decision. Host `roll_verdict.ps1`: ROLL-SENSITIVE;
+  landing is the owner's call.
+- **Training readers (measured, 2026-10-21):** branch `claude/dst-training-readers-fix-20261021` at
+  `a399941e32932c3ac3704fad3984cc673d608c70` (held until after 2026-12-21, behind the fix above) re-reads the 4,786
+  stored reanalysis payloads (dates ≤ 2026-09-29). On standard-time dates nearly every hour label shifts and the daily
+  max changes on 0.7% (Los Angeles) to 17.4% (Chicago) of days, largest 11.4 °F; `reanalysis_prev_day_avg_temp`,
+  the pressure features and the `heat_anomaly` features change on ~97–99% of standard-time days, `min_temp` on 22%,
+  `max_temp` on 8%, and `source_reanalysis_bias` reads the same max. **Any past research that used reanalysis-derived
+  features over Nov–Mar dates is affected.** Served headline features are unaffected (they do not read reanalysis).
+- **Not claimed:** no measured live payload across a DST change; no forecast-skill effect; nothing about the size of
+  the training-label shift's effect on any fitted model.
+- **Relation to other records:** the same provider behaviour explains the §1m calendar-extension note (standard-time
+  dates shifted 1 h); this section traces the `forecast_history.local_valid_datetime` path that note left untraced.
+  **Supersedes in part** [DST audit 2026-10-07](../roadmap/audits/dst-audit-2026-10-07.md): DST-M3 left the
+  per-response offset "not verified" and framed the effect as every label on 11-01; it is fixed-offset, the live
+  effect is limited to pre-06:00Z fetches on 11-01, and the archive/training readers it lists are shifted on every
+  standard-time date. DST-L9's "latent: the season is May-Aug" no longer holds once the Oct-Dec PIT fetch exists. The
+  audit does not list `eccc_gridded.py`, `reanalysis_history.py` or `historical_fallbacks.py`.
 
 ## Related
 
