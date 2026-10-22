@@ -18,12 +18,14 @@
 # Decision table (first matching row wins; RETRY only in the last row):
 #   exit 0 + DONE marker + EXIT code=0 marker                      -> SUCCESS          (wrapper exit 0)
 #   exit 0 otherwise, a marker at or after C3, or SWAP              -> WAIT-FOR-OWNER   (wrapper exit 2)
+#   exit 0 otherwise, no PYUPC-EXIT marker                          -> WAIT-FOR-OWNER   (RUN_FILE_DIED: no undo or verify ran)
 #   exit 0 otherwise, all markers before C3                         -> STOPPED          (wrapper exit 1)
 #   any marker at or after C3 (C3, SWAP, C5..C10, DONE)             -> WAIT-FOR-OWNER   (the run file's own C3 undo or §R ran; no retry)
 #   exit 3 and no attempt transcript file at all                    -> STOPPED          (REFUSED_PRE_TRANSCRIPT: elevation, redirect, -Attempt/-RunId)
 #   markers missing, unparseable, duplicated or out of order        -> WAIT-FOR-OWNER   (cannot prove the stop was before C3)
-#   GO-REVIEW-WAIT marker (retry GO review blocked)                 -> WAIT-FOR-OWNER   (new non-allowlisted flag, new CRITICAL, no baseline)
+#   GO-REVIEW-WAIT marker (retry GO review blocked)                 -> WAIT-FOR-OWNER   (new non-allowlisted flag, new CRITICAL, no baseline; attempts 2..3 also HEAD or next-runs changed)
 #   GATE-REFUSAL marker (PREFLIGHT, G3, C0, GO_REVIEW, C1, C1_THROW) -> STOPPED          (deterministic gate: a retry would refuse again)
+#   no PYUPC-EXIT marker (killed or crashed run file)               -> WAIT-FOR-OWNER   (RUN_FILE_DIED: no undo or verify ran)
 #   process exit code not 1 (3 refused, 4 owner hold, other crash)  -> STOPPED
 #   EXIT marker missing or not code=1                               -> STOPPED
 #   RESTORE-VERIFY marker missing                                   -> STOPPED
@@ -93,12 +95,14 @@ function Get-PyupcRetryDecision($Evidence, [int]$ExitCode, [int]$Attempt, [int]$
   if ($ExitCode -eq 0) {
     if ($Evidence.Parsed -and $Evidence.Done -and $Evidence.ExitMarkerCode -eq 0) { return (& $mk 'SUCCESS' 'CUTOVER_PASS') }
     if ($post -or -not $Evidence.Parsed) { return (& $mk 'WAIT-FOR-OWNER' 'EXIT0_WITHOUT_DONE') }
+    if ($null -eq $Evidence.ExitMarkerCode) { return (& $mk 'WAIT-FOR-OWNER' 'RUN_FILE_DIED') }   # (Fable Low 2) no PYUPC-EXIT: the run file died, no undo or restore verify ran
     return (& $mk 'STOPPED' 'EXIT0_WITHOUT_DONE') }
   if ($post) { return (& $mk 'WAIT-FOR-OWNER' "POST_C3_STOP_EXIT_$ExitCode") }
   if ($ExitCode -eq 3 -and -not $TranscriptExists) { return (& $mk 'STOPPED' 'REFUSED_PRE_TRANSCRIPT') }
   if (-not $Evidence.Parsed) { return (& $mk 'WAIT-FOR-OWNER' 'MARKERS_UNPARSEABLE') }
   if ($Evidence.GoWait) { return (& $mk 'WAIT-FOR-OWNER' "GO_REVIEW_DELTA_$($Evidence.GoWait)") }
   if ($Evidence.Gate) { return (& $mk 'STOPPED' "GATE_REFUSAL_$($Evidence.Gate)") }
+  if ($null -eq $Evidence.ExitMarkerCode) { return (& $mk 'WAIT-FOR-OWNER' 'RUN_FILE_DIED') }   # (Fable Low 2) every exit after the transcript starts prints PYUPC-EXIT; none = killed or crashed, no undo or verify ran
   if ($ExitCode -ne 1) { return (& $mk 'STOPPED' "EXIT_${ExitCode}_NOT_RETRIABLE") }
   if ($Evidence.ExitMarkerCode -ne 1) { return (& $mk 'STOPPED' 'EXIT_MARKER_MISSING_OR_MISMATCH') }
   if (-not $Evidence.RestoreResult) { return (& $mk 'STOPPED' 'RESTORE_VERIFY_MISSING') }
@@ -128,11 +132,14 @@ try {
   elseif (-not (Test-Path -LiteralPath $WRun)) { $WWhy = 'RUN_FILE_MISSING' }
   elseif (@(Get-ChildItem -LiteralPath $WR -Filter 'phase-c-transcript-20261024-a*.txt' -ErrorAction SilentlyContinue).Count) { $WWhy = 'ATTEMPT_TRANSCRIPT_EXISTS' }
   else {
+    # ---- PYUPC-SUMS-PREFLIGHT-BEGIN (the self-test extracts the lines between these two markers verbatim and runs them against a temp kit copy)
     $wSums = Join-Path $WDir 'SHA256SUMS.txt'
     $wLine = @(if (Test-Path -LiteralPath $wSums) { Get-Content -LiteralPath $wSums | Where-Object { ("$_".Trim() -split '\s+')[0] -ceq 'phase-c-run-20261024.ps1' } })
     if ($wLine.Count -ne 1) { $WWhy = 'RUN_FILE_NOT_IN_SHA256SUMS' }
-    else { $wf = "$($wLine[0])".Trim() -split '\s+'
-      if ($wf.Count -ne 3 -or [long]$wf[1] -ne (Get-Item -LiteralPath $WRun).Length -or $wf[2].ToUpperInvariant() -cne (Get-FileHash -LiteralPath $WRun -Algorithm SHA256).Hash.ToUpperInvariant()) { $WWhy = 'RUN_FILE_HASH_MISMATCH' } } }
+    else { $wf = @("$($wLine[0])".Trim() -split '\s+'); $wSz = [long]-1   # (Fable nit) TryParse: a non-numeric size field refuses (exit 3), it never throws
+      if ($wf.Count -ne 3 -or -not [long]::TryParse($wf[1], [Globalization.NumberStyles]::None, [Globalization.CultureInfo]::InvariantCulture, [ref]$wSz) -or $wSz -ne (Get-Item -LiteralPath $WRun).Length -or $wf[2].ToUpperInvariant() -cne (Get-FileHash -LiteralPath $WRun -Algorithm SHA256).Hash.ToUpperInvariant()) { $WWhy = 'RUN_FILE_HASH_MISMATCH' } }
+    # ---- PYUPC-SUMS-PREFLIGHT-END
+  }
   if ($WWhy) { $code = 3; Write-Host (Format-PyupcVerdict $WRunId 'STOPPED' "REFUSED_$WWhy" 0 'none' 'NONE' 3); $WVerdictDone = $true; return }
   Start-Transcript -LiteralPath (Join-Path $WR 'phase-c-retry-transcript-20261024.txt') -Append | Out-Null; $WTxStarted = $true
   $WRunId = '{0}-{1}' -f (Get-Date -Format 'HHmmss'), ([guid]::NewGuid().ToString('N').Substring(0, 6))

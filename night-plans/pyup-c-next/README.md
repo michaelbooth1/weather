@@ -12,7 +12,7 @@ failure after the swap undoes itself and waits for the owner.
 | `phase-c-retry-wrapper-20261024.ps1` | Runs the attempt file up to 3 times, under the mechanical decision table in its header. |
 | `phase-c-raw-20261022.md` | The 10-22 runbook extract the run file mirrors. Its night-specific fills (EXPECTED_HEAD, the 01:00 timetable, roll_verdict G3) do not apply to 10-24. |
 | `pregate-receipt-739c03eff1e2-20261018T045220-105120.json` | The workstation pregate PASS receipt for G3 (ii), a byte-identical copy of `data\pregate\pg-739c03eff1e2-20261018T045220-105120\receipt.json`. Its canonical place on the host is `C:\pyup\cp3119` (`$R`), next to the kit copy. |
-| `SHA256SUMS.txt` | Authoritative hashes, including the receipt. The retry wrapper refuses to run unless the run file matches its line, and refuses to run from anywhere but `C:\pyup\cp3119` (`NOT_IN_CP3119`). |
+| `SHA256SUMS.txt` | Authoritative hashes, including the receipt; dependency-mode G3 fails unless the receipt matches its line. The retry wrapper refuses to run unless the run file matches its line, and refuses to run from anywhere but `C:\pyup\cp3119` (`NOT_IN_CP3119`). |
 
 Launch everything as a FILE, elevated, with no redirects, from local copies in `C:\pyup\cp3119`. Never press
 Ctrl+C in the wrapper window: the attempt shares that console and touches the Scheduler.
@@ -72,8 +72,15 @@ Either way the wrapper's verdict is `STOPPED reason=GATE_REFUSAL_*`.
     `Test-G3Gate` loads `$R\pregate-receipt-<id without pg->.json` and requires:
     - `schema` equal to `weather.workstation_pregate_receipt.v1`;
     - `verdict` equal to `PASS`;
+    - exactly one line for the receipt file in `$R\SHA256SUMS.txt`, whose size and sha256 match the file
+      (`pregate_receipt_not_in_sha256sums`, `pregate_receipt_sha256sums_mismatch`; checked before the JSON is
+      read, with the same rule as the retry wrapper's run-file check, and a non-numeric size fails, never throws);
+    - `schema` equal to `weather.workstation_pregate_receipt.v1`;
+    - `verdict` equal to `PASS`;
     - `head` equal to `-G3TestedSha`;
-    - the id taken from the file name equal to `-G3PregateReceipt`.
+    - the receipt's own `log_path` holding `-G3PregateReceipt` as one path segment
+      (`pregate_receipt_log_path_ne_receipt_id`). This replaced a circular compare of the id with a file name
+      built from that id.
 
     All comparisons are case-sensitive. A missing, unreadable or mismatched receipt gives `G3 FAIL` with
     `pregate_receipt_*`, and is never retried.
@@ -137,20 +144,20 @@ The 10-22 kit put the C1 floor at 01:00, the quiet-window start. That floor was 
 | C1 floor (preflight) | 01:00 | **00:30:00** (run :69) | Lease admission opens at minute 30 (`workload_admission.ps1:596-598`, `$localMinute -ge 30`). Before that, `Enter-WeatherHeavyWorkloadLease` throws (`:1771-1775`). |
 | C0 re-run inside an attempt | ~13 s | ~13 s (plus G3: 3 read-only git calls) | Measured on 10-21/22 (01:01:14 to 01:01:27). |
 | First lease probe | ≥ 01:00:13 | ≥ 00:30:13 | Floor plus the C0 re-run. |
-| Lease probe retry sleep | 30 s | 30 s (run :442) | A duration. It can overshoot the deadline by ≤ 30 s, which the post-acquire check (run :444) catches. |
-| C1 lease deadline | 01:04 | **01:04** (run :440, :444, preflight :70) | T − (C1 1 min + shadow seal 3.17 + tape ensure 2.58 + C2 rest 1.25) = 01:12 − 8.0 min. T is back-anchored, so this does not move. The C1 window grows from 4 to 34 min. |
-| C2 shadow seal wait | 180 s | 180 s (run :497) | A duration (STOP-file seal). |
-| C2 tape-supervisor ensure wait | 150 s | 150 s (run :505) | 2 min `ExecutionTimeLimit` (`register_execution_tape_supervisor.ps1:34`) + 30 s. |
-| Pre-C3 deadline T | 01:12 | **01:12** (run :575) | S − C3 pass-case worst case: 5.5 (ensure) + 1 (stop verbs) + 10 (gate) + 1 = 17.5 min. 01:30 − 17.5 = 01:12:30, rounded down. |
-| C3 supervisor ensure waits | 330 s | 330 s (run :530) | Snapshot supervisor 5 min limit (`register_snapshot_supervisor.ps1:46`) + 30 s. |
-| C3 stop-confirmation gate loop | 600 s | 600 s (run :539) | A duration. |
-| Swap deadline S (C4) | 01:30 | **01:30** (run :583) | Core decision 02:15 − 45 min (C5 build, C6, C7 `Wait-Restore` ≤ 32 min, C8). Back-anchored. |
-| `Wait-Restore` (C7, undo, §R) | 32 min, rerun after 16 | same (run :546, :550) | 15 min task limit (`register_training_window.ps1:153`): one run plus one rerun. |
-| C8 operator decision | max(02:15, now + 5 min) | same (run :630) | Core decision by 02:15 (runbook C9). Back-anchored: 02:45 §R start − 30 min (C9b, C9c settle 10 min, tape 5 min). |
-| C9c operator decision / §R start limit | 02:45 | **02:45** (run :699, :194) | §R worst case ~60 min (69 if every ensure wait runs out): 02:45 + 60 = 03:45 (G4, owner ruling), + 69 = 03:54. Both before 04:10 and 04:15. |
+| Lease probe retry sleep | 30 s | 30 s (run :444) | A duration. It can overshoot the deadline by ≤ 30 s, which the post-acquire check (run :446) catches. |
+| C1 lease deadline | 01:04 | **01:04** (run :442, :446, preflight :70) | T − (C1 1 min + shadow seal 3.17 + tape ensure 2.58 + C2 rest 1.25) = 01:12 − 8.0 min. T is back-anchored, so this does not move. The C1 window grows from 4 to 34 min. |
+| C2 shadow seal wait | 180 s | 180 s (run :500) | A duration (STOP-file seal). |
+| C2 tape-supervisor ensure wait | 150 s | 150 s (run :508) | 2 min `ExecutionTimeLimit` (`register_execution_tape_supervisor.ps1:34`) + 30 s. |
+| Pre-C3 deadline T | 01:12 | **01:12** (run :578) | S − C3 pass-case worst case: 5.5 (ensure) + 1 (stop verbs) + 10 (gate) + 1 = 17.5 min. 01:30 − 17.5 = 01:12:30, rounded down. |
+| C3 supervisor ensure waits | 330 s | 330 s (run :533) | Snapshot supervisor 5 min limit (`register_snapshot_supervisor.ps1:46`) + 30 s. |
+| C3 stop-confirmation gate loop | 600 s | 600 s (run :542) | A duration. |
+| Swap deadline S (C4) | 01:30 | **01:30** (run :586) | Core decision 02:15 − 45 min (C5 build, C6, C7 `Wait-Restore` ≤ 32 min, C8). Back-anchored. |
+| `Wait-Restore` (C7, undo, §R) | 32 min, rerun after 16 | same (run :549, :553) | 15 min task limit (`register_training_window.ps1:153`): one run plus one rerun. |
+| C8 operator decision | max(02:15, now + 5 min) | same (run :633) | Core decision by 02:15 (runbook C9). Back-anchored: 02:45 §R start − 30 min (C9b, C9c settle 10 min, tape 5 min). |
+| C9c operator decision / §R start limit | 02:45 | **02:45** (run :702, :194) | §R worst case ~60 min (69 if every ensure wait runs out): 02:45 + 60 = 03:45 (G4, owner ruling), + 69 = 03:54. Both before 04:10 and 04:15. |
 | §R not 3/3 escalation | 03:45 | 03:45 | G4 owner reachability and the 10-19 owner ruling. |
 | Dead-man restore | 04:15 daily | 04:15 (C0 asserts it is armed) | A scheduled task, not ours. Every capture-disrupting step must end before it. The chain above ends ≤ 03:54. |
-| C0 next-runs horizon | < 04:00 | < 04:00 (run :413) | Covers everything up to the end of §R. |
+| C0 next-runs horizon | < 04:00 | < 04:00 (run :415) | Covers everything up to the end of §R. |
 | Hold reminder / auto-release | 08:30 / 08:55 | same (run :134-135) | Anchored on the 09:00 end of the heavy window. |
 | Retry: no attempt starts at or after | — | **03:30** (owner) and **after 01:04** (lease deadline) | Owner cutoff 03:30. A start after 01:04 would only be refused by the run file's preflight (exit 3), so the wrapper stops instead (`LEASE_WINDOW_CLOSED_0104`). **The 03:30 cutoff never binds tonight; 01:04 does.** |
 | Retry settle | — | 60 s | Lets the restarted holders and the released lease settle before the next C2. |
@@ -200,20 +207,28 @@ Collision analysis:
 
 "Between attempts, the GO review compares the post-undo status against the baseline captured at attempt 1's GO review (before C2). It passes if every flag either (a) was present in that baseline, or (b) is on a fixed allowlist of restart-transient tokens. The allowlist covers only flags that status.ps1 emits purely because tape, holders or shadow restarted inside the last N minutes, and N must be stated. Any other new flag, or any CRITICAL not in the baseline, gives WAIT-FOR-OWNER."
 
-How the run file implements it (`Get-WGoReviewDelta`, `$WGoAllow`, `$WGoAllowMinutes`):
+How the run file implements it (`Get-WGoReviewDelta`, `$WGoAllow`, `$WGoAllowSeconds`):
 
 - **Baseline.** Attempt 1 writes `$N\goreview-baseline-flags.txt` once, after its post-C0 GO-review checks pass and
   before C1 and C2. It holds the GO-reviewed C0 flag keys plus attempt 1's own C0 flag keys, so it is the set
   accepted at that review.
+  - A host with zero status flags gets an **empty** baseline file, which is a valid baseline. Every flag-key
+    file (`c0-status-flags.txt`, `*.new-flags.txt`, the GO-review baseline) is written with
+    `Set-Content -Value @(...)`, because in PowerShell 5.1 `@() | Set-Content` writes no file at all.
+  - Attempts 2 and 3 read it as `$null` only when the file is **missing** (`baseline_missing`, WAIT); a present
+    but empty file reads as an empty list.
+  - `c0-next-runs.txt` is truncated before C0's `Tee-Object`, which also writes no file for an empty pipeline, so
+    a night with no due task leaves an empty file, never an older run's list.
 - **Restart time.** On every exit-1 path that reached C2, the restore verify records `$N\aux-restart-at.txt`
   (when the undo restarted tape, holders and shadow).
 - **Attempts 2 and 3.**
-  - The comparison replaces the attempt-1 "flags vs GO-reviewed C0" check. The HEAD and next-runs checks are
-    unchanged.
+  - The comparison replaces the attempt-1 "flags vs GO-reviewed C0" check. The HEAD and next-runs checks still
+    run, but at attempts 2 and 3 a failure prints `PYUPC-GO-REVIEW-WAIT reason=head_changed` or
+    `reason=next_runs_changed` (WAIT-FOR-OWNER, master's rule). At attempt 1 they stay the `GO_REVIEW` gate.
   - It compares this attempt's C0 flag keys with the baseline and prints
     `GO-REVIEW-DELTA baseline=<n> new=<keys> allowed=<keys> blocked=<keys>`.
   - A new key is allowed only if it is on the allowlist (exact, case-sensitive key) and the recorded restart is at
-    most N minutes old.
+    most N seconds before `$WStatusAt`, the status sample time taken just before `status.ps1` runs.
   - These cases give `PYUPC-GO-REVIEW-WAIT reason=<new_flag_not_allowlisted|new_critical|baseline_missing>` and
     exit 4, with nothing touched: any blocked key, any new CRITICAL (no allowlisted key contains CRITICAL), or a
     missing baseline (fail closed).
@@ -226,9 +241,14 @@ How the run file implements it (`Get-WGoReviewDelta`, `$WGoAllow`, `$WGoAllowMin
 | `MAKER_EVIDENCE: STARTING, status age #s` | `scripts/ops/status.ps1:4962` | Raised when the state is not CAPTURING (`:4961`). The restarted 88a worker writes `STARTING` at start-up (`src/weather/market/maker_evidence_capture.py:235`) until its first cycle. |
 | `MAKER_EVIDENCE: CAPTURING, status age #s` | `scripts/ops/status.ps1:4962` | Raised when the status is over 180 s old (`:4961`): the stopped worker's last status, before the restarted one rewrites it. |
 
-- **N = 5 minutes.** That is 180 s, the freshness limit for both the tape heartbeat (`status.ps1:1591`) and 88a
-  status (`status.ps1:4961`), plus 120 s, one tape-supervisor ensure run (`ExecutionTimeLimit` 2 min,
-  `register_execution_tape_supervisor.ps1:34`), which relaunches the tape.
+- **N = 660 s (11 min), master's ruling.** It is the named constant `$WGoAllowSeconds` in the run file, measured
+  from the undo's restart time (`aux-restart-at.txt`) to the status sample `$WStatusAt`.
+  300 s transient + 330 s worst-case verify/settle, rounded; the masked tokens can only hide tape/88a staleness, and a tape that never returns already fails the restore verify.
+  - The 300 s transient is 180 s, the freshness limit for both the tape heartbeat (`status.ps1:1591`) and 88a
+    status (`status.ps1:4961`), plus 120 s, one tape-supervisor ensure run (`ExecutionTimeLimit` 2 min,
+    `register_execution_tape_supervisor.ps1:34`), which relaunches the tape.
+  - The window ends at the status sample, not at a later clock read, so the time `status.ps1` takes to run never
+    counts against it.
 - **Not allowlisted on purpose:**
   - `status contract is unreadable`, because writers are atomic;
   - `BLOCKED_EVIDENCE_LOSS`, which is a real loss;
@@ -241,12 +261,22 @@ How the run file implements it (`Get-WGoReviewDelta`, `$WGoAllow`, `$WGoAllowMin
 ## Retry markers and decision
 
 The marker formats and the decision table live in the run file and wrapper headers. The self-test (a scratch
-script, not in the kit) dot-sources the wrapper and feeds it fake transcripts. It has 64 cases:
+script, not in the kit) dot-sources the wrapper and feeds it fake transcripts. It has 102 cases:
 
-- 33 decision cases, 2 of them stubbing the strict-mode GO review;
-- 19 G3 cases: 5 for the receipt, and 4 in a throwaway git repo for fleet drift;
+- 36 decision cases, 2 of them stubbing the strict-mode GO review, 4 for `RUN_FILE_DIED` (exit 0, exit 1, exit -9999);
+- 24 G3 cases: 10 for the receipt (5 of them its SHA256SUMS line and `log_path`), and 4 in a throwaway git repo for
+  fleet drift; plus 1 check that the C0 and run files carry the same `Test-G3Gate` text;
 - 1 static check that `-G3Mode` has no default;
-- 8 retry GO-review delta cases;
+- 12 retry GO-review delta cases, including N = 660 s (659 s passes, 661 s blocks);
+- 2 freshness cases for the status sample time `$WStatusAt`;
+- 7 zero-flag baseline cases, run on the run file's own writers and reader (empty file = valid baseline, missing
+  file = WAIT);
+- 4 cases for HEAD and next-runs changes at attempt 1 (gate) and attempt 2 (WAIT), run on the run file's own
+  statements and `Exit-Wrapper`;
+- 3 static checks: the pip freeze exit check and the two next-runs truncations;
+- 9 cases that run the wrapper's **real** SHA256SUMS preflight lines, cut from the file between its
+  `PYUPC-SUMS-PREFLIGHT-BEGIN/END` markers, against temp copies of the kit (one shows the 26fbc19c0 pre-fix form
+  refusing an intact kit);
 - 3 flag-line round trips (C0 writer vs the attempt reader).
 
 Retries happen only for a stop before C3 that:
@@ -265,3 +295,25 @@ How everything else is handled:
   redirected, or a bad `-Attempt`/`-RunId`).
 - **STOPPED `GATE_REFUSAL_C1_THROW`:** a C1 throw that is not a NO-GO, for example the lease call refusing on a
   pending teardown.
+- **WAIT-FOR-OWNER `RUN_FILE_DIED`:** the attempt transcript has no `PYUPC-EXIT` line, whether the process exit
+  is 0 (without DONE) or nonzero. The run file prints that line on every exit after its transcript starts, so its
+  absence means the run file was killed or crashed and no undo or restore verify ran. Follow "Wrapper process
+  crashed or was killed" (kit raw md, Block 4) and message the owner.
+
+### Recovery: `REFUSED_ATTEMPT_TRANSCRIPT_EXISTS`
+
+The wrapper refuses (exit 3, nothing run) when any `C:\pyup\cp3119\phase-c-transcript-20261024-a*.txt` already
+exists, so that the 3-attempt cap holds across launches. One way to hit it without a real attempt: the wrapper
+(or the run file directly) was launched **before** `owner-go-20261024.txt` existed. That launch's preflight
+refuses with exit 3, `PYUPC-GATE-REFUSAL gate=PREFLIGHT`, but leaves `phase-c-transcript-20261024-a1.txt` behind.
+
+Operator steps:
+
+1. Read `C:\pyup\cp3119\phase-c-transcript-20261024-a1.txt`. Proceed only if its only stage marker is
+   `PYUPC-MARK ... stage=PREFLIGHT`, followed by `PYUPC-GATE-REFUSAL ... gate=PREFLIGHT` and `PYUPC-EXIT ...
+   code=3 stage=PREFLIGHT`, with no C0 or later marker. Anything else is a real attempt: do not relaunch.
+2. Report the file name and those three lines to master and the owner. **Only with the owner's or master's
+   explicit say**, rename it to a name that no longer starts with `phase-c-transcript-` (for example
+   `refused-pre-go-phase-c-transcript-20261024-a1.txt`; a suffix such as `...-a1.old.txt` still matches the
+   wrapper's `phase-c-transcript-20261024-a*.txt` filter) or move it out of `C:\pyup\cp3119`. Never delete it: it is the evidence of the refused launch.
+3. Relaunch the wrapper with the launch form above.
