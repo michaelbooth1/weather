@@ -1,6 +1,6 @@
 """Exit codes of ops scripts stopped by Ctrl+C under Windows PowerShell 5.1.
 
-Guards: a Ctrl+C-stopped PS 5.1 -File ops script keeps the exit code of its final finally or trap (workstation pre-gate FAIL receipt with exit 0, 2026-10-22).
+Guards: a Ctrl+C-stopped PS 5.1 -File ops script keeps the exit code of its final finally or trap (workstation pre-gate FAIL receipt with exit 0, 2026-10-22), and a trap that sets the exit code never resumes with continue (a healthy run then exits 1).
 
 Measured on PS 5.1 (2026-10-22, scratch scripts, console Ctrl+C under ``-File``):
 
@@ -27,7 +27,17 @@ So this ratchet requires, over every ``scripts/ops/*.ps1``:
   ``$Host.SetShouldExit(...)`` -- unless its first statement is the ``exit``
   itself and starts no command. The rethrow case was measured too
   (``trap { Close; throw }`` exits 0 when stopped, 1 with ``SetShouldExit``
-  first; the unstopped rethrow exits 1 either way).
+  first; the unstopped rethrow exits 1 either way);
+* in any script, no ``trap`` that calls ``$Host.SetShouldExit`` can also
+  resume with an escaping ``continue`` -- one not consumed by a loop or switch
+  inside the trap or the function holding it (a labeled one only by a loop
+  carrying that label). ``SetShouldExit(1); ...; continue`` makes a healthy,
+  unstopped run that merely hit a non-terminating error exit 1 (measured by
+  Fable, 2026-10-22). The call and the ``continue`` count also when reached
+  through a called function, by the name resolution below. Limit: a
+  ``continue`` in a called function is judged only against that function's own
+  loops; one it propagates dynamically into a loop of its caller inside the
+  trap is still reported (a false positive over a miss).
 
 Function calls resolve by name over every scanned script, not just the current
 one, because dot-source targets live beside the scripts; a name defined in
@@ -97,8 +107,8 @@ function Get-Exits($node) {
     @($node.FindAll({ param($n) $n -is [System.Management.Automation.Language.ExitStatementAst] }, $true))
 }
 function Test-EscapingBreak($break, $root) {
-    # A `break` that is not consumed by an enclosing loop or switch below $root
-    # (a labeled one only by a loop carrying that label) ends a trap.
+    # A `break` or `continue` that is not consumed by an enclosing loop or switch
+    # below $root (a labeled one only by a loop carrying that label) ends a trap.
     $label = if ($break.Label) { $break.Label.Extent.Text.Trim("'`"") } else { $null }
     for ($node = $break.Parent; $null -ne $node -and $node -ne $root; $node = $node.Parent) {
         if ($node -is [System.Management.Automation.Language.LoopStatementAst] -or
@@ -116,6 +126,21 @@ function Test-Terminates($node) {
             $n -is [System.Management.Automation.Language.ThrowStatementAst] -or
             $n -is [System.Management.Automation.Language.BreakStatementAst] }, $true)) {
         if ($n -isnot [System.Management.Automation.Language.BreakStatementAst]) { return $true }
+        if (Test-EscapingBreak $n $node) { return $true }
+    }
+    return $false
+}
+function Test-CallsHostExit($node) {
+    # Any `$Host.SetShouldExit(...)` call at any depth below $node.
+    @($node.FindAll({ param($n)
+        $n -is [System.Management.Automation.Language.InvokeMemberExpressionAst] -and -not $n.Static -and
+        $n.Member.Extent.Text -eq 'SetShouldExit' -and
+        $n.Expression -is [System.Management.Automation.Language.VariableExpressionAst] -and
+        $n.Expression.VariablePath.UserPath -eq 'Host' }, $true)).Count -gt 0
+}
+function Test-ResumesWithContinue($node) {
+    # A `continue` that escapes every loop and switch below $node resumes after a trap.
+    foreach ($n in $node.FindAll({ param($n) $n -is [System.Management.Automation.Language.ContinueStatementAst] }, $true)) {
         if (Test-EscapingBreak $n $node) { return $true }
     }
     return $false
@@ -186,6 +211,15 @@ foreach ($entry in $parsed) {
         }
     }
     foreach ($trap in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.TrapStatementAst] }, $true)) {
+        $bodies = @($trap.Body)
+        foreach ($name in (Get-ReachableFunctions @($trap.Body) $functions)) {
+            foreach ($definition in $functions[$name]) { $bodies += $definition.Body }
+        }
+        if (@($bodies | Where-Object { Test-CallsHostExit $_ }).Count -and
+            @($bodies | Where-Object { Test-ResumesWithContinue $_ }).Count) {
+            "${path}:$($trap.Extent.StartLineNumber) trap calls `$Host.SetShouldExit(...) and can resume with continue, so an unstopped run exits with that code"
+            continue
+        }
         $first = @($trap.Body.Statements) | Select-Object -First 1
         if ($null -ne $first -and ($null -ne (Get-HostExitArgument $first) -or (Test-IsBareExit $first))) { continue }
         $canExit = Test-Terminates $trap.Body
@@ -251,6 +285,13 @@ FIXTURES = {
     "bad_trap_exit_runs_command.ps1": "[CmdletBinding()]\nparam()\ntrap { exit (Get-Random -Maximum 1) }\n1\n",
     # The helper lives in another scanned script (a dot-source target).
     "bad_trap_cross_file.ps1": "param()\ntrap { Invoke-CrossFileHelper }\n1\n",
+    # Sets the exit code, then resumes: an unstopped run exits 1.
+    "bad_trap_sse_continue.ps1": "param()\ntrap { $Host.SetShouldExit(1); Write-Host x; continue }\n1\n",
+    # Through a function; the labeled continue escapes the unlabeled switch.
+    "bad_trap_sse_function_continue.ps1": (
+        "param()\nfunction Mark-Failed { $Host.SetShouldExit(1) }\n"
+        "trap { Mark-Failed; :o foreach ($i in 1) { switch (1) { 1 { continue x } } } }\n1\n"
+    ),
     "lib_cross_file_helper.ps1": "function Invoke-CrossFileHelper { Write-Host x; exit 2 }\n",
     # Spared.
     "plain_finally.ps1": "param([string]$X)\ntry { 1 } finally { exit 1 }\n",
@@ -273,6 +314,10 @@ FIXTURES = {
         "trap { $Host.SetShouldExit(1); Close-Journal; throw }\n1\n"
     ),
     "trap_bare_exit.ps1": "[CmdletBinding()]\nparam()\n$c = 1\ntrap { exit $c }\n1\n",
+    "trap_sse_loop_continue.ps1": (
+        "param()\ntrap { $Host.SetShouldExit(1); foreach ($i in 1) { continue }; "
+        ":outer foreach ($j in 1) { switch (1) { 1 { continue outer } } }; exit 1 }\n1\n"
+    ),
 }
 
 
