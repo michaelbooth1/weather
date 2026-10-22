@@ -1,8 +1,10 @@
 # Host Python upgrade runbook (capture host, 3.11.0 to 3.11.9)
 
 > **APPROVED by the owner 2026-10-12 (DECISION_LOG, §11)**, including the 2026-10-12 G0/G7 revisions
-> and the §7a calendar. The cutover night was 00:30 on 10-17 and did not run; it is now 00:30 on Thu 10-22
-> (the night of 10-21 to 10-22; owner 2026-10-20 ~16:4x EDT, verbatim "Keep Python 10-21/22 (Recommended)", relayed by master-agent), on pre-N12 master. The state of play owns the date.
+> and the §7a calendar. The cutover night was 00:30 on 10-17 and did not run; 00:30 on Thu 10-22 (the night of
+> 10-21 to 10-22) stopped at C2 (history, revisions below). It is now 00:30 on Sat 10-24 (the night of 10-23 to
+> 10-24; owner GO 2026-10-22, verbatim "yes approve that for now", relayed by master-agent, DECISION_LOG
+> 2026-10-22), after N12 lands on 10-22/23, run from the [Phase C kit](#c-on-the-night-of-10-23-to-10-24-the-kit). The state of play owns the date.
 > Nothing in this file authorizes a download, an install, a capture gap, a task change or a merge.
 > [The owner sign-off checklist](#11-owner-sign-off-checklist) lists what the owner must sign first.
 > Live orders, cancels and signing are out of scope here; the live launcher is resealed under its
@@ -162,6 +164,17 @@ host), and "non-docs diff empty" is `git diff --name-only <tested sha> HEAD` wit
 `G3 PASS branch=(i)+(ii)+(iii) deps_changed=none pregate=<id> tested=<sha> nondocs_diff=empty`; a fail logs
 `G3 FAIL reason=<token>` and NO-GOes before anything is touched. A G3 fail is deterministic and never retried.
 
+Revision 2026-10-22 (G3 `-G3Mode` switch, master ruling on the kit). `-G3Mode strict|dependency` is mandatory with
+no default, and the owner's answer to master's D1 question picks the mode; C0 records it on the flag line and every
+attempt re-checks G3 with it. **dependency:** the ruling above as written, plus the amendment, verbatim: "the non-docs
+diff vs the tested sha may additionally contain only config/locations.json and config/location_market_events.json
+(fleet-generated)". Those two exact paths, no globbing; (i) is unchanged, and C0 prints
+`fleet_drift_exempt=<paths>` (or `none`) on the G3 PASS line. **strict:** HEAD equals the qualified tip, else
+`G3 DEFER`, which needs `roll_verdict.ps1` ROLL-FREE (exit 0) at the GO review, as before; no ROLL-FREE, no GO file.
+In both modes G3(ii) verifies the committed pregate receipt (schema, verdict PASS, head == tested sha); the Python
+version (3.11.9) is an attestation. The [Phase C kit](#c-on-the-night-of-10-23-to-10-24-the-kit) README owns the
+exact output lines and the two operator launch lines; the C0 block below predates the switch.
+
 **Owns:** the procedure for moving the production checkout's `venv` from CPython 3.11.0 to 3.11.9
 on the 16 GB capture host. That covers a side-by-side install, an offline wheelhouse, a stage venv
 qualified by the bounded suite, the cutover through the guarded stop/restore path, verification,
@@ -201,8 +214,8 @@ The live SDK portability check accepts any 3.11 patch release
 | G0 | The owner has signed §11 for this runbook revision and has named the morning or night of the phase about to run (Phase A: its owner-attended morning; Phase B and C: their nights). Revised 2026-10-12 (owner-confirmed). | Before Phase A, B0, C0 |
 | G1 | The bounded suite supports `-InterpreterPath` and `-ExpectedInterpreterVersion` (`scripts/ops/bounded_worktree_test_suite.ps1:44-52`). | Met on master; re-read `param(` if the script changed |
 | G2 | Phase A and Phase B passed on earlier nights, and `$R\qualification.json` has `"result":"PASS"`. | C0 |
-| G3 | Master ruling 2026-10-22 (replaces the `roll_verdict.ps1` rule): "G3 holds if HEAD equals the qualified tip, OR all of these hold: (i) no dependency file (requirements*, pyproject.toml, *.lock, constraints*, setup.cfg, setup.py) differs between the qualified tip 90b2e1844 and HEAD; (ii) the exact HEAD tree, or a tree whose non-docs diff vs HEAD is empty, has a full WS pregate PASS run on Python 3.11.9; (iii) C0's other checks are clean. Otherwise B-R is needed, and B-R may run in any 00:30-09:00 heavy window before the cutover night, including the same night after a landing." C0 checks (i) and (ii) mechanically from operator-supplied values (qualified tip, WS pregate receipt id, tested sha, 3.11.9 attestation) and prints `G3 PASS branch=...` only when (iii) also holds; any other outcome is `G3 FAIL` (NO-GO, never retried). | C0 |
-| G4 | The owner is reachable from 00:30 to 03:45 on the cutover night: GO at C0, and any escalation up to the end of §R. Phase A needs no owner click since the 2026-10-13 revision (A4 has no installer).  **For C on the night of 10-21 to 10-22** the escalation rule is the owner's "Auto net, you in the morning (Recommended)" (owner 2026-10-19 ~13:1x EDT, selected options relayed by master-agent), which supersedes the DECISION_LOG rows of 2026-10-13 (advance GO, automatic rollback) and 2026-10-17 (the owner's own GO that night) on who answers an escalation; GO at C0 still comes from the owner in chat (§R, "Escalation"). | C0 |
+| G3 | Master ruling 2026-10-22 (replaces the `roll_verdict.ps1` rule): "G3 holds if HEAD equals the qualified tip, OR all of these hold: (i) no dependency file (requirements*, pyproject.toml, *.lock, constraints*, setup.cfg, setup.py) differs between the qualified tip 90b2e1844 and HEAD; (ii) the exact HEAD tree, or a tree whose non-docs diff vs HEAD is empty, has a full WS pregate PASS run on Python 3.11.9; (iii) C0's other checks are clean. Otherwise B-R is needed, and B-R may run in any 00:30-09:00 heavy window before the cutover night, including the same night after a landing." C0 checks (i) and (ii) mechanically from operator-supplied values (qualified tip, WS pregate receipt id, tested sha, 3.11.9 attestation) and prints `G3 PASS branch=...` only when (iii) also holds; any other outcome is `G3 FAIL` (NO-GO, never retried). Mandatory `-G3Mode strict\|dependency` (owner's D1 answer; dependency adds the two fleet-generated config paths and prints `fleet_drift_exempt=<paths>`; strict is HEAD==tip else DEFER needing ROLL-FREE at the GO review): see the `-G3Mode` revision above. | C0 |
+| G4 | The owner is reachable from 00:30 to 03:45 on the cutover night (for C, 00:30 to 03:45 on Sat 10-24): GO at C0, and any escalation up to the end of §R. Phase A needs no owner click since the 2026-10-13 revision (A4 has no installer).  **For C on the night of 10-23 to 10-24** (as on 10-21/22, which stopped at C2) the escalation rule is the owner's "Auto net, you in the morning (Recommended)" (owner 2026-10-19 ~13:1x EDT, selected options relayed by master-agent), which supersedes the DECISION_LOG rows of 2026-10-13 (advance GO, automatic rollback) and 2026-10-17 (the owner's own GO that night) on who answers an escalation; GO at C0 still comes from the owner in chat (§R, "Escalation"). The 10-23/24 GO (DECISION_LOG 2026-10-22) adds: up to 2 same-night retries, only before the swap; a failure after the swap undoes itself and waits for the owner. | C0 |
 | G5 | No other lease user is due that night. Specifically: <br>- `WeatherTrainingWindow` (a 01:00 one-shot, `register_training_window.ps1:3`) is disabled or has no trigger that night; <br>- Stage B `WeatherEveningEvidenceRefresh` (00:35, holds the lease to 09:00 when enabled; `register_daily_refresh.ps1:20-24`) is disabled; <br>- a U6 export registered at 00:35 (Q3) is disabled (enforced in B0 and C0 by `Assert-NoU6At0035`);<br>- no integration attempt, quiet-window merge, storage one-shot or held-head work is scheduled;<br>- no host replay or research batch (for example a lever-5 or item 337 replay) is scheduled or still running, and none holds the lease. | Phase B (B0), C0 |
 | G6 | Release case A: `artifacts\releases\current_release.json` is absent (H5, B3, C0). Case B or C is NO-GO for this runbook (§8). | H5, B3, C0 |
 | G7 (LFC) | The cutover night (and any Phase B prep night) is not the night before or the night of a scheduled LFC session. Revised 2026-10-12 (owner-confirmed): it no longer waits for LFC session 0, which the owner postponed. **Dated exception 2026-10-14** (owner: "Keep B" (2026-10-14 16:27 EDT, relayed verbatim by master-agent); DECISION_LOG 2026-10-13 LFC session 0 row): Phase B runs at 00:30 on 10-16, the morning of LFC session 0 (Fri 10-16), on the guard that B ends clean by 09:00 with the 8765 reader and capture re-checked, else session 0 slips; C stays at 00:30 on 10-17 (history: 10-17 plan; C is now 00:30 on 10-22, §7a). | Phase B (B0), C0 |
@@ -627,7 +640,7 @@ morning: "00:30 on 10-16" is the night of 10-15 to 10-16.
 | A install (elevated operator session; no owner click since 2026-10-13) | **done**: P0-A2 10-13 08:54-08:57 (A4 NO-GO on the installer route); A' (A3 + A4, NuGet route) **PASS 10-14 05:23** after N9 handed back | none needed | It ran before §T, so §T ends with T-R. |
 | §T tzdata + T-R | 00:30-02:00 on Thu 10-15 | 00:30 on Fri 10-16 | First admitted night after N9 (00:30 on 10-14). |
 | B prep night | 00:30-04:45 on Fri 10-16 | 00:30 on Sat 10-17 | After A and after §T's T-R (B builds its lock from the refreshed freeze). |
-| C cutover | 00:30-02:25 on Sat 10-17 (owner-named; did not run). **Now 00:30-02:25 on Thu 10-22** (owner 2026-10-20 ~16:4x EDT, verbatim "Keep Python 10-21/22 (Recommended)", relayed by master-agent), before N12 | the next night inside 10-15..10-30 that meets G4 and G5, named by the owner (G0) | The night after B, so the qualified tip has little time to move (G3); after the freeze (G8). If B uses its fallback (10-17), C moves too. |
+| C cutover | 00:30-02:25 on Sat 10-17 (owner-named; did not run). 00:30 on Thu 10-22 (owner 2026-10-20 ~16:4x EDT, verbatim "Keep Python 10-21/22 (Recommended)", relayed by master-agent; stopped at C2, history). **Now 00:30-02:25 on Sat 10-24** (the night of 10-23 to 10-24; owner GO 2026-10-22, verbatim "yes approve that for now", relayed by master-agent; up to 2 pre-swap retries; [kit](#c-on-the-night-of-10-23-to-10-24-the-kit)), after N12 | the next night inside 10-15..10-30 that meets G4 and G5, named by the owner (G0) | The night after B, so the qualified tip has little time to move (G3); after the freeze (G8). If B uses its fallback (10-17), C moves too. |
 | Latest second attempt | 00:30 on Thu 10-29 | none | Keeps 10-30 and 10-31 spare; never 11-01 (G11). |
 | §D cleanup | first admitted night after a C PASS that has no other lease user | any later night | Removes the stage worktree; not urgent. |
 
@@ -1053,6 +1066,22 @@ trigger, which stays armed as the final safety net. The expected capture gap (C3
 20-35 minutes. The auxiliary tasks (tape, shadow, 88a and the rest) stay quiesced until C9b, so
 §R never has to stop processes running on the new venv except the three capture workers. §R still
 re-runs the quiesce to be safe.
+
+#### C on the night of 10-23 to 10-24: the kit
+
+The operator kit is `night-plans/pyup-c-next/README.md` on branch `claude/night-plans-pyup-c-next-20261022` (never
+merged to master); its README and file headers win over the timetable above for that night.
+
+- **Retry wrapper** `phase-c-retry-wrapper-20261024.ps1` runs the attempt file up to 3 times. Each attempt writes stage
+  markers and its own transcript (`phase-c-transcript-20261024-a<n>.txt`; wrapper transcript beside it).
+- **Mechanical retry decision:** a pre-C3 failure (exit 1) with `PYUPC-RESTORE-VERIFY result=PASS` and no gate
+  refusal retries; any failure at or after C3, or a missing marker, gives WAIT-FOR-OWNER. At most 3 attempts; a
+  retry must start by 01:04 (the binding lease deadline), with 03:30 as a second backstop.
+- **Clocks:** C1 floor 00:30 (was 01:00); lease deadline 01:04; pre-C3 01:12; swap 01:30; C8 02:15; C9c 02:45;
+  rollback done by 03:45; dead-man 04:10/04:15.
+- **Between attempts,** the GO review compares the post-undo status against the baseline captured at attempt 1's GO
+  review (before C2). It passes only if every flag was in that baseline or is on the kit's fixed allowlist of
+  restart-transient tokens; any other new flag, or any CRITICAL not in the baseline, gives WAIT-FOR-OWNER.
 
 A failure before the C4 rename means **undo with no swap**: re-enable what C2 and C3 disabled, then
 start the S4U restore. A failure after the rename means §R.
@@ -1554,12 +1583,13 @@ Keep `venv-cp3119-failed` and `$R` for diagnosis. If 3/3 is not reached by 03:45
 owner. The aux tasks stay disabled, so a 04:10 U6 export cannot start on a half-restored venv. The
 04:15 restore trigger stays armed.
 
-**Escalation (C on the night of 10-21 to 10-22).** The owner's ruling, verbatim: "Auto net, you in the morning (Recommended)"
+**Escalation (C on the night of 10-23 to 10-24; the same rule held on 10-21/22).** The owner's ruling, verbatim: "Auto net, you in the morning (Recommended)"
 (owner 2026-10-19 ~13:1x EDT, selected options relayed by master-agent). If capture is not 3/3 by 03:45, the 04:15 `WeatherTrainingWindowRestore` task stays the automatic
 net and nobody improvises a further repair overnight. Master-agent records everything (`night.log`, `$N`, the holders
 files, the lease state) and messages the owner, who acts when up. The lease rules above still apply, including the
 09:00 deadline and the owner's call on Stage-A. This ruling supersedes the DECISION_LOG rows of 2026-10-13 and 2026-10-17
-on who answers an escalation for that night.
+on who answers an escalation for that night. Under the 10-23/24 GO, any failure at or after C3 waits for the owner
+and is never retried (kit wrapper `WAIT-FOR-OWNER`).
 
 **Wrapper process crashed or was killed.** Signature: the session transcript or `night.log` ends without a
 `PHASE-C wrapper exit` line (for a pasted session: the window closed mid-phase). No `ESCALATE` line was written. The
