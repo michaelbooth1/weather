@@ -11,7 +11,8 @@ failure after the swap undoes itself and waits for the owner.
 | `phase-c-run-20261024.ps1` | One attempt: C0 re-run, then C1 to C10, with §R after a failure past the rename. Takes `-Attempt 1..3 -RunId <id>`. |
 | `phase-c-retry-wrapper-20261024.ps1` | Runs the attempt file up to 3 times, under the mechanical decision table in its header. |
 | `phase-c-raw-20261022.md` | The 10-22 runbook extract the run file mirrors. Its night-specific fills (EXPECTED_HEAD, the 01:00 timetable, roll_verdict G3) do not apply to 10-24. |
-| `SHA256SUMS.txt` | Authoritative hashes. The retry wrapper refuses to run unless the run file matches its line. |
+| `pregate-receipt-739c03eff1e2-20261018T045220-105120.json` | The workstation pregate PASS receipt for G3 (ii), a byte-identical copy of `data\pregate\pg-739c03eff1e2-20261018T045220-105120\receipt.json`. Its canonical place on the host is `C:\pyup\cp3119` (`$R`), next to the kit copy. |
+| `SHA256SUMS.txt` | Authoritative hashes, including the receipt. The retry wrapper refuses to run unless the run file matches its line, and refuses to run from anywhere but `C:\pyup\cp3119` (`NOT_IN_CP3119`). |
 
 Launch everything as a FILE, elevated, with no redirects, from local copies in `C:\pyup\cp3119`. Never press
 Ctrl+C in the wrapper window: the attempt shares that console and touches the Scheduler.
@@ -56,7 +57,7 @@ Either way the wrapper's verdict is `STOPPED reason=GATE_REFUSAL_*`.
 
 ### How the kit implements it
 
-`Test-G3Gate` is identical in both files: run file :309-337, C0 file :157-185. All git is read-only.
+`Test-G3Gate` is identical in both files: run file :332-371, C0 file :157-196. All git is read-only.
 
 - **The mode.** `-G3Mode` is mandatory, case-sensitive and has no default.
   - C0 refuses (exit 3) before anything else unless it is exactly `strict` or `dependency`.
@@ -67,12 +68,20 @@ Either way the wrapper's verdict is `STOPPED reason=GATE_REFUSAL_*`.
   `.ps1`, and are already filled in the two launch lines below.
   - `-G3QualifiedTip 90b2e1844ad0de71916c67996026dea7b04ce5ff`: must equal `qualification.json` `tip`, else
     `G3 FAIL reason=operator_tip_ne_qualification_json`.
-  - `-G3PregateReceipt pg-739c03eff1e2-20261018T045220-105120`: a PASS receipt. It is not on the host, so the kit
-    records only the id.
+  - `-G3PregateReceipt pg-739c03eff1e2-20261018T045220-105120`: the kit ships the receipt. In dependency mode
+    `Test-G3Gate` loads `$R\pregate-receipt-<id without pg->.json` and requires:
+    - `schema` equal to `weather.workstation_pregate_receipt.v1`;
+    - `verdict` equal to `PASS`;
+    - `head` equal to `-G3TestedSha`;
+    - the id taken from the file name equal to `-G3PregateReceipt`.
+
+    All comparisons are case-sensitive. A missing, unreadable or mismatched receipt gives `G3 FAIL` with
+    `pregate_receipt_*`, and is never retried.
   - `-G3TestedSha 739c03eff1e2f26c49759899e4e39b669d2c6628`: must be 40-hex, start with the receipt's 12-hex head,
     and exist in the production repo.
-  - `-G3PregatePython 3.11.9`: an attestation. The workstation venv is 3.11.9, and the pregate uses
-    `$RepoRoot\venv` (`workstation_pregate.ps1:60`).
+  - `-G3PregatePython 3.11.9`: an attestation. The receipt has no interpreter field, so the PASS line says
+    `py=attested`. The workstation venv is 3.11.9, and the pregate uses `$RepoRoot\venv`
+    (`workstation_pregate.ps1:60`).
 - **Both modes: HEAD equals the tip.** PASS, branch `HEAD==tip`.
 - **strict** uses the `qualification.json` tip, as at 353167c0e. It does not run the operator-tip check or (i)/(ii).
 - **strict, HEAD ≠ tip: DEFER, not a refusal.**
@@ -92,11 +101,15 @@ Either way the wrapper's verdict is `STOPPED reason=GATE_REFUSAL_*`.
   - **(ii):** `git diff --name-only <tested sha> HEAD`. Every path must match `^docs/.+\.md$` or be exactly
     `config/locations.json` or `config/location_market_events.json`. The match is exact and case-sensitive, with
     no globbing. Any other path fails with `nondocs_diff=<n>:<paths>`.
-  - **(iii):** the PASS line is printed only after every other C0 check has passed.
+  - **(iii):** the PASS line is printed only after every other C0 check has passed. In an attempt, it also waits
+    for the post-C0 GO-review checks (HEAD, flags or the retry delta, next-runs).
+  - **Untracked files are invisible** to (ii) and to the dirty check (`git status --porcelain
+    --untracked-files=no`). This is accepted because untracked files cannot change what git merges or what the
+    venv's editable install points at.
 - **Fixed output.**
   - `G3 PASS mode=<m> branch=HEAD==tip tip=<sha>`
   - `G3 DEFER mode=strict branch=HEAD!=tip requires=ROLL-FREE-at-GO-review`
-  - `G3 PASS mode=dependency branch=(i)+(ii)+(iii) deps_changed=none pregate=<id> tested=<sha> nondocs_diff=empty fleet_drift_exempt=<paths in git order|none>`
+  - `G3 PASS mode=dependency branch=(i)+(ii)+(iii) deps_changed=none pregate=<id> tested=<sha> py=attested nondocs_diff=empty fleet_drift_exempt=<paths in git order|none>`
   - `G3 FAIL reason=<token> mode=<m> head=<sha> tip=<sha>`, followed by `NO-GO: G3 FAIL: ...`
 - **On a fail:** no retry. The wrapper sees `GATE_REFUSAL_PREFLIGHT` from the standalone C0, or `GATE_REFUSAL_G3`
   inside an attempt. Then B-R per the ruling, and a new C0.
@@ -120,28 +133,28 @@ The 10-22 kit put the C1 floor at 01:00, the quiet-window start. That floor was 
 
 | Clock | Old (10-22) | New (10-24) | Derivation |
 | --- | --- | --- | --- |
-| Standalone C0 launch | 00:30-00:55 (runbook) | 00:30:00, refused earlier (C0 :27) | 00:00-00:30 is the protected near-close tail (HOST_LOAD_POLICY window table). The flag must be written after midnight. |
-| C1 floor (preflight) | 01:00 | **00:30:00** (run :66) | Lease admission opens at minute 30 (`workload_admission.ps1:596-598`, `$localMinute -ge 30`). Before that, `Enter-WeatherHeavyWorkloadLease` throws (`:1771-1775`). |
+| Standalone C0 launch | 00:30-00:55 (runbook) | 00:30:00, refused earlier (C0 :29) | 00:00-00:30 is the protected near-close tail (HOST_LOAD_POLICY window table). The flag must be written after midnight. |
+| C1 floor (preflight) | 01:00 | **00:30:00** (run :69) | Lease admission opens at minute 30 (`workload_admission.ps1:596-598`, `$localMinute -ge 30`). Before that, `Enter-WeatherHeavyWorkloadLease` throws (`:1771-1775`). |
 | C0 re-run inside an attempt | ~13 s | ~13 s (plus G3: 3 read-only git calls) | Measured on 10-21/22 (01:01:14 to 01:01:27). |
 | First lease probe | ≥ 01:00:13 | ≥ 00:30:13 | Floor plus the C0 re-run. |
-| Lease probe retry sleep | 30 s | 30 s (run :387) | A duration. It can overshoot the deadline by ≤ 30 s, which the post-acquire check (run :389) catches. |
-| C1 lease deadline | 01:04 | **01:04** (run :385, :389, preflight :67) | T − (C1 1 min + shadow seal 3.17 + tape ensure 2.58 + C2 rest 1.25) = 01:12 − 8.0 min. T is back-anchored, so this does not move. The C1 window grows from 4 to 34 min. |
-| C2 shadow seal wait | 180 s | 180 s (run :442) | A duration (STOP-file seal). |
-| C2 tape-supervisor ensure wait | 150 s | 150 s (run :450) | 2 min `ExecutionTimeLimit` (`register_execution_tape_supervisor.ps1:34`) + 30 s. |
-| Pre-C3 deadline T | 01:12 | **01:12** (run :520) | S − C3 pass-case worst case: 5.5 (ensure) + 1 (stop verbs) + 10 (gate) + 1 = 17.5 min. 01:30 − 17.5 = 01:12:30, rounded down. |
-| C3 supervisor ensure waits | 330 s | 330 s (run :475) | Snapshot supervisor 5 min limit (`register_snapshot_supervisor.ps1:46`) + 30 s. |
-| C3 stop-confirmation gate loop | 600 s | 600 s (run :484) | A duration. |
-| Swap deadline S (C4) | 01:30 | **01:30** (run :528) | Core decision 02:15 − 45 min (C5 build, C6, C7 `Wait-Restore` ≤ 32 min, C8). Back-anchored. |
-| `Wait-Restore` (C7, undo, §R) | 32 min, rerun after 16 | same (run :491, :495) | 15 min task limit (`register_training_window.ps1:153`): one run plus one rerun. |
-| C8 operator decision | max(02:15, now + 5 min) | same (run :575) | Core decision by 02:15 (runbook C9). Back-anchored: 02:45 §R start − 30 min (C9b, C9c settle 10 min, tape 5 min). |
-| C9c operator decision / §R start limit | 02:45 | **02:45** (run :644, :171) | §R worst case ~60 min (69 if every ensure wait runs out): 02:45 + 60 = 03:45 (G4, owner ruling), + 69 = 03:54. Both before 04:10 and 04:15. |
+| Lease probe retry sleep | 30 s | 30 s (run :442) | A duration. It can overshoot the deadline by ≤ 30 s, which the post-acquire check (run :444) catches. |
+| C1 lease deadline | 01:04 | **01:04** (run :440, :444, preflight :70) | T − (C1 1 min + shadow seal 3.17 + tape ensure 2.58 + C2 rest 1.25) = 01:12 − 8.0 min. T is back-anchored, so this does not move. The C1 window grows from 4 to 34 min. |
+| C2 shadow seal wait | 180 s | 180 s (run :497) | A duration (STOP-file seal). |
+| C2 tape-supervisor ensure wait | 150 s | 150 s (run :505) | 2 min `ExecutionTimeLimit` (`register_execution_tape_supervisor.ps1:34`) + 30 s. |
+| Pre-C3 deadline T | 01:12 | **01:12** (run :575) | S − C3 pass-case worst case: 5.5 (ensure) + 1 (stop verbs) + 10 (gate) + 1 = 17.5 min. 01:30 − 17.5 = 01:12:30, rounded down. |
+| C3 supervisor ensure waits | 330 s | 330 s (run :530) | Snapshot supervisor 5 min limit (`register_snapshot_supervisor.ps1:46`) + 30 s. |
+| C3 stop-confirmation gate loop | 600 s | 600 s (run :539) | A duration. |
+| Swap deadline S (C4) | 01:30 | **01:30** (run :583) | Core decision 02:15 − 45 min (C5 build, C6, C7 `Wait-Restore` ≤ 32 min, C8). Back-anchored. |
+| `Wait-Restore` (C7, undo, §R) | 32 min, rerun after 16 | same (run :546, :550) | 15 min task limit (`register_training_window.ps1:153`): one run plus one rerun. |
+| C8 operator decision | max(02:15, now + 5 min) | same (run :630) | Core decision by 02:15 (runbook C9). Back-anchored: 02:45 §R start − 30 min (C9b, C9c settle 10 min, tape 5 min). |
+| C9c operator decision / §R start limit | 02:45 | **02:45** (run :699, :194) | §R worst case ~60 min (69 if every ensure wait runs out): 02:45 + 60 = 03:45 (G4, owner ruling), + 69 = 03:54. Both before 04:10 and 04:15. |
 | §R not 3/3 escalation | 03:45 | 03:45 | G4 owner reachability and the 10-19 owner ruling. |
 | Dead-man restore | 04:15 daily | 04:15 (C0 asserts it is armed) | A scheduled task, not ours. Every capture-disrupting step must end before it. The chain above ends ≤ 03:54. |
-| C0 next-runs horizon | < 04:00 | < 04:00 (run :369) | Covers everything up to the end of §R. |
-| Hold reminder / auto-release | 08:30 / 08:55 | same (run :129-130) | Anchored on the 09:00 end of the heavy window. |
+| C0 next-runs horizon | < 04:00 | < 04:00 (run :413) | Covers everything up to the end of §R. |
+| Hold reminder / auto-release | 08:30 / 08:55 | same (run :134-135) | Anchored on the 09:00 end of the heavy window. |
 | Retry: no attempt starts at or after | — | **03:30** (owner) and **after 01:04** (lease deadline) | Owner cutoff 03:30. A start after 01:04 would only be refused by the run file's preflight (exit 3), so the wrapper stops instead (`LEASE_WINDOW_CLOSED_0104`). **The 03:30 cutoff never binds tonight; 01:04 does.** |
 | Retry settle | — | 60 s | Lets the restarted holders and the released lease settle before the next C2. |
-| Retry restore-verify waits | — | holders 90 s, tape status 180 s (run :84-112) | Read-only checks after the undo. A tape status call is the same command as C9c. |
+| Retry restore-verify waits | — | holders 90 s, tape status 180 s (run :88-118) | Read-only checks after the undo. A tape status call is the same command as C9c. |
 
 Worst-case attempt arithmetic for retries:
 
@@ -163,9 +176,9 @@ Refuted from code:
 
 C does no git merge. Its git calls are all read-only:
 
-- `rev-parse HEAD` (run :263, :341);
-- `status --porcelain --untracked-files=no` (run :355 in C0, :548 in C6);
-- the G3 `diff --name-only` and `cat-file -t` calls (run :317, :324-325, and the same in C0).
+- `rev-parse HEAD` (run :286, :384);
+- `status --porcelain --untracked-files=no` (run :399 in C0, :603 in C6);
+- the G3 `diff --name-only` and `cat-file -t` calls (run :349, :363-364, and the same in C0).
 
 `git status` can briefly take `.git\index.lock` to refresh the index.
 
@@ -183,17 +196,72 @@ Collision analysis:
 **Master: the state of play (10-21) schedules the MG-1 bound + SD-1 merges for 10-23/24, and
 `origin/claude/integration-20261023-n13-on-docs` exists. Neither may run that night if C runs.**
 
+## Retry GO review (master rule, verbatim)
+
+"Between attempts, the GO review compares the post-undo status against the baseline captured at attempt 1's GO review (before C2). It passes if every flag either (a) was present in that baseline, or (b) is on a fixed allowlist of restart-transient tokens. The allowlist covers only flags that status.ps1 emits purely because tape, holders or shadow restarted inside the last N minutes, and N must be stated. Any other new flag, or any CRITICAL not in the baseline, gives WAIT-FOR-OWNER."
+
+How the run file implements it (`Get-WGoReviewDelta`, `$WGoAllow`, `$WGoAllowMinutes`):
+
+- **Baseline.** Attempt 1 writes `$N\goreview-baseline-flags.txt` once, after its post-C0 GO-review checks pass and
+  before C1 and C2. It holds the GO-reviewed C0 flag keys plus attempt 1's own C0 flag keys, so it is the set
+  accepted at that review.
+- **Restart time.** On every exit-1 path that reached C2, the restore verify records `$N\aux-restart-at.txt`
+  (when the undo restarted tape, holders and shadow).
+- **Attempts 2 and 3.**
+  - The comparison replaces the attempt-1 "flags vs GO-reviewed C0" check. The HEAD and next-runs checks are
+    unchanged.
+  - It compares this attempt's C0 flag keys with the baseline and prints
+    `GO-REVIEW-DELTA baseline=<n> new=<keys> allowed=<keys> blocked=<keys>`.
+  - A new key is allowed only if it is on the allowlist (exact, case-sensitive key) and the recorded restart is at
+    most N minutes old.
+  - These cases give `PYUPC-GO-REVIEW-WAIT reason=<new_flag_not_allowlisted|new_critical|baseline_missing>` and
+    exit 4, with nothing touched: any blocked key, any new CRITICAL (no allowlisted key contains CRITICAL), or a
+    missing baseline (fail closed).
+  - The wrapper maps that marker to **WAIT-FOR-OWNER**, not STOPPED.
+- Keys are `Get-StatusFlagKeys` keys: 64-hex values become `<sha>`, numbers become `#`.
+
+| Allowed key | Emitted at | Why it is restart-transient |
+| --- | --- | --- |
+| `public execution-tape producer is armed but its process/lock/identity contract is unhealthy` | `scripts/ops/status.ps1:1596` | Raised while the tape's heartbeat is over 180 s old, its lock PID or supervisor `ensure_status` is not yet OK (`:1590-1593`). A freshly stopped and restarted tape shows this until the new process writes status and lock and the next 1-min ensure run reports OK. |
+| `MAKER_EVIDENCE: STARTING, status age #s` | `scripts/ops/status.ps1:4962` | Raised when the state is not CAPTURING (`:4961`). The restarted 88a worker writes `STARTING` at start-up (`src/weather/market/maker_evidence_capture.py:235`) until its first cycle. |
+| `MAKER_EVIDENCE: CAPTURING, status age #s` | `scripts/ops/status.ps1:4962` | Raised when the status is over 180 s old (`:4961`): the stopped worker's last status, before the restarted one rewrites it. |
+
+- **N = 5 minutes.** That is 180 s, the freshness limit for both the tape heartbeat (`status.ps1:1591`) and 88a
+  status (`status.ps1:4961`), plus 120 s, one tape-supervisor ensure run (`ExecutionTimeLimit` 2 min,
+  `register_execution_tape_supervisor.ps1:34`), which relaunches the tape.
+- **Not allowlisted on purpose:**
+  - `status contract is unreadable`, because writers are atomic;
+  - `BLOCKED_EVIDENCE_LOSS`, which is a real loss;
+  - `MAKER_EVIDENCE: status unreadable or missing`;
+  - any other `MAKER_EVIDENCE` state;
+  - the task-result flags. A restarted holder is `Running`, and status.ps1 then does not flag its last result
+    (`:4475`).
+- **The shadow runner has no status.ps1 flag at all.**
+
 ## Retry markers and decision
 
 The marker formats and the decision table live in the run file and wrapper headers. The self-test (a scratch
-script, not in the kit) dot-sources the wrapper and feeds it fake transcripts. It passes 22 decision cases (2 of them stub the strict-mode GO review), 14 G3 cases (4 of them in a throwaway git repo for fleet drift)
-and 1 static check that `-G3Mode` has no default, plus 3 flag-line round trips (C0 writer vs the attempt reader).
+script, not in the kit) dot-sources the wrapper and feeds it fake transcripts. It has 64 cases:
+
+- 33 decision cases, 2 of them stubbing the strict-mode GO review;
+- 19 G3 cases: 5 for the receipt, and 4 in a throwaway git repo for fleet drift;
+- 1 static check that `-G3Mode` has no default;
+- 8 retry GO-review delta cases;
+- 3 flag-line round trips (C0 writer vs the attempt reader).
 
 Retries happen only for a stop before C3 that:
 
 - exits 1,
 - carries `PYUPC-RESTORE-VERIFY result=PASS`,
-- carries no `PYUPC-GATE-REFUSAL` marker, and
-- leaves the next start at or before 01:04 and before 03:30, within 3 attempts.
+- carries no `PYUPC-GATE-REFUSAL` or `PYUPC-GO-REVIEW-WAIT` marker, and
+- leaves the next start at or before 01:04 and before 03:30, within 3 attempts. 01:04 is the real last start;
+  03:30 stays as a second backstop.
 
-Anything at or after C3, or any marker that is missing or unparseable, gives WAIT-FOR-OWNER.
+How everything else is handled:
+
+- **WAIT-FOR-OWNER:** anything at or after C3, any marker that is missing or unparseable, or a blocked retry GO
+  review.
+- **STOPPED `REFUSED_PRE_TRANSCRIPT`:** exit 3 with no attempt transcript file at all (not elevated, stdio
+  redirected, or a bad `-Attempt`/`-RunId`).
+- **STOPPED `GATE_REFUSAL_C1_THROW`:** a C1 throw that is not a NO-GO, for example the lease call refusing on a
+  pending teardown.

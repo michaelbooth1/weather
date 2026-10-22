@@ -1,13 +1,13 @@
-﻿# WRAPPER PHASE-C0 run wrapper (agent, 2026-10-20; re-dated from the 20261017 kit for the night 2026-10-21/22; re-dated 2026-10-22 for the night 2026-10-23/24, 00:30 floor). READ-ONLY: section 6 header, helper definitions, C0 only.
+﻿# WRAPPER PHASE-C0 run wrapper for the night 2026-10-23/24 (00:30 floor; agent 2026-10-22, from the 10-21/22 kit). READ-ONLY: section 6 header, helper definitions, C0 only.
 # WRAPPER Night 2026-10-23/24 (files dated by the morning, 20261024). Launch at 00:30:00, not before: 00:00-00:30 is the protected tail of the
 # WRAPPER   near-close window (HOST_LOAD_POLICY) and the C wrapper refuses a flag written before midnight. Clocks: night-plans\pyup-c-next\README.md (CLOCKS).
 # WRAPPER Source: C:\tmp\agent-kit\phase-c-raw-20261022.md sha256 6ECF4B320144DE858418B5F44802775B28DB79C044EF1441F4D6B2820015919C
 # WRAPPER   Block 1 (section 6 header, host values filled), Block 2 (Build-Venv / Test-Venv definitions only), Block 3 C0: verbatim.
-# WRAPPER Runbook: docs\operations\HOST_PYTHON_UPGRADE_RUNBOOK.md sha256 FE074EE48EE564F9461F8615E5F3CD56FCB01024490D86B2147B9327C4361759 at review tip 41e3bec62 (origin/claude/pyup-c-1021-review-20261019; not yet on master).
+# WRAPPER Runbook: docs\operations\HOST_PYTHON_UPGRADE_RUNBOOK.md sha256 C1B82CD9BB66476419EFD30F2045B296EEB4AA36A1D0E89AB688286511FED89E at bf24cefc7 (claude/pyup-c-followup-20261022, G3 ruling; master is landing it).
 # WRAPPER SHA256SUMS.txt is authoritative for every file's hash; the raw sha above is historical.
 # WRAPPER Never schedule a C night on 10-31/11-01 (DST fall-back 11-01 02:00 makes the wall-clock deadlines ambiguous).
-# WRAPPER This kit is ahead of master's runbook by the C2 fix on claude/pyup-c2-enabled-check-20261022; until that lands, do NOT regenerate from master's runbook.
-# WRAPPER Launch form (as run on 10-21/22): run as a FILE, elevated, no redirects, from the local copy under C:\pyup\cp3119:
+# WRAPPER Until bf24cefc7 is on master, do NOT regenerate this kit from master's runbook. The kit's own 10-24 additions (markers, retry, -G3Mode, receipt, GO-review delta) are WRAPPER lines.
+# WRAPPER Launch form: run as a FILE, elevated, no redirects, from the local copy under C:\pyup\cp3119 (the retry wrapper refuses any other directory):
 # WRAPPER   Start-Process powershell.exe -Verb RunAs -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File <wrapper>'
 # WRAPPER Output: transcript C:\pyup\cp3119\phase-c0-transcript-20261024.txt; C:\pyup\cp3119\c0-done-20261024.flag ONLY when C0 completed with no NO-GO
 # WRAPPER   (flag line: "C0 PASS head=<40-hex HEAD> at=<time>"; the Phase C wrapper compares that head). Exit 0 = C0 complete, 1 = stopped.
@@ -160,7 +160,9 @@ function Test-Venv($vpy, $root, $tag) {
 # WRAPPER     original roll_verdict note and goes on, and the night proceeds only if the GO review attaches roll_verdict.ps1 exit 0 (ROLL-FREE)
 # WRAPPER     for that HEAD before writing the GO file (no ROLL-FREE = no GO = the attempt's preflight refuses: a deterministic gate, no retry).
 # WRAPPER   dependency: PASS when HEAD equals the tip, or (i) no dependency file differs tip..HEAD, (ii) the operator-supplied WS pregate PASS
-# WRAPPER     (receipt id + tested sha, Python 3.11.9 attested) tested a commit whose diff to HEAD is docs/*.md only, apart from exactly the two
+# WRAPPER     (receipt id + tested sha, Python 3.11.9 attested; the receipt file $R\pregate-receipt-<id without pg->.json must read schema
+# WRAPPER     weather.workstation_pregate_receipt.v1, verdict PASS, head = the tested sha, and its name must give the receipt id)
+# WRAPPER     tested a commit whose diff to HEAD is docs/*.md only, apart from exactly the two
 # WRAPPER     fleet-generated paths config/locations.json and config/location_market_events.json (no globbing), and (iii) the rest of C0 has no NO-GO
 # WRAPPER     (so the PASS line is printed only at the end of C0). A FAIL is a deterministic NO-GO: never retried.
 function Test-G3Gate([string]$Mode, [string]$Head, [string]$QualTip, [string]$Receipt, [string]$Tested, [string]$PyAttest) {   # WRAPPER
@@ -176,6 +178,13 @@ function Test-G3Gate([string]$Mode, [string]$Head, [string]$QualTip, [string]$Re
   $wRp = $Matches[1]   # WRAPPER
   if ("$Tested" -cnotmatch '^[0-9a-f]{40}$' -or -not $Tested.StartsWith($wRp)) { return (& $wf 'tested_sha_not_40hex_or_not_the_receipt_head') }   # WRAPPER
   if ("$PyAttest" -cne '3.11.9') { return (& $wf 'pregate_python_3.11.9_not_attested') }   # WRAPPER
+  $wRf = Join-Path $R ('pregate-receipt-' + $Receipt.Substring(3) + '.json')   # WRAPPER (Fable 1) canonical place: $R, next to the kit copy; the kit ships it
+  if (-not (Test-Path -LiteralPath $wRf)) { return (& $wf 'pregate_receipt_file_missing') }   # WRAPPER
+  $wRj = $null; try { $wRj = Get-Content -LiteralPath $wRf -Raw | ConvertFrom-Json } catch { $wRj = $null }; if ($null -eq $wRj) { return (& $wf 'pregate_receipt_unreadable') }   # WRAPPER
+  if ([string]$wRj.schema -cne 'weather.workstation_pregate_receipt.v1') { return (& $wf 'pregate_receipt_schema_mismatch') }   # WRAPPER
+  if ([string]$wRj.verdict -cne 'PASS') { return (& $wf 'pregate_receipt_verdict_not_pass') }   # WRAPPER
+  if ([string]$wRj.head -cne $Tested) { return (& $wf 'pregate_receipt_head_ne_tested_sha') }   # WRAPPER
+  if ((Split-Path -Leaf $wRf) -cnotmatch '^pregate-receipt-([0-9a-f]{12}-[0-9]{8}T[0-9]{6}-[0-9]+)\.json$' -or ('pg-' + $Matches[1]) -cne $Receipt) { return (& $wf 'pregate_receipt_id_ne_file_name') }   # WRAPPER
   $null = @(git -C $P cat-file -t "$Tested^{commit}"); if ($LASTEXITCODE) { return (& $wf 'tested_sha_not_in_production_repo') }   # WRAPPER
   $wTd = @(git -C $P diff --name-only $Tested $Head); if ($LASTEXITCODE) { return (& $wf 'diff_tested_head_failed') }   # WRAPPER
   $wNd = @($wTd | Where-Object { "$_" -cnotmatch '^docs/.+\.md$' })   # WRAPPER "non-docs diff"
@@ -184,7 +193,7 @@ function Test-G3Gate([string]$Mode, [string]$Head, [string]$QualTip, [string]$Re
   $wRest = @($wNd | Where-Object { $wFleet -cnotcontains "$_" })   # WRAPPER
   if ($wRest.Count) { return (& $wf "nondocs_diff=$($wRest.Count):$(@($wRest | Select-Object -First 5) -join ',')") }   # WRAPPER
   $wExS = if ($wEx.Count) { $wEx -join ',' } else { 'none' }   # WRAPPER
-  [pscustomobject]@{ Pass = $true; Status = 'PASS'; Mode = $Mode; Branch = '(i)+(ii)+(iii)'; Detail = "deps_changed=none pregate=$Receipt tested=$Tested nondocs_diff=empty fleet_drift_exempt=$wExS" } }   # WRAPPER
+  [pscustomobject]@{ Pass = $true; Status = 'PASS'; Mode = $Mode; Branch = '(i)+(ii)+(iii)'; Detail = "deps_changed=none pregate=$Receipt tested=$Tested py=attested nondocs_diff=empty fleet_drift_exempt=$wExS" } }   # WRAPPER
 # ---- WRAPPER C0. GO checks (verbatim)
 $q = Get-Content "$R\qualification.json" -Raw | ConvertFrom-Json; if ($q.result -ne 'PASS' -or $q.release_case -ne 'A') { NoGo 'not qualified for case A' }
 if (((Get-Content -LiteralPath "$R\q12.txt" -TotalCount 1) -split '\s+')[0] -ne 'STOP_AUTHORIZED') { NoGo 'Q12 not recorded as STOP_AUTHORIZED (G8)' }
