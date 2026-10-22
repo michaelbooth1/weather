@@ -106,7 +106,7 @@ is `Disabled` (State on purpose: "enabled or running"), and the A1 list no longe
 pre-resolve also NO-GOes when a name matches more than one task. (3) `Test-PrestateEnabled` logs `ESCALATE` for a
 present but empty `Enabled` column, as the kit already did, and `Start-AuxHolders` logs `ESCALATE` only for a
 holder that was disabled but running at C2, matching `Undo-Aux`. (4) The §R budget now counts the `-Soft` ensure
-waits (up to 330 s per stuck instance). (5) **Pre-C3 deadline 01:12.** The 01:30 check sits after
+waits (up to the task's time limit plus 30 s per stuck instance). (5) **Pre-C3 deadline 01:12.** The 01:30 check sits after
 `Stop-Capture`, so a late lease used to pay a capture gap for no swap. Just before the C3+C4 guarded block, a
 clock past 01:12 now runs the C2 undo only (`Undo-Aux`, `Start-AuxHolders`), releases the lease and NO-GOes,
 with capture untouched; it does not run `Undo-Stop`, whose S4U restore is needed only after a capture stop.
@@ -116,15 +116,21 @@ three stop verbs, budgeted 1 min; the gate loop, 600 s plus its last gate call a
 5.5 + 1 + 10 + 1 = 17.5 min, and 01:30 - 17.5 min = 01:12:30, rounded down to 01:12. A C3 that would start after 01:12
 therefore ends the night with no swap and no gap.
 
-Revision 2026-10-22 (C1 lease deadline 01:01, was 01:15). With the lease as late as 01:15, C2 could stop the 88a
-worker and the tape and only then meet the 01:12 pre-C3 deadline, paying an 88a and tape gap for no swap. The C1
-deadline is now 01:12 minus C1 after the lease plus the C2 pass-case worst case: C1's freeze, compare and receipt
-copies, budgeted 1 min; the C2 shadow seal wait, 180 s plus one 10 s poll; the tape-supervisor ensure wait, 330 s plus
-one 5 s poll; the pre-state reads, the aux disables with their readbacks, the tape stop and the 88a and family stops,
-budgeted 1.25 min. That is 1 + 3.17 + 5.58 + 1.25 = 11 min, so 01:01:00, which is a whole minute already. The
-retry loop sleeps 30 s between attempts and could take the lease up to about 30 s after the deadline, so C1 now also
-NO-GOes (and releases) a lease taken after 01:01, before C2 touches anything. This trades every late-lease night for
-a zero 88a and tape gap. The C1 window is now 01:00-01:01: the lease must be free within about the first minute.
+Revision 2026-10-22 (C1 lease deadline 01:04, was 01:15; per-task ensure-wait bounds). With the lease as late as
+01:15, C2 could stop the 88a worker and the tape and only then meet the 01:12 pre-C3 deadline, paying an 88a and tape
+gap for no swap. Each ensure wait is now bounded at that task's `ExecutionTimeLimit` plus 30 s: the C2 tape-supervisor
+wait is 150 s (2 min limit, `register_execution_tape_supervisor.ps1:34`); the C3 supervisor waits stay 330 s (the
+snapshot supervisor's 5 min limit, `register_snapshot_supervisor.ps1:46`), so T = 01:12 is unchanged. The C1 deadline
+is 01:12 minus C1 after the lease plus the C2 pass-case worst case: C1's freeze, compare and receipt copies, budgeted
+1 min; the C2 shadow seal wait, 180 s plus one 10 s poll (3.17 min); the tape-supervisor ensure wait, 150 s plus one
+5 s poll (2.58 min); the pre-state reads, the aux disables with their readbacks, the tape stop and the 88a and family
+stops, budgeted 1.25 min. That is 1 + 3.17 + 2.58 + 1.25 = 8.0 min, and 01:12 - 8 min = 01:04:00, a whole minute
+already. The retry loop sleeps 30 s between attempts and could take the lease up to about 30 s after the deadline, so
+C1 now also NO-GOes (and releases) a lease taken after 01:04, before C2 touches anything. This trades every
+late-lease night for a zero 88a and tape gap. On 10-21/22 the lease was taken at 01:01:17 through launch latency,
+not contention: the wrapper was launched at 01:01:13 and the lease was free throughout. The operator now launches at
+01:00:00 sharp. The 01:00 floor is the 01:00-04:00 quiet window (DECISION_LOG 2026-10-03 and 2026-10-05;
+[capture-day grading and guarded merges](../ops/streak-soak.md)) and stays, so the C1 window is 01:00-01:04.
 
 **Owns:** the procedure for moving the production checkout's `venv` from CPython 3.11.0 to 3.11.9
 on the 16 GB capture host. That covers a side-by-side install, an offline wheelhouse, a stage venv
@@ -190,7 +196,7 @@ recommendations on 2026-10-12 (DECISION_LOG); the H-reads that Q4 and Q5 still n
 | --- | --- | --- | --- |
 | Q1 | Can an interactive session stop, see and verify the S4U capture workers? | **RESOLVED** (H6 optional corroboration) | Run Phase C and §R in an **elevated** window. The stop confirmation is PID-based: `capture_resource_gate.py:150-158` marks a loop active when the status PID or the writer-lock PID is alive (or heartbeat, lock and PID evidence agree). It uses the gate the training window uses (`training_window.ps1:238-252`), so it works from an interactive shell. The binding recovery proof is the S4U `WeatherTrainingWindowRestore` task (S4U at `register_training_window.ps1:115-118`, `-RestoreOnly` at :140). It writes `restore_only` / `capture_recovery_pass` (`training_window.ps1:277-290`) and takes no lease (the lease is at :352, after the restore-only exit). `capture_recovery_check` is documented to run in the S4U context (`capture_recovery_check.py:1-6`), and a non-elevated session cannot read S4U command lines (HOST_LOAD_POLICY, "residual scan" paragraph), so the interactive check is corroboration only. The rename failing on a locked file is the final backstop. |
 | Q2 | Exact interpreter flag on the bounded suite | **RESOLVED** (closed earlier) | `-ExpectedInterpreterVersion` takes an exact `X.Y.Z` and requires `-InterpreterPath` (`bounded_worktree_test_suite.ps1:44-52`). |
-| Q3 | Does the U6 export collide with the cutover? | **RESOLVED, conditional** (H8 confirms) | `WeatherReplayBundleExportNightly` stays unregistered until the owner says yes (state of play). The owner approved its 04:10 slot (DECISION_LOG 2026-10-09), so 04:10 is the likely registration. The 00:35 slot is the only one on the build-line registrar. If it is registered, it is in the C2 aux list and stays **disabled** from C2 until C9b, and §R does not re-enable it unless capture is 3/3. A 00:35 run with its 50-minute limit can hold the lease until 01:25, after the 01:01 latest cutover lease, so a 00:35 registration must be disabled for the cutover night (G5). A 04:10 run starts after the 03:45 rollback deadline. |
+| Q3 | Does the U6 export collide with the cutover? | **RESOLVED, conditional** (H8 confirms) | `WeatherReplayBundleExportNightly` stays unregistered until the owner says yes (state of play). The owner approved its 04:10 slot (DECISION_LOG 2026-10-09), so 04:10 is the likely registration. The 00:35 slot is the only one on the build-line registrar. If it is registered, it is in the C2 aux list and stays **disabled** from C2 until C9b, and §R does not re-enable it unless capture is 3/3. A 00:35 run with its 50-minute limit can hold the lease until 01:25, after the 01:04 latest cutover lease, so a 00:35 registration must be disabled for the cutover night (G5). A 04:10 run starts after the 03:45 rollback deadline. |
 | Q4 | Will the installer offer "Upgrade" over the existing 3.11.0? | **ANSWERED 2026-10-13: yes for the all-users scope** (host detect log, revision note; a same-scope per-user install is an upgrade by definition); **OWNER-DECISION**: install from the NuGet package (A3/A4) | Superseded inference, kept for the record: PEP 514 allows one `PythonCore\3.11` registration per hive (HKCU, HKLM). Inference, not tested: install 3.11.9 in the **opposite** scope from the existing 3.11.0 (all users if 3.11.0 is per-user, and the reverse). The owner cancels if the first page says *Upgrade* or *Modify*. A NuGet or embeddable-zip fallback is a new download and needs its own approval. |
 | Q5 | Release case A, B or C? | **RESOLVED: case A expected; NEEDS-HOST-READ H5 to confirm** | The state of play says there is no release store on the host. The pointer path is `artifacts\releases\current_release.json` (`release_artifacts.py:49-50`). H5, B3 and C0 re-check it. Any case other than A is NO-GO (G6, §8). |
 | Q6 | #259 test ids | **RESOLVED** (closed earlier) | #259 is on master. Its parametrized `constructor` / `pre_3_11_2` tests (`tests/sources/test_wu_redaction.py`, around lines 680 and 721) run on every 3.11 patch without skip or xfail, and must pass in B2. |
@@ -1000,7 +1006,7 @@ Log 'B-R inputs unchanged; continue at B1c'
 | Clock (local) | Step | Hard stop |
 | --- | --- | --- |
 | 00:30-00:55 | C0 GO checks | Any fail = NO-GO, nothing touched |
-| 01:00, latest 01:01 | C1 lease and receipts | No lease by 01:01 = NO-GO, nothing touched (C1 plus worst-case C2 must end by the 01:12 pre-C3 deadline) |
+| 01:00, latest 01:04 | C1 lease and receipts | No lease by 01:04 = NO-GO, nothing touched (C1 plus worst-case C2 must end by the 01:12 pre-C3 deadline) |
 | +5 min | C2 quiesce the auxiliary tasks and long-running holders | Any throw = `Undo-Aux`, NO-GO |
 | +5-10 min | C3 stop the capture workers | Past 01:12 at C3 start = C2 undo, NO-GO, capture untouched; still active after 600 s = undo, restore, NO-GO |
 | by 01:30 | C4 rename `venv` to `venv-cp3110` | Rename fails 3 times or it is past 01:30 = undo, restore, NO-GO |
@@ -1009,7 +1015,7 @@ Log 'B-R inputs unchanged; continue at B1c'
 | +5-32 min | C7 S4U restore of the three capture workers only | Not 3/3 after one rerun = §R |
 | +5 min | C8 core verify | Fail = §R |
 | by 02:15; aux by 02:25 | C9 core PASS decision; C9b restore the aux tasks; C9c aux verify | Core not passed = §R; aux failure per C9c |
-| start by 02:45, done by 03:45 | §R rollback (worst case about 50 min; about 72 min if every ensure wait runs out) | Not 3/3 by 03:45: the 04:15 restore is the net; record and message the owner (§R, "Escalation") |
+| start by 02:45, done by 03:45 | §R rollback (worst case about 50 min; about 69 min if every ensure wait runs out) | Not 3/3 by 03:45: the 04:15 restore is the net; record and message the owner (§R, "Escalation") |
 
 This sits inside the 01:00-04:00 quiet window and ends before the 04:15 `WeatherTrainingWindowRestore`
 trigger, which stays armed as the final safety net. The expected capture gap (C3 to C7) is about
@@ -1067,11 +1073,11 @@ Log "C0 complete (status.ps1 exit $st0) - awaiting owner GO"
 **C1. Lease and fresh receipts.**
 
 ```powershell
-$global:Lease = $null; $deadline = (Get-Date).Date.AddHours(1).AddMinutes(1)
+$global:Lease = $null; $deadline = (Get-Date).Date.AddHours(1).AddMinutes(4)
 while (-not $global:Lease) { $global:Lease = Enter-WeatherHeavyWorkloadLease -RepoRoot $P -Workload 'py3119_cutover'
-  if (-not $global:Lease) { if ((Get-Date) -gt $deadline) { NoGo 'no lease by 01:01' }; Start-Sleep -Seconds 30 } }
+  if (-not $global:Lease) { if ((Get-Date) -gt $deadline) { NoGo 'no lease by 01:04' }; Start-Sleep -Seconds 30 } }
 $global:ReleaseOnNoGo = $true     # until the C4 rename, any NoGo releases the lease; after it, §R needs the lease
-if ((Get-Date) -gt $deadline) { NoGo 'lease taken after 01:01: C1 plus worst-case C2 would pass the 01:12 pre-C3 deadline' }   # the retry sleep can overshoot; refuse before C2 touches 88a or the tape
+if ((Get-Date) -gt $deadline) { NoGo 'lease taken after 01:04: C1 plus worst-case C2 would pass the 01:12 pre-C3 deadline' }   # the retry sleep can overshoot; refuse before C2 touches 88a or the tape
 $N = Join-Path $R ('night-' + (Get-Date -Format yyyyMMdd)); New-Item -ItemType Directory -Force $N | Out-Null
 & $Py -m pip freeze --all | Set-Content "$N\freeze-3110-tonight.txt"
 if (Compare-Object (Mask-Editable (Get-Content "$A\freeze-3110.txt")) (Mask-Editable (Get-Content "$N\freeze-3110-tonight.txt"))) { NoGo 'prod venv changed since Phase B - requalify (full Phase B on another night)' }
@@ -1138,9 +1144,9 @@ function Quiesce-Aux([string]$Exe, [switch]$Soft) {
   foreach ($tn in $Aux) { Invoke-QStep "disable $tn" { Disable-ScheduledTask -TaskName $tn | Out-Null
     $st = @(Get-ScheduledTask -TaskName $tn); if ($st.Count -ne 1 -or $st[0].Settings.Enabled -ne $false) { NoGo "disable $tn" } } $Soft.IsPresent }
   # A disable does not end an in-flight ensure run, which could relaunch the tape after its stop. The tape supervisor is a
-  # periodic ensure task (1 min, IgnoreNew, 2 min limit: register_execution_tape_supervisor.ps1:11, :27-34); wait for its instance.
+  # periodic ensure task (1 min, IgnoreNew, 2 min limit: register_execution_tape_supervisor.ps1:11, :27-34); wait for its instance, bounded at that limit + 30 s.
   if ($Aux -contains 'WeatherExecutionTapeSupervisor') { Invoke-QStep 'tape ensure' { $tn = 'WeatherExecutionTapeSupervisor'
-    $t0 = Get-Date; while ([string](Get-ScheduledTask -TaskName $tn).State -eq 'Running' -and ((Get-Date) - $t0).TotalSeconds -lt 330) { Start-Sleep 5 }
+    $t0 = Get-Date; while ([string](Get-ScheduledTask -TaskName $tn).State -eq 'Running' -and ((Get-Date) - $t0).TotalSeconds -lt 150) { Start-Sleep 5 }
     if ([string](Get-ScheduledTask -TaskName $tn).State -eq 'Running') { NoGo "$tn instance still running past its time limit" } } $Soft.IsPresent }
   Invoke-QStep 'tape' { Stop-Tape $Exe } $Soft.IsPresent
   Invoke-QStep '88a' {   # only with the recorded owner choice (G8, Q12)
@@ -1456,11 +1462,11 @@ Release-Lease; Log 'ROLLBACK DONE'
 - the r1 and r2 sweeps: up to 2 minutes each;
 - `Wait-Restore`: 32 minutes.
 
-§R also runs `Quiesce-Aux -Soft` and `Stop-Capture -Soft`, whose ensure waits cost up to 330 s for each
-instance still running (the tape supervisor and the three capture supervisors): realistically 0-5 minutes
-more, pathologically about 22 minutes more. The waits are not capped. That is why §R must start by 02:45:
+§R also runs `Quiesce-Aux -Soft` and `Stop-Capture -Soft`, whose ensure waits cost up to 150 s for a
+still-running tape supervisor and up to 330 s for each still-running capture supervisor: realistically 0-5 minutes
+more, pathologically about 19 minutes more. The waits are not capped. That is why §R must start by 02:45:
 it then ends by about 03:35-03:40, inside 03:45, and well before the 04:10 U6 slot and the 04:15 restore
-trigger; in the pathological case it ends about 03:57, past 03:45 but still before 04:10 and 04:15.
+trigger; in the pathological case it ends about 03:54, past 03:45 but still before 04:10 and 04:15.
 
 **Lease on an escalated §R.** If §R stops at r1, r2 or the final `Assert-CaseA`, it deliberately
 keeps the lease. Nothing heavy may start on a host in an unknown state.
@@ -1562,7 +1568,7 @@ started on 3.11.9 against a 3.11.0-bound release would fail `check_runtime`
 | --- | --- |
 | 00:30-04:45 | §T; Phase B (B0 by 02:00, suite start by 03:00); §D |
 | 00:30-09:00 | §4 host reads (serial); Phase A (no lease; after any landing night has handed back) |
-| 01:00-04:00 quiet window | Phase C only. Latest lease 01:01, pre-C3 deadline 01:12, latest rename 01:30, core decision 02:15, aux verify 02:25, rollback start 02:45 (worst case done about 03:35-03:40; about 03:57 if every §R ensure wait runs out). |
+| 01:00-04:00 quiet window | Phase C only. Latest lease 01:04, pre-C3 deadline 01:12, latest rename 01:30, core decision 02:15, aux verify 02:25, rollback start 02:45 (worst case done about 03:35-03:40; about 03:54 if every §R ensure wait runs out). |
 | 04:45-06:45 tiering reserve, 06:50 jobs | Nothing heavy from this runbook |
 | 09:30-11:55 Stage-A | Nothing |
 | 12:00-18:00 graded and 18:00-00:30 near-close | Nothing |
