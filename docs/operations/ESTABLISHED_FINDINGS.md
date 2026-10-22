@@ -110,6 +110,7 @@ sequence numbers, not calendar dates.
 | 10s | Data layer v2 S0 measurement pack (workstation, 2026-10-15; inputs dated before 2026-09-30 only) |
 | 10t | First counterfactual-tape toxicity fit (item 330 build 2, workstation, 2026-10-17): CF fills adverse at every horizon, settlement unresolved; DESCRIPTIVE, every cell UNDERPOWERED |
 | 10u | HGB path: the intraday-tail and METAR-live-signal stages never act (code-traced + Toronto replay, 2026-10-21); the WU-floor residual is only data-inert |
+| 10x | R0 M12: trained on the 2021-2023 PIT corpora alone (45 days), the per-market HGB is effectively the class prior (Atlanta, centre 2026-11-24, workstation, 2026-10-22) |
 
 ---
 
@@ -3834,6 +3835,55 @@ the Toronto host replay and in the 12-market workstation replay. Outcome-blind: 
   Atlanta 2026-08-10 snapshot `20260810T150843696523-0400`: "support 92 <= history 92"); only a SWOB same-day max
   above its own rows, so Toronto alone, could open the gate. That is a code inference checked on one snapshot,
   not a fleet statistic. The same replay closes the NBM arm (lever-5 note §1 and §3.5). Record: [lever-5 note](../research/model-edge-lever5-2026-10-19.md) §2 and §3.5.
+
+### 10x. R0 M12: trained on the 2021-2023 PIT corpora alone, the per-market HGB is effectively the class prior — Atlanta, workstation, 2026-10-22
+
+**Claim, at exactly this scope:** for Atlanta, centre 2026-11-24, the per-market trainer at its unchanged
+hyperparameters fits HGB trees of at most 2 leaves when it trains on the 2021-2023 point-in-time corpora alone (45 days
+per cutoff). Its holdout-year log loss is identical at all 14 cutoffs and worse than the empirical baseline. At this sample
+size the HGB is effectively the class prior. This is training-corpus validation only: no forward date, settlement or
+market price was read.
+
+- **Run:** `python -m weather.calibration.feature_model` on `claude/r0-retrain-code-20261021` @
+  `3ea1ecb5d7a2c66f6340bae7702140f6eec206f2`, through `scripts\ops\workstation_heavy.ps1 -Queue`.
+  - Flags: `--market atlanta --target-date 2026-11-24 --column-allowlist served-policy:atlanta`, with two
+    `--pit-forecast-corpus-manifest` flags and `--output-root` set to a scratch root outside the repository.
+  - 25 columns: the served v0.3 list minus `pressure` and `pressure_trend_3h`.
+  - Corpora, both `temperature_2m` lead 1 only:
+    - `cd0ba2bb004dc89f070ec9b1406e77f38cd2396dedd93ce1b377e727baefe9be` (2021-2022 Oct-Dec);
+    - `23ac87fa5f058f8eeb7f49f0268f483939d4070f7f65e38063727c6749aa2a8d` (2023 Oct 1-Dec 28).
+  - The artifacts' `training_inputs` record gives 15 days in each of 2021, 2022 and 2023, `centre_date_pinned` true,
+    and `ambient_forecast_fallback` false.
+- **Evidence:**
+  - **Sample.** 45 rows x 25 columns at every cutoff. The 2026-10-20 timing pilot had 165 days per cutoff on all prior
+    WU years.
+  - **Wall time.** About 103 s. The heavy-queue start and finish events are 100.3 s apart. The 229-column, 165-day
+    pilot took 17,428.8 s.
+  - **Trees.** In the final pickle, all 14 cutoff models have 50 iterations, 22 classes and **at most 2 leaves in every
+    tree**.
+  - **Blocked validation** (`holdout_year`, 3 splits, 45 of 45 rows scored):
+    - HGB log loss **4.8417 at all 14 cutoffs**;
+    - empirical baseline 4.1844;
+    - LR 4.6668-5.1026;
+    - the tuned HGB-climatology blend 4.4440, still above the baseline.
+  - **Mechanism (CODE plus INFERENCE).** `HistGradientBoostingClassifier(max_iter=50, max_leaf_nodes=15,
+    learning_rate=0.05)` leaves `min_samples_leaf` at the scikit-learn default of 20. So a 45-row fit can split at most
+    once, and a 30-row holdout-year fold cannot split at all. That is consistent with the HGB loss being identical to four
+    decimals at every cutoff.
+- **Not claimed:**
+  - Nothing about other markets or the second centre (2026-12-10).
+  - Nothing about edge, the served-to-market ratio, or any forward date.
+  - Nothing about a 2021-2025 (75-day) fit. INFERENCE only: the same floor allows at most 3 leaves at 75 rows. That needs
+    its own run.
+  - Validation is in-sample to the 2021-2023 corpus years. It is not an out-of-sample or forward score.
+- **Relation:**
+  - It is the M12 re-time of the R0 retrain plan: `docs/research/retrain-sizing-memo-2026-10-19.md` §R0.3, on
+    `claude/retrain-sizing-memo-20261019` @ `c9c0e1399e0aaf396b5f8020e288d72c6a9c20eb` (not on master).
+  - It bears on the M6 composition choice. Option (b), 2021-2023 only, does not test the season-matched HGB refit that
+    §2 and §4e motivate. Option (c), 2021-2025, needs its own leaf check before it is relied on.
+  - It extends §1m: 2021-2023 have temperature only. It also extends §4b: the forecast archive has no October-December
+    rows. The thin corpus years, not compute, are the constraint for R0.
+  - The memo's verdict (waiver-only for the programme decision) is unchanged.
 
 ## Related
 
