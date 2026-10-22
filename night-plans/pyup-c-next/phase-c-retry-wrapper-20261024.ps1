@@ -129,7 +129,7 @@ try {
   elseif (@(Get-ChildItem -LiteralPath $WR -Filter 'phase-c-transcript-20261024-a*.txt' -ErrorAction SilentlyContinue).Count) { $WWhy = 'ATTEMPT_TRANSCRIPT_EXISTS' }
   else {
     $wSums = Join-Path $WDir 'SHA256SUMS.txt'
-    $wLine = if (Test-Path -LiteralPath $wSums) { @(Get-Content -LiteralPath $wSums | Where-Object { ("$_".Trim() -split '\s+')[0] -ceq 'phase-c-run-20261024.ps1' }) } else { @() }
+    $wLine = @(if (Test-Path -LiteralPath $wSums) { Get-Content -LiteralPath $wSums | Where-Object { ("$_".Trim() -split '\s+')[0] -ceq 'phase-c-run-20261024.ps1' } })
     if ($wLine.Count -ne 1) { $WWhy = 'RUN_FILE_NOT_IN_SHA256SUMS' }
     else { $wf = "$($wLine[0])".Trim() -split '\s+'
       if ($wf.Count -ne 3 -or [long]$wf[1] -ne (Get-Item -LiteralPath $WRun).Length -or $wf[2].ToUpperInvariant() -cne (Get-FileHash -LiteralPath $WRun -Algorithm SHA256).Hash.ToUpperInvariant()) { $WWhy = 'RUN_FILE_HASH_MISMATCH' } } }
