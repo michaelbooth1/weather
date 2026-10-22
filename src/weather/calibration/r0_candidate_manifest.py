@@ -143,9 +143,9 @@ def _market_entry(market_root: Path, market_id: str, centre: date, repo_root: Pa
     if coefs["training_column_allowlist"] != hgb["training_column_allowlist"]:
         raise R0CandidateManifestError(f"{market_id}: coefs and HGB allowlist records differ")
     inputs = dict(coefs["training_inputs"])
-    if inputs.get("target_date") != centre.isoformat() or inputs.get("target_date_pinned") is not True:
+    if inputs.get("centre_date") != centre.isoformat() or inputs.get("centre_date_pinned") is not True:
         raise R0CandidateManifestError(
-            f"{market_id}: trained at centre {inputs.get('target_date')!r}, not pinned {centre}"
+            f"{market_id}: trained at centre {inputs.get('centre_date')!r}, not pinned {centre}"
         )
     allowlist = dict(coefs["training_column_allowlist"])
     served = {}

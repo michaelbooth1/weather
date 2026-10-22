@@ -199,7 +199,7 @@ class PITForecastCorpusUnion:
         corpora = sorted(self.corpora, key=lambda row: min(row["years"]))
         return {
             "market_id": self.market_id,
-            "target_year": self.target_year,
+            "centre_year": self.target_year,
             "years": list(self.years),
             "corpora": corpora,
             "union_sha256": _canonical_sha256(
@@ -294,8 +294,8 @@ def training_inputs_record(
     record = {
         "record": TRAINING_INPUTS_RECORD,
         "record_version": TRAINING_INPUTS_RECORD_VERSION,
-        "target_date": target_date.isoformat() if target_date else None,
-        "target_date_pinned": target_date is not None,
+        "centre_date": target_date.isoformat() if target_date else None,
+        "centre_date_pinned": target_date is not None,
         "training_years": list(training_years) if training_years else None,
         "training_days_by_year": dict(sorted(day_counts.items())),
         "forecast_source": FORECAST_SOURCE_PIT if corpus_union else FORECAST_SOURCE_AMBIENT,

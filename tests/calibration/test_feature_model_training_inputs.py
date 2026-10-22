@@ -261,7 +261,7 @@ def test_training_inputs_record_is_hashed_and_names_the_corpora(corpora):
         target_date=CENTRE, training_years=(2021, 2022), corpus_union=union,
         day_counts={"2022": 15, "2021": 15},
     )
-    assert record["target_date"] == "2026-11-24" and record["target_date_pinned"] is True
+    assert record["centre_date"] == "2026-11-24" and record["centre_date_pinned"] is True
     assert record["forecast_source"] == FORECAST_SOURCE_PIT
     assert record["ambient_forecast_fallback"] is False
     assert list(record["training_days_by_year"]) == ["2021", "2022"]
@@ -407,7 +407,7 @@ def test_main_trains_from_the_union_at_the_pinned_centre(tmp_path, monkeypatch, 
     coefs = json.loads((out / "feature_model_coefs_nyc.json").read_text(encoding="utf-8"))
     assert hgb["training_inputs"] == coefs["training_inputs"]
     record = coefs["training_inputs"]
-    assert record["target_date"] == "2026-11-24"
+    assert record["centre_date"] == "2026-11-24"
     assert record["training_years"] == [2021, 2022]
     assert record["training_days_by_year"] == {"2021": 15, "2022": 15}
     assert record["forecast_source"] == FORECAST_SOURCE_PIT
@@ -425,7 +425,7 @@ def test_main_training_years_without_corpus_reads_ambient(tmp_path, monkeypatch)
     assert seen["resolver"] is None
     coefs = json.loads((tmp_path / "r0" / "feature_model_coefs_nyc.json").read_text(encoding="utf-8"))
     assert coefs["training_inputs"]["forecast_source"] == "ambient_forecast_archive"
-    assert coefs["training_inputs"]["target_date_pinned"] is False
+    assert coefs["training_inputs"]["centre_date_pinned"] is False
 
 
 def test_main_refuses_uncovered_training_years_before_fitting(tmp_path, monkeypatch, corpora):
@@ -484,3 +484,15 @@ def test_cli_defaults_leave_the_new_inputs_unset():
     assert (args.target_date, args.pit_forecast_corpus_manifests, args.training_years) == (
         None, None, None,
     )
+
+
+def test_training_inputs_record_passes_the_release_leakage_audit(corpora):
+    """The record rides inside base-model artifacts a research release freezes (M14)."""
+    from weather.model.feature_safety import audit_recursive_model_inputs
+
+    record = training_inputs_record(
+        target_date=CENTRE, training_years=(2021, 2022), corpus_union=_union([corpora["2021"], corpora["2022"]]),
+        day_counts={"2021": 15, "2022": 15},
+    )
+    audit = audit_recursive_model_inputs({"base_model.nyc.feature_lr_coefficients": {"training_inputs": record}})
+    assert audit["status"] == "PASS", audit["rejections"]

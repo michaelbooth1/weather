@@ -32,8 +32,8 @@ CORPUS = {
 
 def _inputs(centre="2026-11-24", corpus=CORPUS):
     return {
-        "target_date": centre,
-        "target_date_pinned": True,
+        "centre_date": centre,
+        "centre_date_pinned": True,
         "training_years": [2021, 2022],
         "training_days_by_year": {"2021": 15, "2022": 15},
         "forecast_source": "pit_forecast_corpus",
@@ -140,7 +140,7 @@ def test_wrong_centre_or_unpinned_fit_fails_closed(tmp_path):
     _trained(tmp_path / "a", "nyc", inputs=_inputs(centre="2026-12-10"))
     with pytest.raises(R0CandidateManifestError, match="not pinned 2026-11-24"):
         _build(tmp_path / "a", repo, markets=["nyc"])
-    unpinned = dict(_inputs(), target_date_pinned=False)
+    unpinned = dict(_inputs(), centre_date_pinned=False)
     _trained(tmp_path / "b", "nyc", inputs=unpinned)
     with pytest.raises(R0CandidateManifestError, match="not pinned"):
         _build(tmp_path / "b", repo, markets=["nyc"])
