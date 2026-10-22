@@ -41,7 +41,7 @@ Owner choices on file (first lines read 2026-10-20): `q12.txt` = `STOP_AUTHORIZE
 | --- | --- | --- |
 | 00:30-00:55 | C0 GO checks | Any fail = NO-GO, nothing touched |
 | (after C0) | **Owner types GO** (in chat; G4) | No GO = stop; nothing touched |
-| 01:00, latest 01:01 | C1 lease and receipts | No lease by 01:01 = NO-GO, nothing touched (C1 plus worst-case C2 must end by the 01:12 pre-C3 deadline) |
+| 01:00, latest 01:04 | C1 lease and receipts | No lease by 01:04 = NO-GO, nothing touched (C1 plus worst-case C2 must end by the 01:12 pre-C3 deadline) |
 | +5 min | C2 quiesce aux tasks and holders | Any throw = `Undo-Aux`, NO-GO |
 | +5-10 min | C3 stop capture workers | Past 01:12 at C3 start = C2 undo, NO-GO, capture untouched; still active after 600 s = undo, restore, NO-GO |
 | by 01:30 | C4 rename `venv` to `venv-cp3110` | Fails 3 times or past 01:30 = undo, restore, NO-GO |
@@ -50,7 +50,7 @@ Owner choices on file (first lines read 2026-10-20): `q12.txt` = `STOP_AUTHORIZE
 | +5-32 min | C7 S4U restore of the 3 capture workers | Not 3/3 after one rerun = §R |
 | +5 min | C8 core verify | Fail = §R |
 | core by 02:15; aux by 02:25 | C9 core decision; C9b restore aux; C9c aux verify | Core not passed = §R; aux per C9c |
-| start by 02:45, done by 03:45 | §R rollback (worst case about 50 min; about 72 min if every ensure wait runs out) | Not 3/3 by 03:45: the 04:15 restore is the net; record and message the owner (§R, "Escalation") |
+| start by 02:45, done by 03:45 | §R rollback (worst case about 50 min; about 69 min if every ensure wait runs out) | Not 3/3 by 03:45: the 04:15 restore is the net; record and message the owner (§R, "Escalation") |
 
 ## Paste order (one elevated Windows PowerShell 5.1 window; nothing tails `night.log`)
 
@@ -254,7 +254,7 @@ function Test-Venv($vpy, $root, $tag) {
 | Clock (local) | Step | Hard stop |
 | --- | --- | --- |
 | 00:30-00:55 | C0 GO checks | Any fail = NO-GO, nothing touched |
-| 01:00, latest 01:01 | C1 lease and receipts | No lease by 01:01 = NO-GO, nothing touched (C1 plus worst-case C2 must end by the 01:12 pre-C3 deadline) |
+| 01:00, latest 01:04 | C1 lease and receipts | No lease by 01:04 = NO-GO, nothing touched (C1 plus worst-case C2 must end by the 01:12 pre-C3 deadline) |
 | +5 min | C2 quiesce the auxiliary tasks and long-running holders | Any throw = `Undo-Aux`, NO-GO |
 | +5-10 min | C3 stop the capture workers | Past 01:12 at C3 start = C2 undo, NO-GO, capture untouched; still active after 600 s = undo, restore, NO-GO |
 | by 01:30 | C4 rename `venv` to `venv-cp3110` | Rename fails 3 times or it is past 01:30 = undo, restore, NO-GO |
@@ -263,7 +263,7 @@ function Test-Venv($vpy, $root, $tag) {
 | +5-32 min | C7 S4U restore of the three capture workers only | Not 3/3 after one rerun = §R |
 | +5 min | C8 core verify | Fail = §R |
 | by 02:15; aux by 02:25 | C9 core PASS decision; C9b restore the aux tasks; C9c aux verify | Core not passed = §R; aux failure per C9c |
-| start by 02:45, done by 03:45 | §R rollback (worst case about 50 min; about 72 min if every ensure wait runs out) | Not 3/3 by 03:45: the 04:15 restore is the net; record and message the owner (§R, "Escalation") |
+| start by 02:45, done by 03:45 | §R rollback (worst case about 50 min; about 69 min if every ensure wait runs out) | Not 3/3 by 03:45: the 04:15 restore is the net; record and message the owner (§R, "Escalation") |
 
 This sits inside the 01:00-04:00 quiet window and ends before the 04:15 `WeatherTrainingWindowRestore`
 trigger, which stays armed as the final safety net. The expected capture gap (C3 to C7) is about
@@ -321,11 +321,11 @@ Log "C0 complete (status.ps1 exit $st0) - awaiting owner GO"
 **C1. Lease and fresh receipts.**
 
 ```powershell
-$global:Lease = $null; $deadline = (Get-Date).Date.AddHours(1).AddMinutes(1)
+$global:Lease = $null; $deadline = (Get-Date).Date.AddHours(1).AddMinutes(4)
 while (-not $global:Lease) { $global:Lease = Enter-WeatherHeavyWorkloadLease -RepoRoot $P -Workload 'py3119_cutover'
-  if (-not $global:Lease) { if ((Get-Date) -gt $deadline) { NoGo 'no lease by 01:01' }; Start-Sleep -Seconds 30 } }
+  if (-not $global:Lease) { if ((Get-Date) -gt $deadline) { NoGo 'no lease by 01:04' }; Start-Sleep -Seconds 30 } }
 $global:ReleaseOnNoGo = $true     # until the C4 rename, any NoGo releases the lease; after it, §R needs the lease
-if ((Get-Date) -gt $deadline) { NoGo 'lease taken after 01:01: C1 plus worst-case C2 would pass the 01:12 pre-C3 deadline' }   # the retry sleep can overshoot; refuse before C2 touches 88a or the tape
+if ((Get-Date) -gt $deadline) { NoGo 'lease taken after 01:04: C1 plus worst-case C2 would pass the 01:12 pre-C3 deadline' }   # the retry sleep can overshoot; refuse before C2 touches 88a or the tape
 $N = Join-Path $R ('night-' + (Get-Date -Format yyyyMMdd)); New-Item -ItemType Directory -Force $N | Out-Null
 & $Py -m pip freeze --all | Set-Content "$N\freeze-3110-tonight.txt"
 if (Compare-Object (Mask-Editable (Get-Content "$A\freeze-3110.txt")) (Mask-Editable (Get-Content "$N\freeze-3110-tonight.txt"))) { NoGo 'prod venv changed since Phase B - requalify (full Phase B on another night)' }
@@ -392,9 +392,9 @@ function Quiesce-Aux([string]$Exe, [switch]$Soft) {
   foreach ($tn in $Aux) { Invoke-QStep "disable $tn" { Disable-ScheduledTask -TaskName $tn | Out-Null
     $st = @(Get-ScheduledTask -TaskName $tn); if ($st.Count -ne 1 -or $st[0].Settings.Enabled -ne $false) { NoGo "disable $tn" } } $Soft.IsPresent }
   # A disable does not end an in-flight ensure run, which could relaunch the tape after its stop. The tape supervisor is a
-  # periodic ensure task (1 min, IgnoreNew, 2 min limit: register_execution_tape_supervisor.ps1:11, :27-34); wait for its instance.
+  # periodic ensure task (1 min, IgnoreNew, 2 min limit: register_execution_tape_supervisor.ps1:11, :27-34); wait for its instance, bounded at that limit + 30 s.
   if ($Aux -contains 'WeatherExecutionTapeSupervisor') { Invoke-QStep 'tape ensure' { $tn = 'WeatherExecutionTapeSupervisor'
-    $t0 = Get-Date; while ([string](Get-ScheduledTask -TaskName $tn).State -eq 'Running' -and ((Get-Date) - $t0).TotalSeconds -lt 330) { Start-Sleep 5 }
+    $t0 = Get-Date; while ([string](Get-ScheduledTask -TaskName $tn).State -eq 'Running' -and ((Get-Date) - $t0).TotalSeconds -lt 150) { Start-Sleep 5 }
     if ([string](Get-ScheduledTask -TaskName $tn).State -eq 'Running') { NoGo "$tn instance still running past its time limit" } } $Soft.IsPresent }
   Invoke-QStep 'tape' { Stop-Tape $Exe } $Soft.IsPresent
   Invoke-QStep '88a' {   # only with the recorded owner choice (G8, Q12)
@@ -711,11 +711,11 @@ Release-Lease; Log 'ROLLBACK DONE'
 - the r1 and r2 sweeps: up to 2 minutes each;
 - `Wait-Restore`: 32 minutes.
 
-§R also runs `Quiesce-Aux -Soft` and `Stop-Capture -Soft`, whose ensure waits cost up to 330 s for each
-instance still running (the tape supervisor and the three capture supervisors): realistically 0-5 minutes
-more, pathologically about 22 minutes more. The waits are not capped. That is why §R must start by 02:45:
+§R also runs `Quiesce-Aux -Soft` and `Stop-Capture -Soft`, whose ensure waits cost up to 150 s for a
+still-running tape supervisor and up to 330 s for each still-running capture supervisor: realistically 0-5 minutes
+more, pathologically about 19 minutes more. The waits are not capped. That is why §R must start by 02:45:
 it then ends by about 03:35-03:40, inside 03:45, and well before the 04:10 U6 slot and the 04:15 restore
-trigger; in the pathological case it ends about 03:57, past 03:45 but still before 04:10 and 04:15.
+trigger; in the pathological case it ends about 03:54, past 03:45 but still before 04:10 and 04:15.
 
 **Lease on an escalated §R.** If §R stops at r1, r2 or the final `Assert-CaseA`, it deliberately
 keeps the lease. Nothing heavy may start on a host in an unknown state.
@@ -873,7 +873,7 @@ Every place where the 41e3bec62 runbook (and therefore this file) differs from `
     the column, and logs `ESCALATE` when the column is present but empty. `Undo-Aux` logs `ESCALATE` for a task that was
     disabled but running; `Start-AuxHolders` logs `ESCALATE` for a holder that was disabled but running. A disable does not
     end an in-flight ensure run, so `Stop-Capture` waits (bounded 330 s) for the three supervisors' instances after all
-    disables, and C2 waits the same way for the tape supervisor before its stop; the 88a, shadow and family holders are
+    disables, and C2 waits (bounded 150 s, see (7)) for the tape supervisor before its stop; the 88a, shadow and family holders are
     stopped explicitly and not waited on. C2 reads every pre-state row before writing `aux-prestate.csv` (no partial
     file), and C0 resolves every aux name first. The C10 receipt adds `escalations`, tonight's `ESCALATE` lines in
     `night.log`. Fable review fixes (2026-10-22, identical in the runbook branch):
@@ -882,17 +882,23 @@ Every place where the 41e3bec62 runbook (and therefore this file) differs from `
     capture had stopped); the runbook's A1 list no longer names it. (2) The G5 and U6 NO-GO messages now say "enabled or
     still running" with the State, and keep State on purpose; `Test-PrestateEnabled` keeps the empty-`Enabled`
     `ESCALATE` line (now also in the runbook). (3) C0's aux-name pre-resolve NO-GOes when a name matches more than one
-    task. (4) The §R budget counts the `-Soft` ensure waits: up to 330 s per stuck instance, realistically +0-5 min,
-    pathologically +22 min (ends about 03:57); the waits are not capped. (5) `Start-AuxHolders` logs `ESCALATE` only
+    task. (4) The §R budget counts the `-Soft` ensure waits: up to the task's limit + 30 s per stuck instance (tape 150 s,
+    capture supervisors 330 s), realistically +0-5 min, pathologically +19 min (ends about 03:54); the waits are not
+    capped. (5) `Start-AuxHolders` logs `ESCALATE` only
     for a disabled-but-running pre-state, matching `Undo-Aux`. (6) **Pre-C3 deadline 01:12**, just before the C3+C4
     guarded block: past 01:12 it runs the C2 undo only (`Undo-Aux`, `Start-AuxHolders`), releases the lease and
     NO-GOes, with capture untouched (no `Undo-Stop`, no S4U restore). It sets `$msg`, so the run wrapper's outer catch
     runs no second undo. T = 01:30 minus the C3 pass-case worst case before the 01:30 check: ensure waits 330 s
     (instances started before the disables, so the waits overlap) + stop verbs budgeted 1 min + gate loop 600 s +
-    its last call and sleep budgeted 1 min = 17.5 min, so 01:12:30, rounded down to 01:12. (7) **C1 lease deadline
-    01:01 (was 01:15)**, so that C1 plus the C2 worst case ends by 01:12 and a late lease is refused before C2 stops the
-    88a worker or the tape: C1 after the lease budgeted 1 min + shadow seal wait 180 s and one 10 s poll + tape ensure
-    wait 330 s and one 5 s poll + pre-state reads, disables, tape stop and 88a/family stops budgeted 1.25 min = 11 min,
-    so 01:01:00. A new line after the lease loop NO-GOes (and releases) a lease taken after 01:01, because the loop's
-    30 s retry sleep can overshoot. This trades every late-lease night for a zero 88a and tape gap; the run wrapper's
-    preflight now refuses after 01:01, so its launch window is 01:00-01:01.
+    its last call and sleep budgeted 1 min = 17.5 min, so 01:12:30, rounded down to 01:12. (7) **Per-task ensure-wait
+    bound and C1 lease deadline 01:04 (was 01:15).** Each ensure wait is bounded at its task's `ExecutionTimeLimit` +
+    30 s: the C2 tape-supervisor wait is 150 s (2 min limit, `register_execution_tape_supervisor.ps1:34`); the C3
+    supervisor waits stay 330 s (snapshot 5 min limit), so T = 01:12 is unchanged. The C1 deadline makes C1 plus the C2
+    worst case end by 01:12, so a late lease is refused before C2 stops the 88a worker or the tape: C1 after the lease
+    budgeted 1 min + shadow seal wait 180 s and one 10 s poll (3.17 min) + tape ensure wait 150 s and one 5 s poll
+    (2.58 min) + pre-state reads, disables, tape stop and 88a/family stops budgeted 1.25 min = 8.0 min, so 01:04:00. A
+    new line after the lease loop NO-GOes (and releases) a lease taken after 01:04, because the loop's 30 s retry sleep
+    can overshoot. This trades every late-lease night for a zero 88a and tape gap. On 10-21/22 the lease came at
+    01:01:17 through launch latency (wrapper launched 01:01:13, lease free throughout); the operator now launches at
+    01:00:00 sharp. The 01:00 floor is the 01:00-04:00 quiet window (DECISION_LOG 2026-10-03 and 2026-10-05) and
+    stays; the run wrapper's preflight refuses after 01:04, so its launch window is 01:00-01:04.
