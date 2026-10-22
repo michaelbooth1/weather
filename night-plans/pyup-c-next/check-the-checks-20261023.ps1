@@ -448,11 +448,25 @@ try {
             $h = Get-FileSha256 $src; $want = ([string]$K.binaries.$key).ToUpper(); $m = $h -eq $want; if (-not $m) { $ok = $false }
             $parts += "$ln match=$m" }
         ($parts -join ' ; '); (Get-Verdict $ok) }
-    Use-Check 'C5-LOCK-WHEELHOUSE(run:290-293)' 'lock-hashed.txt has pip/setuptools/wheel pins with hashes; wheelhouse holds .whl files' {
+    # 10-22 host run: C5's Build-Venv (run:290-292) is the runbook's B1c verbatim, which already passed in Phase B on this lock and wheelhouse.
+    # So the hazards are an EMPTY tools selection (pip refuses an empty -r file), an unhashed tool line, or a lock/wheelhouse changed since Phase B,
+    # not "fewer than three" tool pins: the lock is the 3.11.0 freeze, which need not list all of pip/setuptools/wheel.
+    Use-Check 'C5-LOCK-WHEELHOUSE(run:290-293)' 'lock-hashed.txt: >=1 tool pin (pip/setuptools/wheel) selected by run:290, each tool line hashed; every lock line hashed; wheelhouse holds .whl files' {
         $lf = Join-Path $R 'lock-hashed.txt'; if (-not (Test-Path -LiteralPath $lf)) { 'lock-hashed.txt absent'; 'WOULD-FAIL'; return }
-        $lt = @(Get-Content -LiteralPath $lf); $tools = @($lt | Where-Object { $_ -match '^(pip|setuptools|wheel)==' }).Count; $hashes = @($lt | Where-Object { $_ -match '--hash=sha256:' }).Count
+        $lt = @(Get-Content -LiteralPath $lf | Where-Object { "$_".Trim() })
+        $tl = @($lt | Where-Object { $_ -match '^(pip|setuptools|wheel)==' }); $tn = @($tl | ForEach-Object { ($_ -split '==')[0] })
+        $tunh = @($tl | Where-Object { $_ -notmatch '--hash=sha256:' }).Count; $unh = @($lt | Where-Object { $_ -match '^[A-Za-z0-9_.\-]+==' -and $_ -notmatch '--hash=sha256:' }).Count
+        $hashes = @($lt | Where-Object { $_ -match '--hash=sha256:' }).Count
         $whl = @(Get-Item -Path (Join-Path $WH '*.whl') -ErrorAction SilentlyContinue).Count
-        "tool_pins=$tools hash_lines=$hashes wheels=$whl"; (Get-Verdict ($tools -eq 3 -and $hashes -gt 0 -and $whl -gt 0)) }
+        "tool_pins=$($tl.Count) [$($tn -join ',')] missing=[$(@('pip','setuptools','wheel' | Where-Object { $tn -notcontains $_ }) -join ',')] unhashed_tool_lines=$tunh unhashed_pin_lines=$unh hash_lines=$hashes wheels=$whl"
+        (Get-Verdict ($tl.Count -ge 1 -and $tunh -eq 0 -and $unh -eq 0 -and $hashes -gt 0 -and $whl -gt 0)) }
+    Use-Check 'C5-WHEELHOUSE-MANIFEST(run:290-292; runbook B1b wheelhouse-sha256.txt)' 'every wheelhouse file matches wheelhouse-sha256.txt and the two sets are equal (the wheelhouse Phase B qualified is the one C5 installs from)' {
+        $mf = Join-Path $R 'wheelhouse-sha256.txt'; if (-not (Test-Path -LiteralPath $mf)) { 'wheelhouse-sha256.txt absent'; 'WOULD-FAIL'; return }
+        $want = @{}; foreach ($ln in @(Get-Content -LiteralPath $mf | Where-Object { "$_".Trim() })) { $p = "$ln".Trim() -split '\s+', 2; if ($p.Count -eq 2) { $want[$p[1]] = $p[0].ToUpperInvariant() } }
+        $have = @(Get-Item -Path (Join-Path $WH '*') -ErrorAction SilentlyContinue | Where-Object { -not $_.PSIsContainer })
+        $bad = @(); foreach ($fi in $have) { if (-not $want.ContainsKey($fi.Name)) { $bad += "extra:$($fi.Name)" } elseif ((Get-FileSha256 $fi.FullName) -ne $want[$fi.Name]) { $bad += "hash:$($fi.Name)" } }
+        foreach ($k in $want.Keys) { if (@($have | Where-Object { $_.Name -ceq $k }).Count -ne 1) { $bad += "missing:$k" } }
+        "manifest=$($want.Count) files=$($have.Count) mismatches=$($bad.Count) [$(@($bad | Select-Object -First 5) -join ', ')]"; (Get-Verdict ($want.Count -gt 0 -and $bad.Count -eq 0)) }
     Use-Check 'C6-RECEIPTS-3110(run:303,326,450)' 'receipts-3110\freeze-3110.txt and rtv-3110.json present; rtv parses with python 3.11.0' {
         $fz = Join-Path $A 'freeze-3110.txt'; $rt = Join-Path $A 'rtv-3110.json'
         if (-not (Test-Path -LiteralPath $fz) -or -not (Test-Path -LiteralPath $rt)) { "freeze=$(Test-Path -LiteralPath $fz) rtv=$(Test-Path -LiteralPath $rt)"; 'WOULD-FAIL'; return }
@@ -544,9 +558,12 @@ try {
     Use-Check 'C0-NEXT-RUNS-ALL(run:411-415,c0:228-232,C0 go/no-go)' "c0-next-runs.txt empty: no non-exempt task due $($DueFrom.ToString('MM-dd HH:mm'))-$($DueTo.ToString('HH:mm')) (predicted from triggers)" {
         if ($DueErr) { "error: $DueErr"; 'NOT-EVALUABLE'; return }
         "due=$($Due.Count) [$($Due -join ', ')] (elevated=$IsElevated)"; $(if (-not $IsElevated) { 'NOT-EVALUABLE' } elseif ($Due.Count) { 'WOULD-FAIL' } else { 'PASS' }) }
-    Use-Check 'POSTC0-NEXT-RUNS-ROOT(run:431-434,G5)' 'no root-folder task due before 04:00 (the wrapper exits 4 on one the GO review did not see)' {
+    # The wrapper exits 4 only on a root task due before 04:00 at the attempt's C0 re-run that is ABSENT from the standalone 00:30 C0 list,
+    # which attempt 1 freezes into c0-go-reviewed-<tag> before its own re-run (run:377, 431-434). A root task listed by the 00:30 C0 is "seen".
+    # Today there is no 00:30 list, so this only lists the root tasks the 00:30 C0 must show and the GO review must accept (informational).
+    Use-Check 'POSTC0-NEXT-RUNS-ROOT(run:377,431-434,G5)' 'root-folder tasks due before 04:00 are listed by the 00:30 standalone C0 (then "seen": no exit 4); one newly due only at an attempt gives exit 4' {
         if ($DueErr) { "error: $DueErr"; 'NOT-EVALUABLE'; return }
-        "root_due=$($DueRoot.Count) [$($DueRoot -join ', ')]"; $(if (-not $IsElevated) { 'NOT-EVALUABLE' } elseif ($DueRoot.Count) { 'WOULD-FAIL' } else { 'PASS' }) }
+        "root_due=$($DueRoot.Count) [$($DueRoot -join ', ')] (each must appear in the 00:30 C0 c0-next-runs.txt and be accepted at the GO review)"; $(if (-not $IsElevated) { 'NOT-EVALUABLE' } else { 'PASS' }) }
     Use-Check 'POSTC0-GO-REVIEWED-BASELINE(run:374-379,419-430)' "c0-status-flags.txt present at launch; c0-go-reviewed-$Tag absent before attempt 1; no flag new since the GO review" {
         $f = Join-Path $R 'c0-status-flags.txt'; $r0 = if (Test-Path -LiteralPath $f) { "present, written $((Get-Item -LiteralPath $f).LastWriteTime.ToString('yyyy-MM-dd HH:mm'))" } else { 'absent' }
         $rev = Join-Path $R "c0-go-reviewed-$Tag"; $rv = if (Test-Path -LiteralPath (Join-Path $rev 'c0-status-flags.txt')) { 'present (attempt 1 seeds it; a stale copy would be kept)' } else { 'absent' }
