@@ -462,7 +462,7 @@ Log 'C9 core PASS'
 $WStep = 'C9b'   # WRAPPER
 Undo-Aux; Start-AuxHolders
 $AuxRestart = Get-Date
-if (@(Import-Csv "$N\aux-prestate.csv" | Where-Object { $_.Task -eq 'WeatherHostHealthWatchdog' -and $_.State -ne 'Disabled' }).Count) { Start-ScheduledTask -TaskName WeatherHostHealthWatchdog }   # WRAPPER Fable 10-20 #4 fresh watchdog before C9c
+if (@(Import-Csv "$N\aux-prestate.csv" | Where-Object { $_.Task -eq 'WeatherHostHealthWatchdog' -and (Test-PrestateEnabled $_) }).Count) { Start-ScheduledTask -TaskName WeatherHostHealthWatchdog }   # WRAPPER Fable 10-20 #4 fresh watchdog before C9c
 
 # ---- WRAPPER C9c. Aux verify (verbatim)
 $WStep = 'C9c'   # WRAPPER
@@ -488,11 +488,11 @@ if ($tapeWanted) {   # WRAPPER tape: health RUNNING = identity current + evidenc
   $wth = $null; try { $wth = (Get-Content -LiteralPath $wtf.FullName -Raw | ConvertFrom-Json).health } catch {}   # WRAPPER
   if (-not $wth -or [string]$wth.state -ne 'RUNNING' -or $wth.runtime_identity_matches_current -ne $true -or [string]$wth.evidence_integrity -ne 'PASS' -or [string]$wth.capture_state -ne 'CONNECTED') {   # WRAPPER
     $WIssues.Add("tape health in $($wtf.Name): $($wth | Select-Object state, runtime_identity_matches_current, evidence_integrity, capture_state, detail | ConvertTo-Json -Compress)") } }   # WRAPPER
-else { Log 'WRAPPER: tape pre-state Disabled; tape not checked' }   # WRAPPER
-$WShadowWanted = @($WPre | Where-Object { $_.Task -eq 'WeatherMakerShadowRunner' -and $_.State -ne 'Disabled' }).Count -gt 0   # WRAPPER
+else { Log 'WRAPPER: tape pre-state not enabled; tape not checked' }   # WRAPPER
+$WShadowWanted = @($WPre | Where-Object { $_.Task -eq 'WeatherMakerShadowRunner' -and (Test-PrestateEnabled $_) }).Count -gt 0   # WRAPPER
 $W88aRow = @($WPre | Where-Object { $_.Task -eq 'WeatherMakerEvidenceCapture' })   # WRAPPER
 if (-not $W88aRow.Count) { $WIssues.Add('88a (WeatherMakerEvidenceCapture) is not in aux-prestate.csv, so C9b did not restart it; judge 88a by eye') }   # WRAPPER
-$W88aWanted = @($W88aRow | Where-Object { $_.State -ne 'Disabled' }).Count -gt 0   # WRAPPER
+$W88aWanted = @($W88aRow | Where-Object { Test-PrestateEnabled $_ }).Count -gt 0   # WRAPPER
 if ($FamilyTasks.Count) { $WIssues.Add("capture-family task(s) $($FamilyTasks -join ',') registered: this wrapper does not judge the runbook C9c capture-family bullet; judge by eye") }   # WRAPPER fail-closed to the operator (41e3bec62 C9c family bullet)
 $WUntil = $AuxRestart.AddMinutes(10)   # WRAPPER
 do { $WPend = @()   # WRAPPER
