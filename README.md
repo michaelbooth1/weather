@@ -531,6 +531,22 @@ corpora, training years, build commit and exclusions. It fails closed on a
 missing file, an LFS pointer, an unpinned or wrong centre, or markets trained
 on different corpora.
 
+`python -m weather.backtesting.r0_paired_replay --schedule <arms.json>
+--max-target-date <date> --out <new.jsonl> <market-day folder> ...` replays each
+captured snapshot (`replay_inputs.jsonl` only) twice. The served arm is the
+research (no active release) model. The R0 arm is the same model with
+`feature_hgb` and `feature_lr_coefficients` from a verified research-only R0
+release (built with `--r0-candidate-manifest`, see the nightly retrain
+runbook). Its other five components must equal the served files, or it fails
+closed. The schedule is
+`{"arms": [{"name", "release_dir", "manifest_sha256", "first_target_date",
+"last_target_date"}]}`, non-overlapping, and picks the arm by target date. A folder
+after `--max-target-date` is skipped without being opened, and markets outside
+the release (Toronto) are skipped. The output is a write-once JSONL: a header
+(schedule sha256, arms, skips), then one row per snapshot with both
+distributions, their L1 and both identity hashes. It does not score against
+settlement.
+
 METAR keying replay (read-only, target dates up to 2026-09-29 only). It
 re-parses the raw AWC payloads retained in each market-day folder's
 `observation_payloads/` under the retired `reportTime` keying
