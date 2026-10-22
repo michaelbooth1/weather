@@ -397,7 +397,13 @@ An immutable attempt or hash-frozen bootstrap also passes
 `-ExpectedSelfSha256`; the child verifies its own exact bytes before entering
 the operational path. Roll classification and all later mutations remain
 under the same shared workload lease, so a second guarded merge cannot change
-the baseline between verdict and mutation.
+the baseline between verdict and mutation. A branch is roll-free only when `roll_verdict.ps1`
+exits 0 **and** its `-JsonOut` names `ROLL-FREE` with `branch` equal to the exact tip; a missing,
+unreadable or mismatched JSON counts as roll-sensitive. Exit codes: 0 pushed, or a clean
+`-DryRun` whose rollback re-adoption was proved; 1 refused, aborted before the merge, or any
+uncaught error; 2 a dry run whose merge failed, or a merge rolled back with re-adoption proved;
+3 merged and recovery-proved locally but not published; 4 rollback recovery unproven. The code
+starts at 1 and is issued from the script's final `finally`, so an error or Ctrl+C never exits 0.
 
 Before fetch, generated-config commit, or merge, the wrapper also fail-closes unless
 `WeatherOneShotPush` is the one enabled root task in `Ready` state with the canonical current-user
@@ -636,11 +642,13 @@ role §6 rule 2). It refuses unless local `master` is checked out with `HEAD == 
 (and the `ls-remote` master when reachable), no `MERGE_HEAD`, no quiet-merge marker, nothing
 staged and no modified tracked `docs/` file, the branch is at the exact tip and not yet merged,
 both the branch diff and the resulting merge diff are only `docs/**/*.md`, the roll verdict
-exits 0, and `WeatherOneShotPush` is Ready. It then merges `--no-ff` locally, starts
+exits 0 with a JSON naming `ROLL-FREE` for the exact tip, and `WeatherOneShotPush` is Ready. It then merges `--no-ff` locally, starts
 `WeatherOneShotPush`, waits for a new run with result 0, and proves `origin/master` is the
 merge commit. Exit 0 is published; 1 is a refusal (nothing changed, or its own unpublished
 merge was undone with `git reset --keep`); 3 is merged locally but publication unproven:
-retry only `WeatherOneShotPush` and re-check `origin/master`. Every outcome after the merge
+retry only `WeatherOneShotPush` and re-check `origin/master`. Any uncaught error or a Ctrl+C
+exits 1 (the code is issued from the final `finally`); start it with `powershell.exe -File`,
+because that exit also ends an interactive session that ran it in-process. Every outcome after the merge
 writes an immutable `docs-light-<ts>-<tip12>.json` receipt
 (`docs_light_path_receipt_v0.1`) to `data/alerts/quiet_window_merge_reconciliations/`; status
 retirement scans ignore that name. `-CheckOnly` runs every precondition and changes nothing.

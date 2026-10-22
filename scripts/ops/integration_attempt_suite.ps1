@@ -305,6 +305,8 @@ $suiteLaunchState = [pscustomobject]@{
     full_suite_started = $false
     output_records = New-Object System.Collections.Generic.List[object]
 }
+# Default-fail: 0 only after a PASS receipt was written.
+$attemptSuiteExitCode = 1
 
 try {
     Assert-WeatherIntegrationGitBaseline -AttemptContract $contract -Phase "integration preflight" | Out-Null
@@ -347,6 +349,9 @@ catch {
     Write-Error $failure -ErrorAction Continue
 }
 finally {
+    # Set the host exit code before any cleanup: a statement aborted by Ctrl+C
+    # would otherwise leave this advanced script exiting 0.
+    $Host.SetShouldExit($attemptSuiteExitCode)
     $preflightLogRecord = $null
     if (Test-Path -LiteralPath $preflightLogPath -PathType Leaf) {
         if ($null -eq $preflightVerdict) {
@@ -413,14 +418,16 @@ finally {
         }
     }
     Write-WeatherIntegrationImmutableJson -Path $suiteReceiptPath -Payload $receipt
+
+    Close-WeatherLaunchDiagnostics -Journal $launchJournal -Status $status -Failure $failureRecord
+
+    if ($status -ne "PASS") {
+        Write-Host "Integration attempt $($manifest.attempt_id) failed. Evidence is frozen; repair by creating a new attempt bound to this FAIL receipt."
+    }
+    else {
+        Write-Host "Integration attempt $($manifest.attempt_id) suite passed. Merge remains separately gated."
+        $attemptSuiteExitCode = 0
+    }
+    $Host.SetShouldExit($attemptSuiteExitCode)
+    exit $attemptSuiteExitCode
 }
-
-Close-WeatherLaunchDiagnostics -Journal $launchJournal -Status $status -Failure $failureRecord
-
-if ($status -ne "PASS") {
-    Write-Host "Integration attempt $($manifest.attempt_id) failed. Evidence is frozen; repair by creating a new attempt bound to this FAIL receipt."
-    exit 1
-}
-
-Write-Host "Integration attempt $($manifest.attempt_id) suite passed. Merge remains separately gated."
-exit 0

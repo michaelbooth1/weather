@@ -104,6 +104,10 @@ if ($attemptMode) {
     if (-not (Test-Path -LiteralPath $attemptGate -PathType Leaf)) {
         Refuse-Adoption "integration-attempt downstream gate is missing"
     }
+    # The gate runs in-process and signals success by returning (its last
+    # native command leaves 0). Seed a sentinel so a stale 0 from an earlier
+    # command can never stand in for that.
+    $global:LASTEXITCODE = 9009
     $attemptGateOutput = @(& $attemptGate `
         -ManifestPath $AttemptManifestPath `
         -ExpectedManifestSha256 $ExpectedManifestSha256 `
@@ -116,6 +120,9 @@ if ($attemptMode) {
     }
     catch {
         Refuse-Adoption "immutable integration-attempt success proof was unreadable"
+    }
+    if (-not ($attemptProof.authorized -is [bool] -and $attemptProof.authorized)) {
+        Refuse-Adoption "immutable integration-attempt success proof is not authorized"
     }
     if ([string]$attemptProof.source_tip -ne $ExpectedTip) {
         Refuse-Adoption "ExpectedTip does not equal the hash-bound integration-attempt source tip"

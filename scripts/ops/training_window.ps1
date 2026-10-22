@@ -530,6 +530,11 @@ if ($dirtyPaths.Count -gt 0) {
         $childExit = 2
         Write-WindowLog "RETRAIN" "promoting non-success nightly status to window exit $childExit"
     }
+} catch {
+    # A thrown failure still exits 1. The exit in the finally discards the error, so print it.
+    $Host.UI.WriteErrorLine(($_ | Out-String).TrimEnd())
+    $windowThrew = $true
+    throw
 } finally {
     # ---- Restore capture no matter what happened above ----
     try {
@@ -544,5 +549,9 @@ if ($dirtyPaths.Count -gt 0) {
         Write-WindowStatus "restore_failed" "capture_recovery_unproved_exit_$childExit"
     }
     finally { Exit-WeatherHeavyWorkloadLease -Lease $workloadLease }
+    # Default-fail exit ($childExit starts at -1): a stopped (Ctrl+C) Windows
+    # PowerShell 5.1 advanced script would otherwise exit 0.
+    if ($windowThrew -eq $true) { $childExit = 1 }
+    $Host.SetShouldExit($childExit)
+    exit $childExit
 }
-exit $childExit

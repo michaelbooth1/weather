@@ -419,6 +419,25 @@ prefer status, audit, dry-run, read-only, shadow, or paper modes. Never assume a
 argument-free registration example is valid; the script parameter block is the
 executable source of truth.
 
+**Default-fail exit codes for critical ops wrappers (2026-10-22).** A Windows PowerShell 5.1 script
+stopped by Ctrl+C, or ended by an uncaught error after a success path set its code, must never exit 0.
+`quiet_window_merge.ps1`, `docs_light_path.ps1`, `workstation_heavy.ps1`,
+`bounded_worktree_test_suite.ps1`, `integration_attempt_suite.ps1`, `training_window.ps1` and
+`daily_refresh.ps1` therefore initialise their exit-code variable to a non-zero literal before their
+outermost `try`, record the code in it immediately before every `exit` inside that `try` (an `exit`
+there runs the `finally`, whose own `exit` decides the process code), set 0 only on the proven-success
+path, print an uncaught error from a `catch` (the `finally`'s `exit` would discard it), and end the
+final `finally` with `$Host.SetShouldExit($code); exit $code`. Where cleanup in that `finally` can be
+aborted by the stop, the code is also set at its start. `tests/operations/test_ps_exit_default_fail_ratchet.py`
+enforces the shape. In-process `& script.ps1` calls whose exit code is read seed
+`$global:LASTEXITCODE = 9009` first, so a child that returns without `exit` reads as a failure, not
+as a stale 0 from an earlier `git` call (`suite_gated_quiet_merge.ps1`,
+`adopt_execution_tape_after_merge.ps1`, and the roll-verdict call in `quiet_window_merge.ps1`).
+Roll-verdict consumers (`quiet_window_merge.ps1`, `docs_light_path.ps1`) treat a branch as ROLL-FREE
+only for exit 0 **and** a readable `-JsonOut` whose `verdict` is `ROLL-FREE` and whose `branch` is the
+exact tip being merged. Because `SetShouldExit` sets the host's code, start these scripts with
+`powershell.exe -File`, not by dot-sourcing or `&` from an interactive session.
+
 ## Model-change evidence
 
 A model improvement claim needs more than unit tests. Preserve training/live

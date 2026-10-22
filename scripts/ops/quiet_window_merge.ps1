@@ -190,6 +190,7 @@ function Note($m) {
 function Fail($m) {
     Note "ABORT: $m"
     Save-Report -ok $false -stage "abort" -detail $m
+    $script:quietMergeExitCode = 1
     exit 1
 }
 function Get-QuietMergeClockInstant {
@@ -3283,6 +3284,8 @@ $workloadLease = Enter-WeatherHeavyWorkloadLease `
     -Workload "quiet_window_merge" `
     -OwnerApprovedException $OwnerApprovedException
 if ($null -eq $workloadLease) { Fail "another heavyweight host workload owns data/logs/heavy_workload.lock" }
+# Default-fail: only the proven-pushed path and a clean dry run set 0.
+$quietMergeExitCode = 1
 try {
 
 # ---- window guard, proportional to the branch's actual roll verdict ----
@@ -3316,13 +3319,22 @@ $verdictRef = $ExpectedTip
 if (Test-Path -LiteralPath $verdictScript) {
     $verdictJsonPath = Join-Path ([IO.Path]::GetTempPath()) ("weather-roll-verdict-{0}.json" -f [guid]::NewGuid().ToString("N"))
     try {
+        # An in-process script that returns without `exit` leaves the previous
+        # native exit code in place; seed a failure sentinel so that reads as failure.
+        $global:LASTEXITCODE = 9009
         & $verdictScript -Branch $verdictRef -JsonOut $verdictJsonPath |
             ForEach-Object { Note "roll_verdict: $_" }
         $verdictExitCode = $LASTEXITCODE
-        $rollFree = ($verdictExitCode -eq 0)
+        # ROLL-FREE needs exit 0 AND the readable JSON naming ROLL-FREE for this
+        # exact tip; a missing, unreadable or mismatched verdict fails closed.
+        $verdictJsonRollFree = $false
         if (Test-Path -LiteralPath $verdictJsonPath -PathType Leaf) {
             try {
                 $verdictPayload = Get-Content -LiteralPath $verdictJsonPath -Raw | ConvertFrom-Json
+                $verdictJsonRollFree = (
+                    [string]$verdictPayload.verdict -ceq "ROLL-FREE" -and
+                    ([string]$verdictPayload.branch).Trim().ToLowerInvariant() -ceq $verdictRef
+                )
                 $rollVerdictReadable = $true
                 $executionTapeReadoptionExpected = @(
                     $verdictPayload.files |
@@ -3335,6 +3347,10 @@ if (Test-Path -LiteralPath $verdictScript) {
             catch {
                 Note "WARNING: roll-verdict JSON was unreadable; any active execution tape will be gated conservatively"
             }
+        }
+        $rollFree = ($verdictExitCode -eq 0 -and $verdictJsonRollFree)
+        if ($verdictExitCode -eq 0 -and -not $verdictJsonRollFree) {
+            Note "WARNING: roll verdict exited 0 but its JSON is missing, unreadable, not ROLL-FREE, or not for $verdictRef"
         }
         Note ("roll verdict exit {0} -> {1}" -f $verdictExitCode, $(if ($rollFree) { "ROLL-FREE" } else { "treated as ROLL-SENSITIVE" }))
     }
@@ -3377,6 +3393,7 @@ if (Test-Path -LiteralPath $activeMarkerPath -PathType Leaf) {
         throw $priorMarkerReason
     }
     Save-Report -ok $false -stage "abort" -detail $priorMarkerReason
+    $quietMergeExitCode = 1
     exit 1
 }
 $existingMergeHeadPath = (& git rev-parse --git-path MERGE_HEAD).Trim()
@@ -3509,10 +3526,12 @@ function Stop-AfterPreparationFailure {
         $detail = "pre-merge failure could not restore successor-resumable baseline $baselineCommit; git_exit=$($restored.git_exit) head=$($restored.actual_head) unexpected_dirty=$(@($restored.unexpected_paths).Count) content_mismatch=$(@($restored.content_mismatch) -join ','); original=$Reason"
         Note $detail
         Save-Report -ok $false -stage "rollback_recovery_failed" -detail $detail
+        $script:quietMergeExitCode = 4
         exit 4
     }
     Note "ABORT: $Reason; synchronized baseline restored with generated config preserved as allowlisted drift"
     Save-Report -ok $false -stage "abort" -detail $Reason
+    $script:quietMergeExitCode = 1
     exit 1
 }
 
@@ -3742,6 +3761,7 @@ function Invoke-RollbackAndProve {
         $detail = "merge rollback could not restore exact pre-merge tree $preMerge; git_exit=$restoreExit head=$restoredHead merge_head=$remainingMergeHead dirty=$($remainingTracked.Count); original=$primaryDetail"
         Note $detail
         Save-Report -ok $false -stage "rollback_recovery_failed" -detail $detail
+        $script:quietMergeExitCode = 4
         exit 4
     }
 
@@ -3758,6 +3778,7 @@ function Invoke-RollbackAndProve {
             $detail = "merge rollback reached $preMerge but could not restore synchronized baseline $baselineCommit; git_exit=$baselineResetExit; original=$primaryDetail"
             Note $detail
             Save-Report -ok $false -stage "rollback_recovery_failed" -detail $detail
+            $script:quietMergeExitCode = 4
             exit 4
         }
     }
@@ -3782,6 +3803,7 @@ function Invoke-RollbackAndProve {
         $detail = "merge rollback did not leave a successor-resumable baseline; expected_head=$baselineCommit actual_head=$finalRollbackHead unexpected_dirty=$($unexpectedRollbackPaths.Count) content_mismatch=$($contentMismatch -join ','); original=$primaryDetail"
         Note $detail
         Save-Report -ok $false -stage "rollback_recovery_failed" -detail $detail
+        $script:quietMergeExitCode = 4
         exit 4
     }
 
@@ -3818,11 +3840,13 @@ function Invoke-RollbackAndProve {
         $detail = "merge recovery failed: $primaryDetail; rollback recovery unproven: $($rollbackWhy -join '; ')"
         Note $detail
         Save-Report -ok $false -stage "rollback_recovery_failed" -detail $detail
+        $script:quietMergeExitCode = 4
         exit 4
     }
 
     Note "every affected producer re-adopted the rollback and satisfies its exact recovery contract"
     Save-Report -ok $RecoveredOk -stage $RecoveredStage -detail $primaryDetail
+    $script:quietMergeExitCode = $RecoveredExitCode
     exit $RecoveredExitCode
 }
 
@@ -3862,11 +3886,13 @@ if ($DryRun) {
     }
     if ($dryAbortExit -ne 0 -or (& git rev-parse HEAD).Trim() -ne $preMerge) {
         Save-Report -ok $false -stage "rollback_recovery_failed" -detail "dry-run merge could not restore $preMerge"
+        $quietMergeExitCode = 4
         exit 4
     }
     $dryRestore = Restore-PreparedBaseline
     if (-not $dryRestore.ok) {
         Save-Report -ok $false -stage "rollback_recovery_failed" -detail "dry-run merge could not restore synchronized baseline $baselineCommit with generated bytes intact"
+        $quietMergeExitCode = 4
         exit 4
     }
     Note "DRY RUN: conflicts=$($conflicts.Count)"
@@ -4038,6 +4064,7 @@ if ($documentationExit -ne 0) {
     # about whether that durable mutation happened. Without a compensating
     # transaction it is unsafe to delete the merge it may now reference.
     Save-Report -ok $true -stage "merged_unpushed" -detail "documentation transaction begin failed or was ambiguous for local commit $mergeCommit; reviewed resume required"
+    $quietMergeExitCode = 3
     exit 3
 }
 try {
@@ -4072,6 +4099,7 @@ try {
 catch {
     Note "documentation transaction returned success without exact durable identity: $($_.Exception.Message)"
     Save-Report -ok $true -stage "merged_unpushed" -detail "documentation transaction identity is ambiguous for local commit $mergeCommit; reviewed resume required"
+    $quietMergeExitCode = 3
     exit 3
 }
 Note "documentation transaction recorded for $mergeCommit"
@@ -4085,6 +4113,7 @@ catch {
     # reconciliation; resetting would create an orphan transaction.
     Note "documentation succeeded but its durable merge marker could not be updated; preserving local merge for reviewed resume"
     Save-Report -ok $true -stage "merged_unpushed" -detail "documentation marker update failed for local commit $mergeCommit; reviewed resume required"
+    $quietMergeExitCode = 3
     exit 3
 }
 
@@ -4157,12 +4186,14 @@ catch {
 if ($prePublicationFailure) {
     Note "publication boundary proof failed: $prePublicationFailure"
     Save-Report -ok $true -stage "merged_unpushed" -detail "publication boundary proof failed; commit $mergeCommit is local: $prePublicationFailure"
+    $quietMergeExitCode = 3
     exit 3
 }
 try { Assert-OneShotPushTask }
 catch {
     Note "WeatherOneShotPush changed after its pre-mutation check: $($_.Exception.Message)"
     Save-Report -ok $true -stage "merged_unpushed" -detail "push task binding changed before publication; commit $mergeCommit is local"
+    $quietMergeExitCode = 3
     exit 3
 }
 Note "capture healthy after the roll; handing $mergeCommit to WeatherOneShotPush"
@@ -4170,6 +4201,7 @@ try { Start-ScheduledTask -TaskName WeatherOneShotPush -ErrorAction Stop }
 catch {
     Note "could not start WeatherOneShotPush: $($_.Exception.Message)"
     Save-Report -ok $true -stage "merged_unpushed" -detail "push task start failed; commit $mergeCommit is local"
+    $quietMergeExitCode = 3
     exit 3
 }
 $pushed = $false
@@ -4180,6 +4212,7 @@ for ($i = 0; $i -lt 18; $i++) {
 if (-not $pushed) {
     Note "WeatherOneShotPush did not publish within 3 min. Merge is committed locally and capture is healthy."
     Save-Report -ok $true -stage "merged_unpushed" -detail "push task did not acknowledge commit $mergeCommit"
+    $quietMergeExitCode = 3
     exit 3
 }
 $publicationAcknowledged = $true
@@ -4194,6 +4227,19 @@ catch {
 }
 Note "pushed $mergeCommit via WeatherOneShotPush"
 Save-Report -ok $true -stage "pushed" -detail "$mergeCommit (via WeatherOneShotPush)"
-exit 0
+$quietMergeExitCode = 0
+exit $quietMergeExitCode
 }
-finally { Exit-WeatherHeavyWorkloadLease -Lease $workloadLease }
+catch {
+    # The exit issued from the finally below discards an uncaught error, so print
+    # it here. $quietMergeExitCode is still its default 1 on every throw path.
+    $Host.UI.WriteErrorLine(($_ | Out-String).TrimEnd())
+    throw
+}
+finally {
+    Exit-WeatherHeavyWorkloadLease -Lease $workloadLease
+    # Default-fail exit: every exit above records its code first, and a stopped
+    # (Ctrl+C) Windows PowerShell 5.1 advanced script would otherwise exit 0.
+    $Host.SetShouldExit($quietMergeExitCode)
+    exit $quietMergeExitCode
+}
