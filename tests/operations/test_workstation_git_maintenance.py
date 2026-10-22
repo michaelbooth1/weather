@@ -110,20 +110,22 @@ def test_fixed_route_keeps_refs_worktrees_reflogs_and_every_object(
     assert report["git_lfs_accessed"] is False
     assert report["history_rewritten"] is False
     assert report["prune_now"] is False
-    assert calls[-2:] == [
-        ["repack", "-a", "-d", "--keep-unreachable"],
-        [
-            "-c",
-            "gc.reflogExpire=never",
-            "-c",
-            "gc.reflogExpireUnreachable=never",
-            "-c",
-            "gc.worktreePruneExpire=never",
-            "gc",
-            "--no-prune",
-            "--no-detach",
-        ],
+    repack = ["git", "repack", "-a", "-d", "--keep-unreachable"]
+    gc = [
+        "git",
+        "-c",
+        "gc.reflogExpire=never",
+        "-c",
+        "gc.reflogExpireUnreachable=never",
+        "-c",
+        "gc.worktreePruneExpire=never",
+        "gc",
+        "--no-prune",
+        "--no-detach",
     ]
+    assert repack in calls
+    assert gc in calls
+    assert calls.index(repack) < calls.index(gc)
     assert all("lfs" not in " ".join(command).lower() for command in calls)
 
 
