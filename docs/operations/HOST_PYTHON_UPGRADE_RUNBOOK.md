@@ -71,6 +71,18 @@ exact `roll_verdict.ps1` call, and **B-R** requalifies a stage venv in a new sta
 (N12 would), and §D now removes every qualification worktree. **B-R is parked:** C on 10-22 runs on pre-N12 master, so G3 rests on
 the Phase B tip; B-R is used only if C fails and N12 lands first. Dates changed in this revision (2026-10-20 replan): the header and the §7a C row now name 00:30 on Thu 10-22, G4 and §R "Escalation" carry the owner's ruling for that night, and G7's 10-17 C date is marked as history. The state of play and the decision log still own the cutover night.
 
+Revision 2026-10-22 (C2 disable check): **Phase C on the night of 10-21 to 10-22 stopped at C2 at 01:02:11 on a false
+NO-GO, "disable WeatherMakerEvidenceCapture".** Nothing was swapped, `Undo-Aux` re-enabled every aux task, and capture
+was not touched. C2 verified each disable with `(Get-ScheduledTask).State -eq 'Disabled'`, but a task with a running
+instance keeps State `Running` after `Disable-ScheduledTask`. The 88a worker always runs and is stopped only later, in
+C2's `88a` step, so that check could never pass; `Stop-Capture` (C3, §R) had the same check on the running
+supervisors. C2 had never run on the host. Both post-disable checks now read `Settings.Enabled`, and the stops keep
+their order. The C2 pre-state now also records `Enabled`. `Undo-Aux`, `Start-AuxHolders` and C9c read it when present
+and keep the old State rule for a pre-state file without it, so a disabled task that was running at C2 is no longer
+re-enabled by the undo. The G5 and U6 gates (`Assert-NoU6At0035`, B0, C0) keep State on purpose: a disabled task that
+is still running holds the lease and must stop the night; only their messages changed. Any wrapper or kit built from
+the earlier text must be regenerated.
+
 **Owns:** the procedure for moving the production checkout's `venv` from CPython 3.11.0 to 3.11.9
 on the 16 GB capture host. That covers a side-by-side install, an offline wheelhouse, a stage venv
 qualified by the bounded suite, the cutover through the guarded stop/restore path, verification,
@@ -301,7 +313,7 @@ function Get-ReleaseActive([string]$Exe, [string]$OutBase) {
 function Assert-NoU6At0035([string]$Tag) {
   $u6 = Get-ScheduledTask -TaskName WeatherReplayBundleExportNightly -ErrorAction SilentlyContinue
   if ($u6 -and [string]$u6.State -ne 'Disabled' -and @($u6.Triggers | Where-Object { [string]$_.StartBoundary -match 'T00:35' }).Count -gt 0) {
-    NoGo "$Tag U6 export is registered at 00:35 and enabled (G5, Q3)" } }
+    NoGo "$Tag U6 export is registered at 00:35 and enabled or still running (State $($u6.State); G5, Q3)" } }   # State on purpose: a running U6 holds the lease
 # §11: the owner's recorded choice for a capture gap over 35 minutes; first token ACCEPT_OVERRUN or ROLLBACK_ON_OVERRUN
 function Get-GapChoice { $c = if (Test-Path -LiteralPath "$R\gap-overrun.txt") { ((Get-Content -LiteralPath "$R\gap-overrun.txt" -TotalCount 1) -split '\s+')[0] }
   if ($c -notin 'ACCEPT_OVERRUN','ROLLBACK_ON_OVERRUN') { NoGo 'gap-overrun choice not recorded in $R\gap-overrun.txt (§11)' }; $c }
@@ -340,6 +352,8 @@ Trap reminders ([operations agent role](OPERATIONS_AGENT_ROLE.md) §5):
 - a value one phase assigns is `$null` in the fresh session of a later night: read it from the file that phase wrote
   (the §6 header reads `oldhome.txt`), never from a variable set earlier (found in review 2026-10-13);
 - PowerShell variable names ignore case, and `foreach` and `ForEach-Object` assign in the session scope: a loop variable `$k`, `$p`, `$a` or `$r` overwrites `$K`, `$P`, `$A` or `$R`. Never reuse a session constant's name for a loop variable (a `foreach ($k ...)` in C6 would have rolled back every cutover; found in review 2026-10-13);
+- `Disable-ScheduledTask` does not end a running instance, and the task's State stays `Running` until it ends. Prove a
+  disable with `Settings.Enabled -eq $false`; use State only to ask whether an instance is running (C2 NO-GO, 2026-10-22);
 - never follow `night.log` with a tailing reader (`Get-Content -Wait`, `tail -F`): it can hold the file so that `Log`'s `Add-Content` fails and stops the phase. Read snapshots instead (seen on the host, 2026-10-13).
 
 Plain `& $exe ...; if ($LASTEXITCODE)` calls with no stderr redirection are safe under `Stop`.
@@ -742,7 +756,7 @@ If A4 fails:
 ```powershell
 $h = (Get-Date).Hour + (Get-Date).Minute/60; if ($h -lt 0.5 -or $h -ge 2.0) { NoGo 'outside the Phase B start window' }
 foreach ($tn in 'WeatherTrainingWindow','WeatherEveningEvidenceRefresh') { $x = Get-ScheduledTask -TaskName $tn -ErrorAction SilentlyContinue
-  if ($x -and [string]$x.State -ne 'Disabled') { NoGo "$tn is enabled (G5)" } }
+  if ($x -and [string]$x.State -ne 'Disabled') { NoGo "$tn is enabled or still running (State $($x.State), G5)" } }   # State, not Settings.Enabled: a disabled task still running holds the lease
 Assert-NoU6At0035 'B0'
 $mg = Read-WeatherMemoryGuardStatus -Path (Join-Path $P 'data\logs\memory_commit_guard_status.json'); Log "memory $($mg | ConvertTo-Json -Compress)"
 if ((Get-Volume -DriveLetter C).SizeRemaining -lt 55GB) { NoGo 'disk below the bounded-suite floor plus margin' }
@@ -980,7 +994,7 @@ if (git -C $P status --porcelain --untracked-files=no) { NoGo 'prod tree dirty' 
 if (Test-Path -LiteralPath $Old) { NoGo "$Old exists" }
 if ((Get-Volume -DriveLetter C).SizeRemaining -lt 10GB) { NoGo 'disk' }
 foreach ($tn in 'WeatherTrainingWindow','WeatherEveningEvidenceRefresh') { $x = Get-ScheduledTask -TaskName $tn -ErrorAction SilentlyContinue
-  if ($x -and [string]$x.State -ne 'Disabled') { NoGo "$tn is enabled (G5)" } }
+  if ($x -and [string]$x.State -ne 'Disabled') { NoGo "$tn is enabled or still running (State $($x.State), G5)" } }   # State, not Settings.Enabled: a disabled task still running holds the lease
 $mg = Read-WeatherMemoryGuardStatus -Path (Join-Path $P 'data\logs\memory_commit_guard_status.json'); Log "memory $($mg | ConvertTo-Json -Compress)"
 Log "lease state $((Get-WeatherHeavyWorkloadLeaseState -RepoRoot $P) | ConvertTo-Json -Compress)"
 $st0 = Invoke-Native 'powershell.exe' @('-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $P 'scripts\ops\status.ps1'),'-Json') "$R\c0-status"
@@ -1031,11 +1045,15 @@ reused by C3, C9b and §R.
 ```powershell
 $Sup = 'WeatherSnapshotLoopSupervisor','WeatherClobBookLoopSupervisor','WeatherObservationTriggerSupervisor'
 $Holders = @('WeatherExecutionTapeSupervisor','WeatherMakerShadowRunner','WeatherMakerEvidenceCapture') + $FamilyTasks   # $FamilyTasks from C0
-function Undo-Aux { foreach ($row in Import-Csv "$N\aux-prestate.csv") { if ($row.State -ne 'Disabled') { Enable-ScheduledTask -TaskName $row.Task | Out-Null } }
+# Was this pre-state row enabled? The Enabled column (2026-10-22) is exact. A row without it (a pre-state recorded
+# before that revision) keeps the old State rule, so the undo of an existing file is unchanged.
+function Test-PrestateEnabled($Row) { if ($Row.PSObject.Properties['Enabled'] -and $Row.Enabled) { return $Row.Enabled -eq 'True' }; $Row.State -ne 'Disabled' }
+function Undo-Aux { foreach ($row in Import-Csv "$N\aux-prestate.csv") { if (Test-PrestateEnabled $row) { Enable-ScheduledTask -TaskName $row.Task | Out-Null }
+    elseif ($row.State -eq 'Running') { Log "ESCALATE: $($row.Task) was disabled but running at C2; left disabled and not restarted" } }
   if ($ShadowStop) { Remove-Item -LiteralPath $ShadowStop -ErrorAction SilentlyContinue } }
 function Start-AuxHolders {   # restart the long-running holders that C2 stopped, only where their pre-state was enabled
   foreach ($tn in $Holders) { $row = Import-Csv "$N\aux-prestate.csv" -ErrorAction SilentlyContinue | Where-Object Task -eq $tn
-    if ($row -and $row.State -ne 'Disabled') { Start-ScheduledTask -TaskName $tn; Log "started $tn" } } }
+    if ($row -and (Test-PrestateEnabled $row)) { Start-ScheduledTask -TaskName $tn; Log "started $tn" } } }
 function Stop-Tape([string]$Exe) {
   # 'stop' exits 0 only when it stopped a live worker (execution_tape_supervisor.py:909-912). A worker that is
   # already gone returns authorization.process_gone=true / recorded_process_not_found (supervisor.py:1353-1361),
@@ -1055,7 +1073,7 @@ function Quiesce-Aux([string]$Exe, [switch]$Soft) {
   $Aux = @(Get-Content -LiteralPath "$R\aux-tasks.txt" | Where-Object { $_.Trim() })
   Invoke-QStep 'prestate' {
     if (-not (Test-Path -LiteralPath "$N\aux-prestate.csv")) {
-      $Aux | ForEach-Object { $x = Get-ScheduledTask -TaskName $_; [pscustomobject]@{ Task=$_; State=[string]$x.State } } |   # throws on a wrong name
+      $Aux | ForEach-Object { $x = Get-ScheduledTask -TaskName $_; [pscustomobject]@{ Task=$_; State=[string]$x.State; Enabled=[string]$x.Settings.Enabled } } |   # throws on a wrong name; State 'Running' does not say enabled
         Export-Csv -LiteralPath "$N\aux-prestate.csv" -NoTypeInformation } } $Soft.IsPresent
   Invoke-QStep 'shadow' {   # STOP file only, never a kill
     if ($Aux -contains 'WeatherMakerShadowRunner') {
@@ -1063,8 +1081,9 @@ function Quiesce-Aux([string]$Exe, [switch]$Soft) {
       New-Item -ItemType File -Force $ShadowStop | Out-Null
       $t0 = Get-Date; while ([string](Get-ScheduledTask -TaskName WeatherMakerShadowRunner).State -eq 'Running' -and ((Get-Date)-$t0).TotalSeconds -lt 180) { Start-Sleep 10 }
       if ([string](Get-ScheduledTask -TaskName WeatherMakerShadowRunner).State -eq 'Running') { NoGo 'shadow did not seal in 3 min' } } } $Soft.IsPresent
+  # Verify the disable with Settings.Enabled, never State: a disabled task with a running instance (88a, the tape) keeps State 'Running' until the stop below (C2 NO-GO 2026-10-22).
   foreach ($tn in $Aux) { Invoke-QStep "disable $tn" { Disable-ScheduledTask -TaskName $tn | Out-Null
-    if ([string](Get-ScheduledTask -TaskName $tn).State -ne 'Disabled') { NoGo "disable $tn" } } $Soft.IsPresent }
+    if ((Get-ScheduledTask -TaskName $tn).Settings.Enabled -ne $false) { NoGo "disable $tn" } } $Soft.IsPresent }
   Invoke-QStep 'tape' { Stop-Tape $Exe } $Soft.IsPresent
   Invoke-QStep '88a' {   # only with the recorded owner choice (G8, Q12)
     if (((Get-Content -LiteralPath "$R\q12.txt" -TotalCount 1) -split '\s+')[0] -ne 'STOP_AUTHORIZED') { NoGo 'Q12 not STOP_AUTHORIZED' }
@@ -1090,8 +1109,8 @@ when the loop was already stopped (`snapshot_tracker.py:2413-2415`, `market_micr
 # $Exe is one interpreter for everything (C3), or a hashtable with keys snapshot, clob, obs and gate (§R, per worker).
 function Stop-Capture($Exe, [switch]$Soft) {
   $X = if ($Exe -is [hashtable]) { $Exe } else { @{ snapshot=$Exe; clob=$Exe; obs=$Exe; gate=$Exe } }
-  foreach ($tn in $Sup) { Invoke-QStep "disable $tn" { Disable-ScheduledTask -TaskName $tn | Out-Null
-    if ([string](Get-ScheduledTask -TaskName $tn).State -ne 'Disabled') { NoGo "disable $tn" } } $Soft.IsPresent }
+  foreach ($tn in $Sup) { Invoke-QStep "disable $tn" { Disable-ScheduledTask -TaskName $tn | Out-Null   # Settings.Enabled: a running supervisor keeps State 'Running'
+    if ((Get-ScheduledTask -TaskName $tn).Settings.Enabled -ne $false) { NoGo "disable $tn" } } $Soft.IsPresent }
   $stamp = Get-Date -Format HHmmss; $script:c1 = $script:c2 = $script:c3 = 99
   Invoke-QStep 'stop snapshot' { $script:c1 = Invoke-Native $X.snapshot @('-m','weather.collection.snapshot_tracker','--stop') "$N\stop-snapshot-$stamp" } $Soft.IsPresent
   Invoke-QStep 'stop clob'     { $script:c2 = Invoke-Native $X.clob @('-m','weather.market.market_microstructure','stop') "$N\stop-clob-$stamp" } $Soft.IsPresent
@@ -1242,7 +1261,7 @@ $AuxRestart = Get-Date
 **C9c. Aux verify (within 10 minutes).**
 
 ```powershell
-$tapeOk = $false; $tapeWanted = (Import-Csv "$N\aux-prestate.csv" | Where-Object Task -eq 'WeatherExecutionTapeSupervisor' | Where-Object State -ne 'Disabled')
+$tapeOk = $false; $tapeWanted = (Import-Csv "$N\aux-prestate.csv" | Where-Object Task -eq 'WeatherExecutionTapeSupervisor' | Where-Object { Test-PrestateEnabled $_ })
 if ($tapeWanted) { $t0 = Get-Date
   while (-not $tapeOk -and ((Get-Date)-$t0).TotalMinutes -lt 5) {   # status exits 0 only for RUNNING/DEGRADED (execution_tape_supervisor.py:936)
     $tsc = Invoke-Native $Py @('-m','weather.operations.execution_tape_supervisor','status','--stale-after-seconds','180') "$N\tape-status-$(Get-Date -Format HHmmss)"
@@ -1544,4 +1563,13 @@ read-only, nothing is executed):
 
 ```text
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\ops\check_markdown_powershell_fences.ps1 -Path 'docs\operations\HOST_PYTHON_UPGRADE_RUNBOOK.md;<night-plans folder>'
+```
+
+The Phase C kit, `night-plans/undated/pyup-phase-c/` (2026-10-22), is generated from §6, B1c, B1d and Phase C of
+this file. After any change there, regenerate it and check it (stdlib only; it reads this file and writes only the
+kit; `PHASE-C.md` in the kit lists the remaining parse checks):
+
+```text
+.\venv\Scripts\python.exe -I night-plans\undated\pyup-phase-c\make_kit.py
+.\venv\Scripts\python.exe -I night-plans\undated\pyup-phase-c\make_kit.py --check
 ```
