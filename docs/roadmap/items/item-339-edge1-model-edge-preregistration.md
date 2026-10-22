@@ -21,8 +21,10 @@ Status:
 
 - **Approved 2026-10-21** (every Recommended default). Not yet signed: the signed copies and their signing rows land
   after the Thursday Fable delta review, before D0.
-- **D0:** 2026-10-25 if post-N12 code serves before the first T+0 snapshot of local 2026-10-24 in the earliest US
-  timezone; otherwise 2026-10-28 (EDGE-1 annex §2.1; OD-A6 = not held).
+- **D0:** 2026-10-28. The 10-25 branch is unreachable: under amendment (s) (A) the A0 freeze is on N13, which now
+  lands 10-24/25 (DECISION_LOG 2026-10-22); C on 10-23/24 re-pins once under (s-C) and does not move D0 earlier. Both
+  amendments are pending the owner. If C does not PASS on 10-23/24, D0 is the first full day after the next C PASS
+  night (never before 10-28), or 10-28 under Option 2 (C after 12-21) (EDGE-1 annex §1.2, §2.1; OD-A6 = not held).
 - **Arms:** A0 (served plus the binding twin T1, NWS hourly alone; T0 climatology non-binding); A1 (A0 + t3-r3 + A1-1),
   looks deferred until after the t3-r3 look; A2 closed in development (E2 not a forward instrument). NBM-2 has no dates
   before 2027 and is absent from 12-21. MG-1 is its own signed instrument and is read by the GNG rule at its own looks.
@@ -44,7 +46,7 @@ Acceptance:
 
 - [x] Owner answers to bundle B (GNG §5 (a)-(r), §6): every default, 2026-10-21.
 - [ ] Fable delta review of the bundle; signed copies land with their signing rows before D0.
-- [ ] D0 recorded (10-25 or 10-28) once N12's serving time is known.
+- [ ] D0 2026-10-28 confirmed once N13's serving time and the C outcome are in the night receipts.
 - [ ] Retrain prerequisite: per-model column allowlist head `claude/retrain-column-allowlist-20261021` built by 10-27,
   landed by 10-30. R0 drops `pressure` and `pressure_trend_3h` and retrains base models only (DECISION_LOG 2026-10-21).
 - [ ] Each declared look read once at its date under the signed rule; result recorded in EF and the digest.
