@@ -171,11 +171,13 @@ owner may redefine A2 (OD-E5); a redefined A2 would need its own development fit
   EDGE-1" sentence above is withdrawn for the 10-23/24 night: that night does change A0's serving path and is why
   the pin moves.
 - **PROPOSED AMENDMENT 2026-10-22 (pending owner; GO/NO-GO rule question (s-C)).** If the owner takes Option 1 (the host
-  Python-upgrade C night on 10-26/27), the freeze above is re-pinned **once**, after the C PASS night: A0, T1, T0 and A1
-  are frozen on the master commit serving after C, the frozen identity also records the interpreter and library
-  versions, and **D0 = the first full day after the C PASS night (about 2026-10-28)**. This is a single epoch: no row
-  before C counts and nothing is re-pinned mid-test. If C does not PASS on that night, D0 waits for the next C PASS
-  night or the owner falls back to Option 2. Under Option 2 (C after 2026-12-21) the bullet above applies unchanged.
+  Python-upgrade C night 10-23/24, owner GO 2026-10-22, DL :255), the freeze above is re-pinned **once**, in a single
+  epoch after N13: A0, T1, T0 and A1 are frozen on the master commit serving after both C and the landed N13 head, and
+  the frozen identity also records the interpreter and library versions. **D0 = 2026-10-28** by the clock above
+  (:151), because N13 now serves from 10-24/25 under (s)(A); C does not move D0. This is a single epoch: no row before
+  C counts and nothing is re-pinned mid-test. If C fails or is postponed, D0 waits for the next C PASS night: the next
+  free night is 10-26/27, which still gives D0 = 2026-10-28, and a later pass gives the first full day after it (never
+  before 2026-10-28). Under Option 2 (C after 2026-12-21) the bullet above applies unchanged and D0 stays 2026-10-28.
 
 **A1 survivor list — filled 2026-10-20 from the development screens.** Source: `claude/model-edge-screens-20261019`
 @ `4d3e25699a8afe3a34d9e979c6aa950b6ca16389`, `docs/research/model-edge-screens-2026-10-19.md` §2 (kill rule declared
