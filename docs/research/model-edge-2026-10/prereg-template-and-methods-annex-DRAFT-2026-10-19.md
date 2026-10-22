@@ -226,6 +226,9 @@ formal verdict is `scripts\ops\roll_verdict.ps1`'s) refuses to compute anything 
 1. **Pre-registration SHA:** the raw SHA-256 of the instrument file and of this annex, computed from the bytes at run
    time, each appears in a DECISION_LOG signing row (the evening-fix scorer pattern).
 2. **Arm hashes:** for every arm, the arm hash recomputed at run time (M5.2) equals the hash in the signing row.
+   **[PROPOSED AMENDMENT 2026-10-21 (pending owner): with M5.2 as amended, "recomputed" means the manifest of frozen
+   identities (serving-path fingerprint, `model_identity_hash`, artifact and config hashes), checked against each
+   eligible row's stored values; a later master commit that leaves them unchanged is not a mismatch.]**
 3. **Look identity:** the look id (`interim` or `final`) has no earlier receipt in the instrument's append-only receipt
    file; a second run of the same look refuses (exit non-zero, nothing printed beyond the refusal).
 4. **Date gate:** the countable-date count reaches the look's n from countability metadata alone, and the local run
@@ -243,6 +246,44 @@ SHA-256 over a canonical JSON manifest listing: code commit (full 40-hex from `g
 artifact and config the arm reads (model bundle, stage artifacts, blend weight file), `ML_MODEL_VERSION`, stage
 versions and switches, and for E2 the weight-fit input manifest hash. The manifest file itself is committed beside
 the instrument. A shadow stage stores this hash per snapshot; a mismatch on any eligible row is a VOID condition (M8).
+
+**PROPOSED AMENDMENT 2026-10-21 (pending owner; GO/NO-GO rule question (s) (B)). The approved paragraph above stands
+until the owner rules; if adopted, this paragraph replaces its "code commit" element.** Read literally, "code commit
+(full 40-hex)" makes **any** master commit after the freeze (docs heads, the S2+S9 88a recorder change, anything) a
+mismatch, and M5.1 item 2 and M8 then VOID every later row. Amended code identity:
+
+- **Code identity = the serving-path fingerprint**, the same one the capture supervisors use for `STALE_CODE`:
+  `weather.runtime_identity.get_runtime_identity(scope_files="loaded")` (`src/weather/runtime_identity.py:191-227`),
+  i.e. a SHA-256 (first 16 hex) over the repo source files the snapshot loop process has imported
+  (`_module_source_files`, `:131-161`; hashed by `_fingerprint_relpaths`, `:167-188`). The loop compares it with the
+  tree on disk in `runtime_identity_status` (`src/weather/collection/snapshot_tracker.py:579-598`) and reports
+  `STALE_CODE` from `loop_health` (`:617-618`); the recorded file list is `runtime_identity.source_scope_files` in
+  `data\snapshots\loop_supervisor_status.json`, the snapshot closure that `scripts/ops/roll_verdict.ps1:77` reads.
+  (`config/capture_families.json` does not exist on this branch; the closure list lives in `roll_verdict.ps1:77-80`.)
+- **Per snapshot, already stored:** every snapshot row carries `runtime_source_fingerprint` and `runtime_git_commit`
+  (`RUNTIME_IDENTITY_COLUMNS`, `src/weather/collection/snapshot_store.py:282-290`, filled by
+  `runtime_identity_fields`, `:2229-2239`, from the process identity taken at import, `:269`), and
+  `model_identity_hash` (`snapshot_store.py:492`), which covers the distribution code files and the model artifacts
+  (`src/weather/model/model_identity.py:24-46`, `model_replay_identity` `:90`). The arm hash manifest records the frozen
+  `runtime_source_fingerprint` with its `source_scope_files` list, the frozen `model_identity_hash` per market, the
+  SHA-256 of every artifact and config file the arm reads, `ML_MODEL_VERSION`, stage versions and switches. The scorer
+  compares each eligible row's stored `runtime_source_fingerprint` and `model_identity_hash` with the frozen values.
+- **What is not stored per snapshot and is needed:** the `source_scope_files` list itself (only in the loop status
+  file), so it must be archived at the freeze; config files the arm reads are outside the source fingerprint
+  (`SOURCE_PATTERNS`, `runtime_identity.py:18-27`, covers `.py`, `.ps1`, `tools/**` and `requirements.txt`). Rows also
+  store `config_identity_hash` (`snapshot_store.py:491`, computed at `:1564-1566`), but whether it covers every config
+  file the arm reads is not verified here, so the config hashes are fixed in the manifest and verified at each look; shadow stages (A1) still store their own arm hash per
+  snapshot. The fingerprint covers every module the snapshot loop imports, which can be broader than the serving path:
+  a change to any loaded module flips it.
+- **Residual rule:** any landing that changes that fingerprint (or the frozen artifact/config hashes) between the
+  freeze and 2026-12-21 is forbidden; a row whose stored fingerprint differs from the frozen one is VOID (M8).
+- **Allowed landings in that period:** docs; recorder code outside the roll closures per the host `roll_verdict`
+  (for example the 88a `maker_evidence_*` recorder); anything else only if it is outside the closures and the host
+  `roll_verdict.ps1` is ROLL-FREE for the serving closures.
+- **Fallback if the owner rejects (B):** the literal M5.2 rule stands, so **all** master landings are frozen from D0
+  to 12-21, docs included, or the later rows are VOID. Operationally: no DST follow-ups (the 11-01 transition and
+  its fixes), no S2+S9 (88a recorder) after the freeze, no docs heads (DECISION_LOG, STATE_OF_PLAY and findings
+  updates could not land on master), and no Python follow-ups (cutover fixes) until 12-21.
 
 ### M5.3 One look per declared look
 
@@ -305,7 +346,8 @@ rescued by amendment on the same dates.
 ## M8. Validity conditions (failure makes the look VOID; the dates are spent)
 
 - **PIT:** any arm input with an availability time after the snapshot's `captured_at_utc`.
-- **Arm hash:** mismatch on any eligible row (M5.2).
+- **Arm hash:** mismatch on any eligible row (M5.2). **[PROPOSED AMENDMENT 2026-10-21 (pending owner): a mismatch of
+  the M5.2-amended frozen identities on the row, not of the master commit.]**
 - **Replay reproduction:** where an arm is replayed, it reproduces its stored shadow vector within 1e-12 L1 on 100% of
   rows (shadow stages) or the served vector within 1e-9 on at least 99% (served arms; evening-fix §6.2 form). **M8 is
   evaluated on forward rows replayed at the frozen arm hash (for EDGE-1, A0's); development rows predate the freeze

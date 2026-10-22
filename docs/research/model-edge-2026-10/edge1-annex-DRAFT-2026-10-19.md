@@ -36,8 +36,8 @@
 
 | Arm | Definition | Endpoint | Frozen when | Input-removed twin (M7.3) |
 | --- | --- | --- | --- | --- |
-| **A0** | The served model as served after 2026-10-09: `ML_MODEL_VERSION` v0.5.12 (lock-in v3 + v4 pre-lock-in floor + #189 keying), default switches, the active bundle; the captured served vector of record, release id per row. | E1 | code hash frozen on the **post-N12 master** (after N12 lands, now the 10-22/23 night) and before D0 (section 1.2) | **T1, public-forecast twin (binding):** `forecast_high` from the NWS hourly point forecast alone (section 1.1); T0 climatology-prior twin kept as a **non-binding** sanity control |
-| **A1** | A0 + the t3-r3 stage `remaining_rise_floor_v1` (artifact sha256 `b727fe1a897f8786afcd89514f0bae4a82d9e03ad951f2d72db9e228dd2afb09`, as signed DL 2026-10-16) + the non-NBM development survivors listed below, composed in the listed order, **frozen as one hash**; shadow only. | E1 | one hash before D0, on the post-N12 A0 | A1 with the t3-r3 and A1-1 inputs blanked = **A0 exactly** (section 1.1) |
+| **A0** | The served model as served after 2026-10-09: `ML_MODEL_VERSION` v0.5.12 (lock-in v3 + v4 pre-lock-in floor + #189 keying), default switches, the active bundle; the captured served vector of record, release id per row. | E1 | code hash frozen on the ~~**post-N12 master** (after N12 lands, now the 10-22/23 night)~~ **[PROPOSED AMENDMENT 2026-10-21 (pending owner): the first master commit containing the 10-23/24 head `2960813738692a59f461aa3c59aeca5e3cf26feb`]** and before D0 (section 1.2) | **T1, public-forecast twin (binding):** `forecast_high` from the NWS hourly point forecast alone (section 1.1); T0 climatology-prior twin kept as a **non-binding** sanity control |
+| **A1** | A0 + the t3-r3 stage `remaining_rise_floor_v1` (artifact sha256 `b727fe1a897f8786afcd89514f0bae4a82d9e03ad951f2d72db9e228dd2afb09`, as signed DL 2026-10-16) + the non-NBM development survivors listed below, composed in the listed order, **frozen as one hash**; shadow only. | E1 | one hash before D0, on the ~~post-N12~~ **[PROPOSED AMENDMENT 2026-10-21 (pending owner): 10-23/24-head]** A0 | A1 with the t3-r3 and A1-1 inputs blanked = **A0 exactly** (section 1.1) |
 | **A2** | The E2 blend (M2): linear pool per block of **A0** and the snapshot market vector, weights w_b fit on 2026-07-31..2026-09-29 only, weight file frozen into the hash. | E2 | not frozen: **E2 closed in development** (w_b = 0.00 in each sub-block on 07-31..09-29); no forward E2 instrument; H-A2 not in the family (k recorded at D0, section 3) | none (A2 is the market itself; see section 1.1) |
 
 ### 1.1 Input-removed twins (M7.3), consistent with harness v3 control (f)
@@ -153,6 +153,19 @@ owner may redefine A2 (OD-E5); a redefined A2 would need its own development fit
   the section 2 non-outcome conditions after the post-N12 freeze.
 - **MG-1:** its bound-window change (`e342baca1`) moves to the **10-23/24** night, and MG-1's staging needs #190, so it
   is after 10-22/23. Neither changes EDGE-1 (section 6.1).
+- **PROPOSED AMENDMENT 2026-10-21 (pending owner; GO/NO-GO rule question (s) (A)). The approved bullets above stand
+  until the owner rules; if adopted, this bullet replaces the "post-N12 master" pin, its SHA slot and its clock.** The
+  owner-approved 10-23/24 night (MG-1 bound + SD-1 + DST provider-label fix; head
+  `2960813738692a59f461aa3c59aeca5e3cf26feb` on `claude/integration-20261021-mg1-sd1-dst-on-r4`, which contains N12's
+  `739c03eff`) lands after N12, so a freeze on the first master commit containing `739c03eff` would see A0's serving
+  code change after its own freeze. Amended pin: **A0's code identity is frozen on the first `master` commit containing
+  `2960813738692a59f461aa3c59aeca5e3cf26feb` (the 10-23/24 head)**; T1, T0 and A1 are frozen on that A0. SHA slot:
+  `<SHA SLOT: first master commit containing 296081373869, filled once landed>` (a logistics fill, not a rule change).
+  Clock: **D0 = 2026-10-25 only if that head's code is serving before the first T+0 snapshot of local 2026-10-24 in
+  the earliest US timezone** (one full prior day of stored vectors); **else D0 = 2026-10-28, or later** per the existing
+  rule (the first date satisfying the section 2 non-outcome conditions after the freeze). The "Neither changes
+  EDGE-1" sentence above is withdrawn for the 10-23/24 night: that night does change A0's serving path and is why
+  the pin moves.
 
 **A1 survivor list — filled 2026-10-20 from the development screens.** Source: `claude/model-edge-screens-20261019`
 @ `4d3e25699a8afe3a34d9e979c6aa950b6ca16389`, `docs/research/model-edge-screens-2026-10-19.md` §2 (kill rule declared
@@ -227,7 +240,7 @@ branches are drafted; the owner's ruling selects one, and that ruling is a dated
 
 - The calendar columns assume every date is countable; each missed date moves the look one date later. They are
   logistics (DL 2026-10-13), not rules.
-- **The 10-25 branch also needs post-N12 code serving before the first T+0 snapshot of local 2026-10-24 in the earliest US timezone** (section 1.2); otherwise D0 = 2026-10-28.
+- **The 10-25 branch also needs post-N12 code serving before the first T+0 snapshot of local 2026-10-24 in the earliest US timezone** (section 1.2); otherwise D0 = 2026-10-28. **[PROPOSED AMENDMENT 2026-10-21 (pending owner): read "post-N12 code" as "the 10-23/24 head's code (`2960813738692a59f461aa3c59aeca5e3cf26feb`)"; section 1.2 amendment bullet.]**
 - **Embargo, binding in both branches:** the owner refused all descriptive reads of UTC 2026-10-16..11-13 until the
   panel closes, with scored reads only after the close under a signed pre-registration (DL 2026-10-17). Every EDGE-1
   join therefore happens after 11-13 whatever the branch; under the not-held branch the interim's 20th date is the
@@ -533,7 +546,10 @@ non-binding. A1 uses the generic mechanism unchanged.
 UNSIGNED. On signature the owner adds one DECISION_LOG row with this file's raw SHA-256, the methods annex's raw
 SHA-256, the OD-A6 branch (D0), and the A0/A1 arm hashes. **The A0 hash (with T1/T0) may follow in a second logistics
 row before D0, like A1's, provided section 1 is unchanged**, because N12 may not be on master by the signing; that row
-also carries the full SHA of the pinned post-N12 master commit (section 1.2). k is recorded in the same row (section 3).
+also carries the full SHA of the pinned post-N12 master commit (section 1.2). **[PROPOSED AMENDMENT 2026-10-21 (pending
+owner): "the pinned post-N12 master commit" becomes "the first master commit containing the 10-23/24 head
+`2960813738692a59f461aa3c59aeca5e3cf26feb`", and the row also records the frozen serving-path fingerprint of methods
+annex M5.2 as amended.]** k is recorded in the same row (section 3).
 
 ## 12. Owner decisions this draft needs
 
