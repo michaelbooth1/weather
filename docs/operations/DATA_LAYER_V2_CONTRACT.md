@@ -8,11 +8,12 @@ in [data storage classes](data-storage-class-contract.md). This file holds no st
 
 ## Registry shape
 
-`config/capture_families.json` has two top-level blocks with separate readers:
+`config/capture_families.json` has three top-level blocks with separate readers:
 
 | Block | Read by | Contents |
 | --- | --- | --- |
 | `families` | `weather.market.maker_evidence_family.load_family`, `weather.reporting.market.capture_family_status`, `register_maker_evidence_family_capture.ps1`, `status.ps1` | Passive capture families (see [passive maker evidence capture](passive-maker-evidence-capture.md#capture-families)). Unchanged by S1. |
+| `core_recorder_only` | the core 88a recorder only (`weather.market.maker_evidence_pilot.load_recorder_only`, called by `weather.market.maker_evidence_capture` every cycle) | Data layer v2 S2 recorder-only rows (VR-1 pilot) and the S9 `rewards_sweep` switch; see [Recorder-only rows](#recorder-only-rows). |
 | `platform` | `scripts/ops/roll_verdict.ps1`, `scripts/ops/staleness_sweep.ps1`, `scripts/ops/status.ps1` (health only), `tests/operations/test_capture_registry.py` | `roll_closures`, `evidence_families`, `storage_pending`, `embargo`, `contract`. Never selects, ranks or enumerates a market. |
 
 `load_family` records the whole-file SHA-256 as `config_sha256` when a family recorder
@@ -71,6 +72,44 @@ Paths the registry knows are unclassified or misclassified by
 its row) and fails when any registered evidence or status path is unclassified and not
 listed. Adding a pending row is a reviewed change.
 
+## Recorder-only rows
+
+The `core_recorder_only` block (data layer v2 S2+S9) names venue markets the core 88a
+recorder captures beside the built-ins. It is read only from the default path inside
+`maker_evidence_capture` (plan addendum 3: no task-argument change), re-read every cycle,
+and its whole-file SHA-256 is stamped as `config_sha256` on every pilot universe row and in
+`status.json` `recorder_only`.
+
+- **Row:** exactly `id`, `location_id`, `series` (`highest` or `lowest`), `slug_prefix`
+  (`<series>-temperature-in-<city>-on`), `tz` (IANA), `horizons` (`[0, 1, 2]`) and
+  `band_policy` (`top10_reward_ranked`: the built-ins' top ten per city, three reserved per
+  horizon); an optional `note`. At most `MAX_ROWS` rows (`maker_evidence_pilot`); a larger
+  universe is a code change with re-derived RAM, REST and cap.
+- **Built-ins are untouchable.** The 12 built-ins stay enumerated from `all_specs()`. A row
+  naming a built-in id or location, a built-in slug prefix, or a `families` prefix is
+  refused, so no config state can change the built-ins' selection. Owner Q16 (2026-10-15):
+  pilot bands are outside the 10-01 maker-P&L pre-registration's 12-market stratum; every
+  pilot row carries `stratum` to say so.
+- **Journal isolation.** Every pilot read and event lands in a `pilot` partition
+  (`discovery-pilot`, `ranking_books-pilot`, `books-pilot`, `rewards-pilot`,
+  `rewards_current-pilot`, `universe-pilot-<id>`) and its public trades on the separate
+  `pilot_trades` channel (`trades-pilot.jsonl`, one extra socket of at most 100 tokens).
+  Pilot tokens never join the raw update stream. The built-in journals the shadow panel reads
+  (`books`, `ranking_books`, `trades`) never hold a pilot token.
+- **Failure scope.** A malformed block turns the pilot off for that cycle
+  (`recorder_only.state = CONFIG_ERROR`, one `recorder_only_config_error` event per distinct
+  error); a failed pilot cycle is `DEGRADED` with its own counters. Neither fails nor changes
+  a built-in cycle. A red disk band switches the pilot off.
+- **Switches, all config-only and landed off.** `pilot` (`on`/`off`, default `off`):
+  rows are validated either way, captured only when `on`. `rewards_sweep` (`on`/`off`,
+  default `off`): the VR-4 sweep; off, per-condition reward records fall back to the
+  15-minute recheck. `built_in_reward_cadence` (`legacy`/`event_driven`, default `legacy`):
+  built-in bands keep the pre-S9 every-minute reward read; `event_driven` takes effect only
+  from `BUILT_IN_LEGACY_UNTIL` (UTC 2026-10-31T00:00Z, the end of the 88a panel hold) and is
+  ignored before it (a scratch dry run excepted). An absent or malformed block means no
+  pilot, no sweep and legacy built-ins. Switching on after verification is a config edit:
+  no restart, the block is re-read every cycle.
+
 ## Embargo
 
 The embargo windows have exactly two code owners, and the registry only names them
@@ -103,6 +142,9 @@ changes, change the code owner first, then this table.
 | `tests/operations/test_capture_registry.py` | the closure rows differ from the frozen pre-S1 list; a registered task is not in `scheduled_tasks.json`; an evidence or status path is unclassified (and not pending) or classifies to a different family than declared; a pending row is no longer pending; a budget or embargo reference does not resolve; the `platform` block holds a date; the embargo table above disagrees with the code; the existing `families` readers reject the file |
 | `tests/operations/test_roll_verdict_script.py` | the registry script's verdict output or exit code differs from the pre-S1 script for any fixture shape, or an unreadable registry yields anything but UNDECIDABLE |
 | `tests/operations/test_status_capture_registry_health.py` | status's registry-health check rejects the current registry or accepts a shape `roll_verdict.ps1` refuses |
+| `tests/market/test_maker_evidence_pilot.py` | the built-ins' per-city selection differs with the pilot on, off, malformed or absent; a row can name a built-in or family market; a pilot read, file or token reaches a built-in journal; a pilot failure fails the built-in cycle |
+| `tests/market/test_maker_evidence_rewards.py` | the S9 trigger reads a band outside first selection, a terms or sweep change, the stale recheck or the backstop; the cycle cap stops serving built-ins first; the sweep commits before its terminal cursor or raises; change-only rows lose their per-segment baseline; grouped fsync seals a journal it has not synced |
+| `tests/operations/test_status_maker_evidence_code_identity.py` | status's running-vs-disk 88a code identity (owner Q11) misreports CURRENT, STALE or UNKNOWN, or the 88a-R restart helper acts without a verified core pid or touches the Scheduler |
 | `tests/operations/test_staleness_sweep_script.py` | the sweep's closure list differs from the registry for any arming shape, or an unreadable registry is not CRITICAL |
 
 ## Redeploy
@@ -115,6 +157,7 @@ The platform block is read fresh on every run; nothing long-running imports it.
 | `staleness_sweep.ps1` (`WeatherStalenessSweep`) | its next scheduled run | the first post-landing sweep has no `closure/registry` finding and the same `closure/*` rows as the last pre-landing sweep |
 | `status.ps1` (`CAPTURE_REGISTRY` warn) | next status run | no `CAPTURE_REGISTRY:` warn; `-Json` shows `capture_registry.ok = true` with the five closure ids |
 | family recorders (`families` readers) | next recorder start | `config_sha256` in the family status changes; no other field does |
+| core 88a recorder (`core_recorder_only`) | its next cycle (a config edit); new **code** only by the explicit 88a-R restart (owner Q11) | `status.json` `recorder_only.config_sha256` equals the file's SHA-256; `status.ps1` shows `code CURRENT` |
 
 ## Registry finding (recorded, ids not changed)
 
