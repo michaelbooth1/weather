@@ -298,8 +298,13 @@ function Assert-SupervisorEnsureRunLimits {
     }
 }
 
+function Get-WindowUtcNow {
+    # One clock for the stop deadline and the ensure-run wait.
+    return [datetime]::UtcNow
+}
+
 function Get-StopSecondsRemaining([datetime]$Deadline) {
-    return [math]::Max(0.0, ($Deadline - [datetime]::UtcNow).TotalSeconds)
+    return [math]::Max(0.0, ($Deadline - (Get-WindowUtcNow)).TotalSeconds)
 }
 
 function Assert-StopTimeRemaining([datetime]$Deadline, [string]$Step) {
@@ -309,29 +314,31 @@ function Assert-StopTimeRemaining([datetime]$Deadline, [string]$Step) {
     }
 }
 
-function Wait-SupervisorEnsureRunsEnded([double]$RemainingSeconds) {
+function Wait-SupervisorEnsureRunsEnded([datetime]$StopDeadline) {
     # Disable-ScheduledTask does not end an in-flight IgnoreNew ensure run, which
-    # could relaunch a loop after the stop verbs. The runs end in parallel, so one
-    # elapsed count since the disables is checked against each task's own bound,
-    # capped by what remains of the shared stop deadline.
-    $pollSeconds = 5
-    $elapsedSeconds = 0
+    # could relaunch a loop after the stop verbs. The runs end in parallel, so each
+    # task's wall-clock bound counts from the start of this wait, capped by the
+    # shared stop deadline.
+    $waitStart = Get-WindowUtcNow
     foreach ($task in $supervisorTasks) {
         $boundSeconds = [int]$supervisorEnsureRunBoundSeconds[$task]
-        $limitSeconds = [math]::Min([double]$boundSeconds, $RemainingSeconds)
+        $taskDeadline = $waitStart.AddSeconds($boundSeconds)
+        $deadline = if ($StopDeadline -lt $taskDeadline) { $StopDeadline } else { $taskDeadline }
         while ([string](Get-ScheduledTask -TaskName $task -ErrorAction Stop).State -eq "Running") {
-            if ($elapsedSeconds -ge $limitSeconds) {
-                if ($limitSeconds -lt $boundSeconds) {
+            $now = Get-WindowUtcNow
+            if ($now -ge $deadline) {
+                $waitedSeconds = [int][math]::Floor(($now - $waitStart).TotalSeconds)
+                if ($StopDeadline -lt $taskDeadline) {
                     $script:childExit = 9001
-                    throw "capture stop deadline (${CaptureStopTimeoutSeconds}s) exhausted waiting ${elapsedSeconds}s for the ensure run of $task"
+                    throw "capture stop deadline (${CaptureStopTimeoutSeconds}s) exhausted waiting ${waitedSeconds}s for the ensure run of $task"
                 }
-                throw "capture supervisor ensure run still Running ${elapsedSeconds}s after disable (bound ${boundSeconds}s): $task"
+                throw "capture supervisor ensure run still Running ${waitedSeconds}s after disable (bound ${boundSeconds}s): $task"
             }
-            Start-Sleep -Seconds $pollSeconds
-            $elapsedSeconds += $pollSeconds
+            Start-Sleep -Milliseconds ([int][math]::Ceiling([math]::Min(5000.0, ($deadline - $now).TotalMilliseconds)))
         }
     }
-    Write-WindowLog "STOP" "no supervisor ensure run is in flight (waited ${elapsedSeconds}s)"
+    $waitedSeconds = [int][math]::Floor(((Get-WindowUtcNow) - $waitStart).TotalSeconds)
+    Write-WindowLog "STOP" "no supervisor ensure run is in flight (waited ${waitedSeconds}s)"
 }
 
 Set-Location $RepoRoot
@@ -457,7 +464,7 @@ if ($dirtyPaths.Count -gt 0) {
     Assert-SupervisorEnsureRunLimits
     # One deadline (the stop cap) covers the ensure-run wait, the stop verbs and
     # the stop confirmation; each step gets only the time that remains.
-    $stopDeadline = [datetime]::UtcNow.AddSeconds($CaptureStopTimeoutSeconds)
+    $stopDeadline = (Get-WindowUtcNow).AddSeconds($CaptureStopTimeoutSeconds)
     foreach ($task in $supervisorTasks) {
         Disable-ScheduledTask -TaskName $task -ErrorAction Stop | Out-Null
         $disabledTask = Get-ScheduledTask -TaskName $task -ErrorAction Stop
@@ -468,7 +475,7 @@ if ($dirtyPaths.Count -gt 0) {
         }
         Write-WindowLog "STOP" "disabled $task (exact readback)"
     }
-    Wait-SupervisorEnsureRunsEnded -RemainingSeconds (Get-StopSecondsRemaining $stopDeadline)
+    Wait-SupervisorEnsureRunsEnded -StopDeadline $stopDeadline
     Assert-StopTimeRemaining $stopDeadline "snapshot stop"
     & $python -m weather.collection.snapshot_tracker --stop | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "snapshot stop exited $LASTEXITCODE" }

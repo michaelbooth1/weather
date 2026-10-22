@@ -229,7 +229,7 @@ if (-not $EnableEvidenceTask -and $evidenceTaskEnabled -ne $false) {
     throw "evidence task '$EvidenceTaskName' must remain disabled without -EnableEvidenceTask"
 }
 if ($EnableEvidenceTask -and $evidenceTaskEnabled -ne $true) {
-    throw "evidence task '$EvidenceTaskName' was explicitly enabled but read back Disabled"
+    throw "evidence task '$EvidenceTaskName' was explicitly enabled but Settings.Enabled read back $evidenceTaskEnabled"
 }
 
 Write-Host "Registered scheduled task '$TaskName': settlement stage daily at $At."

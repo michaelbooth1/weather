@@ -200,11 +200,8 @@ def test_training_tasks_are_run_specific_and_restore_is_proved() -> None:
     deadman_seconds_after_0100 = 195 * 60
     scheduler_limit_seconds = 225 * 60
     assert producer_sla_seconds < child_cap_seconds
-    assert "$stopDeadline = [datetime]::UtcNow.AddSeconds($CaptureStopTimeoutSeconds)" in window
-    assert (
-        "Wait-SupervisorEnsureRunsEnded -RemainingSeconds (Get-StopSecondsRemaining $stopDeadline)"
-        in window
-    )
+    assert "$stopDeadline = (Get-WindowUtcNow).AddSeconds($CaptureStopTimeoutSeconds)" in window
+    assert "Wait-SupervisorEnsureRunsEnded -StopDeadline $stopDeadline" in window
     assert "Wait-CaptureStopped (Get-StopSecondsRemaining $stopDeadline)" in window
     assert "Wait-CaptureStopped $CaptureStopTimeoutSeconds" not in window
     margin_seconds = deadman_seconds_after_0100 - (
@@ -459,10 +456,11 @@ def test_stop_waits_for_in_flight_supervisor_ensure_runs_within_bounds() -> None
     """A disable does not end an in-flight IgnoreNew ensure run, which could relaunch a loop.
 
     Guards the post-disable wait in training_window.ps1: each supervisor's run must leave
-    'Running' within min(its ExecutionTimeLimit + 30 s, what remains of the shared stop
-    deadline), counted on one clock since the disables; the stop steps get only what remains;
-    and a live ExecutionTimeLimit the bound table does not cover fails closed before any
-    disable. Start-Sleep is stubbed, so each poll advances the count by 5 s without waiting.
+    'Running' within min(its ExecutionTimeLimit + 30 s, the shared stop deadline) of wall
+    clock since the wait began; the stop steps get only what remains; and a live
+    ExecutionTimeLimit the bound table does not cover fails closed before any disable.
+    Get-WindowUtcNow and Start-Sleep are stubbed onto one fake clock, so the probes run
+    without waiting; Get-ScheduledTask can charge latency to that clock.
     """
     env = os.environ.copy()
     env["WEATHER_TRAINING_WINDOW_SCRIPT"] = str(SCRIPT)
@@ -486,31 +484,46 @@ $bounds = $ast.Find({ param($n)
 $supervisorTasks = @('WeatherSnapshotLoopSupervisor', 'WeatherClobBookLoopSupervisor',
     'WeatherObservationTriggerSupervisor')
 $CaptureStopTimeoutSeconds = 600.0
+$epoch = [datetime]'2026-10-22T05:00:00'
 function Write-WindowLog { param($Level, $Message) }
-function Start-Sleep { param($Seconds) $global:sleeps += $Seconds }
-# Stubs only: each task reads 'Running' for its configured number of polls, then 'Ready',
-# and reports its configured ExecutionTimeLimit.
+# Stubs only: a fake clock that Start-Sleep and each Get-ScheduledTask call advance.
+function Get-WindowUtcNow { $global:now }
+function Start-Sleep { param([int]$Milliseconds)
+    $global:now = $global:now.AddMilliseconds($Milliseconds) }
 $global:limits = @{}
+$global:latencyMs = 0
 function Get-ScheduledTask { param([string]$TaskName, $ErrorAction)
+    $global:now = $global:now.AddMilliseconds($global:latencyMs)
     $settings = [pscustomobject]@{ ExecutionTimeLimit = $global:limits[$TaskName] }
     if ($global:runningPolls[$TaskName] -gt 0) {
         $global:runningPolls[$TaskName]--
         return [pscustomobject]@{ State = 'Running'; Settings = $settings }
     }
     [pscustomobject]@{ State = 'Ready'; Settings = $settings } }
-function Invoke-Probe([int]$Snapshot, [int]$Clob, [int]$Observation, [double]$Remaining = 600) {
-    $global:sleeps = 0
+function Invoke-Probe([int]$Snapshot, [int]$Clob, [int]$Observation, [double]$Remaining = 600,
+        [int]$LatencyMs = 0) {
+    $global:now = $epoch
+    $global:latencyMs = $LatencyMs
     $script:childExit = -1
     $global:runningPolls = @{
         WeatherSnapshotLoopSupervisor = $Snapshot
         WeatherClobBookLoopSupervisor = $Clob
         WeatherObservationTriggerSupervisor = $Observation
     }
-    try { Wait-SupervisorEnsureRunsEnded -RemainingSeconds $Remaining; $outcome = 'accepted' }
+    try {
+        Wait-SupervisorEnsureRunsEnded -StopDeadline $epoch.AddSeconds($Remaining)
+        $outcome = 'accepted'
+    }
     catch { $outcome = $_.Exception.Message }
-    [pscustomobject]@{ outcome = $outcome; slept = $global:sleeps; exit = $script:childExit }
+    [pscustomobject]@{
+        outcome = $outcome
+        elapsed = [math]::Round(($global:now - $epoch).TotalSeconds, 1)
+        exit = $script:childExit
+    }
 }
 function Invoke-LimitProbe([string]$Snapshot, [string]$Clob, [string]$Observation) {
+    $global:now = $epoch
+    $global:latencyMs = 0
     $global:runningPolls = @{}
     $global:limits = @{
         WeatherSnapshotLoopSupervisor = $Snapshot
@@ -520,9 +533,10 @@ function Invoke-LimitProbe([string]$Snapshot, [string]$Clob, [string]$Observatio
     try { Assert-SupervisorEnsureRunLimits; 'accepted' } catch { $_.Exception.Message }
 }
 function Invoke-DeadlineProbe([double]$OffsetSeconds) {
+    $global:now = $epoch
     $script:childExit = -1
     try {
-        Assert-StopTimeRemaining ([datetime]::UtcNow.AddSeconds($OffsetSeconds)) 'CLOB stop'
+        Assert-StopTimeRemaining ($epoch.AddSeconds($OffsetSeconds)) 'CLOB stop'
         $outcome = 'accepted'
     }
     catch { $outcome = $_.Exception.Message }
@@ -537,6 +551,7 @@ function Invoke-DeadlineProbe([double]$OffsetSeconds) {
     clob_past_bound = Invoke-Probe 0 31 0
     observation_past_bound = Invoke-Probe 0 0 31
     shared_clock = Invoke-Probe 20 11 0
+    latency_charged = Invoke-Probe 1000 0 0 600 400
     deadline_at_remaining = Invoke-Probe 20 0 0 100
     deadline_past_remaining = Invoke-Probe 21 0 0 100
     deadline_spent = Invoke-Probe 1 0 0 0
@@ -546,7 +561,7 @@ function Invoke-DeadlineProbe([double]$OffsetSeconds) {
     limits_unlimited = Invoke-LimitProbe 'PT5M' 'PT2M' 'PT0S'
     limits_missing = Invoke-LimitProbe '' 'PT2M' 'PT2M'
     stop_time_left = Invoke-DeadlineProbe 30
-    stop_time_spent = Invoke-DeadlineProbe -1
+    stop_time_spent = Invoke-DeadlineProbe 0
 } | ConvertTo-Json -Compress
 """
     result = subprocess.run(
@@ -560,16 +575,16 @@ function Invoke-DeadlineProbe([double]$OffsetSeconds) {
 
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
-    assert payload["idle"] == {"outcome": "accepted", "slept": 0, "exit": -1}
-    assert payload["snapshot_ends"] == {"outcome": "accepted", "slept": 15, "exit": -1}
-    assert payload["snapshot_at_bound"] == {"outcome": "accepted", "slept": 330, "exit": -1}
+    assert payload["idle"] == {"outcome": "accepted", "elapsed": 0, "exit": -1}
+    assert payload["snapshot_ends"] == {"outcome": "accepted", "elapsed": 15, "exit": -1}
+    assert payload["snapshot_at_bound"] == {"outcome": "accepted", "elapsed": 330, "exit": -1}
     assert payload["snapshot_past_bound"] == {
         "outcome": "capture supervisor ensure run still Running 330s after disable "
         "(bound 330s): WeatherSnapshotLoopSupervisor",
-        "slept": 330,
+        "elapsed": 330,
         "exit": -1,
     }
-    assert payload["clob_at_bound"] == {"outcome": "accepted", "slept": 150, "exit": -1}
+    assert payload["clob_at_bound"] == {"outcome": "accepted", "elapsed": 150, "exit": -1}
     assert payload["clob_past_bound"]["outcome"].endswith(
         "(bound 150s): WeatherClobBookLoopSupervisor"
     )
@@ -580,19 +595,24 @@ function Invoke-DeadlineProbe([double]$OffsetSeconds) {
     assert payload["shared_clock"] == {
         "outcome": "capture supervisor ensure run still Running 150s after disable "
         "(bound 150s): WeatherClobBookLoopSupervisor",
-        "slept": 150,
+        "elapsed": 150,
         "exit": -1,
     }
+    # Scheduler-call latency is charged to the bound: wall clock, not a poll count.
+    assert payload["latency_charged"]["outcome"].startswith(
+        "capture supervisor ensure run still Running 330s after disable (bound 330s)"
+    )
+    assert 330 <= payload["latency_charged"]["elapsed"] <= 331
     # The shared stop deadline caps the wait below the per-task bound.
-    assert payload["deadline_at_remaining"] == {"outcome": "accepted", "slept": 100, "exit": -1}
+    assert payload["deadline_at_remaining"] == {"outcome": "accepted", "elapsed": 100, "exit": -1}
     assert payload["deadline_past_remaining"] == {
         "outcome": "capture stop deadline (600s) exhausted waiting 100s for the ensure run "
         "of WeatherSnapshotLoopSupervisor",
-        "slept": 100,
+        "elapsed": 100,
         "exit": 9001,
     }
     assert payload["deadline_spent"]["exit"] == 9001
-    assert payload["deadline_spent"]["slept"] == 0
+    assert payload["deadline_spent"]["elapsed"] == 0
     assert payload["limits_registered"] == "accepted"
     assert payload["limits_snapshot_longer"] == (
         "capture supervisor ExecutionTimeLimit 'PT5M1S' is not covered by its ensure-run "
@@ -610,9 +630,9 @@ function Invoke-DeadlineProbe([double]$OffsetSeconds) {
     }
     window = SCRIPT.read_text(encoding="utf-8-sig")
     limits = window.index("    Assert-SupervisorEnsureRunLimits\n")
-    deadline = window.index("    $stopDeadline = [datetime]::UtcNow.AddSeconds(")
+    deadline = window.index("    $stopDeadline = (Get-WindowUtcNow).AddSeconds(")
     first_disable = window.index("Disable-ScheduledTask -TaskName $task -ErrorAction Stop")
-    call = window.index("    Wait-SupervisorEnsureRunsEnded -RemainingSeconds")
+    call = window.index("    Wait-SupervisorEnsureRunsEnded -StopDeadline $stopDeadline\n")
     assert limits < deadline < first_disable < call
     stop_section = window[call : window.index("    Assert-CaptureStoppedForTraining\n")]
     for step, command in (
