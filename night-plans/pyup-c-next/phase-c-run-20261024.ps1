@@ -1,4 +1,18 @@
 ﻿# WRAPPER PHASE-C run wrapper (agent, 2026-10-20; re-dated from the 20261017 kit for the night 2026-10-21/22): Python 3.11.9 venv cutover, C0 re-run + C1..C10, with §R on a post-rename failure.
+# WRAPPER RETARGET 2026-10-22 (agent): night 2026-10-23/24, files dated by the morning (20261024), C1 floor 00:30 (owner GO relayed by master-agent,
+# WRAPPER   verbatim "yes approve that for now"). Every clock is re-derived in night-plans\pyup-c-next\README.md (CLOCKS). Only the floor moves
+# WRAPPER   (01:00 -> 00:30, the lease admission floor, workload_admission.ps1:597); the lease deadline 01:04, pre-C3 01:12, swap 01:30, C8 02:15,
+# WRAPPER   §R/C9c 02:45, 03:45, 04:15 and 08:30/08:55 are anchored on the back end of the night and do not move; every wait is a duration and does not move.
+# WRAPPER Retry: phase-c-retry-wrapper-20261024.ps1 runs this file as attempt 1..3 (-Attempt, -RunId); one transcript per attempt:
+# WRAPPER   C:\pyup\cp3119\phase-c-transcript-20261024-a<Attempt>.txt. Machine-readable lines (Write-Host, so in the transcript):
+# WRAPPER   "PYUPC-MARK run=<id> attempt=<n> stage=<STAGE> at=<iso>"  STAGE in PREFLIGHT C0 C1 C2 C3 SWAP C5 C6 C7 C8 C9 C9B C9C C10 DONE;
+# WRAPPER     C3 is written immediately before Stop-Capture (the first capture-affecting call), SWAP immediately after the C4 rename.
+# WRAPPER   "PYUPC-RESTORE-VERIFY run=<id> attempt=<n> result=PASS|FAIL stage=<WStep> reasons=<r1;r2|none>"  on every exit-1 path (before the rename).
+# WRAPPER   "PYUPC-EXIT run=<id> attempt=<n> code=<c> stage=<WStep>"  on every exit this file takes after its transcript starts.
+# WRAPPER   "PYUPC-GATE-REFUSAL run=<id> attempt=<n> gate=<PREFLIGHT|G3|C0|GO_REVIEW|C1>"  before PYUPC-EXIT when a deterministic gate refused
+# WRAPPER     (never retried): the preflight, G3, any C0 NO-GO, the post-C0 GO-review checks (exit 4), the C1 freeze or shadow-argument NO-GO.
+# WRAPPER G3 (10-24 master ruling, README.md "G3"): C0 re-checks it with the operator values the standalone C0 wrote on the flag's line 2.
+# WRAPPER   Attempts 2..3 keep the GO-reviewed C0 receipts that attempt 1 saved (c0-go-reviewed-20261024) and the C2 pre-state of the night ($N\aux-prestate.csv).
 # WRAPPER Source: C:\tmp\agent-kit\phase-c-raw-20261022.md sha256 6ECF4B320144DE858418B5F44802775B28DB79C044EF1441F4D6B2820015919C
 # WRAPPER   Block 1 (section 6 header, host values filled), Block 2 (Build-Venv / Test-Venv definitions), C0..C10 and §R: verbatim, in order.
 # WRAPPER Runbook: docs\operations\HOST_PYTHON_UPGRADE_RUNBOOK.md sha256 FE074EE48EE564F9461F8615E5F3CD56FCB01024490D86B2147B9327C4361759 at review tip 41e3bec62 (origin/claude/pyup-c-1021-review-20261019; not yet on master).
@@ -7,44 +21,98 @@
 # WRAPPER This kit is ahead of master's runbook by the C2 fix on claude/pyup-c2-enabled-check-20261022; until that lands, do NOT regenerate from master's runbook.
 # WRAPPER Launch form (as run on 10-21/22): run as a FILE, elevated, no redirects, from the local copy under C:\pyup\cp3119:
 # WRAPPER   Start-Process powershell.exe -Verb RunAs -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File <wrapper>'
-# WRAPPER Transcript C:\pyup\cp3119\phase-c-transcript-20261022.txt.
+# WRAPPER Transcript C:\pyup\cp3119\phase-c-transcript-20261024-a<Attempt>.txt (one per attempt; run directly = attempt 1, run id 'manual').
 # WRAPPER Exit codes: 0 CUTOVER PASS (C10 ran); 1 stopped before the C4 rename (runbook blocks or the wrapper undid with no swap, lease released);
 # WRAPPER   2 §R ran to ROLLBACK DONE; 3 refused before any block; 4 operator hold / escalation (the lease is held by this process until a
 # WRAPPER   RELEASE token, as runbook §R "Lease on an escalated §R" requires, or nothing was touched).
 # WRAPPER Operator files (first token, case-sensitive; must be written after the OPERATOR CHECK line that asks for it):
-# WRAPPER   C:\pyup\cp3119\decision-c8-20261022.txt  CONTINUE|ROLLBACK        (deadline 02:15, default ROLLBACK = "core not passed = §R")
-# WRAPPER   C:\pyup\cp3119\decision-c9c-20261022.txt CONTINUE|ROLLBACK|HOLD   (deadline 02:45 = §R start limit, default HOLD)
-# WRAPPER   C:\pyup\cp3119\hold-<step>-20261022.txt RELEASE (or ROLLBACK where offered); no timeout: the runbook says nobody else releases.
+# WRAPPER   C:\pyup\cp3119\decision-c8-20261024.txt  CONTINUE|ROLLBACK        (deadline 02:15, default ROLLBACK = "core not passed = §R")
+# WRAPPER   C:\pyup\cp3119\decision-c9c-20261024.txt CONTINUE|ROLLBACK|HOLD   (deadline 02:45 = §R start limit, default HOLD)
+# WRAPPER   C:\pyup\cp3119\hold-<step>-20261024.txt RELEASE (or ROLLBACK where offered); no timeout: the runbook says nobody else releases.
 # WRAPPER Non-verbatim lines (each one carries "# WRAPPER"): this header; the preflight (refusal, exit 3); the wrapper functions Exit-Wrapper,
 # WRAPPER   Wait-OperatorDecision, Wait-OperatorHold, Invoke-WrapperRollback; the two lines that open and close "function Invoke-SectionR {"
 # WRAPPER   around the verbatim §R block; "try {"; the "# ---- WRAPPER" separators; each "$WStep = ..." line; the C0 GO-review copy and the
 # WRAPPER   post-C0 checks (HEAD vs flag, baseline vs GO-reviewed, next-runs vs GO-reviewed, restore of the GO-reviewed baseline);
-# WRAPPER   "$msg = $null" before C3; the C8 (d) judgement; the C9c judgement; the PHASE-C DONE log; the whole catch block; the final exit.
+# WRAPPER   "$msg = $null" before C3; the C8 (d) judgement; the C9c judgement; the PHASE-C DONE log; the whole catch block; the final exit;
+# WRAPPER   (10-24) the param line, the attempt/run-id checks, Write-WMark and its calls, Write-WRestoreVerify and its call, the night.log
+# WRAPPER   line count at session start, and the attempt-aware GO-review copy.
+param([int]$Attempt = 1, [string]$RunId = 'manual')   # WRAPPER 10-24 retry: plain param (no [Parameter()] attribute: this stays a simple script)
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { Write-Host 'REFUSED: not elevated (Get-ScheduledTask would hide S4U tasks)'; exit 3 }   # WRAPPER Fable 10-20 #2
 if ([Console]::IsErrorRedirected -or [Console]::IsOutputRedirected) { Write-Host 'REFUSED: stdio redirected; native stderr becomes terminating under Stop; run -File in a real elevated console'; exit 3 }   # WRAPPER Fable 10-20 #2
-$WFlag = 'C:\pyup\cp3119\c0-done-20261022.flag'   # WRAPPER
-$WGo   = 'C:\pyup\cp3119\owner-go-20261022.txt'   # WRAPPER
-Start-Transcript -LiteralPath 'C:\pyup\cp3119\phase-c-transcript-20261022.txt' -Append | Out-Null   # WRAPPER
+$WFlag = 'C:\pyup\cp3119\c0-done-20261024.flag'   # WRAPPER
+$WGo   = 'C:\pyup\cp3119\owner-go-20261024.txt'   # WRAPPER
+if ($Attempt -lt 1 -or $Attempt -gt 3 -or "$RunId" -notmatch '^[A-Za-z0-9-]{1,40}$') { Write-Host "REFUSED: -Attempt must be 1..3 and -RunId [A-Za-z0-9-]{1,40} (got $Attempt / $RunId)"; exit 3 }   # WRAPPER 10-24
+$WAttempt = [int]$Attempt; $WRunId = [string]$RunId; $script:WStagesSeen = @(); $script:WGate = $null   # WRAPPER 10-24
+function Write-WMark([string]$Stage) {   # WRAPPER 10-24 one machine-readable stage line; Write-Host so the attempt transcript carries it
+  $script:WStagesSeen += $Stage   # WRAPPER
+  $wl ="PYUPC-MARK run=$WRunId attempt=$WAttempt stage=$Stage at=$((Get-Date).ToString('o'))"; Write-Host $wl   # WRAPPER
+  if ($Log) { try { Add-Content -LiteralPath $Log -Value ("{0:o} {1}" -f (Get-Date), $wl) -Encoding utf8 } catch {} } }   # WRAPPER
+Start-Transcript -LiteralPath "C:\pyup\cp3119\phase-c-transcript-20261024-a$WAttempt.txt" -Append | Out-Null   # WRAPPER 10-24 one transcript per attempt
+Write-WMark 'PREFLIGHT'   # WRAPPER 10-24
 # ---- WRAPPER preflight: refuse with exit 3 before any runbook block
 $WNow = Get-Date; $WWhy = $null; $WFlagHead = $null   # WRAPPER
+$WLogLines0 = 0; try { if (Test-Path -LiteralPath 'C:\pyup\cp3119\night.log') { $WLogLines0 = @(Get-Content -LiteralPath 'C:\pyup\cp3119\night.log').Count } } catch { $WLogLines0 = -1 }   # WRAPPER 10-24 ESCALATE lines after this index belong to this attempt (-1 = unknown: restore verify fails closed)
 if (-not (Test-Path -LiteralPath $WFlag)) { $WWhy = "$WFlag is missing (C0 has not completed)" }   # WRAPPER
 elseif ((Get-Item -LiteralPath $WFlag).LastWriteTime -lt $WNow.Date) { $WWhy = "$WFlag was not written today" }   # WRAPPER
 elseif (-not ("$(Get-Content -LiteralPath $WFlag -TotalCount 1)" -match 'head=([0-9a-f]{40})')) { $WWhy = "$WFlag has no head=" }   # WRAPPER
 else { $WFlagHead = $Matches[1] }   # WRAPPER
+$WG3Tip = ''; $WG3Receipt = ''; $WG3Tested = ''; $WG3Py = ''   # WRAPPER 10-24 G3 operator values, as C0 recorded them on the flag's line 2
+if (-not $WWhy) { $wG3l = @(Get-Content -LiteralPath $WFlag | Where-Object { "$_" -cmatch '^G3 ' })   # WRAPPER
+  if ($wG3l.Count -ne 1 -or "$($wG3l[0])".Trim() -cnotmatch '^G3 branch=\S+ tip=(\S+) pregate=(\S+) tested=(\S+) py=(\S+)$') { $WWhy = "$WFlag has no single G3 line (re-run the 10-24 C0 with the G3 values)" }   # WRAPPER
+  else { $WG3Tip = $Matches[1]; foreach ($wk in @(@('WG3Receipt',2),@('WG3Tested',3),@('WG3Py',4))) { if ($Matches[$wk[1]] -cne 'none') { Set-Variable -Name $wk[0] -Value $Matches[$wk[1]] } } } }   # WRAPPER
 if (-not $WWhy) {   # WRAPPER
   if (-not (Test-Path -LiteralPath $WGo)) { $WWhy = "$WGo is missing (no owner GO)" }   # WRAPPER
   elseif (("$(Get-Content -LiteralPath $WGo -TotalCount 1)".Trim() -split '\s+')[0] -cne 'GO') { $WWhy = "$WGo first token is not GO" }   # WRAPPER
-  elseif ($WNow -lt $WNow.Date.AddHours(1)) { $WWhy = 'before 01:00 (C1 must not start earlier)' }   # WRAPPER
+  elseif ($WNow -lt $WNow.Date.AddMinutes(30)) { $WWhy = 'before 00:30 (the 10-24 floor = the lease admission floor, workload_admission.ps1:597; C1 must not start earlier)' }   # WRAPPER 10-24 floor (was 01:00)
   elseif ($WNow -gt $WNow.Date.AddHours(1).AddMinutes(4)) { $WWhy = 'after 01:04 (the C1 lease deadline)' } }   # WRAPPER
-if ($WWhy) { Write-Host "PHASE-C REFUSED: $WWhy"; Stop-Transcript | Out-Null; exit 3 }   # WRAPPER
+if ($WWhy) { Write-Host "PHASE-C REFUSED: $WWhy"; Write-Host "PYUPC-GATE-REFUSAL run=$WRunId attempt=$WAttempt gate=PREFLIGHT"; Write-Host "PYUPC-EXIT run=$WRunId attempt=$WAttempt code=3 stage=PREFLIGHT"; Stop-Transcript | Out-Null; exit 3 }   # WRAPPER
 
 # ---- WRAPPER functions
 function Exit-Wrapper([int]$Code) {   # WRAPPER
   try { Log "PHASE-C wrapper exit $Code" } catch { Write-Host "PHASE-C wrapper exit $Code" }   # WRAPPER
+  if ($Code -eq 4 -and $WStep -eq 'C0' -and -not $script:WGate) { $script:WGate = 'GO_REVIEW' }   # WRAPPER 10-24 the post-C0 checks: HEAD/baseline/next-runs differ from the GO review
+  if ($script:WGate) { Write-Host "PYUPC-GATE-REFUSAL run=$WRunId attempt=$WAttempt gate=$($script:WGate)" }   # WRAPPER 10-24 deterministic gate: the retry wrapper never retries it
+  Write-Host "PYUPC-EXIT run=$WRunId attempt=$WAttempt code=$Code stage=$WStep"   # WRAPPER 10-24
   try { Stop-Transcript | Out-Null } catch {}   # WRAPPER
   exit $Code }   # WRAPPER
+# WRAPPER 10-24 restore verify for an exit before the C4 rename. Read-only except one bounded tape status call. PASS only when every check
+# WRAPPER   holds; any doubt (an unreadable file, a throw, an unknown night.log baseline) is a FAIL, so the retry wrapper fails closed.
+# WRAPPER   Checks: this process holds no lease handle and the lease state reads Active=False; no ESCALATE line in night.log since this attempt began;
+# WRAPPER   if this attempt reached C2: every aux-prestate.csv row has Settings.Enabled equal to its pre-state (Test-PrestateEnabled), the shadow STOP
+# WRAPPER   file is gone, each long-running holder that was Running and enabled at C2 is Running again (90 s), and a tape whose supervisor was
+# WRAPPER   enabled reports RUNNING/DEGRADED (status exit 0, 180 s; same command as C9c); if this attempt reached C3: Undo-Stop's restore passed.
+function Write-WRestoreVerify {   # WRAPPER 10-24
+  $wr = New-Object System.Collections.Generic.List[string]   # WRAPPER
+  try {   # WRAPPER
+    if ($global:Lease) { $wr.Add('lease_handle_held') }   # WRAPPER
+    try { if ((Get-WeatherHeavyWorkloadLeaseState -RepoRoot $P).Active -ne $false) { $wr.Add('lease_active') } } catch { $wr.Add('lease_state_unreadable') }   # WRAPPER
+    if ($WLogLines0 -lt 0) { $wr.Add('night_log_baseline_unknown') }   # WRAPPER
+    else { $wEsc = @(); try { if (Test-Path -LiteralPath $Log) { $wEsc = @(Get-Content -LiteralPath $Log | Select-Object -Skip $WLogLines0 | Where-Object { "$_" -clike '*ESCALATE*' }) } } catch { $wr.Add('night_log_unreadable') }   # WRAPPER
+      if ($wEsc.Count) { $wr.Add("escalate_lines_$($wEsc.Count)") } }   # WRAPPER
+    if ($script:WStagesSeen -contains 'C2') {   # WRAPPER
+      if (-not $N -or -not (Test-Path -LiteralPath "$N\aux-prestate.csv")) { $wr.Add('aux_prestate_missing') }   # WRAPPER
+      else { $wPre = @(Import-Csv -LiteralPath "$N\aux-prestate.csv")   # WRAPPER
+        foreach ($wRow in $wPre) { $wT = @(Get-ScheduledTask -TaskName $wRow.Task -ErrorAction SilentlyContinue)   # WRAPPER
+          if ($wT.Count -ne 1) { $wr.Add("task_lookup_$($wRow.Task)"); continue }   # WRAPPER
+          if ([bool]$wT[0].Settings.Enabled -ne [bool](Test-PrestateEnabled $wRow)) { $wr.Add("enabled_not_prestate_$($wRow.Task)") } }   # WRAPPER
+        if ($ShadowStop -and (Test-Path -LiteralPath $ShadowStop)) { $wr.Add('shadow_stop_file_present') }   # WRAPPER
+        $wHold = @($wPre | Where-Object { $_.Task -ne 'WeatherExecutionTapeSupervisor' -and $Holders -contains $_.Task -and [string]$_.State -eq 'Running' -and (Test-PrestateEnabled $_) } | ForEach-Object { $_.Task })   # WRAPPER
+        $wUntil = (Get-Date).AddSeconds(90)   # WRAPPER
+        do { $wPend = @($wHold | Where-Object { [string](Get-ScheduledTask -TaskName $_).State -ne 'Running' }); if (-not $wPend.Count) { break }; Start-Sleep -Seconds 10 } while ((Get-Date) -lt $wUntil)   # WRAPPER
+        foreach ($wh in $wPend) { $wr.Add("holder_not_running_$wh") }   # WRAPPER
+        if (@($wPre | Where-Object { $_.Task -eq 'WeatherExecutionTapeSupervisor' -and (Test-PrestateEnabled $_) }).Count) {   # WRAPPER
+          $wTapeOk = $false; $wT0 = Get-Date   # WRAPPER
+          while (-not $wTapeOk -and ((Get-Date) - $wT0).TotalSeconds -lt 180) {   # WRAPPER
+            if ((Invoke-Native $Py @('-m','weather.operations.execution_tape_supervisor','status','--stale-after-seconds','180') "$N\verify-tape-a$WAttempt-$(Get-Date -Format HHmmss)") -eq 0) { $wTapeOk = $true } else { Start-Sleep -Seconds 20 } }   # WRAPPER
+          if (-not $wTapeOk) { $wr.Add('tape_not_running') } } } }   # WRAPPER
+    if (($script:WStagesSeen -contains 'C3') -and -not $script:UndoOk) { $wr.Add('capture_restore_not_passed') }   # WRAPPER
+  } catch { $wr.Add('verify_threw') }   # WRAPPER
+  $wRes = if ($wr.Count) { 'FAIL' } else { 'PASS' }   # WRAPPER
+  $wWhy = if ($wr.Count) { (@($wr | ForEach-Object { $_ -replace '[^A-Za-z0-9_.-]', '_' })) -join ';' } else { 'none' }   # WRAPPER
+  $wl = "PYUPC-RESTORE-VERIFY run=$WRunId attempt=$WAttempt result=$wRes stage=$WStep reasons=$wWhy"; Write-Host $wl   # WRAPPER
+  try { Add-Content -LiteralPath $Log -Value ("{0:o} {1}" -f (Get-Date), $wl) -Encoding utf8 } catch {} }   # WRAPPER
 function Wait-OperatorDecision([string]$Tag, [string[]]$Allowed, [datetime]$Deadline, [string]$Default) {   # WRAPPER
-  $df = "C:\pyup\cp3119\decision-$Tag-20261022.txt"; $t0 = Get-Date   # WRAPPER
+  $df = "C:\pyup\cp3119\decision-$Tag-20261024.txt"; $t0 = Get-Date   # WRAPPER
   Log "OPERATOR CHECK: $Tag needs a decision. Write $df with first token $($Allowed -join '|') by $($Deadline.ToString('HH:mm')); no decision by then = $Default"   # WRAPPER
   while ((Get-Date) -lt $Deadline) {   # WRAPPER
     if ((Test-Path -LiteralPath $df) -and (Get-Item -LiteralPath $df).LastWriteTime -ge $t0) {   # WRAPPER
@@ -53,7 +121,7 @@ function Wait-OperatorDecision([string]$Tag, [string[]]$Allowed, [datetime]$Dead
     Start-Sleep -Seconds 15 }   # WRAPPER
   Log "WRAPPER: $Tag no decision by $($Deadline.ToString('HH:mm')); applying $Default"; return $Default }   # WRAPPER
 function Wait-OperatorHold([string]$Tag, [bool]$AllowRollback) {   # WRAPPER
-  $hf = "C:\pyup\cp3119\hold-$Tag-20261022.txt"; $t0 = Get-Date   # WRAPPER
+  $hf = "C:\pyup\cp3119\hold-$Tag-20261024.txt"; $t0 = Get-Date   # WRAPPER
   $ok = if ($AllowRollback) { @('RELEASE','ROLLBACK') } else { @('RELEASE') }   # WRAPPER
   Log "ESCALATE: OPERATOR CHECK: HOLD at $Tag. This process (PID $PID) keeps the lease and the session; escalate to the owner. Write $hf with first token $($ok -join ' or ') (RELEASE only with the owner's agreement, by 09:00; runbook §R 'Lease on an escalated §R')."   # WRAPPER
   $wRemind = $false   # WRAPPER
@@ -238,17 +306,42 @@ function Test-Venv($vpy, $root, $tag) {
   Log "$tag Test-Venv PASS"
 }
 
+# ---- WRAPPER G3 gate (master ruling 2026-10-22 for the night 10-23/24; text verbatim in night-plans\pyup-c-next\README.md "G3"). Read-only git.
+# WRAPPER   PASS when HEAD equals the qualified tip, or (i) no dependency file differs tip..HEAD, (ii) the operator-supplied WS pregate PASS
+# WRAPPER   (receipt id + tested sha, Python 3.11.9 attested) tested a commit whose diff to HEAD is docs/*.md only, and (iii) the rest of C0 has no NO-GO
+# WRAPPER   (so the PASS line is printed only at the end of C0). A FAIL is a deterministic NO-GO: never retried; B-R per the ruling.
+function Test-G3Gate([string]$Head, [string]$QualTip, [string]$Receipt, [string]$Tested, [string]$PyAttest) {   # WRAPPER
+  $wf = { param($r) [pscustomobject]@{ Pass = $false; Branch = 'none'; Detail = $r } }   # WRAPPER
+  if ("$QualTip" -cnotmatch '^[0-9a-f]{40}$') { return (& $wf 'qualified_tip_not_supplied_as_40hex') }   # WRAPPER
+  if ($Head -ceq $QualTip) { return [pscustomobject]@{ Pass = $true; Branch = 'HEAD==tip'; Detail = "tip=$QualTip" } }   # WRAPPER
+  $wNames = @(git -C $P diff --name-only $QualTip $Head); if ($LASTEXITCODE) { return (& $wf 'diff_tip_head_failed') }   # WRAPPER
+  $wDeps = @($wNames | Where-Object { $wLeaf = ("$_" -split '/')[-1]; $wLeaf -like 'requirements*' -or $wLeaf -like 'constraints*' -or $wLeaf -like '*.lock' -or $wLeaf -in 'pyproject.toml','setup.cfg','setup.py' })   # WRAPPER (i) any depth
+  if ($wDeps.Count) { return (& $wf "deps_changed=$(@($wDeps | Select-Object -First 5) -join ',')") }   # WRAPPER
+  if ("$Receipt" -cnotmatch '^pg-([0-9a-f]{12})-[0-9]{8}T[0-9]{6}-[0-9]+$') { return (& $wf 'pregate_receipt_not_supplied_or_malformed') }   # WRAPPER (ii)
+  $wRp = $Matches[1]   # WRAPPER
+  if ("$Tested" -cnotmatch '^[0-9a-f]{40}$' -or -not $Tested.StartsWith($wRp)) { return (& $wf 'tested_sha_not_40hex_or_not_the_receipt_head') }   # WRAPPER
+  if ("$PyAttest" -cne '3.11.9') { return (& $wf 'pregate_python_3.11.9_not_attested') }   # WRAPPER
+  $null = @(git -C $P cat-file -t "$Tested^{commit}"); if ($LASTEXITCODE) { return (& $wf 'tested_sha_not_in_production_repo') }   # WRAPPER
+  $wTd = @(git -C $P diff --name-only $Tested $Head); if ($LASTEXITCODE) { return (& $wf 'diff_tested_head_failed') }   # WRAPPER
+  $wNd = @($wTd | Where-Object { "$_" -cnotmatch '^docs/.+\.md$' })   # WRAPPER "non-docs diff empty"
+  if ($wNd.Count) { return (& $wf "nondocs_diff=$($wNd.Count):$(@($wNd | Select-Object -First 5) -join ',')") }   # WRAPPER
+  [pscustomobject]@{ Pass = $true; Branch = '(i)+(ii)+(iii)'; Detail = "deps_changed=none pregate=$Receipt tested=$Tested nondocs_diff=empty" } }   # WRAPPER
 # ---- WRAPPER C0 re-run (read-only) to re-derive $q, $GapChoice, $Head, $ra0, $st0, $Exempt in this session; keep the GO-reviewed receipts first
-$WStep = 'C0'   # WRAPPER
-$WRev = Join-Path $R 'c0-go-reviewed'; New-Item -ItemType Directory -Force $WRev | Out-Null   # WRAPPER
-foreach ($wf in 'c0-status.out.txt','c0-status-flags.txt','c0-next-runs.txt') { if (Test-Path -LiteralPath "$R\$wf") { Copy-Item -LiteralPath "$R\$wf" -Destination "$WRev\$wf" -Force } }   # WRAPPER
+$WStep = 'C0'; Write-WMark 'C0'   # WRAPPER (10-24 marker)
+$WRev = Join-Path $R 'c0-go-reviewed-20261024'; New-Item -ItemType Directory -Force $WRev | Out-Null   # WRAPPER 10-24 dated: a 10-22 copy must never stand in for tonight's GO review
+# WRAPPER 10-24 retry: only the first attempt that gets here seeds the GO-reviewed copy (its own C0 re-run below overwrites $R\c0-*). A later attempt
+# WRAPPER   finds the copy present and keeps it, so a C0 re-run of an earlier attempt that stopped before the restore line below can never become the baseline.
+if (-not (Test-Path -LiteralPath "$WRev\c0-status-flags.txt")) { foreach ($wf in 'c0-status.out.txt','c0-status-flags.txt','c0-next-runs.txt') { if (Test-Path -LiteralPath "$R\$wf") { Copy-Item -LiteralPath "$R\$wf" -Destination "$WRev\$wf" -Force } }; Log "WRAPPER: GO-reviewed C0 receipts saved to $WRev (attempt $WAttempt)" }   # WRAPPER
+else { Log "WRAPPER: attempt $WAttempt keeps the GO-reviewed C0 receipts already in $WRev" }   # WRAPPER
 if (-not (Test-Path -LiteralPath "$WRev\c0-status-flags.txt")) { throw 'WRAPPER: the GO-reviewed c0-status-flags.txt is missing' }   # WRAPPER
 $q = Get-Content "$R\qualification.json" -Raw | ConvertFrom-Json; if ($q.result -ne 'PASS' -or $q.release_case -ne 'A') { NoGo 'not qualified for case A' }
 if (((Get-Content -LiteralPath "$R\q12.txt" -TotalCount 1) -split '\s+')[0] -ne 'STOP_AUTHORIZED') { NoGo 'Q12 not recorded as STOP_AUTHORIZED (G8)' }
 $GapChoice = Get-GapChoice; Log "gap-overrun choice: $GapChoice"
 Assert-NoU6At0035 'C0'     # enforced here, not left to the C0 next-runs exemption of the aux list
 $Head = (git -C $P rev-parse HEAD).Trim()
-if ($Head -ne $q.tip) { Log "HEAD moved from the qualified tip; G3 needs roll_verdict.ps1 -Branch $Head -Base $($q.tip) exit 0 (ROLL-FREE) attached before GO, else B-R" }
+if ($WG3Tip -cne ([string]$q.tip).Trim().ToLowerInvariant()) { Log "G3 FAIL reason=operator_tip_ne_qualification_json supplied=$WG3Tip qualification=$($q.tip)"; $script:WGate = 'G3'; NoGo 'G3 FAIL: the operator-supplied qualified tip is not qualification.json tip' }   # WRAPPER 10-24 (replaces the roll_verdict G3 log line; master ruling)
+$G3 = Test-G3Gate $Head $WG3Tip $WG3Receipt $WG3Tested $WG3Py   # WRAPPER 10-24 same values C0 recorded
+if (-not $G3.Pass) { Log "G3 FAIL reason=$($G3.Detail) head=$Head tip=$WG3Tip"; $script:WGate = 'G3'; NoGo "G3 FAIL: $($G3.Detail) (deterministic; B-R per the ruling, never a retry)" }   # WRAPPER 10-24
 # Q12b: a capture-family task (N12) holds the venv like the 88a worker; it must be quiesced at C2 under a recorded choice
 $FamilyTasks = @(Get-ScheduledTask -TaskName 'WeatherMakerEvidence*' -ErrorAction SilentlyContinue | Where-Object { $_.TaskName -ne 'WeatherMakerEvidenceCapture' } | ForEach-Object { $_.TaskName })
 Log "capture-family tasks: $($FamilyTasks -join ',')"
@@ -274,6 +367,7 @@ $Exempt = @('WeatherMemoryCommitGuard','WeatherSnapshotLoopSupervisor','WeatherC
           @(Get-Content -LiteralPath "$R\aux-tasks.txt" | Where-Object { $_.Trim() })
 Get-ScheduledTask | Where-Object { [string]$_.State -ne 'Disabled' -and $Exempt -notcontains $_.TaskName } | ForEach-Object { $i = Get-ScheduledTaskInfo $_
   if ($i.NextRunTime -and $i.NextRunTime -lt (Get-Date).Date.AddHours(4)) { "$($_.TaskName) next=$($i.NextRunTime)" } } | Tee-Object -FilePath "$R\c0-next-runs.txt"
+Log "G3 PASS branch=$($G3.Branch) $($G3.Detail)"   # WRAPPER 10-24 (iii): every other C0 check passed in this re-run
 Log "C0 complete (status.ps1 exit $st0) - awaiting owner GO"
 # ---- WRAPPER post-C0 checks: the GO was given on the C0 run's HEAD, baseline and next-runs; anything new since then goes back to the owner (exit 4, nothing touched)
 if ($Head -ne $WFlagHead) { Log "OPERATOR CHECK: HEAD $Head differs from the GO-reviewed C0 HEAD $WFlagHead (the roll verdict covered the latter); nothing touched"; Exit-Wrapper 4 }   # WRAPPER
@@ -287,7 +381,7 @@ $WRunsAdded = @(if (Test-Path -LiteralPath "$R\c0-next-runs.txt") { Get-Content 
 if ($WRunsAdded.Count) { Log "OPERATOR CHECK: task(s) due before 04:00 that the GO review did not see: $($WRunsAdded -join ', '); nothing touched"; Exit-Wrapper 4 }   # WRAPPER
 
 # ---- WRAPPER C1. Lease and fresh receipts (verbatim)
-$WStep = 'C1'   # WRAPPER
+$WStep = 'C1'; Write-WMark 'C1'   # WRAPPER (10-24 marker)
 $global:Lease = $null; $deadline = (Get-Date).Date.AddHours(1).AddMinutes(4)
 while (-not $global:Lease) { $global:Lease = Enter-WeatherHeavyWorkloadLease -RepoRoot $P -Workload 'py3119_cutover'
   if (-not $global:Lease) { if ((Get-Date) -gt $deadline) { NoGo 'no lease by 01:04' }; Start-Sleep -Seconds 30 } }
@@ -362,6 +456,7 @@ function Quiesce-Aux([string]$Exe, [switch]$Soft) {
     foreach ($ft in $FamilyTasks) {   # Q12b, asserted at C0; disabled above, so its one-minute trigger cannot restart it
       if ([string](Get-ScheduledTask -TaskName $ft).State -eq 'Running') { Stop-ScheduledTask -TaskName $ft; Log "$ft worker stopped (Q12b)" } } } $Soft.IsPresent
 }
+Write-WMark 'C2'   # WRAPPER (10-24 marker: the C2 functions are defined; the first aux change follows)
 try { Quiesce-Aux $Py; Log 'C2 quiesced' }
 catch { $msg = $_.Exception.Message; Log "C2 failed: $msg - undoing"
   if (Test-Path -LiteralPath "$N\aux-prestate.csv") { Invoke-QStep 'undo aux' { Undo-Aux } $true; Invoke-QStep 'start holders' { Start-AuxHolders } $true }
@@ -427,6 +522,7 @@ if ((Get-Date) -gt (Get-Date).Date.AddHours(1).AddMinutes(12)) { $msg = 'pre-C3 
 # C3 + C4 guarded block. NoGo must not release the lease before the undo has run, so the catch releases it itself.
 $global:ReleaseOnNoGo = $false
 try {
+  Write-WMark 'C3'   # WRAPPER (10-24 marker: written before Stop-Capture's first supervisor disable; from here on no retry)
   if (-not (Stop-Capture $Py)) { NoGo 'C3 stop not confirmed' }
   $GapStart = Get-Date; Log 'C3 capture stopped'
   if ((Get-Date) -gt (Get-Date).Date.AddHours(1).AddMinutes(30)) { NoGo 'swap deadline 01:30 passed' }
@@ -436,14 +532,15 @@ try {
   try { Undo-Stop } finally { Release-Lease }
   throw }
 Log 'C4 renamed'                  # from here on a failure means §R, which keeps the lease
+Write-WMark 'SWAP'   # WRAPPER (10-24 marker: venv renamed to venv-cp3110)
 
 # ---- WRAPPER C5. Build the new venv offline (verbatim; any failure from here = §R)
-$WStep = 'C5'   # WRAPPER
+$WStep = 'C5'; Write-WMark 'C5'   # WRAPPER (10-24 marker)
 & $NewPy -I -m venv (Join-Path $P 'venv'); if ($LASTEXITCODE) { NoGo 'venv create -> ROLLBACK' }
 Build-Venv $Py $P
 
 # ---- WRAPPER C6. Quick verify (verbatim)
-$WStep = 'C6'   # WRAPPER
+$WStep = 'C6'; Write-WMark 'C6'   # WRAPPER (10-24 marker)
 Test-Venv $Py $P 'prod'      # includes the import-location check: weather and maker_core must import from $P\src
 foreach ($ln in 'python.exe','pythonw.exe') { if ((Sha (Join-Path $P "venv\Scripts\$ln")) -ne $K.binaries."Lib\venv\scripts\nt\$ln") { NoGo "launcher $ln -> ROLLBACK" } }
 Get-ChildItem -LiteralPath (Join-Path $P 'venv\Lib\site-packages') -Filter *.pth | ForEach-Object { "$($_.Name): $((Get-Content -LiteralPath $_.FullName) -join ' | ')" } |
@@ -451,13 +548,13 @@ Get-ChildItem -LiteralPath (Join-Path $P 'venv\Lib\site-packages') -Filter *.pth
 if (git -C $P status --porcelain --untracked-files=no) { NoGo 'tree dirty -> ROLLBACK' }
 
 # ---- WRAPPER C7. Restore the capture workers through the S4U path (verbatim)
-$WStep = 'C7'   # WRAPPER
+$WStep = 'C7'; Write-WMark 'C7'   # WRAPPER (10-24 marker)
 foreach ($tn in $Sup) { Enable-ScheduledTask -TaskName $tn | Out-Null }
 if (-not (Wait-Restore $GapStart)) { NoGo 'C7 not recovered -> ROLLBACK' }
 $GapEnd = Get-Date; Log ("C7 3/3; gap {0:n1} min" -f ($GapEnd-$GapStart).TotalMinutes)
 
 # ---- WRAPPER C8. Core verify (verbatim)
-$WStep = 'C8'   # WRAPPER
+$WStep = 'C8'; Write-WMark 'C8'   # WRAPPER (10-24 marker)
 # a) the workers run 3.11.9
 foreach ($f in 'loop_status.json','clob_loop_status.json','observation_trigger_status.json') {
   $v = (Get-Content -LiteralPath (Join-Path $P "data\snapshots\$f") -Raw | ConvertFrom-Json).runtime_identity.python_version
@@ -479,7 +576,7 @@ if ($WNonAux.Count) {   # WRAPPER
 else { Log "WRAPPER: C8 (d) new flags are aux-only ($(@($new1 | Where-Object { $_ }).Count)); C8 green" }   # WRAPPER
 
 # ---- WRAPPER C9. Core decision (verbatim)
-$WStep = 'C9'   # WRAPPER
+$WStep = 'C9'; Write-WMark 'C9'   # WRAPPER (10-24 marker)
 $GapMin = ($GapEnd-$GapStart).TotalMinutes
 if ($GapMin -gt 35) {
   Log ("gap {0:n1} min over 35; recorded choice {1}" -f $GapMin, $GapChoice)
@@ -487,13 +584,13 @@ if ($GapMin -gt 35) {
 Log 'C9 core PASS'
 
 # ---- WRAPPER C9b. Restore the auxiliary tasks (verbatim)
-$WStep = 'C9b'   # WRAPPER
+$WStep = 'C9b'; Write-WMark 'C9B'   # WRAPPER (10-24 marker)
 Invoke-QStep 'undo aux' { Undo-Aux } $true; Invoke-QStep 'start holders' { Start-AuxHolders } $true   # a failure logs ESCALATE; C9c then judges the evidence
 $AuxRestart = Get-Date
 if (@(Import-Csv "$N\aux-prestate.csv" | Where-Object { $_.Task -eq 'WeatherHostHealthWatchdog' -and (Test-PrestateEnabled $_) }).Count) { Start-ScheduledTask -TaskName WeatherHostHealthWatchdog }   # WRAPPER Fable 10-20 #4 fresh watchdog before C9c
 
 # ---- WRAPPER C9c. Aux verify (verbatim)
-$WStep = 'C9c'   # WRAPPER
+$WStep = 'C9c'; Write-WMark 'C9C'   # WRAPPER (10-24 marker)
 $tapeOk = $false; $tapeWanted = (Import-Csv "$N\aux-prestate.csv" | Where-Object Task -eq 'WeatherExecutionTapeSupervisor' | Where-Object { Test-PrestateEnabled $_ })
 if ($tapeWanted) { $t0 = Get-Date
   while (-not $tapeOk -and ((Get-Date)-$t0).TotalMinutes -lt 5) {   # status exits 0 only for RUNNING/DEGRADED (execution_tape_supervisor.py:936)
@@ -550,15 +647,17 @@ if ($WIssues.Count) {   # WRAPPER
 else { Log 'WRAPPER: C9c all pass (tape RUNNING with current identity, integrity PASS, CONNECTED; shadow running, STOP file gone; 88a fresh; no new flag)' }   # WRAPPER
 
 # ---- WRAPPER C10. Close-out (verbatim)
-$WStep = 'C10'   # WRAPPER
+$WStep = 'C10'; Write-WMark 'C10'   # WRAPPER (10-24 marker)
 @{ result='PASS'; head=$Head; gap_minutes=[math]::Round(($GapEnd-$GapStart).TotalMinutes,1); old_venv=$Old; new_home=$NewHome; release_case='A'; at=(Get-Date).ToString('o')
    escalations=@(Select-String -LiteralPath $Log -SimpleMatch 'ESCALATE' | Where-Object { $_.Line.StartsWith((Get-Date).ToString('yyyy-MM-dd')) }).Count } |   # tonight's lines only: night.log spans every phase
   ConvertTo-Json | Set-Content "$N\cutover-receipt.json" -Encoding utf8
 Release-Lease; Log 'CUTOVER PASS'
 Log 'PHASE-C DONE (exit 0). OPERATOR CHECK: keep venv-cp3110, the old-home freeze copy, the 3.11.0 install, every 3.11.0 release manifest and $R for at least 14 days.'   # WRAPPER
+Write-WMark 'DONE'   # WRAPPER (10-24 marker: CUTOVER PASS, lease released)
 } catch {   # WRAPPER the whole catch block is wrapper code
   $WErr = $_.Exception.Message   # WRAPPER
   Write-Host "PHASE-C STOPPED at ${WStep}: $WErr"; try { Log "PHASE-C STOPPED at ${WStep}: $WErr" } catch {}   # WRAPPER
+  if (-not $script:WGate) { if ($WStep -in 'header','C0') { $script:WGate = 'C0' } elseif ($WStep -eq 'C1' -and ($WErr -like '*prod venv changed*' -or $WErr -like '*stop-file argument is unreadable*')) { $script:WGate = 'C1' } }   # WRAPPER 10-24 deterministic gate refusals (G3 sets 'G3' itself); a lease wait or C2 stop is not one
   # WRAPPER Rename evidence: C0 NO-GOes if $Old exists (raw line 260) and only the C4 rename creates it (raw line 431), so from C3C4 on Test-Path $Old = renamed.
   $WRenamed = ($WStep -in 'C3C4','C5','C6','C7','C8','C9','C9b','C9c','C10') -and $Old -and (Test-Path -LiteralPath $Old)   # WRAPPER
   if (-not $WRenamed) {   # WRAPPER before the rename: undo with no swap (raw lines 247-248); C2's catch and the C3+C4 guarded catch already undo and release
@@ -567,6 +666,7 @@ Log 'PHASE-C DONE (exit 0). OPERATOR CHECK: keep venv-cp3110, the old-home freez
         if (Get-Command Undo-Stop -ErrorAction SilentlyContinue) { Undo-Stop } else { Invoke-QStep 'undo aux' { Undo-Aux } $true; Invoke-QStep 'start holders' { Start-AuxHolders } $true } }   # WRAPPER
       catch { try { Log "ESCALATE: wrapper undo failed: $($_.Exception.Message)" } catch {} } }   # WRAPPER
     try { $global:ReleaseOnNoGo = $false; Release-Lease } catch { Write-Host "Release-Lease failed: $($_.Exception.Message)" }   # WRAPPER
+    try { Write-WRestoreVerify } catch { Write-Host "PYUPC-RESTORE-VERIFY run=$WRunId attempt=$WAttempt result=FAIL stage=$WStep reasons=verify_call_threw" }   # WRAPPER 10-24 machine-readable restore verify for the retry wrapper
     try { Log 'OPERATOR CHECK: stopped before the C4 rename; nothing swapped. Check night.log for ESCALATE lines and, only if C3 had stopped capture (an undo restore line), the restore result; a C2 or pre-C3 stop ran no restore.' } catch {}   # WRAPPER
     Exit-Wrapper 1 }   # WRAPPER
   # WRAPPER After the rename. C5..C9 (and C3C4 after the rename): "Fail = §R". C9b/C9c/C10: §R only on a "-> ROLLBACK" failure; anything else is the operator's call.

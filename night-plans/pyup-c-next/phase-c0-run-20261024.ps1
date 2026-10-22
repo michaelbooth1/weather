@@ -1,4 +1,6 @@
-﻿# WRAPPER PHASE-C0 run wrapper (agent, 2026-10-20; re-dated from the 20261017 kit for the night 2026-10-21/22). READ-ONLY: section 6 header, helper definitions, C0 only.
+﻿# WRAPPER PHASE-C0 run wrapper (agent, 2026-10-20; re-dated from the 20261017 kit for the night 2026-10-21/22; re-dated 2026-10-22 for the night 2026-10-23/24, 00:30 floor). READ-ONLY: section 6 header, helper definitions, C0 only.
+# WRAPPER Night 2026-10-23/24 (files dated by the morning, 20261024). Launch at 00:30:00, not before: 00:00-00:30 is the protected tail of the
+# WRAPPER   near-close window (HOST_LOAD_POLICY) and the C wrapper refuses a flag written before midnight. Clocks: night-plans\pyup-c-next\README.md (CLOCKS).
 # WRAPPER Source: C:\tmp\agent-kit\phase-c-raw-20261022.md sha256 6ECF4B320144DE858418B5F44802775B28DB79C044EF1441F4D6B2820015919C
 # WRAPPER   Block 1 (section 6 header, host values filled), Block 2 (Build-Venv / Test-Venv definitions only), Block 3 C0: verbatim.
 # WRAPPER Runbook: docs\operations\HOST_PYTHON_UPGRADE_RUNBOOK.md sha256 FE074EE48EE564F9461F8615E5F3CD56FCB01024490D86B2147B9327C4361759 at review tip 41e3bec62 (origin/claude/pyup-c-1021-review-20261019; not yet on master).
@@ -7,15 +9,24 @@
 # WRAPPER This kit is ahead of master's runbook by the C2 fix on claude/pyup-c2-enabled-check-20261022; until that lands, do NOT regenerate from master's runbook.
 # WRAPPER Launch form (as run on 10-21/22): run as a FILE, elevated, no redirects, from the local copy under C:\pyup\cp3119:
 # WRAPPER   Start-Process powershell.exe -Verb RunAs -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File <wrapper>'
-# WRAPPER Output: transcript C:\pyup\cp3119\phase-c0-transcript-20261022.txt; C:\pyup\cp3119\c0-done-20261022.flag ONLY when C0 completed with no NO-GO
+# WRAPPER Output: transcript C:\pyup\cp3119\phase-c0-transcript-20261024.txt; C:\pyup\cp3119\c0-done-20261024.flag ONLY when C0 completed with no NO-GO
 # WRAPPER   (flag line: "C0 PASS head=<40-hex HEAD> at=<time>"; the Phase C wrapper compares that head). Exit 0 = C0 complete, 1 = stopped.
 # WRAPPER Non-verbatim lines (every one ends in or starts with "# WRAPPER"): these header comments; removal of a stale flag before the run;
 # WRAPPER   Start-Transcript; "try {"; the "# ---- WRAPPER" separators; after C0: the next-runs count log, the OPERATOR CHECK log, the flag write
 # WRAPPER   and its log; the catch line (log PHASE-C0 STOPPED, null-safe Release-Lease, Stop-Transcript, exit 1); Stop-Transcript; exit 0.
+# WRAPPER G3 (10-24, master ruling; README.md "G3"): operator-supplied values, never defaults in this file:
+# WRAPPER   -G3QualifiedTip   full 40-hex qualified tip (master's ruling for 10-23/24: 90b2e1844ad0de71916c67996026dea7b04ce5ff); must equal qualification.json tip
+# WRAPPER   -G3PregateReceipt WS pregate PASS receipt id (10-23/24: pg-739c03eff1e2-20261018T045220-105120), -G3TestedSha its tested full sha
+# WRAPPER     (10-23/24: 739c03eff1e2f26c49759899e4e39b669d2c6628), -G3PregatePython 3.11.9 (operator attestation: the WS venv the pregate used).
+# WRAPPER   Leave the three pregate values empty only when HEAD is expected to equal the qualified tip. C0 records all four on the flag's line 2.
+# WRAPPER   Launch: Start-Process powershell.exe -Verb RunAs -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File C:\pyup\cp3119\phase-c0-run-20261024.ps1
+# WRAPPER     -G3QualifiedTip <40hex> -G3PregateReceipt <id> -G3TestedSha <40hex> -G3PregatePython 3.11.9'
+param([string]$G3QualifiedTip = '', [string]$G3PregateReceipt = '', [string]$G3TestedSha = '', [string]$G3PregatePython = '')   # WRAPPER 10-24 G3 operator values
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { Write-Host 'REFUSED: not elevated (Get-ScheduledTask would hide S4U tasks)'; exit 3 }   # WRAPPER Fable 10-20 #2
 if ([Console]::IsErrorRedirected -or [Console]::IsOutputRedirected) { Write-Host 'REFUSED: stdio redirected; run -File in a real elevated console'; exit 3 }   # WRAPPER Fable 10-20 #2
-Remove-Item -LiteralPath 'C:\pyup\cp3119\c0-done-20261022.flag' -Force -ErrorAction SilentlyContinue   # WRAPPER a flag from an earlier attempt never survives a new run
-Start-Transcript -LiteralPath 'C:\pyup\cp3119\phase-c0-transcript-20261022.txt' -Append | Out-Null   # WRAPPER
+if ((Get-Date) -lt (Get-Date).Date.AddMinutes(30)) { Write-Host 'REFUSED: before 00:30 (00:00-00:30 is the protected near-close tail; the night floor is 00:30)'; exit 3 }   # WRAPPER 10-24 floor
+Remove-Item -LiteralPath 'C:\pyup\cp3119\c0-done-20261024.flag' -Force -ErrorAction SilentlyContinue   # WRAPPER a flag from an earlier attempt never survives a new run
+Start-Transcript -LiteralPath 'C:\pyup\cp3119\phase-c0-transcript-20261024.txt' -Append | Out-Null   # WRAPPER
 try {   # WRAPPER
 # ---- WRAPPER Block 1. Section 6 header (runbook section 6, host values filled)
 $ErrorActionPreference = 'Stop'
@@ -141,13 +152,35 @@ function Test-Venv($vpy, $root, $tag) {
   Log "$tag Test-Venv PASS"
 }
 
+# ---- WRAPPER G3 gate (master ruling 2026-10-22 for the night 10-23/24; text verbatim in night-plans\pyup-c-next\README.md "G3"). Read-only git.
+# WRAPPER   PASS when HEAD equals the qualified tip, or (i) no dependency file differs tip..HEAD, (ii) the operator-supplied WS pregate PASS
+# WRAPPER   (receipt id + tested sha, Python 3.11.9 attested) tested a commit whose diff to HEAD is docs/*.md only, and (iii) the rest of C0 has no NO-GO
+# WRAPPER   (so the PASS line is printed only at the end of C0). A FAIL is a deterministic NO-GO: never retried; B-R per the ruling.
+function Test-G3Gate([string]$Head, [string]$QualTip, [string]$Receipt, [string]$Tested, [string]$PyAttest) {   # WRAPPER
+  $wf = { param($r) [pscustomobject]@{ Pass = $false; Branch = 'none'; Detail = $r } }   # WRAPPER
+  if ("$QualTip" -cnotmatch '^[0-9a-f]{40}$') { return (& $wf 'qualified_tip_not_supplied_as_40hex') }   # WRAPPER
+  if ($Head -ceq $QualTip) { return [pscustomobject]@{ Pass = $true; Branch = 'HEAD==tip'; Detail = "tip=$QualTip" } }   # WRAPPER
+  $wNames = @(git -C $P diff --name-only $QualTip $Head); if ($LASTEXITCODE) { return (& $wf 'diff_tip_head_failed') }   # WRAPPER
+  $wDeps = @($wNames | Where-Object { $wLeaf = ("$_" -split '/')[-1]; $wLeaf -like 'requirements*' -or $wLeaf -like 'constraints*' -or $wLeaf -like '*.lock' -or $wLeaf -in 'pyproject.toml','setup.cfg','setup.py' })   # WRAPPER (i) any depth
+  if ($wDeps.Count) { return (& $wf "deps_changed=$(@($wDeps | Select-Object -First 5) -join ',')") }   # WRAPPER
+  if ("$Receipt" -cnotmatch '^pg-([0-9a-f]{12})-[0-9]{8}T[0-9]{6}-[0-9]+$') { return (& $wf 'pregate_receipt_not_supplied_or_malformed') }   # WRAPPER (ii)
+  $wRp = $Matches[1]   # WRAPPER
+  if ("$Tested" -cnotmatch '^[0-9a-f]{40}$' -or -not $Tested.StartsWith($wRp)) { return (& $wf 'tested_sha_not_40hex_or_not_the_receipt_head') }   # WRAPPER
+  if ("$PyAttest" -cne '3.11.9') { return (& $wf 'pregate_python_3.11.9_not_attested') }   # WRAPPER
+  $null = @(git -C $P cat-file -t "$Tested^{commit}"); if ($LASTEXITCODE) { return (& $wf 'tested_sha_not_in_production_repo') }   # WRAPPER
+  $wTd = @(git -C $P diff --name-only $Tested $Head); if ($LASTEXITCODE) { return (& $wf 'diff_tested_head_failed') }   # WRAPPER
+  $wNd = @($wTd | Where-Object { "$_" -cnotmatch '^docs/.+\.md$' })   # WRAPPER "non-docs diff empty"
+  if ($wNd.Count) { return (& $wf "nondocs_diff=$($wNd.Count):$(@($wNd | Select-Object -First 5) -join ',')") }   # WRAPPER
+  [pscustomobject]@{ Pass = $true; Branch = '(i)+(ii)+(iii)'; Detail = "deps_changed=none pregate=$Receipt tested=$Tested nondocs_diff=empty" } }   # WRAPPER
 # ---- WRAPPER C0. GO checks (verbatim)
 $q = Get-Content "$R\qualification.json" -Raw | ConvertFrom-Json; if ($q.result -ne 'PASS' -or $q.release_case -ne 'A') { NoGo 'not qualified for case A' }
 if (((Get-Content -LiteralPath "$R\q12.txt" -TotalCount 1) -split '\s+')[0] -ne 'STOP_AUTHORIZED') { NoGo 'Q12 not recorded as STOP_AUTHORIZED (G8)' }
 $GapChoice = Get-GapChoice; Log "gap-overrun choice: $GapChoice"
 Assert-NoU6At0035 'C0'     # enforced here, not left to the C0 next-runs exemption of the aux list
 $Head = (git -C $P rev-parse HEAD).Trim()
-if ($Head -ne $q.tip) { Log "HEAD moved from the qualified tip; G3 needs roll_verdict.ps1 -Branch $Head -Base $($q.tip) exit 0 (ROLL-FREE) attached before GO, else B-R" }
+if ($G3QualifiedTip -cne ([string]$q.tip).Trim().ToLowerInvariant()) { Log "G3 FAIL reason=operator_tip_ne_qualification_json supplied=$G3QualifiedTip qualification=$($q.tip)"; NoGo 'G3 FAIL: the operator-supplied qualified tip is not qualification.json tip' }   # WRAPPER 10-24 (replaces the roll_verdict G3 log line; master ruling)
+$G3 = Test-G3Gate $Head $G3QualifiedTip $G3PregateReceipt $G3TestedSha $G3PregatePython   # WRAPPER 10-24
+if (-not $G3.Pass) { Log "G3 FAIL reason=$($G3.Detail) head=$Head tip=$G3QualifiedTip"; NoGo "G3 FAIL: $($G3.Detail) (deterministic; B-R per the ruling, never a retry)" }   # WRAPPER 10-24
 # Q12b: a capture-family task (N12) holds the venv like the 88a worker; it must be quiesced at C2 under a recorded choice
 $FamilyTasks = @(Get-ScheduledTask -TaskName 'WeatherMakerEvidence*' -ErrorAction SilentlyContinue | Where-Object { $_.TaskName -ne 'WeatherMakerEvidenceCapture' } | ForEach-Object { $_.TaskName })
 Log "capture-family tasks: $($FamilyTasks -join ',')"
@@ -174,13 +207,14 @@ $Exempt = @('WeatherMemoryCommitGuard','WeatherSnapshotLoopSupervisor','WeatherC
 Get-ScheduledTask | Where-Object { [string]$_.State -ne 'Disabled' -and $Exempt -notcontains $_.TaskName } | ForEach-Object { $i = Get-ScheduledTaskInfo $_
   if ($i.NextRunTime -and $i.NextRunTime -lt (Get-Date).Date.AddHours(4)) { "$($_.TaskName) next=$($i.NextRunTime)" } } | Tee-Object -FilePath "$R\c0-next-runs.txt"
 $wr = Get-ScheduledTask -TaskName WeatherTrainingWindowRestore; if ([string]$wr.State -eq 'Disabled' -or -not @($wr.Triggers | Where-Object { [string]$_.StartBoundary -match 'T04:15' -and $_.Enabled }).Count) { NoGo 'WeatherTrainingWindowRestore (04:15 net) is not armed' }   # WRAPPER Fable 10-20 #5
+Log "G3 PASS branch=$($G3.Branch) $($G3.Detail)"   # WRAPPER 10-24 (iii): printed only when every other C0 check passed
 Log "C0 complete (status.ps1 exit $st0) - awaiting owner GO"
 
 # ---- WRAPPER end of C0: flag + operator check
 $wNextRuns = @(if (Test-Path -LiteralPath "$R\c0-next-runs.txt") { Get-Content -LiteralPath "$R\c0-next-runs.txt" | Where-Object { "$_".Trim() } })   # WRAPPER
 Log "WRAPPER: c0-next-runs.txt has $($wNextRuns.Count) line(s) (must be empty, else the task goes to the owner)"   # WRAPPER
-Log "OPERATOR CHECK: owner GO point. Master reviews $R\c0-status.out.txt (capture 3/3, no unaccepted FLAG), $R\c0-status-flags.txt (the C8/C9c baseline), $R\c0-next-runs.txt (must be empty), G3/G5/G7/G8/G11 and the G3 output of roll_verdict.ps1 -Branch $Head -Base $($q.tip) (must exit 0, ROLL-FREE); the owner's GO goes in C:\pyup\cp3119\owner-go-20261022.txt (first token GO)."   # WRAPPER
-Set-Content -LiteralPath 'C:\pyup\cp3119\c0-done-20261022.flag' -Value "C0 PASS head=$Head at=$(Get-Date -Format o)" -Encoding ascii   # WRAPPER
+Log "OPERATOR CHECK: owner GO point. Master reviews $R\c0-status.out.txt (capture 3/3, no unaccepted FLAG), $R\c0-status-flags.txt (the C8/C9c baseline), $R\c0-next-runs.txt (must be empty), the G3 PASS branch=... line above (10-24 master ruling; no roll_verdict for G3), G5/G7/G8/G11; the owner's GO goes in C:\pyup\cp3119\owner-go-20261024.txt (first token GO)."   # WRAPPER
+Set-Content -LiteralPath 'C:\pyup\cp3119\c0-done-20261024.flag' -Value @("C0 PASS head=$Head at=$(Get-Date -Format o)", ("G3 branch={0} tip={1} pregate={2} tested={3} py={4}" -f $G3.Branch, $G3QualifiedTip, $(if ($G3PregateReceipt) { $G3PregateReceipt } else { 'none' }), $(if ($G3TestedSha) { $G3TestedSha } else { 'none' }), $(if ($G3PregatePython) { $G3PregatePython } else { 'none' }))) -Encoding ascii   # WRAPPER (10-24: line 2 = the G3 operator values the C wrapper re-checks)
 Log 'PHASE-C0 DONE flag written'   # WRAPPER
 } catch { Write-Host "PHASE-C0 STOPPED: $($_.Exception.Message)"; try { Log "PHASE-C0 STOPPED: $($_.Exception.Message)" } catch {}; try { $global:ReleaseOnNoGo = $false; Release-Lease } catch { Write-Host "Release-Lease failed: $($_.Exception.Message)" }; Stop-Transcript | Out-Null; exit 1 }   # WRAPPER
 Stop-Transcript | Out-Null   # WRAPPER
