@@ -43,14 +43,14 @@ Owner choices on file (first lines read 2026-10-20): `q12.txt` = `STOP_AUTHORIZE
 | (after C0) | **Owner types GO** (in chat; G4) | No GO = stop; nothing touched |
 | 01:00, latest 01:15 | C1 lease and receipts | No lease by 01:15 = NO-GO |
 | +5 min | C2 quiesce aux tasks and holders | Any throw = `Undo-Aux`, NO-GO |
-| +5-10 min | C3 stop capture workers | Still active after 600 s = undo, restore, NO-GO |
+| +5-10 min | C3 stop capture workers | Past 01:12 at C3 start = C2 undo, NO-GO, capture untouched; still active after 600 s = undo, restore, NO-GO |
 | by 01:30 | C4 rename `venv` to `venv-cp3110` | Fails 3 times or past 01:30 = undo, restore, NO-GO |
 | +3 min | C5 build new venv offline | Fail = §R |
 | +2 min | C6 quick verify | Fail = §R |
 | +5-32 min | C7 S4U restore of the 3 capture workers | Not 3/3 after one rerun = §R |
 | +5 min | C8 core verify | Fail = §R |
 | core by 02:15; aux by 02:25 | C9 core decision; C9b restore aux; C9c aux verify | Core not passed = §R; aux per C9c |
-| start by 02:45, done by 03:45 | §R rollback (worst case about 50 min) | Not 3/3 by 03:45: the 04:15 restore is the net; record and message the owner (§R, "Escalation") |
+| start by 02:45, done by 03:45 | §R rollback (worst case about 50 min; about 72 min if every ensure wait runs out) | Not 3/3 by 03:45: the 04:15 restore is the net; record and message the owner (§R, "Escalation") |
 
 ## Paste order (one elevated Windows PowerShell 5.1 window; nothing tails `night.log`)
 
@@ -142,7 +142,7 @@ function Get-ReleaseActive([string]$Exe, [string]$OutBase) {
 function Assert-NoU6At0035([string]$Tag) {
   $u6 = Get-ScheduledTask -TaskName WeatherReplayBundleExportNightly -ErrorAction SilentlyContinue
   if ($u6 -and [string]$u6.State -ne 'Disabled' -and @($u6.Triggers | Where-Object { [string]$_.StartBoundary -match 'T00:35' }).Count -gt 0) {
-    NoGo "$Tag U6 export is registered at 00:35 and enabled (G5, Q3)" } }
+    NoGo "$Tag U6 export is registered at 00:35 and enabled or still running (State $($u6.State); G5, Q3)" } }   # State on purpose: a running U6 holds the lease
 # §11: the owner's recorded choice for a capture gap over 35 minutes; first token ACCEPT_OVERRUN or ROLLBACK_ON_OVERRUN
 function Get-GapChoice { $c = if (Test-Path -LiteralPath "$R\gap-overrun.txt") { ((Get-Content -LiteralPath "$R\gap-overrun.txt" -TotalCount 1) -split '\s+')[0] }
   if ($c -notin 'ACCEPT_OVERRUN','ROLLBACK_ON_OVERRUN') { NoGo 'gap-overrun choice not recorded in $R\gap-overrun.txt (§11)' }; $c }
@@ -256,14 +256,14 @@ function Test-Venv($vpy, $root, $tag) {
 | 00:30-00:55 | C0 GO checks | Any fail = NO-GO, nothing touched |
 | 01:00, latest 01:15 | C1 lease and receipts | No lease by 01:15 = NO-GO |
 | +5 min | C2 quiesce the auxiliary tasks and long-running holders | Any throw = `Undo-Aux`, NO-GO |
-| +5-10 min | C3 stop the capture workers | Still active after 600 s = undo, restore, NO-GO |
+| +5-10 min | C3 stop the capture workers | Past 01:12 at C3 start = C2 undo, NO-GO, capture untouched; still active after 600 s = undo, restore, NO-GO |
 | by 01:30 | C4 rename `venv` to `venv-cp3110` | Rename fails 3 times or it is past 01:30 = undo, restore, NO-GO |
 | +3 min | C5 build the new `venv` offline | Fail = §R |
 | +2 min | C6 quick verify | Fail = §R |
 | +5-32 min | C7 S4U restore of the three capture workers only | Not 3/3 after one rerun = §R |
 | +5 min | C8 core verify | Fail = §R |
 | by 02:15; aux by 02:25 | C9 core PASS decision; C9b restore the aux tasks; C9c aux verify | Core not passed = §R; aux failure per C9c |
-| start by 02:45, done by 03:45 | §R rollback (worst case about 50 min) | Not 3/3 by 03:45: the 04:15 restore is the net; record and message the owner (§R, "Escalation") |
+| start by 02:45, done by 03:45 | §R rollback (worst case about 50 min; about 72 min if every ensure wait runs out) | Not 3/3 by 03:45: the 04:15 restore is the net; record and message the owner (§R, "Escalation") |
 
 This sits inside the 01:00-04:00 quiet window and ends before the 04:15 `WeatherTrainingWindowRestore`
 trigger, which stays armed as the final safety net. The expected capture gap (C3 to C7) is about
@@ -291,13 +291,13 @@ if ($FamilyTasks.Count) {
   $auxNames = @(Get-Content -LiteralPath "$R\aux-tasks.txt" | ForEach-Object { $_.Trim() })
   foreach ($ft in $FamilyTasks) { if ($auxNames -notcontains $ft) { NoGo "$ft is not in aux-tasks.txt (A1 review)" } } }
 $auxNames = @(Get-Content -LiteralPath "$R\aux-tasks.txt" | Where-Object { $_.Trim() })   # the aux list exactly as C2's Quiesce-Aux reads it
-foreach ($auxName in $auxNames) { $null = Get-ScheduledTask -TaskName $auxName -ErrorAction Stop }   # a wrong name throws here, before anything has changed, not part-way through C2
-if ((Get-ScheduledTask -TaskName WeatherClobEnrichmentLoop -ErrorAction SilentlyContinue) -and (@($auxNames | ForEach-Object { $_.Trim() }) -notcontains 'WeatherClobEnrichmentLoop')) { NoGo 'WeatherClobEnrichmentLoop is registered but not in aux-tasks.txt (no time limit; C2 would not stop it)' }
+foreach ($auxName in $auxNames) { if (@(Get-ScheduledTask -TaskName $auxName -ErrorAction Stop).Count -ne 1) { NoGo "$auxName matches more than one task" } }   # a wrong name throws and a duplicate NO-GOes here, before anything has changed, not part-way through C2
+$wce = Get-ScheduledTask -TaskName WeatherClobEnrichmentLoop -ErrorAction SilentlyContinue; if ($wce -and ([string]$wce.State -ne 'Disabled')) { NoGo 'WeatherClobEnrichmentLoop is registered and enabled or running; C2 has no stop for it (its instance is the loop). Disable it and end its instance before the night.' }
 if (git -C $P status --porcelain --untracked-files=no) { NoGo 'prod tree dirty' }
 if (Test-Path -LiteralPath $Old) { NoGo "$Old exists" }
 if ((Get-Volume -DriveLetter C).SizeRemaining -lt 10GB) { NoGo 'disk' }
 foreach ($tn in 'WeatherTrainingWindow','WeatherEveningEvidenceRefresh') { $x = Get-ScheduledTask -TaskName $tn -ErrorAction SilentlyContinue
-  if ($x -and [string]$x.State -ne 'Disabled') { NoGo "$tn is enabled (G5)" } }
+  if ($x -and [string]$x.State -ne 'Disabled') { NoGo "$tn is enabled or still running (State $($x.State), G5)" } }   # State, not Settings.Enabled: a disabled task still running holds the lease
 $mg = Read-WeatherMemoryGuardStatus -Path (Join-Path $P 'data\logs\memory_commit_guard_status.json'); Log "memory $($mg | ConvertTo-Json -Compress)"
 Log "lease state $((Get-WeatherHeavyWorkloadLeaseState -RepoRoot $P) | ConvertTo-Json -Compress)"
 $st0 = Invoke-Native 'powershell.exe' @('-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $P 'scripts\ops\status.ps1'),'-Json') "$R\c0-status"
@@ -359,7 +359,7 @@ function Undo-Aux { foreach ($row in Import-Csv "$N\aux-prestate.csv") { if (Tes
 function Start-AuxHolders {   # restart the long-running holders that C2 stopped, only where their pre-state was enabled
   foreach ($tn in $Holders) { $row = Import-Csv "$N\aux-prestate.csv" -ErrorAction SilentlyContinue | Where-Object Task -eq $tn
     if ($row -and (Test-PrestateEnabled $row)) { Start-ScheduledTask -TaskName $tn; Log "started $tn" }
-    elseif ($row) { Log "ESCALATE: $tn pre-state disabled; not restarted" } } }
+    elseif ($row -and $row.State -eq 'Running') { Log "ESCALATE: $tn pre-state disabled; not restarted" } } }
 function Stop-Tape([string]$Exe) {
   # 'stop' exits 0 only when it stopped a live worker (execution_tape_supervisor.py:909-912). A worker that is
   # already gone returns authorization.process_gone=true / recorded_process_not_found (supervisor.py:1353-1361),
@@ -455,7 +455,10 @@ function Undo-Stop {   # pre-rename undo: the venv is still the intact 3.11.0
 ```
 
 C3 and C4 run as one guarded block (below, after C4's functions). Any failure before the rename,
-whether a `NoGo` or any other throw, runs `Undo-Stop` and then releases the lease.
+whether a `NoGo` or any other throw, runs `Undo-Stop` and then releases the lease. Just before that block,
+the pre-C3 deadline (01:12) stops the night if C3 starts too late to reach the 01:30 check: it runs the C2
+undo only (`Undo-Aux`, `Start-AuxHolders`), releases the lease and NO-GOes. Capture has not been stopped,
+so there is no gap and no S4U restore.
 
 In no-live-capture mode, one gate call checks all three loops, as `Wait-CaptureStopped` does
 (`training_window.ps1:238-252`). `--workload` is only a label.
@@ -477,6 +480,9 @@ function Rename-WithSweep([string]$From, [string]$To, [string]$Tag) {
     if ($hold) { Log "$Tag try $i holders $(($hold.ProcessId) -join ',')"; Start-Sleep 20; continue }
     try { Rename-Item -LiteralPath $From -NewName $To -ErrorAction Stop; return $true } catch { Log "$Tag rename try $i failed: $($_.Exception.Message)"; Start-Sleep 20 } }
   return $false }
+# Pre-C3 deadline 01:12: the C3 pass-case worst case (about 17.5 min) would reach the 01:30 check too late, so stop before any capture stop.
+if ((Get-Date) -gt (Get-Date).Date.AddHours(1).AddMinutes(12)) { $msg = 'pre-C3 deadline 01:12 passed'; Log "$msg - C2 undo, capture not stopped, no swap"
+  try { Undo-Aux; Start-AuxHolders } finally { $global:ReleaseOnNoGo = $false; Release-Lease }; NoGo $msg }
 # C3 + C4 guarded block. NoGo must not release the lease before the undo has run, so the catch releases it itself.
 $global:ReleaseOnNoGo = $false
 try {
@@ -704,8 +710,11 @@ Release-Lease; Log 'ROLLBACK DONE'
 - the r1 and r2 sweeps: up to 2 minutes each;
 - `Wait-Restore`: 32 minutes.
 
-That is why §R must start by 02:45: it then ends by about 03:35, inside 03:45, and well before the
-04:10 U6 slot and the 04:15 restore trigger.
+§R also runs `Quiesce-Aux -Soft` and `Stop-Capture -Soft`, whose ensure waits cost up to 330 s for each
+instance still running (the tape supervisor and the three capture supervisors): realistically 0-5 minutes
+more, pathologically about 22 minutes more. The waits are not capped. That is why §R must start by 02:45:
+it then ends by about 03:35-03:40, inside 03:45, and well before the 04:10 U6 slot and the 04:15 restore
+trigger; in the pathological case it ends about 03:57, past 03:45 but still before 04:10 and 04:15.
 
 **Lease on an escalated §R.** If §R stops at r1, r2 or the final `Assert-CaseA`, it deliberately
 keeps the lease. Nothing heavy may start on a host in an unknown state.
@@ -861,9 +870,22 @@ Every place where the 41e3bec62 runbook (and therefore this file) differs from `
     exactly one task of that name. The C2 pre-state records `Enabled`; `Test-PrestateEnabled` (new) decides "was it
     enabled" for `Undo-Aux`, `Start-AuxHolders`, C9c and the wrapper judgements, keeps the State rule for a row without
     the column, and logs `ESCALATE` when the column is present but empty. `Undo-Aux` logs `ESCALATE` for a task that was
-    disabled but running; `Start-AuxHolders` logs `ESCALATE` for a holder with a disabled pre-state. A disable does not
+    disabled but running; `Start-AuxHolders` logs `ESCALATE` for a holder that was disabled but running. A disable does not
     end an in-flight ensure run, so `Stop-Capture` waits (bounded 330 s) for the three supervisors' instances after all
     disables, and C2 waits the same way for the tape supervisor before its stop; the 88a, shadow and family holders are
     stopped explicitly and not waited on. C2 reads every pre-state row before writing `aux-prestate.csv` (no partial
     file), and C0 resolves every aux name first. The C10 receipt adds `escalations`, tonight's `ESCALATE` lines in
-    `night.log`.
+    `night.log`. Fable review fixes (2026-10-22, identical in the runbook branch):
+    (1) C0's `WeatherClobEnrichmentLoop` guard NO-GOes unless its State is `Disabled` (C2 only disables aux tasks and
+    never ends that instance, which is the loop and holds `venv\Scripts\pythonw.exe`, so C4's rename would NO-GO after
+    capture had stopped); the runbook's A1 list no longer names it. (2) The G5 and U6 NO-GO messages now say "enabled or
+    still running" with the State, and keep State on purpose; `Test-PrestateEnabled` keeps the empty-`Enabled`
+    `ESCALATE` line (now also in the runbook). (3) C0's aux-name pre-resolve NO-GOes when a name matches more than one
+    task. (4) The §R budget counts the `-Soft` ensure waits: up to 330 s per stuck instance, realistically +0-5 min,
+    pathologically +22 min (ends about 03:57); the waits are not capped. (5) `Start-AuxHolders` logs `ESCALATE` only
+    for a disabled-but-running pre-state, matching `Undo-Aux`. (6) **Pre-C3 deadline 01:12**, just before the C3+C4
+    guarded block: past 01:12 it runs the C2 undo only (`Undo-Aux`, `Start-AuxHolders`), releases the lease and
+    NO-GOes, with capture untouched (no `Undo-Stop`, no S4U restore). It sets `$msg`, so the run wrapper's outer catch
+    runs no second undo. T = 01:30 minus the C3 pass-case worst case before the 01:30 check: ensure waits 330 s
+    (instances started before the disables, so the waits overlap) + stop verbs budgeted 1 min + gate loop 600 s +
+    its last call and sleep budgeted 1 min = 17.5 min, so 01:12:30, rounded down to 01:12.

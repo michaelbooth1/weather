@@ -2,6 +2,7 @@
 # WRAPPER Source: C:\tmp\agent-kit\phase-c-raw-20261022.md sha256 6ECF4B320144DE858418B5F44802775B28DB79C044EF1441F4D6B2820015919C
 # WRAPPER   Block 1 (section 6 header, host values filled), Block 2 (Build-Venv / Test-Venv definitions), C0..C10 and §R: verbatim, in order.
 # WRAPPER Runbook: docs\operations\HOST_PYTHON_UPGRADE_RUNBOOK.md sha256 FE074EE48EE564F9461F8615E5F3CD56FCB01024490D86B2147B9327C4361759 at review tip 41e3bec62 (origin/claude/pyup-c-1021-review-20261019; not yet on master).
+# WRAPPER SHA256SUMS.txt is authoritative for every file's hash; the raw sha above is historical.
 # WRAPPER This kit is ahead of master's runbook by the C2 fix on claude/pyup-c2-enabled-check-20261022; until that lands, do NOT regenerate from master's runbook.
 # WRAPPER Launch form (as run on 10-21/22): run as a FILE, elevated, no redirects, from the local copy under C:\pyup\cp3119:
 # WRAPPER   Start-Process powershell.exe -Verb RunAs -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File <wrapper>'
@@ -164,7 +165,7 @@ function Get-ReleaseActive([string]$Exe, [string]$OutBase) {
 function Assert-NoU6At0035([string]$Tag) {
   $u6 = Get-ScheduledTask -TaskName WeatherReplayBundleExportNightly -ErrorAction SilentlyContinue
   if ($u6 -and [string]$u6.State -ne 'Disabled' -and @($u6.Triggers | Where-Object { [string]$_.StartBoundary -match 'T00:35' }).Count -gt 0) {
-    NoGo "$Tag U6 export is registered at 00:35 and enabled (G5, Q3)" } }
+    NoGo "$Tag U6 export is registered at 00:35 and enabled or still running (State $($u6.State); G5, Q3)" } }   # State on purpose: a running U6 holds the lease
 # §11: the owner's recorded choice for a capture gap over 35 minutes; first token ACCEPT_OVERRUN or ROLLBACK_ON_OVERRUN
 function Get-GapChoice { $c = if (Test-Path -LiteralPath "$R\gap-overrun.txt") { ((Get-Content -LiteralPath "$R\gap-overrun.txt" -TotalCount 1) -split '\s+')[0] }
   if ($c -notin 'ACCEPT_OVERRUN','ROLLBACK_ON_OVERRUN') { NoGo 'gap-overrun choice not recorded in $R\gap-overrun.txt (§11)' }; $c }
@@ -255,13 +256,13 @@ if ($FamilyTasks.Count) {
   $auxNames = @(Get-Content -LiteralPath "$R\aux-tasks.txt" | ForEach-Object { $_.Trim() })
   foreach ($ft in $FamilyTasks) { if ($auxNames -notcontains $ft) { NoGo "$ft is not in aux-tasks.txt (A1 review)" } } }
 $auxNames = @(Get-Content -LiteralPath "$R\aux-tasks.txt" | Where-Object { $_.Trim() })   # the aux list exactly as C2's Quiesce-Aux reads it
-foreach ($auxName in $auxNames) { $null = Get-ScheduledTask -TaskName $auxName -ErrorAction Stop }   # a wrong name throws here, before anything has changed, not part-way through C2
-if ((Get-ScheduledTask -TaskName WeatherClobEnrichmentLoop -ErrorAction SilentlyContinue) -and (@($auxNames | ForEach-Object { $_.Trim() }) -notcontains 'WeatherClobEnrichmentLoop')) { NoGo 'WeatherClobEnrichmentLoop is registered but not in aux-tasks.txt (no time limit; C2 would not stop it)' }
+foreach ($auxName in $auxNames) { if (@(Get-ScheduledTask -TaskName $auxName -ErrorAction Stop).Count -ne 1) { NoGo "$auxName matches more than one task" } }   # a wrong name throws and a duplicate NO-GOes here, before anything has changed, not part-way through C2
+$wce = Get-ScheduledTask -TaskName WeatherClobEnrichmentLoop -ErrorAction SilentlyContinue; if ($wce -and ([string]$wce.State -ne 'Disabled')) { NoGo 'WeatherClobEnrichmentLoop is registered and enabled or running; C2 has no stop for it (its instance is the loop). Disable it and end its instance before the night.' }
 if (git -C $P status --porcelain --untracked-files=no) { NoGo 'prod tree dirty' }
 if (Test-Path -LiteralPath $Old) { NoGo "$Old exists" }
 if ((Get-Volume -DriveLetter C).SizeRemaining -lt 10GB) { NoGo 'disk' }
 foreach ($tn in 'WeatherTrainingWindow','WeatherEveningEvidenceRefresh') { $x = Get-ScheduledTask -TaskName $tn -ErrorAction SilentlyContinue
-  if ($x -and [string]$x.State -ne 'Disabled') { NoGo "$tn is enabled (G5)" } }
+  if ($x -and [string]$x.State -ne 'Disabled') { NoGo "$tn is enabled or still running (State $($x.State), G5)" } }   # State, not Settings.Enabled: a disabled task still running holds the lease
 $mg = Read-WeatherMemoryGuardStatus -Path (Join-Path $P 'data\logs\memory_commit_guard_status.json'); Log "memory $($mg | ConvertTo-Json -Compress)"
 Log "lease state $((Get-WeatherHeavyWorkloadLeaseState -RepoRoot $P) | ConvertTo-Json -Compress)"
 $st0 = Invoke-Native 'powershell.exe' @('-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $P 'scripts\ops\status.ps1'),'-Json') "$R\c0-status"
@@ -313,7 +314,7 @@ function Undo-Aux { foreach ($row in Import-Csv "$N\aux-prestate.csv") { if (Tes
 function Start-AuxHolders {   # restart the long-running holders that C2 stopped, only where their pre-state was enabled
   foreach ($tn in $Holders) { $row = Import-Csv "$N\aux-prestate.csv" -ErrorAction SilentlyContinue | Where-Object Task -eq $tn
     if ($row -and (Test-PrestateEnabled $row)) { Start-ScheduledTask -TaskName $tn; Log "started $tn" }
-    elseif ($row) { Log "ESCALATE: $tn pre-state disabled; not restarted" } } }
+    elseif ($row -and $row.State -eq 'Running') { Log "ESCALATE: $tn pre-state disabled; not restarted" } } }
 function Stop-Tape([string]$Exe) {
   # 'stop' exits 0 only when it stopped a live worker (execution_tape_supervisor.py:909-912). A worker that is
   # already gone returns authorization.process_gone=true / recorded_process_not_found (supervisor.py:1353-1361),
@@ -362,7 +363,7 @@ catch { $msg = $_.Exception.Message; Log "C2 failed: $msg - undoing"
   $global:ReleaseOnNoGo = $false; Release-Lease; throw }
 
 # ---- WRAPPER C3. Stop the capture workers (verbatim function definitions)
-$WStep = 'C3C4'; $msg = $null   # WRAPPER $msg is set again only by the C3+C4 guarded catch, so the outer catch can tell whether that undo already ran
+$WStep = 'C3C4'; $msg = $null   # WRAPPER $msg is set again only by the pre-C3 deadline (C2 undo, lease released) and the C3+C4 guarded catch, so the outer catch can tell whether an undo already ran
 # $Exe is one interpreter for everything (C3), or a hashtable with keys snapshot, clob, obs and gate (§R, per worker).
 function Stop-Capture($Exe, [switch]$Soft) {
   $X = if ($Exe -is [hashtable]) { $Exe } else { @{ snapshot=$Exe; clob=$Exe; obs=$Exe; gate=$Exe } }
@@ -414,6 +415,9 @@ function Rename-WithSweep([string]$From, [string]$To, [string]$Tag) {
     if ($hold) { Log "$Tag try $i holders $(($hold.ProcessId) -join ',')"; Start-Sleep 20; continue }
     try { Rename-Item -LiteralPath $From -NewName $To -ErrorAction Stop; return $true } catch { Log "$Tag rename try $i failed: $($_.Exception.Message)"; Start-Sleep 20 } }
   return $false }
+# Pre-C3 deadline 01:12: the C3 pass-case worst case (about 17.5 min) would reach the 01:30 check too late, so stop before any capture stop.
+if ((Get-Date) -gt (Get-Date).Date.AddHours(1).AddMinutes(12)) { $msg = 'pre-C3 deadline 01:12 passed'; Log "$msg - C2 undo, capture not stopped, no swap"
+  try { Undo-Aux; Start-AuxHolders } finally { $global:ReleaseOnNoGo = $false; Release-Lease }; NoGo $msg }
 # C3 + C4 guarded block. NoGo must not release the lease before the undo has run, so the catch releases it itself.
 $global:ReleaseOnNoGo = $false
 try {
