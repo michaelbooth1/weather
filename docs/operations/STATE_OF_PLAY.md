@@ -1,7 +1,7 @@
 # State of play
 
-**Last updated: 2026-10-21 12:30 America/Toronto (owner accepted every EDGE-1 bundle-B default 10-21 12:14, DL rows;
-Python C 10-21/22 on the pre-N12 master with owner GO; N12 10-22/23; EDGE-1 D0 10-25 if N12 by 10-24, else 10-28).**
+**Last updated: 2026-10-22 America/Toronto (Python C 10-21/22 NO-GO at C2, nothing swapped, restored; next C night
+pending the owner; N12 10-22/23; EDGE-1 D0 10-25 if N12 by 10-24, else 10-28, subject to amendment (s)/(s-C)).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended. At most 95 lines and about 9 KB, one fact per bullet, detail in the linked owner.** This file owns
@@ -33,7 +33,7 @@ views (owner 10-19). Plan: [informed maker design](informed-maker-design-2026-09
 ## Current truth
 
 - **Production source:** read `origin/master` with git. N12 (`claude/integration-20261019-chain-r3` `739c03eff`, which
-  carries the #190 parser v2 refresh `1f8c2f2c1`) lands the night 10-22/23, after C (DL 10-20).
+  carries the #190 parser v2 refresh `1f8c2f2c1`) lands the night 10-22/23 (DL 10-20; C did not swap, so N12 lands on 3.11.0).
 - **Forward maker shadow ACTIVE** (`WeatherMakerShadowRunner`, 24/7, 12 bands, paper only); stop only with
   `data\maker_shadow\STOP`. Scoring embargo: `maker_shadow_panel.py` refuses UTC 09-30..10-15 and 10-15..11-13 (end stays 11-13: #263 N_req 706, DL 10-14).
   **Descriptive reads of 10-16..11-13 are refused everywhere until the panel closes** (owner 10-17).
@@ -41,11 +41,11 @@ views (owner 10-19). Plan: [informed maker design](informed-maker-design-2026-09
   exit 3 until re-registered ([runbook](manual-order-journal.md)).
 - **Wallet reader (8765)** on `a1014edab` (any-LAN code) since 10-13; serial ([wallet reader](wallet-reader.md)).
 - **Host Python:** Phase B PASS 10-16 (qualified tip `90b2e1844`, an ancestor of master; roll verdict ROLL-FREE); venv
-  still 3.11.0. **C runs 10-21 into 10-22 on the pre-N12 master** with the owner's GO in chat that night; B-R is
-  cancelled (DL 10-20). The C night is exclusive. A 10-22 capture gap counts for MG-1 only by MG-1's own rule; a failed §R waits for the
-  04:15 restore and the owner in the morning (DL 10-19). ([runbook](HOST_PYTHON_UPGRADE_RUNBOOK.md))
+  still 3.11.0. **C 10-21/22 NO-GO at C2** (a running task's `State` stays `Running` after disable); nothing swapped, all
+  restored. Fix: runbook `claude/pyup-c2-enabled-check-20261022` (light path 10-23), kit `claude/night-plans-pyup-c-next-20261022`.
+  **Next C night: owner** (GO, escalation, G0): 10-26/27 with D0 ~10-28 (amendment (s-C)) or after 12-21. ([runbook](HOST_PYTHON_UPGRADE_RUNBOOK.md))
 - **Unregistered until C passes:** `WeatherMakerEvidenceLowestTemperature`, `WeatherEvidenceHost` (S4, owner yes 10-16),
-  U6 replay-bundle export (owner yes 10-15); the 88a S2+S9 restart also waits for C.
+  U6 replay-bundle export (owner yes 10-15). S2+S9 lands 10-24/25 from `f956f4159`; its 88a restart is 10-25/26 00:30-01:00 (restart script, never re-register).
 - **LFC:** session 0 ATTESTED 10-16; backlogged 10-19; pin `21cf1ed42` idle ([record](../research/live-fill-calibration-session0-record-2026-10-16.md)).
 - **Build line** `codex/maker-replay-v2-build-20261003` = `1fd0c295f`; the export nightly stays unregistered.
 - **Maker replay v2** (panel 09-30..10-14 never read): spec v3.4; handout r1 signed 10-12; parked; lapse 10-30 (owner 10-15).
@@ -65,10 +65,10 @@ views (owner 10-19). Plan: [informed maker design](informed-maker-design-2026-09
 
 1. **Model-edge programme:** EDGE-1 D0 10-25 if N12 lands by 10-24, else 10-28; land the signed bundle-B copies before D0;
    retrain column-allowlist head (build 10-27, land 10-30); Open-Meteo Previous Runs fetch (owner yes); lever 6 on the workstation.
-2. **Host Python:** C 10-21/22 (owner GO); then N12 10-22/23, MG-1 bound + SD-1 + DST label fix (EF §10w; deferred past 12-21 if that chain fails) 10-23/24, the waiting registrations and the 88a restart.
+2. **Host nights:** N12 10-22/23; MG-1 bound + SD-1 + DST label fix (EF §10w; deferred past 12-21 if that chain fails) 10-23/24; S2+S9 10-24/25; then the C retry on the owner's chosen night, the waiting registrations and the 88a restart.
 3. **YouTube-maker scoping** (documents only): owner actions O1-O5 in the 10-23 bundle.
 4. **Item 337:** host no-METAR replay after C; on PASS flip, bump, quiet window (owner yes).
-5. **Data layer v2:** [plan](DATA_LAYER_V2_PLAN.md); S2+S9+P1 and S4 re-dated after C.
+5. **Data layer v2:** [plan](DATA_LAYER_V2_PLAN.md); S2+S9 10-24/25; P1 and S4 re-dated after C.
 
 ## Open commitments (every row: owner, due, verify)
 
