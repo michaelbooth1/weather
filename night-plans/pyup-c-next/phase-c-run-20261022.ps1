@@ -34,7 +34,7 @@ if (-not $WWhy) {   # WRAPPER
   if (-not (Test-Path -LiteralPath $WGo)) { $WWhy = "$WGo is missing (no owner GO)" }   # WRAPPER
   elseif (("$(Get-Content -LiteralPath $WGo -TotalCount 1)".Trim() -split '\s+')[0] -cne 'GO') { $WWhy = "$WGo first token is not GO" }   # WRAPPER
   elseif ($WNow -lt $WNow.Date.AddHours(1)) { $WWhy = 'before 01:00 (C1 must not start earlier)' }   # WRAPPER
-  elseif ($WNow -gt $WNow.Date.AddHours(1).AddMinutes(15)) { $WWhy = 'after 01:15 (the C1 lease deadline)' } }   # WRAPPER
+  elseif ($WNow -gt $WNow.Date.AddHours(1).AddMinutes(1)) { $WWhy = 'after 01:01 (the C1 lease deadline)' } }   # WRAPPER
 if ($WWhy) { Write-Host "PHASE-C REFUSED: $WWhy"; Stop-Transcript | Out-Null; exit 3 }   # WRAPPER
 
 # ---- WRAPPER functions
@@ -286,10 +286,11 @@ if ($WRunsAdded.Count) { Log "OPERATOR CHECK: task(s) due before 04:00 that the 
 
 # ---- WRAPPER C1. Lease and fresh receipts (verbatim)
 $WStep = 'C1'   # WRAPPER
-$global:Lease = $null; $deadline = (Get-Date).Date.AddHours(1).AddMinutes(15)
+$global:Lease = $null; $deadline = (Get-Date).Date.AddHours(1).AddMinutes(1)
 while (-not $global:Lease) { $global:Lease = Enter-WeatherHeavyWorkloadLease -RepoRoot $P -Workload 'py3119_cutover'
-  if (-not $global:Lease) { if ((Get-Date) -gt $deadline) { NoGo 'no lease by 01:15' }; Start-Sleep -Seconds 30 } }
+  if (-not $global:Lease) { if ((Get-Date) -gt $deadline) { NoGo 'no lease by 01:01' }; Start-Sleep -Seconds 30 } }
 $global:ReleaseOnNoGo = $true     # until the C4 rename, any NoGo releases the lease; after it, §R needs the lease
+if ((Get-Date) -gt $deadline) { NoGo 'lease taken after 01:01: C1 plus worst-case C2 would pass the 01:12 pre-C3 deadline' }   # the retry sleep can overshoot; refuse before C2 touches 88a or the tape
 $N = Join-Path $R ('night-' + (Get-Date -Format yyyyMMdd)); New-Item -ItemType Directory -Force $N | Out-Null
 & $Py -m pip freeze --all | Set-Content "$N\freeze-3110-tonight.txt"
 if (Compare-Object (Mask-Editable (Get-Content "$A\freeze-3110.txt")) (Mask-Editable (Get-Content "$N\freeze-3110-tonight.txt"))) { NoGo 'prod venv changed since Phase B - requalify (full Phase B on another night)' }

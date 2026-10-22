@@ -41,7 +41,7 @@ Owner choices on file (first lines read 2026-10-20): `q12.txt` = `STOP_AUTHORIZE
 | --- | --- | --- |
 | 00:30-00:55 | C0 GO checks | Any fail = NO-GO, nothing touched |
 | (after C0) | **Owner types GO** (in chat; G4) | No GO = stop; nothing touched |
-| 01:00, latest 01:15 | C1 lease and receipts | No lease by 01:15 = NO-GO |
+| 01:00, latest 01:01 | C1 lease and receipts | No lease by 01:01 = NO-GO, nothing touched (C1 plus worst-case C2 must end by the 01:12 pre-C3 deadline) |
 | +5 min | C2 quiesce aux tasks and holders | Any throw = `Undo-Aux`, NO-GO |
 | +5-10 min | C3 stop capture workers | Past 01:12 at C3 start = C2 undo, NO-GO, capture untouched; still active after 600 s = undo, restore, NO-GO |
 | by 01:30 | C4 rename `venv` to `venv-cp3110` | Fails 3 times or past 01:30 = undo, restore, NO-GO |
@@ -254,7 +254,7 @@ function Test-Venv($vpy, $root, $tag) {
 | Clock (local) | Step | Hard stop |
 | --- | --- | --- |
 | 00:30-00:55 | C0 GO checks | Any fail = NO-GO, nothing touched |
-| 01:00, latest 01:15 | C1 lease and receipts | No lease by 01:15 = NO-GO |
+| 01:00, latest 01:01 | C1 lease and receipts | No lease by 01:01 = NO-GO, nothing touched (C1 plus worst-case C2 must end by the 01:12 pre-C3 deadline) |
 | +5 min | C2 quiesce the auxiliary tasks and long-running holders | Any throw = `Undo-Aux`, NO-GO |
 | +5-10 min | C3 stop the capture workers | Past 01:12 at C3 start = C2 undo, NO-GO, capture untouched; still active after 600 s = undo, restore, NO-GO |
 | by 01:30 | C4 rename `venv` to `venv-cp3110` | Rename fails 3 times or it is past 01:30 = undo, restore, NO-GO |
@@ -321,10 +321,11 @@ Log "C0 complete (status.ps1 exit $st0) - awaiting owner GO"
 **C1. Lease and fresh receipts.**
 
 ```powershell
-$global:Lease = $null; $deadline = (Get-Date).Date.AddHours(1).AddMinutes(15)
+$global:Lease = $null; $deadline = (Get-Date).Date.AddHours(1).AddMinutes(1)
 while (-not $global:Lease) { $global:Lease = Enter-WeatherHeavyWorkloadLease -RepoRoot $P -Workload 'py3119_cutover'
-  if (-not $global:Lease) { if ((Get-Date) -gt $deadline) { NoGo 'no lease by 01:15' }; Start-Sleep -Seconds 30 } }
+  if (-not $global:Lease) { if ((Get-Date) -gt $deadline) { NoGo 'no lease by 01:01' }; Start-Sleep -Seconds 30 } }
 $global:ReleaseOnNoGo = $true     # until the C4 rename, any NoGo releases the lease; after it, §R needs the lease
+if ((Get-Date) -gt $deadline) { NoGo 'lease taken after 01:01: C1 plus worst-case C2 would pass the 01:12 pre-C3 deadline' }   # the retry sleep can overshoot; refuse before C2 touches 88a or the tape
 $N = Join-Path $R ('night-' + (Get-Date -Format yyyyMMdd)); New-Item -ItemType Directory -Force $N | Out-Null
 & $Py -m pip freeze --all | Set-Content "$N\freeze-3110-tonight.txt"
 if (Compare-Object (Mask-Editable (Get-Content "$A\freeze-3110.txt")) (Mask-Editable (Get-Content "$N\freeze-3110-tonight.txt"))) { NoGo 'prod venv changed since Phase B - requalify (full Phase B on another night)' }
@@ -888,4 +889,10 @@ Every place where the 41e3bec62 runbook (and therefore this file) differs from `
     NO-GOes, with capture untouched (no `Undo-Stop`, no S4U restore). It sets `$msg`, so the run wrapper's outer catch
     runs no second undo. T = 01:30 minus the C3 pass-case worst case before the 01:30 check: ensure waits 330 s
     (instances started before the disables, so the waits overlap) + stop verbs budgeted 1 min + gate loop 600 s +
-    its last call and sleep budgeted 1 min = 17.5 min, so 01:12:30, rounded down to 01:12.
+    its last call and sleep budgeted 1 min = 17.5 min, so 01:12:30, rounded down to 01:12. (7) **C1 lease deadline
+    01:01 (was 01:15)**, so that C1 plus the C2 worst case ends by 01:12 and a late lease is refused before C2 stops the
+    88a worker or the tape: C1 after the lease budgeted 1 min + shadow seal wait 180 s and one 10 s poll + tape ensure
+    wait 330 s and one 5 s poll + pre-state reads, disables, tape stop and 88a/family stops budgeted 1.25 min = 11 min,
+    so 01:01:00. A new line after the lease loop NO-GOes (and releases) a lease taken after 01:01, because the loop's
+    30 s retry sleep can overshoot. This trades every late-lease night for a zero 88a and tape gap; the run wrapper's
+    preflight now refuses after 01:01, so its launch window is 01:00-01:01.
