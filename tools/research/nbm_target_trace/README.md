@@ -55,7 +55,7 @@ $input79 = 'C:/Users/Michael/Documents/github/weather/scratch/missing-informatio
 function Invoke-NbmTrace([string[]]$Tokens) {
     $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(
         (ConvertTo-Json -InputObject $Tokens -Compress)))
-    & "$repo/scripts/ops/workstation_heavy.ps1" -Kind weather_heavy `
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$repo/scripts/ops/workstation_heavy.ps1" -Kind weather_heavy `
         -PythonPath $python -ArgumentsBase64 $encoded -RepoRoot $repo
     if ($LASTEXITCODE -ne 0) { throw 'Guarded trace failed' }
 }

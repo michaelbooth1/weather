@@ -5,6 +5,7 @@ generated index; the closeout regenerates it in one idempotent command).
 """
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -112,3 +113,42 @@ def test_closeout_refuses_a_branch_name_that_carries_another_tree(fx):
     assert result.returncode == 1
     assert "different tree" in result.stdout
     assert _git(fx["origin"], "rev-parse", f"docs/correspondence-index-closeout-{base[:12]}") == base
+
+
+_LIGHT_PATH_STUB = """[CmdletBinding()]
+param([Parameter(Mandatory = $true)][string]$Branch, [string]$ExpectedTip, [string]$RepoRoot, [switch]$CheckOnly)
+$record = [ordered]@{
+    branch = $Branch; tip = $ExpectedTip; repo = $RepoRoot; check_only = [bool]$CheckOnly
+    command_line = [Environment]::CommandLine
+}
+$record | ConvertTo-Json -Compress | Set-Content -LiteralPath $env:LIGHT_PATH_RECORD -Encoding UTF8
+$Host.SetShouldExit(7)
+exit 7
+"""
+
+
+def test_land_runs_the_light_path_out_of_process_and_returns_its_code(fx, tmp_path):
+    # The light path ends with $Host.SetShouldExit, so it must run in its own
+    # powershell.exe; the closeout then still removes its worktree and exits
+    # with the light path's code.
+    repo, worktrees = fx["repo"], fx["worktrees"]
+    stub = repo / "scripts" / "ops" / "docs_light_path.ps1"
+    stub.parent.mkdir(parents=True)
+    stub.write_text(_LIGHT_PATH_STUB, encoding="utf-8")
+    record = tmp_path / "light_path_record.json"
+    env = {key: value for key, value in os.environ.items() if key != "PYTHONPATH"}
+    result = subprocess.run(
+        [POWERSHELL, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", str(SCRIPT),
+         "-RepoRoot", str(repo), "-PythonPath", sys.executable, "-WorktreeRoot", str(worktrees), "-Land"],
+        capture_output=True, text=True, timeout=300,
+        env=dict(env, **GIT_ENV, LIGHT_PATH_RECORD=str(record)),
+    )
+    assert result.returncode == 7, result.stdout + result.stderr
+    tip = _value(result.stdout, "CLOSEOUT_TIP")
+    seen = json.loads(record.read_text(encoding="utf-8-sig"))
+    assert seen["branch"] == _value(result.stdout, "CLOSEOUT_BRANCH")
+    assert seen["tip"] == tip
+    assert Path(seen["repo"]) == repo.resolve()
+    assert seen["check_only"] is False
+    assert "-File" in seen["command_line"] and "docs_light_path.ps1" in seen["command_line"]
+    assert _git(repo, "worktree", "list", "--porcelain").count("worktree ") == 1

@@ -1094,6 +1094,8 @@ $suiteLogStream = $null
 $suiteLogWriter = $null
 $workloadLease = Enter-WeatherHeavyWorkloadLease -RepoRoot $RepoRoot -Workload "bounded_worktree_test_suite"
 if ($null -eq $workloadLease) { throw "another heavyweight host workload owns data/logs/heavy_workload.lock" }
+# Default-fail: only a PASS verdict sets 0; every exit below records its code first.
+$suiteExitCode = 1
 try {
     $suiteLogStream = [IO.File]::Open(
         $LogPath,
@@ -1206,7 +1208,8 @@ try {
     if ($PreflightOnly) {
         Write-SuiteLog "VERDICT: PREFLIGHT PASSED; no tests run"
         $launchStatus = "PASS"
-        exit 0
+        $suiteExitCode = 0
+        exit $suiteExitCode
     }
 
     if ($IntegrationPreflight) {
@@ -1450,7 +1453,8 @@ try {
 
     if ($failedChunks -ne 0) {
         Write-SuiteLog "VERDICT: $failedChunks CHUNK(S) FAILED; do not merge"
-        exit 1
+        $suiteExitCode = 1
+        exit $suiteExitCode
     }
 
     # The worktree, movable branch ref, and tracked test inventory can change
@@ -1505,12 +1509,14 @@ try {
     if ($SmokeTest) {
         Write-SuiteLog "VERDICT: SMOKE PASSED; full suite not run and merge is not authorized"
         $launchStatus = "PASS"
-        exit 0
+        $suiteExitCode = 0
+        exit $suiteExitCode
     }
     if ($IntegrationPreflight) {
         Write-SuiteLog "VERDICT: INTEGRATION PREFLIGHT PASSED; full suite not run and merge is not authorized"
         $launchStatus = "PASS"
-        exit 0
+        $suiteExitCode = 0
+        exit $suiteExitCode
     }
     if ($null -ne $interpreterOverride) {
         # A staged interpreter qualifies itself, never the production venv, so
@@ -1522,17 +1528,24 @@ try {
             "python=$($interpreterOverride.python_version_triple); NOT merge evidence"
         )
         $launchStatus = "PASS"
-        exit 0
+        $suiteExitCode = 0
+        exit $suiteExitCode
     }
     Write-SuiteLog "VERDICT: ALL CHUNKS PASSED ($($chunks.Count)/$($chunks.Count)); exact tip eligible for separate reviewed merge"
     $launchStatus = "PASS"
-    exit 0
+    $suiteExitCode = 0
+    exit $suiteExitCode
 }
 catch {
     $launchFailure = $_
+    # The exit issued from the finally below discards an uncaught error, so print it here.
+    $Host.UI.WriteErrorLine(($_ | Out-String).TrimEnd())
     throw
 }
 finally {
+    # Set the host exit code before any cleanup: a cleanup statement that is
+    # aborted by Ctrl+C would otherwise leave this advanced script exiting 0.
+    $Host.SetShouldExit($suiteExitCode)
     try {
         if ($null -ne $suiteLogWriter) {
             $suiteLogWriter.Flush()
@@ -1570,4 +1583,6 @@ finally {
         Exit-WeatherHeavyWorkloadLease -Lease $workloadLease
         Close-WeatherLaunchDiagnostics -Journal $launchJournal -Status $launchStatus -Failure $launchFailure
     }
+    $Host.SetShouldExit($suiteExitCode)
+    exit $suiteExitCode
 }

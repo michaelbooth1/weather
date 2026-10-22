@@ -109,10 +109,12 @@ propagate.
 
 ## Leases, guards, and bounded wrappers
 
-- Every heavyweight wrapper holds the shared lease from `workload_admission.ps1`
-  across its expensive or capture-disrupting section. Headroom and time-window
-  checks stay mandatory and independent; the lease only prevents overlap. A
-  stale metadata file is not ownership — the open OS file handle is.
+- Every heavyweight wrapper holds the shared lease from `workload_admission.ps1` across its expensive
+  or capture-disrupting section. Headroom and time-window checks stay mandatory and independent; the
+  lease only prevents overlap. A stale metadata file is not ownership — the open OS file handle is.
+- Merge, light-path, heavy, suite and window wrappers default-fail: the code starts non-zero, each
+  `exit` records it, 0 is set only on proven success, and the final `finally` ends `$Host.SetShouldExit`
+  + `exit` ([development.md](../../docs/development.md); `test_ps_exit_default_fail_ratchet.py`).
 - The workstation path (`workstation_heavy.ps1`, `workstation_offline_v1`) and
   the sealed `portable_execution_v1` live lane are owned by the host load policy
   and [the portable execution-host runbook](../../docs/operations/PORTABLE_LIVE_EXECUTION_HOST.md).
@@ -129,13 +131,11 @@ propagate.
   Scheduler mutation and seals it into the task action; a bound guard exits
   before logging, enumeration, or termination on any other host. Legacy unbound
   actions keep enforcing until separately authorized re-registration.
-- One-date settlement backfills use the canonical bounded daily-refresh slice
-  ending at `market_day_labels_finalize`; never run the rest of the chain and
-  kill it. Lock ownership is PID plus creation identity, not file existence.
-- Tiering wrappers assign children to a kill-on-close Job, keep an absolute
-  runtime bound, write latest status atomically, and append history; a
-  busy-lease skip is not reclaim evidence. Their registrars bind fixed start
-  times, runner bounds, and scheduler limits with no late catch-up (values:
+- One-date settlement backfills use the canonical bounded daily-refresh slice ending at `market_day_labels_finalize`;
+  never run the rest of the chain and kill it. Lock ownership is PID plus creation identity, not file existence.
+- Tiering wrappers assign children to a kill-on-close Job, keep an absolute runtime bound, write
+  latest status atomically, and append history; a busy-lease skip is not reclaim evidence. Their
+  registrars bind fixed start times, runner bounds, and scheduler limits with no late catch-up (values:
   [data retention policy](../../docs/operations/data-retention-policy.md)) and
   must read back the exact action, trigger, principal, and settings.
 - Producer provenance follows the topology: the nightly action is `direct`;

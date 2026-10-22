@@ -64,7 +64,8 @@ def test_training_window_restores_before_propagating_nightly_failure():
     assert "} finally {" in text
     assert "Restore-Capture" in text.split("} finally {", 1)[1]
     assert '$nightlyStatus -in @(\"blocked\", \"error\", \"missing\", \"unreadable\")' in text
-    assert text.rstrip().endswith("exit $childExit")
+    # The window's code is issued from inside the final finally (default-fail).
+    assert text.rstrip().endswith("$Host.SetShouldExit($childExit)\n    exit $childExit\n}")
 
 
 def test_training_window_carries_exact_delegated_scheduler_contract():
