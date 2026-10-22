@@ -10,6 +10,11 @@ definitions, Phase C (C0 to C10), §R (including its new "Escalation" paragraph)
 night differs from this file, the runbook wins: regenerate this file. Changes against the 10-17 raw are listed in the
 final section "Delta vs 20261017 raw".
 
+**This kit is ahead of master's runbook by the C2 fix on claude/pyup-c2-enabled-check-20261022; until that lands, do NOT regenerate from master's runbook.**
+
+**Launch form (as run on 10-21/22):** the wrappers run as FILES, elevated, with no redirects, from local copies under
+`C:\pyup\cp3119`: `Start-Process powershell.exe -Verb RunAs -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File <wrapper>'`.
+
 **Not yet on master.** At generation time `41e3bec62` is a review branch tip, not an ancestor of master
 `6aac6de81`. The Phase C *code* that the 20261022 wrappers run is taken from `41e3bec62`; if the branch lands changed,
 regenerate.
@@ -285,6 +290,8 @@ if ($FamilyTasks.Count) {
   if (-not (Test-Path -LiteralPath "$R\q12b.txt") -or ((Get-Content -LiteralPath "$R\q12b.txt" -TotalCount 1) -split '\s+')[0] -ne 'STOP_AUTHORIZED') { NoGo 'a capture-family task is registered but Q12b is not STOP_AUTHORIZED' }
   $auxNames = @(Get-Content -LiteralPath "$R\aux-tasks.txt" | ForEach-Object { $_.Trim() })
   foreach ($ft in $FamilyTasks) { if ($auxNames -notcontains $ft) { NoGo "$ft is not in aux-tasks.txt (A1 review)" } } }
+$auxNames = @(Get-Content -LiteralPath "$R\aux-tasks.txt" | Where-Object { $_.Trim() })   # the aux list exactly as C2's Quiesce-Aux reads it
+foreach ($auxName in $auxNames) { $null = Get-ScheduledTask -TaskName $auxName -ErrorAction Stop }   # a wrong name throws here, before anything has changed, not part-way through C2
 if (git -C $P status --porcelain --untracked-files=no) { NoGo 'prod tree dirty' }
 if (Test-Path -LiteralPath $Old) { NoGo "$Old exists" }
 if ((Get-Volume -DriveLetter C).SizeRemaining -lt 10GB) { NoGo 'disk' }
@@ -329,7 +336,8 @@ Log "shadow task registered=$([bool]$shadowTask) stop file: $ShadowStop"
 ```
 
 If the shadow task is not registered, `aux-tasks.txt` must not list it (A1 review). If it does
-list it, `Get-ScheduledTask` throws in C2, before anything has changed.
+list it, C0's aux-name check throws, before anything has changed. C2 reads every pre-state row
+before it writes `aux-prestate.csv`, so a lookup that still fails in C2 leaves no partial file.
 
 **C2. Quiesce the auxiliary tasks and long-running holders.** The functions are defined once and
 reused by C3, C9b and §R.
@@ -342,13 +350,15 @@ $Sup = 'WeatherSnapshotLoopSupervisor','WeatherClobBookLoopSupervisor','WeatherO
 $Holders = @('WeatherExecutionTapeSupervisor','WeatherMakerShadowRunner','WeatherMakerEvidenceCapture') + $FamilyTasks   # $FamilyTasks from C0
 # Was this pre-state row enabled? The Enabled column (2026-10-22) is exact. A row without it (a pre-state recorded
 # before that revision) keeps the old State rule, so the undo of an existing file is unchanged.
-function Test-PrestateEnabled($Row) { if ($Row.PSObject.Properties['Enabled'] -and $Row.Enabled) { return $Row.Enabled -eq 'True' }; $Row.State -ne 'Disabled' }
+function Test-PrestateEnabled($Row) { if ($Row.PSObject.Properties['Enabled'] -and $Row.Enabled) { return $Row.Enabled -eq 'True' }
+  if ($Row.PSObject.Properties['Enabled']) { Log "ESCALATE: $($Row.Task) pre-state Enabled is empty; using the State rule (State $($Row.State))" }; $Row.State -ne 'Disabled' }
 function Undo-Aux { foreach ($row in Import-Csv "$N\aux-prestate.csv") { if (Test-PrestateEnabled $row) { Enable-ScheduledTask -TaskName $row.Task | Out-Null }
     elseif ($row.State -eq 'Running') { Log "ESCALATE: $($row.Task) was disabled but running at C2; left disabled and not restarted" } }
   if ($ShadowStop) { Remove-Item -LiteralPath $ShadowStop -ErrorAction SilentlyContinue } }
 function Start-AuxHolders {   # restart the long-running holders that C2 stopped, only where their pre-state was enabled
   foreach ($tn in $Holders) { $row = Import-Csv "$N\aux-prestate.csv" -ErrorAction SilentlyContinue | Where-Object Task -eq $tn
-    if ($row -and (Test-PrestateEnabled $row)) { Start-ScheduledTask -TaskName $tn; Log "started $tn" } } }
+    if ($row -and (Test-PrestateEnabled $row)) { Start-ScheduledTask -TaskName $tn; Log "started $tn" }
+    elseif ($row) { Log "ESCALATE: $tn pre-state disabled; not restarted" } } }
 function Stop-Tape([string]$Exe) {
   # 'stop' exits 0 only when it stopped a live worker (execution_tape_supervisor.py:909-912). A worker that is
   # already gone returns authorization.process_gone=true / recorded_process_not_found (supervisor.py:1353-1361),
@@ -367,9 +377,9 @@ function Invoke-QStep([string]$Name, [scriptblock]$Body, [bool]$Soft) {
 function Quiesce-Aux([string]$Exe, [switch]$Soft) {
   $Aux = @(Get-Content -LiteralPath "$R\aux-tasks.txt" | Where-Object { $_.Trim() })
   Invoke-QStep 'prestate' {
-    if (-not (Test-Path -LiteralPath "$N\aux-prestate.csv")) {
-      $Aux | ForEach-Object { $x = Get-ScheduledTask -TaskName $_; [pscustomobject]@{ Task=$_; State=[string]$x.State; Enabled=[string]$x.Settings.Enabled } } |   # throws on a wrong name; State 'Running' does not say enabled
-        Export-Csv -LiteralPath "$N\aux-prestate.csv" -NoTypeInformation } } $Soft.IsPresent
+    if (-not (Test-Path -LiteralPath "$N\aux-prestate.csv")) {   # read every row first: a throw on row N must not leave a partial file
+      $rows = @($Aux | ForEach-Object { $x = Get-ScheduledTask -TaskName $_; [pscustomobject]@{ Task=$_; State=[string]$x.State; Enabled=[string]$x.Settings.Enabled } })   # throws on a wrong name; State 'Running' does not say enabled
+      $rows | Export-Csv -LiteralPath "$N\aux-prestate.csv" -NoTypeInformation } } $Soft.IsPresent
   Invoke-QStep 'shadow' {   # STOP file only, never a kill
     if ($Aux -contains 'WeatherMakerShadowRunner') {
       if (-not $ShadowStop) { NoGo 'shadow stop-file path unknown' }
@@ -378,7 +388,12 @@ function Quiesce-Aux([string]$Exe, [switch]$Soft) {
       if ([string](Get-ScheduledTask -TaskName WeatherMakerShadowRunner).State -eq 'Running') { NoGo 'shadow did not seal in 3 min' } } } $Soft.IsPresent
   # Verify the disable with Settings.Enabled, never State: a disabled task with a running instance (88a, the tape) keeps State 'Running' until the stop below (C2 NO-GO 2026-10-22).
   foreach ($tn in $Aux) { Invoke-QStep "disable $tn" { Disable-ScheduledTask -TaskName $tn | Out-Null
-    if ((Get-ScheduledTask -TaskName $tn).Settings.Enabled -ne $false) { NoGo "disable $tn" } } $Soft.IsPresent }
+    $st = @(Get-ScheduledTask -TaskName $tn); if ($st.Count -ne 1 -or $st[0].Settings.Enabled -ne $false) { NoGo "disable $tn" } } $Soft.IsPresent }
+  # A disable does not end an in-flight ensure run, which could relaunch the tape after its stop. The tape supervisor is a
+  # periodic ensure task (1 min, IgnoreNew, 2 min limit: register_execution_tape_supervisor.ps1:11, :27-34); wait for its instance.
+  if ($Aux -contains 'WeatherExecutionTapeSupervisor') { Invoke-QStep 'tape ensure' { $tn = 'WeatherExecutionTapeSupervisor'
+    $t0 = Get-Date; while ([string](Get-ScheduledTask -TaskName $tn).State -eq 'Running' -and ((Get-Date) - $t0).TotalSeconds -lt 330) { Start-Sleep 5 }
+    if ([string](Get-ScheduledTask -TaskName $tn).State -eq 'Running') { NoGo "$tn instance still running past its time limit" } } $Soft.IsPresent }
   Invoke-QStep 'tape' { Stop-Tape $Exe } $Soft.IsPresent
   Invoke-QStep '88a' {   # only with the recorded owner choice (G8, Q12)
     if (((Get-Content -LiteralPath "$R\q12.txt" -TotalCount 1) -split '\s+')[0] -ne 'STOP_AUTHORIZED') { NoGo 'Q12 not STOP_AUTHORIZED' }
@@ -405,7 +420,12 @@ when the loop was already stopped (`snapshot_tracker.py:2413-2415`, `market_micr
 function Stop-Capture($Exe, [switch]$Soft) {
   $X = if ($Exe -is [hashtable]) { $Exe } else { @{ snapshot=$Exe; clob=$Exe; obs=$Exe; gate=$Exe } }
   foreach ($tn in $Sup) { Invoke-QStep "disable $tn" { Disable-ScheduledTask -TaskName $tn | Out-Null   # Settings.Enabled: a running supervisor keeps State 'Running'
-    if ((Get-ScheduledTask -TaskName $tn).Settings.Enabled -ne $false) { NoGo "disable $tn" } } $Soft.IsPresent }
+    $st = @(Get-ScheduledTask -TaskName $tn); if ($st.Count -ne 1 -or $st[0].Settings.Enabled -ne $false) { NoGo "disable $tn" } } $Soft.IsPresent }
+  # A disable does not end an in-flight ensure run, which could relaunch a loop after the stop verbs. The supervisors are periodic
+  # ensure tasks (IgnoreNew; limits snapshot 5 min, clob and obs 2 min): wait, after all three disables, for every instance to end.
+  foreach ($tn in $Sup) { Invoke-QStep "ensure $tn" {
+    $t0 = Get-Date; while ([string](Get-ScheduledTask -TaskName $tn).State -eq 'Running' -and ((Get-Date) - $t0).TotalSeconds -lt 330) { Start-Sleep 5 }
+    if ([string](Get-ScheduledTask -TaskName $tn).State -eq 'Running') { NoGo "$tn instance still running past its time limit" } } $Soft.IsPresent }
   $stamp = Get-Date -Format HHmmss; $script:c1 = $script:c2 = $script:c3 = 99
   Invoke-QStep 'stop snapshot' { $script:c1 = Invoke-Native $X.snapshot @('-m','weather.collection.snapshot_tracker','--stop') "$N\stop-snapshot-$stamp" } $Soft.IsPresent
   Invoke-QStep 'stop clob'     { $script:c2 = Invoke-Native $X.clob @('-m','weather.market.market_microstructure','stop') "$N\stop-clob-$stamp" } $Soft.IsPresent
@@ -595,7 +615,8 @@ decides the remediation under the 88a retention hold.
 **C10. Close-out.**
 
 ```powershell
-@{ result='PASS'; head=$Head; gap_minutes=[math]::Round(($GapEnd-$GapStart).TotalMinutes,1); old_venv=$Old; new_home=$NewHome; release_case='A'; at=(Get-Date).ToString('o') } |
+@{ result='PASS'; head=$Head; gap_minutes=[math]::Round(($GapEnd-$GapStart).TotalMinutes,1); old_venv=$Old; new_home=$NewHome; release_case='A'; at=(Get-Date).ToString('o')
+   escalations=@(Select-String -LiteralPath $Log -SimpleMatch 'ESCALATE' | Where-Object { $_.Line.StartsWith((Get-Date).ToString('yyyy-MM-dd')) }).Count } |   # tonight's lines only: night.log spans every phase
   ConvertTo-Json | Set-Content "$N\cutover-receipt.json" -Encoding utf8
 Release-Lease; Log 'CUTOVER PASS'
 ```
@@ -776,7 +797,8 @@ scheduled LFC session) are checked again before each Phase B and Phase C night.
 `Get-StatusFlagKeys`, `Save-StatusBaseline`, `Get-NewStatusFlags`; dot-sourced lease and memory-guard functions; Block
 2 `Build-Venv`, `Test-Venv`; C2 `Undo-Aux`, `Start-AuxHolders`, `Stop-Tape`, `Invoke-QStep`, `Quiesce-Aux`; C3
 `Stop-Capture`, `Wait-Restore`, `Undo-Stop`; C4 `Get-VenvHolders`, `Rename-WithSweep`; §R `Test-Interp`,
-`Resolve-StopPy`). The 41e3bec62 revision adds no function. Missing definitions: **none**.
+`Resolve-StopPy`). The 41e3bec62 revision adds no function; the 2026-10-22 C2 fix (Delta item 14) adds
+`Test-PrestateEnabled` (C2). Missing definitions: **none**.
 
 **Variables added by the 41e3bec62 revision:** `$FamilyTasks`, `$auxNames` (C0); loop variables `$ft` (C0, C2
 `Quiesce-Aux`, C9c), `$fid`, `$fs` (C9c). None collides case-insensitively with a session constant (`$K`, `$P`, `$A`,
@@ -832,3 +854,15 @@ Every place where the 41e3bec62 runbook (and therefore this file) differs from `
     worktree, §9 lane-pin citation by content.
 13. **Self-check prerequisites:** the 10-17 raw listed `q12.txt`, `gap-overrun.txt`, `aux-tasks.txt` as missing; all
     three now exist.
+14. **C2 disable check and its review fixes (2026-10-22, after the C2 false NO-GO at 01:02:11; mirrors
+    claude/pyup-c2-enabled-check-20261022).** A task with a running instance keeps State `Running` after
+    `Disable-ScheduledTask`, so the C2 and `Stop-Capture` post-disable checks now read `Settings.Enabled` and also require
+    exactly one task of that name. The C2 pre-state records `Enabled`; `Test-PrestateEnabled` (new) decides "was it
+    enabled" for `Undo-Aux`, `Start-AuxHolders`, C9c and the wrapper judgements, keeps the State rule for a row without
+    the column, and logs `ESCALATE` when the column is present but empty. `Undo-Aux` logs `ESCALATE` for a task that was
+    disabled but running; `Start-AuxHolders` logs `ESCALATE` for a holder with a disabled pre-state. A disable does not
+    end an in-flight ensure run, so `Stop-Capture` waits (bounded 330 s) for the three supervisors' instances after all
+    disables, and C2 waits the same way for the tape supervisor before its stop; the 88a, shadow and family holders are
+    stopped explicitly and not waited on. C2 reads every pre-state row before writing `aux-prestate.csv` (no partial
+    file), and C0 resolves every aux name first. The C10 receipt adds `escalations`, tonight's `ESCALATE` lines in
+    `night.log`.

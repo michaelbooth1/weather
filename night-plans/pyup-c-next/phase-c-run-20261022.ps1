@@ -2,6 +2,9 @@
 # WRAPPER Source: C:\tmp\agent-kit\phase-c-raw-20261022.md sha256 6ECF4B320144DE858418B5F44802775B28DB79C044EF1441F4D6B2820015919C
 # WRAPPER   Block 1 (section 6 header, host values filled), Block 2 (Build-Venv / Test-Venv definitions), C0..C10 and §R: verbatim, in order.
 # WRAPPER Runbook: docs\operations\HOST_PYTHON_UPGRADE_RUNBOOK.md sha256 FE074EE48EE564F9461F8615E5F3CD56FCB01024490D86B2147B9327C4361759 at review tip 41e3bec62 (origin/claude/pyup-c-1021-review-20261019; not yet on master).
+# WRAPPER This kit is ahead of master's runbook by the C2 fix on claude/pyup-c2-enabled-check-20261022; until that lands, do NOT regenerate from master's runbook.
+# WRAPPER Launch form (as run on 10-21/22): run as a FILE, elevated, no redirects, from the local copy under C:\pyup\cp3119:
+# WRAPPER   Start-Process powershell.exe -Verb RunAs -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File <wrapper>'
 # WRAPPER Transcript C:\pyup\cp3119\phase-c-transcript-20261022.txt.
 # WRAPPER Exit codes: 0 CUTOVER PASS (C10 ran); 1 stopped before the C4 rename (runbook blocks or the wrapper undid with no swap, lease released);
 # WRAPPER   2 §R ran to ROLLBACK DONE; 3 refused before any block; 4 operator hold / escalation (the lease is held by this process until a
@@ -251,6 +254,8 @@ if ($FamilyTasks.Count) {
   if (-not (Test-Path -LiteralPath "$R\q12b.txt") -or ((Get-Content -LiteralPath "$R\q12b.txt" -TotalCount 1) -split '\s+')[0] -ne 'STOP_AUTHORIZED') { NoGo 'a capture-family task is registered but Q12b is not STOP_AUTHORIZED' }
   $auxNames = @(Get-Content -LiteralPath "$R\aux-tasks.txt" | ForEach-Object { $_.Trim() })
   foreach ($ft in $FamilyTasks) { if ($auxNames -notcontains $ft) { NoGo "$ft is not in aux-tasks.txt (A1 review)" } } }
+$auxNames = @(Get-Content -LiteralPath "$R\aux-tasks.txt" | Where-Object { $_.Trim() })   # the aux list exactly as C2's Quiesce-Aux reads it
+foreach ($auxName in $auxNames) { $null = Get-ScheduledTask -TaskName $auxName -ErrorAction Stop }   # a wrong name throws here, before anything has changed, not part-way through C2
 if (git -C $P status --porcelain --untracked-files=no) { NoGo 'prod tree dirty' }
 if (Test-Path -LiteralPath $Old) { NoGo "$Old exists" }
 if ((Get-Volume -DriveLetter C).SizeRemaining -lt 10GB) { NoGo 'disk' }
@@ -299,13 +304,15 @@ $Sup = 'WeatherSnapshotLoopSupervisor','WeatherClobBookLoopSupervisor','WeatherO
 $Holders = @('WeatherExecutionTapeSupervisor','WeatherMakerShadowRunner','WeatherMakerEvidenceCapture') + $FamilyTasks   # $FamilyTasks from C0
 # Was this pre-state row enabled? The Enabled column (2026-10-22) is exact. A row without it (a pre-state recorded
 # before that revision) keeps the old State rule, so the undo of an existing file is unchanged.
-function Test-PrestateEnabled($Row) { if ($Row.PSObject.Properties['Enabled'] -and $Row.Enabled) { return $Row.Enabled -eq 'True' }; $Row.State -ne 'Disabled' }
+function Test-PrestateEnabled($Row) { if ($Row.PSObject.Properties['Enabled'] -and $Row.Enabled) { return $Row.Enabled -eq 'True' }
+  if ($Row.PSObject.Properties['Enabled']) { Log "ESCALATE: $($Row.Task) pre-state Enabled is empty; using the State rule (State $($Row.State))" }; $Row.State -ne 'Disabled' }
 function Undo-Aux { foreach ($row in Import-Csv "$N\aux-prestate.csv") { if (Test-PrestateEnabled $row) { Enable-ScheduledTask -TaskName $row.Task | Out-Null }
     elseif ($row.State -eq 'Running') { Log "ESCALATE: $($row.Task) was disabled but running at C2; left disabled and not restarted" } }
   if ($ShadowStop) { Remove-Item -LiteralPath $ShadowStop -ErrorAction SilentlyContinue } }
 function Start-AuxHolders {   # restart the long-running holders that C2 stopped, only where their pre-state was enabled
   foreach ($tn in $Holders) { $row = Import-Csv "$N\aux-prestate.csv" -ErrorAction SilentlyContinue | Where-Object Task -eq $tn
-    if ($row -and (Test-PrestateEnabled $row)) { Start-ScheduledTask -TaskName $tn; Log "started $tn" } } }
+    if ($row -and (Test-PrestateEnabled $row)) { Start-ScheduledTask -TaskName $tn; Log "started $tn" }
+    elseif ($row) { Log "ESCALATE: $tn pre-state disabled; not restarted" } } }
 function Stop-Tape([string]$Exe) {
   # 'stop' exits 0 only when it stopped a live worker (execution_tape_supervisor.py:909-912). A worker that is
   # already gone returns authorization.process_gone=true / recorded_process_not_found (supervisor.py:1353-1361),
@@ -324,9 +331,9 @@ function Invoke-QStep([string]$Name, [scriptblock]$Body, [bool]$Soft) {
 function Quiesce-Aux([string]$Exe, [switch]$Soft) {
   $Aux = @(Get-Content -LiteralPath "$R\aux-tasks.txt" | Where-Object { $_.Trim() })
   Invoke-QStep 'prestate' {
-    if (-not (Test-Path -LiteralPath "$N\aux-prestate.csv")) {
-      $Aux | ForEach-Object { $x = Get-ScheduledTask -TaskName $_; [pscustomobject]@{ Task=$_; State=[string]$x.State; Enabled=[string]$x.Settings.Enabled } } |   # throws on a wrong name; State 'Running' does not say enabled
-        Export-Csv -LiteralPath "$N\aux-prestate.csv" -NoTypeInformation } } $Soft.IsPresent
+    if (-not (Test-Path -LiteralPath "$N\aux-prestate.csv")) {   # read every row first: a throw on row N must not leave a partial file
+      $rows = @($Aux | ForEach-Object { $x = Get-ScheduledTask -TaskName $_; [pscustomobject]@{ Task=$_; State=[string]$x.State; Enabled=[string]$x.Settings.Enabled } })   # throws on a wrong name; State 'Running' does not say enabled
+      $rows | Export-Csv -LiteralPath "$N\aux-prestate.csv" -NoTypeInformation } } $Soft.IsPresent
   Invoke-QStep 'shadow' {   # STOP file only, never a kill
     if ($Aux -contains 'WeatherMakerShadowRunner') {
       if (-not $ShadowStop) { NoGo 'shadow stop-file path unknown' }
@@ -335,7 +342,12 @@ function Quiesce-Aux([string]$Exe, [switch]$Soft) {
       if ([string](Get-ScheduledTask -TaskName WeatherMakerShadowRunner).State -eq 'Running') { NoGo 'shadow did not seal in 3 min' } } } $Soft.IsPresent
   # Verify the disable with Settings.Enabled, never State: a disabled task with a running instance (88a, the tape) keeps State 'Running' until the stop below (C2 NO-GO 2026-10-22).
   foreach ($tn in $Aux) { Invoke-QStep "disable $tn" { Disable-ScheduledTask -TaskName $tn | Out-Null
-    if ((Get-ScheduledTask -TaskName $tn).Settings.Enabled -ne $false) { NoGo "disable $tn" } } $Soft.IsPresent }
+    $st = @(Get-ScheduledTask -TaskName $tn); if ($st.Count -ne 1 -or $st[0].Settings.Enabled -ne $false) { NoGo "disable $tn" } } $Soft.IsPresent }
+  # A disable does not end an in-flight ensure run, which could relaunch the tape after its stop. The tape supervisor is a
+  # periodic ensure task (1 min, IgnoreNew, 2 min limit: register_execution_tape_supervisor.ps1:11, :27-34); wait for its instance.
+  if ($Aux -contains 'WeatherExecutionTapeSupervisor') { Invoke-QStep 'tape ensure' { $tn = 'WeatherExecutionTapeSupervisor'
+    $t0 = Get-Date; while ([string](Get-ScheduledTask -TaskName $tn).State -eq 'Running' -and ((Get-Date) - $t0).TotalSeconds -lt 330) { Start-Sleep 5 }
+    if ([string](Get-ScheduledTask -TaskName $tn).State -eq 'Running') { NoGo "$tn instance still running past its time limit" } } $Soft.IsPresent }
   Invoke-QStep 'tape' { Stop-Tape $Exe } $Soft.IsPresent
   Invoke-QStep '88a' {   # only with the recorded owner choice (G8, Q12)
     if (((Get-Content -LiteralPath "$R\q12.txt" -TotalCount 1) -split '\s+')[0] -ne 'STOP_AUTHORIZED') { NoGo 'Q12 not STOP_AUTHORIZED' }
@@ -354,7 +366,12 @@ $WStep = 'C3C4'; $msg = $null   # WRAPPER $msg is set again only by the C3+C4 gu
 function Stop-Capture($Exe, [switch]$Soft) {
   $X = if ($Exe -is [hashtable]) { $Exe } else { @{ snapshot=$Exe; clob=$Exe; obs=$Exe; gate=$Exe } }
   foreach ($tn in $Sup) { Invoke-QStep "disable $tn" { Disable-ScheduledTask -TaskName $tn | Out-Null   # Settings.Enabled: a running supervisor keeps State 'Running'
-    if ((Get-ScheduledTask -TaskName $tn).Settings.Enabled -ne $false) { NoGo "disable $tn" } } $Soft.IsPresent }
+    $st = @(Get-ScheduledTask -TaskName $tn); if ($st.Count -ne 1 -or $st[0].Settings.Enabled -ne $false) { NoGo "disable $tn" } } $Soft.IsPresent }
+  # A disable does not end an in-flight ensure run, which could relaunch a loop after the stop verbs. The supervisors are periodic
+  # ensure tasks (IgnoreNew; limits snapshot 5 min, clob and obs 2 min): wait, after all three disables, for every instance to end.
+  foreach ($tn in $Sup) { Invoke-QStep "ensure $tn" {
+    $t0 = Get-Date; while ([string](Get-ScheduledTask -TaskName $tn).State -eq 'Running' -and ((Get-Date) - $t0).TotalSeconds -lt 330) { Start-Sleep 5 }
+    if ([string](Get-ScheduledTask -TaskName $tn).State -eq 'Running') { NoGo "$tn instance still running past its time limit" } } $Soft.IsPresent }
   $stamp = Get-Date -Format HHmmss; $script:c1 = $script:c2 = $script:c3 = 99
   Invoke-QStep 'stop snapshot' { $script:c1 = Invoke-Native $X.snapshot @('-m','weather.collection.snapshot_tracker','--stop') "$N\stop-snapshot-$stamp" } $Soft.IsPresent
   Invoke-QStep 'stop clob'     { $script:c2 = Invoke-Native $X.clob @('-m','weather.market.market_microstructure','stop') "$N\stop-clob-$stamp" } $Soft.IsPresent
@@ -522,7 +539,8 @@ else { Log 'WRAPPER: C9c all pass (tape RUNNING with current identity, integrity
 
 # ---- WRAPPER C10. Close-out (verbatim)
 $WStep = 'C10'   # WRAPPER
-@{ result='PASS'; head=$Head; gap_minutes=[math]::Round(($GapEnd-$GapStart).TotalMinutes,1); old_venv=$Old; new_home=$NewHome; release_case='A'; at=(Get-Date).ToString('o') } |
+@{ result='PASS'; head=$Head; gap_minutes=[math]::Round(($GapEnd-$GapStart).TotalMinutes,1); old_venv=$Old; new_home=$NewHome; release_case='A'; at=(Get-Date).ToString('o')
+   escalations=@(Select-String -LiteralPath $Log -SimpleMatch 'ESCALATE' | Where-Object { $_.Line.StartsWith((Get-Date).ToString('yyyy-MM-dd')) }).Count } |   # tonight's lines only: night.log spans every phase
   ConvertTo-Json | Set-Content "$N\cutover-receipt.json" -Encoding utf8
 Release-Lease; Log 'CUTOVER PASS'
 Log 'PHASE-C DONE (exit 0). OPERATOR CHECK: keep venv-cp3110, the old-home freeze copy, the 3.11.0 install, every 3.11.0 release manifest and $R for at least 14 days.'   # WRAPPER

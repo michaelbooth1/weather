@@ -2,6 +2,9 @@
 # WRAPPER Source: C:\tmp\agent-kit\phase-c-raw-20261022.md sha256 6ECF4B320144DE858418B5F44802775B28DB79C044EF1441F4D6B2820015919C
 # WRAPPER   Block 1 (section 6 header, host values filled), Block 2 (Build-Venv / Test-Venv definitions only), Block 3 C0: verbatim.
 # WRAPPER Runbook: docs\operations\HOST_PYTHON_UPGRADE_RUNBOOK.md sha256 FE074EE48EE564F9461F8615E5F3CD56FCB01024490D86B2147B9327C4361759 at review tip 41e3bec62 (origin/claude/pyup-c-1021-review-20261019; not yet on master).
+# WRAPPER This kit is ahead of master's runbook by the C2 fix on claude/pyup-c2-enabled-check-20261022; until that lands, do NOT regenerate from master's runbook.
+# WRAPPER Launch form (as run on 10-21/22): run as a FILE, elevated, no redirects, from the local copy under C:\pyup\cp3119:
+# WRAPPER   Start-Process powershell.exe -Verb RunAs -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File <wrapper>'
 # WRAPPER Output: transcript C:\pyup\cp3119\phase-c0-transcript-20261022.txt; C:\pyup\cp3119\c0-done-20261022.flag ONLY when C0 completed with no NO-GO
 # WRAPPER   (flag line: "C0 PASS head=<40-hex HEAD> at=<time>"; the Phase C wrapper compares that head). Exit 0 = C0 complete, 1 = stopped.
 # WRAPPER Non-verbatim lines (every one ends in or starts with "# WRAPPER"): these header comments; removal of a stale flag before the run;
@@ -150,6 +153,8 @@ if ($FamilyTasks.Count) {
   if (-not (Test-Path -LiteralPath "$R\q12b.txt") -or ((Get-Content -LiteralPath "$R\q12b.txt" -TotalCount 1) -split '\s+')[0] -ne 'STOP_AUTHORIZED') { NoGo 'a capture-family task is registered but Q12b is not STOP_AUTHORIZED' }
   $auxNames = @(Get-Content -LiteralPath "$R\aux-tasks.txt" | ForEach-Object { $_.Trim() })
   foreach ($ft in $FamilyTasks) { if ($auxNames -notcontains $ft) { NoGo "$ft is not in aux-tasks.txt (A1 review)" } } }
+$auxNames = @(Get-Content -LiteralPath "$R\aux-tasks.txt" | Where-Object { $_.Trim() })   # the aux list exactly as C2's Quiesce-Aux reads it
+foreach ($auxName in $auxNames) { $null = Get-ScheduledTask -TaskName $auxName -ErrorAction Stop }   # a wrong name throws here, before anything has changed, not part-way through C2
 if (git -C $P status --porcelain --untracked-files=no) { NoGo 'prod tree dirty' }
 if (Test-Path -LiteralPath $Old) { NoGo "$Old exists" }
 if ((Get-Volume -DriveLetter C).SizeRemaining -lt 10GB) { NoGo 'disk' }
