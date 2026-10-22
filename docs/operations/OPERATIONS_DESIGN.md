@@ -921,7 +921,12 @@ Task Scheduler engine PID/instance to the registered action and fresh task run.
 host that otherwise captures continuously:
 
 - `WeatherTrainingWindow` performs a resource preflight, disables all three
-  capture supervisors, stops all three workers, runs bounded nightly retraining,
+  capture supervisors (proved by `Settings.Enabled`), waits for any in-flight
+  `ensure` run to leave `Running` within that supervisor's execution limit plus
+  30 s (a disable does not end a running instance, which could relaunch a
+  loop), then stops all three workers. The wait, the stop commands and the stop
+  confirmation share one stop-cap deadline, so the wait adds no time to the
+  window's worst case. It then runs bounded nightly retraining,
   and restores capture in a `finally` block. Its nightly process is a delegated
   child, not a direct scheduled action: the child must attest the exact running
   PowerShell task action plus its own Python executable, arguments, working

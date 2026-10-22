@@ -149,10 +149,10 @@ propagate.
 ## Verification
 
 Validate PowerShell syntax without executing scripts (a clean parse does not prove parameter
-binding), run the focused Python tests for the affected operation, and update the operations
-design or owning runbook whenever a task name, cadence, parameter, status path, or supervision
-contract changes. Put `$Host.SetShouldExit(<code>)` right before an `exit` in an advanced script's
-`finally` and first in an exiting `trap`, or Ctrl+C exits 0 ([development.md](../../docs/development.md)).
+binding), run the focused Python tests, and update the operations design or owning runbook when a
+task contract changes. Prove a disable by `Settings.Enabled`; State stays `Running` while an
+instance runs (C2, 2026-10-22). Put `$Host.SetShouldExit(<code>)` right before an `exit` in an
+advanced script's `finally` and first in an exiting `trap`, or Ctrl+C exits 0 ([development.md](../../docs/development.md)).
 
 ## Update this file when
 

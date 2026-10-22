@@ -176,6 +176,7 @@ $windowActions = @($registeredWindow.Actions)
 $restoreActions = @($registeredRestore.Actions)
 $windowTriggers = @($registeredWindow.Triggers)
 $restoreTriggers = @($registeredRestore.Triggers)
+# State on purpose, not Settings.Enabled: this readback means "the registered task is idle", so a running instance must fail.
 if ([string]$registeredWindow.TaskPath -ne "\" -or
     ($EnableWindow -and [string]$registeredWindow.State -ne "Ready") -or
     (-not $EnableWindow -and [string]$registeredWindow.State -ne "Disabled") -or
