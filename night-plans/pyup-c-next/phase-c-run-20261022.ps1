@@ -55,7 +55,7 @@ function Wait-OperatorDecision([string]$Tag, [string[]]$Allowed, [datetime]$Dead
 function Wait-OperatorHold([string]$Tag, [bool]$AllowRollback) {   # WRAPPER
   $hf = "C:\pyup\cp3119\hold-$Tag-20261022.txt"; $t0 = Get-Date   # WRAPPER
   $ok = if ($AllowRollback) { @('RELEASE','ROLLBACK') } else { @('RELEASE') }   # WRAPPER
-  Log "OPERATOR CHECK: HOLD at $Tag. This process (PID $PID) keeps the lease and the session; escalate to the owner. Write $hf with first token $($ok -join ' or ') (RELEASE only with the owner's agreement, by 09:00; runbook §R 'Lease on an escalated §R')."   # WRAPPER
+  Log "ESCALATE: OPERATOR CHECK: HOLD at $Tag. This process (PID $PID) keeps the lease and the session; escalate to the owner. Write $hf with first token $($ok -join ' or ') (RELEASE only with the owner's agreement, by 09:00; runbook §R 'Lease on an escalated §R')."   # WRAPPER
   $wRemind = $false   # WRAPPER
   while ($true) {   # WRAPPER
     if ($AllowRollback -and (Get-Date) -gt (Get-Date).Date.AddHours(8).AddMinutes(55) -and (Get-Date) -lt (Get-Date).Date.AddHours(12)) { Log "WRAPPER: hold $Tag reached the 08:55 lease deadline (host known-good); RELEASE"; return 'RELEASE' }   # WRAPPER (Fable r1 #4)
@@ -543,7 +543,7 @@ if ($WNew2.Count) {   # WRAPPER one re-read after the 10-minute settle, through 
   $WNew2 = @(Get-NewStatusFlags "$N\status-full-recheck" "$R\c0-status-flags.txt" 'C9c-recheck' | Where-Object { $_ }) }   # WRAPPER
 if ($WNew2.Count) { $WIssues.Add("new status flag(s) vs the C0 baseline: $($WNew2 -join ' || ')") }   # WRAPPER
 if ($WIssues.Count) {   # WRAPPER
-  Log "OPERATOR CHECK: C9c not clean: $($WIssues -join ' ; '). Runbook: a tape or shadow import/runtime error on the new venv -> ROLLBACK (start by 02:45); an 88a journal/store error -> NO rollback, never delete or rewrite a journal, record and escalate to the owner."   # WRAPPER
+  Log "ESCALATE: OPERATOR CHECK: C9c not clean: $($WIssues -join ' ; '). Runbook: a tape or shadow import/runtime error on the new venv -> ROLLBACK (start by 02:45); an 88a journal/store error -> NO rollback, never delete or rewrite a journal, record and escalate to the owner."   # WRAPPER
   $WDec = Wait-OperatorDecision 'c9c' @('CONTINUE','ROLLBACK','HOLD') ((Get-Date).Date.AddHours(2).AddMinutes(45)) 'HOLD'   # WRAPPER
   if ($WDec -eq 'ROLLBACK') { throw 'WRAPPER: C9c operator decision -> ROLLBACK' }   # WRAPPER
   if ($WDec -eq 'HOLD') { throw 'WRAPPER: C9c HOLD (no rollback; lease kept for the operator)' } }   # WRAPPER
