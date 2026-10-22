@@ -14,6 +14,10 @@ is this memo's estimate and is not a measurement.
 > **r2 (2026-10-20), §r2.4:** still waiver-only for the programme decision. At best, a futility-only arm R0 with D0 on
 > 11-17, and only if the owner approves the 2021-2023 Previous Runs fetch and a narrow reservation ruling by about 10-30.
 > A 20-date look cannot give GO. One-market timing pilot (§r2.3): 4 h 50 min for Atlanta on today's trainer.
+>
+> **r4 note (2026-10-22), §R0.3:** verdict unchanged. The R0 code is built (§R0.2). The M12 re-time took about 103 s, but
+> at 45 training days (2021-2023 only) the HGB is effectively the class prior. So that option would not test a
+> season-matched HGB.
 
 **NOT FEASIBLE as a scored programme arm. FEASIBLE ONLY AS an explicit, scoped waiver**, optionally backed by an
 outcome-blind build rehearsal. That rehearsal is not a score and authorises nothing.
@@ -543,12 +547,17 @@ Relayed by master-agent, about 16:1x on 2026-10-21. The answers are quoted verba
 
 ## R0 run plan (draft, 2026-10-21): futility-only arm, freeze by 11-16, D0 11-17
 
-**Draft only. Nothing here was run.** No label, settlement or price was read. Inputs read: the column-allowlist branch,
-the PIT-fetch branch, the two published corpus manifests, and the served pickles' `feature_names`. Verdict line unchanged
-(§r2.4): **waiver-only for the programme decision, at best a futility-only arm with D0 on 11-17. A 20-date look cannot
-give GO.**
+**Draft.** No label, settlement or price was read. Inputs read: the column-allowlist branch, the PIT-fetch branch, the two
+published corpus manifests, and the served pickles' `feature_names`. Verdict line unchanged (§r2.4): **waiver-only for the
+programme decision, at best a futility-only arm with D0 on 11-17. A 20-date look cannot give GO.**
 
-Code inputs:
+*Updated r4 (2026-10-22):* §R0.1 and §R0.2 now follow the built code on `claude/r0-retrain-code-20261021` @
+`3ea1ecb5d7a2c66f6340bae7702140f6eec206f2`, checked with `git show <sha>:<path>` and `git log`. That branch holds the
+allowlist commit `673b4df23`, a merge of the PIT-fetch tip `4adc237cb`, and the per-piece commits cited in R0.2. It is
+pushed, not landed; no roll verdict was taken for it here. One run happened: the M12 re-time (§R0.3). It does not
+contradict the verdict line, but it changes the M6 choice (§R0.3).
+
+Code inputs (the r3 draft; the build branch above now contains both):
 - **Column allowlist:** `claude/retrain-column-allowlist-20261021` @ `673b4df2363e6cd67af105fe96d993adf1667484`, host
   roll verdict ROLL-FREE.
   - CLI: `python -m weather.calibration.feature_model --market <id> --column-allowlist served-policy:<id> --output-root <dir>`
@@ -566,6 +575,11 @@ Code inputs:
   - `23ac87fa5f058f8eeb7f49f0268f483939d4070f7f65e38063727c6749aa2a8d`: 2023, Oct 1-Dec 28, 979 market-dates.
   - Both are `temperature_2m` only, Previous Runs lead 1, with a 1-day request pad. The provider has no value from
     2023-12-30T00Z.
+  - *r4:* both failed the consumer preflight as first built. It demanded 24 hourly rows per market-date, while the
+    DST-correct normalizer keeps 25 on the fall-back date (2021-11-07, 2022-11-06, 2023-11-05). Fixed in `2e0ac0ff6`
+    (`2e0ac0ff60ab8cbec1b29b2d635fe3c79d19edf3`): expected hours come from `hours_in_local_date`
+    (`forecast_training_contract.py`). Both corpora now pass; the M12 run's `training_inputs` record carries manifest
+    sha256 `824717d6…` (`cd0ba2bb…`) and `f83f403d…` (`23ac87fa…`).
 
 **Centre-date rule (r2):** two pinned centres, each covering ±7 days of prior-year training days:
 - **R0a, centre 2026-11-24:** training window 11-17..12-01 of each prior year; it scores 11-17..12-01.
@@ -577,100 +591,221 @@ Code inputs:
 ### R0.1 Commands, in order
 
 Placeholders: `$py` = `C:\Users\Michael\Documents\github\weather\venv\Scripts\python.exe`; `$C` = the corpora directory
-above; `$m` = one market id; `$k` = `2026-11-24` or `2026-12-10`.
+above; `$m` = one market id; `$k` = `2026-11-24` or `2026-12-10`; `$B` = the full build commit from
+`git -C C:\wt\r0 rev-parse HEAD`.
 
-Steps 3-6 need the missing pieces M3-M5 and M9-M11 of R0.2. Their flags are written as **proposed** (marked †); they do
-not exist yet.
+*r4 (2026-10-22):* every flag below exists at `3ea1ecb5d` (argparse read). The r3 draft's "proposed" flags are gone.
+What is still open is listed in R0.2.
 
 0. **Build worktree (its commit is the code identity in the hash).**
-   `GIT_LFS_SKIP_SMUDGE=1 git worktree add -b claude/retrain-r0-build-<date> C:\wt\r0 673b4df2363e6cd67af105fe96d993adf1667484`
-   - Then `git -C C:\wt\r0 merge --no-ff 4adc237cb0f2032b5e01c48d9a2ef9b356852b71`, for the corpus reader.
-   - Then the M3/M5/M9 commits.
-   - Then `git -C C:\wt\r0 lfs pull --include "artifacts/models/hgb/*,artifacts/models/coefs/*"`. `served-policy:` reads
-     the served pickles and coefficients, which are LFS pointers in a skip-smudge worktree.
-   - Then push the branch: the arm hash must cite a pushed commit.
+   `GIT_LFS_SKIP_SMUDGE=1 git worktree add -b claude/retrain-r0-build-<date> C:\wt\r0 3ea1ecb5d7a2c66f6340bae7702140f6eec206f2`
+   - That commit already holds the allowlist, the corpus reader and M3-M5, M9, M10 and M13-M15. Any later fix (for
+     example M7) goes on top as a new commit. Push the branch: the arm hash must cite a pushed commit.
+   - **Data root (M10).** Link the read-only training inputs from the main checkout with directory junctions
+     (`wunderground`, `training`, `marine_water_contrast`, `reanalysis` under `C:\wt\r0\data\`). The recipe is in the
+     PIT corpus runbook, "Training from a worktree" (`docs/operations/PIT_FORECAST_TRAINING_CORPUS.md` on the build
+     branch). Without the links the trainer fails closed with `market history is absent` (`require_market_history`).
+     Before removing the worktree, remove each junction with `cmd /c rmdir "<link>"`, never with a recursive delete.
+   - **LFS bytes (M11).** `git -C C:\wt\r0 lfs checkout "artifacts/models/hgb/*" "artifacts/models/coefs/*"` fills the
+     served pickles from the local LFS cache, with no download (same runbook section). `served-policy:` and M13 read
+     them; M13 refuses an LFS pointer.
 1. **Verify both corpora.** Read-only; seconds. With `$env:PYTHONPATH='C:\wt\r0\src;C:\wt\r0'`:
    `& $py -c "import sys; from weather.sources.forecast_training_corpus import verify_corpus_manifest as v; m=v(sys.argv[1]); assert m['corpus_id']==sys.argv[2]; print(m['corpus_id'], m['manifest_sha256'], m['row_counts'])" "$C\<id>\manifest.json" <id>`
    - Run it once per id.
-   - Record each `manifest_sha256` (`cd0ba2bb…` reads `824717d6071f1cca95a753443f1221a4d2bd4c7d4cc38e848fe2c5371b62af9f`).
-2. **Re-time one market** (M12). Same command as step 3, for one market at one centre, under `workstation_heavy`.
+   - Record each `manifest_sha256`. The M12 run's `training_inputs` record gives
+     `824717d6071f1cca95a753443f1221a4d2bd4c7d4cc38e848fe2c5371b62af9f` for `cd0ba2bb…` and
+     `f83f403dfecf4beb919d66ba15fd3ed788512d6d4c44130299f7a555ba9e40cb` for `23ac87fa…`.
+   - The trainer runs its own preflight on each manifest as well (step 3); since `2e0ac0ff6` it accepts the 25-hour
+     fall-back dates.
+2. **Re-time one market** (M12). **Done 2026-10-22**: Atlanta, centre 2026-11-24, about 103 s (§R0.3).
 3. **Train, per market, per centre.** US11, serially, in a fixed order: atlanta, austin, chicago, dallas, denver, houston,
    los-angeles, miami, nyc, san-francisco, seattle.
 
    ```powershell
    $a = @('-m','weather.calibration.feature_model','--market',$m,
-          '--target-date',$k,                                   # † M5
+          '--target-date',$k,
           '--column-allowlist',"served-policy:$m",
-          '--pit-forecast-corpus-manifest',"$C\cd0ba2bb004dc89f070ec9b1406e77f38cd2396dedd93ce1b377e727baefe9be\manifest.json",  # † M3
-          '--pit-forecast-corpus-manifest',"$C\23ac87fa5f058f8eeb7f49f0268f483939d4070f7f65e38063727c6749aa2a8d\manifest.json",  # † M3/M4
+          '--pit-forecast-corpus-manifest',"$C\cd0ba2bb004dc89f070ec9b1406e77f38cd2396dedd93ce1b377e727baefe9be\manifest.json",
+          '--pit-forecast-corpus-manifest',"$C\23ac87fa5f058f8eeb7f49f0268f483939d4070f7f65e38063727c6749aa2a8d\manifest.json",
           '--output-root',"C:\wt\r0\artifacts\candidates\retrain-r0-$k\$m")
+   # Option (c) of M6 only, once a 2024-2025 corpus exists: add a third
+   # '--pit-forecast-corpus-manifest' for it and '--training-years','2021-2025'.
    $b64 = [Convert]::ToBase64String([Text.UTF8Encoding]::new($false).GetBytes(($a | ConvertTo-Json -Compress)))
    $env:PYTHONPATH = 'C:\wt\r0\src;C:\wt\r0'
    powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\wt\r0\scripts\ops\workstation_heavy.ps1 `
-     -Kind weather_heavy -Queue -PythonPath $py -RepoRoot C:\wt\r0 -ArgumentsBase64 $b64     # † M9 admits the module
+     -Kind weather_heavy -Queue -PythonPath $py -RepoRoot C:\wt\r0 -ArgumentsBase64 $b64
    ```
 
+   - `--target-date`, `--pit-forecast-corpus-manifest` (repeatable) and `--training-years` each refuse to run without
+     `--output-root` (`feature_model.py` `main`, `parse_cli_args`). Built in `be2458ee9`
+     (`be2458ee9f83518bfe43f66297b2698361a248df`), with the helpers in the new module
+     `weather.calibration.feature_model_training_inputs`.
+   - The corpora are preflighted and unioned. They must agree on fields, lead, model and cutoffs and share no year.
+     Training is restricted to their years, or to `--training-years`, each of which a corpus must cover. A year with no
+     labelled day in the window fails closed. The ambient `data/forecast_history` archive is never read, and the
+     forecast-relative marine columns are nulled.
+   - The module is admitted to `workstation_heavy` as an exact name, with no child or sibling module (M9, `b80adbd47`).
+
    Each run writes `feature_model_coefs_<m>.json`, `feature_model_hgb_<m>.pkl` and a report, and nothing else. Both
-   artifacts carry `training_column_allowlist` (mode, served list, `policy_exclusions_applied`, `differs_from_served`)
-   and `base_models_only: true`.
-4. **Candidate manifest** (M13). One JSON per centre at
-   `C:\wt\r0\artifacts\candidates\retrain-r0-$k\r0_candidate_manifest.json`, holding:
-   - per market: the sha256 of coefs, HGB and report; the allowlist sha256 and record;
-   - the sha256 of the **served** `late_day_model_coefs_<m>.json`, `calibrated_weights`, `probability_calibration`,
-     `forecast_error_model` and `settlement_lag_model`;
-   - the centre, its window, the corpus ids and manifest sha256s, the training-year composition (M6), the build commit,
-     and the exclusion list.
-5. **Binding: a research-only release, no active pointer** (M14). One per centre, through
-   `python -m weather.operations.all_shadow_release_bootstrap --candidate-id retrain-r0-$k --run-root <run-root> --repo-root <component root>`
-   (†, see M14).
-   - The release's base components per market are R0's `feature_hgb` and `feature_lr_coefficients`. The other five,
-     **including the served `late_day_lr_coefficients` bytes**, are copied unchanged from the served artifacts.
+   artifacts carry three records:
+   - `training_column_allowlist` (mode, served list, `policy_exclusions_applied`, `differs_from_served`);
+   - `base_models_only: true`;
+   - `training_inputs`: centre date and whether it was pinned, training years, days per year, forecast source, corpus
+     ids and manifest sha256s, and `ambient_forecast_fallback`.
+
+   The record's keys are `centre_date`, `centre_date_pinned` and `centre_year`, not `target_*`. The release builder's
+   leakage audit rejects `target_*` keys inside base-model artifacts (`fd5e0817f`); `7d185de85` gave the record an
+   unversioned record name.
+4. **Candidate manifest** (M13, built `8f5790ab3`). One per centre:
+
+   ```powershell
+   & $py -m weather.calibration.r0_candidate_manifest `
+     --candidate-root "C:\wt\r0\artifacts\candidates\retrain-r0-$k" --candidate-id "retrain-r0-$k" `
+     --centre $k --build-commit $B `
+     --market atlanta --market austin <...one --market per trained market...> --market seattle `
+     --exclude-market toronto=no-pit-corpus
+   ```
+
+   - It writes `<candidate-root>\r0_candidate_manifest.json` (or `--out`) once, never overwriting, self-hashed as
+     `manifest_sha256`. `verify_r0_candidate_manifest` re-checks every byte.
+   - Per market it holds the sha256 of the coefs, HGB and report, the allowlist and `training_inputs` records, and the
+     sha256 of the five **served** components from `--repo-root` (default: the build checkout):
+     `late_day_lr_coefficients`, `calibrated_weights`, `probability_calibration`, `forecast_error_model` and
+     `settlement_lag_model`.
+   - It also holds the centre window, the corpus ids and manifest sha256s and their union hash, the training years, the
+     build commit, and `excluded_markets`.
+   - It fails closed on a missing file, an LFS pointer, an unpinned or wrong centre, or markets trained on different
+     corpora or years.
+   - `--exclude-market` records excluded **markets** only. The station-day completeness exclusions of §r2.2 are not a
+     manifest field; step 6 must bind them separately if the scan finds any.
+5. **Binding: a research-only release, no active pointer** (M14, built `37f148129`). One per centre:
+
+   ```powershell
+   & $py -m weather.operations.all_shadow_release_bootstrap --candidate-id "retrain-r0-$k" `
+     --run-root "C:\r0-release\$k" --repo-root C:\wt\r0 `
+     --r0-candidate-manifest "C:\wt\r0\artifacts\candidates\retrain-r0-$k\r0_candidate_manifest.json"
+   ```
+
+   - `--candidate-id` must equal the manifest's. The run root must be a dedicated directory, outside `data\`,
+     `artifacts\releases\` and `artifacts\candidates\`, and not the repository root. The source tree must be clean.
+     The release is written under `<run-root>\release-bootstrap\releases\<candidate-id>`.
+   - The builder first reverifies the manifest bytes and today's served bytes. For each manifest market it then freezes
+     R0's `feature_hgb` and `feature_lr_coefficients` in place of the served pair, and copies the other five, **including
+     the served `late_day_lr_coefficients`**, from `--repo-root`. It proves the frozen graph holds exactly the manifest's
+     bytes and records the manifest under `source_provenance.r0_candidate`.
+   - Markets outside the manifest (Toronto) keep all seven served components. Only research-only candidates accept the
+     override, and only for those two components (`release_candidate_contract.py`). Runbook paragraph:
+     `docs/operations/NIGHTLY_RETRAIN_RUNBOOK.md` on the build branch.
    - Verify with `weather.operations.release_manifest.verify_release`.
    - **Never** write `artifacts/releases/current_release.json`, and never run `release_lifecycle` promote.
 6. **Hash freeze.** `R0_arm_sha256` = sha256 of the canonical JSON of:
    - both release ids and manifest sha256s;
    - the switch rule (R0a for local target dates 11-17..12-01, R0b for 12-02..12-19);
-   - both candidate-manifest sha256s;
+   - both candidate-manifest sha256s (each already binds the served late-day sha256s per market);
    - the build commit;
    - the corpus ids and manifest sha256s;
-   - the served late-day sha256s per market.
+   - the station-day exclusion list, if any.
 
    The freeze is then recorded three ways, all by 11-16: the hash in the signed futility-only pre-registration; a
    DECISION_LOG row; and the reservation-file declaration (M17).
+7. **Vector of record: paired host replay** (M15, built `3ea1ecb5d`). Host only; the run is master's.
+
+   ```powershell
+   python -m weather.backtesting.r0_paired_replay --schedule r0_schedule.json `
+     --max-target-date <date> --out <new.jsonl> <market-day folder> ...
+   ```
+
+   - The schedule is `{"arms": [{"name", "release_dir", "manifest_sha256", "first_target_date", "last_target_date"}]}`.
+     Arms must not overlap; the arm is picked by local target date (R0a 11-17..12-01, R0b 12-02..12-19).
+     `manifest_sha256` is the release manifest's, passed to `verify_release`.
+   - Each captured snapshot is replayed twice. The served arm is the research model with no active release. The R0 arm
+     is the same model with `feature_hgb` and `feature_lr_coefficients` from the verified R0 release. The release's other
+     five components must equal the served files, or the run fails closed.
+   - It reads only `replay_inputs.jsonl`. A folder dated after `--max-target-date` is skipped without being opened, and
+     markets outside the release are skipped.
+   - The output is a write-once JSONL: a header (schedule sha256, arms, skips), then one row per snapshot with both
+     distributions, their L1 and both identity hashes. **It does not score against settlement.**
+   - The rehearsal uses `--max-target-date 2026-09-29` on dev folders.
+   - The module is **not** on the workstation offline allowlist at `3ea1ecb5d` (R0.2, M15).
 
 ### R0.2 Missing pieces between the corpora, the allowlist branch and a frozen R0 hash
 
-"Needed by" is back-planned from an 11-16 freeze. Fleet fits are about 22 runs, so they need about 11-11..11-14 (M12).
+"Needed by" is back-planned from an 11-16 freeze. *r4:* with M12 measured at about 103 s per market-centre (§R0.3), the
+about 22 fleet fits take well under a day of wall time at 45 training days. The 11-11..11-14 slot is now generous; a
+75-day fit (option (c)) must be re-timed (§R0.3).
+
+Build branch for every "Built" row: `claude/r0-retrain-code-20261021` @ `3ea1ecb5d7a2c66f6340bae7702140f6eec206f2`
+(pushed, not landed).
 
 | # | Piece | Exists? | Branch / landing | Decision owner | Needed by |
 | --- | --- | --- | --- | --- | --- |
-| M1 | Column allowlist (`served-policy:`, `--output-root`, base models only) | **Yes** | `claude/retrain-column-allowlist-20261021` @ `673b4df23`, ROLL-FREE, not landed. R0 can train from the branch tip; landing is needed only for host-side replay code that imports it. | master (light-path landing) | 11-06 to build on it; landed by 11-16 |
-| M2 | PIT fetch, reader and verifier | **Yes** | `claude/pit-corpus-fetch-20261021` @ `4adc237cb`, roll-sensitive, quiet-window merge after N12. **Not needed on the host for R0**: replay uses captured inputs, not the corpus. The workstation trains from the merged worktree. | master | merged into the R0 build worktree by 11-06; host landing not required |
-| M3 | **Corpus consumer in the per-market trainer.** `feature_model.main` reads `forecast_index = load_forecast_daily(daily_path_for(spec))`, the ambient archive (May 10-Jun 30, so missing for Oct-Dec). The PIT consumers today are only `pooled_feature_cli` and `base_retrain` (corpus runbook, "Retraining input"). Needed: a repeatable `--pit-forecast-corpus-manifest` mapping `forecast_high_native` to `forecast_high` per (date, cutoff) (and so `forecast_gap`), with no fallback to `forecast_daily.csv` when given. A temperature-only corpus is enough for 9 of 11 served lists, whose only forecast columns are `forecast_high` and `forecast_gap` (pickle read). | **No** | new commit on the R0 build branch (feature_model.py, roll-free per M1's verdict; re-take it) | workstation build, master review | 11-06 |
-| M4 | **Two corpus ids.** `PITForecastTrainingCorpus` takes one manifest. Needed: a union of the two, refusing overlapping years or markets. | **No** | part of M3 | workstation | 11-06 |
-| M5 | **Pinned centre date.** The trainer fits for the run date (`config_for_date` default). Needed: `--target-date`. The pilot wrapper did this by monkeypatch, which is not acceptable for a frozen arm. | **No** | part of M3 | workstation | 11-06 |
-| M6 | **Training-window composition.** The trainer uses every prior WU year: 165 days per cutoff in the 10-20 pilot. The corpora cover 2021-2023 only, so 45 days per centre (3 years x 15) have a PIT `forecast_high`. 2024-2025 Oct-Dec exist only in the research corpus `pit-11field-2024-2025-calendar-extension`, which is not in the contract format. The 2023-12-29..31 gap does not touch either window. Options: **(a)** all years, `forecast_high` missing outside 2021-2023 (about 73% of rows; a parity defect); **(b)** 2021-2023 only (45 days per cutoff; thin); **(c)** fetch 2024-2025 Oct-Dec temperature-only too and restrict to 2021-2025 (75 days, the base-retrain population). Recommended: **(c)**, which needs a `--training-years` flag (missing) and a fetch outside approval (j), which covered 2021-2023. A 2025 plan must end before Dec 31 (pad rule); windows ending 12-17 comply. | **No** (decision plus flag) | flag on the R0 build branch; fetch via M2's collector | **owner** ((c) needs a new fetch yes); workstation for the flag | owner by 10-30; fetch and flag by 11-06 |
-| M7 | **Miami and Toronto forecast-consensus columns.** Their served bundles (v0.4, 29 columns) also select `forecast_source_count` and `forecast_disagreement`. A single-provider corpus cannot express those. Miami needs a choice: drop both for R0 (a new allowlist mode, recorded as differs-from-served) or exclude Miami from R0. | **No** | allowlist branch follow-up, or none | owner | 11-04 |
-| M8 | **Toronto.** No PIT corpus (US11 only) and no NBM. R0 = **US11**, the EDGE-1 population. Toronto keeps the served June model and is reported beside with no alpha. A Toronto R0 would need its own fetch plus M7. | n/a (scope) | none | owner (logistics) | 11-04 |
-| M9 | **`workstation_heavy` admission.** `weather.calibration.feature_model` is not in `Get-WeatherWorkstationOfflineModule`. Add it (ps1, Codex hook and the two allowlist tests), or pass the new flags through `tools.research.retrain_pilot.run` (allowlisted on this memo branch only). | **No** | `scripts/ops/workload_admission.ps1` (roll-free) | master | 11-06 |
-| M10 | **Data root in a worktree.** `weather.paths.DATA_ROOT` is `<repo>/data`, absent in `C:\wt\r0`. Needs a read-only directory junction to the main checkout's `data/` or an explicit data-root option. With `--output-root` the trainer writes nothing under `data/`. | **No** | workstation setup, or a code option | workstation | 11-06 |
-| M11 | LFS bytes for `served-policy:` in a skip-smudge worktree | trivial | `git lfs pull` (step 0) | workstation | 11-06 |
-| M12 | **Re-time with 22-25 columns** (US: 22, 25, or 27 for Miami before M7). The pilot took 4 h 50 min with 229 columns. If the per-market time stays above about 5 h, the 22 fits do not fit 11-11..11-14 serially. Then use `--skip-loo` (not allowed: flat 0.80 weights), or run two markets in parallel inside one leased process (a new wrapper option). | **No** | one run after M3-M5 and M9-M10 | workstation | 11-09 |
-| M13 | **Candidate manifest writer** (step 4) | **No** | small tool on the R0 build branch | workstation | 11-14 |
-| M14 | **Research-only release with R0 components.** `_base_model_source_components(repo_root, market)` reads `<repo_root>/artifacts/models/...` only (`release_candidate_contract.py:258`). Needed: a candidate-component-root option, or a disposable staging repo root holding R0 HGB/LR plus the served other five. The second route is untested here, and the builder also assembles pooled-bundle lineage (`--first-party-*`), which R0 does not otherwise need. Two releases (one per centre); no pointer. | **No** | code option on the R0 build branch (operations: take the roll verdict) | workstation build, master review | 11-15 |
-| M15 | **R0 scorer / replay binding.** No replay CLI takes a release or `serving_bundle` (searched `backtesting/*`). The model binds base components only through `serving_bundle` (`model_features.py:59-71`). Needed: a paired host replay of R0 against A0 on captured inputs, bound to the R0 release, choosing R0a or R0b by target date. It must land on the host (roll verdict) and be rehearsed on dev dates <= 09-29 (parity, step 5 of §r2.2). | **No** | new scorer branch; host landing | workstation build, master, owner (pre-registration) | rehearsal by 11-15; production read after the 20th date (12-05, read 12-07) |
-| M16 | **Parity checks.** Training-score-first (EF §5); `train_serve_feature_parity`; captured-input mass checks. | Tools exist | none | workstation, host night | 11-15 |
+| M1 | Column allowlist (`served-policy:`, `--output-root`, base models only) | **Yes** | `claude/retrain-column-allowlist-20261021` @ `673b4df23`, ROLL-FREE, not landed; contained in the build branch. Landing is needed only for host-side replay code that imports it. | master (light-path landing) | landed by 11-16 |
+| M2 | PIT fetch, reader and verifier | **Yes** | `claude/pit-corpus-fetch-20261021` @ `4adc237cb`, roll-sensitive, quiet-window merge after N12; merged into the build branch (`ac0732b97`). **Not needed on the host for R0**: replay uses captured inputs, not the corpus. Consumer preflight DST fix: `2e0ac0ff6` (`2e0ac0ff60ab8cbec1b29b2d635fe3c79d19edf3`); expected hours per date are now the date's real hours (25 on fall-back), where the old preflight demanded 24 and refused both published corpora. | master | host landing not required |
+| M3 | Corpus consumer in the per-market trainer: repeatable `--pit-forecast-corpus-manifest`, `forecast_high` and profile per (date, cutoff), no fallback to the ambient archive | **Built** `be2458ee9` (`be2458ee9f83518bfe43f66297b2698361a248df`) | build branch; new module `weather.calibration.feature_model_training_inputs`; record fixes `7d185de85` (`7d185de85007d722d97641667568c2f904bc6003`, unversioned record name) and `fd5e0817f` (`fd5e0817fa12885a1408ed89f48c3fe13465abc0`, `target_*` keys renamed `centre_*` so the release leakage audit passes). `feature_model.py` changed: take the roll verdict before landing. | master review | — |
+| M4 | Union of two or more corpus ids, refusing a shared year or mismatched fields, lead, model or cutoffs | **Built** `be2458ee9` | part of M3 | — | — |
+| M5 | Pinned centre date: `--target-date` (needs `--output-root`) | **Built** `be2458ee9` | part of M3 | — | — |
+| M6 | **Training-window composition.** The corpora cover 2021-2023 only, so 45 days per centre (3 years x 15) have a PIT `forecast_high`. Options: **(a)** all years, `forecast_high` missing outside 2021-2023 (about 73% of rows; a parity defect); **(b)** 2021-2023 only (45 days per cutoff); **(c)** fetch 2024-2025 Oct-Dec temperature-only too and restrict to 2021-2025 (75 days, the base-retrain population). *r4:* the `--training-years` flag is **built** (`be2458ee9`). **M12 measured (b): at 45 days every HGB tree has at most 2 leaves and the HGB is effectively the class prior (§R0.3).** So (b) does not test a season-matched HGB. (c) is no longer a safe default either: INFERENCE, at 75 days the same leaf floor allows at most 3 leaves per tree. (c) needs its own leaf check and re-time before the owner chooses. A change to the HGB hyperparameters would be a different model from §r2.2, and needs its own decision. | **No** (decision; for (c) also a fetch) | flag built; fetch via M2's collector | **owner** ((c) needs a new fetch yes beyond (j), which covered 2021-2023) | owner by 10-30; fetch by 11-06 |
+| M7 | **Miami and Toronto forecast-consensus columns.** Their served bundles (v0.4, 29 columns) also select `forecast_source_count` and `forecast_disagreement`, which a single-provider corpus cannot express. Miami needs a choice: drop both for R0 (a new allowlist mode, recorded as differs-from-served), or exclude Miami from R0 (`--exclude-market miami=<reason>` in M13). | **No** | allowlist follow-up on the build branch, or none | owner | 11-04 |
+| M8 | **Toronto.** No PIT corpus (US11 only) and no NBM. R0 = **US11**, the EDGE-1 population. Toronto keeps the served June model and is reported beside with no alpha; M14 already keeps all seven served components for markets outside the manifest. A Toronto R0 would need its own fetch plus M7. | n/a (scope) | none | owner (logistics) | 11-04 |
+| M9 | `workstation_heavy` admission of `weather.calibration.feature_model` | **Built** `b80adbd47` (`b80adbd47b6b9d4eababdde7597e67249502c9f5`) | exact module in `workload_admission.ps1` `Get-WeatherWorkstationOfflineModule` and the Codex hook; new test `tests/operations/test_feature_model_trainer_admission.py`. **Open:** its `Guards:` line cites this memo's R0.2 M9, which is on an unlanded branch; settle the citation at review. | master review | — |
+| M10 | Data root in a worktree | **Built** `be2458ee9` | fail-closed `require_market_history`; junction recipe in the PIT corpus runbook, "Training from a worktree" (step 0) | workstation (setup) | 11-06 |
+| M11 | LFS bytes for `served-policy:` and M13 in a skip-smudge worktree | **Open** (setup, trivial) | `git lfs checkout` from the local cache (step 0) | workstation | 11-06 |
+| M12 | **Re-time with the R0 columns** | **Measured 2026-10-22** for (b): about 103 s for Atlanta at 45 days and 25 columns (§R0.3). **Open** for (c), at 75 days. | one run per option | workstation | 11-09 |
+| M13 | Candidate manifest writer (step 4) | **Built** `8f5790ab3` (`8f5790ab323c1cd9bceb03a4a5968e796bb6cf72`) | `weather.calibration.r0_candidate_manifest` | — | — |
+| M14 | Research-only release with R0 components | **Built** `37f148129` (`37f148129a9f15dad1a03d9b2606c51849f2c189`) | `all_shadow_release_bootstrap --r0-candidate-manifest`; `release_candidate_contract.py` accepts the two-component override for research-only candidates only. `operations/` changed: take the roll verdict. | master review | release built 11-15 |
+| M15 | R0 scorer / replay binding: paired host replay of R0 against A0 on captured inputs, bound to the R0 release, arm by target date | **Built** `3ea1ecb5d` (`3ea1ecb5d7a2c66f6340bae7702140f6eec206f2`) | `weather.backtesting.r0_paired_replay` (step 7). **Open:** no entry on the workstation offline allowlist; host landing (roll verdict) and a rehearsal on dev dates <= 09-29. Settlement scoring of its output is a separate, later step. | workstation, master, owner (pre-registration) | rehearsal by 11-15; production read after the 20th date (12-05, read 12-07) |
+| M16 | **Parity checks.** Training-score-first (EF §5); `train_serve_feature_parity`; captured-input mass checks. | Tools exist; **open** | none | workstation, host night | 11-15 |
 | M17 | **Reservation trigger and RCW wiring.** Owner (k) approved the narrow ruling (§r2.2, r3). Still to write at freeze, in one commit: the dated retrain-window line in `reserved-confirmation-window.md` (scope: retrain-family candidates only; exemptions as MG-1's); a DECISION_LOG row; and a code-owned window constant with a test that fails if the file and constant differ, mirroring `weather.mg1_reserved_window` and `tests/reporting/test_mg1_reserved_window.py`. EDGE-1, MG-1, maker and the other scorers need no change under the narrow scope. | **No** | docs plus a small `src/weather` module (roll-free if outside the capture closures; take the verdict) | owner approved; master writes | 11-16 (with the freeze) |
-| M18 | **Futility-only pre-registration** citing `R0_arm_sha256` | **No** | docs | owner signs | 11-16 |
+| M18 | **Futility-only pre-registration** citing `R0_arm_sha256` | **No** | docs | **owner signs (open)** | 11-16 |
 
-**Critical path (INFERENCE):** owner decisions M6, M7 and M8 by about 10-30..11-04 → M3-M5 and M9-M10 by 11-06 → M12 by
-11-09 → fits 11-11..11-14 → M13, M14 and M16 by 11-15 → M17, M18 and the freeze on 11-16. M15's rehearsal runs in
-parallel. Any slip past 11-16 moves D0 later, and R0 then has no read before Gate 1 (§4.2).
+**Critical path (INFERENCE, r4):** owner decisions M6 (now informed by §R0.3), M7 and M8 by about 10-30..11-04 → for
+(c), the 2024-2025 fetch and a 75-day re-time (M12) by 11-09 → fits 11-11..11-14 (hours, not days) → M11 setup, M16
+checks, M13 and M14 runs by 11-15 → M17, M18 and the freeze on 11-16. M15's allowlist entry, host landing and rehearsal
+run in parallel. Any slip past 11-16 moves D0 later, and R0 then has no read before Gate 1 (§4.2).
+
+### R0.3 M12 re-time and what it shows (measured, workstation, 2026-10-22)
+
+**Run.** `python -m weather.calibration.feature_model` at build commit `3ea1ecb5d`, through
+`scripts\ops\workstation_heavy.ps1 -Queue`. Atlanta, `--target-date 2026-11-24`, `--column-allowlist served-policy:atlanta`
+(25 columns: the served v0.3 list minus the two pressure columns), both corpora
+(`cd0ba2bb004dc89f070ec9b1406e77f38cd2396dedd93ce1b377e727baefe9be`, 2021-2022 Oct-Dec;
+`23ac87fa5f058f8eeb7f49f0268f483939d4070f7f65e38063727c6749aa2a8d`, 2023 Oct 1-Dec 28). Output to a scratch root outside
+the repository; nothing committed.
+
+**Measured.**
+
+| Quantity | Value | Source |
+| --- | --- | --- |
+| Training days per cutoff | **45** (15 each in 2021, 2022, 2023), against 165 in the 10-20 pilot | `training_inputs.training_days_by_year`; report throughput table (45 rows x 25 columns at all 14 cutoffs) |
+| Wall time | **about 103 s**, against 4 h 50 min for the 229-column pilot (§r2.3). The heavy-queue start and finish events are 100.3 s apart. | run; `heavy_workload_queue.jsonl` |
+| HGB tree size | **at most 2 leaves** in every tree of every one of the 14 cutoff models (50 iterations, 22 classes from 45 samples) | final pickle |
+| Blocked validation log loss (`holdout_year`, 3 splits, 45 of 45 rows scored, training corpus years only) | HGB **4.8417 at all 14 cutoffs**; empirical baseline **4.1844**; LR **4.6668-5.1026**. The tuned HGB-climatology blend is 4.4440, still above the baseline. | trainer report |
+
+**What it means.**
+- **At 45 days the HGB is effectively the class prior.** The trainer leaves `min_samples_leaf` at the scikit-learn
+  default of 20. INFERENCE from that default: a 45-row fit can split at most once, and a 30-row holdout-year fold cannot
+  split at all. That is consistent with the HGB log loss being identical to four decimals at every cutoff.
+- **Option (b) of M6 (2021-2023 only) therefore does not test a season-matched HGB refit.** An R0 built that way is the
+  class prior blended with climatology, plus the LR. Neither model beat the empirical baseline in the trainer's own
+  blocked validation.
+- **Option (c) (2021-2025, 75 days) is not a fix by default.** INFERENCE: the same floor allows at most 3 leaves per
+  tree at 75 rows, and 60-row folds give the same. Before the owner picks (c), re-run M12 at 75 days and check leaves
+  and log loss. A hyperparameter change (for example `min_samples_leaf`) would make a different model from §r2.2's
+  "unchanged" and needs its own decision.
+- **Compute is no longer a constraint** for R0 at this sample size.
+- **Verdict line unchanged** (§r2.4). The measurement does not contradict it. It narrows what the "at best" futility arm
+  could test: under (b), not a season-matched HGB.
+
+**Scope and not claimed.** One market, one centre, evaluated only on its own 2021-2023 training corpus dates
+(holdout-year folds inside that corpus). This says nothing about other markets, about the edge, or about a 2021-2025 fit.
+No label for a date on or after 2026-09-30, no settlement and no market price was read. Recorded as EF §10x
+(`claude/docs-r0-m12-20261022`).
 
 ## 6. What this memo does not claim
 
 - No retrain effect size; no power figure computed here. The figures quoted come from their cited sections.
-- No timing measurement in r1 (§3 is labelled INFERENCE); r2.3 adds one measured one-market timing.
+- No timing measurement in r1 (§3 is labelled INFERENCE); r2.3 adds one measured one-market timing, and §R0.3 a second
+  (one market, one centre, training-corpus validation only).
 - Nothing about in-season edge.
 
 ## Sources
@@ -679,7 +814,7 @@ parallel. Any slip past 11-16 moves D0 later, and R0 then has no read before Gat
 - [Exhaustion register](../operations/EXHAUSTION_REGISTER.md) §0.1, rows 7, 13, 20, 21, 24; L7, L19; §5 orders 15-16.
 - [Reserved confirmation window](../operations/reserved-confirmation-window.md); DECISION_LOG 2026-10-13, 2026-10-17.
 - Branch drafts: EDGE-1 annex, GO/NO-GO rule (`claude/edge1-prereg-drafts-20261019` @ `7a2bbc53b`); lever-5
-  (`claude/model-edge-codecheck-20261019` @ `4743a7048`).
+  (`claude/model-edge-codecheck-20261019` @ `4743a7048`); R0 build (`claude/r0-retrain-code-20261021` @ `3ea1ecb5d`).
 - Reports: `agent-report-2026-08-02-workstation-make-the-first-retrain-count.md`,
   `agent-report-2026-08-08-workstation-exclude-denver-station-days-and-fit.md`,
   `agent-report-2026-08-13-workstation-retrain-rehearsal.md`, `agent-report-2026-07-22-workstation-pool-city.md`.
