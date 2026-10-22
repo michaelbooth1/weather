@@ -289,7 +289,8 @@ mismatch, and M5.1 item 2 and M8 then VOID every later row. Amended code identit
   `.py` files unchanged. The arm hash manifest therefore also records the interpreter version and the installed versions
   of the libraries the arm imports, and the residual rule above forbids any change to them from D0 to 12-21. A
   host Python-upgrade night before or at D0 re-pins the frozen identity **once**, with D0 = the first full day after
-  the C PASS night (EDGE-1 annex §1.2 (s-C) bullet). This is a single epoch, never a mid-test re-pin.
+  the C PASS night, never before 2026-10-28 (EDGE-1 annex §1.2 (s-C) bullet). This is a single epoch, never a
+  mid-test re-pin.
 
 ### M5.3 One look per declared look
 
