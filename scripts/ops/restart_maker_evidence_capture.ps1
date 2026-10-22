@@ -25,9 +25,10 @@ Runbook: docs/operations/passive-maker-evidence-capture.md "Explicit restart (88
 param(
     [switch]$Apply,
     [ValidateRange(60, 900)][int]$WaitSeconds = 420,
-    [string]$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+    [string]$RepoRoot = ""
 )
 $ErrorActionPreference = "Stop"
+if (-not $RepoRoot) { $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path }
 
 function Read-MakerStatus([string]$Path) {
     $item = Get-Item -LiteralPath $Path -ErrorAction Stop
