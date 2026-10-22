@@ -618,6 +618,17 @@ through `fleet_observability`, Stage B starts at `promotion_refresh`. Facts that
   (`weather.operations.settlement_hole_check --window-days`). An older hole drops out of the briefing while still
   unsettled. For an older range run the checker with larger `--window-days` and `--tail-lines` inside the heavy-work window, or
   read the per-market ledgers under `data/settlements/`.
+- **Replay-status evidence is incremental.** `replay_status_backfill` used to JSON-parse `snapshots.jsonl`, replay
+  inputs and the reconstructed corpus of every folder on every pass, including folders it then skips as
+  `replay_status_exists`. On the default discovered folder set it now reuses each folder's evidence and status
+  summary from `replay_status_backfill_evidence_cache.json` beside the step output while the name, size and
+  `mtime_ns` of every file read (plus cold-archive marker and resolved copy for archived inputs) are unchanged;
+  the module docstring of `src/weather/operations/replay_status_backfill.py` owns the exact contract. The payload
+  is identical to a full pass. A missing, corrupt, other-version or other-logic cache means a full recompute that
+  re-seeds it; `--replay-backfill-full` forces one; an explicit `--folders` list keeps the original direct call.
+  The step result reports `evidence_mode` and `evidence_cache` (reused/computed counts). Steady-state parsing is
+  limited to newly settled, still-active and just-written folders; the per-pass output JSON and report are still
+  rewritten for every folder. The first run after landing has no cache and costs one full pass.
 
 ## Bounded Suite And Integration Attempts
 

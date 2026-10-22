@@ -605,6 +605,11 @@ def build_run_parser(parser, dependencies=None):
     parser.add_argument("--overwrite-replay-status", action="store_true")
     parser.add_argument("--reconstruct-missing-replay-inputs", action="store_true")
     parser.add_argument("--include-active-replay-status", action="store_true")
+    parser.add_argument(
+        "--replay-backfill-full",
+        action="store_true",
+        help="Recompute every folder's replay-status evidence (the pre-incremental behavior) and re-seed its cache.",
+    )
     parser.add_argument("--no-clob-casebook", action="store_true")
     parser.add_argument("--collection-interval-minutes", type=float, default=10.0)
     parser.add_argument("--collection-tolerance", type=float, default=1.5)
