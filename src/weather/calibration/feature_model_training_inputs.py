@@ -40,7 +40,9 @@ from weather.sources.forecast_training_corpus import (
     verify_corpus_manifest,
 )
 
-TRAINING_INPUTS_SCHEMA_VERSION = "feature_model_training_inputs_v1"
+# Research record, not a registered durable schema (no versioned schema literal).
+TRAINING_INPUTS_RECORD = "feature_model_training_inputs"
+TRAINING_INPUTS_RECORD_VERSION = 1
 FORECAST_SOURCE_AMBIENT = "ambient_forecast_archive"
 FORECAST_SOURCE_PIT = "pit_forecast_corpus"
 # Manifest fields that must agree for two corpora to be one training input:
@@ -290,7 +292,8 @@ def training_inputs_record(
 ) -> dict[str, Any]:
     """The provenance block written into both artifacts and the report."""
     record = {
-        "schema_version": TRAINING_INPUTS_SCHEMA_VERSION,
+        "record": TRAINING_INPUTS_RECORD,
+        "record_version": TRAINING_INPUTS_RECORD_VERSION,
         "target_date": target_date.isoformat() if target_date else None,
         "target_date_pinned": target_date is not None,
         "training_years": list(training_years) if training_years else None,
