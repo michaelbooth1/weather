@@ -342,8 +342,10 @@ through the bounded runner above.
 Ctrl+C runs its `finally` blocks and traps but no `catch` block, and nothing after the stopped statement,
 so it exits 0 unless the code is set from a `finally` or trap. In an *advanced* script (`[CmdletBinding()]`
 or any `[Parameter()]` attribute) the code of an `exit` in a `finally` is dropped as well; in any script a
-trap cannot start a command during the stop, so its `exit` after a cmdlet or function call never runs. Put
-`$Host.SetShouldExit(<code>)` immediately before such a `finally` exit and first in every trap that exits;
+trap cannot start a command during the stop, so its `exit` or rethrow (`throw`, `break`) after a cmdlet or
+function call never runs. Put `$Host.SetShouldExit(<code>)` immediately before such a `finally` exit and
+first in every trap that exits, throws or breaks (directly or through any `scripts/ops` function it calls);
+a trap whose first statement is the `exit` itself is exempt.
 `tests/operations/test_ps_exit_in_finally_ratchet.py` enforces both over `scripts/ops/*.ps1`.
 `SetShouldExit` sets the host's exit code, so it also ends an interactive or line-by-line session that ran
 the script in-process: start these scripts with `powershell.exe -File` or from a fresh shell.

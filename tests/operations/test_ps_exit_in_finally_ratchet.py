@@ -20,10 +20,18 @@ Measured on PS 5.1 (2026-10-22, scratch scripts, console Ctrl+C under ``-File``)
 So this ratchet requires, over every ``scripts/ops/*.ps1``:
 
 * in an advanced script, every ``exit`` lexically inside a ``finally`` (at any
-  nesting) or inside a same-file function reachable from a ``finally`` is
+  nesting) or inside a function reachable from a ``finally`` is
   immediately preceded by ``$Host.SetShouldExit(<the same code>)``;
-* in any script, every ``trap`` that can exit (directly or through a reachable
-  same-file function) starts with ``$Host.SetShouldExit(...)``.
+* in any script, every ``trap`` that can exit, throw (a bare rethrow included)
+  or break, directly or through a reachable function, starts with
+  ``$Host.SetShouldExit(...)`` -- unless its first statement is the ``exit``
+  itself and starts no command. The rethrow case was measured too
+  (``trap { Close; throw }`` exits 0 when stopped, 1 with ``SetShouldExit``
+  first; the unstopped rethrow exits 1 either way).
+
+Function calls resolve by name over every scanned script, not just the current
+one, because dot-source targets live beside the scripts; a name defined in
+several scripts resolves to all of them (a false positive over a miss).
 
 ``SetShouldExit`` sets the *host's* exit code: a script that carries it ends an
 interactive or line-by-line host session it was invoked in-process from, so
@@ -88,8 +96,41 @@ function Get-HostExitArgument($statement) {
 function Get-Exits($node) {
     @($node.FindAll({ param($n) $n -is [System.Management.Automation.Language.ExitStatementAst] }, $true))
 }
+function Test-EscapingBreak($break, $root) {
+    # A `break` that is not consumed by an enclosing loop or switch below $root
+    # (a labeled one only by a loop carrying that label) ends a trap.
+    $label = if ($break.Label) { $break.Label.Extent.Text.Trim("'`"") } else { $null }
+    for ($node = $break.Parent; $null -ne $node -and $node -ne $root; $node = $node.Parent) {
+        if ($node -is [System.Management.Automation.Language.LoopStatementAst] -or
+            $node -is [System.Management.Automation.Language.SwitchStatementAst]) {
+            if (-not $label -or $node.Label -eq $label) { return $false }
+        }
+    }
+    return $true
+}
+function Test-Terminates($node) {
+    # Exit, throw (a rethrow included) or an escaping break: each ends the trap
+    # with a failure that a stop would turn into exit 0. Over-approximates.
+    foreach ($n in $node.FindAll({ param($n)
+            $n -is [System.Management.Automation.Language.ExitStatementAst] -or
+            $n -is [System.Management.Automation.Language.ThrowStatementAst] -or
+            $n -is [System.Management.Automation.Language.BreakStatementAst] }, $true)) {
+        if ($n -isnot [System.Management.Automation.Language.BreakStatementAst]) { return $true }
+        if (Test-EscapingBreak $n $node) { return $true }
+    }
+    return $false
+}
+function Test-IsBareExit($statement) {
+    # `exit` or `exit <expression>` that starts no command: measured to keep its
+    # code as a trap's first statement during a stop.
+    if ($statement -isnot [System.Management.Automation.Language.ExitStatementAst]) { return $false }
+    if (-not $statement.Pipeline) { return $true }
+    return @($statement.Pipeline.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true)).Count -eq 0
+}
 function Get-ReachableFunctions($roots, $functions) {
-    # Same-file functions called (transitively) from the given ASTs.
+    # Functions called (transitively) from the given ASTs, resolved by name over
+    # every scanned script (dot-source targets live beside them). A name defined
+    # in several files resolves to all of its definitions.
     $seen = @{}
     $queue = New-Object System.Collections.Queue
     foreach ($root in $roots) { $queue.Enqueue($root) }
@@ -107,16 +148,22 @@ function Get-ReachableFunctions($roots, $functions) {
     }
     return @($seen.Keys)
 }
+$parsed = @()
+$functions = @{}
 foreach ($path in (Get-Content -LiteralPath $env:SCAN_LIST)) {
     $tokens = $null; $errors = $null
     $ast = [System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$tokens, [ref]$errors)
     if ($errors.Count) { "${path}:0 parse error: $($errors[0].Message)"; continue }
-    $functions = @{}
+    $parsed += , @($path, $ast)
     foreach ($definition in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)) {
         $key = $definition.Name.ToLowerInvariant()
         if (-not $functions.ContainsKey($key)) { $functions[$key] = @() }
         $functions[$key] += $definition
     }
+}
+$reported = @{}
+foreach ($entry in $parsed) {
+    $path = $entry[0]; $ast = $entry[1]
     if (Test-IsAdvanced $ast.ParamBlock) {
         $finallyBlocks = @($ast.FindAll({ param($n)
             $n -is [System.Management.Automation.Language.TryStatementAst] -and $n.Finally }, $true) | ForEach-Object { $_.Finally })
@@ -125,9 +172,8 @@ foreach ($path in (Get-Content -LiteralPath $env:SCAN_LIST)) {
         foreach ($name in (Get-ReachableFunctions $finallyBlocks $functions)) {
             foreach ($definition in $functions[$name]) { $exits += Get-Exits $definition.Body }
         }
-        $reported = @{}
         foreach ($exit in $exits) {
-            $id = $exit.Extent.StartOffset
+            $id = "$($exit.Extent.File)|$($exit.Extent.StartOffset)"
             if ($reported.ContainsKey($id)) { continue }
             $reported[$id] = $true
             $expected = if ($exit.Pipeline) { $exit.Pipeline.Extent.Text } else { '0' }
@@ -135,21 +181,21 @@ foreach ($path in (Get-Content -LiteralPath $env:SCAN_LIST)) {
             $index = [array]::IndexOf($statements, $exit)
             $hostArgument = if ($index -gt 0) { Get-HostExitArgument $statements[$index - 1] } else { $null }
             if ($hostArgument -ne $expected) {
-                "${path}:$($exit.Extent.StartLineNumber) finally exit '$($exit.Extent.Text)' is not immediately preceded by `$Host.SetShouldExit($expected)"
+                "$($exit.Extent.File):$($exit.Extent.StartLineNumber) finally exit '$($exit.Extent.Text)' (reached from $path) is not immediately preceded by `$Host.SetShouldExit($expected)"
             }
         }
     }
     foreach ($trap in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.TrapStatementAst] }, $true)) {
-        $canExit = (Get-Exits $trap.Body).Count -gt 0
+        $first = @($trap.Body.Statements) | Select-Object -First 1
+        if ($null -ne $first -and ($null -ne (Get-HostExitArgument $first) -or (Test-IsBareExit $first))) { continue }
+        $canExit = Test-Terminates $trap.Body
         if (-not $canExit) {
             foreach ($name in (Get-ReachableFunctions @($trap.Body) $functions)) {
-                foreach ($definition in $functions[$name]) { if ((Get-Exits $definition.Body).Count) { $canExit = $true } }
+                foreach ($definition in $functions[$name]) { if (Test-Terminates $definition.Body) { $canExit = $true } }
             }
         }
-        if (-not $canExit) { continue }
-        $first = @($trap.Body.Statements) | Select-Object -First 1
-        if ($null -eq $first -or $null -eq (Get-HostExitArgument $first)) {
-            "${path}:$($trap.Extent.StartLineNumber) trap can exit but does not start with `$Host.SetShouldExit(...)"
+        if ($canExit) {
+            "${path}:$($trap.Extent.StartLineNumber) trap can exit, throw or break but does not start with `$Host.SetShouldExit(...)"
         }
     }
 }
@@ -195,6 +241,17 @@ FIXTURES = {
     "bad_trap_function.ps1": (
         "[CmdletBinding()]\nparam()\nfunction Refuse { $Host.SetShouldExit(1); exit 1 }\ntrap { Refuse }\n1\n"
     ),
+    "bad_trap_rethrow.ps1": (
+        "[CmdletBinding()]\nparam()\nfunction Close-Journal { Write-Host x }\ntrap { Close-Journal; throw }\n1\n"
+    ),
+    "bad_trap_break.ps1": "param()\ntrap { Write-Host x; foreach ($i in 1) { break }; break }\n1\n",
+    "bad_trap_function_throws.ps1": (
+        "param()\nfunction Fail-Loudly { foreach ($i in 1) { break }; throw 'x' }\ntrap { Fail-Loudly }\n1\n"
+    ),
+    "bad_trap_exit_runs_command.ps1": "[CmdletBinding()]\nparam()\ntrap { exit (Get-Random -Maximum 1) }\n1\n",
+    # The helper lives in another scanned script (a dot-source target).
+    "bad_trap_cross_file.ps1": "param()\ntrap { Invoke-CrossFileHelper }\n1\n",
+    "lib_cross_file_helper.ps1": "function Invoke-CrossFileHelper { Write-Host x; exit 2 }\n",
     # Spared.
     "plain_finally.ps1": "param([string]$X)\ntry { 1 } finally { exit 1 }\n",
     "fixed_finally.ps1": (
@@ -208,6 +265,14 @@ FIXTURES = {
     ),
     "catch_exit.ps1": "[CmdletBinding()]\nparam()\ntry { 1 } catch { exit 1 }\n",
     "trap_without_exit.ps1": "[CmdletBinding()]\nparam()\ntrap { Write-Host x; continue }\n1\n",
+    "trap_loop_break.ps1": (
+        "param()\ntrap { switch (1) { 1 { break } }; :outer foreach ($i in 1) { break outer }; continue }\n1\n"
+    ),
+    "fixed_trap_rethrow.ps1": (
+        "[CmdletBinding()]\nparam()\nfunction Close-Journal { Write-Host x }\n"
+        "trap { $Host.SetShouldExit(1); Close-Journal; throw }\n1\n"
+    ),
+    "trap_bare_exit.ps1": "[CmdletBinding()]\nparam()\n$c = 1\ntrap { exit $c }\n1\n",
 }
 
 

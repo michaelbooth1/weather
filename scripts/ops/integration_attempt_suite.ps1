@@ -16,6 +16,9 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $launchJournal = $null
 trap {
+    # During a Ctrl+C stop a trap cannot start commands and would exit 0; set
+    # the host exit code before anything else.
+    $Host.SetShouldExit(1)
     Close-WeatherLaunchDiagnostics -Journal $launchJournal -Status "FAIL" -Failure $_
     throw
 }
