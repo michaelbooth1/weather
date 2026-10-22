@@ -13,7 +13,7 @@
 # WRAPPER   (flag line: "C0 PASS head=<40-hex HEAD> at=<time>"; the Phase C wrapper compares that head). Exit 0 = C0 complete, 1 = stopped.
 # WRAPPER Non-verbatim lines (every one ends in or starts with "# WRAPPER"): these header comments; removal of a stale flag before the run;
 # WRAPPER   Start-Transcript; "try {"; the "# ---- WRAPPER" separators; after C0: the next-runs count log, the OPERATOR CHECK log, the flag write
-# WRAPPER   and its log; the catch line (log PHASE-C0 STOPPED, null-safe Release-Lease, Stop-Transcript, exit 1); Stop-Transcript; exit 0.
+# WRAPPER   and its log; the catch line (log PHASE-C0 STOPPED, null-safe Release-Lease, Stop-Transcript, exit 1); Stop-Transcript; exit 0. (10-24 Fable review of 26fbc19c0) Save-StatusBaseline and Get-NewStatusFlags write with Set-Content -Value @(...) and carry a "# WRAPPER" tail (a zero-flag host gets an empty file, not none); a WRAPPER line truncates c0-next-runs.txt before the Tee-Object.
 # WRAPPER G3 (10-24, master ruling + -G3Mode amendment; README.md "G3"): operator-supplied values, never defaults in this file:
 # WRAPPER   -G3Mode           MANDATORY, no default: strict | dependency (case-sensitive). The owner's D1 answer picks it; C0 refuses without it.
 # WRAPPER   -G3QualifiedTip   full 40-hex qualified tip (master's ruling for 10-23/24: 90b2e1844ad0de71916c67996026dea7b04ce5ff); must equal qualification.json tip
@@ -99,12 +99,12 @@ function Get-StatusFlagKeys([string]$OutBase) {
   if ($null -eq $j -or -not $j.PSObject.Properties['flags']) { NoGo "status.ps1 JSON has no flags field ($OutBase)" }
   @(@($j.flags) | ForEach-Object { ([string]$_ -replace '[0-9a-fA-F]{64}','<sha>') -replace '\d+(\.\d+)?','#' } | Sort-Object -Unique) }
 function Save-StatusBaseline([string]$OutBase, [string]$Path) {
-  $k = @(Get-StatusFlagKeys $OutBase); $k | Set-Content -LiteralPath $Path -Encoding utf8; Log "status baseline $Path ($($k.Count) flags)" }
+  $k = @(Get-StatusFlagKeys $OutBase); Set-Content -LiteralPath $Path -Value @($k) -Encoding utf8; Log "status baseline $Path ($($k.Count) flags)" }   # WRAPPER (Fable Low 1) -Value @($k): zero flags still writes the (empty) baseline file; "@() | Set-Content" writes none
 function Get-NewStatusFlags([string]$OutBase, [string]$Baseline, [string]$Tag) {
   if (-not (Test-Path -LiteralPath $Baseline)) { NoGo "$Tag status baseline $Baseline is missing" }
   $base = @(Get-Content -LiteralPath $Baseline | Where-Object { $_ })
   $new = @(Get-StatusFlagKeys $OutBase | Where-Object { $base -notcontains $_ })
-  $new | Set-Content -LiteralPath "$OutBase.new-flags.txt" -Encoding utf8
+  Set-Content -LiteralPath "$OutBase.new-flags.txt" -Value @($new) -Encoding utf8   # WRAPPER (Fable Low 1) zero new flags still writes an empty file
   Log "$Tag status: $($new.Count) new flag(s) vs $(Split-Path -Leaf $Baseline)"; $new }
 . (Join-Path $P 'scripts\ops\workload_admission.ps1')
 . (Join-Path $P 'scripts\ops\memory_guard_status_reader.ps1')
@@ -161,10 +161,10 @@ function Test-Venv($vpy, $root, $tag) {
 # WRAPPER     for that HEAD before writing the GO file (no ROLL-FREE = no GO = the attempt's preflight refuses: a deterministic gate, no retry).
 # WRAPPER   dependency: PASS when HEAD equals the tip, or (i) no dependency file differs tip..HEAD, (ii) the operator-supplied WS pregate PASS
 # WRAPPER     (receipt id + tested sha, Python 3.11.9 attested; the receipt file $R\pregate-receipt-<id without pg->.json must read schema
-# WRAPPER     weather.workstation_pregate_receipt.v1, verdict PASS, head = the tested sha, and its name must give the receipt id)
+# WRAPPER     weather.workstation_pregate_receipt.v1, verdict PASS, head = the tested sha, match its one $R\SHA256SUMS.txt line (size + sha256), and its log_path must hold the receipt id as a path segment)
 # WRAPPER     tested a commit whose diff to HEAD is docs/*.md only, apart from exactly the two
 # WRAPPER     fleet-generated paths config/locations.json and config/location_market_events.json (no globbing), and (iii) the rest of C0 has no NO-GO
-# WRAPPER     (so the PASS line is printed only at the end of C0). A FAIL is a deterministic NO-GO: never retried.
+# WRAPPER     (so the PASS line is printed only at the end of C0; in an attempt also after the post-C0 GO-review checks). A FAIL is a deterministic NO-GO: never retried.
 function Test-G3Gate([string]$Mode, [string]$Head, [string]$QualTip, [string]$Receipt, [string]$Tested, [string]$PyAttest) {   # WRAPPER
   $wf = { param($r) [pscustomobject]@{ Pass = $false; Status = 'FAIL'; Mode = $Mode; Branch = 'none'; Detail = $r } }   # WRAPPER
   if (@('strict','dependency') -cnotcontains "$Mode") { return (& $wf 'g3mode_missing_or_invalid') }   # WRAPPER
@@ -179,12 +179,12 @@ function Test-G3Gate([string]$Mode, [string]$Head, [string]$QualTip, [string]$Re
   if ("$Tested" -cnotmatch '^[0-9a-f]{40}$' -or -not $Tested.StartsWith($wRp)) { return (& $wf 'tested_sha_not_40hex_or_not_the_receipt_head') }   # WRAPPER
   if ("$PyAttest" -cne '3.11.9') { return (& $wf 'pregate_python_3.11.9_not_attested') }   # WRAPPER
   $wRf = Join-Path $R ('pregate-receipt-' + $Receipt.Substring(3) + '.json')   # WRAPPER (Fable 1) canonical place: $R, next to the kit copy; the kit ships it
-  if (-not (Test-Path -LiteralPath $wRf)) { return (& $wf 'pregate_receipt_file_missing') }   # WRAPPER
+  if (-not (Test-Path -LiteralPath $wRf)) { return (& $wf 'pregate_receipt_file_missing') }; $wSf = Join-Path $R 'SHA256SUMS.txt'; $wSl = @(if (Test-Path -LiteralPath $wSf) { Get-Content -LiteralPath $wSf | Where-Object { ("$_".Trim() -split '\s+')[0] -ceq (Split-Path -Leaf $wRf) } }); if ($wSl.Count -ne 1) { return (& $wf 'pregate_receipt_not_in_sha256sums') }; $wSq = @("$($wSl[0])".Trim() -split '\s+'); $wSz = [long]-1; if ($wSq.Count -ne 3 -or -not [long]::TryParse($wSq[1], [Globalization.NumberStyles]::None, [Globalization.CultureInfo]::InvariantCulture, [ref]$wSz) -or $wSz -ne (Get-Item -LiteralPath $wRf).Length -or $wSq[2].ToUpperInvariant() -cne (Get-FileHash -LiteralPath $wRf -Algorithm SHA256).Hash.ToUpperInvariant()) { return (& $wf 'pregate_receipt_sha256sums_mismatch') }   # WRAPPER (Fable Low 4) the receipt is hash-bound to the kit's SHA256SUMS line, same rule as the retry wrapper's run-file check
   $wRj = $null; try { $wRj = Get-Content -LiteralPath $wRf -Raw | ConvertFrom-Json } catch { $wRj = $null }; if ($null -eq $wRj) { return (& $wf 'pregate_receipt_unreadable') }   # WRAPPER
   if ([string]$wRj.schema -cne 'weather.workstation_pregate_receipt.v1') { return (& $wf 'pregate_receipt_schema_mismatch') }   # WRAPPER
   if ([string]$wRj.verdict -cne 'PASS') { return (& $wf 'pregate_receipt_verdict_not_pass') }   # WRAPPER
   if ([string]$wRj.head -cne $Tested) { return (& $wf 'pregate_receipt_head_ne_tested_sha') }   # WRAPPER
-  if ((Split-Path -Leaf $wRf) -cnotmatch '^pregate-receipt-([0-9a-f]{12}-[0-9]{8}T[0-9]{6}-[0-9]+)\.json$' -or ('pg-' + $Matches[1]) -cne $Receipt) { return (& $wf 'pregate_receipt_id_ne_file_name') }   # WRAPPER
+  if (@("$($wRj.log_path)" -split '[\\/]') -cnotcontains $Receipt) { return (& $wf 'pregate_receipt_log_path_ne_receipt_id') }   # WRAPPER (Fable Low 4) replaces the circular file-name compare (the name is built from the id): the receipt's own log_path must carry the id as a path segment
   $null = @(git -C $P cat-file -t "$Tested^{commit}"); if ($LASTEXITCODE) { return (& $wf 'tested_sha_not_in_production_repo') }   # WRAPPER
   $wTd = @(git -C $P diff --name-only $Tested $Head); if ($LASTEXITCODE) { return (& $wf 'diff_tested_head_failed') }   # WRAPPER
   $wNd = @($wTd | Where-Object { "$_" -cnotmatch '^docs/.+\.md$' })   # WRAPPER "non-docs diff"
@@ -227,6 +227,7 @@ Save-StatusBaseline "$R\c0-status" "$R\c0-status-flags.txt"   # exit $st0 is 2 w
 $ra0 = Get-ReleaseActive $Py "$R\c0-release-active"; Assert-CaseA $ra0 'C0'
 $Exempt = @('WeatherMemoryCommitGuard','WeatherSnapshotLoopSupervisor','WeatherClobBookLoopSupervisor','WeatherObservationTriggerSupervisor','WeatherTrainingWindowRestore') +
           @(Get-Content -LiteralPath "$R\aux-tasks.txt" | Where-Object { $_.Trim() })
+Set-Content -LiteralPath "$R\c0-next-runs.txt" -Value @() -Encoding ascii   # WRAPPER (Fable Low 1 sweep) Tee-Object writes no file for an empty pipeline: truncate first, so zero due tasks leave an empty file, never an older run's list
 Get-ScheduledTask | Where-Object { [string]$_.State -ne 'Disabled' -and $Exempt -notcontains $_.TaskName } | ForEach-Object { $i = Get-ScheduledTaskInfo $_
   if ($i.NextRunTime -and $i.NextRunTime -lt (Get-Date).Date.AddHours(4)) { "$($_.TaskName) next=$($i.NextRunTime)" } } | Tee-Object -FilePath "$R\c0-next-runs.txt"
 $wr = Get-ScheduledTask -TaskName WeatherTrainingWindowRestore; if ([string]$wr.State -eq 'Disabled' -or -not @($wr.Triggers | Where-Object { [string]$_.StartBoundary -match 'T04:15' -and $_.Enabled }).Count) { NoGo 'WeatherTrainingWindowRestore (04:15 net) is not armed' }   # WRAPPER Fable 10-20 #5

@@ -38,7 +38,7 @@
 # WRAPPER   post-C0 checks (HEAD vs flag, baseline vs GO-reviewed, next-runs vs GO-reviewed, restore of the GO-reviewed baseline);
 # WRAPPER   "$msg = $null" before C3; the C8 (d) judgement; the C9c judgement; the PHASE-C DONE log; the whole catch block; the final exit;
 # WRAPPER   (10-24) the param line, the attempt/run-id checks, Write-WMark and its calls, Write-WRestoreVerify and its call, the night.log
-# WRAPPER   line count at session start, and the attempt-aware GO-review copy.
+# WRAPPER   line count at session start, and the attempt-aware GO-review copy. (10-24 Fable review of 26fbc19c0) Changed verbatim lines carry a "# WRAPPER" tail: Save-StatusBaseline and Get-NewStatusFlags write with Set-Content -Value @(...) (a zero-flag host gets an empty file, not none), and the C1 pip freeze has a $LASTEXITCODE check (C1 gate); new WRAPPER lines: the next-runs truncate before the C0 Tee-Object and the status sample time $WStatusAt.
 param([int]$Attempt = 1, [string]$RunId = 'manual')   # WRAPPER 10-24 retry: plain param (no [Parameter()] attribute: this stays a simple script)
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { Write-Host 'REFUSED: not elevated (Get-ScheduledTask would hide S4U tasks)'; exit 3 }   # WRAPPER Fable 10-20 #2
 if ([Console]::IsErrorRedirected -or [Console]::IsOutputRedirected) { Write-Host 'REFUSED: stdio redirected; native stderr becomes terminating under Stop; run -File in a real elevated console'; exit 3 }   # WRAPPER Fable 10-20 #2
@@ -139,17 +139,17 @@ function Wait-OperatorHold([string]$Tag, [bool]$AllowRollback) {   # WRAPPER
     Start-Sleep -Seconds 30 } }   # WRAPPER
 # WRAPPER 10-24 retry GO review (master rule, README.md "Retry GO review"). Between attempts, the flags of this attempt's C0 status are compared with
 # WRAPPER   the baseline captured at attempt 1's GO review (before C2). A flag passes if it was in that baseline, or if it is one of the restart-transient
-# WRAPPER   keys below AND the previous undo restarted tape/holders/shadow at most $WGoAllowMinutes ago. Anything else, any new CRITICAL, or a missing
+# WRAPPER   keys below AND the previous undo restarted tape/holders/shadow at most $WGoAllowSeconds before the status sample. Anything else, any new CRITICAL, or a missing
 # WRAPPER   baseline blocks: WAIT-FOR-OWNER. Keys are Get-StatusFlagKeys keys (64-hex -> <sha>, digits -> #), compared case-sensitively and exactly.
 $WGoAllow = @(   # WRAPPER the fixed allowlist; each key is emitted by status.ps1 only from a restart-sensitive freshness test
   'public execution-tape producer is armed but its process/lock/identity contract is unhealthy',   # WRAPPER status.ps1:1596 (heartbeat <= 180 s, lock pid, supervisor ensure OK: :1590-1593)
   'MAKER_EVIDENCE: STARTING, status age #s',   # WRAPPER status.ps1:4962 (state -ne CAPTURING, :4961); 88a writes STARTING at start-up (maker_evidence_capture.py:235)
   'MAKER_EVIDENCE: CAPTURING, status age #s')   # WRAPPER status.ps1:4962 (age > 180 s, :4961): the stopped worker's last status before the restarted one rewrites it
-$WGoAllowMinutes = 5   # WRAPPER N = 180 s (status.ps1:1591, :4961) + one 2 min tape-supervisor ensure run (register_execution_tape_supervisor.ps1:34) = 300 s
+$WGoAllowSeconds = 660   # WRAPPER N (master ruling 10-22): 300 s transient + 330 s worst-case verify/settle, rounded; measured from aux-restart-at to $WStatusAt (the status sample, taken just before status.ps1 runs)
 function Get-WGoReviewDelta($Baseline, [string[]]$Current, $RestartAt, [datetime]$Now) {   # WRAPPER pure: no I/O
   if ($null -eq $Baseline) { return [pscustomobject]@{ Pass = $false; Reason = 'baseline_missing'; BaselineCount = 0; New = @(); Allowed = @(); Blocked = @('baseline_missing') } }   # WRAPPER
   $wB = @($Baseline | Where-Object { "$_" }); $wNew = @(@($Current | Where-Object { "$_" }) | Where-Object { $wB -cnotcontains $_ })   # WRAPPER
-  $wFresh = ($null -ne $RestartAt) -and ($Now -ge [datetime]$RestartAt) -and (($Now - [datetime]$RestartAt).TotalMinutes -le $WGoAllowMinutes)   # WRAPPER
+  $wFresh = ($null -ne $RestartAt) -and ($Now -ge [datetime]$RestartAt) -and (($Now - [datetime]$RestartAt).TotalSeconds -le $WGoAllowSeconds)   # WRAPPER
   $wAl = @($wNew | Where-Object { $wFresh -and ($WGoAllow -ccontains $_) -and ("$_" -cnotlike '*CRITICAL*') })   # WRAPPER
   $wBl = @($wNew | Where-Object { $wAl -cnotcontains $_ })   # WRAPPER (every new CRITICAL lands here: no allowlisted key contains CRITICAL)
   $wWhy = if ($wBl.Count) { if (@($wBl | Where-Object { "$_" -clike '*CRITICAL*' }).Count) { 'new_critical' } else { 'new_flag_not_allowlisted' } } else { 'none' }   # WRAPPER
@@ -274,12 +274,12 @@ function Get-StatusFlagKeys([string]$OutBase) {
   if ($null -eq $j -or -not $j.PSObject.Properties['flags']) { NoGo "status.ps1 JSON has no flags field ($OutBase)" }
   @(@($j.flags) | ForEach-Object { ([string]$_ -replace '[0-9a-fA-F]{64}','<sha>') -replace '\d+(\.\d+)?','#' } | Sort-Object -Unique) }
 function Save-StatusBaseline([string]$OutBase, [string]$Path) {
-  $k = @(Get-StatusFlagKeys $OutBase); $k | Set-Content -LiteralPath $Path -Encoding utf8; Log "status baseline $Path ($($k.Count) flags)" }
+  $k = @(Get-StatusFlagKeys $OutBase); Set-Content -LiteralPath $Path -Value @($k) -Encoding utf8; Log "status baseline $Path ($($k.Count) flags)" }   # WRAPPER (Fable Low 1) -Value @($k): zero flags still writes the (empty) baseline file; "@() | Set-Content" writes none
 function Get-NewStatusFlags([string]$OutBase, [string]$Baseline, [string]$Tag) {
   if (-not (Test-Path -LiteralPath $Baseline)) { NoGo "$Tag status baseline $Baseline is missing" }
   $base = @(Get-Content -LiteralPath $Baseline | Where-Object { $_ })
   $new = @(Get-StatusFlagKeys $OutBase | Where-Object { $base -notcontains $_ })
-  $new | Set-Content -LiteralPath "$OutBase.new-flags.txt" -Encoding utf8
+  Set-Content -LiteralPath "$OutBase.new-flags.txt" -Value @($new) -Encoding utf8   # WRAPPER (Fable Low 1) zero new flags still writes an empty file
   Log "$Tag status: $($new.Count) new flag(s) vs $(Split-Path -Leaf $Baseline)"; $new }
 . (Join-Path $P 'scripts\ops\workload_admission.ps1')
 . (Join-Path $P 'scripts\ops\memory_guard_status_reader.ps1')
@@ -336,10 +336,10 @@ function Test-Venv($vpy, $root, $tag) {
 # WRAPPER     for that HEAD before writing the GO file (no ROLL-FREE = no GO = the attempt's preflight refuses: a deterministic gate, no retry).
 # WRAPPER   dependency: PASS when HEAD equals the tip, or (i) no dependency file differs tip..HEAD, (ii) the operator-supplied WS pregate PASS
 # WRAPPER     (receipt id + tested sha, Python 3.11.9 attested; the receipt file $R\pregate-receipt-<id without pg->.json must read schema
-# WRAPPER     weather.workstation_pregate_receipt.v1, verdict PASS, head = the tested sha, and its name must give the receipt id)
+# WRAPPER     weather.workstation_pregate_receipt.v1, verdict PASS, head = the tested sha, match its one $R\SHA256SUMS.txt line (size + sha256), and its log_path must hold the receipt id as a path segment)
 # WRAPPER     tested a commit whose diff to HEAD is docs/*.md only, apart from exactly the two
 # WRAPPER     fleet-generated paths config/locations.json and config/location_market_events.json (no globbing), and (iii) the rest of C0 has no NO-GO
-# WRAPPER     (so the PASS line is printed only at the end of C0). A FAIL is a deterministic NO-GO: never retried.
+# WRAPPER     (so the PASS line is printed only at the end of C0; in an attempt also after the post-C0 GO-review checks). A FAIL is a deterministic NO-GO: never retried.
 function Test-G3Gate([string]$Mode, [string]$Head, [string]$QualTip, [string]$Receipt, [string]$Tested, [string]$PyAttest) {   # WRAPPER
   $wf = { param($r) [pscustomobject]@{ Pass = $false; Status = 'FAIL'; Mode = $Mode; Branch = 'none'; Detail = $r } }   # WRAPPER
   if (@('strict','dependency') -cnotcontains "$Mode") { return (& $wf 'g3mode_missing_or_invalid') }   # WRAPPER
@@ -354,12 +354,12 @@ function Test-G3Gate([string]$Mode, [string]$Head, [string]$QualTip, [string]$Re
   if ("$Tested" -cnotmatch '^[0-9a-f]{40}$' -or -not $Tested.StartsWith($wRp)) { return (& $wf 'tested_sha_not_40hex_or_not_the_receipt_head') }   # WRAPPER
   if ("$PyAttest" -cne '3.11.9') { return (& $wf 'pregate_python_3.11.9_not_attested') }   # WRAPPER
   $wRf = Join-Path $R ('pregate-receipt-' + $Receipt.Substring(3) + '.json')   # WRAPPER (Fable 1) canonical place: $R, next to the kit copy; the kit ships it
-  if (-not (Test-Path -LiteralPath $wRf)) { return (& $wf 'pregate_receipt_file_missing') }   # WRAPPER
+  if (-not (Test-Path -LiteralPath $wRf)) { return (& $wf 'pregate_receipt_file_missing') }; $wSf = Join-Path $R 'SHA256SUMS.txt'; $wSl = @(if (Test-Path -LiteralPath $wSf) { Get-Content -LiteralPath $wSf | Where-Object { ("$_".Trim() -split '\s+')[0] -ceq (Split-Path -Leaf $wRf) } }); if ($wSl.Count -ne 1) { return (& $wf 'pregate_receipt_not_in_sha256sums') }; $wSq = @("$($wSl[0])".Trim() -split '\s+'); $wSz = [long]-1; if ($wSq.Count -ne 3 -or -not [long]::TryParse($wSq[1], [Globalization.NumberStyles]::None, [Globalization.CultureInfo]::InvariantCulture, [ref]$wSz) -or $wSz -ne (Get-Item -LiteralPath $wRf).Length -or $wSq[2].ToUpperInvariant() -cne (Get-FileHash -LiteralPath $wRf -Algorithm SHA256).Hash.ToUpperInvariant()) { return (& $wf 'pregate_receipt_sha256sums_mismatch') }   # WRAPPER (Fable Low 4) the receipt is hash-bound to the kit's SHA256SUMS line, same rule as the retry wrapper's run-file check
   $wRj = $null; try { $wRj = Get-Content -LiteralPath $wRf -Raw | ConvertFrom-Json } catch { $wRj = $null }; if ($null -eq $wRj) { return (& $wf 'pregate_receipt_unreadable') }   # WRAPPER
   if ([string]$wRj.schema -cne 'weather.workstation_pregate_receipt.v1') { return (& $wf 'pregate_receipt_schema_mismatch') }   # WRAPPER
   if ([string]$wRj.verdict -cne 'PASS') { return (& $wf 'pregate_receipt_verdict_not_pass') }   # WRAPPER
   if ([string]$wRj.head -cne $Tested) { return (& $wf 'pregate_receipt_head_ne_tested_sha') }   # WRAPPER
-  if ((Split-Path -Leaf $wRf) -cnotmatch '^pregate-receipt-([0-9a-f]{12}-[0-9]{8}T[0-9]{6}-[0-9]+)\.json$' -or ('pg-' + $Matches[1]) -cne $Receipt) { return (& $wf 'pregate_receipt_id_ne_file_name') }   # WRAPPER
+  if (@("$($wRj.log_path)" -split '[\\/]') -cnotcontains $Receipt) { return (& $wf 'pregate_receipt_log_path_ne_receipt_id') }   # WRAPPER (Fable Low 4) replaces the circular file-name compare (the name is built from the id): the receipt's own log_path must carry the id as a path segment
   $null = @(git -C $P cat-file -t "$Tested^{commit}"); if ($LASTEXITCODE) { return (& $wf 'tested_sha_not_in_production_repo') }   # WRAPPER
   $wTd = @(git -C $P diff --name-only $Tested $Head); if ($LASTEXITCODE) { return (& $wf 'diff_tested_head_failed') }   # WRAPPER
   $wNd = @($wTd | Where-Object { "$_" -cnotmatch '^docs/.+\.md$' })   # WRAPPER "non-docs diff"
@@ -404,35 +404,37 @@ foreach ($tn in 'WeatherTrainingWindow','WeatherEveningEvidenceRefresh') { $x = 
   if ($x -and [string]$x.State -ne 'Disabled') { NoGo "$tn is enabled or still running (State $($x.State), G5)" } }   # State, not Settings.Enabled: a disabled task still running holds the lease
 $mg = Read-WeatherMemoryGuardStatus -Path (Join-Path $P 'data\logs\memory_commit_guard_status.json'); Log "memory $($mg | ConvertTo-Json -Compress)"
 Log "lease state $((Get-WeatherHeavyWorkloadLeaseState -RepoRoot $P) | ConvertTo-Json -Compress)"
+$WStatusAt = Get-Date   # WRAPPER (Fable Low 3) the status sample time, taken just before status.ps1 runs: the retry GO-review freshness window ends here, not at a later Get-Date
 $st0 = Invoke-Native 'powershell.exe' @('-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $P 'scripts\ops\status.ps1'),'-Json') "$R\c0-status"
 Save-StatusBaseline "$R\c0-status" "$R\c0-status-flags.txt"   # exit $st0 is 2 whenever any standing flag exists; not a gate
 $ra0 = Get-ReleaseActive $Py "$R\c0-release-active"; Assert-CaseA $ra0 'C0'
 $Exempt = @('WeatherMemoryCommitGuard','WeatherSnapshotLoopSupervisor','WeatherClobBookLoopSupervisor','WeatherObservationTriggerSupervisor','WeatherTrainingWindowRestore') +
           @(Get-Content -LiteralPath "$R\aux-tasks.txt" | Where-Object { $_.Trim() })
+Set-Content -LiteralPath "$R\c0-next-runs.txt" -Value @() -Encoding ascii   # WRAPPER (Fable Low 1 sweep) Tee-Object writes no file for an empty pipeline: truncate first, so zero due tasks leave an empty file, never an older run's list
 Get-ScheduledTask | Where-Object { [string]$_.State -ne 'Disabled' -and $Exempt -notcontains $_.TaskName } | ForEach-Object { $i = Get-ScheduledTaskInfo $_
   if ($i.NextRunTime -and $i.NextRunTime -lt (Get-Date).Date.AddHours(4)) { "$($_.TaskName) next=$($i.NextRunTime)" } } | Tee-Object -FilePath "$R\c0-next-runs.txt"
 Log "C0 complete (status.ps1 exit $st0) - awaiting owner GO"
 # ---- WRAPPER post-C0 checks: the GO was given on the C0 run's HEAD, baseline and next-runs; anything new since then goes back to the owner (exit 4, nothing touched)
-if ($Head -ne $WFlagHead) { Log "OPERATOR CHECK: HEAD $Head differs from the GO-reviewed C0 HEAD $WFlagHead (the roll verdict covered the latter); nothing touched"; Exit-Wrapper 4 }   # WRAPPER
+if ($Head -ne $WFlagHead) { if ($WAttempt -gt 1) { $script:WGoWait = 'head_changed' }; Log "OPERATOR CHECK: HEAD $Head differs from the GO-reviewed C0 HEAD $WFlagHead (the roll verdict covered the latter); nothing touched"; Exit-Wrapper 4 }   # WRAPPER (Fable Low 5) attempts 2..3: WAIT-FOR-OWNER (head_changed), attempt 1: the GO_REVIEW gate
 $WBaseRev = @(Get-Content -LiteralPath "$WRev\c0-status-flags.txt" | Where-Object { $_ })   # WRAPPER
 $WNightDir = Join-Path $R ('night-' + (Get-Date -Format yyyyMMdd)); $WGoBase = Join-Path $WNightDir 'goreview-baseline-flags.txt'   # WRAPPER 10-24 the same $N that C1 creates
 if ($WAttempt -eq 1) {   # WRAPPER attempt 1: the GO-review check as before
   $WBaseAdded = @(Get-Content -LiteralPath "$R\c0-status-flags.txt" | Where-Object { $_ -and $WBaseRev -notcontains $_ })   # WRAPPER
   if ($WBaseAdded.Count) { Log "OPERATOR CHECK: status flag(s) new since the GO review: $($WBaseAdded -join ' || '); nothing touched"; Exit-Wrapper 4 } }   # WRAPPER
 else {   # WRAPPER attempts 2..3: master's retry GO review against the attempt-1 baseline
-  $wGB = if (Test-Path -LiteralPath $WGoBase) { @(Get-Content -LiteralPath $WGoBase) } else { $null }   # WRAPPER
+  $wGB = $null; if (Test-Path -LiteralPath $WGoBase) { $wGB = @(Get-Content -LiteralPath $WGoBase) }   # WRAPPER (Fable Low 1) present but empty = a valid zero-flag baseline (@()); missing = $null = baseline_missing (WAIT)
   $wRs = $null; try { if (Test-Path -LiteralPath "$WNightDir\aux-restart-at.txt") { $wRs = [datetime]::Parse("$(Get-Content -LiteralPath "$WNightDir\aux-restart-at.txt" -TotalCount 1)".Trim(), [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind) } } catch { $wRs = $null }   # WRAPPER
-  $wD = Get-WGoReviewDelta $wGB @(Get-Content -LiteralPath "$R\c0-status-flags.txt" | Where-Object { $_ }) $wRs (Get-Date)   # WRAPPER
+  $wD = Get-WGoReviewDelta $wGB @(Get-Content -LiteralPath "$R\c0-status-flags.txt" | Where-Object { $_ }) $wRs $WStatusAt   # WRAPPER (Fable Low 3) freshness is judged at the status sample time
   $wDl = "GO-REVIEW-DELTA baseline=$($wD.BaselineCount) new=$(Format-WKeys $wD.New) allowed=$(Format-WKeys $wD.Allowed) blocked=$(Format-WKeys $wD.Blocked)"; Write-Host $wDl; try { Add-Content -LiteralPath $Log -Value ("{0:o} {1}" -f (Get-Date), $wDl) -Encoding utf8 } catch {}   # WRAPPER
   if (-not $wD.Pass) { $script:WGoWait = $wD.Reason; Log "OPERATOR CHECK: retry GO review blocked ($($wD.Reason)); nothing touched; WAIT-FOR-OWNER"; Exit-Wrapper 4 } }   # WRAPPER
 Copy-Item -LiteralPath "$WRev\c0-status-flags.txt" -Destination "$R\c0-status-flags.txt" -Force; Log 'WRAPPER: C8/C9c baseline restored to the GO-reviewed c0-status-flags.txt'   # WRAPPER
 $WRunsRev = @(if (Test-Path -LiteralPath "$WRev\c0-next-runs.txt") { Get-Content -LiteralPath "$WRev\c0-next-runs.txt" | Where-Object { "$_".Trim() } | ForEach-Object { ("$_" -split ' next=')[0] } })   # WRAPPER
 $WRootNames = @(Get-ScheduledTask -TaskPath '\' | ForEach-Object TaskName)   # WRAPPER (Fable r1 #2: only root-folder tasks; \Microsoft\Windows\* reschedule dynamically)
 $WRunsAdded = @(if (Test-Path -LiteralPath "$R\c0-next-runs.txt") { Get-Content -LiteralPath "$R\c0-next-runs.txt" | Where-Object { "$_".Trim() } | ForEach-Object { ("$_" -split ' next=')[0] } | Where-Object { $WRunsRev -notcontains $_ } | Where-Object { $WRootNames -contains $_ } })   # WRAPPER
-if ($WRunsAdded.Count) { Log "OPERATOR CHECK: task(s) due before 04:00 that the GO review did not see: $($WRunsAdded -join ', '); nothing touched"; Exit-Wrapper 4 }   # WRAPPER
+if ($WRunsAdded.Count) { if ($WAttempt -gt 1) { $script:WGoWait = 'next_runs_changed' }; Log "OPERATOR CHECK: task(s) due before 04:00 that the GO review did not see: $($WRunsAdded -join ', '); nothing touched"; Exit-Wrapper 4 }   # WRAPPER (Fable Low 5) attempts 2..3: WAIT-FOR-OWNER (next_runs_changed), attempt 1: the GO_REVIEW gate
 if ($WAttempt -eq 1 -and -not (Test-Path -LiteralPath $WGoBase)) {   # WRAPPER 10-24 attempt 1's GO-review baseline, once, before C2: the GO-reviewed keys plus this run's keys
   New-Item -ItemType Directory -Force $WNightDir | Out-Null   # WRAPPER
-  @(@($WBaseRev) + @(Get-StatusFlagKeys "$R\c0-status") | Where-Object { $_ } | Sort-Object -Unique) | Set-Content -LiteralPath $WGoBase -Encoding utf8; Log "WRAPPER: retry GO-review baseline written to $WGoBase" }   # WRAPPER
+  Set-Content -LiteralPath $WGoBase -Value @(@(@($WBaseRev) + @(Get-StatusFlagKeys "$R\c0-status") | Where-Object { $_ } | Sort-Object -Unique)) -Encoding utf8; Log "WRAPPER: retry GO-review baseline written to $WGoBase" }   # WRAPPER
 Log "G3 $($G3.Status) mode=$($G3.Mode) branch=$($G3.Branch) $($G3.Detail)"   # WRAPPER 10-24 (iii): printed only after every other C0 check and the post-C0 GO-review checks (Fable 2)
 
 # ---- WRAPPER C1. Lease and fresh receipts (verbatim)
@@ -444,6 +446,7 @@ $global:ReleaseOnNoGo = $true     # until the C4 rename, any NoGo releases the l
 if ((Get-Date) -gt $deadline) { NoGo 'lease taken after 01:04: C1 plus worst-case C2 would pass the 01:12 pre-C3 deadline' }   # the retry sleep can overshoot; refuse before C2 touches 88a or the tape
 $N = Join-Path $R ('night-' + (Get-Date -Format yyyyMMdd)); New-Item -ItemType Directory -Force $N | Out-Null
 & $Py -m pip freeze --all | Set-Content "$N\freeze-3110-tonight.txt"
+if ($LASTEXITCODE) { $script:WGate = 'C1'; NoGo "C1 pip freeze exit $LASTEXITCODE (prod venv unreadable; deterministic C1 gate)" }   # WRAPPER (Fable nit) checked immediately after the call; NoGo releases the lease (ReleaseOnNoGo)
 if (Compare-Object (Mask-Editable (Get-Content "$A\freeze-3110.txt")) (Mask-Editable (Get-Content "$N\freeze-3110-tonight.txt"))) { NoGo 'prod venv changed since Phase B - requalify (full Phase B on another night)' }
 foreach ($f in 'loop_status.json','clob_loop_status.json','observation_trigger_status.json') { Copy-Item -LiteralPath (Join-Path $P "data\snapshots\$f") "$N\pre-$f" }
 $shadowTask = Get-ScheduledTask -TaskName WeatherMakerShadowRunner -ErrorAction SilentlyContinue
