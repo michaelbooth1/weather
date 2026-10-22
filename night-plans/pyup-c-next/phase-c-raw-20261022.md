@@ -765,15 +765,20 @@ on who answers an escalation for that night.
 **Wrapper process crashed or was killed.** Signature: the session transcript or `night.log` ends without a
 `PHASE-C wrapper exit` line (for a pasted session: the window closed mid-phase). No `ESCALATE` line was written. The
 04:15 `WeatherTrainingWindowRestore` re-enables only the three capture supervisors, so the aux tasks stay disabled and
-88a, the tape and the shadow runner (STOP file present) stay down. If the kill came during `Wait-Restore`, the S4U
-restore may still be running: let it finish first. If `venv-cp3110` exists, the kill came after the C4 rename: do not
-restart holders on the new venv; record and escalate to the owner, as §R decides. Otherwise, in an elevated Windows
-PowerShell 5.1 session:
-1. define `Log` (§6 header), `Test-PrestateEnabled`, `Invoke-QStep`, `Undo-Aux` and `Start-AuxHolders` (C2) from the
-   kit, with `$N` set to the night folder and `$Holders` and `$ShadowStop` as C1 and C2 set them;
-2. run `Undo-Aux; Start-AuxHolders` against `$N\aux-prestate.csv`;
-3. make sure the shadow STOP file is gone;
-4. check with `status.ps1` that capture is 3/3 and that 88a, the tape and the shadow are running;
+88a, the tape and the shadow runner (STOP file present) stay down. If `venv-cp3110` exists, the kill came after the
+C4 rename: do not restart holders on the new venv; record and escalate to the owner, as §R decides. Otherwise, in an
+elevated Windows PowerShell 5.1 session:
+1. paste the §6 header (it sets `$R`, `$Log` and `Log`), then define `Test-PrestateEnabled`, `Invoke-QStep`,
+   `Undo-Aux` and `Start-AuxHolders` (C2) from the kit, with `$N` set to the night folder and `$Holders` and
+   `$ShadowStop` as C1 and C2 set them. `$Holders` takes `$FamilyTasks` from C0; if that is unset, judge any
+   `WeatherMakerEvidence*` family task by eye;
+2. first confirm with `status.ps1` that capture is 3/3: after the 04:15 restore, or after an in-flight `Wait-Restore`
+   (the S4U restore) has finished. If capture is not 3/3, leave the aux tasks disabled, log an `ESCALATE` line and
+   tell the owner; stop here. As in §R, the aux tasks come back only after capture is 3/3;
+3. only then run `Undo-Aux; Start-AuxHolders` against `$N\aux-prestate.csv`;
+4. check with `status.ps1` that 88a and the tape are running (no `capture loop DOWN` or `MAKER_EVIDENCE` flag; the tape
+   section healthy). `status.ps1` has no shadow section: check the shadow with `Get-ScheduledTask
+   WeatherMakerShadowRunner` (State `Running`) and that the STOP file is gone;
 5. record it in `night.log` as an `ESCALATE` line (`Log 'ESCALATE: wrapper killed; aux restored by hand'`) and tell
    the owner.
 
