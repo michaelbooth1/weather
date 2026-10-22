@@ -557,7 +557,7 @@ partially written status document.
 
 Stage A also publishes a **checkpoint** after every step, because the wrapper's
 11:55 teardown kills the child before the end-of-run writes. The checkpoint
-rewrites the Markdown report and the Stage-A manifest from the running payload:
+atomically replaces the Markdown report and the Stage-A manifest from the running payload:
 manifest `status` is `RUNNING` (never `COMPLETED`), `completed_at_utc` is empty,
 `completed_steps` lists only steps that ran, no `evidence_trigger` is written,
 and a `checkpoint` block names the last step (`after_step`, `written_at_utc`,
@@ -566,7 +566,11 @@ the production-evidence ledger) therefore still fails closed, now with
 `stage_a_not_completed` for the current target instead of
 `stale_stage_a_manifest`. The end-of-run publication replaces it and carries no
 `checkpoint` block. Checkpoints are best effort and never fail the run; bounded
-recovery slices, dry runs and unsplit (`all`) runs do not write them.
+recovery slices, dry runs and unsplit (`all`) runs do not write them. Because the
+report is rewritten after every step, its mtime no longer proves completion:
+`staleness_sweep.ps1` (`chain/daily_refresh_report`) reads the Stage-A manifest and
+is OK only for a `COMPLETED` status, falling back to the report (failing on
+`Status: **running**`) only when the manifest is missing or unreadable.
 
 ### Settlement in the chain: what it does and does not do
 
@@ -585,11 +589,13 @@ through `fleet_observability`, Stage B starts at `promotion_refresh`. Facts that
 - **Finalization is incremental.** On the default discovered folder set with Polymarket reconciliation on,
   `market_day_labels_finalize` re-finalizes only folders a full run could change and reuses the rest
   (`src/weather/operations/daily_refresh_incremental_finalize.py`; its docstring owns the exact reuse predicate).
-  A folder is reused only when its tape (size/mtime, else SHA-256), its daily-summary path and target-date row,
-  its market spec, the label-logic key (source bytes of the label modules plus the ledger schema, coverage
-  interval/tolerance and `INCREMENTAL_FINALIZE_LOGIC_VERSION`) all match the entry recorded in
-  `market_day_labels_finalize_index.json` beside the labels CSV, its `settlement.json` still carries the recorded
-  revision, its reconciliation is `match` on a closed event, no `--settle` override applies, and its target date
+  A folder is reused only when its tape SHA-256 (size/mtime only skip re-hashing), its daily-summary path and
+  target-date row, its market spec, the resolved ledger root, the label-logic key (source bytes of the label
+  modules plus the ledger schema, coverage interval/tolerance and `INCREMENTAL_FINALIZE_LOGIC_VERSION`) all match
+  the entry recorded in `market_day_labels_finalize_index.json` beside the labels CSV, its `settlement.json` still
+  carries the recorded revision, the market's `ledger.jsonl` (the source of truth) has that same revision current
+  for the slug and the sidecar content hashes to its `label_hash`, its reconciliation is `match` on a closed event
+  with a matching winner that is UMA-resolved or priced at least 0.999, no `--settle` override applies, and its target date
   is older than `--finalize-recheck-days` (default 3). Reused folders get no Gamma request and no new ledger
   revision; their existing `settlement.json` label feeds the CSV and the step summary. A full run would differ
   only in revision metadata and `finalized_at_utc` (`VOLATILE_LABEL_COLUMNS`), which it rewrites every pass

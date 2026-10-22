@@ -10,6 +10,7 @@ an override, the recheck-window boundary, or a sidecar rewritten by another path
 
 import csv
 import json
+import os
 import tempfile
 import unittest
 from datetime import date, datetime, timedelta
@@ -50,28 +51,33 @@ def _write_tape(folder, day, high=25.0):
     ]).to_csv(folder / "snapshots_long.csv", index=False)
 
 
-def _event(label, closed=True):
+def _event(label, closed=True, resolved=None):
+    resolved = closed if resolved is None else resolved
     return {
         "closed": closed,
         "markets": [{
             "groupItemTitle": label,
             "closed": closed,
-            "umaResolutionStatus": "resolved" if closed else "",
+            "umaResolutionStatus": "resolved" if resolved else "",
             "outcomes": json.dumps(["Yes", "No"]),
-            "outcomePrices": json.dumps(["1", "0"] if closed else ["0.6", "0.4"]),
+            "outcomePrices": json.dumps(["1", "0"] if resolved else ["0.6", "0.4"]),
         }],
     }
 
 
 class _Gamma:
-    """Counting Gamma stub; ``open_slugs`` answer as an unresolved event."""
+    """Counting Gamma stub; ``open_slugs`` answer as an unresolved event and
+    ``provisional_slugs`` as closed but not yet UMA-resolved (0.6/0.4)."""
 
     def __init__(self):
         self.calls = []
         self.open_slugs = set()
+        self.provisional_slugs = set()
 
     def __call__(self, slug, timeout=10):
         self.calls.append(slug)
+        if slug in self.provisional_slugs:
+            return _event("25 C", closed=True, resolved=False)
         return _event("25 C", closed=slug not in self.open_slugs)
 
 
@@ -140,7 +146,7 @@ class _Pair:
                 overrides=kwargs.pop("overrides", {}),
                 interval_minutes=10.0,
                 gap_tolerance=1.5,
-                ledger_root=self.inc / "ledger",
+                ledger_root=kwargs.pop("ledger_root", self.inc / "ledger"),
                 **kwargs,
             )
 
@@ -276,6 +282,111 @@ class IncrementalFinalizeEquivalenceTests(unittest.TestCase):
         _labels, plan = self.pair.run_inc(gamma)
         self.assertEqual(plan["refinalize_reasons"], {"sidecar_revision_changed": 1})
         self.assertEqual(gamma.calls, [_slug(DATES[0])])
+
+    def test_closed_but_unresolved_match_is_provisional(self):
+        # settlement_ledger admits a winner on closed + Yes > 0.5, so a closed
+        # event with an empty umaResolutionStatus priced 0.6/0.4 reads "match".
+        slug = _slug(DATES[1])
+        gamma = _Gamma()
+        gamma.provisional_slugs.add(slug)
+        self.pair.run_inc(gamma)
+        sidecar = json.loads(
+            (self.pair.inc / "snapshots" / slug / "settlement.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(sidecar["reconciliation_status"], "match")
+        self.assertIs(sidecar["polymarket_reconciliation"]["event_closed"], True)
+        gamma.calls.clear()
+        _labels, plan = self.pair.run_inc(gamma)
+        self.assertEqual(gamma.calls, [slug])
+        self.assertEqual(plan["refinalize_reasons"], {"reconciliation_not_terminal": 1})
+        gamma.provisional_slugs.clear()
+        self.pair.run_inc(gamma)
+        gamma.calls.clear()
+        self.pair.run_inc(gamma)
+        self.assertEqual(gamma.calls, [])
+
+    def _ledger(self):
+        return self.pair.inc / "ledger" / "toronto" / "ledger.jsonl"
+
+    def test_truncated_ledger_refinalizes_the_lost_revision(self):
+        self.pair.run_inc(_Gamma())
+        ledger = self._ledger()
+        lines = ledger.read_text(encoding="utf-8").splitlines(keepends=True)
+        lost = json.loads(lines[-1])["event_slug"]
+        ledger.write_text("".join(lines[:-1]), encoding="utf-8")
+        gamma = _Gamma()
+        _labels, plan = self.pair.run_inc(gamma)
+        self.assertEqual(gamma.calls, [lost])
+        self.assertEqual(plan["refinalize_reasons"], {"ledger_disagrees": 1})
+
+    def test_missing_ledger_refinalizes_everything(self):
+        self.pair.run_inc(_Gamma())
+        self._ledger().unlink()
+        gamma = _Gamma()
+        _labels, plan = self.pair.run_inc(gamma)
+        self.assertEqual(len(gamma.calls), 3)
+        self.assertEqual(plan["refinalize_reasons"], {"ledger_disagrees": 3})
+
+    def test_different_ledger_root_refinalizes_everything(self):
+        self.pair.run_inc(_Gamma())
+        gamma = _Gamma()
+        _labels, plan = self.pair.run_inc(gamma, ledger_root=self.pair.inc / "other_ledger")
+        self.assertEqual(len(gamma.calls), 3)
+        self.assertEqual(plan["refinalize_reasons"], {"inputs_changed": 3})
+
+    def test_hand_edited_sidecar_refinalizes(self):
+        self.pair.run_inc(_Gamma())
+        folder = self.pair.inc / "snapshots" / _slug(DATES[0])
+        path = folder / "settlement.json"
+        original = json.loads(path.read_text(encoding="utf-8"))
+        # A plain edit keeps the recorded revision id and label hash.
+        edited = dict(original, settlement_bucket="99")
+        path.write_text(json.dumps(edited), encoding="utf-8")
+        gamma = _Gamma()
+        _labels, plan = self.pair.run_inc(gamma)
+        self.assertEqual(gamma.calls, [_slug(DATES[0])])
+        self.assertEqual(plan["refinalize_reasons"], {"ledger_disagrees": 1})
+        # An edit that also re-stamps a self-consistent label_hash still
+        # disagrees with the ledger row.
+        restored = json.loads(path.read_text(encoding="utf-8"))
+        forged = dict(restored, settlement_bucket="99")
+        forged["label_hash"] = settlement_ledger._canonical_sha256(
+            settlement_ledger._label_payload(forged)
+        )
+        path.write_text(json.dumps(forged), encoding="utf-8")
+        index_path = incremental.finalize_index_path(self.pair.inc / "labels.csv")
+        index = json.loads(index_path.read_text(encoding="utf-8"))
+        index["folders"][_slug(DATES[0])]["label_hash"] = forged["label_hash"]
+        index_path.write_text(json.dumps(index), encoding="utf-8")
+        gamma = _Gamma()
+        _labels, plan = self.pair.run_inc(gamma)
+        self.assertEqual(gamma.calls, [_slug(DATES[0])])
+        self.assertEqual(plan["refinalize_reasons"], {"ledger_disagrees": 1})
+
+    def test_byte_identical_tape_rewrite_is_reused(self):
+        self.pair.run_inc(_Gamma())
+        tape = self.pair.inc / "snapshots" / _slug(DATES[0]) / "snapshots_long.csv"
+        before = tape.stat().st_mtime_ns
+        tape.write_bytes(tape.read_bytes())
+        os.utime(tape, ns=(before + 10**9, before + 10**9))
+        hashed = []
+        real = settlement_ledger.file_sha256
+
+        def counting(path):
+            hashed.append(Path(path).name)
+            return real(path)
+
+        gamma = _Gamma()
+        with mock.patch.object(settlement_ledger, "file_sha256", counting):
+            _labels, plan = self.pair.run_inc(gamma)
+        self.assertEqual(gamma.calls, [])
+        self.assertEqual(plan["reused_folder_count"], 3)
+        # Only the touched tape was re-hashed; the others took the stat fast path.
+        self.assertEqual(hashed, ["snapshots_long.csv"])
+        index = incremental.read_finalize_index(
+            incremental.finalize_index_path(self.pair.inc / "labels.csv")
+        )
+        self.assertEqual(index[_slug(DATES[0])]["tape_stat"]["mtime_ns"], before + 10**9)
 
     def test_recheck_window_boundary(self):
         self.pair.run_inc(_Gamma())
