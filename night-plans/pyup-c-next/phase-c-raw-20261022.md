@@ -10,7 +10,9 @@ definitions, Phase C (C0 to C10), §R (including its new "Escalation" paragraph)
 night differs from this file, the runbook wins: regenerate this file. Changes against the 10-17 raw are listed in the
 final section "Delta vs 20261017 raw".
 
-**This kit is ahead of master's runbook by the C2 fix on claude/pyup-c2-enabled-check-20261022; until that lands, do NOT regenerate from master's runbook.**
+**This kit is ahead of master's runbook by the C2 fix on claude/pyup-c2-enabled-check-20261022; until that lands, do NOT regenerate from master's runbook.** The follow-up fixes (Delta item 15) are on claude/pyup-c-followup-20261022.
+
+**Never schedule a C night on 10-31/11-01 (DST fall-back 11-01 02:00 makes the wall-clock deadlines ambiguous).**
 
 **Launch form (as run on 10-21/22):** the wrappers run as FILES, elevated, with no redirects, from local copies under
 `C:\pyup\cp3119`: `Start-Process powershell.exe -Verb RunAs -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File <wrapper>'`.
@@ -292,9 +294,10 @@ if ($FamilyTasks.Count) {
   foreach ($ft in $FamilyTasks) { if ($auxNames -notcontains $ft) { NoGo "$ft is not in aux-tasks.txt (A1 review)" } } }
 $auxNames = @(Get-Content -LiteralPath "$R\aux-tasks.txt" | Where-Object { $_.Trim() })   # the aux list exactly as C2's Quiesce-Aux reads it
 foreach ($auxName in $auxNames) { if (@(Get-ScheduledTask -TaskName $auxName -ErrorAction Stop).Count -ne 1) { NoGo "$auxName matches more than one task" } }   # a wrong name throws and a duplicate NO-GOes here, before anything has changed, not part-way through C2
-$wce = Get-ScheduledTask -TaskName WeatherClobEnrichmentLoop -ErrorAction SilentlyContinue; if ($wce -and ([string]$wce.State -ne 'Disabled')) { NoGo 'WeatherClobEnrichmentLoop is registered and enabled or running; C2 has no stop for it (its instance is the loop). Disable it and end its instance before the night.' }
+$wce = Get-ScheduledTask -TaskName WeatherClobEnrichmentLoop -ErrorAction SilentlyContinue; if ($wce -and ([string]$wce.State -ne 'Disabled')) { NoGo "WeatherClobEnrichmentLoop is registered and enabled or running (State $($wce.State)); C2 has no stop for it (its instance is the loop). Disable it and end its instance before the night." }
 if (git -C $P status --porcelain --untracked-files=no) { NoGo 'prod tree dirty' }
 if (Test-Path -LiteralPath $Old) { NoGo "$Old exists" }
+if (-not (Test-Path -LiteralPath "$R\oldhome.txt") -or -not "$(Get-Content -LiteralPath "$R\oldhome.txt" -TotalCount 1)".Trim()) { NoGo 'oldhome.txt is missing or empty (A1 writes it; Test-Venv and C4 read it)' }
 if ((Get-Volume -DriveLetter C).SizeRemaining -lt 10GB) { NoGo 'disk' }
 foreach ($tn in 'WeatherTrainingWindow','WeatherEveningEvidenceRefresh') { $x = Get-ScheduledTask -TaskName $tn -ErrorAction SilentlyContinue
   if ($x -and [string]$x.State -ne 'Disabled') { NoGo "$tn is enabled or still running (State $($x.State), G5)" } }   # State, not Settings.Enabled: a disabled task still running holds the lease
@@ -405,7 +408,7 @@ function Quiesce-Aux([string]$Exe, [switch]$Soft) {
 }
 try { Quiesce-Aux $Py; Log 'C2 quiesced' }
 catch { $msg = $_.Exception.Message; Log "C2 failed: $msg - undoing"
-  if (Test-Path -LiteralPath "$N\aux-prestate.csv") { Undo-Aux; Start-AuxHolders }
+  if (Test-Path -LiteralPath "$N\aux-prestate.csv") { Invoke-QStep 'undo aux' { Undo-Aux } $true; Invoke-QStep 'start holders' { Start-AuxHolders } $true }
   $global:ReleaseOnNoGo = $false; Release-Lease; throw }
 ```
 
@@ -451,7 +454,7 @@ function Wait-Restore([datetime]$Since) {   # S4U restore; the task limit is 15 
   return $false }
 function Undo-Stop {   # pre-rename undo: the venv is still the intact 3.11.0
   foreach ($tn in $Sup) { Invoke-QStep "enable $tn" { Enable-ScheduledTask -TaskName $tn | Out-Null } $true }
-  $ok = Wait-Restore (Get-Date); Invoke-QStep 'undo aux' { Undo-Aux; Start-AuxHolders } $true
+  $ok = Wait-Restore (Get-Date); Invoke-QStep 'undo aux' { Undo-Aux } $true; Invoke-QStep 'start holders' { Start-AuxHolders } $true
   if ($ok) { Log 'undo: capture 3/3, aux tasks restored' } else { Log 'ESCALATE: undo restore did not report capture_recovery_pass' } }
 ```
 
@@ -483,7 +486,7 @@ function Rename-WithSweep([string]$From, [string]$To, [string]$Tag) {
   return $false }
 # Pre-C3 deadline 01:12: the C3 pass-case worst case (about 17.5 min) would reach the 01:30 check too late, so stop before any capture stop.
 if ((Get-Date) -gt (Get-Date).Date.AddHours(1).AddMinutes(12)) { $msg = 'pre-C3 deadline 01:12 passed'; Log "$msg - C2 undo, capture not stopped, no swap"
-  try { Undo-Aux; Start-AuxHolders } finally { $global:ReleaseOnNoGo = $false; Release-Lease }; NoGo $msg }
+  try { Invoke-QStep 'undo aux' { Undo-Aux } $true; Invoke-QStep 'start holders' { Start-AuxHolders } $true } finally { $global:ReleaseOnNoGo = $false; Release-Lease }; NoGo $msg }
 # C3 + C4 guarded block. NoGo must not release the lease before the undo has run, so the catch releases it itself.
 $global:ReleaseOnNoGo = $false
 try {
@@ -898,7 +901,20 @@ Every place where the 41e3bec62 runbook (and therefore this file) differs from `
     budgeted 1 min + shadow seal wait 180 s and one 10 s poll (3.17 min) + tape ensure wait 150 s and one 5 s poll
     (2.58 min) + pre-state reads, disables, tape stop and 88a/family stops budgeted 1.25 min = 8.0 min, so 01:04:00. A
     new line after the lease loop NO-GOes (and releases) a lease taken after 01:04, because the loop's 30 s retry sleep
-    can overshoot. This trades every late-lease night for a zero 88a and tape gap. On 10-21/22 the lease came at
-    01:01:17 through launch latency (wrapper launched 01:01:13, lease free throughout); the operator now launches at
+    can overshoot. This trades every late-lease night for a zero 88a and tape gap. On 10-21/22 the lease came late
+    through launch latency (wrapper launched 01:01:13, lease free throughout, taken about 01:01:28); the operator now launches at
     01:00:00 sharp. The 01:00 floor is the 01:00-04:00 quiet window (DECISION_LOG 2026-10-03 and 2026-10-05) and
     stays; the run wrapper's preflight refuses after 01:04, so its launch window is 01:00-01:04.
+15. **Follow-up fixes (2026-10-22; mirrors claude/pyup-c-followup-20261022, branched from the frozen
+    claude/pyup-c2-enabled-check-20261022 tip `0b1bd5551`).** (1) `Undo-Aux` and `Start-AuxHolders` run as separate
+    soft steps (`Invoke-QStep 'undo aux' { Undo-Aux } $true; Invoke-QStep 'start holders' { Start-AuxHolders } $true`)
+    in C2's catch, in the pre-C3 deadline path and in `Undo-Stop`. `Invoke-QStep` with `$true` logs `ESCALATE: quiesce
+    step '<name>' failed: ...; continuing` and goes on, so a failure in one never skips the other silently and the C10
+    `escalations` count sees it; it is defined in C2, before all three uses. The pre-C3 path still releases the lease
+    once, in its `finally`. (2) C0 NO-GOes when `$R\oldhome.txt` is missing or empty, so C4's `$OldHomeNorm` read cannot
+    throw outside the guarded block with `$msg` unset. (3) The `WeatherClobEnrichmentLoop` NO-GO message carries
+    `(State ...)`. (4) The run wrapper's outer-catch OPERATOR CHECK no longer implies that a restore ran after a C2 or
+    pre-C3 stop. (5) Header: never schedule a C night on 10-31/11-01 (DST). (6) Runbook revision notes: 10-21/22 timing
+    (launch 01:01:13, session 01:01:14, lease-state read 01:01:17, C0 re-run done 01:01:27, lease about 01:01:28,
+    shadow step 01:01:29; a 01:00:00 launch leaves about 3.5 min of slack against 01:04), and 01:01:17 corrected to a
+    lease-state read, not the acquire.

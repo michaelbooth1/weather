@@ -3,6 +3,7 @@
 # WRAPPER   Block 1 (section 6 header, host values filled), Block 2 (Build-Venv / Test-Venv definitions), C0..C10 and §R: verbatim, in order.
 # WRAPPER Runbook: docs\operations\HOST_PYTHON_UPGRADE_RUNBOOK.md sha256 FE074EE48EE564F9461F8615E5F3CD56FCB01024490D86B2147B9327C4361759 at review tip 41e3bec62 (origin/claude/pyup-c-1021-review-20261019; not yet on master).
 # WRAPPER SHA256SUMS.txt is authoritative for every file's hash; the raw sha above is historical.
+# WRAPPER Never schedule a C night on 10-31/11-01 (DST fall-back 11-01 02:00 makes the wall-clock deadlines ambiguous).
 # WRAPPER This kit is ahead of master's runbook by the C2 fix on claude/pyup-c2-enabled-check-20261022; until that lands, do NOT regenerate from master's runbook.
 # WRAPPER Launch form (as run on 10-21/22): run as a FILE, elevated, no redirects, from the local copy under C:\pyup\cp3119:
 # WRAPPER   Start-Process powershell.exe -Verb RunAs -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File <wrapper>'
@@ -257,9 +258,10 @@ if ($FamilyTasks.Count) {
   foreach ($ft in $FamilyTasks) { if ($auxNames -notcontains $ft) { NoGo "$ft is not in aux-tasks.txt (A1 review)" } } }
 $auxNames = @(Get-Content -LiteralPath "$R\aux-tasks.txt" | Where-Object { $_.Trim() })   # the aux list exactly as C2's Quiesce-Aux reads it
 foreach ($auxName in $auxNames) { if (@(Get-ScheduledTask -TaskName $auxName -ErrorAction Stop).Count -ne 1) { NoGo "$auxName matches more than one task" } }   # a wrong name throws and a duplicate NO-GOes here, before anything has changed, not part-way through C2
-$wce = Get-ScheduledTask -TaskName WeatherClobEnrichmentLoop -ErrorAction SilentlyContinue; if ($wce -and ([string]$wce.State -ne 'Disabled')) { NoGo 'WeatherClobEnrichmentLoop is registered and enabled or running; C2 has no stop for it (its instance is the loop). Disable it and end its instance before the night.' }
+$wce = Get-ScheduledTask -TaskName WeatherClobEnrichmentLoop -ErrorAction SilentlyContinue; if ($wce -and ([string]$wce.State -ne 'Disabled')) { NoGo "WeatherClobEnrichmentLoop is registered and enabled or running (State $($wce.State)); C2 has no stop for it (its instance is the loop). Disable it and end its instance before the night." }
 if (git -C $P status --porcelain --untracked-files=no) { NoGo 'prod tree dirty' }
 if (Test-Path -LiteralPath $Old) { NoGo "$Old exists" }
+if (-not (Test-Path -LiteralPath "$R\oldhome.txt") -or -not "$(Get-Content -LiteralPath "$R\oldhome.txt" -TotalCount 1)".Trim()) { NoGo 'oldhome.txt is missing or empty (A1 writes it; Test-Venv and C4 read it)' }
 if ((Get-Volume -DriveLetter C).SizeRemaining -lt 10GB) { NoGo 'disk' }
 foreach ($tn in 'WeatherTrainingWindow','WeatherEveningEvidenceRefresh') { $x = Get-ScheduledTask -TaskName $tn -ErrorAction SilentlyContinue
   if ($x -and [string]$x.State -ne 'Disabled') { NoGo "$tn is enabled or still running (State $($x.State), G5)" } }   # State, not Settings.Enabled: a disabled task still running holds the lease
@@ -360,7 +362,7 @@ function Quiesce-Aux([string]$Exe, [switch]$Soft) {
 }
 try { Quiesce-Aux $Py; Log 'C2 quiesced' }
 catch { $msg = $_.Exception.Message; Log "C2 failed: $msg - undoing"
-  if (Test-Path -LiteralPath "$N\aux-prestate.csv") { Undo-Aux; Start-AuxHolders }
+  if (Test-Path -LiteralPath "$N\aux-prestate.csv") { Invoke-QStep 'undo aux' { Undo-Aux } $true; Invoke-QStep 'start holders' { Start-AuxHolders } $true }
   $global:ReleaseOnNoGo = $false; Release-Lease; throw }
 
 # ---- WRAPPER C3. Stop the capture workers (verbatim function definitions)
@@ -398,7 +400,7 @@ function Wait-Restore([datetime]$Since) {   # S4U restore; the task limit is 15 
   return $false }
 function Undo-Stop {   # pre-rename undo: the venv is still the intact 3.11.0
   foreach ($tn in $Sup) { Invoke-QStep "enable $tn" { Enable-ScheduledTask -TaskName $tn | Out-Null } $true }
-  $ok = Wait-Restore (Get-Date); Invoke-QStep 'undo aux' { Undo-Aux; Start-AuxHolders } $true
+  $ok = Wait-Restore (Get-Date); Invoke-QStep 'undo aux' { Undo-Aux } $true; Invoke-QStep 'start holders' { Start-AuxHolders } $true
   if ($ok) { Log 'undo: capture 3/3, aux tasks restored' } else { Log 'ESCALATE: undo restore did not report capture_recovery_pass' } }
 
 # ---- WRAPPER C4. Sweep and rename (verbatim; the C3 + C4 guarded block undoes and releases on a pre-rename failure)
@@ -418,7 +420,7 @@ function Rename-WithSweep([string]$From, [string]$To, [string]$Tag) {
   return $false }
 # Pre-C3 deadline 01:12: the C3 pass-case worst case (about 17.5 min) would reach the 01:30 check too late, so stop before any capture stop.
 if ((Get-Date) -gt (Get-Date).Date.AddHours(1).AddMinutes(12)) { $msg = 'pre-C3 deadline 01:12 passed'; Log "$msg - C2 undo, capture not stopped, no swap"
-  try { Undo-Aux; Start-AuxHolders } finally { $global:ReleaseOnNoGo = $false; Release-Lease }; NoGo $msg }
+  try { Invoke-QStep 'undo aux' { Undo-Aux } $true; Invoke-QStep 'start holders' { Start-AuxHolders } $true } finally { $global:ReleaseOnNoGo = $false; Release-Lease }; NoGo $msg }
 # C3 + C4 guarded block. NoGo must not release the lease before the undo has run, so the catch releases it itself.
 $global:ReleaseOnNoGo = $false
 try {
@@ -561,7 +563,7 @@ Log 'PHASE-C DONE (exit 0). OPERATOR CHECK: keep venv-cp3110, the old-home freez
         if (Get-Command Undo-Stop -ErrorAction SilentlyContinue) { Undo-Stop } else { Undo-Aux; Start-AuxHolders } }   # WRAPPER
       catch { try { Log "ESCALATE: wrapper undo failed: $($_.Exception.Message)" } catch {} } }   # WRAPPER
     try { $global:ReleaseOnNoGo = $false; Release-Lease } catch { Write-Host "Release-Lease failed: $($_.Exception.Message)" }   # WRAPPER
-    try { Log 'OPERATOR CHECK: stopped before the C4 rename; nothing swapped. Check night.log for ESCALATE lines and the undo restore result.' } catch {}   # WRAPPER
+    try { Log 'OPERATOR CHECK: stopped before the C4 rename; nothing swapped. Check night.log for ESCALATE lines and, only if C3 had stopped capture (an undo restore line), the restore result; a C2 or pre-C3 stop ran no restore.' } catch {}   # WRAPPER
     Exit-Wrapper 1 }   # WRAPPER
   # WRAPPER After the rename. C5..C9 (and C3C4 after the rename): "Fail = §R". C9b/C9c/C10: §R only on a "-> ROLLBACK" failure; anything else is the operator's call.
   if ($WStep -in 'C9b','C9c','C10' -and $WErr -notlike '*-> ROLLBACK*') {   # WRAPPER
