@@ -159,8 +159,12 @@ owner may redefine A2 (OD-E5); a redefined A2 would need its own development fit
   `2960813738692a59f461aa3c59aeca5e3cf26feb` on `claude/integration-20261021-mg1-sd1-dst-on-r4`, which contains N12's
   `739c03eff`) lands after N12, so a freeze on the first master commit containing `739c03eff` would see A0's serving
   code change after its own freeze. Amended pin: **A0's code identity is frozen on the first `master` commit containing
-  `2960813738692a59f461aa3c59aeca5e3cf26feb` (the 10-23/24 head)**; T1, T0 and A1 are frozen on that A0. SHA slot:
-  `<SHA SLOT: first master commit containing 296081373869, filled once landed>` (a logistics fill, not a rule change).
+  the N13 integration head as landed on 10-23/24 (`2960813738692a59f461aa3c59aeca5e3cf26feb`, or its docs-only re-merge
+  `claude/integration-20261023-n13-on-docs` `d04fe82fce6573a8e9de059ee70f9ff5087528ef` if the 10-23 docs land first),
+  recorded in the night receipt**; T1, T0 and A1 are frozen on that A0. Under (B) the serving fingerprint is identical
+  either way: the two heads differ only in `docs/**/*.md`, which no loop imports. Every other mention of `296081373` in
+  this amendment means that landed N13 head. SHA slot:
+  `<SHA SLOT: first master commit containing the landed N13 head, filled once landed>` (a logistics fill, not a rule change).
   Clock: **D0 = 2026-10-25 only if that head's code is serving before the first T+0 snapshot of local 2026-10-24 in
   the earliest US timezone** (one full prior day of stored vectors); **else D0 = 2026-10-28, or later** per the existing
   rule (the first date satisfying the section 2 non-outcome conditions after the freeze). The "Neither changes
