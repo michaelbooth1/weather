@@ -26,6 +26,7 @@ from weather.io import (
     write_json_atomic,
 )
 from weather.sources.wu_history import DEFAULT_DATA_ROOT, analyze_daily_summary
+from weather.time import provider_hourly_local_times
 from weather.sources.eccc_gridded import fetch_open_meteo_gem_for_market
 from weather.sources.marine_context import active_marine_context_state, fetch_marine_context_for_market
 from weather.sources.mrms_precip import fetch_mrms_precip_for_market
@@ -1545,15 +1546,21 @@ class SourceFetchMixin:
         rows = []
         day_rows = []
         day_temps = []  # all of today's forecast hours, for the daily-max feature
-        now = datetime.now(self.spec.tz).replace(tzinfo=None)
-        for index, raw_time in enumerate(hourly.get("time", []) or []):
-            dt = datetime.fromisoformat(raw_time)
-            if dt.date() != self.target_date:
+        now = datetime.now(self.spec.tz)
+        # Aware market-local valid times: Open-Meteo labels carry one fixed
+        # response offset, so they are read as UTC instants (DST-safe).
+        local_times = provider_hourly_local_times(
+            hourly.get("time", []) or [],
+            self.spec.tz,
+            payload.get("utc_offset_seconds"),
+        )
+        for index, dt in enumerate(local_times):
+            if dt is None or dt.date() != self.target_date:
                 continue
             temp = self.to_number(self.array_get(hourly, "temperature_2m", index))
             if temp is not None:
                 day_temps.append(temp)
-            local_dt = dt.replace(tzinfo=self.spec.tz)
+            local_dt = dt
             row = {
                 "time": dt.strftime("%H:%M"),
                 "valid_time": local_dt.isoformat(),
@@ -1618,12 +1625,18 @@ class SourceFetchMixin:
         hourly = payload.get("hourly", {}) or {}
         rows = []
         day_rows = []
-        now = datetime.now(self.spec.tz).replace(tzinfo=None)
-        for index, raw_time in enumerate(hourly.get("time", []) or []):
-            dt = datetime.fromisoformat(raw_time)
-            if dt.date() != self.target_date:
+        now = datetime.now(self.spec.tz)
+        # Aware market-local valid times: Open-Meteo labels carry one fixed
+        # response offset, so they are read as UTC instants (DST-safe).
+        local_times = provider_hourly_local_times(
+            hourly.get("time", []) or [],
+            self.spec.tz,
+            payload.get("utc_offset_seconds"),
+        )
+        for index, dt in enumerate(local_times):
+            if dt is None or dt.date() != self.target_date:
                 continue
-            local_dt = dt.replace(tzinfo=self.spec.tz)
+            local_dt = dt
             row = {
                 "time": dt.strftime("%H:%M"),
                 "valid_time": local_dt.isoformat(),
@@ -1661,10 +1674,16 @@ class SourceFetchMixin:
         rows = []
         day_rows = []
         model_day_temps = {model: [] for model in OPEN_METEO_GLOBAL_MODEL_MEMBERS}
-        now = datetime.now(self.spec.tz).replace(tzinfo=None)
-        for index, raw_time in enumerate(hourly.get("time", []) or []):
-            dt = datetime.fromisoformat(raw_time)
-            if dt.date() != self.target_date:
+        now = datetime.now(self.spec.tz)
+        # Aware market-local valid times: Open-Meteo labels carry one fixed
+        # response offset, so they are read as UTC instants (DST-safe).
+        local_times = provider_hourly_local_times(
+            hourly.get("time", []) or [],
+            self.spec.tz,
+            payload.get("utc_offset_seconds"),
+        )
+        for index, dt in enumerate(local_times):
+            if dt is None or dt.date() != self.target_date:
                 continue
             model_payloads = {}
             model_temps = []
@@ -1677,7 +1696,7 @@ class SourceFetchMixin:
                 model_payloads[model] = values
             row = {
                 "time": dt.strftime("%H:%M"),
-                "valid_time": dt.replace(tzinfo=self.spec.tz).isoformat(),
+                "valid_time": dt.isoformat(),
                 "models": model_payloads,
                 "model_temp_spread": max(model_temps) - min(model_temps) if len(model_temps) >= 2 else None,
             }
@@ -2139,10 +2158,16 @@ class SourceFetchMixin:
         rows = []
         day_rows = []
         model_day_temps = {model: [] for model in models}
-        now = datetime.now(self.spec.tz).replace(tzinfo=None)
-        for index, raw_time in enumerate(hourly.get("time", []) or []):
-            dt = datetime.fromisoformat(raw_time)
-            if dt.date() != self.target_date:
+        now = datetime.now(self.spec.tz)
+        # Aware market-local valid times: Open-Meteo labels carry one fixed
+        # response offset, so they are read as UTC instants (DST-safe).
+        local_times = provider_hourly_local_times(
+            hourly.get("time", []) or [],
+            self.spec.tz,
+            payload.get("utc_offset_seconds"),
+        )
+        for index, dt in enumerate(local_times):
+            if dt is None or dt.date() != self.target_date:
                 continue
             model_payloads = {}
             model_temps = []
@@ -2159,7 +2184,7 @@ class SourceFetchMixin:
                 model_payloads[model] = values
             row = {
                 "time": dt.strftime("%H:%M"),
-                "valid_time": dt.replace(tzinfo=self.spec.tz).isoformat(),
+                "valid_time": dt.isoformat(),
                 "models": model_payloads,
                 "model_temp_spread": max(model_temps) - min(model_temps) if len(model_temps) >= 2 else None,
             }
@@ -2233,10 +2258,16 @@ class SourceFetchMixin:
         day_temps = []
         day_spreads = []
         member_day_temps = {key: [] for key in member_keys}
-        now = datetime.now(self.spec.tz).replace(tzinfo=None)
-        for index, raw_time in enumerate(hourly.get("time", []) or []):
-            dt = datetime.fromisoformat(raw_time)
-            if dt.date() != self.target_date:
+        now = datetime.now(self.spec.tz)
+        # Aware market-local valid times: Open-Meteo labels carry one fixed
+        # response offset, so they are read as UTC instants (DST-safe).
+        local_times = provider_hourly_local_times(
+            hourly.get("time", []) or [],
+            self.spec.tz,
+            payload.get("utc_offset_seconds"),
+        )
+        for index, dt in enumerate(local_times):
+            if dt is None or dt.date() != self.target_date:
                 continue
             temp = self.to_number(self.array_get(hourly, "temperature_2m", index))
             members = [
@@ -2253,7 +2284,7 @@ class SourceFetchMixin:
                 day_temps.append(temp)
             if spread is not None:
                 day_spreads.append(spread)
-            local_dt = dt.replace(tzinfo=self.spec.tz)
+            local_dt = dt
             row = {
                 "time": dt.strftime("%H:%M"),
                 "valid_time": local_dt.isoformat(),
