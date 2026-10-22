@@ -311,12 +311,12 @@ try {
         $fld = "$($ln[0])".Trim() -split '\s+'; $len = (Get-Item -LiteralPath $rf).Length; $h = Get-FileSha256 $rf
         $match = $fld.Count -eq 3 -and [long]$fld[1] -eq $len -and $fld[2].ToUpperInvariant() -ceq $h
         $pin = $fld.Count -eq 3 -and $fld[2].ToLowerInvariant() -eq $ExpectedRunSha256.ToLowerInvariant()
-        # Kit-literal: retry:132 assigns `$wLine = if (..) { @(..) }`, which unrolls one match to a [string]; retry:134 then
-        # splits $wLine[0] (the first CHARACTER), so it has 1 field and the wrapper refuses RUN_FILE_HASH_MISMATCH on a correct SUMS line.
-        $kl = if (Test-Path -LiteralPath $sf) { @(Get-Content -LiteralPath $sf | Where-Object { ("$_".Trim() -split '\s+')[0] -ceq "phase-c-run-$Tag.ps1" }) } else { @() }
+        # Kit-literal replay of retry:132-134 as fixed at 26fbc19c0: `$wLine = @(if (..) { Get-Content .. | Where-Object {..} })`
+        # keeps one match an array, so $wLine[0] is the whole line (the pre-fix form split its first character and refused).
+        $kl = @(if (Test-Path -LiteralPath $sf) { Get-Content -LiteralPath $sf | Where-Object { ("$_".Trim() -split '\s+')[0] -ceq "phase-c-run-$Tag.ps1" } })
         $kf = "$($kl[0])".Trim() -split '\s+'
-        $kit = $kf.Count -eq 3 -and [long]$kf[1] -eq $len -and $kf[2].ToUpperInvariant() -ceq $h
-        $kitTxt = if ($kit) { 'accepts' } else { "REFUSED_RUN_FILE_HASH_MISMATCH (kit bug retry:132 scalar unroll: fields=$($kf.Count))" }
+        $kit = $kl.Count -eq 1 -and $kf.Count -eq 3 -and [long]$kf[1] -eq $len -and $kf[2].ToUpperInvariant() -ceq $h
+        $kitTxt = if ($kit) { 'OK' } else { "REFUSED_RUN_FILE_HASH_MISMATCH (fields=$($kf.Count))" }
         "size=$len sha=$($h.Substring(0,12)) sums_line_match=$match reviewed_pin=$pin kit_literal=$kitTxt"; (Get-Verdict ($match -and $pin -and $kit)) }
     Use-Check 'KIT-LOCAL-COPIES(README launch form)' "C0, run and retry-wrapper copies and the pre-gate receipt in $R match SHA256SUMS.txt" {
         $sf = Join-Path $R 'SHA256SUMS.txt'; if (-not (Test-Path -LiteralPath $sf)) { 'SHA256SUMS.txt absent'; 'WOULD-FAIL'; return }
