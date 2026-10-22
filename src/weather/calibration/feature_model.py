@@ -35,6 +35,16 @@ from weather.calibration.feature_column_allowlist import (
     allowlist_record,
     resolve_column_allowlist,
 )
+from weather.calibration.feature_model_training_inputs import (
+    TrainingInputError,
+    PITForecastCorpusUnion,
+    null_forecast_relative_marine_fields,
+    parse_target_date,
+    parse_training_years,
+    require_market_history,
+    select_training_days,
+    training_inputs_record,
+)
 from weather.calibration.feature_probability_calibration import (
     fit_temperature_blend_grid,
     temperature_scale_distribution,
@@ -901,7 +911,15 @@ def build_feature_records_for_model(
     forecast_profiles,
     marine_water_contrast_index=None,
     reanalysis_synoptic_index=None,
+    forecast_resolver=None,
 ):
+    """Per-cutoff training records.
+
+    ``forecast_resolver`` (R0: a ``PITForecastCorpusUnion``) replaces the
+    ambient per-date forecast index: ``forecast_high`` and the profile come
+    from ``resolve(date, cutoff)`` and the forecast-relative marine fields are
+    dropped, as in the pooled PIT consumer. Default: unchanged.
+    """
     raw_data = defaultdict(list)
     marine_water_contrast_index = marine_water_contrast_index or {}
     reanalysis_synoptic_index = reanalysis_synoptic_index or {}
@@ -911,14 +929,23 @@ def build_feature_records_for_model(
             continue
         for hour in INTRADAY_CUTOFF_HOURS:
             offset = wall_offset_for(local_date, hour)
+            marine_context = marine_water_contrast_index.get((local_date.isoformat(), int(hour)))
+            if forecast_resolver is None:
+                forecast_high = forecast_index.get(local_date.isoformat())
+                forecast_profile_rows = forecast_profiles.get(local_date.isoformat())
+            else:
+                resolved = forecast_resolver.resolve(local_date.isoformat(), int(hour))
+                forecast_high = resolved["forecast_high"]
+                forecast_profile_rows = resolved["profile_rows"]
+                marine_context = null_forecast_relative_marine_fields(marine_context)
             record = build_historical_feature_record(
                 local_date,
                 rows,
                 daily[local_date],
                 hour,
-                forecast_high=forecast_index.get(local_date.isoformat()),
-                forecast_profile_rows=forecast_profiles.get(local_date.isoformat()),
-                marine_context_features=marine_water_contrast_index.get((local_date.isoformat(), int(hour))),
+                forecast_high=forecast_high,
+                forecast_profile_rows=forecast_profile_rows,
+                marine_context_features=marine_context,
                 reanalysis_synoptic_features=reanalysis_synoptic_index.get(local_date.isoformat()),
                 wind_group_fn=model.wind_group,
                 cloud_group_fn=model.cloud_group,
@@ -1254,7 +1281,14 @@ def base_only_output_paths(output_root, suffix):
     return paths
 
 
-def main(market_id="toronto", column_allowlist=None, output_root=None):
+def main(
+    market_id="toronto",
+    column_allowlist=None,
+    output_root=None,
+    target_date=None,
+    pit_forecast_corpus_manifests=None,
+    training_years=None,
+):
     """Train one market's feature model.
 
     Default: cutoff-hour HGB/LR plus late-day continuation, written to the
@@ -1262,8 +1296,30 @@ def main(market_id="toronto", column_allowlist=None, output_root=None):
     models only: the cutoff-hour HGB/LR and report go under that root, late-day
     continuation is not trained, and nothing is written to ``artifacts/models``.
     R0 pairs it with ``column_allowlist="served-policy:<market>"``.
+
+    ``target_date`` pins the centre date of the prior-year training window
+    (default: the run date). ``pit_forecast_corpus_manifests`` reads the
+    forecast from those verified PIT corpora (unioned; no ambient fallback) and
+    restricts training to their years. ``training_years`` restricts training to
+    those prior years. All three need ``output_root``.
     """
-    model = TorontoHighTempModel(market_id=market_id)
+    pinned_target_date = parse_target_date(target_date) if target_date is not None else None
+    explicit_years = (
+        parse_training_years(training_years) if training_years is not None else None
+    )
+    manifests = list(pit_forecast_corpus_manifests or [])
+    training_inputs_requested = bool(
+        pinned_target_date is not None or explicit_years is not None or manifests
+    )
+    if training_inputs_requested and output_root is None:
+        raise TrainingInputError(
+            "--target-date, --training-years and --pit-forecast-corpus-manifest are "
+            "research-only and need --output-root (base models only)"
+        )
+    if pinned_target_date is not None:
+        model = TorontoHighTempModel(market_id=market_id, target_date=pinned_target_date)
+    else:
+        model = TorontoHighTempModel(market_id=market_id)
     spec = model.spec
     suffix = spec.artifact_suffix
     print(f"Training feature model for market '{spec.id}' (unit {spec.unit}, "
@@ -1294,6 +1350,23 @@ def main(market_id="toronto", column_allowlist=None, output_root=None):
             print(f"WARNING: the allowlist keeps columns that training policy "
                   f"{TRAINING_FEATURE_POLICY_ID} excludes for this market: "
                   f"{overridden}. Recorded as an explicit override in the artifacts.")
+    corpus_union = None
+    model_target_date = None
+    if training_inputs_requested:
+        require_market_history(spec)
+        model_target_date = getattr(model, "target_date", None) or pinned_target_date
+        print(f"Training centre date {model_target_date} "
+              f"({'pinned' if pinned_target_date else 'run date'}).")
+    if manifests:
+        # Verify and preflight every corpus before the slow data load.
+        corpus_union = PITForecastCorpusUnion(
+            manifests,
+            spec.id,
+            target_year=model_target_date.year,
+            required_cutoff_hours=INTRADAY_CUTOFF_HOURS,
+        )
+        print(f"PIT forecast corpora {[row['corpus_id'] for row in corpus_union.corpora]} "
+              f"cover years {list(corpus_union.years)}; ambient archive not read.")
     print("Loading historical data cache...")
     cache = model.historical_target_cache()
 
@@ -1302,15 +1375,35 @@ def main(market_id="toronto", column_allowlist=None, output_root=None):
     bucket_space = cache["bucket_space"]
 
     print(f"Loaded {len(daily)} target-season days with observations.")
+    training_inputs = None
+    if training_inputs_requested:
+        daily, day_counts = select_training_days(
+            daily,
+            training_years=explicit_years,
+            forecast_years=corpus_union.years if corpus_union else None,
+            target_date=model_target_date,
+        )
+        training_inputs = training_inputs_record(
+            target_date=pinned_target_date,
+            training_years=tuple(int(year) for year in day_counts) or None,
+            corpus_union=corpus_union,
+            day_counts=day_counts,
+        )
+        print(f"Training days by year: {training_inputs['training_days_by_year']} "
+              f"(forecast source {training_inputs['forecast_source']}).")
 
-    # Archived Open-Meteo forecasts (non-leaky); absent before 2018 -> NaN.
-    # Per-market path so the F family trains on its own native-unit forecasts.
-    forecast_index = load_forecast_daily(daily_path_for(spec))
-    forecast_profiles = load_forecast_profiles(long_path_for(spec))
-    print(f"Loaded {len(forecast_index)} historical forecast-days "
-          f"(forecast feature present for those, NaN otherwise).")
-    print(f"Loaded {len(forecast_profiles)} historical forecast-profile days "
-          f"(profile/radiation/cloud features present where archived).")
+    if corpus_union is None:
+        # Archived Open-Meteo forecasts (non-leaky); absent before 2018 -> NaN.
+        # Per-market path so the F family trains on its own native-unit forecasts.
+        forecast_index = load_forecast_daily(daily_path_for(spec))
+        forecast_profiles = load_forecast_profiles(long_path_for(spec))
+        print(f"Loaded {len(forecast_index)} historical forecast-days "
+              f"(forecast feature present for those, NaN otherwise).")
+        print(f"Loaded {len(forecast_profiles)} historical forecast-profile days "
+              f"(profile/radiation/cloud features present where archived).")
+    else:
+        forecast_index = None
+        forecast_profiles = None
     marine_water_contrast_index = load_marine_water_contrast_features(spec=spec)
     print(f"Loaded {len(marine_water_contrast_index)} marine water-contrast cutoff rows "
           "(features present where sidecar is built).")
@@ -1331,6 +1424,7 @@ def main(market_id="toronto", column_allowlist=None, output_root=None):
         forecast_profiles,
         marine_water_contrast_index=marine_water_contrast_index,
         reanalysis_synoptic_index=reanalysis_synoptic_index,
+        forecast_resolver=corpus_union,
     )
 
     # Available wind and cloud categories for one-hot encoding consistency
@@ -1387,6 +1481,9 @@ def main(market_id="toronto", column_allowlist=None, output_root=None):
     if redirected is not None:
         for info in (trained_models_info, hgb_models_info):
             info["base_models_only"] = True
+    if training_inputs is not None:
+        for info in (trained_models_info, hgb_models_info):
+            info["training_inputs"] = training_inputs
 
     for hour in INTRADAY_CUTOFF_HOURS:
         records = raw_data[hour]
@@ -2025,12 +2122,44 @@ def parse_cli_args(argv=None):
              "this new directory and skip late-day continuation. Refuses "
              "artifacts/models, releases, src and existing output. Default: the "
              "served artifact paths (unchanged).")
+    parser.add_argument(
+        "--target-date", default=None,
+        help="Pin the centre date (YYYY-MM-DD) of the prior-year +/-7-day training "
+             "window instead of the run date. Needs --output-root.")
+    parser.add_argument(
+        "--pit-forecast-corpus-manifest", action="append", default=None,
+        dest="pit_forecast_corpus_manifests", metavar="MANIFEST",
+        help="Repeatable. Read forecast_high and the forecast profile per (date, "
+             "cutoff) from this verified PIT corpus manifest; several corpora are "
+             "unioned (no shared year). Training is restricted to their years and "
+             "the ambient forecast archive is never read. Needs --output-root.")
+    parser.add_argument(
+        "--training-years", default=None,
+        help="Train only on these prior years, e.g. 2021,2022,2023 or 2021-2025. "
+             "With PIT corpora every year must be covered by one. Needs --output-root.")
     args = parser.parse_args(argv)
-    for flag in ("column_allowlist", "output_root"):
+    for flag in (
+        "column_allowlist",
+        "output_root",
+        "target_date",
+        "pit_forecast_corpus_manifests",
+        "training_years",
+    ):
         if getattr(args, flag) is not None and (args.item27_report_only or args.late_day_only):
             parser.error(f"--{flag.replace('_', '-')} applies to the base cutoff-hour model "
                          "only; it cannot be combined with --late-day-only or "
                          "--item27-report-only")
+    for flag in ("target_date", "pit_forecast_corpus_manifests", "training_years"):
+        if getattr(args, flag) is not None and args.output_root is None:
+            parser.error(f"--{flag.replace('_', '-').replace('manifests', 'manifest')} is "
+                         "research-only and needs --output-root (base models only)")
+    try:
+        if args.target_date is not None:
+            parse_target_date(args.target_date)
+        if args.training_years is not None:
+            parse_training_years(args.training_years)
+    except TrainingInputError as exc:
+        parser.error(str(exc))
     return args
 
 
@@ -2051,4 +2180,7 @@ if __name__ == "__main__":
         market_id=args.market,
         column_allowlist=args.column_allowlist,
         output_root=args.output_root,
+        target_date=args.target_date,
+        pit_forecast_corpus_manifests=args.pit_forecast_corpus_manifests,
+        training_years=args.training_years,
     )

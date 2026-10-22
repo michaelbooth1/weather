@@ -281,6 +281,44 @@ window. Candidate-supplied `covered_years`, selected dates, counts, minimums,
 or omissions can prove rows only; they cannot reduce the required matrix or
 add another exclusion.
 
+The per-market trainer `weather.calibration.feature_model` (R0) takes the same
+option, repeatable, together with `--output-root` (base models only). It
+preflights every manifest, unions corpora that agree on schema, target year,
+fields, cutoffs, issue contract and normalizer and share no year, restricts
+training to their years (or to `--training-years`, each of which must be
+covered), nulls the forecast-relative marine columns and never reads the
+ambient archive. Flags: [README](../../README.md) under
+`weather.calibration.feature_model`.
+
+The preflight's hourly-profile matrix expects each local date's real hours
+(`hours_in_local_date`: 25 on a fall-back date, 23 on a spring-forward date),
+matching the DST-correct normalizer below. Until 2026-10-21 it demanded 24 and
+refused both published 2021-2023 corpora on their November fall-back dates.
+
+### Training from a worktree
+
+`weather.paths.DATA_ROOT` is `<checkout>\data`, which a fresh worktree lacks.
+Without the market history the trainer fails closed (`market history is
+absent`). Link only the read-only training inputs from the main checkout; keep
+the worktree's own `data\logs` (the heavy-wrapper queue log) local:
+
+```powershell
+$main = "C:\Users\Michael\Documents\github\weather\data"; $wt = "C:\wt\<name>\data"
+New-Item -ItemType Directory -Force $wt | Out-Null
+foreach ($d in "wunderground", "training", "marine_water_contrast", "reanalysis") {
+    New-Item -ItemType Junction -Path "$wt\$d" -Target "$main\$d" | Out-Null
+}
+```
+
+With `--output-root` the trainer writes nothing under `data\`. Remove each
+junction with `cmd /c rmdir "<link>"`, which deletes the link only, before
+deleting the worktree; never a recursive delete, which follows the link into
+the main checkout. `served-policy:`
+also needs the served pickles and coefficients, which a skip-smudge worktree
+holds as LFS pointers: `git lfs checkout "artifacts/models/hgb/*"
+"artifacts/models/coefs/*"` fills them from the local LFS cache without a
+download.
+
 This input does not authorize fitting, promotion, serving changes, or release
 binding. Those remain separate reviewed actions under the nightly retrain and
 release runbooks.

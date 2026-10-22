@@ -497,9 +497,27 @@ under `training_column_allowlist`.
   releases, `src/`, the repository root and existing output.
 - It cannot be combined with `--late-day-only` or `--item27-report-only`.
 
-An R0 fit is
-`--market <id> --column-allowlist served-policy:<id> --output-root <dir>`,
-run through `scripts\ops\workstation_heavy.ps1`.
+Three research-only training-input options need `--output-root`, so the served
+path is unchanged without it:
+
+- `--target-date YYYY-MM-DD` pins the centre date of the prior-year +/-7-day
+  training window instead of the run date.
+- `--pit-forecast-corpus-manifest <manifest.json>` (repeatable) reads
+  `forecast_high` and the forecast profile per (date, cutoff) from verified PIT
+  corpora ([runbook](docs/operations/PIT_FORECAST_TRAINING_CORPUS.md#retraining-input)).
+  Several corpora are unioned; they must agree on fields, lead, model and cutoffs
+  and may not share a year. Training is restricted to their years and the
+  ambient `data/forecast_history` archive is never read.
+- `--training-years 2021,2022` or `2021-2025` trains on exactly those prior
+  years. With corpora every year must be covered by one; a year with no
+  labelled day in the window fails closed.
+
+Both artifacts then carry a `training_inputs` record (centre date, years, days
+per year, forecast source, corpus ids and manifest hashes). An R0 fit is
+`--market <id> --target-date <centre> --column-allowlist served-policy:<id>
+--pit-forecast-corpus-manifest <m1> --pit-forecast-corpus-manifest <m2>
+--output-root <dir>`, run through `scripts\ops\workstation_heavy.ps1 -Kind
+weather_heavy` (the trainer is on its offline-module allowlist).
 
 METAR keying replay (read-only, target dates up to 2026-09-29 only). It
 re-parses the raw AWC payloads retained in each market-day folder's
