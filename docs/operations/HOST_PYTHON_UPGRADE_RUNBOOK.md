@@ -1529,6 +1529,23 @@ files, the lease state) and messages the owner, who acts when up. The lease rule
 09:00 deadline and the owner's call on Stage-A. This ruling supersedes the DECISION_LOG rows of 2026-10-13 and 2026-10-17
 on who answers an escalation for that night.
 
+**Wrapper process crashed or was killed.** Signature: the session transcript or `night.log` ends without a
+`PHASE-C wrapper exit` line (for a pasted session: the window closed mid-phase). No `ESCALATE` line was written. The
+04:15 `WeatherTrainingWindowRestore` re-enables only the three capture supervisors, so the aux tasks stay disabled and
+88a, the tape and the shadow runner (STOP file present) stay down. If the kill came during `Wait-Restore`, the S4U
+restore may still be running: let it finish first. If `venv-cp3110` exists, the kill came after the C4 rename: do not
+restart holders on the new venv; record and escalate to the owner, as §R decides. Otherwise, in an elevated Windows
+PowerShell 5.1 session:
+1. define `Log` (§6 header), `Test-PrestateEnabled`, `Invoke-QStep`, `Undo-Aux` and `Start-AuxHolders` (C2) from the
+   kit, with `$N` set to the night folder and `$Holders` and `$ShadowStop` as C1 and C2 set them;
+2. run `Undo-Aux; Start-AuxHolders` against `$N\aux-prestate.csv`;
+3. make sure the shadow STOP file is gone;
+4. check with `status.ps1` that capture is 3/3 and that 88a, the tape and the shadow are running;
+5. record it in `night.log` as an `ESCALATE` line (`Log 'ESCALATE: wrapper killed; aux restored by hand'`) and tell
+   the owner.
+
+A stale lease marker is recovered by the next `Enter-WeatherHeavyWorkloadLease` ("If the session is lost" above).
+
 ### §D. Cleanup after PASS (a later admitted night)
 
 ```powershell
