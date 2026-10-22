@@ -2,8 +2,9 @@
 
 - **Owns:** the immutable training-only forecast corpus contract:
   `weather.sources.forecast_training_corpus` (`plan`, `resume-status`,
-  `materialize`), staging/publication rules, and how retraining consumes the
-  manifest.
+  `materialize`), its free Previous Runs collector
+  `weather.sources.forecast_training_corpus_fetch`, staging/publication rules,
+  and how retraining consumes the manifest.
 - **Read when:** planning, staging, verifying or consuming a PIT forecast corpus,
   or debugging a base-retrain PIT-manifest preflight refusal.
 - **Do not use for:** which forecast source/population was chosen
@@ -11,13 +12,19 @@
   the retrain procedure ([NIGHTLY_RETRAIN_RUNBOOK.md](NIGHTLY_RETRAIN_RUNBOOK.md)).
 - **Verify with:** the subparsers at the end of
   `src/weather/sources/forecast_training_corpus.py` and
+  `src/weather/sources/forecast_training_corpus_fetch.py`, and
   `FIRST_RETRAIN_*` / the station-day exclusion registry in
   `src/weather/operations/base_retrain.py`.
 
 > **Status:** dormant. No collection, fit or retrain is authorized or scheduled
 > (training disabled, new model-alpha work paused — `STATE_OF_PLAY.md`). The
-> module cannot fetch; any collector is a separate reviewed action and must use
-> a free source only (no paid weather APIs).
+> corpus module cannot fetch. The separate collector
+> `weather.sources.forecast_training_corpus_fetch` exists; running it is an
+> external fetch that needs its own owner approval, free source only (no paid
+> weather APIs, no key). One owner-approved collection ran on 2026-10-21 (US11,
+> October-December 2021-2023, temperature only); see
+> [the measured provider gap](#measured-provider-gap-2023-12-30-onward-2026-10-21).
+> It authorizes no further collection, fit or retrain.
 
 This contract owns the training-only forecast input used to repair historical
 forecast blindness without changing the active serving archive. The corpus is
@@ -30,9 +37,10 @@ retraining. It is not a serving fallback and is never discovered through
 - `weather.sources.forecast_training_corpus` contains no HTTP client. Its
   planner is always `dry_run_no_network` and never authorizes a provider probe
   or collection.
-- A separately reviewed collector may submit raw response bytes to
-  `stage_response` only after an immutable plan exists and provider semantics
-  have been probed. Each unit is keyed by the plan's request hash.
+- The separately reviewed collector `weather.sources.forecast_training_corpus_fetch`
+  submits raw response bytes to `stage_response` only after an immutable plan
+  exists. Each unit is keyed by the plan's request hash. See
+  [Collector](#collector) below.
 - Staging records the allowlisted HTTP metadata, retrieval timestamp, response
   SHA-256, byte and row counts, validation result, and issue/run evidence.
   Zero-row or invalid units are failures. Resume skips only a complete unit
@@ -71,6 +79,168 @@ different content to an existing plan path is refused.
 Use the same module's `resume-status` and `materialize` commands after an
 authorized collector has populated request-keyed staging. Neither command
 fetches data. Failed units are recorded in `failure_ledger.jsonl`.
+
+### Field set (`--fields`)
+
+`plan --fields temperature_2m` plans a subset of the frozen field contract.
+Without `--fields` the plan is byte-identical to the pre-option planner (all 21
+fields), so existing plans and manifests verify exactly as before. A subset is
+written in canonical contract order, must contain `temperature_2m` (it carries
+the daily high), and is carried by the plan's `source_fields`, every request's
+variable bindings and URL, the coverage rows' `field_status`, and the
+manifest's `source_fields`. Staging, `materialize` and manifest verification
+check completeness against that planned set, never against the default.
+
+**The free Previous Runs surface is temperature-only** (EF §4f, 441-cell probe:
+only `temperature_2m_previous_dayN` returns data; the other fields are all-null
+or HTTP 400). A 2021-2023 plan must therefore use `--fields temperature_2m`;
+a 21-field plan for those years can never materialize. The consumer
+dispositions in a subset plan are unchanged, so a pooled/base-retrain consumer
+would see the non-temperature profile columns as missing; that consumer
+question is separate from this corpus.
+
+**Correction to the retrain sizing memo** (`docs/research/retrain-sizing-memo-2026-10-19.md`,
+branch `claude/retrain-sizing-memo-20261019`, §2.2 and r2.1; not on master).
+The memo says the repository's collector covers the 2021-2023 Previous Runs
+fetch with `plan`, then `resume` and `materialize`. Before 2026-10-21 none of
+those subcommands could fetch, nothing in the repository called
+`stage_response`, and a default (21-field) plan for those years could never
+materialize. The fetch step is the collector below, and the plan needs
+`--fields temperature_2m`.
+
+## Collector
+
+`weather.sources.forecast_training_corpus_fetch` is the only repository-owned
+network collector for this corpus. It fetches the free
+`previous-runs-api.open-meteo.com` endpoint with no API key, credential or
+environment variable, and writes nothing itself: every byte goes through
+`stage_response` under the `--staging-root` you pass. A staging root that is,
+contains or lies under `data/forecast_history` (or any `forecast_history`
+directory) is refused before any request.
+
+```powershell
+python -m weather.sources.forecast_training_corpus plan `
+  --out <run-root>\plan.json --years 2021,2022,2023 `
+  --markets atlanta,austin,chicago,dallas,denver,houston,los-angeles,miami,nyc,san-francisco,seattle `
+  --season-start 10-01 --season-end 12-31 --fields temperature_2m --pad-request-days 1
+python -m weather.sources.forecast_training_corpus_fetch `
+  --plan <run-root>\plan.json --staging-root <run-root>\staging [--max-requests 1]
+python -m weather.sources.forecast_training_corpus resume-status `
+  --plan <run-root>\plan.json --staging-root <run-root>\staging
+python -m weather.sources.forecast_training_corpus materialize `
+  --plan <run-root>\plan.json --staging-root <run-root>\staging `
+  --publish-root data\training\pit_forecast_corpus
+```
+
+- **Politeness.** Strictly serial; at least `--min-interval-seconds` (default
+  10) between requests; transport errors and 429/5xx retry with exponential
+  backoff (`--backoff-base-seconds` 30, doubling, capped at 600,
+  `--max-attempts` 5); a 429 waits at least its `Retry-After`. A unit that
+  still fails is staged as a failed receipt (failure ledger) and the run stops.
+- **Resume.** A hash-verified complete unit is skipped with no network call, so
+  re-running the same command continues where it stopped. `--max-requests N`
+  bounds a trial.
+- **Issue evidence.** The API exposes no run id (`run_id_exposed: false`). For
+  lead `N`, every hourly value on local date `D` comes from a run at least
+  `N x 24 h` before that hour, so the collector records an upper bound: the
+  latest 6-hourly UTC cycle at or before local 23:00 on `D` minus `N x 24 h`,
+  plus `--availability-latency-hours` (default 6). Staging and `materialize`
+  then require that bound to precede every feature cutoff. For US markets and
+  cutoffs from 07:00 local it does. The lead semantics are the provider's
+  documented ones and are not independently proven
+  (`HISTORICAL_FIRST_AVAILABILITY_UNPROVEN`, EF §1m).
+- **Retry-After cap.** A `Retry-After` longer than `--backoff-cap-seconds` is
+  not slept: the run stops (exit 2) and nothing is staged for that unit.
+- **No redirects.** A 3xx is never followed; it is staged as a failed unit.
+- **Protected roots.** Staging and publish roots under `src/` or `artifacts/`
+  (via `weather.paths`) are refused as well as any `forecast_history` path.
+- **Manifest.** `issue_evidence_bases` records each distinct
+  `issue_time_basis`, `availability_latency_hours` and `run_id_exposed` the
+  collector staged.
+
+### DST and provider time labels
+
+**Measured, not assumed (2026-10-21, from responses already on the
+workstation, no fetch):** with `timezone=<IANA zone>` the Previous Runs API
+labels the whole series with **one** offset, `utc_offset_seconds`, and that
+offset is the zone's offset **at retrieval time**, not at the window start. An
+Atlanta 2024 Jan 1-Feb 29 response retrieved in September 2026 carries
+`-14400` (`GMT-4`) although January is EST; a Nov 1-Dec 31 response carries
+`-14400` for all 1,464 hours with no repeated label.
+
+Staging and `materialize` therefore never read a naive label as wall time when
+the response carries a scalar `utc_offset_seconds` and no label repeats: the
+UTC instant is `label - offset`, and the local date and hour come from the
+market zone (`resolve_provider_times`). A response with no offset, or with a
+repeated label (a fall-back hour, which a fixed-offset series cannot produce),
+is read as true local time with `fold=1` on the repeat; a label that does not
+exist in the zone is rejected. Every local date must then hold exactly one
+on-the-hour row per real hour (23, 24 or 25; `hours_in_local_date`), with
+distinct UTC instants. Cutoffs and issue checks use the same UTC instants.
+
+**Consequence:** an unpadded fixed-offset response whose window crosses a DST
+change is always one real hour short at one edge date (the window's last date
+if retrieved under daylight time, its first date if under standard time), so
+the unit fails closed with `incomplete_hourly_envelope`. Before 2026-10-21 that
+case passed and every row on the far side of the change was silently one hour
+off.
+
+**Request padding (`plan --pad-request-days N`, opt-in, 1-3).** Each request's
+provider window becomes `window_start - N` to `window_end + N`; the planned
+target dates, `expected_local_dates` and every coverage count are unchanged.
+The plan records `request_padding` (`enabled`, `days`, `purpose`) and each
+request `request_pad_days`, so `verify_plan`, `resume-status` and the manifest
+refuse a plan or corpus whose padding disagrees, and a padded plan's request
+hashes never match units staged for an unpadded one. A pad that would reach
+the target year is refused. Staging and `materialize` resolve every label to
+its UTC instant first, then keep a row only if that instant's market-local
+date is a planned target date; pad rows (and nulls inside them) never count
+toward any planned date and never reach the published files. The per-date
+check (23/24/25 distinct UTC instants) runs on planned dates only. Without the
+flag the plan is byte-identical to before. **Every October-December plan needs
+`--pad-request-days 1`.**
+
+Because the pad must not reach the target year, a padded plan whose window
+ends on Dec 31 is refused when its years include `target_year - 1` (for
+example `--years 2025` with the default `--target-year 2026`). Plan such a year
+with a window ending before Dec 31, or leave it out.
+
+`expected_hourly_rows_per_date` in each request is vestigial: it stays `24` so
+plan and request hashes are stable, and nothing enforces it beyond that shape
+check. The real per-date requirement is the 23/24/25-hour envelope above.
+
+### Measured provider gap: 2023-12-30 onward (2026-10-21)
+
+The first collection (US11, October-December 2021-2023, temperature only,
+`--pad-request-days 1`, run from `072f4d5b9`) found that the Previous Runs API
+returns **null `temperature_2m_previous_day1` from 2023-12-30T00:00Z** through
+at least 2024-01-01 local. The instant was verified read-only from all 11
+staged 2023 bodies (`C:\wt\pitfetch-2023\staging\requests\*\response.json`): in
+every market the first null hour, converted with that response's
+`utc_offset_seconds`, is `2023-12-30T00:00Z`, and the nulls run contiguously to
+the end of the response.
+
+- Atlanta, full window: the first null hour is 2023-12-29 19:00 EST (true
+  local; it is labelled `20:00` in the provider's retrieval-time EDT labels).
+  Null hours per local date: 12-29 5, 12-30 24, 12-31 24, 2024-01-01 23.
+- In the 2023 run ending 12-28 with a 1-day pad, pad day 12-29 had null hours
+  in all 11 markets: seattle, san-francisco and los-angeles 7; denver 6;
+  austin, chicago, dallas and houston 5; nyc, miami and atlanta 4. Each is the
+  number of that response's labels at or after 00:00Z on 12-30.
+- The pad logic accepted those pad-day nulls without counting them, as
+  designed. The run had no 429s and no retries.
+
+Consequence: 2023 is published only to 12-28, as a separate corpus. The
+corpora under `data/training/pit_forecast_corpus/corpora/` (local runtime state,
+not committed) are:
+
+| Corpus id | Plan | Units | Market-dates | Window |
+| --- | --- | ---: | ---: | --- |
+| `cd0ba2bb004dc89f070ec9b1406e77f38cd2396dedd93ce1b377e727baefe9be` | `c9d3f70b…` | 22 | 2,024 | 2021-2022, Oct 1-Dec 31 |
+| `23ac87fa5f058f8eeb7f49f0268f483939d4070f7f65e38063727c6749aa2a8d` | `442e92bd…` | 11 | 979 | 2023, Oct 1-Dec 28 |
+
+A consumer that needs 2023-12-29..12-31 has no point-in-time lead-1 value from
+this source; do not fill those dates from the settled archive.
 
 ## Retraining input
 
