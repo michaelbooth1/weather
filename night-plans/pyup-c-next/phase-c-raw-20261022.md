@@ -75,6 +75,8 @@ Owner choices on file (first lines read 2026-10-20): `q12.txt` = `STOP_AUTHORIZE
    session as C0.
 6. On any NO-GO from C5 onward (`-> ROLLBACK`), or a C9/C9c rollback outcome: paste §R in the same session. Start by
    02:45. If §R escalates: the owner's ruling for this night applies (§R "Escalation", Block 4).
+7. If the wrapper or the session dies without a `PHASE-C wrapper exit` line: follow "Wrapper process crashed or was
+   killed" (Block 4); nothing restores the aux tasks, 88a, the tape or the shadow on its own.
 
 ## Placeholders and host values filled
 
@@ -760,6 +762,23 @@ files, the lease state) and messages the owner, who acts when up. The lease rule
 09:00 deadline and the owner's call on Stage-A. This ruling supersedes the DECISION_LOG rows of 2026-10-13 and 2026-10-17
 on who answers an escalation for that night.
 
+**Wrapper process crashed or was killed.** Signature: the session transcript or `night.log` ends without a
+`PHASE-C wrapper exit` line (for a pasted session: the window closed mid-phase). No `ESCALATE` line was written. The
+04:15 `WeatherTrainingWindowRestore` re-enables only the three capture supervisors, so the aux tasks stay disabled and
+88a, the tape and the shadow runner (STOP file present) stay down. If the kill came during `Wait-Restore`, the S4U
+restore may still be running: let it finish first. If `venv-cp3110` exists, the kill came after the C4 rename: do not
+restart holders on the new venv; record and escalate to the owner, as §R decides. Otherwise, in an elevated Windows
+PowerShell 5.1 session:
+1. define `Log` (§6 header), `Test-PrestateEnabled`, `Invoke-QStep`, `Undo-Aux` and `Start-AuxHolders` (C2) from the
+   kit, with `$N` set to the night folder and `$Holders` and `$ShadowStop` as C1 and C2 set them;
+2. run `Undo-Aux; Start-AuxHolders` against `$N\aux-prestate.csv`;
+3. make sure the shadow STOP file is gone;
+4. check with `status.ps1` that capture is 3/3 and that 88a, the tape and the shadow are running;
+5. record it in `night.log` as an `ESCALATE` line (`Log 'ESCALATE: wrapper killed; aux restored by hand'`) and tell
+   the owner.
+
+A stale lease marker is recovered by the next `Enter-WeatherHeavyWorkloadLease` ("If the session is lost" above).
+
 ## Block 5. Referenced runbook text, verbatim (gates §2 lines 106-122, Q12/Q12b rows 147-148, §7a lines 524-544)
 
 ## 2. Gates (any one fails = NO-GO, nothing touched)
@@ -929,4 +948,5 @@ Every place where the 41e3bec62 runbook (and therefore this file) differs from `
     (`$script:RbOk`; a throw counts as not 3/3, which logs `ESCALATE` and leaves the aux tasks disabled) and runs its
     undo pair as two soft steps. Wrapper-only: the C9c judgement adds every pre-state-enabled aux task that is not
     enabled after C9b to its issues (soft C9b steps no longer throw), and the outer catch's no-`Undo-Stop` fallback
-    uses the same soft pair.
+    uses the same soft pair. (8) Prose only: "Wrapper process crashed or was killed" recovery step after §R
+    "Escalation" (runbook and Block 4) and paste-order item 7.
