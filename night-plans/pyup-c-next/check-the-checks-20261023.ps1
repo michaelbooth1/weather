@@ -1,10 +1,11 @@
 # CHECK-THE-CHECKS rehearsal for the Python-upgrade C night (night of 2026-10-23 to 2026-10-24).
 # READ-ONLY. It evaluates, against the live host, every predicate the C kit gates on and changes nothing. Kit:
-# claude/night-plans-pyup-c-next-20261022 @ c90509a2d (phase-c0-run-20261024.ps1, phase-c-run-20261024.ps1,
+# claude/night-plans-pyup-c-next-20261022 @ 0b90d641c (phase-c0-run-20261024.ps1, phase-c-run-20261024.ps1,
 # phase-c-retry-wrapper-20261024.ps1, README.md CLOCKS) and the runbook (HOST_PYTHON_UPGRADE_RUNBOOK.md at 15440ed4e).
 #
 # Launch (elevated, like the kit: a non-elevated Get-ScheduledTask hides S4U tasks):
-#   powershell.exe -NoProfile -ExecutionPolicy Bypass -File <this file> [-OutFile C:\pyup\cp3119\check-the-checks.txt]
+#   powershell.exe -NoProfile -ExecutionPolicy Bypass -File <this file> [-OutFile C:\pyup\check-the-checks-20261024.txt]
+# -OutFile is refused (exit 2, nothing read) when it lies under -KitRoot or C:\pyup\cp3119, or its file name is one the kit reads.
 # Parameters default to the kit's host values and to master's G3 values for this night (the kit itself takes them only
 # from the operator). -KitTag (default 20261024) is the date tag in the kit's file names.
 #
@@ -16,7 +17,7 @@
 # read field also carries the current clock. Exit 0 for a completed rehearsal (the verdict is in the output); exit 2
 # only when the self-check below refuses to run.
 #
-# G3 mirrors the kit's Test-G3Gate (run :343-372, c0 :168-197) and its call sites (run :385-388, :436; c0 :203-206, :233),
+# G3 mirrors the kit's Test-G3Gate (run :343-372, c0 :168-197) and its call sites (run :385-388, :438; c0 :203-206, :234),
 # read-only (git diff --name-only, and rev-parse --verify in place of the kit's cat-file -t), with the kit's exact text:
 #   "G3 PASS mode=<m> branch=<b> <detail>", "G3 DEFER mode=strict branch=HEAD!=tip requires=ROLL-FREE-at-GO-review",
 #   "G3 FAIL reason=<r> mode=<m> head=<h> tip=<operator tip>".
@@ -25,9 +26,11 @@
 #   (i) no dependency file differs tip..HEAD and (ii) the non-docs diff tested..HEAD holds nothing but
 #   config/locations.json and config/location_market_events.json (exact paths; fleet_drift_exempt=<paths or none>), with
 #   the pre-gate receipt id, tested sha and Python 3.11.9 attestation well formed and the receipt file
-#   $R\pregate-receipt-<id without pg->.json reading schema weather.workstation_pregate_receipt.v1, verdict PASS, head = the
-#   tested sha, with its name giving the id (PASS text adds py=attested); otherwise FAIL. (iii): the kit prints the
-#   PASS/DEFER line only after every other C0 check passed, so a C0 WOULD-FAIL makes the G3 line WOULD-FAIL here.
+#   $R\pregate-receipt-<id without pg->.json matching its one $R\SHA256SUMS.txt line (size + sha256) and reading schema
+#   weather.workstation_pregate_receipt.v1, verdict PASS, head = the tested sha, and a log_path with the id as a path
+#   segment (PASS text adds py=attested); otherwise FAIL. (iii): the kit prints the PASS/DEFER line only after every other
+#   C0 check passed and, inside an attempt, after the post-C0 GO-review checks (HEAD vs flag, flags vs the GO review,
+#   root next-runs), so a C0-* or POSTC0-* WOULD-FAIL makes the G3 line WOULD-FAIL here.
 # Verdicts for a G3 line: PASS, DEFER (strict, HEAD != tip; master needs the ROLL-FREE verdict at the GO review),
 # WOULD-FAIL, NOT-EVALUABLE. Without -G3Mode both modes print, as CHECK G3-strict and CHECK G3-dependency.
 # -HeadOverride <sha> replaces HEAD for the G3 evaluation only (every other predicate keeps the live HEAD); each G3 line
@@ -38,10 +41,13 @@
 #   Get-Item, git (rev-parse / status / show / diff only; status with --no-optional-locks so it never rewrites the
 #   index; diff with --no-ext-diff --name-only), plus the pure pipeline helpers Get-Date, Join-Path, Split-Path,
 #   Where-Object, ForEach-Object, Sort-Object, Select-Object, Measure-Object, ConvertFrom-Json, Write-Output; no
-#   dot-sourcing, no dynamic invocation except "& $Body" on this file's own literal script blocks; no file redirection;
+#   dot-sourcing, no dynamic invocation except "& $Body" on this file's own literal script blocks (every $Body binding
+#   must be a literal script block or a [scriptblock] parameter; no foreach or -*Variable binding of it; no "&"/"." of a
+#   string); no file redirection; no property assignment; one final "exit $exitCode" and no other exit;
 # - .NET: files open only with FileMode Open and FileAccess Read (share ReadWrite|Delete, so a writer's atomic
 #   replace is never blocked); the lease mutex is opened only with OpenExisting(name, MutexRights Synchronize)
-#   and never waited on; the only write is one WriteAllLines to -OutFile when the operator passes it.
+#   and never waited on (TryOpenExisting is denied); InvokeScript, NewScriptBlock, SetAttributes, SetEnvironmentVariable
+#   and CreateInstance are denied; the only write is one WriteAllLines to -OutFile when the operator passes it.
 # - No repo script is dot-sourced: the lease, memory-guard and G3 predicates are re-implemented here.
 [CmdletBinding()]
 param(
@@ -58,7 +64,7 @@ param(
     [string]$G3PregatePython = '3.11.9',
     [ValidateSet('', 'strict', 'dependency')][string]$G3Mode = '',
     [string]$HeadOverride = '',
-    [string]$ExpectedRunSha256 = '23bd8a1444cf1d78f307662bce9d0fe146b6ae211c502eebdd674902ead53562',
+    [string]$ExpectedRunSha256 = '79f72c2546ebc40c710a87541931044c7aa4d570da2ccedebcb28d1b202ea914',
     [string]$OutFile = ''
 )
 
@@ -74,7 +80,8 @@ $SelfDeniedMembers = @(
     'CreateSubdirectory', 'CreateText', 'AppendText', 'OpenWrite', 'OpenSubKey', 'CreateSubKey', 'Move', 'MoveTo',
     'Copy', 'CopyTo', 'Replace', 'SetLength', 'Flush', 'WriteAllText', 'WriteAllBytes',
     'AppendAllText', 'AppendAllLines', 'SetAccessControl', 'Start', 'Terminate', 'InvokeMethod', 'Invoke',
-    'InvokeReturnAsIs', 'SetValue', 'DeleteValue', 'SetShouldExit')
+    'InvokeReturnAsIs', 'SetValue', 'DeleteValue', 'SetShouldExit',
+    'InvokeScript', 'NewScriptBlock', 'SetAttributes', 'SetEnvironmentVariable', 'CreateInstance', 'TryOpenExisting')
 $SelfDeniedFunctionName = '^(Disable|Enable|Stop|Start|Register|Unregister|Set|New|Remove|Rename|Clear|Restart|Invoke|Out|Export|Add-Content|Copy|Move)-'
 
 function Test-SelfReadOnly([string]$Path) {
@@ -124,6 +131,30 @@ function Test-SelfReadOnly([string]$Path) {
     }
     if ($writeAllLines -gt 1) { $problems.Add("more than one WriteAllLines ($writeAllLines)") }
     foreach ($r in $ast.FindAll({ param($n) $n -is [Management.Automation.Language.FileRedirectionAst] }, $true)) { $problems.Add("file redirection at line $($r.Extent.StartLineNumber)") }
+    # (Fable 10-23) exit: only the one final "exit $exitCode"; a property assignment can write host state ((Get-Item x).Attributes = ...)
+    $exits = @($ast.FindAll({ param($n) $n -is [Management.Automation.Language.ExitStatementAst] }, $true))
+    foreach ($e in $exits) { if ($exits.Count -ne 1 -or -not $e.Pipeline -or $e.Pipeline.Extent.Text -cne '$exitCode') { $problems.Add("exit at line $($e.Extent.StartLineNumber) is not the single final 'exit `$exitCode'") } }
+    foreach ($a in $ast.FindAll({ param($n) $n -is [Management.Automation.Language.AssignmentStatementAst] }, $true)) {
+        $line = $a.Extent.StartLineNumber; $lhs = $a.Left
+        while ($lhs -is [Management.Automation.Language.ConvertExpressionAst] -or $lhs -is [Management.Automation.Language.AttributedExpressionAst]) { $lhs = $lhs.Child }
+        if ($lhs -is [Management.Automation.Language.MemberExpressionAst]) { $problems.Add("property assignment at line $line"); continue }
+        # $Body is the one variable "&" may invoke: every binding of it must be a literal script block
+        if ($lhs -is [Management.Automation.Language.VariableExpressionAst] -and ($lhs.VariablePath.UserPath -replace '^[A-Za-z]+:', '') -eq 'Body') {
+            $rhs = $a.Right
+            if ($a.Operator -ne [Management.Automation.Language.TokenKind]::Equals -or $rhs -isnot [Management.Automation.Language.CommandExpressionAst] -or
+                $rhs.Expression -isnot [Management.Automation.Language.ScriptBlockExpressionAst]) { $problems.Add("`$Body at line $line is assigned something other than a literal script block") } }
+    }
+    foreach ($pa in $ast.FindAll({ param($n) $n -is [Management.Automation.Language.ParameterAst] -and ($n.Name.VariablePath.UserPath -replace '^[A-Za-z]+:', '') -eq 'Body' }, $true)) {
+        if ($pa.StaticType -ne [scriptblock]) { $problems.Add("parameter `$Body at line $($pa.Extent.StartLineNumber) is not [scriptblock]") } }
+    foreach ($fe in $ast.FindAll({ param($n) $n -is [Management.Automation.Language.ForEachStatementAst] -and ($n.Variable.VariablePath.UserPath -replace '^[A-Za-z]+:', '') -eq 'Body' }, $true)) {
+        $problems.Add("foreach binds `$Body at line $($fe.Extent.StartLineNumber)") }
+    foreach ($cp in $ast.FindAll({ param($n) $n -is [Management.Automation.Language.CommandParameterAst] -and $n.ParameterName -match '^(OutVariable|ov|PipelineVariable|pv|ErrorVariable|ev|WarningVariable|wv|InformationVariable|iv)$' }, $true)) {
+        $problems.Add("-$($cp.ParameterName) at line $($cp.Extent.StartLineNumber) can bind a variable that '&' invokes") }
+    foreach ($uc in $ast.FindAll({ param($n) $n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Use-Check' }, $true)) {
+        if ($uc.CommandElements[-1] -isnot [Management.Automation.Language.ScriptBlockExpressionAst]) { $problems.Add("Use-Check at line $($uc.Extent.StartLineNumber) does not end in a literal script block") } }
+    foreach ($ic in $ast.FindAll({ param($n) $n -is [Management.Automation.Language.CommandAst] -and $n.InvocationOperator -ne [Management.Automation.Language.TokenKind]::Unknown }, $true)) {
+        $first = $ic.CommandElements[0]
+        if ($first -is [Management.Automation.Language.StringConstantExpressionAst] -or $first -is [Management.Automation.Language.ExpandableStringExpressionAst]) { $problems.Add("$($ic.InvocationOperator) invocation of a string at line $($ic.Extent.StartLineNumber)") } }
     return , $problems
 }
 
@@ -186,11 +217,18 @@ function Test-G3ReceiptRO([string]$Receipt, [string]$Tested) {
     if ("$Receipt" -cnotmatch '^pg-[0-9a-f]{12}-[0-9]{8}T[0-9]{6}-[0-9]+$') { return 'pregate_receipt_not_supplied_or_malformed' }
     $wRf = Join-Path $R ('pregate-receipt-' + $Receipt.Substring(3) + '.json')
     if (-not (Test-Path -LiteralPath $wRf)) { return 'pregate_receipt_file_missing' }
+    # run :357 / c0 :182: exactly one $R\SHA256SUMS.txt line for the receipt, 3 fields, numeric size and sha256 both matching
+    $wSf = Join-Path $R 'SHA256SUMS.txt'
+    $wSl = @(if (Test-Path -LiteralPath $wSf) { Get-Content -LiteralPath $wSf | Where-Object { ("$_".Trim() -split '\s+')[0] -ceq (Split-Path -Leaf $wRf) } })
+    if ($wSl.Count -ne 1) { return 'pregate_receipt_not_in_sha256sums' }
+    $wSq = @("$($wSl[0])".Trim() -split '\s+'); $wSz = [long]-1
+    if ($wSq.Count -ne 3 -or -not [long]::TryParse($wSq[1], [Globalization.NumberStyles]::None, [Globalization.CultureInfo]::InvariantCulture, [ref]$wSz) -or
+        $wSz -ne (Get-Item -LiteralPath $wRf).Length -or $wSq[2].ToUpperInvariant() -cne (Get-FileSha256 $wRf)) { return 'pregate_receipt_sha256sums_mismatch' }
     $wRj = $null; try { $wRj = Get-Content -LiteralPath $wRf -Raw | ConvertFrom-Json } catch { $wRj = $null }; if ($null -eq $wRj) { return 'pregate_receipt_unreadable' }
     if ([string]$wRj.schema -cne 'weather.workstation_pregate_receipt.v1') { return 'pregate_receipt_schema_mismatch' }
     if ([string]$wRj.verdict -cne 'PASS') { return 'pregate_receipt_verdict_not_pass' }
     if ([string]$wRj.head -cne $Tested) { return 'pregate_receipt_head_ne_tested_sha' }
-    if ((Split-Path -Leaf $wRf) -cnotmatch '^pregate-receipt-([0-9a-f]{12}-[0-9]{8}T[0-9]{6}-[0-9]+)\.json$' -or ('pg-' + $Matches[1]) -cne $Receipt) { return 'pregate_receipt_id_ne_file_name' }
+    if (@("$($wRj.log_path)" -split '[\\/]') -cnotcontains $Receipt) { return 'pregate_receipt_log_path_ne_receipt_id' }   # run :362 / c0 :187
     return $null
 }
 # Would this trigger fire in [From, To)? $null = trigger kind not modelled (caller falls back to NextRunTime).
@@ -238,6 +276,21 @@ try {
     $selfProblems = Test-SelfReadOnly $PSCommandPath
     if ($selfProblems.Count) { foreach ($sp in $selfProblems) { Write-Output "REFUSED: self-check: $sp" }; $exitCode = 2; return }
     Write-Output "SELF-CHECK read-only AST assert PASS ($PSCommandPath)"
+    # -OutFile must never overwrite a kit input: refuse any path under the kit root (or C:\pyup\cp3119) and any kit file name
+    if ($OutFile) {
+        $ofFull = [IO.Path]::GetFullPath($OutFile); $ofLeaf = Split-Path -Leaf $ofFull
+        $ofRoots = @(([IO.Path]::GetFullPath($KitRoot).TrimEnd('\') + '\'), 'C:\pyup\cp3119\')
+        $ofUnder = @($ofRoots | Where-Object { $ofFull.StartsWith($_, [StringComparison]::OrdinalIgnoreCase) -or $ofFull.TrimEnd('\') -ieq $_.TrimEnd('\') })
+        $ofNames = @("phase-c0-run-$KitTag.ps1", "phase-c-run-$KitTag.ps1", "phase-c-retry-wrapper-$KitTag.ps1", 'SHA256SUMS.txt', 'README.md',
+            'phase-c-raw-20261022.md', "c0-done-$KitTag.flag", "owner-go-$KitTag.txt", 'qualification.json', 'q12.txt', 'q12b.txt', 'gap-overrun.txt',
+            'aux-tasks.txt', 'oldhome.txt', 'constants.json', 'lock-hashed.txt', 'lock-tools-hashed.txt', 'night.log', 'c0-status.out.txt',
+            'c0-status.err.txt', 'c0-status-flags.txt', 'c0-next-runs.txt', 'freeze-3110.txt', 'rtv-3110.json', 'check-the-checks-20261023.ps1',
+            'scheduler-semantics-probe-20261022.ps1')
+        $ofLike = @('pregate-receipt-*.json', 'decision-*', 'hold-*', 'phase-c*-transcript-*', 'goreview-baseline-flags*', 'aux-restart-at*', 'aux-prestate*')
+        $ofHit = @($ofNames | Where-Object { $_ -ieq $ofLeaf }) + @($ofLike | Where-Object { $ofLeaf -like $_ })
+        if ($ofUnder.Count -or $ofHit.Count) {
+            Write-Output "REFUSED: -OutFile $ofFull $(if ($ofUnder.Count) { "lies under $($ofUnder -join ', ')" } else { "is named like a kit input ($($ofHit -join ', '))" }); choose a path outside the kit root"
+            $exitCode = 2; return } }
 
     $P = $RepoRoot.TrimEnd('\'); $R = $KitRoot.TrimEnd('\')
     $Now = Get-Date
@@ -251,11 +304,14 @@ try {
     $NewPy = Join-Path $NewHome 'python.exe'; $Old = Join-Path $P 'venv-cp3110'
     $Sup = @('WeatherSnapshotLoopSupervisor', 'WeatherClobBookLoopSupervisor', 'WeatherObservationTriggerSupervisor')
     $NightN = Join-Path $R ('night-' + $Night.ToString('yyyyMMdd'))
+    # Mirror of the kit's retry GO-review allowlist (run:144-147) and window N (run:148 $WGoAllowSeconds, master ruling 660 s)
+    $GoAllowSeconds = 660
+    $GoAllowKeys = @('public execution-tape producer is armed but its process/lock/identity contract is unhealthy', 'MAKER_EVIDENCE: STARTING, status age #s', 'MAKER_EVIDENCE: CAPTURING, status age #s')
     Write-Output ("CONTEXT host={0} elevated={1} now={2} night={3} tag={4} P={5} R={6} NewHome={7}" -f $env:COMPUTERNAME, $IsElevated, $NowText, $NightDate, $Tag, $P, $R, $NewHome)
 
-    # --- wrapper preflight (run:46-71; c0:26-29; retry:124-135)
-    Use-Check 'PF-ELEVATED(run:46,c0:26,retry:124)' 'True (launch the kit elevated)' { $IsElevated; (Get-Verdict $IsElevated) }
-    Use-Check 'PF-STDIO-NOT-REDIRECTED(run:47,c0:27,retry:125)' 'err=False out=False (this session; the kit refuses a redirected launch)' {
+    # --- wrapper preflight (run:46-71; c0:26-29; retry:128-140)
+    Use-Check 'PF-ELEVATED(run:46,c0:26,retry:128)' 'True (launch the kit elevated)' { $IsElevated; (Get-Verdict $IsElevated) }
+    Use-Check 'PF-STDIO-NOT-REDIRECTED(run:47,c0:27,retry:129)' 'err=False out=False (this session; the kit refuses a redirected launch)' {
         $e = [Console]::IsErrorRedirected; $o = [Console]::IsOutputRedirected; "err=$e out=$o"; (Get-Verdict (-not $e -and -not $o)) }
     Use-Check 'PF-C0-FLAG(run:58-61)' "c0-done-$Tag.flag written on $NightDate with head=<40-hex>" {
         $f = Join-Path $R "c0-done-$Tag.flag"
@@ -270,52 +326,60 @@ try {
         "first token '$tok' (written $((Get-Item -LiteralPath $f).LastWriteTime.ToString('yyyy-MM-dd HH:mm')))"; (Get-Verdict ($tok -ceq 'GO')) }
     Use-Check 'C0-FLOOR-0030(c0:29)' "standalone C0 at or after 00:30 on $NightDate" {
         "now=$NowText; planned C0=$($PlanC0.ToString('yyyy-MM-dd HH:mm'))"; (Get-Verdict ($PlanC0 -ge $PlanC0.Date.AddMinutes(30))) }
-    Use-Check 'PF-CLOCK-0030-0104(run:69-70,retry:83-85)' "launch in [00:30, 01:04] on $NightDate" {
+    Use-Check 'PF-CLOCK-0030-0104(run:69-70,retry:85-87)' "launch in [00:30, 01:04] on $NightDate" {
         $ok = $PlanC -ge $PlanC.Date.AddMinutes(30) -and $PlanC -le $PlanC.Date.AddHours(1).AddMinutes(4)
         "now=$NowText (would refuse now: $(-not ($Now -ge $Now.Date.AddMinutes(30) -and $Now -le $Now.Date.AddHours(1).AddMinutes(4)))); planned=$($PlanC.ToString('yyyy-MM-dd HH:mm'))"; (Get-Verdict $ok) }
-    Use-Check 'PF-G3-FLAG-LINE(run:62-65,c0:240)' "c0-done-$Tag.flag holds exactly one 'G3 mode=<strict|dependency> branch=.. tip=.. pregate=.. tested=.. py=..' line" {
+    Use-Check 'PF-G3-FLAG-LINE(run:62-65,c0:241)' "c0-done-$Tag.flag holds exactly one 'G3 mode=<strict|dependency> branch=.. tip=.. pregate=.. tested=.. py=..' line" {
         $f = Join-Path $R "c0-done-$Tag.flag"
         if (-not (Test-Path -LiteralPath $f) -or (Get-Item -LiteralPath $f).LastWriteTime -lt $Night) { 'flag for the night not written yet (C0 writes line 2 at ~00:30)'; 'NOT-EVALUABLE'; return }
         $g = @(Get-Content -LiteralPath $f | Where-Object { "$_" -cmatch '^G3 ' })
         $ok = $g.Count -eq 1 -and "$($g[0])".Trim() -cmatch '^G3 mode=(strict|dependency) branch=\S+ tip=(\S+) pregate=(\S+) tested=(\S+) py=(\S+)$'
         "g3_lines=$($g.Count) $($g | Select-Object -First 1)"; (Get-Verdict $ok) }
-    Use-Check 'RW-NIGHT-DATE(retry:126)' "retry wrapper launched on $Tag (WRONG_NIGHT otherwise)" {
+    Use-Check 'RW-NIGHT-DATE(retry:130)' "retry wrapper launched on $Tag (WRONG_NIGHT otherwise)" {
         "planned=$($PlanC.ToString('yyyyMMdd')) now=$($Now.ToString('yyyyMMdd'))"; (Get-Verdict ($PlanC.ToString('yyyyMMdd') -eq $Tag)) }
-    Use-Check 'RW-NO-ATTEMPT-TRANSCRIPTS(retry:129)' "no $R\phase-c-transcript-$Tag-a*.txt (ATTEMPT_TRANSCRIPT_EXISTS otherwise)" {
+    Use-Check 'RW-NO-ATTEMPT-TRANSCRIPTS(retry:133)' "no $R\phase-c-transcript-$Tag-a*.txt (ATTEMPT_TRANSCRIPT_EXISTS otherwise)" {
         $t = @(Get-Item -Path (Join-Path $R "phase-c-transcript-$Tag-a*.txt") -ErrorAction SilentlyContinue | ForEach-Object { $_.Name })
         "existing=$($t.Count) [$($t -join ',')]"; (Get-Verdict (-not $t.Count)) }
-    Use-Check 'RW-IN-CP3119(retry:121,127)' "retry wrapper launched from its copy in $R (NOT_IN_CP3119 otherwise); the run file beside it" {
+    Use-Check 'RW-IN-CP3119(retry:125,131)' "retry wrapper launched from its copy in $R (NOT_IN_CP3119 otherwise); the run file beside it" {
         $w = Join-Path $R "phase-c-retry-wrapper-$Tag.ps1"; $ok = (Test-Path -LiteralPath $w) -and (Test-Path -LiteralPath (Join-Path $R "phase-c-run-$Tag.ps1"))
         "wrapper_in_R=$(Test-Path -LiteralPath $w) run_in_R=$(Test-Path -LiteralPath (Join-Path $R "phase-c-run-$Tag.ps1"))"; (Get-Verdict $ok) }
-    Use-Check 'RW-GO-REVIEW-FILES-ABSENT(run:89,418-433)' "no stale $NightN\goreview-baseline-flags.txt or aux-restart-at.txt (attempt 1 writes the baseline once; an undo writes the restart time)" {
+    Use-Check 'RW-GO-REVIEW-FILES-ABSENT(run:89,420-435)' "no stale $NightN\goreview-baseline-flags.txt or aux-restart-at.txt (attempt 1 writes the baseline once; an undo writes the restart time)" {
         $gb = Join-Path $NightN 'goreview-baseline-flags.txt'; $ar = Join-Path $NightN 'aux-restart-at.txt'
         $e1 = Test-Path -LiteralPath $gb; $e2 = Test-Path -LiteralPath $ar
         "N=$NightN goreview-baseline-flags.txt=$e1 aux-restart-at.txt=$e2"; (Get-Verdict (-not $e1 -and -not $e2)) }
-    Use-Check 'GO-REVIEW-ALLOWLIST-NOW(run:144-148, informational)' 'which of the 3 masked allowlist keys the latest status.ps1 -Json output on disk ($R\c0-status.out.txt) contains; status.ps1 itself is not run' {
+    Use-Check "GO-REVIEW-ALLOWLIST-WINDOW(run:144-148,152,427)" "the kit copy's `$WGoAllowSeconds = $GoAllowSeconds (master ruling: N = 660 s, restart -> status sample `$WStatusAt) and its 3 allowlist keys equal this mirror" {
+        $rf = Join-Path $R "phase-c-run-$Tag.ps1"
+        if (-not (Test-Path -LiteralPath $rf)) { "kit copy absent; mirror N=$GoAllowSeconds s"; 'NOT-EVALUABLE'; return }
+        $rt = Read-SharedText $rf
+        $kn = if ($rt -cmatch '(?m)^\$WGoAllowSeconds = (\d+)\s') { [int]$Matches[1] } else { $null }
+        $kk = @([regex]::Matches($rt, "(?m)^  '([^']+)'[,)]\s+# WRAPPER status\.ps1:") | ForEach-Object { $_.Groups[1].Value })
+        $same = ($kn -eq $GoAllowSeconds) -and ($kk.Count -eq $GoAllowKeys.Count) -and -not @($kk | Where-Object { $GoAllowKeys -cnotcontains $_ }).Count
+        "kit N=$kn s mirror N=$GoAllowSeconds s; kit keys=$($kk.Count) mirror keys=$($GoAllowKeys.Count)"; (Get-Verdict $same) }
+    Use-Check "GO-REVIEW-ALLOWLIST-NOW(run:144-148, informational, N=$GoAllowSeconds s)" "which of the 3 masked allowlist keys the latest status.ps1 -Json output on disk (`$R\c0-status.out.txt) contains (allowed at attempts 2-3 only within $GoAllowSeconds s of the undo's restart); status.ps1 itself is not run" {
         $f = Join-Path $R 'c0-status.out.txt'
         if (-not (Test-Path -LiteralPath $f)) { 'no status.ps1 output on disk to read (c0-status.out.txt absent); running status.ps1 is outside the allowlist'; 'NOT-EVALUABLE'; return }
         $j = Read-SharedJson $f
         if ($null -eq $j -or -not $j.PSObject.Properties['flags']) { 'c0-status.out.txt has no flags field'; 'NOT-EVALUABLE'; return }
         $keys = @(@($j.flags) | ForEach-Object { ([string]$_ -replace '[0-9a-fA-F]{64}', '<sha>') -replace '\d+(\.\d+)?', '#' } | Sort-Object -Unique)
-        $allow = @('public execution-tape producer is armed but its process/lock/identity contract is unhealthy', 'MAKER_EVIDENCE: STARTING, status age #s', 'MAKER_EVIDENCE: CAPTURING, status age #s')
-        $hit = @($allow | Where-Object { $keys -ccontains $_ })
-        "status output written $((Get-Item -LiteralPath $f).LastWriteTime.ToString('yyyy-MM-dd HH:mm')); keys=$($keys.Count); allowlisted_present=[$($hit -join ' ; ')]"; 'PASS' }
-    Use-Check 'G3-RECEIPT-FILE(run:356-362,c0:181-187)' "pregate-receipt-$($G3PregateReceipt.Substring(3)).json in ${R}: schema weather.workstation_pregate_receipt.v1, verdict PASS, head = $G3TestedSha, name gives $G3PregateReceipt" {
+        $hit = @($GoAllowKeys | Where-Object { $keys -ccontains $_ })
+        "status output written $((Get-Item -LiteralPath $f).LastWriteTime.ToString('yyyy-MM-dd HH:mm')); keys=$($keys.Count); allowlisted_present=[$($hit -join ' ; ')]; window N=$GoAllowSeconds s"; 'PASS' }
+    Use-Check 'G3-RECEIPT-FILE(run:356-362,c0:181-187)' "pregate-receipt-$($G3PregateReceipt.Substring(3)).json in ${R}: one SHA256SUMS.txt line matching size and sha256, schema weather.workstation_pregate_receipt.v1, verdict PASS, head = $G3TestedSha, log_path has $G3PregateReceipt as a path segment" {
         $r = Test-G3ReceiptRO $G3PregateReceipt $G3TestedSha
         if ($r) { "receipt check fails: $r"; 'WOULD-FAIL' } else { 'receipt present and passes the kit predicate'; 'PASS' } }
-    Use-Check 'RW-RUN-FILE-HASH(retry:128,130-135)' "local phase-c-run-$Tag.ps1 present; exactly one 3-field SHA256SUMS.txt line matching its size and sha256; that line is the reviewed $($ExpectedRunSha256.Substring(0,12))" {
+    Use-Check 'RW-RUN-FILE-HASH(retry:132,134-140)' "local phase-c-run-$Tag.ps1 present; exactly one 3-field SHA256SUMS.txt line matching its size and sha256; that line is the reviewed $($ExpectedRunSha256.Substring(0,12))" {
         $rf = Join-Path $R "phase-c-run-$Tag.ps1"; $sf = Join-Path $R 'SHA256SUMS.txt'
         if (-not (Test-Path -LiteralPath $rf)) { 'run file missing (RUN_FILE_MISSING)'; 'WOULD-FAIL'; return }
         $ln = @(if (Test-Path -LiteralPath $sf) { Get-Content -LiteralPath $sf | Where-Object { ("$_".Trim() -split '\s+')[0] -ceq "phase-c-run-$Tag.ps1" } })
         if ($ln.Count -ne 1) { "SHA256SUMS lines for the run file=$($ln.Count) (RUN_FILE_NOT_IN_SHA256SUMS)"; 'WOULD-FAIL'; return }
         $fld = "$($ln[0])".Trim() -split '\s+'; $len = (Get-Item -LiteralPath $rf).Length; $h = Get-FileSha256 $rf
-        $match = $fld.Count -eq 3 -and [long]$fld[1] -eq $len -and $fld[2].ToUpperInvariant() -ceq $h
+        $fsz = [long]-1; $match = $fld.Count -eq 3 -and [long]::TryParse($fld[1], [Globalization.NumberStyles]::None, [Globalization.CultureInfo]::InvariantCulture, [ref]$fsz) -and $fsz -eq $len -and $fld[2].ToUpperInvariant() -ceq $h
         $pin = $fld.Count -eq 3 -and $fld[2].ToLowerInvariant() -eq $ExpectedRunSha256.ToLowerInvariant()
-        # Kit-literal replay of retry:132-134 as fixed at 26fbc19c0: `$wLine = @(if (..) { Get-Content .. | Where-Object {..} })`
-        # keeps one match an array, so $wLine[0] is the whole line (the pre-fix form split its first character and refused).
+        # Kit-literal replay of retry:137-140 (between the PYUPC-SUMS-PREFLIGHT markers) as at 0b90d641c: `$wLine = @(if (..) {..})`
+        # keeps one match an array, so $wLine[0] is the whole line (the 26fbc19c0 pre-fix form split its first character and
+        # refused), and the size field goes through TryParse, so a non-numeric size refuses instead of throwing.
         $kl = @(if (Test-Path -LiteralPath $sf) { Get-Content -LiteralPath $sf | Where-Object { ("$_".Trim() -split '\s+')[0] -ceq "phase-c-run-$Tag.ps1" } })
-        $kf = "$($kl[0])".Trim() -split '\s+'
-        $kit = $kl.Count -eq 1 -and $kf.Count -eq 3 -and [long]$kf[1] -eq $len -and $kf[2].ToUpperInvariant() -ceq $h
+        $kf = @("$($kl[0])".Trim() -split '\s+'); $ksz = [long]-1
+        $kit = $kl.Count -eq 1 -and -not ($kf.Count -ne 3 -or -not [long]::TryParse($kf[1], [Globalization.NumberStyles]::None, [Globalization.CultureInfo]::InvariantCulture, [ref]$ksz) -or $ksz -ne $len -or $kf[2].ToUpperInvariant() -cne $h)
         $kitTxt = if ($kit) { 'OK' } else { "REFUSED_RUN_FILE_HASH_MISMATCH (fields=$($kf.Count))" }
         "size=$len sha=$($h.Substring(0,12)) sums_line_match=$match reviewed_pin=$pin kit_literal=$kitTxt"; (Get-Verdict ($match -and $pin -and $kit)) }
     Use-Check 'KIT-LOCAL-COPIES(README launch form)' "C0, run and retry-wrapper copies and the pre-gate receipt in $R match SHA256SUMS.txt" {
@@ -332,7 +396,7 @@ try {
     Use-Check 'HDR-KIT-ROOT(run:212-214,220)' 'R, R\tools and R\receipts-3110 exist (the kit New-Items them; existing evidence expected)' {
         $s = @($R, (Join-Path $R 'tools'), $A | ForEach-Object { "$(Split-Path -Leaf $_)=$(Test-Path -LiteralPath $_)" }); ($s -join ' '); (Get-Verdict (-not ($s -match '=False'))) }
     $K = $null
-    Use-Check 'HDR-CONSTANTS(run:221-222,298,600)' 'constants.json present; nupkg_url nupkg_size nupkg_sha512_b64 tools_manifest_sha256 binary_signer_thumbprint vv_prefix binaries non-empty' {
+    Use-Check 'HDR-CONSTANTS(run:221-222,298,603)' 'constants.json present; nupkg_url nupkg_size nupkg_sha512_b64 tools_manifest_sha256 binary_signer_thumbprint vv_prefix binaries non-empty' {
         $f = Join-Path $R 'constants.json'
         if (-not (Test-Path -LiteralPath $f)) { 'absent ($K null: C6 launcher check would NO-GO -> section R)'; 'WOULD-FAIL'; return }
         $script:K = Get-Content -LiteralPath $f -Raw | ConvertFrom-Json
@@ -347,7 +411,7 @@ try {
     Use-Check 'HDR-MEMGUARD-HELPER(run:285)' 'scripts\ops\memory_guard_status_reader.ps1 defines Read-WeatherMemoryGuardStatus' {
         $f = Join-Path $P 'scripts\ops\memory_guard_status_reader.ps1'; if (-not (Test-Path -LiteralPath $f)) { 'absent'; 'WOULD-FAIL'; return }
         $ok = (Get-Content -LiteralPath $f -Raw) -match '(?m)^function Read-WeatherMemoryGuardStatus\b'; "defines=$ok"; (Get-Verdict $ok) }
-    Use-Check 'HDR-STATUS-PS1(run:407,621,661)' 'scripts\ops\status.ps1 present' { $ok = Test-Path -LiteralPath (Join-Path $P 'scripts\ops\status.ps1'); "exists=$ok"; (Get-Verdict $ok) }
+    Use-Check 'HDR-STATUS-PS1(run:408,624,664)' 'scripts\ops\status.ps1 present' { $ok = Test-Path -LiteralPath (Join-Path $P 'scripts\ops\status.ps1'); "exists=$ok"; (Get-Verdict $ok) }
 
     $OldHomeLines = @(); $OldHome = $null
     if (Test-Path -LiteralPath (Join-Path $R 'oldhome.txt')) { $OldHomeLines = @(Get-Content -LiteralPath (Join-Path $R 'oldhome.txt')); $OldHome = "$(Get-Content -LiteralPath (Join-Path $R 'oldhome.txt') -TotalCount 1)".Trim() }
@@ -355,7 +419,7 @@ try {
         if (-not (Test-Path -LiteralPath (Join-Path $R 'oldhome.txt'))) { 'absent'; 'WOULD-FAIL'; return }
         $ne = @($OldHomeLines | Where-Object { "$_".Trim() }).Count
         "first='$OldHome' non_empty_lines=$ne"; (Get-Verdict ([bool]$OldHome -and $ne -eq 1)) }
-    Use-Check 'PATH-OLDHOME-PYTHON(run:224,560,566)' '<oldhome>\python.exe exists (the 3.11.0 base the C4 sweep and Test-Venv use)' {
+    Use-Check 'PATH-OLDHOME-PYTHON(run:224,563,569)' '<oldhome>\python.exe exists (the 3.11.0 base the C4 sweep and Test-Venv use)' {
         if (-not $OldHome) { 'oldhome unknown'; 'WOULD-FAIL'; return }; $f = Join-Path $OldHome 'python.exe'; $ok = Test-Path -LiteralPath $f; "$f exists=$ok"; (Get-Verdict $ok) }
     Use-Check 'PATH-PROD-PYTHON(run:211)' "$Py exists" { $ok = Test-Path -LiteralPath $Py; "exists=$ok"; (Get-Verdict $ok) }
     Use-Check 'PATH-PROD-PYVENV(run:184,298-300)' 'venv\pyvenv.cfg home = oldhome and version 3.11.0 (pre-swap)' {
@@ -366,10 +430,10 @@ try {
         $ok = $OldHome -and $home1 -and ($home1.TrimEnd('\') -eq $OldHome.TrimEnd('\')) -and "$ver".StartsWith('3.11.0')
         "home='$home1' version='$ver'"; (Get-Verdict $ok) }
     Use-Check 'C0-OLD-VENV-ABSENT(run:400,c0:218)' "$Old absent" { $ex = Test-Path -LiteralPath $Old; "exists=$ex"; (Get-Verdict (-not $ex)) }
-    Use-Check 'C4-PROD-VENV-PRESENT(run:584)' "$P\venv exists (the C4 rename source)" { $ok = Test-Path -LiteralPath (Join-Path $P 'venv'); "exists=$ok"; (Get-Verdict $ok) }
-    Use-Check 'PATH-NEWHOME(run:215-216,594)' 'new home python.exe and pythonw.exe exist' {
+    Use-Check 'C4-PROD-VENV-PRESENT(run:587)' "$P\venv exists (the C4 rename source)" { $ok = Test-Path -LiteralPath (Join-Path $P 'venv'); "exists=$ok"; (Get-Verdict $ok) }
+    Use-Check 'PATH-NEWHOME(run:215-216,597)' 'new home python.exe and pythonw.exe exist' {
         $s = @('python.exe', 'pythonw.exe' | ForEach-Object { "$_=$(Test-Path -LiteralPath (Join-Path $NewHome $_))" }); ($s -join ' '); (Get-Verdict (-not ($s -match '=False'))) }
-    Use-Check 'C6-LAUNCHER-SOURCE(run:600)' 'sha256 of <newhome>\Lib\venv\scripts\nt\python(w).exe equals constants.json binaries (venv copies these launchers)' {
+    Use-Check 'C6-LAUNCHER-SOURCE(run:603)' 'sha256 of <newhome>\Lib\venv\scripts\nt\python(w).exe equals constants.json binaries (venv copies these launchers)' {
         if (-not $K -or -not $K.binaries) { 'constants.json binaries unavailable'; 'WOULD-FAIL'; return }
         $parts = @(); $ok = $true
         foreach ($ln in 'python.exe', 'pythonw.exe') { $key = "Lib\venv\scripts\nt\$ln"; $src = Join-Path $NewHome $key
@@ -382,12 +446,12 @@ try {
         $lt = @(Get-Content -LiteralPath $lf); $tools = @($lt | Where-Object { $_ -match '^(pip|setuptools|wheel)==' }).Count; $hashes = @($lt | Where-Object { $_ -match '--hash=sha256:' }).Count
         $whl = @(Get-Item -Path (Join-Path $WH '*.whl') -ErrorAction SilentlyContinue).Count
         "tool_pins=$tools hash_lines=$hashes wheels=$whl"; (Get-Verdict ($tools -eq 3 -and $hashes -gt 0 -and $whl -gt 0)) }
-    Use-Check 'C6-RECEIPTS-3110(run:303,326,447)' 'receipts-3110\freeze-3110.txt and rtv-3110.json present; rtv parses with python 3.11.0' {
+    Use-Check 'C6-RECEIPTS-3110(run:303,326,450)' 'receipts-3110\freeze-3110.txt and rtv-3110.json present; rtv parses with python 3.11.0' {
         $fz = Join-Path $A 'freeze-3110.txt'; $rt = Join-Path $A 'rtv-3110.json'
         if (-not (Test-Path -LiteralPath $fz) -or -not (Test-Path -LiteralPath $rt)) { "freeze=$(Test-Path -LiteralPath $fz) rtv=$(Test-Path -LiteralPath $rt)"; 'WOULD-FAIL'; return }
         $o = Get-Content -LiteralPath $rt -Raw | ConvertFrom-Json
         "freeze_lines=$(@(Get-Content -LiteralPath $fz).Count) rtv.python=$($o.python) implementation=$($o.implementation)"; (Get-Verdict ([string]$o.python -eq '3.11.0')) }
-    Use-Check 'C1-FREEZE-UNCHANGED-APPROX(run:446-447)' 'installed dist-info set equals receipts-3110\freeze-3110.txt (approximation: dist-info scan, not pip freeze)' {
+    Use-Check 'C1-FREEZE-UNCHANGED-APPROX(run:448-450)' 'installed dist-info set equals receipts-3110\freeze-3110.txt (approximation: dist-info scan, not pip freeze)' {
         $fz = Join-Path $A 'freeze-3110.txt'; $sp = Join-Path $P 'venv\Lib\site-packages'
         if (-not (Test-Path -LiteralPath $fz) -or -not (Test-Path -LiteralPath $sp)) { 'freeze or site-packages absent'; 'NOT-EVALUABLE'; return }
         $fl = @(Get-Content -LiteralPath $fz)
@@ -397,17 +461,17 @@ try {
         $miss = @($want | Where-Object { $have -notcontains $_ }); $extra = @($have | Where-Object { $want -notcontains $_ })
         "freeze_pins=$($want.Count) dist_info=$($have.Count) missing=[$($miss -join ',')] extra=[$($extra -join ',')]"; (Get-Verdict (-not $miss.Count -and -not $extra.Count)) }
 
-    # --- C0 GO checks (run:372-432 = c0:198-233)
+    # --- C0 GO checks (run:372-434 = c0:198-234)
     $q = $null
     Use-Check 'C0-QUALIFIED-CASE-A(run:380,c0:198,G2)' 'qualification.json result=PASS release_case=A' {
         $f = Join-Path $R 'qualification.json'; if (-not (Test-Path -LiteralPath $f)) { 'absent'; 'WOULD-FAIL'; return }
         $script:q = Get-Content -LiteralPath $f -Raw | ConvertFrom-Json
         "result=$($script:q.result) release_case=$($script:q.release_case) tip=$($script:q.tip)"; (Get-Verdict ($script:q.result -eq 'PASS' -and $script:q.release_case -eq 'A')) }
     $q = $script:q
-    Use-Check 'C0-Q12-STOP-AUTHORIZED(run:381,509,c0:199,G8)' 'q12.txt first token STOP_AUTHORIZED' {
+    Use-Check 'C0-Q12-STOP-AUTHORIZED(run:381,512,c0:199,G8)' 'q12.txt first token STOP_AUTHORIZED' {
         $f = Join-Path $R 'q12.txt'; if (-not (Test-Path -LiteralPath $f)) { 'absent'; 'WOULD-FAIL'; return }
         $t = Get-KitFirstToken $f; "first token '$t'"; (Get-Verdict ($t -eq 'STOP_AUTHORIZED')) }
-    Use-Check 'C0-GAP-CHOICE(run:382,262-263,636-638,c0:200)' 'gap-overrun.txt first token ACCEPT_OVERRUN or ROLLBACK_ON_OVERRUN' {
+    Use-Check 'C0-GAP-CHOICE(run:382,262-263,639-641,c0:200)' 'gap-overrun.txt first token ACCEPT_OVERRUN or ROLLBACK_ON_OVERRUN' {
         $f = Join-Path $R 'gap-overrun.txt'; if (-not (Test-Path -LiteralPath $f)) { 'absent'; 'WOULD-FAIL'; return }
         $t = Get-KitFirstToken $f; "first token '$t'"; (Get-Verdict ($t -in 'ACCEPT_OVERRUN', 'ROLLBACK_ON_OVERRUN')) }
     Use-Check 'C0-U6-NOT-0035(run:383,257-260,c0:201,G5)' 'WeatherReplayBundleExportNightly absent, State Disabled, or no T00:35 trigger' {
@@ -429,7 +493,7 @@ try {
         $f = Join-Path $R 'q12b.txt'; $t = if (Test-Path -LiteralPath $f) { Get-KitFirstToken $f } else { '<absent>' }
         $trimmed = @(Get-Content -LiteralPath $AuxFile -ErrorAction SilentlyContinue | ForEach-Object { $_.Trim() }); $notAux = @($FamilyTasks | Where-Object { $trimmed -notcontains $_ })
         "family=[$($FamilyTasks -join ',')] q12b='$t' not_in_aux=[$($notAux -join ',')]"; (Get-Verdict ($t -eq 'STOP_AUTHORIZED' -and -not $notAux.Count)) }
-    Use-Check 'C0-AUX-NAMES-RESOLVE(run:396-397,488,c0:214-215)' 'aux-tasks.txt present; every name matches exactly one task' {
+    Use-Check 'C0-AUX-NAMES-RESOLVE(run:396-397,491,c0:214-215)' 'aux-tasks.txt present; every name matches exactly one task' {
         if (-not (Test-Path -LiteralPath $AuxFile)) { 'aux-tasks.txt absent'; 'WOULD-FAIL'; return }
         $bad = @(); foreach ($n in $AuxNames) { $c = (Get-TaskExact $n).Count; if ($c -ne 1) { $bad += "$n=$c" } }
         "names=$($AuxNames.Count) unresolved_or_duplicate=[$($bad -join ',')]"
@@ -438,7 +502,7 @@ try {
         $t = Get-TaskExact 'WeatherClobEnrichmentLoop'
         if (-not $t.Count) { "not visible (elevated=$IsElevated)"; $(if ($IsElevated) { 'PASS' } else { 'NOT-EVALUABLE' }); return }
         "State=$($t[0].State) Enabled=$($t[0].Settings.Enabled)"; (Get-Verdict ([string]$t[0].State -eq 'Disabled')) }
-    Use-Check 'C0-PROD-TREE-CLEAN(run:399,603,c0:217)' 'git status --porcelain --untracked-files=no empty' {
+    Use-Check 'C0-PROD-TREE-CLEAN(run:399,606,c0:217)' 'git status --porcelain --untracked-files=no empty' {
         if (-not (Test-Path -LiteralPath (Join-Path $P '.git'))) { 'no repo'; 'WOULD-FAIL'; return }
         $s = @(git --no-optional-locks -C $P status --porcelain --untracked-files=no); if ($LASTEXITCODE) { "git exit $LASTEXITCODE"; 'NOT-EVALUABLE'; return }
         "dirty_entries=$($s.Count) $($s | Select-Object -First 5)"; (Get-Verdict (-not $s.Count)) }
@@ -452,13 +516,13 @@ try {
     Use-Check 'C0-MEMGUARD-STATUS-READABLE(run:405,c0:223)' 'data\logs\memory_commit_guard_status.json reads as JSON (Read-WeatherMemoryGuardStatus throws otherwise)' {
         $f = Join-Path $P 'data\logs\memory_commit_guard_status.json'; if (-not (Test-Path -LiteralPath $f)) { 'absent'; 'WOULD-FAIL'; return }
         $j = Read-SharedJson $f; "parsed; last_write=$((Get-Item -LiteralPath $f).LastWriteTime.ToString('yyyy-MM-dd HH:mm:ss'))"; (Get-Verdict ($null -ne $j)) }
-    Use-Check 'C0-STATUS-BASELINE(run:407-408,271-277,c0:225-226)' 'status.ps1 -Json prints JSON with a flags field; capture 3/3; no unaccepted FLAG' {
+    Use-Check 'C0-STATUS-BASELINE(run:408-409,271-277,c0:225-226)' 'status.ps1 -Json prints JSON with a flags field; capture 3/3; no unaccepted FLAG' {
         $f = Join-Path $R 'c0-status.out.txt'; $r0 = if (Test-Path -LiteralPath $f) { "last c0-status.out.txt written $((Get-Item -LiteralPath $f).LastWriteTime.ToString('yyyy-MM-dd HH:mm'))" } else { 'no earlier c0-status.out.txt' }
         "$r0; status.ps1 itself not run (outside the read-only allowlist; it is run by C0 at 00:30)"; 'NOT-EVALUABLE' }
     Use-Check 'C0-RELEASE-POINTER-ABSENT(run:266,G6)' 'artifacts\releases\current_release.json absent (case A)' {
         $ex = Test-Path -LiteralPath (Join-Path $P 'artifacts\releases\current_release.json'); "exists=$ex"; (Get-Verdict (-not $ex)) }
-    Use-Check 'C0-RELEASE-CLI-CASE-A(run:409,245-255,264-265,c0:227)' 'release_lifecycle_cli active -> BLOCK "active release pointer is missing"' { 'needs python (release_lifecycle_cli); outside the read-only allowlist'; 'NOT-EVALUABLE' }
-    Use-Check 'C0-RESTORE-ARMED(c0:232)' 'WeatherTrainingWindowRestore not Disabled, with an enabled T04:15 trigger' {
+    Use-Check 'C0-RELEASE-CLI-CASE-A(run:410,245-255,264-265,c0:227)' 'release_lifecycle_cli active -> BLOCK "active release pointer is missing"' { 'needs python (release_lifecycle_cli); outside the read-only allowlist'; 'NOT-EVALUABLE' }
+    Use-Check 'C0-RESTORE-ARMED(c0:233)' 'WeatherTrainingWindowRestore not Disabled, with an enabled T04:15 trigger' {
         $t = Get-TaskExact 'WeatherTrainingWindowRestore'; if (-not $t.Count) { "not visible (elevated=$IsElevated)"; $Missing; return }
         $tr = @($t[0].Triggers | Where-Object { [string]$_.StartBoundary -match 'T04:15' -and $_.Enabled }).Count
         "State=$($t[0].State) T04:15_enabled_triggers=$tr"; (Get-Verdict ([string]$t[0].State -ne 'Disabled' -and $tr -gt 0)) }
@@ -470,27 +534,27 @@ try {
     try { $Due = @(Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object { [string]$_.State -ne 'Disabled' -and $Exempt -notcontains $_.TaskName } | Where-Object { Test-TaskDueIn $_ $DueFrom $DueTo } | ForEach-Object { "$($_.TaskPath)$($_.TaskName)" }) }
     catch { $DueErr = $_.Exception.Message }
     $DueRoot = @($Due | Where-Object { $_ -match '^\\[^\\]+$' })
-    Use-Check 'C0-NEXT-RUNS-ALL(run:410-413,c0:228-231,C0 go/no-go)' "c0-next-runs.txt empty: no non-exempt task due $($DueFrom.ToString('MM-dd HH:mm'))-$($DueTo.ToString('HH:mm')) (predicted from triggers)" {
+    Use-Check 'C0-NEXT-RUNS-ALL(run:411-415,c0:228-232,C0 go/no-go)' "c0-next-runs.txt empty: no non-exempt task due $($DueFrom.ToString('MM-dd HH:mm'))-$($DueTo.ToString('HH:mm')) (predicted from triggers)" {
         if ($DueErr) { "error: $DueErr"; 'NOT-EVALUABLE'; return }
         "due=$($Due.Count) [$($Due -join ', ')] (elevated=$IsElevated)"; $(if (-not $IsElevated) { 'NOT-EVALUABLE' } elseif ($Due.Count) { 'WOULD-FAIL' } else { 'PASS' }) }
-    Use-Check 'POSTC0-NEXT-RUNS-ROOT(run:429-432,G5)' 'no root-folder task due before 04:00 (the wrapper exits 4 on one the GO review did not see)' {
+    Use-Check 'POSTC0-NEXT-RUNS-ROOT(run:431-434,G5)' 'no root-folder task due before 04:00 (the wrapper exits 4 on one the GO review did not see)' {
         if ($DueErr) { "error: $DueErr"; 'NOT-EVALUABLE'; return }
         "root_due=$($DueRoot.Count) [$($DueRoot -join ', ')]"; $(if (-not $IsElevated) { 'NOT-EVALUABLE' } elseif ($DueRoot.Count) { 'WOULD-FAIL' } else { 'PASS' }) }
-    Use-Check 'POSTC0-GO-REVIEWED-BASELINE(run:374-379,417-428)' "c0-status-flags.txt present at launch; c0-go-reviewed-$Tag absent before attempt 1; no flag new since the GO review" {
+    Use-Check 'POSTC0-GO-REVIEWED-BASELINE(run:374-379,419-430)' "c0-status-flags.txt present at launch; c0-go-reviewed-$Tag absent before attempt 1; no flag new since the GO review" {
         $f = Join-Path $R 'c0-status-flags.txt'; $r0 = if (Test-Path -LiteralPath $f) { "present, written $((Get-Item -LiteralPath $f).LastWriteTime.ToString('yyyy-MM-dd HH:mm'))" } else { 'absent' }
         $rev = Join-Path $R "c0-go-reviewed-$Tag"; $rv = if (Test-Path -LiteralPath (Join-Path $rev 'c0-status-flags.txt')) { 'present (attempt 1 seeds it; a stale copy would be kept)' } else { 'absent' }
         "$r0; c0-go-reviewed-$Tag=$rv; C0 rewrites the baseline at 00:30 on $NightDate and attempt 1 copies it"; 'NOT-EVALUABLE' }
-    Use-Check 'POSTC0-HEAD-EQUALS-FLAG(run:416)' 'HEAD at launch = head= in the C0 flag' {
+    Use-Check 'POSTC0-HEAD-EQUALS-FLAG(run:418)' 'HEAD at launch = head= in the C0 flag' {
         $f = Join-Path $R "c0-done-$Tag.flag"
         if (-not (Test-Path -LiteralPath $f) -or (Get-Item -LiteralPath $f).LastWriteTime -lt $Night) { "HEAD now=$Head; flag for $NightDate not written yet"; 'NOT-EVALUABLE'; return }
         $fh = if ("$(Get-Content -LiteralPath $f -TotalCount 1)" -match 'head=([0-9a-f]{40})') { $Matches[1] } else { '<none>' }
         "HEAD=$Head flag=$fh"; (Get-Verdict ($Head -and $Head -eq $fh)) }
 
-    # --- C1 lease and receipts (run:438-453); lease read-only probe
-    Use-Check 'C1-POLICY-WINDOW(workload_admission.ps1:596-598,run:716 C1_THROW)' 'agent_heavy window (00:30-09:00) at the planned launch' {
+    # --- C1 lease and receipts (run:440-456); lease read-only probe
+    Use-Check 'C1-POLICY-WINDOW(workload_admission.ps1:596-598,run:719 C1_THROW)' 'agent_heavy window (00:30-09:00) at the planned launch' {
         $m = $PlanC.Hour * 60 + $PlanC.Minute; $mn = $Now.Hour * 60 + $Now.Minute
         "planned=agent_heavy:$($m -ge 30 -and $m -lt 540) now=agent_heavy:$($mn -ge 30 -and $mn -lt 540)"; (Get-Verdict ($m -ge 30 -and $m -lt 540)) }
-    Use-Check 'C1-LEASE-FREE(run:440-442,workload_admission.ps1:1804-1815,1975-1986)' 'Global\WeatherProjectHeavyWorkloadV1 not held and heavy_workload.lock not owned by a live process' {
+    Use-Check 'C1-LEASE-FREE(run:442-444,workload_admission.ps1:1804-1815,1975-1986)' 'Global\WeatherProjectHeavyWorkloadV1 not held and heavy_workload.lock not owned by a live process' {
         $mx = 'absent'
         try { $h = [Threading.Mutex]::OpenExisting('Global\WeatherProjectHeavyWorkloadV1', [Security.AccessControl.MutexRights]::Synchronize); $mx = 'exists'; $h.Dispose() }
         catch [Threading.WaitHandleCannotBeOpenedException] { $mx = 'absent' }
@@ -512,59 +576,59 @@ try {
         if (-not (Test-Path -LiteralPath $f)) { 'marker absent'; 'PASS'; return }
         $mk = $null; try { $mk = Read-SharedJson $f } catch { }
         "marker present state=$($mk.state) workload=$($mk.workload) profile=$($mk.execution_host_profile)"; 'PASS' }
-    Use-Check 'C1-LEASE-DEADLINE-0104(run:440-444)' 'lease by 01:04 (launch in the 00:30-01:04 C1 window, free lease: first probe succeeds)' {
+    Use-Check 'C1-LEASE-DEADLINE-0104(run:442-446)' 'lease by 01:04 (launch in the 00:30-01:04 C1 window, free lease: first probe succeeds)' {
         "planned_launch=$($PlanC.ToString('HH:mm')) deadline=01:04 now=$NowText"; (Get-Verdict ($PlanC -le $PlanC.Date.AddHours(1).AddMinutes(4))) }
-    Use-Check 'C1-CAPTURE-STATUS-FILES(run:448)' 'data\snapshots loop_status.json, clob_loop_status.json, observation_trigger_status.json exist (Copy-Item would throw)' {
+    Use-Check 'C1-CAPTURE-STATUS-FILES(run:451)' 'data\snapshots loop_status.json, clob_loop_status.json, observation_trigger_status.json exist (Copy-Item would throw)' {
         $s = @('loop_status.json', 'clob_loop_status.json', 'observation_trigger_status.json' | ForEach-Object { "$_=$(Test-Path -LiteralPath (Join-Path $P "data\snapshots\$_"))" }); ($s -join ' '); (Get-Verdict (-not ($s -match '=False'))) }
     $ShadowStop = $null; $ShadowTask = Get-TaskExact 'WeatherMakerShadowRunner'
-    Use-Check 'C1-SHADOW-STOP-FILE(run:449-453)' 'shadow task absent, or Actions[0].Arguments has --stop-file "<path>"' {
+    Use-Check 'C1-SHADOW-STOP-FILE(run:452-456)' 'shadow task absent, or Actions[0].Arguments has --stop-file "<path>"' {
         if (-not $ShadowTask.Count) { "not visible (elevated=$IsElevated)"; $(if ($IsElevated) { 'PASS' } else { 'NOT-EVALUABLE' }); return }
         if ([string]$ShadowTask[0].Actions[0].Arguments -match '--stop-file\s+"([^"]+)"') { $script:ShadowStop = $Matches[1]; "stop_file=$($Matches[1]) present_now=$(Test-Path -LiteralPath $Matches[1])"; 'PASS' }
         else { 'stop-file argument unreadable'; 'WOULD-FAIL' } }
     $ShadowStop = $script:ShadowStop
 
-    # --- C2 quiesce (run:455-519)
-    Use-Check 'C2-PRESTATE-CSV-ABSENT(run:490)' "$NightN\aux-prestate.csv absent (else C2 reuses an old pre-state)" {
+    # --- C2 quiesce (run:458-522)
+    Use-Check 'C2-PRESTATE-CSV-ABSENT(run:493)' "$NightN\aux-prestate.csv absent (else C2 reuses an old pre-state)" {
         $f = Join-Path $NightN 'aux-prestate.csv'; $ex = Test-Path -LiteralPath $f; "exists=$ex"; (Get-Verdict (-not $ex)) }
     foreach ($an in $AuxNames) {
         $at = Get-TaskExact $an
-        Use-Check "C2-ENABLED-$an(run:491,500-501)" 'exactly one task; live Settings.Enabled readable as True/False (C2 verifies the disable with Settings.Enabled -eq $false)' {
+        Use-Check "C2-ENABLED-$an(run:494,503-504)" 'exactly one task; live Settings.Enabled readable as True/False (C2 verifies the disable with Settings.Enabled -eq $false)' {
             if ($at.Count -ne 1) { "matches=$($at.Count) (elevated=$IsElevated)"; $(if ($at.Count -eq 0) { $Missing } else { 'WOULD-FAIL' }); return }
             $en = $at[0].Settings.Enabled; "State=$($at[0].State) Settings.Enabled=$en"; (Get-Verdict ($en -is [bool])) }
-        Use-Check "C2-PRESTATE-$an(run:461-462,464-465)" 'pre-state row Enabled column is exactly True or False (Test-PrestateEnabled takes the exact path)' {
+        Use-Check "C2-PRESTATE-$an(run:464-465,467-468)" 'pre-state row Enabled column is exactly True or False (Test-PrestateEnabled takes the exact path)' {
             if ($at.Count -ne 1) { "matches=$($at.Count)"; $(if ($at.Count -eq 0) { $Missing } else { 'WOULD-FAIL' }); return }
             $row = [pscustomobject]@{ Task = $an; State = [string]$at[0].State; Enabled = [string]$at[0].Settings.Enabled }
             $exact = $row.Enabled -in 'True', 'False'
             $wouldRestore = if ($row.Enabled) { $row.Enabled -eq 'True' } else { $row.State -ne 'Disabled' }
             $note = if (-not $wouldRestore -and $row.State -eq 'Running') { ' (disabled but running: C9b leaves it disabled, ESCALATE)' } else { '' }
             "row State=$($row.State) Enabled='$($row.Enabled)' -> undo re-enables=$wouldRestore$note"; (Get-Verdict $exact) } }
-    Use-Check 'C2-SHADOW-SEALABLE(run:493-498)' 'shadow not in aux-tasks.txt, or its stop-file path is known' {
+    Use-Check 'C2-SHADOW-SEALABLE(run:496-501)' 'shadow not in aux-tasks.txt, or its stop-file path is known' {
         if ($AuxNames -notcontains 'WeatherMakerShadowRunner') { 'shadow not in aux list'; 'PASS'; return }
         $st = if ($ShadowTask.Count) { [string]$ShadowTask[0].State } else { '<not visible>' }
         "stop_file=$ShadowStop State=$st"; $(if ($ShadowStop) { 'PASS' } elseif (-not $ShadowTask.Count -and -not $IsElevated) { 'NOT-EVALUABLE' } else { 'WOULD-FAIL' }) }
-    Use-Check 'C2-TAPE-ENSURE-BOUND(run:504-506)' 'WeatherExecutionTapeSupervisor ExecutionTimeLimit <= 150 s (the C2 wait bound; 01:12 arithmetic)' {
+    Use-Check 'C2-TAPE-ENSURE-BOUND(run:507-509)' 'WeatherExecutionTapeSupervisor ExecutionTimeLimit <= 150 s (the C2 wait bound; 01:12 arithmetic)' {
         if ($AuxNames -notcontains 'WeatherExecutionTapeSupervisor') { 'tape supervisor not in aux list'; 'PASS'; return }
         $t = Get-TaskExact 'WeatherExecutionTapeSupervisor'; if (-not $t.Count) { "not visible (elevated=$IsElevated)"; $Missing; return }
         $lim = [string]$t[0].Settings.ExecutionTimeLimit; $s = Get-SpanSeconds $lim
         "ExecutionTimeLimit=$lim MultipleInstances=$($t[0].Settings.MultipleInstances) State=$($t[0].State)"; (Get-Verdict ($s -and $s -gt 0 -and $s -le 150)) }
-    Use-Check 'C2-88A-TASK-REGISTERED(run:508-510)' 'WeatherMakerEvidenceCapture resolves (a non-SilentlyContinue Get-ScheduledTask under Stop)' {
+    Use-Check 'C2-88A-TASK-REGISTERED(run:511-513)' 'WeatherMakerEvidenceCapture resolves (a non-SilentlyContinue Get-ScheduledTask under Stop)' {
         $t = Get-TaskExact 'WeatherMakerEvidenceCapture'; if (-not $t.Count) { "not visible (elevated=$IsElevated)"; $Missing; return }
         "State=$($t[0].State) Enabled=$($t[0].Settings.Enabled)"; 'PASS' }
-    Use-Check 'C2-TAPE-STOP-VERB(run:472-484,507)' 'execution_tape_supervisor stop exits 0, or process_gone, or status_pid_unknown + unhealthy' { 'needs python (execution_tape_supervisor stop); outside the read-only allowlist'; 'NOT-EVALUABLE' }
+    Use-Check 'C2-TAPE-STOP-VERB(run:475-487,510)' 'execution_tape_supervisor stop exits 0, or process_gone, or status_pid_unknown + unhealthy' { 'needs python (execution_tape_supervisor stop); outside the read-only allowlist'; 'NOT-EVALUABLE' }
 
-    # --- C3 / C4 (run:520-591)
+    # --- C3 / C4 (run:523-594)
     foreach ($sn in $Sup) {
-        Use-Check "C3-SUPERVISOR-$sn(run:525-531,607)" 'exactly one task; Settings.Enabled True now; ExecutionTimeLimit <= 330 s (the C3 ensure wait)' {
+        Use-Check "C3-SUPERVISOR-$sn(run:528-534,610)" 'exactly one task; Settings.Enabled True now; ExecutionTimeLimit <= 330 s (the C3 ensure wait)' {
             $t = Get-TaskExact $sn; if ($t.Count -ne 1) { "matches=$($t.Count) (elevated=$IsElevated)"; $(if ($t.Count -eq 0) { $Missing } else { 'WOULD-FAIL' }); return }
             $lim = [string]$t[0].Settings.ExecutionTimeLimit; $s = Get-SpanSeconds $lim
             "State=$($t[0].State) Enabled=$($t[0].Settings.Enabled) ExecutionTimeLimit=$lim"; (Get-Verdict ($t[0].Settings.Enabled -eq $true -and $s -and $s -gt 0 -and $s -le 330)) } }
-    Use-Check 'C3-PRE-DEADLINE-0112(run:574-576)' 'latest lease 01:04 + worst-case C1+C2 8.0 min (README CLOCKS) <= 01:12' {
+    Use-Check 'C3-PRE-DEADLINE-0112(run:577-579)' 'latest lease 01:04 + worst-case C1+C2 8.0 min (README CLOCKS) <= 01:12' {
         $t = $PlanC.Date.AddHours(1).AddMinutes(12); $w = $PlanC.Date.AddHours(1).AddMinutes(4).AddMinutes(8)
         "planned launch $($PlanC.ToString('HH:mm')) -> C3 by about $($PlanC.AddMinutes(8.2).ToString('HH:mm:ss')); worst case (lease 01:04) $($w.ToString('HH:mm:ss'))"; (Get-Verdict ($w -le $t -and $PlanC.AddMinutes(8.2) -le $t)) }
-    Use-Check 'C3-STOP-VERBS-AND-GATE(run:533-542)' 'three stop verbs exit 0; capture_resource_gate no_live_capture exits 0 within 600 s' { 'needs python and a real stop; outside the read-only allowlist'; 'NOT-EVALUABLE' }
-    Use-Check 'C4-RENAME-DEADLINE-0130(run:583)' '01:12 + C3 pass-case worst case 17.5 min (runbook) <= 01:30' {
+    Use-Check 'C3-STOP-VERBS-AND-GATE(run:536-545)' 'three stop verbs exit 0; capture_resource_gate no_live_capture exits 0 within 600 s' { 'needs python and a real stop; outside the read-only allowlist'; 'NOT-EVALUABLE' }
+    Use-Check 'C4-RENAME-DEADLINE-0130(run:586)' '01:12 + C3 pass-case worst case 17.5 min (runbook) <= 01:30' {
         $t = $PlanC.Date.AddHours(1).AddMinutes(12).AddSeconds(17.5 * 60); "worst-case rename at $($t.ToString('HH:mm:ss'))"; (Get-Verdict ($t -le $PlanC.Date.AddHours(1).AddMinutes(30))) }
-    Use-Check 'C4-HOLDERS-KNOWN(run:560-573)' 'every current holder of venv is a worker C2/C3 stops (capture, tape, shadow, 88a, family)' {
+    Use-Check 'C4-HOLDERS-KNOWN(run:563-576)' 'every current holder of venv is a worker C2/C3 stops (capture, tape, shadow, 88a, family)' {
         $dir = Join-Path $P 'venv'; $ohn = if ($OldHome) { $OldHome.TrimEnd('\') } else { '<none>' }; $nhn = $NewHome.TrimEnd('\')
         $hold = @(Get-CimInstance -ClassName Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" | Where-Object {
                 $_.ExecutablePath -like "$dir\*" -or $_.CommandLine -like "*$dir\*" -or
@@ -575,28 +639,28 @@ try {
         "holders=$($hold.Count) unknown=[$($unknown -join ' ; ')] python_without_visible_cmdline=$nocl"
         if ($unknown.Count) { 'WOULD-FAIL' } elseif ($nocl -and -not $IsElevated) { 'NOT-EVALUABLE' } else { 'PASS' } }
 
-    # --- C7 restore, C8, C9c reads (run:544-552, 607-621, 649-688)
-    Use-Check 'C7-RESTORE-TASK(run:544-552,607-608)' 'WeatherTrainingWindowRestore resolves; ExecutionTimeLimit <= 15 min (Wait-Restore budget 32 min = run + rerun)' {
+    # --- C7 restore, C8, C9c reads (run:547-555, 610-624, 652-691)
+    Use-Check 'C7-RESTORE-TASK(run:547-555,610-611)' 'WeatherTrainingWindowRestore resolves; ExecutionTimeLimit <= 15 min (Wait-Restore budget 32 min = run + rerun)' {
         $t = Get-TaskExact 'WeatherTrainingWindowRestore'; if (-not $t.Count) { "not visible (elevated=$IsElevated)"; $Missing; return }
         $lim = [string]$t[0].Settings.ExecutionTimeLimit; $s = Get-SpanSeconds $lim
         "State=$($t[0].State) ExecutionTimeLimit=$lim"; (Get-Verdict ($s -and $s -gt 0 -and $s -le 900)) }
-    Use-Check 'C7-TRAINING-WINDOW-STATUS(run:547-549)' 'data\logs\training_window_status.json parses with updated_at, phase, outcome (Wait-Restore reads it under Stop)' {
+    Use-Check 'C7-TRAINING-WINDOW-STATUS(run:550-552)' 'data\logs\training_window_status.json parses with updated_at, phase, outcome (Wait-Restore reads it under Stop)' {
         $f = Join-Path $P 'data\logs\training_window_status.json'; if (-not (Test-Path -LiteralPath $f)) { 'absent'; 'WOULD-FAIL'; return }
         $j = Read-SharedJson $f; $ok = $j.updated_at -and $j.PSObject.Properties['phase'] -and $j.PSObject.Properties['outcome']
         "updated_at=$($j.updated_at) phase=$($j.phase) outcome=$($j.outcome)"; (Get-Verdict ([bool]$ok)) }
     foreach ($sf in 'loop_status.json', 'clob_loop_status.json', 'observation_trigger_status.json') {
-        Use-Check "C8-PYVER-FIELD-$sf(run:614-616,201-202)" 'runtime_identity.python_version present (3.11.0 before the swap; C8 requires 3.11.9 after)' {
+        Use-Check "C8-PYVER-FIELD-$sf(run:617-619,201-202)" 'runtime_identity.python_version present (3.11.0 before the swap; C8 requires 3.11.9 after)' {
             $f = Join-Path $P "data\snapshots\$sf"; if (-not (Test-Path -LiteralPath $f)) { 'absent'; 'WOULD-FAIL'; return }
             $v = (Read-SharedJson $f).runtime_identity.python_version; "python_version=$v"; (Get-Verdict ([string]$v -eq '3.11.0')) } }
-    Use-Check 'C9C-88A-STATUS(run:655-656,683-688)' 'data\maker_evidence\status.json parses (a hard read in C9c)' {
+    Use-Check 'C9C-88A-STATUS(run:658-659,686-691)' 'data\maker_evidence\status.json parses (a hard read in C9c)' {
         $f = Join-Path $P 'data\maker_evidence\status.json'; if (-not (Test-Path -LiteralPath $f)) { 'absent'; 'WOULD-FAIL'; return }
         $m = Read-SharedJson $f; "state=$($m.state) updated=$($m.updated_at_utc) last_error=$($m.last_error)"; 'PASS' }
-    Use-Check 'C9C-FAMILY-STATUS(run:657-660)' 'for each family task, data\maker_evidence_families\<fid>\status.json parses' {
+    Use-Check 'C9C-FAMILY-STATUS(run:660-663)' 'for each family task, data\maker_evidence_families\<fid>\status.json parses' {
         if (-not $FamilyTasks.Count) { "family tasks=none (elevated=$IsElevated)"; $(if ($IsElevated) { 'PASS' } else { 'NOT-EVALUABLE' }); return }
         $bad = @(); foreach ($ft in $FamilyTasks) { $fid = (($ft -replace '^WeatherMakerEvidence', '') -creplace '([a-z0-9])([A-Z])', '$1_$2').ToLowerInvariant()
             $f = Join-Path $P "data\maker_evidence_families\$fid\status.json"; try { $null = Read-SharedJson $f } catch { $bad += $fid } }
         "family=[$($FamilyTasks -join ',')] unreadable=[$($bad -join ',')]"; (Get-Verdict (-not $bad.Count)) }
-    Use-Check 'C9C-TAPE-HEALTH(run:649-654,667-671)' 'execution_tape_supervisor status RUNNING, identity current, integrity PASS, CONNECTED' { 'needs python (execution_tape_supervisor status); outside the read-only allowlist'; 'NOT-EVALUABLE' }
+    Use-Check 'C9C-TAPE-HEALTH(run:652-657,670-674)' 'execution_tape_supervisor status RUNNING, identity current, integrity PASS, CONNECTED' { 'needs python (execution_tape_supervisor status); outside the read-only allowlist'; 'NOT-EVALUABLE' }
 
     # --- section R interpreter resolution (run:162-177)
     foreach ($kv in @(@('snapshot', 'loop_status.json'), @('clob', 'clob_loop_status.json'), @('obs', 'observation_trigger_status.json'), @('tape', 'execution_tape_status.json'))) {
@@ -624,7 +688,7 @@ try {
     Use-Check 'G11-NOT-DST-NIGHT' 'night is not 10-31/11-01; no ambiguous or invalid local time 00:00-04:30' {
         $tz = [TimeZoneInfo]::Local; $amb = @(0..54 | ForEach-Object { $Night.AddMinutes(5 * $_) } | Where-Object { $tz.IsAmbiguousTime($_) -or $tz.IsInvalidTime($_) }).Count
         $md = $Night.ToString('MM-dd'); "night=$NightDate ambiguous_or_invalid_slots=$amb"; (Get-Verdict ($md -notin '10-31', '11-01' -and $amb -eq 0)) }
-    # --- G3: kit Test-G3Gate (run :343-372, c0 :168-197) and its call sites (run :385-388, :436; c0 :203-206, :233), read-only.
+    # --- G3: kit Test-G3Gate (run :343-372, c0 :168-197) and its call sites (run :385-388, :438; c0 :203-206, :234), read-only.
     #     Printed after every C0 predicate so (iii) can AND them. -HeadOverride replaces HEAD here only.
     function Test-G3GateRO([string]$Mode, [string]$GHead, [string]$QualTip, [string]$Receipt, [string]$Tested, [string]$PyAttest) {
         $Body = { param($r) [pscustomobject]@{ Pass = $false; Status = 'FAIL'; Mode = $Mode; Branch = 'none'; Detail = $r } }
@@ -655,10 +719,12 @@ try {
         $ho = $null; if (Test-Path -LiteralPath (Join-Path $P '.git')) { $ho = "$(git --no-optional-locks -C $P rev-parse --verify --quiet "$HeadOverride^{commit}")".Trim() }
         $g3Head = $ho; $g3Note = "HEAD-OVERRIDE IN USE head=$ho (live HEAD=$Head; the override feeds only G3) ; "
         Write-Output "CONTEXT HEAD-OVERRIDE IN USE for G3 only: -HeadOverride $HeadOverride -> $ho; every other predicate uses the live HEAD $Head" }
-    $c0Ids = @($script:Verdicts.Keys | Where-Object { $_ -like 'C0-*' -and $_ -notlike 'C0-HEAD-VS-QUALIFIED-TIP*' -and $_ -notlike 'C0-FLOOR*' })
+    # (iii) mirrors both call sites: the standalone C0 (c0:234, after every C0 check) and the attempt (run:438, also after the
+    # post-C0 GO-review checks run:418-434: HEAD vs flag, flags vs the GO review or the retry delta, root next-runs).
+    $c0Ids = @($script:Verdicts.Keys | Where-Object { ($_ -like 'C0-*' -or $_ -like 'POSTC0-*') -and $_ -notlike 'C0-HEAD-VS-QUALIFIED-TIP*' -and $_ -notlike 'C0-FLOOR*' })
     $c0Fail = @($c0Ids | Where-Object { $script:Verdicts[$_] -eq 'WOULD-FAIL' }); $c0Ne = @($c0Ids | Where-Object { $script:Verdicts[$_] -eq 'NOT-EVALUABLE' })
     foreach ($gm in $g3Modes) {
-        $gid = "G3-$gm(run:343-372,385-388,436;c0:168-197,203-206,233)"
+        $gid = "G3-$gm(run:343-372,385-388,438;c0:168-197,203-206,234)"
         $gexp = if ($gm -eq 'strict') { 'G3 PASS mode=strict branch=HEAD==tip (qualification.json tip), or G3 DEFER mode=strict branch=HEAD!=tip requires=ROLL-FREE-at-GO-review; C0 other checks clean' } else { "G3 PASS mode=dependency (HEAD==tip, or (i)+(ii)+(iii) with fleet_drift_exempt only config/locations.json, config/location_market_events.json); operator tip $G3QualifiedTip = qualification.json tip; C0 other checks clean" }
         try {
             if (-not $g3Head) { throw 'HEAD unreadable (no repo at -RepoRoot, or -HeadOverride does not resolve)' }

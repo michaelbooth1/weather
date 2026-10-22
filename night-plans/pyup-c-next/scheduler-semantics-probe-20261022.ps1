@@ -143,25 +143,29 @@ catch {
 }
 finally {
     # 6. cleanup: only ever our exact task; always attempted if anything may have been registered
-    $gone = $true
+    $gone = $true; $goneKnown = $false
     try {
         if ($ExitCode -ne 2) {
             Assert-ProbeIdentity
             if (Get-ProbeTask) {
                 Unregister-ScheduledTask -TaskName $TaskName -TaskPath $TaskPath -Confirm:$false
             }
-            $gone = -not (Get-ProbeTask)
+            $gone = -not (Get-ProbeTask); $goneKnown = $true
             Add-Readback 'unregistered'
             $Notes.Add("CLEANUP | unregister $TaskPath$TaskName | gone=$gone | instance_procs_left=$(Get-ProbeProcessCount) (a leftover ends by itself within 120 s)")
-            if ($null -ne $before) {
-                $after = Get-OtherTaskEnabledMap
-                $changed = @($before.Keys | Where-Object { $after.ContainsKey($_) -and $after[$_] -ne $before[$_] })
-                $vanished = @($before.Keys | Where-Object { -not $after.ContainsKey($_) })
-                $Notes.Add("OTHER-TASKS | compared=$($before.Count) | enabled_changed=$($changed.Count) [$($changed -join ', ')] | vanished=$($vanished.Count) [$($vanished -join ', ')]")
-            }
         }
     }
-    catch { $gone = $false; $Notes.Add("CLEANUP-ERROR | $($_.Exception.Message)") }
+    catch { if (-not $goneKnown) { $gone = $false }; $Notes.Add("CLEANUP-ERROR | $($_.Exception.Message)") }   # a throw after the gone read-back keeps it
+    # The other-tasks compare is a separate report: its error never turns a confirmed unregister into exit 3
+    try {
+        if ($ExitCode -ne 2 -and $null -ne $before) {
+            $after = Get-OtherTaskEnabledMap
+            $changed = @($before.Keys | Where-Object { $after.ContainsKey($_) -and $after[$_] -ne $before[$_] })
+            $vanished = @($before.Keys | Where-Object { -not $after.ContainsKey($_) })
+            $Notes.Add("OTHER-TASKS | compared=$($before.Count) | enabled_changed=$($changed.Count) [$($changed -join ', ')] | vanished=$($vanished.Count) [$($vanished -join ', ')]")
+        }
+    }
+    catch { $Notes.Add("OTHER-TASKS-ERROR | compare not completed: $($_.Exception.Message) (reported separately; the exit code follows gone=$gone only)") }
     if (-not $gone) { $ExitCode = 3 }
     foreach ($n in $Notes) { [Console]::Out.WriteLine($n) }
     [Console]::Out.WriteLine("PROBE-SUMMARY | exit=$ExitCode | registered=$Registered | gone=$gone | task=$TaskPath$TaskName")
