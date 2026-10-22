@@ -20,8 +20,10 @@
 #   exit 0 otherwise, a marker at or after C3, or SWAP              -> WAIT-FOR-OWNER   (wrapper exit 2)
 #   exit 0 otherwise, all markers before C3                         -> STOPPED          (wrapper exit 1)
 #   any marker at or after C3 (C3, SWAP, C5..C10, DONE)             -> WAIT-FOR-OWNER   (the run file's own C3 undo or §R ran; no retry)
+#   exit 3 and no attempt transcript file at all                    -> STOPPED          (REFUSED_PRE_TRANSCRIPT: elevation, redirect, -Attempt/-RunId)
 #   markers missing, unparseable, duplicated or out of order        -> WAIT-FOR-OWNER   (cannot prove the stop was before C3)
-#   GATE-REFUSAL marker (PREFLIGHT, G3, C0, GO_REVIEW, C1)          -> STOPPED          (deterministic gate: a retry would refuse again)
+#   GO-REVIEW-WAIT marker (retry GO review blocked)                 -> WAIT-FOR-OWNER   (new non-allowlisted flag, new CRITICAL, no baseline)
+#   GATE-REFUSAL marker (PREFLIGHT, G3, C0, GO_REVIEW, C1, C1_THROW) -> STOPPED          (deterministic gate: a retry would refuse again)
 #   process exit code not 1 (3 refused, 4 owner hold, other crash)  -> STOPPED
 #   EXIT marker missing or not code=1                               -> STOPPED
 #   RESTORE-VERIFY marker missing                                   -> STOPPED
@@ -40,7 +42,7 @@ $script:PyupcStageRank = [ordered]@{ PREFLIGHT = 0; C0 = 1; C1 = 2; C2 = 3; C3 =
 function Get-PyupcAttemptEvidence([string[]]$Lines, [string]$RunId, [int]$Attempt) {
   # Parse one attempt transcript. Only lines that are exactly a marker (after Trim) and carry this run id and attempt count.
   $ev = [pscustomobject]@{ Parsed = $true; Problems = New-Object System.Collections.Generic.List[string]; Stages = New-Object System.Collections.Generic.List[string]
-    MaxRank = -1; MaxStage = 'NONE'; Swap = $false; Done = $false; RestoreResult = $null; ExitMarkerCode = $null; Gate = $null }
+    MaxRank = -1; MaxStage = 'NONE'; Swap = $false; Done = $false; RestoreResult = $null; ExitMarkerCode = $null; Gate = $null; GoWait = $null }
   $nRestore = 0; $nExit = 0; $last = -1
   foreach ($raw in @($Lines)) {
     $l = "$raw".Trim()
@@ -62,10 +64,13 @@ function Get-PyupcAttemptEvidence([string[]]$Lines, [string]$RunId, [int]$Attemp
     if ($l -cmatch '^PYUPC-EXIT run=(\S+) attempt=(\d+) code=(-?\d+) stage=(\S+)$') {
       if ($Matches[1] -cne $RunId -or [int]$Matches[2] -ne $Attempt) { continue }
       $nExit++; $ev.ExitMarkerCode = [int]$Matches[3]; continue }
+    if ($l -cmatch '^PYUPC-GO-REVIEW-WAIT run=(\S+) attempt=(\d+) reason=([a-z0-9_]+)$') {
+      if ($Matches[1] -cne $RunId -or [int]$Matches[2] -ne $Attempt) { continue }
+      $ev.GoWait = $Matches[3]; continue }
     if ($l -cmatch '^PYUPC-GATE-REFUSAL run=(\S+) attempt=(\d+) gate=([A-Z0-9_]+)$') {
       if ($Matches[1] -cne $RunId -or [int]$Matches[2] -ne $Attempt) { continue }
       $ev.Gate = $Matches[3]; continue }
-    if ($l -cmatch "^PYUPC-(MARK|RESTORE-VERIFY|EXIT|GATE-REFUSAL) run=$([regex]::Escape($RunId)) attempt=$Attempt ") { $ev.Problems.Add('malformed_marker') } }
+    if ($l -cmatch "^PYUPC-(MARK|RESTORE-VERIFY|EXIT|GATE-REFUSAL|GO-REVIEW-WAIT) run=$([regex]::Escape($RunId)) attempt=$Attempt ") { $ev.Problems.Add('malformed_marker') } }
   if ($ev.Stages.Count -eq 0 -or $ev.Stages[0] -cne 'PREFLIGHT') { $ev.Problems.Add('no_preflight_marker') }
   if ($nRestore -gt 1) { $ev.Problems.Add('restore_verify_repeated'); $ev.RestoreResult = 'FAIL' }
   if ($nExit -gt 1) { $ev.Problems.Add('exit_marker_repeated'); $ev.ExitMarkerCode = $null }
@@ -80,7 +85,7 @@ function Test-PyupcAttemptStart([datetime]$Now, [int]$NextAttempt, [int]$MaxAtte
   if ($Now -gt $Now.Date.AddHours(1).AddMinutes(4)) { return 'LEASE_WINDOW_CLOSED_0104' }
   return $null }
 
-function Get-PyupcRetryDecision($Evidence, [int]$ExitCode, [int]$Attempt, [int]$MaxAttempts, [datetime]$Now) {
+function Get-PyupcRetryDecision($Evidence, [int]$ExitCode, [int]$Attempt, [int]$MaxAttempts, [datetime]$Now, [bool]$TranscriptExists = $true) {
   # Action: SUCCESS | RETRY | STOPPED | WAIT-FOR-OWNER. Purely mechanical; see the table in the header.
   $c3 = [int]$script:PyupcStageRank['C3']
   $post = ($Evidence.Swap -or $Evidence.MaxRank -ge $c3)
@@ -90,7 +95,9 @@ function Get-PyupcRetryDecision($Evidence, [int]$ExitCode, [int]$Attempt, [int]$
     if ($post -or -not $Evidence.Parsed) { return (& $mk 'WAIT-FOR-OWNER' 'EXIT0_WITHOUT_DONE') }
     return (& $mk 'STOPPED' 'EXIT0_WITHOUT_DONE') }
   if ($post) { return (& $mk 'WAIT-FOR-OWNER' "POST_C3_STOP_EXIT_$ExitCode") }
+  if ($ExitCode -eq 3 -and -not $TranscriptExists) { return (& $mk 'STOPPED' 'REFUSED_PRE_TRANSCRIPT') }
   if (-not $Evidence.Parsed) { return (& $mk 'WAIT-FOR-OWNER' 'MARKERS_UNPARSEABLE') }
+  if ($Evidence.GoWait) { return (& $mk 'WAIT-FOR-OWNER' "GO_REVIEW_DELTA_$($Evidence.GoWait)") }
   if ($Evidence.Gate) { return (& $mk 'STOPPED' "GATE_REFUSAL_$($Evidence.Gate)") }
   if ($ExitCode -ne 1) { return (& $mk 'STOPPED' "EXIT_${ExitCode}_NOT_RETRIABLE") }
   if ($Evidence.ExitMarkerCode -ne 1) { return (& $mk 'STOPPED' 'EXIT_MARKER_MISSING_OR_MISMATCH') }
@@ -117,6 +124,7 @@ try {
   if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { $WWhy = 'NOT_ELEVATED' }
   elseif ([Console]::IsErrorRedirected -or [Console]::IsOutputRedirected) { $WWhy = 'STDIO_REDIRECTED' }
   elseif ((Get-Date).ToString('yyyyMMdd') -ne '20261024') { $WWhy = 'WRONG_NIGHT' }
+  elseif ($WDir.TrimEnd('\') -ne $WR) { $WWhy = 'NOT_IN_CP3119' }   # (Fable 5) the kit runs only from its local copy in C:\pyup\cp3119
   elseif (-not (Test-Path -LiteralPath $WRun)) { $WWhy = 'RUN_FILE_MISSING' }
   elseif (@(Get-ChildItem -LiteralPath $WR -Filter 'phase-c-transcript-20261024-a*.txt' -ErrorAction SilentlyContinue).Count) { $WWhy = 'ATTEMPT_TRANSCRIPT_EXISTS' }
   else {
@@ -140,9 +148,10 @@ try {
     $wp.WaitForExit()
     $wExit = if ($null -eq $wp.ExitCode) { -9999 } else { [int]$wp.ExitCode }
     $wTx = Join-Path $WR "phase-c-transcript-20261024-a$n.txt"
-    $wLines = @(); try { if (Test-Path -LiteralPath $wTx) { $wLines = @(Get-Content -LiteralPath $wTx) } } catch { $wLines = @() }
+    $wTxExists = Test-Path -LiteralPath $wTx
+    $wLines = @(); try { if ($wTxExists) { $wLines = @(Get-Content -LiteralPath $wTx) } } catch { $wLines = @() }
     $ev = Get-PyupcAttemptEvidence $wLines $WRunId $n
-    $dec = Get-PyupcRetryDecision $ev $wExit $n $WMax (Get-Date)
+    $dec = Get-PyupcRetryDecision $ev $wExit $n $WMax (Get-Date) $wTxExists
     $WLastExit = "$wExit"; $WLastStage = $ev.MaxStage
     Write-Host ("PYUPC-RETRY attempt={0} exit={1} last_stage={2} swap={3} restore={4} exit_marker={5} parsed={6} problems={7} action={8} reason={9}" -f $n, $wExit, $ev.MaxStage, $ev.Swap, $(if ($ev.RestoreResult) { $ev.RestoreResult } else { 'none' }), $(if ($null -ne $ev.ExitMarkerCode) { $ev.ExitMarkerCode } else { 'none' }), $ev.Parsed, $(if ($ev.Problems.Count) { $ev.Problems -join ';' } else { 'none' }), $dec.Action, $dec.Reason)
     $final = $dec.Action; $reason = $dec.Reason
