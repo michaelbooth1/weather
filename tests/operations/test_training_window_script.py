@@ -194,11 +194,16 @@ def test_training_tasks_are_run_specific_and_restore_is_proved() -> None:
     child_cap_seconds = 170 * 60
     producer_sla_seconds = child_cap_seconds - 300
     stop_cap_seconds = 600
+    ensure_run_wait_seconds = 330  # longest supervisor bound: 5 min limit + 30 s
     recovery_cap_seconds = 300
     deadman_seconds_after_0100 = 195 * 60
     scheduler_limit_seconds = 225 * 60
     assert producer_sla_seconds < child_cap_seconds
-    assert stop_cap_seconds + child_cap_seconds + recovery_cap_seconds < deadman_seconds_after_0100
+    assert '"WeatherSnapshotLoopSupervisor" = 330' in window
+    assert (
+        ensure_run_wait_seconds + stop_cap_seconds + child_cap_seconds + recovery_cap_seconds
+        < deadman_seconds_after_0100
+    )
     assert deadman_seconds_after_0100 < scheduler_limit_seconds
 
 
@@ -438,3 +443,99 @@ $result.states = (@($global:tasks.Values | ForEach-Object { $_.State } | Sort-Ob
         payload["restore_ignored"]
     )
     assert payload["restore_ignored"].count("task remains disabled after enable") == 3
+
+
+@WINDOWS_POWERSHELL_REQUIRED
+@pytest.mark.spawns
+def test_stop_waits_for_in_flight_supervisor_ensure_runs_within_bounds() -> None:
+    """A disable does not end an in-flight IgnoreNew ensure run, which could relaunch a loop.
+
+    Guards the post-disable wait in training_window.ps1: each supervisor's run must leave
+    'Running' within its ExecutionTimeLimit + 30 s, counted on one clock since the disables.
+    Start-Sleep is stubbed, so each poll advances the count by 5 s without waiting.
+    """
+    env = os.environ.copy()
+    env["WEATHER_TRAINING_WINDOW_SCRIPT"] = str(SCRIPT)
+    script = r"""
+$ErrorActionPreference = 'Stop'
+$tokens = $null; $errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile(
+    $env:WEATHER_TRAINING_WINDOW_SCRIPT, [ref]$tokens, [ref]$errors)
+if ($errors.Count -ne 0) { throw "parse error: $($errors[0].Message)" }
+$fn = $ast.Find({ param($n)
+    $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+    $n.Name -eq 'Wait-SupervisorEnsureRunsEnded' }, $true)
+. ([scriptblock]::Create($fn.Extent.Text))
+$bounds = $ast.Find({ param($n)
+    $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+    $n.Left.Extent.Text -eq '$supervisorEnsureRunBoundSeconds' }, $true)
+. ([scriptblock]::Create($bounds.Extent.Text))
+$supervisorTasks = @('WeatherSnapshotLoopSupervisor', 'WeatherClobBookLoopSupervisor',
+    'WeatherObservationTriggerSupervisor')
+function Write-WindowLog { param($Level, $Message) }
+function Start-Sleep { param($Seconds) $global:sleeps += $Seconds }
+# Stubs only: each task reads 'Running' for its configured number of polls, then 'Ready'.
+function Get-ScheduledTask { param([string]$TaskName, $ErrorAction)
+    if ($global:runningPolls[$TaskName] -gt 0) {
+        $global:runningPolls[$TaskName]--
+        return [pscustomobject]@{ State = 'Running' }
+    }
+    [pscustomobject]@{ State = 'Ready' } }
+function Invoke-Probe([int]$Snapshot, [int]$Clob, [int]$Observation) {
+    $global:sleeps = 0
+    $global:runningPolls = @{
+        WeatherSnapshotLoopSupervisor = $Snapshot
+        WeatherClobBookLoopSupervisor = $Clob
+        WeatherObservationTriggerSupervisor = $Observation
+    }
+    try { Wait-SupervisorEnsureRunsEnded; $outcome = 'accepted' }
+    catch { $outcome = $_.Exception.Message }
+    [pscustomobject]@{ outcome = $outcome; slept = $global:sleeps }
+}
+[ordered]@{
+    idle = Invoke-Probe 0 0 0
+    snapshot_ends = Invoke-Probe 3 0 0
+    snapshot_at_bound = Invoke-Probe 66 0 0
+    snapshot_past_bound = Invoke-Probe 67 0 0
+    clob_at_bound = Invoke-Probe 0 30 0
+    clob_past_bound = Invoke-Probe 0 31 0
+    observation_past_bound = Invoke-Probe 0 0 31
+    shared_clock = Invoke-Probe 20 11 0
+} | ConvertTo-Json -Compress
+"""
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["idle"] == {"outcome": "accepted", "slept": 0}
+    assert payload["snapshot_ends"] == {"outcome": "accepted", "slept": 15}
+    assert payload["snapshot_at_bound"] == {"outcome": "accepted", "slept": 330}
+    assert payload["snapshot_past_bound"] == {
+        "outcome": "capture supervisor ensure run still Running 330s after disable "
+        "(bound 330s): WeatherSnapshotLoopSupervisor",
+        "slept": 330,
+    }
+    assert payload["clob_at_bound"] == {"outcome": "accepted", "slept": 150}
+    assert payload["clob_past_bound"]["outcome"].endswith(
+        "(bound 150s): WeatherClobBookLoopSupervisor"
+    )
+    assert payload["observation_past_bound"]["outcome"].endswith(
+        "(bound 150s): WeatherObservationTriggerSupervisor"
+    )
+    # 100 s spent on the snapshot run count against the clob bound as well.
+    assert payload["shared_clock"] == {
+        "outcome": "capture supervisor ensure run still Running 150s after disable "
+        "(bound 150s): WeatherClobBookLoopSupervisor",
+        "slept": 150,
+    }
+    window = SCRIPT.read_text(encoding="utf-8-sig")
+    call = window.index("    Wait-SupervisorEnsureRunsEnded\n")
+    assert window.index("Disable-ScheduledTask -TaskName $task -ErrorAction Stop") < call
+    assert call < window.index("snapshot_tracker --stop")

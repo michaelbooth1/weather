@@ -276,6 +276,33 @@ function Assert-CaptureStoppedForTraining {
     }
 }
 
+# Each supervisor's registered ExecutionTimeLimit plus 30 s: 5 min in
+# register_snapshot_supervisor.ps1, 2 min in the clob and observation-trigger registrars.
+$supervisorEnsureRunBoundSeconds = @{
+    "WeatherSnapshotLoopSupervisor" = 330
+    "WeatherClobBookLoopSupervisor" = 150
+    "WeatherObservationTriggerSupervisor" = 150
+}
+
+function Wait-SupervisorEnsureRunsEnded {
+    # Disable-ScheduledTask does not end an in-flight IgnoreNew ensure run, which
+    # could relaunch a loop after the stop verbs. The runs end in parallel, so one
+    # elapsed count since the disables is checked against each task's own bound.
+    $pollSeconds = 5
+    $elapsedSeconds = 0
+    foreach ($task in $supervisorTasks) {
+        $boundSeconds = [int]$supervisorEnsureRunBoundSeconds[$task]
+        while ([string](Get-ScheduledTask -TaskName $task -ErrorAction Stop).State -eq "Running") {
+            if ($elapsedSeconds -ge $boundSeconds) {
+                throw "capture supervisor ensure run still Running ${elapsedSeconds}s after disable (bound ${boundSeconds}s): $task"
+            }
+            Start-Sleep -Seconds $pollSeconds
+            $elapsedSeconds += $pollSeconds
+        }
+    }
+    Write-WindowLog "STOP" "no supervisor ensure run is in flight (waited ${elapsedSeconds}s)"
+}
+
 Set-Location $RepoRoot
 
 if ($RestoreOnly) {
@@ -406,6 +433,7 @@ if ($dirtyPaths.Count -gt 0) {
         }
         Write-WindowLog "STOP" "disabled $task (exact readback)"
     }
+    Wait-SupervisorEnsureRunsEnded
     & $python -m weather.collection.snapshot_tracker --stop | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "snapshot stop exited $LASTEXITCODE" }
     & $python -m weather.market.market_microstructure stop | Out-Null
