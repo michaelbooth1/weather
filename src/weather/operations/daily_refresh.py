@@ -240,6 +240,7 @@ from weather.operations.daily_refresh_stage_manifests import (
     _stage_manifest_payload,
     _step_by_name,
     _write_stage_manifest,
+    write_stage_checkpoint,
 )
 from weather.operations.daily_refresh_report import render_report, write_report
 def run_daily_refresh(args, runners=None):
@@ -526,6 +527,28 @@ def _flush_incremental_status(args, payload, *, fail_closed=False):
     except (OSError, TypeError, ValueError):
         if fail_closed:
             raise
+
+
+def _checkpoint_stage_a(args, payload, *, after_step):
+    """Publish an honest in-progress Stage-A manifest and report.
+
+    Only for a scheduled-shape settlement stage: not a dry run and not a
+    bounded recovery slice (whose own receipt contract owns its outputs).
+    """
+    if (
+        args.dry_run
+        or getattr(args, "stop_after_step", "")
+        or _stage_name(args) != STAGE_SETTLEMENT
+    ):
+        return None
+    return write_stage_checkpoint(
+        args,
+        payload,
+        stage=STAGE_SETTLEMENT,
+        after_step=after_step,
+        written_at_utc=utc_iso(),
+        render_report=write_report,
+    )
 
 
 def _isolated_subprocess_receipt(result):
@@ -1394,6 +1417,7 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
                     )
                 payload["steps"].append(step)
                 _flush_incremental_status(args, payload)
+                _checkpoint_stage_a(args, payload, after_step=name)
                 touch_long_job_guard(
                     getattr(args, "long_job_state", DEFAULT_LONG_JOB_STATE_PATH),
                     progress=_progress_snapshot(
@@ -1433,6 +1457,10 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
             # blank AND unresumable past its last completed run. This write is
             # also what --resume-from-step seeds from after a hard death.
             _flush_incremental_status(args, payload)
+            # The 11:55 teardown kills the child tree, so the end-of-run
+            # report/manifest writes never happen on an overrun. Keep both
+            # current as an explicitly non-terminal checkpoint.
+            _checkpoint_stage_a(args, payload, after_step=name)
             touch_long_job_guard(
                 getattr(args, "long_job_state", DEFAULT_LONG_JOB_STATE_PATH),
                 progress=_progress_snapshot(
