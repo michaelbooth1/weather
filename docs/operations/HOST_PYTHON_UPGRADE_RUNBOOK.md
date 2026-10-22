@@ -136,6 +136,8 @@ the wrapper was launched at 01:01:13 and the lease was free throughout (01:01:17
 `Active` false, not the acquire). The operator now launches at
 01:00:00 sharp. The 01:00 floor is the 01:00-04:00 quiet window (DECISION_LOG 2026-10-03 and 2026-10-05;
 [capture-day grading and guarded merges](../ops/streak-soak.md)) and stays, so the C1 window is 01:00-01:04.
+(Superseded for the 10-23/24 night: the kit's 00:30 C1 floor applies and its README wins; see
+[§ C on the night of 10-23 to 10-24](#c-on-the-night-of-10-23-to-10-24-the-kit).)
 
 Revision 2026-10-22 (follow-up). (1) `Undo-Aux` and `Start-AuxHolders` now run as separate soft steps
 (`Invoke-QStep ... $true`) in C2's catch, in the pre-C3 deadline path and in `Undo-Stop`: a failure in one logs
@@ -158,8 +160,9 @@ then judges the evidence; §R re-enables the supervisors and runs `Wait-Restore`
 Revision 2026-10-22 (G3 ruling, master-agent, for the C night 10-23/24 after N12 lands on 10-22/23). G3 no longer
 uses `roll_verdict.ps1`. Verbatim ruling: "G3 holds if HEAD equals the qualified tip, OR all of these hold: (i) no dependency file (requirements*, pyproject.toml, *.lock, constraints*, setup.cfg, setup.py) differs between the qualified tip 90b2e1844 and HEAD; (ii) the exact HEAD tree, or a tree whose non-docs diff vs HEAD is empty, has a full WS pregate PASS run on Python 3.11.9; (iii) C0's other checks are clean. Otherwise B-R is needed, and B-R may run in any 00:30-09:00 heavy window before the cutover night, including the same night after a landing." C0 implements it read-only (code below): (i) is
 `git diff --name-only <qualified tip> HEAD` matched by leaf name at any depth; (ii) takes the workstation pregate
-receipt id, its tested full sha and a 3.11.9 attestation as operator-supplied values (the receipt is not on the
-host), and "non-docs diff empty" is `git diff --name-only <tested sha> HEAD` with every path matching
+receipt id, its tested full sha and a 3.11.9 attestation as operator-supplied values; the
+Phase C kit now ships the committed receipt to `C:\pyup\cp3119` and verifies its schema, verdict, head and
+`SHA256SUMS` line, and "non-docs diff empty" is `git diff --name-only <tested sha> HEAD` with every path matching
 `^docs/.+\.md$`; (iii) is every other C0 check. C0 prints `G3 PASS branch=HEAD==tip tip=<sha>` or
 `G3 PASS branch=(i)+(ii)+(iii) deps_changed=none pregate=<id> tested=<sha> nondocs_diff=empty`; a fail logs
 `G3 FAIL reason=<token>` and NO-GOes before anything is touched. A G3 fail is deterministic and never retried.
@@ -171,7 +174,7 @@ diff vs the tested sha may additionally contain only config/locations.json and c
 (fleet-generated)". Those two exact paths, no globbing; (i) is unchanged, and C0 prints
 `fleet_drift_exempt=<paths>` (or `none`) on the G3 PASS line. **strict:** HEAD equals the qualified tip, else
 `G3 DEFER`, which needs `roll_verdict.ps1` ROLL-FREE (exit 0) at the GO review, as before; no ROLL-FREE, no GO file.
-In both modes G3(ii) verifies the committed pregate receipt (schema, verdict PASS, head == tested sha); the Python
+In dependency mode G3(ii) verifies the committed pregate receipt (schema, verdict PASS, head == tested sha); the Python
 version (3.11.9) is an attestation. The [Phase C kit](#c-on-the-night-of-10-23-to-10-24-the-kit) README owns the
 exact output lines and the two operator launch lines; the C0 block below predates the switch.
 
@@ -1050,7 +1053,7 @@ Log 'B-R inputs unchanged; continue at B1c'
 | Clock (local) | Step | Hard stop |
 | --- | --- | --- |
 | 00:30-00:55 | C0 GO checks | Any fail = NO-GO, nothing touched |
-| 01:00, latest 01:04 | C1 lease and receipts | No lease by 01:04 = NO-GO, nothing touched (C1 plus worst-case C2 must end by the 01:12 pre-C3 deadline) |
+| 01:00, latest 01:04 (10-23/24: floor 00:30, see the kit section below) | C1 lease and receipts | No lease by 01:04 = NO-GO, nothing touched (C1 plus worst-case C2 must end by the 01:12 pre-C3 deadline) |
 | +5 min | C2 quiesce the auxiliary tasks and long-running holders | Any throw = `Undo-Aux`, NO-GO |
 | +5-10 min | C3 stop the capture workers | Past 01:12 at C3 start = C2 undo, NO-GO, capture untouched; still active after 600 s = undo, restore, NO-GO |
 | by 01:30 | C4 rename `venv` to `venv-cp3110` | Rename fails 3 times or it is past 01:30 = undo, restore, NO-GO |
@@ -1061,7 +1064,8 @@ Log 'B-R inputs unchanged; continue at B1c'
 | by 02:15; aux by 02:25 | C9 core PASS decision; C9b restore the aux tasks; C9c aux verify | Core not passed = §R; aux failure per C9c |
 | start by 02:45, done by 03:45 | §R rollback (worst case about 50 min; about 69 min if every ensure wait runs out) | Not 3/3 by 03:45: the 04:15 restore is the net; record and message the owner (§R, "Escalation") |
 
-This sits inside the 01:00-04:00 quiet window and ends before the 04:15 `WeatherTrainingWindowRestore`
+This sits inside the 01:00-04:00 quiet window (for 10-23/24 the kit's 00:30 floor applies; see
+[§ C on the night of 10-23 to 10-24](#c-on-the-night-of-10-23-to-10-24-the-kit)) and ends before the 04:15 `WeatherTrainingWindowRestore`
 trigger, which stays armed as the final safety net. The expected capture gap (C3 to C7) is about
 20-35 minutes. The auxiliary tasks (tape, shadow, 88a and the rest) stay quiesced until C9b, so
 §R never has to stop processes running on the new venv except the three capture workers. §R still
@@ -1081,7 +1085,13 @@ merged to master); its README and file headers win over the timetable above for 
   rollback done by 03:45; dead-man 04:10/04:15.
 - **Between attempts,** the GO review compares the post-undo status against the baseline captured at attempt 1's GO
   review (before C2). It passes only if every flag was in that baseline or is on the kit's fixed allowlist of
-  restart-transient tokens; any other new flag, or any CRITICAL not in the baseline, gives WAIT-FOR-OWNER.
+  restart-transient tokens; any other new flag, or any CRITICAL not in the baseline, gives WAIT-FOR-OWNER. **N** is 660 s
+  (11 min, master ruling 2026-10-22), measured from the undo's restart time to the status sample taken just before
+  `status.ps1` runs. Master's reason, verbatim: "300 s transient + 330 s worst-case verify/settle, rounded; the
+  masked tokens can only hide tape/88a staleness, and a tape that never returns already fails the restore verify." The allowlist holds three tokens: the execution-tape
+  producer contract flag (`status.ps1:1596`), and `MAKER_EVIDENCE` STARTING and CAPTURING with a stale age
+  (`status.ps1:4962`). The kit README section "Retry GO review" (branch `claude/night-plans-pyup-c-next-20261022`,
+  `night-plans/pyup-c-next/README.md`) owns the token table.
 
 A failure before the C4 rename means **undo with no swap**: re-enable what C2 and C3 disabled, then
 start the S4U restore. A failure after the rename means §R.
@@ -1676,7 +1686,7 @@ started on 3.11.9 against a 3.11.0-bound release would fail `check_runtime`
 | --- | --- |
 | 00:30-04:45 | §T; Phase B (B0 by 02:00, suite start by 03:00); §D |
 | 00:30-09:00 | §4 host reads (serial); Phase A (no lease; after any landing night has handed back) |
-| 01:00-04:00 quiet window | Phase C only. Latest lease 01:04, pre-C3 deadline 01:12, latest rename 01:30, core decision 02:15, aux verify 02:25, rollback start 02:45 (worst case done about 03:35-03:40; about 03:54 if every §R ensure wait runs out). |
+| 01:00-04:00 quiet window (10-23/24: the kit's 00:30 C1 floor applies; see the kit section in Phase C) | Phase C only. Latest lease 01:04, pre-C3 deadline 01:12, latest rename 01:30, core decision 02:15, aux verify 02:25, rollback start 02:45 (worst case done about 03:35-03:40; about 03:54 if every §R ensure wait runs out). |
 | 04:45-06:45 tiering reserve, 06:50 jobs | Nothing heavy from this runbook |
 | 09:30-11:55 Stage-A | Nothing |
 | 12:00-18:00 graded and 18:00-00:30 near-close | Nothing |
