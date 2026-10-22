@@ -156,6 +156,7 @@ STAGE_A_CASES = {
 }
 
 
+@pytest.mark.spawns
 @pytest.mark.parametrize("case", sorted(STAGE_A_CASES))
 def test_stage_a_chain_completion_uses_manifest_not_report_mtime(case, tmp_path):
     status, manifest_age, report, report_age, severity, source = STAGE_A_CASES[case]
