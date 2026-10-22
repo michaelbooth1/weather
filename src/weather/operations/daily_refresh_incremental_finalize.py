@@ -54,7 +54,13 @@ from weather.model.model_constants import TORONTO_TZ
 
 
 INCREMENTAL_FINALIZE_LOGIC_VERSION = 1
-FINALIZE_INDEX_SCHEMA = "market_day_labels_finalize_index_v1"
+# The index is a disposable cache, not durable evidence: deleting it only costs
+# one full pass, and every entry is re-proved against the folder before reuse.
+# It is therefore versioned by a format name plus integer rather than through
+# weather.schema_registry (whose data module sits in the capture loops' import
+# closure, so registering it would make this change roll-sensitive).
+FINALIZE_INDEX_FORMAT = "market_day_labels_finalize_index"
+FINALIZE_INDEX_FORMAT_VERSION = 1
 FINALIZE_INDEX_NAME = "market_day_labels_finalize_index.json"
 DEFAULT_RECHECK_DAYS = 3
 TERMINAL_RECONCILIATION_STATUSES = frozenset({"match"})
@@ -122,7 +128,11 @@ def read_finalize_index(path):
         payload = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
-    if not isinstance(payload, dict) or payload.get("schema") != FINALIZE_INDEX_SCHEMA:
+    if (
+        not isinstance(payload, dict)
+        or payload.get("format") != FINALIZE_INDEX_FORMAT
+        or payload.get("format_version") != FINALIZE_INDEX_FORMAT_VERSION
+    ):
         return {}
     folders = payload.get("folders")
     return folders if isinstance(folders, dict) else {}
@@ -295,7 +305,8 @@ def write_finalize_index(path, entries):
     write_json_atomic(
         path,
         {
-            "schema": FINALIZE_INDEX_SCHEMA,
+            "format": FINALIZE_INDEX_FORMAT,
+            "format_version": FINALIZE_INDEX_FORMAT_VERSION,
             "logic_version": INCREMENTAL_FINALIZE_LOGIC_VERSION,
             "folders": dict(sorted(entries.items())),
         },
@@ -391,4 +402,3 @@ def finalize_incrementally(
     if failure is not None:
         raise failure
     return combined, plan
-
