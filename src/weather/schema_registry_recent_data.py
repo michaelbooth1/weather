@@ -1340,4 +1340,11 @@ RECENT_REGISTERED_SCHEMAS = (
         "active",
         "Ordered night landing plan (heads and SHAs) whose canonical content hash the preflight verdict binds.",
     ),
+    SchemaSpec(
+        "workstation_git_maintenance",
+        "workstation_git_maintenance_v1",
+        "weather.operations.workstation_git_maintenance",
+        "active",
+        "Workstation-only Git repack and non-pruning GC receipt proving refs, worktrees, reflogs, and object ids stayed intact.",
+    ),
 )

@@ -14,9 +14,12 @@ The operation is fixture-tested only. The new wrapper integration test initializ
 | --- | --- | --- |
 | `scripts/ops/workstation_heavy.ps1` | Roll-free under the repository `.ps1` rule | Adds a separate exact operation kind; preserves the existing admission and child-Job flow. |
 | `scripts/ops/workload_admission.ps1` | Roll-free under the repository `.ps1` rule | Allows the new exact lease workload name; adds no capture or production behavior. |
+| `src/weather/schema_registry_recent_data.py` | Roll-free | Registers the fixed receipt schema; it does not affect capture or production paths. |
 | `src/weather/operations/workstation_git_maintenance.py` | Roll-sensitive | The fixed route changes the workstation clone's Git object packing, so it is gated and preservation-checked. |
 | `tests/operations/test_workload_admission_script.py` | Roll-free | Verifies that only the exact module and no arguments use the new kind. |
 | `tests/operations/test_workstation_git_maintenance.py` | Roll-free | Fixture-only preservation and fail-closed tests. |
+| `tests/operations/test_schema_registry.py` | Roll-free | Confirms the receipt schema is registered. |
+| `docs/operations/pyup-c-1021-delta-review.md` | Roll-free | Removes an obsolete module invocation that made the existing module-target audit fail before N12 existed. |
 | `docs/roadmap/agent-report-2026-09-110o-5.md` | Roll-free | Handoff record only. |
 
 No production closure membership was verified from this workstation.
