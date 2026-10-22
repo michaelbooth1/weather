@@ -110,9 +110,8 @@ def test_fixed_route_keeps_refs_worktrees_reflogs_and_every_object(
     assert report["git_lfs_accessed"] is False
     assert report["history_rewritten"] is False
     assert report["prune_now"] is False
-    repack = ["git", "repack", "-a", "-d", "--keep-unreachable"]
+    repack = ["repack", "-a", "-d", "--keep-unreachable"]
     gc = [
-        "git",
         "-c",
         "gc.reflogExpire=never",
         "-c",
