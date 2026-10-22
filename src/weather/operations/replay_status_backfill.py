@@ -337,7 +337,8 @@ class EvidenceCache:
         tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
         try:
             with tmp.open("w", encoding="utf-8") as handle:
-                json.dump(self.document(), handle, sort_keys=True, separators=(",", ":"))
+                # No sort_keys: cached summaries keep their source key order.
+                json.dump(self.document(), handle, separators=(",", ":"))
                 handle.write("\n")
                 handle.flush()
                 os.fsync(handle.fileno())

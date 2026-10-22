@@ -372,6 +372,11 @@ def _step_payload(result):
         return json.load(handle)
 
 
+def _output_text_without_timestamp(path):
+    with open(path, encoding="utf-8") as handle:
+        return [line for line in handle if "generated_at_utc" not in line and not line.startswith("Generated:")]
+
+
 def test_step_incremental_and_forced_full_equal_the_direct_call(tmp_path, parse_log):
     root = _primed(tmp_path)
     cache_path = tmp_path / "backtest" / rsb.EVIDENCE_CACHE_FILENAME
@@ -392,6 +397,11 @@ def test_step_incremental_and_forced_full_equal_the_direct_call(tmp_path, parse_
     for result in (first, warm, forced):
         assert _comparable(_step_payload(result)) == _comparable(direct)
         assert result["summary"] == direct["summary"]
+    direct_json, direct_report = rsb.write_outputs(
+        direct, json_out=tmp_path / "direct" / "out.json", report_out=tmp_path / "direct" / "out.md"
+    )
+    assert _output_text_without_timestamp(warm["json_out"]) == _output_text_without_timestamp(direct_json)
+    assert _output_text_without_timestamp(warm["report_out"]) == _output_text_without_timestamp(direct_report)
     # The forced pass re-seeds the cache for the next incremental pass.
     after = run_replay_status_backfill_step(_step_args(tmp_path, root))
     assert after["evidence_cache"]["evidence_computed"] == 0
