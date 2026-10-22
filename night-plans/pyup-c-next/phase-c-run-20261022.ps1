@@ -92,9 +92,9 @@ if (Test-Path -LiteralPath "$P\venv") { if (-not (Rename-WithSweep "$P\venv" 've
 if (-not (Rename-WithSweep $Old 'venv' 'r2')) { NoGo 'ROLLBACK: venv-cp3110 cannot be renamed back - ESCALATE (holders file in $N); lease kept, see below' }
 if ((& "$P\venv\Scripts\python.exe" -VV) -notlike 'Python 3.11.0*') { Log 'ESCALATE: venv not 3.11.0' }
 if (Compare-Object (Mask-Editable (Get-Content "$A\freeze-3110.txt")) (Mask-Editable (& "$P\venv\Scripts\python.exe" -m pip freeze --all))) { Log 'ESCALATE: freeze differs' }
-foreach ($tn in $Sup) { Enable-ScheduledTask -TaskName $tn | Out-Null }
-$rb = Wait-Restore (Get-Date)
-if ($rb) { Undo-Aux; Start-AuxHolders }
+foreach ($tn in $Sup) { Invoke-QStep "enable $tn" { Enable-ScheduledTask -TaskName $tn | Out-Null } $true }
+$script:RbOk = $false; Invoke-QStep 'rollback restore' { $script:RbOk = Wait-Restore (Get-Date) } $true; $rb = $script:RbOk   # a throw counts as not 3/3
+if ($rb) { Invoke-QStep 'undo aux' { Undo-Aux } $true; Invoke-QStep 'start holders' { Start-AuxHolders } $true }
 else { Log 'ESCALATE: capture not 3/3 - aux tasks (including any U6 export) left DISABLED' }
 $rar = Get-ReleaseActive "$P\venv\Scripts\python.exe" "$N\rollback-active"; Assert-CaseA $rar 'rollback'
 Release-Lease; Log 'ROLLBACK DONE'
@@ -261,7 +261,7 @@ foreach ($auxName in $auxNames) { if (@(Get-ScheduledTask -TaskName $auxName -Er
 $wce = Get-ScheduledTask -TaskName WeatherClobEnrichmentLoop -ErrorAction SilentlyContinue; if ($wce -and ([string]$wce.State -ne 'Disabled')) { NoGo "WeatherClobEnrichmentLoop is registered and enabled or running (State $($wce.State)); C2 has no stop for it (its instance is the loop). Disable it and end its instance before the night." }
 if (git -C $P status --porcelain --untracked-files=no) { NoGo 'prod tree dirty' }
 if (Test-Path -LiteralPath $Old) { NoGo "$Old exists" }
-if (-not (Test-Path -LiteralPath "$R\oldhome.txt") -or -not "$(Get-Content -LiteralPath "$R\oldhome.txt" -TotalCount 1)".Trim()) { NoGo 'oldhome.txt is missing or empty (A1 writes it; Test-Venv and C4 read it)' }
+if (-not (Test-Path -LiteralPath "$R\oldhome.txt") -or -not "$(Get-Content -LiteralPath "$R\oldhome.txt" -TotalCount 1)".Trim() -or @(Get-Content -LiteralPath "$R\oldhome.txt" | Where-Object { $_.Trim() }).Count -ne 1) { NoGo 'oldhome.txt must hold exactly one non-empty line, as its first line (A1 writes it; Test-Venv and C4 read it)' }
 if ((Get-Volume -DriveLetter C).SizeRemaining -lt 10GB) { NoGo 'disk' }
 foreach ($tn in 'WeatherTrainingWindow','WeatherEveningEvidenceRefresh') { $x = Get-ScheduledTask -TaskName $tn -ErrorAction SilentlyContinue
   if ($x -and [string]$x.State -ne 'Disabled') { NoGo "$tn is enabled or still running (State $($x.State), G5)" } }   # State, not Settings.Enabled: a disabled task still running holds the lease
@@ -311,13 +311,15 @@ $Holders = @('WeatherExecutionTapeSupervisor','WeatherMakerShadowRunner','Weathe
 # before that revision) keeps the old State rule, so the undo of an existing file is unchanged.
 function Test-PrestateEnabled($Row) { if ($Row.PSObject.Properties['Enabled'] -and $Row.Enabled) { return $Row.Enabled -eq 'True' }
   if ($Row.PSObject.Properties['Enabled']) { Log "ESCALATE: $($Row.Task) pre-state Enabled is empty; using the State rule (State $($Row.State))" }; $Row.State -ne 'Disabled' }
-function Undo-Aux { foreach ($row in Import-Csv "$N\aux-prestate.csv") { if (Test-PrestateEnabled $row) { Enable-ScheduledTask -TaskName $row.Task | Out-Null }
-    elseif ($row.State -eq 'Running') { Log "ESCALATE: $($row.Task) was disabled but running at C2; left disabled and not restarted" } }
-  if ($ShadowStop) { Remove-Item -LiteralPath $ShadowStop -ErrorAction SilentlyContinue } }
-function Start-AuxHolders {   # restart the long-running holders that C2 stopped, only where their pre-state was enabled
-  foreach ($tn in $Holders) { $row = Import-Csv "$N\aux-prestate.csv" -ErrorAction SilentlyContinue | Where-Object Task -eq $tn
+function Undo-Aux {   # one soft step per row: a failed enable logs ESCALATE and the remaining rows still run
+  foreach ($row in Import-Csv "$N\aux-prestate.csv") { Invoke-QStep "enable $($row.Task)" { if (Test-PrestateEnabled $row) { Enable-ScheduledTask -TaskName $row.Task | Out-Null }
+    elseif ($row.State -eq 'Running') { Log "ESCALATE: $($row.Task) was disabled but running at C2; left disabled and not restarted" } } $true }
+  if ($ShadowStop) { Remove-Item -LiteralPath $ShadowStop -ErrorAction SilentlyContinue
+    if (Test-Path -LiteralPath $ShadowStop) { Log "ESCALATE: shadow STOP file $ShadowStop still present; the shadow runner stays stopped" } } }
+function Start-AuxHolders {   # restart the long-running holders that C2 stopped, only where their pre-state was enabled; one soft step each
+  foreach ($tn in $Holders) { Invoke-QStep "start $tn" { $row = Import-Csv "$N\aux-prestate.csv" -ErrorAction SilentlyContinue | Where-Object Task -eq $tn
     if ($row -and (Test-PrestateEnabled $row)) { Start-ScheduledTask -TaskName $tn; Log "started $tn" }
-    elseif ($row -and $row.State -eq 'Running') { Log "ESCALATE: $tn pre-state disabled; not restarted" } } }
+    elseif ($row -and $row.State -eq 'Running') { Log "ESCALATE: $tn pre-state disabled; not restarted" } } $true } }
 function Stop-Tape([string]$Exe) {
   # 'stop' exits 0 only when it stopped a live worker (execution_tape_supervisor.py:909-912). A worker that is
   # already gone returns authorization.process_gone=true / recorded_process_not_found (supervisor.py:1353-1361),
@@ -400,11 +402,12 @@ function Wait-Restore([datetime]$Since) {   # S4U restore; the task limit is 15 
   return $false }
 function Undo-Stop {   # pre-rename undo: the venv is still the intact 3.11.0
   foreach ($tn in $Sup) { Invoke-QStep "enable $tn" { Enable-ScheduledTask -TaskName $tn | Out-Null } $true }
-  $ok = Wait-Restore (Get-Date); Invoke-QStep 'undo aux' { Undo-Aux } $true; Invoke-QStep 'start holders' { Start-AuxHolders } $true
+  $script:UndoOk = $false; Invoke-QStep 'undo restore' { $script:UndoOk = Wait-Restore (Get-Date) } $true; $ok = $script:UndoOk   # a throw counts as not ok; the undo pair still runs
+  Invoke-QStep 'undo aux' { Undo-Aux } $true; Invoke-QStep 'start holders' { Start-AuxHolders } $true
   if ($ok) { Log 'undo: capture 3/3, aux tasks restored' } else { Log 'ESCALATE: undo restore did not report capture_recovery_pass' } }
 
 # ---- WRAPPER C4. Sweep and rename (verbatim; the C3 + C4 guarded block undoes and releases on a pre-rename failure)
-$OldHomeNorm = (Get-Content "$R\oldhome.txt").Trim().TrimEnd('\'); $NewHomeNorm = $NewHome.TrimEnd('\')
+$OldHomeNorm = @(Get-Content -LiteralPath "$R\oldhome.txt" | Where-Object { $_.Trim() })[0].Trim().TrimEnd('\'); $NewHomeNorm = $NewHome.TrimEnd('\')
 function Get-VenvHolders([string]$Dir) {
   # Anchored with a trailing backslash, so a sibling worktree such as <checkout>-<name>\venv never matches.
   # The base-interpreter clause catches child processes of either home that name the production checkout.
@@ -485,7 +488,7 @@ Log 'C9 core PASS'
 
 # ---- WRAPPER C9b. Restore the auxiliary tasks (verbatim)
 $WStep = 'C9b'   # WRAPPER
-Undo-Aux; Start-AuxHolders
+Invoke-QStep 'undo aux' { Undo-Aux } $true; Invoke-QStep 'start holders' { Start-AuxHolders } $true   # a failure logs ESCALATE; C9c then judges the evidence
 $AuxRestart = Get-Date
 if (@(Import-Csv "$N\aux-prestate.csv" | Where-Object { $_.Task -eq 'WeatherHostHealthWatchdog' -and (Test-PrestateEnabled $_) }).Count) { Start-ScheduledTask -TaskName WeatherHostHealthWatchdog }   # WRAPPER Fable 10-20 #4 fresh watchdog before C9c
 
@@ -508,6 +511,7 @@ $new2 = Get-NewStatusFlags "$N\status-full" "$R\c0-status-flags.txt" 'C9c'
 # ---- WRAPPER C9c judgement against the runbook's Go/no-go C9c list; shadow and 88a are polled until 10 min after $AuxRestart ("within 10 minutes")
 $WIssues = New-Object System.Collections.Generic.List[string]   # WRAPPER
 $WPre = @(Import-Csv -LiteralPath "$N\aux-prestate.csv")   # WRAPPER
+$WNotRestored = @($WPre | Where-Object { (Test-PrestateEnabled $_) -and -not @(Get-ScheduledTask -TaskName $_.Task -ErrorAction SilentlyContinue | Where-Object { $_.Settings.Enabled }).Count } | ForEach-Object { $_.Task }); if ($WNotRestored.Count) { $WIssues.Add("aux task(s) enabled in the pre-state but not enabled after C9b: $($WNotRestored -join ',') (see the ESCALATE lines in night.log)") }   # WRAPPER soft C9b steps never throw, so judge the result
 if ($tapeWanted) {   # WRAPPER tape: health RUNNING = identity current + evidence_integrity PASS + CONNECTED (execution_tape_supervisor.py:405-423)
   $wtf = @(Get-ChildItem -LiteralPath $N -Filter 'tape-status-*.out.txt' | Sort-Object LastWriteTime)[-1]   # WRAPPER
   $wth = $null; try { $wth = (Get-Content -LiteralPath $wtf.FullName -Raw | ConvertFrom-Json).health } catch {}   # WRAPPER
@@ -560,7 +564,7 @@ Log 'PHASE-C DONE (exit 0). OPERATOR CHECK: keep venv-cp3110, the old-home freez
   if (-not $WRenamed) {   # WRAPPER before the rename: undo with no swap (raw lines 247-248); C2's catch and the C3+C4 guarded catch already undo and release
     if ($WStep -eq 'C3C4' -and -not $msg -and $global:Lease) {   # WRAPPER C2 finished but the throw came outside the guarded try, so no runbook undo ran
       try { Log 'WRAPPER: failure after C2 and outside the C3+C4 guarded try - undo with no swap'   # WRAPPER
-        if (Get-Command Undo-Stop -ErrorAction SilentlyContinue) { Undo-Stop } else { Undo-Aux; Start-AuxHolders } }   # WRAPPER
+        if (Get-Command Undo-Stop -ErrorAction SilentlyContinue) { Undo-Stop } else { Invoke-QStep 'undo aux' { Undo-Aux } $true; Invoke-QStep 'start holders' { Start-AuxHolders } $true } }   # WRAPPER
       catch { try { Log "ESCALATE: wrapper undo failed: $($_.Exception.Message)" } catch {} } }   # WRAPPER
     try { $global:ReleaseOnNoGo = $false; Release-Lease } catch { Write-Host "Release-Lease failed: $($_.Exception.Message)" }   # WRAPPER
     try { Log 'OPERATOR CHECK: stopped before the C4 rename; nothing swapped. Check night.log for ESCALATE lines and, only if C3 had stopped capture (an undo restore line), the restore result; a C2 or pre-C3 stop ran no restore.' } catch {}   # WRAPPER
