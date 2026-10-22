@@ -435,6 +435,26 @@ def test_workstation_wrapper_canonicalizes_modules_before_admission() -> None:
     assert "train_serve_feature_parity" not in text
 
 
+def test_git_maintenance_is_a_fixed_wrapper_kind_not_a_weather_heavy_module() -> None:
+    wrapper = WORKSTATION_WRAPPER.read_text(encoding="utf-8-sig")
+    lease = LEASE_SCRIPT.read_text(encoding="utf-8-sig")
+    offline = re.search(
+        r"function Get-WeatherWorkstationOfflineModule\s*\{.*?@\((.*?)\)\s*\}",
+        lease,
+        flags=re.DOTALL,
+    )
+
+    assert offline is not None
+    modules = re.findall(r'"([A-Za-z0-9_.-]+)"', offline.group(1))
+    assert "git_maintenance" in wrapper.split("[ValidateSet(", 1)[1].split(")", 1)[0]
+    assert '"git_maintenance" {' in wrapper
+    assert '$module -cne "weather.operations.workstation_git_maintenance"' in wrapper
+    assert "$arguments.Count -ne 2" in wrapper
+    assert "WEATHER_WORKSTATION_WORKLOAD_KIND" in wrapper
+    assert "WorkstationOffline-(?:pytest|compileall|weather_heavy|git_maintenance)" in lease
+    assert "weather.operations.workstation_git_maintenance" not in modules
+
+
 def test_workstation_offline_allowlist_narrowly_admits_cold_archive_stage_and_restore() -> None:
     text = LEASE_SCRIPT.read_text(encoding="utf-8-sig")
     match = re.search(
@@ -2025,6 +2045,71 @@ def test_workstation_wrapper_executes_approved_pytest_and_rejects_live_mode(
     )
     assert rejected.returncode != 0
     assert "offline training/replay" in rejected.stderr
+
+
+@pytest.mark.spawns
+@pytest.mark.skipif(
+    os.name != "nt" or shutil.which("powershell") is None,
+    reason="Windows wrapper and Git maintenance fixture",
+)
+@pytest.mark.skipif(OUTER_WORKSTATION_LEASE, reason="outer workstation lease owns mutex")
+def test_workstation_git_maintenance_runs_fixed_fixture_route_under_wrapper_job(
+    tmp_path: Path,
+) -> None:
+    _write_non_capture_assignment(tmp_path)
+    fixture_package = tmp_path / "src/weather/operations"
+    fixture_package.mkdir(parents=True)
+    (tmp_path / "src/weather/__init__.py").write_text("", encoding="utf-8")
+    (fixture_package / "__init__.py").write_text("", encoding="utf-8")
+    shutil.copyfile(
+        REPO_ROOT / "src/weather/operations/workstation_git_maintenance.py",
+        fixture_package / "workstation_git_maintenance.py",
+    )
+    (tmp_path / "fixture.txt").write_text("fixture-only object database\n", encoding="utf-8")
+    git_env = {
+        **os.environ,
+        "GIT_AUTHOR_NAME": "fixture",
+        "GIT_AUTHOR_EMAIL": "fixture@example.invalid",
+        "GIT_COMMITTER_NAME": "fixture",
+        "GIT_COMMITTER_EMAIL": "fixture@example.invalid",
+    }
+    for arguments in (
+        ["init", "--initial-branch=main", str(tmp_path)],
+        ["-C", str(tmp_path), "add", "fixture.txt"],
+        ["-C", str(tmp_path), "commit", "-m", "fixture"],
+    ):
+        result = subprocess.run(
+            ["git", *arguments], capture_output=True, text=True, check=False, env=git_env
+        )
+        assert result.returncode == 0, result.stderr
+
+    result = subprocess.run(
+        [
+            *POWERSHELL,
+            "-File",
+            str(_install_workstation_wrapper(tmp_path)),
+            "-Kind",
+            "git_maintenance",
+            "-PythonPath",
+            sys.executable,
+            "-ArgumentsBase64",
+            _argument_contract(["-m", "weather.operations.workstation_git_maintenance"]),
+            "-RepoRoot",
+            str(tmp_path),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=git_env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    report = json.loads(result.stdout.strip().splitlines()[-1])
+    assert report["schema"] == "workstation_git_maintenance_v1"
+    assert all(report["preservation"].values())
+    assert report["git_lfs_accessed"] is False
+    assert report["history_rewritten"] is False
+    assert report["prune_now"] is False
 
 
 @pytest.mark.skipif(

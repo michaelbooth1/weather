@@ -1719,7 +1719,7 @@ function Enter-WeatherHeavyWorkloadLease {
         if (
             $Workload.Length -gt 96 -or
             $Workload -cnotmatch
-                '\AWorkstationOffline-(?:pytest|compileall|weather_heavy)-[A-Za-z0-9._-]+\z'
+                '\AWorkstationOffline-(?:pytest|compileall|weather_heavy|git_maintenance)-[A-Za-z0-9._-]+\z'
         ) {
             throw "workstation-offline admission requires a canonical offline workload"
         }
