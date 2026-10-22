@@ -40,6 +40,9 @@ param(
 $ErrorActionPreference = "Stop"
 $launchJournal = $null
 trap {
+    # During a Ctrl+C stop a trap cannot start commands and would exit 0; set
+    # the host exit code before anything else.
+    $Host.SetShouldExit(1)
     if (Get-Command Close-WeatherLaunchDiagnostics -ErrorAction SilentlyContinue) {
         Close-WeatherLaunchDiagnostics -Journal $launchJournal -Status "FAIL" -Failure $_
     }

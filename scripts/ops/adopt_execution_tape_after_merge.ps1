@@ -62,7 +62,10 @@ function Refuse-Adoption {
 # Convert unexpected parser, scheduler, filesystem, or process-inspection errors
 # into the same fail-closed teardown. Report only the exception type; raw error
 # text can contain host paths or command lines and is not needed for authority.
+# A trap that runs while Ctrl+C stops the script cannot start commands (the
+# Refuse-Adoption call is skipped) and would exit 0; set the host code first.
 trap {
+    $Host.SetShouldExit(1)
     Refuse-Adoption ("unexpected adoption failure: {0}" -f $_.Exception.GetType().Name)
 }
 

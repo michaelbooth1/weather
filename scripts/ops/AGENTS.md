@@ -148,13 +148,13 @@ propagate.
 
 ## Verification
 
-Validate PowerShell syntax without executing scripts (a clean parse does not
-prove parameter binding), run the focused Python tests for the affected
-operation, and update the operations design or owning runbook whenever a task
-name, cadence, parameter, status path, or supervision contract changes.
+Validate PowerShell syntax without executing scripts (a clean parse does not prove parameter
+binding), run the focused Python tests for the affected operation, and update the operations
+design or owning runbook whenever a task name, cadence, parameter, status path, or supervision
+contract changes. Put `$Host.SetShouldExit(<code>)` right before an `exit` in an advanced script's
+`finally` and first in an exiting `trap`, or Ctrl+C exits 0 ([development.md](../../docs/development.md)).
 
 ## Update this file when
 
-Update when task registration safety, canonical script locations, capture or
-training topology, or PowerShell verification changes. Procedure detail belongs
-in the owning runbook, not here.
+Update when registration safety, script locations, capture or training topology, or
+PowerShell verification changes; procedure detail belongs in the owning runbook.
