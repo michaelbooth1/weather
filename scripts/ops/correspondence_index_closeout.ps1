@@ -124,5 +124,8 @@ catch {
 finally {
     try { Invoke-Git $RepoRoot @("worktree", "remove", "--force", $worktree) | Out-Null }
     catch { Note ("worktree cleanup failed: {0}" -f $_.Exception.Message) }
+    # Advanced script: stopped by Ctrl+C, PS 5.1 -File drops the code of an
+    # `exit` issued from a finally and exits 0 unless the host code is set first.
+    $Host.SetShouldExit($exit)
     exit $exit
 }

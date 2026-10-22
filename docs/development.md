@@ -326,7 +326,7 @@ and [SSH configuration manual](https://man.openbsd.org/ssh_config.5).
 | Settlement ledger, tape scoring, replay | matching `tests/backtesting` |
 | Market, maker, or taker logic | matching `tests/market`; keep execution non-live |
 | Daily/nightly/supervisor behavior | matching `tests/operations`; use status/dry-run paths |
-| `scripts/ops/*.ps1` | the matching `tests/operations/test_*_script*.py`; tests that execute PowerShell are skipped off Windows, so CI does not prove them. A clean parse does not prove parameter binding; read the `param()` block |
+| `scripts/ops/*.ps1` | the matching `tests/operations/test_*_script*.py`; tests that execute PowerShell are skipped off Windows, so CI does not prove them. A clean parse does not prove parameter binding; read the `param()` block. Exit codes after Ctrl+C: see below |
 | Shared root modules (`weather.io`, `weather.artifacts`, release serving) | the top-level `tests/test_*.py` files plus the owning package tests |
 | Reports, gates, roadmap | matching `tests/reporting`; verify fail-closed evidence behavior |
 | Package/import/path changes | `tests/operations/test_import_architecture.py` |
@@ -337,6 +337,16 @@ and [SSH configuration manual](https://man.openbsd.org/ssh_config.5).
 Run the full suite for cross-owner changes, release/evidence contracts, shared
 utilities, or before handing off a broad refactor: on a workstation or through CI, and on the capture host only
 through the bounded runner above.
+
+**Exit codes after Ctrl+C (Windows PowerShell 5.1, measured 2026-10-22).** A `-File` script stopped by
+Ctrl+C runs its `finally` blocks and traps but no `catch` block, and nothing after the stopped statement,
+so it exits 0 unless the code is set from a `finally` or trap. In an *advanced* script (`[CmdletBinding()]`
+or any `[Parameter()]` attribute) the code of an `exit` in a `finally` is dropped as well; in any script a
+trap cannot start a command during the stop, so its `exit` after a cmdlet or function call never runs. Put
+`$Host.SetShouldExit(<code>)` immediately before such a `finally` exit and first in every trap that exits;
+`tests/operations/test_ps_exit_in_finally_ratchet.py` enforces both over `scripts/ops/*.ps1`.
+`SetShouldExit` sets the host's exit code, so it also ends an interactive or line-by-line session that ran
+the script in-process: start these scripts with `powershell.exe -File` or from a fresh shell.
 
 ### Affected-test selection
 
