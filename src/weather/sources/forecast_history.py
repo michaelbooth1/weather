@@ -33,6 +33,7 @@ import requests
 
 from weather.market.market_registry import TORONTO, all_specs, spec_for_id
 from weather.sources.daily_summary import native_to_c
+from weather.time import provider_hourly_local_times
 from weather.units import to_float
 
 HIST_FORECAST_URL = "https://historical-forecast-api.open-meteo.com/v1/forecast"
@@ -338,10 +339,31 @@ def hourly_value(hourly, key, index):
 
 
 def local_valid_datetime(raw_time, spec):
+    """Zone-local reading of ONE label, without the response offset.
+
+    Not DST-safe for Open-Meteo payloads: use ``payload_local_valid_datetimes``,
+    which applies the response's own ``utc_offset_seconds``.
+    """
     dt = datetime.fromisoformat(str(raw_time))
     if dt.tzinfo is None:
         return dt.replace(tzinfo=spec.tz)
     return dt.astimezone(spec.tz)
+
+
+def payload_local_valid_datetimes(payload, spec):
+    """Market-local valid times for an Open-Meteo payload's hourly labels.
+
+    Open-Meteo applies one ``utc_offset_seconds`` (the offset when the request
+    was served) to every label, so labels on the far side of a DST change are
+    read via that offset, not as zone wall time. Falls back to the zone-local
+    reading exactly as ``weather.time.provider_hourly_local_times`` does;
+    unparseable labels are ``None``. Aligned index-for-index with
+    ``payload["hourly"]["time"]``.
+    """
+    payload = payload if isinstance(payload, dict) else {}
+    hourly = payload.get("hourly") or {}
+    times = hourly.get("time") if isinstance(hourly, dict) else None
+    return provider_hourly_local_times(times or [], spec.tz, payload.get("utc_offset_seconds"))
 
 
 def rich_row(
@@ -425,12 +447,13 @@ def historical_forecast_rows(payload, spec=TORONTO, source_model="best_match"):
     hourly = payload.get("hourly", {}) or {}
     times = hourly.get("time") or []
     temps = hourly.get("temperature_2m") or []
+    local_times = payload_local_valid_datetimes(payload, spec)
     rows = []
     for index, raw_time in enumerate(times):
         temp = to_float(temps[index] if index < len(temps) else None)
-        if temp is None or not raw_time:
+        valid_dt = local_times[index] if index < len(local_times) else None
+        if temp is None or not raw_time or valid_dt is None:
             continue
-        valid_dt = local_valid_datetime(raw_time, spec)
         rows.append(rich_row(
             spec,
             source="open_meteo_historical_forecast",
@@ -469,11 +492,12 @@ def historical_forecast_rows(payload, spec=TORONTO, source_model="best_match"):
 def previous_run_rows(payload, spec=TORONTO, leads=DEFAULT_PREVIOUS_RUN_LEADS, source_model="best_match"):
     hourly = payload.get("hourly", {}) or {}
     times = hourly.get("time") or []
+    local_times = payload_local_valid_datetimes(payload, spec)
     rows = []
     for index, raw_time in enumerate(times):
-        if not raw_time:
+        valid_dt = local_times[index] if index < len(local_times) else None
+        if not raw_time or valid_dt is None:
             continue
-        valid_dt = local_valid_datetime(raw_time, spec)
         for lead in leads:
             key = f"temperature_2m_previous_day{lead}"
             values = hourly.get(key) or []

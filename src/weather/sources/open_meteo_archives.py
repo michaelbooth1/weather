@@ -20,6 +20,7 @@ import requests
 from weather.paths import data_path
 from weather.market.market_registry import spec_for_id
 from weather.sources.forecast_history import HIST_FORECAST_URL
+from weather.time import provider_hourly_local_times
 from weather.units import to_float
 
 
@@ -152,11 +153,17 @@ def _array_get(mapping, key, index):
     return values[index]
 
 
-def _local_datetime(raw_time, spec):
-    parsed = datetime.fromisoformat(str(raw_time))
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=spec.tz)
-    return parsed.astimezone(spec.tz)
+def _payload_local_datetimes(payload, spec):
+    """Market-local times for a payload's hourly labels (DST-safe).
+
+    Applies the response's own ``utc_offset_seconds`` via
+    ``weather.time.provider_hourly_local_times`` (zone-local fallback when the
+    offset is missing or unusable); unparseable labels are None.
+    """
+    payload = payload if isinstance(payload, dict) else {}
+    hourly = payload.get("hourly") or {}
+    times = hourly.get("time") if isinstance(hourly, dict) else None
+    return provider_hourly_local_times(times or [], spec.tz, payload.get("utc_offset_seconds"))
 
 
 def _median(values):
@@ -231,14 +238,12 @@ def normalize_open_meteo_global_model_archive(
     times = hourly.get("time") or []
     hash_value = payload_hash(payload or {})
     fetched_at = fetched_at or datetime.now(timezone.utc).isoformat()
+    local_times = _payload_local_datetimes(payload, spec)
     rows = []
     grouped_highs = defaultdict(lambda: {model: [] for model in model_members})
     for index, raw_time in enumerate(times):
-        if not raw_time:
-            continue
-        try:
-            local_dt = _local_datetime(raw_time, spec)
-        except ValueError:
+        local_dt = local_times[index] if index < len(local_times) else None
+        if not raw_time or local_dt is None:
             continue
         model_values = {}
         values = []
@@ -318,13 +323,11 @@ def normalize_open_meteo_air_quality_archive(
     times = hourly.get("time") or []
     hash_value = payload_hash(payload or {})
     fetched_at = fetched_at or datetime.now(timezone.utc).isoformat()
+    local_times = _payload_local_datetimes(payload, spec)
     rows = []
     for index, raw_time in enumerate(times):
-        if not raw_time:
-            continue
-        try:
-            local_dt = _local_datetime(raw_time, spec)
-        except ValueError:
+        local_dt = local_times[index] if index < len(local_times) else None
+        if not raw_time or local_dt is None:
             continue
         row = {
             "schema_version": OPEN_METEO_AIR_QUALITY_ARCHIVE_SCHEMA_VERSION,

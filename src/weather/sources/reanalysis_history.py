@@ -20,6 +20,7 @@ from weather.sources.historical_schema import (
     write_manifest,
 )
 from weather.market.market_registry import spec_for_id
+from weather.time import provider_hourly_local_times
 from weather.sources.wu_history import get_code_version, parse_date
 
 
@@ -88,12 +89,33 @@ def parse_local_datetime(value, tzinfo):
     return dt.astimezone(tzinfo)
 
 
+def payload_local_datetimes(payload, tzinfo):
+    """Local times for an Open-Meteo archive payload's hourly labels.
+
+    The archive applies one ``utc_offset_seconds`` (the offset when the request
+    was served) to every label, so a summer download labels winter hours one
+    hour late when read as zone wall time. This reads them via the payload's
+    own offset, falling back to the zone-local reading exactly as
+    ``weather.time.provider_hourly_local_times`` does. Unparseable labels are
+    None. Aligned index-for-index with ``payload["hourly"]["time"]``.
+    """
+    payload = payload if isinstance(payload, dict) else {}
+    hourly = payload.get("hourly") or {}
+    times = hourly.get("time") if isinstance(hourly, dict) else None
+    return provider_hourly_local_times(times or [], tzinfo, payload.get("utc_offset_seconds"))
+
+
+def _aligned_local_time(local_times, index):
+    return local_times[index] if index < len(local_times) else None
+
+
 def normalize_payload(payload, spec):
     hourly = payload.get("hourly") or {}
     times = hourly.get("time") or []
+    local_times = payload_local_datetimes(payload, spec.tz)
     records = []
     for index, value in enumerate(times):
-        local_dt = parse_local_datetime(value, spec.tz)
+        local_dt = _aligned_local_time(local_times, index) if value else None
         if not local_dt:
             continue
         temp = value_at(hourly, "temperature_2m", index)
@@ -183,10 +205,11 @@ class ReanalysisStore:
         for payload in self.iter_raw_payloads():
             hourly = payload.get("hourly") or {}
             times = hourly.get("time") or []
+            local_times = payload_local_datetimes(payload, self.spec.tz)
             for index, value in enumerate(times):
                 if value_at(hourly, "temperature_2m", index) is None:
                     continue
-                local_dt = parse_local_datetime(value, self.spec.tz)
+                local_dt = _aligned_local_time(local_times, index) if value else None
                 if local_dt:
                     dates.add(local_dt.date())
         return dates
@@ -199,8 +222,9 @@ class ReanalysisStore:
         for payload in self.iter_raw_payloads():
             hourly = payload.get("hourly") or {}
             times = hourly.get("time") or []
+            local_times = payload_local_datetimes(payload, self.spec.tz)
             for index, value in enumerate(times):
-                local_dt = parse_local_datetime(value, self.spec.tz)
+                local_dt = _aligned_local_time(local_times, index) if value else None
                 if not local_dt:
                     continue
                 local_date = local_dt.date()
