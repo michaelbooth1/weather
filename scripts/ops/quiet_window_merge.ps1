@@ -1,7 +1,7 @@
 # Merge a validated topic branch into master during the quiet window, verifying that the
 # capture fleet survives the code roll BEFORE anything is published.
 #
-#   .\scripts\ops\quiet_window_merge.ps1 -Branch origin/codex/... `
+#   powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\ops\quiet_window_merge.ps1 -Branch origin/codex/... `
 #       [-ExpectedTip <full-commit-sha>] [-ExpectedBaseline <full-master-sha>] `
 #       [-Force] [-DryRun] [-OwnerApprovedException <one-time-token>]
 #

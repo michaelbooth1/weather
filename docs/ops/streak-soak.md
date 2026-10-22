@@ -362,7 +362,7 @@ the new code (a `STALE_CODE` restart). If the code is bad, capture dies — and 
 guarded operation:
 
 ```powershell
-.\scripts\ops\quiet_window_merge.ps1 -Branch origin/codex/... `
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\ops\quiet_window_merge.ps1 -Branch origin/codex/... `
   -ExpectedTip <full-tested-commit-sha> `
   [-ExpectedSelfSha256 <frozen-wrapper-sha256>] [-DryRun] [-Force]
 ```
@@ -423,7 +423,7 @@ incident-bound switch exists only for the reviewed production split
 c932b54f8747df5cdefc4cc42f8454b6797f09ae`:
 
 ```powershell
-& <isolated-source>\scripts\ops\quiet_window_merge.ps1 `
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File <isolated-source>\scripts\ops\quiet_window_merge.ps1 `
   -ProductionBaselineReconciliation `
   -Branch <exact-reviewed-S-commit> `
   -ExpectedTip <exact-reviewed-S-commit> `

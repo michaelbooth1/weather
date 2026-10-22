@@ -243,7 +243,7 @@ $argumentJson = ConvertTo-Json -InputObject @("-m", "pytest", "-q") -Compress
 $argumentBase64 = [Convert]::ToBase64String(
   [Text.Encoding]::UTF8.GetBytes($argumentJson)
 )
-& (Join-Path $repoRoot "scripts\ops\workstation_heavy.ps1") `
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repoRoot "scripts\ops\workstation_heavy.ps1") `
   -Kind pytest -PythonPath $pythonPath -ArgumentsBase64 $argumentBase64 `
   -RepoRoot $repoRoot
 ```

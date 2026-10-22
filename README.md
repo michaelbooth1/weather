@@ -140,7 +140,7 @@ larger runs wait their turn in the FIFO queue of the heavy wrapper (timeout exit
 
 ```powershell
 .\venv\Scripts\python.exe -m pytest tests\test_artifacts.py -q --basetemp C:\wt\bt-focused
-.\scripts\ops\workstation_heavy.ps1 -Kind pytest -PythonPath "$PWD\venv\Scripts\python.exe" -ArgumentsBase64 <base64-json-argv> -RepoRoot $PWD.Path -Queue -QueueTimeoutSeconds 14400
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\ops\workstation_heavy.ps1 -Kind pytest -PythonPath "$PWD\venv\Scripts\python.exe" -ArgumentsBase64 <base64-json-argv> -RepoRoot $PWD.Path -Queue -QueueTimeoutSeconds 14400
 ```
 
 `pytest.ini` sets `pythonpath = src` and limits collection to `tests/`.

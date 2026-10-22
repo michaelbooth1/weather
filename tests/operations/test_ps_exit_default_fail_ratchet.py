@@ -20,7 +20,11 @@ So, for each script in ``CRITICAL``, this ratchet requires:
   function reachable from them is immediately preceded by an assignment of the
   same code to ``$<var>`` (or ``$script:<var>``), so the ``finally`` re-issues it,
   and none of them is a literal ``exit 0`` (success is ``$<var> = 0`` then
-  ``exit $<var>``, only on the proven-success path).
+  ``exit $<var>``, only on the proven-success path);
+* no script-level ``return`` (one not inside a function definition or a script
+  block expression) appears in the ``try`` body or its ``catch`` clauses: it
+  leaves without recording a code, so the outcome would rest on whatever
+  ``$<var>`` last held.
 
 ``tests/operations/test_ps_exit_in_finally_ratchet.py`` (a separate branch)
 covers every ``exit`` in any ``finally`` and every exiting ``trap``.
@@ -178,6 +182,18 @@ foreach ($path in (Get-Content -LiteralPath $env:SCAN_LIST)) {
             }
         }
     }
+    foreach ($root in $roots) {
+        foreach ($return in $root.FindAll({ param($n) $n -is [System.Management.Automation.Language.ReturnStatementAst] }, $true)) {
+            $scriptLevel = $true
+            for ($node = $return.Parent; $node -and $node -ne $try; $node = $node.Parent) {
+                if ($node -is [System.Management.Automation.Language.FunctionDefinitionAst] -or
+                    $node -is [System.Management.Automation.Language.ScriptBlockExpressionAst]) { $scriptLevel = $false; break }
+            }
+            if ($scriptLevel) {
+                "${path}:$($return.Extent.StartLineNumber) script-level '$($return.Extent.Text)' inside the default-fail try; leave through `$$var = <code>; exit `$$var instead"
+            }
+        }
+    }
 }
 """
 
@@ -216,8 +232,14 @@ FIXTURES = {
         "try { Fail } " + _GOOD_TAIL
     ),
     "bad_catch_exit.ps1": "[CmdletBinding()]\nparam()\n$rc = 1\ntry { 1 } catch { exit 5 } " + _GOOD_TAIL,
+    "bad_script_return.ps1": "[CmdletBinding()]\nparam()\n$rc = 1\ntry { if ($x) { $rc = 0; return } } " + _GOOD_TAIL,
+    "bad_catch_return.ps1": "[CmdletBinding()]\nparam()\n$rc = 1\ntry { 1 } catch { return } " + _GOOD_TAIL,
     # Spared.
     "good_minimal.ps1": "[CmdletBinding()]\nparam()\n$rc = 1\ntry { $rc = 0 } " + _GOOD_TAIL,
+    "good_nested_returns.ps1": (
+        "[CmdletBinding()]\nparam()\nfunction Probe { return 1 }\n$rc = 1\n"
+        "try { function Inner { return 2 }; @(1) | ForEach-Object { return }; $null = Probe; $rc = 0 } " + _GOOD_TAIL
+    ),
     "good_negative_default.ps1": "[CmdletBinding()]\nparam()\n$rc = -1\ntry { $rc = 0 } " + _GOOD_TAIL,
     "good_recorded_exits.ps1": (
         "[CmdletBinding()]\nparam()\n"
