@@ -8,8 +8,8 @@ Measured on PS 5.1 (2026-10-22, scratch scripts, console Ctrl+C under ``-File``)
   attribute) that is stopped runs its ``finally`` blocks, but the code of an
   ``exit`` issued there is dropped and the process exits 0. A plain script keeps
   it. Calling ``$Host.SetShouldExit(<code>)`` immediately before the ``exit``
-  keeps the code. The same holds for an ``exit`` inside a same-file function
-  that a ``finally`` calls.
+  keeps the code. The same holds for an ``exit`` inside a function that a
+  ``finally`` calls (measured with a same-file function).
 * A ``trap`` also runs during the stop, in any script, but it cannot start a
   command: the first command (a cmdlet or a function such as a refusal helper)
   ends the trap and the process exits 0. A bare ``exit`` in a trap survives.
