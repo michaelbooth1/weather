@@ -83,6 +83,22 @@ re-enabled by the undo. The G5 and U6 gates (`Assert-NoU6At0035`, B0, C0) keep S
 is still running holds the lease and must stop the night; only their messages changed. Any wrapper or kit built from
 the earlier text must be regenerated.
 
+Revision 2026-10-22 (review of the C2 fix): State still legitimately asks "is an instance running". The old State
+readback had, incidentally, also proved that no instance was in flight; `Settings.Enabled` does not, and
+`Disable-ScheduledTask` does not end an in-flight run. The three capture supervisors and the tape supervisor are
+periodic ensure tasks (`IgnoreNew`; limits: snapshot 5 min, clob, observation and tape 2 min), so an ensure run already
+in flight could relaunch a loop after its stop. `Stop-Capture` therefore waits, after all three disables, for any
+supervisor instance to end, and C2 does the same for the tape supervisor before its stop. Both waits are bounded at
+330 s, just above the largest limit, and a NO-GO follows if an instance is still running. The long-running holders
+(88a, the shadow runner, capture-family tasks) are not waited on: they are stopped explicitly. Each post-disable check
+now also requires exactly one task of that name. C2 reads every pre-state row before writing `aux-prestate.csv`, so a
+lookup failure leaves no partial file (a partial file would have made `Undo-Aux` restore only some tasks, and a
+same-night retry skips recording); C0 now resolves every aux name first. `Start-AuxHolders` logs `ESCALATE` for a
+holder whose pre-state was disabled, and the C10 receipt counts tonight's `ESCALATE` lines in `night.log`. Worst case
+added before the 01:30 C4 deadline: about 2 min (tape) plus 5 min (supervisors) when every instance ends inside its
+limit, or 5.5 min per wait before a NO-GO. With the lease at 01:00 this still fits; a lease taken near 01:15 can now
+reach 01:30 inside C3, and the existing deadline check then undoes with no swap.
+
 **Owns:** the procedure for moving the production checkout's `venv` from CPython 3.11.0 to 3.11.9
 on the 16 GB capture host. That covers a side-by-side install, an offline wheelhouse, a stage venv
 qualified by the bounded suite, the cutover through the guarded stop/restore path, verification,
@@ -990,6 +1006,8 @@ if ($FamilyTasks.Count) {
   if (-not (Test-Path -LiteralPath "$R\q12b.txt") -or ((Get-Content -LiteralPath "$R\q12b.txt" -TotalCount 1) -split '\s+')[0] -ne 'STOP_AUTHORIZED') { NoGo 'a capture-family task is registered but Q12b is not STOP_AUTHORIZED' }
   $auxNames = @(Get-Content -LiteralPath "$R\aux-tasks.txt" | ForEach-Object { $_.Trim() })
   foreach ($ft in $FamilyTasks) { if ($auxNames -notcontains $ft) { NoGo "$ft is not in aux-tasks.txt (A1 review)" } } }
+$auxNames = @(Get-Content -LiteralPath "$R\aux-tasks.txt" | Where-Object { $_.Trim() })   # the aux list exactly as C2's Quiesce-Aux reads it
+foreach ($auxName in $auxNames) { $null = Get-ScheduledTask -TaskName $auxName -ErrorAction Stop }   # a wrong name throws here, before anything has changed, not part-way through C2
 if (git -C $P status --porcelain --untracked-files=no) { NoGo 'prod tree dirty' }
 if (Test-Path -LiteralPath $Old) { NoGo "$Old exists" }
 if ((Get-Volume -DriveLetter C).SizeRemaining -lt 10GB) { NoGo 'disk' }
@@ -1034,7 +1052,8 @@ Log "shadow task registered=$([bool]$shadowTask) stop file: $ShadowStop"
 ```
 
 If the shadow task is not registered, `aux-tasks.txt` must not list it (A1 review). If it does
-list it, `Get-ScheduledTask` throws in C2, before anything has changed.
+list it, C0's aux-name check throws, before anything has changed. C2 reads every pre-state row
+before it writes `aux-prestate.csv`, so a lookup that still fails in C2 leaves no partial file.
 
 **C2. Quiesce the auxiliary tasks and long-running holders.** The functions are defined once and
 reused by C3, C9b and §R.
@@ -1053,7 +1072,8 @@ function Undo-Aux { foreach ($row in Import-Csv "$N\aux-prestate.csv") { if (Tes
   if ($ShadowStop) { Remove-Item -LiteralPath $ShadowStop -ErrorAction SilentlyContinue } }
 function Start-AuxHolders {   # restart the long-running holders that C2 stopped, only where their pre-state was enabled
   foreach ($tn in $Holders) { $row = Import-Csv "$N\aux-prestate.csv" -ErrorAction SilentlyContinue | Where-Object Task -eq $tn
-    if ($row -and (Test-PrestateEnabled $row)) { Start-ScheduledTask -TaskName $tn; Log "started $tn" } } }
+    if ($row -and (Test-PrestateEnabled $row)) { Start-ScheduledTask -TaskName $tn; Log "started $tn" }
+    elseif ($row) { Log "ESCALATE: $tn pre-state disabled; not restarted" } } }
 function Stop-Tape([string]$Exe) {
   # 'stop' exits 0 only when it stopped a live worker (execution_tape_supervisor.py:909-912). A worker that is
   # already gone returns authorization.process_gone=true / recorded_process_not_found (supervisor.py:1353-1361),
@@ -1072,9 +1092,9 @@ function Invoke-QStep([string]$Name, [scriptblock]$Body, [bool]$Soft) {
 function Quiesce-Aux([string]$Exe, [switch]$Soft) {
   $Aux = @(Get-Content -LiteralPath "$R\aux-tasks.txt" | Where-Object { $_.Trim() })
   Invoke-QStep 'prestate' {
-    if (-not (Test-Path -LiteralPath "$N\aux-prestate.csv")) {
-      $Aux | ForEach-Object { $x = Get-ScheduledTask -TaskName $_; [pscustomobject]@{ Task=$_; State=[string]$x.State; Enabled=[string]$x.Settings.Enabled } } |   # throws on a wrong name; State 'Running' does not say enabled
-        Export-Csv -LiteralPath "$N\aux-prestate.csv" -NoTypeInformation } } $Soft.IsPresent
+    if (-not (Test-Path -LiteralPath "$N\aux-prestate.csv")) {   # read every row first: a throw on row N must not leave a partial file
+      $rows = @($Aux | ForEach-Object { $x = Get-ScheduledTask -TaskName $_; [pscustomobject]@{ Task=$_; State=[string]$x.State; Enabled=[string]$x.Settings.Enabled } })   # throws on a wrong name; State 'Running' does not say enabled
+      $rows | Export-Csv -LiteralPath "$N\aux-prestate.csv" -NoTypeInformation } } $Soft.IsPresent
   Invoke-QStep 'shadow' {   # STOP file only, never a kill
     if ($Aux -contains 'WeatherMakerShadowRunner') {
       if (-not $ShadowStop) { NoGo 'shadow stop-file path unknown' }
@@ -1083,7 +1103,12 @@ function Quiesce-Aux([string]$Exe, [switch]$Soft) {
       if ([string](Get-ScheduledTask -TaskName WeatherMakerShadowRunner).State -eq 'Running') { NoGo 'shadow did not seal in 3 min' } } } $Soft.IsPresent
   # Verify the disable with Settings.Enabled, never State: a disabled task with a running instance (88a, the tape) keeps State 'Running' until the stop below (C2 NO-GO 2026-10-22).
   foreach ($tn in $Aux) { Invoke-QStep "disable $tn" { Disable-ScheduledTask -TaskName $tn | Out-Null
-    if ((Get-ScheduledTask -TaskName $tn).Settings.Enabled -ne $false) { NoGo "disable $tn" } } $Soft.IsPresent }
+    $st = @(Get-ScheduledTask -TaskName $tn); if ($st.Count -ne 1 -or $st[0].Settings.Enabled -ne $false) { NoGo "disable $tn" } } $Soft.IsPresent }
+  # A disable does not end an in-flight ensure run, which could relaunch the tape after its stop. The tape supervisor is a
+  # periodic ensure task (1 min, IgnoreNew, 2 min limit: register_execution_tape_supervisor.ps1:11, :27-34); wait for its instance.
+  if ($Aux -contains 'WeatherExecutionTapeSupervisor') { Invoke-QStep 'tape ensure' { $tn = 'WeatherExecutionTapeSupervisor'
+    $t0 = Get-Date; while ([string](Get-ScheduledTask -TaskName $tn).State -eq 'Running' -and ((Get-Date) - $t0).TotalSeconds -lt 330) { Start-Sleep 5 }
+    if ([string](Get-ScheduledTask -TaskName $tn).State -eq 'Running') { NoGo "$tn instance still running past its time limit" } } $Soft.IsPresent }
   Invoke-QStep 'tape' { Stop-Tape $Exe } $Soft.IsPresent
   Invoke-QStep '88a' {   # only with the recorded owner choice (G8, Q12)
     if (((Get-Content -LiteralPath "$R\q12.txt" -TotalCount 1) -split '\s+')[0] -ne 'STOP_AUTHORIZED') { NoGo 'Q12 not STOP_AUTHORIZED' }
@@ -1110,7 +1135,12 @@ when the loop was already stopped (`snapshot_tracker.py:2413-2415`, `market_micr
 function Stop-Capture($Exe, [switch]$Soft) {
   $X = if ($Exe -is [hashtable]) { $Exe } else { @{ snapshot=$Exe; clob=$Exe; obs=$Exe; gate=$Exe } }
   foreach ($tn in $Sup) { Invoke-QStep "disable $tn" { Disable-ScheduledTask -TaskName $tn | Out-Null   # Settings.Enabled: a running supervisor keeps State 'Running'
-    if ((Get-ScheduledTask -TaskName $tn).Settings.Enabled -ne $false) { NoGo "disable $tn" } } $Soft.IsPresent }
+    $st = @(Get-ScheduledTask -TaskName $tn); if ($st.Count -ne 1 -or $st[0].Settings.Enabled -ne $false) { NoGo "disable $tn" } } $Soft.IsPresent }
+  # A disable does not end an in-flight ensure run, which could relaunch a loop after the stop verbs. The supervisors are periodic
+  # ensure tasks (IgnoreNew; limits snapshot 5 min, clob and obs 2 min): wait, after all three disables, for every instance to end.
+  foreach ($tn in $Sup) { Invoke-QStep "ensure $tn" {
+    $t0 = Get-Date; while ([string](Get-ScheduledTask -TaskName $tn).State -eq 'Running' -and ((Get-Date) - $t0).TotalSeconds -lt 330) { Start-Sleep 5 }
+    if ([string](Get-ScheduledTask -TaskName $tn).State -eq 'Running') { NoGo "$tn instance still running past its time limit" } } $Soft.IsPresent }
   $stamp = Get-Date -Format HHmmss; $script:c1 = $script:c2 = $script:c3 = 99
   Invoke-QStep 'stop snapshot' { $script:c1 = Invoke-Native $X.snapshot @('-m','weather.collection.snapshot_tracker','--stop') "$N\stop-snapshot-$stamp" } $Soft.IsPresent
   Invoke-QStep 'stop clob'     { $script:c2 = Invoke-Native $X.clob @('-m','weather.market.market_microstructure','stop') "$N\stop-clob-$stamp" } $Soft.IsPresent
@@ -1300,7 +1330,8 @@ decides the remediation under the 88a retention hold.
 **C10. Close-out.**
 
 ```powershell
-@{ result='PASS'; head=$Head; gap_minutes=[math]::Round(($GapEnd-$GapStart).TotalMinutes,1); old_venv=$Old; new_home=$NewHome; release_case='A'; at=(Get-Date).ToString('o') } |
+@{ result='PASS'; head=$Head; gap_minutes=[math]::Round(($GapEnd-$GapStart).TotalMinutes,1); old_venv=$Old; new_home=$NewHome; release_case='A'; at=(Get-Date).ToString('o')
+   escalations=@(Select-String -LiteralPath $Log -SimpleMatch 'ESCALATE' | Where-Object { $_.Line.StartsWith((Get-Date).ToString('yyyy-MM-dd')) }).Count } |   # tonight's lines only: night.log spans every phase
   ConvertTo-Json | Set-Content "$N\cutover-receipt.json" -Encoding utf8
 Release-Lease; Log 'CUTOVER PASS'
 ```
