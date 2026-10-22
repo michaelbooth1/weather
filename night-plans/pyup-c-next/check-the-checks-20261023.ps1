@@ -208,7 +208,8 @@ function Get-FileSha256([string]$Path) {
         try { return (-join ($h.ComputeHash($fs) | ForEach-Object { $_.ToString('X2') })) } finally { $h.Dispose() }
     } finally { $fs.Dispose() }
 }
-function Get-TaskExact([string]$Name) { @(Get-ScheduledTask -TaskName $Name -ErrorAction SilentlyContinue) }
+# Unary comma: a function's output unrolls, and in PS 5.1 a lone CimInstance has no .Count (host 10-22).
+function Get-TaskExact([string]$Name) { return ,@(Get-ScheduledTask -TaskName $Name -ErrorAction SilentlyContinue) }
 function Get-SpanSeconds([string]$Iso) { if (-not $Iso) { return $null }; [Xml.XmlConvert]::ToTimeSpan($Iso).TotalSeconds }
 function Get-KitFirstToken([string]$Path) { ((Get-Content -LiteralPath $Path -TotalCount 1) -split '\s+')[0] }   # the kit's q12 / q12b / gap form (no Trim)
 
@@ -310,6 +311,12 @@ try {
     Write-Output ("CONTEXT host={0} elevated={1} now={2} night={3} tag={4} P={5} R={6} NewHome={7}" -f $env:COMPUTERNAME, $IsElevated, $NowText, $NightDate, $Tag, $P, $R, $NewHome)
 
     # --- wrapper preflight (run:46-71; c0:26-29; retry:128-140)
+    Use-Check 'SELF-GET-TASKEXACT' 'Get-TaskExact on a live single-match task name returns an array with Count 1 (if not, every task check below misreports)' {
+        $all = @(Get-ScheduledTask -ErrorAction SilentlyContinue); $pick = $null
+        foreach ($c in $all) { if ($null -eq $pick -and @($all | Where-Object { $_.TaskName -ceq $c.TaskName }).Count -eq 1) { $pick = $c.TaskName } }
+        if ($null -eq $pick) { "no single-match task visible (tasks=$($all.Count) elevated=$IsElevated)"; 'NOT-EVALUABLE'; return }
+        $t = Get-TaskExact $pick
+        "pick=$pick count=$($t.Count) type=$($t.GetType().Name)"; (Get-Verdict ($t -is [array] -and $t.Count -eq 1)) }
     Use-Check 'PF-ELEVATED(run:46,c0:26,retry:128)' 'True (launch the kit elevated)' { $IsElevated; (Get-Verdict $IsElevated) }
     Use-Check 'PF-STDIO-NOT-REDIRECTED(run:47,c0:27,retry:129)' 'err=False out=False (this session; the kit refuses a redirected launch)' {
         $e = [Console]::IsErrorRedirected; $o = [Console]::IsOutputRedirected; "err=$e out=$o"; (Get-Verdict (-not $e -and -not $o)) }
