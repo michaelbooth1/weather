@@ -519,6 +519,18 @@ per year, forecast source, corpus ids and manifest hashes). An R0 fit is
 --output-root <dir>`, run through `scripts\ops\workstation_heavy.ps1 -Kind
 weather_heavy` (the trainer is on its offline-module allowlist).
 
+`python -m weather.calibration.r0_candidate_manifest --candidate-root <dir>
+--candidate-id <id> --centre <date> --build-commit <sha> --market <id> ...
+[--exclude-market <id>=<reason>]` binds one centre's R0 fits into a
+self-hashed, write-once `r0_candidate_manifest.json`: per market the sha256 of
+the base-only coefs, HGB and report, the allowlist and `training_inputs`
+records, and the sha256 of the five served components a research release
+copies unchanged (late-day coefficients, calibrated weights, probability
+calibration, forecast-error and settlement-lag models), plus the window,
+corpora, training years, build commit and exclusions. It fails closed on a
+missing file, an LFS pointer, an unpinned or wrong centre, or markets trained
+on different corpora.
+
 METAR keying replay (read-only, target dates up to 2026-09-29 only). It
 re-parses the raw AWC payloads retained in each market-day folder's
 `observation_payloads/` under the retired `reportTime` keying
