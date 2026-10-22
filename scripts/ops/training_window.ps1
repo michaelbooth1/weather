@@ -284,16 +284,47 @@ $supervisorEnsureRunBoundSeconds = @{
     "WeatherObservationTriggerSupervisor" = 150
 }
 
-function Wait-SupervisorEnsureRunsEnded {
+function Assert-SupervisorEnsureRunLimits {
+    # Read-only, before any disable: the table above must cover each live task's
+    # limit. PT0S means no limit, so a missing, zero or larger limit fails closed.
+    foreach ($task in $supervisorTasks) {
+        $boundSeconds = [int]$supervisorEnsureRunBoundSeconds[$task]
+        $limitText = [string](Get-ScheduledTask -TaskName $task -ErrorAction Stop).Settings.ExecutionTimeLimit
+        $limitSeconds = 0.0
+        try { $limitSeconds = [Xml.XmlConvert]::ToTimeSpan($limitText).TotalSeconds } catch { }
+        if ($limitSeconds -le 0 -or $limitSeconds -gt ($boundSeconds - 30)) {
+            throw "capture supervisor ExecutionTimeLimit '$limitText' is not covered by its ensure-run bound ${boundSeconds}s: $task"
+        }
+    }
+}
+
+function Get-StopSecondsRemaining([datetime]$Deadline) {
+    return [math]::Max(0.0, ($Deadline - [datetime]::UtcNow).TotalSeconds)
+}
+
+function Assert-StopTimeRemaining([datetime]$Deadline, [string]$Step) {
+    if ((Get-StopSecondsRemaining $Deadline) -le 0) {
+        $script:childExit = 9001
+        throw "capture stop deadline (${CaptureStopTimeoutSeconds}s) exhausted before $Step"
+    }
+}
+
+function Wait-SupervisorEnsureRunsEnded([double]$RemainingSeconds) {
     # Disable-ScheduledTask does not end an in-flight IgnoreNew ensure run, which
     # could relaunch a loop after the stop verbs. The runs end in parallel, so one
-    # elapsed count since the disables is checked against each task's own bound.
+    # elapsed count since the disables is checked against each task's own bound,
+    # capped by what remains of the shared stop deadline.
     $pollSeconds = 5
     $elapsedSeconds = 0
     foreach ($task in $supervisorTasks) {
         $boundSeconds = [int]$supervisorEnsureRunBoundSeconds[$task]
+        $limitSeconds = [math]::Min([double]$boundSeconds, $RemainingSeconds)
         while ([string](Get-ScheduledTask -TaskName $task -ErrorAction Stop).State -eq "Running") {
-            if ($elapsedSeconds -ge $boundSeconds) {
+            if ($elapsedSeconds -ge $limitSeconds) {
+                if ($limitSeconds -lt $boundSeconds) {
+                    $script:childExit = 9001
+                    throw "capture stop deadline (${CaptureStopTimeoutSeconds}s) exhausted waiting ${elapsedSeconds}s for the ensure run of $task"
+                }
                 throw "capture supervisor ensure run still Running ${elapsedSeconds}s after disable (bound ${boundSeconds}s): $task"
             }
             Start-Sleep -Seconds $pollSeconds
@@ -423,6 +454,10 @@ if ($dirtyPaths.Count -gt 0) {
         throw "BaseRetrainCandidateDir appeared before capture stop: $($baseBindings.BaseRetrainCandidateDir)"
     }
     # ---- Stop capture cleanly: supervisors first so nothing revives mid-window ----
+    Assert-SupervisorEnsureRunLimits
+    # One deadline (the stop cap) covers the ensure-run wait, the stop verbs and
+    # the stop confirmation; each step gets only the time that remains.
+    $stopDeadline = [datetime]::UtcNow.AddSeconds($CaptureStopTimeoutSeconds)
     foreach ($task in $supervisorTasks) {
         Disable-ScheduledTask -TaskName $task -ErrorAction Stop | Out-Null
         $disabledTask = Get-ScheduledTask -TaskName $task -ErrorAction Stop
@@ -433,15 +468,19 @@ if ($dirtyPaths.Count -gt 0) {
         }
         Write-WindowLog "STOP" "disabled $task (exact readback)"
     }
-    Wait-SupervisorEnsureRunsEnded
+    Wait-SupervisorEnsureRunsEnded -RemainingSeconds (Get-StopSecondsRemaining $stopDeadline)
+    Assert-StopTimeRemaining $stopDeadline "snapshot stop"
     & $python -m weather.collection.snapshot_tracker --stop | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "snapshot stop exited $LASTEXITCODE" }
+    Assert-StopTimeRemaining $stopDeadline "CLOB stop"
     & $python -m weather.market.market_microstructure stop | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "CLOB stop exited $LASTEXITCODE" }
+    Assert-StopTimeRemaining $stopDeadline "observation-trigger stop"
     & $python -m weather.operations.observation_trigger stop | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "observation-trigger stop exited $LASTEXITCODE" }
     Write-WindowLog "STOP" "stop verbs issued for all three loops"
-    if (-not (Wait-CaptureStopped $CaptureStopTimeoutSeconds)) {
+    Assert-StopTimeRemaining $stopDeadline "stop confirmation"
+    if (-not (Wait-CaptureStopped (Get-StopSecondsRemaining $stopDeadline))) {
         $childExit = 9001
         $stillActive = Get-ActiveCaptureLoops
         Write-WindowLog "ERROR" "capture did not become fully inactive within ${CaptureStopTimeoutSeconds}s (still active: $stillActive); retrain not started"

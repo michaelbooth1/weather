@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -53,7 +54,7 @@ def test_training_window_uses_verified_no_live_capture_admission():
     assert "--capture-mode no_live_capture" in text
     assert "--capture-resource-mode\", \"no_live_capture" in text
     assert "--capture-resource-min-free-memory-bytes\", \"0" in text
-    assert "if (-not (Wait-CaptureStopped $CaptureStopTimeoutSeconds))" in text
+    assert "if (-not (Wait-CaptureStopped (Get-StopSecondsRemaining $stopDeadline)))" in text
     assert 'Test-Path -LiteralPath $python -PathType Leaf' in text
 
 
@@ -193,17 +194,24 @@ def test_training_tasks_are_run_specific_and_restore_is_proved() -> None:
     assert "Git and capture remain untouched" in window
     child_cap_seconds = 170 * 60
     producer_sla_seconds = child_cap_seconds - 300
+    # The ensure-run wait, stop verbs and stop confirmation share the one stop cap.
     stop_cap_seconds = 600
-    ensure_run_wait_seconds = 330  # longest supervisor bound: 5 min limit + 30 s
     recovery_cap_seconds = 300
     deadman_seconds_after_0100 = 195 * 60
     scheduler_limit_seconds = 225 * 60
     assert producer_sla_seconds < child_cap_seconds
-    assert '"WeatherSnapshotLoopSupervisor" = 330' in window
+    assert "$stopDeadline = [datetime]::UtcNow.AddSeconds($CaptureStopTimeoutSeconds)" in window
     assert (
-        ensure_run_wait_seconds + stop_cap_seconds + child_cap_seconds + recovery_cap_seconds
-        < deadman_seconds_after_0100
+        "Wait-SupervisorEnsureRunsEnded -RemainingSeconds (Get-StopSecondsRemaining $stopDeadline)"
+        in window
     )
+    assert "Wait-CaptureStopped (Get-StopSecondsRemaining $stopDeadline)" in window
+    assert "Wait-CaptureStopped $CaptureStopTimeoutSeconds" not in window
+    margin_seconds = deadman_seconds_after_0100 - (
+        stop_cap_seconds + child_cap_seconds + recovery_cap_seconds
+    )
+    # 195 - (10 + 170 + 5) min: the margin the caps allowed before the ensure-run wait.
+    assert margin_seconds >= 10 * 60
     assert deadman_seconds_after_0100 < scheduler_limit_seconds
 
 
@@ -451,8 +459,10 @@ def test_stop_waits_for_in_flight_supervisor_ensure_runs_within_bounds() -> None
     """A disable does not end an in-flight IgnoreNew ensure run, which could relaunch a loop.
 
     Guards the post-disable wait in training_window.ps1: each supervisor's run must leave
-    'Running' within its ExecutionTimeLimit + 30 s, counted on one clock since the disables.
-    Start-Sleep is stubbed, so each poll advances the count by 5 s without waiting.
+    'Running' within min(its ExecutionTimeLimit + 30 s, what remains of the shared stop
+    deadline), counted on one clock since the disables; the stop steps get only what remains;
+    and a live ExecutionTimeLimit the bound table does not cover fails closed before any
+    disable. Start-Sleep is stubbed, so each poll advances the count by 5 s without waiting.
     """
     env = os.environ.copy()
     env["WEATHER_TRAINING_WINDOW_SCRIPT"] = str(SCRIPT)
@@ -462,35 +472,61 @@ $tokens = $null; $errors = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile(
     $env:WEATHER_TRAINING_WINDOW_SCRIPT, [ref]$tokens, [ref]$errors)
 if ($errors.Count -ne 0) { throw "parse error: $($errors[0].Message)" }
-$fn = $ast.Find({ param($n)
-    $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
-    $n.Name -eq 'Wait-SupervisorEnsureRunsEnded' }, $true)
-. ([scriptblock]::Create($fn.Extent.Text))
+foreach ($name in @('Wait-SupervisorEnsureRunsEnded', 'Assert-SupervisorEnsureRunLimits',
+        'Get-StopSecondsRemaining', 'Assert-StopTimeRemaining')) {
+    $fn = $ast.Find({ param($n)
+        $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+        $n.Name -eq $name }, $true)
+    . ([scriptblock]::Create($fn.Extent.Text))
+}
 $bounds = $ast.Find({ param($n)
     $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and
     $n.Left.Extent.Text -eq '$supervisorEnsureRunBoundSeconds' }, $true)
 . ([scriptblock]::Create($bounds.Extent.Text))
 $supervisorTasks = @('WeatherSnapshotLoopSupervisor', 'WeatherClobBookLoopSupervisor',
     'WeatherObservationTriggerSupervisor')
+$CaptureStopTimeoutSeconds = 600.0
 function Write-WindowLog { param($Level, $Message) }
 function Start-Sleep { param($Seconds) $global:sleeps += $Seconds }
-# Stubs only: each task reads 'Running' for its configured number of polls, then 'Ready'.
+# Stubs only: each task reads 'Running' for its configured number of polls, then 'Ready',
+# and reports its configured ExecutionTimeLimit.
+$global:limits = @{}
 function Get-ScheduledTask { param([string]$TaskName, $ErrorAction)
+    $settings = [pscustomobject]@{ ExecutionTimeLimit = $global:limits[$TaskName] }
     if ($global:runningPolls[$TaskName] -gt 0) {
         $global:runningPolls[$TaskName]--
-        return [pscustomobject]@{ State = 'Running' }
+        return [pscustomobject]@{ State = 'Running'; Settings = $settings }
     }
-    [pscustomobject]@{ State = 'Ready' } }
-function Invoke-Probe([int]$Snapshot, [int]$Clob, [int]$Observation) {
+    [pscustomobject]@{ State = 'Ready'; Settings = $settings } }
+function Invoke-Probe([int]$Snapshot, [int]$Clob, [int]$Observation, [double]$Remaining = 600) {
     $global:sleeps = 0
+    $script:childExit = -1
     $global:runningPolls = @{
         WeatherSnapshotLoopSupervisor = $Snapshot
         WeatherClobBookLoopSupervisor = $Clob
         WeatherObservationTriggerSupervisor = $Observation
     }
-    try { Wait-SupervisorEnsureRunsEnded; $outcome = 'accepted' }
+    try { Wait-SupervisorEnsureRunsEnded -RemainingSeconds $Remaining; $outcome = 'accepted' }
     catch { $outcome = $_.Exception.Message }
-    [pscustomobject]@{ outcome = $outcome; slept = $global:sleeps }
+    [pscustomobject]@{ outcome = $outcome; slept = $global:sleeps; exit = $script:childExit }
+}
+function Invoke-LimitProbe([string]$Snapshot, [string]$Clob, [string]$Observation) {
+    $global:runningPolls = @{}
+    $global:limits = @{
+        WeatherSnapshotLoopSupervisor = $Snapshot
+        WeatherClobBookLoopSupervisor = $Clob
+        WeatherObservationTriggerSupervisor = $Observation
+    }
+    try { Assert-SupervisorEnsureRunLimits; 'accepted' } catch { $_.Exception.Message }
+}
+function Invoke-DeadlineProbe([double]$OffsetSeconds) {
+    $script:childExit = -1
+    try {
+        Assert-StopTimeRemaining ([datetime]::UtcNow.AddSeconds($OffsetSeconds)) 'CLOB stop'
+        $outcome = 'accepted'
+    }
+    catch { $outcome = $_.Exception.Message }
+    [pscustomobject]@{ outcome = $outcome; exit = $script:childExit }
 }
 [ordered]@{
     idle = Invoke-Probe 0 0 0
@@ -501,6 +537,16 @@ function Invoke-Probe([int]$Snapshot, [int]$Clob, [int]$Observation) {
     clob_past_bound = Invoke-Probe 0 31 0
     observation_past_bound = Invoke-Probe 0 0 31
     shared_clock = Invoke-Probe 20 11 0
+    deadline_at_remaining = Invoke-Probe 20 0 0 100
+    deadline_past_remaining = Invoke-Probe 21 0 0 100
+    deadline_spent = Invoke-Probe 1 0 0 0
+    limits_registered = Invoke-LimitProbe 'PT5M' 'PT2M' 'PT2M'
+    limits_snapshot_longer = Invoke-LimitProbe 'PT5M1S' 'PT2M' 'PT2M'
+    limits_clob_longer = Invoke-LimitProbe 'PT5M' 'PT3M' 'PT2M'
+    limits_unlimited = Invoke-LimitProbe 'PT5M' 'PT2M' 'PT0S'
+    limits_missing = Invoke-LimitProbe '' 'PT2M' 'PT2M'
+    stop_time_left = Invoke-DeadlineProbe 30
+    stop_time_spent = Invoke-DeadlineProbe -1
 } | ConvertTo-Json -Compress
 """
     result = subprocess.run(
@@ -514,15 +560,16 @@ function Invoke-Probe([int]$Snapshot, [int]$Clob, [int]$Observation) {
 
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
-    assert payload["idle"] == {"outcome": "accepted", "slept": 0}
-    assert payload["snapshot_ends"] == {"outcome": "accepted", "slept": 15}
-    assert payload["snapshot_at_bound"] == {"outcome": "accepted", "slept": 330}
+    assert payload["idle"] == {"outcome": "accepted", "slept": 0, "exit": -1}
+    assert payload["snapshot_ends"] == {"outcome": "accepted", "slept": 15, "exit": -1}
+    assert payload["snapshot_at_bound"] == {"outcome": "accepted", "slept": 330, "exit": -1}
     assert payload["snapshot_past_bound"] == {
         "outcome": "capture supervisor ensure run still Running 330s after disable "
         "(bound 330s): WeatherSnapshotLoopSupervisor",
         "slept": 330,
+        "exit": -1,
     }
-    assert payload["clob_at_bound"] == {"outcome": "accepted", "slept": 150}
+    assert payload["clob_at_bound"] == {"outcome": "accepted", "slept": 150, "exit": -1}
     assert payload["clob_past_bound"]["outcome"].endswith(
         "(bound 150s): WeatherClobBookLoopSupervisor"
     )
@@ -534,8 +581,75 @@ function Invoke-Probe([int]$Snapshot, [int]$Clob, [int]$Observation) {
         "outcome": "capture supervisor ensure run still Running 150s after disable "
         "(bound 150s): WeatherClobBookLoopSupervisor",
         "slept": 150,
+        "exit": -1,
+    }
+    # The shared stop deadline caps the wait below the per-task bound.
+    assert payload["deadline_at_remaining"] == {"outcome": "accepted", "slept": 100, "exit": -1}
+    assert payload["deadline_past_remaining"] == {
+        "outcome": "capture stop deadline (600s) exhausted waiting 100s for the ensure run "
+        "of WeatherSnapshotLoopSupervisor",
+        "slept": 100,
+        "exit": 9001,
+    }
+    assert payload["deadline_spent"]["exit"] == 9001
+    assert payload["deadline_spent"]["slept"] == 0
+    assert payload["limits_registered"] == "accepted"
+    assert payload["limits_snapshot_longer"] == (
+        "capture supervisor ExecutionTimeLimit 'PT5M1S' is not covered by its ensure-run "
+        "bound 330s: WeatherSnapshotLoopSupervisor"
+    )
+    assert payload["limits_clob_longer"].endswith("bound 150s: WeatherClobBookLoopSupervisor")
+    assert payload["limits_unlimited"].endswith(
+        "bound 150s: WeatherObservationTriggerSupervisor"
+    )
+    assert payload["limits_missing"].endswith("bound 330s: WeatherSnapshotLoopSupervisor")
+    assert payload["stop_time_left"] == {"outcome": "accepted", "exit": -1}
+    assert payload["stop_time_spent"] == {
+        "outcome": "capture stop deadline (600s) exhausted before CLOB stop",
+        "exit": 9001,
     }
     window = SCRIPT.read_text(encoding="utf-8-sig")
-    call = window.index("    Wait-SupervisorEnsureRunsEnded\n")
-    assert window.index("Disable-ScheduledTask -TaskName $task -ErrorAction Stop") < call
-    assert call < window.index("snapshot_tracker --stop")
+    limits = window.index("    Assert-SupervisorEnsureRunLimits\n")
+    deadline = window.index("    $stopDeadline = [datetime]::UtcNow.AddSeconds(")
+    first_disable = window.index("Disable-ScheduledTask -TaskName $task -ErrorAction Stop")
+    call = window.index("    Wait-SupervisorEnsureRunsEnded -RemainingSeconds")
+    assert limits < deadline < first_disable < call
+    stop_section = window[call : window.index("    Assert-CaptureStoppedForTraining\n")]
+    for step, command in (
+        ("snapshot stop", "snapshot_tracker --stop"),
+        ("CLOB stop", "market_microstructure stop"),
+        ("observation-trigger stop", "observation_trigger stop"),
+        ("stop confirmation", "Wait-CaptureStopped (Get-StopSecondsRemaining $stopDeadline)"),
+    ):
+        guard = stop_section.index(f'Assert-StopTimeRemaining $stopDeadline "{step}"')
+        assert guard < stop_section.index(command), step
+
+
+def test_supervisor_ensure_run_bounds_match_registered_execution_time_limits() -> None:
+    """Each bound in training_window.ps1 is its supervisor registrar's ExecutionTimeLimit + 30 s.
+
+    Guards the ensure-run wait against a registrar limit change that the bound table misses.
+    """
+    window = SCRIPT.read_text(encoding="utf-8-sig")
+    table = window.split("$supervisorEnsureRunBoundSeconds = @{", 1)[1].split("}", 1)[0]
+    bounds = {
+        name: int(value) for name, value in re.findall(r'"(Weather\w+)"\s*=\s*(\d+)', table)
+    }
+    registered = {}
+    for registrar in (
+        "register_snapshot_supervisor.ps1",
+        "register_clob_supervisor.ps1",
+        "register_observation_trigger_supervisor.ps1",
+    ):
+        text = (SCRIPT.parent / registrar).read_text(encoding="utf-8-sig")
+        task_names = re.findall(r'\[string\]\$TaskName = "(Weather\w+)"', text)
+        limits = re.findall(r"-ExecutionTimeLimit \(New-TimeSpan -Minutes (\d+)\)", text)
+        assert len(task_names) == 1 and len(limits) == 1, registrar
+        registered[task_names[0]] = int(limits[0]) * 60
+    assert set(bounds) == set(registered) == {
+        "WeatherSnapshotLoopSupervisor",
+        "WeatherClobBookLoopSupervisor",
+        "WeatherObservationTriggerSupervisor",
+    }
+    for name, limit_seconds in registered.items():
+        assert bounds[name] == limit_seconds + 30, name
