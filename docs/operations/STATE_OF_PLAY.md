@@ -1,7 +1,7 @@
 # State of play
 
 **Last updated: 2026-10-23 America/Toronto (owner: more-markets phase 2 plan and decisions 1-8 approved; C night 10-23/24;
-N12 did not merge 10-22/23; EDGE-1 D0 10-28 under amendments (s)/(s-C), pending the owner).**
+N12+N13+Stage-A fix 10-24/25; EDGE-1 D0 10-28 AT RISK, under amendments (s)/(s-C), pending the owner).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended. At most 95 lines and about 9 KB, one fact per bullet, detail in the linked owner.** This file owns
@@ -30,7 +30,7 @@ maker**; if the model shows no edge after every option is exhausted, the maker w
 ## Current truth
 
 - **Production source:** read `origin/master` with git. N12 (`739c03eff`, #190 parser v2 `1f8c2f2c1`) did NOT merge 10-22/23:
-  the host suite failed on a pyarrow 24 hive-partition test read (test fix `aeae6e0fa`); heads rebuilt on master, re-dating with master-agent.
+  the host suite failed on a pyarrow 24 hive-partition test read (test fix `aeae6e0fa`). N12 and N13 (each with that fix) plus the Stage-A fix head land 10-24/25, after the host bounded suite.
 - **Forward maker shadow ACTIVE** (`WeatherMakerShadowRunner`, 24/7, 12 bands, paper only); stop only with
   `data\maker_shadow\STOP`. Scoring embargo: `maker_shadow_panel.py` refuses UTC 09-30..10-15 and 10-15..11-13 (end stays 11-13: #263 N_req 706, DL 10-14).
   **Descriptive reads of 10-16..11-13 are refused everywhere until the panel closes** (owner 10-17).
@@ -62,9 +62,9 @@ maker**; if the model shows no edge after every option is exhausted, the maker w
 
 ## Ordered critical path
 
-1. **Model-edge programme:** EDGE-1 D0 10-28 (N13 serves after the 10-24 clock; DL 10-22); signed bundle-B copies before D0;
+1. **Model-edge programme:** EDGE-1 D0 10-28, AT RISK (N13 serves after the 10-24 clock; DL 10-22); signed bundle-B copies before D0;
    retrain column-allowlist head (build 10-27, land 10-30); Open-Meteo Previous Runs fetch (owner yes); lever 6 on the workstation.
-2. **Host nights:** N12 10-22/23; C 10-23/24; N13 = MG-1 bound + SD-1 + DST label fix (EF §10w; deferred past 12-21 if that chain fails) 10-24/25; S2+S9 10-25/26; 88a restart 10-26/27; then the waiting registrations.
+2. **Host nights:** C 10-23/24; N12 + N13 (MG-1 bound + SD-1 + DST label fix, EF §10w; deferred past 12-21 if that chain fails) + Stage-A fix 10-24/25, after the host bounded suite; S2+S9 10-25/26; 88a restart 10-26/27; then the waiting registrations.
 3. **YouTube-maker scoping** (documents only): owner actions O1-O5 in the 10-23 bundle.
 4. **Item 337:** host no-METAR replay after C; on PASS flip, bump, quiet window (owner yes).
 5. **Data layer v2:** [plan](DATA_LAYER_V2_PLAN.md); S2+S9 10-25/26; P1 and S4 re-dated after C.
