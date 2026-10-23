@@ -1,8 +1,10 @@
 # Host Python upgrade runbook (capture host, 3.11.0 to 3.11.9)
 
 > **APPROVED by the owner 2026-10-12 (DECISION_LOG, §11)**, including the 2026-10-12 G0/G7 revisions
-> and the §7a calendar. The cutover night was 00:30 on 10-17 and did not run; it is now 00:30 on Thu 10-22
-> (the night of 10-21 to 10-22; owner 2026-10-20 ~16:4x EDT, verbatim "Keep Python 10-21/22 (Recommended)", relayed by master-agent), on pre-N12 master. The state of play owns the date.
+> and the §7a calendar. The cutover night was 00:30 on 10-17 and did not run; 00:30 on Thu 10-22 (the night of
+> 10-21 to 10-22) stopped at C2 (history, revisions below). It is now 00:30 on Sat 10-24 (the night of 10-23 to
+> 10-24; owner GO 2026-10-22, verbatim "yes approve that for now", relayed by master-agent, DECISION_LOG
+> 2026-10-22), after N12 lands on 10-22/23, run from the [Phase C kit](#c-on-the-night-of-10-23-to-10-24-the-kit). The state of play owns the date.
 > Nothing in this file authorizes a download, an install, a capture gap, a task change or a merge.
 > [The owner sign-off checklist](#11-owner-sign-off-checklist) lists what the owner must sign first.
 > Live orders, cancels and signing are out of scope here; the live launcher is resealed under its
@@ -69,7 +71,112 @@ C0 now requires every registered `WeatherMakerEvidence<Family>` task to be in `a
 recorded as `STOP_AUTHORIZED` in `$R\q12b.txt` (Q12b); C2 stops it with the 88a worker; C9c checks it. **Every family step is conditional on registration:** C0 lists the registered `WeatherMakerEvidence<Family>` tasks, and with none, C0, C2 and C9c skip the family steps and never read `q12b.txt`. G3 now names the
 exact `roll_verdict.ps1` call, and **B-R** requalifies a stage venv in a new stage path when HEAD moved roll-sensitively after Phase B
 (N12 would), and §D now removes every qualification worktree. **B-R is parked:** C on 10-22 runs on pre-N12 master, so G3 rests on
-the Phase B tip; B-R is used only if C fails and N12 lands first. Dates changed in this revision (2026-10-20 replan): the header and the §7a C row now name 00:30 on Thu 10-22, G4 and §R "Escalation" carry the owner's ruling for that night, and G7's 10-17 C date is marked as history. The state of play and the decision log still own the cutover night.
+the Phase B tip; B-R is used only if C fails and N12 lands first. (G3 and the B-R timing are superseded by the
+2026-10-22 G3 ruling, revision below.) Dates changed in this revision (2026-10-20 replan): the header and the §7a C row now name 00:30 on Thu 10-22, G4 and §R "Escalation" carry the owner's ruling for that night, and G7's 10-17 C date is marked as history. The state of play and the decision log still own the cutover night.
+
+Revision 2026-10-22 (C2 disable check): **Phase C on the night of 10-21 to 10-22 stopped at C2 at 01:02:11 on a false
+NO-GO, "disable WeatherMakerEvidenceCapture".** Nothing was swapped, `Undo-Aux` re-enabled every aux task, and capture
+was not touched. C2 verified each disable with `(Get-ScheduledTask).State -eq 'Disabled'`, but a task with a running
+instance keeps State `Running` after `Disable-ScheduledTask`. The 88a worker always runs and is stopped only later, in
+C2's `88a` step, so that check could never pass; `Stop-Capture` (C3, §R) had the same check on the running
+supervisors. C2 had never run on the host. Both post-disable checks now read `Settings.Enabled`, and the stops keep
+their order. The C2 pre-state now also records `Enabled`. `Undo-Aux`, `Start-AuxHolders` and C9c read it when present
+and keep the old State rule for a pre-state file without it, so a disabled task that was running at C2 is no longer
+re-enabled by the undo. The G5 and U6 gates (`Assert-NoU6At0035`, B0, C0) keep State on purpose: a disabled task that
+is still running holds the lease and must stop the night; only their messages changed. Any wrapper or kit built from
+the earlier text must be regenerated.
+
+Revision 2026-10-22 (review of the C2 fix): State still legitimately asks "is an instance running". The old State
+readback had, incidentally, also proved that no instance was in flight; `Settings.Enabled` does not, and
+`Disable-ScheduledTask` does not end an in-flight run. The three capture supervisors and the tape supervisor are
+periodic ensure tasks (`IgnoreNew`; limits: snapshot 5 min, clob, observation and tape 2 min), so an ensure run already
+in flight could relaunch a loop after its stop. `Stop-Capture` therefore waits, after all three disables, for any
+supervisor instance to end, and C2 does the same for the tape supervisor before its stop. Both waits are bounded at
+330 s, just above the largest limit (tape wait 150 s and C1 deadline 01:04 since the later 10-22 revision below), and a NO-GO follows if an instance is still running. The long-running holders
+(88a, the shadow runner, capture-family tasks) are not waited on: they are stopped explicitly. Each post-disable check
+now also requires exactly one task of that name. C2 reads every pre-state row before writing `aux-prestate.csv`, so a
+lookup failure leaves no partial file (a partial file would have made `Undo-Aux` restore only some tasks, and a
+same-night retry skips recording); C0 now resolves every aux name first. `Start-AuxHolders` logs `ESCALATE` for a
+holder whose pre-state was disabled, and the C10 receipt counts tonight's `ESCALATE` lines in `night.log`. Worst case
+added before the 01:30 C4 deadline: about 2 min (tape) plus 5 min (supervisors) when every instance ends inside its
+limit, or 5.5 min per wait before a NO-GO. With the lease at 01:00 this still fits; a lease taken near 01:15 can now
+reach 01:30 inside C3, and the existing deadline check then undoes with no swap (tape wait 150 s and C1 deadline
+01:04 since the later 10-22 revision below).
+
+Revision 2026-10-22 (Fable review of the C2 fix). (1) C0's `WeatherClobEnrichmentLoop` guard used to pass when the
+task was in `aux-tasks.txt`, but C2 only disables it and never ends its instance, which is the loop and holds
+`venv\Scripts\pythonw.exe`, so C4's rename would NO-GO after capture had stopped. C0 now NO-GOes unless its State
+is `Disabled` (State on purpose: "enabled or running"), and the A1 list no longer names it. (2) C0's aux-name
+pre-resolve also NO-GOes when a name matches more than one task. (3) `Test-PrestateEnabled` logs `ESCALATE` for a
+present but empty `Enabled` column, as the kit already did, and `Start-AuxHolders` logs `ESCALATE` only for a
+holder that was disabled but running at C2, matching `Undo-Aux`. (4) The §R budget now counts the `-Soft` ensure
+waits (up to the task's time limit plus 30 s per stuck instance). (5) **Pre-C3 deadline 01:12.** The 01:30 check sits after
+`Stop-Capture`, so a late lease used to pay a capture gap for no swap. Just before the C3+C4 guarded block, a
+clock past 01:12 now runs the C2 undo only (`Undo-Aux`, `Start-AuxHolders`), releases the lease and NO-GOes,
+with capture untouched; it does not run `Undo-Stop`, whose S4U restore is needed only after a capture stop.
+Derivation of T, the C3 pass-case worst case before the 01:30 check: supervisor disables (seconds); the ensure
+waits, at most 330 s in a pass, because every instance started before the disables, so the waits overlap; the
+three stop verbs, budgeted 1 min; the gate loop, 600 s plus its last gate call and sleep, budgeted 1 min. That is
+5.5 + 1 + 10 + 1 = 17.5 min, and 01:30 - 17.5 min = 01:12:30, rounded down to 01:12. A C3 that would start after 01:12
+therefore ends the night with no swap and no gap.
+
+Revision 2026-10-22 (C1 lease deadline 01:04, was 01:15; per-task ensure-wait bounds). With the lease as late as
+01:15, C2 could stop the 88a worker and the tape and only then meet the 01:12 pre-C3 deadline, paying an 88a and tape
+gap for no swap. Each ensure wait is now bounded at that task's `ExecutionTimeLimit` plus 30 s: the C2 tape-supervisor
+wait is 150 s (2 min limit, `register_execution_tape_supervisor.ps1:34`); the C3 supervisor waits stay 330 s (the
+snapshot supervisor's 5 min limit, `register_snapshot_supervisor.ps1:46`), so T = 01:12 is unchanged. The C1 deadline
+is 01:12 minus C1 after the lease plus the C2 pass-case worst case: C1's freeze, compare and receipt copies, budgeted
+1 min; the C2 shadow seal wait, 180 s plus one 10 s poll (3.17 min); the tape-supervisor ensure wait, 150 s plus one
+5 s poll (2.58 min); the pre-state reads, the aux disables with their readbacks, the tape stop and the 88a and family
+stops, budgeted 1.25 min. That is 1 + 3.17 + 2.58 + 1.25 = 8.0 min, and 01:12 - 8 min = 01:04:00, a whole minute
+already. The retry loop sleeps 30 s between attempts and could take the lease up to about 30 s after the deadline, so
+C1 now also NO-GOes (and releases) a lease taken after 01:04, before C2 touches anything. This trades every
+late-lease night for a zero 88a and tape gap. On 10-21/22 the late lease came from launch latency, not contention:
+the wrapper was launched at 01:01:13 and the lease was free throughout (01:01:17 was C0's read of the lease state,
+`Active` false, not the acquire). The operator now launches at
+01:00:00 sharp. The 01:00 floor is the 01:00-04:00 quiet window (DECISION_LOG 2026-10-03 and 2026-10-05;
+[capture-day grading and guarded merges](../ops/streak-soak.md)) and stays, so the C1 window is 01:00-01:04.
+(Superseded for the 10-23/24 night: the kit's 00:30 C1 floor applies and its README wins; see
+[§ C on the night of 10-23 to 10-24](#c-on-the-night-of-10-23-to-10-24-the-kit).)
+
+Revision 2026-10-22 (follow-up). (1) `Undo-Aux` and `Start-AuxHolders` now run as separate soft steps
+(`Invoke-QStep ... $true`) in C2's catch, in the pre-C3 deadline path and in `Undo-Stop`: a failure in one logs
+`ESCALATE` and the other still runs, so an 88a worker or tape left stopped is never silent. These paths end the
+night with exit 1, so C10 never runs: the `ESCALATE` lines are in `night.log`, and the exit-1 OPERATOR CHECK points
+there. The pre-C3 path still releases the lease exactly once, in its `finally`. (2) C0 NO-GOes unless
+`$R\oldhome.txt` holds exactly one non-empty line, as its first line, so neither the §6 header's `$OldHome` nor C4's
+`$OldHomeNorm` (which now reads that one line) can throw or differ outside the guarded block. (3) The
+`WeatherClobEnrichmentLoop` NO-GO message carries the observed State. (4) Timing on 10-21/22: wrapper launched by
+`Start-Process` at 01:01:13, session at 01:01:14, C0's lease-state read (`Active` false) at 01:01:17, C0 re-run done
+at 01:01:27, lease taken about 01:01:28, C2's shadow step at 01:01:29. The C0 re-run takes about 13 s, so a 01:00:00
+launch leaves about 3.5 min of slack against 01:04; no earlier launch is needed. (5) Rule: no path may leave the
+88a worker, the tape or the shadow runner stopped, or an aux task disabled, without an `ESCALATE` line in
+`night.log`. To hold it, `Undo-Aux` runs each row as its own soft step and logs `ESCALATE` if the shadow STOP file
+survives its removal; `Start-AuxHolders` runs each holder as its own soft step; `Undo-Stop` runs `Wait-Restore` as a
+soft step (a throw counts as not ok), so its undo pair always runs; C9b runs the undo pair as two soft steps and C9c
+then judges the evidence; §R re-enables the supervisors and runs `Wait-Restore` as soft steps (a throw counts as not
+3/3, which already logs `ESCALATE` and leaves the aux tasks disabled) and runs its undo pair as two soft steps.
+
+Revision 2026-10-22 (G3 ruling, master-agent, for the C night 10-23/24 after N12 lands on 10-22/23). G3 no longer
+uses `roll_verdict.ps1`. Verbatim ruling: "G3 holds if HEAD equals the qualified tip, OR all of these hold: (i) no dependency file (requirements*, pyproject.toml, *.lock, constraints*, setup.cfg, setup.py) differs between the qualified tip 90b2e1844 and HEAD; (ii) the exact HEAD tree, or a tree whose non-docs diff vs HEAD is empty, has a full WS pregate PASS run on Python 3.11.9; (iii) C0's other checks are clean. Otherwise B-R is needed, and B-R may run in any 00:30-09:00 heavy window before the cutover night, including the same night after a landing." C0 implements it read-only (code below): (i) is
+`git diff --name-only <qualified tip> HEAD` matched by leaf name at any depth; (ii) takes the workstation pregate
+receipt id, its tested full sha and a 3.11.9 attestation as operator-supplied values; the
+Phase C kit now ships the committed receipt to `C:\pyup\cp3119` and verifies its schema, verdict, head and
+`SHA256SUMS` line, and "non-docs diff empty" is `git diff --name-only <tested sha> HEAD` with every path matching
+`^docs/.+\.md$`; (iii) is every other C0 check. C0 prints `G3 PASS branch=HEAD==tip tip=<sha>` or
+`G3 PASS branch=(i)+(ii)+(iii) deps_changed=none pregate=<id> tested=<sha> nondocs_diff=empty`; a fail logs
+`G3 FAIL reason=<token>` and NO-GOes before anything is touched. A G3 fail is deterministic and never retried.
+
+Revision 2026-10-22 (G3 `-G3Mode` switch, master ruling on the kit). `-G3Mode strict|dependency` is mandatory with
+no default, and the owner's answer to master's D1 question picks the mode; C0 records it on the flag line and every
+attempt re-checks G3 with it. **dependency:** the ruling above as written, plus the amendment, verbatim: "the non-docs
+diff vs the tested sha may additionally contain only config/locations.json and config/location_market_events.json
+(fleet-generated)". Those two exact paths, no globbing; (i) is unchanged, and C0 prints
+`fleet_drift_exempt=<paths>` (or `none`) on the G3 PASS line. **strict:** HEAD equals the qualified tip, else
+`G3 DEFER`, which needs `roll_verdict.ps1` ROLL-FREE (exit 0) at the GO review, as before; no ROLL-FREE, no GO file.
+In dependency mode G3(ii) verifies the committed pregate receipt (schema, verdict PASS, head == tested sha); the Python
+version (3.11.9) is an attestation. The [Phase C kit](#c-on-the-night-of-10-23-to-10-24-the-kit) README owns the
+exact output lines and the two operator launch lines; the C0 block below predates the switch.
 
 **Owns:** the procedure for moving the production checkout's `venv` from CPython 3.11.0 to 3.11.9
 on the 16 GB capture host. That covers a side-by-side install, an offline wheelhouse, a stage venv
@@ -110,8 +217,8 @@ The live SDK portability check accepts any 3.11 patch release
 | G0 | The owner has signed §11 for this runbook revision and has named the morning or night of the phase about to run (Phase A: its owner-attended morning; Phase B and C: their nights). Revised 2026-10-12 (owner-confirmed). | Before Phase A, B0, C0 |
 | G1 | The bounded suite supports `-InterpreterPath` and `-ExpectedInterpreterVersion` (`scripts/ops/bounded_worktree_test_suite.ps1:44-52`). | Met on master; re-read `param(` if the script changed |
 | G2 | Phase A and Phase B passed on earlier nights, and `$R\qualification.json` has `"result":"PASS"`. | C0 |
-| G3 | The production HEAD equals the qualified tip, or `scripts\ops\roll_verdict.ps1 -Branch <HEAD sha> -Base <qualified tip sha>` exits 0 (ROLL-FREE; exit 3 or 1 fails G3). A failed G3 needs B-R (requalify on the new tip) on an earlier night, or an owner ruling. | C0 |
-| G4 | The owner is reachable from 00:30 to 03:45 on the cutover night: GO at C0, and any escalation up to the end of §R. Phase A needs no owner click since the 2026-10-13 revision (A4 has no installer).  **For C on the night of 10-21 to 10-22** the escalation rule is the owner's "Auto net, you in the morning (Recommended)" (owner 2026-10-19 ~13:1x EDT, selected options relayed by master-agent), which supersedes the DECISION_LOG rows of 2026-10-13 (advance GO, automatic rollback) and 2026-10-17 (the owner's own GO that night) on who answers an escalation; GO at C0 still comes from the owner in chat (§R, "Escalation"). | C0 |
+| G3 | Master ruling 2026-10-22 (replaces the `roll_verdict.ps1` rule): "G3 holds if HEAD equals the qualified tip, OR all of these hold: (i) no dependency file (requirements*, pyproject.toml, *.lock, constraints*, setup.cfg, setup.py) differs between the qualified tip 90b2e1844 and HEAD; (ii) the exact HEAD tree, or a tree whose non-docs diff vs HEAD is empty, has a full WS pregate PASS run on Python 3.11.9; (iii) C0's other checks are clean. Otherwise B-R is needed, and B-R may run in any 00:30-09:00 heavy window before the cutover night, including the same night after a landing." C0 checks (i) and (ii) mechanically from operator-supplied values (qualified tip, WS pregate receipt id, tested sha, 3.11.9 attestation) and prints `G3 PASS branch=...` only when (iii) also holds; any other outcome is `G3 FAIL` (NO-GO, never retried). Mandatory `-G3Mode strict\|dependency` (owner's D1 answer; dependency adds the two fleet-generated config paths and prints `fleet_drift_exempt=<paths>`; strict is HEAD==tip else DEFER needing ROLL-FREE at the GO review): see the `-G3Mode` revision above. | C0 |
+| G4 | The owner is reachable from 00:30 to 03:45 on the cutover night (for C, 00:30 to 03:45 on Sat 10-24): GO at C0, and any escalation up to the end of §R. Phase A needs no owner click since the 2026-10-13 revision (A4 has no installer).  **For C on the night of 10-23 to 10-24** (as on 10-21/22, which stopped at C2) the escalation rule is the owner's "Auto net, you in the morning (Recommended)" (owner 2026-10-19 ~13:1x EDT, selected options relayed by master-agent), which supersedes the DECISION_LOG rows of 2026-10-13 (advance GO, automatic rollback) and 2026-10-17 (the owner's own GO that night) on who answers an escalation; GO at C0 still comes from the owner in chat (§R, "Escalation"). The 10-23/24 GO (DECISION_LOG 2026-10-22) adds: up to 2 same-night retries, only before the swap; a failure after the swap undoes itself and waits for the owner. | C0 |
 | G5 | No other lease user is due that night. Specifically: <br>- `WeatherTrainingWindow` (a 01:00 one-shot, `register_training_window.ps1:3`) is disabled or has no trigger that night; <br>- Stage B `WeatherEveningEvidenceRefresh` (00:35, holds the lease to 09:00 when enabled; `register_daily_refresh.ps1:20-24`) is disabled; <br>- a U6 export registered at 00:35 (Q3) is disabled (enforced in B0 and C0 by `Assert-NoU6At0035`);<br>- no integration attempt, quiet-window merge, storage one-shot or held-head work is scheduled;<br>- no host replay or research batch (for example a lever-5 or item 337 replay) is scheduled or still running, and none holds the lease. | Phase B (B0), C0 |
 | G6 | Release case A: `artifacts\releases\current_release.json` is absent (H5, B3, C0). Case B or C is NO-GO for this runbook (§8). | H5, B3, C0 |
 | G7 (LFC) | The cutover night (and any Phase B prep night) is not the night before or the night of a scheduled LFC session. Revised 2026-10-12 (owner-confirmed): it no longer waits for LFC session 0, which the owner postponed. **Dated exception 2026-10-14** (owner: "Keep B" (2026-10-14 16:27 EDT, relayed verbatim by master-agent); DECISION_LOG 2026-10-13 LFC session 0 row): Phase B runs at 00:30 on 10-16, the morning of LFC session 0 (Fri 10-16), on the guard that B ends clean by 09:00 with the 8765 reader and capture re-checked, else session 0 slips; C stays at 00:30 on 10-17 (history: 10-17 plan; C is now 00:30 on 10-22, §7a). | Phase B (B0), C0 |
@@ -135,7 +242,7 @@ recommendations on 2026-10-12 (DECISION_LOG); the H-reads that Q4 and Q5 still n
 | --- | --- | --- | --- |
 | Q1 | Can an interactive session stop, see and verify the S4U capture workers? | **RESOLVED** (H6 optional corroboration) | Run Phase C and §R in an **elevated** window. The stop confirmation is PID-based: `capture_resource_gate.py:150-158` marks a loop active when the status PID or the writer-lock PID is alive (or heartbeat, lock and PID evidence agree). It uses the gate the training window uses (`training_window.ps1:238-252`), so it works from an interactive shell. The binding recovery proof is the S4U `WeatherTrainingWindowRestore` task (S4U at `register_training_window.ps1:115-118`, `-RestoreOnly` at :140). It writes `restore_only` / `capture_recovery_pass` (`training_window.ps1:277-290`) and takes no lease (the lease is at :352, after the restore-only exit). `capture_recovery_check` is documented to run in the S4U context (`capture_recovery_check.py:1-6`), and a non-elevated session cannot read S4U command lines (HOST_LOAD_POLICY, "residual scan" paragraph), so the interactive check is corroboration only. The rename failing on a locked file is the final backstop. |
 | Q2 | Exact interpreter flag on the bounded suite | **RESOLVED** (closed earlier) | `-ExpectedInterpreterVersion` takes an exact `X.Y.Z` and requires `-InterpreterPath` (`bounded_worktree_test_suite.ps1:44-52`). |
-| Q3 | Does the U6 export collide with the cutover? | **RESOLVED, conditional** (H8 confirms) | `WeatherReplayBundleExportNightly` stays unregistered until the owner says yes (state of play). The owner approved its 04:10 slot (DECISION_LOG 2026-10-09), so 04:10 is the likely registration. The 00:35 slot is the only one on the build-line registrar. If it is registered, it is in the C2 aux list and stays **disabled** from C2 until C9b, and §R does not re-enable it unless capture is 3/3. A 00:35 run with its 50-minute limit can hold the lease until 01:25, after the 01:15 latest cutover lease, so a 00:35 registration must be disabled for the cutover night (G5). A 04:10 run starts after the 03:45 rollback deadline. |
+| Q3 | Does the U6 export collide with the cutover? | **RESOLVED, conditional** (H8 confirms) | `WeatherReplayBundleExportNightly` stays unregistered until the owner says yes (state of play). The owner approved its 04:10 slot (DECISION_LOG 2026-10-09), so 04:10 is the likely registration. The 00:35 slot is the only one on the build-line registrar. If it is registered, it is in the C2 aux list and stays **disabled** from C2 until C9b, and §R does not re-enable it unless capture is 3/3. A 00:35 run with its 50-minute limit can hold the lease until 01:25, after the 01:04 latest cutover lease, so a 00:35 registration must be disabled for the cutover night (G5). A 04:10 run starts after the 03:45 rollback deadline. |
 | Q4 | Will the installer offer "Upgrade" over the existing 3.11.0? | **ANSWERED 2026-10-13: yes for the all-users scope** (host detect log, revision note; a same-scope per-user install is an upgrade by definition); **OWNER-DECISION**: install from the NuGet package (A3/A4) | Superseded inference, kept for the record: PEP 514 allows one `PythonCore\3.11` registration per hive (HKCU, HKLM). Inference, not tested: install 3.11.9 in the **opposite** scope from the existing 3.11.0 (all users if 3.11.0 is per-user, and the reverse). The owner cancels if the first page says *Upgrade* or *Modify*. A NuGet or embeddable-zip fallback is a new download and needs its own approval. |
 | Q5 | Release case A, B or C? | **RESOLVED: case A expected; NEEDS-HOST-READ H5 to confirm** | The state of play says there is no release store on the host. The pointer path is `artifacts\releases\current_release.json` (`release_artifacts.py:49-50`). H5, B3 and C0 re-check it. Any case other than A is NO-GO (G6, §8). |
 | Q6 | #259 test ids | **RESOLVED** (closed earlier) | #259 is on master. Its parametrized `constructor` / `pre_3_11_2` tests (`tests/sources/test_wu_redaction.py`, around lines 680 and 721) run on every 3.11 patch without skip or xfail, and must pass in B2. |
@@ -301,7 +408,7 @@ function Get-ReleaseActive([string]$Exe, [string]$OutBase) {
 function Assert-NoU6At0035([string]$Tag) {
   $u6 = Get-ScheduledTask -TaskName WeatherReplayBundleExportNightly -ErrorAction SilentlyContinue
   if ($u6 -and [string]$u6.State -ne 'Disabled' -and @($u6.Triggers | Where-Object { [string]$_.StartBoundary -match 'T00:35' }).Count -gt 0) {
-    NoGo "$Tag U6 export is registered at 00:35 and enabled (G5, Q3)" } }
+    NoGo "$Tag U6 export is registered at 00:35 and enabled or still running (State $($u6.State); G5, Q3)" } }   # State on purpose: a running U6 holds the lease
 # §11: the owner's recorded choice for a capture gap over 35 minutes; first token ACCEPT_OVERRUN or ROLLBACK_ON_OVERRUN
 function Get-GapChoice { $c = if (Test-Path -LiteralPath "$R\gap-overrun.txt") { ((Get-Content -LiteralPath "$R\gap-overrun.txt" -TotalCount 1) -split '\s+')[0] }
   if ($c -notin 'ACCEPT_OVERRUN','ROLLBACK_ON_OVERRUN') { NoGo 'gap-overrun choice not recorded in $R\gap-overrun.txt (§11)' }; $c }
@@ -340,6 +447,8 @@ Trap reminders ([operations agent role](OPERATIONS_AGENT_ROLE.md) §5):
 - a value one phase assigns is `$null` in the fresh session of a later night: read it from the file that phase wrote
   (the §6 header reads `oldhome.txt`), never from a variable set earlier (found in review 2026-10-13);
 - PowerShell variable names ignore case, and `foreach` and `ForEach-Object` assign in the session scope: a loop variable `$k`, `$p`, `$a` or `$r` overwrites `$K`, `$P`, `$A` or `$R`. Never reuse a session constant's name for a loop variable (a `foreach ($k ...)` in C6 would have rolled back every cutover; found in review 2026-10-13);
+- `Disable-ScheduledTask` does not end a running instance, and the task's State stays `Running` until it ends. Prove a
+  disable with `Settings.Enabled -eq $false`; use State only to ask whether an instance is running (C2 NO-GO, 2026-10-22);
 - never follow `night.log` with a tailing reader (`Get-Content -Wait`, `tail -F`): it can hold the file so that `Log`'s `Add-Content` fails and stops the phase. Read snapshots instead (seen on the host, 2026-10-13).
 
 Plain `& $exe ...; if ($LASTEXITCODE)` calls with no stderr redirection are safe under `Stop`.
@@ -534,7 +643,7 @@ morning: "00:30 on 10-16" is the night of 10-15 to 10-16.
 | A install (elevated operator session; no owner click since 2026-10-13) | **done**: P0-A2 10-13 08:54-08:57 (A4 NO-GO on the installer route); A' (A3 + A4, NuGet route) **PASS 10-14 05:23** after N9 handed back | none needed | It ran before §T, so §T ends with T-R. |
 | §T tzdata + T-R | 00:30-02:00 on Thu 10-15 | 00:30 on Fri 10-16 | First admitted night after N9 (00:30 on 10-14). |
 | B prep night | 00:30-04:45 on Fri 10-16 | 00:30 on Sat 10-17 | After A and after §T's T-R (B builds its lock from the refreshed freeze). |
-| C cutover | 00:30-02:25 on Sat 10-17 (owner-named; did not run). **Now 00:30-02:25 on Thu 10-22** (owner 2026-10-20 ~16:4x EDT, verbatim "Keep Python 10-21/22 (Recommended)", relayed by master-agent), before N12 | the next night inside 10-15..10-30 that meets G4 and G5, named by the owner (G0) | The night after B, so the qualified tip has little time to move (G3); after the freeze (G8). If B uses its fallback (10-17), C moves too. |
+| C cutover | 00:30-02:25 on Sat 10-17 (owner-named; did not run). 00:30 on Thu 10-22 (owner 2026-10-20 ~16:4x EDT, verbatim "Keep Python 10-21/22 (Recommended)", relayed by master-agent; stopped at C2, history). **Now 00:30-02:25 on Sat 10-24** (the night of 10-23 to 10-24; owner GO 2026-10-22, verbatim "yes approve that for now", relayed by master-agent; up to 2 pre-swap retries; [kit](#c-on-the-night-of-10-23-to-10-24-the-kit)), after N12 | the next night inside 10-15..10-30 that meets G4 and G5, named by the owner (G0) | The night after B, so the qualified tip has little time to move (G3); after the freeze (G8). If B uses its fallback (10-17), C moves too. |
 | Latest second attempt | 00:30 on Thu 10-29 | none | Keeps 10-30 and 10-31 spare; never 11-01 (G11). |
 | §D cleanup | first admitted night after a C PASS that has no other lease user | any later night | Removes the stage worktree; not urgent. |
 
@@ -633,7 +742,6 @@ Copy-Item -LiteralPath "$R\host-reads\h3-tasks.csv" "$A\tasks-venv.csv"   # §4 
 | `WeatherManualOrderJournal` |
 | `WeatherHostHealthWatchdog` |
 | `WeatherModelMarketDisagreementAnalysis` |
-| `WeatherClobEnrichmentLoop` |
 | `WeatherNightlyRetrainValidatePromote` |
 | `WeatherDailySettlementPromotionRefresh` |
 | `WeatherEveningEvidenceRefresh` |
@@ -644,6 +752,10 @@ Copy-Item -LiteralPath "$R\host-reads\h3-tasks.csv" "$A\tasks-venv.csv"   # §4 
 | `WeatherExchangeEconomicsSnapshotRefresh` |
 | `WeatherReplayBundleExportNightly` (only if present) |
 | host-local tasks that name the venv |
+
+`WeatherClobEnrichmentLoop` is not on this list: C2 only disables aux tasks, and its running instance is the
+loop itself, which holds `venv\Scripts\pythonw.exe` and would block the C4 rename. Before the night it must be
+disabled with no running instance (C0 enforces this: State must be `Disabled`).
 
 Use the exact names from the dump. A wrong name fails loudly in C2, because C2 does not suppress
 lookup errors.
@@ -742,7 +854,7 @@ If A4 fails:
 ```powershell
 $h = (Get-Date).Hour + (Get-Date).Minute/60; if ($h -lt 0.5 -or $h -ge 2.0) { NoGo 'outside the Phase B start window' }
 foreach ($tn in 'WeatherTrainingWindow','WeatherEveningEvidenceRefresh') { $x = Get-ScheduledTask -TaskName $tn -ErrorAction SilentlyContinue
-  if ($x -and [string]$x.State -ne 'Disabled') { NoGo "$tn is enabled (G5)" } }
+  if ($x -and [string]$x.State -ne 'Disabled') { NoGo "$tn is enabled or still running (State $($x.State), G5)" } }   # State, not Settings.Enabled: a disabled task still running holds the lease
 Assert-NoU6At0035 'B0'
 $mg = Read-WeatherMemoryGuardStatus -Path (Join-Path $P 'data\logs\memory_commit_guard_status.json'); Log "memory $($mg | ConvertTo-Json -Compress)"
 if ((Get-Volume -DriveLetter C).SizeRemaining -lt 55GB) { NoGo 'disk below the bounded-suite floor plus margin' }
@@ -911,9 +1023,10 @@ $q | ConvertTo-Json | Set-Content "$R\qualification.json" -Encoding utf8
 
 Keep `$Stage` until §D.
 
-**B-R. Requalify on a moved tip (only when G3 fails; added 2026-10-19; parked: used only if C fails and N12 lands first).** A qualification binds the tip it
-tested. When HEAD has since moved by a roll-sensitive change (G3), run B-R on an admitted night **before**
-the cutover night, under the Phase B rules (B0 window, G5, G7, suite start by 03:00); never on the cutover night.
+**B-R. Requalify on a moved tip (only when G3 fails; added 2026-10-19; timing per the 2026-10-22 G3 ruling).** A qualification binds the tip it
+tested. When G3 fails (master ruling 2026-10-22, gate G3), B-R may run in any 00:30-09:00 heavy window **before** the
+cutover night, including the same night after a landing, under the Phase B rules (G5, G7, the shared lease, suite start by
+03:00 and finished by 04:45); never on the cutover night itself.
 It reuses the wheelhouse and the A1 receipts, so it downloads nothing:
 1. archive the old record, and set `$Stage` to a **new** path (B1c refuses an existing one). The old stage and its
    `py3119-qual-*` branch stay until §D, which removes every qualification worktree;
@@ -940,22 +1053,45 @@ Log 'B-R inputs unchanged; continue at B1c'
 | Clock (local) | Step | Hard stop |
 | --- | --- | --- |
 | 00:30-00:55 | C0 GO checks | Any fail = NO-GO, nothing touched |
-| 01:00, latest 01:15 | C1 lease and receipts | No lease by 01:15 = NO-GO |
+| 01:00, latest 01:04 (10-23/24: floor 00:30, see the kit section below) | C1 lease and receipts | No lease by 01:04 = NO-GO, nothing touched (C1 plus worst-case C2 must end by the 01:12 pre-C3 deadline) |
 | +5 min | C2 quiesce the auxiliary tasks and long-running holders | Any throw = `Undo-Aux`, NO-GO |
-| +5-10 min | C3 stop the capture workers | Still active after 600 s = undo, restore, NO-GO |
+| +5-10 min | C3 stop the capture workers | Past 01:12 at C3 start = C2 undo, NO-GO, capture untouched; still active after 600 s = undo, restore, NO-GO |
 | by 01:30 | C4 rename `venv` to `venv-cp3110` | Rename fails 3 times or it is past 01:30 = undo, restore, NO-GO |
 | +3 min | C5 build the new `venv` offline | Fail = §R |
 | +2 min | C6 quick verify | Fail = §R |
 | +5-32 min | C7 S4U restore of the three capture workers only | Not 3/3 after one rerun = §R |
 | +5 min | C8 core verify | Fail = §R |
 | by 02:15; aux by 02:25 | C9 core PASS decision; C9b restore the aux tasks; C9c aux verify | Core not passed = §R; aux failure per C9c |
-| start by 02:45, done by 03:45 | §R rollback (worst case about 50 min) | Not 3/3 by 03:45: the 04:15 restore is the net; record and message the owner (§R, "Escalation") |
+| start by 02:45, done by 03:45 | §R rollback (worst case about 50 min; about 69 min if every ensure wait runs out) | Not 3/3 by 03:45: the 04:15 restore is the net; record and message the owner (§R, "Escalation") |
 
-This sits inside the 01:00-04:00 quiet window and ends before the 04:15 `WeatherTrainingWindowRestore`
+This sits inside the 01:00-04:00 quiet window (for 10-23/24 the kit's 00:30 floor applies; see
+[§ C on the night of 10-23 to 10-24](#c-on-the-night-of-10-23-to-10-24-the-kit)) and ends before the 04:15 `WeatherTrainingWindowRestore`
 trigger, which stays armed as the final safety net. The expected capture gap (C3 to C7) is about
 20-35 minutes. The auxiliary tasks (tape, shadow, 88a and the rest) stay quiesced until C9b, so
 §R never has to stop processes running on the new venv except the three capture workers. §R still
 re-runs the quiesce to be safe.
+
+#### C on the night of 10-23 to 10-24: the kit
+
+The operator kit is `night-plans/pyup-c-next/README.md` on branch `claude/night-plans-pyup-c-next-20261022` (never
+merged to master); its README and file headers win over the timetable above for that night.
+
+- **Retry wrapper** `phase-c-retry-wrapper-20261024.ps1` runs the attempt file up to 3 times. Each attempt writes stage
+  markers and its own transcript (`phase-c-transcript-20261024-a<n>.txt`; wrapper transcript beside it).
+- **Mechanical retry decision:** a pre-C3 failure (exit 1) with `PYUPC-RESTORE-VERIFY result=PASS` and no gate
+  refusal retries; any failure at or after C3, or a missing marker, gives WAIT-FOR-OWNER. At most 3 attempts; a
+  retry must start by 01:04 (the binding lease deadline), with 03:30 as a second backstop.
+- **Clocks:** C1 floor 00:30 (was 01:00); lease deadline 01:04; pre-C3 01:12; swap 01:30; C8 02:15; C9c 02:45;
+  rollback done by 03:45; dead-man 04:10/04:15.
+- **Between attempts,** the GO review compares the post-undo status against the baseline captured at attempt 1's GO
+  review (before C2). It passes only if every flag was in that baseline or is on the kit's fixed allowlist of
+  restart-transient tokens; any other new flag, or any CRITICAL not in the baseline, gives WAIT-FOR-OWNER. **N** is 660 s
+  (11 min, master ruling 2026-10-22), measured from the undo's restart time to the status sample taken just before
+  `status.ps1` runs. Master's reason, verbatim: "300 s transient + 330 s worst-case verify/settle, rounded; the
+  masked tokens can only hide tape/88a staleness, and a tape that never returns already fails the restore verify." The allowlist holds three tokens: the execution-tape
+  producer contract flag (`status.ps1:1596`), and `MAKER_EVIDENCE` STARTING and CAPTURING with a stale age
+  (`status.ps1:4962`). The kit README section "Retry GO review" (branch `claude/night-plans-pyup-c-next-20261022`,
+  `night-plans/pyup-c-next/README.md`) owns the token table.
 
 A failure before the C4 rename means **undo with no swap**: re-enable what C2 and C3 disabled, then
 start the S4U restore. A failure after the rename means §R.
@@ -968,7 +1104,27 @@ if (((Get-Content -LiteralPath "$R\q12.txt" -TotalCount 1) -split '\s+')[0] -ne 
 $GapChoice = Get-GapChoice; Log "gap-overrun choice: $GapChoice"
 Assert-NoU6At0035 'C0'     # enforced here, not left to the C0 next-runs exemption of the aux list
 $Head = (git -C $P rev-parse HEAD).Trim()
-if ($Head -ne $q.tip) { Log "HEAD moved from the qualified tip; G3 needs roll_verdict.ps1 -Branch $Head -Base $($q.tip) exit 0 (ROLL-FREE) attached before GO, else B-R" }
+# G3 (master ruling 2026-10-22). Operator-supplied values: $G3Tip (full qualified tip, must equal qualification.json tip),
+# $G3Receipt (WS pregate PASS receipt id pg-<12 hex>-...), $G3Tested (its tested full sha), $G3Py ('3.11.9', attested).
+function Test-G3Gate([string]$Head, [string]$QualTip, [string]$Receipt, [string]$Tested, [string]$PyAttest) {
+  $f = { param($r) [pscustomobject]@{ Pass = $false; Branch = 'none'; Detail = $r } }
+  if ("$QualTip" -cnotmatch '^[0-9a-f]{40}$') { return (& $f 'qualified_tip_not_supplied_as_40hex') }
+  if ($Head -ceq $QualTip) { return [pscustomobject]@{ Pass = $true; Branch = 'HEAD==tip'; Detail = "tip=$QualTip" } }
+  $names = @(git -C $P diff --name-only $QualTip $Head); if ($LASTEXITCODE) { return (& $f 'diff_tip_head_failed') }
+  $deps = @($names | Where-Object { $leaf = ("$_" -split '/')[-1]; $leaf -like 'requirements*' -or $leaf -like 'constraints*' -or $leaf -like '*.lock' -or $leaf -in 'pyproject.toml','setup.cfg','setup.py' })   # (i) any depth
+  if ($deps.Count) { return (& $f "deps_changed=$(@($deps | Select-Object -First 5) -join ',')") }
+  if ("$Receipt" -cnotmatch '^pg-([0-9a-f]{12})-[0-9]{8}T[0-9]{6}-[0-9]+$') { return (& $f 'pregate_receipt_not_supplied_or_malformed') }   # (ii)
+  $rp = $Matches[1]
+  if ("$Tested" -cnotmatch '^[0-9a-f]{40}$' -or -not $Tested.StartsWith($rp)) { return (& $f 'tested_sha_not_40hex_or_not_the_receipt_head') }
+  if ("$PyAttest" -cne '3.11.9') { return (& $f 'pregate_python_3.11.9_not_attested') }
+  $null = @(git -C $P cat-file -t "$Tested^{commit}"); if ($LASTEXITCODE) { return (& $f 'tested_sha_not_in_production_repo') }
+  $td = @(git -C $P diff --name-only $Tested $Head); if ($LASTEXITCODE) { return (& $f 'diff_tested_head_failed') }
+  $nd = @($td | Where-Object { "$_" -cnotmatch '^docs/.+\.md$' })   # "non-docs diff empty"
+  if ($nd.Count) { return (& $f "nondocs_diff=$($nd.Count):$(@($nd | Select-Object -First 5) -join ',')") }
+  [pscustomobject]@{ Pass = $true; Branch = '(i)+(ii)+(iii)'; Detail = "deps_changed=none pregate=$Receipt tested=$Tested nondocs_diff=empty" } }
+if ($G3Tip -cne ([string]$q.tip).Trim().ToLowerInvariant()) { Log "G3 FAIL reason=operator_tip_ne_qualification_json"; NoGo 'G3 FAIL: the supplied qualified tip is not qualification.json tip' }
+$G3 = Test-G3Gate $Head $G3Tip $G3Receipt $G3Tested $G3Py
+if (-not $G3.Pass) { Log "G3 FAIL reason=$($G3.Detail) head=$Head tip=$G3Tip"; NoGo "G3 FAIL: $($G3.Detail) (deterministic; B-R, never a retry)" }
 # Q12b: a capture-family task (N12) holds the venv like the 88a worker; it must be quiesced at C2 under a recorded choice
 $FamilyTasks = @(Get-ScheduledTask -TaskName 'WeatherMakerEvidence*' -ErrorAction SilentlyContinue | Where-Object { $_.TaskName -ne 'WeatherMakerEvidenceCapture' } | ForEach-Object { $_.TaskName })
 Log "capture-family tasks: $($FamilyTasks -join ',')"
@@ -976,11 +1132,15 @@ if ($FamilyTasks.Count) {
   if (-not (Test-Path -LiteralPath "$R\q12b.txt") -or ((Get-Content -LiteralPath "$R\q12b.txt" -TotalCount 1) -split '\s+')[0] -ne 'STOP_AUTHORIZED') { NoGo 'a capture-family task is registered but Q12b is not STOP_AUTHORIZED' }
   $auxNames = @(Get-Content -LiteralPath "$R\aux-tasks.txt" | ForEach-Object { $_.Trim() })
   foreach ($ft in $FamilyTasks) { if ($auxNames -notcontains $ft) { NoGo "$ft is not in aux-tasks.txt (A1 review)" } } }
+$auxNames = @(Get-Content -LiteralPath "$R\aux-tasks.txt" | Where-Object { $_.Trim() })   # the aux list exactly as C2's Quiesce-Aux reads it
+foreach ($auxName in $auxNames) { if (@(Get-ScheduledTask -TaskName $auxName -ErrorAction Stop).Count -ne 1) { NoGo "$auxName matches more than one task" } }   # a wrong name throws and a duplicate NO-GOes here, before anything has changed, not part-way through C2
+$wce = Get-ScheduledTask -TaskName WeatherClobEnrichmentLoop -ErrorAction SilentlyContinue; if ($wce -and ([string]$wce.State -ne 'Disabled')) { NoGo "WeatherClobEnrichmentLoop is registered and enabled or running (State $($wce.State)); C2 has no stop for it (its instance is the loop). Disable it and end its instance before the night." }
 if (git -C $P status --porcelain --untracked-files=no) { NoGo 'prod tree dirty' }
 if (Test-Path -LiteralPath $Old) { NoGo "$Old exists" }
+if (-not (Test-Path -LiteralPath "$R\oldhome.txt") -or -not "$(Get-Content -LiteralPath "$R\oldhome.txt" -TotalCount 1)".Trim() -or @(Get-Content -LiteralPath "$R\oldhome.txt" | Where-Object { $_.Trim() }).Count -ne 1) { NoGo 'oldhome.txt must hold exactly one non-empty line, as its first line (A1 writes it; Test-Venv and C4 read it)' }
 if ((Get-Volume -DriveLetter C).SizeRemaining -lt 10GB) { NoGo 'disk' }
 foreach ($tn in 'WeatherTrainingWindow','WeatherEveningEvidenceRefresh') { $x = Get-ScheduledTask -TaskName $tn -ErrorAction SilentlyContinue
-  if ($x -and [string]$x.State -ne 'Disabled') { NoGo "$tn is enabled (G5)" } }
+  if ($x -and [string]$x.State -ne 'Disabled') { NoGo "$tn is enabled or still running (State $($x.State), G5)" } }   # State, not Settings.Enabled: a disabled task still running holds the lease
 $mg = Read-WeatherMemoryGuardStatus -Path (Join-Path $P 'data\logs\memory_commit_guard_status.json'); Log "memory $($mg | ConvertTo-Json -Compress)"
 Log "lease state $((Get-WeatherHeavyWorkloadLeaseState -RepoRoot $P) | ConvertTo-Json -Compress)"
 $st0 = Invoke-Native 'powershell.exe' @('-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $P 'scripts\ops\status.ps1'),'-Json') "$R\c0-status"
@@ -990,6 +1150,7 @@ $Exempt = @('WeatherMemoryCommitGuard','WeatherSnapshotLoopSupervisor','WeatherC
           @(Get-Content -LiteralPath "$R\aux-tasks.txt" | Where-Object { $_.Trim() })
 Get-ScheduledTask | Where-Object { [string]$_.State -ne 'Disabled' -and $Exempt -notcontains $_.TaskName } | ForEach-Object { $i = Get-ScheduledTaskInfo $_
   if ($i.NextRunTime -and $i.NextRunTime -lt (Get-Date).Date.AddHours(4)) { "$($_.TaskName) next=$($i.NextRunTime)" } } | Tee-Object -FilePath "$R\c0-next-runs.txt"
+Log "G3 PASS branch=$($G3.Branch) $($G3.Detail)"   # (iii): printed only when every other C0 check above passed
 Log "C0 complete (status.ps1 exit $st0) - awaiting owner GO"
 ```
 
@@ -1004,10 +1165,11 @@ Log "C0 complete (status.ps1 exit $st0) - awaiting owner GO"
 **C1. Lease and fresh receipts.**
 
 ```powershell
-$global:Lease = $null; $deadline = (Get-Date).Date.AddHours(1).AddMinutes(15)
+$global:Lease = $null; $deadline = (Get-Date).Date.AddHours(1).AddMinutes(4)
 while (-not $global:Lease) { $global:Lease = Enter-WeatherHeavyWorkloadLease -RepoRoot $P -Workload 'py3119_cutover'
-  if (-not $global:Lease) { if ((Get-Date) -gt $deadline) { NoGo 'no lease by 01:15' }; Start-Sleep -Seconds 30 } }
+  if (-not $global:Lease) { if ((Get-Date) -gt $deadline) { NoGo 'no lease by 01:04' }; Start-Sleep -Seconds 30 } }
 $global:ReleaseOnNoGo = $true     # until the C4 rename, any NoGo releases the lease; after it, §R needs the lease
+if ((Get-Date) -gt $deadline) { NoGo 'lease taken after 01:04: C1 plus worst-case C2 would pass the 01:12 pre-C3 deadline' }   # the retry sleep can overshoot; refuse before C2 touches 88a or the tape
 $N = Join-Path $R ('night-' + (Get-Date -Format yyyyMMdd)); New-Item -ItemType Directory -Force $N | Out-Null
 & $Py -m pip freeze --all | Set-Content "$N\freeze-3110-tonight.txt"
 if (Compare-Object (Mask-Editable (Get-Content "$A\freeze-3110.txt")) (Mask-Editable (Get-Content "$N\freeze-3110-tonight.txt"))) { NoGo 'prod venv changed since Phase B - requalify (full Phase B on another night)' }
@@ -1020,7 +1182,8 @@ Log "shadow task registered=$([bool]$shadowTask) stop file: $ShadowStop"
 ```
 
 If the shadow task is not registered, `aux-tasks.txt` must not list it (A1 review). If it does
-list it, `Get-ScheduledTask` throws in C2, before anything has changed.
+list it, C0's aux-name check throws, before anything has changed. C2 reads every pre-state row
+before it writes `aux-prestate.csv`, so a lookup that still fails in C2 leaves no partial file.
 
 **C2. Quiesce the auxiliary tasks and long-running holders.** The functions are defined once and
 reused by C3, C9b and §R.
@@ -1031,11 +1194,19 @@ reused by C3, C9b and §R.
 ```powershell
 $Sup = 'WeatherSnapshotLoopSupervisor','WeatherClobBookLoopSupervisor','WeatherObservationTriggerSupervisor'
 $Holders = @('WeatherExecutionTapeSupervisor','WeatherMakerShadowRunner','WeatherMakerEvidenceCapture') + $FamilyTasks   # $FamilyTasks from C0
-function Undo-Aux { foreach ($row in Import-Csv "$N\aux-prestate.csv") { if ($row.State -ne 'Disabled') { Enable-ScheduledTask -TaskName $row.Task | Out-Null } }
-  if ($ShadowStop) { Remove-Item -LiteralPath $ShadowStop -ErrorAction SilentlyContinue } }
-function Start-AuxHolders {   # restart the long-running holders that C2 stopped, only where their pre-state was enabled
-  foreach ($tn in $Holders) { $row = Import-Csv "$N\aux-prestate.csv" -ErrorAction SilentlyContinue | Where-Object Task -eq $tn
-    if ($row -and $row.State -ne 'Disabled') { Start-ScheduledTask -TaskName $tn; Log "started $tn" } } }
+# Was this pre-state row enabled? The Enabled column (2026-10-22) is exact. A row without it (a pre-state recorded
+# before that revision) keeps the old State rule, so the undo of an existing file is unchanged.
+function Test-PrestateEnabled($Row) { if ($Row.PSObject.Properties['Enabled'] -and $Row.Enabled) { return $Row.Enabled -eq 'True' }
+  if ($Row.PSObject.Properties['Enabled']) { Log "ESCALATE: $($Row.Task) pre-state Enabled is empty; using the State rule (State $($Row.State))" }; $Row.State -ne 'Disabled' }
+function Undo-Aux {   # one soft step per row: a failed enable logs ESCALATE and the remaining rows still run
+  foreach ($row in Import-Csv "$N\aux-prestate.csv") { Invoke-QStep "enable $($row.Task)" { if (Test-PrestateEnabled $row) { Enable-ScheduledTask -TaskName $row.Task | Out-Null }
+    elseif ($row.State -eq 'Running') { Log "ESCALATE: $($row.Task) was disabled but running at C2; left disabled and not restarted" } } $true }
+  if ($ShadowStop) { Remove-Item -LiteralPath $ShadowStop -ErrorAction SilentlyContinue
+    if (Test-Path -LiteralPath $ShadowStop) { Log "ESCALATE: shadow STOP file $ShadowStop still present; the shadow runner stays stopped" } } }
+function Start-AuxHolders {   # restart the long-running holders that C2 stopped, only where their pre-state was enabled; one soft step each
+  foreach ($tn in $Holders) { Invoke-QStep "start $tn" { $row = Import-Csv "$N\aux-prestate.csv" -ErrorAction SilentlyContinue | Where-Object Task -eq $tn
+    if ($row -and (Test-PrestateEnabled $row)) { Start-ScheduledTask -TaskName $tn; Log "started $tn" }
+    elseif ($row -and $row.State -eq 'Running') { Log "ESCALATE: $tn pre-state disabled; not restarted" } } $true } }
 function Stop-Tape([string]$Exe) {
   # 'stop' exits 0 only when it stopped a live worker (execution_tape_supervisor.py:909-912). A worker that is
   # already gone returns authorization.process_gone=true / recorded_process_not_found (supervisor.py:1353-1361),
@@ -1054,17 +1225,23 @@ function Invoke-QStep([string]$Name, [scriptblock]$Body, [bool]$Soft) {
 function Quiesce-Aux([string]$Exe, [switch]$Soft) {
   $Aux = @(Get-Content -LiteralPath "$R\aux-tasks.txt" | Where-Object { $_.Trim() })
   Invoke-QStep 'prestate' {
-    if (-not (Test-Path -LiteralPath "$N\aux-prestate.csv")) {
-      $Aux | ForEach-Object { $x = Get-ScheduledTask -TaskName $_; [pscustomobject]@{ Task=$_; State=[string]$x.State } } |   # throws on a wrong name
-        Export-Csv -LiteralPath "$N\aux-prestate.csv" -NoTypeInformation } } $Soft.IsPresent
+    if (-not (Test-Path -LiteralPath "$N\aux-prestate.csv")) {   # read every row first: a throw on row N must not leave a partial file
+      $rows = @($Aux | ForEach-Object { $x = Get-ScheduledTask -TaskName $_; [pscustomobject]@{ Task=$_; State=[string]$x.State; Enabled=[string]$x.Settings.Enabled } })   # throws on a wrong name; State 'Running' does not say enabled
+      $rows | Export-Csv -LiteralPath "$N\aux-prestate.csv" -NoTypeInformation } } $Soft.IsPresent
   Invoke-QStep 'shadow' {   # STOP file only, never a kill
     if ($Aux -contains 'WeatherMakerShadowRunner') {
       if (-not $ShadowStop) { NoGo 'shadow stop-file path unknown' }
       New-Item -ItemType File -Force $ShadowStop | Out-Null
       $t0 = Get-Date; while ([string](Get-ScheduledTask -TaskName WeatherMakerShadowRunner).State -eq 'Running' -and ((Get-Date)-$t0).TotalSeconds -lt 180) { Start-Sleep 10 }
       if ([string](Get-ScheduledTask -TaskName WeatherMakerShadowRunner).State -eq 'Running') { NoGo 'shadow did not seal in 3 min' } } } $Soft.IsPresent
+  # Verify the disable with Settings.Enabled, never State: a disabled task with a running instance (88a, the tape) keeps State 'Running' until the stop below (C2 NO-GO 2026-10-22).
   foreach ($tn in $Aux) { Invoke-QStep "disable $tn" { Disable-ScheduledTask -TaskName $tn | Out-Null
-    if ([string](Get-ScheduledTask -TaskName $tn).State -ne 'Disabled') { NoGo "disable $tn" } } $Soft.IsPresent }
+    $st = @(Get-ScheduledTask -TaskName $tn); if ($st.Count -ne 1 -or $st[0].Settings.Enabled -ne $false) { NoGo "disable $tn" } } $Soft.IsPresent }
+  # A disable does not end an in-flight ensure run, which could relaunch the tape after its stop. The tape supervisor is a
+  # periodic ensure task (1 min, IgnoreNew, 2 min limit: register_execution_tape_supervisor.ps1:11, :27-34); wait for its instance, bounded at that limit + 30 s.
+  if ($Aux -contains 'WeatherExecutionTapeSupervisor') { Invoke-QStep 'tape ensure' { $tn = 'WeatherExecutionTapeSupervisor'
+    $t0 = Get-Date; while ([string](Get-ScheduledTask -TaskName $tn).State -eq 'Running' -and ((Get-Date) - $t0).TotalSeconds -lt 150) { Start-Sleep 5 }
+    if ([string](Get-ScheduledTask -TaskName $tn).State -eq 'Running') { NoGo "$tn instance still running past its time limit" } } $Soft.IsPresent }
   Invoke-QStep 'tape' { Stop-Tape $Exe } $Soft.IsPresent
   Invoke-QStep '88a' {   # only with the recorded owner choice (G8, Q12)
     if (((Get-Content -LiteralPath "$R\q12.txt" -TotalCount 1) -split '\s+')[0] -ne 'STOP_AUTHORIZED') { NoGo 'Q12 not STOP_AUTHORIZED' }
@@ -1074,7 +1251,7 @@ function Quiesce-Aux([string]$Exe, [switch]$Soft) {
 }
 try { Quiesce-Aux $Py; Log 'C2 quiesced' }
 catch { $msg = $_.Exception.Message; Log "C2 failed: $msg - undoing"
-  if (Test-Path -LiteralPath "$N\aux-prestate.csv") { Undo-Aux; Start-AuxHolders }
+  if (Test-Path -LiteralPath "$N\aux-prestate.csv") { Invoke-QStep 'undo aux' { Undo-Aux } $true; Invoke-QStep 'start holders' { Start-AuxHolders } $true }
   $global:ReleaseOnNoGo = $false; Release-Lease; throw }
 ```
 
@@ -1090,8 +1267,13 @@ when the loop was already stopped (`snapshot_tracker.py:2413-2415`, `market_micr
 # $Exe is one interpreter for everything (C3), or a hashtable with keys snapshot, clob, obs and gate (§R, per worker).
 function Stop-Capture($Exe, [switch]$Soft) {
   $X = if ($Exe -is [hashtable]) { $Exe } else { @{ snapshot=$Exe; clob=$Exe; obs=$Exe; gate=$Exe } }
-  foreach ($tn in $Sup) { Invoke-QStep "disable $tn" { Disable-ScheduledTask -TaskName $tn | Out-Null
-    if ([string](Get-ScheduledTask -TaskName $tn).State -ne 'Disabled') { NoGo "disable $tn" } } $Soft.IsPresent }
+  foreach ($tn in $Sup) { Invoke-QStep "disable $tn" { Disable-ScheduledTask -TaskName $tn | Out-Null   # Settings.Enabled: a running supervisor keeps State 'Running'
+    $st = @(Get-ScheduledTask -TaskName $tn); if ($st.Count -ne 1 -or $st[0].Settings.Enabled -ne $false) { NoGo "disable $tn" } } $Soft.IsPresent }
+  # A disable does not end an in-flight ensure run, which could relaunch a loop after the stop verbs. The supervisors are periodic
+  # ensure tasks (IgnoreNew; limits snapshot 5 min, clob and obs 2 min): wait, after all three disables, for every instance to end.
+  foreach ($tn in $Sup) { Invoke-QStep "ensure $tn" {
+    $t0 = Get-Date; while ([string](Get-ScheduledTask -TaskName $tn).State -eq 'Running' -and ((Get-Date) - $t0).TotalSeconds -lt 330) { Start-Sleep 5 }
+    if ([string](Get-ScheduledTask -TaskName $tn).State -eq 'Running') { NoGo "$tn instance still running past its time limit" } } $Soft.IsPresent }
   $stamp = Get-Date -Format HHmmss; $script:c1 = $script:c2 = $script:c3 = 99
   Invoke-QStep 'stop snapshot' { $script:c1 = Invoke-Native $X.snapshot @('-m','weather.collection.snapshot_tracker','--stop') "$N\stop-snapshot-$stamp" } $Soft.IsPresent
   Invoke-QStep 'stop clob'     { $script:c2 = Invoke-Native $X.clob @('-m','weather.market.market_microstructure','stop') "$N\stop-clob-$stamp" } $Soft.IsPresent
@@ -1115,12 +1297,16 @@ function Wait-Restore([datetime]$Since) {   # S4U restore; the task limit is 15 
   return $false }
 function Undo-Stop {   # pre-rename undo: the venv is still the intact 3.11.0
   foreach ($tn in $Sup) { Invoke-QStep "enable $tn" { Enable-ScheduledTask -TaskName $tn | Out-Null } $true }
-  $ok = Wait-Restore (Get-Date); Invoke-QStep 'undo aux' { Undo-Aux; Start-AuxHolders } $true
+  $script:UndoOk = $false; Invoke-QStep 'undo restore' { $script:UndoOk = Wait-Restore (Get-Date) } $true; $ok = $script:UndoOk   # a throw counts as not ok; the undo pair still runs
+  Invoke-QStep 'undo aux' { Undo-Aux } $true; Invoke-QStep 'start holders' { Start-AuxHolders } $true
   if ($ok) { Log 'undo: capture 3/3, aux tasks restored' } else { Log 'ESCALATE: undo restore did not report capture_recovery_pass' } }
 ```
 
 C3 and C4 run as one guarded block (below, after C4's functions). Any failure before the rename,
-whether a `NoGo` or any other throw, runs `Undo-Stop` and then releases the lease.
+whether a `NoGo` or any other throw, runs `Undo-Stop` and then releases the lease. Just before that block,
+the pre-C3 deadline (01:12) stops the night if C3 starts too late to reach the 01:30 check: it runs the C2
+undo only (`Undo-Aux`, `Start-AuxHolders`), releases the lease and NO-GOes. Capture has not been stopped,
+so there is no gap and no S4U restore.
 
 In no-live-capture mode, one gate call checks all three loops, as `Wait-CaptureStopped` does
 (`training_window.ps1:238-252`). `--workload` is only a label.
@@ -1128,7 +1314,7 @@ In no-live-capture mode, one gate call checks all three loops, as `Wait-CaptureS
 **C4. Sweep and rename (deadline 01:30).**
 
 ```powershell
-$OldHomeNorm = (Get-Content "$R\oldhome.txt").Trim().TrimEnd('\'); $NewHomeNorm = $NewHome.TrimEnd('\')
+$OldHomeNorm = @(Get-Content -LiteralPath "$R\oldhome.txt" | Where-Object { $_.Trim() })[0].Trim().TrimEnd('\'); $NewHomeNorm = $NewHome.TrimEnd('\')
 function Get-VenvHolders([string]$Dir) {
   # Anchored with a trailing backslash, so a sibling worktree such as <checkout>-<name>\venv never matches.
   # The base-interpreter clause catches child processes of either home that name the production checkout.
@@ -1142,6 +1328,9 @@ function Rename-WithSweep([string]$From, [string]$To, [string]$Tag) {
     if ($hold) { Log "$Tag try $i holders $(($hold.ProcessId) -join ',')"; Start-Sleep 20; continue }
     try { Rename-Item -LiteralPath $From -NewName $To -ErrorAction Stop; return $true } catch { Log "$Tag rename try $i failed: $($_.Exception.Message)"; Start-Sleep 20 } }
   return $false }
+# Pre-C3 deadline 01:12: the C3 pass-case worst case (about 17.5 min) would reach the 01:30 check too late, so stop before any capture stop.
+if ((Get-Date) -gt (Get-Date).Date.AddHours(1).AddMinutes(12)) { $msg = 'pre-C3 deadline 01:12 passed'; Log "$msg - C2 undo, capture not stopped, no swap"
+  try { Invoke-QStep 'undo aux' { Undo-Aux } $true; Invoke-QStep 'start holders' { Start-AuxHolders } $true } finally { $global:ReleaseOnNoGo = $false; Release-Lease }; NoGo $msg }
 # C3 + C4 guarded block. NoGo must not release the lease before the undo has run, so the catch releases it itself.
 $global:ReleaseOnNoGo = $false
 try {
@@ -1235,14 +1424,14 @@ recommendation.
 **C9b. Restore the auxiliary tasks.**
 
 ```powershell
-Undo-Aux; Start-AuxHolders
+Invoke-QStep 'undo aux' { Undo-Aux } $true; Invoke-QStep 'start holders' { Start-AuxHolders } $true   # a failure logs ESCALATE; C9c then judges the evidence
 $AuxRestart = Get-Date
 ```
 
 **C9c. Aux verify (within 10 minutes).**
 
 ```powershell
-$tapeOk = $false; $tapeWanted = (Import-Csv "$N\aux-prestate.csv" | Where-Object Task -eq 'WeatherExecutionTapeSupervisor' | Where-Object State -ne 'Disabled')
+$tapeOk = $false; $tapeWanted = (Import-Csv "$N\aux-prestate.csv" | Where-Object Task -eq 'WeatherExecutionTapeSupervisor' | Where-Object { Test-PrestateEnabled $_ })
 if ($tapeWanted) { $t0 = Get-Date
   while (-not $tapeOk -and ((Get-Date)-$t0).TotalMinutes -lt 5) {   # status exits 0 only for RUNNING/DEGRADED (execution_tape_supervisor.py:936)
     $tsc = Invoke-Native $Py @('-m','weather.operations.execution_tape_supervisor','status','--stale-after-seconds','180') "$N\tape-status-$(Get-Date -Format HHmmss)"
@@ -1281,7 +1470,8 @@ decides the remediation under the 88a retention hold.
 **C10. Close-out.**
 
 ```powershell
-@{ result='PASS'; head=$Head; gap_minutes=[math]::Round(($GapEnd-$GapStart).TotalMinutes,1); old_venv=$Old; new_home=$NewHome; release_case='A'; at=(Get-Date).ToString('o') } |
+@{ result='PASS'; head=$Head; gap_minutes=[math]::Round(($GapEnd-$GapStart).TotalMinutes,1); old_venv=$Old; new_home=$NewHome; release_case='A'; at=(Get-Date).ToString('o')
+   escalations=@(Select-String -LiteralPath $Log -SimpleMatch 'ESCALATE' | Where-Object { $_.Line.StartsWith((Get-Date).ToString('yyyy-MM-dd')) }).Count } |   # tonight's lines only: night.log spans every phase
   ConvertTo-Json | Set-Content "$N\cutover-receipt.json" -Encoding utf8
 Release-Lease; Log 'CUTOVER PASS'
 ```
@@ -1352,9 +1542,9 @@ if (Test-Path -LiteralPath "$P\venv") { if (-not (Rename-WithSweep "$P\venv" 've
 if (-not (Rename-WithSweep $Old 'venv' 'r2')) { NoGo 'ROLLBACK: venv-cp3110 cannot be renamed back - ESCALATE (holders file in $N); lease kept, see below' }
 if ((& "$P\venv\Scripts\python.exe" -VV) -notlike 'Python 3.11.0*') { Log 'ESCALATE: venv not 3.11.0' }
 if (Compare-Object (Mask-Editable (Get-Content "$A\freeze-3110.txt")) (Mask-Editable (& "$P\venv\Scripts\python.exe" -m pip freeze --all))) { Log 'ESCALATE: freeze differs' }
-foreach ($tn in $Sup) { Enable-ScheduledTask -TaskName $tn | Out-Null }
-$rb = Wait-Restore (Get-Date)
-if ($rb) { Undo-Aux; Start-AuxHolders }
+foreach ($tn in $Sup) { Invoke-QStep "enable $tn" { Enable-ScheduledTask -TaskName $tn | Out-Null } $true }
+$script:RbOk = $false; Invoke-QStep 'rollback restore' { $script:RbOk = Wait-Restore (Get-Date) } $true; $rb = $script:RbOk   # a throw counts as not 3/3
+if ($rb) { Invoke-QStep 'undo aux' { Undo-Aux } $true; Invoke-QStep 'start holders' { Start-AuxHolders } $true }
 else { Log 'ESCALATE: capture not 3/3 - aux tasks (including any U6 export) left DISABLED' }
 $rar = Get-ReleaseActive "$P\venv\Scripts\python.exe" "$N\rollback-active"; Assert-CaseA $rar 'rollback'
 Release-Lease; Log 'ROLLBACK DONE'
@@ -1367,8 +1557,11 @@ Release-Lease; Log 'ROLLBACK DONE'
 - the r1 and r2 sweeps: up to 2 minutes each;
 - `Wait-Restore`: 32 minutes.
 
-That is why §R must start by 02:45: it then ends by about 03:35, inside 03:45, and well before the
-04:10 U6 slot and the 04:15 restore trigger.
+§R also runs `Quiesce-Aux -Soft` and `Stop-Capture -Soft`, whose ensure waits cost up to 150 s for a
+still-running tape supervisor and up to 330 s for each still-running capture supervisor: realistically 0-5 minutes
+more, pathologically about 19 minutes more. The waits are not capped. That is why §R must start by 02:45:
+it then ends by about 03:35-03:40, inside 03:45, and well before the 04:10 U6 slot and the 04:15 restore
+trigger; in the pathological case it ends about 03:54, past 03:45 but still before 04:10 and 04:15.
 
 **Lease on an escalated §R.** If §R stops at r1, r2 or the final `Assert-CaseA`, it deliberately
 keeps the lease. Nothing heavy may start on a host in an unknown state.
@@ -1400,12 +1593,35 @@ Keep `venv-cp3119-failed` and `$R` for diagnosis. If 3/3 is not reached by 03:45
 owner. The aux tasks stay disabled, so a 04:10 U6 export cannot start on a half-restored venv. The
 04:15 restore trigger stays armed.
 
-**Escalation (C on the night of 10-21 to 10-22).** The owner's ruling, verbatim: "Auto net, you in the morning (Recommended)"
+**Escalation (C on the night of 10-23 to 10-24; the same rule held on 10-21/22).** The owner's ruling, verbatim: "Auto net, you in the morning (Recommended)"
 (owner 2026-10-19 ~13:1x EDT, selected options relayed by master-agent). If capture is not 3/3 by 03:45, the 04:15 `WeatherTrainingWindowRestore` task stays the automatic
 net and nobody improvises a further repair overnight. Master-agent records everything (`night.log`, `$N`, the holders
 files, the lease state) and messages the owner, who acts when up. The lease rules above still apply, including the
 09:00 deadline and the owner's call on Stage-A. This ruling supersedes the DECISION_LOG rows of 2026-10-13 and 2026-10-17
-on who answers an escalation for that night.
+on who answers an escalation for that night. Under the 10-23/24 GO, any failure at or after C3 waits for the owner
+and is never retried (kit wrapper `WAIT-FOR-OWNER`).
+
+**Wrapper process crashed or was killed.** Signature: the session transcript or `night.log` ends without a
+`PHASE-C wrapper exit` line (for a pasted session: the window closed mid-phase). No `ESCALATE` line was written. The
+04:15 `WeatherTrainingWindowRestore` re-enables only the three capture supervisors, so the aux tasks stay disabled and
+88a, the tape and the shadow runner (STOP file present) stay down. If `venv-cp3110` exists, the kill came after the
+C4 rename: do not restart holders on the new venv; record and escalate to the owner, as §R decides. Otherwise, in an
+elevated Windows PowerShell 5.1 session:
+1. paste the §6 header (it sets `$R`, `$Log` and `Log`), then define `Test-PrestateEnabled`, `Invoke-QStep`,
+   `Undo-Aux` and `Start-AuxHolders` (C2) from the kit, with `$N` set to the night folder and `$Holders` and
+   `$ShadowStop` as C1 and C2 set them. `$Holders` takes `$FamilyTasks` from C0; if that is unset, judge any
+   `WeatherMakerEvidence*` family task by eye;
+2. first confirm with `status.ps1` that capture is 3/3: after the 04:15 restore, or after an in-flight `Wait-Restore`
+   (the S4U restore) has finished. If capture is not 3/3, leave the aux tasks disabled, log an `ESCALATE` line and
+   tell the owner; stop here. As in §R, the aux tasks come back only after capture is 3/3;
+3. only then run `Undo-Aux; Start-AuxHolders` against `$N\aux-prestate.csv`;
+4. check with `status.ps1` that 88a and the tape are running (no `capture loop DOWN` or `MAKER_EVIDENCE` flag; the tape
+   section healthy). `status.ps1` has no shadow section: check the shadow with `Get-ScheduledTask
+   WeatherMakerShadowRunner` (State `Running`) and that the STOP file is gone;
+5. record it in `night.log` as an `ESCALATE` line (`Log 'ESCALATE: wrapper killed; aux restored by hand'`) and tell
+   the owner.
+
+A stale lease marker is recovered by the next `Enter-WeatherHeavyWorkloadLease` ("If the session is lost" above).
 
 ### §D. Cleanup after PASS (a later admitted night)
 
@@ -1470,7 +1686,7 @@ started on 3.11.9 against a 3.11.0-bound release would fail `check_runtime`
 | --- | --- |
 | 00:30-04:45 | §T; Phase B (B0 by 02:00, suite start by 03:00); §D |
 | 00:30-09:00 | §4 host reads (serial); Phase A (no lease; after any landing night has handed back) |
-| 01:00-04:00 quiet window | Phase C only. Latest lease 01:15, latest rename 01:30, core decision 02:15, aux verify 02:25, rollback start 02:45 (worst case done about 03:35). |
+| 01:00-04:00 quiet window (10-23/24: the kit's 00:30 C1 floor applies; see the kit section in Phase C) | Phase C only. Latest lease 01:04, pre-C3 deadline 01:12, latest rename 01:30, core decision 02:15, aux verify 02:25, rollback start 02:45 (worst case done about 03:35-03:40; about 03:54 if every §R ensure wait runs out). |
 | 04:45-06:45 tiering reserve, 06:50 jobs | Nothing heavy from this runbook |
 | 09:30-11:55 Stage-A | Nothing |
 | 12:00-18:00 graded and 18:00-00:30 near-close | Nothing |
