@@ -132,7 +132,8 @@ June pilot folder). A full served-vector recompute on 07-31..09-29 therefore **c
 instead:
 
 - `tools/research/model_edge_lever5/stage_replay.py` (`python -m tools.research.model_edge_lever5.run
-  replay`): re-runs the current pipeline on each captured snapshot as served and once per variant,
+  replay`): re-runs the current pipeline on each captured snapshot unmodified (the base: current code
+  on captured inputs, **not** the served vector of record; section 3.6) and once per variant,
   reports total-variation distance (an exact upper bound on any band's absolute change, for any banding;
   0 if and only if no band changes) and max bucket change, per hour block. Read-only, refuses targets
   outside 07-31..09-29, reads only `replay_inputs.jsonl`.
@@ -167,8 +168,9 @@ Columns decoded: identifiers, local/cutoff hour, `model_version`, `high_so_far`,
 ### 3.3 Per-stage result
 
 Final-vector numbers (max/mean band change, fraction of snapshots changed) come from the 12-market
-replay of section 3.5; the stage-level numbers above bound one stage, not the vector after the later floors,
-lock-ins and calibration temperature.
+replay of section 3.5 and are measured against the current-code base, not the served vector (3.6);
+the stage-level numbers above bound one stage, not the vector after the later floors, lock-ins and
+calibration temperature.
 
 | Stage | Change tested | Result | Status |
 | --- | --- | --- | --- |
@@ -209,7 +211,8 @@ $env:PYTHONPATH = '<worktree>\src;<worktree>'
 Re-running the same command resumes (folders with a `folder_done` row are skipped; a folder that
 ended in a `folder_error` has no `folder_done` and is re-attempted, e.g. after `git lfs checkout`). Expected:
 `nbm_removed`, `nbm_perturbed`, `intraday_tail_repointed`, `metar_live_signal_repointed` exactly 0
-everywhere; any `folder_error` means the base would not have been the served vector for that folder.
+everywhere; any `folder_error` means no current-code base could be computed for that folder (the base is
+never the served vector of record; section 3.6).
 
 ### 3.5 Final-vector replay, 12 markets (2026-10-21)
 
@@ -245,6 +248,115 @@ Real trace, Atlanta 2026-08-10 snapshot `20260810T150843696523-0400`, 15 h, `hgb
 `nbm_prob_tmax_*` and the NBM guidance state; perturbing moves the reader's p10..p90 from 73..77 to 83..87 and
 the state's representative 77 → 87; in both the served HGB row is identical (`model_features.py:1269`) and
 final TV is 0. So the served HGB fleet does not consume NBM; NBM's only route to value is a new model.
+
+### 3.6 Base = current code, not the served vector of record (M8 check, 2026-10-21)
+
+Every delta in sections 3.3-3.5 is "current code ± variant on captured inputs". It is **not** a delta
+from what was served: the unmodified replay does not reproduce the served vector on dev dates.
+
+Check (outcome-blind): `python -m tools.research.model_edge_lever5.run served`
+(`tools/research/model_edge_lever5/served_repro.py`, added in `64cbecca4`; branch
+`claude/model-edge-codecheck-20261019` at `0941dc432afe8ff47291938479d17c2931ef3a6b`) compares the
+unmodified replay of each snapshot with the record's `recorded_distribution`, which
+`snapshot_store.py` writes as `model.get("distribution")` next to the sources it consumed (the replay
+fidelity canary). It is a model output, not an outcome. Run: 732 folders, 128,594 snapshots, 0 folder
+errors, 0 base errors. `max_abs` = max absolute per-bucket difference.
+
+| market | n | share within 1e-9 | p99 max_abs | max max_abs |
+| --- | --- | --- | --- | --- |
+| atlanta | 10805 | 0.056 | 0.784 | 0.872 |
+| austin | 10875 | 0.100 | 0.725 | 0.956 |
+| chicago | 10819 | 0.062 | 0.883 | 0.952 |
+| dallas | 10662 | 0.040 | 0.769 | 0.830 |
+| denver | 10769 | 0.116 | 0.844 | 0.917 |
+| houston | 10584 | 0.079 | 0.758 | 0.799 |
+| los-angeles | 10432 | 0.043 | 0.869 | 0.968 |
+| miami | 10561 | 0.171 | 0.754 | 0.976 |
+| nyc | 10551 | 0.059 | 0.814 | 0.982 |
+| san-francisco | 10512 | 0.224 | 0.859 | 0.971 |
+| seattle | 10726 | 0.115 | 0.709 | 0.941 |
+| toronto | 11298 | 0.143 | 0.662 | 0.891 |
+
+By local hour band, all markets (share within 1e-9 / median `max_abs`): 00-05 0.247 / 0.0017; 06-09
+0.112 / 0.0063; 10-12 0.098 / ~0; 13-16 0.042 / 0.060; 17-23 0.004 / 0.275. The late hours dominate,
+matching the lock-in serving changes made after capture (section 2, stages 1-8).
+
+Cause, code drift since capture (capture `model_identity` against the replay identity):
+`model_version` differs on 100% of rows; `code_changed` includes `src/weather/model/model_constants.py`
+and `model_distribution.py` on 100%, `market_registry.py` on 75,116 rows, `feature_store.py` and
+`model_features.py` on 19,230 rows each. Not the artifacts: `artifact_hash` changed on 0 rows,
+`active_model_kind` (`hgb`) differs on 0 rows, and 0 mismatched rows have an identical identity. Dev
+captures span 490 distinct capture commits.
+
+Consequences: the base of every lever-5 delta is current code. The EDGE-1 twin (T1/T0) dev deltas are
+likewise "current code ± twin", not "served ± twin". Reproducing the served vector to 1e-9 on dev dates
+would need a per-row replay at each row's capture commit, which no tool does (and EF §1k found the
+June-July served bytes often never committed); forward reproduction (M8) is checkable only at a frozen
+hash on forward rows. The A0 power figure used the served vector of record, so it is unaffected. Nothing
+here says which code is better: no outcome was read. EF §10v.
+
+### 3.7 EDGE-1 twin variants on dev inputs (3b, 2026-10-21; codecheck level)
+
+Vector deltas against the current-code base (section 3.6), outcome-blind. No score was read and nothing
+here is an edge claim: a dev delta is "current code ± twin", and the binding T1/T0 comparison is forward,
+at the frozen hash. Tool: `claude/model-edge-codecheck-20261019` at
+`0941dc432afe8ff47291938479d17c2931ef3a6b`; the twins run only when named in `--variants`. Run: 732
+folders, 128,594 snapshots, 0 errors, `hgb` only, dev targets 07-31..09-29.
+
+- **`t1_nws_hourly_only`** (EDGE-1 annex §1.1, the binding twin) empties the `open_meteo`,
+  `weather_forecast`, `eccc_citypage`, `global_ensemble` and `open_meteo_global_models` payloads. Serving's
+  own code then sets `forecast_high` to the NWS hourly day max and recomputes `forecast_gap`; with no NWS
+  day max the variant equals the base. By construction T1 also removes those sources from the
+  post-processing forecast votes. Miami: source count 1, disagreement `None`. Toronto has no
+  `nws_hourly`, so T1 = base on all 11,298 rows. NWS fill is 1.000 elsewhere, except Los Angeles 0.997,
+  Miami 0.998, Seattle 0.999.
+- **`t0_climatology_prior`** (non-binding) empties every forecast payload; `forecast_high` becomes the
+  target month's mean daily high from prior years only, and `forecast_gap` is recomputed.
+- Served columns: no bundle selects a per-source forecast column. The forecast columns are
+  `forecast_high` and `forecast_gap`, plus `forecast_source_count` and `forecast_disagreement` in Miami and
+  Toronto.
+
+T1 against the current-code base, per market and local hour band; each cell is changed fraction / mean
+TV / max TV (changed = TV > 1e-12). Source: `l5_twin_tables.py` (scratch) over the run's `twin.jsonl`,
+0 base errors and 0 variant errors in every market; the output stays uncommitted.
+
+| market | 00-05 | 06-09 | 10-12 | 13-16 | 17-23 | all hours |
+| --- | --- | --- | --- | --- | --- | --- |
+| atlanta | 0.912 / 0.156 / 0.706 | 0.906 / 0.149 / 0.741 | 0.916 / 0.145 / 0.736 | 0.996 / 0.157 / 0.707 | 0.949 / 0.029 / 0.839 | 0.936 / 0.117 / 0.839 |
+| austin | 0.968 / 0.120 / 0.726 | 0.972 / 0.094 / 0.667 | 0.986 / 0.096 / 0.627 | 0.999 / 0.139 / 0.783 | 0.943 / 0.037 / 0.840 | 0.969 / 0.092 / 0.840 |
+| chicago | 0.968 / 0.279 / 0.945 | 0.966 / 0.273 / 0.911 | 0.966 / 0.303 / 0.889 | 0.995 / 0.313 / 0.917 | 0.936 / 0.045 / 0.836 | 0.962 / 0.219 / 0.945 |
+| dallas | 0.965 / 0.064 / 0.582 | 0.943 / 0.061 / 0.695 | 0.981 / 0.068 / 0.749 | 0.999 / 0.164 / 0.787 | 0.974 / 0.081 / 0.700 | 0.972 / 0.085 / 0.787 |
+| denver | 0.984 / 0.213 / 0.811 | 0.978 / 0.191 / 0.763 | 0.992 / 0.221 / 0.904 | 0.992 / 0.196 / 0.858 | 0.609 / 0.043 / 0.864 | 0.873 / 0.157 / 0.904 |
+| houston | 0.975 / 0.205 / 0.833 | 0.952 / 0.192 / 0.854 | 0.983 / 0.199 / 0.911 | 0.999 / 0.164 / 0.806 | 0.995 / 0.028 / 0.750 | 0.982 / 0.143 / 0.911 |
+| los-angeles | 0.950 / 0.092 / 0.732 | 0.922 / 0.099 / 0.706 | 0.933 / 0.187 / 0.675 | 0.998 / 0.228 / 0.797 | 0.988 / 0.046 / 0.486 | 0.962 / 0.114 / 0.797 |
+| miami | 0.945 / 0.203 / 0.884 | 0.954 / 0.194 / 0.871 | 0.886 / 0.125 / 0.665 | 0.934 / 0.099 / 0.575 | 0.734 / 0.010 / 0.916 | 0.876 / 0.118 / 0.916 |
+| nyc | 0.984 / 0.245 / 0.872 | 0.977 / 0.224 / 0.893 | 0.979 / 0.216 / 0.763 | 0.999 / 0.241 / 0.855 | 0.965 / 0.044 / 0.910 | 0.979 / 0.179 / 0.910 |
+| san-francisco | 0.997 / 0.306 / 0.758 | 1.000 / 0.284 / 0.764 | 1.000 / 0.254 / 0.768 | 0.997 / 0.201 / 0.820 | 1.000 / 0.017 / 0.519 | 0.999 / 0.193 / 0.820 |
+| seattle | 0.999 / 0.209 / 0.923 | 0.991 / 0.208 / 0.960 | 0.972 / 0.196 / 0.837 | 0.991 / 0.229 / 0.874 | 0.951 / 0.043 / 0.547 | 0.979 / 0.162 / 0.960 |
+| toronto | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 (T1 = base) |
+
+T1 fallback rows (no NWS day max, variant = base): Los Angeles 34, Miami 19, Seattle 7, Toronto 11,298;
+every other market 0. The 17-23 band changes least in mean TV everywhere, and its changed fraction drops
+to 0.609 in Denver and 0.734 in Miami.
+
+T0 against the same base, all hours (changed fraction / mean TV / max TV); 17-23 is again the smallest
+band in mean TV (0.009-0.069) and 00-12 the largest (0.16-0.65):
+
+| market | all hours | market | all hours |
+| --- | --- | --- | --- |
+| atlanta | 0.985 / 0.155 / 0.905 | miami | 0.991 / 0.207 / 0.899 |
+| austin | 1.000 / 0.270 / 0.788 | nyc | 1.000 / 0.328 / 0.978 |
+| chicago | 1.000 / 0.429 / 0.968 | san-francisco | 1.000 / 0.222 / 0.758 |
+| dallas | 1.000 / 0.150 / 0.748 | seattle | 1.000 / 0.319 / 0.941 |
+| denver | 0.994 / 0.302 / 0.926 | toronto | 1.000 / 0.224 / 0.882 |
+| houston | 1.000 / 0.299 / 0.772 | los-angeles | 1.000 / 0.190 / 0.863 |
+
+Both tables are vector deltas only: no score was read, nothing here is evidence of edge, and the binding
+T1/T0 comparison is forward at the frozen hash.
+
+Throughput: uncapped HGB predicts used ~17 cores at ~27 s/folder; with `OMP_NUM_THREADS`,
+`OPENBLAS_NUM_THREADS` and `MKL_NUM_THREADS` = 1 the run took ~3 s/folder (fix on its own branch;
+[host load policy](../operations/HOST_LOAD_POLICY.md) rule 11).
 
 ## 4. What "110g re-fit" is
 

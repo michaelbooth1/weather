@@ -519,6 +519,13 @@ Stage-A, workstation or live authority is added.
       fixed -04:00 offset (OD28, #249), and the integration sequencer does not
       run the night of 10-31 to 11-01 (05-F3). Task order and the read-only
       check: [OPERATIONS_DESIGN](OPERATIONS_DESIGN.md) "DST re-registration (OD28)".
+11. **Cap native threads in serial HGB loops** (both hosts). An offline replay or scoring loop that calls
+    HGB predict serially sets `OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS` and `MKL_NUM_THREADS` to 1,
+    before numpy/sklearn import and only when unset. Uncapped, one serial loop took ~17 cores of the
+    32 GB workstation at ~27 s/folder; capped, ~3 s/folder (lever-5 twin run, 2026-10-21). The lever-5
+    driver does this at entry (`tools/research/model_edge_lever5/run.py`, `os.environ.setdefault`,
+    codecheck `f589ad9729fdce2ccee2850279aa36745303a0ee`; only when started through `run.py`). It
+    matters more on the 16 GB capture host, where an oversubscribed pool competes with capture.
 
 **Space inventory is not a heavy command.** `scripts/ops/workstation_space_report.ps1` is read-only and may
 run on either host at any hour: it lowers its own priority, runs no Python, pytest or `Get-ChildItem -Recurse`,
