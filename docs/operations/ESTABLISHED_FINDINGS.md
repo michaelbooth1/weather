@@ -112,6 +112,7 @@ sequence numbers, not calendar dates.
 | 10u | HGB path: the intraday-tail and METAR-live-signal stages never act (code-traced + Toronto replay, 2026-10-21); the WU-floor residual is only data-inert |
 | 10v | Dev replay with current code does not reproduce the served vector (M8 check, 2026-10-21, outcome-blind): code drift, not artifacts; replay deltas are "current code ± variant" |
 | 10w | Open-Meteo hourly labels are fixed-offset per response; serving reads them as zone wall time, so labels on the far side of a DST change are 1 h late (code trace on master `1c19ae10b`, 2026-10-21; live behaviour inferred) |
+| 10x | From the 2026-10-23 events the venue's declared resolution source is the raw aviationweather.gov METAR API, routine reports only (SPECI excluded), with a WU fallback; Denver names KDEN, not our KBKF (event metadata only; SPECI effect measured 07-31..09-29) |
 
 ---
 
@@ -3214,6 +3215,8 @@ instrument at different sawtooth phases.
 
 ### 10c. The venue's declared resolution source moved from WU to `weather.gov` timeseries
 
+> **SUPERSEDED IN PART** for events dated 2026-10-23 onward by §10x (raw METAR API, routine reports only).
+
 Around the **2026-08-23** event (verified in git history for Atlanta and Toronto) the venue's
 `resolutionSource` for the 12 captured markets changed from Weather Underground to
 `weather.gov/wrh/timeseries?site=<icao>`; same ICAO stations. In the working copy of
@@ -3954,6 +3957,36 @@ was read.
   effect is limited to pre-06:00Z fetches on 11-01, and the archive/training readers it lists are shifted on every
   standard-time date. DST-L9's "latent: the season is May-Aug" no longer holds once the Oct-Dec PIT fetch exists. The
   audit does not list `eccc_gridded.py`, `reanalysis_history.py` or `historical_fallbacks.py`.
+
+### 10x. From the 2026-10-23 events the venue resolves on the raw METAR API, routine reports only — event metadata plus IEM measurement, 2026-10-23
+
+**Claim, at exactly this scope:** for built-in events dated 2026-10-23 and later, the venue's declared
+`resolutionSource` is the raw `aviationweather.gov/api/data/metar` API for the station, replacing the
+`weather.gov/wrh/timeseries` page of §10c. Verbatim samples (public read-only Gamma GETs, `resolutionSource` field only):
+NYC 10-23 `https://aviationweather.gov/api/data/metar?ids=KLGA&format=raw&date=2026-10-24T04:00:00Z&hours=27`,
+Chicago 10-24 `...?ids=KORD&format=raw&date=2026-10-25T08:00:00Z&hours=30`, Denver 10-25
+`...?ids=KDEN&format=raw&date=2026-10-26T09:00:00Z&hours=30`. The three `description` texts are one template (identical
+hash after swapping station, date and URL). Only event metadata was read for these dates: no prices, no outcomes.
+
+- **Rules as summarised (not quoted in full):** the label is the highest **routine** METAR temperature on the local date,
+  read in tenths of °C from the remark group (whole-degree body value if the remark is missing), rounded half up to °F; a
+  report that begins with SPECI does not count; corrected reports count until the next day's first report; WU Daily
+  Observations is the fallback.
+- **SPECI effect (measured, IEM, 671 US station-days 2026-07-31..09-29, METAR only):** dropping SPECIs lowers the daily-max
+  degree on 15 days and changes the 2 °F band on 9 (1.3%). WU included the SPECI on both days where one held the max (2/2),
+  so WU-derived labels and the repo's routine+SPECI METAR path sit on the SPECI-inclusive side of that gap.
+- **Agreement where WU exists (measured, 07-31..08-10, 110 US market-days; the workstation's WU history ends 08-10):**
+  repo rule (routine + SPECI, `tmpc`, half-up) 110/110 exact with WU; the new venue rule 108/110 exact, 1 band flip. This
+  repeats 86a's pre-switch window rather than adding new dates.
+- **Denver station:** the 10-23..10-25 Denver events name **KDEN**; the built-in spec, WU history and
+  `config/locations.json` use KBKF. No KDEN measurement exists.
+- **Not claimed:** no exact-degree agreement between WU and the venue after 09-29; nothing for Toronto or Hong Kong; the
+  pilot cities' post-10-23 Rules were not read; foreign SPECIs cannot be separated in IEM raw text.
+- **Consequence (decision, not finding):** owner 2026-10-23 (DECISION_LOG) labels new METAR-settled cities from IEM METAR;
+  the built-ins stay on the WU proxy pending a later decision. The ledger still hard-codes WU. Source:
+  [METAR-vs-WU agreement study](../research/metar-vs-wu-agreement-2026-10-23.md);
+  [phase-2 scoping](../research/more-markets-phase2-scoping-2026-10-23.md). **Supersedes in part §10c** for events dated
+  2026-10-23 onward (the WRH page and its "Hourly Data"/"Temp" rules no longer name the source).
 
 ## Related
 
