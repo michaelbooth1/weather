@@ -28,6 +28,11 @@ generated reports for dynamic state.
   settlement-rules contract declares rounding per location
   (`settlement_band_degree` in `weather.operations.release_candidate_contract`);
   never apply half-up rounding to an HKO value.
+- Label-source amendment (owner 2026-10-23, [DECISION_LOG](DECISION_LOG.md)):
+  new cities whose venue source is a METAR report (the more-markets phase-2
+  tranches) are labelled from free IEM METAR, not WU. The amendment covers
+  only those new cities. The built-in markets stay on the WU proxy unless a
+  later decision, informed by the METAR-vs-WU agreement study, says otherwise.
 - WU history is the settlement proxy and may establish a hard observed floor.
   When the WU observation path is empty, the serving contract also promotes
   the effective observed high already admitted by feature extraction: a

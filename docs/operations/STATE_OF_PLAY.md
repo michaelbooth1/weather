@@ -1,7 +1,7 @@
 # State of play
 
-**Last updated: 2026-10-22 America/Toronto (owner GO: Python C night 10-23/24; N12 10-22/23; N13 10-24/25; S2+S9
-10-25/26; EDGE-1 D0 10-28 under amendments (s)/(s-C), pending the owner).**
+**Last updated: 2026-10-23 America/Toronto (owner: more-markets phase 2 plan and decisions 1-8 approved; C night 10-23/24;
+N12 did not merge 10-22/23; EDGE-1 D0 10-28 under amendments (s)/(s-C), pending the owner).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended. At most 95 lines and about 9 KB, one fact per bullet, detail in the linked owner.** This file owns
@@ -10,20 +10,17 @@ Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any resea
 
 ## Objectives (owner, 2026-09-23, refined 2026-09-25/27 and 2026-10-19)
 
-Precondition: protect capture and settlement evidence. **A. Forecast:** as good as our own free information allows, and now
-the focus: find out fairly and fast whether the model can develop an edge over market prices (owner 10-19). **B. An informed,
-domain-neutral market maker**; if the model shows no edge after every option is exhausted, the maker work may move to YouTube
-views (owner 10-19). Plan: [informed maker design](informed-maker-design-2026-09-25.md).
+Precondition: protect capture and settlement evidence. **A. Forecast:** as good as our own free information allows, and now the focus:
+find out fairly and fast whether the model can develop an edge over market prices (owner 10-19). **B. An informed, domain-neutral market
+maker**; if the model shows no edge after every option is exhausted, the maker work may move to YouTube views (owner 10-19). Plan: [informed maker design](informed-maker-design-2026-09-25.md).
 
 ## Current authority
 
-- **Live trading paused** (owner 09-25); **LFC campaign backlogged** (owner 10-19): no t24, no sessions; no agent places,
-  cancels or signs orders.
+- **Live trading paused** (owner 09-25); **LFC campaign backlogged** (owner 10-19): no t24, no sessions; no agent places, cancels or signs orders.
 - Capture host: heavy work 00:30-09:00 under the lease ([host load policy](HOST_LOAD_POLICY.md)); roll-sensitive merges
   01:00-04:00; roll-free 00:30-09:00; docs-only by the light path before 12:00; never 12:00-00:30.
 - 88a changes follow the host roll verdict like any other code. Owner decisions since 09-30 are rows in [DECISION_LOG](DECISION_LOG.md).
-- **Testing (owner 10-04, PR #205):** focused + affected tests, PR CI (Windows lane #262 on 3.11.0) as full-suite evidence;
-  every night head pre-gated on its stacked base; host-only behaviour needs a host run.
+- **Testing (owner 10-04, PR #205):** focused + affected tests, PR CI (Windows lane #262 on 3.11.0) as full-suite evidence; every night head pre-gated on its stacked base; host-only behaviour needs a host run.
 - **Workstation: one Claude Code chat directed by the production agent** ([preamble](WORKSTATION_SESSION_PREAMBLE.md));
   relayed owner approvals bind it for serving-model and merges, never money or credentials; credentials never committed.
 - **Workstation tracks** (owner 10-19): the model-edge programme first (harness v3, development screens, EDGE-1 drafts,
@@ -32,23 +29,25 @@ views (owner 10-19). Plan: [informed maker design](informed-maker-design-2026-09
 
 ## Current truth
 
-- **Production source:** read `origin/master` with git. N12 (`claude/integration-20261019-chain-r3` `739c03eff`, which
-  carries the #190 parser v2 refresh `1f8c2f2c1`) lands the night 10-22/23 (DL 10-20; C did not swap, so N12 lands on 3.11.0).
+- **Production source:** read `origin/master` with git. N12 (`739c03eff`, #190 parser v2 `1f8c2f2c1`) did NOT merge 10-22/23:
+  the host suite failed on a pyarrow 24 hive-partition test read (test fix `aeae6e0fa`); heads rebuilt on master, re-dating with master-agent.
 - **Forward maker shadow ACTIVE** (`WeatherMakerShadowRunner`, 24/7, 12 bands, paper only); stop only with
   `data\maker_shadow\STOP`. Scoring embargo: `maker_shadow_panel.py` refuses UTC 09-30..10-15 and 10-15..11-13 (end stays 11-13: #263 N_req 706, DL 10-14).
   **Descriptive reads of 10-16..11-13 are refused everywhere until the panel closes** (owner 10-17).
-- **Journal pin:** `WeatherManualOrderJournal` pins five files incl. `wallet_reader_client.py`; a merge touching one makes it
-  exit 3 until re-registered ([runbook](manual-order-journal.md)).
+- **Journal pin:** `WeatherManualOrderJournal` pins five files incl. `wallet_reader_client.py`; a merge touching one exits 3 until re-registered ([runbook](manual-order-journal.md)).
 - **Wallet reader (8765)** on `a1014edab` (any-LAN code) since 10-13; serial ([wallet reader](wallet-reader.md)).
 - **Host Python:** Phase B PASS 10-16 (qualified tip `90b2e1844`, an ancestor of master; roll verdict ROLL-FREE); venv
   still 3.11.0; C 10-21/22 NO-GO at C2, nothing swapped. **C GO night 10-23/24 (owner 10-22, DL):** start 00:30; up to 2
   same-night retries until 03:30 only for failures before C3 (zero capture gap); a failure after the swap undoes itself and
-  waits for the owner. Runbook `claude/pyup-c-followup-20261022` (light path 10-23), kit `claude/night-plans-pyup-c-next-20261022`. ([runbook](HOST_PYTHON_UPGRADE_RUNBOOK.md))
+  waits for the owner. Runbook on master (`5bbdd4280`), kit `claude/night-plans-pyup-c-next-20261022`. ([runbook](HOST_PYTHON_UPGRADE_RUNBOOK.md))
 - **Unregistered until C passes:** `WeatherMakerEvidenceLowestTemperature`, `WeatherEvidenceHost` (S4, owner yes 10-16),
   U6 replay-bundle export (owner yes 10-15). S2+S9 lands 10-25/26 from `17439f7c8`; the C night now precedes it, so its 88a restart is the night after (10-26/27) via the restart script (never re-register).
 - **LFC:** session 0 ATTESTED 10-16; backlogged 10-19; pin `21cf1ed42` idle ([record](../research/live-fill-calibration-session0-record-2026-10-16.md)).
-- **Build line** `codex/maker-replay-v2-build-20261003` = `1fd0c295f`; the export nightly stays unregistered.
-- **Maker replay v2** (panel 09-30..10-14 never read): spec v3.4; handout r1 signed 10-12; parked; lapse 10-30 (owner 10-15).
+  **Maker replay v2** (panel 09-30..10-14 never read): spec v3.4, handout r1 signed 10-12, parked, lapse 10-30; build line `1fd0c295f`, export unregistered.
+- **More markets phase 2** (owner 10-23, DL; [study](../research/more-markets-phase2-scoping-2026-10-23.md)): R1 five pilot cities after S2+S9 day-3
+  receipts; R2 five more recorder-only from 11-01 (HK stays recorder-only); M1 model lane M = 18, Europe first, built on the workstation, lands
+  no earlier than 12-21; M = 24 only once offboarding is proven. New METAR-settled cities label from IEM METAR; built-ins stay WU pending the
+  METAR-vs-WU study. Offboarding goes to the cold Drive with hash-verify, never delete; the owner sees the list first.
 - **Model-edge programme** (owner 10-19): harness v3 (`claude/harness-v3-20261019`); dates <= 09-29 are development only.
   **Bundle B decided 10-21, every default** (DL; questions as listed at `d138c3c54`): absent arms neither block nor satisfy NO-GO; Gate 1
   folds into 12-21 (H-A0, H-A1 UNTESTABLE), so NO-GO rests on MG-1; T1 = NWS hourly; E3 UNTESTABLE; retrain waived for
@@ -69,6 +68,7 @@ views (owner 10-19). Plan: [informed maker design](informed-maker-design-2026-09
 3. **YouTube-maker scoping** (documents only): owner actions O1-O5 in the 10-23 bundle.
 4. **Item 337:** host no-METAR replay after C; on PASS flip, bump, quiet window (owner yes).
 5. **Data layer v2:** [plan](DATA_LAYER_V2_PLAN.md); S2+S9 10-25/26; P1 and S4 re-dated after C.
+6. **More markets (workstation):** METAR-vs-WU agreement study; offboarding plan (owner sees the list); then M1; R1 after S2+S9 day 3.
 
 ## Open commitments (every row: owner, due, verify)
 
