@@ -110,15 +110,43 @@ def _row(hour, d, base, r0=None, ols=0.0):
 def test_join_refuses_row_set_or_baseline_mismatch():
     a1, b1 = _row(7, "2021-11-17", 4.0)
     a2, b2 = _row(8, "2021-11-17", 3.0)
-    joined, worst = ch.join_r0([a1, a2], [b1, b2])
-    assert worst == 0.0 and joined[0]["r0_log_loss"] == 4.0
+    joined, parity = ch.join_r0([a1, a2], [b1, b2])
+    assert parity["max_baseline_abs_diff"] == 0.0 and joined[0]["r0_log_loss"] == 4.0
+    assert parity["lane_d_floored"] is False and ch.LANE_D_FLOORED + "_log_loss" not in joined[0]
     with pytest.raises(ch.ChallengerError, match="row sets differ"):
         ch.join_r0([a1], [b1, b2])
     bad = dict(b2, baseline_log_loss=3.0 + 1e-6)
     with pytest.raises(ch.ChallengerError, match="baseline parity"):
         ch.join_r0([a1, a2], [b1, bad])
     ok = dict(b2, baseline_log_loss=3.0 + 1e-10)
-    assert ch.join_r0([a1, a2], [b1, ok])[1] < ch.PARITY_TOLERANCE
+    assert ch.join_r0([a1, a2], [b1, ok])[1]["max_baseline_abs_diff"] < ch.PARITY_TOLERANCE
+
+
+def test_join_attaches_lane_d_floored_rows_and_checks_the_repro():
+    a, b = _row(7, "2021-11-17", 4.0, r0=3.5)
+    a.update(r0_repro_log_loss=3.5, r0_floor_log_loss=2.0, r0_floor_served_log_loss=2.1)
+    b.update(hgb_floored_log_loss=2.1, hgb_floored_brier=0.7)
+    joined, parity = ch.join_r0([a], [b])
+    assert joined[0][ch.LANE_D_FLOORED + "_log_loss"] == 2.1
+    assert parity["r0_repro_ok"] is True and parity["lane_d_floored"] is True
+    assert parity["max_floored_vs_served_floor_abs_diff"] == 0.0
+    assert parity["max_floored_vs_zero_floor_abs_diff"] == pytest.approx(0.1)
+    a["r0_repro_log_loss"] = 3.6
+    assert ch.join_r0([a], [b])[1]["r0_repro_ok"] is False
+
+
+def test_apply_hard_floor_zero_and_served_multiplier():
+    probs = {48: 0.2, 50: 0.3, 51: 0.5}
+    zero = ch.apply_hard_floor(probs, 50)
+    assert zero[48] == 0.0 and zero[50] == pytest.approx(0.375) and sum(zero.values()) == pytest.approx(1.0)
+    served = ch.apply_hard_floor(probs, 50, ch.SERVED_FLOOR_MULTIPLIER)
+    assert 0 < served[48] < 1e-6 and sum(served.values()) == pytest.approx(1.0)
+    assert ch.apply_hard_floor(probs, 49) == pytest.approx({48: 0.0, 50: 0.375, 51: 0.625})
+    assert ch.apply_hard_floor(probs, None) == probs
+    # All mass below the floor: it moves to the floor bucket, even one outside the keys.
+    moved = ch.apply_hard_floor(probs, 53)
+    assert moved[53] == 1.0 and sum(moved.values()) == 1.0
+    assert ch.observed_floor_bucket(52.5) == 53 and ch.observed_floor_bucket(None) is None
 
 
 def _market_rows(delta_by_date, hours=(7, 8)):
@@ -173,11 +201,11 @@ def test_compare_is_provisional_until_every_required_market_has_rows():
     partial = ch.compare({"atlanta": rows}, reference="r0", markets=ch.PRIMARY_MARKETS,
                          required_markets=ch.PRIMARY_MARKETS)
     assert partial["verdict"].startswith("PROVISIONAL")
-    assert partial["headline"]["ols_floor"]["beats_reference"] is None
+    assert partial["headline"]["ols_floor"]["passes_two_criteria"] is None
     full = ch.compare({m: rows for m in ch.PRIMARY_MARKETS}, reference="r0",
                       markets=ch.PRIMARY_MARKETS, required_markets=ch.PRIMARY_MARKETS)
     # Both challengers tie on every row; the rule then picks the simpler arm.
-    assert full["verdict"] == "ols_floor beats r0"
+    assert full["verdict"] == "ols_floor passes against r0"
     assert ch.compare({}, reference="r0", markets=ch.PRIMARY_MARKETS,
                       required_markets=ch.PRIMARY_MARKETS) is None
 
