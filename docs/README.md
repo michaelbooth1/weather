@@ -31,6 +31,7 @@ research established) · **Generated** (edit the generator) · **History**
 | Spending a statistical decision on the sealed panel | [Campaign ledger](operations/CAMPAIGN_LEDGER.md) | Canonical control |
 | Reading dated evidence or settled days for evaluation | [Reserved confirmation window](operations/reserved-confirmation-window.md) — its status line says whether anything is reserved | Canonical contract |
 | Building a leakage-free evaluation or the PIT training corpus | [Point-in-time evaluation](operations/POINT_IN_TIME_EVALUATION.md), [PIT forecast training corpus](operations/PIT_FORECAST_TRAINING_CORPUS.md) | Canonical runbook |
+| New-city candidates, METAR-labelled corpora, the recorder-only pilot switch-on | [New-city model lane](operations/NEW_CITY_MODEL_LANE.md) | Canonical runbook |
 | Unsure about settlement, units, source roles, or floors | [Agent context](operations/AGENT_CONTEXT.md) | Canonical guide |
 | Asking whether a forecast source or training population is allowed | [Forecast source and training population](operations/forecast-source-and-training-population.md), [the season window](operations/the-season-window-blocks-the-retrain.md) | Canonical decision record |
 | Acting on the production capture host | [Operations agent role](operations/OPERATIONS_AGENT_ROLE.md) | Canonical guide |
