@@ -609,16 +609,21 @@ def run_schema_registry(ctx: PreflightContext) -> CheckResult:
         return CheckResult(ERROR, f"schema registry audit wrote no JSON (exit {result.exit_code})", command=command,
                            exit_code=result.exit_code, output_tail=result.tail())
     unregistered = payload.get("unregistered_versions") or []
+    family_errors = payload.get("family_errors") or []  # PL-2: a refused schema_families module
     evidence = {key: payload.get(key) for key in ("registered_count", "discovered_literal_count",
-                                                  "unregistered_version_count", "excluded_version_count")}
+                                                  "unregistered_version_count", "excluded_version_count",
+                                                  "family_registered_count")}
     evidence["unregistered_versions"] = unregistered
+    evidence["family_errors"] = family_errors
     additive = ctx.results.get("schema_additive")
     if additive is not None:
         evidence["schema_additive"] = additive.evidence.get("status") if additive.evidence.get("applicable") else None
-    if result.exit_code != 0 or unregistered:
-        return CheckResult(FAIL, f"unregistered schema versions: {', '.join(unregistered[:8]) or 'exit ' + str(result.exit_code)}",
-                           details=unregistered, evidence=evidence, command=command, exit_code=result.exit_code,
-                           output_tail=result.tail(800))
+    if result.exit_code != 0 or unregistered or family_errors:
+        reason = (f"unregistered schema versions: {', '.join(unregistered[:8])}" if unregistered
+                  else f"schema family errors: {'; '.join(family_errors[:3])}" if family_errors
+                  else f"unregistered schema versions: exit {result.exit_code}")
+        return CheckResult(FAIL, reason, details=unregistered or family_errors, evidence=evidence, command=command,
+                           exit_code=result.exit_code, output_tail=result.tail(800))
     return CheckResult(PASS, f"unregistered_versions == [] ({evidence['registered_count']} registered)", evidence=evidence,
                        command=command, exit_code=0)
 

@@ -1,0 +1,51 @@
+{
+  "manifest": "trade-stream-coverage-20261003 lifecycle-row extract",
+  "purpose": "Classify the 2026-09-29 execution-tape disconnects by cause and local hour, and test the stall prediction in agent-report-2026-10-03-trade-stream-coverage.md",
+  "host": "16 GB production capture host",
+  "mode": "read-only; nothing under data/ is written, moved or deleted",
+  "scope": {
+    "stream": "execution tape only (weather.market.execution_tape_capture gap ledgers)",
+    "latest_local_date": "2026-09-29",
+    "timezone": "America/Toronto",
+    "excluded": [
+      "market-day directories dated 2026-09-30 or later (exam panel days)",
+      "trades-*, dedupe-*, rejects and global execution_tape_status.json (not lifecycle rows; the global status is current, not dated)",
+      "the 88a maker-evidence capture (stream_lifecycle rows), the order book and every other stream"
+    ]
+  },
+  "files": [
+    {
+      "glob": "data/snapshots/*-on-september-2[6789]-2026/execution_tape/gaps-*.jsonl",
+      "why": "OPEN/CLOSED gap rows = the lifecycle rows. 09-28 slugs carry the early hours of local 09-29 for markets west of Toronto; 09-26..09-28 give a three-day baseline.",
+      "expected_size": "small: one OPEN and one CLOSED row per route per disconnect, roughly 0.4 KB per row"
+    },
+    {
+      "glob": "data/snapshots/*-on-september-2[6789]-2026/execution_tape/status.json",
+      "why": "per-route last-counted counters (disconnect_count, seconds_dark_completed) to cross-check the classifier totals"
+    }
+  ],
+  "option_a_run_in_place": {
+    "when": "00:30-09:00 local, serially, like any scan on the capture host (it reads a few MB)",
+    "steps": [
+      "$prod = (Resolve-Path <production clone root>).Path",
+      "git -C $prod fetch origin",
+      "$env:GIT_LFS_SKIP_SMUDGE = '1'; git -C $prod worktree add --detach C:\\tmp\\w-tsc-verify origin/codex/trade-stream-coverage-20261003",
+      "New-Item -ItemType Directory -Force \"$prod\\scratch\\trade-stream-coverage-20261003\" | Out-Null",
+      "Set-Location C:\\tmp\\w-tsc-verify",
+      "& \"$prod\\venv\\Scripts\\python.exe\" -m weather.market.execution_tape_disconnects --snapshots-root \"$prod\\data\\snapshots\" --date 2026-09-29 --slug-glob '*-on-september-2[89]-2026' --output \"$prod\\scratch\\trade-stream-coverage-20261003\\disconnects-2026-09-29.json\"",
+      "& \"$prod\\venv\\Scripts\\python.exe\" -m weather.market.execution_tape_disconnects --snapshots-root \"$prod\\data\\snapshots\" --date 2026-09-28 --slug-glob '*-on-september-2[78]-2026' --output \"$prod\\scratch\\trade-stream-coverage-20261003\\disconnects-2026-09-28.json\"",
+      "Set-Location $prod; git worktree remove C:\\tmp\\w-tsc-verify"
+    ],
+    "note": "Run with the verify worktree as the working directory: the repo-root weather/ shim then resolves to that worktree's src, while from the production clone it would resolve to production src (where this module does not exist) and PYTHONPATH would not override it. A detached worktree does not touch the production working tree, so this rolls nothing. Output goes to scratch/, never data/."
+  },
+  "option_b_transfer": {
+    "steps": [
+      "Copy the globs above, preserving the snapshots-relative layout, into one archive outside data/ (e.g. scratch\\trade-stream-coverage-20261003\\gaps-extract.zip) and record its SHA-256.",
+      "Owner moves the archive to the workstation; the workstation agent unpacks it under scratch/ and runs the same command with --snapshots-root pointed at the unpacked folder."
+    ]
+  },
+  "what_to_send_back": [
+    "disconnects-2026-09-29.json and disconnects-2026-09-28.json (each lists its input files with SHA-256)",
+    "the five largest entries of socket_disconnects_by_cause and the daytime_vs_overnight block, pasted into the handback"
+  ]
+}

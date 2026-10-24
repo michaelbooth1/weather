@@ -320,3 +320,137 @@ def test_nbm_shared_attestation_requires_replay_complete_extraction_identity(tmp
         )
 
     assert not (tmp_path / "shared").exists()
+
+
+def test_contains_checks_presence_and_size_without_rehash(tmp_path):
+    cas = SharedForecastPayloadCAS(tmp_path / "cas")
+    payload = b"national bulletin"
+    stored = cas.put(payload)
+    digest = stored["payload_hash"]
+
+    assert cas.contains(digest, expected_bytes=len(payload)) is True
+    assert cas.contains(digest, expected_bytes=len(payload) + 1) is False
+    assert cas.contains("0" * 64, expected_bytes=len(payload)) is False
+    with pytest.raises(ForecastPayloadCASIntegrityError, match="invalid SHA-256"):
+        cas.contains("not-a-digest", expected_bytes=1)
+
+
+def test_last_good_fallback_row_matches_the_fresh_row(tmp_path, monkeypatch):
+    import weather.model.toronto_model as toronto_model
+    from weather.model.toronto_model import TorontoHighTempModel
+
+    store = SnapshotStore(
+        root=tmp_path / "ny-event",
+        event_slug="ny-event",
+        shared_forecast_payload_cas_root=tmp_path / "shared-cas",
+    )
+    store.root.mkdir(parents=True)
+    identity = {"market_id": "nyc", "target_date": "2026-05-30"}
+    fresh_sources = _source("KLGA")
+    fresh_row = store.write_forecast_payloads(
+        fresh_sources,
+        "fresh-snapshot",
+        datetime(2026, 5, 30, 1, 1, tzinfo=timezone.utc),
+        "model-v",
+        config_identity=identity,
+    )[0]
+
+    monkeypatch.setattr(toronto_model, "DEFAULT_DATA_ROOT", tmp_path / "wu")
+    model = TorontoHighTempModel(target_date="2026-05-30")
+    model.shared_forecast_payload_cas = store.shared_forecast_payload_cas
+    now = datetime.now(model.spec.tz).isoformat()
+    item = fresh_sources["nbm_probabilistic_tmax"]
+    model.blend_with_last_good(
+        {"nbm_probabilistic_tmax": {"ok": True, "data": item["data"], "fetched_at": now}}
+    )
+    cached = json.loads(model.last_good_sources_path().read_text(encoding="utf-8"))
+    assert "text_ref" in cached["nbm_probabilistic_tmax"]["data"]["raw_payload"]
+    fallback = model.blend_with_last_good(
+        {"nbm_probabilistic_tmax": {"ok": False, "error": "feed failed", "fetched_at": now}}
+    )
+    assert fallback["nbm_probabilistic_tmax"]["cache_status"] == "fallback"
+    fallback_row = store.write_forecast_payloads(
+        fallback,
+        "fallback-snapshot",
+        datetime(2026, 5, 30, 1, 11, tzinfo=timezone.utc),
+        "model-v",
+        config_identity=identity,
+    )[0]
+
+    for field in ("payload_hash", "payload_ref", "payload_bytes", "extraction_identity"):
+        assert fallback_row[field] == fresh_row[field]
+    assert fallback_row["payload_blob_reused"] is True
+
+
+def test_capture_snapshot_hands_the_store_cas_to_the_last_good_cache(tmp_path, monkeypatch):
+    from unittest.mock import patch
+
+    import weather.collection.snapshot_tracker as tracker
+    import weather.model.toronto_model as toronto_model
+    from weather.collection.forecast_payload_fetch_fanout import (
+        FANOUT_CAS_ROOT_ENV,
+        FANOUT_SCOPE_ENV,
+    )
+    from weather.market.market_config import config_for_date
+
+    monkeypatch.delenv(FANOUT_CAS_ROOT_ENV, raising=False)
+    monkeypatch.delenv(FANOUT_SCOPE_ENV, raising=False)
+    monkeypatch.setattr(toronto_model, "DEFAULT_DATA_ROOT", tmp_path / "wu")
+    cas_root = tmp_path / "shared-cas"
+    seen = {}
+    nbm_source = _source("KLGA")["nbm_probabilistic_tmax"]
+    # The fan-out or an earlier pass already published the bulletin.
+    SharedForecastPayloadCAS(cas_root).put(NBP_TEXT.encode("utf-8"))
+
+    class FakePolymarketClient:
+        def __init__(self, timeout=10, target_date=None, market_id="toronto"):
+            self.config = config_for_date(target_date, market_id)
+
+        def get_event(self):
+            return {"slug": self.config.event_slug, "markets": []}
+
+    class Store(SnapshotStore):
+        verified_serving_bundle = None
+
+        def __init__(self, **kwargs):
+            kwargs["root"] = tmp_path / "event"
+            kwargs["shared_forecast_payload_cas_root"] = cas_root
+            super().__init__(**kwargs)
+            seen["store"] = self
+
+        def maybe_write(self, event, model, model_client, **_kwargs):
+            seen["model_client"] = model_client
+            return {"written": True}
+
+    class Model(toronto_model.TorontoHighTempModel):
+        def fetch_historical_sources(self):
+            return {}
+
+        def fetch_live_sources(self):
+            now = datetime.now(self.spec.tz).isoformat()
+            return self.blend_with_last_good(
+                {"nbm_probabilistic_tmax": {**nbm_source, "fetched_at": now}}
+            )
+
+        def build(self, event, historical_sources=None, live_sources=None):
+            seen["live_sources"] = live_sources
+            return {"ok": True}
+
+    with patch("weather.market.polymarket_client.PolymarketClient", FakePolymarketClient), \
+            patch("weather.model.toronto_model.TorontoHighTempModel", Model), \
+            patch("weather.operations.event_metadata_validation.build_validation_payload", return_value={"validation_hash": "h"}), \
+            patch("weather.operations.event_metadata_validation.gate_for_market", return_value={"ok": True}), \
+            patch.object(tracker, "SnapshotStore", Store):
+        result = tracker.capture_snapshot(force=True, market_id="nyc", target_date="2026-05-30")
+
+    assert result["written"] is True
+    model_client = seen["model_client"]
+    assert model_client.shared_forecast_payload_cas is seen["store"].shared_forecast_payload_cas
+    cached = json.loads(model_client.last_good_sources_path().read_text(encoding="utf-8"))
+    raw = cached["nbm_probabilistic_tmax"]["data"]["raw_payload"]
+    assert "text" not in raw
+    assert raw["text_ref"]["payload_ref"] == SharedForecastPayloadCAS(cas_root).relative_ref(
+        raw["text_ref"]["payload_hash"]
+    )
+    # The served live source still carries the body.
+    assert seen["live_sources"]["nbm_probabilistic_tmax"]["data"]["raw_payload"]["text"] == NBP_TEXT

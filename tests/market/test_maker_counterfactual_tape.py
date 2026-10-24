@@ -351,8 +351,8 @@ def test_context_prints_are_strictly_before_the_instant(evidence, tmp_path):
     out = tmp_path / "out"
     tape.run(evidence, out, min_date=DAY_LATE, now=_clock())
     day_dir = out / "tape" / f"utc_day={DAY_LATE.isoformat()}"
-    minutes = pq.read_table(day_dir / "cf_minutes.parquet").to_pylist()
-    fills = pq.read_table(day_dir / "cf_fills.parquet").to_pylist()
+    minutes = pq.read_table(day_dir / "cf_minutes.parquet", partitioning=None).to_pylist()
+    fills = pq.read_table(day_dir / "cf_fills.parquet", partitioning=None).to_pylist()
     for row in minutes + fills:
         assert row["ctx_ft_prints"] is None or row["ctx_ft_prints"] < row["ctx_at_utc"]
     for row in fills:

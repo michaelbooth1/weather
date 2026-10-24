@@ -54,7 +54,8 @@ class TestAsosOneMinute(unittest.TestCase):
         self.assertEqual(params["hour1"], 16)
         self.assertEqual(params["minute1"], 0)
         self.assertEqual(params["hour2"], 18)
-        self.assertEqual(params["vars"], "tmpf,dwpf,sknt,drct,alti")
+        self.assertEqual(params["vars"], "tmpf,dwpf,sknt,drct,pres1")
+        self.assertNotIn("alti", params["vars"])
 
     def test_normalize_iem_csv_preserves_one_minute_source(self):
         rows = normalize_iem_1min_csv(CSV_TEXT, NYC)
@@ -69,6 +70,31 @@ class TestAsosOneMinute(unittest.TestCase):
         self.assertEqual(rows[1]["temp_native"], 85.0)
         self.assertEqual(rows[1]["wind_speed_kmh"], 18.52)
         self.assertEqual(len(rows[1]["payload_hash"]), 40)
+
+    def test_normalize_current_iem_header_with_tz_suffixed_valid_column(self):
+        # Shape of live IEM asos1min output (checked 2026-10-15 against a 2026-08-01 request).
+        text = (
+            "station,station_name,valid(Etc/UTC),tmpf,dwpf,sknt,drct,pres1\n"
+            "LGA,New York LaGuardia,2025-06-14 16:00,82,61,8,180,29.91\n"
+            "LGA,New York LaGuardia,2025-06-14 16:01,85,62,10,190,29.90\n"
+        )
+        rows = normalize_iem_1min_csv(text, NYC)
+
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0]["valid_time_utc"], "2025-06-14T16:00:00+00:00")
+        self.assertEqual(rows[1]["temp_native"], 85.0)
+        self.assertIsNone(rows[0]["pressure_hpa"])
+        self.assertAlmostEqual(rows[0]["station_pressure_hpa"], 1012.9, places=0)
+
+    def test_header_without_time_column_raises_instead_of_dropping_rows(self):
+        text = "station,station_name,when,tmpf\nLGA,New York LaGuardia,2025-06-14 16:00,82\n"
+        with self.assertRaises(ValueError):
+            normalize_iem_1min_csv(text, NYC)
+
+    def test_any_tz_suffixed_valid_column_is_the_time_column(self):
+        text = "station,valid(UTC),tmpf\nLGA,2025-06-14 16:00,82\n"
+        rows = normalize_iem_1min_csv(text, NYC)
+        self.assertEqual([row["valid_time_utc"] for row in rows], ["2025-06-14T16:00:00+00:00"])
 
     def test_availability_summary_counts_temperature_minutes(self):
         rows = normalize_iem_1min_csv(CSV_TEXT, NYC)

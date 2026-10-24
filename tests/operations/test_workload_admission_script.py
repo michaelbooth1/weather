@@ -446,13 +446,26 @@ def test_workstation_offline_allowlist_narrowly_admits_cold_archive_stage_and_re
     modules = re.findall(r'"([A-Za-z0-9_.-]+)"', match.group(1))
     assert modules.count("weather.operations.workstation_cold_archive_stage") == 1
     assert modules.count("weather.operations.workstation_cold_archive_restore") == 1
+    # O7: the mrv2 calibration-bundle transfer driver and the build-2 toxicity fit,
+    # exact modules only (no parent, no child).
+    maker_modules = {"maker_core.replay.toxicity", "maker_core.replay.v2.transfer_cli"}
+    for module in maker_modules:
+        assert modules.count(module) == 1
+    assert not any(m.startswith("maker_core.") and m not in maker_modules for m in modules)
     assert "weather.operations.verified_cold_archive" not in modules
     assert "weather.operations" not in modules
     assert "rclone" not in modules
     assert all(
         module.startswith("weather.")
-        or module in {"maker_core.replay.toxicity", "tools.research.guidance_all_hours.run", "tools.research.missing_information.run", "tools.research.morning_guidance.run",
-                      "tools.research.nbm_target_trace.run"}
+        or module in {
+            "maker_core.replay.toxicity",
+            "maker_core.replay.v2.transfer_cli",
+            "tools.research.guidance_all_hours.run",
+            "tools.research.missing_information.run",
+            "tools.research.morning_guidance.run",
+            "tools.research.nbm_target_trace.run",
+            "tools.research.nbm_target_fix",
+        }
         for module in modules
     )
 

@@ -7,9 +7,11 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import random
 import re
 import shutil
 import threading
+import time
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -20,6 +22,10 @@ DEFAULT_STREAM_CAP = 300_000_000
 MAX_RAW_BYTES = 500_000_000
 ROTATE_BYTES = 100_000_000
 MAX_LINE_BYTES = 16 * 1024**2
+# A Windows reader (status.ps1, the cockpit) holding the target makes os.replace fail with
+# PermissionError (access denied / sharing violation) until it closes the file.
+REPLACE_ATTEMPTS = 5
+REPLACE_BUDGET_SECONDS = 2.0
 
 
 from weather.time import utc_now
@@ -34,14 +40,44 @@ def digest(raw):
     return hashlib.sha256(raw).hexdigest()
 
 
-def atomic_json(path, value):
+def replace_with_retry(source, target, *, attempts=REPLACE_ATTEMPTS, budget_seconds=REPLACE_BUDGET_SECONDS,
+                       sleep=time.sleep):
+    """os.replace, retried on PermissionError with jittered backoff inside budget_seconds; re-raises the last."""
+    unit = budget_seconds / (2 ** (attempts - 1) - 1) if attempts > 1 else 0.
+    for attempt in range(attempts):
+        try:
+            os.replace(source, target)
+            return attempt + 1
+        except PermissionError:
+            if attempt + 1 >= attempts:
+                raise
+            sleep(unit * 2 ** attempt * random.uniform(.5, 1.))
+
+
+# Not weather.io.write_json_atomic: these files keep the store's compact sorted `encoded` bytes
+# (manifest sizes are accounted from them) and a fixed `<name>.tmp` sibling, fsynced before replace.
+def atomic_json(path, value, **retry):
     path = Path(path)
     temporary = path.with_suffix(path.suffix + ".tmp")
     with temporary.open("wb") as handle:
         handle.write(encoded(value) + b"\n")
         handle.flush()
         os.fsync(handle.fileno())
-    os.replace(temporary, path)
+    replace_with_retry(temporary, path, **retry)
+
+
+def write_status(store, path, state, **retry):
+    """Write status.json; a write still blocked after the retries is journalled as WARN, never fatal."""
+    try:
+        atomic_json(path, state, **retry)
+        return True
+    except PermissionError as exc:
+        state["status_write_misses"] = state.get("status_write_misses", 0) + 1
+        store.event("status_write_failed", {"level": "WARN", "path": Path(path).name,
+                                             "error_type": type(exc).__name__,
+                                             "winerror": getattr(exc, "winerror", None),
+                                             "misses": state["status_write_misses"]})
+        return False
 
 
 def disk_band(free_bytes):
@@ -232,7 +268,13 @@ class EvidenceStore:
         parts.append({"literal_utf8": text[prior:]})
         return {"parts": parts}
 
-    def record(self, kind, raw, *, metadata=None, change_key=None, stored_body=None, partition=None):
+    def record(self, kind, raw, *, metadata=None, change_key=None, stored_body=None, partition=None,
+               captured_at=None):
+        """Append one response; ``captured_at`` is a receive stamp taken before a queued write.
+
+        The segment still rolls on the write clock, so a frame received just
+        before an hour boundary can land in the next hour's segment.
+        """
         with self.lock:
             self._roll()
             if kind == "stream" and self.stream_capped:
@@ -246,7 +288,7 @@ class EvidenceStore:
             prior = self.latest.get(change_key) if change_key else None
             changed = not prior or prior[0] != content_hash
             self.sequence += 1
-            row = {"sequence": self.sequence, "captured_at_utc": self.clock().isoformat(),
+            row = {"sequence": self.sequence, "captured_at_utc": (captured_at or self.clock()).isoformat(),
                    "kind": kind, "response_bytes": len(raw), "response_sha256": digest(raw),
                    "body_stored": changed, **(metadata or {})}
             if change_key:
@@ -279,8 +321,8 @@ class EvidenceStore:
                 self.stream_bytes += len(raw)
             return changed
 
-    def event(self, kind, value, *, partition=None):
-        return self.record(kind, encoded(value), partition=partition)
+    def event(self, kind, value, *, partition=None, captured_at=None):
+        return self.record(kind, encoded(value), partition=partition, captured_at=captured_at)
 
     def subscription(self, tokens, channel):
         """Internal subscription content once per unique set in each rotated segment."""
