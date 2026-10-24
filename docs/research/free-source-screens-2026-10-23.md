@@ -113,3 +113,25 @@ pre-registration on new dates (EF §5), nothing more.
 - **Control:** `control_t3r3_metar`. **Targeted block 13-16; one rule.**
 - **Latency/parity:** MRMS objects reach the public bucket ~1-2 min after valid; valid + 5 min is used in
   history and at serve.
+
+## F5: ECMWF ENS open data and DWD MOSMIX (incl. the EU cities), forward only
+
+Not scored, by the brief and by measurement. Parsers built on small pulls (`weather.sources.free_screens.forward_only`).
+
+- **DWD MOSMIX_L** (15 stations: 11 US plus EGLC, LFPB, EDDM, LEMD; ids from S0(e)): one latest KMZ each
+  (9.9-19.1 KB), issue 2026-10-23T21Z, 247 hourly steps; TTT parses for all; TX (12 h max) is present
+  only on the 06/18 UTC steps (20-41 values per file). **Retention:** the single-station directory keeps
+  the last 8 runs (about 2 days, 6-hourly), so no development date can be reconstructed. Scoring needs
+  forward shadow capture (owner decision 4 of the proposal; master schedules it under the roll verdict).
+- **ECMWF ENS open data.** The brief's premise (short public retention) is **wrong for the AWS mirror**:
+  `ecmwf-forecasts` (public, no account) holds `enfo` 0.25° runs at least back to 2024-08-15 (listing
+  checked for 20240815 and 20260901), with a JSON `.index` per step that allows byte-range pulls of a
+  single member field (2 m temperature member: 0.66 MB; one step's index: 1.3 MB, 5,559 fields, 51 `2t`
+  members). **Blocker: packing.** The 2t members use GRIB2 data representation **5.42 (CCSDS/AEC)**; this
+  environment has no decoder (no eccodes, cfgrib or libaec, and no requirements change is allowed), so
+  values cannot be read here. No `mx2t` is in the step's parameter list, so a daily max would be built
+  from 3/6-hourly 2t. A historical ENS screen is therefore feasible in principle (decoder plus about
+  51 members x ~8 steps x ~0.66 MB ≈ 270 MB per run per day), but it needs an owner decision on a
+  decoder dependency; it was not forced.
+- **Other EU free sources** (Met Office DataHub, Météo-France 6-minute, DWD 10-minute, AEMET) need
+  accounts or keys or were out of this lane's list; not touched.
