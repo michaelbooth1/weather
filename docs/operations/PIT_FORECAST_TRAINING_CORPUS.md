@@ -277,6 +277,42 @@ dates). The published corpus is then a third
 `--pit-forecast-corpus-manifest` for the trainer; before the owner fixes R0 on
 it, re-time one market at 75 days and check the HGB leaf counts (memo R0.3).
 
+### Jan-Jul 2021-2025 corpora and the full-year union (lane L1, 2026-10-24)
+
+Jan-Jul was fetched for every built-in market (US 11 plus Toronto; plan
+default market list), temperature only, `--pad-request-days 1`, with the same
+issue contract, normalizer, cutoffs and target year as the Aug-Sep and Oct-Dec
+corpora. Plans, logs and staging are in `C:\wt\pitfetch-janjul-2021-2025\`.
+Two more provider gaps were measured (Atlanta probe, `gfs_seamless`
+`temperature_2m_previous_day1`; the collector then refused the null unit):
+
+- **2021:** null from the start of the series through 2021-03-23 19:00 local.
+  Previous Runs lead-1 history starts there; 2021 is planned from 03-25 (the
+  padded request then starts on the first full day, 03-24).
+- **2024:** null 2024-01-01 00:00 through 2024-01-19 07:00 local (the
+  continuation of the 2023-12-30 gap above). 2024 is planned from 01-21.
+
+| Corpus id | Plan | Units | Market-dates | Window |
+| --- | --- | ---: | ---: | --- |
+| `3a7034d2cb37f3425748bd4eeca048af85d8fd9bb0ef7a25519982b94ec8a6ba` | `010886df…` | 12 | 1,548 | 2021, Mar 25-Jul 31 |
+| `672a1f57632534076cba99ae2adebcbeb229decb58276d52fda79bd3946f18d2` | `32b9f4cf…` | 36 | 7,632 | 2022, 2023, 2025, Jan 1-Jul 31 |
+| `ece9d1c28454aa41113b022b92ff6600dcb4a5dab44a6851af5d895feea9281e` | `3ab9ba74…` | 12 | 2,316 | 2024, Jan 21-Jul 31 |
+
+With Aug-Sep (`b455bd53…`, 2021-2025) and Oct-Dec (`cd0ba2bb…`, `23ac87fa…`,
+`74807fbe…`) the US 11 have every 2021-2025 date except 2021-01-01..03-24,
+2023-12-29..2024-01-20, 2024-12-31 and 2025-12-31. Toronto has Jan-Jul only.
+
+**Consuming several season corpora.** The served trainer's union
+(`PITForecastCorpusUnion`) is keyed by year and refuses two corpora that
+share one, so it cannot read a full year. There is deliberately no merged
+"full-year corpus" on disk: corpora are immutable, content-addressed, one per
+plan. The research-only `weather.calibration.r0_full_year` reads the seven
+manifests through `SeasonCorpusUnion`, which preflights each one, requires the
+same union fields, dispatches by date from each corpus's `plan.json`, and
+fails closed on a date two corpora both plan or on an uncovered date. Its run
+summary records the union as `pit_forecast_corpus.union_sha256` over the
+sorted (corpus id, manifest sha256) pairs; that hash is the full-year union id.
+
 ## Retraining input
 
 Pooled retraining accepts the corpus only through the explicit option:

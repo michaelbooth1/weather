@@ -587,6 +587,21 @@ shared lease:
 .\venv\Scripts\python.exe -m weather.backtesting.metar_keying_replay --date 2026-08-29 --date 2026-09-19 --date 2026-09-28 --market miami --market nyc --market chicago --out scratch\metar_keying_replay\m0-v3-vs-v4.jsonl
 ```
 
+R0 full-year versus windowed (research only; workstation, through
+`scripts\ops\workstation_heavy.ps1 -Kind weather_heavy`).
+`weather.calibration.r0_full_year run --market <us11> --centre-date <date>
+--pit-forecast-corpus-manifest <m> ... --output-root <dir outside data and
+artifacts> [--leaves 20,10,5] [--arms windowed,full_year]` scores the R0 HGB by
+blocked leave-one-year-out on the held-out years' window days, trained either
+on the window (the trainer's rows) or on every covered 2021-2025 day plus
+`doy_sin`/`doy_cos`; season corpora that share years are read by date
+([PIT corpus guide](docs/operations/PIT_FORECAST_TRAINING_CORPUS.md)). `score
+--rows-root <dir> --markets <list> [--reference-root <trainer output>] --out
+<json>` applies the pre-declared comparison (date-clustered bootstrap, 2,000
+draws, seed 20261024) and checks the windowed rows against the trainer's
+`feature_model_blocked_validation_rows_<market>.jsonl`. It writes no model
+artifact; its seasonal columns are not served features.
+
 ### Trading Simulations
 
 The paper maker scorer (`mm_paper`), the paper taker bot and both daily rolls
