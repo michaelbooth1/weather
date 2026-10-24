@@ -102,6 +102,24 @@ not triggered**, and the proposal's kill criterion for every paid observation fe
   in history and at serve, so parity holds.
 - **Targeted block 13-16; one rule; keep/kill bar as in the common protocol.**
 
+### F3 result (scored 2026-10-24; score `52f20094cdfb…`, `data/research/free_sources/scores/f3/`)
+
+Same population and coverage as F1. The history table gained 144 conditioned cells (650 vs the control's
+506; Denver none, KDNR being empty at IEM), so most snapshots back off to the unconditioned t3-r3 cell.
+
+| Block | F3 − served | F3 − control (t3-r3) | MDE80 |
+| --- | --- | --- | --- |
+| **13-16 (decided)** | −0.0111 [−0.0188, −0.0043] | **−0.0001 [−0.0003, +0.0000]** | 0.0002 |
+| 17-23 | −0.0225 [−0.0330, −0.0139] | −0.0000 [−0.0000, +0.0000] | 0.0000 |
+| all | −0.0100 [−0.0181, −0.0033] | −0.0000 [−0.0001, +0.0000] | 0.0001 |
+
+Per market at 13-16: Atlanta −0.0006 [−0.0011, −0.0002] and Seattle −0.0004 [−0.0007, −0.0001] exclude
+zero (date-clustered), Los Angeles +0.0002 [+0.0001, +0.0003] harms, six markets are exactly 0.
+
+**Verdict: KILL (no increment demonstrated).** The pooled increment interval includes zero, and its size is
+about a tenth of the 5% bar (−0.0012), so even a true effect of this size would not matter. The 2-bin
+sounding cap barely changes the pmf where it applies; a richer conditioning would be a new rule on new dates.
+
 ## F4: per-model Open-Meteo members (captured), block 00-12
 
 ### Inventory and pre-declaration (committed before scoring)
