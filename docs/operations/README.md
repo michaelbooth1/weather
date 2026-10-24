@@ -46,6 +46,8 @@ citing it in a new decision.
 | [EXHAUSTION_REGISTER.md](EXHAUSTION_REGISTER.md) | *What is left before a no-go?* — which conclusions survive the serving fixes, which free sources were tested, and each open lead's exit criterion. |
 | [HOW_WE_GET_THINGS_WRONG.md](HOW_WE_GET_THINGS_WRONG.md) | *What shape do our mistakes take?* — read before designing a gate or trusting a green signal. |
 | [CAMPAIGN_LEDGER.md](CAMPAIGN_LEDGER.md) | *How much α is spent, and on what?* — the binding decision ledger. Read before proposing any confirmatory look; only the operator allocates. |
+| [DEV_WINDOW_LEDGER.md](DEV_WINDOW_LEDGER.md) | *What has already been scored on the 07-31..09-29 development window?* — one row per candidate, control or read; the reuse count every pre-registration cites and every edge test corrects for. |
+| [PREREGISTRATION_CHECKLIST.md](PREREGISTRATION_CHECKLIST.md) | *What must a rule file state before a dev-window candidate is scored?* — positive control, comparator fairness, targeted loss slice, MDE and clusters, reuse count; enforced by `weather.reporting.scorecards.prereg_check`. |
 
 Open work is **not** tracked here. Owned work lives in numbered roadmap items, surfaced by the
 generated [`../roadmap/active-backlog.md`](../roadmap/active-backlog.md). What is open on the host
