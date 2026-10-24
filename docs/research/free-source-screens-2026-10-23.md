@@ -135,3 +135,14 @@ Not scored, by the brief and by measurement. Parsers built on small pulls (`weat
   decoder dependency; it was not forced.
 - **Other EU free sources** (Met Office DataHub, Météo-France 6-minute, DWD 10-minute, AEMET) need
   accounts or keys or were out of this lane's list; not touched.
+
+## Fetch receipts (all under `data/research/free_sources/<source>/`, sha256 per file in `receipts.jsonl`)
+
+| Source | Requests | Bytes | Rows | Span | Notes |
+| --- | --- | --- | --- | --- | --- |
+| `iem_onemin` (IEM asos1min, 11 US + KDEN) | 396 monthly | 503.9 MB | 11,658,245 one-minute rows (`onemin.parquet` sha256 `e8b411d3…`) | 2024-01-01T00Z .. local midnight ending 2026-09-29 per station | KBKF: none (military, no archive). Empty months: KATL 2025-05/06, KORD 2025-04/05 and 2025-08..2026-01 (Chicago history is 2024 only), KLGA 2024-12, KSFO 2024-12/2025-01, KSEA 2025-06, KDEN 2025-05. Minute fill ~55-85%. |
+| `iem_raob` (IEM raob.py, 11 nearest sites) | 363 monthly | 255.5 MB | 3,379,630 levels, 19,405 soundings (`levels.parquet` sha256 `a93a9cd7…`) | 2024-01-01 .. 2026-09-29T12Z | **KDNR returns nothing at IEM** (ids DNR, KDNR, 72469 all empty), so Denver has no sounding and keeps the control in F3. |
+| `mrms_refl` (NOAA `noaa-mrms-pds`, composite reflectivity) | 183 day listings + 2,928 objects | 4,137.8 MB downloaded, not kept | 32,208 station-slot rows (`station_refl.parquet` sha256 `3446d1a6…`) | Aug-Sep 2024, Aug-Sep 2025, 2026-07-31..09-29; 16:00Z-23:30Z half-hourly | 0 decode errors; raw grids hashed then discarded. |
+| `dwd_mosmix` | 15 KMZ + 1 listing | 0.2 MB | 247 steps x 15 stations | latest run only (2026-10-23T21Z) | retention ~2 days |
+| `ecmwf_ens` (AWS `ecmwf-forecasts`) | 1 index + 1 range | 2.0 MB | 5,559 index fields, 1 member field | run 2024-08-15 00Z, step 24 h | CCSDS (5.42) packing; not decodable here |
+| `captured_openmeteo` | no download | — | built in the scorecard process from the replay-input copy | captured 2026-07-31..09-29 | see F4 |
