@@ -60,6 +60,7 @@ def write_day(root, day, *, cycles=10, gz=False):
     """One sealed 88a segment: universe, both-side books every minute, and public prints."""
     clock = [datetime(day.year, day.month, day.day, 14, 0, 10, tzinfo=timezone.utc)]
     store = EvidenceStore(root, clock=lambda: clock[0])
+    store.free_bytes = lambda: 100 * 1024**3
     start = clock[0]
     for cycle in range(cycles):
         clock[0] = start + timedelta(minutes=cycle)
