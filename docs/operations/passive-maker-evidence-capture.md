@@ -57,8 +57,97 @@ next UTC day. Separate public trade connections continue at the existing
 execution tape's event-driven cadence, with ten-second application heartbeats.
 They retain only explicit `last_trade_price` replies and record disconnects and
 gaps. They cover the entire selected universe because this worker does not
-assume another tape's current subscriptions. Overlapping public trades must be
-deduplicated by an analysis consumer; no own-account fill or backfill is claimed.
+assume another tape's current subscriptions. Trades that overlap another tape's
+capture must be deduplicated by an analysis consumer; no own-account fill or
+backfill is claimed.
+
+A trade-channel token-set swap (about once a minute) is make-before-break. The new
+sockets connect and subscribe while the old ones stay open. The old ones close once
+every new socket has received its first data frame (the venue's book snapshot), and
+never more than 5 s (`SWAP_OVERLAP_SECONDS`) after the swap began; they then stop
+within the existing 8 s stop bound. At most two generations of sockets are open at
+once. A trade seen on both sockets is journaled once. The venue's `last_trade_price`
+has no trade id, so the identity is the execution tape's trade fingerprint fields
+(asset, market, price, side, size, fee rate, timestamp, transaction hash). A socket's
+n-th sighting of an identity is journaled only when no other socket has already seen
+it n times, so genuine identical trades on one socket are kept. A frame that is
+entirely repeats is not journaled; a mixed frame keeps its exact bytes with
+`duplicate_trades: <n>` on its row. Dedupe memory holds at most 16,384 identities
+for at most 120 s (about 4 MB). The raw update channel stays break-before-make,
+since its frames have no identity to dedupe. Every token-set change and every stop
+journals a `stream_tokens` row (`channel`, token count, and references to the
+wanted subscriptions; an empty list means nothing is wanted). The inspector checks
+those references like the lifecycle ones.
+
+Each socket thread only reads, sends `PING` and stamps receipt time; a per-session
+writer thread journals the session's rows in arrival order from a queue bounded at
+4,096 frames and 64 MiB (the reader blocks only that far behind and never drops a frame), so an
+fsync or the store lock cannot stop the socket being drained and pinged. Stream,
+trade and lifecycle rows carry the reader's receipt time in `captured_at_utc`; the
+segment still rolls on the write clock. Frames received before a drop are journaled
+before the `disconnected` lifecycle row and the `stream_gap` row, both stamped when
+reading stopped. The 30-second inbound-silence deadline is judged only after a
+receive has just timed out. A venue close frame raises `VenueCloseError` and its
+gap text carries `code=<n> reason=<text>`; an empty data frame is liveness, not a
+close. Reconnects wait a jittered delay in [d/2, d], doubling from 2 s to 30 s after
+failures; a session that stayed connected for 60 s resets it to the base.
+
+## Capture families
+
+`--family <id>` records one family from
+[`config/capture_families.json`](../../config/capture_families.json) instead of the
+core universe, as a **separate process with its own root**,
+`data/maker_evidence_families/<id>` (the core root and `--extra-conditions` are
+refused). The core 88a root, its discovery captures and every reader of them stay
+unchanged: a lowest-temperature slug inside them would make the pinned exam
+exporter refuse with `unregistered_event`, and the family's reads would share the
+core 55-second cycle.
+
+A family names, per registry city, an event-slug prefix (dates are formed as for
+the core family, in the city's own time zone), its excluded cities with the reason,
+its day-aheads and its bounds. The first family, `lowest_temperature`, covers the 11
+cities the lowest-temperature desk study (2026-10-02) admitted for passive capture;
+Chicago is excluded because its own F1 was falsified.
+
+Each minute a family discovers its events in batches of 12 slugs, keeps **every**
+active condition (no ranking, no reward filter; bound `max_conditions`), and reads
+both tokens' books. Gamma's reward terms arrive with discovery every minute and are
+stored change-only in the selection projection. The full CLOB
+`/rewards/markets/<condition>` record is read when a condition's Gamma terms change,
+when it is new, or after `reward_sweep_minutes`, at most
+`max_reward_reads_per_cycle` per minute (changed first, then oldest). Reward records
+share one journal per family and universe rows one change-only journal per city.
+Universe rows carry the family, Gamma's scalar terms and the latest CLOB record hash
+and rate.
+
+A family opens **no websocket**: trades and raw updates stay with the core recorder
+(at 100 tokens per connection, the lowest-temperature universe alone would need eight
+more sockets). It stops at its own `stop_below_free_gib` floor (70 GiB for
+`lowest_temperature`), above the core Critical brake, so it yields disk before the
+core recorder does. Below the floor it opens no journal; each one-minute retry only
+rewrites `status.json` with `STOPPED_FAMILY_DISK_FLOOR`. Its journals are
+`canonical_evidence` (`passive_capture_family_evidence`).
+
+`scripts/ops/register_maker_evidence_family_capture.ps1 -Family lowest_temperature`
+registers `WeatherMakerEvidenceLowestTemperature` with the same S4U/IgnoreNew/one-minute
+contract. Only the production operator registers it, after integration. The task name
+must be `WeatherMakerEvidence<PascalCaseId>` (the registrar refuses any other): the
+monitor finds each family's task by that name. A new family passes its own `-TaskName`
+and adds its `config/scheduled_tasks.json` row.
+
+**Monitoring.** `weather.reporting.market.capture_family_status` reads every family in
+the config from its bounded `status.json` (never the journals). `status.ps1` prints one
+`FAMILY` line per family (state, status age, conditions against `max_conditions`, free
+space against the family floor, mean request rate, task state) and the cockpit's Health
+column shows the same rows. The alarms are the core recorder's: while the family's task
+is registered and enabled, a missing or unreadable status, a status older than 180 s, or
+any state other than `CAPTURING` is a `CAPTURE_FAMILY` FLAG. **A family stopped at its
+own floor (`STOPPED_FAMILY_DISK_FLOOR`) is a WARN with its reason, not a capture failure**:
+it is yielding disk to the core recorder as designed, and the disk itself is alarmed by
+the disk lines. That floor status is rewritten every one-minute retry, so a stale one
+is still a FLAG (the retries have died). An unregistered or disabled family is
+informational only. The cockpit cannot see the Scheduler, so it holds any family that
+has written a status to the alarms.
 
 ## Storage and brakes
 
@@ -149,6 +238,33 @@ and incremental update bytes per 30-minute active window. These are observed-win
 extrapolations, not a full-day guarantee. Perform this scratch verification on the workstation; broader
 production-day inspection remains subject to the host load policy.
 
+`python -m weather.market.maker_evidence_disconnects --date <local date>` replays
+only the `stream_lifecycle`, `stream_gap`, `stream_tokens` and `subscription`
+journals (plain or gzip). It reports socket drops by cause, channel and local hour,
+venue close codes, connect failures, orderly stops and session lifetimes, listing
+each input with its SHA-256. It is read-only and opens no connection.
+
+Dark time is judged per token, never per subscription key. A swap rekeys every socket,
+so the earlier per-key figure kept an old key "dark" until that exact token set came
+back: 53,760 s on 2026-09-29, against 283 s with no trade socket connected at all.
+That field (`dark_seconds_by_cause`) had no downstream reader and is removed.
+`coverage_by_channel.<channel>` reports:
+
+- `token_dark_seconds_total`, `per_token_dark_seconds`, `darkest_tokens`: time a token
+  was wanted while no connected session's subscription included it, taking the union
+  across every subscription that contains it. The total is in token-seconds.
+- `token_dark_seconds_by_cause`: that time by the end cause of the session whose end
+  opened the gap. `awaiting_connect` is time a token was wanted before its first
+  covering connect.
+- `all_sockets_down_seconds` and `all_sockets_down_gap_seconds`: time the channel
+  wanted any token while none of its sockets was connected.
+- `wanted_basis`. `stream_tokens_rows` uses the journaled wanted sets.
+  `inferred_from_session_rows` covers journals written before those rows existed: a
+  token stays wanted after its coverage ends only if the channel's next connect round
+  (connects within 10 s of the first) covers it again, or until that round began
+  after a failure. For those journals, all-sockets-down spans the channel's first to
+  last row.
+
 Run the offline compression/integrity inspection through the workstation heavy
 wrapper, which keeps the existing host/principal and shared-lease checks:
 
@@ -179,6 +295,9 @@ freeze (Swarm P audit F2, 2026-10-07).
 and subsequent triggers keep refusing capture until disk recovers. The worker
 never stops another process. `scripts/ops/status.ps1` reads `status.json`, flags
 missing/stale/non-capturing state when armed and displays band count/disk/cap.
+A reader holding `status.json` makes the replace fail on Windows; the recorder retries it
+(5 tries within 2 s) and, if still blocked, journals a WARN `status_write_failed` event, counts
+`status_write_misses` in the next status, and keeps capturing.
 After changing this worker, the production operator must explicitly re-adopt
 its task; it has no effect on the existing supervisors' adoption behavior.
 
@@ -271,5 +390,5 @@ after 09-29 is refused.
 ## Update when
 
 Update with selection, endpoints, timing, CLI, byte/disk brakes, storage,
-registration or status changes. Verify with the focused maker-evidence tests,
+registration, status or capture-family changes. Verify with the focused maker-evidence tests,
 import architecture, storage/schema tests and the required timed scratch run.

@@ -180,7 +180,9 @@ def _provisional_target_blocker_slugs(payload, gate, target):
     (2026-07-05: three July-4 labels were PROVISIONAL at the 10:47 audit and
     reconciled `match` by early afternoon, but the day's chain was already
     lost). Only a pure-PROVISIONAL block is retried; disagreements, missing
-    rows, or any other blocker class still needs a human.
+    rows, or any other blocker class still needs a human. Undecided
+    SOURCE_DISAGREEMENT rows are deferred by the gate (Option 1), so they are
+    not blockers here and neither prevent nor join a PROVISIONAL retry.
     """
     blockers = gate.get("blockers") or []
     if not blockers or not all(str(b).endswith(":PROVISIONAL") for b in blockers):
@@ -275,8 +277,18 @@ def run_settlement_source_audit_step(args):
         # (permanent capture-gap days) must not fail-close current settled-day
         # analysis. Gate the step on the analyzed target date and keep the global
         # audit outcome visible alongside it.
+        # Owner decision 2026-10-16 (Option 1): an undecided-reconciliation
+        # SOURCE_DISAGREEMENT row defers (stays non-countable) instead of
+        # blocking this barrier step; a confirmed `mismatch` still blocks.
+        # Promotion/evaluation consumers keep the strict gate.
         target = settled_analysis_target_date(args).isoformat()
-        gate = settlement_source_audit.settlement_label_gate_for_target_dates(payload, [target])
+
+        def target_gate(audit_payload):
+            return settlement_source_audit.settlement_label_gate_for_target_dates(
+                audit_payload, [target], defer_undecided_disagreement=True,
+            )
+
+        gate = target_gate(payload)
         reconciliation_retry = None
         if gate.get("status") == "BLOCK":
             retry_slugs = _provisional_target_blocker_slugs(payload, gate, target)
@@ -285,9 +297,7 @@ def run_settlement_source_audit_step(args):
                 if reconciliation_retry.get("refinalized_count"):
                     scopes.close()
                     payload = open_audit()
-                    gate = settlement_source_audit.settlement_label_gate_for_target_dates(
-                        payload, [target]
-                    )
+                    gate = target_gate(payload)
         json_out, report_out = settlement_source_audit.write_outputs(
             payload,
             json_out=backtest_path(args, "settlement_source_revision_audit.json"),
@@ -299,6 +309,8 @@ def run_settlement_source_audit_step(args):
             "target_date": target,
             "target_date_gate_blockers": gate.get("blockers") or [],
             "target_date_non_countable_reconciled": gate.get("non_countable_reconciled") or [],
+            "target_date_deferral_policy": gate.get("deferral_policy"),
+            "target_date_deferred_non_countable": gate.get("deferred_non_countable") or [],
             "reconciliation_retry": reconciliation_retry,
             "global_status": payload.get("status"),
             "json_out": as_path(json_out),
