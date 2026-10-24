@@ -203,3 +203,21 @@ def test_headline_verdict_words():
     for r in rows:
         r["P3_log_loss"] = r["a_log_loss"] + 0.5
     assert prm.headline_verdict(rows, "P3", "a")["verdict"] == "P3 is worse than a"
+
+
+def test_dev_fits_use_only_parity_inputs_and_split_per_market_for_u0():
+    frame = _frame(years=(2021, 2022, 2023, 2024, 2025))
+    frame["centre"] = "2026-09-07"
+    frame["season"] = "aug_sep"
+    fits = prm.dev_fits(frame, "P3d")
+    assert set(fits) == {(10, None)}
+    assert fits[(10, None)]["fit"]["mean"].x_columns == []
+    u0 = prm.dev_fits(frame, "U0d")
+    assert set(u0) == {(10, "atlanta"), (10, "nyc")}
+    assert set(u0[(10, "nyc")]["train_y"]) == {"nyc"}
+
+
+def test_nearest_centre_by_month_day():
+    assert prm.nearest_centre("2026-07-31") == "2026-08-08"
+    assert prm.nearest_centre("2026-08-30") == "2026-08-23"
+    assert prm.nearest_centre("2026-09-29") == "2026-09-22"
