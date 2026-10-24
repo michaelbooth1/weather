@@ -52,9 +52,9 @@ import numpy as np
 import pandas as pd
 
 from weather.reporting.scorecards import dev_scorecard_data as data
-from weather.schema_registry import schema_version
 
-SCHEMA_VERSION = schema_version("dev_scorecard")
+# Not a schema-registry artifact on purpose: schema_registry_data is in the capture-loop import closure.
+SCHEMA_VERSION = "dev_scorecard/1"
 DRAWS = 2000
 SEED = 20260921
 MDE_EFFECT = -0.0075

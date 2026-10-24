@@ -652,13 +652,6 @@ REGISTERED_SCHEMAS = (
         "Canonical proper-scoring, calibration, sharpness, CRPS/ranked-probability, and lane-separated reliability scorecard.",
     ),
     SchemaSpec(
-        "dev_scorecard",
-        "dev_scorecard_v0.1",
-        "weather.reporting.scorecards.dev_scorecard",
-        "active",
-        "Development-only walk-forward scorecard (dates <= 2026-09-29): model vs market vs WU settlement per market x hour block, crossed intervals.",
-    ),
-    SchemaSpec(
         "winner_rank_parity",
         "winner_rank_parity_v0.1",
         "weather.reporting.scorecards.winner_rank_parity",
