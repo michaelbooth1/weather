@@ -99,6 +99,19 @@ ARMS = {
     "P2": {"centres": OCT_DEC_CENTRES, "market_id": False, "doy": True},
     "P3": {"centres": OCT_DEC_CENTRES + AUG_SEP_CENTRES, "market_id": False, "doy": True},
 }
+DECISION_ARMS = ("P0", "P1", "P2", "P3")  # the original rule's Bonferroni family (fixed)
+# Amendment 2: the P0 design fitted per market (the pooling control).
+EXTRA_ARMS = {"U0": {"centres": (VALIDATION_CENTRE,), "market_id": False, "doy": False, "per_market": True}}
+ALL_POOLED_ARMS = {**ARMS, **EXTRA_ARMS}
+# Amendment 2 comparators from lane L3 (171717d5f): our column prefix -> L3 arm name.
+L3_COMPARATORS = {
+    "a": "ols_floor",
+    "e": "r0_baseline_floor",
+    "f": "bias_corrected_forecast_floor",
+    "r0floor": "r0_floor",
+    "l3r0": "r0_repro",
+}
+HEADLINE_REFS = ("a", "f")
 LEVEL_COLUMNS = ("high_so_far", "current_temp", "live_reading_temp")
 MEAN_HGB_PARAMS = dict(
     max_iter=200, learning_rate=0.05, max_leaf_nodes=15, min_samples_leaf=40,
@@ -516,7 +529,7 @@ def score_pooled_arm(arm, frame, validation_payloads, hours=None):
     import numpy as np
     from weather.calibration import feature_model as fm
 
-    spec = ARMS[arm]
+    spec = ALL_POOLED_ARMS[arm]
     usable = frame[frame["centre"].isin(spec["centres"])]
     val_all = frame[frame["centre"] == VALIDATION_CENTRE]
     buckets = {p["market"]: p["bucket_space"] for p in validation_payloads}
@@ -525,39 +538,85 @@ def score_pooled_arm(arm, frame, validation_payloads, hours=None):
         at_hour = usable[usable["hour"] == hour]
         val_hour = val_all[val_all["hour"] == hour]
         for year in sorted(val_hour["year"].unique()):
-            train = at_hour[at_hour["year"] != year].reset_index(drop=True)
-            val = val_hour[val_hour["year"] == year].reset_index(drop=True)
-            fitted = fit_pooled(train, market_id=spec["market_id"], doy=spec["doy"])
-            yhat, X = fitted["mean"].predict(val)
-            gap = np.nan_to_num(yhat - val["F"].to_numpy(float), nan=0.0)
-            s = np.maximum(MIN_SCALE, fitted["scale"].predict(np.column_stack([X, gap])) * math.sqrt(math.pi / 2))
-            clim_train = train[train["centre"] == VALIDATION_CENTRE]
-            for i in range(len(val)):
-                market = val.at[i, "market"]
-                p_clim = fm.smoothed_dist(
-                    [int(v) for v in clim_train.loc[clim_train["market"] == market, "y"]],
-                    buckets[market], alpha=0.10,
-                )
-                dist = predictive_distribution(
-                    float(yhat[i]), float(s[i]), float(val.at[i, "F"]), fitted["z"], buckets[market], p_clim,
-                )
-                actual = int(val.at[i, "y"])
-                rows.append({
-                    "market": market, "hour": int(hour),
-                    "validation_date": val.at[i, "target_date"], "validation_year": int(year),
-                    f"{arm}_log_loss": fm.log_loss(dist, actual),
-                    f"{arm}_brier": fm.brier_score(dist, actual),
-                    f"{arm}_mean": float(yhat[i]), f"{arm}_scale": float(s[i]),
-                })
+            train_all = at_hour[at_hour["year"] != year]
+            val_all_year = val_hour[val_hour["year"] == year]
+            groups = (
+                [(m, train_all[train_all["market"] == m], val_all_year[val_all_year["market"] == m])
+                 for m in sorted(val_all_year["market"].unique())]
+                if spec.get("per_market") else [(None, train_all, val_all_year)]
+            )
+            for _, train, val in groups:
+                rows += _score_fold(arm, spec, train.reset_index(drop=True), val.reset_index(drop=True),
+                                    buckets, hour, year)
     return rows
+
+
+def _score_fold(arm, spec, train, val, buckets, hour, year):
+    import numpy as np
+    from weather.calibration import feature_model as fm
+
+    rows = []
+    fitted = fit_pooled(train, market_id=spec["market_id"], doy=spec["doy"])
+    yhat, X = fitted["mean"].predict(val)
+    gap = np.nan_to_num(yhat - val["F"].to_numpy(float), nan=0.0)
+    s = np.maximum(MIN_SCALE, fitted["scale"].predict(np.column_stack([X, gap])) * math.sqrt(math.pi / 2))
+    clim_train = train[train["centre"] == VALIDATION_CENTRE]
+    for i in range(len(val)):
+        market = val.at[i, "market"]
+        p_clim = fm.smoothed_dist(
+            [int(v) for v in clim_train.loc[clim_train["market"] == market, "y"]],
+            buckets[market], alpha=0.10,
+        )
+        dist = predictive_distribution(
+            float(yhat[i]), float(s[i]), float(val.at[i, "F"]), fitted["z"], buckets[market], p_clim,
+        )
+        actual = int(val.at[i, "y"])
+        rows.append({
+            "market": market, "hour": int(hour),
+            "validation_date": val.at[i, "target_date"], "validation_year": int(year),
+            f"{arm}_log_loss": fm.log_loss(dist, actual),
+            f"{arm}_brier": fm.brier_score(dist, actual),
+            f"{arm}_mean": float(yhat[i]), f"{arm}_scale": float(s[i]),
+        })
+    return rows
+
+
+def score_l3_comparators(markets, manifests, target_date=VALIDATION_CENTRE):
+    """Lane L3's arms on the trainer's rows, via its own ``score_market`` (imported, not forked)."""
+    from weather.calibration import r0_ols_floor_challenger as l3
+
+    rows, metas = [], {}
+    for market in markets:
+        l3_rows, meta = l3.score_market(market, date.fromisoformat(str(target_date)), list(manifests))
+        metas[market] = meta
+        for r in l3_rows:
+            out = {"market": market, "hour": int(r["hour"]), "validation_date": str(r["validation_date"]),
+                   "validation_year": int(r["validation_year"])}
+            for ours, theirs in L3_COMPARATORS.items():
+                out[f"{ours}_log_loss"] = float(r[f"{theirs}_log_loss"])
+                out[f"{ours}_brier"] = float(r[f"{theirs}_brier"])
+            rows.append(out)
+        print(f"L3 comparators {market}: {len(l3_rows)} rows", flush=True)
+    return rows, metas
+
+
+def l3_parity(r0_rows, l3_rows, tolerance=1e-9):
+    """Amendment 2 row gate: identical keys and L3's R0 reproduction equal to ours per row."""
+    key = lambda r: (r["market"], r["hour"], r["validation_date"])  # noqa: E731
+    ours = {key(r): r["R0_log_loss"] for r in r0_rows}
+    theirs = {key(r): r["l3r0_log_loss"] for r in l3_rows}
+    if set(ours) != set(theirs):
+        return {"keys_match": False, "ours": len(ours), "theirs": len(theirs), "max_abs_diff": None, "ok": False}
+    diff = max(abs(ours[k] - theirs[k]) for k in ours) if ours else 0.0
+    return {"keys_match": True, "rows": len(ours), "max_abs_diff": diff, "ok": diff <= tolerance}
 
 
 # ----------------------------------------------------------------------- report
 
 
 def bootstrap_deltas(rows, arm, *, hours=WINDOW_HOURS, metric="log_loss", draws=BOOTSTRAP_DRAWS,
-                     seed=BOOTSTRAP_SEED, crossed=False):
-    """Fleet and per-market paired deltas (arm - R0) with date-cluster bootstrap draws."""
+                     seed=BOOTSTRAP_SEED, crossed=False, ref="R0"):
+    """Fleet and per-market paired deltas (arm - ref) with date-cluster bootstrap draws."""
     import numpy as np
 
     sel = [r for r in rows if r["hour"] in hours]
@@ -568,7 +627,7 @@ def bootstrap_deltas(rows, arm, *, hours=WINDOW_HOURS, metric="log_loss", draws=
     sums = np.zeros((len(markets), len(dates)))
     counts = np.zeros((len(markets), len(dates)))
     for r in sel:
-        delta = r[f"{arm}_{metric}"] - r[f"R0_{metric}"]
+        delta = r[f"{arm}_{metric}"] - r[f"{ref}_{metric}"]
         sums[m_idx[r["market"]], d_idx[r["validation_date"]]] += delta
         counts[m_idx[r["market"]], d_idx[r["validation_date"]]] += 1
     per_market = sums.sum(axis=1) / counts.sum(axis=1)
@@ -602,7 +661,7 @@ def percentile_ci(values, level):
 
 def decide(rows, arms):
     """Apply the pre-declared rule (C:\\t\\l2\\rule.md)."""
-    level_fleet = 1.0 - 0.05 / len(ARMS)
+    level_fleet = 1.0 - 0.05 / len(DECISION_ARMS)
     verdicts = {}
     for arm in arms:
         boot = bootstrap_deltas(rows, arm)
@@ -698,6 +757,119 @@ def report_markdown(rows, arms, rule_path):
     return "\n".join(lines) + "\n", verdicts, pick
 
 
+def attach_lane_d_floor(rows, root):
+    """Descriptive: lane D's floored R0 rows as ``dfloor_*`` where its file exists."""
+    for market in sorted({r["market"] for r in rows}):
+        path = Path(root) / market / f"feature_model_blocked_validation_rows_{market}.jsonl"
+        if not path.is_file():
+            continue
+        theirs = {(int(x["hour"]), str(x["validation_date"])): x for x in _read_jsonl(path)}
+        for r in rows:
+            x = theirs.get((r["hour"], r["validation_date"])) if r["market"] == market else None
+            if x is not None and "hgb_floored_log_loss" in x:
+                r["dfloor_log_loss"] = float(x["hgb_floored_log_loss"])
+                if "hgb_floored_brier" in x:
+                    r["dfloor_brier"] = float(x["hgb_floored_brier"])
+
+
+def headline_rows(row_dirs, lane_d_floor_root=None):
+    """Merge R0, P3, U0 and L3 rows; the amendment 2 row gate must hold."""
+    def find(name):
+        for d in row_dirs:
+            if (Path(d) / name).is_file():
+                return Path(d) / name
+        raise PooledModelError(f"{name} not found in {row_dirs}")
+
+    r0 = _read_jsonl(find("rows_R0.jsonl"))
+    l3_rows = _read_jsonl(find("rows_L3.jsonl"))
+    gate = l3_parity(r0, l3_rows)
+    if not gate["ok"]:
+        raise PooledModelError(f"amendment 2 row gate failed: {gate}")
+    rows = merge_rows(r0, {"P3": _read_jsonl(find("rows_P3.jsonl")), "U0": _read_jsonl(find("rows_U0.jsonl"))})
+    by_key = {(r["market"], r["hour"], r["validation_date"]): r for r in l3_rows}
+    for r in rows:
+        extra = by_key[(r["market"], r["hour"], r["validation_date"])]
+        r.update({k: v for k, v in extra.items() if k.endswith(("_log_loss", "_brier")) and not k.startswith("R0_")})
+    if lane_d_floor_root:
+        attach_lane_d_floor(rows, lane_d_floor_root)
+    return rows, gate
+
+
+def headline_verdict(rows, arm="P3", ref="a", n_refs=len(HEADLINE_REFS)):
+    """Amendment 2: fleet (1 - 0.05/n_refs) interval below 0 and no market 95% interval above 0."""
+    boot = bootstrap_deltas(rows, arm, ref=ref)
+    fleet_ci = percentile_ci(boot["fleet_draws"], 1.0 - 0.05 / n_refs)
+    market_ci = {m: percentile_ci(boot["market_draws"][:, j], 0.95) for j, m in enumerate(boot["markets"])}
+    worse = [m for m, ci in market_ci.items() if ci[0] > 0]
+    if fleet_ci[1] < 0 and not worse:
+        word = "beats"
+    elif fleet_ci[0] > 0:
+        word = "is worse than"
+    else:
+        word = "does not beat"
+    return {"fleet": boot["fleet"], "fleet_ci": fleet_ci, "per_market": boot["per_market"],
+            "market_ci": market_ci, "markets_worse": worse, "verdict": f"{arm} {word} {ref}",
+            "dates": boot["dates"], "rows": boot["rows"]}
+
+
+def headline_markdown(rows, rule_path, gate):
+    rule_sha = hashlib.sha256(Path(rule_path).read_bytes()).hexdigest()
+    lines = ["# L2 amendment 2: P3 vs fair comparators (centre 2026-11-24, US 11)", "",
+             f"Rule: {rule_path} sha256 {rule_sha}", "",
+             f"Row gate (L3 rows == R0 rows, L3 r0_repro == L2 R0): {json.dumps(gate)}", "",
+             "Refs: a = L3 ols_floor, e = r0_baseline_floor, f = bias_corrected_forecast_floor, "
+             "r0floor = R0 + hard floor, dfloor = lane D floored R0 (where present), R0 = raw R0.", "",
+             "## Headline (07-12, log loss, P3 - ref; 97.5% Bonferroni fleet interval)", "",
+             "| Comparison | fleet delta | 97.5% CI | markets CI-worse | verdict |", "| --- | --- | --- | --- | --- |"]
+    v = None
+    for ref in HEADLINE_REFS:
+        v = headline_verdict(rows, "P3", ref)
+        lines.append(f"| P3 - {ref} | {v['fleet']:+.4f} | [{v['fleet_ci'][0]:+.4f}, {v['fleet_ci'][1]:+.4f}] | "
+                     f"{', '.join(v['markets_worse']) or 'none'} | {v['verdict']} |")
+        crossed = bootstrap_deltas(rows, "P3", ref=ref, crossed=True)
+        ci = percentile_ci(crossed["fleet_draws"], 0.95)
+        lines.append(f"| (crossed date x market 95%) | | [{ci[0]:+.4f}, {ci[1]:+.4f}] | | |")
+    lines += ["", f"Date clusters {v['dates']}, rows {v['rows']}.", ""]
+    pairs = [("P3", r) for r in ("a", "f", "e", "r0floor", "R0")] + [("U0", "P3"), ("U0", "a"), ("U0", "f")]
+    if any("dfloor_log_loss" in r for r in rows):
+        pairs.append(("P3", "dfloor"))
+    lines += ["## Descriptive 07-12 fleet deltas (95% date-clustered)", "", "| Comparison | log loss | Brier |",
+              "| --- | --- | --- |"]
+    for arm, ref in pairs:
+        sub = [r for r in rows if f"{ref}_log_loss" in r]
+        cells = []
+        for metric in ("log_loss", "brier"):
+            if not all(f"{ref}_{metric}" in r for r in sub):
+                cells.append("n/a")
+                continue
+            b = bootstrap_deltas(sub, arm, ref=ref, metric=metric)
+            lo, hi = percentile_ci(b["fleet_draws"], 0.95)
+            cells.append(f"{b['fleet']:+.4f} [{lo:+.4f}, {hi:+.4f}]")
+        lines.append(f"| {arm} - {ref} ({len({r['market'] for r in sub})} mkts) | {cells[0]} | {cells[1]} |")
+    lines += ["", "## Per market 07-12 log loss delta (95%)", "",
+              "| Market | P3 - a | P3 - f | U0 - P3 |", "| --- | --- | --- | --- |"]
+    vs = {k: headline_verdict(rows, arm, ref) for k, (arm, ref) in
+          {"a": ("P3", "a"), "f": ("P3", "f"), "u": ("U0", "P3")}.items()}
+    for m in vs["a"]["per_market"]:
+        cells = [f"{vs[k]['per_market'][m]:+.3f} [{vs[k]['market_ci'][m][0]:+.3f}, {vs[k]['market_ci'][m][1]:+.3f}]"
+                 for k in ("a", "f", "u")]
+        lines.append(f"| {m} | " + " | ".join(cells) + " |")
+    lines += ["", "## Per hour, fleet log loss (levels) and deltas (95%); hour 12 called out", "",
+              "| Hour | P3 | a | f | e | P3 - a | P3 - f | U0 - P3 |",
+              "| --- | --- | --- | --- | --- | --- | --- | --- |"]
+    for hour in sorted({r["hour"] for r in rows}):
+        hr = [r for r in rows if r["hour"] == hour]
+        lv = [sum(r[f"{k}_log_loss"] for r in hr) / len(hr) for k in ("P3", "a", "f", "e")]
+        cells = []
+        for arm, ref in (("P3", "a"), ("P3", "f"), ("U0", "P3")):
+            b = bootstrap_deltas(rows, arm, ref=ref, hours=(hour,))
+            lo, hi = percentile_ci(b["fleet_draws"], 0.95)
+            cells.append(f"{b['fleet']:+.3f} [{lo:+.3f}, {hi:+.3f}]")
+        tag = " **(12)**" if hour == 12 else (" (07-12)" if hour in WINDOW_HOURS else "")
+        lines.append(f"| {hour:02d}{tag} | " + " | ".join(f"{x:.3f}" for x in lv) + " | " + " | ".join(cells) + " |")
+    return "\n".join(lines) + "\n"
+
+
 # -------------------------------------------------------------------------- CLI
 
 
@@ -718,7 +890,14 @@ def _parse(argv=None):
     ev.add_argument("--lane-d-root", default=None)
     ev.add_argument("--extract-augsep-manifest", default=None,
                     help="first extract missing Aug-Sep centres from this manifest (fail-closed gaps skipped)")
+    ev.add_argument("--l3-manifest", action="append", default=None, dest="l3_manifests",
+                    help="with arm L3: the Oct-Dec manifests for lane L3's score_market")
     ev.add_argument("--out", required=True)
+    hl = sub.add_parser("headline", help="amendment 2: P3 vs L3's (a) and (f), U0, fair comparators")
+    hl.add_argument("--rows", action="append", required=True, help="row directories (searched in order)")
+    hl.add_argument("--lane-d-floor-root", default=None)
+    hl.add_argument("--rule", required=True)
+    hl.add_argument("--out", required=True)
     rp = sub.add_parser("report", help="paired deltas, CIs and the pre-declared decision")
     rp.add_argument("--rows", required=True)
     rp.add_argument("--arms", default="P0,P1,P2,P3")
@@ -756,9 +935,15 @@ def main(argv=None):
                 print(f"R0 {payload['market']}: {len(rows)} rows parity {parity.get(payload['market'])}", flush=True)
             _write_jsonl(out / "rows_R0.jsonl", r0_rows)
             (out / "r0_parity.json").write_text(json.dumps(parity, indent=1), encoding="utf-8")
-        pooled = [a for a in arms if a in ARMS]
+        if "L3" in arms:
+            if not args.l3_manifests:
+                raise PooledModelError("arm L3 needs --l3-manifest")
+            l3_rows, metas = score_l3_comparators(markets, args.l3_manifests)
+            _write_jsonl(out / "rows_L3.jsonl", l3_rows)
+            (out / "l3_meta.json").write_text(json.dumps(metas, indent=1, default=str), encoding="utf-8")
+        pooled = [a for a in arms if a in ALL_POOLED_ARMS]
         if pooled:
-            wanted = sorted({c for a in pooled for c in ARMS[a]["centres"]})
+            wanted = sorted({c for a in pooled for c in ALL_POOLED_ARMS[a]["centres"]})
             centres, dropped = complete_centres(args.records, markets, wanted)
             if VALIDATION_CENTRE not in centres:
                 raise PooledModelError("the validation centre is incomplete")
@@ -774,6 +959,14 @@ def main(argv=None):
                 rows = score_pooled_arm(arm, frame, val_payloads, hours=hours)
                 _write_jsonl(out / f"rows_{arm}.jsonl", rows)
                 print(f"{arm}: {len(rows)} rows", flush=True)
+        return 0
+    if args.command == "headline":
+        rows, gate = headline_rows(args.rows, args.lane_d_floor_root)
+        text = headline_markdown(rows, args.rule, gate)
+        if out.exists():
+            raise PooledModelError(f"refusing to overwrite {out}")
+        out.write_text(text, encoding="utf-8")
+        print(text)
         return 0
     if args.command == "report":
         rows_dir = Path(args.rows)
