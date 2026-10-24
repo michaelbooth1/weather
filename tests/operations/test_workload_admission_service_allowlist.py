@@ -17,6 +17,9 @@ from pathlib import Path
 import pytest
 
 
+# Opens the real host-global mutex: never in the workstation focused slot.
+pytestmark = pytest.mark.real_global_mutex
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 LEASE_SCRIPT = REPO_ROOT / "scripts" / "ops" / "workload_admission.ps1"
 POWERSHELL = (
