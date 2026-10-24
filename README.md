@@ -95,7 +95,9 @@ http://localhost:8501/?roadmap
 The **Owner Cockpit** is the default page. Its Money, Work, Health and Exam
 columns read the watchdog record (`data/alerts/host_health_latest.json`), the
 tail of `data/alerts/disk_free_trail.jsonl` (24 h slope, days to 50 and 40
-GiB), 88a maker-evidence status and closed UTC dates, the `docs/roadmap/work/`
+GiB), 88a maker-evidence status and closed UTC dates, each
+`config/capture_families.json` family's `status.json` (a disk-floor stop is a
+warning, not a failure), the `docs/roadmap/work/`
 registry (owner waits over three days are flagged), and the wallet reader's
 `summary` and `rewards` routes through its GET-only LAN client. Every source is
 optional and states why it is unavailable; campaign P&L is shown only when the

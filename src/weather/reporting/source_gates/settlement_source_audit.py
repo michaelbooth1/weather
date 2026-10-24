@@ -39,6 +39,15 @@ UNCERTAIN_STATUSES = {
     "MANUAL_OVERRIDE",
     "UNRECONCILED",
 }
+# Owner decision 2026-10-16 ("Option 1"): a SOURCE_DISAGREEMENT row whose
+# Polymarket reconciliation is still undecided defers instead of blocking the
+# settled-day analysis barrier. These are the build_reconciliation statuses
+# that carry no Polymarket verdict yet: the event has not resolved
+# (`not_closed`), the Gamma fetch failed (`fetch_error`), or reconciliation was
+# never asked for (`not_requested`). `unavailable` (closed event, no winning
+# band) and `local_missing` are deliberately excluded and keep blocking.
+UNDECIDED_RECONCILIATION_STATUSES = frozenset({"not_closed", "fetch_error", "not_requested"})
+DEFERRABLE_BLOCKER_STATUSES = frozenset({"SOURCE_DISAGREEMENT"})
 
 
 def _utc_iso():
@@ -431,7 +440,39 @@ def build_settlement_source_audit(
         return {**payload, "rows": list(payload["rows"])}
 
 
-def settlement_label_gate_for_target_dates(payload, target_dates):
+def deferred_disagreement_reconciliation(row):
+    """Return the undecided reconciliation status that defers this blocking row.
+
+    Only a SOURCE_DISAGREEMENT row qualifies, only while Polymarket has not
+    ruled (UNDECIDED_RECONCILIATION_STATUSES), and only when the row proves its
+    disagreement is with a supporting source rather than Polymarket's own
+    resolution: a row that lacks ``disagreement_sources`` or whose disagreement
+    includes ``market_resolution`` is a substantive Polymarket mismatch and
+    keeps blocking. Deferral never makes a row countable; ``promotion_blocker``
+    and ``proof_grade_label`` are untouched. Returns None when not deferrable.
+    """
+    if str(row.get("status") or "").strip().upper() not in DEFERRABLE_BLOCKER_STATUSES:
+        return None
+    reconciliation = str(row.get("reconciliation_status") or "").strip().lower()
+    if reconciliation not in UNDECIDED_RECONCILIATION_STATUSES:
+        return None
+    sources = row.get("disagreement_sources")
+    if not isinstance(sources, (list, tuple)) or "market_resolution" in sources:
+        return None
+    return reconciliation
+
+
+def settlement_label_gate_for_target_dates(payload, target_dates, *,
+                                           defer_undecided_disagreement=False):
+    """Decide whether each target date has promotion-grade truth labels.
+
+    ``defer_undecided_disagreement`` is the settled-day analysis barrier's
+    Option 1 policy (owner decision 2026-10-16): rows accepted by
+    ``deferred_disagreement_reconciliation`` are listed under
+    ``deferred_non_countable`` instead of blocking. Promotion and evaluation
+    consumers keep the default (strict) behaviour, so a deferred row still
+    blocks them until reconciliation returns ``match``.
+    """
     target_dates = sorted({str(value) for value in (target_dates or []) if value})
     if not target_dates:
         return {
@@ -451,6 +492,7 @@ def settlement_label_gate_for_target_dates(payload, target_dates):
     present = set()
     bad_by_date = defaultdict(list)
     reconciled_by_date = defaultdict(list)
+    deferred_by_date = defaultdict(list)
     # Exhaust a file-backed iterator even after finding the requested dates.
     # A truncated or malformed tail must invalidate the entire file.
     for row in rows:
@@ -465,6 +507,13 @@ def settlement_label_gate_for_target_dates(payload, target_dates):
             reconciled_by_date[target_date].append(
                 f"{target_date}:{row.get('market_id') or 'unknown'}:"
                 f"{row.get('promotion_blocker_reason') or row.get('status')}"
+            )
+        elif defer_undecided_disagreement and (
+            deferred := deferred_disagreement_reconciliation(row)
+        ):
+            deferred_by_date[target_date].append(
+                f"{target_date}:{row.get('market_id') or 'unknown'}:"
+                f"{row.get('status')}:{deferred}"
             )
         else:
             bad_by_date[target_date].append(
@@ -481,16 +530,18 @@ def settlement_label_gate_for_target_dates(payload, target_dates):
     blockers = []
     blocked_dates = []
     non_countable_reconciled = []
+    deferred_non_countable = []
     for target_date in target_dates:
         if target_date not in present:
             blocked_dates.append(target_date)
             blockers.append(f"{target_date}:missing_audit_row")
             continue
         non_countable_reconciled.extend(reconciled_by_date[target_date])
+        deferred_non_countable.extend(deferred_by_date[target_date])
         if bad_by_date[target_date]:
             blocked_dates.append(target_date)
             blockers.extend(bad_by_date[target_date])
-    return {
+    gate = {
         "status": "BLOCK" if blockers else "PASS",
         "target_dates": target_dates,
         "blocked_target_dates": blocked_dates,
@@ -498,6 +549,10 @@ def settlement_label_gate_for_target_dates(payload, target_dates):
         "non_countable_reconciled": non_countable_reconciled,
         "reason": "truth-label uncertainty blocks promotion-grade evidence" if blockers else "truth labels proof-grade",
     }
+    if defer_undecided_disagreement:
+        gate["deferral_policy"] = "undecided_source_disagreement_non_countable"
+        gate["deferred_non_countable"] = deferred_non_countable
+    return gate
 
 
 def settlement_label_gate_from_path(path, target_dates):
