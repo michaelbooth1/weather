@@ -4040,8 +4040,9 @@ lanes; nothing here is confirmation. Record, rules (each committed before scorin
   - ECMWF ENS: 171 00Z runs x 51 `2t` members x 6 steps, 36.83 GB in 42,484 range requests via the Google Cloud open-data mirror (AWS throttled), eccodes in a separate research venv only, 3,751 station-date rows;
   - Open-Meteo Previous Runs day-1: 33 requests, 1.19 MB;
   - F4 used captured replay inputs (122,711 snapshots), with no download.
-- **Not scored:** DWD MOSMIX (the open server keeps about 2 days, so it needs forward capture); G2-b (ENS at
-  13-16) is pending as of this entry.
+- **G2-b (ENS gap conditioning t3-r3, 13-16):** −0.0002 [−0.0005, +0.0001] over t3-r3, MDE80 0.0004: KILL (null);
+  score `60047a9deb4d`.
+- **Not scored:** DWD MOSMIX (the open server keeps about 2 days, so it needs forward capture).
 
 ## Related
 

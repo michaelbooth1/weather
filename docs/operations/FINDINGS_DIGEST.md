@@ -61,7 +61,7 @@ never pooled across the 2026-07-31 provenance boundary.
   - **F1 1-minute ASOS running high KILL (harm):** +0.0044 [+0.0017, +0.0076] over t3-r3 at 13-16. It kills the paid observation feeds; MADIS is not triggered. EF §10y.
   - **F3 12Z soundings KILL (null):** −0.0001 [−0.0003, +0.0000] at 13-16. EF §10y.
   - **F4 captured Open-Meteo members KILL:** GFS, NAM and AIGFS are null over MG-1 at 00-12; the GEFS mean harms (+0.0054 [+0.0016, +0.0100]). EF §10y.
-  - **G2-a ECMWF ENS mean KILL (null):** −0.0000 [−0.0033, +0.0031] over MG-1 at 00-12. EF §10y.
+  - **ECMWF ENS KILL (null):** G2-a −0.0000 [−0.0033, +0.0031] over MG-1 at 00-12; G2-b −0.0002 [−0.0005, +0.0001] over t3-r3 at 13-16. EF §10y.
   - **L4 multi-model blend KILL (null at 07-12):** −0.0002 [−0.0045, +0.0047] over MG-1. Its h15-23 gain over MG-1 does not beat served; it is parked as an afternoon candidate. EF §10y.
   - **F2 MRMS echo flag: development lead only:** −0.0005 [−0.0010, −0.0001] over t3-r3 at 13-16. Below the 5% bar; needs a capture change. EF §10y.
 
