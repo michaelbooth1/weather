@@ -157,6 +157,32 @@ sounding cap barely changes the pmf where it applies; a richer conditioning woul
 - **Latency/parity:** MRMS objects reach the public bucket ~1-2 min after valid; valid + 5 min is used in
   history and at serve.
 
+### F2 result (scored 2026-10-24; score `511bd35de76e…`, `data/research/free_sources/scores/f2/`)
+
+Same population and coverage as F1. Table: 681 cells (175 echo-conditioned beyond the control's 506).
+
+| Block | F2 − served | F2 − control (t3-r3) | MDE80 | control − served |
+| --- | --- | --- | --- | --- |
+| **13-16 (decided)** | **−0.0115 [−0.0192, −0.0046]** | **−0.0005 [−0.0010, −0.0001]** | 0.0006 | −0.0110 [−0.0188, −0.0041] |
+| 10-12 | −0.0047 [−0.0114, +0.0020] | −0.0001 [−0.0003, +0.0000] | 0.0003 | |
+| 17-23 | −0.0224 [−0.0329, −0.0139] | +0.0000 [−0.0000, +0.0000] | 0.0000 | |
+| 00-16 | −0.0050 [−0.0129, +0.0018] | −0.0001 [−0.0003, −0.0000] | 0.0002 | |
+| all | −0.0100 [−0.0182, −0.0035] | −0.0001 [−0.0002, −0.0000] | 0.0001 | |
+
+Per market at 13-16, F2 − control: 7 of 11 negative; the convective markets carry it — Houston −0.0021
+[−0.0033, −0.0010], Miami −0.0011 [−0.0017, −0.0006], Austin −0.0009 [−0.0013, −0.0004], Atlanta −0.0008
+[−0.0012, −0.0004]; Los Angeles and San Francisco exactly 0 (no echo cells); Chicago +0.0002 and NYC
++0.0001 (intervals include 0).
+
+**Verdict: KEEP (development lead only).** Both pre-declared intervals exclude zero on the improving side.
+Caveats that bound what this means: the effect (−0.0005) is under half the 5% bar (about −0.0012), so it
+closes roughly 2% of the 13-16 gap; the upper end (−0.0001) barely clears zero and this is one of about ten
+looks in this record (F1, F1u, F2, F3, six F4 members) with no family-wise correction; 11 market clusters
+leave it unpowered; and the dates were read before. **Parity:** production captures only the MRMS object
+listing, so serving this needs a capture change (nearest-pixel/disk extraction of composite reflectivity,
+valid + 5 min), which is master's and the roll verdict's call. Next step if pursued: pre-register
+`f2_mrms_echo25` unchanged, with t3-r3 as control, on new dates (EF §5).
+
 ## F5: ECMWF ENS open data and DWD MOSMIX (incl. the EU cities), forward only
 
 Not scored, by the brief and by measurement. Parsers built on small pulls (`weather.sources.free_screens.forward_only`).
