@@ -167,3 +167,39 @@ def test_a_fail_closed_corpus_gap_skips_the_pair_and_drops_the_centre(tmp_path, 
     assert [(m, c) for m, c, _ in failed] == [("nyc", "2026-12-24")]
     kept, dropped = prm.complete_centres(tmp_path, ["atlanta", "nyc"], ["2026-11-24", "2026-12-24"])
     assert (kept, dropped) == (["2026-11-24"], ["2026-12-24"])
+
+
+def test_u0_fits_each_market_alone():
+    frame = _frame()
+    payloads = [{"market": m, "bucket_space": list(range(40, 100))} for m in ("atlanta", "nyc")]
+    rows = prm.score_pooled_arm("U0", frame, payloads)
+    assert len(rows) == len(frame)
+    # Poisoning one market's training labels cannot move the other market's U0 predictions.
+    poisoned = frame.copy()
+    poisoned.loc[(poisoned["market"] == "nyc") & (poisoned["year"] != 2021), "y"] += 30.0
+    again = prm.score_pooled_arm("U0", poisoned, payloads)
+    def atl(rs, arm="U0"):
+        return sorted((r["validation_date"], r[f"{arm}_mean"]) for r in rs if r["market"] == "atlanta")
+
+    assert atl(rows) == atl(again)
+    # The pooled arm does move: the control has teeth.
+    assert atl(prm.score_pooled_arm("P0", poisoned, payloads), "P0") != atl(prm.score_pooled_arm("P0", frame, payloads), "P0")
+
+
+def test_l3_row_gate_needs_identical_keys_and_r0_reproduction():
+    r0 = [{"market": "a", "hour": 7, "validation_date": "2022-11-20", "R0_log_loss": 4.0}]
+    l3 = [{"market": "a", "hour": 7, "validation_date": "2022-11-20", "l3r0_log_loss": 4.0}]
+    assert prm.l3_parity(r0, l3)["ok"]
+    assert not prm.l3_parity(r0, [dict(l3[0], l3r0_log_loss=4.1)])["ok"]
+    assert not prm.l3_parity(r0, [dict(l3[0], hour=8)])["ok"]
+
+
+def test_headline_verdict_words():
+    rows = _rows({"atlanta": -0.4, "nyc": -0.3})
+    for r in rows:
+        r["a_log_loss"] = r.pop("R0_log_loss")
+        r["P3_log_loss"] = r.pop("P0_log_loss")
+    assert prm.headline_verdict(rows, "P3", "a")["verdict"] == "P3 beats a"
+    for r in rows:
+        r["P3_log_loss"] = r["a_log_loss"] + 0.5
+    assert prm.headline_verdict(rows, "P3", "a")["verdict"] == "P3 is worse than a"

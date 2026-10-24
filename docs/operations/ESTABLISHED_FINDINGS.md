@@ -3967,7 +3967,7 @@ was read.
   standard-time date. DST-L9's "latent: the season is May-Aug" no longer holds once the Oct-Dec PIT fetch exists. The
   audit does not list `eccc_gridded.py`, `reanalysis_history.py` or `historical_fallbacks.py`.
 
-### 10x. A pooled US-11 residual model beats per-market R0 (leaf 20) by about 1.85-1.97 nats at 07-12 on R0's own blocked rows; R0 is worse than its own climatology baseline — lane L2, workstation, 2026-10-24
+### 10x. A pooled US-11 residual model beats **raw** R0 (leaf 20, no floor, no calibration — a known-unfair comparator) by about 1.85-1.97 nats at 07-12; not edge — lane L2, workstation, 2026-10-24
 
 Pre-declared rule (sha256 `6dac6419…f499` with its pre-result amendment; original `e2649f16…bd31`),
 [rule and report](../research/l2-pooled-residual-2026-10-24/). Branch
@@ -3986,6 +3986,7 @@ Development evidence on years before the centre year; weather-only; no market pr
   **P3 + Aug-Sep -1.968 [-2.168, -1.786] (pick)**; crossed date x market 95% [-2.381, -1.612]. No market is
   worse beyond its CI in any arm; every market gains (smallest: Los Angeles, San Francisco, Miami,
   Seattle about -1.1 to -1.35). Brier improves at every hour (07: -0.139, 12: -0.236 for P3).
+- **The comparator is unfair by construction:** the trainer's validation `hgb_log_loss` is the raw HGB blended 0.8 with climatology, with no hard floor and no calibration, while serving applies both; on Atlanta Oct-Dec 07-12 lane L3 measured raw R0 4.33, R0 + floor 4.08, baseline + floor 3.70, bias-corrected forecast + floor 2.38, L3 OLS + floor 2.25. Do not cite the 1.85-1.97 figure as a model gain over what serves; the fair comparisons (P3 vs L3 OLS + floor and vs bias-corrected forecast + floor, an unpooled U0 arm, and a dev-window scorecard against the served vector) are pre-declared as amendments to the same rule and pending.
 - **Read it carefully:** most of the gain is a proper continuous residual distribution (bias-corrected
   forecast, floor-censored) replacing a 30-class classifier on 60 rows, not pooling as such; pooling
   across window and season adds about 0.12 nats at 07-12, the market id adds nothing. An unpooled
