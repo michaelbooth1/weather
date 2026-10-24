@@ -102,6 +102,7 @@ No live trading is authorized by any document here; `STATE_OF_PLAY.md` records c
 | Document | Read when |
 | --- | --- |
 | [config-inventory.md](config-inventory.md) | Adding or changing a checked-in config file; owns classification and freshness. |
+| [venue-rule-labels.md](venue-rule-labels.md) | Building or reading training/evaluation labels for dates from 2026-10-23, or changing a market's label station. Owner: `weather.backtesting.venue_rule_labels`. |
 | [artifact-storage-policy.md](artifact-storage-policy.md) | Git vs Git LFS vs external storage, size thresholds, restore, promotion preflight. |
 | [git-lfs-policy.md](git-lfs-policy.md) | Anything touching LFS. **Never re-add `lfs: true` to a workflow; never delete `.git/lfs`.** |
 | [schema-registry-storage-log-reconciliation.md](schema-registry-storage-log-reconciliation.md) | Mapping a durable schema to its producer and storage/log contract. |
