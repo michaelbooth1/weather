@@ -407,9 +407,10 @@ def _num(value):
 class MeanModel:
     """Steps 1-4 of the rule: in-fold bias, OLS on the floor gap, HGB on its residual."""
 
-    def __init__(self, *, market_id, doy):
+    def __init__(self, *, market_id, doy, raw_columns=True):
         self.market_id = market_id
         self.doy = doy
+        self.raw_columns = raw_columns
 
     def _anchors(self, frame):
         import numpy as np
@@ -453,7 +454,7 @@ class MeanModel:
         self.normal = frame.groupby(["market", "centre"])["y"].mean().to_dict()
         self.normal_by_market = frame.groupby("market")["y"].mean().to_dict()
         self.normal_global = float(frame["y"].mean())
-        self.x_columns = [c for c in frame.columns if c.startswith("x_")]
+        self.x_columns = [c for c in frame.columns if c.startswith("x_")] if self.raw_columns else []
         X, mu0, g = self.features(frame)
         r = frame["y"].to_numpy(float) - mu0
         design = np.column_stack([np.ones_like(g), g, np.maximum(g, 0.0)])
@@ -472,7 +473,7 @@ class MeanModel:
         return mu0 + design @ self.ols + self.hgb.predict(X), X
 
 
-def fit_pooled(train, *, market_id, doy):
+def fit_pooled(train, *, market_id, doy, raw_columns=True):
     """Mean model on all training rows plus an inner-LOYO scale model and z set."""
     import numpy as np
     from sklearn.ensemble import HistGradientBoostingRegressor
@@ -483,10 +484,10 @@ def fit_pooled(train, *, market_id, doy):
         raise PooledModelError("the scale model needs at least two training years")
     for year in years:
         inner = (train["year"] != year).to_numpy()
-        model = MeanModel(market_id=market_id, doy=doy).fit(train[inner])
+        model = MeanModel(market_id=market_id, doy=doy, raw_columns=raw_columns).fit(train[inner])
         pred, _ = model.predict(train[~inner])
         errors[~inner] = train["y"].to_numpy(float)[~inner] - pred
-    mean = MeanModel(market_id=market_id, doy=doy).fit(train)
+    mean = MeanModel(market_id=market_id, doy=doy, raw_columns=raw_columns).fit(train)
     X, _, _ = mean.features(train)
     yhat_oof = train["y"].to_numpy(float) - errors
     floor_gap = np.nan_to_num(yhat_oof - train["F"].to_numpy(float), nan=0.0)
@@ -870,6 +871,140 @@ def headline_markdown(rows, rule_path, gate):
     return "\n".join(lines) + "\n"
 
 
+# --------------------------------------------------------- amendment 3: dev window
+
+DEV_ARMS = {"P3d": False, "U0d": True}  # arm -> per market
+DEV_KEEP_X = ("x_high_so_far", "x_current_temp")  # the serve-time inputs with parity (L3's main variant)
+
+
+def nearest_centre(target_date, centres=AUG_SEP_CENTRES):
+    """The Aug-Sep centre whose month-day is closest to ``target_date``'s (for the normal)."""
+    d = date.fromisoformat(str(target_date)[:10])
+    ref = date(2001, d.month, d.day)
+    return min(centres, key=lambda c: abs((date(2001, int(c[5:7]), int(c[8:10])) - ref).days))
+
+
+def dev_training_frame(records_root, markets=R0_MARKETS):
+    """Every Aug-Sep 2021-25 record, reduced to the serve-parity inputs."""
+    payloads = [load_records(records_root, m, c) for c in AUG_SEP_CENTRES for m in markets]
+    frame, _ = pooled_frame(payloads, station_coordinates(markets))
+    drop = [c for c in frame.columns if c.startswith("x_") and c not in DEV_KEEP_X]
+    buckets = {p["market"]: p["bucket_space"] for p in payloads if p["centre"] == "2026-09-07"}
+    return frame.drop(columns=drop), buckets
+
+
+def dev_fits(frame, arm):
+    """One fit per cutoff (P3d) or per (market, cutoff) (U0d), on all five training years."""
+    per_market = DEV_ARMS[arm]
+    fits = {}
+    for hour in sorted(frame["hour"].unique()):
+        at_hour = frame[frame["hour"] == hour]
+        groups = [(m, at_hour[at_hour["market"] == m]) for m in sorted(at_hour["market"].unique())] \
+            if per_market else [(None, at_hour)]
+        for market, train in groups:
+            train = train.reset_index(drop=True)
+            fits[(int(hour), market)] = {
+                "fit": fit_pooled(train, market_id=False, doy=True, raw_columns=False),
+                "train_y": {m: [int(v) for v in train.loc[train["market"] == m, "y"]]
+                            for m in train["market"].unique()},
+            }
+    return fits
+
+
+def dev_emit_distributions(*, records_root, layout, replay_root, dev_manifest, out_dir, markets=R0_MARKETS):
+    """Emit P3d and U0d distributions for the dev snapshots on lane L3's inputs (its helpers, unchanged)."""
+    import numpy as np
+    import pandas as pd
+    from zoneinfo import ZoneInfo
+
+    from weather.calibration import feature_model as fm
+    from weather.calibration import r0_ols_floor_challenger as l3
+    from weather.calibration.feature_model_training_inputs import PITForecastCorpusUnion
+    from weather.market.market_registry import spec_for_id
+    from weather.model.toronto_model import INTRADAY_CUTOFF_HOURS
+
+    out = require_output_outside_repo(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    frame, buckets = dev_training_frame(records_root, markets)
+    if frame["year"].max() >= 2026:
+        raise PooledModelError("a dev training row is from 2026")
+    fits = {arm: dev_fits(frame, arm) for arm in DEV_ARMS}
+    coords = station_coordinates(markets)
+    snaps = pd.read_parquet(Path(layout) / "inputs_snapshots.parquet", columns=[
+        "snapshot_id", "market", "target_date", "local_hour", "cutoff_hour"])
+    if (pd.to_datetime(snaps.target_date).dt.date > l3.DEV_LAST).any():
+        raise PooledModelError("layout holds a snapshot after 2026-09-29")
+    hours = {int(h) for h in INTRADAY_CUTOFF_HOURS}
+    paths = {arm: out / f"dev_{arm}.jsonl" for arm in DEV_ARMS}
+    for path in paths.values():
+        if path.exists():
+            raise PooledModelError(f"refusing to overwrite {path}")
+    writers = {arm: open(path, "w", encoding="utf-8") for arm, path in paths.items()}
+    audit = {"markets": {}, "training_rows": int(len(frame)), "train_years": sorted(int(y) for y in frame["year"].unique())}
+    try:
+        for market in markets:
+            spec = spec_for_id(market)
+            tz = ZoneInfo(spec.timezone)
+            dev_union = PITForecastCorpusUnion([dev_manifest], spec.id, target_year=2027,
+                                               required_cutoff_hours=INTRADAY_CUTOFF_HOURS)
+            obs = {}
+            for slug, target, folder in l3._event_folders(replay_root):
+                if not (l3.DEV_FIRST <= target <= l3.DEV_LAST) or slug != market:
+                    continue
+                for hour, rec in l3.scan_replay_observations(folder, market, target, tz, hours).items():
+                    obs[(target.isoformat(), hour)] = rec
+            stats = defaultdict(int)
+            lat, lon, elev = coords[market]
+            for row in snaps[snaps.market == market].itertuples(index=False):
+                try:
+                    hour = int(str(row.cutoff_hour))
+                except ValueError:
+                    hour = None
+                if hour not in hours:
+                    stats["outside_cutoff_hours"] += 1
+                    continue
+                if int(row.local_hour) < hour:
+                    stats["local_hour_before_cutoff"] += 1
+                    continue
+                key = (str(row.target_date)[:10], hour)
+                rec = obs.get(key)
+                if rec is None or rec["high_so_far"] is None:
+                    stats["no_replay_observation"] += 1
+                    continue
+                fc = dev_union.resolve(key[0], hour)["forecast_high"]
+                tdate = date.fromisoformat(key[0])
+                doy = tdate.timetuple().tm_yday
+                one = pd.DataFrame([{
+                    "market": market, "centre": nearest_centre(key[0]), "season": "aug_sep", "hour": hour,
+                    "target_date": key[0], "year": tdate.year, "y": float("nan"),
+                    "F": _num(rec["high_so_far"]), "fh": _num(fc), "lat": lat, "lon": lon, "elev": elev,
+                    "doy_sin": math.sin(2 * math.pi * doy / 365.25), "doy_cos": math.cos(2 * math.pi * doy / 365.25),
+                    "x_high_so_far": _num(rec["high_so_far"]), "x_current_temp": _num(rec["current_temp"]),
+                    "market_code": float(R0_MARKETS.index(market)),
+                }])
+                for arm, per_market in DEV_ARMS.items():
+                    entry = fits[arm][(hour, market if per_market else None)]
+                    fitted = entry["fit"]
+                    yhat, X = fitted["mean"].predict(one)
+                    gap = np.nan_to_num(yhat - one["F"].to_numpy(float), nan=0.0)
+                    s = max(MIN_SCALE, float(fitted["scale"].predict(np.column_stack([X, gap]))[0]) * math.sqrt(math.pi / 2))
+                    p_clim = fm.smoothed_dist(entry["train_y"][market], buckets[market], alpha=0.10)
+                    dist = predictive_distribution(float(yhat[0]), s, float(one.at[0, "F"]), fitted["z"],
+                                                   buckets[market], p_clim)
+                    writers[arm].write(json.dumps({
+                        "market": market, "snapshot_id": row.snapshot_id, "target_date": key[0],
+                        "distribution": {str(b): p for b, p in dist.items() if p > 0}}, sort_keys=True) + "\n")
+                stats["emitted"] += 1
+            audit["markets"][market] = dict(stats, replay_hours=len(obs))
+            print(f"dev {market}: {dict(stats)}", flush=True)
+    finally:
+        for handle in writers.values():
+            handle.close()
+    audit["files"] = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in paths.values()}
+    (out / "dev_emit_audit.json").write_text(json.dumps(audit, indent=1, sort_keys=True), encoding="utf-8")
+    return audit
+
+
 # -------------------------------------------------------------------------- CLI
 
 
@@ -898,6 +1033,13 @@ def _parse(argv=None):
     hl.add_argument("--lane-d-floor-root", default=None)
     hl.add_argument("--rule", required=True)
     hl.add_argument("--out", required=True)
+    de = sub.add_parser("dev-emit", help="amendment 3: P3d/U0d dev-window distributions (heavy)")
+    de.add_argument("--records", required=True)
+    de.add_argument("--layout", required=True)
+    de.add_argument("--replay-root", required=True)
+    de.add_argument("--dev-manifest", required=True)
+    de.add_argument("--markets", default=",".join(R0_MARKETS))
+    de.add_argument("--out", required=True)
     rp = sub.add_parser("report", help="paired deltas, CIs and the pre-declared decision")
     rp.add_argument("--rows", required=True)
     rp.add_argument("--arms", default="P0,P1,P2,P3")
@@ -959,6 +1101,12 @@ def main(argv=None):
                 rows = score_pooled_arm(arm, frame, val_payloads, hours=hours)
                 _write_jsonl(out / f"rows_{arm}.jsonl", rows)
                 print(f"{arm}: {len(rows)} rows", flush=True)
+        return 0
+    if args.command == "dev-emit":
+        audit = dev_emit_distributions(records_root=args.records, layout=args.layout, replay_root=args.replay_root,
+                                       dev_manifest=args.dev_manifest, out_dir=args.out,
+                                       markets=args.markets.split(","))
+        print(json.dumps(audit["files"], indent=1))
         return 0
     if args.command == "headline":
         rows, gate = headline_rows(args.rows, args.lane_d_floor_root)
