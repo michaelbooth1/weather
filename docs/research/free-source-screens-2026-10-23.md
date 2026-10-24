@@ -76,3 +76,40 @@ pre-registration on new dates (EF §5), nothing more.
 - **Latency/parity:** RAOB is public within about 1-2 h of launch at no cost; the 14:00Z bound is used
   in history and at serve, so parity holds.
 - **Targeted block 13-16; one rule; keep/kill bar as in the common protocol.**
+
+## F4: per-model Open-Meteo members (captured), block 00-12
+
+### Inventory and pre-declaration (committed before scoring)
+
+- **Captured coverage (no download):** every captured snapshot <= 09-29 carries `open_meteo_multimodel`
+  (`gfs_seamless`, `ncep_hrrr_conus`, `ncep_nam_conus`, `ncep_nbm_conus`), `open_meteo_global_models`
+  (`ecmwf_ifs025`, `ecmwf_aifs025`, `ncep_aigfs025`, `gfs_graphcast025`) `day_model_highs`, and the
+  GFS-ensemble day mean high (`global_ensemble`). ICON is not captured, so it is not screened (no fetch,
+  per the brief). Already tested and excluded: HRRR, IFS, NBM (EF §10q). Extracted from the workstation
+  replay-input copy by `weather.sources.free_screens.captured_openmeteo` inside the scorecard process.
+- **Control `control_mg1`** = MG-1 verbatim (`r-t5-inc-c1`, EF §10h/§10j) from the layout's captured
+  `v2_mean`, `v2_stddev`, `v2_available_at` and floor.
+- **Candidates `f4_<member>`** for `gfs_seamless`, `ncep_nam_conus`, `ecmwf_aifs025`, `ncep_aigfs025`,
+  `gfs_graphcast025`, `gefs_mean`: MG-1 with mu = (v2_mean + member day high) / 2 (fixed 50/50, zero
+  parameters, sigma unchanged); a snapshot without the member keeps MG-1.
+- **Targeted block 00-12** (the scorecard gains a `00-12` aggregate row for this; MG-1's block).
+  Six rules; the keep bar applies to each, and with six looks a lone marginal KEEP is read as a lead only.
+- **Latency/parity:** captured at `captured_at_utc` by production, so point in time by construction.
+
+## F2: MRMS composite reflectivity (NOAA archive), block 13-16
+
+### Inventory and pre-declaration (committed before scoring)
+
+- **Local capture:** production records only the `PrecipRate_00.00` object listing; every sampled
+  snapshot (25 of 732 market-day files) has `row_count 0` and "nearest MRMS extraction is not
+  configured". So no value is captured for any date, and the archive is the only source.
+- **Fetched** (`weather.sources.free_screens.mrms`): `MergedReflectivityQCComposite_00.50`, the newest
+  object at or before each UTC :00/:30 from 16:00Z to 23:30Z, for Aug-Sep 2024, Aug-Sep 2025 and
+  2026-07-31..09-29; reduced on the fly to max dBZ within 25 and 50 km of each station (raw grids are
+  hashed in the receipts and not kept).
+- **Candidate `f2_mrms_echo25`:** t3-r3 conditioned on an echo flag: bin 1 if the newest slot with
+  valid + 5 min <= t and valid >= t − 40 min has max reflectivity >= 35 dBZ within 25 km, bin 0 if that
+  slot is below 35 dBZ, no bin (unconditioned t3-r3) if no such slot. Cells as F3 (>= 30 days, else back off).
+- **Control:** `control_t3r3_metar`. **Targeted block 13-16; one rule.**
+- **Latency/parity:** MRMS objects reach the public bucket ~1-2 min after valid; valid + 5 min is used in
+  history and at serve.

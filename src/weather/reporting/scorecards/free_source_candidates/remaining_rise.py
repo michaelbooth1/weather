@@ -37,10 +37,15 @@ METAR_AVAIL_MIN = 10
 
 DEFAULT_METAR_DIR = r"C:\swarm\data\iem\metar"
 DEFAULT_ROOT = r"C:\Users\Michael\Documents\github\weather\data\research\free_sources"
+DEFAULT_INBOX = r"C:\Users\Michael\Documents\github\weather\data\inbox\replay-inputs-le0929"
 
 
 def metar_dir():
     return Path(os.environ.get("FREE_SCREENS_METAR_DIR", DEFAULT_METAR_DIR))
+
+
+def replay_inbox():
+    return Path(os.environ.get("FREE_SCREENS_REPLAY_INBOX", DEFAULT_INBOX))
 
 
 def research_root():
