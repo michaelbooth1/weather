@@ -262,3 +262,47 @@ def test_build_refuses_a_tampered_pit_corpus_and_non_candidates(tmp_path):
     with pytest.raises(corpus.CorpusBuildError, match="not candidate markets"):
         corpus.build(market_ids=["nyc"], metar_root=FIXTURES, pit_corpus_manifest=manifest,
                      last_date="2026-09-29", publish_root=tmp_path / "out")
+
+
+def _synthetic_rows(n_days=400):
+    import random
+
+    rng = random.Random(7)
+    rows = []
+    start = corpus._parse_date("2023-01-01")
+    for k in range(n_days):
+        day = (start + corpus.timedelta(days=k)).isoformat()
+        truth = 15 + 8 * rng.random()
+        forecast = truth + rng.gauss(0, 2.0)
+        for hour in (9, 15):
+            seen = truth - (3.0 if hour == 9 else 0.3) + rng.gauss(0, 0.3)
+            rows.append({
+                "market_id": "london", "cutoff_hour_local": hour, "target_date": day, "temperature_unit": "C",
+                "forecast_high_native": forecast, "obs_max_so_far_native": seen, "obs_latest_native": seen,
+                "label_native": int(truth + 0.5),
+            })
+    return rows
+
+
+def test_fit_beats_the_forecast_only_baseline_when_observations_carry_signal():
+    result = corpus.fit_and_evaluate(
+        _synthetic_rows(), train_through="2023-12-31", test_from="2024-01-01", test_to="2024-02-04",
+    )
+
+    late = result["results"]["london|13-16"]
+    assert late["delta_brier"] < 0 and late["delta_brier_ci95"][1] < 0
+    assert late["n_dates"] == 35
+    assert result["benchmark"].startswith("weather-only")
+
+
+def test_fit_refuses_evaluation_after_the_development_window():
+    with pytest.raises(corpus.CorpusBuildError, match="after 2026-09-29"):
+        corpus.fit_and_evaluate(_synthetic_rows(), train_through="2026-09-01", test_from="2026-09-02", test_to="2026-09-30")
+
+
+def test_band_probabilities_use_venue_ladders():
+    edges, width = corpus._band_ladder(77, "F")
+    assert width == 2 and 76 in edges and all(edge % 2 == 0 for edge in edges)
+    probs = corpus.band_probabilities(76.9, 1.0, edges, width)
+    assert abs(sum(probs) - 1.0) < 1e-6
+    assert max(probs) == probs[edges.index(76)]

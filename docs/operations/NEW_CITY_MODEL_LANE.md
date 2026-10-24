@@ -59,14 +59,24 @@ station-catalogue position.
   maximum half-up to a whole native degree. A day is `label_complete` only when no gap
   between reports (local midnight to local midnight) exceeds 180 minutes **and** the
   day lies inside the span the input files cover. Incomplete days never label.
-- **Interim.** The builder today admits routine and special reports (the repo's METAR
-  rule). The owner's venue rule is the highest **routine** METAR, SPECI excluded,
-  tenths from the RMK T-group, native unit. Lane A1's shared label module
-  (`claude/venue-rule-labels-20261023`) owns that rule; `daily_label` is replaced by it
-  once it is pushed, not re-implemented here. The venue rule needs the raw METAR text,
-  so the full download must request `data=metar`. IEM types foreign :20 half-hourly
-  routine reports as `report_type=4`, so "routine" for foreign stations cannot be
-  `report_type=3` alone (METAR-vs-WU study, 2026-10-23).
+- **Venue rule.** Labels come from lane A1's `weather.backtesting.venue_rule_labels`
+  (imported, never its CLI, which also fetches): the highest **routine** METAR, SPECI
+  excluded, tenths from the RMK T-group (body whole degree when absent, as at every
+  European station), half-up to the native whole degree, an accepted correction
+  replacing the original.
+- **Scheduled type-4 reports.** IEM raw text has no METAR/SPECI prefix and IEM files a
+  foreign station's off-hour half-hourly routine reports as `report_type=4`. Measured
+  on the 2021-2026 download (2022 files): EGLC and EDDM type 4 is ~8,757 reports at
+  :20 and a handful at :50; LFPB, LEMD, RKSI, RJTT and ZSPD ~8,715 at :30 and ~47 at
+  :00; KDEN type 4 is ~1,400 a year at scattered minutes (true SPECIs). The venue's
+  AviationWeather feed carries those half-hourly reports as METARs. Each candidate row
+  therefore declares `iem_special_schedule_minute` (20 or 30; `null` for KDEN): a type-4
+  report at exactly that minute with no SPECI prefix is the scheduled routine report;
+  every other type-4 report stays special. Without it a European label would be the
+  hourly maximum only (the METAR-vs-WU study found the half-hourly reports raise the
+  maximum on 6-11 of 60 days per pilot city).
+- **Features vs labels.** Labels use the routine selection; observed-so-far cutoff
+  features use every report (routine and special), as a live station feed does.
 - **Print cutoff (`print_cutoffs.metar_observation_time`).** The METAR equivalent of the
   effective WU print cutoff: cutoff hours 07-20 local; only reports observed at or
   before the local cutoff instant are admitted; the effective cutoff is the latest
@@ -79,36 +89,35 @@ station-catalogue position.
 ## Corpus builder
 
 ```powershell
-python -m weather.calibration.new_city_corpus labels --market london --metar-csv <EGLC_rt3.csv> <EGLC_rt4.csv> --last-date 2026-09-29 --out <labels.jsonl>
-python -m weather.calibration.new_city_corpus build --markets london,paris,munich,madrid --metar-csv-dir <dir> --pit-corpus-manifest <corpus>\manifest.json --last-date 2025-12-31 --publish-root data\training\new_city_corpus
+python -m weather.calibration.new_city_corpus labels --market london --routine-csv <routine csv ...> --special-csv <special csv ...> --last-date 2026-09-29 --out <labels.jsonl>
+python -m weather.calibration.new_city_corpus build --markets london,paris,denver-kden --metar-root data\venue_rule_labels\metar --pit-corpus-manifest <corpus>\manifest.json --last-date 2025-12-31 --publish-root data\training\new_city_corpus
 ```
 
-`build` reads `<ICAO>*.csv` per market, drops rows after `--last-date` at read time,
+`build` reads `<icao>/routine/*.csv` and `<icao>/special/*.csv` (the
+`venue_rule_labels` METAR layout) per market, drops rows after `--last-date` at read time,
 verifies the PIT corpus file hash, refuses a PIT row whose cutoff instant disagrees or
 whose issue or availability time is after the cutoff, joins only complete labels, and
 publishes `rows.jsonl`, `labels.jsonl` and `manifest.json` atomically under
 `corpora/<sha256>`; an existing corpus is never overwritten. It never fetches.
 
-## What blocks a full corpus
+## Inputs and how they run
 
-1. **Wrapper allowlist.** `scripts\ops\workstation_heavy.ps1 -Kind weather_heavy`
-   refuses every fetch module (`weather.sources.forecast_training_corpus_fetch`,
-   `weather.sources.forecast_history`, `weather.sources.metar_history`) and any script
-   path: none is in `Get-WeatherWorkstationOfflineModule`. A reviewed allowlist change
-   is needed before either approved download can run under the wrapper.
-2. **Open-Meteo collector not on master.** The PIT collector
-   `weather.sources.forecast_training_corpus_fetch` and the planner's `--fields` and
-   `--pad-request-days` exist only on `claude/pit-corpus-fetch-20261021` (also in the
-   R0 branches). Once landed and allowlisted, with
-   `WEATHER_MARKET_REGISTRY=config\candidate_markets.json`:
-   `plan --years 2021,2022,2023,2024,2025 --markets london,paris,munich,madrid,denver-kden --season-start 01-01 --season-end 12-31 --fields temperature_2m --pad-request-days 1`
-   (check the padded-December rule in the PIT runbook before planning 2025), then the
-   collector, `resume-status` and `materialize`.
-3. **IEM METAR history.** Owner-approved 2026-10-23 for EGLC, LFPB, EDDM, LEMD, RKSI,
-   RJTT, ZSPD and KDEN, UTC 2021-01-01..2026-09-30, routine (`report_type=3`) and
-   special (`report_type=4`) fetched separately with `tmpc` and `metar`, serial and
-   a few seconds apart. Blocked by item 1 only.
-4. **Venue-rule label module** (lane A1), not yet pushed.
+- **IEM METAR history** (owner-approved 2026-10-23): EGLC, LFPB, EDDM, LEMD, RKSI,
+  RJTT, ZSPD and KDEN, UTC 2021-01-01..2026-09-30, `report_type=3` and `=4` fetched
+  separately with `tmpc` and `metar`, one file per station, type and year, serial,
+  5 s apart, resumable. Stored under `data/venue_rule_labels/metar/<icao>/{routine,special}/`
+  with `m1_fetch_receipts.jsonl` beside them.
+- **Open-Meteo Previous Runs** (owner-approved 2026-10-23): the PIT collector
+  `weather.sources.forecast_training_corpus_fetch` with
+  `WEATHER_MARKET_REGISTRY=config\candidate_markets.json`, temperature only,
+  `gfs_seamless`, lead 1, `--pad-request-days 1`. Network fetches run directly on the
+  workstation (master ruling 2026-10-23), serial and resumable; `plan` and
+  `materialize` run under `workstation_heavy.ps1`.
+- **Provider gap measured (2026-10-23):** `gfs_seamless`
+  `temperature_2m_previous_day1` is null at the KDEN point from the start of the
+  series through 2021-03-23 17:00 local, so a 2021 plan starts on 03-25. The known
+  2023-12-30 gap (PIT runbook) applies too, so 2023 ends 12-28 and 2025 ends 12-30.
+- `new_city_corpus` builds run under `workstation_heavy.ps1 -Kind weather_heavy`.
 
 ## R1: recorder-only enable for the five pilot cities
 

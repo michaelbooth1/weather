@@ -425,7 +425,19 @@ def build(*, market_ids, metar_root, pit_corpus_manifest, last_date, publish_roo
         records_by_market[market_id] = records_by_local_date(
             read_iem_records(routine + special, candidate.spec, last_date=last_date)
         )
-    pit_manifest, pit_digest, forecast_rows = load_pit_forecast_daily(pit_corpus_manifest, market_ids)
+    manifests = [pit_corpus_manifest] if isinstance(pit_corpus_manifest, (str, Path)) else list(pit_corpus_manifest)
+    pit_inputs = []
+    forecast_rows = []
+    seen = set()
+    for manifest_path in manifests:
+        pit_manifest, pit_digest, rows_for = load_pit_forecast_daily(manifest_path, market_ids)
+        pit_inputs.append({"corpus_id": pit_manifest.get("corpus_id"), "forecast_daily_sha256": pit_digest})
+        for row in rows_for:
+            key = (row["market_id"], row["target_date"], int(row["cutoff_hour_local"]))
+            if key in seen:
+                raise CorpusBuildError(f"PIT corpora overlap at {key}")
+            seen.add(key)
+            forecast_rows.append(row)
     rows, rejected = join_rows(forecast_rows, labels_by_market, records_by_market, candidates, last_date=last_date)
     if not rows:
         raise CorpusBuildError("join produced no rows; nothing is published")
@@ -440,8 +452,7 @@ def build(*, market_ids, metar_root, pit_corpus_manifest, last_date, publish_roo
         "label_rule": venue.VENUE_RULE_VERSION,
         "label_report_counts": label_counts,
         "metar_inputs": metar_inputs,
-        "pit_corpus_id": pit_manifest.get("corpus_id"),
-        "pit_forecast_daily_sha256": pit_digest,
+        "pit_corpora": pit_inputs,
         "row_count": len(rows),
         "label_count": len(labels),
         "label_complete_count": sum(1 for label in labels if label["label_complete"]),
@@ -468,6 +479,177 @@ def _labels_command(args):
     return 0
 
 
+FIT_SCHEMA = "new_city_first_candidate/1"  # research result, not a registry artifact
+FIT_FEATURES = ("forecast_high_native", "obs_max_so_far_native", "obs_latest_native")
+FIT_BOOTSTRAP_DRAWS = 2000
+FIT_SEED = 20261023
+EVALUATION_LAST_DATE = date(2026, 9, 29)
+
+
+def _band_ladder(label, unit, width=None):
+    """Interior band lower edges around ``label``: 1 C bands, or 2 F bands on even starts."""
+    width = width or (2 if unit == "F" else 1)
+    centre = int(label) - (int(label) % width)
+    return [centre + width * k for k in range(-12, 13)], width
+
+
+def _normal_cdf(x):
+    import math
+
+    return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+
+
+def band_probabilities(mean, sd, edges, width):
+    """P(whole-degree label in [edge, edge + width)) for a normal on the half-up value."""
+    sd = max(float(sd), 0.3)
+    probs = []
+    for edge in edges:
+        lo, hi = edge - 0.5, edge + width - 0.5
+        probs.append(_normal_cdf((hi - mean) / sd) - _normal_cdf((lo - mean) / sd))
+    return probs
+
+
+def _brier_log(probs, edges, width, label):
+    import math
+
+    truth = [1.0 if edge <= label < edge + width else 0.0 for edge in edges]
+    brier = sum((p - y) ** 2 for p, y in zip(probs, truth))
+    hit = sum(p for p, y in zip(probs, truth) if y) / max(sum(probs), 1e-12)
+    return brier, math.log(max(hit, 1e-4))
+
+
+def _ols(xs, ys):
+    import numpy as np
+
+    x = np.column_stack([np.ones(len(xs)), np.asarray(xs, dtype=float)])
+    y = np.asarray(ys, dtype=float)
+    beta, *_ = np.linalg.lstsq(x, y, rcond=None)
+    resid = y - x @ beta
+    return beta, float(resid.std(ddof=x.shape[1])) if len(y) > x.shape[1] else float("nan")
+
+
+def fit_and_evaluate(rows, *, train_through, test_from, test_to):
+    """First candidate: per market x cutoff OLS on the PIT forecast and observed-so-far.
+
+    Baseline: the lead-1 PIT forecast high with a per market x cutoff bias and
+    residual sd from training (no observations). Candidate: OLS of the label on
+    forecast high, observed max so far and latest observation, with its
+    residual sd. Both give a discretised normal over the venue band ladder.
+    Scored on held-out dates only; deltas carry a date-clustered bootstrap.
+    """
+    import numpy as np
+
+    train_through, test_from, test_to = _parse_date(train_through), _parse_date(test_from), _parse_date(test_to)
+    if test_to > EVALUATION_LAST_DATE:
+        raise CorpusBuildError("evaluation dates after 2026-09-29 are refused")
+    if not train_through < test_from <= test_to:
+        raise CorpusBuildError("train_through must precede test_from")
+    groups = defaultdict(list)
+    for row in rows:
+        if any(row.get(field) is None for field in ("forecast_high_native", "label_native")):
+            continue
+        groups[(row["market_id"], int(row["cutoff_hour_local"]))].append(row)
+    scored = []
+    models = {}
+    for (market_id, hour), items in sorted(groups.items()):
+        train = [r for r in items if _parse_date(r["target_date"]) <= train_through]
+        test = [r for r in items if test_from <= _parse_date(r["target_date"]) <= test_to]
+        if len(train) < 60 or not test:
+            continue
+        unit = items[0]["temperature_unit"]
+        bias = float(np.mean([r["label_native"] - r["forecast_high_native"] for r in train]))
+        base_sd = float(np.std([r["label_native"] - r["forecast_high_native"] - bias for r in train], ddof=1))
+
+        def x_of(r):
+            obs_max = r["obs_max_so_far_native"]
+            obs_latest = r["obs_latest_native"]
+            fc = r["forecast_high_native"]
+            return [fc, obs_max if obs_max is not None else fc, obs_latest if obs_latest is not None else fc]
+
+        beta, cand_sd = _ols([x_of(r) for r in train], [r["label_native"] for r in train])
+        models[f"{market_id}|{hour}"] = {
+            "n_train": len(train), "bias": round(bias, 4), "baseline_sd": round(base_sd, 4),
+            "beta": [round(float(b), 4) for b in beta], "candidate_sd": round(cand_sd, 4),
+        }
+        for r in test:
+            edges, width = _band_ladder(r["label_native"], unit)
+            mean_c = float(beta[0] + np.dot(beta[1:], x_of(r)))
+            b_brier, b_log = _brier_log(
+                band_probabilities(r["forecast_high_native"] + bias, base_sd, edges, width), edges, width, r["label_native"],
+            )
+            c_brier, c_log = _brier_log(band_probabilities(mean_c, cand_sd, edges, width), edges, width, r["label_native"])
+            scored.append({
+                "market_id": market_id, "cutoff_hour_local": hour, "target_date": r["target_date"],
+                "baseline_brier": b_brier, "candidate_brier": c_brier, "baseline_log": b_log, "candidate_log": c_log,
+            })
+    if not scored:
+        raise CorpusBuildError("no market x cutoff had enough training rows and held-out rows")
+
+    def summary(items):
+        dates = sorted({item["target_date"] for item in items})
+        index = {d: i for i, d in enumerate(dates)}
+        by_date = np.zeros((len(dates), 4))
+        counts = np.zeros(len(dates))
+        for item in items:
+            i = index[item["target_date"]]
+            by_date[i] += [item["baseline_brier"], item["candidate_brier"], item["baseline_log"], item["candidate_log"]]
+            counts[i] += 1
+        by_date /= counts[:, None]
+        point = by_date.mean(axis=0)
+        rng = np.random.default_rng(FIT_SEED)
+        draws = rng.integers(0, len(dates), size=(FIT_BOOTSTRAP_DRAWS, len(dates)))
+        delta_brier = (by_date[draws, 1] - by_date[draws, 0]).mean(axis=1)
+        delta_log = (by_date[draws, 3] - by_date[draws, 2]).mean(axis=1)
+        return {
+            "n_dates": len(dates), "n_rows": len(items),
+            "baseline_brier": round(float(point[0]), 5), "candidate_brier": round(float(point[1]), 5),
+            "delta_brier": round(float(point[1] - point[0]), 5),
+            "delta_brier_ci95": [round(float(v), 5) for v in np.percentile(delta_brier, [2.5, 97.5])],
+            "baseline_log": round(float(point[2]), 5), "candidate_log": round(float(point[3]), 5),
+            "delta_log": round(float(point[3] - point[2]), 5),
+            "delta_log_ci95": [round(float(v), 5) for v in np.percentile(delta_log, [2.5, 97.5])],
+        }
+
+    blocks = (("07-09", 7, 9), ("10-12", 10, 12), ("13-16", 13, 16), ("17-20", 17, 20), ("all", 7, 20))
+    results = {}
+    for market_id in sorted({item["market_id"] for item in scored}):
+        for name, lo, hi in blocks:
+            items = [i for i in scored if i["market_id"] == market_id and lo <= i["cutoff_hour_local"] <= hi]
+            if items:
+                results[f"{market_id}|{name}"] = summary(items)
+    return {
+        "schema": FIT_SCHEMA,
+        "train_through": train_through.isoformat(),
+        "test_from": test_from.isoformat(),
+        "test_to": test_to.isoformat(),
+        "features": list(FIT_FEATURES),
+        "bootstrap": {"draws": FIT_BOOTSTRAP_DRAWS, "seed": FIT_SEED, "cluster": "target_date, per market"},
+        "benchmark": "weather-only baseline (bias-corrected PIT forecast); no market prices",
+        "models": models,
+        "results": results,
+    }
+
+
+def _fit_command(args):
+    manifest_path = Path(args.corpus_manifest)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    rows_path = manifest_path.parent / "rows.jsonl"
+    if hashlib.sha256(rows_path.read_bytes()).hexdigest() != manifest["files"]["rows.jsonl"]["sha256"]:
+        raise CorpusBuildError("corpus rows.jsonl hash does not match its manifest")
+    wanted = {item.strip() for item in args.markets.split(",") if item.strip()} if args.markets else None
+    rows = [row for row in _read_jsonl(rows_path) if wanted is None or row["market_id"] in wanted]
+    result = fit_and_evaluate(rows, train_through=args.train_through, test_from=args.test_from, test_to=args.test_to)
+    result["corpus_id"] = manifest["corpus_id"]
+    body = (json.dumps(result, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    digest = hashlib.sha256(body).hexdigest()
+    out = Path(args.out_dir) / f"{digest}.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    if not out.exists():
+        out.write_bytes(body)
+    print(json.dumps({"result": str(out), "results": result["results"]}, indent=1))
+    return 0
+
+
 def build_parser():
     parser = argparse.ArgumentParser(description="Build METAR-labelled training rows for candidate cities.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -481,10 +663,17 @@ def build_parser():
     corpus = sub.add_parser("build", help="Join a PIT forecast corpus to METAR labels and publish.")
     corpus.add_argument("--markets", required=True)
     corpus.add_argument("--metar-root", required=True)
-    corpus.add_argument("--pit-corpus-manifest", required=True)
+    corpus.add_argument("--pit-corpus-manifest", nargs="+", required=True)
     corpus.add_argument("--last-date", required=True)
     corpus.add_argument("--publish-root", required=True)
     corpus.add_argument("--registry", default="")
+    fit = sub.add_parser("fit", help="Fit the first per-market candidate and score held-out dates.")
+    fit.add_argument("--corpus-manifest", required=True)
+    fit.add_argument("--markets", default="")
+    fit.add_argument("--train-through", required=True)
+    fit.add_argument("--test-from", required=True)
+    fit.add_argument("--test-to", required=True)
+    fit.add_argument("--out-dir", required=True)
     return parser
 
 
@@ -492,6 +681,8 @@ def main(argv=None):
     args = build_parser().parse_args(argv)
     if args.command == "labels":
         return _labels_command(args)
+    if args.command == "fit":
+        return _fit_command(args)
     final, manifest = build(
         market_ids=[item.strip() for item in args.markets.split(",") if item.strip()],
         metar_root=args.metar_root,
