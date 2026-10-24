@@ -29,13 +29,7 @@ def _candidate(market_id):
 
 
 def _with_tokyo():
-    payload = json.loads(CANDIDATE_REGISTRY_PATH.read_text(encoding="utf-8"))
-    row = dict(payload["markets"][0])
-    row.update(id="tokyo", location_id="tokyo", city_label="Tokyo", slug_prefix="highest-temperature-in-tokyo-on",
-               timezone="Asia/Tokyo", icao="RJTT", wu_history_id="RJTT:9:JP", lat=35.553, lon=139.781,
-               iem_special_schedule_minute=30)
-    payload["markets"].append(row)
-    return parse_candidate_registry(payload)["tokyo"]
+    return load_candidate_registry()["tokyo"]
 
 
 def _csv(tmp_path, name, rows):
@@ -290,14 +284,17 @@ def test_fit_beats_the_forecast_only_baseline_when_observations_carry_signal():
     )
 
     late = result["results"]["london|13-16"]
-    assert late["delta_brier"] < 0 and late["delta_brier_ci95"][1] < 0
+    assert late["ols_minus_baseline_brier"] < 0 and late["ols_minus_baseline_brier_ci95"][1] < 0
+    assert late["hgb_minus_baseline_brier"] < 0 and late["hgb_minus_baseline_brier_ci95"][1] < 0
     assert late["n_dates"] == 35
+    assert set(result["headline_blocks"]) == {"07-09", "10-12", "07-12"}
+    assert "london|07-12" in result["results"]
     assert result["benchmark"].startswith("weather-only")
 
 
 def test_fit_refuses_evaluation_after_the_development_window():
-    with pytest.raises(corpus.CorpusBuildError, match="after 2026-09-29"):
-        corpus.fit_and_evaluate(_synthetic_rows(), train_through="2026-09-01", test_from="2026-09-02", test_to="2026-09-30")
+    with pytest.raises(corpus.CorpusBuildError, match="after 2025-12-31"):
+        corpus.fit_and_evaluate(_synthetic_rows(), train_through="2025-09-01", test_from="2025-09-02", test_to="2026-01-01")
 
 
 def test_band_probabilities_use_venue_ladders():
@@ -306,3 +303,38 @@ def test_band_probabilities_use_venue_ladders():
     probs = corpus.band_probabilities(76.9, 1.0, edges, width)
     assert abs(sum(probs) - 1.0) < 1e-6
     assert max(probs) == probs[edges.index(76)]
+
+
+def test_hard_floor_puts_no_mass_below_the_observed_band_and_keeps_total_mass():
+    edges, width = corpus._band_ladder(20, "C")
+    free = corpus.band_probabilities(18.0, 1.5, edges, width)
+    floored = corpus.band_probabilities(18.0, 1.5, edges, width, floor=19)
+
+    assert all(p == 0.0 for edge, p in zip(edges, floored) if edge < 19)
+    assert floored[edges.index(19)] > free[edges.index(19)]
+    assert abs(sum(floored) - 1.0) < 1e-6
+    above = [p for edge, p in zip(edges, free) if edge >= 19]
+    ratios = [f / a for f, a, edge in zip(floored, free, edges) if edge >= 20 and a > 1e-9]
+    assert max(ratios) - min(ratios) < 1e-9  # a pure renormalisation above the floor band
+    assert sum(above) < 1.0
+
+
+def test_hard_floor_in_fahrenheit_cuts_inside_a_two_degree_band():
+    edges, width = corpus._band_ladder(77, "F")
+    probs = corpus.band_probabilities(74.0, 2.0, edges, width, floor=77)
+
+    assert probs[edges.index(74)] == 0.0
+    assert probs[edges.index(76)] > 0.0  # 77 sits in the 76-77 band
+    assert abs(sum(probs) - 1.0) < 1e-6
+
+
+def test_routine_floor_uses_only_label_rule_reports_by_the_cutoff(tmp_path):
+    candidate = _candidate("london")
+    routine = _csv(tmp_path, "r.csv", [("2026-08-10 10:50", 20), ("2026-08-10 12:50", 23), ("2026-08-10 13:50", 26)])
+    special = _csv(tmp_path, "s.csv", [("2026-08-10 12:37", 29)])
+    records, _ = corpus.venue_routine_records([routine], [special], candidate, last_date="2026-09-29")
+
+    at14 = corpus.routine_floor_at_cutoff(records, "2026-08-10", 14, candidate)
+
+    assert (at14["obs_routine_max_so_far_native"], at14["floor_native"]) == (23, 23)
+    assert corpus.routine_floor_at_cutoff(records, "2026-08-10", 7, candidate)["floor_native"] is None

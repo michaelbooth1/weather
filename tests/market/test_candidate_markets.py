@@ -36,7 +36,7 @@ from weather.paths import REPO_ROOT, config_path
 
 
 EUROPE_FIRST = {"london", "paris", "munich", "madrid"}
-CANDIDATES = EUROPE_FIRST | {"denver-kden"}
+CANDIDATES = EUROPE_FIRST | {"denver-kden", "seoul", "tokyo", "shanghai"}
 CANDIDATE_MODULES = {
     "src/weather/market/candidate_markets.py",
     "src/weather/calibration/new_city_corpus.py",

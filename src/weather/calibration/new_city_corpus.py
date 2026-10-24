@@ -294,7 +294,7 @@ def _read_jsonl(path):
                 yield json.loads(line)
 
 
-def load_pit_forecast_daily(manifest_path, market_ids):
+def load_pit_forecast_daily(manifest_path, market_ids, *, require_all=True):
     """Daily-high rows of a published PIT corpus for ``market_ids``, hash-checked."""
     manifest_path = Path(manifest_path)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -307,14 +307,35 @@ def load_pit_forecast_daily(manifest_path, market_ids):
         raise CorpusBuildError("PIT forecast_daily.jsonl hash does not match its manifest")
     wanted = set(market_ids)
     missing = sorted(wanted - set(manifest.get("market_ids") or []))
-    if missing:
+    if missing and require_all:
         raise CorpusBuildError(f"PIT corpus has no rows for markets: {', '.join(missing)}")
     rows = [row for row in _read_jsonl(daily_path) if row.get("market_id") in wanted]
     return manifest, digest, rows
 
 
-def join_rows(forecast_rows, labels_by_market, records_by_market, candidates, *, last_date):
+def routine_floor_at_cutoff(routine_rows, target_date, cutoff_hour, candidate):
+    """Highest label-rule (routine, venue-value) report at or before the cutoff, and its band floor.
+
+    The label is the maximum of the same reports over the whole local day, so the
+    label can never be below ``round_half_up`` of this value: a hard floor.
+    """
+    as_of = cutoff_instant_utc(target_date, cutoff_hour, candidate.spec.tz)
+    day = _parse_date(target_date).isoformat()
+    values = [
+        to_float(row["temp_native"]) for row in routine_rows
+        if row.get("local_date") == day and _utc(row["valid_time_utc"]) <= as_of
+        and to_float(row.get("temp_native")) is not None
+    ]
+    high = max(values) if values else None
+    return {
+        "obs_routine_max_so_far_native": high,
+        "floor_native": round_half_up(high) if high is not None else None,
+    }
+
+
+def join_rows(forecast_rows, labels_by_market, records_by_market, candidates, *, last_date, routine_by_market=None):
     """Join PIT forecast rows to complete METAR labels and cutoff features."""
+    routine_by_market = routine_by_market or {}
     last = _parse_date(last_date)
     out = []
     rejected = defaultdict(int)
@@ -351,6 +372,11 @@ def join_rows(forecast_rows, labels_by_market, records_by_market, candidates, *,
             cutoff_hour,
             candidate,
         )
+        floor = routine_floor_at_cutoff(
+            routine_by_market.get(market_id, {}).get(target_date, []), target_date, cutoff_hour, candidate,
+        )
+        if floor["floor_native"] is not None and floor["floor_native"] > label["label_native"]:
+            raise CorpusBuildError(f"{market_id} {target_date} h{cutoff_hour}: floor above the label")
         out.append({
             "schema_version": ROW_SCHEMA_VERSION,
             "market_id": market_id,
@@ -359,6 +385,7 @@ def join_rows(forecast_rows, labels_by_market, records_by_market, candidates, *,
             "target_date": target_date,
             "cutoff_hour_local": cutoff_hour,
             **observed,
+            **floor,
             "forecast_high_native": to_float(row.get("forecast_high_native")),
             "forecast_source_model": row.get("source_model"),
             "forecast_lead_days": row.get("lead_days"),
@@ -409,6 +436,7 @@ def build(*, market_ids, metar_root, pit_corpus_manifest, last_date, publish_roo
     records_by_market = {}
     metar_inputs = {}
     label_counts = {}
+    routine_by_market = {}
     for market_id, candidate in candidates.items():
         routine, special = station_csvs(metar_root, candidate.spec.icao)
         if not routine:
@@ -421,6 +449,7 @@ def build(*, market_ids, metar_root, pit_corpus_manifest, last_date, publish_roo
             routine, special, candidate, last_date=last_date,
         )
         labels_by_market[market_id] = daily_labels(label_records, candidate, last_date=last_date)
+        routine_by_market[market_id] = records_by_local_date(label_records)
         # Observed-so-far features use every report a live station feed carries.
         records_by_market[market_id] = records_by_local_date(
             read_iem_records(routine + special, candidate.spec, last_date=last_date)
@@ -430,7 +459,7 @@ def build(*, market_ids, metar_root, pit_corpus_manifest, last_date, publish_roo
     forecast_rows = []
     seen = set()
     for manifest_path in manifests:
-        pit_manifest, pit_digest, rows_for = load_pit_forecast_daily(manifest_path, market_ids)
+        pit_manifest, pit_digest, rows_for = load_pit_forecast_daily(manifest_path, market_ids, require_all=False)
         pit_inputs.append({"corpus_id": pit_manifest.get("corpus_id"), "forecast_daily_sha256": pit_digest})
         for row in rows_for:
             key = (row["market_id"], row["target_date"], int(row["cutoff_hour_local"]))
@@ -438,7 +467,13 @@ def build(*, market_ids, metar_root, pit_corpus_manifest, last_date, publish_roo
                 raise CorpusBuildError(f"PIT corpora overlap at {key}")
             seen.add(key)
             forecast_rows.append(row)
-    rows, rejected = join_rows(forecast_rows, labels_by_market, records_by_market, candidates, last_date=last_date)
+    covered = {row["market_id"] for row in forecast_rows}
+    if set(market_ids) - covered:
+        raise CorpusBuildError(f"PIT corpora have no rows for markets: {', '.join(sorted(set(market_ids) - covered))}")
+    rows, rejected = join_rows(
+        forecast_rows, labels_by_market, records_by_market, candidates,
+        last_date=last_date, routine_by_market=routine_by_market,
+    )
     if not rows:
         raise CorpusBuildError("join produced no rows; nothing is published")
     labels = [label for market in sorted(labels_by_market) for _, label in sorted(labels_by_market[market].items())]
@@ -479,11 +514,24 @@ def _labels_command(args):
     return 0
 
 
-FIT_SCHEMA = "new_city_first_candidate/1"  # research result, not a registry artifact
-FIT_FEATURES = ("forecast_high_native", "obs_max_so_far_native", "obs_latest_native")
+FIT_SCHEMA = "new_city_candidate_fit/2"  # research result, not a registry artifact
+FIT_FEATURES = ("forecast_high_native", "obs_max_so_far_native", "obs_routine_max_so_far_native", "obs_latest_native")
+FIT_MODELS = ("baseline", "ols", "hgb")
 FIT_BOOTSTRAP_DRAWS = 2000
 FIT_SEED = 20261023
-EVALUATION_LAST_DATE = date(2026, 9, 29)
+FIT_CV_FOLDS = 5
+FIT_MIN_TRAIN_ROWS = 60
+EVALUATION_LAST_DATE = date(2025, 12, 31)
+FIT_BLOCKS = (
+    ("07-09", 7, 9), ("10-12", 10, 12), ("07-12", 7, 12),
+    ("13-16", 13, 16), ("17-20", 17, 20), ("all", 7, 20),
+)
+FIT_COMPARISONS = (("ols", "baseline"), ("hgb", "baseline"), ("hgb", "ols"))
+HGB_PARAMS = {
+    "loss": "squared_error", "learning_rate": 0.05, "max_iter": 300, "max_leaf_nodes": 15,
+    "min_samples_leaf": 40, "l2_regularization": 1.0, "early_stopping": False,
+}
+SD_FLOOR = 0.3
 
 
 def _band_ladder(label, unit, width=None):
@@ -499,13 +547,31 @@ def _normal_cdf(x):
     return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
 
 
-def band_probabilities(mean, sd, edges, width):
-    """P(whole-degree label in [edge, edge + width)) for a normal on the half-up value."""
-    sd = max(float(sd), 0.3)
+def band_probabilities(mean, sd, edges, width, floor=None):
+    """P(whole-degree label in [edge, edge + width)) for a normal on the half-up value.
+
+    With ``floor`` (a whole native degree the label cannot be below) the normal is
+    truncated at ``floor - 0.5`` and renormalised: no band below the floor gets mass,
+    and the band holding the floor takes the cut-off tail.
+    """
+    sd = max(float(sd), SD_FLOOR)
+    cut = None if floor is None else float(floor) - 0.5
     probs = []
     for edge in edges:
         lo, hi = edge - 0.5, edge + width - 0.5
+        if cut is not None:
+            if hi <= cut:
+                probs.append(0.0)
+                continue
+            lo = max(lo, cut)
         probs.append(_normal_cdf((hi - mean) / sd) - _normal_cdf((lo - mean) / sd))
+    if cut is not None:
+        total = sum(probs)
+        if total <= 1e-12:
+            probs = [1.0 if edge <= floor < edge + width else 0.0 for edge in edges]
+        else:
+            tail = 1.0 - _normal_cdf((edges[-1] + width - 0.5 - mean) / sd)
+            probs = [p / (total + tail) for p in probs]
     return probs
 
 
@@ -518,6 +584,15 @@ def _brier_log(probs, edges, width, label):
     return brier, math.log(max(hit, 1e-4))
 
 
+def _x_of(row):
+    fc = row["forecast_high_native"]
+    out = []
+    for field in FIT_FEATURES:
+        value = row.get(field)
+        out.append(fc if value is None else value)
+    return out
+
+
 def _ols(xs, ys):
     import numpy as np
 
@@ -528,20 +603,49 @@ def _ols(xs, ys):
     return beta, float(resid.std(ddof=x.shape[1])) if len(y) > x.shape[1] else float("nan")
 
 
-def fit_and_evaluate(rows, *, train_through, test_from, test_to):
-    """First candidate: per market x cutoff OLS on the PIT forecast and observed-so-far.
+def _hgb_fit(xs, ys):
+    from sklearn.ensemble import HistGradientBoostingRegressor
 
-    Baseline: the lead-1 PIT forecast high with a per market x cutoff bias and
-    residual sd from training (no observations). Candidate: OLS of the label on
-    forecast high, observed max so far and latest observation, with its
-    residual sd. Both give a discretised normal over the venue band ladder.
-    Scored on held-out dates only; deltas carry a date-clustered bootstrap.
+    model = HistGradientBoostingRegressor(
+        **HGB_PARAMS, monotonic_cst=[1] * len(FIT_FEATURES), random_state=FIT_SEED,
+    )
+    return model.fit(xs, ys)
+
+
+def _hgb_with_cv_sd(xs, ys, dates):
+    """HGB fitted on all training rows; sd from out-of-fold residuals, folds by date."""
+    import numpy as np
+
+    xs, ys = np.asarray(xs, dtype=float), np.asarray(ys, dtype=float)
+    unique = sorted(set(dates))
+    fold_of = {d: i % FIT_CV_FOLDS for i, d in enumerate(unique)}
+    folds = np.asarray([fold_of[d] for d in dates])
+    resid = np.empty(len(ys))
+    for k in range(FIT_CV_FOLDS):
+        held = folds == k
+        resid[held] = ys[held] - _hgb_fit(xs[~held], ys[~held]).predict(xs[held])
+    return _hgb_fit(xs, ys), float(resid.std(ddof=1))
+
+
+def fit_and_evaluate(rows, *, train_through, test_from, test_to):
+    """Score baseline, OLS and monotone HGB per market x cutoff on held-out dates.
+
+    * ``baseline``: the lead-1 PIT forecast high plus a per market x cutoff bias,
+      with the training residual sd; no observations and no floor.
+    * ``ols``: least squares of the label on ``FIT_FEATURES``; training residual sd.
+    * ``hgb``: histogram gradient boosting, monotone increasing in every feature,
+      squared error; sd from 5-fold (by date) out-of-fold residuals.
+
+    OLS and HGB carry the hard floor: the label is never below the band of the
+    highest label-rule report observed by the cutoff. All three give a
+    discretised normal over the venue band ladder (1 C bands; 2 F bands on even
+    starts). Deltas carry a date-clustered bootstrap per market and block.
     """
     import numpy as np
 
     train_through, test_from, test_to = _parse_date(train_through), _parse_date(test_from), _parse_date(test_to)
-    if test_to > EVALUATION_LAST_DATE:
-        raise CorpusBuildError("evaluation dates after 2026-09-29 are refused")
+    if test_to > EVALUATION_LAST_DATE or train_through > EVALUATION_LAST_DATE:
+        raise CorpusBuildError("training or evaluation dates after 2025-12-31 are refused")
     if not train_through < test_from <= test_to:
         raise CorpusBuildError("train_through must precede test_from")
     groups = defaultdict(list)
@@ -551,69 +655,70 @@ def fit_and_evaluate(rows, *, train_through, test_from, test_to):
         groups[(row["market_id"], int(row["cutoff_hour_local"]))].append(row)
     scored = []
     models = {}
+    floor_violations = defaultdict(int)
     for (market_id, hour), items in sorted(groups.items()):
         train = [r for r in items if _parse_date(r["target_date"]) <= train_through]
         test = [r for r in items if test_from <= _parse_date(r["target_date"]) <= test_to]
-        if len(train) < 60 or not test:
+        if len(train) < FIT_MIN_TRAIN_ROWS or not test:
             continue
         unit = items[0]["temperature_unit"]
+        y_train = [r["label_native"] for r in train]
         bias = float(np.mean([r["label_native"] - r["forecast_high_native"] for r in train]))
         base_sd = float(np.std([r["label_native"] - r["forecast_high_native"] - bias for r in train], ddof=1))
-
-        def x_of(r):
-            obs_max = r["obs_max_so_far_native"]
-            obs_latest = r["obs_latest_native"]
-            fc = r["forecast_high_native"]
-            return [fc, obs_max if obs_max is not None else fc, obs_latest if obs_latest is not None else fc]
-
-        beta, cand_sd = _ols([x_of(r) for r in train], [r["label_native"] for r in train])
+        beta, ols_sd = _ols([_x_of(r) for r in train], y_train)
+        hgb, hgb_sd = _hgb_with_cv_sd([_x_of(r) for r in train], y_train, [r["target_date"] for r in train])
+        hgb_test = hgb.predict(np.asarray([_x_of(r) for r in test], dtype=float))
         models[f"{market_id}|{hour}"] = {
             "n_train": len(train), "bias": round(bias, 4), "baseline_sd": round(base_sd, 4),
-            "beta": [round(float(b), 4) for b in beta], "candidate_sd": round(cand_sd, 4),
+            "ols_beta": [round(float(b), 4) for b in beta], "ols_sd": round(ols_sd, 4),
+            "hgb_cv_sd": round(hgb_sd, 4),
         }
-        for r in test:
+        for r, hgb_mean in zip(test, hgb_test):
             edges, width = _band_ladder(r["label_native"], unit)
-            mean_c = float(beta[0] + np.dot(beta[1:], x_of(r)))
-            b_brier, b_log = _brier_log(
-                band_probabilities(r["forecast_high_native"] + bias, base_sd, edges, width), edges, width, r["label_native"],
-            )
-            c_brier, c_log = _brier_log(band_probabilities(mean_c, cand_sd, edges, width), edges, width, r["label_native"])
-            scored.append({
-                "market_id": market_id, "cutoff_hour_local": hour, "target_date": r["target_date"],
-                "baseline_brier": b_brier, "candidate_brier": c_brier, "baseline_log": b_log, "candidate_log": c_log,
-            })
+            floor = r.get("floor_native")
+            if floor is not None and floor > r["label_native"]:
+                floor_violations[market_id] += 1
+            means = {
+                "baseline": (r["forecast_high_native"] + bias, base_sd, None),
+                "ols": (float(beta[0] + np.dot(beta[1:], _x_of(r))), ols_sd, floor),
+                "hgb": (float(hgb_mean), hgb_sd, floor),
+            }
+            item = {"market_id": market_id, "cutoff_hour_local": hour, "target_date": r["target_date"]}
+            for name, (mean, sd, fl) in means.items():
+                brier, log = _brier_log(band_probabilities(mean, sd, edges, width, floor=fl), edges, width, r["label_native"])
+                item[f"{name}_brier"], item[f"{name}_log"] = brier, log
+            scored.append(item)
     if not scored:
         raise CorpusBuildError("no market x cutoff had enough training rows and held-out rows")
 
     def summary(items):
         dates = sorted({item["target_date"] for item in items})
         index = {d: i for i, d in enumerate(dates)}
-        by_date = np.zeros((len(dates), 4))
+        keys = [f"{m}_{s}" for m in FIT_MODELS for s in ("brier", "log")]
+        by_date = np.zeros((len(dates), len(keys)))
         counts = np.zeros(len(dates))
         for item in items:
             i = index[item["target_date"]]
-            by_date[i] += [item["baseline_brier"], item["candidate_brier"], item["baseline_log"], item["candidate_log"]]
+            by_date[i] += [item[k] for k in keys]
             counts[i] += 1
         by_date /= counts[:, None]
-        point = by_date.mean(axis=0)
+        col = {k: j for j, k in enumerate(keys)}
         rng = np.random.default_rng(FIT_SEED)
         draws = rng.integers(0, len(dates), size=(FIT_BOOTSTRAP_DRAWS, len(dates)))
-        delta_brier = (by_date[draws, 1] - by_date[draws, 0]).mean(axis=1)
-        delta_log = (by_date[draws, 3] - by_date[draws, 2]).mean(axis=1)
-        return {
-            "n_dates": len(dates), "n_rows": len(items),
-            "baseline_brier": round(float(point[0]), 5), "candidate_brier": round(float(point[1]), 5),
-            "delta_brier": round(float(point[1] - point[0]), 5),
-            "delta_brier_ci95": [round(float(v), 5) for v in np.percentile(delta_brier, [2.5, 97.5])],
-            "baseline_log": round(float(point[2]), 5), "candidate_log": round(float(point[3]), 5),
-            "delta_log": round(float(point[3] - point[2]), 5),
-            "delta_log_ci95": [round(float(v), 5) for v in np.percentile(delta_log, [2.5, 97.5])],
-        }
+        out = {"n_dates": len(dates), "n_rows": len(items)}
+        for k in keys:
+            out[k] = round(float(by_date[:, col[k]].mean()), 5)
+        for a, b in FIT_COMPARISONS:
+            for score in ("brier", "log"):
+                diff = by_date[:, col[f"{a}_{score}"]] - by_date[:, col[f"{b}_{score}"]]
+                boot = diff[draws].mean(axis=1)
+                out[f"{a}_minus_{b}_{score}"] = round(float(diff.mean()), 5)
+                out[f"{a}_minus_{b}_{score}_ci95"] = [round(float(v), 5) for v in np.percentile(boot, [2.5, 97.5])]
+        return out
 
-    blocks = (("07-09", 7, 9), ("10-12", 10, 12), ("13-16", 13, 16), ("17-20", 17, 20), ("all", 7, 20))
     results = {}
     for market_id in sorted({item["market_id"] for item in scored}):
-        for name, lo, hi in blocks:
+        for name, lo, hi in FIT_BLOCKS:
             items = [i for i in scored if i["market_id"] == market_id and lo <= i["cutoff_hour_local"] <= hi]
             if items:
                 results[f"{market_id}|{name}"] = summary(items)
@@ -623,9 +728,14 @@ def fit_and_evaluate(rows, *, train_through, test_from, test_to):
         "test_from": test_from.isoformat(),
         "test_to": test_to.isoformat(),
         "features": list(FIT_FEATURES),
-        "bootstrap": {"draws": FIT_BOOTSTRAP_DRAWS, "seed": FIT_SEED, "cluster": "target_date, per market"},
+        "models": list(FIT_MODELS),
+        "hgb_params": HGB_PARAMS,
+        "hard_floor": "ols and hgb: no mass below round_half_up(highest label-rule report by the cutoff)",
+        "headline_blocks": ["07-09", "10-12", "07-12"],
+        "floor_above_label_rows": dict(floor_violations),
+        "bootstrap": {"draws": FIT_BOOTSTRAP_DRAWS, "seed": FIT_SEED, "cluster": "target_date, per market and block"},
         "benchmark": "weather-only baseline (bias-corrected PIT forecast); no market prices",
-        "models": models,
+        "fitted": models,
         "results": results,
     }
 
