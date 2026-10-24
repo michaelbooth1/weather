@@ -318,6 +318,17 @@ the 5% bar).** The afternoon/evening "gain" over MG-1 is not a lead: it is outsi
 mostly undoes MG-1's known afternoon harm (EF §10p; MG-1 − served is +0.0068 at 17-23 here). L4 − served
 does not exclude zero at 13-16 or 17-23, and t3-r3 already does far better there (−0.0110 / −0.0224 vs served).
 
+## L6: upstream and nearby ASOS observations at 07-12 (pre-registration sha256 `6687c8dfb49b0650d27bbf23164ba102de5d838ada79917df50075c61653921a`)
+
+Rule, data, features, model and bar: [the frozen pre-registration](upstream-obs-l6-preregistration-2026-10-24.md)
+(byte-identical copy of `C:\t\l6\rule.md`), committed before any validation metric or score. Branch
+`claude/upstream-obs-screen-20261024`. Code: `weather.sources.free_screens.iem_upstream` (fetch, selection,
+build), `weather.calibration.upstream_obs_screen` (PIT features, LOYO, nowcasts),
+`free_source_candidates.l6_stack` (candidate `l6_upstream_stack`, twin `l6_own_stack`). Prior art this differs
+from: T13 (EF §10q) used the closest <= 6 stations within 50 km, tercile tilts of served, and May-Jul 2026
+history only; L6 uses a 50-150 km ring with flow-upwind weighting and advection, 2021-2025 history, and is
+scored as an increment over MG-1 and over its own-observation twin.
+
 ## Fetch receipts (all under `data/research/free_sources/<source>/`, sha256 per file in `receipts.jsonl`)
 
 | Source | Requests | Bytes | Rows | Span | Notes |
