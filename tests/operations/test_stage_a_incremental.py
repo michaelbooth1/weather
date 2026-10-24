@@ -1,3 +1,8 @@
+"""Stage-A reuse and reconciliation fixture tests.
+
+Guards: Stage-A settlement reuse must preserve reconciled labels and terminal evidence.
+"""
+
 import csv
 import json
 from datetime import date, datetime, timezone

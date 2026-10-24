@@ -1,3 +1,8 @@
+"""Scored-row caching behavior and report parity fixtures.
+
+Guards: Stage-A scored-row reuse must preserve report outputs and cache invalidation.
+"""
+
 import json
 
 from weather.reporting.hourly import hourly_model_scoring as scoring
