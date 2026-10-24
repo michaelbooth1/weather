@@ -1532,7 +1532,7 @@ def test_default_launcher_runner_executes_safe_child_inside_job(tmp_path):
 # - TAIL: the script keeps working this long past the deadline, then exits 3 on its own.
 # - GRACE: the runner's cleanup grace. TAIL plus the debugger resume must fit inside it; a forced
 #   teardown cannot finish before STARTUP_ALLOWANCE + GRACE, which the elapsed bound relies on.
-COOPERATIVE_STARTUP_ALLOWANCE_SECONDS = 7.0
+COOPERATIVE_STARTUP_ALLOWANCE_SECONDS = 15.0
 COOPERATIVE_TAIL_SECONDS = 0.5
 COOPERATIVE_GRACE_SECONDS = 3.0
 

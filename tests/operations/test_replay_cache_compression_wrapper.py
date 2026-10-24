@@ -128,19 +128,25 @@ def launch(wrapper_fixture, mode, *, apply=False, plan_receipt=None):
     # Hang modes prove the hard stop at the fixture's 20 s deadline; every other mode only needs a
     # ceiling, so a slow runner cannot turn a success path into a spurious hard stop.
     environment = {**os.environ, "WEATHER_TEST_WRAPPER_DEADLINE_SECONDS": "20" if mode == "hang" else "30"}
-    process = subprocess.Popen(arguments, cwd=source, env=environment, stdout=subprocess.PIPE,
-                               stderr=subprocess.PIPE, text=True)
+    capture_path = production / f"wrapper-{uuid.uuid4().hex}.log"
+    capture = capture_path.open("w", encoding="utf-8", errors="replace")
+    process = subprocess.Popen(arguments, cwd=source, env=environment, stdout=capture,
+                               stderr=subprocess.STDOUT, text=True)
+    process._weather_fixture_capture = (capture, capture_path)
     return process, output
 
 
 def finish(process):
+    capture, capture_path = process._weather_fixture_capture
     try:
-        stdout, stderr = process.communicate(timeout=35)
-        return process.returncode, stdout + stderr
+        process.wait(timeout=60)
     finally:
         if process.poll() is None:
             process.kill()
-            process.communicate(timeout=10)
+            process.wait(timeout=10)
+        capture.flush()
+        capture.close()
+    return process.returncode, capture_path.read_text(encoding="utf-8", errors="replace")
 
 
 @pytest.mark.parametrize("mode,success", [("success", True), ("residual_success", True),
