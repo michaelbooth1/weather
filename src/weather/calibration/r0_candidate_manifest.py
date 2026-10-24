@@ -9,8 +9,16 @@ One JSON per centre binds what the R0 arm hash will cite:
   release copies unchanged (``late_day_lr_coefficients``,
   ``calibrated_weights``, ``probability_calibration``, ``forecast_error_model``,
   ``settlement_lag_model``);
+* per trained market: the ``served_model_differences`` record (every column
+  removed from the served list with its reason and decision, base models only,
+  forecast source, training window);
 * the centre date and its +/-7-day window, the corpus ids and manifest sha256s,
   the training-year composition, the build commit and the exclusion list.
+
+Scope (owner M8, ``weather.calibration.r0_scope``): every trained market must be
+one of the US 11 and trained in ``r0:<market>`` allowlist mode; every US 11
+market is either trained or explicitly excluded with a reason; Toronto is
+always recorded as excluded with the code-owned reason.
 
 The manifest is self-hashed (``manifest_sha256``), written once and never
 overwritten. It is training-only evidence; nothing in serving reads it.
@@ -18,8 +26,7 @@ overwritten. It is training-only evidence; nothing in serving reads it.
     python -m weather.calibration.r0_candidate_manifest \
         --candidate-root artifacts/candidates/retrain-r0-2026-11-24 \
         --candidate-id retrain-r0-2026-11-24 --centre 2026-11-24 \
-        --build-commit <40-hex> --market atlanta --market austin ... \
-        --exclude-market toronto=no-pit-corpus
+        --build-commit <40-hex> --market atlanta --market austin ... --market seattle
 """
 
 from __future__ import annotations
@@ -37,12 +44,22 @@ from pathlib import Path
 from typing import Any
 
 from weather.calibration.feature_model_training_inputs import parse_target_date
+from weather.calibration.r0_scope import (
+    DECISION_BASE_ONLY,
+    DECISION_CONSENSUS,
+    DECISION_PRESSURE,
+    R0_MARKET_IDS,
+    R0_OUT_OF_SCOPE_MARKETS,
+    served_model_differences,
+)
 from weather.market.market_registry import spec_for_id
 from weather.model.model_constants import HISTORY_WINDOW_DAYS
 from weather.paths import REPO_ROOT
 
 MANIFEST_RECORD = "r0_candidate_manifest"
-MANIFEST_RECORD_VERSION = 1
+# v2 (2026-10-23): R0 scope, r0 allowlist mode and served_model_differences.
+MANIFEST_RECORD_VERSION = 2
+R0_ALLOWLIST_MODE = "r0"
 MANIFEST_FILENAME = "r0_candidate_manifest.json"
 TRAINED_COMPONENTS = ("feature_hgb", "feature_lr_coefficients")
 # The five components a research release copies unchanged from serving.
@@ -142,6 +159,24 @@ def _market_entry(market_root: Path, market_id: str, centre: date, repo_root: Pa
         raise R0CandidateManifestError(f"{market_id}: coefs and HGB training_inputs differ")
     if coefs["training_column_allowlist"] != hgb["training_column_allowlist"]:
         raise R0CandidateManifestError(f"{market_id}: coefs and HGB allowlist records differ")
+    if coefs["training_column_allowlist"].get("mode") != R0_ALLOWLIST_MODE:
+        raise R0CandidateManifestError(
+            f"{market_id}: trained with allowlist mode "
+            f"{coefs['training_column_allowlist'].get('mode')!r}, not 'r0:{market_id}'"
+        )
+    for label, info in (("coefs", coefs), ("hgb", hgb)):
+        if not isinstance(info.get("served_model_differences"), Mapping):
+            raise R0CandidateManifestError(f"{market_id} {label}: no served_model_differences record")
+    if coefs["served_model_differences"] != hgb["served_model_differences"]:
+        raise R0CandidateManifestError(f"{market_id}: coefs and HGB served_model_differences differ")
+    differences = dict(coefs["served_model_differences"])
+    expected = served_model_differences(
+        coefs["training_column_allowlist"], coefs["training_inputs"], base_models_only=True,
+    )
+    if differences != expected:
+        raise R0CandidateManifestError(
+            f"{market_id}: served_model_differences does not match the allowlist and inputs records"
+        )
     inputs = dict(coefs["training_inputs"])
     if inputs.get("centre_date") != centre.isoformat() or inputs.get("centre_date_pinned") is not True:
         raise R0CandidateManifestError(
@@ -164,8 +199,41 @@ def _market_entry(market_root: Path, market_id: str, centre: date, repo_root: Pa
         "training_column_allowlist": allowlist,
         "training_column_allowlist_sha256": allowlist.get("sha256") or canonical_sha256(allowlist),
         "training_inputs": inputs,
+        "served_model_differences": differences,
         "served_components": served,
     }
+
+
+def r0_scope_exclusions(
+    market_ids: Sequence[str],
+    excluded_markets: Mapping[str, str] | None,
+) -> dict[str, str]:
+    """Check the R0 scope and return the full, reason-bearing exclusion map.
+
+    Every trained market must be an R0 market. Every R0 market not trained
+    needs a caller-given reason. Out-of-scope markets (Toronto) are always
+    excluded with the code-owned reason; a caller reason is appended to it.
+    """
+    trained = [str(market) for market in market_ids]
+    outside = sorted(set(trained) - set(R0_MARKET_IDS))
+    if outside:
+        raise R0CandidateManifestError(
+            f"markets outside R0 (the US 11, owner M8) cannot be trained: {outside}"
+        )
+    caller = {str(key): str(value) for key, value in (excluded_markets or {}).items()}
+    unknown = sorted(set(caller) - set(R0_MARKET_IDS) - set(R0_OUT_OF_SCOPE_MARKETS))
+    if unknown:
+        raise R0CandidateManifestError(f"excluded markets are not built-in markets: {unknown}")
+    missing = [market for market in R0_MARKET_IDS if market not in trained and market not in caller]
+    if missing:
+        raise R0CandidateManifestError(
+            f"R0 markets neither trained nor excluded with a reason: {missing}"
+        )
+    excluded = {market: reason for market, reason in caller.items() if market in R0_MARKET_IDS}
+    for market, reason in R0_OUT_OF_SCOPE_MARKETS.items():
+        extra = caller.get(market)
+        excluded[market] = reason if not extra or extra == reason else f"{reason}; caller: {extra}"
+    return dict(sorted(excluded.items()))
 
 
 def build_r0_candidate_manifest(
@@ -189,12 +257,13 @@ def build_r0_candidate_manifest(
     market_ids = [str(market) for market in markets]
     if not market_ids or len(set(market_ids)) != len(market_ids):
         raise R0CandidateManifestError("markets must be a non-empty list without repeats")
-    excluded = {str(key): str(value) for key, value in (excluded_markets or {}).items()}
-    overlap = sorted(set(excluded) & set(market_ids))
+    caller_excluded = {str(key): str(value) for key, value in (excluded_markets or {}).items()}
+    overlap = sorted(set(caller_excluded) & set(market_ids))
     if overlap:
         raise R0CandidateManifestError(f"markets both trained and excluded: {overlap}")
-    for market_id in [*market_ids, *excluded]:
+    for market_id in [*market_ids, *caller_excluded]:
         spec_for_id(market_id)
+    excluded = r0_scope_exclusions(market_ids, caller_excluded)
     entries = {
         market_id: _market_entry(root / market_id, market_id, centre_date, repo_root)
         for market_id in sorted(market_ids)
@@ -224,8 +293,13 @@ def build_r0_candidate_manifest(
         "pit_forecast_corpus_union_sha256": corpus.get("union_sha256"),
         "trained_components": list(TRAINED_COMPONENTS),
         "served_components": list(SERVED_COMPONENTS),
+        "scope": {
+            "r0_market_ids": list(R0_MARKET_IDS),
+            "allowlist_mode": R0_ALLOWLIST_MODE,
+            "decisions": [DECISION_PRESSURE, DECISION_CONSENSUS, DECISION_BASE_ONLY],
+        },
         "markets": entries,
-        "excluded_markets": dict(sorted(excluded.items())),
+        "excluded_markets": excluded,
     }
     manifest["manifest_sha256"] = canonical_sha256(manifest, omit=("manifest_sha256",))
     return manifest

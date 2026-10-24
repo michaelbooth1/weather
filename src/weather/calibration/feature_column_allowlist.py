@@ -5,12 +5,15 @@ market's served column list: the ``feature_names`` of the bundles that serve
 today. This module resolves such a list, validates that serving can rebuild
 every column, and records how it relates to the registry training policy.
 
-R0 uses ``served-policy:<market>`` (owner decision 2026-10-21, "Drop pressure"):
-the served list minus the policy exclusions, with the difference from served
-recorded (``policy_exclusions_applied``, ``differs_from_served``). Plain
-``served:<market>`` keeps the served list exactly and records any kept
-policy-excluded column as an override; it stays available but is not R0's mode.
-The policy itself is never edited here.
+R0 uses ``r0:<market>`` (owner decisions 2026-10-21 and M6-M8 2026-10-23,
+``weather.calibration.r0_scope``): the served list minus the policy exclusions
+("Drop pressure") and minus the forecast-consensus columns a single-provider
+PIT corpus cannot express (Miami), refused for any market outside the US 11.
+Every removed column is recorded with its reason
+(``column_differences_from_served``). ``served-policy:<market>`` is the same
+without the consensus drop and the scope check; plain ``served:<market>``
+keeps the served list exactly and records any kept policy-excluded column as an
+override. The policy itself is never edited here.
 """
 
 from __future__ import annotations
@@ -28,12 +31,18 @@ from weather.calibration.feature_training_policy import (
     training_feature_exclusions,
     training_feature_names,
 )
+from weather.calibration.r0_scope import (
+    column_differences,
+    r0_single_provider_exclusions,
+    require_r0_market,
+)
 from weather.market.market_registry import MarketSpec, spec_for_id
 from weather.model.feature_safety import validate_feature_names_are_label_free
 from weather.model.feature_store import FEATURE_COLUMNS
 
 SERVED_ALLOWLIST_PREFIX = "served:"
 SERVED_POLICY_ALLOWLIST_PREFIX = "served-policy:"
+R0_ALLOWLIST_PREFIX = "r0:"
 WIND_PREFIX = "wind_"
 CLOUD_PREFIX = "cloud_"
 GROUP_SOURCE_COLUMNS = frozenset({"wind_group", "cloud_group"})
@@ -119,7 +128,11 @@ def load_column_allowlist(value: str, *, market_spec: MarketSpec) -> dict[str, A
 
     Modes:
 
-    - ``served-policy:<market>`` (**the R0 mode**, owner 2026-10-21): the served
+    - ``r0:<market>`` (**the R0 mode**): ``served-policy`` minus the
+      single-provider consensus columns (``forecast_source_count``,
+      ``forecast_disagreement``; Miami only among the US 11), order kept;
+      refused for a market outside R0 (Toronto).
+    - ``served-policy:<market>`` (owner 2026-10-21): the served
       list with the registry training-policy exclusions removed, order kept. In
       F markets that drops exactly ``pressure`` and ``pressure_trend_3h``; in the
       C market (Toronto) the policy excludes nothing, so it equals the served list.
@@ -135,6 +148,7 @@ def load_column_allowlist(value: str, *, market_spec: MarketSpec) -> dict[str, A
     if not text:
         raise ColumnAllowlistError("empty --column-allowlist")
     for prefix, mode in (
+        (R0_ALLOWLIST_PREFIX, "r0"),
         (SERVED_POLICY_ALLOWLIST_PREFIX, "served-policy"),
         (SERVED_ALLOWLIST_PREFIX, "served"),
     ):
@@ -145,18 +159,28 @@ def load_column_allowlist(value: str, *, market_spec: MarketSpec) -> dict[str, A
             raise ColumnAllowlistError(
                 f"{text} names a different market than the one being trained ({market_spec.id})"
             )
+        if mode == "r0":
+            try:
+                require_r0_market(served_spec.id)
+            except ValueError as exc:
+                raise ColumnAllowlistError(str(exc)) from exc
         served = served_feature_names(served_spec)
         applied: list[str] = []
+        single_provider: list[str] = []
         columns = list(served)
-        if mode == "served-policy":
+        if mode in ("served-policy", "r0"):
             columns = training_feature_names(served, market_spec=market_spec)
             applied = [name for name in served if name not in columns]
+        if mode == "r0":
+            single_provider = r0_single_provider_exclusions(columns)
+            columns = [name for name in columns if name not in single_provider]
         return {
             "columns": columns,
             "source": text,
             "mode": mode,
             "served_feature_names": served,
             "policy_exclusions_applied": applied,
+            "single_provider_exclusions_applied": single_provider,
         }
     path = Path(text)
     if not path.is_file():
@@ -175,6 +199,7 @@ def load_column_allowlist(value: str, *, market_spec: MarketSpec) -> dict[str, A
         "mode": "file",
         "served_feature_names": None,
         "policy_exclusions_applied": [],
+        "single_provider_exclusions_applied": [],
     }
 
 
@@ -188,6 +213,7 @@ def column_allowlist_plan(
     mode: str = "file",
     served_feature_names: Sequence[str] | None = None,
     policy_exclusions_applied: Sequence[str] = (),
+    single_provider_exclusions_applied: Sequence[str] = (),
 ) -> dict[str, Any]:
     """Validate an allowlist against the serving contract and describe it.
 
@@ -231,6 +257,20 @@ def column_allowlist_plan(
     excluded = set(training_feature_exclusions(market_spec))
     canonical = json.dumps(columns, separators=(",", ":"))
     served = None if served_feature_names is None else [str(name) for name in served_feature_names]
+    differences = None
+    if served is not None:
+        try:
+            differences = column_differences(
+                served,
+                columns,
+                policy_exclusions=policy_exclusions_applied,
+                single_provider_exclusions=single_provider_exclusions_applied,
+            )
+        except ValueError as exc:
+            raise ColumnAllowlistError(str(exc)) from exc
+        kept = set(columns)
+        if [name for name in served if name in kept] != columns:
+            raise ColumnAllowlistError("the allowlist reorders the served columns")
     return {
         "source": source,
         "mode": mode,
@@ -242,6 +282,10 @@ def column_allowlist_plan(
         "training_feature_policy_id": TRAINING_FEATURE_POLICY_ID,
         "served_feature_names": served,
         "policy_exclusions_applied": [str(name) for name in policy_exclusions_applied],
+        "single_provider_exclusions_applied": [
+            str(name) for name in single_provider_exclusions_applied
+        ],
+        "column_differences_from_served": differences,
         "differs_from_served": None if served is None else served != columns,
         "training_policy_exclusions_overridden": [
             name for name in columns if name in excluded
@@ -258,6 +302,8 @@ ALLOWLIST_RECORD_KEYS = (
     "training_feature_policy_id",
     "served_feature_names",
     "policy_exclusions_applied",
+    "single_provider_exclusions_applied",
+    "column_differences_from_served",
     "differs_from_served",
     "training_policy_exclusions_overridden",
 )
@@ -284,12 +330,14 @@ def resolve_column_allowlist(
         mode=loaded["mode"],
         served_feature_names=loaded["served_feature_names"],
         policy_exclusions_applied=loaded["policy_exclusions_applied"],
+        single_provider_exclusions_applied=loaded["single_provider_exclusions_applied"],
     )
 
 
 __all__ = [
     "ALLOWLIST_RECORD_KEYS",
     "ColumnAllowlistError",
+    "R0_ALLOWLIST_PREFIX",
     "SERVED_ALLOWLIST_PREFIX",
     "SERVED_POLICY_ALLOWLIST_PREFIX",
     "allowlist_record",

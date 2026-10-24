@@ -3,7 +3,9 @@
 Guards: retrain memo R0.2 M14 - a research-only candidate may bind trained feature_hgb and
 feature_lr_coefficients bytes per market from an R0 candidate manifest; the other five base components
 (served late-day coefficients included) stay the served bytes the manifest hashed; production candidates
-and every other component refuse overrides. Fixture trees only.
+and every other component refuse overrides. R0 M7/M8 (2026-10-23): the r0-mode allowlist and the
+served_model_differences record ride inside the frozen artifacts (the leakage audit passes them) and
+the release provenance carries each market's differences. Fixture trees only.
 """
 
 from __future__ import annotations
@@ -18,6 +20,11 @@ from weather.calibration.r0_candidate_manifest import (
     MANIFEST_FILENAME,
     build_r0_candidate_manifest,
     write_r0_candidate_manifest,
+)
+from weather.calibration.r0_scope import (
+    R0_MARKET_IDS,
+    R0_OUT_OF_SCOPE_MARKETS,
+    served_model_differences,
 )
 from weather.operations.all_shadow_release_bootstrap import (
     AllShadowBootstrapError,
@@ -44,8 +51,19 @@ def _r0_tree(root, market="nyc", *, marker="r0"):
         "forecast_source": "pit_forecast_corpus",
         "pit_forecast_corpus": {"corpora": [], "union_sha256": "e" * 64},
     }
-    info = {"base_models_only": True, "training_inputs": inputs,
-            "training_column_allowlist": {"mode": "served-policy", "sha256": "f" * 64}}
+    allowlist = {
+        "mode": "r0",
+        "sha256": "f" * 64,
+        "feature_names": ["forecast_high", "high_so_far"],
+        "served_feature_names": ["forecast_high", "high_so_far", "pressure", "forecast_source_count"],
+        "column_differences_from_served": [
+            {"column": "pressure", "reason": "training_policy_exclusion", "decision": "fixture"},
+            {"column": "forecast_source_count", "reason": "single_provider_pit_corpus_cannot_express",
+             "decision": "fixture"},
+        ],
+    }
+    info = {"base_models_only": True, "training_inputs": inputs, "training_column_allowlist": allowlist,
+            "served_model_differences": served_model_differences(allowlist, inputs, base_models_only=True)}
     hgb = dict(info, **{"12": {"feature_names": ["forecast_high", "high_so_far"], "fixture_component": marker}})
     coefs = dict(info, **{"12": {"feature_names": ["forecast_high", "high_so_far"], "fixture_component": marker}})
     (folder / f"feature_model_hgb_{market}.pkl").write_bytes(pickle.dumps(hgb))
@@ -125,7 +143,8 @@ def _manifest(tmp_path, paths):
     _r0_tree(root)
     manifest = build_r0_candidate_manifest(
         root, candidate_id=CANDIDATE, centre="2026-11-24", markets=["nyc"], build_commit="a" * 40,
-        excluded_markets={"toronto": "no PIT corpus"}, repo_root=paths["repo"],
+        excluded_markets={market: "fixture: not trained" for market in R0_MARKET_IDS if market != "nyc"},
+        repo_root=paths["repo"],
     )
     return write_r0_candidate_manifest(manifest, root / MANIFEST_FILENAME)
 
@@ -136,7 +155,12 @@ def test_manifest_binding_freezes_and_reverifies_exact_components(tmp_path):
     binding = r0_candidate_binding(manifest_path, candidate_id=CANDIDATE, repo_root=paths["repo"])
     assert set(binding["overrides"]["nyc"]) == {"feature_hgb", "feature_lr_coefficients"}
     assert binding["provenance"]["manifest_sha256"] == binding["manifest"]["manifest_sha256"]
-    assert binding["provenance"]["excluded_markets"] == {"toronto": "no PIT corpus"}
+    assert binding["provenance"]["excluded_markets"]["toronto"] == R0_OUT_OF_SCOPE_MARKETS["toronto"]
+    differences = binding["provenance"]["served_model_differences"]
+    assert list(differences) == ["nyc"]
+    assert [row["column"] for row in differences["nyc"]["columns_removed"]] == [
+        "pressure", "forecast_source_count",
+    ]
     _freeze(paths, overrides=binding["overrides"])
     verify = dict(manifest_dir=binding["manifest_dir"], repo_root=paths["repo"])
     verify_r0_frozen_components(paths["candidate"], binding["manifest"], **verify)

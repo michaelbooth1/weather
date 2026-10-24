@@ -49,6 +49,7 @@ from weather.calibration.feature_probability_calibration import (
     fit_temperature_blend_grid,
     temperature_scale_distribution,
 )
+from weather.calibration.r0_scope import served_model_differences
 from weather.calibration.feature_training_policy import (
     TRAINING_FEATURE_POLICY_ID,
     training_feature_exclusions,
@@ -1345,6 +1346,14 @@ def main(
             print(f"Policy {TRAINING_FEATURE_POLICY_ID} removed "
                   f"{allowlist_plan['policy_exclusions_applied']} from the served list "
                   f"({len(allowlist_plan['served_feature_names'])} served columns).")
+        if allowlist_plan["single_provider_exclusions_applied"]:
+            print(f"R0 removed {allowlist_plan['single_provider_exclusions_applied']} "
+                  "(a single-provider PIT corpus cannot express them).")
+        if allowlist_plan["mode"] == "r0" and (output_root is None or not manifests):
+            raise TrainingInputError(
+                "--column-allowlist r0:<market> trains R0 only: it needs --output-root "
+                "and at least one --pit-forecast-corpus-manifest"
+            )
         overridden = allowlist_plan["training_policy_exclusions_overridden"]
         if overridden:
             print(f"WARNING: the allowlist keeps columns that training policy "
@@ -1484,6 +1493,19 @@ def main(
     if training_inputs is not None:
         for info in (trained_models_info, hgb_models_info):
             info["training_inputs"] = training_inputs
+    if (
+        allowlist_plan is not None
+        and redirected is not None
+        and allowlist_plan["served_feature_names"] is not None
+    ):
+        # Every difference from the served bundle, in one record per artifact,
+        # for the candidate manifest, release provenance and parity checks.
+        differences = served_model_differences(
+            allowlist_record(allowlist_plan), training_inputs, base_models_only=True,
+        )
+        for info in (trained_models_info, hgb_models_info):
+            info["served_model_differences"] = differences
+        print(f"Differences from served: {differences['columns_removed']}.")
 
     for hour in INTRADAY_CUTOFF_HOURS:
         records = raw_data[hour]
@@ -2112,10 +2134,13 @@ def parse_cli_args(argv=None):
     parser.add_argument(
         "--column-allowlist", default=None,
         help="Train the cutoff-hour HGB/LR on exactly this ordered column list: "
-             "'served-policy:<market>' (R0: the served bundles' feature_names minus "
-             "the training-policy exclusions), 'served:<market>' (the served list "
-             "as is) or a JSON list file. Fails closed on any column the training "
-             "frame or serving cannot build. Default: policy columns.")
+             "'r0:<market>' (R0, US 11 only: the served bundles' feature_names minus "
+             "the training-policy exclusions and the single-provider consensus "
+             "columns; needs --output-root and a PIT corpus manifest), "
+             "'served-policy:<market>' (served minus the training-policy "
+             "exclusions), 'served:<market>' (the served list as is) or a JSON "
+             "list file. Fails closed on any column the training frame or serving "
+             "cannot build. Default: policy columns.")
     parser.add_argument(
         "--output-root", default=None,
         help="Base models only (R0): write the cutoff-hour HGB/LR and report under "

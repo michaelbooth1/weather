@@ -766,6 +766,12 @@ def r0_candidate_binding(
             "markets": sorted(manifest["markets"]),
             "excluded_markets": manifest["excluded_markets"],
             "overridden_components": list(TRAINED_COMPONENTS),
+            # Every difference from the served base models, per market, so the
+            # release (and anything reading its provenance) sees each one.
+            "served_model_differences": {
+                market_id: entry.get("served_model_differences")
+                for market_id, entry in sorted(manifest["markets"].items())
+            },
         },
     }
 

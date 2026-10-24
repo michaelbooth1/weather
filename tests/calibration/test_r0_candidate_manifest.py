@@ -2,7 +2,9 @@
 
 Guards: retrain memo R0.2 M13 - one self-hashed, write-once manifest per centre binds every trained
 market's base-only coefs/HGB/report, allowlist and training_inputs plus the five served components'
-bytes; any gap, mismatch or LFS pointer fails closed. Fixture trees only.
+bytes; any gap, mismatch or LFS pointer fails closed. R0 M7/M8 (owner 2026-10-23, r0_scope): only
+US 11 markets in r0 allowlist mode, every US 11 market trained or excluded with a reason, Toronto
+always excluded, and each market's served_model_differences bound. Fixture trees only.
 """
 
 from __future__ import annotations
@@ -14,6 +16,7 @@ import pytest
 
 from weather.calibration.r0_candidate_manifest import (
     MANIFEST_FILENAME,
+    MANIFEST_RECORD_VERSION,
     R0CandidateManifestError,
     SERVED_COMPONENTS,
     build_r0_candidate_manifest,
@@ -21,6 +24,11 @@ from weather.calibration.r0_candidate_manifest import (
     served_component_paths,
     verify_r0_candidate_manifest,
     write_r0_candidate_manifest,
+)
+from weather.calibration.r0_scope import (
+    R0_MARKET_IDS,
+    R0_OUT_OF_SCOPE_MARKETS,
+    served_model_differences,
 )
 
 COMMIT = "a" * 40
@@ -41,14 +49,27 @@ def _inputs(centre="2026-11-24", corpus=CORPUS):
     }
 
 
-ALLOWLIST = {"mode": "served-policy", "sha256": "f" * 64, "feature_names": ["high_so_far"]}
+ALLOWLIST = {
+    "mode": "r0",
+    "sha256": "f" * 64,
+    "feature_names": ["high_so_far"],
+    "served_feature_names": ["high_so_far", "pressure"],
+    "column_differences_from_served": [
+        {"column": "pressure", "reason": "training_policy_exclusion", "decision": "fixture"},
+    ],
+}
 
 
-def _trained(root, market, *, inputs=None, hgb_inputs=None, base_only=True, report=True):
+def _trained(root, market, *, inputs=None, hgb_inputs=None, base_only=True, report=True,
+             allowlist=ALLOWLIST, differences=True):
     folder = root / market
     folder.mkdir(parents=True)
-    info = {"12": {"feature_names": ["high_so_far"]}, "training_column_allowlist": ALLOWLIST,
+    info = {"12": {"feature_names": ["high_so_far"]}, "training_column_allowlist": allowlist,
             "training_inputs": inputs or _inputs()}
+    if differences:
+        info["served_model_differences"] = served_model_differences(
+            allowlist, info["training_inputs"], base_models_only=True,
+        )
     if base_only:
         info["base_models_only"] = True
     (folder / f"feature_model_coefs_{market}.json").write_text(json.dumps(info), encoding="utf-8")
@@ -74,9 +95,15 @@ def tree(tmp_path):
     return candidates, repo
 
 
+def _rest(markets, reason="fixture: not trained"):
+    return {market: reason for market in R0_MARKET_IDS if market not in markets}
+
+
 def _build(candidates, repo, **overrides):
-    kwargs = dict(candidate_id="retrain-r0-2026-11-24", centre="2026-11-24", markets=["nyc", "atlanta"],
-                  build_commit=COMMIT, excluded_markets={"toronto": "no PIT corpus"}, repo_root=repo)
+    markets = overrides.get("markets", ["nyc", "atlanta"])
+    kwargs = dict(candidate_id="retrain-r0-2026-11-24", centre="2026-11-24", markets=markets,
+                  build_commit=COMMIT, excluded_markets={"toronto": "no PIT corpus", **_rest(markets)},
+                  repo_root=repo)
     kwargs.update(overrides)
     return build_r0_candidate_manifest(candidates, **kwargs)
 
@@ -94,7 +121,18 @@ def test_manifest_binds_trained_and_served_bytes(tree):
     assert nyc["training_column_allowlist_sha256"] == "f" * 64
     assert manifest["pit_forecast_corpora"][0]["corpus_id"] == "c" * 64
     assert manifest["training_years"] == [2021, 2022]
-    assert manifest["excluded_markets"] == {"toronto": "no PIT corpus"}
+    assert manifest["record_version"] == MANIFEST_RECORD_VERSION == 2
+    assert manifest["excluded_markets"]["toronto"] == (
+        f"{R0_OUT_OF_SCOPE_MARKETS['toronto']}; caller: no PIT corpus"
+    )
+    assert manifest["excluded_markets"]["miami"] == "fixture: not trained"
+    assert set(manifest["excluded_markets"]) == (set(R0_MARKET_IDS) - {"nyc", "atlanta"}) | {"toronto"}
+    assert manifest["scope"]["r0_market_ids"] == list(R0_MARKET_IDS)
+    assert manifest["scope"]["allowlist_mode"] == "r0"
+    differences = nyc["served_model_differences"]
+    assert differences["columns_removed"] == ALLOWLIST["column_differences_from_served"]
+    assert differences["base_models_only"] is True
+    assert differences["centre_date"] == "2026-11-24"
     out = write_r0_candidate_manifest(manifest, candidates / MANIFEST_FILENAME)
     assert verify_r0_candidate_manifest(out, repo_root=repo) == manifest
     with pytest.raises(R0CandidateManifestError, match="never overwritten"):
@@ -171,6 +209,8 @@ def test_inconsistent_artifacts_fail_closed(tmp_path):
         ({"markets": []}, "non-empty"),
         ({"markets": ["nyc", "nyc"]}, "without repeats"),
         ({"excluded_markets": {"nyc": "x"}}, "both trained and excluded"),
+        ({"excluded_markets": {}}, "neither trained nor excluded"),
+        ({"markets": ["nyc", "toronto"], "excluded_markets": _rest(["nyc"])}, "outside R0"),
     ],
 )
 def test_invalid_arguments_fail_closed(tree, overrides, message):
@@ -181,11 +221,45 @@ def test_invalid_arguments_fail_closed(tree, overrides, message):
 
 def test_cli_writes_the_default_path(tree, capsys):
     candidates, repo = tree
+    rest = [arg for market, reason in _rest(["nyc"]).items()
+            for arg in ("--exclude-market", f"{market}={reason}")]
     code = main(["--candidate-root", str(candidates), "--candidate-id", "retrain-r0-2026-11-24",
                  "--centre", "2026-11-24", "--build-commit", COMMIT, "--market", "nyc",
-                 "--exclude-market", "toronto=no PIT corpus", "--repo-root", str(repo)])
+                 *rest, "--repo-root", str(repo)])
     assert code == 0
     printed = json.loads(capsys.readouterr().out)
     manifest = verify_r0_candidate_manifest(candidates / MANIFEST_FILENAME, repo_root=repo)
     assert printed["manifest_sha256"] == manifest["manifest_sha256"]
     assert list(manifest["markets"]) == ["nyc"]
+    assert manifest["excluded_markets"]["toronto"] == R0_OUT_OF_SCOPE_MARKETS["toronto"]
+
+
+def test_toronto_cannot_be_trained_and_other_modes_are_refused(tmp_path):
+    repo = tmp_path / "repo"
+    _served(repo, "nyc")
+    served_policy = dict(ALLOWLIST, mode="served-policy")
+    _trained(tmp_path / "a", "nyc", allowlist=served_policy)
+    with pytest.raises(R0CandidateManifestError, match="not 'r0:nyc'"):
+        _build(tmp_path / "a", repo, markets=["nyc"])
+    _trained(tmp_path / "b", "nyc", differences=False)
+    with pytest.raises(R0CandidateManifestError, match="no served_model_differences"):
+        _build(tmp_path / "b", repo, markets=["nyc"])
+    with pytest.raises(ValueError, match="unknown market id"):
+        _build(tmp_path / "b", repo, markets=["nyc"], excluded_markets={"mars": "x", **_rest(["nyc"])})
+
+
+def test_tampered_differences_record_fails_closed(tmp_path):
+    repo = tmp_path / "repo"
+    _served(repo, "nyc")
+    folder = tmp_path / "a"
+    _trained(folder, "nyc")
+    coefs_path = folder / "nyc" / "feature_model_coefs_nyc.json"
+    body = json.loads(coefs_path.read_text(encoding="utf-8"))
+    body["served_model_differences"]["columns_removed"] = []
+    coefs_path.write_text(json.dumps(body), encoding="utf-8")
+    hgb_path = folder / "nyc" / "feature_model_hgb_nyc.pkl"
+    hgb = pickle.loads(hgb_path.read_bytes())
+    hgb["served_model_differences"]["columns_removed"] = []
+    hgb_path.write_bytes(pickle.dumps(hgb))
+    with pytest.raises(R0CandidateManifestError, match="does not match the allowlist"):
+        _build(folder, repo, markets=["nyc"])
