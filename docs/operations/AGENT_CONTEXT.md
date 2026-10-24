@@ -75,9 +75,10 @@ generated reports for dynamic state.
   are kept as before. Rows captured under `metar-parser-v3` are not rewritten;
   their raw payloads retain `obsTime` for an explicit v4 re-derivation.
 
-Paid weather-provider access is unsupported. Do not add credentials, required
-environment variables, operator commands, or roadmap dependencies for paid
-weather data. WU labels come from retained local artifacts, the public
+Paid weather data is allowed only per source with explicit owner approval
+recorded in DECISION_LOG (owner 2026-10-23). Never commit credentials, and add
+no environment variables, operator commands, or roadmap dependencies for an
+unapproved paid source. WU labels come from retained local artifacts, the public
 page-backed collector, or an explicit reviewed manual-override policy.
 Free WU history access that sends the apiKey token scraped from WU's public web
 page is acceptable under this rule: no account, purchase or issued credential

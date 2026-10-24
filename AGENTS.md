@@ -49,8 +49,9 @@ memory as project guidance; durable knowledge lives in this repository.
 - The trading product is **International Polymarket only**. Polymarket US code,
   fixtures, and historical evidence are compatibility surfaces, not an allowed
   platform for new probes, credentials, live-readiness, or order mutation.
-- Paid weather-provider access is unsupported. Do not add credentials, required
-  environment variables, or plans that depend on a paid weather source.
+- Paid weather sources only with explicit per-source owner approval recorded in
+  DECISION_LOG; credentials never in the repo. Do not add required environment
+  variables, or plans that depend on an unapproved paid weather source.
 - Model changes must preserve train/serve feature parity, effective WU print
   cutoff semantics, probability mass, captured-input replay, and release
   binding. A plausible forecast is not proof of edge over market prices.
