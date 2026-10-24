@@ -434,7 +434,8 @@ def test_token_set_swap_is_make_before_break(tmp_path, live):
     # The swap leaves no gap: the only dark time is each token's first connect, which a
     # same-millisecond connect can round away entirely.
     assert set(trades["token_dark_seconds_by_cause"]) <= {"awaiting_connect"}
-    assert trades["all_sockets_down_gap_seconds"]["n"] == 1  # The first connect, before any socket existed.
+    # The first connect, before any socket existed; a same-millisecond connect can round it away too.
+    assert trades["all_sockets_down_gap_seconds"]["n"] in (0, 1)
 
 
 def test_overlap_is_bounded_when_the_new_socket_never_answers(tmp_path, live):
