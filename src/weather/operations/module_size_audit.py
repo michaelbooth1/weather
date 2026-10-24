@@ -20,8 +20,8 @@ DEFAULT_WARNING_LINES = 2_000
 OWNERSHIP_NOTES = {
     "src/weather/calibration/feature_model.py": {
         "owner": "calibration",
-        "boundary": "The legacy per-market feature trainer: cutoff-hour HGB/LR fits with blocked leave-one-year-out validation, blend tuning and the report, late-day continuation, plus the research-only R0 options (column allowlist, base-only output root, pinned centre, PIT corpora, leaf floor, per-row validation rows).",
-        "next_split": "Newly WARN on 2026-10-24 at 2,141 lines after the R0 retrain options (memo R0.2 M3-M7, leaf sweep, per-row rows). Extract the R0 research CLI and output layer (base_only_output_paths, the min_samples_leaf wrapper, the training_inputs and served_model_differences recording and the per-row writer) into a feature_model_research owner module that does not import the trainer facade, then the report rendering; preserve artifact keys, file names and the served default path byte-for-byte.",
+        "boundary": "The legacy per-market feature trainer: cutoff-hour HGB/LR fits with blocked leave-one-year-out validation, blend tuning and the report, late-day continuation, plus the research-only R0 options (column allowlist, base-only output root, pinned centre, PIT corpora, leaf floor, per-row validation rows with research-only observed-high floored scores and optional distributions).",
+        "next_split": "Newly WARN on 2026-10-24 at 2,141 lines after the R0 retrain options (memo R0.2 M3-M7, leaf sweep, per-row rows); 2,216 the same day after floored per-row scoring. Extract the R0 research CLI and output layer (base_only_output_paths, the min_samples_leaf wrapper, the training_inputs and served_model_differences recording and the per-row writer) into a feature_model_research owner module that does not import the trainer facade, then the report rendering; preserve artifact keys, file names and the served default path byte-for-byte.",
     },
     "src/weather/calibration/pooled_feature_model.py": {
         "owner": "calibration",
