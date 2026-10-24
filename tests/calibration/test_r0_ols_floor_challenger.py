@@ -235,3 +235,50 @@ def test_no_production_code_imports_the_challenger():
                 hits.append(path.relative_to(ROOT).as_posix())
     # The workstation allowlist names the module (it admits it); nothing imports it.
     assert hits == ["scripts/ops/workload_admission.ps1"]
+
+
+def _metar(nominal, raw_time, temp):
+    return {"datetime": nominal, "raw": f"METAR KATL {raw_time} 27006KT 10SM 32/23 A3020", "temp_native": temp}
+
+
+def test_metar_rows_key_on_the_raw_observation_time_not_the_nominal_hour():
+    from datetime import date, datetime
+    from zoneinfo import ZoneInfo
+
+    tz = ZoneInfo("America/New_York")
+    instant, basis = ch.metar_observation_instant(_metar("2026-08-10T13:00:00-04:00", "101652Z", 89.0), tz)
+    assert basis == "raw_ddhhmmz" and instant == datetime(2026, 8, 10, 12, 52, tzinfo=tz)
+    # Month-boundary DD group: a 31st 23:52Z report filed as the 1st's 00:00Z nominal hour.
+    instant, _ = ch.metar_observation_instant(_metar("2026-08-01T00:00:00+00:00", "312352Z", 80.0), tz)
+    assert instant.astimezone(ZoneInfo("UTC")) == datetime(2026, 7, 31, 23, 52, tzinfo=ZoneInfo("UTC"))
+    assert ch.metar_observation_instant({"datetime": "2026-08-10T13:00:00-04:00", "raw": ""}, tz)[1] == "nominal_datetime"
+
+    rows = [
+        _metar("2026-08-10T00:00:00-04:00", "100352Z", 82.0),  # D-1 23:52 local, carried as 00:00: excluded
+        _metar("2026-08-10T01:00:00-04:00", "100452Z", 80.0),
+        _metar("2026-08-10T10:00:00-04:00", "101352Z", 84.0),
+        _metar("2026-08-10T11:00:00-04:00", "101452Z", 86.0),  # observed 10:52, after a 10:00 cutoff
+    ]
+    current, high, n = ch.observations_at_cutoff(rows, date(2026, 8, 10), 10, tz)
+    assert (current, high, n) == (84.0, 84.0, 2)
+    assert ch.observations_at_cutoff(rows, date(2026, 8, 10), 11, tz)[:2] == (86.0, 86.0)
+    assert ch.observations_at_cutoff(rows[:1], date(2026, 8, 10), 10, tz) == (None, None, 0)
+
+
+def test_dev_verdict_needs_07_12_below_zero_and_no_standard_block_worse():
+    def row(group, lo, hi, est=-0.1):
+        return {"market": "ALL", "group": group,
+                "dR_crossed": {"estimate": est, "ci95": [lo, hi]},
+                "dR_date_clustered": {"estimate": est, "ci95": [lo, hi]}}
+
+    good = [row("07-12", -0.2, -0.05)] + [row(g, -0.1, 0.05) for g in ch.DEV_STANDARD_BLOCKS]
+    bad_block = [row("07-12", -0.2, -0.05)] + [row(g, -0.1, 0.05) for g in ch.DEV_STANDARD_BLOCKS[:-1]] + [
+        row("all", 0.01, 0.2, 0.1)]
+    crossing = [row("07-12", -0.2, 0.01)] + [row(g, -0.1, 0.05) for g in ch.DEV_STANDARD_BLOCKS]
+    scores = {"candidates": {"ols_floor": {"rows": good}, "ols_floor_resid_hgb": {"rows": bad_block},
+                             "x": {"rows": crossing}}}
+    out = ch.dev_verdict(scores, arms=("ols_floor", "ols_floor_resid_hgb", "x"))
+    assert out["ols_floor"]["dR_crossed"]["beats_served"] is True
+    assert out["ols_floor_resid_hgb"]["dR_crossed"]["blocks_worse"] == ["all"]
+    assert out["ols_floor_resid_hgb"]["dR_crossed"]["beats_served"] is False
+    assert out["x"]["dR_date_clustered"]["beats_served"] is False
