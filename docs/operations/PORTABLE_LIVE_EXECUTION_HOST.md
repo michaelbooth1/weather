@@ -51,7 +51,9 @@ use of the physical machine. The separate 32 GB PC may also perform ordinary
 workstation implementation, tests, training, replay, and measurement outside
 a launched live attempt. Recognized heavy commands use the repository
 workstation wrapper. Its admission-only profile shares the live launcher's
-host-global mutex without producing live-readiness evidence; both profiles are
+host-global mutex without producing live-readiness evidence (a live stage also
+takes every extra workstation heavy slot, so neither overlaps the other; see
+[the host load policy](HOST_LOAD_POLICY.md)); both profiles are
 bound to the assignment's exact Windows installation and attending principal,
 and both launch paths own their full child tree in a kill-on-close Windows Job.
 Finish heavy work before sealing as an operational attempt-preservation rule;

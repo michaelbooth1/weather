@@ -15,7 +15,7 @@
 # each pytest chunk owns a fresh, windowless console whatever the session of the
 # top-level caller. No Scheduled Task is registered.
 #
-# Holds the workstation FIFO heavy-work queue lease (workstation_offline_v1),
+# Holds one workstation heavy-work slot through the FIFO queue (workstation_offline_v1),
 # creates a detached worktree at -Head under a short path, removes it and the
 # per-chunk basetemps afterwards, and writes one JSON receipt.
 
@@ -37,7 +37,6 @@ param(
 
 $ErrorActionPreference = "Stop"
 $receiptSchema = "weather.workstation_pregate_receipt.v1"
-$mutexName = "Global\WeatherProjectHeavyWorkloadV1"
 $queueTimeoutExitCode = 75
 
 $Head = $Head.ToLowerInvariant()
@@ -274,6 +273,7 @@ $receipt = [ordered]@{
     driver_sha256 = (Get-FileHash -LiteralPath $driverPath -Algorithm SHA256).Hash.ToLowerInvariant()
     git_executable = $null
     lease_mode = $null
+    workstation_slot_id = $null
     launch_mode = [ordered]@{
         driver = "Start-WeatherProcessInJob -OutputCapture (CREATE_SUSPENDED|CREATE_NO_WINDOW, stdio pipes, kill-on-close Job), as integration_attempt_suite.ps1 launches the host suite"
         chunks = "host bounded suite statements replayed from its AST: Start-WeatherProcessInJob (CREATE_SUSPENDED|CREATE_NO_WINDOW, no inherited handles, kill-on-close Job)"
@@ -313,20 +313,16 @@ try {
     # (nested mode below) is no proof of which host this is.
     Assert-WeatherWorkstationOfflineHost -RepoRoot $RepoRoot
     if ($env:WEATHER_WORKSTATION_WRAPPER_ACTIVE -ceq "1") {
-        # Nested inside workstation_heavy.ps1, which already holds the
-        # host-global workstation lease. Prove somebody really holds it.
-        $probe = [Threading.Mutex]::new($false, $mutexName)
-        $acquired = $false
-        try {
-            try { $acquired = $probe.WaitOne(0, $false) }
-            catch [Threading.AbandonedMutexException] { $acquired = $true }
-            if ($acquired) { $probe.ReleaseMutex() }
-        }
-        finally { $probe.Dispose() }
-        if ($acquired) {
+        # Nested inside workstation_heavy.ps1, which already holds one
+        # workstation slot (WEATHER_WORKSTATION_WRAPPER_SLOT; absent from an
+        # older wrapper, which holds the legacy slot 1). Prove somebody really
+        # holds it.
+        $slotProbe = Test-WeatherWorkstationWrapperSlotHeld
+        if (-not $slotProbe.Held) {
             throw "WEATHER_WORKSTATION_WRAPPER_ACTIVE is set but nobody holds the workstation heavy-work lease"
         }
         $receipt.lease_mode = "inherited_from_workstation_heavy"
+        $receipt.workstation_slot_id = [int]$slotProbe.SlotId
     }
     else {
         $lease = Enter-WeatherHeavyWorkloadLeaseQueued `
@@ -339,6 +335,7 @@ try {
             throw "workstation heavy-work queue wait timed out after $QueueTimeoutSeconds s; nothing was started"
         }
         $receipt.lease_mode = "workstation_queue"
+        $receipt.workstation_slot_id = [int]$lease.WorkstationSlotId
     }
 
     # ------------------------------------------------------------ git identity
