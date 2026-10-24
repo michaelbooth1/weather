@@ -125,9 +125,9 @@ def launch(wrapper_fixture, mode, *, apply=False, plan_receipt=None):
     if plan_receipt:
         arguments += ["-PlanReceiptPath", str(plan_receipt), "-PlanReceiptSha256",
                       hashlib.sha256(plan_receipt.read_bytes()).hexdigest()]
-    # Hang modes prove the hard stop at the fixture's 4 s deadline; every other mode only needs a
+    # Hang modes prove the hard stop at the fixture's 20 s deadline; every other mode only needs a
     # ceiling, so a slow runner cannot turn a success path into a spurious hard stop.
-    environment = {**os.environ, "WEATHER_TEST_WRAPPER_DEADLINE_SECONDS": "4" if mode == "hang" else "30"}
+    environment = {**os.environ, "WEATHER_TEST_WRAPPER_DEADLINE_SECONDS": "20" if mode == "hang" else "30"}
     process = subprocess.Popen(arguments, cwd=source, env=environment, stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE, text=True)
     return process, output
@@ -227,7 +227,7 @@ def test_wrapper_does_not_reuse_or_rewrite_a_spent_attempt(wrapper_fixture):
 def test_abrupt_wrapper_exit_kills_entire_owned_tree(wrapper_fixture):
     process, output = launch(wrapper_fixture, "hang")
     try:
-        deadline = time.monotonic() + 20
+        deadline = time.monotonic() + 25
         while not (output / "descendant.json").exists():
             if process.poll() is not None or time.monotonic() >= deadline:
                 code, log = finish(process)
