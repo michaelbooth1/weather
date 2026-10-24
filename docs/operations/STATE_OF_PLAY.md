@@ -47,6 +47,7 @@ then run a real edge test against market prices; **if it fails, the project is k
 - **Venue rule change (EF §10x):** from the 10-23 events the venue resolves on the raw METAR API, highest **routine** report
   (SPECI excluded), tenths °C half-up to °F, WU fallback; Denver names KDEN, not our KBKF. **Labels:** venue rule for dates
   >= 10-23 (owner 10-23); WU before, unless the host WU-vs-venue measurement (08-11..09-29, after C) says otherwise.
+  **Denver >= 10-23 labels KDEN and is unsupported for model scoring** until a KDEN model passes the gates (DL; [study](../research/denver-kden-vs-kbkf-2026-10-23.md)).
 - **More markets** (owner 10-23, DL; [study](../research/more-markets-phase2-scoping-2026-10-23.md)): R1 five pilot cities
   recorder-only the morning after S2+S9 lands (day-1 receipt if its checks pass); R2 five more from 11-01 (HK recorder-only);
   M1 model lane Europe first, M = 18 then 24 after offboarding is proven, lands when ready; new cities label from IEM METAR.
