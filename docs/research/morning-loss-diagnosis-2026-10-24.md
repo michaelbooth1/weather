@@ -278,3 +278,52 @@ $env:PYTHONPATH = "src;tools\research\morning_loss"
 ## Update when
 
 Do not rewrite this record; add dated addenda.
+
+## Addendum 2026-10-24: the overnight cold drift, traced (defect hunt, master direction 5)
+
+**One instance traced end to end first.** Atlanta 2026-08-21 (settled 94 F). Served centre (layout, hourly
+mean) 91.8 F at 00 h, 88.4 F at 07 h, 90.5 F at 12 h; market centre 91.3 → 92.2 → 91.9 F. Snapshots
+`20260821T000125642349-0400`, `…T035827305991-0400` and `…T080447456334-0400` were replayed on a detached
+worktree at the record's runtime commit `a76ec7b5599d` with every identity-pinned code and artifact file
+sha-verified (`tools/research/morning_loss/trace_drift.py`). **Replay vs recorded vector L1 = 0.00 on all
+three**, so the stage values below are what production served.
+
+| Stage (snapshot site, `a76ec7b5`) | 00:01 | 03:58 | 08:04 |
+| --- | --- | --- | --- |
+| climatology_prior | 87.93 | 87.93 | 87.92 |
+| **hgb_feature_model** (`model_distribution.py:808`, from `model_features.py:1283` `predict_proba`) | **91.96** | **91.40** | **87.86** |
+| feature_blend (`model_distribution.py:817`) | 89.94 | 89.66 | 87.89 |
+| post_live_signals (`:949`) | 91.14 | 90.75 | 88.50 |
+| settlement_lag_adjusted (`:1111`) … late_day_lockin, pre_calibration | 92.01 | 91.00 | 88.54 |
+| overconfidence_calibration (`:547`) = final_model (`:556`) | 92.01 | 91.00 | 88.39 |
+
+Every stage after the HGB passes its centre through within ~0.6 F; **the drift is created inside the HGB
+feature model** (−4.1 F from 00:01 to 08:04). One-at-a-time restoration of the 00:01 feature value at the 08:04
+cutoff-8 model: `live_reading_temp` 75.92 → 84.02 gives +0.76 F, `high_so_far` 75.92 → 84.02 gives +0.62 F,
+`rise_from_7am` +0.52, `hours_at_peak` +0.46; forecast inputs barely move (forecast_high 93.65 → 93.03).
+
+**Mechanism (code-traced): `high_so_far` at serve is not the feature the HGB was trained on.**
+- Training (`src/weather/calibration/feature_model.py:990-996`): `high_so_far = max(temps of all day rows
+  with minute_of_day <= cutoff)`, the running maximum since midnight from WU history rows.
+- Serve (`src/weather/model/model_base.py:46-79`, `effective_observed_high_context`): `history_high` comes from
+  the `wu_history` rows (`:58`), which are empty since WU live collection was disabled on 2026-06-30 (EF §10e),
+  so `effective_high = max(None, current_temp)` (`:78`): **the current temperature**, and from cutoff 07 on
+  `max(current_temp, max_since_7am)` (`:79`). The METAR rows that hold the overnight readings are never
+  consulted. `model_features.py:849` binds it as the `high_so_far` feature (`:1180`). Same lines on the branch
+  base `4be7c077c` (`model_base.py:78-79`; `model_features.py:864`), so it is live on master.
+- In this instance the night cooled from 84 F to 74 F behind a thunderstorm outflow (03:43 SPECI 32014G27KT,
+  −RA); training would have shown the model `high_so_far = 84`, serve showed 75.9.
+
+**Structural check, only after the trace (layout, 473 scored market-days):** the served `high_so_far` sits
+below its own running maximum by a mean 0.16 / 1.81 / 3.02 / 3.96 / 3.88 / 2.64 / 1.34 / 0.56 F at 00 / 02 /
+04 / 06 / 07 / 08 / 09 / 10 h (deficit > 0.5 F on 86-92% of 03-07 h snapshots). Served drift 00 → 08 h is
+−0.10 F on days with an 08 h deficit < 1 F (190 days) and −0.92 F where it is >= 3 F (166 days); the market's
+drift is −0.03 / +0.09 F on the same splits; correlation of the served drift with the 08 h deficit −0.31.
+Development, descriptive, not a scored lever.
+
+**Reading.** The overnight cold drift is a train/serve parity defect on the HGB's strongest live input, a
+consequence of the WU-history outage, distinct from (and additive to) EF §2's seasonal-coverage cool bias.
+A repair would source the serve-time running maximum since 00:00 from the captured METAR/station rows,
+excluding the D-1 report carried in as the 00:00 row (in this instance the 84.02 F "00:00" row is the
+2026-08-20 23:52 observation, the M0 `reportTime` defect that the v3 anchor excludes). That is a serving and
+parity change for a pre-registration and the roll verdict, not something this lane changes.
