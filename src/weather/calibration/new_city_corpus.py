@@ -1,0 +1,434 @@
+"""METAR-labelled training-corpus builder for candidate new cities (M1).
+
+Owner decision 2026-10-23: new METAR-settled cities are labelled from free IEM
+METAR. This module joins three things for a candidate market from
+``config/candidate_markets.json`` (``weather.market.candidate_markets``):
+
+1. **Label** -- the local-date maximum of IEM METAR temperatures (routine and
+   special reports, deduplicated on observation time), keyed on the
+   observation instant in the market's IANA zone, half-up to a whole native
+   degree. A day is ``complete`` only when no gap between consecutive reports
+   (local midnight to local midnight, DST-aware) exceeds the label source's
+   ``complete_day_max_gap_minutes``; other days are never training labels.
+2. **Observed-so-far features at each cutoff** -- the METAR print-cutoff
+   equivalent of the WU rule: only reports whose observation instant is at or
+   before the local cutoff instant are admitted, and the effective cutoff is
+   the latest cutoff hour the newest admitted report has reached (a report up
+   to ``alias_window_minutes`` before the hour counts for that hour), exactly as
+   ``ModelUtilsMixin.aliased_settlement_print_minute`` and
+   ``effective_intraday_cutoff_hour`` do for WU prints.
+3. **Point-in-time forecast** -- rows of a published PIT forecast corpus
+   (``weather.sources.forecast_training_corpus``) for the same market, target
+   date and cutoff. A row whose issue or availability time is after its
+   feature cutoff, or whose cutoff instant disagrees with this module's, is
+   refused.
+
+It never fetches. Inputs are local IEM CSV files and a verified PIT corpus
+manifest; the output is a content-addressed directory. Nothing here is read by
+serving, capture or release code.
+
+CLI:
+  python -m weather.calibration.new_city_corpus labels --market london --metar-csv <f> [<f> ...] --last-date 2026-09-29 --out <labels.jsonl>
+  python -m weather.calibration.new_city_corpus build --markets london,paris --metar-csv-dir <dir> --pit-corpus-manifest <manifest.json> --last-date 2025-12-31 --publish-root <dir>
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import shutil
+import tempfile
+from collections import defaultdict
+from datetime import date, datetime, time, timedelta, timezone
+from pathlib import Path
+
+from weather.market.candidate_markets import load_candidate_registry
+from weather.schema_registry import schema_version
+from weather.sources.metar_history import dedupe_records, normalize_csv
+from weather.units import round_half_up, to_float
+
+
+LABEL_SCHEMA_VERSION = schema_version("new_city_metar_label")
+ROW_SCHEMA_VERSION = schema_version("new_city_training_row")
+MANIFEST_SCHEMA_VERSION = schema_version("new_city_training_corpus_manifest")
+
+
+class CorpusBuildError(ValueError):
+    """An input would break the label, cutoff or point-in-time contract."""
+
+
+def _parse_date(value):
+    if isinstance(value, date):
+        return value
+    return date.fromisoformat(str(value))
+
+
+def _utc(value):
+    dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    if dt.tzinfo is None:
+        raise CorpusBuildError(f"timestamp has no offset: {value!r}")
+    return dt.astimezone(timezone.utc)
+
+
+def local_day_bounds_utc(target_date, tz):
+    """UTC instants of local midnight at the start and end of ``target_date``."""
+    day = _parse_date(target_date)
+    start = datetime.combine(day, time(0, 0), tzinfo=tz).astimezone(timezone.utc)
+    end = datetime.combine(day + timedelta(days=1), time(0, 0), tzinfo=tz).astimezone(timezone.utc)
+    return start, end
+
+
+def cutoff_instant_utc(target_date, cutoff_hour, tz):
+    day = _parse_date(target_date)
+    return datetime.combine(day, time(int(cutoff_hour), 0), tzinfo=tz).astimezone(timezone.utc)
+
+
+def read_iem_records(paths, spec, *, last_date):
+    """Normalized, deduplicated METAR records from IEM ASOS CSV files.
+
+    Rows whose local date is after ``last_date`` are dropped at read time and
+    never reach a label, a feature or the input span.
+    """
+    last = _parse_date(last_date).isoformat()
+    records = []
+    for path in paths:
+        text = Path(path).read_text(encoding="utf-8")
+        records.extend(row for row in normalize_csv(text, spec) if row["local_date"] <= last)
+    return dedupe_records(records)
+
+
+def records_by_local_date(records):
+    grouped = defaultdict(list)
+    for row in records:
+        if row.get("local_date") and to_float(row.get("temp_native")) is not None:
+            grouped[row["local_date"]].append(row)
+    for rows in grouped.values():
+        rows.sort(key=lambda item: item["valid_time_utc"])
+    return dict(grouped)
+
+
+def _max_gap_minutes(rows, target_date, tz):
+    start, end = local_day_bounds_utc(target_date, tz)
+    instants = [start] + [_utc(row["valid_time_utc"]) for row in rows] + [end]
+    gaps = [(later - earlier).total_seconds() / 60.0 for earlier, later in zip(instants, instants[1:])]
+    return max(gaps)
+
+
+def daily_label(rows, target_date, candidate):
+    """Label for one local date from that date's METAR rows (may be incomplete)."""
+    spec = candidate.spec
+    temps = [to_float(row.get("temp_native")) for row in rows]
+    temps = [value for value in temps if value is not None]
+    start, end = local_day_bounds_utc(target_date, spec.tz)
+    if not temps:
+        max_gap = (end - start).total_seconds() / 60.0
+        high = None
+    else:
+        max_gap = _max_gap_minutes(rows, target_date, spec.tz)
+        high = max(temps)
+    threshold = candidate.label_source.complete_day_max_gap_minutes
+    return {
+        "schema_version": LABEL_SCHEMA_VERSION,
+        "market_id": spec.id,
+        "station": spec.icao,
+        "label_source": candidate.label_source.name,
+        "temperature_unit": spec.display_unit,
+        "target_date": _parse_date(target_date).isoformat(),
+        "local_day_hours": round((end - start).total_seconds() / 3600.0, 2),
+        "row_count": len(temps),
+        "max_gap_minutes": round(max_gap, 1),
+        "label_complete": bool(temps) and max_gap <= threshold,
+        "observed_high_native": high,
+        "label_native": round_half_up(high) if high is not None else None,
+        "max_times_local": "|".join(
+            row["local_time"] for row in rows if high is not None and to_float(row.get("temp_native")) == high
+        ),
+    }
+
+
+INPUT_SPAN_SLACK = timedelta(minutes=60)
+
+
+def daily_labels(records, candidate, *, last_date):
+    """Labels for every local date with rows, ignoring dates after ``last_date``.
+
+    A date whose local day is not inside the span the input files cover (first
+    to last report, with an hour of slack for the report cadence) is a fetch
+    edge, not an observed day, and is never ``label_complete``.
+    """
+    last = _parse_date(last_date)
+    grouped = records_by_local_date(records)
+    instants = [_utc(row["valid_time_utc"]) for rows in grouped.values() for row in rows]
+    labels = {}
+    for local_date, rows in sorted(grouped.items()):
+        if _parse_date(local_date) > last:
+            continue
+        label = daily_label(rows, local_date, candidate)
+        start, end = local_day_bounds_utc(local_date, candidate.spec.tz)
+        inside = start >= min(instants) - INPUT_SPAN_SLACK and end <= max(instants) + INPUT_SPAN_SLACK
+        label["inside_input_span"] = inside
+        label["label_complete"] = label["label_complete"] and inside
+        labels[local_date] = label
+    return labels
+
+
+def aliased_minute(minute, wall_cutoff_hour, alias_window):
+    """Same rule as ``ModelUtilsMixin.aliased_settlement_print_minute``."""
+    next_hour = ((int(minute) // 60) + 1) * 60
+    if next_hour <= int(wall_cutoff_hour) * 60 and 0 < (next_hour - int(minute)) <= int(alias_window):
+        return next_hour
+    return int(minute)
+
+
+def observed_at_cutoff(rows, target_date, cutoff_hour, candidate):
+    """Observed-so-far METAR features admitted at one local cutoff."""
+    spec = candidate.spec
+    rule = candidate.print_cutoff
+    cutoff_hour = int(cutoff_hour)
+    if cutoff_hour not in rule.cutoff_hours_local:
+        raise CorpusBuildError(f"cutoff hour {cutoff_hour} is not in the print-cutoff rule")
+    as_of = cutoff_instant_utc(target_date, cutoff_hour, spec.tz)
+    admitted = [
+        row for row in rows
+        if row.get("local_date") == _parse_date(target_date).isoformat()
+        and _utc(row["valid_time_utc"]) <= as_of
+        and to_float(row.get("temp_native")) is not None
+    ]
+    first_cutoff = rule.cutoff_hours_local[0]
+    if not admitted:
+        return {
+            "feature_as_of_utc": as_of.isoformat(),
+            "effective_cutoff_hour": first_cutoff,
+            "obs_rows": 0,
+            "obs_max_so_far_native": None,
+            "obs_latest_native": None,
+            "obs_latest_valid_time_utc": None,
+        }
+    latest = admitted[-1]
+    local_latest = _utc(latest["valid_time_utc"]).astimezone(spec.tz)
+    minute = aliased_minute(local_latest.hour * 60 + local_latest.minute, cutoff_hour, rule.alias_window_minutes)
+    eligible = [hour for hour in rule.cutoff_hours_local if hour <= cutoff_hour and hour * 60 <= minute]
+    return {
+        "feature_as_of_utc": as_of.isoformat(),
+        "effective_cutoff_hour": eligible[-1] if eligible else first_cutoff,
+        "obs_rows": len(admitted),
+        "obs_max_so_far_native": max(to_float(row["temp_native"]) for row in admitted),
+        "obs_latest_native": to_float(latest["temp_native"]),
+        "obs_latest_valid_time_utc": latest["valid_time_utc"],
+    }
+
+
+def _read_jsonl(path):
+    with Path(path).open("r", encoding="utf-8") as handle:
+        for line in handle:
+            if line.strip():
+                yield json.loads(line)
+
+
+def load_pit_forecast_daily(manifest_path, market_ids):
+    """Daily-high rows of a published PIT corpus for ``market_ids``, hash-checked."""
+    manifest_path = Path(manifest_path)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    entry = (manifest.get("files") or {}).get("forecast_daily.jsonl")
+    if not entry:
+        raise CorpusBuildError("PIT corpus manifest lists no forecast_daily.jsonl")
+    daily_path = manifest_path.parent / "forecast_daily.jsonl"
+    digest = hashlib.sha256(daily_path.read_bytes()).hexdigest()
+    if digest != entry.get("sha256"):
+        raise CorpusBuildError("PIT forecast_daily.jsonl hash does not match its manifest")
+    wanted = set(market_ids)
+    missing = sorted(wanted - set(manifest.get("market_ids") or []))
+    if missing:
+        raise CorpusBuildError(f"PIT corpus has no rows for markets: {', '.join(missing)}")
+    rows = [row for row in _read_jsonl(daily_path) if row.get("market_id") in wanted]
+    return manifest, digest, rows
+
+
+def join_rows(forecast_rows, labels_by_market, records_by_market, candidates, *, last_date):
+    """Join PIT forecast rows to complete METAR labels and cutoff features."""
+    last = _parse_date(last_date)
+    out = []
+    rejected = defaultdict(int)
+    for row in sorted(
+        forecast_rows,
+        key=lambda item: (item["market_id"], item["target_date"], int(item["cutoff_hour_local"])),
+    ):
+        market_id = row["market_id"]
+        candidate = candidates[market_id]
+        spec = candidate.spec
+        target_date = row["target_date"]
+        if _parse_date(target_date) > last:
+            rejected["after_last_date"] += 1
+            continue
+        if row.get("temperature_unit") != spec.display_unit:
+            raise CorpusBuildError(f"{market_id} {target_date}: forecast unit is not the native unit")
+        cutoff_hour = int(row["cutoff_hour_local"])
+        as_of = cutoff_instant_utc(target_date, cutoff_hour, spec.tz)
+        if _utc(row["feature_as_of_utc"]) != as_of:
+            raise CorpusBuildError(f"{market_id} {target_date} h{cutoff_hour}: PIT cutoff instant disagrees")
+        for field in ("issue_time_utc", "available_at_utc"):
+            if _utc(row[field]) > as_of:
+                raise CorpusBuildError(f"{market_id} {target_date} h{cutoff_hour}: {field} after the cutoff")
+        label = labels_by_market.get(market_id, {}).get(target_date)
+        if label is None:
+            rejected["no_label"] += 1
+            continue
+        if not label["label_complete"]:
+            rejected["label_incomplete"] += 1
+            continue
+        observed = observed_at_cutoff(
+            records_by_market.get(market_id, {}).get(target_date, []),
+            target_date,
+            cutoff_hour,
+            candidate,
+        )
+        out.append({
+            "schema_version": ROW_SCHEMA_VERSION,
+            "market_id": market_id,
+            "station": spec.icao,
+            "temperature_unit": spec.display_unit,
+            "target_date": target_date,
+            "cutoff_hour_local": cutoff_hour,
+            **observed,
+            "forecast_high_native": to_float(row.get("forecast_high_native")),
+            "forecast_source_model": row.get("source_model"),
+            "forecast_lead_days": row.get("lead_days"),
+            "forecast_issue_time_utc": row.get("issue_time_utc"),
+            "forecast_available_at_utc": row.get("available_at_utc"),
+            "forecast_derived_row_sha256": row.get("derived_row_sha256"),
+            "label_native": label["label_native"],
+            "label_source": label["label_source"],
+        })
+    return out, dict(rejected)
+
+
+def _jsonl_bytes(rows):
+    return "".join(json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n" for row in rows).encode("utf-8")
+
+
+def publish_corpus(publish_root, files, manifest_body):
+    """Write ``files`` and a manifest into ``<publish_root>/corpora/<id>`` atomically."""
+    publish_root = Path(publish_root)
+    file_hashes = {name: hashlib.sha256(body).hexdigest() for name, body in sorted(files.items())}
+    identity = dict(manifest_body)
+    identity["files"] = {name: {"sha256": digest, "byte_count": len(files[name])} for name, digest in file_hashes.items()}
+    corpus_id = hashlib.sha256(json.dumps(identity, sort_keys=True).encode("utf-8")).hexdigest()
+    manifest = {**identity, "corpus_id": corpus_id}
+    final = publish_root / "corpora" / corpus_id
+    if final.exists():
+        raise CorpusBuildError(f"corpus {corpus_id} already exists; corpora are never overwritten")
+    final.parent.mkdir(parents=True, exist_ok=True)
+    temp = Path(tempfile.mkdtemp(prefix=".tmp-", dir=final.parent))
+    try:
+        for name, body in files.items():
+            (temp / name).write_bytes(body)
+        (temp / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        os.replace(temp, final)
+    except BaseException:
+        shutil.rmtree(temp, ignore_errors=True)
+        raise
+    return final, manifest
+
+
+def _csvs_for(directory, icao):
+    paths = sorted(Path(directory).glob(f"{icao}*.csv"))
+    if not paths:
+        raise CorpusBuildError(f"no IEM CSV for {icao} under {directory}")
+    return paths
+
+
+def build(*, market_ids, metar_csv_dir, pit_corpus_manifest, last_date, publish_root, registry_path=None):
+    registry = load_candidate_registry(registry_path)
+    unknown = sorted(set(market_ids) - set(registry))
+    if unknown:
+        raise CorpusBuildError(f"not candidate markets: {', '.join(unknown)}")
+    candidates = {market_id: registry[market_id] for market_id in market_ids}
+    labels_by_market = {}
+    records_by_market = {}
+    metar_inputs = {}
+    for market_id, candidate in candidates.items():
+        paths = _csvs_for(metar_csv_dir, candidate.spec.icao)
+        metar_inputs[market_id] = [
+            {"name": path.name, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()} for path in paths
+        ]
+        records = read_iem_records(paths, candidate.spec, last_date=last_date)
+        labels_by_market[market_id] = daily_labels(records, candidate, last_date=last_date)
+        records_by_market[market_id] = records_by_local_date(records)
+    pit_manifest, pit_digest, forecast_rows = load_pit_forecast_daily(pit_corpus_manifest, market_ids)
+    rows, rejected = join_rows(forecast_rows, labels_by_market, records_by_market, candidates, last_date=last_date)
+    if not rows:
+        raise CorpusBuildError("join produced no rows; nothing is published")
+    labels = [label for market in sorted(labels_by_market) for _, label in sorted(labels_by_market[market].items())]
+    files = {"rows.jsonl": _jsonl_bytes(rows), "labels.jsonl": _jsonl_bytes(labels)}
+    body = {
+        "schema_version": MANIFEST_SCHEMA_VERSION,
+        "corpus_role": "training_only",
+        "market_ids": sorted(market_ids),
+        "last_date": _parse_date(last_date).isoformat(),
+        "label_sources": {market_id: candidates[market_id].label_source.name for market_id in sorted(candidates)},
+        "metar_inputs": metar_inputs,
+        "pit_corpus_id": pit_manifest.get("corpus_id"),
+        "pit_forecast_daily_sha256": pit_digest,
+        "row_count": len(rows),
+        "label_count": len(labels),
+        "label_complete_count": sum(1 for label in labels if label["label_complete"]),
+        "rejected": rejected,
+    }
+    return publish_corpus(publish_root, files, body)
+
+
+def _labels_command(args):
+    registry = load_candidate_registry(args.registry or None)
+    if args.market not in registry:
+        raise CorpusBuildError(f"not a candidate market: {args.market!r}")
+    candidate = registry[args.market]
+    records = read_iem_records(args.metar_csv, candidate.spec, last_date=args.last_date)
+    labels = daily_labels(records, candidate, last_date=args.last_date)
+    body = _jsonl_bytes(list(labels.values()))
+    if args.out:
+        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.out).write_bytes(body)
+    complete = sum(1 for label in labels.values() if label["label_complete"])
+    print(json.dumps({"market": args.market, "dates": len(labels), "complete": complete}))
+    return 0
+
+
+def build_parser():
+    parser = argparse.ArgumentParser(description="Build METAR-labelled training rows for candidate cities.")
+    sub = parser.add_subparsers(dest="command", required=True)
+    labels = sub.add_parser("labels", help="Write daily METAR labels for one candidate market.")
+    labels.add_argument("--market", required=True)
+    labels.add_argument("--metar-csv", nargs="+", required=True)
+    labels.add_argument("--last-date", required=True)
+    labels.add_argument("--out", default="")
+    labels.add_argument("--registry", default="")
+    corpus = sub.add_parser("build", help="Join a PIT forecast corpus to METAR labels and publish.")
+    corpus.add_argument("--markets", required=True)
+    corpus.add_argument("--metar-csv-dir", required=True)
+    corpus.add_argument("--pit-corpus-manifest", required=True)
+    corpus.add_argument("--last-date", required=True)
+    corpus.add_argument("--publish-root", required=True)
+    corpus.add_argument("--registry", default="")
+    return parser
+
+
+def main(argv=None):
+    args = build_parser().parse_args(argv)
+    if args.command == "labels":
+        return _labels_command(args)
+    final, manifest = build(
+        market_ids=[item.strip() for item in args.markets.split(",") if item.strip()],
+        metar_csv_dir=args.metar_csv_dir,
+        pit_corpus_manifest=args.pit_corpus_manifest,
+        last_date=args.last_date,
+        publish_root=args.publish_root,
+        registry_path=args.registry or None,
+    )
+    print(json.dumps({"corpus": str(final), "rows": manifest["row_count"], "rejected": manifest["rejected"]}))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

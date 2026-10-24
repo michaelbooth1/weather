@@ -9,6 +9,7 @@ Checked-in files under `config/` are classified by owner and freshness policy:
 | `scheduled_tasks.json` | Hand-authored task lifecycle registry | Reviewed intent, never proof of Scheduler state or permission to re-arm. Owns nightly retired-bot monitoring and the generated task table; update with registrar and status classification changes. |
 | `locations.json` | Durable location registry | Hand-authored location, station, settlement, and source-plan facts. Volatile market-event fields are not stored here. |
 | `location_market_events.json` | Generated snapshot | Current Gamma API active-event metadata by location; stale after 7 days. |
+| `candidate_markets.json` | Inactive candidate registry | New-city model lane candidate `MarketSpec` rows with their METAR label and print-cutoff rules ([new-city model lane](NEW_CITY_MODEL_LANE.md)). Never the default registry; read only by workstation research modules or under an explicit `WEATHER_MARKET_REGISTRY` override that live paths refuse. Activation is a reviewed `MarketSpec` change. |
 | `markets.json` | Deprecated compatibility shell | Empty external override file retained for `weather.market.market_registry`; built-in `MarketSpec` definitions remain authoritative. |
 | `model_variant_registry.json` | Hand-authored registry | Validate before promotion; active promoted artifacts must not point at ignored `data/` paths. |
 | `supplemental_stations.json` | Hand-authored registry | Review when station provenance changes. |
