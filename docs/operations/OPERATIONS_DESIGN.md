@@ -90,7 +90,10 @@ books and reward records, capped extra-condition window updates, continuous publ
 brakes and `data/maker_evidence/status.json`. It does not enter streak grading
 or the existing capture recovery contract. The registrar is
 `scripts/ops/register_maker_evidence_capture.ps1`; registration and readoption
-remain explicit production actions.
+remain explicit production actions. `WeatherMakerEvidenceLowestTemperature` runs the
+same module with `--family lowest_temperature` in its own root (books and reward
+terms, no websocket); its registrar is
+`scripts/ops/register_maker_evidence_family_capture.ps1`.
 
 The paper-only `WeatherMakerShadowRunner` (registrar
 `scripts/ops/register_maker_shadow_runner.ps1`) is a separate long-lived public-read
@@ -105,7 +108,11 @@ launch exits `0`. Lock contention, restart backoff, an open restart circuit, or
 a failed launch exits nonzero so Task Scheduler does not report success while
 capture is down. Each ensure writes its latest decision and recovery-guard
 state to a separate atomic `*_supervisor_status.json` sidecar; the long-running
-worker remains the only writer of its loop status. Registration source, task
+worker remains the only writer of its loop status. Workers are started through
+`supervisor.launch_detached`, which sets `OPENBLAS_NUM_THREADS`, `OMP_NUM_THREADS`
+and `MKL_NUM_THREADS` to 1 unless they are already set. Without the cap, OpenBLAS
+commits about 30 MiB per logical CPU in every numpy-importing worker (established
+findings §10s). The short-lived `ensure` processes are not capped. Registration source, task
 names, cadences, and parameters live in:
 
 - `scripts/ops/register_snapshot_supervisor.ps1`
@@ -346,6 +353,19 @@ as evidence loss rather than accepted by coarse market-day routing. An empty tap
 explicitly disconnected evidence, not a quiet market. After route proof, the
 connection also has an inbound-silence deadline: a server `PONG` or market frame
 must continue arriving, so local heartbeat sends cannot sustain green status.
+The deadline is judged only when a socket receive has just timed out. Each
+connection's thread only reads the socket, sends `PING`, stamps receipt time and
+proves routes; tape appends, status writes and gap transitions run on a
+per-session writer thread in arrival order, so a slow fsync or the shared
+coordinator lock cannot starve the socket or be mistaken for server silence.
+Frames already received are written before the session's gap row. A venue close
+frame is recorded in the gap reason with its close code; an empty data frame is
+inbound liveness, not a disconnect. Reconnects wait a jittered delay in
+[d/2, d], doubling to 30 s, and a session that kept its routes proven for 60 s
+resets the delay to the 1 s base.
+`python -m weather.market.execution_tape_disconnects --date <local date>`
+groups the gap ledgers into socket-level disconnects and reports causes by local
+hour, dark seconds and session lifetimes; it is read-only.
 Any invalid execution message, unrouted execution, or ambiguous token/condition
 route changes global status to `DEGRADED_EVIDENCE_LOSS`; a healthy socket cannot
 override evidence loss.

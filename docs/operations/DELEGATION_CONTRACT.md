@@ -192,6 +192,13 @@ blocked its own handback for nothing.
   made **purely additive** and therefore behaviourally inert. **A mission touching this family must
   state in its report whether its change is additive-only**; that is what lets the production agent
   treat the merge as a low-risk roll rather than a behavioural one.
+  `schema_registry_families.py` (the PL-2 loader) is core by its name for the preflight, but
+  loops load it only through the audit's function-level import, so it is in no live closure.
+- **Since the PL-2 split (Data Layer v2 S3), a new capture family's schema is roll-free.** It
+  goes in `src/weather/schema_families/<family>.py`, which no capture loop imports; the strict
+  audit discovers it, and `roll_verdict.ps1` reports it free because it is in no closure. The
+  core stays frozen (a parity digest ratchet in `tests/operations/test_schema_families_registry.py`);
+  a loop-needed schema is still a core edit and still rolls every loop.
 
 Every mission must deliver a **per-file roll verdict**, stating which closures each changed file
 enters. Roll-sensitive branches merge only in the **01:00–04:00 quiet window**. Never merge inside

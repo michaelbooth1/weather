@@ -193,6 +193,116 @@ class TestSettlementSourceAudit(unittest.TestCase):
         self.assertIn("2026-06-20", blocked["blocked_target_dates"])
         self.assertIn("2026-06-21", blocked["blocked_target_dates"])
 
+    def test_option1_defers_only_undecided_supporting_source_disagreement(self):
+        # Owner decision 2026-10-16 (Option 1). Each row is alone on its date so
+        # every guard clause is observed in isolation.
+        def row(day, status, reconciliation, sources=("snapshot_high",)):
+            item = {
+                "target_date": day,
+                "market_id": "atlanta",
+                "status": status,
+                "reconciliation_status": reconciliation,
+                "promotion_blocker": True,
+                "proof_grade_label": False,
+            }
+            if sources is not None:
+                item["disagreement_sources"] = list(sources)
+            return item
+
+        cases = {
+            "2026-06-01": (row("2026-06-01", "SOURCE_DISAGREEMENT", "not_closed"), "PASS"),
+            "2026-06-02": (row("2026-06-02", "SOURCE_DISAGREEMENT", "fetch_error"), "PASS"),
+            "2026-06-03": (row("2026-06-03", "SOURCE_DISAGREEMENT", "not_requested"), "PASS"),
+            "2026-06-04": (row("2026-06-04", "SOURCE_DISAGREEMENT", "mismatch"), "BLOCK"),
+            "2026-06-05": (row("2026-06-05", "SOURCE_DISAGREEMENT", "unavailable"), "BLOCK"),
+            "2026-06-06": (row("2026-06-06", "SOURCE_DISAGREEMENT", ""), "BLOCK"),
+            "2026-06-07": (row("2026-06-07", "SOURCE_DISAGREEMENT", "not_closed",
+                               ("snapshot_high", "market_resolution")), "BLOCK"),
+            "2026-06-08": (row("2026-06-08", "SOURCE_DISAGREEMENT", "not_closed", None), "BLOCK"),
+            "2026-06-09": (row("2026-06-09", "SOURCE_REVISION", "not_closed"), "BLOCK"),
+            "2026-06-10": (row("2026-06-10", "PROVISIONAL", "not_closed", ()), "BLOCK"),
+            "2026-06-11": (row("2026-06-11", "UNRECONCILED", "fetch_error", ()), "BLOCK"),
+        }
+        payload = {"rows": [value[0] for value in cases.values()]}
+        for day, (_row, expected) in cases.items():
+            with self.subTest(day=day):
+                strict = settlement_label_gate_for_target_dates(payload, [day])
+                self.assertEqual(strict["status"], "BLOCK")
+                self.assertNotIn("deferred_non_countable", strict)
+                barrier = settlement_label_gate_for_target_dates(
+                    payload, [day], defer_undecided_disagreement=True
+                )
+                self.assertEqual(barrier["status"], expected)
+                if expected == "PASS":
+                    self.assertEqual(barrier["blockers"], [])
+                    self.assertEqual(barrier["non_countable_reconciled"], [])
+                    self.assertEqual(len(barrier["deferred_non_countable"]), 1)
+                    self.assertTrue(barrier["deferred_non_countable"][0].startswith(
+                        f"{day}:atlanta:SOURCE_DISAGREEMENT:"
+                    ))
+                else:
+                    self.assertEqual(barrier["deferred_non_countable"], [])
+        # A deferred row never hides a real blocker on the same date.
+        mixed = {"rows": [
+            row("2026-06-12", "SOURCE_DISAGREEMENT", "not_closed"),
+            {**row("2026-06-12", "SOURCE_DISAGREEMENT", "mismatch"), "market_id": "nyc"},
+        ]}
+        gate = settlement_label_gate_for_target_dates(
+            mixed, ["2026-06-12"], defer_undecided_disagreement=True
+        )
+        self.assertEqual(gate["status"], "BLOCK")
+        self.assertEqual(gate["blockers"], ["2026-06-12:nyc:SOURCE_DISAGREEMENT"])
+        self.assertEqual(gate["deferred_non_countable"],
+                         ["2026-06-12:atlanta:SOURCE_DISAGREEMENT:not_closed"])
+
+    def test_option1_deferred_audit_row_stays_non_countable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ledger_path = root / "settlements" / "atlanta" / "ledger.jsonl"
+            common = {
+                "market_id": "atlanta",
+                "ledger_path": str(ledger_path),
+                "resolution_timezone": "America/New_York",
+                "quality_grade": "complete",
+                "settlement_bucket": "82",
+                "settlement_source": "daily_summary",
+                "snapshot_high_bucket": "83",
+                "promotion_countable": "False",
+            }
+            rows = [
+                {**common, "event_slug": "highest-temperature-in-atlanta-on-june-21-2026",
+                 "target_date": "2026-06-21", "reconciliation_status": "not_closed"},
+                {**common, "event_slug": "highest-temperature-in-atlanta-on-june-22-2026",
+                 "target_date": "2026-06-22", "reconciliation_status": "mismatch"},
+            ]
+            ledger_path.parent.mkdir(parents=True)
+            ledger_path.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+            labels_csv = root / "labels.csv"
+            _write_csv(labels_csv, rows)
+            payload = build_settlement_source_audit(labels_csv=labels_csv, ledger_root=root / "settlements")
+
+        by_date = {row["target_date"]: row for row in payload["rows"]}
+        for day in ("2026-06-21", "2026-06-22"):
+            self.assertEqual(by_date[day]["status"], "SOURCE_DISAGREEMENT")
+            self.assertTrue(by_date[day]["promotion_blocker"])
+            self.assertFalse(by_date[day]["proof_grade_label"])
+        self.assertEqual(payload["summary"]["proof_grade_label_count"], 0)
+        deferred = settlement_label_gate_for_target_dates(
+            payload, ["2026-06-21"], defer_undecided_disagreement=True
+        )
+        self.assertEqual(deferred["status"], "PASS")
+        self.assertEqual(deferred["deferred_non_countable"],
+                         ["2026-06-21:atlanta:SOURCE_DISAGREEMENT:not_closed"])
+        # Promotion/evaluation consumers use the strict gate and still block.
+        self.assertEqual(
+            settlement_label_gate_for_target_dates(payload, ["2026-06-21"])["status"], "BLOCK"
+        )
+        confirmed = settlement_label_gate_for_target_dates(
+            payload, ["2026-06-22"], defer_undecided_disagreement=True
+        )
+        self.assertEqual(confirmed["status"], "BLOCK")
+        self.assertEqual(confirmed["blockers"], ["2026-06-22:atlanta:SOURCE_DISAGREEMENT"])
+
 
 if __name__ == "__main__":
     unittest.main()
