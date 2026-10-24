@@ -1,0 +1,84 @@
+{
+  "mission": "2026-09-83b",
+  "part": "B",
+  "verdict": "PARTIAL_STORAGE_REGISTRATION_OUTSIDE_OWNERSHIP",
+  "branch": "codex/nbp-bulletin-reuse-20260921",
+  "base": "e28530af67c7371fc7b2c08bbd0e26cfe72a28f9",
+  "code_commit": "57b691428bde6580fdabff578742946ad3682272",
+  "wrapper": "scripts/ops/workstation_heavy.ps1",
+  "arguments": [
+    "-m",
+    "pytest",
+    "-q",
+    "-s",
+    "tests/collection/test_nbp_cycle_reuse.py",
+    "tests/collection/test_forecast_payload_cross_process_fanout.py",
+    "tests/sources/test_forecast_payload_fanout.py",
+    "tests/sources/test_nbm_probabilistic_tmax.py",
+    "tests/model/test_forecast_feature.py",
+    "tests/model/test_feature_store.py",
+    "tests/reporting/test_train_serve_feature_parity.py",
+    "tests/reporting/test_captured_input_parity_evidence.py",
+    "tests/collection/test_captured_input_hash.py",
+    "tests/collection/test_shared_forecast_payload_cas.py",
+    "tests/collection/test_forecast_payload_persistence.py",
+    "tests/operations/test_forecast_payload_cas_migration.py",
+    "tests/operations/test_density_live_replay_parity.py",
+    "--basetemp",
+    "C:/tmp/83bb1",
+    "--junitxml",
+    "scratch/83b-final.xml"
+  ],
+  "pytest": {
+    "passed": 200,
+    "skipped": 1,
+    "failed": 0,
+    "seconds": 10.43,
+    "xml_local": "scratch/83b-final.xml",
+    "skip_reason": "Existing symlink rejection test: Windows principal lacks symlink creation privilege (WinError 1314). Test unchanged."
+  },
+  "downloads": [
+    {
+      "reuse": false,
+      "passes": 3,
+      "markets": 11,
+      "downloads": 33,
+      "bulletin_bytes": 39269
+    },
+    {
+      "reuse": true,
+      "passes": 3,
+      "markets": 11,
+      "downloads": 1,
+      "bulletin_bytes": 39269
+    }
+  ],
+  "memory": [
+    {
+      "reuse": false,
+      "body_bytes": 1048570,
+      "held_text_bytes": 1048619,
+      "traced_current_bytes": 1058266,
+      "traced_peak_bytes": 4216092
+    },
+    {
+      "reuse": true,
+      "body_bytes": 1048570,
+      "held_text_bytes": 1048619,
+      "traced_current_bytes": 1057477,
+      "traced_peak_bytes": 3173933
+    }
+  ],
+  "memory_scope": "One-MiB synthetic national-text coordinator probe; not full snapshot or production RSS.",
+  "unchanged_replay_migration_parity_tests": true,
+  "no_model_fit_prediction_or_scoring": true,
+  "no_floor_or_gate_relaxation": true,
+  "roll_verdict": "UNDECIDABLE_NO_LIVE_CLOSURE_EVIDENCE",
+  "admission": "Waited for an unrelated full-suite lease, then admitted; no interruption or bypass.",
+  "checks": {
+    "roadmap_backlog": "PASS",
+    "compileall": "PASS",
+    "full_suite": "Hosted CI passed; see hosted-ci.json",
+    "agent_docs_audit": "PASS"
+  }
+}
