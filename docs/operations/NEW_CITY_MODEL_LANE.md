@@ -75,6 +75,17 @@ station-catalogue position.
   every other type-4 report stays special. Without it a European label would be the
   hourly maximum only (the METAR-vs-WU study found the half-hourly reports raise the
   maximum on 6-11 of 60 days per pilot city).
+- **Known assumption (master, provisional, 2026-10-24).** The schedule minute is
+  per-station config (`iem_special_schedule_minute` on each candidate row), never a
+  constant. It stands in for the venue's prefix test because IEM raw text has no
+  METAR/SPECI label. Checked from metadata only (public read-only Gamma GET of the
+  2026-10-25 London, Paris and NYC events, `resolutionSource` and `description` fields
+  only): London and Paris name `aviationweather.gov/api/data/metar?ids=EGLC|LFPB`, and
+  their description is the US template word for word except the unit paragraph. It
+  says a SPECI-prefixed report "does not count" and that every other report is
+  routine, "including one issued off the nominal hour". A true SPECI that IEM files at
+  exactly the schedule minute would be mislabelled routine; revisit if AWC raw text for
+  these stations ever shows a SPECI at :20 or :30.
 - **Features vs labels.** Labels use the routine selection; observed-so-far cutoff
   features use every report (routine and special), as a live station feed does.
 - **Print cutoff (`print_cutoffs.metar_observation_time`).** The METAR equivalent of the
