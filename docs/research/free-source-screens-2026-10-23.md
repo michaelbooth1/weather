@@ -14,6 +14,22 @@ pre-registration on new dates (EF §5), nothing more.
 - **Owner direction (2026-10-23, via master):** test all free sources now, dev scorecard only, F1 first;
   MADIS sign-up only after F1 shows a gain, and the owner creates that account.
 
+## Summary (2026-10-24)
+
+| Screen | Block | Increment over control [95% crossed] | vs served [95%] | Verdict |
+| --- | --- | --- | --- | --- |
+| F1 1-minute ASOS (degraded, primary) | 13-16 | +0.0044 [+0.0017, +0.0076] vs t3-r3 | −0.0066 [−0.0138, −0.0000] | **KILL (harm)**; MADIS sign-up not triggered |
+| F1u 1-minute ASOS (raw, sensitivity) | 13-16 | +0.0029 [+0.0004, +0.0057] | −0.0081 [−0.0156, −0.0015] | harm (reported only) |
+| F2 MRMS echo flag | 13-16 | −0.0005 [−0.0010, −0.0001] vs t3-r3 | −0.0115 [−0.0192, −0.0046] | **KEEP (dev lead; below the 5% bar; needs a capture change)** |
+| F3 12Z sounding cap | 13-16 | −0.0001 [−0.0003, +0.0000] vs t3-r3 | −0.0111 [−0.0188, −0.0043] | **KILL (null)** |
+| F4 gfs_seamless / NAM / AIGFS | 00-12 | +0.0008 / +0.0007 / +0.0003, all spanning 0, vs MG-1 | −0.0145 / −0.0146 / −0.0150 | **KILL (null)** |
+| F4 GEFS mean | 00-12 | +0.0054 [+0.0016, +0.0100] vs MG-1 | −0.0099 [−0.0185, −0.0011] | **KILL (harm)** |
+| F4 AIFS, GraphCast | 00-12 | — | — | not scored: never captured |
+| F5 ECMWF ENS, DWD MOSMIX | 00-12 | — | — | not scored: CCSDS decoder absent (ENS archive does exist on AWS); MOSMIX keeps ~2 days |
+
+Served baseline for context (lane C, scorecard hash `3557f797…`): pooled 13-16 R = 1.862 [1.557, 2.345],
+served − market = +0.0244 [+0.0181, +0.0316].
+
 ## Common protocol (every source)
 
 - **Scorer:** `python -m weather.reporting.scorecards.dev_scorecard score --layout C:\swarm\v3layout
@@ -84,6 +100,12 @@ noisier quantity that often sits above the eventual METAR maximum, so replacing 
 off the settling value; the 17-23 harm points the same way. Per the owner's rule, **MADIS sign-up is
 not triggered**, and the proposal's kill criterion for every paid observation feed (P1, Synoptic) is met.
 
+**Sensitivity F1u** (every 1-minute row, whole F, valid + 2 min; score `f9633f12518f…`): 13-16 F1u − control
++0.0029 [+0.0004, +0.0057] (MDE80 0.0038), 17-23 +0.0077 [+0.0042, +0.0118], all +0.0029 [+0.0015, +0.0044];
+0 of 10 markets negative at 13-16. Even the undegraded, near-real-time archive harms, so the kill is not an
+artefact of the whole-°C / 5-minute / 10-minute degradation: fresher station temperature does not help this
+rule.
+
 ## F3: 12Z soundings (IEM RAOB, nearest upper-air site), block 13-16
 
 ### Pre-declaration (committed before scoring)
@@ -138,6 +160,28 @@ sounding cap barely changes the pmf where it applies; a richer conditioning woul
 - **Targeted block 00-12** (the scorecard gains a `00-12` aggregate row for this; MG-1's block).
   Six rules; the keep bar applies to each, and with six looks a lone marginal KEEP is read as a lead only.
 - **Latency/parity:** captured at `captured_at_utc` by production, so point in time by construction.
+
+### F4 result (scored 2026-10-24; `data/research/free_sources/scores/f4_<member>/`)
+
+Members extracted from 732 captured market-day files (122,711 snapshots; `members.parquet` sha256
+`bdd432ea…`). MG-1 and every F4 candidate cover the same 83,306 scored snapshots. Pooled `ALL`, 00-12
+(MG-1 − served = −0.0153 [−0.0234, −0.0083], reproducing the MG-1 lead of EF §10j on this population):
+
+| Member | Fill | F4 − served (00-12) | F4 − MG-1 (00-12) | MDE80 | markets < 0 | F4 − MG-1 (13-16) | Verdict |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `gfs_seamless` | 0.91 | −0.0145 [−0.0227, −0.0064] | +0.0008 [−0.0032, +0.0055] | 0.0063 | 6/11 | −0.0014 [−0.0065, +0.0043] | KILL (null) |
+| `ncep_nam_conus` | 0.91 | −0.0146 [−0.0214, −0.0082] | +0.0007 [−0.0037, +0.0052] | 0.0063 | 4/11 | −0.0045 [−0.0095, +0.0004] | KILL (null) |
+| `ncep_aigfs025` | 0.999 | −0.0150 [−0.0234, −0.0064] | +0.0003 [−0.0046, +0.0056] | 0.0075 | 4/11 | −0.0007 [−0.0082, +0.0078] | KILL (null) |
+| `gefs_mean` | 0.999 | −0.0099 [−0.0185, −0.0011] | **+0.0054 [+0.0016, +0.0100]** | 0.0060 | 1/11 | +0.0068 [−0.0003, +0.0143] | KILL (harm) |
+| `ecmwf_aifs025` | **0.000** | — | identical to MG-1 | — | — | — | NOT SCORED: never captured (always null) |
+| `gfs_graphcast025` | **0.000** | — | identical to MG-1 | — | — | — | NOT SCORED: never captured (always null) |
+
+**Verdict: KILL for all four scoreable members.** No member's increment over MG-1 excludes zero on the
+improving side at 00-12; the GEFS mean harms. The MDE80 (about 0.006) is five times the 5% bar, so the
+nulls are "no increment demonstrated", consistent with the IFS result (EF §10q). The NAM 13-16 point
+(−0.0045, interval to +0.0004) is outside the decided block and is not a lead. AIFS and GraphCast are
+always null in the captured `open_meteo_global_models` payload for every scored snapshot, so they cannot
+be screened from capture; per the brief no download was made.
 
 ## F2: MRMS composite reflectivity (NOAA archive), block 13-16
 
