@@ -81,6 +81,8 @@ def run(layout_root, cand_path, ctl_path, top_list_path):
         subsets[f"h{h:02d}"] = (hour == h, np.ones(len(keys), bool))
     subsets["07-12 top-decile (L5 list)"] = (inW, np.array([k in top for k in keys]))
     subsets["07-12 hot days (top v2 tercile per market)"] = (inW, hot)
+    coastal = {"san-francisco", "los-angeles", "seattle", "nyc", "miami"}
+    subsets["07-12 coastal five (AFD screen)"] = (inW, np.isin(markets, list(coastal)))
     for m in sorted(set(markets)):
         subsets[f"07-12 {m}"] = (inW, markets == m)
     rows = []
