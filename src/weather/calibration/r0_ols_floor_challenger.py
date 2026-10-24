@@ -91,6 +91,7 @@ SERVED_FLOOR_MULTIPLIER = 1e-6  # model_distribution.distribution_hard_floor_sta
 CHALLENGERS = ("ols_floor", "ols_floor_resid_hgb")
 PRIMARY_MARKETS = ("atlanta", "austin", "chicago", "dallas", "denver")
 SECONDARY_MARKETS = ("houston", "los-angeles", "miami", "nyc", "san-francisco", "seattle")
+ALL_MARKETS = PRIMARY_MARKETS + SECONDARY_MARKETS
 HEADLINE_HOURS = (7, 8, 9, 10, 11, 12)
 SD_FLOOR = 0.3
 BOOTSTRAP_DRAWS = 2000
@@ -1102,6 +1103,7 @@ def _compare_command(args):
         r0_joined[market] = joined
         parity[market] = dict(record, n_rows=len(joined), r0_rows_sha256=_sha256(path), r0_rows_path=path)
     repro_ok = {m: rows for m, rows in rows_by_market.items() if parity.get(m, {}).get("r0_repro_ok")}
+    repro_or_all = repro_ok if parity else rows_by_market  # without lane D rows R0-repro is unchecked
     plan = (
         ("VERDICT (rule clarification 2)", r0_joined, LANE_D_FLOORED, PRIMARY_MARKETS, True),
         ("CONTROL floor + forecast", rows_by_market, "bias_corrected_forecast_floor", PRIMARY_MARKETS, True),
@@ -1111,6 +1113,11 @@ def _compare_command(args):
         ("DESCRIPTIVE other six vs floor + forecast", rows_by_market, "bias_corrected_forecast_floor",
          SECONDARY_MARKETS, False),
         ("DESCRIPTIVE other six vs own R0-repro + floor", rows_by_market, "r0_floor", SECONDARY_MARKETS, False),
+        # Clarification 3 (Aug-Sep: no R0 comparator); descriptive for Oct-Dec.
+        ("ALL 11 vs baseline + floor (e)", rows_by_market, "r0_baseline_floor", ALL_MARKETS, True),
+        ("ALL 11 vs forecast + floor (f)", rows_by_market, "bias_corrected_forecast_floor", ALL_MARKETS, True),
+        ("PRIMARY five vs baseline + floor (e)", rows_by_market, "r0_baseline_floor", PRIMARY_MARKETS, True),
+        ("ALL 11 vs own R0-repro + floor", repro_or_all, "r0_floor", ALL_MARKETS, False),
     )
     comparisons = [c for c in (
         compare(rows, reference=ref, markets=markets, required_markets=markets, label=label, decisive=decisive)
