@@ -55,6 +55,9 @@ function Get-WeatherWorkstationMemoryReading {
     $commit = if ($env:WEATHER_TEST_COMMIT_PERCENT) { [double]$env:WEATHER_TEST_COMMIT_PERCENT } else { 40.0 }
     [PSCustomObject]@{ TotalPhysicalBytes = 32GB; AvailablePhysicalBytes = $available; CommitPercent = $commit }
 }
+function Get-WeatherWorkstationLogicalProcessorCount {
+    if ($env:WEATHER_TEST_LOGICAL_CPUS) { [int]$env:WEATHER_TEST_LOGICAL_CPUS } else { 12 }
+}
 if ($env:WEATHER_TEST_CAPTURE_WINDOW_OPEN -eq '1') {
     function Get-WeatherHeavyWorkloadPolicyWindow { param($Now, [switch]$AllowStageAWindow, $OwnerApprovedException) 'agent_heavy' }
 }
@@ -177,6 +180,10 @@ PORTABLE_ENTER = (
     "-ExecutionHostProfile 'portable_execution_v1' -ExpectedExecutionHostId (Get-WeatherExecutionHostId)"
 )
 CAPTURE_ENTER = "Enter-WeatherHeavyWorkloadLease -RepoRoot '{repo}' -Workload '{name}'"
+EXCLUSIVE_ENTER = (
+    "Enter-WeatherWorkstationHeavyExclusiveLease -RepoRoot '{repo}' -Workload 'WorkstationOffline-pytest-pregate-{name}' "
+    "-PollMilliseconds 100 -ReportSeconds 1"
+)
 
 
 class Holder:
@@ -578,6 +585,7 @@ def test_capture_host_path_stays_one_serial_lease(capture_host: Path, holders: l
 
     for body in (
         SLOT_ENTER.format(repo=repo, name="cap") + "\n",
+        EXCLUSIVE_ENTER.format(repo=repo, name="cap") + "\n",
         f"Enter-WeatherHeavyWorkloadLeaseQueued -RepoRoot '{repo}' -Workload 'WorkstationOffline-pytest-1'\n",
     ):
         refused = _admission(repo, body, **window)
@@ -723,3 +731,162 @@ def test_pre_slot_wrapper_bytes_interoperate_with_slot_wrappers(tmp_path: Path, 
     refused, sentinel = _run_wrapper(old_repo, "old-refused")
     assert refused.returncode == 1
     assert "blocked by another heavy or portable live lease" in refused.stderr and not sentinel.exists()
+
+
+class ExclusiveHolder:
+    """A pre-gate stand-in that waits for, then holds, the exclusive workstation lease."""
+
+    def __init__(self, repo: Path, name: str, inherited_slot: int = 0) -> None:
+        self.release = repo / f"release-{name}.flag"
+        inherited = f" -InheritedSlotId {inherited_slot}" if inherited_slot else ""
+        exit_ps = (
+            "Exit-WeatherWorkstationHeavyExclusiveHold -Hold $lease"
+            if inherited_slot
+            else "Set-WeatherHeavyWorkloadLeaseTeardownPending -Lease $lease | Out-Null\nExit-WeatherHeavyWorkloadLease -Lease $lease"
+        )
+        script = f"""
+$ErrorActionPreference = 'Stop'
+. '{repo / "scripts/ops/workload_admission.ps1"}'
+Write-Output 'WAITING'
+[Console]::Out.Flush()
+$lease = {EXCLUSIVE_ENTER.format(repo=repo, name=name)}{inherited}
+if ($null -eq $lease) {{ Write-Output 'TIMEOUT'; exit 3 }}
+Write-Output 'ACQUIRED'
+[Console]::Out.Flush()
+$deadline = [DateTime]::UtcNow.AddSeconds(150)
+while (-not (Test-Path -LiteralPath '{self.release}') -and [DateTime]::UtcNow -lt $deadline) {{
+    Start-Sleep -Milliseconds 50
+}}
+{exit_ps}
+"""
+        self.process = subprocess.Popen(
+            [*POWERSHELL, "-Command", script], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=_env()
+        )
+        assert self.process.stdout is not None
+        assert self.process.stdout.readline().strip() == "WAITING"
+
+    def acquired(self) -> None:
+        assert self.process.stdout is not None
+        line = ""
+        while line != "ACQUIRED":
+            line = self.process.stdout.readline()
+            assert line, self.process.stderr.read() if self.process.stderr else ""
+            # Queue event lines go to the same stdout.
+            line = line.strip()
+            assert line == "ACQUIRED" or line.startswith("heavy-workload queue: "), line
+
+    def stop(self) -> None:
+        self.release.write_text("go", encoding="utf-8")
+        try:
+            assert self.process.wait(timeout=60) == 0, self.process.stderr.read() if self.process.stderr else ""
+        finally:
+            if self.process.poll() is None:
+                self.process.kill()
+
+
+def _probe_lease(repo: Path, enter: str, name: str) -> str:
+    result = _admission(repo, f"$lease = {enter.format(repo=repo, name=name)}\nif ($null -eq $lease) {{ 'BUSY' }} else {{ 'ACQUIRED' }}\n")
+    assert result.returncode == 0, result.stderr
+    return result.stdout.strip()
+
+
+def test_the_pregate_is_exclusive_drains_every_slot_and_blocks_new_jobs(workstation: Path, holders: list[Holder]) -> None:
+    repo = workstation
+    holders.append(Holder(repo, SLOT_ENTER, "two"))
+    holders.append(Holder(repo, SLOT_ENTER, "three"))
+    pregate = ExclusiveHolder(repo, "drain")
+    try:
+        # Waiting: it keeps every slot that frees, so nobody, old or new, slips in.
+        _wait_for(lambda: any(e["event"] == "wait" and e.get("exclusive") for e in _events(repo)))
+        wait = next(e for e in _events(repo) if e["event"] == "wait" and e.get("exclusive"))
+        assert (wait["slot_refusal"], wait["busy_slots"]) == ("draining_slots", [2, 3])
+        refused, sentinel = _run_wrapper(repo, "during-drain")
+        assert refused.returncode == 1 and "(exclusive_pending)" in refused.stderr and not sentinel.exists()
+        queued, sentinel = _run_wrapper(
+            repo, "behind-drain", "-Queue", "-QueueTimeoutSeconds", "2", "-QueuePollMilliseconds", "100"
+        )
+        assert queued.returncode == QUEUE_TIMEOUT_EXIT_CODE and not sentinel.exists()
+        assert [e for e in _events(repo) if e["event"] == "give_up"][-1]["slot_refusal"] == "earlier_slot_aware_waiter"
+        assert _probe_lease(repo, LEGACY_ENTER, "old") == "BUSY"
+        assert _probe_lease(repo, PORTABLE_ENTER, "live") == "BUSY"
+
+        holders[0].stop()
+        time.sleep(0.5)
+        assert pregate.process.poll() is None
+        holders[1].stop()
+        pregate.acquired()  # only once every slot is free
+
+        start = next(e for e in _events(repo) if e["event"] == "start" and e.get("exclusive"))
+        assert start["slot_id"] == "all"
+        owner = json.loads((repo / "data/logs/heavy_workload.lock").read_text(encoding="utf-8"))
+        assert owner["workload"] == "WorkstationOffline-pytest-pregate-drain"
+        state = json.loads(_admission(repo, LEASE_STATE_JSON.format(repo=repo)).stdout)
+        assert state["Active"] is True and state["Owner"]["workload"] == "WorkstationOffline-pytest-pregate-drain"
+        held, sentinel = _run_wrapper(repo, "during-pregate")
+        assert held.returncode == 1 and "(exclusive_pending)" in held.stderr and not sentinel.exists()
+        assert _probe_lease(repo, LEGACY_ENTER, "old2") == "BUSY"
+    finally:
+        pregate.stop()
+    after, sentinel = _run_wrapper(repo, "after-pregate")
+    assert after.returncode == 0, after.stderr
+    assert sentinel.exists()
+
+
+def test_a_nested_pregate_takes_every_other_slot(workstation: Path, holders: list[Holder]) -> None:
+    repo = workstation
+    holders.append(Holder(repo, SLOT_ENTER, "outer"))
+    assert holders[0].slot == 2
+    nested = ExclusiveHolder(repo, "nested", inherited_slot=2)
+    try:
+        nested.acquired()
+        refused, sentinel = _run_wrapper(repo, "beside-nested")
+        assert refused.returncode == 1 and "(exclusive_pending)" in refused.stderr and not sentinel.exists()
+        assert _probe_lease(repo, LEGACY_ENTER, "old") == "BUSY"
+    finally:
+        nested.stop()
+    beside, sentinel = _run_wrapper(repo, "after-nested")
+    assert beside.returncode == 0, beside.stderr
+
+
+def _env_child(repo: Path, name: str, record: Path) -> Path:
+    path = repo / f"test_env_{name}.py"
+    path.write_text(
+        "import json, os\nfrom pathlib import Path\n\n"
+        "def test_env():\n"
+        f"    Path({str(record)!r}).write_text(json.dumps({{k: os.environ.get(k) for k in "
+        "('OMP_NUM_THREADS', 'MKL_NUM_THREADS', 'OPENBLAS_NUM_THREADS')}), encoding='utf-8')\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+@pytest.mark.parametrize(
+    ("cpus", "extra", "caller", "expected"),
+    (
+        ("16", (), {}, {"OMP_NUM_THREADS": "5", "MKL_NUM_THREADS": "5", "OPENBLAS_NUM_THREADS": "5"}),
+        ("16", ("-SlotCount", "2"), {}, {"OMP_NUM_THREADS": "8", "MKL_NUM_THREADS": "8", "OPENBLAS_NUM_THREADS": "8"}),
+        ("2", (), {}, {"OMP_NUM_THREADS": "1", "MKL_NUM_THREADS": "1", "OPENBLAS_NUM_THREADS": "1"}),
+        (
+            "16",
+            (),
+            {"OMP_NUM_THREADS": "2", "MKL_NUM_THREADS": "64", "OPENBLAS_NUM_THREADS": "abc"},
+            {"OMP_NUM_THREADS": "2", "MKL_NUM_THREADS": "5", "OPENBLAS_NUM_THREADS": "5"},
+        ),
+    ),
+)
+def test_wrapper_jobs_get_a_per_slot_thread_cap_callers_may_only_lower(
+    workstation: Path, cpus: str, extra: tuple[str, ...], caller: dict[str, str], expected: dict[str, str]
+) -> None:
+    repo = workstation
+    record = repo / "env.json"
+    env = _env(WEATHER_TEST_LOGICAL_CPUS=cpus, **caller)
+    result = subprocess.run(
+        _wrapper_argv(repo, _env_child(repo, "cap", record), "-Queue", "-QueuePollMilliseconds", "100", *extra),
+        capture_output=True, text=True, check=False, timeout=240, env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(record.read_text(encoding="utf-8")) == expected
+    finish = next(e for e in _events(repo) if e["event"] == "finish")
+    cap = int(cpus) // (int(extra[1]) if extra else 3) or 1
+    assert finish["thread_cap"] == {"cap": cap, "logical_processors": int(cpus), "values": {k: int(v) for k, v in expected.items()}}
+    assert f"workstation-heavy: thread cap {cap} of {cpus} logical processors" in result.stdout
