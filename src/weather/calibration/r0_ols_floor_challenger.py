@@ -664,7 +664,7 @@ def dev_emit(*, layout, replay_root, train_manifests, dev_manifest, out_dir, mar
                                                required_cutoff_hours=INTRADAY_CUTOFF_HOURS)
             obs = {}
             for slug, target, folder in _event_folders(replay_root):
-                if not (DEV_FIRST <= target <= DEV_LAST) or not slug != market:
+                if not (DEV_FIRST <= target <= DEV_LAST) or slug != market:
                     continue
                 for hour, rec in scan_replay_observations(folder, market, target, tz, hours).items():
                     obs[(target.isoformat(), hour)] = rec
