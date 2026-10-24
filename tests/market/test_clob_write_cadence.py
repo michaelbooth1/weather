@@ -1,3 +1,8 @@
+"""CLOB batch cadence and append-only fixture checks.
+
+Guards: CLOB token identity and immutable tape prefixes stay stable between polls.
+"""
+
 from types import SimpleNamespace
 import csv
 from datetime import datetime, timedelta, timezone
@@ -6,7 +11,7 @@ import json
 import pytest
 
 from weather.market import clob_capture_cache as cache
-from weather.market.market_latest_inputs import _latest_time_group
+from weather.market.market_latest_inputs import latest_time_group
 
 
 def test_sparse_token_updates_drop_unchanged_tokens_in_existing_reader():
@@ -14,10 +19,10 @@ def test_sparse_token_updates_drop_unchanged_tokens_in_existing_reader():
     new = "2026-08-01T00:01:00+00:00"
     day_open = [{"clob_token_id": token, "captured_at_utc": old} for token in ("a", "b")]
     sparse = [*day_open, {"clob_token_id": "a", "captured_at_utc": new}]
-    selected = _latest_time_group(sparse, {"status": "ok", "reached_start": True})
+    selected = latest_time_group(sparse, {"status": "ok", "reached_start": True})
     assert {row["clob_token_id"] for row in selected} == {"a"}
     complete = [*day_open, *[dict(row, captured_at_utc=new) for row in day_open]]
-    selected = _latest_time_group(complete, {"status": "ok", "reached_start": True})
+    selected = latest_time_group(complete, {"status": "ok", "reached_start": True})
     assert {row["clob_token_id"] for row in selected} == {"a", "b"}
 
 
