@@ -50,6 +50,7 @@ from weather.calibration.r0_scope import (
     DECISION_PRESSURE,
     R0_MARKET_IDS,
     R0_OUT_OF_SCOPE_MARKETS,
+    SERVED_HGB_MIN_SAMPLES_LEAF,
     served_model_differences,
 )
 from weather.market.market_registry import spec_for_id
@@ -170,8 +171,12 @@ def _market_entry(market_root: Path, market_id: str, centre: date, repo_root: Pa
     if coefs["served_model_differences"] != hgb["served_model_differences"]:
         raise R0CandidateManifestError(f"{market_id}: coefs and HGB served_model_differences differ")
     differences = dict(coefs["served_model_differences"])
+    if coefs.get("hgb_hyperparameters") != hgb.get("hgb_hyperparameters"):
+        raise R0CandidateManifestError(f"{market_id}: coefs and HGB hgb_hyperparameters differ")
+    leaf = hgb_min_samples_leaf(coefs)
     expected = served_model_differences(
         coefs["training_column_allowlist"], coefs["training_inputs"], base_models_only=True,
+        hgb_min_samples_leaf=leaf,
     )
     if differences != expected:
         raise R0CandidateManifestError(
@@ -200,8 +205,19 @@ def _market_entry(market_root: Path, market_id: str, centre: date, repo_root: Pa
         "training_column_allowlist_sha256": allowlist.get("sha256") or canonical_sha256(allowlist),
         "training_inputs": inputs,
         "served_model_differences": differences,
+        "hgb_min_samples_leaf": leaf,
         "served_components": served,
     }
+
+
+def hgb_min_samples_leaf(info: Mapping[str, Any]) -> int:
+    """The leaf floor a base-only fit used; fits before the flag record none (served 20)."""
+    params = info.get("hgb_hyperparameters")
+    if params is None:
+        return SERVED_HGB_MIN_SAMPLES_LEAF
+    if not isinstance(params, Mapping) or not isinstance(params.get("min_samples_leaf"), int):
+        raise R0CandidateManifestError("hgb_hyperparameters has no integer min_samples_leaf")
+    return int(params["min_samples_leaf"])
 
 
 def r0_scope_exclusions(
@@ -274,6 +290,9 @@ def build_r0_candidate_manifest(
     years = {tuple(entry["training_inputs"].get("training_years") or ()) for entry in entries.values()}
     if len(corpus_identities) != 1 or len(years) != 1:
         raise R0CandidateManifestError("markets were trained on different corpora or training years")
+    leaves = {entry["hgb_min_samples_leaf"] for entry in entries.values()}
+    if len(leaves) != 1:
+        raise R0CandidateManifestError(f"markets were trained at different HGB leaf floors: {sorted(leaves)}")
     first = next(iter(entries.values()))["training_inputs"]
     corpus = first.get("pit_forecast_corpus") or {}
     manifest = {
@@ -291,6 +310,7 @@ def build_r0_candidate_manifest(
             for row in corpus.get("corpora") or []
         ],
         "pit_forecast_corpus_union_sha256": corpus.get("union_sha256"),
+        "hgb_min_samples_leaf": next(iter(leaves)),
         "trained_components": list(TRAINED_COMPONENTS),
         "served_components": list(SERVED_COMPONENTS),
         "scope": {

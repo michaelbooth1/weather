@@ -525,6 +525,11 @@ path is unchanged without it:
 - `--training-years 2021,2022` or `2021-2025` trains on exactly those prior
   years. With corpora every year must be covered by one; a year with no
   labelled day in the window fails closed.
+- `--min-samples-leaf <1..1000>` sets the cutoff-hour HGB leaf floor for this
+  run (owner-approved R0 leaf sweep, 2026-10-24). The default stays the served
+  20. Both artifacts record `hgb_hyperparameters`, a non-default value appears
+  in `served_model_differences.hyperparameters`, and the R0 candidate manifest
+  binds it (`hgb_min_samples_leaf`, one value per candidate).
 
 Both artifacts then carry a `training_inputs` record (centre date, years, days
 per year, forecast source, corpus ids and manifest hashes). An R0 fit is

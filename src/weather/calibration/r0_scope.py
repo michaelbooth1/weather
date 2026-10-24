@@ -51,6 +51,11 @@ R0_OUT_OF_SCOPE_MARKETS: Mapping[str, str] = {
 DECISION_PRESSURE = "owner 2026-10-21 'Drop pressure (Recommended)' (DL 2026-10-21)"
 DECISION_CONSENSUS = "owner M7 2026-10-23 'as recommended': Miami drops the consensus columns, stays in"
 DECISION_BASE_ONLY = "owner 2026-10-21 'No, base models only (Recommended)' (DL 2026-10-21)"
+DECISION_LEAF_SWEEP = "owner 2026-10-24 R0 leaf sweep 'as recommended' (research arm; served stays 20)"
+
+# The served trainer's HGB leaf floor (scikit-learn default); the R0 leaf sweep
+# varies it per research arm only.
+SERVED_HGB_MIN_SAMPLES_LEAF = 20
 
 # Columns a single-provider PIT forecast corpus cannot express: the corpus
 # holds one model's lead-1 temperature, so a provider count and a spread
@@ -122,12 +127,23 @@ def served_model_differences(
     training_inputs: Mapping[str, Any] | None,
     *,
     base_models_only: bool,
+    hgb_min_samples_leaf: int = SERVED_HGB_MIN_SAMPLES_LEAF,
 ) -> dict[str, Any]:
     """The per-artifact record of every way an R0 fit differs from served.
 
     ``allowlist`` is the trained artifacts' ``training_column_allowlist``
-    record; ``training_inputs`` their ``training_inputs`` record.
+    record; ``training_inputs`` their ``training_inputs`` record. At the served
+    leaf floor the hyperparameters entry is the unchanged marker (so default
+    fits keep their record byte-identical); otherwise it names the value.
     """
+    leaf = int(hgb_min_samples_leaf)
+    hyperparameters: Any = "unchanged_from_served_trainer"
+    if leaf != SERVED_HGB_MIN_SAMPLES_LEAF:
+        hyperparameters = {
+            "hgb_min_samples_leaf": leaf,
+            "served_hgb_min_samples_leaf": SERVED_HGB_MIN_SAMPLES_LEAF,
+            "decision": DECISION_LEAF_SWEEP,
+        }
     served = allowlist.get("served_feature_names")
     if served is None:
         raise R0ScopeError("the allowlist has no served list to compare against")
@@ -151,7 +167,7 @@ def served_model_differences(
         "centre_date": inputs.get("centre_date"),
         "training_years": inputs.get("training_years"),
         "training_days_by_year": inputs.get("training_days_by_year"),
-        "hyperparameters": "unchanged_from_served_trainer",
+        "hyperparameters": hyperparameters,
     }
 
 

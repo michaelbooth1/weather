@@ -49,7 +49,10 @@ from weather.calibration.feature_probability_calibration import (
     fit_temperature_blend_grid,
     temperature_scale_distribution,
 )
-from weather.calibration.r0_scope import served_model_differences
+from weather.calibration.r0_scope import (
+    SERVED_HGB_MIN_SAMPLES_LEAF,
+    served_model_differences,
+)
 from weather.calibration.feature_training_policy import (
     TRAINING_FEATURE_POLICY_ID,
     training_feature_exclusions,
@@ -126,6 +129,23 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.preprocessing import StandardScaler
 from sklearn.impute import SimpleImputer
+
+# The served trainer's HGB leaf floor (the scikit-learn default it always used).
+# ``--min-samples-leaf`` (research-only, needs --output-root; owner-approved R0
+# leaf sweep 2026-10-24) overrides it for one run; the default path never does.
+HGB_MIN_SAMPLES_LEAF = SERVED_HGB_MIN_SAMPLES_LEAF
+
+
+def make_feature_hgb():
+    """The cutoff-hour HGB, identical at every fit site (validation and final)."""
+    return HistGradientBoostingClassifier(
+        max_iter=50,
+        max_leaf_nodes=15,
+        learning_rate=0.05,
+        min_samples_leaf=HGB_MIN_SAMPLES_LEAF,
+        random_state=42,
+    )
+
 
 def get_minute_of_day(time_str):
     try:
@@ -677,12 +697,7 @@ def inner_hgb_calibration_rows(
             feature_cols,
             numeric_feature_count,
         )
-        hgb = HistGradientBoostingClassifier(
-            max_iter=50,
-            max_leaf_nodes=15,
-            learning_rate=0.05,
-            random_state=42,
-        )
+        hgb = make_feature_hgb()
         hgb.fit(matrices["hgb_train"], y.iloc[train_indices])
         raw_probabilities = hgb.predict_proba(matrices["hgb_validation"])
         p_clim = smoothed_dist(
@@ -825,12 +840,7 @@ def evaluate_feature_family_segments(
                 alpha=0.10,
             )
 
-            hgb = HistGradientBoostingClassifier(
-                max_iter=50,
-                max_leaf_nodes=15,
-                learning_rate=0.05,
-                random_state=42,
-            )
+            hgb = make_feature_hgb()
             hgb.fit(x_train, y_train)
             hgb_classes = hgb.classes_
             full_probs = hgb.predict_proba(x_val)
@@ -1289,6 +1299,53 @@ def main(
     target_date=None,
     pit_forecast_corpus_manifests=None,
     training_years=None,
+    min_samples_leaf=None,
+):
+    """Train one market's feature model (see ``_train_main``).
+
+    ``min_samples_leaf`` (research-only, needs ``output_root``) sets the HGB
+    leaf floor for this run only; the module default is restored afterwards.
+    """
+    global HGB_MIN_SAMPLES_LEAF
+    previous = HGB_MIN_SAMPLES_LEAF
+    if min_samples_leaf is not None:
+        value = parse_min_samples_leaf(min_samples_leaf)
+        if output_root is None:
+            raise TrainingInputError(
+                "--min-samples-leaf is research-only and needs --output-root (base models only)"
+            )
+        HGB_MIN_SAMPLES_LEAF = value
+    try:
+        return _train_main(
+            market_id=market_id,
+            column_allowlist=column_allowlist,
+            output_root=output_root,
+            target_date=target_date,
+            pit_forecast_corpus_manifests=pit_forecast_corpus_manifests,
+            training_years=training_years,
+        )
+    finally:
+        HGB_MIN_SAMPLES_LEAF = previous
+
+
+def parse_min_samples_leaf(value):
+    """An integer HGB leaf floor in 1..1000; anything else fails closed."""
+    try:
+        parsed = int(str(value).strip())
+    except ValueError as exc:
+        raise TrainingInputError(f"--min-samples-leaf must be an integer: {value!r}") from exc
+    if str(parsed) != str(value).strip() or not 1 <= parsed <= 1000:
+        raise TrainingInputError(f"--min-samples-leaf must be an integer in 1..1000: {value!r}")
+    return parsed
+
+
+def _train_main(
+    market_id="toronto",
+    column_allowlist=None,
+    output_root=None,
+    target_date=None,
+    pit_forecast_corpus_manifests=None,
+    training_years=None,
 ):
     """Train one market's feature model.
 
@@ -1490,6 +1547,16 @@ def main(
     if redirected is not None:
         for info in (trained_models_info, hgb_models_info):
             info["base_models_only"] = True
+            info["hgb_hyperparameters"] = {
+                "max_iter": 50,
+                "max_leaf_nodes": 15,
+                "learning_rate": 0.05,
+                "min_samples_leaf": HGB_MIN_SAMPLES_LEAF,
+                "served_min_samples_leaf": SERVED_HGB_MIN_SAMPLES_LEAF,
+            }
+        if HGB_MIN_SAMPLES_LEAF != SERVED_HGB_MIN_SAMPLES_LEAF:
+            print(f"HGB min_samples_leaf {HGB_MIN_SAMPLES_LEAF} "
+                  f"(served {SERVED_HGB_MIN_SAMPLES_LEAF}; research leaf sweep).")
     if training_inputs is not None:
         for info in (trained_models_info, hgb_models_info):
             info["training_inputs"] = training_inputs
@@ -1502,6 +1569,7 @@ def main(
         # for the candidate manifest, release provenance and parity checks.
         differences = served_model_differences(
             allowlist_record(allowlist_plan), training_inputs, base_models_only=True,
+            hgb_min_samples_leaf=HGB_MIN_SAMPLES_LEAF,
         )
         for info in (trained_models_info, hgb_models_info):
             info["served_model_differences"] = differences
@@ -1676,7 +1744,7 @@ def main(
             cc_lr.append((lr_prob_blended[lr_top], 1.0 if lr_top == val_actual else 0.0))
             
             # --- 3. Train & Predict HistGradientBoostingClassifier ---
-            hgb = HistGradientBoostingClassifier(max_iter=50, max_leaf_nodes=15, learning_rate=0.05, random_state=42)
+            hgb = make_feature_hgb()
             fit_started = time.perf_counter()
             hgb.fit(X_hgb_train, y_train)
             model_fit_seconds += time.perf_counter() - fit_started
@@ -1874,7 +1942,7 @@ def main(
             X_final_hgb[:, forecast_idx] = X[
                 [feature_cols[index] for index in forecast_idx]
             ].to_numpy(dtype=float)
-        final_hgb = HistGradientBoostingClassifier(max_iter=50, max_leaf_nodes=15, learning_rate=0.05, random_state=42)
+        final_hgb = make_feature_hgb()
         fit_started = time.perf_counter()
         final_hgb.fit(X_final_hgb, y)
         model_fit_seconds += time.perf_counter() - fit_started
@@ -2162,6 +2230,11 @@ def parse_cli_args(argv=None):
         "--training-years", default=None,
         help="Train only on these prior years, e.g. 2021,2022,2023 or 2021-2025. "
              "With PIT corpora every year must be covered by one. Needs --output-root.")
+    parser.add_argument(
+        "--min-samples-leaf", default=None,
+        help="Research only (R0 leaf sweep): the cutoff-hour HGB leaf floor for "
+             "this run, an integer in 1..1000. Default: the served 20. Recorded in "
+             "both artifacts. Needs --output-root.")
     args = parser.parse_args(argv)
     for flag in (
         "column_allowlist",
@@ -2169,12 +2242,13 @@ def parse_cli_args(argv=None):
         "target_date",
         "pit_forecast_corpus_manifests",
         "training_years",
+        "min_samples_leaf",
     ):
         if getattr(args, flag) is not None and (args.item27_report_only or args.late_day_only):
             parser.error(f"--{flag.replace('_', '-')} applies to the base cutoff-hour model "
                          "only; it cannot be combined with --late-day-only or "
                          "--item27-report-only")
-    for flag in ("target_date", "pit_forecast_corpus_manifests", "training_years"):
+    for flag in ("target_date", "pit_forecast_corpus_manifests", "training_years", "min_samples_leaf"):
         if getattr(args, flag) is not None and args.output_root is None:
             parser.error(f"--{flag.replace('_', '-').replace('manifests', 'manifest')} is "
                          "research-only and needs --output-root (base models only)")
@@ -2183,6 +2257,8 @@ def parse_cli_args(argv=None):
             parse_target_date(args.target_date)
         if args.training_years is not None:
             parse_training_years(args.training_years)
+        if args.min_samples_leaf is not None:
+            parse_min_samples_leaf(args.min_samples_leaf)
     except TrainingInputError as exc:
         parser.error(str(exc))
     return args
@@ -2208,4 +2284,5 @@ if __name__ == "__main__":
         target_date=args.target_date,
         pit_forecast_corpus_manifests=args.pit_forecast_corpus_manifests,
         training_years=args.training_years,
+        min_samples_leaf=args.min_samples_leaf,
     )
