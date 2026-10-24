@@ -111,6 +111,7 @@ EXPECTED_SHARDS = {
             "tests/operations/test_cold_snapshot_nightly_schedule.py",
             "tests/operations/test_workload_admission_script.py",
             "tests/operations/test_feature_model_trainer_admission.py",
+            "tests/operations/test_r0_ols_floor_challenger_admission.py",
             "tests/operations/test_long_job_guard.py",
             "tests/operations/test_replay_cache_compression.py",
             "tests/operations/test_wait_pr_ci_script.py",

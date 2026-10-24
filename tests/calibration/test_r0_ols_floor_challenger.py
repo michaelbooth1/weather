@@ -1,0 +1,209 @@
+"""L3 challenger: mass-preserving floored bucket distributions, R0 parity joins and the pre-declared rule.
+
+Guards: probability mass and the hard floor (AGENT_CONTEXT "Settlement and units"; lane B's
+OLS + floor contract), identical-row comparison against R0 (lane rules "same rows as R0"),
+fail-closed import on the capture host (master pre-authorisation 2026-10-24).
+"""
+import math
+from pathlib import Path
+
+import pytest
+
+from weather.calibration import feature_model as fm
+from weather.calibration import r0_ols_floor_challenger as ch
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_discretised_normal_preserves_mass_and_folds_tails():
+    probs = ch.discretised_normal(50.0, 3.0, 40, 60)
+    assert set(probs) == set(range(40, 61))
+    assert math.isclose(sum(probs.values()), 1.0, abs_tol=1e-12)
+    # The far tails land on the end buckets instead of leaving the grid.
+    far = ch.discretised_normal(100.0, 2.0, 40, 60)
+    assert far[60] > 0.999 and math.isclose(sum(far.values()), 1.0, abs_tol=1e-12)
+    # Symmetric about the mean.
+    assert math.isclose(probs[48], probs[52], rel_tol=1e-9)
+
+
+def test_floor_removes_all_mass_below_and_keeps_the_floor_bucket():
+    probs = ch.discretised_normal(50.0, 3.0, 40, 60, floor=52)
+    assert all(probs[b] == 0.0 for b in range(40, 52))
+    assert probs[52] > 0.0
+    assert math.isclose(sum(probs.values()), 1.0, abs_tol=1e-12)
+    # Truncated and renormalised: above the floor the ratios are unchanged.
+    free = ch.discretised_normal(50.0, 3.0, 40, 60)
+    assert math.isclose(probs[55] / probs[54], free[55] / free[54], rel_tol=1e-9)
+    # The floor bucket holds [floor - 0.5, floor + 0.5) only, not the cut tail.
+    assert probs[52] / probs[53] == pytest.approx(free[52] / free[53], rel=1e-9)
+
+
+def test_floor_one_below_the_mean_and_far_above_it():
+    at = ch.discretised_normal(50.0, 1.0, 40, 60, floor=50)
+    assert at[49] == 0.0 and at[50] > at[51]
+    above = ch.discretised_normal(10.0, 0.3, 40, 60, floor=58)
+    assert above[58] == pytest.approx(1.0) and above[57] == 0.0
+
+
+def test_sd_floor_applies():
+    assert ch.discretised_normal(50.0, 0.0, 40, 60) == ch.discretised_normal(50.0, ch.SD_FLOOR, 40, 60)
+
+
+def test_bucket_grid_extends_to_a_floor_outside_the_support():
+    assert ch.bucket_grid([43, 45, 50]) == (43, 50)
+    assert ch.bucket_grid([43, 45, 50], floor=52) == (43, 52)
+    assert ch.bucket_grid([43, 45, 50], floor=40) == (40, 50)
+
+
+def test_scores_match_the_trainer_metrics():
+    probs = ch.discretised_normal(50.2, 2.5, 44, 56, floor=47)
+    for actual in (47, 50, 56):
+        assert ch.log_loss(probs, actual) == pytest.approx(fm.log_loss(probs, actual))
+        assert ch.brier(probs, actual) == pytest.approx(fm.brier_score(probs, actual))
+    assert ch.log_loss(probs, 45) == pytest.approx(-math.log(1e-15))
+
+
+def _records(n_years=5, per_year=15):
+    import numpy as np
+
+    rng = np.random.default_rng(1)
+    out = []
+    for year in range(2021, 2021 + n_years):
+        for day in range(per_year):
+            fc = 60 + rng.normal(0, 6)
+            hsf = fc - 8 + rng.normal(0, 1)
+            final = round(0.8 * fc + 0.2 * hsf + 3 + rng.normal(0, 1.5))
+            out.append({"target_date": f"{year}-11-{10 + day:02d}", "forecast_high": fc,
+                        "high_so_far": hsf, "current_temp": hsf - 1, "final_bucket": int(max(final, round(hsf)))})
+    return out
+
+
+def test_fit_fold_recovers_the_linear_structure_and_floors():
+    records = _records()
+    fit = ch.fit_fold(records)
+    assert fit["n_train"] == len(records) and fit["dropped_no_forecast"] == 0
+    assert 0.5 < fit["beta"][1] < 1.1
+    assert 0.8 < fit["ols_sd"] < 2.5
+    val = dict(records[0], high_so_far=records[0]["final_bucket"] + 0.2)
+    dists, detail = ch.challenger_distributions(fit, val, range(40, 90))
+    floor = detail["floor"]
+    for arm in ("ols_floor", "ols_floor_resid_hgb"):
+        assert math.isclose(sum(dists[arm].values()), 1.0, abs_tol=1e-12)
+        assert all(p == 0.0 for b, p in dists[arm].items() if b < floor)
+    assert any(p > 0 for b, p in dists["bias_corrected_forecast"].items() if b < floor)
+
+
+def test_missing_observations_fall_back_to_the_forecast_and_drop_the_floor():
+    rec = {"forecast_high": 61.0, "high_so_far": None, "current_temp": float("nan"), "final_bucket": 60}
+    assert ch.feature_vector(rec) == [61.0, 61.0, 61.0]
+    assert ch.floor_of(rec) is None
+    assert ch.floor_of({"high_so_far": 54.5}) == 55
+
+
+def _row(hour, d, base, r0=None, ols=0.0):
+    row = {"hour": hour, "validation_date": d, "r0_baseline_log_loss": base,
+           "ols_floor_log_loss": ols}
+    return row, {"hour": hour, "validation_date": d, "baseline_log_loss": base,
+                 "hgb_log_loss": r0 if r0 is not None else base, "hgb_brier": 1.0}
+
+
+def test_join_refuses_row_set_or_baseline_mismatch():
+    a1, b1 = _row(7, "2021-11-17", 4.0)
+    a2, b2 = _row(8, "2021-11-17", 3.0)
+    joined, worst = ch.join_r0([a1, a2], [b1, b2])
+    assert worst == 0.0 and joined[0]["r0_log_loss"] == 4.0
+    with pytest.raises(ch.ChallengerError, match="row sets differ"):
+        ch.join_r0([a1], [b1, b2])
+    bad = dict(b2, baseline_log_loss=3.0 + 1e-6)
+    with pytest.raises(ch.ChallengerError, match="baseline parity"):
+        ch.join_r0([a1, a2], [b1, bad])
+    ok = dict(b2, baseline_log_loss=3.0 + 1e-10)
+    assert ch.join_r0([a1, a2], [b1, ok])[1] < ch.PARITY_TOLERANCE
+
+
+def _market_rows(delta_by_date, hours=(7, 8)):
+    rows = []
+    for d, delta in delta_by_date.items():
+        for h in hours:
+            rows.append({"hour": h, "validation_date": d, "a_log_loss": 1.0 + delta, "ref_log_loss": 1.0})
+    return rows
+
+
+def test_bootstrap_pooled_is_the_equal_weight_market_mean_and_deterministic():
+    dates = [f"2021-11-{i:02d}" for i in range(1, 31)]
+    by_market = {
+        "m1": _market_rows({d: -0.5 + 0.01 * i for i, d in enumerate(dates)}),
+        "m2": _market_rows({d: -0.1 for d in dates[:10]}),
+    }
+    out = ch.bootstrap_delta(by_market, "a", "ref", "log_loss", (7, 8))
+    m1 = sum(-0.5 + 0.01 * i for i in range(30)) / 30
+    assert out["per_market"]["m1"]["delta"] == pytest.approx(m1)
+    assert out["per_market"]["m2"]["delta"] == pytest.approx(-0.1)
+    assert out["pooled"]["delta"] == pytest.approx((m1 - 0.1) / 2)
+    assert out == ch.bootstrap_delta(by_market, "a", "ref", "log_loss", (7, 8))
+    lo, hi = out["per_market"]["m1"]["ci95"]
+    assert lo < m1 < hi
+    # Hours outside the window do not count.
+    assert ch.bootstrap_delta(by_market, "a", "ref", "log_loss", (9,)) is None
+
+
+def test_verdict_needs_a_pooled_ci_below_zero_and_no_market_worse():
+    good = {"pooled": {"delta": -0.2, "ci95": [-0.3, -0.1]},
+            "per_market": {"a": {"ci95": [-0.4, -0.1]}, "b": {"ci95": [-0.1, 0.05]}}}
+    assert ch.verdict(good)
+    crosses = {"pooled": {"delta": -0.2, "ci95": [-0.3, 0.01]}, "per_market": good["per_market"]}
+    assert not ch.verdict(crosses)
+    worse = {"pooled": good["pooled"],
+             "per_market": {"a": {"ci95": [-0.4, -0.1]}, "b": {"ci95": [0.001, 0.2]}}}
+    assert not ch.verdict(worse)
+    edge = {"pooled": good["pooled"], "per_market": {"b": {"ci95": [0.0, 0.2]}}}
+    assert ch.verdict(edge)
+
+
+def test_compare_is_provisional_until_every_required_market_has_rows():
+    dates = [f"2021-11-{i:02d}" for i in range(1, 21)]
+    rows = []
+    for d in dates:
+        for h in (7, 12):
+            row = {"hour": h, "validation_date": d, "r0_log_loss": 4.0, "r0_brier": 1.0}
+            for arm in ("ols_floor", "ols_floor_resid_hgb", "bias_corrected_forecast", "r0_baseline"):
+                row[f"{arm}_log_loss"] = 2.0 if arm.startswith("ols") else 3.0
+                row[f"{arm}_brier"] = 0.9
+            rows.append(row)
+    partial = ch.compare({"atlanta": rows}, reference="r0", markets=ch.PRIMARY_MARKETS,
+                         required_markets=ch.PRIMARY_MARKETS)
+    assert partial["verdict"].startswith("PROVISIONAL")
+    assert partial["headline"]["ols_floor"]["beats_reference"] is None
+    full = ch.compare({m: rows for m in ch.PRIMARY_MARKETS}, reference="r0",
+                      markets=ch.PRIMARY_MARKETS, required_markets=ch.PRIMARY_MARKETS)
+    # Both challengers tie on every row; the rule then picks the simpler arm.
+    assert full["verdict"] == "ols_floor beats r0"
+    assert ch.compare({}, reference="r0", markets=ch.PRIMARY_MARKETS,
+                      required_markets=ch.PRIMARY_MARKETS) is None
+
+
+def test_import_refuses_on_the_capture_host_or_without_identity():
+    ch.refuse_production_import(os_name="posix")
+    ch.refuse_production_import(os_name="nt", identity=lambda: ("work", "capture"))
+    with pytest.raises(ImportError, match="capture host"):
+        ch.refuse_production_import(os_name="nt", identity=lambda: ("capture", "capture"))
+    with pytest.raises(ImportError, match="capture host"):
+        ch.refuse_production_import(os_name="nt", identity=lambda: ("", "capture"))
+
+    def unreadable():
+        raise OSError("registry unreadable")
+
+    with pytest.raises(ImportError, match="not provable"):
+        ch.refuse_production_import(os_name="nt", identity=unreadable)
+
+
+def test_no_production_code_imports_the_challenger():
+    hits = []
+    for top in ("src", "app", "scripts"):
+        for path in (ROOT / top).rglob("*"):
+            if path.suffix not in {".py", ".ps1"} or path.name == "r0_ols_floor_challenger.py":
+                continue
+            if "r0_ols_floor_challenger" in path.read_text(encoding="utf-8", errors="replace"):
+                hits.append(path.relative_to(ROOT).as_posix())
+    # The workstation allowlist names the module (it admits it); nothing imports it.
+    assert hits == ["scripts/ops/workload_admission.ps1"]
