@@ -251,6 +251,31 @@ def make_hgb(min_samples_leaf: int):
     return HistGradientBoostingClassifier(min_samples_leaf=int(min_samples_leaf), **HGB_PARAMS)
 
 
+SERVED_FLOOR_MULTIPLIER = 1e-6  # model_distribution.distribution_hard_floor_stage
+
+
+def observed_floor(high_so_far):
+    """round_half_up of the observed high so far; None when it is missing."""
+    from weather.units import round_half_up
+
+    if high_so_far is None or (isinstance(high_so_far, float) and math.isnan(high_so_far)):
+        return None
+    return round_half_up(high_so_far)
+
+
+def hard_floor(probs: Mapping[int, float], floor, multiplier: float = SERVED_FLOOR_MULTIPLIER) -> dict[int, float]:
+    """Mass below ``floor`` times ``multiplier``, renormalised; all mass on ``floor`` if none remains."""
+    if floor is None:
+        return dict(probs)
+    out = {int(b): float(p) * (multiplier if int(b) < int(floor) else 1.0) for b, p in probs.items()}
+    total = sum(out.values())
+    if total <= 1e-300:
+        out = {b: 0.0 for b in out}
+        out[int(floor)] = 1.0
+        return out
+    return {b: v / total for b, v in out.items()}
+
+
 def seasonal_allowlist_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
     """The r0 plan plus the seasonal pair, inserted right after the numeric columns."""
     numeric = list(plan["numeric_feature_names"])
@@ -323,6 +348,9 @@ def score_hour(
             blended = fm.blend(p_clim.copy(), dist, MODEL_WEIGHT)
             actual = int(y.iloc[val_idx])
             vdate = rows[val_idx]["target_date"]
+            floor = observed_floor(rows[val_idx].get("high_so_far"))
+            floored = hard_floor(blended, floor)
+            floored0 = hard_floor(blended, floor, 0.0)
             out.append({
                 "record": ROWS_RECORD,
                 "arm": arm,
@@ -331,6 +359,10 @@ def score_hour(
                 "validation_year": int(str(vdate)[:4]),
                 "hgb_log_loss": float(fm.log_loss(blended, actual)),
                 "hgb_brier": float(fm.brier_score(blended, actual)),
+                "floor": floor,
+                "hgb_floor_log_loss": float(fm.log_loss(floored, actual)),
+                "hgb_floor_brier": float(fm.brier_score(floored, actual)),
+                "hgb_floor0_log_loss": float(fm.log_loss(floored0, actual)),
                 "n_train": len(train),
                 "n_train_window": len(window_train),
                 "n_classes": len(classes),
@@ -609,6 +641,89 @@ def score(rows_root: Path, markets: Sequence[str], *, reference_root: Path | Non
     return result
 
 
+# ---------------------------------------------------------------- fair comparators (lane L3 rows)
+
+L3_COMPARATORS = {
+    "e_r0_baseline_floor": "r0_baseline_floor_log_loss",
+    "f_bias_corrected_forecast_floor": "bias_corrected_forecast_floor_log_loss",
+    "ols_floor": "ols_floor_log_loss",
+}
+DECISIVE_COMPARATORS = ("f_bias_corrected_forecast_floor", "ols_floor")
+PRIMARY_MARKETS = ("atlanta", "austin", "chicago", "dallas", "denver")
+
+
+def l3_parity(ours, l3_rows, market: str) -> dict[str, Any]:
+    """Row sets must match one to one and L3's r0_repro must equal our windowed leaf-20 loss."""
+    mine = {(int(r["hour"]), r["validation_date"]): float(r["hgb_log_loss"])
+            for r in ours if r["market"] == market and r["arm"] == ARM_WINDOWED and int(r["leaf"]) == 20}
+    theirs = {(int(r["hour"]), r["validation_date"]): float(r["r0_repro_log_loss"])
+              for r in l3_rows if r["market_id"] == market}
+    keys = set(mine) & set(theirs)
+    max_diff = max((abs(mine[k] - theirs[k]) for k in keys), default=float("nan"))
+    return {"market": market, "paired": len(keys), "ours_only": len(set(mine) - set(theirs)),
+            "l3_only": len(set(theirs) - set(mine)), "max_abs_diff": max_diff,
+            "pass": bool(keys and not (set(mine) ^ set(theirs)) and max_diff <= 1e-9)}
+
+
+def compare_fair(rows_root: Path, l3_root: Path, markets: Sequence[str] = PRIMARY_MARKETS) -> dict[str, Any]:
+    """Full-year leaf 20 + served floor (FYF) against the fair comparators on identical rows."""
+    hours_all = list(range(7, 21))
+    result: dict[str, Any] = {"record": SCORE_RECORD + "_fair", "draws": BOOTSTRAP_DRAWS, "seed": BOOTSTRAP_SEED,
+                              "parity": [], "markets_scored": [], "comparisons": {}, "per_market": {},
+                              "mean_loss_07_12": {}}
+    losses: dict[str, dict[tuple, float]] = defaultdict(dict)
+    for market in markets:
+        path = Path(rows_root) / market / f"r0_full_year_rows_{market}.jsonl"
+        l3_path = Path(l3_root) / f"challenger_rows_{market}.jsonl"
+        if not path.exists() or not l3_path.exists():
+            result["parity"].append({"market": market, "pass": False, "missing": True})
+            continue
+        ours, l3 = load_rows([path]), load_rows([l3_path])
+        fy = [r for r in ours if r["arm"] == ARM_FULL_YEAR and int(r["leaf"]) == 20 and "hgb_floor_log_loss" in r]
+        gate = l3_parity(ours, l3, market)
+        gate["full_year_floor_rows"] = len(fy)
+        if not fy:
+            gate["pass"] = False
+        result["parity"].append(gate)
+        if not gate["pass"]:
+            continue
+        result["markets_scored"].append(market)
+        for r in fy:
+            k = (market, int(r["hour"]), r["validation_date"])
+            losses["FYF"][k] = float(r["hgb_floor_log_loss"])
+            losses["FYF0"][k] = float(r["hgb_floor0_log_loss"])
+            losses["FY_raw"][k] = float(r["hgb_log_loss"])
+        for r in ours:
+            if r["arm"] == ARM_WINDOWED and int(r["leaf"]) == 20:
+                losses["R0_raw"][(market, int(r["hour"]), r["validation_date"])] = float(r["hgb_log_loss"])
+        for r in l3:
+            k = (market, int(r["hour"]), r["validation_date"])
+            for name, column in L3_COMPARATORS.items():
+                losses[name][k] = float(r[column])
+    for target in list(L3_COMPARATORS) + ["R0_raw", "FY_raw"]:
+        keys = sorted(set(losses["FYF"]) & set(losses[target]))
+        deltas = {k: losses["FYF"][k] - losses[target][k] for k in keys}
+        if not deltas:
+            continue
+        verdict = evaluate_arm(deltas, hours_all)
+        verdict["beats"] = verdict.pop("adoptable")
+        verdict["paired_rows"] = len(deltas)
+        result["comparisons"][f"FYF_vs_{target}"] = verdict
+        result["per_market"][f"FYF_vs_{target}"] = per_market_table(deltas, result["markets_scored"], hours_all)
+    for arm, table in losses.items():
+        per = defaultdict(list)
+        for (market, hour, _), value in table.items():
+            if hour in HEADLINE_HOURS:
+                per[market].append(value)
+        result["mean_loss_07_12"][arm] = {m: float(np.mean(v)) for m, v in sorted(per.items())}
+    complete = sorted(result["markets_scored"]) == sorted(markets)
+    beats = {t: result["comparisons"].get(f"FYF_vs_{t}", {}).get("beats", False) for t in DECISIVE_COMPARATORS}
+    result["status"] = "FINAL" if complete else "PROVISIONAL"
+    result["beats_decisive"] = beats
+    result["adopt_full_year"] = bool(complete and all(beats.values()))
+    return result
+
+
 # ---------------------------------------------------------------- CLI
 
 
@@ -646,6 +761,11 @@ def build_parser() -> argparse.ArgumentParser:
     sc.add_argument("--markets", required=True)
     sc.add_argument("--reference-root", default=None)
     sc.add_argument("--out", required=True)
+    fc = sub.add_parser("compare-fair", help="FYF vs lane L3's floored comparators on identical rows (light).")
+    fc.add_argument("--rows-root", required=True)
+    fc.add_argument("--l3-root", required=True)
+    fc.add_argument("--markets", default=",".join(PRIMARY_MARKETS))
+    fc.add_argument("--out", required=True)
     return parser
 
 
@@ -662,6 +782,16 @@ def main(argv=None) -> int:
             output_root=Path(args.output_root),
         )
         print(json.dumps({k: summary[k] for k in ("market", "covered_days", "covered_days_by_year", "rows")}, sort_keys=True))
+        return 0
+    if args.command == "compare-fair":
+        result = compare_fair(Path(args.rows_root), Path(args.l3_root),
+                              [m.strip() for m in args.markets.split(",") if m.strip()])
+        out = _guard_output_root(Path(args.out).parent) / Path(args.out).name
+        out.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print(json.dumps({"status": result["status"], "adopt_full_year": result["adopt_full_year"],
+                          "beats_decisive": result["beats_decisive"],
+                          "headline": {k: v["headline_07_12"] for k, v in result["comparisons"].items()}},
+                         sort_keys=True))
         return 0
     result = score(Path(args.rows_root), [m.strip() for m in args.markets.split(",") if m.strip()],
                    reference_root=Path(args.reference_root) if args.reference_root else None)
