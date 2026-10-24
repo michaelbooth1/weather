@@ -11,6 +11,11 @@ from pathlib import Path
 
 VALID_STATUSES = {"supported", "fixture-only", "retired"}
 SCRIPT_INVENTORY = {
+    "nbm_target_fix.py": {
+        "status": "fixture-only",
+        "smoke": "compile_main_guard",
+        "notes": "Versioned NBM parser diagnostics; network-free compilation smoke.",
+    },
     "analyze_boundaries.py": {
         "status": "fixture-only",
         "smoke": "compile_main_guard",
