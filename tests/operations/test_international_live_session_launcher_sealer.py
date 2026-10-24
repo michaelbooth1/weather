@@ -1,3 +1,10 @@
+"""Validate no-argument live launcher sealing with synthetic inputs.
+
+Guards: RF no-argument launcher binding and hash-bound Git identity; the
+Windows fixture substitutes the runner's PATH Git without relaxing production
+validation or consulting machine-specific installation registry state.
+"""
+
 from __future__ import annotations
 
 import hashlib
@@ -34,6 +41,17 @@ WINDOWS_POWERSHELL_REQUIRED = pytest.mark.skipif(
     os.name != "nt",
     reason="requires Windows PowerShell",
 )
+
+
+@pytest.fixture(autouse=True)
+def use_path_git_for_windows_fixtures(monkeypatch):
+    if os.name == "nt":
+        executable = shutil.which("git")
+        assert executable is not None
+        git_path = Path(executable).resolve()
+        monkeypatch.setattr(
+            fixed_sealer, "canonical_git_executable", lambda: git_path
+        )
 
 
 def sha(path: Path) -> str:
