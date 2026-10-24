@@ -60,6 +60,9 @@ def write_day(root, day, *, cycles=10, gz=False):
     """One sealed 88a segment: universe, both-side books every minute, and public prints."""
     clock = [datetime(day.year, day.month, day.day, 14, 0, 10, tzinfo=timezone.utc)]
     store = EvidenceStore(root, clock=lambda: clock[0])
+    # Keep this synthetic archive fixture independent of whichever disk CI assigns.
+    # The separate capture tests cover the free-space safety bands.
+    store.free_bytes = lambda: 100 * 1024**3
     start = clock[0]
     for cycle in range(cycles):
         clock[0] = start + timedelta(minutes=cycle)
@@ -351,8 +354,8 @@ def test_context_prints_are_strictly_before_the_instant(evidence, tmp_path):
     out = tmp_path / "out"
     tape.run(evidence, out, min_date=DAY_LATE, now=_clock())
     day_dir = out / "tape" / f"utc_day={DAY_LATE.isoformat()}"
-    minutes = pq.read_table(day_dir / "cf_minutes.parquet").to_pylist()
-    fills = pq.read_table(day_dir / "cf_fills.parquet").to_pylist()
+    minutes = pq.read_table(day_dir / "cf_minutes.parquet", partitioning=None).to_pylist()
+    fills = pq.read_table(day_dir / "cf_fills.parquet", partitioning=None).to_pylist()
     for row in minutes + fills:
         assert row["ctx_ft_prints"] is None or row["ctx_ft_prints"] < row["ctx_at_utc"]
     for row in fills:

@@ -9,7 +9,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet("pytest", "compileall", "weather_heavy")]
+    [ValidateSet("pytest", "compileall", "weather_heavy", "git_maintenance")]
     [string]$Kind,
     [Parameter(Mandatory = $true)][string]$PythonPath,
     [Parameter(Mandatory = $true)][string]$ArgumentsBase64,
@@ -138,6 +138,19 @@ switch ($Kind) {
             throw "weather-heavy workload must be an offline training/replay module"
         }
     }
+    "git_maintenance" {
+        if (
+            $module -cne "weather.operations.workstation_git_maintenance" -or
+            $arguments.Count -ne 2
+        ) {
+            throw "Git maintenance admits only the fixed workstation maintenance module with no arguments"
+        }
+        $maintenanceModule = Join-Path $resolvedRepoRoot `
+            "src\weather\operations\workstation_git_maintenance.py"
+        if (-not (Test-Path -LiteralPath $maintenanceModule -PathType Leaf)) {
+            throw "fixed workstation Git-maintenance module is missing from RepoRoot"
+        }
+    }
 }
 
 $workloadName = "WorkstationOffline-{0}-{1}" -f $Kind, $PID
@@ -179,6 +192,23 @@ try {
         "1",
         "Process"
     )
+    [Environment]::SetEnvironmentVariable(
+        "WEATHER_WORKSTATION_WORKLOAD_KIND",
+        $Kind,
+        "Process"
+    )
+    if ($Kind -ceq "git_maintenance") {
+        [Environment]::SetEnvironmentVariable(
+            "PYTHONPATH",
+            (Join-Path $resolvedRepoRoot "src"),
+            "Process"
+        )
+        [Environment]::SetEnvironmentVariable(
+            "PYTHONNOUSERSITE",
+            "1",
+            "Process"
+        )
+    }
     [Environment]::SetEnvironmentVariable(
         "PSExecutionPolicyPreference",
         "Bypass",

@@ -36,6 +36,19 @@ WINDOWS_POWERSHELL_REQUIRED = pytest.mark.skipif(
 )
 
 
+@pytest.fixture(autouse=True)
+def canonical_git_uses_test_runner_path(monkeypatch):
+    # Fixture manifests model an installation, not this runner's registry.
+    # PATH still supplies a real executable for tests that invoke Git.
+    git = shutil.which("git")
+    assert git, "the test runner must provide Git on PATH"
+    monkeypatch.setattr(
+        fixed_sealer,
+        "canonical_git_executable",
+        lambda: Path(git).resolve(),
+    )
+
+
 def sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 

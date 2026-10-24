@@ -20,6 +20,19 @@ from weather.operations import international_live_wrapper_sealer as sealer
 from tests.live_candidate_fixture import build_live_candidate_payload
 
 
+@pytest.fixture(autouse=True)
+def canonical_git_uses_test_runner_path(monkeypatch):
+    # Test trees are synthetic; bind their Git payload to the runner's PATH
+    # executable rather than requiring a machine-specific registry entry.
+    git = shutil.which("git")
+    assert git, "the test runner must provide Git on PATH"
+    monkeypatch.setattr(
+        sealer,
+        "canonical_git_executable",
+        lambda: Path(git).resolve(),
+    )
+
+
 NOW = datetime.fromisoformat("2026-08-23T01:00:00-04:00")
 CONDITION = "0x" + "1" * 64
 TOKEN = "101"

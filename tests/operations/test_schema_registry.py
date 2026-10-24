@@ -144,6 +144,10 @@ class TestSchemaRegistry(unittest.TestCase):
         self.assertEqual(schema_version("model_variant_registry_audit"), "model_variant_registry_audit_v0.1")
         self.assertEqual(schema_version("roadmap_backlog"), "roadmap_backlog_v0.1")
         self.assertEqual(
+            schema_version("workstation_git_maintenance"),
+            "workstation_git_maintenance_v1",
+        )
+        self.assertEqual(
             schema_version("settlement_source_revision_audit"),
             "settlement_source_revision_audit_v0.1",
         )
