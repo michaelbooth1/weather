@@ -115,8 +115,11 @@ publishes `rows.jsonl`, `labels.jsonl` and `manifest.json` atomically under
   `materialize` run under `workstation_heavy.ps1`.
 - **Provider gap measured (2026-10-23):** `gfs_seamless`
   `temperature_2m_previous_day1` is null at the KDEN point from the start of the
-  series through 2021-03-23 17:00 local, so a 2021 plan starts on 03-25. The known
-  2023-12-30 gap (PIT runbook) applies too, so 2023 ends 12-28 and 2025 ends 12-30.
+  series through 2021-03-23 17:00 local, so the 2021 plan starts on 03-25. The known
+  2023-12-30 gap (PIT runbook) runs at the KDEN point through 2024-01-19 05:00 local,
+  so 2023 ends 12-28 and 2024 starts 01-22; 2025 ends 12-30 (padded-December rule).
+  One plan per year (`C:\wt\pitfetch-m1\plan-<year>.json`), each materialized as its
+  own corpus; `new_city_corpus build` takes all five manifests.
 - `new_city_corpus` builds run under `workstation_heavy.ps1 -Kind weather_heavy`.
 
 ## R1: recorder-only enable for the five pilot cities
