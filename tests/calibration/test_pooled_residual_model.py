@@ -150,3 +150,20 @@ def test_station_coordinates_cover_the_us_11():
     coords = prm.station_coordinates()
     assert set(coords) == set(prm.R0_MARKETS)
     assert all(-130 < lon < -60 and 20 < lat < 50 for lat, lon, _ in coords.values())
+
+
+def test_a_fail_closed_corpus_gap_skips_the_pair_and_drops_the_centre(tmp_path, monkeypatch):
+    from weather.sources.forecast_training_corpus import CorpusVerificationError
+
+    def fake(market, centre, manifests, out_root):
+        if market == "nyc" and centre == "2026-12-24":
+            raise CorpusVerificationError("no cutoff-valid PIT daily forecast")
+        path = prm.records_path(out_root, market, centre)
+        path.write_bytes(b"x")
+        return path, {"days_by_year": {}, "union_sha256": "u"}
+
+    monkeypatch.setattr(prm, "extract_market", fake)
+    failed = prm.extract_many(["atlanta", "nyc"], ["2026-11-24", "2026-12-24"], [], tmp_path)
+    assert [(m, c) for m, c, _ in failed] == [("nyc", "2026-12-24")]
+    kept, dropped = prm.complete_centres(tmp_path, ["atlanta", "nyc"], ["2026-11-24", "2026-12-24"])
+    assert (kept, dropped) == (["2026-11-24"], ["2026-12-24"])

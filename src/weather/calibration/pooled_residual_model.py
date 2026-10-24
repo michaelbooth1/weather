@@ -200,6 +200,35 @@ def extract_market(market, centre, manifests, out_root):
     return target, {"days_by_year": counts, "union_sha256": payload["corpus_union"]["union_sha256"]}
 
 
+def extract_many(markets, centres, manifests, out_root):
+    """Extract every (market, centre); a fail-closed corpus gap skips that pair, never relaxes it."""
+    from weather.sources.forecast_training_corpus import CorpusVerificationError
+
+    failed = []
+    for centre in centres:
+        for market in markets:
+            if records_path(out_root, market, centre).exists():
+                print(f"present {market} {centre}", flush=True)
+                continue
+            try:
+                path, info = extract_market(market, centre, manifests, out_root)
+            except CorpusVerificationError as exc:
+                failed.append((market, centre, str(exc)))
+                print(f"FAILED_CLOSED {market} {centre}: {exc}", flush=True)
+                continue
+            print(f"extracted {market} {centre}: {info['days_by_year']} union {info['union_sha256']} -> {path}",
+                  flush=True)
+    return failed
+
+
+def complete_centres(root, markets, centres):
+    """Centres with a records file for every market; the rest are dropped whole (rule amendment)."""
+    kept, dropped = [], []
+    for centre in centres:
+        (kept if all(records_path(root, m, centre).exists() for m in markets) else dropped).append(centre)
+    return kept, dropped
+
+
 def load_records(root, market, centre):
     with gzip.open(records_path(root, market, centre), "rb") as handle:
         return pickle.load(handle)
@@ -683,6 +712,8 @@ def _parse(argv=None):
     ev.add_argument("--markets", default=",".join(R0_MARKETS))
     ev.add_argument("--hours", default=None, help="comma list (smoke slices only)")
     ev.add_argument("--lane-d-root", default=None)
+    ev.add_argument("--extract-augsep-manifest", default=None,
+                    help="first extract missing Aug-Sep centres from this manifest (fail-closed gaps skipped)")
     ev.add_argument("--out", required=True)
     rp = sub.add_parser("report", help="paired deltas, CIs and the pre-declared decision")
     rp.add_argument("--rows", required=True)
@@ -695,18 +726,16 @@ def _parse(argv=None):
 def main(argv=None):
     args = _parse(argv)
     if args.command == "extract":
-        for centre in args.centres.split(","):
-            for market in args.markets.split(","):
-                path, info = extract_market(market, centre, args.manifests, args.out)
-                print(f"extracted {market} {centre}: {info['days_by_year']} union {info['union_sha256']} -> {path}",
-                      flush=True)
-        return 0
+        failed = extract_many(args.markets.split(","), args.centres.split(","), args.manifests, args.out)
+        return 1 if failed else 0
     out = require_output_outside_repo(args.out)
     if args.command == "evaluate":
         out.mkdir(parents=True, exist_ok=True)
         markets = args.markets.split(",")
         arms = args.arms.split(",")
         hours = [int(h) for h in args.hours.split(",")] if args.hours else None
+        if args.extract_augsep_manifest:
+            extract_many(markets, AUG_SEP_CENTRES, [args.extract_augsep_manifest], args.records)
         val_payloads = [load_records(args.records, m, VALIDATION_CENTRE) for m in markets]
         if hours:
             for p in val_payloads:
@@ -725,7 +754,12 @@ def main(argv=None):
             (out / "r0_parity.json").write_text(json.dumps(parity, indent=1), encoding="utf-8")
         pooled = [a for a in arms if a in ARMS]
         if pooled:
-            centres = sorted({c for a in pooled for c in ARMS[a]["centres"]})
+            wanted = sorted({c for a in pooled for c in ARMS[a]["centres"]})
+            centres, dropped = complete_centres(args.records, markets, wanted)
+            if VALIDATION_CENTRE not in centres:
+                raise PooledModelError("the validation centre is incomplete")
+            (out / "centres.json").write_text(json.dumps({"used": centres, "dropped": dropped}), encoding="utf-8")
+            print(f"centres used {centres}; dropped (incomplete) {dropped}", flush=True)
             payloads = list(val_payloads)
             for centre in centres:
                 if centre != VALIDATION_CENTRE:
@@ -744,6 +778,12 @@ def main(argv=None):
         arm_rows = {a: _read_jsonl(rows_dir / f"rows_{a}.jsonl") for a in arms}
         rows = merge_rows(r0, arm_rows)
         text, verdicts, pick = report_markdown(rows, arms, args.rule)
+        centres_file = rows_dir / "centres.json"
+        if centres_file.is_file():
+            text += f"\nCentres used / dropped (rule amendment): {centres_file.read_text(encoding='utf-8')}\n"
+        parity_file = rows_dir / "r0_parity.json"
+        if parity_file.is_file():
+            text += f"\nR0 parity against lane D rows: {parity_file.read_text(encoding='utf-8')}\n"
         if out.exists():
             raise PooledModelError(f"refusing to overwrite {out}")
         out.write_text(text, encoding="utf-8")
