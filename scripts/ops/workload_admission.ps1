@@ -625,6 +625,7 @@ function Get-WeatherWorkstationOfflineModule {
         "weather.backtesting.snapshot_analytics",
         "weather.backtesting.tape_scoring",
         "weather.calibration.feature_model",
+        "weather.calibration.new_city_corpus",
         "weather.calibration.pooled_candidate_replay",
         "weather.calibration.pooled_candidate_replay_diagnostics",
         "weather.calibration.pooled_candidate_replay_report",
@@ -636,7 +637,9 @@ function Get-WeatherWorkstationOfflineModule {
         "weather.operations.replay_status_backfill",
         "weather.operations.workstation_cold_archive_stage",
         "weather.operations.workstation_cold_archive_restore",
-        "weather.reporting.scorecards.train_serve_feature_parity"
+        "weather.reporting.scorecards.dev_scorecard",
+        "weather.reporting.scorecards.train_serve_feature_parity",
+        "weather.sources.forecast_training_corpus"
     )
 }
 
