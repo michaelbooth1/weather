@@ -77,12 +77,15 @@ with reasons). The CSV keeps the shared daily columns (`max_temp`,
 `max_temp_bucket`, `row_count`, `max_temp_times`) and adds `label_source`,
 `label_station`, `label_station_basis`, `label_event_station`,
 `label_rule_version`, `label_cutover_date`, `label_value_basis` and report
-counts. `row_count` is the routine report count, so a thin METAR day is graded
-by the ledger's existing complete-day threshold.
+counts. `row_count` is the routine report count.
 
 - Ledger: `python -m weather.market.market_day_labels finalize --label-rule venue`
   finalizes each market against its venue CSV and refuses to run if one is
-  missing. The default stays `--label-rule wu`. The ledger row records the CSV
+  missing. A folder dated on or after the cutover is refused (reported as a
+  folder failure after the others are written) when its date has no CSV row, or
+  a row with fewer routine reports than the ledger's complete-day threshold
+  (`COMPLETE_DAY_MIN_ROWS`). Either case would otherwise drop the ledger back
+  to the tape's WU high. The default stays `--label-rule wu`. The ledger row records the CSV
   path and hash; its `resolution_source_type` field is still the legacy WU
   literal, which a ledger change would have to fix.
 - Training readers that take a daily-summary path (for example
@@ -191,25 +194,24 @@ The ledger is finalized by step `market_day_labels_finalize` in the `settlement`
 stage (Stage A). That stage is run by `weather.operations.daily_refresh run`,
 built from the `$tokens` list in `scripts/ops/daily_refresh_contract.ps1`. The
 step is `run_market_day_labels_finalize` in
-`src/weather/operations/daily_refresh_source_steps.py`. It calls
-`finalize_folders` in process rather than running the `market_day_labels` CLI,
-and `weather.operations.daily_refresh` has no `--label-rule` flag. So the change
-needs a reviewed code commit first, then a script edit:
+`src/weather/operations/daily_refresh_source_steps.py`. It calls the
+finalize code in process rather than running the `market_day_labels` CLI.
 
-1. **Code (separate branch):**
-   - Add `--label-rule {wu,venue}` (default `wu`) and `--venue-labels-root` to
-     the `run` parser in `src/weather/operations/daily_refresh_cli.py`.
-   - Have `run_market_day_labels_finalize` call
-     `weather.market.market_day_labels.finalize_with_venue_labels` when the flag
-     is `venue`.
-   - Add the `build` for every market before that step, so each day's CSV is
-     current. Either put it inside the step or make it a step after
-     `public_wu_settlement_restore`.
-
-   The 2026-10-23 base static trace put `daily_refresh_cli.py`,
-   `daily_refresh_source_steps.py` and `daily_refresh.py` outside every
-   capture-loop closure. Re-trace on the real branch and take the verdict from
-   `roll_verdict.ps1`.
+1. **Code (branch `claude/venue-rule-labels-chain-20261023`):**
+   `weather.operations.daily_refresh run` takes `--label-rule {wu,venue}`
+   (default `wu`, behaviour unchanged), `--venue-labels-root`,
+   `--venue-metar-root` and `--skip-venue-label-build`. With `venue`, the
+   finalize step first builds the label CSV of every market among the folders
+   (`run_venue_rule_label_build`). The build reads only routine METAR already
+   fetched under `--venue-metar-root` and never downloads, so step 1's fetch
+   stays outside Stage A. The step then calls
+   `weather.market.market_day_labels.finalize_with_venue_labels`, and its
+   result carries `label_rule` and the per-market `venue_label_build` summary.
+   A missing CSV (with `--skip-venue-label-build`) returns `BLOCK` with reason
+   `venue_rule_labels_unavailable`. A `--daily-summary` override returns `BLOCK`
+   too. Missing or thin post-cutover rows fail the step as folder failures.
+   No step was added to the registry, so a default run's step list is
+   unchanged.
 2. **Scheduled change:** in `scripts/ops/daily_refresh_contract.ps1`, add
    `"--label-rule", "venue"` to `$tokens` inside the `if ($Stage -eq
    "settlement")` block, next to the other settlement-stage flags. The `.ps1` edit

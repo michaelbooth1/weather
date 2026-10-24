@@ -6,20 +6,31 @@ from weather.paths import data_path
 
 from weather.backtesting.settled_days import discover_settled_folders
 from weather.backtesting.settlement_ledger import (
+    COMPLETE_DAY_MIN_ROWS,
     DEFAULT_LABELS_CSV,
     DEFAULT_LEDGER_ROOT,
     LABEL_COLUMNS,
     FolderFinalizationError,
     finalize_folder,
     finalize_folders,
+    load_daily_summary,
     merge_labels_csv,
     missing_fraction,
     quality_grade,
     quality_reason,
     write_labels_csv,
 )
-from weather.backtesting.venue_rule_labels import DEFAULT_LABEL_ROOT, default_label_path
+from weather.backtesting.venue_rule_labels import (
+    DEFAULT_LABEL_ROOT,
+    VENUE_RULE_CUTOVER_DATE,
+    default_label_path,
+)
+from weather.market.market_config import date_from_event_slug
 from weather.market.market_registry import spec_for_slug
+
+
+class VenueLabelsUnavailable(RuntimeError):
+    """A market's venue-rule label CSV is missing; nothing was finalized."""
 
 
 DEFAULT_SNAPSHOTS_ROOT = data_path() / "snapshots"
@@ -49,17 +60,45 @@ def venue_label_paths(folders, venue_labels_root=DEFAULT_LABEL_ROOT):
     for folder in folders:
         spec = spec_for_slug(Path(folder).name)
         if spec is None:
-            raise SystemExit(f"--label-rule venue: no market for folder {folder}")
+            raise VenueLabelsUnavailable(f"--label-rule venue: no market for folder {folder}")
         path = default_label_path(spec, venue_labels_root)
         if not path.exists():
             missing.append(f"{spec.id}: {path}")
         groups.setdefault(spec.id, (path, []))[1].append(Path(folder))
     if missing:
-        raise SystemExit(
+        raise VenueLabelsUnavailable(
             "--label-rule venue: build the venue-rule labels first "
             "(python -m weather.backtesting.venue_rule_labels build); missing " + "; ".join(sorted(set(missing)))
         )
     return groups
+
+
+def venue_label_gaps(path, folders, cutover=VENUE_RULE_CUTOVER_DATE):
+    """Split folders into finalizable ones and refused (folder, reason) pairs.
+
+    A folder dated on or after the cutover is refused when its date has no row
+    in the venue CSV, or a row with fewer than ``COMPLETE_DAY_MIN_ROWS`` reports:
+    in both cases the ledger would fall back to the tape's WU high.
+    """
+
+    index = load_daily_summary(path)
+    keep, refused = [], []
+    for folder in folders:
+        target = date_from_event_slug(Path(folder).name)
+        row = index.get(target.isoformat()) if target is not None else None
+        if target is None or target < cutover:
+            keep.append(folder)
+        elif row is None:
+            refused.append((str(folder), f"no venue-rule label row for {target.isoformat()} in {path}"))
+        elif row["row_count"] < COMPLETE_DAY_MIN_ROWS:
+            refused.append((
+                str(folder),
+                f"venue-rule label for {target.isoformat()} has {row['row_count']} reports, "
+                f"fewer than {COMPLETE_DAY_MIN_ROWS}, in {path}",
+            ))
+        else:
+            keep.append(folder)
+    return keep, refused
 
 
 def finalize_with_venue_labels(folders, args, finalize_kwargs):
@@ -67,12 +106,18 @@ def finalize_with_venue_labels(folders, args, finalize_kwargs):
 
     Each market group writes a scratch labels CSV; the real labels CSV is then
     written whole (or merged when a group failed), as ``finalize_folders`` does.
+    Folders without a post-cutover label row are refused and reported as
+    failures after the others are written.
     """
 
     labels = []
     failures = []
     scratch_root = Path(args.ledger_root) / "_venue_rule_finalize"
     for market_id, (path, group) in sorted(venue_label_paths(folders, args.venue_labels_root).items()):
+        group, refused = venue_label_gaps(path, group)
+        failures.extend(refused)
+        if not group:
+            continue
         scratch = scratch_root / f"{market_id}_labels.csv"
         try:
             labels.extend(finalize_folders(group, daily_summary_path=path, labels_csv=scratch, **finalize_kwargs))
@@ -100,7 +145,10 @@ def cmd_finalize(args):
     if args.label_rule == "venue":
         if args.daily_summary:
             raise SystemExit("--daily-summary and --label-rule venue are mutually exclusive")
-        labels = finalize_with_venue_labels(folders, args, finalize_kwargs)
+        try:
+            labels = finalize_with_venue_labels(folders, args, finalize_kwargs)
+        except VenueLabelsUnavailable as exc:
+            raise SystemExit(str(exc)) from exc
     else:
         labels = finalize_folders(
             folders,

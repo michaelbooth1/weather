@@ -14,9 +14,15 @@ from weather.backtesting.settlement_ledger import (
     DEFAULT_LEDGER_ROOT,
     finalize_folders,
 )
+from weather.backtesting import venue_rule_labels
 from weather.market import exchange_economics
-from weather.market.market_day_labels import discover_default_folders, parse_overrides
-from weather.market.market_registry import all_specs
+from weather.market.market_day_labels import (
+    VenueLabelsUnavailable,
+    discover_default_folders,
+    finalize_with_venue_labels,
+    parse_overrides,
+)
+from weather.market.market_registry import all_specs, spec_for_slug
 from weather.operations import clob_order_book_tiering
 from weather.operations import closed_market_day_archive
 from weather.operations import daily_roll_log_hygiene
@@ -657,16 +663,37 @@ def run_market_day_labels_finalize(args):
                 "target_date": ((restore_step.get("result") or {}).get("target_date")),
             }
     folders = [Path(folder) for folder in args.folders] if args.folders else discover_default_folders(args.snapshots_root)
-    labels = finalize_folders(
-        folders,
-        daily_summary_path=args.daily_summary or None,
-        labels_csv=args.labels_csv,
+    finalize_kwargs = dict(
         overrides=parse_overrides(args.settle),
         interval_minutes=args.interval_minutes,
         gap_tolerance=args.tolerance,
         reconcile_polymarket=not args.skip_polymarket_reconciliation,
         ledger_root=args.ledger_root,
     )
+    label_rule = getattr(args, "label_rule", "wu") or "wu"
+    venue_build = None
+    if label_rule == "venue":
+        if args.daily_summary:
+            return {"status": "BLOCK", "reason": "daily_summary_override_with_venue_label_rule"}
+        if not getattr(args, "skip_venue_label_build", False):
+            venue_build = run_venue_rule_label_build(folders, args)
+        try:
+            labels = finalize_with_venue_labels(folders, args, finalize_kwargs)
+        except VenueLabelsUnavailable as exc:
+            return {
+                "status": "BLOCK",
+                "reason": "venue_rule_labels_unavailable",
+                "detail": str(exc),
+                "label_rule": label_rule,
+                "venue_label_build": venue_build,
+            }
+    else:
+        labels = finalize_folders(
+            folders,
+            daily_summary_path=args.daily_summary or None,
+            labels_csv=args.labels_csv,
+            **finalize_kwargs,
+        )
     summary = summarize_labels(labels)
     summary.update({
         "status": "PASS",
@@ -675,4 +702,41 @@ def run_market_day_labels_finalize(args):
         "ledger_root": as_path(args.ledger_root),
         "polymarket_reconciliation": not args.skip_polymarket_reconciliation,
     })
+    if label_rule == "venue":
+        summary.update({
+            "label_rule": label_rule,
+            "venue_labels_root": as_path(args.venue_labels_root),
+            "venue_label_build": venue_build,
+        })
     return summary
+
+
+def run_venue_rule_label_build(folders, args):
+    """Build the venue-rule label CSV of every market among ``folders``.
+
+    Reads only routine METAR files already under ``--venue-metar-root``; it never
+    downloads. Returns per-market manifest summaries.
+    """
+
+    specs = {}
+    for folder in folders:
+        spec = spec_for_slug(Path(folder).name)
+        if spec is not None:
+            specs[spec.id] = spec
+    built = {}
+    root = Path(args.venue_labels_root)
+    for market_id, spec in sorted(specs.items()):
+        manifest = venue_rule_labels.build_market_labels(
+            spec,
+            metar_root=args.venue_metar_root,
+            out=venue_rule_labels.default_label_path(spec, root),
+            manifest=venue_rule_labels.default_manifest_path(spec, root),
+        )
+        built[market_id] = {
+            "output": manifest["output"],
+            "output_sha256": manifest["output_sha256"],
+            "label_source_counts": manifest["label_source_counts"],
+            "skipped_date_count": len(manifest["skipped_dates"]),
+            "metar_input_count": len(manifest["metar_inputs"]),
+        }
+    return {"status": "PASS", "market_count": len(built), "markets": built}
