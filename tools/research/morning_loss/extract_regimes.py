@@ -168,7 +168,9 @@ def main(argv=None):
     p.add_argument("--layout", required=True)
     p.add_argument("--first-date", default="2026-08-15")
     p.add_argument("--out", required=True)
+    p.add_argument("--obs-out", help="optional parquet of hourly METAR temps (market, date, label_hour, temp_f)")
     a = p.parse_args(argv)
+    obs = []
     snaps = pd.read_parquet(Path(a.layout) / "inputs_snapshots.parquet",
                             columns=["market", "date", "event_slug"]).drop_duplicates()
     snaps = snaps[(snaps.date >= a.first_date) & (snaps.date <= DEV_LAST.isoformat())]
@@ -190,6 +192,10 @@ def main(argv=None):
             continue
         metar = ((last.get("sources") or {}).get("metar") or {}).get("data") or {}
         rec.update(status="ok", last_captured_local=last["captured_at_local"])
+        for row in metar.get("rows") or []:
+            if row.get("datetime", "")[:10] == r.date and _num(row.get("temp_native")) is not None:
+                obs.append({"market": r.market, "date": r.date, "label_hour": _hour(row),
+                            "label_time": row["datetime"], "temp_f": _num(row.get("temp_native"))})
         rec.update(metar_features(metar.get("rows") or []))
         rec.update(forecast_features(first, target))
         recs.append(rec)
@@ -201,6 +207,8 @@ def main(argv=None):
     df["tendency_anomaly"] = (df.obs_t11 - df.obs_t06) - (df.fc_t11 - df.fc_t06)
     df["R6_tendency"] = df.tendency_anomaly.abs() >= 3
     df.to_parquet(a.out, index=False)
+    if a.obs_out:
+        pd.DataFrame(obs).drop_duplicates(["market", "date", "label_time"]).to_parquet(a.obs_out, index=False)
     print(df.status.value_counts().to_string())
 
 
