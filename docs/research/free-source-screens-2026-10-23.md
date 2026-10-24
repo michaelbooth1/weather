@@ -249,6 +249,32 @@ Not scored, by the brief and by measurement. Parsers built on small pulls (`weat
 - **Other EU free sources** (Met Office DataHub, Météo-France 6-minute, DWD 10-minute, AEMET) need
   accounts or keys or were out of this lane's list; not touched.
 
+## G2: ECMWF ENS open data (2 m temperature members), blocks 00-12 and 13-16
+
+### Pre-declaration (committed before scoring; owner approval 2026-10-23 "Yes, both")
+
+- **Decoder:** eccodes 2.50.0 in a separate research venv `C:\venvs\research-ecmwf` (Python 3.11.9); the
+  project venv, `requirements.txt` and `pyproject.toml` are untouched. `weather.sources.free_screens.ecmwf_ens`
+  imports eccodes lazily and runs only in that venv; it writes `data\research\free_sources\ecmwf_ens\points.parquet`,
+  which is all the scorecard (project venv, through the wrapper) reads. eccodes tests use `pytest.importorskip`.
+- **Data:** 00Z ENS runs, all 51 `2t` members (control + 50), steps 18/21/24 h (target = run date) and
+  42/45/48 h (target = run date + 1), bilinear at the 11 stations; runs 2024-08-15..09-30, 2025-07-31..09-30
+  and 2026-07-30..09-29 (only the months the rules use; the history tables use Aug-Sep). Raw ranges are
+  hashed and discarded. Mirror: the public Google Cloud copy of ECMWF open data (`ecmwf-open-data`), because the
+  AWS copy answered every range request with S3 `SlowDown`. Same files, CC BY 4.0, no account.
+- **ENS value at a snapshot:** ens_mean = mean over members of each member's max of the three target-date
+  steps (18, 21, 00 UTC), in F. It comes from the newest 00Z run available at run + 9 h (release is about
+  08Z) that carries the target date. The three-step max under-reads the true maximum, so each rule
+  removes that bias without labels or reads it through a history table.
+- **G2-a `g2_ens_mg1_half`, block 00-12, control MG-1:** mu = (v2_mean + ens_mean − b_station) / 2,
+  sigma = max(v2_stddev, 1); b_station = median of (ens_mean − v2_mean) over the fold's training snapshots
+  (inputs only, walk-forward). Without ENS or b, MG-1 is kept.
+- **G2-b `g2_ens_gap_rise`, block 13-16, control t3-r3:** t3-r3 conditioned on g = ens_mean − R in bins
+  (−inf, −4], (−4, 0], (0, 4], (4, inf) F; cells as F3 (>= 30 history days, else the unconditioned cell).
+- **Keep/kill:** the common protocol, applied to each rule on its own block. Two rules.
+- **Parity/latency:** the open-data 00Z ENS is public at about 08Z; serving it would need a forward
+  capture plus eccodes on the capture host (a separate owner decision).
+
 ## Fetch receipts (all under `data/research/free_sources/<source>/`, sha256 per file in `receipts.jsonl`)
 
 | Source | Requests | Bytes | Rows | Span | Notes |
