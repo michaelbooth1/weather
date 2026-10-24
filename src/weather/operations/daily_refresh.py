@@ -85,6 +85,7 @@ from weather.operations.daily_refresh_resources import (
     STAGE_A_ISOLATED_STEPS,
     StageAChildFailure,
     StageAResourceDeferred,
+    await_transient_capture_recovery,
     bounded_resume_command,
     build_stage_a_step_admission,
     prepare_step_child_invocation,
@@ -807,6 +808,22 @@ def _run_isolated_stage_a_step(args, payload, step_name, *, run_id):
         budget,
         phase="after",
     )
+    if admission_after.get("decision") != "ADMIT":
+        # One transient capture-loop error cycle must not defer the whole
+        # day: re-sample for a bounded, deadline-respecting time first.
+        admission_after, transient_retry = await_transient_capture_recovery(
+            args,
+            step_name,
+            budget,
+            admission_after,
+            admission_fn=build_stage_a_step_admission,
+            on_recheck=lambda record: (
+                resource_record.__setitem__("post_step_transient_retry", record),
+                _flush_incremental_status(args, payload),
+            ),
+        )
+        if transient_retry is not None:
+            resource_record["post_step_transient_retry"] = transient_retry
     resource_record["admission_after"] = admission_after
 
     failure_reason = None

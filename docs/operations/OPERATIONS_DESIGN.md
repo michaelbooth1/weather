@@ -603,6 +603,15 @@ through `fleet_observability`, Stage B starts at `promotion_refresh`. Facts that
   `--folders` list or `--skip-polymarket-reconciliation` keeps the original direct call. The step result reports
   `finalize_mode` and `finalize_plan` (finalized, reused and per-reason re-finalize counts). The first run after
   landing has no index and costs one full pass.
+- **A transient capture-loop error does not defer the day.** After an isolated step finishes, the post-step
+  admission re-check normally defers the rest of the run on any blocker. When the only blockers are
+  `capture_loop_not_fresh` for active loops with a fresh heartbeat and degraded reasons within
+  `consecutive_errors`/`last_error_present`, `await_transient_capture_recovery` (`daily_refresh_resources.py`)
+  re-samples every 30 s for up to 10 min, never past the wrapper's teardown deadline, and continues on the
+  first clean sample. The outcome (`recovered`, `still_degraded`, `deadline_exhausted`,
+  `non_transient_blocker`) and every sample are recorded as `post_step_transient_retry` in the step's
+  `resource_execution`. Inactive loops, stale or missing heartbeats, any other degraded reason and any
+  memory/commit blocker still defer immediately.
 - **The commit gate is relative to the live commit limit.** Stage A refuses above
   `DEFAULT_STAGE_A_MAX_COMMIT_PERCENT` (70, `daily_refresh_resources.py`; the CLI may only lower it) of the
   host's *current* commit limit, which moves with pagefile size. Never reason from a remembered limit. Read the
