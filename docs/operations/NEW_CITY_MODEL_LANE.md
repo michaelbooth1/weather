@@ -111,6 +111,23 @@ whose issue or availability time is after the cutoff, joins only complete labels
 publishes `rows.jsonl`, `labels.jsonl` and `manifest.json` atomically under
 `corpora/<sha256>`; an existing corpus is never overwritten. It never fetches.
 
+`fit --corpus-manifest <corpus>\manifest.json --train-through 2024-12-31 --test-from
+2025-01-01 --test-to 2025-12-31 --out-dir data\training\new_city_corpus\fits` scores,
+per market and cutoff, a bias-corrected forecast baseline, OLS and monotone
+`HistGradientBoostingRegressor` (sd from 5-fold by-date CV) as normal band ladders
+(1 °C or 2 °F). OLS and HGB carry a hard floor: no mass below the rounded highest
+label-rule report by the cutoff. Weather-only, no market prices; it refuses a test
+window after 2025-12-31. Blocks 07-09, 10-12 and 07-12 are the headline; deltas carry
+date-clustered bootstrap CIs.
+
+**Measured (2026-10-24, corpus `d519ab1d…`, fit `92fdffe2…`):** for London, Paris and
+KDEN, OLS+floor beats the baseline in every block (07-12 Brier delta −0.042, −0.039,
+−0.022, CIs exclude zero). HGB+floor also beats the baseline from 10-12 on but is worse
+than OLS+floor in every block except Paris 07-09 (tie), and far worse late in the day
+(17-20 Brier +0.14 to +0.41): per-cutoff trees on about 1,350 training days cannot
+reproduce the near-identity late-day mapping that OLS fits exactly. OLS+floor is the
+candidate; plain HGB is not.
+
 ## Inputs and how they run
 
 - **IEM METAR history** (owner-approved 2026-10-23): EGLC, LFPB, EDDM, LEMD, RKSI,
