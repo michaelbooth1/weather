@@ -1,3 +1,8 @@
+"""Fixture checks for bounded snapshot tails and disposable indexes.
+
+Guards: snapshot-read caches must preserve source evidence and fall back on invalid tails.
+"""
+
 import csv
 import json
 from datetime import datetime

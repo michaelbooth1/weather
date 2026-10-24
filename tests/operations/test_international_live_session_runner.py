@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -28,6 +29,16 @@ WALLET = "0x" + "2" * 40
 
 @pytest.fixture(autouse=True)
 def private_attempt_root(monkeypatch):
+    # These tests model a reviewed installation. Resolve Git through PATH so
+    # Windows CI does not depend on the host registry's machine-specific
+    # InstallPath, while retaining executable-file and hash validation.
+    git = shutil.which("git")
+    assert git, "the test runner must provide Git on PATH"
+    monkeypatch.setattr(
+        sealer,
+        "canonical_git_executable",
+        lambda: Path(git).resolve(),
+    )
     monkeypatch.setattr(
         runner,
         "validate_private_attempt_root",
