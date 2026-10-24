@@ -263,3 +263,38 @@ def test_tampered_differences_record_fails_closed(tmp_path):
     hgb_path.write_bytes(pickle.dumps(hgb))
     with pytest.raises(R0CandidateManifestError, match="does not match the allowlist"):
         _build(folder, repo, markets=["nyc"])
+
+
+def _set_leaf(folder, market, leaf):
+    """Rewrite one fixture fit as an R0 leaf-sweep fit at ``leaf`` (both artifacts)."""
+    params = {"max_iter": 50, "max_leaf_nodes": 15, "learning_rate": 0.05,
+              "min_samples_leaf": leaf, "served_min_samples_leaf": 20}
+    coefs_path = folder / market / f"feature_model_coefs_{market}.json"
+    hgb_path = folder / market / f"feature_model_hgb_{market}.pkl"
+    coefs = json.loads(coefs_path.read_text(encoding="utf-8"))
+    hgb = pickle.loads(hgb_path.read_bytes())
+    for info in (coefs, hgb):
+        info["hgb_hyperparameters"] = params
+        info["served_model_differences"] = served_model_differences(
+            info["training_column_allowlist"], info["training_inputs"], base_models_only=True,
+            hgb_min_samples_leaf=leaf,
+        )
+    coefs_path.write_text(json.dumps(coefs), encoding="utf-8")
+    hgb_path.write_bytes(pickle.dumps(hgb))
+
+
+def test_leaf_sweep_value_is_bound_and_must_agree_across_markets(tree):
+    candidates, repo = tree
+    _set_leaf(candidates, "nyc", 10)
+    with pytest.raises(R0CandidateManifestError, match="different HGB leaf floors"):
+        _build(candidates, repo)
+    _set_leaf(candidates, "atlanta", 10)
+    manifest = _build(candidates, repo)
+    assert manifest["hgb_min_samples_leaf"] == 10
+    assert manifest["markets"]["nyc"]["hgb_min_samples_leaf"] == 10
+    assert manifest["markets"]["nyc"]["served_model_differences"]["hyperparameters"]["hgb_min_samples_leaf"] == 10
+
+
+def test_fits_without_a_leaf_record_bind_at_the_served_floor(tree):
+    candidates, repo = tree
+    assert _build(candidates, repo)["hgb_min_samples_leaf"] == 20

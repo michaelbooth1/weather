@@ -399,7 +399,7 @@ def test_output_root_allows_a_candidate_child_or_scratch_dir(tmp_path):
     assert paths["hgb"] == candidate.resolve() / "feature_model_hgb_nyc.pkl"
     assert not candidate.exists()
     scratch = base_only_output_paths(tmp_path / "r0", "_nyc")
-    assert set(scratch) == {"coefs", "hgb", "report"}
+    assert set(scratch) == {"coefs", "hgb", "report", "validation_rows"}
 
 
 def test_output_root_never_overwrites(tmp_path):
