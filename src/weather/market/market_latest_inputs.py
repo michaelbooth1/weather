@@ -100,6 +100,11 @@ def _latest_time_group(rows, diagnostics, *, time_field="captured_at_utc", outco
     return [row for _index, row in selected]
 
 
+def latest_time_group(rows, diagnostics, *, time_field="captured_at_utc", outcomes=None):
+    """Select the newest complete timestamp batch from a bounded row suffix."""
+    return _latest_time_group(rows, diagnostics, time_field=time_field, outcomes=outcomes)
+
+
 def _rows_for_group(rows, diagnostics, group_value, *, group_field="snapshot_id"):
     if diagnostics.get("status") not in _READ_OK or not group_value:
         return []
