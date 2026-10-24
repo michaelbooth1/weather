@@ -22,6 +22,13 @@ generated reports for dynamic state.
 - The modeled settlement source is the highest whole-degree value printed by
   the configured Weather Underground history source for the market's local
   target date. Rounding and band parsing use the canonical unit helpers.
+- **Training and evaluation labels for built-in markets follow the venue rule
+  for target dates on or after 2026-10-23:** the highest routine METAR
+  temperature on the local date (SPECI excluded, remark T-group tenths with a
+  body fallback, half-up in the native unit), from the dated per-market label
+  station, with WU only as the fallback. Earlier dates keep the WU label. Serving
+  and its WU floor are unchanged. Contract:
+  [venue-rule labels](venue-rule-labels.md).
 - The venue's own source is declared per location in `config/locations.json`
   `settlement`. Hong Kong settles on a 0.1 °C HKO value that the venue
   truncates (`band_mapping: floor_to_whole_degree`), so the release

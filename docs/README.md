@@ -71,6 +71,7 @@ Read the one that owns the thing you are changing.
 | A large module or facade split | [Large-module ownership map](operations/module-ownership-map.md) |
 | Any repository path or default location | [Repository path policy](operations/path-policy.md) |
 | A file under `config/` | [Configuration inventory](operations/config-inventory.md) |
+| Training or evaluation labels for dates from 2026-10-23, or a market's label station | [Venue-rule labels](operations/venue-rule-labels.md) |
 | Tracked artifacts, LFS, or artifact size | [Artifact storage policy](operations/artifact-storage-policy.md) |
 | Building or changing data capture: new families, storage/RAM budgets, the venue-city pilot | [Data layer v2 plan](operations/DATA_LAYER_V2_PLAN.md) (canonical living plan: family table, budgets, build sequence S0-S16, open owner questions) |
 | What may be deleted, tiered, or compressed under `data/` | [Data storage classes](operations/data-storage-class-contract.md), [Data retention policy](operations/data-retention-policy.md) |
