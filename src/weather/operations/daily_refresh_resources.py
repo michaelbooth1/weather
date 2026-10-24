@@ -524,7 +524,7 @@ def await_transient_capture_recovery(
     remaining_to_deadline = max(0.0, (deadline - started).total_seconds())
     wait_budget = min(float(POST_STEP_TRANSIENT_RETRY_MAX_SECONDS), remaining_to_deadline)
     record = {
-        "policy": "post_step_transient_capture_degradation_retry_v1",
+        "policy": "post_step_transient_capture_degradation_retry",
         "step": step_name,
         "started_at_utc": started.isoformat(),
         "interval_seconds": interval,

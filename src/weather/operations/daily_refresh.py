@@ -811,16 +811,17 @@ def _run_isolated_stage_a_step(args, payload, step_name, *, run_id):
     if admission_after.get("decision") != "ADMIT":
         # One transient capture-loop error cycle must not defer the whole
         # day: re-sample for a bounded, deadline-respecting time first.
+        def _record_recheck(record):
+            resource_record["post_step_transient_retry"] = record
+            _flush_incremental_status(args, payload)
+
         admission_after, transient_retry = await_transient_capture_recovery(
             args,
             step_name,
             budget,
             admission_after,
             admission_fn=build_stage_a_step_admission,
-            on_recheck=lambda record: (
-                resource_record.__setitem__("post_step_transient_retry", record),
-                _flush_incremental_status(args, payload),
-            ),
+            on_recheck=_record_recheck,
         )
         if transient_retry is not None:
             resource_record["post_step_transient_retry"] = transient_retry
