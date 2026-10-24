@@ -242,6 +242,41 @@ not committed) are:
 A consumer that needs 2023-12-29..12-31 has no point-in-time lead-1 value from
 this source; do not fill those dates from the settled archive.
 
+### R0 2024-2025 corpus (owner M6 2026-10-23; not yet collected)
+
+The owner chose option (c) of retrain memo R0.2 M6: a new 2024-2025 fetch, so
+R0 trains on 2021-2025. **The download itself still needs the owner's
+workstation download yes; until then nothing is fetched.** The plan must end
+on **Dec 30**: a padded Dec 31 end with 2025 reaches the target year 2026 and
+is refused (above). R0's centre windows (11-17..12-01, 12-03..12-17) are
+inside Oct 1-Dec 30. The plan is 22 units (US 11 x 2 years), 2,002
+market-dates, about 146 call equivalents, and shares every union field
+(schema, target year, fields, cutoffs, issue contract, normalizer) and the
+padding with the 2021-2023 corpora. The collector is a network module, not an
+offline training module, so it is not on the `workstation_heavy` allowlist
+and runs directly (serial, rate-limited, resumable):
+
+```powershell
+python -m weather.sources.forecast_training_corpus plan `
+  --out C:\wt\pitfetch-2024-2025\plan.json --years 2024,2025 `
+  --markets atlanta,austin,chicago,dallas,denver,houston,los-angeles,miami,nyc,san-francisco,seattle `
+  --season-start 10-01 --season-end 12-30 --fields temperature_2m --pad-request-days 1
+python -m weather.sources.forecast_training_corpus_fetch `
+  --plan C:\wt\pitfetch-2024-2025\plan.json --staging-root C:\wt\pitfetch-2024-2025\staging
+python -m weather.sources.forecast_training_corpus resume-status `
+  --plan C:\wt\pitfetch-2024-2025\plan.json --staging-root C:\wt\pitfetch-2024-2025\staging
+python -m weather.sources.forecast_training_corpus materialize `
+  --plan C:\wt\pitfetch-2024-2025\plan.json --staging-root C:\wt\pitfetch-2024-2025\staging `
+  --publish-root data\training\pit_forecast_corpus
+```
+
+`tests/sources/test_pit_corpus_r0_fetch_2024_2025.py` pins these plan
+arguments and runs plan, collect, materialize and the trainer's corpus union
+end to end on fixture bytes (retrieval-time offset labels, 25-hour fall-back
+dates). The published corpus is then a third
+`--pit-forecast-corpus-manifest` for the trainer; before the owner fixes R0 on
+it, re-time one market at 75 days and check the HGB leaf counts (memo R0.3).
+
 ## Retraining input
 
 Pooled retraining accepts the corpus only through the explicit option:
@@ -310,10 +345,15 @@ foreach ($d in "wunderground", "training", "marine_water_contrast", "reanalysis"
 }
 ```
 
+An `r0:` fit needs only `wunderground` and `training`: no R0 column comes
+from the marine or reanalysis sidecars, and both loaders return nothing when
+their file is absent. Leaving those two links out also keeps the DST-shifted
+reanalysis training reader (EF §10w) out of the run entirely.
+
 With `--output-root` the trainer writes nothing under `data\`. Remove each
 junction with `cmd /c rmdir "<link>"`, which deletes the link only, before
 deleting the worktree; never a recursive delete, which follows the link into
-the main checkout. `served-policy:`
+the main checkout. `r0:` and `served-policy:`
 also needs the served pickles and coefficients, which a skip-smudge worktree
 holds as LFS pointers: `git lfs checkout "artifacts/models/hgb/*"
 "artifacts/models/coefs/*"` fills them from the local LFS cache without a
