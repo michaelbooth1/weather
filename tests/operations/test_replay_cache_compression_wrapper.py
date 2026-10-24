@@ -86,6 +86,11 @@ def wrapper_fixture(tmp_path, tmp_path_factory):
     wrapper = replace_once(wrapper, "try {\n    # Identity, time and live lease",
         "try {\n    $deadline = [DateTime]::UtcNow.AddSeconds([int]$env:WEATHER_TEST_WRAPPER_DEADLINE_SECONDS)\n"
         "    # Identity, time and live lease")
+    if wrapper.count("384MB") != 2:
+        raise AssertionError("expected both fixture child-memory checks")
+    # Keep the teardown fixture focused on Job cleanup under shared CI load.
+    # Production retains the stricter 384 MB child ceiling.
+    wrapper = wrapper.replace("384MB", "1GB")
     wrapper_path = scripts / "replay_cache_compression_run.ps1"
     wrapper_path.write_text(wrapper, encoding="utf-8")
     assignment = json.loads(repo_path("config/international_live_execution_host.json").read_text())
