@@ -349,3 +349,21 @@ def test_cli_control_module_writes_the_paired_columns(tmp_path, capsys):
     assert code == 0
     md = Path(json.loads(capsys.readouterr().out)["md"]).read_text(encoding="utf-8")
     assert "model - control [95%]" in md and "- Control: `module`" in md
+
+
+def test_hourly_rows_and_date_clustered_paired_intervals(tmp_path):
+    path = tmp_path / "cand.py"
+    path.write_text(MODULE)
+    root = write_layout(tmp_path / "lay", n_dates=14)
+    spec = data.CandidateSpec("module", str(path))
+    payload = sc.run_score(root, "2026-08-01", "2026-08-14", spec, min_train_dates=5,
+                           control=data.CandidateSpec("module", str(path)), hourly=True)
+    blocks = {r["block"] for r in payload["rows"] if r["market"] == "ALL"}
+    assert {"h03", "h14", "13-16"} <= blocks and not {"h05", "07-12"} & blocks   # fixture hours are 3 and 14
+    pooled = [r for r in payload["rows"] if r["market"] == "ALL"]
+    assert all("model_minus_control_date_clustered" in r for r in pooled)
+    assert not any("model_minus_control_date_clustered" in r for r in payload["rows"] if r["market"] != "ALL")
+    row = next(r for r in pooled if r["block"] == "all")
+    assert row["model_minus_served_date_clustered"]["estimate"] == pytest.approx(row["model_minus_served"]["estimate"])
+    plain = sc.run_score(root, "2026-08-01", "2026-08-14", spec, min_train_dates=5)
+    assert not any(r["block"].startswith("h") for r in plain["rows"])

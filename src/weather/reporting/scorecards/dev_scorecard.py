@@ -64,6 +64,8 @@ LOG_EPS = 1e-4
 BLOCKS = (("00-05", 0, 5), ("06-09", 6, 9), ("10-12", 10, 12), ("13-16", 13, 16), ("17-23", 17, 23))
 AGGREGATES = (("00-12", 0, 12), ("00-16", 0, 16), ("all", 0, 23))
 GROUPS = BLOCKS + AGGREGATES
+# --hourly: one row per local hour plus the 07-12 morning aggregate (lever L4 headline).
+HOURLY_GROUPS = tuple((f"h{h:02d}", h, h) for h in range(24)) + (("07-12", 7, 12),)
 ALL_MARKETS = "ALL"
 BASE_CAVEAT = ("EF 10v: 'served' is the served vector of record; a current-code replay does not reproduce "
                "it on dev dates, so a replay-derived candidate minus served mixes code drift with the variant.")
@@ -157,6 +159,7 @@ class Table:
         index = {k: i for i, k in enumerate(cell_keys)}
         self.cell = np.array([index[k] for k in zip(self.snaps.date.astype(str), self.markets)], int)
         self.w = crossed_weights([k[0] for k in cell_keys], [k[1] for k in cell_keys]) if cell_keys else None
+        self.w_date = crossed_weights([k[0] for k in cell_keys], ["all"] * len(cell_keys)) if cell_keys else None
 
     def candidate_vector(self, frame):
         """Rule-4 floor mask, renormalise, served fallback (HARNESS v2/v3 semantics)."""
@@ -205,12 +208,12 @@ class Table:
         return present, sums[present] / counts[present]
 
 
-def group_mask(local_hour, group):
-    low, high = next((lo, hi) for name, lo, hi in GROUPS if name == group)
+def group_mask(local_hour, group, groups=GROUPS):
+    low, high = next((lo, hi) for name, lo, hi in groups if name == group)
     return (local_hour >= low) & (local_hour <= high)
 
 
-def score_rows(table, p_candidate, candidate_is_served, p_control=None):
+def score_rows(table, p_candidate, candidate_is_served, p_control=None, groups=GROUPS):
     scores = {"candidate": table.brier(p_candidate), "served": table.brier(table.p_served),
               "market": table.brier(table.p_market)}
     if p_control is not None:
@@ -220,8 +223,8 @@ def score_rows(table, p_candidate, candidate_is_served, p_control=None):
     rows = []
     markets = [ALL_MARKETS] + sorted(set(table.markets))
     for market in markets:
-        for group, _, _ in GROUPS:
-            mask = group_mask(table.local_hour, group)
+        for group, _, _ in groups:
+            mask = group_mask(table.local_hour, group, groups)
             if market != ALL_MARKETS:
                 mask = mask & (table.markets == market)
             if not mask.any():
@@ -256,6 +259,11 @@ def score_rows(table, p_candidate, candidate_is_served, p_control=None):
                 row["brier_control"] = float(k.mean())
                 row["model_minus_control"] = ratio_interval(w, c - k, ones, with_power=True)
                 row["control_minus_served"] = ratio_interval(w, k - s, ones, with_power=True)
+                if market == ALL_MARKETS:
+                    # Date-clustered only (secondary; EF 5 makes the crossed interval the binding one).
+                    wd = table.w_date[:, idx]
+                    row["model_minus_control_date_clustered"] = ratio_interval(wd, c - k, ones)
+                    row["model_minus_served_date_clustered"] = ratio_interval(wd, c - s, ones)
             rows.append(row)
     return rows
 
@@ -354,7 +362,8 @@ def _candidate_vector(spec, layout, folds, table):
     return p, meta, reasons
 
 
-def run_score(layout_root, start, end, spec, fold_days=7, gap_days=1, min_train_dates=7, control=None):
+def run_score(layout_root, start, end, spec, fold_days=7, gap_days=1, min_train_dates=7, control=None,
+              hourly=False):
     """``control`` (optional CandidateSpec, module/vectors/distributions): scored on the same rows with
     the same crossed weights, so ``model_minus_control`` is the paired increment of the candidate over
     it (e.g. a source added to a no-source rule)."""
@@ -400,7 +409,8 @@ def run_score(layout_root, start, end, spec, fold_days=7, gap_days=1, min_train_
         "constants": {"draws": DRAWS, "seed": SEED, "cluster_floor": CLUSTER_FLOOR, "mde_effect": MDE_EFFECT,
                       "market_brier_floor": MARKET_BRIER_FLOOR, "log_eps": LOG_EPS},
         "base_caveat": BASE_CAVEAT,
-        "rows": score_rows(table, p, spec.kind == "served", p_control),
+        "rows": score_rows(table, p, spec.kind == "served", p_control,
+                           GROUPS + HOURLY_GROUPS if hourly else GROUPS),
     }
     prov = {"labels": layout.label_source, "layout_manifest_sha256": layout.manifest_sha256,
             "candidate": cand.get("sha256", cand["kind"])}
@@ -507,6 +517,7 @@ def build_parser():
     ctl = s.add_mutually_exclusive_group()
     ctl.add_argument("--control-module", help="paired control: Python file like --candidate-module")
     ctl.add_argument("--control-vectors", help="paired control: parquet/csv like --candidate-vectors")
+    s.add_argument("--hourly", action="store_true", help="add one row per local hour and a 07-12 aggregate")
     s.add_argument("--fold-days", type=int, default=7)
     s.add_argument("--gap-days", type=int, default=1)
     s.add_argument("--min-train-dates", type=int, default=7)
@@ -541,7 +552,7 @@ def main(argv=None):
         elif args.control_vectors:
             control = data.CandidateSpec("vectors", args.control_vectors, args.trained_through, args.no_training)
         payload = run_score(args.layout, args.start, args.end, spec, args.fold_days, args.gap_days,
-                            args.min_train_dates, control)
+                            args.min_train_dates, control, args.hourly)
         sha, json_path, md_path = write_outputs(payload, args.out, score_markdown)
         print(json.dumps({"sha256": sha, "json": str(json_path), "md": str(md_path)}))
         return 0

@@ -117,3 +117,26 @@ def test_iem_csv_parser_drops_missing_values():
 def test_us_stations_match_the_market_registry():
     icaos = {s.icao for s in common.us_stations()}
     assert len(icaos) == 11 and "CYYZ" not in icaos and "KBKF" in icaos
+
+
+def test_l4_blend_fits_bias_and_inverse_mse_weights_from_training_labels(monkeypatch):
+    from weather.reporting.scorecards.free_source_candidates import l4_blend_candidate as l4
+
+    days = [f"2026-08-{d:02d}" for d in range(1, 31)]
+    table = pd.DataFrame({("gfs_seamless"): [92.0] * 30, "ecmwf_ifs025": [np.nan] * 30, "icon_seamless": [np.nan] * 30},
+                         index=pd.MultiIndex.from_arrays([["KX"] * 30, days], names=["station", "local_date"]))
+    monkeypatch.setitem(l4._CACHE, "day1", (table, "sha"))
+    snaps = pd.DataFrame({"row_key": [f"k{d}" for d in days], "station": "KX", "date": days, "local_hour": 8,
+                          "captured_at_utc": [f"{d}T12:00:00+00:00" for d in days],
+                          "v2_available_at": [f"{d}T11:00:00+00:00" for d in days],
+                          "v2_mean": [88.0 if i % 2 else 92.0 for i in range(30)], "v2_stddev": 2.0, "floor": np.nan})
+    bands = pd.DataFrame({"row_key": np.repeat(snaps.row_key, 3).to_numpy(), "band_index": [0, 1, 2] * 30,
+                          "kind": ["lte", "eq", "gte"] * 30, "low": [0, 89, 91] * 30, "high": [88, 90, 0] * 30})
+    labels = pd.DataFrame({"row_key": snaps.row_key, "winner": 1})          # centre 89.5
+    state = l4.fit({"snapshots": snaps, "bands": bands, "labels": labels})
+    assert state["bias"][("KX", "gfs_seamless")] == pytest.approx(2.5)        # 92 - 89.5
+    assert state["bias"][("KX", "nbm_v2")] == pytest.approx(0.5)
+    w = state["weights"][("KX", 8)]
+    assert set(w) == {"nbm_v2", "gfs_seamless"} and w["gfs_seamless"] > w["nbm_v2"]   # GFS error 0 after bias
+    out = l4.predict(state, snaps.iloc[:1], bands.iloc[:3])
+    assert out.p.sum() == pytest.approx(1.0) and out.p.iloc[1] > 0.3

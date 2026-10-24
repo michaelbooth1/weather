@@ -83,4 +83,7 @@ Additive changes for the free-source screens; existing rows and numbers are unch
 - A `00-12` aggregate row (MG-1's block) beside `00-16` and `all`.
 - A module candidate whose fitted state is a dict with a `provenance` dict has it recorded once as
   `candidate.state_provenance` (input file hashes, fixed tables).
+- `--hourly` (lever L4): adds one pooled and per-market row per local hour (`h00`..`h23`) and a `07-12`
+  aggregate; with a control, pooled rows also carry date-clustered `model_minus_control_date_clustered` and
+  `model_minus_served_date_clustered` (secondary; the crossed interval stays binding, EF ?5).
 Record of use: [free-source screens](free-source-screens-2026-10-23.md).
