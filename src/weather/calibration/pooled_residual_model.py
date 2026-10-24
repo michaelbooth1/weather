@@ -39,9 +39,13 @@ import math
 import pickle
 from collections import defaultdict
 from datetime import date
+import os
 from pathlib import Path
 
-from weather.paths import CONFIG_ROOT, REPO_ROOT
+# Master ruling 10-24: fits use at most 10 OpenMP threads (32 logical cores / 3 slots).
+os.environ.setdefault("OMP_NUM_THREADS", "10")
+
+from weather.paths import CONFIG_ROOT, REPO_ROOT  # noqa: E402
 
 
 class ProductionImportRefused(ImportError):
