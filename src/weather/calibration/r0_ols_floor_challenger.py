@@ -81,7 +81,13 @@ refuse_production_import()
 ROW_RECORD = "r0_ols_floor_challenger_rows"
 SUMMARY_RECORD = "r0_ols_floor_challenger_summary"
 RECORD_VERSION = 1
-ARMS = ("r0_baseline", "ols_floor", "ols_floor_resid_hgb", "bias_corrected_forecast")
+ARMS = (
+    "r0_baseline", "ols_floor", "ols_floor_resid_hgb", "bias_corrected_forecast",
+    "r0_repro", "r0_floor", "r0_floor_served", "r0_baseline_floor", "bias_corrected_forecast_floor",
+)
+# Arms whose distributions this module builds on the bucket grid (mass exactly 1).
+GRID_ARMS = ("ols_floor", "ols_floor_resid_hgb", "bias_corrected_forecast", "bias_corrected_forecast_floor")
+SERVED_FLOOR_MULTIPLIER = 1e-6  # model_distribution.distribution_hard_floor_stage
 CHALLENGERS = ("ols_floor", "ols_floor_resid_hgb")
 PRIMARY_MARKETS = ("atlanta", "austin", "chicago", "dallas", "denver")
 SECONDARY_MARKETS = ("houston", "los-angeles", "miami", "nyc", "san-francisco", "seattle")
@@ -186,6 +192,33 @@ def floor_of(record):
     return round_half_up(value)
 
 
+def observed_floor_bucket(high_so_far):
+    """The hard-floor bucket at a cutoff: round_half_up of the observed high so far.
+
+    ``high_so_far`` is the trainer record's field: the maximum of the market's history
+    rows with ``minute_of_day <= cutoff_hour * 60`` (``build_historical_feature_record``).
+    Returns None when it is missing.
+    """
+    return floor_of({"high_so_far": high_so_far})
+
+
+def apply_hard_floor(probs, floor, multiplier=0.0):
+    """Mass below ``floor`` times ``multiplier`` (0: removed), then renormalised.
+
+    ``multiplier=1e-6`` is the served ``distribution_hard_floor_stage``. If no mass
+    remains, all of it goes to the floor bucket. ``floor=None`` returns a copy.
+    """
+    if floor is None:
+        return dict(probs)
+    out = {int(b): (float(p) * multiplier if int(b) < floor else float(p)) for b, p in probs.items()}
+    total = sum(out.values())
+    if total <= 1e-300:
+        out = {b: 0.0 for b in out}
+        out[int(floor)] = 1.0
+        return out
+    return {b: p / total for b, p in out.items()}
+
+
 def ols_fit(xs, ys):
     import numpy as np
 
@@ -275,6 +308,9 @@ def challenger_distributions(fit, record, support):
         "bias_corrected_forecast": discretised_normal(
             float(record["forecast_high"]) + fit["bias"], fit["bias_sd"], lo, hi, None
         ),
+        "bias_corrected_forecast_floor": discretised_normal(
+            float(record["forecast_high"]) + fit["bias"], fit["bias_sd"], lo, hi, floor
+        ),
     }, {"ols_mu": ols_mu, "ols_sd": max(fit["ols_sd"], SD_FLOOR), "resid_mu": resid_mu,
         "resid_sd": max(fit["resid_sd"], SD_FLOOR), "floor": floor}
 
@@ -321,6 +357,47 @@ def r0_baseline_distribution(model, val_record, train_days, bucket_space, hour):
     return scores
 
 
+class R0Repro:
+    """The trainer's per-cutoff R0 HGB path (allowlist ``r0:<market>``), fold by fold."""
+
+    def __init__(self, model, records):
+        from weather.calibration import feature_model as fm
+        from weather.calibration.feature_column_allowlist import resolve_column_allowlist
+
+        spec = model.spec
+        plan = resolve_column_allowlist(
+            f"r0:{spec.id}", market_spec=spec,
+            known_wind_groups=fm.WIND_GROUPS, known_cloud_groups=fm.CLOUD_GROUPS,
+        )
+        wind, cloud = list(plan["all_wind_groups"]), list(plan["all_cloud_groups"])
+        df, self.feature_cols = fm.feature_model_frame(
+            records, wind, cloud, market_spec=spec, column_allowlist=plan,
+        )
+        numeric, _ = fm.feature_model_columns(wind, cloud, market_spec=spec, column_allowlist=plan)
+        self.n_numeric = len(numeric)
+        self.X = df[self.feature_cols].copy()
+        self.y = df["final_bucket"].copy()
+        self.allowlist_sha256 = plan["sha256"]
+        self.leaf = fm.HGB_MIN_SAMPLES_LEAF
+        self._fm = fm
+        self._models = {}
+
+    def distribution(self, train_indices, val_idx, p_clim):
+        fm = self._fm
+        matrices = fm.fold_local_feature_matrices(
+            self.X, list(train_indices), [val_idx], self.feature_cols, self.n_numeric,
+        )
+        key = tuple(train_indices)
+        if key not in self._models:
+            hgb = fm.make_feature_hgb()
+            hgb.fit(matrices["hgb_train"], self.y.iloc[list(train_indices)])
+            self._models[key] = hgb
+        hgb = self._models[key]
+        raw = hgb.predict_proba(matrices["hgb_validation"])[0]
+        prob = {int(c): float(p) for c, p in zip(hgb.classes_, raw)}
+        return fm.blend(p_clim.copy(), prob, 0.80)
+
+
 def build_r0_records(market_id, target_date, manifests):
     """The R0 trainer's records, bucket space and model for one market."""
     from weather.calibration import feature_model as fm
@@ -354,7 +431,7 @@ def build_r0_records(market_id, target_date, manifests):
 
 def score_market(market_id, target_date, manifests):
     """Per-row losses of every arm on exactly the trainer's blocked-validation rows."""
-    from weather.calibration.feature_model import feature_blocked_validation_plan
+    from weather.calibration.feature_model import feature_blocked_validation_plan, smoothed_dist
 
     built = build_r0_records(market_id, target_date, manifests)
     model, raw, support = built["model"], built["records"], built["bucket_space"]
@@ -366,6 +443,9 @@ def score_market(market_id, target_date, manifests):
             continue
         plan = feature_blocked_validation_plan(records)
         train_by_val = plan["train_indices_by_validation_index"]
+        repro = R0Repro(model, records)
+        stats["r0_allowlist_sha256"] = repro.allowlist_sha256
+        stats["r0_hgb_min_samples_leaf"] = repro.leaf
         fits = {}
         for val_idx, record in enumerate(records):
             train_indices = train_by_val.get(val_idx) or []
@@ -378,16 +458,24 @@ def score_market(market_id, target_date, manifests):
                 stats["dropped_train_no_forecast"] += fits[key]["dropped_no_forecast"]
             actual = int(record["final_bucket"])
             base = r0_baseline_distribution(model, record, train_days, support, hour)
-            dists = {"r0_baseline": base}
+            floor = floor_of(record)
+            p_clim = smoothed_dist([d["final_bucket"] for d in train_days], support, alpha=0.10)
+            r0 = repro.distribution(train_indices, val_idx, p_clim)
+            dists = {
+                "r0_baseline": base,
+                "r0_repro": r0,
+                "r0_floor": apply_hard_floor(r0, floor),
+                "r0_floor_served": apply_hard_floor(r0, floor, SERVED_FLOOR_MULTIPLIER),
+                "r0_baseline_floor": apply_hard_floor(base, floor),
+            }
             detail = {}
             if _has_forecast(record):
                 challenger, detail = challenger_distributions(fits[key], record, support)
                 dists.update(challenger)
             else:
                 stats["fallback_no_forecast"] += 1
-                for arm in ("ols_floor", "ols_floor_resid_hgb", "bias_corrected_forecast"):
+                for arm in GRID_ARMS:
                     dists[arm] = base
-            floor = floor_of(record)
             if floor is not None and floor > actual:
                 stats["floor_above_label"] += 1
             row = {
@@ -425,8 +513,15 @@ def read_jsonl(path):
         return [json.loads(line) for line in handle if line.strip()]
 
 
+LANE_D_FLOORED = "r0_floored_lane_d"
+
+
 def join_r0(rows, r0_rows):
-    """Attach R0's per-row losses; refuse on any row-set or baseline mismatch."""
+    """Attach lane D's per-row R0 losses; refuse on any row-set or baseline mismatch.
+
+    Adds ``r0_*`` (raw R0) and, when lane D's rows carry them, ``r0_floored_lane_d_*``.
+    Returns the joined rows and a parity record (baseline, R0-repro and floored R0).
+    """
     mine = {(int(r["hour"]), str(r["validation_date"])): r for r in rows}
     theirs = {(int(r["hour"]), str(r["validation_date"])): r for r in r0_rows}
     if set(mine) != set(theirs):
@@ -436,19 +531,42 @@ def join_r0(rows, r0_rows):
             f"row sets differ: {len(set(mine) - set(theirs))} only here {only_mine}, "
             f"{len(set(theirs) - set(mine))} only in R0 {only_theirs}"
         )
-    worst = 0.0
+    parity = {"max_baseline_abs_diff": 0.0, "max_r0_repro_abs_diff": None,
+              "lane_d_floored": bool(r0_rows) and all("hgb_floored_log_loss" in r for r in r0_rows),
+              "max_floored_vs_zero_floor_abs_diff": None, "max_floored_vs_served_floor_abs_diff": None}
+
+    def track(name, value):
+        parity[name] = value if parity[name] is None else max(parity[name], value)
+
     out = []
     for key in sorted(mine):
         a, b = mine[key], theirs[key]
-        diff = abs(float(a["r0_baseline_log_loss"]) - float(b["baseline_log_loss"]))
-        worst = max(worst, diff)
+        parity["max_baseline_abs_diff"] = max(
+            parity["max_baseline_abs_diff"],
+            abs(float(a["r0_baseline_log_loss"]) - float(b["baseline_log_loss"])),
+        )
         joined = dict(a)
         joined["r0_log_loss"] = float(b["hgb_log_loss"])
         joined["r0_brier"] = float(b["hgb_brier"])
+        if "r0_repro_log_loss" in a:
+            track("max_r0_repro_abs_diff", abs(float(a["r0_repro_log_loss"]) - float(b["hgb_log_loss"])))
+        if parity["lane_d_floored"]:
+            joined[f"{LANE_D_FLOORED}_log_loss"] = float(b["hgb_floored_log_loss"])
+            joined[f"{LANE_D_FLOORED}_brier"] = float(b.get("hgb_floored_brier", float("nan")))
+            if "r0_floor_log_loss" in a:
+                track("max_floored_vs_zero_floor_abs_diff",
+                      abs(float(a["r0_floor_log_loss"]) - float(b["hgb_floored_log_loss"])))
+                track("max_floored_vs_served_floor_abs_diff",
+                      abs(float(a["r0_floor_served_log_loss"]) - float(b["hgb_floored_log_loss"])))
         out.append(joined)
-    if worst > PARITY_TOLERANCE:
-        raise ChallengerError(f"baseline parity fails: max |diff| {worst:.3g} > {PARITY_TOLERANCE}")
-    return out, worst
+    if parity["max_baseline_abs_diff"] > PARITY_TOLERANCE:
+        raise ChallengerError(
+            f"baseline parity fails: max |diff| {parity['max_baseline_abs_diff']:.3g} > {PARITY_TOLERANCE}"
+        )
+    parity["r0_repro_ok"] = (
+        parity["max_r0_repro_abs_diff"] is not None and parity["max_r0_repro_abs_diff"] <= PARITY_TOLERANCE
+    )
+    return out, parity
 
 
 def _date_matrix(rows_by_market, arm, ref, metric, hours):
@@ -532,18 +650,25 @@ def verdict(result):
     return bool(pooled["delta"] < 0 and pooled["ci95"][1] < 0 and no_market_worse)
 
 
-def compare(rows_by_market, *, reference, markets, required_markets):
-    """Pre-declared comparison of each challenger against ``reference``."""
-    scoped = {m: rows_by_market[m] for m in markets if m in rows_by_market}
+REPORT_ARMS = (
+    "ols_floor", "ols_floor_resid_hgb", "bias_corrected_forecast_floor", "bias_corrected_forecast",
+    "r0_floored_lane_d", "r0_floor", "r0_floor_served", "r0_baseline_floor", "r0_baseline", "r0",
+)
+
+
+def compare(rows_by_market, *, reference, markets, required_markets, label="", decisive=True):
+    """Each challenger against ``reference`` under the pre-declared two criteria."""
+    scoped = {m: rows_by_market[m] for m in markets
+              if m in rows_by_market and rows_by_market[m]
+              and f"{reference}_log_loss" in rows_by_market[m][0]}
     if not scoped:
         return None
     complete = set(required_markets) <= set(scoped)
     hours_all = sorted({int(r["hour"]) for rows in scoped.values() for r in rows})
-    out = {"reference": reference, "markets": sorted(scoped), "complete": complete,
-           "headline": {}, "per_hour": {}, "mean_loss": {}}
-    arms = list(CHALLENGERS) + ["bias_corrected_forecast"]
-    if reference != "r0_baseline":
-        arms.append("r0_baseline")
+    present = set.intersection(*(set(rows[0]) for rows in scoped.values()))
+    arms = [a for a in REPORT_ARMS if a != reference and f"{a}_log_loss" in present]
+    out = {"label": label, "reference": reference, "markets": sorted(scoped), "complete": complete,
+           "decisive": decisive, "headline": {}, "per_hour": {}, "mean_loss": {}}
     for arm in arms + [reference]:
         out["mean_loss"][arm] = {
             metric: mean_loss(scoped, arm, metric, HEADLINE_HOURS) for metric in ("log_loss", "brier")
@@ -555,22 +680,23 @@ def compare(rows_by_market, *, reference, markets, required_markets):
         head["log_loss_crossed"] = bootstrap_delta(
             scoped, arm, reference, "log_loss", HEADLINE_HOURS, crossed=True
         )["pooled"]
-        head["beats_reference"] = verdict(head["log_loss"]) if complete else None
+        head["passes_two_criteria"] = verdict(head["log_loss"]) if complete else None
         out["headline"][arm] = head
         out["per_hour"][arm] = {
             str(h): {metric: bootstrap_delta(scoped, arm, reference, metric, (h,))["pooled"]
                      for metric in ("log_loss", "brier")}
             for h in hours_all
         }
-    winners = [a for a in CHALLENGERS if out["headline"][a]["beats_reference"]]
+    contenders = [a for a in CHALLENGERS if a in out["headline"]]
+    winners = [a for a in contenders if out["headline"][a]["passes_two_criteria"]]
     if not complete:
         out["verdict"] = "PROVISIONAL (not every required market has rows)"
     elif not winners:
-        out["verdict"] = f"{reference} stands"
+        out["verdict"] = f"no challenger passes against {reference}"
     else:
         best = min(winners, key=lambda a: (out["headline"][a]["log_loss"]["pooled"]["delta"],
                                            CHALLENGERS.index(a)))
-        out["verdict"] = f"{best} beats {reference}"
+        out["verdict"] = f"{best} passes against {reference}"
     return out
 
 
@@ -585,7 +711,7 @@ def markdown_report(summary):
     lines = []
     for block in summary["comparisons"]:
         ref = block["reference"]
-        lines.append(f"## Against `{ref}` ({', '.join(block['markets'])}) - {block['verdict']}\n")
+        lines.append(f"## {block['label']}: against `{ref}` ({', '.join(block['markets'])}) - {block['verdict']}\n")
         lines.append("07-12 mean loss across markets (equal weight):\n")
         lines.append("| arm | log loss | Brier |")
         lines.append("| --- | --- | --- |")
@@ -652,29 +778,37 @@ def _score_command(args):
 def _compare_command(args):
     rows_dir = Path(args.rows_dir)
     rows_by_market = {}
-    r0_by_market = {}
     parity = {}
     for path in sorted(rows_dir.glob("challenger_rows_*.jsonl")):
         market = path.stem[len("challenger_rows_"):]
         rows_by_market[market] = read_jsonl(path)
+    for market, rows in rows_by_market.items():
+        bad = [r for r in rows if any(
+            f"{a}_mass" in r and abs(r[f"{a}_mass"] - 1.0) > 1e-9 for a in ARMS)]
+        if bad:
+            raise ChallengerError(f"{market}: {len(bad)} rows whose mass is not 1")
+    r0_joined = {}
     for spec in args.r0_rows or []:
         market, _, path = spec.partition("=")
         if market not in rows_by_market:
             raise ChallengerError(f"no challenger rows for {market}")
-        joined, worst = join_r0(rows_by_market[market], read_jsonl(path))
-        r0_by_market[market] = joined
-        parity[market] = {"max_baseline_abs_diff": worst, "n_rows": len(joined),
-                          "r0_rows_sha256": _sha256(path), "r0_rows_path": path}
-    for market, rows in rows_by_market.items():
-        bad = [r for r in rows if any(abs(r[f"{a}_mass"] - 1.0) > 1e-9 for a in ARMS if a != "r0_baseline")]
-        if bad:
-            raise ChallengerError(f"{market}: {len(bad)} rows whose challenger mass is not 1")
+        joined, record = join_r0(rows_by_market[market], read_jsonl(path))
+        r0_joined[market] = joined
+        parity[market] = dict(record, n_rows=len(joined), r0_rows_sha256=_sha256(path), r0_rows_path=path)
+    repro_ok = {m: rows for m, rows in rows_by_market.items() if parity.get(m, {}).get("r0_repro_ok")}
+    plan = (
+        ("VERDICT (rule clarification 2)", r0_joined, LANE_D_FLOORED, PRIMARY_MARKETS, True),
+        ("CONTROL floor + forecast", rows_by_market, "bias_corrected_forecast_floor", PRIMARY_MARKETS, True),
+        ("CONTROL own R0-repro + floor (repro parity passed)", repro_ok, "r0_floor", PRIMARY_MARKETS, False),
+        ("DESCRIPTIVE raw R0", r0_joined, "r0", PRIMARY_MARKETS, False),
+        ("SECONDARY (other six) vs baseline", rows_by_market, "r0_baseline", SECONDARY_MARKETS, True),
+        ("DESCRIPTIVE other six vs floor + forecast", rows_by_market, "bias_corrected_forecast_floor",
+         SECONDARY_MARKETS, False),
+        ("DESCRIPTIVE other six vs own R0-repro + floor", rows_by_market, "r0_floor", SECONDARY_MARKETS, False),
+    )
     comparisons = [c for c in (
-        compare(r0_by_market, reference="r0", markets=PRIMARY_MARKETS, required_markets=PRIMARY_MARKETS),
-        compare(rows_by_market, reference="r0_baseline", markets=SECONDARY_MARKETS,
-                required_markets=SECONDARY_MARKETS),
-        compare(rows_by_market, reference="r0_baseline", markets=PRIMARY_MARKETS,
-                required_markets=PRIMARY_MARKETS),
+        compare(rows, reference=ref, markets=markets, required_markets=markets, label=label, decisive=decisive)
+        for label, rows, ref, markets, decisive in plan
     ) if c is not None]
     summary = {
         "record": SUMMARY_RECORD, "record_version": RECORD_VERSION,
@@ -689,6 +823,7 @@ def _compare_command(args):
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(summary, indent=1, sort_keys=True), encoding="utf-8")
     out.with_suffix(".md").write_text(markdown_report(summary), encoding="utf-8")
+    print(json.dumps(parity, indent=1, sort_keys=True))
     print(markdown_report(summary))
     return 0
 
