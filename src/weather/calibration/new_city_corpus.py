@@ -514,9 +514,9 @@ def _labels_command(args):
     return 0
 
 
-FIT_SCHEMA = "new_city_candidate_fit/2"  # research result, not a registry artifact
+FIT_SCHEMA = "new_city_candidate_fit/3"  # research result, not a registry artifact
 FIT_FEATURES = ("forecast_high_native", "obs_max_so_far_native", "obs_routine_max_so_far_native", "obs_latest_native")
-FIT_MODELS = ("baseline", "ols", "hgb")
+FIT_MODELS = ("baseline", "ols", "hgb", "ols_hgb_resid")
 FIT_BOOTSTRAP_DRAWS = 2000
 FIT_SEED = 20261023
 FIT_CV_FOLDS = 5
@@ -526,7 +526,10 @@ FIT_BLOCKS = (
     ("07-09", 7, 9), ("10-12", 10, 12), ("07-12", 7, 12),
     ("13-16", 13, 16), ("17-20", 17, 20), ("all", 7, 20),
 )
-FIT_COMPARISONS = (("ols", "baseline"), ("hgb", "baseline"), ("hgb", "ols"))
+FIT_COMPARISONS = (
+    ("ols", "baseline"), ("hgb", "baseline"), ("hgb", "ols"),
+    ("ols_hgb_resid", "baseline"), ("ols_hgb_resid", "ols"),
+)
 HGB_PARAMS = {
     "loss": "squared_error", "learning_rate": 0.05, "max_iter": 300, "max_leaf_nodes": 15,
     "min_samples_leaf": 40, "l2_regularization": 1.0, "early_stopping": False,
@@ -603,13 +606,58 @@ def _ols(xs, ys):
     return beta, float(resid.std(ddof=x.shape[1])) if len(y) > x.shape[1] else float("nan")
 
 
-def _hgb_fit(xs, ys):
+def _hgb_fit(xs, ys, *, monotone=True):
     from sklearn.ensemble import HistGradientBoostingRegressor
 
     model = HistGradientBoostingRegressor(
-        **HGB_PARAMS, monotonic_cst=[1] * len(FIT_FEATURES), random_state=FIT_SEED,
+        **HGB_PARAMS, monotonic_cst=[1 if monotone else 0] * len(FIT_FEATURES), random_state=FIT_SEED,
     )
     return model.fit(xs, ys)
+
+
+class _OlsPlusResidualHgb:
+    """OLS mean plus an unconstrained HGB fitted on the OLS training residuals."""
+
+    def __init__(self, xs, ys):
+        import numpy as np
+
+        xs, ys = np.asarray(xs, dtype=float), np.asarray(ys, dtype=float)
+        self.beta, _ = _ols(xs, ys)
+        self.resid_model = _hgb_fit(xs, ys - self._ols_mean(xs), monotone=False)
+
+    def _ols_mean(self, xs):
+        return self.beta[0] + xs @ self.beta[1:]
+
+    def predict(self, xs):
+        import numpy as np
+
+        xs = np.asarray(xs, dtype=float)
+        return self._ols_mean(xs) + self.resid_model.predict(xs)
+
+
+def _date_folds(dates):
+    import numpy as np
+
+    unique = sorted(set(dates))
+    fold_of = {d: i % FIT_CV_FOLDS for i, d in enumerate(unique)}
+    return np.asarray([fold_of[d] for d in dates])
+
+
+def _ols_hgb_resid_with_cv_sd(xs, ys, dates):
+    """OLS + residual HGB on all training rows; sd from out-of-fold residuals by date.
+
+    Each fold refits both stages on its training dates, so the sd is honest for the
+    two-stage model.
+    """
+    import numpy as np
+
+    xs, ys = np.asarray(xs, dtype=float), np.asarray(ys, dtype=float)
+    folds = _date_folds(dates)
+    resid = np.empty(len(ys))
+    for k in range(FIT_CV_FOLDS):
+        held = folds == k
+        resid[held] = ys[held] - _OlsPlusResidualHgb(xs[~held], ys[~held]).predict(xs[held])
+    return _OlsPlusResidualHgb(xs, ys), float(resid.std(ddof=1))
 
 
 def _hgb_with_cv_sd(xs, ys, dates):
@@ -617,9 +665,7 @@ def _hgb_with_cv_sd(xs, ys, dates):
     import numpy as np
 
     xs, ys = np.asarray(xs, dtype=float), np.asarray(ys, dtype=float)
-    unique = sorted(set(dates))
-    fold_of = {d: i % FIT_CV_FOLDS for i, d in enumerate(unique)}
-    folds = np.asarray([fold_of[d] for d in dates])
+    folds = _date_folds(dates)
     resid = np.empty(len(ys))
     for k in range(FIT_CV_FOLDS):
         held = folds == k
@@ -635,8 +681,11 @@ def fit_and_evaluate(rows, *, train_through, test_from, test_to):
     * ``ols``: least squares of the label on ``FIT_FEATURES``; training residual sd.
     * ``hgb``: histogram gradient boosting, monotone increasing in every feature,
       squared error; sd from 5-fold (by date) out-of-fold residuals.
+    * ``ols_hgb_resid``: the OLS mean plus an unconstrained HGB fitted on the OLS
+      training residuals; sd from 5-fold (by date) out-of-fold residuals of the
+      two-stage model, each fold refitting both stages.
 
-    OLS and HGB carry the hard floor: the label is never below the band of the
+    OLS, HGB and OLS + residual HGB carry the hard floor, applied after the residual is added: the label is never below the band of the
     highest label-rule report observed by the cutoff. All three give a
     discretised normal over the venue band ladder (1 C bands; 2 F bands on even
     starts). Deltas carry a date-clustered bootstrap per market and block.
@@ -667,13 +716,16 @@ def fit_and_evaluate(rows, *, train_through, test_from, test_to):
         base_sd = float(np.std([r["label_native"] - r["forecast_high_native"] - bias for r in train], ddof=1))
         beta, ols_sd = _ols([_x_of(r) for r in train], y_train)
         hgb, hgb_sd = _hgb_with_cv_sd([_x_of(r) for r in train], y_train, [r["target_date"] for r in train])
-        hgb_test = hgb.predict(np.asarray([_x_of(r) for r in test], dtype=float))
+        x_test = np.asarray([_x_of(r) for r in test], dtype=float)
+        hgb_test = hgb.predict(x_test)
+        res_model, res_sd = _ols_hgb_resid_with_cv_sd([_x_of(r) for r in train], y_train, [r["target_date"] for r in train])
+        res_test = res_model.predict(x_test)
         models[f"{market_id}|{hour}"] = {
             "n_train": len(train), "bias": round(bias, 4), "baseline_sd": round(base_sd, 4),
             "ols_beta": [round(float(b), 4) for b in beta], "ols_sd": round(ols_sd, 4),
-            "hgb_cv_sd": round(hgb_sd, 4),
+            "hgb_cv_sd": round(hgb_sd, 4), "ols_hgb_resid_cv_sd": round(res_sd, 4),
         }
-        for r, hgb_mean in zip(test, hgb_test):
+        for r, hgb_mean, res_mean in zip(test, hgb_test, res_test):
             edges, width = _band_ladder(r["label_native"], unit)
             floor = r.get("floor_native")
             if floor is not None and floor > r["label_native"]:
@@ -682,6 +734,7 @@ def fit_and_evaluate(rows, *, train_through, test_from, test_to):
                 "baseline": (r["forecast_high_native"] + bias, base_sd, None),
                 "ols": (float(beta[0] + np.dot(beta[1:], _x_of(r))), ols_sd, floor),
                 "hgb": (float(hgb_mean), hgb_sd, floor),
+                "ols_hgb_resid": (float(res_mean), res_sd, floor),
             }
             item = {"market_id": market_id, "cutoff_hour_local": hour, "target_date": r["target_date"]}
             for name, (mean, sd, fl) in means.items():
@@ -730,7 +783,7 @@ def fit_and_evaluate(rows, *, train_through, test_from, test_to):
         "features": list(FIT_FEATURES),
         "models": list(FIT_MODELS),
         "hgb_params": HGB_PARAMS,
-        "hard_floor": "ols and hgb: no mass below round_half_up(highest label-rule report by the cutoff)",
+        "hard_floor": "ols, hgb and ols_hgb_resid (after adding the residual): no mass below round_half_up(highest label-rule report by the cutoff)",
         "headline_blocks": ["07-09", "10-12", "07-12"],
         "floor_above_label_rows": dict(floor_violations),
         "bootstrap": {"draws": FIT_BOOTSTRAP_DRAWS, "seed": FIT_SEED, "cluster": "target_date, per market and block"},

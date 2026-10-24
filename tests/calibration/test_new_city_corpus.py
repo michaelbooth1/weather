@@ -290,6 +290,30 @@ def test_fit_beats_the_forecast_only_baseline_when_observations_carry_signal():
     assert set(result["headline_blocks"]) == {"07-09", "10-12", "07-12"}
     assert "london|07-12" in result["results"]
     assert result["benchmark"].startswith("weather-only")
+    assert late["ols_hgb_resid_minus_baseline_brier"] < 0
+    assert "ols_hgb_resid_minus_ols_brier_ci95" in late
+    assert result["fitted"]["london|15"]["ols_hgb_resid_cv_sd"] > 0
+
+
+def test_residual_hgb_repairs_what_ols_cannot_fit():
+    import random
+
+    rng = random.Random(11)
+    rows = []
+    start = corpus._parse_date("2023-01-01")
+    for k in range(500):
+        day = (start + corpus.timedelta(days=k)).isoformat()
+        forecast = 10 + 20 * rng.random()
+        truth = forecast + (4.0 if forecast > 20 else 0.0) + rng.gauss(0, 0.4)  # a step OLS cannot fit
+        rows.append({
+            "market_id": "london", "cutoff_hour_local": 8, "target_date": day, "temperature_unit": "C",
+            "forecast_high_native": forecast, "obs_max_so_far_native": forecast - 8, "obs_latest_native": forecast - 8,
+            "label_native": int(truth + 0.5),
+        })
+    result = corpus.fit_and_evaluate(rows, train_through="2024-02-29", test_from="2024-03-01", test_to="2024-05-14")
+
+    block = result["results"]["london|07-09"]
+    assert block["ols_hgb_resid_minus_ols_brier"] < 0 and block["ols_hgb_resid_minus_ols_brier_ci95"][1] < 0
 
 
 def test_fit_refuses_evaluation_after_the_development_window():
