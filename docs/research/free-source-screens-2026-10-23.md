@@ -275,6 +275,23 @@ Not scored, by the brief and by measurement. Parsers built on small pulls (`weat
 - **Parity/latency:** the open-data 00Z ENS is public at about 08Z; serving it would need a forward
   capture plus eccodes on the capture host (a separate owner decision).
 
+### G2-a result (scored 2026-10-24; score `1d72ea4b36f8…`, `data/research/free_sources/scores/g2a/`)
+
+Coverage is identical to MG-1 (83,306 snapshots). Pooled `ALL`:
+
+| Block | G2-a − served | G2-a − MG-1 | MDE80 |
+| --- | --- | --- | --- |
+| **00-12 (decided)** | −0.0154 [−0.0230, −0.0078] | **−0.0000 [−0.0033, +0.0031]** | 0.0047 |
+| 06-09 | −0.0171 [−0.0252, −0.0091] | −0.0008 [−0.0044, +0.0027] | 0.0051 |
+| 10-12 | −0.0123 [−0.0193, −0.0052] | −0.0008 [−0.0044, +0.0026] | 0.0050 |
+| 13-16 | −0.0029 [−0.0117, +0.0051] | −0.0019 [−0.0057, +0.0019] | 0.0055 |
+
+Per market at 00-12, G2-a − MG-1: 6 of 11 negative. Dallas −0.0096 [−0.0176, −0.0022] and Austin −0.0048
+are negative; Los Angeles +0.0062 and Atlanta +0.0047 harm (date-clustered intervals).
+
+**Verdict G2-a: KILL (no increment demonstrated).** The interval is centred on zero, and its MDE80 (about 0.005)
+is four times the 5% bar.
+
 ## Fetch receipts (all under `data/research/free_sources/<source>/`, sha256 per file in `receipts.jsonl`)
 
 | Source | Requests | Bytes | Rows | Span | Notes |
