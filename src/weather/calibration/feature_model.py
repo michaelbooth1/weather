@@ -1283,6 +1283,7 @@ def base_only_output_paths(output_root, suffix):
         "coefs": root / f"feature_model_coefs{suffix}.json",
         "hgb": root / f"feature_model_hgb{suffix}.pkl",
         "report": root / f"feature_model_report{suffix}.md",
+        "validation_rows": root / f"feature_model_blocked_validation_rows{suffix}.jsonl",
     }
     existing = [str(path) for path in paths.values() if path.exists()]
     if existing:
@@ -1523,6 +1524,8 @@ def _train_main(
     calibration_rows = []
     ablation_rows = []
     ablation_observation_rows = []
+    # Per-row blocked validation losses (research output, --output-root only).
+    blocked_validation_records = []
     training_metric_rows = []
     honest_validation_rows = []
 
@@ -1762,6 +1765,15 @@ def _train_main(
             briers_hgb.append(hgb_brier)
             cc_hgb.append((hgb_prob_blended[hgb_top], 1.0 if hgb_top == val_actual else 0.0))
             hgb_fold_data.append((p_clim, hgb_prob_dict, val_actual))
+            blocked_validation_records.append({
+                "hour": int(hour),
+                "validation_date": str(val_date),
+                "validation_year": int(str(val_date)[:4]),
+                "baseline_log_loss": float(losses_baseline[-1]),
+                "lr_log_loss": float(losses_lr[-1]),
+                "hgb_log_loss": float(hgb_loss),
+                "hgb_brier": float(hgb_brier),
+            })
             hgb_outer_rows.append({
                 "validation_index": val_idx,
                 "validation_date": val_date,
@@ -2178,6 +2190,14 @@ def _train_main(
         with open(report_path, "w", encoding="utf-8") as f:
             f.write("\n".join(report_lines) + "\n")
         print(f"Saved model report to {report_path}")
+        if redirected is not None and blocked_validation_records:
+            # One JSON row per scored blocked-validation (cutoff hour, date), so a
+            # research comparison can cluster by date (R0 leaf pick, 2026-10-24).
+            rows_path = redirected["validation_rows"]
+            with open(rows_path, "x", encoding="utf-8", newline="\n") as handle:
+                for row in blocked_validation_records:
+                    handle.write(json.dumps(row, sort_keys=True) + "\n")
+            print(f"Saved {len(blocked_validation_records)} blocked-validation rows to {rows_path}")
 
 def parse_cli_args(argv=None):
     import argparse

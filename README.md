@@ -503,7 +503,9 @@ R0 candidate manifest and the research release provenance bind per market.
 `--output-root <dir>` runs the base models only, as R0 does:
 
 - The cutoff-hour HGB/LR and the report are written to a new directory under
-  that root.
+  that root, plus `feature_model_blocked_validation_rows_<market>.jsonl`: one
+  row per scored blocked-validation (cutoff hour, date) with the baseline, LR
+  and HGB log loss, so research comparisons can cluster by date.
 - Late-day continuation is not trained, so the served late-day models stay as
   they are.
 - Nothing is written to `artifacts/models/`.

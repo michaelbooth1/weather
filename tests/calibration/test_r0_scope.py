@@ -234,3 +234,23 @@ def test_served_leaf_keeps_the_differences_record_unchanged():
     assert default["hyperparameters"] == "unchanged_from_served_trainer"
     swept = served_model_differences(record, None, base_models_only=True, hgb_min_samples_leaf=10)
     assert swept["hyperparameters"]["hgb_min_samples_leaf"] == 10
+
+
+def test_main_writes_per_row_blocked_validation_losses(tmp_path, monkeypatch, served, corpora):  # noqa: F811
+    served["nyc"] = ["high_so_far", "pressure", "forecast_high"] + ONE_HOT
+    trainer = _patch_trainer(monkeypatch, {})
+    monkeypatch.setattr(trainer, "RUN_LOO", True)
+    out = tmp_path / "r0-rows"
+    trainer.main(
+        "nyc", column_allowlist="r0:nyc", output_root=str(out), target_date="2026-11-24",
+        pit_forecast_corpus_manifests=[str(corpora["2021"]), str(corpora["2022"])],
+    )
+    path = out / "feature_model_blocked_validation_rows_nyc.jsonl"
+    rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    assert rows and {row["hour"] for row in rows} == {12}
+    assert {row["validation_year"] for row in rows} <= {2021, 2022}
+    assert all(row["validation_date"][:4] == str(row["validation_year"]) for row in rows)
+    for key in ("baseline_log_loss", "lr_log_loss", "hgb_log_loss", "hgb_brier"):
+        assert all(isinstance(row[key], float) for row in rows)
+    report = (out / "feature_model_report_nyc.md").read_text(encoding="utf-8")
+    assert "HGBC LogLoss" in report
