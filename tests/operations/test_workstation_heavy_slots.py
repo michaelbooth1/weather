@@ -61,17 +61,50 @@ if ($env:WEATHER_TEST_CAPTURE_WINDOW_OPEN -eq '1') {
 """
 
 
-def _install(repo: Path) -> str:
+WRAPPER_CLOSURE = ("workstation_heavy.ps1", "workload_admission.ps1", "windows_kill_on_close_job.ps1")
+# The last commit before workstation slots: what older wrapper copies in other worktrees run.
+PRE_SLOT_COMMIT = "57cfdfe726eb83d074059a3ddefa4df7d13b936c"
+
+
+def _install(
+    repo: Path,
+    *,
+    mutex: str | None = None,
+    state_path: Path | None = None,
+    sources: dict[str, str] | None = None,
+) -> str:
     ops = repo / "scripts" / "ops"
     ops.mkdir(parents=True, exist_ok=True)
-    for name in ("workstation_heavy.ps1", "workload_admission.ps1", "windows_kill_on_close_job.ps1"):
-        shutil.copyfile(REPO_ROOT / "scripts" / "ops" / name, ops / name)
+    for name in WRAPPER_CLOSURE:
+        text = sources[name] if sources else (REPO_ROOT / "scripts" / "ops" / name).read_text(encoding="utf-8-sig")
+        (ops / name).write_text(text, encoding="utf-8")
     admission = ops / "workload_admission.ps1"
     text = admission.read_text(encoding="utf-8-sig")
     assert text.count(LEGACY_MUTEX) >= 1
-    mutex = "Local\\WeatherSlotFixture-" + uuid.uuid4().hex
-    admission.write_text(text.replace(LEGACY_MUTEX, mutex) + TEST_OVERRIDES, encoding="utf-8")
+    mutex = mutex or "Local\\WeatherSlotFixture-" + uuid.uuid4().hex
+    overrides = TEST_OVERRIDES
+    if state_path is not None:
+        # Several fixture checkouts share one host-global state file, as worktrees do.
+        overrides += (
+            "function Get-WeatherHeavyWorkloadPoisonPath {\n"
+            f"    param([switch]$CreateIfMissing)\n    '{state_path}'\n}}\n"
+        )
+    admission.write_text(text.replace(LEGACY_MUTEX, mutex) + overrides, encoding="utf-8")
     return mutex
+
+
+def _pre_slot_sources() -> dict[str, str]:
+    sources = {}
+    for name in WRAPPER_CLOSURE:
+        shown = subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "show", f"{PRE_SLOT_COMMIT}:scripts/ops/{name}"],
+            capture_output=True, check=False,
+        )
+        if shown.returncode != 0:
+            pytest.skip("the pre-slot commit is not in this clone's history")
+        sources[name] = shown.stdout.decode("utf-8-sig")
+    assert "Enter-WeatherWorkstationHeavySlotLease" not in sources["workload_admission.ps1"]
+    return sources
 
 
 def _write_assignment(repo: Path, *, capture_identity: bool) -> None:
@@ -556,3 +589,137 @@ def test_capture_host_path_stays_one_serial_lease(capture_host: Path, holders: l
     assert not list((repo / "data" / "logs").glob("heavy_workload.slot*.lock"))
     assert not list(repo.glob(".test-heavy-workload*.poison"))
     assert not (repo / "heavy_workload_queue_v1").exists()
+
+
+LEASE_STATE_JSON = "Get-WeatherHeavyWorkloadLeaseState -RepoRoot '{repo}' | ConvertTo-Json -Compress -Depth 5\n"
+
+
+def _process_start(pid: int, repo: Path) -> str:
+    result = _admission(repo, f"[Diagnostics.Process]::GetProcessById({pid}).StartTime.ToUniversalTime().ToString('o')\n")
+    assert result.returncode == 0, result.stderr
+    return result.stdout.strip()
+
+
+def test_lease_state_and_holder_summary_see_every_busy_workstation_slot(workstation: Path, holders: list[Holder]) -> None:
+    repo = workstation
+    # A dead holder's leftover slot file widens nothing by itself.
+    _write_marker(repo, 5, pid=_dead_pid(), start="2026-10-24T00:00:00.0000000Z")
+    idle = json.loads(_admission(repo, LEASE_STATE_JSON.format(repo=repo)).stdout)
+    assert (idle["Active"], idle["BusySlotCount"], idle["Owner"]) == (False, 0, None)
+
+    holders.append(Holder(repo, SLOT_ENTER, "two"))
+    holders.append(Holder(repo, SLOT_ENTER, "three"))
+    assert [holder.slot for holder in holders] == [2, 3]
+    # A live owner known only from the host-global state file (another checkout's slot lock).
+    _write_marker(repo, 4, pid=os.getpid(), start=_process_start(os.getpid(), repo))
+    state = json.loads(_admission(repo, LEASE_STATE_JSON.format(repo=repo)).stdout)
+    assert state["Active"] is True
+    assert state["Path"].endswith("heavy_workload.lock")
+    assert state["BusySlotCount"] == 3
+    assert [(s["SlotId"], s["Source"]) for s in state["Slots"]] == [(2, "repo_lock"), (3, "repo_lock"), (4, "host_state")]
+    assert state["Slots"][0]["Workload"] == "WorkstationOffline-pytest-two"
+    assert isinstance(state["Slots"][0]["Pid"], int) and state["Slots"][0]["Pid"] > 0
+    assert (state["Owner"]["workload"], state["Owner"]["workstation_slot_id"]) == ("WorkstationOffline-pytest-two", 2)
+
+    summary = _admission(repo, f"Get-WeatherHeavyWorkloadHolderSummary -RepoRoot '{repo}' | ConvertTo-Json -Compress\n")
+    assert json.loads(summary.stdout) == {
+        "workload": "WorkstationOffline-pytest-two",
+        "pid": state["Slots"][0]["Pid"],
+        "execution_host_profile": "workstation_offline_v1",
+        "state": "ACTIVE",
+        "slot_id": 2,
+    }
+
+
+def test_capture_host_lease_state_is_byte_identical_to_the_pre_slot_helper(tmp_path: Path, holders: list[Holder]) -> None:
+    sources = _pre_slot_sources()
+    old_repo, new_repo = tmp_path / "old", tmp_path / "new"
+    mutex = "Local\\WeatherSlotFixture-" + uuid.uuid4().hex
+    for repo, src in ((old_repo, sources), (new_repo, None)):
+        repo.mkdir()
+        _install(repo, mutex=mutex, sources=src)
+        _write_assignment(repo, capture_identity=True)
+
+    def outputs(label: str) -> tuple[str, str]:
+        rendered = []
+        for repo in (old_repo, new_repo):
+            # Both helpers read the same checkout's lock, so only the code differs.
+            result = _admission(repo, LEASE_STATE_JSON.format(repo=new_repo))
+            assert result.returncode == 0, (label, result.stderr)
+            rendered.append(result.stdout)
+        return rendered[0], rendered[1]
+
+    old, new = outputs("absent")
+    assert new == old and json.loads(new) == {"Active": False, "Path": str(new_repo / "data/logs/heavy_workload.lock"), "Owner": None}
+    # Slot files on the capture host (which never writes them) still change nothing.
+    (new_repo / "data" / "logs").mkdir(parents=True, exist_ok=True)
+    (new_repo / "data/logs/heavy_workload.slot2.lock").write_text("{}", encoding="utf-8")
+    _write_marker(new_repo, 3, pid=os.getpid(), start=_process_start(os.getpid(), new_repo))
+    holders.append(Holder(new_repo, CAPTURE_ENTER, "capture_holder", WEATHER_TEST_CAPTURE_WINDOW_OPEN="1"))
+    old, new = outputs("held")
+    assert new == old
+    assert json.loads(new)["Active"] is True and "Slots" not in json.loads(new)
+    holders[0].stop()
+    old, new = outputs("released")
+    assert new == old and json.loads(new)["Active"] is False
+
+
+def _release_child(repo: Path, name: str, started: Path, release: Path) -> Path:
+    path = repo / f"test_hold_{name}.py"
+    path.write_text(
+        "import time\nfrom pathlib import Path\n\n"
+        "def test_hold():\n"
+        f"    Path({str(started)!r}).write_text('started', encoding='utf-8')\n"
+        "    deadline = time.monotonic() + 150\n"
+        f"    while not Path({str(release)!r}).exists() and time.monotonic() < deadline:\n"
+        "        time.sleep(0.05)\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_pre_slot_wrapper_bytes_interoperate_with_slot_wrappers(tmp_path: Path, holders: list[Holder]) -> None:
+    sources = _pre_slot_sources()
+    old_repo, new_repo = tmp_path / "old", tmp_path / "new"
+    mutex = "Local\\WeatherSlotFixture-" + uuid.uuid4().hex
+    shared_state = tmp_path / "host-global-heavy-workload.poison"
+    for repo, src in ((old_repo, sources), (new_repo, None)):
+        repo.mkdir()
+        _install(repo, mutex=mutex, state_path=shared_state, sources=src)
+        _write_assignment(repo, capture_identity=False)
+
+    # 1. The pre-slot wrapper takes the legacy lease; slot wrappers count it as slot 1.
+    started, release = tmp_path / "old-started.txt", tmp_path / "old-release.flag"
+    old_job = subprocess.Popen(
+        _wrapper_argv(old_repo, _release_child(old_repo, "old", started, release)),
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=_env(),
+    )
+    try:
+        _wait_for(lambda: started.exists() or old_job.poll() is not None)
+        assert old_job.poll() is None, old_job.communicate()
+        holders.append(Holder(new_repo, SLOT_ENTER, "two"))
+        holders.append(Holder(new_repo, SLOT_ENTER, "three"))
+        assert [holder.slot for holder in holders] == [2, 3]
+        full, sentinel = _run_wrapper(new_repo, "fourth")
+        assert full.returncode == 1 and "(slots_full)" in full.stderr and not sentinel.exists()
+
+        # Slots 2-3 busy in this checkout, slot 1 busy from the other checkout's legacy lease.
+        state = json.loads(_admission(new_repo, LEASE_STATE_JSON.format(repo=new_repo)).stdout)
+        assert state["Active"] is True and state["BusySlotCount"] == 3
+        assert [(s["SlotId"], s["Source"]) for s in state["Slots"]] == [(1, "host_state"), (2, "repo_lock"), (3, "repo_lock")]
+        assert state["Slots"][0]["Workload"].startswith("WorkstationOffline-pytest-")
+        # The old checkout's own helper still sees only its slot-1 lock, as before.
+        old_state = json.loads(_admission(old_repo, LEASE_STATE_JSON.format(repo=old_repo)).stdout)
+        assert old_state["Active"] is True and "Slots" not in old_state
+    finally:
+        release.write_text("go", encoding="utf-8")
+        out, err = old_job.communicate(timeout=180)
+    assert old_job.returncode == 0, err
+    assert "1 passed" in out
+
+    # 2. Once slot wrappers hold the legacy slot too, the pre-slot wrapper is refused.
+    holders.append(Holder(new_repo, SLOT_ENTER, "one"))
+    assert holders[-1].slot == 1
+    refused, sentinel = _run_wrapper(old_repo, "old-refused")
+    assert refused.returncode == 1
+    assert "blocked by another heavy or portable live lease" in refused.stderr and not sentinel.exists()

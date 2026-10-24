@@ -176,6 +176,20 @@ below applies: no exemption, no queue state, the same windows and the same bound
   Capture-colocated admission never names a slot and keeps the one serial lease. An older wrapper copy in a
   worktree keeps working unchanged; a lane gets slots by merging this change into its worktree and running
   that worktree's wrapper.
+- *Lock record.* Every slot's lock file keeps the schema tag `weather_heavy_workload_lease_v3`. A
+  `workstation_offline_v1` record, slot 1 included, adds `workstation_slot_id` under that unchanged tag, and
+  `host_global_mutex` names the slot's own mutex; readers ignore unknown fields. Capture-colocated and
+  portable records carry no new field.
+- *Status.* `Get-WeatherHeavyWorkloadLeaseState` (used by `status.ps1`, `merge_queue_driver.ps1` and
+  `chain_recovery_run.ps1`) returns the unchanged `{Active, Path, Owner}` for this checkout's slot-1 lock
+  unless a slot file exists and the host proves to be the assigned workstation. Only then is it busy when any
+  slot is busy, either through this checkout's slot lock or through a host-global slot state file with a
+  live owner (read-only: it never probes a mutex), and it adds `Slots` and `BusySlotCount`; `status.ps1`
+  then lists the busy slot ids. The capture host never writes slot files, so its output is byte-identical.
+- *Accepted risk (master ruling 2026-10-24, lane W2 review).* Only a live launcher whose
+  `workload_admission.ps1` includes the W2 slots merge takes slots 2..8; an older launcher takes only the
+  legacy mutex and could overlap jobs in slots 2..8. That risk is accepted on one condition: **the live
+  launcher's checkout must include the W2 merge before any live stage is launched.**
 - *Pre-gate.* `scripts/ops/workstation_pregate.ps1` runs the full suite for one exact head in the host
   bounded suite's launch mode on the workstation. It takes one slot through the same queue itself (workload
   `WorkstationOffline-pytest-pregate-<sha12>-<pid>`) and runs its chunks serially inside that slot; the

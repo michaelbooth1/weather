@@ -1712,7 +1712,13 @@ try {
     if ($heavyWorkload.Active) {
         $ownerName = [string]$heavyWorkload.Owner.workload
         $ownerPid = [int]$heavyWorkload.Owner.pid
-        $warns.Add("heavy workload lease active: $ownerName (pid $ownerPid)")
+        $leaseWarning = "heavy workload lease active: $ownerName (pid $ownerPid)"
+        # Workstation only: the lease state lists every busy heavy slot.
+        if ($heavyWorkload.PSObject.Properties.Name -contains "Slots") {
+            $leaseWarning += "; workstation slots busy: " + (
+                (@($heavyWorkload.Slots | ForEach-Object { [string]$_.SlotId })) -join ",")
+        }
+        $warns.Add($leaseWarning)
     }
 }
 catch { $flags.Add("heavy-workload lease state could not be read") }

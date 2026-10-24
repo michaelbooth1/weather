@@ -2645,9 +2645,90 @@ function Exit-WeatherHeavyWorkloadLease {
 
 
 function Get-WeatherHeavyWorkloadLeaseState {
+    # The repository's slot-1 lock, exactly as before. Only on the assigned
+    # non-capture workstation is the answer widened to every workstation slot
+    # (busy when this checkout's slot lock is held, or when any host-global slot
+    # state file names a live owner), adding Slots and BusySlotCount. Anywhere
+    # else (the capture host, or a host whose role cannot be proved) the object
+    # is the unchanged {Active, Path, Owner}.
     [CmdletBinding()]
     param([Parameter(Mandatory = $true)][string]$RepoRoot)
-    $path = Join-Path $RepoRoot "data\logs\heavy_workload.lock"
+
+    $legacy = Get-WeatherHeavyWorkloadRepoLockState `
+        -Path (Join-Path $RepoRoot "data\logs\heavy_workload.lock")
+    # Cheap existence prefilter first: the capture host never writes slot files,
+    # so it never pays for the role proof below.
+    $slotFiles = @(foreach ($slotId in 2..(Get-WeatherHeavyWorkloadMaxSlotId)) {
+        Join-Path $RepoRoot ("data\logs\" + (Get-WeatherHeavyWorkloadSlotLockName -SlotId $slotId))
+    })
+    try {
+        $slotFiles += @(foreach ($slotId in 1..(Get-WeatherHeavyWorkloadMaxSlotId)) {
+            Get-WeatherHeavyWorkloadSlotPoisonPath -SlotId $slotId
+        })
+    }
+    catch { }
+    if (@($slotFiles | Where-Object { Test-Path -LiteralPath $_ }).Count -eq 0) {
+        return $legacy
+    }
+    $workstation = $false
+    try {
+        Assert-WeatherWorkstationOfflineHost -RepoRoot $RepoRoot
+        $workstation = $true
+    }
+    catch { $workstation = $false }
+    if (-not $workstation) { return $legacy }
+
+    $slots = foreach ($slotId in 1..(Get-WeatherHeavyWorkloadMaxSlotId)) {
+        $lock = if ($slotId -eq 1) { $legacy } else {
+            Get-WeatherHeavyWorkloadRepoLockState -Path (Join-Path $RepoRoot (
+                "data\logs\" + (Get-WeatherHeavyWorkloadSlotLockName -SlotId $slotId)))
+        }
+        $marker = $null
+        $markerLive = $false
+        try {
+            $marker = Get-WeatherHeavyWorkloadPoisonState `
+                -Path (Get-WeatherHeavyWorkloadSlotPoisonPath -SlotId $slotId)
+            if ($null -ne $marker) {
+                $markerLive = -not (Test-WeatherHeavyWorkloadMarkerOwnerAbsent -Marker $marker)
+            }
+        }
+        catch { $marker = $null; $markerLive = $false }
+        if (-not $lock.Active -and -not $markerLive) { continue }
+        $source = if ($lock.Active -and $null -ne $lock.Owner) { $lock.Owner } else { $marker }
+        [PSCustomObject]@{
+            SlotId = $slotId
+            Source = $(if ($lock.Active) { "repo_lock" } else { "host_state" })
+            Workload = [string]$source.workload
+            Pid = $(if ($null -ne $source.pid) { [int]$source.pid } else { $null })
+            ExecutionHostProfile = [string]$source.execution_host_profile
+            State = $(if ($markerLive) { [string]$marker.state } else { "ACTIVE" })
+        }
+    }
+    $slots = @($slots)
+    $owner = $legacy.Owner
+    if (-not $legacy.Active -and $slots.Count -gt 0) {
+        $owner = [PSCustomObject]@{
+            workload = $slots[0].Workload
+            pid = $slots[0].Pid
+            execution_host_profile = $slots[0].ExecutionHostProfile
+            workstation_slot_id = $slots[0].SlotId
+        }
+    }
+    return [PSCustomObject]@{
+        Active = ($legacy.Active -or $slots.Count -gt 0)
+        Path = $legacy.Path
+        Owner = $owner
+        Slots = $slots
+        BusySlotCount = $slots.Count
+    }
+}
+
+
+function Get-WeatherHeavyWorkloadRepoLockState {
+    # One lock file: active only while an owner holds its OS handle.
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $path = $Path
     if (-not (Test-Path -LiteralPath $path)) {
         return [PSCustomObject]@{ Active = $false; Path = $path; Owner = $null }
     }
@@ -3205,6 +3286,24 @@ function Get-WeatherHeavyWorkloadHolderSummary {
         }
     }
     catch { }
+    # No slot-1 holder: the first extra workstation slot whose owner is alive.
+    foreach ($slotId in 2..(Get-WeatherHeavyWorkloadMaxSlotId)) {
+        try {
+            $marker = Get-WeatherHeavyWorkloadPoisonState `
+                -Path (Get-WeatherHeavyWorkloadSlotPoisonPath -SlotId $slotId)
+            if ($null -ne $marker -and
+                -not (Test-WeatherHeavyWorkloadMarkerOwnerAbsent -Marker $marker)) {
+                return [ordered]@{
+                    workload = [string]$marker.workload
+                    pid = [int]$marker.pid
+                    execution_host_profile = [string]$marker.execution_host_profile
+                    state = [string]$marker.state
+                    slot_id = $slotId
+                }
+            }
+        }
+        catch { }
+    }
     try {
         $state = Get-WeatherHeavyWorkloadLeaseState -RepoRoot $RepoRoot
         if ($state.Active -and $null -ne $state.Owner) {
