@@ -34,6 +34,8 @@ class VenueLabelsUnavailable(RuntimeError):
 
 
 DEFAULT_SNAPSHOTS_ROOT = data_path() / "snapshots"
+# Venue-mode group of the folders dated before the cutover (WU daily summary).
+WU_HISTORY_GROUP = "_wu_history"
 
 
 def discover_default_folders(root=DEFAULT_SNAPSHOTS_ROOT):
@@ -101,24 +103,51 @@ def venue_label_gaps(path, folders, cutover=VENUE_RULE_CUTOVER_DATE):
     return keep, refused
 
 
-def finalize_with_venue_labels(folders, args, finalize_kwargs):
-    """Finalize each market's folders against its venue-rule label CSV.
+def venue_label_plan(folders, venue_labels_root=DEFAULT_LABEL_ROOT, cutover=VENUE_RULE_CUTOVER_DATE):
+    """Route ``--label-rule venue`` folders to the daily summary that labels them.
 
-    Each market group writes a scratch labels CSV; the real labels CSV is then
-    written whole (or merged when a group failed), as ``finalize_folders`` does.
-    Folders without a post-cutover label row are refused and reported as
-    failures after the others are written.
+    Returns ``(groups, refused)``. ``groups`` is a list of
+    ``(group_name, daily_summary_path, folders)``: one ``WU_HISTORY_GROUP`` group
+    (``daily_summary_path`` None, so each market's WU daily summary, exactly as
+    ``--label-rule wu``) holding every folder dated before the cutover, then
+    one group per market holding its folders dated on or after the cutover,
+    labelled from that market's venue-rule CSV. ``refused`` lists the
+    ``(folder, reason)`` pairs ``venue_label_gaps`` refuses. A missing CSV still
+    raises ``VenueLabelsUnavailable`` before anything is planned.
+    """
+
+    wu_folders, groups, refused = [], [], []
+    for market_id, (path, group) in sorted(venue_label_paths(folders, venue_labels_root).items()):
+        group, gaps = venue_label_gaps(path, group, cutover)
+        refused.extend(gaps)
+        venue_folders = []
+        for folder in group:
+            target = date_from_event_slug(Path(folder).name)
+            (wu_folders if target is not None and target < cutover else venue_folders).append(folder)
+        if venue_folders:
+            groups.append((market_id, path, venue_folders))
+    if wu_folders:
+        groups.insert(0, (WU_HISTORY_GROUP, None, wu_folders))
+    return groups, refused
+
+
+def finalize_with_venue_labels(folders, args, finalize_kwargs):
+    """Finalize folders under the venue rule, routed by ``venue_label_plan``.
+
+    Folders dated before the cutover finalize against each market's WU daily
+    summary, identical to ``--label-rule wu``; later folders finalize against
+    their market's venue-rule label CSV. Each group writes a scratch labels
+    CSV; the real labels CSV is then written whole (or merged when a group
+    failed), as ``finalize_folders`` does. Folders without a usable
+    post-cutover label row are refused and reported as failures after the
+    others are written.
     """
 
     labels = []
-    failures = []
+    groups, failures = venue_label_plan(folders, args.venue_labels_root)
     scratch_root = Path(args.ledger_root) / "_venue_rule_finalize"
-    for market_id, (path, group) in sorted(venue_label_paths(folders, args.venue_labels_root).items()):
-        group, refused = venue_label_gaps(path, group)
-        failures.extend(refused)
-        if not group:
-            continue
-        scratch = scratch_root / f"{market_id}_labels.csv"
+    for name, path, group in groups:
+        scratch = scratch_root / f"{name}_labels.csv"
         try:
             labels.extend(finalize_folders(group, daily_summary_path=path, labels_csv=scratch, **finalize_kwargs))
         except FolderFinalizationError as exc:
