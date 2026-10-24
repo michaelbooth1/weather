@@ -167,10 +167,10 @@ def brier(probs, actual):
 
 # ---------------------------------------------------------------- fits
 
-def feature_vector(record):
+def feature_vector(record, features=FEATURES):
     fc = record.get("forecast_high")
     out = []
-    for name in FEATURES:
+    for name in features:
         value = record.get(name)
         if value is None or (isinstance(value, float) and math.isnan(value)):
             value = fc
@@ -274,12 +274,12 @@ def resid_hgb_with_cv_sd(xs, ys, dates):
     return OlsPlusResidualHgb(xs, ys), float(resid.std(ddof=1))
 
 
-def fit_fold(train_records):
+def fit_fold(train_records, features=FEATURES):
     """All challenger fits for one (hour, training-fold)."""
     import numpy as np
 
     usable = [r for r in train_records if _has_forecast(r)]
-    xs = [feature_vector(r) for r in usable]
+    xs = [feature_vector(r, features) for r in usable]
     ys = [float(r["final_bucket"]) for r in usable]
     dates = [str(r["target_date"]) for r in usable]
     beta, sd = ols_fit(xs, ys)
@@ -292,14 +292,14 @@ def fit_fold(train_records):
         "dropped_no_forecast": len(train_records) - len(usable),
         "beta": beta, "ols_sd": sd,
         "resid_model": resid_model, "resid_sd": resid_sd,
-        "bias": bias, "bias_sd": bias_sd,
+        "bias": bias, "bias_sd": bias_sd, "features": tuple(features),
     }
 
 
 def challenger_distributions(fit, record, support):
     floor = floor_of(record)
     lo, hi = bucket_grid(support, floor)
-    x = feature_vector(record)
+    x = feature_vector(record, fit.get("features", FEATURES))
     ols_mu = ols_predict(fit["beta"], x)
     resid_mu = float(fit["resid_model"].predict([x])[0])
     return {
@@ -504,6 +504,312 @@ def score_market(market_id, target_date, manifests):
         **stats,
     }
     return rows, meta
+
+
+# ---------------------------------------------------------------- dev window (end-to-end vs served)
+
+DEV_FIRST = date(2026, 7, 30)
+DEV_LAST = date(2026, 9, 29)
+DEV_ARMS = ("ols_floor", "ols_floor_resid_hgb", "bias_corrected_forecast_floor")
+DEV_VARIANTS = {
+    # name: (features, forecast source)
+    "main": (FEATURES, "pit_2026"),
+    "served_forecast": (FEATURES, "layout_served"),
+    "two_feature": (("forecast_high", "high_so_far"), "pit_2026"),
+}
+_CAPTURED_LOCAL = None
+_METAR_TIME = None
+
+
+def metar_observation_instant(row, tz):
+    """Observation instant of a captured METAR row: the raw DDHHMMZ group, else ``datetime``.
+
+    The v3 parser's ``datetime`` is AWC's nominal report hour (a :52 report reads as the
+    next hour), so the raw group is preferred (AGENT_CONTEXT, metar-parser-v4 semantics).
+    """
+    import re
+    from datetime import datetime, timedelta, timezone
+
+    global _METAR_TIME
+    if _METAR_TIME is None:
+        _METAR_TIME = re.compile(r"\b(\d{2})(\d{2})(\d{2})Z\b")
+    nominal = row.get("datetime")
+    nominal_dt = datetime.fromisoformat(nominal) if nominal else None
+    match = _METAR_TIME.search(str(row.get("raw") or ""))
+    if match and nominal_dt is not None:
+        day, hour, minute = (int(g) for g in match.groups())
+        anchor = nominal_dt.astimezone(timezone.utc)
+        best = None
+        for shift in (-1, 0, 1):  # the DD group may sit in the previous or next UTC month day
+            base = (anchor + timedelta(days=shift)).replace(hour=0, minute=0, second=0, microsecond=0)
+            if base.day != day:
+                continue
+            cand = base.replace(hour=hour, minute=minute)
+            if best is None or abs(cand - anchor) < abs(best - anchor):
+                best = cand
+        if best is not None and abs(best - anchor) <= timedelta(hours=3):
+            return best.astimezone(tz), "raw_ddhhmmz"
+    if nominal_dt is not None:
+        return nominal_dt.astimezone(tz), "nominal_datetime"
+    return None, "missing"
+
+
+def observations_at_cutoff(rows, target_date, cutoff_hour, tz):
+    """(current_temp, high_so_far, n) from METAR rows of ``target_date`` observed at or before h:00.
+
+    Same semantics as the trainer's ``build_historical_feature_record``: rows of the local
+    target date with observation minute <= cutoff_hour * 60; current = the latest such row.
+    """
+    from datetime import datetime, time
+
+    cutoff = datetime.combine(target_date, time(int(cutoff_hour), 0), tzinfo=tz)
+    kept = {}
+    for row in rows or []:
+        temp = row.get("temp_native")
+        if temp is None:
+            continue
+        instant, _ = metar_observation_instant(row, tz)
+        if instant is None or instant.date() != target_date or instant > cutoff:
+            continue
+        kept[instant] = float(temp)  # one value per observation instant (corrections overwrite)
+    if not kept:
+        return None, None, 0
+    latest = max(kept)
+    return kept[latest], max(kept.values()), len(kept)
+
+
+def scan_replay_observations(folder, market_id, target_date, tz, hours):
+    """Per cutoff hour, METAR features from the last replay snapshot captured in [h:00, h+1:00).
+
+    Only that snapshot's ``sources.metar.data.rows`` are read; rows are kept only when observed
+    at or before h:00 (so at or before the snapshot). Returns {hour: record}.
+    """
+    import re
+    from datetime import datetime
+
+    global _CAPTURED_LOCAL
+    if _CAPTURED_LOCAL is None:
+        _CAPTURED_LOCAL = re.compile(r'"captured_at_local":\s*"([^"]+)"')
+    path = Path(folder) / "replay_inputs.jsonl"
+    chosen = {}
+    with open(path, "rb") as handle:
+        offset = 0
+        for line in handle:
+            match = _CAPTURED_LOCAL.search(line[:4096].decode("utf-8", "replace"))
+            if match:
+                local = datetime.fromisoformat(match.group(1)).astimezone(tz)
+                if local.date() == target_date and local.hour in hours:
+                    chosen[local.hour] = (local, offset, len(line))
+            offset += len(line)
+        out = {}
+        for hour, (local, start, size) in sorted(chosen.items()):
+            handle.seek(start)
+            snapshot = json.loads(handle.read(size))
+            metar = ((snapshot.get("sources") or {}).get("metar") or {}).get("data") or {}
+            current, high, n = observations_at_cutoff(metar.get("rows"), target_date, hour, tz)
+            out[hour] = {"market": market_id, "target_date": target_date.isoformat(), "hour": hour,
+                         "replay_snapshot_id": snapshot.get("snapshot_id"),
+                         "replay_captured_at_local": local.isoformat(),
+                         "current_temp": current, "high_so_far": high, "n_rows": n}
+    return out
+
+
+def _event_folders(replay_root):
+    import re
+
+    pattern = re.compile(r"^highest-temperature-in-(.+)-on-([a-z]+)-(\d+)-(\d{4})$")
+    months = {m: i for i, m in enumerate(
+        ("january", "february", "march", "april", "may", "june", "july", "august", "september",
+         "october", "november", "december"), start=1)}
+    for folder in sorted(Path(replay_root, "snapshots").iterdir()):
+        match = pattern.match(folder.name)
+        if not match:
+            continue
+        slug, month, day, year = match.groups()
+        yield slug, date(int(year), months[month], int(day)), folder
+
+
+def dev_emit(*, layout, replay_root, train_manifests, dev_manifest, out_dir, markets):
+    """Fit on the Aug-Sep 2021-25 corpus, emit candidate distributions for the dev snapshots."""
+    import pandas as pd
+    from zoneinfo import ZoneInfo
+
+    from weather.calibration.feature_model_training_inputs import PITForecastCorpusUnion
+    from weather.market.market_registry import spec_for_id
+    from weather.model.toronto_model import INTRADAY_CUTOFF_HOURS
+
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    snaps = pd.read_parquet(Path(layout) / "inputs_snapshots.parquet", columns=[
+        "snapshot_id", "market", "target_date", "local_hour", "cutoff_hour", "forecast_high", "high_so_far"])
+    if (pd.to_datetime(snaps.target_date).dt.date > DEV_LAST).any():
+        raise ChallengerError("layout holds a snapshot after 2026-09-29")
+    hours = set(int(h) for h in INTRADAY_CUTOFF_HOURS)
+    writers = {(arm, variant): open(out / f"dev_{variant}_{arm}.jsonl", "w", encoding="utf-8")
+               for arm in DEV_ARMS for variant in DEV_VARIANTS}
+    audit = {"markets": {}, "variants": {k: {"features": list(v[0]), "forecast": v[1]} for k, v in DEV_VARIANTS.items()}}
+    feature_rows = []
+    try:
+        for market in markets:
+            spec = spec_for_id(market)
+            tz = ZoneInfo(spec.timezone)
+            built = build_r0_records(market, date(2026, 9, 7), train_manifests)
+            support = built["bucket_space"]
+            fits = {}
+            for hour, records in built["records"].items():
+                for variant, (features, _) in DEV_VARIANTS.items():
+                    fits[(hour, variant)] = fit_fold(records, features)
+            dev_union = PITForecastCorpusUnion([dev_manifest], spec.id, target_year=2027,
+                                               required_cutoff_hours=INTRADAY_CUTOFF_HOURS)
+            obs = {}
+            for slug, target, folder in _event_folders(replay_root):
+                if not (DEV_FIRST <= target <= DEV_LAST) or not slug != market:
+                    continue
+                for hour, rec in scan_replay_observations(folder, market, target, tz, hours).items():
+                    obs[(target.isoformat(), hour)] = rec
+            stats = defaultdict(int)
+            msnaps = snaps[snaps.market == market]
+            for row in msnaps.itertuples(index=False):
+                try:
+                    hour = int(str(row.cutoff_hour))
+                except ValueError:
+                    hour = None
+                if hour not in hours:
+                    stats["outside_cutoff_hours"] += 1
+                    continue
+                if int(row.local_hour) < hour:
+                    # e.g. a 03:00 snapshot served at effective cutoff 07: the features at 07:00
+                    # would use later observations, so it is not emitted (served fallback).
+                    stats["local_hour_before_cutoff"] += 1
+                    continue
+                key = (str(row.target_date)[:10], hour)
+                rec = obs.get(key)
+                if rec is None or rec["high_so_far"] is None:
+                    stats["no_replay_observation"] += 1
+                    continue
+                pit = dev_union.resolve(key[0], hour)["forecast_high"]
+                served_fc = None if row.forecast_high != row.forecast_high else float(row.forecast_high)
+                for variant, (features, source) in DEV_VARIANTS.items():
+                    fc = pit if source == "pit_2026" else served_fc
+                    if fc is None:
+                        stats[f"{variant}_no_forecast"] += 1
+                        continue
+                    record = {"forecast_high": fc, "high_so_far": rec["high_so_far"],
+                              "current_temp": rec["current_temp"]}
+                    dists, _ = challenger_distributions(fits[(hour, variant)], record, support)
+                    for arm in DEV_ARMS:
+                        writers[(arm, variant)].write(json.dumps({
+                            "market": market, "snapshot_id": row.snapshot_id, "target_date": key[0],
+                            "distribution": {str(b): p for b, p in dists[arm].items() if p > 0}},
+                            sort_keys=True) + "\n")
+                    stats[f"{variant}_emitted"] += 1
+                layout_hsf = None if row.high_so_far != row.high_so_far else float(row.high_so_far)
+                if layout_hsf is not None and floor_of({"high_so_far": layout_hsf}) != floor_of(rec):
+                    stats["floor_differs_from_layout_high_so_far"] += 1
+                stats["snapshots_in_cutoff_hours"] += 1
+            for (target, hour), rec in sorted(obs.items()):
+                try:
+                    rec["pit_forecast_high"] = dev_union.resolve(target, hour)["forecast_high"]
+                except Exception as exc:  # recorded, never silently filled
+                    rec["pit_forecast_error"] = str(exc)
+                feature_rows.append(rec)
+            audit["markets"][market] = dict(stats, replay_hours=len(obs),
+                                            training_corpora=built["corpus_ids"],
+                                            training_day_counts=built["day_counts"])
+            print(f"{market}: {dict(stats)}", flush=True)
+    finally:
+        for handle in writers.values():
+            handle.close()
+    with open(out / "dev_features.jsonl", "w", encoding="utf-8") as handle:
+        for rec in feature_rows:
+            handle.write(json.dumps(rec, sort_keys=True) + "\n")
+    audit["files"] = {path.name: _sha256(path) for path in sorted(out.glob("dev_*.jsonl"))}
+    (out / "dev_emit_audit.json").write_text(json.dumps(audit, indent=1, sort_keys=True), encoding="utf-8")
+    return audit
+
+
+DEV_GROUPS = (
+    ("00-05", 0, 5), ("06-09", 6, 9), ("10-12", 10, 12), ("13-16", 13, 16), ("17-23", 17, 23),
+    ("00-16", 0, 16), ("all", 0, 23), ("07-12", 7, 12), ("12-16", 12, 16),
+) + tuple((f"h{h:02d}", h, h) for h in range(7, 21))
+DEV_STANDARD_BLOCKS = ("00-05", "06-09", "10-12", "13-16", "17-23", "00-16", "all")
+
+
+def _date_weights(dates, draws, seed):
+    import numpy as np
+
+    _, di = np.unique(np.asarray(dates), return_inverse=True)
+    d = di.max() + 1
+    rng = np.random.default_rng(seed)
+    return rng.multinomial(d, np.full(d, 1 / d), size=draws)[:, di]
+
+
+def dev_score(layout, candidates, start="2026-08-01", end="2026-09-29"):
+    """Score candidate distribution files with dev_scorecard's own machinery, unchanged.
+
+    Per candidate and group (the scorecard's blocks plus 07-12, 12-16 and each hour 07..20),
+    pooled over the 11 markets and per market: R_candidate, R_served and
+    dR = R_candidate - R_served = mean_cell(Brier_c - Brier_s) / mean_cell(Brier_m), with the
+    scorecard's crossed date x market interval and a date-clustered interval (same draws, seed).
+    """
+    import numpy as np
+
+    from weather.reporting.scorecards import dev_scorecard as sc
+    from weather.reporting.scorecards import dev_scorecard_data as data
+
+    start_d, end_d = data.check_range(start, end)
+    lay = data.load_layout(layout, data.DEV_FIRST, end_d)
+    folds = data.make_folds(lay.dates, start_d, end_d, 7, 1, 7)
+    scored = sorted(d for f in folds if f.scored for d in f.dates)
+    table = sc.Table(lay, scored)
+    date_w = _date_weights([k[0] for k in table.keys], sc.DRAWS, sc.SEED)
+    out = {"population": {"n_dates": len(scored), "n_market_days": len(table.keys),
+                          "first_date": scored[0], "last_date": scored[-1]},
+           "layout_manifest_sha256": lay.manifest_sha256, "scorecard_code_sha256": sc.code_sha256(),
+           "candidates": {}}
+    served_b, market_b = table.brier(table.p_served), table.brier(table.p_market)
+    for name, path in candidates.items():
+        spec = data.CandidateSpec("distributions", str(path), "2025-12-31", False)
+        frame, meta = data.distribution_predictions(spec, lay, folds)
+        p, reasons = table.candidate_vector(frame)
+        cand_b = table.brier(p)
+        rows = []
+        for market in [sc.ALL_MARKETS] + sorted(set(table.markets)):
+            for group, lo, hi in DEV_GROUPS:
+                mask = (table.local_hour >= lo) & (table.local_hour <= hi)
+                if market != sc.ALL_MARKETS:
+                    mask &= table.markets == market
+                if not mask.any():
+                    continue
+                idx, c = table.cells(cand_b, mask)
+                _, s_ = table.cells(served_b, mask)
+                _, m = table.cells(market_b, mask)
+                row = {"market": market, "group": group, "n_market_days": int(len(idx)),
+                       "R_candidate": sc.ratio_interval(table.w[:, idx], c, m),
+                       "R_served": sc.ratio_interval(table.w[:, idx], s_, m),
+                       "dR_crossed": sc.ratio_interval(table.w[:, idx], c - s_, m),
+                       "dR_date_clustered": sc.ratio_interval(date_w[:, idx], c - s_, m)}
+                rows.append(row)
+        out["candidates"][name] = {"source": str(path), "sha256": _sha256(path), "coverage": reasons,
+                                   "meta": meta, "rows": rows}
+    return out
+
+
+def dev_verdict(scores, arms=("ols_floor", "ols_floor_resid_hgb")):
+    """dev_rule.md: dR < 0 at pooled 07-12 with CI excluding 0, no standard block worse beyond CI."""
+    result = {}
+    for arm in arms:
+        rows = {(r["market"], r["group"]): r for r in scores["candidates"][arm]["rows"]}
+        head = rows[("ALL", "07-12")]
+        checks = {}
+        for kind in ("dR_crossed", "dR_date_clustered"):
+            lo, hi = head[kind]["ci95"]
+            worse = [g for g in DEV_STANDARD_BLOCKS if ("ALL", g) in rows
+                     and rows[("ALL", g)][kind]["ci95"][0] is not None and rows[("ALL", g)][kind]["ci95"][0] > 0]
+            checks[kind] = {"estimate": head[kind]["estimate"], "ci95": [lo, hi], "blocks_worse": worse,
+                            "beats_served": bool(hi is not None and hi < 0 and not worse)}
+        result[arm] = checks
+    return result
 
 
 # ---------------------------------------------------------------- comparison
@@ -836,6 +1142,18 @@ def build_parser():
     score.add_argument("--target-date", required=True)
     score.add_argument("--pit-forecast-corpus-manifest", action="append", required=True)
     score.add_argument("--out-dir", required=True)
+    emit = sub.add_parser("dev-emit", help="fit on Aug-Sep 2021-25, emit dev-window candidate distributions")
+    emit.add_argument("--layout", required=True)
+    emit.add_argument("--replay-root", required=True)
+    emit.add_argument("--train-manifest", action="append", required=True)
+    emit.add_argument("--dev-manifest", required=True)
+    emit.add_argument("--markets", default=",".join(PRIMARY_MARKETS + SECONDARY_MARKETS))
+    emit.add_argument("--out-dir", required=True)
+    dscore = sub.add_parser("dev-score", help="score emitted candidates with dev_scorecard; apply dev_rule.md")
+    dscore.add_argument("--layout", required=True)
+    dscore.add_argument("--candidate", action="append", required=True, help="<name>=<jsonl>")
+    dscore.add_argument("--rule", default=None)
+    dscore.add_argument("--out", required=True)
     cmp_ = sub.add_parser("compare", help="join with lane D's R0 rows and apply the rule")
     cmp_.add_argument("--rows-dir", required=True)
     cmp_.add_argument("--r0-rows", action="append", help="<market>=<feature_model_blocked_validation_rows path>")
@@ -849,6 +1167,21 @@ def main(argv=None):
     try:
         if args.command == "score":
             return _score_command(args)
+        if args.command == "dev-emit":
+            audit = dev_emit(layout=args.layout, replay_root=args.replay_root,
+                             train_manifests=args.train_manifest, dev_manifest=args.dev_manifest,
+                             out_dir=args.out_dir, markets=args.markets.split(","))
+            print(json.dumps(audit["files"], indent=1))
+            return 0
+        if args.command == "dev-score":
+            scores = dev_score(args.layout, dict(spec.partition("=")[::2] for spec in args.candidate))
+            scores["verdict"] = dev_verdict(scores) if all(
+                a in scores["candidates"] for a in ("ols_floor", "ols_floor_resid_hgb")) else None
+            scores["rule_sha256"] = _sha256(args.rule) if args.rule else None
+            Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+            Path(args.out).write_text(json.dumps(scores, indent=1, sort_keys=True), encoding="utf-8")
+            print(json.dumps(scores["verdict"], indent=1))
+            return 0
         return _compare_command(args)
     except ChallengerError as exc:
         print(f"refused: {exc}", file=sys.stderr)
