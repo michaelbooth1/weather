@@ -157,17 +157,21 @@ def _outer_job_owns_host_mutex() -> bool:
     kernel32.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
     kernel32.ReleaseMutex.argtypes = [ctypes.c_void_p]
     kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
-    handle = kernel32.OpenMutexW(0x00100000, False, HOST_GLOBAL_MUTEX)  # SYNCHRONIZE
-    if not handle:
-        return False
-    try:
-        result = kernel32.WaitForSingleObject(handle, 0)
-        if result in (0x00000000, 0x00000080):  # WAIT_OBJECT_0, WAIT_ABANDONED
-            kernel32.ReleaseMutex(handle)
-            return False
-        return True
-    finally:
-        kernel32.CloseHandle(handle)
+    # Workstation slots 2..8 count too: the portable live profile takes every slot mutex.
+    names = (HOST_GLOBAL_MUTEX, *(f"{HOST_GLOBAL_MUTEX}.Slot{slot}" for slot in range(2, 9)))
+    for name in names:
+        handle = kernel32.OpenMutexW(0x00100000, False, name)  # SYNCHRONIZE
+        if not handle:
+            continue
+        try:
+            result = kernel32.WaitForSingleObject(handle, 0)
+            if result in (0x00000000, 0x00000080):  # WAIT_OBJECT_0, WAIT_ABANDONED
+                kernel32.ReleaseMutex(handle)
+                continue
+            return True
+        finally:
+            kernel32.CloseHandle(handle)
+    return False
 
 
 OUTER_WORKSTATION_LEASE = (
@@ -213,7 +217,11 @@ def _install_workstation_wrapper(repo_root: Path) -> Path:
             + "    Join-Path (Split-Path -Parent (Split-Path -Parent "
             + "$PSScriptRoot)) '.test-heavy-workload.poison'\n"
             + "}\n"
-            + "function Get-WeatherActiveWorkstationHeavyProcess { @() }\n",
+            + "function Get-WeatherActiveWorkstationHeavyProcess { @() }\n"
+            + "function Get-WeatherWorkstationMemoryReading {\n"
+            + "    [PSCustomObject]@{ TotalPhysicalBytes = 32GB; "
+            + "AvailablePhysicalBytes = 16GB; CommitPercent = 40.0 }\n"
+            + "}\n",
             encoding="utf-8",
         )
     return target_ops / "workstation_heavy.ps1"
@@ -233,6 +241,9 @@ def _workstation_wrapper_argv(repo_root: Path, arguments: list[str]) -> list[str
         _argument_contract(arguments),
         "-RepoRoot",
         str(repo_root),
+        # These tests pin the single-lease contract; concurrent slots: test_workstation_heavy_slots.py.
+        "-SlotCount",
+        "1",
     ]
 
 
@@ -2003,6 +2014,8 @@ def test_workstation_wrapper_executes_approved_pytest_and_rejects_live_mode(
             approved_arguments,
             "-RepoRoot",
             str(tmp_path),
+            "-SlotCount",
+            "1",
         ],
         capture_output=True,
         text=True,
@@ -2031,6 +2044,8 @@ def test_workstation_wrapper_executes_approved_pytest_and_rejects_live_mode(
             ).decode("ascii"),
             "-RepoRoot",
             str(tmp_path),
+            "-SlotCount",
+            "1",
         ],
         capture_output=True,
         text=True,
@@ -2218,6 +2233,8 @@ def test_failed_job_teardown_durably_poison_blocks_other_repo_roots(
             arguments,
             "-RepoRoot",
             str(repo_a),
+            "-SlotCount",
+            "1",
         ],
         capture_output=True,
         text=True,
