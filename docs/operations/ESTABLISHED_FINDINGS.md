@@ -3967,6 +3967,31 @@ was read.
   standard-time date. DST-L9's "latent: the season is May-Aug" no longer holds once the Oct-Dec PIT fetch exists. The
   audit does not list `eccc_gridded.py`, `reanalysis_history.py` or `historical_fallbacks.py`.
 
+### 10x. A pooled US-11 residual model beats per-market R0 (leaf 20) by about 1.85-1.97 nats at 07-12 on R0's own blocked rows; R0 is worse than its own climatology baseline — lane L2, workstation, 2026-10-24
+
+Pre-declared rule (sha256 `6dac6419…f499` with its pre-result amendment; original `e2649f16…bd31`),
+[rule and report](../research/l2-pooled-residual-2026-10-24/). Branch
+`claude/pooled-residual-model-20261024`, module `weather.calibration.pooled_residual_model`. Population:
+US 11, centre 2026-11-24 (+/-7 days, years 2021-2025, PIT union `674b12ac…`; Aug-Sep union `744289be…`
+from corpus `b455bd53…`), cutoffs 07-20, blocked leave-one-year-out, 75 date clusters, 4,950 rows at 07-12.
+Development evidence on years before the centre year; weather-only; no market prices.
+
+- **R0 recomputation is exact:** the trainer's functions, one fit per held-out year, reproduce lane D's
+  per-row HGB log loss to 1.8e-15 (atlanta, austin, chicago, dallas) and its baseline exactly.
+- **R0's HGB arm is uninformative at these sample sizes:** 07-12 log loss about 3.9-4.1 per row, 18% of
+  its rows put the realized bucket at the clamp floor (loss > 8), and the trainer's own climatology +
+  intraday baseline beats it at 07-11 (fleet -0.26 nats at 07 to -0.15 at 11; -0.06 at 12, CI includes 0).
+- **Pooled arms (07-12 fleet delta vs R0, log loss, 98.75% Bonferroni CI):** P0 same rows -1.849
+  [-2.056, -1.651]; P1 + market id -1.853 [-2.055, -1.656]; P2 + Oct-Dec window -1.961 [-2.166, -1.772];
+  **P3 + Aug-Sep -1.968 [-2.168, -1.786] (pick)**; crossed date x market 95% [-2.381, -1.612]. No market is
+  worse beyond its CI in any arm; every market gains (smallest: Los Angeles, San Francisco, Miami,
+  Seattle about -1.1 to -1.35). Brier improves at every hour (07: -0.139, 12: -0.236 for P3).
+- **Read it carefully:** most of the gain is a proper continuous residual distribution (bias-corrected
+  forecast, floor-censored) replacing a 30-class classifier on 60 rows, not pooling as such; pooling
+  across window and season adds about 0.12 nats at 07-12, the market id adds nothing. An unpooled
+  per-market residual arm was not scored (needs its own rule). This is model-vs-model, not edge over the
+  market.
+
 ## Related
 
 - [FINDINGS_DIGEST.md](FINDINGS_DIGEST.md) — the one-screen digest of this file; read it first
