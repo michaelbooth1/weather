@@ -7,6 +7,7 @@
     {
       "id": "london",
       "lifecycle": "candidate",
+      "iem_special_schedule_minute": 20,
       "location_id": "london",
       "city_label": "London",
       "slug_prefix": "highest-temperature-in-london-on",
@@ -27,6 +28,7 @@
     {
       "id": "paris",
       "lifecycle": "candidate",
+      "iem_special_schedule_minute": 30,
       "location_id": "paris",
       "city_label": "Paris",
       "slug_prefix": "highest-temperature-in-paris-on",
@@ -47,6 +49,7 @@
     {
       "id": "munich",
       "lifecycle": "candidate",
+      "iem_special_schedule_minute": 20,
       "location_id": "munich",
       "city_label": "Munich",
       "slug_prefix": "highest-temperature-in-munich-on",
@@ -67,6 +70,7 @@
     {
       "id": "madrid",
       "lifecycle": "candidate",
+      "iem_special_schedule_minute": 30,
       "location_id": "madrid",
       "city_label": "Madrid",
       "slug_prefix": "highest-temperature-in-madrid-on",
@@ -87,6 +91,7 @@
     {
       "id": "denver-kden",
       "lifecycle": "candidate",
+      "iem_special_schedule_minute": null,
       "location_id": "denver",
       "replaces_builtin": "denver",
       "city_label": "Denver (KDEN)",

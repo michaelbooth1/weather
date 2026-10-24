@@ -62,6 +62,7 @@ CANDIDATE_ROW_FIELDS = frozenset({
     "label_source",
     "print_cutoff",
     "replaces_builtin",
+    "iem_special_schedule_minute",
 })
 LABEL_SOURCE_FIELDS = frozenset({
     "endpoint",
@@ -115,6 +116,11 @@ class CandidateMarket:
     label_source: LabelSource
     print_cutoff: PrintCutoff
     replaces_builtin: str = ""
+    # IEM files a station's off-hour half-hourly routine METARs as report_type=4
+    # (no METAR/SPECI prefix in IEM raw text). That minute, measured per station
+    # from the type-4 files, marks a scheduled routine report; null when type 4
+    # holds only true SPECIs (US stations).
+    iem_special_schedule_minute: int | None = None
 
     @property
     def id(self):
@@ -190,6 +196,11 @@ def parse_candidate_registry(payload: Mapping) -> dict:
     for index, row in enumerate(payload.get("markets") or []):
         label = f"candidate row {index}"
         required = CANDIDATE_ROW_FIELDS - {"coastal", "replaces_builtin"}
+        schedule_minute = row.get("iem_special_schedule_minute")
+        if schedule_minute is not None and (
+            isinstance(schedule_minute, bool) or not isinstance(schedule_minute, int) or not 0 <= schedule_minute < 60
+        ):
+            raise CandidateRegistryError(f"{label}: iem_special_schedule_minute must be null or 0-59")
         _require_fields(row, CANDIDATE_ROW_FIELDS, required, label)
         if row.get("lifecycle") != CANDIDATE_LIFECYCLE:
             raise CandidateRegistryError(
@@ -230,6 +241,7 @@ def parse_candidate_registry(payload: Mapping) -> dict:
             label_source=label_sources[row["label_source"]],
             print_cutoff=print_cutoffs[row["print_cutoff"]],
             replaces_builtin=replaces,
+            iem_special_schedule_minute=schedule_minute,
         )
     if not markets:
         raise CandidateRegistryError("candidate registry has no rows")
@@ -261,6 +273,7 @@ def _check(path):
             "print_cutoff": item.print_cutoff.name,
             "open_meteo_model": item.open_meteo_model,
             "replaces_builtin": item.replaces_builtin,
+            "iem_special_schedule_minute": item.iem_special_schedule_minute,
         }
         for item in registry.values()
     ]

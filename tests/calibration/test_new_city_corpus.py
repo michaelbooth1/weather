@@ -1,12 +1,16 @@
 """METAR-labelled corpus builder for candidate cities.
 
 Guards: M1 new-city lane deliverable 3 (2026-10-23) and owner decision
-2026-10-23 (new METAR-settled cities labelled from IEM METAR): local date keyed
+2026-10-23 (new METAR-settled cities labelled from IEM METAR under the venue
+rule of weather.backtesting.venue_rule_labels: routine only, SPECI excluded;
+a station's scheduled half-hourly routine reports that IEM files as type 4
+count, any other type-4 report does not): local date keyed
 on observation time in the IANA zone (DST-aware), thin or fetch-edge days never
 label, the METAR print cutoff admits nothing after the cutoff and aliases like
 the WU rule, and PIT forecast rows after their cutoff are refused.
 """
 
+import dataclasses
 import hashlib
 import json
 from pathlib import Path
@@ -28,15 +32,28 @@ def _with_tokyo():
     payload = json.loads(CANDIDATE_REGISTRY_PATH.read_text(encoding="utf-8"))
     row = dict(payload["markets"][0])
     row.update(id="tokyo", location_id="tokyo", city_label="Tokyo", slug_prefix="highest-temperature-in-tokyo-on",
-               timezone="Asia/Tokyo", icao="RJTT", wu_history_id="RJTT:9:JP", lat=35.553, lon=139.781)
+               timezone="Asia/Tokyo", icao="RJTT", wu_history_id="RJTT:9:JP", lat=35.553, lon=139.781,
+               iem_special_schedule_minute=30)
     payload["markets"].append(row)
     return parse_candidate_registry(payload)["tokyo"]
 
 
 def _csv(tmp_path, name, rows):
+    """IEM-shaped CSV with raw text; ``t`` is whole C or a (body, tenths) pair."""
+    lines = []
+    for valid, t in rows:
+        body, tenths = (t, None) if not isinstance(t, tuple) else t
+        stamp = valid[8:10] + valid[11:13] + valid[14:16]
+        remark = f" RMK T{0 if tenths >= 0 else 1}{abs(int(round(tenths * 10))):03d}" if tenths is not None else ""
+        lines.append(f"EGLC,{valid},0,{body},EGLC {stamp}Z 25008KT 9999 SCT020 {int(body):02d}/05 Q1012{remark}\n")
     path = tmp_path / name
-    path.write_text("station,valid,tmpf,tmpc\n" + "".join(f"EGLC,{v},0,{t}\n" for v, t in rows), encoding="utf-8")
+    path.write_text("station,valid,tmpf,tmpc,metar\n" + "".join(lines), encoding="utf-8")
     return path
+
+
+def _labels(candidate, routine, special, last_date="2026-09-29"):
+    records, counts = corpus.venue_routine_records(routine, special, candidate, last_date=last_date)
+    return corpus.daily_labels(records, candidate, last_date=last_date), counts
 
 
 @pytest.mark.parametrize(
@@ -49,10 +66,9 @@ def _csv(tmp_path, name, rows):
 )
 def test_iem_fixture_labels_match_an_independent_local_date_max(market_id, target_date, label, times):
     candidate = _candidate(market_id)
-    paths = sorted(FIXTURES.glob(f"{candidate.spec.icao}_rt*.csv"))
-    records = corpus.read_iem_records(paths, candidate.spec, last_date="2026-09-29")
+    routine, special = corpus.station_csvs(FIXTURES, candidate.spec.icao)
 
-    labels = corpus.daily_labels(records, candidate, last_date="2026-09-29")
+    labels, counts = _labels(candidate, routine, special)
 
     assert labels[target_date]["label_native"] == label
     assert labels[target_date]["max_times_local"] == times
@@ -60,13 +76,50 @@ def test_iem_fixture_labels_match_an_independent_local_date_max(market_id, targe
     assert labels[target_date]["label_complete"] is True
     # The fixture starts mid-evening UTC on 08-09: that local day is a fetch edge.
     assert labels["2026-08-09"]["label_complete"] is False
+    assert counts["scheduled_type4_routine"] == counts["routine"] // 2
+
+
+def test_without_the_schedule_minute_type4_reports_never_label():
+    candidate = _candidate("london")
+    routine, special = corpus.station_csvs(FIXTURES, "EGLC")
+    hourly_only = dataclasses.replace(candidate, iem_special_schedule_minute=None)
+
+    labels, counts = _labels(hourly_only, routine, special)
+
+    assert "scheduled_type4_routine" not in counts
+    assert labels["2026-08-10"]["row_count"] == 24
+    assert (labels["2026-08-10"]["label_native"], labels["2026-08-10"]["max_times_local"]) == (26, "16:50")
+
+
+def test_off_schedule_type4_is_a_speci_excluded_from_labels_but_seen_by_cutoff_features(tmp_path):
+    candidate = _candidate("london")
+    routine = _csv(tmp_path, "r.csv", [("2026-08-10 11:50", 20), ("2026-08-10 12:50", 21)])
+    special = _csv(tmp_path, "s.csv", [("2026-08-10 12:20", 22), ("2026-08-10 12:37", 29)])
+
+    records, counts = corpus.venue_routine_records([routine], [special], candidate, last_date="2026-09-29")
+    features = corpus.observed_at_cutoff(
+        corpus.read_iem_records([routine, special], candidate.spec, last_date="2026-09-29"), "2026-08-10", 14, candidate,
+    )
+
+    assert sorted(row["temp_native"] for row in records) == [20, 21, 22]
+    assert (counts["scheduled_type4_routine"], counts["special"]) == (1, 1)
+    assert features["obs_max_so_far_native"] == 29
+
+
+def test_t_group_tenths_round_half_up_to_the_venue_whole_degree(tmp_path):
+    candidate = _candidate("london")
+    routine = _csv(tmp_path, "r.csv", [("2026-08-10 11:50", (20, 20.5)), ("2026-08-10 12:50", (20, 20.4))])
+
+    records, counts = corpus.venue_routine_records([routine], [], candidate, last_date="2026-09-29")
+
+    assert max(row["temp_native"] for row in records) == 20.5
+    assert corpus.daily_label(records, "2026-08-10", candidate)["label_native"] == 21
+    assert counts["basis_t_group"] == 2
 
 
 def test_tokyo_day_keys_on_observation_time_not_utc_date():
     candidate = _with_tokyo()
-    records = corpus.read_iem_records(sorted(FIXTURES.glob("RJTT_rt*.csv")), candidate.spec, last_date="2026-09-29")
-
-    labels = corpus.daily_labels(records, candidate, last_date="2026-09-29")
+    labels, _ = _labels(candidate, *corpus.station_csvs(FIXTURES, "RJTT"))
 
     assert (labels["2026-08-10"]["label_native"], labels["2026-08-11"]["label_native"]) == (30, 32)
     assert labels["2026-08-11"]["max_times_local"] == "13:30"
@@ -78,8 +131,10 @@ def test_rows_after_last_date_are_dropped_at_read_time(tmp_path):
     path = _csv(tmp_path, "EGLC_rt3.csv", [("2026-09-29 12:50", 18), ("2026-09-30 12:50", 30)])
 
     records = corpus.read_iem_records([path], candidate.spec, last_date="2026-09-29")
+    labelled, _ = corpus.venue_routine_records([path], [], candidate, last_date="2026-09-29")
 
     assert {row["local_date"] for row in records} == {"2026-09-29"}
+    assert {row["local_date"] for row in labelled} == {"2026-09-29"}
 
 
 def test_dst_fall_back_day_has_25_hours_and_a_gap_breaks_completeness(tmp_path):
@@ -165,7 +220,7 @@ def test_build_joins_complete_labels_and_publishes_content_addressed(tmp_path):
         _pit_row("2026-08-14", 14, "2026-08-14T13:00:00+00:00"),  # no label (fixture ends)
     ]
     manifest = _pit_corpus(tmp_path, rows)
-    kwargs = dict(market_ids=["london"], metar_csv_dir=FIXTURES, pit_corpus_manifest=manifest,
+    kwargs = dict(market_ids=["london"], metar_root=FIXTURES, pit_corpus_manifest=manifest,
                   last_date="2026-09-29", publish_root=tmp_path / "out")
 
     final, published = corpus.build(**kwargs)
@@ -193,7 +248,7 @@ def test_build_refuses_point_in_time_violations(tmp_path, row, reason):
     manifest = _pit_corpus(tmp_path, [row])
 
     with pytest.raises(corpus.CorpusBuildError, match=reason):
-        corpus.build(market_ids=["london"], metar_csv_dir=FIXTURES, pit_corpus_manifest=manifest,
+        corpus.build(market_ids=["london"], metar_root=FIXTURES, pit_corpus_manifest=manifest,
                      last_date="2026-09-29", publish_root=tmp_path / "out")
     assert not (tmp_path / "out" / "corpora").exists() or not any((tmp_path / "out" / "corpora").iterdir())
 
@@ -205,5 +260,5 @@ def test_build_refuses_a_tampered_pit_corpus_and_non_candidates(tmp_path):
     with pytest.raises(corpus.CorpusBuildError, match="hash does not match"):
         corpus.load_pit_forecast_daily(manifest, ["london"])
     with pytest.raises(corpus.CorpusBuildError, match="not candidate markets"):
-        corpus.build(market_ids=["nyc"], metar_csv_dir=FIXTURES, pit_corpus_manifest=manifest,
+        corpus.build(market_ids=["nyc"], metar_root=FIXTURES, pit_corpus_manifest=manifest,
                      last_date="2026-09-29", publish_root=tmp_path / "out")

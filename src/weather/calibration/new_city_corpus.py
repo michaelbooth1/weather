@@ -4,8 +4,9 @@ Owner decision 2026-10-23: new METAR-settled cities are labelled from free IEM
 METAR. This module joins three things for a candidate market from
 ``config/candidate_markets.json`` (``weather.market.candidate_markets``):
 
-1. **Label** -- the local-date maximum of IEM METAR temperatures (routine and
-   special reports, deduplicated on observation time), keyed on the
+1. **Label** -- the venue rule of ``weather.backtesting.venue_rule_labels``
+   (lane A1): the local-date maximum of routine METAR temperatures (SPECI
+   excluded, T-group tenths, accepted corrections applied), keyed on the
    observation instant in the market's IANA zone, half-up to a whole native
    degree. A day is ``complete`` only when no gap between consecutive reports
    (local midnight to local midnight, DST-aware) exceeds the label source's
@@ -28,8 +29,8 @@ manifest; the output is a content-addressed directory. Nothing here is read by
 serving, capture or release code.
 
 CLI:
-  python -m weather.calibration.new_city_corpus labels --market london --metar-csv <f> [<f> ...] --last-date 2026-09-29 --out <labels.jsonl>
-  python -m weather.calibration.new_city_corpus build --markets london,paris --metar-csv-dir <dir> --pit-corpus-manifest <manifest.json> --last-date 2025-12-31 --publish-root <dir>
+  python -m weather.calibration.new_city_corpus labels --market london --routine-csv <f> [...] --special-csv <f> [...] --last-date 2026-09-29 --out <labels.jsonl>
+  python -m weather.calibration.new_city_corpus build --markets london,paris --metar-root <venue_rule_labels METAR root> --pit-corpus-manifest <manifest.json> --last-date 2025-12-31 --publish-root <dir>
 """
 
 from __future__ import annotations
@@ -44,9 +45,17 @@ from collections import defaultdict
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 
+from weather.backtesting import venue_rule_labels as venue
 from weather.market.candidate_markets import load_candidate_registry
 from weather.schema_registry import schema_version
-from weather.sources.metar_history import dedupe_records, normalize_csv
+from weather.sources.metar_history import (
+    IEM_REPORT_TYPE_ROUTINE,
+    IEM_REPORT_TYPE_SPECIAL,
+    REPORT_TYPE_ROUTINE,
+    REPORT_TYPE_SPECIAL,
+    dedupe_records,
+    normalize_csv,
+)
 from weather.units import round_half_up, to_float
 
 
@@ -97,6 +106,64 @@ def read_iem_records(paths, spec, *, last_date):
         text = Path(path).read_text(encoding="utf-8")
         records.extend(row for row in normalize_csv(text, spec) if row["local_date"] <= last)
     return dedupe_records(records)
+
+
+def venue_routine_records(routine_paths, special_paths, candidate, *, last_date):
+    """Venue-rule label records: routine METARs only, through ``venue_rule_labels``.
+
+    The venue rule (lane A1, ``weather.backtesting.venue_rule_labels``) takes the
+    highest routine METAR, SPECI excluded, tenths from the T-group, and an
+    accepted correction replaces the original. IEM raw text has no METAR/SPECI
+    prefix, so the request's ``report_type`` declares the type. For a station
+    whose half-hourly routine reports IEM files as ``report_type=4`` (measured:
+    every EGLC type-4 report is at :20, every LFPB one at :30), the candidate
+    row names that minute in ``iem_special_schedule_minute``; a type-4 report
+    at exactly that minute, without a SPECI prefix, is the scheduled routine
+    report and counts. Any other type-4 report stays special. Returns
+    ``(records, counts)`` with ``temp_native`` set to the venue value.
+    """
+    spec = candidate.spec
+    last = _parse_date(last_date).isoformat()
+    minute = candidate.iem_special_schedule_minute
+    reports = []
+    counts = defaultdict(int)
+    for paths, declared in ((routine_paths, IEM_REPORT_TYPE_ROUTINE), (special_paths, IEM_REPORT_TYPE_SPECIAL)):
+        for path in paths:
+            text = Path(path).read_text(encoding="utf-8")
+            for report in venue.reports_from_csv(text, spec, spec.icao, declared_report_type=declared):
+                if report["local_date"] > last:
+                    continue
+                if (
+                    declared == IEM_REPORT_TYPE_SPECIAL
+                    and report["report_type"] == REPORT_TYPE_SPECIAL
+                    and minute is not None
+                    and report["valid_time_utc"].minute == minute
+                    and not str(report["raw"]).lstrip().upper().startswith("SPECI")
+                ):
+                    report = {**report, "report_type": REPORT_TYPE_ROUTINE}
+                    counts["scheduled_type4_routine"] += 1
+                counts[report["report_type"]] += 1
+                reports.append(report)
+    routine = sorted(
+        (report for report in reports if report["report_type"] == REPORT_TYPE_ROUTINE),
+        key=lambda item: item["valid_time_utc"],
+    )
+    selected, rejected = venue.select_reports(routine)
+    counts["rejected_late_corrections"] += rejected
+    records = []
+    for report in selected:
+        if report["temperature_c"] is None:
+            counts["no_temperature"] += 1
+            continue
+        counts[f"basis_{report['value_basis']}"] += 1
+        records.append({**report["record"], "temp_native": venue.native_value(report["temperature_c"], spec.display_unit)})
+    return records, dict(counts)
+
+
+def station_csvs(metar_root, icao):
+    """``(routine, special)`` CSV paths in the ``venue_rule_labels`` METAR layout."""
+    base = Path(metar_root) / icao.lower()
+    return sorted((base / "routine").glob("*.csv")), sorted((base / "special").glob("*.csv"))
 
 
 def records_by_local_date(records):
@@ -332,14 +399,7 @@ def publish_corpus(publish_root, files, manifest_body):
     return final, manifest
 
 
-def _csvs_for(directory, icao):
-    paths = sorted(Path(directory).glob(f"{icao}*.csv"))
-    if not paths:
-        raise CorpusBuildError(f"no IEM CSV for {icao} under {directory}")
-    return paths
-
-
-def build(*, market_ids, metar_csv_dir, pit_corpus_manifest, last_date, publish_root, registry_path=None):
+def build(*, market_ids, metar_root, pit_corpus_manifest, last_date, publish_root, registry_path=None):
     registry = load_candidate_registry(registry_path)
     unknown = sorted(set(market_ids) - set(registry))
     if unknown:
@@ -348,14 +408,23 @@ def build(*, market_ids, metar_csv_dir, pit_corpus_manifest, last_date, publish_
     labels_by_market = {}
     records_by_market = {}
     metar_inputs = {}
+    label_counts = {}
     for market_id, candidate in candidates.items():
-        paths = _csvs_for(metar_csv_dir, candidate.spec.icao)
+        routine, special = station_csvs(metar_root, candidate.spec.icao)
+        if not routine:
+            raise CorpusBuildError(f"no routine IEM CSV for {candidate.spec.icao} under {metar_root}")
         metar_inputs[market_id] = [
-            {"name": path.name, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()} for path in paths
+            {"name": f"{path.parent.name}/{path.name}", "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+            for path in routine + special
         ]
-        records = read_iem_records(paths, candidate.spec, last_date=last_date)
-        labels_by_market[market_id] = daily_labels(records, candidate, last_date=last_date)
-        records_by_market[market_id] = records_by_local_date(records)
+        label_records, label_counts[market_id] = venue_routine_records(
+            routine, special, candidate, last_date=last_date,
+        )
+        labels_by_market[market_id] = daily_labels(label_records, candidate, last_date=last_date)
+        # Observed-so-far features use every report a live station feed carries.
+        records_by_market[market_id] = records_by_local_date(
+            read_iem_records(routine + special, candidate.spec, last_date=last_date)
+        )
     pit_manifest, pit_digest, forecast_rows = load_pit_forecast_daily(pit_corpus_manifest, market_ids)
     rows, rejected = join_rows(forecast_rows, labels_by_market, records_by_market, candidates, last_date=last_date)
     if not rows:
@@ -368,6 +437,8 @@ def build(*, market_ids, metar_csv_dir, pit_corpus_manifest, last_date, publish_
         "market_ids": sorted(market_ids),
         "last_date": _parse_date(last_date).isoformat(),
         "label_sources": {market_id: candidates[market_id].label_source.name for market_id in sorted(candidates)},
+        "label_rule": venue.VENUE_RULE_VERSION,
+        "label_report_counts": label_counts,
         "metar_inputs": metar_inputs,
         "pit_corpus_id": pit_manifest.get("corpus_id"),
         "pit_forecast_daily_sha256": pit_digest,
@@ -384,14 +455,16 @@ def _labels_command(args):
     if args.market not in registry:
         raise CorpusBuildError(f"not a candidate market: {args.market!r}")
     candidate = registry[args.market]
-    records = read_iem_records(args.metar_csv, candidate.spec, last_date=args.last_date)
+    records, counts = venue_routine_records(
+        args.routine_csv, args.special_csv or [], candidate, last_date=args.last_date,
+    )
     labels = daily_labels(records, candidate, last_date=args.last_date)
     body = _jsonl_bytes(list(labels.values()))
     if args.out:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
         Path(args.out).write_bytes(body)
     complete = sum(1 for label in labels.values() if label["label_complete"])
-    print(json.dumps({"market": args.market, "dates": len(labels), "complete": complete}))
+    print(json.dumps({"market": args.market, "dates": len(labels), "complete": complete, "reports": counts}))
     return 0
 
 
@@ -400,13 +473,14 @@ def build_parser():
     sub = parser.add_subparsers(dest="command", required=True)
     labels = sub.add_parser("labels", help="Write daily METAR labels for one candidate market.")
     labels.add_argument("--market", required=True)
-    labels.add_argument("--metar-csv", nargs="+", required=True)
+    labels.add_argument("--routine-csv", nargs="+", required=True)
+    labels.add_argument("--special-csv", nargs="*", default=[])
     labels.add_argument("--last-date", required=True)
     labels.add_argument("--out", default="")
     labels.add_argument("--registry", default="")
     corpus = sub.add_parser("build", help="Join a PIT forecast corpus to METAR labels and publish.")
     corpus.add_argument("--markets", required=True)
-    corpus.add_argument("--metar-csv-dir", required=True)
+    corpus.add_argument("--metar-root", required=True)
     corpus.add_argument("--pit-corpus-manifest", required=True)
     corpus.add_argument("--last-date", required=True)
     corpus.add_argument("--publish-root", required=True)
@@ -420,7 +494,7 @@ def main(argv=None):
         return _labels_command(args)
     final, manifest = build(
         market_ids=[item.strip() for item in args.markets.split(",") if item.strip()],
-        metar_csv_dir=args.metar_csv_dir,
+        metar_root=args.metar_root,
         pit_corpus_manifest=args.pit_corpus_manifest,
         last_date=args.last_date,
         publish_root=args.publish_root,
