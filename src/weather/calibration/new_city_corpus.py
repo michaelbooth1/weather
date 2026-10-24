@@ -47,7 +47,7 @@ from pathlib import Path
 
 from weather.backtesting import venue_rule_labels as venue
 from weather.market.candidate_markets import load_candidate_registry
-from weather.schema_registry import schema_version
+from weather.schema_families import schema_version
 from weather.sources.metar_history import (
     IEM_REPORT_TYPE_ROUTINE,
     IEM_REPORT_TYPE_SPECIAL,
