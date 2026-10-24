@@ -128,6 +128,14 @@ than OLS+floor in every block except Paris 07-09 (tie), and far worse late in th
 reproduce the near-identity late-day mapping that OLS fits exactly. OLS+floor is the
 candidate; plain HGB is not.
 
+`ols_hgb_resid` (OLS plus an unconstrained HGB on the OLS training residuals, floor
+applied after the residual, sd from two-stage out-of-fold residuals) measured on the
+same corpus (fit `dd3f032d…`): indistinguishable from OLS+floor. 07-12 Brier versus
+OLS: London +0.005 [−0.002, +0.011], Paris −0.003 [−0.010, +0.003], KDEN +0.000
+[−0.005, +0.005]; the only CI that excludes zero in a headline block is Paris 07-09
+(−0.008 [−0.016, −0.000]). The residual stage adds no measurable skill on these
+features.
+
 ## Inputs and how they run
 
 - **IEM METAR history** (owner-approved 2026-10-23): EGLC, LFPB, EDDM, LEMD, RKSI,
