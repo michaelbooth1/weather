@@ -255,7 +255,34 @@ def _artifact_suffix(market_id: str) -> str:
     return "" if market_id == "toronto" else f"_{market_id}"
 
 
-def _base_model_source_components(repo_root: Path, market_id: str) -> dict[str, tuple[Path, str]]:
+# Research-only releases may bind trained candidate bytes for these two
+# components (retrain R0: base models only); the other five always come from
+# the served repository artifacts.
+OVERRIDABLE_BASE_MODEL_COMPONENTS = ("feature_hgb", "feature_lr_coefficients")
+
+
+def _base_model_source_components(
+    repo_root: Path,
+    market_id: str,
+    overrides: Mapping[str, str | Path] | None = None,
+) -> dict[str, tuple[Path, str]]:
+    components = _served_base_model_source_components(repo_root, market_id)
+    for component, source in (overrides or {}).items():
+        if component not in OVERRIDABLE_BASE_MODEL_COMPONENTS:
+            raise CandidateContractError(
+                f"base-model component cannot be overridden: {market_id}.{component}"
+            )
+        served_path, kind = components[component]
+        source = Path(source)
+        if source.name != served_path.name:
+            raise CandidateContractError(
+                f"override for {market_id}.{component} must be named {served_path.name}"
+            )
+        components[component] = (source, kind)
+    return components
+
+
+def _served_base_model_source_components(repo_root: Path, market_id: str) -> dict[str, tuple[Path, str]]:
     suffix = _artifact_suffix(market_id)
     artifacts = repo_root / "artifacts"
     return {
@@ -335,14 +362,24 @@ def _freeze_base_model_serving_graph(
     market_ids: Sequence[str],
     family_secondary_path: Path,
     family_secondary_manifest: Mapping[str, Any],
+    base_model_component_overrides: Mapping[str, Mapping[str, str | Path]] | None = None,
 ) -> dict[str, Any]:
     role_paths: dict[str, str] = {}
     role_kinds: dict[str, str] = {}
     audit_payloads: dict[str, Any] = {}
     markets: dict[str, Any] = {}
-    for market_id in sorted({str(value) for value in market_ids if str(value)}):
+    overrides = dict(base_model_component_overrides or {})
+    routed_markets = sorted({str(value) for value in market_ids if str(value)})
+    unrouted = sorted(set(overrides) - set(routed_markets))
+    if unrouted:
+        raise CandidateContractError(
+            f"base-model overrides name markets without a candidate route: {unrouted}"
+        )
+    for market_id in routed_markets:
         components: dict[str, Any] = {}
-        for component, (source, kind) in _base_model_source_components(repo_root, market_id).items():
+        for component, (source, kind) in _base_model_source_components(
+            repo_root, market_id, overrides.get(market_id)
+        ).items():
             role = f"base_model.{market_id}.{component}"
             relative = f"base_model/{market_id}/{source.name}"
             destination = candidate_dir / relative
@@ -1469,8 +1506,18 @@ def freeze_candidate_semantic_contract(
     point_in_time_artifacts: Mapping[str, str | Path] | None = None,
     research_corpus_lineage: Mapping[str, Any] | None = None,
     research_corpus_lineage_provenance: Mapping[str, Any] | None = None,
+    base_model_component_overrides: Mapping[str, Mapping[str, str | Path]] | None = None,
 ) -> dict[str, Any]:
-    """Freeze configs/sidecars, persist leakage evidence, and verify exact PASS."""
+    """Freeze configs/sidecars, persist leakage evidence, and verify exact PASS.
+
+    ``base_model_component_overrides`` (``{market: {component: path}}``) binds
+    trained candidate bytes for ``OVERRIDABLE_BASE_MODEL_COMPONENTS`` instead of
+    ``<repo_root>/artifacts``; research-only candidates only.
+    """
+    if base_model_component_overrides and candidate_mode != RESEARCH_ONLY_CANDIDATE_MODE:
+        raise CandidateContractError(
+            "base-model component overrides are allowed only for research-only candidates"
+        )
 
     started = time.time()
     root = Path(candidate_dir).resolve()
@@ -1562,6 +1609,7 @@ def freeze_candidate_semantic_contract(
         market_ids=list((route_without_base.get("markets") or {}).keys()),
         family_secondary_path=Path(family_secondary_path),
         family_secondary_manifest=family_secondary,
+        base_model_component_overrides=base_model_component_overrides,
     )
     base_graph = base_graph_info["graph"]
     route = _route_table(
