@@ -59,6 +59,31 @@ pre-registration on new dates (EF §5), nothing more.
   live MADIS 1-/5-minute ASOS**, whose real-time latency and distribution category are unverified. A
   KEEP would justify the owner's MADIS sign-up and a 14-day latency/fill measurement, not serving.
 
+### F1 result (scored 2026-10-24; score `6b0179912f9b…`, `data/research/free_sources/scores/f1/`)
+
+Population: 43 dates 2026-08-15..09-29, 11 markets, 473 market-days, 83,801 snapshots; candidate and
+control cover the same 79,146 snapshots (4,392 absent, 263 missing floor: served fallback). Pooled `ALL`,
+crossed date x market 95% intervals, unpowered (11 market clusters):
+
+| Block | F1 − served | F1 − control (t3-r3) | MDE80 | control − served |
+| --- | --- | --- | --- | --- |
+| **13-16 (decided)** | −0.0066 [−0.0138, −0.0000] | **+0.0044 [+0.0017, +0.0076]** | 0.0042 | −0.0110 [−0.0188, −0.0041] |
+| 00-12 | −0.0026 [−0.0109, +0.0051] | +0.0004 [−0.0004, +0.0012] | 0.0012 | −0.0029 [−0.0114, +0.0049] |
+| 17-23 | −0.0128 [−0.0245, −0.0034] | +0.0096 [+0.0056, +0.0141] | 0.0062 | −0.0224 [−0.0329, −0.0139] |
+| all | −0.0062 [−0.0145, +0.0004] | +0.0037 [+0.0021, +0.0056] | 0.0025 | −0.0099 [−0.0181, −0.0033] |
+
+Per market at 13-16, F1 − control: 0 of 10 negative (Denver identical by construction); worst Chicago
++0.0091, San Francisco +0.0085, Austin +0.0063.
+
+**Verdict: KILL (harm).** The fresher, degraded 1-minute running high makes the 13-16 remaining-rise pmf
+worse than the hourly-METAR control, with the interval excluding zero on the harmful side; F1 − served
+only reaches its bar because the control's own gain (−0.0110, reproducing t3-r3's −0.0116 of EF §10q)
+carries it. The control row confirms the scorecard reproduces t3-r3. Reading (not a measured cause):
+the settlement high is METAR-based, and a 1-minute (or whole-°C 5-minute) running max is a different,
+noisier quantity that often sits above the eventual METAR maximum, so replacing R with it moves mass
+off the settling value; the 17-23 harm points the same way. Per the owner's rule, **MADIS sign-up is
+not triggered**, and the proposal's kill criterion for every paid observation feed (P1, Synoptic) is met.
+
 ## F3: 12Z soundings (IEM RAOB, nearest upper-air site), block 13-16
 
 ### Pre-declaration (committed before scoring)
