@@ -232,3 +232,47 @@ def test_production_import_fails_closed():
     )
     assert result.returncode != 0
     assert "research-only" in result.stderr
+
+
+def test_hard_floor_matches_the_served_stage():
+    probs = {60: 0.5, 61: 0.3, 62: 0.2}
+    out = fy.hard_floor(probs, 61)
+    assert out[60] == pytest.approx(0.5e-6 / (0.5e-6 + 0.5))
+    assert sum(out.values()) == pytest.approx(1.0)
+    assert fy.hard_floor(probs, 61, 0.0)[60] == 0.0
+    assert fy.hard_floor(probs, 70, 0.0) == {60: 0.0, 61: 0.0, 62: 0.0, 70: 1.0}
+    assert fy.hard_floor(probs, None) == probs
+    assert fy.observed_floor(61.5) == 62 and fy.observed_floor(None) is None
+
+
+def test_compare_fair_gates_on_parity_and_needs_all_markets(tmp_path):
+    rows_root, l3_root = tmp_path / "rows", tmp_path / "l3"
+    l3_root.mkdir()
+    for market in ("atlanta", "austin"):
+        (rows_root / market).mkdir(parents=True)
+        ours, l3 = [], []
+        for hour in (7, 12, 13):
+            for k in range(10):
+                day = f"2023-11-{17 + k:02d}"
+                base = {"market": market, "hour": hour, "validation_date": day, "leaf": 20}
+                ours.append(dict(base, arm="windowed", hgb_log_loss=4.0))
+                ours.append(dict(base, arm="full_year", hgb_log_loss=3.0, hgb_floor_log_loss=2.0 + 0.01 * k,
+                                 hgb_floor0_log_loss=2.0))
+                l3.append({"market_id": market, "hour": hour, "validation_date": day, "r0_repro_log_loss": 4.0,
+                           "r0_baseline_floor_log_loss": 3.5, "bias_corrected_forecast_floor_log_loss": 2.5,
+                           "ols_floor_log_loss": 1.5 + 0.01 * k})
+        (rows_root / market / f"r0_full_year_rows_{market}.jsonl").write_text(
+            "".join(json.dumps(r) + "\n" for r in ours), encoding="utf-8")
+        if market == "austin":
+            l3[0]["r0_repro_log_loss"] = 4.1  # parity break
+        (l3_root / f"challenger_rows_{market}.jsonl").write_text(
+            "".join(json.dumps(r) + "\n" for r in l3), encoding="utf-8")
+    result = fy.compare_fair(rows_root, l3_root, ["atlanta", "austin"])
+    assert result["markets_scored"] == ["atlanta"]
+    assert result["status"] == "PROVISIONAL" and not result["adopt_full_year"]
+    assert result["comparisons"]["FYF_vs_f_bias_corrected_forecast_floor"]["beats"]
+    assert not result["comparisons"]["FYF_vs_ols_floor"]["beats"]
+    assert result["comparisons"]["FYF_vs_ols_floor"]["headline_07_12"]["delta"] == pytest.approx(0.5)
+    full = fy.compare_fair(rows_root, l3_root, ["atlanta"])
+    assert full["status"] == "FINAL" and full["beats_decisive"] == {
+        "f_bias_corrected_forecast_floor": True, "ols_floor": False} and not full["adopt_full_year"]
