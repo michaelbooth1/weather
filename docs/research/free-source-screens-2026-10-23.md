@@ -292,6 +292,32 @@ are negative; Los Angeles +0.0062 and Atlanta +0.0047 harm (date-clustered inter
 **Verdict G2-a: KILL (no increment demonstrated).** The interval is centred on zero, and its MDE80 (about 0.005)
 is four times the 5% bar.
 
+## L4: multi-model forecast blend (pre-registration sha256 `96dee78c7bfe8e350905c19048824ddf25729fcf3bc829bde066f16ad346a3b0`)
+
+Rule, members and bar: [the frozen pre-registration](forecast-blend-l4-preregistration-2026-10-24.md),
+committed in `144a1f582` before scoring. Data: Open-Meteo Previous Runs day-1 highs, 33 requests
+(11 stations x GFS/IFS/ICON, 2026-07-30..09-29), 1.19 MB, 2,046 station-model-days, full fill
+(`day1_highs.parquet` sha256 `62d68e3c…`). Score `d019d6b1fde6…` (`--hourly`), run through the W2 slot
+wrapper on a local, unpushed, detached merge of `1a16c6ed3`. 264 station x hour weight cells; coverage is
+identical to MG-1 (83,306 snapshots).
+
+| Rows (pooled `ALL`) | L4 − served [crossed] | L4 − MG-1 [crossed] | MDE80 | L4 − MG-1 [date-clustered] |
+| --- | --- | --- | --- | --- |
+| **07-12 (headline, decided)** | −0.0141 [−0.0211, −0.0068] | **−0.0002 [−0.0045, +0.0047]** | 0.0064 | −0.0002 [−0.0031, +0.0025] |
+| h07 / h08 / h09 | −0.0179 / −0.0172 / −0.0148 | −0.0005 / −0.0004 / −0.0004 (all span 0) | 0.0063 | all span 0 |
+| h10 / h11 / h12 | −0.0133 / −0.0111 / −0.0100 | −0.0002 / +0.0006 / −0.0003 (all span 0) | 0.0065-0.0071 | all span 0 |
+| 00-12 | −0.0153 [−0.0229, −0.0077] | +0.0000 [−0.0040, +0.0046] | 0.0060 | +0.0000 [−0.0025, +0.0025] |
+| 13-16 | −0.0070 [−0.0149, +0.0005] | −0.0059 [−0.0103, −0.0014] | 0.0063 | −0.0059 [−0.0088, −0.0033] |
+| 17-23 | −0.0061 [−0.0176, +0.0045] | −0.0129 [−0.0179, −0.0077] | 0.0073 | −0.0129 [−0.0157, −0.0102] |
+
+h00-h06 all span 0 vs MG-1; h15-h23 are −0.008 to −0.013 vs MG-1 with intervals excluding 0. Per market at
+07-12, L4 − MG-1: 5 of 11 negative (NYC −0.0075, Austin −0.0061, Atlanta −0.0030), San Francisco +0.0088.
+
+**Verdict L4: KILL at the 07-12 headline (no increment over MG-1; interval centred on 0, MDE80 five times
+the 5% bar).** The afternoon/evening "gain" over MG-1 is not a lead: it is outside the decided block, and it
+mostly undoes MG-1's known afternoon harm (EF §10p; MG-1 − served is +0.0068 at 17-23 here). L4 − served
+does not exclude zero at 13-16 or 17-23, and t3-r3 already does far better there (−0.0110 / −0.0224 vs served).
+
 ## Fetch receipts (all under `data/research/free_sources/<source>/`, sha256 per file in `receipts.jsonl`)
 
 | Source | Requests | Bytes | Rows | Span | Notes |
