@@ -160,6 +160,9 @@ def render_report(payload):
                     f"revised {result.get('revised_label_count')}; "
                     f"unreconciled {result.get('unreconciled_label_count')}"
                 )
+                deferred = result.get("target_date_deferred_non_countable") or []
+                if deferred:
+                    detail += f"; deferred non-countable {len(deferred)}"
         elif step.get("name") == "observed_floor_safety_monitor":
             detail = (
                 f"{result.get('status')} (target {result.get('target_date')}); "

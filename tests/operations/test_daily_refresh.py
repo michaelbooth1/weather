@@ -5414,6 +5414,55 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertEqual(result["global_status"], "BLOCK")
         self.assertEqual(result["promotion_blocked_label_count"], 1)
 
+    def test_settlement_source_audit_step_defers_undecided_disagreement(self):
+        # Owner decision 2026-10-16 (Option 1): an undecided supporting-source
+        # disagreement defers as non-countable; a confirmed mismatch blocks.
+        def run(reconciliation):
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                ledger = root / "settlements" / "atlanta" / "ledger.jsonl"
+                row = {
+                    "event_slug": "highest-temperature-in-atlanta-on-june-19-2026",
+                    "market_id": "atlanta",
+                    "target_date": "2026-06-19",
+                    "settlement_bucket": "84",
+                    "settlement_source": "daily_summary",
+                    "snapshot_high_bucket": "85",
+                    "quality_grade": "complete",
+                    "reconciliation_status": reconciliation,
+                    "ledger_path": str(ledger),
+                    "resolution_timezone": "America/New_York",
+                }
+                fieldnames = sorted(row)
+                labels = root / "labels.csv"
+                labels.write_text(
+                    ",".join(fieldnames) + "\n"
+                    + ",".join(row[key] for key in fieldnames) + "\n",
+                    encoding="utf-8",
+                )
+                ledger.parent.mkdir(parents=True)
+                ledger.write_text(json.dumps(row) + "\n", encoding="utf-8")
+                return run_settlement_source_audit_step(_args(
+                    tmp,
+                    labels_csv=str(labels),
+                    ledger_root=str(root / "settlements"),
+                    as_of="2026-06-20T12:00:00+00:00",
+                ))
+
+        deferred = run("not_closed")
+        self.assertEqual(deferred["status"], "PASS")
+        self.assertEqual(deferred["target_date_gate_blockers"], [])
+        self.assertEqual(deferred["target_date_deferred_non_countable"],
+                         ["2026-06-19:atlanta:SOURCE_DISAGREEMENT:not_closed"])
+        self.assertEqual(deferred["proof_grade_label_count"], 0)
+        self.assertEqual(deferred["promotion_blocked_label_count"], 1)
+        self.assertIsNone(deferred["reconciliation_retry"])
+        blocked = run("mismatch")
+        self.assertEqual(blocked["status"], "BLOCK")
+        self.assertEqual(blocked["target_date_gate_blockers"],
+                         ["2026-06-19:atlanta:SOURCE_DISAGREEMENT"])
+        self.assertEqual(blocked["target_date_deferred_non_countable"], [])
+
     def test_observed_floor_safety_monitor_step_writes_settled_day_artifacts(self):
         target_date = "2026-06-19"
         with tempfile.TemporaryDirectory() as tmp:
