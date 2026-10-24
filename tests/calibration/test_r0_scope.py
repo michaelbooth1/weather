@@ -254,3 +254,88 @@ def test_main_writes_per_row_blocked_validation_losses(tmp_path, monkeypatch, se
         assert all(isinstance(row[key], float) for row in rows)
     report = (out / "feature_model_report_nyc.md").read_text(encoding="utf-8")
     assert "HGBC LogLoss" in report
+    for key in ("baseline_floored_log_loss", "lr_floored_log_loss", "hgb_floored_log_loss", "hgb_floored_brier"):
+        assert all(isinstance(row[key], float) for row in rows)
+    assert all("hgb_distribution" not in row for row in rows)  # distributions are opt-in
+    floored = [row for row in rows if row["observed_floor_bucket"] is not None]
+    assert floored
+
+
+# Research-only floored scoring of the R0 rows (coordinator GO 2026-10-24) ------------------------
+
+
+def test_observed_floor_matches_the_serving_hard_floor_and_never_mutates():
+    from weather.calibration.feature_model import apply_observed_floor, observed_floor_bucket
+    from weather.model.model_distribution import DistributionMixin
+
+    probs = {60: 0.2, 61: 0.3, 62: 0.4, 63: 0.1}
+    before = dict(probs)
+    floored = apply_observed_floor(probs, 62)
+    assert probs == before
+    serving = dict(probs)
+    DistributionMixin.apply_floor(None, serving, 62, 0.000001)
+    total = sum(serving.values())
+    assert floored == pytest.approx({k: v / total for k, v in serving.items()})
+    assert sum(floored.values()) == pytest.approx(1.0)
+    assert apply_observed_floor(probs, None) == probs
+    assert observed_floor_bucket(61.5) == 62
+    assert observed_floor_bucket(float("nan")) is None
+    assert observed_floor_bucket(None) is None
+
+
+def test_validation_row_distributions_flag_needs_output_root():
+    from weather.calibration.feature_model import parse_cli_args
+
+    assert parse_cli_args([]).validation_row_distributions is False
+    args = parse_cli_args(["--market", "nyc", "--output-root", "o", "--validation-row-distributions"])
+    assert args.validation_row_distributions is True
+    for argv in (["--validation-row-distributions"], ["--late-day-only", "--validation-row-distributions"]):
+        with pytest.raises(SystemExit):
+            parse_cli_args(["--market", "nyc", *argv])
+
+
+def test_main_refuses_row_distributions_on_the_served_path(monkeypatch):
+    trainer = _patch_trainer(monkeypatch, {})
+    with pytest.raises(TrainingInputError, match="needs --output-root"):
+        trainer.main("nyc", validation_row_distributions=True)
+
+
+def test_row_distributions_leave_the_trained_bundles_byte_identical(tmp_path, monkeypatch, served, corpora):  # noqa: F811
+    served["nyc"] = ["high_so_far", "pressure", "forecast_high"] + ONE_HOT
+    trainer = _patch_trainer(monkeypatch, {})
+    monkeypatch.setattr(trainer, "RUN_LOO", True)
+
+    class _FixedClock:  # trained_at is wall-clock; pin it so the bundles compare byte for byte
+        @staticmethod
+        def now():
+            from datetime import datetime
+
+            return datetime(2026, 10, 24, 12, 0, 0)
+
+    monkeypatch.setattr(trainer, "datetime", _FixedClock)
+    outputs = {}
+    for flag in (False, True):
+        out = tmp_path / f"r0-dist-{int(flag)}"
+        trainer.main(
+            "nyc", column_allowlist="r0:nyc", output_root=str(out), target_date="2026-11-24",
+            pit_forecast_corpus_manifests=[str(corpora["2021"]), str(corpora["2022"])],
+            validation_row_distributions=flag,
+        )
+        outputs[flag] = out
+    for name in ("feature_model_hgb_nyc.pkl", "feature_model_coefs_nyc.json"):
+        assert (outputs[False] / name).read_bytes() == (outputs[True] / name).read_bytes()
+    rows_path = "feature_model_blocked_validation_rows_nyc.jsonl"
+    plain = [json.loads(line) for line in (outputs[False] / rows_path).read_text(encoding="utf-8").splitlines()]
+    rich = [json.loads(line) for line in (outputs[True] / rows_path).read_text(encoding="utf-8").splitlines()]
+    assert len(plain) == len(rich)
+    for a, b in zip(plain, rich):
+        assert {k: b[k] for k in a} == a
+        assert set(b) - set(a) == {"observed_high", "actual_bucket", "hgb_distribution"}
+        assert sum(b["hgb_distribution"].values()) == pytest.approx(1.0)
+        from weather.calibration.feature_model import apply_observed_floor, log_loss
+
+        dist = {int(k): v for k, v in b["hgb_distribution"].items()}
+        assert log_loss(dist, b["actual_bucket"]) == pytest.approx(b["hgb_log_loss"])
+        assert log_loss(apply_observed_floor(dist, b["observed_floor_bucket"]), b["actual_bucket"]) == (
+            pytest.approx(b["hgb_floored_log_loss"])
+        )

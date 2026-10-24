@@ -190,6 +190,41 @@ def brier_score(prob_dict, actual_bucket):
         score += (v - y) ** 2
     return score
 
+
+# Research-only scoring (R0 rows, coordinator GO 2026-10-24): the serving hard
+# floor at the observed high, applied to a validation distribution. It mirrors
+# ``model_distribution.apply_floor`` (buckets below the floor times 1e-6) plus the
+# renormalisation of ``distribution_hard_floor_stage``. Serving is not touched.
+OBSERVED_FLOOR_MULTIPLIER = 0.000001
+
+
+def observed_floor_bucket(high_so_far):
+    """round_half_up of the record's printed high so far at the cutoff; None or
+    NaN means no floor (the lane L3 ``floor_of`` rule on the same field)."""
+    if high_so_far is None:
+        return None
+    try:
+        if math.isnan(float(high_so_far)):
+            return None
+    except (TypeError, ValueError):
+        return None
+    return round_half_up(high_so_far)
+
+
+def apply_observed_floor(prob_dict, floor_bucket, multiplier=OBSERVED_FLOOR_MULTIPLIER):
+    """A new, renormalised copy with every bucket below ``floor_bucket`` scaled
+    by ``multiplier``; the input is never mutated. No floor returns a copy."""
+    floored = dict(prob_dict)
+    if floor_bucket is None:
+        return floored
+    for bucket in list(floored):
+        if bucket < floor_bucket:
+            floored[bucket] *= multiplier
+    total = sum(floored.values())
+    if total <= 0:
+        return dict(prob_dict)
+    return {bucket: value / total for bucket, value in floored.items()}
+
 def expected_calibration_error(conf_correct, n_bins=10):
     """ECE over the predicted top-class confidence: how far the model's stated
     confidence is from its realized accuracy. 0 = perfectly calibrated."""
@@ -1301,13 +1336,22 @@ def main(
     pit_forecast_corpus_manifests=None,
     training_years=None,
     min_samples_leaf=None,
+    validation_row_distributions=False,
 ):
     """Train one market's feature model (see ``_train_main``).
 
     ``min_samples_leaf`` (research-only, needs ``output_root``) sets the HGB
     leaf floor for this run only; the module default is restored afterwards.
+    ``validation_row_distributions`` (research-only, needs ``output_root``) adds
+    each blocked-validation row's blended HGB distribution, observed high and
+    label to the per-row JSONL.
     """
     global HGB_MIN_SAMPLES_LEAF
+    if validation_row_distributions and output_root is None:
+        raise TrainingInputError(
+            "--validation-row-distributions is research-only and needs --output-root "
+            "(base models only)"
+        )
     previous = HGB_MIN_SAMPLES_LEAF
     if min_samples_leaf is not None:
         value = parse_min_samples_leaf(min_samples_leaf)
@@ -1324,6 +1368,7 @@ def main(
             target_date=target_date,
             pit_forecast_corpus_manifests=pit_forecast_corpus_manifests,
             training_years=training_years,
+            validation_row_distributions=bool(validation_row_distributions),
         )
     finally:
         HGB_MIN_SAMPLES_LEAF = previous
@@ -1347,6 +1392,7 @@ def _train_main(
     target_date=None,
     pit_forecast_corpus_manifests=None,
     training_years=None,
+    validation_row_distributions=False,
 ):
     """Train one market's feature model.
 
@@ -1774,6 +1820,30 @@ def _train_main(
                 "hgb_log_loss": float(hgb_loss),
                 "hgb_brier": float(hgb_brier),
             })
+            floor_bucket = observed_floor_bucket(df.iloc[val_idx]["high_so_far"])
+            floored_base = apply_observed_floor(scores_base, floor_bucket)
+            floored_lr = apply_observed_floor(lr_prob_blended, floor_bucket)
+            floored_hgb = apply_observed_floor(hgb_prob_blended, floor_bucket)
+            row_record = blocked_validation_records[-1]
+            row_record.update({
+                "observed_floor_bucket": floor_bucket,
+                "baseline_floored_log_loss": float(log_loss(floored_base, val_actual)),
+                "lr_floored_log_loss": float(log_loss(floored_lr, val_actual)),
+                "hgb_floored_log_loss": float(log_loss(floored_hgb, val_actual)),
+                "hgb_floored_brier": float(brier_score(floored_hgb, val_actual)),
+            })
+            if validation_row_distributions:
+                high_value = df.iloc[val_idx]["high_so_far"]
+                row_record.update({
+                    "observed_high": (
+                        None if observed_floor_bucket(high_value) is None else float(high_value)
+                    ),
+                    "actual_bucket": int(val_actual),
+                    "hgb_distribution": {
+                        str(int(bucket)): float(value)
+                        for bucket, value in sorted(hgb_prob_blended.items())
+                    },
+                })
             hgb_outer_rows.append({
                 "validation_index": val_idx,
                 "validation_date": val_date,
@@ -2255,7 +2325,17 @@ def parse_cli_args(argv=None):
         help="Research only (R0 leaf sweep): the cutoff-hour HGB leaf floor for "
              "this run, an integer in 1..1000. Default: the served 20. Recorded in "
              "both artifacts. Needs --output-root.")
+    parser.add_argument(
+        "--validation-row-distributions", action="store_true",
+        help="Research only: add each blocked-validation row's blended HGB "
+             "distribution, observed high so far at the cutoff and label to the "
+             "per-row JSONL. Needs --output-root.")
     args = parser.parse_args(argv)
+    if args.validation_row_distributions and (args.item27_report_only or args.late_day_only):
+        parser.error("--validation-row-distributions applies to the base cutoff-hour model only")
+    if args.validation_row_distributions and args.output_root is None:
+        parser.error("--validation-row-distributions is research-only and needs --output-root "
+                     "(base models only)")
     for flag in (
         "column_allowlist",
         "output_root",
@@ -2305,4 +2385,5 @@ if __name__ == "__main__":
         pit_forecast_corpus_manifests=args.pit_forecast_corpus_manifests,
         training_years=args.training_years,
         min_samples_leaf=args.min_samples_leaf,
+        validation_row_distributions=args.validation_row_distributions,
     )
