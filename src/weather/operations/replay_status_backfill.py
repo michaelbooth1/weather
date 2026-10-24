@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
+import json
 from collections import Counter, defaultdict
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from weather.backtesting.replay import (
@@ -50,6 +52,16 @@ def _csv_row_count(path):
     if not path.exists():
         return 0
     try:
+        # Fast physical-line scan for ordinary unquoted generated CSV. Retain
+        # csv's logical-row semantics if quoted/multiline fields are present.
+        lines, last, quoted = 0, b"", False
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                lines += chunk.count(b"\n")
+                quoted |= b'"' in chunk
+                last = chunk[-1:]
+        if not quoted:
+            return max(0, lines + int(bool(last) and last != b"\n") - 1)
         with path.open("r", encoding="utf-8", newline="") as handle:
             return sum(1 for _row in csv.DictReader(handle))
     except (OSError, csv.Error):
@@ -115,7 +127,61 @@ def training_ready_from_status(base_training_ready, status_summary, evidence):
     return True, "training_ready"
 
 
-def repair_folder(folder, *, as_of_date, overwrite=False, reconstruct_missing=False, include_active=False):
+def _repair_signature(folder):
+    signature = []
+    for name in (REPLAY_INPUTS_FILENAME, RECONSTRUCTED_FILENAME, "snapshots.jsonl",
+                 "source_status_long.csv", REPLAY_STATUS_FILENAME, REPLAY_STATUS_LONG_FILENAME):
+        path = folder / name
+        stat = path.stat() if path.exists() else None
+        signature.append([str(path.resolve()), stat.st_size if stat else None,
+                          stat.st_mtime_ns if stat else None])
+    return signature
+
+
+def repair_folder(folder, *, as_of_date, overwrite=False, reconstruct_missing=False,
+                  include_active=False, incremental=True):
+    folder = Path(folder)
+    signature = _repair_signature(folder)
+    cache_path = folder / ".replay_status_cache.json"
+    target = folder_target_date(folder)
+    options = [SCHEMA_VERSION, bool(target and target < as_of_date),
+               reconstruct_missing, include_active]
+    cached = None
+    if incremental and not overwrite:
+        try:
+            cached = json.loads(cache_path.read_text(encoding="utf-8"))
+            result = cached["result"]
+            if (cached["inputs"] == signature and cached["options"] == options
+                    and (folder / REPLAY_STATUS_LONG_FILENAME).exists()
+                    and cached["sha256"] == hashlib.sha256(
+                        json.dumps(result, sort_keys=True).encode()).hexdigest()):
+                return result
+        except (OSError, ValueError, KeyError, TypeError):
+            cached = None
+    result = _repair_folder_full(
+        folder, as_of_date=as_of_date,
+        overwrite=overwrite or bool(cached and cached.get("inputs") != signature),
+        reconstruct_missing=reconstruct_missing, include_active=include_active)
+    if incremental and result.get("status_path"):
+        # Build exactly the old existing-status response after a successful
+        # write, without reparsing any evidence.
+        next_result = dict(result)
+        if result["action"] == "written":
+            for name in ("summary_path", "reconstructed_added", "reconstructed_skipped"):
+                next_result.pop(name, None)
+            next_result.update(action="skipped", reason="replay_status_exists")
+        after = _repair_signature(folder)
+        if signature[:4] == after[:4]:
+            try:
+                write_json_atomic(cache_path, {"inputs": after, "options": options,
+                                              "result": next_result, "sha256": hashlib.sha256(
+                                                  json.dumps(next_result, sort_keys=True).encode()).hexdigest()})
+            except OSError:
+                pass  # Cache availability cannot change a valid repair result.
+    return result
+
+
+def _repair_folder_full(folder, *, as_of_date, overwrite=False, reconstruct_missing=False, include_active=False):
     folder = Path(folder)
     target_date = folder_target_date(folder)
     market_id = market_id_from_slug(folder.name)
@@ -215,9 +281,17 @@ def build_backfill_payload(
     overwrite=False,
     reconstruct_missing=False,
     include_active=False,
+    recent_days=7,
+    incremental=True,
 ):
     as_of_date = parse_as_of(as_of)
+    if recent_days < 0:
+        raise ValueError("recent_days must be non-negative")
     selected = [Path(folder) for folder in folders] if folders else discover_folders(snapshots_root)
+    if recent_days and not folders:
+        cutoff = as_of_date - timedelta(days=int(recent_days))
+        selected = [folder for folder in selected
+                    if (target := folder_target_date(folder)) is not None and cutoff <= target <= as_of_date]
     rows = [
         repair_folder(
             folder,
@@ -225,6 +299,7 @@ def build_backfill_payload(
             overwrite=overwrite,
             reconstruct_missing=reconstruct_missing,
             include_active=include_active,
+            incremental=incremental,
         )
         for folder in selected
     ]
@@ -342,6 +417,8 @@ def build_parser():
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--reconstruct-missing", action="store_true")
     parser.add_argument("--include-active", action="store_true")
+    parser.add_argument("--recent-days", type=int, default=7, help="Automatic folder window; 0 scans all history.")
+    parser.add_argument("--full-scan", action="store_true", help="Disable reuse of unchanged evidence caches.")
     return parser
 
 
@@ -354,6 +431,8 @@ def main(argv=None):
         overwrite=args.overwrite,
         reconstruct_missing=args.reconstruct_missing,
         include_active=args.include_active,
+        recent_days=args.recent_days,
+        incremental=not args.full_scan,
     )
     json_path, report_path = write_outputs(payload, json_out=args.json_out, report_out=args.report_out)
     print(f"Replay status backfill: wrote {payload['summary']['written_folder_count']} folder(s)")
