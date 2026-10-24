@@ -810,12 +810,13 @@ class TestSupervisorPrimitives(unittest.TestCase):
             )
             calls = {}
 
-            def fake_popen(command, cwd=None, stdout=None, stderr=None, creationflags=0):
+            def fake_popen(command, cwd=None, stdout=None, stderr=None, creationflags=0, env=None):
                 calls["command"] = command
                 calls["cwd"] = cwd
                 calls["stdout_closed_during_call"] = stdout.closed
                 calls["stderr_is_stdout"] = stderr is stdout
                 calls["creationflags"] = creationflags
+                calls["env"] = env
                 return FakeProcess()
 
             child = supervisor.launch_detached(
@@ -832,6 +833,32 @@ class TestSupervisorPrimitives(unittest.TestCase):
             self.assertFalse(calls["stdout_closed_during_call"])
             self.assertTrue(calls["stderr_is_stdout"])
             self.assertEqual(calls["creationflags"], 7)
+            for name in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS"):
+                self.assertEqual(calls["env"][name], os.environ.get(name, "1"))
+            self.assertEqual(calls["env"].get("PATH"), os.environ.get("PATH"))
+
+    def test_capped_worker_env_sets_one_thread_and_keeps_operator_values(self):
+        env = supervisor.capped_worker_env({"PATH": "x", "OMP_NUM_THREADS": "4"})
+
+        self.assertEqual(env["OPENBLAS_NUM_THREADS"], "1")
+        self.assertEqual(env["MKL_NUM_THREADS"], "1")
+        self.assertEqual(env["OMP_NUM_THREADS"], "4")
+        self.assertEqual(env["PATH"], "x")
+
+    def test_detached_worker_inherits_the_thread_cap(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "console.log"
+            with mock.patch.dict(os.environ):
+                os.environ.pop("OPENBLAS_NUM_THREADS", None)
+                child = supervisor.launch_detached(
+                    [sys.executable, "-c", "import os; print(os.environ.get('OPENBLAS_NUM_THREADS'))"],
+                    cwd=tmp,
+                    console_log_path=log,
+                    creationflags=0,
+                )
+            child.wait(timeout=60)
+
+            self.assertEqual(log.read_text(encoding="utf-8").strip(), "1")
 
     def test_pid_checks_and_termination_are_injectable(self):
         class Result:

@@ -49,10 +49,12 @@ _COMMAND_TOKEN_END = r"(?=\s|[;&|{}()]|\Z)"
 _OFFLINE_WEATHER_MODULES = frozenset(
     {
         "maker_core.replay.toxicity",
+        "maker_core.replay.v2.transfer_cli",
         "tools.research.guidance_all_hours.run",
         "tools.research.missing_information.run",
         "tools.research.morning_guidance.run",
         "tools.research.nbm_target_trace.run",
+        "tools.research.nbm_target_fix",
         "weather.backtesting.backtest",
         "weather.backtesting.replay",
         "weather.backtesting.replay_ablation",
