@@ -73,3 +73,14 @@ Expected consistency check on the full range with `--min-train-dates 0`: pooled 
 ## Update when
 
 Do not rewrite this record; add dated addenda (for example, the baseline once it runs).
+
+## Addendum 2026-10-23 (lane G, `claude/free-source-screens-20261023`)
+
+Additive changes for the free-source screens; existing rows and numbers are unchanged:
+- `--control-module` / `--control-vectors`: a second candidate scored on the same rows and crossed weights;
+  each row then carries `brier_control`, `model_minus_control` (with MDE80) and `control_minus_served`, the
+  paired increment of a source over its no-source rule.
+- A `00-12` aggregate row (MG-1's block) beside `00-16` and `all`.
+- A module candidate whose fitted state is a dict with a `provenance` dict has it recorded once as
+  `candidate.state_provenance` (input file hashes, fixed tables).
+Record of use: [free-source screens](free-source-screens-2026-10-23.md).
