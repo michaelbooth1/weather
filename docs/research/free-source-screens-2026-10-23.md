@@ -58,3 +58,21 @@ pre-registration on new dates (EF §5), nothing more.
 - **Latency and parity:** the NCEI 1-minute archive arrives 18-36 h late, so **F1 is a training proxy for
   live MADIS 1-/5-minute ASOS**, whose real-time latency and distribution category are unverified. A
   KEEP would justify the owner's MADIS sign-up and a 14-day latency/fill measurement, not serving.
+
+## F3: 12Z soundings (IEM RAOB, nearest upper-air site), block 13-16
+
+### Pre-declaration (committed before scoring)
+
+- **Control:** `control_t3r3_metar` (as F1).
+- **Candidate `f3_sounding_cap_gap`:** T_cap = the nearest site's 12Z 850 hPa temperature (700 hPa at
+  KDNR) brought dry-adiabatically to the sounding's surface pressure (a full-mixing afternoon cap), in F.
+  Gap g = T_cap − R (R = PIT METAR running max) in bins (−inf, 0], (0, 4], (4, 8], (8, inf) F, fixed a
+  priori. The t3-r3 pmf is taken from the (station, month, hour, bin) history cell when it has >= 30
+  days, otherwise the unconditioned t3-r3 cell. The sounding is used only from valid + 2 h (14:00Z), in
+  history and at serve (before 13:00 local in every US market).
+- **Sites and distances** (`python -m weather.sources.free_screens.iem_raob sites`): KATL-FFC 32 km,
+  KAUS-CRP 268, KORD-DVN 223, KDAL-FWD 43, KBKF-DNR 12, KHOU-LCH 206, KLAX-NKX 169, KMIA-MFL 8,
+  KLGA-OKX 86, KSFO-OAK 18, KSEA-UIL 177. Far sites dilute the signal; no site is re-chosen after scoring.
+- **Latency/parity:** RAOB is public within about 1-2 h of launch at no cost; the 14:00Z bound is used
+  in history and at serve, so parity holds.
+- **Targeted block 13-16; one rule; keep/kill bar as in the common protocol.**

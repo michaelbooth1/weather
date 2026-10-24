@@ -13,7 +13,7 @@ def tz_by_station():
     return {s.icao: s.timezone for s in common.us_stations()}
 
 
-def _inputs(spec):
+def inputs(spec):
     key = spec.name if spec else "control"
     if key in _CACHE:
         return _CACHE[key]
@@ -36,7 +36,7 @@ def _inputs(spec):
 def fit(train, spec):
     """The table is fixed from history <= 2026-07-31 (before every development date), so every fold
     gets the same state; ``train`` (fold labels) is never read."""
-    metar, hf, table, provenance = _inputs(spec)
+    metar, hf, table, provenance = inputs(spec)
     return {"table": table, "metar": metar, "hf": hf, "provenance": provenance}
 
 

@@ -128,7 +128,7 @@ def running_max_asof(obs, queries):
     ok = j.available_utc.notna()
     if (j.available_utc[ok] > j.t[ok]).any():
         raise AssertionError("point-in-time violation in running max")
-    return j.set_index("qid").cummax.reindex(queries.qid)
+    return j.set_index("qid")["cummax"].reindex(queries.qid)
 
 
 # ----------------------------------------------------------------------------- history table
@@ -172,8 +172,12 @@ def smooth_pmf(values):
     return lo + int(k[0]), p / p.sum()
 
 
-def fit_table(metar, tz_by_station, hf=None, months=(8, 9)):
-    """{(station, month, hour): (base, pmf, n)} of e = dmax - R(*) at local H:30 (history only)."""
+def fit_table(metar, tz_by_station, hf=None, months=(8, 9), cond=None):
+    """{(station, month, hour): (base, pmf, n)} of e = dmax - R(*) at local H:30 (history only).
+
+    ``cond(queries, r)`` (optional) returns an integer bin per query (-1 = no information); cells
+    ``(station, month, hour, bin)`` with >= MIN_CELL_N days are added beside the unconditioned ones.
+    The same ``cond`` is applied at serve (``predict_frame``), which backs off to the unconditioned cell."""
     days = complete_days(metar)
     days = days[days.month.isin(months)]
     q = history_cutoffs(days, tz_by_station)
@@ -182,12 +186,18 @@ def fit_table(metar, tz_by_station, hf=None, months=(8, 9)):
         rh = running_max_asof(hf, q[["qid", "station", "local_date", "t"]]).to_numpy(float)
         r = np.where(np.isnan(rh), r, np.fmax(r, rh))
     q["e"] = q.dmax.to_numpy(float) - r
+    q["bin"] = -1 if cond is None else np.asarray(cond(q, r), int)
     q = q[np.isfinite(q.e)]
     table = {}
     for (st, mo, hour), g in q.groupby(["station", "month", "hour"]):
         if len(g) >= MIN_CELL_N:
             base, p = smooth_pmf(g.e.to_numpy())
             table[(st, int(mo), int(hour))] = (base, p, int(len(g)))
+    if cond is not None:
+        for (st, mo, hour, b), g in q[q["bin"] >= 0].groupby(["station", "month", "hour", "bin"]):
+            if len(g) >= MIN_CELL_N:
+                base, p = smooth_pmf(g.e.to_numpy())
+                table[(st, int(mo), int(hour), int(b))] = (base, p, int(len(g)))
     return table
 
 
@@ -224,8 +234,15 @@ def snapshot_state(snaps, metar, hf=None):
     return r, rstar
 
 
-def predict_frame(table, snaps, bands, metar, hf=None):
+def predict_frame(table, snaps, bands, metar, hf=None, cond=None):
     r, rstar = snapshot_state(snaps, metar, hf)
+    bins = np.full(len(snaps), -1)
+    if cond is not None:
+        q = pd.DataFrame({"qid": np.arange(len(snaps)), "station": snaps.station.astype(str).to_numpy(),
+                          "local_date": snaps.date.astype(str).to_numpy(),
+                          "t": pd.to_datetime(snaps.captured_at_utc, utc=True).to_numpy()})
+        q["t"] = pd.to_datetime(q.t, utc=True)
+        bins = np.asarray(cond(q, r), int)
     months = snaps.date.astype(str).str[5:7].astype(int).to_numpy()
     hours = snaps.local_hour.to_numpy(int)
     stations = snaps.station.astype(str).to_numpy()
@@ -235,6 +252,8 @@ def predict_frame(table, snaps, bands, metar, hf=None):
         if np.isnan(r[i]):
             continue
         cell = table.get((stations[i], int(months[i]), int(hours[i])))
+        if bins[i] >= 0:
+            cell = table.get((stations[i], int(months[i]), int(hours[i]), int(bins[i])), cell)
         if cell is None or key not in grouped:
             continue
         base, pmf, _ = cell
@@ -260,5 +279,5 @@ def predict_frame(table, snaps, bands, metar, hf=None):
 
 
 def table_digest(table):
-    rows = sorted((k[0], k[1], k[2], v[0], [round(x, 12) for x in v[1].tolist()], v[2]) for k, v in table.items())
+    rows = sorted((list(k), v[0], [round(x, 12) for x in v[1].tolist()], v[2]) for k, v in table.items())
     return hashlib.sha256(json.dumps(rows).encode("utf-8")).hexdigest()
