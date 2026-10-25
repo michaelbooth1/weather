@@ -253,3 +253,50 @@ def test_derived_features_move_with_high_so_far():
     untouched = {"rise_from_7am", "warming_rate_2h", "dewpoint_c", "wind_speed_kmh", "minutes_since_cutoff"}
     for key in untouched:
         assert fix[key] == base[key], key
+
+
+# --- the single shared implementation (master ruling 2026-10-24: MG-2 arm A and arm B import it) ---
+
+from weather.model import observed_running_max as orm  # noqa: E402
+
+
+def test_shared_function_is_what_the_serve_path_calls(monkeypatch):
+    calls = []
+    real = orm.running_max_since_midnight
+
+    def spy(*args, **kwargs):
+        calls.append(kwargs)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(orm, "running_max_since_midnight", spy)
+    feats = _model(variant=VARIANT).extract_live_features(_atl_sources(), 8, now=ATL_NOW)
+    assert calls and calls[0]["cutoff_hour"] == 8 and calls[0]["unit"] == "F"
+    assert feats["high_so_far"] == pytest.approx(84.02)
+
+
+def test_shared_function_on_raw_source_data_atlanta_0821():
+    model = _model()
+    sources = _atl_sources()
+    station = sources["station_observations"]["data"]
+    high, first = orm.running_max_since_midnight(
+        station, sources["metar"]["data"], target_date=model.target_date, tz=model.spec.tz, unit="F",
+        cutoff_hour=8, now=ATL_NOW)
+    assert (high, first) == (pytest.approx(84.02), 52)
+    assert orm.running_max_since_midnight(
+        station, sources["metar"]["data"], target_date=model.target_date, tz=model.spec.tz, unit="F",
+        cutoff_hour=0, now=ATL_NOW) == (None, None)
+
+
+@pytest.mark.parametrize("market_id,unit", [("atlanta", "F"), ("toronto", "C")])
+@pytest.mark.parametrize("seed", range(6))
+def test_shared_row_keying_equals_lockin_observed_rows(market_id, unit, seed):
+    rows = _synthetic_day(unit, 500 + seed)
+    model = _model(market_id=market_id)
+    now = datetime(2026, 8, 21, 14, 5, tzinfo=model.spec.tz)
+    sources = _sources([{k: v for k, v in r.items() if k != "_observed_local"} for r in rows])
+    station = model.station_observation_data(sources)
+    metar = model.source_data(sources, "metar")
+    lockin, _ = model.lockin_observed_rows(station=station, metar=metar, now=now)
+    shared = orm.observed_target_date_rows(station, metar, target_date=model.target_date, tz=model.spec.tz,
+                                           unit=model.spec.display_unit, now=now)
+    assert shared == [(minute, value) for minute, _, value in lockin]

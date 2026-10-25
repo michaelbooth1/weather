@@ -58,23 +58,24 @@ class ModelUtilsMixin:
         Training (``feature_store.build_historical_feature_record``) takes the
         maximum of every target-date row whose minute of day is <= the cutoff
         minute.  This reproduces that on the captured METAR/station rows, keyed
-        on the observation instant (``lockin_observed_rows``: payload
-        ``obsTime`` or the raw ``DDHHMMZ`` group, never AWC's nominal hour), so
+        on the observation instant (payload ``obsTime`` or the raw ``DDHHMMZ``
+        group, never AWC's nominal hour; ``weather.model.observed_running_max``,
+        the single implementation shared with offline replays), so
         the previous day's late report that arrives as the ``00:00`` row is
         excluded.  Returns ``(max_value, first_minute_reaching_it)`` or
         ``(None, None)`` when no target-date row is observed by the cutoff.
         """
-        rows_method = getattr(self, "lockin_observed_rows", None)
-        if not callable(rows_method):
-            return None, None
-        rows, _ = rows_method(station=station, metar=metar, now=now)
-        cutoff_minute = int(cutoff_hour) * 60
-        kept = [(minute, value) for minute, _, value in rows if minute <= cutoff_minute]
-        if not kept:
-            return None, None
-        high = max(value for _, value in kept)
-        first = min(minute for minute, value in kept if value == high)
-        return high, first
+        from weather.model.observed_running_max import running_max_since_midnight
+
+        return running_max_since_midnight(
+            station,
+            metar,
+            target_date=getattr(self, "target_date", None),
+            tz=self.spec.tz,
+            unit=self.spec.display_unit,
+            cutoff_hour=cutoff_hour,
+            now=now,
+        )
 
     def effective_observed_high_context(self, history, current, station, cutoff_hour,
                                         metar=None, now=None):
