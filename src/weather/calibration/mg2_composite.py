@@ -644,6 +644,124 @@ def nowcast(*, train_root, obs_root, layout_root, first, last, out):
     return manifest
 
 
+def _prev_day_last_rows(prev_root, market, slug_day, station, l3):
+    """D-1's last captured METAR rows from a verified bundle's ``prev_day/<slug>/metar_rows.jsonl``."""
+    from weather.calibration import mg2_input_allowlist as allow
+
+    path = Path(prev_root) / allow.slug_for(market, slug_day) / "metar_rows.jsonl"
+    if not path.is_file():
+        return None
+    last = None
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            last = json.loads(line)
+    if last is None:
+        return None
+    cap = datetime.fromisoformat(last["captured_at_utc"])
+    rows = [r for r in last.get("rows") or [] if str(r.get("station_id") or station) == station]
+    return [p for p in (l3.parse_captured_metar(r.get("raw"), cap) for r in rows) if p is not None]
+
+
+def captured_nowcast(*, layout_root, replay_root, research_root, first, last, out, prev_root=None):
+    """L6 ``n_own`` from the captured METAR rows: lane L3's ``l6_captured_nowcasts`` (ecd8c9ba6) for any window.
+
+    Same features (L3's ``parse_captured_metar`` with the T-group dewpoint, ``l6_captured_features``: rows usable
+    from observation + 10 min), the previous-day max from D-1's last captured snapshot (``routine_dmax``) and
+    L6's own history fit (``upstream_obs_screen.build_history`` + ``make_model(OWN)``). Without ``prev_root``,
+    D-1's last snapshot is the last line of D-1's replay folder (the dev semantics); forward it is the verified
+    bundle's ``prev_day`` record. Run on the dev window it must reproduce L3's ``l6cap/nowcasts.parquet``.
+    """
+    from collections import defaultdict
+    from datetime import timedelta
+    from zoneinfo import ZoneInfo
+
+    import numpy as np
+    import pandas as pd
+
+    from weather.calibration import r0_ols_floor_challenger as l3
+    from weather.calibration import upstream_obs_screen as l6
+
+    first, last = date.fromisoformat(str(first)), date.fromisoformat(str(last))
+    out = Path(out)
+    if out.exists() and any(out.iterdir()):
+        raise Mg2Refused(f"output directory {out} must be new or empty")
+    hist, prov = l6.build_history(research_root)
+    train = hist[hist.month.isin(l6.TRAIN_MONTHS_PRIMARY)].reset_index(drop=True)
+    own = l6.make_model(l6.OWN).fit(train[list(l6.OWN)].to_numpy(float), train.y.to_numpy(float))
+    _, sel, _ = l6.load(research_root)
+    codes = {icao: code for code, icao in enumerate(l6.stations(sel))}
+    snaps = pd.read_parquet(Path(layout_root) / "inputs_snapshots.parquet",
+                            columns=["row_key", "station", "market", "date", "local_hour", "snapshot_id"])
+    d = snaps.date.astype(str)
+    snaps = snaps[(d >= first.isoformat()) & (d <= last.isoformat())]
+    station_of = snaps.groupby("market").station.first().to_dict()
+    snaps = snaps[snaps.local_hour.isin(l6.HOURS)]
+    wanted = {(r.market, r.snapshot_id): (r.row_key, str(r.date)[:10]) for r in snaps.itertuples(index=False)}
+    captured, snap_rows, last_rows = defaultdict(dict), defaultdict(list), defaultdict(dict)
+    stats = defaultdict(int)
+    for market, target, folder in l3._event_folders(replay_root):
+        if market not in station_of or not (first - timedelta(days=1) <= target <= last):
+            continue
+        path = folder / "replay_inputs.jsonl"
+        if not path.is_file():
+            continue
+        station = station_of[market]
+        tail = None
+        with open(path, encoding="utf-8") as handle:
+            for line in handle:
+                head = line[:line.find('"sources":')] if '"sources":' in line else line
+                sid, _ = l3._json_value_after(head, "snapshot_id")
+                cap_s, _ = l3._json_value_after(head, "captured_at_utc")
+                if cap_s is None:
+                    continue
+                cap = datetime.fromisoformat(cap_s)
+                tail = (line, cap)
+                hit = wanted.get((market, sid))
+                if hit is None:
+                    continue
+                key, local_date = hit
+                captured[market][key] = [p for p in (l3.parse_captured_metar(r.get("raw"), cap)
+                                                     for r in l3._captured_rows(line, station)) if p is not None]
+                snap_rows[market].append((key, cap, local_date))
+                stats["snapshots_scanned"] += 1
+        if tail is not None and prev_root is None:
+            last_rows[market][target.isoformat()] = [
+                p for p in (l3.parse_captured_metar(r.get("raw"), tail[1]) for r in l3._captured_rows(tail[0], station))
+                if p is not None]
+    frames = []
+    for market in sorted(snap_rows):
+        station = station_of[market]
+        tz = ZoneInfo(sel[station]["timezone"])
+        prev = {}
+        for day in sorted({x for _, _, x in snap_rows[market]}):
+            before_day = date.fromisoformat(day) - timedelta(days=1)
+            before = before_day.isoformat()
+            rows = (last_rows[market].get(before, []) if prev_root is None
+                    else (_prev_day_last_rows(prev_root, market, before_day, station, l3) or []))
+            value = l3.routine_dmax(rows, tz, before)
+            if value is None:
+                stats["prev_dmax_missing_days"] += 1
+            else:
+                prev[day] = value
+        frames.append(l3.l6_captured_features(snap_rows[market], captured[market], tz, codes[station], prev))
+    feat = pd.concat(frames, ignore_index=True)
+    ok = np.isfinite(feat.r) & np.isfinite(feat.t)
+    stats["no_usable_row"] = int((~ok).sum())
+    feat = feat[ok].reset_index(drop=True)
+    res = pd.DataFrame({"row_key": feat.row_key, "n_own": feat.r.to_numpy(float) + own.predict(
+        feat[list(l6.OWN)].to_numpy(float)), "n_up": np.nan, "n_ring": np.nan})
+    out.mkdir(parents=True, exist_ok=True)
+    res.to_parquet(out / "nowcasts.parquet", index=False)
+    feat.to_parquet(out / "serve_features.parquet", index=False)
+    manifest = dict(prov, rows=int(len(res)), stats=dict(stats), first=first.isoformat(), last=last.isoformat(),
+                    prev_day_source="bundle prev_day" if prev_root is not None else "D-1 replay folder, last line",
+                    nowcasts_sha256=sha256_file(out / "nowcasts.parquet"),
+                    serve_features_sha256=sha256_file(out / "serve_features.parquet"),
+                    l3_module_sha256=sha256_file(l3.__file__), l6_module_sha256=sha256_file(l6.__file__))
+    (out / "nowcasts_manifest.json").write_text(json.dumps(manifest, indent=1, sort_keys=True), encoding="utf-8")
+    return manifest
+
+
 # ----------------------------------------------------------------------------- emit (captured-input replay)
 
 def read_inputs(layout_root):
@@ -942,6 +1060,14 @@ def build_parser():
     p.add_argument("--last", required=True)
     p.add_argument("--out", required=True)
     p.add_argument("--control", action="store_true")
+    p = sub.add_parser("captured-nowcast", help="L6 n_own from captured METAR rows (L3 ecd8c9ba6 reader)")
+    p.add_argument("--layout", required=True)
+    p.add_argument("--replay-root", required=True)
+    p.add_argument("--research-root", required=True)
+    p.add_argument("--first", required=True)
+    p.add_argument("--last", required=True)
+    p.add_argument("--out", required=True)
+    p.add_argument("--prev-root", default=None, help="verified bundle prev_day/ (forward); default D-1 replay")
     p = sub.add_parser("score")
     p.add_argument("--layout", required=True)
     p.add_argument("--vectors", required=True)
@@ -970,6 +1096,10 @@ def main(argv=None):
                 raise Mg2Refused("control nowcast is for dev dates <= 2026-09-29 only")
             result = nowcast(train_root=args.train_root, obs_root=args.obs_root, layout_root=args.layout,
                              first=args.first, last=args.last, out=args.out)
+        elif args.command == "captured-nowcast":
+            result = captured_nowcast(layout_root=args.layout, replay_root=args.replay_root,
+                                      research_root=args.research_root, first=args.first, last=args.last,
+                                      out=args.out, prev_root=args.prev_root)
         elif args.command in ("emit", "check"):
             kw = dict(layout_root=args.layout, replay_root=args.replay_root, forecast_manifest=args.forecast_manifest,
                       nowcasts=args.nowcasts, coefficients=args.coefficients,
