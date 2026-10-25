@@ -5,7 +5,6 @@ Guards: workstation offline-module allowlist (HOST_LOAD_POLICY workstation scope
 """
 import importlib.util
 from pathlib import Path
-import re
 import sys
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -25,13 +24,20 @@ PINNED = [
     "weather.backtesting.snapshot_analytics",
     "weather.backtesting.tape_scoring",
     "weather.calibration.feature_model",
+    "weather.calibration.gap_to_market_atlas",
     "weather.calibration.l5_subset_scores",
+    "weather.calibration.market_blend",
+    "weather.calibration.dead_bucket",
+    "weather.calibration.dead_bucket_toronto",
     "weather.calibration.new_city_corpus",
+    "weather.calibration.ols_floor_ladder",
     "weather.calibration.pooled_candidate_replay",
     "weather.calibration.pooled_candidate_replay_diagnostics",
     "weather.calibration.pooled_candidate_replay_report",
     MODULE,
     "weather.calibration.upstream_obs_screen",
+    "weather.calibration.pooled_residual_model",
+    "weather.calibration.r0_ols_floor_challenger",
     "weather.market.maker_evidence_inspect",
     "weather.market.maker_counterfactual_tape",
     "weather.operations.base_retrain",
@@ -55,9 +61,8 @@ def _hook():
 
 
 def test_admission_list_is_pinned_and_mirrored():
-    text = (ROOT / "scripts/ops/workload_admission.ps1").read_text(encoding="utf-8-sig")
-    body = re.search(r"function Get-WeatherWorkstationOfflineModule\s*\{.*?@\((.*?)\)\s*\}", text, re.S).group(1)
-    assert re.findall(r'"([A-Za-z0-9_.-]+)"', body) == PINNED
+    # Mirror equality with Get-WeatherWorkstationOfflineModule is proved by executing it in
+    # tests/operations/test_loss_atlas_admission.py; here the hook mirror pins this module.
     assert _hook()._OFFLINE_WEATHER_MODULES == frozenset(PINNED)
 
 

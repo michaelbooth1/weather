@@ -1,8 +1,8 @@
 """Serve-time ``high_so_far`` with the trainer's definition: the running max since local 00:00.
 
 The single implementation of the L8 parity definition (lane L8, 2026-10-24). Both the shadow serve
-path (``ModelUtilsMixin.observed_running_max_since_midnight`` under ``high_so_far_shadow_variant =
-"metar_running_max_since_midnight_v1"``) and offline replays (lane L3's OLS + floor, MG-2) call
+path (``ModelUtilsMixin.observed_running_max_since_midnight`` under L8's since-midnight
+``high_so_far_shadow_variant``) and offline replays (lane L3's OLS + floor, MG-2) call
 ``running_max_since_midnight``; ``tests/model/test_high_so_far_parity_shadow.py`` pins it to the
 trainer (``feature_store.build_historical_feature_record``) and to ``lockin_observed_rows``.
 

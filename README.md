@@ -543,6 +543,18 @@ per year, forecast source, corpus ids and manifest hashes). An R0 fit is
 --output-root <dir>`, run through `scripts\ops\workstation_heavy.ps1 -Kind
 weather_heavy` (the trainer is on its offline-module allowlist).
 
+`python -m weather.calibration.pooled_residual_model extract|evaluate|report`
+(research only, lane L2 2026-10-24; on the offline-module allowlist) pools the
+US 11 into one residual-space model per cutoff hour and scores it against R0
+recomputed with the trainer's own functions on R0's blocked leave-one-year-out
+rows. `extract --centres <dates> --manifest <m> ... --out <dir>` pickles the
+trainer's per-cutoff records; `evaluate --records <dir> --arms R0,P0,P1,P2,P3
+[--lane-d-root <R0 output root>] --out <dir>` writes per-row losses (and an R0
+parity check against existing `feature_model_blocked_validation_rows_*`);
+`report --rows <dir> --rule <rule.md> --out <file>` applies the pre-declared
+rule. It refuses to import on the capture host and refuses output inside the
+repository.
+
 `python -m weather.calibration.r0_candidate_manifest --candidate-root <dir>
 --candidate-id <id> --centre <date> --build-commit <sha> --market <id> ...
 [--exclude-market <id>=<reason>]` binds one centre's R0 fits into a

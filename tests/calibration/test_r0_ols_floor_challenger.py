@@ -233,11 +233,18 @@ def test_no_production_code_imports_the_challenger():
                 continue
             if "r0_ols_floor_challenger" in path.read_text(encoding="utf-8", errors="replace"):
                 hits.append(path.relative_to(ROOT).as_posix())
-    # The workstation allowlist names the module (it admits it); only research-only importers under the
-    # same capture-host guard import it: its dev-fit companion and the MG-2 composite binding, P3d_N.
-    assert sorted(hits) == ["scripts/ops/workload_admission.ps1", "src/weather/calibration/mg2_composite.py",
-                            "src/weather/calibration/mg2_p3d_n.py",
-                            "src/weather/calibration/r0_ols_floor_devfit.py"]
+    # The workstation allowlist names the module (it admits it); only research-only importers
+    # under the same capture-host guard import it: its own dev-fit companion, lane L9's ladder,
+    # lane L2's pooled_residual_model (lazily, only in its research dev emitters) and the MG-2
+    # composite binding with its P3d_N serve copy.
+    assert sorted(hits) == [
+        "scripts/ops/workload_admission.ps1",
+        "src/weather/calibration/mg2_composite.py",
+        "src/weather/calibration/mg2_p3d_n.py",
+        "src/weather/calibration/ols_floor_ladder.py",
+        "src/weather/calibration/pooled_residual_model.py",
+        "src/weather/calibration/r0_ols_floor_devfit.py",
+    ]
 
 
 def _metar(nominal, raw_time, temp):

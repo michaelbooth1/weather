@@ -135,8 +135,8 @@ def test_l4_blend_fits_bias_and_inverse_mse_weights_from_training_labels(monkeyp
     labels = pd.DataFrame({"row_key": snaps.row_key, "winner": 1})          # centre 89.5
     state = l4.fit({"snapshots": snaps, "bands": bands, "labels": labels})
     assert state["bias"][("KX", "gfs_seamless")] == pytest.approx(2.5)        # 92 - 89.5
-    assert state["bias"][("KX", "nbm_v2")] == pytest.approx(0.5)
+    assert state["bias"][("KX", "nbm_v2_mean")] == pytest.approx(0.5)
     w = state["weights"][("KX", 8)]
-    assert set(w) == {"nbm_v2", "gfs_seamless"} and w["gfs_seamless"] > w["nbm_v2"]   # GFS error 0 after bias
+    assert set(w) == {"nbm_v2_mean", "gfs_seamless"} and w["gfs_seamless"] > w["nbm_v2_mean"]   # GFS error 0 after bias
     out = l4.predict(state, snaps.iloc[:1], bands.iloc[:3])
     assert out.p.sum() == pytest.approx(1.0) and out.p.iloc[1] > 0.3
