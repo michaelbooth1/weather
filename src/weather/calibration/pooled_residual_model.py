@@ -3230,6 +3230,484 @@ def rung_j_score(*, layout, emit_dir, p3d_n_jsonl, out_path, start="2026-08-01",
     return done()
 
 
+# ------------------------------------------------- P3d_N vs P3d_N_fix diagnostic (2026-10-25, descriptive, no rule)
+
+DIAG_LABEL = ("DESCRIPTIVE DIAGNOSTIC - P3d_N (721ae2cd, last_in_hour, raw METAR F) vs P3d_N_fix (as-of-capture, "
+              "WU whole F); dev rows <= 2026-09-29 only; selection evidence, no arm, no gate of its own")
+DIAG_HOURS = (13, 14, 15, 16)
+# variant -> (selection of high_so_far, rounding of high_so_far, selection of current_temp, rounding of current_temp)
+DIAG_VARIANTS = {
+    "fix": ("fix", True, "fix", True),
+    "orig": ("orig", False, "orig", False),
+    "swap_high": ("orig", False, "fix", True),   # column group high_so_far (F, x_high_so_far) from P3d_N
+    "swap_current": ("fix", True, "orig", False),  # column group current_temp (x_current_temp) from P3d_N
+    "mech_selection": ("orig", True, "orig", True),  # P3d_N's snapshot, WU whole F (selection effect only)
+    "mech_rounding": ("fix", False, "fix", False),  # as-of-capture snapshot, raw F (rounding effect only)
+}
+DIAG_RH_FIX_SHA256 = "abc4350724fe42a5d2423dcf5dd3f1c1b06dcea4799cb0d297bd6de465096109"  # R-H P3d_N_fix 13-16
+DIAG_A_N_SHA256 = "066ac73b41557711707451377eb34cf9aff81581bc8e7c171b14a9149cb6b3cb"  # MG-2 pick arm A (A_N)
+DIAG_ARM_A_SHA256 = "14cc74207e8fff7e121bb811f3356a2b98b6064f94974d4e64f0c6ce0d7a24d1"  # MG-2 dev_composite arm A
+DIAG_V3_SHA256 = "8f3e58953922863c55b126287f3d8109d238be0c168a0fc58073f2dd9752e942"  # MG-2 control_v3 vectors
+DIAG_PICK = {"seed": 20261025, "p3d_n_minus_a_n": -0.1550986238704583, "a_n_minus_mg1": -0.3915437386366088,
+             "n_rows": 13958}
+DIAG_COMPOSITE_ARM_A_13_16 = -0.01037  # MG-2 dev_composite.json 13-16 Brier - MG-1 (arm A design)
+
+
+def _diag_obs(snapshot, target, tz, hour, unit, local, running_max, l3):
+    """Raw (unrounded) inputs plus the latest observation instant used and the snapshot's capture time."""
+    rec = rung_inputs(snapshot, target, tz, hour, unit, local, running_max, l3.observations_at_cutoff, rounding=None)
+    from datetime import datetime, time
+
+    cutoff = datetime.combine(target, time(int(hour), 0), tzinfo=tz)
+    metar = (((snapshot.get("sources") or {}).get("metar") or {}).get("data")) or {}
+    latest = None
+    for row in metar.get("rows") or []:
+        if row.get("temp_native") is None:
+            continue
+        instant, _ = l3.metar_observation_instant(row, tz)
+        if instant is not None and instant.date() == target and instant <= cutoff:
+            latest = instant if latest is None or instant > latest else latest
+    rec.update(captured_local=local.isoformat(), latest_obs_local=None if latest is None else latest.isoformat())
+    return rec
+
+
+def p3dn_diag_emit(*, records_root, layout, replay_root, nbm_train_corpus, out_dir, rh_fix_jsonl, p3d_n_jsonl,
+                   markets=R0_MARKETS, hours=DIAG_HOURS):
+    """Per-snapshot input diff (P3d_N's inputs vs P3d_N_fix's) and one P3d_N_fix-model emission per input variant."""
+    import numpy as np
+    import pandas as pd
+    from zoneinfo import ZoneInfo
+
+    from weather.calibration import ols_floor_ladder as l9
+    from weather.calibration import r0_ols_floor_challenger as l3
+    from weather.calibration.r0_ols_floor_devfit import usable_v2_mean
+    from weather.market.market_registry import spec_for_id
+    from weather.model import observed_running_max
+
+    for path, sha in ((rh_fix_jsonl, DIAG_RH_FIX_SHA256), (p3d_n_jsonl, RJ_P3D_N_SHA256)):
+        got = hashlib.sha256(Path(path).read_bytes()).hexdigest()
+        if got != sha:
+            raise PooledModelError(f"{path} sha {got} != {sha}")
+    running_max = _require_metar_only(observed_running_max.running_max_since_midnight)
+    out = require_output_outside_repo(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    paths = {v: out / f"dev_{v}.jsonl" for v in DIAG_VARIANTS}
+    for path in list(paths.values()) + [out / "diag_inputs.jsonl"]:
+        if path.exists():
+            raise PooledModelError(f"refusing to overwrite {path}")
+    timezones = {m: spec_for_id(m).timezone for m in markets}
+    frame, buckets = dev_training_frame(records_root, markets)
+    if frame["year"].max() >= 2026:
+        raise PooledModelError("a dev training row is from 2026")
+    frame, _ = attach_training_nbm(frame, l9.load_nbm(nbm_train_corpus), l9.nbm_at_cutoff, timezones)
+    frame = frame[frame["hour"].isin(hours)].reset_index(drop=True)
+    fits = rung_fits(frame, hours, arms={"P3d_N_fix": RUNG_ARMS["P3d_N_fix"]})
+    coords = station_coordinates(markets)
+    snaps = pd.read_parquet(Path(layout) / "inputs_snapshots.parquet", columns=[
+        "snapshot_id", "market", "target_date", "local_hour", "cutoff_hour",
+        "v2_mean", "v2_stddev", "v2_available_at", "captured_at_utc"])
+    if (pd.to_datetime(snaps.target_date).dt.date > N_DEV_LAST).any():
+        raise PooledModelError("layout holds a snapshot after 2026-09-29")
+    snaps = snaps.assign(nbm_usable=usable_v2_mean(snaps))
+    writers = {v: open(p, "w", encoding="utf-8") for v, p in paths.items()}
+    diff_rows, stats = [], defaultdict(int)
+    try:
+        for market in markets:
+            spec = spec_for_id(market)
+            tz = ZoneInfo(spec.timezone)
+            folders = {target: folder for slug, target, folder in l3._event_folders(replay_root)
+                       if slug == market and N_DEV_FIRST <= target <= N_DEV_LAST}
+            lat, lon, elev = coords[market]
+            rows = snaps[snaps.market == market].copy()
+            rows["target"] = pd.to_datetime(rows.target_date).dt.date
+            for target, group in rows.groupby("target"):
+                folder = folders.get(target)
+                eligible = []
+                for row in group.itertuples(index=False):
+                    try:
+                        hour = int(str(row.cutoff_hour))
+                    except ValueError:
+                        continue
+                    if hour in hours and int(row.local_hour) >= hour and math.isfinite(float(row.nbm_usable)) \
+                            and folder is not None:
+                        eligible.append((row, hour))
+                if not eligible:
+                    continue
+                with open(Path(folder) / "replay_inputs.jsonl", "rb") as handle:
+                    index = replay_index(handle, target, tz)
+                    # P3d_N (scan_replay_n): the last snapshot in FILE order captured in [h:00, h+1:00)
+                    last_in_hour = {}
+                    for e in sorted(index, key=lambda e: e[1]):
+                        if e[0].hour in hours:
+                            last_in_hour[e[0].hour] = e
+                    parsed, cache = {}, {}
+
+                    def inputs(entry, hour):
+                        key = (entry[1], hour)
+                        if key not in cache:
+                            if entry[1] not in parsed:
+                                handle.seek(entry[1])
+                                parsed.clear()
+                                parsed[entry[1]] = json.loads(handle.read(entry[2]))
+                            cache[key] = _diag_obs(parsed[entry[1]], target, tz, hour, spec.display_unit, entry[0],
+                                                   running_max, l3)
+                        return cache[key]
+
+                    for row, hour in eligible:
+                        captured = pd.Timestamp(row.captured_at_utc)
+                        captured = (captured.tz_localize("UTC") if captured.tzinfo is None else captured)
+                        cap = captured.to_pydatetime()
+                        e_fix = latest_at_or_before(index, cap)
+                        e_orig = last_in_hour.get(hour)
+                        if e_fix is None or e_orig is None:
+                            stats["missing_fix" if e_fix is None else "missing_orig"] += 1
+                            continue
+                        rec = {"fix": inputs(e_fix, hour), "orig": inputs(e_orig, hour)}
+                        if any(rec[s][k] is None for s in rec for k in ("high_so_far", "current_temp")):
+                            stats["missing_metar_feature"] += 1
+                            continue
+                        doy = target.timetuple().tm_yday
+                        base = {"market": market, "centre": nearest_centre(target.isoformat()), "season": "aug_sep",
+                                "hour": hour, "target_date": target.isoformat(), "year": target.year,
+                                "y": float("nan"), "fh": float(row.nbm_usable), "lat": lat, "lon": lon,
+                                "elev": elev, "doy_sin": math.sin(2 * math.pi * doy / 365.25),
+                                "doy_cos": math.cos(2 * math.pi * doy / 365.25),
+                                "market_code": float(R0_MARKETS.index(market))}
+                        frames = {}
+                        for v, (sel_h, rnd_h, sel_c, rnd_c) in DIAG_VARIANTS.items():
+                            h_ = rec[sel_h]["high_so_far"]
+                            c_ = rec[sel_c]["current_temp"]
+                            h_ = wu_whole_f(h_) if rnd_h else float(h_)
+                            c_ = wu_whole_f(c_) if rnd_c else float(c_)
+                            frames[v] = dict(base, F=float(h_), x_high_so_far=float(h_), x_current_temp=float(c_))
+                            dist = _dist_from_fit(fits[("P3d_N_fix", hour)], pd.DataFrame([frames[v]]), buckets,
+                                                  market)[0]
+                            writers[v].write(json.dumps({
+                                "market": market, "snapshot_id": row.snapshot_id, "target_date": target.isoformat(),
+                                "distribution": {str(b): p for b, p in dist.items() if p > 0}}, sort_keys=True) + "\n")
+                        differing = sorted(k for k in frames["fix"] if not (
+                            frames["fix"][k] == frames["orig"][k]
+                            or (isinstance(frames["fix"][k], float) and isinstance(frames["orig"][k], float)
+                                and np.isnan(frames["fix"][k]) and np.isnan(frames["orig"][k]))))
+                        diff_rows.append({
+                            "market": market, "snapshot_id": row.snapshot_id, "target_date": target.isoformat(),
+                            "hour": hour, "local_hour": int(row.local_hour), "captured_utc": captured.isoformat(),
+                            "differing_columns": differing,
+                            "orig_snapshot_local": rec["orig"]["captured_local"],
+                            "fix_snapshot_local": rec["fix"]["captured_local"],
+                            "orig_snapshot_after_capture": bool(e_orig[0] > cap),
+                            "orig_latest_obs_local": rec["orig"]["latest_obs_local"],
+                            "fix_latest_obs_local": rec["fix"]["latest_obs_local"],
+                            "orig_obs_after_capture": bool(rec["orig"]["latest_obs_local"] is not None and
+                                                           datetime_fromiso(rec["orig"]["latest_obs_local"]) > cap),
+                            "orig_n_rows": rec["orig"]["n_rows"], "fix_n_rows": rec["fix"]["n_rows"],
+                            **{f"{v}_{k}": frames[v][k] for v in ("orig", "fix")
+                               for k in ("F", "x_current_temp")},
+                            "fix_raw_high": float(rec["fix"]["high_so_far"]),
+                            "fix_raw_current": float(rec["fix"]["current_temp"])})
+                        stats["emitted"] += 1
+            print(f"diag {market}: {dict(stats)}", flush=True)
+    finally:
+        for w in writers.values():
+            w.close()
+    _write_jsonl(out / "diag_inputs.jsonl", diff_rows)
+
+    def load(path):
+        d = {}
+        with open(path, encoding="utf-8") as handle:
+            for line in handle:
+                if line.strip():
+                    r = json.loads(line)
+                    d[(r["market"], r["snapshot_id"])] = r["distribution"]
+        return d
+
+    def max_dp(a, b):
+        keys = set(a) & set(b)
+        worst = 0.0
+        for k in keys:
+            da, db = a[k], b[k]
+            for bucket in set(da) | set(db):
+                worst = max(worst, abs(da.get(bucket, 0.0) - db.get(bucket, 0.0)))
+        return {"common": len(keys), "only_diag": len(set(a) - set(b)), "only_reference": len(set(b) - set(a)),
+                "max_abs_dp": worst}
+
+    ref_n = {k: v for k, v in load(p3d_n_jsonl).items()}
+    diag = {v: load(p) for v, p in paths.items()}
+    ref_n = {k: ref_n[k] for k in ref_n if k in diag["orig"] or k in diag["fix"]}
+    audit = {"label": DIAG_LABEL, "hours": list(hours), "stats": dict(stats), "variants": DIAG_VARIANTS,
+             "controls": {"fix_vs_rh_P3d_N_fix": max_dp(diag["fix"], load(rh_fix_jsonl)),
+                          "orig_vs_721ae2cd": max_dp(diag["orig"], ref_n)},
+             "files": {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
+                       for p in list(paths.values()) + [out / "diag_inputs.jsonl"]},
+             "inputs": {"rh_fix_sha256": DIAG_RH_FIX_SHA256, "p3d_n_sha256": RJ_P3D_N_SHA256,
+                        "module_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()},
+             "input_diff": p3dn_input_summary(diff_rows)}
+    (out / "diag_emit_audit.json").write_text(json.dumps(audit, indent=1, sort_keys=True), encoding="utf-8")
+    return audit
+
+
+def datetime_fromiso(text):
+    from datetime import datetime
+
+    return datetime.fromisoformat(text)
+
+
+def p3dn_input_summary(rows):
+    """Per hour: rows, rows with each column differing, magnitudes, and the look-ahead flags."""
+    import numpy as np
+
+    out = {}
+    for label, hs in (("13-14", (13, 14)), ("13", (13,)), ("14", (14,)), ("15-16", (15, 16)), ("15", (15,)),
+                      ("16", (16,))):
+        rs = [r for r in rows if r["hour"] in hs]
+        if not rs:
+            continue
+        cols = sorted({c for r in rs for c in r["differing_columns"]})
+        entry = {"rows": len(rs), "rows_any_differing": sum(1 for r in rs if r["differing_columns"]),
+                 "orig_snapshot_after_capture": sum(r["orig_snapshot_after_capture"] for r in rs),
+                 "orig_observation_after_capture": sum(r["orig_obs_after_capture"] for r in rs),
+                 "same_snapshot": sum(r["orig_snapshot_local"] == r["fix_snapshot_local"] for r in rs),
+                 "orig_more_rows": sum(r["orig_n_rows"] > r["fix_n_rows"] for r in rs),
+                 "orig_newer_latest_obs": sum((r["orig_latest_obs_local"] or "") > (r["fix_latest_obs_local"] or "")
+                                              for r in rs),
+                 "columns": {}}
+        lead = [(datetime_fromiso(r["orig_snapshot_local"]) - datetime_fromiso(r["captured_utc"])).total_seconds()
+                / 60 for r in rs if r["orig_snapshot_after_capture"]]
+        entry["orig_snapshot_minutes_after_capture"] = (
+            {"median": float(np.median(lead)), "p90": float(np.quantile(lead, .9)), "max": float(max(lead))}
+            if lead else None)
+        for col, key in (("F", "F"), ("x_high_so_far", "F"), ("x_current_temp", "x_current_temp")):
+            d = np.array([r[f"orig_{key}"] - r[f"fix_{key}"] for r in rs])
+            nz = d[d != 0]
+            sel = np.array([r[f"orig_{key}"] - (r["fix_raw_high"] if key == "F" else r["fix_raw_current"])
+                            for r in rs])
+            entry["columns"][col] = {
+                "rows_differing": int((d != 0).sum()),
+                "rows_differing_by_snapshot_selection": int((sel != 0).sum()),
+                "mean_orig_minus_fix": float(d.mean()), "mean_abs_where_differing": float(np.abs(nz).mean())
+                if len(nz) else 0.0, "median_abs_where_differing": float(np.median(np.abs(nz))) if len(nz) else 0.0,
+                "p90_abs_where_differing": float(np.quantile(np.abs(nz), .9)) if len(nz) else 0.0,
+                "max_abs": float(np.abs(d).max()),
+                "share_orig_above_fix": float((d > 0).mean()), "share_orig_below_fix": float((d < 0).mean())}
+        entry["other_columns_differing"] = [c for c in cols if c not in ("F", "x_high_so_far", "x_current_temp")]
+        out[label] = entry
+    return out
+
+
+def _share_interval(w, a, b):
+    """sum(w a) / sum(w b) per draw over all draws (denominator sign kept), percentile 95%."""
+    import numpy as np
+
+    num, den = w @ a, w @ b
+    with np.errstate(divide="ignore", invalid="ignore"):
+        boot = num / den
+    fin = boot[np.isfinite(boot)]
+    return {"estimate": float(a.sum() / b.sum()) if b.sum() != 0 else None,
+            "ci95": np.quantile(fin, [.025, .975]).tolist() if len(fin) else [None, None],
+            "draws_denominator_le_0": int((den <= 0).sum())}
+
+
+def p3dn_diag_score(*, layout, diag_dir, p3d_n_jsonl, v3_vectors, a_n_jsonl, arm_a_jsonl, coefficients, nowcasts,
+                    out_path, start="2026-08-01", end="2026-09-29"):
+    """Attribution of P3d_N_fix - P3d_N, the composite re-score with the fix, and the pick re-score vs A_N."""
+    import os
+
+    import numpy as np
+    import pandas as pd
+
+    from weather.calibration import r0_ols_floor_challenger as l3
+    from weather.reporting.scorecards import dev_scorecard as sc
+    from weather.reporting.scorecards import dev_scorecard_data as data
+    from weather.reporting.scorecards import loss_atlas
+
+    out_path = require_output_outside_repo(out_path)
+    if out_path.exists():
+        raise PooledModelError(f"refusing to overwrite {out_path}")
+    diag = Path(diag_dir)
+    audit = json.loads((diag / "diag_emit_audit.json").read_bytes())
+    shas = {}
+    for name, path, sha in (("p3d_n", p3d_n_jsonl, RJ_P3D_N_SHA256), ("v3_vectors", v3_vectors, DIAG_V3_SHA256),
+                            ("a_n", a_n_jsonl, DIAG_A_N_SHA256), ("arm_a", arm_a_jsonl, DIAG_ARM_A_SHA256)):
+        shas[name] = hashlib.sha256(Path(path).read_bytes()).hexdigest()
+        if shas[name] != sha:
+            raise PooledModelError(f"{name} sha {shas[name]} != {sha}")
+    for v in DIAG_VARIANTS:
+        got = hashlib.sha256((diag / f"dev_{v}.jsonl").read_bytes()).hexdigest()
+        if got != audit["files"][f"dev_{v}.jsonl"]:
+            raise PooledModelError(f"dev_{v}.jsonl changed since the emit")
+    os.environ["L6_NOWCASTS"] = str(nowcasts)
+    if hashlib.sha256(Path(nowcasts).read_bytes()).hexdigest() != L6_NOWCAST_SHA256:
+        raise PooledModelError("L6 nowcasts sha mismatch")
+    start_d, end_d = data.check_range(start, end)
+    lay = data.load_layout(layout, data.DEV_FIRST, end_d)
+    folds = data.make_folds(lay.dates, start_d, end_d, 7, 1, 7)
+    scored = sorted(d for f in folds if f.scored for d in f.dates)
+    table = sc.Table(lay, scored)
+    w_rj = l3._date_weights([k[0] for k in table.keys], sc.DRAWS, sc.SEED)
+    w_pick = l3._date_weights([k[0] for k in table.keys], sc.DRAWS, DIAG_PICK["seed"])
+    market_b = table.brier(table.p_market)
+
+    def vec(path):
+        return l3._vector(table, l3._candidate_frame(str(path), table, lay, folds, data)[0])
+
+    var = {v: vec(diag / f"dev_{v}.jsonl") for v in DIAG_VARIANTS}
+    p_n, cov_n, r_n = vec(p3d_n_jsonl)
+    p_mg1, cov_mg1, _ = l3._vector(table, loss_atlas.mg1_frame(table))
+    from weather.reporting.scorecards.free_source_candidates import l6_stack
+
+    l6_stack._CACHE.clear()
+    state, _ = l6_frozen_state(coefficients)
+    p_l6, cov_l6, _ = l6_vector(table, state, l3)
+    w0712 = (table.local_hour >= 7) & (table.local_hour <= 12)
+    _, e = table.cells(table.brier(p_mg1) - market_b, w0712)
+    mg1_excess = float(e.mean())
+    if round(mg1_excess, 3) != l3.MG1_CONTROL_0712_EXCESS:
+        raise PooledModelError(f"MG-1 positive control failed: {mg1_excess:.5f}")
+    hour = table.local_hour
+    groups = [("13-14", 13, 14), ("h13", 13, 13), ("h14", 14, 14), ("15-16", 15, 16), ("h15", 15, 15),
+              ("h16", 16, 16), ("13-16", 13, 16)]
+    result = {"label": DIAG_LABEL, "population": {"n_dates": len(scored), "first": scored[0], "last": scored[-1],
+                                                  "n_market_days": len(table.keys)},
+              "controls": {"mg1_excess_07_12": mg1_excess, "emit": audit["controls"]},
+              "inputs": {**shas, "diag_files": audit["files"], "layout_manifest_sha256": lay.manifest_sha256,
+                         "scorecard_code_sha256": sc.code_sha256(),
+                         "module_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}}
+
+    # ---- 2. attribution of P3d_N_fix - P3d_N (dR, R-J's date weights) on identical covered snapshots
+    common = cov_n.copy()
+    for _, cov, _ in var.values():
+        common &= cov
+    briers = {v: table.brier(p) for v, (p, _, _) in var.items()}
+    briers["P3d_N_721ae2cd"] = table.brier(p_n)
+    orig_equal = float(np.abs(var["orig"][0] - p_n)[common[table.band_snap]].max())
+    result["controls"]["orig_variant_equals_721ae2cd_max_abs_on_common"] = orig_equal
+    attribution = {}
+    for g, lo, hi in groups:
+        mask = common & (hour >= lo) & (hour <= hi)
+        idx, c_fix = table.cells(briers["fix"], mask)
+        _, c_orig = table.cells(briers["orig"], mask)
+        _, c_n = table.cells(briers["P3d_N_721ae2cd"], mask)
+        _, m = table.cells(market_b, mask)
+        gap = c_fix - c_orig
+        entry = {"n_snapshots": int(mask.sum()), "n_market_days": int(len(idx)),
+                 "dR_fix_minus_721ae2cd": sc.ratio_interval(w_rj[:, idx], c_fix - c_n, m),
+                 "dR_fix_minus_orig": sc.ratio_interval(w_rj[:, idx], gap, m),
+                 "dR_fix_minus_orig_crossed": sc.ratio_interval(table.w[:, idx], gap, m), "variants": {}}
+        for v in DIAG_VARIANTS:
+            if v in ("fix", "orig"):
+                continue
+            _, c_v = table.cells(briers[v], mask)
+            entry["variants"][v] = {"dR_fix_minus_variant": sc.ratio_interval(w_rj[:, idx], c_fix - c_v, m),
+                                    "share_of_gap": _share_interval(w_rj[:, idx], c_fix - c_v, gap)}
+        _, c_h = table.cells(briers["swap_high"], mask)
+        _, c_c = table.cells(briers["swap_current"], mask)
+        entry["interaction_share"] = _share_interval(w_rj[:, idx], gap - (c_fix - c_h) - (c_fix - c_c), gap)
+        attribution[g] = entry
+    result["attribution"] = attribution
+
+    # ---- 3. the composite (pre-13 L6 stack, post-13 P3d_N, MG-1 elsewhere) vs MG-1, with and without the fix
+    band_hour = hour[table.band_snap]
+    p_v3, cov_v3, _ = l3._vector(table, pd.read_parquet(v3_vectors))
+    pre = np.where(cov_l6[table.band_snap], p_l6, p_mg1)
+    comp_orig = np.where(band_hour < 13, pre, np.where(cov_n[table.band_snap], p_n, p_mg1))
+    in16 = band_hour <= 16
+    result["controls"]["rebuilt_composite_equals_mg2_control_v3_max_abs_00_16"] = float(
+        np.abs(comp_orig - p_v3)[in16].max())
+    result["controls"]["mg2_control_v3_covers_all"] = bool(cov_v3.all())
+    p_fix, cov_fix = var["fix"][0], var["fix"][1]
+    post = (band_hour >= 13) & (band_hour <= 16)
+    comp_fix = np.where(post, np.where(cov_fix[table.band_snap], p_fix, p_mg1), p_v3)
+    p_arm_a, cov_arm_a, _ = vec(arm_a_jsonl)
+    comp_arm_a = np.where(band_hour < 13, pre, np.where(cov_arm_a[table.band_snap], p_arm_a, p_mg1))
+    snap_post = (hour >= 13) & (hour <= 16)
+    result["composite_post_sources_13_16"] = {
+        "orig_p3d_n": int((snap_post & cov_n).sum()), "orig_mg1": int((snap_post & ~cov_n).sum()),
+        "fix_p3d_n_fix": int((snap_post & cov_fix).sum()), "fix_mg1": int((snap_post & ~cov_fix).sum()),
+        "p3d_n_covered_fix_not": int((snap_post & cov_n & ~cov_fix).sum()),
+        "fix_covered_p3d_n_not": int((snap_post & cov_fix & ~cov_n).sum())}
+    blocks = [("00-16", 0, 16), ("00-12", 0, 12), ("07-12", 7, 12), ("13-16", 13, 16), ("13-14", 13, 14),
+              ("15-16", 15, 16), ("h13", 13, 13), ("h14", 14, 14), ("h15", 15, 15), ("h16", 16, 16)]
+    b_mg1 = table.brier(p_mg1)
+
+    def vs_mg1(p):
+        b = table.brier(p)
+        rows = {}
+        for name, lo, hi in blocks:
+            mask = (hour >= lo) & (hour <= hi)
+            idx, c = table.cells(b, mask)
+            _, k = table.cells(b_mg1, mask)
+            _, m = table.cells(market_b, mask)
+            ones = np.ones(len(idx))
+            rows[name] = {"n_cells": int(len(idx)),
+                          "brier_minus_mg1_date_clustered": sc.ratio_interval(table.w_date[:, idx], c - k, ones),
+                          "brier_minus_mg1_crossed": sc.ratio_interval(table.w[:, idx], c - k, ones),
+                          "dR_vs_mg1_date_clustered": sc.ratio_interval(table.w_date[:, idx], c - k, m)}
+        g1 = rows["00-16"]["brier_minus_mg1_date_clustered"]["ci95"][1]
+        g2 = rows["13-16"]["brier_minus_mg1_date_clustered"]["ci95"][1]
+        rows["gate_reading_dev_only"] = {"G1_00_16_upper_lt_0.0010": bool(g1 < 0.0010), "G2_13_16_upper_lt_0": bool(
+            g2 < 0), "dev_stop_13_16_upper_ge_0": bool(g2 >= 0)}
+        return rows
+
+    result["composite"] = {"mg2_control_v3_as_emitted": vs_mg1(p_v3), "orig_rebuilt": vs_mg1(comp_orig),
+                           "fix": vs_mg1(comp_fix), "arm_a_control": vs_mg1(comp_arm_a)}
+    result["controls"]["arm_a_composite_13_16"] = {
+        "got": result["composite"]["arm_a_control"]["13-16"]["brier_minus_mg1_date_clustered"]["estimate"],
+        "expected": DIAG_COMPOSITE_ARM_A_13_16}
+    b_cf, b_co = table.brier(comp_fix), table.brier(p_v3)
+    diff = {}
+    for name, lo, hi in blocks:
+        mask = (hour >= lo) & (hour <= hi)
+        idx, cf = table.cells(b_cf, mask)
+        _, co = table.cells(b_co, mask)
+        diff[name] = sc.ratio_interval(table.w_date[:, idx], cf - co, np.ones(len(idx)))
+    result["composite"]["fix_minus_orig_brier"] = diff
+
+    # ---- 4. the MG-2 afternoon pick re-scored: P3d_N_fix vs A_N on the pick rows (r0_ols_floor_challenger.dev_pick)
+    p_an, cov_an, r_an = vec(a_n_jsonl)
+    in_hours = np.isin(hour, DIAG_HOURS)
+    rows_pick = in_hours & cov_an & cov_n
+    rows_fix = rows_pick & cov_fix
+    primary = np.isin(table.markets, sorted(l3.PRIMARY_MARKETS))
+    b_an = table.brier(p_an)
+
+    def both(a, b, mask):
+        idx, c = table.cells(a, mask)
+        _, r_ = table.cells(b, mask)
+        _, m = table.cells(market_b, mask)
+        return {"crossed": sc.ratio_interval(table.w[:, idx], c - r_, m),
+                "date_clustered": sc.ratio_interval(w_pick[:, idx], c - r_, m)}
+
+    def challenger(b, rows):
+        pooled = both(b, b_an, rows)
+        hrs = {f"h{h:02d}": both(b, b_an, rows & (hour == h)) for h in DIAG_HOURS}
+        prim = both(b, b_an, rows & primary)
+        return {"dR_vs_a_n": pooled, "by_hour": hrs, "primary5": prim, "dR_vs_mg1": both(b, b_mg1, rows),
+                "conditions": {
+                    "2_upper_below_0_both": all(pooled[k]["ci95"][1] < 0 for k in pooled),
+                    "3_no_ci_worse_hour": not any(v["date_clustered"]["ci95"][0] > 0 for v in hrs.values()),
+                    "4_primary5_point_below_0": prim["date_clustered"]["estimate"] < 0,
+                    "tie_rule_interval_excludes_0": pooled["date_clustered"]["ci95"][1] < 0}}
+
+    pick = {"rows": {"pick_rows": int(rows_pick.sum()), "pick_rows_fix_covered": int(rows_fix.sum()),
+                     "expected_pick_rows": DIAG_PICK["n_rows"]},
+            "a_n_coverage": r_an,
+            "control_a_n_minus_mg1": both(b_an, b_mg1, rows_pick),
+            "control_p3d_n": challenger(table.brier(p_n), rows_pick),
+            "p3d_n_on_fix_rows": challenger(table.brier(p_n), rows_fix),
+            "p3d_n_fix": challenger(briers["fix"], rows_fix),
+            "p3d_n_fix_minus_p3d_n": both(briers["fix"], table.brier(p_n), rows_fix),
+            "a_n_minus_mg1_on_fix_rows": both(b_an, b_mg1, rows_fix)}
+    pick["controls"] = {
+        "p3d_n_minus_a_n": {"got": pick["control_p3d_n"]["dR_vs_a_n"]["date_clustered"]["estimate"],
+                            "expected": DIAG_PICK["p3d_n_minus_a_n"]},
+        "a_n_minus_mg1": {"got": pick["control_a_n_minus_mg1"]["date_clustered"]["estimate"],
+                          "expected": DIAG_PICK["a_n_minus_mg1"]}}
+    result["pick"] = pick
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(result, indent=1, sort_keys=True, default=float), encoding="utf-8")
+    return result
+
+
 # ------------------------------------------------- clarification 3: forward refit and frozen state (MG-2)
 
 FORWARD_CENTRES = AUG_SEP_CENTRES + ("2026-10-10", "2026-10-25", "2026-11-09", "2026-11-24", "2026-12-09")
@@ -3763,6 +4241,24 @@ def _parse(argv=None):
     js.add_argument("--emit", required=True)
     js.add_argument("--p3d-n", required=True, help="dev_P3d_N.jsonl (composite post-13 dev arm)")
     js.add_argument("--out", required=True)
+    de = sub.add_parser("p3dn-diag-emit", help="P3d_N vs P3d_N_fix input diff and variant emissions (heavy)")
+    de.add_argument("--records", required=True)
+    de.add_argument("--layout", required=True)
+    de.add_argument("--replay-root", required=True)
+    de.add_argument("--nbm-train-corpus", required=True)
+    de.add_argument("--rh-fix", required=True, help="R-H dev_P3d_N_fix.jsonl (13-16)")
+    de.add_argument("--p3d-n", required=True, help="dev_P3d_N.jsonl (721ae2cd)")
+    de.add_argument("--out", required=True)
+    ds = sub.add_parser("p3dn-diag-score", help="P3d_N vs P3d_N_fix attribution, composite and pick re-score (heavy)")
+    ds.add_argument("--layout", required=True)
+    ds.add_argument("--diag", required=True)
+    ds.add_argument("--p3d-n", required=True)
+    ds.add_argument("--v3-vectors", required=True, help="MG-2 control_v3 mg2_vectors.parquet")
+    ds.add_argument("--a-n", required=True, help="MG-2 pick arm A (A_N) dev distributions")
+    ds.add_argument("--arm-a", required=True, help="MG-2 dev_composite arm A distributions (control)")
+    ds.add_argument("--coefficients", required=True)
+    ds.add_argument("--nowcasts", required=True)
+    ds.add_argument("--out", required=True)
     wr = sub.add_parser("wu-rounding", help="clarification 3 (c): WU whole F vs T-group F on 2021-25 rows (heavy)")
     wr.add_argument("--obs-parquet", required=True, help="IEM market-station rows with tgroup_f (lane L6)")
     wr.add_argument("--wu-root", required=True)
@@ -3894,6 +4390,18 @@ def main(argv=None):
                             report_pools=(RJ_SECONDARY,), rule_sha=RJ_RULE_SHA256)
         print(json.dumps({"gates": {k: v.get("pass") for k, v in audit["gates"].items()},
                           "stopped_at": audit.get("stopped_at"), "ra_reproduction": audit.get("ra_reproduction")}))
+        return 0
+    if args.command == "p3dn-diag-emit":
+        audit = p3dn_diag_emit(records_root=args.records, layout=args.layout, replay_root=args.replay_root,
+                               nbm_train_corpus=args.nbm_train_corpus, out_dir=args.out, rh_fix_jsonl=args.rh_fix,
+                               p3d_n_jsonl=args.p3d_n)
+        print(json.dumps({"controls": audit["controls"], "stats": audit["stats"]}, indent=1))
+        return 0
+    if args.command == "p3dn-diag-score":
+        result = p3dn_diag_score(layout=args.layout, diag_dir=args.diag, p3d_n_jsonl=args.p3d_n,
+                                 v3_vectors=args.v3_vectors, a_n_jsonl=args.a_n, arm_a_jsonl=args.arm_a,
+                                 coefficients=args.coefficients, nowcasts=args.nowcasts, out_path=Path(args.out))
+        print(json.dumps(result["controls"], indent=1, default=float))
         return 0
     if args.command == "rung-j-score":
         result = rung_j_score(layout=args.layout, emit_dir=args.emit, p3d_n_jsonl=args.p3d_n, out_path=Path(args.out))
