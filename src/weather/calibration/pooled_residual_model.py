@@ -2860,6 +2860,7 @@ def _parse(argv=None):
     ru.add_argument("--nbm-train-corpus", required=True)
     ru.add_argument("--markets", default=",".join(R0_MARKETS))
     ru.add_argument("--no-loyo", action="store_true")
+    ru.add_argument("--hours", default=",".join(str(h) for h in RUNG_HOURS), help="cutoff hours (R-H: 13,14,15,16)")
     ru.add_argument("--out", required=True)
     rb = sub.add_parser("rung-blend", help="rung 07-12 R-D walk-forward MG-1 blend + R-E decomposition (heavy)")
     rb.add_argument("--layout", required=True)
@@ -3008,7 +3009,8 @@ def main(argv=None):
     if args.command == "dev-emit-rung":
         audit = dev_emit_rung(records_root=args.records, layout=args.layout, replay_root=args.replay_root,
                               nbm_train_corpus=args.nbm_train_corpus, out_dir=args.out,
-                              markets=args.markets.split(","), loyo=not args.no_loyo)
+                              markets=args.markets.split(","), loyo=not args.no_loyo,
+                              hours=tuple(int(h) for h in args.hours.split(",")))
         print(json.dumps({"files": audit["files"], "loyo": audit.get("loyo")}, indent=1))
         return 0
     if args.command in ("wu-rounding", "receipt-grace"):
