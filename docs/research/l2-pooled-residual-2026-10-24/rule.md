@@ -92,3 +92,89 @@ P2/P3 centre whose extraction fails closed this way is dropped as a whole, for e
 report lists the dropped centres. P2 is therefore Oct-Dec centres 10-10, 10-25, 11-09, 11-24, 12-09
 (unless another fails); P3 adds whichever Aug-Sep centres extract. Nothing else changes (arms,
 metric, window, CI, Bonferroni over four arms, decision).
+
+## Amendment 2 — 2026-10-24 (coordinator rulings 1-2; appended before any U0 row or comparator row exists)
+
+The P0-P3 decision above is final (P3 picked) and is not revisited. This amendment adds arms and a new
+headline comparison on the same 11,550 rows (centre 2026-11-24, US 11, cutoffs 07-20, same blocked
+leave-one-year-out folds, same label and loss functions).
+
+- **U0 (unpooled):** the P0 design, steps 1-6 unchanged (same features, hyperparameters, inner-LOYO
+  scale, floor censoring, 2% climatology mix), but each fit uses only that market's rows at hour h with
+  year != Y from the 11-24 window.
+- **Comparators,** taken without modification from lane L3's `weather.calibration.r0_ols_floor_challenger`
+  at 171717d5f (merged, not forked), `score_market(market, 2026-11-24, the three Oct-Dec manifests)`:
+  - (a) `ols_floor` (OLS on forecast_high, high_so_far, current_temp; discretised normal; no mass below
+    the floor);
+  - (e) `r0_baseline_floor` (the trainer baseline with the hard floor);
+  - (f) `bias_corrected_forecast_floor`;
+  - descriptive: `r0_floor` (R0 with the hard floor) and lane D's `hgb_floored_log_loss` rows
+    (C:\wt\r0v\artifacts\candidates\retrain-r0-floor-msl20-2026-11-24\<market>\) when they exist.
+  - Row gate: L3's row keys (market, hour, validation_date) must equal the R0 row set exactly, and its
+    `r0_repro_log_loss` must equal the L2 R0 recomputation per row (abs diff <= 1e-9); otherwise no
+    comparator result is reported.
+- **Headline (decisive for this amendment):** P3 vs (a) and P3 vs (f). delta(m) = mean over market m's
+  07-12 rows of (loss_P3 - loss_ref); fleet = equal-weight mean over the 11 markets. Date-clustered
+  bootstrap, 2,000 draws, seed 20261024. P3 **beats** ref only if the fleet 97.5% two-sided percentile
+  interval (Bonferroni over the two references) lies entirely below 0 AND no market's 95% interval lies
+  entirely above 0. Otherwise: "P3 does not beat ref" (if the fleet interval lies entirely above 0:
+  "P3 is worse than ref").
+- **Reported, not decisive:** per hour 07-20 with hour 12 called out (its own 95% interval); P3 vs (e),
+  vs r0_floor, vs lane D floored rows; U0 vs P3 (the pooling effect), U0 vs (a) and (f); Brier; crossed
+  date x market interval for the two headline deltas.
+- Nothing here is edge over the market; the market is not scored.
+
+## Amendment 3 — 2026-10-24 (coordinator ruling 3: dev scorecard vs served; appended before any L2 dev-window distribution exists)
+
+Decisive end-to-end test against the served vector, on lane L3's dev path (its dev_rule.md sha
+cf75eced..., code 171717d5f), reusing L3's helpers unchanged (imported, not forked).
+
+- **Scorer and population:** exactly L3's `dev-score` (`weather.reporting.scorecards.dev_scorecard`
+  from 4be7c077c, unchanged), layout C:\swarm\v3layout, 2026-08-01..09-29, default folds (scoring from
+  08-15), per-snapshot band Brier, equal (date, market) cells, the rule-4 floor mask, served fallback on
+  uncovered snapshots; candidates declared trained through 2025-12-31. R = Brier / Brier_market;
+  dR = R_candidate - R_served on the same cells.
+- **Positive control first:** the scorecard's served-vs-market run must give pooled R 1.774 (all) and
+  1.526 (00-16) on this layout (as in L3's rule); if not, nothing is claimed.
+- **Serve-time inputs (identical to L3's main variant):** forecast_high = the 2026 Open-Meteo Previous
+  Runs gfs_seamless previous_day1 from L3's dev PIT corpus, resolved at the snapshot's effective cutoff;
+  current_temp and high_so_far from the captured METAR rows in data\inbox\replay-inputs-le0929 via L3's
+  `scan_replay_observations` (raw DDHHMMZ time, local target date, observed at or before h:00, max since
+  midnight); floor = round_half_up(high_so_far). Snapshots get a candidate only when the effective cutoff
+  is 07-20 and the local hour is at or after it; everything else falls back to served.
+- **P3d (decisive):** the P3 design (steps 1-6 of the original rule, same hyperparameters) restricted to
+  the inputs available at serve with parity: forecast_high, high_so_far, current_temp (as features:
+  high_so_far - mu0, current_temp - mu0, g, max(g, 0), mu0 - normal), station lat/lon/elevation, the
+  market normal and bias, day-of-year sin/cos. Pooled over the US 11, one fit per cutoff hour on every
+  record of the Aug-Sep 2021-25 corpus b455bd53... (centres 08-08, 08-23, 09-07, 09-22; all five years;
+  the inner leave-one-year-out for the scale runs over those five years). Bias per (market, cutoff);
+  normal per (market, centre), a dev date using the centre nearest its month-day. The 2% climatology mix
+  uses that market's training buckets at the cutoff over the 09-07 payload's bucket_space. No 2026 row
+  is used in any fit.
+- **U0d (descriptive):** the same, fitted per market.
+- **Verdict (L3's rule, applied to P3d):** P3d beats served only if pooled 07-12 dR < 0 with its 95%
+  date-clustered CI upper bound < 0 AND no standard block (00-05, 06-09, 10-12, 13-16, 17-23, 00-16,
+  all) has a pooled dR whose 95% date-clustered CI lower bound is > 0. The crossed date x market interval
+  is reported beside it; on disagreement no claim is made beyond the date-clustered verdict.
+- **Reported, not decisive:** U0d; per hour 07..20 with 12 called out; 12-16; per market; P3d beside L3's
+  (a) and (f) dev results on the same layout when L3 publishes them.
+- Not edge: the market is the scorecard's denominator only; no trading claim follows.
+
+## Amendment 4 — 2026-10-24 (full-year arm on L1's corpus; appended before any Jan-Jul record or P3F row exists)
+
+- **Corpus:** L1's full-year union 621bcd8e... Jan-Jul parts 3a7034d2... (2021), 672a1f57... (2022,
+  2023, 2025), ece9d1c2... (2024), plus the Aug-Sep and Oct-Dec corpora already used. Each centre's
+  +/-7-day window lies inside one season, so the trainer's year-keyed union is read per centre with the
+  three Jan-Jul manifests (no year has two corpora within one centre).
+- **Jan-Jul centres:** 01-08, 01-23, 02-07, 02-22, 03-09, 03-24, 04-08, 04-23, 05-08, 05-23, 06-07,
+  06-22, 07-07, 07-22. A (centre, year) is used only if the corpus coverage file has a complete row at
+  every cutoff 07-20 for every US-11 market on every day of the window; otherwise that year is excluded
+  for that centre (all markets), via the trainer's explicit training-years restriction. A centre that
+  still fails closed is dropped whole (amendment 1).
+- **P3F:** the P3 design (steps 1-6, same hyperparameters, day-of-year on, no market id), trained per
+  cutoff on every available centre (Jan-Jul, Aug-Sep, Oct-Dec) with year != Y, validated on the same
+  11-24 rows. Bias and normal per (market, cutoff, centre) for P3F (season blocks are too coarse across
+  Jan-Jul).
+- **Comparisons:** P3F vs (a) and vs (f) under amendment 2's headline criterion (97.5% Bonferroni fleet
+  interval below 0, no market 95% interval above 0) — a separate family from P3's; P3F vs P3 and vs raw R0
+  descriptive. Per hour with 12 called out.

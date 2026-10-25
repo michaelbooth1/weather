@@ -1058,6 +1058,46 @@ def dev_emit_distributions(*, records_root, layout, replay_root, dev_manifest, o
     return audit
 
 
+def dev_verdict_markdown(scores, rule_path, arms=tuple(DEV_ARMS)):
+    """Amendment 3: L3's dev verdict applied to P3d (decisive) and U0d, with the reported groups."""
+    from weather.calibration import r0_ols_floor_challenger as l3
+
+    verdict = l3.dev_verdict(scores, arms=arms)
+    rule_sha = hashlib.sha256(Path(rule_path).read_bytes()).hexdigest()
+    pop = scores.get("population", {})
+    lines = ["# L2 amendment 3: dev window vs served (dev_scorecard via L3 dev-score)", "",
+             f"Rule: {rule_path} sha256 {rule_sha}", "",
+             f"Population: {json.dumps(pop)}; layout manifest {scores.get('layout_manifest_sha256')}; "
+             f"scorecard code {scores.get('scorecard_code_sha256')}", "",
+             "## Verdict (pooled 07-12 dR = R_candidate - R_served; negative = better than served)", "",
+             "| Arm | interval | dR | 95% CI | blocks worse | beats served |", "| --- | --- | --- | --- | --- | --- |"]
+    for arm in arms:
+        for kind in ("dR_date_clustered", "dR_crossed"):
+            v = verdict[arm][kind]
+            lines.append(f"| {arm} | {kind} | {v['estimate']:+.4f} | [{v['ci95'][0]:+.4f}, {v['ci95'][1]:+.4f}] | "
+                         f"{', '.join(v['blocks_worse']) or 'none'} | {v['beats_served']} |")
+    groups = ["00-05", "06-09", "10-12", "13-16", "17-23", "00-16", "all", "07-12", "12-16"] + [
+        f"h{h:02d}" for h in range(7, 21)]
+    for arm in arms:
+        rows = {(r["market"], r["group"]): r for r in scores["candidates"][arm]["rows"]}
+        lines += ["", f"## {arm}: pooled groups (R, dR date-clustered 95%)", "",
+                  "| Group | n market-days | R_candidate | R_served | dR | 95% CI |", "| --- | --- | --- | --- | --- | --- |"]
+        for g in groups:
+            r = rows.get(("ALL", g))
+            if r is None:
+                continue
+            d = r["dR_date_clustered"]
+            tag = " **(12)**" if g == "h12" else ""
+            lines.append(f"| {g}{tag} | {r['n_market_days']} | {r['R_candidate']['estimate']:.3f} | "
+                         f"{r['R_served']['estimate']:.3f} | {d['estimate']:+.4f} | [{d['ci95'][0]:+.4f}, {d['ci95'][1]:+.4f}] |")
+        lines += ["", f"## {arm}: per market 07-12", "", "| Market | dR | 95% CI |", "| --- | --- | --- |"]
+        for (m, g), r in sorted(rows.items()):
+            if g == "07-12" and m != "ALL":
+                d = r["dR_date_clustered"]
+                lines.append(f"| {m} | {d['estimate']:+.4f} | [{d['ci95'][0]:+.4f}, {d['ci95'][1]:+.4f}] |")
+    return "\n".join(lines) + "\n", verdict
+
+
 # -------------------------------------------------------------------------- CLI
 
 
@@ -1096,6 +1136,10 @@ def _parse(argv=None):
     de.add_argument("--dev-manifest", required=True)
     de.add_argument("--markets", default=",".join(R0_MARKETS))
     de.add_argument("--out", required=True)
+    dv = sub.add_parser("dev-verdict", help="amendment 3: verdict and tables from L3 dev-score output")
+    dv.add_argument("--scores", required=True)
+    dv.add_argument("--rule", required=True)
+    dv.add_argument("--out", required=True)
     rp = sub.add_parser("report", help="paired deltas, CIs and the pre-declared decision")
     rp.add_argument("--rows", required=True)
     rp.add_argument("--arms", default="P0,P1,P2,P3")
@@ -1164,6 +1208,14 @@ def main(argv=None):
                                        dev_manifest=args.dev_manifest, out_dir=args.out,
                                        markets=args.markets.split(","))
         print(json.dumps(audit["files"], indent=1))
+        return 0
+    if args.command == "dev-verdict":
+        scores = json.loads(Path(args.scores).read_text(encoding="utf-8"))
+        text, _ = dev_verdict_markdown(scores, args.rule)
+        if out.exists():
+            raise PooledModelError(f"refusing to overwrite {out}")
+        out.write_text(text, encoding="utf-8")
+        print(text)
         return 0
     if args.command == "headline":
         rows, gate = headline_rows(args.rows, args.lane_d_floor_root, arm=args.arm,
