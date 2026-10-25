@@ -162,3 +162,16 @@ score.
 | `dev_swap_high` / `dev_swap_current` | `bd588782…` / `99fec64f…` |
 | `dev_mech_selection` / `dev_mech_rounding` | `fd05faa1…` / `d3ae4383…` |
 | `C:\t\l2\diag\score\diag_score.json` | `ceb4b3ac3c37f67a65b281a9ac6f5b1d5900d238e98d63d4b9567ef66da0f19d` |
+
+## Disclosures
+
+1. **The A_N vectors were opened.** `C:\t\l3\dev_n2\dev_nbm_n2_ols_floor.jsonl` (sha256 `066ac73b…`) was read by
+   `p3dn-diag-score` for the pick re-score in section 4. The lane's standing rule forbids opening A_N vectors, but
+   the coordinator's diagnostic GO asked for this re-score, and master accepted the opening as within that GO.
+   `C:\t\mg2\control_refit_armA.json` was not opened.
+2. **Two corrupt replay lines were skipped.** The first emit run stopped on a corrupt replay line, and its partial
+   output was deleted. The re-run skips such lines, as `dev_emit_rung` does, and counts them as
+   `corrupt_replay_line_fix: 2` (both on the fix side). Those 2 rows are absent from every variant.
+3. **A 2-test pytest ran directly.** It used `-k "p3dn_diag or rung_j"` with `--basetemp C:\t\l2\pt`, which was
+   deleted afterwards. It ran on the workstation, not the capture host, and outside the heavy wrapper. Both tests
+   passed. Every emit and score run went through `workstation_heavy.ps1`.
