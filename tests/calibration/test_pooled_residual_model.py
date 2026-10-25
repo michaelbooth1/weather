@@ -380,3 +380,27 @@ def test_frozen_state_features_reproduce_mean_model():
         m = state["hours"][13]["mean"]
         yhat = mu0 + np.array([1.0, g, max(g, 0.0)]) @ m["ols"] + m["hgb"].predict(X)[0]
         assert abs(yhat - pred[i]) < 1e-9
+
+
+def test_rung_latest_snapshot_at_or_before_own_capture_time():
+    from datetime import datetime, timedelta, timezone
+
+    t0 = datetime(2026, 8, 3, 14, 0, tzinfo=timezone.utc)
+    index = [(t0 + timedelta(minutes=m), m, 1) for m in (0, 10, 50)]
+    assert prm.latest_at_or_before(index, t0 + timedelta(minutes=9))[1] == 0
+    assert prm.latest_at_or_before(index, t0 + timedelta(minutes=10))[1] == 10
+    assert prm.latest_at_or_before(index, t0 + timedelta(minutes=49))[1] == 10  # never the later 50
+    assert prm.latest_at_or_before(index, t0 - timedelta(minutes=1)) is None
+
+
+def test_rung_simple_baseline_is_ols_only_with_constant_scale():
+    frame = _frame()
+    fitted = prm.fit_pooled(frame, market_id=False, doy=True, raw_columns=False, simple=True)
+    assert fitted["mean"].hgb is None
+    assert isinstance(fitted["scale"], prm.ConstantScale)
+    yhat, X = fitted["mean"].predict(frame)
+    mu0, g, _, _ = fitted["mean"]._anchors(frame)
+    design = np.column_stack([np.ones_like(g), g, np.maximum(g, 0.0)])
+    assert np.allclose(yhat, mu0 + design @ fitted["mean"].ols)
+    s = fitted["scale"].predict(X)
+    assert np.all(s == s[0])
