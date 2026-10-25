@@ -155,7 +155,7 @@ def test_station_coordinates_cover_the_us_11():
 def test_a_fail_closed_corpus_gap_skips_the_pair_and_drops_the_centre(tmp_path, monkeypatch):
     from weather.sources.forecast_training_corpus import CorpusVerificationError
 
-    def fake(market, centre, manifests, out_root):
+    def fake(market, centre, manifests, out_root, training_years=None):
         if market == "nyc" and centre == "2026-12-24":
             raise CorpusVerificationError("no cutoff-valid PIT daily forecast")
         path = prm.records_path(out_root, market, centre)
@@ -221,3 +221,39 @@ def test_nearest_centre_by_month_day():
     assert prm.nearest_centre("2026-07-31") == "2026-08-08"
     assert prm.nearest_centre("2026-08-30") == "2026-08-23"
     assert prm.nearest_centre("2026-09-29") == "2026-09-22"
+
+
+def test_season_blocks_and_centre_bias():
+    assert [prm.season_of(c) for c in ("2026-01-08", "2026-07-22", "2026-08-08", "2026-12-09")] == [
+        "jan_jul", "jan_jul", "aug_sep", "oct_dec"]
+    frame = _frame()
+    frame.loc[frame["year"] == 2022, "centre"] = "2026-01-08"
+    model = prm.MeanModel(market_id=False, doy=True, bias_by="centre").fit(frame)
+    assert ("atlanta", "2026-01-08") in model.bias and ("atlanta", prm.VALIDATION_CENTRE) in model.bias
+
+
+def test_covered_years_excludes_a_year_with_one_missing_cell(tmp_path):
+    rows = []
+    for year in (2022, 2024):
+        for d in prm.window_days("2026-01-08", year):
+            for h in range(7, 21):
+                if year == 2024 and d.day == 3 and h == 9:
+                    continue
+                rows.append({"market_id": "atlanta", "target_date": d.isoformat(), "cutoff_hour_local": h,
+                             "status": "complete"})
+    (tmp_path / "coverage.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+    (tmp_path / "manifest.json").write_text(json.dumps({"years": [2022, 2024]}))
+    assert prm.covered_years("2026-01-08", [tmp_path / "manifest.json"], markets=("atlanta",)) == [2022]
+
+
+@pytest.mark.parametrize("head", ["P3", "P3F"])
+def test_headline_markdown_renders_for_both_heads(tmp_path, head):
+    rows = _rows({"atlanta": -0.4, "nyc": -0.3}, hours=(7, 12, 15))
+    for r in rows:
+        for k in ("R0", "P3", "P3F", "U0", "a", "e", "f", "r0floor"):
+            r[f"{k}_log_loss"] = r["P0_log_loss"] + (0.1 if k in ("a", "f") else 0.0)
+            r[f"{k}_brier"] = 0.8
+    rule = tmp_path / "rule.md"
+    rule.write_text("x")
+    text = prm.headline_markdown(rows, rule, {"ok": True}, head=head)
+    assert f"| {head} - a |" in text and "**(12)**" in text and f"{head} beats a" in text
