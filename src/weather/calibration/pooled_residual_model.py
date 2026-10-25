@@ -85,6 +85,10 @@ R0_MARKETS = (
 )
 VALIDATION_CENTRE = "2026-11-24"
 OCT_DEC_CENTRES = ("2026-10-10", "2026-10-25", "2026-11-09", "2026-11-24", "2026-12-09", "2026-12-24")
+JAN_JUL_CENTRES = (
+    "2026-01-08", "2026-01-23", "2026-02-07", "2026-02-22", "2026-03-09", "2026-03-24", "2026-04-08",
+    "2026-04-23", "2026-05-08", "2026-05-23", "2026-06-07", "2026-06-22", "2026-07-07", "2026-07-22",
+)
 AUG_SEP_CENTRES = ("2026-08-08", "2026-08-23", "2026-09-07", "2026-09-22")
 WINDOW_HOURS = (7, 8, 9, 10, 11, 12)
 BOOTSTRAP_DRAWS = 2000
@@ -101,7 +105,12 @@ ARMS = {
 }
 DECISION_ARMS = ("P0", "P1", "P2", "P3")  # the original rule's Bonferroni family (fixed)
 # Amendment 2: the P0 design fitted per market (the pooling control).
-EXTRA_ARMS = {"U0": {"centres": (VALIDATION_CENTRE,), "market_id": False, "doy": False, "per_market": True}}
+EXTRA_ARMS = {
+    "U0": {"centres": (VALIDATION_CENTRE,), "market_id": False, "doy": False, "per_market": True},
+    # Amendment 4: full year (L1's corpus), bias and normal per (market, cutoff, centre).
+    "P3F": {"centres": JAN_JUL_CENTRES + AUG_SEP_CENTRES + OCT_DEC_CENTRES, "market_id": False, "doy": True,
+            "bias_by": "centre"},
+}
 ALL_POOLED_ARMS = {**ARMS, **EXTRA_ARMS}
 # Amendment 2 comparators from lane L3 (171717d5f): our column prefix -> L3 arm name.
 L3_COMPARATORS = {
@@ -144,7 +153,10 @@ def records_path(root, market, centre):
 
 
 def season_of(centre):
-    return "aug_sep" if str(centre)[5:7] in ("08", "09") else "oct_dec"
+    month = str(centre)[5:7]
+    if month in ("08", "09"):
+        return "aug_sep"
+    return "oct_dec" if month in ("10", "11", "12") else "jan_jul"
 
 
 def station_coordinates(markets=R0_MARKETS, path=None):
@@ -162,7 +174,33 @@ def station_coordinates(markets=R0_MARKETS, path=None):
 # ---------------------------------------------------------------------- extract
 
 
-def extract_market(market, centre, manifests, out_root):
+def window_days(centre, year, half_width=7):
+    from datetime import timedelta
+
+    c = date.fromisoformat(str(centre))
+    mid = date(int(year), c.month, c.day)
+    return [mid + timedelta(days=k) for k in range(-half_width, half_width + 1)]
+
+
+def covered_years(centre, manifests, markets=R0_MARKETS, hours=range(7, 21)):
+    """Amendment 4: years whose corpus has a complete row at every cutoff for every market and window day."""
+    complete = set()
+    years = set()
+    for manifest in manifests:
+        root = Path(manifest).parent
+        years.update(int(y) for y in json.loads(Path(manifest).read_text(encoding="utf-8"))["years"])
+        with open(root / "coverage.jsonl", encoding="utf-8") as handle:
+            for line in handle:
+                row = json.loads(line)
+                if row.get("status") == "complete" and row.get("market_id") in markets:
+                    complete.add((row["market_id"], str(row["target_date"])[:10], int(row["cutoff_hour_local"])))
+    return sorted(
+        y for y in years
+        if all((m, d.isoformat(), h) in complete for m in markets for d in window_days(centre, y) for h in hours)
+    )
+
+
+def extract_market(market, centre, manifests, out_root, training_years=None):
     """Build the trainer's per-cutoff records for one market and centre (heavy)."""
     from weather.calibration import feature_model as fm
     from weather.calibration.feature_column_allowlist import resolve_column_allowlist
@@ -190,7 +228,7 @@ def extract_market(market, centre, manifests, out_root):
     )
     cache = model.historical_target_cache()
     daily, counts = select_training_days(
-        cache["daily"], training_years=None, forecast_years=union.years, target_date=centre_date,
+        cache["daily"], training_years=training_years, forecast_years=union.years, target_date=centre_date,
     )
     raw = fm.build_feature_records_for_model(
         model, daily, cache["by_date"], None, None,
@@ -217,18 +255,27 @@ def extract_market(market, centre, manifests, out_root):
     return target, {"days_by_year": counts, "union_sha256": payload["corpus_union"]["union_sha256"]}
 
 
-def extract_many(markets, centres, manifests, out_root):
-    """Extract every (market, centre); a fail-closed corpus gap skips that pair, never relaxes it."""
+def extract_many(markets, centres, manifests, out_root, coverage_years=False):
+    """Extract every (market, centre); a fail-closed corpus gap skips that pair, never relaxes it.
+
+    ``coverage_years`` (amendment 4) restricts each centre to the years its corpora fully cover.
+    """
     from weather.sources.forecast_training_corpus import CorpusVerificationError
 
     failed = []
     for centre in centres:
+        years = covered_years(centre, manifests) if coverage_years else None
+        if coverage_years:
+            print(f"centre {centre}: covered years {years}", flush=True)
+            if not years:
+                failed += [(m, centre, "no covered year") for m in markets]
+                continue
         for market in markets:
             if records_path(out_root, market, centre).exists():
                 print(f"present {market} {centre}", flush=True)
                 continue
             try:
-                path, info = extract_market(market, centre, manifests, out_root)
+                path, info = extract_market(market, centre, manifests, out_root, training_years=years)
             except CorpusVerificationError as exc:
                 failed.append((market, centre, str(exc)))
                 print(f"FAILED_CLOSED {market} {centre}: {exc}", flush=True)
@@ -407,15 +454,18 @@ def _num(value):
 class MeanModel:
     """Steps 1-4 of the rule: in-fold bias, OLS on the floor gap, HGB on its residual."""
 
-    def __init__(self, *, market_id, doy, raw_columns=True):
+    def __init__(self, *, market_id, doy, raw_columns=True, bias_by="season"):
         self.market_id = market_id
         self.doy = doy
         self.raw_columns = raw_columns
+        if bias_by not in ("season", "centre"):
+            raise PooledModelError(f"unknown bias key {bias_by}")
+        self.bias_by = bias_by
 
     def _anchors(self, frame):
         import numpy as np
 
-        keys_b = list(zip(frame["market"], frame["season"]))
+        keys_b = list(zip(frame["market"], frame[self.bias_by]))
         keys_n = list(zip(frame["market"], frame["centre"]))
         bias = np.array([self.bias.get(k, self.bias_global) for k in keys_b])
         normal = np.array([self.normal.get(k, self.normal_by_market.get(k[0], self.normal_global)) for k in keys_n])
@@ -449,7 +499,7 @@ class MeanModel:
 
         has_fh = frame["fh"].notna()
         diff = (frame["y"] - frame["fh"])[has_fh]
-        self.bias = diff.groupby([frame["market"][has_fh], frame["season"][has_fh]]).mean().to_dict()
+        self.bias = diff.groupby([frame["market"][has_fh], frame[self.bias_by][has_fh]]).mean().to_dict()
         self.bias_global = float(diff.mean()) if len(diff) else 0.0
         self.normal = frame.groupby(["market", "centre"])["y"].mean().to_dict()
         self.normal_by_market = frame.groupby("market")["y"].mean().to_dict()
@@ -473,7 +523,7 @@ class MeanModel:
         return mu0 + design @ self.ols + self.hgb.predict(X), X
 
 
-def fit_pooled(train, *, market_id, doy, raw_columns=True):
+def fit_pooled(train, *, market_id, doy, raw_columns=True, bias_by="season"):
     """Mean model on all training rows plus an inner-LOYO scale model and z set."""
     import numpy as np
     from sklearn.ensemble import HistGradientBoostingRegressor
@@ -484,10 +534,10 @@ def fit_pooled(train, *, market_id, doy, raw_columns=True):
         raise PooledModelError("the scale model needs at least two training years")
     for year in years:
         inner = (train["year"] != year).to_numpy()
-        model = MeanModel(market_id=market_id, doy=doy, raw_columns=raw_columns).fit(train[inner])
+        model = MeanModel(market_id=market_id, doy=doy, raw_columns=raw_columns, bias_by=bias_by).fit(train[inner])
         pred, _ = model.predict(train[~inner])
         errors[~inner] = train["y"].to_numpy(float)[~inner] - pred
-    mean = MeanModel(market_id=market_id, doy=doy, raw_columns=raw_columns).fit(train)
+    mean = MeanModel(market_id=market_id, doy=doy, raw_columns=raw_columns, bias_by=bias_by).fit(train)
     X, _, _ = mean.features(train)
     yhat_oof = train["y"].to_numpy(float) - errors
     floor_gap = np.nan_to_num(yhat_oof - train["F"].to_numpy(float), nan=0.0)
@@ -557,7 +607,7 @@ def _score_fold(arm, spec, train, val, buckets, hour, year):
     from weather.calibration import feature_model as fm
 
     rows = []
-    fitted = fit_pooled(train, market_id=spec["market_id"], doy=spec["doy"])
+    fitted = fit_pooled(train, market_id=spec["market_id"], doy=spec["doy"], bias_by=spec.get("bias_by", "season"))
     yhat, X = fitted["mean"].predict(val)
     gap = np.nan_to_num(yhat - val["F"].to_numpy(float), nan=0.0)
     s = np.maximum(MIN_SCALE, fitted["scale"].predict(np.column_stack([X, gap])) * math.sqrt(math.pi / 2))
@@ -773,7 +823,7 @@ def attach_lane_d_floor(rows, root):
                     r["dfloor_brier"] = float(x["hgb_floored_brier"])
 
 
-def headline_rows(row_dirs, lane_d_floor_root=None):
+def headline_rows(row_dirs, lane_d_floor_root=None, arm="P3", extra=("U0",)):
     """Merge R0, P3, U0 and L3 rows; the amendment 2 row gate must hold."""
     def find(name):
         for d in row_dirs:
@@ -786,7 +836,8 @@ def headline_rows(row_dirs, lane_d_floor_root=None):
     gate = l3_parity(r0, l3_rows)
     if not gate["ok"]:
         raise PooledModelError(f"amendment 2 row gate failed: {gate}")
-    rows = merge_rows(r0, {"P3": _read_jsonl(find("rows_P3.jsonl")), "U0": _read_jsonl(find("rows_U0.jsonl"))})
+    names = [arm, *extra] if arm == "P3" else [arm, "P3", *extra]
+    rows = merge_rows(r0, {a: _read_jsonl(find(f"rows_{a}.jsonl")) for a in dict.fromkeys(names)})
     by_key = {(r["market"], r["hour"], r["validation_date"]): r for r in l3_rows}
     for r in rows:
         extra = by_key[(r["market"], r["hour"], r["validation_date"])]
@@ -813,27 +864,29 @@ def headline_verdict(rows, arm="P3", ref="a", n_refs=len(HEADLINE_REFS)):
             "dates": boot["dates"], "rows": boot["rows"]}
 
 
-def headline_markdown(rows, rule_path, gate):
+def headline_markdown(rows, rule_path, gate, head="P3"):
+    third = ("U0", "P3") if head == "P3" else (head, "P3")
     rule_sha = hashlib.sha256(Path(rule_path).read_bytes()).hexdigest()
-    lines = ["# L2 amendment 2: P3 vs fair comparators (centre 2026-11-24, US 11)", "",
+    lines = [f"# L2 amendment 2/4: {head} vs fair comparators (centre 2026-11-24, US 11)", "",
              f"Rule: {rule_path} sha256 {rule_sha}", "",
              f"Row gate (L3 rows == R0 rows, L3 r0_repro == L2 R0): {json.dumps(gate)}", "",
              "Refs: a = L3 ols_floor, e = r0_baseline_floor, f = bias_corrected_forecast_floor, "
              "r0floor = R0 + hard floor, dfloor = lane D floored R0 (where present), R0 = raw R0.", "",
-             "## Headline (07-12, log loss, P3 - ref; 97.5% Bonferroni fleet interval)", "",
+             f"## Headline (07-12, log loss, {head} - ref; 97.5% Bonferroni fleet interval)", "",
              "| Comparison | fleet delta | 97.5% CI | markets CI-worse | verdict |", "| --- | --- | --- | --- | --- |"]
     v = None
     for ref in HEADLINE_REFS:
-        v = headline_verdict(rows, "P3", ref)
-        lines.append(f"| P3 - {ref} | {v['fleet']:+.4f} | [{v['fleet_ci'][0]:+.4f}, {v['fleet_ci'][1]:+.4f}] | "
+        v = headline_verdict(rows, head, ref)
+        lines.append(f"| {head} - {ref} | {v['fleet']:+.4f} | [{v['fleet_ci'][0]:+.4f}, {v['fleet_ci'][1]:+.4f}] | "
                      f"{', '.join(v['markets_worse']) or 'none'} | {v['verdict']} |")
-        crossed = bootstrap_deltas(rows, "P3", ref=ref, crossed=True)
+        crossed = bootstrap_deltas(rows, head, ref=ref, crossed=True)
         ci = percentile_ci(crossed["fleet_draws"], 0.95)
         lines.append(f"| (crossed date x market 95%) | | [{ci[0]:+.4f}, {ci[1]:+.4f}] | | |")
     lines += ["", f"Date clusters {v['dates']}, rows {v['rows']}.", ""]
-    pairs = [("P3", r) for r in ("a", "f", "e", "r0floor", "R0")] + [("U0", "P3"), ("U0", "a"), ("U0", "f")]
+    pairs = [(head, r) for r in ("a", "f", "e", "r0floor", "R0")] + (
+        [("U0", "P3"), ("U0", "a"), ("U0", "f")] if head == "P3" else [(head, "P3")])
     if any("dfloor_log_loss" in r for r in rows):
-        pairs.append(("P3", "dfloor"))
+        pairs.append((head, "dfloor"))
     lines += ["## Descriptive 07-12 fleet deltas (95% date-clustered)", "", "| Comparison | log loss | Brier |",
               "| --- | --- | --- |"]
     for arm, ref in pairs:
@@ -848,21 +901,21 @@ def headline_markdown(rows, rule_path, gate):
             cells.append(f"{b['fleet']:+.4f} [{lo:+.4f}, {hi:+.4f}]")
         lines.append(f"| {arm} - {ref} ({len({r['market'] for r in sub})} mkts) | {cells[0]} | {cells[1]} |")
     lines += ["", "## Per market 07-12 log loss delta (95%)", "",
-              "| Market | P3 - a | P3 - f | U0 - P3 |", "| --- | --- | --- | --- |"]
+              f"| Market | {head} - a | {head} - f | {third[0]} - {third[1]} |", "| --- | --- | --- | --- |"]
     vs = {k: headline_verdict(rows, arm, ref) for k, (arm, ref) in
-          {"a": ("P3", "a"), "f": ("P3", "f"), "u": ("U0", "P3")}.items()}
+          {"a": (head, "a"), "f": (head, "f"), "u": third}.items()}
     for m in vs["a"]["per_market"]:
         cells = [f"{vs[k]['per_market'][m]:+.3f} [{vs[k]['market_ci'][m][0]:+.3f}, {vs[k]['market_ci'][m][1]:+.3f}]"
                  for k in ("a", "f", "u")]
         lines.append(f"| {m} | " + " | ".join(cells) + " |")
     lines += ["", "## Per hour, fleet log loss (levels) and deltas (95%); hour 12 called out", "",
-              "| Hour | P3 | a | f | e | P3 - a | P3 - f | U0 - P3 |",
+              f"| Hour | {head} | a | f | e | {head} - a | {head} - f | {third[0]} - {third[1]} |",
               "| --- | --- | --- | --- | --- | --- | --- | --- |"]
     for hour in sorted({r["hour"] for r in rows}):
         hr = [r for r in rows if r["hour"] == hour]
-        lv = [sum(r[f"{k}_log_loss"] for r in hr) / len(hr) for k in ("P3", "a", "f", "e")]
+        lv = [sum(r[f"{k}_log_loss"] for r in hr) / len(hr) for k in (head, "a", "f", "e")]
         cells = []
-        for arm, ref in (("P3", "a"), ("P3", "f"), ("U0", "P3")):
+        for arm, ref in ((head, "a"), (head, "f"), third):
             b = bootstrap_deltas(rows, arm, ref=ref, hours=(hour,))
             lo, hi = percentile_ci(b["fleet_draws"], 0.95)
             cells.append(f"{b['fleet']:+.3f} [{lo:+.3f}, {hi:+.3f}]")
@@ -1016,6 +1069,8 @@ def _parse(argv=None):
     ex.add_argument("--markets", default=",".join(R0_MARKETS))
     ex.add_argument("--centres", default=VALIDATION_CENTRE)
     ex.add_argument("--manifest", action="append", required=True, dest="manifests")
+    ex.add_argument("--coverage-years", action="store_true",
+                    help="amendment 4: per centre, only the years the corpora fully cover")
     ex.add_argument("--out", required=True)
     ev = sub.add_parser("evaluate", help="R0 and pooled arms on identical rows (heavy)")
     ev.add_argument("--records", required=True)
@@ -1031,6 +1086,7 @@ def _parse(argv=None):
     hl = sub.add_parser("headline", help="amendment 2: P3 vs L3's (a) and (f), U0, fair comparators")
     hl.add_argument("--rows", action="append", required=True, help="row directories (searched in order)")
     hl.add_argument("--lane-d-floor-root", default=None)
+    hl.add_argument("--arm", default="P3", choices=("P3", "P3F"))
     hl.add_argument("--rule", required=True)
     hl.add_argument("--out", required=True)
     de = sub.add_parser("dev-emit", help="amendment 3: P3d/U0d dev-window distributions (heavy)")
@@ -1051,7 +1107,8 @@ def _parse(argv=None):
 def main(argv=None):
     args = _parse(argv)
     if args.command == "extract":
-        failed = extract_many(args.markets.split(","), args.centres.split(","), args.manifests, args.out)
+        failed = extract_many(args.markets.split(","), args.centres.split(","), args.manifests, args.out,
+                              coverage_years=args.coverage_years)
         return 1 if failed else 0
     out = require_output_outside_repo(args.out)
     if args.command == "evaluate":
@@ -1109,8 +1166,9 @@ def main(argv=None):
         print(json.dumps(audit["files"], indent=1))
         return 0
     if args.command == "headline":
-        rows, gate = headline_rows(args.rows, args.lane_d_floor_root)
-        text = headline_markdown(rows, args.rule, gate)
+        rows, gate = headline_rows(args.rows, args.lane_d_floor_root, arm=args.arm,
+                                   extra=("U0",) if args.arm == "P3" else ())
+        text = headline_markdown(rows, args.rule, gate, head=args.arm)
         if out.exists():
             raise PooledModelError(f"refusing to overwrite {out}")
         out.write_text(text, encoding="utf-8")
