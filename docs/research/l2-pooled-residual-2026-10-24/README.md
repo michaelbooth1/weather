@@ -1,13 +1,14 @@
-# L2 pooled residual model — dated research record (2026-10-24, in progress)
+# L2 pooled residual model — dated research record (2026-10-24/25)
 
-Status: research record, not canonical. The canonical findings entry is held until the fair
-comparisons (rule amendment 2) and the dev-window test against served (amendment 3) have verdicts;
-it will then go in as EF §10aa (coordinator, 2026-10-25; §10z is L1, §10ab L3).
+Status: research record, not canonical. The canonical entry is EF §10aa (written 2026-10-25 after
+both verdicts; §10z is L1, §10ab L3). The MG-2 afternoon-slot pick is L3's single dev read under
+`C:\t\mg2\afternoon_pick_rule.md` (sha256 `5898bfb0…`); L2 supplied the serve-parity check
+(`C:\t\l2\p3d_serve_parity.md`) and the P3d vectors (`C:\t\l2\p3d_dev\dev_P3d.jsonl`, sha256 `f3b02bf0…`).
 
 - Code: `weather.calibration.pooled_residual_model` on `claude/pooled-residual-model-20261024`.
 - Rule: `rule.md` here, byte-identical to `C:\t\l2\rule.md` at the time of each result
   (original sha256 `e2649f16…bd31`; amendment 1 `6dac6419…f499`; amendment 2 `1a656639…6c28`;
-  amendment 3 `09f77d4e…760e`).
+  amendment 3 `09f77d4e…760e`; amendment 4 `53ba558b…3a32`).
 - `report.md`: the original decision under amendment 1. **The comparator is raw R0** (the trainer's
   validation HGB blended 0.8 with climatology, with no hard floor and no calibration), which is
   known to be unfair: serving applies both. On that comparator P3 wins by −1.968 nats at 07-12
@@ -20,7 +21,7 @@ it will then go in as EF §10aa (coordinator, 2026-10-25; §10z is L1, §10ab L3
   exclude 0. Hour 12: -0.159 vs (a), -0.447 vs (f). Pooling is the lever: the unpooled U0 is worse than
   P3 by +0.174 [+0.141, +0.208] and only ties (a). Still model vs model on development years, not edge.
 - `headline_P3_dfloor.md`: the same with lane D's floored leaf-20 R0 rows (5 markets) attached:
-  P3 - floored R0 -1.995 [-2.258, -1.745]. Our L3 rows equal C:	\l3\octdec row for row (ols_floor
+  P3 - floored R0 -1.995 [-2.258, -1.745]. Our L3 rows equal C:\t\l3\octdec row for row (ols_floor
   max abs diff 0 over 11,550 rows).
 - `dev_verdict.md` (amendment 3, **decisive**, 2026-10-25 00:20): on the dev scorecard (2026-08-15..09-29,
   43 dates, 473 market-days, unchanged dev_scorecard via L3's dev-score), positive control passes
@@ -33,3 +34,7 @@ it will then go in as EF §10aa (coordinator, 2026-10-25; §10z is L1, §10ab L3
   training rows) also beats (a) -0.151 [-0.200, -0.105] and (f) -0.275 [-0.342, -0.216], but adds
   nothing over P3: P3F - P3 -0.004 [-0.014, +0.006] at 07-12.
 - Hook and admission tests (7 files) pass through the wrapper: 83 passed, 15 skipped.
+- `p3d_serve_parity.md` (2026-10-25, outcome-blind): the MG-2 pick rule's condition 1 for P3d. Capture parity
+  holds for high_so_far, current_temp, cutoff and date; **it fails for forecast_high** (Previous Runs lead 1,
+  shared with arm A, not in the capture; served forecast differs by MAE 2.26 °F at 13-16). Byte-identical
+  to `C:\t\l2\p3d_serve_parity.md`.
