@@ -339,3 +339,25 @@ def test_nbm_n2_variant_replaces_the_forecast_with_the_captured_nbm_mean():
     features, source = ch.DEV_VARIANTS[ch.N2_VARIANT]
     assert features == ("nbm_mean", "high_so_far", "current_temp") and source == "captured_nbm"
     assert ch.N2_VARIANT in ch.NBM_VARIANTS
+
+
+def test_parse_captured_metar_matches_the_iem_fields():
+    from datetime import datetime, timezone
+
+    anchor = datetime(2026, 8, 10, 17, 10, tzinfo=timezone.utc)
+    row = ch.parse_captured_metar("METAR KATL 101652Z 27006KT 10SM SCT045 BKN250 32/23 A3001 RMK AO2 T03170228", anchor)
+    assert row["valid"] == datetime(2026, 8, 10, 16, 52, tzinfo=timezone.utc)
+    assert math.isclose(row["temp"], 31.7 * 9 / 5 + 32) and math.isclose(row["dwpf"], 23 * 9 / 5 + 32)
+    assert row["drct"] == 270.0 and row["sknt"] == 6.0 and row["cover"] == 0.75 and row["ceiling_ft"] == 25000.0
+    assert not row["is_cor"]
+
+
+def test_routine_dmax_needs_twenty_modal_minute_rows():
+    from datetime import datetime, timedelta, timezone
+    from zoneinfo import ZoneInfo
+
+    tz = ZoneInfo("America/New_York")
+    start = datetime(2026, 8, 9, 4, 52, tzinfo=timezone.utc)
+    rows = [{"valid": start + timedelta(hours=i), "temp": 70.0 + i, "is_cor": False} for i in range(20)]
+    assert ch.routine_dmax(rows, tz, "2026-08-09") == 89.0
+    assert ch.routine_dmax(rows[:19], tz, "2026-08-09") is None

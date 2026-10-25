@@ -1124,6 +1124,260 @@ def dev_pick(layout, default, challengers, parity, rule_path, simpler="a_prime",
     return out
 
 
+# ---------------------------------------------------------------- L6 own-obs stack on captured METAR (pick rule cl. 2 (e))
+
+L6_MARKET_LAT_MIN = 10
+L6_MAX_AGE_MIN = 90
+_COVER = {"CLR": 0.0, "SKC": 0.0, "NCD": 0.0, "NSC": 0.0, "FEW": .25, "SCT": .5, "BKN": .75, "OVC": 1.0, "VV": 1.0}
+
+
+def parse_captured_metar(raw, anchor_utc):
+    """One captured METAR row -> the fields lane L6's IEM extract carries (None when unparseable).
+
+    Observation instant from the raw DDHHMMZ group (nearest to ``anchor_utc``); temp = T-group when present,
+    else the body temperature; dewpoint from the body (whole degC, as IEM ``dwpf``); wind, cover and ceiling
+    as ``iem_upstream`` (cover = max layer, ceiling = lowest BKN/OVC/VV base).
+    """
+    import re
+    from datetime import timedelta
+
+    m = re.search(r"\b(\d{2})(\d{2})(\d{2})Z\b", raw or "")
+    if not m:
+        return None
+    day, hh, mm = (int(g) for g in m.groups())
+    valid = None
+    for shift in (-1, 0, 1):
+        base = (anchor_utc + timedelta(days=shift)).replace(hour=0, minute=0, second=0, microsecond=0)
+        if base.day == day:
+            cand = base.replace(hour=hh, minute=mm)
+            if valid is None or abs(cand - anchor_utc) < abs(valid - anchor_utc):
+                valid = cand
+    if valid is None:
+        return None
+
+    def c2f(c):
+        return c * 9.0 / 5.0 + 32.0
+
+    body = re.search(r"\s(M?\d{2})/(M?\d{2})?(?=\s)", raw)
+    tg = re.search(r"\bT([01])(\d{3})([01])(\d{3})\b", raw)
+    temp = dwpf = None
+    if body:
+        temp = c2f(int(body.group(1).replace("M", "-")))
+        dwpf = c2f(int(body.group(2).replace("M", "-"))) if body.group(2) else None
+    if tg:
+        temp = c2f((-1 if tg.group(1) == "1" else 1) * int(tg.group(2)) / 10.0)
+    w = re.search(r"\b(\d{3}|VRB)(\d{2,3})(?:G\d{2,3})?KT\b", raw)
+    drct = sknt = None
+    if w:
+        drct = None if w.group(1) == "VRB" else float(w.group(1))
+        sknt = float(w.group(2))
+    covers, ceiling = [], None
+    for k in re.finditer(r"\b(FEW|SCT|BKN|OVC|VV)(\d{3})|\b(CLR|SKC|NCD|NSC)\b", raw):
+        if k.group(3):
+            covers.append(0.0)
+            continue
+        covers.append(_COVER[k.group(1)])
+        if k.group(1) in ("BKN", "OVC", "VV") and ceiling is None:
+            ceiling = int(k.group(2)) * 100.0
+    return {"valid": valid, "temp": temp, "dwpf": dwpf, "drct": drct, "sknt": sknt,
+            "cover": max(covers) if covers else None, "ceiling_ft": ceiling,
+            "is_cor": " COR " in f" {raw} "}
+
+
+def _json_value_after(line, key, start=0):
+    """Decode the JSON value that follows ``"key":`` at or after ``start`` (no whole-line parse)."""
+    at = line.find(f'"{key}":', start)
+    if at < 0:
+        return None, -1
+    pos = at + len(key) + 3
+    while line[pos] == " ":
+        pos += 1
+    value, end = json.JSONDecoder().raw_decode(line, pos)
+    return value, end
+
+
+def _captured_rows(line, station):
+    """The captured ``sources.metar.data.rows`` of one replay line."""
+    start = line.find('"sources":')
+    if start < 0:
+        return []
+    metar_at = line.find('"metar":', start)
+    if metar_at < 0:
+        return []
+    section, _ = _json_value_after(line, "metar", start)
+    rows = ((section or {}).get("data") or {}).get("rows") or []
+    return [r for r in rows if str(r.get("station_id") or station) == station]
+
+
+def l6_captured_features(snapshot_rows, captured, tz, station_code, prev_dmax):
+    """L6 OWN features at each snapshot from that snapshot's own captured METAR rows (L6's semantics)."""
+    from datetime import timedelta
+
+    import numpy as np
+    import pandas as pd
+
+    lag = timedelta(minutes=L6_MARKET_LAT_MIN)
+    out = []
+    for key, cap_utc, local_date in snapshot_rows:
+        rows = [r for r in captured.get(key, []) if not r["is_cor"] and r["temp"] is not None]
+        usable = sorted((r for r in rows if r["valid"] + lag <= cap_utc), key=lambda r: r["valid"])
+
+        def asof(t):
+            cand = [r for r in usable if r["valid"] + lag <= t]
+            if not cand or (t - cand[-1]["valid"]) > timedelta(minutes=L6_MAX_AGE_MIN):
+                return None
+            return cand[-1]
+
+        now, ago = asof(cap_utc), asof(cap_utc - timedelta(hours=3))
+        same_day = [r["temp"] for r in usable if r["valid"].astimezone(tz).date().isoformat() == local_date]
+        loc = cap_utc.astimezone(tz)
+        nan = float("nan")
+        t = now["temp"] if now else nan
+        td = now["dwpf"] if now and now["dwpf"] is not None else nan
+        r_ = float(np.fmax(max(same_day) if same_day else nan, t))
+        drct = now["drct"] if now and now["drct"] is not None else nan
+        sknt = now["sknt"] if now and now["sknt"] is not None else nan
+        calm = sknt == 0
+        u = 0.0 if calm else -sknt * math.sin(math.radians(drct))
+        v = 0.0 if calm else -sknt * math.cos(math.radians(drct))
+        cover = now["cover"] if now and now["cover"] is not None else nan
+        ceil = now["ceiling_ft"] if now else None
+        log_ceiling = (math.log10(max(ceil, 100.0)) if ceil is not None
+                       else (math.log10(30000.0) if math.isfinite(cover) else nan))
+        prev = prev_dmax.get(local_date, nan)
+        out.append({"row_key": key, "hour_f": loc.hour + loc.minute / 60.0, "doy": loc.timetuple().tm_yday,
+                    "station_code": station_code, "t": t, "td": td, "r": r_, "t_minus_r": t - r_,
+                    "tend3": (t - ago["temp"]) if ago else nan,
+                    "td_tend3": (td - ago["dwpf"]) if ago and ago["dwpf"] is not None else nan,
+                    "u": u, "v": v, "spd": sknt, "cover": cover, "log_ceiling": log_ceiling,
+                    "prev_dmax": prev, "prev_minus_t": prev - t})
+    return pd.DataFrame(out)
+
+
+def routine_dmax(rows, tz, local_date, min_routine=20):
+    """Half-up max of a day's routine (modal-minute), non-COR rows; None below ``min_routine`` rows."""
+    from collections import Counter
+
+    day = [r for r in rows if not r["is_cor"] and r["temp"] is not None
+           and r["valid"].astimezone(tz).date().isoformat() == local_date]
+    if not day:
+        return None
+    modal = Counter(r["valid"].minute for r in day).most_common(1)[0][0]
+    routine = [r["temp"] for r in day if r["valid"].minute == modal]
+    if len(routine) < min_routine:
+        return None
+    return float(math.floor(max(routine) + 0.5))
+
+
+def l6_captured_nowcasts(layout, replay_root, research_root, out_dir):
+    """Lane L6's own-obs nowcast N_own re-specified on the captured METAR rows (pick rule clarification 2 (e)).
+
+    Features per snapshot come only from that snapshot's captured METAR rows (usable from observation + 10 min,
+    the training rule); the previous-day max from the previous local day's last captured snapshot. Model: L6's
+    own history fit, unchanged (``upstream_obs_screen.build_history`` + ``make_model(OWN)``, imported). Positive
+    control first: that fit applied to L6's IEM serve features must reproduce L6's ``n_own`` (to 1e-9).
+    """
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    import numpy as np
+    import pandas as pd
+
+    from weather.calibration import upstream_obs_screen as l6
+
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    screen = Path(research_root) / "upstream_obs" / "screen"
+    hist, prov = l6.build_history(research_root)
+    train = hist[hist.month.isin(l6.TRAIN_MONTHS_PRIMARY)].reset_index(drop=True)
+    own = l6.make_model(l6.OWN).fit(train[list(l6.OWN)].to_numpy(float), train.y.to_numpy(float))
+    iem = pd.read_parquet(screen / "serve_features.parquet")
+    ref = pd.read_parquet(screen / "nowcasts.parquet").set_index("row_key")
+    again = iem.r.to_numpy(float) + own.predict(iem[list(l6.OWN)].to_numpy(float))
+    gap = float(np.nanmax(np.abs(again - ref.n_own.reindex(iem.row_key).to_numpy(float))))
+    if not gap < 1e-9:
+        raise ChallengerError(f"L6 positive control failed: refit n_own differs from L6's by {gap}")
+    _, sel, _ = l6.load(research_root)
+    codes = {icao: code for code, icao in enumerate(l6.stations(sel))}
+    snaps = pd.read_parquet(Path(layout) / "inputs_snapshots.parquet",
+                            columns=["row_key", "station", "market", "date", "local_hour", "snapshot_id"])
+    if (snaps.date.astype(str) > DEV_LAST.isoformat()).any():
+        raise ChallengerError("layout holds a snapshot after 2026-09-29")
+    station_of = snaps.groupby("market").station.first().to_dict()
+    snaps = snaps[snaps.local_hour.isin(l6.HOURS)]
+    wanted = {(r.market, r.snapshot_id): (r.row_key, str(r.date)[:10]) for r in snaps.itertuples(index=False)}
+    captured, snap_rows, last_rows = defaultdict(dict), defaultdict(list), defaultdict(dict)
+    stats = defaultdict(int)
+    for market, target, folder in _event_folders(replay_root):
+        if market not in station_of or not (DEV_FIRST - timedelta(days=1) <= target <= DEV_LAST):
+            continue
+        path = folder / "replay_inputs.jsonl"
+        if not path.is_file():
+            continue
+        station = station_of[market]
+        last = None
+        with open(path, encoding="utf-8") as handle:
+            for line in handle:
+                head = line[:line.find('"sources":')] if '"sources":' in line else line
+                sid, _ = _json_value_after(head, "snapshot_id")
+                cap_s, _ = _json_value_after(head, "captured_at_utc")
+                if cap_s is None:
+                    continue
+                cap = datetime.fromisoformat(cap_s)
+                last = (line, cap)
+                hit = wanted.get((market, sid))
+                if hit is None:
+                    continue
+                key, local_date = hit
+                captured[market][key] = [p for p in (parse_captured_metar(r.get("raw"), cap)
+                                                     for r in _captured_rows(line, station)) if p is not None]
+                snap_rows[market].append((key, cap, local_date))
+                stats["snapshots_scanned"] += 1
+        if last is not None:
+            last_rows[market][target.isoformat()] = [
+                p for p in (parse_captured_metar(r.get("raw"), last[1]) for r in _captured_rows(last[0], station))
+                if p is not None]
+    frames = []
+    for market in sorted(snap_rows):
+        station = station_of[market]
+        tz = ZoneInfo(sel[station]["timezone"])
+        prev = {}
+        for day in sorted({d for _, _, d in snap_rows[market]}):
+            before = (datetime.fromisoformat(day) - timedelta(days=1)).date().isoformat()
+            value = routine_dmax(last_rows[market].get(before, []), tz, before)
+            if value is None:
+                stats["prev_dmax_missing_days"] += 1
+            else:
+                prev[day] = value
+        frames.append(l6_captured_features(snap_rows[market], captured[market], tz, codes[station], prev))
+    feat = pd.concat(frames, ignore_index=True)
+    ok = np.isfinite(feat.r) & np.isfinite(feat.t)
+    stats["no_usable_row"] = int((~ok).sum())
+    feat = feat[ok].reset_index(drop=True)
+    res = pd.DataFrame({"row_key": feat.row_key, "n_own": feat.r.to_numpy(float) + own.predict(
+        feat[list(l6.OWN)].to_numpy(float)), "n_up": np.nan, "n_ring": np.nan})
+    res.to_parquet(out / "nowcasts.parquet", index=False)
+    feat.to_parquet(out / "serve_features.parquet", index=False)
+    joined = feat.set_index("row_key").join(iem.set_index("row_key")[list(l6.OWN)], rsuffix="_iem", how="inner")
+    parity = {}
+    for col in ("t", "td", "r", "tend3", "spd", "cover", "log_ceiling", "prev_dmax"):
+        d = (joined[col] - joined[f"{col}_iem"]).dropna()
+        parity[col] = {"n": int(len(d)), "share_within_0.05": float((d.abs() <= 0.05).mean()) if len(d) else None,
+                       "mad": float(d.abs().mean()) if len(d) else None,
+                       "captured_nan_iem_present": int((joined[col].isna() & joined[f"{col}_iem"].notna()).sum()),
+                       "iem_nan_captured_present": int((joined[col].notna() & joined[f"{col}_iem"].isna()).sum())}
+    nd = (res.set_index("row_key").n_own - ref.n_own).dropna()
+    manifest = dict(prov, positive_control_max_abs_gap=gap, rows=int(len(res)), stats=dict(stats),
+                    parity_vs_iem=parity,
+                    n_own_vs_iem={"n": int(len(nd)), "mad": float(nd.abs().mean()),
+                                  "share_within_0.05": float((nd.abs() <= 0.05).mean())},
+                    iem_rows=int(len(ref)), nowcasts_sha256=_sha256(out / "nowcasts.parquet"),
+                    layout_snapshots_sha256=_sha256(Path(layout) / "inputs_snapshots.parquet"),
+                    l6_module_sha256=_sha256(l6.__file__))
+    (out / "nowcasts_manifest.json").write_text(json.dumps(manifest, indent=1, sort_keys=True), encoding="utf-8")
+    return manifest
+
+
 def _rows(scores, arm, reference="served", scope="blended"):
     return {(r["market"], r["group"]): r for r in scores["candidates"][arm]["rows"]
             if r.get("reference", "served") == reference and r.get("scope", "blended") == scope}
@@ -1535,6 +1789,11 @@ def build_parser():
     pick.add_argument("--control", type=float, default=PICK_CONTROL,
                       help="recorded arm A - MG-1 13-16 control (pick rule clarification 1 (c))")
     pick.add_argument("--out", required=True)
+    l6c = sub.add_parser("l6-captured", help="L6 own-obs nowcasts from the captured METAR rows (pick rule cl. 2 (e))")
+    l6c.add_argument("--layout", required=True)
+    l6c.add_argument("--replay-root", required=True)
+    l6c.add_argument("--research-root", required=True)
+    l6c.add_argument("--out-dir", required=True)
     cmp_ = sub.add_parser("compare", help="join with lane D's R0 rows and apply the rule")
     cmp_.add_argument("--rows-dir", required=True)
     cmp_.add_argument("--r0-rows", action="append", help="<market>=<feature_model_blocked_validation_rows path>")
@@ -1548,6 +1807,11 @@ def main(argv=None):
     try:
         if args.command == "score":
             return _score_command(args)
+        if args.command == "l6-captured":
+            manifest = l6_captured_nowcasts(args.layout, args.replay_root, args.research_root, args.out_dir)
+            print(json.dumps({k: manifest[k] for k in ("positive_control_max_abs_gap", "rows", "stats",
+                                                        "n_own_vs_iem", "parity_vs_iem")}, indent=1))
+            return 0
         if args.command == "dev-pick":
             chal = dict(item.split("=", 1) for item in args.challenger)
             parity = {k: v == "pass" for k, v in (item.split("=", 1) for item in args.parity)}
