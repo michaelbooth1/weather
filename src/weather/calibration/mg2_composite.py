@@ -770,13 +770,36 @@ def _window(snaps, first, last):
     return snaps[(d >= first.isoformat()) & (d <= last.isoformat())].reset_index(drop=True)
 
 
-VECTORS = "mg2_vectors.parquet"  # last_in_hour: PRIMARY for the MG-2 vs MG-1 gate (rule §8 C4)
-ASOF_VECTORS = "mg2_vectors_asof_capture.parquet"  # as-of-capture: PRIMARY against the market; never the MG-1 gate
+VECTORS = "mg2_vectors.parquet"  # last_in_hour: the dev control replay only; never the forward gate (rule §8 C7)
+ASOF_VECTORS = "mg2_vectors_asof_capture.parquet"  # as-of-capture: the forward gate (C7) and the market arm (C4)
 VECTOR_ROLES = {
-    VECTORS: "PRIMARY for the MG-2 vs MG-1 gate (last_in_hour, symmetric with MG-1); DESCRIPTIVE against the market",
-    ASOF_VECTORS: "PRIMARY for every comparison against the market (blend R, edge reads, the formal edge test): "
-                  "no METAR row received after the row's own capture time; DESCRIPTIVE for the MG-1 gate",
+    VECTORS: "dev control replay only (last_in_hour, the reproduction check); DESCRIPTIVE on forward rows; never "
+             "scored by the forward MG-2 vs MG-1 gate (rule §8 C7)",
+    ASOF_VECTORS: "PRIMARY for the forward MG-2 vs MG-1 gate (rule §8 C7, capture-time like MG-1) and for every "
+                  "comparison against the market (blend R, edge reads, the formal edge test; C4): no METAR row "
+                  "received after the row's own capture time",
 }
+EMIT_AUDIT = "mg2_emit_audit.json"
+
+
+def require_gate_vectors(vectors):
+    """Rule §8 C7: the forward gate scores the as-of-capture vectors of a forward emission, nothing else.
+
+    The file must be named ``ASOF_VECTORS`` and its sha256 must be the ``asof_capture`` vectors sha of the
+    forward emit audit beside it, so a renamed last_in_hour file is refused too.
+    """
+    vectors = Path(vectors)
+    if vectors.name != ASOF_VECTORS:
+        raise Mg2Refused(f"the forward MG-2 vs MG-1 gate scores {ASOF_VECTORS} (as-of-capture) only; the "
+                         f"last_in_hour {VECTORS} is for the dev control replay (rule §8 C7)")
+    path = vectors.parent / EMIT_AUDIT
+    if not path.is_file() or not vectors.is_file():
+        raise Mg2Refused(f"the forward gate needs {ASOF_VECTORS} and its {EMIT_AUDIT} (rule §8 C7)")
+    audit = json.loads(path.read_text(encoding="utf-8"))
+    asof_sha = (audit.get("asof_capture") or {}).get("vectors_sha256")
+    if audit.get("mode") != "forward" or asof_sha != sha256_file(vectors):
+        raise Mg2Refused("the gate vectors are not the as-of-capture vectors of a forward emission (rule §8 C7)")
+    return audit
 
 
 def post_records(state, snaps, replay_root, first, last, inputs="last_in_hour"):
@@ -877,8 +900,9 @@ def emit(*, layout_root, replay_root, nowcasts, coefficients, rule, out, first, 
              "input_parity": parity, "code_sha256": sha256_file(__file__),
              "p3d_n_code_sha256": sha256_file(mg2_p3d_n.__file__), "nowcasts_sha256": sha256_file(nowcasts),
              "post_stats": stats, "vector_roles": VECTOR_ROLES, "asof_capture": asof,
+             "gate_vectors": None if control else ASOF_VECTORS,
              "vectors_sha256": sha256_file(out / VECTORS), "snapshots": int(len(snaps))}
-    (out / "mg2_emit_audit.json").write_text(json.dumps(audit, indent=1, sort_keys=True), encoding="utf-8")
+    (out / EMIT_AUDIT).write_text(json.dumps(audit, indent=1, sort_keys=True), encoding="utf-8")
     return audit
 
 
@@ -932,9 +956,7 @@ def score(*, layout_root, vectors, rule, out, release_binding, mg1_look_receipt=
     from weather.reporting.scorecards import dev_scorecard_data as data
     from weather.reporting.scorecards import loss_atlas
 
-    if Path(vectors).name != VECTORS:
-        raise Mg2Refused(f"the MG-2 vs MG-1 gate scores {VECTORS} (last_in_hour) only; the as-of-capture vectors are "
-                         "for comparisons against the market (rule §8 C4)")
+    require_gate_vectors(vectors)
     rule_sha, fields = read_rule(rule)
     out = Path(out)
     if (out / "mg2_look.json").exists():

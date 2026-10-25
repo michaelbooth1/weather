@@ -401,26 +401,26 @@ def test_as_of_capture_is_never_computed_on_a_dev_row(golden_state, tmp_path):
         p3.emit_rows(golden_state, pd.DataFrame(), tmp_path, date(2026, 11, 1), date(2026, 11, 2), inputs="later")
 
 
-def test_the_mg1_gate_scores_last_in_hour_only_and_the_market_arm_is_as_of_capture(tmp_path):
+def test_the_forward_gate_and_the_market_arm_score_as_of_capture_vectors(tmp_path):
+    """Rule §8 C7 (the forward gate) and C4 (the market arm): both read the as-of-capture vectors."""
     from weather.calibration import mg2_composite as mg2
 
-    with pytest.raises(mg2.Mg2Refused, match="MG-2 vs MG-1 gate"):
-        mg2.score(layout_root=tmp_path, vectors=tmp_path / mg2.ASOF_VECTORS, rule=tmp_path / "rule.md",
+    with pytest.raises(mg2.Mg2Refused, match="as-of-capture"):
+        mg2.score(layout_root=tmp_path, vectors=tmp_path / mg2.VECTORS, rule=tmp_path / "rule.md",
                   out=tmp_path / "out", release_binding=tmp_path)
-    assert "PRIMARY for the MG-2 vs MG-1 gate" in mg2.VECTOR_ROLES[mg2.VECTORS]
-    assert "PRIMARY for every comparison against the market" in mg2.VECTOR_ROLES[mg2.ASOF_VECTORS]
+    assert "PRIMARY for the forward MG-2 vs MG-1 gate" in mg2.VECTOR_ROLES[mg2.ASOF_VECTORS]
+    assert "PRIMARY for every comparison against the market" not in mg2.VECTOR_ROLES[mg2.VECTORS]
+    assert "never scored by the forward MG-2 vs MG-1 gate" in mg2.VECTOR_ROLES[mg2.VECTORS]
     tree = ast.parse((ROOT / "src/weather/calibration/mg2_composite.py").read_text(encoding="utf-8"))
     funcs = {n.name: n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
-    assert "ASOF_VECTORS" not in {n.id for n in ast.walk(funcs["score"]) if isinstance(n, ast.Name)}
-    assert not any(isinstance(n, ast.Constant) and isinstance(n.value, str) and "asof" in n.value
-                   for n in ast.walk(funcs["score"]))
-    # the primary vectors are composed from the last_in_hour post only
+    calls = {n.func.id for n in ast.walk(funcs["score"]) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+    assert "require_gate_vectors" in calls
+    # the dev control replay keeps last_in_hour (the reproduction check); the as-of path is forward only
     emit_src = ast.get_source_segment((ROOT / "src/weather/calibration/mg2_composite.py").read_text(encoding="utf-8"),
                                       funcs["emit"])
-    assert "post = distribution_band_frame(dists, bands)" in emit_src
-    assert "frame, source = compose(snaps, bands, pre, post, base)" in emit_src
     assert "frame.to_parquet(out / VECTORS" in emit_src
     assert 'inputs="as_of_capture"' in emit_src and "if not control:" in emit_src
+    assert "asof_frame.to_parquet(out / ASOF_VECTORS" in emit_src
 
 
 def test_module_has_no_network_and_no_production_importer():

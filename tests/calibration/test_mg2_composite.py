@@ -1,7 +1,7 @@
 """MG-2 composite binding: the 13:00 switch, the reservation guard, outcome-blind checks, fail-closed import.
 
 Guards: MG-2 pre-registration docs/research/mg2-composite-binding-2026-10-25/rule.md (§1a serve parity, §4
-reserved window, §7 void conditions, §8 C4 gate vectors).
+reserved window, §7 void conditions, §8 C4/C7 gate vectors).
 """
 import ast
 import hashlib
@@ -81,6 +81,17 @@ def _rule(tmp_path, **over):
     path = tmp_path / "rule.md"
     path.write_text(f"# rule\n\n```{mg2.RULE_BLOCK}\n{body}\n```\n", encoding="utf-8")
     return path
+
+
+def _gate_vectors(folder):
+    """A forward emission's as-of-capture vectors and the emit audit that names their sha (rule §8 C7)."""
+    folder = Path(folder)
+    folder.mkdir(parents=True, exist_ok=True)
+    vectors = folder / mg2.ASOF_VECTORS
+    pd.DataFrame({"row_key": ["a|1"], "band_index": [0], "p": [1.0]}).to_parquet(vectors, index=False)
+    audit = {"mode": "forward", "asof_capture": {"vectors_sha256": mg2.sha256_file(vectors)}}
+    (folder / mg2.EMIT_AUDIT).write_text(json.dumps(audit), encoding="utf-8")
+    return vectors
 
 
 def test_scorer_refuses_reserved_dates_without_a_dated_owner_decision(tmp_path):
@@ -305,8 +316,8 @@ def test_the_score_look_also_requires_parity(tmp_path):
     snaps.to_parquet(tmp_path / "layout" / data.SNAPSHOTS_FILE, index=False)
     rule = _rule(tmp_path, d0="2026-12-01", n_forward_dates="1")
     with pytest.raises(mg2.Mg2Refused, match="serve parity"):
-        mg2.score(layout_root=tmp_path / "layout", vectors=tmp_path / mg2.VECTORS, rule=rule, out=out, release_binding=tmp_path,
-                  today=date(2027, 6, 1))
+        mg2.score(layout_root=tmp_path / "layout", vectors=_gate_vectors(tmp_path / "emit"), rule=rule, out=out,
+                  release_binding=tmp_path, today=date(2027, 6, 1))
 
 
 NETWORK_MODULES = {"requests", "urllib", "urllib3", "httpx", "http", "aiohttp", "socket", "ftplib"}
@@ -363,5 +374,5 @@ def test_second_look_is_refused(tmp_path):
     (tmp_path / "out").mkdir()
     (tmp_path / "out" / "mg2_look.json").write_text("{}")
     with pytest.raises(mg2.Mg2Refused, match="exactly one look"):
-        mg2.score(layout_root=tmp_path, vectors=tmp_path / mg2.VECTORS, rule=_rule(tmp_path), out=tmp_path / "out",
-                  release_binding=tmp_path)
+        mg2.score(layout_root=tmp_path, vectors=_gate_vectors(tmp_path / "emit"), rule=_rule(tmp_path),
+                  out=tmp_path / "out", release_binding=tmp_path)

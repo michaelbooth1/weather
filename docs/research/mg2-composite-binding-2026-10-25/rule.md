@@ -409,6 +409,33 @@ the MG-2 dev read is row 32 (was 20) and L8's parity fix is row 33 (was 21). Thi
 and 33. The frozen dev rule (`dev_rule.md`, `18e4c1ad…`) is not edited; its "row 20" means row 32. No
 number, input or decision changes.
 
+**Clarification C7 (2026-10-25, master's ruling; dated before D0): the forward gate is as-of-capture.**
+It supersedes C4's gate role for `last_in_hour` and changes nothing else.
+- **Why:** MG-1 is scored at capture time, but the `last_in_hour` path keeps the last snapshot in
+  [h:00, h+1:00) and so lets P3d_N read rows received up to 60 minutes after the row's own capture
+  (C4). Lane L2's diagnostic found that asymmetry (branch `claude/rung0712-20261025` @ `fb58fec5d`,
+  `docs/research/l2-pooled-residual-2026-10-24/p3dn_diag/diag_summary.md`, score `ceb4b3ac…`).
+- **Forward rows (the gate):** the MG-2 vs MG-1 gate (§5, G1 and G2) scores
+  `mg2_vectors_asof_capture.parquet`. Its P3d_N half comes from `emit_rows(inputs="as_of_capture")`:
+  each row reads only the latest replay snapshot captured at or before its own `captured_at_utc`. MG-1,
+  the pre-13 half, the MG-1 fallback and the rule-4 floor are unchanged.
+- **The market arm:** C4's use stays as it is. The as-of-capture vectors remain PRIMARY for every
+  comparison against the market, so the gate and the market arm now read the same vectors.
+- **`last_in_hour` (`mg2_vectors.parquet`):** still emitted on forward rows, DESCRIPTIVE only, and never
+  scored by the gate.
+- **Dev rows:** the as-of-capture path is never computed on a dev row (C4). The dev control replay
+  (§(a)) stays on `last_in_hour`, which reproduces the dev control vectors `8f3e5895…` exactly; it is a reproduction check,
+  not a gate.
+- **Expected size (dev re-score by L2, selection evidence only):** with the fix, G1 is −0.0048
+  [−0.0065, −0.0033] and G2 (13-16) −0.0151 [−0.0192, −0.0113], against −0.0049 and −0.0155 on
+  `last_in_hour`. No gate flips; the fix costs about +0.0004, roughly 3% of the effect.
+- **Enforcement:**
+  - `score` refuses any vectors file other than `mg2_vectors_asof_capture.parquet`.
+  - It also refuses one whose sha256 is not the `asof_capture.vectors_sha256` of a forward
+    `mg2_emit_audit.json` beside it, so a renamed `last_in_hour` file cannot pass.
+  - The forward emit audit records `gate_vectors`.
+  - `tests/calibration/test_mg2_c7_gate.py` pins the refusal and the acceptance.
+
 After D0 nothing in §1-§7 changes. The only exception is the §4.3 owner-decision Clarification, which
 changes permission, not design.
 
