@@ -2394,6 +2394,316 @@ def rung_g_score(*, layout, emit_dir, coefficients, nowcasts, rf_result, out_pat
     return done()
 
 
+# ------------------------------------------------- R-H: market-relative loss atlas (descriptive, selection evidence)
+
+RH_LABEL = ("SELECTION EVIDENCE - descriptive dev-window atlas (2026-08-01..09-29 layout dates), reference = captured "
+            "capture-time market p_market_yes; not pre-registered; no edge claim")
+RH_WINDOWS = (("07-12", 7, 12), ("13-16", 13, 16))
+RH_SMALL_N = 15
+# onshore sectors (degrees true, METAR wind direction) for the coastal markets; speed >= 4 kt
+RH_ONSHORE = {"los-angeles": (200, 290), "san-francisco": (240, 320), "seattle": (190, 300), "miami": (45, 150),
+              "houston": (90, 200), "nyc": (30, 170)}
+RH_TAGS = ("front", "cloud", "onshore", "obs_vs_nbm_path", "nbm_error_ex_post", "hrrr_minus_nbm", "nws_minus_nbm")
+
+
+def _metar_obs(snapshot, tz, observation_instant):
+    """Captured METAR rows -> sorted [(epoch s, row)] (corrections last)."""
+    metar = (((snapshot.get("sources") or {}).get("metar") or {}).get("data")) or {}
+    kept = {}
+    for row in metar.get("rows") or []:
+        instant = observation_instant(row, tz)[0]
+        if instant is not None:
+            kept[instant.timestamp()] = row
+    return sorted(kept.items())
+
+
+def _f(value):
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        return None
+    return out if math.isfinite(out) else None
+
+
+def rh_obs_tags(obs, capture, market):
+    """front / cloud / onshore from captured METAR rows observed at or before ``capture`` (epoch s)."""
+    import bisect
+
+    keys = [t for t, _ in obs]
+    k = bisect.bisect_right(keys, capture)
+    if k == 0:
+        return {"front": "unknown", "cloud": "unknown", "onshore": "n/a" if market not in RH_ONSHORE else "unknown"}
+    t_last, last = obs[k - 1]
+    j = bisect.bisect_left(keys, t_last - 3 * 3600 - 1200, 0, k)
+    then = obs[j][1] if j < k - 1 and t_last - obs[j][0] >= 2 * 3600 else None
+    front = "unknown"
+    if then is not None:
+        p1, p0 = _f(last.get("pressure_hpa")), _f(then.get("pressure_hpa"))
+        d1, d0 = _f(last.get("wind_dir")), _f(then.get("wind_dir"))
+        s1, s0 = _f(last.get("wind_speed")), _f(then.get("wind_speed"))
+        dp = abs(p1 - p0) >= 2.0 if (p1 is not None and p0 is not None) else False
+        shift = False
+        if None not in (d1, d0, s1, s0) and s1 >= 6 and s0 >= 6:
+            diff = abs(d1 - d0) % 360
+            shift = min(diff, 360 - diff) >= 90
+        front = "front" if (dp or shift) else "no_front"
+    cover = str(last.get("cover") or "").upper()
+    cloud = ("overcast" if cover in ("OVC", "VV") else "broken" if cover == "BKN"
+             else "clear_few_sct" if cover in ("CLR", "SKC", "FEW", "SCT", "CAVOK", "NSC", "NCD") else "unknown")
+    if market not in RH_ONSHORE:
+        onshore = "n/a"
+    else:
+        d, s = _f(last.get("wind_dir")), _f(last.get("wind_speed"))
+        lo, hi = RH_ONSHORE[market]
+        onshore = "unknown" if d is None or s is None else (
+            "onshore" if (s >= 4 and lo <= d <= hi) else "not_onshore")
+    return {"front": front, "cloud": cloud, "onshore": onshore}
+
+
+def _bin(value, lo, hi, names=("cold", "near", "warm")):
+    if value is None or not math.isfinite(value):
+        return "unknown"
+    return names[0] if value <= lo else names[2] if value >= hi else names[1]
+
+
+def rh_tags(*, layout, replay_root, obs_parquet, out_path, markets=R0_MARKETS, hours=range(7, 17)):
+    """Per-snapshot regime tags from captured obs and forecasts only (descriptive; R-H)."""
+    import pandas as pd
+    from zoneinfo import ZoneInfo
+
+    from weather.calibration import r0_ols_floor_challenger as l3
+    from weather.calibration.r0_ols_floor_devfit import usable_v2_mean
+    from weather.market.market_registry import spec_for_id
+    from weather.model import observed_running_max
+
+    running_max = _require_metar_only(observed_running_max.running_max_since_midnight)
+    out_path = require_output_outside_repo(out_path)
+    if out_path.exists():
+        raise PooledModelError(f"refusing to overwrite {out_path}")
+    timezones = {m: spec_for_id(m).timezone for m in markets}
+    iem, iem_sha = rg_iem_reports(obs_parquet, markets, timezones)
+    fracs = {m: rg_diurnal_fraction(iem[m], ZoneInfo(timezones[m])) for m in markets}  # 2021-25 only
+    del iem
+    snaps = pd.read_parquet(Path(layout) / "inputs_snapshots.parquet", columns=[
+        "snapshot_id", "row_key", "market", "target_date", "local_hour", "cutoff_hour", "v2_mean", "v2_stddev", "v2_available_at",
+        "captured_at_utc", "hrrr_high", "nws_grid_high"])
+    if (pd.to_datetime(snaps.target_date).dt.date > N_DEV_LAST).any():
+        raise PooledModelError("layout holds a snapshot after 2026-09-29")
+    snaps = snaps[snaps.local_hour.isin(list(hours)) & snaps.market.isin(markets)].copy()
+    snaps["nbm_usable"] = usable_v2_mean(snaps)
+    out, stats = [], defaultdict(int)
+    for market in markets:
+        spec = spec_for_id(market)
+        tz = ZoneInfo(spec.timezone)
+        folders = {target: folder for slug, target, folder in l3._event_folders(replay_root)
+                   if slug == market and N_DEV_FIRST <= target <= N_DEV_LAST}
+        rows = snaps[snaps.market == market].copy()
+        rows["target"] = pd.to_datetime(rows.target_date).dt.date
+        for target, group in rows.groupby("target"):
+            folder = folders.get(target)
+            if folder is None:
+                stats["no_replay_folder"] += len(group)
+                continue
+            with open(Path(folder) / "replay_inputs.jsonl", "rb") as handle:
+                index = replay_index(handle, target, tz)
+                if not index:
+                    stats["no_replay_snapshot"] += len(group)
+                    continue
+
+                def load(entry):
+                    handle.seek(entry[1])
+                    try:
+                        return json.loads(handle.read(entry[2]))
+                    except json.JSONDecodeError:
+                        return None
+
+                last = load(index[-1])
+                final = None
+                if last is not None:
+                    reports = _captured_reports(last, tz, l3.metar_observation_instant)
+                    same = [t for t, d in zip(reports[1], reports[2]) if d == target.toordinal()]
+                    final = wu_whole_f(max(same), "half_up") if same else None
+                parsed = {}
+                for row in group.itertuples(index=False):
+                    captured = pd.Timestamp(row.captured_at_utc)
+                    captured = (captured.tz_localize("UTC") if captured.tzinfo is None else captured)
+                    entry = latest_at_or_before(index, captured.to_pydatetime())
+                    if entry is None:
+                        stats["no_snapshot_at_or_before"] += 1
+                        continue
+                    if entry[1] not in parsed:
+                        snap = load(entry)
+                        parsed = {entry[1]: None if snap is None else (snap, _metar_obs(
+                            snap, tz, l3.metar_observation_instant))}
+                    item = parsed[entry[1]]
+                    if item is None:
+                        stats["corrupt_line"] += 1
+                        continue
+                    snap, obs = item
+                    at = entry[0].timestamp()
+                    tags = rh_obs_tags(obs, at, market)
+                    nbm = _f(row.nbm_usable)
+                    hour_now = entry[0].astimezone(tz).hour
+                    gap = float("nan")
+                    try:
+                        cutoff = int(str(row.cutoff_hour))
+                    except ValueError:
+                        cutoff = None
+                    if nbm is not None and cutoff is not None and int(row.local_hour) >= cutoff:
+                        rec = rung_inputs(snap, target, tz, cutoff, spec.display_unit, entry[0], running_max,
+                                          l3.observations_at_cutoff)
+                        if rec["high_so_far"] is not None:
+                            feats = trajectory_features(*_captured_reports(snap, tz, l3.metar_observation_instant),
+                                                        at, target.toordinal())
+                            gap = rg_columns(feats, float(rec["high_so_far"]), nbm, target.month, hour_now,
+                                             fracs[market])["t_path_gap"]
+                    hr, nws = _f(row.hrrr_high), _f(row.nws_grid_high)
+                    out.append({"row_key": row.row_key, "snapshot_id": row.snapshot_id, **tags,
+                                "obs_vs_nbm_path": _bin(gap, -1.0, 1.0),
+                                "nbm_error_ex_post": _bin(None if (final is None or nbm is None) else final - nbm,
+                                                          -2.0, 2.0),
+                                "hrrr_minus_nbm": _bin(None if (hr is None or nbm is None) else hr - nbm, -2.0, 2.0),
+                                "nws_minus_nbm": _bin(None if (nws is None or nbm is None) else nws - nbm, -2.0, 2.0)})
+                    stats["tagged"] += 1
+        print(f"rh tags {market}: {dict(stats)}", flush=True)
+    frame = pd.DataFrame(out)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    frame.to_parquet(out_path, index=False)
+    audit = {"label": RH_LABEL, "counts": dict(stats), "obs_parquet_sha256": iem_sha,
+             "distribution": {t: frame[t].value_counts().to_dict() for t in RH_TAGS},
+             "module_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+             "file_sha256": hashlib.sha256(out_path.read_bytes()).hexdigest()}
+    out_path.with_suffix(".audit.json").write_text(json.dumps(audit, indent=1, sort_keys=True), encoding="utf-8")
+    return audit
+
+
+def rh_atlas(*, layout, p3d_files, coefficients, nowcasts, tags_path, out_path, start="2026-08-01",
+             end="2026-09-29"):
+    """R-H market-relative loss atlas: excess Brier (arm - capture-time market) by market, hour, bucket position and
+    capture-time regime, date-clustered 95% intervals, for L6 and P3d_N_fix at 07-12 and 13-16."""
+    import os
+
+    import numpy as np
+    import pandas as pd
+
+    from weather.calibration import r0_ols_floor_challenger as l3
+    from weather.reporting.scorecards import dev_scorecard as sc
+    from weather.reporting.scorecards import dev_scorecard_data as data
+    from weather.reporting.scorecards import loss_atlas
+
+    out_path = require_output_outside_repo(out_path)
+    if out_path.exists():
+        raise PooledModelError(f"refusing to overwrite {out_path}")
+    now_sha = hashlib.sha256(Path(nowcasts).read_bytes()).hexdigest()
+    if now_sha != L6_NOWCAST_SHA256:
+        raise PooledModelError(f"L6 nowcast sha {now_sha} != {L6_NOWCAST_SHA256}")
+    os.environ["L6_NOWCASTS"] = str(nowcasts)
+    from weather.reporting.scorecards.free_source_candidates import l6_stack
+
+    l6_stack._CACHE.clear()
+    state, part_sha = l6_frozen_state(coefficients)
+    combined = out_path.parent / "dev_P3d_N_fix_07_16.jsonl"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(combined, "wb") as w:
+        for f in p3d_files:
+            w.write(Path(f).read_bytes())
+    start_d, end_d = data.check_range(start, end)
+    lay = data.load_layout(layout, data.DEV_FIRST, end_d)
+    folds = data.make_folds(lay.dates, start_d, end_d, 7, 1, 7)
+    scored = sorted(d for f in folds if f.scored for d in f.dates)
+    dates = sorted(d for d in {str(x) for x in lay.dates} if start <= d <= end)
+
+    # positive control on the standard scored population
+    ctl = sc.Table(lay, scored)
+    p_mg1c, _, _ = l3._vector(ctl, loss_atlas.mg1_frame(ctl))
+    _, e = ctl.cells(ctl.brier(p_mg1c) - ctl.brier(ctl.p_market), (ctl.local_hour >= 7) & (ctl.local_hour <= 12))
+    mg1_excess = float(e.mean())
+    if round(mg1_excess, 3) != l3.MG1_CONTROL_0712_EXCESS:
+        raise PooledModelError(f"MG-1 positive control failed: {mg1_excess:.5f}")
+    del ctl
+
+    table = sc.Table(lay, dates)
+    date_w = l3._date_weights([k[0] for k in table.keys], sc.DRAWS, sc.SEED)
+    p_fix, cov_fix, r_fix = l3._vector(table, l3._candidate_frame(str(combined), table, lay, folds, data)[0])
+    p_l6, cov_l6, r_l6 = l6_vector(table, state, l3)
+    p_mkt = table.p_market
+    b_mkt = table.brier(p_mkt)
+    arms = {"L6": (p_l6, cov_l6), "P3d_N_fix": (p_fix, cov_fix)}
+    tags = pd.read_parquet(tags_path).set_index("row_key").reindex(table.snaps.row_key)
+    tag_cols = {t: tags[t].fillna("untagged").astype(str).to_numpy() for t in RH_TAGS}
+    common = cov_fix & cov_l6
+    hours = table.local_hour
+    markets = table.markets
+
+    def cell(arm, mask, total_sum):
+        p, _ = arms[arm]
+        b = table.brier(p)
+        if not mask.any():
+            return None
+        idx, c = table.cells(b, mask)
+        _, m = table.cells(b_mkt, mask)
+        n_dates = len({table.keys[i][0] for i in idx})
+        ex = sc.ratio_interval(date_w[:, idx], c - m, np.ones_like(c))
+        return {"n_market_days": int(len(idx)), "n_dates": int(n_dates), "n_snapshots": int(mask.sum()),
+                "small_n": bool(len(idx) < RH_SMALL_N), "brier_arm": float(c.mean()), "brier_market": float(m.mean()),
+                "excess": ex, "R": sc.ratio_interval(date_w[:, idx], c, m),
+                "share_of_window_excess": float((b - b_mkt)[mask].sum() / total_sum) if total_sum else None}
+
+    cls, has_winner = position_classes(table)
+    result = {"label": RH_LABEL, "controls": {"mg1_excess_07_12_scored": mg1_excess, "l6_part_sha256": part_sha,
+                                              "l6_nowcast_sha256": now_sha},
+              "population": {"dates": [dates[0], dates[-1], len(dates)], "n_market_days": len(table.keys),
+                             "common_covered_snapshots": {w: int((common & (hours >= lo) & (hours <= hi)).sum())
+                                                          for w, lo, hi in RH_WINDOWS}},
+              "coverage": {"P3d_N_fix": r_fix, "L6": r_l6},
+              "inputs": {"p3d_files": {str(f): hashlib.sha256(Path(f).read_bytes()).hexdigest() for f in p3d_files},
+                         "tags_sha256": hashlib.sha256(Path(tags_path).read_bytes()).hexdigest(),
+                         "layout_manifest_sha256": lay.manifest_sha256, "scorecard_code_sha256": sc.code_sha256(),
+                         "module_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()},
+              "cells": [], "positions": [], "tag_crosstab": {}}
+    for window, lo, hi in RH_WINDOWS:
+        in_w = common & (hours >= lo) & (hours <= hi)
+        for arm in arms:
+            b = table.brier(arms[arm][0])
+            total = float((b - b_mkt)[in_w].sum())
+
+            def add(dim, value, mask):
+                c = cell(arm, mask, total)
+                if c is not None:
+                    result["cells"].append({"window": window, "arm": arm, "dim": dim, "value": value, **c})
+
+            add("all", "all", in_w)
+            for m in sorted(set(markets)):
+                add("market", m, in_w & (markets == m))
+            for h in range(lo, hi + 1):
+                add("hour", f"h{h:02d}", in_w & (hours == h))
+            for t, values in tag_cols.items():
+                for v in sorted(set(values[in_w])):
+                    add(t, v, in_w & (values == v))
+            for m in sorted(RH_ONSHORE):
+                for v in ("onshore", "not_onshore"):
+                    add("market_x_onshore", f"{m}|{v}", in_w & (markets == m) & (tag_cols["onshore"] == v))
+            # bucket position: exact decomposition of the window's excess, and where each side puts its mass
+            p = arms[arm][0]
+            diff_band = ((p - table.y) ** 2 - (p_mkt - table.y) ** 2) / np.repeat(table.n, table.n)
+            idx, mden = table.cells(np.ones(len(table.snaps)), in_w)
+            for k, name in enumerate(POSITION_CLASSES):
+                sel = cls == k
+                per_snap = np.bincount(table.band_snap, weights=np.where(sel, diff_band, 0.0),
+                                       minlength=len(table.snaps))
+                mass_arm = np.bincount(table.band_snap, weights=np.where(sel, p, 0.0), minlength=len(table.snaps))
+                mass_mkt = np.bincount(table.band_snap, weights=np.where(sel, p_mkt, 0.0), minlength=len(table.snaps))
+                _, cnum = table.cells(per_snap, in_w)
+                result["positions"].append({
+                    "window": window, "arm": arm, "position": name,
+                    "excess_contribution": sc.ratio_interval(date_w[:, idx], cnum, mden),
+                    "mean_mass_arm": float(mass_arm[in_w].mean()), "mean_mass_market": float(mass_mkt[in_w].mean())})
+        for t, values in tag_cols.items():
+            result["tag_crosstab"][f"{window}|{t}"] = pd.Series(values[in_w]).value_counts().to_dict()
+    out_path.write_text(json.dumps(result, indent=1, sort_keys=True), encoding="utf-8")
+    return result
+
+
 # ------------------------------------------------- clarification 3: forward refit and frozen state (MG-2)
 
 FORWARD_CENTRES = AUG_SEP_CENTRES + ("2026-10-10", "2026-10-25", "2026-11-09", "2026-11-24", "2026-12-09")
@@ -2890,6 +3200,18 @@ def _parse(argv=None):
     gs.add_argument("--nowcasts", required=True)
     gs.add_argument("--rf-result", required=True)
     gs.add_argument("--out", required=True)
+    ht = sub.add_parser("rh-tags", help="R-H regime tags from captured obs and forecasts (heavy)")
+    ht.add_argument("--layout", required=True)
+    ht.add_argument("--replay-root", required=True)
+    ht.add_argument("--obs-parquet", required=True, help="lane L6 IEM parquet (2021-25 diurnal fractions only)")
+    ht.add_argument("--out", required=True)
+    ha = sub.add_parser("rh-atlas", help="R-H market-relative loss atlas, selection evidence (heavy)")
+    ha.add_argument("--layout", required=True)
+    ha.add_argument("--p3d", required=True, help="comma-separated dev_P3d_N_fix.jsonl files (07-12, 13-16)")
+    ha.add_argument("--coefficients", required=True)
+    ha.add_argument("--nowcasts", required=True)
+    ha.add_argument("--tags", required=True)
+    ha.add_argument("--out", required=True)
     wr = sub.add_parser("wu-rounding", help="clarification 3 (c): WU whole F vs T-group F on 2021-25 rows (heavy)")
     wr.add_argument("--obs-parquet", required=True, help="IEM market-station rows with tgroup_f (lane L6)")
     wr.add_argument("--wu-root", required=True)
@@ -2991,6 +3313,17 @@ def main(argv=None):
                             ra_emit_dir=args.ra_emit, out_dir=args.out)
         print(json.dumps({"gates": {k: v.get("pass") for k, v in audit["gates"].items()},
                           "stopped_at": audit.get("stopped_at"), "ra_reproduction": audit.get("ra_reproduction")}))
+        return 0
+    if args.command == "rh-tags":
+        audit = rh_tags(layout=args.layout, replay_root=args.replay_root, obs_parquet=args.obs_parquet,
+                        out_path=Path(args.out))
+        print(json.dumps(audit, indent=1, sort_keys=True))
+        return 0
+    if args.command == "rh-atlas":
+        result = rh_atlas(layout=args.layout, p3d_files=[Path(f) for f in args.p3d.split(",")],
+                          coefficients=args.coefficients, nowcasts=args.nowcasts, tags_path=args.tags,
+                          out_path=Path(args.out))
+        print(json.dumps({"controls": result["controls"], "population": result["population"]}, indent=1))
         return 0
     if args.command == "rung-g-score":
         result = rung_g_score(layout=args.layout, emit_dir=args.emit, coefficients=args.coefficients,

@@ -465,3 +465,18 @@ def test_rung_g_extra_ols_columns_enter_the_baseline_design():
     err_base = np.mean((base.predict(frame)[0] - frame["y"]) ** 2)
     err_extra = np.mean((extra.predict(frame)[0] - frame["y"]) ** 2)
     assert len(extra.ols) == 4 and err_extra < 0.1 * err_base
+
+
+def test_rung_h_regime_tags_use_only_reports_at_or_before_capture():
+    def row(direction, speed, pressure, cover):
+        return {"wind_dir": direction, "wind_speed": speed, "pressure_hpa": pressure, "cover": cover}
+
+    obs = [(0.0, row(200, 8, 1012.0, "CLR")), (3 * 3600.0, row(320, 10, 1012.5, "OVC")),
+           (4 * 3600.0, row(250, 9, 1008.0, "BKN"))]
+    at_3h = prm.rh_obs_tags(obs, 3 * 3600.0, "los-angeles")
+    # wind shift 200 -> 320 (120 deg, both >= 6 kt) over 3 h is a front; the 4 h report is not visible yet
+    assert at_3h == {"front": "front", "cloud": "overcast", "onshore": "not_onshore"}
+    assert prm.rh_obs_tags(obs, 4 * 3600.0, "los-angeles")["onshore"] == "onshore"
+    assert prm.rh_obs_tags(obs, 4 * 3600.0, "chicago")["onshore"] == "n/a"
+    assert prm.rh_obs_tags(obs, -1.0, "los-angeles")["front"] == "unknown"
+    assert prm._bin(2.0, -2.0, 2.0) == "warm" and prm._bin(float("nan"), -2.0, 2.0) == "unknown"
