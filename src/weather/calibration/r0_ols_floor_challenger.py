@@ -517,7 +517,12 @@ DEV_VARIANTS = {
     "main": (FEATURES, "pit_2026"),
     "served_forecast": (FEATURES, "layout_served"),
     "two_feature": (("forecast_high", "high_so_far"), "pit_2026"),
+    # dev_rule.md clarification 1: high_so_far (and so the floor) from lane L8's emitted
+    # serve-equivalent value (metar_running_max_since_midnight_v1), per layout snapshot.
+    "l8_high_so_far": (FEATURES, "pit_2026"),
 }
+DEV_DEFAULT_VARIANTS = ("main", "served_forecast", "two_feature")
+L8_VARIANT = "l8_high_so_far"
 _CAPTURED_LOCAL = None
 _METAR_TIME = None
 
@@ -630,8 +635,31 @@ def _event_folders(replay_root):
         yield slug, date(int(year), months[month], int(day)), folder
 
 
-def dev_emit(*, layout, replay_root, train_manifests, dev_manifest, out_dir, markets):
-    """Fit on the Aug-Sep 2021-25 corpus, emit candidate distributions for the dev snapshots."""
+def load_l8_high_so_far(emit_dir, markets):
+    """{snapshot_id: high_so_far} from lane L8's emit, read with L8's own reader (not rewritten).
+
+    Rows with an error or a null ``feat_fix.high_so_far`` are left out (served fallback).
+    """
+    from weather.calibration.high_so_far_parity_shadow import read_emitted
+
+    out, stats = {}, defaultdict(int)
+    for row in read_emitted(emit_dir, markets):
+        value = None if row.get("error") else (row.get("feat_fix") or {}).get("high_so_far")
+        if value is None:
+            stats["l8_unusable"] += 1
+            continue
+        out[str(row["snapshot_id"])] = float(value)
+        stats["l8_rows"] += 1
+    return out, dict(stats)
+
+
+def dev_emit(*, layout, replay_root, train_manifests, dev_manifest, out_dir, markets,
+             variants=DEV_DEFAULT_VARIANTS, l8_emit_dir=None, obs_from=None):
+    """Fit on the Aug-Sep 2021-25 corpus, emit candidate distributions for the dev snapshots.
+
+    ``obs_from``: a previous run's ``dev_features.jsonl`` (same replay scan) instead of rescanning.
+    ``l8_emit_dir``: lane L8's emit directory, required for the ``l8_high_so_far`` variant.
+    """
     import pandas as pd
     from zoneinfo import ZoneInfo
 
@@ -646,9 +674,25 @@ def dev_emit(*, layout, replay_root, train_manifests, dev_manifest, out_dir, mar
     if (pd.to_datetime(snaps.target_date).dt.date > DEV_LAST).any():
         raise ChallengerError("layout holds a snapshot after 2026-09-29")
     hours = set(int(h) for h in INTRADAY_CUTOFF_HOURS)
+    variants = tuple(variants)
+    unknown = [v for v in variants if v not in DEV_VARIANTS]
+    if unknown:
+        raise ChallengerError(f"unknown dev variants {unknown}")
+    l8 = {}
+    audit = {"markets": {}, "variants": {k: {"features": list(DEV_VARIANTS[k][0]), "forecast": DEV_VARIANTS[k][1]}
+                                         for k in variants}}
+    if L8_VARIANT in variants:
+        if l8_emit_dir is None:
+            raise ChallengerError("the l8_high_so_far variant needs --l8-emit-dir")
+        l8, audit["l8"] = load_l8_high_so_far(l8_emit_dir, list(markets))
+        audit["l8"]["emit_dir"] = str(l8_emit_dir)
+    stored_obs = defaultdict(dict)
+    if obs_from is not None:
+        for rec in read_jsonl(obs_from):
+            stored_obs[rec["market"]][(rec["target_date"], int(rec["hour"]))] = rec
+        audit["obs_from"] = {"path": str(obs_from), "sha256": _sha256(obs_from)}
     writers = {(arm, variant): open(out / f"dev_{variant}_{arm}.jsonl", "w", encoding="utf-8")
-               for arm in DEV_ARMS for variant in DEV_VARIANTS}
-    audit = {"markets": {}, "variants": {k: {"features": list(v[0]), "forecast": v[1]} for k, v in DEV_VARIANTS.items()}}
+               for arm in DEV_ARMS for variant in variants}
     feature_rows = []
     try:
         for market in markets:
@@ -658,16 +702,19 @@ def dev_emit(*, layout, replay_root, train_manifests, dev_manifest, out_dir, mar
             support = built["bucket_space"]
             fits = {}
             for hour, records in built["records"].items():
-                for variant, (features, _) in DEV_VARIANTS.items():
-                    fits[(hour, variant)] = fit_fold(records, features)
+                for variant in variants:
+                    fits[(hour, variant)] = fit_fold(records, DEV_VARIANTS[variant][0])
             dev_union = PITForecastCorpusUnion([dev_manifest], spec.id, target_year=2027,
                                                required_cutoff_hours=INTRADAY_CUTOFF_HOURS)
             obs = {}
-            for slug, target, folder in _event_folders(replay_root):
-                if not (DEV_FIRST <= target <= DEV_LAST) or slug != market:
-                    continue
-                for hour, rec in scan_replay_observations(folder, market, target, tz, hours).items():
-                    obs[(target.isoformat(), hour)] = rec
+            if obs_from is not None:
+                obs = dict(stored_obs.get(market, {}))
+            else:
+                for slug, target, folder in _event_folders(replay_root):
+                    if not (DEV_FIRST <= target <= DEV_LAST) or slug != market:
+                        continue
+                    for hour, rec in scan_replay_observations(folder, market, target, tz, hours).items():
+                        obs[(target.isoformat(), hour)] = rec
             stats = defaultdict(int)
             msnaps = snaps[snaps.market == market]
             for row in msnaps.itertuples(index=False):
@@ -690,13 +737,22 @@ def dev_emit(*, layout, replay_root, train_manifests, dev_manifest, out_dir, mar
                     continue
                 pit = dev_union.resolve(key[0], hour)["forecast_high"]
                 served_fc = None if row.forecast_high != row.forecast_high else float(row.forecast_high)
-                for variant, (features, source) in DEV_VARIANTS.items():
+                for variant in variants:
+                    features, source = DEV_VARIANTS[variant]
                     fc = pit if source == "pit_2026" else served_fc
                     if fc is None:
                         stats[f"{variant}_no_forecast"] += 1
                         continue
                     record = {"forecast_high": fc, "high_so_far": rec["high_so_far"],
                               "current_temp": rec["current_temp"]}
+                    if variant == L8_VARIANT:
+                        value = l8.get(str(row.snapshot_id))
+                        if value is None:
+                            stats[f"{variant}_no_l8_value"] += 1
+                            continue
+                        if floor_of({"high_so_far": value}) != floor_of(rec):
+                            stats[f"{variant}_floor_differs_from_main"] += 1
+                        record["high_so_far"] = value
                     dists, _ = challenger_distributions(fits[(hour, variant)], record, support)
                     for arm in DEV_ARMS:
                         writers[(arm, variant)].write(json.dumps({
@@ -745,13 +801,49 @@ def _date_weights(dates, draws, seed):
     return rng.multinomial(d, np.full(d, 1 / d), size=draws)[:, di]
 
 
-def dev_score(layout, candidates, start="2026-08-01", end="2026-09-29"):
+MG1_CONTROL_0712_EXCESS = 0.012  # lane L7 atlas: MG-1 pooled 07-12 excess over market 0.011957
+DEV_MG1_GATE_BLOCKS = ("07-12", "06-09", "10-12", "12-16", "13-16", "00-16", "all")
+PRIMARY_POOL = "PRIMARY5"
+
+
+def covered_mask(table, frame):
+    """Per snapshot: True where ``Table.candidate_vector`` uses the candidate (not served fallback).
+
+    Mirrors the scorecard's own reason codes; ``_vector`` checks the count against them.
+    """
+    import numpy as np
+
+    frame = frame[frame.row_key.isin(table.snap_pos.index)]
+    pos = table.snap_pos.reindex(frame.row_key.to_numpy()).to_numpy().astype(int)
+    given = np.zeros(len(table.bands), dtype=bool)
+    pc = np.zeros(len(table.bands))
+    flat = table.offsets[pos] + frame.band_index.to_numpy(int)
+    given[flat] = True
+    pc[flat] = frame.p.to_numpy(float)
+    pc[table.impossible] = 0.0
+    n_given = np.bincount(table.band_snap, weights=given, minlength=len(table.snaps))
+    total = np.bincount(table.band_snap, weights=pc, minlength=len(table.snaps))
+    return (n_given == table.n) & table.has_floor & (total > 0)
+
+
+def _vector(table, frame):
+    p, reasons = table.candidate_vector(frame)
+    cov = covered_mask(table, frame)
+    if int(cov.sum()) != int(reasons.get("candidate", 0)):
+        raise ChallengerError(f"coverage mask {int(cov.sum())} != scorecard candidate count {reasons}")
+    return p, cov, reasons
+
+
+def dev_score(layout, candidates, start="2026-08-01", end="2026-09-29", with_mg1=True):
     """Score candidate distribution files with dev_scorecard's own machinery, unchanged.
 
-    Per candidate and group (the scorecard's blocks plus 07-12, 12-16 and each hour 07..20),
-    pooled over the 11 markets and per market: R_candidate, R_served and
-    dR = R_candidate - R_served = mean_cell(Brier_c - Brier_s) / mean_cell(Brier_m), with the
-    scorecard's crossed date x market interval and a date-clustered interval (same draws, seed).
+    Per candidate, reference (served; MG-1 when ``with_mg1``), scope (blended = every scored
+    snapshot with served fallback; covered = the candidate's own snapshots, vs MG-1 those covered
+    by both) and group (the scorecard's blocks plus 07-12, 12-16 and each hour 07..20), pooled over
+    the 11 markets, over the 5 primary markets and per market: R_candidate, R_reference and
+    dR = mean_cell(Brier_c - Brier_ref) / mean_cell(Brier_m), with the scorecard's crossed
+    date x market interval and a date-clustered interval (same draws, seed).
+    MG-1 is lane L7's ``loss_atlas.mg1_frame``, imported; its 07-12 excess control runs first.
     """
     import numpy as np
 
@@ -768,39 +860,74 @@ def dev_score(layout, candidates, start="2026-08-01", end="2026-09-29"):
                           "first_date": scored[0], "last_date": scored[-1]},
            "layout_manifest_sha256": lay.manifest_sha256, "scorecard_code_sha256": sc.code_sha256(),
            "candidates": {}}
-    served_b, market_b = table.brier(table.p_served), table.brier(table.p_market)
+    market_b = table.brier(table.p_market)
+    everything = np.ones(len(table.snaps), dtype=bool)
+    refs = {"served": (table.brier(table.p_served), everything)}
+    w0712 = (table.local_hour >= 7) & (table.local_hour <= 12)
+    if with_mg1:
+        from weather.reporting.scorecards import loss_atlas
+
+        p_mg1, cov_mg1, reasons_mg1 = _vector(table, loss_atlas.mg1_frame(table))
+        mg1_b = table.brier(p_mg1)
+        _, e = table.cells(mg1_b - market_b, w0712)
+        excess = float(e.mean())
+        out["mg1_control"] = {"source": "weather.reporting.scorecards.loss_atlas.mg1_frame",
+                              "loss_atlas_code_sha256": _sha256(loss_atlas.__file__),
+                              "excess_over_market_07_12": excess, "expected": MG1_CONTROL_0712_EXCESS,
+                              "coverage": reasons_mg1,
+                              "passed": round(excess, 3) == MG1_CONTROL_0712_EXCESS}
+        if not out["mg1_control"]["passed"]:
+            raise ChallengerError(f"MG-1 positive control failed: 07-12 excess {excess:.5f} "
+                                  f"does not round to {MG1_CONTROL_0712_EXCESS}")
+        refs["mg1"] = (mg1_b, cov_mg1)
+    pools = [(sc.ALL_MARKETS, None), (PRIMARY_POOL, set(PRIMARY_MARKETS))] + [
+        (m, {m}) for m in sorted(set(table.markets))]
     for name, path in candidates.items():
         spec = data.CandidateSpec("distributions", str(path), "2025-12-31", False)
         frame, meta = data.distribution_predictions(spec, lay, folds)
-        p, reasons = table.candidate_vector(frame)
+        p, cov, reasons = _vector(table, frame)
         cand_b = table.brier(p)
+        coverage = {}
+        for market in sorted(set(table.markets)):
+            mm = table.markets == market
+            coverage[market] = {f"{h:02d}": [int((cov & mm & (table.local_hour == h)).sum()),
+                                             int((mm & (table.local_hour == h)).sum())] for h in range(24)}
         rows = []
-        for market in [sc.ALL_MARKETS] + sorted(set(table.markets)):
-            for group, lo, hi in DEV_GROUPS:
-                mask = (table.local_hour >= lo) & (table.local_hour <= hi)
-                if market != sc.ALL_MARKETS:
-                    mask &= table.markets == market
-                if not mask.any():
-                    continue
-                idx, c = table.cells(cand_b, mask)
-                _, s_ = table.cells(served_b, mask)
-                _, m = table.cells(market_b, mask)
-                row = {"market": market, "group": group, "n_market_days": int(len(idx)),
-                       "R_candidate": sc.ratio_interval(table.w[:, idx], c, m),
-                       "R_served": sc.ratio_interval(table.w[:, idx], s_, m),
-                       "dR_crossed": sc.ratio_interval(table.w[:, idx], c - s_, m),
-                       "dR_date_clustered": sc.ratio_interval(date_w[:, idx], c - s_, m)}
-                rows.append(row)
+        for ref_name, (ref_b, ref_cov) in refs.items():
+            for scope in ("blended", "covered"):
+                base_mask = (cov & ref_cov) if scope == "covered" else everything
+                for market, members in pools:
+                    in_pool = everything if members is None else np.isin(table.markets, sorted(members))
+                    for group, lo, hi in DEV_GROUPS:
+                        mask = base_mask & in_pool & (table.local_hour >= lo) & (table.local_hour <= hi)
+                        if not mask.any():
+                            continue
+                        idx, c = table.cells(cand_b, mask)
+                        _, r_ = table.cells(ref_b, mask)
+                        _, m = table.cells(market_b, mask)
+                        ref_key = "R_served" if ref_name == "served" else "R_reference"
+                        rows.append({
+                            "reference": ref_name, "scope": scope, "market": market, "group": group,
+                            "n_market_days": int(len(idx)), "n_snapshots": int(mask.sum()),
+                            "R_candidate": sc.ratio_interval(table.w[:, idx], c, m),
+                            ref_key: sc.ratio_interval(table.w[:, idx], r_, m),
+                            "dR_crossed": sc.ratio_interval(table.w[:, idx], c - r_, m),
+                            "dR_date_clustered": sc.ratio_interval(date_w[:, idx], c - r_, m)})
         out["candidates"][name] = {"source": str(path), "sha256": _sha256(path), "coverage": reasons,
-                                   "meta": meta, "rows": rows}
+                                   "coverage_by_market_hour": coverage, "meta": meta, "rows": rows}
     return out
+
+
+def _rows(scores, arm, reference="served", scope="blended"):
+    return {(r["market"], r["group"]): r for r in scores["candidates"][arm]["rows"]
+            if r.get("reference", "served") == reference and r.get("scope", "blended") == scope}
 
 
 def dev_verdict(scores, arms=("ols_floor", "ols_floor_resid_hgb")):
     """dev_rule.md: dR < 0 at pooled 07-12 with CI excluding 0, no standard block worse beyond CI."""
     result = {}
     for arm in arms:
-        rows = {(r["market"], r["group"]): r for r in scores["candidates"][arm]["rows"]}
+        rows = _rows(scores, arm)
         head = rows[("ALL", "07-12")]
         checks = {}
         for kind in ("dR_crossed", "dR_date_clustered"):
@@ -811,6 +938,28 @@ def dev_verdict(scores, arms=("ols_floor", "ols_floor_resid_hgb")):
                             "beats_served": bool(hi is not None and hi < 0 and not worse)}
         result[arm] = checks
     return result
+
+
+def dev_mg1_gate(scores, arm="ols_floor", pool="ALL", scope="blended"):
+    """dev_rule.md clarification 1: no interval (either kind) wholly above 0 at 07-12 or a gate block."""
+    if not (scores.get("mg1_control") or {}).get("passed"):
+        return {"arm": arm, "pool": pool, "scope": scope, "no_worse_than_mg1": None,
+                "reason": "MG-1 positive control missing or failed"}
+    rows = _rows(scores, arm, "mg1", scope)
+    worse = []
+    for group in DEV_MG1_GATE_BLOCKS:
+        row = rows.get((pool, group))
+        if row is None:
+            continue
+        for kind in ("dR_crossed", "dR_date_clustered"):
+            lo = row[kind]["ci95"][0]
+            if lo is not None and lo > 0:
+                worse.append(f"{group}:{kind}")
+    head = rows[(pool, "07-12")]
+    return {"arm": arm, "pool": pool, "scope": scope,
+            "dR_07_12": {k: {"estimate": head[k]["estimate"], "ci95": head[k]["ci95"]}
+                         for k in ("dR_crossed", "dR_date_clustered")},
+            "ci_worse": worse, "no_worse_than_mg1": not worse}
 
 
 # ---------------------------------------------------------------- comparison
@@ -1156,10 +1305,14 @@ def build_parser():
     emit.add_argument("--dev-manifest", required=True)
     emit.add_argument("--markets", default=",".join(PRIMARY_MARKETS + SECONDARY_MARKETS))
     emit.add_argument("--out-dir", required=True)
+    emit.add_argument("--variants", default=",".join(DEV_DEFAULT_VARIANTS))
+    emit.add_argument("--l8-emit-dir", default=None, help="lane L8 emit dir (l8_high_so_far variant)")
+    emit.add_argument("--obs-from", default=None, help="reuse a previous run's dev_features.jsonl")
     dscore = sub.add_parser("dev-score", help="score emitted candidates with dev_scorecard; apply dev_rule.md")
     dscore.add_argument("--layout", required=True)
     dscore.add_argument("--candidate", action="append", required=True, help="<name>=<jsonl>")
     dscore.add_argument("--rule", default=None)
+    dscore.add_argument("--no-mg1", action="store_true", help="skip the MG-1 reference")
     dscore.add_argument("--out", required=True)
     cmp_ = sub.add_parser("compare", help="join with lane D's R0 rows and apply the rule")
     cmp_.add_argument("--rows-dir", required=True)
@@ -1177,13 +1330,20 @@ def main(argv=None):
         if args.command == "dev-emit":
             audit = dev_emit(layout=args.layout, replay_root=args.replay_root,
                              train_manifests=args.train_manifest, dev_manifest=args.dev_manifest,
-                             out_dir=args.out_dir, markets=args.markets.split(","))
+                             out_dir=args.out_dir, markets=args.markets.split(","),
+                             variants=args.variants.split(","), l8_emit_dir=args.l8_emit_dir,
+                             obs_from=args.obs_from)
             print(json.dumps(audit["files"], indent=1))
             return 0
         if args.command == "dev-score":
-            scores = dev_score(args.layout, dict(spec.partition("=")[::2] for spec in args.candidate))
+            scores = dev_score(args.layout, dict(spec.partition("=")[::2] for spec in args.candidate),
+                               with_mg1=not args.no_mg1)
             scores["verdict"] = dev_verdict(scores) if all(
                 a in scores["candidates"] for a in ("ols_floor", "ols_floor_resid_hgb")) else None
+            if "mg1_control" in scores:
+                scores["mg1_gate"] = {f"{arm}|{pool}|{scope}": dev_mg1_gate(scores, arm, pool, scope)
+                                      for arm in scores["candidates"] for pool in ("ALL", PRIMARY_POOL)
+                                      for scope in ("blended", "covered")}
             scores["rule_sha256"] = _sha256(args.rule) if args.rule else None
             Path(args.out).parent.mkdir(parents=True, exist_ok=True)
             Path(args.out).write_text(json.dumps(scores, indent=1, sort_keys=True), encoding="utf-8")
