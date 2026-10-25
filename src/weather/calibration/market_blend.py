@@ -492,6 +492,63 @@ def run(args):
             "discipline": "each blend vs the market only; no candidate-minus-candidate deltas"}
 
 
+DESCRIPTIVE_NOTE_SHA256 = "7928629405d812dd4642e39c1e02d7ff31542deabc10176f7c59147e9975332b"
+DESCRIPTIVE_WINDOWS = (("h13", 13, 13), ("h14", 14, 14), ("h15", 15, 15), ("h16", 16, 16), ("13-16", 13, 16))
+
+
+def descriptive_rows(score_t, p, cov):
+    """DESCRIPTIVE (not pre-registered for a decision): an unblended candidate and the floor-only control vs market."""
+    pm = score_t.p_market
+    floor = pool(pm, pm, 0.0, score_t.impossible, score_t.band_snap, len(score_t.snaps), force_floor=True)
+    mb, ml = score_t.brier(pm), score_t.log_score(pm)
+    vecs = {"candidate": (score_t.brier(p), score_t.log_score(p)),
+            "floor_only": (score_t.brier(floor), score_t.log_score(floor))}
+    rows = []
+    for g, lo, hi in DESCRIPTIVE_WINDOWS:
+        for pool_name, members in pools(score_t)[:2]:
+            mask = hour_mask(score_t, lo, hi, members)
+            for name, (b, lg) in vecs.items():
+                st = stats(score_t, b, lg, mb, ml, mask, True)
+                st.update(candidate=name, pool=pool_name, group=g,
+                          covered_share=float(cov[mask].mean()) if name == "candidate" else None)
+                rows.append(st)
+    return rows
+
+
+def run_descriptive(args):
+    la.screen_input_path(args.layout, "layout")
+    actual = data.sha256_file(args.descriptive_vectors)
+    if actual != args.descriptive_sha256:
+        raise data.Refused(f"refused: descriptive vectors sha256 {actual} != {args.descriptive_sha256}")
+    start, end = data.check_range(*RANGE)
+    layout = data.load_layout(args.layout, data.DEV_FIRST, end)
+    folds = data.make_folds(layout.dates, start, end, 7, 1, 7)
+    scored = sorted(d for f in folds if f.scored for d in f.dates)
+    score_t = sc.Table(layout, scored)
+    controls = {"served": la.positive_control(score_t)}
+    p, cov, meta = gta.load_candidate(args.descriptive_vectors, args.arm_a_trained_through, layout, folds, score_t)
+    return {"schema": SCHEMA + "+descriptive", "label": "DESCRIPTIVE - not pre-registered for a decision",
+            "note_sha256": DESCRIPTIVE_NOTE_SHA256, "vectors_sha256": actual, "controls": controls,
+            "candidate": dict(meta, folds=None), "layout_manifest_sha256": layout.manifest_sha256,
+            "population": {"scored_first": scored[0], "scored_last": scored[-1], "n_scored_dates": len(scored),
+                           "n_market_days": len(score_t.keys)},
+            "rows": descriptive_rows(score_t, p, cov)}
+
+
+def render_descriptive(payload):
+    L = ["# P3d_N alone vs the market, 13-16 (DESCRIPTIVE - not pre-registered for a decision)", "",
+         f"Note `{payload['note_sha256']}`; vectors `{payload['vectors_sha256']}`; served control "
+         f"{payload['controls']['served']['verdict']}. Scored {payload['population']['scored_first']}.."
+         f"{payload['population']['scored_last']}.", "",
+         "| Vector | Pool | Window | n md | R | crossed | date | log ratio | covered |",
+         "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
+    for r in payload["rows"]:
+        cs = "" if r["covered_share"] is None else f"{r['covered_share']:.3f}"
+        L.append(f"| {r['candidate']} | {r['pool']} | {r['group']} | {r['n_market_days']} | {_f(r['R'], 4)} | "
+                 f"{_ci(r['ci95_crossed'], 4)} | {_ci(r['ci95_date'], 4)} | {_f(r['log_ratio'], 4)} | {cs} |")
+    return "\n".join(L) + "\n"
+
+
 def restrict_snap(fit_t, score_t, snap_values):
     pos = fit_t.snap_pos.reindex(score_t.snaps.row_key.to_numpy()).to_numpy().astype(int)
     return np.asarray(snap_values)[pos]
@@ -571,8 +628,23 @@ def main(argv=None):
     ap.add_argument("--arm-a-refit", help="afternoon (13:00+) vectors; clarification 1: P3d_N")
     ap.add_argument("--arm-a-refit-sha256")
     ap.add_argument("--arm-a-trained-through", default="2025-12-31")
+    ap.add_argument("--descriptive-vectors", help="DESCRIPTIVE: an unblended candidate vs market at 13-16")
+    ap.add_argument("--descriptive-sha256")
     ap.add_argument("--out-dir", required=True)
     args = ap.parse_args(argv)
+    if args.descriptive_vectors:
+        try:
+            payload = run_descriptive(args)
+        except (data.Refused, data.LayoutError, data.LeakageError, data.WalkForwardError) as exc:
+            print(str(exc), file=sys.stderr)
+            return getattr(exc, "exit_code", 2)
+        out = Path(args.out_dir)
+        out.mkdir(parents=True, exist_ok=True)
+        blob = json.dumps(sc._clean(payload), sort_keys=True, indent=1, default=str).encode("utf-8")
+        (out / "p3d_n_descriptive.json").write_bytes(blob)
+        (out / "p3d_n_descriptive.md").write_text(render_descriptive(payload), encoding="utf-8", newline="\n")
+        print(json.dumps({"json": str(out / "p3d_n_descriptive.json"), "sha256": hashlib.sha256(blob).hexdigest()}))
+        return 0
     try:
         payload = run(args)
     except (data.Refused, data.LayoutError, data.LeakageError, data.WalkForwardError) as exc:
