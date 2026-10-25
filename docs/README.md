@@ -31,6 +31,7 @@ research established) · **Generated** (edit the generator) · **History**
 | Spending a statistical decision on the sealed panel | [Campaign ledger](operations/CAMPAIGN_LEDGER.md) | Canonical control |
 | Reading dated evidence or settled days for evaluation | [Reserved confirmation window](operations/reserved-confirmation-window.md) — its status line says whether anything is reserved | Canonical contract |
 | Building a leakage-free evaluation or the PIT training corpus | [Point-in-time evaluation](operations/POINT_IN_TIME_EVALUATION.md), [PIT forecast training corpus](operations/PIT_FORECAST_TRAINING_CORPUS.md) | Canonical runbook |
+| New-city candidates, METAR-labelled corpora, the recorder-only pilot switch-on | [New-city model lane](operations/NEW_CITY_MODEL_LANE.md) | Canonical runbook |
 | Unsure about settlement, units, source roles, or floors | [Agent context](operations/AGENT_CONTEXT.md) | Canonical guide |
 | Asking whether a forecast source or training population is allowed | [Forecast source and training population](operations/forecast-source-and-training-population.md), [the season window](operations/the-season-window-blocks-the-retrain.md) | Canonical decision record |
 | Acting on the production capture host | [Operations agent role](operations/OPERATIONS_AGENT_ROLE.md) | Canonical guide |
@@ -70,6 +71,7 @@ Read the one that owns the thing you are changing.
 | A large module or facade split | [Large-module ownership map](operations/module-ownership-map.md) |
 | Any repository path or default location | [Repository path policy](operations/path-policy.md) |
 | A file under `config/` | [Configuration inventory](operations/config-inventory.md) |
+| Training or evaluation labels for dates from 2026-10-23, or a market's label station | [Venue-rule labels](operations/venue-rule-labels.md) |
 | Tracked artifacts, LFS, or artifact size | [Artifact storage policy](operations/artifact-storage-policy.md) |
 | Building or changing data capture: new families, storage/RAM budgets, the venue-city pilot | [Data layer v2 plan](operations/DATA_LAYER_V2_PLAN.md) (canonical living plan: family table, budgets, build sequence S0-S16, open owner questions); [data layer v2 platform contract](operations/DATA_LAYER_V2_CONTRACT.md) (the `platform` registry in `config/capture_families.json`: roll closures, evidence families, storage and embargo ratchets) |
 | What may be deleted, tiered, or compressed under `data/` | [Data storage classes](operations/data-storage-class-contract.md), [Data retention policy](operations/data-retention-policy.md) |

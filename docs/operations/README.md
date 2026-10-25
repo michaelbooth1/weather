@@ -102,6 +102,7 @@ No live trading is authorized by any document here; `STATE_OF_PLAY.md` records c
 | Document | Read when |
 | --- | --- |
 | [config-inventory.md](config-inventory.md) | Adding or changing a checked-in config file; owns classification and freshness. |
+| [venue-rule-labels.md](venue-rule-labels.md) | Building or reading training/evaluation labels for dates from 2026-10-23, or changing a market's label station. Owner: `weather.backtesting.venue_rule_labels`. |
 | [artifact-storage-policy.md](artifact-storage-policy.md) | Git vs Git LFS vs external storage, size thresholds, restore, promotion preflight. |
 | [git-lfs-policy.md](git-lfs-policy.md) | Anything touching LFS. **Never re-add `lfs: true` to a workflow; never delete `.git/lfs`.** |
 | [schema-registry-storage-log-reconciliation.md](schema-registry-storage-log-reconciliation.md) | Mapping a durable schema to its producer and storage/log contract. |
@@ -147,6 +148,7 @@ contract and a reviewed cleanup manifest.
 | [settlement-source-audit.md](settlement-source-audit.md) | Touching the settlement-source audit, its bounded storage path, source-lineage classification, or the truth-label gate for settlement-scored trading evidence. Owner: `weather.reporting.source_gates.settlement_source_audit`. |
 | [POINT_IN_TIME_EVALUATION.md](POINT_IN_TIME_EVALUATION.md) | Evidence key, materialization, preselection/qualification, folds, locked evaluation. |
 | [PIT_FORECAST_TRAINING_CORPUS.md](PIT_FORECAST_TRAINING_CORPUS.md) | Immutable forecast planning, request-keyed staging, cutoff-safe publication, pooled-retraining consumption. |
+| [NEW_CITY_MODEL_LANE.md](NEW_CITY_MODEL_LANE.md) | Inactive candidate registry, METAR label and print-cutoff rules, new-city corpus builder, fetch blockers, R1 recorder-only enable runbook. |
 | [nbm-target-period-contract.md](nbm-target-period-contract.md) | Parsing or replaying NBP maximum guidance, persisting token provenance, or admitting future guidance rows. |
 | [forecast-source-and-training-population.md](forecast-source-and-training-population.md) | Anyone raises provider licensing or the training population. **Closed: free-tier Open-Meteo only; do not stop a mission on it.** |
 | [the-season-window-blocks-the-retrain.md](the-season-window-blocks-the-retrain.md) | Touching forecast-archive coverage or the first-retrain corpus. |

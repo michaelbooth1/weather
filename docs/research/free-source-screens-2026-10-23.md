@@ -25,7 +25,10 @@ pre-registration on new dates (EF §5), nothing more.
 | F4 gfs_seamless / NAM / AIGFS | 00-12 | +0.0008 / +0.0007 / +0.0003, all spanning 0, vs MG-1 | −0.0145 / −0.0146 / −0.0150 | **KILL (null)** |
 | F4 GEFS mean | 00-12 | +0.0054 [+0.0016, +0.0100] vs MG-1 | −0.0099 [−0.0185, −0.0011] | **KILL (harm)** |
 | F4 AIFS, GraphCast | 00-12 | — | — | not scored: never captured |
-| F5 ECMWF ENS, DWD MOSMIX | 00-12 | — | — | not scored: CCSDS decoder absent (ENS archive does exist on AWS); MOSMIX keeps ~2 days |
+| G2-a ECMWF ENS mean (lane G2) | 00-12 | −0.0000 [−0.0033, +0.0031] vs MG-1 | −0.0154 [−0.0230, −0.0078] | **KILL (null)** |
+| G2-b ECMWF ENS gap (lane G2) | 13-16 | −0.0002 [−0.0005, +0.0001] vs t3-r3 | −0.0112 [−0.0189, −0.0043] | **KILL (null)** |
+| L4 multi-model blend | 07-12 | −0.0002 [−0.0045, +0.0047] vs MG-1 | −0.0141 [−0.0211, −0.0068] | **KILL (null)**; h15-23 gain over MG-1 parked |
+| DWD MOSMIX | — | — | — | not scored: the open server keeps ~2 days |
 | L6 upstream ASOS ring (vs own-obs twin) | 07-12 | −0.0005 [−0.0012, +0.0003] vs twin; −0.0041 [−0.0069, −0.0015] vs MG-1 | −0.0180 [−0.0245, −0.0114] | **KILL (upstream not shown)**; own-obs stack −0.0036 vs MG-1 is a separate dev lead |
 
 Served baseline for context (lane C, scorecard hash `3557f797…`): pooled 13-16 R = 1.862 [1.557, 2.345],
@@ -246,7 +249,7 @@ Not scored, by the brief and by measurement. Parsers built on small pulls (`weat
   values cannot be read here. No `mx2t` is in the step's parameter list, so a daily max would be built
   from 3/6-hourly 2t. A historical ENS screen is therefore feasible in principle (decoder plus about
   51 members x ~8 steps x ~0.66 MB ≈ 270 MB per run per day), but it needs an owner decision on a
-  decoder dependency; it was not forced.
+  decoder dependency; it was not forced. **Superseded 2026-10-24:** the owner approved a research-venv decoder and the fetch, and lane G2 scored ENS (§ G2 below: both rules KILL).
 - **Other EU free sources** (Met Office DataHub, Météo-France 6-minute, DWD 10-minute, AEMET) need
   accounts or keys or were out of this lane's list; not touched.
 
@@ -292,6 +295,15 @@ are negative; Los Angeles +0.0062 and Atlanta +0.0047 harm (date-clustered inter
 
 **Verdict G2-a: KILL (no increment demonstrated).** The interval is centred on zero, and its MDE80 (about 0.005)
 is four times the 5% bar.
+
+### G2-b result (scored 2026-10-24; score `60047a9deb4d…`, `data/research/free_sources/scores/g2b/`)
+
+Same population and coverage as F1; 891 table cells (385 ENS-gap-conditioned beyond the control's 506).
+Pooled `ALL`: **13-16 (decided) G2-b − t3-r3 = −0.0002 [−0.0005, +0.0001]** (MDE80 0.0004), G2-b − served
+−0.0112 [−0.0189, −0.0043]; 10-12 −0.0006 [−0.0013, +0.0000]; 17-23 −0.0000. Per market at 13-16, 8 of 11 are
+negative, all small (Chicago −0.0003, Seattle −0.0005, Miami −0.0003 exclude 0; Houston +0.0004 harms).
+
+**Verdict G2-b: KILL (no increment demonstrated).** The interval spans zero, and its size is a sixth of the 5% bar.
 
 ## L4: multi-model forecast blend (pre-registration sha256 `96dee78c7bfe8e350905c19048824ddf25729fcf3bc829bde066f16ad346a3b0`)
 
