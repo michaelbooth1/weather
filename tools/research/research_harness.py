@@ -16,6 +16,11 @@ SCRIPT_INVENTORY = {
         "smoke": "compile_main_guard",
         "notes": "Lane L9 point-in-time NBM NBP station-block fetcher (free NOAA open data); network-free compilation smoke.",
     },
+    "nbm_nbs_nbh_fetch.py": {
+        "status": "fixture-only",
+        "smoke": "compile_main_guard",
+        "notes": "Lane L12 point-in-time NBM NBS/NBH station-block fetcher (free NOAA open data); network-free compilation smoke.",
+    },
     "nbm_target_fix.py": {
         "status": "fixture-only",
         "smoke": "compile_main_guard",
