@@ -233,9 +233,10 @@ def test_no_production_code_imports_the_challenger():
                 continue
             if "r0_ols_floor_challenger" in path.read_text(encoding="utf-8", errors="replace"):
                 hits.append(path.relative_to(ROOT).as_posix())
-    # The workstation allowlist names the module (it admits it); only its own dev-fit companion
-    # (research-only, same capture-host guard) imports it.
-    assert sorted(hits) == ["scripts/ops/workload_admission.ps1", "src/weather/calibration/r0_ols_floor_devfit.py"]
+    # The workstation allowlist names the module (it admits it); only research-only importers under the
+    # same capture-host guard import it: its dev-fit companion and the MG-2 composite binding.
+    assert sorted(hits) == ["scripts/ops/workload_admission.ps1", "src/weather/calibration/mg2_composite.py",
+                            "src/weather/calibration/r0_ols_floor_devfit.py"]
 
 
 def _metar(nominal, raw_time, temp):

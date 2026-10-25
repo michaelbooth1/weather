@@ -54,6 +54,30 @@ ARM_A_TRAIN_CENTRE = date(2026, 9, 7)
 OWNER_DECISION_ID = re.compile(r"^OD-(\d{4}-\d{2}-\d{2})-[A-Za-z0-9][A-Za-z0-9_.-]*$")
 LABEL_FILES = ("labels.parquet", "market.parquet")
 
+# Serve parity: every input to a forward MG-2 vector must come from the capture at replay time, with no
+# external fetch. Fixed inputs are read from captured replay files; the two inputs below are named by the
+# rule. A source id is "captured" only if its reader takes nothing but captured replay inputs.
+CAPTURED = "captured"
+EXTERNAL = "external_fetch"
+SOURCES = {
+    # forecast_high for arm A
+    "pit_previous_runs_gfs_seamless_day1": {
+        "input": "forecast_high", "class": EXTERNAL,
+        "note": "Open-Meteo Previous Runs temperature_2m_previous_day1 (gfs_seamless) from a PIT corpus; "
+                "no serve-path module fetches it, so the capture does not hold it (L2 P3d parity note)"},
+    # own-station observations for the L6 n_own nowcast (pre-13)
+    "iem_own_station_free_fetch": {
+        "input": "own_obs", "class": EXTERNAL,
+        "note": "IEM ASOS own-station observations, a later free fetch; not read from the capture"},
+}
+FIXED_INPUTS = {
+    "snapshots_and_bands": "captured replay inputs layout (inputs_snapshots / inputs_bands)",
+    "high_so_far_and_current_temp": "captured METAR rows in the replay snapshots (running_max_since_midnight)",
+    "mg1_centre_spread_and_floor": "captured NBM v2 guidance and guidance_physical_floor in the snapshots",
+}
+SOURCE_FIELDS = {"forecast_high": "forecast_high_source", "own_obs": "own_obs_source"}
+PENDING = "PENDING"
+
 _PRODUCTION_PREFIXES = ("weather.operations", "weather.market", "weather.model", "weather.serving",
                         "weather.trading", "weather.capture", "weather.sources", "weather.execution",
                         "maker_core", "app")
@@ -90,7 +114,7 @@ def canonical(payload):
 def read_rule(path):
     """The rule's raw sha256 and its fenced ``mg2_rule_v1`` key: value block."""
     raw = Path(path).read_bytes()
-    text = raw.decode("utf-8")
+    text = raw.decode("utf-8").replace("\r\n", "\n")
     match = re.search(r"```" + RULE_BLOCK + r"\n(.*?)```", text, re.S)
     if not match:
         raise Mg2Refused(f"rule has no fenced {RULE_BLOCK} block")
@@ -99,8 +123,8 @@ def read_rule(path):
         if line.strip() and not line.lstrip().startswith("#"):
             key, _, value = line.partition(":")
             fields[key.strip()] = value.strip()
-    for key in ("switch_hour", "d0", "n_forward_dates", "owner_decision_id", "coefficients_sha256",
-                "function_sha256"):
+    for key in ("switch_hour", "d0", "n_forward_dates", "owner_decision_id", "l6_coefficients_sha256",
+                "arm_a_coefficients_sha256", "function_sha256", *SOURCE_FIELDS.values()):
         if key not in fields:
             raise Mg2Refused(f"rule block lacks {key}")
     if int(fields["switch_hour"]) != SWITCH_HOUR:
@@ -207,8 +231,9 @@ def verify_release(path, rule_sha, fields, root=None):
     problems = []
     if binding.get("rule_sha256") != rule_sha:
         problems.append("rule_sha256")
-    if binding.get("coefficients_sha256") != fields["coefficients_sha256"]:
-        problems.append("coefficients_sha256")
+    for key in ("l6_coefficients_sha256", "arm_a_coefficients_sha256", *SOURCE_FIELDS.values()):
+        if binding.get(key) != fields[key]:
+            problems.append(key)
     if binding.get("function_sha256") != fields.get("function_sha256"):
         problems.append("function_sha256")
     running = release_hashes(root)
@@ -218,6 +243,33 @@ def verify_release(path, rule_sha, fields, root=None):
     if problems:
         raise Mg2Refused(f"release binding mismatch: {problems}")
     return binding
+
+
+def input_parity(fields):
+    """Each rule-named input's source and class; ``ok`` only if every input is read from the capture."""
+    report = {"fixed": dict(FIXED_INPUTS), "named": {}, "not_captured": []}
+    for name, key in SOURCE_FIELDS.items():
+        source = fields.get(key, PENDING)
+        entry = SOURCES.get(source)
+        if entry is not None and entry["input"] != name:
+            raise Mg2Refused(f"{key}: source {source} is for {entry['input']}, not {name}")
+        klass = entry["class"] if entry else ("pending" if source == PENDING else "unknown")
+        report["named"][name] = {"source": source, "class": klass}
+        if klass != CAPTURED:
+            report["not_captured"].append(name)
+    report["ok"] = not report["not_captured"]
+    return report
+
+
+def require_forward_parity(fields):
+    """Forward emission and the look: every input from the capture at replay time, no external fetch."""
+    report = input_parity(fields)
+    if not report["ok"]:
+        raise Mg2Refused(f"serve parity: inputs not read from the capture: {report['not_captured']} "
+                         f"({ {k: v['source'] for k, v in report['named'].items()} })")
+    if fields["arm_a_coefficients_sha256"] == PENDING:
+        raise Mg2Refused("serve parity: arm A coefficients are PENDING (refit on the captured forecast)")
+    return report
 
 
 # ----------------------------------------------------------------------------- composition
@@ -490,15 +542,29 @@ def freeze(layout_root, train_manifest, markets, out):
     out.mkdir(parents=True, exist_ok=True)
     blob = canonical(payload)
     (out / "mg2_coefficients.json").write_bytes(blob)
-    return {"coefficients_sha256": hashlib.sha256(blob).hexdigest(), "path": str(out / "mg2_coefficients.json")}
+    return {"file_sha256": hashlib.sha256(blob).hexdigest(), "path": str(out / "mg2_coefficients.json"),
+            **{f"{part}_coefficients_sha256": part_sha(payload[key]) for part, key in COEF_PARTS.items()}}
 
 
-def load_coefficients(path, expected_sha):
-    blob = Path(path).read_bytes()
-    sha = hashlib.sha256(blob).hexdigest()
+COEF_PARTS = {"l6": "l6_stack", "arm_a": "arm_a"}
+
+
+def part_sha(part):
+    """sha256 of one coefficient part's canonical JSON (parts are bound separately: arm A may be re-frozen)."""
+    return hashlib.sha256(canonical(part)).hexdigest()
+
+
+def load_part(path, part, expected_sha):
+    """One part of a coefficients file, refused unless its canonical sha256 is the rule's."""
+    if expected_sha == PENDING:
+        raise Mg2Refused(f"{part} coefficients are PENDING in the rule")
+    payload = json.loads(Path(path).read_bytes())
+    if COEF_PARTS[part] not in payload:
+        raise Mg2Refused(f"{path} has no {COEF_PARTS[part]} part")
+    sha = part_sha(payload[COEF_PARTS[part]])
     if sha != expected_sha:
-        raise Mg2Refused(f"coefficients sha {sha} != rule's {expected_sha}")
-    return json.loads(blob)
+        raise Mg2Refused(f"{part} coefficients sha {sha} != rule's {expected_sha}")
+    return payload[COEF_PARTS[part]]
 
 
 # ----------------------------------------------------------------------------- L6 own-obs nowcast
@@ -595,12 +661,29 @@ def _window(snaps, first, last):
     return snaps[(d >= first.isoformat()) & (d <= last.isoformat())].reset_index(drop=True)
 
 
-def arm_a_records(snaps, replay_root, forecast_manifest, first, last):
+def forecast_high_reader(source, forecast_manifest, market_id):
+    """``resolve(target_date_iso, hour) -> {"forecast_high": ...}`` for the rule's forecast_high source.
+
+    Only the dev PIT corpus reader exists. A captured-forecast reader (L3's analogue, pending master's
+    ruling) is added by a dated Clarification together with re-frozen arm A coefficients.
+    """
+    if source == "pit_previous_runs_gfs_seamless_day1":
+        from weather.calibration.feature_model_training_inputs import PITForecastCorpusUnion
+        from weather.model.toronto_model import INTRADAY_CUTOFF_HOURS
+
+        if not forecast_manifest:
+            raise Mg2Refused("the PIT forecast source needs --forecast-manifest")
+        return PITForecastCorpusUnion([forecast_manifest], market_id, target_year=2027,
+                                      required_cutoff_hours=INTRADAY_CUTOFF_HOURS)
+    raise Mg2Refused(f"forecast_high source {source} has no reader")
+
+
+def arm_a_records(snaps, replay_root, forecast_manifest, first, last,
+                  forecast_source="pit_previous_runs_gfs_seamless_day1"):
     """{row_key: record} for arm A, as L3's ``dev_emit`` builds the l8 variant (cutoff <= local hour)."""
     from zoneinfo import ZoneInfo
 
     from weather.calibration import r0_ols_floor_challenger as l3
-    from weather.calibration.feature_model_training_inputs import PITForecastCorpusUnion
     from weather.market.market_registry import spec_for_id
     from weather.model.toronto_model import INTRADAY_CUTOFF_HOURS
 
@@ -609,8 +692,7 @@ def arm_a_records(snaps, replay_root, forecast_manifest, first, last):
     for market in sorted(set(snaps.market)):
         spec = spec_for_id(market)
         tz = ZoneInfo(spec.timezone)
-        union = PITForecastCorpusUnion([forecast_manifest], spec.id, target_year=2027,
-                                       required_cutoff_hours=INTRADAY_CUTOFF_HOURS)
+        union = forecast_high_reader(forecast_source, forecast_manifest, spec.id)
         obs = {}
         for slug, target, folder in l3._event_folders(replay_root):
             if slug == market and first <= target <= last:
@@ -649,12 +731,15 @@ def arm_a_records(snaps, replay_root, forecast_manifest, first, last):
     return out, stats
 
 
-def emit(*, layout_root, replay_root, forecast_manifest, nowcasts, coefficients, rule, out, first, last,
-         control=False, release_binding=None):
+def emit(*, layout_root, replay_root, nowcasts, coefficients, rule, out, first, last, forecast_manifest=None,
+         arm_a_coefficients=None, control=False, release_binding=None):
     """Captured-input replay of the composite for [first, last] at the frozen coefficients.
 
-    Forward (``control`` False): the rule's D0 must be set and ``first`` >= D0. Control mode replays dev
-    dates only (<= 2026-09-29) and is how the code is checked against the dev emission.
+    Forward (``control`` False): the rule's D0 must be set, ``first`` >= D0, every input must be read
+    from the capture (``require_forward_parity``) and the release binding must match. Control mode
+    replays dev dates only (<= 2026-09-29) with the dev sources and is how the code is checked against
+    the dev emission; its audit records that those sources are not captured.
+    ``arm_a_coefficients`` defaults to ``coefficients`` (arm A's part may be re-frozen on its own).
     """
     import pandas as pd
 
@@ -669,11 +754,14 @@ def emit(*, layout_root, replay_root, forecast_manifest, nowcasts, coefficients,
         d0 = rule_d0(fields)
         if d0 is None or first < d0:
             raise Mg2Refused("forward emission needs the rule's D0 set and first >= D0")
+        require_forward_parity(fields)
         if not release_binding:
             raise Mg2Refused("forward emission needs the release binding")
         verify_release(release_binding, rule_sha, fields)
+    parity = input_parity(fields)
     verify_function(fields)
-    coef = load_coefficients(coefficients, fields["coefficients_sha256"])
+    coef = {"l6_stack": load_part(coefficients, "l6", fields["l6_coefficients_sha256"]),
+            "arm_a": load_part(arm_a_coefficients or coefficients, "arm_a", fields["arm_a_coefficients_sha256"])}
     snaps, bands = read_inputs(layout_root)
     snaps = _window(snaps, first, last)
     bands = bands[bands.row_key.isin(set(snaps.row_key))].reset_index(drop=True)
@@ -685,7 +773,8 @@ def emit(*, layout_root, replay_root, forecast_manifest, nowcasts, coefficients,
              "coef": {int(h): (a, b, n) for h, (a, b, n) in coef["l6_stack"]["coef"].items()}}
     pre = l6_stack.predict(state, snaps, bands)
     base = mg1.predict(snaps, bands, None)
-    records, stats = arm_a_records(snaps, replay_root, forecast_manifest, first, last)
+    records, stats = arm_a_records(snaps, replay_root, forecast_manifest, first, last,
+                                   forecast_source=fields["forecast_high_source"])
     market_of = dict(zip(snaps.row_key, snaps.market))
     dists = {}
     for rk, record in records.items():
@@ -704,9 +793,12 @@ def emit(*, layout_root, replay_root, forecast_manifest, nowcasts, coefficients,
                                      "distribution": {str(k): v for k, v in dists[rk].items() if v > 0}},
                                     sort_keys=True) + "\n")
     audit = {"schema": SCHEMA, "mode": "control" if control else "forward", "first": first.isoformat(),
-             "last": last.isoformat(), "rule_sha256": rule_sha, "coefficients_sha256": fields["coefficients_sha256"],
+             "last": last.isoformat(), "rule_sha256": rule_sha,
+             "l6_coefficients_sha256": fields["l6_coefficients_sha256"],
+             "arm_a_coefficients_sha256": fields["arm_a_coefficients_sha256"], "input_parity": parity,
              "code_sha256": sha256_file(__file__), "nowcasts_sha256": sha256_file(nowcasts),
-             "forecast_manifest_sha256": sha256_file(forecast_manifest), "arm_a_stats": stats,
+             "forecast_manifest_sha256": sha256_file(forecast_manifest) if forecast_manifest else None,
+             "arm_a_stats": stats,
              "vectors_sha256": sha256_file(out / "mg2_vectors.parquet"), "snapshots": int(len(snaps))}
     (out / "mg2_emit_audit.json").write_text(json.dumps(audit, indent=1, sort_keys=True), encoding="utf-8")
     return audit
@@ -769,6 +861,7 @@ def score(*, layout_root, vectors, rule, out, release_binding, mg1_look_receipt=
     root = Path(layout_root)
     snaps = pd.read_parquet(root / data.SNAPSHOTS_FILE, columns=["row_key", "date"])
     guard = score_guard(fields, snaps.date.astype(str).unique(), today=today, mg1_look_receipt=mg1_look_receipt)
+    require_forward_parity(fields)
     verify_release(release_binding, rule_sha, fields)
     verify_function(fields)
     layout = data.Layout(snaps=pd.read_parquet(root / data.SNAPSHOTS_FILE),
@@ -827,9 +920,10 @@ def build_parser():
         p = sub.add_parser(name)
         p.add_argument("--layout", required=True)
         p.add_argument("--replay-root", required=True)
-        p.add_argument("--forecast-manifest", required=True)
+        p.add_argument("--forecast-manifest", default=None, help="only for the dev PIT forecast source")
         p.add_argument("--nowcasts", required=True)
         p.add_argument("--coefficients", required=True)
+        p.add_argument("--arm-a-coefficients", default=None, help="arm A part, if frozen separately")
         p.add_argument("--rule", required=True)
         p.add_argument("--out", required=True)
         p.add_argument("--first", required=True)
@@ -874,8 +968,8 @@ def main(argv=None):
                              first=args.first, last=args.last, out=args.out)
         elif args.command in ("emit", "check"):
             kw = dict(layout_root=args.layout, replay_root=args.replay_root, forecast_manifest=args.forecast_manifest,
-                      nowcasts=args.nowcasts, coefficients=args.coefficients, rule=args.rule,
-                      first=args.first, last=args.last, control=args.control,
+                      nowcasts=args.nowcasts, coefficients=args.coefficients,
+                      arm_a_coefficients=args.arm_a_coefficients, rule=args.rule, first=args.first, last=args.last, control=args.control,
                       release_binding=args.release_binding)
             result = emit(out=args.out, **kw)
             if args.command == "check":

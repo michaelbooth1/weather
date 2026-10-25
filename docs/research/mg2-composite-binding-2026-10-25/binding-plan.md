@@ -1,7 +1,10 @@
 # MG-2 composite binding plan
 
-- **Status:** DRAFT. Master APPROVED the design on 2026-10-25. The binding commit and D0 wait for the
-  single Fable review, which the coordinator relays.
+- **Status:** DRAFT. Master APPROVED the design on 2026-10-25. The binding commit and D0 wait for two
+  things:
+  - the single Fable review, which the coordinator relays;
+  - serve parity (§6, rule §1a). Arm A's coefficients and forecast input, and the L6 own-obs input, are
+    `PENDING` until captured sources are ruled on.
 - **Rule:** [rule.md](rule.md) (draft sha256 in the record line of the coordinator report). The rule
   owns every definition.
 - **Purpose of this plan:** how the binding is executed, what it reads, and what is pending.
@@ -123,11 +126,17 @@ Rule §9 has the table. In summary:
 - **Every hour:** both use the identical rule-4 floor, including `guidance_physical_floor`.
 - **After 13:00:** MG-2 reads NBM only through the fallback. Its own inputs there are the METAR /
   L8 running max and Open-Meteo `gfs_seamless` `previous_day1`.
-- **Free fetches, not captured:** two inputs are later free fetches:
+- **Free fetches, not captured:** two dev inputs were later free fetches:
   - IEM own-station observations, for the L6 nowcast;
   - Open-Meteo Previous Runs, for arm A's forecast_high.
 
-  Their PIT safety rests on gating, and this is disclosed.
+  Neither is allowed forward. Serve parity (rule §1a) requires every input to come from the capture at
+  replay time. The coordinator's 2026-10-25 heads-up, from L2's P3d serve-parity note, establishes that
+  forecast_high is not captured: the capture's `gfs_seamless` day high is the current run, a different
+  lead, MAE 2.26 °F vs the PIT value on 13-16 rows. The same strict test also fails L6's own-obs input.
+
+  Both are `PENDING` in the rule, and forward `emit` and `score` refuse until a captured reader is
+  registered for each by the rule §8 Clarification before D0.
 
 ## 7. Release binding
 
@@ -135,7 +144,10 @@ At the binding commit, `release-binding.json` records:
 - the commit sha;
 - the sha256 of each file in `mg2_composite.RELEASE_FILES`;
 - the function sha256 `bd05d6d601b9c588…`;
-- the coefficients sha256 `e29a1b28aec50e97…`;
+- the coefficient part sha256s:
+  - L6 `313d1743…`;
+  - arm A `PENDING`, refitted on the captured forecast after master's ruling on L3's analogue;
+- the two named input sources, both `PENDING` today;
 - the rule's raw sha256.
 
 `emit` (forward) and `score` refuse on any mismatch.
@@ -151,8 +163,9 @@ Daily or weekly, all through `scripts\ops\workstation_heavy.ps1`:
 1. **Build the forward inputs-only layout.** The layout is snapshots and bands from the captured
    replay inputs. It needs the same harness as `C:\swarm\v3layout`, without labels or market files, and
    must expose the parser version.
-2. **Fetch free forward inputs.** These are the IEM own-station observations and the Open-Meteo
-   Previous Runs `gfs_seamless` `previous_day1`. Each is published content-addressed.
+2. **Read the two named inputs from the capture**, through the readers registered by the §8
+   Clarification. No external fetch is allowed: forward `emit` refuses while either source is
+   `PENDING` or `external_fetch`.
 3. **Run the steps in order:**
    - `mg2_composite nowcast` (frozen refit; the dev-window control must reproduce `d2453d0d…`);
    - `emit`;
@@ -193,6 +206,12 @@ can wait for a quiet window.
 
   Reading the merged L8 and L3 code is optional context.
 - **Owner:** the option 2 exemption, or Branch 1 by default.
+- **Serve parity (master is ruling).** Three things block D0:
+  - a captured forecast_high reader and arm A's refit on it (L3);
+  - a captured own-station observation reader for L6's `n_own`, or a ruling on the pre-13 half;
+  - a re-sized MDE, if either refit changes the dev deltas.
+
+  The N/MDE table in §3 is for the dev-source design.
 - **Retrain-window overlap.** The retrain window is armed, not dated. If it is declared and arm A is
   ruled a retrain-family candidate, MG-2's post-13 slot overlaps it. This needs an owner ruling.
 - **Forward layout builder.** It must expose the v2 parser version. Without it the parser check fails

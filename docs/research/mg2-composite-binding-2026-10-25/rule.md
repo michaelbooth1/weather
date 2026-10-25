@@ -23,14 +23,20 @@ block below must agree with the code, or every subcommand refuses.
 | 00-12 | **Pre-13 half.** MG-1 plus lane L6's own-observations stack. At 07-12, where the own-obs nowcast N exists: mu = v2_mean + a_h + b_h (N − v2_mean) and sigma = max(v2_stddev, 1), with MG-1's floor and band mapping. MG-1 exactly otherwise. | `free_source_candidates.l6_stack.predict` |
 | 13-23 | **Post-13 half.** Arm A: L3's OLS + hard floor on (forecast_high, high_so_far, current_temp), discretised on integer native buckets. high_so_far comes from lane L8's `running_max_since_midnight`. MG-1 is used where arm A has no distribution, or no mass on a band the rule-4 floor allows. | `mg2_composite.arm_a_distribution` |
 
-The frozen coefficients are `mg2_coefficients.json`, sha256
-`e29a1b28aec50e973257896fbdcea589088d1c4d73addf75497f2f1234016ed1`, written by `mg2_composite freeze`:
+The coefficients are bound as two parts, each by the sha256 of its canonical JSON (`part_sha`), so arm A
+can be re-frozen without touching L6:
 
-- **Arm A:** one OLS (beta and residual sd) per market × cutoff hour 07-20. It is fitted on every
-  trainer record of the Aug-Sep 2021-25 PIT corpus `b455bd53…` at centre 2026-09-07. This is the
-  historical fit L3 used for the dev scores; no 2026 row is used.
-- **L6 stack:** a_h, b_h for h = 07..12, fitted once on every dev snapshot through 2026-09-29. This is
-  the last walk-forward fold extended to the end of the dev window.
+- **L6 stack (frozen):** `l6_coefficients_sha256` `313d1743d35ed705a4406fb415748c8e161d170033bb963ec6b56f5caf922895`.
+  It holds a_h, b_h for h = 07..12, fitted once on every dev snapshot through 2026-09-29. This is the
+  last walk-forward fold extended to the end of the dev window.
+- **Arm A (PENDING):** `arm_a_coefficients_sha256: PENDING`, and arm A's forecast input
+  `forecast_high_source: PENDING` (§1a).
+  - The dev fit is one OLS (beta and residual sd) per market × cutoff hour 07-20, on the Aug-Sep
+    2021-25 PIT corpus `b455bd53…` at centre 2026-09-07, with forecast_high from Open-Meteo Previous
+    Runs. Its part sha is `dba2cbc4…`.
+  - It is **not** bound: that forecast input is not in the capture (§1a). The part is re-frozen on the
+    captured-forecast analogue once master rules on L3's refit. Its sha is then written here by a dated
+    Clarification before D0 (§8).
 - **L6 own-obs nowcast:** the HGB of `upstream_obs_screen` (fixed parameters, `random_state` 0), fitted
   on the Aug-Sep 2021-25 IEM history. It is pinned by the dev nowcast sha256 `d2453d0d…`, which the
   frozen refit must reproduce (§7).
@@ -39,6 +45,29 @@ The frozen coefficients are `mg2_coefficients.json`, sha256
 
 Nothing in serving, capture, release or Scheduler imports MG-2. The import fails closed from production
 packages and on the capture host, and a test pins that.
+
+### 1a. Serve parity: every input from the capture at replay time
+
+**Requirement.** Every input to a forward MG-2 vector is read from the capture at replay time, with no
+external fetch. `require_forward_parity` enforces this. Forward `emit` and `score` refuse unless every
+rule-named input is registered (`mg2_composite.SOURCES`) as `captured`, and arm A's coefficients are not
+`PENDING`. Tests pin it, including an AST scan that finds no network import or URL in the binding.
+
+| Input | Source | Captured? |
+| --- | --- | --- |
+| Snapshots and bands, MG-1's NBM v2 centre, spread and `guidance_physical_floor` | captured replay inputs layout | yes |
+| high_so_far (L8 `running_max_since_midnight`), current_temp | captured METAR rows in the replay snapshots | yes |
+| Arm A forecast_high (`forecast_high_source`) | dev: Open-Meteo Previous Runs `gfs_seamless` `previous_day1` from a PIT corpus | **no**: no serve-path module fetches it (L2 P3d serve-parity note). PENDING. |
+| L6 own-station observations for `n_own` (`own_obs_source`) | dev: IEM ASOS own-station observations, a free fetch | **no**: not read from the capture. PENDING. |
+
+**Consequence today.** Both named sources are PENDING, so MG-2 cannot emit a forward vector and its
+accrual cannot start. D0 is set only after:
+- a dated Clarification (§8) names a captured reader for each named input;
+- arm A's re-frozen part sha is recorded;
+- the L6 nowcast is re-established on captured observations, if its coefficients change.
+
+The dev-window control replay (`--control`, dates ≤ 2026-09-29) still uses the dev sources. Its audit
+records them as not captured.
 
 ## 2. The comparator
 
@@ -225,6 +254,17 @@ A′ is arm A plus an NBM mean regressor, fitted on lane L9's PIT NBM corpus, wh
   void conditions.
 - **What the Clarification records:** A′'s frozen coefficients sha256 and code sha, re-frozen before D0.
 
+**Captured-source Clarification (required before D0).** A dated Clarification must also be made before
+D0 to satisfy §1a. It records:
+- the captured reader registered for `forecast_high_source`, and for `own_obs_source`;
+- arm A's (or A′'s) coefficients refitted on that captured forecast, with their part sha;
+- if the L6 nowcast moves to captured observations, its refit, its new control sha and the L6 part sha;
+- if any refit changes the candidate, the §5 sizing re-run on the refitted design. N stays 45 unless that
+  Clarification changes it before D0.
+
+Neither may be an external fetch. This Clarification also adds the readers' code files to the release
+binding.
+
 After D0 nothing in §1-§7 changes. The only exception is the §4.3 owner-decision Clarification, which
 changes permission, not design.
 
@@ -238,12 +278,13 @@ changes permission, not design.
 | METAR captured rows; L8 running max | none | none | current_temp, high_so_far |
 | Open-Meteo Previous Runs `gfs_seamless` `previous_day1` (free, PIT by cutoff) | none | none | forecast_high |
 
-**Not captured inputs.** Two MG-2 inputs come from later free fetches, not from capture:
+**Not captured inputs.** The IEM row and the Open-Meteo row are the dev sources. Both came from later
+free fetches, not from capture:
 - the IEM own-station observations;
 - the Open-Meteo Previous Runs forecast.
 
-Their point-in-time safety rests on valid-time and issue-time gating (§7). This is disclosed; it is the
-same construction the dev scores used.
+They are not allowed forward (§1a). Each is replaced by a captured reader through the §8
+captured-source Clarification before D0, and until then the forward path refuses.
 
 ## (a) Positive control
 
@@ -294,10 +335,11 @@ Release binding is recorded in `release-binding.json` in the binding commit. It 
   - `dev_scorecard_data.py`
   - `loss_atlas.py`
 - the function sha256 above;
-- the coefficients sha256 above;
+- the L6 and arm A coefficient part sha256s above;
+- the two named input sources;
 - this file's raw sha256.
 
-`check` and `score` refuse on any mismatch.
+Forward `emit` and `score` refuse on any mismatch.
 
 **Flagged, not resolved here:** the retrain window is armed, not dated, and holds dates against
 retrain-family candidates. Arm A is an OLS challenger to R0. If that window is declared and arm A is
@@ -308,7 +350,10 @@ switch_hour: 13
 d0: UNSET
 n_forward_dates: 45
 owner_decision_id: NONE
-coefficients_sha256: e29a1b28aec50e973257896fbdcea589088d1c4d73addf75497f2f1234016ed1
+l6_coefficients_sha256: 313d1743d35ed705a4406fb415748c8e161d170033bb963ec6b56f5caf922895
+arm_a_coefficients_sha256: PENDING
+forecast_high_source: PENDING
+own_obs_source: PENDING
 function_sha256: bd05d6d601b9c5886783fc6c77d8cc6c95150f0d4577aa73562159c402e010c5
 noninferiority_margin_00_16: 0.0010
 ```
