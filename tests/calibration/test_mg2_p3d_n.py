@@ -1,4 +1,8 @@
-"""MG-2 afternoon arm P3d_N: the frozen state contract, the serve hooks and the pin to L2's d914ae21b output."""
+"""MG-2 afternoon arm P3d_N: the frozen state contract, the serve hooks and the pin to L2's d914ae21b output.
+
+Guards: MG-2 rule §8 C2-C5 (docs/research/mg2-composite-binding-2026-10-25/rule.md): P3d_N serve parity with
+L2 d914ae21b, the bound state sha, wu_whole_f_tgroup:half_up, as-of-capture inputs, training coverage.
+"""
 import ast
 import hashlib
 import json

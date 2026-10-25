@@ -1,4 +1,8 @@
-"""MG-2 composite binding: the 13:00 switch, the reservation guard, outcome-blind checks, fail-closed import."""
+"""MG-2 composite binding: the 13:00 switch, the reservation guard, outcome-blind checks, fail-closed import.
+
+Guards: MG-2 pre-registration docs/research/mg2-composite-binding-2026-10-25/rule.md (§1a serve parity, §4
+reserved window, §7 void conditions, §8 C4 gate vectors).
+"""
 import ast
 import hashlib
 import json

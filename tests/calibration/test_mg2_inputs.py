@@ -1,4 +1,8 @@
-"""MG-2 daily input transfer (workstation side): the allow-list, pull, receiver and label-free builder."""
+"""MG-2 daily input transfer (workstation side): the allow-list, pull, receiver and label-free builder.
+
+Guards: MG-2 binding plan §9 input transfer (docs/research/mg2-composite-binding-2026-10-25/binding-plan.md):
+receipts, label-free layouts, one-window concat.
+"""
 import ast
 import hashlib
 import json

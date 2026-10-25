@@ -15,6 +15,9 @@ Guards pinned here:
   captured METAR rows verbatim) and on synthetic F and C days at every cutoff;
 - the floor high only gets stronger, never weaker;
 - every derived feature follows the new ``high_so_far``.
+
+Guards: train/serve feature parity (AGENTS.md model contracts) for the shadow-only high_so_far variant; the
+serve default is unchanged.
 """
 import random
 from datetime import datetime, timedelta, timezone
