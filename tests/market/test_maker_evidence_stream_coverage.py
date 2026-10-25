@@ -176,6 +176,11 @@ def test_store_lock_stall_longer_than_silence_deadline_keeps_the_session(tmp_pat
     stream = fast_stream(store)
 
     def hold_store_lock():
+        # Anchor the stall on the connect, not on thread start, so a slow connect cannot push
+        # trade 2 (sent 0.4 s after connect) past the stall window on a loaded host.
+        deadline = time.monotonic() + 10
+        while stream.connected < 1 and time.monotonic() < deadline:
+            time.sleep(0.01)
         time.sleep(0.2)
         with store.lock:
             stall["start"] = time.monotonic()
@@ -251,14 +256,16 @@ def test_empty_data_frames_are_liveness_not_a_close(tmp_path, live):
     store = EvidenceStore(tmp_path)
 
     def script(send, number):
-        for _ in range(15):
+        for _ in range(40):
             send(0x1, b"")
             time.sleep(0.1)
 
     venue = live(script, answer_ping=False)
-    stream = fast_stream(store, ping_seconds=5.0, silence_seconds=0.5)
+    # Silence 1.5 s against frames every 0.1 s tolerates a scheduler stall on a loaded host; the
+    # run still lasts more than twice the deadline, so frames that did not count would disconnect.
+    stream = fast_stream(store, ping_seconds=5.0, silence_seconds=1.5)
     started = time.monotonic()
-    run_until(stream, lambda: time.monotonic() - started > 1.2)
+    run_until(stream, lambda: time.monotonic() - started > 3.2)
     assert stream.errors == 0 and venue.connections == 1
     assert not [row for row in journal(store) if row["kind"] == "stream_gap"]
 

@@ -18,6 +18,7 @@ from weather.market import exchange_economics
 from weather.market.market_day_labels import discover_default_folders, parse_overrides
 from weather.market.market_registry import all_specs
 from weather.operations import clob_order_book_tiering
+from weather.operations import daily_refresh_incremental_finalize as incremental_finalize
 from weather.operations import closed_market_day_archive
 from weather.operations import daily_roll_log_hygiene
 from weather.operations import event_metadata_validation
@@ -657,16 +658,37 @@ def run_market_day_labels_finalize(args):
                 "target_date": ((restore_step.get("result") or {}).get("target_date")),
             }
     folders = [Path(folder) for folder in args.folders] if args.folders else discover_default_folders(args.snapshots_root)
-    labels = finalize_folders(
-        folders,
-        daily_summary_path=args.daily_summary or None,
-        labels_csv=args.labels_csv,
-        overrides=parse_overrides(args.settle),
-        interval_minutes=args.interval_minutes,
-        gap_tolerance=args.tolerance,
-        reconcile_polymarket=not args.skip_polymarket_reconciliation,
-        ledger_root=args.ledger_root,
-    )
+    # Incremental finalization applies to the default discovered set with
+    # Polymarket reconciliation on (the scheduled path). An explicit --folders
+    # list or a run without reconciliation keeps the original direct call.
+    incremental_eligible = not args.folders and not args.skip_polymarket_reconciliation
+    plan = None
+    if incremental_eligible:
+        labels, plan = incremental_finalize.finalize_incrementally(
+            folders,
+            daily_summary_path=args.daily_summary or None,
+            labels_csv=args.labels_csv,
+            overrides=parse_overrides(args.settle),
+            interval_minutes=args.interval_minutes,
+            gap_tolerance=args.tolerance,
+            ledger_root=args.ledger_root,
+            recheck_days=getattr(
+                args, "finalize_recheck_days", incremental_finalize.DEFAULT_RECHECK_DAYS
+            ),
+            force_full=bool(getattr(args, "finalize_full", False)),
+            finalize_folders=finalize_folders,
+        )
+    else:
+        labels = finalize_folders(
+            folders,
+            daily_summary_path=args.daily_summary or None,
+            labels_csv=args.labels_csv,
+            overrides=parse_overrides(args.settle),
+            interval_minutes=args.interval_minutes,
+            gap_tolerance=args.tolerance,
+            reconcile_polymarket=not args.skip_polymarket_reconciliation,
+            ledger_root=args.ledger_root,
+        )
     summary = summarize_labels(labels)
     summary.update({
         "status": "PASS",
@@ -674,5 +696,7 @@ def run_market_day_labels_finalize(args):
         "labels_csv": as_path(args.labels_csv),
         "ledger_root": as_path(args.ledger_root),
         "polymarket_reconciliation": not args.skip_polymarket_reconciliation,
+        "finalize_mode": (plan or {}).get("mode", "direct"),
+        "finalize_plan": plan or {"mode": "direct", "folder_count": len(folders)},
     })
     return summary
