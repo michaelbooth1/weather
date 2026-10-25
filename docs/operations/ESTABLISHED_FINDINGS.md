@@ -113,6 +113,8 @@ sequence numbers, not calendar dates.
 | 10v | Dev replay with current code does not reproduce the served vector (M8 check, 2026-10-21, outcome-blind): code drift, not artifacts; replay deltas are "current code ± variant" |
 | 10w | Open-Meteo hourly labels are fixed-offset per response; serving reads them as zone wall time, so labels on the far side of a DST change are 1 h late (code trace on master `1c19ae10b`, 2026-10-21; live behaviour inferred) |
 | 10x | From the 2026-10-23 events the venue's declared resolution source is the raw aviationweather.gov METAR API, routine reports only (SPECI excluded), with a WU fallback; Denver names KDEN, not our KBKF (event metadata only; SPECI effect measured 07-31..09-29) |
+| 10af | Lane L2 rung ladder (2026-10-25, dev): R-F blends NULL, R-G STOP at gate 3b, R-I KILL (width lever closed for the NBM family), R-J KILL (trajectory family closed for the afternoon; HRRR hourly path excluded) |
+| 10ag | Lane L2 (2026-10-25, descriptive): P3d_N receipt look-ahead worth +0.0004 Brier at 13-16, no MG-2 gate flips, pick survives; R-H market-relative atlas (selection evidence): 07-12 loss is winner-bucket mass, regime-flat |
 
 ---
 
@@ -3999,6 +4001,79 @@ hash after swapping station, date and URL). Only event metadata was read for the
   [METAR-vs-WU agreement study](../research/metar-vs-wu-agreement-2026-10-23.md);
   [phase-2 scoping](../research/more-markets-phase2-scoping-2026-10-23.md). **Supersedes in part §10c** for events dated
   2026-10-23 onward (the WRH page and its "Hourly Data"/"Temp" rules no longer name the source).
+
+### 10af. Lane L2's rung ladder on the NBM-anchored arms closes the blend, trajectory and width levers: R-F NULL, R-G STOP at gate 3b, R-I KILL, R-J KILL — lane L2, workstation, 2026-10-25
+
+**Claim, at exactly this scope:** development window only (dev scorecard, 43 scored dates 08-15..09-29, 473
+market-days, 11 US markets; training and LOYO 2021-25). Each rung had its rule committed before any of its rows
+existed. Intervals are date-clustered 95% unless marked crossed; dR is the dev scorecard's R difference. No edge claim:
+every arm still trails the market. Nothing dated after 2026-09-29 was read. Records:
+`docs/research/l2-pooled-residual-2026-10-24/` (`rung0712/`, `rungi/`, `rungj/`) on branch `claude/rung0712-20261025`;
+the R-F and R-G score summaries are the `rung0712/rf_summary.txt` and `rg_summary.txt` files on that branch.
+
+- **Arms.** B_N is the NBM-anchored pooled baseline: per-cutoff pooled OLS of y − (NBM mean + bias) on [1, g, max(g, 0)],
+  hard floor. P3d_N_fix is P3d_N with the receipt look-ahead removed (each dev row uses the latest replay snapshot
+  captured at or before its own capture) and the frozen WU whole °F conversion. L6 is the frozen MG-2 pre-13 arm, which
+  is in-sample on this window and so favoured.
+- **R-F, hour-wise blends against L6 (rule `cca30734771933f2028a9c46f7edbebd887af9ac9b9ece968b73325cf85ce7f6`): NULL.**
+  blend(MG-1, P3d_N_fix) − L6 at 07-12 +0.0243 [−0.0033, +0.0523]; blend(L6, P3d_N_fix) − L6 −0.0096 [−0.0187, +0.0003]. No
+  WIN, so no MG-2 Clarification or re-run plan was drafted.
+- **R-G, morning trajectory columns (overnight min, 3-METAR trend, path gap) at 07-12 (rule
+  `a8cf65640625605acdd0acad391bb267357957a5fd0bd9bd7e6e7a62dafe9b29`): STOP at gate 3b.** Parity and LOYO passed.
+  Gate 3a B_G − B_N −0.0093 [−0.0199, −0.0000] (crossed [−0.0303, +0.0087]) passed; gate 3b P3d_G − P3d_N_fix −0.0048
+  [−0.0113, +0.0012] failed (upper bound >= 0). Gate 4 (P3d_G and blend(L6, P3d_G) against L6) was not scored.
+- **R-I, per-hour temperature (width) on P3d_N_fix (rule `b8a3d79ca13111db2bd667dc16e7a8418ddfe27bfaecbfaea23b099037341730`):
+  KILL at gate 2.** Gate 1 (nested LOYO) passed barely: −0.00045 Brier [−0.00094, −0.0000084], about 0.05% of the
+  uncalibrated Brier. Gate 2, dev 07-12, calibrated − uncalibrated: **dR −0.0022 [−0.0156, +0.0104]**; the walk-forward
+  temperature (mean 1.40-1.88 by hour) was much sharper than the LOYO one (1.04-1.29) and did not transfer. Tempering L6
+  is null too (+0.0024 [−0.0046, +0.0094], reported only). **The width lever is closed for the NBM family, extending
+  §1c's closure to L6 and P3d_N_fix at capture time:** under the rule no other temperature grid, hour grouping, scale
+  variant, per-market map, conditional trigger or isotonic form is run on any NBM-anchored arm.
+- **R-J, the R-G trajectory columns at 13-14 (rule `e948c0a288f6e4a1cf4f3f143b8246cb11bc48e21cc67238187c180f58dfe171`):
+  KILL at gate 3.** Parity passed, and LOYO B_G − B_N −0.0335 Brier [−0.0377, −0.0295] passed. Gate 3, dev P3d_G −
+  P3d_N_fix at 13-14: **dR −0.0025 [−0.0207, +0.0158]** (crossed [−0.0298, +0.0260]). The h15 cell (−0.0451) is reported
+  only and cannot seed a rung. **The trajectory family is closed for the afternoon:** no other trajectory, path-gap,
+  trend or floor-feature variant is run on any NBM-anchored arm at any hour. **The separately pre-registered HRRR hourly
+  path variant is excluded from this kill.** Reported: P3d_N_fix − the composite's post-13 arm (P3d_N) at 13-14 +0.0107
+  [+0.0016, +0.0210], so an afternoon challenger built on P3d_N_fix starts behind the incumbent.
+- **The common shape (R-G and R-J):** the new columns help the simple OLS arm a great deal (R-J dev B_G − B_N −0.0946 at
+  13-14), but the HGB residual arm already carries that information (LOYO −0.004, dev null). A rung must be measured on
+  the strongest arm, not only on the baseline.
+- **Not claimed:** edge, any forward result, or a claim about the HRRR hourly path.
+
+### 10ag. The P3d_N afternoon look-ahead is worth +0.0004 Brier at 13-16 and flips no MG-2 gate; the market-relative atlas puts the 07-12 loss in winner-bucket mass — lane L2, workstation, 2026-10-25
+
+**Claim, at exactly this scope:** descriptive dev-window reads, selection evidence only; no arm, rule or edge claim.
+Nothing dated after 2026-09-29 was read. Records: `p3dn_diag/diag_summary.md` and `rungh/rh_summary.md` under
+`docs/research/l2-pooled-residual-2026-10-24/`.
+
+- **P3d_N diagnostic (fit held fixed; the whole gap is the inputs).** P3d_N's dev emitter takes the last replay snapshot
+  captured in [h:00, h+1:00) for every row of hour h. At 13-14, 8,077 of 9,332 rows use a snapshot captured after the
+  row's own capture (median 27.6 min later), and 180 use a METAR row first received after capture; no observation is
+  observed after capture. **It is receipt look-ahead through `last_in_hour` snapshot selection,** acting mostly through
+  high_so_far (feature and floor; share 0.79 [0.23, 1.44] at 13-14); WU whole °F rounding costs nothing.
+  - **MG-2 composite − MG-1:** 13-16 −0.0155 with P3d_N against −0.0151 [−0.0192, −0.0113] with P3d_N_fix, so the fix
+    costs **+0.0004 Brier [+0.0001, +0.0007], about 3% of the composite's 13-16 gain**; 00-16 −0.0049 against −0.0048.
+    **No gate flips:** G1 and G2 pass in both versions.
+  - **The pick survives:** P3d_N_fix − A_N −0.1413 [−0.2043, −0.0824] (crossed [−0.3226, −0.0154]) against the pick's
+    −0.1551; conditions 2-4 and the tie rule hold. A_N's reader has the same look-ahead and was not fixed, so this is
+    conservative for P3d_N_fix. Clause (d) (A_N − MG-1 −0.3915) does not involve P3d_N.
+  - The forward MG-2 gate path is also `last_in_hour`; the as-of-capture path is primary for market comparisons. **A C7
+    Clarification to the MG-2 rule is pending** (not written at the time of this entry).
+- **R-H market-relative atlas, SELECTION EVIDENCE** (atlas `ff7ee23179be2beceb9c7b883ffb3ae37fb9966e1aee7f8ee6df0744ab9fb814`;
+  57 dates, 626 market-days; reference is the capture-time market price, never `last_in_hour`; not pre-registered).
+  - **At 07-12 the loss is winner-bucket mass:** position 0 carries +0.0093 of L6's +0.0081 excess and +0.0122 of
+    P3d_N_fix's +0.0101; winner mass is 0.415 for the market against 0.325 (L6) and 0.292 (P3d), with the difference two
+    or more buckets away. The excess is flat by hour (h07 to h12) and full size before any daytime observation.
+  - **It is regime-flat:** no front, cloud, onshore, HRRR−NBM, NWS−NBM or observed-path tag separates from the window
+    mean at 07-12.
+  - **Re-centring on the market median removes about 25%** of P3d_N_fix's 07-12 excess (+0.0102 to +0.0077) and about
+    15% of L6's (R-I alternative reading); only after re-centring does tempering help (+0.0012 for P3d). Centre, not
+    width, is the lever (§1c).
+  - At 13-16 P3d_N_fix loses most where the observed path runs below NBM's diurnal path (cold path +0.0183, 47% of the
+    window excess); MG-1 alone fails on NBM-too-warm days, which P3d_N_fix mostly removes (+0.0083 against +0.0233).
+- **Not claimed:** that any atlas cell is a lever on its own; every cell consumes the market benchmark and is never a
+  gate, arm or improvement.
 
 ## Related
 
