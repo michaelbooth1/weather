@@ -147,6 +147,13 @@ def test_r4_toronto_capture_dating_in_native_celsius_and_parse_check(tmp_path):
     assert pc["distinct_failures"] == 1 and pc["failures"][0]["label"] == "23 C"  # listed, not coerced
     assert pc["parsed"]["18 C or below"] == ["lte", 18] and pc["parsed"]["30 C or higher"] == ["gte", 30]
     assert pc["days_not_a_partition"] == ["2026-08-20"]
+    lf = summ["label_free_no_ask"]  # clarification 1: NO ask 0.90 from 14:12, depth 20, value >= 0.005
+    assert lf["dead_buckets"] == 2 and lf["with_qualifying_no_ask"] == 1
+    assert lf["sum_first_ask_depth_1pct"] == pytest.approx(20.0) and lf["per_first_hour"] == {"14": 1}
+    nolabel = pd.DataFrame({"max_temp_native": [float("nan")]}, index=[D])
+    b2, d2 = tor.stage_a_scan(obs, nolabel, root, ["toronto"], "capture", tmp_path / "replay")
+    assert not b2 and d2[0]["status"] == "no_wu_label"  # never in the primary, still measured label-free
+    assert sum(x["qualifying_snapshots"] > 0 for x in d2[0]["label_free"]) == 1
 
 
 def test_partition_check_and_fahrenheit_floor_fails_celsius_sanity():
@@ -154,3 +161,34 @@ def test_partition_check_and_fahrenheit_floor_fails_celsius_sanity():
     assert not tor.partition_ok([("lte", 17), ("eq", 19, 19), ("gte", 20)])
     days = [{"date": "2026-08-20", "H_s_last_c": 77, "H_1659_c": 25}]  # a F-valued floor misses by ~50
     assert tor.r4_controls([], days)["verdict"] == "FAIL"
+
+
+HDR = "schema_version,local_date,temperature_unit,row_count,last_time,max_temp_native\n"
+
+
+def _wu(tmp_path, pinned, extra):
+    root = tmp_path / "wu"
+    (root / "cyyz" / "daily").mkdir(parents=True)
+    (root / "cyyz" / "daily" / "daily_summary.csv").write_text(HDR + pinned, encoding="utf-8")
+    ex = tmp_path / "extra.csv"
+    ex.write_text(HDR + extra, encoding="utf-8")
+    return root, ex
+
+
+def test_appended_wu_input_fails_closed(tmp_path, monkeypatch):
+    ok = "v2,2026-08-11,C,24,23:00,27\nv2,2026-09-29,C,24,23:00,19\n"
+    root, ex = _wu(tmp_path, "v2,2026-08-10,C,24,23:00,26\nv2,2026-10-02,C,24,23:00,99\n", ok)
+    monkeypatch.setattr(tor, "WU_EXTRA_SHA256", db.sha256_file(ex))
+    w, _ = tor.load_wu(root, ex, db.sha256_file(ex))
+    assert [str(d) for d in w.index] == ["2026-08-10", "2026-08-11", "2026-09-29"]  # pinned 10-02 dropped
+    with pytest.raises(db.data.Refused):
+        tor.load_wu(root, ex, "0" * 64)  # sha mismatch
+    bads = ("v2,2026-08-10,C,24,23:00,26\n",  # duplicates a pinned date
+            "v2,2026-09-30,C,24,23:00,20\n",  # after the dev window
+            "v2,2026-08-12,C,24,23:00,27\nv2,2026-08-12,C,24,23:00,27\n",  # duplicate within the input
+            "v2,2026-08-13,F,24,23:00,80\n")  # not native Celsius
+    for i, bad in enumerate(bads):
+        root, ex = _wu(tmp_path / f"bad{i}", "v2,2026-08-10,C,24,23:00,26\n", bad)
+        monkeypatch.setattr(tor, "WU_EXTRA_SHA256", db.sha256_file(ex))
+        with pytest.raises(db.data.Refused):
+            tor.load_wu(root, ex, db.sha256_file(ex))

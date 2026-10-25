@@ -51,6 +51,9 @@ RULE_SHA256 = "c754ddab8ed3634c0854444dded9d4831bf4ff955b5efd944fc54f582246ef3d"
 RULE_R4_SHA256 = "12902246a5358df5a2926314465e61dd4d1afaeedd408b994706e5b773c9f061"
 TAPES_SUMS_SHA256 = "a07966fbcf89b0563d3eab91797e1f12fe475715daab15f5fbc876665b09d2c0"
 CELSIUS_SANITY_MIN = 0.95
+# Clarification 1 (2026-10-25): rule doc sha after the dated clarification; primary unchanged.
+RULE_R4_C1_DOC_SHA256 = "46c48626a1204e274e0fb9fa6951b71b587e39310a0f37e41b2d50172c0738bd"
+WU_EXTRA_SHA256 = "c9e16b1d4cf624cde3f4b6b02cde5d483747a7ed67f70750fd1f5cc27594433a"
 MARKET = "toronto"
 STATION = "CYYZ"
 TZ_NAME = "America/Toronto"
@@ -222,12 +225,18 @@ def steps_c(day, d, zone):
 
 # ----------------------------------------------------------------------------- WU (native C)
 
-def load_wu(wu_root):
+def load_wu(wu_root, extra=None, extra_sha256=None):
+    """Pinned CYYZ daily summary (rows after 09-29 dropped unparsed), then an optional appended input.
+
+    The appended input (clarification 1) fails closed: sha, header, any date after 09-29, any duplicate
+    local_date within it or against the pinned rows, and any non-C unit refuse the run.
+    """
     path = Path(wu_root) / "cyyz" / "daily" / "daily_summary.csv"
     cols = ["local_date", "temperature_unit", "row_count", "last_time", "max_temp_native"]
     kept = []
     with open(path, "r", encoding="utf-8-sig", newline="") as handle:
         reader = csv.DictReader(handle)
+        header = reader.fieldnames
         for rec in reader:
             try:
                 if date.fromisoformat(str(rec["local_date"])[:10]) > db.DEV_LAST:
@@ -235,6 +244,29 @@ def load_wu(wu_root):
             except ValueError:
                 continue
             kept.append({c: rec.get(c) for c in cols})
+    if extra is not None:
+        got = db.sha256_file(extra)
+        if got != extra_sha256 or got != WU_EXTRA_SHA256:
+            raise data.Refused(f"refused: appended WU input sha256 {got} != {WU_EXTRA_SHA256}")
+        seen = {str(r["local_date"])[:10] for r in kept}
+        with open(extra, "r", encoding="utf-8-sig", newline="") as handle:
+            reader = csv.DictReader(handle)
+            if reader.fieldnames != header:
+                raise data.Refused("refused: appended WU input header differs from the pinned file")
+            for rec in reader:
+                d_ = str(rec["local_date"])[:10]
+                try:
+                    dd_ = date.fromisoformat(d_)
+                except ValueError:
+                    raise data.Refused(f"refused: appended WU input has an unparseable local_date {d_!r}")
+                if dd_ > db.DEV_LAST:
+                    raise data.Refused(f"refused: appended WU input has a row dated {d_} after {db.DEV_LAST}")
+                if d_ in seen:
+                    raise data.Refused(f"refused: duplicate local_date {d_} across the WU inputs")
+                if rec.get("temperature_unit") != UNIT:
+                    raise data.Refused(f"refused: appended WU row {d_} is not native Celsius")
+                seen.add(d_)
+                kept.append({c: rec.get(c) for c in cols})
     w = pd.DataFrame(kept, columns=cols)
     w["row_count"] = pd.to_numeric(w.row_count, errors="coerce")
     w["max_temp_native"] = pd.to_numeric(w.max_temp_native, errors="coerce")
@@ -339,6 +371,34 @@ def stream_summary_c(path, t_first, t_last):
     return rows, tokens, highs, n
 
 
+def label_free_no_ask(rows, key, entry, end, zone):
+    """Clarification 1: NO-side asks (own ask only) from entry to 16:59 with value >= the rule minimum."""
+    hits = [r for r in rows.get((key, "no"), []) if entry <= r[0] <= end and r[2] is not None
+            and db.value(r[2]) >= db.MIN_VALUE]
+    if not hits:
+        return {"qualifying_snapshots": 0}
+    f = hits[0]
+    return {"qualifying_snapshots": len(hits), "first_utc": f[0].isoformat(),
+            "first_hour": int(f[0].astimezone(zone).hour), "first_ask": f[2], "first_ask_depth_1pct": f[4] or 0.0,
+            "first_ask_depth_5pct": f[6] or 0.0, "max_ask_depth_1pct": max(r[4] or 0.0 for r in hits),
+            "min_ask": min(r[2] for r in hits)}
+
+
+def label_free_summary(buckets, days):
+    recs = [b["label_free"] for b in buckets if "label_free" in b]
+    recs += [x for d in days for x in d.get("label_free") or []]
+    q = [r for r in recs if r.get("qualifying_snapshots")]
+    hours = {}
+    for r in q:
+        hours[str(r["first_hour"])] = hours.get(str(r["first_hour"]), 0) + 1
+    return {"descriptive_only": True, "dead_buckets": len(recs), "with_qualifying_no_ask": len(q),
+            "on_unlabelled_days": int(sum(len(d.get("label_free") or []) for d in days)),
+            "sum_first_ask_depth_1pct": float(sum(r["first_ask_depth_1pct"] for r in q)),
+            "sum_max_ask_depth_1pct": float(sum(r["max_ask_depth_1pct"] for r in q)),
+            "per_first_hour": dict(sorted(hours.items())),
+            "examples": sorted(q, key=lambda r: r["first_utc"])[:10]}
+
+
 def partition_ok(keys):
     """True when the parsed buckets (incl. gte) tile the integers: lte X, eq X+1..., ..., gte Y, no gaps."""
     lte = [k for k in keys if k[0] == "lte"]
@@ -364,10 +424,7 @@ def stage_a_scan(obs, wu, tapes_root, kept, dating="obs", replay_root=None):
         dd = date.fromisoformat(d_iso)
         w = wu.loc[dd] if dd in wu.index else None
         info = {"market": MARKET, "date": d_iso, "folder": folder.name}
-        if w is None or pd.isna(w.max_temp_native):
-            days.append(dict(info, status="no_wu_label"))
-            continue
-        wu_max = float(w.max_temp_native)
+        wu_max = None if w is None or pd.isna(w.max_temp_native) else float(w.max_temp_native)
         day = obs["days"].get(dd)
         steps = steps_c(day, dd, zone)
         start, end = db.local_instant(dd, 13, 0, zone), db.local_instant(dd, 16, 59, zone)
@@ -401,6 +458,11 @@ def stage_a_scan(obs, wu, tapes_root, kept, dating="obs", replay_root=None):
                 fd, x = fd_obs, {}
             dead.append((key, high, fd, max(fd + db.LATENCY, start), x))
         info["dead_obs_only"] = extra.get("dead_obs_only", 0)
+        lf = {tuple(k): label_free_no_ask(rows, k, en, end, zone) for k, _, _, en, _ in dead}
+        if wu_max is None:  # no settlement label: label-free measure only, never the primary
+            days.append(dict(info, status="no_wu_label", H_1659_c=h_end, summary=n,
+                             label_free=[dict(v, bucket=list(k)) for k, v in lf.items()]))
+            continue
         if not dead:
             days.append(dict(info, status="no_dead", H_1659_c=h_end, summary=n))
             continue
@@ -412,7 +474,8 @@ def stage_a_scan(obs, wu, tapes_root, kept, dating="obs", replay_root=None):
             yes = settled_yes(key, wu_max)
             rec = dict({"market": MARKET, "date": d_iso, "bucket": list(key), "high_c": high,
                         "first_dead": fd.isoformat(), "entry_instant": entry.isoformat(), "settled_yes": bool(yes),
-                        "excluded_market": MARKET not in kept, "trade_parts": n_parts}, **x)
+                        "excluded_market": MARKET not in kept, "trade_parts": n_parts,
+                        "label_free": lf[tuple(key)]}, **x)
             qt = db.no_quote(rows, key, entry)
             if qt is None or qt[0] > end:
                 buckets.append(dict(rec, status="no_capture"))
@@ -483,6 +546,7 @@ def stage_a_report(buckets, days, dates_all, kept, rate):
                              for k in ("rows", "bad", "label_mismatch", "gte")}}
     summ["market_days"]["no_replay"] = int(sum(x["status"] == "no_replay" for x in days))
     summ["parse_check"] = parse_check(days)
+    summ["label_free_no_ask"] = label_free_summary(buckets, days)
     if any("first_dead_obs10" in b for b in buckets) or summ["market_days"]["no_replay"]:
         summ["r4"] = r4_controls(buckets, days)
         if summ["r4"]["verdict"] != "PASS":
@@ -570,6 +634,8 @@ def main(argv=None):
     ap.add_argument("--obs")
     ap.add_argument("--obs-sha256")
     ap.add_argument("--wu-root")
+    ap.add_argument("--wu-extra", help="clarification 1: appended CYYZ daily summary (fails closed)")
+    ap.add_argument("--wu-extra-sha256")
     ap.add_argument("--history")
     ap.add_argument("--history-sha256")
     ap.add_argument("--tapes")
@@ -608,10 +674,14 @@ def main(argv=None):
                 if rsums != args.replay_sha256sums or rsums != db.REPLAY_SUMS_SHA256:
                     raise data.Refused(f"refused: replay SHA256SUMS {rsums} != the rule's {db.REPLAY_SUMS_SHA256}")
             obs = load_obs(args.obs, args.obs_sha256)
-            wu, _ = load_wu(args.wu_root)
+            wu, wu_path = load_wu(args.wu_root, args.wu_extra, args.wu_extra_sha256)
             buckets, days = stage_a_scan(obs, wu, args.tapes, kept, args.dating, args.replay_root)
             payload = dict({"schema": SCHEMA_A_SCAN, "rule_sha256": _scan_rule(args), "history_sha256": hsha,
                             "dating": args.dating, "replay_sha256sums_sha256": rsums,
+                            "rule_doc_sha256": RULE_R4_C1_DOC_SHA256 if args.wu_extra else None,
+                            "wu_inputs": [{"path": str(wu_path), "sha256": db.sha256_file(wu_path)}] + (
+                                [{"path": str(args.wu_extra), "sha256": db.sha256_file(args.wu_extra)}]
+                                if args.wu_extra else []),
                             "obs_sha256": obs["sha256"], "tapes_sha256sums_sha256": sums, "buckets": buckets,
                             "days": days, "dates_all": sorted(x["date"] for x in days)}, **_code())
             name = "toronto_stage_a" + ("_r4" if args.dating == "capture" else "") + "_scan"

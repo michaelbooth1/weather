@@ -144,3 +144,33 @@ comes from the date-clustered bootstrap. For reference, the US r4 primary's MDE8
 
 DEV_WINDOW_LEDGER.md: r4 left 34 rows. This check adds 1 K row (Toronto dead-bucket NO taker, 13-16,
 capture-dated), which is K candidate 25 on 2026-07-31..09-29. It is the first Toronto row.
+
+## Clarification 1 (2026-10-25, before any 08-11..09-29 label or this measure's rows are read)
+
+Approved by master through the coordinator. The original rule sha256 is
+`12902246a5358df5a2926314465e61dd4d1afaeedd408b994706e5b773c9f061`. **The primary, every constant, the windows
+and the reading stay exactly as registered above.**
+
+1. **Settlement-proxy input.** The pinned `data/wunderground/cyyz/daily/daily_summary.csv` ends at 2026-08-10.
+   A second, separate input is appended after it:
+   - path `data/inbox/wu-cyyz-0811-0929/daily_summary_cyyz_0811_0929.csv`;
+   - sha256 `c9e16b1d4cf624cde3f4b6b02cde5d483747a7ed67f70750fd1f5cc27594433a`;
+   - 50 rows, 2026-08-11..09-29, with the same header.
+
+   The pinned file is not edited. The code fails closed if the second input:
+   - has a sha mismatch or a header mismatch;
+   - has any row dated after 2026-09-29;
+   - has a non-C unit;
+   - has any `local_date` that duplicates another row in it or a row of the pinned file.
+
+   Both input shas are recorded in the scan output. r4-toronto is then re-run unchanged.
+2. **Label-free tradability (descriptive, secondary only; never part of the primary or the reading).**
+   - For every capture-dated dead bucket, on every scanned tape day with or without a WU label, count whether
+     **any** snapshot from entry to 16:59 has a NO best ask q with `value(q) = 1 - q - 0.05 q (1 - q) >= 0.005`.
+     That is the rule's minimum.
+   - Only the NO side's own ask counts. The 1 - YES-bid fallback does not count.
+   - For those buckets, record the qualifying snapshot count and the first qualifying snapshot's time, ask and
+     `ask_depth_1pct` / `ask_depth_5pct`. Also record the maximum `ask_depth_1pct` over qualifying snapshots,
+     which is the fillable size in shares.
+   - Report the totals: dead buckets, buckets with a qualifying NO ask, the sums of first-qualifying
+     `ask_depth_1pct` and of maximum `ask_depth_1pct`, and the count per entry hour.
