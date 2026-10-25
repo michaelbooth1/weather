@@ -164,3 +164,15 @@ def test_pre13_captured_refuses_unpinned_module_or_nowcasts(tmp_path):
     bad = SimpleNamespace(**dict(vars(good), pre13_module_sha256=None))
     with pytest.raises(data.Refused, match="module"):
         mb.pre13_captured(bad, None, None, None, None, None)
+
+
+def test_nbm0712_pins_the_rule_vectors_and_its_windows(tmp_path):
+    from weather.reporting.scorecards import dev_scorecard_data as data
+
+    f = tmp_path / "dev_P3d_N.jsonl"
+    f.write_text("{}\n", encoding="utf-8")
+    with pytest.raises(data.Refused):
+        mb.check_nbm0712(str(f), data.sha256_file(f))  # not the rule's vectors
+    assert mb.NBM0712_VECTORS_SHA256.startswith("721ae2cd")
+    assert [w for w, lo, hi in mb.NBM0712_WINDOWS if lo == hi] == [f"h{h:02d}" for h in range(7, 13)]
+    assert [b for b, lo, hi in mb.FIT_BLOCKS if hi < mb.COMPOSITE_SWITCH_HOUR] == ["07-12", "06-09", "10-12"]

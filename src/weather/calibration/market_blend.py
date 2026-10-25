@@ -45,6 +45,12 @@ from weather.reporting.scorecards import dev_scorecard_data as data  # noqa: E40
 SCHEMA = "market_blend/1"
 RULE_SHA256 = "e29c9a84395d7f4f5e9a0091da99ff970597c40faa7d4cc81aa034a373f8bb8c"
 CLARIFICATION_1_SHA256 = "46e1fac20a4fed42ec1290c1d675dbf204dfba475ee756ee442b6f121d5a9de0"  # pre-13 / 13+ slots
+# Item 5 (C:\t\l11\market_blend_rule_nbm0712.md): P3d_N at 07-12 in place of MG-1 + L6, run-2 machinery unchanged.
+NBM0712_RULE_SHA256 = "94b1603a407dd66ccb6137468cc3e703e00f73024209997c3181e26ed8a07e84"
+NBM0712_VECTORS_SHA256 = "721ae2cd24283115f68c4b6a1b38d84d34a81921e41468d360b587599fd031ec"
+NBM0712_MG1_R = 1.0016629  # run 2's MG-1 07-12 primary R (rows 1ba4620a...), 7 dp
+NBM0712_WINDOWS = (("h07", 7, 7), ("h08", 8, 8), ("h09", 9, 9), ("h10", 10, 10), ("h11", 11, 11),
+                   ("h12", 12, 12), ("07-12", 7, 12))
 EPS = 1e-4
 W_GRID = np.arange(101) / 100.0
 GAP_DAYS = 1
@@ -371,6 +377,13 @@ def pre13_captured(args, layout, folds, burn_folds, fit_t, p_mg1_fit):
                        nowcasts_sha256=args.pre13_nowcasts_sha256)
 
 
+def check_nbm0712(path, sha):
+    actual = data.sha256_file(path)
+    if actual != sha or actual != NBM0712_VECTORS_SHA256:
+        raise data.Refused(f"refused: NBM 07-12 vectors sha256 {actual} != the rule's {NBM0712_VECTORS_SHA256}")
+    return actual
+
+
 def check_arm_a_refit(path, sha, marker=REFIT_MARKER):
     if LEAD1_ARM_A in Path(path).name or "dev_l8" in str(path).lower():
         raise data.Refused("refused: the lead-1 arm A vectors are never used for a reported composite result")
@@ -413,7 +426,21 @@ def run(args):
     cands = {"mg1": (p_mg1_fit, [b for b, _, _ in FIT_BLOCKS])}
     meta = {"mg1": {"rule": "r-t5-inc-c1 (loss_atlas.mg1_frame)", "coverage_fit_table": mg1_reasons,
                     "coverage_07_12_score": float(restrict_snap(fit_t, score_t, cov_mg1)[w0712].mean())}}
-    if not args.mg1_only:
+    nbm = None
+    if args.nbm0712_vectors:  # item 5: MG-1 controls + the P3d_N 07-12 candidate; no L6 / composite
+        actual = check_nbm0712(args.nbm0712_vectors, args.nbm0712_sha256)
+        p_n_fit, _, meta_n = gta.load_candidate(args.nbm0712_vectors, args.arm_a_trained_through, layout, folds,
+                                                fit_t)
+        p_n_score, cov_n, _ = gta.load_candidate(args.nbm0712_vectors, args.arm_a_trained_through, layout, folds,
+                                                 score_t)
+        same = bool(np.array_equal(restrict(fit_t, score_t, p_n_fit), p_n_score))
+        controls["p3d_n_fit_equals_score_vector"] = {"equal": same, "verdict": "PASS" if same else "FAIL"}
+        controls["w0_identity_p3d_n_0712"] = w0_identity(score_t, p_n_score)
+        cands["p3d_n_0712"] = (p_n_fit, [b for b, lo, hi in FIT_BLOCKS if hi < COMPOSITE_SWITCH_HOUR])
+        meta["p3d_n_0712"] = dict(meta_n, sha256=actual, folds=None,
+                                  coverage_07_12_score=float(np.asarray(cov_n)[hour_mask(score_t, 7, 12)].mean()))
+        nbm = (p_n_score, cov_n)
+    if not args.mg1_only and not args.nbm0712_vectors:
         frame, l6_meta = l6_frame(layout, folds, burn_folds, args.l6_module)
         p_l6_fit, cov_l6, l6_reasons = gta.vector_and_coverage(fit_t, frame)
         p_l6 = restrict(fit_t, score_t, p_l6_fit)
@@ -458,6 +485,12 @@ def run(args):
         res = score_candidate(name, fit_t, score_t, p_fit, blocks)
         prim = next(r for r in res["rows"] if r["fit"] == f"{PRIMARY_FIT}/brier/ALL" and r["pool"] == "ALL"
                     and r["group"] == PRIMARY_FIT)
+        if nbm is not None and name == "mg1":  # item 5 control, before the candidate is scored
+            ok = round(prim["R"], 7) == NBM0712_MG1_R
+            controls["mg1_run2_reproduces"] = {"R": prim["R"], "expected": NBM0712_MG1_R,
+                                               "verdict": "PASS" if ok else "FAIL"}
+            if not ok:
+                raise ControlFailed(f"refused: MG-1 07-12 R {prim['R']} != run 2's {NBM0712_MG1_R}")
         wbar = res["fits"][f"{PRIMARY_FIT}/brier/ALL"]["summary"]["mean"]
         res["reading"] = {"primary_row": {k: prim[k] for k in ("R", "ci95_date", "ci95_crossed", "mde80_R",
                                                                 "n_market_days", "n_dates", "log_ratio")},
@@ -478,7 +511,12 @@ def run(args):
         results[name] = res
 
     code = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
-    return {"schema": SCHEMA, "rule_sha256": RULE_SHA256,
+    extra = {}
+    if nbm is not None:
+        extra = {"nbm0712_rule_sha256": NBM0712_RULE_SHA256,
+                 "descriptive_p3d_n_0712": {"label": "DESCRIPTIVE - P3d_N alone vs market, not for a decision",
+                                            "rows": descriptive_rows(score_t, nbm[0], nbm[1], NBM0712_WINDOWS)}}
+    return {**extra, "schema": SCHEMA, "rule_sha256": RULE_SHA256,
             "clarification_1_sha256": CLARIFICATION_1_SHA256 if args.pre13_module or args.arm_a_refit else None, "evidence_class": "development (dev window, provisional)",
             "code_sha256": code, "gap_atlas_code_sha256": hashlib.sha256(Path(gta.__file__).read_bytes()).hexdigest(),
             "scorecard_code_sha256": sc.code_sha256(), "layout_manifest_sha256": layout.manifest_sha256,
@@ -496,7 +534,7 @@ DESCRIPTIVE_NOTE_SHA256 = "7928629405d812dd4642e39c1e02d7ff31542deabc10176f7c591
 DESCRIPTIVE_WINDOWS = (("h13", 13, 13), ("h14", 14, 14), ("h15", 15, 15), ("h16", 16, 16), ("13-16", 13, 16))
 
 
-def descriptive_rows(score_t, p, cov):
+def descriptive_rows(score_t, p, cov, windows=DESCRIPTIVE_WINDOWS):
     """DESCRIPTIVE (not pre-registered for a decision): an unblended candidate and the floor-only control vs market."""
     pm = score_t.p_market
     floor = pool(pm, pm, 0.0, score_t.impossible, score_t.band_snap, len(score_t.snaps), force_floor=True)
@@ -504,7 +542,7 @@ def descriptive_rows(score_t, p, cov):
     vecs = {"candidate": (score_t.brier(p), score_t.log_score(p)),
             "floor_only": (score_t.brier(floor), score_t.log_score(floor))}
     rows = []
-    for g, lo, hi in DESCRIPTIVE_WINDOWS:
+    for g, lo, hi in windows:
         for pool_name, members in pools(score_t)[:2]:
             mask = hour_mask(score_t, lo, hi, members)
             for name, (b, lg) in vecs.items():
@@ -630,6 +668,8 @@ def main(argv=None):
     ap.add_argument("--arm-a-trained-through", default="2025-12-31")
     ap.add_argument("--descriptive-vectors", help="DESCRIPTIVE: an unblended candidate vs market at 13-16")
     ap.add_argument("--descriptive-sha256")
+    ap.add_argument("--nbm0712-vectors", help="item 5: P3d_N at 07-12 in place of MG-1 + L6 (rule 94b1603a)")
+    ap.add_argument("--nbm0712-sha256")
     ap.add_argument("--out-dir", required=True)
     args = ap.parse_args(argv)
     if args.descriptive_vectors:
