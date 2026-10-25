@@ -41,7 +41,8 @@ variants and readings are as in r2 `177e9acf…`, and the rule file was not edit
 
 The skip is a data-hygiene choice that r2 does not spell out. It removed 7 summary rows across the 621
 scanned market-days. Its effect on the result was not measured, since that would need another tape scan.
-A skipped row can only remove a capture, so it can delay or remove an entry; it cannot create one.
+A skipped row removes one capture. If that capture was the first one at or after entry, q* moves to the
+next capture, which can change the price, or whether a trade happens, in either direction.
 
 ## Reading (pre-registered)
 
