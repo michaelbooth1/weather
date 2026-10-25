@@ -1,4 +1,4 @@
-"""The workstation offline allowlist admits the MG-2 composite binding module exactly, in both mirrors.
+"""The workstation offline allowlist admits the MG-2 binding and its input receiver exactly, in both mirrors.
 
 Guards: workstation offline-module allowlist (HOST_LOAD_POLICY workstation scope; master
 pre-authorisation 2026-10-24 for a lane's own offline research module) - workload_admission.ps1
@@ -15,7 +15,7 @@ import sys
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-MODULE = "weather.calibration.mg2_composite"
+MODULES = ("weather.calibration.mg2_composite", "weather.calibration.mg2_inputs")
 
 
 def _hook():
@@ -25,7 +25,8 @@ def _hook():
     return hook
 
 
-def test_hook_admits_the_mg2_composite_exactly():
+@pytest.mark.parametrize("MODULE", MODULES)
+def test_hook_admits_the_mg2_modules_exactly(MODULE):
     hook = _hook()
     assert MODULE in hook._OFFLINE_WEATHER_MODULES
     for near in (MODULE + ".child", MODULE + "_x", "weather.calibration", "weather.calibration.mg2"):
@@ -33,11 +34,13 @@ def test_hook_admits_the_mg2_composite_exactly():
     assert hook.evaluate({"tool_name": "Bash", "tool_input": {
         "command": f'& "{sys.executable}" -m {MODULE} emit --market atlanta'
     }}, constrained_capture_host=False) is not None
+    assert "weather.calibration.mg2_input_allowlist" not in hook._OFFLINE_WEATHER_MODULES
 
 
 @pytest.mark.spawns
 @pytest.mark.skipif(os.name != "nt" or shutil.which("powershell") is None, reason="runs workload_admission.ps1")
-def test_exec_admission_lists_the_mg2_composite_and_matches_the_hook(tmp_path):
+@pytest.mark.parametrize("MODULE", MODULES)
+def test_exec_admission_lists_the_mg2_modules_and_matches_the_hook(tmp_path, MODULE):
     lister = tmp_path / "list_offline_modules.ps1"
     lister.write_text(
         f". '{ROOT / 'scripts' / 'ops' / 'workload_admission.ps1'}'\n"

@@ -15,8 +15,12 @@ AWC files as the ``00:00`` row is excluded. Implausible values are skipped. Pure
 
 Stable signature (do not change without re-pinning both callers)::
 
-    running_max_since_midnight(station, metar, *, target_date, tz, unit, cutoff_hour, now=None)
+    running_max_since_midnight(station, metar, *, target_date, tz, unit, cutoff_hour, now=None,
+                               metar_only=False)
         -> (max_value | None, first_minute_reaching_it | None)
+
+``metar_only`` (MG-2 rule Clarification C1, 2026-10-25) is for offline replays only; the serve path
+never passes it.
 """
 from __future__ import annotations
 
@@ -82,11 +86,16 @@ def row_obs_time_local(row, tz):
     return parsed.astimezone(tz) if parsed.tzinfo is not None else None
 
 
-def observed_target_date_rows(station, metar, *, target_date, tz, unit, now=None):
+def observed_target_date_rows(station, metar, *, target_date, tz, unit, now=None, metar_only=False):
     """``[(minute_of_day, value)]`` observed on ``target_date`` (<= ``now``), sorted by minute.
 
     Row sets as in ``lockin_observed_rows``: the METAR rows, plus the station rows when the station
     surface is not METAR-sourced or the METAR rows are empty.
+
+    ``metar_only`` (default False, which keeps the serve behaviour above): station rows are used only
+    when the station surface is explicitly METAR-sourced (``"metar"``) and the METAR rows are empty, so
+    a non-METAR station surface (e.g. Weather Underground) never contributes. Whenever the station
+    surface is ``"metar"`` the result equals the default.
     """
     raw_obs_times = {}
     for item in (metar or {}).get("raw_payload") or []:
@@ -95,7 +104,10 @@ def observed_target_date_rows(station, metar, *, target_date, tz, unit, now=None
     row_sets = [(metar or {}).get("rows") or []]
     station = station or {}
     station_source = station.get("station_observation_source") or station.get("source")
-    if station_source not in (None, "metar") or not row_sets[0]:
+    if metar_only:
+        if station_source == "metar" and not row_sets[0]:
+            row_sets.append(station.get("rows") or [])
+    elif station_source not in (None, "metar") or not row_sets[0]:
         row_sets.append(station.get("rows") or [])
     now_minute = now.hour * 60 + now.minute if now is not None else None
     now_local = now.astimezone(tz) if now is not None and now.tzinfo else None
@@ -123,16 +135,19 @@ def observed_target_date_rows(station, metar, *, target_date, tz, unit, now=None
     return out
 
 
-def running_max_since_midnight(station, metar, *, target_date, tz, unit, cutoff_hour, now=None):
+def running_max_since_midnight(station, metar, *, target_date, tz, unit, cutoff_hour, now=None,
+                               metar_only=False):
     """The trainer's ``high_so_far`` at ``cutoff_hour`` on captured rows: ``(max, first_minute)``.
 
     ``station`` / ``metar`` are the captured source ``data`` dicts (``rows``, optional
     ``raw_payload``); ``tz`` the market's zoneinfo; ``unit`` its native unit ("F" or "C").
     Returns ``(None, None)`` when no target-date row is observed by the cutoff.
+    ``metar_only``: see ``observed_target_date_rows``; the default keeps the serve behaviour.
     """
     cutoff_minute = int(cutoff_hour) * 60
     kept = [(m, v) for m, v in observed_target_date_rows(
-        station, metar, target_date=target_date, tz=tz, unit=unit, now=now) if m <= cutoff_minute]
+        station, metar, target_date=target_date, tz=tz, unit=unit, now=now, metar_only=metar_only)
+        if m <= cutoff_minute]
     if not kept:
         return None, None
     high = max(v for _, v in kept)
