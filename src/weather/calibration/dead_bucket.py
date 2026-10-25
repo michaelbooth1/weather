@@ -22,7 +22,8 @@ the dev dead buckets that settled YES with causes, then the GROSS UPPER BOUND (N
 first layout snapshot at or after max(first-dead + 60 s, 13:00) within 13:00-16:59 local, NO price
 q = 1 - p_market_yes + 0.01, taker fee 0.05 q (1 - q) per share (EF section 10o), unlimited depth, labels
 from the layout; $/day summed over non-excluded markets with a date-clustered 95% CI.
-Stage A (the executable book + trade-print fills of clarification 1) is not implemented here yet.
+``stage-a-scan`` (per market group; up to three in parallel) and ``stage-a-report`` (pools the scans) run
+clarification 1's book + trade-print fills on the staged tapes (``--tapes``, its SHA256SUMS sha pinned), streamed.
 """
 from __future__ import annotations
 
@@ -560,11 +561,373 @@ def render_c(p):
     return "\n".join(lines)
 
 
+# ----------------------------------------------------------------------------- stage A (clarification 1)
+
+SCHEMA_A_SCAN = "dead_bucket_stage_a_scan/1"
+SCHEMA_A = "dead_bucket_stage_a/1"
+PRINT_WINDOW = timedelta(minutes=5)
+A_VARIANTS = ("print_d1", "print_d5", "book_d1")  # primary: print_d1 (trade-print cap + 1% depth)
+A_PRIMARY_VARIANT = "print_d1"
+BOOK_ONLY_LAST = "2026-08-09"
+_SUMMARY_FIELDS = ("captured_at_utc", "bin_kind", "bin_value", "bin_value_hi", "outcome", "clob_token_id",
+                   "best_bid", "best_ask", "bid_depth_1pct", "ask_depth_1pct", "bid_depth_5pct", "ask_depth_5pct")
+
+
+def _num(text):
+    try:
+        x = float(text)
+    except (TypeError, ValueError):
+        return None
+    return x if math.isfinite(x) else None
+
+
+def _utc(text):
+    try:
+        t = datetime.fromisoformat(str(text).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return t if t.tzinfo is not None else None
+
+
+def discover_tape_events(root):
+    """{(market, 'YYYY-MM-DD'): folder} for event folders dated <= 2026-09-29 (later folders never opened)."""
+    from weather.market.execution_tape_markout import target_date_from_slug
+    from weather.market.market_registry import spec_for_slug
+
+    out = {}
+    for child in sorted(Path(root).iterdir()):
+        if not child.is_dir():
+            continue
+        spec, d = spec_for_slug(child.name), target_date_from_slug(child.name)
+        if spec is None or d is None or d > DEV_LAST:
+            continue
+        out[(spec.id, d.isoformat())] = child
+    return out
+
+
+def bucket_key(kind, low, high):
+    """The book summary's bin identity: lte X -> (lte, X); eq lo-hi -> (eq, lo, hi)."""
+    if kind == "lte":
+        return ("lte", float(high))
+    if kind == "eq":
+        return ("eq", float(low), float(high))
+    return None
+
+
+def summary_key(kind, value, value_hi):
+    kind = str(kind or "").strip().lower()
+    v, vh = _num(value), _num(value_hi)
+    if kind == "lte" and v is not None:
+        return ("lte", v)
+    if kind == "eq" and v is not None and vh is not None:
+        return ("eq", v, vh)
+    return None
+
+
+def stream_summary(path, wanted, t_first, t_last):
+    """Stream order_books_summary.csv once; keep the wanted buckets' rows inside [t_first, t_last] only.
+
+    Returns ({(key, side): [(t, best_bid, best_ask, bid_d1, ask_d1, bid_d5, ask_d5)]}, {token: (key, side)}, n_rows).
+    """
+    import csv
+
+    rows, tokens, n = {}, {}, 0
+    with open(path, "r", encoding="utf-8-sig", newline="") as handle:
+        reader = csv.reader(handle)
+        header = next(reader, None) or []
+        missing = [f for f in _SUMMARY_FIELDS if f not in header]
+        if missing:
+            raise data.LayoutError(f"{path}: summary columns missing {missing}")
+        idx = {name: header.index(name) for name in _SUMMARY_FIELDS}
+        for rec in reader:
+            n += 1
+            if len(rec) < len(header):
+                continue
+            key = summary_key(rec[idx["bin_kind"]], rec[idx["bin_value"]], rec[idx["bin_value_hi"]])
+            if key not in wanted:
+                continue
+            side = rec[idx["outcome"]].strip().lower()
+            if side not in ("yes", "no"):
+                continue
+            tokens[rec[idx["clob_token_id"]].strip()] = (key, side)
+            t = _utc(rec[idx["captured_at_utc"]])
+            if t is None or t < t_first or t > t_last:
+                continue
+            rows.setdefault((key, side), []).append((t, *(_num(rec[idx[f]]) for f in (
+                "best_bid", "best_ask", "bid_depth_1pct", "ask_depth_1pct", "bid_depth_5pct", "ask_depth_5pct"))))
+    for v in rows.values():
+        v.sort(key=lambda r: r[0])
+    return rows, tokens, n
+
+
+def stream_prints(folder, tokens, t_first, t_last):
+    """Trade prints (last_trade_price) on the wanted tokens in [t_first, t_last]: [(t, key, side, price, size)]."""
+    from weather.market.execution_tape_markout import parse_trade_line, trade_part_paths
+
+    out, parts, seen = [], trade_part_paths(Path(folder)), set()
+    for path in parts:
+        with open(path, "r", encoding="utf-8", errors="replace") as handle:
+            for line in handle:
+                if not line.strip():
+                    continue
+                tr, _ = parse_trade_line(line)
+                if tr is None or tr["token"] not in tokens or tr["identity"] in seen:
+                    continue
+                seen.add(tr["identity"])
+                t = datetime.fromtimestamp(tr["epoch_seconds"], tz=t_first.tzinfo)
+                if t_first <= t <= t_last:
+                    key, side = tokens[tr["token"]]
+                    out.append((t, key, side, tr["price"], tr["size"]))
+    return out, len(parts)
+
+
+def no_quote(rows, key, t0, strict_after=False):
+    """First capture at/after t0: (t, q, depth1, depth5, source), the NO ask, else 1 - the YES bid."""
+    def first(side, price_i, d1_i, d5_i):
+        for r in rows.get((key, side), []):
+            if (r[0] > t0 if strict_after else r[0] >= t0) and r[price_i] is not None:
+                return r[0], r[price_i], r[d1_i], r[d5_i]
+        return None
+    no = first("no", 2, 4, 6)
+    yes = first("yes", 1, 3, 5)
+    if no is not None and (yes is None or no[0] <= yes[0]):
+        return no[0], no[1], no[2] or 0.0, no[3] or 0.0, "no_ask"
+    if yes is not None:
+        return yes[0], 1.0 - yes[1], yes[2] or 0.0, yes[3] or 0.0, "one_minus_yes_bid"
+    return None
+
+
+def a_fills(stake, q, d1, d5, printed):
+    want = stake / q
+    return {"print_d1": min(want, d1, printed), "print_d5": min(want, d5, printed), "book_d1": min(want, d1)}
+
+
+def a_pnl(filled, q, yes):
+    return -filled * q - filled * fee(q) if yes else filled * (1.0 - q) - filled * fee(q)
+
+
+def stage_a_scan(layout, obs, tapes_root, markets, kept):
+    events = discover_tape_events(tapes_root)
+    buckets, days = [], []
+    for mk, d, s, geo, price, winner, settlement_high in layout_market_days(layout):
+        if mk not in markets:
+            continue
+        tz = obs[mk]["tz"]
+        dd = date.fromisoformat(d)
+        day = obs[mk]["days"].get(dd)
+        steps = h_steps(day, dd, tz)
+        end = local_instant(dd, 16, 59, tz)
+        h_end = H(running(l8_rows(day), dd, tz, end)[0])
+        dead = []
+        for band in geo.itertuples(index=False):
+            if band.kind not in DEAD_KINDS or h_end is None or not float(band.high) < h_end:
+                continue
+            fd = first_dead(steps, float(band.high))
+            dead.append((band, fd, max(fd + LATENCY, local_instant(dd, 13, 0, tz))))
+        folder = events.get((mk, d))
+        info = {"market": mk, "date": d, "n_dead": len(dead), "folder": folder.name if folder else None}
+        if not dead or folder is None:
+            days.append(dict(info, status="no_dead" if not dead else "no_tape_folder"))
+            for band, fd, entry in dead:
+                buckets.append({"market": mk, "date": d, "band_index": int(band.band_index),
+                                "status": "no_tape_folder", "excluded_market": mk not in kept})
+            continue
+        wanted = {bucket_key(b.kind, b.low, b.high): (b, fd, en) for b, fd, en in dead}
+        t_first = min(en for _, _, en in dead)
+        rows, tokens, n_rows = stream_summary(folder / "order_books_summary.csv", set(wanted), t_first, end)
+        prints, n_parts = stream_prints(folder, tokens, t_first, end + PRINT_WINDOW)
+        days.append(dict(info, status="scanned", summary_rows=n_rows, trade_parts=n_parts, prints_kept=len(prints),
+                         tokens_matched=len(tokens)))
+        for key, (band, fd, entry) in wanted.items():
+            bi = int(band.band_index)
+            yes = winner == bi
+            rec = {"market": mk, "date": d, "band_index": bi, "kind": band.kind, "high": float(band.high),
+                   "first_dead": fd.isoformat(), "entry_instant": entry.isoformat(), "settled_yes": bool(yes),
+                   "excluded_market": mk not in kept, "trade_parts": n_parts}
+            qt = no_quote(rows, key, entry)
+            if qt is None or qt[0] > end:
+                buckets.append(dict(rec, status="no_capture"))
+                continue
+            t_q, q, d1, d5, source = qt
+            rec.update(capture_utc=t_q.isoformat(), entry_hour=int(t_q.astimezone(tz).hour), q=q,
+                       quote_source=source, depth1=d1, depth5=d5, value=value(q))
+            if value(q) < MIN_VALUE:
+                buckets.append(dict(rec, status="no_value"))
+                continue
+            w_end = entry + PRINT_WINDOW
+            printed = sum(sz for t, k, side, p, sz in prints if k == key and entry <= t <= w_end
+                          and ((side == "no" and p <= q + 1e-12) or (side == "yes" and p >= 1.0 - q - 1e-12)))
+            stop, t_cur = end, t_q
+            while True:
+                nxt = no_quote(rows, key, t_cur, strict_after=True)
+                if nxt is None or nxt[0] > end:
+                    break
+                if value(nxt[1]) < MIN_VALUE:
+                    stop = nxt[0]
+                    break
+                t_cur = nxt[0]
+            rec.update(printed_shares=printed, duration_min=max(0.0, (stop - entry).total_seconds() / 60.0))
+            for stake in STAKES:
+                for var, filled in a_fills(stake, q, d1, d5, printed).items():
+                    rec[f"filled_{var}_{int(stake)}"] = filled
+                    rec[f"pnl_{var}_{int(stake)}"] = a_pnl(filled, q, yes)
+            buckets.append(dict(rec, status="traded"))
+    return buckets, days
+
+
+def a_table(buckets, dates, members, rates, variant, stake=PRIMARY_STAKE, expected_loss=False, hour=None):
+    per_date = {}
+    for b in buckets:
+        if b["status"] != "traded" or b["market"] not in members or b["date"] not in dates:
+            continue
+        if hour is not None and b["entry_hour"] != hour:
+            continue
+        filled = b[f"filled_{variant}_{int(stake)}"]
+        if expected_loss:
+            q, r = b["q"], rates[b["market"]]
+            pnl = (1.0 - r) * filled * (1.0 - q) - r * filled * q - filled * fee(q)
+        else:
+            pnl = b[f"pnl_{variant}_{int(stake)}"]
+        per_date[b["date"]] = per_date.get(b["date"], 0.0) + pnl
+    return summarise(per_date, dates)
+
+
+def reading_a(primary):
+    lo = primary["ci95"][0]
+    if lo is not None and lo > 0:
+        return "WORTH AN OWNER DECISION on a forward paper test (lower CI > 0; development evidence)"
+    return "NOT WORTH PURSUING (lower CI <= 0)"
+
+
+def stage_a_report(buckets, days, dates_all, kept, rates):
+    win_a = [d for d in dates_all if d >= A_WINDOW_FIRST]
+    win_b = [d for d in dates_all if d <= BOOK_ONLY_LAST]
+
+    def block(dates, variant):
+        return {"variant": variant,
+                "primary_25": a_table(buckets, dates, kept, rates, variant),
+                "ladder": {str(int(s)): a_table(buckets, dates, kept, rates, variant, stake=s) for s in STAKES},
+                "expected_loss_25": a_table(buckets, dates, kept, rates, variant, expected_loss=True),
+                "primary5_25": a_table(buckets, dates, [m for m in PRIMARY5 if m in kept], rates, variant),
+                "per_hour_25": {str(h): a_table(buckets, dates, kept, rates, variant, hour=h) for h in (13, 14, 15, 16)},
+                "per_market_25": {mk: dict(a_table(buckets, dates, [mk], rates, variant), excluded=mk not in kept)
+                                  for mk in MARKETS}}
+
+    res = {"A_08-10..09-29": block(win_a, A_PRIMARY_VARIANT),
+           "sensitivity_depth5_08-10..09-29": block(win_a, "print_d5"),
+           "sensitivity_book_only_08-10..09-29": block(win_a, "book_d1"),
+           "book_only_08-01..08-09_separate": block(win_b, "book_d1")}
+    res["A_08-10..09-29"]["reading"] = reading_a(res["A_08-10..09-29"]["primary_25"])
+    kb = [b for b in buckets if b["market"] in kept]
+    traded = [b for b in kb if b["status"] == "traded"]
+    in_a = [b for b in traded if b["date"] >= A_WINDOW_FIRST]
+    status = {}
+    for b in kb:
+        status[b["status"]] = status.get(b["status"], 0) + 1
+    dur = np.array([b["duration_min"] for b in traded], float)
+    summ = {"status": status, "traded_08_10_on": len(in_a),
+            "traded_with_prints_08_10_on": int(sum(b["printed_shares"] > 0 for b in in_a)),
+            "traded_on_days_without_trade_parts_08_10_on": int(sum(b["trade_parts"] == 0 for b in in_a)),
+            "filled_shares_print_d1_25": float(sum(b["filled_print_d1_25"] for b in in_a)),
+            "wanted_shares_25": float(sum(25.0 / b["q"] for b in in_a)),
+            "traded_settled_yes": int(sum(b["settled_yes"] for b in traded)),
+            "quote_source": {s: int(sum(b["quote_source"] == s for b in traded))
+                             for s in ("no_ask", "one_minus_yes_bid")},
+            "duration_min": ({"n": int(len(dur)), "median": float(np.median(dur)),
+                              "p90": float(np.quantile(dur, .9))} if len(dur) else {"n": 0}),
+            "market_days": {s: int(sum(x["status"] == s for x in days))
+                            for s in ("scanned", "no_dead", "no_tape_folder")},
+            "scanned_days_without_trade_parts_08_10_on": int(sum(
+                x["status"] == "scanned" and x["date"] >= A_WINDOW_FIRST and x["trade_parts"] == 0 for x in days))}
+    return res, summ
+
+
+def _history(args):
+    actual = sha256_file(args.history)
+    if actual != args.history_sha256:
+        raise data.Refused(f"refused: history sha256 {actual} != {args.history_sha256}")
+    hist = json.loads(Path(args.history).read_text(encoding="utf-8"))
+    if hist.get("schema") != SCHEMA_HISTORY or hist.get("rule_sha256") != RULE_SHA256:
+        raise data.Refused("refused: history file is not this rule's history phase")
+    return hist, hist["kept_markets"], {mk: v["rates"][DECISIVE] for mk, v in hist["per_market"].items()}, actual
+
+
+def run_stage_a_scan(args):
+    hist, kept, rates, actual = _history(args)
+    la.screen_input_path(args.layout, "layout")
+    markets = [m.strip() for m in args.markets.split(",")] if args.markets else list(MARKETS)
+    unknown = [m for m in markets if m not in MARKETS]
+    if unknown:
+        raise data.Refused(f"refused: unknown markets {unknown}")
+    sums = sha256_file(Path(args.tapes) / "SHA256SUMS")
+    if sums != args.tapes_sha256sums:
+        raise data.Refused(f"refused: SHA256SUMS sha256 {sums} != {args.tapes_sha256sums}")
+    layout = data.load_layout(args.layout, data.DEV_FIRST, data.check_range(*DEV_RANGE)[1])
+    obs = load_obs(args.obs, check_sha=not args.no_obs_sha)
+    buckets, days = stage_a_scan(layout, obs, args.tapes, markets, kept)
+    return dict({"schema": SCHEMA_A_SCAN, "rule_sha256": RULE_SHA256, "history_sha256": actual,
+                 "tapes_sha256sums_sha256": sums, "layout_manifest_sha256": layout.manifest_sha256,
+                 "markets": markets, "buckets": buckets, "days": days,
+                 "dates_all": sorted({str(d) for d in layout.snaps.date.astype(str)})}, **_code())
+
+
+def run_stage_a_report(args):
+    hist, kept, rates, actual = _history(args)
+    buckets, days, markets, meta = [], [], [], {}
+    for path in args.scans:
+        p = json.loads(Path(path).read_text(encoding="utf-8"))
+        if p.get("schema") != SCHEMA_A_SCAN or p.get("rule_sha256") != RULE_SHA256 or p.get("history_sha256") != actual:
+            raise data.Refused(f"refused: {path} is not a stage-A scan of this rule and history")
+        for k in ("tapes_sha256sums_sha256", "layout_manifest_sha256", "code_sha256", "dates_all"):
+            if meta.setdefault(k, p[k]) != p[k]:
+                raise data.Refused(f"refused: scans disagree on {k}")
+        if set(markets) & set(p["markets"]):
+            raise data.Refused("refused: a market appears in two scans")
+        markets += p["markets"]
+        buckets += p["buckets"]
+        days += p["days"]
+        meta.setdefault("scan_sha256", {})[str(path)] = sha256_file(path)
+    if sorted(markets) != sorted(MARKETS):
+        raise data.Refused(f"refused: scans cover {sorted(markets)}, not the 11 markets")
+    res, summ = stage_a_report(buckets, days, meta["dates_all"], kept, rates)
+    return dict({"schema": SCHEMA_A, "rule_sha256": RULE_SHA256, "history_sha256": actual,
+                 "evidence_class": "development (dev window); stage A = book + trade-print fills (clarification 1)",
+                 "excluded": hist["excluded"], "kept_markets": kept, "results": res, "summary": summ,
+                 "constants": {"fee_rate": FEE_RATE, "min_value": MIN_VALUE, "stakes": STAKES,
+                               "latency_s": LATENCY.total_seconds(), "print_window_min": 5,
+                               "draws": sc.DRAWS, "seed": sc.SEED}}, **meta)
+
+
+def render_a(p):
+    L = ["# Dead-bucket stage A: book + trade-print fills (development evidence)", "",
+         f"Rule `{p['rule_sha256']}`; history `{p['history_sha256']}`; tapes SHA256SUMS "
+         f"`{p['tapes_sha256sums_sha256']}`; excluded {', '.join(p['excluded']) or 'none'}.", ""]
+    for w, res in p["results"].items():
+        head = f"## {w} (variant {res['variant']})" + (f": {res['reading']}" if "reading" in res else "")
+        L += [head, "", "| row | $/day | 95% CI (date) | MDE80 | dates nonzero |", "| --- | --- | --- | --- | --- |"]
+        rows = [("$25 primary (kept markets)", res["primary_25"])]
+        rows += [(f"${k}", v) for k, v in res["ladder"].items()]
+        rows += [("$25 expected-loss", res["expected_loss_25"]), ("$25 PRIMARY5", res["primary5_25"])]
+        rows += [(f"$25 entry hour {h}", v) for h, v in res["per_hour_25"].items()]
+        rows += [(f"$25 {mk}{' (excluded)' if v['excluded'] else ''}", v) for mk, v in res["per_market_25"].items()]
+        for name, v in rows:
+            L.append(f"| {name} | {_f(v['estimate'])} | {_ci(v['ci95'])} | {_f(v.get('mde80'))} | "
+                     f"{v.get('n_dates_nonzero', 0)}/{v['n_dates']} |")
+        L.append("")
+    L += [f"Summary: `{json.dumps(sc._clean(p['summary']))}`", ""]
+    return "\n".join(L)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="python -m weather.calibration.dead_bucket")
-    ap.add_argument("phase", choices=("history", "stage-c"))
-    ap.add_argument("--obs", required=True)
-    ap.add_argument("--wu-root", required=True)
+    ap.add_argument("phase", choices=("history", "stage-c", "stage-a-scan", "stage-a-report"))
+    ap.add_argument("--tapes")
+    ap.add_argument("--tapes-sha256sums")
+    ap.add_argument("--markets")
+    ap.add_argument("--scans", nargs="*")
+    ap.add_argument("--tag", default="all")
+    ap.add_argument("--obs")
+    ap.add_argument("--wu-root")
     ap.add_argument("--layout")
     ap.add_argument("--history")
     ap.add_argument("--history-sha256")
@@ -574,6 +937,15 @@ def main(argv=None):
     try:
         if args.phase == "history":
             payload, name, render = run_history(args), "dead_bucket_history", render_history
+        elif args.phase == "stage-a-scan":
+            if not (args.layout and args.history and args.history_sha256 and args.tapes and args.tapes_sha256sums):
+                raise data.Refused("refused: stage-a-scan needs --layout, --history(-sha256), --tapes(-sha256sums)")
+            payload, name = run_stage_a_scan(args), f"dead_bucket_stage_a_scan_{args.tag}"
+            render = lambda p: f"stage-A scan {p['markets']}: {len(p['buckets'])} buckets\n"  # noqa: E731
+        elif args.phase == "stage-a-report":
+            if not (args.history and args.history_sha256 and args.scans):
+                raise data.Refused("refused: stage-a-report needs --history(-sha256) and --scans")
+            payload, name, render = run_stage_a_report(args), "dead_bucket_stage_a", render_a
         else:
             if not (args.layout and args.history and args.history_sha256):
                 raise data.Refused("refused: stage-c needs --layout, --history and --history-sha256")

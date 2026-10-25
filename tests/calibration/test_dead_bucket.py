@@ -116,3 +116,98 @@ def test_reading_c():
     assert db.reading_c({"primary_25": mk(1, -1, 0), "ladder": {"100": mk(4, 0, 1)}}).startswith("NOT WORTH")
     assert db.reading_c({"primary_25": mk(1, -1, 2), "ladder": {"100": mk(0.5, 0, 1)}}).startswith("NOT WORTH")
     assert db.reading_c({"primary_25": mk(1, -1, 2), "ladder": {"100": mk(4, 0, 9)}}).startswith("NOT EXCLUDED")
+
+
+# ----------------------------------------------------------------------------- stage A (tiny fixture)
+
+SLUG = "highest-temperature-in-atlanta-on-august-20-2026"
+SUMMARY_HEADER = ("capture_id,captured_at_utc,event_slug,bin_kind,bin_value,bin_value_hi,outcome,clob_token_id,"
+                  "best_bid,best_ask,bid_depth_1pct,ask_depth_1pct,bid_depth_5pct,ask_depth_5pct")
+
+
+def _tapes(tmp_path, no_asks, prints, truncated_last=True):
+    """Event folder: the eq 81-82 NO token asks ``no_asks`` [(local HH:MM, ask, depth1)], trades ``prints``."""
+    root = tmp_path / "tapes"
+    ev = root / SLUG
+    (ev / "execution_tape").mkdir(parents=True)
+    lines = [SUMMARY_HEADER]
+    for i, (hm, ask, d1) in enumerate(no_asks):
+        hh, mm = map(int, hm.split(":"))
+        t = datetime(2026, 8, 20, hh, mm, tzinfo=TZ).astimezone(timezone.utc).isoformat()
+        lines.append(f"c{i},{t},{SLUG},eq,81,82,No,tokNO,{1 - ask - 0.01:.3f},{ask},5,{d1},9,{d1 * 2}")
+        lines.append(f"y{i},{t},{SLUG},eq,81,82,Yes,tokYES,{1 - ask:.3f},{1 - ask + 0.01:.3f},7,7,9,9")
+    lines.append(f"x,2026-08-20T19:00:00+00:00,{SLUG},gte,83,83,No,tokG,0.1,0.2,1,1,1,1")
+    body = "\n".join(lines) + "\n"
+    if truncated_last:
+        body += "partial,2026-08-20T19"  # a torn final row is skipped
+    (ev / "order_books_summary.csv").write_text(body, encoding="utf-8")
+    import json as _json
+    with open(ev / "execution_tape" / "trades-00000.jsonl", "w", encoding="utf-8") as fh:
+        for hm, token, price, size in prints:
+            hh, mm = map(int, hm.split(":"))
+            ms = int(datetime(2026, 8, 20, hh, mm, 30, tzinfo=TZ).timestamp() * 1000)
+            fh.write(_json.dumps({"asset_id": token, "price": str(price), "size": str(size), "timestamp": str(ms),
+                                  "side": "BUY", "transaction_hash": f"h{hm}{token}"}) + "\n")
+    (root / "SHA256SUMS").write_text("", encoding="utf-8")
+    return root
+
+
+def _stage_a(tmp_path, monkeypatch, no_asks, prints, winner=2):
+    day = _day([70] * 13 + [84] * 5)  # eq 81-82 dead: 13:53 + 10 min + 60 s = entry 14:04
+    obs = {"atlanta": {"tz": TZ, "days": {D: day}}}
+    monkeypatch.setattr(db, "MARKETS", ("atlanta",))
+    prices = lambda i, b: 0.1  # noqa: E731
+    root = _tapes(tmp_path, no_asks, prints)
+    return db.stage_a_scan(_layout(prices, winner), obs, root, ["atlanta"], ["atlanta"])
+
+
+def test_stage_a_fill_is_capped_by_prints_and_depth(tmp_path, monkeypatch):
+    asks = [("14:00", 0.80, 100.0), ("14:06", 0.90, 20.0), ("14:20", 0.90, 20.0), ("14:30", 0.997, 20.0)]
+    prints = [("14:05", "tokNO", 0.90, 8.0), ("14:06", "tokYES", 0.12, 3.0), ("14:07", "tokNO", 0.95, 50.0),
+              ("14:30", "tokNO", 0.90, 99.0)]  # 0.95 is above q*; 14:30 is outside the 5-minute window
+    buckets, days = _stage_a(tmp_path, monkeypatch, asks, prints)
+    b = next(x for x in buckets if x["band_index"] == 1)
+    assert b["status"] == "traded" and b["quote_source"] == "no_ask"
+    assert b["q"] == pytest.approx(0.90) and b["capture_utc"].startswith("2026-08-20T18:06")  # first >= 14:04
+    assert b["printed_shares"] == pytest.approx(11.0)  # 8 NO <= 0.90 plus 3 YES >= 0.10
+    assert b["filled_print_d1_25"] == pytest.approx(11.0)
+    assert b["filled_book_d1_25"] == pytest.approx(20.0)
+    assert b["filled_print_d1_5"] == pytest.approx(5 / 0.9)
+    assert b["pnl_print_d1_25"] == pytest.approx(11 * 0.1 - 11 * db.fee(0.9))
+    assert b["duration_min"] == pytest.approx(26.0)  # 14:04 -> 14:30 (value < 0.005)
+    lte = next(x for x in buckets if x["band_index"] == 0)
+    assert lte["status"] == "no_capture"  # no lte 80 token in the summary
+    assert days[0]["status"] == "scanned" and days[0]["trade_parts"] == 1
+
+
+def test_stage_a_settled_yes_loses_the_filled_cost(tmp_path, monkeypatch):
+    asks = [("14:06", 0.90, 20.0)]
+    buckets, _ = _stage_a(tmp_path, monkeypatch, asks, [("14:05", "tokNO", 0.90, 8.0)], winner=1)
+    b = next(x for x in buckets if x["band_index"] == 1)
+    assert b["settled_yes"] and b["pnl_print_d1_25"] == pytest.approx(-8 * 0.9 - 8 * db.fee(0.9))
+
+
+def test_stage_a_no_value_and_report_windows(tmp_path, monkeypatch):
+    buckets, days = _stage_a(tmp_path, monkeypatch, [("14:06", 0.999, 20.0)], [])
+    b = next(x for x in buckets if x["band_index"] == 1)
+    assert b["status"] == "no_value"
+    traded = {"market": "atlanta", "date": "2026-08-20", "status": "traded", "entry_hour": 14, "q": 0.9,
+              "printed_shares": 1.0, "trade_parts": 1, "settled_yes": False, "quote_source": "no_ask",
+              "duration_min": 3.0, "excluded_market": False}
+    for s in db.STAKES:
+        for v in db.A_VARIANTS:
+            traded[f"filled_{v}_{int(s)}"] = 1.0
+            traded[f"pnl_{v}_{int(s)}"] = 0.05
+    early = dict(traded, date="2026-08-05")
+    res, summ = db.stage_a_report([traded, early], days, ["2026-08-05", "2026-08-20"], ["atlanta"], {"atlanta": 0.0})
+    assert res["A_08-10..09-29"]["primary_25"]["estimate"] == pytest.approx(0.05)
+    assert res["A_08-10..09-29"]["primary_25"]["n_dates"] == 1  # 08-05 never pooled into A
+    assert res["book_only_08-01..08-09_separate"]["primary_25"]["estimate"] == pytest.approx(0.05)
+    assert res["A_08-10..09-29"]["reading"].startswith("WORTH")
+    assert summ["traded_08_10_on"] == 1
+
+
+def test_discover_skips_folders_after_the_dev_window(tmp_path):
+    for slug in (SLUG, "highest-temperature-in-atlanta-on-september-30-2026", "unrelated"):
+        (tmp_path / slug).mkdir()
+    assert list(db.discover_tape_events(tmp_path)) == [("atlanta", "2026-08-20")]
