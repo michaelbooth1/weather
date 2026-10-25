@@ -66,6 +66,7 @@ never pooled across the 2026-07-31 provenance boundary.
   - **L4 multi-model blend KILL (null at 07-12):** −0.0002 [−0.0045, +0.0047] over MG-1. Its h15-23 gain over MG-1 does not beat served; it is parked as an afternoon candidate. EF §10y.
   - **F2 MRMS echo flag: development lead only:** −0.0005 [−0.0010, −0.0001] over t3-r3 at 13-16. Below the 5% bar; needs a capture change. EF §10y.
 - **Pooled residual model vs OLS + floor and served (L2, workstation, 2026-10-24/25; model vs model and dev vs served only, no edge):** pooled over the 11 US markets (bias-corrected forecast anchor, OLS on the floor gap, HGB residual, learned error shape, hard floor), P3 beats L3's OLS + floor by −0.147 [97.5% −0.195, −0.102] nats at 07-12 on R0's Oct-Dec rows and the floored forecast by −0.272; pooling is the lever (per-market twin only ties OLS + floor) and L1's full-year corpus adds nothing (−0.004 [−0.014, +0.006]). On the dev window (selection evidence only) P3d beats served: 07-12 dR −0.210 [−0.256, −0.162], 13-16 −0.496; **R stays above 1 in every block (still worse than the market).** Serve parity: its forecast input (Previous Runs lead 1, shared with arm A) is not in the capture (served forecast differs by MAE 2.26 °F at 13-16). EF §10aa; L1 EF §10z; L3 EF §10ab.
+- **OLS + hard floor vs R0, served and MG-1 (L3, workstation, 2026-10-24/25; dev numbers are selection evidence only):** on R0's own Oct-Dec rows a 3-feature OLS + floor beats lane D's floored R0 by −1.820 [−2.098, −1.563] nats at 07-12 (5/5 markets; D's rows reproduced exactly) and floored forecast by −0.12; in-season Aug-Sep it beats forecast + floor on 11 markets but **not on the 5 primary ones** (−0.064 [−0.169, +0.054]). On the dev window it beats served (07-12 dR −0.179 [−0.232, −0.127]) but **loses to MG-1 at 07-12 (+0.080 [+0.020, +0.142]) and wins only from 13:00**; L6's own-obs twin beats it at 07-12 by −0.148, and NBM as an extra OLS regressor does not close the gap. Upstream ASOS adds nothing beyond own observations (L6 KILL, −0.0005 [−0.0012, +0.0003], MDE80 0.0011): NBM already carries it. EF §10ab.
 
 ## Evaluation and statistics rules that bind every claim
 
@@ -180,6 +181,7 @@ never pooled across the 2026-07-31 provenance boundary.
 | 12-field pooled-refit replacement on the sealed panel | Centre worse, Brier null, its own rule forbids replication | EF §1m (research `2026-09-86a`) |
 | Capturing NBH (or NBS, MOS/NBE, multi-run HRRR, direct ECMWF, soundings, GOES, neighbours, NWS revisions) for the forecast | No increment over captured NBM v2 plus the two serving repairs; NBH 00-16 +0.0027 [−0.0037, +0.0098], wrong sign | EF §10q; RF §1 |
 | The 17-23 decided-band / remaining-rise gain as new information | It is the WU-anchored lock-in no-op; an input-free collapse does at least as well | EF §10e, §10q; RF §1 |
+| Upstream ASOS ring observations for the 07-12 forecast | No increment over the own-station nowcast twin: −0.0005 [−0.0012, +0.0003] Brier, MDE80 0.0011; NBM already carries it | EF §10ab (L6 rule `6687c8df…`) |
 
 ## Retracted numbers — never cite
 
