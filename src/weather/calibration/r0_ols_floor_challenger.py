@@ -836,7 +836,31 @@ def _vector(table, frame):
     return p, cov, reasons
 
 
-def dev_score(layout, candidates, start="2026-08-01", end="2026-09-29", with_mg1=True):
+def _candidate_frame(source, table, lay, folds, data):
+    """``<jsonl>`` (distributions), ``module:<path>`` (walk-forward, the scorecard's own contract) or
+    ``builtin:mg1`` (lane L7's ``loss_atlas.mg1_frame``)."""
+    if source == "builtin:mg1":
+        from weather.reporting.scorecards import loss_atlas
+
+        return loss_atlas.mg1_frame(table), {"kind": "builtin", "name": "mg1",
+                                             "loss_atlas_code_sha256": _sha256(loss_atlas.__file__)}
+    if source.startswith("module:"):
+        spec = data.CandidateSpec("module", source[len("module:"):])
+        frame, meta = data.module_predictions(spec, lay, folds)
+        meta = dict(meta, kind="module", walk_forward="enforced_fit_per_fold")
+        return frame, meta
+    spec = data.CandidateSpec("distributions", str(source), "2025-12-31", False)
+    return data.distribution_predictions(spec, lay, folds)
+
+
+def _source_sha(source):
+    if source == "builtin:mg1":
+        return None
+    return _sha256(source[len("module:"):] if source.startswith("module:") else source)
+
+
+def dev_score(layout, candidates, start="2026-08-01", end="2026-09-29", with_mg1=True, references=None,
+              expect_brier_vs_mg1=None):
     """Score candidate distribution files with dev_scorecard's own machinery, unchanged.
 
     Per candidate, reference (served; MG-1 when ``with_mg1``), scope (blended = every scored
@@ -882,13 +906,26 @@ def dev_score(layout, candidates, start="2026-08-01", end="2026-09-29", with_mg1
             raise ChallengerError(f"MG-1 positive control failed: 07-12 excess {excess:.5f} "
                                   f"does not round to {MG1_CONTROL_0712_EXCESS}")
         refs["mg1"] = (mg1_b, cov_mg1)
+    for ref_name, source in (references or {}).items():
+        frame, meta = _candidate_frame(source, table, lay, folds, data)
+        p_ref, cov_ref, reasons_ref = _vector(table, frame)
+        refs[ref_name] = (table.brier(p_ref), cov_ref)
+        out.setdefault("references", {})[ref_name] = {"source": source, "sha256": _source_sha(source),
+                                                      "coverage": reasons_ref, "meta": meta}
     pools = [(sc.ALL_MARKETS, None), (PRIMARY_POOL, set(PRIMARY_MARKETS))] + [
         (m, {m}) for m in sorted(set(table.markets))]
     for name, path in candidates.items():
-        spec = data.CandidateSpec("distributions", str(path), "2025-12-31", False)
-        frame, meta = data.distribution_predictions(spec, lay, folds)
+        frame, meta = _candidate_frame(path, table, lay, folds, data)
         p, cov, reasons = _vector(table, frame)
         cand_b = table.brier(p)
+        brier_vs_mg1 = None
+        if "mg1" in refs:
+            _, d = table.cells(cand_b - refs["mg1"][0], w0712)
+            brier_vs_mg1 = float(d.mean())
+            expected = (expect_brier_vs_mg1 or {}).get(name)
+            if expected is not None and abs(brier_vs_mg1 - expected) > 1e-6:
+                raise ChallengerError(f"positive control failed: {name} 07-12 Brier - MG-1 {brier_vs_mg1:.7f} "
+                                      f"!= expected {expected:.7f}")
         coverage = {}
         for market in sorted(set(table.markets)):
             mm = table.markets == market
@@ -915,7 +952,9 @@ def dev_score(layout, candidates, start="2026-08-01", end="2026-09-29", with_mg1
                             ref_key: sc.ratio_interval(table.w[:, idx], r_, m),
                             "dR_crossed": sc.ratio_interval(table.w[:, idx], c - r_, m),
                             "dR_date_clustered": sc.ratio_interval(date_w[:, idx], c - r_, m)})
-        out["candidates"][name] = {"source": str(path), "sha256": _sha256(path), "coverage": reasons,
+        out["candidates"][name] = {"source": str(path), "sha256": _source_sha(path), "coverage": reasons,
+                                   "brier_minus_mg1_07_12": brier_vs_mg1,
+                                   "brier_minus_mg1_07_12_expected": (expect_brier_vs_mg1 or {}).get(name),
                                    "coverage_by_market_hour": coverage, "meta": meta, "rows": rows}
     return out
 
@@ -1314,6 +1353,10 @@ def build_parser():
     dscore.add_argument("--candidate", action="append", required=True, help="<name>=<jsonl>")
     dscore.add_argument("--rule", default=None)
     dscore.add_argument("--no-mg1", action="store_true", help="skip the MG-1 reference")
+    dscore.add_argument("--reference", action="append", default=[],
+                        help="<name>=<jsonl | module:<path> | builtin:mg1> scored as an extra reference")
+    dscore.add_argument("--expect-brier-vs-mg1", action="append", default=[],
+                        help="<candidate>=<value>: positive control, 07-12 Brier minus MG-1 to 1e-6")
     dscore.add_argument("--out", required=True)
     cmp_ = sub.add_parser("compare", help="join with lane D's R0 rows and apply the rule")
     cmp_.add_argument("--rows-dir", required=True)
@@ -1338,7 +1381,10 @@ def main(argv=None):
             return 0
         if args.command == "dev-score":
             scores = dev_score(args.layout, dict(spec.partition("=")[::2] for spec in args.candidate),
-                               with_mg1=not args.no_mg1)
+                               with_mg1=not args.no_mg1,
+                               references=dict(spec.partition("=")[::2] for spec in args.reference),
+                               expect_brier_vs_mg1={k: float(v) for k, v in (
+                                   spec.partition("=")[::2] for spec in args.expect_brier_vs_mg1)})
             scores["verdict"] = dev_verdict(scores) if all(
                 a in scores["candidates"] for a in ("ols_floor", "ols_floor_resid_hgb")) else None
             if "mg1_control" in scores:
