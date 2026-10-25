@@ -12,6 +12,9 @@ builder (pinned by ``tests/calibration/test_mg2_inputs.py``).
   workstation local on D+1) and at most two attempts (one host re-export). Outcomes go to
   ``<inbox>/<D>/verified/``, ``<inbox>/_quarantine/<D>/attempt-<n>/`` (a forbidden or unlisted name) or
   ``<inbox>/_refused/<D>/attempt-<n>/``, and one line each is appended to the receipts ledger.
+* ``concat``: one window layout from per-date layouts, for ``mg2_composite emit``/``score``; it refuses a
+  duplicate row key or date, mixed builder or parser identities and (with ``--ledger``) a date with no
+  ``verified`` receipt for the same bundle.
 * ``build``: the inputs-only layout (``inputs_snapshots.parquet``, ``inputs_bands.parquet``,
   ``manifest.json``) from a verified bundle, with v2 NBM guidance from the pinned parser and
   ``v2_parser_version`` = 2 stamped on every row.
@@ -665,6 +668,103 @@ def build(*, bundle, out, day, parser=None, parser_worktree=None, parser_python=
     return layout
 
 
+WINDOW_SCHEMA = "mg2_inputs_window/1"
+LAYOUT_FILES = ("inputs_snapshots.parquet", "inputs_bands.parquet")
+
+
+def _read_layout(root):
+    """One per-date layout and its manifest, re-hashed against that manifest."""
+    import pandas as pd
+
+    root = Path(root)
+    path = root / "manifest.json"
+    if not path.is_file():
+        raise InputRefused(f"layout {root} has no manifest.json")
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    if manifest.get("schema") != LAYOUT_SCHEMA:
+        raise InputRefused(f"layout {root} is not {LAYOUT_SCHEMA}")
+    for name in LAYOUT_FILES:
+        entry = (manifest.get("files") or {}).get(name) or {}
+        if not (root / name).is_file() or sha256_file(root / name) != entry.get("sha256"):
+            raise InputRefused(f"layout {root}: {name} does not match its manifest")
+    snaps = pd.read_parquet(root / "inputs_snapshots.parquet")
+    bands = pd.read_parquet(root / "inputs_bands.parquet")
+    day = str(manifest.get("target_date"))
+    if len(snaps) != manifest.get("snapshots") or (len(snaps) and set(snaps.date.astype(str)) != {day}):
+        raise InputRefused(f"layout {root}: snapshot rows do not match its target date {day}")
+    return manifest, sha256_file(path), snaps, bands
+
+
+def concat(*, layouts, out, ledger=None):
+    """One window layout from verified per-date layouts; refuses any duplicate row key or date.
+
+    Also refuses mixed allow-list, builder or parser identities, band rows with no snapshot, and (with
+    ``ledger``) a date whose bundle has no ``verified`` receipt for the same manifest sha.
+    """
+    import pandas as pd
+
+    out = Path(out)
+    if out.exists() and any(out.iterdir()):
+        raise InputRefused(f"output directory {out} must be new or empty")
+    if not layouts:
+        raise InputRefused("concat needs at least one layout")
+    members, snap_frames, band_frames, seen_dates, identity = [], [], [], set(), None
+    receipts = {}
+    if ledger is not None:
+        for r in read_ledger(ledger):
+            if r.get("status") == "verified":
+                receipts[(r.get("target_date"), r.get("manifest_sha256"))] = r
+    for root in layouts:
+        manifest, manifest_sha, snaps, bands = _read_layout(root)
+        day = manifest["target_date"]
+        if day in seen_dates:
+            raise InputRefused(f"duplicate target date {day}")
+        seen_dates.add(day)
+        ident = (manifest.get("allowlist_sha256"), manifest.get("builder_sha256"),
+                 (manifest.get("parser") or {}).get("module_sha256"), (manifest.get("parser") or {}).get("parser_version"))
+        if identity is None:
+            identity = ident
+        elif ident != identity:
+            raise InputRefused(f"layout {root} was built with a different allow-list, builder or parser")
+        if ledger is not None and (day, manifest.get("bundle_manifest_sha256")) not in receipts:
+            raise InputRefused(f"no verified receipt for {day} with bundle manifest {manifest.get('bundle_manifest_sha256')}")
+        if snaps.row_key.duplicated().any():
+            raise InputRefused(f"duplicate row_key inside the {day} layout")
+        orphans = set(bands.row_key) - set(snaps.row_key)
+        if orphans:
+            raise InputRefused(f"{len(orphans)} band row keys in the {day} layout have no snapshot")
+        members.append({"target_date": day, "path": str(root), "manifest_sha256": manifest_sha,
+                        "bundle_manifest_sha256": manifest.get("bundle_manifest_sha256"),
+                        "snapshots": int(len(snaps)), "bands": int(len(bands))})
+        snap_frames.append(snaps)
+        band_frames.append(bands)
+    snaps = pd.concat(snap_frames, ignore_index=True)
+    bands = pd.concat(band_frames, ignore_index=True)
+    dup = snaps.row_key[snaps.row_key.duplicated()]
+    if len(dup):
+        raise InputRefused(f"{dup.nunique()} row keys appear in more than one layout")
+    if bands.duplicated(["row_key", "band_index"]).any():
+        raise InputRefused("duplicate (row_key, band_index) band rows")
+    order = snaps.sort_values(["date", "market", "captured_at_utc", "row_key"]).index
+    snaps = snaps.loc[order].reset_index(drop=True)
+    bands = bands.sort_values(["date", "market", "row_key", "band_index"]).reset_index(drop=True)
+    out.mkdir(parents=True, exist_ok=True)
+    snaps.to_parquet(out / "inputs_snapshots.parquet", index=False)
+    bands.to_parquet(out / "inputs_bands.parquet", index=False)
+    members.sort(key=lambda m: m["target_date"])
+    window = {"schema": WINDOW_SCHEMA, "first": members[0]["target_date"], "last": members[-1]["target_date"],
+              "dates": [m["target_date"] for m in members], "members": members,
+              "allowlist_sha256": identity[0], "builder_sha256": identity[1],
+              "parser": {"module_sha256": identity[2], "parser_version": identity[3]},
+              "concat_sha256": sha256_file(__file__), "ledger_checked": ledger is not None,
+              "files": {name: {"sha256": sha256_file(out / name), "rows": rows}
+                        for name, rows in (("inputs_snapshots.parquet", len(snaps)),
+                                           ("inputs_bands.parquet", len(bands)))}}
+    (out / "manifest.json").write_text(json.dumps(window, indent=1, sort_keys=True) + "
+", encoding="utf-8")
+    return {"status": "ok", **{k: window[k] for k in ("first", "last", "dates", "files")}}
+
+
 def _snapshot_columns():
     return ["row_key", "snapshot_id", "market", "station", "event_slug", "target_date", "date", "stratum",
             "captured_at_utc", "captured_at_local", "local_hour", "block", "unit", "model_version",
@@ -698,14 +798,20 @@ def build_parser():
     q.add_argument("--out", required=True)
     q.add_argument("--parser-worktree", required=True)
     q.add_argument("--parser-python", default=None)
+    q = sub.add_parser("concat", help="one window layout from per-date layouts (refuses duplicate row keys)")
+    q.add_argument("--layout", action="append", required=True, help="a per-date layout directory (repeat)")
+    q.add_argument("--out", required=True)
+    q.add_argument("--ledger", default=None, help="also require a verified receipt per date")
     return p
 
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
-    day = date.fromisoformat(args.date)
+    day = date.fromisoformat(args.date) if getattr(args, "date", None) else None
     try:
-        if args.command == "pull":
+        if args.command == "concat":
+            result = concat(layouts=args.layout, out=args.out, ledger=args.ledger)
+        elif args.command == "pull":
             result = pull(share_root=args.share_root, day=day, inbox=args.inbox, ledger=args.ledger)
         elif args.command == "receive":
             result = receive(inbox=args.inbox, day=day, ledger=args.ledger, now=args.now)
