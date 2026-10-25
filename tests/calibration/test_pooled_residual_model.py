@@ -4,6 +4,7 @@ Guards: L2 pre-declared rule (C:/t/l2/rule.md) - in-fold bias and normals, the h
 probability mass, R0-identical row keys, date-clustered bootstrap, fail-closed import off the capture
 host and no output inside the repository.
 """
+import hashlib
 import importlib
 import json
 import math
@@ -422,3 +423,15 @@ def test_rung_blend_weight_is_exact_brier_minimiser_and_walk_forward():
                                   hour_set=(7,))
     assert ws[(7, "2026-08-01")] == 0.0  # nothing strictly before the first date
     assert ws[(7, "2026-08-02")] == prm.solve_weight(A[:1], B[:1])
+
+
+def test_rung_rf_l6_frozen_state_refuses_a_changed_coefficient_part(tmp_path):
+    part = {"coef": {"7": [0.1, 0.5, 10]}, "column": "n_own"}
+    path = tmp_path / "coef.json"
+    path.write_text(json.dumps({"l6_stack": part}), encoding="utf-8")
+    sha = hashlib.sha256(json.dumps(part, sort_keys=True, separators=(",", ":"), allow_nan=False)
+                         .encode("utf-8")).hexdigest()
+    state, got = prm.l6_frozen_state(path, expected=sha)
+    assert got == sha and state == {"coef": {7: (0.1, 0.5, 10)}, "column": "n_own"}
+    with pytest.raises(prm.PooledModelError):
+        prm.l6_frozen_state(path)  # the real frozen sha does not match this toy part
