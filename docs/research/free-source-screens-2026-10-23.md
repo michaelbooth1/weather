@@ -26,6 +26,7 @@ pre-registration on new dates (EF §5), nothing more.
 | F4 GEFS mean | 00-12 | +0.0054 [+0.0016, +0.0100] vs MG-1 | −0.0099 [−0.0185, −0.0011] | **KILL (harm)** |
 | F4 AIFS, GraphCast | 00-12 | — | — | not scored: never captured |
 | F5 ECMWF ENS, DWD MOSMIX | 00-12 | — | — | not scored: CCSDS decoder absent (ENS archive does exist on AWS); MOSMIX keeps ~2 days |
+| L6 upstream ASOS ring (vs own-obs twin) | 07-12 | −0.0005 [−0.0012, +0.0003] vs twin; −0.0041 [−0.0069, −0.0015] vs MG-1 | −0.0180 [−0.0245, −0.0114] | **KILL (upstream not shown)**; own-obs stack −0.0036 vs MG-1 is a separate dev lead |
 
 Served baseline for context (lane C, scorecard hash `3557f797…`): pooled 13-16 R = 1.862 [1.557, 2.345],
 served − market = +0.0244 [+0.0181, +0.0316].
@@ -328,6 +329,48 @@ build), `weather.calibration.upstream_obs_screen` (PIT features, LOYO, nowcasts)
 from: T13 (EF §10q) used the closest <= 6 stations within 50 km, tercile tilts of served, and May-Jul 2026
 history only; L6 uses a 50-150 km ring with flow-upwind weighting and advection, 2021-2025 history, and is
 scored as an increment over MG-1 and over its own-observation twin.
+
+### L6 result (scored 2026-10-25; scores under `data/research/upstream_obs/scores/`)
+
+Inputs: `obs.parquet` `37d97195…`, `nowcasts.parquet` `d2453d0d…` (28,137 snapshots at 07-12; serve models fitted
+on 19,693 Aug-Sep 2021-2025 history rows). Run through the W2 slot wrapper on a local, unpushed, detached merge of
+`1a16c6ed3`. Coverage identical to MG-1 (83,306 snapshots; 495 missing floor). Scores: candidate vs MG-1
+`9be56d93…`, candidate vs twin `e3d9d8b8…`, twin vs MG-1 `d6971121…`.
+
+**History validation (blocked leave-one-year-out, reported only).** Adding upstream features improves the
+observation-only nowcast of the day's high in history: Aug-Sep 07-12 RMSE 2.852 → 2.722 F, MSE up − own −0.72
+[−0.91, −0.54] (date-clustered), every hour h07-h12, 5/5 years, 11/11 stations; Oct-Dec 3.121 → 2.918, −1.22
+[−1.40, −1.06]. Upstream information about the high is real; the question is whether NBM already has it.
+
+Pooled `ALL`, crossed date x market 95% (date-clustered in the last column):
+
+| Rows | cand − served | **cand − MG-1** | **cand − twin (upstream's own increment)** | MDE80 (vs twin) | cand − twin [date-clustered] | twin − MG-1 |
+| --- | --- | --- | --- | --- | --- | --- |
+| **07-12 (decided)** | −0.0180 [−0.0245, −0.0114] | −0.0041 [−0.0069, −0.0015] | **−0.0005 [−0.0012, +0.0003]** | 0.0011 | −0.0005 [−0.0008, −0.0001] | −0.0036 [−0.0065, −0.0009] |
+| h07 | −0.0196 | −0.0021 [−0.0049, +0.0008] | −0.0004 [−0.0015, +0.0005] | 0.0014 | −0.0004 [−0.0009, +0.0000] | −0.0017 [−0.0045, +0.0012] |
+| h08 | −0.0194 | −0.0026 [−0.0057, +0.0004] | −0.0002 [−0.0012, +0.0008] | 0.0014 | −0.0002 [−0.0007, +0.0003] | −0.0024 [−0.0054, +0.0004] |
+| h09 | −0.0176 | −0.0032 [−0.0061, −0.0004] | −0.0005 [−0.0014, +0.0004] | 0.0013 | −0.0005 [−0.0010, −0.0001] | −0.0027 [−0.0057, +0.0004] |
+| h10 | −0.0173 | −0.0042 [−0.0072, −0.0011] | −0.0002 [−0.0012, +0.0007] | 0.0013 | −0.0002 [−0.0008, +0.0003] | −0.0039 [−0.0072, −0.0008] |
+| h11 | −0.0178 | −0.0061 [−0.0093, −0.0030] | −0.0007 [−0.0019, +0.0006] | 0.0018 | −0.0007 [−0.0013, −0.0000] | −0.0054 [−0.0088, −0.0022] |
+| h12 | −0.0163 | −0.0066 [−0.0103, −0.0032] | −0.0008 [−0.0020, +0.0003] | 0.0016 | −0.0008 [−0.0014, −0.0002] | −0.0058 [−0.0096, −0.0023] |
+
+MG-1 − served at 07-12 is −0.0139 [−0.0212, −0.0072]. Per market at 07-12, cand − MG-1 is negative in 11/11
+(Austin −0.0085, Atlanta −0.0072, San Francisco −0.0067 exclude 0); cand − twin is negative in 8/11, Dallas
+−0.0019 and Los Angeles −0.0016 excluding 0, Atlanta +0.0014 the worst.
+
+**Verdict L6: KILL for upstream (pre-declared condition 3 fails).** Candidate − served and candidate − MG-1
+exclude zero, but the candidate − twin interval includes zero: the upstream ring adds about −0.0005 over the
+same stack built on the station's own observations (about 12% of the candidate's gain over MG-1), below the
+MDE80. The date-clustered interval excludes zero and 8/11 markets lean the right way, so this is "small, not
+demonstrated", consistent with T13 (−0.0005 to −0.0007 at 13-16). The history skill of upstream features does
+not carry over: NBM v2 already carries the synoptic information that the ring adds to an observation-only nowcast.
+
+**Separate development lead (reported per the rule, not decided here): the own-observation stack.** Twin −
+MG-1 at 07-12 is −0.0036 [−0.0065, −0.0009] crossed, 10/11 markets negative, growing from h07 (−0.0017) to h12
+(−0.0058). Caveats: the per-hour intercept also absorbs any pooled NBM bias, so part of it may be bias
+correction rather than observation information (not separated by these runs); it is a fitted rule on dates read
+before; and its h10-h12 growth overlaps the remaining-rise family (t3-r3, EF §10q). It earns a pre-registration
+on new dates, with an intercept-only twin as the attribution control, nothing more.
 
 ## Fetch receipts (all under `data/research/free_sources/<source>/`, sha256 per file in `receipts.jsonl`)
 
