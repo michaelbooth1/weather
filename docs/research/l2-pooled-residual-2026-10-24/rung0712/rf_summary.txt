@@ -1,0 +1,70 @@
+READING (rule): blend_mg1 vs L6 NULL (upper +0.0523 >= 0; h11 and h12 lower > 0, worse than L6 there). blend_l6 vs L6 NULL (upper +0.0003 >= 0; no hour lower > 0; h07/h08 exclude 0 descriptively). No WIN -> no MG-2 Clarification, rule binding or L8 re-run plan drafted. Caveat: L6 frozen coefficients are in-sample on this window (favours L6).
+
+R-F result (rule C:/t/l2/rung0712/rule_rf.md sha cca30734771933f2028a9c46f7edbebd887af9ac9b9ece968b73325cf85ce7f6)
+result file rung_rf.json sha aa88b7e9e3abaa944ef9cf59ba0df73da27fbe3961eeb11115e844d000cf992b
+population {"common_covered_snapshots_07_12": 21664, "first_date": "2026-08-15", "last_date": "2026-09-29", "n_dates": 43, "n_market_days": 473}
+controls {"covered_differ_07_12": 21095, "differing_outside_07_12": 0, "differing_without_nowcast": 0, "mg1_excess_07_12": 0.011956814488641587, "mg1_identity_max_abs_diff": 0.0, "rd_reproduced": -0.04666527326555088, "snapshots_07_12_with_nowcast": 21111, "snapshots_differing_from_mg1": 21095}
+inputs {"B_N": "83cf9bbe9cd8f3173b98dd4cea47880457cf0c5648fe2cca4d50b4550cd8c43c", "P3d_N_fix": "cd0034b9faec0b687e1184187feeaa39ab151c5f9f8d1c905d3a49a0e7089542", "l6_nowcast_sha256": "3806687cd6ad8d38571fd5d17efa5405856300d2f0029ae644e3ad08db4a31f3", "l6_part_sha256": "07a6742595f535d448569980af7e04dbf4a2a798c00c82fd52f5f01287ee17e9", "l6_stack_sha256": "f41d9b72c74b672de80224db864501edbba1a73d69b02029fcad8645f39cbb97", "layout_manifest_sha256": "4d53fdbdc551f33e331fa3b51cc425e354eec4426c8c7b52910b2e7340915f22", "module_sha256": "11b39eec159dadf5c4ccfb6c1d6268d50830d4f82e005521cca25a27ff2ae013", "scorecard_code_sha256": "f69071ac5612f022ade56ada764f813c28da79cd0265848c58041115439005c5"}
+weights {"blend_l6": {"h07": {"first": 0.27373416976040754, "last": 0.3790767028005609, "mean": 0.3494223720889892}, "h08": {"first": 0.25661307886430773, "last": 0.3347047396751679, "mean": 0.3298501455987935}, "h09": {"first": 0.3401238271425698, "last": 0.3508288312018229, "mean": 0.371308094803866}, "h10": {"first": 0.24621991471679797, "last": 0.294305599271024, "mean": 0.27843627869267146}, "h11": {"first": 0.4179072653947057, "last": 0.26540905071416837, "mean": 0.2803444586844975}, "h12": {"first": 0.6004349621816522, "last": 0.31041204439730274, "mean": 0.3785857012413773}}, "blend_mg1": {"h07": {"first": 0.6655344436447447, "last": 0.5505328900001791, "mean": 0.4879646653530261}, "h08": {"first": 0.6688788888902485, "last": 0.5882243751375977, "mean": 0.5238143054029077}, "h09": {"first": 0.7109240275005949, "last": 0.6379456622755334, "mean": 0.5639351414615533}, "h10": {"first": 0.7380430338928718, "last": 0.6740830232090154, "mean": 0.5864740242587857}, "h11": {"first": 0.7251612105284185, "last": 0.6871102086143894, "mean": 0.5963861787736525}, "h12": {"first": 0.8129619701774283, "last": 0.713041682449853, "mean": 0.621125939898988}}}
+
+PRIMARY: ALL, covered, 07-12, date-clustered (crossed in brackets after cx)
+blend_mg1 - L6 07-12: dc +0.0243 [-0.0033, +0.0523] cx +0.0243 [-0.0242, +0.0745]
+blend_mg1 - L6 h07: dc +0.0034 [-0.0251, +0.0326] cx +0.0034 [-0.0463, +0.0533]
+blend_mg1 - L6 h08: dc +0.0175 [-0.0145, +0.0505] cx +0.0175 [-0.0397, +0.0765]
+blend_mg1 - L6 h09: dc +0.0179 [-0.0127, +0.0499] cx +0.0179 [-0.0346, +0.0727]
+blend_mg1 - L6 h10: dc +0.0296 [-0.0023, +0.0609] cx +0.0296 [-0.0207, +0.0805]
+blend_mg1 - L6 h11: dc +0.0429 [+0.0113, +0.0743] cx +0.0429 [-0.0114, +0.1023]
+blend_mg1 - L6 h12: dc +0.0398 [+0.0046, +0.0737] cx +0.0398 [-0.0226, +0.1041]
+blend_l6 - L6 07-12: dc -0.0096 [-0.0187, +0.0003] cx -0.0096 [-0.0285, +0.0082]
+blend_l6 - L6 h07: dc -0.0175 [-0.0300, -0.0044] cx -0.0175 [-0.0409, +0.0055]
+blend_l6 - L6 h08: dc -0.0131 [-0.0250, -0.0005] cx -0.0131 [-0.0367, +0.0110]
+blend_l6 - L6 h09: dc -0.0119 [-0.0235, +0.0008] cx -0.0119 [-0.0356, +0.0120]
+blend_l6 - L6 h10: dc -0.0081 [-0.0166, +0.0008] cx -0.0081 [-0.0247, +0.0073]
+blend_l6 - L6 h11: dc -0.0023 [-0.0117, +0.0071] cx -0.0023 [-0.0175, +0.0134]
+blend_l6 - L6 h12: dc -0.0024 [-0.0164, +0.0110] cx -0.0024 [-0.0263, +0.0205]
+
+Descriptive: ALL covered 07-12, every arm/reference
+blend_mg1 - l6: R 1.177/1.152 dc +0.0243 [-0.0033, +0.0523] cx +0.0243 [-0.0242, +0.0745]
+blend_mg1 - mg1: R 1.177/1.223 dc -0.0467 [-0.0665, -0.0257] cx -0.0467 [-0.0835, -0.0134]
+blend_mg1 - p3d_n_fix: R 1.177/1.191 dc -0.0147 [-0.0301, +0.0004] cx -0.0147 [-0.0406, +0.0080]
+blend_mg1 - b_n: R 1.177/1.214 dc -0.0373 [-0.0642, -0.0121] cx -0.0373 [-0.0906, +0.0127]
+blend_mg1 - served: R 1.177/1.483 dc -0.3063 [-0.3680, -0.2443] cx -0.3063 [-0.4548, -0.1738]
+blend_l6 - l6: R 1.143/1.152 dc -0.0096 [-0.0187, +0.0003] cx -0.0096 [-0.0285, +0.0082]
+blend_l6 - mg1: R 1.143/1.223 dc -0.0805 [-0.1165, -0.0461] cx -0.0805 [-0.1351, -0.0293]
+blend_l6 - p3d_n_fix: R 1.143/1.191 dc -0.0486 [-0.0687, -0.0279] cx -0.0486 [-0.0860, -0.0123]
+blend_l6 - b_n: R 1.143/1.214 dc -0.0711 [-0.0969, -0.0469] cx -0.0711 [-0.1235, -0.0301]
+blend_l6 - served: R 1.143/1.483 dc -0.3402 [-0.3976, -0.2832] cx -0.3402 [-0.4823, -0.2102]
+blend_l6 - blend_mg1: R 1.143/1.177 dc -0.0338 [-0.0538, -0.0136] cx -0.0338 [-0.0707, -0.0012]
+l6 - mg1: R 1.152/1.223 dc -0.0710 [-0.1094, -0.0337] cx -0.0710 [-0.1320, -0.0140]
+l6 - p3d_n_fix: R 1.152/1.191 dc -0.0390 [-0.0690, -0.0097] cx -0.0390 [-0.0918, +0.0161]
+l6 - b_n: R 1.152/1.214 dc -0.0615 [-0.0928, -0.0307] cx -0.0615 [-0.1191, -0.0149]
+l6 - served: R 1.152/1.483 dc -0.3306 [-0.3909, -0.2710] cx -0.3306 [-0.4721, -0.1996]
+l6 - blend_mg1: R 1.152/1.177 dc -0.0243 [-0.0523, +0.0033] cx -0.0243 [-0.0745, +0.0242]
+
+Per market, covered 07-12, vs L6 (date-clustered)
+blend_mg1 ALL: +0.0243 [-0.0033, +0.0523] n=473
+blend_mg1 PRIMARY5: +0.0376 [-0.0071, +0.0814] n=215
+blend_mg1 atlanta: +0.0849 [-0.0133, +0.1698] n=43
+blend_mg1 austin: +0.1400 [+0.0357, +0.2678] n=43
+blend_mg1 chicago: -0.0414 [-0.0885, +0.0117] n=43
+blend_mg1 dallas: +0.0638 [-0.0454, +0.1870] n=43
+blend_mg1 denver: -0.0188 [-0.0822, +0.0468] n=43
+blend_mg1 houston: +0.0183 [-0.0862, +0.1181] n=43
+blend_mg1 los-angeles: -0.0824 [-0.1814, +0.0212] n=43
+blend_mg1 miami: -0.0096 [-0.1070, +0.0888] n=43
+blend_mg1 nyc: +0.0583 [-0.0056, +0.1269] n=43
+blend_mg1 san-francisco: +0.0432 [+0.0060, +0.0828] n=43
+blend_mg1 seattle: +0.0353 [-0.0129, +0.0864] n=43
+blend_l6 ALL: -0.0096 [-0.0187, +0.0003] n=473
+blend_l6 PRIMARY5: -0.0075 [-0.0212, +0.0059] n=215
+blend_l6 atlanta: -0.0026 [-0.0326, +0.0235] n=43
+blend_l6 austin: +0.0238 [-0.0060, +0.0560] n=43
+blend_l6 chicago: -0.0335 [-0.0569, -0.0090] n=43
+blend_l6 dallas: -0.0035 [-0.0441, +0.0404] n=43
+blend_l6 denver: -0.0133 [-0.0368, +0.0093] n=43
+blend_l6 houston: -0.0099 [-0.0473, +0.0225] n=43
+blend_l6 los-angeles: -0.0589 [-0.1146, -0.0077] n=43
+blend_l6 miami: -0.0231 [-0.0558, +0.0120] n=43
+blend_l6 nyc: +0.0072 [-0.0212, +0.0372] n=43
+blend_l6 san-francisco: +0.0012 [-0.0201, +0.0226] n=43
+blend_l6 seattle: +0.0094 [-0.0078, +0.0264] n=43
