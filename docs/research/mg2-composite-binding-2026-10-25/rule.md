@@ -83,8 +83,14 @@ itself falls back to the served vector of record.
   - the rule-4 floor mask;
   - served fallback for snapshots neither vector covers.
 - **Markets:** the fixed 11 US markets.
-- **Countable dates:** promotion-countable local target dates, counted from the branch's start date with
-  no skipping. N = **45** countable dates.
+- **Countable dates:** local target dates that are both:
+  - **input-countable.** The date's outcome-free input bundle is verified by its deadline, and the
+    outcome-blind `check` passes on it. This is recorded in the append-only receipt ledger before any
+    look (binding plan §9.4).
+  - **promotion-countable.**
+
+  They are counted from the branch's start date with no skipping. N = **45** countable dates. A
+  non-countable date moves the 45th date one day later and never voids the look.
 - **Exactly one look.** There is no interim outcome look. The look's output carries a receipt, and a
   second look is not run.
 - **Branch is fixed before any read**, by whether a dated owner decision id is recorded (§4.3) before
@@ -228,6 +234,12 @@ h13 is the one hour with no dev gain; it is reported, not gated.
 ## 7. Void conditions
 
 If any of these fails, the look is VOID: no pass and no fail. The dates are spent and not re-run.
+
+**Per-date checks.** The PIT, coverage, replay and parser checks run per date, before the look,
+outcome-blind. A date that fails one is non-countable (§3) and is replaced by the next countable date.
+These checks void the look only in two cases:
+- a check fails on a date already in the counted 45, for example on recomputation at the look;
+- an input-transfer receipt (binding plan §9.3) is missing or altered for a counted date.
 
 - **PIT:**
   - any MG-1-path input with `v2_available_at` after `captured_at_utc`;
