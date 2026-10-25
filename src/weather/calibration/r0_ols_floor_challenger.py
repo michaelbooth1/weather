@@ -1134,8 +1134,8 @@ _COVER = {"CLR": 0.0, "SKC": 0.0, "NCD": 0.0, "NSC": 0.0, "FEW": .25, "SCT": .5,
 def parse_captured_metar(raw, anchor_utc):
     """One captured METAR row -> the fields lane L6's IEM extract carries (None when unparseable).
 
-    Observation instant from the raw DDHHMMZ group (nearest to ``anchor_utc``); temp = T-group when present,
-    else the body temperature; dewpoint from the body (whole degC, as IEM ``dwpf``); wind, cover and ceiling
+    Observation instant from the raw DDHHMMZ group (nearest to ``anchor_utc``); temperature and dewpoint from the
+    T-group when present, else the body (IEM ``dwpf`` follows the T-group; pick rule clarification 2 erratum); wind, cover and ceiling
     as ``iem_upstream`` (cover = max layer, ceiling = lowest BKN/OVC/VV base).
     """
     import re
@@ -1166,6 +1166,7 @@ def parse_captured_metar(raw, anchor_utc):
         dwpf = c2f(int(body.group(2).replace("M", "-"))) if body.group(2) else None
     if tg:
         temp = c2f((-1 if tg.group(1) == "1" else 1) * int(tg.group(2)) / 10.0)
+        dwpf = c2f((-1 if tg.group(3) == "1" else 1) * int(tg.group(4)) / 10.0)
     w = re.search(r"\b(\d{3}|VRB)(\d{2,3})(?:G\d{2,3})?KT\b", raw)
     drct = sknt = None
     if w:
