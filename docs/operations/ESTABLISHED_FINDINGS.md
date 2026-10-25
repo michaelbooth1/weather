@@ -114,6 +114,7 @@ sequence numbers, not calendar dates.
 | 10w | Open-Meteo hourly labels are fixed-offset per response; serving reads them as zone wall time, so labels on the far side of a DST change are 1 h late (code trace on master `1c19ae10b`, 2026-10-21; live behaviour inferred) |
 | 10x | From the 2026-10-23 events the venue's declared resolution source is the raw aviationweather.gov METAR API, routine reports only (SPECI excluded), with a WU fallback; Denver names KDEN, not our KBKF (event metadata only; SPECI effect measured 07-31..09-29) |
 | 10y | Free-source and blend levers (lane G, development, 2026-10-24): F1, F3, F4, G2-a and L4 add nothing over their no-source controls and none helps 07-12; F2 MRMS is a sub-bar 13-16 lead |
+| 10z | R0 trained on the full year beats windowed R0 but loses to the floored forecast baselines by about 1 nat at 07-12 (lane L1, workstation, 2026-10-24); not adopted |
 
 ---
 
@@ -3971,34 +3972,6 @@ was read.
   standard-time date. DST-L9's "latent: the season is May-Aug" no longer holds once the Oct-Dec PIT fetch exists. The
   audit does not list `eccc_gridded.py`, `reanalysis_history.py` or `historical_fallbacks.py`.
 
-### 10x. R0 on the full year beats windowed R0 but loses to the floored forecast baselines by about 1 nat at 07-12 — lane L1, workstation, 2026-10-24
-
-- **Question:** does training the R0 cutoff-hour HGB on every 2021-2025 day (about 1,712 per market instead of 75,
-  plus `doy_sin`/`doy_cos`) beat the windowed fit on the same held-out window days, and does it beat fair comparators?
-- **Design (pre-declared, `C:\t\l1\rule.md`, sha256 `993e01d4…` then clarification `008c662b…` before any floored
-  row):** atlanta, austin, chicago, dallas, denver; centre 2026-11-24; blocked leave-one-year-out on the held-out
-  years' 11-17..12-01 rows, cutoffs 07-20; equal-weight market mean of per-market mean log-loss deltas; date-clustered
-  bootstrap, 2,000 draws, seed 20261024. The climatology prior is the windowed one in every arm. Comparators (e)
-  R0 baseline + floor, (f) bias-corrected forecast + floor and OLS + floor come from lane L3's own rows
-  (`weather.calibration.r0_ols_floor_challenger` @ `171717d5f`) behind a parity gate. Corpora: the full-year union
-  `621bcd8ea82ceed397bcfbdfae1c80664d1cb73adba3e71b240fae34db529cdc` ([PIT corpus guide](PIT_FORECAST_TRAINING_CORPUS.md)).
-- **Controls:** windowed leaf-20 rows reproduce lane D's trainer rows and L3's `r0_repro` on 1,050 of 1,050 rows in
-  each market (max diff 1.8e-15).
-- **Result vs raw windowed R0 (original rule):** full-year leaf 20 −1.035 [−1.246, −0.837] at 07-12, a win at every
-  hour; leaf 10 −0.854 [−1.062, −0.656]. Leaf 5 +0.990 [+0.876, +1.100] is a fitting failure (in-sample loss about
-  14), not an overfitting result. Windowed R0 itself (about 4.3-4.6 nats at 07-12) is worse than its own floored
-  climatology baseline (e), so this win mostly measures a broken comparator.
-- **Result vs fair comparators (decisive), full-year leaf 20 + served floor (×1e-6):** vs (f) **+0.900 [+0.729,
-  +1.075]** at 07-12 (07 +0.979, 12 +0.656), vs OLS + floor **+1.018 [+0.860, +1.180]** (07 +0.965, 12 +0.959);
-  every market is worse at 07-12 against both. Against (f) it is better from 15:00 on (−0.55 to −1.18, CIs exclude 0);
-  against OLS + floor it is worse at every hour except 15-16 (CIs cross 0). It beats (e) −0.406 [−0.555, −0.268].
-  The floor alone moves full-year by −0.102 [−0.119, −0.087]. Against lane D's served-floor windowed R0 rows
-  (`retrain-r0-floor-msl20-2026-11-24`, 5,250 rows, all paired) it is −0.802 [−1.008, −0.619].
-- **Verdict:** do not adopt the full-year R0 HGB. More rows do not rescue a ~67-class bucket classifier against a
-  forecast-anchored discretised normal with a hard floor.
-- **Not claimed:** nothing about edge over market prices; one centre (11-24) and five markets; the seasonal columns
-  are not served features.
-
 ### 10x. From the 2026-10-23 events the venue resolves on the raw METAR API, routine reports only — event metadata plus IEM measurement, 2026-10-23
 
 **Claim, at exactly this scope:** for built-in events dated 2026-10-23 and later, the venue's declared
@@ -4071,6 +4044,34 @@ lanes; nothing here is confirmation. Record, rules (each committed before scorin
 - **G2-b (ENS gap conditioning t3-r3, 13-16):** −0.0002 [−0.0005, +0.0001] over t3-r3, MDE80 0.0004: KILL (null);
   score `60047a9deb4d`.
 - **Not scored:** DWD MOSMIX (the open server keeps about 2 days, so it needs forward capture).
+
+### 10z. R0 on the full year beats windowed R0 but loses to the floored forecast baselines by about 1 nat at 07-12 — lane L1, workstation, 2026-10-24
+
+- **Question:** does training the R0 cutoff-hour HGB on every 2021-2025 day (about 1,712 per market instead of 75,
+  plus `doy_sin`/`doy_cos`) beat the windowed fit on the same held-out window days, and does it beat fair comparators?
+- **Design (pre-declared, `C:\t\l1\rule.md`, sha256 `993e01d4…` then clarification `008c662b…` before any floored
+  row):** atlanta, austin, chicago, dallas, denver; centre 2026-11-24; blocked leave-one-year-out on the held-out
+  years' 11-17..12-01 rows, cutoffs 07-20; equal-weight market mean of per-market mean log-loss deltas; date-clustered
+  bootstrap, 2,000 draws, seed 20261024. The climatology prior is the windowed one in every arm. Comparators (e)
+  R0 baseline + floor, (f) bias-corrected forecast + floor and OLS + floor come from lane L3's own rows
+  (`weather.calibration.r0_ols_floor_challenger` @ `171717d5f`) behind a parity gate. Corpora: the full-year union
+  `621bcd8ea82ceed397bcfbdfae1c80664d1cb73adba3e71b240fae34db529cdc` ([PIT corpus guide](PIT_FORECAST_TRAINING_CORPUS.md)).
+- **Controls:** windowed leaf-20 rows reproduce lane D's trainer rows and L3's `r0_repro` on 1,050 of 1,050 rows in
+  each market (max diff 1.8e-15).
+- **Result vs raw windowed R0 (original rule):** full-year leaf 20 −1.035 [−1.246, −0.837] at 07-12, a win at every
+  hour; leaf 10 −0.854 [−1.062, −0.656]. Leaf 5 +0.990 [+0.876, +1.100] is a fitting failure (in-sample loss about
+  14), not an overfitting result. Windowed R0 itself (about 4.3-4.6 nats at 07-12) is worse than its own floored
+  climatology baseline (e), so this win mostly measures a broken comparator.
+- **Result vs fair comparators (decisive), full-year leaf 20 + served floor (×1e-6):** vs (f) **+0.900 [+0.729,
+  +1.075]** at 07-12 (07 +0.979, 12 +0.656), vs OLS + floor **+1.018 [+0.860, +1.180]** (07 +0.965, 12 +0.959);
+  every market is worse at 07-12 against both. Against (f) it is better from 15:00 on (−0.55 to −1.18, CIs exclude 0);
+  against OLS + floor it is worse at every hour except 15-16 (CIs cross 0). It beats (e) −0.406 [−0.555, −0.268].
+  The floor alone moves full-year by −0.102 [−0.119, −0.087]. Against lane D's served-floor windowed R0 rows
+  (`retrain-r0-floor-msl20-2026-11-24`, 5,250 rows, all paired) it is −0.802 [−1.008, −0.619].
+- **Verdict:** do not adopt the full-year R0 HGB. More rows do not rescue a ~67-class bucket classifier against a
+  forecast-anchored discretised normal with a hard floor.
+- **Not claimed:** nothing about edge over market prices; one centre (11-24) and five markets; the seasonal columns
+  are not served features.
 
 ## Related
 
