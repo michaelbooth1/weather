@@ -25,6 +25,7 @@ PINNED = [
     "weather.backtesting.snapshot_analytics",
     "weather.backtesting.tape_scoring",
     "weather.calibration.feature_model",
+    "weather.calibration.gap_to_market_atlas",
     "weather.calibration.l5_subset_scores",
     "weather.calibration.new_city_corpus",
     "weather.calibration.ols_floor_ladder",
