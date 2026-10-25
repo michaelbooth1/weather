@@ -502,3 +502,14 @@ def test_rung_i_recentre_moves_median_to_reference_and_respects_impossible_bands
     out = prm.ri_recentre(p, ref, np.array([0]), np.array([4]), np.array([True, False, False, False]))
     assert out[0] == 0.0 and abs(out.sum() - 1.0) < 1e-12
     assert int(np.argmax(np.cumsum(out) >= 0.5)) == 3
+
+
+def test_rung_j_loyo_summary_pools_only_the_gate_hours():
+    rows = [{"hour": h, "date": f"2021-08-0{d}", "B_G_brier": 1.0 - (0.1 if h in (13, 14) else -0.1),
+             "B_N_brier": 1.0, "B_G_log": 0.0, "B_N_log": 0.0} for h in (13, 14, 15, 16) for d in (1, 2, 3)]
+    out = prm.rg_loyo_summary(rows, pairs=(("B_G", "B_N"),), pooled=(prm.RJ_GATE, prm.RJ_SECONDARY))
+    assert out["B_G-B_N|13-14|brier"]["estimate"] == pytest.approx(-0.1)
+    assert out["B_G-B_N|15-16|brier"]["estimate"] == pytest.approx(0.1)
+    assert out["B_G-B_N|13-14|brier"]["n"] == 6
+    default = prm.rg_loyo_summary(rows, pairs=(("B_G", "B_N"),))
+    assert default["B_G-B_N|07-12|brier"]["n"] == len(rows)  # R-G's pooled label still means every row
