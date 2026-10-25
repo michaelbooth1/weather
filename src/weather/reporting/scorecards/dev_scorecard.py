@@ -62,8 +62,10 @@ CLUSTER_FLOOR = 12
 MARKET_BRIER_FLOOR = 0.005
 LOG_EPS = 1e-4
 BLOCKS = (("00-05", 0, 5), ("06-09", 6, 9), ("10-12", 10, 12), ("13-16", 13, 16), ("17-23", 17, 23))
-AGGREGATES = (("00-16", 0, 16), ("all", 0, 23))
+AGGREGATES = (("00-12", 0, 12), ("00-16", 0, 16), ("all", 0, 23))
 GROUPS = BLOCKS + AGGREGATES
+# --hourly: one row per local hour plus the 07-12 morning aggregate (lever L4 headline).
+HOURLY_GROUPS = tuple((f"h{h:02d}", h, h) for h in range(24)) + (("07-12", 7, 12),)
 ALL_MARKETS = "ALL"
 BASE_CAVEAT = ("EF 10v: 'served' is the served vector of record; a current-code replay does not reproduce "
                "it on dev dates, so a replay-derived candidate minus served mixes code drift with the variant.")
@@ -157,6 +159,7 @@ class Table:
         index = {k: i for i, k in enumerate(cell_keys)}
         self.cell = np.array([index[k] for k in zip(self.snaps.date.astype(str), self.markets)], int)
         self.w = crossed_weights([k[0] for k in cell_keys], [k[1] for k in cell_keys]) if cell_keys else None
+        self.w_date = crossed_weights([k[0] for k in cell_keys], ["all"] * len(cell_keys)) if cell_keys else None
 
     def candidate_vector(self, frame):
         """Rule-4 floor mask, renormalise, served fallback (HARNESS v2/v3 semantics)."""
@@ -205,21 +208,23 @@ class Table:
         return present, sums[present] / counts[present]
 
 
-def group_mask(local_hour, group):
-    low, high = next((lo, hi) for name, lo, hi in GROUPS if name == group)
+def group_mask(local_hour, group, groups=GROUPS):
+    low, high = next((lo, hi) for name, lo, hi in groups if name == group)
     return (local_hour >= low) & (local_hour <= high)
 
 
-def score_rows(table, p_candidate, candidate_is_served):
+def score_rows(table, p_candidate, candidate_is_served, p_control=None, groups=GROUPS):
     scores = {"candidate": table.brier(p_candidate), "served": table.brier(table.p_served),
               "market": table.brier(table.p_market)}
+    if p_control is not None:
+        scores["control"] = table.brier(p_control)
     logs = {"candidate": table.log_score(p_candidate), "served": table.log_score(table.p_served),
             "market": table.log_score(table.p_market)}
     rows = []
     markets = [ALL_MARKETS] + sorted(set(table.markets))
     for market in markets:
-        for group, _, _ in GROUPS:
-            mask = group_mask(table.local_hour, group)
+        for group, _, _ in groups:
+            mask = group_mask(table.local_hour, group, groups)
             if market != ALL_MARKETS:
                 mask = mask & (table.markets == market)
             if not mask.any():
@@ -249,6 +254,16 @@ def score_rows(table, p_candidate, candidate_is_served):
             }
             if not candidate_is_served:
                 row["model_minus_served"] = ratio_interval(w, c - s, ones, with_power=True)
+            if p_control is not None:
+                _, k = table.cells(scores["control"], mask)
+                row["brier_control"] = float(k.mean())
+                row["model_minus_control"] = ratio_interval(w, c - k, ones, with_power=True)
+                row["control_minus_served"] = ratio_interval(w, k - s, ones, with_power=True)
+                if market == ALL_MARKETS:
+                    # Date-clustered only (secondary; EF 5 makes the crossed interval the binding one).
+                    wd = table.w_date[:, idx]
+                    row["model_minus_control_date_clustered"] = ratio_interval(wd, c - k, ones)
+                    row["model_minus_served_date_clustered"] = ratio_interval(wd, c - s, ones)
             rows.append(row)
     return rows
 
@@ -312,16 +327,46 @@ def score_markdown(payload, sha):
              f"- Powered = every resampled dimension has >= {CLUSTER_FLOOR} clusters.", "",
              "| market | block | dates | mkts | Brier model | Brier market | R = model/market [95%] | "
              "model - market [95%] | MDE80 | powered |", "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
+    if "control" in payload:
+        ctl = payload["control"]
+        lines[5:5] = [f"- Control: `{ctl['kind']}` {ctl.get('name', '')}; walk-forward: {ctl.get('walk_forward')}"]
     for r in payload["rows"]:
         ratio = _ci(r["gap_ratio"], 3) + ("" if r["ratio_interpretable"] else " (not interpretable)")
         lines.append(f"| {r['market']} | {r['block']} | {r['n_dates']} | {r['n_markets']} | "
                      f"{_fmt(r['brier_model'])} | {_fmt(r['brier_market'])} | {ratio} | "
                      f"{_ci(r['model_minus_market'])} | {_fmt(r['model_minus_market'].get('mde80'))} | "
                      f"{'yes' if r['powered'] else 'no'} |")
+    deltas = [r for r in payload["rows"] if "model_minus_served" in r]
+    if deltas:
+        head = "| market | block | model - served [95%] | MDE80 |"
+        if "control" in payload:
+            head += " model - control [95%] | MDE80 | control - served [95%] |"
+        lines += ["", head, "|" + " --- |" * (head.count("|") - 1)]
+        for r in deltas:
+            line = (f"| {r['market']} | {r['block']} | {_ci(r['model_minus_served'])} | "
+                    f"{_fmt(r['model_minus_served'].get('mde80'))} |")
+            if "model_minus_control" in r:
+                line += (f" {_ci(r['model_minus_control'])} | {_fmt(r['model_minus_control'].get('mde80'))} | "
+                         f"{_ci(r['control_minus_served'])} |")
+            lines.append(line)
     return "\n".join(lines) + "\n"
 
 
-def run_score(layout_root, start, end, spec, fold_days=7, gap_days=1, min_train_dates=7):
+def _candidate_vector(spec, layout, folds, table):
+    builder = {"module": data.module_predictions, "vectors": data.vector_predictions,
+               "distributions": data.distribution_predictions}[spec.kind]
+    frame, meta = builder(spec, layout, folds)
+    if spec.kind == "module":
+        meta["walk_forward"] = "enforced_fit_per_fold"
+    p, reasons = table.candidate_vector(frame)
+    return p, meta, reasons
+
+
+def run_score(layout_root, start, end, spec, fold_days=7, gap_days=1, min_train_dates=7, control=None,
+              hourly=False):
+    """``control`` (optional CandidateSpec, module/vectors/distributions): scored on the same rows with
+    the same crossed weights, so ``model_minus_control`` is the paired increment of the candidate over
+    it (e.g. a source added to a no-source rule)."""
     start, end = data.check_range(start, end)
     layout = data.load_layout(layout_root, data.DEV_FIRST, end)
     folds = data.make_folds(layout.dates, start, end, fold_days, gap_days, min_train_dates)
@@ -336,13 +381,15 @@ def run_score(layout_root, start, end, spec, fold_days=7, gap_days=1, min_train_
     elif spec.kind == "market":
         p, cand["walk_forward"] = table.p_market, "not_applicable_market_identity_control"
     else:
-        builder = {"module": data.module_predictions, "vectors": data.vector_predictions,
-                   "distributions": data.distribution_predictions}[spec.kind]
-        frame, meta = builder(spec, layout, folds)
+        p, meta, reasons = _candidate_vector(spec, layout, folds, table)
         cand.update(meta)
-        if spec.kind == "module":
-            cand["walk_forward"] = "enforced_fit_per_fold"
-        p, reasons = table.candidate_vector(frame)
+    p_control, control_id, control_reasons = None, None, None
+    if control is not None:
+        if control.kind not in ("module", "vectors", "distributions"):
+            raise data.Refused("refused: a control must be a module, vectors or distributions candidate")
+        control_id = control.identity()
+        p_control, meta, control_reasons = _candidate_vector(control, layout, folds, table)
+        control_id.update(meta)
     payload = {
         "schema": SCHEMA_VERSION, "code_sha256": code_sha256(), "evidence_class": "development",
         "range": {"from": start.isoformat(), "to": end.isoformat()},
@@ -355,13 +402,15 @@ def run_score(layout_root, start, end, spec, fold_days=7, gap_days=1, min_train_
                        "n_snapshots": int(len(table.snaps)), "n_market_days": len(table.keys),
                        "first_date": scored[0], "last_date": scored[-1]},
         "candidate": cand, "candidate_coverage": reasons,
+        **({"control": control_id, "control_coverage": control_reasons} if control is not None else {}),
         "provenance": {"labels": layout.label_source, "label_rule": "WU settlement labels (dates < 2026-10-23)",
                        "market": "captured p_market_yes per band (layout market file)",
                        "layout_manifest_sha256": layout.manifest_sha256, "layout_files": layout.file_sha256},
         "constants": {"draws": DRAWS, "seed": SEED, "cluster_floor": CLUSTER_FLOOR, "mde_effect": MDE_EFFECT,
                       "market_brier_floor": MARKET_BRIER_FLOOR, "log_eps": LOG_EPS},
         "base_caveat": BASE_CAVEAT,
-        "rows": score_rows(table, p, spec.kind == "served"),
+        "rows": score_rows(table, p, spec.kind == "served", p_control,
+                           GROUPS + HOURLY_GROUPS if hourly else GROUPS),
     }
     prov = {"labels": layout.label_source, "layout_manifest_sha256": layout.manifest_sha256,
             "candidate": cand.get("sha256", cand["kind"])}
@@ -465,6 +514,10 @@ def build_parser():
                        help="jsonl[.gz] rows {market, snapshot_id, distribution} (e.g. a served-vector replay)")
     s.add_argument("--trained-through", help="last date any fitted parameter of a vectors/distributions candidate saw")
     s.add_argument("--no-training", action="store_true", help="the vectors/distributions candidate has no fitted parameters")
+    ctl = s.add_mutually_exclusive_group()
+    ctl.add_argument("--control-module", help="paired control: Python file like --candidate-module")
+    ctl.add_argument("--control-vectors", help="paired control: parquet/csv like --candidate-vectors")
+    s.add_argument("--hourly", action="store_true", help="add one row per local hour and a 07-12 aggregate")
     s.add_argument("--fold-days", type=int, default=7)
     s.add_argument("--gap-days", type=int, default=1)
     s.add_argument("--min-train-dates", type=int, default=7)
@@ -493,8 +546,13 @@ def main(argv=None):
         else:
             spec = data.CandidateSpec("distributions", args.candidate_distributions, args.trained_through,
                                       args.no_training)
+        control = None
+        if args.control_module:
+            control = data.CandidateSpec("module", args.control_module)
+        elif args.control_vectors:
+            control = data.CandidateSpec("vectors", args.control_vectors, args.trained_through, args.no_training)
         payload = run_score(args.layout, args.start, args.end, spec, args.fold_days, args.gap_days,
-                            args.min_train_dates)
+                            args.min_train_dates, control, args.hourly)
         sha, json_path, md_path = write_outputs(payload, args.out, score_markdown)
         print(json.dumps({"sha256": sha, "json": str(json_path), "md": str(md_path)}))
         return 0
