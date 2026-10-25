@@ -2,7 +2,7 @@
 
 Status: research record, not canonical. The canonical findings entry is held until the fair
 comparisons (rule amendment 2) and the dev-window test against served (amendment 3) have verdicts;
-it will then go in as EF §10z (coordinator, 2026-10-24).
+it will then go in as EF §10aa (coordinator, 2026-10-25; §10z is L1, §10ab L3).
 
 - Code: `weather.calibration.pooled_residual_model` on `claude/pooled-residual-model-20261024`.
 - Rule: `rule.md` here, byte-identical to `C:\t\l2\rule.md` at the time of each result
