@@ -24,6 +24,7 @@ ADMISSION = ROOT / "scripts" / "ops" / "workload_admission.ps1"
 ADDED = (
     "weather.calibration.l5_subset_scores",
     "weather.calibration.new_city_corpus",
+    "weather.calibration.upstream_obs_screen",
     "weather.reporting.scorecards.dev_scorecard",
     "weather.sources.forecast_training_corpus",
 )
@@ -35,6 +36,7 @@ REFUSED = (
     "weather.sources.forecast_history",
     "weather.backtesting.venue_rule_labels",
     "weather.sources.not_a_real_module",
+    "weather.sources.free_screens.iem_upstream",
 )
 
 

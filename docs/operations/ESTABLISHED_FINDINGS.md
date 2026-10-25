@@ -112,6 +112,9 @@ sequence numbers, not calendar dates.
 | 10u | HGB path: the intraday-tail and METAR-live-signal stages never act (code-traced + Toronto replay, 2026-10-21); the WU-floor residual is only data-inert |
 | 10v | Dev replay with current code does not reproduce the served vector (M8 check, 2026-10-21, outcome-blind): code drift, not artifacts; replay deltas are "current code ± variant" |
 | 10w | Open-Meteo hourly labels are fixed-offset per response; serving reads them as zone wall time, so labels on the far side of a DST change are 1 h late (code trace on master `1c19ae10b`, 2026-10-21; live behaviour inferred) |
+| 10x | From the 2026-10-23 events the venue's declared resolution source is the raw aviationweather.gov METAR API, routine reports only (SPECI excluded), with a WU fallback; Denver names KDEN, not our KBKF (event metadata only; SPECI effect measured 07-31..09-29) |
+| 10y | Free-source and blend levers (lane G, development, 2026-10-24): F1, F3, F4, G2-a and L4 add nothing over their no-source controls and none helps 07-12; F2 MRMS is a sub-bar 13-16 lead |
+| 10z | R0 trained on the full year beats windowed R0 but loses to the floored forecast baselines by about 1 nat at 07-12 (lane L1, workstation, 2026-10-24); not adopted |
 
 ---
 
@@ -3214,6 +3217,8 @@ instrument at different sawtooth phases.
 
 ### 10c. The venue's declared resolution source moved from WU to `weather.gov` timeseries
 
+> **SUPERSEDED IN PART** for events dated 2026-10-23 onward by §10x (raw METAR API, routine reports only).
+
 Around the **2026-08-23** event (verified in git history for Atlanta and Toronto) the venue's
 `resolutionSource` for the 12 captured markets changed from Weather Underground to
 `weather.gov/wrh/timeseries?site=<icao>`; same ICAO stations. In the working copy of
@@ -3966,6 +3971,107 @@ was read.
   effect is limited to pre-06:00Z fetches on 11-01, and the archive/training readers it lists are shifted on every
   standard-time date. DST-L9's "latent: the season is May-Aug" no longer holds once the Oct-Dec PIT fetch exists. The
   audit does not list `eccc_gridded.py`, `reanalysis_history.py` or `historical_fallbacks.py`.
+
+### 10x. From the 2026-10-23 events the venue resolves on the raw METAR API, routine reports only — event metadata plus IEM measurement, 2026-10-23
+
+**Claim, at exactly this scope:** for built-in events dated 2026-10-23 and later, the venue's declared
+`resolutionSource` is the raw `aviationweather.gov/api/data/metar` API for the station, replacing the
+`weather.gov/wrh/timeseries` page of §10c. Verbatim samples (public read-only Gamma GETs, `resolutionSource` field only):
+NYC 10-23 `https://aviationweather.gov/api/data/metar?ids=KLGA&format=raw&date=2026-10-24T04:00:00Z&hours=27`,
+Chicago 10-24 `...?ids=KORD&format=raw&date=2026-10-25T08:00:00Z&hours=30`, Denver 10-25
+`...?ids=KDEN&format=raw&date=2026-10-26T09:00:00Z&hours=30`. The three `description` texts are one template (identical
+hash after swapping station, date and URL). Only event metadata was read for these dates: no prices, no outcomes.
+
+- **Rules as summarised (not quoted in full):** the label is the highest **routine** METAR temperature on the local date,
+  read in tenths of °C from the remark group (whole-degree body value if the remark is missing), rounded half up to °F; a
+  report that begins with SPECI does not count; corrected reports count until the next day's first report; WU Daily
+  Observations is the fallback.
+- **SPECI effect (measured, IEM, 671 US station-days 2026-07-31..09-29, METAR only):** dropping SPECIs lowers the daily-max
+  degree on 15 days and changes the 2 °F band on 9 (1.3%). WU included the SPECI on both days where one held the max (2/2),
+  so WU-derived labels and the repo's routine+SPECI METAR path sit on the SPECI-inclusive side of that gap.
+- **Agreement where WU exists (measured, 07-31..08-10, 110 US market-days; the workstation's WU history ends 08-10):**
+  repo rule (routine + SPECI, `tmpc`, half-up) 110/110 exact with WU; the new venue rule 108/110 exact, 1 band flip. This
+  repeats 86a's pre-switch window rather than adding new dates.
+- **Denver station:** the 10-23..10-25 Denver events name **KDEN**; the built-in spec, WU history and
+  `config/locations.json` use KBKF. No KDEN measurement exists.
+- **Not claimed:** no exact-degree agreement between WU and the venue after 09-29; nothing for Toronto or Hong Kong; the
+  pilot cities' post-10-23 Rules were not read; foreign SPECIs cannot be separated in IEM raw text.
+- **Consequence (decision, not finding):** owner 2026-10-23 (DECISION_LOG) labels new METAR-settled cities from IEM METAR;
+  the built-ins stay on the WU proxy pending a later decision. The ledger still hard-codes WU. Source:
+  [METAR-vs-WU agreement study](../research/metar-vs-wu-agreement-2026-10-23.md);
+  [phase-2 scoping](../research/more-markets-phase2-scoping-2026-10-23.md). **Supersedes in part §10c** for events dated
+  2026-10-23 onward (the WRH page and its "Hourly Data"/"Temp" rules no longer name the source).
+### 10y. Free-source and blend levers add nothing at 07-12; one afternoon radar lead — lane G screens, development, 2026-10-24
+
+**Claim, at exactly this scope:** on the dev scorecard (`weather.reporting.scorecards.dev_scorecard`, walk-forward
+7-day folds, scored 2026-08-15..09-29, 43 dates x 11 US markets = 473 market-days, 83,801 snapshots), six
+forecast-source levers were each scored as a paired increment over their no-source control (`--control-module`,
+same rows and crossed date x market weights, 2,000 draws, seed 20260921). **None improves the morning; every 07-12
+read is null or harm.** Unpowered by construction (11 market clusters, EF §10j); dates already read by earlier
+lanes; nothing here is confirmation. Record, rules (each committed before scoring) and receipts:
+[free-source screens](../research/free-source-screens-2026-10-23.md).
+
+| Lever (control) | Decided block | Increment over control [95% crossed] | MDE80 | Morning increment (06-09 / 10-12) | Verdict |
+| --- | --- | --- | --- | --- | --- |
+| F1 IEM 1-min ASOS running high, degraded to 5-min whole °C +10 min (t3-r3) | 13-16 | +0.0044 [+0.0017, +0.0076]; 0/10 markets better | 0.0042 | +0.0001 / +0.0013 [+0.0002, +0.0026] | KILL (harm); raw 1-min +2 min also harms (+0.0029 [+0.0004, +0.0057]) |
+| F2 MRMS composite reflectivity >= 35 dBZ within 25 km (t3-r3) | 13-16 | −0.0005 [−0.0010, −0.0001]; 7/11 | 0.0006 | −0.0000 / −0.0001 (span 0) | development lead only, below the 5% bar |
+| F3 12Z sounding mixed-layer cap (t3-r3) | 13-16 | −0.0001 [−0.0003, +0.0000] | 0.0002 | −0.0000 / −0.0000 | KILL (null) |
+| F4 captured Open-Meteo members, MG-1 recentred halfway (MG-1) | 00-12 | gfs_seamless +0.0008 [−0.0032, +0.0055], NAM +0.0007, AIGFS +0.0003 (span 0); GEFS mean +0.0054 [+0.0016, +0.0100] | ~0.006 | all span 0 except GEFS harm | KILL (null; GEFS harm); AIFS, GraphCast never captured |
+| G2-a ECMWF ENS 51-member mean, bias-adjusted, MG-1 recentred halfway (MG-1) | 00-12 | −0.0000 [−0.0033, +0.0031] | 0.0047 | −0.0008 / −0.0008 (span 0) | KILL (null) |
+| L4 per-station x hour inverse-MSE blend of NBM v2, GFS, IFS, ICON day-1 (MG-1) | 07-12 | −0.0002 [−0.0045, +0.0047]; date-clustered [−0.0031, +0.0025]; h07..h12 all span 0 | 0.0064 | — | KILL (null) |
+
+- **Controls reproduce:** t3-r3 − served at 13-16 is −0.0110 [−0.0188, −0.0041] (EF §10q's −0.0116); MG-1 −
+  served at 00-12 is −0.0153 [−0.0234, −0.0083] (EF §10j). The MDE80 of the 00-12/07-12 reads (about 0.005-0.006)
+  is four to five times the 5% bar (about −0.0012), so the nulls are "no increment demonstrated".
+- **F1 kills every paid observation feed in the 2026-10-23 proposal** (its P1 rule) and does not trigger the
+  MADIS sign-up: a fresher running high from the 1-minute archive moves mass off the METAR-based settling value.
+- **L4 afternoon (parked, not a win):** at h15..h23, L4 − MG-1 is −0.008 to −0.013 with intervals excluding 0
+  (13-16 −0.0059 [−0.0103, −0.0014]; 17-23 −0.0129 [−0.0179, −0.0077]). That mostly undoes MG-1's own afternoon
+  harm (MG-1 − served +0.0068 at 17-23, EF §10p); L4 − served does not exclude 0 there (13-16 −0.0070 [−0.0149,
+  +0.0005]; 17-23 −0.0061 [−0.0176, +0.0045]), and t3-r3 is far better. Parked as an afternoon candidate that
+  would have to beat t3-r3, under a new pre-registration on new dates.
+- **Pre-registration and receipts:** L4 frozen in `docs/research/forecast-blend-l4-preregistration-2026-10-24.md`,
+  sha256 `96dee78c7bfe8e350905c19048824ddf25729fcf3bc829bde066f16ad346a3b0` (commit `144a1f582`). The score JSONs are
+  content-addressed under the workstation `data\research\free_sources\scores\`: F1 `6b0179912f9b`, F1u `f9633f12518f`,
+  F2 `511bd35de76e`, F3 `52f20094cdfb`, G2-a `1d72ea4b36f8`, L4 `d019d6b1fde6`.
+  Fetches (serial, hashed per file):
+  - IEM 1-minute ASOS: 396 requests, 503.9 MB, 11.66 M rows (KBKF has none);
+  - IEM RAOB: 363 requests, 255.5 MB, 19,405 soundings (KDNR empty);
+  - MRMS: 2,928 objects, 4.14 GB, reduced to 32,208 station rows;
+  - ECMWF ENS: 171 00Z runs x 51 `2t` members x 6 steps, 36.83 GB in 42,484 range requests via the Google Cloud open-data mirror (AWS throttled), eccodes in a separate research venv only, 3,751 station-date rows;
+  - Open-Meteo Previous Runs day-1: 33 requests, 1.19 MB;
+  - F4 used captured replay inputs (122,711 snapshots), with no download.
+- **G2-b (ENS gap conditioning t3-r3, 13-16):** −0.0002 [−0.0005, +0.0001] over t3-r3, MDE80 0.0004: KILL (null);
+  score `60047a9deb4d`.
+- **Not scored:** DWD MOSMIX (the open server keeps about 2 days, so it needs forward capture).
+
+### 10z. R0 on the full year beats windowed R0 but loses to the floored forecast baselines by about 1 nat at 07-12 — lane L1, workstation, 2026-10-24
+
+- **Question:** does training the R0 cutoff-hour HGB on every 2021-2025 day (about 1,712 per market instead of 75,
+  plus `doy_sin`/`doy_cos`) beat the windowed fit on the same held-out window days, and does it beat fair comparators?
+- **Design (pre-declared, `C:\t\l1\rule.md`, sha256 `993e01d4…` then clarification `008c662b…` before any floored
+  row):** atlanta, austin, chicago, dallas, denver; centre 2026-11-24; blocked leave-one-year-out on the held-out
+  years' 11-17..12-01 rows, cutoffs 07-20; equal-weight market mean of per-market mean log-loss deltas; date-clustered
+  bootstrap, 2,000 draws, seed 20261024. The climatology prior is the windowed one in every arm. Comparators (e)
+  R0 baseline + floor, (f) bias-corrected forecast + floor and OLS + floor come from lane L3's own rows
+  (`weather.calibration.r0_ols_floor_challenger` @ `171717d5f`) behind a parity gate. Corpora: the full-year union
+  `621bcd8ea82ceed397bcfbdfae1c80664d1cb73adba3e71b240fae34db529cdc` ([PIT corpus guide](PIT_FORECAST_TRAINING_CORPUS.md)).
+- **Controls:** windowed leaf-20 rows reproduce lane D's trainer rows and L3's `r0_repro` on 1,050 of 1,050 rows in
+  each market (max diff 1.8e-15).
+- **Result vs raw windowed R0 (original rule):** full-year leaf 20 −1.035 [−1.246, −0.837] at 07-12, a win at every
+  hour; leaf 10 −0.854 [−1.062, −0.656]. Leaf 5 +0.990 [+0.876, +1.100] is a fitting failure (in-sample loss about
+  14), not an overfitting result. Windowed R0 itself (about 4.3-4.6 nats at 07-12) is worse than its own floored
+  climatology baseline (e), so this win mostly measures a broken comparator.
+- **Result vs fair comparators (decisive), full-year leaf 20 + served floor (×1e-6):** vs (f) **+0.900 [+0.729,
+  +1.075]** at 07-12 (07 +0.979, 12 +0.656), vs OLS + floor **+1.018 [+0.860, +1.180]** (07 +0.965, 12 +0.959);
+  every market is worse at 07-12 against both. Against (f) it is better from 15:00 on (−0.55 to −1.18, CIs exclude 0);
+  against OLS + floor it is worse at every hour except 15-16 (CIs cross 0). It beats (e) −0.406 [−0.555, −0.268].
+  The floor alone moves full-year by −0.102 [−0.119, −0.087]. Against lane D's served-floor windowed R0 rows
+  (`retrain-r0-floor-msl20-2026-11-24`, 5,250 rows, all paired) it is −0.802 [−1.008, −0.619].
+- **Verdict:** do not adopt the full-year R0 HGB. More rows do not rescue a ~67-class bucket classifier against a
+  forecast-anchored discretised normal with a hard floor.
+- **Not claimed:** nothing about edge over market prices; one centre (11-24) and five markets; the seasonal columns
+  are not served features.
 
 ## Related
 

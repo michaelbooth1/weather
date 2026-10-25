@@ -4,12 +4,18 @@ import os
 import pickle
 import time
 import warnings
+from pathlib import Path
 import numpy as np
 import pandas as pd
 from datetime import datetime
 from collections import Counter, defaultdict
 
-from weather.artifacts import writable_artifact_path
+from weather.artifacts import (
+    DEFAULT_IMMUTABLE_RELEASE_ROOT,
+    CandidateArtifactPathError,
+    assert_candidate_artifact_output,
+    writable_artifact_path,
+)
 from weather.calibration.blocked_validation import blocked_validation_audit, validation_splits
 from weather.calibration.feature_model_reports import (
     _as_date,
@@ -24,9 +30,28 @@ from weather.calibration.feature_model_reports import (
     write_item27_feature_value_report,
     write_late_day_continuation_report,
 )
+from weather.calibration.feature_column_allowlist import (
+    ColumnAllowlistError,
+    allowlist_record,
+    resolve_column_allowlist,
+)
+from weather.calibration.feature_model_training_inputs import (
+    TrainingInputError,
+    PITForecastCorpusUnion,
+    null_forecast_relative_marine_fields,
+    parse_target_date,
+    parse_training_years,
+    require_market_history,
+    select_training_days,
+    training_inputs_record,
+)
 from weather.calibration.feature_probability_calibration import (
     fit_temperature_blend_grid,
     temperature_scale_distribution,
+)
+from weather.calibration.r0_scope import (
+    SERVED_HGB_MIN_SAMPLES_LEAF,
+    served_model_differences,
 )
 from weather.calibration.feature_training_policy import (
     TRAINING_FEATURE_POLICY_ID,
@@ -58,6 +83,7 @@ from weather.sources.reanalysis_synoptic import (
     load_reanalysis_synoptic_features,
 )
 from weather.sources.marine_water_contrast import load_marine_water_contrast_features
+from weather.paths import ARTIFACTS_ROOT, SRC_ROOT
 from weather.units import round_half_up
 
 # LOO must stay ON: without it the retrain exports artifacts with no
@@ -103,6 +129,23 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.preprocessing import StandardScaler
 from sklearn.impute import SimpleImputer
+
+# The served trainer's HGB leaf floor (the scikit-learn default it always used).
+# ``--min-samples-leaf`` (research-only, needs --output-root; owner-approved R0
+# leaf sweep 2026-10-24) overrides it for one run; the default path never does.
+HGB_MIN_SAMPLES_LEAF = SERVED_HGB_MIN_SAMPLES_LEAF
+
+
+def make_feature_hgb():
+    """The cutoff-hour HGB, identical at every fit site (validation and final)."""
+    return HistGradientBoostingClassifier(
+        max_iter=50,
+        max_leaf_nodes=15,
+        learning_rate=0.05,
+        min_samples_leaf=HGB_MIN_SAMPLES_LEAF,
+        random_state=42,
+    )
+
 
 def get_minute_of_day(time_str):
     try:
@@ -400,7 +443,26 @@ def neutralize_feature_family(row, train_matrix, feature_cols, family_columns):
     return out
 
 
-def feature_model_columns(all_wind_groups, all_cloud_groups, *, market_spec):
+def feature_model_columns(
+    all_wind_groups,
+    all_cloud_groups,
+    *,
+    market_spec,
+    column_allowlist=None,
+):
+    """Return ``(numeric_cols, feature_cols)`` for one market's training matrix.
+
+    With ``column_allowlist`` (a plan from ``resolve_column_allowlist``) the
+    columns are exactly that list, in its order, and the wind/cloud groups come
+    from it; the registry policy is not re-applied, so any policy-excluded column
+    the list keeps is an explicit, recorded override. Without it the default
+    policy-filtered ``FEATURE_COLUMNS`` set is unchanged.
+    """
+    if column_allowlist is not None:
+        return (
+            list(column_allowlist["numeric_feature_names"]),
+            list(column_allowlist["feature_names"]),
+        )
     numeric_cols = [
         column
         for column in training_feature_names(
@@ -430,13 +492,30 @@ def feature_model_frame(
     all_cloud_groups,
     *,
     market_spec,
+    column_allowlist=None,
 ):
+    if column_allowlist is not None:
+        all_wind_groups = list(column_allowlist["all_wind_groups"])
+        all_cloud_groups = list(column_allowlist["all_cloud_groups"])
     numeric_cols, feature_cols = feature_model_columns(
         all_wind_groups,
         all_cloud_groups,
         market_spec=market_spec,
+        column_allowlist=column_allowlist,
     )
     source = pd.DataFrame(records)
+    if column_allowlist is not None:
+        # Fail closed: reindex would silently fabricate an all-NaN column.
+        required = list(numeric_cols)
+        if column_allowlist["all_wind_groups"]:
+            required.append("wind_group")
+        if column_allowlist["all_cloud_groups"]:
+            required.append("cloud_group")
+        missing = [column for column in required if column not in source.columns]
+        if missing:
+            raise ColumnAllowlistError(
+                f"allowlisted columns are missing from the training frame: {missing}"
+            )
     df = source.reindex(
         columns=[*numeric_cols, "wind_group", "cloud_group"],
     ).copy()
@@ -618,12 +697,7 @@ def inner_hgb_calibration_rows(
             feature_cols,
             numeric_feature_count,
         )
-        hgb = HistGradientBoostingClassifier(
-            max_iter=50,
-            max_leaf_nodes=15,
-            learning_rate=0.05,
-            random_state=42,
-        )
+        hgb = make_feature_hgb()
         hgb.fit(matrices["hgb_train"], y.iloc[train_indices])
         raw_probabilities = hgb.predict_proba(matrices["hgb_validation"])
         p_clim = smoothed_dist(
@@ -766,12 +840,7 @@ def evaluate_feature_family_segments(
                 alpha=0.10,
             )
 
-            hgb = HistGradientBoostingClassifier(
-                max_iter=50,
-                max_leaf_nodes=15,
-                learning_rate=0.05,
-                random_state=42,
-            )
+            hgb = make_feature_hgb()
             hgb.fit(x_train, y_train)
             hgb_classes = hgb.classes_
             full_probs = hgb.predict_proba(x_val)
@@ -853,7 +922,15 @@ def build_feature_records_for_model(
     forecast_profiles,
     marine_water_contrast_index=None,
     reanalysis_synoptic_index=None,
+    forecast_resolver=None,
 ):
+    """Per-cutoff training records.
+
+    ``forecast_resolver`` (R0: a ``PITForecastCorpusUnion``) replaces the
+    ambient per-date forecast index: ``forecast_high`` and the profile come
+    from ``resolve(date, cutoff)`` and the forecast-relative marine fields are
+    dropped, as in the pooled PIT consumer. Default: unchanged.
+    """
     raw_data = defaultdict(list)
     marine_water_contrast_index = marine_water_contrast_index or {}
     reanalysis_synoptic_index = reanalysis_synoptic_index or {}
@@ -863,14 +940,23 @@ def build_feature_records_for_model(
             continue
         for hour in INTRADAY_CUTOFF_HOURS:
             offset = wall_offset_for(local_date, hour)
+            marine_context = marine_water_contrast_index.get((local_date.isoformat(), int(hour)))
+            if forecast_resolver is None:
+                forecast_high = forecast_index.get(local_date.isoformat())
+                forecast_profile_rows = forecast_profiles.get(local_date.isoformat())
+            else:
+                resolved = forecast_resolver.resolve(local_date.isoformat(), int(hour))
+                forecast_high = resolved["forecast_high"]
+                forecast_profile_rows = resolved["profile_rows"]
+                marine_context = null_forecast_relative_marine_fields(marine_context)
             record = build_historical_feature_record(
                 local_date,
                 rows,
                 daily[local_date],
                 hour,
-                forecast_high=forecast_index.get(local_date.isoformat()),
-                forecast_profile_rows=forecast_profiles.get(local_date.isoformat()),
-                marine_context_features=marine_water_contrast_index.get((local_date.isoformat(), int(hour))),
+                forecast_high=forecast_high,
+                forecast_profile_rows=forecast_profile_rows,
+                marine_context_features=marine_context,
                 reanalysis_synoptic_features=reanalysis_synoptic_index.get(local_date.isoformat()),
                 wind_group_fn=model.wind_group,
                 cloud_group_fn=model.cloud_group,
@@ -1171,12 +1257,183 @@ def main_late_day(market_id="toronto"):
     print(f"Saved late-day validation report to {report_path}")
 
 
-def main(market_id="toronto"):
-    model = TorontoHighTempModel(market_id=market_id)
+def base_only_output_paths(output_root, suffix):
+    """Resolve the redirected, base-models-only output files for ``--output-root``.
+
+    Fails closed (``CandidateArtifactPathError``) when the root is inside
+    ``artifacts/`` anywhere but a child of ``artifacts/candidates/`` (so never
+    ``artifacts/models/``, the immutable releases or the active pointer), inside
+    ``src/`` (the legacy serving fallback location), or when any target file
+    already exists (a candidate is written once, never overwritten).
+    """
+    root = Path(output_root).resolve()
+    artifacts = ARTIFACTS_ROOT.resolve()
+    if root == artifacts or root.is_relative_to(artifacts) or artifacts.is_relative_to(root):
+        if artifacts.is_relative_to(root):
+            raise CandidateArtifactPathError(
+                f"--output-root must not contain the artifacts tree: {root}"
+            )
+        root = assert_candidate_artifact_output(root)
+    for protected in (SRC_ROOT.resolve(), DEFAULT_IMMUTABLE_RELEASE_ROOT.resolve()):
+        if root == protected or root.is_relative_to(protected):
+            raise CandidateArtifactPathError(
+                f"--output-root is inside a served or source path: {root}"
+            )
+    paths = {
+        "coefs": root / f"feature_model_coefs{suffix}.json",
+        "hgb": root / f"feature_model_hgb{suffix}.pkl",
+        "report": root / f"feature_model_report{suffix}.md",
+        "validation_rows": root / f"feature_model_blocked_validation_rows{suffix}.jsonl",
+    }
+    existing = [str(path) for path in paths.values() if path.exists()]
+    if existing:
+        raise CandidateArtifactPathError(
+            f"--output-root already holds trainer output (never overwritten): {existing}"
+        )
+    return paths
+
+
+def main(
+    market_id="toronto",
+    column_allowlist=None,
+    output_root=None,
+    target_date=None,
+    pit_forecast_corpus_manifests=None,
+    training_years=None,
+    min_samples_leaf=None,
+):
+    """Train one market's feature model (see ``_train_main``).
+
+    ``min_samples_leaf`` (research-only, needs ``output_root``) sets the HGB
+    leaf floor for this run only; the module default is restored afterwards.
+    """
+    global HGB_MIN_SAMPLES_LEAF
+    previous = HGB_MIN_SAMPLES_LEAF
+    if min_samples_leaf is not None:
+        value = parse_min_samples_leaf(min_samples_leaf)
+        if output_root is None:
+            raise TrainingInputError(
+                "--min-samples-leaf is research-only and needs --output-root (base models only)"
+            )
+        HGB_MIN_SAMPLES_LEAF = value
+    try:
+        return _train_main(
+            market_id=market_id,
+            column_allowlist=column_allowlist,
+            output_root=output_root,
+            target_date=target_date,
+            pit_forecast_corpus_manifests=pit_forecast_corpus_manifests,
+            training_years=training_years,
+        )
+    finally:
+        HGB_MIN_SAMPLES_LEAF = previous
+
+
+def parse_min_samples_leaf(value):
+    """An integer HGB leaf floor in 1..1000; anything else fails closed."""
+    try:
+        parsed = int(str(value).strip())
+    except ValueError as exc:
+        raise TrainingInputError(f"--min-samples-leaf must be an integer: {value!r}") from exc
+    if str(parsed) != str(value).strip() or not 1 <= parsed <= 1000:
+        raise TrainingInputError(f"--min-samples-leaf must be an integer in 1..1000: {value!r}")
+    return parsed
+
+
+def _train_main(
+    market_id="toronto",
+    column_allowlist=None,
+    output_root=None,
+    target_date=None,
+    pit_forecast_corpus_manifests=None,
+    training_years=None,
+):
+    """Train one market's feature model.
+
+    Default: cutoff-hour HGB/LR plus late-day continuation, written to the
+    served artifact paths. With ``output_root`` (the R0 path) the run is base
+    models only: the cutoff-hour HGB/LR and report go under that root, late-day
+    continuation is not trained, and nothing is written to ``artifacts/models``.
+    R0 pairs it with ``column_allowlist="served-policy:<market>"``.
+
+    ``target_date`` pins the centre date of the prior-year training window
+    (default: the run date). ``pit_forecast_corpus_manifests`` reads the
+    forecast from those verified PIT corpora (unioned; no ambient fallback) and
+    restricts training to their years. ``training_years`` restricts training to
+    those prior years. All three need ``output_root``.
+    """
+    pinned_target_date = parse_target_date(target_date) if target_date is not None else None
+    explicit_years = (
+        parse_training_years(training_years) if training_years is not None else None
+    )
+    manifests = list(pit_forecast_corpus_manifests or [])
+    training_inputs_requested = bool(
+        pinned_target_date is not None or explicit_years is not None or manifests
+    )
+    if training_inputs_requested and output_root is None:
+        raise TrainingInputError(
+            "--target-date, --training-years and --pit-forecast-corpus-manifest are "
+            "research-only and need --output-root (base models only)"
+        )
+    if pinned_target_date is not None:
+        model = TorontoHighTempModel(market_id=market_id, target_date=pinned_target_date)
+    else:
+        model = TorontoHighTempModel(market_id=market_id)
     spec = model.spec
     suffix = spec.artifact_suffix
     print(f"Training feature model for market '{spec.id}' (unit {spec.unit}, "
           f"artifacts '*{suffix}').")
+    redirected = None
+    if output_root is not None:
+        redirected = base_only_output_paths(output_root, suffix)
+        print(f"Base models only; output redirected to {redirected['hgb'].parent} "
+              "(late-day continuation not trained; served late-day models untouched).")
+    allowlist_plan = None
+    if column_allowlist is not None:
+        # Resolve before any data load so a bad list fails in seconds.
+        allowlist_plan = resolve_column_allowlist(
+            column_allowlist,
+            market_spec=spec,
+            known_wind_groups=WIND_GROUPS,
+            known_cloud_groups=CLOUD_GROUPS,
+        )
+        print(f"Column allowlist {allowlist_plan['source']}: "
+              f"{len(allowlist_plan['feature_names'])} columns, "
+              f"sha256 {allowlist_plan['sha256']}.")
+        if allowlist_plan["policy_exclusions_applied"]:
+            print(f"Policy {TRAINING_FEATURE_POLICY_ID} removed "
+                  f"{allowlist_plan['policy_exclusions_applied']} from the served list "
+                  f"({len(allowlist_plan['served_feature_names'])} served columns).")
+        if allowlist_plan["single_provider_exclusions_applied"]:
+            print(f"R0 removed {allowlist_plan['single_provider_exclusions_applied']} "
+                  "(a single-provider PIT corpus cannot express them).")
+        if allowlist_plan["mode"] == "r0" and (output_root is None or not manifests):
+            raise TrainingInputError(
+                "--column-allowlist r0:<market> trains R0 only: it needs --output-root "
+                "and at least one --pit-forecast-corpus-manifest"
+            )
+        overridden = allowlist_plan["training_policy_exclusions_overridden"]
+        if overridden:
+            print(f"WARNING: the allowlist keeps columns that training policy "
+                  f"{TRAINING_FEATURE_POLICY_ID} excludes for this market: "
+                  f"{overridden}. Recorded as an explicit override in the artifacts.")
+    corpus_union = None
+    model_target_date = None
+    if training_inputs_requested:
+        require_market_history(spec)
+        model_target_date = getattr(model, "target_date", None) or pinned_target_date
+        print(f"Training centre date {model_target_date} "
+              f"({'pinned' if pinned_target_date else 'run date'}).")
+    if manifests:
+        # Verify and preflight every corpus before the slow data load.
+        corpus_union = PITForecastCorpusUnion(
+            manifests,
+            spec.id,
+            target_year=model_target_date.year,
+            required_cutoff_hours=INTRADAY_CUTOFF_HOURS,
+        )
+        print(f"PIT forecast corpora {[row['corpus_id'] for row in corpus_union.corpora]} "
+              f"cover years {list(corpus_union.years)}; ambient archive not read.")
     print("Loading historical data cache...")
     cache = model.historical_target_cache()
 
@@ -1185,15 +1442,35 @@ def main(market_id="toronto"):
     bucket_space = cache["bucket_space"]
 
     print(f"Loaded {len(daily)} target-season days with observations.")
+    training_inputs = None
+    if training_inputs_requested:
+        daily, day_counts = select_training_days(
+            daily,
+            training_years=explicit_years,
+            forecast_years=corpus_union.years if corpus_union else None,
+            target_date=model_target_date,
+        )
+        training_inputs = training_inputs_record(
+            target_date=pinned_target_date,
+            training_years=tuple(int(year) for year in day_counts) or None,
+            corpus_union=corpus_union,
+            day_counts=day_counts,
+        )
+        print(f"Training days by year: {training_inputs['training_days_by_year']} "
+              f"(forecast source {training_inputs['forecast_source']}).")
 
-    # Archived Open-Meteo forecasts (non-leaky); absent before 2018 -> NaN.
-    # Per-market path so the F family trains on its own native-unit forecasts.
-    forecast_index = load_forecast_daily(daily_path_for(spec))
-    forecast_profiles = load_forecast_profiles(long_path_for(spec))
-    print(f"Loaded {len(forecast_index)} historical forecast-days "
-          f"(forecast feature present for those, NaN otherwise).")
-    print(f"Loaded {len(forecast_profiles)} historical forecast-profile days "
-          f"(profile/radiation/cloud features present where archived).")
+    if corpus_union is None:
+        # Archived Open-Meteo forecasts (non-leaky); absent before 2018 -> NaN.
+        # Per-market path so the F family trains on its own native-unit forecasts.
+        forecast_index = load_forecast_daily(daily_path_for(spec))
+        forecast_profiles = load_forecast_profiles(long_path_for(spec))
+        print(f"Loaded {len(forecast_index)} historical forecast-days "
+              f"(forecast feature present for those, NaN otherwise).")
+        print(f"Loaded {len(forecast_profiles)} historical forecast-profile days "
+              f"(profile/radiation/cloud features present where archived).")
+    else:
+        forecast_index = None
+        forecast_profiles = None
     marine_water_contrast_index = load_marine_water_contrast_features(spec=spec)
     print(f"Loaded {len(marine_water_contrast_index)} marine water-contrast cutoff rows "
           "(features present where sidecar is built).")
@@ -1214,11 +1491,15 @@ def main(market_id="toronto"):
         forecast_profiles,
         marine_water_contrast_index=marine_water_contrast_index,
         reanalysis_synoptic_index=reanalysis_synoptic_index,
+        forecast_resolver=corpus_union,
     )
 
     # Available wind and cloud categories for one-hot encoding consistency
     all_wind_groups = WIND_GROUPS
     all_cloud_groups = CLOUD_GROUPS
+    if allowlist_plan is not None:
+        all_wind_groups = list(allowlist_plan["all_wind_groups"])
+        all_cloud_groups = list(allowlist_plan["all_cloud_groups"])
 
     # We will build and validate models for each hour
     print("\n--- Model Evaluation and Leave-One-Out validation ---")
@@ -1243,6 +1524,8 @@ def main(market_id="toronto"):
     calibration_rows = []
     ablation_rows = []
     ablation_observation_rows = []
+    # Per-row blocked validation losses (research output, --output-root only).
+    blocked_validation_records = []
     training_metric_rows = []
     honest_validation_rows = []
 
@@ -1261,6 +1544,39 @@ def main(market_id="toronto"):
         "training_feature_policy_id": TRAINING_FEATURE_POLICY_ID,
         "training_feature_exclusions": list(training_feature_exclusions(spec)),
     }
+    if allowlist_plan is not None:
+        trained_models_info["training_column_allowlist"] = allowlist_record(allowlist_plan)
+        hgb_models_info["training_column_allowlist"] = allowlist_record(allowlist_plan)
+    if redirected is not None:
+        for info in (trained_models_info, hgb_models_info):
+            info["base_models_only"] = True
+            info["hgb_hyperparameters"] = {
+                "max_iter": 50,
+                "max_leaf_nodes": 15,
+                "learning_rate": 0.05,
+                "min_samples_leaf": HGB_MIN_SAMPLES_LEAF,
+                "served_min_samples_leaf": SERVED_HGB_MIN_SAMPLES_LEAF,
+            }
+        if HGB_MIN_SAMPLES_LEAF != SERVED_HGB_MIN_SAMPLES_LEAF:
+            print(f"HGB min_samples_leaf {HGB_MIN_SAMPLES_LEAF} "
+                  f"(served {SERVED_HGB_MIN_SAMPLES_LEAF}; research leaf sweep).")
+    if training_inputs is not None:
+        for info in (trained_models_info, hgb_models_info):
+            info["training_inputs"] = training_inputs
+    if (
+        allowlist_plan is not None
+        and redirected is not None
+        and allowlist_plan["served_feature_names"] is not None
+    ):
+        # Every difference from the served bundle, in one record per artifact,
+        # for the candidate manifest, release provenance and parity checks.
+        differences = served_model_differences(
+            allowlist_record(allowlist_plan), training_inputs, base_models_only=True,
+            hgb_min_samples_leaf=HGB_MIN_SAMPLES_LEAF,
+        )
+        for info in (trained_models_info, hgb_models_info):
+            info["served_model_differences"] = differences
+        print(f"Differences from served: {differences['columns_removed']}.")
 
     for hour in INTRADAY_CUTOFF_HOURS:
         records = raw_data[hour]
@@ -1276,11 +1592,13 @@ def main(market_id="toronto"):
                 all_wind_groups,
                 all_cloud_groups,
                 market_spec=spec,
+                column_allowlist=allowlist_plan,
             )
             numeric_cols, _ = feature_model_columns(
                 all_wind_groups,
                 all_cloud_groups,
                 market_spec=spec,
+                column_allowlist=allowlist_plan,
             )
             n_numeric = len(numeric_cols)
             feature_families = feature_family_columns(feature_cols)
@@ -1429,7 +1747,7 @@ def main(market_id="toronto"):
             cc_lr.append((lr_prob_blended[lr_top], 1.0 if lr_top == val_actual else 0.0))
             
             # --- 3. Train & Predict HistGradientBoostingClassifier ---
-            hgb = HistGradientBoostingClassifier(max_iter=50, max_leaf_nodes=15, learning_rate=0.05, random_state=42)
+            hgb = make_feature_hgb()
             fit_started = time.perf_counter()
             hgb.fit(X_hgb_train, y_train)
             model_fit_seconds += time.perf_counter() - fit_started
@@ -1447,6 +1765,15 @@ def main(market_id="toronto"):
             briers_hgb.append(hgb_brier)
             cc_hgb.append((hgb_prob_blended[hgb_top], 1.0 if hgb_top == val_actual else 0.0))
             hgb_fold_data.append((p_clim, hgb_prob_dict, val_actual))
+            blocked_validation_records.append({
+                "hour": int(hour),
+                "validation_date": str(val_date),
+                "validation_year": int(str(val_date)[:4]),
+                "baseline_log_loss": float(losses_baseline[-1]),
+                "lr_log_loss": float(losses_lr[-1]),
+                "hgb_log_loss": float(hgb_loss),
+                "hgb_brier": float(hgb_brier),
+            })
             hgb_outer_rows.append({
                 "validation_index": val_idx,
                 "validation_date": val_date,
@@ -1627,7 +1954,7 @@ def main(market_id="toronto"):
             X_final_hgb[:, forecast_idx] = X[
                 [feature_cols[index] for index in forecast_idx]
             ].to_numpy(dtype=float)
-        final_hgb = HistGradientBoostingClassifier(max_iter=50, max_leaf_nodes=15, learning_rate=0.05, random_state=42)
+        final_hgb = make_feature_hgb()
         fit_started = time.perf_counter()
         final_hgb.fit(X_final_hgb, y)
         model_fit_seconds += time.perf_counter() - fit_started
@@ -1661,36 +1988,49 @@ def main(market_id="toronto"):
         }
         
     # Write coefficients json (per-unit artifact: '' for C, '_f' for F)
-    coefs_path = writable_artifact_path(f"feature_model_coefs{suffix}.json")
+    if redirected is not None:
+        redirected["coefs"].parent.mkdir(parents=True, exist_ok=True)
+        coefs_path = redirected["coefs"]
+    else:
+        coefs_path = writable_artifact_path(f"feature_model_coefs{suffix}.json")
     with open(coefs_path, "w", encoding="utf-8") as f:
         json.dump(trained_models_info, f, indent=2, sort_keys=True)
     print(f"\nSaved final model coefficients to {coefs_path}")
 
     # Write HGBC pickle (per-unit artifact)
-    hgb_path = writable_artifact_path(f"feature_model_hgb{suffix}.pkl")
+    if redirected is not None:
+        hgb_path = redirected["hgb"]
+    else:
+        hgb_path = writable_artifact_path(f"feature_model_hgb{suffix}.pkl")
     with open(hgb_path, "wb") as f:
         pickle.dump(hgb_models_info, f)
     print(f"Saved final HGBC models to {hgb_path}")
 
-    # --- Train Late-Day Continuation Models ---
-    print("\n--- Training Late-Day Continuation Models (Roadmap Item 8) ---")
-    late_day_info, late_day_validation_rows, late_day_ablation_rows = (
-        train_late_day_continuation_models(
-            model,
-            daily,
-            by_date,
-            forecast_index,
-            all_wind_groups,
-            all_cloud_groups,
-            trained_at,
+    if redirected is None:
+        # --- Train Late-Day Continuation Models ---
+        print("\n--- Training Late-Day Continuation Models (Roadmap Item 8) ---")
+        # The column allowlist binds the cutoff-hour model only; late-day
+        # continuation keeps its own columns and the full group lists.
+        late_day_info, late_day_validation_rows, late_day_ablation_rows = (
+            train_late_day_continuation_models(
+                model,
+                daily,
+                by_date,
+                forecast_index,
+                WIND_GROUPS,
+                CLOUD_GROUPS,
+                trained_at,
+            )
         )
-    )
-        
-    # Save late day coefficients JSON (per-unit artifact)
-    ld_coefs_path = writable_artifact_path(f"late_day_model_coefs{suffix}.json")
-    with open(ld_coefs_path, "w", encoding="utf-8") as f:
-        json.dump(late_day_info, f, indent=2, sort_keys=True)
-    print(f"Saved final late-day model coefficients to {ld_coefs_path}")
+
+        # Save late day coefficients JSON (per-unit artifact)
+        ld_coefs_path = writable_artifact_path(f"late_day_model_coefs{suffix}.json")
+        with open(ld_coefs_path, "w", encoding="utf-8") as f:
+            json.dump(late_day_info, f, indent=2, sort_keys=True)
+        print(f"Saved final late-day model coefficients to {ld_coefs_path}")
+    else:
+        # Base models only (owner 2026-10-21): no continuation fit, no write.
+        late_day_validation_rows, late_day_ablation_rows = [], []
     
     if RUN_LOO:
         if training_metric_rows:
@@ -1842,13 +2182,24 @@ def main(market_id="toronto"):
                 report_lines.append(ablation_table_row(row, include_hour=True))
 
         # Save Report file
-        report_path = os.path.join(str(spec.data_root), "analysis", f"feature_model_report{suffix}.md")
+        if redirected is not None:
+            report_path = str(redirected["report"])
+        else:
+            report_path = os.path.join(str(spec.data_root), "analysis", f"feature_model_report{suffix}.md")
         os.makedirs(os.path.dirname(report_path), exist_ok=True)
         with open(report_path, "w", encoding="utf-8") as f:
             f.write("\n".join(report_lines) + "\n")
         print(f"Saved model report to {report_path}")
+        if redirected is not None and blocked_validation_records:
+            # One JSON row per scored blocked-validation (cutoff hour, date), so a
+            # research comparison can cluster by date (R0 leaf pick, 2026-10-24).
+            rows_path = redirected["validation_rows"]
+            with open(rows_path, "x", encoding="utf-8", newline="\n") as handle:
+                for row in blocked_validation_records:
+                    handle.write(json.dumps(row, sort_keys=True) + "\n")
+            print(f"Saved {len(blocked_validation_records)} blocked-validation rows to {rows_path}")
 
-if __name__ == "__main__":
+def parse_cli_args(argv=None):
     import argparse
 
     parser = argparse.ArgumentParser(
@@ -1868,7 +2219,73 @@ if __name__ == "__main__":
     parser.add_argument(
         "--item27-folds", type=int, default=5,
         help="Day-fold count for --item27-report-only validation.")
-    args = parser.parse_args()
+    parser.add_argument(
+        "--column-allowlist", default=None,
+        help="Train the cutoff-hour HGB/LR on exactly this ordered column list: "
+             "'r0:<market>' (R0, US 11 only: the served bundles' feature_names minus "
+             "the training-policy exclusions and the single-provider consensus "
+             "columns; needs --output-root and a PIT corpus manifest), "
+             "'served-policy:<market>' (served minus the training-policy "
+             "exclusions), 'served:<market>' (the served list as is) or a JSON "
+             "list file. Fails closed on any column the training frame or serving "
+             "cannot build. Default: policy columns.")
+    parser.add_argument(
+        "--output-root", default=None,
+        help="Base models only (R0): write the cutoff-hour HGB/LR and report under "
+             "this new directory and skip late-day continuation. Refuses "
+             "artifacts/models, releases, src and existing output. Default: the "
+             "served artifact paths (unchanged).")
+    parser.add_argument(
+        "--target-date", default=None,
+        help="Pin the centre date (YYYY-MM-DD) of the prior-year +/-7-day training "
+             "window instead of the run date. Needs --output-root.")
+    parser.add_argument(
+        "--pit-forecast-corpus-manifest", action="append", default=None,
+        dest="pit_forecast_corpus_manifests", metavar="MANIFEST",
+        help="Repeatable. Read forecast_high and the forecast profile per (date, "
+             "cutoff) from this verified PIT corpus manifest; several corpora are "
+             "unioned (no shared year). Training is restricted to their years and "
+             "the ambient forecast archive is never read. Needs --output-root.")
+    parser.add_argument(
+        "--training-years", default=None,
+        help="Train only on these prior years, e.g. 2021,2022,2023 or 2021-2025. "
+             "With PIT corpora every year must be covered by one. Needs --output-root.")
+    parser.add_argument(
+        "--min-samples-leaf", default=None,
+        help="Research only (R0 leaf sweep): the cutoff-hour HGB leaf floor for "
+             "this run, an integer in 1..1000. Default: the served 20. Recorded in "
+             "both artifacts. Needs --output-root.")
+    args = parser.parse_args(argv)
+    for flag in (
+        "column_allowlist",
+        "output_root",
+        "target_date",
+        "pit_forecast_corpus_manifests",
+        "training_years",
+        "min_samples_leaf",
+    ):
+        if getattr(args, flag) is not None and (args.item27_report_only or args.late_day_only):
+            parser.error(f"--{flag.replace('_', '-')} applies to the base cutoff-hour model "
+                         "only; it cannot be combined with --late-day-only or "
+                         "--item27-report-only")
+    for flag in ("target_date", "pit_forecast_corpus_manifests", "training_years", "min_samples_leaf"):
+        if getattr(args, flag) is not None and args.output_root is None:
+            parser.error(f"--{flag.replace('_', '-').replace('manifests', 'manifest')} is "
+                         "research-only and needs --output-root (base models only)")
+    try:
+        if args.target_date is not None:
+            parse_target_date(args.target_date)
+        if args.training_years is not None:
+            parse_training_years(args.training_years)
+        if args.min_samples_leaf is not None:
+            parse_min_samples_leaf(args.min_samples_leaf)
+    except TrainingInputError as exc:
+        parser.error(str(exc))
+    return args
+
+
+if __name__ == "__main__":
+    args = parse_cli_args()
     if args.item27_report_only:
         main_item27_feature_value_report(
             market_id=args.market,
@@ -1880,4 +2297,12 @@ if __name__ == "__main__":
         raise SystemExit(0)
     if args.skip_loo:
         RUN_LOO = False
-    main(market_id=args.market)
+    main(
+        market_id=args.market,
+        column_allowlist=args.column_allowlist,
+        output_root=args.output_root,
+        target_date=args.target_date,
+        pit_forecast_corpus_manifests=args.pit_forecast_corpus_manifests,
+        training_years=args.training_years,
+        min_samples_leaf=args.min_samples_leaf,
+    )

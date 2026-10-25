@@ -19,6 +19,7 @@ from weather.sources.forecast_training_corpus import (
     PROFILE_FEATURE_SOURCE_FIELDS,
     CorpusVerificationError,
     assert_training_only_publish_root,
+    hours_in_local_date,
     load_plan,
     verify_corpus_manifest,
 )
@@ -298,11 +299,16 @@ def preflight_pit_forecast_training_corpus(
         for key in sorted(selection_keys)
     ]
 
-    expected_profile_dates = {
-        (request["market_id"], target_date)
+    # A local calendar date holds 23, 24 or 25 real hours; the DST-correct
+    # normalizer keeps a fall-back date's 25 rows, so the matrix is per date.
+    expected_profile_hours = {
+        (request["market_id"], target_date): hours_in_local_date(
+            target_date, request["source_timezone"]
+        )
         for request in plan["requests"]
         for target_date in request["expected_local_dates"]
     }
+    expected_profile_dates = set(expected_profile_hours)
     expected_normalized_fields = {
         binding["normalized_field"]
         for request in plan["requests"]
@@ -336,7 +342,9 @@ def preflight_pit_forecast_training_corpus(
             if row.get("issue_evidence_kind") != plan["issue_contract"]["kind"]:
                 raise CorpusVerificationError(f"hourly issue contract drifted: {key}")
     incomplete_profiles = sorted(
-        key for key in expected_profile_dates if len(profile_times.get(key) or ()) != 24
+        key
+        for key, hours in expected_profile_hours.items()
+        if len(profile_times.get(key) or ()) != hours
     )
     if incomplete_profiles:
         raise CorpusVerificationError(

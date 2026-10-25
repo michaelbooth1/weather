@@ -25,7 +25,11 @@ pre-registration on new dates (EF §5), nothing more.
 | F4 gfs_seamless / NAM / AIGFS | 00-12 | +0.0008 / +0.0007 / +0.0003, all spanning 0, vs MG-1 | −0.0145 / −0.0146 / −0.0150 | **KILL (null)** |
 | F4 GEFS mean | 00-12 | +0.0054 [+0.0016, +0.0100] vs MG-1 | −0.0099 [−0.0185, −0.0011] | **KILL (harm)** |
 | F4 AIFS, GraphCast | 00-12 | — | — | not scored: never captured |
-| F5 ECMWF ENS, DWD MOSMIX | 00-12 | — | — | not scored: CCSDS decoder absent (ENS archive does exist on AWS); MOSMIX keeps ~2 days |
+| G2-a ECMWF ENS mean (lane G2) | 00-12 | −0.0000 [−0.0033, +0.0031] vs MG-1 | −0.0154 [−0.0230, −0.0078] | **KILL (null)** |
+| G2-b ECMWF ENS gap (lane G2) | 13-16 | −0.0002 [−0.0005, +0.0001] vs t3-r3 | −0.0112 [−0.0189, −0.0043] | **KILL (null)** |
+| L4 multi-model blend | 07-12 | −0.0002 [−0.0045, +0.0047] vs MG-1 | −0.0141 [−0.0211, −0.0068] | **KILL (null)**; h15-23 gain over MG-1 parked |
+| DWD MOSMIX | — | — | — | not scored: the open server keeps ~2 days |
+| L6 upstream ASOS ring (vs own-obs twin) | 07-12 | −0.0005 [−0.0012, +0.0003] vs twin; −0.0041 [−0.0069, −0.0015] vs MG-1 | −0.0180 [−0.0245, −0.0114] | **KILL (upstream not shown)**; own-obs stack −0.0036 vs MG-1 is a separate dev lead |
 
 Served baseline for context (lane C, scorecard hash `3557f797…`): pooled 13-16 R = 1.862 [1.557, 2.345],
 served − market = +0.0244 [+0.0181, +0.0316].
@@ -245,7 +249,7 @@ Not scored, by the brief and by measurement. Parsers built on small pulls (`weat
   values cannot be read here. No `mx2t` is in the step's parameter list, so a daily max would be built
   from 3/6-hourly 2t. A historical ENS screen is therefore feasible in principle (decoder plus about
   51 members x ~8 steps x ~0.66 MB ≈ 270 MB per run per day), but it needs an owner decision on a
-  decoder dependency; it was not forced.
+  decoder dependency; it was not forced. **Superseded 2026-10-24:** the owner approved a research-venv decoder and the fetch, and lane G2 scored ENS (§ G2 below: both rules KILL).
 - **Other EU free sources** (Met Office DataHub, Météo-France 6-minute, DWD 10-minute, AEMET) need
   accounts or keys or were out of this lane's list; not touched.
 
@@ -292,6 +296,15 @@ are negative; Los Angeles +0.0062 and Atlanta +0.0047 harm (date-clustered inter
 **Verdict G2-a: KILL (no increment demonstrated).** The interval is centred on zero, and its MDE80 (about 0.005)
 is four times the 5% bar.
 
+### G2-b result (scored 2026-10-24; score `60047a9deb4d…`, `data/research/free_sources/scores/g2b/`)
+
+Same population and coverage as F1; 891 table cells (385 ENS-gap-conditioned beyond the control's 506).
+Pooled `ALL`: **13-16 (decided) G2-b − t3-r3 = −0.0002 [−0.0005, +0.0001]** (MDE80 0.0004), G2-b − served
+−0.0112 [−0.0189, −0.0043]; 10-12 −0.0006 [−0.0013, +0.0000]; 17-23 −0.0000. Per market at 13-16, 8 of 11 are
+negative, all small (Chicago −0.0003, Seattle −0.0005, Miami −0.0003 exclude 0; Houston +0.0004 harms).
+
+**Verdict G2-b: KILL (no increment demonstrated).** The interval spans zero, and its size is a sixth of the 5% bar.
+
 ## L4: multi-model forecast blend (pre-registration sha256 `96dee78c7bfe8e350905c19048824ddf25729fcf3bc829bde066f16ad346a3b0`)
 
 Rule, members and bar: [the frozen pre-registration](forecast-blend-l4-preregistration-2026-10-24.md),
@@ -318,6 +331,59 @@ the 5% bar).** The afternoon/evening "gain" over MG-1 is not a lead: it is outsi
 mostly undoes MG-1's known afternoon harm (EF §10p; MG-1 − served is +0.0068 at 17-23 here). L4 − served
 does not exclude zero at 13-16 or 17-23, and t3-r3 already does far better there (−0.0110 / −0.0224 vs served).
 
+## L6: upstream and nearby ASOS observations at 07-12 (pre-registration sha256 `6687c8dfb49b0650d27bbf23164ba102de5d838ada79917df50075c61653921a`)
+
+Rule, data, features, model and bar: [the frozen pre-registration](upstream-obs-l6-preregistration-2026-10-24.md)
+(byte-identical copy of `C:\t\l6\rule.md`), committed before any validation metric or score. Branch
+`claude/upstream-obs-screen-20261024`. Code: `weather.sources.free_screens.iem_upstream` (fetch, selection,
+build), `weather.calibration.upstream_obs_screen` (PIT features, LOYO, nowcasts),
+`free_source_candidates.l6_stack` (candidate `l6_upstream_stack`, twin `l6_own_stack`). Prior art this differs
+from: T13 (EF §10q) used the closest <= 6 stations within 50 km, tercile tilts of served, and May-Jul 2026
+history only; L6 uses a 50-150 km ring with flow-upwind weighting and advection, 2021-2025 history, and is
+scored as an increment over MG-1 and over its own-observation twin.
+
+### L6 result (scored 2026-10-25; scores under `data/research/upstream_obs/scores/`)
+
+Inputs: `obs.parquet` `37d97195…`, `nowcasts.parquet` `d2453d0d…` (28,137 snapshots at 07-12; serve models fitted
+on 19,693 Aug-Sep 2021-2025 history rows). Run through the W2 slot wrapper on a local, unpushed, detached merge of
+`1a16c6ed3`. Coverage identical to MG-1 (83,306 snapshots; 495 missing floor). Scores: candidate vs MG-1
+`9be56d93…`, candidate vs twin `e3d9d8b8…`, twin vs MG-1 `d6971121…`.
+
+**History validation (blocked leave-one-year-out, reported only).** Adding upstream features improves the
+observation-only nowcast of the day's high in history: Aug-Sep 07-12 RMSE 2.852 → 2.722 F, MSE up − own −0.72
+[−0.91, −0.54] (date-clustered), every hour h07-h12, 5/5 years, 11/11 stations; Oct-Dec 3.121 → 2.918, −1.22
+[−1.40, −1.06]. Upstream information about the high is real; the question is whether NBM already has it.
+
+Pooled `ALL`, crossed date x market 95% (date-clustered in the last column):
+
+| Rows | cand − served | **cand − MG-1** | **cand − twin (upstream's own increment)** | MDE80 (vs twin) | cand − twin [date-clustered] | twin − MG-1 |
+| --- | --- | --- | --- | --- | --- | --- |
+| **07-12 (decided)** | −0.0180 [−0.0245, −0.0114] | −0.0041 [−0.0069, −0.0015] | **−0.0005 [−0.0012, +0.0003]** | 0.0011 | −0.0005 [−0.0008, −0.0001] | −0.0036 [−0.0065, −0.0009] |
+| h07 | −0.0196 | −0.0021 [−0.0049, +0.0008] | −0.0004 [−0.0015, +0.0005] | 0.0014 | −0.0004 [−0.0009, +0.0000] | −0.0017 [−0.0045, +0.0012] |
+| h08 | −0.0194 | −0.0026 [−0.0057, +0.0004] | −0.0002 [−0.0012, +0.0008] | 0.0014 | −0.0002 [−0.0007, +0.0003] | −0.0024 [−0.0054, +0.0004] |
+| h09 | −0.0176 | −0.0032 [−0.0061, −0.0004] | −0.0005 [−0.0014, +0.0004] | 0.0013 | −0.0005 [−0.0010, −0.0001] | −0.0027 [−0.0057, +0.0004] |
+| h10 | −0.0173 | −0.0042 [−0.0072, −0.0011] | −0.0002 [−0.0012, +0.0007] | 0.0013 | −0.0002 [−0.0008, +0.0003] | −0.0039 [−0.0072, −0.0008] |
+| h11 | −0.0178 | −0.0061 [−0.0093, −0.0030] | −0.0007 [−0.0019, +0.0006] | 0.0018 | −0.0007 [−0.0013, −0.0000] | −0.0054 [−0.0088, −0.0022] |
+| h12 | −0.0163 | −0.0066 [−0.0103, −0.0032] | −0.0008 [−0.0020, +0.0003] | 0.0016 | −0.0008 [−0.0014, −0.0002] | −0.0058 [−0.0096, −0.0023] |
+
+MG-1 − served at 07-12 is −0.0139 [−0.0212, −0.0072]. Per market at 07-12, cand − MG-1 is negative in 11/11
+(Austin −0.0085, Atlanta −0.0072, San Francisco −0.0067 exclude 0); cand − twin is negative in 8/11, Dallas
+−0.0019 and Los Angeles −0.0016 excluding 0, Atlanta +0.0014 the worst.
+
+**Verdict L6: KILL for upstream (pre-declared condition 3 fails).** Candidate − served and candidate − MG-1
+exclude zero, but the candidate − twin interval includes zero: the upstream ring adds about −0.0005 over the
+same stack built on the station's own observations (about 12% of the candidate's gain over MG-1), below the
+MDE80. The date-clustered interval excludes zero and 8/11 markets lean the right way, so this is "small, not
+demonstrated", consistent with T13 (−0.0005 to −0.0007 at 13-16). The history skill of upstream features does
+not carry over: NBM v2 already carries the synoptic information that the ring adds to an observation-only nowcast.
+
+**Separate development lead (reported per the rule, not decided here): the own-observation stack.** Twin −
+MG-1 at 07-12 is −0.0036 [−0.0065, −0.0009] crossed, 10/11 markets negative, growing from h07 (−0.0017) to h12
+(−0.0058). Caveats: the per-hour intercept also absorbs any pooled NBM bias, so part of it may be bias
+correction rather than observation information (not separated by these runs); it is a fitted rule on dates read
+before; and its h10-h12 growth overlaps the remaining-rise family (t3-r3, EF §10q). It earns a pre-registration
+on new dates, with an intercept-only twin as the attribution control, nothing more.
+
 ## Fetch receipts (all under `data/research/free_sources/<source>/`, sha256 per file in `receipts.jsonl`)
 
 | Source | Requests | Bytes | Rows | Span | Notes |
@@ -325,6 +391,7 @@ does not exclude zero at 13-16 or 17-23, and t3-r3 already does far better there
 | `iem_onemin` (IEM asos1min, 11 US + KDEN) | 396 monthly | 503.9 MB | 11,658,245 one-minute rows (`onemin.parquet` sha256 `e8b411d3…`) | 2024-01-01T00Z .. local midnight ending 2026-09-29 per station | KBKF: none (military, no archive). Empty months: KATL 2025-05/06, KORD 2025-04/05 and 2025-08..2026-01 (Chicago history is 2024 only), KLGA 2024-12, KSFO 2024-12/2025-01, KSEA 2025-06, KDEN 2025-05. Minute fill ~55-85%. |
 | `iem_raob` (IEM raob.py, 11 nearest sites) | 363 monthly | 255.5 MB | 3,379,630 levels, 19,405 soundings (`levels.parquet` sha256 `a93a9cd7…`) | 2024-01-01 .. 2026-09-29T12Z | **KDNR returns nothing at IEM** (ids DNR, KDNR, 72469 all empty), so Denver has no sounding and keeps the control in F3. |
 | `mrms_refl` (NOAA `noaa-mrms-pds`, composite reflectivity) | 183 day listings + 2,928 objects | 4,137.8 MB downloaded, not kept | 32,208 station-slot rows (`station_refl.parquet` sha256 `3446d1a6…`) | Aug-Sep 2024, Aug-Sep 2025, 2026-07-31..09-29; 16:00Z-23:30Z half-hourly | 0 decode errors; raw grids hashed then discarded. |
+| `upstream_obs` (IEM asos.py, lane L6; under `data/research/upstream_obs/`) | 672 (11 market + 101 ring stations x 6 windows) + 27 network listings | 569.1 MB | 4,203,170 reports (`obs.parquet` sha256 `37d97195…`; `selection.json` `a23f4cba…`) | Aug-Dec 2021-2025 and 2026-07-30 .. local midnight ending 2026-09-29 | 0 non-200. Empty windows: JZP 2025 and 2026, GLE 2024-2025, GVW 2021, OKH 2021-2024, NEL/IMM/2IS 2026 (Miami's dev ring is LNA and MTH only). Morning prevailing resultant winds are weak (0.8-5.6 kt), so the dynamic flow weighting carries the upwind signal. |
 | `dwd_mosmix` | 15 KMZ + 1 listing | 0.2 MB | 247 steps x 15 stations | latest run only (2026-10-23T21Z) | retention ~2 days |
 | `ecmwf_ens` (AWS `ecmwf-forecasts`) | 1 index + 1 range | 2.0 MB | 5,559 index fields, 1 member field | run 2024-08-15 00Z, step 24 h | CCSDS (5.42) packing; not decodable here |
 | `captured_openmeteo` | no download | — | built in the scorecard process from the replay-input copy | captured 2026-07-31..09-29 | see F4 |
