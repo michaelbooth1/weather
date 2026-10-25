@@ -68,6 +68,9 @@ never pooled across the 2026-07-31 provenance boundary.
   - **F2 MRMS echo flag: development lead only:** −0.0005 [−0.0010, −0.0001] over t3-r3 at 13-16. Below the 5% bar; needs a capture change. EF §10y.
 - **Pooled residual model vs OLS + floor and served (L2, workstation, 2026-10-24/25; model vs model and dev vs served only, no edge):** pooled over the 11 US markets (bias-corrected forecast anchor, OLS on the floor gap, HGB residual, learned error shape, hard floor), P3 beats L3's OLS + floor by −0.147 [97.5% −0.195, −0.102] nats at 07-12 on R0's Oct-Dec rows and the floored forecast by −0.272; pooling is the lever (per-market twin only ties OLS + floor) and L1's full-year corpus adds nothing (−0.004 [−0.014, +0.006]). On the dev window (selection evidence only) P3d beats served: 07-12 dR −0.210 [−0.256, −0.162], 13-16 −0.496; **R stays above 1 in every block (still worse than the market).** Serve parity: its forecast input (Previous Runs lead 1, shared with arm A) is not in the capture (served forecast differs by MAE 2.26 °F at 13-16). EF §10aa; L1 EF §10z; L3 EF §10ab.
 - **OLS + hard floor vs R0, served and MG-1 (L3, workstation, 2026-10-24/25; dev numbers are selection evidence only):** on R0's own Oct-Dec rows a 3-feature OLS + floor beats lane D's floored R0 by −1.820 [−2.098, −1.563] nats at 07-12 (5/5 markets; D's rows reproduced exactly) and floored forecast by −0.12; in-season Aug-Sep it beats forecast + floor on 11 markets but **not on the 5 primary ones** (−0.064 [−0.169, +0.054]). On the dev window it beats served (07-12 dR −0.179 [−0.232, −0.127]) but **loses to MG-1 at 07-12 (+0.080 [+0.020, +0.142]) and wins only from 13:00**; L6's own-obs twin beats it at 07-12 by −0.148, and NBM as an extra OLS regressor does not close the gap. Upstream ASOS adds nothing beyond own observations (L6 KILL, −0.0005 [−0.0012, +0.0003], MDE80 0.0011): NBM already carries it. EF §10ab.
+- **MG-2 chain (L3, L7, L8, 2026-10-24/25; dev selection evidence only):** L7's loss atlas reproduces the served control and L5's diagnosis; MG-1 closes 53.7% of served's 07-12 excess. Option N swaps the uncaptured Previous Runs forecast for the captured NBM 07Z mean; the A_N control is −0.3915 [−0.557, −0.249] vs MG-1 at 13-16, and the single pick chose P3d_N (−0.155 [−0.218, −0.098] vs A_N). L8's binding v2 P3d_N serve control PASSES (79,403 rows, max |dp| 0), **unlanded**, rule DRAFT. EF §10ae.
+- **Against the market the models add nothing (L11, 2026-10-25, dev window):** the walk-forward log-pool weight w is about 0. MG-1 and P3d_N are NOTHING at 07-12 (mean w 0.008 and 0.0051); the pre-13 composite is INCONCLUSIVE (w 0.067, no increment demonstrated); the 13-16 "gain" equals the floor-only control. P3d_N alone is R 1.19 (07-12) and 1.28 (13-16). Its dev emitter is `last_in_hour`, exposing about 6% of rows; that only flatters it, so the nulls are firmer. Method: [MODEL_IMPROVEMENT_METHOD.md](MODEL_IMPROVEMENT_METHOD.md). EF §10ad.
+- **Dead-bucket mechanism CLOSED fleet-wide (L11, capture-time dating):** US r4 $0.03/day [0.00, 0.09] on 21 trades (rule `fac8cd72…`); Toronto $0.00 [0.00, 0.00], 0 trades over 51 dates (rule `12902246…`), label-free 2 of 312. Stage A's $0.37 was look-ahead. EF §10ad; RF "Dead-bucket stage A".
 
 ## Evaluation and statistics rules that bind every claim
 
@@ -81,6 +84,7 @@ never pooled across the 2026-07-31 provenance boundary.
 - Check that a look has power **before** spending α, on the actual estimand, with both decision branches reachable. EF §1k (`-09-77a`, `-09-78a`).
 - A fail-on-any-row gate is a panel-size limit, not a quality bar; never re-register Gate 3 unchanged. EF §1j, §1k (`-09-68a`).
 - Score any fitted mapping on its own training set before reading its test result. EF §5.
+- Start every model lane from OLS + hard floor (with the NBM mean where captured); climb served → MG-1 → capture-time market read → blend weight w; the capture-time arm is primary for every market comparison (master ruling 2026-10-25). [MODEL_IMPROVEMENT_METHOD.md](MODEL_IMPROVEMENT_METHOD.md); EF §10ab, §10ad.
 - The admission bar is `promotion_countable`, not `quality_grade == "complete"`; there are 34 date clusters, not 5. EF §5, RF "The 5-date window was a convention".
 - Settlement authority is `data/settlements/<market>/ledger.jsonl`, never `market_day_labels.csv`; ledger rows are not market-days. EF §5, RF "Ledger rows are NOT market-days".
 - Never pool across the 2026-07-31 boundary: it is artifact provenance (commit `b77cfbed`), not a date cutoff. EF §5, RF "`2026-07-31` is not a date cutoff".
@@ -183,6 +187,7 @@ never pooled across the 2026-07-31 provenance boundary.
 | Capturing NBH (or NBS, MOS/NBE, multi-run HRRR, direct ECMWF, soundings, GOES, neighbours, NWS revisions) for the forecast | No increment over captured NBM v2 plus the two serving repairs; NBH 00-16 +0.0027 [−0.0037, +0.0098], wrong sign | EF §10q; RF §1 |
 | The 17-23 decided-band / remaining-rise gain as new information | It is the WU-anchored lock-in no-op; an input-free collapse does at least as well | EF §10e, §10q; RF §1 |
 | Upstream ASOS ring observations for the 07-12 forecast | No increment over the own-station nowcast twin: −0.0005 [−0.0012, +0.0003] Brier, MDE80 0.0011; NBM already carries it | EF §10ab (L6 rule `6687c8df…`) |
+| Dead-bucket NO buying (US and Toronto) | Under capture-time dating US r4 $0.03/day [0.00, 0.09], Toronto $0.00; NOT WORTH PURSUING | EF §10ad; RF "Dead-bucket stage A" |
 
 ## Retracted numbers — never cite
 
@@ -204,6 +209,7 @@ never pooled across the 2026-07-31 provenance boundary.
 | "Disk headroom is about 4 days" | Instantaneous reading over a same-clock slope; the daily low binds | RF §3; EF §10b |
 | "Low disk directly blocks the settlement chain" | No disk gate on that path; indirect route via the commit limit is plausible and unproven | RF §3; EF §10d |
 | item 224's win over the market | Leakage | RF §1 |
+| Dead-bucket stage A $0.37/day [0.12, 0.69] | Look-ahead; $0.03/day [0.00, 0.09] under capture-time dating | RF "Dead-bucket stage A"; EF §10ad |
 
 ## Update this file when
 
