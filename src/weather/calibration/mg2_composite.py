@@ -770,13 +770,30 @@ def _window(snaps, first, last):
     return snaps[(d >= first.isoformat()) & (d <= last.isoformat())].reset_index(drop=True)
 
 
-def post_records(state, snaps, replay_root, first, last):
+VECTORS = "mg2_vectors.parquet"  # last_in_hour: PRIMARY for the MG-2 vs MG-1 gate (rule §8 C4)
+ASOF_VECTORS = "mg2_vectors_asof_capture.parquet"  # as-of-capture: PRIMARY against the market; never the MG-1 gate
+VECTOR_ROLES = {
+    VECTORS: "PRIMARY for the MG-2 vs MG-1 gate (last_in_hour, symmetric with MG-1); DESCRIPTIVE against the market",
+    ASOF_VECTORS: "PRIMARY for every comparison against the market (blend R, edge reads, the formal edge test): "
+                  "no METAR row received after the row's own capture time; DESCRIPTIVE for the MG-1 gate",
+}
+
+
+def post_records(state, snaps, replay_root, first, last, inputs="last_in_hour"):
     """{row_key: P3d_N distribution} on the captured inputs, plus per-market gate stats (``mg2_p3d_n``)."""
     from weather.calibration import mg2_p3d_n
 
     rows, stats = mg2_p3d_n.emit_rows(state, snaps, replay_root, first, last,
-                                      markets=[m for m in state["markets"] if m in set(snaps.market)])
+                                      markets=[m for m in state["markets"] if m in set(snaps.market)],
+                                      inputs=inputs)
     return {rk: dist for _m, _sid, _d, rk, dist in rows}, stats
+
+
+def _write_post(path, dists):
+    with open(path, "w", encoding="utf-8", newline="\n") as handle:
+        for rk in sorted(dists):
+            handle.write(json.dumps({"row_key": rk, "distribution": {str(k): v for k, v in dists[rk].items() if v > 0}},
+                                    sort_keys=True) + "\n")
 
 
 def emit(*, layout_root, replay_root, nowcasts, coefficients, rule, out, first, last, p3d_n_state,
@@ -832,13 +849,26 @@ def emit(*, layout_root, replay_root, nowcasts, coefficients, rule, out, first, 
     frame, source = compose(snaps, bands, pre, post, base)
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
-    frame.to_parquet(out / "mg2_vectors.parquet", index=False)
+    frame.to_parquet(out / VECTORS, index=False)
     pd.DataFrame({"row_key": list(source), "source": list(source.values())}).to_parquet(
         out / "mg2_sources.parquet", index=False)
-    with open(out / "mg2_post_distributions.jsonl", "w", encoding="utf-8", newline="\n") as handle:
-        for rk in sorted(dists):
-            handle.write(json.dumps({"row_key": rk, "distribution": {str(k): v for k, v in dists[rk].items() if v > 0}},
-                                    sort_keys=True) + "\n")
+    _write_post(out / "mg2_post_distributions.jsonl", dists)
+    with open(out / "mg2_post_coverage_fallback.jsonl", "w", encoding="utf-8", newline="\n") as handle:
+        for market in sorted(stats):
+            for rk in stats[market]["coverage_fallback"]:
+                handle.write(json.dumps({"market": market, "row_key": rk, "reason": "outside_training_coverage",
+                                         "slot": "mg1"}, sort_keys=True) + "\n")
+    asof = None
+    if not control:  # rule §8 C4: never computed on a dev row
+        try:
+            asof_dists, asof_stats = post_records(state, snaps, replay_root, first, last, inputs="as_of_capture")
+        except mg2_p3d_n.P3dNRefused as exc:
+            raise Mg2Refused(str(exc)) from exc
+        asof_frame, asof_source = compose(snaps, bands, pre, distribution_band_frame(asof_dists, bands), base)
+        asof_frame.to_parquet(out / ASOF_VECTORS, index=False)
+        _write_post(out / "mg2_post_distributions_asof_capture.jsonl", asof_dists)
+        asof = {"vectors_sha256": sha256_file(out / ASOF_VECTORS), "post_stats": asof_stats,
+                "sources": pd.Series(list(asof_source.values())).value_counts().to_dict()}
     audit = {"schema": SCHEMA, "mode": "control" if control else "forward", "first": first.isoformat(),
              "last": last.isoformat(), "rule_sha256": rule_sha,
              "l6_coefficients_sha256": fields["l6_coefficients_sha256"],
@@ -846,8 +876,8 @@ def emit(*, layout_root, replay_root, nowcasts, coefficients, rule, out, first, 
              "p3d_n_conversion": state["conversion"], "p3d_n_late_report": state["late_report"],
              "input_parity": parity, "code_sha256": sha256_file(__file__),
              "p3d_n_code_sha256": sha256_file(mg2_p3d_n.__file__), "nowcasts_sha256": sha256_file(nowcasts),
-             "post_stats": stats,
-             "vectors_sha256": sha256_file(out / "mg2_vectors.parquet"), "snapshots": int(len(snaps))}
+             "post_stats": stats, "vector_roles": VECTOR_ROLES, "asof_capture": asof,
+             "vectors_sha256": sha256_file(out / VECTORS), "snapshots": int(len(snaps))}
     (out / "mg2_emit_audit.json").write_text(json.dumps(audit, indent=1, sort_keys=True), encoding="utf-8")
     return audit
 
@@ -902,6 +932,9 @@ def score(*, layout_root, vectors, rule, out, release_binding, mg1_look_receipt=
     from weather.reporting.scorecards import dev_scorecard_data as data
     from weather.reporting.scorecards import loss_atlas
 
+    if Path(vectors).name != VECTORS:
+        raise Mg2Refused(f"the MG-2 vs MG-1 gate scores {VECTORS} (last_in_hour) only; the as-of-capture vectors are "
+                         "for comparisons against the market (rule §8 C4)")
     rule_sha, fields = read_rule(rule)
     out = Path(out)
     if (out / "mg2_look.json").exists():
