@@ -21,6 +21,8 @@ prints, decides.
 - L8 running max: `observed_running_max.py` is byte-identical to L8 `f3b49fabb`, where L8's 69 tests pass.
   - Those tests import L8's `model_base` change, which is not on this branch. They therefore run at
     `f3b49fabb`, not on this branch.
+  - **Deviation from the rule's "must pass on this branch"** (section (a)). The coordinator accepted it on
+    2026-10-25, together with the rule-r2 join (the clarification alone fails prereg_check).
 
 ## 1. Exclusion (history, Aug-Sep 2021-2025, fixed before any dev row)
 
