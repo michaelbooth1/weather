@@ -2054,7 +2054,7 @@ def rg_parity_verdict(stats):
 
 
 def rung_g_emit(*, records_root, layout, replay_root, nbm_train_corpus, obs_parquet, ra_emit_dir, out_dir,
-                markets=R0_MARKETS, hours=RUNG_HOURS):
+                markets=R0_MARKETS, hours=RUNG_HOURS, gate=("07-12", None), report_pools=(), rule_sha=None):
     """R-G gates 1 (parity) and 2 (LOYO), then the dev distributions of all four arms (rule_rg.md, a8cf6564).
 
     Gate order is binding: parity is measured on inputs only and, if it fails, nothing is fitted or scored;
@@ -2075,7 +2075,11 @@ def rung_g_emit(*, records_root, layout, replay_root, nbm_train_corpus, obs_parq
     if any(out.iterdir()):
         raise PooledModelError(f"refusing to write into a non-empty {out}")
     timezones = {m: spec_for_id(m).timezone for m in markets}
-    audit = {"rule_sha256": RG_RULE_SHA256, "arms": list(RG_ARMS), "hours": list(hours), "gates": {},
+    gate_label, gate_hours = gate
+    gate_hours = tuple(hours) if gate_hours is None else tuple(gate_hours)
+    pools = ((gate_label, None if gate_hours == tuple(hours) else gate_hours),) + tuple(report_pools)
+    audit = {"rule_sha256": rule_sha or RG_RULE_SHA256, "arms": list(RG_ARMS), "hours": list(hours),
+             "gate_pool": [gate_label, list(gate_hours)], "gates": {},
              "inputs": {"nbm_train_corpus": hashlib.sha256(Path(nbm_train_corpus).read_bytes()).hexdigest(),
                         "module_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}}
 
@@ -2092,6 +2096,13 @@ def rung_g_emit(*, records_root, layout, replay_root, nbm_train_corpus, obs_parq
     frame = frame[frame["hour"].isin(hours)].reset_index(drop=True)
     frame, train_stats = rg_training_columns(frame, iem, fracs, timezones)
     audit["training"] = train_stats
+    if gate_hours != tuple(hours):
+        _, gate_train = rg_training_columns(frame[frame["hour"].isin(gate_hours)].reset_index(drop=True), iem, fracs,
+                                            timezones)
+        audit["training_gate_hours"] = gate_train
+    else:
+        gate_train = train_stats
+    hour_stats = defaultdict(lambda: defaultdict(int))
 
     # ---- dev rows: captured features plus the IEM features at the same capture time (gate 1, inputs only)
     snaps = pd.read_parquet(Path(layout) / "inputs_snapshots.parquet", columns=[
@@ -2101,8 +2112,8 @@ def rung_g_emit(*, records_root, layout, replay_root, nbm_train_corpus, obs_parq
         raise PooledModelError("layout holds a snapshot after 2026-09-29")
     snaps = snaps.assign(nbm_usable=usable_v2_mean(snaps))
     coords = station_coordinates(markets)
-    stats = defaultdict(int, training_rows=train_stats["rows"],
-                        training_iem_3_reports_in_3h=train_stats["iem_3_reports_in_3h"])
+    stats = defaultdict(int, training_rows=gate_train["rows"],
+                        training_iem_3_reports_in_3h=gate_train["iem_3_reports_in_3h"])
     dev_rows = []
     for market in markets:
         spec = spec_for_id(market)
@@ -2153,14 +2164,15 @@ def rung_g_emit(*, records_root, layout, replay_root, nbm_train_corpus, obs_parq
                     at = entry[0].timestamp()
                     cap = trajectory_features(*reports, at, target.toordinal())
                     ref = trajectory_features(*iem[market], at, target.toordinal())
-                    stats["parity_rows"] += 1
-                    stats["overnight_min_exact"] += (cap["overnight_min"] is not None
-                                                     and cap["overnight_min"] == ref["overnight_min"])
-                    stats["trend3_within_1"] += ((cap["trend3"] is None and ref["trend3"] is None) or (
-                        cap["trend3"] is not None and ref["trend3"] is not None
-                        and abs(cap["trend3"] - ref["trend3"]) <= 1.0))
-                    stats["captured_trend3_missing"] += cap["trend3"] is None
-                    stats["captured_overnight_min_missing"] += cap["overnight_min"] is None
+                    for target_stats in ([stats] if hour in gate_hours else []) + [hour_stats[hour]]:
+                        target_stats["parity_rows"] += 1
+                        target_stats["overnight_min_exact"] += (cap["overnight_min"] is not None
+                                                                and cap["overnight_min"] == ref["overnight_min"])
+                        target_stats["trend3_within_1"] += ((cap["trend3"] is None and ref["trend3"] is None) or (
+                            cap["trend3"] is not None and ref["trend3"] is not None
+                            and abs(cap["trend3"] - ref["trend3"]) <= 1.0))
+                        target_stats["captured_trend3_missing"] += cap["trend3"] is None
+                        target_stats["captured_overnight_min_missing"] += cap["overnight_min"] is None
                     F, nbm = float(rec["high_so_far"]), float(row.nbm_usable)
                     doy = target.timetuple().tm_yday
                     dev_rows.append({
@@ -2175,6 +2187,10 @@ def rung_g_emit(*, records_root, layout, replay_root, nbm_train_corpus, obs_parq
     fractions, passed = rg_parity_verdict(stats)
     audit["gates"]["1_parity"] = {"counts": dict(stats), "fractions": fractions, "thresholds": RG_PARITY_MIN,
                                   "pass": passed}
+    if gate_hours != tuple(hours):
+        audit["gates"]["1_parity"]["per_hour"] = {f"h{h:02d}": {k: v / max(c["parity_rows"], 1) for k, v in c.items()
+                                                                if k != "parity_rows"} | {"rows": c["parity_rows"]}
+                                                  for h, c in sorted(hour_stats.items())}
     if not passed:
         audit["stopped_at"] = "gate 1 parity"
         return finish()
@@ -2182,8 +2198,8 @@ def rung_g_emit(*, records_root, layout, replay_root, nbm_train_corpus, obs_parq
     # ---- gate 2: blocked LOYO on 2021-25, B_G - B_N (all four arms on identical rows)
     loyo_rows = rung_loyo(frame, buckets, hours, arms=RG_ARMS)
     _write_jsonl(out / "loyo_rows.jsonl", loyo_rows)
-    audit["gates"]["2_loyo"] = rg_loyo_summary(loyo_rows)
-    primary = audit["gates"]["2_loyo"]["B_G-B_N|07-12|brier"]
+    audit["gates"]["2_loyo"] = rg_loyo_summary(loyo_rows, pooled=pools)
+    primary = audit["gates"]["2_loyo"][f"B_G-B_N|{gate_label}|brier"]
     audit["gates"]["2_loyo"]["pass"] = primary["ci95"][1] < 0
     if not audit["gates"]["2_loyo"]["pass"]:
         audit["stopped_at"] = "gate 2 LOYO"
@@ -2213,13 +2229,17 @@ def rung_g_emit(*, records_root, layout, replay_root, nbm_train_corpus, obs_parq
 
 
 def rg_loyo_summary(rows, draws=BOOTSTRAP_DRAWS, seed=BOOTSTRAP_SEED,
-                    pairs=(("B_G", "B_N"), ("P3d_G", "P3d_N_fix"), ("P3d_G", "B_G"), ("P3d_N_fix", "B_N"))):
-    """Pairwise mean differences per hour and pooled 07-12, date-clustered bootstrap (R-A's construction)."""
+                    pairs=(("B_G", "B_N"), ("P3d_G", "P3d_N_fix"), ("P3d_G", "B_G"), ("P3d_N_fix", "B_N")),
+                    pooled=(("07-12", None),)):
+    """Pairwise mean differences per hour and pooled groups, date-clustered bootstrap (R-A's construction).
+
+    ``pooled``: (label, hours or None = every row); the default is R-G's single 07-12 pool."""
     import numpy as np
 
     out = {}
     groups = {f"h{h:02d}": [r for r in rows if r["hour"] == h] for h in sorted({r["hour"] for r in rows})}
-    groups["07-12"] = rows
+    for label, members in pooled:
+        groups[label] = rows if members is None else [r for r in rows if r["hour"] in members]
     for a, b in pairs:
         rng = np.random.default_rng(seed)
         for name, rs in groups.items():
@@ -3079,6 +3099,137 @@ def rung_i_score(*, layout, fix_jsonl, coefficients, nowcasts, loyo_result, out_
     return done()
 
 
+# ------------------------------------------------- R-J: R-G trajectory columns in the afternoon (rule_rj.md)
+
+RJ_RULE_SHA256 = "e948c0a288f6e4a1cf4f3f143b8246cb11bc48e21cc67238187c180f58dfe171"
+RJ_HOURS = (13, 14, 15, 16)
+RJ_GATE = ("13-14", (13, 14))
+RJ_SECONDARY = ("15-16", (15, 16))
+RJ_P3D_N_SHA256 = "721ae2cd24283115f68c4b6a1b38d84d34a81921e41468d360b587599fd031ec"  # composite post-13 dev arm
+RJ_RH_EMIT = {"dev_P3d_N_fix.jsonl": "abc4350724fe42a5d2423dcf5dd3f1c1b06dcea4799cb0d297bd6de465096109",
+              "dev_B_N.jsonl": "bab9cac728a5b363888278ad66b12e73807b5e0ae0849bcb13f12f5e8139f186"}
+
+
+def rung_j_score(*, layout, emit_dir, p3d_n_jsonl, out_path, start="2026-08-01", end="2026-09-29"):
+    """R-J gates 3 and 4 on the dev scorecard (rule_rj.md); gate 3 failing is the pre-registered kill."""
+    import numpy as np
+
+    from weather.calibration import r0_ols_floor_challenger as l3
+    from weather.reporting.scorecards import dev_scorecard as sc
+    from weather.reporting.scorecards import dev_scorecard_data as data
+    from weather.reporting.scorecards import loss_atlas
+
+    out_path = require_output_outside_repo(out_path)
+    if out_path.exists():
+        raise PooledModelError(f"refusing to overwrite {out_path}")
+    emit = Path(emit_dir)
+    audit = json.loads((emit / "rg_emit_audit.json").read_bytes())
+    if audit.get("rule_sha256") != RJ_RULE_SHA256 or audit.get("stopped_at"):
+        raise PooledModelError(f"emit is not an R-J emit that passed gates 1-2: {audit.get('stopped_at')}")
+    for name, sha in RJ_RH_EMIT.items():
+        if audit["files"].get(name) != sha:
+            raise PooledModelError(f"R-H reproduction failed for {name}: {audit['files'].get(name)} != {sha}")
+    n_sha = hashlib.sha256(Path(p3d_n_jsonl).read_bytes()).hexdigest()
+    if n_sha != RJ_P3D_N_SHA256:
+        raise PooledModelError(f"P3d_N dev sha {n_sha} != {RJ_P3D_N_SHA256}")
+    start_d, end_d = data.check_range(start, end)
+    lay = data.load_layout(layout, data.DEV_FIRST, end_d)
+    folds = data.make_folds(lay.dates, start_d, end_d, 7, 1, 7)
+    scored = sorted(d for f in folds if f.scored for d in f.dates)
+    table = sc.Table(lay, scored)
+    date_w = l3._date_weights([k[0] for k in table.keys], sc.DRAWS, sc.SEED)
+    market_b = table.brier(table.p_market)
+
+    def vec(path):
+        return l3._vector(table, l3._candidate_frame(str(path), table, lay, folds, data)[0])
+
+    arms = {arm: vec(emit / f"dev_{arm}.jsonl") for arm in RG_ARMS}
+    p_mg1, cov_mg1, _ = l3._vector(table, loss_atlas.mg1_frame(table))
+    p_n, cov_n, r_n = vec(p3d_n_jsonl)
+    w0712 = (table.local_hour >= 7) & (table.local_hour <= 12)
+    _, e = table.cells(table.brier(p_mg1) - market_b, w0712)
+    mg1_excess = float(e.mean())
+    if round(mg1_excess, 3) != l3.MG1_CONTROL_0712_EXCESS:
+        raise PooledModelError(f"MG-1 positive control failed: {mg1_excess:.5f}")
+    # composite post-13 half: P3d_N where the scorecard uses it, else MG-1 (mg2_composite.compose)
+    p_comp = np.where(cov_n[table.band_snap], p_n, p_mg1)
+    cov_comp = cov_n | cov_mg1
+    briers = {arm: table.brier(v[0]) for arm, v in arms.items()}
+    covs = {arm: v[1] for arm, v in arms.items()}
+    briers["composite_post13"], covs["composite_post13"] = table.brier(p_comp), cov_comp
+    common = covs["B_N"] & covs["B_G"] & covs["P3d_N_fix"] & covs["P3d_G"] & cov_comp
+    in_rj = (table.local_hour >= 13) & (table.local_hour <= 16)
+    groups = [(RJ_GATE[0], 13, 14), ("h13", 13, 13), ("h14", 14, 14), (RJ_SECONDARY[0], 15, 16), ("h15", 15, 15),
+              ("h16", 16, 16)]
+    pools = [(sc.ALL_MARKETS, None)] + [(m, {m}) for m in sorted(set(table.markets))]
+
+    def compare(arm, ref):
+        rows = []
+        for market, members in pools:
+            in_pool = np.ones(len(table.snaps), bool) if members is None else np.isin(table.markets, sorted(members))
+            for group, lo, hi in (groups if members is None else [groups[0], groups[3]]):
+                mask = common & in_pool & (table.local_hour >= lo) & (table.local_hour <= hi)
+                if not mask.any():
+                    continue
+                idx, c = table.cells(briers[arm], mask)
+                _, r_ = table.cells(briers[ref], mask)
+                _, m = table.cells(market_b, mask)
+                rows.append({"arm": arm, "reference": ref, "market": market, "group": group,
+                             "n_market_days": int(len(idx)), "n_snapshots": int(mask.sum()),
+                             "R_arm": sc.ratio_interval(table.w[:, idx], c, m),
+                             "R_reference": sc.ratio_interval(table.w[:, idx], r_, m),
+                             "dR_crossed": sc.ratio_interval(table.w[:, idx], c - r_, m),
+                             "dR_date_clustered": sc.ratio_interval(date_w[:, idx], c - r_, m)})
+        return rows
+
+    def pick(rows, group):
+        return next(r for r in rows if r["market"] == sc.ALL_MARKETS and r["group"] == group)
+
+    def reading(rows):
+        p = pick(rows, RJ_GATE[0])["dR_date_clustered"]["ci95"]
+        lower = [pick(rows, g)["dR_date_clustered"]["ci95"][0] for g in ("h13", "h14")]
+        if p[0] > 0:
+            return "HARM"
+        return "WIN" if p[1] < 0 and not any(lo > 0 for lo in lower) else "NULL"
+
+    result = {"rule": "C:/t/l2/rungj/rule_rj.md", "rule_sha256": RJ_RULE_SHA256,
+              "population": {"n_dates": len(scored), "first_date": scored[0], "last_date": scored[-1],
+                             "n_market_days": len(table.keys),
+                             "common_covered_snapshots": {g: int((common & (table.local_hour >= lo)
+                                                                  & (table.local_hour <= hi)).sum())
+                                                          for g, lo, hi in groups}},
+              "controls": {"mg1_excess_07_12": mg1_excess, "rh_reproduction": RJ_RH_EMIT,
+                           "composite_post13_mg1_fallback_snapshots_13_16": int((in_rj & ~cov_n & cov_mg1).sum()),
+                           "composite_post13_p3d_n_snapshots_13_16": int((in_rj & cov_n).sum()),
+                           "gate1": audit["gates"]["1_parity"], "gate2_pass": audit["gates"]["2_loyo"].get("pass")},
+              "coverage": {"P3d_N": r_n},
+              "inputs": {"emit_files": audit["files"], "p3d_n_sha256": n_sha,
+                         "emit_audit_sha256": hashlib.sha256((emit / "rg_emit_audit.json").read_bytes()).hexdigest(),
+                         "layout_manifest_sha256": lay.manifest_sha256, "scorecard_code_sha256": sc.code_sha256(),
+                         "module_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()},
+              "gates": {}, "rows": []}
+
+    def done():
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(result, indent=1, sort_keys=True), encoding="utf-8")
+        return result
+
+    result["rows"] += compare("B_G", "B_N")  # reported only
+    result["rows"] += compare("P3d_N_fix", "composite_post13")  # reported only (incumbent sizing)
+    rows = compare("P3d_G", "P3d_N_fix")
+    result["rows"] += rows
+    g3 = pick(rows, RJ_GATE[0])["dR_date_clustered"]
+    result["gates"]["3_P3d_G_vs_P3d_N_fix_13_14"] = {"dR_date_clustered": g3, "pass": g3["ci95"][1] < 0}
+    if not result["gates"]["3_P3d_G_vs_P3d_N_fix_13_14"]["pass"]:
+        result["stopped_at"] = "gate 3 (KILL: trajectory family closed for the afternoon)"
+        return done()
+    rows = compare("P3d_G", "composite_post13")
+    result["rows"] += rows
+    result["gates"]["4_vs_composite_post13"] = {"reading": reading(rows),
+                                                "dR_date_clustered": pick(rows, RJ_GATE[0])["dR_date_clustered"]}
+    return done()
+
+
 # ------------------------------------------------- clarification 3: forward refit and frozen state (MG-2)
 
 FORWARD_CENTRES = AUG_SEP_CENTRES + ("2026-10-10", "2026-10-25", "2026-11-09", "2026-11-24", "2026-12-09")
@@ -3599,6 +3750,19 @@ def _parse(argv=None):
     isc.add_argument("--nowcasts", required=True)
     isc.add_argument("--loyo-result", required=True)
     isc.add_argument("--out", required=True)
+    je = sub.add_parser("rung-j-emit", help="R-J gates 1-2 and h13-16 dev distributions (heavy)")
+    je.add_argument("--records", required=True)
+    je.add_argument("--layout", required=True)
+    je.add_argument("--replay-root", required=True)
+    je.add_argument("--nbm-train-corpus", required=True)
+    je.add_argument("--obs-parquet", required=True)
+    je.add_argument("--rh-emit", required=True, help="R-H 13-16 emit directory (B_N / P3d_N_fix reproduction)")
+    je.add_argument("--out", required=True)
+    js = sub.add_parser("rung-j-score", help="R-J gates 3-4 on the dev scorecard (heavy)")
+    js.add_argument("--layout", required=True)
+    js.add_argument("--emit", required=True)
+    js.add_argument("--p3d-n", required=True, help="dev_P3d_N.jsonl (composite post-13 dev arm)")
+    js.add_argument("--out", required=True)
     wr = sub.add_parser("wu-rounding", help="clarification 3 (c): WU whole F vs T-group F on 2021-25 rows (heavy)")
     wr.add_argument("--obs-parquet", required=True, help="IEM market-station rows with tgroup_f (lane L6)")
     wr.add_argument("--wu-root", required=True)
@@ -3721,6 +3885,18 @@ def main(argv=None):
     if args.command == "rung-i-score":
         result = rung_i_score(layout=args.layout, fix_jsonl=args.fix, coefficients=args.coefficients,
                               nowcasts=args.nowcasts, loyo_result=args.loyo_result, out_path=Path(args.out))
+        print(json.dumps({"gates": result["gates"], "stopped_at": result.get("stopped_at")}, indent=1))
+        return 0
+    if args.command == "rung-j-emit":
+        audit = rung_g_emit(records_root=args.records, layout=args.layout, replay_root=args.replay_root,
+                            nbm_train_corpus=args.nbm_train_corpus, obs_parquet=args.obs_parquet,
+                            ra_emit_dir=args.rh_emit, out_dir=args.out, hours=RJ_HOURS, gate=RJ_GATE,
+                            report_pools=(RJ_SECONDARY,), rule_sha=RJ_RULE_SHA256)
+        print(json.dumps({"gates": {k: v.get("pass") for k, v in audit["gates"].items()},
+                          "stopped_at": audit.get("stopped_at"), "ra_reproduction": audit.get("ra_reproduction")}))
+        return 0
+    if args.command == "rung-j-score":
+        result = rung_j_score(layout=args.layout, emit_dir=args.emit, p3d_n_jsonl=args.p3d_n, out_path=Path(args.out))
         print(json.dumps({"gates": result["gates"], "stopped_at": result.get("stopped_at")}, indent=1))
         return 0
     if args.command == "rung-g-score":
