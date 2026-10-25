@@ -146,3 +146,21 @@ def test_admitted_once_in_both_mirrors_and_nothing_wider():
     for near in (MODULE + ".child", MODULE + "_x", "weather.calibration.market"):
         assert near not in hook._OFFLINE_WEATHER_MODULES
         assert near not in listed
+
+
+def test_pre13_captured_refuses_unpinned_module_or_nowcasts(tmp_path):
+    from types import SimpleNamespace
+
+    from weather.calibration import market_blend as mb
+    from weather.reporting.scorecards import dev_scorecard_data as data
+
+    mod, now = tmp_path / "m.py", tmp_path / "n.parquet"
+    mod.write_text("x = 1\n")
+    now.write_bytes(b"n")
+    good = SimpleNamespace(pre13_module=str(mod), pre13_module_sha256=data.sha256_file(mod),
+                           pre13_nowcasts=str(now), pre13_nowcasts_sha256="0" * 64)
+    with pytest.raises(data.Refused, match="nowcasts"):
+        mb.pre13_captured(good, None, None, None, None, None)
+    bad = SimpleNamespace(**dict(vars(good), pre13_module_sha256=None))
+    with pytest.raises(data.Refused, match="module"):
+        mb.pre13_captured(bad, None, None, None, None, None)

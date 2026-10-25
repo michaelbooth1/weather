@@ -26,6 +26,7 @@ import argparse
 import hashlib
 import json
 import math
+import os
 import sys
 from datetime import date, timedelta
 from pathlib import Path
@@ -43,6 +44,7 @@ from weather.reporting.scorecards import dev_scorecard_data as data  # noqa: E40
 
 SCHEMA = "market_blend/1"
 RULE_SHA256 = "e29c9a84395d7f4f5e9a0091da99ff970597c40faa7d4cc81aa034a373f8bb8c"
+CLARIFICATION_1_SHA256 = "46e1fac20a4fed42ec1290c1d675dbf204dfba475ee756ee442b6f121d5a9de0"  # pre-13 / 13+ slots
 EPS = 1e-4
 W_GRID = np.arange(101) / 100.0
 GAP_DAYS = 1
@@ -352,6 +354,23 @@ def l6_frame(layout, folds, burn_folds, module_path):
                                                                "sha256": data.sha256_file(module_path)}
 
 
+def pre13_captured(args, layout, folds, burn_folds, fit_t, p_mg1_fit):
+    """Clarification 1: L6's own-obs stack on the captured-METAR nowcasts (module and nowcasts sha-pinned)."""
+    for path, sha, label in ((args.pre13_module, args.pre13_module_sha256, "pre-13 module"),
+                             (args.pre13_nowcasts, args.pre13_nowcasts_sha256, "pre-13 nowcasts")):
+        actual = data.sha256_file(path) if path else None
+        if not sha or actual != sha:
+            raise data.Refused(f"refused: {label} sha256 {actual} != the clarification's {sha}")
+    os.environ["L6_CAPTURED_NOWCASTS"] = str(args.pre13_nowcasts)
+    frame, meta = l6_frame(layout, folds, burn_folds, args.pre13_module)
+    p_fit, _, reasons = gta.vector_and_coverage(fit_t, frame)
+    f0 = burn_folds[0].dates
+    in_f0 = np.isin(fit_t.snaps.date.astype(str).to_numpy(), f0)[fit_t.band_snap]
+    meta["burn_in_fold0_equals_mg1"] = bool(np.array_equal(p_fit[in_f0], p_mg1_fit[in_f0]))
+    return p_fit, dict(meta, coverage=reasons, nowcasts=str(args.pre13_nowcasts),
+                       nowcasts_sha256=args.pre13_nowcasts_sha256)
+
+
 def check_arm_a_refit(path, sha, marker=REFIT_MARKER):
     if LEAD1_ARM_A in Path(path).name or "dev_l8" in str(path).lower():
         raise data.Refused("refused: the lead-1 arm A vectors are never used for a reported composite result")
@@ -407,17 +426,22 @@ def run(args):
         l6_meta["burn_in_fold0_equals_mg1"] = bool(np.array_equal(p_l6_fit[in_f0], p_mg1_fit[in_f0]))
         l6_meta["burn_in_snapshots"] = int(burn_mask.sum())
         blocks = [b for b, lo, hi in FIT_BLOCKS if hi < COMPOSITE_SWITCH_HOUR]
-        p_comp_fit = p_l6_fit
-        comp_rule = f"local_hour < {COMPOSITE_SWITCH_HOUR}: MG-1 + L6 own-obs stack; >= 13: pending refit arm A"
+        p_pre_fit, pre_name = p_l6_fit, "MG-1 + L6 own-obs stack"
+        if args.pre13_module:
+            p_pre_fit, pre_meta = pre13_captured(args, layout, folds, burn_folds, fit_t, p_mg1_fit)
+            pre_name = f"MG-1 + L6 own-obs stack, captured-METAR re-spec ({pre_meta['nowcasts_sha256']})"
+            meta["pre13_captured"] = pre_meta
+        p_comp_fit = p_pre_fit
+        comp_rule = f"local_hour < {COMPOSITE_SWITCH_HOUR}: {pre_name}; >= 13: pending the afternoon vectors"
         if args.arm_a_refit:
             sha = check_arm_a_refit(args.arm_a_refit, args.arm_a_refit_sha256)
             p_a_fit, cov_a, meta_a = gta.load_candidate(args.arm_a_refit, args.arm_a_trained_through, layout,
                                                         folds, fit_t)
             pre = (fit_t.local_hour < COMPOSITE_SWITCH_HOUR)[fit_t.band_snap]
-            p_comp_fit = np.where(pre, p_l6_fit, p_a_fit)
+            p_comp_fit = np.where(pre, p_pre_fit, p_a_fit)
             blocks = [b for b, _, _ in FIT_BLOCKS]
-            comp_rule = (f"local_hour < {COMPOSITE_SWITCH_HOUR}: MG-1 + L6 own-obs stack; >= "
-                         f"{COMPOSITE_SWITCH_HOUR}: refit arm A ({sha})")
+            comp_rule = (f"local_hour < {COMPOSITE_SWITCH_HOUR}: {pre_name}; >= "
+                         f"{COMPOSITE_SWITCH_HOUR}: {Path(args.arm_a_refit).name} ({sha})")
             meta["arm_a_refit"] = dict(meta_a, sha256=sha)
         controls["w0_identity_composite"] = w0_identity(score_t, restrict(fit_t, score_t, p_comp_fit))
         cands["composite"] = (p_comp_fit, blocks)
@@ -441,10 +465,21 @@ def run(args):
                           "placebo": res.get("placebo", {}).get("verdict"),
                           "verdict": reading(wbar, prim, floor_r[("ALL", PRIMARY_FIT)],
                                              res.get("placebo", {}).get("verdict") == "PASS")}
+        sec = [r for r in res["rows"] if r["fit"] == "13-16/brier/ALL" and r["group"] == "13-16"
+               and r["pool"] in ("ALL", "PRIMARY5")]
+        if sec:  # clarification 1: the same reading as a SECONDARY reading on the 13-16 row
+            w1316 = res["fits"]["13-16/brier/ALL"]["summary"]["mean"]
+            res["reading_13_16"] = {r["pool"]: {"R": r["R"], "ci95_crossed": r.get("ci95_crossed"),
+                                                "ci95_date": r["ci95_date"], "wbar": w1316,
+                                                "floor_only_R": floor_r[(r["pool"], "13-16")],
+                                                "verdict": reading(w1316, r, floor_r[(r["pool"], "13-16")],
+                                                                   res.get("placebo", {}).get("verdict") == "PASS")}
+                                    for r in sec}
         results[name] = res
 
     code = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
-    return {"schema": SCHEMA, "rule_sha256": RULE_SHA256, "evidence_class": "development (dev window, provisional)",
+    return {"schema": SCHEMA, "rule_sha256": RULE_SHA256,
+            "clarification_1_sha256": CLARIFICATION_1_SHA256 if args.pre13_module or args.arm_a_refit else None, "evidence_class": "development (dev window, provisional)",
             "code_sha256": code, "gap_atlas_code_sha256": hashlib.sha256(Path(gta.__file__).read_bytes()).hexdigest(),
             "scorecard_code_sha256": sc.code_sha256(), "layout_manifest_sha256": layout.manifest_sha256,
             "population": {"burn_in_dates": burn, "scored_first": scored[0], "scored_last": scored[-1],
@@ -489,6 +524,10 @@ def render(payload):
         L.append(f"- **{name}**: R {_f(p['R'], 4)} crossed {_ci(p['ci95_crossed'], 4)} date {_ci(p['ci95_date'], 4)}; "
                  f"mean w {_f(r['wbar'], 3)}; floor-only R {_f(r['floor_only_R'], 4)}; placebo {r['placebo']}; "
                  f"MDE80 {_f(p['mde80_R'], 3)} -> {r['verdict']}")
+        for pool_name, r2 in res.get("reading_13_16", {}).items():
+            L.append(f"  - SECONDARY 13-16 {pool_name}: R {_f(r2['R'], 4)} crossed {_ci(r2['ci95_crossed'], 4)} date "
+                     f"{_ci(r2['ci95_date'], 4)}; mean 13-16 w {_f(r2['wbar'], 3)}; floor-only R "
+                     f"{_f(r2['floor_only_R'], 4)} -> {r2['verdict']}")
     L += ["", "## Rows (pooled fits)", "",
           "| Candidate | Fit | Pool | Group | n md | R | crossed | date | log ratio | MDE80 |",
           "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
@@ -525,7 +564,11 @@ def main(argv=None):
     ap.add_argument("--layout", required=True)
     ap.add_argument("--l6-module", default=str(gta.DEFAULT_L6_MODULE))
     ap.add_argument("--mg1-only", action="store_true")
-    ap.add_argument("--arm-a-refit")
+    ap.add_argument("--pre13-module")
+    ap.add_argument("--pre13-module-sha256")
+    ap.add_argument("--pre13-nowcasts")
+    ap.add_argument("--pre13-nowcasts-sha256")
+    ap.add_argument("--arm-a-refit", help="afternoon (13:00+) vectors; clarification 1: P3d_N")
     ap.add_argument("--arm-a-refit-sha256")
     ap.add_argument("--arm-a-trained-through", default="2025-12-31")
     ap.add_argument("--out-dir", required=True)
