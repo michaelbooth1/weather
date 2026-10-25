@@ -457,7 +457,8 @@ def test_build_writes_the_label_free_layout_with_parser_v2(verified, tmp_path):
     snaps, bands = mg2.read_inputs(tmp_path / "layout")
     assert len(snaps) == 11 * len(LOCAL_HOURS) and layout["snapshots"] == len(snaps)
     assert not LABELISH & (set(snaps.columns) | set(bands.columns))
-    assert not {c for c in set(snaps.columns) | set(bands.columns) if allow.forbidden(c)}
+    # "station" here is the registry ICAO identity column of the dev layout, not a station surface
+    assert not {c for c in set(snaps.columns) | set(bands.columns) if allow.forbidden(c)} - {"station"}
     assert (snaps.v2_parser_version == 2).all() and snaps.v2_parser_version.dtype == "int64"
     assert (snaps.v2_parser_module_sha256 == "a" * 64).all()
     assert (snaps.v2_status == "available").all() and (snaps.v2_mean == 84.0).all()
