@@ -520,9 +520,13 @@ DEV_VARIANTS = {
     # dev_rule.md clarification 1: high_so_far (and so the floor) from lane L8's shared serve-time
     # function weather.model.observed_running_max.running_max_since_midnight (imported, not rewritten).
     "l8_high_so_far": (FEATURES, "pit_2026"),
+    # dev_rule.md clarification 4: arm A' = arm A (L8 high_so_far) plus the NBM mean, fitted on the historical
+    # rows with lane L9's PIT NBM corpus (L9's loader, imported), scored with the captured v2 mean MG-1 uses.
+    "nbm_hist": (FEATURES + ("nbm_mean",), "pit_2026"),
 }
 DEV_DEFAULT_VARIANTS = ("main", "served_forecast", "two_feature")
 L8_VARIANT = "l8_high_so_far"
+NBM_VARIANT = "nbm_hist"
 _CAPTURED_LOCAL = None
 _METAR_TIME = None
 
@@ -647,11 +651,12 @@ def _event_folders(replay_root):
 
 
 def dev_emit(*, layout, replay_root, train_manifests, dev_manifest, out_dir, markets,
-             variants=DEV_DEFAULT_VARIANTS, obs_from=None):
+             variants=DEV_DEFAULT_VARIANTS, obs_from=None, nbm_corpus=None):
     """Fit on the Aug-Sep 2021-25 corpus, emit candidate distributions for the dev snapshots.
 
     ``obs_from``: a previous run's ``dev_features.jsonl`` (same replay scan) instead of rescanning;
     refused for the ``l8_high_so_far`` variant unless its rows carry ``high_so_far_l8``.
+    ``nbm_corpus``: lane L9's ``nbm_pit_corpus_rows.jsonl``, required by the ``nbm_hist`` variant.
     """
     import pandas as pd
     from zoneinfo import ZoneInfo
@@ -671,9 +676,26 @@ def dev_emit(*, layout, replay_root, train_manifests, dev_manifest, out_dir, mar
     unknown = [v for v in variants if v not in DEV_VARIANTS]
     if unknown:
         raise ChallengerError(f"unknown dev variants {unknown}")
-    want_l8 = L8_VARIANT in variants
+    want_nbm = NBM_VARIANT in variants
+    want_l8 = L8_VARIANT in variants or want_nbm
+    nbm_table = None
+    if want_nbm:
+        if nbm_corpus is None:
+            raise ChallengerError("the nbm_hist variant needs --nbm-corpus")
+        from weather.calibration import ols_floor_ladder
+
+        nbm_table = ols_floor_ladder.load_nbm(nbm_corpus)
+        snaps = snaps.join(pd.read_parquet(Path(layout) / "inputs_snapshots.parquet", columns=[
+            "v2_mean", "v2_stddev", "v2_available_at", "captured_at_utc"]))
+        from weather.calibration.r0_ols_floor_devfit import usable_v2_mean
+
+        snaps["nbm_usable"] = usable_v2_mean(snaps)
     audit = {"markets": {}, "variants": {k: {"features": list(DEV_VARIANTS[k][0]), "forecast": DEV_VARIANTS[k][1]}
                                          for k in variants}}
+    if want_nbm:
+        audit["nbm_corpus"] = {"path": str(nbm_corpus), "sha256": _sha256(nbm_corpus),
+                               "loader": ols_floor_ladder.__name__,
+                               "loader_sha256": _sha256(ols_floor_ladder.__file__)}
     if want_l8:
         from weather.model import observed_running_max
 
@@ -695,6 +717,13 @@ def dev_emit(*, layout, replay_root, train_manifests, dev_manifest, out_dir, mar
             support = built["bucket_space"]
             fits = {}
             for hour, records in built["records"].items():
+                if want_nbm:
+                    for r in records:
+                        value, cycle = ols_floor_ladder.nbm_at_cutoff(
+                            nbm_table, market, str(r["target_date"])[:10], hour, spec.timezone)
+                        r["nbm_mean"] = value  # None: imputed with forecast_high by feature_vector
+                        key = f"train_nbm_cycle_{cycle}" if cycle else "train_nbm_missing"
+                        audit.setdefault("nbm_train", {}).setdefault(market, defaultdict(int))[key] += 1
                 for variant in variants:
                     fits[(hour, variant)] = fit_fold(records, DEV_VARIANTS[variant][0])
             dev_union = PITForecastCorpusUnion([dev_manifest], spec.id, target_year=2027,
@@ -742,7 +771,12 @@ def dev_emit(*, layout, replay_root, train_manifests, dev_manifest, out_dir, mar
                         continue
                     record = {"forecast_high": fc, "high_so_far": rec["high_so_far"],
                               "current_temp": rec["current_temp"]}
-                    if variant == L8_VARIANT:
+                    if variant == NBM_VARIANT:
+                        nbm = float(row.nbm_usable)
+                        record["nbm_mean"] = nbm if math.isfinite(nbm) else None
+                        if record["nbm_mean"] is None:
+                            stats[f"{variant}_nbm_imputed_forecast"] += 1
+                    if variant in (L8_VARIANT, NBM_VARIANT):
                         value = rec.get("high_so_far_l8")
                         if value is None:
                             stats[f"{variant}_no_l8_value"] += 1
@@ -752,7 +786,7 @@ def dev_emit(*, layout, replay_root, train_manifests, dev_manifest, out_dir, mar
                         elif floor_of({"high_so_far": value}) != floor_of(rec):
                             stats[f"{variant}_floor_differs_from_main"] += 1
                         record["high_so_far"] = value
-                    if any(record[f] is None for f in features):
+                    if any(record[f] is None for f in features if f != "nbm_mean"):
                         stats[f"{variant}_missing_feature"] += 1
                         continue
                     dists, _ = challenger_distributions(fits[(hour, variant)], record, support)
@@ -1348,6 +1382,7 @@ def build_parser():
     emit.add_argument("--out-dir", required=True)
     emit.add_argument("--variants", default=",".join(DEV_DEFAULT_VARIANTS))
     emit.add_argument("--obs-from", default=None, help="reuse a previous run's dev_features.jsonl")
+    emit.add_argument("--nbm-corpus", default=None, help="lane L9 PIT NBM corpus rows (nbm_hist variant)")
     dscore = sub.add_parser("dev-score", help="score emitted candidates with dev_scorecard; apply dev_rule.md")
     dscore.add_argument("--layout", required=True)
     dscore.add_argument("--candidate", action="append", required=True, help="<name>=<jsonl>")
@@ -1376,7 +1411,7 @@ def main(argv=None):
                              train_manifests=args.train_manifest, dev_manifest=args.dev_manifest,
                              out_dir=args.out_dir, markets=args.markets.split(","),
                              variants=args.variants.split(","),
-                             obs_from=args.obs_from)
+                             obs_from=args.obs_from, nbm_corpus=args.nbm_corpus)
             print(json.dumps(audit["files"], indent=1))
             return 0
         if args.command == "dev-score":
