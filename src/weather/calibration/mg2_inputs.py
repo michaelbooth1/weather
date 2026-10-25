@@ -576,7 +576,7 @@ BUILD_READS = ("snapshots_long.csv", "features_long.csv", "forecast_payloads.jso
 
 
 def _check_bundle_files(bundle, manifest, day):
-    """Re-hash exactly the files the builder reads (never ``prev_day/``) against the verified manifest."""
+    """Re-hash exactly the files the builder reads (band tapes, features, NBM rows, blobs) against the manifest."""
     listed = {str(f["path"]): f for f in manifest.get("files") or []}
     for rel, entry in sorted(listed.items()):
         kind = allow.classify_path(rel, day)
