@@ -343,3 +343,50 @@ open. The fix is lane L8's (bound shadow variant); this lane does not build it.
 date-clustered; every hour 07-12 spans 0 against MG-1. Its gain over served is MG-1's own (MG-1 − served
 −0.0139 [−0.0212, −0.0072]). Same answer as lane G's L4 blend: per-market debiasing of captured guidance adds
 nothing over MG-1. For the null ledger.
+
+## Addendum 2026-10-25: hot-day centre lever and AFD screen, all verdicts
+
+Rules: arm A `53fd0bc5…`, arm B addendum `42d30a2f…`, AFD `e146655a…` (all committed before scoring). Every
+run went through `workstation_heavy.ps1 -Kind weather_heavy` from this worktree, serially, outside the pregate
+hold (L8 given slot priority). Headline 07-12 pooled `ALL`, crossed date x market 95% (date-clustered in the
+last column). Development, 43 dates, 11 markets, unpowered at the 12-cluster floor.
+
+| Rule (control) | Score | cand − served | cand − control (MDE80) | cand − control, date-clustered | Verdict |
+| --- | --- | --- | --- | --- | --- |
+| A1 v2+NWS per-market debias (MG-1) | `49f7ee86` | −0.0139 [−0.0219, −0.0060] | −0.0001 [−0.0042, +0.0045] (0.0062) | −0.0001 [−0.0024, +0.0022] | KILL (null) |
+| A2 linear forecasts + overnight-low anomaly (MG-1) | `37710a23` | −0.0154 [−0.0228, −0.0074] | −0.0016 [−0.0059, +0.0033] (0.0068) | −0.0016 [−0.0044, +0.0011] | KILL (null) |
+| B1 corpus gfs day-1 linear, full year (MG-1) | `6c2e695d` | +0.0030 [−0.0056, +0.0121] | **+0.0169 [+0.0069, +0.0269]** (0.0139) | +0.0169 [+0.0135, +0.0200] | KILL (harm) |
+| B2 (v2 + B1)/2, full year (MG-1) | `47e5793e` | −0.0117 [−0.0181, −0.0053] | +0.0021 [−0.0032, +0.0084] (0.0080) | +0.0021 [−0.0012, +0.0052] | KILL (null) |
+| B1 Aug-Sep-only fit (sensitivity, MG-1) | `20990cbc` | −0.0016 [−0.0097, +0.0065] | +0.0122 [+0.0043, +0.0215] (0.0120) | +0.0122 [+0.0091, +0.0151] | reported only (harm) |
+| AFD features (matched coastal intercepts) | `81dea30f` | −0.0118 [−0.0192, −0.0045] | +0.0012 [−0.0006, +0.0040] (0.0032) | **+0.0012 [+0.0003, +0.0020]** | KILL (harm on the date-clustered interval) |
+
+Reported, not decided (07-12, candidate − control, crossed):
+
+| Subset | A1 | A2 | B2 | AFD vs matched |
+| --- | --- | --- | --- | --- |
+| L5 top decile (48, selected on loss) | +0.0017 [−0.0093, +0.0150] | +0.0055 [−0.0121, +0.0234] | +0.0250 [+0.0016, +0.0460] | +0.0061 [−0.0007, +0.0202] |
+| Hot days (157, top v2 tercile per market) | −0.0002 [−0.0052, +0.0047] | −0.0020 [−0.0086, +0.0035] | +0.0041 [−0.0036, +0.0124] | +0.0006 [−0.0020, +0.0027] |
+| Dallas (43) | −0.0040 [−0.0103, +0.0023] | −0.0019 [−0.0135, +0.0092] | +0.0109 [−0.0048, +0.0260] | 0 (not coastal) |
+| Los Angeles (43) | +0.0001 [−0.0080, +0.0091] | −0.0017 [−0.0093, +0.0058] | +0.0055 [−0.0034, +0.0144] | **+0.0112 [+0.0026, +0.0195]** |
+| San Francisco (43) | **+0.0120 [+0.0018, +0.0227]** | +0.0116 [−0.0006, +0.0242] | +0.0116 [+0.0009, +0.0230] | +0.0023 [−0.0016, +0.0062] |
+| Coastal five (215) | +0.0028 [−0.0036, +0.0103] | +0.0014 [−0.0051, +0.0097] | +0.0033 [−0.0058, +0.0124] | +0.0025 [−0.0015, +0.0087] |
+
+Per hour 07..12 every A1/A2 cell spans 0 against MG-1 (A2 −0.0006 to −0.0020). Full per-market and per-hour
+tables: `tools/research/morning_loss/verdicts.py C:\t\l5\scores`.
+
+**Reading.**
+- **The hot-day centre lever is MG-1 itself.** Every arm A gain over served is MG-1's (MG-1 − served −0.0139
+  [−0.0212, −0.0072] at 07-12; −0.0587/−0.0549 on the top decile for A1/A2 vs served). Neither a per-market
+  debias nor a regression adds anything over it, on any subset.
+- **The tree-extrapolation explanation is not where the residual is.** A2 predicts above its fold's training
+  maximum on 8.8% of its 07-12 snapshots (1,853 of 21,034) and still gains nothing over MG-1 on hot days
+  (−0.0020 [−0.0086, +0.0035]). Captured guidance already carries the heat; what served lacks is the guidance
+  centre (and the `high_so_far` parity repair, lane L8), not an extrapolating fit.
+- **Arm B: full-year coverage does not help this form.** With the one regressor the corpus has (gfs day-1
+  high), the full-year fit harms more than the Aug-Sep fit (+0.0169 vs +0.0122 over MG-1); its slopes (0.88-0.95,
+  Aug-Sep 0.70-0.85) shrink hot days toward the mean, the opposite of what the hot days need. Arm B says
+  nothing about the HGB retrain itself (L1's lane), only that this corpus field is not a centre source.
+- **AFD (item 2): KILL.** The text features slightly harm, mostly in Los Angeles; no lead, so no capture case.
+  The coastal residual stays unexplained by free text.
+
+For the null ledger: A1, A2, B1, B2, AFD (development, 2026-10-25).
