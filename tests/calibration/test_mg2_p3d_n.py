@@ -4,6 +4,7 @@ Guards: MG-2 rule §8 C2-C5 (docs/research/mg2-composite-binding-2026-10-25/rule
 L2 d914ae21b, the bound state sha, wu_whole_f_tgroup:half_up, as-of-capture inputs, training coverage.
 """
 import ast
+import re
 import hashlib
 import json
 import math
@@ -437,6 +438,10 @@ def test_module_has_no_network_and_no_production_importer():
             exec("import weather.calibration.mg2_p3d_n", {"__name__": "weather.serving.x"})
     finally:
         sys.modules["weather.calibration.mg2_p3d_n"] = saved
+    # An importer, not a mention: L2's pooled_residual_model writes the agreed state schema string
+    # ("mg2_p3d_n_state/1") without importing this module.
+    importer = re.compile(r"calibration\.mg2_p3d_n|import\s+mg2_p3d_n|mg2_p3d_n\s+import")
     hits = [str(p.relative_to(ROOT)) for p in (ROOT / "src").rglob("*.py")
-            if p.name not in ("mg2_composite.py", "mg2_p3d_n.py") and "mg2_p3d_n" in p.read_text(encoding="utf-8")]
+            if p.name not in ("mg2_composite.py", "mg2_p3d_n.py")
+            and importer.search(p.read_text(encoding="utf-8"))]
     assert hits == []
