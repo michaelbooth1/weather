@@ -628,6 +628,7 @@ function Get-WeatherWorkstationOfflineModule {
         "weather.backtesting.tape_scoring",
         "weather.calibration.feature_model",
         "weather.calibration.new_city_corpus",
+        "weather.calibration.ols_floor_ladder",
         "weather.calibration.pooled_candidate_replay",
         "weather.calibration.pooled_candidate_replay_diagnostics",
         "weather.calibration.pooled_candidate_replay_report",
