@@ -214,7 +214,8 @@ def test_conversion_is_applied_before_the_floor_and_features(golden_state):
     assert p3.serve_distribution(on, **case) == p3.serve_distribution(golden_state, **whole)
     tie = dict(case, high_so_far=_f(325), current_temp=_f(325))  # 90.5 F -> 91, so no model mass below 91
     floor_part = p3.serve_distribution(dict(on, constants=dict(on["constants"], floor_mix_clim=0.0)), **tie)
-    assert min(floor_part) == 91
+    # p_clim keys stay present at zero mass when the mix is 0: the floor shows in the positive-mass support
+    assert min(k for k, v in floor_part.items() if v > 0) == 91
 
 
 @pytest.mark.skipif(not FORWARD_STATE.exists(), reason="L2's frozen forward state is local runtime evidence")
@@ -235,7 +236,7 @@ def test_forward_state_loads_by_its_bound_sha_and_serves_one_row_with_the_conver
     no_clim = p3.serve_distribution(dict(state, constants=dict(state["constants"], floor_mix_clim=0.0)),
                                     market="atlanta", target_date="2026-11-02", hour=15, nbm_mean=68.4,
                                     high_so_far=_f(194), current_temp=_f(189))
-    assert min(no_clim) == 67
+    assert min(k for k, v in no_clim.items() if v > 0) == 67
     with pytest.raises(p3.P3dNRefused, match="grid"):
         p3.serve_distribution(state, market="atlanta", target_date="2026-11-02", hour=15, nbm_mean=68.4,
                               high_so_far=66.9, current_temp=66.0)
