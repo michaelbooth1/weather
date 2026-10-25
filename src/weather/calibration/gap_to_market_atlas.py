@@ -220,26 +220,134 @@ def run(args):
             "discipline": "each candidate vs the market only; no candidate-minus-candidate deltas"}
 
 
+# ----------------------------------------------------------------------------- report
+
+RENDER_CANDS = ("mg1", "arm_a", "p3d", "composite")
+LABEL = {"mg1": "MG-1", "arm_a": "Arm A", "p3d": "P3d", "composite": "Composite"}
+MAIN = ("06-09", "10-12", "07-12", "12-16", "13-16", "00-16")
+HOURS = tuple(f"h{h:02d}" for h in range(7, 24))
+
+
+def f3(x):
+    return "n/a" if x is None else f"{x:.3f}"
+
+
+def cell(r, n=True):
+    if r is None:
+        return "-"
+    lo, hi = r["ci95_date"]
+    s = f"{f3(r['R'])} [{f3(lo)}, {f3(hi)}]"
+    if r["R"] is not None and r["R"] <= 1:
+        s = f"**{s}**"
+    elif lo is not None and lo <= 1:
+        s = f"*{s}*"
+    if r.get("coverage", 1) < 0.95:
+        s += f" c{100 * r['coverage']:.0f}%"
+    if not r["interpretable"]:
+        s += " (!)"
+    return s
+
+
+def render(payload):
+    idx = {}
+    cands = [c for c in RENDER_CANDS if c in payload["rows"]]
+    for c in cands:
+        for r in payload["rows"][c]:
+            idx[(c, r["pool"], r["group"], r["heat"])] = r
+    g = lambda c, p, b, h="all": idx.get((c, p, b, h))  # noqa: E731
+    pop, ctl = payload["population"], payload["controls"]
+    L = ["# Gap-to-market atlas (L10)", "",
+         "**Descriptive development evidence, not a claim.** Each candidate's R = candidate Brier / market Brier "
+         f"(R < 1 beats the market) on the C dev scorecard window ({pop['first_date']}..{pop['last_date']}, "
+         f"{pop['n_dates']} dates, {pop['n_market_days']} market-days, 11 markets), served fallback where a "
+         "candidate is absent. Brackets: date-clustered 95% CI (2,000 draws, seed 20260921). **Bold** R <= 1; "
+         "*italic* CI includes 1; `cNN%` candidate coverage (rest is served fallback); (!) market Brier < 0.005, "
+         "R not interpretable. Candidates are compared only with the market; no candidate-vs-candidate deltas.", "",
+         f"Controls: served R all {ctl['served']['observed']['all']:.3f} / 00-16 {ctl['served']['observed']['00-16']:.3f} "
+         f"({ctl['served']['verdict']}); MG-1 07-12 excess {ctl['mg1']['excess_over_market_07_12']:.4f} "
+         f"({ctl['mg1']['verdict']}); L6 own-stack 07-12 Brier - MG-1 {ctl['l6_own_stack']['brier_minus_mg1_07_12']:.7f} "
+         f"({ctl['l6_own_stack']['verdict']}); arm A 07-12 R {ctl['arm_a_dev4']['R_07_12_blended']:.4f} = L3 dev4 "
+         f"({ctl['arm_a_dev4']['verdict']}).", ""]
+    hdr = "| " + " | ".join(LABEL[c] for c in cands) + " |"
+    sep = " --- |" * len(cands)
+    for pool in ("PRIMARY5", "ALL"):
+        L += [f"## {pool}: blocks and hours (all heat)", "", "| Block | n md " + hdr, "| --- | --- |" + sep]
+        for b in MAIN + HOURS:
+            r0 = g(cands[0], pool, b)
+            if r0 is None:
+                continue
+            L.append(f"| {b} | {r0['n_market_days']} | " + " | ".join(cell(g(c, pool, b)) for c in cands) + " |")
+        L.append("")
+    L += ["## Heat third (within-market tercile of the market's 07-12 centre)", "",
+          "| Pool | Block | Heat | n md " + hdr, "| --- | --- | --- | --- |" + sep]
+    for pool in ("PRIMARY5", "ALL"):
+        for b in ("07-12", "13-16", "00-16"):
+            for h in ("hot", "mid", "cool"):
+                r0 = g(cands[0], pool, b, h)
+                L.append(f"| {pool} | {b} | {h} | {r0['n_market_days']} | "
+                         + " | ".join(cell(g(c, pool, b, h)) for c in cands) + " |")
+    L += ["", "## Per market (all heat)", "", "| Market | Block | n md " + hdr, "| --- | --- | --- |" + sep]
+    markets = sorted({k[1] for k in idx} - {"ALL", "PRIMARY5"})
+    for mk in markets:
+        for b in ("07-12", "13-16", "00-16"):
+            r0 = g(cands[0], mk, b)
+            L.append(f"| {mk} | {b} | {r0['n_market_days']} | " + " | ".join(cell(g(c, mk, b)) for c in cands) + " |")
+    # where any candidate reaches R <= 1 or comes close (interpretable hours <= 16 only)
+    live = [(c, p, b, h, r) for (c, p, b, h), r in idx.items()
+            if not r["late_flag"] and r["interpretable"] and r["R"] is not None]
+    le1 = sorted([t for t in live if t[4]["R"] <= 1], key=lambda t: t[4]["R"])
+    big = [t for t in le1 if t[4]["n_market_days"] >= 40 or (t[3] == "all" and t[2] in MAIN)]
+    near = sorted([t for t in live if t[2] in MAIN and t[4]["n_market_days"] >= 40
+                   and t[4]["ci95_date"][0] is not None and t[4]["ci95_date"][0] <= 1], key=lambda t: t[4]["R"])
+    head = ["| Candidate | Pool | Block | Heat | R [date CI] | n md | n dates | MDE80 (R) |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- |"]
+
+    def row(t):
+        r = t[4]
+        return (f"| {LABEL[t[0]]} | {t[1]} | {t[2]} | {t[3]} | {cell(r)} | {r['n_market_days']} | "
+                f"{r['n_dates']} | {f3(r['mde80_R'])} |")
+    L += ["", f"## Point estimate R <= 1 (hours <= 16, interpretable): {len(le1)} of {len(live)} cells", "",
+          f"{len(le1) - len(big)} of them are heat-third or single-hour cells of one market (14-15 market-days, "
+          "MDE80 mostly 0.3-2 in R): chance hits across many cells, kept in the JSON only. The rest:", "", *head]
+    L += [row(t) for t in big]
+    L += ["", f"## Close: block-level cells with >= 40 market-days whose CI includes 1: {len(near)}", "",
+          "Not findings (many cells, four candidates): where an edge test could have power. MDE80 = 80%-power "
+          "minimum detectable change in R from the date-clustered bootstrap; crossed intervals for pooled rows "
+          "are wider.", "", *head]
+    L += [row(t) for t in near]
+    return "\n".join(L) + "\n"
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="python -m weather.calibration.gap_to_market_atlas")
-    ap.add_argument("--layout", required=True)
-    ap.add_argument("--arm-a", required=True)
+    ap.add_argument("--layout")
+    ap.add_argument("--arm-a")
     ap.add_argument("--l6-module", default=str(DEFAULT_L6_MODULE))
-    ap.add_argument("--dev4", required=True, help="L3 dev_scores_v4.json (arm A reproduction control)")
+    ap.add_argument("--dev4", help="L3 dev_scores_v4.json (arm A reproduction control)")
+    ap.add_argument("--render-from", help="re-render the Markdown from an existing rows JSON (no scoring)")
     ap.add_argument("--p3d")
     ap.add_argument("--p3d-trained-through")
     ap.add_argument("--out-dir", required=True)
     args = ap.parse_args(argv)
+    out = Path(args.out_dir)
+    if args.render_from:
+        payload = json.loads(Path(args.render_from).read_text(encoding="utf-8"))
+        md = out / "gap_to_market.md"
+        md.write_text(render(payload), encoding="utf-8", newline="\n")
+        print(json.dumps({"md": str(md), "rows_sha256": data.sha256_file(args.render_from)}))
+        return 0
+    if not (args.layout and args.arm_a and args.dev4):
+        ap.error("--layout, --arm-a and --dev4 are required unless --render-from is given")
     try:
         payload = run(args)
     except (data.Refused, data.LayoutError, data.LeakageError, data.WalkForwardError) as exc:
         print(str(exc), file=sys.stderr)
         return getattr(exc, "exit_code", 2)
-    out = Path(args.out_dir)
     out.mkdir(parents=True, exist_ok=True)
     blob = json.dumps(sc._clean(payload), sort_keys=True, indent=1).encode("utf-8")
     path = out / "gap_to_market_rows.json"
     path.write_bytes(blob)
+    (out / "gap_to_market.md").write_text(render(payload), encoding="utf-8", newline="\n")
     print(json.dumps({"json": str(path), "sha256": hashlib.sha256(blob).hexdigest(),
                       "controls": {k: v["verdict"] for k, v in payload["controls"].items()}}))
     return 0
