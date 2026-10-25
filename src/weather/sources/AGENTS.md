@@ -5,8 +5,9 @@ These instructions apply under `weather.sources`. Inherit
 
 - Preserve source provenance, timestamps/timezones, native units, parser/schema
   versions, raw-to-normalized lineage, and explicit failure classification.
-- Paid weather-provider access is disabled. Do not add credentials or required
-  paid-source paths; WU collection uses retained local evidence or the public
+- Paid weather sources only with explicit per-source owner approval recorded in
+  DECISION_LOG (owner 2026-10-23); never commit credentials, and add no paid-source
+  path for an unapproved source; WU collection uses retained local evidence or the public
   page-backed workflow.
 - A source can be expected-unavailable, stale, rate-limited, malformed, or
   missing. Keep those states visible and recoverable; never turn a stale
