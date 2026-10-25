@@ -16,6 +16,33 @@ Development evidence only. Research only: no orders, International venue only.
     tapes, and took 1 s. The run is logged in `C:\t\l11\jobs\direct_runs.log`.
 - Outputs are in `C:\t\l11\db_a` and are not committed.
 
+## First scan launch and the relaunch (record)
+
+**The bug.** The first launch ran code `e74e340ff`. `stream_summary` read `order_books_summary.csv` with
+Python's `csv` module and its default 131,072-character field limit. Some captured summary rows carry a field
+longer than that. The g1 and g2 scans stopped with `_csv.Error: field larger than field limit (131072)`
+inside `stream_summary`, and the wrapper still exited 0.
+
+**What was read before the fix.** Only the tracebacks: the tail of the g1 and g2 wrapper outputs, plus a
+process listing.
+- The g3 scan was still running and was killed (PIDs 68188 and its parent 30648).
+- A scan writes its JSON and Markdown only after it finishes all of its markets. None of the three wrote an
+  output, so no row, count, price or P&L from the first launch was seen.
+- `C:	\l11\db_a` was then emptied, and all three scans were relaunched from `e03639dcf`.
+
+**The fix: code only, with no change to rule r2.** `e03639dcf` changes these lines of `stream_summary`:
+- It raises the CSV field limit, so the reader no longer aborts.
+- It skips any row whose field count differs from the header, or that has a field over 4,096 characters.
+  Before the fix only short rows were skipped. Skipped rows are counted (`summary_bad_rows`); none is used.
+- The rows that can be used are a few short numeric fields, which never come near 4,096 characters.
+
+Nothing else changed: the entry time, q*, depth cap, print cap, fee, value threshold, durations, windows,
+variants and readings are as in r2 `177e9acf…`, and the rule file was not edited.
+
+The skip is a data-hygiene choice that r2 does not spell out. It removed 7 summary rows across the 621
+scanned market-days. Its effect on the result was not measured, since that would need another tape scan.
+A skipped row can only remove a capture, so it can delay or remove an entry; it cannot create one.
+
 ## Reading (pre-registered)
 
 The **$25 primary, 08-10..09-29, trade-print fills with depth within 1%** is **$0.37/day [0.12, 0.69]**
