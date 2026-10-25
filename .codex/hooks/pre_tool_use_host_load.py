@@ -61,6 +61,7 @@ _OFFLINE_WEATHER_MODULES = frozenset(
         "weather.backtesting.replay_backtest",
         "weather.backtesting.snapshot_analytics",
         "weather.backtesting.tape_scoring",
+        "weather.calibration.high_so_far_parity_shadow",
         "weather.calibration.pooled_candidate_replay",
         "weather.calibration.pooled_candidate_replay_diagnostics",
         "weather.calibration.pooled_candidate_replay_report",
