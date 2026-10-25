@@ -234,10 +234,12 @@ def test_no_production_code_imports_the_challenger():
             if "r0_ols_floor_challenger" in path.read_text(encoding="utf-8", errors="replace"):
                 hits.append(path.relative_to(ROOT).as_posix())
     # The workstation allowlist names the module (it admits it); only research-only importers
-    # under the same capture-host guard import it: its own dev-fit companion and lane L9's ladder.
+    # under the same capture-host guard import it: its own dev-fit companion, lane L9's ladder and
+    # lane L2's pooled_residual_model (lazily, only in its research dev emitters).
     assert sorted(hits) == [
         "scripts/ops/workload_admission.ps1",
         "src/weather/calibration/ols_floor_ladder.py",
+        "src/weather/calibration/pooled_residual_model.py",
         "src/weather/calibration/r0_ols_floor_devfit.py",
     ]
 
