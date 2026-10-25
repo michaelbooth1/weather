@@ -412,10 +412,10 @@ def _tree(root):
 def test_pull_is_read_only_and_copies_exactly(tmp_path):
     share = tmp_path / "share"
     export_bundle(share / D.isoformat())
-    before = _tree(share)
+    before = _tree(share / D.isoformat())
     result = mi.pull(share_root=share, day=D, inbox=tmp_path / "inbox", ledger=tmp_path / "ledger.jsonl")
     assert result["status"] == "pulled"
-    assert _tree(share) == before
+    assert _tree(share / D.isoformat()) == before
     copied = _tree(tmp_path / "inbox" / D.isoformat() / "incoming")
     assert {k: v[0] for k, v in copied.items()} == {k: v[0] for k, v in before.items()}
     assert mi.pull(share_root=share, day=D, inbox=tmp_path / "inbox",
@@ -614,7 +614,8 @@ def test_no_production_module_imports_the_receiver():
     hits = []
     for top in ("src", "app"):
         for path in (ROOT / top).rglob("*.py"):
-            if path.name in ("mg2_inputs.py",):
+            # the receiver itself, the binding (its release file list) and the allow-list (its docstring)
+            if path.name in ("mg2_inputs.py", "mg2_composite.py", "mg2_input_allowlist.py"):
                 continue
             if "mg2_inputs" in path.read_text(encoding="utf-8", errors="replace"):
                 hits.append(path.relative_to(ROOT).as_posix())

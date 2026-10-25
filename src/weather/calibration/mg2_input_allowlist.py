@@ -148,7 +148,7 @@ def classify_path(relpath, day):
     parts = str(relpath).split("/")
     if parts in ([MANIFEST], [MANIFEST_SHA]):
         return ("manifest", None, None)
-    if len(parts) == 5 and parts[0] == "forecast_payload_cas":
+    if len(parts) == 4 and parts[0] == "forecast_payload_cas":
         match = BLOB_RE.match("/".join(parts[1:]))
         if match and match.group(2)[:2] == match.group(1):
             return ("nbm_blob", None, None)
