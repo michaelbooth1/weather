@@ -513,3 +513,26 @@ def test_rung_j_loyo_summary_pools_only_the_gate_hours():
     assert out["B_G-B_N|13-14|brier"]["n"] == 6
     default = prm.rg_loyo_summary(rows, pairs=(("B_G", "B_N"),))
     assert default["B_G-B_N|07-12|brier"]["n"] == len(rows)  # R-G's pooled label still means every row
+
+
+def test_p3dn_diag_summary_flags_receipt_lookahead_and_share_keeps_negative_denominators():
+    def row(hour, orig_snap, cap, f_o, f_f, c_o, c_f):
+        return {"hour": hour, "differing_columns": [c for c, d in (("F", f_o != f_f), ("x_high_so_far", f_o != f_f),
+                                                                    ("x_current_temp", c_o != c_f)) if d],
+                "captured_utc": cap, "orig_snapshot_local": orig_snap, "fix_snapshot_local": "2026-08-20T13:00:00+00:00",
+                "orig_snapshot_after_capture": orig_snap > cap, "orig_obs_after_capture": False,
+                "orig_latest_obs_local": "2026-08-20T12:55:00+00:00", "fix_latest_obs_local": "2026-08-20T12:55:00+00:00",
+                "orig_n_rows": 9, "fix_n_rows": 8, "orig_F": f_o, "fix_F": f_f, "orig_x_current_temp": c_o,
+                "fix_x_current_temp": c_f, "fix_raw_high": f_f, "fix_raw_current": c_f}
+
+    rows = [row(13, "2026-08-20T13:50:00+00:00", "2026-08-20T13:10:00+00:00", 81.0, 80.0, 79.0, 79.0),
+            row(14, "2026-08-20T14:00:00+00:00", "2026-08-20T14:30:00+00:00", 82.0, 82.0, 80.5, 81.0)]
+    out = prm.p3dn_input_summary(rows)
+    assert out["13-14"]["rows"] == 2 and out["13-14"]["orig_snapshot_after_capture"] == 1
+    assert out["13-14"]["orig_snapshot_minutes_after_capture"]["max"] == 40.0
+    assert out["13"]["columns"]["F"]["rows_differing"] == 1 and out["14"]["columns"]["F"]["rows_differing"] == 0
+    assert out["14"]["columns"]["x_current_temp"]["mean_orig_minus_fix"] == -0.5
+    w = np.array([[1.0, 0.0], [0.0, 1.0]])
+    share = prm._share_interval(w, np.array([1.0, 1.0]), np.array([2.0, -1.0]))
+    assert share["estimate"] == 2.0 and share["draws_denominator_le_0"] == 1
+    assert share["ci95"][0] < 0 < share["ci95"][1]
