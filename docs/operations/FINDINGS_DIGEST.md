@@ -65,6 +65,7 @@ never pooled across the 2026-07-31 provenance boundary.
   - **ECMWF ENS KILL (null):** G2-a −0.0000 [−0.0033, +0.0031] over MG-1 at 00-12; G2-b −0.0002 [−0.0005, +0.0001] over t3-r3 at 13-16. EF §10y.
   - **L4 multi-model blend KILL (null at 07-12):** −0.0002 [−0.0045, +0.0047] over MG-1. Its h15-23 gain over MG-1 does not beat served; it is parked as an afternoon candidate. EF §10y.
   - **F2 MRMS echo flag: development lead only:** −0.0005 [−0.0010, −0.0001] over t3-r3 at 13-16. Below the 5% bar; needs a capture change. EF §10y.
+- **OLS + hard floor vs R0, served and MG-1 (L3, workstation, 2026-10-24/25; dev numbers are selection evidence only):** on R0's own Oct-Dec rows a 3-feature OLS + floor beats lane D's floored R0 by −1.820 [−2.098, −1.563] nats at 07-12 (5/5 markets; D's rows reproduced exactly) and floored forecast by −0.12; in-season Aug-Sep it beats forecast + floor on 11 markets but **not on the 5 primary ones** (−0.064 [−0.169, +0.054]). On the dev window it beats served (07-12 dR −0.179 [−0.232, −0.127]) but **loses to MG-1 at 07-12 (+0.080 [+0.020, +0.142]) and wins only from 13:00**; L6's own-obs twin beats it at 07-12 by −0.148, and NBM as an extra OLS regressor does not close the gap. Upstream ASOS adds nothing beyond own observations (L6 KILL, −0.0005 [−0.0012, +0.0003], MDE80 0.0011): NBM already carries it. EF §10ab.
 
 ## Evaluation and statistics rules that bind every claim
 
@@ -179,6 +180,7 @@ never pooled across the 2026-07-31 provenance boundary.
 | 12-field pooled-refit replacement on the sealed panel | Centre worse, Brier null, its own rule forbids replication | EF §1m (research `2026-09-86a`) |
 | Capturing NBH (or NBS, MOS/NBE, multi-run HRRR, direct ECMWF, soundings, GOES, neighbours, NWS revisions) for the forecast | No increment over captured NBM v2 plus the two serving repairs; NBH 00-16 +0.0027 [−0.0037, +0.0098], wrong sign | EF §10q; RF §1 |
 | The 17-23 decided-band / remaining-rise gain as new information | It is the WU-anchored lock-in no-op; an input-free collapse does at least as well | EF §10e, §10q; RF §1 |
+| Upstream ASOS ring observations for the 07-12 forecast | No increment over the own-station nowcast twin: −0.0005 [−0.0012, +0.0003] Brier, MDE80 0.0011; NBM already carries it | EF §10ab (L6 rule `6687c8df…`) |
 
 ## Retracted numbers — never cite
 
