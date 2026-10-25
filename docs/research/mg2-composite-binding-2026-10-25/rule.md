@@ -12,7 +12,7 @@
   - option 2 (owner exemption) adds only the read clause in §4.3.
 - **Dev numbers are selection evidence only.** Every development figure below sizes this look and
   chose the design. None of them is evidence for the forward claim, and none can pass, fail or promote
-  MG-2. They come from dates many lanes have read (`DEV_WINDOW_LEDGER.md` row 20).
+  MG-2. They come from dates many lanes have read (`DEV_WINDOW_LEDGER.md` row 32; §8 C6).
 
 ## 1. The candidate (frozen)
 
@@ -403,6 +403,12 @@ metar_only=True)`, on the snapshot's own `sources.metar.data`, cutoff h and now 
 - The rule-4 floor F is MG-1's and unchanged: it reads the served `high_so_far` column of
   `features_long.csv`, not this value.
 
+**Clarification C6 (2026-10-25, bookkeeping; dated before D0): ledger row numbers.** The stack merge of
+`23cc02915` kept the other lanes' rows 20-31 in `DEV_WINDOW_LEDGER.md` and renumbered MG-2's two rows:
+the MG-2 dev read is row 32 (was 20) and L8's parity fix is row 33 (was 21). This rule now cites rows 32
+and 33. The frozen dev rule (`dev_rule.md`, `18e4c1ad…`) is not edited; its "row 20" means row 32. No
+number, input or decision changes.
+
 After D0 nothing in §1-§7 changes. The only exception is the §4.3 owner-decision Clarification, which
 changes permission, not design.
 
@@ -459,8 +465,8 @@ The slice is 13-16 local, the P3d_N slot. The two figures below are from the arm
 
 ## (e) Dev-window reuse
 
-`DEV_WINDOW_LEDGER.md` row 20. The reuse count at the sizing read was 21; row 21, L8's parity fix
-scored 2026-10-24, was recorded late. The forward look reads no dev-window date.
+`DEV_WINDOW_LEDGER.md` row 32 (§8 C6). The reuse count at the sizing read was 21; row 33, L8's parity
+fix scored 2026-10-24, was recorded late. The forward look reads no dev-window date.
 
 ## Release binding
 
