@@ -3967,6 +3967,67 @@ was read.
   standard-time date. DST-L9's "latent: the season is May-Aug" no longer holds once the Oct-Dec PIT fetch exists. The
   audit does not list `eccc_gridded.py`, `reanalysis_history.py` or `historical_fallbacks.py`.
 
+### 10ab. OLS + hard floor beats floored R0 and the served vector, but NBM-based MG-1 and L6's own-observation twin beat it in the morning; upstream ASOS adds nothing beyond own observations — lanes L3 and L6, workstation, 2026-10-24/25
+
+**Claim, at exactly this scope:** on R0's own blocked leave-one-year-out rows, a three-feature OLS on the forecast high,
+the observed running high and the current temperature, discretised on integer native buckets and hard-floored at the
+observed high (arm A, `weather.calibration.r0_ols_floor_challenger`), beats R0 by a wide margin, and beats it **after R0
+is floored too**. On the development window it beats the served vector at every hour 07-17, but it is **worse than the
+zero-parameter NBM read MG-1 from 06:00 to about 12:00** and better only from 13:00. Lane L6's own-observation twin (MG-1
+recentred on an own-station nowcast) beats arm A at 07-12. Upstream ASOS observations add nothing beyond the
+own-observation twin (L6 KILL). Dev-window numbers are **selection evidence only**: the window has been reused by many
+lanes (the dev-window ledger `docs/operations/DEV_WINDOW_LEDGER.md` on `claude/loss-atlas-prereg-20261024`). None of this is confirmation,
+edge or promotion evidence (§5). Nothing after 2026-09-29 was read.
+
+- **Oct-Dec, R0's rows (final, rule `rule.md` sha256 `d9224231aa7614bc3e2b1a5c5a13126b7ebab58a53f57ddf405e80886ddc243a`
+  with clarifications 1-3):** PIT union `674b12ac` at centre 11-24, 1,050 rows per market, blocked LOYO, date-clustered
+  bootstrap (2,000 draws, seed 20261024; crossed date x market beside it). **Positive control:** the baseline and
+  R0-repro reproduce lane D's rows exactly (max abs diff 0.0), and all 20 of D's 07-12 means reproduce to three
+  decimals (HGB raw / floored, baseline raw / floored; e.g. Atlanta 4.333 / 4.081 / 4.089 / 3.704). **Verdict, 5 primary
+  markets, 07-12 log loss:** A − D's floored R0 **−1.820 [−2.098, −1.563]** (crossed [−2.154, −1.484]), Brier −0.146,
+  every market's interval below 0; A − forecast + floor −0.119 [−0.181, −0.060] (5 markets) and −0.125 [−0.171, −0.083]
+  (11 markets); A − baseline + floor −1.425 (5) and −1.217 [−1.354, −1.087] (11). The residual-HGB variant is
+  indistinguishable from A. Context (L1, EF §10z): full-year R0 + floor is still worse than A by +1.018 [+0.860, +1.180]
+  at 07-12 in 5/5 markets.
+- **Aug-Sep, in-season corpus `b455bd53` at centre 09-07 (no R0 comparator; lane D's in-season fits deferred):**
+  A − baseline + floor −0.735 [−0.865, −0.615] (11 markets), −0.870 (5). **A − forecast + floor −0.166 [−0.257, −0.064]
+  on 11 markets (crossed [−0.316, +0.011]) but −0.064 [−0.169, +0.054] on the 5 primary markets: a fail there.**
+- **Dev window vs served (rule `dev_rule.md` sha256 `fa72409a187744f294913356ff78ac1a508bbb3bebad375ffd89f87e7efc8676`,
+  original `cf75eced…` plus clarifications 1-3; dev scorecard rows, 43 dates 08-15..09-29, 473 market-days; positive
+  control served R 1.774 all / 1.526 00-16 reproduced).** A is fitted on the Aug-Sep 2021-25 corpus only and fed the
+  2026 Open-Meteo Previous Runs forecast (`gfs_seamless`, lead 1) and the captured METAR rows at or before each cutoff.
+  dR = R_A − R_served, pooled 07-12: **−0.179 date-clustered [−0.232, −0.127], crossed [−0.306, −0.072]**, no standard
+  block worse (5 markets −0.165 [−0.242, −0.092]); 12-16 −0.317 [−0.398, −0.242]; 00-16 −0.126; every hour 07-17 below 0.
+  Forecast + floor alone is −0.078 at 07-12 but +0.210 at 12-16: the gain is the running-high regression, not the floor.
+- **Dev window vs MG-1 (gate: no worse than MG-1, no CI-worse block) — FAILS.** MG-1 is L7's `loss_atlas.mg1_frame`
+  (control: 07-12 excess over market 0.011957 reproduced). On the same blocks: MG-1 − served is **−0.259** at 07-12 and
+  −0.247 at 00-16, against A − served −0.179 and −0.126. A − MG-1: 07-12 **+0.080 [+0.020, +0.142]** (crossed
+  [−0.011, +0.195]); 06-09 +0.148 [+0.088, +0.204]; 00-16 +0.121 [+0.053, +0.185]; but 12-16 −0.229 [−0.358, −0.113],
+  13-16 −0.366 and all hours −0.177. By hour: worse 07-10, tied 11-14, better from 15. 5 markets: 07-12 +0.086
+  [−0.013, +0.190].
+- **Twins vs A, identical rows (walk-forward fits through the scorecard's own `module_predictions`):** L6's own-obs twin
+  (L6's module, control: its 07-12 Brier − MG-1 −0.0036243 reproduced to 1e-6) − A at 07-12 **−0.148 [−0.190, −0.103]**
+  (crossed [−0.255, −0.061]), worse than A from 14:00. An intercept-only twin (MG-1 + a per-hour 07-12 shift, no
+  observations) − A −0.074 [−0.122, −0.022] (crossed [−0.174, +0.018]); intercept twin − MG-1 +0.007 [−0.024, +0.038], so
+  a bias shift alone adds nothing to MG-1. Both NBM-based twins add morning information beyond A.
+- **Fit scheme and NBM as a regressor (dev-fit, sensitivity only):** A refitted walk-forward on dev rows − A historical
+  −0.025 [−0.069, +0.020]; A plus the NBM mean as a fourth OLS regressor (A', dev-fit) − A −0.017 [−0.069, +0.034] and
+  still +0.064 [+0.005, +0.124] over MG-1. Putting the NBM centre into a Gaussian OLS does not recover MG-1's morning
+  advantage. A' fitted on L9's historical PIT NBM corpus is pending.
+- **high_so_far definition:** L8's serve-equivalent running max since local 00:00
+  (`weather.model.observed_running_max.running_max_since_midnight`, branch `claude/high-so-far-parity-shadow-20261024`
+  @ `f3b49fabb`) equals L3's own METAR reading on all 9,224 replay hours used; the distribution files are byte-identical.
+- **Scope of A:** A predicts only from the 07:00 cutoff, so all 23,955 fallback-to-served snapshots are 00:00-06:59
+  local; from 07:00 to 23:00 it covers at least 99% of snapshots in every market (98 snapshots lack a floor, 15 lose all
+  mass to it). On covered rows only: 07-12 unchanged, 00-16 A − served −0.236 and A − MG-1 −0.032 [−0.113, +0.043].
+- **L6 upstream ASOS (rule sha256 `6687c8dfb49b0650d27bbf23164ba102de5d838ada79917df50075c61653921a`, branch
+  `claude/upstream-obs-screen-20261024` @ `e6c3f30cf`): KILL.** Candidate (MG-1 recentred on an own + upstream-ring
+  nowcast) − own-obs twin at 07-12 −0.0005 [−0.0012, +0.0003] Brier, MDE80 0.0011. Consistent with T13 and §10q: the
+  NBM already carries the upstream information; the own-observation stack is a development lead.
+- **Not claimed:** no edge over the market (every arm still trails it); no claim that A should replace MG-1 in the
+  morning; no powered result (11 market clusters); no claim for Toronto.
+- **Branch:** `claude/r0-ols-floor-challenger-20261024` (code, tests, rule files under `C:\t\l3`).
+
 ## Related
 
 - [FINDINGS_DIGEST.md](FINDINGS_DIGEST.md) — the one-screen digest of this file; read it first
