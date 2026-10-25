@@ -102,3 +102,55 @@ def test_toronto_stage_a_fixture(tmp_path):
     assert res["A_08-10..09-29"]["primary_25"]["estimate"] == pytest.approx(7 * 0.1 - 7 * db.fee(0.9))
     excluded, _ = tor.stage_a_report(buckets, days, ["2026-08-20"], [], 0.0)
     assert excluded["A_08-10..09-29"]["primary_25"]["estimate"] == 0.0
+
+
+def _replay(tmp_path, snaps):
+    """Replay root: snapshots [(local HH:MM captured, [(obs local HH:MM, temp C)])] for SLUG."""
+    root = tmp_path / "replay"
+    ev = root / "snapshots" / SLUG
+    ev.mkdir(parents=True)
+    with open(ev / "replay_inputs.jsonl", "w", encoding="utf-8") as fh:
+        for cap, rows in snaps:
+            hh, mm = map(int, cap.split(":"))
+            t = datetime(2026, 8, 20, hh, mm, 5, tzinfo=TZ)
+            out = []
+            for ohm, temp in rows:
+                oh, om = map(int, ohm.split(":"))
+                o = datetime(2026, 8, 20, oh, om, tzinfo=TZ).astimezone(timezone.utc)
+                out.append({"raw": f"METAR CYYZ {o:%d%H%M}Z 00000KT 15SM FEW040 A3000",
+                            "report_time": (o + timedelta(minutes=7)).isoformat().replace("+00:00", "Z"),
+                            "temp_native": float(temp)})
+            fh.write(json.dumps({"captured_at_local": t.isoformat(),
+                                 "captured_at_utc": t.astimezone(timezone.utc).isoformat(),
+                                 "sources": {"metar": {"data": {"rows": out}}}}) + "\n")
+    return root
+
+
+def test_r4_toronto_capture_dating_in_native_celsius_and_parse_check(tmp_path):
+    early = [(f"{h:02d}:53", 18) for h in range(13)]
+    snaps = [("14:00", early), ("14:10", early + [("13:53", 25)])]  # 25 C kills 24 C at the 14:10 receipt
+    day = _day([18] * 13 + [25] * 5)
+    obs = {"tz": TZ, "days": {D: day}}
+    wu = pd.DataFrame({"max_temp_native": [25.0]}, index=[D])
+    root = _tapes(tmp_path, [("14:00", 0.80, 100.0), ("14:12", 0.90, 20.0)], [("14:12", "tok24N", 0.90, 7.0)])
+    buckets, days = tor.stage_a_scan(obs, wu, root, ["toronto"], "capture", _replay(tmp_path, snaps))
+    b = {tuple(x["bucket"]): x for x in buckets}[("eq", 24, 24)]
+    assert b["first_dead"].startswith("2026-08-20T14:10:05")  # receipt, no +10 min
+    assert b["first_dead_obs10"].startswith("2026-08-20T14:03:00")
+    assert b["entry_instant"].startswith("2026-08-20T14:11:05")
+    assert b["status"] == "traded" and b["filled_print_d1_25"] == pytest.approx(7.0)
+    assert days[0]["H_s_last_c"] == 25 and days[0]["H_1659_c"] == 25  # whole C, never a F value
+    assert days[0]["partition_ok"] is False  # 18-or-below, 24, 30-or-higher leaves gaps
+    _, summ = tor.stage_a_report(buckets, days, ["2026-08-20"], ["toronto"], 0.0)
+    assert summ["r4"]["verdict"] == "PASS" and summ["r4"]["celsius_sanity"]["share"] == 1.0
+    pc = summ["parse_check"]
+    assert pc["distinct_failures"] == 1 and pc["failures"][0]["label"] == "23 C"  # listed, not coerced
+    assert pc["parsed"]["18 C or below"] == ["lte", 18] and pc["parsed"]["30 C or higher"] == ["gte", 30]
+    assert pc["days_not_a_partition"] == ["2026-08-20"]
+
+
+def test_partition_check_and_fahrenheit_floor_fails_celsius_sanity():
+    assert tor.partition_ok([("lte", 17), ("eq", 18, 18), ("eq", 19, 19), ("gte", 20)])
+    assert not tor.partition_ok([("lte", 17), ("eq", 19, 19), ("gte", 20)])
+    days = [{"date": "2026-08-20", "H_s_last_c": 77, "H_1659_c": 25}]  # a F-valued floor misses by ~50
+    assert tor.r4_controls([], days)["verdict"] == "FAIL"

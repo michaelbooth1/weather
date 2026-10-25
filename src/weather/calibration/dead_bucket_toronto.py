@@ -47,6 +47,10 @@ from weather.reporting.scorecards import dev_scorecard_data as data  # noqa: E40
 from weather.units import parse_temperature_band  # noqa: E402
 
 RULE_SHA256 = "c754ddab8ed3634c0854444dded9d4831bf4ff955b5efd944fc54f582246ef3d"  # r2-toronto
+# r4-toronto (C:/t/l11/deadbucket_rule_r4_toronto.md): r4 capture-time dating in native C, parse check.
+RULE_R4_SHA256 = "12902246a5358df5a2926314465e61dd4d1afaeedd408b994706e5b773c9f061"
+TAPES_SUMS_SHA256 = "a07966fbcf89b0563d3eab91797e1f12fe475715daab15f5fbc876665b09d2c0"
+CELSIUS_SANITY_MIN = 0.95
 MARKET = "toronto"
 STATION = "CYYZ"
 TZ_NAME = "America/Toronto"
@@ -220,7 +224,20 @@ def steps_c(day, d, zone):
 
 def load_wu(wu_root):
     path = Path(wu_root) / "cyyz" / "daily" / "daily_summary.csv"
-    w = pd.read_csv(path, usecols=["local_date", "temperature_unit", "row_count", "last_time", "max_temp_native"])
+    cols = ["local_date", "temperature_unit", "row_count", "last_time", "max_temp_native"]
+    kept = []
+    with open(path, "r", encoding="utf-8-sig", newline="") as handle:
+        reader = csv.DictReader(handle)
+        for rec in reader:
+            try:
+                if date.fromisoformat(str(rec["local_date"])[:10]) > db.DEV_LAST:
+                    continue  # rows after 2026-09-29 are never parsed
+            except ValueError:
+                continue
+            kept.append({c: rec.get(c) for c in cols})
+    w = pd.DataFrame(kept, columns=cols)
+    w["row_count"] = pd.to_numeric(w.row_count, errors="coerce")
+    w["max_temp_native"] = pd.to_numeric(w.max_temp_native, errors="coerce")
     if set(w.temperature_unit.dropna().unique()) - {UNIT}:
         raise data.Refused(f"refused: {path} is not native Celsius")
     w["local_date"] = pd.to_datetime(w.local_date).dt.date
@@ -278,6 +295,7 @@ def stream_summary_c(path, t_first, t_last):
     csv.field_size_limit(2**31 - 1)
     rows, tokens, highs = {}, {}, {}
     n = {"rows": 0, "bad": 0, "label_mismatch": 0, "gte": 0}
+    failed, parsed_labels = {}, {}
     with open(path, "r", encoding="utf-8-sig", newline="") as handle:
         reader = csv.reader(handle)
         header = next(reader, None) or []
@@ -294,9 +312,12 @@ def stream_summary_c(path, t_first, t_last):
             parsed = bucket_from_label(rec[idx["range_label"]], rec[idx["bin_kind"]], rec[idx["bin_value"]],
                                        rec[idx["bin_value_hi"]], rec[idx["unit"]])
             if parsed is None:
-                n["label_mismatch"] += 1
+                n["label_mismatch"] += 1  # never coerced: listed in the scan output
+                tup = tuple(rec[idx[f]] for f in ("range_label", "bin_kind", "bin_value", "bin_value_hi", "unit"))
+                failed[tup] = failed.get(tup, 0) + 1
                 continue
             key, high = parsed
+            parsed_labels[rec[idx["range_label"]]] = list(key)
             if key[0] == "gte":
                 n["gte"] += 1
                 continue
@@ -312,12 +333,32 @@ def stream_summary_c(path, t_first, t_last):
                 "best_bid", "best_ask", "bid_depth_1pct", "ask_depth_1pct", "bid_depth_5pct", "ask_depth_5pct"))))
     for v in rows.values():
         v.sort(key=lambda r: r[0])
+    n["failed_labels"] = [{"label": k[0], "bin_kind": k[1], "bin_value": k[2], "bin_value_hi": k[3], "unit": k[4],
+                           "rows": c} for k, c in sorted(failed.items())]
+    n["parsed_labels"] = parsed_labels
     return rows, tokens, highs, n
 
 
-def stage_a_scan(obs, wu, tapes_root, kept):
+def partition_ok(keys):
+    """True when the parsed buckets (incl. gte) tile the integers: lte X, eq X+1..., ..., gte Y, no gaps."""
+    lte = [k for k in keys if k[0] == "lte"]
+    gte = [k for k in keys if k[0] == "gte"]
+    eqs = sorted((k[1], k[2]) for k in keys if k[0] == "eq")
+    if len(lte) != 1 or len(gte) != 1:
+        return False
+    nxt = lte[0][1] + 1
+    for lo, hi in eqs:
+        if lo != nxt or hi < lo:
+            return False
+        nxt = hi + 1
+    return gte[0][1] == nxt
+
+
+def stage_a_scan(obs, wu, tapes_root, kept, dating="obs", replay_root=None):
     zone = obs["tz"]
     events = {d: f for (mk, d), f in db.discover_tape_events(tapes_root).items() if mk == MARKET}
+    replay = ({d: f for (mk, d), f in db.discover_tape_events(Path(replay_root) / "snapshots").items()
+               if mk == MARKET} if dating == "capture" else {})
     buckets, days = [], []
     for d_iso, folder in sorted(events.items()):
         dd = date.fromisoformat(d_iso)
@@ -331,25 +372,47 @@ def stage_a_scan(obs, wu, tapes_root, kept):
         steps = steps_c(day, dd, zone)
         start, end = db.local_instant(dd, 13, 0, zone), db.local_instant(dd, 16, 59, zone)
         h_end = db.H(running_c(rows_c(day), dd, zone, end)[0])
+        extra, csteps = {}, None
+        if dating == "capture":
+            rfolder = replay.get(d_iso)
+            if rfolder is not None:
+                csteps, bad = db.capture_steps(rfolder / "replay_inputs.jsonl", dd, zone, end,
+                                               db.RUNNING_MAX_CUTOFF_HOUR, unit=UNIT)
+                hs = [h for _, h in csteps if h is not None]
+                extra = {"replay_snapshots": len(csteps), "replay_bad_lines": bad,
+                         "non_monotone": db.non_monotone(csteps), "H_s_last_c": hs[-1] if hs else None}
+            if not csteps:
+                days.append(dict(info, status="no_replay", **extra))
+                continue
         rows, tokens, highs, n = stream_summary_c(folder / "order_books_summary.csv", start, end)
+        info.update(extra, partition_ok=partition_ok([tuple(k) for k in n["parsed_labels"].values()]))
         dead = []
         for key, high in sorted(highs.items()):
-            if h_end is None or not high < h_end:
-                continue
-            fd = db.first_dead(steps, float(high))
-            dead.append((key, high, fd, max(fd + db.LATENCY, start)))
+            fd_obs = db.first_dead(steps, float(high)) if h_end is not None and high < h_end else None
+            if dating == "capture":
+                fd = db.first_dead_capture(csteps, int(high))
+                if fd is None:
+                    extra["dead_obs_only"] = extra.get("dead_obs_only", 0) + (fd_obs is not None)
+                    continue
+                x = {"first_dead_obs10": fd_obs.isoformat() if fd_obs else None}
+            else:
+                if fd_obs is None:
+                    continue
+                fd, x = fd_obs, {}
+            dead.append((key, high, fd, max(fd + db.LATENCY, start), x))
+        info["dead_obs_only"] = extra.get("dead_obs_only", 0)
         if not dead:
             days.append(dict(info, status="no_dead", H_1659_c=h_end, summary=n))
             continue
-        t_first = min(en for *_, en in dead)
+        t_first = min(d_[3] for d_ in dead)
         prints, n_parts = db.stream_prints(folder, tokens, t_first, end + db.PRINT_WINDOW)
         days.append(dict(info, status="scanned", H_1659_c=h_end, wu_max_c=wu_max, n_dead=len(dead), summary=n,
                          trade_parts=n_parts, prints_kept=len(prints), tokens_matched=len(tokens)))
-        for key, high, fd, entry in dead:
+        for key, high, fd, entry, x in dead:
             yes = settled_yes(key, wu_max)
-            rec = {"market": MARKET, "date": d_iso, "bucket": list(key), "high_c": high,
-                   "first_dead": fd.isoformat(), "entry_instant": entry.isoformat(), "settled_yes": bool(yes),
-                   "excluded_market": MARKET not in kept, "trade_parts": n_parts}
+            rec = dict({"market": MARKET, "date": d_iso, "bucket": list(key), "high_c": high,
+                        "first_dead": fd.isoformat(), "entry_instant": entry.isoformat(), "settled_yes": bool(yes),
+                        "excluded_market": MARKET not in kept, "trade_parts": n_parts}, **x)
             qt = db.no_quote(rows, key, entry)
             if qt is None or qt[0] > end:
                 buckets.append(dict(rec, status="no_capture"))
@@ -418,7 +481,58 @@ def stage_a_report(buckets, days, dates_all, kept, rate):
                             for s in ("scanned", "no_dead", "no_wu_label")},
             "summary_rows": {k: int(sum(x.get("summary", {}).get(k, 0) for x in days))
                              for k in ("rows", "bad", "label_mismatch", "gte")}}
+    summ["market_days"]["no_replay"] = int(sum(x["status"] == "no_replay" for x in days))
+    summ["parse_check"] = parse_check(days)
+    if any("first_dead_obs10" in b for b in buckets) or summ["market_days"]["no_replay"]:
+        summ["r4"] = r4_controls(buckets, days)
+        if summ["r4"]["verdict"] != "PASS":
+            res["A_08-10..09-29"]["reading"] = "NOT INTERPRETABLE (r4-toronto control failed)"
     return res, summ
+
+
+def parse_check(days):
+    labels, failed = {}, {}
+    for x in days:
+        s = x.get("summary") or {}
+        labels.update(s.get("parsed_labels") or {})
+        for f in s.get("failed_labels") or []:
+            k = (f["label"], f["bin_kind"], f["bin_value"], f["bin_value_hi"], f["unit"])
+            failed[k] = failed.get(k, 0) + f["rows"]
+    bad_days = sorted(x["date"] for x in days if x.get("partition_ok") is False)
+    return {"distinct_labels_parsed": len(labels), "parsed": dict(sorted(labels.items())),
+            "distinct_failures": len(failed),
+            "failures": [{"label": k[0], "bin_kind": k[1], "bin_value": k[2], "bin_value_hi": k[3], "unit": k[4],
+                          "rows": c} for k, c in sorted(failed.items())],
+            "days_not_a_partition": bad_days, "verdict": "PASS" if not failed and not bad_days else "REPORTED"}
+
+
+def r4_controls(buckets, days):
+    def t(v):
+        return datetime.fromisoformat(v) if v else None
+    both = [b for b in buckets if b.get("first_dead_obs10") and b.get("first_dead")]
+    ok = [b for b in both if t(b["first_dead"]) >= t(b["first_dead_obs10"]) - db.AVAILABILITY]
+    share = len(ok) / len(both) if both else None
+    lag = np.array([(t(b["first_dead"]) - t(b["first_dead_obs10"]) + db.AVAILABILITY).total_seconds() / 60
+                    for b in both], float)
+    cmp_days = [x for x in days if x.get("H_s_last_c") is not None and x.get("H_1659_c") is not None]
+    near = [x for x in cmp_days if abs(x["H_s_last_c"] - x["H_1659_c"]) <= 1]
+    c_share = len(near) / len(cmp_days) if cmp_days else None
+    receipt_ok = share is None or share >= db.R4_SANITY_MIN  # no bucket dead under both: nothing to contradict
+    celsius_ok = c_share is not None and c_share >= CELSIUS_SANITY_MIN
+    return {"receipt_after_obs": {"buckets_dead_both": len(both), "ok": len(ok), "share": share,
+                                  "min_share": db.R4_SANITY_MIN, "pass": bool(receipt_ok)},
+            "celsius_sanity": {"days": len(cmp_days), "within_1c": len(near), "share": c_share,
+                               "min_share": CELSIUS_SANITY_MIN, "pass": bool(celsius_ok),
+                               "max_abs_diff_c": max((abs(x["H_s_last_c"] - x["H_1659_c"]) for x in cmp_days),
+                                                     default=None)},
+            "receipt_minus_obs_min": ({"n": int(len(lag)), "median": float(np.median(lag)),
+                                       "p10": float(np.quantile(lag, .1)), "p90": float(np.quantile(lag, .9))}
+                                      if len(lag) else {"n": 0}),
+            "dead_capture_only": int(sum(1 for b in buckets if b.get("first_dead") and not b.get("first_dead_obs10"))),
+            "dead_obs_only": int(sum(x.get("dead_obs_only", 0) for x in days)),
+            "non_monotone_steps": int(sum(x.get("non_monotone", 0) for x in days)),
+            "replay_bad_lines": int(sum(x.get("replay_bad_lines", 0) for x in days)),
+            "verdict": "PASS" if receipt_ok and celsius_ok else "FAIL"}
 
 
 # ----------------------------------------------------------------------------- CLI
@@ -427,6 +541,10 @@ def _rule():
     if not RULE_SHA256:
         raise data.Refused("refused: the r2-toronto rule sha256 is not recorded in the code yet")
     return RULE_SHA256
+
+
+def _scan_rule(args):
+    return RULE_R4_SHA256 if getattr(args, "dating", "obs") == "capture" else _rule()
 
 
 def _code():
@@ -457,6 +575,9 @@ def main(argv=None):
     ap.add_argument("--tapes")
     ap.add_argument("--tapes-sha256sums")
     ap.add_argument("--scan")
+    ap.add_argument("--dating", choices=("obs", "capture"), default="obs", help="capture = rule r4-toronto")
+    ap.add_argument("--replay-root")
+    ap.add_argument("--replay-sha256sums")
     ap.add_argument("--out-dir", required=True)
     args = ap.parse_args(argv)
     out = Path(args.out_dir)
@@ -477,24 +598,36 @@ def main(argv=None):
             sums = db.sha256_file(Path(args.tapes) / "SHA256SUMS")
             if sums != args.tapes_sha256sums:
                 raise data.Refused(f"refused: SHA256SUMS sha256 {sums} != {args.tapes_sha256sums}")
+            rsums = None
+            if args.dating == "capture":
+                if sums != TAPES_SUMS_SHA256:
+                    raise data.Refused(f"refused: Toronto tapes SHA256SUMS {sums} != the rule's {TAPES_SUMS_SHA256}")
+                if not args.replay_root:
+                    raise data.Refused("refused: --dating capture needs --replay-root and --replay-sha256sums")
+                rsums = db.sha256_file(Path(args.replay_root) / "SHA256SUMS")
+                if rsums != args.replay_sha256sums or rsums != db.REPLAY_SUMS_SHA256:
+                    raise data.Refused(f"refused: replay SHA256SUMS {rsums} != the rule's {db.REPLAY_SUMS_SHA256}")
             obs = load_obs(args.obs, args.obs_sha256)
             wu, _ = load_wu(args.wu_root)
-            buckets, days = stage_a_scan(obs, wu, args.tapes, kept)
-            payload = dict({"schema": SCHEMA_A_SCAN, "rule_sha256": _rule(), "history_sha256": hsha,
+            buckets, days = stage_a_scan(obs, wu, args.tapes, kept, args.dating, args.replay_root)
+            payload = dict({"schema": SCHEMA_A_SCAN, "rule_sha256": _scan_rule(args), "history_sha256": hsha,
+                            "dating": args.dating, "replay_sha256sums_sha256": rsums,
                             "obs_sha256": obs["sha256"], "tapes_sha256sums_sha256": sums, "buckets": buckets,
                             "days": days, "dates_all": sorted(x["date"] for x in days)}, **_code())
-            name = "toronto_stage_a_scan"
+            name = "toronto_stage_a" + ("_r4" if args.dating == "capture" else "") + "_scan"
         else:
             hist, kept, rate, hsha = _history(args)
             scan = json.loads(Path(args.scan).read_text(encoding="utf-8"))
-            if scan.get("schema") != SCHEMA_A_SCAN or scan.get("history_sha256") != hsha:
-                raise data.Refused("refused: not an r2-toronto stage-A scan of this history")
+            if (scan.get("schema") != SCHEMA_A_SCAN or scan.get("history_sha256") != hsha
+                    or scan.get("rule_sha256") != _scan_rule(args) or scan.get("dating", "obs") != args.dating):
+                raise data.Refused("refused: not a Toronto stage-A scan of this rule, dating and history")
             res, summ = stage_a_report(scan["buckets"], scan["days"], scan["dates_all"], kept, rate)
-            payload = dict({"schema": SCHEMA_A, "rule_sha256": _rule(), "history_sha256": hsha,
-                            "scan_sha256": db.sha256_file(args.scan), "excluded": not kept,
-                            "evidence_class": "development (dev window); Toronto stage A (r2-toronto)",
+            payload = dict({"schema": SCHEMA_A, "rule_sha256": _scan_rule(args), "history_sha256": hsha,
+                            "dating": args.dating, "scan_sha256": db.sha256_file(args.scan), "excluded": not kept,
+                            "evidence_class": "development (dev window); Toronto stage A (" + (
+                                "r4-toronto, capture-dated" if args.dating == "capture" else "r2-toronto") + ")",
                             "results": res, "summary": summ}, **_code())
-            name = "toronto_stage_a"
+            name = "toronto_stage_a" + ("_r4" if args.dating == "capture" else "")
     except (data.Refused, data.LayoutError) as exc:
         print(str(exc), file=sys.stderr)
         return getattr(exc, "exit_code", 2)

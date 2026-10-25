@@ -668,7 +668,7 @@ def discover_tape_events(root):
     return out
 
 
-def capture_steps(path, d, tz, end, cutoff_hour=RUNNING_MAX_CUTOFF_HOUR):
+def capture_steps(path, d, tz, end, cutoff_hour=RUNNING_MAX_CUTOFF_HOUR, unit=UNIT):
     """r4: [(receipt local, H_s)] for every replay snapshot captured on ``d`` at or before ``end``, in receipt
     order; H_s from that snapshot's OWN captured METAR rows only (L8 running max, empty station source).
 
@@ -699,7 +699,7 @@ def capture_steps(path, d, tz, end, cutoff_hour=RUNNING_MAX_CUTOFF_HOUR):
                 bad += 1
                 continue
             metar = (((snap.get("sources") or {}).get("metar") or {}).get("data")) or {}
-            r, _ = running_max_since_midnight({}, metar, target_date=d, tz=tz, unit=UNIT, cutoff_hour=cutoff_hour,
+            r, _ = running_max_since_midnight({}, metar, target_date=d, tz=tz, unit=unit, cutoff_hour=cutoff_hour,
                                               now=cap)
             steps.append((cap, H(r)))
     steps.sort(key=lambda s: s[0])
