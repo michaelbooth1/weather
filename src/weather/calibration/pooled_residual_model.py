@@ -458,7 +458,8 @@ def _num(value):
 class MeanModel:
     """Steps 1-4 of the rule: in-fold bias, OLS on the floor gap, HGB on its residual."""
 
-    def __init__(self, *, market_id, doy, raw_columns=True, bias_by="season"):
+    def __init__(self, *, market_id, doy, raw_columns=True, bias_by="season", use_hgb=True):
+        self.use_hgb = use_hgb
         self.market_id = market_id
         self.doy = doy
         self.raw_columns = raw_columns
@@ -514,6 +515,9 @@ class MeanModel:
         design = np.column_stack([np.ones_like(g), g, np.maximum(g, 0.0)])
         self.ols, *_ = np.linalg.lstsq(design, r, rcond=None)
         resid = r - design @ self.ols
+        if not getattr(self, "use_hgb", True):
+            self.hgb = None
+            return self
         cat = [X.shape[1] - 1] if self.market_id else None
         self.hgb = HistGradientBoostingRegressor(categorical_features=cat, **MEAN_HGB_PARAMS)
         self.hgb.fit(X, resid)
@@ -524,11 +528,28 @@ class MeanModel:
 
         X, mu0, g = self.features(frame)
         design = np.column_stack([np.ones_like(g), g, np.maximum(g, 0.0)])
-        return mu0 + design @ self.ols + self.hgb.predict(X), X
+        resid = self.hgb.predict(X) if self.hgb is not None else 0.0
+        return mu0 + design @ self.ols + resid, X
 
 
-def fit_pooled(train, *, market_id, doy, raw_columns=True, bias_by="season"):
-    """Mean model on all training rows plus an inner-LOYO scale model and z set."""
+class ConstantScale:
+    """Rung 07-12 baseline B_N: one scale per fit (mean absolute inner-LOYO error), no model."""
+
+    def __init__(self, value):
+        self.value = float(value)
+
+    def predict(self, X):
+        import numpy as np
+
+        return np.full(len(X), self.value)
+
+
+def fit_pooled(train, *, market_id, doy, raw_columns=True, bias_by="season", simple=False):
+    """Mean model on all training rows plus an inner-LOYO scale model and z set.
+
+    ``simple`` (rung 07-12 baseline B_N): OLS on [1, g, max(g, 0)] only (no HGB residual) and a constant
+    scale, so mean = nbm_mean + bias + OLS; z = errors / that constant scale.
+    """
     import numpy as np
     from sklearn.ensemble import HistGradientBoostingRegressor
 
@@ -538,10 +559,16 @@ def fit_pooled(train, *, market_id, doy, raw_columns=True, bias_by="season"):
         raise PooledModelError("the scale model needs at least two training years")
     for year in years:
         inner = (train["year"] != year).to_numpy()
-        model = MeanModel(market_id=market_id, doy=doy, raw_columns=raw_columns, bias_by=bias_by).fit(train[inner])
+        model = MeanModel(market_id=market_id, doy=doy, raw_columns=raw_columns, bias_by=bias_by,
+                          use_hgb=not simple).fit(train[inner])
         pred, _ = model.predict(train[~inner])
         errors[~inner] = train["y"].to_numpy(float)[~inner] - pred
-    mean = MeanModel(market_id=market_id, doy=doy, raw_columns=raw_columns, bias_by=bias_by).fit(train)
+    mean = MeanModel(market_id=market_id, doy=doy, raw_columns=raw_columns, bias_by=bias_by,
+                     use_hgb=not simple).fit(train)
+    if simple:
+        scale = ConstantScale(np.nanmean(np.abs(errors)))
+        s_train = max(MIN_SCALE, scale.value * math.sqrt(math.pi / 2))
+        return {"mean": mean, "scale": scale, "z": errors / s_train}
     X, _, _ = mean.features(train)
     yhat_oof = train["y"].to_numpy(float) - errors
     floor_gap = np.nan_to_num(yhat_oof - train["F"].to_numpy(float), nan=0.0)
@@ -1253,6 +1280,263 @@ def dev_emit_n_distributions(*, records_root, layout, replay_root, nbm_train_cor
     return audit
 
 
+# ------------------------------------------------- rung 07-12 (2026-10-25): B_N and P3d_N_fix
+
+RUNG_ARMS = {"B_N": True, "P3d_N_fix": False}  # arm -> simple (pooled OLS baseline)
+RUNG_HOURS = (7, 8, 9, 10, 11, 12)
+
+
+def replay_index(handle, target_date, tz):
+    """Every replay snapshot captured on the target local date: sorted [(captured_local, offset, size)]."""
+    import re
+    from datetime import datetime
+
+    pattern = re.compile(r'"captured_at_local":\s*"([^"]+)"')
+    index, offset = [], 0
+    handle.seek(0)
+    for line in handle:
+        match = pattern.search(line[:4096].decode("utf-8", "replace"))
+        if match:
+            local = datetime.fromisoformat(match.group(1)).astimezone(tz)
+            if local.date() == target_date:
+                index.append((local, offset, len(line)))
+        offset += len(line)
+    index.sort()
+    return index
+
+
+def latest_at_or_before(index, instant):
+    """The latest indexed snapshot captured at or before ``instant`` (L11 audit fix), else None."""
+    import bisect
+
+    keys = [e[0] for e in index]
+    i = bisect.bisect_right(keys, instant)
+    return index[i - 1] if i else None
+
+
+def rung_inputs(snapshot, target_date, tz, hour, unit, captured_local, running_max, observations_at_cutoff,
+                rounding="half_up"):
+    """high_so_far / current_temp at cutoff ``hour`` from one snapshot, METAR-only, WU whole F (clarification 3 c)."""
+    metar = (((snapshot.get("sources") or {}).get("metar") or {}).get("data")) or {}
+    current, _, n = observations_at_cutoff(metar.get("rows"), target_date, hour, tz)
+    high, _ = running_max({}, metar, target_date=target_date, tz=tz, unit=unit, cutoff_hour=hour,
+                          now=captured_local, metar_only=True)
+    if rounding:
+        high, current = wu_whole_f(high, rounding), wu_whole_f(current, rounding)
+    return {"high_so_far": high, "current_temp": current, "n_rows": n}
+
+
+def _rung_entry(train, simple):
+    return {"fit": fit_pooled(train, market_id=False, doy=True, raw_columns=False, simple=simple),
+            "train_y": {m: [int(v) for v in train.loc[train["market"] == m, "y"]] for m in train["market"].unique()}}
+
+
+def rung_fits(frame, hours=RUNG_HOURS):
+    fits = {}
+    for arm, simple in RUNG_ARMS.items():
+        for hour in hours:
+            fits[(arm, hour)] = _rung_entry(frame[frame["hour"] == hour].reset_index(drop=True), simple)
+    return fits
+
+
+def _dist_from_fit(entry, one, buckets, market):
+    import numpy as np
+    from weather.calibration import feature_model as fm
+
+    fitted = entry["fit"]
+    yhat, X = fitted["mean"].predict(one)
+    gap = np.nan_to_num(yhat - one["F"].to_numpy(float), nan=0.0)
+    s = np.maximum(MIN_SCALE, fitted["scale"].predict(np.column_stack([X, gap])) * math.sqrt(math.pi / 2))
+    p_clim = fm.smoothed_dist(entry["train_y"][market], buckets[market], alpha=0.10)
+    return [predictive_distribution(float(yhat[i]), float(s[i]), float(one["F"].iat[i]), fitted["z"],
+                                    buckets[market], p_clim) for i in range(len(one))]
+
+
+def rung_loyo(frame, buckets, hours=RUNG_HOURS):
+    """Blocked leave-one-year-out on the 2021-25 Aug-Sep rows, both rung arms, identical rows."""
+    from weather.calibration import feature_model as fm
+
+    rows = []
+    for hour in hours:
+        at_hour = frame[frame["hour"] == hour]
+        for year in sorted(at_hour["year"].unique()):
+            train = at_hour[at_hour["year"] != year].reset_index(drop=True)
+            val = at_hour[at_hour["year"] == year].reset_index(drop=True)
+            out = {}
+            for arm, simple in RUNG_ARMS.items():
+                entry = _rung_entry(train, simple)
+                for market in sorted(val["market"].unique()):
+                    part = val[val["market"] == market].reset_index(drop=True)
+                    for i, dist in enumerate(_dist_from_fit(entry, part, buckets, market)):
+                        actual = int(part.at[i, "y"])
+                        out.setdefault((market, str(part.at[i, "target_date"])[:10]), {})[arm] = (
+                            fm.brier_score(dist, actual), fm.log_loss(dist, actual))
+            for (market, day), v in out.items():
+                rows.append({"hour": int(hour), "year": int(year), "market": market, "date": day,
+                             **{f"{a}_brier": v[a][0] for a in RUNG_ARMS}, **{f"{a}_log": v[a][1] for a in RUNG_ARMS}})
+        print(f"rung loyo hour {hour}: {sum(1 for r in rows if r['hour'] == hour)} rows", flush=True)
+    return rows
+
+
+def rung_loyo_summary(rows, draws=BOOTSTRAP_DRAWS, seed=BOOTSTRAP_SEED):
+    """P3d_N_fix - B_N per hour and pooled 07-12 (mean per row), date-clustered bootstrap."""
+    import numpy as np
+
+    out = {}
+    groups = {f"h{h:02d}": [r for r in rows if r["hour"] == h] for h in sorted({r["hour"] for r in rows})}
+    groups["07-12"] = rows
+    rng = np.random.default_rng(seed)
+    for name, rs in groups.items():
+        for metric in ("brier", "log"):
+            by_date = defaultdict(list)
+            for r in rs:
+                by_date[r["date"]].append(r[f"P3d_N_fix_{metric}"] - r[f"B_N_{metric}"])
+            dates = sorted(by_date)
+            sums = np.array([sum(by_date[d]) for d in dates])
+            counts = np.array([len(by_date[d]) for d in dates])
+            idx = rng.integers(0, len(dates), size=(draws, len(dates)))
+            boot = sums[idx].sum(axis=1) / counts[idx].sum(axis=1)
+            out[f"{name}|{metric}"] = {
+                "P3d_N_fix_minus_B_N": float(sums.sum() / counts.sum()),
+                "ci95": [float(np.percentile(boot, 2.5)), float(np.percentile(boot, 97.5))],
+                "B_N_mean": float(np.mean([r[f"B_N_{metric}"] for r in rs])), "n": len(rs), "n_dates": len(dates)}
+    return out
+
+
+def dev_emit_rung(*, records_root, layout, replay_root, nbm_train_corpus, out_dir, markets=R0_MARKETS,
+                  hours=RUNG_HOURS, loyo=True):
+    """Rung 07-12: B_N and P3d_N_fix dev distributions plus the blocked LOYO table (rule C:/t/l2/rung0712/rule.md).
+
+    Each layout row uses the latest replay snapshot captured at or before the row's own captured_at_utc.
+    """
+    import pandas as pd
+    from zoneinfo import ZoneInfo
+
+    from weather.calibration import ols_floor_ladder as l9
+    from weather.calibration import r0_ols_floor_challenger as l3
+    from weather.calibration.r0_ols_floor_devfit import usable_v2_mean
+    from weather.market.market_registry import spec_for_id
+    from weather.model import observed_running_max
+
+    running_max = _require_metar_only(observed_running_max.running_max_since_midnight)
+    out = require_output_outside_repo(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    paths = {arm: out / f"dev_{arm}.jsonl" for arm in RUNG_ARMS}
+    for path in list(paths.values()) + [out / "loyo_rows.jsonl"]:
+        if path.exists():
+            raise PooledModelError(f"refusing to overwrite {path}")
+    timezones = {m: spec_for_id(m).timezone for m in markets}
+    frame, buckets = dev_training_frame(records_root, markets)
+    if frame["year"].max() >= 2026:
+        raise PooledModelError("a dev training row is from 2026")
+    frame, train_stats = attach_training_nbm(frame, l9.load_nbm(nbm_train_corpus), l9.nbm_at_cutoff, timezones)
+    frame = frame[frame["hour"].isin(hours)].reset_index(drop=True)
+    audit = {"arms": list(RUNG_ARMS), "hours": list(hours), "training_rows": int(len(frame)), "train_nbm": train_stats,
+             "train_years": sorted(int(y) for y in frame["year"].unique()), "markets": {},
+             "inputs": {"nbm_train_corpus": hashlib.sha256(Path(nbm_train_corpus).read_bytes()).hexdigest(),
+                        "observed_running_max_sha256": hashlib.sha256(
+                            Path(observed_running_max.__file__).read_bytes()).hexdigest(),
+                        "module_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}}
+    if loyo:
+        loyo_rows = rung_loyo(frame, buckets, hours)
+        _write_jsonl(out / "loyo_rows.jsonl", loyo_rows)
+        audit["loyo"] = rung_loyo_summary(loyo_rows)
+    fits = rung_fits(frame, hours)
+    coords = station_coordinates(markets)
+    snaps = pd.read_parquet(Path(layout) / "inputs_snapshots.parquet", columns=[
+        "snapshot_id", "market", "target_date", "local_hour", "cutoff_hour",
+        "v2_mean", "v2_stddev", "v2_available_at", "captured_at_utc"])
+    if (pd.to_datetime(snaps.target_date).dt.date > N_DEV_LAST).any():
+        raise PooledModelError("layout holds a snapshot after 2026-09-29")
+    snaps = snaps.assign(nbm_usable=usable_v2_mean(snaps))
+    writers = {arm: open(path, "w", encoding="utf-8") for arm, path in paths.items()}
+    try:
+        for market in markets:
+            spec = spec_for_id(market)
+            tz = ZoneInfo(spec.timezone)
+            folders = {target: folder for slug, target, folder in l3._event_folders(replay_root)
+                       if slug == market and N_DEV_FIRST <= target <= N_DEV_LAST}
+            stats, ahead = defaultdict(int), []
+            lat, lon, elev = coords[market]
+            rows = snaps[snaps.market == market].copy()
+            rows["target"] = pd.to_datetime(rows.target_date).dt.date
+            for target, group in rows.groupby("target"):
+                folder = folders.get(target)
+                eligible = []
+                for row in group.itertuples(index=False):
+                    try:
+                        hour = int(str(row.cutoff_hour))
+                    except ValueError:
+                        hour = None
+                    if hour not in hours:
+                        stats["outside_cutoff_hours"] += 1
+                    elif int(row.local_hour) < hour:
+                        stats["local_hour_before_cutoff"] += 1
+                    elif not math.isfinite(float(row.nbm_usable)):
+                        stats["no_usable_nbm"] += 1
+                    elif folder is None:
+                        stats["no_replay_folder"] += 1
+                    else:
+                        eligible.append((row, hour))
+                if not eligible:
+                    continue
+                with open(Path(folder) / "replay_inputs.jsonl", "rb") as handle:
+                    index = replay_index(handle, target, tz)
+                    cache, parsed = {}, {}
+                    for row, hour in eligible:
+                        captured = pd.Timestamp(row.captured_at_utc)
+                        captured = (captured.tz_localize("UTC") if captured.tzinfo is None else captured)
+                        entry = latest_at_or_before(index, captured.to_pydatetime())
+                        if entry is None:
+                            stats["no_replay_snapshot_at_or_before_capture"] += 1
+                            continue
+                        ahead.append((captured.to_pydatetime() - entry[0]).total_seconds() / 60)
+                        key = (entry[1], hour)
+                        if key not in cache:
+                            if entry[1] not in parsed:
+                                handle.seek(entry[1])
+                                try:
+                                    parsed = {entry[1]: json.loads(handle.read(entry[2]))}
+                                except json.JSONDecodeError:
+                                    parsed = {entry[1]: None}
+                            snap = parsed[entry[1]]
+                            cache[key] = None if snap is None else rung_inputs(
+                                snap, target, tz, hour, spec.display_unit, entry[0], running_max,
+                                l3.observations_at_cutoff)
+                        rec = cache[key]
+                        if rec is None:
+                            stats["corrupt_replay_line"] += 1
+                            continue
+                        if rec["high_so_far"] is None or rec["current_temp"] is None:
+                            stats["missing_metar_feature"] += 1
+                            continue
+                        doy = target.timetuple().tm_yday
+                        one = pd.DataFrame([{
+                            "market": market, "centre": nearest_centre(target.isoformat()), "season": "aug_sep",
+                            "hour": hour, "target_date": target.isoformat(), "year": target.year, "y": float("nan"),
+                            "F": float(rec["high_so_far"]), "fh": float(row.nbm_usable), "lat": lat, "lon": lon,
+                            "elev": elev, "doy_sin": math.sin(2 * math.pi * doy / 365.25),
+                            "doy_cos": math.cos(2 * math.pi * doy / 365.25),
+                            "x_high_so_far": float(rec["high_so_far"]), "x_current_temp": float(rec["current_temp"]),
+                            "market_code": float(R0_MARKETS.index(market))}])
+                        for arm in RUNG_ARMS:
+                            dist = _dist_from_fit(fits[(arm, hour)], one, buckets, market)[0]
+                            writers[arm].write(json.dumps({
+                                "market": market, "snapshot_id": row.snapshot_id, "target_date": target.isoformat(),
+                                "distribution": {str(b): p for b, p in dist.items() if p > 0}}, sort_keys=True) + "\n")
+                        stats["emitted"] += 1
+            ahead.sort()
+            audit["markets"][market] = dict(stats, median_minutes_capture_after_replay=(
+                ahead[len(ahead) // 2] if ahead else None))
+            print(f"rung {market}: {dict(stats)}", flush=True)
+    finally:
+        for w in writers.values():
+            w.close()
+    audit["files"] = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in paths.values()}
+    (out / "dev_emit_audit.json").write_text(json.dumps(audit, indent=1, sort_keys=True), encoding="utf-8")
+    return audit
+
+
 # ------------------------------------------------- clarification 3: forward refit and frozen state (MG-2)
 
 FORWARD_CENTRES = AUG_SEP_CENTRES + ("2026-10-10", "2026-10-25", "2026-11-09", "2026-11-24", "2026-12-09")
@@ -1712,6 +1996,14 @@ def _parse(argv=None):
     dn.add_argument("--nbm-dev-corpus", required=True, help="the 2026 NBM corpus rows (cross-check only)")
     dn.add_argument("--markets", default=",".join(R0_MARKETS))
     dn.add_argument("--out", required=True)
+    ru = sub.add_parser("dev-emit-rung", help="rung 07-12: B_N and P3d_N_fix dev distributions + LOYO (heavy)")
+    ru.add_argument("--records", required=True)
+    ru.add_argument("--layout", required=True)
+    ru.add_argument("--replay-root", required=True)
+    ru.add_argument("--nbm-train-corpus", required=True)
+    ru.add_argument("--markets", default=",".join(R0_MARKETS))
+    ru.add_argument("--no-loyo", action="store_true")
+    ru.add_argument("--out", required=True)
     wr = sub.add_parser("wu-rounding", help="clarification 3 (c): WU whole F vs T-group F on 2021-25 rows (heavy)")
     wr.add_argument("--obs-parquet", required=True, help="IEM market-station rows with tgroup_f (lane L6)")
     wr.add_argument("--wu-root", required=True)
@@ -1806,6 +2098,12 @@ def main(argv=None):
                                          nbm_train_corpus=args.nbm_train_corpus, nbm_dev_corpus=args.nbm_dev_corpus,
                                          out_dir=args.out, markets=args.markets.split(","))
         print(json.dumps(audit["files"], indent=1))
+        return 0
+    if args.command == "dev-emit-rung":
+        audit = dev_emit_rung(records_root=args.records, layout=args.layout, replay_root=args.replay_root,
+                              nbm_train_corpus=args.nbm_train_corpus, out_dir=args.out,
+                              markets=args.markets.split(","), loyo=not args.no_loyo)
+        print(json.dumps({"files": audit["files"], "loyo": audit.get("loyo")}, indent=1))
         return 0
     if args.command in ("wu-rounding", "receipt-grace"):
         if out.exists():
