@@ -1393,7 +1393,11 @@ def receipt_grace_check(*, replay_root, markets=R0_MARKETS, hours=range(7, 21), 
                     key = (entry[1], hour)
                     if key not in cache:
                         handle.seek(entry[1])
-                        snap = json.loads(handle.read(entry[2]))
+                        try:
+                            snap = json.loads(handle.read(entry[2]))
+                        except json.JSONDecodeError:  # truncated capture line
+                            cache[key] = None
+                            return None
                         rows = ((((snap.get("sources") or {}).get("metar") or {}).get("data")) or {}).get("rows")
                         cache[key] = l3.observations_at_cutoff(rows, target, hour, tz)
                     return cache[key]
@@ -1405,6 +1409,9 @@ def receipt_grace_check(*, replay_root, markets=R0_MARKETS, hours=range(7, 21), 
                         stats["no_snapshot_in_hour"] += 1
                         continue
                     ref = features(in_hour[-1], hour)
+                    if ref is None:
+                        stats["corrupt_reference"] += 1
+                        continue
                     stats["hours"] += 1
                     for g in graces:
                         before = [e for e in index if e[0] <= cutoff + timedelta(minutes=g)]
@@ -1412,6 +1419,9 @@ def receipt_grace_check(*, replay_root, markets=R0_MARKETS, hours=range(7, 21), 
                             stats[f"g{g}_no_snapshot"] += 1
                             continue
                         got = features(before[-1], hour)
+                        if got is None:
+                            stats[f"g{g}_corrupt"] += 1
+                            continue
                         stats[f"g{g}_same_rows"] += int(got[2] == ref[2])
                         stats[f"g{g}_same_features"] += int(got[0] == ref[0] and got[1] == ref[1])
         gaps.sort()
