@@ -675,8 +675,9 @@ def run_market_day_labels_finalize(args):
     venue_build = None
     # Incremental finalization applies to the default discovered set with
     # Polymarket reconciliation on (the scheduled path). An explicit --folders
-    # list or a run without reconciliation keeps the original direct call. The
-    # venue label rule always takes the direct venue path for now.
+    # list or a run without reconciliation keeps the original direct call, under
+    # either label rule. Venue mode keys post-cutover folders on their venue
+    # label inputs (daily_refresh_incremental_finalize.venue_label_sources).
     incremental_eligible = not args.folders and not args.skip_polymarket_reconciliation
     plan = None
     if label_rule == "venue":
@@ -685,7 +686,28 @@ def run_market_day_labels_finalize(args):
         if not getattr(args, "skip_venue_label_build", False):
             venue_build = run_venue_rule_label_build(folders, args)
         try:
-            labels = finalize_with_venue_labels(folders, args, finalize_kwargs)
+            if incremental_eligible:
+                planned, label_sources, refused = incremental_finalize.venue_label_sources(
+                    folders, args.venue_labels_root
+                )
+                labels, plan = incremental_finalize.finalize_incrementally(
+                    planned,
+                    daily_summary_path=None,
+                    labels_csv=args.labels_csv,
+                    overrides=parse_overrides(args.settle),
+                    interval_minutes=args.interval_minutes,
+                    gap_tolerance=args.tolerance,
+                    ledger_root=args.ledger_root,
+                    recheck_days=getattr(
+                        args, "finalize_recheck_days", incremental_finalize.DEFAULT_RECHECK_DAYS
+                    ),
+                    force_full=bool(getattr(args, "finalize_full", False)),
+                    finalize_folders=finalize_folders,
+                    label_sources=label_sources,
+                    refused=refused,
+                )
+            else:
+                labels = finalize_with_venue_labels(folders, args, finalize_kwargs)
         except VenueLabelsUnavailable as exc:
             return {
                 "status": "BLOCK",

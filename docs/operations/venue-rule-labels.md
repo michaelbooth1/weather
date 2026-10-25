@@ -80,8 +80,12 @@ with reasons). The CSV keeps the shared daily columns (`max_temp`,
 counts. `row_count` is the routine report count.
 
 - Ledger: `python -m weather.market.market_day_labels finalize --label-rule venue`
-  finalizes each market against its venue CSV and refuses to run if one is
-  missing. A folder dated on or after the cutover is refused (reported as a
+  finalizes each market's folders dated on or after the cutover against its
+  venue CSV and refuses to run if one is missing. A folder dated before the
+  cutover finalizes against the market's WU daily summary, exactly as under
+  `--label-rule wu`, so its ledger row names the WU summary and is identical to
+  a WU-rule row (`market_day_labels.venue_label_plan` owns the routing). A
+  folder dated on or after the cutover is refused (reported as a
   folder failure after the others are written) when its date has no CSV row, or
   a row with fewer routine reports than the ledger's complete-day threshold
   (`COMPLETE_DAY_MIN_ROWS`). Either case would otherwise drop the ledger back
@@ -204,14 +208,33 @@ finalize code in process rather than running the `market_day_labels` CLI.
    finalize step first builds the label CSV of every market among the folders
    (`run_venue_rule_label_build`). The build reads only routine METAR already
    fetched under `--venue-metar-root` and never downloads, so step 1's fetch
-   stays outside Stage A. The step then calls
-   `weather.market.market_day_labels.finalize_with_venue_labels`, and its
-   result carries `label_rule` and the per-market `venue_label_build` summary.
+   stays outside Stage A. The step then finalizes **incrementally**, as the WU
+   rule does (`daily_refresh_incremental_finalize.venue_label_sources` feeding
+   `finalize_incrementally`; an explicit `--folders` list or
+   `--skip-polymarket-reconciliation` keeps the direct
+   `market_day_labels.finalize_with_venue_labels` call). Its result carries
+   `label_rule`, the per-market `venue_label_build` summary and
+   `finalize_mode`/`finalize_plan` (with `refused_folder_count`).
    A missing CSV (with `--skip-venue-label-build`) returns `BLOCK` with reason
    `venue_rule_labels_unavailable`. A `--daily-summary` override returns `BLOCK`
-   too. Missing or thin post-cutover rows fail the step as folder failures.
+   too. Missing or thin post-cutover rows fail the step as folder failures;
+   they are re-decided on every run and never reused or indexed.
    No step was added to the registry, so a default run's step list is
    unchanged.
+
+   **Reuse key.** A pre-cutover folder keeps exactly the WU-rule key (WU
+   summary path and target-date row), so switching the rule never re-finalizes
+   it. A post-cutover folder's key names the venue CSV as its daily summary and
+   adds a `venue_label` entry: the SHA-256 of the CSV's whole target-date row
+   (every provenance column, so a station or basis change counts even when the
+   bucket does not), `VENUE_RULE_VERSION`, the cutover date, the SHA-256 of
+   `config/venue_rule_stations.json` and the one the CSV's manifest recorded,
+   `COMPLETE_DAY_MIN_ROWS`, and the source bytes of `venue_rule_labels` and
+   `market_day_labels`. A changed row re-finalizes only its folder; a row added
+   for another date does not; switching `wu` and `venue` re-finalizes every
+   post-cutover folder once. Every other reuse condition (tape, ledger,
+   sidecar, terminal reconciliation, recheck window, `--finalize-full`) is the
+   WU rule's, in the incremental module's docstring.
 2. **Scheduled change:** in `scripts/ops/daily_refresh_contract.ps1`, add
    `"--label-rule", "venue"` to `$tokens` inside the `if ($Stage -eq
    "settlement")` block, next to the other settlement-stage flags. The `.ps1` edit
