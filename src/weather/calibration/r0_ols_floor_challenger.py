@@ -1004,14 +1004,16 @@ def dev_score(layout, candidates, start="2026-08-01", end="2026-09-29", with_mg1
 
 # Clarification 1 (2026-10-25) appended; the original rule was 5898bfb0... (recorded inside the file).
 # Clarification 2 (2026-10-25, option N) appended; the clarification-1 rule was 2f2c5994....
-PICK_RULE_SHA256 = "52cef5564b29ad36988c41ad399834fec87ccb942ee16cf99baffaeedab1243e"
+# Clarification 2 erratum (dewpoint from the T-group, as IEM dwpf); clarification 2 as first recorded was 52cef556....
+PICK_RULE_SHA256 = "deb3eae31fb19cc96c90d1a9267f292e8a819fae1784c7b8b950071be99ceffb"
 PICK_SEED = 20261025
 PICK_HOURS = (13, 14, 15, 16)
-PICK_CONTROL = -0.366
+# Clarification 2 (d): A_N - MG-1 at 13-16, recorded in C:/t/mg2/control_refit_armA.json (sha 714f1c51...).
+PICK_CONTROL = -0.3915437386366088
 PICK_CONTROL_TOL = 0.005
 
 
-def dev_pick(layout, default, challengers, parity, rule_path, simpler="a_prime",
+def dev_pick(layout, default, challengers, parity, rule_path, simpler="arm_a",
              start="2026-08-01", end="2026-09-29", control=PICK_CONTROL, control_only=False):
     """MG-2 afternoon-slot pick, exactly as ``C:/t/mg2/afternoon_pick_rule.md`` (sha pinned).
 
