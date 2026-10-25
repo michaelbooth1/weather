@@ -11,6 +11,11 @@ from pathlib import Path
 
 VALID_STATUSES = {"supported", "fixture-only", "retired"}
 SCRIPT_INVENTORY = {
+    "hrrr_point_fetch.py": {
+        "status": "fixture-only",
+        "smoke": "compile_main_guard",
+        "notes": "Lane L13 point-in-time HRRR station-point fetcher (free NOAA open data, range reads, pure-numpy GRIB2 decode); network-free compilation smoke.",
+    },
     "nbm_target_fix.py": {
         "status": "fixture-only",
         "smoke": "compile_main_guard",
