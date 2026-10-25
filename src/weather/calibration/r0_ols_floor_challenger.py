@@ -1003,7 +1003,8 @@ def dev_score(layout, candidates, start="2026-08-01", end="2026-09-29", with_mg1
 
 
 # Clarification 1 (2026-10-25) appended; the original rule was 5898bfb0... (recorded inside the file).
-PICK_RULE_SHA256 = "2f2c5994f05b695f1a0a61d9e359089c299c425c4cdf32bc9066473315678b0d"
+# Clarification 2 (2026-10-25, option N) appended; the clarification-1 rule was 2f2c5994....
+PICK_RULE_SHA256 = "52cef5564b29ad36988c41ad399834fec87ccb942ee16cf99baffaeedab1243e"
 PICK_SEED = 20261025
 PICK_HOURS = (13, 14, 15, 16)
 PICK_CONTROL = -0.366
@@ -1011,7 +1012,7 @@ PICK_CONTROL_TOL = 0.005
 
 
 def dev_pick(layout, default, challengers, parity, rule_path, simpler="a_prime",
-             start="2026-08-01", end="2026-09-29", control=PICK_CONTROL):
+             start="2026-08-01", end="2026-09-29", control=PICK_CONTROL, control_only=False):
     """MG-2 afternoon-slot pick, exactly as ``C:/t/mg2/afternoon_pick_rule.md`` (sha pinned).
 
     ``default``: arm A's source; ``challengers``: {name: source}; ``parity``: {name: bool}, each lane's
@@ -1021,7 +1022,7 @@ def dev_pick(layout, default, challengers, parity, rule_path, simpler="a_prime",
     """
     if _sha256(rule_path) != PICK_RULE_SHA256:
         raise ChallengerError(f"pick rule sha {_sha256(rule_path)} != pinned {PICK_RULE_SHA256}")
-    if set(parity) != set(challengers):
+    if not control_only and set(parity) != set(challengers):
         raise ChallengerError("a serve-parity verdict is needed for every challenger")
     import numpy as np
 
@@ -1072,6 +1073,12 @@ def dev_pick(layout, default, challengers, parity, rule_path, simpler="a_prime",
                        "passed": bool(control_ok)},
            "challengers": {}}
     upper = control["date_clustered"]["ci95"][1]
+    out["control"]["clause_d_upper_ci_below_0"] = bool(upper is not None and upper < 0)
+    if control_only:
+        # Clarification 2 (d): the control is recorded before any challenger row is read.
+        out["control"].pop("passed")
+        out["control"].pop("expected")
+        return out
     if upper is None or upper >= 0:
         # Clarification 1 (d): no afternoon half; MG-2 = MG-1 + L6 own-obs stack, the pick is not run.
         out["pick"] = {"candidate": None, "reason": "clarification (d): arm A - MG-1 date-clustered upper CI >= 0",
@@ -1520,8 +1527,10 @@ def build_parser():
     pick = sub.add_parser("dev-pick", help="MG-2 afternoon-slot pick under the pinned pick rule")
     pick.add_argument("--layout", required=True)
     pick.add_argument("--arm-a", required=True, help="arm A source (jsonl | module:<path>)")
-    pick.add_argument("--challenger", action="append", required=True, help="<name>=<source>")
-    pick.add_argument("--parity", action="append", required=True, help="<name>=pass|fail")
+    pick.add_argument("--challenger", action="append", default=[], help="<name>=<source>")
+    pick.add_argument("--parity", action="append", default=[], help="<name>=pass|fail")
+    pick.add_argument("--control-only", action="store_true",
+                      help="record arm A - MG-1 at 13-16 on arm A's rows only; no challenger is read")
     pick.add_argument("--rule", required=True)
     pick.add_argument("--control", type=float, default=PICK_CONTROL,
                       help="recorded arm A - MG-1 13-16 control (pick rule clarification 1 (c))")
@@ -1542,9 +1551,10 @@ def main(argv=None):
         if args.command == "dev-pick":
             chal = dict(item.split("=", 1) for item in args.challenger)
             parity = {k: v == "pass" for k, v in (item.split("=", 1) for item in args.parity)}
-            result = dev_pick(args.layout, args.arm_a, chal, parity, args.rule, control=args.control)
+            result = dev_pick(args.layout, args.arm_a, chal, parity, args.rule, control=args.control,
+                              control_only=args.control_only)
             Path(args.out).write_text(json.dumps(result, indent=1, sort_keys=True), encoding="utf-8")
-            print(json.dumps({"control": result["control"]["passed"], "pick": result["pick"]}, indent=1))
+            print(json.dumps({"control": result["control"], "pick": result.get("pick")}, indent=1))
             return 0
         if args.command == "dev-emit":
             audit = dev_emit(layout=args.layout, replay_root=args.replay_root,
