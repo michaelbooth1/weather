@@ -19,4 +19,14 @@ it will then go in as EF §10z (coordinator, 2026-10-24).
   forecast (f) by -0.272 [-0.339, -0.211]**; no market worse beyond its CI; crossed intervals also
   exclude 0. Hour 12: -0.159 vs (a), -0.447 vs (f). Pooling is the lever: the unpooled U0 is worse than
   P3 by +0.174 [+0.141, +0.208] and only ties (a). Still model vs model on development years, not edge.
-- Pending: the dev scorecard against the served vector (amendment 3, decisive) and P3F (amendment 4).
+- `headline_P3_dfloor.md`: the same with lane D's floored leaf-20 R0 rows (5 markets) attached:
+  P3 - floored R0 -1.995 [-2.258, -1.745]. Our L3 rows equal C:	\l3\octdec row for row (ols_floor
+  max abs diff 0 over 11,550 rows).
+- `dev_verdict.md` (amendment 3, **decisive**, 2026-10-25 00:20): on the dev scorecard (2026-08-15..09-29,
+  43 dates, 473 market-days, unchanged dev_scorecard via L3's dev-score), positive control passes
+  (`dev_served_positive_control.md`: served R 1.774 all, 1.526 00-16). **P3d beats served:** pooled
+  07-12 dR -0.210 [date-clustered 95% -0.256, -0.162; crossed -0.357, -0.091], no standard block
+  worse; R 1.273 vs served 1.483; hour 12 -0.210; 00-16 -0.151; 13-16 -0.496. U0d also beats served
+  (-0.186) but trails P3d. R_candidate stays above 1 in every block: still worse than the market, so
+  this is not edge.
+- Pending: P3F (amendment 4).
