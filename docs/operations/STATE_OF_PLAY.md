@@ -1,6 +1,6 @@
 # State of play
 
-**Last updated: 2026-10-23 America/Toronto (owner hard directive: model improvement only, then a real edge test, kill the project
+**Last updated: 2026-10-24 America/Toronto (owner hard directive: model improvement only, then a real edge test, kill the project
 if it fails; EDGE-1 postponed; paid data per source; C night 10-23/24; N12+N13+Stage-A 10-24/25).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
@@ -20,12 +20,12 @@ then run a real edge test against market prices; **if it fails, the project is k
 - Capture host: heavy work 00:30-09:00 under the lease ([host load policy](HOST_LOAD_POLICY.md)); roll-sensitive merges
   01:00-04:00; roll-free 00:30-09:00; docs-only by the light path before 12:00; never 12:00-00:30.
 - Owner decisions since 09-30 are rows in [DECISION_LOG](DECISION_LOG.md). The code freeze tied to EDGE-1 is lifted; normal landing rules apply.
-- **Paid weather data (owner 10-23):** allowed only per source, after a proposal the owner approves, recorded in DECISION_LOG;
-  credentials never in the repo; no agent purchases or signs up.
+- **Weather data:** paid only per owner-approved source recorded in DECISION_LOG (owner 10-23), no agent purchases or sign-ups, credentials never in the repo;
+  free official or reputable data (Open-Meteo, IEM, NOAA/NWS, ECMWF open data, DWD, universities) needs no ask (owner 10-24); ask for packages, unknown hosts, logins, payment or anything suspicious.
 - **Testing (owner 10-04, PR #205):** focused + affected tests, PR CI (Windows lane #262 on 3.11.0) as full-suite evidence; every night head pre-gated on its stacked base; host-only behaviour needs a host run.
 - **Workstation: one Claude Code chat directed by the production agent** ([preamble](WORKSTATION_SESSION_PREAMBLE.md));
-  relayed owner approvals bind it for serving-model and merges, never money, credentials or downloads; credentials never committed.
-  **Lanes run in parallel** (owner 10-23), one branch each; every landing goes through master-agent with a pre-gate receipt.
+  relayed owner approvals bind it for serving-model and merges, never money, credentials or risky downloads; credentials never committed.
+  **Lanes run in parallel** (owner 10-23), one branch each; every landing goes through master-agent with a pre-gate receipt. **Keep it fully busy; Fable cautiously** (owner 10-24).
 - **Landed is not running:** a new loop, nightly, scorer or task is done only when its Open-commitments verify has run.
 
 ## Current truth
