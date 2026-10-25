@@ -64,6 +64,7 @@ _OFFLINE_WEATHER_MODULES = frozenset(
         "weather.calibration.feature_model",
         "weather.calibration.gap_to_market_atlas",
         "weather.calibration.market_blend",
+        "weather.calibration.dead_bucket",
         "weather.calibration.new_city_corpus",
         "weather.calibration.pooled_candidate_replay",
         "weather.calibration.pooled_candidate_replay_diagnostics",
