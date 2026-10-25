@@ -319,3 +319,46 @@ def test_dev_mg1_gate_fails_on_any_ci_worse_block_and_needs_the_control():
 def test_dev_variants_default_excludes_the_l8_variant_and_it_keeps_the_main_features():
     assert ch.L8_VARIANT not in ch.DEV_DEFAULT_VARIANTS
     assert ch.DEV_VARIANTS[ch.L8_VARIANT] == ch.DEV_VARIANTS["main"]
+
+
+def test_dev_pick_refuses_unpinned_rule_and_missing_parity(tmp_path):
+    rule = tmp_path / "rule.md"
+    rule.write_text("not the pinned rule\n", encoding="utf-8")
+    with pytest.raises(ch.ChallengerError, match="pick rule sha"):
+        ch.dev_pick("layout", "a.jsonl", {"a_prime": "b.jsonl"}, {"a_prime": True}, rule)
+
+
+def test_nbm_hist_variant_adds_the_nbm_mean_regressor():
+    features, source = ch.DEV_VARIANTS[ch.NBM_VARIANT]
+    assert features == ch.FEATURES + ("nbm_mean",) and source == "pit_2026"
+    # A missing NBM mean is imputed with forecast_high, as in training (L9's IMPUTE rule).
+    assert ch.feature_vector({"forecast_high": 80.0, "high_so_far": 75.0, "current_temp": 74.0,
+                              "nbm_mean": None}, features) == [80.0, 75.0, 74.0, 80.0]
+
+
+def test_nbm_n2_variant_replaces_the_forecast_with_the_captured_nbm_mean():
+    features, source = ch.DEV_VARIANTS[ch.N2_VARIANT]
+    assert features == ("nbm_mean", "high_so_far", "current_temp") and source == "captured_nbm"
+    assert ch.N2_VARIANT in ch.NBM_VARIANTS
+
+
+def test_parse_captured_metar_matches_the_iem_fields():
+    from datetime import datetime, timezone
+
+    anchor = datetime(2026, 8, 10, 17, 10, tzinfo=timezone.utc)
+    row = ch.parse_captured_metar("METAR KATL 101652Z 27006KT 10SM SCT045 BKN250 32/23 A3001 RMK AO2 T03170228", anchor)
+    assert row["valid"] == datetime(2026, 8, 10, 16, 52, tzinfo=timezone.utc)
+    assert math.isclose(row["temp"], 31.7 * 9 / 5 + 32) and math.isclose(row["dwpf"], 22.8 * 9 / 5 + 32)
+    assert row["drct"] == 270.0 and row["sknt"] == 6.0 and row["cover"] == 0.75 and row["ceiling_ft"] == 25000.0
+    assert not row["is_cor"]
+
+
+def test_routine_dmax_needs_twenty_modal_minute_rows():
+    from datetime import datetime, timedelta, timezone
+    from zoneinfo import ZoneInfo
+
+    tz = ZoneInfo("America/New_York")
+    start = datetime(2026, 8, 9, 4, 52, tzinfo=timezone.utc)
+    rows = [{"valid": start + timedelta(hours=i), "temp": 70.0 + i, "is_cor": False} for i in range(20)]
+    assert ch.routine_dmax(rows, tz, "2026-08-09") == 89.0
+    assert ch.routine_dmax(rows[:19], tz, "2026-08-09") is None
