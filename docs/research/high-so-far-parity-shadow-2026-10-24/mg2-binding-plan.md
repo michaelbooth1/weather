@@ -1,5 +1,7 @@
 # MG-2 binding plan (DRAFT for master; lane L8, 2026-10-25)
 
+**Superseded 2026-10-25** by the composite design and its plan: [binding-plan.md](../mg2-composite-binding-2026-10-25/binding-plan.md). Kept as history.
+
 Status: a plan only. Nothing is bound. It follows master's ruling of 2026-10-24:
 - MG-2 = lane L3's OLS + floor model (**arm A**), fed by the L8 serve-time `high_so_far`;
 - **arm B**, kept for attribution, is the current HGB + the L8 `high_so_far`;
