@@ -3348,9 +3348,13 @@ def p3dn_diag_emit(*, records_root, layout, replay_root, nbm_train_corpus, out_d
                             if entry[1] not in parsed:
                                 handle.seek(entry[1])
                                 parsed.clear()
-                                parsed[entry[1]] = json.loads(handle.read(entry[2]))
-                            cache[key] = _diag_obs(parsed[entry[1]], target, tz, hour, spec.display_unit, entry[0],
-                                                   running_max, l3)
+                                try:
+                                    parsed[entry[1]] = json.loads(handle.read(entry[2]))
+                                except json.JSONDecodeError:
+                                    parsed[entry[1]] = None
+                            snap = parsed[entry[1]]
+                            cache[key] = None if snap is None else _diag_obs(
+                                snap, target, tz, hour, spec.display_unit, entry[0], running_max, l3)
                         return cache[key]
 
                     for row, hour in eligible:
@@ -3363,6 +3367,9 @@ def p3dn_diag_emit(*, records_root, layout, replay_root, nbm_train_corpus, out_d
                             stats["missing_fix" if e_fix is None else "missing_orig"] += 1
                             continue
                         rec = {"fix": inputs(e_fix, hour), "orig": inputs(e_orig, hour)}
+                        if rec["fix"] is None or rec["orig"] is None:
+                            stats["corrupt_replay_line_" + ("fix" if rec["fix"] is None else "orig")] += 1
+                            continue
                         if any(rec[s][k] is None for s in rec for k in ("high_so_far", "current_temp")):
                             stats["missing_metar_feature"] += 1
                             continue
