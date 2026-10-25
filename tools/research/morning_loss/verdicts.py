@@ -8,7 +8,8 @@ import json
 import sys
 from pathlib import Path
 
-RUNS = (("l5a_debias", "MG-1"), ("l5b_linear", "MG-1"), ("l5c_afd", "matched intercepts"))
+RUNS = (("l5a_debias", "MG-1"), ("l5b_linear", "MG-1"), ("l5c_afd", "matched intercepts"),
+        ("l5d_corpus_linear", "MG-1"), ("l5e_corpus_half", "MG-1"), ("l5f_corpus_linear_augsep", "MG-1"))
 
 
 def ci(e):

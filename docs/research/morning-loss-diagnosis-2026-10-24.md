@@ -327,3 +327,19 @@ A repair would source the serve-time running maximum since 00:00 from the captur
 excluding the D-1 report carried in as the 00:00 row (in this instance the 84.02 F "00:00" row is the
 2026-08-20 23:52 observation, the M0 `reportTime` defect that the v3 anchor excludes). That is a serving and
 parity change for a pre-registration and the roll verdict, not something this lane changes.
+
+**Prior art (master ruling 2026-10-24).** Serving WU was disabled on purpose (`5735b573`); the station
+fallback (`2a878d91`) carries only the current temperature and current max (EF §4;
+[GATE_3_FIRED_ON_A_FLOOR_WE_NEVER_SERVED_2026-08-10.md](../operations/GATE_3_FIRED_ON_A_FLOOR_WE_NEVER_SERVED_2026-08-10.md)
+§5a), and the `high_so_far` skew itself was measured in August (93.72% of snapshots). What this addendum adds is
+the causal chain from that skew to the overnight cold centre on one byte-exact replayed instance, plus the
+fleet-wide drift split; an earlier input repair was a precise null (EF §4), so the size of any gain from a fix is
+open. The fix is lane L8's (bound shadow variant); this lane does not build it.
+
+## Addendum 2026-10-24: arm A1 result (pre-registration `53fd0bc5…`)
+
+**A1 `l5a_debias_v2_nws`: KILL** (score `49f7ee86a40d…`). 07-12 pooled: A1 − served −0.0139 [−0.0219,
+−0.0060]; A1 − MG-1 −0.0001 [−0.0042, +0.0045] crossed (MDE80 0.0062), −0.0001 [−0.0024, +0.0022]
+date-clustered; every hour 07-12 spans 0 against MG-1. Its gain over served is MG-1's own (MG-1 − served
+−0.0139 [−0.0212, −0.0072]). Same answer as lane G's L4 blend: per-market debiasing of captured guidance adds
+nothing over MG-1. For the null ledger.
