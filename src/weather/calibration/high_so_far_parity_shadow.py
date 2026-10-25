@@ -234,7 +234,7 @@ def emit_market(*, layout, replay_root, market, start, end, out_dir, log=print):
 def read_emitted(emit_dir, markets=None):
     rows = []
     for path in sorted(Path(emit_dir).glob("*/*.jsonl")):
-        if markets and path.parent.name not in markets:
+        if path.parent.name.startswith("_") or (markets and path.parent.name not in markets):
             continue
         with open(path, encoding="utf-8") as handle:
             for line in handle:
