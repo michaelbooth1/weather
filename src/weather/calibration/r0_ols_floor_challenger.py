@@ -517,8 +517,8 @@ DEV_VARIANTS = {
     "main": (FEATURES, "pit_2026"),
     "served_forecast": (FEATURES, "layout_served"),
     "two_feature": (("forecast_high", "high_so_far"), "pit_2026"),
-    # dev_rule.md clarification 1: high_so_far (and so the floor) from lane L8's emitted
-    # serve-equivalent value (metar_running_max_since_midnight_v1), per layout snapshot.
+    # dev_rule.md clarification 1: high_so_far (and so the floor) from lane L8's shared serve-time
+    # function weather.model.observed_running_max.running_max_since_midnight (imported, not rewritten).
     "l8_high_so_far": (FEATURES, "pit_2026"),
 }
 DEV_DEFAULT_VARIANTS = ("main", "served_forecast", "two_feature")
@@ -584,11 +584,13 @@ def observations_at_cutoff(rows, target_date, cutoff_hour, tz):
     return kept[latest], max(kept.values()), len(kept)
 
 
-def scan_replay_observations(folder, market_id, target_date, tz, hours):
+def scan_replay_observations(folder, market_id, target_date, tz, hours, unit=None):
     """Per cutoff hour, METAR features from the last replay snapshot captured in [h:00, h+1:00).
 
     Only that snapshot's ``sources.metar.data.rows`` are read; rows are kept only when observed
     at or before h:00 (so at or before the snapshot). Returns {hour: record}.
+    With ``unit``, also ``high_so_far_l8``: lane L8's ``running_max_since_midnight`` on the same
+    snapshot's ``sources.station.data`` and ``sources.metar.data`` (cutoff h, now = capture time).
     """
     import re
     from datetime import datetime
@@ -611,12 +613,21 @@ def scan_replay_observations(folder, market_id, target_date, tz, hours):
         for hour, (local, start, size) in sorted(chosen.items()):
             handle.seek(start)
             snapshot = json.loads(handle.read(size))
-            metar = ((snapshot.get("sources") or {}).get("metar") or {}).get("data") or {}
+            sources = snapshot.get("sources") or {}
+            metar = (sources.get("metar") or {}).get("data") or {}
             current, high, n = observations_at_cutoff(metar.get("rows"), target_date, hour, tz)
             out[hour] = {"market": market_id, "target_date": target_date.isoformat(), "hour": hour,
                          "replay_snapshot_id": snapshot.get("snapshot_id"),
                          "replay_captured_at_local": local.isoformat(),
                          "current_temp": current, "high_so_far": high, "n_rows": n}
+            if unit is not None:
+                from weather.model.observed_running_max import running_max_since_midnight
+
+                station = (sources.get("station") or {}).get("data") or {}
+                value, first = running_max_since_midnight(
+                    station, metar, target_date=target_date, tz=tz, unit=unit, cutoff_hour=hour, now=local)
+                out[hour]["high_so_far_l8"] = value
+                out[hour]["high_so_far_l8_first_minute"] = first
     return out
 
 
@@ -635,30 +646,12 @@ def _event_folders(replay_root):
         yield slug, date(int(year), months[month], int(day)), folder
 
 
-def load_l8_high_so_far(emit_dir, markets):
-    """{snapshot_id: high_so_far} from lane L8's emit, read with L8's own reader (not rewritten).
-
-    Rows with an error or a null ``feat_fix.high_so_far`` are left out (served fallback).
-    """
-    from weather.calibration.high_so_far_parity_shadow import read_emitted
-
-    out, stats = {}, defaultdict(int)
-    for row in read_emitted(emit_dir, markets):
-        value = None if row.get("error") else (row.get("feat_fix") or {}).get("high_so_far")
-        if value is None:
-            stats["l8_unusable"] += 1
-            continue
-        out[str(row["snapshot_id"])] = float(value)
-        stats["l8_rows"] += 1
-    return out, dict(stats)
-
-
 def dev_emit(*, layout, replay_root, train_manifests, dev_manifest, out_dir, markets,
-             variants=DEV_DEFAULT_VARIANTS, l8_emit_dir=None, obs_from=None):
+             variants=DEV_DEFAULT_VARIANTS, obs_from=None):
     """Fit on the Aug-Sep 2021-25 corpus, emit candidate distributions for the dev snapshots.
 
-    ``obs_from``: a previous run's ``dev_features.jsonl`` (same replay scan) instead of rescanning.
-    ``l8_emit_dir``: lane L8's emit directory, required for the ``l8_high_so_far`` variant.
+    ``obs_from``: a previous run's ``dev_features.jsonl`` (same replay scan) instead of rescanning;
+    refused for the ``l8_high_so_far`` variant unless its rows carry ``high_so_far_l8``.
     """
     import pandas as pd
     from zoneinfo import ZoneInfo
@@ -678,14 +671,14 @@ def dev_emit(*, layout, replay_root, train_manifests, dev_manifest, out_dir, mar
     unknown = [v for v in variants if v not in DEV_VARIANTS]
     if unknown:
         raise ChallengerError(f"unknown dev variants {unknown}")
-    l8 = {}
+    want_l8 = L8_VARIANT in variants
     audit = {"markets": {}, "variants": {k: {"features": list(DEV_VARIANTS[k][0]), "forecast": DEV_VARIANTS[k][1]}
                                          for k in variants}}
-    if L8_VARIANT in variants:
-        if l8_emit_dir is None:
-            raise ChallengerError("the l8_high_so_far variant needs --l8-emit-dir")
-        l8, audit["l8"] = load_l8_high_so_far(l8_emit_dir, list(markets))
-        audit["l8"]["emit_dir"] = str(l8_emit_dir)
+    if want_l8:
+        from weather.model import observed_running_max
+
+        audit["l8_function"] = {"module": observed_running_max.__name__,
+                                "sha256": _sha256(observed_running_max.__file__)}
     stored_obs = defaultdict(dict)
     if obs_from is not None:
         for rec in read_jsonl(obs_from):
@@ -709,11 +702,15 @@ def dev_emit(*, layout, replay_root, train_manifests, dev_manifest, out_dir, mar
             obs = {}
             if obs_from is not None:
                 obs = dict(stored_obs.get(market, {}))
+                if want_l8 and any("high_so_far_l8" not in rec for rec in obs.values()):
+                    raise ChallengerError("--obs-from rows lack high_so_far_l8; rescan for the L8 variant")
             else:
+                unit = spec.display_unit if want_l8 else None
                 for slug, target, folder in _event_folders(replay_root):
                     if not (DEV_FIRST <= target <= DEV_LAST) or slug != market:
                         continue
-                    for hour, rec in scan_replay_observations(folder, market, target, tz, hours).items():
+                    for hour, rec in scan_replay_observations(folder, market, target, tz, hours,
+                                                              unit=unit).items():
                         obs[(target.isoformat(), hour)] = rec
             stats = defaultdict(int)
             msnaps = snaps[snaps.market == market]
@@ -732,7 +729,7 @@ def dev_emit(*, layout, replay_root, train_manifests, dev_manifest, out_dir, mar
                     continue
                 key = (str(row.target_date)[:10], hour)
                 rec = obs.get(key)
-                if rec is None or rec["high_so_far"] is None:
+                if rec is None or (rec["high_so_far"] is None and rec.get("high_so_far_l8") is None):
                     stats["no_replay_observation"] += 1
                     continue
                 pit = dev_union.resolve(key[0], hour)["forecast_high"]
@@ -746,13 +743,18 @@ def dev_emit(*, layout, replay_root, train_manifests, dev_manifest, out_dir, mar
                     record = {"forecast_high": fc, "high_so_far": rec["high_so_far"],
                               "current_temp": rec["current_temp"]}
                     if variant == L8_VARIANT:
-                        value = l8.get(str(row.snapshot_id))
+                        value = rec.get("high_so_far_l8")
                         if value is None:
                             stats[f"{variant}_no_l8_value"] += 1
                             continue
-                        if floor_of({"high_so_far": value}) != floor_of(rec):
+                        if rec["high_so_far"] is None:
+                            stats[f"{variant}_main_high_so_far_missing"] += 1
+                        elif floor_of({"high_so_far": value}) != floor_of(rec):
                             stats[f"{variant}_floor_differs_from_main"] += 1
                         record["high_so_far"] = value
+                    if any(record[f] is None for f in features):
+                        stats[f"{variant}_missing_feature"] += 1
+                        continue
                     dists, _ = challenger_distributions(fits[(hour, variant)], record, support)
                     for arm in DEV_ARMS:
                         writers[(arm, variant)].write(json.dumps({
@@ -761,7 +763,7 @@ def dev_emit(*, layout, replay_root, train_manifests, dev_manifest, out_dir, mar
                             sort_keys=True) + "\n")
                     stats[f"{variant}_emitted"] += 1
                 layout_hsf = None if row.high_so_far != row.high_so_far else float(row.high_so_far)
-                if layout_hsf is not None and floor_of({"high_so_far": layout_hsf}) != floor_of(rec):
+                if layout_hsf is not None and rec["high_so_far"] is not None and                         floor_of({"high_so_far": layout_hsf}) != floor_of(rec):
                     stats["floor_differs_from_layout_high_so_far"] += 1
                 stats["snapshots_in_cutoff_hours"] += 1
             for (target, hour), rec in sorted(obs.items()):
@@ -1306,7 +1308,6 @@ def build_parser():
     emit.add_argument("--markets", default=",".join(PRIMARY_MARKETS + SECONDARY_MARKETS))
     emit.add_argument("--out-dir", required=True)
     emit.add_argument("--variants", default=",".join(DEV_DEFAULT_VARIANTS))
-    emit.add_argument("--l8-emit-dir", default=None, help="lane L8 emit dir (l8_high_so_far variant)")
     emit.add_argument("--obs-from", default=None, help="reuse a previous run's dev_features.jsonl")
     dscore = sub.add_parser("dev-score", help="score emitted candidates with dev_scorecard; apply dev_rule.md")
     dscore.add_argument("--layout", required=True)
@@ -1331,7 +1332,7 @@ def main(argv=None):
             audit = dev_emit(layout=args.layout, replay_root=args.replay_root,
                              train_manifests=args.train_manifest, dev_manifest=args.dev_manifest,
                              out_dir=args.out_dir, markets=args.markets.split(","),
-                             variants=args.variants.split(","), l8_emit_dir=args.l8_emit_dir,
+                             variants=args.variants.split(","),
                              obs_from=args.obs_from)
             print(json.dumps(audit["files"], indent=1))
             return 0
