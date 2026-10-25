@@ -70,6 +70,7 @@ Read the one that owns the thing you are changing.
 | A large module or facade split | [Large-module ownership map](operations/module-ownership-map.md) |
 | Any repository path or default location | [Repository path policy](operations/path-policy.md) |
 | A file under `config/` | [Configuration inventory](operations/config-inventory.md) |
+| Training or evaluation labels for dates from 2026-10-23, or a market's label station | [Venue-rule labels](operations/venue-rule-labels.md) |
 | Tracked artifacts, LFS, or artifact size | [Artifact storage policy](operations/artifact-storage-policy.md) |
 | Building or changing data capture: new families, storage/RAM budgets, the venue-city pilot | [Data layer v2 plan](operations/DATA_LAYER_V2_PLAN.md) (canonical living plan: family table, budgets, build sequence S0-S16, open owner questions); [data layer v2 platform contract](operations/DATA_LAYER_V2_CONTRACT.md) (the `platform` registry in `config/capture_families.json`: roll closures, evidence families, storage and embargo ratchets) |
 | What may be deleted, tiered, or compressed under `data/` | [Data storage classes](operations/data-storage-class-contract.md), [Data retention policy](operations/data-retention-policy.md) |
@@ -92,6 +93,7 @@ how to interpret and update those sources; it does not copy volatile values.
 | [Overnight briefings](operations/OVERNIGHT_BRIEFINGS.md) | Hand-written notes from unattended overnight agents | Reconstructing a specific night |
 | Dated files in `operations/` (name ends in a date) | Incident and decision records | From [the operations index](operations/README.md), when touching the same subsystem |
 | `research/`, `roadmap/audits/`, other dated roadmap narratives | Research and audit evidence | For the detail behind a specific finding; start audits from [the audit index](roadmap/audits/README.md) |
+| [research/dev-scorecard-2026-10-23.md](research/dev-scorecard-2026-10-23.md) | Development walk-forward scorecard (`weather.reporting.scorecards.dev_scorecard`): inventory, design, EF §3 positive control; dates <= 2026-09-29 only | When scoring a model change on development dates |
 | [research/model-parity-swarm-2026-10-04/](research/model-parity-swarm-2026-10-04/SYNTHESIS.md) | Model-parity swarm v2 (workstation, night 2026-10-03/04): synthesis, per-agent reports, unsigned pre-registration and capture-plan drafts; every number development | Only behind EF §10q, or when a task names the swarm, one of its drafts, or one of its source routes; start from `SYNTHESIS.md` |
 | [Open questions](operations/OPEN_QUESTIONS.md), [decision log](operations/DECISION_LOG.md) | What is still unanswered and who owns it; dated owner decisions | Choosing what to analyse next; tracing when a decision was made |
 

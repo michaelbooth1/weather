@@ -27,6 +27,19 @@
       "stop_below_free_gib": 70
     }
   },
+  "core_recorder_only": {
+    "scope": "Data layer v2 S2+S9 pilot P1 (VR-1). Read only by the core 88a recorder (weather.market.maker_evidence_capture, default path, re-read every cycle, whole-file SHA-256 stamped on every pilot row). Recorder-only: minute books, change-triggered reward records and public trades in 'pilot' partitions; top ten reward-ranked bands per city across horizons 0-2. Never a built-in, never a capture-family event, never a model, fair-value, quoting or settlement input. Owner Q16: outside the 10-01 maker-P&L pre-registration's 12-market stratum. Switches (config-only): pilot on|off, rewards_sweep on|off, built_in_reward_cadence legacy|event_driven; all land off/legacy, and built-ins stay legacy before 2026-10-31T00:00Z whatever this says. Contract: docs/operations/DATA_LAYER_V2_CONTRACT.md 'Recorder-only rows'.",
+    "pilot": "off",
+    "rewards_sweep": "off",
+    "built_in_reward_cadence": "legacy",
+    "rows": [
+      {"id": "london", "location_id": "london", "series": "highest", "slug_prefix": "highest-temperature-in-london-on", "tz": "Europe/London", "horizons": [0, 1, 2], "band_policy": "top10_reward_ranked"},
+      {"id": "shanghai", "location_id": "shanghai", "series": "highest", "slug_prefix": "highest-temperature-in-shanghai-on", "tz": "Asia/Shanghai", "horizons": [0, 1, 2], "band_policy": "top10_reward_ranked"},
+      {"id": "paris", "location_id": "paris", "series": "highest", "slug_prefix": "highest-temperature-in-paris-on", "tz": "Europe/Paris", "horizons": [0, 1, 2], "band_policy": "top10_reward_ranked"},
+      {"id": "seoul", "location_id": "seoul", "series": "highest", "slug_prefix": "highest-temperature-in-seoul-on", "tz": "Asia/Seoul", "horizons": [0, 1, 2], "band_policy": "top10_reward_ranked"},
+      {"id": "tokyo", "location_id": "tokyo", "series": "highest", "slug_prefix": "highest-temperature-in-tokyo-on", "tz": "Asia/Tokyo", "horizons": [0, 1, 2], "band_policy": "top10_reward_ranked"}
+    ]
+  },
   "platform": {
     "contract": "docs/operations/DATA_LAYER_V2_CONTRACT.md",
     "scope": "Data layer v2 platform registry (PL-3). Read by roll_verdict.ps1 and staleness_sweep.ps1 (roll_closures), health-checked by status.ps1 (CAPTURE_REGISTRY warn) and checked by tests/operations/test_capture_registry.py. The capture-family recorders above read only the families block; this block never selects, ranks or enumerates a market.",
