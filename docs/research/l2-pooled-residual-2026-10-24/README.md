@@ -29,4 +29,7 @@ it will then go in as EF §10aa (coordinator, 2026-10-25; §10z is L1, §10ab L3
   worse; R 1.273 vs served 1.483; hour 12 -0.210; 00-16 -0.151; 13-16 -0.496. U0d also beats served
   (-0.186) but trails P3d. R_candidate stays above 1 in every block: still worse than the market, so
   this is not edge.
-- Pending: P3F (amendment 4).
+- `headline_P3F.md` (amendment 4): the full-year arm on L1's union 621bcd8e... (23 centres, 245,625
+  training rows) also beats (a) -0.151 [-0.200, -0.105] and (f) -0.275 [-0.342, -0.216], but adds
+  nothing over P3: P3F - P3 -0.004 [-0.014, +0.006] at 07-12.
+- Hook and admission tests (7 files) pass through the wrapper: 83 passed, 15 skipped.
