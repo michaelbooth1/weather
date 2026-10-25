@@ -61,6 +61,49 @@ function Test-FileAge($name, $relPath, $warnDays, $critDays, $why) {
     Add-Finding $name $sev ("{0} is {1:N1}d old" -f $relPath, $age) $why $age $warnDays
 }
 
+function Get-WeatherStageAChainFinding {
+    # Did the latest Stage-A run COMPLETE? The report mtime cannot answer this: the chain
+    # checkpoints daily_refresh_report.md after every step, so a chain killed at its 11:55
+    # deadline leaves a fresh report. The Stage-A manifest is published COMPLETED only by the
+    # end-of-run write (checkpoints write RUNNING), so it is the authority. The report is a
+    # fallback only when the manifest is missing or unreadable.
+    param([string]$ManifestPath, [string]$ReportPath, [datetime]$Now,
+          [double]$WarnDays = 1, [double]$CritDays = 2)
+    $manifest = $null
+    if (Test-Path -LiteralPath $ManifestPath) {
+        try { $manifest = Get-Content -LiteralPath $ManifestPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop }
+        catch { $manifest = $null }
+    }
+    if ($null -ne $manifest -and $manifest.status) {
+        $status = [string]$manifest.status
+        $age = ($Now - (Get-Item -LiteralPath $ManifestPath).LastWriteTime).TotalDays
+        if ($status -eq 'COMPLETED') {
+            $sev = if ($age -gt $CritDays) { 'CRITICAL' } elseif ($age -gt $WarnDays) { 'WARN' } else { 'OK' }
+            $detail = 'latest Stage-A run COMPLETED at {0}; manifest is {1:N1}d old' -f $manifest.completed_at_utc, $age
+        } elseif ($status -eq 'RUNNING' -and $age -le (2 / 24)) {
+            $sev = 'WARN'
+            $detail = 'latest Stage-A run (started {0}) is RUNNING; last checkpoint {1:N1}h ago - in progress, or killed if this persists' -f $manifest.started_at_utc, ($age * 24)
+        } else {
+            $sev = 'CRITICAL'
+            $detail = 'latest Stage-A run (started {0}) never reached COMPLETED: manifest status {1}, last written {2:N1}d ago (a chain killed mid-run still leaves a fresh checkpointed report)' -f $manifest.started_at_utc, $status, $age
+        }
+        return [PSCustomObject]@{ severity = $sev; detail = $detail; age_days = $age; source = 'manifest' }
+    }
+    if (-not (Test-Path -LiteralPath $ReportPath)) {
+        return [PSCustomObject]@{ severity = 'CRITICAL'; detail = 'Stage-A manifest unreadable and report missing'; age_days = $null; source = 'none' }
+    }
+    $age = ($Now - (Get-Item -LiteralPath $ReportPath).LastWriteTime).TotalDays
+    $text = ''
+    try { $text = [string](Get-Content -LiteralPath $ReportPath -Raw -ErrorAction Stop) } catch { $text = '' }
+    if ($text -match 'Status: \*\*running\*\*') {
+        return [PSCustomObject]@{ severity = 'CRITICAL'; age_days = $age; source = 'report'
+            detail = ('Stage-A manifest unreadable; report ({0:N1}d old) is a mid-run checkpoint (Status: running), so the chain did not complete' -f $age) }
+    }
+    $sev = if ($age -gt $CritDays) { 'CRITICAL' } elseif ($age -gt $WarnDays) { 'WARN' } else { 'OK' }
+    return [PSCustomObject]@{ severity = $sev; age_days = $age; source = 'report'
+        detail = ('Stage-A manifest unreadable; report is {0:N1}d old and not a running checkpoint' -f $age) }
+}
+
 function Get-WeatherRewardCaptureFinding {
     param([string]$Root, [object]$Task, [datetimeoffset]$Now = [datetimeoffset]::UtcNow)
     $detail = 'no producer registered (WeatherMakerEvidenceCapture)'
@@ -258,8 +301,12 @@ Test-FileAge "learning/daily_learning" "data\backtest\daily_learning.json" 2 5 `
     "the learning rollup; it sat 27 days stale while the chain reported all steps ok, because it is 21 steps past the settled-day barrier"
 Test-FileAge "learning/market_beating_scoreboard" "data\backtest\market_beating_objective_scoreboard.json" 2 5 `
     "the scorecard for objective #2 -- while this is stale we cannot see the model-vs-market gap at all"
-Test-FileAge "chain/daily_refresh_report" "data\backtest\daily_refresh_report.md" 1 2 `
-    "the chain's own output; if this stops moving the chain is not completing"
+$stageA = Get-WeatherStageAChainFinding `
+    -ManifestPath (Join-Path $repo "data\backtest\daily_refresh_settlement_truth_manifest.json") `
+    -ReportPath (Join-Path $repo "data\backtest\daily_refresh_report.md") -Now $now
+Add-Finding "chain/daily_refresh_report" $stageA.severity $stageA.detail `
+    "the chain's own completion record; per-step checkpoints keep the report fresh even when the chain is killed, so only a COMPLETED Stage-A manifest proves the chain completed" `
+    $stageA.age_days 1
 
 # ---- 3. serving artifacts ----
 # Not a bug on its own -- but an artifact serving a season it never trained on is (see 4b/2).

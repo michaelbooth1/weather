@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import queue
 import random
+import re
 import threading
 import time
 from collections import OrderedDict
@@ -134,8 +135,12 @@ class PublicStream:
     stable_session_seconds, max_pending_frames = STABLE_SESSION_SECONDS, MAX_PENDING_FRAMES
     max_pending_bytes, swap_overlap_seconds = MAX_PENDING_BYTES, SWAP_OVERLAP_SECONDS
 
-    def __init__(self, store, *, trades_only=False):
-        self.store, self.trades_only = store, trades_only
+    def __init__(self, store, *, trades_only=False, partition=None):
+        # A partitioned trade channel (the recorder-only pilot) journals to ``trades-<partition>``
+        # under channel ``<partition>_trades``, never into the built-ins' ``trades`` journal.
+        if partition is not None and (not trades_only or not re.fullmatch(r"[a-z][a-z0-9]{0,30}", partition)):
+            raise ValueError("only a trade channel takes a lowercase partition")
+        self.store, self.trades_only, self.partition = store, trades_only, partition
         self.stop_event = threading.Event()
         self.threads, self.tokens = [], ()
         self.messages, self.bytes, self.trades, self.errors = 0, 0, 0, 0
@@ -149,6 +154,8 @@ class PublicStream:
 
     @property
     def channel(self):
+        if self.partition is not None:
+            return self.partition + "_trades"
         return "trades" if self.trades_only else "updates"
 
     def replace_window(self, tokens, end):
@@ -338,7 +345,7 @@ class PublicStream:
 
     def _trades(self, raw, count, duplicates, at):
         # Keep original response bytes, not a reconstructed execution.
-        self.store.record("trades", raw, captured_at=at,
+        self.store.record("trades", raw, captured_at=at, partition=self.partition,
                           metadata={"duplicate_trades": duplicates} if duplicates else None)
         with self.counter_lock:
             self.trades += count

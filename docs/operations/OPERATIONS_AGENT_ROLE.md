@@ -71,9 +71,9 @@ execution evidence, and power-before-interpretation are not negotiable.
 
 **Never, without a new dated operator decision:**
 
-- **Paid weather-provider access.** Free-tier Open-Meteo only. Do not add credentials, required
-  environment variables, or plans that depend on a paid source. Provider licensing is closed and is
-  **not to be re-raised** — this exact question has halted two missions.
+- **Unapproved paid weather-provider access.** Paid sources only with explicit per-source owner
+  approval recorded in DECISION_LOG (owner 2026-10-23, superseding the earlier closed-licensing rule);
+  otherwise free sources only. Never commit credentials; no plan may depend on an unapproved paid source.
 - **Read or expose the WU sync credential file** in the user profile (`.weathersync.cred`). Never
   print, log, or commit the scraped WU token.
 - **Write to the workstation mirror or `D:\weather-mirror`.**
