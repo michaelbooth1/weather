@@ -851,11 +851,22 @@ class FeatureModelMixin:
             if feature_latest is not None
             else self.row_temp_native(station_latest)
         )
-        observed_high_context = self.effective_observed_high_context(
-            history,
-            current,
-            station,
-            cutoff_hour,
+        observed_high_context = (
+            self.effective_observed_high_context(
+                history,
+                current,
+                station,
+                cutoff_hour,
+            )
+            if self.high_so_far_shadow_variant is None
+            else self.effective_observed_high_context(
+                history,
+                current,
+                station,
+                cutoff_hour,
+                metar=self.source_data(sources, "metar"),
+                now=now,
+            )
         )
         live_observation_temp = observed_high_context["live_observation_temp"]
         current_max = observed_high_context["current_max"]
@@ -924,8 +935,8 @@ class FeatureModelMixin:
         )
 
         # hours_at_peak
-        first_reached_min = None
-        for r in feature_rows:
+        first_reached_min = observed_high_context.get("shadow_first_reached_minute")
+        for r in (feature_rows if first_reached_min is None else ()):
             if self.row_temp_native(r) == high_so_far and r.get("time"):
                 first_reached_min = self.minute_of_day(r["time"])
                 break
