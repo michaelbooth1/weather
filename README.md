@@ -551,6 +551,18 @@ per year, forecast source, corpus ids and manifest hashes). An R0 fit is
 --output-root <dir>`, run through `scripts\ops\workstation_heavy.ps1 -Kind
 weather_heavy` (the trainer is on its offline-module allowlist).
 
+`python -m weather.calibration.pooled_residual_model extract|evaluate|report`
+(research only, lane L2 2026-10-24; on the offline-module allowlist) pools the
+US 11 into one residual-space model per cutoff hour and scores it against R0
+recomputed with the trainer's own functions on R0's blocked leave-one-year-out
+rows. `extract --centres <dates> --manifest <m> ... --out <dir>` pickles the
+trainer's per-cutoff records; `evaluate --records <dir> --arms R0,P0,P1,P2,P3
+[--lane-d-root <R0 output root>] --out <dir>` writes per-row losses (and an R0
+parity check against existing `feature_model_blocked_validation_rows_*`);
+`report --rows <dir> --rule <rule.md> --out <file>` applies the pre-declared
+rule. It refuses to import on the capture host and refuses output inside the
+repository.
+
 `python -m weather.calibration.r0_candidate_manifest --candidate-root <dir>
 --candidate-id <id> --centre <date> --build-commit <sha> --market <id> ...
 [--exclude-market <id>=<reason>]` binds one centre's R0 fits into a
@@ -597,6 +609,21 @@ shared lease:
 ```powershell
 .\venv\Scripts\python.exe -m weather.backtesting.metar_keying_replay --date 2026-08-29 --date 2026-09-19 --date 2026-09-28 --market miami --market nyc --market chicago --out scratch\metar_keying_replay\m0-v3-vs-v4.jsonl
 ```
+
+R0 full-year versus windowed (research only; workstation, through
+`scripts\ops\workstation_heavy.ps1 -Kind weather_heavy`).
+`weather.calibration.r0_full_year run --market <us11> --centre-date <date>
+--pit-forecast-corpus-manifest <m> ... --output-root <dir outside data and
+artifacts> [--leaves 20,10,5] [--arms windowed,full_year]` scores the R0 HGB by
+blocked leave-one-year-out on the held-out years' window days, trained either
+on the window (the trainer's rows) or on every covered 2021-2025 day plus
+`doy_sin`/`doy_cos`; season corpora that share years are read by date
+([PIT corpus guide](docs/operations/PIT_FORECAST_TRAINING_CORPUS.md)). `score
+--rows-root <dir> --markets <list> [--reference-root <trainer output>] --out
+<json>` applies the pre-declared comparison (date-clustered bootstrap, 2,000
+draws, seed 20261024) and checks the windowed rows against the trainer's
+`feature_model_blocked_validation_rows_<market>.jsonl`. It writes no model
+artifact; its seasonal columns are not served features.
 
 ### Trading Simulations
 
