@@ -56,8 +56,13 @@ SCHEMA_HISTORY = "dead_bucket_history/1"
 SCHEMA_C = "dead_bucket_stage_c/1"
 RULE_SHA256 = "177e9acfd7dc50b60d53bdd236ecef971ebcdf767f9dbf4cd0bd241579b17774"
 ORIGINAL_RULE_SHA256 = "a17ed258caaba9a9b0289fe67fbd7d28c83b053f0f33aa9a977093ea401d9663"
-# r3 (``C:	\l11\deadbucket_rule_r3.md``): r2 with entry windows outside 13-16 (late primary, early secondary).
+# r3 (``C:/t/l11/deadbucket_rule_r3.md``): r2 with entry windows outside 13-16 (late primary, early secondary).
 RULE_R3_SHA256 = "1abd3f1a8a9c5e30213b87303cdc518932f2ab99020b6eabb5d7dcc42189ae94"
+# r4 (``C:/t/l11/deadbucket_rule_r4.md``): r2 13-16 with each death dated at the receipt of the first
+# captured replay snapshot whose own METAR rows kill the bucket (no +10 min); replay root pinned below.
+RULE_R4_SHA256 = "fac8cd7211bb3c0e39edc8f95a7808c24fdf3a36558d9da5aab8462ff684a921"
+REPLAY_SUMS_SHA256 = "d9c2ed46a72442c68deb6f6b36784fcf081edc52e2a0d8f024cd6cc1a5a38b82"
+R4_SANITY_MIN = 0.95
 OBS_SHA256 = "37d97195828d9f58d510f078e3029d53ed051fe471c4a94333bb0cc51f6d28f2"
 
 MARKETS = ("atlanta", "austin", "chicago", "dallas", "denver", "houston", "los-angeles", "miami", "nyc",
@@ -663,6 +668,75 @@ def discover_tape_events(root):
     return out
 
 
+def capture_steps(path, d, tz, end, cutoff_hour=RUNNING_MAX_CUTOFF_HOUR):
+    """r4: [(receipt local, H_s)] for every replay snapshot captured on ``d`` at or before ``end``, in receipt
+    order; H_s from that snapshot's OWN captured METAR rows only (L8 running max, empty station source).
+
+    Returns (steps, bad_lines). Lines are streamed; only snapshots inside the day are JSON-decoded.
+    """
+    import re
+
+    cap_re = re.compile(rb'"captured_at_utc":\s*"([^"]+)"')
+    steps, bad = [], 0
+    with open(path, "rb") as handle:
+        for line in handle:
+            if not line.strip():
+                continue
+            m = cap_re.search(line[:8192])
+            if not m:
+                bad += 1
+                continue
+            try:
+                cap = datetime.fromisoformat(m.group(1).decode("ascii").replace("Z", "+00:00")).astimezone(tz)
+            except ValueError:
+                bad += 1
+                continue
+            if cap.date() != d or cap > end:
+                continue
+            try:
+                snap = json.loads(line)
+            except ValueError:
+                bad += 1
+                continue
+            metar = (((snap.get("sources") or {}).get("metar") or {}).get("data")) or {}
+            r, _ = running_max_since_midnight({}, metar, target_date=d, tz=tz, unit=UNIT, cutoff_hour=cutoff_hour,
+                                              now=cap)
+            steps.append((cap, H(r)))
+    steps.sort(key=lambda s: s[0])
+    return steps, bad
+
+
+def first_dead_capture(steps, edge):
+    """r4 first-dead: the receipt of the first snapshot whose own-row H exceeds ``edge`` (no offset)."""
+    for t, h in steps:
+        if h is not None and h > edge:
+            return t
+    return None
+
+
+def non_monotone(steps):
+    best, n = None, 0
+    for _, h in steps:
+        if h is None:
+            continue
+        if best is not None and h < best:
+            n += 1
+        best = h if best is None else max(best, h)
+    return n
+
+
+def served_first_dead(s, edge, tz):
+    """Descriptive: the first layout snapshot whose served floor (max of the floor fields) kills ``edge``."""
+    cols = [c for c in data.FLOOR_FIELDS if c in s.columns]
+    if not cols:
+        return None
+    fl = s[cols].apply(pd.to_numeric, errors="coerce").max(axis=1)
+    for t, f in zip(s.captured, fl):
+        if pd.notna(f) and math.floor(float(f) + 0.5) > edge:
+            return t.to_pydatetime().astimezone(tz)
+    return None
+
+
 def bucket_key(kind, low, high):
     """The book summary's bin identity: lte X -> (lte, X); eq lo-hi -> (eq, lo, hi)."""
     if kind == "lte":
@@ -766,9 +840,12 @@ def a_pnl(filled, q, yes):
     return -filled * q - filled * fee(q) if yes else filled * (1.0 - q) - filled * fee(q)
 
 
-def stage_a_scan(layout, obs, tapes_root, markets, kept, window="13-16"):
+def stage_a_scan(layout, obs, tapes_root, markets, kept, window="13-16", dating="obs", replay_root=None):
     W = WINDOWS[window]
+    if dating == "capture" and window != "13-16":
+        raise data.Refused("refused: r4 capture dating is defined for the 13-16 window only")
     events = discover_tape_events(tapes_root)
+    replay = discover_tape_events(Path(replay_root) / "snapshots") if dating == "capture" else {}
     buckets, days = [], []
     for mk, d, s, geo, price, winner, settlement_high in layout_market_days(layout):
         if mk not in markets:
@@ -780,32 +857,60 @@ def stage_a_scan(layout, obs, tapes_root, markets, kept, window="13-16"):
         end = local_instant(dd, *W["end"], tz)
         h_end = H(running(l8_rows(day), dd, tz, end, W["cutoff_hour"])[0])
         dead = []
-        for band in geo.itertuples(index=False):
-            if band.kind not in DEAD_KINDS or h_end is None or not float(band.high) < h_end:
+        extra = {}
+        if dating == "capture":
+            rfolder = replay.get((mk, d))
+            if rfolder is None:
+                days.append({"market": mk, "date": d, "n_dead": 0, "folder": None, "status": "no_replay"})
                 continue
-            fd = first_dead(steps, float(band.high))
-            dead.append((band, fd, max(fd + LATENCY, local_instant(dd, *W["start"], tz))))
+            csteps, bad = capture_steps(rfolder / "replay_inputs.jsonl", dd, tz, end, W["cutoff_hour"])
+            extra = {"replay_snapshots": len(csteps), "replay_bad_lines": bad, "non_monotone": non_monotone(csteps)}
+            if not csteps:
+                days.append(dict({"market": mk, "date": d, "n_dead": 0, "folder": None, "status": "no_replay"},
+                                 **extra))
+                continue
+            obs_only = 0
+            for band in geo.itertuples(index=False):
+                if band.kind not in DEAD_KINDS:
+                    continue
+                high = float(band.high)
+                fd = first_dead_capture(csteps, high)
+                fd_obs = first_dead(steps, high) if h_end is not None and high < h_end else None
+                if fd is None:
+                    obs_only += fd_obs is not None
+                    continue
+                sv = served_first_dead(s, high, tz)
+                dead.append((band, fd, max(fd + LATENCY, local_instant(dd, *W["start"], tz)),
+                             {"first_dead_obs10": fd_obs.isoformat() if fd_obs else None,
+                              "served_first_dead": sv.isoformat() if sv else None}))
+            extra["dead_obs_only"] = obs_only
+        else:
+            for band in geo.itertuples(index=False):
+                if band.kind not in DEAD_KINDS or h_end is None or not float(band.high) < h_end:
+                    continue
+                fd = first_dead(steps, float(band.high))
+                dead.append((band, fd, max(fd + LATENCY, local_instant(dd, *W["start"], tz)), {}))
         folder = events.get((mk, d))
-        info = {"market": mk, "date": d, "n_dead": len(dead), "folder": folder.name if folder else None}
+        info = dict({"market": mk, "date": d, "n_dead": len(dead), "folder": folder.name if folder else None}, **extra)
         if not dead or folder is None:
             days.append(dict(info, status="no_dead" if not dead else "no_tape_folder"))
-            for band, fd, entry in dead:
+            for band, fd, entry, _x in dead:
                 buckets.append({"market": mk, "date": d, "band_index": int(band.band_index),
                                 "status": "no_tape_folder", "excluded_market": mk not in kept})
             continue
-        wanted = {bucket_key(b.kind, b.low, b.high): (b, fd, en) for b, fd, en in dead}
-        t_first = min(en for _, _, en in dead)
+        wanted = {bucket_key(b.kind, b.low, b.high): (b, fd, en, x) for b, fd, en, x in dead}
+        t_first = min(en for _, _, en, _x in dead)
         rows, tokens, n_rows = stream_summary(folder / "order_books_summary.csv", set(wanted), t_first, end)
         prints, n_parts = stream_prints(folder, tokens, t_first, end + PRINT_WINDOW)
         n_rows, n_bad = n_rows
         days.append(dict(info, status="scanned", summary_rows=n_rows, summary_bad_rows=n_bad, trade_parts=n_parts, prints_kept=len(prints),
                          tokens_matched=len(tokens)))
-        for key, (band, fd, entry) in wanted.items():
+        for key, (band, fd, entry, x) in wanted.items():
             bi = int(band.band_index)
             yes = winner == bi
-            rec = {"market": mk, "date": d, "band_index": bi, "kind": band.kind, "high": float(band.high),
-                   "first_dead": fd.isoformat(), "entry_instant": entry.isoformat(), "settled_yes": bool(yes),
-                   "excluded_market": mk not in kept, "trade_parts": n_parts}
+            rec = dict({"market": mk, "date": d, "band_index": bi, "kind": band.kind, "high": float(band.high),
+                        "first_dead": fd.isoformat(), "entry_instant": entry.isoformat(), "settled_yes": bool(yes),
+                        "excluded_market": mk not in kept, "trade_parts": n_parts}, **x)
             qt = no_quote(rows, key, entry)
             if qt is None or qt[0] > end:
                 buckets.append(dict(rec, status="no_capture"))
@@ -902,7 +1007,39 @@ def stage_a_report(buckets, days, dates_all, kept, rates, window="13-16"):
                             for s in ("scanned", "no_dead", "no_tape_folder")},
             "scanned_days_without_trade_parts_08_10_on": int(sum(
                 x["status"] == "scanned" and x["date"] >= A_WINDOW_FIRST and x["trade_parts"] == 0 for x in days))}
+    if any("first_dead_obs10" in b for b in buckets):
+        summ["market_days"]["no_replay"] = int(sum(x["status"] == "no_replay" for x in days))
+        summ["r4"] = r4_descriptive(buckets, days, kept)
+        if summ["r4"]["sanity"]["verdict"] != "PASS":
+            res["A_08-10..09-29"]["reading"] = "NOT INTERPRETABLE (r4 sanity control failed)"
     return res, summ
+
+
+def r4_descriptive(buckets, days, kept):
+    """r4 control (a)2 and the descriptive delays (rule r4)."""
+    def t(x):
+        return datetime.fromisoformat(x) if x else None
+    both = [b for b in buckets if b.get("first_dead_obs10") and b.get("first_dead")]
+    ok = [b for b in both if t(b["first_dead"]) >= t(b["first_dead_obs10"]) - AVAILABILITY]
+    share = len(ok) / len(both) if both else None
+    lag = np.array([(t(b["first_dead"]) - t(b["first_dead_obs10"]) + AVAILABILITY).total_seconds() / 60
+                    for b in both], float)
+    traded = [b for b in buckets if b["status"] == "traded" and b["market"] in kept]
+    sv = np.array([(t(b["served_first_dead"]) - t(b["first_dead"])).total_seconds() / 60
+                   for b in traded if b.get("served_first_dead")], float)
+
+    def q(a):
+        return ({"n": int(len(a)), "median": float(np.median(a)), "p10": float(np.quantile(a, .1)),
+                 "p90": float(np.quantile(a, .9))} if len(a) else {"n": 0})
+    return {"sanity": {"buckets_dead_both": len(both), "receipt_at_or_after_obs": len(ok), "share": share,
+                       "min_share": R4_SANITY_MIN,
+                       "verdict": "PASS" if share is not None and share >= R4_SANITY_MIN else "FAIL"},
+            "receipt_minus_obs_min": q(lag),
+            "served_floor_minus_receipt_min_traded": q(sv),
+            "dead_capture_only": int(sum(1 for b in buckets if b.get("first_dead") and not b.get("first_dead_obs10"))),
+            "dead_obs_only": int(sum(x.get("dead_obs_only", 0) for x in days)),
+            "non_monotone_steps": int(sum(x.get("non_monotone", 0) for x in days)),
+            "replay_bad_lines": int(sum(x.get("replay_bad_lines", 0) for x in days))}
 
 
 def _history(args):
@@ -922,8 +1059,19 @@ def _excluded(hist, window):
     return hist["excluded"] if window == "13-16" else hist["windows"][window]["excluded"]
 
 
+def _rule(args):
+    return RULE_R4_SHA256 if getattr(args, "dating", "obs") == "capture" else WINDOWS[args.window]["rule"]
+
+
 def run_stage_a_scan(args):
     hist, kept, rates, actual = _history(args)
+    replay_sums = None
+    if args.dating == "capture":
+        if not (args.replay_root and args.replay_sha256sums):
+            raise data.Refused("refused: --dating capture needs --replay-root and --replay-sha256sums")
+        replay_sums = sha256_file(Path(args.replay_root) / "SHA256SUMS")
+        if replay_sums != args.replay_sha256sums or replay_sums != REPLAY_SUMS_SHA256:
+            raise data.Refused(f"refused: replay SHA256SUMS sha256 {replay_sums} != the rule's {REPLAY_SUMS_SHA256}")
     la.screen_input_path(args.layout, "layout")
     markets = [m.strip() for m in args.markets.split(",")] if args.markets else list(MARKETS)
     unknown = [m for m in markets if m not in MARKETS]
@@ -934,9 +1082,9 @@ def run_stage_a_scan(args):
         raise data.Refused(f"refused: SHA256SUMS sha256 {sums} != {args.tapes_sha256sums}")
     layout = data.load_layout(args.layout, data.DEV_FIRST, data.check_range(*DEV_RANGE)[1])
     obs = load_obs(args.obs, check_sha=not args.no_obs_sha)
-    buckets, days = stage_a_scan(layout, obs, args.tapes, markets, kept, args.window)
-    return dict({"schema": SCHEMA_A_SCAN, "rule_sha256": WINDOWS[args.window]["rule"], "history_sha256": actual,
-                 "window": args.window,
+    buckets, days = stage_a_scan(layout, obs, args.tapes, markets, kept, args.window, args.dating, args.replay_root)
+    return dict({"schema": SCHEMA_A_SCAN, "rule_sha256": _rule(args), "history_sha256": actual,
+                 "window": args.window, "dating": args.dating, "replay_sha256sums_sha256": replay_sums,
                  "tapes_sha256sums_sha256": sums, "layout_manifest_sha256": layout.manifest_sha256,
                  "markets": markets, "buckets": buckets, "days": days,
                  "dates_all": sorted({str(d) for d in layout.snaps.date.astype(str)})}, **_code())
@@ -947,8 +1095,9 @@ def run_stage_a_report(args):
     buckets, days, markets, meta = [], [], [], {}
     for path in args.scans:
         p = json.loads(Path(path).read_text(encoding="utf-8"))
-        if (p.get("schema") != SCHEMA_A_SCAN or p.get("rule_sha256") != WINDOWS[args.window]["rule"]
-                or p.get("history_sha256") != actual or p.get("window", "13-16") != args.window):
+        if (p.get("schema") != SCHEMA_A_SCAN or p.get("rule_sha256") != _rule(args)
+                or p.get("history_sha256") != actual or p.get("window", "13-16") != args.window
+                or p.get("dating", "obs") != args.dating):
             raise data.Refused(f"refused: {path} is not a stage-A scan of this rule and history")
         for k in ("tapes_sha256sums_sha256", "layout_manifest_sha256", "code_sha256", "dates_all"):
             if meta.setdefault(k, p[k]) != p[k]:
@@ -963,8 +1112,8 @@ def run_stage_a_report(args):
         raise data.Refused(f"refused: scans cover {sorted(markets)}, not the 11 markets")
     res, summ = stage_a_report(buckets, days, meta["dates_all"], kept, rates, args.window)
     W = WINDOWS[args.window]
-    return dict({"schema": SCHEMA_A, "rule_sha256": W["rule"], "history_sha256": actual,
-                 "window": args.window, "entry_window_local": "%02d:%02d-%02d:%02d" % (*W["start"], *W["end"]),
+    return dict({"schema": SCHEMA_A, "rule_sha256": _rule(args), "history_sha256": actual,
+                 "window": args.window, "dating": args.dating, "entry_window_local": "%02d:%02d-%02d:%02d" % (*W["start"], *W["end"]),
                  "evidence_class": "development (dev window); stage A = book + trade-print fills (clarification 1)",
                  "excluded": _excluded(hist, args.window), "kept_markets": kept, "results": res, "summary": summ,
                  "constants": {"fee_rate": FEE_RATE, "min_value": MIN_VALUE, "stakes": STAKES,
@@ -973,7 +1122,8 @@ def run_stage_a_report(args):
 
 
 def render_a(p):
-    L = [f"# Dead-bucket stage A, window {p.get('window', '13-16')} "
+    L = [f"# Dead-bucket stage A{' r4 (capture-dated)' if p.get('dating') == 'capture' else ''}, "
+         f"window {p.get('window', '13-16')} "
          f"({p.get('entry_window_local', '13:00-16:59')} local): book + trade-print fills (development evidence)", "",
          f"Rule `{p['rule_sha256']}`; history `{p['history_sha256']}`; tapes SHA256SUMS "
          f"`{p['tapes_sha256sums_sha256']}`; excluded {', '.join(p['excluded']) or 'none'}.", ""]
@@ -1004,6 +1154,9 @@ def main(argv=None):
     ap.add_argument("--window", choices=tuple(WINDOWS), default="13-16")
     ap.add_argument("--window-rule", choices=("r2", "r3"), default="r2")
     ap.add_argument("--control-history")
+    ap.add_argument("--dating", choices=("obs", "capture"), default="obs", help="capture = rule r4")
+    ap.add_argument("--replay-root")
+    ap.add_argument("--replay-sha256sums")
     ap.add_argument("--control-history-sha256")
     ap.add_argument("--obs")
     ap.add_argument("--wu-root")
@@ -1020,13 +1173,13 @@ def main(argv=None):
         elif args.phase == "stage-a-scan":
             if not (args.layout and args.history and args.history_sha256 and args.tapes and args.tapes_sha256sums):
                 raise data.Refused("refused: stage-a-scan needs --layout, --history(-sha256), --tapes(-sha256sums)")
-            sfx = "" if args.window == "13-16" else f"_{args.window}"
+            sfx = ("" if args.window == "13-16" else f"_{args.window}") + ("_r4" if args.dating == "capture" else "")
             payload, name = run_stage_a_scan(args), f"dead_bucket_stage_a{sfx}_scan_{args.tag}"
             render = lambda p: f"stage-A scan {p['markets']}: {len(p['buckets'])} buckets\n"  # noqa: E731
         elif args.phase == "stage-a-report":
             if not (args.history and args.history_sha256 and args.scans):
                 raise data.Refused("refused: stage-a-report needs --history(-sha256) and --scans")
-            sfx = "" if args.window == "13-16" else f"_{args.window}"
+            sfx = ("" if args.window == "13-16" else f"_{args.window}") + ("_r4" if args.dating == "capture" else "")
             payload, name, render = run_stage_a_report(args), f"dead_bucket_stage_a{sfx}", render_a
         else:
             if not (args.layout and args.history and args.history_sha256):

@@ -289,3 +289,72 @@ def test_r3_history_adds_cutoffs_without_changing_r2(monkeypatch):
     rates2, rates3 = r2["per_market"]["atlanta"]["rates"], r3["per_market"]["atlanta"]["rates"]
     assert {c: rates3[c] for c in rates2} == rates2
     assert rates3["12:59"] == 0.0 and rates3["16:59"] == 1.0 and rates3["20:59"] == 1.0
+
+
+# ----------------------------------------------------------------------------- r4 capture-time dating
+
+def _replay(tmp_path, snaps):
+    """Replay root: snapshots [(local HH:MM captured, [(obs local HH:MM, temp F)])] for SLUG."""
+    import json as _json
+    root = tmp_path / "replay"
+    ev = root / "snapshots" / SLUG
+    ev.mkdir(parents=True)
+    with open(ev / "replay_inputs.jsonl", "w", encoding="utf-8") as fh:
+        for cap, rows in snaps:
+            hh, mm = map(int, cap.split(":"))
+            t = datetime(2026, 8, 20, hh, mm, 5, tzinfo=TZ)
+            out = []
+            for ohm, temp in rows:
+                oh, om = map(int, ohm.split(":"))
+                o = datetime(2026, 8, 20, oh, om, tzinfo=TZ).astimezone(timezone.utc)
+                out.append({"raw": f"METAR KATL {o:%d%H%M}Z 00000KT 10SM CLR A3000",
+                            "report_time": (o + timedelta(minutes=7)).isoformat().replace("+00:00", "Z"),
+                            "temp_native": float(temp)})
+            fh.write(_json.dumps({"captured_at_local": t.isoformat(),
+                                  "captured_at_utc": t.astimezone(timezone.utc).isoformat(),
+                                  "sources": {"metar": {"data": {"rows": out}}}}) + "\n")
+        fh.write("{not json\n")
+    (root / "SHA256SUMS").write_text("", encoding="utf-8")
+    return root
+
+
+def test_r4_dates_death_at_the_first_snapshot_whose_rows_hold_the_killing_metar(tmp_path, monkeypatch):
+    early_rows = [(f"{h:02d}:53", 70) for h in range(13)]
+    snaps = [("13:50", early_rows),
+             ("14:10", early_rows),  # captured after 13:53 + 10 min, but its rows lack the 13:53 METAR
+             ("14:20", early_rows + [("13:53", 84)])]
+    obs = {"atlanta": {"tz": TZ, "days": {D: _day([70] * 13 + [84] * 5)}}}
+    monkeypatch.setattr(db, "MARKETS", ("atlanta",))
+    asks = [("14:06", 0.90, 20.0), ("14:22", 0.85, 30.0)]
+    prints = [("14:07", "tokNO", 0.90, 9.0), ("14:23", "tokNO", 0.85, 5.0)]
+    root = _tapes(tmp_path, asks, prints)
+    replay = _replay(tmp_path, snaps)
+    buckets, days = db.stage_a_scan(_layout(lambda i, b: 0.1, 2), obs, root, ["atlanta"], ["atlanta"],
+                                    "13-16", "capture", replay)
+    b = next(x for x in buckets if x["band_index"] == 1)
+    assert b["first_dead"].startswith("2026-08-20T14:20:05")  # receipt, no +10 min
+    assert b["first_dead_obs10"].startswith("2026-08-20T14:03:00")  # r2 dating, descriptive
+    assert b["entry_instant"].startswith("2026-08-20T14:21:05")
+    assert b["status"] == "traded" and b["q"] == pytest.approx(0.85)
+    assert b["filled_print_d1_25"] == pytest.approx(5.0)  # the 14:07 print is before the r4 entry
+    assert days[0]["replay_snapshots"] == 3 and days[0]["replay_bad_lines"] == 1
+    _, summ = db.stage_a_report(buckets, days, ["2026-08-20"], ["atlanta"], {"atlanta": 0.0})
+    assert summ["r4"]["sanity"]["verdict"] == "PASS" and summ["r4"]["sanity"]["share"] == pytest.approx(1.0)
+    assert summ["r4"]["receipt_minus_obs_min"]["median"] == pytest.approx(27 + 5 / 60)
+
+
+def test_r4_snapshot_before_the_observation_never_kills(tmp_path, monkeypatch):
+    rows = [(f"{h:02d}:53", 70) for h in range(13)] + [("16:53", 84)]
+    snaps = [("16:40", rows)]  # a row observed after the capture instant is ignored (now bounds it)
+    obs = {"atlanta": {"tz": TZ, "days": {D: _day([70] * 18)}}}
+    monkeypatch.setattr(db, "MARKETS", ("atlanta",))
+    root = _tapes(tmp_path, [("16:45", 0.9, 20.0)], [])
+    replay = _replay(tmp_path, snaps)
+    buckets, days = db.stage_a_scan(_layout(lambda i, b: 0.1, 2), obs, root, ["atlanta"], ["atlanta"],
+                                    "13-16", "capture", replay)
+    assert not buckets and days[0]["status"] == "no_dead"
+
+
+def test_r4_refuses_other_windows(tmp_path):
+    with pytest.raises(db.data.Refused):
+        db.stage_a_scan(None, {}, tmp_path, [], [], "late", "capture", tmp_path)
