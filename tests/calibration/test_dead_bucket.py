@@ -213,3 +213,79 @@ def test_discover_skips_folders_after_the_dev_window(tmp_path):
     for slug in (SLUG, "highest-temperature-in-atlanta-on-september-30-2026", "unrelated"):
         (tmp_path / slug).mkdir()
     assert list(db.discover_tape_events(tmp_path)) == [("atlanta", "2026-08-20")]
+
+
+# ----------------------------------------------------------------------------- r3 windows (late, early)
+
+def _stage_a_window(tmp_path, monkeypatch, temps, no_asks, prints, window):
+    obs = {"atlanta": {"tz": TZ, "days": {D: _day(temps)}}}
+    monkeypatch.setattr(db, "MARKETS", ("atlanta",))
+    root = _tapes(tmp_path, no_asks, prints)
+    return db.stage_a_scan(_layout(lambda i, b: 0.1, 2), obs, root, ["atlanta"], ["atlanta"], window)
+
+
+def test_late_window_uses_evening_floor_and_entry(tmp_path, monkeypatch):
+    temps = [70] * 18 + [84] * 4  # H 84 from 18:53 (after 16:59): eq 81-82 dead only in the late window
+    asks = [("19:00", 0.80, 100.0), ("19:06", 0.90, 20.0)]
+    prints = [("19:07", "tokNO", 0.90, 6.0)]
+    buckets, days = _stage_a_window(tmp_path, monkeypatch, temps, asks, prints, "late")
+    b = next(x for x in buckets if x["band_index"] == 1)
+    assert b["entry_instant"].startswith("2026-08-20T19:04:00")  # 18:53 + 10 min + 60 s
+    assert b["status"] == "traded" and b["entry_hour"] == 19 and b["q"] == pytest.approx(0.90)
+    assert b["filled_print_d1_25"] == pytest.approx(6.0)
+    assert b["duration_min"] == pytest.approx(115.0)  # 19:04 -> 20:59 (window end)
+    b13, _ = _stage_a_window(tmp_path / "x", monkeypatch, temps, asks, prints, "13-16")
+    assert not b13  # not dead by 16:59
+
+
+def test_late_window_entry_is_never_before_17(tmp_path, monkeypatch):
+    temps = [70] * 13 + [84] * 9  # dead from 14:03, so the late entry is 17:00
+    buckets, _ = _stage_a_window(tmp_path, monkeypatch, temps, [("16:50", 0.5, 50.0), ("17:01", 0.9, 20.0)],
+                                 [("17:02", "tokNO", 0.9, 2.0)], "late")
+    b = next(x for x in buckets if x["band_index"] == 1)
+    assert b["entry_instant"].startswith("2026-08-20T17:00:00") and b["q"] == pytest.approx(0.9)
+    assert b["filled_print_d1_25"] == pytest.approx(2.0)
+
+
+def test_early_window_floor_killed_only(tmp_path, monkeypatch):
+    temps = [70] * 9 + [84] * 9  # H 84 from 09:53 -> entry 10:04
+    buckets, _ = _stage_a_window(tmp_path, monkeypatch, temps, [("10:06", 0.90, 20.0)],
+                                 [("10:08", "tokNO", 0.90, 4.0)], "early")
+    b = next(x for x in buckets if x["band_index"] == 1)
+    assert b["entry_instant"].startswith("2026-08-20T10:04:00") and b["entry_hour"] == 10
+    assert b["filled_print_d1_25"] == pytest.approx(4.0)
+    assert b["duration_min"] == pytest.approx(175.0)  # 10:04 -> 12:59
+    late_kill = [70] * 13 + [84] * 5  # killed at 13:53: not dead by 12:59
+    b2, _ = _stage_a_window(tmp_path / "y", monkeypatch, late_kill, [("14:06", 0.9, 20.0)], [], "early")
+    assert not b2
+
+
+def test_window_report_hours():
+    traded = {"market": "atlanta", "date": "2026-08-20", "status": "traded", "entry_hour": 18, "q": 0.9,
+              "printed_shares": 1.0, "trade_parts": 1, "settled_yes": False, "quote_source": "no_ask",
+              "duration_min": 3.0, "excluded_market": False}
+    for s in db.STAKES:
+        for v in db.A_VARIANTS:
+            traded[f"filled_{v}_{int(s)}"] = 1.0
+            traded[f"pnl_{v}_{int(s)}"] = 0.05
+    res, _ = db.stage_a_report([traded], [], ["2026-08-20"], ["atlanta"], {"atlanta": 0.0}, "late")
+    assert set(res["A_08-10..09-29"]["per_hour_25"]) == {"17", "18", "19", "20"}
+    assert res["A_08-10..09-29"]["per_hour_25"]["18"]["estimate"] == pytest.approx(0.05)
+
+
+def test_r3_history_adds_cutoffs_without_changing_r2(monkeypatch):
+    temps = [70] * 13 + [84] * 9  # 12 METAR rows by 16:59 hold (17 rows)
+    day = _day(temps)
+    obs = {"atlanta": {"tz": TZ, "days": {date(2021, 8, 20): day.assign(
+        valid_utc=day.valid_utc - pd.Timedelta(days=365 * 5 + 1))}, "station": "KATL",
+        "modal_minute_by_year": {}}}
+    wu = pd.DataFrame({"row_count": [24], "first_time": ["00:00"], "last_time": ["23:59"],
+                       "max_temp_native": [80.0]}, index=[date(2021, 8, 20)])
+    monkeypatch.setattr(db, "MARKETS", ("atlanta",))
+    monkeypatch.setattr(db, "load_wu", lambda root, mk: (wu, "p"))
+    monkeypatch.setattr(db, "sha256_file", lambda p: "s")
+    r2 = db.history(obs, None)
+    r3 = db.history(obs, None, extra=db.R3_EXTRA_CUTOFFS)
+    rates2, rates3 = r2["per_market"]["atlanta"]["rates"], r3["per_market"]["atlanta"]["rates"]
+    assert {c: rates3[c] for c in rates2} == rates2
+    assert rates3["12:59"] == 0.0 and rates3["16:59"] == 1.0 and rates3["20:59"] == 1.0

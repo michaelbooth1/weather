@@ -56,6 +56,8 @@ SCHEMA_HISTORY = "dead_bucket_history/1"
 SCHEMA_C = "dead_bucket_stage_c/1"
 RULE_SHA256 = "177e9acfd7dc50b60d53bdd236ecef971ebcdf767f9dbf4cd0bd241579b17774"
 ORIGINAL_RULE_SHA256 = "a17ed258caaba9a9b0289fe67fbd7d28c83b053f0f33aa9a977093ea401d9663"
+# r3 (``C:	\l11\deadbucket_rule_r3.md``): r2 with entry windows outside 13-16 (late primary, early secondary).
+RULE_R3_SHA256 = "1abd3f1a8a9c5e30213b87303cdc518932f2ab99020b6eabb5d7dcc42189ae94"
 OBS_SHA256 = "37d97195828d9f58d510f078e3029d53ed051fe471c4a94333bb0cc51f6d28f2"
 
 MARKETS = ("atlanta", "austin", "chicago", "dallas", "denver", "houston", "los-angeles", "miami", "nyc",
@@ -74,6 +76,16 @@ AVAILABILITY = timedelta(minutes=10)
 LATENCY = timedelta(seconds=60)
 ENTRY_FIRST = time(13, 0)
 ENTRY_LAST = time(16, 59, 59)
+# Entry windows: (start hh, mm), (end hh, mm), running-max cutoff hour, history cutoff, entry hours, rule sha.
+WINDOWS = {
+    "13-16": {"start": (13, 0), "end": (16, 59), "cutoff_hour": 17, "decisive": "16:59",
+              "hours": (13, 14, 15, 16), "rule": RULE_SHA256},
+    "late": {"start": (17, 0), "end": (20, 59), "cutoff_hour": 21, "decisive": "20:59",
+             "hours": (17, 18, 19, 20), "rule": RULE_R3_SHA256},
+    "early": {"start": (7, 0), "end": (12, 59), "cutoff_hour": 13, "decisive": "12:59",
+              "hours": (7, 8, 9, 10, 11, 12), "rule": RULE_R3_SHA256},
+}
+R3_EXTRA_CUTOFFS = (("12:59", 12, 59, 13), ("20:59", 20, 59, 21))
 SPREAD = 0.01
 FEE_RATE = 0.05
 MIN_VALUE = 0.005
@@ -157,9 +169,9 @@ def local_instant(d, hh, mm, tz, ss=0):
     return datetime.combine(d, time(hh, mm, ss), tz)
 
 
-def running(rows, d, tz, now):
+def running(rows, d, tz, now, cutoff_hour=RUNNING_MAX_CUTOFF_HOUR):
     return running_max_since_midnight(None, {"rows": rows}, target_date=d, tz=tz, unit=UNIT,
-                                      cutoff_hour=RUNNING_MAX_CUTOFF_HOUR, now=now)
+                                      cutoff_hour=cutoff_hour, now=now)
 
 
 def n_rows_by(rows, d, tz, now):
@@ -170,16 +182,16 @@ def variant_h(day, d, tz, variant, now):
     return H(running(l8_rows(day, variant), d, tz, now)[0])
 
 
-def h_steps(day, d, tz):
-    """[(obs instant local, H)] at every observation <= 16:59 local (H non-decreasing)."""
+def h_steps(day, d, tz, end_hm=(16, 59), cutoff_hour=RUNNING_MAX_CUTOFF_HOUR):
+    """[(obs instant local, H)] at every observation <= ``end_hm`` local (default 16:59; H non-decreasing)."""
     rows = l8_rows(day)
-    end = local_instant(d, 16, 59, tz)
+    end = local_instant(d, *end_hm, tz)
     steps = []
     for r in rows:
         t = datetime.fromisoformat(r["obs_time"]).astimezone(tz)
         if t.date() != d or t > end:
             continue
-        h = H(running(rows, d, tz, t)[0])
+        h = H(running(rows, d, tz, t, cutoff_hour)[0])
         if h is not None:
             steps.append((t, h))
     steps.sort(key=lambda s: s[0])
@@ -226,7 +238,8 @@ def load_wu(wu_root, market):
     return w.drop_duplicates("local_date", keep="last").set_index("local_date"), path
 
 
-def history(obs, wu_root):
+def history(obs, wu_root, extra=()):
+    """r2's history; ``extra`` adds (name, hh, mm, running cutoff hour) cutoffs (r3), the kept days unchanged."""
     per_market, violations = {}, []
     for mk in MARKETS:
         o = obs[mk]
@@ -235,6 +248,7 @@ def history(obs, wu_root):
         wu = wu[[d.year in HIST_YEARS and d.month in HIST_MONTHS for d in wu.index]]
         counts = {"wu_days": int(len(wu)), "kept": 0, "drop_wu_rows": 0, "drop_metar_rows": 0}
         viol = {c: 0 for c, _, _ in CUTOFFS}
+        viol.update({c: 0 for c, _, _, _ in extra})
         for d, w in wu.iterrows():
             if pd.isna(w.row_count) or int(w.row_count) < WU_MIN_ROWS or pd.isna(w.max_temp_native):
                 counts["drop_wu_rows"] += 1
@@ -251,6 +265,10 @@ def history(obs, wu_root):
                 h = H(running(rows, d, tz, local_instant(d, hh, mm, tz))[0])
                 if h is not None and wu_max < h:
                     viol[c] += 1
+            for c, hh, mm, ch in extra:
+                h = H(running(rows, d, tz, local_instant(d, hh, mm, tz), ch)[0])
+                if h is not None and wu_max < h:
+                    viol[c] += 1
             r, first_minute = running(rows, d, tz, end)
             h = H(r)
             if h is not None and wu_max < h:
@@ -262,7 +280,7 @@ def history(obs, wu_root):
                                    "shortfall": h - wu_max, "max_minute": first_minute,
                                    "wu_last_time": str(w.last_time), "wu_row_count": int(w.row_count),
                                    "gone": gone, "cause": classify(gone, first_minute, w.last_time)})
-        rates = {c: (viol[c] / counts["kept"] if counts["kept"] else None) for c, _, _ in CUTOFFS}
+        rates = {c: (viol[c] / counts["kept"] if counts["kept"] else None) for c in viol}
         causes = {k: 0 for k in CAUSES}
         for v in violations:
             if v["market"] == mk:
@@ -469,8 +487,40 @@ def _code():
                                                  .read_bytes()).hexdigest()}
 
 
+def r3_history_control(res, control_path, control_sha):
+    """r3 positive control: r2's rates at 13:00..16:59 and its excluded set reproduce exactly."""
+    actual = sha256_file(control_path)
+    if actual != control_sha:
+        raise data.Refused(f"refused: control history sha256 {actual} != {control_sha}")
+    ref = json.loads(Path(control_path).read_text(encoding="utf-8"))
+    if ref.get("schema") != SCHEMA_HISTORY or ref.get("rule_sha256") != RULE_SHA256:
+        raise data.Refused("refused: control history is not r2's history phase")
+    diffs = [(mk, c) for mk in MARKETS for c, _, _ in CUTOFFS
+             if ref["per_market"][mk]["rates"][c] != res["per_market"][mk]["rates"][c]]
+    if diffs or ref["excluded"] != res["excluded"]:
+        raise ControlFailed(f"refused: r3 history does not reproduce r2 {diffs[:5]} {ref['excluded']}")
+    return {"r2_history_sha256": actual, "verdict": "PASS", "cutoffs": [c for c, _, _ in CUTOFFS]}
+
+
 def run_history(args):
     obs = load_obs(args.obs, check_sha=not args.no_obs_sha)
+    if args.window_rule == "r3":
+        if not (args.control_history and args.control_history_sha256):
+            raise data.Refused("refused: r3 history needs --control-history(-sha256) (r2's history)")
+        res = history(obs, args.wu_root, extra=R3_EXTRA_CUTOFFS)
+        control = r3_history_control(res, args.control_history, args.control_history_sha256)
+        by_w = {}
+        for w in ("late", "early"):
+            dec = WINDOWS[w]["decisive"]
+            exc = sorted(mk for mk, v in res["per_market"].items()
+                         if v["rates"][dec] is None or v["rates"][dec] > X_EXCLUDE)
+            by_w[w] = {"decisive": dec, "excluded": exc, "kept_markets": [mk for mk in MARKETS if mk not in exc]}
+        return dict({"schema": SCHEMA_HISTORY, "rule_sha256": RULE_R3_SHA256, "obs_sha256": OBS_SHA256,
+                     "control": control, "windows": by_w,
+                     "constants": {"X": X_EXCLUDE, "years": HIST_YEARS, "months": HIST_MONTHS,
+                                   "wu_min_rows": WU_MIN_ROWS, "metar_min_rows": METAR_MIN_ROWS,
+                                   "cutoffs": [c for c, _, _ in CUTOFFS] + [c for c, _, _, _ in R3_EXTRA_CUTOFFS]}},
+                    **_code(), **res)
     res = history(obs, args.wu_root)
     return dict({"schema": SCHEMA_HISTORY, "rule_sha256": RULE_SHA256, "obs_sha256": OBS_SHA256,
                  "constants": {"X": X_EXCLUDE, "years": HIST_YEARS, "months": HIST_MONTHS, "wu_min_rows": WU_MIN_ROWS,
@@ -530,6 +580,14 @@ def render_history(p):
         causes = ", ".join(f"{k} {n}" for k, n in v["causes"].items() if n)
         lines.append(f"| {mk} | {v['counts']['kept']} | " + " | ".join(
             "n/a" if r[c] is None else f"{r[c]:.2%}" for c, _, _ in CUTOFFS) + f" | {v['excluded']} | {causes} |")
+    if "windows" in p:  # r3: the added cutoffs and the per-window exclusion
+        lines += ["", f"r3 control (r2 rates reproduce): {p['control']['verdict']}.", "",
+                  "| market | 12:59 | 20:59 |", "| --- | --- | --- |"]
+        for mk, v in p["per_market"].items():
+            lines.append(f"| {mk} | " + " | ".join("n/a" if v["rates"][c] is None else f"{v['rates'][c]:.2%}"
+                                                  for c in ("12:59", "20:59")) + " |")
+        for w, x in p["windows"].items():
+            lines.append(f"\nWindow {w}: decisive {x['decisive']}, excluded {', '.join(x['excluded']) or 'none'}.")
     return "\n".join(lines) + "\n"
 
 
@@ -708,7 +766,8 @@ def a_pnl(filled, q, yes):
     return -filled * q - filled * fee(q) if yes else filled * (1.0 - q) - filled * fee(q)
 
 
-def stage_a_scan(layout, obs, tapes_root, markets, kept):
+def stage_a_scan(layout, obs, tapes_root, markets, kept, window="13-16"):
+    W = WINDOWS[window]
     events = discover_tape_events(tapes_root)
     buckets, days = [], []
     for mk, d, s, geo, price, winner, settlement_high in layout_market_days(layout):
@@ -717,15 +776,15 @@ def stage_a_scan(layout, obs, tapes_root, markets, kept):
         tz = obs[mk]["tz"]
         dd = date.fromisoformat(d)
         day = obs[mk]["days"].get(dd)
-        steps = h_steps(day, dd, tz)
-        end = local_instant(dd, 16, 59, tz)
-        h_end = H(running(l8_rows(day), dd, tz, end)[0])
+        steps = h_steps(day, dd, tz, W["end"], W["cutoff_hour"])
+        end = local_instant(dd, *W["end"], tz)
+        h_end = H(running(l8_rows(day), dd, tz, end, W["cutoff_hour"])[0])
         dead = []
         for band in geo.itertuples(index=False):
             if band.kind not in DEAD_KINDS or h_end is None or not float(band.high) < h_end:
                 continue
             fd = first_dead(steps, float(band.high))
-            dead.append((band, fd, max(fd + LATENCY, local_instant(dd, 13, 0, tz))))
+            dead.append((band, fd, max(fd + LATENCY, local_instant(dd, *W["start"], tz))))
         folder = events.get((mk, d))
         info = {"market": mk, "date": d, "n_dead": len(dead), "folder": folder.name if folder else None}
         if not dead or folder is None:
@@ -802,7 +861,8 @@ def reading_a(primary):
     return "NOT WORTH PURSUING (lower CI <= 0)"
 
 
-def stage_a_report(buckets, days, dates_all, kept, rates):
+def stage_a_report(buckets, days, dates_all, kept, rates, window="13-16"):
+    hours = WINDOWS[window]["hours"]
     win_a = [d for d in dates_all if d >= A_WINDOW_FIRST]
     win_b = [d for d in dates_all if d <= BOOK_ONLY_LAST]
 
@@ -812,7 +872,7 @@ def stage_a_report(buckets, days, dates_all, kept, rates):
                 "ladder": {str(int(s)): a_table(buckets, dates, kept, rates, variant, stake=s) for s in STAKES},
                 "expected_loss_25": a_table(buckets, dates, kept, rates, variant, expected_loss=True),
                 "primary5_25": a_table(buckets, dates, [m for m in PRIMARY5 if m in kept], rates, variant),
-                "per_hour_25": {str(h): a_table(buckets, dates, kept, rates, variant, hour=h) for h in (13, 14, 15, 16)},
+                "per_hour_25": {str(h): a_table(buckets, dates, kept, rates, variant, hour=h) for h in hours},
                 "per_market_25": {mk: dict(a_table(buckets, dates, [mk], rates, variant), excluded=mk not in kept)
                                   for mk in MARKETS}}
 
@@ -846,13 +906,20 @@ def stage_a_report(buckets, days, dates_all, kept, rates):
 
 
 def _history(args):
+    W = WINDOWS[args.window]
     actual = sha256_file(args.history)
     if actual != args.history_sha256:
         raise data.Refused(f"refused: history sha256 {actual} != {args.history_sha256}")
     hist = json.loads(Path(args.history).read_text(encoding="utf-8"))
-    if hist.get("schema") != SCHEMA_HISTORY or hist.get("rule_sha256") != RULE_SHA256:
-        raise data.Refused("refused: history file is not this rule's history phase")
-    return hist, hist["kept_markets"], {mk: v["rates"][DECISIVE] for mk, v in hist["per_market"].items()}, actual
+    if hist.get("schema") != SCHEMA_HISTORY or hist.get("rule_sha256") != W["rule"]:
+        raise data.Refused(f"refused: history file is not window {args.window}'s rule history phase")
+    kept = hist["kept_markets"] if args.window == "13-16" else hist["windows"][args.window]["kept_markets"]
+    rates = {mk: v["rates"][W["decisive"]] for mk, v in hist["per_market"].items()}
+    return hist, kept, rates, actual
+
+
+def _excluded(hist, window):
+    return hist["excluded"] if window == "13-16" else hist["windows"][window]["excluded"]
 
 
 def run_stage_a_scan(args):
@@ -867,8 +934,9 @@ def run_stage_a_scan(args):
         raise data.Refused(f"refused: SHA256SUMS sha256 {sums} != {args.tapes_sha256sums}")
     layout = data.load_layout(args.layout, data.DEV_FIRST, data.check_range(*DEV_RANGE)[1])
     obs = load_obs(args.obs, check_sha=not args.no_obs_sha)
-    buckets, days = stage_a_scan(layout, obs, args.tapes, markets, kept)
-    return dict({"schema": SCHEMA_A_SCAN, "rule_sha256": RULE_SHA256, "history_sha256": actual,
+    buckets, days = stage_a_scan(layout, obs, args.tapes, markets, kept, args.window)
+    return dict({"schema": SCHEMA_A_SCAN, "rule_sha256": WINDOWS[args.window]["rule"], "history_sha256": actual,
+                 "window": args.window,
                  "tapes_sha256sums_sha256": sums, "layout_manifest_sha256": layout.manifest_sha256,
                  "markets": markets, "buckets": buckets, "days": days,
                  "dates_all": sorted({str(d) for d in layout.snaps.date.astype(str)})}, **_code())
@@ -879,7 +947,8 @@ def run_stage_a_report(args):
     buckets, days, markets, meta = [], [], [], {}
     for path in args.scans:
         p = json.loads(Path(path).read_text(encoding="utf-8"))
-        if p.get("schema") != SCHEMA_A_SCAN or p.get("rule_sha256") != RULE_SHA256 or p.get("history_sha256") != actual:
+        if (p.get("schema") != SCHEMA_A_SCAN or p.get("rule_sha256") != WINDOWS[args.window]["rule"]
+                or p.get("history_sha256") != actual or p.get("window", "13-16") != args.window):
             raise data.Refused(f"refused: {path} is not a stage-A scan of this rule and history")
         for k in ("tapes_sha256sums_sha256", "layout_manifest_sha256", "code_sha256", "dates_all"):
             if meta.setdefault(k, p[k]) != p[k]:
@@ -892,17 +961,20 @@ def run_stage_a_report(args):
         meta.setdefault("scan_sha256", {})[str(path)] = sha256_file(path)
     if sorted(markets) != sorted(MARKETS):
         raise data.Refused(f"refused: scans cover {sorted(markets)}, not the 11 markets")
-    res, summ = stage_a_report(buckets, days, meta["dates_all"], kept, rates)
-    return dict({"schema": SCHEMA_A, "rule_sha256": RULE_SHA256, "history_sha256": actual,
+    res, summ = stage_a_report(buckets, days, meta["dates_all"], kept, rates, args.window)
+    W = WINDOWS[args.window]
+    return dict({"schema": SCHEMA_A, "rule_sha256": W["rule"], "history_sha256": actual,
+                 "window": args.window, "entry_window_local": "%02d:%02d-%02d:%02d" % (*W["start"], *W["end"]),
                  "evidence_class": "development (dev window); stage A = book + trade-print fills (clarification 1)",
-                 "excluded": hist["excluded"], "kept_markets": kept, "results": res, "summary": summ,
+                 "excluded": _excluded(hist, args.window), "kept_markets": kept, "results": res, "summary": summ,
                  "constants": {"fee_rate": FEE_RATE, "min_value": MIN_VALUE, "stakes": STAKES,
                                "latency_s": LATENCY.total_seconds(), "print_window_min": 5,
                                "draws": sc.DRAWS, "seed": sc.SEED}}, **meta)
 
 
 def render_a(p):
-    L = ["# Dead-bucket stage A: book + trade-print fills (development evidence)", "",
+    L = [f"# Dead-bucket stage A, window {p.get('window', '13-16')} "
+         f"({p.get('entry_window_local', '13:00-16:59')} local): book + trade-print fills (development evidence)", "",
          f"Rule `{p['rule_sha256']}`; history `{p['history_sha256']}`; tapes SHA256SUMS "
          f"`{p['tapes_sha256sums_sha256']}`; excluded {', '.join(p['excluded']) or 'none'}.", ""]
     for w, res in p["results"].items():
@@ -929,6 +1001,10 @@ def main(argv=None):
     ap.add_argument("--markets")
     ap.add_argument("--scans", nargs="*")
     ap.add_argument("--tag", default="all")
+    ap.add_argument("--window", choices=tuple(WINDOWS), default="13-16")
+    ap.add_argument("--window-rule", choices=("r2", "r3"), default="r2")
+    ap.add_argument("--control-history")
+    ap.add_argument("--control-history-sha256")
     ap.add_argument("--obs")
     ap.add_argument("--wu-root")
     ap.add_argument("--layout")
@@ -939,16 +1015,19 @@ def main(argv=None):
     args = ap.parse_args(argv)
     try:
         if args.phase == "history":
-            payload, name, render = run_history(args), "dead_bucket_history", render_history
+            payload, render = run_history(args), render_history
+            name = "dead_bucket_history" + ("_r3" if args.window_rule == "r3" else "")
         elif args.phase == "stage-a-scan":
             if not (args.layout and args.history and args.history_sha256 and args.tapes and args.tapes_sha256sums):
                 raise data.Refused("refused: stage-a-scan needs --layout, --history(-sha256), --tapes(-sha256sums)")
-            payload, name = run_stage_a_scan(args), f"dead_bucket_stage_a_scan_{args.tag}"
+            sfx = "" if args.window == "13-16" else f"_{args.window}"
+            payload, name = run_stage_a_scan(args), f"dead_bucket_stage_a{sfx}_scan_{args.tag}"
             render = lambda p: f"stage-A scan {p['markets']}: {len(p['buckets'])} buckets\n"  # noqa: E731
         elif args.phase == "stage-a-report":
             if not (args.history and args.history_sha256 and args.scans):
                 raise data.Refused("refused: stage-a-report needs --history(-sha256) and --scans")
-            payload, name, render = run_stage_a_report(args), "dead_bucket_stage_a", render_a
+            sfx = "" if args.window == "13-16" else f"_{args.window}"
+            payload, name, render = run_stage_a_report(args), f"dead_bucket_stage_a{sfx}", render_a
         else:
             if not (args.layout and args.history and args.history_sha256):
                 raise data.Refused("refused: stage-c needs --layout, --history and --history-sha256")
