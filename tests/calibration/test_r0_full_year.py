@@ -1,4 +1,7 @@
-"""Research-only R0 full-year vs windowed scorer (weather.calibration.r0_full_year)."""
+"""Research-only R0 full-year vs windowed scorer (weather.calibration.r0_full_year).
+
+Guards: lane L1 pre-declared full-year pick rule; blocked leave-one-year-out validation; PIT corpus cutoff 2026-09-29.
+"""
 from __future__ import annotations
 
 import json

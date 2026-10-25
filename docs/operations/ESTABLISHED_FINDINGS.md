@@ -115,6 +115,7 @@ sequence numbers, not calendar dates.
 | 10x | From the 2026-10-23 events the venue's declared resolution source is the raw aviationweather.gov METAR API, routine reports only (SPECI excluded), with a WU fallback; Denver names KDEN, not our KBKF (event metadata only; SPECI effect measured 07-31..09-29) |
 | 10y | Free-source and blend levers (lane G, development, 2026-10-24): F1, F3, F4, G2-a and L4 add nothing over their no-source controls and none helps 07-12; F2 MRMS is a sub-bar 13-16 lead |
 | 10z | R0 trained on the full year beats windowed R0 but loses to the floored forecast baselines by about 1 nat at 07-12 (lane L1, workstation, 2026-10-24); not adopted |
+| 10ac | Lane L9 ingredient ladder on OLS + hard floor (blocked LOYO 2021-25, weather-only, 2026-10-25): PIT NBM mean KEEP, cross-market pooling KEEP; overnight low, dewpoint and hour-pooled slopes KILL |
 
 ---
 
@@ -4073,6 +4074,71 @@ lanes; nothing here is confirmation. Record, rules (each committed before scorin
 - **Not claimed:** nothing about edge over market prices; one centre (11-24) and five markets; the seasonal columns
   are not served features.
 
+### 10aa. A pooled residual model beats OLS + floor and the floored forecast on R0's rows, and beats the served vector on the development window; pooling is the lever, and it is still worse than the market — lane L2, workstation, 2026-10-24/25
+
+**Claim, at exactly this scope:** a model pooled across the 11 US markets (`weather.calibration.pooled_residual_model`, arm P3) beats lane L3's OLS + floor ((a), EF §10ab) and the floored bias-corrected forecast ((f)) at 07-12, on R0's own blocked leave-one-year-out rows. Its development variant P3d beats the served vector on the development window.
+- What P3 does: it forecasts the WU high minus a bias-corrected forecast, fitting the bias per market and per cutoff inside each fold. It hard-floors the result at the observed running high, and its error distribution is learned rather than assumed normal.
+- What this is: model against model on development years, and model against served on development dates.
+- What this is not: edge evidence. No market price enters any comparison except the scorecard's R denominator, and **P3d's R stays above 1 in every block**, so it is still worse than the market everywhere. Nor is it confirmation or promotion evidence (§5).
+- The dev-window numbers are **selection evidence only**; the window has been reused by many lanes.
+- Nothing after 2026-09-29 was read.
+
+**The model.**
+1. mu0 = forecast_high + the in-fold (market, cutoff) bias, or the market normal when there is no forecast.
+2. OLS of the residual y − mu0 on [1, g, max(g, 0)], where g = observed high so far − mu0.
+3. An HGB on the OLS residual, using station, level and day-of-year features.
+4. An HGB scale model fitted on inner-LOYO errors.
+5. A kernel-smoothed empirical standardised-error distribution, censored at the floor bucket, mixed 0.98/0.02 with climatology.
+
+P3 is fitted per cutoff on all markets together. The rule is `rule.md`, sha256 `53ba558b50502fd51bf5565c448493169ae2c6524234b5f4439de6a92bde3a32` (the original `e2649f16…` plus amendments 1-4, each appended before its rows existed). Research record: [l2-pooled-residual-2026-10-24](../research/l2-pooled-residual-2026-10-24/README.md).
+
+**Oct-Dec, R0's rows.**
+- Setup:
+  - PIT union `674b12ac`, centre 11-24, 11 markets.
+  - 11,550 rows, identical to L3's: (a) has a max abs diff of 0 on every row, and R0 reproduces to 1.8e-15.
+  - Date-clustered bootstrap: 75 clusters, 2,000 draws, seed 20261024, with crossed date × market beside it.
+  - P3 is also trained on the Aug-Sep corpus `b455bd53` (union `744289be`). Incomplete centres are dropped whole (12-24 fails closed).
+- Log loss at 07-12, P3 minus:
+
+| Comparator | Δ log loss | Interval |
+| --- | --- | --- |
+| (a) L3 OLS + floor | **−0.147** | 97.5% [−0.195, −0.102]; crossed [−0.211, −0.083] |
+| (f) floored bias-corrected forecast | **−0.272** | 97.5% [−0.339, −0.211]; crossed [−0.374, −0.183] |
+
+- Brier vs (a): −0.032. vs (f): −0.049.
+- Hour 12: −0.159 vs (a), −0.447 vs (f). The gain over (a) grows into the afternoon: −0.373 at hour 15.
+- No market is worse than (a) beyond its interval. Miami, NYC and Seattle intervals cross 0.
+- Against lane D's floored R0 (5 markets): −1.995 [−2.258, −1.745].
+- **Pooling is the lever.** The per-market twin U0 is worse than P3 by +0.174 [+0.141, +0.208] and only ties (a): +0.027 [−0.000, +0.055].
+- **More training data adds nothing.** P3F, trained on L1's full-year union `621bcd8e` (EF §10z; 23 centres, 245,625 rows), scores −0.151 vs (a) and −0.275 vs (f), but P3F − P3 is −0.004 [−0.014, +0.006].
+- The comparison against raw R0 (−1.968) uses an unfair comparator, because serving floors and calibrates. Do not cite it.
+
+**Dev window vs served.**
+- Setup:
+  - Dev scorecard `4be7c077c` through L3's `dev-score`: 08-15..09-29, 43 dates, 473 market-days.
+  - Positive control: served R 1.774 (all) and 1.526 (00-16), reproduced.
+  - P3d uses only forecast_high, high_so_far and current_temp, and is fitted on Aug-Sep 2021-25 only.
+  - Its inputs are those of L3's main variant: the 2026 Previous Runs `gfs_seamless` lead-1 forecast, and captured METAR rows at or before each cutoff. Its 79,403 snapshots are the same as arm A's.
+- Results, dR = R_P3d − R_served:
+  - **Pooled 07-12: −0.210**, date-clustered [−0.256, −0.162], crossed [−0.357, −0.091]. No standard block is worse.
+  - R is 1.273 for P3d against 1.483 for served.
+  - Hour 12: −0.210. 00-16: −0.151. 13-16: −0.496 [−0.627, −0.378]. 12-16: −0.406.
+  - U0d also beats served (−0.186) but trails P3d.
+  - R_P3d by block: 06-09 1.327, 10-12 1.268, 13-16 1.366, 00-16 1.375, 17-23 2.141. Every block is above 1.
+  - Selecting P3d for MG-2's afternoon slot is governed by the pre-declared pick rule `5898bfb0…`, scored once by L3. This entry does not decide it.
+
+**Serve parity (code and captured inputs, outcome-blind, 2026-10-25).**
+- high_so_far, current_temp, cutoff and date come from the capture with the trainer's cutoff semantics. high_so_far equals L8's `running_max_since_midnight` on all 9,224 replay hours (EF §10ab).
+- **forecast_high does not.**
+  - The Previous Runs lead-1 value that P3d (and arm A) is trained and scored on is not in the capture, and no serving module fetches it.
+  - The captured `gfs_seamless` day max is the current run, a different lead.
+  - On the 13-16 dev rows, the served `forecast_high` minus the PIT value has MAE 2.26 °F (mean +1.03 °F), and is at least 1 °F apart on 72% of rows.
+  - Serving either model as scored needs a Previous Runs fetch at serve time. That input is free and public, and issued before the cutoff.
+- Two further mismatches, shared with arm A:
+  - Training reads high_so_far and current_temp from WU history (whole °F), while serving reads METAR (tenths).
+  - The fit is for Aug-Sep only, so an Oct-Nov forward shadow needs a refit, which has no dev read.
+
+**Not claimed:** no edge, no price comparison, no confirmation. Nothing outside the 11 US markets or outside the stated windows. Nothing about replacing R0, which is master's decision.
 ### 10ab. OLS + hard floor beats floored R0 and the served vector, but NBM-based MG-1 and L6's own-observation twin beat it in the morning; upstream ASOS adds nothing beyond own observations — lanes L3 and L6, workstation, 2026-10-24/25
 
 **Claim, at exactly this scope:** on R0's own blocked leave-one-year-out rows, a three-feature OLS on the forecast high,
@@ -4133,6 +4199,89 @@ edge or promotion evidence (§5). Nothing after 2026-09-29 was read.
 - **Not claimed:** no edge over the market (every arm still trails it); no claim that A should replace MG-1 in the
   morning; no powered result (11 market clusters); no claim for Toronto.
 - **Branch:** `claude/r0-ols-floor-challenger-20261024` (code, tests, rule files under `C:\t\l3`).
+### 10ac. On blocked LOYO 2021-25, the PIT NBM mean and cross-market pooling improve OLS + hard floor; overnight low, dewpoint and hour-pooled slopes do not — lane L9 ingredient ladder, workstation, 2026-10-25
+
+**Claim, at exactly this scope:** weather-only, development-stage, blocked leave-one-year-out (LOYO) on 2021-2025
+target dates. There is **no claim against MG-1, the served vector or the market**, and the 2026 dev window was
+not read. The ingredients were tested one rung at a time against plain OLS + hard floor (L3's `ols_floor`, §10ab),
+on identical rows, under the pre-declared rule `C:\t\l9\rule.md` (sha256 `3b4976dc…`). Rungs are cumulative only
+on KEEP.
+
+- **Rows:** 103,609, from 11 US markets x 9 non-overlapping ±7-day centres x cutoffs 07-20. The Aug-Sep centres
+  are 08-08, 08-23, 09-07 and 09-22; the Oct-Dec centres are 10-10, 10-25, 11-09, 11-24 and 12-09. Records and
+  splits are the R0 trainer's, built through L3's challenger module.
+- **Corpora:** the season members of the full-year union `621bcd8e…` (§10z): `b455bd53…` for Aug-Sep and the
+  Oct-Dec members for Oct-Dec. The year-keyed trainer union refuses the overlapping full-year manifests; the
+  Jan-Jul members plan no date in these windows.
+- **Statistics:** the primary metric is D(07-12), the equal-weight 11-market mean of per-market mean log-loss
+  deltas, with both seasons pooled. CIs are a date-clustered bootstrap (2,000 draws, seed 20261025). **KEEP** means
+  the CI upper bound < 0 AND no CI-worse block. The blocks are {07-12, 12-16, 17-20} x {11, primary 5} x
+  {pooled, Aug-Sep, Oct-Dec}, plus Brier 07-12 on the 11.
+- **Controls:**
+  - **Positive control:** BASE equals L3's per-row `ols_floor` log loss on identical row sets for all 11 markets
+    at centres 11-24 and 09-07; the largest difference is 5.3e-13.
+  - **Placebo:** a N(0,1) regressor gives +0.0097 [+0.0081, +0.0113], so it is not KEEP. That is the expected
+    cost of one extra slope at about 60 training rows per (market, centre, hour, fold) fit.
+- **PIT NBM corpus** `1ae4bf52a0e032fc0c05ddfa7b282a17db53bd9a2e3f3a32a9a5686139faa1fd`:
+  - **Source and parse:** NOAA open data, `noaa-nbm-grib2-pds` `blend_nbptx` (NBP). It is parsed with parser v2
+    TXNMN, the column MG-1 consumes.
+  - **Cycle:** the 07Z cycle of the target date. It is used only when its S3 LastModified (07:55-11:43Z) is <= the
+    cutoff instant.
+  - **Coverage:** 675 dates x 11 stations with zero gaps; 3 scored rows had a late bulletin and fell back to the
+    forecast.
+  - **Fetch:** station blocks were read by HTTP Range, serially, about 0.9 GB in total (fetcher
+    `tools/research/ols_floor_ladder_nbm_fetch.py`).
+
+| Rung (vs the cumulative base) | D 07-12, 11 markets [95% CI] | Verdict |
+| --- | --- | --- |
+| 1 NBM mean alongside the forecast (N1) | −0.0960 [−0.1138, −0.0779], MDE 0.026 | **KEEP** (picked) |
+| 1 NBM mean instead of the forecast (N2) | −0.0945 [−0.1196, −0.0694] | KEEP, not picked (pre-declared tie-break) |
+| 2 overnight low since midnight (L1) | −0.0124 [−0.0189, −0.0060], MDE 0.009 | **KILL** (Aug-Sep blocks CI-worse) |
+| 3 dewpoint at the cutoff (DP) | −0.0009 [−0.0078, +0.0073], MDE 0.011 | **KILL** (null; Aug-Sep 07-12 CI-worse) |
+| 4 slopes pooled across hours (PH) | +0.0632 [+0.0518, +0.0741] | **KILL** |
+| 4 slopes pooled across markets (PM) | −0.0406 [−0.0541, −0.0278], MDE 0.019 | **KEEP** |
+
+- **NBM (N1):**
+  - 5 primary markets: −0.157. Aug-Sep −0.104 (11) / −0.175 (5); Oct-Dec −0.090 (11) / −0.142 (5).
+  - By hour (11 markets): −0.157 at 07, fading to −0.008 at 16; 17-20 is about 0. 12-16 overall is −0.016.
+  - Brier 07-12: −0.0147.
+  - 10 of 11 markets have a negative point estimate at 07-12. **Los Angeles leans worse:** +0.035 [−0.003, +0.080].
+- **Overnight low, a seasonal split:**
+  - Oct-Dec helps at 07-12: −0.028 (11) and −0.031 (5).
+  - Aug-Sep is flat to worse: +0.007 (11) and +0.013 (5, CI-worse); Aug-Sep 12-16 and 17-20 are also CI-worse on
+    the 11.
+  - This is consistent with L5's A2 null against MG-1 on dev (−0.0016, crossed CI [−0.0059, +0.0033],
+    pre-registration `53fd0bc5…`, branch `claude/morning-loss-diagnosis-20261024`).
+  - A season-gated variant is a **lead only**, with no pre-registration (coordinator ruling, 2026-10-25). The
+    previous-evening low (descriptive) is weaker still: −0.0067.
+- **Dewpoint:** Aug-Sep 07-12 is CI-worse (+0.016 on the 11, +0.010 on the 5); Oct-Dec helps a little (−0.014 on
+  the 11). Hours 07-08 are hurt.
+- **Pooling:**
+  - **Per-hour slopes are essential.** PH (shared slopes with hour fixed effects) loses +0.87 nats at 17-20,
+    because it destroys the late-day near-identity on the observed high.
+  - **PM** (shared slopes, market intercepts, per-market sd) helps in both seasons: Aug-Sep −0.057 and Oct-Dec
+    −0.028 on the 11; −0.034 on the primary 5.
+  - **Brier flag:** on the 5 primary markets in Oct-Dec, PM is flat on log loss (−0.006 [−0.027, +0.014]) and
+    CI-worse on Brier (+0.0048 [+0.0018, +0.0076]). That cell is not a pre-declared guard block, so the KEEP stands.
+  - **Los Angeles leans worse** under PM: +0.066 [−0.002, +0.126].
+  - L2's pooled model is §10aa.
+- **Cumulative, descriptive:** OLS + floor + N1 + PM vs plain OLS + floor, on the same rows:
+  - 07-12: −0.137 [−0.156, −0.117] (11 markets), −0.191 (5 markets);
+  - 12-16: −0.035 (11), −0.056 (5);
+  - 17-20: about 0;
+  - no guarded block is CI-worse.
+- **Disposition (coordinator ruling, 2026-10-25):**
+  - MG-2's A' stays OLS + floor + N1. PM is not added after the fact.
+  - OLS + floor + N1 + PM is recorded as an **MG-3 candidate lead**.
+- **Not claimed:**
+  - no edge over the market;
+  - no comparison with MG-1 or the served model on these rows;
+  - nothing outside Aug-Dec;
+  - nothing for non-US markets.
+  - The fits are small (about 60 rows each), and the L1 and DP kills are nulls only above their MDEs.
+- **Relation to other records:** BASE and rows are §10ab (L3); the full-year union is §10z (L1); the pooled
+  challenger is §10aa (L2). Code: branch `claude/ols-floor-ladder-20261025`, module
+  `weather.calibration.ols_floor_ladder` (stacked on L3's `r0_ols_floor_challenger`).
 
 ## Related
 
