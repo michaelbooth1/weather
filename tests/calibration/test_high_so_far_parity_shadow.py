@@ -1,4 +1,8 @@
-"""Lane L8 research module: fail-closed import, dev-date guard, MG-1 rule, derived-feature check, verdict."""
+"""Lane L8 research module: fail-closed import, dev-date guard, MG-1 rule, derived-feature check, verdict.
+
+Guards: lane L8 pre-registration docs/research/high-so-far-parity-shadow-2026-10-24/rule.md (dev dates <=
+2026-09-29, MG-1 rule, research-only import).
+"""
 import json
 
 import numpy as np

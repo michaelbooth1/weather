@@ -1,4 +1,8 @@
-"""The MG-2 input bundle allow-list: stdlib-only, outcome-free, identical on host exporter and receiver."""
+"""The MG-2 input bundle allow-list: stdlib-only, outcome-free, identical on host exporter and receiver.
+
+Guards: MG-2 binding plan §9 input transfer (docs/research/mg2-composite-binding-2026-10-25/binding-plan.md):
+no label, settlement or price field travels.
+"""
 import ast
 import hashlib
 import json
