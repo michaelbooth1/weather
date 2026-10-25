@@ -334,3 +334,46 @@ def test_scan_replay_n_uses_last_snapshot_of_the_hour_and_metar_only(tmp_path):
     assert out[13]["high_so_far"] == 92.0 and out[13]["current_temp"] == 82.0 and out[13]["main_high_so_far"] == 90.0
     assert all(s[0] == {} and s[4] is True and s[5] == "F" for s in seen)
     assert (2, 13, 55) in [(s[1], s[2], s[3]) for s in seen]
+
+
+@pytest.mark.parametrize("tenths_c, expected", [
+    (133, {"half_up": 56, "half_even": 56, "half_down": 56, "floor": 55, "ceil": 56}),   # 55.94 F
+    (25, {"half_up": 37, "half_even": 36, "half_down": 36, "floor": 36, "ceil": 37}),    # 36.5 F exactly
+    (75, {"half_up": 46, "half_even": 46, "half_down": 45, "floor": 45, "ceil": 46}),    # 45.5 F exactly
+    (-25, {"half_up": 28, "half_even": 28, "half_down": 27, "floor": 27, "ceil": 28}),   # 27.5 F exactly
+])
+def test_wu_rounding_candidates_on_exact_tgroup_values(tenths_c, expected):
+    value_f = 32 + tenths_c * 9 / 50  # the float the capture stores
+    exact = prm.exact_tgroup_f(value_f)
+    assert exact * 50 == 1600 + 9 * tenths_c
+    for rule, want in expected.items():
+        assert prm.round_candidate(exact, rule) == want
+    assert prm.wu_whole_f(value_f, "half_up") == float(expected["half_up"])
+    assert prm.wu_whole_f(None) is None and prm.wu_whole_f(float("nan")) is None
+
+
+def test_frozen_state_features_reproduce_mean_model():
+    frame = _frame(n_days=10, years=(2021, 2022, 2023), markets=("atlanta", "nyc"), hour=13)
+    frame["season"] = "aug_sep"
+    frame["centre"] = "2026-08-23"
+    frame = frame.drop(columns=[c for c in frame.columns if c.startswith("x_") and c not in prm.DEV_KEEP_X])
+    fitted = prm.fit_pooled(frame, market_id=False, doy=True, raw_columns=False, bias_by="season")
+    state = {
+        "centres": ["2026-08-23"], "season_of": {f"{m:02d}": prm.season_of(f"2026-{m:02d}-01") for m in range(1, 13)},
+        "coords": {"atlanta": [33.6, -84.4, 300.0], "nyc": [33.6, -84.4, 300.0]},
+        "constants": {"levels": ["high_so_far", "current_temp"]},
+        "conversion": {"enabled": False, "rule_id": None, "rule": None},
+        "hours": {13: {"mean": prm.state_mean_dict(fitted["mean"])}},
+    }
+    pred, X_ref = fitted["mean"].predict(frame)
+    from datetime import date as _date
+
+    for i in (0, 7, len(frame) - 1):
+        row = frame.iloc[i]
+        X, mu0, g, _ = prm.state_features(state, 13, market=row["market"],
+                                          target_date=_date.fromisoformat(row["target_date"]),
+                                          high_so_far=row["F"], current_temp=row["x_current_temp"], nbm_mean=row["fh"])
+        assert np.allclose(X, X_ref[i], atol=0, rtol=0) or np.max(np.abs(X - X_ref[i])) < 1e-12
+        m = state["hours"][13]["mean"]
+        yhat = mu0 + np.array([1.0, g, max(g, 0.0)]) @ m["ols"] + m["hgb"].predict(X)[0]
+        assert abs(yhat - pred[i]) < 1e-9

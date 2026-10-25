@@ -178,3 +178,37 @@ cf75eced..., code 171717d5f), reusing L3's helpers unchanged (imported, not fork
 - **Comparisons:** P3F vs (a) and vs (f) under amendment 2's headline criterion (97.5% Bonferroni fleet
   interval below 0, no market 95% interval above 0) — a separate family from P3's; P3F vs P3 and vs raw R0
   descriptive. Per hour with 12 called out.
+
+## Amendment 5 — 2026-10-25 (P3d_N for the MG-2 afternoon pick; appended before any P3d_N row exists)
+
+Sha of this file before this amendment: 53ba558b50502fd51bf5565c448493169ae2c6524234b5f4439de6a92bde3a32.
+Reason: MG-2 pick rule C:\t\mg2\afternoon_pick_rule.md (sha256 deb3eae31fb19cc96c90d1a9267f292e8a819fae1784c7b8b950071be99ceffb),
+Clarification 2 (master approved option (N) of C:\t\mg2\forecast_analogue.md). The lead-1 Previous Runs forecast is
+removed from P3d; it is re-specified on the captured NBM 07Z mean. L2 emits vectors only: L2 does NOT score P3d_N
+against MG-1 or A_N, and does not open C:\t\mg2\control_refit_armA.json or any A_N vector. L3 runs the pick (dev-pick).
+
+- **P3d_N:** the P3d design unchanged (amendment 3: steps 1-6, same hyperparameters, pooled per cutoff, day-of-year
+  on, no market id; x features high_so_far and current_temp only; bias per (market, aug_sep), normal per (market,
+  centre); 2% climatology mix over the 09-07 payload's bucket_space), with the anchor column fh := nbm_mean in place of
+  forecast_high, in training and at serve. mu0 = nbm_mean + bias.
+- **Training rows:** the same 45,873 Aug-Sep 2021-25 trainer records as P3d (union 744289be... of b455bd53...).
+  nbm_mean = lane L9's `ols_floor_ladder.nbm_at_cutoff(load_nbm(corpus), market, target_date, cutoff_hour, tz)` on
+  corpus 1ae4bf52a0e032fc0c05ddfa7b282a17db53bd9a2e3f3a32a9a5686139faa1fd (C:\t\l9\nbm_corpus\nbm_pit_corpus_rows.jsonl,
+  07Z, LastModified <= the cutoff); when None it is imputed with the record's forecast_high (L9 IMPUTE "fc"; count
+  reported). high_so_far / current_temp / label as P3d. No 2026 row.
+- **Dev rows (A_N's rule, L3 `dev_emit` variant nbm_n2 at ecd8c9ba6):** every C:\swarm\v3layout snapshot with
+  effective cutoff 07-20 and local_hour >= cutoff. Inputs, all from captured fields:
+  - nbm_mean = `r0_ols_floor_devfit.usable_v2_mean` (layout v2_mean where v2_mean and v2_stddev are finite and
+    v2_available_at <= captured_at_utc); not finite -> not emitted (served fallback).
+  - high_so_far (feature, g and the floor) = `observed_running_max.running_max_since_midnight(station={},
+    metar=sources.metar.data, target_date, tz, unit=display_unit, cutoff_hour=h, now=capture time, metar_only=True)`
+    (file blob 40c84103... at fe4782e66, pick-rule C1 / binding rule C1) on the last replay snapshot captured in
+    [h:00, h+1:00) of data\inbox\replay-inputs-le0929; None -> not emitted.
+  - current_temp = latest captured METAR row observed at or before h:00 on that snapshot (L3 `observations_at_cutoff`,
+    unchanged); None -> not emitted.
+- **Cross-checks (recorded in the audit, do not change emission):** the 2026 corpus 85746b7a... read with
+  `nbm_at_cutoff` vs the emitted nbm_mean (exact-match count per hour); snapshot set vs P3d's 79,403; METAR-only
+  high_so_far vs P3d's main high_so_far (floor-differs count).
+- **Output:** C:\t\l2\p3d_n_dev\dev_P3d_N.jsonl (same format as dev_P3d.jsonl; refuses to overwrite) and
+  dev_emit_audit.json, with shas; serve-parity note C:\t\l2\p3d_n_serve_parity.md. Parity passes only if every model
+  input at dev is computed from captured fields with the serve-time cutoff semantics, with no imputation at dev.

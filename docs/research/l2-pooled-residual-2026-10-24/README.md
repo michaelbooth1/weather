@@ -38,3 +38,8 @@ both verdicts; §10z is L1, §10ab L3). The MG-2 afternoon-slot pick is L3's sin
   holds for high_so_far, current_temp, cutoff and date; **it fails for forecast_high** (Previous Runs lead 1,
   shared with arm A, not in the capture; served forecast differs by MAE 2.26 °F at 13-16). Byte-identical
   to `C:\t\l2\p3d_serve_parity.md`.
+- `p3d_n_serve_parity.md` and rule amendment 5 (2026-10-25, outcome-blind, `rule.md` sha256 `b3f017bb…de68`):
+  P3d_N, re-specified under pick-rule Clarification 2 (option N) on the captured NBM 07Z mean and L8's
+  METAR-only running max; dev vectors `C:\t\l2\p3d_n_dev\dev_P3d_N.jsonl` (sha256 `721ae2cd…031ec`, the
+  same 79,403 snapshots). **Serve parity passes**: the 2026 corpus equals the captured mean on every 13-16
+  snapshot. Not scored by L2; L3 runs the pick.
