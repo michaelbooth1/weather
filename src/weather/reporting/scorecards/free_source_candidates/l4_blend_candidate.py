@@ -40,7 +40,7 @@ def member_matrix(snaps):
     v2 = np.where((avail <= t).fillna(False).to_numpy(), v2, np.nan)
     table, _ = day1()
     idx = pd.MultiIndex.from_arrays([s.station.astype(str), s.date.astype(str)])
-    cols = {"nbm_v2": v2}
+    cols = {"nbm_v2_mean": v2}
     for m in MEMBERS:
         cols[m] = table[m].reindex(idx).to_numpy(float) if m in table else np.full(len(s), np.nan)
     return pd.DataFrame(cols)
