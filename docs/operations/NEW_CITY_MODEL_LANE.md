@@ -136,6 +136,13 @@ OLS: London +0.005 [−0.002, +0.011], Paris −0.003 [−0.010, +0.003], KDEN +
 (−0.008 [−0.016, −0.000]). The residual stage adds no measurable skill on these
 features.
 
+**Measured (2026-10-25, corpus `f8eaae6b…`, fit `a5d97d49…`, 364 test dates each):**
+Munich, Seoul, Tokyo and Shanghai follow the same pattern. OLS+floor beats the
+baseline in every headline block (07-12 Brier delta −0.040, −0.096, −0.062, −0.077),
+plain HGB+floor is no better than OLS, and residual HGB is indistinguishable from OLS.
+**Madrid is the exception:** OLS+floor does not beat the baseline before noon (07-12
+−0.003 [−0.008, +0.002]) and gains only from the afternoon on (17-20 −0.625).
+
 ## Inputs and how they run
 
 - **IEM METAR history** (owner-approved 2026-10-23): EGLC, LFPB, EDDM, LEMD, RKSI,
