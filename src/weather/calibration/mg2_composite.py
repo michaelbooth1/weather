@@ -449,6 +449,80 @@ def load_coefficients(path, expected_sha):
     return json.loads(blob)
 
 
+# ----------------------------------------------------------------------------- L6 own-obs nowcast
+
+def _market_series_unasserted(obs, icao, tz):
+    """``upstream_obs_screen.market_series`` without its dev-date assertion.
+
+    Forward rows feed only ``prev_dmax`` (the complete previous local date, an observation, never a
+    settlement); the target date's own max is never a feature.
+    """
+    import pandas as pd
+
+    from weather.calibration import upstream_obs_screen as up
+
+    g = obs[(obs.role == "market") & (obs.station == icao[1:])].sort_values("valid_utc").copy()
+    g["local_date"] = g.valid_utc.dt.tz_convert(tz).dt.strftime("%Y-%m-%d")
+    g["routine"] = up.routine_mask(g)
+    g["avail"] = g.valid_utc + pd.Timedelta(minutes=up.MARKET_LAT_MIN)
+    g["rmax"] = g.groupby("local_date").temp.cummax()
+    rt = g[g.routine]
+    day = rt.groupby("local_date").agg(n=("temp", "size"), mx=("temp", "max"))
+    mx = day.mx.where(day.n >= up.MIN_ROUTINE)
+    return g, pd.Series(up.half_up(mx), index=day.index).dropna()
+
+
+def nowcast(*, train_root, obs_root, layout_root, first, last, out):
+    """L6 ``n_own`` for snapshots in [first, last], exactly ``upstream_obs_screen.serve`` otherwise.
+
+    The own-obs HGB is fitted on the frozen Aug-Sep 2021-25 history of ``train_root`` (the dev extract);
+    forward features come from ``obs_root`` (a later free IEM extract), PIT-gated as in L6 (market rows
+    usable from valid + 10 min). Run on the dev window with ``obs_root == train_root`` it must reproduce
+    the dev ``nowcasts.parquet`` (the replay control).
+    """
+    import numpy as np
+    import pandas as pd
+
+    from weather.calibration import upstream_obs_screen as up
+
+    first, last = date.fromisoformat(str(first)), date.fromisoformat(str(last))
+    hist, prov = up.build_history(train_root)
+    train = hist[hist.month.isin(up.TRAIN_MONTHS_PRIMARY)].reset_index(drop=True)
+    obs, sel, oprov = up.load(obs_root)
+    snaps, _ = read_inputs(layout_root)
+    snaps = _window(snaps, first, last)
+    snaps = snaps[snaps.local_hour.isin(up.HOURS)].reset_index(drop=True)
+    frames = []
+    for code, icao in enumerate(up.stations(sel)):
+        m = sel[icao]
+        s = snaps[snaps.station == icao]
+        if s.empty:
+            continue
+        g, dmax = _market_series_unasserted(obs, icao, m["timezone"])
+        q = pd.DataFrame({"t_utc": pd.to_datetime(s.captured_at_utc, utc=True).to_numpy(),
+                          "local_date": s.date.astype(str).to_numpy()}, index=s.index)
+        q["t_utc"] = pd.to_datetime(q.t_utc, utc=True)
+        f = up.features(q, obs, m, icao, m["timezone"], code, g, dmax)
+        f["row_key"] = s.row_key
+        frames.append(f)
+    feat = pd.concat(frames)
+    feat = feat[np.isfinite(feat.r) & np.isfinite(feat.t)]
+    own = up.make_model(up.OWN).fit(train[list(up.OWN)].to_numpy(float), train.y.to_numpy(float))
+    up_model = up.make_model(up.OWN + up.UP).fit(train[list(up.OWN + up.UP)].to_numpy(float), train.y.to_numpy(float))
+    res = pd.DataFrame({"row_key": feat.row_key.to_numpy(),
+                        "n_own": feat.r.to_numpy(float) + own.predict(feat[list(up.OWN)].to_numpy(float)),
+                        "n_up": feat.r.to_numpy(float) + up_model.predict(feat[list(up.OWN + up.UP)].to_numpy(float)),
+                        "n_ring": feat.n_ring.to_numpy(float)})
+    out = Path(out)
+    out.mkdir(parents=True, exist_ok=True)
+    path = out / "nowcasts.parquet"
+    res.to_parquet(path, index=False)
+    manifest = {"train": prov, "obs": oprov, "nowcasts_sha256": sha256_file(path), "rows": int(len(res)),
+                "train_rows": int(len(train)), "first": first.isoformat(), "last": last.isoformat()}
+    (out / "nowcasts_manifest.json").write_text(json.dumps(manifest, indent=1, sort_keys=True), encoding="utf-8")
+    return manifest
+
+
 # ----------------------------------------------------------------------------- emit (captured-input replay)
 
 def read_inputs(layout_root):
@@ -685,6 +759,14 @@ def build_parser():
         p.add_argument("--first", required=True)
         p.add_argument("--last", required=True)
         p.add_argument("--control", action="store_true")
+    p = sub.add_parser("nowcast")
+    p.add_argument("--train-root", required=True)
+    p.add_argument("--obs-root", required=True)
+    p.add_argument("--layout", required=True)
+    p.add_argument("--first", required=True)
+    p.add_argument("--last", required=True)
+    p.add_argument("--out", required=True)
+    p.add_argument("--control", action="store_true")
     p = sub.add_parser("score")
     p.add_argument("--layout", required=True)
     p.add_argument("--vectors", required=True)
@@ -705,6 +787,13 @@ def main(argv=None):
             result = {k: result[k] for k in ("population", "coverage", "controls", "groups", "sizing")}
         elif args.command == "freeze":
             result = freeze(args.layout, args.train_manifest, args.markets.split(","), args.out)
+        elif args.command == "nowcast":
+            if not args.control and date.fromisoformat(args.last) <= DEV_LAST:
+                raise Mg2Refused("forward nowcast is for dates after 2026-09-29; use --control for dev dates")
+            if args.control and date.fromisoformat(args.last) > DEV_LAST:
+                raise Mg2Refused("control nowcast is for dev dates <= 2026-09-29 only")
+            result = nowcast(train_root=args.train_root, obs_root=args.obs_root, layout_root=args.layout,
+                             first=args.first, last=args.last, out=args.out)
         elif args.command in ("emit", "check"):
             kw = dict(layout_root=args.layout, replay_root=args.replay_root, forecast_manifest=args.forecast_manifest,
                       nowcasts=args.nowcasts, coefficients=args.coefficients, rule=args.rule,
