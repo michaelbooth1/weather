@@ -4,7 +4,8 @@
   here is bound until the coordinator relays the Fable result and the binding commit sets D0.
 - **Written:** 2026-10-25, before any forward MG-2 vector exists. No outcome, label, price or market row
   dated after 2026-09-29 has been read for MG-2.
-- **Code:** `weather.calibration.mg2_composite` on `claude/mg2-composite-binding-20261025`.
+- **Code:** `weather.calibration.mg2_composite` and `weather.calibration.mg2_p3d_n` on
+  `claude/mg2-composite-binding-v2-20261025`.
 - **Coordinator rulings it implements:**
   - design fixed, master APPROVED 2026-10-25;
   - option 3 (outcome-blind accrual) now;
@@ -21,25 +22,33 @@ block below must agree with the code, or every subcommand refuses.
 | Local hour | Distribution | Code |
 | --- | --- | --- |
 | 00-12 | **Pre-13 half.** MG-1 plus lane L6's own-observations stack. At 07-12, where the own-obs nowcast N exists: mu = v2_mean + a_h + b_h (N − v2_mean) and sigma = max(v2_stddev, 1), with MG-1's floor and band mapping. MG-1 exactly otherwise. | `free_source_candidates.l6_stack.predict` |
-| 13-23 | **Post-13 half.** Arm A: L3's OLS + hard floor on (forecast_high, high_so_far, current_temp), discretised on integer native buckets. high_so_far comes from lane L8's `running_max_since_midnight`. MG-1 is used where arm A has no distribution, or no mass on a band the rule-4 floor allows. | `mg2_composite.arm_a_distribution` |
+| 13-23 | **Post-13 half.** P3d_N: lane L2's pooled residual model on the captured NBM 07Z `v2_mean` plus an in-fold (market, season) bias (pick `1ce2b5b4…`; L2 `claude/pooled-residual-model-20261024` @ `d914ae21b`). One pooled fit per cutoff hour: OLS on [1, g, max(g, 0)], an HGB on the residual, an HGB scale, and a kernel over standardised errors. The result is floor-censored at the half-up METAR-only running max (§8 C1), with a 2% climatology mix. MG-1 is used where P3d_N has no distribution, or no mass on a band the rule-4 floor allows. | `mg2_p3d_n.serve_distribution` |
 
-The coefficients are bound as two parts, each by the sha256 of its canonical JSON (`part_sha`), so arm A
-can be re-frozen without touching L6:
+The two halves are bound separately:
 
-- **L6 stack (frozen):** `l6_coefficients_sha256` `313d1743d35ed705a4406fb415748c8e161d170033bb963ec6b56f5caf922895`.
-  It holds a_h, b_h for h = 07..12, fitted once on every dev snapshot through 2026-09-29. This is the
-  last walk-forward fold extended to the end of the dev window.
-- **Arm A (PENDING):** `arm_a_coefficients_sha256: PENDING`, and arm A's forecast input
-  `forecast_high_source: PENDING` (§1a).
-  - The dev fit is one OLS (beta and residual sd) per market × cutoff hour 07-20, on the Aug-Sep
-    2021-25 PIT corpus `b455bd53…` at centre 2026-09-07, with forecast_high from Open-Meteo Previous
-    Runs. Its part sha is `dba2cbc4…`.
-  - It is **not** bound: that forecast input is not in the capture (§1a). The part is re-frozen on the
-    captured-forecast analogue once master rules on L3's refit. Its sha is then written here by a dated
-    Clarification before D0 (§8).
+- **L6 stack:** `l6_coefficients_sha256`, the sha256 of its canonical JSON (`part_sha`). It holds a_h,
+  b_h for h = 07..12, fitted once on every dev snapshot through 2026-09-29, the last walk-forward fold
+  extended to the end of the dev window. The dev part was `313d1743…`, fitted on the IEM nowcast. It is
+  re-frozen on the captured-METAR nowcast (§8 captured-source Clarification), and the sha in the rule
+  block is replaced by that refit's before D0.
+- **P3d_N (PENDING):** `p3d_n_state_sha256: PENDING`, the sha256 of the bytes of L2's frozen
+  `p3d_n_state.pkl` (schema `mg2_p3d_n_state/1`, `mg2_p3d_n.write_state`).
+  - The bound state is L2's forward-window refit under **L2's Clarification 3**:
+    - the training window Aug-Nov (or Aug-Dec) 2021-25;
+    - the serve-time conversion of high_so_far and current_temp to WU whole °F under a stated rounding
+      rule;
+    - a stated late-report rule.
+  - It is exported from L2's branch straight into the schema and recorded here by a dated Clarification
+    before D0.
+  - The state's `fit_kind` must be `forward`. Forward `emit` refuses a `dev` fit.
+  - The dev fit (Aug-Sep 2021-25, 45,873 rows) is used only for the control replay (§(a)). Its state
+    sha is never bound.
 - **L6 own-obs nowcast:** the HGB of `upstream_obs_screen` (fixed parameters, `random_state` 0), fitted
-  on the Aug-Sep 2021-25 IEM history. It is pinned by the dev nowcast sha256 `d2453d0d…`, which the
-  frozen refit must reproduce (§7).
+  on the Aug-Sep 2021-25 IEM history.
+  - Its serve-time inputs are the captured METAR rows, read by `mg2_composite.captured_nowcast`, which
+    mirrors L3 @ `ecd8c9ba6`.
+  - It is pinned by L3's captured dev nowcast sha256 `3806687c…`, which the reader must reproduce on the
+    dev window (§7).
 - **Shared function:** `weather.model.observed_running_max`, sha256
   `c057e4540a6d9109f5a1f7477f30ddbd5d02370db3a53be1091e12c447efb2be`: L8's `f6ee3351e` plus the
   `metar_only` switch of §8 Clarification C1 (the default path is unchanged; L8's file was `bd05d6d6…`).
@@ -51,24 +60,25 @@ packages and on the capture host, and a test pins that.
 
 **Requirement.** Every input to a forward MG-2 vector is read from the capture at replay time, with no
 external fetch. `require_forward_parity` enforces this. Forward `emit` and `score` refuse unless every
-rule-named input is registered (`mg2_composite.SOURCES`) as `captured`, and arm A's coefficients are not
+rule-named input is registered (`mg2_composite.SOURCES`) as `captured`, and the P3d_N state sha is not
 `PENDING`. Tests pin it, including an AST scan that finds no network import or URL in the binding.
 
 | Input | Source | Captured? |
 | --- | --- | --- |
 | Snapshots and bands, MG-1's NBM v2 centre, spread and `guidance_physical_floor` | captured replay inputs layout | yes |
-| high_so_far (L8 `running_max_since_midnight`), current_temp | captured METAR rows in the replay snapshots | yes |
-| Arm A forecast_high (`forecast_high_source`) | dev: Open-Meteo Previous Runs `gfs_seamless` `previous_day1` from a PIT corpus | **no**: no serve-path module fetches it (L2 P3d serve-parity note). PENDING. |
-| L6 own-station observations for `n_own` (`own_obs_source`) | dev: IEM ASOS own-station observations, a free fetch | **no**: not read from the capture. PENDING. |
+| P3d_N forecast input (`forecast_high_source: captured_nbm_v2_mean_07z`) | the snapshot's NBM 07Z `v2_mean`, used only when `v2_mean` and `v2_stddev` are finite and `v2_available_at` ≤ `captured_at_utc` | yes |
+| P3d_N high_so_far (floor) and current_temp | captured METAR rows in the replay snapshots: the METAR-only running max (§8 C1) and the latest row observed by the cutoff | yes |
+| L6 own-station observations for `n_own` (`own_obs_source: captured_metar_l6_own`) | captured METAR rows, used from valid + 10 min; dewpoint from the T-group; previous-day max from D−1's last snapshot | yes |
 
-**Consequence today.** Both named sources are PENDING, so MG-2 cannot emit a forward vector and its
+The retired dev sources (Open-Meteo Previous Runs for the former arm A, and the free IEM fetch for L6)
+stay registered as `external`, and forward emission refuses them.
+
+**Consequence today.** P3d_N's state sha is PENDING, so MG-2 cannot emit a forward vector and its
 accrual cannot start. D0 is set only after:
-- a dated Clarification (§8) names a captured reader for each named input;
-- arm A's re-frozen part sha is recorded;
-- the L6 nowcast is re-established on captured observations, if its coefficients change.
+- L2's Clarification 3 state sha is recorded here;
+- the L6 part is re-frozen on the captured-METAR nowcast and its sha recorded.
 
-The dev-window control replay (`--control`, dates ≤ 2026-09-29) still uses the dev sources. Its audit
-records them as not captured.
+The dev-window control replay (`--control`, dates ≤ 2026-09-29) may load the dev P3d_N fit.
 
 ## 2. The comparator
 
@@ -245,13 +255,16 @@ These checks void the look only in two cases:
 - **PIT:**
   - any MG-1-path input with `v2_available_at` after `captured_at_utc`;
   - `v2_period_kind` other than maximum;
-  - an arm A METAR row observed after the snapshot's cutoff hour, or a cutoff later than the snapshot's
+  - a P3d_N METAR row observed after the snapshot's cutoff hour, or a cutoff later than the snapshot's
     local hour;
-  - an L6 market row used before valid + 10 min.
+  - under a `receipt_by` late-report rule, a replay snapshot captured after cutoff + grace;
+  - an L6 METAR row used before valid + 10 min.
 - **Coverage:** fewer than 90% of 00-16 snapshots have an MG-2 vector (dev 99.4%).
 - **Replay:** `check` does not reproduce the emitted vectors on 100% of snapshots to within 1e-12.
-- **Nowcast replay:** the frozen L6 refit does not reproduce the dev nowcast `d2453d0d…` when run on the
-  dev window.
+- **Nowcast replay:** the captured-METAR reader does not reproduce L3's captured dev nowcast `3806687c…`
+  when run on the dev window.
+- **P3d_N replay:** the serve function, given the dev state, does not reproduce L2's dev emission
+  `dev_P3d_N.jsonl` (`721ae2cd…`) on every row to |dp| ≤ 1e-12.
 - **Parser:** a parser version other than 2 on any MG-1-path row, or a forward layout that does not
   expose the parser version.
 - **Hashes:** any coefficients, function, code or rule hash differs from the release binding.
@@ -260,27 +273,48 @@ These checks void the look only in two cases:
 
 ## 8. Clarification clause (afternoon slot only)
 
-A historical-fit arm A′ may replace arm A in the post-13 slot through a dated Clarification before D0.
-A′ is arm A plus an NBM mean regressor, fitted on lane L9's PIT NBM corpus, which is pending.
+**Clarification C2 (2026-10-25, coordinator relay of the MG-2 pick; dated before D0): the post-13 arm
+is P3d_N.** The pick result `1ce2b5b4…` selected L2's P3d_N for the 13-23 slot. It replaces the former
+arm A (L3's OLS + floor on an Open-Meteo forecast), and the planned arm A′ is dropped.
+- **What stays:** the switch hour, the pre-13 half, the comparator, the rule-4 floor, calibration (none),
+  gates, N and void conditions.
+- **The serve code:** `mg2_p3d_n.serve_distribution` copies L2's predictive math from `d914ae21b`.
+- **How the copy is pinned:**
+  - the control replay must reproduce L2's dev emission (§7);
+  - a golden test pins the copy to distributions computed by L2's own code at that commit;
+  - the binding never imports L2's module.
 
-- **What stays:** the switch hour, the pre-13 half, the comparator, floor, calibration, gates, N and
-  void conditions.
-- **What the Clarification records:** A′'s frozen coefficients sha256 and code sha, re-frozen before D0.
+**Captured-source Clarification (2026-10-25; required before D0).** It satisfies §1a:
+- **`forecast_high_source: captured_nbm_v2_mean_07z`.**
+  - P3d_N's forecast input is the snapshot's own NBM 07Z `v2_mean`.
+  - It is used only where `v2_mean` and `v2_stddev` are finite and `v2_available_at` ≤
+    `captured_at_utc`; otherwise P3d_N has no distribution and MG-1 is used.
+  - The hour's inputs are taken from the last replay snapshot in [h:00, h+1:00), L2's rule.
+  - **The floor:** high_so_far is the METAR-only running max (C1).
+  - **current_temp:** the latest METAR row observed at or before h:00.
+- **`own_obs_source: captured_metar_l6_own`.** The L6 nowcast reads captured METAR rows:
+  - temperature and dewpoint from the T-group (erratum, rule `deb3eae3…`);
+  - rows usable from valid + 10 min, maximum age 90 min;
+  - the previous-day max from D−1's last captured snapshot (at least 20 routine rows).
+  - This is `mg2_composite.captured_nowcast`, matching L3 @ `ecd8c9ba6`.
+  - The L6 stack is re-frozen on its dev output, and the new part sha replaces the rule block's.
+- **Neither is an external fetch.** The readers' code files (`mg2_p3d_n.py`, `mg2_composite.py`,
+  `r0_ols_floor_challenger.py`) are in the release binding.
+- **Sizing.** If a refit changes the candidate, the §5 sizing is re-run on the refitted design. N stays
+  45 unless a Clarification changes it before D0.
 
-**Captured-source Clarification (required before D0).** A dated Clarification must also be made before
-D0 to satisfy §1a. It records:
-- the captured reader registered for `forecast_high_source`, and for `own_obs_source`;
-- arm A's (or A′'s) coefficients refitted on that captured forecast, with their part sha;
-- if the L6 nowcast moves to captured observations, its refit, its new control sha and the L6 part sha;
-- if any refit changes the candidate, the §5 sizing re-run on the refitted design. N stays 45 unless that
-  Clarification changes it before D0.
+**L2's Clarification 3 (owned by L2; dated before D0): the forward-window P3d_N refit.** It records:
+- the training window, Aug-Nov or Aug-Dec 2021-25;
+- the rounding rule for converting serve-time high_so_far and current_temp to WU whole °F (the state's
+  `conversion.rule_id`, which `mg2_p3d_n.CONVERSION_RULES` must implement);
+- the late-report rule (`last_in_hour`, or `receipt_by` with its grace in minutes);
+- the frozen state sha, which becomes `p3d_n_state_sha256`.
 
-Neither may be an external fetch. This Clarification also adds the readers' code files to the release
-binding.
+The dev control runs with the conversion disabled.
 
 **Clarification C1 (2026-10-25, master's ruling; dated before D0): `high_so_far` is the METAR-only
 running max.** Weather Underground-sourced station rows do not travel to the workstation (binding plan
-§9), so MG-2's `high_so_far` (arm A's feature and its own floor) is defined on captured METAR alone:
+§9), so MG-2's `high_so_far` (P3d_N's feature and its floor) is defined on captured METAR alone:
 `observed_running_max.running_max_since_midnight(station={}, metar=sources.metar.data, ...,
 metar_only=True)`, on the snapshot's own `sources.metar.data`, cutoff h and now = capture time.
 - `metar_only` defaults to False, so the serve path is unchanged. Whenever the station surface is
@@ -300,28 +334,33 @@ changes permission, not design.
 | Input | MG-1 | MG-2 before 13:00 | MG-2 from 13:00 |
 | --- | --- | --- | --- |
 | NBM v2 `v2_mean`, `v2_stddev`, `v2_available_at` (captured) | centre and spread | identical centre plus stack, identical spread | only through the MG-1 fallback |
-| `guidance_physical_floor` (NBM-derived), `high_so_far`, `trusted_current_max` (rule-4 floor F) | B = floor(F + 0.5) | identical | identical (rule-4 mask), plus arm A's own floor at half-up of the L8 running max |
-| Own-station ASOS (IEM, free, PIT valid + 10 min) | none | L6 nowcast N | none |
-| METAR captured rows; L8 running max, METAR-only (§8 C1) | none | none | current_temp, high_so_far |
-| Open-Meteo Previous Runs `gfs_seamless` `previous_day1` (free, PIT by cutoff) | none | none | forecast_high |
+| `guidance_physical_floor` (NBM-derived), `high_so_far`, `trusted_current_max` (rule-4 floor F) | B = floor(F + 0.5) | identical | identical (rule-4 mask), plus P3d_N's own floor at half-up of the L8 running max |
+| NBM 07Z `v2_mean` (captured), as P3d_N's forecast input | centre | identical | P3d_N's g and mu0, plus the MG-1 fallback |
+| Captured METAR rows, L6 reader (valid + 10 min, T-group dewpoint) | none | L6 nowcast N | none |
+| Captured METAR rows; L8 running max, METAR-only (§8 C1) | none | none | current_temp, high_so_far |
 
-**Not captured inputs.** The IEM row and the Open-Meteo row are the dev sources. Both came from later
-free fetches, not from capture:
-- the IEM own-station observations;
-- the Open-Meteo Previous Runs forecast.
-
-They are not allowed forward (§1a). Each is replaced by a captured reader through the §8
-captured-source Clarification before D0, and until then the forward path refuses.
+MG-2 now shares NBM `v2_mean` with MG-1 in both halves, which strengthens §4.2's family membership.
+The former dev sources (the IEM fetch and Open-Meteo Previous Runs) are retired and refused forward (§1a).
 
 ## (a) Positive control
 
-The dev controls reproduced, and are the replay positive control for the forward code:
-- pre-13 composite = L6 own-obs twin on every band, max abs 0.0;
-- post-13 = arm A where arm A is used, MG-1 elsewhere, max abs 0.0;
-- Δ(07-12) = −0.0036243, L6's control exactly.
+These are the replay positive controls for the forward code:
+- **P3d_N serve control, passed 2026-10-25.**
+  - The setup: `mg2_p3d_n control` refit L2's dev fit with L2's own code at `d914ae21b`, exported it
+    through `write_state` and `load_state`, and re-emitted it on the captured replay rows with
+    `serve_distribution`.
+  - The result: all 79,403 rows of `dev_P3d_N.jsonl` were reproduced, with no missing or extra row, no
+    bucket-set mismatch, and max |dp| = 0.0.
+  - The output is byte-identical to `721ae2cd…` after line-ending normalisation (L2's file is CRLF).
+  - The dev state's sha is recorded in the control output as never bound.
+- **Earlier dev controls** (on the former arm A design; selection only):
+  - pre-13 composite = L6 own-obs twin on every band, max abs 0.0;
+  - Δ(07-12) = −0.0036243, L6's control exactly.
+- **The L6 captured reader** must reproduce L3's `3806687c…` on the dev window (§7).
+- **Self-reproduction:** `check` must reproduce its own emission to 1e-12.
 
-The forward `emit` on dev dates must reproduce L3's dev arm A distributions exactly, and `check` must
-reproduce its own emission to 1e-12.
+The §5-§6 dev figures were measured on the arm A composite. The 13-23 figures are re-run on P3d_N under
+the captured-source Clarification before D0.
 
 ## (b) Comparator fairness
 
@@ -331,7 +370,7 @@ served fallback and the same cells.
 
 ## (c) Targeted loss slice
 
-The slice is 13-16 local, the arm A slot.
+The slice is 13-16 local, the P3d_N slot. The two figures below are from the arm A design.
 - Loss atlas `46a66f7b7727` attributes 76.1% of the 00-16 excess (0.0256) to the centre.
 - Dev Δ(13-16) is −0.01037 (dR −0.3662), selection only.
 
@@ -356,7 +395,9 @@ Release binding is recorded in `release-binding.json` in the binding commit. It 
   - `l6_stack.py`
   - `mg1.py`
   - `upstream_obs_screen.py`
-  - `r0_ols_floor_challenger.py`
+  - `mg2_p3d_n.py` (the P3d_N serve function, state loader and replay reader)
+  - `r0_ols_floor_challenger.py` (the METAR cutoff reader and the L6 captured-METAR parser)
+  - `r0_ols_floor_devfit.py`
   - `observed_running_max.py`
   - `dev_scorecard.py`
   - `dev_scorecard_data.py`
@@ -365,15 +406,15 @@ Release binding is recorded in `release-binding.json` in the binding commit. It 
     the bundle allow-list; plan §9)
   - `guidance_extract_parser.py` (the pinned v2 parser client)
 - the function sha256 above;
-- the L6 and arm A coefficient part sha256s above;
+- the L6 coefficient part sha256 and the P3d_N state sha256 above;
 - the two named input sources;
 - this file's raw sha256.
 
 Forward `emit` and `score` refuse on any mismatch.
 
 **Flagged, not resolved here:** the retrain window is armed, not dated, and holds dates against
-retrain-family candidates. Arm A is an OLS challenger to R0. If that window is declared and arm A is
-ruled to be in the retrain family, the overlap needs an owner ruling.
+retrain-family candidates. P3d_N is a pooled refit on historical data. If that window is declared and
+P3d_N is ruled to be in the retrain family, the overlap needs an owner ruling.
 
 ```mg2_rule_v1
 switch_hour: 13
@@ -381,9 +422,9 @@ d0: UNSET
 n_forward_dates: 45
 owner_decision_id: NONE
 l6_coefficients_sha256: 313d1743d35ed705a4406fb415748c8e161d170033bb963ec6b56f5caf922895
-arm_a_coefficients_sha256: PENDING
-forecast_high_source: PENDING
-own_obs_source: PENDING
+p3d_n_state_sha256: PENDING
+forecast_high_source: captured_nbm_v2_mean_07z
+own_obs_source: captured_metar_l6_own
 function_sha256: c057e4540a6d9109f5a1f7477f30ddbd5d02370db3a53be1091e12c447efb2be
 noninferiority_margin_00_16: 0.0010
 ```

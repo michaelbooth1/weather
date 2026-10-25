@@ -3,8 +3,9 @@
 - **Status:** DRAFT. Master APPROVED the design on 2026-10-25. The binding commit and D0 wait for two
   things:
   - the single Fable review, which the coordinator relays;
-  - serve parity (§6, rule §1a). Arm A's coefficients and forecast input, and the L6 own-obs input, are
-    `PENDING` until captured sources are ruled on;
+  - serve parity (§6, rule §1a). Both inputs now have captured readers (rule §8 captured-source
+    Clarification), but P3d_N's state sha is `PENDING` until L2's Clarification 3 refit is frozen, and
+    the L6 part is re-frozen on the captured-METAR nowcast;
   - master's host exporter and share (§9.3). The workstation pull, receiver and layout builder are built
     (§9.7); rule §8 Clarification C1 (2026-10-25) makes `high_so_far` the METAR-only running max.
 - **Rule:** [rule.md](rule.md) (draft sha256 in the record line of the coordinator report). The rule
@@ -18,8 +19,10 @@
 The composite switches on local hour, fixed at 13.
 
 - **Before 13:00 local:** MG-1 plus lane L6's own-obs stack.
-- **From 13:00 local:** arm A, L3's OLS + floor, fed by L8's
-  `weather.model.observed_running_max.running_max_since_midnight`.
+- **From 13:00 local:** P3d_N, L2's pooled residual model on the captured NBM 07Z `v2_mean` plus bias
+  (pick `1ce2b5b4…`, rule §8 C2), floored at L8's METAR-only
+  `weather.model.observed_running_max.running_max_since_midnight`. It replaces the former arm A; A′ and
+  A_N are dropped.
 
 **Inherited from MG-1:**
 - **Floor:** the rule-4 mask.
@@ -116,9 +119,13 @@ Also reported: per hour, per-market signs, dR and the crossed interval.
 
 ## 5. Clarification clause
 
-A′ may replace arm A in the post-13 slot through a dated Clarification before D0, with its coefficients
-re-frozen and hashed. A′ is the historical fit on L9's pending PIT NBM corpus. After D0 nothing changes,
-except the §2 owner-decision Clarification, which changes permission only.
+Rule §8 holds the dated Clarifications made before D0:
+- C1, the METAR-only running max;
+- C2, P3d_N in the post-13 slot;
+- the captured-source Clarification;
+- L2's Clarification 3, the forward-window P3d_N refit and its frozen state sha.
+
+After D0 nothing changes, except the §2 owner-decision Clarification, which changes permission only.
 
 ## 6. Input overlap with MG-1
 
@@ -126,19 +133,16 @@ Rule §9 has the table. In summary:
 
 - **Before 13:00:** MG-2 reads MG-1's NBM v2 centre and spread.
 - **Every hour:** both use the identical rule-4 floor, including `guidance_physical_floor`.
-- **After 13:00:** MG-2 reads NBM only through the fallback. Its own inputs there are the METAR /
-  L8 running max and Open-Meteo `gfs_seamless` `previous_day1`.
-- **Free fetches, not captured:** two dev inputs were later free fetches:
-  - IEM own-station observations, for the L6 nowcast;
-  - Open-Meteo Previous Runs, for arm A's forecast_high.
+- **After 13:00:** P3d_N reads the captured NBM 07Z `v2_mean` (F4/F5, the same v2 column MG-1 uses),
+  plus the METAR-only L8 running max and current_temp from F1 `sources.metar`.
+- **Retired dev sources:** two dev inputs were later free fetches and are refused forward:
+  - IEM own-station observations, replaced by the captured-METAR L6 reader
+    (`mg2_composite.captured_nowcast`, matching L3 @ `ecd8c9ba6`);
+  - Open-Meteo Previous Runs, the former arm A's forecast_high, which P3d_N does not use. The capture's
+    `gfs_seamless` day high is the current run, a different lead, with an MAE of 2.26 °F vs the PIT
+    value on 13-16 rows (L2's P3d serve-parity note).
 
-  Neither is allowed forward. Serve parity (rule §1a) requires every input to come from the capture at
-  replay time. The coordinator's 2026-10-25 heads-up, from L2's P3d serve-parity note, establishes that
-  forecast_high is not captured: the capture's `gfs_seamless` day high is the current run, a different
-  lead, MAE 2.26 °F vs the PIT value on 13-16 rows. The same strict test also fails L6's own-obs input.
-
-  Both are `PENDING` in the rule, and forward `emit` and `score` refuse until a captured reader is
-  registered for each by the rule §8 Clarification before D0.
+  Both captured readers are registered (`captured_nbm_v2_mean_07z`, `captured_metar_l6_own`).
 
 ## 7. Release binding
 
@@ -147,9 +151,10 @@ At the binding commit, `release-binding.json` records:
 - the sha256 of each file in `mg2_composite.RELEASE_FILES`;
 - the function sha256 `c057e4540a6d9109…` (rule §8 Clarification C1);
 - the coefficient part sha256s:
-  - L6 `313d1743…`;
-  - arm A `PENDING`, refitted on the captured forecast after master's ruling on L3's analogue;
-- the two named input sources, both `PENDING` today;
+  - L6 `313d1743…` today, replaced by the captured-nowcast re-freeze;
+- the P3d_N state sha256, `PENDING` until L2's Clarification 3 (the file bytes of `p3d_n_state.pkl`,
+  schema `mg2_p3d_n_state/1`, verified before unpickling);
+- the two named input sources;
 - the rule's raw sha256.
 
 `emit` (forward) and `score` refuse on any mismatch.
@@ -214,7 +219,7 @@ written by `model_sources` (`shared_forecast_payload_cas`).
 
 | # | Host path | Format | Used by | Fields that travel (allow-list; everything else is dropped) |
 | --- | --- | --- | --- | --- |
-| F1 | `snapshots\<slug>\replay_inputs.jsonl` (D folders) | JSONL, one captured-input replay payload per snapshot (`REPLAY_SCHEMA_VERSION`) | arm A `current_temp`, `high_so_far` (L8 `running_max_since_midnight`); L6 own-obs nowcast on captured METAR; arm A captured forecast (provisional) | top level: `schema_version`, `snapshot_id`, `captured_at_utc`, `captured_at_local`, `event_slug`, `target_date`, `model_version`, `captured_input_hash` (provenance only; it hashes the unstripped payload, so it cannot be re-verified on the bundle). `sources.metar`: the item envelope `ok`, `status`, `stale`, `fetched_at`, and `data`: `rows` (each row whole), `station_id`, `target_date_match`, `report_time`. **No station surface** (`sources.station`, `sources.station_observations`) travels: master 2026-10-25, METAR only. `sources.open_meteo_multimodel.data`: **provisional**, `day_model_highs.gfs_seamless` plus the source's fetch and run timestamps. The final field list is set by the rule §8 captured-source Clarification once master rules on L3's captured-forecast analogue. |
+| F1 | `snapshots\<slug>\replay_inputs.jsonl` (D folders) | JSONL, one captured-input replay payload per snapshot (`REPLAY_SCHEMA_VERSION`) | P3d_N `current_temp`, `high_so_far` (L8 `running_max_since_midnight`); L6 own-obs nowcast on captured METAR | top level: `schema_version`, `snapshot_id`, `captured_at_utc`, `captured_at_local`, `event_slug`, `target_date`, `model_version`, `captured_input_hash` (provenance only; it hashes the unstripped payload, so it cannot be re-verified on the bundle). `sources.metar`: the item envelope `ok`, `status`, `stale`, `fetched_at`, and `data`: `rows` (each row whole), `station_id`, `target_date_match`, `report_time`. **No station surface** (`sources.station`, `sources.station_observations`) travels: master 2026-10-25, METAR only. `sources.open_meteo_multimodel.data`: was provisional for the former arm A; **no MG-2 code reads it** under P3d_N, so it may be dropped from the allow-list (master's exporter call). |
 | F1b | `snapshots\<slug>\replay_inputs.jsonl` (D−1 folders) | as F1 | L6 `prev_dmax` (the complete previous local date's routine METAR maximum) | `snapshot_id`, `captured_at_utc`, `captured_at_local`, `event_slug`, `target_date`, `sources.metar.data.rows`, last snapshot of the folder only |
 | F2 | `snapshots\<slug>\snapshots_long.csv` | CSV, `snapshot_store.LONG_COLUMNS`, one row per snapshot × band | band support and the served vector `p_served` (MG-1's and MG-2's fallback, the rule-4 mask) | `snapshot_id`, `captured_at_utc`, `captured_at_local`, `event_slug`, `model_version`, `range_label`, `bin_kind`, `bin_value_c`, `bin_value_hi_c`, `model_probability`. The `_c` names hold native °F here (`AGENTS.md`). |
 | F3 | `snapshots\<slug>\features_long.csv` | CSV, `snapshot_store.FEATURE_AUDIT_COLUMNS`, one row per snapshot | rule-4 floor F = max(`guidance_physical_floor`, `high_so_far`, `trusted_current_max`); `cutoff_hour` | `snapshot_id`, `captured_at_utc`, `captured_at_local`, `event_slug`, `target_date`, `model_version`, `cutoff_hour`, `guidance_physical_floor`, `high_so_far`, `trusted_current_max` |
@@ -234,8 +239,7 @@ market joins removed: `weather.calibration.mg2_inputs build` (§9.7). The bindin
 - **MG-1's half (and the comparator):** F2, F3, F4, F5.
 - **L6's half, once on captured METAR:** F1 `sources.metar`, plus F1b. Only
   `n_own` is used. The ring/upstream stations (`n_up`, `n_ring`) are not in the capture and not used.
-- **Arm A, once on captured forecast_high:** F1 `sources.metar`, plus the provisional F1
-  `sources.open_meteo_multimodel` field.
+- **P3d_N:** F1 `sources.metar`, and the v2 columns MG-1's half already derives from F4/F5.
 
 **Resolved by master (2026-10-25):**
 - **F1b `prev_dmax`.** D−1 METAR rows may travel as model input, provided no workstation code computes
@@ -482,18 +486,17 @@ can wait for a quiet window.
   Reading the merged L8 and L3 code is optional context.
 - **Owner:** the option 2 exemption, or Branch 1 by default.
 - **Serve parity.** These block D0:
-  - arm A's forecast field stays provisional until L3's captured-forecast analogue; then arm A's refit
-    on it and a `forecast_high_source` reader, by the §8 captured-source Clarification;
-  - a captured own-station observation reader for L6's `n_own` (on F1 METAR plus F1b), or a ruling on
-    the pre-13 half;
-  - a re-sized MDE, if either refit changes the dev deltas.
+  - L2's Clarification 3 frozen P3d_N state (forward fit, its rounding rule implemented in
+    `mg2_p3d_n.CONVERSION_RULES`, its late-report rule) and its sha in the rule;
+  - the L6 re-freeze on the captured-METAR nowcast, after the reader reproduces L3's `3806687c…`;
+  - a re-sized MDE on the P3d_N design.
 
   The N/MDE table in §3 is for the dev-source design.
-- **Retrain-window overlap.** The retrain window is armed, not dated. If it is declared and arm A is
+- **Retrain-window overlap.** The retrain window is armed, not dated. If it is declared and P3d_N is
   ruled a retrain-family candidate, MG-2's post-13 slot overlaps it. This needs an owner ruling.
 - **Input transfer (master, host).** The `WeatherMg2InputExport` exporter (importing
   `mg2_input_allowlist`) and task, and the share. Until both exist, D0 cannot be set.
 - **Forward multi-date layout.** `build` writes one layout per target date; `emit` and `score` read one
-  layout over the window. A concatenation step over verified per-date layouts (with a duplicate
-  `row_key` refusal) is still to be written.
+  layout over the window. `mg2_inputs concat` joins verified per-date layouts into that one window,
+  refusing a duplicate date or `row_key`, and refusing a tampered, mixed or unreceipted layout.
 - **Workstation scheduling.** §9.7 lists how the scripts would be scheduled; nothing is registered.

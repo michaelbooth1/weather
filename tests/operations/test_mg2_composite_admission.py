@@ -15,7 +15,7 @@ import sys
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-MODULES = ("weather.calibration.mg2_composite", "weather.calibration.mg2_inputs")
+MODULES = ("weather.calibration.mg2_composite", "weather.calibration.mg2_inputs", "weather.calibration.mg2_p3d_n")
 
 
 def _hook():

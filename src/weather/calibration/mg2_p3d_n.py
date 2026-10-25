@@ -525,8 +525,93 @@ def control(*, upstream, ladder, records, nbm_train_corpus, layout, replay_root,
               "reference_sha256": hashlib.sha256(Path(reference).read_bytes()).hexdigest(),
               "comparison": compare_to_reference(rows, reference, CONTROL_TOLERANCE)}
     result["byte_identical"] = result["vector_sha256"] == result["reference_sha256"]
+    # L2's reference was written in Windows text mode (CRLF); this emission writes LF. Same content otherwise.
+    ref_lf = Path(reference).read_bytes().replace(b"\r\n", b"\n")
+    result["byte_identical_lf_normalised"] = path.read_bytes() == ref_lf
     (out / "control.json").write_text(json.dumps(result, indent=1, sort_keys=True, default=str), encoding="utf-8")
     return result
+
+
+GOLDEN_MARKETS = ("atlanta", "denver", "seattle")
+GOLDEN_HOURS = (13, 15)
+GOLDEN_CENTRES = ("2026-08-08", "2026-08-23", "2026-09-07", "2026-09-22")
+
+
+def golden_frame(seed=20261025):
+    """A small synthetic pooled training frame (L2's ``pooled_frame`` columns after ``dev_training_frame``)."""
+    import numpy as np
+    import pandas as pd
+
+    rng = np.random.default_rng(seed)
+    rows = []
+    for mi, market in enumerate(GOLDEN_MARKETS):
+        for hour in GOLDEN_HOURS:
+            for year in (2022, 2023, 2024):
+                for centre in GOLDEN_CENTRES:
+                    for k in range(-7, 8, 2):
+                        tdate = date(year, int(centre[5:7]), int(centre[8:10])) + timedelta(days=k)
+                        y = float(round(80 + 4 * mi + rng.normal(0, 3)))
+                        fh = y + rng.normal(0.5, 2.0) if rng.random() > 0.05 else float("nan")
+                        hs = y - max(0.0, rng.normal(4 - (hour - 13), 2))
+                        doy = tdate.timetuple().tm_yday
+                        rows.append({"market": market, "centre": centre, "season": "aug_sep", "hour": hour,
+                                     "target_date": tdate.isoformat(), "year": year, "y": y, "F": hs, "fh": fh,
+                                     "lat": 30.0 + mi, "lon": -90.0 - 5 * mi, "elev": 100.0 * mi,
+                                     "doy_sin": math.sin(2 * math.pi * doy / 365.25),
+                                     "doy_cos": math.cos(2 * math.pi * doy / 365.25),
+                                     "x_high_so_far": hs, "x_current_temp": hs - abs(rng.normal(1, 1)),
+                                     "market_code": float(mi)})
+    return pd.DataFrame(rows)
+
+
+GOLDEN_CASES = tuple(
+    {"market": m, "target_date": d, "hour": h, "nbm_mean": nbm, "high_so_far": hs, "current_temp": ct}
+    for m, d, h, nbm, hs, ct in (
+        ("atlanta", "2026-08-15", 13, 83.4, 78.2, 77.9), ("denver", "2026-09-02", 15, 86.0, 85.6, 85.6),
+        ("seattle", "2026-09-28", 13, 90.1, 80.0, 79.1), ("atlanta", "2026-08-01", 15, 79.0, 81.3, 80.2),
+        ("seattle", "2026-08-20", 15, 95.5, 70.4, 70.4)))
+
+
+def golden(*, upstream, out):
+    """Expected P3d_N distributions from L2's own code (``fit_pooled`` and its emit path) on the golden frame."""
+    import numpy as np
+    import pandas as pd
+
+    prm = _load_upstream("weather.calibration.pooled_residual_model", upstream, UPSTREAM_SHA["pooled_residual_model"])
+    from weather.calibration import feature_model as fm
+
+    frame = golden_frame()
+    buckets = {m: list(range(60, 111)) for m in GOLDEN_MARKETS}
+    coords = {m: (30.0 + i, -90.0 - 5 * i, 100.0 * i) for i, m in enumerate(GOLDEN_MARKETS)}
+    fits = {}
+    for hour in GOLDEN_HOURS:
+        train = frame[frame.hour == hour].reset_index(drop=True)
+        fits[hour] = {"fit": prm.fit_pooled(train, market_id=False, doy=True, raw_columns=False),
+                      "train_y": {m: [int(v) for v in train.loc[train.market == m, "y"]] for m in train.market.unique()}}
+    cases = []
+    for case in GOLDEN_CASES:
+        market, key0, hour = case["market"], case["target_date"], case["hour"]
+        tdate = date.fromisoformat(key0)
+        doy = tdate.timetuple().tm_yday
+        lat, lon, elev = coords[market]
+        one = pd.DataFrame([{
+            "market": market, "centre": prm.nearest_centre(key0, GOLDEN_CENTRES), "season": "aug_sep", "hour": hour,
+            "target_date": key0, "year": tdate.year, "y": float("nan"), "F": float(case["high_so_far"]),
+            "fh": float(case["nbm_mean"]), "lat": lat, "lon": lon, "elev": elev,
+            "doy_sin": math.sin(2 * math.pi * doy / 365.25), "doy_cos": math.cos(2 * math.pi * doy / 365.25),
+            "x_high_so_far": float(case["high_so_far"]), "x_current_temp": float(case["current_temp"]),
+            "market_code": float(GOLDEN_MARKETS.index(market))}])
+        fitted = fits[hour]["fit"]
+        yhat, X = fitted["mean"].predict(one)
+        gap = np.nan_to_num(yhat - one["F"].to_numpy(float), nan=0.0)
+        s = max(prm.MIN_SCALE, float(fitted["scale"].predict(np.column_stack([X, gap]))[0]) * math.sqrt(math.pi / 2))
+        p_clim = fm.smoothed_dist(fits[hour]["train_y"][market], buckets[market], alpha=0.10)
+        dist = prm.predictive_distribution(float(yhat[0]), s, float(one.at[0, "F"]), fitted["z"], buckets[market],
+                                           p_clim)
+        cases.append({**case, "distribution": {str(k): v for k, v in dist.items()}})
+    payload = {"upstream": UPSTREAM, "upstream_sha256": UPSTREAM_SHA["pooled_residual_model"], "cases": cases}
+    Path(out).write_text(json.dumps(payload, indent=1, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
+    return payload
 
 
 def main(argv=None):
@@ -534,10 +619,17 @@ def main(argv=None):
 
     parser = argparse.ArgumentParser(prog="python -m weather.calibration.mg2_p3d_n")
     sub = parser.add_subparsers(dest="command", required=True)
+    g = sub.add_parser("golden", help="expected distributions from L2's own code on the synthetic frame")
+    g.add_argument("--upstream", required=True)
+    g.add_argument("--out", required=True)
     p = sub.add_parser("control", help="dev-fit control: reproduce L2's dev_P3d_N.jsonl (heavy)")
     for name in ("upstream", "ladder", "records", "nbm-train-corpus", "layout", "replay-root", "reference", "out"):
         p.add_argument(f"--{name}", required=True)
     args = parser.parse_args(argv)
+    if args.command == "golden":
+        payload = golden(upstream=args.upstream, out=args.out)
+        print(json.dumps({"cases": len(payload["cases"])}), flush=True)
+        return 0
     try:
         result = control(upstream=args.upstream, ladder=args.ladder, records=args.records,
                          nbm_train_corpus=args.nbm_train_corpus, layout=args.layout, replay_root=args.replay_root,
@@ -545,7 +637,7 @@ def main(argv=None):
     except P3dNRefused as exc:
         print(json.dumps({"refused": str(exc)}), flush=True)
         return 2
-    print(json.dumps({k: result[k] for k in ("comparison", "byte_identical", "vector_sha256")}, indent=1,
+    print(json.dumps({k: result[k] for k in ("comparison", "byte_identical", "byte_identical_lf_normalised", "vector_sha256")}, indent=1,
                      sort_keys=True), flush=True)
     return 0
 
