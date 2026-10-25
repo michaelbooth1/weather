@@ -9,6 +9,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import time
 from typing import Any
 
 import pytest
@@ -80,6 +81,46 @@ class Harness:
     roll_classification_log: Path
     sleep_log: Path
     stop_exhausted_event: Path
+
+
+PID_GONE_DEADLINE_SECONDS = 10.0
+PID_GONE_POLL_SECONDS = 0.1
+
+
+def _assert_pid_gone_within(
+    pid: int,
+    cwd: Path,
+    *,
+    deadline_seconds: float = PID_GONE_DEADLINE_SECONDS,
+    poll_seconds: float = PID_GONE_POLL_SECONDS,
+) -> None:
+    """Assert ``pid`` is gone, polling up to an explicit deadline.
+
+    Process teardown is asynchronous on a loaded host, so one immediate probe
+    races it. A descendant that is still alive when the deadline expires is a
+    real failure.
+    """
+    deadline = time.monotonic() + deadline_seconds
+    while True:
+        probe = _run(
+            [
+                WINDOWS_POWERSHELL,
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                f"if (Get-Process -Id {pid} -ErrorAction SilentlyContinue) {{ exit 1 }}",
+            ],
+            cwd=cwd,
+            check=False,
+        )
+        if probe.returncode == 0:
+            return
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(poll_seconds)
+    assert probe.returncode == 0, (
+        f"pid {pid} still alive {deadline_seconds}s after helper exit"
+    )
 
 
 def _run(
@@ -2133,18 +2174,7 @@ def test_scheduler_read_hang_and_descendants_are_killed_before_preflight_returns
         pid_path = harness.root / "spawned-pid.txt"
         assert pid_path.is_file()
         pid = int(pid_path.read_text(encoding="utf-8-sig"))
-        probe = _run(
-            [
-                WINDOWS_POWERSHELL,
-                "-NoProfile",
-                "-NonInteractive",
-                "-Command",
-                f"if (Get-Process -Id {pid} -ErrorAction SilentlyContinue) {{ exit 1 }}",
-            ],
-            cwd=harness.root,
-            check=False,
-        )
-        assert probe.returncode == 0
+        _assert_pid_gone_within(pid, harness.root)
 
 
 def test_rpc_budget_adaptation_refuses_a_missing_or_duplicated_production_literal(
@@ -2234,18 +2264,7 @@ def test_normal_helper_exit_still_kills_its_surviving_descendant(
     pid_path = harness.root / "spawned-pid.txt"
     assert pid_path.is_file()
     pid = int(pid_path.read_text(encoding="utf-8-sig"))
-    probe = _run(
-        [
-            WINDOWS_POWERSHELL,
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            f"if (Get-Process -Id {pid} -ErrorAction SilentlyContinue) {{ exit 1 }}",
-        ],
-        cwd=harness.root,
-        check=False,
-    )
-    assert probe.returncode == 0
+    _assert_pid_gone_within(pid, harness.root)
 
 
 @WINDOWS_EXECUTION
