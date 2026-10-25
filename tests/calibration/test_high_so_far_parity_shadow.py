@@ -111,3 +111,13 @@ def test_verdict_refuses_on_a_failed_control_and_holds_on_new_above_settlement_f
     assert hs.verdict(_result((-0.03, -0.001), (-0.01, 0.002), served=(1.70, 1.526)))["decision"].startswith("NO CLAIM")
     held = hs.verdict(_result((-0.03, -0.001), (-0.01, 0.002), above=3))
     assert held["decision"].startswith("BEATS MG-1 but new above-settlement")
+
+
+def test_read_emitted_skips_the_scorer_scratch_folder(tmp_path):
+    (tmp_path / "atlanta").mkdir()
+    (tmp_path / "_score_inputs").mkdir()
+    (tmp_path / "atlanta" / "f.jsonl").write_text(json.dumps({"market": "atlanta", "snapshot_id": "x",
+                                                              "target_date": "2026-09-01"}) + "\n")
+    (tmp_path / "_score_inputs" / "base.jsonl").write_text(json.dumps({"market": "atlanta", "snapshot_id": "x",
+                                                                       "target_date": "2026-09-01"}) + "\n")
+    assert len(hs.read_emitted(tmp_path)) == 1
