@@ -233,8 +233,9 @@ def test_no_production_code_imports_the_challenger():
                 continue
             if "r0_ols_floor_challenger" in path.read_text(encoding="utf-8", errors="replace"):
                 hits.append(path.relative_to(ROOT).as_posix())
-    # The workstation allowlist names the module (it admits it); nothing imports it.
-    assert hits == ["scripts/ops/workload_admission.ps1"]
+    # The workstation allowlist names the module (it admits it); only lane L9's ladder
+    # (research-only, the same capture-host guard) imports it.
+    assert sorted(hits) == ["scripts/ops/workload_admission.ps1", "src/weather/calibration/ols_floor_ladder.py"]
 
 
 def _metar(nominal, raw_time, temp):
