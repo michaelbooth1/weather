@@ -993,7 +993,8 @@ def dev_score(layout, candidates, start="2026-08-01", end="2026-09-29", with_mg1
     return out
 
 
-PICK_RULE_SHA256 = "5898bfb01e3eafc3f9ce731dee237fd05f342d873456e5d1e156b15550c5818e"
+# Clarification 1 (2026-10-25) appended; the original rule was 5898bfb0... (recorded inside the file).
+PICK_RULE_SHA256 = "2f2c5994f05b695f1a0a61d9e359089c299c425c4cdf32bc9066473315678b0d"
 PICK_SEED = 20261025
 PICK_HOURS = (13, 14, 15, 16)
 PICK_CONTROL = -0.366
@@ -1001,8 +1002,8 @@ PICK_CONTROL_TOL = 0.005
 
 
 def dev_pick(layout, default, challengers, parity, rule_path, simpler="a_prime",
-             start="2026-08-01", end="2026-09-29"):
-    """MG-2 afternoon-slot pick, exactly as ``C:\t\mg2\afternoon_pick_rule.md`` (sha pinned).
+             start="2026-08-01", end="2026-09-29", control=PICK_CONTROL):
+    """MG-2 afternoon-slot pick, exactly as ``C:/t/mg2/afternoon_pick_rule.md`` (sha pinned).
 
     ``default``: arm A's source; ``challengers``: {name: source}; ``parity``: {name: bool}, each lane's
     documented serve-parity check. Rows: snapshots at local hours 13-16 that every candidate covers.
@@ -1050,16 +1051,23 @@ def dev_pick(layout, default, challengers, parity, rule_path, simpler="a_prime",
         return {"crossed": stat(a, b, mask, table.w), "date_clustered": stat(a, b, mask, date_w)}
 
     a_b = vec["arm_a"][0]
+    control_value = control
     control = both(a_b, mg1_b, rows)
-    control_ok = abs(control["date_clustered"]["estimate"] - PICK_CONTROL) <= PICK_CONTROL_TOL
+    control_ok = abs(control["date_clustered"]["estimate"] - control_value) <= PICK_CONTROL_TOL
     out = {"rule": str(rule_path), "rule_sha256": PICK_RULE_SHA256, "seed_date_clustered": PICK_SEED,
            "crossed_draws": "dev_scorecard Table.w (seed %d)" % sc.SEED,
            "rows": {"n_snapshots": int(rows.sum()), "n_in_hours": int(in_hours.sum()),
                     "n_primary": int((rows & primary).sum())},
            "candidates": meta,
-           "control": {"arm_a_minus_mg1": control, "expected": PICK_CONTROL, "tolerance": PICK_CONTROL_TOL,
+           "control": {"arm_a_minus_mg1": control, "expected": control_value, "tolerance": PICK_CONTROL_TOL,
                        "passed": bool(control_ok)},
            "challengers": {}}
+    upper = control["date_clustered"]["ci95"][1]
+    if upper is None or upper >= 0:
+        # Clarification 1 (d): no afternoon half; MG-2 = MG-1 + L6 own-obs stack, the pick is not run.
+        out["pick"] = {"candidate": None, "reason": "clarification (d): arm A - MG-1 date-clustered upper CI >= 0",
+                       "eligible": []}
+        return out
     eligible = []
     for name in challengers:
         b = vec[name][0]
@@ -1506,6 +1514,8 @@ def build_parser():
     pick.add_argument("--challenger", action="append", required=True, help="<name>=<source>")
     pick.add_argument("--parity", action="append", required=True, help="<name>=pass|fail")
     pick.add_argument("--rule", required=True)
+    pick.add_argument("--control", type=float, default=PICK_CONTROL,
+                      help="recorded arm A - MG-1 13-16 control (pick rule clarification 1 (c))")
     pick.add_argument("--out", required=True)
     cmp_ = sub.add_parser("compare", help="join with lane D's R0 rows and apply the rule")
     cmp_.add_argument("--rows-dir", required=True)
@@ -1523,7 +1533,7 @@ def main(argv=None):
         if args.command == "dev-pick":
             chal = dict(item.split("=", 1) for item in args.challenger)
             parity = {k: v == "pass" for k, v in (item.split("=", 1) for item in args.parity)}
-            result = dev_pick(args.layout, args.arm_a, chal, parity, args.rule)
+            result = dev_pick(args.layout, args.arm_a, chal, parity, args.rule, control=args.control)
             Path(args.out).write_text(json.dumps(result, indent=1, sort_keys=True), encoding="utf-8")
             print(json.dumps({"control": result["control"]["passed"], "pick": result["pick"]}, indent=1))
             return 0
