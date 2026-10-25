@@ -149,9 +149,9 @@ Rule §9 has the table. In summary:
 At the binding commit, `release-binding.json` records:
 - the commit sha;
 - the sha256 of each file in `mg2_composite.RELEASE_FILES`;
-- the function sha256 `c057e4540a6d9109…` (rule §8 Clarification C1);
+- the function sha256 `8cc4d8ec13a64419…` (rule §8 Clarification C1; docstring-only change from `c057e454…`);
 - the coefficient part sha256s:
-  - L6 `313d1743…` today, replaced by the captured-nowcast re-freeze;
+  - L6 `07a67425…`, the captured-nowcast re-freeze (the IEM-fitted `313d1743…` is retired);
 - the P3d_N state sha256 `c6cc39f7…` (L2's Clarification 3 forward refit; the file bytes of
   `p3d_n_state.pkl`, schema `mg2_p3d_n_state/1`, verified before unpickling);
 - the two named input sources;

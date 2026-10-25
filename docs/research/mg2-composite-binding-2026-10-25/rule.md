@@ -29,8 +29,9 @@ The two halves are bound separately:
 - **L6 stack:** `l6_coefficients_sha256`, the sha256 of its canonical JSON (`part_sha`). It holds a_h,
   b_h for h = 07..12, fitted once on every dev snapshot through 2026-09-29, the last walk-forward fold
   extended to the end of the dev window. The dev part was `313d1743…`, fitted on the IEM nowcast. It is
-  re-frozen on the captured-METAR nowcast (§8 captured-source Clarification), and the sha in the rule
-  block is replaced by that refit's before D0.
+  re-frozen on the captured-METAR nowcast (§8 captured-source Clarification): the bound part is
+  `07a6742595f535d448569980af7e04dbf4a2a798c00c82fd52f5f01287ee17e9`, fitted by `mg2_composite freeze`
+  on the captured dev nowcast that reproduces L3's `3806687c…` byte for byte (§7).
 - **P3d_N (frozen):** `p3d_n_state_sha256`
   `c6cc39f7b57f668557415d28ec37ac291694f4b429e572a3c178fb74e5a9c780`. This is the sha256 of the bytes of
   L2's frozen `p3d_n_state.pkl` (schema `mg2_p3d_n_state/1`), checked before unpickling.
@@ -49,8 +50,10 @@ The two halves are bound separately:
   - It is pinned by L3's captured dev nowcast sha256 `3806687c…`, which the reader must reproduce on the
     dev window (§7).
 - **Shared function:** `weather.model.observed_running_max`, sha256
-  `c057e4540a6d9109f5a1f7477f30ddbd5d02370db3a53be1091e12c447efb2be`: L8's `f6ee3351e` plus the
+  `8cc4d8ec13a64419961d96b3f648420fcd55f2c4cd3da7ca431b773c8bfc224a`: L8's `f6ee3351e` plus the
   `metar_only` switch of §8 Clarification C1 (the default path is unchanged; L8's file was `bd05d6d6…`).
+  The previous sha `c057e454…` differs only in the module docstring, reworded by the stack merge of
+  `23cc02915`; no code line changed.
 
 Nothing in serving, capture, release or Scheduler imports MG-2. The import fails closed from production
 packages and on the capture host, and a test pins that.
@@ -495,10 +498,10 @@ switch_hour: 13
 d0: UNSET
 n_forward_dates: 45
 owner_decision_id: NONE
-l6_coefficients_sha256: 313d1743d35ed705a4406fb415748c8e161d170033bb963ec6b56f5caf922895
+l6_coefficients_sha256: 07a6742595f535d448569980af7e04dbf4a2a798c00c82fd52f5f01287ee17e9
 p3d_n_state_sha256: c6cc39f7b57f668557415d28ec37ac291694f4b429e572a3c178fb74e5a9c780
 forecast_high_source: captured_nbm_v2_mean_07z
 own_obs_source: captured_metar_l6_own
-function_sha256: c057e4540a6d9109f5a1f7477f30ddbd5d02370db3a53be1091e12c447efb2be
+function_sha256: 8cc4d8ec13a64419961d96b3f648420fcd55f2c4cd3da7ca431b773c8bfc224a
 noninferiority_margin_00_16: 0.0010
 ```
