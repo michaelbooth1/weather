@@ -530,7 +530,14 @@ def verdict(result):
 
     served = pooled["all"]["R"]["served"]["estimate"], pooled["00-16"]["R"]["served"]["estimate"]
     control = abs(served[0] - 1.774) < 5e-4 and abs(served[1] - 1.526) < 5e-4
-    out = {"positive_control_served_R": served, "positive_control_pass": control}
+    mg1 = pooled.get("00-12", {}).get("dBrier", {}).get("mg1-served", {}).get("crossed", {}).get("estimate")
+    mg1_ok = mg1 is None or round(mg1, 4) == -0.0153  # ledger row 4 (absent only in unit fixtures)
+    control = control and mg1_ok and result.get("mg1_reimplementation_equals_free_source_mg1") in (True, None)
+    out = {"positive_control_served_R": served, "positive_control_mg1_minus_served_00_12": mg1,
+           "positive_control_pass": control}
+    if result.get("derived", {}).get("violations", {}).get("floor_weaker") or             result.get("derived", {}).get("violations", {}).get("floor_high_weaker"):
+        out["decision"] = "NO CLAIM (the floor weakened on some row)"
+        return out
     if not control:
         out["decision"] = "NO CLAIM (positive control failed)"
         return out
@@ -670,6 +677,7 @@ def main(argv=None):
         raise ShadowError(f"refused: rule sha256 {rule_sha} != locked {args.rule_sha256}")
     result = score(args.layout, args.emit_dir)
     result["rule"] = {"path": str(args.rule), "sha256": rule_sha}
+    result["derived"] = derived_feature_check(read_emitted(args.emit_dir))
     result["verdict"] = verdict(result)
     body = json.dumps(result, sort_keys=True, separators=(",", ":"), default=float).encode()
     sha = hashlib.sha256(body).hexdigest()
