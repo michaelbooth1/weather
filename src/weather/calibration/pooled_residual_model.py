@@ -1253,6 +1253,364 @@ def dev_emit_n_distributions(*, records_root, layout, replay_root, nbm_train_cor
     return audit
 
 
+# ------------------------------------------------- clarification 3: forward refit and frozen state (MG-2)
+
+FORWARD_CENTRES = AUG_SEP_CENTRES + ("2026-10-10", "2026-10-25", "2026-11-09", "2026-11-24", "2026-12-09")
+FORWARD_YEARS = (2021, 2022, 2023, 2024, 2025)
+STATE_SCHEMA = "mg2_p3d_n_state/1"
+WU_ROUNDING_CANDIDATES = ("half_up", "half_even", "half_down", "floor", "ceil")
+
+
+def exact_tgroup_f(value_f):
+    """The exact Fahrenheit value of a T-group reading given as a float in degrees F.
+
+    The T-group carries tenths of a degree C; 32 + 9 * tenths / 50 is recovered without float error.
+    """
+    from fractions import Fraction
+
+    tenths = round((float(value_f) - 32.0) * 50.0 / 9.0)
+    return Fraction(32) + Fraction(9 * tenths, 50)
+
+
+def round_candidate(exact, rule):
+    """Whole degrees from an exact Fraction under one rounding rule."""
+    import math as _m
+
+    lo = _m.floor(exact)
+    frac = exact - lo
+    if rule == "floor":
+        return int(lo)
+    if rule == "ceil":
+        return int(_m.ceil(exact))
+    if frac * 2 != 1:
+        return int(lo + (1 if frac * 2 > 1 else 0))
+    if rule == "half_up":
+        return int(lo + 1)
+    if rule == "half_down":
+        return int(lo)
+    if rule == "half_even":
+        return int(lo if lo % 2 == 0 else lo + 1)
+    raise PooledModelError(f"unknown rounding rule {rule}")
+
+
+def wu_whole_f(value_f, rule="half_up"):
+    """Serve-time conversion of a METAR T-group Fahrenheit value to WU's whole-degree representation."""
+    if value_f is None:
+        return None
+    try:
+        if not math.isfinite(float(value_f)):
+            return None
+    except (TypeError, ValueError):
+        return None
+    return float(round_candidate(exact_tgroup_f(value_f), rule))
+
+
+def wu_rounding_parity(*, obs_parquet, wu_root, markets=R0_MARKETS, years=FORWARD_YEARS, months=(8, 9, 10, 11, 12)):
+    """Historical WU whole-degree F vs the same reports' T-group F (IEM), per candidate rounding rule."""
+    import pandas as pd
+
+    from weather.market.market_registry import spec_for_id
+
+    obs = pd.read_parquet(obs_parquet, columns=["station", "role", "market", "valid_utc", "tmpf", "tgroup_f", "is_cor"])
+    obs = obs[(obs.role == "market") & obs.market.isin(markets)]
+    obs = obs[obs.valid_utc.dt.year.isin(years) & obs.valid_utc.dt.month.isin(months)]
+    if (obs.valid_utc.dt.year >= 2026).any():
+        raise PooledModelError("a 2026 row reached the rounding check")
+    out = {"markets": {}, "years": list(years), "months": list(months)}
+    totals = defaultdict(lambda: defaultdict(int))
+    for market in markets:
+        icao = spec_for_id(market).icao.lower()
+        wu = []
+        for year in years:
+            for month in months:
+                path = Path(wu_root) / icao / "hourly" / f"year={year}" / f"month={month:02d}" / "observations.jsonl"
+                if not path.is_file():
+                    continue
+                for line in path.read_text(encoding="utf-8").splitlines():
+                    row = json.loads(line)
+                    if row.get("temp_native") is None:
+                        continue
+                    wu.append((pd.Timestamp(row["valid_time_utc"]).tz_convert("UTC"), float(row["temp_native"])))
+        wu = pd.DataFrame(wu, columns=["valid_utc", "wu_f"]).drop_duplicates("valid_utc", keep="last")
+        mobs = obs[obs.market == market].drop_duplicates("valid_utc", keep="last")
+        joined = mobs.merge(wu, on="valid_utc", how="inner")
+        joined = joined[joined.tgroup_f.notna()]
+        stats = defaultdict(int)
+        for tg, wu_f in zip(joined.tgroup_f, joined.wu_f):
+            exact = exact_tgroup_f(tg)
+            tie = (exact - math.floor(exact)) * 2 == 1
+            stats["rows"] += 1
+            stats["ties"] += int(tie)
+            for rule in WU_ROUNDING_CANDIDATES:
+                hit = round_candidate(exact, rule) == wu_f
+                stats[f"{rule}_match"] += int(hit)
+                if tie:
+                    stats[f"{rule}_tie_match"] += int(hit)
+        stats["wu_rows"] = int(len(wu))
+        stats["iem_rows"] = int(len(mobs))
+        out["markets"][market] = dict(stats)
+        for k, v in stats.items():
+            totals["ALL"][k] += v
+    out["ALL"] = dict(totals["ALL"])
+    return out
+
+
+def receipt_grace_check(*, replay_root, markets=R0_MARKETS, hours=range(7, 21), graces=(0, 5, 10, 15, 20)):
+    """Capture-only: do the METAR rows observed by h:00 in the latest snapshot captured by h:00 + g equal the
+    rows in the last snapshot of the hour (the eventually-received set the trainer's WU history matches)?"""
+    import re
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    from weather.calibration import r0_ols_floor_challenger as l3
+    from weather.market.market_registry import spec_for_id
+
+    pattern = re.compile(r'"captured_at_local":\s*"([^"]+)"')
+    hours = set(hours)
+    out = {"graces": list(graces), "markets": {}}
+    for market in markets:
+        tz = ZoneInfo(spec_for_id(market).timezone)
+        stats = defaultdict(int)
+        gaps = []
+        for slug, target, folder in l3._event_folders(replay_root):
+            if slug != market or not (N_DEV_FIRST <= target <= N_DEV_LAST):
+                continue
+            index = []
+            with open(Path(folder) / "replay_inputs.jsonl", "rb") as handle:
+                offset = 0
+                for line in handle:
+                    match = pattern.search(line[:4096].decode("utf-8", "replace"))
+                    if match:
+                        local = datetime.fromisoformat(match.group(1)).astimezone(tz)
+                        if local.date() == target:
+                            index.append((local, offset, len(line)))
+                    offset += len(line)
+                index.sort()
+                gaps += [(b[0] - a[0]).total_seconds() / 60 for a, b in zip(index, index[1:])]
+                cache = {}
+
+                def features(entry, hour):
+                    key = (entry[1], hour)
+                    if key not in cache:
+                        handle.seek(entry[1])
+                        snap = json.loads(handle.read(entry[2]))
+                        rows = ((((snap.get("sources") or {}).get("metar") or {}).get("data")) or {}).get("rows")
+                        cache[key] = l3.observations_at_cutoff(rows, target, hour, tz)
+                    return cache[key]
+
+                for hour in sorted(hours):
+                    cutoff = datetime(target.year, target.month, target.day, hour, tzinfo=tz)
+                    in_hour = [e for e in index if cutoff <= e[0] < cutoff + timedelta(hours=1)]
+                    if not in_hour:
+                        stats["no_snapshot_in_hour"] += 1
+                        continue
+                    ref = features(in_hour[-1], hour)
+                    stats["hours"] += 1
+                    for g in graces:
+                        before = [e for e in index if e[0] <= cutoff + timedelta(minutes=g)]
+                        if not before:
+                            stats[f"g{g}_no_snapshot"] += 1
+                            continue
+                        got = features(before[-1], hour)
+                        stats[f"g{g}_same_rows"] += int(got[2] == ref[2])
+                        stats[f"g{g}_same_features"] += int(got[0] == ref[0] and got[1] == ref[1])
+        gaps.sort()
+        stats["median_gap_min"] = gaps[len(gaps) // 2] if gaps else None
+        out["markets"][market] = dict(stats)
+    total = defaultdict(int)
+    for s in out["markets"].values():
+        for k, v in s.items():
+            if k != "median_gap_min" and v is not None:
+                total[k] += v
+    out["ALL"] = dict(total)
+    return out
+
+
+def _plain(value):
+    """numpy scalars to Python floats/ints for the frozen state."""
+    import numpy as np
+
+    if isinstance(value, dict):
+        return {(tuple(_plain(k) for k in key) if isinstance(key, tuple) else _plain(key)): _plain(v)
+                for key, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_plain(v) for v in value]
+    if isinstance(value, np.generic):
+        return value.item()
+    return value
+
+
+def forward_training_frame(records_root, markets=R0_MARKETS, centres=FORWARD_CENTRES):
+    payloads = [load_records(records_root, m, c) for c in centres for m in markets]
+    frame, _ = pooled_frame(payloads, station_coordinates(markets))
+    drop = [c for c in frame.columns if c.startswith("x_") and c not in DEV_KEEP_X]
+    frame = frame.drop(columns=drop)
+    buckets = {}
+    for market in markets:
+        union = set()
+        for p in payloads:
+            if p["market"] == market:
+                union |= {int(b) for b in p["bucket_space"]}
+        buckets[market] = sorted(union)
+    return frame, buckets
+
+
+def availability_counts(frame):
+    counts = frame.groupby(["market", frame["target_date"].str[5:7], "year"]).agg(
+        days=("target_date", "nunique"), rows=("y", "size"))
+    return {f"{m}|{mo}|{y}": {"days": int(r.days), "rows": int(r.rows)} for (m, mo, y), r in counts.iterrows()}
+
+
+def state_mean_dict(model):
+    import numpy as np
+
+    return {
+        "bias": _plain(dict(model.bias)), "bias_by": model.bias_by, "bias_global": float(model.bias_global),
+        "normal": _plain(dict(model.normal)), "normal_by_market": _plain(dict(model.normal_by_market)),
+        "normal_global": float(model.normal_global), "x_columns": list(model.x_columns),
+        "ols": np.asarray(model.ols, dtype=np.float64).reshape(3), "hgb": model.hgb,
+        "doy": bool(model.doy), "market_id": bool(model.market_id),
+    }
+
+
+def state_features(state, hour, *, market, target_date, high_so_far, current_temp, nbm_mean):
+    """Serve math from the frozen state only (reference for L8): (X row, mu0, g, F)."""
+    import numpy as np
+
+    mean = state["hours"][int(hour)]["mean"]
+    centre = min(state["centres"], key=lambda c: abs((date(2001, int(c[5:7]), int(c[8:10]))
+                                                      - date(2001, target_date.month, target_date.day)).days))
+    season = state["season_of"][centre[5:7]]
+    bias = mean["bias"].get((market, season), mean["bias_global"])
+    normal = mean["normal"].get((market, centre), mean["normal_by_market"].get(market, mean["normal_global"]))
+    if state["conversion"]["enabled"]:
+        high_so_far = wu_whole_f(high_so_far, state["conversion"]["rule_id"].split(":")[-1])
+        current_temp = wu_whole_f(current_temp, state["conversion"]["rule_id"].split(":")[-1])
+    mu0 = nbm_mean + bias if nbm_mean is not None and math.isfinite(nbm_mean) else normal
+    g = high_so_far - mu0
+    lat, lon, elev = state["coords"][market]
+    doy = target_date.timetuple().tm_yday
+    levels = {"high_so_far": high_so_far, "current_temp": current_temp}
+    cols = [levels[name] - mu0 for name in state["constants"]["levels"]]
+    cols += [g, max(g, 0.0), mu0 - normal, lat, lon, elev, normal, bias]
+    if mean["doy"]:
+        cols += [math.sin(2 * math.pi * doy / 365.25), math.cos(2 * math.pi * doy / 365.25)]
+    return np.asarray([cols], dtype=float), mu0, g, high_so_far
+
+
+def state_distribution(state, hour, **inputs):
+    import numpy as np
+
+    from weather.calibration import feature_model as fm
+
+    X, mu0, g, floor = state_features(state, hour, **inputs)
+    entry = state["hours"][int(hour)]
+    mean = entry["mean"]
+    design = np.array([[1.0, g, max(g, 0.0)]])
+    yhat = float((mu0 + design @ mean["ols"] + mean["hgb"].predict(X))[0])
+    c = state["constants"]
+    s = max(c["min_scale"], float(entry["scale"].predict(np.column_stack([X, [yhat - floor]]))[0]) * math.sqrt(math.pi / 2))
+    market = inputs["market"]
+    p_clim = fm.smoothed_dist(entry["train_y"][market], state["buckets"][market], alpha=c["clim_alpha"])
+    return predictive_distribution(yhat, s, floor, entry["z"], state["buckets"][market], p_clim)
+
+
+def forward_fit(*, records_root, nbm_train_corpus, out_dir, rounding_rule, late_report, commit,
+                markets=R0_MARKETS, input_shas=None):
+    """Clarification 3: the Aug-Dec 2021-25 P3d_N refit, exported as the frozen L8 state (no 2026 row)."""
+    import platform
+    import pickle as _pickle
+
+    import numpy as np
+    import pandas as pd
+    import scipy
+    import sklearn
+
+    from weather.calibration import ols_floor_ladder as l9
+    from weather.market.market_registry import spec_for_id
+
+    out = require_output_outside_repo(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    pkl, side = out / "p3d_n_state.pkl", out / "p3d_n_state.json"
+    for path in (pkl, side):
+        if path.exists():
+            raise PooledModelError(f"refusing to overwrite {path}")
+    frame, buckets = forward_training_frame(records_root, markets)
+    if frame["year"].max() >= 2026 or not set(frame["year"].unique()) <= set(FORWARD_YEARS):
+        raise PooledModelError("a forward training row is outside 2021-25")
+    nonint = int(sum((~np.isclose(frame[c].dropna() % 1, 0)).sum() for c in DEV_KEEP_X))
+    timezones = {m: spec_for_id(m).timezone for m in markets}
+    frame, train_nbm = attach_training_nbm(frame, l9.load_nbm(nbm_train_corpus), l9.nbm_at_cutoff, timezones)
+    hours = {}
+    for hour in sorted(int(h) for h in frame["hour"].unique()):
+        train = frame[frame["hour"] == hour].reset_index(drop=True)
+        fitted = fit_pooled(train, market_id=False, doy=True, raw_columns=False, bias_by="season")
+        hours[hour] = {
+            "mean": state_mean_dict(fitted["mean"]), "scale": fitted["scale"],
+            "z": np.asarray(fitted["z"], dtype=np.float64),
+            "train_y": {m: [int(v) for v in train.loc[train["market"] == m, "y"]] for m in markets},
+        }
+        print(f"forward fit hour {hour}: {len(train)} rows", flush=True)
+    levels = [name for name in LEVEL_COLUMNS if f"x_{name}" in frame.columns]
+    module_sha = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+    state = {
+        "schema": STATE_SCHEMA, "arm": N_ARM, "fit_kind": "forward", "markets": list(R0_MARKETS),
+        "centres": list(FORWARD_CENTRES),
+        "season_of": {f"{m:02d}": season_of(f"2026-{m:02d}-01") for m in range(1, 13)},
+        "coords": {m: [float(v) for v in station_coordinates([m])[m]] for m in markets},
+        "buckets": {m: [int(b) for b in buckets[m]] for m in markets},
+        "constants": {"floor_mix_clim": FLOOR_MIX_CLIM, "kernel_bandwidth": KERNEL_BANDWIDTH,
+                      "min_scale": MIN_SCALE, "clim_alpha": 0.10, "levels": levels},
+        "conversion": {"enabled": True, "rule_id": f"wu_whole_f_tgroup:{rounding_rule}",
+                       "rule": (f"exact F = 32 + 9*t/50 with t = the T-group tenths of a degree C recovered from the "
+                                f"METAR temp_native; WU whole F = {rounding_rule} rounding of that exact value"
+                                " (applied to high_so_far and current_temp before g, the floor and the features)")},
+        "late_report": dict(late_report),
+        "hours": hours,
+        "provenance": {
+            "commit": commit, "module_sha256": module_sha, "training_rows": int(len(frame)),
+            "train_years": sorted(int(y) for y in frame["year"].unique()),
+            "train_window": {"centres": list(FORWARD_CENTRES), "first_date_md": frame["target_date"].str[5:].min(),
+                             "last_date_md": frame["target_date"].str[5:].max()},
+            "train_nbm": train_nbm, "non_integer_training_obs": nonint,
+            "availability": availability_counts(frame),
+            "inputs": dict(input_shas or {}),
+            "versions": {"python": platform.python_version(), "numpy": np.__version__, "scipy": scipy.__version__,
+                         "sklearn": sklearn.__version__, "pandas": pd.__version__},
+        },
+    }
+    blob = _pickle.dumps(state, protocol=4)
+    pkl.write_bytes(blob)
+    digest = hashlib.sha256(blob).hexdigest()
+    side.write_text(json.dumps(dict(state["provenance"], state_sha256=digest), indent=1, sort_keys=True),
+                    encoding="utf-8")
+    # Export parity: the frozen state reproduces the in-process mean model on sampled training rows.
+    probe = dict(state, conversion={"enabled": False, "rule_id": None, "rule": None})
+    worst = 0.0
+    checked = 0
+    for hour, entry in hours.items():
+        train = frame[frame["hour"] == hour].reset_index(drop=True)
+        ref = MeanModel(market_id=False, doy=True, raw_columns=False, bias_by="season")
+        for key, value in entry["mean"].items():
+            setattr(ref, key, value)
+        sample = train.sample(n=min(200, len(train)), random_state=hour)
+        pred, X_ref = ref.predict(sample)
+        for j, (_, row) in enumerate(sample.iterrows()):
+            if not (math.isfinite(float(row["F"])) and math.isfinite(float(row["x_current_temp"]))):
+                continue
+            X, mu0, g, _ = state_features(
+                probe, hour, market=row["market"], target_date=date.fromisoformat(row["target_date"]),
+                high_so_far=float(row["F"]), current_temp=float(row["x_current_temp"]), nbm_mean=float(row["fh"]))
+            yhat = float((mu0 + np.array([[1.0, g, max(g, 0.0)]]) @ entry["mean"]["ols"]
+                          + entry["mean"]["hgb"].predict(X))[0])
+            worst = max(worst, float(np.max(np.abs(X - X_ref[j]))), abs(yhat - float(pred[j])))
+            checked += 1
+    if worst > 1e-9:
+        raise PooledModelError(f"frozen state does not reproduce the fitted model (max abs diff {worst})")
+    print(f"export parity: {checked} training rows, max abs diff {worst:.3g}", flush=True)
+    return state, digest
+
+
 def dev_verdict_markdown(scores, rule_path, arms=tuple(DEV_ARMS)):
     """Amendment 3: L3's dev verdict applied to P3d (decisive) and U0d, with the reported groups."""
     from weather.calibration import r0_ols_floor_challenger as l3
@@ -1339,6 +1697,22 @@ def _parse(argv=None):
     dn.add_argument("--nbm-dev-corpus", required=True, help="the 2026 NBM corpus rows (cross-check only)")
     dn.add_argument("--markets", default=",".join(R0_MARKETS))
     dn.add_argument("--out", required=True)
+    wr = sub.add_parser("wu-rounding", help="clarification 3 (c): WU whole F vs T-group F on 2021-25 rows (heavy)")
+    wr.add_argument("--obs-parquet", required=True, help="IEM market-station rows with tgroup_f (lane L6)")
+    wr.add_argument("--wu-root", required=True)
+    wr.add_argument("--out", required=True)
+    rg = sub.add_parser("receipt-grace", help="clarification 3 (d): capture-only receipt check per grace (heavy)")
+    rg.add_argument("--replay-root", required=True)
+    rg.add_argument("--out", required=True)
+    ff = sub.add_parser("forward-fit", help="clarification 3: Aug-Dec 2021-25 P3d_N refit, frozen L8 state (heavy)")
+    ff.add_argument("--records", required=True)
+    ff.add_argument("--nbm-train-corpus", required=True)
+    ff.add_argument("--rounding-rule", required=True, choices=WU_ROUNDING_CANDIDATES)
+    ff.add_argument("--late-rule", required=True, choices=("last_in_hour", "receipt_by"))
+    ff.add_argument("--grace-minutes", type=int, default=None)
+    ff.add_argument("--commit", required=True)
+    ff.add_argument("--input", action="append", default=[], help="name=sha256 provenance entries")
+    ff.add_argument("--out", required=True)
     dv = sub.add_parser("dev-verdict", help="amendment 3: verdict and tables from L3 dev-score output")
     dv.add_argument("--scores", required=True)
     dv.add_argument("--rule", required=True)
@@ -1417,6 +1791,23 @@ def main(argv=None):
                                          nbm_train_corpus=args.nbm_train_corpus, nbm_dev_corpus=args.nbm_dev_corpus,
                                          out_dir=args.out, markets=args.markets.split(","))
         print(json.dumps(audit["files"], indent=1))
+        return 0
+    if args.command in ("wu-rounding", "receipt-grace"):
+        if out.exists():
+            raise PooledModelError(f"refusing to overwrite {out}")
+        if args.command == "wu-rounding":
+            result = wu_rounding_parity(obs_parquet=args.obs_parquet, wu_root=args.wu_root)
+        else:
+            result = receipt_grace_check(replay_root=args.replay_root)
+        out.write_text(json.dumps(result, indent=1, sort_keys=True), encoding="utf-8")
+        print(json.dumps(result["ALL"], indent=1, sort_keys=True))
+        return 0
+    if args.command == "forward-fit":
+        inputs = dict(item.split("=", 1) for item in args.input)
+        _, digest = forward_fit(records_root=args.records, nbm_train_corpus=args.nbm_train_corpus, out_dir=args.out,
+                                rounding_rule=args.rounding_rule, commit=args.commit, input_shas=inputs,
+                                late_report={"rule": args.late_rule, "grace_minutes": args.grace_minutes})
+        print(json.dumps({"state_sha256": digest}))
         return 0
     if args.command == "dev-verdict":
         scores = json.loads(Path(args.scores).read_text(encoding="utf-8"))
