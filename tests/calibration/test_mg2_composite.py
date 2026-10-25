@@ -301,7 +301,7 @@ def test_the_score_look_also_requires_parity(tmp_path):
     snaps.to_parquet(tmp_path / "layout" / data.SNAPSHOTS_FILE, index=False)
     rule = _rule(tmp_path, d0="2026-12-01", n_forward_dates="1")
     with pytest.raises(mg2.Mg2Refused, match="serve parity"):
-        mg2.score(layout_root=tmp_path / "layout", vectors=tmp_path, rule=rule, out=out, release_binding=tmp_path,
+        mg2.score(layout_root=tmp_path / "layout", vectors=tmp_path / mg2.VECTORS, rule=rule, out=out, release_binding=tmp_path,
                   today=date(2027, 6, 1))
 
 
@@ -359,5 +359,5 @@ def test_second_look_is_refused(tmp_path):
     (tmp_path / "out").mkdir()
     (tmp_path / "out" / "mg2_look.json").write_text("{}")
     with pytest.raises(mg2.Mg2Refused, match="exactly one look"):
-        mg2.score(layout_root=tmp_path, vectors=tmp_path, rule=_rule(tmp_path), out=tmp_path / "out",
+        mg2.score(layout_root=tmp_path, vectors=tmp_path / mg2.VECTORS, rule=_rule(tmp_path), out=tmp_path / "out",
                   release_binding=tmp_path)

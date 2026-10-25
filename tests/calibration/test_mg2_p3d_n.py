@@ -10,6 +10,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from weather.calibration import mg2_p3d_n as p3
@@ -295,6 +296,125 @@ def test_late_report_rules_choose_the_snapshot_by_capture_time(tmp_path):
     assert wide[13]["replay_snapshot_id"] == "s1"
     with pytest.raises(p3.P3dNRefused, match="late-report"):
         p3.scan_replay(tmp_path / "f", day, tz, {13}, "F", {"rule": "whenever"})
+
+
+def _event_folder(root, market, day):
+    months = ("january", "february", "march", "april", "may", "june", "july", "august", "september", "october",
+              "november", "december")
+    return root / "snapshots" / f"highest-temperature-in-{market}-on-{months[day.month - 1]}-{day.day}-{day.year}"
+
+
+def _snap_frame(rows, tz):
+    """``rows``: [(row_key, target date, capture local datetime, cutoff hour)] -> an inputs-snapshots frame."""
+    import pandas as pd
+
+    return pd.DataFrame({
+        "row_key": [r[0] for r in rows], "snapshot_id": [r[0].split("|")[1] for r in rows],
+        "market": ["atlanta"] * len(rows), "target_date": [r[1].isoformat() for r in rows],
+        "date": [r[1].isoformat() for r in rows], "local_hour": [r[2].hour for r in rows],
+        "cutoff_hour": [str(r[3]) for r in rows], "v2_mean": [80.0] * len(rows), "v2_stddev": [2.0] * len(rows),
+        "v2_available_at": [datetime.combine(r[1], datetime.min.time(), tzinfo=tz).astimezone(timezone.utc)
+                            .isoformat() for r in rows],
+        "captured_at_utc": [r[2].astimezone(timezone.utc).isoformat() for r in rows]})
+
+
+def test_training_coverage_boundary_is_08_01_to_12_16_inclusive():
+    assert p3.TRAINING_COVERAGE == ("08-01", "12-16")
+    assert p3.in_training_coverage("2026-12-16") and p3.in_training_coverage("2026-08-01")
+    assert not p3.in_training_coverage("2026-12-17") and not p3.in_training_coverage("2026-07-31")
+    assert not p3.in_training_coverage("2027-01-05")
+
+
+def test_a_date_past_12_16_falls_back_to_mg1_and_is_logged_per_row(golden_state, tmp_path):
+    from weather.calibration import mg2_composite as mg2
+
+    tz = ZoneInfo("America/New_York")
+    rows = []
+    for day in (date(2026, 12, 16), date(2026, 12, 17)):
+        at = datetime(day.year, day.month, day.day, 15, 30, tzinfo=tz)
+        _replay(_event_folder(tmp_path, "atlanta", day), day, tz,
+                [(at, [(datetime(day.year, day.month, day.day, 14, 52, tzinfo=tz), 78.08)])])
+        rows.append((f"atlanta|r{day.day}", day, at, 15))
+    snaps = _snap_frame(rows, tz)
+    out, stats = p3.emit_rows(golden_state, snaps, tmp_path, date(2026, 12, 16), date(2026, 12, 17),
+                              markets=["atlanta"])
+    assert [r[3] for r in out] == ["atlanta|r16"]
+    assert stats["atlanta"]["outside_training_coverage"] == 1
+    assert stats["atlanta"]["coverage_fallback"] == ["atlanta|r17"]
+    # the afternoon slot then takes MG-1 for 12-17
+    snaps = snaps.assign(guidance_physical_floor=60.0, high_so_far=float("nan"), trusted_current_max=float("nan"))
+    bands = pd.DataFrame([(rk, i, k, lo, hi) for rk in snaps.row_key
+                          for i, (k, lo, hi) in enumerate([("lte", np.nan, 77.0), ("between", 78.0, 79.0),
+                                                           ("gte", 80.0, np.nan)])],
+                         columns=["row_key", "band_index", "kind", "low", "high"])
+    base = pd.DataFrame([(rk, i, 1 / 3) for rk in snaps.row_key for i in range(3)], columns=["row_key", "band_index", "p"])
+    post = mg2.distribution_band_frame({r[3]: r[4] for r in out}, bands)
+    _, source = mg2.compose(snaps, bands, base, post, base)
+    assert source == {"atlanta|r16": mg2.POST, "atlanta|r17": "mg1"}
+
+
+def test_as_of_capture_never_admits_a_row_received_after_the_rows_capture(golden_state, tmp_path):
+    """A 12:59 report first received in the 13:40 capture never reaches a 13:20 row (no receipt look-ahead).
+
+    last_in_hour (the MG-1 gate's primary) reads it for every 13:xx row; as_of_capture (primary against the
+    market) reads it only for rows captured at or after 13:40.
+    """
+    tz = ZoneInfo("America/New_York")
+    day = date(2026, 11, 2)
+
+    def at(h, m, us=0):
+        return datetime(2026, 11, 2, h, m, 0, us, tzinfo=tz)
+
+    early = [(at(11, 52), _f(256)), (at(12, 52), _f(261))]  # 78.08 F, 78.98 F
+    late = early + [(at(12, 59), _f(283))]  # 82.94 F, observed before 13:00, first received at 13:40
+    folder = _event_folder(tmp_path, "atlanta", day)
+    _replay(folder, day, tz, [(at(13, 5), early), (at(13, 40), late)])
+    index = p3._replay_index(folder, day, tz)
+    assert p3.scan_replay_as_of(folder, day, tz, 13, at(13, 20), "F", index)["current_temp"] == _f(261)
+    assert p3.scan_replay_as_of(folder, day, tz, 13, at(13, 20), "F", index)["high_so_far"] == _f(261)
+    assert p3.scan_replay_as_of(folder, day, tz, 13, at(13, 39, 999999), "F", index)["replay_snapshot_id"] == "s0"
+    assert p3.scan_replay_as_of(folder, day, tz, 13, at(13, 40), "F", index)["current_temp"] == _f(283)
+    assert p3.scan_replay_as_of(folder, day, tz, 13, at(13, 4), "F", index) is None
+    snaps = _snap_frame([("atlanta|a", day, at(13, 20), 13), ("atlanta|b", day, at(13, 45), 13)], tz)
+    asof, _ = p3.emit_rows(golden_state, snaps, tmp_path, day, day, markets=["atlanta"], inputs="as_of_capture")
+    primary, _ = p3.emit_rows(golden_state, snaps, tmp_path, day, day, markets=["atlanta"])
+    kw = dict(market="atlanta", target_date=day.isoformat(), hour=13, nbm_mean=80.0)
+    no_late = p3.serve_distribution(golden_state, **kw, high_so_far=_f(261), current_temp=_f(261))
+    with_late = p3.serve_distribution(golden_state, **kw, high_so_far=_f(283), current_temp=_f(283))
+    assert {r[3]: r[4] for r in asof} == {"atlanta|a": no_late, "atlanta|b": with_late}
+    assert {r[3]: r[4] for r in primary} == {"atlanta|a": with_late, "atlanta|b": with_late}
+
+
+def test_as_of_capture_is_never_computed_on_a_dev_row(golden_state, tmp_path):
+    import pandas as pd
+
+    with pytest.raises(p3.P3dNRefused, match="never computed on a dev row"):
+        p3.emit_rows(golden_state, pd.DataFrame(), tmp_path, date(2026, 9, 29), date(2026, 10, 30),
+                     inputs="as_of_capture")
+    with pytest.raises(p3.P3dNRefused, match="input mode"):
+        p3.emit_rows(golden_state, pd.DataFrame(), tmp_path, date(2026, 11, 1), date(2026, 11, 2), inputs="later")
+
+
+def test_the_mg1_gate_scores_last_in_hour_only_and_the_market_arm_is_as_of_capture(tmp_path):
+    from weather.calibration import mg2_composite as mg2
+
+    with pytest.raises(mg2.Mg2Refused, match="MG-2 vs MG-1 gate"):
+        mg2.score(layout_root=tmp_path, vectors=tmp_path / mg2.ASOF_VECTORS, rule=tmp_path / "rule.md",
+                  out=tmp_path / "out", release_binding=tmp_path)
+    assert "PRIMARY for the MG-2 vs MG-1 gate" in mg2.VECTOR_ROLES[mg2.VECTORS]
+    assert "PRIMARY for every comparison against the market" in mg2.VECTOR_ROLES[mg2.ASOF_VECTORS]
+    tree = ast.parse((ROOT / "src/weather/calibration/mg2_composite.py").read_text(encoding="utf-8"))
+    funcs = {n.name: n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
+    assert "ASOF_VECTORS" not in {n.id for n in ast.walk(funcs["score"]) if isinstance(n, ast.Name)}
+    assert not any(isinstance(n, ast.Constant) and isinstance(n.value, str) and "asof" in n.value
+                   for n in ast.walk(funcs["score"]))
+    # the primary vectors are composed from the last_in_hour post only
+    emit_src = ast.get_source_segment((ROOT / "src/weather/calibration/mg2_composite.py").read_text(encoding="utf-8"),
+                                      funcs["emit"])
+    assert "post = distribution_band_frame(dists, bands)" in emit_src
+    assert "frame, source = compose(snaps, bands, pre, post, base)" in emit_src
+    assert "frame.to_parquet(out / VECTORS" in emit_src
+    assert 'inputs="as_of_capture"' in emit_src and "if not control:" in emit_src
 
 
 def test_module_has_no_network_and_no_production_importer():

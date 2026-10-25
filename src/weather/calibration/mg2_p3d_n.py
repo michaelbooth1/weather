@@ -305,6 +305,66 @@ def serve_distribution(state, *, market, target_date, hour, nbm_mean, high_so_fa
 
 # ----------------------------------------------------------------------------- captured inputs
 
+# The two input paths (rule §8 C4). ``last_in_hour`` is PRIMARY for the MG-2 vs MG-1 gate (symmetric: both are
+# scored on the same snapshot rows) and is the dev/pick semantics. ``as_of_capture`` is PRIMARY for every
+# comparison against the market (blend R, edge reads, the formal edge test): each row reads only the latest
+# replay snapshot captured at or before the row's own capture time, so no METAR row received after that
+# snapshot can enter. It is never computed on a dev row.
+INPUT_MODES = ("last_in_hour", "as_of_capture")
+ASOF_ARM = "p3d_n_asof_capture"
+
+# Rule §8 C5: P3d_N covers a target date only if its month-day lies in the training coverage (L2 Clarification 3
+# (a), 08-01..12-16 inclusive); outside it the afternoon slot falls back to MG-1, logged per row.
+TRAINING_COVERAGE = ("08-01", "12-16")
+
+
+def in_training_coverage(target_date):
+    md = str(target_date)[5:10]
+    return TRAINING_COVERAGE[0] <= md <= TRAINING_COVERAGE[1]
+
+
+_CAPTURED_LOCAL = None
+
+
+def _replay_index(folder, target_date, tz):
+    """[(capture local datetime, byte offset, size)] of the target date's replay snapshots, in file order."""
+    import re
+
+    global _CAPTURED_LOCAL
+    if _CAPTURED_LOCAL is None:
+        _CAPTURED_LOCAL = re.compile(r'"captured_at_local":\s*"([^"]+)"')
+    index = []
+    with open(Path(folder) / "replay_inputs.jsonl", "rb") as handle:
+        offset = 0
+        for line in handle:
+            match = _CAPTURED_LOCAL.search(line[:4096].decode("utf-8", "replace"))
+            if match:
+                local = datetime.fromisoformat(match.group(1)).astimezone(tz)
+                if local.date() == target_date:
+                    index.append((local, offset, len(line)))
+            offset += len(line)
+    return index
+
+
+def _read_snapshot(folder, start, size):
+    with open(Path(folder) / "replay_inputs.jsonl", "rb") as handle:
+        handle.seek(start)
+        return json.loads(handle.read(size))
+
+
+def _observations(snapshot, target_date, hour, tz, unit, local):
+    """current_temp, high_so_far and row count from one replay snapshot: rows observed at or before h:00 only."""
+    from weather.calibration import r0_ols_floor_challenger as l3
+    from weather.model import observed_running_max
+
+    metar = (((snapshot.get("sources") or {}).get("metar") or {}).get("data")) or {}
+    current, _, n = l3.observations_at_cutoff(metar.get("rows"), target_date, hour, tz)
+    high, _ = observed_running_max.running_max_since_midnight(
+        {}, metar, target_date=target_date, tz=tz, unit=unit, cutoff_hour=hour, now=local, metar_only=True)
+    return {"replay_snapshot_id": snapshot.get("snapshot_id"), "replay_captured_at_local": local.isoformat(),
+            "current_temp": current, "high_so_far": high, "n_rows": n}
+
+
 def scan_replay(folder, target_date, tz, hours, unit, late_report):
     """Per cutoff hour h, METAR inputs from one replay snapshot of ``target_date`` (the state's late-report rule).
 
@@ -312,77 +372,88 @@ def scan_replay(folder, target_date, tz, hours, unit, late_report):
     ``receipt_by``: the latest snapshot captured at or before h:00 + grace. Either way only rows observed at or
     before h:00 count (``observations_at_cutoff``; ``running_max_since_midnight`` with ``metar_only=True``).
     """
-    import re
-
-    from weather.calibration import r0_ols_floor_challenger as l3
-    from weather.model import observed_running_max
-
     rule = late_report["rule"]
     if rule not in LATE_REPORT_RULES:
         raise P3dNRefused(f"unknown late-report rule {rule!r}")
     grace = timedelta(minutes=int(late_report.get("grace_minutes") or 0))
-    pattern = re.compile(r'"captured_at_local":\s*"([^"]+)"')
-    path = Path(folder) / "replay_inputs.jsonl"
     chosen = {}
-    with open(path, "rb") as handle:
-        offset = 0
-        for line in handle:
-            match = pattern.search(line[:4096].decode("utf-8", "replace"))
-            if match:
-                local = datetime.fromisoformat(match.group(1)).astimezone(tz)
-                if local.date() == target_date:
-                    if rule == "last_in_hour":
-                        if local.hour in hours:
-                            chosen[local.hour] = (local, offset, len(line))
-                    else:
-                        for h in hours:
-                            deadline = datetime.combine(target_date, time(int(h), 0), tzinfo=tz) + grace
-                            if local <= deadline and (h not in chosen or local >= chosen[h][0]):
-                                chosen[h] = (local, offset, len(line))
-            offset += len(line)
-        out = {}
-        for hour, (local, start, size) in sorted(chosen.items()):
-            handle.seek(start)
-            snapshot = json.loads(handle.read(size))
-            metar = (((snapshot.get("sources") or {}).get("metar") or {}).get("data")) or {}
-            current, _, n = l3.observations_at_cutoff(metar.get("rows"), target_date, hour, tz)
-            high, _ = observed_running_max.running_max_since_midnight(
-                {}, metar, target_date=target_date, tz=tz, unit=unit, cutoff_hour=hour, now=local, metar_only=True)
-            out[hour] = {"replay_snapshot_id": snapshot.get("snapshot_id"),
-                         "replay_captured_at_local": local.isoformat(), "current_temp": current,
-                         "high_so_far": high, "n_rows": n}
-    return out
+    for local, offset, size in _replay_index(folder, target_date, tz):
+        if rule == "last_in_hour":
+            if local.hour in hours:
+                chosen[local.hour] = (local, offset, size)
+        else:
+            for h in hours:
+                deadline = datetime.combine(target_date, time(int(h), 0), tzinfo=tz) + grace
+                if local <= deadline and (h not in chosen or local >= chosen[h][0]):
+                    chosen[h] = (local, offset, size)
+    return {hour: _observations(_read_snapshot(folder, start, size), target_date, hour, tz, unit, local)
+            for hour, (local, start, size) in sorted(chosen.items())}
 
 
-def emit_rows(state, snaps, replay_root, first, last, markets=None):
+def as_of_capture(index, at_local):
+    """The index entry of the latest snapshot captured at or before ``at_local`` (None when there is none)."""
+    best = None
+    for entry in index:
+        if entry[0] <= at_local and (best is None or entry[0] >= best[0]):
+            best = entry
+    return best
+
+
+def scan_replay_as_of(folder, target_date, tz, hour, at_local, unit, index=None):
+    """METAR inputs for cutoff ``hour`` as a process at ``at_local`` would see them (no receipt look-ahead).
+
+    Only the latest snapshot captured at or before ``at_local`` is read, so a row first received in a later
+    snapshot cannot enter; within it only rows observed at or before h:00 count.
+    """
+    index = _replay_index(folder, target_date, tz) if index is None else index
+    entry = as_of_capture(index, at_local)
+    if entry is None:
+        return None
+    local, start, size = entry
+    return _observations(_read_snapshot(folder, start, size), target_date, hour, tz, unit, local)
+
+
+def emit_rows(state, snaps, replay_root, first, last, markets=None, inputs="last_in_hour"):
     """[(market, snapshot_id, target_date, row_key, distribution)] in L2's emission order, plus stats.
 
-    Row gate exactly as L2's ``dev_emit_n_distributions``: cutoff hour in the intraday set, local hour >= cutoff,
-    a usable captured NBM mean, a replay observation with high_so_far and current_temp.
+    Row gate as L2's ``dev_emit_n_distributions`` (cutoff hour in the intraday set, local hour >= cutoff, a
+    usable captured NBM mean, a replay observation with high_so_far and current_temp), plus the rule C5
+    training-coverage gate (rows outside it are logged per row in ``coverage_fallback`` and fall to MG-1).
+    ``inputs``: ``last_in_hour`` (the state's late-report rule) or ``as_of_capture`` (rule C4; refuses dev dates).
     """
     from zoneinfo import ZoneInfo
+
+    import pandas as pd
 
     from weather.calibration import r0_ols_floor_challenger as l3
     from weather.calibration.r0_ols_floor_devfit import usable_v2_mean
     from weather.market.market_registry import spec_for_id
     from weather.model.toronto_model import INTRADAY_CUTOFF_HOURS
 
+    if inputs not in INPUT_MODES:
+        raise P3dNRefused(f"unknown input mode {inputs!r}")
+    if inputs == "as_of_capture" and first <= DEV_LAST:
+        raise P3dNRefused("the as-of-capture arm is never computed on a dev row (<= 2026-09-29)")
     hours = {int(h) for h in INTRADAY_CUTOFF_HOURS}
     snaps = snaps.assign(nbm_usable=usable_v2_mean(snaps))
     rows, stats = [], {}
     for market in (markets or state["markets"]):
         spec = spec_for_id(market)
         tz = ZoneInfo(spec.timezone)
-        obs = {}
+        obs, folders, indexes, cache = {}, {}, {}, {}
         for slug, target, folder in l3._event_folders(replay_root):
             if slug != market or not (first <= target <= last):
                 continue
-            for hour, rec in scan_replay(folder, target, tz, hours, spec.display_unit, state["late_report"]).items():
-                obs[(target.isoformat(), hour)] = rec
+            folders[target.isoformat()] = (target, folder)
+            if inputs == "last_in_hour":
+                for hour, rec in scan_replay(folder, target, tz, hours, spec.display_unit,
+                                             state["late_report"]).items():
+                    obs[(target.isoformat(), hour)] = rec
         m = stats.setdefault(market, {"emitted": 0, "outside_cutoff_hours": 0, "local_hour_before_cutoff": 0,
+                                      "outside_training_coverage": 0, "coverage_fallback": [],
                                       "no_usable_nbm": 0, "no_replay_observation": 0, "missing_metar_feature": 0,
-                                      "no_fit_for_hour": 0, "replay_hours": 0})
-        m["replay_hours"] = len(obs)
+                                      "no_fit_for_hour": 0, "replay_hours": 0, "inputs": inputs})
+        m["replay_hours"] = len(obs) if inputs == "last_in_hour" else len(folders)
         for row in snaps[snaps.market == market].itertuples(index=False):
             try:
                 hour = int(str(row.cutoff_hour))
@@ -395,11 +466,30 @@ def emit_rows(state, snaps, replay_root, first, last, markets=None):
                 m["local_hour_before_cutoff"] += 1
                 continue
             key = (str(row.target_date)[:10], hour)
+            if not in_training_coverage(key[0]):
+                m["outside_training_coverage"] += 1
+                m["coverage_fallback"].append(getattr(row, "row_key", None) or row.snapshot_id)
+                continue
             nbm = float(row.nbm_usable)
             if not math.isfinite(nbm):
                 m["no_usable_nbm"] += 1
                 continue
-            rec = obs.get(key)
+            if inputs == "last_in_hour":
+                rec = obs.get(key)
+            else:
+                rec = None
+                if key[0] in folders:
+                    target, folder = folders[key[0]]
+                    if key[0] not in indexes:
+                        indexes[key[0]] = _replay_index(folder, target, tz)
+                    at_local = pd.Timestamp(row.captured_at_utc).tz_convert("UTC").to_pydatetime().astimezone(tz)
+                    entry = as_of_capture(indexes[key[0]], at_local)
+                    if entry is not None:
+                        ck = (key[0], entry[1], hour)
+                        if ck not in cache:
+                            cache[ck] = _observations(_read_snapshot(folder, entry[1], entry[2]), target, hour, tz,
+                                                      spec.display_unit, entry[0])
+                        rec = cache[ck]
             if rec is None:
                 m["no_replay_observation"] += 1
                 continue

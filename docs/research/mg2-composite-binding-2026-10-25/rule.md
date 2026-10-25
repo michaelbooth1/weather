@@ -256,6 +256,7 @@ These checks void the look only in two cases:
   - a P3d_N METAR row observed after the snapshot's cutoff hour, or a cutoff later than the snapshot's
     local hour;
   - under a `receipt_by` late-report rule, a replay snapshot captured after cutoff + grace;
+  - on the `as_of_capture` path (§8 C4), a replay snapshot captured after the row's own capture time;
   - an L6 METAR row used before valid + 10 min.
 - **Coverage:** fewer than 90% of 00-16 snapshots have an MG-2 vector (dev 99.4%).
 - **Replay:** `check` does not reproduce the emitted vectors on 100% of snapshots to within 1e-12.
@@ -334,11 +335,56 @@ P3d_N's forward state is bound.**
     and 352 of 354 exact ties.
 - **Late report `last_in_hour`** (grace null):
   - At cutoff h, P3d_N uses METAR rows observed at or before h:00, as received in the last capture
-    snapshot in [h:00, h+1:00). This is the dev and pick semantics, and the replay applies it as written.
-  - L2's note for a live process at time t (the latest snapshot captured ≤ t) has no separate replay
-    path, because MG-2 is scored by captured-input replay.
+    snapshot in [h:00, h+1:00). This is the dev and pick semantics.
+  - Its roles, and the no-look-ahead arm, are set by C4.
 - **No scoring.** The forward state is never scored on 2026 dev dates (L2's Clarification 3). The only
   2026 use before D0 is a single-row load-and-serve smoke test.
+
+**Clarification C4 (2026-10-25, coordinator ruling, with master's partial veto; dated before D0): two
+input paths and their roles.** `last_in_hour` (C3-binding) looks ahead on *receipt* within the hour, but
+never on *observation*:
+- a vector for a 13:05 snapshot can use a report observed at 12:59 that is first received in the 13:40
+  capture;
+- no row observed after h:00 is ever used;
+- a live process at 13:05 would see less.
+
+The forward emission therefore runs two paths on the same forward rows:
+- **`last_in_hour`: `mg2_vectors.parquet`.**
+  - **PRIMARY for the MG-2 vs MG-1 gate** (§5). It reproduces what was picked, and the gate is symmetric,
+    because MG-1 is scored on the same snapshot rows.
+  - DESCRIPTIVE for any comparison against the market.
+- **`as_of_capture`: `mg2_vectors_asof_capture.parquet`** (arm `p3d_n_asof_capture`).
+  - Each row reads only the latest replay snapshot captured at or before that row's own
+    `captured_at_utc`. No METAR row received after that snapshot can enter, and only rows observed at or
+    before h:00 count. The composite is otherwise identical: the same pre-13 half, MG-1 fallback and
+    rule-4 floor.
+  - **PRIMARY for every comparison against the market:** the blend R, every edge read and the formal
+    edge test. A 13:05 price cannot be beaten with rows that arrive at 13:40, and look-ahead biases
+    toward a false edge.
+  - DESCRIPTIVE for the MG-1 gate: it is reported beside it and never feeds the gate.
+- **Enforcement:**
+  - `score` refuses any vectors file other than `mg2_vectors.parquet`.
+  - The emit audit records `vector_roles`.
+  - `emit_rows(inputs="as_of_capture")` refuses any window that starts on or before 2026-09-29, so the
+    arm is never computed on a dev row.
+  - Tests pin that a late-arriving row (observed 12:59, received 13:40) does not reach a 13:20 row, and
+    that the gate cannot read the as-of vectors.
+
+**Clarification C5 (2026-10-25, coordinator ruling; dated before D0): training coverage.**
+- **The rule:** P3d_N covers a forward target date only if its month-day lies within its training
+  coverage, **08-01..12-16 inclusive** (L2's Clarification 3 (a)).
+- **Outside the coverage:** the afternoon slot falls back to MG-1, which covers late December and
+  January.
+  - Each such row is logged in `mg2_post_coverage_fallback.jsonl` and in the audit's
+    `coverage_fallback`.
+  - It applies to both C4 paths.
+- **The centre distance:** the nearest-centre month-day distance does not wrap across the year end. An
+  early-January date would otherwise pick the 08-08 centre. The coverage rule makes this harmless, so
+  `nearest_centre` is not patched.
+- **Kept regardless of D0:** the rule stays even if D0 places all 45 dates within 12-16, in which case it
+  never triggers.
+- **A noted gap:** L2's covered dates have a gap at 09-30..10-02 that lies inside the coverage range.
+  These dates are served from the 09-22 or 10-10 centre, and no forward date falls in it.
 
 **Clarification C1 (2026-10-25, master's ruling; dated before D0): `high_so_far` is the METAR-only
 running max.** Weather Underground-sourced station rows do not travel to the workstation (binding plan
