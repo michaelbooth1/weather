@@ -333,3 +333,9 @@ def test_nbm_hist_variant_adds_the_nbm_mean_regressor():
     # A missing NBM mean is imputed with forecast_high, as in training (L9's IMPUTE rule).
     assert ch.feature_vector({"forecast_high": 80.0, "high_so_far": 75.0, "current_temp": 74.0,
                               "nbm_mean": None}, features) == [80.0, 75.0, 74.0, 80.0]
+
+
+def test_nbm_n2_variant_replaces_the_forecast_with_the_captured_nbm_mean():
+    features, source = ch.DEV_VARIANTS[ch.N2_VARIANT]
+    assert features == ("nbm_mean", "high_so_far", "current_temp") and source == "captured_nbm"
+    assert ch.N2_VARIANT in ch.NBM_VARIANTS

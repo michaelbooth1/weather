@@ -523,10 +523,15 @@ DEV_VARIANTS = {
     # dev_rule.md clarification 4: arm A' = arm A (L8 high_so_far) plus the NBM mean, fitted on the historical
     # rows with lane L9's PIT NBM corpus (L9's loader, imported), scored with the captured v2 mean MG-1 uses.
     "nbm_hist": (FEATURES + ("nbm_mean",), "pit_2026"),
+    # MG-2 pick rule clarification 2: arm A_N (L9's N2 recipe), forecast_high replaced by the captured NBM 07Z mean;
+    # trained on L9's PIT NBM corpus, served with the captured v2 mean; a dev snapshot without it is not emitted.
+    "nbm_n2": (("nbm_mean", "high_so_far", "current_temp"), "captured_nbm"),
 }
 DEV_DEFAULT_VARIANTS = ("main", "served_forecast", "two_feature")
 L8_VARIANT = "l8_high_so_far"
 NBM_VARIANT = "nbm_hist"
+N2_VARIANT = "nbm_n2"
+NBM_VARIANTS = (NBM_VARIANT, N2_VARIANT)
 _CAPTURED_LOCAL = None
 _METAR_TIME = None
 
@@ -676,12 +681,12 @@ def dev_emit(*, layout, replay_root, train_manifests, dev_manifest, out_dir, mar
     unknown = [v for v in variants if v not in DEV_VARIANTS]
     if unknown:
         raise ChallengerError(f"unknown dev variants {unknown}")
-    want_nbm = NBM_VARIANT in variants
+    want_nbm = any(v in variants for v in NBM_VARIANTS)
     want_l8 = L8_VARIANT in variants or want_nbm
     nbm_table = None
     if want_nbm:
         if nbm_corpus is None:
-            raise ChallengerError("the nbm_hist variant needs --nbm-corpus")
+            raise ChallengerError("the NBM variants need --nbm-corpus")
         from weather.calibration import ols_floor_ladder
 
         nbm_table = ols_floor_ladder.load_nbm(nbm_corpus)
@@ -765,18 +770,22 @@ def dev_emit(*, layout, replay_root, train_manifests, dev_manifest, out_dir, mar
                 served_fc = None if row.forecast_high != row.forecast_high else float(row.forecast_high)
                 for variant in variants:
                     features, source = DEV_VARIANTS[variant]
-                    fc = pit if source == "pit_2026" else served_fc
+                    if source == "captured_nbm":
+                        nbm = float(row.nbm_usable)
+                        fc = nbm if math.isfinite(nbm) else None
+                    else:
+                        fc = pit if source == "pit_2026" else served_fc
                     if fc is None:
                         stats[f"{variant}_no_forecast"] += 1
                         continue
                     record = {"forecast_high": fc, "high_so_far": rec["high_so_far"],
                               "current_temp": rec["current_temp"]}
-                    if variant == NBM_VARIANT:
+                    if variant in NBM_VARIANTS:
                         nbm = float(row.nbm_usable)
                         record["nbm_mean"] = nbm if math.isfinite(nbm) else None
                         if record["nbm_mean"] is None:
                             stats[f"{variant}_nbm_imputed_forecast"] += 1
-                    if variant in (L8_VARIANT, NBM_VARIANT):
+                    if variant in (L8_VARIANT,) + NBM_VARIANTS:
                         value = rec.get("high_so_far_l8")
                         if value is None:
                             stats[f"{variant}_no_l8_value"] += 1
