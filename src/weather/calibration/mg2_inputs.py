@@ -760,8 +760,7 @@ def concat(*, layouts, out, ledger=None):
               "files": {name: {"sha256": sha256_file(out / name), "rows": rows}
                         for name, rows in (("inputs_snapshots.parquet", len(snaps)),
                                            ("inputs_bands.parquet", len(bands)))}}
-    (out / "manifest.json").write_text(json.dumps(window, indent=1, sort_keys=True) + "
-", encoding="utf-8")
+    (out / "manifest.json").write_text(json.dumps(window, indent=1, sort_keys=True) + "\n", encoding="utf-8")
     return {"status": "ok", **{k: window[k] for k in ("first", "last", "dates", "files")}}
 
 

@@ -628,3 +628,105 @@ def test_receiver_and_builder_have_no_network_access():
     net = ("socket", "urllib", "http", "requests", "httpx", "aiohttp", "ftplib", "smtplib")
     assert not [m for m in imports if m.split(".")[0] in net]
     assert "://" not in (ROOT / "src/weather/calibration/mg2_inputs.py").read_text(encoding="utf-8")
+
+
+# ----------------------------------------------------------------------------- concat (window layout)
+
+D2 = D + timedelta(days=1)
+
+
+def _layout_for(tmp_path, day, name):
+    inbox, ledger = tmp_path / f"inbox-{name}", tmp_path / "ledger.jsonl"
+    export_bundle(inbox / day.isoformat() / "incoming", day=day)
+    assert mi.receive(inbox=inbox, day=day, ledger=ledger,
+                      now=datetime.combine(day + timedelta(days=1), datetime.min.time()).astimezone()
+                      + timedelta(hours=7))["status"] == "verified"
+    out = tmp_path / f"layout-{name}"
+    mi.build(bundle=inbox / day.isoformat() / "verified", out=out, day=day, parser=FakeParser())
+    return out
+
+
+def _rewrite_layout(root, fn, manifest_fn=None):
+    snaps = pd.read_parquet(root / "inputs_snapshots.parquet")
+    bands = pd.read_parquet(root / "inputs_bands.parquet")
+    snaps, bands = fn(snaps, bands)
+    snaps.to_parquet(root / "inputs_snapshots.parquet", index=False)
+    bands.to_parquet(root / "inputs_bands.parquet", index=False)
+    manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+    for name in mi.LAYOUT_FILES:
+        manifest["files"][name]["sha256"] = hashlib.sha256((root / name).read_bytes()).hexdigest()
+    (manifest_fn or (lambda m: m))(manifest)
+    (root / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+
+@pytest.fixture()
+def two_layouts(tmp_path):
+    return _layout_for(tmp_path, D, "a"), _layout_for(tmp_path, D2, "b")
+
+
+def test_concat_builds_one_window_readable_by_the_binding(two_layouts, tmp_path):
+    from weather.calibration import mg2_composite as mg2
+
+    a, b = two_layouts
+    result = mi.concat(layouts=[b, a], out=tmp_path / "window", ledger=tmp_path / "ledger.jsonl")
+    assert result["dates"] == [D.isoformat(), D2.isoformat()]
+    snaps, bands = mg2.read_inputs(tmp_path / "window")
+    assert len(snaps) == 2 * 11 * len(LOCAL_HOURS) and not snaps.row_key.duplicated().any()
+    assert set(bands.row_key) == set(snaps.row_key)
+    assert snaps.date.tolist() == sorted(snaps.date.tolist())
+    manifest = json.loads((tmp_path / "window" / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["schema"] == mi.WINDOW_SCHEMA and manifest["ledger_checked"] is True
+    assert [m["target_date"] for m in manifest["members"]] == result["dates"]
+    assert manifest["parser"] == {"module_sha256": "a" * 64, "parser_version": 2}
+
+
+def test_concat_refuses_a_duplicate_date(two_layouts, tmp_path):
+    a, _b = two_layouts
+    with pytest.raises(mi.InputRefused, match="duplicate target date"):
+        mi.concat(layouts=[a, a], out=tmp_path / "w")
+
+
+def test_concat_refuses_a_row_key_in_two_layouts(two_layouts, tmp_path):
+    a, b = two_layouts
+    key = pd.read_parquet(a / "inputs_snapshots.parquet").row_key.iloc[0]
+
+    def clash(snaps, bands):
+        old = snaps.row_key.iloc[0]
+        snaps.loc[0, "row_key"] = key
+        bands.loc[bands.row_key == old, "row_key"] = key
+        return snaps, bands
+
+    _rewrite_layout(b, clash)
+    with pytest.raises(mi.InputRefused, match="more than one layout"):
+        mi.concat(layouts=[a, b], out=tmp_path / "w")
+    assert not (tmp_path / "w").exists()
+
+
+def test_concat_refuses_a_duplicate_row_key_within_a_layout(two_layouts, tmp_path):
+    a, b = two_layouts
+
+    def dup(snaps, bands):
+        snaps.loc[1, "row_key"] = snaps.row_key.iloc[0]
+        return snaps, bands
+
+    _rewrite_layout(b, dup)
+    with pytest.raises(mi.InputRefused, match="duplicate row_key inside"):
+        mi.concat(layouts=[a, b], out=tmp_path / "w")
+
+
+def test_concat_refuses_tampered_mixed_or_unreceipted_layouts(two_layouts, tmp_path):
+    a, b = two_layouts
+    with pytest.raises(mi.InputRefused, match="no verified receipt"):
+        mi.concat(layouts=[a, b], out=tmp_path / "w1", ledger=tmp_path / "empty.jsonl")
+    _rewrite_layout(b, lambda s, x: (s, x), lambda m: m["parser"].update(module_sha256="b" * 64))
+    with pytest.raises(mi.InputRefused, match="different allow-list, builder or parser"):
+        mi.concat(layouts=[a, b], out=tmp_path / "w2")
+    (a / "inputs_bands.parquet").write_bytes(b"tampered")
+    with pytest.raises(mi.InputRefused, match="does not match its manifest"):
+        mi.concat(layouts=[a, b], out=tmp_path / "w3")
+
+
+def test_concat_cli_refuses_with_exit_2(two_layouts, tmp_path, capsys):
+    a, _b = two_layouts
+    assert mi.main(["concat", "--layout", str(a), "--layout", str(a), "--out", str(tmp_path / "w")]) == 2
+    assert "duplicate target date" in capsys.readouterr().out
