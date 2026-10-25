@@ -203,6 +203,9 @@ RELEASE_FILES = (
     "src/weather/reporting/scorecards/dev_scorecard.py",
     "src/weather/reporting/scorecards/dev_scorecard_data.py",
     "src/weather/reporting/scorecards/loss_atlas.py",
+    "src/weather/calibration/mg2_inputs.py",
+    "src/weather/calibration/mg2_input_allowlist.py",
+    "src/weather/reporting/research/guidance_extract_parser.py",
 )
 
 
@@ -696,8 +699,9 @@ def arm_a_records(snaps, replay_root, forecast_manifest, first, last,
         obs = {}
         for slug, target, folder in l3._event_folders(replay_root):
             if slug == market and first <= target <= last:
+                # high_so_far is the METAR-only running max (rule Clarification C1, master 2026-10-25)
                 for hour, rec in l3.scan_replay_observations(folder, market, target, tz, hours,
-                                                             unit=spec.display_unit).items():
+                                                             unit=spec.display_unit, metar_only=True).items():
                     obs[(target.isoformat(), hour)] = rec
         m = stats.setdefault(market, {"emitted": 0, "local_hour_before_cutoff": 0, "no_observation": 0,
                                       "no_l8_value": 0, "outside_cutoff_hours": 0})

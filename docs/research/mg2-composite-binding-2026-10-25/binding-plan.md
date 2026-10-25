@@ -4,7 +4,9 @@
   things:
   - the single Fable review, which the coordinator relays;
   - serve parity (§6, rule §1a). Arm A's coefficients and forecast input, and the L6 own-obs input, are
-    `PENDING` until captured sources are ruled on.
+    `PENDING` until captured sources are ruled on;
+  - master's host exporter and share (§9.3). The workstation pull, receiver and layout builder are built
+    (§9.7); rule §8 Clarification C1 (2026-10-25) makes `high_so_far` the METAR-only running max.
 - **Rule:** [rule.md](rule.md) (draft sha256 in the record line of the coordinator report). The rule
   owns every definition.
 - **Purpose of this plan:** how the binding is executed, what it reads, and what is pending.
@@ -143,7 +145,7 @@ Rule §9 has the table. In summary:
 At the binding commit, `release-binding.json` records:
 - the commit sha;
 - the sha256 of each file in `mg2_composite.RELEASE_FILES`;
-- the function sha256 `bd05d6d601b9c588…`;
+- the function sha256 `c057e4540a6d9109…` (rule §8 Clarification C1);
 - the coefficient part sha256s:
   - L6 `313d1743…`;
   - arm A `PENDING`, refitted on the captured forecast after master's ruling on L3's analogue;
@@ -212,11 +214,11 @@ written by `model_sources` (`shared_forecast_payload_cas`).
 
 | # | Host path | Format | Used by | Fields that travel (allow-list; everything else is dropped) |
 | --- | --- | --- | --- | --- |
-| F1 | `snapshots\<slug>\replay_inputs.jsonl` (D folders) | JSONL, one captured-input replay payload per snapshot (`REPLAY_SCHEMA_VERSION`) | arm A `current_temp`, `high_so_far` (L8 `running_max_since_midnight`); L6 own-obs nowcast on captured METAR; arm A captured forecast (provisional) | top level: `schema_version`, `snapshot_id`, `captured_at_utc`, `captured_at_local`, `event_slug`, `target_date`, `model_version`, `captured_input_hash` (provenance only; it hashes the unstripped payload, so it cannot be re-verified on the bundle). `sources.metar.data`: `rows` (each row whole), `source`. `sources.station.data`: `rows` (each row whole), `source`, `station_observation_source`. `sources.open_meteo_multimodel.data`: **provisional**, `day_model_highs.gfs_seamless` plus the source's fetch and run timestamps. The final field list is set by the rule §8 captured-source Clarification once master rules on L3's captured-forecast analogue. |
+| F1 | `snapshots\<slug>\replay_inputs.jsonl` (D folders) | JSONL, one captured-input replay payload per snapshot (`REPLAY_SCHEMA_VERSION`) | arm A `current_temp`, `high_so_far` (L8 `running_max_since_midnight`); L6 own-obs nowcast on captured METAR; arm A captured forecast (provisional) | top level: `schema_version`, `snapshot_id`, `captured_at_utc`, `captured_at_local`, `event_slug`, `target_date`, `model_version`, `captured_input_hash` (provenance only; it hashes the unstripped payload, so it cannot be re-verified on the bundle). `sources.metar`: the item envelope `ok`, `status`, `stale`, `fetched_at`, and `data`: `rows` (each row whole), `station_id`, `target_date_match`, `report_time`. **No station surface** (`sources.station`, `sources.station_observations`) travels: master 2026-10-25, METAR only. `sources.open_meteo_multimodel.data`: **provisional**, `day_model_highs.gfs_seamless` plus the source's fetch and run timestamps. The final field list is set by the rule §8 captured-source Clarification once master rules on L3's captured-forecast analogue. |
 | F1b | `snapshots\<slug>\replay_inputs.jsonl` (D−1 folders) | as F1 | L6 `prev_dmax` (the complete previous local date's routine METAR maximum) | `snapshot_id`, `captured_at_utc`, `captured_at_local`, `event_slug`, `target_date`, `sources.metar.data.rows`, last snapshot of the folder only |
 | F2 | `snapshots\<slug>\snapshots_long.csv` | CSV, `snapshot_store.LONG_COLUMNS`, one row per snapshot × band | band support and the served vector `p_served` (MG-1's and MG-2's fallback, the rule-4 mask) | `snapshot_id`, `captured_at_utc`, `captured_at_local`, `event_slug`, `model_version`, `range_label`, `bin_kind`, `bin_value_c`, `bin_value_hi_c`, `model_probability`. The `_c` names hold native °F here (`AGENTS.md`). |
 | F3 | `snapshots\<slug>\features_long.csv` | CSV, `snapshot_store.FEATURE_AUDIT_COLUMNS`, one row per snapshot | rule-4 floor F = max(`guidance_physical_floor`, `high_so_far`, `trusted_current_max`); `cutoff_hour` | `snapshot_id`, `captured_at_utc`, `captured_at_local`, `event_slug`, `target_date`, `model_version`, `cutoff_hour`, `guidance_physical_floor`, `high_so_far`, `trusted_current_max` |
-| F4 | `snapshots\<slug>\forecast_payloads.jsonl`, or `forecast_payloads_long.csv` when the JSONL is absent (D−1, D, D+1 folders) | JSONL/CSV, `snapshot_store.FORECAST_PAYLOAD_COLUMNS` | MG-1's NBM v2 centre and spread: the bulletin index and availability time of `guidance_extract.build_bulletin_index` / `select_v2` | rows with `source == "nbm_probabilistic_tmax"` only, and only those with `captured_at_utc` ≤ the D export cut (§9.3). Fields: `snapshot_id`, `captured_at_utc`, `event_slug`, `source`, `status`, `parser_version`, `provider_issue_time`, `provider_update_time`, `response_received_at`, `fetched_at`, `first_seen_at`, `cycle_key`, `payload_hash`, `payload_ref`, `payload_storage_scope`, `payload_bytes` |
+| F4 | `snapshots\<slug>\forecast_payloads.jsonl`, or `forecast_payloads_long.csv` when the JSONL is absent (D−1, D, D+1 folders); the bundle always carries it as `forecast_payloads.jsonl` | JSONL/CSV, `snapshot_store.FORECAST_PAYLOAD_COLUMNS` | MG-1's NBM v2 centre and spread: the bulletin index and availability time of `guidance_extract.build_bulletin_index` / `select_v2` | rows with `source == "nbm_probabilistic_tmax"` only, and only those with `captured_at_utc` ≤ the D export cut (§9.3). Fields: `snapshot_id`, `captured_at_utc`, `event_slug`, `source`, `status`, `parser_version`, `provider_issue_time`, `provider_update_time`, `response_received_at`, `fetched_at`, `first_seen_at`, `cycle_key`, `payload_hash`, `payload_ref`, `payload_storage_scope`, `payload_bytes` |
 | F5 | `forecast_payload_cas\<payload_ref>` | bytes: the NBM national bulletin (NBP text), content-addressed | v2 percentiles, mean and stddev, through the pinned parser (`guidance_extract_parser.PinnedParser`, `parser_version=2`) | only the blobs named by an admitted F4 row with `payload_storage_scope == "shared_market_invariant"`, deduplicated by `payload_hash`. Bytes are copied unchanged, and the receiver re-hashes each one against its `payload_hash`. |
 
 **What the workstation derives, not transfers:**
@@ -226,24 +228,30 @@ written by `model_sources` (`shared_forecast_payload_cas`).
 - **`v2_parser_version`**, stamped from the pinned parser module's sha256 in each built layout.
 
 These are built by an inputs-only layout builder: `guidance_extract`'s v2 path, with its label and
-market joins removed (an open item, §11). The binding reads nothing else.
+market joins removed: `weather.calibration.mg2_inputs build` (§9.7). The binding reads nothing else.
 
 **Stated per input half:**
 - **MG-1's half (and the comparator):** F2, F3, F4, F5.
-- **L6's half, once on captured METAR:** F1 `sources.metar` and `sources.station`, plus F1b. Only
+- **L6's half, once on captured METAR:** F1 `sources.metar`, plus F1b. Only
   `n_own` is used. The ring/upstream stations (`n_up`, `n_ring`) are not in the capture and not used.
-- **Arm A, once on captured forecast_high:** F1 `sources.metar` and `sources.station`, plus the
-  provisional F1 `sources.open_meteo_multimodel` field.
+- **Arm A, once on captured forecast_high:** F1 `sources.metar`, plus the provisional F1
+  `sources.open_meteo_multimodel` field.
 
-**Flagged for master, not resolved here:**
-- **F1b `prev_dmax`.** The previous date's complete METAR maximum is an observation-derived quantity
-  close to that date's WU settlement. L6 uses it as a feature, and so does the served model. The receiver
-  computes it only inside the nowcast feature and never stores a per-date maximum column. Whether
-  carrying D−1 METAR rows on a reserved date is permitted under option 3 needs master's confirmation.
-- **F1 `sources.station`.** `running_max_since_midnight` adds the station rows when the station surface
-  is not METAR-sourced or the METAR rows are empty, so they must travel for parity with L8's function.
-  The manifest counts the `station_observation_source` values in each bundle. If any value is a Weather
-  Underground surface, master rules whether those intraday rows may travel.
+**Resolved by master (2026-10-25):**
+- **F1b `prev_dmax`.** D−1 METAR rows may travel as model input, provided no workstation code computes
+  anything from them against bands or labels. The receiver only hashes and schema-checks `prev_day/`; the
+  layout builder never opens it (pinned by `tests/calibration/test_mg2_inputs.py`: an import and AST scan
+  of the receiver and builder, and a build that is byte-identical when `prev_day/` is garbage or absent).
+- **Station surface: dropped.** Weather Underground-sourced station rows do not travel, and neither does
+  any station surface. The serve definition changes accordingly: rule §8 Clarification C1 makes MG-2's
+  `high_so_far` the METAR-only running max (`running_max_since_midnight(..., metar_only=True)`, default
+  unchanged), equal to the serve value whenever the station surface is METAR. The capture carries no
+  `sources.station` key, so the dev emission was already METAR-only.
+
+**The allow-list is code.** `weather.calibration.mg2_input_allowlist` (stdlib only, no file access) holds
+this section's lists, the forbidden-key set, the bundle path patterns, the export cut and the reference
+projections. Its `allowlist_sha256()` is recorded in every bundle manifest, and the receiver refuses a
+bundle whose sha differs. The host exporter imports the same module, so both sides embed the same bytes.
 
 ### 9.2 Exclusions (input side only)
 
@@ -269,8 +277,10 @@ host exporter projects onto the allow-list; it never copies a file and deletes c
   `market_yes`, `market_no`, `edge`, `variant_edge`, `last_trade_price`, `volume`, `liquidity`,
   `market_status`, `polymarket_market_id`, `condition_id`, `clob_token_ids`, `clob_yes_token_id`,
   `clob_no_token_id`, `enable_order_book`.
-- **Settlement-series and history:**
-  - source keys `wu_history`, `wu_current`, `local_history`;
+- **Settlement-series, history and station surfaces:**
+  - source keys `wu_history`, `wu_current`, `local_history`, `station_observations`, `station`, and the
+    key `station_observation_source`;
+  - every key starting `wu_`;
   - columns `wu_history_high_c`, `wu_current_c`, `wu_max_since_7am_c`, `latest_wu_history_time`,
     `latest_wu_history_minute`, `latest_wu_history_temp`;
   - every `reanalysis_prev_*` column;
@@ -280,8 +290,8 @@ host exporter projects onto the allow-list; it never copies a file and deletes c
 **Receiver check (workstation, before any parse beyond keys and headers):**
 - each CSV header must equal its allow-list exactly;
 - each JSONL record's key tree must be inside its allow-list;
-- the recursive forbidden-key list above is checked on every record. METAR and station rows travel
-  whole, so they are scanned key by key.
+- the recursive forbidden-key list above is checked on every record. METAR rows travel whole, so they
+  are scanned key by key.
 
 **On a forbidden or unlisted name:**
 - **Refuse the whole bundle.**
@@ -300,28 +310,31 @@ exporter. It runs as a new Scheduler task, `WeatherMg2InputExport`, built and re
 - **Imports:** nothing from the capture loop closure.
 - **Lease:** it holds the shared lease from `scripts\ops\workload_admission.ps1`.
 
-**Bundle layout:**
+**Bundle layout.** Paths mirror the host data root, so the verified bundle is itself a replay root for
+the existing readers (`<bundle>\snapshots\<slug>\replay_inputs.jsonl`):
 
 ```text
-<D>\markets\<slug>\replay_inputs.jsonl      (F1, projected)
-<D>\markets\<slug>\snapshots_long.csv       (F2, projected)
-<D>\markets\<slug>\features_long.csv        (F3, projected)
-<D>\markets\<slug>\nbm_manifest.jsonl       (F4, filtered + projected)
-<D>\prev_day\<slug_D-1>\metar_rows.jsonl     (F1b)
-<D>\cas\<payload_ref>                       (F5, unchanged bytes)
+<D>\snapshots\<slug_D>\replay_inputs.jsonl             (F1, projected)
+<D>\snapshots\<slug_D>\snapshots_long.csv              (F2, projected; header exactly the allow-list)
+<D>\snapshots\<slug_D>\features_long.csv               (F3, projected; header exactly the allow-list)
+<D>\snapshots\<slug_D-1|D|D+1>\forecast_payloads.jsonl  (F4, NBM rows only, projected)
+<D>\prev_day\<slug_D-1>\metar_rows.jsonl                (F1b: the folder's last snapshot, METAR rows)
+<D>\forecast_payload_cas\sha256\<hh>\<sha256>.blob      (F5, unchanged bytes)
 <D>\manifest.json
-<D>\manifest.json.sha256
+<D>\manifest.json.sha256                               (written last: the ready marker)
 ```
 
 `manifest.json` holds:
 - `schema` `mg2_input_bundle/1` and target date D;
 - the export cut and the export start and end times in UTC;
 - the exporter's code sha256 and the host repository HEAD;
-- the sha256 of the allow-list as written in §9.1–9.2 (both sides embed the same list);
+- `allowlist_sha256`, from `mg2_input_allowlist.allowlist_sha256()` (both sides import the same module);
 - for each file: bundle path, sha256, bytes and row count; source host path, source size and source
   mtime;
 - per market: expected (the 11), present, and the reason when absent;
-- the `station_observation_source` value counts;
+- `export_cut_utc`, which must equal `mg2_input_allowlist.export_cut_utc(D)`;
+- `files`: a list of `{path, sha256, bytes, rows}` (rows = JSONL records or CSV data rows; null for
+  blobs), plus the host source path, size and mtime;
 - NBM manifest rows and blobs, with any missing-blob count.
 
 **When:**
@@ -335,9 +348,9 @@ exporter. It runs as a new Scheduler task, `WeatherMg2InputExport`, built and re
 copies only `data\exports\mg2-inputs\<D>\` into the workstation's `data\inbox\mg2-inputs\<D>\`. This is
 a new narrow channel, not a restart of the paused data mirror: the mirror carries settlements and
 ledgers and must not be the route.
-- Master chooses the share.
-- The pull is a workstation task in this lane's research scope. It is not built until master approves
-  the channel.
+- Master chooses the share; the pull takes it as a parameter (`--share-root`).
+- The pull, receiver and builder are built: `python -m weather.calibration.mg2_inputs pull | receive |
+  build` (§9.7).
 
 **Integrity (receiver):**
 1. `manifest.json.sha256` matches the manifest.
@@ -350,7 +363,15 @@ ledgers and must not be the route.
 8. Every F5 blob re-hashes to its `payload_hash`.
 
 **Result:** a verified bundle is moved to `data\inbox\mg2-inputs\<D>\verified\`. Any failure refuses
-the bundle and records why.
+the bundle and records why:
+- a forbidden or unlisted name (checks 3 and 5) quarantines it to
+  `data\inbox\mg2-inputs\_quarantine\<D>\attempt-<n>\`, reason `forbidden_field`;
+- any other failure moves it to `data\inbox\mg2-inputs\_refused\<D>\attempt-<n>\`, status
+  `refused:<first failed check>`.
+
+At most two attempts are received per date (the first export plus one host re-export). After the second
+failure the date is closed. The pull skips a share bundle whose manifest sha was already refused, so an
+hourly pull cannot spend the second attempt on the same bytes.
 
 **Deadline:** a bundle not verified by 23:59 workstation local on D+1 is late. It is refused even if it
 arrives afterwards. There is no backfill.
@@ -402,6 +423,30 @@ merged into an input bundle.
 
 The daily channel never carries it.
 
+### 9.7 Workstation scripts and how they would be scheduled (not registered)
+
+Built on this branch. **No Scheduler task is registered on the workstation.** Master builds and registers
+the host exporter and the share.
+
+| Step | Command | When (workstation local) | Wrapper |
+| --- | --- | --- | --- |
+| pull | `python -m weather.calibration.mg2_inputs pull --share-root <share> --inbox data\inbox\mg2-inputs --date <D>` | 06:30 on D+1, then hourly until 23:00 | none (a small copy; never writes the share) |
+| receive | `python -m weather.calibration.mg2_inputs receive --inbox data\inbox\mg2-inputs --date <D>` | right after each pull | none |
+| build | `python -m weather.calibration.mg2_inputs build --bundle data\inbox\mg2-inputs\<D>\verified --date <D> --out C:\t\mg2\forward\layout\<D> --parser-worktree <pinned 2e17ce0eb worktree>` | after `verified` | `workstation_heavy.ps1 -Queue -MinAvailableMemoryGB 3` |
+| emit, check | `mg2_composite emit` / `check` on the built layout (§8 steps 1-3) | after build | `workstation_heavy.ps1 -Queue` |
+
+- `pull` returns `not_ready` until `manifest.json.sha256` exists. It also returns `already_pulled`,
+  `already_recorded` or `unchanged_since_refusal`. None of these writes the ledger.
+- `receive` appends exactly one ledger line per outcome: `verified`, `quarantined`, `refused:<check>`,
+  `late` or `missing`. `not_ready` writes nothing. The first `receive` at or after 00:00 on D+2 records
+  `late` (a bundle is waiting) or `missing` (none arrived).
+- The builder reads only `verified\` and re-hashes the files it reads against the verified manifest. It
+  never opens `prev_day\`. It reuses `guidance_extract`'s v2 selection (copied, and pinned equal by a
+  test) without its label and market joins. It stamps `v2_parser_version` = 2 and the parser module
+  sha256 on every row.
+- Daily per-date runs need a forward multi-date layout for `emit`; concatenating the per-date layouts is
+  an open item (§11).
+
 ## 10. Roll class
 
 The branch is **ROLL-SENSITIVE**. It carries L8's `src/weather/model/model_base.py`,
@@ -423,30 +468,32 @@ can wait for a quiet window.
 
 ## 11. Open items
 
-- **Fable review, before the binding commit and D0.** Scope: the diff of the base `505f35ffd` against
-  this branch's head, for these files:
-  - `src/weather/calibration/mg2_composite.py`
-  - `tests/calibration/test_mg2_composite.py`
-  - `tests/operations/test_mg2_composite_admission.py`
+- **Fable review (one pass), before the binding commit and D0.** Master's scope: the binding, the
+  readers, the receiver and the exporter allow-list together. Files, as the diff of base `505f35ffd`
+  against this branch's head:
+  - `src/weather/calibration/mg2_composite.py`, `mg2_inputs.py`, `mg2_input_allowlist.py`
+  - `src/weather/model/observed_running_max.py` (the `metar_only` switch) and
+    `src/weather/calibration/r0_ols_floor_challenger.py` (its pass-through)
+  - `tests/calibration/test_mg2_composite.py`, `tests/calibration/test_mg2_inputs.py`,
+    `tests/model/test_high_so_far_parity_shadow.py`, `tests/operations/test_mg2_composite_admission.py`
   - `docs/research/mg2-composite-binding-2026-10-25/`
-  - the allowlist lines
+  - the allowlist lines, and master's host exporter once built
 
   Reading the merged L8 and L3 code is optional context.
 - **Owner:** the option 2 exemption, or Branch 1 by default.
-- **Serve parity (master is ruling).** Three things block D0:
-  - a captured forecast_high reader and arm A's refit on it (L3);
-  - a captured own-station observation reader for L6's `n_own`, or a ruling on the pre-13 half;
+- **Serve parity.** These block D0:
+  - arm A's forecast field stays provisional until L3's captured-forecast analogue; then arm A's refit
+    on it and a `forecast_high_source` reader, by the §8 captured-source Clarification;
+  - a captured own-station observation reader for L6's `n_own` (on F1 METAR plus F1b), or a ruling on
+    the pre-13 half;
   - a re-sized MDE, if either refit changes the dev deltas.
 
   The N/MDE table in §3 is for the dev-source design.
 - **Retrain-window overlap.** The retrain window is armed, not dated. If it is declared and arm A is
   ruled a retrain-family candidate, MG-2's post-13 slot overlaps it. This needs an owner ruling.
-- **Forward layout builder (this lane, workstation).** An inputs-only builder over verified §9
-  bundles: `guidance_extract`'s v2 path without its label and market joins. It must stamp the v2
-  parser version. Without it the parser check fails closed (`UNVERIFIED`) and no date is
-  input-countable.
-- **Input transfer (master, host).** The `WeatherMg2InputExport` exporter and task, and the share for
-  the workstation pull (§9.3). Until both exist, D0 cannot be set.
-- **Master's rulings on §9.1:** F1b `prev_dmax` on reserved dates, and WU-sourced station rows, if
-  any.
-- **Workstation pull and receiver** (§9.3, after master approves the channel).
+- **Input transfer (master, host).** The `WeatherMg2InputExport` exporter (importing
+  `mg2_input_allowlist`) and task, and the share. Until both exist, D0 cannot be set.
+- **Forward multi-date layout.** `build` writes one layout per target date; `emit` and `score` read one
+  layout over the window. A concatenation step over verified per-date layouts (with a duplicate
+  `row_key` refusal) is still to be written.
+- **Workstation scheduling.** §9.7 lists how the scripts would be scheduled; nothing is registered.

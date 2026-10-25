@@ -41,7 +41,8 @@ can be re-frozen without touching L6:
   on the Aug-Sep 2021-25 IEM history. It is pinned by the dev nowcast sha256 `d2453d0d…`, which the
   frozen refit must reproduce (§7).
 - **Shared function:** `weather.model.observed_running_max`, sha256
-  `bd05d6d601b9c5886783fc6c77d8cc6c95150f0d4577aa73562159c402e010c5`, identical to L8's `f6ee3351e`.
+  `c057e4540a6d9109f5a1f7477f30ddbd5d02370db3a53be1091e12c447efb2be`: L8's `f6ee3351e` plus the
+  `metar_only` switch of §8 Clarification C1 (the default path is unchanged; L8's file was `bd05d6d6…`).
 
 Nothing in serving, capture, release or Scheduler imports MG-2. The import fails closed from production
 packages and on the capture host, and a test pins that.
@@ -277,6 +278,20 @@ D0 to satisfy §1a. It records:
 Neither may be an external fetch. This Clarification also adds the readers' code files to the release
 binding.
 
+**Clarification C1 (2026-10-25, master's ruling; dated before D0): `high_so_far` is the METAR-only
+running max.** Weather Underground-sourced station rows do not travel to the workstation (binding plan
+§9), so MG-2's `high_so_far` (arm A's feature and its own floor) is defined on captured METAR alone:
+`observed_running_max.running_max_since_midnight(station={}, metar=sources.metar.data, ...,
+metar_only=True)`, on the snapshot's own `sources.metar.data`, cutoff h and now = capture time.
+- `metar_only` defaults to False, so the serve path is unchanged. Whenever the station surface is
+  METAR-sourced, the METAR-only value equals the serve value
+  (`tests/model/test_high_so_far_parity_shadow.py`).
+- The capture carries no `sources.station` key, so the dev emission already used METAR rows only; the
+  control replay re-confirms the dev vectors under C1.
+- `function_sha256` below is the edited `observed_running_max.py` (the `metar_only` switch).
+- The rule-4 floor F is MG-1's and unchanged: it reads the served `high_so_far` column of
+  `features_long.csv`, not this value.
+
 After D0 nothing in §1-§7 changes. The only exception is the §4.3 owner-decision Clarification, which
 changes permission, not design.
 
@@ -287,7 +302,7 @@ changes permission, not design.
 | NBM v2 `v2_mean`, `v2_stddev`, `v2_available_at` (captured) | centre and spread | identical centre plus stack, identical spread | only through the MG-1 fallback |
 | `guidance_physical_floor` (NBM-derived), `high_so_far`, `trusted_current_max` (rule-4 floor F) | B = floor(F + 0.5) | identical | identical (rule-4 mask), plus arm A's own floor at half-up of the L8 running max |
 | Own-station ASOS (IEM, free, PIT valid + 10 min) | none | L6 nowcast N | none |
-| METAR captured rows; L8 running max | none | none | current_temp, high_so_far |
+| METAR captured rows; L8 running max, METAR-only (§8 C1) | none | none | current_temp, high_so_far |
 | Open-Meteo Previous Runs `gfs_seamless` `previous_day1` (free, PIT by cutoff) | none | none | forecast_high |
 
 **Not captured inputs.** The IEM row and the Open-Meteo row are the dev sources. Both came from later
@@ -346,6 +361,9 @@ Release binding is recorded in `release-binding.json` in the binding commit. It 
   - `dev_scorecard.py`
   - `dev_scorecard_data.py`
   - `loss_atlas.py`
+  - `mg2_inputs.py` and `mg2_input_allowlist.py` (the input receiver, the label-free layout builder and
+    the bundle allow-list; plan §9)
+  - `guidance_extract_parser.py` (the pinned v2 parser client)
 - the function sha256 above;
 - the L6 and arm A coefficient part sha256s above;
 - the two named input sources;
@@ -366,6 +384,6 @@ l6_coefficients_sha256: 313d1743d35ed705a4406fb415748c8e161d170033bb963ec6b56f5c
 arm_a_coefficients_sha256: PENDING
 forecast_high_source: PENDING
 own_obs_source: PENDING
-function_sha256: bd05d6d601b9c5886783fc6c77d8cc6c95150f0d4577aa73562159c402e010c5
+function_sha256: c057e4540a6d9109f5a1f7477f30ddbd5d02370db3a53be1091e12c447efb2be
 noninferiority_margin_00_16: 0.0010
 ```

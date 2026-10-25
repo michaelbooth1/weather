@@ -300,3 +300,73 @@ def test_shared_row_keying_equals_lockin_observed_rows(market_id, unit, seed):
     shared = orm.observed_target_date_rows(station, metar, target_date=model.target_date, tz=model.spec.tz,
                                            unit=model.spec.display_unit, now=now)
     assert shared == [(minute, value) for minute, _, value in lockin]
+
+
+# --- metar_only (master ruling 2026-10-25: MG-2 high_so_far is the METAR-only running max) ---
+
+
+def _strip(rows):
+    return [{k: v for k, v in r.items() if k != "_observed_local"} for r in rows]
+
+
+@pytest.mark.parametrize("market_id,unit", [("atlanta", "F"), ("toronto", "C")])
+@pytest.mark.parametrize("seed", range(6))
+@pytest.mark.parametrize("cutoff", [0, 6, 9, 13, 16, 23])
+def test_metar_only_equals_the_serve_value_when_station_surface_is_metar(market_id, unit, seed, cutoff):
+    rows = _strip(_synthetic_day(unit, 700 + seed))
+    model = _model(market_id=market_id)
+    now = datetime(2026, 8, 21, 23, 59, tzinfo=model.spec.tz)
+    sources = _sources(rows)
+    station = model.station_observation_data(sources)
+    metar = model.source_data(sources, "metar")
+    assert (station.get("station_observation_source") or station.get("source")) == "metar"
+    kwargs = dict(target_date=model.target_date, tz=model.spec.tz, unit=model.spec.display_unit,
+                  cutoff_hour=cutoff, now=now)
+    serve = orm.running_max_since_midnight(station, metar, **kwargs)
+    assert orm.running_max_since_midnight(station, metar, metar_only=True, **kwargs) == serve
+    # MG-2's definition drops the station surface entirely; with METAR rows present it is the same value
+    assert orm.running_max_since_midnight({}, metar, metar_only=True, **kwargs) == serve
+
+
+@pytest.mark.parametrize("seed", range(4))
+def test_metar_only_with_empty_metar_rows_uses_only_a_metar_sourced_station(seed):
+    rows = _strip(_synthetic_day("F", 800 + seed))
+    model = _model()
+    now = datetime(2026, 8, 21, 23, 59, tzinfo=model.spec.tz)
+    kwargs = dict(target_date=model.target_date, tz=model.spec.tz, unit="F", cutoff_hour=16, now=now)
+    metar_station = {"rows": rows, "source": "metar", "station_observation_source": "metar"}
+    serve = orm.running_max_since_midnight(metar_station, {"rows": []}, **kwargs)
+    assert serve[0] is not None
+    assert orm.running_max_since_midnight(metar_station, {"rows": []}, metar_only=True, **kwargs) == serve
+    for source in ("wu_history", "weather_underground", "eccc_swob", None):
+        other = {"rows": rows, "source": source, "station_observation_source": source}
+        assert orm.running_max_since_midnight(other, {"rows": []}, metar_only=True, **kwargs) == (None, None)
+
+
+def test_metar_only_ignores_a_wu_sourced_station_surface_the_default_still_merges():
+    model = _model()
+    sources = _atl_sources()
+    metar = sources["metar"]["data"]
+    hot = [_row("07:30", "METAR KATL 211130Z 00000KT 10SM 35/19 A3004", "2026-08-21T11:30:00.000Z", 95.0)]
+    wu_station = {"rows": hot, "source": "wu_history", "station_observation_source": "wu_history"}
+    kwargs = dict(target_date=model.target_date, tz=model.spec.tz, unit="F", cutoff_hour=8, now=ATL_NOW)
+    assert orm.running_max_since_midnight(wu_station, metar, **kwargs)[0] == pytest.approx(95.0)
+    assert orm.running_max_since_midnight(wu_station, metar, metar_only=True, **kwargs) == (
+        pytest.approx(84.02), 52)
+    assert orm.running_max_since_midnight({}, metar, metar_only=True, **kwargs) == (pytest.approx(84.02), 52)
+
+
+def test_metar_only_default_is_false_and_serve_path_does_not_pass_it(monkeypatch):
+    import inspect
+    for fn in (orm.running_max_since_midnight, orm.observed_target_date_rows):
+        assert inspect.signature(fn).parameters["metar_only"].default is False
+    calls = []
+    real = orm.running_max_since_midnight
+
+    def spy(*args, **kwargs):
+        calls.append(kwargs)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(orm, "running_max_since_midnight", spy)
+    _model(variant=VARIANT).extract_live_features(_atl_sources(), 8, now=ATL_NOW)
+    assert calls and all(not c.get("metar_only", False) for c in calls)

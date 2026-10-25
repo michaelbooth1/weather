@@ -66,6 +66,7 @@ _OFFLINE_WEATHER_MODULES = frozenset(
         "weather.calibration.new_city_corpus",
         "weather.calibration.high_so_far_parity_shadow",
         "weather.calibration.mg2_composite",
+        "weather.calibration.mg2_inputs",
         "weather.calibration.pooled_candidate_replay",
         "weather.calibration.pooled_candidate_replay_diagnostics",
         "weather.calibration.pooled_candidate_replay_report",
