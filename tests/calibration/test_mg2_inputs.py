@@ -78,10 +78,12 @@ def _host_records(market, day):
                          "cutoff_hour": str(hour), "guidance_physical_floor": 81.6 if hour == 14 else "",
                          "high_so_far": 80.2 if hour == 14 else 70.0, "trusted_current_max": "",
                          "wu_history_high_c": 88.0})
+        # BLOB is content-addressed, so it is one bulletin with one cycle identity (D 01Z) in every folder;
+        # giving it each folder's own date made the earliest (D-1, past the lookback) win the digest entry.
         nbm.append({"snapshot_id": sid, "captured_at_utc": utc, "event_slug": slug, "source": allow.NBM_SOURCE,
-                    "status": "fresh", "parser_version": "", "provider_issue_time": f"{day}T01:00:00+00:00",
-                    "provider_update_time": "", "response_received_at": f"{day}T02:00:00+00:00",
-                    "fetched_at": f"{day}T02:00:00+00:00", "first_seen_at": "", "cycle_key": f"nbm-nbp:{day:%Y%m%d}T01Z",
+                    "status": "fresh", "parser_version": "", "provider_issue_time": f"{D}T01:00:00+00:00",
+                    "provider_update_time": "", "response_received_at": f"{D}T02:00:00+00:00",
+                    "fetched_at": f"{D}T02:00:00+00:00", "first_seen_at": "", "cycle_key": f"nbm-nbp:{D:%Y%m%d}T01Z",
                     "payload_hash": BLOB_SHA, "payload_ref": allow.blob_ref(BLOB_SHA),
                     "payload_storage_scope": allow.NBM_SCOPE, "payload_bytes": len(BLOB)})
         nbm.append({"snapshot_id": sid, "captured_at_utc": utc, "event_slug": slug, "source": "open_meteo_multimodel"})
