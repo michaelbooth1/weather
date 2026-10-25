@@ -28,7 +28,7 @@ process listing.
 - The g3 scan was still running and was killed (PIDs 68188 and its parent 30648).
 - A scan writes its JSON and Markdown only after it finishes all of its markets. None of the three wrote an
   output, so no row, count, price or P&L from the first launch was seen.
-- `C:	\l11\db_a` was then emptied, and all three scans were relaunched from `e03639dcf`.
+- `C:\t\l11\db_a` was then emptied, and all three scans were relaunched from `e03639dcf`.
 
 **The fix: code only, with no change to rule r2.** `e03639dcf` changes these lines of `stream_summary`:
 - It raises the CSV field limit, so the reader no longer aborts.
