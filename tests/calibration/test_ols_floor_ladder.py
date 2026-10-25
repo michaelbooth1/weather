@@ -72,4 +72,7 @@ def test_no_production_code_imports_the_ladder():
                 continue
             if "ols_floor_ladder" in path.read_text(encoding="utf-8", errors="replace"):
                 hits.append(path.relative_to(root).as_posix())
-    assert hits == ["scripts/ops/workload_admission.ps1"]
+    # L3 (claude/r0-ols-floor-challenger-20261024): r0_ols_floor_challenger lazily imports load_nbm /
+    # nbm_at_cutoff for its research-only dev variants (pick rule clarification 2 (a)); not a serve path.
+    assert sorted(hits) == ["scripts/ops/workload_admission.ps1",
+                            "src/weather/calibration/r0_ols_floor_challenger.py"]
