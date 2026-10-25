@@ -1413,6 +1413,11 @@ def receipt_grace_check(*, replay_root, markets=R0_MARKETS, hours=range(7, 21), 
                         stats["corrupt_reference"] += 1
                         continue
                     stats["hours"] += 1
+                    final = features(index[-1], hour)  # last same-day snapshot: eventually-received proxy
+                    if final is not None:
+                        stats["last_in_hour_vs_final_hours"] += 1
+                        stats["last_in_hour_same_final_rows"] += int(final[2] == ref[2])
+                        stats["last_in_hour_same_final_features"] += int(final[0] == ref[0] and final[1] == ref[1])
                     for g in graces:
                         before = [e for e in index if e[0] <= cutoff + timedelta(minutes=g)]
                         if not before:
