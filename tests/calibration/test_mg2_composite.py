@@ -43,9 +43,9 @@ def test_switch_is_fixed_at_13_and_falls_back_to_mg1():
     pre, post, base = _frame(snaps, [.1, .2, .7]), _frame(snaps, [.0, .5, .5]), _frame(snaps, [.2, .3, .5])
     frame, source = mg2.compose(snaps, bands, pre, post, base)
     assert mg2.SWITCH_HOUR == 13
-    assert source == {"atlanta|s0": "pre", "atlanta|s1": "arm_a", "atlanta|s2": "arm_a"}
+    assert source == {"atlanta|s0": "pre", "atlanta|s1": mg2.POST, "atlanta|s2": mg2.POST}
     assert frame[frame.row_key == "atlanta|s0"].p.tolist() == [.1, .2, .7]
-    # arm A missing at 16 -> MG-1, never served or the pre half
+    # P3d_N missing at 16 -> MG-1, never served or the pre half
     frame, source = mg2.compose(snaps, bands, pre, post[post.row_key != "atlanta|s2"], base)
     assert source["atlanta|s2"] == "mg1"
     assert frame[frame.row_key == "atlanta|s2"].p.tolist() == [.2, .3, .5]
@@ -69,7 +69,7 @@ def test_pre_half_never_used_after_the_switch():
 
 def _rule(tmp_path, **over):
     fields = {"switch_hour": "13", "d0": "2026-10-27", "n_forward_dates": "3", "owner_decision_id": "NONE",
-              "l6_coefficients_sha256": "0" * 64, "arm_a_coefficients_sha256": "PENDING",
+              "l6_coefficients_sha256": "0" * 64, "p3d_n_state_sha256": "PENDING",
               "forecast_high_source": "PENDING", "own_obs_source": "PENDING",
               "function_sha256": "f" * 64, "noninferiority_margin_00_16": "0.0010"}
     fields.update(over)
@@ -131,7 +131,7 @@ def test_rule_switch_hour_must_match_code(tmp_path):
 
 def test_emit_refuses_forward_without_d0_and_control_after_dev(tmp_path):
     rule = _rule(tmp_path, d0="UNSET")
-    kw = dict(layout_root=tmp_path, replay_root=tmp_path, forecast_manifest=tmp_path, nowcasts=tmp_path,
+    kw = dict(layout_root=tmp_path, replay_root=tmp_path, p3d_n_state=tmp_path, nowcasts=tmp_path,
               coefficients=tmp_path, rule=rule, out=tmp_path / "o")
     with pytest.raises(mg2.Mg2Refused, match="D0"):
         mg2.emit(first="2026-10-27", last="2026-10-28", **kw)
@@ -141,21 +141,21 @@ def test_emit_refuses_forward_without_d0_and_control_after_dev(tmp_path):
 
 def test_coefficient_parts_are_hashed_separately_and_pending_refuses(tmp_path):
     path = tmp_path / "c.json"
-    path.write_bytes(mg2.canonical({"l6_stack": {"coef": {"7": [0.1, 0.9, 5]}}, "arm_a": {"markets": {}}}))
+    path.write_bytes(mg2.canonical({"l6_stack": {"coef": {"7": [0.1, 0.9, 5]}}}))
     with pytest.raises(mg2.Mg2Refused, match="l6 coefficients sha"):
         mg2.load_part(path, "l6", "0" * 64)
     good = hashlib.sha256(mg2.canonical({"coef": {"7": [0.1, 0.9, 5]}})).hexdigest()
     assert mg2.load_part(path, "l6", good) == {"coef": {"7": [0.1, 0.9, 5]}}
     with pytest.raises(mg2.Mg2Refused, match="PENDING"):
-        mg2.load_part(path, "arm_a", "PENDING")
-    assert mg2.load_part(path, "arm_a", mg2.part_sha({"markets": {}})) == {"markets": {}}
+        mg2.load_part(path, "l6", "PENDING")
+    assert mg2.COEF_PARTS == {"l6": "l6_stack"}  # P3d_N is bound by its own state file sha
 
 
 def test_outcome_blind_checks_catch_pit_parser_and_replay():
     snaps = _snaps([8, 9, 14])
     snaps.loc[1, "v2_available_at"] = "2026-09-01T13:00:00Z"  # after capture
     frame = _frame(snaps, [.2, .3, .5])
-    sources = {"atlanta|s0": "pre", "atlanta|s1": "mg1", "atlanta|s2": "arm_a"}
+    sources = {"atlanta|s0": "pre", "atlanta|s1": "mg1", "atlanta|s2": mg2.POST}
     other = frame.copy()
     other.loc[0, "p"] += 1e-9
     out = mg2.outcome_blind_checks(snaps, sources, frame, replayed=other)
@@ -181,21 +181,13 @@ def test_inputs_reader_never_opens_label_or_price_files(tmp_path):
         mg2.read_inputs(tmp_path)
 
 
-def test_arm_a_distribution_is_l3s_ols_floor():
-    from weather.calibration import r0_ols_floor_challenger as l3
-
-    rng = np.random.default_rng(0)
-    records = [{"forecast_high": float(f), "high_so_far": float(f - 5 + rng.normal()),
-                "current_temp": float(f - 3), "final_bucket": int(round(f + rng.normal())),
-                "target_date": f"2025-08-{1 + i % 28:02d}"}
-               for i, f in enumerate(rng.uniform(70, 95, 200))]
-    entry = mg2.arm_a_fit(records)
-    ref = l3.fit_fold(records)
-    assert np.allclose(entry["beta"], ref["beta"], atol=0, rtol=0) and entry["ols_sd"] == ref["ols_sd"]
-    record = {"forecast_high": 88.0, "high_so_far": 84.02, "current_temp": 84.0}
-    support = list(range(60, 110))
-    expected, _ = l3.challenger_distributions(ref, record, support)
-    assert mg2.arm_a_distribution(entry, record, support) == expected["ols_floor"]
+def test_arm_a_is_retired_from_the_binding():
+    """The afternoon arm is P3d_N (pick 1ce2b5b4); no arm A or A' code path remains."""
+    src = (ROOT / "src/weather/calibration/mg2_composite.py").read_text(encoding="utf-8")
+    for name in ("arm_a_fit", "arm_a_distribution", "arm_a_records", "forecast_high_reader", "ARM_A_FEATURES",
+                 "arm_a_coefficients_sha256", "MG2_ARM_A_DISTRIBUTIONS"):
+        assert name not in src, name
+    assert mg2.POST == "p3d_n"
 
 
 def test_import_refuses_from_a_production_package():
@@ -211,7 +203,7 @@ def test_no_production_module_imports_the_binding():
     """Production never reaches MG-2: no module outside the research calibration lane names it."""
     hits = []
     for path in (ROOT / "src").rglob("*.py"):
-        if path.name in ("mg2_composite.py", "mg2_inputs.py"):  # the binding and its own input receiver
+        if path.name in ("mg2_composite.py", "mg2_inputs.py", "mg2_p3d_n.py"):  # the binding and its parts
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
@@ -237,16 +229,14 @@ def test_forward_sizing_scales_with_n():
 
 def _captured_sources(monkeypatch):
     """Hypothetical captured readers, so the gates after parity can be reached in a test."""
-    monkeypatch.setitem(mg2.SOURCES, "test_captured_forecast", {"input": "forecast_high", "class": mg2.CAPTURED})
-    monkeypatch.setitem(mg2.SOURCES, "test_captured_obs", {"input": "own_obs", "class": mg2.CAPTURED})
-    return {"forecast_high_source": "test_captured_forecast", "own_obs_source": "test_captured_obs",
-            "arm_a_coefficients_sha256": "1" * 64}
+    return {"forecast_high_source": "captured_nbm_v2_mean_07z", "own_obs_source": "captured_metar_l6_own",
+            "p3d_n_state_sha256": "1" * 64}
 
 
 def test_forward_emit_needs_the_release_binding(tmp_path, monkeypatch):
     rule = _rule(tmp_path, d0="2026-10-27", **_captured_sources(monkeypatch))
     with pytest.raises(mg2.Mg2Refused, match="release binding"):
-        mg2.emit(layout_root=tmp_path, replay_root=tmp_path, forecast_manifest=tmp_path, nowcasts=tmp_path,
+        mg2.emit(layout_root=tmp_path, replay_root=tmp_path, p3d_n_state=tmp_path, nowcasts=tmp_path,
                  coefficients=tmp_path, rule=rule, out=tmp_path / "o", first="2026-10-27", last="2026-10-28")
 
 
@@ -262,8 +252,8 @@ def test_forward_emit_needs_the_release_binding(tmp_path, monkeypatch):
 def test_every_input_must_come_from_the_capture_at_replay_time(tmp_path, over, missing):
     """Forward emission and the look refuse unless every MG-2 input is read from the capture.
 
-    Today neither rule-named input has a captured reader: arm A's forecast_high (Open-Meteo Previous
-    Runs, absent from the capture) and the L6 own-station observations (a free IEM fetch).
+    The retired dev sources (Open-Meteo Previous Runs for arm A, the free IEM fetch for L6) and unknown or
+    PENDING ids are all refused.
     """
     _, fields = mg2.read_rule(_rule(tmp_path, **over))
     report = mg2.input_parity(fields)
@@ -273,7 +263,8 @@ def test_every_input_must_come_from_the_capture_at_replay_time(tmp_path, over, m
     rule = _rule(tmp_path, d0="2026-10-27", **over)
     with pytest.raises(mg2.Mg2Refused, match="serve parity"):
         mg2.emit(layout_root=tmp_path, replay_root=tmp_path, nowcasts=tmp_path, coefficients=tmp_path,
-                 rule=rule, out=tmp_path / "o", first="2026-10-27", last="2026-10-28", release_binding=tmp_path)
+                 p3d_n_state=tmp_path, rule=rule, out=tmp_path / "o", first="2026-10-27", last="2026-10-28",
+                 release_binding=tmp_path)
 
 
 def test_parity_rejects_a_source_registered_for_another_input(tmp_path):
@@ -282,11 +273,11 @@ def test_parity_rejects_a_source_registered_for_another_input(tmp_path):
         mg2.input_parity(fields)
 
 
-def test_parity_passes_only_with_captured_sources_and_frozen_arm_a(tmp_path, monkeypatch):
+def test_parity_passes_only_with_captured_sources_and_a_frozen_p3d_n_state(tmp_path, monkeypatch):
     over = _captured_sources(monkeypatch)
     _, fields = mg2.read_rule(_rule(tmp_path, **over))
     assert mg2.require_forward_parity(fields)["ok"]
-    _, pending = mg2.read_rule(_rule(tmp_path, **dict(over, arm_a_coefficients_sha256="PENDING")))
+    _, pending = mg2.read_rule(_rule(tmp_path, **dict(over, p3d_n_state_sha256="PENDING")))
     with pytest.raises(mg2.Mg2Refused, match="PENDING"):
         mg2.require_forward_parity(pending)
 
@@ -297,6 +288,8 @@ def test_registered_sources_are_classified_and_none_external_is_called_captured(
         assert entry["class"] in {mg2.CAPTURED, mg2.EXTERNAL}
     assert mg2.SOURCES["pit_previous_runs_gfs_seamless_day1"]["class"] == mg2.EXTERNAL
     assert mg2.SOURCES["iem_own_station_free_fetch"]["class"] == mg2.EXTERNAL
+    assert mg2.SOURCES["captured_nbm_v2_mean_07z"]["class"] == mg2.CAPTURED
+    assert mg2.SOURCES["captured_metar_l6_own"]["class"] == mg2.CAPTURED
 
 
 def test_the_score_look_also_requires_parity(tmp_path):
@@ -338,7 +331,7 @@ def test_release_binding_and_function_hash_are_enforced(tmp_path):
     fields["function_sha256"] = mg2.sha256_file(observed_running_max.__file__)
     assert mg2.verify_function(fields) == fields["function_sha256"]
     good = {"rule_sha256": rule_sha, "function_sha256": fields["function_sha256"], "files": mg2.release_hashes(),
-            **{k: fields[k] for k in ("l6_coefficients_sha256", "arm_a_coefficients_sha256",
+            **{k: fields[k] for k in ("l6_coefficients_sha256", "p3d_n_state_sha256",
                                       "forecast_high_source", "own_obs_source")}}
     path = tmp_path / "release-binding.json"
     path.write_text(json.dumps(good))
