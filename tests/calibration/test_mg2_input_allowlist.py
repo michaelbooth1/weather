@@ -1,4 +1,7 @@
-"""The MG-2 input bundle allow-list: stdlib-only, outcome-free, identical on host exporter and receiver."""
+"""The MG-2 input bundle allow-list: stdlib-only, outcome-free, identical on host exporter and receiver.
+
+Guards: MG-2 binding plan section 9 and master rulings 2026-10-25 (outcome-free bundle contract; allowlist_sha256 parity).
+"""
 import ast
 import hashlib
 import json
