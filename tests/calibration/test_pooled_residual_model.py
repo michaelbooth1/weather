@@ -257,3 +257,23 @@ def test_headline_markdown_renders_for_both_heads(tmp_path, head):
     rule.write_text("x")
     text = prm.headline_markdown(rows, rule, {"ok": True}, head=head)
     assert f"| {head} - a |" in text and "**(12)**" in text and f"{head} beats a" in text
+
+
+def test_dev_verdict_markdown_applies_l3_rule(tmp_path):
+    def ri(est, lo, hi):
+        return {"estimate": est, "ci95": [lo, hi]}
+
+    def row(market, group, est, lo, hi):
+        return {"market": market, "group": group, "n_market_days": 10, "R_candidate": ri(1.2, 1.1, 1.3),
+                "R_served": ri(1.4, 1.3, 1.5), "dR_crossed": ri(est, lo, hi), "dR_date_clustered": ri(est, lo, hi)}
+
+    groups = ["00-05", "06-09", "10-12", "13-16", "17-23", "00-16", "all", "07-12", "h12"]
+    good = [row("ALL", g, -0.1, -0.2, -0.05) for g in groups] + [row("atlanta", "07-12", -0.1, -0.3, 0.1)]
+    bad = [row("ALL", g, -0.1, -0.2, -0.05) for g in groups if g != "13-16"] + [row("ALL", "13-16", 0.2, 0.1, 0.3)]
+    scores = {"population": {}, "candidates": {"P3d": {"rows": good}, "U0d": {"rows": bad}}}
+    rule = tmp_path / "rule.md"
+    rule.write_text("x")
+    text, verdict = prm.dev_verdict_markdown(scores, rule)
+    assert verdict["P3d"]["dR_date_clustered"]["beats_served"] is True
+    assert verdict["U0d"]["dR_date_clustered"]["blocks_worse"] == ["13-16"]
+    assert "**(12)**" in text and "| atlanta |" in text
