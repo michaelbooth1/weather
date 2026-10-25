@@ -993,6 +993,113 @@ def dev_score(layout, candidates, start="2026-08-01", end="2026-09-29", with_mg1
     return out
 
 
+PICK_RULE_SHA256 = "5898bfb01e3eafc3f9ce731dee237fd05f342d873456e5d1e156b15550c5818e"
+PICK_SEED = 20261025
+PICK_HOURS = (13, 14, 15, 16)
+PICK_CONTROL = -0.366
+PICK_CONTROL_TOL = 0.005
+
+
+def dev_pick(layout, default, challengers, parity, rule_path, simpler="a_prime",
+             start="2026-08-01", end="2026-09-29"):
+    """MG-2 afternoon-slot pick, exactly as ``C:\t\mg2\afternoon_pick_rule.md`` (sha pinned).
+
+    ``default``: arm A's source; ``challengers``: {name: source}; ``parity``: {name: bool}, each lane's
+    documented serve-parity check. Rows: snapshots at local hours 13-16 that every candidate covers.
+    dR = R(challenger) - R(arm A) in the scorecard's Brier-ratio units, pooled over the 11 markets;
+    intervals crossed (the scorecard's own draws) and date-clustered (2,000 draws, seed 20261025).
+    """
+    if _sha256(rule_path) != PICK_RULE_SHA256:
+        raise ChallengerError(f"pick rule sha {_sha256(rule_path)} != pinned {PICK_RULE_SHA256}")
+    if set(parity) != set(challengers):
+        raise ChallengerError("a serve-parity verdict is needed for every challenger")
+    import numpy as np
+
+    from weather.reporting.scorecards import dev_scorecard as sc
+    from weather.reporting.scorecards import dev_scorecard_data as data
+    from weather.reporting.scorecards import loss_atlas
+
+    start_d, end_d = data.check_range(start, end)
+    lay = data.load_layout(layout, data.DEV_FIRST, end_d)
+    folds = data.make_folds(lay.dates, start_d, end_d, 7, 1, 7)
+    scored = sorted(d for f in folds if f.scored for d in f.dates)
+    table = sc.Table(lay, scored)
+    date_w = _date_weights([k[0] for k in table.keys], sc.DRAWS, PICK_SEED)
+    market_b = table.brier(table.p_market)
+    vec, meta = {}, {}
+    for name, source in {"arm_a": default, **challengers}.items():
+        frame, m = _candidate_frame(source, table, lay, folds, data)
+        p, cov, reasons = _vector(table, frame)
+        vec[name] = (table.brier(p), cov)
+        meta[name] = {"source": source, "sha256": _source_sha(source), "coverage": reasons}
+    p_mg1, _, _ = _vector(table, loss_atlas.mg1_frame(table))
+    mg1_b = table.brier(p_mg1)
+    in_hours = np.isin(table.local_hour, PICK_HOURS)
+    rows = in_hours.copy()
+    for _, cov in vec.values():
+        rows &= cov
+    primary = np.isin(table.markets, sorted(PRIMARY_MARKETS))
+
+    def stat(a, b, mask, weights):
+        idx, c = table.cells(a, mask)
+        _, r_ = table.cells(b, mask)
+        _, m = table.cells(market_b, mask)
+        return sc.ratio_interval(weights[:, idx], c - r_, m)
+
+    def both(a, b, mask):
+        return {"crossed": stat(a, b, mask, table.w), "date_clustered": stat(a, b, mask, date_w)}
+
+    a_b = vec["arm_a"][0]
+    control = both(a_b, mg1_b, rows)
+    control_ok = abs(control["date_clustered"]["estimate"] - PICK_CONTROL) <= PICK_CONTROL_TOL
+    out = {"rule": str(rule_path), "rule_sha256": PICK_RULE_SHA256, "seed_date_clustered": PICK_SEED,
+           "crossed_draws": "dev_scorecard Table.w (seed %d)" % sc.SEED,
+           "rows": {"n_snapshots": int(rows.sum()), "n_in_hours": int(in_hours.sum()),
+                    "n_primary": int((rows & primary).sum())},
+           "candidates": meta,
+           "control": {"arm_a_minus_mg1": control, "expected": PICK_CONTROL, "tolerance": PICK_CONTROL_TOL,
+                       "passed": bool(control_ok)},
+           "challengers": {}}
+    eligible = []
+    for name in challengers:
+        b = vec[name][0]
+        pooled = both(b, a_b, rows)
+        hours = {f"h{h:02d}": both(b, a_b, rows & (table.local_hour == h)) for h in PICK_HOURS}
+        prim = both(b, a_b, rows & primary)
+        mg1 = both(b, mg1_b, rows)
+        c1 = bool(parity[name])
+        c2 = all(pooled[k]["ci95"][1] is not None and pooled[k]["ci95"][1] < 0 for k in pooled)
+        c3 = not any(v["date_clustered"]["ci95"][0] is not None and v["date_clustered"]["ci95"][0] > 0
+                     for v in hours.values())
+        c4 = prim["date_clustered"]["estimate"] < 0
+        ok = c1 and c2 and c3 and c4
+        out["challengers"][name] = {"dR_vs_arm_a": pooled, "by_hour": hours, "primary5": prim,
+                                    "dR_vs_mg1": mg1,
+                                    "conditions": {"1_serve_parity": c1, "2_upper_below_0_both": c2,
+                                                   "3_no_ci_worse_hour": c3, "4_primary5_point_below_0": c4},
+                                    "eligible": ok}
+        if ok:
+            eligible.append(name)
+    if not control_ok:
+        pick, why = "arm_a", "positive control failed: pick void, arm A stands"
+    elif not eligible:
+        pick, why = "arm_a", "no challenger eligible"
+    elif len(eligible) == 1:
+        pick, why = eligible[0], "one challenger eligible"
+    else:
+        x, y = eligible[:2]
+        diff = both(vec[x][0], vec[y][0], rows)
+        out["eligible_difference"] = {"pair": [x, y], **diff}
+        lo, hi = diff["date_clustered"]["ci95"]
+        if lo is not None and lo <= 0 <= hi:
+            pick, why = simpler, "both eligible, difference interval contains 0: the simpler one"
+        else:
+            pick = min(eligible, key=lambda n: out["challengers"][n]["dR_vs_arm_a"]["date_clustered"]["estimate"])
+            why = "both eligible: lower pooled point dR"
+    out["pick"] = {"candidate": pick, "reason": why, "eligible": eligible}
+    return out
+
+
 def _rows(scores, arm, reference="served", scope="blended"):
     return {(r["market"], r["group"]): r for r in scores["candidates"][arm]["rows"]
             if r.get("reference", "served") == reference and r.get("scope", "blended") == scope}
@@ -1393,6 +1500,13 @@ def build_parser():
     dscore.add_argument("--expect-brier-vs-mg1", action="append", default=[],
                         help="<candidate>=<value>: positive control, 07-12 Brier minus MG-1 to 1e-6")
     dscore.add_argument("--out", required=True)
+    pick = sub.add_parser("dev-pick", help="MG-2 afternoon-slot pick under the pinned pick rule")
+    pick.add_argument("--layout", required=True)
+    pick.add_argument("--arm-a", required=True, help="arm A source (jsonl | module:<path>)")
+    pick.add_argument("--challenger", action="append", required=True, help="<name>=<source>")
+    pick.add_argument("--parity", action="append", required=True, help="<name>=pass|fail")
+    pick.add_argument("--rule", required=True)
+    pick.add_argument("--out", required=True)
     cmp_ = sub.add_parser("compare", help="join with lane D's R0 rows and apply the rule")
     cmp_.add_argument("--rows-dir", required=True)
     cmp_.add_argument("--r0-rows", action="append", help="<market>=<feature_model_blocked_validation_rows path>")
@@ -1406,6 +1520,13 @@ def main(argv=None):
     try:
         if args.command == "score":
             return _score_command(args)
+        if args.command == "dev-pick":
+            chal = dict(item.split("=", 1) for item in args.challenger)
+            parity = {k: v == "pass" for k, v in (item.split("=", 1) for item in args.parity)}
+            result = dev_pick(args.layout, args.arm_a, chal, parity, args.rule)
+            Path(args.out).write_text(json.dumps(result, indent=1, sort_keys=True), encoding="utf-8")
+            print(json.dumps({"control": result["control"]["passed"], "pick": result["pick"]}, indent=1))
+            return 0
         if args.command == "dev-emit":
             audit = dev_emit(layout=args.layout, replay_root=args.replay_root,
                              train_manifests=args.train_manifest, dev_manifest=args.dev_manifest,

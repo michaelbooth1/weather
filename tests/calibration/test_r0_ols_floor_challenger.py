@@ -318,3 +318,18 @@ def test_dev_mg1_gate_fails_on_any_ci_worse_block_and_needs_the_control():
 def test_dev_variants_default_excludes_the_l8_variant_and_it_keeps_the_main_features():
     assert ch.L8_VARIANT not in ch.DEV_DEFAULT_VARIANTS
     assert ch.DEV_VARIANTS[ch.L8_VARIANT] == ch.DEV_VARIANTS["main"]
+
+
+def test_dev_pick_refuses_unpinned_rule_and_missing_parity(tmp_path):
+    rule = tmp_path / "rule.md"
+    rule.write_text("not the pinned rule\n", encoding="utf-8")
+    with pytest.raises(ch.ChallengerError, match="pick rule sha"):
+        ch.dev_pick("layout", "a.jsonl", {"a_prime": "b.jsonl"}, {"a_prime": True}, rule)
+
+
+def test_nbm_hist_variant_adds_the_nbm_mean_regressor():
+    features, source = ch.DEV_VARIANTS[ch.NBM_VARIANT]
+    assert features == ch.FEATURES + ("nbm_mean",) and source == "pit_2026"
+    # A missing NBM mean is imputed with forecast_high, as in training (L9's IMPUTE rule).
+    assert ch.feature_vector({"forecast_high": 80.0, "high_so_far": 75.0, "current_temp": 74.0,
+                              "nbm_mean": None}, features) == [80.0, 75.0, 74.0, 80.0]
