@@ -480,3 +480,25 @@ def test_rung_h_regime_tags_use_only_reports_at_or_before_capture():
     assert prm.rh_obs_tags(obs, 4 * 3600.0, "chicago")["onshore"] == "n/a"
     assert prm.rh_obs_tags(obs, -1.0, "los-angeles")["front"] == "unknown"
     assert prm._bin(2.0, -2.0, 2.0) == "warm" and prm._bin(float("nan"), -2.0, 2.0) == "unknown"
+
+
+def test_rung_i_temperature_keeps_zero_bands_and_mass_and_ties_go_to_one():
+    p = np.array([0.0, 0.2, 0.5, 0.3, 0.1, 0.9])
+    offsets, n = np.array([0, 4]), np.array([4, 2])
+    q = prm.ri_temper(p, offsets, n, np.full(6, 2.0))
+    assert q[0] == 0.0
+    assert abs(q[:4].sum() - 1.0) < 1e-12 and abs(q[4:].sum() - 1.0) < 1e-12
+    assert q[2] > p[2]  # tau > 1 sharpens toward the mode
+    assert np.allclose(prm.ri_temper(p, offsets, n, np.ones(6)), np.r_[p[:4], p[4:] / p[4:].sum()])
+    assert prm.ri_pick_tau([3.0] * len(prm.RI_TAU_GRID)) == 1.0
+    losses = prm._ri_dict_losses([0.2, 0.6, 0.2], 1)
+    assert losses[prm.RI_TAU_GRID.index(1.0)] == pytest.approx(0.04 + 0.16 + 0.04)
+    assert prm.ri_pick_tau(losses) > 1.0
+
+
+def test_rung_i_recentre_moves_median_to_reference_and_respects_impossible_bands():
+    p = np.array([0.6, 0.3, 0.1, 0.0])
+    ref = np.array([0.0, 0.1, 0.2, 0.7])
+    out = prm.ri_recentre(p, ref, np.array([0]), np.array([4]), np.array([True, False, False, False]))
+    assert out[0] == 0.0 and abs(out.sum() - 1.0) < 1e-12
+    assert int(np.argmax(np.cumsum(out) >= 0.5)) == 3
