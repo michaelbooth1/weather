@@ -69,7 +69,7 @@ def test_pre_half_never_used_after_the_switch():
 
 def _rule(tmp_path, **over):
     fields = {"switch_hour": "13", "d0": "2026-10-27", "n_forward_dates": "3", "owner_decision_id": "NONE",
-              "coefficients_sha256": "0" * 64}
+              "coefficients_sha256": "0" * 64, "function_sha256": "f" * 64, "noninferiority_margin_00_16": "0.0010"}
     fields.update(over)
     body = "\n".join(f"{k}: {v}" for k, v in fields.items())
     path = tmp_path / "rule.md"
@@ -226,3 +226,51 @@ def test_forward_sizing_scales_with_n():
     assert out["per_n"]["80"]["se"] < out["per_n"]["20"]["se"]
     assert abs(out["per_n"]["20"]["se"] / out["per_n"]["80"]["se"] - 2.0) < 0.3
     assert set(out["per_n"]["20"]) >= {"mde80", "power_superiority_at_dev_point", "power_noninferiority_at_dev_point"}
+
+
+def test_forward_emit_needs_the_release_binding(tmp_path):
+    rule = _rule(tmp_path, d0="2026-10-27")
+    with pytest.raises(mg2.Mg2Refused, match="release binding"):
+        mg2.emit(layout_root=tmp_path, replay_root=tmp_path, forecast_manifest=tmp_path, nowcasts=tmp_path,
+                 coefficients=tmp_path, rule=rule, out=tmp_path / "o", first="2026-10-27", last="2026-10-28")
+
+
+def test_release_binding_and_function_hash_are_enforced(tmp_path):
+    rule = _rule(tmp_path)
+    rule_sha, fields = mg2.read_rule(rule)
+    with pytest.raises(mg2.Mg2Refused, match="running_max_since_midnight"):
+        mg2.verify_function(fields)
+    from weather.model import observed_running_max
+
+    fields["function_sha256"] = mg2.sha256_file(observed_running_max.__file__)
+    assert mg2.verify_function(fields) == fields["function_sha256"]
+    good = {"rule_sha256": rule_sha, "coefficients_sha256": fields["coefficients_sha256"],
+            "function_sha256": fields["function_sha256"], "files": mg2.release_hashes()}
+    path = tmp_path / "release-binding.json"
+    path.write_text(json.dumps(good))
+    assert mg2.verify_release(path, rule_sha, fields)["rule_sha256"] == rule_sha
+    bad = dict(good, files=dict(good["files"], **{mg2.RELEASE_FILES[0]: "0" * 64}))
+    path.write_text(json.dumps(bad))
+    with pytest.raises(mg2.Mg2Refused, match="mismatch"):
+        mg2.verify_release(path, rule_sha, fields)
+    assert set(mg2.RELEASE_FILES) == set(good["files"]) and all((ROOT / f).is_file() for f in mg2.RELEASE_FILES)
+
+
+def _row(block, est, lo, hi):
+    return {"market": "ALL", "block": block,
+            "model_minus_control_date_clustered": {"estimate": est, "ci95": [lo, hi]}}
+
+
+@pytest.mark.parametrize("u016,u1316,verdict", [(0.0009, -0.0001, "PASS"), (0.0010, -0.0001, "FAIL"),
+                                                 (-0.002, 0.0, "FAIL"), (0.002, -0.01, "FAIL")])
+def test_gate_needs_both_noninferiority_00_16_and_superiority_13_16(u016, u1316, verdict):
+    rows = [_row("00-16", -0.001, -0.003, u016), _row("13-16", -0.005, -0.01, u1316)]
+    assert mg2.gate_verdict(rows, 0.0010)["verdict"] == verdict
+
+
+def test_second_look_is_refused(tmp_path):
+    (tmp_path / "out").mkdir()
+    (tmp_path / "out" / "mg2_look.json").write_text("{}")
+    with pytest.raises(mg2.Mg2Refused, match="exactly one look"):
+        mg2.score(layout_root=tmp_path, vectors=tmp_path, rule=_rule(tmp_path), out=tmp_path / "out",
+                  release_binding=tmp_path)

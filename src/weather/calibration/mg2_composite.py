@@ -99,7 +99,8 @@ def read_rule(path):
         if line.strip() and not line.lstrip().startswith("#"):
             key, _, value = line.partition(":")
             fields[key.strip()] = value.strip()
-    for key in ("switch_hour", "d0", "n_forward_dates", "owner_decision_id", "coefficients_sha256"):
+    for key in ("switch_hour", "d0", "n_forward_dates", "owner_decision_id", "coefficients_sha256",
+                "function_sha256"):
         if key not in fields:
             raise Mg2Refused(f"rule block lacks {key}")
     if int(fields["switch_hour"]) != SWITCH_HOUR:
@@ -166,6 +167,57 @@ def score_guard(fields, target_dates, today=None, mg1_look_receipt=None):
         raise Mg2Refused(f"the look needs exactly {need} forward dates, got {len(days)}")
     return {"d0": d0.isoformat(), "dates": len(days), "inside_mg1_window": len(inside),
             "owner_decision_id": decision}
+
+
+RELEASE_FILES = (
+    "src/weather/calibration/mg2_composite.py",
+    "src/weather/reporting/scorecards/free_source_candidates/l6_stack.py",
+    "src/weather/reporting/scorecards/free_source_candidates/mg1.py",
+    "src/weather/calibration/upstream_obs_screen.py",
+    "src/weather/calibration/r0_ols_floor_challenger.py",
+    "src/weather/model/observed_running_max.py",
+    "src/weather/reporting/scorecards/dev_scorecard.py",
+    "src/weather/reporting/scorecards/dev_scorecard_data.py",
+    "src/weather/reporting/scorecards/loss_atlas.py",
+)
+
+
+def repo_root():
+    return Path(__file__).resolve().parents[3]
+
+
+def release_hashes(root=None):
+    root = Path(root or repo_root())
+    return {rel: sha256_file(root / rel) for rel in RELEASE_FILES}
+
+
+def verify_function(fields):
+    """The rule's ``function_sha256`` must be the running ``observed_running_max`` source."""
+    from weather.model import observed_running_max
+
+    sha = sha256_file(observed_running_max.__file__)
+    if fields.get("function_sha256") != sha:
+        raise Mg2Refused(f"running_max_since_midnight source sha {sha} != rule's {fields.get('function_sha256')}")
+    return sha
+
+
+def verify_release(path, rule_sha, fields, root=None):
+    """``release-binding.json``: every executed file, the function, the coefficients and the rule."""
+    binding = json.loads(Path(path).read_text(encoding="utf-8"))
+    problems = []
+    if binding.get("rule_sha256") != rule_sha:
+        problems.append("rule_sha256")
+    if binding.get("coefficients_sha256") != fields["coefficients_sha256"]:
+        problems.append("coefficients_sha256")
+    if binding.get("function_sha256") != fields.get("function_sha256"):
+        problems.append("function_sha256")
+    running = release_hashes(root)
+    for rel, sha in running.items():
+        if binding.get("files", {}).get(rel) != sha:
+            problems.append(rel)
+    if problems:
+        raise Mg2Refused(f"release binding mismatch: {problems}")
+    return binding
 
 
 # ----------------------------------------------------------------------------- composition
@@ -598,7 +650,7 @@ def arm_a_records(snaps, replay_root, forecast_manifest, first, last):
 
 
 def emit(*, layout_root, replay_root, forecast_manifest, nowcasts, coefficients, rule, out, first, last,
-         control=False):
+         control=False, release_binding=None):
     """Captured-input replay of the composite for [first, last] at the frozen coefficients.
 
     Forward (``control`` False): the rule's D0 must be set and ``first`` >= D0. Control mode replays dev
@@ -617,6 +669,10 @@ def emit(*, layout_root, replay_root, forecast_manifest, nowcasts, coefficients,
         d0 = rule_d0(fields)
         if d0 is None or first < d0:
             raise Mg2Refused("forward emission needs the rule's D0 set and first >= D0")
+        if not release_binding:
+            raise Mg2Refused("forward emission needs the release binding")
+        verify_release(release_binding, rule_sha, fields)
+    verify_function(fields)
     coef = load_coefficients(coefficients, fields["coefficients_sha256"])
     snaps, bands = read_inputs(layout_root)
     snaps = _window(snaps, first, last)
@@ -698,7 +754,7 @@ def outcome_blind_checks(snaps, sources, frame, replayed=None, parser_column="v2
 
 # ----------------------------------------------------------------------------- the look
 
-def score(*, layout_root, vectors, rule, out, mg1_look_receipt=None, today=None):
+def score(*, layout_root, vectors, rule, out, release_binding, mg1_look_receipt=None, today=None):
     """The single forward look (composite minus MG-1 Brier, fixed-market date-clustered). Guarded."""
     import pandas as pd
 
@@ -707,9 +763,14 @@ def score(*, layout_root, vectors, rule, out, mg1_look_receipt=None, today=None)
     from weather.reporting.scorecards import loss_atlas
 
     rule_sha, fields = read_rule(rule)
+    out = Path(out)
+    if (out / "mg2_look.json").exists():
+        raise Mg2Refused("the MG-2 look already exists: exactly one look")
     root = Path(layout_root)
     snaps = pd.read_parquet(root / data.SNAPSHOTS_FILE, columns=["row_key", "date"])
     guard = score_guard(fields, snaps.date.astype(str).unique(), today=today, mg1_look_receipt=mg1_look_receipt)
+    verify_release(release_binding, rule_sha, fields)
+    verify_function(fields)
     layout = data.Layout(snaps=pd.read_parquet(root / data.SNAPSHOTS_FILE),
                          bands=pd.read_parquet(root / data.BANDS_FILE),
                          labels=pd.read_parquet(root / data.LABELS_FILE),
@@ -722,12 +783,27 @@ def score(*, layout_root, vectors, rule, out, mg1_look_receipt=None, today=None)
     p_k, r_k = table.candidate_vector(loss_atlas.mg1_frame(table))
     rows = sc.score_rows(table, p_c, False, p_k, sc.GROUPS + sc.HOURLY_GROUPS)
     payload = {"schema": SCHEMA, "rule_sha256": rule_sha, "guard": guard, "coverage": {"mg2": r_c, "mg1": r_k},
+               "gate": gate_verdict(rows, float(fields["noninferiority_margin_00_16"])),
                "vectors_sha256": sha256_file(vectors), "rows": rows,
                "mg1_look_receipt_sha256": sha256_file(mg1_look_receipt) if mg1_look_receipt else None}
-    out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
     (out / "mg2_look.json").write_text(json.dumps(payload, indent=1, sort_keys=True, default=str), encoding="utf-8")
     return payload
+
+
+def gate_verdict(rows, margin):
+    """G1: Delta(00-16) upper < margin; G2: Delta(13-16) upper < 0 (pooled ALL, date-clustered)."""
+    def upper(block):
+        row = next(r for r in rows if r["market"] == "ALL" and r["block"] == block)
+        ci = row["model_minus_control_date_clustered"]["ci95"]
+        return row["model_minus_control_date_clustered"]["estimate"], ci
+    e1, c1 = upper("00-16")
+    e2, c2 = upper("13-16")
+    g1 = c1[1] is not None and c1[1] < margin
+    g2 = c2[1] is not None and c2[1] < 0
+    return {"G1_00_16": {"estimate": e1, "ci95": c1, "margin": margin, "pass": bool(g1)},
+            "G2_13_16": {"estimate": e2, "ci95": c2, "pass": bool(g2)},
+            "verdict": "PASS" if (g1 and g2) else "FAIL"}
 
 
 # ----------------------------------------------------------------------------- CLI
@@ -759,6 +835,7 @@ def build_parser():
         p.add_argument("--first", required=True)
         p.add_argument("--last", required=True)
         p.add_argument("--control", action="store_true")
+        p.add_argument("--release-binding", default=None)
     p = sub.add_parser("nowcast")
     p.add_argument("--train-root", required=True)
     p.add_argument("--obs-root", required=True)
@@ -773,6 +850,7 @@ def build_parser():
     p.add_argument("--rule", required=True)
     p.add_argument("--out", required=True)
     p.add_argument("--mg1-look-receipt", default=None)
+    p.add_argument("--release-binding", required=True)
     return parser
 
 
@@ -797,7 +875,8 @@ def main(argv=None):
         elif args.command in ("emit", "check"):
             kw = dict(layout_root=args.layout, replay_root=args.replay_root, forecast_manifest=args.forecast_manifest,
                       nowcasts=args.nowcasts, coefficients=args.coefficients, rule=args.rule,
-                      first=args.first, last=args.last, control=args.control)
+                      first=args.first, last=args.last, control=args.control,
+                      release_binding=args.release_binding)
             result = emit(out=args.out, **kw)
             if args.command == "check":
                 again = emit(out=Path(args.out) / "_replay", **kw)
@@ -813,8 +892,8 @@ def main(argv=None):
                                                                            default=str), encoding="utf-8")
         else:
             result = score(layout_root=args.layout, vectors=args.vectors, rule=args.rule, out=args.out,
-                           mg1_look_receipt=args.mg1_look_receipt)
-            result = {"guard": result["guard"], "coverage": result["coverage"]}
+                           release_binding=args.release_binding, mg1_look_receipt=args.mg1_look_receipt)
+            result = {"guard": result["guard"], "coverage": result["coverage"], "gate": result["gate"]}
     except Mg2Refused as exc:
         print(json.dumps({"refused": str(exc)}))
         return 2
