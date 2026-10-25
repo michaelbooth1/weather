@@ -212,3 +212,47 @@ against MG-1 or A_N, and does not open C:\t\mg2\control_refit_armA.json or any A
 - **Output:** C:\t\l2\p3d_n_dev\dev_P3d_N.jsonl (same format as dev_P3d.jsonl; refuses to overwrite) and
   dev_emit_audit.json, with shas; serve-parity note C:\t\l2\p3d_n_serve_parity.md. Parity passes only if every model
   input at dev is computed from captured fields with the serve-time cutoff semantics, with no imputation at dev.
+
+## Clarification 3 — 2026-10-25 (P3d_N forward-window refit: a spec freeze, not a selection; appended before any refit row exists)
+
+Sha of this file before this clarification: b3f017bbf3d634b142e0d2eb2b1ae7ba38fd65b74b069c3cfee2d8cc5d19de68.
+Reason: P3d_N won the MG-2 afternoon pick (C:\t\mg2\pick_result.json); the forward window is Oct-Dec. Nothing below is
+chosen by any score. No refit row is scored on 2026 dev; no 2026 row enters training or is emitted.
+
+- **(a) Training window: Aug-Dec 2021-25** (December rows exist for all 11 markets, so the Aug-Dec branch applies;
+  decided from availability only). Centres 08-08, 08-23, 09-07, 09-22, 10-10, 10-25, 11-09, 11-24, 12-09, each +/-7 days
+  (12-24 is dropped: it fails closed on atlanta 2023-12-29, amendment 1). Covered dates: 08-01..09-29 and 10-03..12-16;
+  Dec 17-31 is in no corpus. Trainer records (WU labels, high_so_far, current_temp): Aug-Sep union 744289be... of
+  b455bd53...; Oct-Dec corpora cd0ba2bb..., 23ac87fa..., 74807fbe... (the record set the coordinator cites as 674b12ac...).
+  NBM: corpus 1ae4bf52a0e032fc0c05ddfa7b282a17db53bd9a2e3f3a32a9a5686139faa1fd unchanged (07Z; 135 days per year per
+  market, no missing row in any record window), so no fetch and no new corpus id. nbm_mean via L9 `nbm_at_cutoff`;
+  None -> the record's forecast_high (count reported). Years 2021-25 only; the fit refuses any other year. Per-market x
+  month x year availability (days, rows) is written into the frozen state's provenance.
+- **Model:** amendment 5's P3d_N unchanged except the window: per cutoff 07-20, pooled, day-of-year on, no market id,
+  x features high_so_far and current_temp, bias per (market, season) with season_of = aug_sep (Aug-Sep) / oct_dec
+  (Oct-Dec), normal per (market, centre), same hyperparameters, 2% climatology mix (alpha 0.10) over the per-market
+  sorted union of the centres' bucket_space. Bias, normal and buckets are read at serve from the nearest centre by
+  month-day (first centre wins a tie).
+- **(b) Frozen artifact (L8 schema `mg2_p3d_n_state/1` as relayed by the coordinator on 2026-10-25, unchanged):**
+  C:\t\l2\forward\state\p3d_n_state.pkl = pickle.dumps(state, protocol=4), sha256 of the file bytes, plus sidecar
+  p3d_n_state.json (provenance + state_sha256), fit_kind "forward", exported by `pooled_residual_model forward-fit` from
+  branch claude/pooled-residual-model-20261024. Both files are written once (refuse overwrite). The sha is entered in
+  C:\t\l2\forward\frozen_record.json before D0; L8 binds that sha. Export parity: the state's reference serve math must
+  reproduce the fitted MeanModel on sampled training rows to 1e-9, or the export fails.
+- **(c) Units rule: `wu_whole_f_tgroup:half_up`.** Serve-time METAR temp_native (T-group C * 1.8 + 32) for high_so_far
+  and current_temp is converted to WU whole F as round-half-up of the exact value 32 + 9t/50 (t = T-group tenths C),
+  before g, the floor and the features. Evidence (training years only, Aug-Dec 2021-25, 11 markets; IEM T-group vs WU
+  hourly temp joined on valid time; C:\t\l2\forward\wu_rounding.json sha256
+  0a67338f9fff538bc0f41cc564fff875137b28daf5b314ee2713e0190764cbfd): half_up 227,969 / 227,999 rows (99.987%) and
+  352 / 354 exact .5 ties; half_even 227,783 rows, 166 ties; half_down 227,619, 2 ties; ceil 126,224, 352 ties; floor
+  125,755, 2 ties. Unambiguous. Training values are WU whole F already (no conversion; non-integer count reported).
+- **(d) Late-report rule: `last_in_hour` (grace_minutes null).** At cutoff h, high_so_far and current_temp use METAR rows
+  observed at or before h:00 as received in the last capture snapshot in [h:00, h+1:00) -- the rule P3d_N was emitted
+  and picked on (amendment 5). In training: all WU rows observed at or before h:00 (the eventually-received set; WU
+  2021-25 history carries no receipt time). The suggested receipt_by rule does not fit training: no receipt stamps
+  exist in the training data, so it cannot be applied there, and at serve it diverges from the received-by-the-hour
+  set. Evidence (capture-only, dev-window replay snapshots; C:\t\l2\forward\receipt_grace.json sha256
+  ff90a1a2f4d21727039761934b5d48b925083e20037c8c52f3734b8f32a4ab8a): receipt_by grace 0/5/10/15/20 min agrees with
+  last_in_hour features on 84.9 / 89.5 / 94.4 / 96.7 / 98.1% of 9,224 market-hours; denver 6.9 / 16.9 / 56.1 / 74.8 /
+  87.3% (no grace reaches 99% fleet-wide). A serve process running at time t inside the hour uses the latest snapshot
+  captured <= t (never a later one).
