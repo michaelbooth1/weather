@@ -39,6 +39,8 @@ import pytest
 
 pytestmark = [
     pytest.mark.spawns,
+    # Creates the real host-global mutex: never in the workstation focused slot.
+    pytest.mark.real_global_mutex,
     pytest.mark.skipif(os.name != "nt", reason="requires Windows PowerShell and Win32 consoles"),
 ]
 
