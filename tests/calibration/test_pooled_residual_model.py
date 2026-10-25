@@ -277,3 +277,60 @@ def test_dev_verdict_markdown_applies_l3_rule(tmp_path):
     assert verdict["P3d"]["dR_date_clustered"]["beats_served"] is True
     assert verdict["U0d"]["dR_date_clustered"]["blocks_worse"] == ["13-16"]
     assert "**(12)**" in text and "| atlanta |" in text
+
+
+def test_attach_training_nbm_replaces_anchor_and_imputes_forecast():
+    frame = _frame(n_days=2, years=(2021,), markets=("atlanta",))
+    calls = []
+
+    def fake_at_cutoff(table, market, day, hour, tz):
+        calls.append((market, day, hour, tz))
+        return (None, None) if day.endswith("-17") else (70.5, "07")
+
+    out, stats = prm.attach_training_nbm(frame, {}, fake_at_cutoff, {"atlanta": "America/New_York"})
+    imputed = out["target_date"].str.endswith("-17").to_numpy()
+    assert np.allclose(out.loc[~imputed, "fh"], 70.5)
+    assert np.allclose(out.loc[imputed, "fh"], frame.loc[imputed, "fh"])  # L9 IMPUTE "fc"
+    assert stats == {"train_nbm_imputed_forecast": int(imputed.sum()), "train_nbm_cycle_07": int((~imputed).sum())}
+    assert np.allclose(frame["fh"], _frame(n_days=2, years=(2021,), markets=("atlanta",))["fh"])  # input untouched
+    assert calls[0] == ("atlanta", frame.at[0, "target_date"], 10, "America/New_York")
+
+
+def test_running_max_without_metar_only_switch_is_refused():
+    def old(station, metar, *, target_date, tz, unit, cutoff_hour, now=None):
+        return None, None
+
+    def new(station, metar, *, target_date, tz, unit, cutoff_hour, now=None, metar_only=False):
+        return None, None
+
+    with pytest.raises(prm.PooledModelError):
+        prm._require_metar_only(old)
+    assert prm._require_metar_only(new) is new
+
+
+def test_scan_replay_n_uses_last_snapshot_of_the_hour_and_metar_only(tmp_path):
+    from datetime import date as _date
+    from zoneinfo import ZoneInfo
+
+    tz = ZoneInfo("America/New_York")
+    lines = [
+        {"captured_at_local": "2026-08-20T13:05:00-04:00", "snapshot_id": "a", "sources": {"metar": {"data": {"rows": [1]}}}},
+        {"captured_at_local": "2026-08-20T13:55:00-04:00", "snapshot_id": "b", "sources": {"metar": {"data": {"rows": [2]}}}},
+        {"captured_at_local": "2026-08-20T14:10:00-04:00", "snapshot_id": "c", "sources": {"metar": {"data": {"rows": [3]}}}},
+        {"captured_at_local": "2026-08-21T13:10:00-04:00", "snapshot_id": "d", "sources": {"metar": {"data": {"rows": [4]}}}},
+    ]
+    (tmp_path / "replay_inputs.jsonl").write_text("\n".join(json.dumps(x) for x in lines) + "\n", encoding="utf-8")
+    seen = []
+
+    def running_max(station, metar, *, target_date, tz, unit, cutoff_hour, now=None, metar_only=False):
+        seen.append((station, metar["rows"][0], cutoff_hour, now.minute, metar_only, unit))
+        return 90.0 + metar["rows"][0], 600
+
+    def obs_at_cutoff(rows, target_date, hour, tz):
+        return 80.0 + rows[0], 88.0 + rows[0], 1
+
+    out = prm.scan_replay_n(tmp_path, "nyc", _date(2026, 8, 20), tz, {13, 14}, "F", running_max, obs_at_cutoff)
+    assert out[13]["replay_snapshot_id"] == "b" and out[14]["replay_snapshot_id"] == "c"
+    assert out[13]["high_so_far"] == 92.0 and out[13]["current_temp"] == 82.0 and out[13]["main_high_so_far"] == 90.0
+    assert all(s[0] == {} and s[4] is True and s[5] == "F" for s in seen)
+    assert (2, 13, 55) in [(s[1], s[2], s[3]) for s in seen]

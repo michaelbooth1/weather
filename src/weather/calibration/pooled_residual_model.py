@@ -18,6 +18,9 @@ Stages (each a CLI subcommand; heavy ones run only through
 ``evaluate``
     Score R0 (recomputed with the trainer's functions, one fit per held-out year)
     and the pooled arms on identical rows; write one JSONL of per-row losses per arm.
+``dev-emit`` / ``dev-emit-n``
+    Dev-window candidate vectors: P3d/U0d (amendment 3) and P3d_N (amendment 5: anchored on the
+    captured NBM 07Z mean, METAR-only running max) in the dev scorecard's candidate format.
 ``report``
     Paired deltas against R0 with date-clustered bootstrap CIs, per hour and per
     market, 07-12 called out, and the pre-declared decision.
@@ -43,7 +46,8 @@ import os
 from pathlib import Path
 
 # Master ruling 10-24: fits use at most 10 OpenMP threads (32 logical cores / 3 slots).
-os.environ.setdefault("OMP_NUM_THREADS", "10")
+for _threads_var in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS"):
+    os.environ.setdefault(_threads_var, "10")
 
 from weather.paths import CONFIG_ROOT, REPO_ROOT  # noqa: E402
 
@@ -1058,6 +1062,197 @@ def dev_emit_distributions(*, records_root, layout, replay_root, dev_manifest, o
     return audit
 
 
+# ------------------------------------------------------------- amendment 5: P3d_N (MG-2 pick, option N)
+
+N_ARM = "P3d_N"
+N_DEV_FIRST = date(2026, 7, 30)
+N_DEV_LAST = date(2026, 9, 29)
+
+
+def attach_training_nbm(frame, nbm_table, nbm_at_cutoff, timezones):
+    """Amendment 5: replace the anchor column ``fh`` with L9's PIT NBM mean at each record's cutoff.
+
+    A record without an NBM value keeps its forecast_high (L9 IMPUTE "fc"). Returns (frame, counts).
+    """
+    import numpy as np
+
+    values, stats = [], defaultdict(int)
+    for market, day, hour, fh in zip(frame["market"], frame["target_date"], frame["hour"], frame["fh"]):
+        value, cycle = nbm_at_cutoff(nbm_table, market, str(day)[:10], int(hour), timezones[market])
+        if value is None:
+            stats["train_nbm_imputed_forecast"] += 1
+            value = fh
+        else:
+            stats[f"train_nbm_cycle_{cycle}"] += 1
+        values.append(np.nan if value is None else float(value))
+    out = frame.copy()
+    out["fh"] = np.asarray(values, dtype=float)
+    return out, dict(stats)
+
+
+def _require_metar_only(func):
+    import inspect
+
+    if "metar_only" not in inspect.signature(func).parameters:
+        raise PooledModelError("observed_running_max lacks the metar_only switch (pick rule C1); refusing")
+    return func
+
+
+def scan_replay_n(folder, market_id, target_date, tz, hours, unit, running_max, observations_at_cutoff):
+    """Per cutoff hour, inputs from the last replay snapshot captured in [h:00, h+1:00).
+
+    high_so_far: ``running_max(station={}, metar=sources.metar.data, ..., metar_only=True)``;
+    current_temp: the latest captured METAR row observed at or before h:00 (L3's helper);
+    ``main_high_so_far``: that helper's running max, for the cross-check only.
+    """
+    import re
+    from datetime import datetime
+
+    pattern = re.compile(r'"captured_at_local":\s*"([^"]+)"')
+    path = Path(folder) / "replay_inputs.jsonl"
+    chosen = {}
+    with open(path, "rb") as handle:
+        offset = 0
+        for line in handle:
+            match = pattern.search(line[:4096].decode("utf-8", "replace"))
+            if match:
+                local = datetime.fromisoformat(match.group(1)).astimezone(tz)
+                if local.date() == target_date and local.hour in hours:
+                    chosen[local.hour] = (local, offset, len(line))
+            offset += len(line)
+        out = {}
+        for hour, (local, start, size) in sorted(chosen.items()):
+            handle.seek(start)
+            snapshot = json.loads(handle.read(size))
+            metar = (((snapshot.get("sources") or {}).get("metar") or {}).get("data")) or {}
+            current, main_high, n = observations_at_cutoff(metar.get("rows"), target_date, hour, tz)
+            high, _ = running_max({}, metar, target_date=target_date, tz=tz, unit=unit, cutoff_hour=hour,
+                                  now=local, metar_only=True)
+            out[hour] = {"replay_snapshot_id": snapshot.get("snapshot_id"), "replay_captured_at_local": local.isoformat(),
+                         "current_temp": current, "high_so_far": high, "main_high_so_far": main_high, "n_rows": n}
+    return out
+
+
+def dev_emit_n_distributions(*, records_root, layout, replay_root, nbm_train_corpus, nbm_dev_corpus, out_dir,
+                             markets=R0_MARKETS):
+    """Amendment 5: P3d_N dev distributions on A_N's rows (captured NBM mean, METAR-only running max)."""
+    import numpy as np
+    import pandas as pd
+    from zoneinfo import ZoneInfo
+
+    from weather.calibration import feature_model as fm
+    from weather.calibration import ols_floor_ladder as l9
+    from weather.calibration import r0_ols_floor_challenger as l3
+    from weather.calibration.r0_ols_floor_devfit import usable_v2_mean
+    from weather.market.market_registry import spec_for_id
+    from weather.model import observed_running_max
+    from weather.model.toronto_model import INTRADAY_CUTOFF_HOURS
+    from weather.units import round_half_up
+
+    running_max = _require_metar_only(observed_running_max.running_max_since_midnight)
+    out = require_output_outside_repo(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    path = out / f"dev_{N_ARM}.jsonl"
+    if path.exists():
+        raise PooledModelError(f"refusing to overwrite {path}")
+    timezones = {m: spec_for_id(m).timezone for m in markets}
+    frame, buckets = dev_training_frame(records_root, markets)
+    if frame["year"].max() >= 2026:
+        raise PooledModelError("a dev training row is from 2026")
+    frame, train_stats = attach_training_nbm(frame, l9.load_nbm(nbm_train_corpus), l9.nbm_at_cutoff, timezones)
+    fits = dev_fits(frame, "P3d")
+    dev_table = l9.load_nbm(nbm_dev_corpus)
+    coords = station_coordinates(markets)
+    snaps = pd.read_parquet(Path(layout) / "inputs_snapshots.parquet", columns=[
+        "snapshot_id", "market", "target_date", "local_hour", "cutoff_hour",
+        "v2_mean", "v2_stddev", "v2_available_at", "captured_at_utc"])
+    if (pd.to_datetime(snaps.target_date).dt.date > N_DEV_LAST).any():
+        raise PooledModelError("layout holds a snapshot after 2026-09-29")
+    snaps = snaps.assign(nbm_usable=usable_v2_mean(snaps))
+    hours = {int(h) for h in INTRADAY_CUTOFF_HOURS}
+    audit = {"arm": N_ARM, "markets": {}, "training_rows": int(len(frame)), "train_nbm": train_stats,
+             "train_years": sorted(int(y) for y in frame["year"].unique()),
+             "inputs": {"nbm_train_corpus": hashlib.sha256(Path(nbm_train_corpus).read_bytes()).hexdigest(),
+                        "nbm_dev_corpus": hashlib.sha256(Path(nbm_dev_corpus).read_bytes()).hexdigest(),
+                        "observed_running_max_sha256": hashlib.sha256(
+                            Path(observed_running_max.__file__).read_bytes()).hexdigest(),
+                        "ols_floor_ladder_sha256": hashlib.sha256(Path(l9.__file__).read_bytes()).hexdigest()}}
+    match_by_hour = defaultdict(lambda: defaultdict(int))
+    with open(path, "w", encoding="utf-8") as writer:
+        for market in markets:
+            spec = spec_for_id(market)
+            tz = ZoneInfo(spec.timezone)
+            obs = {}
+            for slug, target, folder in l3._event_folders(replay_root):
+                if slug != market or not (N_DEV_FIRST <= target <= N_DEV_LAST):
+                    continue
+                for hour, rec in scan_replay_n(folder, market, target, tz, hours, spec.display_unit, running_max,
+                                               l3.observations_at_cutoff).items():
+                    obs[(target.isoformat(), hour)] = rec
+            stats = defaultdict(int)
+            lat, lon, elev = coords[market]
+            for row in snaps[snaps.market == market].itertuples(index=False):
+                try:
+                    hour = int(str(row.cutoff_hour))
+                except ValueError:
+                    hour = None
+                if hour not in hours:
+                    stats["outside_cutoff_hours"] += 1
+                    continue
+                if int(row.local_hour) < hour:
+                    stats["local_hour_before_cutoff"] += 1
+                    continue
+                key = (str(row.target_date)[:10], hour)
+                nbm = float(row.nbm_usable)
+                if not math.isfinite(nbm):
+                    stats["no_usable_nbm"] += 1
+                    continue
+                corpus_value, _ = l9.nbm_at_cutoff(dev_table, market, key[0], hour, spec.timezone)
+                match_by_hour[hour]["exact" if corpus_value is not None and float(corpus_value) == nbm
+                                    else "differs_or_missing"] += 1
+                rec = obs.get(key)
+                if rec is None:
+                    stats["no_replay_observation"] += 1
+                    continue
+                if rec["high_so_far"] is None or rec["current_temp"] is None:
+                    stats["missing_metar_feature"] += 1
+                    continue
+                if rec["main_high_so_far"] is None or int(round_half_up(rec["main_high_so_far"])) != int(
+                        round_half_up(rec["high_so_far"])):
+                    stats["floor_differs_from_p3d_main"] += 1
+                tdate = date.fromisoformat(key[0])
+                doy = tdate.timetuple().tm_yday
+                one = pd.DataFrame([{
+                    "market": market, "centre": nearest_centre(key[0]), "season": "aug_sep", "hour": hour,
+                    "target_date": key[0], "year": tdate.year, "y": float("nan"),
+                    "F": float(rec["high_so_far"]), "fh": nbm, "lat": lat, "lon": lon, "elev": elev,
+                    "doy_sin": math.sin(2 * math.pi * doy / 365.25), "doy_cos": math.cos(2 * math.pi * doy / 365.25),
+                    "x_high_so_far": float(rec["high_so_far"]), "x_current_temp": float(rec["current_temp"]),
+                    "market_code": float(R0_MARKETS.index(market)),
+                }])
+                entry = fits.get((hour, None))
+                if entry is None:
+                    stats["no_fit_for_hour"] += 1
+                    continue
+                fitted = entry["fit"]
+                yhat, X = fitted["mean"].predict(one)
+                gap = np.nan_to_num(yhat - one["F"].to_numpy(float), nan=0.0)
+                s = max(MIN_SCALE, float(fitted["scale"].predict(np.column_stack([X, gap]))[0]) * math.sqrt(math.pi / 2))
+                p_clim = fm.smoothed_dist(entry["train_y"][market], buckets[market], alpha=0.10)
+                dist = predictive_distribution(float(yhat[0]), s, float(one.at[0, "F"]), fitted["z"],
+                                               buckets[market], p_clim)
+                writer.write(json.dumps({
+                    "market": market, "snapshot_id": row.snapshot_id, "target_date": key[0],
+                    "distribution": {str(b): p for b, p in dist.items() if p > 0}}, sort_keys=True) + "\n")
+                stats["emitted"] += 1
+            audit["markets"][market] = dict(stats, replay_hours=len(obs))
+            print(f"{N_ARM} {market}: {dict(stats)}", flush=True)
+    audit["dev_corpus_vs_captured_nbm_by_hour"] = {str(h): dict(v) for h, v in sorted(match_by_hour.items())}
+    audit["files"] = {path.name: hashlib.sha256(path.read_bytes()).hexdigest()}
+    (out / "dev_emit_audit.json").write_text(json.dumps(audit, indent=1, sort_keys=True), encoding="utf-8")
+    return audit
+
+
 def dev_verdict_markdown(scores, rule_path, arms=tuple(DEV_ARMS)):
     """Amendment 3: L3's dev verdict applied to P3d (decisive) and U0d, with the reported groups."""
     from weather.calibration import r0_ols_floor_challenger as l3
@@ -1136,6 +1331,14 @@ def _parse(argv=None):
     de.add_argument("--dev-manifest", required=True)
     de.add_argument("--markets", default=",".join(R0_MARKETS))
     de.add_argument("--out", required=True)
+    dn = sub.add_parser("dev-emit-n", help="amendment 5: P3d_N dev distributions on the captured NBM mean (heavy)")
+    dn.add_argument("--records", required=True)
+    dn.add_argument("--layout", required=True)
+    dn.add_argument("--replay-root", required=True)
+    dn.add_argument("--nbm-train-corpus", required=True, help="lane L9's PIT NBM corpus rows (2021-25)")
+    dn.add_argument("--nbm-dev-corpus", required=True, help="the 2026 NBM corpus rows (cross-check only)")
+    dn.add_argument("--markets", default=",".join(R0_MARKETS))
+    dn.add_argument("--out", required=True)
     dv = sub.add_parser("dev-verdict", help="amendment 3: verdict and tables from L3 dev-score output")
     dv.add_argument("--scores", required=True)
     dv.add_argument("--rule", required=True)
@@ -1207,6 +1410,12 @@ def main(argv=None):
         audit = dev_emit_distributions(records_root=args.records, layout=args.layout, replay_root=args.replay_root,
                                        dev_manifest=args.dev_manifest, out_dir=args.out,
                                        markets=args.markets.split(","))
+        print(json.dumps(audit["files"], indent=1))
+        return 0
+    if args.command == "dev-emit-n":
+        audit = dev_emit_n_distributions(records_root=args.records, layout=args.layout, replay_root=args.replay_root,
+                                         nbm_train_corpus=args.nbm_train_corpus, nbm_dev_corpus=args.nbm_dev_corpus,
+                                         out_dir=args.out, markets=args.markets.split(","))
         print(json.dumps(audit["files"], indent=1))
         return 0
     if args.command == "dev-verdict":
