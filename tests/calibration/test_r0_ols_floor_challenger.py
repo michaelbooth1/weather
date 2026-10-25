@@ -282,3 +282,38 @@ def test_dev_verdict_needs_07_12_below_zero_and_no_standard_block_worse():
     assert out["ols_floor_resid_hgb"]["dR_crossed"]["blocks_worse"] == ["all"]
     assert out["ols_floor_resid_hgb"]["dR_crossed"]["beats_served"] is False
     assert out["x"]["dR_date_clustered"]["beats_served"] is False
+
+
+def test_dev_verdict_reads_only_served_blended_rows():
+    def row(group, lo, hi, reference="served", scope="blended"):
+        return {"market": "ALL", "group": group, "reference": reference, "scope": scope,
+                "dR_crossed": {"estimate": -0.1, "ci95": [lo, hi]},
+                "dR_date_clustered": {"estimate": -0.1, "ci95": [lo, hi]}}
+
+    rows = [row("07-12", -0.2, -0.05)] + [row(g, -0.1, 0.05) for g in ch.DEV_STANDARD_BLOCKS]
+    rows += [row("07-12", 0.1, 0.2, "mg1"), row("all", 0.1, 0.2, "served", "covered")]
+    out = ch.dev_verdict({"candidates": {"ols_floor": {"rows": rows}}}, arms=("ols_floor",))
+    assert out["ols_floor"]["dR_date_clustered"]["beats_served"] is True
+
+
+def test_dev_mg1_gate_fails_on_any_ci_worse_block_and_needs_the_control():
+    def row(group, lo, hi, kind_lo=None):
+        crossed = [lo, hi] if kind_lo is None else [kind_lo, hi]
+        return {"market": "ALL", "group": group, "reference": "mg1", "scope": "blended",
+                "dR_crossed": {"estimate": 0.0, "ci95": crossed},
+                "dR_date_clustered": {"estimate": 0.0, "ci95": [lo, hi]}}
+
+    ok = [row(g, -0.1, 0.1) for g in ch.DEV_MG1_GATE_BLOCKS]
+    worse = ok[:-1] + [row("all", -0.1, 0.3, kind_lo=0.01)]
+    scores = {"mg1_control": {"passed": True},
+              "candidates": {"a": {"rows": ok}, "b": {"rows": worse}}}
+    assert ch.dev_mg1_gate(scores, "a")["no_worse_than_mg1"] is True
+    out = ch.dev_mg1_gate(scores, "b")
+    assert out["no_worse_than_mg1"] is False and out["ci_worse"] == ["all:dR_crossed"]
+    scores["mg1_control"]["passed"] = False
+    assert ch.dev_mg1_gate(scores, "a")["no_worse_than_mg1"] is None
+
+
+def test_dev_variants_default_excludes_the_l8_variant_and_it_keeps_the_main_features():
+    assert ch.L8_VARIANT not in ch.DEV_DEFAULT_VARIANTS
+    assert ch.DEV_VARIANTS[ch.L8_VARIANT] == ch.DEV_VARIANTS["main"]
