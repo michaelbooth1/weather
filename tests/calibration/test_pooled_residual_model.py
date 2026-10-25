@@ -356,6 +356,9 @@ def test_frozen_state_features_reproduce_mean_model():
     frame = _frame(n_days=10, years=(2021, 2022, 2023), markets=("atlanta", "nyc"), hour=13)
     frame["season"] = "aug_sep"
     frame["centre"] = "2026-08-23"
+    doy = pd.to_datetime(frame["target_date"]).dt.dayofyear
+    frame["doy_sin"] = np.sin(2 * math.pi * doy / 365.25)
+    frame["doy_cos"] = np.cos(2 * math.pi * doy / 365.25)
     frame = frame.drop(columns=[c for c in frame.columns if c.startswith("x_") and c not in prm.DEV_KEEP_X])
     fitted = prm.fit_pooled(frame, market_id=False, doy=True, raw_columns=False, bias_by="season")
     state = {
