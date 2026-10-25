@@ -4072,6 +4072,71 @@ lanes; nothing here is confirmation. Record, rules (each committed before scorin
   forecast-anchored discretised normal with a hard floor.
 - **Not claimed:** nothing about edge over market prices; one centre (11-24) and five markets; the seasonal columns
   are not served features.
+### 10aa. A pooled residual model beats OLS + floor and the floored forecast on R0's rows, and beats the served vector on the development window; pooling is the lever, and it is still worse than the market — lane L2, workstation, 2026-10-24/25
+
+**Claim, at exactly this scope:** a model pooled across the 11 US markets (`weather.calibration.pooled_residual_model`, arm P3) beats lane L3's OLS + floor ((a), EF §10ab) and the floored bias-corrected forecast ((f)) at 07-12, on R0's own blocked leave-one-year-out rows. Its development variant P3d beats the served vector on the development window.
+- What P3 does: it forecasts the WU high minus a bias-corrected forecast, fitting the bias per market and per cutoff inside each fold. It hard-floors the result at the observed running high, and its error distribution is learned rather than assumed normal.
+- What this is: model against model on development years, and model against served on development dates.
+- What this is not: edge evidence. No market price enters any comparison except the scorecard's R denominator, and **P3d's R stays above 1 in every block**, so it is still worse than the market everywhere. Nor is it confirmation or promotion evidence (§5).
+- The dev-window numbers are **selection evidence only**; the window has been reused by many lanes.
+- Nothing after 2026-09-29 was read.
+
+**The model.**
+1. mu0 = forecast_high + the in-fold (market, cutoff) bias, or the market normal when there is no forecast.
+2. OLS of the residual y − mu0 on [1, g, max(g, 0)], where g = observed high so far − mu0.
+3. An HGB on the OLS residual, using station, level and day-of-year features.
+4. An HGB scale model fitted on inner-LOYO errors.
+5. A kernel-smoothed empirical standardised-error distribution, censored at the floor bucket, mixed 0.98/0.02 with climatology.
+
+P3 is fitted per cutoff on all markets together. The rule is `rule.md`, sha256 `53ba558b50502fd51bf5565c448493169ae2c6524234b5f4439de6a92bde3a32` (the original `e2649f16…` plus amendments 1-4, each appended before its rows existed). Research record: [l2-pooled-residual-2026-10-24](../research/l2-pooled-residual-2026-10-24/README.md).
+
+**Oct-Dec, R0's rows.**
+- Setup:
+  - PIT union `674b12ac`, centre 11-24, 11 markets.
+  - 11,550 rows, identical to L3's: (a) has a max abs diff of 0 on every row, and R0 reproduces to 1.8e-15.
+  - Date-clustered bootstrap: 75 clusters, 2,000 draws, seed 20261024, with crossed date × market beside it.
+  - P3 is also trained on the Aug-Sep corpus `b455bd53` (union `744289be`). Incomplete centres are dropped whole (12-24 fails closed).
+- Log loss at 07-12, P3 minus:
+
+| Comparator | Δ log loss | Interval |
+| --- | --- | --- |
+| (a) L3 OLS + floor | **−0.147** | 97.5% [−0.195, −0.102]; crossed [−0.211, −0.083] |
+| (f) floored bias-corrected forecast | **−0.272** | 97.5% [−0.339, −0.211]; crossed [−0.374, −0.183] |
+
+- Brier vs (a): −0.032. vs (f): −0.049.
+- Hour 12: −0.159 vs (a), −0.447 vs (f). The gain over (a) grows into the afternoon: −0.373 at hour 15.
+- No market is worse than (a) beyond its interval. Miami, NYC and Seattle intervals cross 0.
+- Against lane D's floored R0 (5 markets): −1.995 [−2.258, −1.745].
+- **Pooling is the lever.** The per-market twin U0 is worse than P3 by +0.174 [+0.141, +0.208] and only ties (a): +0.027 [−0.000, +0.055].
+- **More training data adds nothing.** P3F, trained on L1's full-year union `621bcd8e` (EF §10z; 23 centres, 245,625 rows), scores −0.151 vs (a) and −0.275 vs (f), but P3F − P3 is −0.004 [−0.014, +0.006].
+- The comparison against raw R0 (−1.968) uses an unfair comparator, because serving floors and calibrates. Do not cite it.
+
+**Dev window vs served.**
+- Setup:
+  - Dev scorecard `4be7c077c` through L3's `dev-score`: 08-15..09-29, 43 dates, 473 market-days.
+  - Positive control: served R 1.774 (all) and 1.526 (00-16), reproduced.
+  - P3d uses only forecast_high, high_so_far and current_temp, and is fitted on Aug-Sep 2021-25 only.
+  - Its inputs are those of L3's main variant: the 2026 Previous Runs `gfs_seamless` lead-1 forecast, and captured METAR rows at or before each cutoff. Its 79,403 snapshots are the same as arm A's.
+- Results, dR = R_P3d − R_served:
+  - **Pooled 07-12: −0.210**, date-clustered [−0.256, −0.162], crossed [−0.357, −0.091]. No standard block is worse.
+  - R is 1.273 for P3d against 1.483 for served.
+  - Hour 12: −0.210. 00-16: −0.151. 13-16: −0.496 [−0.627, −0.378]. 12-16: −0.406.
+  - U0d also beats served (−0.186) but trails P3d.
+  - R_P3d by block: 06-09 1.327, 10-12 1.268, 13-16 1.366, 00-16 1.375, 17-23 2.141. Every block is above 1.
+  - Selecting P3d for MG-2's afternoon slot is governed by the pre-declared pick rule `5898bfb0…`, scored once by L3. This entry does not decide it.
+
+**Serve parity (code and captured inputs, outcome-blind, 2026-10-25).**
+- high_so_far, current_temp, cutoff and date come from the capture with the trainer's cutoff semantics. high_so_far equals L8's `running_max_since_midnight` on all 9,224 replay hours (EF §10ab).
+- **forecast_high does not.**
+  - The Previous Runs lead-1 value that P3d (and arm A) is trained and scored on is not in the capture, and no serving module fetches it.
+  - The captured `gfs_seamless` day max is the current run, a different lead.
+  - On the 13-16 dev rows, the served `forecast_high` minus the PIT value has MAE 2.26 °F (mean +1.03 °F), and is at least 1 °F apart on 72% of rows.
+  - Serving either model as scored needs a Previous Runs fetch at serve time. That input is free and public, and issued before the cutoff.
+- Two further mismatches, shared with arm A:
+  - Training reads high_so_far and current_temp from WU history (whole °F), while serving reads METAR (tenths).
+  - The fit is for Aug-Sep only, so an Oct-Nov forward shadow needs a refit, which has no dev read.
+
+**Not claimed:** no edge, no price comparison, no confirmation. Nothing outside the 11 US markets or outside the stated windows. Nothing about replacing R0, which is master's decision.
 
 ## Related
 
