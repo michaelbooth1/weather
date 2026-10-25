@@ -347,7 +347,7 @@ def test_parse_captured_metar_matches_the_iem_fields():
     anchor = datetime(2026, 8, 10, 17, 10, tzinfo=timezone.utc)
     row = ch.parse_captured_metar("METAR KATL 101652Z 27006KT 10SM SCT045 BKN250 32/23 A3001 RMK AO2 T03170228", anchor)
     assert row["valid"] == datetime(2026, 8, 10, 16, 52, tzinfo=timezone.utc)
-    assert math.isclose(row["temp"], 31.7 * 9 / 5 + 32) and math.isclose(row["dwpf"], 23 * 9 / 5 + 32)
+    assert math.isclose(row["temp"], 31.7 * 9 / 5 + 32) and math.isclose(row["dwpf"], 22.8 * 9 / 5 + 32)
     assert row["drct"] == 270.0 and row["sknt"] == 6.0 and row["cover"] == 0.75 and row["ceiling_ft"] == 25000.0
     assert not row["is_cor"]
 
