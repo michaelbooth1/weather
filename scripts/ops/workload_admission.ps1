@@ -628,6 +628,7 @@ function Get-WeatherWorkstationOfflineModule {
         "weather.backtesting.tape_scoring",
         "weather.calibration.feature_model",
         "weather.calibration.gap_to_market_atlas",
+        "weather.calibration.market_blend",
         "weather.calibration.new_city_corpus",
         "weather.calibration.pooled_candidate_replay",
         "weather.calibration.pooled_candidate_replay_diagnostics",
