@@ -651,6 +651,14 @@ def render(payload):
                      f"{_f(s['max'], 2)} | {_f(s['first'], 2)} | {_f(s['last'], 2)} | {s['n_zero']}/{s['n_dates']} |")
     L += ["", "Placebo: " + "; ".join(f"{n} {res['placebo']['verdict']} (R {_f(res['placebo']['row_ALL_07_12']['R'], 4)})"
                                       for n, res in payload["results"].items() if "placebo" in res)]
+    if "descriptive_p3d_n_0712" in payload:
+        d = payload["descriptive_p3d_n_0712"]
+        L += ["", f"## {d['label']}", "", "| Vector | Pool | Window | n md | R | crossed | date | log ratio | covered |",
+              "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
+        for r in d["rows"]:
+            cs = "" if r["covered_share"] is None else f"{r['covered_share']:.3f}"
+            L.append(f"| {r['candidate']} | {r['pool']} | {r['group']} | {r['n_market_days']} | {_f(r['R'], 4)} | "
+                     f"{_ci(r['ci95_crossed'], 4)} | {_ci(r['ci95_date'], 4)} | {_f(r['log_ratio'], 4)} | {cs} |")
     return "\n".join(L) + "\n"
 
 
