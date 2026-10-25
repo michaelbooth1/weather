@@ -630,6 +630,7 @@ function Get-WeatherWorkstationOfflineModule {
         "weather.calibration.l5_subset_scores",
         "weather.calibration.new_city_corpus",
         "weather.calibration.high_so_far_parity_shadow",
+        "weather.calibration.mg2_composite",
         "weather.calibration.pooled_candidate_replay",
         "weather.calibration.pooled_candidate_replay_diagnostics",
         "weather.calibration.pooled_candidate_replay_report",
