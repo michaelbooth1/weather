@@ -6,6 +6,10 @@ settlement content as the full ``finalize_folders`` run and re-finalize on any i
 logic, reconciliation or sidecar change. Kills: a reuse predicate that ignores the
 tape, the target-date daily-summary row, the logic key, a non-terminal reconciliation,
 an override, the recheck-window boundary, or a sidecar rewritten by another path.
+Under ``--label-rule venue`` (Lane A4) the same equivalence holds against the direct
+venue finalize; a changed venue row, rule version, station config, cutover or rule
+switch re-finalizes exactly the post-cutover folders it affects, pre-cutover folders
+keep their WU key, and the venue refusals are re-decided every run.
 """
 
 import csv
@@ -22,7 +26,9 @@ import pandas as pd
 
 from weather.backtesting import settlement_ledger
 from weather.backtesting.settlement_ledger import FolderFinalizationError, finalize_folders
+from weather.market.market_registry import MarketSpec
 from weather.operations import daily_refresh_incremental_finalize as incremental
+from weather.operations import daily_refresh_source_steps
 from weather.operations.daily_refresh_source_steps import run_market_day_labels_finalize
 
 TODAY = date(2026, 6, 30)
@@ -470,6 +476,286 @@ class FinalizeStepModeTests(unittest.TestCase):
         self.assertEqual(second["reconciliation_counts"], {"match": 3})
         self.assertEqual(direct["finalize_mode"], "direct")
         self.assertEqual(no_reconcile["finalize_mode"], "direct")
+
+
+VENUE_TODAY = date(2026, 11, 30)
+PRE_CUTOVER = (date(2026, 10, 21), date(2026, 10, 22))
+POST_CUTOVER = (date(2026, 10, 23), date(2026, 10, 24))
+VENUE_DATES = PRE_CUTOVER + POST_CUTOVER
+VENUE_HEADER = (
+    "local_date,row_count,max_temp,max_temp_bucket,max_temp_times,"
+    "label_source,label_station,label_station_basis,label_rule_version\n"
+)
+
+
+def _venue_slug(day):
+    return f"highest-temperature-in-toronto-on-october-{day.day}-{day.year}"
+
+
+def _venue_row(day, *, row_count=24, bucket=25, basis="registry"):
+    return f"{day.isoformat()},{row_count},{bucket}.0,{bucket},15:00,metar_routine,CYYZ,{basis},venue-metar-routine-v1\n"
+
+
+class VenueIncrementalFinalizeTests(unittest.TestCase):
+    """``--label-rule venue`` through the incremental step (Lane A4).
+
+    Two fixture roots share one WU daily summary: ``inc`` runs the scheduled
+    incremental step, ``full`` the direct ``finalize_with_venue_labels`` path
+    (an explicit folder list), which re-finalizes everything every run.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        tmp = Path(self._tmp.name)
+        wu_root = tmp / "wunderground"
+        wu_summary = wu_root / "cyyz" / "daily" / "daily_summary.csv"
+        wu_summary.parent.mkdir(parents=True)
+        wu_summary.write_text(
+            "local_date,row_count,max_temp_bucket_c\n"
+            + "".join(f"{day.isoformat()},24,25\n" for day in VENUE_DATES),
+            encoding="utf-8",
+        )
+        self.wu_summary = wu_summary
+        patcher = mock.patch.object(
+            MarketSpec,
+            "data_root",
+            property(lambda spec: wu_root / spec.icao.lower()),
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.roots = {}
+        for name in ("inc", "full"):
+            root = tmp / name
+            for day in VENUE_DATES:
+                folder = root / "snapshots" / _venue_slug(day)
+                folder.mkdir(parents=True)
+                _write_tape(folder, day)
+            self.roots[name] = root
+            self.write_venue(name, "".join(_venue_row(day) for day in POST_CUTOVER))
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def venue_csv(self, name):
+        return self.roots[name] / "venue" / "toronto" / "daily" / "daily_summary.csv"
+
+    def write_venue(self, name, rows):
+        path = self.venue_csv(name)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(VENUE_HEADER + rows, encoding="utf-8")
+
+    def args(self, name, *, label_rule="venue", explicit=False, **overrides):
+        root = self.roots[name]
+        values = {
+            "folders": sorted(str(p) for p in (root / "snapshots").iterdir()) if explicit else [],
+            "snapshots_root": str(root / "snapshots"),
+            "daily_summary": "",
+            "labels_csv": str(root / "labels.csv"),
+            "ledger_root": str(root / "ledger"),
+            "settle": [],
+            "interval_minutes": 10.0,
+            "tolerance": 1.5,
+            "skip_polymarket_reconciliation": False,
+            "finalize_full": False,
+            "finalize_recheck_days": 3,
+            "label_rule": label_rule,
+            "venue_labels_root": str(root / "venue"),
+            "venue_metar_root": str(root / "metar"),
+            "skip_venue_label_build": True,
+        }
+        values.update(overrides)
+        return SimpleNamespace(**values)
+
+    def run_step(self, name, gamma=None, **kwargs):
+        gamma = gamma or _Gamma()
+        # Discovery skips dates the real clock has not settled; the fixture
+        # dates are fixed, so pin the default discovered set to the fixtures.
+        discovered = sorted((self.roots[name] / "snapshots").iterdir())
+        with mock.patch.object(settlement_ledger, "fetch_gamma_event", gamma), \
+                mock.patch.object(incremental, "datetime", _FixedDatetime), \
+                mock.patch.object(
+                    daily_refresh_source_steps, "discover_default_folders", return_value=discovered
+                ):
+            return run_market_day_labels_finalize(self.args(name, **kwargs))
+
+    def run_full(self):
+        result = self.run_step("full", explicit=True)
+        self.assertEqual(result["finalize_mode"], "direct")
+        return result
+
+    def assert_equivalent(self):
+        self.assertEqual(
+            _csv_rows(self.roots["full"] / "labels.csv"),
+            _csv_rows(self.roots["inc"] / "labels.csv"),
+        )
+
+    def index(self):
+        return incremental.read_finalize_index(
+            incremental.finalize_index_path(self.roots["inc"] / "labels.csv")
+        )
+
+    def sidecar(self, day):
+        path = self.roots["inc"] / "snapshots" / _venue_slug(day) / "settlement.json"
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def test_incremental_matches_full_and_second_run_reuses_everything(self):
+        self.run_full()
+        gamma = _Gamma()
+        first = self.run_step("inc", gamma)
+        self.assertEqual(first["finalize_mode"], "incremental")
+        self.assertEqual(first["label_rule"], "venue")
+        self.assertEqual(first["finalize_plan"]["refinalize_reasons"], {"not_indexed": 4})
+        self.assertEqual(first["finalize_plan"]["refused_folder_count"], 0)
+        self.assertEqual(len(gamma.calls), 4)
+        self.assert_equivalent()
+        # Pre-cutover folders label from WU, post-cutover from the venue CSV.
+        self.assertEqual(Path(self.sidecar(PRE_CUTOVER[0])["daily_summary_path"]), self.wu_summary)
+        self.assertEqual(
+            Path(self.sidecar(POST_CUTOVER[0])["daily_summary_path"]), self.venue_csv("inc")
+        )
+
+        self.run_full()
+        gamma = _Gamma()
+        second = self.run_step("inc", gamma)
+        self.assertEqual(gamma.calls, [])
+        self.assertEqual(second["finalize_plan"]["reused_folder_count"], 4)
+        self.assertEqual(second["finalize_plan"]["finalized_folder_count"], 0)
+        self.assertEqual(second["label_count"], 4)
+        self.assert_equivalent()
+
+    def test_post_cutover_key_carries_the_venue_inputs_and_pre_cutover_key_is_the_wu_key(self):
+        self.run_step("inc")
+        index = self.index()
+        venue_key = index[_venue_slug(POST_CUTOVER[0])]["key"]["venue_label"]
+        self.assertEqual(venue_key["label_rule"], "venue")
+        self.assertEqual(venue_key["label_rule_version"], "venue-metar-routine-v1")
+        self.assertEqual(venue_key["cutover_date"], "2026-10-23")
+        self.assertEqual(
+            venue_key["station_config_sha256"],
+            settlement_ledger.file_sha256(incremental.venue_rule_labels.DEFAULT_STATION_CONFIG),
+        )
+        self.assertIsNotNone(venue_key["venue_row_sha256"])
+        self.assertEqual(venue_key["complete_day_min_rows"], settlement_ledger.COMPLETE_DAY_MIN_ROWS)
+        for day in PRE_CUTOVER:
+            self.assertNotIn("venue_label", index[_venue_slug(day)]["key"])
+
+    def test_changed_venue_row_refinalizes_only_that_folder(self):
+        self.run_step("inc")
+        self.run_full()
+        changed = POST_CUTOVER[1]
+        # A provenance-only change (the bucket is unchanged) still re-finalizes;
+        # an appended row for an unrelated date does not.
+        rows = (
+            _venue_row(POST_CUTOVER[0])
+            + _venue_row(changed, basis="config_override")
+            + _venue_row(date(2026, 10, 25))
+        )
+        for name in ("inc", "full"):
+            self.write_venue(name, rows)
+        self.run_full()
+        gamma = _Gamma()
+        result = self.run_step("inc", gamma)
+        self.assertEqual(gamma.calls, [_venue_slug(changed)])
+        self.assertEqual(result["finalize_plan"]["refinalize_reasons"], {"inputs_changed": 1})
+        self.assert_equivalent()
+
+        bucket_change = _venue_row(POST_CUTOVER[0], bucket=26) + _venue_row(changed, basis="config_override")
+        for name in ("inc", "full"):
+            self.write_venue(name, bucket_change)
+        self.run_full()
+        gamma = _Gamma()
+        self.run_step("inc", gamma)
+        self.assertEqual(gamma.calls, [_venue_slug(POST_CUTOVER[0])])
+        self.assertEqual(self.sidecar(POST_CUTOVER[0])["settlement_bucket"], 26)
+        self.assert_equivalent()
+
+    def test_rule_switch_invalidates_post_cutover_folders_only(self):
+        self.run_step("inc", label_rule="wu")
+        wu_index = self.index()
+        gamma = _Gamma()
+        result = self.run_step("inc", gamma)
+        self.assertEqual(sorted(gamma.calls), sorted(_venue_slug(day) for day in POST_CUTOVER))
+        self.assertEqual(result["finalize_plan"]["refinalize_reasons"], {"inputs_changed": 2})
+        self.assertEqual(result["finalize_plan"]["reused_folder_count"], 2)
+        venue_index = self.index()
+        for day in PRE_CUTOVER:
+            # Pre-cutover reuse is unaffected: same key, same revision.
+            self.assertEqual(venue_index[_venue_slug(day)], wu_index[_venue_slug(day)])
+
+        gamma = _Gamma()
+        result = self.run_step("inc", gamma, label_rule="wu")
+        self.assertEqual(sorted(gamma.calls), sorted(_venue_slug(day) for day in POST_CUTOVER))
+        self.assertEqual(result["finalize_plan"]["refinalize_reasons"], {"inputs_changed": 2})
+        self.assertEqual(Path(self.sidecar(POST_CUTOVER[0])["daily_summary_path"]), self.wu_summary)
+
+    def test_rule_version_station_config_and_cutover_changes_refinalize_post_cutover(self):
+        self.run_step("inc")
+        post = sorted(_venue_slug(day) for day in POST_CUTOVER)
+
+        with mock.patch.object(incremental.venue_rule_labels, "VENUE_RULE_VERSION", "venue-v-next"):
+            gamma = _Gamma()
+            self.run_step("inc", gamma)
+        self.assertEqual(sorted(gamma.calls), post)
+
+        self.run_step("inc")  # back to the real version: re-finalizes once more
+        config = Path(self._tmp.name) / "stations.json"
+        config.write_text('{"schema_version": "venue-rule-stations-v1", "markets": {}}', encoding="utf-8")
+        with mock.patch.object(incremental.venue_rule_labels, "DEFAULT_STATION_CONFIG", config):
+            gamma = _Gamma()
+            result = self.run_step("inc", gamma)
+        self.assertEqual(sorted(gamma.calls), post)
+        self.assertEqual(result["finalize_plan"]["refinalize_reasons"], {"inputs_changed": 2})
+
+        self.run_step("inc")
+        with mock.patch.object(
+            incremental.venue_rule_labels, "VENUE_RULE_CUTOVER_DATE", POST_CUTOVER[1]
+        ):
+            gamma = _Gamma()
+            self.run_step("inc", gamma)
+        # 10-23 is now labelled from WU (new path) and 10-24's key names the new cutover.
+        self.assertEqual(sorted(gamma.calls), post)
+
+    def test_finalize_full_forces_a_full_rebuild(self):
+        self.run_step("inc")
+        gamma = _Gamma()
+        result = self.run_step("inc", gamma, finalize_full=True)
+        self.assertEqual(result["finalize_mode"], "full")
+        self.assertEqual(result["finalize_plan"]["refinalize_reasons"], {"forced_full": 4})
+        self.assertEqual(len(gamma.calls), 4)
+        self.run_full()
+        self.assert_equivalent()
+
+    def test_refusals_are_unchanged_and_never_reused(self):
+        self.run_step("inc")
+        thin, missing = POST_CUTOVER
+        self.write_venue("inc", _venue_row(thin, row_count=5))
+        before = self.sidecar(thin)
+        gamma = _Gamma()
+        with self.assertRaises(FolderFinalizationError) as raised:
+            self.run_step("inc", gamma)
+        reasons = dict(raised.exception.failures)
+        self.assertIn("has 5 reports, fewer than 18", reasons[str(self.roots["inc"] / "snapshots" / _venue_slug(thin))])
+        self.assertIn("no venue-rule label row for 2026-10-24", reasons[str(self.roots["inc"] / "snapshots" / _venue_slug(missing))])
+        self.assertEqual(gamma.calls, [])
+        self.assertEqual(self.sidecar(thin), before)
+        index = self.index()
+        self.assertEqual(sorted(index), sorted(_venue_slug(day) for day in PRE_CUTOVER))
+        rows = {row["event_slug"] for row in _csv_rows(self.roots["inc"] / "labels.csv")}
+        self.assertEqual(rows, {_venue_slug(day) for day in VENUE_DATES})
+
+        self.venue_csv("inc").unlink()
+        result = self.run_step("inc")
+        self.assertEqual(result["status"], "BLOCK")
+        self.assertEqual(result["reason"], "venue_rule_labels_unavailable")
+
+        result = self.run_step("inc", daily_summary=str(self.wu_summary))
+        self.assertEqual(result, {"status": "BLOCK", "reason": "daily_summary_override_with_venue_label_rule"})
+
+
+class _FixedDatetime(datetime):
+    @classmethod
+    def now(cls, tz=None):
+        return datetime(VENUE_TODAY.year, VENUE_TODAY.month, VENUE_TODAY.day, 12, 0, tzinfo=tz)
 
 
 if __name__ == "__main__":
