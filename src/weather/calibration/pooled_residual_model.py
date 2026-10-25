@@ -1703,6 +1703,177 @@ def rung_blend(*, layout, fix_jsonl, bn_jsonl, out_path, start="2026-08-01", end
     return result
 
 
+# ------------------------------------------------- rung 07-12 R-F (blends vs the MG-2 pre-13 arm, MG-1 + L6)
+
+L6_PART_SHA256 = "07a6742595f535d448569980af7e04dbf4a2a798c00c82fd52f5f01287ee17e9"
+L6_NOWCAST_SHA256 = "3806687cd6ad8d38571fd5d17efa5405856300d2f0029ae644e3ad08db4a31f3"
+
+
+def l6_frozen_state(coefficients_path, expected=L6_PART_SHA256):
+    payload = json.loads(Path(coefficients_path).read_bytes())
+    part = payload["l6_stack"]
+    sha = hashlib.sha256(json.dumps(part, sort_keys=True, separators=(",", ":"), allow_nan=False)
+                         .encode("utf-8")).hexdigest()
+    if sha != expected:
+        raise PooledModelError(f"L6 coefficients part sha {sha} != {expected}")
+    return {"coef": {int(h): tuple(v) for h, v in part["coef"].items()}, "column": part["column"]}, sha
+
+
+def _with_floor(snaps):
+    from weather.reporting.scorecards import dev_scorecard_data as data
+    import pandas as pd
+
+    if "floor" in snaps.columns:
+        return snaps
+    return snaps.assign(floor=snaps[list(data.FLOOR_FIELDS)].apply(pd.to_numeric, errors="coerce").max(axis=1))
+
+
+def l6_vector(table, state, l3):
+    from weather.reporting.scorecards.free_source_candidates import l6_stack
+
+    return l3._vector(table, l6_stack.predict(state, _with_floor(table.snaps), table.bands))
+
+
+def rung_rf(*, layout, fix_jsonl, bn_jsonl, coefficients, nowcasts, rd_result, out_path,
+            start="2026-08-01", end="2026-09-29"):
+    """R-F under C:/t/l2/rung0712/rule_rf.md."""
+    import os
+
+    import numpy as np
+
+    from weather.calibration import r0_ols_floor_challenger as l3
+    from weather.reporting.scorecards import dev_scorecard as sc
+    from weather.reporting.scorecards import dev_scorecard_data as data
+    from weather.reporting.scorecards import loss_atlas
+
+    out_path = require_output_outside_repo(out_path)
+    if out_path.exists():
+        raise PooledModelError(f"refusing to overwrite {out_path}")
+    now_sha = hashlib.sha256(Path(nowcasts).read_bytes()).hexdigest()
+    if now_sha != L6_NOWCAST_SHA256:
+        raise PooledModelError(f"L6 nowcast sha {now_sha} != {L6_NOWCAST_SHA256}")
+    os.environ["L6_NOWCASTS"] = str(nowcasts)
+    from weather.reporting.scorecards.free_source_candidates import l6_stack, mg1
+
+    l6_stack._CACHE.clear()
+    state, part_sha = l6_frozen_state(coefficients)
+    start_d, end_d = data.check_range(start, end)
+    lay = data.load_layout(layout, data.DEV_FIRST, end_d)
+    folds = data.make_folds(lay.dates, start_d, end_d, 7, 1, 7)
+    scored = sorted(d for f in folds if f.scored for d in f.dates)
+    fit_dates = sorted(d for d in {str(x) for x in lay.dates} if BLEND_FIT_FIRST <= d <= end)
+
+    def vectors(table):
+        fix = l3._vector(table, l3._candidate_frame(str(fix_jsonl), table, lay, folds, data)[0])
+        mg = l3._vector(table, loss_atlas.mg1_frame(table))
+        l6 = l6_vector(table, state, l3)
+        return fix, mg, l6
+
+    full = sc.Table(lay, fit_dates)
+    (fa, fcov, _), (ma, mcov, _), (la, lcov, _) = vectors(full)
+    fdates = full.snaps.date.astype(str).to_numpy()
+    weights = {}
+    for name, (base, bcov) in {"blend_mg1": (ma, mcov), "blend_l6": (la, lcov)}.items():
+        A, B = blend_weight(fa, base, full.y, full.offsets, full.n)
+        weights[name] = walk_forward_weights(fdates, full.local_hour, fcov & bcov, A, B, scored)
+
+    table = sc.Table(lay, scored)
+    date_w = l3._date_weights([k[0] for k in table.keys], sc.DRAWS, sc.SEED)
+    market_b = table.brier(table.p_market)
+    (p_fix, cov_fix, r_fix), (p_mg1, cov_mg1, r_mg1), (p_l6, cov_l6, r_l6) = vectors(table)
+    p_bn, cov_bn, r_bn = l3._vector(table, l3._candidate_frame(str(bn_jsonl), table, lay, folds, data)[0])
+    w0712 = (table.local_hour >= 7) & (table.local_hour <= 12)
+    _, e = table.cells(table.brier(p_mg1) - market_b, w0712)
+    mg1_excess = float(e.mean())
+    if round(mg1_excess, 3) != l3.MG1_CONTROL_0712_EXCESS:
+        raise PooledModelError(f"MG-1 positive control failed: {mg1_excess:.5f}")
+    p_mg1_module, _, _ = l3._vector(table, mg1.predict(_with_floor(table.snaps), table.bands, None))
+    mg1_identity = float(np.max(np.abs(p_mg1_module - p_mg1)))
+    if mg1_identity > 1e-12:
+        raise PooledModelError(f"mg1.predict differs from loss_atlas.mg1_frame by {mg1_identity}")
+    differs = np.add.reduceat(np.abs(p_l6 - p_mg1), table.offsets) > 1e-12
+    has_now = np.isfinite(l6_stack.nowcasts()[0][state["column"]].reindex(
+        table.snaps.row_key.to_numpy()).to_numpy(float))
+    l6_controls = {"snapshots_differing_from_mg1": int(differs.sum()),
+                   "differing_outside_07_12": int((differs & ~w0712).sum()),
+                   "differing_without_nowcast": int((differs & ~has_now).sum()),
+                   "snapshots_07_12_with_nowcast": int((w0712 & has_now).sum()),
+                   "covered_differ_07_12": int((differs & w0712 & cov_l6).sum()),
+                   "mg1_identity_max_abs_diff": mg1_identity}
+    if l6_controls["differing_outside_07_12"] or l6_controls["differing_without_nowcast"]:
+        raise PooledModelError(f"L6 control failed: {l6_controls}")
+    if not l6_controls["snapshots_differing_from_mg1"]:
+        raise PooledModelError("L6 never differs from MG-1: nowcast keys do not join")
+    dates = table.snaps.date.astype(str).to_numpy()
+    arms = {}
+    for name, (base, bcov) in {"blend_mg1": (p_mg1, cov_mg1), "blend_l6": (p_l6, cov_l6)}.items():
+        w_snap = np.array([weights[name].get((int(h), d), 0.0) for h, d in zip(table.local_hour, dates)])
+        both = cov_fix & bcov
+        wb = np.where(both, w_snap, 0.0)[table.band_snap]
+        arms[name] = table.brier(wb * p_fix + (1.0 - wb) * base)
+    arms["l6"] = table.brier(p_l6)
+    everything = np.ones(len(table.snaps), dtype=bool)
+    refs = {"l6": (table.brier(p_l6), cov_l6), "mg1": (table.brier(p_mg1), cov_mg1),
+            "p3d_n_fix": (table.brier(p_fix), cov_fix), "b_n": (table.brier(p_bn), cov_bn),
+            "served": (table.brier(table.p_served), everything), "blend_mg1": (arms["blend_mg1"], cov_mg1)}
+    common = cov_fix & cov_l6
+    pools = [(sc.ALL_MARKETS, None), (l3.PRIMARY_POOL, set(l3.PRIMARY_MARKETS))] + [
+        (m, {m}) for m in sorted(set(table.markets))]
+    groups = [("07-12", 7, 12)] + [(f"h{h:02d}", h, h) for h in RUNG_HOURS]
+    rows = []
+    for arm, arm_b in arms.items():
+        for ref_name, (ref_b, ref_cov) in refs.items():
+            if ref_name == arm:
+                continue
+            for scope in ("covered", "blended"):
+                base_mask = (common & ref_cov) if scope == "covered" else everything
+                for market, members in pools:
+                    in_pool = everything if members is None else np.isin(table.markets, sorted(members))
+                    for group, lo, hi in groups:
+                        mask = base_mask & in_pool & (table.local_hour >= lo) & (table.local_hour <= hi)
+                        if not mask.any():
+                            continue
+                        idx, c = table.cells(arm_b, mask)
+                        _, r_ = table.cells(ref_b, mask)
+                        _, m = table.cells(market_b, mask)
+                        rows.append({"arm": arm, "reference": ref_name, "scope": scope, "market": market,
+                                     "group": group, "n_market_days": int(len(idx)), "n_snapshots": int(mask.sum()),
+                                     "R_arm": sc.ratio_interval(table.w[:, idx], c, m),
+                                     "R_reference": sc.ratio_interval(table.w[:, idx], r_, m),
+                                     "dR_crossed": sc.ratio_interval(table.w[:, idx], c - r_, m),
+                                     "dR_date_clustered": sc.ratio_interval(date_w[:, idx], c - r_, m)})
+    # positive control: R-D reproduced (blend_mg1 vs MG-1, ALL, covered by blend's components, 07-12)
+    rd = json.loads(Path(rd_result).read_bytes())
+    rd_row = next(r for r in rd["rows"] if r["reference"] == "mg1" and r["scope"] == "covered"
+                  and r["market"] == sc.ALL_MARKETS and r["group"] == "07-12")
+    mask = cov_fix & cov_mg1 & w0712
+    idx, c = table.cells(arms["blend_mg1"], mask)
+    _, r_ = table.cells(refs["mg1"][0], mask)
+    _, m = table.cells(market_b, mask)
+    rd_now = float((c - r_).sum() / m.sum())
+    if abs(rd_now - rd_row["dR_date_clustered"]["estimate"]) > 1e-9:
+        raise PooledModelError(f"R-D control failed: {rd_now} != {rd_row['dR_date_clustered']['estimate']}")
+    weight_report = {name: {f"h{h:02d}": {"mean": float(np.mean([w[(h, d)] for d in scored])),
+                                         "first": w[(h, scored[0])], "last": w[(h, scored[-1])]}
+                            for h in RUNG_HOURS} for name, w in weights.items()}
+    result = {"rule": "C:/t/l2/rung0712/rule_rf.md",
+              "population": {"n_dates": len(scored), "first_date": scored[0], "last_date": scored[-1],
+                             "n_market_days": len(table.keys), "common_covered_snapshots_07_12": int(
+                                 (common & w0712).sum())},
+              "controls": {"mg1_excess_07_12": mg1_excess, "rd_reproduced": rd_now, **l6_controls},
+              "inputs": {"l6_part_sha256": part_sha, "l6_nowcast_sha256": now_sha,
+                         "P3d_N_fix": hashlib.sha256(Path(fix_jsonl).read_bytes()).hexdigest(),
+                         "B_N": hashlib.sha256(Path(bn_jsonl).read_bytes()).hexdigest(),
+                         "l6_stack_sha256": hashlib.sha256(Path(l6_stack.__file__).read_bytes()).hexdigest(),
+                         "layout_manifest_sha256": lay.manifest_sha256, "scorecard_code_sha256": sc.code_sha256(),
+                         "module_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()},
+              "coverage": {"P3d_N_fix": r_fix, "MG1": r_mg1, "L6": r_l6, "B_N": r_bn},
+              "weights": weight_report, "rows": rows}
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(result, indent=1, sort_keys=True), encoding="utf-8")
+    return result
+
+
 # ------------------------------------------------- clarification 3: forward refit and frozen state (MG-2)
 
 FORWARD_CENTRES = AUG_SEP_CENTRES + ("2026-10-10", "2026-10-25", "2026-11-09", "2026-11-24", "2026-12-09")
@@ -2175,6 +2346,14 @@ def _parse(argv=None):
     rb.add_argument("--fix", required=True, help="dev_P3d_N_fix.jsonl")
     rb.add_argument("--bn", required=True, help="dev_B_N.jsonl")
     rb.add_argument("--out", required=True)
+    rf = sub.add_parser("rung-rf", help="rung 07-12 R-F: blends vs the MG-2 pre-13 arm MG-1 + L6 (heavy)")
+    rf.add_argument("--layout", required=True)
+    rf.add_argument("--fix", required=True, help="dev_P3d_N_fix.jsonl")
+    rf.add_argument("--bn", required=True, help="dev_B_N.jsonl")
+    rf.add_argument("--coefficients", required=True, help="frozen MG-2 coefficients JSON (part l6_stack)")
+    rf.add_argument("--nowcasts", required=True, help="L6 nowcast parquet")
+    rf.add_argument("--rd-result", required=True, help="R-D rung_blend.json (positive control)")
+    rf.add_argument("--out", required=True)
     wr = sub.add_parser("wu-rounding", help="clarification 3 (c): WU whole F vs T-group F on 2021-25 rows (heavy)")
     wr.add_argument("--obs-parquet", required=True, help="IEM market-station rows with tgroup_f (lane L6)")
     wr.add_argument("--wu-root", required=True)
@@ -2269,6 +2448,11 @@ def main(argv=None):
                                          nbm_train_corpus=args.nbm_train_corpus, nbm_dev_corpus=args.nbm_dev_corpus,
                                          out_dir=args.out, markets=args.markets.split(","))
         print(json.dumps(audit["files"], indent=1))
+        return 0
+    if args.command == "rung-rf":
+        result = rung_rf(layout=args.layout, fix_jsonl=args.fix, bn_jsonl=args.bn, coefficients=args.coefficients,
+                         nowcasts=args.nowcasts, rd_result=args.rd_result, out_path=args.out)
+        print(json.dumps({"controls": result["controls"], "weights": result["weights"]}, indent=1))
         return 0
     if args.command == "rung-blend":
         result = rung_blend(layout=args.layout, fix_jsonl=args.fix, bn_jsonl=args.bn, out_path=args.out)
