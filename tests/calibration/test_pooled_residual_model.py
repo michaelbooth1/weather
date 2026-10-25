@@ -404,3 +404,21 @@ def test_rung_simple_baseline_is_ols_only_with_constant_scale():
     assert np.allclose(yhat, mu0 + design @ fitted["mean"].ols)
     s = fitted["scale"].predict(X)
     assert np.all(s == s[0])
+
+
+def test_rung_blend_weight_is_exact_brier_minimiser_and_walk_forward():
+    a = np.array([0.9, 0.1, 0.8, 0.2])
+    b = np.array([0.5, 0.5, 0.5, 0.5])
+    y = np.array([1.0, 0.0, 1.0, 0.0])
+    offsets, n = np.array([0, 2]), np.array([2, 2])
+    A, B = prm.blend_weight(a, b, y, offsets, n)
+    w = prm.solve_weight(A, B)
+    grid = np.linspace(0, 1, 1001)
+    losses = [np.mean(((g * a + (1 - g) * b) - y) ** 2) for g in grid]
+    assert abs(w - grid[int(np.argmin(losses))]) < 1e-3
+    dates = np.array(["2026-08-01", "2026-08-02"])
+    hours = np.array([7, 7])
+    ws = prm.walk_forward_weights(dates, hours, np.array([True, True]), A, B, ["2026-08-01", "2026-08-02"],
+                                  hour_set=(7,))
+    assert ws[(7, "2026-08-01")] == 0.0  # nothing strictly before the first date
+    assert ws[(7, "2026-08-02")] == prm.solve_weight(A[:1], B[:1])

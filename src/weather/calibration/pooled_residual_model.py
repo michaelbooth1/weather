@@ -1537,6 +1537,172 @@ def dev_emit_rung(*, records_root, layout, replay_root, nbm_train_corpus, out_di
     return audit
 
 
+# ------------------------------------------------- rung 07-12 R-D (walk-forward MG-1 blend) and R-E (descriptive)
+
+BLEND_FIT_FIRST = "2026-08-01"
+POSITION_CLASSES = ("<=-3", "-2", "-1", "0", "+1", "+2", ">=+3")
+
+
+def blend_weight(a, b, y, offsets, n):
+    """Per-snapshot A and B for the exact Brier minimiser of w*a + (1-w)*b over [0, 1]."""
+    import numpy as np
+
+    d = a - b
+    A = np.add.reduceat(d * d, offsets) / n
+    B = np.add.reduceat(d * (b - y), offsets) / n
+    return A, B
+
+
+def solve_weight(A, B):
+    total_a = float(A.sum())
+    if total_a <= 0:
+        return 0.0
+    return min(1.0, max(0.0, -float(B.sum()) / total_a))
+
+
+def walk_forward_weights(dates, hours, covered, A, B, scored_dates, hour_set=RUNG_HOURS):
+    """w(h, d) fitted on covered snapshots at hour h with date strictly before d (dates ISO strings)."""
+    import numpy as np
+
+    out = {}
+    for h in hour_set:
+        at = covered & (hours == h)
+        for d in scored_dates:
+            sel = at & (dates < d)
+            out[(h, d)] = solve_weight(A[sel], B[sel]) if sel.any() else 0.0
+    return out
+
+
+def position_classes(table):
+    """Per band: class index of band_index - winning band_index (POSITION_CLASSES)."""
+    import numpy as np
+
+    band_index = table.bands.band_index.to_numpy(int)
+    winner_flat = np.add.reduceat(table.y * band_index, table.offsets)
+    has_winner = np.add.reduceat(table.y, table.offsets) > 0
+    pos = band_index - np.repeat(winner_flat, table.n).astype(int)
+    cls = np.clip(pos, -3, 3) + 3
+    return cls, np.repeat(has_winner, table.n)
+
+
+def rung_blend(*, layout, fix_jsonl, bn_jsonl, out_path, start="2026-08-01", end="2026-09-29"):
+    """R-D and R-E under C:/t/l2/rung0712/rule_rd.md."""
+    import numpy as np
+
+    from weather.calibration import r0_ols_floor_challenger as l3
+    from weather.reporting.scorecards import dev_scorecard as sc
+    from weather.reporting.scorecards import dev_scorecard_data as data
+    from weather.reporting.scorecards import loss_atlas
+
+    out_path = require_output_outside_repo(out_path)
+    if out_path.exists():
+        raise PooledModelError(f"refusing to overwrite {out_path}")
+    start_d, end_d = data.check_range(start, end)
+    lay = data.load_layout(layout, data.DEV_FIRST, end_d)
+    folds = data.make_folds(lay.dates, start_d, end_d, 7, 1, 7)
+    scored = sorted(d for f in folds if f.scored for d in f.dates)
+
+    # fitting table: every dev date from BLEND_FIT_FIRST (weights use only dates strictly before each scored date)
+    fit_dates = sorted(d for d in {str(x) for x in lay.dates} if BLEND_FIT_FIRST <= d <= end)
+    full = sc.Table(lay, fit_dates)
+    pa, cov_a, _ = l3._vector(full, l3._candidate_frame(str(fix_jsonl), full, lay, folds, data)[0])
+    pb, cov_b, _ = l3._vector(full, loss_atlas.mg1_frame(full))
+    A, B = blend_weight(pa, pb, full.y, full.offsets, full.n)
+    weights = walk_forward_weights(full.snaps.date.astype(str).to_numpy(), full.local_hour, cov_a & cov_b, A, B,
+                                   scored)
+
+    table = sc.Table(lay, scored)
+    date_w = l3._date_weights([k[0] for k in table.keys], sc.DRAWS, sc.SEED)
+    market_b = table.brier(table.p_market)
+    p_fix, cov_fix, reasons_fix = l3._vector(table, l3._candidate_frame(str(fix_jsonl), table, lay, folds, data)[0])
+    p_bn, cov_bn, reasons_bn = l3._vector(table, l3._candidate_frame(str(bn_jsonl), table, lay, folds, data)[0])
+    p_mg1, cov_mg1, reasons_mg1 = l3._vector(table, loss_atlas.mg1_frame(table))
+    _, e = table.cells(table.brier(p_mg1) - market_b, (table.local_hour >= 7) & (table.local_hour <= 12))
+    mg1_excess = float(e.mean())
+    if round(mg1_excess, 3) != l3.MG1_CONTROL_0712_EXCESS:
+        raise PooledModelError(f"MG-1 positive control failed: {mg1_excess:.5f}")
+    dates = table.snaps.date.astype(str).to_numpy()
+    w_snap = np.array([weights.get((int(h), d), 0.0) for h, d in zip(table.local_hour, dates)])
+    both = cov_fix & cov_mg1
+    w_band = np.where(both, w_snap, 0.0)[table.band_snap]
+    p_blend = w_band * p_fix + (1.0 - w_band) * p_mg1
+    blend_b = table.brier(p_blend)
+    everything = np.ones(len(table.snaps), dtype=bool)
+    refs = {"mg1": (table.brier(p_mg1), cov_mg1), "p3d_n_fix": (table.brier(p_fix), cov_fix),
+            "b_n": (table.brier(p_bn), cov_bn), "served": (table.brier(table.p_served), everything)}
+    pools = [(sc.ALL_MARKETS, None), (l3.PRIMARY_POOL, set(l3.PRIMARY_MARKETS))] + [
+        (m, {m}) for m in sorted(set(table.markets))]
+    groups = [("07-12", 7, 12)] + [(f"h{h:02d}", h, h) for h in RUNG_HOURS]
+    rows = []
+    for ref_name, (ref_b, ref_cov) in refs.items():
+        for scope in ("covered", "blended"):
+            base = (both & ref_cov) if scope == "covered" else everything
+            for market, members in pools:
+                in_pool = everything if members is None else np.isin(table.markets, sorted(members))
+                for group, lo, hi in groups:
+                    mask = base & in_pool & (table.local_hour >= lo) & (table.local_hour <= hi)
+                    if not mask.any():
+                        continue
+                    idx, c = table.cells(blend_b, mask)
+                    _, r_ = table.cells(ref_b, mask)
+                    _, m = table.cells(market_b, mask)
+                    rows.append({"reference": ref_name, "scope": scope, "market": market, "group": group,
+                                 "n_market_days": int(len(idx)), "n_snapshots": int(mask.sum()),
+                                 "R_blend": sc.ratio_interval(table.w[:, idx], c, m),
+                                 "R_reference": sc.ratio_interval(table.w[:, idx], r_, m),
+                                 "dR_crossed": sc.ratio_interval(table.w[:, idx], c - r_, m),
+                                 "dR_date_clustered": sc.ratio_interval(date_w[:, idx], c - r_, m)})
+    weight_report = {}
+    for h in RUNG_HOURS:
+        ws = [weights[(h, d)] for d in scored]
+        weight_report[f"h{h:02d}"] = {"mean": float(np.mean(ws)), "first": ws[0], "last": ws[-1],
+                                      "min": float(min(ws)), "max": float(max(ws))}
+
+    # R-E: exact band-position decomposition of P3d_N_fix - MG-1
+    cls, has_winner = position_classes(table)
+    diff_band = ((p_fix - table.y) ** 2 - (p_mg1 - table.y) ** 2) / np.repeat(table.n, table.n)
+    decomposition = {}
+    win_a = np.add.reduceat(p_fix * table.y, table.offsets)
+    win_b = np.add.reduceat(p_mg1 * table.y, table.offsets)
+    for market, members in [(sc.ALL_MARKETS, None)] + [(m, {m}) for m in sorted(set(table.markets))]:
+        in_pool = everything if members is None else np.isin(table.markets, sorted(members))
+        for group, lo, hi in (groups if members is None else groups[:1]):
+            mask = both & in_pool & (table.local_hour >= lo) & (table.local_hour <= hi)
+            if not mask.any():
+                continue
+            idx, mden = table.cells(market_b, mask)
+            entry = {"n_snapshots": int(mask.sum()),
+                     "mean_p_winner": {"P3d_N_fix": float(win_a[mask].mean()), "MG1": float(win_b[mask].mean())}}
+            total = np.zeros(len(table.snaps))
+            for k, name in enumerate(POSITION_CLASSES):
+                per_snap = np.bincount(table.band_snap, weights=np.where(cls == k, diff_band, 0.0),
+                                       minlength=len(table.snaps))
+                total += per_snap
+                _, cnum = table.cells(per_snap, mask)
+                entry[name] = sc.ratio_interval(date_w[:, idx], cnum, mden)
+            _, ctot = table.cells(total, mask)
+            entry["total_dR"] = sc.ratio_interval(date_w[:, idx], ctot, mden)
+            decomposition[f"{market}|{group}"] = entry
+    result = {"rule": "C:/t/l2/rung0712/rule_rd.md",
+              "population": {"n_dates": len(scored), "first_date": scored[0], "last_date": scored[-1],
+                             "n_market_days": len(table.keys)},
+              "fit_dates": [fit_dates[0], fit_dates[-1], len(fit_dates)],
+              "mg1_control_excess_07_12": mg1_excess,
+              "inputs": {"P3d_N_fix": hashlib.sha256(Path(fix_jsonl).read_bytes()).hexdigest(),
+                         "B_N": hashlib.sha256(Path(bn_jsonl).read_bytes()).hexdigest(),
+                         "layout_manifest_sha256": lay.manifest_sha256,
+                         "scorecard_code_sha256": sc.code_sha256(),
+                         "module_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()},
+              "coverage": {"P3d_N_fix": reasons_fix, "B_N": reasons_bn, "MG1": reasons_mg1,
+                           "both": int(both.sum())},
+              "weights": weight_report,
+              "weights_by_date": {f"h{h:02d}": [weights[(h, d)] for d in scored] for h in RUNG_HOURS},
+              "rows": rows, "decomposition": decomposition}
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(result, indent=1, sort_keys=True), encoding="utf-8")
+    return result
+
+
 # ------------------------------------------------- clarification 3: forward refit and frozen state (MG-2)
 
 FORWARD_CENTRES = AUG_SEP_CENTRES + ("2026-10-10", "2026-10-25", "2026-11-09", "2026-11-24", "2026-12-09")
@@ -2004,6 +2170,11 @@ def _parse(argv=None):
     ru.add_argument("--markets", default=",".join(R0_MARKETS))
     ru.add_argument("--no-loyo", action="store_true")
     ru.add_argument("--out", required=True)
+    rb = sub.add_parser("rung-blend", help="rung 07-12 R-D walk-forward MG-1 blend + R-E decomposition (heavy)")
+    rb.add_argument("--layout", required=True)
+    rb.add_argument("--fix", required=True, help="dev_P3d_N_fix.jsonl")
+    rb.add_argument("--bn", required=True, help="dev_B_N.jsonl")
+    rb.add_argument("--out", required=True)
     wr = sub.add_parser("wu-rounding", help="clarification 3 (c): WU whole F vs T-group F on 2021-25 rows (heavy)")
     wr.add_argument("--obs-parquet", required=True, help="IEM market-station rows with tgroup_f (lane L6)")
     wr.add_argument("--wu-root", required=True)
@@ -2098,6 +2269,10 @@ def main(argv=None):
                                          nbm_train_corpus=args.nbm_train_corpus, nbm_dev_corpus=args.nbm_dev_corpus,
                                          out_dir=args.out, markets=args.markets.split(","))
         print(json.dumps(audit["files"], indent=1))
+        return 0
+    if args.command == "rung-blend":
+        result = rung_blend(layout=args.layout, fix_jsonl=args.fix, bn_jsonl=args.bn, out_path=args.out)
+        print(json.dumps(result["weights"], indent=1))
         return 0
     if args.command == "dev-emit-rung":
         audit = dev_emit_rung(records_root=args.records, layout=args.layout, replay_root=args.replay_root,
