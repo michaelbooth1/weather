@@ -435,3 +435,33 @@ def test_rung_rf_l6_frozen_state_refuses_a_changed_coefficient_part(tmp_path):
     assert got == sha and state == {"coef": {7: (0.1, 0.5, 10)}, "column": "n_own"}
     with pytest.raises(prm.PooledModelError):
         prm.l6_frozen_state(path)  # the real frozen sha does not match this toy part
+
+
+def test_rung_g_trajectory_features_use_only_reports_at_or_before_capture():
+    from datetime import date as _date
+
+    day = _date(2025, 8, 10).toordinal()
+    instants = [0.0, 3600.0, 5400.0, 7200.0, 9000.0]
+    temps = [70.0, 72.0, 73.0, 74.0, 99.0]  # the last report is after capture and must be ignored
+    days = [day - 1, day, day, day, day]
+    out = prm.trajectory_features(instants, temps, days, 7200.0, day)
+    assert out["overnight_min"] == 72.0  # the previous local day's 70 is not overnight
+    assert abs(out["trend3"] - 2.0) < 1e-9  # 72, 73, 74 at half-hour steps
+    assert out["n_3h"] == 4
+    sparse = prm.trajectory_features([0.0, 3600.0, 20000.0], [60.0, 61.0, 62.0], [day] * 3, 20000.0, day)
+    assert sparse["trend3"] is None  # the last three span more than 3 h
+
+
+def test_rung_g_extra_ols_columns_enter_the_baseline_design():
+    rng = np.random.default_rng(0)
+    n = 400
+    frame = pd.DataFrame({
+        "market": "atlanta", "centre": "2026-08-23", "season": "aug_sep", "year": np.repeat([2021, 2022], n // 2),
+        "F": rng.normal(80, 3, n), "fh": rng.normal(85, 3, n), "lat": 33.6, "lon": -84.4, "elev": 300.0,
+        "doy_sin": 0.0, "doy_cos": 1.0, "t_x": rng.normal(0, 1, n)})
+    frame["y"] = frame["fh"] + 3.0 * frame["t_x"]
+    base = prm.MeanModel(market_id=False, doy=True, raw_columns=False, use_hgb=False).fit(frame)
+    extra = prm.MeanModel(market_id=False, doy=True, raw_columns=False, use_hgb=False, extra_ols=("t_x",)).fit(frame)
+    err_base = np.mean((base.predict(frame)[0] - frame["y"]) ** 2)
+    err_extra = np.mean((extra.predict(frame)[0] - frame["y"]) ** 2)
+    assert len(extra.ols) == 4 and err_extra < 0.1 * err_base
