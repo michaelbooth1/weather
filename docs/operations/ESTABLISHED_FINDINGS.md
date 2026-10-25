@@ -115,6 +115,7 @@ sequence numbers, not calendar dates.
 | 10x | From the 2026-10-23 events the venue's declared resolution source is the raw aviationweather.gov METAR API, routine reports only (SPECI excluded), with a WU fallback; Denver names KDEN, not our KBKF (event metadata only; SPECI effect measured 07-31..09-29) |
 | 10y | Free-source and blend levers (lane G, development, 2026-10-24): F1, F3, F4, G2-a and L4 add nothing over their no-source controls and none helps 07-12; F2 MRMS is a sub-bar 13-16 lead |
 | 10z | R0 trained on the full year beats windowed R0 but loses to the floored forecast baselines by about 1 nat at 07-12 (lane L1, workstation, 2026-10-24); not adopted |
+| 10ac | Lane L9 ingredient ladder on OLS + hard floor (blocked LOYO 2021-25, weather-only, 2026-10-25): PIT NBM mean KEEP, cross-market pooling KEEP; overnight low, dewpoint and hour-pooled slopes KILL |
 
 ---
 
@@ -4197,6 +4198,89 @@ edge or promotion evidence (§5). Nothing after 2026-09-29 was read.
 - **Not claimed:** no edge over the market (every arm still trails it); no claim that A should replace MG-1 in the
   morning; no powered result (11 market clusters); no claim for Toronto.
 - **Branch:** `claude/r0-ols-floor-challenger-20261024` (code, tests, rule files under `C:\t\l3`).
+### 10ac. On blocked LOYO 2021-25, the PIT NBM mean and cross-market pooling improve OLS + hard floor; overnight low, dewpoint and hour-pooled slopes do not — lane L9 ingredient ladder, workstation, 2026-10-25
+
+**Claim, at exactly this scope:** weather-only, development-stage, blocked leave-one-year-out (LOYO) on 2021-2025
+target dates. There is **no claim against MG-1, the served vector or the market**, and the 2026 dev window was
+not read. The ingredients were tested one rung at a time against plain OLS + hard floor (L3's `ols_floor`, §10ab),
+on identical rows, under the pre-declared rule `C:\t\l9\rule.md` (sha256 `3b4976dc…`). Rungs are cumulative only
+on KEEP.
+
+- **Rows:** 103,609, from 11 US markets x 9 non-overlapping ±7-day centres x cutoffs 07-20. The Aug-Sep centres
+  are 08-08, 08-23, 09-07 and 09-22; the Oct-Dec centres are 10-10, 10-25, 11-09, 11-24 and 12-09. Records and
+  splits are the R0 trainer's, built through L3's challenger module.
+- **Corpora:** the season members of the full-year union `621bcd8e…` (§10z): `b455bd53…` for Aug-Sep and the
+  Oct-Dec members for Oct-Dec. The year-keyed trainer union refuses the overlapping full-year manifests; the
+  Jan-Jul members plan no date in these windows.
+- **Statistics:** the primary metric is D(07-12), the equal-weight 11-market mean of per-market mean log-loss
+  deltas, with both seasons pooled. CIs are a date-clustered bootstrap (2,000 draws, seed 20261025). **KEEP** means
+  the CI upper bound < 0 AND no CI-worse block. The blocks are {07-12, 12-16, 17-20} x {11, primary 5} x
+  {pooled, Aug-Sep, Oct-Dec}, plus Brier 07-12 on the 11.
+- **Controls:**
+  - **Positive control:** BASE equals L3's per-row `ols_floor` log loss on identical row sets for all 11 markets
+    at centres 11-24 and 09-07; the largest difference is 5.3e-13.
+  - **Placebo:** a N(0,1) regressor gives +0.0097 [+0.0081, +0.0113], so it is not KEEP. That is the expected
+    cost of one extra slope at about 60 training rows per (market, centre, hour, fold) fit.
+- **PIT NBM corpus** `1ae4bf52a0e032fc0c05ddfa7b282a17db53bd9a2e3f3a32a9a5686139faa1fd`:
+  - **Source and parse:** NOAA open data, `noaa-nbm-grib2-pds` `blend_nbptx` (NBP). It is parsed with parser v2
+    TXNMN, the column MG-1 consumes.
+  - **Cycle:** the 07Z cycle of the target date. It is used only when its S3 LastModified (07:55-11:43Z) is <= the
+    cutoff instant.
+  - **Coverage:** 675 dates x 11 stations with zero gaps; 3 scored rows had a late bulletin and fell back to the
+    forecast.
+  - **Fetch:** station blocks were read by HTTP Range, serially, about 0.9 GB in total (fetcher
+    `tools/research/ols_floor_ladder_nbm_fetch.py`).
+
+| Rung (vs the cumulative base) | D 07-12, 11 markets [95% CI] | Verdict |
+| --- | --- | --- |
+| 1 NBM mean alongside the forecast (N1) | −0.0960 [−0.1138, −0.0779], MDE 0.026 | **KEEP** (picked) |
+| 1 NBM mean instead of the forecast (N2) | −0.0945 [−0.1196, −0.0694] | KEEP, not picked (pre-declared tie-break) |
+| 2 overnight low since midnight (L1) | −0.0124 [−0.0189, −0.0060], MDE 0.009 | **KILL** (Aug-Sep blocks CI-worse) |
+| 3 dewpoint at the cutoff (DP) | −0.0009 [−0.0078, +0.0073], MDE 0.011 | **KILL** (null; Aug-Sep 07-12 CI-worse) |
+| 4 slopes pooled across hours (PH) | +0.0632 [+0.0518, +0.0741] | **KILL** |
+| 4 slopes pooled across markets (PM) | −0.0406 [−0.0541, −0.0278], MDE 0.019 | **KEEP** |
+
+- **NBM (N1):**
+  - 5 primary markets: −0.157. Aug-Sep −0.104 (11) / −0.175 (5); Oct-Dec −0.090 (11) / −0.142 (5).
+  - By hour (11 markets): −0.157 at 07, fading to −0.008 at 16; 17-20 is about 0. 12-16 overall is −0.016.
+  - Brier 07-12: −0.0147.
+  - 10 of 11 markets have a negative point estimate at 07-12. **Los Angeles leans worse:** +0.035 [−0.003, +0.080].
+- **Overnight low, a seasonal split:**
+  - Oct-Dec helps at 07-12: −0.028 (11) and −0.031 (5).
+  - Aug-Sep is flat to worse: +0.007 (11) and +0.013 (5, CI-worse); Aug-Sep 12-16 and 17-20 are also CI-worse on
+    the 11.
+  - This is consistent with L5's A2 null against MG-1 on dev (−0.0016, crossed CI [−0.0059, +0.0033],
+    pre-registration `53fd0bc5…`, branch `claude/morning-loss-diagnosis-20261024`).
+  - A season-gated variant is a **lead only**, with no pre-registration (coordinator ruling, 2026-10-25). The
+    previous-evening low (descriptive) is weaker still: −0.0067.
+- **Dewpoint:** Aug-Sep 07-12 is CI-worse (+0.016 on the 11, +0.010 on the 5); Oct-Dec helps a little (−0.014 on
+  the 11). Hours 07-08 are hurt.
+- **Pooling:**
+  - **Per-hour slopes are essential.** PH (shared slopes with hour fixed effects) loses +0.87 nats at 17-20,
+    because it destroys the late-day near-identity on the observed high.
+  - **PM** (shared slopes, market intercepts, per-market sd) helps in both seasons: Aug-Sep −0.057 and Oct-Dec
+    −0.028 on the 11; −0.034 on the primary 5.
+  - **Brier flag:** on the 5 primary markets in Oct-Dec, PM is flat on log loss (−0.006 [−0.027, +0.014]) and
+    CI-worse on Brier (+0.0048 [+0.0018, +0.0076]). That cell is not a pre-declared guard block, so the KEEP stands.
+  - **Los Angeles leans worse** under PM: +0.066 [−0.002, +0.126].
+  - L2's pooled model is §10aa.
+- **Cumulative, descriptive:** OLS + floor + N1 + PM vs plain OLS + floor, on the same rows:
+  - 07-12: −0.137 [−0.156, −0.117] (11 markets), −0.191 (5 markets);
+  - 12-16: −0.035 (11), −0.056 (5);
+  - 17-20: about 0;
+  - no guarded block is CI-worse.
+- **Disposition (coordinator ruling, 2026-10-25):**
+  - MG-2's A' stays OLS + floor + N1. PM is not added after the fact.
+  - OLS + floor + N1 + PM is recorded as an **MG-3 candidate lead**.
+- **Not claimed:**
+  - no edge over the market;
+  - no comparison with MG-1 or the served model on these rows;
+  - nothing outside Aug-Dec;
+  - nothing for non-US markets.
+  - The fits are small (about 60 rows each), and the L1 and DP kills are nulls only above their MDEs.
+- **Relation to other records:** BASE and rows are §10ab (L3); the full-year union is §10z (L1); the pooled
+  challenger is §10aa (L2). Code: branch `claude/ols-floor-ladder-20261025`, module
+  `weather.calibration.ols_floor_ladder` (stacked on L3's `r0_ols_floor_challenger`).
 
 ## Related
 
