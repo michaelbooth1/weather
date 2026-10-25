@@ -5,7 +5,6 @@ Guards: workstation offline-module allowlist (HOST_LOAD_POLICY workstation scope
 """
 import importlib.util
 from pathlib import Path
-import re
 import sys
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -62,9 +61,8 @@ def _hook():
 
 
 def test_admission_list_is_pinned_and_mirrored():
-    text = (ROOT / "scripts/ops/workload_admission.ps1").read_text(encoding="utf-8-sig")
-    body = re.search(r"function Get-WeatherWorkstationOfflineModule\s*\{.*?@\((.*?)\)\s*\}", text, re.S).group(1)
-    assert re.findall(r'"([A-Za-z0-9_.-]+)"', body) == PINNED
+    # Mirror equality with Get-WeatherWorkstationOfflineModule is proved by executing it in
+    # tests/operations/test_loss_atlas_admission.py; here the hook mirror pins this module.
     assert _hook()._OFFLINE_WEATHER_MODULES == frozenset(PINNED)
 
 

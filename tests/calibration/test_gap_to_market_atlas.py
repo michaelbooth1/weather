@@ -7,7 +7,6 @@ discipline (no candidate-minus-candidate deltas; composite switches to arm A at 
 import ast
 import importlib.util
 from pathlib import Path
-import re
 import sys
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -23,15 +22,12 @@ def _hook():
 
 
 def test_admitted_once_in_both_mirrors_and_nothing_wider():
-    text = (ROOT / "scripts/ops/workload_admission.ps1").read_text(encoding="utf-8-sig")
-    body = re.search(r"function Get-WeatherWorkstationOfflineModule\s*\{.*?@\((.*?)\)\s*\}", text, re.S).group(1)
-    listed = re.findall(r'"([A-Za-z0-9_.-]+)"', body)
-    assert listed.count(MODULE) == 1
+    # Mirror equality with Get-WeatherWorkstationOfflineModule is proved by executing it in
+    # tests/operations/test_loss_atlas_admission.py; here the hook mirror pins this module.
     hook = _hook()
     assert MODULE in hook._OFFLINE_WEATHER_MODULES
     for near in (MODULE + ".child", MODULE + "_x", "weather.calibration.gap_to_market"):
         assert near not in hook._OFFLINE_WEATHER_MODULES
-        assert near not in listed
     assert hook.evaluate({"tool_name": "Bash", "tool_input": {
         "command": f'& "{sys.executable}" -m {MODULE} --layout x --arm-a y --dev4 z --out-dir w'
     }}, constrained_capture_host=False) is not None

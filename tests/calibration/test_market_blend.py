@@ -8,7 +8,6 @@ offline research module in both mirrors with a pinning test); each blend vs the 
 """
 import ast
 import importlib.util
-import re
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -137,15 +136,12 @@ def _hook():
 
 
 def test_admitted_once_in_both_mirrors_and_nothing_wider():
-    text = (ROOT / "scripts/ops/workload_admission.ps1").read_text(encoding="utf-8-sig")
-    body = re.search(r"function Get-WeatherWorkstationOfflineModule\s*\{.*?@\((.*?)\)\s*\}", text, re.S).group(1)
-    listed = re.findall(r'"([A-Za-z0-9_.-]+)"', body)
-    assert listed.count(MODULE) == 1
+    # Mirror equality with Get-WeatherWorkstationOfflineModule is proved by executing it in
+    # tests/operations/test_loss_atlas_admission.py; here the hook mirror pins this module.
     hook = _hook()
     assert MODULE in hook._OFFLINE_WEATHER_MODULES
     for near in (MODULE + ".child", MODULE + "_x", "weather.calibration.market"):
         assert near not in hook._OFFLINE_WEATHER_MODULES
-        assert near not in listed
 
 
 def test_pre13_captured_refuses_unpinned_module_or_nowcasts(tmp_path):

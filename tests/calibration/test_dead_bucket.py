@@ -1,3 +1,7 @@
+"""Dead-bucket NO-taker scans and reports (weather.calibration.dead_bucket; lane L11).
+
+Guards: pre-registered dead-bucket rules r2/r3/r4 (docs/research/market-blend-l11-2026-10-25), evidence cutoff 2026-09-29, capture-time dating.
+"""
 from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo

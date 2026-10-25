@@ -1,3 +1,7 @@
+"""Toronto dead-bucket history checks (lane L11).
+
+Guards: pre-registered rule r2-toronto (docs/research/market-blend-l11-2026-10-25), native-unit settlement, evidence cutoff 2026-09-29.
+"""
 import json
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
