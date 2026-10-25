@@ -85,6 +85,7 @@ from weather.operations.daily_refresh_resources import (
     STAGE_A_ISOLATED_STEPS,
     StageAChildFailure,
     StageAResourceDeferred,
+    await_transient_capture_recovery,
     bounded_resume_command,
     build_stage_a_step_admission,
     prepare_step_child_invocation,
@@ -240,6 +241,7 @@ from weather.operations.daily_refresh_stage_manifests import (
     _stage_manifest_payload,
     _step_by_name,
     _write_stage_manifest,
+    write_stage_checkpoint,
 )
 from weather.operations.daily_refresh_report import render_report, write_report
 def run_daily_refresh(args, runners=None):
@@ -528,6 +530,28 @@ def _flush_incremental_status(args, payload, *, fail_closed=False):
             raise
 
 
+def _checkpoint_stage_a(args, payload, *, after_step):
+    """Publish an honest in-progress Stage-A manifest and report.
+
+    Only for a scheduled-shape settlement stage: not a dry run and not a
+    bounded recovery slice (whose own receipt contract owns its outputs).
+    """
+    if (
+        args.dry_run
+        or getattr(args, "stop_after_step", "")
+        or _stage_name(args) != STAGE_SETTLEMENT
+    ):
+        return None
+    return write_stage_checkpoint(
+        args,
+        payload,
+        stage=STAGE_SETTLEMENT,
+        after_step=after_step,
+        written_at_utc=utc_iso(),
+        render_report=write_report,
+    )
+
+
 def _isolated_subprocess_receipt(result):
     return {
         key: result.get(key)
@@ -784,6 +808,23 @@ def _run_isolated_stage_a_step(args, payload, step_name, *, run_id):
         budget,
         phase="after",
     )
+    if admission_after.get("decision") != "ADMIT":
+        # One transient capture-loop error cycle must not defer the whole
+        # day: re-sample for a bounded, deadline-respecting time first.
+        def _record_recheck(record):
+            resource_record["post_step_transient_retry"] = record
+            _flush_incremental_status(args, payload)
+
+        admission_after, transient_retry = await_transient_capture_recovery(
+            args,
+            step_name,
+            budget,
+            admission_after,
+            admission_fn=build_stage_a_step_admission,
+            on_recheck=_record_recheck,
+        )
+        if transient_retry is not None:
+            resource_record["post_step_transient_retry"] = transient_retry
     resource_record["admission_after"] = admission_after
 
     failure_reason = None
@@ -1394,6 +1435,7 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
                     )
                 payload["steps"].append(step)
                 _flush_incremental_status(args, payload)
+                _checkpoint_stage_a(args, payload, after_step=name)
                 touch_long_job_guard(
                     getattr(args, "long_job_state", DEFAULT_LONG_JOB_STATE_PATH),
                     progress=_progress_snapshot(
@@ -1433,6 +1475,10 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
             # blank AND unresumable past its last completed run. This write is
             # also what --resume-from-step seeds from after a hard death.
             _flush_incremental_status(args, payload)
+            # The 11:55 teardown kills the child tree, so the end-of-run
+            # report/manifest writes never happen on an overrun. Keep both
+            # current as an explicitly non-terminal checkpoint.
+            _checkpoint_stage_a(args, payload, after_step=name)
             touch_long_job_guard(
                 getattr(args, "long_job_state", DEFAULT_LONG_JOB_STATE_PATH),
                 progress=_progress_snapshot(

@@ -520,9 +520,18 @@ DEV_VARIANTS = {
     # dev_rule.md clarification 1: high_so_far (and so the floor) from lane L8's shared serve-time
     # function weather.model.observed_running_max.running_max_since_midnight (imported, not rewritten).
     "l8_high_so_far": (FEATURES, "pit_2026"),
+    # dev_rule.md clarification 4: arm A' = arm A (L8 high_so_far) plus the NBM mean, fitted on the historical
+    # rows with lane L9's PIT NBM corpus (L9's loader, imported), scored with the captured v2 mean MG-1 uses.
+    "nbm_hist": (FEATURES + ("nbm_mean",), "pit_2026"),
+    # MG-2 pick rule clarification 2: arm A_N (L9's N2 recipe), forecast_high replaced by the captured NBM 07Z mean;
+    # trained on L9's PIT NBM corpus, served with the captured v2 mean; a dev snapshot without it is not emitted.
+    "nbm_n2": (("nbm_mean", "high_so_far", "current_temp"), "captured_nbm"),
 }
 DEV_DEFAULT_VARIANTS = ("main", "served_forecast", "two_feature")
 L8_VARIANT = "l8_high_so_far"
+NBM_VARIANT = "nbm_hist"
+N2_VARIANT = "nbm_n2"
+NBM_VARIANTS = (NBM_VARIANT, N2_VARIANT)
 _CAPTURED_LOCAL = None
 _METAR_TIME = None
 
@@ -649,11 +658,12 @@ def _event_folders(replay_root):
 
 
 def dev_emit(*, layout, replay_root, train_manifests, dev_manifest, out_dir, markets,
-             variants=DEV_DEFAULT_VARIANTS, obs_from=None):
+             variants=DEV_DEFAULT_VARIANTS, obs_from=None, nbm_corpus=None):
     """Fit on the Aug-Sep 2021-25 corpus, emit candidate distributions for the dev snapshots.
 
     ``obs_from``: a previous run's ``dev_features.jsonl`` (same replay scan) instead of rescanning;
     refused for the ``l8_high_so_far`` variant unless its rows carry ``high_so_far_l8``.
+    ``nbm_corpus``: lane L9's ``nbm_pit_corpus_rows.jsonl``, required by the ``nbm_hist`` variant.
     """
     import pandas as pd
     from zoneinfo import ZoneInfo
@@ -673,9 +683,26 @@ def dev_emit(*, layout, replay_root, train_manifests, dev_manifest, out_dir, mar
     unknown = [v for v in variants if v not in DEV_VARIANTS]
     if unknown:
         raise ChallengerError(f"unknown dev variants {unknown}")
-    want_l8 = L8_VARIANT in variants
+    want_nbm = any(v in variants for v in NBM_VARIANTS)
+    want_l8 = L8_VARIANT in variants or want_nbm
+    nbm_table = None
+    if want_nbm:
+        if nbm_corpus is None:
+            raise ChallengerError("the NBM variants need --nbm-corpus")
+        from weather.calibration import ols_floor_ladder
+
+        nbm_table = ols_floor_ladder.load_nbm(nbm_corpus)
+        snaps = snaps.join(pd.read_parquet(Path(layout) / "inputs_snapshots.parquet", columns=[
+            "v2_mean", "v2_stddev", "v2_available_at", "captured_at_utc"]))
+        from weather.calibration.r0_ols_floor_devfit import usable_v2_mean
+
+        snaps["nbm_usable"] = usable_v2_mean(snaps)
     audit = {"markets": {}, "variants": {k: {"features": list(DEV_VARIANTS[k][0]), "forecast": DEV_VARIANTS[k][1]}
                                          for k in variants}}
+    if want_nbm:
+        audit["nbm_corpus"] = {"path": str(nbm_corpus), "sha256": _sha256(nbm_corpus),
+                               "loader": ols_floor_ladder.__name__,
+                               "loader_sha256": _sha256(ols_floor_ladder.__file__)}
     if want_l8:
         from weather.model import observed_running_max
 
@@ -697,6 +724,13 @@ def dev_emit(*, layout, replay_root, train_manifests, dev_manifest, out_dir, mar
             support = built["bucket_space"]
             fits = {}
             for hour, records in built["records"].items():
+                if want_nbm:
+                    for r in records:
+                        value, cycle = ols_floor_ladder.nbm_at_cutoff(
+                            nbm_table, market, str(r["target_date"])[:10], hour, spec.timezone)
+                        r["nbm_mean"] = value  # None: imputed with forecast_high by feature_vector
+                        key = f"train_nbm_cycle_{cycle}" if cycle else "train_nbm_missing"
+                        audit.setdefault("nbm_train", {}).setdefault(market, defaultdict(int))[key] += 1
                 for variant in variants:
                     fits[(hour, variant)] = fit_fold(records, DEV_VARIANTS[variant][0])
             dev_union = PITForecastCorpusUnion([dev_manifest], spec.id, target_year=2027,
@@ -738,13 +772,22 @@ def dev_emit(*, layout, replay_root, train_manifests, dev_manifest, out_dir, mar
                 served_fc = None if row.forecast_high != row.forecast_high else float(row.forecast_high)
                 for variant in variants:
                     features, source = DEV_VARIANTS[variant]
-                    fc = pit if source == "pit_2026" else served_fc
+                    if source == "captured_nbm":
+                        nbm = float(row.nbm_usable)
+                        fc = nbm if math.isfinite(nbm) else None
+                    else:
+                        fc = pit if source == "pit_2026" else served_fc
                     if fc is None:
                         stats[f"{variant}_no_forecast"] += 1
                         continue
                     record = {"forecast_high": fc, "high_so_far": rec["high_so_far"],
                               "current_temp": rec["current_temp"]}
-                    if variant == L8_VARIANT:
+                    if variant in NBM_VARIANTS:
+                        nbm = float(row.nbm_usable)
+                        record["nbm_mean"] = nbm if math.isfinite(nbm) else None
+                        if record["nbm_mean"] is None:
+                            stats[f"{variant}_nbm_imputed_forecast"] += 1
+                    if variant in (L8_VARIANT,) + NBM_VARIANTS:
                         value = rec.get("high_so_far_l8")
                         if value is None:
                             stats[f"{variant}_no_l8_value"] += 1
@@ -754,7 +797,7 @@ def dev_emit(*, layout, replay_root, train_manifests, dev_manifest, out_dir, mar
                         elif floor_of({"high_so_far": value}) != floor_of(rec):
                             stats[f"{variant}_floor_differs_from_main"] += 1
                         record["high_so_far"] = value
-                    if any(record[f] is None for f in features):
+                    if any(record[f] is None for f in features if f != "nbm_mean"):
                         stats[f"{variant}_missing_feature"] += 1
                         continue
                     dists, _ = challenger_distributions(fits[(hour, variant)], record, support)
@@ -959,6 +1002,385 @@ def dev_score(layout, candidates, start="2026-08-01", end="2026-09-29", with_mg1
                                    "brier_minus_mg1_07_12_expected": (expect_brier_vs_mg1 or {}).get(name),
                                    "coverage_by_market_hour": coverage, "meta": meta, "rows": rows}
     return out
+
+
+# Clarification 1 (2026-10-25) appended; the original rule was 5898bfb0... (recorded inside the file).
+# Clarification 2 (2026-10-25, option N) appended; the clarification-1 rule was 2f2c5994....
+# Clarification 2 erratum (dewpoint from the T-group, as IEM dwpf); clarification 2 as first recorded was 52cef556....
+PICK_RULE_SHA256 = "deb3eae31fb19cc96c90d1a9267f292e8a819fae1784c7b8b950071be99ceffb"
+PICK_SEED = 20261025
+PICK_HOURS = (13, 14, 15, 16)
+# Clarification 2 (d): A_N - MG-1 at 13-16, recorded in C:/t/mg2/control_refit_armA.json (sha 714f1c51...).
+PICK_CONTROL = -0.3915437386366088
+PICK_CONTROL_TOL = 0.005
+
+
+def dev_pick(layout, default, challengers, parity, rule_path, simpler="arm_a",
+             start="2026-08-01", end="2026-09-29", control=PICK_CONTROL, control_only=False):
+    """MG-2 afternoon-slot pick, exactly as ``C:/t/mg2/afternoon_pick_rule.md`` (sha pinned).
+
+    ``default``: arm A's source; ``challengers``: {name: source}; ``parity``: {name: bool}, each lane's
+    documented serve-parity check. Rows: snapshots at local hours 13-16 that every candidate covers.
+    dR = R(challenger) - R(arm A) in the scorecard's Brier-ratio units, pooled over the 11 markets;
+    intervals crossed (the scorecard's own draws) and date-clustered (2,000 draws, seed 20261025).
+    """
+    if _sha256(rule_path) != PICK_RULE_SHA256:
+        raise ChallengerError(f"pick rule sha {_sha256(rule_path)} != pinned {PICK_RULE_SHA256}")
+    if not control_only and set(parity) != set(challengers):
+        raise ChallengerError("a serve-parity verdict is needed for every challenger")
+    import numpy as np
+
+    from weather.reporting.scorecards import dev_scorecard as sc
+    from weather.reporting.scorecards import dev_scorecard_data as data
+    from weather.reporting.scorecards import loss_atlas
+
+    start_d, end_d = data.check_range(start, end)
+    lay = data.load_layout(layout, data.DEV_FIRST, end_d)
+    folds = data.make_folds(lay.dates, start_d, end_d, 7, 1, 7)
+    scored = sorted(d for f in folds if f.scored for d in f.dates)
+    table = sc.Table(lay, scored)
+    date_w = _date_weights([k[0] for k in table.keys], sc.DRAWS, PICK_SEED)
+    market_b = table.brier(table.p_market)
+    vec, meta = {}, {}
+    for name, source in {"arm_a": default, **challengers}.items():
+        frame, m = _candidate_frame(source, table, lay, folds, data)
+        p, cov, reasons = _vector(table, frame)
+        vec[name] = (table.brier(p), cov)
+        meta[name] = {"source": source, "sha256": _source_sha(source), "coverage": reasons}
+    p_mg1, _, _ = _vector(table, loss_atlas.mg1_frame(table))
+    mg1_b = table.brier(p_mg1)
+    in_hours = np.isin(table.local_hour, PICK_HOURS)
+    rows = in_hours.copy()
+    for _, cov in vec.values():
+        rows &= cov
+    primary = np.isin(table.markets, sorted(PRIMARY_MARKETS))
+
+    def stat(a, b, mask, weights):
+        idx, c = table.cells(a, mask)
+        _, r_ = table.cells(b, mask)
+        _, m = table.cells(market_b, mask)
+        return sc.ratio_interval(weights[:, idx], c - r_, m)
+
+    def both(a, b, mask):
+        return {"crossed": stat(a, b, mask, table.w), "date_clustered": stat(a, b, mask, date_w)}
+
+    a_b = vec["arm_a"][0]
+    control_value = control
+    control = both(a_b, mg1_b, rows)
+    control_ok = abs(control["date_clustered"]["estimate"] - control_value) <= PICK_CONTROL_TOL
+    out = {"rule": str(rule_path), "rule_sha256": PICK_RULE_SHA256, "seed_date_clustered": PICK_SEED,
+           "crossed_draws": "dev_scorecard Table.w (seed %d)" % sc.SEED,
+           "rows": {"n_snapshots": int(rows.sum()), "n_in_hours": int(in_hours.sum()),
+                    "n_primary": int((rows & primary).sum())},
+           "candidates": meta,
+           "control": {"arm_a_minus_mg1": control, "expected": control_value, "tolerance": PICK_CONTROL_TOL,
+                       "passed": bool(control_ok)},
+           "challengers": {}}
+    upper = control["date_clustered"]["ci95"][1]
+    out["control"]["clause_d_upper_ci_below_0"] = bool(upper is not None and upper < 0)
+    if control_only:
+        # Clarification 2 (d): the control is recorded before any challenger row is read.
+        out["control"].pop("passed")
+        out["control"].pop("expected")
+        return out
+    if upper is None or upper >= 0:
+        # Clarification 1 (d): no afternoon half; MG-2 = MG-1 + L6 own-obs stack, the pick is not run.
+        out["pick"] = {"candidate": None, "reason": "clarification (d): arm A - MG-1 date-clustered upper CI >= 0",
+                       "eligible": []}
+        return out
+    eligible = []
+    for name in challengers:
+        b = vec[name][0]
+        pooled = both(b, a_b, rows)
+        hours = {f"h{h:02d}": both(b, a_b, rows & (table.local_hour == h)) for h in PICK_HOURS}
+        prim = both(b, a_b, rows & primary)
+        mg1 = both(b, mg1_b, rows)
+        c1 = bool(parity[name])
+        c2 = all(pooled[k]["ci95"][1] is not None and pooled[k]["ci95"][1] < 0 for k in pooled)
+        c3 = not any(v["date_clustered"]["ci95"][0] is not None and v["date_clustered"]["ci95"][0] > 0
+                     for v in hours.values())
+        c4 = prim["date_clustered"]["estimate"] < 0
+        ok = c1 and c2 and c3 and c4
+        out["challengers"][name] = {"dR_vs_arm_a": pooled, "by_hour": hours, "primary5": prim,
+                                    "dR_vs_mg1": mg1,
+                                    "conditions": {"1_serve_parity": c1, "2_upper_below_0_both": c2,
+                                                   "3_no_ci_worse_hour": c3, "4_primary5_point_below_0": c4},
+                                    "eligible": ok}
+        if ok:
+            eligible.append(name)
+    if not control_ok:
+        pick, why = "arm_a", "positive control failed: pick void, arm A stands"
+    elif not eligible:
+        pick, why = "arm_a", "no challenger eligible"
+    elif len(eligible) == 1:
+        pick, why = eligible[0], "one challenger eligible"
+    else:
+        x, y = eligible[:2]
+        diff = both(vec[x][0], vec[y][0], rows)
+        out["eligible_difference"] = {"pair": [x, y], **diff}
+        lo, hi = diff["date_clustered"]["ci95"]
+        if lo is not None and lo <= 0 <= hi:
+            pick, why = simpler, "both eligible, difference interval contains 0: the simpler one"
+        else:
+            pick = min(eligible, key=lambda n: out["challengers"][n]["dR_vs_arm_a"]["date_clustered"]["estimate"])
+            why = "both eligible: lower pooled point dR"
+    out["pick"] = {"candidate": pick, "reason": why, "eligible": eligible}
+    return out
+
+
+# ---------------------------------------------------------------- L6 own-obs stack on captured METAR (pick rule cl. 2 (e))
+
+L6_MARKET_LAT_MIN = 10
+L6_MAX_AGE_MIN = 90
+_COVER = {"CLR": 0.0, "SKC": 0.0, "NCD": 0.0, "NSC": 0.0, "FEW": .25, "SCT": .5, "BKN": .75, "OVC": 1.0, "VV": 1.0}
+
+
+def parse_captured_metar(raw, anchor_utc):
+    """One captured METAR row -> the fields lane L6's IEM extract carries (None when unparseable).
+
+    Observation instant from the raw DDHHMMZ group (nearest to ``anchor_utc``); temperature and dewpoint from the
+    T-group when present, else the body (IEM ``dwpf`` follows the T-group; pick rule clarification 2 erratum); wind, cover and ceiling
+    as ``iem_upstream`` (cover = max layer, ceiling = lowest BKN/OVC/VV base).
+    """
+    import re
+    from datetime import timedelta
+
+    m = re.search(r"\b(\d{2})(\d{2})(\d{2})Z\b", raw or "")
+    if not m:
+        return None
+    day, hh, mm = (int(g) for g in m.groups())
+    valid = None
+    for shift in (-1, 0, 1):
+        base = (anchor_utc + timedelta(days=shift)).replace(hour=0, minute=0, second=0, microsecond=0)
+        if base.day == day:
+            cand = base.replace(hour=hh, minute=mm)
+            if valid is None or abs(cand - anchor_utc) < abs(valid - anchor_utc):
+                valid = cand
+    if valid is None:
+        return None
+
+    def c2f(c):
+        return c * 9.0 / 5.0 + 32.0
+
+    body = re.search(r"\s(M?\d{2})/(M?\d{2})?(?=\s)", raw)
+    tg = re.search(r"\bT([01])(\d{3})([01])(\d{3})\b", raw)
+    temp = dwpf = None
+    if body:
+        temp = c2f(int(body.group(1).replace("M", "-")))
+        dwpf = c2f(int(body.group(2).replace("M", "-"))) if body.group(2) else None
+    if tg:
+        temp = c2f((-1 if tg.group(1) == "1" else 1) * int(tg.group(2)) / 10.0)
+        dwpf = c2f((-1 if tg.group(3) == "1" else 1) * int(tg.group(4)) / 10.0)
+    w = re.search(r"\b(\d{3}|VRB)(\d{2,3})(?:G\d{2,3})?KT\b", raw)
+    drct = sknt = None
+    if w:
+        drct = None if w.group(1) == "VRB" else float(w.group(1))
+        sknt = float(w.group(2))
+    covers, ceiling = [], None
+    for k in re.finditer(r"\b(FEW|SCT|BKN|OVC|VV)(\d{3})|\b(CLR|SKC|NCD|NSC)\b", raw):
+        if k.group(3):
+            covers.append(0.0)
+            continue
+        covers.append(_COVER[k.group(1)])
+        if k.group(1) in ("BKN", "OVC", "VV") and ceiling is None:
+            ceiling = int(k.group(2)) * 100.0
+    return {"valid": valid, "temp": temp, "dwpf": dwpf, "drct": drct, "sknt": sknt,
+            "cover": max(covers) if covers else None, "ceiling_ft": ceiling,
+            "is_cor": " COR " in f" {raw} "}
+
+
+def _json_value_after(line, key, start=0):
+    """Decode the JSON value that follows ``"key":`` at or after ``start`` (no whole-line parse)."""
+    at = line.find(f'"{key}":', start)
+    if at < 0:
+        return None, -1
+    pos = at + len(key) + 3
+    while line[pos] == " ":
+        pos += 1
+    value, end = json.JSONDecoder().raw_decode(line, pos)
+    return value, end
+
+
+def _captured_rows(line, station):
+    """The captured ``sources.metar.data.rows`` of one replay line."""
+    start = line.find('"sources":')
+    if start < 0:
+        return []
+    metar_at = line.find('"metar":', start)
+    if metar_at < 0:
+        return []
+    section, _ = _json_value_after(line, "metar", start)
+    rows = ((section or {}).get("data") or {}).get("rows") or []
+    return [r for r in rows if str(r.get("station_id") or station) == station]
+
+
+def l6_captured_features(snapshot_rows, captured, tz, station_code, prev_dmax):
+    """L6 OWN features at each snapshot from that snapshot's own captured METAR rows (L6's semantics)."""
+    from datetime import timedelta
+
+    import numpy as np
+    import pandas as pd
+
+    lag = timedelta(minutes=L6_MARKET_LAT_MIN)
+    out = []
+    for key, cap_utc, local_date in snapshot_rows:
+        rows = [r for r in captured.get(key, []) if not r["is_cor"] and r["temp"] is not None]
+        usable = sorted((r for r in rows if r["valid"] + lag <= cap_utc), key=lambda r: r["valid"])
+
+        def asof(t):
+            cand = [r for r in usable if r["valid"] + lag <= t]
+            if not cand or (t - cand[-1]["valid"]) > timedelta(minutes=L6_MAX_AGE_MIN):
+                return None
+            return cand[-1]
+
+        now, ago = asof(cap_utc), asof(cap_utc - timedelta(hours=3))
+        same_day = [r["temp"] for r in usable if r["valid"].astimezone(tz).date().isoformat() == local_date]
+        loc = cap_utc.astimezone(tz)
+        nan = float("nan")
+        t = now["temp"] if now else nan
+        td = now["dwpf"] if now and now["dwpf"] is not None else nan
+        r_ = float(np.fmax(max(same_day) if same_day else nan, t))
+        drct = now["drct"] if now and now["drct"] is not None else nan
+        sknt = now["sknt"] if now and now["sknt"] is not None else nan
+        calm = sknt == 0
+        u = 0.0 if calm else -sknt * math.sin(math.radians(drct))
+        v = 0.0 if calm else -sknt * math.cos(math.radians(drct))
+        cover = now["cover"] if now and now["cover"] is not None else nan
+        ceil = now["ceiling_ft"] if now else None
+        log_ceiling = (math.log10(max(ceil, 100.0)) if ceil is not None
+                       else (math.log10(30000.0) if math.isfinite(cover) else nan))
+        prev = prev_dmax.get(local_date, nan)
+        out.append({"row_key": key, "hour_f": loc.hour + loc.minute / 60.0, "doy": loc.timetuple().tm_yday,
+                    "station_code": station_code, "t": t, "td": td, "r": r_, "t_minus_r": t - r_,
+                    "tend3": (t - ago["temp"]) if ago else nan,
+                    "td_tend3": (td - ago["dwpf"]) if ago and ago["dwpf"] is not None else nan,
+                    "u": u, "v": v, "spd": sknt, "cover": cover, "log_ceiling": log_ceiling,
+                    "prev_dmax": prev, "prev_minus_t": prev - t})
+    return pd.DataFrame(out)
+
+
+def routine_dmax(rows, tz, local_date, min_routine=20):
+    """Half-up max of a day's routine (modal-minute), non-COR rows; None below ``min_routine`` rows."""
+    from collections import Counter
+
+    day = [r for r in rows if not r["is_cor"] and r["temp"] is not None
+           and r["valid"].astimezone(tz).date().isoformat() == local_date]
+    if not day:
+        return None
+    modal = Counter(r["valid"].minute for r in day).most_common(1)[0][0]
+    routine = [r["temp"] for r in day if r["valid"].minute == modal]
+    if len(routine) < min_routine:
+        return None
+    return float(math.floor(max(routine) + 0.5))
+
+
+def l6_captured_nowcasts(layout, replay_root, research_root, out_dir):
+    """Lane L6's own-obs nowcast N_own re-specified on the captured METAR rows (pick rule clarification 2 (e)).
+
+    Features per snapshot come only from that snapshot's captured METAR rows (usable from observation + 10 min,
+    the training rule); the previous-day max from the previous local day's last captured snapshot. Model: L6's
+    own history fit, unchanged (``upstream_obs_screen.build_history`` + ``make_model(OWN)``, imported). Positive
+    control first: that fit applied to L6's IEM serve features must reproduce L6's ``n_own`` (to 1e-9).
+    """
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    import numpy as np
+    import pandas as pd
+
+    from weather.calibration import upstream_obs_screen as l6
+
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    screen = Path(research_root) / "upstream_obs" / "screen"
+    hist, prov = l6.build_history(research_root)
+    train = hist[hist.month.isin(l6.TRAIN_MONTHS_PRIMARY)].reset_index(drop=True)
+    own = l6.make_model(l6.OWN).fit(train[list(l6.OWN)].to_numpy(float), train.y.to_numpy(float))
+    iem = pd.read_parquet(screen / "serve_features.parquet")
+    ref = pd.read_parquet(screen / "nowcasts.parquet").set_index("row_key")
+    again = iem.r.to_numpy(float) + own.predict(iem[list(l6.OWN)].to_numpy(float))
+    gap = float(np.nanmax(np.abs(again - ref.n_own.reindex(iem.row_key).to_numpy(float))))
+    if not gap < 1e-9:
+        raise ChallengerError(f"L6 positive control failed: refit n_own differs from L6's by {gap}")
+    _, sel, _ = l6.load(research_root)
+    codes = {icao: code for code, icao in enumerate(l6.stations(sel))}
+    snaps = pd.read_parquet(Path(layout) / "inputs_snapshots.parquet",
+                            columns=["row_key", "station", "market", "date", "local_hour", "snapshot_id"])
+    if (snaps.date.astype(str) > DEV_LAST.isoformat()).any():
+        raise ChallengerError("layout holds a snapshot after 2026-09-29")
+    station_of = snaps.groupby("market").station.first().to_dict()
+    snaps = snaps[snaps.local_hour.isin(l6.HOURS)]
+    wanted = {(r.market, r.snapshot_id): (r.row_key, str(r.date)[:10]) for r in snaps.itertuples(index=False)}
+    captured, snap_rows, last_rows = defaultdict(dict), defaultdict(list), defaultdict(dict)
+    stats = defaultdict(int)
+    for market, target, folder in _event_folders(replay_root):
+        if market not in station_of or not (DEV_FIRST - timedelta(days=1) <= target <= DEV_LAST):
+            continue
+        path = folder / "replay_inputs.jsonl"
+        if not path.is_file():
+            continue
+        station = station_of[market]
+        last = None
+        with open(path, encoding="utf-8") as handle:
+            for line in handle:
+                head = line[:line.find('"sources":')] if '"sources":' in line else line
+                sid, _ = _json_value_after(head, "snapshot_id")
+                cap_s, _ = _json_value_after(head, "captured_at_utc")
+                if cap_s is None:
+                    continue
+                cap = datetime.fromisoformat(cap_s)
+                last = (line, cap)
+                hit = wanted.get((market, sid))
+                if hit is None:
+                    continue
+                key, local_date = hit
+                captured[market][key] = [p for p in (parse_captured_metar(r.get("raw"), cap)
+                                                     for r in _captured_rows(line, station)) if p is not None]
+                snap_rows[market].append((key, cap, local_date))
+                stats["snapshots_scanned"] += 1
+        if last is not None:
+            last_rows[market][target.isoformat()] = [
+                p for p in (parse_captured_metar(r.get("raw"), last[1]) for r in _captured_rows(last[0], station))
+                if p is not None]
+    frames = []
+    for market in sorted(snap_rows):
+        station = station_of[market]
+        tz = ZoneInfo(sel[station]["timezone"])
+        prev = {}
+        for day in sorted({d for _, _, d in snap_rows[market]}):
+            before = (datetime.fromisoformat(day) - timedelta(days=1)).date().isoformat()
+            value = routine_dmax(last_rows[market].get(before, []), tz, before)
+            if value is None:
+                stats["prev_dmax_missing_days"] += 1
+            else:
+                prev[day] = value
+        frames.append(l6_captured_features(snap_rows[market], captured[market], tz, codes[station], prev))
+    feat = pd.concat(frames, ignore_index=True)
+    ok = np.isfinite(feat.r) & np.isfinite(feat.t)
+    stats["no_usable_row"] = int((~ok).sum())
+    feat = feat[ok].reset_index(drop=True)
+    res = pd.DataFrame({"row_key": feat.row_key, "n_own": feat.r.to_numpy(float) + own.predict(
+        feat[list(l6.OWN)].to_numpy(float)), "n_up": np.nan, "n_ring": np.nan})
+    res.to_parquet(out / "nowcasts.parquet", index=False)
+    feat.to_parquet(out / "serve_features.parquet", index=False)
+    joined = feat.set_index("row_key").join(iem.set_index("row_key")[list(l6.OWN)], rsuffix="_iem", how="inner")
+    parity = {}
+    for col in ("t", "td", "r", "tend3", "spd", "cover", "log_ceiling", "prev_dmax"):
+        d = (joined[col] - joined[f"{col}_iem"]).dropna()
+        parity[col] = {"n": int(len(d)), "share_within_0.05": float((d.abs() <= 0.05).mean()) if len(d) else None,
+                       "mad": float(d.abs().mean()) if len(d) else None,
+                       "captured_nan_iem_present": int((joined[col].isna() & joined[f"{col}_iem"].notna()).sum()),
+                       "iem_nan_captured_present": int((joined[col].notna() & joined[f"{col}_iem"].isna()).sum())}
+    nd = (res.set_index("row_key").n_own - ref.n_own).dropna()
+    manifest = dict(prov, positive_control_max_abs_gap=gap, rows=int(len(res)), stats=dict(stats),
+                    parity_vs_iem=parity,
+                    n_own_vs_iem={"n": int(len(nd)), "mad": float(nd.abs().mean()),
+                                  "share_within_0.05": float((nd.abs() <= 0.05).mean())},
+                    iem_rows=int(len(ref)), nowcasts_sha256=_sha256(out / "nowcasts.parquet"),
+                    layout_snapshots_sha256=_sha256(Path(layout) / "inputs_snapshots.parquet"),
+                    l6_module_sha256=_sha256(l6.__file__))
+    (out / "nowcasts_manifest.json").write_text(json.dumps(manifest, indent=1, sort_keys=True), encoding="utf-8")
+    return manifest
 
 
 def _rows(scores, arm, reference="served", scope="blended"):
@@ -1350,6 +1772,7 @@ def build_parser():
     emit.add_argument("--out-dir", required=True)
     emit.add_argument("--variants", default=",".join(DEV_DEFAULT_VARIANTS))
     emit.add_argument("--obs-from", default=None, help="reuse a previous run's dev_features.jsonl")
+    emit.add_argument("--nbm-corpus", default=None, help="lane L9 PIT NBM corpus rows (nbm_hist variant)")
     dscore = sub.add_parser("dev-score", help="score emitted candidates with dev_scorecard; apply dev_rule.md")
     dscore.add_argument("--layout", required=True)
     dscore.add_argument("--candidate", action="append", required=True, help="<name>=<jsonl>")
@@ -1360,6 +1783,22 @@ def build_parser():
     dscore.add_argument("--expect-brier-vs-mg1", action="append", default=[],
                         help="<candidate>=<value>: positive control, 07-12 Brier minus MG-1 to 1e-6")
     dscore.add_argument("--out", required=True)
+    pick = sub.add_parser("dev-pick", help="MG-2 afternoon-slot pick under the pinned pick rule")
+    pick.add_argument("--layout", required=True)
+    pick.add_argument("--arm-a", required=True, help="arm A source (jsonl | module:<path>)")
+    pick.add_argument("--challenger", action="append", default=[], help="<name>=<source>")
+    pick.add_argument("--parity", action="append", default=[], help="<name>=pass|fail")
+    pick.add_argument("--control-only", action="store_true",
+                      help="record arm A - MG-1 at 13-16 on arm A's rows only; no challenger is read")
+    pick.add_argument("--rule", required=True)
+    pick.add_argument("--control", type=float, default=PICK_CONTROL,
+                      help="recorded arm A - MG-1 13-16 control (pick rule clarification 1 (c))")
+    pick.add_argument("--out", required=True)
+    l6c = sub.add_parser("l6-captured", help="L6 own-obs nowcasts from the captured METAR rows (pick rule cl. 2 (e))")
+    l6c.add_argument("--layout", required=True)
+    l6c.add_argument("--replay-root", required=True)
+    l6c.add_argument("--research-root", required=True)
+    l6c.add_argument("--out-dir", required=True)
     cmp_ = sub.add_parser("compare", help="join with lane D's R0 rows and apply the rule")
     cmp_.add_argument("--rows-dir", required=True)
     cmp_.add_argument("--r0-rows", action="append", help="<market>=<feature_model_blocked_validation_rows path>")
@@ -1373,12 +1812,25 @@ def main(argv=None):
     try:
         if args.command == "score":
             return _score_command(args)
+        if args.command == "l6-captured":
+            manifest = l6_captured_nowcasts(args.layout, args.replay_root, args.research_root, args.out_dir)
+            print(json.dumps({k: manifest[k] for k in ("positive_control_max_abs_gap", "rows", "stats",
+                                                        "n_own_vs_iem", "parity_vs_iem")}, indent=1))
+            return 0
+        if args.command == "dev-pick":
+            chal = dict(item.split("=", 1) for item in args.challenger)
+            parity = {k: v == "pass" for k, v in (item.split("=", 1) for item in args.parity)}
+            result = dev_pick(args.layout, args.arm_a, chal, parity, args.rule, control=args.control,
+                              control_only=args.control_only)
+            Path(args.out).write_text(json.dumps(result, indent=1, sort_keys=True), encoding="utf-8")
+            print(json.dumps({"control": result["control"], "pick": result.get("pick")}, indent=1))
+            return 0
         if args.command == "dev-emit":
             audit = dev_emit(layout=args.layout, replay_root=args.replay_root,
                              train_manifests=args.train_manifest, dev_manifest=args.dev_manifest,
                              out_dir=args.out_dir, markets=args.markets.split(","),
                              variants=args.variants.split(","),
-                             obs_from=args.obs_from)
+                             obs_from=args.obs_from, nbm_corpus=args.nbm_corpus)
             print(json.dumps(audit["files"], indent=1))
             return 0
         if args.command == "dev-score":
