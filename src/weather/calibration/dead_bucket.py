@@ -631,7 +631,8 @@ def stream_summary(path, wanted, t_first, t_last):
     """
     import csv
 
-    rows, tokens, n = {}, {}, 0
+    csv.field_size_limit(2**31 - 1)  # captured rows can carry very long fields; values used are short
+    rows, tokens, n, bad = {}, {}, 0, 0
     with open(path, "r", encoding="utf-8-sig", newline="") as handle:
         reader = csv.reader(handle)
         header = next(reader, None) or []
@@ -641,7 +642,8 @@ def stream_summary(path, wanted, t_first, t_last):
         idx = {name: header.index(name) for name in _SUMMARY_FIELDS}
         for rec in reader:
             n += 1
-            if len(rec) < len(header):
+            if len(rec) != len(header) or max(map(len, rec), default=0) > 4096:
+                bad += 1  # torn, merged or oversized row: never used
                 continue
             key = summary_key(rec[idx["bin_kind"]], rec[idx["bin_value"]], rec[idx["bin_value_hi"]])
             if key not in wanted:
@@ -657,7 +659,7 @@ def stream_summary(path, wanted, t_first, t_last):
                 "best_bid", "best_ask", "bid_depth_1pct", "ask_depth_1pct", "bid_depth_5pct", "ask_depth_5pct"))))
     for v in rows.values():
         v.sort(key=lambda r: r[0])
-    return rows, tokens, n
+    return rows, tokens, (n, bad)
 
 
 def stream_prints(folder, tokens, t_first, t_last):
@@ -736,7 +738,8 @@ def stage_a_scan(layout, obs, tapes_root, markets, kept):
         t_first = min(en for _, _, en in dead)
         rows, tokens, n_rows = stream_summary(folder / "order_books_summary.csv", set(wanted), t_first, end)
         prints, n_parts = stream_prints(folder, tokens, t_first, end + PRINT_WINDOW)
-        days.append(dict(info, status="scanned", summary_rows=n_rows, trade_parts=n_parts, prints_kept=len(prints),
+        n_rows, n_bad = n_rows
+        days.append(dict(info, status="scanned", summary_rows=n_rows, summary_bad_rows=n_bad, trade_parts=n_parts, prints_kept=len(prints),
                          tokens_matched=len(tokens)))
         for key, (band, fd, entry) in wanted.items():
             bi = int(band.band_index)

@@ -138,6 +138,7 @@ def _tapes(tmp_path, no_asks, prints, truncated_last=True):
         lines.append(f"y{i},{t},{SLUG},eq,81,82,Yes,tokYES,{1 - ask:.3f},{1 - ask + 0.01:.3f},7,7,9,9")
     lines.append(f"x,2026-08-20T19:00:00+00:00,{SLUG},gte,83,83,No,tokG,0.1,0.2,1,1,1,1")
     body = "\n".join(lines) + "\n"
+    body += 'big,2026-08-20T18:06:00+00:00,' + SLUG + ',eq,81,82,No,tokNO,0.1,"' + "x" * 200000 + '",1,1,1,1\n'
     if truncated_last:
         body += "partial,2026-08-20T19"  # a torn final row is skipped
     (ev / "order_books_summary.csv").write_text(body, encoding="utf-8")
@@ -178,6 +179,7 @@ def test_stage_a_fill_is_capped_by_prints_and_depth(tmp_path, monkeypatch):
     lte = next(x for x in buckets if x["band_index"] == 0)
     assert lte["status"] == "no_capture"  # no lte 80 token in the summary
     assert days[0]["status"] == "scanned" and days[0]["trade_parts"] == 1
+    assert days[0]["summary_bad_rows"] == 2  # the oversized and the torn row
 
 
 def test_stage_a_settled_yes_loses_the_filled_cost(tmp_path, monkeypatch):
