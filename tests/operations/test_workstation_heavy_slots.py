@@ -1,0 +1,558 @@
+"""Concurrent workstation heavy slots for workstation_heavy.ps1 and workload_admission.ps1.
+
+Guards: HOST_LOAD_POLICY "Workstation focused runs, FIFO queue and xdist" heavy-slot rules (master
+ruling 2026-10-24, lane W2) - at most -SlotCount (default 3) concurrent workstation_offline_v1 jobs;
+each admission needs available physical memory >= the floor (default 6 GB) and commit charge <= the
+ceiling (default 90 %); an older wrapper holding the legacy lease occupies slot 1 and is counted; a
+portable live stage excludes every slot in both orders; a dead slot holder is reclaimed only by the
+legacy stale-ACTIVE rules; capture-colocated admission keeps the single serial lease.
+
+Every process here uses a fixture-local mutex name and state path, never the host's real lease.
+"""
+
+from __future__ import annotations
+
+import base64
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import time
+import uuid
+
+import pytest
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+POWERSHELL = ("powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass")
+LEGACY_MUTEX = "Global\\WeatherProjectHeavyWorkloadV1"
+QUEUE_TIMEOUT_EXIT_CODE = 75
+GIB = 1024**3
+pytestmark = [
+    pytest.mark.spawns,
+    pytest.mark.skipif(
+        os.name != "nt" or shutil.which("powershell") is None,
+        reason="Windows PowerShell wrapper",
+    ),
+]
+
+TEST_OVERRIDES = r"""
+# TEST-ONLY HOST-GLOBAL STATE, MEMORY, RESIDUAL-SCAN AND WINDOW OVERRIDES
+function Get-WeatherHeavyWorkloadPoisonPath {
+    param([switch]$CreateIfMissing)
+    Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) '.test-heavy-workload.poison'
+}
+function Get-WeatherActiveWorkstationHeavyProcess {
+    param($ProcessSnapshot, $TaskObservation, $DecisionLog)
+    if ($env:WEATHER_TEST_RESIDUAL_PID) {
+        [PSCustomObject]@{ ProcessId = [int]$env:WEATHER_TEST_RESIDUAL_PID; Name = 'python.exe' }
+    }
+}
+function Get-WeatherWorkstationMemoryReading {
+    $available = if ($env:WEATHER_TEST_AVAILABLE_BYTES) { [long]$env:WEATHER_TEST_AVAILABLE_BYTES } else { 16GB }
+    $commit = if ($env:WEATHER_TEST_COMMIT_PERCENT) { [double]$env:WEATHER_TEST_COMMIT_PERCENT } else { 40.0 }
+    [PSCustomObject]@{ TotalPhysicalBytes = 32GB; AvailablePhysicalBytes = $available; CommitPercent = $commit }
+}
+if ($env:WEATHER_TEST_CAPTURE_WINDOW_OPEN -eq '1') {
+    function Get-WeatherHeavyWorkloadPolicyWindow { param($Now, [switch]$AllowStageAWindow, $OwnerApprovedException) 'agent_heavy' }
+}
+"""
+
+
+def _install(repo: Path) -> str:
+    ops = repo / "scripts" / "ops"
+    ops.mkdir(parents=True, exist_ok=True)
+    for name in ("workstation_heavy.ps1", "workload_admission.ps1", "windows_kill_on_close_job.ps1"):
+        shutil.copyfile(REPO_ROOT / "scripts" / "ops" / name, ops / name)
+    admission = ops / "workload_admission.ps1"
+    text = admission.read_text(encoding="utf-8-sig")
+    assert text.count(LEGACY_MUTEX) >= 1
+    mutex = "Local\\WeatherSlotFixture-" + uuid.uuid4().hex
+    admission.write_text(text.replace(LEGACY_MUTEX, mutex) + TEST_OVERRIDES, encoding="utf-8")
+    return mutex
+
+
+def _write_assignment(repo: Path, *, capture_identity: bool) -> None:
+    config = repo / "config"
+    config.mkdir(parents=True, exist_ok=True)
+    script = r"""
+$ErrorActionPreference = 'Stop'
+. $env:WEATHER_LEASE_SCRIPT
+$hostId = Get-WeatherExecutionHostId
+$record = [ordered]@{
+    active_portable_execution_host_id = $(if ($env:WEATHER_CAPTURE_IDENTITY -eq '1') { $null } else { $hostId })
+    active_portable_execution_principal_id = $(if ($env:WEATHER_CAPTURE_IDENTITY -eq '1') { $null } else { Get-WeatherExecutionPrincipalId })
+    assignment_status = $(if ($env:WEATHER_CAPTURE_IDENTITY -eq '1') { 'UNASSIGNED' } else { 'ASSIGNED' })
+    dedicated_capture_execution_host_id = $(if ($env:WEATHER_CAPTURE_IDENTITY -eq '1') { $hostId } else { 'f' * 64 })
+    reassignment_requires_new_production_tip = $true
+    schema_version = 'international_live_execution_host_assignment_v0.1'
+}
+[IO.File]::WriteAllText($env:WEATHER_ASSIGNMENT_PATH, ($record | ConvertTo-Json -Compress),
+    [Text.UTF8Encoding]::new($false))
+"""
+    env = {
+        **os.environ,
+        "WEATHER_LEASE_SCRIPT": str(REPO_ROOT / "scripts/ops/workload_admission.ps1"),
+        "WEATHER_ASSIGNMENT_PATH": str(config / "international_live_execution_host.json"),
+        "WEATHER_CAPTURE_IDENTITY": "1" if capture_identity else "0",
+    }
+    result = subprocess.run([*POWERSHELL, "-Command", script], capture_output=True, text=True, env=env, check=False)
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.fixture
+def workstation(tmp_path: Path) -> Path:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _install(repo)
+    _write_assignment(repo, capture_identity=False)
+    return repo
+
+
+@pytest.fixture
+def capture_host(tmp_path: Path) -> Path:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _install(repo)
+    _write_assignment(repo, capture_identity=True)
+    return repo
+
+
+def _env(**overrides: str) -> dict[str, str]:
+    env = {key: value for key, value in os.environ.items() if not key.startswith("WEATHER_TEST_")}
+    env.pop("WEATHER_WORKSTATION_WRAPPER_SLOT", None)
+    env.update(overrides)
+    return env
+
+
+def _admission(repo: Path, body: str, **env: str) -> subprocess.CompletedProcess[str]:
+    script = f"$ErrorActionPreference = 'Stop'\n. '{repo / 'scripts/ops/workload_admission.ps1'}'\n" + body
+    return subprocess.run(
+        [*POWERSHELL, "-Command", script], capture_output=True, text=True, check=False, timeout=180, env=_env(**env)
+    )
+
+
+SLOT_ENTER = "Enter-WeatherWorkstationHeavySlotLease -RepoRoot '{repo}' -Workload 'WorkstationOffline-pytest-{name}'"
+LEGACY_ENTER = (
+    "Enter-WeatherHeavyWorkloadLease -RepoRoot '{repo}' -Workload 'WorkstationOffline-pytest-{name}' "
+    "-ExecutionHostProfile 'workstation_offline_v1'"
+)
+PORTABLE_ENTER = (
+    "Enter-WeatherHeavyWorkloadLease -RepoRoot '{repo}' -Workload 'InternationalLive-stage0-{name}-0123456789ab' "
+    "-ExecutionHostProfile 'portable_execution_v1' -ExpectedExecutionHostId (Get-WeatherExecutionHostId)"
+)
+CAPTURE_ENTER = "Enter-WeatherHeavyWorkloadLease -RepoRoot '{repo}' -Workload '{name}'"
+
+
+class Holder:
+    """A PowerShell process that holds one lease until its release file appears."""
+
+    def __init__(self, repo: Path, enter: str, name: str, **env: str) -> None:
+        self.release = repo / f"release-{name}.flag"
+        script = f"""
+$ErrorActionPreference = 'Stop'
+. '{repo / "scripts/ops/workload_admission.ps1"}'
+$lease = {enter.format(repo=repo, name=name)}
+if ($null -eq $lease) {{ Write-Output 'BUSY'; exit 3 }}
+Write-Output ('ACQUIRED {{0}}' -f [int]$lease.WorkstationSlotId)
+[Console]::Out.Flush()
+$deadline = [DateTime]::UtcNow.AddSeconds(150)
+while (-not (Test-Path -LiteralPath '{self.release}') -and [DateTime]::UtcNow -lt $deadline) {{
+    Start-Sleep -Milliseconds 50
+}}
+Set-WeatherHeavyWorkloadLeaseTeardownPending -Lease $lease | Out-Null
+Exit-WeatherHeavyWorkloadLease -Lease $lease
+"""
+        self.process = subprocess.Popen(
+            [*POWERSHELL, "-Command", script], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=_env(**env)
+        )
+        assert self.process.stdout is not None
+        line = self.process.stdout.readline().strip()
+        if not line.startswith("ACQUIRED "):
+            self.process.kill()
+            raise AssertionError((line, self.process.stderr.read() if self.process.stderr else ""))
+        self.slot = int(line.split()[1])
+
+    def stop(self) -> None:
+        self.release.write_text("go", encoding="utf-8")
+        try:
+            assert self.process.wait(timeout=60) == 0, self.process.stderr.read() if self.process.stderr else ""
+        finally:
+            if self.process.poll() is None:
+                self.process.kill()
+
+
+@pytest.fixture
+def holders():
+    started: list[Holder] = []
+    yield started
+    for holder in started:
+        holder.release.write_text("go", encoding="utf-8")
+    for holder in started:
+        try:
+            holder.process.wait(timeout=60)
+        finally:
+            if holder.process.poll() is None:
+                holder.process.kill()
+
+
+def _child_test(repo: Path, name: str, record: Path) -> Path:
+    path = repo / f"test_child_{name}.py"
+    path.write_text(
+        "from pathlib import Path\n\n"
+        "def test_child():\n"
+        f"    with Path({str(record)!r}).open('a', encoding='utf-8') as handle:\n"
+        f"        handle.write({name!r} + '\\n')\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def _wrapper_argv(repo: Path, test_file: Path, *extra: str) -> list[str]:
+    arguments = ["-m", "pytest", str(test_file), "-q", "-p", "no:cacheprovider", "--basetemp", str(repo / "bt" / test_file.stem)]
+    encoded = base64.b64encode(json.dumps(arguments).encode("utf-8")).decode("ascii")
+    return [
+        *POWERSHELL, "-File", str(repo / "scripts/ops/workstation_heavy.ps1"), "-Kind", "pytest",
+        "-PythonPath", sys.executable, "-ArgumentsBase64", encoded, "-RepoRoot", str(repo), *extra,
+    ]
+
+
+def _run_wrapper(repo: Path, name: str, *extra: str, **env: str) -> tuple[subprocess.CompletedProcess[str], Path]:
+    sentinel = repo / f"ran-{name}.txt"
+    result = subprocess.run(
+        _wrapper_argv(repo, _child_test(repo, name, sentinel), *extra),
+        capture_output=True, text=True, check=False, timeout=240, env=_env(**env),
+    )
+    return result, sentinel
+
+
+def _events(repo: Path) -> list[dict]:
+    path = repo / "data" / "logs" / "heavy_workload_queue.jsonl"
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def _recovery_outcomes(repo: Path) -> list[tuple[str, int | None]]:
+    path = repo / "data" / "logs" / "heavy_workload_recovery.jsonl"
+    if not path.exists():
+        return []
+    records = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    return [(record["outcome"], record.get("workstation_slot_id")) for record in records]
+
+
+def _wait_for(predicate, timeout: float = 90.0) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return
+        time.sleep(0.1)
+    raise AssertionError("condition not reached before the deadline")
+
+
+def _slot_marker(repo: Path, slot: int) -> Path:
+    return repo / (".test-heavy-workload.poison" if slot == 1 else f".test-heavy-workload.slot{slot}.poison")
+
+
+def _write_marker(repo: Path, slot: int, *, pid: int, start: str, state: str = "ACTIVE", boot: int = 1) -> Path:
+    path = _slot_marker(repo, slot)
+    path.write_text(
+        json.dumps(
+            {
+                "boot_session_id": boot,
+                "execution_host_profile": "workstation_offline_v1",
+                "owner_process_start_utc": start,
+                "pid": pid,
+                "schema_version": "weather_heavy_workload_state_v1",
+                "state": state,
+                "state_changed_at_utc": "2026-10-24T00:00:01.0000000Z",
+                "workload": f"WorkstationOffline-pytest-dead-slot{slot}",
+            }
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def _dead_pid() -> int:
+    dead = subprocess.run([sys.executable, "-c", "import os; print(os.getpid())"], capture_output=True, text=True, check=True)
+    return int(dead.stdout.strip())
+
+
+def test_three_slots_admit_three_jobs_and_refuse_or_queue_the_fourth(workstation: Path, holders: list[Holder]) -> None:
+    repo = workstation
+    for name in ("a", "b", "c"):
+        holders.append(Holder(repo, SLOT_ENTER, name))
+    # Fresh extra slots first, the legacy slot last, so an older wrapper keeps its chance.
+    assert [holder.slot for holder in holders] == [2, 3, 1]
+    for slot in (1, 2, 3):
+        assert _slot_marker(repo, slot).exists()
+    owner = json.loads((repo / "data/logs/heavy_workload.slot2.lock").read_text(encoding="utf-8"))
+    assert owner["workstation_slot_id"] == 2
+    assert owner["host_global_mutex"].endswith(".Slot2")
+
+    direct, sentinel = _run_wrapper(repo, "direct")
+    assert direct.returncode == 1
+    assert "blocked by another heavy or portable live lease (slots_full)" in direct.stderr
+    assert not sentinel.exists()
+
+    timed_out, sentinel = _run_wrapper(repo, "late", "-Queue", "-QueueTimeoutSeconds", "2", "-QueuePollMilliseconds", "200")
+    assert timed_out.returncode == QUEUE_TIMEOUT_EXIT_CODE, timed_out.stderr
+    assert not sentinel.exists()
+    give_up = [e for e in _events(repo) if e["event"] == "give_up"]
+    assert len(give_up) == 1 and give_up[0]["slot_refusal"] == "slots_full"
+    assert sorted(h["slot_id"] for h in give_up[0]["slot_holders"]) == [1, 2, 3]
+
+    # A queued fourth job starts in the slot that frees, and the log records it.
+    sentinel = repo / "ran-queued.txt"
+    queued = subprocess.Popen(
+        _wrapper_argv(
+            repo, _child_test(repo, "queued", sentinel), "-Queue", "-QueuePollMilliseconds", "100",
+            "-QueueReportSeconds", "1",
+        ),
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=_env(),
+    )
+    try:
+        _wait_for(lambda: any(e["event"] == "wait" and e["pid"] == queued.pid for e in _events(repo)))
+        assert queued.poll() is None and not sentinel.exists()
+        holders[1].stop()  # frees slot 3
+        out, err = queued.communicate(timeout=180)
+    finally:
+        if queued.poll() is None:
+            queued.kill()
+    assert queued.returncode == 0, err
+    assert "workstation-heavy: admitted to slot 3 of 3" in out
+    assert sentinel.read_text(encoding="utf-8").split() == ["queued"]
+    mine = [e for e in _events(repo) if e["pid"] == queued.pid]
+    start = next(e for e in mine if e["event"] == "start")
+    finish = next(e for e in mine if e["event"] == "finish")
+    assert (start["slot_id"], start["slot_count"], start["busy_slots_at_admission"]) == (3, 3, [1, 2])
+    assert (finish["slot_id"], finish["exit_code"]) == (3, 0)
+    assert any(e["event"] == "wait" and e["slot_refusal"] == "slots_full" for e in mine)
+
+
+def test_slot_count_is_a_parameter_and_one_slot_is_the_serial_lease(workstation: Path, holders: list[Holder]) -> None:
+    repo = workstation
+    holders.append(Holder(repo, SLOT_ENTER, "only"))
+    assert holders[0].slot == 2
+    serial, sentinel = _run_wrapper(repo, "serial", "-SlotCount", "1")
+    assert serial.returncode == 1
+    assert "(slots_full)" in serial.stderr and not sentinel.exists()
+    wide, sentinel = _run_wrapper(repo, "wide", "-SlotCount", "2")
+    assert wide.returncode == 0, wide.stderr
+    assert "admitted to slot 1 of 2" in wide.stdout and sentinel.exists()
+
+
+@pytest.mark.parametrize(
+    ("extra", "env", "admitted", "reason"),
+    (
+        ((), {"WEATHER_TEST_AVAILABLE_BYTES": str(6 * GIB - 1)}, False, "available_memory_below_floor"),
+        ((), {"WEATHER_TEST_AVAILABLE_BYTES": str(6 * GIB)}, True, ""),
+        (("-MinAvailableMemoryGB", "2"), {"WEATHER_TEST_AVAILABLE_BYTES": str(3 * GIB)}, True, ""),
+        (("-MinAvailableMemoryGB", "4"), {"WEATHER_TEST_AVAILABLE_BYTES": str(3 * GIB)}, False, "available_memory_below_floor"),
+        ((), {"WEATHER_TEST_COMMIT_PERCENT": "90.1"}, False, "commit_charge_above_ceiling"),
+        ((), {"WEATHER_TEST_COMMIT_PERCENT": "90"}, True, ""),
+        (("-MaxCommitPercent", "50"), {"WEATHER_TEST_COMMIT_PERCENT": "60"}, False, "commit_charge_above_ceiling"),
+    ),
+)
+def test_memory_guard_refuses_below_the_floor_and_above_the_commit_ceiling(
+    workstation: Path, extra: tuple[str, ...], env: dict[str, str], admitted: bool, reason: str
+) -> None:
+    result, sentinel = _run_wrapper(workstation, "guard", *extra, **env)
+    if admitted:
+        assert result.returncode == 0, result.stderr
+        assert sentinel.exists()
+    else:
+        assert result.returncode == 1
+        assert f"blocked by another heavy or portable live lease ({reason})" in result.stderr
+        assert not sentinel.exists()
+        assert not any(workstation.glob(".test-heavy-workload*.poison"))
+
+
+def test_memory_guard_holds_a_queued_job_until_memory_returns(workstation: Path) -> None:
+    result, sentinel = _run_wrapper(
+        workstation, "starved", "-Queue", "-QueueTimeoutSeconds", "2", "-QueuePollMilliseconds", "200",
+        WEATHER_TEST_AVAILABLE_BYTES=str(GIB),
+    )
+    assert result.returncode == QUEUE_TIMEOUT_EXIT_CODE
+    assert not sentinel.exists()
+    give_up = next(e for e in _events(workstation) if e["event"] == "give_up")
+    assert give_up["slot_refusal"] == "available_memory_below_floor"
+
+
+def test_an_older_wrappers_legacy_lease_counts_as_one_slot(workstation: Path, holders: list[Holder]) -> None:
+    repo = workstation
+    # The legacy lease exactly as older wrapper copies take it: slot 1, no slot parameter.
+    holders.append(Holder(repo, LEGACY_ENTER, "old"))
+    assert holders[0].slot == 1
+    assert json.loads((repo / "data/logs/heavy_workload.lock").read_text(encoding="utf-8"))["workstation_slot_id"] == 1
+    holders.append(Holder(repo, SLOT_ENTER, "new-a"))
+    holders.append(Holder(repo, SLOT_ENTER, "new-b"))
+    assert [holder.slot for holder in holders] == [1, 2, 3]
+    full, sentinel = _run_wrapper(repo, "fourth")
+    assert full.returncode == 1 and "(slots_full)" in full.stderr and not sentinel.exists()
+
+    # The other direction: once new wrappers hold the legacy slot, an older wrapper is refused.
+    holders[0].stop()
+    holders.append(Holder(repo, SLOT_ENTER, "new-c"))
+    assert holders[-1].slot == 1
+    old_again = _admission(repo, f"$lease = {LEGACY_ENTER.format(repo=repo, name='old2')}\nif ($null -eq $lease) {{ 'BUSY' }} else {{ 'ACQUIRED' }}\n")
+    assert old_again.returncode == 0, old_again.stderr
+    assert old_again.stdout.strip() == "BUSY"
+
+
+def test_a_queued_slot_waiter_passes_an_older_waiter_only_through_an_extra_slot(workstation: Path) -> None:
+    repo = workstation
+    queue = repo / "heavy_workload_queue_v1"
+    queue.mkdir()
+    # An older wrapper's ticket (no slot_aware field) owned by this live test process.
+    start = _admission(repo, f"[Diagnostics.Process]::GetProcessById({os.getpid()}).StartTime.ToUniversalTime().ToString('o')\n")
+    assert start.returncode == 0, start.stderr
+    (queue / f"ticket-{1:012d}.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "weather_heavy_workload_queue_ticket_v1",
+                "ticket": 1,
+                "pid": os.getpid(),
+                "owner_process_start_utc": start.stdout.strip(),
+                "enqueued_at_utc": "2026-10-24T00:00:00.0000000Z",
+                "workload": "WorkstationOffline-pytest-older",
+                "repo_root": str(repo),
+            }
+        ),
+        encoding="utf-8",
+    )
+    passed, sentinel = _run_wrapper(repo, "passer", "-Queue", "-QueuePollMilliseconds", "100", "-QueueTimeoutSeconds", "60")
+    assert passed.returncode == 0, passed.stderr
+    assert "admitted to slot 2 of 3" in passed.stdout and sentinel.exists()
+    start_event = next(e for e in _events(repo) if e["event"] == "start")
+    assert (start_event["position"], start_event["slot_id"]) == (2, 2)
+
+    # With one slot the only slot is the legacy one, so the waiter stays behind the older ticket.
+    held, sentinel = _run_wrapper(
+        repo, "behind", "-Queue", "-SlotCount", "1", "-QueuePollMilliseconds", "100", "-QueueTimeoutSeconds", "2"
+    )
+    assert held.returncode == QUEUE_TIMEOUT_EXIT_CODE and not sentinel.exists()
+    give_up = [e for e in _events(repo) if e["event"] == "give_up"]
+    assert give_up[-1]["slot_refusal"] == "legacy_slot_left_to_older_waiter"
+
+
+def test_portable_live_stage_and_slots_exclude_each_other_in_both_orders(workstation: Path, holders: list[Holder]) -> None:
+    repo = workstation
+    live = Holder(repo, PORTABLE_ENTER, "live")
+    holders.append(live)
+    assert live.slot == 1
+    blocked, sentinel = _run_wrapper(repo, "during-live")
+    assert blocked.returncode == 1
+    assert "(portable_live_stage)" in blocked.stderr and not sentinel.exists()
+    live.stop()
+
+    holders.append(Holder(repo, SLOT_ENTER, "heavy"))
+    assert holders[-1].slot == 2
+    contender = _admission(repo, f"$lease = {PORTABLE_ENTER.format(repo=repo, name='late')}\nif ($null -eq $lease) {{ 'BUSY' }} else {{ 'ACQUIRED' }}\n")
+    assert contender.returncode == 0, contender.stderr
+    assert contender.stdout.strip() == "BUSY"
+    assert not (repo / ".test-heavy-workload.poison").exists()
+
+
+def test_a_dead_slot_holder_is_reclaimed_only_by_the_legacy_stale_rules(workstation: Path, holders: list[Holder]) -> None:
+    repo = workstation
+    holders.append(Holder(repo, LEGACY_ENTER, "old"))  # slot 1 busy, so slot 2 is the only candidate
+    marker = _write_marker(repo, 2, pid=_dead_pid(), start="2026-10-24T00:00:00.0000000Z")
+
+    residual, sentinel = _run_wrapper(repo, "residual", "-SlotCount", "2", WEATHER_TEST_RESIDUAL_PID="4242")
+    assert residual.returncode == 1
+    assert "(free_slots_not_recoverable)" in residual.stderr and not sentinel.exists()
+    assert marker.exists()
+    assert _recovery_outcomes(repo) == [("refused_residual_processes", 2)]
+
+    # An owner that is still alive is never reclaimed, whatever the mutex says.
+    alive = _admission(repo, f"[Diagnostics.Process]::GetProcessById({os.getpid()}).StartTime.ToUniversalTime().ToString('o')\n")
+    _write_marker(repo, 2, pid=os.getpid(), start=alive.stdout.strip())
+    owner_alive, sentinel = _run_wrapper(repo, "alive", "-SlotCount", "2")
+    assert owner_alive.returncode == 1 and not sentinel.exists()
+    assert _recovery_outcomes(repo)[-1] == ("refused_owner_alive", 2)
+
+    _write_marker(repo, 2, pid=_dead_pid(), start="2026-10-24T00:00:00.0000000Z")
+    recovered, sentinel = _run_wrapper(repo, "recovered", "-SlotCount", "2")
+    assert recovered.returncode == 0, recovered.stderr
+    assert "admitted to slot 2 of 2" in recovered.stdout and sentinel.exists()
+    assert _recovery_outcomes(repo)[-1] == ("recovered", 2)
+    assert not _slot_marker(repo, 2).exists()
+
+
+def test_a_fresh_slot_is_preferred_over_a_dead_holders_slot(workstation: Path) -> None:
+    repo = workstation
+    marker = _write_marker(repo, 2, pid=_dead_pid(), start="2026-10-24T00:00:00.0000000Z")
+    result, sentinel = _run_wrapper(repo, "fresh", WEATHER_TEST_RESIDUAL_PID="4242")
+    assert result.returncode == 0, result.stderr
+    assert "admitted to slot 3 of 3" in result.stdout and sentinel.exists()
+    assert marker.exists() and _recovery_outcomes(repo) == []
+
+
+def test_a_dead_slot_owners_pending_teardown_blocks_every_admission(workstation: Path) -> None:
+    repo = workstation
+    _write_marker(repo, 3, pid=_dead_pid(), start="2026-10-24T00:00:00.0000000Z", state="TEARDOWN_PENDING")
+    expected = "teardown is pending; a proved reboot and explicit poison recovery are required (slot 3)"
+    for extra in ((), ("-Queue", "-QueuePollMilliseconds", "100")):
+        result, sentinel = _run_wrapper(repo, "poisoned", *extra)
+        assert result.returncode == 1, extra
+        assert expected in result.stderr, extra
+        assert not sentinel.exists()
+    for enter in (LEGACY_ENTER, PORTABLE_ENTER):
+        refused = _admission(repo, enter.format(repo=repo, name="poisoned") + "\n")
+        assert refused.returncode != 0 and expected in refused.stderr
+    # Recovery names the slot and still demands a different boot session.
+    boot = _admission(repo, "Get-WeatherBootSessionId\n")
+    _write_marker(repo, 3, pid=_dead_pid(), start="2026-10-24T00:00:00.0000000Z", state="TEARDOWN_PENDING", boot=int(boot.stdout))
+    clear = _admission(repo, "Clear-WeatherHeavyWorkloadPoison -SlotId 3 -Confirmation 'I_HAVE_VERIFIED_NO_RESIDUAL_WEATHER_WORKLOAD_PROCESSES'\n")
+    assert clear.returncode != 0 and "a different Windows boot session is required" in clear.stderr
+    assert _slot_marker(repo, 3).exists()
+
+
+def test_nested_callers_prove_the_exported_slot_is_held(workstation: Path, holders: list[Holder]) -> None:
+    repo = workstation
+    holders.append(Holder(repo, SLOT_ENTER, "outer"))
+    assert holders[0].slot == 2
+    probe = "$r = Test-WeatherWorkstationWrapperSlotHeld\n'{0}:{1}' -f $r.SlotId, $r.Held\n"
+    assert _admission(repo, probe, WEATHER_WORKSTATION_WRAPPER_SLOT="2").stdout.strip() == "2:True"
+    assert _admission(repo, probe, WEATHER_WORKSTATION_WRAPPER_SLOT="3").stdout.strip() == "3:False"
+    assert _admission(repo, probe).stdout.strip() == "1:False"
+    invalid = _admission(repo, probe, WEATHER_WORKSTATION_WRAPPER_SLOT="9")
+    assert invalid.returncode != 0 and "not a workstation slot id" in invalid.stderr
+
+
+def test_capture_host_path_stays_one_serial_lease(capture_host: Path, holders: list[Holder]) -> None:
+    repo = capture_host
+    window = {"WEATHER_TEST_CAPTURE_WINDOW_OPEN": "1"}
+    holders.append(Holder(repo, CAPTURE_ENTER, "capture_holder", **window))
+    assert holders[0].slot == 1
+    record = json.loads((repo / "data/logs/heavy_workload.lock").read_text(encoding="utf-8"))
+    assert record["execution_host_profile"] == "capture_colocated_v1"
+    assert "workstation_slot_id" not in record
+    assert not record["host_global_mutex"].endswith(tuple(f".Slot{n}" for n in range(2, 9)))
+
+    contender = _admission(
+        repo, f"$lease = {CAPTURE_ENTER.format(repo=repo, name='second')}\nif ($null -eq $lease) {{ 'BUSY' }} else {{ 'ACQUIRED' }}\n", **window
+    )
+    assert contender.returncode == 0, contender.stderr
+    assert contender.stdout.strip() == "BUSY"
+    extra = _admission(repo, CAPTURE_ENTER.format(repo=repo, name="slot2") + " -WorkstationSlotId 2\n", **window)
+    assert extra.returncode != 0
+    assert "only workstation-offline admission may take an extra workstation slot" in extra.stderr
+
+    for body in (
+        SLOT_ENTER.format(repo=repo, name="cap") + "\n",
+        f"Enter-WeatherHeavyWorkloadLeaseQueued -RepoRoot '{repo}' -Workload 'WorkstationOffline-pytest-1'\n",
+    ):
+        refused = _admission(repo, body, **window)
+        assert refused.returncode != 0
+        assert "forbidden on the dedicated capture host" in refused.stderr
+    wrapper, sentinel = _run_wrapper(repo, "cap", **window)
+    assert wrapper.returncode == 1 and "forbidden on the dedicated capture host" in wrapper.stderr
+    assert not sentinel.exists()
+    assert not list((repo / "data" / "logs").glob("heavy_workload.slot*.lock"))
+    assert not list(repo.glob(".test-heavy-workload*.poison"))
+    assert not (repo / "heavy_workload_queue_v1").exists()
