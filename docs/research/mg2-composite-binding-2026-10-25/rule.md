@@ -31,18 +31,17 @@ The two halves are bound separately:
   extended to the end of the dev window. The dev part was `313d1743…`, fitted on the IEM nowcast. It is
   re-frozen on the captured-METAR nowcast (§8 captured-source Clarification), and the sha in the rule
   block is replaced by that refit's before D0.
-- **P3d_N (PENDING):** `p3d_n_state_sha256: PENDING`, the sha256 of the bytes of L2's frozen
-  `p3d_n_state.pkl` (schema `mg2_p3d_n_state/1`, `mg2_p3d_n.write_state`).
-  - The bound state is L2's forward-window refit under **L2's Clarification 3**:
-    - the training window Aug-Nov (or Aug-Dec) 2021-25;
-    - the serve-time conversion of high_so_far and current_temp to WU whole °F under a stated rounding
-      rule;
-    - a stated late-report rule.
-  - It is exported from L2's branch straight into the schema and recorded here by a dated Clarification
-    before D0.
+- **P3d_N (frozen):** `p3d_n_state_sha256`
+  `c6cc39f7b57f668557415d28ec37ac291694f4b429e572a3c178fb74e5a9c780`. This is the sha256 of the bytes of
+  L2's frozen `p3d_n_state.pkl` (schema `mg2_p3d_n_state/1`), checked before unpickling.
+  - The state is L2's forward-window refit under **L2's Clarification 3** (§8):
+    - Aug-Dec 2021-25 training;
+    - conversion `wu_whole_f_tgroup:half_up`;
+    - late-report rule `last_in_hour`.
+  - L2 exported it from its own branch with `pooled_residual_model forward-fit`.
   - The state's `fit_kind` must be `forward`. Forward `emit` refuses a `dev` fit.
   - The dev fit (Aug-Sep 2021-25, 45,873 rows) is used only for the control replay (§(a)). Its state
-    sha is never bound.
+    sha `dff5d797…` is never bound.
 - **L6 own-obs nowcast:** the HGB of `upstream_obs_screen` (fixed parameters, `random_state` 0), fitted
   on the Aug-Sep 2021-25 IEM history.
   - Its serve-time inputs are the captured METAR rows, read by `mg2_composite.captured_nowcast`, which
@@ -73,10 +72,9 @@ rule-named input is registered (`mg2_composite.SOURCES`) as `captured`, and the 
 The retired dev sources (Open-Meteo Previous Runs for the former arm A, and the free IEM fetch for L6)
 stay registered as `external`, and forward emission refuses them.
 
-**Consequence today.** P3d_N's state sha is PENDING, so MG-2 cannot emit a forward vector and its
-accrual cannot start. D0 is set only after:
-- L2's Clarification 3 state sha is recorded here;
-- the L6 part is re-frozen on the captured-METAR nowcast and its sha recorded.
+**Consequence today.** P3d_N's state is bound (§8 C3-binding). D0 is still set only after:
+- the L6 part is re-frozen on the captured-METAR nowcast and its sha recorded;
+- the Fable review, the binding commit and the input transfer (binding plan).
 
 The dev-window control replay (`--control`, dates ≤ 2026-09-29) may load the dev P3d_N fit.
 
@@ -312,6 +310,36 @@ arm A (L3's OLS + floor on an Open-Meteo forecast), and the planned arm A′ is 
 
 The dev control runs with the conversion disabled.
 
+**Clarification C3-binding (2026-10-25, coordinator relay of L2's Clarification 3; dated before D0):
+P3d_N's forward state is bound.**
+- **L2's rule:** `C:\t\l2\rule.md`, sha256 `fa4257dffe192016da9b72d261a786e894dbc6478a9b4ebb6c3762fe15ee7eea`.
+- **The frozen artifacts:**
+  - state `p3d_n_state.pkl`, sha256 `c6cc39f7b57f668557415d28ec37ac291694f4b429e572a3c178fb74e5a9c780`, with
+    `fit_kind` forward;
+  - sidecar `f5409444a4ce823f6396f538aa6ff2efbf1710e9d646f503ceb00931914e4b3e`;
+  - frozen record `5d53f5569b02e0d1bdf5c22341075e88ca893347da9fe16a4c650c7c8245a410`.
+  - These are local runtime evidence and not committed. Each sha was re-verified from the file bytes at
+    binding.
+- **Training:** Aug-Dec 2021-25, with centres 08-08 to 12-09 (9).
+  - At serve, the bias, normal and buckets come from the nearest centre by month-day; a tie goes to the
+    first centre.
+  - The buckets are each market's sorted union across the centres.
+  - p_clim is not floor-censored.
+- **Conversion `wu_whole_f_tgroup:half_up`** (`mg2_p3d_n.wu_whole_f_tgroup_half_up`):
+  - It applies to serve-time high_so_far and current_temp, before g, the floor and the features.
+  - Step 1: the T-group tenths t are recovered from the captured `temp_native` (C × 1.8 + 32). A value
+    more than 1e-6 °F off that grid is refused.
+  - Step 2: WU whole °F = floor(32 + 9t/50 + 1/2), computed in exact rationals.
+  - The evidence `wu_rounding.json` is `0a67338f…`: half-up matched 227,969 of 227,999 training-year rows
+    and 352 of 354 exact ties.
+- **Late report `last_in_hour`** (grace null):
+  - At cutoff h, P3d_N uses METAR rows observed at or before h:00, as received in the last capture
+    snapshot in [h:00, h+1:00). This is the dev and pick semantics, and the replay applies it as written.
+  - L2's note for a live process at time t (the latest snapshot captured ≤ t) has no separate replay
+    path, because MG-2 is scored by captured-input replay.
+- **No scoring.** The forward state is never scored on 2026 dev dates (L2's Clarification 3). The only
+  2026 use before D0 is a single-row load-and-serve smoke test.
+
 **Clarification C1 (2026-10-25, master's ruling; dated before D0): `high_so_far` is the METAR-only
 running max.** Weather Underground-sourced station rows do not travel to the workstation (binding plan
 §9), so MG-2's `high_so_far` (P3d_N's feature and its floor) is defined on captured METAR alone:
@@ -422,7 +450,7 @@ d0: UNSET
 n_forward_dates: 45
 owner_decision_id: NONE
 l6_coefficients_sha256: 313d1743d35ed705a4406fb415748c8e161d170033bb963ec6b56f5caf922895
-p3d_n_state_sha256: PENDING
+p3d_n_state_sha256: c6cc39f7b57f668557415d28ec37ac291694f4b429e572a3c178fb74e5a9c780
 forecast_high_source: captured_nbm_v2_mean_07z
 own_obs_source: captured_metar_l6_own
 function_sha256: c057e4540a6d9109f5a1f7477f30ddbd5d02370db3a53be1091e12c447efb2be

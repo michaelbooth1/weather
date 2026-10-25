@@ -15,7 +15,8 @@ golden test.
 Two serve-time hooks are declared by the state and fixed by L2's Clarification 3 before D0:
 
 * ``conversion``: high_so_far and current_temp to WU whole degrees F. Disabled in the dev fit. When enabled,
-  serving refuses unless ``rule_id`` is in :data:`CONVERSION_RULES` (filled once L2 states the rule).
+  serving refuses unless ``rule_id`` is in :data:`CONVERSION_RULES` (``wu_whole_f_tgroup:half_up``, L2
+  Clarification 3 (c): round-half-up of the exact 32 + 9t/50, t the T-group tenths of a degree C).
 * ``late_report``: ``last_in_hour`` (dev: the last replay snapshot captured in [h:00, h+1:00), rows observed at
   or before h:00) or ``receipt_by`` (rows observed at or before h:00 present in the latest target-date
   snapshot captured at or before h:00 + ``grace_minutes``; receipt time is capture time).
@@ -45,9 +46,39 @@ MEAN_KEYS = ("bias", "bias_by", "bias_global", "normal", "normal_by_market", "no
 LEVEL_COLUMNS = ("high_so_far", "current_temp", "live_reading_temp")  # L2's order
 UPSTREAM = {"module": "weather.calibration.pooled_residual_model", "commit": "d914ae21b"}
 
-# Serve-time WU whole-degree conversion rules, by id. Empty until L2's Clarification 3 states the rounding
-# rule; an enabled conversion with an unknown id refuses.
-CONVERSION_RULES = {}
+TGROUP_GRID_TOLERANCE = 1e-6  # |temp_native - (32 + 9t/50)| allowed when recovering the T-group tenths t
+
+
+def tgroup_tenths(value_f):
+    """The integer T-group tenths of a degree C behind a METAR ``temp_native`` (°F = C * 1.8 + 32).
+
+    Refuses a value that is not on the tenths-of-°C grid (it was not derived from a METAR temperature group).
+    """
+    from fractions import Fraction
+
+    x = float(value_f)
+    if not math.isfinite(x):
+        raise P3dNRefused(f"non-finite METAR temperature {value_f!r}")
+    t = round((x - 32.0) * 50.0 / 9.0)
+    if abs(float(Fraction(32) + Fraction(9 * t, 50)) - x) > TGROUP_GRID_TOLERANCE:
+        raise P3dNRefused(f"METAR temperature {value_f!r} F is not on the T-group tenths-of-C grid")
+    return int(t)
+
+
+def wu_whole_f_tgroup_half_up(value_f):
+    """L2 Clarification 3 (c): round-half-up of the exact 32 + 9t/50 °F (t = T-group tenths °C), as an int.
+
+    Exact rational arithmetic: floor(F + 1/2) on a ``Fraction``, so a .5 tie always goes up (also below 0 °F).
+    """
+    from fractions import Fraction
+
+    exact = Fraction(32) + Fraction(9 * tgroup_tenths(value_f), 50)
+    return int(math.floor(exact + Fraction(1, 2)))
+
+
+# Serve-time WU whole-degree conversion rules, by id (L2's Clarification 3, rule fa4257df). An enabled
+# conversion with an unknown id refuses.
+CONVERSION_RULES = {"wu_whole_f_tgroup:half_up": wu_whole_f_tgroup_half_up}
 
 _PRODUCTION_PREFIXES = ("weather.operations", "weather.market", "weather.model", "weather.serving",
                         "weather.trading", "weather.capture", "weather.sources", "weather.execution",

@@ -4,8 +4,8 @@
   things:
   - the single Fable review, which the coordinator relays;
   - serve parity (§6, rule §1a). Both inputs now have captured readers (rule §8 captured-source
-    Clarification), but P3d_N's state sha is `PENDING` until L2's Clarification 3 refit is frozen, and
-    the L6 part is re-frozen on the captured-METAR nowcast;
+    Clarification), and P3d_N's forward state is bound (rule §8 C3-binding, `c6cc39f7…`). The L6 part is
+    still to be re-frozen on the captured-METAR nowcast;
   - master's host exporter and share (§9.3). The workstation pull, receiver and layout builder are built
     (§9.7); rule §8 Clarification C1 (2026-10-25) makes `high_so_far` the METAR-only running max.
 - **Rule:** [rule.md](rule.md) (draft sha256 in the record line of the coordinator report). The rule
@@ -152,8 +152,8 @@ At the binding commit, `release-binding.json` records:
 - the function sha256 `c057e4540a6d9109…` (rule §8 Clarification C1);
 - the coefficient part sha256s:
   - L6 `313d1743…` today, replaced by the captured-nowcast re-freeze;
-- the P3d_N state sha256, `PENDING` until L2's Clarification 3 (the file bytes of `p3d_n_state.pkl`,
-  schema `mg2_p3d_n_state/1`, verified before unpickling);
+- the P3d_N state sha256 `c6cc39f7…` (L2's Clarification 3 forward refit; the file bytes of
+  `p3d_n_state.pkl`, schema `mg2_p3d_n_state/1`, verified before unpickling);
 - the two named input sources;
 - the rule's raw sha256.
 
@@ -486,8 +486,6 @@ can wait for a quiet window.
   Reading the merged L8 and L3 code is optional context.
 - **Owner:** the option 2 exemption, or Branch 1 by default.
 - **Serve parity.** These block D0:
-  - L2's Clarification 3 frozen P3d_N state (forward fit, its rounding rule implemented in
-    `mg2_p3d_n.CONVERSION_RULES`, its late-report rule) and its sha in the rule;
   - the L6 re-freeze on the captured-METAR nowcast, after the reader reproduces L3's `3806687c…`;
   - a re-sized MDE on the P3d_N design.
 

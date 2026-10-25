@@ -145,15 +145,101 @@ def test_state_schema_problems_are_reported(golden_state):
     assert p3.state_problems({"schema": p3.STATE_SCHEMA})[0].startswith("missing:")
 
 
-def test_conversion_hook_is_off_in_the_dev_fit_and_refuses_an_unstated_rule(golden_state):
+FORWARD_STATE = Path(r"C:\t\l2\forward\state\p3d_n_state.pkl")
+FORWARD_STATE_SHA = "c6cc39f7b57f668557415d28ec37ac291694f4b429e572a3c178fb74e5a9c780"  # L2 Clarification 3
+CONVERSION_ON = {"enabled": True, "rule_id": "wu_whole_f_tgroup:half_up", "rule": "L2 Clarification 3 (c)"}
+
+
+def _f(t):
+    """temp_native as the capture stores it: T-group tenths t -> C * 1.8 + 32 in floats."""
+    return (t / 10) * 1.8 + 32
+
+
+def test_conversion_hook_is_off_in_the_dev_fit_and_refuses_an_unknown_rule(golden_state):
     case = dict(p3.GOLDEN_CASES[0])
-    base = p3.serve_distribution(golden_state, **case)
+    assert p3.serve_distribution(golden_state, **case)
     assert p3.convert_observation(78.24, golden_state) == 78.24
-    on = dict(golden_state, conversion={"enabled": True, "rule_id": "wu_whole_f_pending", "rule": None})
+    on = dict(golden_state, conversion={"enabled": True, "rule_id": "wu_whole_f_other", "rule": None})
     with pytest.raises(p3.P3dNRefused, match="not implemented"):
         p3.serve_distribution(on, **case)
-    assert p3.CONVERSION_RULES == {}  # filled only when L2's Clarification 3 states the rounding rule
-    assert base
+    assert set(p3.CONVERSION_RULES) == {"wu_whole_f_tgroup:half_up"}
+
+
+@pytest.mark.parametrize("t, expected", [
+    (25, 37),     # 2.5 C = 36.5 F exactly: a tie goes up
+    (75, 46),     # 7.5 C = 45.5 F
+    (325, 91),    # 32.5 C = 90.5 F
+    (375, 100),   # 37.5 C = 99.5 F
+    (-25, 28),    # -2.5 C = 27.5 F
+    (-225, -8),   # -22.5 C = -8.5 F: half-up, not away from zero
+    (256, 78),    # 25.6 C = 78.08 F
+    (261, 79),    # 26.1 C = 78.98 F
+    (250, 77),    # 25.0 C = 77.0 F, whole-C group (no T-group) is on the grid too
+    (0, 32),
+])
+def test_wu_whole_f_tgroup_half_up_on_exact_ties(t, expected):
+    value = _f(t)
+    assert p3.tgroup_tenths(value) == t
+    assert p3.wu_whole_f_tgroup_half_up(value) == expected
+    assert isinstance(p3.wu_whole_f_tgroup_half_up(value), int)
+
+
+def test_every_tie_on_the_tenths_grid_rounds_up_exactly():
+    """All .5 F ties in -40..50 C: t = 25 (mod 50). The float C*1.8+32 can land either side of .5; the rule cannot."""
+    from fractions import Fraction
+
+    for t in range(-400, 501):
+        exact = Fraction(32) + Fraction(9 * t, 50)
+        got = p3.wu_whole_f_tgroup_half_up(_f(t))
+        assert got == math.floor(exact + Fraction(1, 2)), t
+        if exact.denominator == 2:
+            assert t % 50 == 25 and got == exact + Fraction(1, 2), t
+
+
+def test_conversion_refuses_a_value_off_the_tgroup_grid():
+    for bad in (78.2, 80.0 + 1e-3, float("nan")):
+        with pytest.raises(p3.P3dNRefused):
+            p3.wu_whole_f_tgroup_half_up(bad)
+
+
+def test_conversion_is_applied_before_the_floor_and_features(golden_state):
+    on = dict(golden_state, conversion=CONVERSION_ON)
+    case = dict(p3.GOLDEN_CASES[0], high_so_far=_f(256), current_temp=_f(250))  # 78.08 F, 77.0 F
+    whole = dict(case, high_so_far=78.0, current_temp=77.0)
+    assert p3.serve_distribution(on, **case) == p3.serve_distribution(golden_state, **whole)
+    tie = dict(case, high_so_far=_f(325), current_temp=_f(325))  # 90.5 F -> 91, so no model mass below 91
+    floor_part = p3.serve_distribution(dict(on, constants=dict(on["constants"], floor_mix_clim=0.0)), **tie)
+    assert min(floor_part) == 91
+
+
+@pytest.mark.skipif(not FORWARD_STATE.exists(), reason="L2's frozen forward state is local runtime evidence")
+def test_forward_state_loads_by_its_bound_sha_and_serves_one_row_with_the_conversion_on():
+    """Forward mode: the sha is verified before unpickling, a dev fit is refused, one fixture row serves.
+
+    A smoke test only: no 2026 row is scored (L2 Clarification 3).
+    """
+    with pytest.raises(p3.P3dNRefused, match="!= bound"):
+        p3.load_state(FORWARD_STATE, "0" * 64, forward=True)
+    state = p3.load_state(FORWARD_STATE, FORWARD_STATE_SHA, forward=True)
+    assert state["fit_kind"] == "forward" and state["conversion"]["enabled"]
+    assert state["conversion"]["rule_id"] in p3.CONVERSION_RULES
+    assert state["late_report"] == {"rule": "last_in_hour", "grace_minutes": None}
+    dist = p3.serve_distribution(state, market="atlanta", target_date="2026-11-02", hour=15, nbm_mean=68.4,
+                                 high_so_far=_f(194), current_temp=_f(189))  # 66.92 F -> 67, 66.02 F -> 66
+    assert dist and abs(sum(dist.values()) - 1.0) < 1e-12 and all(v >= 0 for v in dist.values())
+    no_clim = p3.serve_distribution(dict(state, constants=dict(state["constants"], floor_mix_clim=0.0)),
+                                    market="atlanta", target_date="2026-11-02", hour=15, nbm_mean=68.4,
+                                    high_so_far=_f(194), current_temp=_f(189))
+    assert min(no_clim) == 67
+    with pytest.raises(p3.P3dNRefused, match="grid"):
+        p3.serve_distribution(state, market="atlanta", target_date="2026-11-02", hour=15, nbm_mean=68.4,
+                              high_so_far=66.9, current_temp=66.0)
+
+
+def test_a_dev_fit_is_refused_forward_even_with_the_conversion_on(golden_state, tmp_path):
+    sha = p3.write_state(dict(golden_state, conversion=CONVERSION_ON), tmp_path / "s")
+    with pytest.raises(p3.P3dNRefused, match="control check only"):
+        p3.load_state(tmp_path / "s" / p3.STATE_FILE, sha, forward=True)
 
 
 def test_smoothed_dist_and_nearest_centre_match_their_sources():
