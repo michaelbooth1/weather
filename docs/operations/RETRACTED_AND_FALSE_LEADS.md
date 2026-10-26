@@ -185,6 +185,18 @@ untested. It fooled us because the reports sat on unmerged branches whose ids we
   guidance-shaped input looked like a lead. Score a source as a paired increment over the best no-source or captured-data
   control.
 
+### Dead-bucket stage A "$0.37/day, worth a forward paper test" — LOOK-AHEAD, RETRACTED (2026-10-25)
+
+- **What it looked like:** lane L11's stage A (rule r2, 13-16 local, 08-10..09-29) bought NO on buckets the observed
+  running max had already killed and showed $0.37/day [0.12, 0.69] on 57 trades, lower CI above 0.
+- **What is true:** the code dated a bucket's death at the METAR's observation time plus an assumed 10 minutes, not at
+  when the capture held the report. Re-dated by receipt (rule r4, `fac8cd72…`), the same mechanism gives
+  **$0.03/day [0.00, 0.09] on 21 trades**; Toronto under r4 gives $0.00 on 0 trades. The 57 trades were the late-receipt
+  tail: the book rows were read before the system had the killing report. The mechanism is closed fleet-wide.
+  `ESTABLISHED_FINDINGS.md` §10ad; [stage A results and audit](../research/market-blend-l11-2026-10-25/results-deadbucket-stage-a.md).
+- **Why it fooled us:** "observed at or before the book row" was checked; "received at or before the book row" was
+  assumed. Date every input by its receipt in the capture. The same audit found P3d_N's `last_in_hour` emitter (§10ad).
+
 ---
 
 ## 2. Statistical traps

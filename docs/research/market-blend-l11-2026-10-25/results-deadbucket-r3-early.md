@@ -1,0 +1,119 @@
+# Dead-bucket stage A, rule r3, early window (07:00-12:59 local, floor-killed buckets only): results
+
+Development evidence only. Research only: no orders, no live-readiness work,
+International venue only. Every tape, outcome and price read is dated on or
+before 2026-09-29. This window is secondary under r3, and the reading below
+does not re-tune anything on 13-16.
+
+## Pins
+
+| item | sha256 |
+| --- | --- |
+| rule r3 | `1abd3f1a8a9c5e30213b87303cdc518932f2ab99020b6eabb5d7dcc42189ae94` |
+| r3 history (control PASS; 12:59 cutoff excluded no market) | `6d8660eeb7f0cf5fd9edf1eb87f003b327395cd543ea889c62fe86c91a4385b5` |
+| tapes SHA256SUMS | `5c992a7335848025db545b2489b87c4777c570aebf3f072185534a86ccaf4ee3` |
+| early scan g1 / g2 / g3 | `84dce4fb...0a48` / `9c428fe2...968b` / `6f4fbf9d...ebc6ede` |
+| early report JSON | `5ec4a92e225bb2cd87d6a313e2f10f6742c2b2c5b5359eb5ec2a021a604e1d53` |
+
+## Headline (primary window 08-10..09-29, print_d1)
+
+**$25 primary: $0.00/day, 95% CI [0.00, 0.00], 0 of 48 dates nonzero.
+Reading: NOT WORTH PURSUING.** Every rung, every market and the print_d5
+sensitivity are also zero.
+
+The rule passed 9 entries in 08-10..09-29, but none of them had a qualifying
+trade print within [entry, entry + 5 min]. The print-capped fill is therefore
+0 of the 237 shares wanted at $25.
+
+## Sensitivity (not the reading)
+
+The book_d1 variant (book depth only, ignoring prints) for 08-10..09-29:
+
+- $25: $0.22/day [0.01, 0.60], 6 of 48 dates nonzero.
+- $100: $0.79 [0.04, 2.22].
+- PRIMARY5: $0.03 [0.01, 0.07].
+- By market: Denver 6 dates ($0.03), Los Angeles 1 date ($0.17), San Francisco
+  1 date ($0.01).
+- By entry hour: mostly hour 12.
+
+The lower bound is above zero only because the counterfactual assumes fills
+that no trade print corroborates. It is also economically negligible, so it
+does not change the reading.
+
+Book-only 08-01..08-09, reported separately: zero.
+
+## Mechanics
+
+- Market-days: 574 scanned, 52 had no floor-killed bucket, 0 had no tape folder.
+- Dead-bucket outcomes: `no_capture` 2,123, `no_value` 45, `traded` 9.
+  - None of the traded buckets settled YES.
+  - All 9 quotes came from the NO best ask.
+  - Median time from first-dead to entry capture is 50 min (p90 145 min).
+
+## Process notes
+
+- The scans ran through the wrapper and were admitted before
+  `C:\t\PREGATE_HOLD` appeared at 04:49:15.
+- The report stage ran directly under the coordinator's small-aggregation
+  condition. It read only the three scan JSONs and the history JSON, never the
+  tapes, and ran single-threaded. The run is logged in
+  `C:\t\l11\jobs\direct_runs.log`.
+- The pre-registration times in the rule headers were estimates; see
+  `results-deadbucket-r3-late.md`.
+
+## Look-ahead audit (2026-10-25, master ruling)
+
+**The ruling.** The floor used at a book row must be built from METAR rows received at or before that row's
+capture time. This audit used the existing scan and stage-C outputs plus the layout snapshot fields. Nothing was
+re-scanned and nothing was re-scored.
+
+**How the code dates the floor.** `dead_bucket.first_dead` makes a bucket dead at the IEM `valid_utc` of the
+first market-station METAR (role `market`, not COR) whose H exceeds the bucket edge, **plus an assumed 10 min**.
+
+- Entry is that time plus 60 s, and the book row is the first capture at or after entry.
+- Every trade's book row is therefore at or after the killing METAR's valid time plus 11 min.
+  - Median lag: stage A 13-16 11.1 min, r3 early 11.3, r3 late 11.1, stage C 14.2.
+- No row uses a METAR *observed* after the book timestamp. But the obs file holds no receipt time, so whether the
+  METAR had actually been *received* by then rests on the 10-minute assumption alone.
+
+**The served-floor test.**
+
+- Proxy for receipt: the production floor (max of `guidance_physical_floor`, `high_so_far`,
+  `trusted_current_max`) on the **latest layout snapshot captured at or before the book row**.
+  - The latest snapshot is a median 5.0 min older than the book row, and at most 9.2 min older.
+
+| run | trades | not yet dead on the served floor at or before the book row | $/day those carry |
+| --- | --- | --- | --- |
+| Stage A 13-16, 08-10..09-29 | 57 (61 incl. 08-01..08-09) | **41** (45 incl.) | **$0.366 of $0.372** ($25 print_d1); book_d1 $3.21 |
+| r3 early | 9 | 6 | $0 (the reading was already zero) |
+| r3 late | 2 (both before 08-10) | 2 | $0 |
+| Stage C | 83 | 26 (the snapshot that priced the trade did not itself show the bucket dead) | not split (C is a non-executable bound) |
+
+- Stage A, 57 primary trades: the served floor first killed the bucket a median **15.5 min** after the METAR's
+  valid time (IQR 8.9-19.8, max 186).
+- Only 16 trades, carrying **$0.005/day**, were dead on the served floor within 12 min of the valid time.
+
+**Reading.**
+
+- On this proxy, almost all of stage A's $0.37/day [0.12, 0.69] comes from book rows taken *before* the system
+  showed the floor. It is consistent with the stage-C note that mispricing lasts about 10-15 min after the
+  *assumed* availability: the market may simply be waiting for the same METAR.
+- **The $0.37 is overstated. Treat it as an upper bound, not as development evidence of edge.**
+- Its reading (lower CI > 0, "worth an owner decision on a forward paper test") is **suspended** until a
+  no-look-ahead rescan.
+- The r3 nulls stand and are firmer.
+
+**Caveats.**
+
+- The served floor is not L8's METAR-only floor.
+- Its delay mixes METAR receipt with the production poll cadence, and layout snapshots are a few minutes apart.
+
+**What an exact answer needs (not run).**
+
+1. **A rescan of the replay inputs.** For each traded bucket, find the first captured snapshot whose own
+   `sources.metar.data.rows` contain the killing METAR. That gives the received time.
+2. **A rescan of the tapes.** Take the book row and the prints at that later entry.
+
+Both are heavy. Neither has been run.
+
+Script `C:\t\l11\audit\lookahead.py` (sha 431257da...); output `lookahead_out.txt` (sha 529d8d9e...).
