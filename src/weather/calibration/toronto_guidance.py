@@ -35,6 +35,7 @@ from pathlib import Path  # noqa: E402
 from zoneinfo import ZoneInfo  # noqa: E402
 
 RULE_SHA256 = "a3899507c74f2f6cbb210b2c7b8bfb18cd66d8744079ea458cd129a8b6eb1af6"
+CLARIFICATION_1_SHA256 = "08b69ddb5d3940226eecbe17817adc17285ce419d14cfa4e28c2c47ed0356a37"
 STATION = "CYYZ"
 TZ_NAME = "America/Toronto"
 LAST_ALLOWED = date(2026, 9, 29)
@@ -521,31 +522,39 @@ def bin_from_label(label, kind, value, value_hi, unit):
     return ("eq", lo, hi)
 
 
-def _price(bid, ask, last):
-    def f(x):
-        try:
-            x = float(x)
-        except (TypeError, ValueError):
-            return None
-        return x if math.isfinite(x) else None
+def _num(x):
+    try:
+        x = float(x)
+    except (TypeError, ValueError):
+        return None
+    return x if math.isfinite(x) else None
 
-    bid, ask, last = f(bid), f(ask), f(last)
-    mid = (bid + ask) / 2 if bid is not None and ask is not None and 0 <= bid <= ask <= 1 else None
-    if mid is not None and ask - bid <= 0.10 + 1e-12:
-        disp = mid
-    elif last is not None and 0 <= last <= 1:
-        disp = last
-    else:
-        disp = mid
-    return disp, mid
+
+def _price(bid, ask):
+    """Clarification 1: CLOB midpoint with a missing side at its bound; None when the book is empty."""
+    bid, ask = _num(bid), _num(ask)
+    if bid is None and ask is None:
+        return None
+    bid = 0.0 if bid is None else bid
+    ask = 1.0 if ask is None else ask
+    return (bid + ask) / 2
+
+
+def _gamma_price(gbid, gask, glast):
+    gbid, gask, glast = _num(gbid), _num(gask), _num(glast)
+    if gbid is not None and gask is not None and 0 <= gbid <= gask <= 1 and gask - gbid <= 0.10 + 1e-12:
+        return (gbid + gask) / 2
+    if glast is not None and 0 <= glast <= 1:
+        return glast
+    return None
 
 
 def market_groups(tape_csv):
-    """[(captured_at_utc, bins [(kind, lo, hi)], p_display, p_mid)] in capture order; bad groups dropped."""
+    """[(captured_at_utc, bins [(kind, lo, hi)], p_market, p_gamma)] in capture order; bad groups dropped."""
     import pandas as pd
 
     cols = ["captured_at_utc", "range_label", "bin_kind", "bin_value", "bin_value_hi", "unit", "outcome",
-            "best_bid", "best_ask", "last_trade_price"]
+            "best_bid", "best_ask", "gamma_best_bid", "gamma_best_ask", "gamma_last_trade_price"]
     t = pd.read_csv(tape_csv, usecols=cols, dtype=str, keep_default_na=False)
     out, bad = [], defaultdict(int)
     for cap, g in t.groupby("captured_at_utc", sort=True):
@@ -557,8 +566,11 @@ def market_groups(tape_csv):
                 ok = False
                 bad[f"parse:{r.range_label}|{r.bin_kind}|{r.bin_value}|{r.bin_value_hi}|{r.unit}"] += 1
                 break
-            bins.setdefault(b, {})[str(r.outcome).strip().lower()] = _price(r.best_bid, r.best_ask,
-                                                                           r.last_trade_price)
+            side = bins.setdefault(b, {})
+            outcome = str(r.outcome).strip().lower()
+            side[outcome] = _price(r.best_bid, r.best_ask)
+            if outcome == "yes":  # gamma fields are the YES token's displayed price
+                side["gamma"] = _gamma_price(r.gamma_best_bid, r.gamma_best_ask, r.gamma_last_trade_price)
         if not ok:
             continue
         keys = sorted(bins, key=lambda b: (b[1], b[2]))
@@ -567,18 +579,17 @@ def market_groups(tape_csv):
                 or any(a[2] + 1 != b[1] for a, b in zip(keys, keys[1:]))):
             bad["not_partition"] += 1
             continue
-        disp, mid = [], []
+        prim, gam = [], []
         for k in keys:
             yes, no = bins[k].get("yes"), bins[k].get("no")
-            dv = yes[0] if yes and yes[0] is not None else (1 - no[0] if no and no[0] is not None else None)
-            mv = yes[1] if yes and yes[1] is not None else (1 - no[1] if no and no[1] is not None else None)
-            disp.append(dv)
-            mid.append(mv if mv is not None else dv)
-        if any(v is None for v in disp):
+            v = yes if yes is not None else (1 - no if no is not None else None)
+            prim.append(v)
+            gv = bins[k].get("gamma")
+            gam.append(gv if gv is not None else v)
+        if any(v is None for v in prim):
             bad["missing_price"] += 1
             continue
-        ts = datetime.fromisoformat(cap)
-        out.append((ts, keys, disp, mid))
+        out.append((datetime.fromisoformat(cap), keys, prim, gam))
     return out, dict(bad)
 
 
@@ -690,7 +701,7 @@ def snapshot_inputs(replay_root, tapes_root, nbp_path, dev_obs_path, out_dir, fi
                 "nbp_cycle": (nb[1].isoformat() if nb else None),
                 "eccc_city_c": last_city, "eccc_gem_c": gem_c,
                 "bins": [list(b) for b in mk[1]] if mk else None,
-                "p_market": mk[2] if mk else None, "p_market_mid": mk[3] if mk else None,
+                "p_market": mk[2] if mk else None, "p_market_gamma": mk[3] if mk else None,
                 "market_captured_at_utc": mk[0].isoformat() if mk else None,
             })
         d += timedelta(days=1)
@@ -769,7 +780,7 @@ def dev_score(inputs_path, inputs_sha, nbp_path, label_paths, obs_paths, out_dir
     obs = load_iem(*obs_paths)
     train = [r for r in loyo_rows(table, labels, obs) if r["block"] == "aug_sep"]
     fits = {h: fit_bn([r for r in train if r["hour"] == h]) for h in range(24)}
-    arms = ("served", "market", "mg1", "bn", "e1", "e2", "market_mid", "market_norm")
+    arms = ("served", "market", "mg1", "bn", "e1", "e2", "market_gamma", "market_norm")
     recs, audit = [], defaultdict(int)
     for line in Path(inputs_path).read_text(encoding="utf-8").splitlines():
         r = json.loads(line)
@@ -789,7 +800,7 @@ def dev_score(inputs_path, inputs_sha, nbp_path, label_paths, obs_paths, out_dir
         win = wins[0]
         served = to_bins(r["served"], bins)
         rec = {"date": r["date"], "hour": r["hour"], "snapshot_id": r["snapshot_id"]}
-        vec = {"served": served, "market": r["p_market"], "market_mid": r["p_market_mid"]}
+        vec = {"served": served, "market": r["p_market"], "market_gamma": r["p_market_gamma"]}
         tot = sum(r["p_market"])
         vec["market_norm"] = [v / tot for v in r["p_market"]] if tot > 0 else None
         covered = r["F"] is not None and r["nbp_mean_c"] is not None and r["Fh"] is not None
@@ -857,7 +868,7 @@ def dev_score(inputs_path, inputs_sha, nbp_path, label_paths, obs_paths, out_dir
     res["covered_log"] = block_stats(covered, ("served", "market", "mg1", "bn"), metric="l")
     res["covered_eccc"] = block_stats(covered, ("served", "market", "mg1", "bn", "e1"))
     res["covered_gem"] = block_stats(covered, ("served", "market", "mg1", "e2"))
-    res["covered_market_mid"] = block_stats(covered, ("served", "market_mid", "mg1", "bn"))
+    res["covered_market_gamma"] = block_stats(covered, ("served", "market_gamma", "mg1", "bn"))
     res["covered_market_norm"] = block_stats(covered, ("served", "market_norm", "mg1", "bn"))
     # blended: candidates fall back to served on uncovered snapshots
     blended = []

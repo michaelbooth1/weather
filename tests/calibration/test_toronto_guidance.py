@@ -4,7 +4,7 @@ Guards: weather.calibration.toronto_guidance contracts pre-registered in the lan
 converted once to C (MG-1's 1 F spread floor carried as 5/9 C); MG-1 on bins matches loss_atlas.mg1_frame
 (bins below the floor get 0, the floor bin takes the CDF from -inf); the point-in-time NBP pick is the
 latest issue whose S3 LastModified is at or before the instant; Celsius bins parse or are refused, never
-coerced; the displayed market price is the midpoint only when the spread is <= 0.10; B_N's OLS recovers a
+coerced; the market price is the bounds-filled CLOB midpoint (clarification 1); B_N's OLS recovers a
 known design; nothing dated after 2026-09-29 is accepted.
 """
 import math
@@ -51,11 +51,40 @@ def test_celsius_bins_parse_and_others_are_refused():
     assert tg.bin_from_label("27 C", "eq", "28", "28", "C") is None
 
 
-def test_displayed_price_convention():
-    assert tg._price("0.40", "0.44", "0.9") == (pytest.approx(0.42), pytest.approx(0.42))
-    disp, mid = tg._price("0.01", "0.99", "0.03")
-    assert disp == 0.03 and mid == pytest.approx(0.5)
-    assert tg._price("", "", "") == (None, None)
+def test_market_price_is_the_bounds_filled_clob_midpoint():
+    # Clarification 1: YES midpoint, a missing side at its bound, no last-trade substitution.
+    assert tg._price("0.40", "0.44") == pytest.approx(0.42)
+    assert tg._price("0.01", "0.99") == pytest.approx(0.5)
+    assert tg._price("", "0.06") == pytest.approx(0.03)
+    assert tg._price("0.90", "") == pytest.approx(0.95)
+    assert tg._price("", "") is None
+    # Gamma sensitivity: midpoint when tight, else last trade.
+    assert tg._gamma_price("0.40", "0.44", "0.9") == pytest.approx(0.42)
+    assert tg._gamma_price("0.01", "0.99", "0.03") == pytest.approx(0.03)
+    assert tg._gamma_price("", "", "") is None
+
+
+def test_market_groups_falls_back_to_the_no_book_and_drops_empty(tmp_path):
+    hdr = ("captured_at_utc,range_label,bin_kind,bin_value,bin_value_hi,unit,outcome,best_bid,best_ask,"
+           "gamma_best_bid,gamma_best_ask,gamma_last_trade_price" + chr(10))
+    rows = [
+        "2026-08-12T15:00:00+00:00,24 C or below,lte,24,24,C,yes,0.10,0.12,0.20,0.22,0.81",
+        "2026-08-12T15:00:00+00:00,24 C or below,lte,24,24,C,no,0.88,0.90,,,",
+        "2026-08-12T15:00:00+00:00,25 C,eq,25,25,C,yes,,,,,",
+        "2026-08-12T15:00:00+00:00,25 C,eq,25,25,C,no,0.30,0.40,,,",
+        "2026-08-12T15:00:00+00:00,26 C or higher,gte,26,26,C,yes,0.50,0.54,,,",
+        "2026-08-12T15:00:15+00:00,24 C or below,lte,24,24,C,yes,,,,,",
+        "2026-08-12T15:00:15+00:00,25 C,eq,25,25,C,yes,0.6,0.62,,,",
+        "2026-08-12T15:00:15+00:00,26 C or higher,gte,26,26,C,yes,0.3,0.32,,,",
+    ]
+    f = tmp_path / "order_books_summary.csv"
+    f.write_text(hdr + chr(10).join(rows) + chr(10), encoding="utf-8")
+    out, bad = tg.market_groups(f)
+    assert len(out) == 1 and bad == {"missing_price": 1}
+    ts, keys, prim, gam = out[0]
+    assert [k[0] for k in keys] == ["lte", "eq", "gte"]
+    assert prim == [pytest.approx(0.11), pytest.approx(0.65), pytest.approx(0.52)]
+    assert gam == [pytest.approx(0.21), pytest.approx(0.65), pytest.approx(0.52)]
 
 
 def test_bn_ols_recovers_a_known_design():
