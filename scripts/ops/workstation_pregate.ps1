@@ -307,6 +307,19 @@ $exclusiveHold = $null
 $worktreeCreated = $false
 $plan = $null
 $gitExe = $null
+# Set by the last statement of the try and by its catch. Still $false in the
+# finally means the run was stopped (Ctrl+C): catch never sees a stop.
+$runEnded = $false
+# True when this powershell.exe was started to run this script (-File), so the
+# script may end the process itself; never when an interactive shell invoked it.
+$ownsProcess = $false
+foreach ($commandLineArgument in @([Environment]::GetCommandLineArgs() | Select-Object -Skip 1)) {
+    try {
+        if ([string]::Equals([IO.Path]::GetFullPath([string]$commandLineArgument), $PSCommandPath,
+                [StringComparison]::OrdinalIgnoreCase)) { $ownsProcess = $true }
+    }
+    catch { }
+}
 
 try {
     # ------------------------------------------------------------ lease
@@ -470,9 +483,11 @@ try {
         if ($driver) { $driver.Dispose() }
         if ($job) { $job.Dispose() }
     }
+    $runEnded = $true
 }
 catch {
     $failures.Add("pre-gate error: $($_.Exception.Message)")
+    $runEnded = $true
 }
 finally {
     # ------------------------------------------------------------ evidence
@@ -588,6 +603,9 @@ finally {
     # finally because a PS 5.1 -File script stopped by Ctrl+C would otherwise
     # exit 0 after a FAIL receipt; Write-Output during a stop would also abort
     # the rest of this block, so the summary line goes straight to the console.
+    # In a stopped [CmdletBinding()] script PS 5.1 also discards `exit` itself
+    # (powershell.exe then exits 0), so a stopped run that owns its process ends
+    # it directly with the verdict's code.
     $receiptWritten = $false
     try {
         Write-WorkstationPregateReceipt -Receipt $receipt -Path $ReceiptPath
@@ -598,6 +616,10 @@ finally {
     }
     finally {
         if (-not $receiptWritten -and $exitCode -eq 0) { $exitCode = 1 }
+        if (-not $runEnded -and $ownsProcess) {
+            [Console]::Out.Flush()
+            [Environment]::Exit($exitCode)
+        }
         exit $exitCode
     }
 }

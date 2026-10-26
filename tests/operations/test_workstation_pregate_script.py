@@ -722,3 +722,140 @@ def test_driver_refuses_a_content_only_change_to_a_replaced_host_statement(tmp_p
     assert result.returncode != 0
     assert f"replaced statement '{rule}' content changed" in result.stderr, result.stderr
     assert not (tmp_path / "suite.log").exists()
+
+
+# ------------------------------------------------------------------ exit code follows the verdict
+# PASS exits 0, a queue timeout 75, every other FAIL 1, and an exit that cannot
+# carry a receipt is never 0. A stopped [CmdletBinding()] PS 5.1 script drops
+# its own `exit` (powershell.exe then returns 0), so each path below runs the
+# real script in a real powershell.exe and checks the code with the receipt.
+def _light_repo(root: Path, identity: str = "workstation") -> Path:
+    """A repository that passes the prerequisite checks but holds no commits."""
+    repo = root / "repo"
+    (repo / "scripts" / "ops").mkdir(parents=True)
+    for name in COPIED_SCRIPTS:
+        shutil.copyfile(OPS / name, repo / "scripts" / "ops" / name)
+    (repo / "venv" / "Scripts").mkdir(parents=True)
+    (repo / "venv" / "Scripts" / "python.exe").write_bytes(b"")
+    _write_assignment(repo, identity)
+    return repo
+
+
+def _light_command(repo: Path, root: Path, receipt: Path, *extra: str) -> list[str]:
+    return [
+        *POWERSHELL, "-File", str(repo / "scripts" / "ops" / "workstation_pregate.ps1"),
+        "-Head", "a" * 40, "-RepoRoot", str(repo), "-OutputDirectory", str(root / "out"),
+        "-ReceiptPath", str(receipt), "-WorktreeParent", str(root / "wt"), *extra,
+    ]
+
+
+def _unnested_env() -> dict[str, str]:
+    # Un-nested, the pre-gate needs every slot, including the one this process
+    # (or its workstation_heavy wrapper) holds, so it can never be admitted.
+    return {k: v for k, v in os.environ.items() if not k.upper().startswith("WEATHER_WORKSTATION_WRAPPER_")}
+
+
+QUEUE_ROOT_SCRIPT = "$ErrorActionPreference = 'Stop'; . $env:PG_ADMISSION; [Console]::Out.Write((Get-WeatherHeavyWorkloadQueueRoot))"
+
+
+def _queued_ticket_for(queue_root: Path, repo: Path) -> bool:
+    for ticket in queue_root.glob("ticket-*.json"):
+        try:
+            record = json.loads(ticket.read_text(encoding="utf-8-sig"))
+        except (OSError, ValueError):
+            continue
+        if str(record.get("repo_root", "")).lower() == str(repo).lower():
+            return True
+    return False
+
+
+def test_lease_timeout_exits_75_with_a_fail_receipt(tmp_path):
+    repo = _light_repo(tmp_path)
+    receipt_path = tmp_path / "receipt.json"
+    with _HeldWorkstationMutex():
+        result = _run(_light_command(repo, tmp_path, receipt_path, "-QueueTimeoutSeconds", "1"),
+                      cwd=tmp_path, env=_unnested_env(), timeout=180)
+    assert receipt_path.is_file(), result.stdout + result.stderr
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert receipt["verdict"] == "FAIL"
+    assert result.returncode == 75
+    assert any("timed out after 1 s" in reason for reason in receipt["failure_reasons"]), receipt
+    assert receipt["lease_mode"] is None
+
+
+def test_pregate_interrupted_while_queued_exits_1_with_a_fail_receipt(tmp_path):
+    if not _ctrl_c_reaches_a_new_console(tmp_path):
+        pytest.skip("console Ctrl+C is not delivered in this runner")
+    root = tmp_path / "case"
+    root.mkdir()
+    repo = _light_repo(root)
+    receipt_path = root / "receipt.json"
+    queue = _run([*POWERSHELL, "-Command", QUEUE_ROOT_SCRIPT],
+                 env={**os.environ, "PG_ADMISSION": str(OPS / "workload_admission.ps1")}, timeout=120)
+    assert queue.returncode == 0, queue.stderr
+    queue_root = Path(queue.stdout.strip())
+    command = _light_command(repo, root, receipt_path, "-QueueTimeoutSeconds", "600")
+    with _HeldWorkstationMutex():
+        process = subprocess.Popen(
+            [sys.executable, "-c", CTRL_C_LAUNCHER, json.dumps(command)], cwd=root, env=_unnested_env(),
+            creationflags=subprocess.CREATE_NEW_CONSOLE, startupinfo=_hidden_console(),
+        )
+        try:
+            # Its queue ticket proves it is inside the lease wait, within the run's try.
+            deadline = time.monotonic() + 120
+            while not _queued_ticket_for(queue_root, repo):
+                assert process.poll() is None, "pre-gate finished before it queued"
+                assert time.monotonic() < deadline, "pre-gate never queued"
+                time.sleep(0.2)
+            sender = _run([sys.executable, "-c", CTRL_C_SENDER, str(process.pid)], timeout=60)
+            assert sender.returncode == 0, sender.stderr
+            returncode = process.wait(timeout=180)
+        finally:
+            if process.poll() is None:
+                _run(["taskkill", "/T", "/F", "/PID", str(process.pid)], timeout=60)
+                process.wait(timeout=60)
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert receipt["verdict"] == "FAIL"
+    assert receipt["failure_reasons"] == ["host suite driver did not complete"]
+    assert returncode == 1
+    assert not _queued_ticket_for(queue_root, repo)
+
+
+def test_pregate_fails_nonzero_when_the_host_suite_reaches_max_runtime(fixture_repo):
+    # The host suite stops mid-chunk, so the chunk has no recorded exit code.
+    suite = Path(fixture_repo["repo"]) / "scripts" / "ops" / "bounded_worktree_test_suite.ps1"
+    original = suite.read_bytes()
+    needle = b"[int]$MaxRuntimeSeconds = 5400"
+    assert original.count(needle) == 1
+    suite.write_bytes(original.replace(needle, b"[int]$MaxRuntimeSeconds = 60"))
+    try:
+        result, receipt = _pregate(fixture_repo, fixture_repo["slow"], "runtime")
+    finally:
+        suite.write_bytes(original)
+    assert receipt["verdict"] == "FAIL"
+    assert result.returncode == 1
+    assert receipt["driver_exit_code"] not in (None, 0)
+    assert "chunk 1 has no recorded exit code" in receipt["failure_reasons"], receipt["failure_reasons"]
+    _assert_clean(fixture_repo, receipt)
+
+
+def test_unhandled_error_before_the_run_exits_nonzero_without_a_receipt(tmp_path):
+    repo = _light_repo(tmp_path)
+    (repo / "venv" / "Scripts" / "python.exe").unlink()
+    receipt_path = tmp_path / "receipt.json"
+    result = _run(_light_command(repo, tmp_path, receipt_path), cwd=tmp_path, env=_unnested_env(), timeout=180)
+    assert result.returncode != 0
+    assert "prerequisite is missing" in result.stderr
+    assert not receipt_path.exists()
+
+
+def test_a_receipt_that_cannot_be_written_exits_1(tmp_path):
+    # Refused before the lease (not the assigned workstation), then the receipt
+    # write itself throws inside the final finally.
+    repo = _light_repo(tmp_path, "unassigned")
+    blocker = tmp_path / "not-a-directory"
+    blocker.write_text("x", encoding="utf-8")
+    receipt_path = blocker / "receipt.json"
+    result = _run(_light_command(repo, tmp_path, receipt_path), cwd=tmp_path, env=_unnested_env(), timeout=180)
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert not receipt_path.exists()

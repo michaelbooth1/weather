@@ -188,7 +188,10 @@ host. The run:
   **The receipt verdict is authoritative**; consumers read it, not the process exit code. The exit code
   follows it (0 only for PASS, 75 for a queue timeout, otherwise 1), including after Ctrl+C: the exit is
   issued from inside the final `finally`, because a stopped Windows PowerShell 5.1 `-File` script would
-  otherwise exit 0. A hard kill (`taskkill /F`, a closed console) writes no receipt and leaves
+  otherwise exit 0. A stopped `[CmdletBinding()]` script also drops that `exit`, so a stopped run that
+  `powershell.exe -File` started ends its process with `[Environment]::Exit` (an interactive caller's
+  shell is never ended). An error before the run starts (a missing prerequisite) or a receipt that cannot
+  be written exits 1 with no receipt. A hard kill (`taskkill /F`, a closed console) writes no receipt and leaves
   `C:\lpf-s\pg-<sha12>` behind; the next run for that head refuses until it is removed.
 
 Known gaps (Defender review of 2026-10-07, not fixed):
