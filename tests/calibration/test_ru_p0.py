@@ -19,9 +19,9 @@ def _frame(signs, n=400, seed=0):
     parts = []
     for year, sign in zip(range(2021, 2026), signs):
         z = rng.normal(size=n)
-        e = np.abs(sign * 0.8 * z + rng.normal(size=n))
+        e = np.exp(sign * 0.5 * z) * np.abs(rng.normal(size=n))  # |error| rises with z when sign > 0
         parts.append(pd.DataFrame({"year": year, "market": rng.choice(["atlanta", "miami"], n),
-                                   "hour": rng.choice([13, 14, 15, 16], n), "z": z + 5.0 * (year == 2021),
+                                   "hour": rng.choice([13, 14, 15, 16], n), "z": z,
                                    "e": e, "rise": rng.random(n) < 0.3}))
     return pd.concat(parts, ignore_index=True)
 
@@ -40,10 +40,13 @@ def test_ru_p0_closes_on_two_opposite_years_or_a_weak_pool():
 
 
 def test_ru_p0_centres_out_of_year():
-    # 2021's z is shifted by +5: an in-year centre would remove it, the out-of-year centre must not
+    # z shifted by +5 in 2021 only: centring on the other years leaves 2021's za high, so the pooled rho (z vs e)
+    # is unchanged in sign and every 2021 row is still scored
     frame = _frame([1, 1, 1, 1, 1])
+    frame.loc[frame["year"] == 2021, "z"] += 5.0
     out = prm.ru_p0_stats(frame)
     assert out["per_year"]["2021"]["n"] == int((frame["year"] == 2021).sum())
+    assert out["per_year"]["2021"]["rho"] > 0.05
 
 
 def test_ru_rule_sha_is_pinned():
