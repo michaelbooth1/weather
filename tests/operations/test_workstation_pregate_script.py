@@ -724,7 +724,8 @@ def test_interrupted_pregate_exits_nonzero_to_match_its_fail_receipt(fixture_rep
             cwd=root, env=env, creationflags=subprocess.CREATE_NEW_CONSOLE, startupinfo=_hidden_console(),
         )
         try:
-            deadline = time.monotonic() + 300
+            # Outlast the nested queue bound, so a lease timeout (exit 75) skips.
+            deadline = time.monotonic() + NESTED_QUEUE_TIMEOUT_SECONDS + 300
             while not started.is_file():
                 if process.poll() == QUEUE_TIMEOUT_EXIT_CODE:
                     pytest.skip("an exclusive workstation caller took the barrier first; nothing started")
