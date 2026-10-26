@@ -14,11 +14,14 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from weather.calibration import b_scorer as b
-from weather.calibration import mg2_composite as mg2
-from weather.calibration import r0_ols_floor_challenger as l3
 from weather.reporting.scorecards import dev_scorecard as sc
 from weather.reporting.scorecards import dev_scorecard_data as data
+
+from tests.host_guard import import_or_skip_on_capture_host
+
+b = import_or_skip_on_capture_host("weather.calibration.b_scorer")
+mg2 = import_or_skip_on_capture_host("weather.calibration.mg2_composite")
+l3 = import_or_skip_on_capture_host("weather.calibration.r0_ols_floor_challenger")
 
 D0 = date(2026, 10, 28)
 DATES = [(D0 + timedelta(days=i)).isoformat() for i in range(45)]
