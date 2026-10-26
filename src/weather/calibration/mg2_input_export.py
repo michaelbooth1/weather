@@ -20,8 +20,9 @@ it never refuses on the capture host and no capture loop imports it (roll-free).
   any reader holds the file. Such a file is opened only when its mtime is at least ``MIN_QUIET_SECONDS`` old;
   otherwise the date is refused (exit 3) naming the file. The other files are append-only (the JSONL tapes,
   ``order_books_summary.csv``, ``market_ws_events.csv``, execution-tape trades) or create-once (NBM blobs).
-* **Dates.** A target date D is exported only if D <= 2026-09-29 (the development window) or D >= D0
-  (2026-10-28; the MG-2 reservation exemption, option 2), and only after D's export cut has passed.
+* **Dates.** A target date D is exported only if every event folder it reads (D-1, D, D+1) is on or before
+  2026-09-29 (the development window, so D <= 2026-09-28) or D >= D0 (2026-10-28; the MG-2 reservation
+  exemption, option 2), and only after D's export cut has passed.
 * **Projection, not copy.** Every record goes through the allow-list's projections; only rows captured at or
   before the export cut travel. NBM blobs are copied byte for byte after re-hashing.
 * **Counts only.** ``market_price_coverage`` (B-1 section 3: per market, D's local 07-16 snapshots and how many
@@ -277,9 +278,10 @@ class _OutFile:
 # ----------------------------------------------------------------------------- dates
 
 def check_date(day, now=None):
-    """D <= 2026-09-29 or D >= D0 (option 2), and D's export cut has passed."""
-    if DEV_LAST < day < FORWARD_FIRST:
-        raise ExportRefused(f"{day} is after {DEV_LAST} and before MG-2's D0 {FORWARD_FIRST}: refused")
+    """Every folder read (D-1, D, D+1) is <= 2026-09-29, or D >= D0 (option 2); and D's export cut has passed."""
+    if day + timedelta(days=1) > DEV_LAST and day < FORWARD_FIRST:
+        raise ExportRefused(f"{day} reads event folders after {DEV_LAST} (its D+1 folder) and is before MG-2's D0 "
+                            f"{FORWARD_FIRST}: refused")
     now = now or datetime.now(timezone.utc)
     if now <= allow.export_cut_utc(day):
         raise ExportRefused(f"{day}'s export cut {allow.export_cut_utc(day).isoformat()} has not passed")

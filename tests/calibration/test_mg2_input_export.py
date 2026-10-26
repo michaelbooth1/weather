@@ -253,11 +253,19 @@ def test_sha256sums_sits_beside_the_bundle_and_matches(host, tmp_path):
     assert not list(bundle.parent.glob(".*.partial"))
 
 
-@pytest.mark.parametrize("day", [date(2026, 9, 30), date(2026, 10, 15), date(2026, 10, 27)])
+@pytest.mark.parametrize("day", [date(2026, 9, 29), date(2026, 9, 30), date(2026, 10, 15), date(2026, 10, 27)])
 def test_reserved_dates_are_refused(host, tmp_path, day):
     with pytest.raises(mx.ExportRefused, match="refused"):
         mx.export(day=day, data_root=host, out=tmp_path / "out", now=NOW + timedelta(days=60))
     assert not (tmp_path / "out").exists()
+
+
+def test_last_dev_date_reads_no_folder_after_the_dev_window(tmp_path):
+    day = date(2026, 9, 28)
+    data = make_host(tmp_path, day)
+    manifest = mx.export(day=day, data_root=data, out=tmp_path / "out", now=NOW)
+    folders = {e["source_path"].split("/")[1] for e in manifest["files"] if e["source_path"].startswith("snapshots/")}
+    assert max(allow.parse_slug(f)[1] for f in folders) == date(2026, 9, 29)
 
 
 def test_forward_date_needs_its_cut_to_have_passed(tmp_path):
