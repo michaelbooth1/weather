@@ -254,7 +254,23 @@ def nbm_at(table, market, day, hour, tz):
 
 # ---------------------------------------------------------------- P1: NBM parity at dev 00-06
 
-def p1(*, layout, nbm_corpora, rule, out_path):
+RULE_PD1_SHA256 = "fa874b106fcb92493dc2f29ac761daa3396512828edab8628e4b9aac549808a7"
+
+
+def nbm_at_instant(table, market, day, instant):
+    """L9's cycle rule (preference and LastModified <= instant, unchanged) at an explicit UTC instant (PD-1)."""
+    from weather.calibration import ols_floor_ladder as lad
+
+    options = {c: (lm, v) for c, lm, v in table.get((market, day), [])}
+    for cycle in lad.NBM_CYCLE_PREFERENCE:
+        if cycle in options and options[cycle][0] <= instant:
+            mean, sd = options[cycle][1]
+            return mean, (float("nan") if sd is None else sd), cycle
+    return float("nan"), float("nan"), None
+
+
+def p1(*, layout, nbm_corpora, rule, out_path, clarification=None):
+    """P1 as registered (corpus at local h:00) or, with PD-1 (``clarification``), at each captured_at_utc."""
     import numpy as np
     import pandas as pd
 
@@ -262,6 +278,8 @@ def p1(*, layout, nbm_corpora, rule, out_path):
     from weather.market.market_registry import spec_for_id
 
     check_rule(rule)
+    if clarification is not None:
+        check_rule(clarification, RULE_PD1_SHA256)
     cols = ["row_key", "market", "date", "local_hour", "captured_at_utc", "v2_mean", "v2_stddev", "v2_available_at",
             "v2_cycle_key"]
     s = pd.read_parquet(Path(layout) / "inputs_snapshots.parquet", columns=cols)
@@ -278,7 +296,11 @@ def p1(*, layout, nbm_corpora, rule, out_path):
         if r.market not in tz:
             tz[r.market] = spec_for_id(r.market).timezone
         h = int(r.local_hour)
-        mean, _, cycle = nbm_at(table, r.market, str(r.date)[:10], h, tz[r.market])
+        if clarification is None:
+            mean, _, cycle = nbm_at(table, r.market, str(r.date)[:10], h, tz[r.market])
+        else:
+            mean, _, cycle = nbm_at_instant(table, r.market, str(r.date)[:10],
+                                            pd.Timestamp(r.captured_at_utc).tz_convert("UTC").to_pydatetime())
         c = counts.setdefault(f"h{h:02d}", dict.fromkeys(total, 0))
         for d in (c, total):
             d["snapshots"] += 1
@@ -300,6 +322,8 @@ def p1(*, layout, nbm_corpora, rule, out_path):
     passed = bool(exact >= P1_EXACT_MIN and differ <= P1_DIFFER_MAX)
     payload = {"label": "R-PD precondition P1 (NBM parity, dev 00-06): input only, no label/price/vector read",
                "rule_sha256": RULE_PD_SHA256, "passed": passed, "share_exact_of_both": exact,
+               "instant": "captured_at_utc (PD-1)" if clarification is not None else "local h:00 (as registered)",
+               "pd1_sha256": RULE_PD1_SHA256 if clarification is not None else None,
                "share_differs_of_both": differ,
                "thresholds": {"exact_min": P1_EXACT_MIN, "differs_max": P1_DIFFER_MAX, "tol": P1_TOL},
                "total": total, "by_hour": counts, "differs_examples": differs,
@@ -1052,6 +1076,7 @@ def main(argv=None):
     q.add_argument("--nbm-corpus", action="append", required=True)
     q.add_argument("--rule", required=True)
     q.add_argument("--out", required=True)
+    q.add_argument("--clarification", default=None, help="PD-1 file (sha pinned): P1 at captured_at_utc")
     v = sub.add_parser("serve", help="R-PD dev nowcasts on captured METAR and precondition P2 (heavy)")
     v.add_argument("--layout", required=True)
     v.add_argument("--replay-root", required=True)
@@ -1118,7 +1143,8 @@ def main(argv=None):
         print(json.dumps({"gate2": r["gate2"], "controls": r["controls"]}, indent=1, default=str))
         return 0
     if args.command == "p1":
-        r = p1(layout=args.layout, nbm_corpora=args.nbm_corpus, rule=args.rule, out_path=args.out)
+        r = p1(layout=args.layout, nbm_corpora=args.nbm_corpus, rule=args.rule, out_path=args.out,
+               clarification=args.clarification)
         print(json.dumps({k: r[k] for k in ("passed", "share_exact_of_both", "share_differs_of_both", "total")},
                          indent=1))
         return 0
