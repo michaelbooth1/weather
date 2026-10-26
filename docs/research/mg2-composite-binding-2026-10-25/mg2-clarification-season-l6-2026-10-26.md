@@ -1,7 +1,8 @@
-# MG-2 Clarification (DRAFT): season-matched L6 own-model HGB in the 07-12 arm, 2026-10-26
+# MG-2 Clarification C9 (DRAFT): season-matched L6 own-model HGB in the 07-12 arm, 2026-10-26
 
-- **Status:** DRAFT by lane L3 for master's review, then the Fable review. Master assigns the clarification
-  number in rule §8. Not bound until the binding commit, and dated before D0.
+- **Status:** DRAFT by lane L3 for master's review, then the Fable review. It is **Clarification C9**, the next
+  number after C8 in rule §8; master checks the number at review. Not bound until the binding commit, and
+  dated before D0.
 - **Authority:** master's ruling of 2026-10-26, relayed by the coordinator, under the pre-declared decision
   in rule `81649748…` below. The ruling allows no carve-out by hour or market.
 - **History only:** no outcome, label, price or market row dated after 2026-09-29 was read. The scored
@@ -101,7 +102,8 @@ The pooled upper bound is −0.0025 < 0, so the rule selects **the season-matche
     `0d5c30b3…`) through the new state.
   - The file is `nowcasts_season_dev.parquet`, sha256 **FILL**, emitted by lane L3 for L2's MG-3 weight refit.
 - **Serving code:** wiring the frozen state into `mg2_composite`'s pre-13 path is a serving-code change.
-  L3 has not made it; the MG-2 code owner makes it after master's approval.
+  Lane L8 makes it on `claude/mg2-l6-wiring-20261026`: the state loads through `load_l6_own_state` with sha
+  verification, with a parity test, plus the BOUND_FIELDS fix. L3 does not make this change.
 
 ## 4. Unchanged: the stack coefficients
 
@@ -131,7 +133,8 @@ primary and carry no α. They cannot pass, fail or change the arm.
   dev. All history is 2021-25.
 - **The 13-16 half:** CS-1 (1a) scored P3d_N's dev fit `dff5d797…` (Aug-Sep training), which transfers
   (Oct-Dec −0.306 [−0.316, −0.296]). The bound forward state `c6cc39f7…` trains on Aug-Dec, so it was not
-  separately audited. This clarification does not touch the post-13 half.
+  separately audited. Because `c6cc39f7…` trains through December, a LOYO on it would not be out-of-sample
+  on Oct-Dec anyway. This clarification does not touch the post-13 half.
 
 ## 7. Bookkeeping
 
