@@ -482,7 +482,8 @@ def main(argv=None):
                           "nbm_blobs": manifest["nbm_blobs"],
                           "manifest_sha256": hashlib.sha256(
                               (Path(args.out) / day.isoformat() / allow.MANIFEST).read_bytes()).hexdigest()}))
-        if absent or manifest["nbm_blobs"]["missing"] or manifest["nbm_blobs"]["hash_mismatch"] or                 manifest["nbm_rows_bad_ref"]:
+        blobs = manifest["nbm_blobs"]
+        if absent or blobs["missing"] or blobs["hash_mismatch"] or manifest["nbm_rows_bad_ref"]:
             status = max(status, 3)
     return status
 
