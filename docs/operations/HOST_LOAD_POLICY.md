@@ -176,14 +176,44 @@ below applies: no exemption, no queue state, the same windows and the same bound
   Capture-colocated admission never names a slot and keeps the one serial lease. An older wrapper copy in a
   worktree keeps working unchanged; a lane gets slots by merging this change into its worktree and running
   that worktree's wrapper.
+- *Exclusive lease.* `Enter-WeatherWorkstationHeavyExclusiveLease` first takes the barrier mutex
+  `Global\WeatherProjectHeavyWorkloadV1.Exclusive` (one exclusive caller at a time), then keeps each slot
+  mutex as it frees until it holds all eight, and only then starts. From the moment it holds the barrier, slot
+  admission refuses new jobs (`exclusive_pending`) and queued ones wait behind its ticket, so a stream of new
+  jobs cannot starve it; slots it already holds are closed to older wrappers and live stages too. Slot 1 is then
+  taken as the ordinary legacy lease (state file and lock, so status and older wrappers see it busy) and dead
+  slot holders follow the stale rules above. Its queue events carry `exclusive`, `busy_slots` while it drains
+  and `slot_id` `all` at start. An older wrapper that takes slot 1 before the barrier holds it is waited for,
+  not displaced. The bounded suite runs on the workstation only inside the pre-gate (its lease statement is
+  replaced by the driver), so it is covered by this lease; run directly it is the unchanged capture-host lease.
+- *Thread cap.* Every `workstation_heavy.ps1` job sets `OMP_NUM_THREADS`, `MKL_NUM_THREADS` and
+  `OPENBLAS_NUM_THREADS` to floor(logical processors / `-SlotCount`), at least 1. A caller's own lower positive
+  value is kept; a higher, absent or malformed one is replaced. The wrapper prints the cap and the `finish`
+  queue event records `thread_cap` (cap, logical processors, the values set). The exclusive pre-gate is not capped.
+- *Lock record.* Every slot's lock file keeps the schema tag `weather_heavy_workload_lease_v3`. A
+  `workstation_offline_v1` record, slot 1 included, adds `workstation_slot_id` under that unchanged tag, and
+  `host_global_mutex` names the slot's own mutex; readers ignore unknown fields. Capture-colocated and
+  portable records carry no new field.
+- *Status.* `Get-WeatherHeavyWorkloadLeaseState` (used by `status.ps1`, `merge_queue_driver.ps1` and
+  `chain_recovery_run.ps1`) returns the unchanged `{Active, Path, Owner}` for this checkout's slot-1 lock
+  unless a slot file exists and the host proves to be the assigned workstation. Only then is it busy when any
+  slot is busy, either through this checkout's slot lock or through a host-global slot state file with a
+  live owner (read-only: it never probes a mutex), and it adds `Slots` and `BusySlotCount`; `status.ps1`
+  then lists the busy slot ids. The capture host never writes slot files, so its output is byte-identical.
+- *Accepted risk (master ruling 2026-10-24, lane W2 review).* Only a live launcher whose
+  `workload_admission.ps1` includes the W2 slots merge takes slots 2..8; an older launcher takes only the
+  legacy mutex and could overlap jobs in slots 2..8. That risk is accepted on one condition: **the live
+  launcher's checkout must include the W2 merge before any live stage is launched.**
 - *Pre-gate.* `scripts/ops/workstation_pregate.ps1` runs the full suite for one exact head in the host
-  bounded suite's launch mode on the workstation. It takes one slot through the same queue itself (workload
-  `WorkstationOffline-pytest-pregate-<sha12>-<pid>`) and runs its chunks serially inside that slot; the
-  receipt records `workstation_slot_id`. In every mode it first proves that this is the
+  bounded suite's launch mode on the workstation. It is **exclusive** (master ruling 2026-10-24, lane W3: a
+  pre-gate failed its timing-sensitive hang tests at 99 % CPU beside two HGB fits): it takes every slot through
+  `Enter-WeatherWorkstationHeavyExclusiveLease` (workload `WorkstationOffline-pytest-pregate-<sha12>-<pid>`)
+  and runs its chunks serially; the receipt records `workstation_slot_id` and `workstation_exclusive`. In every mode it first proves that this is the
   assigned non-capture workstation (`Assert-WeatherWorkstationOfflineHost`), because the capture host's heavy
   lease uses the same mutex name. When it is nested inside `workstation_heavy.ps1` it then reuses that
   wrapper's slot, but only after proving that another process holds that slot's mutex
-  (`Test-WeatherWorkstationWrapperSlotHeld`; slot 1 when an older wrapper exported no slot). It
+  (`Test-WeatherWorkstationWrapperSlotHeld`; slot 1 when an older wrapper exported no slot), and then still
+  takes every other slot (`-InheritedSlotId`). It
   skips only the capture-host checks: window, hard stop, host lease, capture workers and host commit
   ceiling. It keeps the suite's 50 GiB disk floor and `MaxRuntimeSeconds`. Contract:
   [development.md](../development.md#workstation-pre-gate-before-a-host-landing-slot).
