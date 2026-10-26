@@ -278,8 +278,8 @@ def test_unknown_paths_and_markets_fail_closed(host):
                 f"snapshots/{slug}/../{slug}/replay_inputs.jsonl", "labels/x.csv",
                 "forecast_payload_cas/sha256/zz/abc.blob"):
         with pytest.raises(mx.ExportRefused, match="unknown source path"):
-            src.read(rel)
-    assert src.read(f"snapshots/{allow.slug_for('nyc', D - timedelta(days=9))}/replay_inputs.jsonl") is None
+            src.path(rel)
+    assert src.path(f"snapshots/{allow.slug_for('nyc', D - timedelta(days=9))}/replay_inputs.jsonl") is None
     with pytest.raises(mx.ExportRefused):
         mx.Source(host / "nope")
 
@@ -299,7 +299,7 @@ def test_links_and_reparse_points_are_refused(host, tmp_path):
     except OSError as exc:
         pytest.skip(f"cannot create a link here: {exc}")
     with pytest.raises(mx.ExportRefused, match="link or reparse point"):
-        mx.Source(host).read(f"snapshots/{slug}/replay_inputs.jsonl")
+        mx.Source(host).path(f"snapshots/{slug}/replay_inputs.jsonl")
     with pytest.raises(mx.ExportRefused, match="link or reparse point"):
         _export(host, tmp_path)
     assert not (tmp_path / "out" / D.isoformat()).exists()
