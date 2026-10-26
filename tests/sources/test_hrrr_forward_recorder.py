@@ -236,6 +236,10 @@ def test_hourly_ceiling_and_bandwidth_throttle(tmp_path):
     assert not (r.out / "messages.jsonl").exists()
     events = [json.loads(x)["event"] for x in (r.out / "events.jsonl").read_text().splitlines()]
     assert "hourly_byte_ceiling" in events
+    row = [x for x in _rows(r.out) if x["station"] == "KATL" and x["hour_local"] == 7][0]
+    assert row["row_schema"] == 2 and row["k_miss"] == 1 and row["polls_in_prior_60m"] >= 25
+    assert {"hourly_byte_ceiling"} <= {e["event"] for e in row["gap_events_prior_60m"]}
+    assert row["last_poll_before_snapshot_utc"] <= row["snapshot_utc"]
     slept = []
     t = rec.Throttle(1_000_000, 10**9, sleep=slept.append)
     t.spent(2_000_000, 0.5)
@@ -247,3 +251,71 @@ def test_stations_json_bytes_reproduce_the_crlf_file_the_land_pin_was_taken_from
     cells = {st: fetch.station_cell(m["lat"], m["lon"]) for st, m in STATIONS.items()}
     raw = rec.stations_json_bytes(STATIONS, cells)
     assert raw.startswith(b'{\r\n "KATL": {\r\n') and b"\n" not in raw.replace(b"\r\n", b"")
+
+
+def test_gap_signals_use_only_state_at_or_before_the_snapshot_and_survive_restart(tmp_path):
+    s = dt.datetime(2026, 10, 26, 15, tzinfo=UTC)
+    m = dt.timedelta(minutes=1)
+    polls = [s - 70 * m, s - 30 * m, s - 2 * m, s + 1 * m]
+    events = [{"event": "low_disk", "at_utc": (s - 61 * m).isoformat()},
+              {"event": "hourly_byte_ceiling", "at_utc": (s - 5 * m).isoformat()},
+              {"event": "poll", "at_utc": (s - 2 * m).isoformat()},
+              {"event": "step_error", "at_utc": (s + 1 * m).isoformat()}]
+    sig = rec.gap_signals(s, polls, events, [(s - 50 * m, s - 40 * m)])
+    assert sig["last_poll_before_snapshot_utc"] == (s - 2 * m).isoformat() and sig["polls_in_prior_60m"] == 2
+    assert [e["event"] for e in sig["gap_events_prior_60m"]] == ["hourly_byte_ceiling"]
+    assert not sig["paused_at_snapshot"] and sig["pause_overlaps_prior_60m"]
+    assert rec.gap_signals(s, polls, events, [(s - 5 * m, None)])["paused_at_snapshot"]
+    clock = _Clock(dt.datetime(2026, 10, 26, 10, 0, tzinfo=UTC))
+    s3 = _TimedS3(clock)
+    r = _recorder(tmp_path, clock, s3)
+    _run_until(r, clock, dt.datetime(2026, 10, 26, 10, 50, tzinfo=UTC))
+    r2 = _recorder(tmp_path, clock, s3)
+    assert r2.poll_times == r.poll_times and len(r2.poll_times) >= 20
+    _run_until(r2, clock, dt.datetime(2026, 10, 26, 11, 1, tzinfo=UTC))
+    row = [x for x in _rows(r2.out) if x["station"] == "KATL" and x["hour_local"] == 7][0]
+    assert row["polls_in_prior_60m"] >= 25 and row["k_miss"] == 0
+
+
+def test_git_blob_id_matches_git_hash_object():
+    assert rec.git_blob_id(b"hello\n") == "ce013625030ba8dba906f756967f9e9ca394464a"
+
+
+def test_lite_session_builds_query_reuses_one_tls_context_and_reconnects_once(monkeypatch):
+    import http.client
+
+    made, sent = [], []
+
+    class _R:
+        status = 206
+
+        def read(self):
+            return b"abc"
+
+        def getheader(self, name):
+            return None
+
+    class _Conn:
+        def __init__(self, host, context=None, timeout=None):
+            made.append((host, context))
+            self.fail = len(made) == 1
+
+        def request(self, method, path, headers=None):
+            sent.append((path, headers.get("Range")))
+            if self.fail:
+                raise http.client.RemoteDisconnected("idle close")
+
+        def getresponse(self):
+            return _R()
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(http.client, "HTTPSConnection", _Conn)
+    s = rec.LiteSession()
+    r = s.get("https://noaa-hrrr-bdp-pds.s3.amazonaws.com/", params={"list-type": "2", "prefix": "hrrr.x"})
+    assert r.status_code == 206 and r.content == b"abc" and r.text == "abc"
+    assert sent[-1][0] == "/?list-type=2&prefix=hrrr.x" and len(made) == 2
+    assert made[0][1] is made[1][1] is s.ctx
+    s.get("https://noaa-hrrr-bdp-pds.s3.amazonaws.com/k.grib2", headers={"Range": "bytes=1-2"})
+    assert sent[-1] == ("/k.grib2", "bytes=1-2") and len(made) == 2

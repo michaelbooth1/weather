@@ -210,7 +210,30 @@ def retrieved_only_availability(msgs, snapshot):
     return out
 
 
-def snapshot_row(key, msgs, listing, rn1, meta, now, last_poll, paused):
+GAP_EVENTS = ("hourly_byte_ceiling", "low_disk", "step_error", "pause_start", "pause_end", "start",
+              "stop_file", "cap_reached", "fetch_failed")
+ROW_SCHEMA = 2
+
+
+def gap_signals(s, poll_times, events, pause_intervals, window=dt.timedelta(minutes=60)):
+    """Recorder-health signals for snapshot ``s`` (MG-3 gap rule inputs), all from state at or before s."""
+    polls = [t for t in poll_times if t <= s]
+    lo = s - window
+    ev = [{"event": e["event"], "at_utc": e["at_utc"]} for e in events
+          if e["event"] in GAP_EVENTS and lo <= dt.datetime.fromisoformat(e["at_utc"]) <= s]
+    paused = any(a <= s and (b is None or b > s) for a, b in pause_intervals)
+    overlap = any(a <= s and (b is None or b >= lo) for a, b in pause_intervals)
+    return {
+        "last_poll_before_snapshot_utc": _iso(max(polls)) if polls else None,
+        "polls_in_prior_60m": sum(1 for t in polls if t >= lo),
+        "gap_events_prior_60m": ev,
+        "paused_at_snapshot": paused,
+        "pause_overlaps_prior_60m": overlap,
+        "row_schema": ROW_SCHEMA,
+    }
+
+
+def snapshot_row(key, msgs, listing, rn1, meta, now, signals):
     """The once-written forward row for one snapshot (what a live server could have seen)."""
     st, d, hr, s, end = key
     cands = h.candidate_cycles(s, STRIDE, LOOKBACK)
@@ -223,8 +246,7 @@ def snapshot_row(key, msgs, listing, rn1, meta, now, last_poll, paused):
         "station": st, "market": meta.get("market"), "local_date": d.isoformat(), "hour_local": hr,
         "snapshot_utc": _iso(s), "window_end_utc": _iso(end), "written_at_utc": _iso(now),
         "written_late_s": round((now - s).total_seconds(), 1),
-        "last_poll_before_snapshot_utc": _iso(last_poll) if last_poll else None,
-        "paused_at_snapshot": paused,
+        **signals,
         **{k: sel[k] for k in ("cycle_utc", "fhs", "depth", "window_truncated_at_f18")},
         "training_rule_cycle_utc": train["cycle_utc"], "retrieved_only_cycle_utc": ronly["cycle_utc"],
         "point_rule": POINT_RULE, "rn1_index": rn1, "land_sha256": LAND_SHA256, "rule_shas": RULE_SHAS,
@@ -257,6 +279,34 @@ def snapshot_row(key, msgs, listing, rn1, meta, now, last_poll, paused):
 
 
 # --------------------------------------------------------------------------- process guards
+def git_blob_id(data):
+    return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
+
+
+def code_identity():
+    """Git identity of the running code: the HEAD commit and each file's blob id as git stores it
+    (LF-normalised; the working copy may be CRLF) next to the raw bytes' blob id."""
+    out = {}
+    for name, path in (("hrrr_forward_recorder.py", Path(__file__)), ("hrrr_point_fetch.py", Path(h.__file__))):
+        raw = path.read_bytes()
+        out[name] = {"git_blob_lf": git_blob_id(raw.replace(b"\r\n", b"\n")), "blob_raw": git_blob_id(raw)}
+    try:
+        import subprocess
+
+        head = subprocess.run(["git", "-C", str(Path(__file__).parent), "rev-parse", "HEAD"],
+                              capture_output=True, text=True, timeout=20)
+        out["head"] = head.stdout.strip() or None
+        dirty = subprocess.run(["git", "-C", str(Path(__file__).parent), "status", "--porcelain", "--",
+                                "hrrr_forward_recorder.py", "hrrr_point_fetch.py"],
+                               capture_output=True, text=True, timeout=20)
+        out["files_clean_vs_head"] = dirty.returncode == 0 and not dirty.stdout.strip()
+    except Exception as e:  # pragma: no cover - git absent
+        out["head"] = None
+        out["git_error"] = repr(e)[:200]
+    return out
+
+
+
 def set_below_normal_priority():
     try:
         if os.name == "nt":
@@ -292,6 +342,60 @@ def acquire_lock(path):
         fh.close()
         raise SystemExit(f"another recorder holds {path}")
     return fh
+
+
+class _LiteResp:
+    def __init__(self, status, content):
+        self.status_code, self.content = status, content
+
+    @property
+    def text(self):
+        return self.content.decode("utf-8", "replace")
+
+
+class LiteSession:
+    """Minimal persistent-HTTPS GET client with ONE TLS context built once.
+
+    ``requests`` re-loads the CA bundle (about 0.12 CPU-s) for every new connection, and S3 closes
+    idle connections between two-minute polls, which made CA loading most of the recorder's CPU.
+    The interface is the subset ``hrrr_point_fetch.Fetcher`` uses: ``get(url, headers, params,
+    timeout)`` returning ``status_code``/``content``/``text``."""
+
+    def __init__(self, user_agent="weather-research-l13-hrrr-forward/1 (serial; free NOAA open data)"):
+        import ssl
+
+        self.ctx = ssl.create_default_context()
+        self.headers = {"User-Agent": user_agent, "Accept-Encoding": "identity"}
+        self.conn, self.host = None, None
+
+    def _close(self):
+        if self.conn is not None:
+            self.conn.close()
+        self.conn = None
+
+    def get(self, url, headers=None, params=None, timeout=90):
+        import http.client
+        from urllib.parse import urlencode, urlsplit
+
+        u = urlsplit(url)
+        path = (u.path or "/") + ("?" + urlencode(params) if params else ("?" + u.query if u.query else ""))
+        for attempt in (0, 1):
+            if self.conn is None or self.host != u.hostname:
+                self._close()
+                self.conn = http.client.HTTPSConnection(u.hostname, context=self.ctx, timeout=timeout)
+                self.host = u.hostname
+            try:
+                self.conn.request("GET", path, headers={**self.headers, **(headers or {})})
+                resp = self.conn.getresponse()
+                body = resp.read()
+            except (http.client.HTTPException, OSError):
+                self._close()
+                if attempt:
+                    raise
+                continue
+            if (resp.getheader("Connection") or "").lower() == "close":
+                self._close()
+            return _LiteResp(resp.status, body)
 
 
 class Throttle:
@@ -338,6 +442,7 @@ class Recorder:
                          "hrrr_point_fetch.py": _sha_file(h.__file__)}
         self.listing, self.listed_at, self.msgs, self.written = {}, {}, {}, set()
         self.idx_cache, self.last_poll, self.paused_since = {}, None, None
+        self.poll_times, self.events, self.pause_intervals = [], [], []
         self.fail_counts = {}
         self.foot = {"hour": None, "bytes": 0, "requests": 0, "cpu_s": 0.0, "messages": 0, "listings": 0}
         self._load()
@@ -364,6 +469,14 @@ class Recorder:
         for rec in h.read_jsonl(self._p("messages.jsonl")):
             if rec.get("status") == "ok":
                 self.msgs[(rec["cycle_utc"], rec["fh"], rec["var"])] = rec
+        for e in h.read_jsonl(self._p("events.jsonl")):
+            self.events.append(e)
+            if e["event"] == "poll":
+                self.poll_times.append(dt.datetime.fromisoformat(e["at_utc"]))
+        for g in h.read_jsonl(self._p("gaps.jsonl")):
+            if g["gap"] == "pause_end":
+                self.pause_intervals.append((dt.datetime.fromisoformat(g["started_utc"]),
+                                             dt.datetime.fromisoformat(g["at_utc"])))
         for rec in h.read_jsonl(self._p("snapshots.jsonl")):
             self.written.add((rec["station"], rec["local_date"], rec["hour_local"]))
 
@@ -390,9 +503,9 @@ class Recorder:
             st, d, hr, s, _ = key
             if (st, d.isoformat(), hr) in self.written:
                 continue
-            last = self.last_poll if self.last_poll and self.last_poll <= s else None
-            row = snapshot_row(key, self.msgs, self.listing, self.rn1[st], self.stations[st], now, last,
-                               self.paused_since is not None and self.paused_since <= s)
+            pauses = self.pause_intervals + ([(self.paused_since, None)] if self.paused_since else [])
+            sig = gap_signals(s, self.poll_times, self.events, pauses)
+            row = snapshot_row(key, self.msgs, self.listing, self.rn1[st], self.stations[st], now, sig)
             h.append_jsonl(self._p("snapshots.jsonl"), row)
             self.written.add((st, d.isoformat(), hr))
             n += 1
@@ -401,6 +514,7 @@ class Recorder:
     def poll(self, now):
         upcoming = snapshots_between(self.stations, now, now + dt.timedelta(hours=26))
         b0, r0 = self.f.used, self.f.requests
+        self.log_event("poll", at=now)
         for c in cycles_to_poll(now, upcoming, self.listing):
             page = self.f.list_prefix(h.cycle_prefix(c))
             t = _iso(self.clock())
@@ -411,6 +525,10 @@ class Recorder:
                     h.append_jsonl(self._p("listings.jsonl"), {"key": key, "listed_at_utc": t, **ent})
             self._account(now, listings=1)
         self.last_poll = now
+        old = _iso(now - dt.timedelta(days=2))
+        self.msgs = {k: v for k, v in self.msgs.items() if k[0] >= old}
+        self.poll_times.append(now)
+        self.poll_times = [x for x in self.poll_times if x >= now - dt.timedelta(days=2)]
         fetched = 0
         for c, fh in sorted(wanted_messages(now, upcoming, self.listing)):
             for var in VARS:
@@ -442,6 +560,7 @@ class Recorder:
                     fetched += 1
                 else:
                     self.fail_counts[k] = self.fail_counts.get(k, 0) + 1
+                    self.log_event("fetch_failed", key=rec["key"], var=var, status=rec.get("status"))
                 h.append_jsonl(self._p("messages.jsonl"), rec)
                 self._account(got, messages=1)
         if len(self.idx_cache) > 64:
@@ -449,8 +568,13 @@ class Recorder:
         self._account(now, nbytes=self.f.used - b0, requests=self.f.requests - r0)
         return fetched
 
-    def log_event(self, event, **kw):
-        h.append_jsonl(self._p("events.jsonl"), {"event": event, "at_utc": _iso(self.clock()), **kw})
+    def log_event(self, event, at=None, **kw):
+        rec = {"event": event, "at_utc": _iso(at or self.clock()), **kw}
+        h.append_jsonl(self._p("events.jsonl"), rec)
+        self.events.append(rec)
+        if len(self.events) > 5000:
+            cut = self.clock() - dt.timedelta(days=2)
+            self.events = [e for e in self.events if dt.datetime.fromisoformat(e["at_utc"]) >= cut]
 
     def step(self):
         now = self.clock()
@@ -461,6 +585,7 @@ class Recorder:
             self.log_event("pause_start")
             h.append_jsonl(self._p("gaps.jsonl"), {"gap": "pause_start", "at_utc": _iso(now)})
         elif not paused and self.paused_since is not None:
+            self.pause_intervals.append((self.paused_since, now))
             h.append_jsonl(self._p("gaps.jsonl"), {"gap": "pause_end", "at_utc": _iso(now),
                                                   "started_utc": _iso(self.paused_since)})
             self.log_event("pause_end")
@@ -484,7 +609,7 @@ class Recorder:
 
     def run(self, poll_s=120, max_steps=None):
         steps = 0
-        self.log_event("start", pid=os.getpid(), code_sha256=self.code_sha)
+        self.log_event("start", pid=os.getpid(), code_sha256=self.code_sha, git=code_identity())
         while True:
             if self.stop_file and self.stop_file.exists():
                 self.log_event("stop_file")
@@ -523,7 +648,8 @@ def main(argv=None):
     out.mkdir(parents=True, exist_ok=True)
     lock = acquire_lock(out / "recorder.lock")  # noqa: F841 - held until exit
     prio = set_below_normal_priority()
-    rec = Recorder(out, h.registry_stations(), args.land, h.Fetcher(int(args.cap_gb * h.GIB)),
+    rec = Recorder(out, h.registry_stations(), args.land,
+                   h.Fetcher(int(args.cap_gb * h.GIB), session=LiteSession()),
                    pause_file=args.pause_file, stop_file=args.stop_file, bytes_per_s=args.bytes_per_second,
                    hourly_mb=args.hourly_mb, min_free_gb=args.min_free_gb)
     rec.log_event("priority", below_normal=prio)
