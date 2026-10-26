@@ -4402,6 +4402,466 @@ def dev_verdict_markdown(scores, rule_path, arms=tuple(DEV_ARMS)):
 # -------------------------------------------------------------------------- CLI
 
 
+
+
+# ------------------------------------------------- R-M: per-market centre bias at 07-12 (lane L11, rule_rm.md)
+
+RM_RULE_SHA256 = "91e25610bf7c56193a040289e16ea21ed5aea53de2d20f7a4ed23033cb4a225b"
+RM_GRID = tuple(round(-4.0 + 0.1 * i, 1) for i in range(81))  # -4.0 .. +4.0 F, contains 0.0
+RM_ZERO = RM_GRID.index(0.0)
+RM_RA_LOYO_SHA256 = "21cacdaabcf50165da084a748b42a0b862c36c9e1f4b8d4bdb506c07c927f54d"
+RM_NBM_TRAIN_SHA256 = "1ae4bf52a0e032fc0c05ddfa7b282a17db53bd9a2e3f3a32a9a5686139faa1fd"
+RM_THREE = ("dallas", "austin", "seattle")  # R-H finding 4: called out, never re-selected
+
+
+def rm_pick(loss, grid=RM_GRID):
+    """Grid minimiser; ties go to the shift closest to 0."""
+    import numpy as np
+
+    loss = np.asarray(loss, dtype=float)
+    best = np.flatnonzero(loss <= loss.min() + 1e-15)
+    return float(min((grid[i] for i in best), key=lambda s: (abs(s), s)))
+
+
+def rm_cdf(keys, probs):
+    """Piecewise-uniform integer pmf -> (edges at k +- 0.5, CDF at the edges)."""
+    import numpy as np
+
+    keys = np.asarray(keys, dtype=int)
+    lo, hi = int(keys.min()), int(keys.max())
+    dense = np.zeros(hi - lo + 1)
+    np.add.at(dense, keys - lo, np.asarray(probs, dtype=float))
+    edges = np.arange(lo - 0.5, hi + 1.0, 1.0)
+    return edges, np.concatenate([[0.0], np.cumsum(dense)])
+
+
+def rm_shifted_cdf(edges, cdf, x, shifts):
+    """G_s(x) = F(x - s): rows = shifts, columns = x (left of the support 0, right of it the total mass)."""
+    import numpy as np
+
+    s = np.asarray(shifts, dtype=float)[:, None]
+    return np.interp((np.asarray(x, dtype=float)[None, :] - s).ravel(), edges, cdf, left=0.0,
+                     right=float(cdf[-1])).reshape(len(s), -1)
+
+
+def rm_shift_dict(keys, probs, shifts):
+    """Translate an integer pmf by each shift and rebin to integers: (ks, Q[shift, k])."""
+    import numpy as np
+
+    edges, cdf = rm_cdf(keys, probs)
+    pad = int(math.ceil(max(abs(float(v)) for v in shifts))) + 1
+    ks = np.arange(int(edges[0] + 0.5) - pad, int(edges[-1] - 0.5) + pad + 1)
+    g = rm_shifted_cdf(edges, cdf, np.append(ks - 0.5, ks[-1] + 0.5), shifts)
+    return ks, np.diff(g, axis=1)
+
+
+def rm_loyo_losses(dist, actual, floor, shifts=RM_GRID):
+    """fm.brier_score (integer keys) of the shifted pmf at every shift, under the LOYO rule-4 mask."""
+    import numpy as np
+
+    from weather.units import round_half_up
+
+    keys = list(dist)
+    ks, q = rm_shift_dict(keys, [dist[k] for k in keys], shifts)
+    q0 = q[list(shifts).index(0.0)] if 0.0 in shifts else None
+    if floor is not None and math.isfinite(floor):
+        q = np.where((ks < int(round_half_up(floor)))[None, :], 0.0, q)
+    tot = q.sum(axis=1, keepdims=True)
+    if q0 is not None:
+        q = np.where(tot > 0, q / np.where(tot > 0, tot, 1.0), q0[None, :])
+    else:
+        q = q / np.where(tot > 0, tot, 1.0)
+    onehot = (ks == int(actual)).astype(float)
+    loss = ((q - onehot[None, :]) ** 2).sum(axis=1)
+    if not (ks[0] <= int(actual) <= ks[-1]):
+        loss = loss + 1.0
+    return loss
+
+
+def rm_loyo(frame, buckets, hours=RUNG_HOURS):
+    """Gate 1: strictly nested LOYO of one shift per market (07-12 block) on P3d_N_fix (2021-25 Aug-Sep rows)."""
+    import numpy as np
+
+    from weather.calibration import feature_model as fm
+
+    inner = defaultdict(lambda: np.zeros(len(RM_GRID)))
+    outer = []
+    for hour in hours:
+        at_hour = frame[frame["hour"] == hour]
+        years = sorted(int(y) for y in at_hour["year"].unique())
+
+        def predict(train_years, target_year):
+            train = at_hour[at_hour["year"].isin(train_years)].reset_index(drop=True)
+            val = at_hour[at_hour["year"] == target_year].reset_index(drop=True)
+            entry = _rung_entry(train, *_arm_spec(RUNG_ARMS["P3d_N_fix"]))
+            out = []
+            for market in sorted(val["market"].unique()):
+                part = val[val["market"] == market].reset_index(drop=True)
+                for i, dist in enumerate(_dist_from_fit(entry, part, buckets, market)):
+                    out.append((market, str(part.at[i, "target_date"])[:10], dist, int(part.at[i, "y"]),
+                                float(part.at[i, "F"])))
+            return out
+
+        for held in years:
+            for x in years:
+                if x == held:
+                    continue
+                for market, _, dist, a, floor in predict([y for y in years if y not in (x, held)], x):
+                    inner[(held, market)] += rm_loyo_losses(dist, a, floor)
+            for market, day, dist, a, floor in predict([y for y in years if y != held], held):
+                outer.append({"hour": int(hour), "year": int(held), "market": market, "date": day,
+                              "raw_brier": float(fm.brier_score(dist, a)), "loss": rm_loyo_losses(dist, a, floor),
+                              "actual_in_keys": a in dist})
+        print(f"rm loyo h{hour:02d}: {sum(1 for r in outer if r['hour'] == hour)} rows", flush=True)
+    shifts = {}
+    for (held, market), loss in sorted(inner.items()):
+        s = rm_pick(loss)
+        i = RM_GRID.index(s)
+        shifts[(held, market)] = {"shift": s, "inner_brier_noshift": float(loss[RM_ZERO]),
+                                  "inner_brier_shift": float(loss[i]),
+                                  "training_score_not_worse": bool(loss[i] <= loss[RM_ZERO] + 1e-12)}
+    rows = []
+    for r in outer:
+        s = shifts[(r["year"], r["market"])]["shift"]
+        rows.append({"hour": r["hour"], "year": r["year"], "market": r["market"], "date": r["date"], "shift": s,
+                     "P3d_N_fix_brier": r["raw_brier"], "noshift_brier": float(r["loss"][RM_ZERO]),
+                     "shift_brier": float(r["loss"][RM_GRID.index(s)]), "actual_in_keys": r["actual_in_keys"]})
+    return rows, shifts
+
+
+def rm_loyo_summary(rows, draws=BOOTSTRAP_DRAWS, seed=BOOTSTRAP_SEED):
+    import numpy as np
+
+    out = {}
+    groups = {"07-12": rows}
+    groups.update({f"h{h:02d}": [r for r in rows if r["hour"] == h] for h in sorted({r["hour"] for r in rows})})
+    groups.update({m: [r for r in rows if r["market"] == m] for m in sorted({r["market"] for r in rows})})
+    rng = np.random.default_rng(seed)
+    for name, rs in groups.items():
+        by_date = defaultdict(list)
+        for r in rs:
+            by_date[r["date"]].append(r["shift_brier"] - r["noshift_brier"])
+        dates = sorted(by_date)
+        sums = np.array([sum(by_date[d]) for d in dates])
+        counts = np.array([len(by_date[d]) for d in dates])
+        idx = rng.integers(0, len(dates), size=(draws, len(dates)))
+        boot = sums[idx].sum(axis=1) / counts[idx].sum(axis=1)
+        out[name] = {"shift_minus_noshift": float(sums.sum() / counts.sum()),
+                     "ci95": [float(np.percentile(boot, 2.5)), float(np.percentile(boot, 97.5))],
+                     "noshift_mean": float(np.mean([r["noshift_brier"] for r in rs])), "n": len(rs),
+                     "n_dates": len(dates)}
+    return out
+
+
+def rung_m_loyo(*, records_root, nbm_train_corpus, ra_loyo_rows, out_dir, markets=R0_MARKETS, hours=RUNG_HOURS):
+    """R-M gate 1 (rule_rm.md): nested LOYO, with R-A's LOYO Brier reproduced as a positive control."""
+    from weather.calibration import ols_floor_ladder as l9
+    from weather.market.market_registry import spec_for_id
+
+    out = require_output_outside_repo(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    for name in ("rm_loyo.json", "rm_loyo_rows.jsonl"):
+        if (out / name).exists():
+            raise PooledModelError(f"refusing to overwrite {out / name}")
+    for path, want in ((nbm_train_corpus, RM_NBM_TRAIN_SHA256), (ra_loyo_rows, RM_RA_LOYO_SHA256)):
+        got = hashlib.sha256(Path(path).read_bytes()).hexdigest()
+        if got != want:
+            raise PooledModelError(f"{path} sha {got} != {want}")
+    timezones = {m: spec_for_id(m).timezone for m in markets}
+    frame, buckets = dev_training_frame(records_root, markets)
+    if frame["year"].max() >= 2026:
+        raise PooledModelError("a dev training row is from 2026")
+    frame, train_stats = attach_training_nbm(frame, l9.load_nbm(nbm_train_corpus), l9.nbm_at_cutoff, timezones)
+    frame = frame[frame["hour"].isin(hours)].reset_index(drop=True)
+    rows, shifts = rm_loyo(frame, buckets, hours)
+    ra = {}
+    with open(ra_loyo_rows, encoding="utf-8") as handle:
+        for line in handle:
+            r = json.loads(line)
+            ra[(r["hour"], r["market"], r["date"])] = r["P3d_N_fix_brier"]
+    worst = max(abs(r["P3d_N_fix_brier"] - ra[(r["hour"], r["market"], r["date"])]) for r in rows)
+    if len(ra) != len(rows) or worst > 1e-9:
+        raise PooledModelError(f"R-A LOYO control failed: rows {len(rows)} vs {len(ra)}, max diff {worst}")
+    if not all(v["training_score_not_worse"] for v in shifts.values()):
+        raise PooledModelError("a fitted shift worsened its own training score")
+    _write_jsonl(out / "rm_loyo_rows.jsonl", rows)
+    summary = rm_loyo_summary(rows)
+    mask_effect = [r["noshift_brier"] - r["P3d_N_fix_brier"] for r in rows]
+    result = {"rule_sha256": RM_RULE_SHA256, "train_nbm": train_stats, "grid": [RM_GRID[0], RM_GRID[-1], 0.1],
+              "controls": {"ra_loyo_rows": len(ra), "ra_max_abs_diff": worst,
+                           "loyo_mask_effect_noshift_minus_raw": {"mean": float(sum(mask_effect) / len(rows)),
+                                                                  "max_abs": float(max(map(abs, mask_effect)))},
+                           "training_score_not_worse_all": True,
+                           "rows_actual_not_a_pmf_key": int(sum(not r["actual_in_keys"] for r in rows))},
+              "shifts": {f"{m}|{y}": v for (y, m), v in sorted(shifts.items(), key=lambda kv: (kv[0][1], kv[0][0]))},
+              "summary": summary, "gate1_pass": summary["07-12"]["ci95"][1] < 0,
+              "inputs": {"nbm_train_corpus": RM_NBM_TRAIN_SHA256, "ra_loyo_rows": RM_RA_LOYO_SHA256,
+                         "module_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}}
+    (out / "rm_loyo.json").write_text(json.dumps(result, indent=1, sort_keys=True), encoding="utf-8")
+    return result
+
+
+def rm_fix_prepare(dists, bands):
+    """Per snapshot with a P3d_N_fix pmf: its CDF and band edges, built once."""
+    import numpy as np
+
+    prep = []
+    for rk, g in bands[bands.row_key.isin(set(dists))].groupby("row_key", sort=False):
+        d = dists[rk]
+        keys = list(d)
+        edges, cdf = rm_cdf(keys, [d[k] for k in keys])
+        kind = g.kind.to_numpy()
+        up = np.where(kind == "gte", np.inf, g.high.to_numpy(float) + 0.5)
+        lo = np.where(kind == "lte", -np.inf, g.low.to_numpy(float) - 0.5)
+        prep.append((rk, g.band_index.to_numpy(int), edges, cdf, up, lo))
+    return prep
+
+
+def rm_fix_band_probs(prep, shift_of):
+    """P3d_N_fix integer pmfs translated by shift_of(row_key) and mapped onto the bands (lte/eq/gte)."""
+    import numpy as np
+    import pandas as pd
+
+    rk_out, bi_out, p_out = [], [], []
+    for rk, bi, edges, cdf, up, lo in prep:
+        s = float(shift_of(rk))
+        gu = np.where(np.isinf(up), cdf[-1], np.interp(np.where(np.isinf(up), 0.0, up) - s, edges, cdf, left=0.0,
+                                                      right=float(cdf[-1])))
+        gl = np.where(np.isinf(lo), 0.0, np.interp(np.where(np.isinf(lo), 0.0, lo) - s, edges, cdf, left=0.0,
+                                                   right=float(cdf[-1])))
+        rk_out.extend([rk] * len(bi))
+        bi_out.append(bi)
+        p_out.append(np.clip(gu - gl, 0.0, None))
+    return pd.DataFrame({"row_key": rk_out, "band_index": np.concatenate(bi_out) if bi_out else np.zeros(0, int),
+                         "p": np.concatenate(p_out) if p_out else np.zeros(0)})
+
+
+def rm_l6_band_probs(state, snaps, bands, shift):
+    """L6 (l6_stack.predict) with its centre moved by ``shift`` (array per snapshot), vectorised over bands."""
+    import numpy as np
+    import pandas as pd
+
+    from weather.reporting.scorecards.free_source_candidates import l6_stack, mg1
+
+    s = _with_floor(snaps).reset_index(drop=True)
+    table, _ = l6_stack.nowcasts()
+    n = table[state["column"]].reindex(s.row_key).to_numpy(float)
+    v2 = pd.to_numeric(s.v2_mean, errors="coerce").to_numpy(float)
+    hours = s.local_hour.to_numpy(int)
+    mu = v2.copy()
+    for h, (a, b, _) in state["coef"].items():
+        sel = (hours == h) & np.isfinite(n) & np.isfinite(v2)
+        mu[sel] = v2[sel] + a + b * (n[sel] - v2[sel])
+    mu = mu + np.asarray(shift, dtype=float)
+    avail = pd.to_datetime(s.v2_available_at, utc=True, errors="coerce")
+    t = pd.to_datetime(s.captured_at_utc, utc=True)
+    sd = pd.to_numeric(s.v2_stddev, errors="coerce").to_numpy(float)
+    ok = np.isfinite(mu) & np.isfinite(sd) & avail.notna().to_numpy() & (avail <= t).fillna(False).to_numpy()
+    floor = pd.to_numeric(s["floor"], errors="coerce").to_numpy(float)
+    B = np.where(np.isfinite(floor), np.floor(floor + 0.5), -np.inf)
+    pos = pd.Series(np.arange(len(s)), index=s.row_key.to_numpy())
+    b = bands[bands.row_key.isin(set(s.row_key[ok]))]
+    i = pos.reindex(b.row_key.to_numpy()).to_numpy(int)
+    p = mg1.band_probs(b.kind.to_numpy(), b.low.to_numpy(), b.high.to_numpy(), B[i], mu[i], np.maximum(sd[i], 1.0))
+    return pd.DataFrame({"row_key": b.row_key.to_numpy(), "band_index": b.band_index.to_numpy(int),
+                         "p": np.asarray(p, float)})
+
+
+def rm_walk_forward(briers, dates, markets, sel, scored_dates):
+    """s(m, d) = grid minimiser of the summed Brier on selected snapshots of market m dated before d."""
+    out = {}
+    for m in sorted(set(markets[sel])):
+        at = sel & (markets == m)
+        for d in scored_dates:
+            use = at & (dates < d)
+            out[(m, d)] = rm_pick(briers[use].sum(axis=0)) if use.any() else 0.0
+    return out
+
+
+def rung_m_score(*, layout, fix_jsonl, coefficients, nowcasts, loyo_result, out_path, start="2026-08-01",
+                 end="2026-09-29"):
+    """R-M gates 2 and 3 (rule_rm.md)."""
+    import os
+
+    import numpy as np
+
+    from weather.calibration import r0_ols_floor_challenger as l3
+    from weather.reporting.scorecards import dev_scorecard as sc
+    from weather.reporting.scorecards import dev_scorecard_data as data
+    from weather.reporting.scorecards import loss_atlas
+
+    out_path = require_output_outside_repo(out_path)
+    if out_path.exists():
+        raise PooledModelError(f"refusing to overwrite {out_path}")
+    loyo = json.loads(Path(loyo_result).read_bytes())
+    if loyo.get("rule_sha256") != RM_RULE_SHA256 or not loyo.get("gate1_pass"):
+        raise PooledModelError("gate 1 has not passed under this rule; gate 2 may not run (KILL applies)")
+    now_sha = hashlib.sha256(Path(nowcasts).read_bytes()).hexdigest()
+    if now_sha != L6_NOWCAST_SHA256:
+        raise PooledModelError(f"L6 nowcast sha {now_sha} != {L6_NOWCAST_SHA256}")
+    fix_sha = hashlib.sha256(Path(fix_jsonl).read_bytes()).hexdigest()
+    if fix_sha != RI_FIX_SHA256:
+        raise PooledModelError(f"P3d_N_fix vectors sha {fix_sha} != {RI_FIX_SHA256}")
+    os.environ["L6_NOWCASTS"] = str(nowcasts)
+    from weather.reporting.scorecards.free_source_candidates import l6_stack
+
+    l6_stack._CACHE.clear()
+    state, part_sha = l6_frozen_state(coefficients)
+    start_d, end_d = data.check_range(start, end)
+    lay = data.load_layout(layout, data.DEV_FIRST, end_d)
+    folds = data.make_folds(lay.dates, start_d, end_d, 7, 1, 7)
+    scored = sorted(d for f in folds if f.scored for d in f.dates)
+    fit_dates = sorted(d for d in {str(x) for x in lay.dates} if BLEND_FIT_FIRST <= d <= end)
+    dists = {}
+    with open(fix_jsonl, encoding="utf-8") as handle:
+        for line in handle:
+            row = json.loads(line)
+            if str(row.get("target_date", ""))[:10] > end:
+                raise PooledModelError("P3d_N_fix vectors hold rows after the window")
+            dists[f"{row['market']}|{row['snapshot_id']}"] = {int(float(k)): float(v)
+                                                             for k, v in row["distribution"].items()}
+
+    preps = {}
+
+    def arm_vectors(table, shift_fix, shift_l6):
+        """(p_fix, p_l6) on ``table`` with per-snapshot shifts (arrays aligned to table.snaps)."""
+        pos = dict(zip(table.snaps.row_key, range(len(table.snaps))))
+        if id(table) not in preps:
+            preps.clear()
+            preps[id(table)] = rm_fix_prepare(dists, table.bands)
+        fx = rm_fix_band_probs(preps[id(table)], lambda rk: shift_fix[pos[rk]] if rk in pos else 0.0)
+        p_fix, _ = table.candidate_vector(fx)
+        p_l6, _ = table.candidate_vector(rm_l6_band_probs(state, table.snaps, table.bands, shift_l6))
+        return p_fix, p_l6
+
+    # coverage and controls on the fitting table
+    full = sc.Table(lay, fit_dates)
+    fix0, fcov, _ = l3._vector(full, l3._candidate_frame(str(fix_jsonl), full, lay, folds, data)[0])
+    l60, lcov, _ = l6_vector(full, state, l3)
+    zero = np.zeros(len(full.snaps))
+    a_fix, a_l6 = arm_vectors(full, zero, zero)
+    common_f = fcov & lcov
+    band_common = common_f[full.band_snap]
+    controls = {"fix_s0_max_abs_diff": float(np.max(np.abs(a_fix - fix0)[band_common])),
+                "l6_s0_max_abs_diff": float(np.max(np.abs(a_l6 - l60)[band_common]))}
+    if controls["fix_s0_max_abs_diff"] > 1e-9 or controls["l6_s0_max_abs_diff"] > 1e-9:
+        raise PooledModelError(f"s = 0 does not reproduce the registered arms: {controls}")
+    fdates = full.snaps.date.astype(str).to_numpy()
+    sel = common_f & (full.local_hour >= 7) & (full.local_hour <= 12)
+    grids = {"P3d_N_fix": np.zeros((len(full.snaps), len(RM_GRID))), "L6": np.zeros((len(full.snaps), len(RM_GRID)))}
+    for j, s in enumerate(RM_GRID):
+        sh = np.full(len(full.snaps), s)
+        pf, pl = arm_vectors(full, sh, sh)
+        grids["P3d_N_fix"][sel, j] = full.brier(pf)[sel]
+        grids["L6"][sel, j] = full.brier(pl)[sel]
+        print(f"rm grid {s:+.1f}", flush=True)
+    shifts = {arm: rm_walk_forward(g, fdates, full.markets, sel, scored) for arm, g in grids.items()}
+    del grids, full
+    preps.clear()
+
+    table = sc.Table(lay, scored)
+    date_w = l3._date_weights([k[0] for k in table.keys], sc.DRAWS, sc.SEED)
+    market_b = table.brier(table.p_market)
+    p_fix, cov_fix, r_fix = l3._vector(table, l3._candidate_frame(str(fix_jsonl), table, lay, folds, data)[0])
+    p_l6, cov_l6, r_l6 = l6_vector(table, state, l3)
+    p_mg1, _, _ = l3._vector(table, loss_atlas.mg1_frame(table))
+    w0712 = (table.local_hour >= 7) & (table.local_hour <= 12)
+    _, e = table.cells(table.brier(p_mg1) - market_b, w0712)
+    mg1_excess = float(e.mean())
+    if round(mg1_excess, 3) != l3.MG1_CONTROL_0712_EXCESS:
+        raise PooledModelError(f"MG-1 positive control failed: {mg1_excess:.5f}")
+    common = cov_fix & cov_l6
+    tdates = table.snaps.date.astype(str).to_numpy()
+    in_scope = common & w0712
+
+    def per_snap(arm):
+        return np.array([shifts[arm].get((m, d), 0.0) if c else 0.0
+                         for m, d, c in zip(table.markets, tdates, in_scope)])
+
+    s_fix, s_l6 = per_snap("P3d_N_fix"), per_snap("L6")
+    p_fix_s, _ = arm_vectors(table, s_fix, np.zeros(len(table.snaps)))
+    _, p_l6_s = arm_vectors(table, np.zeros(len(table.snaps)), s_l6)
+    probs = {"P3d_N_fix": p_fix, "L6": p_l6, "P3d_N_fix_shift": np.where(in_scope[table.band_snap], p_fix_s, p_fix),
+             "L6_shift": np.where(in_scope[table.band_snap], p_l6_s, p_l6)}
+    for name, v in probs.items():
+        mass = np.add.reduceat(v, table.offsets)
+        if np.any(np.abs(mass[common] - 1.0) > 1e-9):
+            raise PooledModelError(f"{name}: probability mass not preserved")
+    briers = {k: table.brier(v) for k, v in probs.items()}
+    groups = [("07-12", 7, 12)] + [(f"h{h:02d}", h, h) for h in RUNG_HOURS]
+    pools = [(sc.ALL_MARKETS, None)] + [(m, {m}) for m in sorted(set(table.markets))]
+
+    def compare(arm, ref):
+        rows = []
+        for market, members in pools:
+            in_pool = np.ones(len(table.snaps), bool) if members is None else np.isin(table.markets, sorted(members))
+            for group, lo, hi in groups if members is None else groups[:1]:
+                mask = common & in_pool & (table.local_hour >= lo) & (table.local_hour <= hi)
+                if not mask.any():
+                    continue
+                idx, c = table.cells(briers[arm], mask)
+                _, r_ = table.cells(briers[ref], mask)
+                _, m = table.cells(market_b, mask)
+                rows.append({"arm": arm, "reference": ref, "market": market, "group": group,
+                             "n_market_days": int(len(idx)), "n_snapshots": int(mask.sum()),
+                             "R_arm": sc.ratio_interval(table.w[:, idx], c, m),
+                             "R_reference": sc.ratio_interval(table.w[:, idx], r_, m),
+                             "dR_crossed": sc.ratio_interval(table.w[:, idx], c - r_, m),
+                             "dR_date_clustered": sc.ratio_interval(date_w[:, idx], c - r_, m)})
+        return rows
+
+    def primary(rows):
+        return next(r for r in rows if r["market"] == sc.ALL_MARKETS and r["group"] == "07-12")
+
+    def hours_lower(rows):
+        return [r["dR_date_clustered"]["ci95"][0] for r in rows if r["market"] == sc.ALL_MARKETS
+                and r["group"] != "07-12"]
+
+    def passes(rows):
+        p = primary(rows)["dR_date_clustered"]["ci95"]
+        return p[1] < 0 and not any(lo > 0 for lo in hours_lower(rows))
+
+    def reading(rows):
+        if primary(rows)["dR_date_clustered"]["ci95"][0] > 0:
+            return "HARM"
+        return "WIN" if passes(rows) else "NULL"
+
+    result = {"rule": "C:/t/l11pb/rule_rm.md", "rule_sha256": RM_RULE_SHA256,
+              "population": {"n_dates": len(scored), "first_date": scored[0], "last_date": scored[-1],
+                             "n_market_days": len(table.keys), "common_covered_snapshots_07_12": int(in_scope.sum())},
+              "controls": dict(controls, mg1_excess_07_12=mg1_excess, l6_part_sha256=part_sha,
+                               l6_nowcast_sha256=now_sha, gate1=loyo["summary"]["07-12"]),
+              "coverage": {"P3d_N_fix": r_fix, "L6": r_l6},
+              "inputs": {"fix_jsonl": fix_sha, "loyo_result": hashlib.sha256(Path(loyo_result).read_bytes()).hexdigest(),
+                         "layout_manifest_sha256": lay.manifest_sha256, "scorecard_code_sha256": sc.code_sha256(),
+                         "module_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()},
+              "shifts": {arm: {m: {"mean": float(np.mean([t[(m, d)] for d in scored])), "first": t[(m, scored[0])],
+                                   "last": t[(m, scored[-1])]} for m in sorted({k[0] for k in t})}
+                         for arm, t in shifts.items()},
+              "gates": {}, "rows": []}
+    result["rows"] += compare("L6", "P3d_N_fix")  # R-F incumbent control (reported)
+    for arm in ("P3d_N_fix", "L6"):
+        rows = compare(f"{arm}_shift", arm)
+        result["rows"] += rows
+        result["gates"][f"2_{arm}"] = {"dR_date_clustered": primary(rows)["dR_date_clustered"],
+                                       "hours_lower": hours_lower(rows), "pass": passes(rows)}
+    if result["gates"]["2_P3d_N_fix"]["pass"]:
+        rows = compare("P3d_N_fix_shift", "L6")
+        result["rows"] += rows
+        result["gates"]["3_P3d_N_fix_shift_vs_L6"] = {"reading": reading(rows),
+                                                      "dR_date_clustered": primary(rows)["dR_date_clustered"]}
+    if result["gates"]["2_L6"]["pass"]:
+        result["gates"]["3_L6_shift_vs_L6"] = {"reading": reading(compare("L6_shift", "L6")),
+                                               "dR_date_clustered": result["gates"]["2_L6"]["dR_date_clustered"]}
+    n_pass = sum(result["gates"][f"2_{a}"]["pass"] for a in ("P3d_N_fix", "L6"))
+    result["kill"] = ("closed for NBM-anchored arms (gate 2 failed for both arms)" if n_pass == 0 else
+                      "closed for " + ", ".join(a for a in ("P3d_N_fix", "L6") if not result["gates"][f"2_{a}"]["pass"])
+                      if n_pass == 1 else "none")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(result, indent=1, sort_keys=True), encoding="utf-8")
+    return result
+
+
 def _parse(argv=None):
     parser = argparse.ArgumentParser(prog="python -m weather.calibration.pooled_residual_model",
                                      description=__doc__.split("\n\n")[0])
@@ -4506,6 +4966,18 @@ def _parse(argv=None):
     isc.add_argument("--nowcasts", required=True)
     isc.add_argument("--loyo-result", required=True)
     isc.add_argument("--out", required=True)
+    ml = sub.add_parser("rung-m-loyo", help="R-M gate 1: nested LOYO per-market centre shift (heavy)")
+    ml.add_argument("--records", required=True)
+    ml.add_argument("--nbm-train-corpus", required=True)
+    ml.add_argument("--ra-loyo-rows", required=True)
+    ml.add_argument("--out", required=True)
+    msc = sub.add_parser("rung-m-score", help="R-M gates 2-3 (heavy)")
+    msc.add_argument("--layout", required=True)
+    msc.add_argument("--fix", required=True)
+    msc.add_argument("--coefficients", required=True)
+    msc.add_argument("--nowcasts", required=True)
+    msc.add_argument("--loyo-result", required=True)
+    msc.add_argument("--out", required=True)
     je = sub.add_parser("rung-j-emit", help="R-J gates 1-2 and h13-16 dev distributions (heavy)")
     je.add_argument("--records", required=True)
     je.add_argument("--layout", required=True)
@@ -4669,6 +5141,16 @@ def main(argv=None):
         result = rung_i_score(layout=args.layout, fix_jsonl=args.fix, coefficients=args.coefficients,
                               nowcasts=args.nowcasts, loyo_result=args.loyo_result, out_path=Path(args.out))
         print(json.dumps({"gates": result["gates"], "stopped_at": result.get("stopped_at")}, indent=1))
+        return 0
+    if args.command == "rung-m-loyo":
+        result = rung_m_loyo(records_root=args.records, nbm_train_corpus=args.nbm_train_corpus,
+                             ra_loyo_rows=args.ra_loyo_rows, out_dir=args.out)
+        print(json.dumps({"gate1_pass": result["gate1_pass"], "07-12": result["summary"]["07-12"]}))
+        return 0
+    if args.command == "rung-m-score":
+        result = rung_m_score(layout=args.layout, fix_jsonl=args.fix, coefficients=args.coefficients,
+                              nowcasts=args.nowcasts, loyo_result=args.loyo_result, out_path=args.out)
+        print(json.dumps({"gates": result["gates"], "kill": result["kill"]}))
         return 0
     if args.command == "rung-j-emit":
         audit = rung_g_emit(records_root=args.records, layout=args.layout, replay_root=args.replay_root,
