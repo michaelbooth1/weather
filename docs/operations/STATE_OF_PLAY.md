@@ -14,7 +14,7 @@ Precondition: protect capture and settlement evidence. **The goal is model impro
 one minimal forward formal edge test (B) against market prices. The owner, verbatim 10-25: "We exhaust all options on model
 improvements and we aren't there yet". **A B FAIL ends this candidate's edge claim, not the project** (owner Q2 10-25, DL);
 work continues down the [lever inventory](LEVER_INVENTORY_2026-10-26.md). 88a development, bundle B, the plugin core and the
-YouTube-maker scoping stay paused; the maker pilot is approved in principle but on HOLD ([plan draft](MAKER_PILOT_PLAN_2026-10.md)).
+YouTube-maker scoping stay paused; the **small maker pilot is APPROVED** (DL 10-26, both owner confirmations; [plan draft](MAKER_PILOT_PLAN_2026-10.md)).
 
 ## Headline
 
@@ -25,7 +25,7 @@ YouTube-maker scoping stay paused; the maker pilot is approved in principle but 
 
 ## Current authority
 
-- **Live trading paused** (owner 09-25); **LFC campaign backlogged** (owner 10-19): no agent places, cancels or signs orders.
+- **Small maker pilot APPROVED** (DL 10-26; LFC lane, Toronto+Denver, $100 cap): new pin and t24 go ahead per plan; earliest start **Wed 10-28** if the pin passes before the t24 on 10-27 (~14:00 EDT), else Thu 10-29. Owner sessions only; no agent places, cancels or signs orders. Other live trading stays paused (owner 09-25).
 - Capture host: heavy work 00:30-09:00 under the lease ([host load policy](HOST_LOAD_POLICY.md)); roll-sensitive merges
   01:00-04:00; roll-free 00:30-09:00; docs-only by the light path before 12:00; never 12:00-00:30.
 - Owner decisions are rows in [DECISION_LOG](DECISION_LOG.md); master's rulings are labelled as master's, never as the owner's.
