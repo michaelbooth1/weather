@@ -64,3 +64,27 @@ def test_rl2_reports_no_txn_cycle_when_every_cycle_in_the_age_bound_lacks_the_co
     with pytest.raises(prm.PooledModelError):
         prm.RlNbsCorpus(root, markets=("atlanta",), cycle_rule="freshest")
     assert prm.RL_VARIANTS["R-L2"]["rule_sha256"] == prm.RL2_RULE_SHA256
+
+
+def test_rl_anchor_diag_pairs_txn_with_the_l9_anchor_inputs_only(tmp_path, monkeypatch):
+    pytest.importorskip("weather.calibration.ols_floor_ladder")
+    import json
+
+    nbs = _corpus(tmp_path / "nbs", _cycles())
+    (nbs / "SHA256SUMS").write_text("x\n", encoding="utf-8")
+    monkeypatch.setitem(prm.RL_VARIANTS, "R-L2", {**prm.RL_VARIANTS["R-L2"], "sums": None})
+    nbm = tmp_path / "nbm.jsonl"
+    nbm.write_text(json.dumps({"available": True, "market_id": "atlanta", "target_date": "2023-08-01", "cycle": "07",
+                               "last_modified": "2023-08-01T08:30:00.000Z", "mean": 89.0,
+                               "product_version": "4.1"}) + "\n", encoding="utf-8")
+    report = prm.rl_anchor_diag(nbs_corpus=nbs, nbs_dev_corpus=nbs, nbm_train_corpus=nbm, nbm_dev_corpus=nbm,
+                                out_path=tmp_path / "out" / "diag.json", markets=("atlanta",))
+    groups = report["groups"]
+    # h10 and h11 EDT select the 12Z TXN 90 against the 07Z anchor 89; h07-09 have no TXN-bearing cycle
+    assert groups["half_year_hour|train|2023|h10"]["mean_signed_f"] == 1.0
+    assert groups["half_version|train|4.1"]["n"] == report["counts"]["train"]["paired"]
+    assert groups["half_anchor_cycle|train|07Z"]["share_le_1f"] == 1.0
+    assert report["counts"]["dev"]["rows"] == 0  # 2023 is outside the dev dates
+    with pytest.raises(prm.PooledModelError, match="refusing to overwrite"):
+        prm.rl_anchor_diag(nbs_corpus=nbs, nbs_dev_corpus=nbs, nbm_train_corpus=nbm, nbm_dev_corpus=nbm,
+                           out_path=tmp_path / "out" / "diag.json", markets=("atlanta",))

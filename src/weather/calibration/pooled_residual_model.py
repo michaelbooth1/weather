@@ -4654,6 +4654,108 @@ def rung_l_score(*, layout, emit_dir, coefficients, nowcasts, out_path, start="2
     return done()
 
 
+# ---------------------------------------------------------------- R-L2 anchor diagnostic (inputs only, no rule)
+
+RL_DIAG_TRAIN_YEARS = (2021, 2022, 2023, 2024, 2025)
+RL_DIAG_TRAIN_MONTHS = (8, 9)
+
+
+def _rl_diag_summary(values):
+    import numpy as np
+
+    arr = np.asarray(values, dtype=float)
+    if not len(arr):
+        return {"n": 0}
+    a = np.abs(arr)
+    return {"n": int(len(arr)), "median_abs_f": float(np.median(a)), "mean_abs_f": float(a.mean()),
+            "mean_signed_f": float(arr.mean()), "p90_abs_f": float(np.quantile(a, .9)),
+            "share_exact_0": float((a == 0).mean()), "share_le_1f": float((a <= 1).mean())}
+
+
+def rl_anchor_diag(*, nbs_corpus, nbs_dev_corpus, nbm_train_corpus, nbm_dev_corpus, out_path,
+                   markets=R0_MARKETS, dev_first="2026-07-30", dev_last="2026-09-29"):
+    """Coordinator diagnostic (10-26, no rule): |n_txn - L9 nbm_at_cutoff| at h07-12, training years vs dev.
+
+    Inputs only: NBS station blocks (R-L2's txn_bearing cycle rule) and the L9 PIT NBM corpora. No label,
+    outcome, price or market row is read. Grouped by half x year x hour, by the anchor's NBM product version
+    and cycle, by the selected NBS cycle's UTC hour, and by whether both come from the same issuance hour.
+    """
+    from weather.calibration import ols_floor_ladder as l9
+    from weather.market.market_registry import spec_for_id
+
+    out_path = require_output_outside_repo(out_path)
+    if out_path.exists():
+        raise PooledModelError(f"refusing to overwrite {out_path}")
+    _rl_sums(nbs_corpus, "R-L2", "train")
+    _rl_sums(nbs_dev_corpus, "R-L2", "dev")
+    halves = {"train": (RlNbsCorpus(nbs_corpus, markets, cycle_rule="txn_bearing"), Path(nbm_train_corpus)),
+              "dev": (RlNbsCorpus(nbs_dev_corpus, markets, cycle_rule="txn_bearing"), Path(nbm_dev_corpus))}
+    late = [c for v in halves["dev"][0].cycles.values() for c in v if c[0].date() > N_DEV_LAST]
+    if late:
+        raise PooledModelError(f"dev NBS corpus holds a cycle after 2026-09-29: {late[0][0]}")
+    versions = {}
+    for half, (_, path) in halves.items():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            r = json.loads(line)
+            if r.get("available") and r.get("mean") is not None:
+                versions[(half, r["market_id"], r["target_date"], r["cycle"])] = str(r.get("product_version"))
+    groups, counts = defaultdict(list), defaultdict(lambda: defaultdict(int))
+    tz = {m: spec_for_id(m).timezone for m in markets}
+    for half, (nbs, path) in halves.items():
+        table = l9.load_nbm(path)
+        for (market, day) in sorted(table):
+            if market not in tz:
+                continue
+            d = date.fromisoformat(day)
+            if half == "train":
+                if d.year not in RL_DIAG_TRAIN_YEARS or d.month not in RL_DIAG_TRAIN_MONTHS:
+                    continue
+            elif not (date.fromisoformat(dev_first) <= d <= min(date.fromisoformat(dev_last), N_DEV_LAST)):
+                continue
+            for hour in RL_HOURS:
+                c = counts[half]
+                c["rows"] += 1
+                anchor, cycle = l9.nbm_at_cutoff(table, market, day, int(hour), tz[market])
+                if anchor is None:
+                    c["no_anchor"] += 1
+                    continue
+                entry = nbs.raw(market, day, int(hour))
+                if entry["n_miss"]:
+                    c[f"nbs_{entry['reason']}"] += 1
+                    continue
+                c["paired"] += 1
+                c["anchor_non_integer"] += float(anchor) != round(float(anchor))
+                gap = entry["n_txn"] - float(anchor)
+                nbs_hour = entry["cycle_utc"][11:13]
+                version = versions.get((half, market, day, cycle), "unknown")
+                keys = [("half_year_hour", half, str(d.year), f"h{int(hour):02d}"),
+                        ("half_hour", half, f"h{int(hour):02d}"),
+                        ("half", half),
+                        ("half_version", half, version),
+                        ("half_year_version", half, str(d.year), version),
+                        ("half_anchor_cycle", half, f"{cycle}Z"),
+                        ("half_nbs_cycle", half, f"{nbs_hour}Z"),
+                        ("half_same_issuance_hour", half, str(nbs_hour == cycle)),
+                        ("half_market", half, market)]
+                for k in keys:
+                    groups[k].append(gap)
+    report = {"evidence_class": "diagnostic, inputs only, no rule (coordinator 2026-10-26)",
+              "ruling": "R-L3 dropped; R-L2 kill stands; any follow-up rung needs a fresh ruling",
+              "inputs": {"nbs_train_SHA256SUMS": _rl_sums(nbs_corpus, "R-L2", "train"),
+                         "nbs_dev_SHA256SUMS": _rl_sums(nbs_dev_corpus, "R-L2", "dev"),
+                         "nbm_train_corpus": hashlib.sha256(Path(nbm_train_corpus).read_bytes()).hexdigest(),
+                         "nbm_dev_corpus": hashlib.sha256(Path(nbm_dev_corpus).read_bytes()).hexdigest(),
+                         "module_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()},
+              "cycle_rule": "txn_bearing (R-L2)", "hours": list(RL_HOURS),
+              "train_years": list(RL_DIAG_TRAIN_YEARS), "train_months": list(RL_DIAG_TRAIN_MONTHS),
+              "dev_dates": [dev_first, dev_last],
+              "counts": {h: dict(v) for h, v in counts.items()},
+              "groups": {"|".join(k): _rl_diag_summary(v) for k, v in sorted(groups.items())}}
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(report, indent=1, sort_keys=True), encoding="utf-8")
+    return report
+
+
 # ------------------------------------------------- R-R: the HRRR hourly path as a 07-12 centre input (rule_rr.md)
 
 RR_RULE_SHA256 = "e3d92e1aa779957db90c9627f3ccdc9052d7f9f2d6f7ae50843ebadbd0f5bb22"
@@ -5639,6 +5741,12 @@ def _parse(argv=None):
     ls_.add_argument("--nowcasts", required=True)
     ls_.add_argument("--out", required=True)
     ls_.add_argument("--variant", choices=sorted(RL_VARIANTS), default="R-L")
+    ad = sub.add_parser("rung-l-anchor-diag", help="R-L2 anchor diagnostic: |n_txn - L9 NBM| (inputs only)")
+    ad.add_argument("--nbs", required=True)
+    ad.add_argument("--nbs-dev", required=True)
+    ad.add_argument("--nbm-train-corpus", required=True)
+    ad.add_argument("--nbm-dev-corpus", required=True)
+    ad.add_argument("--out", required=True)
     rl_ = sub.add_parser("rung-r-loyo", help="R-R gate 1a (training half) and gate 2 LOYO (heavy)")
     rl_.add_argument("--records", required=True)
     rl_.add_argument("--nbm-train-corpus", required=True)
@@ -5853,6 +5961,12 @@ def main(argv=None):
         result = rung_l_score(layout=args.layout, emit_dir=args.emit, coefficients=args.coefficients,
                               nowcasts=args.nowcasts, out_path=Path(args.out), variant=args.variant)
         print(json.dumps({"gates": result["gates"], "stopped_at": result.get("stopped_at")}, indent=1))
+        return 0
+    if args.command == "rung-l-anchor-diag":
+        report = rl_anchor_diag(nbs_corpus=args.nbs, nbs_dev_corpus=args.nbs_dev,
+                                nbm_train_corpus=args.nbm_train_corpus, nbm_dev_corpus=args.nbm_dev_corpus,
+                                out_path=Path(args.out))
+        print(json.dumps({"counts": report["counts"]}, indent=1))
         return 0
     if args.command == "rung-r-loyo":
         audit = rung_r_loyo(records_root=args.records, nbm_train_corpus=args.nbm_train_corpus, hrrr_corpus=args.hrrr,

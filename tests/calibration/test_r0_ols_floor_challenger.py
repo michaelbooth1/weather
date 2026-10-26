@@ -10,7 +10,10 @@ from pathlib import Path
 import pytest
 
 from weather.calibration import feature_model as fm
-from weather.calibration import r0_ols_floor_challenger as ch
+
+from tests.host_guard import import_or_skip_on_capture_host
+
+ch = import_or_skip_on_capture_host("weather.calibration.r0_ols_floor_challenger")
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -233,9 +236,16 @@ def test_no_production_code_imports_the_challenger():
                 continue
             if "r0_ols_floor_challenger" in path.read_text(encoding="utf-8", errors="replace"):
                 hits.append(path.relative_to(ROOT).as_posix())
-    # The workstation allowlist names the module (it admits it); only its own dev-fit companion
-    # (research-only, same capture-host guard) imports it.
-    assert sorted(hits) == ["scripts/ops/workload_admission.ps1", "src/weather/calibration/r0_ols_floor_devfit.py"]
+    expected = {
+        # The workstation allowlist names the module (it admits it); it does not import it.
+        "scripts/ops/workload_admission.ps1": "workstation heavy allowlist entry",
+        # Its own dev-fit companion (research-only, same capture-host guard).
+        "src/weather/calibration/r0_ols_floor_devfit.py": "research-only dev-fit companion",
+        "src/weather/calibration/pooled_residual_model.py": (
+            "WS-only research scorer; cannot import on the capture host by design (master ruling 2026-10-26)"
+        ),
+    }
+    assert sorted(hits) == sorted(expected)
 
 
 def _metar(nominal, raw_time, temp):
