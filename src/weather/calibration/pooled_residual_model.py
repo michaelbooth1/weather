@@ -4391,6 +4391,170 @@ def rung_l_loyo(*, records_root, nbm_train_corpus, nbs_corpus, ra_loyo_rows, out
     return finish()
 
 
+RL_RA_EMIT = {"dev_B_N.jsonl": "83cf9bbe9cd8f3173b98dd4cea47880457cf0c5648fe2cca4d50b4550cd8c43c",
+              "dev_P3d_N_fix.jsonl": "cd0034b9faec0b687e1184187feeaa39ab151c5f9f8d1c905d3a49a0e7089542"}
+
+
+def rung_l_dev_emit(*, records_root, layout, replay_root, nbm_train_corpus, nbs_corpus, nbs_dev_corpus,
+                    loyo_audit, out_dir, markets=R0_MARKETS):
+    """R-L gate 1b (dev half, inputs only) and the h07-12 dev distributions of all four arms (no scoring)."""
+    out = require_output_outside_repo(out_dir)
+    loyo = json.loads(Path(loyo_audit).read_bytes())
+    if loyo.get("rule_sha256") != RL_RULE_SHA256 or loyo.get("stopped_at") or not loyo["gates"]["2_loyo"]["pass"]:
+        raise PooledModelError(f"R-L gates 1a-2 did not pass: {loyo.get('stopped_at')}")
+    train = RlNbsCorpus(nbs_corpus, markets)
+    dev = RlNbsCorpus(nbs_dev_corpus, markets)
+    late = [c for v in dev.cycles.values() for c in v if c[0].date() > N_DEV_LAST]
+    if late:
+        raise PooledModelError(f"dev NBS corpus holds a cycle after 2026-09-29: {late[0][0]}")
+    dev_stats, gaps = defaultdict(int), []
+
+    def row_hook(market, target, hour, nbm, stats):
+        entry = dev.raw(market, target.isoformat(), int(hour))
+        values = rl_columns(entry, nbm)
+        stats["nbs_rows"] += 1
+        stats["nbs_covered"] += values["n_miss"] == 0.0
+        dev_stats["rows"] += 1
+        dev_stats[f"reason_{entry['reason'] or 'covered'}"] += 1
+        dev_stats["rows_covered"] += values["n_miss"] == 0.0
+        if math.isfinite(values["n_gap"]):
+            gaps.append(abs(values["n_gap"]))
+        return values
+
+    audit = dev_emit_rung(records_root=records_root, layout=layout, replay_root=replay_root,
+                          nbm_train_corpus=nbm_train_corpus, out_dir=out, markets=markets, hours=RL_HOURS,
+                          loyo=False, arms=RL_ARMS, train_hook=lambda f: rl_training_columns(f, train),
+                          row_hook=row_hook)
+    dev_stats = dict(dev_stats)
+    dev_stats["median_abs_gap_f"] = sorted(gaps)[len(gaps) // 2] if gaps else float("nan")
+    rl = {"rule_sha256": RL_RULE_SHA256,
+          "loyo_audit_sha256": hashlib.sha256(Path(loyo_audit).read_bytes()).hexdigest(),
+          "inputs": {f"{tag}_{n}": hashlib.sha256((Path(root) / n).read_bytes()).hexdigest()
+                     for tag, root in (("nbs_train", nbs_corpus), ("nbs_dev", nbs_dev_corpus))
+                     for n in ("manifest.jsonl", "SHA256SUMS")},
+          "nbs_dev_corpus_stats": dict(dev.stats), "dev": dev_stats, "training": audit.get("train_hook"),
+          "gates": {"1_parity_dev": rl_parity(dev_stats)}, "files": audit["files"],
+          "ra_reproduction": {name: audit["files"].get(name) == sha for name, sha in RL_RA_EMIT.items()}}
+    if not rl["gates"]["1_parity_dev"]["pass"]:
+        rl["stopped_at"] = "gate 1 parity (dev half; not a kill)"
+    (out / "rl_emit_audit.json").write_text(json.dumps(rl, indent=1, sort_keys=True), encoding="utf-8")
+    return rl
+
+
+def rung_l_score(*, layout, emit_dir, coefficients, nowcasts, out_path, start="2026-08-01", end="2026-09-29"):
+    """R-L gates 3 and 4 on the dev scorecard (rule_rl.md); gate 3 failing is the pre-registered kill."""
+    import os
+
+    import numpy as np
+
+    from weather.calibration import r0_ols_floor_challenger as l3
+    from weather.reporting.scorecards import dev_scorecard as sc
+    from weather.reporting.scorecards import dev_scorecard_data as data
+    from weather.reporting.scorecards import loss_atlas
+
+    out_path = require_output_outside_repo(out_path)
+    if out_path.exists():
+        raise PooledModelError(f"refusing to overwrite {out_path}")
+    emit = Path(emit_dir)
+    audit = json.loads((emit / "rl_emit_audit.json").read_bytes())
+    if audit.get("rule_sha256") != RL_RULE_SHA256 or audit.get("stopped_at"):
+        raise PooledModelError(f"emit is not an R-L emit that passed gate 1b: {audit.get('stopped_at')}")
+    if not all(audit["ra_reproduction"].values()):
+        raise PooledModelError(f"R-A reproduction failed: {audit['ra_reproduction']}")
+    now_sha = hashlib.sha256(Path(nowcasts).read_bytes()).hexdigest()
+    if now_sha != L6_NOWCAST_SHA256:
+        raise PooledModelError(f"L6 nowcast sha {now_sha} != {L6_NOWCAST_SHA256}")
+    os.environ["L6_NOWCASTS"] = str(nowcasts)
+    from weather.reporting.scorecards.free_source_candidates import l6_stack
+
+    l6_stack._CACHE.clear()
+    state, part_sha = l6_frozen_state(coefficients)
+    start_d, end_d = data.check_range(start, end)
+    lay = data.load_layout(layout, data.DEV_FIRST, end_d)
+    folds = data.make_folds(lay.dates, start_d, end_d, 7, 1, 7)
+    scored = sorted(d for f in folds if f.scored for d in f.dates)
+    table = sc.Table(lay, scored)
+    date_w = l3._date_weights([k[0] for k in table.keys], sc.DRAWS, sc.SEED)
+    market_b = table.brier(table.p_market)
+
+    def vec(path):
+        return l3._vector(table, l3._candidate_frame(str(path), table, lay, folds, data)[0])
+
+    arms = {arm: vec(emit / f"dev_{arm}.jsonl") for arm in RL_ARMS}
+    p_mg1, cov_mg1, _ = l3._vector(table, loss_atlas.mg1_frame(table))
+    p_l6, cov_l6, _ = l6_vector(table, state, l3)
+    w0712 = (table.local_hour >= 7) & (table.local_hour <= 12)
+    _, e = table.cells(table.brier(p_mg1) - market_b, w0712)
+    mg1_excess = float(e.mean())
+    if round(mg1_excess, 3) != l3.MG1_CONTROL_0712_EXCESS:
+        raise PooledModelError(f"MG-1 positive control failed: {mg1_excess:.5f}")
+    briers = {arm: table.brier(v[0]) for arm, v in arms.items()}
+    covs = {arm: v[1] for arm, v in arms.items()}
+    briers["l6"], covs["l6"] = table.brier(p_l6), cov_l6
+    common = covs["B_N"] & covs["B_L"] & covs["P3d_N_fix"] & covs["P3d_L"]
+    groups = [("07-12", 7, 12)] + [(f"h{h:02d}", h, h) for h in RL_HOURS]
+    pools = [(sc.ALL_MARKETS, None)] + [(m, {m}) for m in sorted(set(table.markets))]
+
+    def compare(arm, ref, scope):
+        rows = []
+        for market, members in pools:
+            in_pool = np.ones(len(table.snaps), bool) if members is None else np.isin(table.markets, sorted(members))
+            for group, lo, hi in (groups if members is None else groups[:1]):
+                mask = scope & in_pool & (table.local_hour >= lo) & (table.local_hour <= hi)
+                if not mask.any():
+                    continue
+                idx, c = table.cells(briers[arm], mask)
+                _, r_ = table.cells(briers[ref], mask)
+                _, m = table.cells(market_b, mask)
+                rows.append({"arm": arm, "reference": ref, "market": market, "group": group,
+                             "n_market_days": int(len(idx)), "n_snapshots": int(mask.sum()),
+                             "R_arm": sc.ratio_interval(table.w[:, idx], c, m),
+                             "R_reference": sc.ratio_interval(table.w[:, idx], r_, m),
+                             "dR_crossed": sc.ratio_interval(table.w[:, idx], c - r_, m),
+                             "dR_date_clustered": sc.ratio_interval(date_w[:, idx], c - r_, m)})
+        return rows
+
+    def pick(rows, group):
+        return next(r for r in rows if r["market"] == sc.ALL_MARKETS and r["group"] == group)
+
+    def reading(rows):
+        p = pick(rows, "07-12")["dR_date_clustered"]["ci95"]
+        lower = [pick(rows, f"h{h:02d}")["dR_date_clustered"]["ci95"][0] for h in RL_HOURS]
+        if p[0] > 0:
+            return "HARM"
+        return "WIN" if p[1] < 0 and not any(lo > 0 for lo in lower) else "NULL"
+
+    result = {"rule_sha256": RL_RULE_SHA256,
+              "population": {"n_dates": len(scored), "first_date": scored[0], "last_date": scored[-1],
+                             "n_market_days": len(table.keys), "common_covered_snapshots_07_12": int((common & w0712).sum())},
+              "controls": {"mg1_excess_07_12": mg1_excess, "ra_reproduction": audit["ra_reproduction"],
+                           "l6_part_sha256": part_sha, "l6_nowcast_sha256": now_sha,
+                           "gate1b": audit["gates"]["1_parity_dev"]},
+              "inputs": {"emit_files": audit["files"], "emit_inputs": audit["inputs"],
+                         "emit_audit_sha256": hashlib.sha256((emit / "rl_emit_audit.json").read_bytes()).hexdigest(),
+                         "layout_manifest_sha256": lay.manifest_sha256, "scorecard_code_sha256": sc.code_sha256(),
+                         "module_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()},
+              "gates": {}, "rows": []}
+
+    def done():
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(result, indent=1, sort_keys=True), encoding="utf-8")
+        return result
+
+    result["rows"] += compare("B_L", "B_N", common)  # reported only
+    rows = compare("P3d_L", "P3d_N_fix", common)
+    result["rows"] += rows
+    g3 = pick(rows, "07-12")["dR_date_clustered"]
+    result["gates"]["3_P3d_L_vs_P3d_N_fix_07_12"] = {"dR_date_clustered": g3, "pass": g3["ci95"][1] < 0}
+    if not result["gates"]["3_P3d_L_vs_P3d_N_fix_07_12"]["pass"]:
+        result["stopped_at"] = "gate 3 (KILL: NBS TXN closed as a 07-12 centre input)"
+        return done()
+    rows = compare("P3d_L", "l6", common & cov_l6)
+    result["rows"] += rows
+    result["gates"]["4_vs_l6"] = {"reading": reading(rows), "dR_date_clustered": pick(rows, "07-12")["dR_date_clustered"]}
+    return done()
+
+
 # ------------------------------------------------- clarification 3: forward refit and frozen state (MG-2)
 
 FORWARD_CENTRES = AUG_SEP_CENTRES + ("2026-10-10", "2026-10-25", "2026-11-09", "2026-11-24", "2026-12-09")
@@ -4952,6 +5116,21 @@ def _parse(argv=None):
     ks.add_argument("--layout", required=True)
     ks.add_argument("--emit", required=True)
     ks.add_argument("--out", required=True)
+    ld = sub.add_parser("rung-l-dev-emit", help="R-L gate 1b and h07-12 dev distributions (heavy)")
+    ld.add_argument("--records", required=True)
+    ld.add_argument("--layout", required=True)
+    ld.add_argument("--replay-root", required=True)
+    ld.add_argument("--nbm-train-corpus", required=True)
+    ld.add_argument("--nbs", required=True, help="L12 NBS corpus 2021-25 (training columns)")
+    ld.add_argument("--nbs-dev", required=True, help="L12 NBS corpus 2026-07-30..09-29 (dev columns)")
+    ld.add_argument("--loyo-audit", required=True, help="rl_loyo_audit.json (gates 1a-2 must have passed)")
+    ld.add_argument("--out", required=True)
+    ls_ = sub.add_parser("rung-l-score", help="R-L gates 3-4 on the dev scorecard (heavy)")
+    ls_.add_argument("--layout", required=True)
+    ls_.add_argument("--emit", required=True)
+    ls_.add_argument("--coefficients", required=True)
+    ls_.add_argument("--nowcasts", required=True)
+    ls_.add_argument("--out", required=True)
     de = sub.add_parser("p3dn-diag-emit", help="P3d_N vs P3d_N_fix input diff and variant emissions (heavy)")
     de.add_argument("--records", required=True)
     de.add_argument("--layout", required=True)
@@ -5129,6 +5308,18 @@ def main(argv=None):
         return 0
     if args.command == "rung-k-score":
         result = rung_k_score(layout=args.layout, emit_dir=args.emit, out_path=Path(args.out))
+        print(json.dumps({"gates": result["gates"], "stopped_at": result.get("stopped_at")}, indent=1))
+        return 0
+    if args.command == "rung-l-dev-emit":
+        audit = rung_l_dev_emit(records_root=args.records, layout=args.layout, replay_root=args.replay_root,
+                                nbm_train_corpus=args.nbm_train_corpus, nbs_corpus=args.nbs,
+                                nbs_dev_corpus=args.nbs_dev, loyo_audit=args.loyo_audit, out_dir=args.out)
+        print(json.dumps({"gates": audit["gates"], "stopped_at": audit.get("stopped_at"),
+                          "ra_reproduction": audit["ra_reproduction"]}, indent=1, default=float))
+        return 0
+    if args.command == "rung-l-score":
+        result = rung_l_score(layout=args.layout, emit_dir=args.emit, coefficients=args.coefficients,
+                              nowcasts=args.nowcasts, out_path=Path(args.out))
         print(json.dumps({"gates": result["gates"], "stopped_at": result.get("stopped_at")}, indent=1))
         return 0
     if args.command == "p3dn-diag-emit":
