@@ -4357,6 +4357,7 @@ def rung_l_loyo(*, records_root, nbm_train_corpus, nbs_corpus, ra_loyo_rows, out
                         "ra_loyo_rows": hashlib.sha256(Path(ra_loyo_rows).read_bytes()).hexdigest(),
                         "nbs_corpus": str(corpus_dir),
                         "nbs_manifest": hashlib.sha256((corpus_dir / "manifest.jsonl").read_bytes()).hexdigest(),
+                        "nbs_sha256sums": hashlib.sha256((corpus_dir / "SHA256SUMS").read_bytes()).hexdigest(),
                         "module_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}}
 
     def finish():
