@@ -327,6 +327,10 @@ def test_plan_day_uses_local_dst_snapshot_hours():
 def test_season_dates_refuses_after_last_allowed_and_is_seeded():
     with pytest.raises(SystemExit):
         fetch.season_dates([2026], [9, 10], 1)
+    window = fetch.season_dates([2026], [7, 8, 9], 1, dt.date(2026, 7, 30), dt.date(2026, 9, 29))
+    assert min(window) == dt.date(2026, 7, 30) and max(window) == fetch.LAST_ALLOWED and len(window) == 62
+    with pytest.raises(SystemExit):
+        fetch.season_dates([2026], [9], 1, None, dt.date(2026, 9, 30))
     a, b = fetch.season_dates([2024], [8], 5), fetch.season_dates([2024], [8], 5)
     assert a == b and sorted(a) == [dt.date(2024, 8, d) for d in range(1, 32)]
 

@@ -440,12 +440,16 @@ def cycles_to_list(day, stations, hours, stride):
     return sorted(out)
 
 
-def season_dates(years, months, seed):
+def season_dates(years, months, seed, first=None, last=None):
+    """Dates of ``months`` x ``years`` inside [first, last], seeded-shuffled; refuses > LAST_ALLOWED."""
     days = []
     for y in years:
         for m in months:
             d = dt.date(y, m, 1)
             while d.month == m:
+                if (first and d < first) or (last and d > last):
+                    d += dt.timedelta(days=1)
+                    continue
                 if d > LAST_ALLOWED:
                     raise SystemExit(f"refusing date after {LAST_ALLOWED}: {d}")
                 days.append(d)
@@ -610,7 +614,8 @@ def run(args, session=None):
     hours = list(range(args.first_hour, args.last_hour + 1))
     margin = dt.timedelta(minutes=args.margin_minutes)
     variables = args.variables.split(",")
-    days = season_dates([int(y) for y in args.years.split(",")], [int(m) for m in args.months.split(",")], args.seed)
+    days = season_dates([int(y) for y in args.years.split(",")], [int(m) for m in args.months.split(",")], args.seed,
+                        _date_arg(args.first_date), _date_arg(args.last_date))
     if args.limit_days:
         days = days[: args.limit_days]
     manifest, selections_path = out / "manifest.jsonl", out / "selections.jsonl"
@@ -725,6 +730,10 @@ def probe(args):
     return 0
 
 
+def _date_arg(text):
+    return dt.date.fromisoformat(text) if text else None
+
+
 def main(argv=None, session=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--out", default=r"C:\t\l13\hrrr")
@@ -742,6 +751,8 @@ def main(argv=None, session=None):
     ap.add_argument("--disk-root", default="C:\\")
     ap.add_argument("--stop-file", default=r"C:\t\l13\hrrr\STOP")
     ap.add_argument("--seed", type=int, default=20261025)
+    ap.add_argument("--first-date", default="", help="ISO date; skip earlier dates")
+    ap.add_argument("--last-date", default="", help="ISO date; skip later dates (still refused after 2026-09-29)")
     ap.add_argument("--limit-days", type=int, default=0)
     ap.add_argument("--planned-messages", type=int, default=0, help="for status fraction only")
     ap.add_argument("--probe", type=int, default=0, help="run N timed probe reads instead of the fetch")
