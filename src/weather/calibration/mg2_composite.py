@@ -60,6 +60,9 @@ POST = "p3d_n"
 SHA256_HEX = re.compile(r"[0-9a-f]{64}")
 OWNER_DECISION_ID = re.compile(r"^OD-(\d{4}-\d{2}-\d{2})-[A-Za-z0-9][A-Za-z0-9_.-]*$")
 LABEL_FILES = ("labels.parquet", "market.parquet")
+FORWARD_PREV_DAY_SOURCE = "bundle prev_day"  # captured_nowcast's prev_day_source on a forward (bundle) run
+NOWCASTS_MANIFEST = "nowcasts_manifest.json"
+CHECKS = "mg2_checks.json"  # the outcome-blind ``check`` output, beside the emission it checked
 
 # Serve parity: every input to a forward MG-2 vector must come from the capture at replay time, with no
 # external fetch. Fixed inputs are read from captured replay files; the two inputs below are named by the
@@ -647,7 +650,8 @@ def nowcast(*, train_root, obs_root, layout_root, first, last, out):
 
 
 def _prev_day_last_rows(prev_root, market, slug_day, station, l3):
-    """D-1's last captured METAR rows from a verified bundle's ``prev_day/<slug>/metar_rows.jsonl``."""
+    """D-1's last captured METAR rows and their capture time, from a verified bundle's
+    ``prev_day/<slug>/metar_rows.jsonl`` (None when absent)."""
     from weather.calibration import mg2_input_allowlist as allow
 
     path = Path(prev_root) / allow.slug_for(market, slug_day) / "metar_rows.jsonl"
@@ -661,7 +665,7 @@ def _prev_day_last_rows(prev_root, market, slug_day, station, l3):
         return None
     cap = datetime.fromisoformat(last["captured_at_utc"])
     rows = [r for r in last.get("rows") or [] if str(r.get("station_id") or station) == station]
-    return [p for p in (l3.parse_captured_metar(r.get("raw"), cap) for r in rows) if p is not None]
+    return [p for p in (l3.parse_captured_metar(r.get("raw"), cap) for r in rows) if p is not None], cap
 
 
 def load_l6_state(path, sha256):
@@ -764,19 +768,26 @@ def captured_nowcast(*, layout_root, replay_root, research_root, first, last, ou
                 snap_rows[market].append((key, cap, local_date))
                 stats["snapshots_scanned"] += 1
         if tail is not None and prev_root is None:
-            last_rows[market][target.isoformat()] = [
+            last_rows[market][target.isoformat()] = ([
                 p for p in (l3.parse_captured_metar(r.get("raw"), tail[1]) for r in l3._captured_rows(tail[0], station))
-                if p is not None]
+                if p is not None], tail[1])
     frames = []
     for market in sorted(snap_rows):
         station = station_of[market]
         tz = ZoneInfo(sel[station]["timezone"])
         prev = {}
-        for day in sorted({x for _, _, x in snap_rows[market]}):
+        first_cap = {}
+        for _, cap, day in snap_rows[market]:
+            first_cap[day] = min(cap, first_cap.get(day, cap))
+        for day in sorted(first_cap):
             before_day = date.fromisoformat(day) - timedelta(days=1)
             before = before_day.isoformat()
-            rows = (last_rows[market].get(before, []) if prev_root is None
-                    else (_prev_day_last_rows(prev_root, market, before_day, station, l3) or []))
+            rows, prev_cap = ((last_rows[market].get(before) or ([], None)) if prev_root is None
+                              else (_prev_day_last_rows(prev_root, market, before_day, station, l3) or ([], None)))
+            if prev_cap is not None and prev_cap > first_cap[day]:
+                # D-1's "last" capture is later than a snapshot of D that would use it: never serve it
+                stats["prev_dmax_after_snapshot_days"] += 1
+                continue
             value = l3.routine_dmax(rows, tz, before)
             if value is None:
                 stats["prev_dmax_missing_days"] += 1
@@ -794,12 +805,37 @@ def captured_nowcast(*, layout_root, replay_root, research_root, first, last, ou
     manifest = dict(rows=int(len(res)), stats=dict(stats), first=first.isoformat(), last=last.isoformat(),
                     l6_state_sha256=l6_state_sha256, l6_state_provenance=state.get("provenance"),
                     serve_core_sha256=sha256_file(core.__file__),
-                    prev_day_source="bundle prev_day" if prev_root is not None else "D-1 replay folder, last line",
+                    prev_day_source=FORWARD_PREV_DAY_SOURCE if prev_root is not None else "D-1 replay folder, last line",
                     nowcasts_sha256=sha256_file(out / "nowcasts.parquet"),
                     serve_features_sha256=sha256_file(out / "serve_features.parquet"),
                     l3_module_sha256=sha256_file(l3.__file__), l6_module_sha256=sha256_file(l6.__file__))
-    (out / "nowcasts_manifest.json").write_text(json.dumps(manifest, indent=1, sort_keys=True), encoding="utf-8")
+    (out / NOWCASTS_MANIFEST).write_text(json.dumps(manifest, indent=1, sort_keys=True), encoding="utf-8")
     return manifest
+
+
+def forward_nowcasts(nowcasts, binding):
+    """Forward emission reads only ``captured_nowcast``'s forward output, at the bound L6 state.
+
+    The manifest beside ``nowcasts`` must say the previous-day max came from the verified bundle, its
+    ``nowcasts_sha256`` must be the file's, and its ``l6_state_sha256`` must be the release binding's. An IEM
+    ``nowcast`` file (no prev_day_source, no L6 state) is refused.
+    """
+    path = Path(nowcasts).parent / NOWCASTS_MANIFEST
+    if not path.is_file():
+        raise Mg2Refused(f"forward emission needs {NOWCASTS_MANIFEST} beside the nowcasts")
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    if manifest.get("prev_day_source") != FORWARD_PREV_DAY_SOURCE:
+        raise Mg2Refused(f"forward nowcasts must come from captured_nowcast with --prev-root "
+                         f"(prev_day_source {manifest.get('prev_day_source')!r})")
+    if manifest.get("nowcasts_sha256") != sha256_file(nowcasts):
+        raise Mg2Refused("the nowcasts file is not the one its manifest records")
+    bound = binding.get("l6_state_sha256")
+    if not isinstance(bound, str) or not SHA256_HEX.fullmatch(bound):
+        raise Mg2Refused("the release binding records no l6_state_sha256 (MG-2 clarification season-L6, section 7)")
+    if manifest.get("l6_state_sha256") != bound:
+        raise Mg2Refused(f"the nowcasts were served by L6 state {manifest.get('l6_state_sha256')!r}, not the bound "
+                         f"{bound}")
+    return {k: manifest.get(k) for k in ("nowcasts_sha256", "l6_state_sha256", "prev_day_source", "first", "last")}
 
 
 # ----------------------------------------------------------------------------- emit (captured-input replay)
@@ -903,6 +939,7 @@ def emit(*, layout_root, replay_root, nowcasts, coefficients, rule, out, first, 
 
     rule_sha, fields = read_rule(rule)
     first, last = date.fromisoformat(str(first)), date.fromisoformat(str(last))
+    nowcasts_manifest = None
     if control:
         if last > DEV_LAST:
             raise Mg2Refused("control replay is for dev dates <= 2026-09-29 only")
@@ -913,7 +950,8 @@ def emit(*, layout_root, replay_root, nowcasts, coefficients, rule, out, first, 
         require_forward_parity(fields)
         if not release_binding:
             raise Mg2Refused("forward emission needs the release binding")
-        verify_release(release_binding, rule_sha, fields)
+        binding = verify_release(release_binding, rule_sha, fields)
+        nowcasts_manifest = forward_nowcasts(nowcasts, binding)
     parity = input_parity(fields)
     verify_function(fields)
     coef = {"l6_stack": load_part(coefficients, "l6", fields["l6_coefficients_sha256"])}
@@ -967,6 +1005,9 @@ def emit(*, layout_root, replay_root, nowcasts, coefficients, rule, out, first, 
              "p3d_n_conversion": state["conversion"], "p3d_n_late_report": state["late_report"],
              "input_parity": parity, "code_sha256": sha256_file(__file__),
              "p3d_n_code_sha256": sha256_file(mg2_p3d_n.__file__), "nowcasts_sha256": sha256_file(nowcasts),
+             "nowcasts_manifest": nowcasts_manifest,
+             "l6_state_sha256": (nowcasts_manifest or {}).get("l6_state_sha256"),
+             "outcome_files_opened": [],  # read_inputs opens snapshots and bands only
              "post_stats": stats, "vector_roles": VECTOR_ROLES, "asof_capture": asof,
              "gate_vectors": None if control else ASOF_VECTORS,
              "vectors_sha256": sha256_file(out / VECTORS), "snapshots": int(len(snaps))}
@@ -1024,7 +1065,7 @@ def score(*, layout_root, vectors, rule, out, release_binding, mg1_look_receipt=
     from weather.reporting.scorecards import dev_scorecard_data as data
     from weather.reporting.scorecards import loss_atlas
 
-    require_gate_vectors(vectors)
+    audit = require_gate_vectors(vectors)
     rule_sha, fields = read_rule(rule)
     out = Path(out)
     if (out / "mg2_look.json").exists():
@@ -1035,6 +1076,7 @@ def score(*, layout_root, vectors, rule, out, release_binding, mg1_look_receipt=
     require_forward_parity(fields)
     verify_release(release_binding, rule_sha, fields)
     verify_function(fields)
+    checks = emission_checks(vectors, audit)  # before any label or price file is opened
     layout = data.Layout(snaps=pd.read_parquet(root / data.SNAPSHOTS_FILE),
                          bands=pd.read_parquet(root / data.BANDS_FILE),
                          labels=pd.read_parquet(root / data.LABELS_FILE),
@@ -1044,17 +1086,68 @@ def score(*, layout_root, vectors, rule, out, release_binding, mg1_look_receipt=
     layout = gate_layout(layout)
     days = sorted(layout.snaps.date.astype(str).unique())
     table = sc.Table(layout, days)
-    p_c, r_c = table.candidate_vector(pd.read_parquet(vectors))
+    gate_vectors = pd.read_parquet(vectors)
+    p_c, r_c = table.candidate_vector(gate_vectors)
     p_k, r_k = table.candidate_vector(loss_atlas.mg1_frame(table))
     rows = sc.score_rows(table, p_c, False, p_k, sc.GROUPS + sc.HOURLY_GROUPS)
     payload = {"schema": SCHEMA, "rule_sha256": rule_sha, "guard": guard, "coverage": {"mg2": r_c, "mg1": r_k},
                "gate": gate_verdict(rows, float(fields["noninferiority_margin_00_16"])),
                "gate_excluded_markets": list(GATE_EXCLUDED_MARKETS),
                "vectors_sha256": sha256_file(vectors), "rows": rows,
+               "void_conditions": section7_conditions(layout.snaps, gate_vectors, checks),
+               "pre_look_reads": pre_look_reads(audit),
+               "checks_sha256": sha256_file(Path(vectors).parent / CHECKS),
                "mg1_look_receipt_sha256": sha256_file(mg1_look_receipt) if mg1_look_receipt else None}
     out.mkdir(parents=True, exist_ok=True)
     (out / "mg2_look.json").write_text(json.dumps(payload, indent=1, sort_keys=True, default=str), encoding="utf-8")
     return payload
+
+
+def emission_checks(vectors, audit):
+    """The outcome-blind ``check`` output beside the gate vectors, bound to that emission's audit."""
+    path = Path(vectors).parent / CHECKS
+    if not path.is_file():
+        raise Mg2Refused(f"the look needs {CHECKS} (the outcome-blind check) beside the gate vectors")
+    checks = json.loads(path.read_text(encoding="utf-8"))
+    shas = checks.get("emit_audit_vectors_sha256") or []
+    if not shas or shas[0] != audit.get("vectors_sha256"):
+        raise Mg2Refused(f"{CHECKS} does not check this emission (emit_audit_vectors_sha256)")
+    return checks
+
+
+def section7_conditions(snaps, gate_vectors, checks):
+    """Rule section 7, as far as the look can evaluate it; ``pass`` None means not evaluated here.
+
+    Coverage is recomputed from the gate vectors on the gate population's 00-16 snapshots. PIT, parser and replay
+    are the bound ``check`` output. Hashes passed (``verify_release`` and ``verify_function`` refuse otherwise).
+    """
+    h = snaps.local_hour.astype(int)
+    pool = snaps.row_key[(h >= 0) & (h <= 16)]
+    share = float(pool.isin(set(gate_vectors.row_key)).mean()) if len(pool) else 0.0
+
+    def flag(key):
+        value = checks.get(key)
+        return {"pass": value is True, "detail": f"{CHECKS} {key}={value!r}"}
+
+    return {
+        "coverage": {"pass": share >= COVERAGE_MIN, "detail": f"as-of-capture vectors on {share:.4f} of 00-16 "
+                                                              f"snapshots (minimum {COVERAGE_MIN})"},
+        "pit": flag("pit_pass"),
+        "parser": flag("parser_pass"),
+        "replay": flag("replay_pass"),
+        "hashes": {"pass": True, "detail": "verify_release and verify_function passed"},
+        "nowcast_replay": {"pass": None, "detail": "not evaluated by score (dev reproduction receipt)"},
+        "p3d_n_replay": {"pass": None, "detail": "not evaluated by score (dev reproduction receipt)"},
+        "window_leakage": {"pass": None, "detail": "not evaluated by score (operator record)"},
+    }
+
+
+def pre_look_reads(audit):
+    """Outcome or price files opened before the look, as the forward emission recorded them."""
+    opened = audit.get("outcome_files_opened")
+    if not isinstance(opened, list):
+        return ["the forward emission audit does not record its outcome reads"]
+    return [str(x) for x in opened]
 
 
 def gate_verdict(rows, margin):

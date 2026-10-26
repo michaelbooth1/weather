@@ -179,3 +179,217 @@ def test_cli_takes_the_state_and_sha_as_explicit_inputs():
 
 def test_mg_serve_core_is_in_the_release_files():
     assert "src/weather/model/mg_serve_core.py" in mg2.RELEASE_FILES
+
+
+# ----------------------------------------------------------------------------- forward emit binds the nowcasts
+
+def _nowcasts(folder, *, source=None, state="7" * 64, sha_override=None):
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / "nowcasts.parquet"
+    pd.DataFrame({"row_key": ["atlanta|s0"], "n_own": [70.0], "n_up": [np.nan],
+                  "n_ring": [np.nan]}).to_parquet(path)
+    manifest = {"prev_day_source": mg2.FORWARD_PREV_DAY_SOURCE if source is None else source,
+                "nowcasts_sha256": sha_override or mg2.sha256_file(path), "l6_state_sha256": state,
+                "first": "2026-10-28", "last": "2026-10-28"}
+    (folder / mg2.NOWCASTS_MANIFEST).write_text(json.dumps(manifest), encoding="utf-8")
+    return path
+
+
+def test_forward_nowcasts_need_the_bundle_source_their_sha_and_the_bound_state(tmp_path):
+    binding = {"l6_state_sha256": "7" * 64}
+    good = _nowcasts(tmp_path / "ok")
+    assert mg2.forward_nowcasts(good, binding)["l6_state_sha256"] == "7" * 64
+    cases = [(_nowcasts(tmp_path / "dev", source="D-1 replay folder, last line"), binding, "prev_day_source"),
+             (_nowcasts(tmp_path / "sha", sha_override="0" * 64), binding, "not the one its manifest records"),
+             (_nowcasts(tmp_path / "state", state="8" * 64), binding, "not the bound"),
+             (good, {}, "records no l6_state_sha256"),
+             (good, {"l6_state_sha256": "<FILL@BINDING>"}, "records no l6_state_sha256")]
+    for path, bind, message in cases:
+        with pytest.raises(mg2.Mg2Refused, match=message):
+            mg2.forward_nowcasts(path, bind)
+    bare = tmp_path / "bare" / "nowcasts.parquet"  # the IEM ``nowcast`` output writes no manifest
+    bare.parent.mkdir()
+    bare.write_bytes(good.read_bytes())
+    with pytest.raises(mg2.Mg2Refused, match="needs nowcasts_manifest.json"):
+        mg2.forward_nowcasts(bare, binding)
+    iem = tmp_path / "iem"  # a manifest without prev_day_source or an L6 state
+    iem.mkdir()
+    (iem / "nowcasts.parquet").write_bytes(good.read_bytes())
+    (iem / mg2.NOWCASTS_MANIFEST).write_text(json.dumps({"nowcasts_sha256": mg2.sha256_file(good)}))
+    with pytest.raises(mg2.Mg2Refused, match="prev_day_source"):
+        mg2.forward_nowcasts(iem / "nowcasts.parquet", binding)
+
+
+def _emit_world(tmp_path, monkeypatch, calls):
+    from weather.calibration import mg2_p3d_n
+    from weather.reporting.scorecards.free_source_candidates import l6_stack, mg1
+
+    rule = tmp_path / "rule.md"
+    body = {"switch_hour": "13", "d0": "2026-10-28", "n_forward_dates": "45", "owner_decision_id": "NONE",
+            "l6_coefficients_sha256": "4" * 64, "p3d_n_state_sha256": "5" * 64,
+            "forecast_high_source": "captured_nbm_v2_mean_07z", "own_obs_source": "captured_metar_l6_own",
+            "function_sha256": "6" * 64}
+    rule.write_text(f"```{mg2.RULE_BLOCK}\n" + "\n".join(f"{k}: {v}" for k, v in body.items()) + "\n```\n",
+                    encoding="utf-8")
+    nowcasts = _nowcasts(tmp_path / "now")
+    snaps = pd.DataFrame({"row_key": ["atlanta|s0", "atlanta|s1"], "date": ["2026-10-28", "2026-09-28"],
+                          "market": ["atlanta"] * 2, "local_hour": [9, 9]})
+    bands = pd.DataFrame({"row_key": ["atlanta|s0", "atlanta|s1"], "band_index": [0, 0]})
+    frame = pd.DataFrame({"row_key": ["atlanta|s0"], "band_index": [0], "p": [1.0]})
+
+    def post(state, s, replay, first, last, inputs="last_in_hour"):
+        calls.append(inputs)
+        return {}, {}
+
+    monkeypatch.setenv("L6_NOWCASTS", "unset")
+    monkeypatch.setattr(mg2, "require_forward_parity", lambda fields: {})
+    monkeypatch.setattr(mg2, "input_parity", lambda fields: {})
+    monkeypatch.setattr(mg2, "verify_release", lambda *a, **k: {"l6_state_sha256": "7" * 64})
+    monkeypatch.setattr(mg2, "verify_function", lambda fields: "6" * 64)
+    monkeypatch.setattr(mg2, "load_part", lambda *a: {"column": "n_own", "coef": {},
+                                                     "nowcasts_sha256": mg2.sha256_file(nowcasts)})
+    monkeypatch.setattr(mg2_p3d_n, "load_state", lambda *a, **k: {"fit_kind": "forward", "conversion": None,
+                                                                   "late_report": None})
+    monkeypatch.setattr(mg2, "read_inputs", lambda root: (snaps, bands))
+    monkeypatch.setattr(l6_stack, "predict", lambda *a: frame)
+    monkeypatch.setattr(mg1, "predict", lambda *a: frame)
+    monkeypatch.setattr(mg2, "post_records", post)
+    monkeypatch.setattr(mg2, "distribution_band_frame", lambda dists, b: frame)
+    monkeypatch.setattr(mg2, "compose", lambda *a: (frame, {"atlanta|s0": "pre"}))
+    return dict(layout_root=tmp_path, replay_root=tmp_path, nowcasts=nowcasts, coefficients=tmp_path / "c.json",
+                rule=rule, p3d_n_state=tmp_path / "p.pkl", release_binding=tmp_path / "rb.json")
+
+
+def test_emit_writes_as_of_capture_vectors_forward_only(tmp_path, monkeypatch):
+    calls = []
+    kw = _emit_world(tmp_path, monkeypatch, calls)
+    audit = mg2.emit(out=tmp_path / "fwd", first="2026-10-28", last="2026-10-28", **kw)
+    assert calls == ["last_in_hour", "as_of_capture"]
+    assert (tmp_path / "fwd" / mg2.ASOF_VECTORS).is_file() and audit["gate_vectors"] == mg2.ASOF_VECTORS
+    assert audit["asof_capture"]["vectors_sha256"] == mg2.sha256_file(tmp_path / "fwd" / mg2.ASOF_VECTORS)
+    assert audit["nowcasts_manifest"]["prev_day_source"] == mg2.FORWARD_PREV_DAY_SOURCE
+    assert audit["l6_state_sha256"] == "7" * 64 and audit["outcome_files_opened"] == []
+    calls.clear()
+    audit = mg2.emit(out=tmp_path / "ctl", first="2026-09-28", last="2026-09-28", control=True, **kw)
+    assert calls == ["last_in_hour"] and not (tmp_path / "ctl" / mg2.ASOF_VECTORS).exists()
+    assert audit["gate_vectors"] is None and audit["asof_capture"] is None
+    assert audit["nowcasts_manifest"] is None and audit["l6_state_sha256"] is None
+
+
+def test_forward_emit_refuses_nowcasts_from_another_state_before_emitting(tmp_path, monkeypatch):
+    calls = []
+    kw = _emit_world(tmp_path, monkeypatch, calls)
+    other = _nowcasts(tmp_path / "other", state="8" * 64)
+    with pytest.raises(mg2.Mg2Refused, match="not the bound"):
+        mg2.emit(out=tmp_path / "fwd", first="2026-10-28", last="2026-10-28", **dict(kw, nowcasts=other))
+    assert calls == [] and not (tmp_path / "fwd").exists()
+
+
+# ----------------------------------------------------------------------------- score records section 7
+
+def test_section7_conditions_recompute_coverage_and_read_the_bound_checks():
+    snaps = pd.DataFrame({"row_key": [f"k{i}" for i in range(11)], "local_hour": [8] * 10 + [20]})
+    vec = pd.DataFrame({"row_key": [f"k{i}" for i in range(9)]})
+    checks = {"pit_pass": True, "parser_pass": True, "replay_pass": True}
+    got = mg2.section7_conditions(snaps, vec, checks)  # 9 of the ten 00-16 snapshots = 0.90
+    assert all(got[k]["pass"] is True for k in ("coverage", "pit", "parser", "replay", "hashes"))
+    assert all(got[k]["pass"] is None for k in ("nowcast_replay", "p3d_n_replay", "window_leakage"))
+    assert mg2.section7_conditions(snaps, vec.iloc[:8], checks)["coverage"]["pass"] is False
+    for key in checks:
+        bad = mg2.section7_conditions(snaps, vec, dict(checks, **{key: False}))
+        assert bad[key.replace("_pass", "")]["pass"] is False
+    assert mg2.section7_conditions(snaps, vec, {})["replay"]["pass"] is False
+    assert mg2.section7_conditions(snaps, vec, dict(checks, pit_pass="true"))["pit"]["pass"] is False
+
+
+def test_emission_checks_and_pre_look_reads_are_bound_to_the_emission(tmp_path):
+    vectors = tmp_path / mg2.ASOF_VECTORS
+    vectors.write_bytes(b"v")
+    with pytest.raises(mg2.Mg2Refused, match="needs mg2_checks.json"):
+        mg2.emission_checks(vectors, {"vectors_sha256": "a" * 64})
+    (tmp_path / mg2.CHECKS).write_text(json.dumps({"emit_audit_vectors_sha256": ["b" * 64, "b" * 64]}))
+    with pytest.raises(mg2.Mg2Refused, match="does not check this emission"):
+        mg2.emission_checks(vectors, {"vectors_sha256": "a" * 64})
+    assert mg2.emission_checks(vectors, {"vectors_sha256": "b" * 64})["emit_audit_vectors_sha256"][0] == "b" * 64
+    assert mg2.pre_look_reads({"outcome_files_opened": []}) == []
+    assert mg2.pre_look_reads({"outcome_files_opened": ["labels.parquet"]}) == ["labels.parquet"]
+    assert mg2.pre_look_reads({}) == ["the forward emission audit does not record its outcome reads"]
+
+
+def test_score_refuses_without_the_check_before_opening_any_label(tmp_path, monkeypatch):
+    from weather.reporting.scorecards import dev_scorecard_data as data
+
+    emit = tmp_path / "emit"
+    emit.mkdir()
+    vectors = emit / mg2.ASOF_VECTORS
+    pd.DataFrame({"row_key": ["a|1"], "band_index": [0], "p": [1.0]}).to_parquet(vectors, index=False)
+    (emit / mg2.EMIT_AUDIT).write_text(json.dumps({"mode": "forward", "vectors_sha256": "c" * 64,
+                                                   "asof_capture": {"vectors_sha256": mg2.sha256_file(vectors)}}),
+                                       encoding="utf-8")
+    layout = tmp_path / "layout"
+    layout.mkdir()  # no labels or market file: score must refuse before it would open them
+    pd.DataFrame({"row_key": ["a|1"], "date": ["2026-12-01"]}).to_parquet(layout / data.SNAPSHOTS_FILE, index=False)
+    body = {"switch_hour": "13", "d0": "2026-12-01", "n_forward_dates": "1", "owner_decision_id": "NONE",
+            "l6_coefficients_sha256": "x", "p3d_n_state_sha256": "x", "function_sha256": "x",
+            "forecast_high_source": "x", "own_obs_source": "x"}
+    rule = tmp_path / "rule.md"
+    rule.write_text(f"```{mg2.RULE_BLOCK}\n" + "\n".join(f"{k}: {v}" for k, v in body.items()) + "\n```\n",
+                    encoding="utf-8")
+    monkeypatch.setattr(mg2, "require_forward_parity", lambda fields: {})
+    monkeypatch.setattr(mg2, "verify_release", lambda *a, **k: {})
+    monkeypatch.setattr(mg2, "verify_function", lambda fields: "x")
+    monkeypatch.setattr(mg2, "reserved_end", lambda: (date(2026, 10, 15), date(2026, 11, 28)))
+    with pytest.raises(mg2.Mg2Refused, match="needs mg2_checks.json"):
+        mg2.score(layout_root=layout, vectors=vectors, rule=rule, out=tmp_path / "out", release_binding=tmp_path,
+                  today=date(2027, 6, 1))
+    assert not (tmp_path / "out").exists()
+
+
+# ----------------------------------------------------------------------------- prev_dmax capture order
+
+def test_prev_dmax_from_a_capture_after_the_snapshot_is_never_served(tmp_path, monkeypatch):
+    path, sha, _ = _state_file(tmp_path)
+    feat = _features(4, seed=6)
+    days = ("2026-10-28", "2026-10-29")
+    hours = [h for h in l6.HOURS if 7 <= h <= 12][:2]
+    rows = [{"row_key": feat.row_key[i], "station": "KATL", "market": "atlanta", "date": days[i // 2],
+             "local_hour": hours[i % 2], "snapshot_id": f"s{i}"} for i in range(4)]
+    layout = tmp_path / "layout"
+    layout.mkdir()
+    pd.DataFrame(rows).to_parquet(layout / "inputs_snapshots.parquet", index=False)
+
+    def build(late):
+        folders = []
+        for day in days:
+            folder = tmp_path / f"replay-{late}" / day
+            folder.mkdir(parents=True)
+            lines = [json.dumps({"snapshot_id": r["snapshot_id"],
+                                 "captured_at_utc": f"{day}T{r['local_hour'] + 4:02d}:05:00+00:00", "sources": {}})
+                     for r in rows if r["date"] == day]
+            # D-1's last line, captured after D's first snapshot (late) or on the evening of D-1
+            tail = "2026-10-29T20:00:00+00:00" if late else f"{day}T23:00:00+00:00"
+            lines.append(json.dumps({"snapshot_id": "tail", "captured_at_utc": tail, "sources": {}}))
+            (folder / "replay_inputs.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
+            folders.append(("atlanta", date.fromisoformat(day), folder))
+        return folders
+
+    seen = {}
+    by_key = feat.set_index("row_key")
+
+    def features(snapshot_rows, captured, tz, station_code, prev):
+        seen.update(prev)
+        return by_key.loc[[k for k, _, _ in snapshot_rows]].reset_index()
+
+    monkeypatch.setattr(l3, "l6_captured_features", features)
+    monkeypatch.setattr(l3, "routine_dmax", lambda rows, tz, day, *a, **k: 80.0)
+    monkeypatch.setattr(l6, "load", lambda root: (None, {"KATL": {"timezone": "America/New_York"}}, {}))
+    monkeypatch.setattr(l6, "stations", lambda sel: ["KATL"])
+    for late, expected in ((True, {"2026-10-28"}), (False, {"2026-10-28", "2026-10-29"})):
+        folders = build(late)
+        monkeypatch.setattr(l3, "_event_folders", lambda root, f=folders: iter(f))
+        seen.clear()
+        manifest = mg2.captured_nowcast(layout_root=layout, replay_root=tmp_path, research_root=tmp_path,
+                                        first=days[0], last=days[1], out=tmp_path / f"out-{late}",
+                                        l6_state=path, l6_state_sha256=sha)
+        assert set(seen) == expected
+        assert manifest["stats"].get("prev_dmax_after_snapshot_days", 0) == (1 if late else 0)

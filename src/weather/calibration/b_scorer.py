@@ -28,10 +28,11 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import re
 import sys
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 
 _PRODUCTION_PREFIXES = ("weather.operations", "weather.market", "weather.model", "weather.serving",
@@ -58,7 +59,7 @@ SCHEMA = "b_scorer/1"
 CONTROL_SCHEMA = "b_control/1"
 TRANSFER_SCHEMA = "b_transfer/1"
 DROP_LIST_SCHEMA = "b_drop_list/1"
-VOID_RECORD_SCHEMA = "b_void_record/1"
+CONSUMED_SCHEMA = "b_look_consumed/1"
 RULE_BLOCK = "b_rule_v1"
 FILL = "<FILL@BINDING>"
 DEV_LAST = date(2026, 9, 29)
@@ -85,6 +86,11 @@ BOUND_FIELDS = ("mg2_rule_sha256", "mg2_binding_commit", "mg2_release_binding_sh
 # sections 3 and 7): bound in B-1, recorded in MG-2's release binding next to the l6_stack part sha.
 L6_STATE_FIELD = "l6_state_sha256"
 SHA256_HEX = re.compile(r"[0-9a-f]{64}")
+COMMIT_HEX = re.compile(r"[0-9a-f]{40}")
+OWNER_DECISION = re.compile(r"NONE|OD-\d{4}-\d{2}-\d{2}-[A-Za-z0-9][A-Za-z0-9_.-]*")  # mg2.OWNER_DECISION_ID or NONE
+# What a filled bound field must look like; anything else (FILL, "", TBD, a short hash) is unfilled.
+BOUND_FORMATS = {key: SHA256_HEX for key in BOUND_FIELDS}
+BOUND_FORMATS.update(mg2_binding_commit=COMMIT_HEX, mg2_owner_decision_id=OWNER_DECISION)
 RULE_FIELDS = tuple(RULE_CONSTANTS) + BOUND_FIELDS + ("d0", "d0_latest")
 MARKETS = tuple(RULE_CONSTANTS["markets"].split(","))
 N_DATES = 45
@@ -109,6 +115,13 @@ VOID_CONDITIONS = {
 }
 
 TRANSFER_MANIFEST = "b_transfer_manifest.json"
+CONSUMED = "b_look_consumed.json"  # written beside the transfer manifest and mg2_look.json when the look starts
+MG1_RECEIPT_TIME = "looked_at_utc"  # the instant inside MG-1's look receipt that VOID 5 compares against
+# Market-local day ends for the embargo (B-1 section 9): the 45th date settles when its last market's day ends.
+MARKET_TZ = {"atlanta": "America/New_York", "miami": "America/New_York", "nyc": "America/New_York",
+             "austin": "America/Chicago", "chicago": "America/Chicago", "dallas": "America/Chicago",
+             "houston": "America/Chicago", "los-angeles": "America/Los_Angeles",
+             "san-francisco": "America/Los_Angeles", "seattle": "America/Los_Angeles"}
 TRANSFER_FILES = ("labels.parquet", "market.parquet")
 LOOK = "b_look.json"
 RECEIPT = "b_look_receipt.json"
@@ -175,12 +188,12 @@ def read_rule(path):
     missing = [k for k in RULE_FIELDS if k not in fields]
     if missing:
         raise BRefused(f"rule block lacks {missing}")
+    unknown = sorted(set(fields) - set(RULE_FIELDS))
+    if unknown:
+        raise BRefused(f"rule block carries unknown keys {unknown}")
     wrong = {k: fields[k] for k, v in RULE_CONSTANTS.items() if fields[k] != v}
     if wrong:
         raise BRefused(f"rule values differ from the scorer's: {wrong}")
-    l6_state = fields[L6_STATE_FIELD]
-    if l6_state != FILL and not SHA256_HEX.fullmatch(l6_state):
-        raise BRefused(f"rule {L6_STATE_FIELD} must be 64 lowercase hex or {FILL}, got {l6_state!r}")
     d0, latest = date.fromisoformat(fields["d0"]), date.fromisoformat(fields["d0_latest"])
     if d0 > latest:
         raise BRefused(f"rule d0 {d0} is after d0_latest {latest}")
@@ -188,9 +201,10 @@ def read_rule(path):
 
 
 def unfilled(fields):
-    """Bound fields still at FILL; the L6 state sha also counts while it is empty or absent."""
+    """Bound fields that are not filled: anything but 64 lowercase hex (40 for the commit, a dated decision id
+    or NONE for the owner decision), so FILL, "", TBD or a short hash all count."""
     return [k for k in BOUND_FIELDS
-            if fields.get(k) == FILL or (k == L6_STATE_FIELD and not (fields.get(k) or "").strip())]
+            if not isinstance(fields.get(k), str) or not BOUND_FORMATS[k].fullmatch(fields[k])]
 
 
 def l6_state_problems(fields, release_binding):
@@ -245,8 +259,10 @@ def _row(rows, group, market="ALL"):
 def decide(rows, margin=MARGIN):
     """B-1 section 6 on Delta(07-16) [L, U] (date-clustered 95%, one-sided 0.025 each side)."""
     primary = _row(rows, PRIMARY[0])
-    if primary is None or None in primary["delta"]["ci95"]:
-        return {"verdict": "INCONCLUSIVE", "label": None, "reason": "no primary interval"}
+    ci = None if primary is None else primary["delta"].get("ci95")
+    if (not ci or len(ci) != 2 or any(v is None or not math.isfinite(float(v)) for v in ci)
+            or float(ci[0]) > float(ci[1])):
+        return {"verdict": "VOID", "label": None, "reason": f"degenerate primary interval {ci!r}"}
     low, up = primary["delta"]["ci95"]
     split_low = {}
     for name, _, _ in SPLITS:
@@ -272,21 +288,84 @@ def void_result(conditions):
 
 # ----------------------------------------------------------------------------- the look
 
-def look_guard(*, rule, mg1_look_receipt, out, today=None):
-    """Refusals that come before anything is read: MG-1's look receipt FIRST, then the rule, the window, one look."""
+def _utc(value):
+    moment = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    if moment.tzinfo is None:
+        raise ValueError(f"{value!r} has no UTC offset")
+    return moment.astimezone(timezone.utc)
+
+
+def embargo_end(last_date):
+    """The instant the 45th date has ended in every B market: the latest market-local midnight after it."""
+    from zoneinfo import ZoneInfo
+
+    day = date.fromisoformat(str(last_date)) + timedelta(days=1)
+    return max(datetime.combine(day, time(0), ZoneInfo(MARKET_TZ[m])).astimezone(timezone.utc) for m in MARKETS)
+
+
+def consumed_markers(transfer, mg2_look):
+    """The look's consumed markers: beside the transfer manifest and beside mg2_look.json."""
+    paths = [Path(transfer) / CONSUMED, Path(mg2_look).parent / CONSUMED]
+    return list(dict.fromkeys(p.resolve() for p in paths))
+
+
+def look_guard(*, rule, mg1_look_receipt, out, transfer=None, mg2_look=None, vectors=None, layout_root=None,
+               drop_list=None, today=None, now=None):
+    """Every refusal that comes before anything is read; then the look is consumed.
+
+    Order: MG-1's look receipt FIRST, then the rule, the window, one look (the output and the consumed markers),
+    the gate vectors (MG-2 rule section 8 C7), the look date set, the embargo (the latest market-local end of the
+    45th date) and the drop list. Only then are the consumed markers written, beside the transfer manifest and
+    beside mg2_look.json, so a re-run with a new ``--out`` or another drop list is refused.
+    ``today`` and ``now`` are for tests; ``today`` alone stands for the last second of that UTC day.
+    """
+    import pandas as pd
+
+    from weather.reporting.scorecards import dev_scorecard_data as data
+
     if not mg1_look_receipt or not Path(mg1_look_receipt).is_file() or Path(mg1_look_receipt).stat().st_size == 0:
         raise BRefused("MG-1's look receipt does not exist: B never reads before MG-1's look (B-1 sections 4, 9)")
     rule_sha, fields = read_rule(rule)
     gaps = unfilled(fields)
     if gaps:
-        raise BRefused(f"rule fields are {FILL}: {gaps}")
+        raise BRefused(f"rule fields are {FILL} or malformed: {gaps}")
+    if now is None:
+        now = (datetime.combine(today, time(23, 59, 59), timezone.utc) if today is not None
+               else datetime.now(timezone.utc))
+    today = now.astimezone(timezone.utc).date()
     start, end = mg2.reserved_end()
-    today = today or datetime.now(timezone.utc).date()
     if end is None or today <= end:
         raise BRefused(f"the recorded MG-1 window ({start}..{end or 'open'}) has not closed")
     if (Path(out) / LOOK).exists() or (Path(out) / RECEIPT).exists():
         raise BRefused("the B look already exists: exactly one look")
-    return rule_sha, fields, today
+    if None in (transfer, mg2_look, vectors, layout_root, drop_list):
+        raise BRefused("the look needs the transfer, mg2_look, vectors, layout and drop list")
+    markers = consumed_markers(transfer, mg2_look)
+    spent = [str(m) for m in markers if m.exists()]
+    if spent:
+        raise BRefused(f"the B look was already consumed ({spent}): exactly one look")
+    mg2.require_gate_vectors(vectors)  # MG-2 rule section 8 C7: as-of-capture vectors of a forward emission
+    look_dates = sorted(pd.read_parquet(Path(layout_root) / data.SNAPSHOTS_FILE, columns=["date"])
+                        .date.astype(str).unique())
+    if len(look_dates) != N_DATES:
+        raise BRefused(f"the MG-2 look layout holds {len(look_dates)} dates, not {N_DATES}")
+    settled = embargo_end(look_dates[-1])
+    if now < settled:
+        raise BRefused(f"embargo: the 45th date {look_dates[-1]} has not ended in every market (until "
+                       f"{settled.isoformat()})")
+    drops = _json(drop_list)
+    if drops.get("schema") != DROP_LIST_SCHEMA:
+        raise BRefused(f"drop list schema {drops.get('schema')!r} != {DROP_LIST_SCHEMA}")
+    marker = {"schema": CONSUMED_SCHEMA, "rule_sha256": rule_sha, "b_scorer_sha256": module_sha256(),
+              "out": str(Path(out).resolve()), "drop_list_sha256": sha256_file(drop_list),
+              "consumed_at_utc": datetime.now(timezone.utc).isoformat()}
+    for path in markers:
+        try:
+            with open(path, "x", encoding="utf-8") as handle:
+                handle.write(json.dumps(marker, indent=1, sort_keys=True))
+        except FileExistsError as exc:
+            raise BRefused(f"the B look was already consumed ({path}): exactly one look") from exc
+    return rule_sha, fields, today, look_dates, drops
 
 
 def bound_hash_problems(fields, *, mg2_rule, release_binding, mg2_look, vectors, root=None):
@@ -299,14 +378,17 @@ def bound_hash_problems(fields, *, mg2_rule, release_binding, mg2_look, vectors,
         problems.append("mg2_rule_sha256")
     if sha256_file(release_binding) != fields["mg2_release_binding_sha256"]:
         problems.append("mg2_release_binding_sha256")
-    if not re.fullmatch(r"[0-9a-f]{40}", fields["mg2_binding_commit"]):
+    if not COMMIT_HEX.fullmatch(fields["mg2_binding_commit"]):
         problems.append("mg2_binding_commit")
+    else:
+        problems += binding_commit_problems(fields["mg2_binding_commit"], release_binding, root=root)
     if (mg2.owner_decision(mg2_fields) or "NONE") != fields["mg2_owner_decision_id"]:
         problems.append("mg2_owner_decision_id")
     for key in ("l6_coefficients_sha256", "p3d_n_state_sha256", "function_sha256"):
         if mg2_fields.get(key) != fields[key]:
             problems.append(key)
     problems += l6_state_problems(fields, release_binding)
+    problems += emit_audit_problems(fields, vectors)
     if mg2.rule_d0(mg2_fields) != date.fromisoformat(fields["d0"]):
         problems.append("d0 (MG-2 rule)")
     try:
@@ -324,6 +406,80 @@ def bound_hash_problems(fields, *, mg2_rule, release_binding, mg2_look, vectors,
     if look.get("vectors_sha256") != sha256_file(vectors):
         problems.append("mg2_look.vectors_sha256")
     return problems
+
+
+def binding_commit_problems(commit, release_binding, root=None):
+    """``mg2_binding_commit`` must hold exactly the code the release binding hashes: each bound file's blob at
+    that commit has the binding's sha256 (the repository pins LF, so blob bytes are the working bytes)."""
+    import subprocess
+
+    root = Path(root or mg2.repo_root())
+    files = _json(release_binding).get("files") or {}
+    if not files:
+        return ["mg2_binding_commit: the release binding lists no files"]
+    problems = []
+    for rel, sha in sorted(files.items()):
+        proc = subprocess.run(["git", "-C", str(root), "show", f"{commit}:{rel}"], capture_output=True,
+                              timeout=60, check=False)
+        if proc.returncode != 0:
+            problems.append(f"mg2_binding_commit: {rel} is absent at {commit}")
+        elif hashlib.sha256(proc.stdout).hexdigest() != sha:
+            problems.append(f"mg2_binding_commit: {rel} at {commit} is not the bound file")
+    return problems
+
+
+def emit_audit_problems(fields, vectors):
+    """The forward emission audit beside the gate vectors: its coefficients, P3d_N state, nowcasts and the L6
+    state behind those nowcasts are the bound ones (the nowcasts manifest is ``mg2.captured_nowcast``'s)."""
+    path = Path(vectors).parent / mg2.EMIT_AUDIT
+    if not path.is_file():
+        return ["emit audit missing"]
+    audit = _json(path)
+    problems = []
+    for key in ("l6_coefficients_sha256", "p3d_n_state_sha256"):
+        if audit.get(key) != fields[key]:
+            problems.append(f"emit audit {key}")
+    manifest = audit.get("nowcasts_manifest") or {}
+    if not audit.get("nowcasts_sha256") or audit.get("nowcasts_sha256") != manifest.get("nowcasts_sha256"):
+        problems.append("emit audit nowcasts_sha256")
+    if manifest.get("prev_day_source") != mg2.FORWARD_PREV_DAY_SOURCE:
+        problems.append("emit audit nowcasts prev_day_source")
+    if manifest.get(L6_STATE_FIELD) != fields[L6_STATE_FIELD] or audit.get(L6_STATE_FIELD) != fields[L6_STATE_FIELD]:
+        problems.append(f"emit audit {L6_STATE_FIELD}")
+    return problems
+
+
+def mg2_void_problems(mg2_look):
+    """VOID 1: MG-2's own section 7 results, as ``mg2.score`` recorded them in mg2_look.json."""
+    conditions = _json(mg2_look).get("void_conditions")
+    if not isinstance(conditions, dict) or not conditions:
+        return ["mg2_look.json records no section 7 condition results"]
+    return [f"{name}: {(entry or {}).get('detail') if isinstance(entry, dict) else entry}"
+            for name, entry in sorted(conditions.items())
+            if not isinstance(entry, dict) or entry.get("pass") is False]
+
+
+def pre_look_read_problems(mg2_look):
+    """VOID 4: outcome or price reads before the look, as ``mg2.score`` recorded them in mg2_look.json."""
+    reads = _json(mg2_look).get("pre_look_reads")
+    if not isinstance(reads, list):
+        return ["mg2_look.json records no pre-look read list"]
+    return [str(r) for r in reads]
+
+
+def receipt_time_problems(manifest, mg1_look_receipt):
+    """VOID 5: the manifest binds this MG-1 look receipt by sha256, and the transfer is after the instant the
+    receipt itself records (``looked_at_utc``), never after a file time."""
+    if manifest.get("mg1_look_receipt_sha256") != sha256_file(mg1_look_receipt):
+        return ["the transfer manifest does not bind this MG-1 look receipt (mg1_look_receipt_sha256)"]
+    try:
+        looked = _utc(_json(mg1_look_receipt)[MG1_RECEIPT_TIME])
+        moved = _utc(manifest["transferred_at_utc"])
+    except (KeyError, TypeError, ValueError) as exc:
+        return [f"no comparable instant ({MG1_RECEIPT_TIME} in the receipt, transferred_at_utc): {exc}"]
+    if moved <= looked:
+        return [f"transfer {moved.isoformat()} is not after the MG-1 look {looked.isoformat()}"]
+    return []
 
 
 def control_problems(path, fields):
@@ -477,33 +633,44 @@ def log_pool_secondary(table, p, covered, dates):
 
 
 def look(*, rule, mg2_rule, release_binding, layout_root, vectors, mg2_look, transfer, drop_list, control_receipt,
-         mg1_look_receipt, void_record, out, lih_vectors=None, today=None, root=None):
-    """The single B look (B-1 sections 5, 6, 8, 9). Writes ``b_look.json`` and ``b_look_receipt.json``."""
+         mg1_look_receipt, out, lih_vectors=None, today=None, now=None, root=None):
+    """The single B look (B-1 sections 5, 6, 8, 9). Writes ``b_look.json`` and ``b_look_receipt.json``.
+
+    ``look_guard`` consumes the look before anything is read. From then on every exit writes the receipt: a
+    verdict, a VOID, or ABORTED when an exception escapes (re-raised after the receipt is written).
+    """
+    from weather.reporting.scorecards import dev_scorecard as sc
+
+    rule_sha, fields, today, look_dates, drops = look_guard(
+        rule=rule, mg1_look_receipt=mg1_look_receipt, out=out, transfer=transfer, mg2_look=mg2_look,
+        vectors=vectors, layout_root=layout_root, drop_list=drop_list, today=today, now=now)
+    out = Path(out)
+    state = {"outcomes_opened": False,
+             "base": {"schema": SCHEMA, "rule_sha256": rule_sha, "b_scorer_sha256": module_sha256(),
+                      "scorecard_code_sha256": None, "inputs": {}, "today": today.isoformat()}}
+    try:
+        out.mkdir(parents=True, exist_ok=True)
+        state["base"]["scorecard_code_sha256"] = sc.code_sha256()
+        return _look_body(fields=fields, look_dates=look_dates, drops=drops, mg2_rule=mg2_rule,
+                          release_binding=release_binding, layout_root=layout_root, vectors=vectors,
+                          mg2_look=mg2_look, transfer=transfer, drop_list=drop_list,
+                          control_receipt=control_receipt, mg1_look_receipt=mg1_look_receipt, out=out,
+                          lih_vectors=lih_vectors, root=root, state=state)
+    except BaseException as exc:
+        payload = {**state["base"], "outcomes_opened": state["outcomes_opened"],
+                   "decision": {"verdict": "ABORTED", "label": None, "error": f"{type(exc).__name__}: {exc}"}}
+        _finish(out, payload, mg2_look)
+        raise
+
+
+def _look_body(*, fields, look_dates, drops, mg2_rule, release_binding, layout_root, vectors, mg2_look, transfer,
+               drop_list, control_receipt, mg1_look_receipt, out, lih_vectors, root, state):
     import pandas as pd
 
-    from weather.reporting.scorecards import dev_scorecard as sc
-    from weather.reporting.scorecards import dev_scorecard_data as data
-
-    rule_sha, fields, today = look_guard(rule=rule, mg1_look_receipt=mg1_look_receipt, out=out, today=today)
-    mg2.require_gate_vectors(vectors)  # MG-2 rule section 8 C7: as-of-capture vectors of a forward emission
-    root_l = Path(layout_root)
-    look_dates = sorted(pd.read_parquet(root_l / data.SNAPSHOTS_FILE, columns=["date"]).date.astype(str).unique())
-    if len(look_dates) != N_DATES:
-        raise BRefused(f"the MG-2 look layout holds {len(look_dates)} dates, not {N_DATES}")
-    if today <= date.fromisoformat(look_dates[-1]):
-        raise BRefused(f"embargo: the 45th date {look_dates[-1]} has not settled")
-    record = _json(void_record)
-    if record.get("schema") != VOID_RECORD_SCHEMA:
-        raise BRefused(f"void record schema {record.get('schema')!r} != {VOID_RECORD_SCHEMA}")
-    drops = _json(drop_list)
-    if drops.get("schema") != DROP_LIST_SCHEMA:
-        raise BRefused(f"drop list schema {drops.get('schema')!r} != {DROP_LIST_SCHEMA}")
-    out = Path(out)
-    out.mkdir(parents=True, exist_ok=True)
-
     voids = {}
-    if record.get("mg2_void_conditions"):
-        voids[1] = record["mg2_void_conditions"]
+    mg2_voids = mg2_void_problems(mg2_look)
+    if mg2_voids:
+        voids[1] = mg2_voids
     hashes = bound_hash_problems(fields, mg2_rule=mg2_rule, release_binding=release_binding, mg2_look=mg2_look,
                                  vectors=vectors, root=root)
     if hashes:
@@ -511,35 +678,35 @@ def look(*, rule, mg2_rule, release_binding, layout_root, vectors, mg2_look, tra
     ctl = control_problems(control_receipt, fields)
     if ctl:
         voids[3] = ctl
-    if record.get("pre_look_reads"):
-        voids[4] = record["pre_look_reads"]
+    reads = pre_look_read_problems(mg2_look)
+    if reads:
+        voids[4] = reads
     manifest, rows = read_manifest(transfer)
     if manifest is not None:
-        moved = datetime.fromisoformat(str(manifest["transferred_at_utc"]).replace("Z", "+00:00"))
-        made = datetime.fromtimestamp(Path(mg1_look_receipt).stat().st_mtime, timezone.utc)
-        if moved < made:
-            voids[5] = f"transfer {moved.isoformat()} before the MG-1 receipt {made.isoformat()}"
+        late = receipt_time_problems(manifest, mg1_look_receipt)
+        if late:
+            voids[5] = late
     m_problems = manifest_problems(manifest, rows, look_dates, date.fromisoformat(fields["d0"]))
-    if m_problems:
-        voids[6] = m_problems
     dropped = sorted(str(d) for d in drops.get("dropped", []))
     if not set(dropped) <= set(look_dates):
-        raise BRefused("the drop list names a date outside the look date set")
+        m_problems = list(m_problems) + ["the drop list names a date outside the look date set"]
+    if m_problems:
+        voids[6] = m_problems
     surviving = [d for d in look_dates if d not in set(dropped)]
-    base = {"schema": SCHEMA, "rule_sha256": rule_sha, "b_scorer_sha256": module_sha256(),
-            "scorecard_code_sha256": sc.code_sha256(), "look_dates": [look_dates[0], look_dates[-1], len(look_dates)],
+    base = {**state["base"], "look_dates": [look_dates[0], look_dates[-1], len(look_dates)],
             "dropped": dropped, "surviving_dates": len(surviving),
             "inputs": {"vectors_sha256": sha256_file(vectors), "mg2_look_sha256": sha256_file(mg2_look),
                        "mg1_look_receipt_sha256": sha256_file(mg1_look_receipt),
                        "transfer_manifest_sha256": (sha256_file(Path(transfer) / TRANSFER_MANIFEST)
                                                     if manifest is not None else None),
-                       "drop_list_sha256": sha256_file(drop_list), "void_record_sha256": sha256_file(void_record),
+                       "drop_list_sha256": sha256_file(drop_list),
                        "control_receipt_sha256": sha256_file(control_receipt) if Path(control_receipt).is_file()
-                       else None, "release_binding_sha256": sha256_file(release_binding)},
-            "today": today.isoformat()}
+                       else None, "release_binding_sha256": sha256_file(release_binding)}}
+    state["base"] = base
     if voids:  # no label or price file has been opened
         return _finish(out, {**base, "decision": void_result(voids), "outcomes_opened": False}, mg2_look)
 
+    state["outcomes_opened"] = True
     frames, f_problems = transfer_files(transfer, manifest)
     labels, market = frames.get("labels.parquet"), frames.get("market.parquet")
     snaps, bands = mg2.read_inputs(layout_root)
@@ -554,9 +721,13 @@ def look(*, rule, mg2_rule, release_binding, layout_root, vectors, mg2_look, tra
     recomputed = sorted(d for d in look_dates if coverage.get(d, {"share": 0.0})["share"] < COVERAGE_MIN)
     base["drop_list_check"] = {"recomputed_from_transfer": recomputed, "agrees": recomputed == dropped,
                                "coverage": coverage}
+    late_voids = {}
+    if recomputed != dropped:
+        late_voids[6] = f"the drop list {dropped} is not the coverage drop recomputed from the transfer {recomputed}"
     if len(surviving) < MIN_SURVIVING:
-        return _finish(out, {**base, "decision": void_result({7: f"{len(surviving)} surviving"}),
-                             "outcomes_opened": True}, mg2_look)
+        late_voids[7] = f"{len(surviving)} surviving"
+    if late_voids:
+        return _finish(out, {**base, "decision": void_result(late_voids), "outcomes_opened": True}, mg2_look)
 
     table = build_table(snaps, bands, labels, market, surviving)
     p, covered, reasons = arm(table, pd.read_parquet(vectors))
@@ -572,8 +743,12 @@ def look(*, rule, mg2_rule, release_binding, layout_root, vectors, mg2_look, tra
 
 def _finish(out, payload, mg2_look):
     """``b_look.json`` and the one look receipt holding MG-2's gate and B's verdict with every hash."""
+    out.mkdir(parents=True, exist_ok=True)
     _write(out / LOOK, payload)
-    gate = _json(mg2_look).get("gate")
+    try:
+        gate = _json(mg2_look).get("gate")
+    except (OSError, ValueError, AttributeError):
+        gate = None
     receipt = {"schema": SCHEMA, "kind": "look_receipt", "mg2_look_sha256": sha256_file(mg2_look), "mg2_gate": gate,
                "b_look_sha256": sha256_file(out / LOOK), "b_decision": payload["decision"],
                "rule_sha256": payload["rule_sha256"], "b_scorer_sha256": payload["b_scorer_sha256"],
@@ -694,7 +869,7 @@ def build_parser():
     r.add_argument("--rule", required=True)
     k = sub.add_parser("look", help="the single forward look (guarded)")
     for name in ("rule", "mg2-rule", "release-binding", "layout", "vectors", "mg2-look", "transfer", "drop-list",
-                 "control-receipt", "mg1-look-receipt", "void-record", "out"):
+                 "control-receipt", "mg1-look-receipt", "out"):
         k.add_argument(f"--{name}", required=True)
     k.add_argument("--lih-vectors", help="last_in_hour vectors (descriptive secondary only)")
     return parser
@@ -715,7 +890,7 @@ def main(argv=None):
         result = look(rule=args.rule, mg2_rule=args.mg2_rule, release_binding=args.release_binding,
                       layout_root=args.layout, vectors=args.vectors, mg2_look=args.mg2_look, transfer=args.transfer,
                       drop_list=args.drop_list, control_receipt=args.control_receipt,
-                      mg1_look_receipt=args.mg1_look_receipt, void_record=args.void_record, out=args.out,
+                      mg1_look_receipt=args.mg1_look_receipt, out=args.out,
                       lih_vectors=args.lih_vectors)
         print(json.dumps(result["decision"], indent=1, default=str))
         return 0

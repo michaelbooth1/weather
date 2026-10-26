@@ -3,11 +3,15 @@
 Guards: Rule B-1 (B_forward_test_design.md, b_rule_v1 block): sections 3 (10 markets, 45 dates, coverage
 drop), 5 (Delta 07-16 on covered snapshots, date-clustered w_date 2,000 draws seed 20260921), 6 (PASS / FAIL /
 INCONCLUSIVE, NOT-WORSE below +0.0027), 8 (VOID 1-7), 9 (MG-1 look receipt first, embargo, one look) and (a)
-(positive-control receipt); MG-2 rule section 8 C7 (as-of-capture vectors only).
+(positive-control receipt); MG-2 rule section 8 C7 (as-of-capture vectors only); the Fable review of 2026-10-26
+("bind with fixes": consumed-look markers, ABORTED receipts, verified bound fields, VOIDs 1/4/5 from recorded
+evidence, a VOID on a degenerate interval, the market-local embargo) and the MG-2 season-L6 clarification
+(``l6_state_sha256``).
 """
 import json
+import shutil
 import sys
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import numpy as np
@@ -18,6 +22,8 @@ from weather.reporting.scorecards import dev_scorecard as sc
 from weather.reporting.scorecards import dev_scorecard_data as data
 
 from tests.host_guard import import_or_skip_on_capture_host
+
+ROOT = Path(__file__).resolve().parents[2]
 
 b = import_or_skip_on_capture_host("weather.calibration.b_scorer")
 mg2 = import_or_skip_on_capture_host("weather.calibration.mg2_composite")
@@ -44,9 +50,12 @@ def _rule(tmp_path, fill=True, **over):
     return path
 
 
-def _receipt(tmp_path):
+MG1_LOOKED = "2026-12-14T00:00:00Z"
+
+
+def _receipt(tmp_path, looked=MG1_LOOKED):
     path = tmp_path / "mg1_look_receipt.json"
-    path.write_text('{"mg1": "look"}', encoding="utf-8")
+    path.write_text(json.dumps({"mg1": "look", **({b.MG1_RECEIPT_TIME: looked} if looked else {})}), encoding="utf-8")
     return path
 
 
@@ -66,10 +75,30 @@ def test_l6_state_sha_is_a_bound_field_that_must_be_filled_with_hex(tmp_path):
                      today=TODAY)
 
 
-@pytest.mark.parametrize("bad", ["", "FILL", "PENDING", "A" * 64, "7" * 63, "7" * 65, "g" * 64])
-def test_rule_refuses_an_empty_or_malformed_l6_state_sha(tmp_path, bad):
-    with pytest.raises(b.BRefused, match="l6_state_sha256 must be 64 lowercase hex"):
-        b.read_rule(_rule(tmp_path, l6_state_sha256=bad))
+@pytest.mark.parametrize("key,bad", [
+    ("l6_state_sha256", ""), ("l6_state_sha256", "TBD"), ("l6_state_sha256", "A" * 64),
+    ("l6_state_sha256", "7" * 63), ("l6_state_sha256", "7" * 65), ("l6_state_sha256", "g" * 64),
+    ("mg2_rule_sha256", "TBD"), ("p3d_n_state_sha256", "5" * 40), ("mg2_binding_commit", "2" * 64),
+    ("mg2_binding_commit", ""), ("mg2_owner_decision_id", "TBD"), ("mg2_owner_decision_id", ""),
+    ("b_scorer_sha256", "FILL")])
+def test_any_bound_field_not_in_its_format_is_unfilled_and_refuses_the_look(tmp_path, key, bad):
+    rule = _rule(tmp_path, **{key: bad})
+    _, fields = b.read_rule(rule)
+    assert b.unfilled(fields) == [key]
+    with pytest.raises(b.BRefused, match="FILL@BINDING> or malformed"):
+        b.look_guard(rule=rule, mg1_look_receipt=_receipt(tmp_path), out=tmp_path, today=TODAY)
+
+
+def test_bound_field_formats_accept_the_filled_shapes(tmp_path):
+    _, fields = b.read_rule(_rule(tmp_path, mg2_owner_decision_id="NONE"))
+    assert b.unfilled(fields) == []
+    assert b.BOUND_FORMATS["mg2_binding_commit"] is b.COMMIT_HEX
+    assert set(b.BOUND_FORMATS) == set(b.BOUND_FIELDS)
+
+
+def test_rule_with_an_unknown_key_refuses(tmp_path):
+    with pytest.raises(b.BRefused, match="unknown keys"):
+        b.read_rule(_rule(tmp_path, l6_state_sha256_note="x"))
 
 
 def test_rule_without_the_l6_state_field_refuses(tmp_path):
@@ -119,7 +148,8 @@ def test_unfilled_rule_open_window_and_second_look_refuse(tmp_path, monkeypatch)
     with pytest.raises(b.BRefused, match="has not closed"):
         b.look_guard(rule=rule, mg1_look_receipt=receipt, out=tmp_path, today=TODAY)
     monkeypatch.setattr(mg2, "reserved_end", lambda: (date(2026, 10, 15), date(2026, 11, 28)))
-    assert b.look_guard(rule=rule, mg1_look_receipt=receipt, out=tmp_path, today=TODAY)[2] == TODAY
+    with pytest.raises(b.BRefused, match="needs the transfer"):
+        b.look_guard(rule=rule, mg1_look_receipt=receipt, out=tmp_path, today=TODAY)
     (tmp_path / b.LOOK).write_text("{}", encoding="utf-8")
     with pytest.raises(b.BRefused, match="exactly one look"):
         b.look_guard(rule=rule, mg1_look_receipt=receipt, out=tmp_path, today=TODAY)
@@ -258,7 +288,12 @@ def test_control_receipt_must_pass_at_this_scorer(tmp_path):
     assert len(b.control_problems(path, fields)) == 2
 
 
-def _look_inputs(tmp_path, monkeypatch, *, transferred="2026-12-15T00:00:00Z", dropped=(), void=None, **kw):
+MG2_CONDITIONS = {"coverage": {"pass": True}, "pit": {"pass": True}, "parser": {"pass": True},
+                  "replay": {"pass": True}, "hashes": {"pass": True}, "window_leakage": {"pass": None}}
+
+
+def _look_inputs(tmp_path, monkeypatch, *, transferred="2026-12-15T00:00:00Z", dropped=(), mg2_look=None,
+                 manifest_extra=None, **kw):
     snaps, bands, labels, market, vec = _forward(**kw)
     layout = tmp_path / "layout"
     layout.mkdir(parents=True)
@@ -274,27 +309,30 @@ def _look_inputs(tmp_path, monkeypatch, *, transferred="2026-12-15T00:00:00Z", d
     transfer.mkdir()
     labels.to_parquet(transfer / "labels.parquet", index=False)
     market.to_parquet(transfer / "market.parquet", index=False)
+    receipt = _receipt(tmp_path)
     manifest = {"schema": b.TRANSFER_SCHEMA, "transferred_at_utc": transferred,
+                "mg1_look_receipt_sha256": b.sha256_file(receipt),
                 "dates": [{"date": d, "promotion_countable": True} for d in DATES],
-                "files": {n: b.sha256_file(transfer / n) for n in b.TRANSFER_FILES}}
+                "files": {n: b.sha256_file(transfer / n) for n in b.TRANSFER_FILES}, **(manifest_extra or {})}
     (transfer / b.TRANSFER_MANIFEST).write_text(json.dumps(manifest), encoding="utf-8")
     other = {}
+    (tmp_path / "mg2").mkdir()
+    look_payload = {"gate": {"verdict": "PASS"}, "rule_sha256": "1" * 64, "void_conditions": MG2_CONDITIONS,
+                    "pre_look_reads": [], **(mg2_look or {})}
     for name, payload in (("drop.json", {"schema": b.DROP_LIST_SCHEMA, "dropped": list(dropped)}),
-                          ("void.json", {"schema": b.VOID_RECORD_SCHEMA, "mg2_void_conditions": [],
-                                         "pre_look_reads": [], **(void or {})}),
+                          ("binding.json", {}),
                           (b.CONTROL, {"schema": b.CONTROL_SCHEMA, "verdict": "PASS",
                                        "b_scorer_sha256": b.module_sha256(),
                                        "scorecard_code_sha256": sc.code_sha256()}),
-                          ("mg2_look.json", {"gate": {"verdict": "PASS"}, "rule_sha256": "1" * 64})):
+                          ("mg2/mg2_look.json", look_payload)):
         other[name] = tmp_path / name
         other[name].write_text(json.dumps(payload), encoding="utf-8")
     monkeypatch.setattr(mg2, "reserved_end", lambda: (date(2026, 10, 15), date(2026, 11, 28)))
     monkeypatch.setattr(b, "bound_hash_problems", lambda fields, **k: [])
-    return dict(rule=_rule(tmp_path), mg2_rule=tmp_path / "mg2.md", release_binding=tmp_path / "void.json",
-                layout_root=layout, vectors=vectors, mg2_look=other["mg2_look.json"], transfer=transfer,
+    return dict(rule=_rule(tmp_path), mg2_rule=tmp_path / "mg2.md", release_binding=other["binding.json"],
+                layout_root=layout, vectors=vectors, mg2_look=other["mg2/mg2_look.json"], transfer=transfer,
                 drop_list=other["drop.json"], control_receipt=other[b.CONTROL],
-                mg1_look_receipt=_receipt(tmp_path), void_record=other["void.json"], out=tmp_path / "out",
-                today=TODAY)
+                mg1_look_receipt=receipt, out=tmp_path / "out", today=TODAY)
 
 
 def test_full_look_scores_ten_markets_and_writes_one_receipt(tmp_path, monkeypatch):
@@ -311,6 +349,67 @@ def test_full_look_scores_ten_markets_and_writes_one_receipt(tmp_path, monkeypat
         b.look(**args)
 
 
+def test_the_look_is_consumed_so_a_new_out_or_drop_list_cannot_rescore(tmp_path, monkeypatch):
+    args = _look_inputs(tmp_path, monkeypatch)
+    b.look(**args)
+    for marker in b.consumed_markers(args["transfer"], args["mg2_look"]):
+        assert json.loads(marker.read_text(encoding="utf-8"))["schema"] == b.CONSUMED_SCHEMA
+    drop = tmp_path / "drop5.json"
+    drop.write_text(json.dumps({"schema": b.DROP_LIST_SCHEMA, "dropped": DATES[:5]}), encoding="utf-8")
+    with pytest.raises(b.BRefused, match="already consumed"):
+        b.look(**dict(args, out=tmp_path / "out2", drop_list=drop))
+    assert not (tmp_path / "out2").exists()
+    # either marker alone refuses
+    (Path(args["transfer"]) / b.CONSUMED).unlink()
+    with pytest.raises(b.BRefused, match="already consumed"):
+        b.look(**dict(args, out=tmp_path / "out3"))
+
+
+def test_a_refusal_before_anything_is_read_does_not_consume_the_look(tmp_path, monkeypatch):
+    args = _look_inputs(tmp_path, monkeypatch)
+    with pytest.raises(b.BRefused, match="embargo"):
+        b.look(**dict(args, today=date.fromisoformat(DATES[-1])))
+    assert not any(m.exists() for m in b.consumed_markers(args["transfer"], args["mg2_look"]))
+    assert b.look(**args)["decision"]["verdict"] == "PASS"
+
+
+def test_a_crash_after_outcomes_open_writes_an_aborted_receipt_and_consumes(tmp_path, monkeypatch):
+    args = _look_inputs(tmp_path, monkeypatch)
+
+    def boom(*a, **k):
+        raise RuntimeError("layout broke")
+
+    monkeypatch.setattr(b, "build_table", boom)
+    with pytest.raises(RuntimeError, match="layout broke"):
+        b.look(**args)
+    receipt = json.loads((args["out"] / b.RECEIPT).read_text(encoding="utf-8"))
+    payload = json.loads((args["out"] / b.LOOK).read_text(encoding="utf-8"))
+    assert receipt["b_decision"]["verdict"] == "ABORTED" and "layout broke" in receipt["b_decision"]["error"]
+    assert payload["outcomes_opened"] is True and receipt["inputs"]["vectors_sha256"]
+    monkeypatch.undo()
+    _look_inputs(tmp_path / "unused", monkeypatch)  # restore the patched window and hash check
+    with pytest.raises(b.BRefused, match="exactly one look|already consumed"):
+        b.look(**dict(args, out=tmp_path / "again"))
+
+
+def test_a_crash_before_outcomes_open_is_aborted_with_outcomes_closed(tmp_path, monkeypatch):
+    args = _look_inputs(tmp_path, monkeypatch)
+    monkeypatch.setattr(b, "control_problems", lambda *a: (_ for _ in ()).throw(KeyboardInterrupt()))
+    with pytest.raises(KeyboardInterrupt):
+        b.look(**args)
+    payload = json.loads((args["out"] / b.LOOK).read_text(encoding="utf-8"))
+    assert payload["decision"]["verdict"] == "ABORTED" and payload["outcomes_opened"] is False
+
+
+def test_embargo_ends_at_the_latest_market_local_midnight(tmp_path, monkeypatch):
+    end = b.embargo_end(DATES[-1])
+    assert end == datetime(2026, 12, 12, 8, 0, tzinfo=timezone.utc)  # Pacific midnight, PST
+    args = _look_inputs(tmp_path, monkeypatch)
+    with pytest.raises(b.BRefused, match="embargo"):
+        b.look(**dict(args, today=None, now=end - timedelta(seconds=1)))
+    assert b.look(**dict(args, today=None, now=end))["decision"]["verdict"] == "PASS"
+
+
 def test_the_look_refuses_last_in_hour_vectors_and_an_unsettled_45th_date(tmp_path, monkeypatch):
     args = _look_inputs(tmp_path, monkeypatch)
     lih = Path(args["vectors"]).with_name(mg2.VECTORS)
@@ -322,10 +421,14 @@ def test_the_look_refuses_last_in_hour_vectors_and_an_unsettled_45th_date(tmp_pa
         b.look(**dict(args, today=date.fromisoformat(DATES[-1])))
 
 
-@pytest.mark.parametrize("void,cond", [({"mg2_void_conditions": ["replay"]}, 1),
-                                       ({"pre_look_reads": ["price 2026-11-01"]}, 4)])
-def test_pre_outcome_voids_never_open_the_transfer(tmp_path, monkeypatch, void, cond):
-    args = _look_inputs(tmp_path, monkeypatch, void=void)
+@pytest.mark.parametrize("recorded,cond", [
+    ({"void_conditions": dict(MG2_CONDITIONS, replay={"pass": False, "detail": "replay 1e-9"})}, 1),
+    ({"void_conditions": {}}, 1),
+    ({"void_conditions": None}, 1),
+    ({"pre_look_reads": ["price 2026-11-01"]}, 4),
+    ({"pre_look_reads": None}, 4)])
+def test_pre_outcome_voids_never_open_the_transfer(tmp_path, monkeypatch, recorded, cond):
+    args = _look_inputs(tmp_path, monkeypatch, mg2_look=recorded)
     monkeypatch.setattr(b, "transfer_files", lambda *a: pytest.fail("transfer opened"))
     out = b.look(**args)
     assert out["decision"]["verdict"] == "VOID" and out["decision"]["conditions"] == [cond]
@@ -349,14 +452,167 @@ def test_hash_control_receipt_time_and_manifest_voids(tmp_path, monkeypatch):
     assert out2["decision"]["conditions"] == [6] and "labels.parquet altered" in out2["decision"]["reasons"]["6"]
 
 
+@pytest.mark.parametrize("extra,looked", [({"mg1_look_receipt_sha256": "0" * 64}, MG1_LOOKED),
+                                          ({}, None),
+                                          ({"transferred_at_utc": MG1_LOOKED}, MG1_LOOKED),
+                                          ({"transferred_at_utc": "2026-12-15T00:00:00"}, MG1_LOOKED)])
+def test_void_5_uses_the_bound_receipt_and_the_instant_inside_it(tmp_path, monkeypatch, extra, looked):
+    args = _look_inputs(tmp_path, monkeypatch, manifest_extra=extra)
+    receipt = _receipt(tmp_path, looked=looked)
+    manifest_path = Path(args["transfer"]) / b.TRANSFER_MANIFEST
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if "mg1_look_receipt_sha256" not in extra:
+        manifest["mg1_look_receipt_sha256"] = b.sha256_file(receipt)
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    out = b.look(**dict(args, mg1_look_receipt=receipt))
+    assert out["decision"]["conditions"] == [5] and out["outcomes_opened"] is False
+
+
+def test_void_5_ignores_the_receipt_file_time(tmp_path, monkeypatch):
+    import os
+
+    args = _look_inputs(tmp_path, monkeypatch)
+    later = datetime(2027, 1, 1, tzinfo=timezone.utc).timestamp()
+    os.utime(args["mg1_look_receipt"], (later, later))  # a file time after the transfer no longer voids
+    assert b.look(**args)["decision"]["verdict"] == "PASS"
+
+
 def test_missing_manifest_voids_and_fewer_than_40_survivors_void(tmp_path, monkeypatch):
     args = _look_inputs(tmp_path, monkeypatch)
     (Path(args["transfer"]) / b.TRANSFER_MANIFEST).unlink()
     assert b.look(**args)["decision"]["conditions"] == [6]
     args2 = _look_inputs(tmp_path / "t2", monkeypatch, dropped=DATES[:6])
     out = b.look(**args2)
-    assert out["decision"]["conditions"] == [7] and out["surviving_dates"] == 39
+    assert out["decision"]["conditions"] == [6, 7] and out["surviving_dates"] == 39
     assert out["drop_list_check"]["agrees"] is False
+
+
+def test_a_drop_list_that_disagrees_with_the_transfer_voids_6(tmp_path, monkeypatch):
+    args = _look_inputs(tmp_path, monkeypatch, dropped=DATES[:5])  # full coverage: nothing should drop
+    out = b.look(**args)
+    assert out["decision"]["conditions"] == [6] and out["surviving_dates"] == 40
+    assert out["drop_list_check"]["agrees"] is False and out["outcomes_opened"] is True
+
+
+@pytest.mark.parametrize("ci", [[None, None], [float("nan"), 0.001], [0.002, -0.001], [], None])
+def test_a_degenerate_primary_interval_is_void(ci):
+    rows = [{"market": "ALL", "group": "07-16", "delta": {"estimate": 0.0, "ci95": ci}}]
+    assert b.decide(rows)["verdict"] == "VOID"
+    assert b.decide([])["verdict"] == "VOID"
+
+
+# ----------------------------------------------------------------------------- bound hashes (VOID 2), unpatched
+
+FIXTURE_GIT_CONFIG = ("user.name=Fixture", "user.email=fixture@example.invalid", "commit.gpgSign=false")
+
+
+def _bound_world(tmp_path):
+    """A binding commit holding the release files, the MG-2 rule, its release binding, a forward emit audit."""
+    from tests.git_template import commit_fixture_tree
+    from weather.model import observed_running_max
+
+    repo = tmp_path / "repo"
+    for rel in mg2.RELEASE_FILES:
+        (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(ROOT / rel, repo / rel)
+    commit = commit_fixture_tree(repo, cache_root=tmp_path / "git-templates", config=FIXTURE_GIT_CONFIG,
+                                 message="binding fixture", quiet=True)
+    mg2_fields = {"switch_hour": "13", "d0": D0.isoformat(), "n_forward_dates": "45", "owner_decision_id": "NONE",
+                  "l6_coefficients_sha256": "4" * 64, "p3d_n_state_sha256": "5" * 64,
+                  "forecast_high_source": "captured_nbm_v2_mean_07z", "own_obs_source": "captured_metar_l6_own",
+                  "function_sha256": mg2.sha256_file(observed_running_max.__file__),
+                  "noninferiority_margin_00_16": "0.0010"}
+    rule = tmp_path / "mg2_rule.md"
+    rule.write_text("```mg2_rule_v1\n" + "\n".join(f"{k}: {v}" for k, v in mg2_fields.items()) + "\n```\n",
+                    encoding="utf-8")
+    rule_sha, _ = mg2.read_rule(rule)
+    binding = tmp_path / "release-binding.json"
+    binding.write_text(json.dumps({"rule_sha256": rule_sha, "files": mg2.release_hashes(repo),
+                                   "l6_state_sha256": "7" * 64,
+                                   **{k: mg2_fields[k] for k in ("l6_coefficients_sha256", "p3d_n_state_sha256",
+                                                                 "forecast_high_source", "own_obs_source",
+                                                                 "function_sha256")}}), encoding="utf-8")
+    emit = tmp_path / "emit"
+    emit.mkdir()
+    vectors = emit / mg2.ASOF_VECTORS
+    pd.DataFrame({"row_key": ["a|1"], "band_index": [0], "p": [1.0]}).to_parquet(vectors, index=False)
+    audit = {"mode": "forward", "asof_capture": {"vectors_sha256": mg2.sha256_file(vectors)},
+             "l6_coefficients_sha256": "4" * 64, "p3d_n_state_sha256": "5" * 64, "nowcasts_sha256": "9" * 64,
+             "l6_state_sha256": "7" * 64,
+             "nowcasts_manifest": {"nowcasts_sha256": "9" * 64, "l6_state_sha256": "7" * 64,
+                                   "prev_day_source": mg2.FORWARD_PREV_DAY_SOURCE}}
+    (emit / mg2.EMIT_AUDIT).write_text(json.dumps(audit), encoding="utf-8")
+    look = tmp_path / "mg2_look.json"
+    look.write_text(json.dumps({"rule_sha256": rule_sha, "vectors_sha256": mg2.sha256_file(vectors)}),
+                    encoding="utf-8")
+    fields = dict(FILLED, mg2_rule_sha256=rule_sha, mg2_binding_commit=commit,
+                  mg2_release_binding_sha256=mg2.sha256_file(binding), mg2_owner_decision_id="NONE",
+                  function_sha256=mg2_fields["function_sha256"], d0=D0.isoformat(),
+                  b_scorer_sha256=b.module_sha256(), scorecard_code_sha256=sc.code_sha256())
+    kw = dict(mg2_rule=rule, release_binding=binding, mg2_look=look, vectors=vectors, root=repo)
+    return fields, kw, repo, emit
+
+
+@pytest.mark.spawns
+def test_bound_hash_problems_pass_on_a_consistent_binding_and_name_each_break(tmp_path):
+    fields, kw, repo, emit = _bound_world(tmp_path)
+    assert b.bound_hash_problems(fields, **kw) == []
+    # each field mismatch is named, alone
+    for key in ("mg2_rule_sha256", "mg2_release_binding_sha256", "l6_coefficients_sha256", "p3d_n_state_sha256",
+                "b_scorer_sha256", "scorecard_code_sha256"):
+        got = b.bound_hash_problems(dict(fields, **{key: "e" * 64}), **kw)
+        assert key in got or any(key in g for g in got), (key, got)
+    assert "mg2_owner_decision_id" in b.bound_hash_problems(dict(fields, mg2_owner_decision_id="OD-2026-10-27-x"),
+                                                           **kw)
+    assert "d0 (MG-2 rule)" in b.bound_hash_problems(dict(fields, d0="2026-10-29"), **kw)
+    got = b.bound_hash_problems(dict(fields, l6_state_sha256="8" * 64), **kw)
+    assert "l6_state_sha256 (MG-2 release binding)" in got and "emit audit l6_state_sha256" in got
+
+
+@pytest.mark.spawns
+def test_the_binding_commit_must_hold_the_bound_files(tmp_path):
+    fields, kw, repo, emit = _bound_world(tmp_path)
+    got = b.bound_hash_problems(dict(fields, mg2_binding_commit="0" * 40), **kw)
+    assert any(g.startswith("mg2_binding_commit:") and "absent" in g for g in got)
+    binding = json.loads(kw["release_binding"].read_text(encoding="utf-8"))
+    rel = mg2.RELEASE_FILES[0]
+    binding["files"][rel] = "0" * 64
+    kw["release_binding"].write_text(json.dumps(binding), encoding="utf-8")
+    got = b.binding_commit_problems(fields["mg2_binding_commit"], kw["release_binding"], root=repo)
+    assert got == [f"mg2_binding_commit: {rel} at {fields['mg2_binding_commit']} is not the bound file"]
+
+
+@pytest.mark.spawns
+def test_running_code_that_differs_from_the_binding_is_a_hash_problem(tmp_path):
+    fields, kw, repo, emit = _bound_world(tmp_path)
+    (repo / mg2.RELEASE_FILES[0]).write_text("# edited after binding\n", encoding="utf-8")
+    assert any(g.startswith("release:") for g in b.bound_hash_problems(fields, **kw))
+
+
+@pytest.mark.parametrize("change,problem", [
+    ({"l6_coefficients_sha256": "e" * 64}, "emit audit l6_coefficients_sha256"),
+    ({"p3d_n_state_sha256": "e" * 64}, "emit audit p3d_n_state_sha256"),
+    ({"nowcasts_sha256": "e" * 64}, "emit audit nowcasts_sha256"),
+    ({"nowcasts_sha256": None}, "emit audit nowcasts_sha256"),
+    ({"nowcasts_manifest": {"nowcasts_sha256": "9" * 64, "l6_state_sha256": "7" * 64,
+                            "prev_day_source": "D-1 replay folder, last line"}}, "emit audit nowcasts prev_day_source"),
+    ({"nowcasts_manifest": None}, "emit audit nowcasts_sha256"),
+    ({"l6_state_sha256": "e" * 64}, "emit audit l6_state_sha256")])
+def test_emit_audit_must_carry_the_bound_coefficients_nowcasts_and_l6_state(tmp_path, change, problem):
+    emit = tmp_path / "emit"
+    emit.mkdir()
+    vectors = emit / mg2.ASOF_VECTORS
+    vectors.write_bytes(b"v")
+    audit = {"l6_coefficients_sha256": "4" * 64, "p3d_n_state_sha256": "5" * 64, "nowcasts_sha256": "9" * 64,
+             "l6_state_sha256": "7" * 64,
+             "nowcasts_manifest": {"nowcasts_sha256": "9" * 64, "l6_state_sha256": "7" * 64,
+                                   "prev_day_source": mg2.FORWARD_PREV_DAY_SOURCE}}
+    (emit / mg2.EMIT_AUDIT).write_text(json.dumps(audit), encoding="utf-8")
+    assert b.emit_audit_problems(FILLED, vectors) == []
+    (emit / mg2.EMIT_AUDIT).write_text(json.dumps(dict(audit, **change)), encoding="utf-8")
+    assert problem in b.emit_audit_problems(FILLED, vectors)
+    (emit / mg2.EMIT_AUDIT).unlink()
+    assert b.emit_audit_problems(FILLED, vectors) == ["emit audit missing"]
 
 
 def test_coverage_drop_uses_ten_market_07_16_snapshots():

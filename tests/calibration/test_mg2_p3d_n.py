@@ -404,25 +404,26 @@ def test_as_of_capture_is_never_computed_on_a_dev_row(golden_state, tmp_path):
 
 
 def test_the_forward_gate_and_the_market_arm_score_as_of_capture_vectors(tmp_path):
-    """Rule §8 C7 (the forward gate) and C4 (the market arm): both read the as-of-capture vectors."""
+    """Rule §8 C7 (the forward gate) and C4 (the market arm): both read the as-of-capture vectors.
+
+    The emission side (forward writes the as-of-capture vectors from ``inputs="as_of_capture"`` P3d_N records, the
+    dev control never does) is exercised by running ``mg2_composite.emit`` in
+    ``tests/calibration/test_mg2_composite_l6_state.py::test_emit_writes_as_of_capture_vectors_forward_only``.
+    """
     from weather.calibration import mg2_composite as mg2
 
     with pytest.raises(mg2.Mg2Refused, match="as-of-capture"):
         mg2.score(layout_root=tmp_path, vectors=tmp_path / mg2.VECTORS, rule=tmp_path / "rule.md",
                   out=tmp_path / "out", release_binding=tmp_path)
-    assert "PRIMARY for the forward MG-2 vs MG-1 gate" in mg2.VECTOR_ROLES[mg2.ASOF_VECTORS]
-    assert "PRIMARY for every comparison against the market" not in mg2.VECTOR_ROLES[mg2.VECTORS]
-    assert "never scored by the forward MG-2 vs MG-1 gate" in mg2.VECTOR_ROLES[mg2.VECTORS]
-    tree = ast.parse((ROOT / "src/weather/calibration/mg2_composite.py").read_text(encoding="utf-8"))
-    funcs = {n.name: n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
-    calls = {n.func.id for n in ast.walk(funcs["score"]) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
-    assert "require_gate_vectors" in calls
-    # the dev control replay keeps last_in_hour (the reproduction check); the as-of path is forward only
-    emit_src = ast.get_source_segment((ROOT / "src/weather/calibration/mg2_composite.py").read_text(encoding="utf-8"),
-                                      funcs["emit"])
-    assert "frame.to_parquet(out / VECTORS" in emit_src
-    assert 'inputs="as_of_capture"' in emit_src and "if not control:" in emit_src
-    assert "asof_frame.to_parquet(out / ASOF_VECTORS" in emit_src
+    renamed = tmp_path / "emit" / mg2.ASOF_VECTORS
+    renamed.parent.mkdir()
+    renamed.write_bytes(b"not the as-of vectors")
+    (renamed.parent / mg2.EMIT_AUDIT).write_text(json.dumps({"mode": "control", "asof_capture": None}),
+                                                 encoding="utf-8")
+    with pytest.raises(mg2.Mg2Refused, match="not the as-of-capture vectors of a forward emission"):
+        mg2.score(layout_root=tmp_path, vectors=renamed, rule=tmp_path / "rule.md", out=tmp_path / "out",
+                  release_binding=tmp_path)
+    assert not (tmp_path / "out").exists()
 
 
 def test_module_has_no_network_and_no_production_importer():
