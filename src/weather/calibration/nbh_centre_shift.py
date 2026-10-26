@@ -22,6 +22,10 @@ from datetime import date, datetime, timedelta, timezone  # noqa: E402
 from pathlib import Path  # noqa: E402
 
 RP_RULE_SHA256 = "ed3236fa40cfc4cec35d2bcf1da129799716f399a3cb97199d3aa7fb632bbaa2"
+RP_CLARIFICATION_SHA256 = {
+    "RP-1": "f71a566a7d66808ccd1f2a9b4dc56fb38919ff0a21769e1d51b1621f182bea74",
+    "RP-2": "70d4f01fd4ab5842ca41850039d62334347d002afe0acd20b87a885b675ec45b",
+}
 RP_HOURS = (13, 14, 15, 16)
 RP_POOLS = (("13-16", None), ("13-14", (13, 14)), ("15-16", (15, 16)))
 RP_PAIRS = (("B_P", "B_N"), ("P3d_P", "P3d_N_fix"), ("P3d_P", "B_P"), ("P3d_N_fix", "B_N"))
@@ -239,8 +243,9 @@ def feature_x(f_rem, F, A):
 # ----------------------------------------------------------------------------- translation
 
 
-def span_of(space):
-    ks = [int(k) for k in space]
+def span_of(space, dist=None):
+    """J: the contiguous integer span of the market space and the arm's own keys (clarification RP-2)."""
+    ks = [int(k) for k in space] + [int(k) for k in (dist or {})]
     return min(ks), max(ks)
 
 
@@ -277,7 +282,7 @@ def translate_many(p, lo, deltas, floor):
 
 def translate(dist, space, delta, floor):
     """One translated distribution as {int bucket: p} over the contiguous span of ``space``."""
-    lo, hi = span_of(space)
+    lo, hi = span_of(space, dist)
     q = translate_many(dense(dist, lo, hi), lo, [delta], floor)[0]
     return {lo + j: float(v) for j, v in enumerate(q)}
 
@@ -286,7 +291,9 @@ def grid_briers(dist, space, x, floor, actual):
     """Summed bucket Brier of the translated arm for every GRID pair (vector, GRID order)."""
     import numpy as np
 
-    lo, hi = span_of(space)
+    lo, hi = span_of(space, dist)
+    if not lo <= int(actual) <= hi:
+        raise RPError(f"label {actual} outside the span [{lo}, {hi}]")
     p = dense(dist, lo, hi)
     deltas = np.array([a + b * x for a, b in GRID])
     q = translate_many(p, lo, deltas, floor)
@@ -365,7 +372,7 @@ def rp_loyo(*, records_root, nbm_train_corpus, nbh_corpus, rj_loyo_rows, out_dir
     out = _require_empty(out_dir)
     stations = _stations(markets)
     corpus = NBHCorpus(nbh_corpus, sorted({s for s, _ in stations.values()}))
-    audit = {"rule_sha256": RP_RULE_SHA256, "hours": list(RP_HOURS), "gates": {},
+    audit = {"rule_sha256": RP_RULE_SHA256, "clarifications": RP_CLARIFICATION_SHA256, "hours": list(RP_HOURS), "gates": {},
              "inputs": {"nbm_train_corpus": _sha(nbm_train_corpus), "rj_loyo_rows": _sha(rj_loyo_rows),
                         "nbh_corpus": str(corpus.root), "nbh_sha256sums": corpus.sums_sha256,
                         "nbh_manifest": corpus.manifest_sha256, "module_sha256": _sha(__file__),
@@ -518,7 +525,7 @@ def rp_dev_emit(*, records_root, layout, replay_root, nbm_train_corpus, nbh_dev_
                                      hours=RP_HOURS, loyo=False)
     finally:
         prm._dist_from_fit = original
-    audit = {"rule_sha256": RP_RULE_SHA256, "gates": {}, "l2_files": l2_audit["files"],
+    audit = {"rule_sha256": RP_RULE_SHA256, "clarifications": RP_CLARIFICATION_SHA256, "gates": {}, "l2_files": l2_audit["files"],
              "inputs": {"nbh_dev_corpus": str(corpus.root), "nbh_sha256sums": corpus.sums_sha256,
                         "nbh_manifest": corpus.manifest_sha256, "loyo_audit": _sha(loyo / "rp_loyo_audit.json"),
                         "ab_fits": _sha(loyo / "ab_fits.json"), "module_sha256": _sha(__file__)},

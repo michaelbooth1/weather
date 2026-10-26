@@ -34,6 +34,20 @@ def test_translation_identity_shift_split_and_mass():
         assert sum(d.values()) == pytest.approx(1.0, abs=1e-12)
 
 
+def test_arm_keys_outside_the_space_widen_the_span():
+    from weather.calibration import feature_model as fm
+
+    space = [70, 72, 73]
+    dist = {69: 0.1, 72: 0.5, 73: 0.2, 74: 0.2}  # R-A kernel keys beyond the market space (clarification RP-2)
+    same = nbh.translate(dist, space, 0.0, 60)
+    assert min(same) == 69 and max(same) == 74
+    assert all(same[k] == pytest.approx(v, abs=1e-15) for k, v in dist.items())
+    v = nbh.grid_briers(dist, space, 1.0, 60, 72)
+    assert v[nbh.GRID.index((0.0, 0.0))] == pytest.approx(fm.brier_score(dist, 72), abs=1e-12)
+    with pytest.raises(nbh.RPError):
+        nbh.grid_briers(dist, space, 1.0, 60, 80)
+
+
 def test_translation_floor_moves_mass_onto_F():
     space = [70, 71, 72, 73, 74]
     out = nbh.translate({72: 0.5, 73: 0.5}, space, -1.0, 72)
