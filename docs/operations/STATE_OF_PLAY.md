@@ -49,14 +49,15 @@ YouTube-maker scoping stay paused; the maker pilot is approved in principle but 
   countable dates (owner Q3), NI margin +0.0027 (owner Q4); earliest look ~12-12, strictly after MG-1's. Owner option 2 exempts
   MG-2 only from the reservation, one look, and (Q1) the capture-time market read for B travels at that look.
 - **Retrain-family (master 10-25):** P3d_N and MG-2 are serving-stage like MG-1; no 13-16 drop on 11-18..12-11.
-- **C7 as-of gate** for P3d_N's receipt look-ahead is drafted (`claude/mg2-c7-asof-gate-20261025` @ `525effe62`), not landed;
-  the look-ahead is bounded and flips no MG-2 gate (EF §10ag).
+- **MG-2 binds via the C7/C8 line** (`e40804dfe` or its successor; master ruling 10-26); binding v2 `710f0c672` is superseded
+  and never lands alone. B scorer frozen (`b25b63f7…`); B and C8 land night 10-26/27 (master).
 - **Kill scopes (master's rulings R9/R10, 10-25):** R-I closes fitted temperature/scale maps only; spread information is a new
   family with its own rule and full ladder, no global sharpening, the floor never weakened. R-G/R-J cover Aug-Sep only; an
   Oct-Dec rung needs a fresh rule plus LOYO on Oct-Dec 2021-25 and promotes only through a forward test.
-- **Venue labels** apply from the 10-23 events (owner "Yes to all" item 4; EF §10x); WU before. **Denver >= 10-23 labels KDEN,
-  is unsupported for model scoring**, and is excluded from the MG-2 gate and from B (master).
-- **Dead-bucket NO buying is closed** (US and Toronto; EF §10ad, §10ah). **Toronto's NBM guidance exists but is not captured** (RF).
+- **Labels (master ruling 10-25, reading B):** WU before 10-23, venue rule (WU fallback) from it; paid band = WU 626/626, so no
+  past evaluation changes (EF §10ai; cutover `28e96a3e7`). **Denver >= 10-23: KDEN, unscored, out of MG-2 and B** (master).
+- **Dead-bucket NO buying is closed** (US and Toronto; EF §10ad, §10ah). **Toronto's NBM guidance is not captured** (RF);
+  forward NBP CYYZ capture is approved in principle (master ruling 10-26), via the quiet-window merge night 10-26/27.
 - **Forward maker shadow ACTIVE** (paper only); stop only with `data\maker_shadow\STOP`; scoring refuses UTC 09-30..11-13 (DL 10-14).
 - **More markets** (owner 10-23, DL): R1 pilot cities recorder-only, R2 from 11-01, M1 Europe first; new cities label from IEM METAR.
 - **88a retention hold:** keep UTC 09-27..10-15 (v2) and 10-15..10-30 (desk-study panel); lossless compression ok. **DST:** OD30 holds 11-01.
@@ -64,20 +65,19 @@ YouTube-maker scoping stay paused; the maker pilot is approved in principle but 
 ## Ordered critical path
 
 1. **Bind Rule B-1** (master, 10-27) with C7 resolved, so MG-2 starts accruing at D0 10-28.
-2. **Spread-information levers** (R9 family, own rule), then the inventory's start-now list: Toronto guidance, pre-dawn 00-06,
-   the HRRR 13-16 path (R-K, pre-registered), per-market centre bias on L6/P3d_N at 07-12, the standard-time alignment audit.
+2. **Running, approved by master:** L3 00-06 step 2, R-N (HRRR 00-06), R-O (GEFS centre, L11), R-P (NBH 13-16, L14), R-Q (GEFS
+   spread, L15). **R-K** gate 2 LOYO PASS −0.0139 [−0.0166, −0.0112], training years only, dev pending: interim, not an edge.
 3. **Oct-Dec rungs** under R10 and the NBS TXN input (L12), each pre-registered with a ledger row before any scored row.
-4. **Cool-season paper test PT-1** ([draft](COOL_SEASON_PAPER_TEST_PREREG.md), owner questions open) bound before its D0.
+4. **Cool-season paper test PT-1** ([draft](COOL_SEASON_PAPER_TEST_PREREG.md); owner Q6-Q9 answered 10-25, dates 12-12..01-25) bound before its D0.
 5. **Host nights:** pending integrations through the quiet-window merge, one attempt manifest each.
 
 ## Open commitments (every row: owner, due, verify)
 
 | What | Owner | Due | Verify |
 | --- | --- | --- | --- |
-| Rule B-1 bound: `<FILL@BINDING>` fields filled, rule sha pinned | master | 10-27, before D0 10-28 | binding commit; DL or ledger row |
-| C7 as-of gate Clarification decided (`525effe62`, rule sha `ccb2b82a…`) | master | before 10-28 | landed or rejected on record |
+| Rule B-1 bound via the C7/C8 line: `<FILL@BINDING>` fields filled (`b_scorer_sha256` = `b25b63f7…`), `mg2_binding_commit` checked with `git cat-file` against origin | master | 10-27, before D0 10-28 | binding commit; DL or ledger row |
 | Coverage field added to the B exporter | master | before D0 | exporter on the binding branch |
-| PT-1 owner questions answered; PT_D0 set; rule sha pinned | owner, master | before PT_D0 | DL row; binding commit |
+| PT-1 bound: PT_D0 set, G = 15 s fixed by the outcome-blind dev check, rule sha pinned (owner Q6-Q9 answered 10-25) | master | before PT_D0 | binding commit; DL row |
 | Maker pilot plan owner questions answered; HOLD lifted only through the runbook's gates | owner | open | DL row; runbook prerequisites |
 | WU-vs-venue measurement 08-11..09-29 on the host (owner 10-23) | production | open | research doc; DL row |
 | Evening-fix scorer read 10-29 `--no-market` (prereg SIGNED; item 337 owns it) | T3 | 10-29 | scorer receipt |

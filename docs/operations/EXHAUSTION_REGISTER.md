@@ -403,6 +403,7 @@ replay snapshot of the hour (allowed only for MG-2 vs MG-1). Each rule was commi
 | X29 | Fresh development dates before 07-31 (P2) | 07-12..07-30 lies in the sealed panel (7 of 20 spent) | — | master ruling 2026-10-25 | NONE available | a candidate wins on dev: a sealed-panel confirmation proposed with its budget cost | EF §10ah |
 
 **Still open, not ruled out (2026-10-26):** R-K, the HRRR 13-16 hourly path as a P3d_N input (rule `21b5dfe1…`
-pre-registered on `claude/rung0712-20261025` @ `4a850183f`; 2026 dev rows pending, lanes L12/L13); NBS TXN inside
+pre-registered on `claude/rung0712-20261025` @ `4a850183f`; gate 2 LOYO PASS −0.0139 [−0.0166, −0.0112] on training
+years only, an interim result and not an edge; 2026 dev rows pending, lanes L12/L13); NBS TXN inside
 P3d_N at 07-12 (L12); spread information (R9); Oct-Dec rungs (R10); Toronto guidance; the 00-06 block; the GEFS
 member mean. Ranking: the [lever inventory](LEVER_INVENTORY_2026-10-26.md).

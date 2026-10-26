@@ -8,6 +8,13 @@
 > rule file, not of this copy. Owner answers in §0 are also rows in the [decision log](DECISION_LOG.md); items marked
 > master are master's rulings. The reserved-window side of option 2 is in the
 > [reserved confirmation window](reserved-confirmation-window.md); today's state is in the [state of play](STATE_OF_PLAY.md).
+>
+> **Master rulings 2026-10-26 (to apply at binding; text below unchanged):** (1) MG-2 binds via the C7/C8 line
+> (`e40804dfe` or its successor); binding v2 `710f0c672` is superseded and is never landed on its own. (2) B scorer
+> design choices (a)-(c) accepted; for (d), verifying `mg2_binding_commit` with `git cat-file` against origin is a
+> binding-checklist step, and the scorer code is unchanged. Value to fill at binding (the binding commit fills every
+> `<FILL@BINDING>` field): `b_scorer_sha256` = `b25b63f74639e960413ebec185da1e56f3f46363cecf33fe1d077a7b67aadbfd`;
+> control receipt `6284af68d72e46bf917acb3da05ec726590a6509d7a57612ffd01ad23e94f4a8`. B and C8 land night 10-26/27.
 
 - **Status:** BIND-READY DRAFT, written 2026-10-25. It is bound only by the 10-27 binding commit, which
   fills every `<FILL@BINDING>` field below. The raw sha256 of the filled file is recorded in DECISION_LOG

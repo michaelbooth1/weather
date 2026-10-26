@@ -2,11 +2,10 @@
 
 > **Repository copy, filed 2026-10-26 in the docs head.** Copied from the coordinator's draft (raw sha256
 > `e0c1063dd2fef01075ff236aea71e052481b14912f0c5c0d0f79e8596ea1ab59`). Changes: this note, and three literal tabs restored to the
-> backslash-t they stood for in Windows paths (`data\inbox\tapes-...`, `execution_tape\trades-*`). **DRAFT, not
-> bound; its owner questions are OPEN, including Q4 (now with the receipt grace G = 15 s) and Q7.** `PT_D0` stays
-> unset and no rule sha is pinned until master binds it. Answers go to the [decision log](DECISION_LOG.md) (owner)
-> and today's state to the [state of play](STATE_OF_PLAY.md), not into this text. Items marked master are master's
-> rulings, not the owner's.
+> backslash-t they stood for in Windows paths (`data\inbox\tapes-...`, `execution_tape\trades-*`), and the answers
+> block at the end of §10 (2026-10-26). **DRAFT, not bound.** `PT_D0` stays unset and no rule sha is pinned until
+> master binds it. Owner answers are also in the [decision log](DECISION_LOG.md); today's state is in the
+> [state of play](STATE_OF_PLAY.md). Items marked master are master's rulings, not the owner's.
 
 - **Status:** DRAFT for master and the owner, written 2026-10-25 on the workstation. Not bound. `PT_D0: UNSET`.
   No rule sha is pinned yet. Nothing here has been run, fitted or scored.
@@ -393,3 +392,21 @@ wait behind model-improvement work until early December.
    the limit are ignored, since no per-level file is kept and `buy_vwap_10` has no limit). That
    under-states fills. Accept it, or ask for `market_ws_events.csv` to be specified as a fill source by a
    dated Clarification before PT_D0? Recommended: accept; report `buy_fillable_10` as a diagnostic.
+
+**Answers (2026-10-25 ~20:4x, recorded 2026-10-26; the draft's questions above are kept as written).** The owner's
+question numbers differ from this list; each answer names the item it settles. Owner answers are the selected
+option labels, verbatim, relayed by the coordinator ([decision log](DECISION_LOG.md) row "PT-1 cool-season paper
+test questions"):
+
+- **Item 1, embargo carve-out (owner Q9):** "Yes (Recommended)". A separate dated line for PT-1's single read is in
+  the [reserved confirmation window](reserved-confirmation-window.md).
+- **Item 2, what a FAIL triggers (owner Q7):** "Paper track only (Recommended)".
+- **Item 3, dates (owner Q6):** "Separate dates (Recommended)": 2026-12-12..2027-01-25, disjoint from B's.
+- **Item 4, economics (owner Q8):** "Confirm (Recommended)": +1c hurdle, 3c threshold, 1c slippage, 30 s latency.
+  The receipt grace G = 15 s is master's ruling (10-25), fixed at binding by the outcome-blind dev check.
+- **Item 5, retrain family:** master ruling (10-25): P3d_N and MG-2 are not retrain-family
+  ([B design](B_FORWARD_TEST_DESIGN.md) §10 Q5).
+- **Item 6, candidate:** not answered in this round; still OPEN.
+- **Item 7, fills (master ruling (10-25)):** top-of-book fills only, with `buy_fillable_10` as a conservative
+  diagnostic; no `market_ws_events`. The exporter emits per market-hour counts `n_snapshots`,
+  `n_full_decision_coverage` and `n_clock_fail`.

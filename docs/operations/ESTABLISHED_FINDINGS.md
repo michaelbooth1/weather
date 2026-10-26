@@ -116,6 +116,8 @@ sequence numbers, not calendar dates.
 | 10af | Lane L2 rung ladder (2026-10-25, dev): R-A NULL vs MG-1, R-D blend WIN vs MG-1 superseded by R-F, R-F blends NULL, R-G STOP at gate 3b, R-I KILL (width lever closed for the NBM family), R-J KILL (trajectory family closed for the afternoon; HRRR hourly path excluded) |
 | 10ag | Lane L2 (2026-10-25, descriptive): P3d_N receipt look-ahead worth +0.0004 Brier at 13-16, no MG-2 gate flips, pick survives; R-H market-relative atlas (selection evidence): 07-12 loss is winner-bucket mass, regime-flat |
 | 10ah | Reads from 2026-10-24/25 recorded late (dev): L5 hot-day centre arms and AFD all KILL vs MG-1; L8 high_so_far parity KEEP vs base, not bound; L10 gap atlas has no cell at R <= 1; L11 stage C gross bound; no fresh pre-07-31 dates |
+| 10ai | Before 10-23 the venue paid the WU band 626/626 (routine-only rule 617/626; 8 band flips 08-11..09-29, all SPECI effects): labels are WU before 10-23 and the venue rule from it (master ruling (10-25), reading B) |
+| 10aj | Found defect 2026-10-26: the MG-2 "no production importer" test was vacuous (literal backspace bytes for `\b`); fixed in `e40804dfe`; control-byte ratchet for tests proposed only |
 
 ---
 
@@ -4005,6 +4007,8 @@ hash after swapping station, date and URL). Only event metadata was read for the
   [METAR-vs-WU agreement study](../research/metar-vs-wu-agreement-2026-10-23.md);
   [phase-2 scoping](../research/more-markets-phase2-scoping-2026-10-23.md). **Supersedes in part §10c** for events dated
   2026-10-23 onward (the WRH page and its "Hourly Data"/"Temp" rules no longer name the source).
+- **Superseded consequence (2026-10-26):** the built-ins now label as the venue resolves each date (master ruling (10-25),
+  reading B); see §10ai.
 
 ### 10af. Lane L2's rung ladder on the NBM-anchored arms closes the blend, trajectory and width levers: R-F NULL, R-G STOP at gate 3b, R-I KILL, R-J KILL — lane L2, workstation, 2026-10-25
 
@@ -4151,6 +4155,39 @@ potentially"). Intervals are crossed date x market 95% unless marked date-cluste
   A sealed-panel confirmation is available only for a winning candidate, proposed formally with its budget cost
   (master ruling 2026-10-25). **Reopen if:** a candidate wins on the dev window.
 - **Not claimed:** edge, any forward result, or that a KILL here covers a different input or form.
+
+### 10ai. Before 2026-10-23 the venue paid the WU band on every measured market-day, so the venue's own label is WU before the cutover and the venue rule from it — lane cutover reproduction, workstation, 2026-10-26
+
+**Claim, at exactly this scope:** over 2026-08-01..09-29 (US built-ins, pre-embargo data only), WU sits in the venue's
+winning band on **626/626** market-days and the routine-only venue rule on **617/626**. Over 08-11..09-29 the workstation
+reproduction (F2 label table `368112bc…`, routine-only with the T-group; dev-layout WU labels identical on every row)
+finds the venue rule ≠ WU on **13 of 517** market-days and the 2 °F band moved on **8**, matching the host's 537/550 tool
+(`eeb2e1df4`); every one of the 13 is a SPECI effect (routine + SPECI equals WU on all 13).
+
+- **Consequence (master ruling (10-25), reading B; DECISION_LOG):** labels are WU before 10-23 and the venue rule (WU
+  fallback) from 10-23. Reading A, backfilling the routine-only rule onto history, would contradict the venue's paid
+  outcome on 8 market-days; it survives only as an opt-in training view. No past evaluation changes.
+- **Code:** `claude/venue-label-cutover-20261026` @ `28e96a3e7` (`weather.backtesting.venue_label_reader`), pregated
+  2026-10-27; master runs the host roll verdict before landing. Design: lane cutover `design.md` (raw sha256
+  `fb102ef9…`, local to the workstation).
+- **Not claimed:** anything about post-09-29 agreement (embargoed); Toronto or Hong Kong; the captured paid band as a
+  training target (it stays a reconciliation check, band-level and later than the observations).
+- **Reopen if:** the venue's declared resolution rule changes again, or a post-embargo reconciliation shows the paid band
+  departing from the venue-rule reconstruction. **Supersedes in part §10x's consequence line.**
+
+### 10aj. A test meant to prove "no production importer" was vacuous: its regex held literal backspace bytes where `\b` was meant — found 2026-10-26
+
+**Claim:** `tests/calibration/test_mg2_p3d_n.py`'s no-production-importer regex contained literal `\x08` bytes where the
+word boundary `\b` was meant, so the pattern could never match and the test passed whatever the code imported.
+Introduced in `fdd7ddc75`, fixed in `e40804dfe` (the C7/C8 line).
+
+- **Sweep:** across every `origin/claude/*` and `origin/codex/*` head, only `origin/claude/mg2-composite-binding-v2-20261025`
+  has a `\x08` byte in a `.py` or `.ps1` file (this test). `origin/master` has none in text files; the only hits are
+  inside a binary `.csv.gz` fixture.
+- **Lesson (proposal only, not implemented):** hygiene could add a ratchet refusing control bytes in `tests/*.py`, as the
+  docs audit's `control_character_errors` already does for Markdown. A negative test must be shown to fail on a planted
+  violation before it is trusted.
+- **Reopen if:** another control byte is found in a `.py`/`.ps1` head; then the ratchet stops being optional.
 
 ## Related
 
