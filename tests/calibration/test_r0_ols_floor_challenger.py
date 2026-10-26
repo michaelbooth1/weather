@@ -236,8 +236,14 @@ def test_no_production_code_imports_the_challenger():
                 continue
             if "r0_ols_floor_challenger" in path.read_text(encoding="utf-8", errors="replace"):
                 hits.append(path.relative_to(ROOT).as_posix())
-    # The workstation allowlist names the module (it admits it); nothing imports it.
-    assert hits == ["scripts/ops/workload_admission.ps1"]
+    expected = {
+        # The workstation allowlist names the module (it admits it); it does not import it.
+        "scripts/ops/workload_admission.ps1": "workstation heavy allowlist entry",
+        "src/weather/calibration/pooled_residual_model.py": (
+            "WS-only research scorer; cannot import on the capture host by design (master ruling 2026-10-26)"
+        ),
+    }
+    assert sorted(hits) == sorted(expected)
 
 
 def _metar(nominal, raw_time, temp):
