@@ -65,10 +65,14 @@ pushed, and decides one thing only:
   07-12 arm)], local hours 07-12, on history dates 2024-10-01..12-31 and 2025-10-01..12-31, the 10 markets.
   - MG-3's 07-12 arm is exactly §2.1-§2.3: the bound partner, the frozen P3d_H 07-12 state `e9276477…` under
     RN-1, and the bound weights (§2.2 branch), with the MG-1 fallback and rule-4 floor. Nothing is refitted.
-  - Labels and the partner's history vectors come from the code that builds the partner (L3's frozen history
-    builder for an L6 arm; the NBM PIT corpus for MG-1), as frozen at binding.
-  - **Proxy, only if the bound partner has no Oct-Dec history vectors at binding:** ΔB_cool is computed on
-    P3d_H 07-12 − P3d_N_fix 07-12 (both frozen, same rows). The proxy used is reported.
+  - **The partner is the TRUE bound partner** (master ruling 10-26 (a)): MG-2's bound 07-12 arm, whichever it is.
+    - season-matched L6 stack: L3's Oct-Dec LOYO vectors for it;
+    - MG-1: computed on Oct-Dec history from the NBM PIT corpus;
+    - Aug-Sep L6 stack: L3's frozen history builder (cool-season audit part 1a), as frozen at binding.
+    Labels come from the same builder as the partner's vectors.
+  - **Proxy P3d_H 07-12 − P3d_N_fix 07-12** (both frozen, same rows) is allowed ONLY if the true partner's Oct-Dec
+    history vectors are provably unavailable at binding. If it is used, it is recorded in the binding as a stated
+    deviation, with the reason.
 - **Interval.** Date-clustered percentile bootstrap, 2,000 draws, seed 20260921, 95%; U is its upper bound.
 - **Rule.**
 
@@ -217,7 +221,8 @@ p3d_h_state_0712_sha256: e92764773e1614aae548ccfd74b3a60740f25105578abd045b0808f
 p3d_h_state_1316_sha256: e891d884e06164a6925f6b2bbf1c7756529cb35222ab0c8c863552cfa7457db7
 weights_sha256: <FILL@BINDING>
 l6_partner: <FILL@BINDING>
-drop_0712_rule: U_cool_ge_0_or_not_computable_reverts_0712_to_mg2_arm
+drop_0712_rule: U_cool_ge_0_or_not_computable_or_coverage_lt_0.90_reverts_0712_to_mg2_arm
+drop_0712_partner: true_bound_partner_proxy_only_if_provably_unavailable_stated_deviation
 drop_0712: <FILL@BINDING>
 release_binding_sha256: <FILL@BINDING>
 parity_rule_sha256: 2c6e6045dca379854c281195e0a51a61f0de400bc517ed7faa444b2900a6593e
