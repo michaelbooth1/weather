@@ -48,8 +48,30 @@ Gate 4 was not read.
   1.0 °F in training, where the anchor is L9's `nbm_at_cutoff`. On dev it is 0.0 °F, where the anchor is the
   captured `usable_v2_mean`.
   - So `n_gap` is near 0 on most dev rows but is not in training.
-  - That is one plausible reason the large LOYO gain did not carry over to dev.
-  - Both anchors are R-L's registered ones. Under the kill, no re-anchored NBS variant may be run at 07-12.
+  - **Correction (2026-10-26): the dev anchor choice does NOT explain this difference.** On dev, the
+    training-identical reference (L9 `nbm_at_cutoff` on the dev NBM corpus, sha `85746b7a…7727`) equals the
+    captured `usable_v2_mean` exactly on 28,514 of 28,814 rows at h07-12, which is 98.96%. An earlier estimate in
+    correspondence said about 98.7%. The counts are from the outcome-free P3d_N dev emit audit
+    `C:\t\l2\p3d_n_dev\dev_emit_audit.json`, field
+    `dev_corpus_vs_captured_nbm_by_hour`:
+
+    | Hour | Exact | Rows |
+    | --- | --- | --- |
+    | h07 | 4,644 | 4,726 |
+    | h08 | 4,718 | 4,801 |
+    | h09 | 4,679 | 4,739 |
+    | h10 | 5,009 | 5,062 |
+    | h11 | 4,602 | 4,624 |
+    | h12 | 4,862 | 4,862 |
+
+    - Re-anchoring dev would change `n_gap` on at most 1.04% of rows.
+    - The gap difference is therefore a training-era (2021-25) vs 2026 difference between L9's NBM corpus and
+      NBS TXN, not an anchor-choice effect. An earlier version of this summary called the anchor "one plausible
+      reason"; that framing is withdrawn.
+    - An outcome-free diagnostic (`rungl2/anchor_diag.md`) breaks the gap down by year, hour, NBM version and
+      cycle timing.
+  - **The R-L3 re-anchored variant was dropped** (coordinator ruling 2026-10-26). The R-L2 kill stands. Under the
+    kill, no re-anchored NBS variant may be run at 07-12, and any follow-up rung needs a fresh ruling.
 - **The rule's limits:** R-L2 cannot test R-H hypothesis 2's freshness claim, and this result does not adjudicate it.
 
 ## Artifacts (`C:\t\l2\rungl2\`)
