@@ -528,7 +528,8 @@ def export(*, day, data_root, out, now=None, repo=None, clock=time.time):
         }
         body = json.dumps(manifest, indent=1, sort_keys=True).encode("utf-8")
         (staging / allow.MANIFEST).write_bytes(body)
-        (staging / allow.MANIFEST_SHA).write_text(_sha(body) + "\n", encoding="utf-8")  # the ready marker, last
+        # The ready marker, last. Bytes, not text mode: LF on every host (Windows text mode writes CRLF).
+        (staging / allow.MANIFEST_SHA).write_bytes((_sha(body) + "\n").encode("ascii"))
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)  # only this run's own staging folder
         raise
@@ -536,7 +537,7 @@ def export(*, day, data_root, out, now=None, repo=None, clock=time.time):
     lines = [f"{_sha((final / allow.MANIFEST).read_bytes())}  {day.isoformat()}/{allow.MANIFEST}",
              f"{_sha((final / allow.MANIFEST_SHA).read_bytes())}  {day.isoformat()}/{allow.MANIFEST_SHA}"]
     lines += [f"{e['sha256']}  {day.isoformat()}/{e['path']}" for e in entries]
-    sums.write_text("\n".join(sorted(lines, key=lambda s: s.split("  ", 1)[1])) + "\n", encoding="utf-8")
+    sums.write_bytes(("\n".join(sorted(lines, key=lambda s: s.split("  ", 1)[1])) + "\n").encode("utf-8"))
     return manifest
 
 

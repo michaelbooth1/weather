@@ -248,6 +248,7 @@ def test_sha256sums_sits_beside_the_bundle_and_matches(host, tmp_path):
     files = {f"{D.isoformat()}/{p.relative_to(bundle).as_posix()}": hashlib.sha256(p.read_bytes()).hexdigest()
              for p in bundle.rglob("*") if p.is_file()}
     assert listed == files
+    assert b"\r" not in sums.read_bytes() and b"\r" not in (bundle / allow.MANIFEST_SHA).read_bytes()  # LF only
     marker = (bundle / allow.MANIFEST_SHA).read_text(encoding="utf-8").strip()
     assert marker == hashlib.sha256((bundle / allow.MANIFEST).read_bytes()).hexdigest()
     assert not list(bundle.parent.glob(".*.partial"))
