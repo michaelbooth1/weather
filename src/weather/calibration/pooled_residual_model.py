@@ -3715,6 +3715,277 @@ def p3dn_diag_score(*, layout, diag_dir, p3d_n_jsonl, v3_vectors, a_n_jsonl, arm
     return result
 
 
+# ------------------------------------------------- R-K: HRRR 13-16 hourly path as a centre input (rule_rk.md)
+
+RK_RULE_SHA256 = "21b5dfe1870c03bcab143903b8fccc37a446c49de97b3889377039c7c8327221"
+RK_CLARIFICATION_RK1_SHA256 = "c825b2771ca8f8d4e02fbc736f820f0b581d4be8c7a69b0c71a729f9101432c7"
+RK_HOURS = (13, 14, 15, 16)
+RK_POOLS = (("13-16", None), ("13-14", (13, 14)), ("15-16", (15, 16)))
+RK_FEATURES = ("k_max", "k_gap", "k_tcdc", "k_miss")
+RK_ARMS = {
+    "B_N": True,
+    "B_H": {"simple": True, "extra_ols": ("k_gap", "k_tcdc", "k_miss")},
+    "P3d_N_fix": False,
+    "P3d_H": {"simple": False, "extra_hgb": ("k_max", "k_gap", "k_tcdc")},
+}
+RK_PAIRS = (("B_H", "B_N"), ("P3d_H", "P3d_N_fix"), ("P3d_H", "B_H"), ("P3d_N_fix", "B_N"))
+RK_VARIABLES = {"TMP": "TMP:2 m above ground", "TCDC": "TCDC:entire atmosphere"}
+RK_VALID_END_LOCAL = 17
+RK_MARGIN_S = 10 * 60
+RK_TMP_RANGE_F = (-60.0, 130.0)
+RK_COVERAGE_MIN = 0.95
+RK_CONTROL_TOL = 1e-12
+
+
+def rk_message_key(cycle, fh):
+    """The AWS object key of one HRRR surface file (L13 manifest ``key``)."""
+    return f"hrrr.{cycle:%Y%m%d}/conus/hrrr.t{cycle:%H}z.wrfsfcf{int(fh):02d}.grib2"
+
+
+def rk_kelvin_to_f(kelvin):
+    return (float(kelvin) - 273.15) * 9.0 / 5.0 + 32.0
+
+
+def _rk_lines(path, stats, name):
+    """JSON lines; a torn or corrupt line (a corpus still being appended) is counted and skipped."""
+    with open(path, "rb") as handle:
+        for line in handle:
+            if not line.strip():
+                continue
+            try:
+                yield json.loads(line)
+            except json.JSONDecodeError:
+                stats[f"{name}_corrupt_line"] += 1
+
+
+def rk_hrrr_columns(corpus_dir, markets=R0_MARKETS):
+    """L13's HRRR point corpus -> {(market, local_date, hour): raw R-K path} plus integrity counts.
+
+    Inputs only: no outcome, label, price or layout row is read. Per selection (rule_rk.md, feature family):
+    ``k_max`` = max TMP (nearest point, K -> F) over the selection's fhs, ``k_tcdc`` = mean TCDC (%) over the
+    same fhs, ``k_miss`` = 1 when there is no cycle, a needed message is absent or fails its identity check, or
+    a value is not finite. ``k_gap`` needs the row's own NBM anchor and is added by :func:`rk_columns`.
+    """
+    from datetime import datetime, timedelta, time
+    from zoneinfo import ZoneInfo
+
+    corpus = Path(corpus_dir)
+    stats = defaultdict(int)
+    stations = json.loads((corpus / "stations.json").read_bytes())
+    icao_market = {icao: s["market"] for icao, s in stations.items() if s.get("market") in markets}
+    missing = sorted(set(markets) - set(icao_market.values()))
+    if missing:
+        raise PooledModelError(f"HRRR corpus has no station for {missing}")
+    tzs = {icao: ZoneInfo(stations[icao]["tz"]) for icao in icao_market}
+    messages, mismatched = {}, set()
+    for m in _rk_lines(corpus / "manifest.jsonl", stats, "manifest"):
+        record = str(m.get("idx_record") or "")
+        var = next((v for v, prefix in RK_VARIABLES.items() if record.startswith(prefix + ":")), None)
+        if var is None:
+            stats["manifest_other_variable"] += 1
+            continue
+        cycle, fh = datetime.fromisoformat(m["cycle_utc"]), int(m["fh"])
+        key = (cycle, fh, var)
+        if m.get("key") != rk_message_key(cycle, fh) or record != f"{RK_VARIABLES[var]}:{fh} hour fcst:":
+            stats["manifest_identity_mismatch"] += 1
+            mismatched.add(key)
+            continue
+        values = {icao: (point or {}).get("nearest") for icao, point in (m.get("points") or {}).items()
+                  if icao in icao_market}
+        if key in messages:
+            stats["manifest_duplicate"] += 1
+            if messages[key] != values:
+                stats["manifest_duplicate_conflict"] += 1
+                mismatched.add(key)
+            continue
+        messages[key] = values
+        stats[f"manifest_{var}"] += 1
+    out = {}
+    for s in _rk_lines(corpus / "selections.jsonl", stats, "selections"):
+        icao = s.get("station")
+        if icao not in icao_market:
+            continue
+        market, day, hour = icao_market[icao], str(s["local_date"]), int(s["hour_local"])
+        if hour not in RK_HOURS:
+            continue
+        key = (market, day, hour)
+        stats["selections"] += 1
+        if key in out:
+            stats["selection_duplicate"] += 1
+            continue
+        tz = tzs[icao]
+        target = date.fromisoformat(day)
+        snapshot = datetime.combine(target, time(hour, 0), tzinfo=tz)
+        window_end = datetime.combine(target, time(RK_VALID_END_LOCAL, 0), tzinfo=tz)
+        entry = {"cycle_utc": s.get("cycle_utc"), "fhs": list(s.get("fhs") or []), "k_max": float("nan"),
+                 "k_tcdc": float("nan"), "k_miss": 1.0, "reason": None}
+        out[key] = entry
+        if datetime.fromisoformat(s["snapshot_utc"]) != snapshot:
+            stats["selection_snapshot_mismatch"] += 1
+            entry["reason"] = "snapshot_mismatch"
+            continue
+        if s.get("cycle_utc") is None or not entry["fhs"]:
+            stats["selection_no_cycle"] += 1
+            entry["reason"] = "no_cycle"
+            continue
+        cycle = datetime.fromisoformat(s["cycle_utc"])
+        latest = s.get("latest_available_utc")
+        if latest is None or datetime.fromisoformat(latest) + timedelta(seconds=RK_MARGIN_S) > snapshot:
+            stats["selection_pit_violation"] += 1
+            entry["reason"] = "pit_violation"
+            continue
+        valid = [cycle + timedelta(hours=int(fh)) for fh in entry["fhs"]]
+        if min(valid) < snapshot or max(valid) > window_end:
+            stats["selection_window_violation"] += 1
+            entry["reason"] = "window_violation"
+            continue
+        tmp, tcdc = [], []
+        for fh in entry["fhs"]:
+            for var, sink in (("TMP", tmp), ("TCDC", tcdc)):
+                k = (cycle, int(fh), var)
+                if k in mismatched:
+                    entry["reason"] = "identity_mismatch"
+                v = messages.get(k, {}).get(icao)
+                sink.append(float("nan") if v is None else float(v))
+        if entry["reason"] == "identity_mismatch":
+            stats["selection_identity_mismatch_used"] += 1
+            continue
+        if not all(math.isfinite(v) for v in tmp + tcdc):
+            stats["selection_message_absent"] += 1
+            entry["reason"] = "message_absent"
+            continue
+        tmp_f = [rk_kelvin_to_f(v) for v in tmp]
+        if min(tmp_f) < RK_TMP_RANGE_F[0] or max(tmp_f) > RK_TMP_RANGE_F[1]:
+            stats["selection_tmp_out_of_range"] += 1
+            entry["reason"] = "tmp_out_of_range"
+            continue
+        entry.update(k_max=max(tmp_f), k_tcdc=sum(tcdc) / len(tcdc), k_miss=0.0)
+        stats["selection_covered"] += 1
+    return out, dict(stats)
+
+
+def rk_columns(entry, nbm):
+    """Model columns for one row: the raw path plus ``k_gap`` against the row's own NBM anchor."""
+    if entry is None or entry["k_miss"]:
+        return {"k_max": float("nan"), "k_gap": float("nan"), "k_tcdc": float("nan"), "k_miss": 1.0}
+    gap = entry["k_max"] - float(nbm) if nbm is not None and math.isfinite(float(nbm)) else float("nan")
+    return {"k_max": entry["k_max"], "k_gap": gap, "k_tcdc": entry["k_tcdc"], "k_miss": 0.0}
+
+
+def rk_training_columns(frame, hrrr):
+    """Attach R-K columns to training rows keyed (market, target_date, cutoff hour); ``fh`` is the NBM anchor."""
+    cols, stats = defaultdict(list), defaultdict(int)
+    for market, day, hour, fh in zip(frame["market"], frame["target_date"], frame["hour"], frame["fh"]):
+        entry = hrrr.get((market, str(day)[:10], int(hour)))
+        stats["rows"] += 1
+        stats["rows_no_selection"] += entry is None
+        values = rk_columns(entry, fh)
+        stats["rows_covered"] += values["k_miss"] == 0.0
+        for k, v in values.items():
+            cols[k].append(v)
+    out = frame.copy()
+    for k in RK_FEATURES:
+        out[k] = cols[k]
+    return out, dict(stats)
+
+
+def rk_parity_training(corpus_stats, train_stats):
+    """Gate 1, training half (rule_rk.md gate 1 and clarification RK-1): inputs only."""
+    coverage = train_stats.get("rows_covered", 0) / max(train_stats.get("rows", 0), 1)
+    checks = {"training_coverage": coverage >= RK_COVERAGE_MIN,
+              "identity_mismatch_used": corpus_stats.get("selection_identity_mismatch_used", 0) == 0,
+              "tmp_out_of_range": corpus_stats.get("selection_tmp_out_of_range", 0) == 0,
+              "pit_violation": corpus_stats.get("selection_pit_violation", 0) == 0,
+              "window_violation": corpus_stats.get("selection_window_violation", 0) == 0,
+              "snapshot_mismatch": corpus_stats.get("selection_snapshot_mismatch", 0) == 0}
+    return {"training_coverage": coverage, "threshold": RK_COVERAGE_MIN, "checks": checks,
+            "pass": all(checks.values())}
+
+
+def rk_control(rows, reference_rows, arms=("B_N", "P3d_N_fix"), tol=RK_CONTROL_TOL):
+    """R-J's LOYO rows reproduce: same (hour, year, market, date) keys, same incumbent-arm scores."""
+    ref = {(r["hour"], r["year"], r["market"], r["date"]): r for r in reference_rows if r["hour"] in RK_HOURS}
+    got = {(r["hour"], r["year"], r["market"], r["date"]): r for r in rows}
+    worst = 0.0
+    for k in set(ref) & set(got):
+        for arm in arms:
+            for metric in ("brier", "log"):
+                worst = max(worst, abs(got[k][f"{arm}_{metric}"] - ref[k][f"{arm}_{metric}"]))
+    same_keys = set(ref) == set(got)
+    return {"same_keys": same_keys, "n_rows": len(got), "n_reference": len(ref), "max_abs_diff": worst,
+            "pass": same_keys and worst <= tol}
+
+
+def rung_k_loyo(*, records_root, nbm_train_corpus, hrrr_corpus, rj_loyo_rows, out_dir, markets=R0_MARKETS):
+    """R-K gate 1 (training half) and gate 2 (LOYO 2021-25, B_H - B_N at 13-16). No dev row is read."""
+    from weather.calibration import ols_floor_ladder as l9
+    from weather.market.market_registry import spec_for_id
+
+    out = require_output_outside_repo(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    if any(out.iterdir()):
+        raise PooledModelError(f"refusing to write into a non-empty {out}")
+    corpus = Path(hrrr_corpus)
+    audit = {"rule_sha256": RK_RULE_SHA256, "clarification_rk1_sha256": RK_CLARIFICATION_RK1_SHA256,
+             "arms": list(RK_ARMS), "hours": list(RK_HOURS), "gates": {},
+             "inputs": {"nbm_train_corpus": hashlib.sha256(Path(nbm_train_corpus).read_bytes()).hexdigest(),
+                        "rj_loyo_rows": hashlib.sha256(Path(rj_loyo_rows).read_bytes()).hexdigest(),
+                        "hrrr_corpus": str(corpus),
+                        **{f"hrrr_{n}": hashlib.sha256((corpus / n).read_bytes()).hexdigest()
+                           for n in ("manifest.jsonl", "selections.jsonl", "stations.json")},
+                        "module_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}}
+
+    def finish():
+        (out / "rk_loyo_audit.json").write_text(json.dumps(audit, indent=1, sort_keys=True), encoding="utf-8")
+        return audit
+
+    timezones = {m: spec_for_id(m).timezone for m in markets}
+    hrrr, audit["hrrr_corpus_stats"] = rk_hrrr_columns(corpus, markets)
+    frame, buckets = dev_training_frame(records_root, markets)
+    if frame["year"].max() >= 2026:
+        raise PooledModelError("a training row is from 2026")
+    frame, audit["train_nbm"] = attach_training_nbm(frame, l9.load_nbm(nbm_train_corpus), l9.nbm_at_cutoff, timezones)
+    frame = frame[frame["hour"].isin(RK_HOURS)].reset_index(drop=True)
+    frame, audit["training"] = rk_training_columns(frame, hrrr)
+    audit["gates"]["1_parity_training"] = rk_parity_training(audit["hrrr_corpus_stats"], audit["training"])
+    if not audit["gates"]["1_parity_training"]["pass"]:
+        audit["stopped_at"] = "gate 1 parity (training half; not a kill)"
+        return finish()
+    rows = rung_loyo(frame, buckets, RK_HOURS, arms=RK_ARMS)
+    _write_jsonl(out / "loyo_rows.jsonl", rows)
+    audit["control_rj_reproduction"] = rk_control(rows, _read_jsonl(rj_loyo_rows))
+    if not audit["control_rj_reproduction"]["pass"]:
+        audit["stopped_at"] = "control: R-J LOYO reproduction failed (refused, not a gate)"
+        return finish()
+    audit["gates"]["2_loyo"] = rg_loyo_summary(rows, pairs=RK_PAIRS, pooled=RK_POOLS)
+    primary = audit["gates"]["2_loyo"]["B_H-B_N|13-16|brier"]
+    audit["gates"]["2_loyo"]["pass"] = primary["ci95"][1] < 0
+    if not audit["gates"]["2_loyo"]["pass"]:
+        audit["stopped_at"] = "gate 2 LOYO (KILL: HRRR closed as a 13-16 centre input)"
+    return finish()
+
+
+def rk_hrrr_audit(*, hrrr_corpus, out_path, markets=R0_MARKETS):
+    """Schema and coverage audit of an HRRR corpus (inputs only; no outcome or layout row is read)."""
+    out_path = require_output_outside_repo(out_path)
+    if out_path.exists():
+        raise PooledModelError(f"refusing to overwrite {out_path}")
+    hrrr, stats = rk_hrrr_columns(hrrr_corpus, markets)
+    per_hour = defaultdict(lambda: [0, 0])
+    reasons = defaultdict(int)
+    for (_, _, hour), entry in hrrr.items():
+        per_hour[hour][0] += 1
+        per_hour[hour][1] += entry["k_miss"] == 0.0
+        reasons[entry["reason"] or "covered"] += 1
+    result = {"rule_sha256": RK_RULE_SHA256, "stats": stats, "reasons": dict(reasons),
+              "per_hour": {f"h{h:02d}": {"selections": n, "covered": c, "coverage": c / max(n, 1)}
+                           for h, (n, c) in sorted(per_hour.items())},
+              "years": sorted({k[1][:4] for k in hrrr})}
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(result, indent=1, sort_keys=True), encoding="utf-8")
+    return result
+
+
 # ------------------------------------------------- clarification 3: forward refit and frozen state (MG-2)
 
 FORWARD_CENTRES = AUG_SEP_CENTRES + ("2026-10-10", "2026-10-25", "2026-11-09", "2026-11-24", "2026-12-09")
@@ -4248,6 +4519,15 @@ def _parse(argv=None):
     js.add_argument("--emit", required=True)
     js.add_argument("--p3d-n", required=True, help="dev_P3d_N.jsonl (composite post-13 dev arm)")
     js.add_argument("--out", required=True)
+    ka = sub.add_parser("rk-hrrr-audit", help="R-K: HRRR corpus schema and coverage audit (inputs only)")
+    ka.add_argument("--hrrr", required=True, help="L13 HRRR corpus directory")
+    ka.add_argument("--out", required=True)
+    kl = sub.add_parser("rung-k-loyo", help="R-K gate 1 (training half) and gate 2 LOYO (heavy)")
+    kl.add_argument("--records", required=True)
+    kl.add_argument("--nbm-train-corpus", required=True)
+    kl.add_argument("--hrrr", required=True, help="L13 HRRR corpus directory (2021-25)")
+    kl.add_argument("--rj-loyo-rows", required=True, help="R-J loyo_rows.jsonl (incumbent-arm control)")
+    kl.add_argument("--out", required=True)
     de = sub.add_parser("p3dn-diag-emit", help="P3d_N vs P3d_N_fix input diff and variant emissions (heavy)")
     de.add_argument("--records", required=True)
     de.add_argument("--layout", required=True)
@@ -4397,6 +4677,17 @@ def main(argv=None):
                             report_pools=(RJ_SECONDARY,), rule_sha=RJ_RULE_SHA256)
         print(json.dumps({"gates": {k: v.get("pass") for k, v in audit["gates"].items()},
                           "stopped_at": audit.get("stopped_at"), "ra_reproduction": audit.get("ra_reproduction")}))
+        return 0
+    if args.command == "rk-hrrr-audit":
+        result = rk_hrrr_audit(hrrr_corpus=args.hrrr, out_path=Path(args.out))
+        print(json.dumps({"per_hour": result["per_hour"], "reasons": result["reasons"]}, indent=1))
+        return 0
+    if args.command == "rung-k-loyo":
+        audit = rung_k_loyo(records_root=args.records, nbm_train_corpus=args.nbm_train_corpus, hrrr_corpus=args.hrrr,
+                            rj_loyo_rows=args.rj_loyo_rows, out_dir=args.out)
+        print(json.dumps({"gates": {k: v.get("pass") for k, v in audit["gates"].items()},
+                          "stopped_at": audit.get("stopped_at"),
+                          "control": audit.get("control_rj_reproduction")}, indent=1))
         return 0
     if args.command == "p3dn-diag-emit":
         audit = p3dn_diag_emit(records_root=args.records, layout=args.layout, replay_root=args.replay_root,
