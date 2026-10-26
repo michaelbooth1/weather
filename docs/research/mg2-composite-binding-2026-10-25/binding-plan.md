@@ -470,6 +470,16 @@ the mechanical verdict. On this workstation it cannot read the supervisors' clos
 **Binding needs no merge.** The forward accrual runs from this branch on the workstation. A landing
 can wait for a quiet window.
 
+**Capture-host import (master ruling 2026-10-26).** MG-2, the C7/C8 gates and the B-1 scorer score only
+on the workstation, from host-exported bundles (§9). By design their modules (`mg2_composite`,
+`mg2_p3d_n`, `b_scorer` and the research modules they import, such as `r0_ols_floor_challenger` and
+`ols_floor_ladder`) cannot be imported on the capture host: they refuse there, and their tests skip there.
+The importer ratchets in `tests/calibration/test_ols_floor_ladder.py` and
+`tests/calibration/test_r0_ols_floor_challenger.py` list them as WS-only importers. The host side is only
+the stdlib exporter (`weather.calibration.mg2_input_export`, branch `claude/mg2-input-export-20261026`) and
+the allow-list. Any host serve path for MG-2 would first
+require moving the shared pure functions into a neutral module that imports cleanly on the host.
+
 ## 11. Open items
 
 - **Fable review (one pass), before the binding commit and D0.** Master's scope: the binding, the
