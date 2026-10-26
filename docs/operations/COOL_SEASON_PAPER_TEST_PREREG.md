@@ -1,9 +1,12 @@
 # PT-1: cool-season paper test, pre-registration (DRAFT)
 
-> **Repository copy, filed 2026-10-26 in the docs head.** Copied unchanged from the coordinator's draft (raw
-> sha256 `50ada8de71268c66aa0a4489385126b76a65e8bb49abbea74e7f58bcae487447`) except for this note. **DRAFT, not bound; its owner questions are OPEN.** `PT_D0` stays unset and no rule sha is pinned until master binds it.
-> Answers go to the [decision log](DECISION_LOG.md) (owner) and today's state to the [state of play](STATE_OF_PLAY.md),
-> not into this text. Items marked master are master's rulings, not the owner's.
+> **Repository copy, filed 2026-10-26 in the docs head.** Copied from the coordinator's draft (raw sha256
+> `e0c1063dd2fef01075ff236aea71e052481b14912f0c5c0d0f79e8596ea1ab59`). Changes: this note, and three literal tabs restored to the
+> backslash-t they stood for in Windows paths (`data\inbox\tapes-...`, `execution_tape\trades-*`). **DRAFT, not
+> bound; its owner questions are OPEN, including Q4 (now with the receipt grace G = 15 s) and Q7.** `PT_D0` stays
+> unset and no rule sha is pinned until master binds it. Answers go to the [decision log](DECISION_LOG.md) (owner)
+> and today's state to the [state of play](STATE_OF_PLAY.md), not into this text. Items marked master are master's
+> rulings, not the owner's.
 
 - **Status:** DRAFT for master and the owner, written 2026-10-25 on the workstation. Not bound. `PT_D0: UNSET`.
   No rule sha is pinned yet. Nothing here has been run, fitted or scored.
@@ -79,31 +82,74 @@ F = capture-time market mid p_market_yes with the rule-4 floor mask, renormalise
 
 ## 3. The paper decision rule (what a paper trade is)
 
-All inputs are dated by **receipt**, never by observation (method §3, the L11 look-ahead lesson).
+All inputs are dated by **receipt**, never by observation (method §3, the L11 look-ahead lesson). The rule
+is written against the book-store schema master named on 2026-10-25.
+
+### 3.1 The store and its columns
+
+- **File:** `data\snapshots\<event-slug>\order_books_summary.csv` (or `.csv.gz`), one row per
+  (capture pass, CLOB token). Written by `weather.market.market_microstructure_capture.summarize_order_book`.
+- **Schema checked:** the 52-column header is byte-identical across all 660 US event folders in
+  `data\inbox\tapes-us-0801-0929` and the Toronto folders in `data\inbox\tapes-toronto-0801-0929`
+  (one header md5 for all). Only headers, the four timestamp and outcome columns of one development date,
+  and capture-pass timestamps were read; no price column was read, and nothing after 09-29.
+- **Columns PT-1 uses, and their meaning in code:**
+
+| Column | Meaning (from `summarize_order_book`) | PT-1 use |
+| --- | --- | --- |
+| `captured_at_utc` | ISO UTC time the capture **pass started**, set by `utc_now()` before `get_order_books` is called; shared by every token in the pass | receipt bound (3.2) |
+| `book_time_utc` (`book_timestamp` in ms) | the venue's timestamp on the book, i.e. its last update; it can be minutes older than the pass | sanity only (3.2) |
+| `event_slug`, `condition_id`, `clob_token_id`, `range_label`, `bin_kind`, `bin_value`, `bin_value_hi`, `unit` | identity of the band | join to the candidate's bands |
+| `outcome` | `Yes` or `No` (the two tokens of one band) | side |
+| `best_ask` | lowest ask price | decision price a; fill price |
+| `ask_size_at_best` | shares at `best_ask` | fill size |
+| `ask_count` | number of ask levels | `0` means no ask: no decision |
+| `min_order_size`, `tick_size` | venue terms | reported; a 10-share entry below `min_order_size` is not taken |
+| `buy_vwap_10`, `buy_fillable_10` | VWAP and shares filled walking **all** ask levels for 10 shares, with no price limit | diagnostic only (they cannot express a limit) |
+
+Not used: `market_ws_events.csv` and `execution_tape\trades-*.jsonl` (no local copy was available to check
+their schema; adding either needs a dated Clarification before PT_D0), the depth columns
+(`ask_depth_1pct` and similar, which measure depth within a price band and cannot express a limit), and
+every bid, mid, gamma and last-trade column.
+
+**Capture cadence (timestamps only, development dates):** distinct `captured_at_utc` values per event-day
+are about 3,730-3,740, with gaps p10 14.9 s, p50 15.0 s, p90 60.0 s, p99 60.1 s (Atlanta 08-12 and 09-20,
+Toronto 09-20). On Atlanta 09-20, `book_time_utc − captured_at_utc` was at most +1.80 s over 82,302 rows
+(median −35.5 s), which confirms that the fetch finishes after the pass start.
+
+### 3.2 Receipt time
+
+- A row's **receipt bound** is `R = captured_at_utc + G`, with **G = 15 s** (one median pass). The pass
+  start is earlier than the true receipt, so using `captured_at_utc` alone would be look-ahead.
+- **Binding check (outcome-blind):** on the development dates, `max(book_time_utc − captured_at_utc)` must
+  be ≤ G. If the capture logs give a measured pass duration, G is set to its p99, rounded up to whole
+  seconds, and never below 15 s. G is fixed in the binding manifest before PT_D0.
+- A row with `book_time_utc > captured_at_utc + G` is unusable (clock disagreement) and is counted.
+
+### 3.3 The rule
 
 | Element | Rule |
 | --- | --- |
 | Markets | The 10 US markets of B and MG-2 (Denver excluded: KDEN from 10-23 is unsupported for model scoring, DECISION_LOG 10-23). |
 | Event | The market-local T+0 event (the only one the candidate serves). |
-| Decision instants | Every captured snapshot s whose local hour is 07..12 and that has a C-PT vector. |
-| Price at decision | The latest captured order-book snapshot for the band's YES and NO tokens with receipt time ≤ `captured_at_utc(s)` and age ≤ 120 s; best ask a and displayed size at each ask level. No book within 120 s means no decision at s (counted, not a void). |
-| Fee | Venue weather taker fee per share `0.05 × p × (1 − p)` at the fill price (EF §10o; makers pay 0, but every paper trade is a taker). |
-| Slippage haircut | σ = 0.01 pUSD per filled share, charged on top of the walked fill price. |
-| Entry test | BUY YES on band b if q_b − a_YES − fee(a_YES) − σ ≥ θ; BUY NO if (1 − q_b) − a_NO − fee(a_NO) − σ ≥ θ. θ = 0.03. A band never holds both sides. |
-| Latency and fill | Immediate-or-cancel limit at the decision ask a. Filled against the **first** captured book with receipt time ≥ `captured_at_utc(s)` + 30 s and ≤ + 150 s, walking levels priced ≤ a. Fill price = size-weighted average of the levels taken. No such book, or no depth at ≤ a, means no fill (recorded). |
-| Size | 10 shares per entry, or less if the walked depth at ≤ a is smaller. |
-| Position limits | One entry per (date, market, band, side); at most 3 entries per (date, market); paper notional (shares × fill price) ≤ 25 pUSD per (date, market) and ≤ 100 pUSD per local target date fleet-wide, taken in snapshot-time order. These mirror the live envelope (event notional 25, wallet 100) so the paper result is not built on sizes we would never run. |
+| Decision instants | Every captured model snapshot s whose local hour is 07..12 and that has a C-PT vector. Its time t = `captured_at_utc(s)`. |
+| Decision book | For each band b and each side (`outcome` = `Yes` or `No`): the row for that `clob_token_id` with the largest `captured_at_utc` such that R ≤ t and `captured_at_utc` ≥ t − 120 s. No such row, or `ask_count` = 0, means no decision for that token at s (counted, not a void). |
+| Decision price | a = `best_ask` of the decision row. |
+| Fee | Venue weather taker fee per share `0.05 × p × (1 − p)` at the fill price (EF §10o). Every paper trade is a taker. |
+| Slippage haircut | σ = 0.01 pUSD per filled share, charged on top of the fill price. |
+| Entry test | BUY `Yes` on band b if q_b − a_Yes − fee(a_Yes) − σ ≥ θ; BUY `No` if (1 − q_b) − a_No − fee(a_No) − σ ≥ θ. θ = 0.03. A band never holds both sides. |
+| Fill book ("first book ≥ 30 s later") | The row for the same `clob_token_id` with the **smallest** `captured_at_utc` such that `captured_at_utc` ≥ t + 30 s and `captured_at_utc` ≤ t + 150 s. Its true receipt is later still, so the latency is at least 30 s. No such row means no fill (recorded). |
+| Fill (immediate-or-cancel at limit a, top level only) | Let a′ = `best_ask` and z = `ask_size_at_best` of the fill row. If `ask_count` > 0 and a′ ≤ a: fill min(10, z) shares at a′. Otherwise no fill. Deeper levels at or below a are ignored. That can only under-fill, never over-fill or under-price, and it needs no level file. |
+| Size | 10 shares requested; filled size min(10, z). An entry with filled size < `min_order_size` of the fill row is not taken. |
+| Position limits | One entry per (date, market, band, side); at most 3 entries per (date, market); paper notional (filled shares × a′) ≤ 25 pUSD per (date, market) and ≤ 100 pUSD per local target date fleet-wide, taken in decision-time order. These mirror the live envelope (event notional 25, wallet 100). |
 | Holding | Held to settlement. No exits, no re-entry, no netting. |
 | Settlement | 1 pUSD per share if the band wins under the venue-rule label (highest routine METAR, SPECI excluded, tenths °C half-up to °F; DECISION_LOG 10-23); 0 otherwise. |
-| Net P&L per entry | shares × (payout − fill price − fee(fill price) − σ). |
+| Net P&L per entry | filled shares × (payout − a′ − fee(a′) − σ). |
 
-**Price-store branch, fixed before PT_D0 by an outcome-blind check.** The rule needs receipt-timestamped
-T+0 asks with depth. If the capture holds them (master names the store; `order_books_long` is a likely
-candidate; B's market arm uses only the snapshot's `p_market_yes`, which has no ask or depth), the table above applies. If it does
-not, a declared fallback applies instead and is recorded in a dated Clarification before PT_D0: decision
-and fill price = `p_market_yes` + 0.02 (a pessimistic half-spread), depth unlimited up to 10 shares, same
-fee and σ. The fallback is weaker evidence and the results file says so. The branch is never chosen after
-PT_D0.
+**No mid-price fallback.** The schema carries a receipt-timed `best_ask` and `ask_size_at_best` per token,
+so the rule above applies as written. If at binding a market's T+0 folders lack `order_books_summary` for
+the PT-1 window, that market's dates are non-countable for PT-1 (by the coverage rule in §4.2); no mid-based
+price is ever substituted.
 
 ## 4. Dates: fresh forward, disjoint from every other claim
 
@@ -126,8 +172,8 @@ PT_D0.
   **2027-01-25** and the read is on or after 2027-01-27.
 - **Countable** = the MG-2 definition applied to PT-1's 10 markets: the date's outcome-free input bundle is
   verified by its deadline and passes the outcome-blind checks (§7), and the date is promotion-countable.
-  Additionally, a date needs ≥ 90% of its 07-12 snapshots to have a receipt-dated book within 120 s, by the
-  counts-only field in §7. A non-countable date moves the 45th date one day later.
+  Additionally, a date needs ≥ 90% of its 07-12 snapshots to have, for every band token, a decision row
+  (§3.3: R ≤ t, `captured_at_utc` ≥ t − 120 s), by the counts-only field in §7. A non-countable date moves the 45th date one day later.
 - **Moves only later.** If MG1_LAST or MG-2's 45th date moves past provisional PT_D0, every date up to the
   new bound is dropped from PT-1 and PT_D0 moves with it. PT-1 never claims a date first.
 - **Hard end 2027-03-15.** If fewer than 45 dates are countable by then, the look runs once on the
@@ -247,8 +293,11 @@ window, market, hour or threshold after the look.
   book files for that date.
 - `check` on C-PT: coverage ≥ 90% of 07-12 snapshots, PIT, replay reproduction to 1e-12, parser version 2.
 - **Counts-only book coverage field** (an addition the exporter needs, like B's market-coverage field):
-  per market and hour, the number of snapshots with a receipt-dated book within 120 s. It carries no price,
-  size or side.
+  master confirmed on 2026-10-25 that the exporter will add it. Per market and local hour: the number of
+  07-12 snapshots, and the number whose every band token has a decision row under §3.3 (R ≤ t,
+  `captured_at_utc` ≥ t − 120 s, `ask_count` > 0), plus the count of rows made unusable by the §3.2
+  clock check. It is computed from `captured_at_utc`, `book_time_utc` and `ask_count` only. It carries no
+  price, size or side.
 - No label, settlement, price, size or market column travels in the daily channel.
 
 ### 7.2 Sanity controls (NOT INTERPRETABLE if any fails)
@@ -264,8 +313,11 @@ window, market, hour or threshold after the look.
 
 - Any MG-2 void condition that touches the pre-13 half (MG-2 rule §7: PIT, replay, nowcast replay,
   parser, hashes).
-- Any input, book or METAR row with a receipt time after the row's own decision time (fills use the
-  post-decision book by design, §3; decisions never do).
+- Any input or METAR row with a receipt time after the row's own decision time, or any decision book
+  with R = `captured_at_utc` + G later than t (fills use the post-decision book by design, §3.3;
+  decisions never do).
+- The binding check of §3.2 (max(`book_time_utc` − `captured_at_utc`) ≤ G on the development dates)
+  was not run, or G changed after PT_D0.
 - A missing or altered input-transfer receipt for a counted date.
 - Any PT-1 date's outcome, label, price or book value read before the look.
 - The look ran before B's look receipt (or recorded B VOID or abandonment) existed.
@@ -312,7 +364,7 @@ Receipt-ledger rows and `check` results (§7.1). Counts-only, no values.
 | --- | --- | --- |
 | MG-2 bound (binding commit, D0 10-28) and its exporter running | master | before PT_D0 (PT-1 reuses both) |
 | Venue-rule label path on master (open commitment in STATE_OF_PLAY) | workstation, master | before the look |
-| Price store named, counts-only book field added to the exporter | master | before PT_D0 |
+| Price store named (done 2026-10-25: `order_books_summary`); counts-only book field added to the exporter; G fixed by the §3.2 check | master (field), lane (G check) | before PT_D0 |
 | w fit, feasibility gate, dev replay, sizing (§2, §5.3) | a model lane, after current model-improvement priorities | before PT_D0 (by 2026-12-05 for review) |
 | Rule sha pinned, DL and reservation rows | master, owner | before 2026-12-12 |
 | Look | lane | after the 45th PT-1 date settles and B's look receipt exists (provisionally 2027-01-27) |
@@ -330,10 +382,14 @@ wait behind model-improvement work until early December.
    paper track? Pre-declare it before PT_D0.
 3. **Dates.** Disjoint dates after B (this draft; first read about 2027-01-27), or B's own 45 dates under
    B §7 item 2 (read after about 2026-12-12, same dates read for two questions)? Recommended: disjoint.
-4. **H_PT** = +0.01 pUSD per share as the useful minimum, and **θ = 0.03, σ = 0.01, 30 s latency**: confirm
-   or change before PT_D0.
+4. **H_PT** = +0.01 pUSD per share as the useful minimum, and **θ = 0.03, σ = 0.01, 30 s latency, receipt
+   grace G = 15 s**: confirm or change before PT_D0.
 5. **Retrain family.** Confirm the ruling in `retrain_overlap.md` (the family is R0 and its successors), so
    PT-1's dates are not held by a declared retrain window.
 6. **Candidate.** Keep the pre-13 half of MG-2 (no refit), or ask a lane for a cool-season refit of P3d_N
    (training months Nov-Mar) for 13-16, which would need its own selection evidence and a dated
    Clarification before PT_D0? Recommended: no refit; 07-12 only.
+7. **Top-of-book fills.** The fill uses only `best_ask` and `ask_size_at_best` (deeper levels at or below
+   the limit are ignored, since no per-level file is kept and `buy_vwap_10` has no limit). That
+   under-states fills. Accept it, or ask for `market_ws_events.csv` to be specified as a fill source by a
+   dated Clarification before PT_D0? Recommended: accept; report `buy_fillable_10` as a diagnostic.
