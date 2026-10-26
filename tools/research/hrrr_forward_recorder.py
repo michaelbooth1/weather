@@ -263,7 +263,12 @@ def set_below_normal_priority():
             import ctypes
 
             k32 = ctypes.windll.kernel32
-            return bool(k32.SetPriorityClass(k32.GetCurrentProcess(), 0x00004000))
+            k32.GetCurrentProcess.restype = ctypes.c_void_p
+            k32.SetPriorityClass.argtypes = (ctypes.c_void_p, ctypes.c_uint32)
+            k32.GetPriorityClass.restype = ctypes.c_uint32
+            k32.GetPriorityClass.argtypes = (ctypes.c_void_p,)
+            me = k32.GetCurrentProcess()
+            return bool(k32.SetPriorityClass(me, 0x00004000)) and k32.GetPriorityClass(me) == 0x00004000
         os.nice(5)
         return True
     except Exception:  # pragma: no cover - best effort, recorded in status
