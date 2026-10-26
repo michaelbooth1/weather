@@ -86,7 +86,7 @@ The pooled upper bound is −0.0025 < 0, so the rule selects **the season-matche
 | Field | Value |
 | --- | --- |
 | File | `l6_own_state_octdec.pkl` (sidecar `l6_own_state_octdec.json`), from `season_matched_l6 final` |
-| sha256 | **FILL** (the final fit on all Oct-Dec 2021-25; queued at the time of drafting) |
+| sha256 | **`800072c79af65394cc33134cbaae34af65c4428feb3934e35f8cd6cd153ee2db`** (file bytes; sidecar `497bdfec3beecac52c184e9a33530aa76a19f93a8d7d2580e14e51ca45caf80a`). Fit at commit `c7b489ba5`, module `cf398143…`, LOYO result `07ef7810…`, 29,905 rows 2021-10-01..2025-12-31 |
 | Schema | `l6_own_state/1` (`mg_serve_core.L6_STATE_SCHEMA`); columns `mg_serve_core.L6_OWN_COLUMNS` |
 | Load | `weather.model.mg_serve_core.load_l6_own_state(path, sha256)`. It refuses unless the file bytes hash to the bound sha, then checks schema and columns before use |
 | Serve | `mg_serve_core.l6_own_nowcast(state, features)`: N = r + model prediction on the OWN columns. No per-run refit |
