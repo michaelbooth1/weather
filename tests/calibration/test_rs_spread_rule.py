@@ -107,6 +107,7 @@ def test_training_columns_follow_the_selected_cycle():
     assert out["nbm_sd"].iloc[0] == 2.0 and out["nbm_qw"].iloc[0] == 6.0
     assert math.isnan(out["nbm_sd"].iloc[1])
     assert stats["anchor_rows"] == 1 and stats["no_anchor"] == 1
+    assert out["nbm_version"].iloc[0] is None  # a 3-wide spread entry carries no version
     gate = prm.rs_parity_training(stats)
     assert gate["pass"]
     assert not prm.rs_parity_training({"anchor_rows": 100, "sd_present": 94, "qw_present": 100})["pass"]
@@ -142,3 +143,23 @@ def test_dev_parity_matches_the_captured_cycle(tmp_path, monkeypatch):
     assert gate["share"]["p90"] == pytest.approx(2 / 3)
     assert not gate["pass"]
     assert date.fromisoformat("2026-08-01") <= prm.N_DEV_LAST
+
+
+def test_era_guard_reports_versions_and_stops_outside_the_band():
+    frame = pd.DataFrame({"year": [2021, 2021, 2025, 2025, 2025], "hour": [13, 14, 13, 14, 14],
+                          "nbm_version": ["4.0", "4.0", "4.3", "4.3", None],
+                          "nbm_sd": [2.0, 2.0, 3.0, 3.0, float("nan")], "nbm_qw": [6.0, 6.0, 8.0, 8.0, float("nan")]})
+    dev = pd.DataFrame({"cutoff_hour": ["13", "14"], "v2_stddev": [2.5, 2.5], "v2_p10": [80.0, 80.0],
+                        "v2_p90": [87.0, 87.0]})
+    gv = prm.rs_era_guard(frame, dev, "13-16")
+    sd = gv["columns"]["nbm_sd"]
+    assert sd["cells"]["train_all"]["n"] == 4 and sd["cells"]["train_2021_v4.0"]["median"] == 2.0
+    assert sd["ratio_dev_over_train_median"] == pytest.approx(1.0) and gv["pass"]
+    assert gv["addendum1_sha256"] == prm.RS_ADDENDUM1_SHA256
+    shifted = dev.assign(v2_stddev=[1.0, 1.0])  # median 1.0 / 2.5 = 0.4 -> stop
+    assert not prm.rs_era_guard(frame, shifted, "13-16")["pass"]
+
+
+def test_addendum_sha_is_recorded_in_code():
+    path = RULE.with_name("rule_rs_addendum1.md")
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == prm.RS_ADDENDUM1_SHA256
