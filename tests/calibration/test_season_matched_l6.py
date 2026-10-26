@@ -83,3 +83,12 @@ def test_bucket_probs_reproduce_bucket_brier():
     assert k[0, 0] == 68 and k[1, 0] == 56
     onehot = (k == y[:, None]).astype(float)
     assert np.allclose(((p - onehot) ** 2).sum(1), rz.bucket_brier(mu, sig, R, y), atol=1e-12)
+
+
+def test_dev_emit_refuses_a_sidecar_that_does_not_bind_the_state(tmp_path):
+    out = tmp_path / "out"
+    (tmp_path / sm.SIDECAR).write_text(json.dumps({"state_sha256": "a" * 64}))
+    with pytest.raises(sm.SeasonL6Error):
+        sm.dev_emit(state_dir=tmp_path, state_sha="b" * 64, captured_dir=tmp_path, frozen_l6_state=tmp_path / "x",
+                    mg2_coefficients=tmp_path / "c", layout=tmp_path, out_dir=out)
+    assert sm.DEV_TO == "2026-09-29"

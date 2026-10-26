@@ -280,6 +280,109 @@ def final(*, research_root, loyo_result, rule, out_dir, commit):
     return sidecar
 
 
+# ---------------------------------------------------------------- dev vectors for L2's MG-3 weight refit
+
+CAPTURED_FEATURES_SHA256 = "0d5c30b39e92e4df8d6201769bbf1eb773f2e7e89c6d2a060a04d5bd70990557"
+FROZEN_DEV_NOWCASTS_SHA256 = "3806687cd6ad8d38571fd5d17efa5405856300d2f0029ae644e3ad08db4a31f3"
+L6_PART_SHA256 = "07a6742595f535d448569980af7e04dbf4a2a798c00c82fd52f5f01287ee17e9"
+LAYOUT_MANIFEST_SHA256 = "4d53fdbdc551f33e331fa3b51cc425e354eec4426c8c7b52910b2e7340915f22"
+DEV_FROM, DEV_TO = "2026-08-01", "2026-09-29"
+
+
+def dev_emit(*, state_dir, state_sha, captured_dir, frozen_l6_state, mg2_coefficients, layout, out_dir):
+    """Season-matched L6 stack on the dev window 2026-08-01..09-29 (master/coordinator 2026-10-26, for L2's
+    MG-3 weight refit under rule 4fb02a2c with its inputs swapped).
+
+    1. ``nowcasts_season_dev.parquet``: the frozen final state on L3's captured dev serve features (the same
+       rows and columns as ``3806687c``: row_key, n_own, n_up, n_ring; n_up/n_ring NaN as before). Control:
+       the frozen Aug-Sep state on the same features reproduces ``3806687c`` n_own to 1e-9.
+    2. ``l6_stack_season_dev_vectors.parquet``: ``free_source_candidates.l6_stack.predict`` with the bound
+       MG-2 coefficients part (``07a67425``) on the v3 layout's dev snapshots, reading (1); the candidate
+       format (row_key, band_index, p) plus snapshot keys. No label or price column is written.
+    """
+    import os
+
+    import numpy as np
+    import pandas as pd
+
+    from weather.calibration import pooled_residual_model as l2
+    from weather.model import mg_serve_core as core
+    from weather.reporting.scorecards import dev_scorecard_data as data
+
+    out = l2.require_output_outside_repo(Path(out_dir))
+    if out.exists() and any(out.iterdir()):
+        raise SeasonL6Error(f"output directory {out} must be new or empty")
+    sidecar = json.loads((Path(state_dir) / SIDECAR).read_text(encoding="utf-8"))
+    if sidecar.get("state_sha256") != state_sha:
+        raise SeasonL6Error("final state sidecar sha differs from the bound sha")
+    season = core.load_l6_own_state(Path(state_dir) / STATE_FILE, state_sha)
+    frozen = core.load_l6_own_state(frozen_l6_state, cs.L6_STATE_SHA256)
+    feat_path = Path(captured_dir) / "serve_features.parquet"
+    ref_path = Path(captured_dir) / "nowcasts.parquet"
+    cs._pin(feat_path, CAPTURED_FEATURES_SHA256, "captured dev serve features")
+    cs._pin(ref_path, FROZEN_DEV_NOWCASTS_SHA256, "captured dev nowcasts")
+    if _sha(Path(layout) / "manifest.json") != LAYOUT_MANIFEST_SHA256:
+        raise SeasonL6Error("layout manifest sha differs from the one the MG-2 coefficients were fitted on")
+    feat = pd.read_parquet(feat_path)
+    ref = pd.read_parquet(ref_path)
+    if list(ref.row_key) != list(feat.row_key):
+        raise SeasonL6Error("captured nowcasts and features are not row-aligned")
+    again = core.l6_own_nowcast(frozen, feat)
+    want = ref.n_own.to_numpy(float)
+    both = np.isfinite(again) | np.isfinite(want)
+    gap = float(np.nanmax(np.abs(again[both] - want[both])))
+    if not gap <= 1e-9:
+        raise SeasonL6Error(f"control: frozen state does not reproduce 3806687c (gap {gap})")
+    now = ref.copy()
+    now["n_own"] = core.l6_own_nowcast(season, feat)
+    out.mkdir(parents=True, exist_ok=True)
+    now_path = out / "nowcasts_season_dev.parquet"
+    now.to_parquet(now_path, index=False)
+    now_sha = _sha(now_path)
+
+    cs._pin(mg2_coefficients, cs.MG2_COEF_SHA256, "MG-2 coefficients")
+    part = json.loads(Path(mg2_coefficients).read_text(encoding="utf-8"))["l6_stack"]
+    psha = hashlib.sha256(json.dumps(part, sort_keys=True, separators=(",", ":"), allow_nan=False)
+                          .encode("utf-8")).hexdigest()
+    if psha != L6_PART_SHA256:
+        raise SeasonL6Error(f"l6_stack part sha {psha} != {L6_PART_SHA256}")
+    state = {"coef": {int(h): tuple(v) for h, v in part["coef"].items()}, "column": part["column"]}
+    os.environ["L6_NOWCASTS"] = str(now_path)
+    from weather.reporting.scorecards.free_source_candidates import l6_stack
+
+    l6_stack._CACHE.clear()
+    start, end = data.check_range(DEV_FROM, DEV_TO)
+    lay = data.load_layout(layout, start, end)
+    snaps = lay.snaps.reset_index(drop=True)
+    if (snaps.date.astype(str) > DEV_TO).any():
+        raise SeasonL6Error("a layout snapshot is after 2026-09-29")
+    snaps = snaps.assign(floor=snaps[list(data.FLOOR_FIELDS)].apply(pd.to_numeric, errors="coerce").max(axis=1))
+    vec = l6_stack.predict(state, snaps, lay.bands)
+    if l6_stack.nowcasts()[1] != now_sha:
+        raise SeasonL6Error("l6_stack read a nowcast file other than the season-matched one")
+    keys = snaps[["row_key", "snapshot_id", "market", "date", "local_hour", "captured_at_utc"]].copy()
+    keys["date"] = keys.date.astype(str).str[:10]
+    vec = vec.merge(keys, on="row_key", how="left", validate="many_to_one")
+    vec_path = out / "l6_stack_season_dev_vectors.parquet"
+    vec.to_parquet(vec_path, index=False)
+    n_rows = snaps.local_hour.isin(cs.HOURS_0712).to_numpy()
+    has_n = np.isfinite(now.set_index("row_key").n_own.reindex(snaps.row_key).to_numpy(float))
+    manifest = {"state_sha256": state_sha, "frozen_control_gap": gap, "l6_part_sha256": psha,
+                "coefficients_file_sha256": cs.MG2_COEF_SHA256, "layout_manifest_sha256": LAYOUT_MANIFEST_SHA256,
+                "captured_features_sha256": CAPTURED_FEATURES_SHA256,
+                "nowcasts": {"path": str(now_path), "sha256": now_sha, "rows": int(len(now)),
+                             "columns": list(now.columns), "key": "row_key = '<market>|<captured_at local ISO>'",
+                             "replaces": FROZEN_DEV_NOWCASTS_SHA256},
+                "vectors": {"path": str(vec_path), "sha256": _sha(vec_path), "rows": int(len(vec)),
+                            "snapshots": int(vec.row_key.nunique()), "columns": list(vec.columns),
+                            "key": "row_key (layout); snapshot_id, market, date, local_hour, captured_at_utc "
+                                   "carried for joins",
+                            "stack_rows_0712_with_nowcast": int((n_rows & has_n).sum())},
+                "dates": [DEV_FROM, DEV_TO], "rule_sha256": RULE_SHA256, "module_sha256": _sha(__file__)}
+    (out / "dev_emit_manifest.json").write_text(json.dumps(manifest, indent=1, sort_keys=True), encoding="utf-8")
+    return manifest
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="python -m weather.calibration.season_matched_l6",
                                      description="Lane L3 SM-L6 season-matched L6 (history only)")
@@ -290,6 +393,10 @@ def main(argv=None):
     f = sub.add_parser("final")
     for flag in ("--research-root", "--loyo-result", "--rule", "--out-dir", "--commit"):
         f.add_argument(flag, required=True)
+    e = sub.add_parser("dev-emit")
+    for flag in ("--state-dir", "--state-sha256", "--captured-dir", "--frozen-l6-state", "--mg2-coefficients",
+                 "--layout", "--out-dir"):
+        e.add_argument(flag, required=True)
     args = parser.parse_args(argv)
     if args.cmd == "loyo":
         out = loyo(research_root=args.research_root, nbm_corpus=args.nbm_corpus, l6_state=args.l6_state,
@@ -297,6 +404,11 @@ def main(argv=None):
         print(json.dumps({"decision": out["decision"],
                           "season": {k: out["season_matched_loyo"][k].get("pooled") for k, _ in PERIODS},
                           "frozen_ref": out["frozen_augsep_reference"]["oct_dec"].get("pooled")}, indent=1))
+    elif args.cmd == "dev-emit":
+        print(json.dumps(dev_emit(state_dir=args.state_dir, state_sha=args.state_sha256,
+                                  captured_dir=args.captured_dir, frozen_l6_state=args.frozen_l6_state,
+                                  mg2_coefficients=args.mg2_coefficients, layout=args.layout,
+                                  out_dir=args.out_dir), indent=1, sort_keys=True))
     else:
         print(json.dumps(final(research_root=args.research_root, loyo_result=args.loyo_result, rule=args.rule,
                                out_dir=args.out_dir, commit=args.commit), indent=1, sort_keys=True))
