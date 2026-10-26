@@ -48,3 +48,31 @@ def test_hook_and_ps1_admit_the_module_exactly():
     }}, constrained_capture_host=False) is not None
     text = (ROOT / "scripts" / "ops" / "workload_admission.ps1").read_text(encoding="utf-8")
     assert f'"{MODULE}",' in text
+
+
+def test_k_extra_is_nan_on_a_miss_and_gaps_against_the_anchor():
+    import math
+
+    assert all(math.isnan(x) for x in cs.k_extra(None, 70.0))
+    assert all(math.isnan(x) for x in cs.k_extra({"k_max": 80.0, "k_tcdc": 10.0, "k_miss": 1.0}, 70.0))
+    assert cs.k_extra({"k_max": 80.0, "k_tcdc": 10.0, "k_miss": 0.0}, 77.5) == [80.0, 2.5, 10.0]
+
+
+def test_bind_l2_state_refuses_a_failing_control(tmp_path):
+    import json
+
+    (tmp_path / "control.json").write_text(json.dumps({"pass": False, "state_sha256": "a" * 64}))
+    with pytest.raises(cs.CoolSeasonError):
+        cs.bind_l2_state(tmp_path)
+    blob = pickle.dumps({"extra_hgb": ["k_max", "k_gap", "k_tcdc"]})
+    (tmp_path / "p3d_h_state.pkl").write_bytes(blob)
+    import hashlib
+
+    sha = hashlib.sha256(blob).hexdigest()
+    (tmp_path / "control.json").write_text(json.dumps({"pass": True, "state_sha256": sha}))
+    (tmp_path / "p3d_h_state.json").write_text(json.dumps({"state_sha256": "b" * 64}))
+    with pytest.raises(cs.CoolSeasonError):
+        cs.bind_l2_state(tmp_path)
+    (tmp_path / "p3d_h_state.json").write_text(json.dumps({"state_sha256": sha}))
+    state, got, _ = cs.bind_l2_state(tmp_path)
+    assert got == sha and state["extra_hgb"] == ["k_max", "k_gap", "k_tcdc"]

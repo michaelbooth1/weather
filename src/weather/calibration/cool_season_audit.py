@@ -303,6 +303,163 @@ def load_state(path, sha):
     return pickle.loads(blob)
 
 
+# ---------------------------------------------------------------- 1b: P3d_H 13-16 (L2's MG-3 state)
+
+HRRR_1316_SHAS = {"manifest.jsonl": "409f6f917f2bca2999ebf39c52440c673760356295aaa291f572bfe624269935",
+                  "selections.jsonl": "055add5a4a2aa25483f70ee6c355562d4730e8b01daa1f8b56adb5788512ec75",
+                  "stations.json": "52e8bb5f22513828cb5edbfc16b77afb293cfcb9df62a92abd4db30ab7a0abe3"}
+P3DH_EXTRA = ("k_max", "k_gap", "k_tcdc")
+RK_VARIABLES = {"TMP": "TMP:2 m above ground", "TCDC": "TCDC:entire atmosphere"}
+RK_VALID_END_LOCAL = 17
+RK_MARGIN_S = 10 * 60
+RK_TMP_RANGE_F = (-60.0, 130.0)
+
+
+def _json_lines(path, stats, name):
+    with open(path, "rb") as handle:
+        for line in handle:
+            if line.strip():
+                try:
+                    yield json.loads(line)
+                except json.JSONDecodeError:
+                    stats[f"{name}_corrupt_line"] += 1
+
+
+def hrrr_k_columns(corpus_dir, markets, hours=HOURS_1316):
+    """R-K raw path, nearest cell (a read-only copy of L2's ``rk_hrrr_columns`` with ``point=None``):
+    {(market, local_date, hour): {k_max, k_tcdc, k_miss, reason}} plus counts. Inputs only."""
+    from datetime import datetime, time, timedelta
+    from zoneinfo import ZoneInfo
+
+    corpus = Path(corpus_dir)
+    stats = Counter()
+    stations = json.loads((corpus / "stations.json").read_bytes())
+    icao_market = {icao: s["market"] for icao, s in stations.items() if s.get("market") in markets}
+    tzs = {icao: ZoneInfo(stations[icao]["tz"]) for icao in icao_market}
+    messages, mismatched = {}, set()
+    for m in _json_lines(corpus / "manifest.jsonl", stats, "manifest"):
+        record = str(m.get("idx_record") or "")
+        var = next((v for v, prefix in RK_VARIABLES.items() if record.startswith(prefix + ":")), None)
+        if var is None:
+            continue
+        cycle, fh = datetime.fromisoformat(m["cycle_utc"]), int(m["fh"])
+        key = (cycle, fh, var)
+        want = f"hrrr.{cycle:%Y%m%d}/conus/hrrr.t{cycle:%H}z.wrfsfcf{fh:02d}.grib2"
+        if m.get("key") != want or record != f"{RK_VARIABLES[var]}:{fh} hour fcst:":
+            stats["manifest_identity_mismatch"] += 1
+            mismatched.add(key)
+            continue
+        values = {icao: (cell or {}).get("nearest") for icao, cell in (m.get("points") or {}).items()
+                  if icao in icao_market}
+        if key in messages:
+            if messages[key] != values:
+                stats["manifest_duplicate_conflict"] += 1
+                mismatched.add(key)
+            continue
+        messages[key] = values
+    out = {}
+    for s in _json_lines(corpus / "selections.jsonl", stats, "selections"):
+        icao = s.get("station")
+        if icao not in icao_market:
+            continue
+        market, day, hour = icao_market[icao], str(s["local_date"]), int(s["hour_local"])
+        if hour not in hours or (market, day, hour) in out:
+            continue
+        if day > "2025-12-31":
+            raise CoolSeasonError(f"HRRR selection after 2025: {market} {day}")
+        tz, target = tzs[icao], date.fromisoformat(day)
+        snapshot = datetime.combine(target, time(hour, 0), tzinfo=tz)
+        window_end = datetime.combine(target, time(RK_VALID_END_LOCAL, 0), tzinfo=tz)
+        entry = {"k_max": float("nan"), "k_tcdc": float("nan"), "k_miss": 1.0, "reason": None}
+        out[(market, day, hour)] = entry
+        fhs = list(s.get("fhs") or [])
+        if datetime.fromisoformat(s["snapshot_utc"]) != snapshot:
+            entry["reason"] = "snapshot_mismatch"
+        elif s.get("cycle_utc") is None or not fhs:
+            entry["reason"] = "no_cycle"
+        else:
+            cycle = datetime.fromisoformat(s["cycle_utc"])
+            latest = s.get("latest_available_utc")
+            valid = [cycle + timedelta(hours=int(fh)) for fh in fhs]
+            if latest is None or datetime.fromisoformat(latest) + timedelta(seconds=RK_MARGIN_S) > snapshot:
+                entry["reason"] = "pit_violation"
+            elif min(valid) < snapshot or max(valid) > window_end:
+                entry["reason"] = "window_violation"
+            else:
+                tmp, tcdc = [], []
+                for fh in fhs:
+                    for var, sink in (("TMP", tmp), ("TCDC", tcdc)):
+                        k = (cycle, int(fh), var)
+                        if k in mismatched:
+                            entry["reason"] = "identity_mismatch"
+                        v = messages.get(k, {}).get(icao)
+                        sink.append(float("nan") if v is None else float(v))
+                if entry["reason"] is None:
+                    if not all(math.isfinite(v) for v in tmp + tcdc):
+                        entry["reason"] = "message_absent"
+                    else:
+                        tmp_f = [(v - 273.15) * 9.0 / 5.0 + 32.0 for v in tmp]
+                        if min(tmp_f) < RK_TMP_RANGE_F[0] or max(tmp_f) > RK_TMP_RANGE_F[1]:
+                            entry["reason"] = "tmp_out_of_range"
+                        else:
+                            entry.update(k_max=max(tmp_f), k_tcdc=sum(tcdc) / len(tcdc), k_miss=0.0)
+        stats["covered" if entry["k_miss"] == 0.0 else f"miss_{entry['reason']}"] += 1
+    return out, dict(stats)
+
+
+def k_extra(entry, nbm_mean):
+    """[k_max, k_gap, k_tcdc] (R-K ``rk_columns``); NaN on a miss (the HGB takes NaN, as L2's serve does)."""
+    if entry is None or entry["k_miss"]:
+        return [float("nan")] * 3
+    nm = float("nan") if nbm_mean is None else float(nbm_mean)
+    return [entry["k_max"], entry["k_max"] - nm if math.isfinite(nm) else float("nan"), entry["k_tcdc"]]
+
+
+def bind_l2_state(state_dir):
+    """L2's 1a state: control.json must PASS; its state_sha256 must equal the sidecar's and the file's."""
+    d = Path(state_dir)
+    control = json.loads((d / "control.json").read_text(encoding="utf-8"))
+    if control.get("pass") is not True:
+        raise CoolSeasonError(f"L2 control {d / 'control.json'} does not PASS; (1b) not scorable")
+    sidecar = json.loads((d / "p3d_h_state.json").read_text(encoding="utf-8"))
+    sha = control.get("state_sha256")
+    if not sha or sidecar.get("state_sha256") != sha:
+        raise CoolSeasonError("L2 control and sidecar state sha256 differ")
+    state = load_state(d / "p3d_h_state.pkl", sha)
+    if tuple(state.get("extra_hgb") or ()) != P3DH_EXTRA:
+        raise CoolSeasonError(f"L2 state extra_hgb {state.get('extra_hgb')} != {P3DH_EXTRA}")
+    return state, sha, _sha(d / "control.json")
+
+
+def part1b(*, nbm_corpus, records_root, state_1316, hrrr_1316, rule, out_path):
+    check_rule(rule)
+    _pin(nbm_corpus, "1ae4bf52a0e032fc0c05ddfa7b282a17db53bd9a2e3f3a32a9a5686139faa1fd", "NBM corpus")
+    for name, sha in HRRR_1316_SHAS.items():
+        _pin(Path(hrrr_1316) / name, sha, f"HRRR 13-16 {name}")
+    state, state_sha, control_sha = bind_l2_state(state_1316)
+    recf, shas, missing = record_rows(records_root, nbm_corpus)
+    hrrr, hstats = hrrr_k_columns(hrrr_1316, set(recf.market))
+    keys = list(zip(recf.market, recf.local_date, recf.hour.astype(int)))
+    recf["hrrr_covered"] = [hrrr.get(k) is not None and not hrrr[k]["k_miss"] for k in keys]
+    p3s, p3stats = score_p3d(recf, state, extra=lambda r: k_extra(hrrr.get((r.market, r.local_date, int(r.hour))),
+                                                                  r.nbm_mean))
+    cmp = compare(p3s, "part", "mg1", HOURS_1316)
+    payload = {
+        "label": "CS-1 (1b) cool-season transfer audit, history only, descriptive: L2's frozen MG-3 P3d_H 13-16 "
+                 "(control PASS, sha-bound) vs the MG-1 analogue; Aug-Sep is IN-SAMPLE; Oct-Dec rows are never "
+                 "training rows but share the training years 2021-25; no binding change",
+        "rule_sha256": RULE_CS_SHA256, "module_sha256": _sha(__file__),
+        "p3d_h_1316": dict(cmp, rows=int(len(recf)), stats=p3stats, state_sha256=state_sha,
+                           l2_control_sha256=control_sha, hrrr_stats=hstats,
+                           hrrr_covered_by_period={n: [int(recf.hrrr_covered[recf.month.isin(m)].sum()),
+                                                       int(recf.month.isin(m).sum())] for n, m in PERIODS},
+                           records_missing=missing, records_sha256=shas),
+        "p3d_h_0712": "NOT SCORABLE on Oct-Dec: no HRRR 07-12 for Oct-Dec in L13's corpus (coverage.json)",
+        "blend_l6_h_0712": "NOT SCORABLE on Oct-Dec: its P3d_H 07-12 input has no Oct-Dec HRRR (coverage.json)"}
+    _write_once(out_path, payload)
+    return payload
+
+
 # ---------------------------------------------------------------- subcommands
 
 def coverage(*, research_root, nbm_corpus, records_root, hrrr_roots, rule, out_path):
@@ -417,12 +574,21 @@ def main(argv=None):
     for flag in ("--research-root", "--nbm-corpus", "--records-root", "--l6-state", "--mg2-coefficients",
                  "--p3d-n-state", "--rule", "--out"):
         a1.add_argument(flag, required=True)
+    b1 = sub.add_parser("part1b")
+    for flag in ("--nbm-corpus", "--records-root", "--state-1316", "--hrrr-1316", "--rule", "--out"):
+        b1.add_argument(flag, required=True)
     a = parser.parse_args(argv)
     if a.cmd == "coverage":
         roots = dict(x.split("=", 1) for x in a.hrrr)
         out = coverage(research_root=a.research_root, nbm_corpus=a.nbm_corpus, records_root=a.records_root,
                        hrrr_roots=roots, rule=a.rule, out_path=a.out)
         print(json.dumps({k: v["octdec_backfill_estimate_gb"] for k, v in out["hrrr"].items()}, indent=1))
+    elif a.cmd == "part1b":
+        out = part1b(nbm_corpus=a.nbm_corpus, records_root=a.records_root, state_1316=a.state_1316,
+                     hrrr_1316=a.hrrr_1316, rule=a.rule, out_path=a.out)
+        x = out["p3d_h_1316"]
+        print(json.dumps({"reading": x["transfer_reading"], "stats": x["stats"],
+                          "periods": {k: v["by"].get("pooled") for k, v in x["periods"].items()}}, indent=1))
     else:
         out = part1a(research_root=a.research_root, nbm_corpus=a.nbm_corpus, records_root=a.records_root,
                      l6_state=a.l6_state, mg2_coefficients=a.mg2_coefficients, p3d_n_state=a.p3d_n_state,

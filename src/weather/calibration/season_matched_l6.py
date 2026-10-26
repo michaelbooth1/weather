@@ -123,6 +123,73 @@ def decide(pooled):
     return ARM_SEASON if hi is not None and hi < 0 else ARM_MG1
 
 
+VECTORS_FILE = "loyo_vectors.parquet"
+VECTOR_COLUMNS = ("local_date", "market", "hour", "band_f", "band_open_top", "p_season_l6_stack", "p_mg1_analogue",
+                  "fold_year")
+
+
+def bucket_probs(mu, sigma, floor_r):
+    """The integer-bucket probability matrix ``rz_hrrr_spread.bucket_brier`` scores, and its bands.
+
+    Band k (deg F) runs from half-up(floor) for ``SUPPORT`` bands; the last band is open above (k and higher).
+    """
+    import numpy as np
+    from scipy.special import ndtr
+
+    from weather.calibration import rz_hrrr_spread as rz
+
+    mu, sigma = np.asarray(mu, float), np.asarray(sigma, float)
+    B = np.floor(np.asarray(floor_r, float) + 0.5)
+    k = B[:, None] + np.arange(rz.SUPPORT)[None, :]
+    lower = ndtr((k - 0.5 - mu[:, None]) / sigma[:, None])
+    upper = ndtr((k + 0.5 - mu[:, None]) / sigma[:, None])
+    upper[:, -1] = 1.0
+    mass = np.clip(upper - lower, 0.0, None)
+    total = mass.sum(1)
+    dead = ~(total > 0)
+    mass[dead] = 0.0
+    mass[dead, 0] = 1.0
+    return mass / np.where(dead, 1.0, total)[:, None], k
+
+
+def write_vectors(rows, mu_season, base_ok, out_dir):
+    """Per (date, market, hour, band) LOYO season-L6 stack and MG-1 analogue probabilities; nonzero bands only.
+
+    Self-check: the Brier recomputed from the vectors equals ``bucket_brier`` per row to 1e-12. -> (path, sha).
+    """
+    import numpy as np
+    import pandas as pd
+
+    from weather.calibration import rz_hrrr_spread as rz
+
+    f = rows[base_ok].reset_index(drop=True)
+    v, s = f.v.to_numpy(float), np.maximum(f.s.to_numpy(float), 1.0)
+    R, dmax = f.r.to_numpy(float), f.dmax.to_numpy(float)
+    mu = mu_season[base_ok]
+    ps, k = bucket_probs(mu, s, R)
+    pm, _ = bucket_probs(v, s, R)
+    for p, ref in ((ps, rz.bucket_brier(mu, s, R, dmax)), (pm, rz.bucket_brier(v, s, R, dmax))):
+        onehot = (k == dmax[:, None]).astype(float)
+        got = ((p - onehot) ** 2).sum(1) + (~onehot.any(1)).astype(float)
+        if not np.allclose(got, ref, atol=1e-12, rtol=0):
+            raise SeasonL6Error("vector Brier does not reproduce bucket_brier")
+    keep = (ps > 0) | (pm > 0)
+    i, j = np.nonzero(keep)
+    out = pd.DataFrame({"local_date": f.local_date.to_numpy()[i], "market": f.market.to_numpy()[i],
+                        "hour": f.hour.to_numpy(int)[i], "band_f": k[i, j].astype(int),
+                        "band_open_top": j == ps.shape[1] - 1, "p_season_l6_stack": ps[i, j],
+                        "p_mg1_analogue": pm[i, j], "fold_year": f.year.to_numpy(int)[i]})
+    out = out.sort_values(["local_date", "market", "hour", "band_f"]).reset_index(drop=True)
+    from weather.calibration import pooled_residual_model as l2
+
+    path = l2.require_output_outside_repo(Path(out_dir) / VECTORS_FILE)
+    if path.exists():
+        raise SeasonL6Error(f"refusing to overwrite {path}")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    out.to_parquet(path, index=False)
+    return str(path), _sha(path), int(len(f)), int(len(out))
+
+
 def loyo(*, research_root, nbm_corpus, l6_state, mg2_coefficients, rule, out_path):
     import numpy as np
 
@@ -160,6 +227,8 @@ def loyo(*, research_root, nbm_corpus, l6_state, mg2_coefficients, rule, out_pat
     season = tables(rows, p_season, base)
     reference = tables(rows, p_frozen, base_f)
     decision = decide(season["oct_dec"].get("pooled"))
+    vec_ok = np.isfinite(p_season) & np.isfinite(base)
+    vpath, vsha, vrows, vlines = write_vectors(rows, mu_s, vec_ok, Path(out_path).parent)
     payload = {
         "label": "SM-L6 season-matched L6 stack, LOYO 2021-25 Oct-Dec 07-12 vs the MG-1 analogue, history only; "
                  "MG-2 l6_stack coefficients frozen as bound, only the HGB swapped",
@@ -169,7 +238,9 @@ def loyo(*, research_root, nbm_corpus, l6_state, mg2_coefficients, rule, out_pat
         "training": {"rows": int(len(train)), "first": str(train.local_date.min()),
                      "last": str(train.local_date.max()), "months": list(TRAIN_MONTHS)},
         "coef": coef, "coef_sha256": cs.MG2_COEF_SHA256, "frozen_l6_sha256": cs.L6_STATE_SHA256,
-        "inputs": dict(prov, nbm_corpus_sha256=NBM_CORPUS_SHA256), "scored_rows": int(len(rows))}
+        "inputs": dict(prov, nbm_corpus_sha256=NBM_CORPUS_SHA256), "scored_rows": int(len(rows)),
+        "vectors": {"path": vpath, "sha256": vsha, "columns": list(VECTOR_COLUMNS), "snapshot_rows": vrows,
+                    "lines": vlines, "note": "nonzero bands only; band_open_top marks the open top band; MG-1 analogue on the same rows"}}
     cs._write_once(out_path, payload)
     return payload
 

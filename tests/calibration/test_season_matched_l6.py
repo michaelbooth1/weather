@@ -71,3 +71,15 @@ def test_hook_and_ps1_admit_the_module_exactly():
     assert MODULE + "_x" not in hook._OFFLINE_WEATHER_MODULES
     text = (ROOT / "scripts" / "ops" / "workload_admission.ps1").read_text(encoding="utf-8")
     assert f'"{MODULE}",' in text
+
+
+def test_bucket_probs_reproduce_bucket_brier():
+    from weather.calibration import rz_hrrr_spread as rz
+
+    mu, sig, R = np.array([70.2, 55.0, 90.0]), np.array([1.0, 2.5, 3.0]), np.array([68.4, 56.0, 60.0])
+    y = np.array([70.0, 56.0, 91.0])
+    p, k = sm.bucket_probs(mu, sig, R)
+    assert np.allclose(p.sum(1), 1.0)
+    assert k[0, 0] == 68 and k[1, 0] == 56
+    onehot = (k == y[:, None]).astype(float)
+    assert np.allclose(((p - onehot) ** 2).sum(1), rz.bucket_brier(mu, sig, R, y), atol=1e-12)
