@@ -794,7 +794,10 @@ GATE_EXCLUDED_MARKETS = ("denver",)
 
 
 def gate_layout(layout):
-    """The layout restricted to the gate population (rule §8 C8): every frame loses the excluded markets' rows."""
+    """The layout restricted to the gate population (rule §8 C8).
+
+    Every frame (snapshots, bands, labels, market) loses the excluded markets' rows.
+    """
     import dataclasses
 
     keep = set(layout.snaps.row_key[~layout.snaps.market.astype(str).isin(GATE_EXCLUDED_MARKETS)])
@@ -1088,7 +1091,8 @@ def main(argv=None):
         if args.command == "dev":
             result = dev_run(args.layout, args.post, args.nowcasts, args.out,
                              n_values=tuple(int(x) for x in args.n.split(",")), margin=args.margin)
-            result = {k: result[k] for k in ("population", "coverage", "controls", "groups", "gate_groups", "sizing")}
+            result = {k: result[k] for k in ("population", "coverage", "controls", "groups", "gate_groups",
+                                             "sizing")}
         elif args.command == "freeze":
             result = freeze(args.layout, args.nowcasts, args.out)
         elif args.command == "nowcast":

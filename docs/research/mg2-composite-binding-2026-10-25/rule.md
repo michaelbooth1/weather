@@ -436,6 +436,32 @@ It supersedes C4's gate role for `last_in_hour` and changes nothing else.
   - The forward emit audit records `gate_vectors`.
   - `tests/calibration/test_mg2_c7_gate.py` pins the refusal and the acceptance.
 
+**Clarification C8 (2026-10-25, master's ruling, not the owner's; dated before D0): Denver leaves the
+gate.** The G1/G2 gate population (§5) is the 10 markets without Denver.
+- **Why:** Denver settles on KDEN from the 2026-10-23 events, while MG-1 and MG-2 model KBKF. Denver
+  dates from 10-23 are unsupported for model scoring until a KDEN model passes the gates
+  (`docs/operations/DECISION_LOG.md`, 2026-10-23, "Denver settles on KDEN from the 10-23 events";
+  `docs/operations/STATE_OF_PLAY.md`; study `docs/research/denver-kden-vs-kbkf-2026-10-23.md`). Every
+  forward date is after 10-23.
+- **Scope:** only the gate population changes. Emission, the vectors, the dev control replay, the margin
+  and the switch hour are unchanged, and Denver rows are still emitted (DESCRIPTIVE).
+- **Expected size (dev, 08-15..09-29, `last_in_hour` per C7, selection evidence only):** the composite's
+  own dev run on L2's dev P3d_N distributions and the captured nowcast; component controls are exact (max
+  abs 0). The dev control replay with the C7 and C8 code still reproduces the dev control vectors
+  `8f3e5895…` exactly (max abs 0).
+
+| Gate | 11 markets (473 cells) | 10 markets, no Denver (430 cells) |
+| --- | --- | --- |
+| G1 Δ(00-16) | −0.0049 [−0.0064, −0.0034] | −0.0049 [−0.0065, −0.0034] |
+| G2 Δ(13-16) | −0.0155 [−0.0195, −0.0117] | −0.0150 [−0.0189, −0.0115] |
+
+- **Enforcement:**
+  - `mg2_composite.GATE_EXCLUDED_MARKETS = ("denver",)`.
+  - `score` restricts every layout frame to the gate population before it builds the table, and records
+    `gate_excluded_markets`.
+  - The dev sizing reports `gate_groups` beside the 11-market groups.
+  - `tests/calibration/test_mg2_c8_gate.py` pins that Denver rows never reach the gate.
+
 After D0 nothing in §1-§7 changes. The only exception is the §4.3 owner-decision Clarification, which
 changes permission, not design.
 
