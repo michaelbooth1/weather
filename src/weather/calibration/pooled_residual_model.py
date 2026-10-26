@@ -556,11 +556,14 @@ class ConstantScale:
 
 
 def fit_pooled(train, *, market_id, doy, raw_columns=True, bias_by="season", simple=False, extra_ols=(),
-               extra_hgb=()):
+               extra_hgb=(), extra_scale=()):
     """Mean model on all training rows plus an inner-LOYO scale model and z set.
 
     ``simple`` (rung 07-12 baseline B_N): OLS on [1, g, max(g, 0)] only (no HGB residual) and a constant
     scale, so mean = nbm_mean + bias + OLS; z = errors / that constant scale.
+    ``extra_scale`` (R-S, rule_rs.md condition 1): columns appended to the scale HGB's input only; the mean model
+    is untouched. The fit then also carries ``gs_ratio`` = s_new / s_old on the training rows, where s_old is the
+    scale model without the columns on the same OOF errors (guard G-s).
     """
     import numpy as np
     from sklearn.ensemble import HistGradientBoostingRegressor
@@ -578,6 +581,8 @@ def fit_pooled(train, *, market_id, doy, raw_columns=True, bias_by="season", sim
     mean = MeanModel(market_id=market_id, doy=doy, raw_columns=raw_columns, bias_by=bias_by,
                      use_hgb=not simple, extra_ols=extra_ols, extra_hgb=extra_hgb).fit(train)
     if simple:
+        if extra_scale:
+            raise PooledModelError("extra_scale needs the HGB scale model (simple=False)")
         scale = ConstantScale(np.nanmean(np.abs(errors)))
         s_train = max(MIN_SCALE, scale.value * math.sqrt(math.pi / 2))
         return {"mean": mean, "scale": scale, "z": errors / s_train}
@@ -585,9 +590,26 @@ def fit_pooled(train, *, market_id, doy, raw_columns=True, bias_by="season", sim
     yhat_oof = train["y"].to_numpy(float) - errors
     floor_gap = np.nan_to_num(yhat_oof - train["F"].to_numpy(float), nan=0.0)
     scale = HistGradientBoostingRegressor(**SCALE_HGB_PARAMS)
-    scale.fit(np.column_stack([X, floor_gap]), np.abs(errors))
-    s_train = np.maximum(MIN_SCALE, scale.predict(np.column_stack([X, floor_gap])) * math.sqrt(math.pi / 2))
-    return {"mean": mean, "scale": scale, "z": errors / s_train}
+    if not extra_scale:
+        scale.fit(np.column_stack([X, floor_gap]), np.abs(errors))
+        s_train = np.maximum(MIN_SCALE, scale.predict(np.column_stack([X, floor_gap])) * math.sqrt(math.pi / 2))
+        return {"mean": mean, "scale": scale, "z": errors / s_train}
+    base_in = np.column_stack([X, floor_gap])
+    s_in = np.column_stack([base_in] + [train[c].to_numpy(float) for c in extra_scale])
+    scale.fit(s_in, np.abs(errors))
+    s_train = np.maximum(MIN_SCALE, scale.predict(s_in) * math.sqrt(math.pi / 2))
+    base = HistGradientBoostingRegressor(**SCALE_HGB_PARAMS).fit(base_in, np.abs(errors))
+    s_old = np.maximum(MIN_SCALE, base.predict(base_in) * math.sqrt(math.pi / 2))
+    return {"mean": mean, "scale": scale, "z": errors / s_train, "extra_scale": tuple(extra_scale),
+            "gs_ratio": s_train / s_old}
+
+
+def _scale_input(fitted, X, gap, frame):
+    """The scale model's input: [X, floor gap] plus any R-S ``extra_scale`` columns of ``frame``."""
+    import numpy as np
+
+    extra = fitted.get("extra_scale", ())
+    return np.column_stack([X, gap] + [frame[c].to_numpy(float) for c in extra])
 
 
 def predictive_distribution(yhat, s, floor, z, bucket_space, p_clim):
@@ -1339,15 +1361,16 @@ def rung_inputs(snapshot, target_date, tz, hour, unit, captured_local, running_m
 
 
 def _arm_spec(spec):
-    """RUNG arm value -> (simple, extra_ols, extra_hgb); a bare bool is the R-A form."""
+    """RUNG arm value -> (simple, extra_ols, extra_hgb, extra_scale); a bare bool is the R-A form."""
     if isinstance(spec, bool):
-        return spec, (), ()
-    return bool(spec["simple"]), tuple(spec.get("extra_ols", ())), tuple(spec.get("extra_hgb", ()))
+        return spec, (), (), ()
+    return (bool(spec["simple"]), tuple(spec.get("extra_ols", ())), tuple(spec.get("extra_hgb", ())),
+            tuple(spec.get("extra_scale", ())))
 
 
-def _rung_entry(train, simple, extra_ols=(), extra_hgb=()):
+def _rung_entry(train, simple, extra_ols=(), extra_hgb=(), extra_scale=()):
     return {"fit": fit_pooled(train, market_id=False, doy=True, raw_columns=False, simple=simple,
-                              extra_ols=extra_ols, extra_hgb=extra_hgb),
+                              extra_ols=extra_ols, extra_hgb=extra_hgb, extra_scale=extra_scale),
             "train_y": {m: [int(v) for v in train.loc[train["market"] == m, "y"]] for m in train["market"].unique()}}
 
 
@@ -1366,14 +1389,20 @@ def _dist_from_fit(entry, one, buckets, market):
     fitted = entry["fit"]
     yhat, X = fitted["mean"].predict(one)
     gap = np.nan_to_num(yhat - one["F"].to_numpy(float), nan=0.0)
-    s = np.maximum(MIN_SCALE, fitted["scale"].predict(np.column_stack([X, gap])) * math.sqrt(math.pi / 2))
+    s = np.maximum(MIN_SCALE, fitted["scale"].predict(_scale_input(fitted, X, gap, one)) * math.sqrt(math.pi / 2))
     p_clim = fm.smoothed_dist(entry["train_y"][market], buckets[market], alpha=0.10)
     return [predictive_distribution(float(yhat[i]), float(s[i]), float(one["F"].iat[i]), fitted["z"],
                                     buckets[market], p_clim) for i in range(len(one))]
 
 
-def rung_loyo(frame, buckets, hours=RUNG_HOURS, arms=None):
-    """Blocked leave-one-year-out on the 2021-25 Aug-Sep rows, both rung arms, identical rows."""
+def rung_loyo(frame, buckets, hours=RUNG_HOURS, arms=None, mean_pairs=None, mean_out=None):
+    """Blocked leave-one-year-out on the 2021-25 Aug-Sep rows, both rung arms, identical rows.
+
+    ``mean_pairs`` {arm: reference arm} (R-S control C-mean): ``mean_out[arm]`` receives the largest |difference|
+    of the two arms' mean predictions over every validation row. It does not change any score.
+    """
+    import numpy as np
+
     from weather.calibration import feature_model as fm
 
     arms = arms or RUNG_ARMS
@@ -1384,14 +1413,19 @@ def rung_loyo(frame, buckets, hours=RUNG_HOURS, arms=None):
             train = at_hour[at_hour["year"] != year].reset_index(drop=True)
             val = at_hour[at_hour["year"] == year].reset_index(drop=True)
             out = {}
+            entries = {}
             for arm, spec in arms.items():
-                entry = _rung_entry(train, *_arm_spec(spec))
+                entry = entries[arm] = _rung_entry(train, *_arm_spec(spec))
                 for market in sorted(val["market"].unique()):
                     part = val[val["market"] == market].reset_index(drop=True)
                     for i, dist in enumerate(_dist_from_fit(entry, part, buckets, market)):
                         actual = int(part.at[i, "y"])
                         out.setdefault((market, str(part.at[i, "target_date"])[:10]), {})[arm] = (
                             fm.brier_score(dist, actual), fm.log_loss(dist, actual))
+            for arm, ref in (mean_pairs or {}).items():
+                a, _ = entries[arm]["fit"]["mean"].predict(val)
+                b, _ = entries[ref]["fit"]["mean"].predict(val)
+                mean_out[arm] = max(mean_out.get(arm, 0.0), float(np.max(np.abs(a - b))) if len(val) else 0.0)
             for (market, day), v in out.items():
                 rows.append({"hour": int(hour), "year": int(year), "market": market, "date": day,
                              **{f"{a}_brier": v[a][0] for a in arms}, **{f"{a}_log": v[a][1] for a in arms}})
@@ -1425,13 +1459,16 @@ def rung_loyo_summary(rows, draws=BOOTSTRAP_DRAWS, seed=BOOTSTRAP_SEED):
 
 
 def dev_emit_rung(*, records_root, layout, replay_root, nbm_train_corpus, out_dir, markets=R0_MARKETS,
-                  hours=RUNG_HOURS, loyo=True, arms=None, train_hook=None, row_hook=None):
+                  hours=RUNG_HOURS, loyo=True, arms=None, train_hook=None, row_hook=None, snap_columns=(),
+                  snap_hook=None, mean_pairs=None):
     """Rung 07-12: B_N and P3d_N_fix dev distributions plus the blocked LOYO table (rule C:/t/l2/rung0712/rule.md).
 
     Each layout row uses the latest replay snapshot captured at or before the row's own captured_at_utc.
     ``arms``/``train_hook``/``row_hook`` (R-K, R-L) add arms and extra input columns: ``train_hook(frame)`` returns
     (frame, stats); ``row_hook(market, target, hour, nbm, stats)`` returns the row's extra columns. With the
-    defaults the output is R-A's, byte for byte.
+    defaults the output is R-A's, byte for byte. R-S: ``snap_columns`` are extra layout columns read, and
+    ``snap_hook(row, stats)`` returns more extra columns from the layout row itself; ``mean_pairs`` {arm: reference}
+    records the largest |mean difference| per pair in ``audit["c_mean"]`` (control C-mean).
     """
     import pandas as pd
     from zoneinfo import ZoneInfo
@@ -1475,11 +1512,12 @@ def dev_emit_rung(*, records_root, layout, replay_root, nbm_train_corpus, out_di
     coords = station_coordinates(markets)
     snaps = pd.read_parquet(Path(layout) / "inputs_snapshots.parquet", columns=[
         "snapshot_id", "market", "target_date", "local_hour", "cutoff_hour",
-        "v2_mean", "v2_stddev", "v2_available_at", "captured_at_utc"])
+        "v2_mean", "v2_stddev", "v2_available_at", "captured_at_utc", *snap_columns])
     if (pd.to_datetime(snaps.target_date).dt.date > N_DEV_LAST).any():
         raise PooledModelError("layout holds a snapshot after 2026-09-29")
     snaps = snaps.assign(nbm_usable=usable_v2_mean(snaps))
     writers = {arm: open(path, "w", encoding="utf-8") for arm, path in paths.items()}
+    c_mean = {}
     try:
         for market in markets:
             spec = spec_for_id(market)
@@ -1550,7 +1588,12 @@ def dev_emit_rung(*, records_root, layout, replay_root, nbm_train_corpus, out_di
                             "x_high_so_far": float(rec["high_so_far"]), "x_current_temp": float(rec["current_temp"]),
                             "market_code": float(R0_MARKETS.index(market)),
                             **({} if row_hook is None else row_hook(market, target, hour, float(row.nbm_usable),
-                                                                    stats))}])
+                                                                    stats)),
+                            **({} if snap_hook is None else snap_hook(row, stats))}])
+                        for arm, ref in (mean_pairs or {}).items():
+                            a, _ = fits[(arm, hour)]["fit"]["mean"].predict(one)
+                            b, _ = fits[(ref, hour)]["fit"]["mean"].predict(one)
+                            c_mean[arm] = max(c_mean.get(arm, 0.0), abs(float(a[0]) - float(b[0])))
                         for arm in arms:
                             dist = _dist_from_fit(fits[(arm, hour)], one, buckets, market)[0]
                             writers[arm].write(json.dumps({
@@ -1565,6 +1608,8 @@ def dev_emit_rung(*, records_root, layout, replay_root, nbm_train_corpus, out_di
         for w in writers.values():
             w.close()
     audit["files"] = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in paths.values()}
+    if mean_pairs:
+        audit["c_mean"] = c_mean
     (out / "dev_emit_audit.json").write_text(json.dumps(audit, indent=1, sort_keys=True), encoding="utf-8")
     return audit
 
@@ -5162,6 +5207,572 @@ def rung_r_score(*, layout, emit_dir, coefficients, nowcasts, rf_result, out_pat
     return done()
 
 
+# ------------------------------------------------- R-S: NBM's own spread as a scale-model input (rule_rs.md)
+
+RS_RULE_SHA256 = "5fb593f4dbfac01fd0c9984ccb29522dbee979f54d27852baadccadcb21d13a2"
+RS_COLUMNS = ("nbm_sd", "nbm_qw")
+RS_PD_SHA256 = "ae029eda4e4f563dfeaaf21b3d014f19c05116b2697f7d6d4d0dba8a62112fbb"  # predictive_distribution source
+RS_SCORECARD_SHA256 = "f69071ac5612f022ade56ada764f813c28da79cd0265848c58041115439005c5"
+RS_PINNED = {"FLOOR_MIX_CLIM": 0.02, "MIN_SCALE": 0.5, "KERNEL_BANDWIDTH": 0.25,
+             "SCALE_HGB_PARAMS": {"max_iter": 100, "learning_rate": 0.05, "max_leaf_nodes": 7,
+                                  "min_samples_leaf": 40, "early_stopping": False, "random_state": 42}}
+RS_TRAIN_CORPUS_SHA256 = "1ae4bf52a0e032fc0c05ddfa7b282a17db53bd9a2e3f3a32a9a5686139faa1fd"
+RS_DEV_CORPUS_SHA256 = "85746b7a560116f632436b24f268938a0a4ec47bf6d748aacba6e0abef257727"
+RS_COVERAGE_MIN = 0.95
+RS_SD_RANGE = (0.0, 30.0)
+RS_QW_RANGE = (0.0, 60.0)
+RS_PARITY_MIN = 0.98
+RS_PARITY_TOL = 1e-6
+RS_GS_BAND = (0.95, 1.05)
+RS_S_SPEC = {"simple": False, "extra_scale": RS_COLUMNS}
+RS_WINDOWS = {
+    "07-12": {
+        "hours": RR_HOURS, "primary": ("P3d_H_S", "P3d_H"),
+        "arms": {"P3d_N_fix": False, "P3d_H": RK_ARMS["P3d_H"], "P3d_N_fix_S": RS_S_SPEC,
+                 "P3d_H_S": {**RK_ARMS["P3d_H"], "extra_scale": RS_COLUMNS}},
+        "pairs": {"P3d_H_S": "P3d_H", "P3d_N_fix_S": "P3d_N_fix"},
+        "reference_loyo_sha256": "170c61e36d0b4559a91389e01138d622bbccdc00d2091b8a80a21b8eaf7e383e",  # R-R
+        "control_arms": ("P3d_N_fix", "P3d_H"),
+        "base_dev": {"dev_P3d_H.jsonl": "a2dc30e2b0790ad4cf4ed167c329c00a6c87d4245fb1d6a55d0f80ffdfc14f3d"}},
+    "13-16": {
+        "hours": RK_HOURS, "primary": ("P3d_N_fix_S", "P3d_N_fix"),
+        "arms": {"P3d_N_fix": False, "P3d_N_fix_S": RS_S_SPEC},
+        "pairs": {"P3d_N_fix_S": "P3d_N_fix"},
+        "reference_loyo_sha256": "bb0bf4943b7105b3f0ded1ec327c80bbdc54d9cbcc657cd10bf50d49eb761ee3",  # R-K
+        "control_arms": ("P3d_N_fix",),
+        "base_dev": {"dev_P3d_N_fix.jsonl": "abc4350724fe42a5d2423dcf5dd3f1c1b06dcea4799cb0d297bd6de465096109"}},
+}
+
+
+def _rs_finite(value):
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        return float("nan")
+    return out if math.isfinite(out) else float("nan")
+
+
+def rs_pinned_check(with_scorecard=False):
+    """Condition 4: the floor censoring / 2% climatology code and the scale constants are byte-identical; refuse."""
+    import ast
+
+    src = Path(__file__).read_text(encoding="utf-8")
+    node = next(n for n in ast.parse(src).body
+                if isinstance(n, ast.FunctionDef) and n.name == "predictive_distribution")
+    got = {"predictive_distribution_sha256": hashlib.sha256(ast.get_source_segment(src, node).encode()).hexdigest(),
+           "FLOOR_MIX_CLIM": FLOOR_MIX_CLIM, "MIN_SCALE": MIN_SCALE, "KERNEL_BANDWIDTH": KERNEL_BANDWIDTH,
+           "SCALE_HGB_PARAMS": dict(SCALE_HGB_PARAMS)}
+    want = {"predictive_distribution_sha256": RS_PD_SHA256, **RS_PINNED}
+    if with_scorecard:
+        from weather.reporting.scorecards import dev_scorecard as sc
+
+        got["scorecard_code_sha256"] = sc.code_sha256()
+        want["scorecard_code_sha256"] = RS_SCORECARD_SHA256
+    if got != want:
+        raise PooledModelError(f"R-S pinned code differs: {got} != {want}")
+    return got
+
+
+def rs_spread_table(path):
+    """{(market, target_date, cycle): (sd, p10, p90)} from an NBP PIT corpus (last row per key, as load_nbm)."""
+    table = {}
+    for line in Path(path).read_text(encoding="utf-8").splitlines():
+        r = json.loads(line)
+        if not r.get("available") or r.get("mean") is None:
+            continue
+        table[(r["market_id"], r["target_date"], r["cycle"])] = (
+            _rs_finite(r.get("sd")), _rs_finite(r.get("p10")), _rs_finite(r.get("p90")))
+    return table
+
+
+def rs_training_columns(frame, nbm_table, spread, nbm_at_cutoff, timezones):
+    """``nbm_sd`` and ``nbm_qw`` = p90 - p10 of the L9 row ``nbm_at_cutoff`` selects (NaN without an anchor)."""
+    sd, qw, stats = [], [], defaultdict(int)
+    for market, day, hour in zip(frame["market"], frame["target_date"], frame["hour"]):
+        stats["rows"] += 1
+        value, cycle = nbm_at_cutoff(nbm_table, market, str(day)[:10], int(hour), timezones[market])
+        if value is None:
+            stats["no_anchor"] += 1
+            sd.append(float("nan"))
+            qw.append(float("nan"))
+            continue
+        stats["anchor_rows"] += 1
+        s_, p10, p90 = spread.get((market, str(day)[:10], cycle), (float("nan"),) * 3)
+        q = p90 - p10 if math.isfinite(p10) and math.isfinite(p90) else float("nan")
+        for name, v, (lo, hi) in (("sd", s_, RS_SD_RANGE), ("qw", q, RS_QW_RANGE)):
+            if math.isfinite(v):
+                stats[f"{name}_present"] += 1
+                stats[f"{name}_out_of_range"] += not lo <= v <= hi
+        sd.append(s_)
+        qw.append(q)
+    out = frame.copy()
+    out["nbm_sd"] = sd
+    out["nbm_qw"] = qw
+    return out, dict(stats)
+
+
+def rs_parity_training(stats):
+    """Gate 1a: coverage >= 0.95 of anchored rows for both columns, and every present value in range."""
+    anchored = max(stats.get("anchor_rows", 0), 1)
+    coverage = {n: stats.get(f"{n}_present", 0) / anchored for n in ("sd", "qw")}
+    checks = {"sd_coverage": coverage["sd"] >= RS_COVERAGE_MIN, "qw_coverage": coverage["qw"] >= RS_COVERAGE_MIN,
+              "sd_in_range": stats.get("sd_out_of_range", 0) == 0, "qw_in_range": stats.get("qw_out_of_range", 0) == 0}
+    return {"coverage": coverage, "threshold": RS_COVERAGE_MIN, "checks": checks, "pass": all(checks.values())}
+
+
+def _rs_cycle(key):
+    """'nbm-nbp:20260801T01Z' -> '2026-08-01T01' (the issuance hour), else None."""
+    text = str(key or "")
+    if not text.startswith("nbm-nbp:") or len(text) != len("nbm-nbp:20260801T01Z"):
+        return None
+    d = text[len("nbm-nbp:"):]
+    return f"{d[0:4]}-{d[4:6]}-{d[6:8]}T{d[9:11]}"
+
+
+def rs_parity_dev(layout, nbm_dev_corpus, hours, markets=R0_MARKETS):
+    """Gate 1b (outcome-free): captured v2_stddev / v2_p10 / v2_p90 vs the dev NBP row of the captured cycle."""
+    import numpy as np
+    import pandas as pd
+
+    from weather.calibration.r0_ols_floor_devfit import usable_v2_mean
+
+    sha = _rr_sha(nbm_dev_corpus)
+    if sha != RS_DEV_CORPUS_SHA256:
+        raise PooledModelError(f"dev NBP corpus sha {sha} != {RS_DEV_CORPUS_SHA256}")
+    corpus = {}
+    for line in Path(nbm_dev_corpus).read_text(encoding="utf-8").splitlines():
+        r = json.loads(line)
+        if not r.get("available") or r.get("mean") is None or r["target_date"] > N_DEV_LAST.isoformat():
+            continue
+        corpus[(r["market_id"], r["target_date"], str(r["issued_at"])[:13])] = r
+    snaps = pd.read_parquet(Path(layout) / "inputs_snapshots.parquet", columns=[
+        "market", "target_date", "local_hour", "cutoff_hour", "v2_mean", "v2_stddev", "v2_available_at",
+        "captured_at_utc", "v2_p10", "v2_p90", "v2_cycle_key"])
+    if (pd.to_datetime(snaps.target_date).dt.date > N_DEV_LAST).any():
+        raise PooledModelError("layout holds a snapshot after 2026-09-29")
+    usable = usable_v2_mean(snaps)
+    hour = pd.to_numeric(snaps.cutoff_hour, errors="coerce").to_numpy(float)
+    day = pd.to_datetime(snaps.target_date).dt.date
+    keep = (np.isfinite(usable) & np.isin(hour, list(hours)) & (snaps.local_hour.to_numpy(float) >= hour)
+            & snaps.market.isin(list(markets)).to_numpy() & (day >= N_DEV_FIRST).to_numpy()
+            & (day <= N_DEV_LAST).to_numpy())
+    counts = defaultdict(int)
+    per_hour = defaultdict(lambda: defaultdict(int))
+    for row in snaps[keep].itertuples(index=False):
+        h = f"h{int(float(row.cutoff_hour)):02d}"
+        counts["rows"] += 1
+        per_hour[h]["rows"] += 1
+        cycle = _rs_cycle(row.v2_cycle_key)
+        ref = None if cycle is None else corpus.get((row.market, str(row.target_date)[:10], cycle))
+        if ref is None:
+            counts["no_corpus_row"] += 1
+            per_hour[h]["no_corpus_row"] += 1
+            continue
+        for name, captured, corp in (("sd", row.v2_stddev, ref.get("sd")), ("p10", row.v2_p10, ref.get("p10")),
+                                     ("p90", row.v2_p90, ref.get("p90"))):
+            a, b = _rs_finite(captured), _rs_finite(corp)
+            ok = math.isfinite(a) and math.isfinite(b) and abs(a - b) <= RS_PARITY_TOL
+            counts[f"{name}_match"] += ok
+            per_hour[h][f"{name}_match"] += ok
+    share = {n: counts.get(f"{n}_match", 0) / max(counts["rows"], 1) for n in ("sd", "p10", "p90")}
+    return {"rows": counts["rows"], "counts": dict(counts), "share": share, "threshold": RS_PARITY_MIN,
+            "tolerance_f": RS_PARITY_TOL, "per_hour": {h: dict(v) for h, v in sorted(per_hour.items())},
+            "nbm_dev_corpus_sha256": sha,
+            "pass": counts["rows"] > 0 and all(v >= RS_PARITY_MIN for v in share.values())}
+
+
+def _rs_window(window):
+    if window not in RS_WINDOWS:
+        raise PooledModelError(f"unknown R-S window {window}")
+    return RS_WINDOWS[window]
+
+
+def _rs_training_frame(window, records_root, nbm_train_corpus, hrrr_corpus, land, markets, audit):
+    """The base rung's own training frame (R-R at 07-12, R-K at 13-16) plus the two R-S columns."""
+    from weather.calibration import ols_floor_ladder as l9
+    from weather.market.market_registry import spec_for_id
+
+    cfg = _rs_window(window)
+    sha = _rr_sha(nbm_train_corpus)
+    if sha != RS_TRAIN_CORPUS_SHA256:
+        raise PooledModelError(f"L9 training corpus sha {sha} != {RS_TRAIN_CORPUS_SHA256}")
+    timezones = {m: spec_for_id(m).timezone for m in markets}
+    frame, buckets = dev_training_frame(records_root, markets)
+    if frame["year"].max() >= 2026:
+        raise PooledModelError("a training row is from 2026")
+    table = l9.load_nbm(nbm_train_corpus)
+    frame, audit["train_nbm"] = attach_training_nbm(frame, table, l9.nbm_at_cutoff, timezones)
+    frame = frame[frame["hour"].isin(cfg["hours"])].reset_index(drop=True)
+    if window == "07-12":
+        corpus = Path(hrrr_corpus)
+        audit["inputs"].update({f"hrrr_{n}": s for n, s in rr_verify_corpus(corpus).items()})
+        point, audit["point_rule"] = rr_point_rule(land, corpus, markets)
+        hrrr, audit["hrrr_corpus_stats"] = rk_hrrr_columns(corpus, markets, hours=RR_HOURS, point=point,
+                                                           day_filter=_rr_train_day)
+        frame, audit["training_hrrr"] = rk_training_columns(frame, hrrr)
+    frame, audit["training_spread"] = rs_training_columns(frame, table, rs_spread_table(nbm_train_corpus),
+                                                          l9.nbm_at_cutoff, timezones)
+    return frame, buckets
+
+
+def rs_guard(frame, window):
+    """Guard G-s: s_new / s_old on each S arm's full-training OOF rows, pooled over the window's hours."""
+    import numpy as np
+
+    cfg = _rs_window(window)
+    out = {}
+    for arm in cfg["pairs"]:
+        ratios = np.concatenate([
+            _rung_entry(frame[frame["hour"] == h].reset_index(drop=True), *_arm_spec(cfg["arms"][arm]))
+            ["fit"]["gs_ratio"] for h in cfg["hours"]])
+        out[arm] = {"median": float(np.median(ratios)), "mean": float(np.mean(ratios)),
+                    "p10": float(np.quantile(ratios, 0.1)), "p90": float(np.quantile(ratios, 0.9)),
+                    "n": int(len(ratios)), "band": list(RS_GS_BAND),
+                    "in_band": bool(RS_GS_BAND[0] <= float(np.median(ratios)) <= RS_GS_BAND[1])}
+    primary = cfg["primary"][0]
+    return {"arms": out, "primary": primary, "pass": out[primary]["in_band"]}
+
+
+def rung_s_loyo(*, window, records_root, nbm_train_corpus, reference_loyo_rows, out_dir, hrrr_corpus=None,
+                land=None, markets=R0_MARKETS):
+    """R-S gate 1a, guard G-s, control C-mean, the base-rung LOYO control and gate 2 for one window."""
+    cfg = _rs_window(window)
+    out = require_output_outside_repo(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    if any(out.iterdir()):
+        raise PooledModelError(f"refusing to write into a non-empty {out}")
+    ref_sha = _rr_sha(reference_loyo_rows)
+    if ref_sha != cfg["reference_loyo_sha256"]:
+        raise PooledModelError(f"reference loyo rows sha {ref_sha} != {cfg['reference_loyo_sha256']}")
+    audit = {"rule_sha256": RS_RULE_SHA256, "window": window, "arms": list(cfg["arms"]),
+             "primary": list(cfg["primary"]), "hours": list(cfg["hours"]), "gates": {},
+             "pinned": rs_pinned_check(),
+             "inputs": {"nbm_train_corpus": _rr_sha(nbm_train_corpus), "reference_loyo_rows": ref_sha,
+                        "module_sha256": _rr_sha(__file__)}}
+
+    def finish():
+        (out / "rs_loyo_audit.json").write_text(json.dumps(audit, indent=1, sort_keys=True), encoding="utf-8")
+        return audit
+
+    frame, buckets = _rs_training_frame(window, records_root, nbm_train_corpus, hrrr_corpus, land, markets, audit)
+    audit["gates"]["1a_parity_training"] = rs_parity_training(audit["training_spread"])
+    if not audit["gates"]["1a_parity_training"]["pass"]:
+        audit["stopped_at"] = "gate 1a parity (training half; not a kill)"
+        return finish()
+    audit["guard_gs"] = rs_guard(frame, window)
+    if not audit["guard_gs"]["pass"]:
+        audit["stopped_at"] = "guard G-s: global width shift (not a kill)"
+        return finish()
+    c_mean = {}
+    rows = rung_loyo(frame, buckets, cfg["hours"], arms=cfg["arms"], mean_pairs=cfg["pairs"], mean_out=c_mean)
+    _write_jsonl(out / "loyo_rows.jsonl", rows)
+    audit["control_c_mean"] = {"max_abs_diff": c_mean, "pass": bool(c_mean) and all(v == 0.0 for v in c_mean.values())}
+    audit["control_base_reproduction"] = rk_control(rows, _read_jsonl(reference_loyo_rows), arms=cfg["control_arms"],
+                                                    hours=cfg["hours"])
+    if not audit["control_c_mean"]["pass"]:
+        audit["stopped_at"] = "control C-mean failed (refused, not a gate)"
+        return finish()
+    if not audit["control_base_reproduction"]["pass"]:
+        audit["stopped_at"] = "control: base-rung LOYO reproduction failed (refused, not a gate)"
+        return finish()
+    audit["gates"]["2_loyo"] = rg_loyo_summary(rows, pairs=tuple(cfg["pairs"].items()), pooled=((window, None),))
+    s_arm, base = cfg["primary"]
+    primary = audit["gates"]["2_loyo"][f"{s_arm}-{base}|{window}|brier"]
+    audit["gates"]["2_loyo"]["pass"] = primary["ci95"][1] < 0
+    if not audit["gates"]["2_loyo"]["pass"]:
+        audit["stopped_at"] = f"gate 2 LOYO (KILL: NBM spread closed as a {window} scale input)"
+    return finish()
+
+
+def rung_s_dev_emit(*, window, records_root, layout, replay_root, nbm_train_corpus, nbm_dev_corpus, loyo_audit,
+                    out_dir, hrrr_corpus=None, land=None, markets=R0_MARKETS):
+    """R-S gate 1b (outcome-free, before any dev fit) and the window's dev distributions (no scoring)."""
+    cfg = _rs_window(window)
+    out = require_output_outside_repo(out_dir)
+    loyo = json.loads(Path(loyo_audit).read_bytes())
+    if (loyo.get("rule_sha256") != RS_RULE_SHA256 or loyo.get("window") != window or loyo.get("stopped_at")
+            or not loyo["gates"]["2_loyo"]["pass"]):
+        raise PooledModelError(f"R-S gates 1a-2 did not pass for {window}: {loyo.get('stopped_at')}")
+    rs = {"rule_sha256": RS_RULE_SHA256, "window": window, "loyo_audit_sha256": _rr_sha(loyo_audit),
+          "pinned": rs_pinned_check(), "gates": {}, "inputs": {}}
+    out.mkdir(parents=True, exist_ok=True)
+
+    def finish():
+        (out / "rs_emit_audit.json").write_text(json.dumps(rs, indent=1, sort_keys=True), encoding="utf-8")
+        return rs
+
+    rs["gates"]["1b_parity_dev"] = rs_parity_dev(layout, nbm_dev_corpus, cfg["hours"], markets)
+    if not rs["gates"]["1b_parity_dev"]["pass"]:
+        rs["stopped_at"] = "gate 1b parity (dev half; not a kill)"
+        return finish()
+    from weather.calibration import ols_floor_ladder as l9
+    from weather.market.market_registry import spec_for_id
+
+    sha = _rr_sha(nbm_train_corpus)
+    if sha != RS_TRAIN_CORPUS_SHA256:
+        raise PooledModelError(f"L9 training corpus sha {sha} != {RS_TRAIN_CORPUS_SHA256}")
+    rs["inputs"]["nbm_train_corpus"] = sha
+    timezones = {m: spec_for_id(m).timezone for m in markets}
+    table = l9.load_nbm(nbm_train_corpus)
+    spread = rs_spread_table(nbm_train_corpus)
+    train_hrrr = None
+    row_hook = None
+    if window == "07-12":
+        corpus = Path(hrrr_corpus)
+        rs["inputs"].update({f"hrrr_{n}": s for n, s in rr_verify_corpus(corpus).items()})
+        point, rs["point_rule"] = rr_point_rule(land, corpus, markets)
+        train_hrrr, rs["hrrr_train_corpus_stats"] = rk_hrrr_columns(corpus, markets, hours=RR_HOURS, point=point,
+                                                                    day_filter=_rr_train_day)
+        dev_hrrr, rs["hrrr_dev_corpus_stats"] = rk_hrrr_columns(corpus, markets, hours=RR_HOURS, point=point,
+                                                                day_filter=_rr_dev_day)
+
+        def row_hook(market, target, hour, nbm, stats):
+            values = rk_columns(dev_hrrr.get((market, target.isoformat(), int(hour))), nbm)
+            stats["hrrr_rows"] += 1
+            stats["hrrr_covered"] += values["k_miss"] == 0.0
+            return values
+
+    def snap_hook(row, stats):
+        sd = _rs_finite(row.v2_stddev)
+        qw = _rs_finite(row.v2_p90) - _rs_finite(row.v2_p10)
+        stats["spread_rows"] += 1
+        stats["spread_sd_present"] += math.isfinite(sd)
+        stats["spread_qw_present"] += math.isfinite(qw)
+        stats["spread_sd_lt_1f"] += math.isfinite(sd) and sd < 1.0
+        return {"nbm_sd": sd, "nbm_qw": qw}
+
+    def train_hook(f):
+        stats = {}
+        if train_hrrr is not None:
+            f, stats["hrrr"] = rk_training_columns(f, train_hrrr)
+        f, stats["spread"] = rs_training_columns(f, table, spread, l9.nbm_at_cutoff, timezones)
+        stats["gate_1a_on_emit_frame"] = rs_parity_training(stats["spread"])
+        return f, stats
+
+    audit = dev_emit_rung(records_root=records_root, layout=layout, replay_root=replay_root,
+                          nbm_train_corpus=nbm_train_corpus, out_dir=out, markets=markets, hours=cfg["hours"],
+                          loyo=False, arms=cfg["arms"], train_hook=train_hook,
+                          row_hook=row_hook, snap_columns=("v2_p10", "v2_p90"), snap_hook=snap_hook,
+                          mean_pairs=cfg["pairs"])
+    rs["training"] = audit.get("train_hook")
+    rs["files"] = audit["files"]
+    rs["markets"] = audit["markets"]
+    rs["base_reproduction"] = {name: audit["files"].get(name) == sha for name, sha in cfg["base_dev"].items()}
+    rs["control_c_mean"] = {"max_abs_diff": audit.get("c_mean", {}),
+                            "pass": bool(audit.get("c_mean")) and all(v == 0.0 for v in audit["c_mean"].values())}
+    if not all(rs["base_reproduction"].values()):
+        rs["stopped_at"] = "control: base dev files do not reproduce (refused, not a gate)"
+    elif not rs["control_c_mean"]["pass"]:
+        rs["stopped_at"] = "control C-mean failed on dev (refused, not a gate)"
+    return finish()
+
+
+def _rs_band_pit(table, p, keep_snap):
+    """Band-midpoint PIT of the winning band per snapshot (bands in index order), for snapshots in ``keep_snap``."""
+    import numpy as np
+
+    csum = np.cumsum(p)
+    start = np.repeat(csum[table.offsets] - p[table.offsets], table.n)
+    hi = csum - start
+    mid = hi - p / 2.0
+    win = table.y > 0
+    snap = table.band_snap[win]
+    return mid[win][keep_snap[snap]]
+
+
+def _rs_sharpness(path):
+    """Mean predictive SD (deg) over an emitted distribution file."""
+    import numpy as np
+
+    sds = []
+    for line in Path(path).read_text(encoding="utf-8").splitlines():
+        dist = json.loads(line)["distribution"]
+        t = np.array([float(k) for k in dist])
+        w = np.array(list(dist.values()), dtype=float)
+        w = w / w.sum()
+        m = float((t * w).sum())
+        sds.append(math.sqrt(float(((t - m) ** 2 * w).sum())))
+    return {"mean_sd": float(np.mean(sds)) if sds else None, "n": len(sds)}
+
+
+def rung_s_score(*, layout, emit_dirs, coefficients=None, nowcasts=None, out_path, start="2026-08-01",
+                 end="2026-09-29"):
+    """R-S gate 3 (kill) and gate 4 (drafts only) per window on the dev scorecard; ``emit_dirs`` {window: dir}."""
+    import os
+
+    import numpy as np
+
+    from weather.calibration import r0_ols_floor_challenger as l3
+    from weather.reporting.scorecards import dev_scorecard as sc
+    from weather.reporting.scorecards import dev_scorecard_data as data
+    from weather.reporting.scorecards import loss_atlas
+
+    out_path = require_output_outside_repo(out_path)
+    if out_path.exists():
+        raise PooledModelError(f"refusing to overwrite {out_path}")
+    pinned = rs_pinned_check(with_scorecard=True)
+    start_d, end_d = data.check_range(start, end)
+    if end_d > N_DEV_LAST:
+        raise PooledModelError("R-S dev labels end at 2026-09-29")
+    lay = data.load_layout(layout, data.DEV_FIRST, end_d)
+    folds = data.make_folds(lay.dates, start_d, end_d, 7, 1, 7)
+    scored = sorted(d for f in folds if f.scored for d in f.dates)
+    table = sc.Table(lay, scored)
+    date_w = l3._date_weights([k[0] for k in table.keys], sc.DRAWS, sc.SEED)
+    market_b = table.brier(table.p_market)
+    p_mg1, cov_mg1, _ = l3._vector(table, loss_atlas.mg1_frame(table))
+    w0712 = (table.local_hour >= 7) & (table.local_hour <= 12)
+    _, e = table.cells(table.brier(p_mg1) - market_b, w0712)
+    mg1_excess = float(e.mean())
+    if round(mg1_excess, 3) != l3.MG1_CONTROL_0712_EXCESS:
+        raise PooledModelError(f"MG-1 positive control failed: {mg1_excess:.5f}")
+    everything = np.ones(len(table.snaps), dtype=bool)
+    pools = [(sc.ALL_MARKETS, None)] + [(m, {m}) for m in sorted(set(table.markets))]
+    result = {"rule_sha256": RS_RULE_SHA256, "pinned": pinned,
+              "population": {"n_dates": len(scored), "first_date": scored[0], "last_date": scored[-1],
+                             "n_market_days": len(table.keys)},
+              "controls": {"mg1_excess_07_12": mg1_excess},
+              "inputs": {"layout_manifest_sha256": lay.manifest_sha256, "scorecard_code_sha256": sc.code_sha256(),
+                         "module_sha256": _rr_sha(__file__)},
+              "windows": {}}
+    briers, covs, probs = {"mg1": table.brier(p_mg1)}, {"mg1": cov_mg1}, {}
+
+    def compare(arm, ref, scope, window, hours, absolute=False):
+        groups = [(window, hours[0], hours[-1])] + [(f"h{h:02d}", h, h) for h in hours]
+        rows = []
+        for market, members in pools:
+            in_pool = everything if members is None else np.isin(table.markets, sorted(members))
+            for group, lo, hi in (groups if members is None else groups[:1]):
+                mask = scope & in_pool & (table.local_hour >= lo) & (table.local_hour <= hi)
+                if not mask.any():
+                    continue
+                idx, c = table.cells(briers[arm], mask)
+                _, r_ = table.cells(briers[ref], mask)
+                _, m = table.cells(market_b, mask)
+                row = {"arm": arm, "reference": ref, "market": market, "group": group,
+                       "n_market_days": int(len(idx)), "n_snapshots": int(mask.sum()),
+                       "R_arm": sc.ratio_interval(table.w[:, idx], c, m),
+                       "R_reference": sc.ratio_interval(table.w[:, idx], r_, m),
+                       "dR_crossed": sc.ratio_interval(table.w[:, idx], c - r_, m),
+                       "dR_date_clustered": sc.ratio_interval(date_w[:, idx], c - r_, m)}
+                if absolute:
+                    row["brier_diff_w_date"] = sc.ratio_interval(table.w_date[:, idx], c - r_, np.ones(len(idx)))
+                rows.append(row)
+        return rows
+
+    def pick(rows, group):
+        return next(r for r in rows if r["market"] == sc.ALL_MARKETS and r["group"] == group)
+
+    def reading(rows, window, hours):
+        p = pick(rows, window)["dR_date_clustered"]["ci95"]
+        lower = [pick(rows, f"h{h:02d}")["dR_date_clustered"]["ci95"][0] for h in hours]
+        if p[0] > 0:
+            return "HARM"
+        return "WIN" if p[1] < 0 and not any(lo > 0 for lo in lower) else "NULL"
+
+    for window, emit_dir in sorted(emit_dirs.items()):
+        cfg = _rs_window(window)
+        hours = cfg["hours"]
+        emit = Path(emit_dir)
+        audit = json.loads((emit / "rs_emit_audit.json").read_bytes())
+        if audit.get("rule_sha256") != RS_RULE_SHA256 or audit.get("window") != window or audit.get("stopped_at"):
+            raise PooledModelError(f"{window}: not an R-S emit that passed gate 1b and controls: "
+                                   f"{audit.get('stopped_at')}")
+        if not all(audit["base_reproduction"].values()) or not audit["control_c_mean"]["pass"]:
+            raise PooledModelError(f"{window}: base reproduction or C-mean failed")
+        res = {"emit_audit_sha256": _rr_sha(emit / "rs_emit_audit.json"), "emit_files": audit["files"],
+               "controls": {"base_reproduction": audit["base_reproduction"], "c_mean": audit["control_c_mean"],
+                            "gate1b": audit["gates"]["1b_parity_dev"]["share"]},
+               "gates": {}, "rows": [], "reported": {}}
+        result["windows"][window] = res
+        for arm in cfg["arms"]:
+            p, c, _ = l3._vector(table, l3._candidate_frame(str(emit / f"dev_{arm}.jsonl"), table, lay, folds,
+                                                            data)[0])
+            name = f"{window}:{arm}"
+            briers[name], covs[name], probs[name] = table.brier(p), c, p
+        in_w = (table.local_hour >= hours[0]) & (table.local_hour <= hours[-1])
+        s_arm, base = cfg["primary"]
+        for arm, ref in cfg["pairs"].items():
+            a, b = f"{window}:{arm}", f"{window}:{ref}"
+            rows = compare(a, b, covs[a] & covs[b], window, hours)
+            res["rows"] += rows
+            if arm == s_arm:
+                g3 = pick(rows, window)["dR_date_clustered"]
+                res["gates"]["3_dev"] = {"pair": f"{arm}-{ref}", "dR_date_clustered": g3, "pass": g3["ci95"][1] < 0}
+            else:
+                res["reported"][f"secondary_{arm}-{ref}"] = pick(rows, window)["dR_date_clustered"]
+        for arm in cfg["arms"]:
+            name = f"{window}:{arm}"
+            pit = _rs_band_pit(table, probs[name], covs[name] & in_w)
+            res["reported"][f"calibration_{arm}"] = {
+                "n": int(len(pit)), "pit_mean": float(np.mean(pit)) if len(pit) else None,
+                **{f"central_{int(x * 100)}_coverage": float(np.mean(np.abs(pit - 0.5) <= x / 2)) if len(pit)
+                   else None for x in (0.5, 0.8, 0.9)}}
+            res["reported"][f"sharpness_{arm}"] = _rs_sharpness(emit / f"dev_{arm}.jsonl")
+        spread = defaultdict(int)
+        for stats in audit["markets"].values():
+            for k in ("spread_rows", "spread_sd_lt_1f", "spread_sd_present", "spread_qw_present"):
+                spread[k] += stats.get(k, 0)
+        res["reported"]["nbm_sd_lt_1f_share"] = spread["spread_sd_lt_1f"] / max(spread["spread_rows"], 1)
+        res["reported"]["spread_counts"] = dict(spread)
+        if not res["gates"]["3_dev"]["pass"]:
+            res["stopped_at"] = f"gate 3 (KILL: NBM spread closed as a {window} scale input)"
+            continue
+        if window == "07-12":
+            if coefficients is None or nowcasts is None:
+                raise PooledModelError("07-12 gate 4 needs the frozen L6 coefficients and nowcasts")
+            now_sha = _rr_sha(nowcasts)
+            if now_sha != L6_NOWCAST_SHA256:
+                raise PooledModelError(f"L6 nowcast sha {now_sha} != {L6_NOWCAST_SHA256}")
+            os.environ["L6_NOWCASTS"] = str(nowcasts)
+            from weather.reporting.scorecards.free_source_candidates import l6_stack
+
+            l6_stack._CACHE.clear()
+            state, part_sha = l6_frozen_state(coefficients)
+            fit_dates = sorted(d for d in {str(x) for x in lay.dates} if BLEND_FIT_FIRST <= d <= end)
+            full = sc.Table(lay, fit_dates)
+            fdates = full.snaps.date.astype(str).to_numpy()
+            pl, cl, _ = l6_vector(full, state, l3)
+            p_l6, cov_l6, _ = l6_vector(table, state, l3)
+            briers["l6"], covs["l6"] = table.brier(p_l6), cov_l6
+            dates = table.snaps.date.astype(str).to_numpy()
+            weights = {}
+            for name, cand in (("blend_l6_HS", "P3d_H_S"), ("blend_l6_H", "P3d_H")):
+                pa, ca, _ = l3._vector(full, l3._candidate_frame(str(emit / f"dev_{cand}.jsonl"), full, lay, folds,
+                                                                 data)[0])
+                A, B = blend_weight(pa, pl, full.y, full.offsets, full.n)
+                weights[name] = walk_forward_weights(fdates, full.local_hour, ca & cl, A, B, scored)
+                c = covs[f"{window}:{cand}"]
+                w_snap = np.array([weights[name].get((int(h), d), 0.0) for h, d in zip(table.local_hour, dates)])
+                wb = np.where(c & cov_l6, w_snap, 0.0)[table.band_snap]
+                briers[name] = table.brier(wb * probs[f"{window}:{cand}"] + (1.0 - wb) * p_l6)
+                covs[name] = cov_l6
+            scope4 = covs["07-12:P3d_H_S"] & covs["07-12:P3d_H"] & cov_l6
+            rows = compare("blend_l6_HS", "l6", scope4, window, hours)
+            res["rows"] += rows
+            res["gates"]["4_blend_l6_HS_vs_l6"] = {
+                "reading": reading(rows, window, hours), "dR_date_clustered": pick(rows, window)["dR_date_clustered"],
+                "hours": {f"h{h:02d}": pick(rows, f"h{h:02d}")["dR_date_clustered"] for h in hours}}
+            inc = compare("blend_l6_HS", "blend_l6_H", scope4, window, hours)
+            res["rows"] += inc
+            res["reported"]["blend_l6_HS-blend_l6_H"] = pick(inc, window)["dR_date_clustered"]
+            res["controls"].update(l6_part_sha256=part_sha, l6_nowcast_sha256=now_sha)
+            res["weights"] = {name: {f"h{h:02d}": float(np.mean([w[(h, d)] for d in scored])) for h in hours}
+                              for name, w in weights.items()}
+        else:
+            for name, arm in (("composite_post13_asof", "13-16:P3d_N_fix"), ("P3d_N_fix_S_mg1", "13-16:P3d_N_fix_S")):
+                briers[name] = table.brier(np.where(covs[arm][table.band_snap], probs[arm], p_mg1))
+                covs[name] = covs[arm] | cov_mg1
+            scope4 = covs["composite_post13_asof"] & covs["P3d_N_fix_S_mg1"]
+            rows = compare("P3d_N_fix_S_mg1", "composite_post13_asof", scope4, window, hours)
+            res["rows"] += rows
+            res["gates"]["4_vs_composite_post13_asof"] = {
+                "reading": reading(rows, window, hours), "dR_date_clustered": pick(rows, window)["dR_date_clustered"]}
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(result, indent=1, sort_keys=True), encoding="utf-8")
+    return result
+
+
 # ------------------------------------------------- clarification 3: forward refit and frozen state (MG-2)
 
 FORWARD_CENTRES = AUG_SEP_CENTRES + ("2026-10-10", "2026-10-25", "2026-11-09", "2026-11-24", "2026-12-09")
@@ -5770,6 +6381,31 @@ def _parse(argv=None):
     rs_.add_argument("--nowcasts", required=True)
     rs_.add_argument("--rf-result", required=True)
     rs_.add_argument("--out", required=True)
+    sl_ = sub.add_parser("rung-s-loyo", help="R-S gate 1a, guard G-s, controls and gate 2 LOYO for a window (heavy)")
+    sl_.add_argument("--window", required=True, choices=sorted(RS_WINDOWS))
+    sl_.add_argument("--records", required=True)
+    sl_.add_argument("--nbm-train-corpus", required=True)
+    sl_.add_argument("--reference-loyo-rows", required=True, help="R-R (07-12) or R-K (13-16) loyo_rows.jsonl")
+    sl_.add_argument("--hrrr", help="07-12 only: L13 HRRR corpus (R-R's)")
+    sl_.add_argument("--land", help="07-12 only: L13 land_3x3.json (R-R's)")
+    sl_.add_argument("--out", required=True)
+    se_ = sub.add_parser("rung-s-dev-emit", help="R-S gate 1b and dev distributions for a window (heavy)")
+    se_.add_argument("--window", required=True, choices=sorted(RS_WINDOWS))
+    se_.add_argument("--records", required=True)
+    se_.add_argument("--layout", required=True)
+    se_.add_argument("--replay-root", required=True)
+    se_.add_argument("--nbm-train-corpus", required=True)
+    se_.add_argument("--nbm-dev-corpus", required=True)
+    se_.add_argument("--loyo-audit", required=True, help="rs_loyo_audit.json (gates 1a-2 must have passed)")
+    se_.add_argument("--hrrr")
+    se_.add_argument("--land")
+    se_.add_argument("--out", required=True)
+    ss_ = sub.add_parser("rung-s-score", help="R-S gates 3-4 on the dev scorecard (heavy)")
+    ss_.add_argument("--layout", required=True)
+    ss_.add_argument("--emit", action="append", required=True, help="WINDOW=DIR, repeatable")
+    ss_.add_argument("--coefficients")
+    ss_.add_argument("--nowcasts")
+    ss_.add_argument("--out", required=True)
     de = sub.add_parser("p3dn-diag-emit", help="P3d_N vs P3d_N_fix input diff and variant emissions (heavy)")
     de.add_argument("--records", required=True)
     de.add_argument("--layout", required=True)
@@ -5986,6 +6622,29 @@ def main(argv=None):
         result = rung_r_score(layout=args.layout, emit_dir=args.emit, coefficients=args.coefficients,
                               nowcasts=args.nowcasts, rf_result=args.rf_result, out_path=Path(args.out))
         print(json.dumps({"gates": result["gates"], "stopped_at": result.get("stopped_at")}, indent=1))
+        return 0
+    if args.command == "rung-s-loyo":
+        audit = rung_s_loyo(window=args.window, records_root=args.records, nbm_train_corpus=args.nbm_train_corpus,
+                            reference_loyo_rows=args.reference_loyo_rows, out_dir=args.out, hrrr_corpus=args.hrrr,
+                            land=args.land)
+        print(json.dumps({"gates": {k: v.get("pass") for k, v in audit["gates"].items()},
+                          "guard_gs": audit.get("guard_gs"), "stopped_at": audit.get("stopped_at")}, indent=1))
+        return 0
+    if args.command == "rung-s-dev-emit":
+        audit = rung_s_dev_emit(window=args.window, records_root=args.records, layout=args.layout,
+                                replay_root=args.replay_root, nbm_train_corpus=args.nbm_train_corpus,
+                                nbm_dev_corpus=args.nbm_dev_corpus, loyo_audit=args.loyo_audit, out_dir=args.out,
+                                hrrr_corpus=args.hrrr, land=args.land)
+        print(json.dumps({"gates": {k: v.get("pass") for k, v in audit["gates"].items()},
+                          "stopped_at": audit.get("stopped_at"),
+                          "base_reproduction": audit.get("base_reproduction")}, indent=1))
+        return 0
+    if args.command == "rung-s-score":
+        emit_dirs = dict(item.split("=", 1) for item in args.emit)
+        result = rung_s_score(layout=args.layout, emit_dirs=emit_dirs, coefficients=args.coefficients,
+                              nowcasts=args.nowcasts, out_path=Path(args.out))
+        print(json.dumps({w: {"gates": r["gates"], "stopped_at": r.get("stopped_at")}
+                          for w, r in result["windows"].items()}, indent=1, default=float))
         return 0
     if args.command == "p3dn-diag-emit":
         audit = p3dn_diag_emit(records_root=args.records, layout=args.layout, replay_root=args.replay_root,
