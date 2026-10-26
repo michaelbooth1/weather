@@ -65,6 +65,10 @@ From test-suite review K ([decision log](../docs/operations/DECISION_LOG.md) row
 - no `_private` imports from `src/` or `app`;
 - tests that start git or PowerShell carry `@pytest.mark.spawns`.
 
+`tests/operations/test_source_control_bytes.py` (no baseline) refuses C0 control bytes other than tab, LF
+and CR in `src/**/*.py` and `tests/**/*.py`: write `r"\b"`, never a literal backspace (a 2026-10-25 regex
+held one and its test checked nothing).
+
 Guidelines (not mechanically checked): `pytest.raises(match=...)` only when the refusal reason is the
 contract; mutation-informed assertions as in
 [development.md](../docs/development.md#verification-scope-and-assertion-strength-owner-decision-2026-10-04)
