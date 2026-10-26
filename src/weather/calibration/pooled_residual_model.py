@@ -3770,8 +3770,14 @@ def _rk_lines(path, stats, name):
                 stats[f"{name}_corrupt_line"] += 1
 
 
-def rk_hrrr_columns(corpus_dir, markets=R0_MARKETS):
+def rk_hrrr_columns(corpus_dir, markets=R0_MARKETS, *, hours=RK_HOURS, point=None, day_filter=None):
     """L13's HRRR point corpus -> {(market, local_date, hour): raw R-K path} plus integrity counts.
+
+    ``hours``: the cutoff hours kept (R-K 13-16; R-R 07-12). ``point``: None reads each message's ``nearest``
+    value (R-K); a {icao: block index} map reads ``block3x3[index]`` instead (R-R's RN-1 point rule), and a
+    station absent from the map has every row ``k_miss`` = 1 (reason ``no_land_cell``). ``day_filter``: a
+    predicate on the selection's local_date string; rows it rejects are not read (R-R splits one corpus into
+    its training and dev halves this way).
 
     Inputs only: no outcome, label, price or layout row is read. Per selection (rule_rk.md, feature family):
     ``k_max`` = max TMP (nearest point, K -> F) over the selection's fhs, ``k_tcdc`` = mean TCDC (%) over the
@@ -3802,8 +3808,18 @@ def rk_hrrr_columns(corpus_dir, markets=R0_MARKETS):
             stats["manifest_identity_mismatch"] += 1
             mismatched.add(key)
             continue
-        values = {icao: (point or {}).get("nearest") for icao, point in (m.get("points") or {}).items()
-                  if icao in icao_market}
+        values = {}
+        for icao, cell in (m.get("points") or {}).items():
+            if icao not in icao_market:
+                continue
+            cell = cell or {}
+            block = cell.get("block3x3")
+            if isinstance(block, list) and len(block) == 9 and block[4] != cell.get("nearest"):
+                stats["manifest_nearest_not_block_centre"] += 1
+            if point is None:
+                values[icao] = cell.get("nearest")
+            elif icao in point:
+                values[icao] = block[point[icao]] if isinstance(block, list) and len(block) == 9 else None
         if key in messages:
             stats["manifest_duplicate"] += 1
             if messages[key] != values:
@@ -3818,7 +3834,7 @@ def rk_hrrr_columns(corpus_dir, markets=R0_MARKETS):
         if icao not in icao_market:
             continue
         market, day, hour = icao_market[icao], str(s["local_date"]), int(s["hour_local"])
-        if hour not in RK_HOURS:
+        if hour not in hours or (day_filter is not None and not day_filter(day)):
             continue
         key = (market, day, hour)
         stats["selections"] += 1
@@ -3832,6 +3848,10 @@ def rk_hrrr_columns(corpus_dir, markets=R0_MARKETS):
         entry = {"cycle_utc": s.get("cycle_utc"), "fhs": list(s.get("fhs") or []), "k_max": float("nan"),
                  "k_tcdc": float("nan"), "k_miss": 1.0, "reason": None}
         out[key] = entry
+        if point is not None and icao not in point:
+            stats["selection_no_land_cell"] += 1
+            entry["reason"] = "no_land_cell"
+            continue
         if datetime.fromisoformat(s["snapshot_utc"]) != snapshot:
             stats["selection_snapshot_mismatch"] += 1
             entry["reason"] = "snapshot_mismatch"
@@ -4555,6 +4575,412 @@ def rung_l_score(*, layout, emit_dir, coefficients, nowcasts, out_path, start="2
     return done()
 
 
+# ------------------------------------------------- R-R: the HRRR hourly path as a 07-12 centre input (rule_rr.md)
+
+RR_RULE_SHA256 = "e3d92e1aa779957db90c9627f3ccdc9052d7f9f2d6f7ae50843ebadbd0f5bb22"
+RR_LAND_SHA256 = "22069beebb5609755b35621bac05e91a1b35e434670c993a93a8aca9434fd7d6"
+RR_LAND_MSG_SHA256 = "10c7fb85ac10616ca3f45295d945002ab5da437054736748f6746dd01b0e7c29"
+RR_LAND_KEY = "hrrr.20250801/conus/hrrr.t00z.wrfsfcf00.grib2"
+RR_CORPUS_SHA256 = {"manifest.jsonl": "fef6c307a411e6373af05830b55c4dff8cb23d08f46e18f07949821f08fe88e6",
+                    "selections.jsonl": "31bd3d3a7c6456df657e8f99b763a06a80bc41772881f67dc7eeaf5dee1f4e67",
+                    "days.jsonl": "34af53b0e276c541605e3e93a57018619ddf0895f92f07add5c835901fd3515e",
+                    "stations.json": "52e8bb5f22513828cb5edbfc16b77afb293cfcb9df62a92abd4db30ab7a0abe3"}
+RR_RA_LOYO_ROWS_SHA256 = "21cacdaabcf50165da084a748b42a0b862c36c9e1f4b8d4bdb506c07c927f54d"
+RR_HOURS = (7, 8, 9, 10, 11, 12)
+RR_POOLS = (("07-12", None), ("07-09", (7, 8, 9)), ("10-12", (10, 11, 12)))
+RR_ARMS = RK_ARMS
+RR_PAIRS = RK_PAIRS
+RR_RA_EMIT = RL_RA_EMIT  # R-F's B_N / P3d_N_fix 07-12 dev inputs (rule_rr.md gate 3 reproduction)
+RR_EXPECTED_INDEX = {"KSFO": 3}  # the coordinator's reading of RN-1; every other station is the centre cell (4)
+RR_TRAIN_LAST = "2025-12-31"
+RR_DEV_FIRST = "2026-07-30"
+RR_DEV_LAST = "2026-09-29"
+
+
+def _rr_sha(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def rr_verify_corpus(corpus_dir):
+    """Every corpus file's sha256 equals the coordinator's pin, or the run is refused."""
+    got = {n: _rr_sha(Path(corpus_dir) / n) for n in RR_CORPUS_SHA256}
+    bad = {n: s for n, s in got.items() if s != RR_CORPUS_SHA256[n]}
+    if bad:
+        raise PooledModelError(f"R-R corpus sha mismatch: {bad}")
+    return got
+
+
+def rr_point_rule(land_path, corpus_dir, markets=R0_MARKETS, expected=None):
+    """RN-1's land-aware point rule (rule_rr.md, Point rule) -> {icao: block index}, refused on any mismatch.
+
+    The chosen index is recomputed from the station's (fi, fj) and the stored LAND block (row-major, south to
+    north, west to east: index = 3 * (dj + 1) + (di + 1)); it must equal ``rn1_chosen_index`` in the land file
+    and the coordinator's reading (KSFO 3, every other station the centre cell 4). ``expected`` replaces the
+    pinned land sha and that reading (tests only).
+    """
+    land_sha = _rr_sha(land_path)
+    pinned = RR_LAND_SHA256 if expected is None else expected.get("land_sha256")
+    if land_sha != pinned:
+        raise PooledModelError(f"land file sha {land_sha} != {pinned}")
+    land = json.loads(Path(land_path).read_bytes())
+    stations_sha = _rr_sha(Path(corpus_dir) / "stations.json")
+    if land.get("stations_json_sha256") != stations_sha:
+        raise PooledModelError(f"land stations_json_sha256 {land.get('stations_json_sha256')} != {stations_sha}")
+    if expected is None and (land.get("msg_sha256") != RR_LAND_MSG_SHA256 or land.get("key") != RR_LAND_KEY):
+        raise PooledModelError("land file is not the registered LAND:surface message")
+    reading = RR_EXPECTED_INDEX if expected is None else expected.get("index", {})
+    stations = json.loads((Path(corpus_dir) / "stations.json").read_bytes())
+    point, report = {}, {}
+    for icao, s in sorted(stations.items()):
+        if s.get("market") not in markets:
+            continue
+        cell = land["stations"][icao]
+        if (cell["i"], cell["j"], cell["fi"], cell["fj"]) != (s["i"], s["j"], s["fi"], s["fj"]):
+            raise PooledModelError(f"{icao}: land grid position differs from stations.json")
+        mask = cell["land_block3x3"]
+        dist = []
+        for k in range(9):
+            dj, di = divmod(k, 3)
+            dist.append(math.hypot(s["i"] + di - 1 - s["fi"], s["j"] + dj - 1 - s["fj"]))
+        if max(abs(a - b) for a, b in zip(dist, cell["dist_grid_units"])) > 1e-9:
+            raise PooledModelError(f"{icao}: block ordering does not reproduce the stored distances")
+        land_cells = [k for k in range(9) if mask[k] == 1]
+        chosen = min(land_cells, key=lambda k: (dist[k], k)) if land_cells else None
+        if chosen != cell.get("rn1_chosen_index"):
+            raise PooledModelError(f"{icao}: recomputed RN-1 index {chosen} != {cell.get('rn1_chosen_index')}")
+        if chosen != reading.get(icao, 4):
+            raise PooledModelError(f"{icao}: RN-1 index {chosen} differs from the coordinator's reading")
+        if chosen is not None:
+            point[icao] = chosen
+        report[icao] = {"market": s["market"], "chosen_index": chosen, "n_land": len(land_cells),
+                        "chosen_dist_grid": None if chosen is None else dist[chosen]}
+    return point, {"land_sha256": land_sha, "stations_json_sha256": stations_sha, "stations": report}
+
+
+def _rr_train_day(day):
+    return day <= RR_TRAIN_LAST
+
+
+def _rr_dev_day(day):
+    return RR_DEV_FIRST <= day <= RR_DEV_LAST
+
+
+def rr_corpus_dates(corpus_dir):
+    """The corpus' local dates and cycles (inputs only); nothing may be dated after 2026-09-29."""
+    days, cycles = set(), set()
+    with open(Path(corpus_dir) / "selections.jsonl", "rb") as handle:
+        for line in handle:
+            if line.strip():
+                s = json.loads(line)
+                days.add(s["local_date"])
+                if s.get("cycle_utc"):
+                    cycles.add(s["cycle_utc"][:10])
+    if max(days) > RR_DEV_LAST or (cycles and max(cycles) > RR_DEV_LAST):
+        raise PooledModelError(f"R-R corpus holds a date after {RR_DEV_LAST}")
+    train = sorted(d for d in days if _rr_train_day(d))
+    dev = sorted(d for d in days if _rr_dev_day(d))
+    other = sorted(days - set(train) - set(dev))
+    return {"n_days": len(days), "train_days": len(train), "dev_days": len(dev), "other_days": other,
+            "first": min(days), "last": max(days)}
+
+
+def rr_parity(corpus_stats, rows, covered, tag):
+    """Gate 1 (rule_rr.md, RK-1 section 1 with h07-12): inputs only."""
+    gate = rk_parity_training(corpus_stats, {"rows": rows, "rows_covered": covered})
+    gate[f"{tag}_coverage"] = gate.pop("training_coverage")
+    gate["checks"][f"{tag}_coverage"] = gate["checks"].pop("training_coverage")
+    gate["checks"]["nearest_is_block_centre"] = corpus_stats.get("manifest_nearest_not_block_centre", 0) == 0
+    gate["no_land_cell_rows"] = corpus_stats.get("selection_no_land_cell", 0)  # reported, not a failure
+    gate["rows"], gate["rows_covered"] = rows, covered
+    gate["pass"] = all(gate["checks"].values())
+    return gate
+
+
+def rung_r_loyo(*, records_root, nbm_train_corpus, hrrr_corpus, land, ra_loyo_rows, out_dir, markets=R0_MARKETS):
+    """R-R gate 1a (training half) and gate 2 (LOYO 2021-25, B_H - B_N at 07-12). No dev row is read."""
+    from weather.calibration import ols_floor_ladder as l9
+    from weather.market.market_registry import spec_for_id
+
+    out = require_output_outside_repo(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    if any(out.iterdir()):
+        raise PooledModelError(f"refusing to write into a non-empty {out}")
+    corpus = Path(hrrr_corpus)
+    shas = rr_verify_corpus(corpus)
+    ra_sha = _rr_sha(ra_loyo_rows)
+    if ra_sha != RR_RA_LOYO_ROWS_SHA256:
+        raise PooledModelError(f"R-A loyo rows sha {ra_sha} != {RR_RA_LOYO_ROWS_SHA256}")
+    point, point_report = rr_point_rule(land, corpus, markets)
+    audit = {"rule_sha256": RR_RULE_SHA256, "arms": list(RR_ARMS), "hours": list(RR_HOURS), "gates": {},
+             "point_rule": point_report, "corpus_dates": rr_corpus_dates(corpus),
+             "inputs": {"nbm_train_corpus": _rr_sha(nbm_train_corpus), "ra_loyo_rows": ra_sha,
+                        "hrrr_corpus": str(corpus), **{f"hrrr_{n}": s for n, s in shas.items()},
+                        "module_sha256": _rr_sha(__file__)}}
+
+    def finish():
+        (out / "rr_loyo_audit.json").write_text(json.dumps(audit, indent=1, sort_keys=True), encoding="utf-8")
+        return audit
+
+    timezones = {m: spec_for_id(m).timezone for m in markets}
+    hrrr, audit["hrrr_corpus_stats"] = rk_hrrr_columns(corpus, markets, hours=RR_HOURS, point=point,
+                                                       day_filter=_rr_train_day)
+    frame, buckets = dev_training_frame(records_root, markets)
+    if frame["year"].max() >= 2026:
+        raise PooledModelError("a training row is from 2026")
+    frame, audit["train_nbm"] = attach_training_nbm(frame, l9.load_nbm(nbm_train_corpus), l9.nbm_at_cutoff, timezones)
+    frame = frame[frame["hour"].isin(RR_HOURS)].reset_index(drop=True)
+    frame, audit["training"] = rk_training_columns(frame, hrrr)
+    reasons = defaultdict(int)
+    for market, day, hour in zip(frame["market"], frame["target_date"], frame["hour"]):
+        entry = hrrr.get((market, str(day)[:10], int(hour)))
+        reasons["no_selection" if entry is None else (entry["reason"] or "covered")] += 1
+    audit["training_reasons"] = dict(reasons)
+    audit["gates"]["1a_parity_training"] = rr_parity(audit["hrrr_corpus_stats"], audit["training"]["rows"],
+                                                     audit["training"]["rows_covered"], "training")
+    if not audit["gates"]["1a_parity_training"]["pass"]:
+        audit["stopped_at"] = "gate 1a parity (training half; not a kill)"
+        return finish()
+    rows = rung_loyo(frame, buckets, RR_HOURS, arms=RR_ARMS)
+    _write_jsonl(out / "loyo_rows.jsonl", rows)
+    audit["control_ra_reproduction"] = rk_control(rows, _read_jsonl(ra_loyo_rows), hours=RR_HOURS)
+    if not audit["control_ra_reproduction"]["pass"]:
+        audit["stopped_at"] = "control: R-A 07-12 LOYO reproduction failed (refused, not a gate)"
+        return finish()
+    audit["gates"]["2_loyo"] = rg_loyo_summary(rows, pairs=RR_PAIRS, pooled=RR_POOLS)
+    primary = audit["gates"]["2_loyo"]["B_H-B_N|07-12|brier"]
+    audit["gates"]["2_loyo"]["pass"] = primary["ci95"][1] < 0
+    if not audit["gates"]["2_loyo"]["pass"]:
+        audit["stopped_at"] = "gate 2 LOYO (KILL: HRRR closed as a 07-12 centre input)"
+    return finish()
+
+
+def rung_r_dev_emit(*, records_root, layout, replay_root, nbm_train_corpus, hrrr_corpus, land, loyo_audit, out_dir,
+                    markets=R0_MARKETS):
+    """R-R gate 1b (dev half, inputs only) and the h07-12 dev distributions of all four arms (no scoring)."""
+    out = require_output_outside_repo(out_dir)
+    loyo = json.loads(Path(loyo_audit).read_bytes())
+    if loyo.get("rule_sha256") != RR_RULE_SHA256 or loyo.get("stopped_at") or not loyo["gates"]["2_loyo"]["pass"]:
+        raise PooledModelError(f"R-R gates 1a-2 did not pass: {loyo.get('stopped_at')}")
+    corpus = Path(hrrr_corpus)
+    shas = rr_verify_corpus(corpus)
+    point, point_report = rr_point_rule(land, corpus, markets)
+    dates = rr_corpus_dates(corpus)
+    train_hrrr, train_stats = rk_hrrr_columns(corpus, markets, hours=RR_HOURS, point=point, day_filter=_rr_train_day)
+    dev_hrrr, dev_stats = rk_hrrr_columns(corpus, markets, hours=RR_HOURS, point=point, day_filter=_rr_dev_day)
+    reasons = defaultdict(int)
+
+    def row_hook(market, target, hour, nbm, stats):
+        entry = dev_hrrr.get((market, target.isoformat(), int(hour)))
+        reasons["no_selection" if entry is None else (entry["reason"] or "covered")] += 1
+        values = rk_columns(entry, nbm)
+        stats["hrrr_rows"] += 1
+        stats["hrrr_covered"] += values["k_miss"] == 0.0
+        return values
+
+    audit = dev_emit_rung(records_root=records_root, layout=layout, replay_root=replay_root,
+                          nbm_train_corpus=nbm_train_corpus, out_dir=out, markets=markets, hours=RR_HOURS,
+                          loyo=False, arms=RR_ARMS, train_hook=lambda f: rk_training_columns(f, train_hrrr),
+                          row_hook=row_hook)
+    rows = sum(m.get("hrrr_rows", 0) for m in audit["markets"].values())
+    covered = sum(m.get("hrrr_covered", 0) for m in audit["markets"].values())
+    rr = {"rule_sha256": RR_RULE_SHA256, "loyo_audit_sha256": _rr_sha(loyo_audit), "point_rule": point_report,
+          "corpus_dates": dates, "inputs": {f"hrrr_{n}": s for n, s in shas.items()},
+          "hrrr_dev_corpus_stats": dev_stats, "hrrr_train_corpus_stats": train_stats, "dev_reasons": dict(reasons),
+          "training": audit.get("train_hook"), "gates": {"1b_parity_dev": rr_parity(dev_stats, rows, covered, "dev")},
+          "files": audit["files"],
+          "ra_reproduction": {name: audit["files"].get(name) == sha for name, sha in RR_RA_EMIT.items()}}
+    if not rr["gates"]["1b_parity_dev"]["pass"]:
+        rr["stopped_at"] = "gate 1b parity (dev half; not a kill)"
+    (out / "rr_emit_audit.json").write_text(json.dumps(rr, indent=1, sort_keys=True), encoding="utf-8")
+    return rr
+
+
+def rung_r_score(*, layout, emit_dir, coefficients, nowcasts, rf_result, out_path, start="2026-08-01",
+                 end="2026-09-29"):
+    """R-R gates 3 and 4 (and gate 5, reported) on the dev scorecard (rule_rr.md); gate 3 failing is the kill."""
+    import os
+
+    import numpy as np
+
+    from weather.calibration import r0_ols_floor_challenger as l3
+    from weather.reporting.scorecards import dev_scorecard as sc
+    from weather.reporting.scorecards import dev_scorecard_data as data
+    from weather.reporting.scorecards import loss_atlas
+
+    out_path = require_output_outside_repo(out_path)
+    if out_path.exists():
+        raise PooledModelError(f"refusing to overwrite {out_path}")
+    emit = Path(emit_dir)
+    audit = json.loads((emit / "rr_emit_audit.json").read_bytes())
+    if audit.get("rule_sha256") != RR_RULE_SHA256 or audit.get("stopped_at"):
+        raise PooledModelError(f"emit is not an R-R emit that passed gate 1b: {audit.get('stopped_at')}")
+    if not all(audit["ra_reproduction"].values()):
+        raise PooledModelError(f"R-F input reproduction failed: {audit['ra_reproduction']}")
+    now_sha = _rr_sha(nowcasts)
+    if now_sha != L6_NOWCAST_SHA256:
+        raise PooledModelError(f"L6 nowcast sha {now_sha} != {L6_NOWCAST_SHA256}")
+    os.environ["L6_NOWCASTS"] = str(nowcasts)
+    from weather.reporting.scorecards.free_source_candidates import l6_stack, mg1
+
+    l6_stack._CACHE.clear()
+    state, part_sha = l6_frozen_state(coefficients)
+    start_d, end_d = data.check_range(start, end)
+    lay = data.load_layout(layout, data.DEV_FIRST, end_d)
+    folds = data.make_folds(lay.dates, start_d, end_d, 7, 1, 7)
+    scored = sorted(d for f in folds if f.scored for d in f.dates)
+    fit_dates = sorted(d for d in {str(x) for x in lay.dates} if BLEND_FIT_FIRST <= d <= end)
+
+    def arm_vec(table, arm):
+        return l3._vector(table, l3._candidate_frame(str(emit / f"dev_{arm}.jsonl"), table, lay, folds, data)[0])
+
+    full = sc.Table(lay, fit_dates)
+    fdates = full.snaps.date.astype(str).to_numpy()
+    pl, cl, _ = l6_vector(full, state, l3)
+    weights = {}
+    for name, cand in (("blend_l6_H", "P3d_H"), ("blend_l6", "P3d_N_fix")):
+        pa, ca, _ = arm_vec(full, cand)
+        A, B = blend_weight(pa, pl, full.y, full.offsets, full.n)
+        weights[name] = walk_forward_weights(fdates, full.local_hour, ca & cl, A, B, scored)
+
+    table = sc.Table(lay, scored)
+    date_w = l3._date_weights([k[0] for k in table.keys], sc.DRAWS, sc.SEED)
+    market_b = table.brier(table.p_market)
+    vec = {arm: arm_vec(table, arm) for arm in RR_ARMS}
+    p_mg1, cov_mg1, _ = l3._vector(table, loss_atlas.mg1_frame(table))
+    p_l6, cov_l6, _ = l6_vector(table, state, l3)
+    w0712 = (table.local_hour >= 7) & (table.local_hour <= 12)
+    _, e = table.cells(table.brier(p_mg1) - market_b, w0712)
+    mg1_excess = float(e.mean())
+    if round(mg1_excess, 3) != l3.MG1_CONTROL_0712_EXCESS:
+        raise PooledModelError(f"MG-1 positive control failed: {mg1_excess:.5f}")
+    # R-F's mg1.predict identity and L6 controls (rung_rf), refused otherwise
+    p_mg1_module, _, _ = l3._vector(table, mg1.predict(_with_floor(table.snaps), table.bands, None))
+    mg1_identity = float(np.max(np.abs(p_mg1_module - p_mg1)))
+    if mg1_identity > 1e-12:
+        raise PooledModelError(f"mg1.predict differs from loss_atlas.mg1_frame by {mg1_identity}")
+    differs = np.add.reduceat(np.abs(p_l6 - p_mg1), table.offsets) > 1e-12
+    has_now = np.isfinite(l6_stack.nowcasts()[0][state["column"]].reindex(
+        table.snaps.row_key.to_numpy()).to_numpy(float))
+    l6_controls = {"snapshots_differing_from_mg1": int(differs.sum()),
+                   "differing_outside_07_12": int((differs & ~w0712).sum()),
+                   "differing_without_nowcast": int((differs & ~has_now).sum()),
+                   "mg1_identity_max_abs_diff": mg1_identity}
+    if l6_controls["differing_outside_07_12"] or l6_controls["differing_without_nowcast"]:
+        raise PooledModelError(f"L6 control failed: {l6_controls}")
+    if not l6_controls["snapshots_differing_from_mg1"]:
+        raise PooledModelError("L6 never differs from MG-1: nowcast keys do not join")
+    dates = table.snaps.date.astype(str).to_numpy()
+    briers = {arm: table.brier(v[0]) for arm, v in vec.items()}
+    covs = {arm: v[1] for arm, v in vec.items()}
+    everything = np.ones(len(table.snaps), dtype=bool)
+    briers.update(l6=table.brier(p_l6), mg1=table.brier(p_mg1))
+    covs.update(l6=cov_l6, mg1=cov_mg1)
+    for name, cand in (("blend_l6_H", "P3d_H"), ("blend_l6", "P3d_N_fix")):
+        w_snap = np.array([weights[name].get((int(h), d), 0.0) for h, d in zip(table.local_hour, dates)])
+        wb = np.where(covs[cand] & cov_l6, w_snap, 0.0)[table.band_snap]
+        briers[name] = table.brier(wb * vec[cand][0] + (1.0 - wb) * p_l6)
+        covs[name] = cov_l6
+    briers["P3d_H_l6"] = table.brier(np.where(covs["P3d_H"][table.band_snap], vec["P3d_H"][0], p_l6))
+    covs["P3d_H_l6"] = covs["P3d_H"] | cov_l6
+    four = covs["B_N"] & covs["B_H"] & covs["P3d_N_fix"] & covs["P3d_H"]
+    scope4 = covs["P3d_H"] & cov_l6  # R-F's covered scope with P3d_H in place of P3d_N_fix
+    pools = [(sc.ALL_MARKETS, None), (l3.PRIMARY_POOL, set(l3.PRIMARY_MARKETS))] + [
+        (m, {m}) for m in sorted(set(table.markets))]
+    groups = [("07-12", 7, 12), ("07-09", 7, 9), ("10-12", 10, 12)] + [(f"h{h:02d}", h, h) for h in RR_HOURS]
+
+    def compare(arm, ref, scope, label, absolute=False):
+        rows = []
+        for market, members in pools:
+            in_pool = everything if members is None else np.isin(table.markets, sorted(members))
+            for group, lo, hi in groups:
+                mask = scope & in_pool & (table.local_hour >= lo) & (table.local_hour <= hi)
+                if not mask.any():
+                    continue
+                idx, c = table.cells(briers[arm], mask)
+                _, r_ = table.cells(briers[ref], mask)
+                _, m = table.cells(market_b, mask)
+                row = {"arm": arm, "reference": ref, "scope": label, "market": market, "group": group,
+                       "n_market_days": int(len(idx)), "n_snapshots": int(mask.sum()),
+                       "R_arm": sc.ratio_interval(table.w[:, idx], c, m),
+                       "R_reference": sc.ratio_interval(table.w[:, idx], r_, m),
+                       "R_arm_date_clustered": sc.ratio_interval(date_w[:, idx], c, m),
+                       "dR_crossed": sc.ratio_interval(table.w[:, idx], c - r_, m),
+                       "dR_date_clustered": sc.ratio_interval(date_w[:, idx], c - r_, m)}
+                if absolute:
+                    row["brier_diff_w_date"] = sc.ratio_interval(table.w_date[:, idx], c - r_, np.ones(len(idx)))
+                rows.append(row)
+        return rows
+
+    def pick(rows, group="07-12"):
+        return next(r for r in rows if r["market"] == sc.ALL_MARKETS and r["group"] == group)
+
+    def reading(rows):
+        p = pick(rows)["dR_date_clustered"]["ci95"]
+        lower = [pick(rows, f"h{h:02d}")["dR_date_clustered"]["ci95"][0] for h in RR_HOURS]
+        if p[0] > 0:
+            return "HARM"
+        return "WIN" if p[1] < 0 and not any(lo > 0 for lo in lower) else "NULL"
+
+    # R-F's blend_l6 vs L6 estimate, reported (not a gate): R-F's construction re-run on R-F's inputs
+    rf = json.loads(Path(rf_result).read_bytes())
+    rf_row = next(r for r in rf["rows"] if r["arm"] == "blend_l6" and r["reference"] == "l6"
+                  and r["scope"] == "covered" and r["market"] == sc.ALL_MARKETS and r["group"] == "07-12")
+    rf_now = pick(compare("blend_l6", "l6", covs["P3d_N_fix"] & cov_l6, "covered"))["dR_date_clustered"]["estimate"]
+    result = {"rule_sha256": RR_RULE_SHA256,
+              "population": {"n_dates": len(scored), "first_date": scored[0], "last_date": scored[-1],
+                             "n_market_days": len(table.keys),
+                             "four_arm_covered_snapshots": {g: int((four & (table.local_hour >= lo)
+                                                                    & (table.local_hour <= hi)).sum())
+                                                            for g, lo, hi in groups},
+                             "gate4_scope_snapshots_07_12": int((scope4 & w0712).sum()),
+                             "gate4_scope_equals_four_arm_and_l6": bool(
+                                 ((scope4 & w0712) == (four & cov_l6 & w0712)).all())},
+              "controls": {"mg1_excess_07_12": mg1_excess, "ra_reproduction": audit["ra_reproduction"],
+                           "l6_part_sha256": part_sha, "l6_nowcast_sha256": now_sha, **l6_controls,
+                           "rf_blend_l6_vs_l6_estimate": rf_now,
+                           "rf_blend_l6_vs_l6_reported": rf_row["dR_date_clustered"]["estimate"],
+                           "rf_reproduced": abs(rf_now - rf_row["dR_date_clustered"]["estimate"]) <= 1e-9,
+                           "gate1b": audit["gates"]["1b_parity_dev"]},
+              "inputs": {"emit_files": audit["files"], "emit_inputs": audit["inputs"],
+                         "emit_audit_sha256": _rr_sha(emit / "rr_emit_audit.json"), "rf_result": _rr_sha(rf_result),
+                         "layout_manifest_sha256": lay.manifest_sha256, "scorecard_code_sha256": sc.code_sha256(),
+                         "module_sha256": _rr_sha(__file__)},
+              "gates": {}, "rows": []}
+
+    def done():
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(result, indent=1, sort_keys=True), encoding="utf-8")
+        return result
+
+    result["rows"] += compare("B_H", "B_N", four, "four_arm")  # reported only
+    rows = compare("P3d_H", "P3d_N_fix", four, "four_arm")
+    result["rows"] += rows
+    g3 = pick(rows)["dR_date_clustered"]
+    result["gates"]["3_P3d_H_vs_P3d_N_fix_07_12"] = {"dR_date_clustered": g3, "pass": g3["ci95"][1] < 0}
+    if not result["gates"]["3_P3d_H_vs_P3d_N_fix_07_12"]["pass"]:
+        result["stopped_at"] = "gate 3 (KILL: HRRR closed as a 07-12 centre input)"
+        return done()
+    rows = compare("blend_l6_H", "l6", scope4, "covered")
+    result["rows"] += rows
+    result["gates"]["4_blend_l6_H_vs_l6"] = {
+        "reading": reading(rows), "dR_date_clustered": pick(rows)["dR_date_clustered"],
+        "hours": {f"h{h:02d}": pick(rows, f"h{h:02d}")["dR_date_clustered"] for h in RR_HOURS}}
+    result["rows"] += compare("blend_l6_H", "l6", everything, "blended")
+    result["rows"] += compare("P3d_H_l6", "l6", scope4, "covered")
+    result["rows"] += compare("P3d_H_l6", "l6", everything, "blended")
+    result["rows"] += compare("blend_l6_H", "blend_l6", scope4, "covered")
+    result["rows"] += compare("blend_l6_H", "mg1", scope4, "covered", absolute=True)
+    result["rows"] += compare("l6", "mg1", scope4, "covered", absolute=True)
+    result["weights"] = {name: {f"h{h:02d}": {"mean": float(np.mean([w[(h, d)] for d in scored])),
+                                              "first": w[(h, scored[0])], "last": w[(h, scored[-1])]}
+                                for h in RR_HOURS} for name, w in weights.items()}
+    result["gate5_vs_market_reported"] = {
+        arm: {r["group"]: r["R_arm_date_clustered"] for r in compare(arm, "l6", scope4, "covered")
+              if r["market"] == sc.ALL_MARKETS}
+        for arm in ("P3d_H", "blend_l6_H", "l6")}
+    return done()
+
+
 # ------------------------------------------------- clarification 3: forward refit and frozen state (MG-2)
 
 FORWARD_CENTRES = AUG_SEP_CENTRES + ("2026-10-10", "2026-10-25", "2026-11-09", "2026-11-24", "2026-12-09")
@@ -5131,6 +5557,29 @@ def _parse(argv=None):
     ls_.add_argument("--coefficients", required=True)
     ls_.add_argument("--nowcasts", required=True)
     ls_.add_argument("--out", required=True)
+    rl_ = sub.add_parser("rung-r-loyo", help="R-R gate 1a (training half) and gate 2 LOYO (heavy)")
+    rl_.add_argument("--records", required=True)
+    rl_.add_argument("--nbm-train-corpus", required=True)
+    rl_.add_argument("--hrrr", required=True, help="L13 HRRR 07-12 corpus (2021-25 and 2026 dev in one)")
+    rl_.add_argument("--land", required=True, help="L13 land_3x3.json (RN-1 point rule)")
+    rl_.add_argument("--ra-loyo-rows", required=True, help="R-A loyo_rows.jsonl (incumbent-arm control)")
+    rl_.add_argument("--out", required=True)
+    rd_ = sub.add_parser("rung-r-dev-emit", help="R-R gate 1b and h07-12 dev distributions (heavy)")
+    rd_.add_argument("--records", required=True)
+    rd_.add_argument("--layout", required=True)
+    rd_.add_argument("--replay-root", required=True)
+    rd_.add_argument("--nbm-train-corpus", required=True)
+    rd_.add_argument("--hrrr", required=True)
+    rd_.add_argument("--land", required=True)
+    rd_.add_argument("--loyo-audit", required=True, help="rr_loyo_audit.json (gates 1a-2 must have passed)")
+    rd_.add_argument("--out", required=True)
+    rs_ = sub.add_parser("rung-r-score", help="R-R gates 3-5 on the dev scorecard (heavy)")
+    rs_.add_argument("--layout", required=True)
+    rs_.add_argument("--emit", required=True)
+    rs_.add_argument("--coefficients", required=True)
+    rs_.add_argument("--nowcasts", required=True)
+    rs_.add_argument("--rf-result", required=True)
+    rs_.add_argument("--out", required=True)
     de = sub.add_parser("p3dn-diag-emit", help="P3d_N vs P3d_N_fix input diff and variant emissions (heavy)")
     de.add_argument("--records", required=True)
     de.add_argument("--layout", required=True)
@@ -5320,6 +5769,25 @@ def main(argv=None):
     if args.command == "rung-l-score":
         result = rung_l_score(layout=args.layout, emit_dir=args.emit, coefficients=args.coefficients,
                               nowcasts=args.nowcasts, out_path=Path(args.out))
+        print(json.dumps({"gates": result["gates"], "stopped_at": result.get("stopped_at")}, indent=1))
+        return 0
+    if args.command == "rung-r-loyo":
+        audit = rung_r_loyo(records_root=args.records, nbm_train_corpus=args.nbm_train_corpus, hrrr_corpus=args.hrrr,
+                            land=args.land, ra_loyo_rows=args.ra_loyo_rows, out_dir=args.out)
+        print(json.dumps({"gates": {k: v.get("pass") for k, v in audit["gates"].items()},
+                          "stopped_at": audit.get("stopped_at"),
+                          "control": audit.get("control_ra_reproduction")}, indent=1))
+        return 0
+    if args.command == "rung-r-dev-emit":
+        audit = rung_r_dev_emit(records_root=args.records, layout=args.layout, replay_root=args.replay_root,
+                                nbm_train_corpus=args.nbm_train_corpus, hrrr_corpus=args.hrrr, land=args.land,
+                                loyo_audit=args.loyo_audit, out_dir=args.out)
+        print(json.dumps({"gates": audit["gates"], "stopped_at": audit.get("stopped_at"),
+                          "ra_reproduction": audit["ra_reproduction"]}, indent=1, default=float))
+        return 0
+    if args.command == "rung-r-score":
+        result = rung_r_score(layout=args.layout, emit_dir=args.emit, coefficients=args.coefficients,
+                              nowcasts=args.nowcasts, rf_result=args.rf_result, out_path=Path(args.out))
         print(json.dumps({"gates": result["gates"], "stopped_at": result.get("stopped_at")}, indent=1))
         return 0
     if args.command == "p3dn-diag-emit":
