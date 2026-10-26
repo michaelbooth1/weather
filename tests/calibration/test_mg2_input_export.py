@@ -12,6 +12,7 @@ import io
 import json
 import os
 import sys
+import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -134,6 +135,10 @@ def make_host(tmp_path, target=D):
     cas.mkdir(parents=True)
     (cas / f"{BLOB_SHA}.blob").write_bytes(BLOB)
     (data / "labels").mkdir()
+    quiet = time.time() - 2 * 3600
+    for path in data.rglob("*"):
+        if path.is_file():
+            os.utime(path, (quiet, quiet))
     return data
 
 
@@ -338,6 +343,67 @@ def test_cli_success_and_refusal(host, tmp_path, capsys):
     assert report["manifest_sha256"] == hashlib.sha256((out / D.isoformat() / allow.MANIFEST).read_bytes()).hexdigest()
     assert mx.main(["--date", "2026-10-10", "--data-root", str(host), "--out", str(out)]) == 2
     assert json.loads(capsys.readouterr().out.strip())["status"] == "refused"
+
+
+@pytest.mark.parametrize("age_minutes, fresh", [(29, True), (31, False)])
+def test_quiet_guard_on_rewritable_files(host, tmp_path, capsys, age_minutes, fresh):
+    rel = f"snapshots/{allow.slug_for('houston', D)}/snapshots_long.csv"
+    stamp = time.time() - age_minutes * 60
+    os.utime(host / rel, (stamp, stamp))
+    live = host / "snapshots" / allow.slug_for("houston", D) / "replay_inputs.jsonl"
+    os.utime(live, None)  # an append-only tape written just now never blocks the export
+    out = tmp_path / "out"
+    status = mx.main(["--date", D.isoformat(), "--data-root", str(host), "--out", str(out)])
+    report = json.loads(capsys.readouterr().out.strip())
+    if fresh:
+        assert status == 3 and report["status"] == "too_fresh" and rel in report["reason"]
+        assert not out.exists() or sorted(p.name for p in out.iterdir()) == []  # staging removed, nothing published
+    else:
+        assert status == 0 and report["status"] == "exported"
+
+
+def test_quiet_guard_covers_every_rewritable_name(host, tmp_path):
+    seattle = allow.slug_for("seattle", D + timedelta(days=1))  # NBM from the long-CSV fallback
+    for rel in (f"snapshots/{allow.slug_for('nyc', D)}/features_long.csv",
+                f"snapshots/{seattle}/forecast_payloads_long.csv"):
+        os.utime(host / rel, None)
+        with pytest.raises(mx.FileTooFresh, match=rel):
+            mx.export(day=D, data_root=host, out=tmp_path / "out", now=NOW)
+        quiet = time.time() - 3600
+        os.utime(host / rel, (quiet, quiet))
+    assert mx.REPLACEABLE == {"snapshots_long.csv", "features_long.csv", "forecast_payloads_long.csv"}
+    assert mx.MIN_QUIET_SECONDS == 1800
+
+
+def test_large_inputs_stream_without_materialising(host, tmp_path, monkeypatch):
+    """No whole-file read: the source handles are only ever iterated or read in bounded chunks."""
+    reads = []
+    real = mx._share_all_open
+
+    class Guarded:
+        def __init__(self, handle):
+            self.handle = handle
+
+        def read(self, size=-1):
+            reads.append(size)
+            assert size is not None and size > 0, "whole-file read"
+            return self.handle.read(size)
+
+        def __getattr__(self, name):
+            return getattr(self.handle, name)
+
+        def __iter__(self):
+            return iter(self.handle)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            self.handle.close()
+
+    monkeypatch.setattr(mx, "_share_all_open", lambda path: Guarded(real(path)))
+    manifest, _bundle = _export(host, tmp_path)
+    assert all(v["present"] for v in manifest["markets"].values())
 
 
 @pytest.mark.skipif(os.name != "nt", reason="share modes are a Windows property")

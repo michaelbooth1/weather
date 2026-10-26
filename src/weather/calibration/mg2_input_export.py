@@ -11,21 +11,28 @@ it never refuses on the capture host and no capture loop imports it (roll-free).
   ``<data-root>\snapshots\<slug>\`` for the 11 fixed markets and ``<data-root>\forecast_payload_cas\sha256\``;
   every path is checked against those patterns, and every component against links and reparse points, before
   it is opened. Anything else fails closed.
-* **Shared-read opens.** On Windows every read handle allows read, write and delete sharing, so a capture
-  writer can append to, rename or delete a file the exporter is reading. Each file is read whole and closed at
-  once, so the handle is held only for the read itself.
+* **Shared-read, streamed opens.** On Windows every read handle allows read, write and delete sharing, so a
+  capture writer can append to, rename or delete a file the exporter is reading. Every file is streamed line
+  by line (blobs in chunks) straight into the staging bundle, so memory stays flat whatever the file sizes.
+* **Quiet guard.** ``snapshots_long.csv``, ``features_long.csv`` and ``forecast_payloads_long.csv`` can be
+  rewritten in place by a capture writer (``SnapshotStore.append_csv`` widens a grown header through a temp
+  file and ``os.replace``; ``snapshot_store_backfill`` does the same), and Windows refuses that replace while
+  any reader holds the file. Such a file is opened only when its mtime is at least ``MIN_QUIET_SECONDS`` old;
+  otherwise the date is refused (exit 3) naming the file. The other files are append-only (the JSONL tapes,
+  ``order_books_summary.csv``, ``market_ws_events.csv``, execution-tape trades) or create-once (NBM blobs).
 * **Dates.** A target date D is exported only if D <= 2026-09-29 (the development window) or D >= D0
   (2026-10-28; the MG-2 reservation exemption, option 2), and only after D's export cut has passed.
 * **Projection, not copy.** Every record goes through the allow-list's projections; only rows captured at or
   before the export cut travel. NBM blobs are copied byte for byte after re-hashing.
 * **Counts only.** ``market_price_coverage`` (B-1 section 3: per market, D's local 07-16 snapshots and how many
   carry a capture-time price on every band) and ``book_coverage`` (PT-1: rows of ``order_books_summary.csv``
-  (or ``.csv.gz``) and ``market_ws_events.csv`` by local hour of D, and ``execution_tape\trades-*.jsonl`` line
-  counts) are integers in the manifest. No price, book or trade value is written.
+  (or ``.csv.gz``) and ``market_ws_events.csv`` (or ``.csv.gz``) by local hour of D, and
+  ``execution_tape\trades-*.jsonl`` line counts) are integers in the manifest. No price, book or trade value is
+  written.
 
 Output: ``<out>\<D>\`` (the bundle; ``manifest.json.sha256`` written last, then the folder is published by an
-atomic rename from ``<out>\.<D>.partial``) and ``<out>\<D>.SHA256SUMS`` beside it (outside the bundle, which
-must hold only allow-listed paths).
+atomic rename from ``<out>\.<D>.partial``, which a failed run removes) and ``<out>\<D>.SHA256SUMS`` beside it
+(outside the bundle, which must hold only allow-listed paths).
 
     python -m weather.calibration.mg2_input_export --date 2026-09-29 [--date ...] [--data-root <repo>\data]
         [--out <repo>\data\exports\mg2-inputs]
@@ -41,8 +48,9 @@ import io
 import json
 import os
 import re
+import shutil
 import stat
-import sys
+import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -54,6 +62,8 @@ DEV_LAST = date(2026, 9, 29)
 FORWARD_FIRST = date(2026, 10, 28)  # MG-2 D0: option 2 exempts MG-2's dates from here
 SUMS_SUFFIX = ".SHA256SUMS"
 COVERAGE_HOURS = (7, 16)
+MIN_QUIET_SECONDS = 30 * 60
+CHUNK = 1 << 20
 TZ = {"atlanta": "America/New_York", "austin": "America/Chicago", "chicago": "America/Chicago",
       "dallas": "America/Chicago", "denver": "America/Denver", "houston": "America/Chicago",
       "los-angeles": "America/Los_Angeles", "miami": "America/New_York", "nyc": "America/New_York",
@@ -62,10 +72,13 @@ TZ = {"atlanta": "America/New_York", "austin": "America/Chicago", "chicago": "Am
 SOURCE_PATTERNS = (
     re.compile(r"^snapshots/(?P<slug>[a-z0-9-]+)/(?P<name>replay_inputs\.jsonl|snapshots_long\.csv|"
                r"features_long\.csv|forecast_payloads\.jsonl|forecast_payloads_long\.csv|"
-               r"order_books_summary\.csv|order_books_summary\.csv\.gz|market_ws_events\.csv)$"),
+               r"order_books_summary\.csv|order_books_summary\.csv\.gz|market_ws_events\.csv|"
+               r"market_ws_events\.csv\.gz)$"),
     re.compile(r"^snapshots/(?P<slug>[a-z0-9-]+)/execution_tape/trades-\d{5}\.jsonl$"),
     re.compile(r"^forecast_payload_cas/sha256/[0-9a-f]{2}/[0-9a-f]{64}\.blob$"),
 )
+# Files a capture writer may replace in place (temp file + os.replace): opened only once quiet.
+REPLACEABLE = frozenset({"snapshots_long.csv", "features_long.csv", "forecast_payloads_long.csv"})
 PRICE_COLUMN = "market_yes"  # read only to count presence; the value is never kept or written
 
 
@@ -73,10 +86,14 @@ class ExportRefused(RuntimeError):
     """The export cannot run (date, path, link or output); nothing is published."""
 
 
+class FileTooFresh(ExportRefused):
+    """A rewritable source file changed less than ``MIN_QUIET_SECONDS`` ago; nothing is published."""
+
+
 # ----------------------------------------------------------------------------- reading
 
 def _share_all_open(path):
-    """A binary read handle that lets writers append, replace or delete the file (Windows); plain elsewhere."""
+    """A binary read handle that lets writers append, rename or delete the file (Windows); plain elsewhere."""
     if os.name != "nt":
         return open(path, "rb")
     import ctypes
@@ -98,14 +115,15 @@ def _share_all_open(path):
 
 
 class Source:
-    """The host data root; every open goes through ``open``, which admits only ``SOURCE_PATTERNS``."""
+    """The host data root; every open goes through ``binary``/``text``, which admit only ``SOURCE_PATTERNS``."""
 
-    def __init__(self, root):
+    def __init__(self, root, clock=time.time):
         root = Path(root)
         if not root.is_absolute() or not root.is_dir() or not (root / "snapshots").is_dir():
             raise ExportRefused(f"data root {root} is not an absolute directory with snapshots/")
         self.root = root
-        self.opened = []
+        self.clock = clock
+        self.opened = {}  # rel -> {"source_bytes", "source_mtime_utc"} at open time
 
     def known(self, rel):
         """A listed file name, in one of the 11 markets' event folders or the shared NBM store."""
@@ -132,29 +150,34 @@ class Source:
             raise ExportRefused(f"not a regular file: {rel}")
         return full
 
-    def read(self, rel):
-        """``(bytes, size, mtime_utc)`` of a known file, or None when absent."""
-        full = self.path(rel)
-        if full is None:
-            return None
-        with _share_all_open(full) as handle:
-            data = handle.read()
-        self.opened.append(rel)
-        mtime = datetime.fromtimestamp(os.stat(full).st_mtime, timezone.utc).isoformat()
-        return data, len(data), mtime, rel
-
     @contextlib.contextmanager
-    def lines(self, rel):
-        """Text lines of a known file (``.gz`` decompressed), streamed; yields None when absent."""
+    def binary(self, rel):
+        """A shared-read binary handle on a known file; yields None when absent. Applies the quiet guard."""
         full = self.path(rel)
         if full is None:
             yield None
             return
-        self.opened.append(rel)
+        info = os.stat(full)
+        if rel.rsplit("/", 1)[-1] in REPLACEABLE:
+            age = self.clock() - info.st_mtime
+            if age < MIN_QUIET_SECONDS:
+                raise FileTooFresh(f"{rel} changed {max(age, 0):.0f} s ago (< {MIN_QUIET_SECONDS} s): a capture "
+                                   f"writer may rewrite it in place; re-run once it is quiet")
+        self.opened[rel] = {"source_bytes": info.st_size,
+                            "source_mtime_utc": datetime.fromtimestamp(info.st_mtime, timezone.utc).isoformat()}
         with _share_all_open(full) as raw:
+            yield raw
+
+    @contextlib.contextmanager
+    def text(self, rel):
+        """Text lines of a known file (``.gz`` decompressed), streamed; yields None when absent."""
+        with self.binary(rel) as raw:
+            if raw is None:
+                yield None
+                return
             stream = gzip.GzipFile(fileobj=raw, mode="rb") if rel.endswith(".gz") else raw
-            with io.TextIOWrapper(stream, encoding="utf-8", newline="") as text:
-                yield text
+            with io.TextIOWrapper(stream, encoding="utf-8", newline="") as handle:
+                yield handle
 
     def is_cold_archived(self, slug):
         """True when the folder carries the cold-archive marker (existence check only; nothing opened)."""
@@ -184,26 +207,71 @@ def parse_time(value):
     return parsed.astimezone(timezone.utc) if parsed.tzinfo else None
 
 
-def _jsonl(data):
-    return [json.loads(line) for line in data.decode("utf-8").splitlines() if line.strip()]
+def _jsonl_records(handle):
+    for line in handle:
+        if line.strip():
+            yield json.loads(line)
 
 
-def _csv_rows(data):
-    reader = csv.DictReader(io.StringIO(data.decode("utf-8"), newline=""))
-    return list(reader)
+def _jsonl_line(record):
+    return (json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
 
 
-def _jsonl_bytes(records):
-    return "".join(json.dumps(r, sort_keys=True, separators=(",", ":")) + "\n" for r in records).encode("utf-8")
+class _CsvLine:
+    """One CSV row as bytes, with the bundle's dialect (``\\n`` line ends)."""
+
+    def __init__(self):
+        self.buffer = io.StringIO()
+        self.writer = csv.writer(self.buffer, lineterminator="\n")
+
+    def __call__(self, values):
+        self.buffer.seek(0)
+        self.buffer.truncate()
+        self.writer.writerow(values)
+        return self.buffer.getvalue().encode("utf-8")
 
 
-def _csv_bytes(rows, fields):
-    out = io.StringIO()
-    writer = csv.DictWriter(out, fieldnames=list(fields), lineterminator="\n", extrasaction="ignore")
-    writer.writeheader()
-    for row in rows:
-        writer.writerow({k: row.get(k, "") for k in fields})
-    return out.getvalue().encode("utf-8")
+# ----------------------------------------------------------------------------- writing
+
+class Bundle:
+    """The staging bundle: every output file is streamed in, hashed and counted as it is written."""
+
+    def __init__(self, staging, day):
+        self.staging, self.day = staging, day
+        self.entries = {}
+
+    @contextlib.contextmanager
+    def file(self, rel, source_rel, src, rows_kind=True):
+        if allow.classify_path(rel, self.day) is None:
+            raise ExportRefused(f"internal: {rel} is not an allow-listed bundle path")
+        target = self.staging.joinpath(*rel.split("/"))
+        target.parent.mkdir(parents=True, exist_ok=True)
+        out = _OutFile(target, rows_kind)
+        try:
+            with open(target, "xb") as out.handle:
+                yield out
+        except BaseException:
+            target.unlink(missing_ok=True)
+            raise
+        if out.discard:
+            target.unlink()
+            return
+        self.entries[rel] = {"path": rel, "sha256": out.sha.hexdigest(), "bytes": out.bytes,
+                             "rows": out.rows if rows_kind else None, "source_path": source_rel,
+                             **src.opened.get(source_rel, {})}
+
+
+class _OutFile:
+    def __init__(self, path, rows_kind):
+        self.path, self.handle, self.sha = path, None, hashlib.sha256()
+        self.bytes = self.rows = 0
+        self.discard = False
+
+    def write(self, data, row=True):
+        self.handle.write(data)
+        self.sha.update(data)
+        self.bytes += len(data)
+        self.rows += int(row)
 
 
 # ----------------------------------------------------------------------------- dates
@@ -228,62 +296,100 @@ def _in_cut(record, cut):
     return captured is not None and captured <= cut
 
 
-def _project_market(src, market, day, cut, files, counts):
-    """The D, D-1 and D+1 files of one market. Returns ``(present, reason, nbm_refs)``."""
+def _priced(value):
+    value = str(value or "").strip()
+    try:
+        return value != "" and float(value) == float(value)
+    except ValueError:
+        return False
+
+
+def _project_market(src, bundle, market, day, cut, counts):
+    """Stream the D, D-1 and D+1 files of one market into the bundle.
+
+    Returns ``(present, reason, nbm_refs, price_coverage)``.
+    """
     slug = allow.slug_for(market, day)
     reason, refs = None, {}
     # F1 replay inputs (D)
-    got = src.read(f"snapshots/{slug}/replay_inputs.jsonl")
-    if got is None:
-        reason = "cold_archived_restore_first" if src.is_cold_archived(slug) else "replay_inputs_missing"
-    else:
-        records = _jsonl(got[0])
-        kept = [allow.project_replay_record(r) for r in records if _in_cut(r, cut)]
-        counts["dropped_after_cut"] += len(records) - len(kept)
-        if not kept:
-            reason = "no_replay_inputs_before_cut"
+    rel = f"snapshots/{slug}/replay_inputs.jsonl"
+    with src.text(rel) as handle:
+        if handle is None:
+            reason = "cold_archived_restore_first" if src.is_cold_archived(slug) else "replay_inputs_missing"
         else:
-            files[f"snapshots/{slug}/replay_inputs.jsonl"] = (_jsonl_bytes(kept), len(kept), got)
-    # F2, F3 (D)
+            with bundle.file(rel, rel, src) as out:
+                for record in _jsonl_records(handle):
+                    if _in_cut(record, cut):
+                        out.write(_jsonl_line(allow.project_replay_record(record)))
+                    else:
+                        counts["dropped_after_cut"] += 1
+                if out.rows == 0:
+                    out.discard = True
+                    reason = "no_replay_inputs_before_cut"
+    # F2 band tape (D) plus the B-1 price coverage counts in the same pass; F3 features (D)
+    snaps, coverage_present = {}, False
+    line = _CsvLine()
     for name in ("snapshots_long.csv", "features_long.csv"):
-        got = src.read(f"snapshots/{slug}/{name}")
-        if got is None:
-            reason = reason or f"{name}_missing"
-            continue
-        rows = _csv_rows(got[0])
-        kept = [r for r in rows if _in_cut(r, cut)]
-        counts["dropped_after_cut"] += len(rows) - len(kept)
-        files[f"snapshots/{slug}/{name}"] = (_csv_bytes(kept, allow.CSV_FIELDS[name]), len(kept), got)
-    # F1b: D-1's last snapshot, METAR rows only
+        rel = f"snapshots/{slug}/{name}"
+        fields = allow.CSV_FIELDS[name]
+        with src.text(rel) as handle:
+            if handle is None:
+                reason = reason or f"{name}_missing"
+                continue
+            coverage_present = coverage_present or name == "snapshots_long.csv"
+            with bundle.file(rel, rel, src) as out:
+                out.write(line(fields), row=False)
+                for row in csv.DictReader(handle):
+                    captured = parse_time(row.get("captured_at_utc"))
+                    if captured is None or captured > cut:
+                        counts["dropped_after_cut"] += 1
+                        continue
+                    out.write(line([row.get(k, "") or "" for k in fields]))
+                    if name != "snapshots_long.csv":
+                        continue
+                    local = _local(market, captured)
+                    if local.date() == day and COVERAGE_HOURS[0] <= local.hour <= COVERAGE_HOURS[1]:
+                        sid = row.get("snapshot_id")
+                        snaps[sid] = snaps.get(sid, True) and _priced(row.get(PRICE_COLUMN))
+    price = {"snapshots_07_16": len(snaps), "priced_07_16": sum(snaps.values()), "source_present": coverage_present}
+    # F1b: D-1's last snapshot (captured by the cut), METAR rows only
     prev = allow.slug_for(market, day - timedelta(days=1))
-    got = src.read(f"snapshots/{prev}/replay_inputs.jsonl")
-    if got is not None:
-        records = [r for r in _jsonl(got[0]) if _in_cut(r, cut)]
-        if records:
-            last = max(records, key=lambda r: parse_time(r.get("captured_at_utc")))
-            files[f"prev_day/{prev}/metar_rows.jsonl"] = (_jsonl_bytes([allow.project_prev_day_record(last)]), 1,
-                                                          got)
+    rel = f"snapshots/{prev}/replay_inputs.jsonl"
+    with src.text(rel) as handle:
+        last, last_at = None, None
+        for record in _jsonl_records(handle) if handle is not None else ():
+            captured = parse_time(record.get("captured_at_utc"))
+            if captured is not None and captured <= cut and (last_at is None or captured >= last_at):
+                last, last_at = allow.project_prev_day_record(record), captured
+    if last is not None:
+        with bundle.file(f"prev_day/{prev}/metar_rows.jsonl", rel, src) as out:
+            out.write(_jsonl_line(last))
     # F4: NBM manifest rows of the D-1, D and D+1 folders (JSONL, else the long CSV)
     for offset in allow.PATHS["nbm_manifest"]["days"]:
         fslug = allow.slug_for(market, day + timedelta(days=offset))
-        got = src.read(f"snapshots/{fslug}/forecast_payloads.jsonl")
-        rows = _jsonl(got[0]) if got is not None else None
-        if got is None:
-            got = src.read(f"snapshots/{fslug}/forecast_payloads_long.csv")
-            rows = _csv_rows(got[0]) if got is not None else None
-        if got is None:
-            continue
-        kept = [allow.project_row(r, allow.NBM_FIELDS) for r in rows
-                if r.get("source") == allow.NBM_SOURCE and _in_cut(r, cut)]
-        for row in kept:
-            digest = str(row.get("payload_hash") or "")
-            if row.get("payload_storage_scope") == allow.NBM_SCOPE and row.get("payload_ref") == allow.blob_ref(
-                    digest) and allow.BLOB_RE.match(str(row.get("payload_ref"))):
-                refs[digest] = row["payload_ref"]
-            elif row.get("payload_storage_scope") == allow.NBM_SCOPE:
-                counts["nbm_bad_ref"] += 1
-        files[f"snapshots/{fslug}/forecast_payloads.jsonl"] = (_jsonl_bytes(kept), len(kept), got)
-    return reason is None, reason, refs
+        target = f"snapshots/{fslug}/forecast_payloads.jsonl"
+        for name, reader in (("forecast_payloads.jsonl", _jsonl_records), ("forecast_payloads_long.csv",
+                                                                          csv.DictReader)):
+            rel = f"snapshots/{fslug}/{name}"
+            with src.text(rel) as handle:
+                if handle is None:
+                    continue
+                with bundle.file(target, rel, src) as out:
+                    for row in reader(handle):
+                        if row.get("source") != allow.NBM_SOURCE or not _in_cut(row, cut):
+                            continue
+                        kept = allow.project_row(row, allow.NBM_FIELDS)
+                        out.write(_jsonl_line(kept))
+                        digest = str(kept.get("payload_hash") or "")
+                        if kept.get("payload_storage_scope") != allow.NBM_SCOPE:
+                            continue
+                        if kept.get("payload_ref") == allow.blob_ref(digest) and allow.BLOB_RE.match(
+                                str(kept.get("payload_ref"))):
+                            refs[digest] = kept["payload_ref"]
+                        else:
+                            counts["nbm_bad_ref"] += 1
+            break
+    return reason is None, reason, refs, price
 
 
 def _hour_counts(lines, column, market, day):
@@ -300,39 +406,14 @@ def _hour_counts(lines, column, market, day):
     return total, {f"{h:02d}": n for h, n in sorted(by_hour.items())}
 
 
-def market_price_coverage(src, market, day, cut):
-    """B-1 section 3 counts: D's local 07-16 snapshots (captured by the cut) and those priced on every band."""
-    got = src.read(f"snapshots/{allow.slug_for(market, day)}/snapshots_long.csv")
-    if got is None:
-        return {"snapshots_07_16": 0, "priced_07_16": 0, "source_present": False}
-    snaps = {}
-    for row in _csv_rows(got[0]):
-        captured = parse_time(row.get("captured_at_utc"))
-        if captured is None or captured > cut:
-            continue
-        local = _local(market, captured)
-        if local.date() != day or not COVERAGE_HOURS[0] <= local.hour <= COVERAGE_HOURS[1]:
-            continue
-        value = str(row.get(PRICE_COLUMN) or "").strip()
-        try:
-            ok = value != "" and float(value) == float(value)
-        except ValueError:
-            ok = False
-        sid = row.get("snapshot_id")
-        snaps[sid] = snaps.get(sid, True) and ok
-    return {"snapshots_07_16": len(snaps), "priced_07_16": sum(snaps.values()), "source_present": True}
-
-
 def book_coverage(src, market, day):
     """PT-1 counts: order-book summary and market websocket rows by local hour of D; execution-tape trade lines."""
     slug = allow.slug_for(market, day)
     out = {}
-    for key, names, column in (("order_books_summary", ("order_books_summary.csv", "order_books_summary.csv.gz"),
-                                "captured_at_utc"),
-                               ("market_ws_events", ("market_ws_events.csv",), "received_at_utc")):
+    for key, column in (("order_books_summary", "captured_at_utc"), ("market_ws_events", "received_at_utc")):
         entry = {"present": False, "file": None, "rows": 0, "rows_by_local_hour": {}}
-        for name in names:
-            with src.lines(f"snapshots/{slug}/{name}") as lines:
+        for name in (f"{key}.csv", f"{key}.csv.gz"):
+            with src.text(f"snapshots/{slug}/{name}") as lines:
                 if lines is None:
                     continue
                 total, by_hour = _hour_counts(lines, column, market, day)
@@ -341,13 +422,30 @@ def book_coverage(src, market, day):
         out[key] = entry
     trades = {"files": 0, "rows": 0}
     for rel in src.trade_files(slug):
-        with src.lines(rel) as lines:
-            if lines is None:
+        with src.binary(rel) as raw:
+            if raw is None:
                 continue
-            trades["rows"] += sum(1 for line in lines if line.strip())
+            trades["rows"] += sum(1 for line in raw if line.strip())
         trades["files"] += 1
     out["execution_tape_trades"] = trades
     return out
+
+
+def _copy_blob(src, bundle, digest, blobs):
+    ref = allow.blob_ref(digest)
+    rel = f"forecast_payload_cas/{ref}"
+    with src.binary(rel) as raw:
+        if raw is None:
+            blobs["missing"] += 1
+            return
+        with bundle.file(rel, rel, src, rows_kind=False) as out:
+            for chunk in iter(lambda: raw.read(CHUNK), b""):
+                out.write(chunk, row=False)
+            if out.sha.hexdigest() != digest:
+                out.discard = True
+                blobs["hash_mismatch"] += 1
+                return
+    blobs["copied"] += 1
 
 
 def _sha(data):
@@ -380,10 +478,10 @@ def _head(repo):
     return None
 
 
-def export(*, day, data_root, out, now=None, repo=None):
+def export(*, day, data_root, out, now=None, repo=None, clock=time.time):
     """Export one target date's bundle. Returns the manifest."""
     check_date(day, now)
-    src = Source(data_root)
+    src = Source(data_root, clock=clock)
     out = Path(out).resolve()
     data_root = Path(data_root).resolve()
     for forbidden_root in (data_root / "snapshots", data_root / "forecast_payload_cas"):
@@ -397,55 +495,41 @@ def export(*, day, data_root, out, now=None, repo=None):
         raise ExportRefused(f"{staging} exists from an earlier failed run; inspect and remove it")
     started = datetime.now(timezone.utc)
     cut = allow.export_cut_utc(day)
-    files, counts, refs = {}, {"dropped_after_cut": 0, "nbm_bad_ref": 0}, {}
-    markets, price_cov, books = {}, {}, {}
-    for market in allow.MARKETS:
-        present, reason, market_refs = _project_market(src, market, day, cut, files, counts)
-        markets[market] = {"expected": True, "present": present, "reason": reason}
-        refs.update(market_refs)
-        price_cov[market] = market_price_coverage(src, market, day, cut)
-        books[market] = book_coverage(src, market, day)
-    blobs = {"referenced": len(refs), "copied": 0, "missing": 0, "hash_mismatch": 0}
-    for digest in sorted(refs):
-        ref = allow.blob_ref(digest)
-        got = src.read(f"forecast_payload_cas/{ref}")
-        if got is None:
-            blobs["missing"] += 1
-            continue
-        if _sha(got[0]) != digest:
-            blobs["hash_mismatch"] += 1
-            continue
-        files[f"forecast_payload_cas/{ref}"] = (got[0], None, got)
-        blobs["copied"] += 1
-
-    entries = []
-    for rel in sorted(files):
-        data, rows, (_, source_bytes, source_mtime, source_rel) = files[rel]
-        if allow.classify_path(rel, day) is None:
-            raise ExportRefused(f"internal: {rel} is not an allow-listed bundle path")
-        entries.append({"path": rel, "sha256": _sha(data), "bytes": len(data), "rows": rows,
-                        "source_path": source_rel,
-                        "source_bytes": source_bytes, "source_mtime_utc": source_mtime})
-    repo = Path(repo) if repo else Path(__file__).resolve().parents[3]
-    manifest = {
-        "schema": allow.BUNDLE_SCHEMA, "exporter_schema": SCHEMA, "target_date": day.isoformat(),
-        "export_cut_utc": cut.isoformat(), "export_started_utc": started.isoformat(),
-        "allowlist_sha256": allow.allowlist_sha256(),
-        "exporter_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
-        "host_repo_head": _head(repo), "files": entries, "markets": markets, "nbm_blobs": blobs,
-        "dropped_after_cut": counts["dropped_after_cut"], "nbm_rows_bad_ref": counts["nbm_bad_ref"],
-        "market_price_coverage": {"hours_local": list(COVERAGE_HOURS), "counts_only": True, "markets": price_cov},
-        "book_coverage": {"counts_only": True, "markets": books},
-    }
     staging.mkdir(parents=True)
-    for rel, (data, _rows, _src) in files.items():
-        target = staging.joinpath(*rel.split("/"))
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(data)
-    manifest["export_finished_utc"] = datetime.now(timezone.utc).isoformat()
-    body = json.dumps(manifest, indent=1, sort_keys=True).encode("utf-8")
-    (staging / allow.MANIFEST).write_bytes(body)
-    (staging / allow.MANIFEST_SHA).write_text(_sha(body) + "\n", encoding="utf-8")  # the ready marker, last
+    try:
+        bundle = Bundle(staging, day)
+        counts, refs = {"dropped_after_cut": 0, "nbm_bad_ref": 0}, {}
+        markets, price_cov, books = {}, {}, {}
+        for market in allow.MARKETS:
+            present, reason, market_refs, price = _project_market(src, bundle, market, day, cut, counts)
+            markets[market] = {"expected": True, "present": present, "reason": reason}
+            refs.update(market_refs)
+            price_cov[market] = price
+            books[market] = book_coverage(src, market, day)
+        blobs = {"referenced": len(refs), "copied": 0, "missing": 0, "hash_mismatch": 0}
+        for digest in sorted(refs):
+            _copy_blob(src, bundle, digest, blobs)
+        entries = [bundle.entries[rel] for rel in sorted(bundle.entries)]
+        repo = Path(repo) if repo else Path(__file__).resolve().parents[3]
+        manifest = {
+            "schema": allow.BUNDLE_SCHEMA, "exporter_schema": SCHEMA, "target_date": day.isoformat(),
+            "export_cut_utc": cut.isoformat(), "export_started_utc": started.isoformat(),
+            "allowlist_sha256": allow.allowlist_sha256(),
+            "exporter_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+            "host_repo_head": _head(repo), "files": entries, "markets": markets, "nbm_blobs": blobs,
+            "dropped_after_cut": counts["dropped_after_cut"], "nbm_rows_bad_ref": counts["nbm_bad_ref"],
+            "min_quiet_seconds": MIN_QUIET_SECONDS,
+            "market_price_coverage": {"hours_local": list(COVERAGE_HOURS), "counts_only": True,
+                                      "markets": price_cov},
+            "book_coverage": {"counts_only": True, "markets": books},
+            "export_finished_utc": datetime.now(timezone.utc).isoformat(),
+        }
+        body = json.dumps(manifest, indent=1, sort_keys=True).encode("utf-8")
+        (staging / allow.MANIFEST).write_bytes(body)
+        (staging / allow.MANIFEST_SHA).write_text(_sha(body) + "\n", encoding="utf-8")  # the ready marker, last
+    except BaseException:
+        shutil.rmtree(staging, ignore_errors=True)  # only this run's own staging folder
+        raise
     os.replace(staging, final)
     lines = [f"{_sha((final / allow.MANIFEST).read_bytes())}  {day.isoformat()}/{allow.MANIFEST}",
              f"{_sha((final / allow.MANIFEST_SHA).read_bytes())}  {day.isoformat()}/{allow.MANIFEST_SHA}"]
@@ -472,9 +556,13 @@ def main(argv=None):
     for day in days:
         try:
             manifest = export(day=day, data_root=args.data_root, out=args.out)
+        except FileTooFresh as exc:
+            print(json.dumps({"target_date": day.isoformat(), "status": "too_fresh", "reason": str(exc)}))
+            status = max(status, 3)
+            continue
         except ExportRefused as exc:
             print(json.dumps({"target_date": day.isoformat(), "status": "refused", "reason": str(exc)}))
-            status = 2
+            status = max(status, 2)
             continue
         absent = sorted(m for m, v in manifest["markets"].items() if not v["present"])
         print(json.dumps({"target_date": day.isoformat(), "status": "exported" if not absent else "incomplete",
