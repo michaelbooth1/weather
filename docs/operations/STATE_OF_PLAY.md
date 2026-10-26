@@ -63,9 +63,9 @@ YouTube-maker scoping stay paused; the **small maker pilot is APPROVED** (DL 10-
 ## Ordered critical path
 
 1. **Bind Rule B-1** (master, 10-27) with C7 resolved, so MG-2 starts accruing at D0 10-28.
-2. **HRRR forward recorder: YES (master).** Shadow capture on the workstation; the host head lands via QWM only on master's say.
-   R-K (13-16, −0.0722) and R-R (07-12 vs L6, −0.0402) are dev WINs, R 1.22 / 1.112: not edges, not promotable until forward
-   parity ([plan draft](../research/l2-pooled-residual-2026-10-24/drafts/hrrr_forward_recorder_parity_plan_DRAFT.md); MG-2 Clarifications drafted, not applied).
+2. **HRRR forward recorder: YES (master); MG-3 = paired D-C on B's dates** (owner 10-26, DL; H1 = MG-3 − MG-2; MG-1 window
+   exemption 11-11..11-28): L2 preparing the pre-registration; D0 ~11-10/11; result ~mid-December. Workstation shadow capture; host head via QWM on master's say.
+   R-K (13-16, −0.0722), R-R (07-12 vs L6, −0.0402): dev WINs, R 1.22 / 1.112, not edges until forward parity ([plan draft](../research/l2-pooled-residual-2026-10-24/drafts/hrrr_forward_recorder_parity_plan_DRAFT.md); MG-2 Clarifications drafted, not applied).
 3. **Running:** R-O (GEFS centre), R-Q (GEFS spread), NBS-TXN anchor diagnostic (input-only). Closed 10-26: R-P, R-PD, R-N, R-L2 (EF §10ak).
 4. **Oct-Dec rungs** under R10 and the NBS TXN input (L12), each pre-registered with a ledger row before any scored row.
 5. **Cool-season paper test PT-1** ([draft](COOL_SEASON_PAPER_TEST_PREREG.md); owner Q6-Q9 answered 10-25, dates 12-12..01-25) bound before its D0.
