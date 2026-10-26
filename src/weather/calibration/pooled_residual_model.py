@@ -40,6 +40,7 @@ import hashlib
 import json
 import math
 import pickle
+import re
 from collections import defaultdict
 from datetime import date
 import os
@@ -3902,9 +3903,9 @@ def rk_parity_training(corpus_stats, train_stats):
             "pass": all(checks.values())}
 
 
-def rk_control(rows, reference_rows, arms=("B_N", "P3d_N_fix"), tol=RK_CONTROL_TOL):
-    """R-J's LOYO rows reproduce: same (hour, year, market, date) keys, same incumbent-arm scores."""
-    ref = {(r["hour"], r["year"], r["market"], r["date"]): r for r in reference_rows if r["hour"] in RK_HOURS}
+def rk_control(rows, reference_rows, arms=("B_N", "P3d_N_fix"), tol=RK_CONTROL_TOL, hours=RK_HOURS):
+    """The reference LOYO rows reproduce: same (hour, year, market, date) keys, same incumbent-arm scores."""
+    ref = {(r["hour"], r["year"], r["market"], r["date"]): r for r in reference_rows if r["hour"] in hours}
     got = {(r["hour"], r["year"], r["market"], r["date"]): r for r in rows}
     worst = 0.0
     for k in set(ref) & set(got):
@@ -3984,6 +3985,233 @@ def rk_hrrr_audit(*, hrrr_corpus, out_path, markets=R0_MARKETS):
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(result, indent=1, sort_keys=True), encoding="utf-8")
     return result
+
+
+# ------------------------------------------------- R-L: NBS TXN as the 07-12 pre-dawn centre input (rule_rl.md)
+
+RL_RULE_SHA256 = "3ce9a6f2403c68b543c13be2ea36d4b92cd711b3e9e544a92e79744db53ca9b8"
+RL_HOURS = (7, 8, 9, 10, 11, 12)
+RL_POOLS = (("07-12", None),)
+RL_FEATURES = ("n_txn", "n_gap", "n_xnd", "n_miss")
+RL_ARMS = {
+    "B_N": True,
+    "B_L": {"simple": True, "extra_ols": ("n_gap", "n_miss")},
+    "P3d_N_fix": False,
+    "P3d_L": {"simple": False, "extra_hgb": ("n_txn", "n_gap", "n_xnd")},
+}
+RL_PAIRS = (("B_L", "B_N"), ("P3d_L", "P3d_N_fix"), ("P3d_L", "B_L"), ("P3d_N_fix", "B_N"))
+RL_MARGIN_S = 10 * 60
+RL_MAX_AGE_S = 12 * 3600
+RL_TXN_RANGE_F = (-40.0, 130.0)
+RL_COVERAGE_MIN = 0.95
+RL_COLUMN_CHECK_MAX_F = 3.0
+_RL_HEADER = re.compile(r"^\s*(\S+)\s+NBM\s+\S+\s+NBS GUIDANCE\s+(\d{1,2})/(\d{1,2})/(\d{4})\s+(\d{2})00 UTC")
+
+
+def rl_parse_block(text):
+    """One NBS station block -> {"station", "issued" (UTC), "columns": {valid_utc: {element: int|None}}}.
+
+    Columns are 3-character fields right-aligned on the FHR row's tokens; sparse elements (TXN, XND, P12, ...)
+    are read at the same positions, so a blank field is None and packed fields such as ``100100`` split cleanly.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    lines = text.replace("\r", "").split("\n")
+    head = _RL_HEADER.match(lines[0]) if lines else None
+    if head is None:
+        raise PooledModelError("NBS block header not recognised")
+    station, month, day, year, hour = head.groups()
+    issued = datetime(int(year), int(month), int(day), int(hour), tzinfo=timezone.utc)
+    rows = {line[:5].strip(): line for line in lines[1:] if len(line) > 5 and line[:5].strip()}
+    if "FHR" not in rows:
+        raise PooledModelError("NBS block has no FHR row")
+    ends = [m.end() for m in re.finditer(r"\d+", rows["FHR"][5:])]
+    fhrs = [int(rows["FHR"][5 + e - 3:5 + e]) for e in ends]
+    columns = {}
+    for e, fhr in zip(ends, fhrs):
+        cell = {}
+        for name, line in rows.items():
+            field = line[5 + e - 3:5 + e].strip() if len(line) >= 5 + e else ""
+            try:
+                cell[name] = int(field) if field else None
+            except ValueError:
+                cell[name] = None
+        columns[issued + timedelta(hours=fhr)] = cell
+    return {"station": station, "issued": issued, "columns": columns}
+
+
+class RlNbsCorpus:
+    """L12's NBS station blocks, selected point-in-time per (market, local date, cutoff hour). Inputs only."""
+
+    def __init__(self, corpus_dir, markets=R0_MARKETS):
+        from datetime import datetime, timezone
+
+        from weather.market.market_registry import spec_for_id
+
+        self.root = Path(corpus_dir)
+        self.stats = defaultdict(int)
+        self.icao = {m: spec_for_id(m).icao for m in markets}
+        self.tz = {m: spec_for_id(m).timezone for m in markets}
+        wanted = set(self.icao.values())
+        self.cycles = defaultdict(list)
+        for m in _rk_lines(self.root / "manifest.jsonl", self.stats, "manifest"):
+            if m.get("product") != "nbs":
+                continue
+            self.stats["manifest_nbs"] += 1
+            if m.get("status") != "ok" or not m.get("last_modified"):
+                self.stats["manifest_not_ok"] += 1
+                continue
+            day = date.fromisoformat(str(m["utc_date"])[:10])
+            cycle = datetime(day.year, day.month, day.day, int(m["cycle"]), tzinfo=timezone.utc)
+            avail = datetime.fromisoformat(str(m["last_modified"]).replace("Z", "+00:00"))
+            for icao, s in (m.get("stations") or {}).items():
+                if icao in wanted and s.get("status") == "ok":
+                    self.cycles[icao].append((cycle, avail, m["blocks_file"], int(s["file_offset"]),
+                                              int(s["length"]), s["sha256"]))
+        for v in self.cycles.values():
+            v.sort()
+        self._parsed = {}
+
+    def _block(self, blocks_file, offset, length, sha):
+        key = (blocks_file, offset)
+        if key not in self._parsed:
+            with open(self.root / blocks_file, "rb") as handle:
+                handle.seek(offset)
+                raw = handle.read(length)
+            if hashlib.sha256(raw).hexdigest() != sha:
+                self._parsed[key] = "sha_mismatch"
+            else:
+                try:
+                    self._parsed[key] = rl_parse_block(raw.decode("ascii"))
+                except (PooledModelError, UnicodeDecodeError):
+                    self._parsed[key] = "parse_failed"
+        return self._parsed[key]
+
+    def raw(self, market, day, hour):
+        """-> {"n_txn", "n_xnd", "n_miss", "reason", "cycle_utc", "age_s"} for local date ``day`` at h:00."""
+        from datetime import datetime, time, timedelta, timezone
+        from zoneinfo import ZoneInfo
+
+        target = date.fromisoformat(str(day)[:10])
+        t = datetime.combine(target, time(int(hour), 0), tzinfo=ZoneInfo(self.tz[market]))
+        out = {"n_txn": float("nan"), "n_xnd": float("nan"), "n_miss": 1.0, "reason": None, "cycle_utc": None,
+               "age_s": None}
+        eligible = [c for c in self.cycles.get(self.icao[market], ())
+                    if c[1] + timedelta(seconds=RL_MARGIN_S) <= t and c[0] <= t]
+        if not eligible or (t - eligible[-1][0]).total_seconds() > RL_MAX_AGE_S:
+            out["reason"] = "no_cycle"
+            return out
+        cycle, _, blocks_file, offset, length, sha = eligible[-1]
+        out.update(cycle_utc=cycle.isoformat(), age_s=(t - cycle).total_seconds())
+        block = self._block(blocks_file, offset, length, sha)
+        if isinstance(block, str):
+            out["reason"] = block
+            return out
+        if block["station"] != self.icao[market] or block["issued"] != cycle:
+            out["reason"] = "identity_mismatch"
+            return out
+        slot = datetime.combine(target + timedelta(days=1), time(0, 0), tzinfo=timezone.utc)
+        cell = block["columns"].get(slot)
+        if cell is None or cell.get("TXN") is None or cell.get("XND") is None:
+            out["reason"] = "column_absent"
+            return out
+        txn = float(cell["TXN"])
+        if not RL_TXN_RANGE_F[0] <= txn <= RL_TXN_RANGE_F[1]:
+            out["reason"] = "txn_out_of_range"
+            return out
+        out.update(n_txn=txn, n_xnd=float(cell["XND"]), n_miss=0.0)
+        return out
+
+
+def rl_columns(entry, nbm):
+    if entry is None or entry["n_miss"]:
+        return {"n_txn": float("nan"), "n_gap": float("nan"), "n_xnd": float("nan"), "n_miss": 1.0}
+    gap = entry["n_txn"] - float(nbm) if nbm is not None and math.isfinite(float(nbm)) else float("nan")
+    return {"n_txn": entry["n_txn"], "n_gap": gap, "n_xnd": entry["n_xnd"], "n_miss": 0.0}
+
+
+def rl_training_columns(frame, corpus):
+    """Attach R-L columns to training rows keyed (market, target_date, cutoff hour); ``fh`` is the NBM anchor."""
+    import numpy as np
+
+    cols, stats, gaps = defaultdict(list), defaultdict(int), []
+    for market, day, hour, fh in zip(frame["market"], frame["target_date"], frame["hour"], frame["fh"]):
+        entry = corpus.raw(market, str(day)[:10], int(hour))
+        stats["rows"] += 1
+        stats[f"reason_{entry['reason'] or 'covered'}"] += 1
+        values = rl_columns(entry, fh)
+        stats["rows_covered"] += values["n_miss"] == 0.0
+        if math.isfinite(values["n_gap"]):
+            gaps.append(abs(values["n_gap"]))
+        for k, v in values.items():
+            cols[k].append(v)
+    out = frame.copy()
+    for k in RL_FEATURES:
+        out[k] = cols[k]
+    stats = dict(stats)
+    stats["median_abs_gap_f"] = float(np.median(gaps)) if gaps else float("nan")
+    return out, stats
+
+
+def rl_parity(stats):
+    """Gate 1 (either half): coverage, block integrity and the daytime-maximum column check. Inputs only."""
+    coverage = stats.get("rows_covered", 0) / max(stats.get("rows", 0), 1)
+    checks = {"coverage": coverage >= RL_COVERAGE_MIN,
+              "sha_mismatch": stats.get("reason_sha_mismatch", 0) == 0,
+              "identity_mismatch": stats.get("reason_identity_mismatch", 0) == 0,
+              "parse_failed": stats.get("reason_parse_failed", 0) == 0,
+              "txn_out_of_range": stats.get("reason_txn_out_of_range", 0) == 0,
+              "column_check": stats.get("median_abs_gap_f", float("inf")) <= RL_COLUMN_CHECK_MAX_F}
+    return {"coverage": coverage, "median_abs_gap_f": stats.get("median_abs_gap_f"), "checks": checks,
+            "pass": all(checks.values())}
+
+
+def rung_l_loyo(*, records_root, nbm_train_corpus, nbs_corpus, ra_loyo_rows, out_dir, markets=R0_MARKETS):
+    """R-L gate 1a (training half) and gate 2 (LOYO 2021-25, B_L - B_N at 07-12). No dev row is read."""
+    from weather.calibration import ols_floor_ladder as l9
+    from weather.market.market_registry import spec_for_id
+
+    out = require_output_outside_repo(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    if any(out.iterdir()):
+        raise PooledModelError(f"refusing to write into a non-empty {out}")
+    corpus_dir = Path(nbs_corpus)
+    audit = {"rule_sha256": RL_RULE_SHA256, "arms": list(RL_ARMS), "hours": list(RL_HOURS), "gates": {},
+             "inputs": {"nbm_train_corpus": hashlib.sha256(Path(nbm_train_corpus).read_bytes()).hexdigest(),
+                        "ra_loyo_rows": hashlib.sha256(Path(ra_loyo_rows).read_bytes()).hexdigest(),
+                        "nbs_corpus": str(corpus_dir),
+                        "nbs_manifest": hashlib.sha256((corpus_dir / "manifest.jsonl").read_bytes()).hexdigest(),
+                        "module_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}}
+
+    def finish():
+        (out / "rl_loyo_audit.json").write_text(json.dumps(audit, indent=1, sort_keys=True), encoding="utf-8")
+        return audit
+
+    timezones = {m: spec_for_id(m).timezone for m in markets}
+    corpus = RlNbsCorpus(corpus_dir, markets)
+    frame, buckets = dev_training_frame(records_root, markets)
+    if frame["year"].max() >= 2026:
+        raise PooledModelError("a training row is from 2026")
+    frame, audit["train_nbm"] = attach_training_nbm(frame, l9.load_nbm(nbm_train_corpus), l9.nbm_at_cutoff, timezones)
+    frame = frame[frame["hour"].isin(RL_HOURS)].reset_index(drop=True)
+    frame, audit["training"] = rl_training_columns(frame, corpus)
+    audit["nbs_corpus_stats"] = dict(corpus.stats)
+    audit["gates"]["1_parity_training"] = rl_parity(audit["training"])
+    if not audit["gates"]["1_parity_training"]["pass"]:
+        audit["stopped_at"] = "gate 1 parity (training half; not a kill)"
+        return finish()
+    rows = rung_loyo(frame, buckets, RL_HOURS, arms=RL_ARMS)
+    _write_jsonl(out / "loyo_rows.jsonl", rows)
+    audit["control_ra_reproduction"] = rk_control(rows, _read_jsonl(ra_loyo_rows), hours=RL_HOURS)
+    if not audit["control_ra_reproduction"]["pass"]:
+        audit["stopped_at"] = "control: R-A LOYO reproduction failed (refused, not a gate)"
+        return finish()
+    audit["gates"]["2_loyo"] = rg_loyo_summary(rows, pairs=RL_PAIRS, pooled=RL_POOLS)
+    primary = audit["gates"]["2_loyo"]["B_L-B_N|07-12|brier"]
+    audit["gates"]["2_loyo"]["pass"] = primary["ci95"][1] < 0
+    if not audit["gates"]["2_loyo"]["pass"]:
+        audit["stopped_at"] = "gate 2 LOYO (KILL: NBS TXN closed as a 07-12 centre input)"
+    return finish()
 
 
 # ------------------------------------------------- clarification 3: forward refit and frozen state (MG-2)
@@ -4528,6 +4756,12 @@ def _parse(argv=None):
     kl.add_argument("--hrrr", required=True, help="L13 HRRR corpus directory (2021-25)")
     kl.add_argument("--rj-loyo-rows", required=True, help="R-J loyo_rows.jsonl (incumbent-arm control)")
     kl.add_argument("--out", required=True)
+    ll = sub.add_parser("rung-l-loyo", help="R-L gate 1 (training half) and gate 2 LOYO (heavy)")
+    ll.add_argument("--records", required=True)
+    ll.add_argument("--nbm-train-corpus", required=True)
+    ll.add_argument("--nbs", required=True, help="L12 NBS/NBH corpus directory (2021-25)")
+    ll.add_argument("--ra-loyo-rows", required=True, help="R-A loyo_rows.jsonl (incumbent-arm control)")
+    ll.add_argument("--out", required=True)
     de = sub.add_parser("p3dn-diag-emit", help="P3d_N vs P3d_N_fix input diff and variant emissions (heavy)")
     de.add_argument("--records", required=True)
     de.add_argument("--layout", required=True)
@@ -4688,6 +4922,13 @@ def main(argv=None):
         print(json.dumps({"gates": {k: v.get("pass") for k, v in audit["gates"].items()},
                           "stopped_at": audit.get("stopped_at"),
                           "control": audit.get("control_rj_reproduction")}, indent=1))
+        return 0
+    if args.command == "rung-l-loyo":
+        audit = rung_l_loyo(records_root=args.records, nbm_train_corpus=args.nbm_train_corpus, nbs_corpus=args.nbs,
+                            ra_loyo_rows=args.ra_loyo_rows, out_dir=args.out)
+        print(json.dumps({"gates": {k: v.get("pass") for k, v in audit["gates"].items()},
+                          "stopped_at": audit.get("stopped_at"),
+                          "control": audit.get("control_ra_reproduction")}, indent=1))
         return 0
     if args.command == "p3dn-diag-emit":
         audit = p3dn_diag_emit(records_root=args.records, layout=args.layout, replay_root=args.replay_root,
