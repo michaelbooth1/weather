@@ -188,10 +188,10 @@ STACK_GROUPS = (("00-06", 0, 6), ("00-05", 0, 5), ("06", 6, 6)) + tuple((f"h{h:0
 CANDIDATE_MODULE = Path(__file__).resolve().parents[3] / "tools" / "research" / "predawn_0006" / "stack_candidate.py"
 
 
-def check_rule(rule_path):
+def check_rule(rule_path, pinned=RULE_PD_SHA256):
     got = _sha(rule_path)
-    if got != RULE_PD_SHA256:
-        raise PredawnError(f"rule sha {got} != pinned {RULE_PD_SHA256}")
+    if got != pinned:
+        raise PredawnError(f"rule sha {got} != pinned {pinned}")
     return got
 
 
@@ -695,7 +695,10 @@ def serve(*, layout, replay_root, research_root, rule, out_dir):
 
 # ---------------------------------------------------------------- gates 2 and 3: dev walk-forward vs MG-1 / market
 
-def gate2(*, layout, nowcasts, rule, p1_path, p2_path, gate1_path, out_path, start="2026-08-01", end="2026-09-29"):
+def gate2(*, layout, nowcasts, rule, p1_path, p2_path, gate1_path, out_path, start="2026-08-01", end="2026-09-29",
+          pinned=RULE_PD_SHA256, second_precondition="P2", label=None):
+    """R-PD gates 2-3; with ``pinned=RULE_RN_SHA256`` and ``second_precondition="P3"`` the same code is R-N's
+    gates 2-3, the table's ``n_own`` column then holding the usable captured HRRR day max H instead of N."""
     import os
 
     import numpy as np
@@ -706,8 +709,9 @@ def gate2(*, layout, nowcasts, rule, p1_path, p2_path, gate1_path, out_path, sta
     from weather.reporting.scorecards import dev_scorecard_data as data
     from weather.reporting.scorecards import loss_atlas
 
-    check_rule(rule)
-    pre = {"p1_sha256": _require_passed(p1_path, "P1"), "p2_sha256": _require_passed(p2_path, "P2"),
+    check_rule(rule, pinned)
+    pre = {"p1_sha256": _require_passed(p1_path, "P1"),
+           f"{second_precondition.lower()}_sha256": _require_passed(p2_path, second_precondition),
            "gate1_sha256": _require_passed(gate1_path, "gate 1")}
     os.environ["PREDAWN_NOWCASTS"] = str(nowcasts)
     start_d, end_d = data.check_range(start, end)
@@ -774,9 +778,9 @@ def gate2(*, layout, nowcasts, rule, p1_path, p2_path, gate1_path, out_path, sta
     gate3 = {g: {"excess_arm": pick[("covered", "ALL", g)]["excess_arm"],
                  "excess_mg1_identical_rows": pick[("covered", "ALL", g)]["excess_mg1"]}
              for g, _, _ in STACK_GROUPS if ("covered", "ALL", g) in pick}
-    payload = {"label": "R-PD gates 2 (dev walk-forward vs MG-1) and 3 (vs market, reported only); development "
-                        "evidence, no edge claim",
-               "rule_sha256": RULE_PD_SHA256, "preconditions": pre,
+    payload = {"label": label or ("R-PD gates 2 (dev walk-forward vs MG-1) and 3 (vs market, reported only); "
+                                  "development evidence, no edge claim"),
+               "rule_sha256": pinned, "preconditions": pre,
                "gate2": {"verdict": verdict, "passed": verdict == "WIN",
                          "primary": dict(head, scope="covered", pool="ALL", group="00-06", interval="date-clustered"),
                          "hours_with_lower_above_0": worse},
@@ -789,6 +793,187 @@ def gate2(*, layout, nowcasts, rule, p1_path, p2_path, gate1_path, out_path, sta
                           "module_sha256": _sha(__file__), "layout_manifest_sha256": lay.manifest_sha256,
                           "scorecard_code_sha256": sc.code_sha256(),
                           "bootstrap": {"draws": sc.DRAWS, "seed": sc.SEED, "clustering": "date and crossed"}}}
+    _write_once(out_path, payload)
+    return payload
+
+
+# ============================================================================ rule R-N (pre-registered, separate)
+#
+# C:\t\l3\pd\rule_rn.md: HRRR-minus-NBM centre at 00-06, L6-stack form with H in place of N. History H is the raw
+# HRRR analog from lane L13's corpus (pinned below); dev H is the captured layout ``hrrr_high``. P1 is R-PD's.
+
+RULE_RN_SHA256 = "c1694f7539e612a5d81187503e9faf8d9de480a8cc98a742c8b18e658da6b63b"
+HRRR_MANIFEST_SHA256 = "f1d56fb66502d69e0101843ffcfb2ae12a570c787573d45ddb35bec31f27b5da"
+HRRR_SELECTIONS_SHA256 = "9a6909c63bbcd664199e458ac41669e921803b2eeb8a689f10f930e4da7e5bb7"
+P3_MAD_MAX, P3_MEAN_MAX, P3_HOUR_MAD_MAX = 1.0, 0.5, 1.5
+
+
+def k_to_f(k):
+    return (k - 273.15) * 9.0 / 5.0 + 32.0
+
+
+def hrrr_analog(hrrr_root):
+    """{(station, local_date, hour): H} - max of nearest-point 2 m TMP (F) over each selection's fh window
+    (L13's PIT cycle choice, [t, 23:00 local]). A row with any needed message absent is absent (never imputed)."""
+    import pandas as pd
+
+    root = Path(hrrr_root)
+    for name, pin in (("manifest.jsonl", HRRR_MANIFEST_SHA256), ("selections.jsonl", HRRR_SELECTIONS_SHA256)):
+        if _sha(root / name) != pin:
+            raise PredawnError(f"{name} sha {_sha(root / name)} != pinned {pin}")
+    msgs = {}
+    with open(root / "manifest.jsonl", encoding="utf-8") as handle:
+        for line in handle:
+            r = json.loads(line)
+            if r.get("status") != "ok" or r.get("var") != "TMP:2 m above ground":
+                continue
+            msgs[(r["cycle_utc"], int(r["fh"]))] = {s: p.get("nearest") for s, p in (r.get("points") or {}).items()}
+    rows, stats = [], {"selections": 0, "truncated": 0, "absent_message": 0, "no_cycle": 0, "ok": 0}
+    with open(root / "selections.jsonl", encoding="utf-8") as handle:
+        for line in handle:
+            s = json.loads(line)
+            stats["selections"] += 1
+            if s["local_date"] > "2026-09-29":
+                raise PredawnError(f"HRRR selection after 2026-09-29: {s['local_date']}")
+            if s.get("window_truncated_at_f18"):
+                stats["truncated"] += 1
+                continue
+            if not s.get("cycle_utc") or not s.get("fhs"):
+                stats["no_cycle"] += 1
+                continue
+            vals = [(msgs.get((s["cycle_utc"], int(fh))) or {}).get(s["station"]) for fh in s["fhs"]]
+            if any(v is None for v in vals):
+                stats["absent_message"] += 1
+                continue
+            stats["ok"] += 1
+            rows.append({"station": s["station"], "local_date": s["local_date"], "hour": int(s["hour_local"]),
+                         "H": float(k_to_f(max(vals))), "hrrr_cycle": s["cycle_utc"], "hrrr_depth": s.get("depth")})
+    return pd.DataFrame(rows), stats
+
+
+def usable_hrrr_high(snaps):
+    """Captured ``hrrr_high`` where status ok and fetched at or before capture (point_guidance's refusal)."""
+    import numpy as np
+    import pandas as pd
+
+    h = pd.to_numeric(snaps.hrrr_high, errors="coerce").to_numpy(float)
+    fetched = pd.to_datetime(snaps.hrrr_fetched_at, utc=True, errors="coerce")
+    cap = pd.to_datetime(snaps.captured_at_utc, utc=True, errors="coerce")
+    ok = np.isfinite(h) & (snaps.hrrr_status.astype(str) == "ok").to_numpy() & (fetched <= cap).fillna(False).to_numpy()
+    return np.where(ok, h, np.nan)
+
+
+def p3(*, layout, hrrr_root, rule, out_dir):
+    """R-N precondition P3 (HRRR parity at dev 00-06) and the dev H table for gate 2. Input only."""
+    import numpy as np
+    import pandas as pd
+
+    from weather.calibration import pooled_residual_model as l2
+
+    check_rule(rule, RULE_RN_SHA256)
+    out = l2.require_output_outside_repo(Path(out_dir))
+    if (out / "p3.json").exists():
+        raise PredawnError(f"refusing to overwrite {out / 'p3.json'}")
+    out.mkdir(parents=True, exist_ok=True)
+    s = pd.read_parquet(Path(layout) / "inputs_snapshots.parquet",
+                        columns=["row_key", "station", "market", "date", "local_hour", "captured_at_utc", "hrrr_high",
+                                 "hrrr_fetched_at", "hrrr_status"])
+    s = s[pd.to_numeric(s.local_hour, errors="coerce").isin(HOURS)].reset_index(drop=True)
+    if (s.date.astype(str) > "2026-09-29").any():
+        raise PredawnError("layout snapshot after 2026-09-29")
+    s["H_cap"] = usable_hrrr_high(s)
+    pd.DataFrame({"row_key": s.row_key, "n_own": s.H_cap, "n_up": np.nan, "n_ring": np.nan}).to_parquet(
+        out / "hrrr_dev.parquet", index=False)
+    analog, astats = hrrr_analog(hrrr_root)
+    s["local_date"] = s.date.astype(str).str[:10]
+    s["hour"] = pd.to_numeric(s.local_hour).astype(int)
+    j = s.merge(analog, on=["station", "local_date", "hour"], how="left")
+    d = (j.H - j.H_cap).to_numpy(float)
+    both = np.isfinite(d)
+
+    def summ(mask):
+        x = d[mask & both]
+        return {"n": int(len(x)), "mad": float(np.abs(x).mean()) if len(x) else None,
+                "mean": float(x.mean()) if len(x) else None,
+                "share_within_1F": float((np.abs(x) <= 1.0).mean()) if len(x) else None}
+
+    pooled = summ(np.ones(len(j), bool))
+    by_hour = {f"h{h:02d}": summ((j.hour == h).to_numpy()) for h in HOURS}
+    by_market = {m: summ((j.market == m).to_numpy()) for m in sorted(set(j.market))}
+    checks = {"pooled_mad": pooled["mad"] is not None and pooled["mad"] <= P3_MAD_MAX,
+              "pooled_abs_mean": pooled["mean"] is not None and abs(pooled["mean"]) <= P3_MEAN_MAX,
+              "per_hour_mad": all(v["mad"] is not None and v["mad"] <= P3_HOUR_MAD_MAX for v in by_hour.values())}
+    payload = {"label": "R-N precondition P3 (HRRR parity, dev 00-06): L13 raw-HRRR analog minus captured hrrr_high; "
+                        "input only, no label/price/vector read",
+               "rule_sha256": RULE_RN_SHA256, "passed": bool(all(checks.values())), "checks": checks,
+               "thresholds": {"mad_max": P3_MAD_MAX, "abs_mean_max": P3_MEAN_MAX, "hour_mad_max": P3_HOUR_MAD_MAX},
+               "pooled": pooled, "by_hour": by_hour, "by_market": by_market,
+               "counts": {"snapshots": int(len(j)), "captured_usable": int(np.isfinite(j.H_cap).sum()),
+                          "analog_present": int(np.isfinite(j.H).sum()), "both": int(both.sum())},
+               "analog_stats": astats,
+               "inputs": {"hrrr_manifest_sha256": HRRR_MANIFEST_SHA256, "hrrr_selections_sha256": HRRR_SELECTIONS_SHA256,
+                          "hrrr_dev_sha256": _sha(out / "hrrr_dev.parquet"),
+                          "layout_snapshots_sha256": _sha(Path(layout) / "inputs_snapshots.parquet"),
+                          "module_sha256": _sha(__file__)}}
+    _write_once(out / "p3.json", payload)
+    return payload
+
+
+def rn_gate1(*, research_root, nbm_corpora, hrrr_root, rule, p1_path, p3_path, out_path):
+    """R-N gate 1: LOYO 2021-25 Aug-Sep; (a_h, b_h) on the other four years, x = H - v (no other fitted part)."""
+    import numpy as np
+
+    check_rule(rule, RULE_RN_SHA256)
+    pre = {"p1_sha256": _require_passed(p1_path, "P1"), "p3_sha256": _require_passed(p3_path, "P3")}
+    hist, prov = build_history(research_root, load_nbm_with_sd(nbm_corpora))
+    analog, astats = hrrr_analog(hrrr_root)
+    hist = hist.merge(analog[["station", "local_date", "hour", "H"]], on=["station", "local_date", "hour"],
+                      how="left")
+    year = hist.year.to_numpy(int)
+    years = sorted(set(int(y) for y in year))
+    if tuple(years) != LOYO_YEARS:
+        raise PredawnError(f"history years {years} != {LOYO_YEARS}")
+    R, v, s = hist.r.to_numpy(float), hist.v.to_numpy(float), hist.s.to_numpy(float)
+    H, dmax, hours = hist.H.to_numpy(float), hist.dmax.to_numpy(float), hist.hour.to_numpy(int)
+    sigma = np.maximum(s, 1.0)
+    has_v = np.isfinite(v) & np.isfinite(s)
+    mu_arm = np.full(len(hist), np.nan)
+    coefs = {}
+    for Y in years:
+        te = year == Y
+        tr = ~te & has_v & np.isfinite(H)
+        coef = stack_fit(np.where(tr, dmax - v, np.nan), np.where(tr, H - v, np.nan), hours)
+        coefs[str(Y)] = {f"h{h:02d}": list(c) for h, c in coef.items()}
+        mu_arm[te] = stack_mu(v[te], H[te], hours[te], coef)
+    rows = has_v
+    b_arm, b_base = np.full(len(hist), np.nan), np.full(len(hist), np.nan)
+    b_arm[rows] = bucket_brier(mu_arm[rows], sigma[rows], R[rows], dmax[rows])
+    b_base[rows] = bucket_brier(v[rows], sigma[rows], R[rows], dmax[rows])
+    dates, markets = hist.local_date.astype(str).to_numpy(), hist.market.astype(str).to_numpy()
+    groups = {name: rows & (hours >= lo) & (hours <= hi) for name, lo, hi in STACK_GROUPS}
+    pooled = _cell_ratio(dates, markets, b_arm - b_base, b_base, groups, LOYO_SEED)
+    per_market = {m: _cell_ratio(dates, markets, b_arm - b_base, b_base, {"00-06": rows & (markets == m)},
+                                 LOYO_SEED).get("00-06") for m in sorted(set(markets))}
+    per_year = {str(Y): _cell_ratio(dates, markets, b_arm - b_base, b_base, {"00-06": rows & (year == Y)},
+                                    LOYO_SEED).get("00-06") for Y in years}
+    head = pooled["00-06"]
+    worse = [f"h{h:02d}" for h in HOURS if f"h{h:02d}" in pooled and pooled[f"h{h:02d}"]["ci95"][0] is not None
+             and pooled[f"h{h:02d}"]["ci95"][0] > 0]
+    upper_ok = bool(head["ci95"][1] is not None and head["ci95"][1] < 0)
+    payload = {"label": "R-N gate 1: LOYO 2021-25 Aug-Sep, HRRR-minus-NBM stack vs MG-1 analogue (integer-F bucket "
+                        "Brier); development evidence, no edge claim",
+               "rule_sha256": RULE_RN_SHA256, "preconditions": pre, "passed": bool(upper_ok and not worse),
+               "reading": {"pooled_upper_below_0": upper_ok, "hours_with_lower_above_0": worse},
+               "dB": pooled, "per_market_00_06": per_market, "per_year_00_06": per_year,
+               "population": {"history_rows": int(len(hist)), "scored_rows": int(rows.sum()),
+                              "scored_rows_with_H": int((rows & np.isfinite(H)).sum()),
+                              "rows_without_nbm": int((~rows).sum())},
+               "stack_coef_by_held_out_year": coefs, "analog_stats": astats,
+               "inputs": dict(prov, corpora={str(p): _sha(p) for p in nbm_corpora},
+                              hrrr_manifest_sha256=HRRR_MANIFEST_SHA256, hrrr_selections_sha256=HRRR_SELECTIONS_SHA256,
+                              module_sha256=_sha(__file__),
+                              bootstrap={"draws": 2000, "seed": LOYO_SEED, "clustering": "date"},
+                              support_buckets=SUPPORT)}
     _write_once(out_path, payload)
     return payload
 
@@ -833,7 +1018,44 @@ def main(argv=None):
     g2.add_argument("--p2", required=True)
     g2.add_argument("--gate1", required=True)
     g2.add_argument("--out", required=True)
+    p3p = sub.add_parser("p3", help="R-N precondition P3: HRRR parity at dev 00-06, and the dev H table (light)")
+    p3p.add_argument("--layout", required=True)
+    p3p.add_argument("--hrrr-root", required=True)
+    p3p.add_argument("--rule", required=True)
+    p3p.add_argument("--out-dir", required=True)
+    n1 = sub.add_parser("rn-gate1", help="R-N gate 1: LOYO 2021-25 (heavy)")
+    n1.add_argument("--research-root", required=True)
+    n1.add_argument("--nbm-corpus", action="append", required=True)
+    n1.add_argument("--hrrr-root", required=True)
+    n1.add_argument("--rule", required=True)
+    n1.add_argument("--p1", required=True)
+    n1.add_argument("--p3", required=True)
+    n1.add_argument("--out", required=True)
+    n2 = sub.add_parser("rn-gate2", help="R-N gates 2 and 3: dev walk-forward vs MG-1 and market (heavy)")
+    n2.add_argument("--layout", required=True)
+    n2.add_argument("--hrrr-dev", required=True)
+    n2.add_argument("--rule", required=True)
+    n2.add_argument("--p1", required=True)
+    n2.add_argument("--p3", required=True)
+    n2.add_argument("--gate1", required=True)
+    n2.add_argument("--out", required=True)
     args = parser.parse_args(argv)
+    if args.command == "p3":
+        r = p3(layout=args.layout, hrrr_root=args.hrrr_root, rule=args.rule, out_dir=args.out_dir)
+        print(json.dumps({k: r[k] for k in ("passed", "checks", "pooled", "by_hour", "counts")}, indent=1))
+        return 0
+    if args.command == "rn-gate1":
+        r = rn_gate1(research_root=args.research_root, nbm_corpora=args.nbm_corpus, hrrr_root=args.hrrr_root,
+                     rule=args.rule, p1_path=args.p1, p3_path=args.p3, out_path=args.out)
+        print(json.dumps({"passed": r["passed"], "reading": r["reading"], "dB_00_06": r["dB"]["00-06"]}, indent=1))
+        return 0
+    if args.command == "rn-gate2":
+        r = gate2(layout=args.layout, nowcasts=args.hrrr_dev, rule=args.rule, p1_path=args.p1, p2_path=args.p3,
+                  gate1_path=args.gate1, out_path=args.out, pinned=RULE_RN_SHA256, second_precondition="P3",
+                  label="R-N gates 2 (dev walk-forward vs MG-1, x = captured hrrr_high - v2) and 3 (vs market, "
+                        "reported only); development evidence, no edge claim")
+        print(json.dumps({"gate2": r["gate2"], "controls": r["controls"]}, indent=1, default=str))
+        return 0
     if args.command == "p1":
         r = p1(layout=args.layout, nbm_corpora=args.nbm_corpus, rule=args.rule, out_path=args.out)
         print(json.dumps({k: r[k] for k in ("passed", "share_exact_of_both", "share_differs_of_both", "total")},

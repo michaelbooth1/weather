@@ -78,3 +78,32 @@ def test_rule_pin_refuses_other_file(tmp_path):
     other.write_text("not the rule", encoding="utf-8")
     with pytest.raises(pd6.PredawnError):
         pd6.check_rule(other)
+
+
+def test_hrrr_analog_max_absent_and_pins(tmp_path, monkeypatch):
+    man = [{"status": "ok", "var": "TMP:2 m above ground", "cycle_utc": "c0", "fh": fh,
+            "points": {"KATL": {"nearest": 300.0 + fh}}} for fh in (4, 5)]
+    sel = [{"station": "KATL", "local_date": "2024-08-01", "hour_local": 0, "cycle_utc": "c0", "fhs": [4, 5],
+            "window_truncated_at_f18": False, "depth": 0},
+           {"station": "KATL", "local_date": "2024-08-01", "hour_local": 1, "cycle_utc": "c0", "fhs": [5, 6],
+            "window_truncated_at_f18": False, "depth": 0}]
+    (tmp_path / "manifest.jsonl").write_text("".join(json.dumps(r) + "\n" for r in man), encoding="utf-8")
+    (tmp_path / "selections.jsonl").write_text("".join(json.dumps(r) + "\n" for r in sel), encoding="utf-8")
+    with pytest.raises(pd6.PredawnError):
+        pd6.hrrr_analog(tmp_path)
+    monkeypatch.setattr(pd6, "HRRR_MANIFEST_SHA256", pd6._sha(tmp_path / "manifest.jsonl"))
+    monkeypatch.setattr(pd6, "HRRR_SELECTIONS_SHA256", pd6._sha(tmp_path / "selections.jsonl"))
+    frame, stats = pd6.hrrr_analog(tmp_path)
+    assert stats["ok"] == 1 and stats["absent_message"] == 1      # fh 6 missing: never imputed
+    assert frame.H.iloc[0] == pytest.approx(pd6.k_to_f(305.0))
+
+
+def test_usable_hrrr_high_refuses_late_fetch():
+    import pandas as pd
+
+    s = pd.DataFrame({"hrrr_high": [80.0, 81.0, 82.0], "hrrr_status": ["ok", "ok", "not_captured"],
+                      "hrrr_fetched_at": ["2026-08-01T04:00:00+00:00", "2026-08-01T05:00:00+00:00",
+                                          "2026-08-01T04:00:00+00:00"],
+                      "captured_at_utc": ["2026-08-01T04:10:00+00:00"] * 3})
+    got = pd6.usable_hrrr_high(s)
+    assert got[0] == 80.0 and np.isnan(got[1]) and np.isnan(got[2])
