@@ -8,7 +8,8 @@ the dev re-emit comparison fails on a key mismatch, a missing row or |dp| > 1e-1
 executed file, and verification refuses any drift (file, constant, land file, state block or point rule);
 (1c) rule_mg3_forward_parity.md (sha 2c6e6045...) - only row_schema 2 R0 rows up to --through are counted, a torn
 line is ignored, stamp drift or a missing message fails F0, a cycle newer than the training rule fails F1, slow
-retrieval fails F2, an archive byte mismatch fails F3c, and without an archive the verdict is PARTIAL, never PASS.
+retrieval fails F2 except for messages published before the recorder's first start (clarification FP-1),
+an archive byte mismatch fails F3c, and without an archive the verdict is PARTIAL, never PASS.
 """
 import hashlib
 import importlib
@@ -286,7 +287,8 @@ def _iso(dt_):
     return dt_.isoformat()
 
 
-def _recorder(tmp_path, monkeypatch, name="rec", hours=(7, 13), rows_edit=None, msg_edit=None):
+def _recorder(tmp_path, monkeypatch, name="rec", hours=(7, 13), rows_edit=None, msg_edit=None,
+              first_started="2026-10-25T00:00:00Z"):
     """A synthetic recorder dir (and its land file) in the recorder's own shapes: one row per station x hour."""
     from datetime import datetime, timedelta, timezone
 
@@ -305,7 +307,8 @@ def _recorder(tmp_path, monkeypatch, name="rec", hours=(7, 13), rows_edit=None, 
     land_path = tmp_path / f"{name}_land.json"
     land_path.write_text(json.dumps(land), encoding="utf-8")
     monkeypatch.setattr(prm, "RR_LAND_SHA256", hashlib.sha256(land_path.read_bytes()).hexdigest())
-    (rec / "meta.json").write_text("{}", encoding="utf-8")
+    (rec / "meta.json").write_text(json.dumps({} if first_started is None else {"first_started_utc": first_started}),
+                                   encoding="utf-8")
     messages, rows = {}, []
     for icao in ("KATL", "KSFO"):
         offset = FWD_TZ[icao][1]
@@ -442,6 +445,32 @@ def test_forward_parity_slow_retrieval_fails_f2(tmp_path, monkeypatch):
     rec, land = _recorder(tmp_path, monkeypatch, msg_edit=[slow])
     result = _parity(tmp_path, rec, land)
     assert not result["blocks"]["07-12"]["F2"]["pass"] and result["blocks"]["07-12"]["F2"]["max_s"] > 600
+
+
+def test_forward_parity_fp1_excludes_only_messages_published_before_the_first_start(tmp_path, monkeypatch):
+    from datetime import datetime, timedelta
+
+    def slow(cut):
+        def edit(msgs):
+            for m in msgs:
+                if datetime.fromisoformat(m["cycle_utc"]) < cut:
+                    m["captured_at_utc"] = (datetime.fromisoformat(m["captured_at_utc"])
+                                            + timedelta(minutes=30)).isoformat()
+        return edit
+
+    start = "2026-10-26T16:00:00Z"  # 13-16 block: KATL's 15Z cycle is published before it, KSFO's 18Z after
+    before = datetime.fromisoformat("2026-10-26T16:00:00+00:00")
+    rec, land = _recorder(tmp_path, monkeypatch, msg_edit=[slow(before)], first_started=start)
+    f2 = _parity(tmp_path, rec, land)["blocks"]["13-16"]["F2"]
+    assert f2["pass"] and f2["excluded_prestart"] > 0 and f2["max_s"] <= 600
+    # a slow message published AFTER the first start (a later recorder death) still counts against F2
+    after = datetime.fromisoformat("2026-10-26T23:59:00+00:00")
+    rec2, land2 = _recorder(tmp_path, monkeypatch, name="rec2", msg_edit=[slow(after)], first_started=start)
+    f2b = _parity(tmp_path, rec2, land2, out="out2")["blocks"]["13-16"]["F2"]
+    assert not f2b["pass"] and f2b["max_s"] > 600
+    rec3, land3 = _recorder(tmp_path, monkeypatch, name="rec3", first_started=None)
+    with pytest.raises(prm.PooledModelError, match="first_started_utc"):
+        _parity(tmp_path, rec3, land3, out="out3")
 
 
 def test_forward_parity_archive_byte_mismatch_fails_f3c(tmp_path, monkeypatch):
