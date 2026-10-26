@@ -406,7 +406,9 @@ test questions"):
   The receipt grace G = 15 s is master's ruling (10-25), fixed at binding by the outcome-blind dev check.
 - **Item 5, retrain family:** master ruling (10-25): P3d_N and MG-2 are not retrain-family
   ([B design](B_FORWARD_TEST_DESIGN.md) §10 Q5).
-- **Item 6, candidate:** not answered in this round; still OPEN.
+- **Item 6, candidate (master ruling (10-25)): NO REFIT.** PT-1 uses MG-2 as bound. In master's words: PT-1 trades
+  07-12 only, on MG-2's pre-13 half (MG-1 + L6), so a cool-season P3d_N refit would not touch its candidate; such a
+  refit is a new model needing its own pre-registration and freeze ([lever inventory](LEVER_INVENTORY_2026-10-26.md) row 28).
 - **Item 7, fills (master ruling (10-25)):** top-of-book fills only, with `buy_fillable_10` as a conservative
   diagnostic; no `market_ws_events`. The exporter emits per market-hour counts `n_snapshots`,
   `n_full_decision_coverage` and `n_clock_fail`.
