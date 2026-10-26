@@ -343,20 +343,15 @@ def test_cli_success_and_refusal(host, tmp_path, capsys):
 @pytest.mark.skipif(os.name != "nt", reason="share modes are a Windows property")
 def test_shared_read_handle_lets_a_writer_append_rename_and_delete(tmp_path):
     target = tmp_path / "live.csv"
-    target.write_text("a
-", encoding="utf-8")
+    target.write_bytes(b"a\n")
     with mx._share_all_open(target) as handle:
-        with open(target, "a", encoding="utf-8") as writer:  # a capture writer appending while the exporter reads
-            writer.write("b
-")
-        assert handle.read() == b"a
-b
-"
+        with open(target, "ab") as writer:  # a capture writer appending while the exporter reads
+            writer.write(b"b\n")
+        assert handle.read() == b"a\nb\n"
         os.rename(target, tmp_path / "rotated.csv")  # needs FILE_SHARE_DELETE on the reader's handle
         os.unlink(tmp_path / "rotated.csv")
     plain = tmp_path / "plain.csv"
-    plain.write_text("a
-", encoding="utf-8")
+    plain.write_bytes(b"a\n")
     with open(plain, "rb"):  # Python's default open lacks FILE_SHARE_DELETE: the same rename is blocked
         with pytest.raises(PermissionError):
             os.rename(plain, tmp_path / "moved.csv")
