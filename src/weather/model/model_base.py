@@ -16,9 +16,18 @@ from weather.units import round_half_up
 
 SETTLEMENT_PRINT_ALIAS_WINDOW_MINUTES = 10
 
+# Shadow-only high_so_far source variants (lane L8, 2026-10-24). ``None`` is the
+# production behaviour and is the only value serving ever uses: nothing in
+# serving, capture or release sets ``high_so_far_shadow_variant``. Research
+# replay sets it on one model instance to score the variant on captured inputs.
+HIGH_SO_FAR_SHADOW_METAR_SINCE_MIDNIGHT = "metar_running_max_since_midnight_v1"
+HIGH_SO_FAR_SHADOW_VARIANTS = (None, HIGH_SO_FAR_SHADOW_METAR_SINCE_MIDNIGHT)
+
 
 class ModelUtilsMixin:
     """Stateless numeric, regime, and source-access helpers shared model-wide."""
+
+    high_so_far_shadow_variant = None
 
     def source_rows_until_cutoff(self, rows, cutoff_hour):
         cutoff = cutoff_hour * 60
@@ -43,7 +52,33 @@ class ModelUtilsMixin:
             return self.max_row_temp(self.source_rows_until_cutoff(rows, cutoff_hour))
         return self.row_max_native(history)
 
-    def effective_observed_high_context(self, history, current, station, cutoff_hour):
+    def observed_running_max_since_midnight(self, station, metar, cutoff_hour, now=None):
+        """Shadow input: the trainer's ``high_so_far`` from captured station rows.
+
+        Training (``feature_store.build_historical_feature_record``) takes the
+        maximum of every target-date row whose minute of day is <= the cutoff
+        minute.  This reproduces that on the captured METAR/station rows, keyed
+        on the observation instant (payload ``obsTime`` or the raw ``DDHHMMZ``
+        group, never AWC's nominal hour; ``weather.model.observed_running_max``,
+        the single implementation shared with offline replays), so
+        the previous day's late report that arrives as the ``00:00`` row is
+        excluded.  Returns ``(max_value, first_minute_reaching_it)`` or
+        ``(None, None)`` when no target-date row is observed by the cutoff.
+        """
+        from weather.model.observed_running_max import running_max_since_midnight
+
+        return running_max_since_midnight(
+            station,
+            metar,
+            target_date=getattr(self, "target_date", None),
+            tz=self.spec.tz,
+            unit=self.spec.display_unit,
+            cutoff_hour=cutoff_hour,
+            now=now,
+        )
+
+    def effective_observed_high_context(self, history, current, station, cutoff_hour,
+                                        metar=None, now=None):
         """Derive the same cutoff-safe observed high for features and floors.
 
         Printed WU rows remain authoritative when present.  When that path is
@@ -51,7 +86,52 @@ class ModelUtilsMixin:
         max-since-07:00 summary may rescue the feature exactly as serving-time
         feature extraction already did.  An empty observation set stays empty;
         this helper never manufactures a floor from forecasts or climatology.
+
+        ``metar`` and ``now`` are read only by the shadow variant
+        (``high_so_far_shadow_variant``); with the production value ``None``
+        the result is exactly the historical one.
         """
+        context = self._served_observed_high_context(history, current, station, cutoff_hour)
+        variant = self.high_so_far_shadow_variant
+        if variant is None:
+            return context
+        if variant != HIGH_SO_FAR_SHADOW_METAR_SINCE_MIDNIGHT:
+            raise ValueError(f"unknown high_so_far shadow variant {variant!r}")
+        return self._shadow_observed_high_context(context, station, metar, cutoff_hour, now)
+
+    def _shadow_observed_high_context(self, context, station, metar, cutoff_hour, now):
+        """``metar_running_max_since_midnight_v1``: feature parity, floor only stronger.
+
+        Only when printed WU rows are absent (``history_high is None``, the
+        state since 2026-06-30) and the startup guard did not quarantine the
+        row: the feature becomes the trainer's running maximum since local
+        00:00 on the observed rows; with no observed row by the cutoff the
+        served value stands.  The floor high is ``max(served floor high,
+        running max)``, so the floor can only get stronger.
+        """
+        out = dict(context)
+        out["shadow_variant"] = HIGH_SO_FAR_SHADOW_METAR_SINCE_MIDNIGHT
+        out["served_effective_observed_high"] = context["effective_observed_high"]
+        out["served_effective_observed_floor_high"] = context["effective_observed_floor_high"]
+        out["shadow_first_reached_minute"] = None
+        if context["history_high"] is not None or context.get("startup_feature_quarantined_flag"):
+            return out
+        running_max, first_minute = self.observed_running_max_since_midnight(
+            station, metar, cutoff_hour, now=now,
+        )
+        if running_max is None:
+            return out
+        out["effective_observed_high"] = running_max
+        out["shadow_first_reached_minute"] = first_minute
+        out["effective_observed_floor_high"] = self.max_value(
+            context["effective_observed_floor_high"], running_max,
+        )
+        if out["effective_observed_floor_high"] != context["effective_observed_floor_high"]:
+            out["effective_observed_high_source"] = "metar_running_max_since_midnight"
+        return out
+
+    def _served_observed_high_context(self, history, current, station, cutoff_hour):
+        """Production observed-high context (unchanged since 2a878d91)."""
         rows = self.rows_for_target_date((history or {}).get("rows") or [])
         feature_rows = self.source_rows_until_cutoff(rows, cutoff_hour)
         feature_latest = feature_rows[-1] if feature_rows else None

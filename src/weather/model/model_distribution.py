@@ -179,11 +179,22 @@ class DistributionMixin(DistributionSignalMixin):
             now,
             history.get("rows") or [],
         )
-        observed_high_context = self.effective_observed_high_context(
-            history,
-            current,
-            station,
-            cutoff_hour,
+        observed_high_context = (
+            self.effective_observed_high_context(
+                history,
+                current,
+                station,
+                cutoff_hour,
+            )
+            if self.high_so_far_shadow_variant is None
+            else self.effective_observed_high_context(
+                history,
+                current,
+                station,
+                cutoff_hour,
+                metar=metar,
+                now=now,
+            )
         )
         history_max = observed_high_context["history_high"]
         effective_observed_high = observed_high_context["effective_observed_high"]
