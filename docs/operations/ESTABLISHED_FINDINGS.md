@@ -117,7 +117,7 @@ sequence numbers, not calendar dates.
 | 10ag | Lane L2 (2026-10-25, descriptive): P3d_N receipt look-ahead worth +0.0004 Brier at 13-16, no MG-2 gate flips, pick survives; R-H market-relative atlas (selection evidence): 07-12 loss is winner-bucket mass, regime-flat |
 | 10ah | Reads from 2026-10-24/25 recorded late (dev): L5 hot-day centre arms and AFD all KILL vs MG-1; L8 high_so_far parity KEEP vs base, not bound; L10 gap atlas has no cell at R <= 1; L11 stage C gross bound; no fresh pre-07-31 dates |
 | 10ai | Before 10-23 the venue paid the WU band 626/626 (routine-only rule 617/626; 8 band flips 08-11..09-29, all SPECI effects): labels are WU before 10-23 and the venue rule from it (master ruling (10-25), reading B) |
-| 10aj | Found defect 2026-10-26: the MG-2 "no production importer" test was vacuous (literal backspace bytes for `\b`); fixed in `e40804dfe`; control-byte ratchet for tests proposed only |
+| 10aj | Found defect 2026-10-26: the MG-2 "no production importer" test was vacuous (literal backspace bytes for `\b`); fixed in `e40804dfe`; control-byte ratchet approved (master ruling (10-25)), landing 10-26/27 |
 
 ---
 
@@ -4184,10 +4184,12 @@ Introduced in `fdd7ddc75`, fixed in `e40804dfe` (the C7/C8 line).
 - **Sweep:** across every `origin/claude/*` and `origin/codex/*` head, only `origin/claude/mg2-composite-binding-v2-20261025`
   has a `\x08` byte in a `.py` or `.ps1` file (this test). `origin/master` has none in text files; the only hits are
   inside a binary `.csv.gz` fixture.
-- **Lesson (proposal only, not implemented):** hygiene could add a ratchet refusing control bytes in `tests/*.py`, as the
-  docs audit's `control_character_errors` already does for Markdown. A negative test must be shown to fail on a planted
-  violation before it is trusted.
-- **Reopen if:** another control byte is found in a `.py`/`.ps1` head; then the ratchet stops being optional.
+- **Ratchet (master ruling (10-25): APPROVED, implemented):** `tests/operations/test_source_control_bytes.py` on
+  `claude/control-byte-ratchet-20261025` @ `8f4f831c0` refuses `\x00-\x08`, `\x0b`, `\x0c` and `\x0e-\x1f` in
+  `src/**/*.py` and `tests/**/*.py`, with no baseline, in the CI audit job, as the docs audit's `control_character_errors`
+  already does for Markdown. It lands in the 10-26/27 chain; its `tests/AGENTS.md` note lives on that branch.
+- **Lesson:** a negative test must be shown to fail on a planted violation before it is trusted.
+- **Reopen if:** a control byte is found in a `.ps1` file or another type the ratchet does not cover.
 
 ## Related
 

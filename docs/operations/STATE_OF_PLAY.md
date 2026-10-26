@@ -18,8 +18,8 @@ YouTube-maker scoping stay paused; the maker pilot is approved in principle but 
 
 ## Headline
 
-- **About two thirds of the 07-12 excess loss is sharpness, not centre** (R-H atlas, EF §10ag), so **spread-information levers
-  come next**. Centre corrections at 07-12 are exhausted (L5 KILL, EF §10ah); no candidate block reaches R ≤ 1 against the market.
+- **About two thirds of the 07-12 excess loss is sharpness, not centre** (R-H atlas, EF §10ag). **NBM-published spread is closed**
+  (R-S killed at dev); **GEFS member spread (R-Q) is open**, approved under R9. Centre corrections at 07-12 are exhausted (L5 KILL).
 - **Against the market the model adds nothing yet:** the walk-forward log-pool weight on MG-1 is w ≈ 0.008 (EF §10ad); the 13-16
   blend gain is the hard floor, not model information.
 
