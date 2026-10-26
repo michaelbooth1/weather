@@ -2,7 +2,7 @@ r"""MG-2 daily input exporter, capture-host side: one read-only, outcome-free bu
 
 Binding plan section 9 (docs/research/mg2-composite-binding-2026-10-25/binding-plan.md, sections 9.1-9.3) and
 ``weather.calibration.mg2_input_allowlist`` (the shared contract; its ``allowlist_sha256()`` goes into every
-manifest). The workstation receiver (``weather.calibration.mg2_inputs receive``) verifies what this writes.
+manifest). The workstation receiver (the C7 ``receive`` command) verifies what this writes.
 
 A manual one-shot. It imports only the standard library and ``mg2_input_allowlist`` (itself stdlib only), so
 it never refuses on the capture host and no capture loop imports it (roll-free).
@@ -12,7 +12,8 @@ it never refuses on the capture host and no capture loop imports it (roll-free).
   every path is checked against those patterns, and every component against links and reparse points, before
   it is opened. Anything else fails closed.
 * **Shared-read opens.** On Windows every read handle allows read, write and delete sharing, so a capture
-  writer that appends to or atomically replaces a file is never blocked.
+  writer can append to, rename or delete a file the exporter is reading. Each file is read whole and closed at
+  once, so the handle is held only for the read itself.
 * **Dates.** A target date D is exported only if D <= 2026-09-29 (the development window) or D >= D0
   (2026-10-28; the MG-2 reservation exemption, option 2), and only after D's export cut has passed.
 * **Projection, not copy.** Every record goes through the allow-list's projections; only rows captured at or
