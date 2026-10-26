@@ -37,6 +37,9 @@ state. Profitability requires repeated maker fills and subsequent paid-rebate,
 markout, position, and settlement reconciliation.
 The claim boundary and frozen economics decision rule are preregistered in
 [`INTERNATIONAL_MM_PILOT_PREREGISTRATION.md`](../research/INTERNATIONAL_MM_PILOT_PREREGISTRATION.md).
+A 2026-10 plan and readiness checklist against this runbook is the
+[maker pilot plan](MAKER_PILOT_PLAN_2026-10.md): DRAFT, HOLD status, owner
+questions open; it adds no gate and grants no authority.
 
 ## Current production disposition
 

@@ -113,8 +113,9 @@ sequence numbers, not calendar dates.
 | 10v | Dev replay with current code does not reproduce the served vector (M8 check, 2026-10-21, outcome-blind): code drift, not artifacts; replay deltas are "current code ± variant" |
 | 10w | Open-Meteo hourly labels are fixed-offset per response; serving reads them as zone wall time, so labels on the far side of a DST change are 1 h late (code trace on master `1c19ae10b`, 2026-10-21; live behaviour inferred) |
 | 10x | From the 2026-10-23 events the venue's declared resolution source is the raw aviationweather.gov METAR API, routine reports only (SPECI excluded), with a WU fallback; Denver names KDEN, not our KBKF (event metadata only; SPECI effect measured 07-31..09-29) |
-| 10af | Lane L2 rung ladder (2026-10-25, dev): R-F blends NULL, R-G STOP at gate 3b, R-I KILL (width lever closed for the NBM family), R-J KILL (trajectory family closed for the afternoon; HRRR hourly path excluded) |
+| 10af | Lane L2 rung ladder (2026-10-25, dev): R-A NULL vs MG-1, R-D blend WIN vs MG-1 superseded by R-F, R-F blends NULL, R-G STOP at gate 3b, R-I KILL (width lever closed for the NBM family), R-J KILL (trajectory family closed for the afternoon; HRRR hourly path excluded) |
 | 10ag | Lane L2 (2026-10-25, descriptive): P3d_N receipt look-ahead worth +0.0004 Brier at 13-16, no MG-2 gate flips, pick survives; R-H market-relative atlas (selection evidence): 07-12 loss is winner-bucket mass, regime-flat |
+| 10ah | Reads from 2026-10-24/25 recorded late (dev): L5 hot-day centre arms and AFD all KILL vs MG-1; L8 high_so_far parity KEEP vs base, not bound; L10 gap atlas has no cell at R <= 1; L11 stage C gross bound; no fresh pre-07-31 dates |
 
 ---
 
@@ -3346,7 +3347,8 @@ date clusters, 12 markets). Crossed date x market bootstrap, 2,000 draws. Values
 - A captured Atlanta row traced through the canonical selection and imputation path: 27 selected columns
   per cutoff, no NBM, NWS-grid or HRRR column; removing NBM changes no model input.
 - **Caveats, binding:** the NBM read is conditional on guidance being present — fill is 24.6-38.3% of
-  snapshots, none for Toronto, almost none after 10:00 local (and those rows score 0.16-0.18; cause
+  snapshots, none for Toronto (not captured: production's guidance capture is US-only, but the NBP, NBS and NBH
+  bulletins and the HRRR grid all carry CYYZ; RF "Toronto has no NBM"), almost none after 10:00 local (and those rows score 0.16-0.18; cause
   untraced), and the feature builder writes NBM only when it is valid against the observed floor. Power
   at a 0.01 effect is 35-40% per stratum. Regime tags and the SPECI event study are unpowered (no tag
   above 27% power at OR = 2). Provider-to-ingestion latency is unmeasurable: all 89,271 observation
@@ -3764,6 +3766,8 @@ Receipts: [S0 receipts](../research/data-layer-v2-s0-2026-10-15/README.md). Inpu
   of the GEFS payload as the mean, but it sits 0.26-0.54 °F (max 1.26 °F) from the 30-member mean on stored 2026-08-10
   San Francisco payloads, at a moving rank (0.17-0.73). There are 31 columns, one of which is the control. Train and
   serve read the same column, so parity holds; only the name is wrong.
+  - **Caveat (2026-10-26, lever inventory F6):** every result labelled "GEFS mean" scored this control-run column,
+    including lane G's F4 harm (+0.0054 [+0.0016, +0.0100], §10y). The 30-member GEFS mean is untested.
 - **`last_good_sources.json` is rewritten whole on every pass:** `model_sources.py:596-619` reloads and atomically
   rewrites the ~36 MB file (the NBM bulletin text in `raw_payload`) even when unchanged; est. 5.2 GB/day of writes per
   US station at the 10-minute default. Host count (master-agent, 2026-10-15 02:57-03:27): 3-4 rewrites per 30 min of
@@ -4015,6 +4019,18 @@ the R-F and R-G score summaries are the `rung0712/rf_summary.txt` and `rg_summar
   hard floor. P3d_N_fix is P3d_N with the receipt look-ahead removed (each dev row uses the latest replay snapshot
   captured at or before its own capture) and the frozen WU whole °F conversion. L6 is the frozen MG-2 pre-13 arm, which
   is in-sample on this window and so favoured.
+- **R-A, the NBM-anchored baseline and its HGB layer at 07-12 (rule `0b6be0d68f9f2c732468450a0abc5f075e43cc33a001bf9d76726160ccd5f25d`;
+  proposals `5aefe029…`): NULL vs MG-1.** 21,664 covered snapshots. B_N − MG-1 −0.0094 [−0.0504, +0.0324] (crossed
+  [−0.0740, +0.0560]); P3d_N_fix − MG-1 −0.0320 [−0.0663, +0.0041] (crossed [−0.0848, +0.0244]); the HGB layer is
+  admitted over the baseline, P3d_N_fix − B_N −0.0225 [−0.0428, −0.0039]. R: B_N 1.2138, P3d_N_fix 1.1912, MG-1 1.2232.
+  The receipt look-ahead fix changes nothing at 07-12 (P3d_N_fix − P3d_N +0.0007 [−0.0012, +0.0026]). PRIMARY5 (reported
+  only): B_N − MG-1 −0.0640 [−0.1217, −0.0042], P3d_N_fix − MG-1 −0.0505 [−0.0969, −0.0059].
+- **R-D, walk-forward hour-wise blend of MG-1 and P3d_N_fix (rule `7d497e3cf03ff33792f9575cc780d64ec122f3b2aae7eca6b8d0493c065d0b34`):
+  WIN vs MG-1, superseded.** blend − MG-1 at 07-12 −0.0467 [−0.0665, −0.0257] (crossed [−0.0835, −0.0134]), every hour
+  h07..h12 below 0; blend − P3d_N_fix −0.0147 [−0.0301, +0.0004]. MG-1 is not the composite's pre-13 arm (L6 is), so
+  R-F re-asked the question against L6 and found nothing (below); R-D supports no Clarification on its own (RF "R-D
+  blend"). R-E (descriptive): of P3d_N_fix − MG-1 at 07-12, the gain sits one and two buckets above the winner
+  (+1: −0.0205 [−0.0336, −0.0086]; +2: −0.0087), that is MG-1's warm-side mass, not data freshness.
 - **R-F, hour-wise blends against L6 (rule `cca30734771933f2028a9c46f7edbebd887af9ac9b9ece968b73325cf85ce7f6`): NULL.**
   blend(MG-1, P3d_N_fix) − L6 at 07-12 +0.0243 [−0.0033, +0.0523]; blend(L6, P3d_N_fix) − L6 −0.0096 [−0.0187, +0.0003]. No
   WIN, so no MG-2 Clarification or re-run plan was drafted.
@@ -4039,6 +4055,22 @@ the R-F and R-G score summaries are the `rung0712/rf_summary.txt` and `rg_summar
 - **The common shape (R-G and R-J):** the new columns help the simple OLS arm a great deal (R-J dev B_G − B_N −0.0946 at
   13-14), but the HGB residual arm already carries that information (LOYO −0.004, dev null). A rung must be measured on
   the strongest arm, not only on the baseline.
+- **Reopen if** (each also has an exhaustion-register row, §6):
+  - R-A: a new NBM-family input (hourly NBS TXN, lane L12) changes the anchor, or the dev window grows; a new rule each time.
+  - R-D: only if MG-1 becomes the pre-13 arm again (L6 dropped from MG-2).
+  - R-F: L6 is re-fitted or replaced, or a 07-12 arm with a genuinely new input exists; never a re-cut of these blends.
+  - R-G and R-J: on Aug-Sep, only an input not derivable from the METAR path (the pre-registered HRRR hourly path,
+    R-K), or a strongest arm without the HGB residual layer; Oct-Dec is open under R10 below.
+  - R-I: a fitted temperature or scale map only after a centre lever changes the NBM-family arm, once, under a new
+    rule; spread information is a separate, open family (R9 below).
+- **Scope of the closures, narrowed by master (rulings R9 and R10, 2026-10-25; master's rulings, not the owner's),**
+  after the [lever inventory](LEVER_INVENTORY_2026-10-26.md) flags F3 and F4. They replace the wider wording above:
+  - **R-I (R9):** the kill covers only fitted temperature or scale spread maps on NBM-anchored arms. Spread
+    *information* (ensemble spread, NBS TXNSD, other day-specific predictors of spread) is a new family that needs its
+    own pre-registration and the full ladder. Hard limits: no global sharpening, and the floor is never weakened.
+  - **R-G and R-J (R10):** the kills cover the Aug-Sep development window only. An Oct-Dec rung needs a fresh
+    pre-registration plus LOYO on Oct-Dec 2021-25 (where §10ac shows the overnight low and dewpoint help), and it can
+    promote only through a forward test.
 - **Not claimed:** edge, any forward result, or a claim about the HRRR hourly path.
 
 ### 10ag. The P3d_N afternoon look-ahead is worth +0.0004 Brier at 13-16 and flips no MG-2 gate; the market-relative atlas puts the 07-12 loss in winner-bucket mass — lane L2, workstation, 2026-10-25
@@ -4072,8 +4104,53 @@ Nothing dated after 2026-09-29 was read. Records: `p3dn_diag/diag_summary.md` an
     width, is the lever (§1c).
   - At 13-16 P3d_N_fix loses most where the observed path runs below NBM's diurnal path (cold path +0.0183, 47% of the
     window excess); MG-1 alone fails on NBM-too-warm days, which P3d_N_fix mostly removes (+0.0083 against +0.0233).
+- **Reopen if:** the look-ahead question reopens if the live serve path (L8 binding) differs from the as-of-capture
+  dev path, or C7 is not adopted before MG-2 D0 (then the forward gate scores `last_in_hour` vectors and the 3% is a
+  known optimism). The atlas is re-run for every newly picked arm and when the window grows; it never closes a lever.
 - **Not claimed:** that any atlas cell is a lever on its own; every cell consumes the market benchmark and is never a
   gate, arm or improvement.
+
+### 10ah. Reads from 2026-10-24/25 that reached no canonical file at the time: L5's hot-day centre arms and AFD KILL, L8's high_so_far parity fix not bound, L10's gap atlas, L11's stage C bound, and no fresh pre-07-31 dates — workstation, recorded 2026-10-25
+
+**Claim, at exactly this scope:** dev window 08-15..09-29 (43 dates, 473 market-days, 11 US markets) unless stated;
+development and selection evidence only; no edge claim; nothing dated after 2026-09-29 was read. Each was found by the
+10-26 gap audit (owner 2026-10-25: "we are recording each thing we rule out yes? All of it is useful in some way
+potentially"). Intervals are crossed date x market 95% unless marked date-clustered.
+
+- **L5 hot-day centre lever, arms A and B, and the AFD screen: all KILL** (rules arm A `53fd0bc5…`, arm B addendum
+  `42d30a2f…`, AFD `e146655a…`, each committed before scoring; record: the 2026-10-25 addendum of
+  `docs/research/morning-loss-diagnosis-2026-10-24.md` on branch `claude/morning-loss-diagnosis-20261024` @
+  `9eb04e6f4`). Candidate − control at 07-12, pooled 11:
+  - A1, v2+NWS per-market debias, vs MG-1: −0.0001 [−0.0042, +0.0045], MDE80 0.0062: null.
+  - A2, linear forecasts + overnight-low anomaly, vs MG-1: −0.0016 [−0.0059, +0.0033], MDE80 0.0068: null.
+  - B1, full-year corpus GFS day-1 linear, vs MG-1: +0.0169 [+0.0069, +0.0269]: harm. The Aug-Sep-only fit also
+    harms (+0.0122 [+0.0043, +0.0215], sensitivity).
+  - B2, (v2 + B1)/2, vs MG-1: +0.0021 [−0.0032, +0.0084]: null.
+  - AFD text features vs matched coastal intercepts: +0.0012 [−0.0006, +0.0040], date-clustered [+0.0003, +0.0020]:
+    harm on the date-clustered interval, mostly Los Angeles (+0.0112 [+0.0026, +0.0195]).
+  - **Reading:** the hot-day centre lever is MG-1 itself; every arm-A gain over served is MG-1's. A2 extrapolates beyond
+    its training maximum on 8.8% of rows and still gains nothing on hot days (−0.0020 [−0.0086, +0.0035]). The
+    coastal residual stays unexplained by free text.
+  - **Reopen if:** a centre source outside MG-1's guidance family is captured (hourly NBS TXN, HRRR), or the coastal
+    five get their own pre-registered rung; never a re-cut subset of these arms.
+- **L8 HGB with the high_so_far train/serve parity fix (rule `55cf6989…`, dev-window ledger row 33 on
+  `claude/mg2-composite-binding-v2-20261025`): KEEP vs base, not bound.** Fix − base at 00-16 −0.0088, date-clustered
+  [−0.0171, −0.0008], crossed [−0.0232, +0.0058]; fix − MG-1 +0.2232 [+0.1489, +0.2927]. MG-1 sidesteps the skew, so
+  the HGB serving family stays behind MG-1. **Reopen if:** an HGB serving arm re-enters a forward candidate; the fix is
+  then a precondition, not a lever.
+- **L10 gap-to-market atlas** (code `weather.calibration.gap_to_market_atlas`, branch `claude/stack-l10-20261025`;
+  its rendered page is a workstation-local file, not in the repository): no pooled block or hour has R <= 1 for MG-1,
+  arm A, P3d or the composite. Best on the primary five: composite 07-12 R 1.159 [1.070, 1.266]; MG-1 at 13-16 is
+  1.697. Descriptive; it consumes the market benchmark. **Reopen if:** re-run for every new candidate; it is a map, not
+  a test.
+- **L11 dead-bucket stage C (rule r2 `177e9acf…`): gross upper bound $18.35/day [7.74, 34.73], not executable.** Denver
+  is 89% of it and one trade 41%; 0 of 3,106 dead buckets settled YES. Stage A then measured executability, and under
+  capture-time dating the mechanism is closed (§10ad). The bound assumes free, instant fills and observation-time
+  dating; never cite it as value.
+- **P2, fresh development dates before 07-31: none.** 07-12..07-30 lies in the sealed panel (7 of 20 decisions spent).
+  A sealed-panel confirmation is available only for a winning candidate, proposed formally with its budget cost
+  (master ruling 2026-10-25). **Reopen if:** a candidate wins on the dev window.
+- **Not claimed:** edge, any forward result, or that a KILL here covers a different input or form.
 
 ## Related
 
