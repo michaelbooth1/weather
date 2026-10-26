@@ -17,6 +17,8 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 MODULE = "weather.calibration.pooled_residual_model"
+# The module itself, and lane L15's offline rung (itself admission-guarded, never imported by src).
+RESEARCH_IMPORTERS = ("pooled_residual_model.py", "spread_information_rung.py")
 
 
 def _hook():
@@ -53,7 +55,7 @@ def test_no_src_module_imports_it():
     offenders = [
         str(path.relative_to(ROOT))
         for path in (ROOT / "src").rglob("*.py")
-        if path.name != "pooled_residual_model.py" and pattern.search(path.read_text(encoding="utf-8", errors="ignore"))
+        if path.name not in RESEARCH_IMPORTERS and pattern.search(path.read_text(encoding="utf-8", errors="ignore"))
     ]
     assert offenders == []
 
