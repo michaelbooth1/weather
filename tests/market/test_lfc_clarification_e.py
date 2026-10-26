@@ -3,11 +3,14 @@
 Guards: the six clarification-E values (20 shares per leg, the 15.80 per-order and 19.60 per-band caps, the
 Toronto+Denver band universe, R6 dropped for the campaign only, last start 2026-11-20) and that the other signed LFC
 limits stay as signed (L budget 100, 8 sessions of 360 minutes, the leg price range, earliest start, 23:50Z hard stop,
-RE-1 submit/requote limits, post-only GTD submits).
+RE-1 submit/requote limits, post-only GTD submits); the review follow-ups: a counted session refuses a non-pilot
+band itself, and the campaign selection refuses a leg above the 15.80 order cap before session_start (RE-1 unchanged).
 """
 from dataclasses import replace
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
+
+import pytest
 
 from tests.market.test_lfc_pilot import BASE, Clock, counted_table, snapshot
 from tests.market.test_lfc_pilot import setup as pilot_session
@@ -130,3 +133,45 @@ def test_the_l_gate_still_refuses_above_100_at_twenty(tmp_path):
     session, venue, _, _ = pilot_session(tmp_path, filled='80.7', table=table)
     result = session.run(rehearsal_seconds=60)
     assert result['reason'] == 'l_budget_refused' and not venue.calls
+
+
+def test_counted_session_refuses_a_non_pilot_band_itself(tmp_path):
+    # Defence in depth: even a table whose selected band is Los Angeles is refused by the session, before the
+    # frozen-rule rebuild and before any journal or order.
+    table = counted_table(Clock())
+    table['rows'][0]['market_id'] = 'los-angeles'
+    table['rows'][0]['market_timezone'] = REGISTRY['los-angeles'].timezone
+    with pytest.raises(ValueError, match='^lfc_market_outside_pilot$'):
+        pilot_session(tmp_path, table=table)
+    assert not (tmp_path / 'session' / 'journal.jsonl').exists()
+
+
+def _leg_patch(monkeypatch, name, no_buy):
+    real = getattr(mm_stage2_selection, name)
+    monkeypatch.setattr(mm_stage2_selection, name,
+                        lambda *a, **k: replace(real(*a, **k), no_buy=Decimal(no_buy)))
+
+
+def test_campaign_selection_refuses_a_leg_above_the_order_cap_before_session_start(monkeypatch):
+    _leg_patch(monkeypatch, 'pilot_quote', '.80')  # 20 x .80 = 16.00 > 15.80
+    table = _table(Clock(), 'denver', treatment=LFC.TREATMENT)
+    # No selected band means lfc_cli live raises no_qualifying_band before any session_start row.
+    assert table['selected_condition_id'] is None
+    assert table['rows'][0]['refusal'] == 'lfc_leg_above_order_cap'
+
+
+def test_campaign_selection_accepts_a_leg_exactly_at_the_order_cap(monkeypatch):
+    _leg_patch(monkeypatch, 'pilot_quote', '.79')  # 20 x .79 = 15.80 == cap
+    table = _table(Clock(), 'denver', treatment=LFC.TREATMENT)
+    assert table['rows'][0]['refusal'] is None and table['selected_condition_id'] == CONDITION
+    assert Decimal(table['rows'][0]['quote']['no_buy']) * 20 == LFC.PER_ORDER_CAP_PUSD
+
+
+def test_re1_selection_with_a_80_leg_is_unchanged(monkeypatch):
+    clock = Clock()
+    baseline = select_table([_band(clock, 'denver')], now=clock.now(), available_collateral='200')
+    _leg_patch(monkeypatch, 'sized_quote', '.80')
+    re1 = select_table([_band(clock, 'denver')], now=clock.now(), available_collateral='200')
+    assert re1['rows'][0]['refusal'] == baseline['rows'][0]['refusal'] != 'lfc_leg_above_order_cap'
+    assert re1['selected_condition_id'] == baseline['selected_condition_id']
+    assert re1['rows'][0]['quote']['no_buy'] == '0.80'

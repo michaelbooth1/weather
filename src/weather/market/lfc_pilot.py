@@ -479,6 +479,12 @@ class PilotSession(Session):
         else:
             if table.get('size_treatment') != LFC.TREATMENT:
                 raise ValueError('pilot table treatment differs')
+            # Clarification E, defence in depth behind the selection rule: the chosen band's market must be a pilot
+            # market (a missing market_id refuses too).
+            selected = table.get('selected_condition_id')
+            chosen = next((r for r in table.get('rows', ()) if r.get('condition_id') == selected), {})
+            if chosen.get('market_id') not in LFC.PILOT_MARKET_IDS:
+                raise ValueError('lfc_market_outside_pilot')
             super().validate_table(table)
 
     def _ledger(self, fn):

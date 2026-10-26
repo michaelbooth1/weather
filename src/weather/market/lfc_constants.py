@@ -39,6 +39,8 @@ PILOT_MARKET_IDS = ('denver', 'toronto')
 # selection outside the campaign keeps its own floor.
 PREDICTED_REWARD_FLOOR = None
 
+# The label names the campaign, not the size (kept for ledger and journal continuity); the size lives in PILOT_SIZE
+# and the selection table's pilot_size.
 TREATMENT = 'LFC-40'
 SESSION0_TREATMENT = 'LFC-S0'
 PROTOCOL = 'LFC-live-fill-calibration-v1'

@@ -87,6 +87,10 @@ def select_table(universe, *, now, complete=True, source_records=(), available_c
                                      l_resting=ledger['L_resting'], available_collateral=available_collateral,
                                      budget=LFC.BUDGET_PUSD, share_range=LFC.SHARE_MANY_RANGE,
                                      leg_range=(LFC.PER_LEG_PRICE_FLOOR, LFC.PER_LEG_PRICE_CEILING)))
+                # Clarification E: a leg costing more than the 15.80 order cap (a .80 leg at 20 = 16.00) would end
+                # the session on capital_cap at submit, after session_start; refuse it here. LFC only; RE-1 unchanged.
+                if treatment is not None and max(quote.yes_buy, quote.no_buy) * quote.size > LFC.PER_ORDER_CAP_PUSD:
+                    raise QuoteRefused('lfc_leg_above_order_cap')
                 # Owner 2026-09-24 (92a): require existing displayed YES-book depth of at least max(75, size) on each
                 # side within the reward max spread of the adjusted midpoint; an empty book pays the same reward at
                 # any size, so size there buys only fill exposure.
