@@ -288,7 +288,7 @@ def module_predictions(spec, layout, folds):
     module = load_module(spec.path)
     snaps, bands, labels = layout.snaps, layout.bands, layout.labels
     lab_cols = [c for c in ("row_key", "date", "market", "winner", "settlement_bucket") if c in labels.columns]
-    out, fits = [], []
+    out, fits, state = [], [], None
     for fold in folds:
         if not fold.scored:
             continue
@@ -311,7 +311,11 @@ def module_predictions(spec, layout, folds):
                      "max_train_label_date": train["labels"].date.astype(str).max() if len(train["labels"])
                      else None})
     frame = pd.concat(out, ignore_index=True) if out else pd.DataFrame(columns=list(CANDIDATE_COLUMNS))
-    return frame, {"name": str(module.NAME), "fits": fits}
+    meta = {"name": str(module.NAME), "fits": fits}
+    # A state may declare its inputs (file hashes, fixed tables); recorded once, from the last fold.
+    if isinstance(state, dict) and isinstance(state.get("provenance"), dict):
+        meta["state_provenance"] = state["provenance"]
+    return frame, meta
 
 
 def _check_trained_through(spec, folds):

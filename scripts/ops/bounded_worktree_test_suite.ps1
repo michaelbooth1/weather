@@ -302,10 +302,18 @@ function Invoke-SuiteCheckedLocalGit {
         $env:GIT_CONFIG_COUNT = "0"
         $env:LC_ALL = "C"
         $env:LANG = "C"
+        # The hermetic config hides the global filter.lfs.* driver. Without it a
+        # racily clean, smudged LFS file is re-hashed as raw bytes and `status`
+        # reports it modified against its pointer blob. Name the standard driver
+        # explicitly; a pointer-only worktree cleans to the same pointer.
         $gitArguments = @(
             "-C", $resolvedRoot,
             "-c", "core.fsmonitor=false",
-            "-c", "core.hooksPath=NUL"
+            "-c", "core.hooksPath=NUL",
+            "-c", "filter.lfs.clean=git-lfs clean -- %f",
+            "-c", "filter.lfs.smudge=git-lfs smudge -- %f",
+            "-c", "filter.lfs.process=git-lfs filter-process",
+            "-c", "filter.lfs.required=true"
         ) + @($Arguments)
         $rows = @(& $gitExecutable @gitArguments 2>&1)
         $exitCode = [int]$LASTEXITCODE

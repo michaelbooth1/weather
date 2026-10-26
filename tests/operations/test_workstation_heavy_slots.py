@@ -55,23 +55,59 @@ function Get-WeatherWorkstationMemoryReading {
     $commit = if ($env:WEATHER_TEST_COMMIT_PERCENT) { [double]$env:WEATHER_TEST_COMMIT_PERCENT } else { 40.0 }
     [PSCustomObject]@{ TotalPhysicalBytes = 32GB; AvailablePhysicalBytes = $available; CommitPercent = $commit }
 }
+function Get-WeatherWorkstationLogicalProcessorCount {
+    if ($env:WEATHER_TEST_LOGICAL_CPUS) { [int]$env:WEATHER_TEST_LOGICAL_CPUS } else { 12 }
+}
 if ($env:WEATHER_TEST_CAPTURE_WINDOW_OPEN -eq '1') {
     function Get-WeatherHeavyWorkloadPolicyWindow { param($Now, [switch]$AllowStageAWindow, $OwnerApprovedException) 'agent_heavy' }
 }
 """
 
 
-def _install(repo: Path) -> str:
+WRAPPER_CLOSURE = ("workstation_heavy.ps1", "workload_admission.ps1", "windows_kill_on_close_job.ps1")
+# The last commit before workstation slots: what older wrapper copies in other worktrees run.
+PRE_SLOT_COMMIT = "57cfdfe726eb83d074059a3ddefa4df7d13b936c"
+
+
+def _install(
+    repo: Path,
+    *,
+    mutex: str | None = None,
+    state_path: Path | None = None,
+    sources: dict[str, str] | None = None,
+) -> str:
     ops = repo / "scripts" / "ops"
     ops.mkdir(parents=True, exist_ok=True)
-    for name in ("workstation_heavy.ps1", "workload_admission.ps1", "windows_kill_on_close_job.ps1"):
-        shutil.copyfile(REPO_ROOT / "scripts" / "ops" / name, ops / name)
+    for name in WRAPPER_CLOSURE:
+        text = sources[name] if sources else (REPO_ROOT / "scripts" / "ops" / name).read_text(encoding="utf-8-sig")
+        (ops / name).write_text(text, encoding="utf-8")
     admission = ops / "workload_admission.ps1"
     text = admission.read_text(encoding="utf-8-sig")
     assert text.count(LEGACY_MUTEX) >= 1
-    mutex = "Local\\WeatherSlotFixture-" + uuid.uuid4().hex
-    admission.write_text(text.replace(LEGACY_MUTEX, mutex) + TEST_OVERRIDES, encoding="utf-8")
+    mutex = mutex or "Local\\WeatherSlotFixture-" + uuid.uuid4().hex
+    overrides = TEST_OVERRIDES
+    if state_path is not None:
+        # Several fixture checkouts share one host-global state file, as worktrees do.
+        overrides += (
+            "function Get-WeatherHeavyWorkloadPoisonPath {\n"
+            f"    param([switch]$CreateIfMissing)\n    '{state_path}'\n}}\n"
+        )
+    admission.write_text(text.replace(LEGACY_MUTEX, mutex) + overrides, encoding="utf-8")
     return mutex
+
+
+def _pre_slot_sources() -> dict[str, str]:
+    sources = {}
+    for name in WRAPPER_CLOSURE:
+        shown = subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "show", f"{PRE_SLOT_COMMIT}:scripts/ops/{name}"],
+            capture_output=True, check=False,
+        )
+        if shown.returncode != 0:
+            pytest.skip("the pre-slot commit is not in this clone's history")
+        sources[name] = shown.stdout.decode("utf-8-sig")
+    assert "Enter-WeatherWorkstationHeavySlotLease" not in sources["workload_admission.ps1"]
+    return sources
 
 
 def _write_assignment(repo: Path, *, capture_identity: bool) -> None:
@@ -144,6 +180,10 @@ PORTABLE_ENTER = (
     "-ExecutionHostProfile 'portable_execution_v1' -ExpectedExecutionHostId (Get-WeatherExecutionHostId)"
 )
 CAPTURE_ENTER = "Enter-WeatherHeavyWorkloadLease -RepoRoot '{repo}' -Workload '{name}'"
+EXCLUSIVE_ENTER = (
+    "Enter-WeatherWorkstationHeavyExclusiveLease -RepoRoot '{repo}' -Workload 'WorkstationOffline-pytest-pregate-{name}' "
+    "-PollMilliseconds 100 -ReportSeconds 1"
+)
 
 
 class Holder:
@@ -545,6 +585,7 @@ def test_capture_host_path_stays_one_serial_lease(capture_host: Path, holders: l
 
     for body in (
         SLOT_ENTER.format(repo=repo, name="cap") + "\n",
+        EXCLUSIVE_ENTER.format(repo=repo, name="cap") + "\n",
         f"Enter-WeatherHeavyWorkloadLeaseQueued -RepoRoot '{repo}' -Workload 'WorkstationOffline-pytest-1'\n",
     ):
         refused = _admission(repo, body, **window)
@@ -556,3 +597,296 @@ def test_capture_host_path_stays_one_serial_lease(capture_host: Path, holders: l
     assert not list((repo / "data" / "logs").glob("heavy_workload.slot*.lock"))
     assert not list(repo.glob(".test-heavy-workload*.poison"))
     assert not (repo / "heavy_workload_queue_v1").exists()
+
+
+LEASE_STATE_JSON = "Get-WeatherHeavyWorkloadLeaseState -RepoRoot '{repo}' | ConvertTo-Json -Compress -Depth 5\n"
+
+
+def _process_start(pid: int, repo: Path) -> str:
+    result = _admission(repo, f"[Diagnostics.Process]::GetProcessById({pid}).StartTime.ToUniversalTime().ToString('o')\n")
+    assert result.returncode == 0, result.stderr
+    return result.stdout.strip()
+
+
+def test_lease_state_and_holder_summary_see_every_busy_workstation_slot(workstation: Path, holders: list[Holder]) -> None:
+    repo = workstation
+    # A dead holder's leftover slot file widens nothing by itself.
+    _write_marker(repo, 5, pid=_dead_pid(), start="2026-10-24T00:00:00.0000000Z")
+    idle = json.loads(_admission(repo, LEASE_STATE_JSON.format(repo=repo)).stdout)
+    assert (idle["Active"], idle["BusySlotCount"], idle["Owner"]) == (False, 0, None)
+
+    holders.append(Holder(repo, SLOT_ENTER, "two"))
+    holders.append(Holder(repo, SLOT_ENTER, "three"))
+    assert [holder.slot for holder in holders] == [2, 3]
+    # A live owner known only from the host-global state file (another checkout's slot lock).
+    _write_marker(repo, 4, pid=os.getpid(), start=_process_start(os.getpid(), repo))
+    state = json.loads(_admission(repo, LEASE_STATE_JSON.format(repo=repo)).stdout)
+    assert state["Active"] is True
+    assert state["Path"].endswith("heavy_workload.lock")
+    assert state["BusySlotCount"] == 3
+    assert [(s["SlotId"], s["Source"]) for s in state["Slots"]] == [(2, "repo_lock"), (3, "repo_lock"), (4, "host_state")]
+    assert state["Slots"][0]["Workload"] == "WorkstationOffline-pytest-two"
+    assert isinstance(state["Slots"][0]["Pid"], int) and state["Slots"][0]["Pid"] > 0
+    assert (state["Owner"]["workload"], state["Owner"]["workstation_slot_id"]) == ("WorkstationOffline-pytest-two", 2)
+
+    summary = _admission(repo, f"Get-WeatherHeavyWorkloadHolderSummary -RepoRoot '{repo}' | ConvertTo-Json -Compress\n")
+    assert json.loads(summary.stdout) == {
+        "workload": "WorkstationOffline-pytest-two",
+        "pid": state["Slots"][0]["Pid"],
+        "execution_host_profile": "workstation_offline_v1",
+        "state": "ACTIVE",
+        "slot_id": 2,
+    }
+
+
+def test_capture_host_lease_state_is_byte_identical_to_the_pre_slot_helper(tmp_path: Path, holders: list[Holder]) -> None:
+    sources = _pre_slot_sources()
+    old_repo, new_repo = tmp_path / "old", tmp_path / "new"
+    mutex = "Local\\WeatherSlotFixture-" + uuid.uuid4().hex
+    for repo, src in ((old_repo, sources), (new_repo, None)):
+        repo.mkdir()
+        _install(repo, mutex=mutex, sources=src)
+        _write_assignment(repo, capture_identity=True)
+
+    def outputs(label: str) -> tuple[str, str]:
+        rendered = []
+        for repo in (old_repo, new_repo):
+            # Both helpers read the same checkout's lock, so only the code differs.
+            result = _admission(repo, LEASE_STATE_JSON.format(repo=new_repo))
+            assert result.returncode == 0, (label, result.stderr)
+            rendered.append(result.stdout)
+        return rendered[0], rendered[1]
+
+    old, new = outputs("absent")
+    assert new == old and json.loads(new) == {"Active": False, "Path": str(new_repo / "data/logs/heavy_workload.lock"), "Owner": None}
+    # Slot files on the capture host (which never writes them) still change nothing.
+    (new_repo / "data" / "logs").mkdir(parents=True, exist_ok=True)
+    (new_repo / "data/logs/heavy_workload.slot2.lock").write_text("{}", encoding="utf-8")
+    _write_marker(new_repo, 3, pid=os.getpid(), start=_process_start(os.getpid(), new_repo))
+    holders.append(Holder(new_repo, CAPTURE_ENTER, "capture_holder", WEATHER_TEST_CAPTURE_WINDOW_OPEN="1"))
+    old, new = outputs("held")
+    assert new == old
+    assert json.loads(new)["Active"] is True and "Slots" not in json.loads(new)
+    holders[0].stop()
+    old, new = outputs("released")
+    assert new == old and json.loads(new)["Active"] is False
+
+
+def _release_child(repo: Path, name: str, started: Path, release: Path) -> Path:
+    path = repo / f"test_hold_{name}.py"
+    path.write_text(
+        "import time\nfrom pathlib import Path\n\n"
+        "def test_hold():\n"
+        f"    Path({str(started)!r}).write_text('started', encoding='utf-8')\n"
+        "    deadline = time.monotonic() + 150\n"
+        f"    while not Path({str(release)!r}).exists() and time.monotonic() < deadline:\n"
+        "        time.sleep(0.05)\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_pre_slot_wrapper_bytes_interoperate_with_slot_wrappers(tmp_path: Path, holders: list[Holder]) -> None:
+    sources = _pre_slot_sources()
+    old_repo, new_repo = tmp_path / "old", tmp_path / "new"
+    mutex = "Local\\WeatherSlotFixture-" + uuid.uuid4().hex
+    shared_state = tmp_path / "host-global-heavy-workload.poison"
+    for repo, src in ((old_repo, sources), (new_repo, None)):
+        repo.mkdir()
+        _install(repo, mutex=mutex, state_path=shared_state, sources=src)
+        _write_assignment(repo, capture_identity=False)
+
+    # 1. The pre-slot wrapper takes the legacy lease; slot wrappers count it as slot 1.
+    started, release = tmp_path / "old-started.txt", tmp_path / "old-release.flag"
+    old_job = subprocess.Popen(
+        _wrapper_argv(old_repo, _release_child(old_repo, "old", started, release)),
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=_env(),
+    )
+    try:
+        _wait_for(lambda: started.exists() or old_job.poll() is not None)
+        assert old_job.poll() is None, old_job.communicate()
+        holders.append(Holder(new_repo, SLOT_ENTER, "two"))
+        holders.append(Holder(new_repo, SLOT_ENTER, "three"))
+        assert [holder.slot for holder in holders] == [2, 3]
+        full, sentinel = _run_wrapper(new_repo, "fourth")
+        assert full.returncode == 1 and "(slots_full)" in full.stderr and not sentinel.exists()
+
+        # Slots 2-3 busy in this checkout, slot 1 busy from the other checkout's legacy lease.
+        state = json.loads(_admission(new_repo, LEASE_STATE_JSON.format(repo=new_repo)).stdout)
+        assert state["Active"] is True and state["BusySlotCount"] == 3
+        assert [(s["SlotId"], s["Source"]) for s in state["Slots"]] == [(1, "host_state"), (2, "repo_lock"), (3, "repo_lock")]
+        assert state["Slots"][0]["Workload"].startswith("WorkstationOffline-pytest-")
+        # The old checkout's own helper still sees only its slot-1 lock, as before.
+        old_state = json.loads(_admission(old_repo, LEASE_STATE_JSON.format(repo=old_repo)).stdout)
+        assert old_state["Active"] is True and "Slots" not in old_state
+    finally:
+        release.write_text("go", encoding="utf-8")
+        out, err = old_job.communicate(timeout=180)
+    assert old_job.returncode == 0, err
+    assert "1 passed" in out
+
+    # 2. Once slot wrappers hold the legacy slot too, the pre-slot wrapper is refused.
+    holders.append(Holder(new_repo, SLOT_ENTER, "one"))
+    assert holders[-1].slot == 1
+    refused, sentinel = _run_wrapper(old_repo, "old-refused")
+    assert refused.returncode == 1
+    assert "blocked by another heavy or portable live lease" in refused.stderr and not sentinel.exists()
+
+
+class ExclusiveHolder:
+    """A pre-gate stand-in that waits for, then holds, the exclusive workstation lease."""
+
+    def __init__(self, repo: Path, name: str, inherited_slot: int = 0) -> None:
+        self.release = repo / f"release-{name}.flag"
+        inherited = f" -InheritedSlotId {inherited_slot}" if inherited_slot else ""
+        exit_ps = (
+            "Exit-WeatherWorkstationHeavyExclusiveHold -Hold $lease"
+            if inherited_slot
+            else "Set-WeatherHeavyWorkloadLeaseTeardownPending -Lease $lease | Out-Null\nExit-WeatherHeavyWorkloadLease -Lease $lease"
+        )
+        script = f"""
+$ErrorActionPreference = 'Stop'
+. '{repo / "scripts/ops/workload_admission.ps1"}'
+Write-Output 'WAITING'
+[Console]::Out.Flush()
+$lease = {EXCLUSIVE_ENTER.format(repo=repo, name=name)}{inherited}
+if ($null -eq $lease) {{ Write-Output 'TIMEOUT'; exit 3 }}
+Write-Output 'ACQUIRED'
+[Console]::Out.Flush()
+$deadline = [DateTime]::UtcNow.AddSeconds(150)
+while (-not (Test-Path -LiteralPath '{self.release}') -and [DateTime]::UtcNow -lt $deadline) {{
+    Start-Sleep -Milliseconds 50
+}}
+{exit_ps}
+"""
+        self.process = subprocess.Popen(
+            [*POWERSHELL, "-Command", script], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=_env()
+        )
+        assert self.process.stdout is not None
+        assert self.process.stdout.readline().strip() == "WAITING"
+
+    def acquired(self) -> None:
+        assert self.process.stdout is not None
+        line = ""
+        while line != "ACQUIRED":
+            line = self.process.stdout.readline()
+            assert line, self.process.stderr.read() if self.process.stderr else ""
+            # Queue event lines go to the same stdout.
+            line = line.strip()
+            assert line == "ACQUIRED" or line.startswith("heavy-workload queue: "), line
+
+    def stop(self) -> None:
+        self.release.write_text("go", encoding="utf-8")
+        try:
+            assert self.process.wait(timeout=60) == 0, self.process.stderr.read() if self.process.stderr else ""
+        finally:
+            if self.process.poll() is None:
+                self.process.kill()
+
+
+def _probe_lease(repo: Path, enter: str, name: str) -> str:
+    result = _admission(repo, f"$lease = {enter.format(repo=repo, name=name)}\nif ($null -eq $lease) {{ 'BUSY' }} else {{ 'ACQUIRED' }}\n")
+    assert result.returncode == 0, result.stderr
+    return result.stdout.strip()
+
+
+def test_the_pregate_is_exclusive_drains_every_slot_and_blocks_new_jobs(workstation: Path, holders: list[Holder]) -> None:
+    repo = workstation
+    holders.append(Holder(repo, SLOT_ENTER, "two"))
+    holders.append(Holder(repo, SLOT_ENTER, "three"))
+    pregate = ExclusiveHolder(repo, "drain")
+    try:
+        # Waiting: it keeps every slot that frees, so nobody, old or new, slips in.
+        _wait_for(lambda: any(e["event"] == "wait" and e.get("exclusive") for e in _events(repo)))
+        wait = next(e for e in _events(repo) if e["event"] == "wait" and e.get("exclusive"))
+        assert (wait["slot_refusal"], wait["busy_slots"]) == ("draining_slots", [2, 3])
+        refused, sentinel = _run_wrapper(repo, "during-drain")
+        assert refused.returncode == 1 and "(exclusive_pending)" in refused.stderr and not sentinel.exists()
+        queued, sentinel = _run_wrapper(
+            repo, "behind-drain", "-Queue", "-QueueTimeoutSeconds", "2", "-QueuePollMilliseconds", "100"
+        )
+        assert queued.returncode == QUEUE_TIMEOUT_EXIT_CODE and not sentinel.exists()
+        assert [e for e in _events(repo) if e["event"] == "give_up"][-1]["slot_refusal"] == "earlier_slot_aware_waiter"
+        assert _probe_lease(repo, LEGACY_ENTER, "old") == "BUSY"
+        assert _probe_lease(repo, PORTABLE_ENTER, "live") == "BUSY"
+
+        holders[0].stop()
+        time.sleep(0.5)
+        assert pregate.process.poll() is None
+        holders[1].stop()
+        pregate.acquired()  # only once every slot is free
+
+        start = next(e for e in _events(repo) if e["event"] == "start" and e.get("exclusive"))
+        assert start["slot_id"] == "all"
+        owner = json.loads((repo / "data/logs/heavy_workload.lock").read_text(encoding="utf-8"))
+        assert owner["workload"] == "WorkstationOffline-pytest-pregate-drain"
+        state = json.loads(_admission(repo, LEASE_STATE_JSON.format(repo=repo)).stdout)
+        assert state["Active"] is True and state["Owner"]["workload"] == "WorkstationOffline-pytest-pregate-drain"
+        held, sentinel = _run_wrapper(repo, "during-pregate")
+        assert held.returncode == 1 and "(exclusive_pending)" in held.stderr and not sentinel.exists()
+        assert _probe_lease(repo, LEGACY_ENTER, "old2") == "BUSY"
+    finally:
+        pregate.stop()
+    after, sentinel = _run_wrapper(repo, "after-pregate")
+    assert after.returncode == 0, after.stderr
+    assert sentinel.exists()
+
+
+def test_a_nested_pregate_takes_every_other_slot(workstation: Path, holders: list[Holder]) -> None:
+    repo = workstation
+    holders.append(Holder(repo, SLOT_ENTER, "outer"))
+    assert holders[0].slot == 2
+    nested = ExclusiveHolder(repo, "nested", inherited_slot=2)
+    try:
+        nested.acquired()
+        refused, sentinel = _run_wrapper(repo, "beside-nested")
+        assert refused.returncode == 1 and "(exclusive_pending)" in refused.stderr and not sentinel.exists()
+        assert _probe_lease(repo, LEGACY_ENTER, "old") == "BUSY"
+    finally:
+        nested.stop()
+    beside, sentinel = _run_wrapper(repo, "after-nested")
+    assert beside.returncode == 0, beside.stderr
+
+
+def _env_child(repo: Path, name: str, record: Path) -> Path:
+    path = repo / f"test_env_{name}.py"
+    path.write_text(
+        "import json, os\nfrom pathlib import Path\n\n"
+        "def test_env():\n"
+        f"    Path({str(record)!r}).write_text(json.dumps({{k: os.environ.get(k) for k in "
+        "('OMP_NUM_THREADS', 'MKL_NUM_THREADS', 'OPENBLAS_NUM_THREADS')}), encoding='utf-8')\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+@pytest.mark.parametrize(
+    ("cpus", "extra", "caller", "expected"),
+    (
+        ("16", (), {}, {"OMP_NUM_THREADS": "5", "MKL_NUM_THREADS": "5", "OPENBLAS_NUM_THREADS": "5"}),
+        ("16", ("-SlotCount", "2"), {}, {"OMP_NUM_THREADS": "8", "MKL_NUM_THREADS": "8", "OPENBLAS_NUM_THREADS": "8"}),
+        ("2", (), {}, {"OMP_NUM_THREADS": "1", "MKL_NUM_THREADS": "1", "OPENBLAS_NUM_THREADS": "1"}),
+        (
+            "16",
+            (),
+            {"OMP_NUM_THREADS": "2", "MKL_NUM_THREADS": "64", "OPENBLAS_NUM_THREADS": "abc"},
+            {"OMP_NUM_THREADS": "2", "MKL_NUM_THREADS": "5", "OPENBLAS_NUM_THREADS": "5"},
+        ),
+    ),
+)
+def test_wrapper_jobs_get_a_per_slot_thread_cap_callers_may_only_lower(
+    workstation: Path, cpus: str, extra: tuple[str, ...], caller: dict[str, str], expected: dict[str, str]
+) -> None:
+    repo = workstation
+    record = repo / "env.json"
+    env = _env(WEATHER_TEST_LOGICAL_CPUS=cpus, **caller)
+    result = subprocess.run(
+        _wrapper_argv(repo, _env_child(repo, "cap", record), "-Queue", "-QueuePollMilliseconds", "100", *extra),
+        capture_output=True, text=True, check=False, timeout=240, env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(record.read_text(encoding="utf-8")) == expected
+    finish = next(e for e in _events(repo) if e["event"] == "finish")
+    cap = int(cpus) // (int(extra[1]) if extra else 3) or 1
+    assert finish["thread_cap"] == {"cap": cap, "logical_processors": int(cpus), "values": {k: int(v) for k, v in expected.items()}}
+    assert f"workstation-heavy: thread cap {cap} of {cpus} logical processors" in result.stdout
