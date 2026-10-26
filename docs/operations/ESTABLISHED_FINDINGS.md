@@ -118,7 +118,7 @@ sequence numbers, not calendar dates.
 | 10ah | Reads from 2026-10-24/25 recorded late (dev): L5 hot-day centre arms and AFD all KILL vs MG-1; L8 high_so_far parity KEEP vs base, not bound; L10 gap atlas has no cell at R <= 1; L11 stage C gross bound; no fresh pre-07-31 dates |
 | 10ai | Before 10-23 the venue paid the WU band 626/626 (routine-only rule 617/626; 8 band flips 08-11..09-29, all SPECI effects): labels are WU before 10-23 and the venue rule from it (master ruling (10-25), reading B) |
 | 10aj | Found defect 2026-10-26: the MG-2 "no production importer" test was vacuous (literal backspace bytes for `\b`); fixed in `e40804dfe`; control-byte ratchet approved (master ruling (10-25)), landing 10-26/27 |
-| 10ak | Lane reads 2026-10-26 (dev): R-P KILL at gate 3 (a LOYO intercept win is bias correction, not information); R-PD and R-N CLOSED at 00-06 (gate 2 NULL); R-L STOPPED at gate 1a (NBS drops the day's TXN from ≥ 13Z cycles); R-R WIN at 07-12 vs L6, still worse than the market |
+| 10ak | Lane reads 2026-10-26 (dev): R-P KILL at gate 3 (a LOYO intercept win is bias correction, not information); R-PD and R-N CLOSED at 00-06 (gate 2 NULL); R-L STOPPED at gate 1a (NBS drops the day's TXN from ≥ 13Z cycles), R-L2 KILL at gate 3; R-R WIN at 07-12 vs L6, still worse than the market |
 
 ---
 
@@ -4217,6 +4217,13 @@ merge-forward, because that file is not on this head's base.
   period has begun (13Z and later); 12Z and earlier carry it.** So a "newest cycle" rule is missing by construction
   for most of 07-12. R-L2 (newest cycle that carries the TXN) is pre-registering; it yields an older centre at late
   cutoffs. Rule `3ce9a6f2…`.
+- **R-L2 (L2), NBS TXN at 07-12 from the newest cycle carrying the target-day TXN: KILL at gate 3.** LOYO passed
+  (B_L − B_N −0.0279 [−0.0308, −0.0248]); dev P3d_L − P3d_N_fix −0.0123 [−0.0283, +0.0038] failed (21,664 snapshots).
+  NBS TXN is closed as a 07-12 centre input under both cycle rules. The selected cycle is 3-5 h stale at h10-h12, and
+  the training anchor (L9 `nbm_at_cutoff`) differs from the dev anchor (captured `usable_v2_mean`): median
+  |n_txn − anchor| 1.0 °F in training vs 0.0 °F on dev. Rule `a1f95786…`, branch `claude/rung0712-20261025` @
+  `6488c7a31`. **Reopen if:** an anchor-consistent re-anchored variant (train and dev on the same NBM reference) is
+  pre-registered fresh; R-L3 is now pre-registering.
 - **R-R (L2), HRRR hourly path at 07-12: WIN on dev against L6.** Gate 2 LOYO B_H − B_N −0.0092 [−0.0112, −0.0073];
   gate 3 P3d_H − P3d_N_fix −0.0598 [−0.0813, −0.0401]; gate 4 blend_l6_H − L6 −0.0402 [−0.0603, −0.0198], every hour
   below 0. Still worse than the market: R 1.112 [1.072, 1.159]. Disclosures: the dev window has been read by every rung
