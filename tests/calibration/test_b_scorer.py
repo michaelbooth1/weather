@@ -215,7 +215,7 @@ def test_control_receipt_must_pass_at_this_scorer(tmp_path):
 def _look_inputs(tmp_path, monkeypatch, *, transferred="2026-12-15T00:00:00Z", dropped=(), void=None, **kw):
     snaps, bands, labels, market, vec = _forward(**kw)
     layout = tmp_path / "layout"
-    layout.mkdir()
+    layout.mkdir(parents=True)
     snaps.to_parquet(layout / data.SNAPSHOTS_FILE, index=False)
     bands.to_parquet(layout / data.BANDS_FILE, index=False)
     emit = tmp_path / "emit"
