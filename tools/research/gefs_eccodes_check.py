@@ -19,7 +19,11 @@ spec.loader.exec_module(gf)
 
 
 def main(raw_dir, corners_json, out_json):
-    corners = json.loads(Path(corners_json).read_text())["corners"]
+    manifest = json.loads(Path(corners_json).read_text())
+    corners = manifest["corners"]
+    grid = manifest.get("grid") or gf.GEFS_GRID  # the 06Z sp25 probe manifest predates the grid field
+    gf.configure(manifest.get("cycle_hour_utc", 6), manifest.get("product", "sp25"), tuple(manifest["fhs"]),
+                 manifest.get("cycle_day_offset", 0))
     worst, n, bad, ident_bad, latlon_bad = 0.0, 0, [], 0, 0
     for p in sorted(Path(raw_dir).glob("*.grib2")):
         blob = p.read_bytes()
@@ -35,8 +39,8 @@ def main(raw_dir, corners_json, out_json):
                 lons = eccodes.codes_get_array(h, "longitudes").reshape(ref.shape)
                 for m, c in corners.items():
                     for j, i in ((c["j0"], c["i0"]), (c["j1"], c["i1"])):
-                        want_lat = 90.0 - 0.25 * j
-                        want_lon = 0.25 * i
+                        want_lat = grid["la1"] - grid["dj"] * j
+                        want_lon = grid["lo1"] + grid["di"] * i
                         if abs(lats[j, i] - want_lat) > 1e-9 or abs(lons[j, i] - want_lon) > 1e-9:
                             latlon_bad += 1
         finally:

@@ -1,7 +1,8 @@
 """Lane L11 rung R-O: GEFS member point fetcher (tools/research/gefs_member_point_fetch.py).
 
-Guards: the fetcher refuses dates after 2026-09-29, reads exactly the 06Z cycle's f006..f024 TMP 2 m messages for
-gec00 + gep01..30, locates one message per idx, and interpolates bilinearly on the north-to-south 0.25 deg grid.
+Guards: the fetcher refuses dates after 2026-09-29, by default reads exactly the 06Z cycle's f006..f024 TMP 2 m
+messages for gec00 + gep01..30 (the 18Z D-1 ap5 R-Q pass only when configured, then restored), locates one message
+per idx, and interpolates bilinearly on the north-to-south grid.
 """
 import datetime as dt
 import importlib.util
@@ -45,3 +46,19 @@ def test_bilinear_on_north_to_south_grid():
     value, four = gf.bilinear(field, c)
     assert value == pytest.approx(2.0 * 33.6301 + 0.5 * ((-84.4418) % 360.0), abs=1e-9)
     assert len(four) == 4 and 0.0 <= c["wx"] < 1.0 and 0.0 <= c["wy"] < 1.0
+
+
+def test_ap5_18z_configuration_and_default_restore():
+    try:
+        gf.configure(18, "ap5", (18, 21, 24, 27, 30, 33, 36), -1)
+        assert gf.grib_key(dt.date(2021, 7, 31), "gep07", 18) == \
+            "gefs.20210731/18/atmos/pgrb2ap5/gep07.t18z.pgrb2a.0p50.f018"
+        c = gf.station_corners(33.6301, -84.4418)
+        assert c["j1"] < 361 and c["i1"] < 720
+        assert c["j0"] == int((90.0 - 33.6301) // 0.5)
+    finally:
+        gf.configure()
+    assert gf.CYCLE_HOUR == 6 and gf.FHS == (6, 9, 12, 15, 18, 21, 24) and gf.GEFS_GRID["ni"] == 1440
+    assert gf.grib_key(dt.date(2021, 8, 1), "gep07", 9).endswith("pgrb2sp25/gep07.t06z.pgrb2s.0p25.f009")
+    with pytest.raises(SystemExit):
+        gf.configure(18, "ap5", (18,), -2)

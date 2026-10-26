@@ -39,6 +39,26 @@ VAR = "TMP:2 m above ground"
 MARKETS = ("atlanta", "austin", "chicago", "dallas", "denver", "houston", "los-angeles", "miami", "nyc",
            "san-francisco", "seattle")
 GEFS_GRID = {"ni": 1440, "nj": 721, "la1": 90.0, "lo1": 0.0, "la2": -90.0, "lo2": 359.75, "di": 0.25, "dj": 0.25}
+# Products. The defaults (06Z of D, sp25, f006..f024) are R-O's pinned inputs. The 18Z D-1 ap5 pass (f018..f036) is
+# lane L15's R-Q scope, approved by the coordinator 2026-10-25 and written to a separate corpus.
+PRODUCTS = {
+    "sp25": {"dir": "pgrb2sp25", "stem": "pgrb2s.0p25", "grid": GEFS_GRID},
+    "ap5": {"dir": "pgrb2ap5", "stem": "pgrb2a.0p50",
+            "grid": {"ni": 720, "nj": 361, "la1": 90.0, "lo1": 0.0, "la2": -90.0, "lo2": 359.5, "di": 0.5, "dj": 0.5}},
+}
+PRODUCT = "sp25"
+CYCLE_DAY_OFFSET = 0  # cycle date = target date + offset (days)
+
+
+def configure(cycle_hour=6, product="sp25", fhs=FHS, cycle_day_offset=0):
+    """Select the cycle, product and steps (module-wide; defaults are R-O's pinned 06Z sp25 f006..f024)."""
+    global CYCLE_HOUR, FHS, PRODUCT, CYCLE_DAY_OFFSET, GEFS_GRID
+    if product not in PRODUCTS or cycle_hour not in (0, 6, 12, 18) or cycle_day_offset not in (0, -1):
+        raise SystemExit(f"unsupported configuration {cycle_hour} {product} {cycle_day_offset}")
+    if any(fh < 0 or fh % 3 for fh in fhs):
+        raise SystemExit(f"unsupported steps {fhs}")
+    CYCLE_HOUR, FHS, PRODUCT, CYCLE_DAY_OFFSET = int(cycle_hour), tuple(int(x) for x in fhs), product, cycle_day_offset
+    GEFS_GRID = PRODUCTS[product]["grid"]
 
 
 # --------------------------------------------------------------------------- GRIB2 decoding (L13 arithmetic)
@@ -290,11 +310,11 @@ def parse_listing(xml_bytes):
 
 
 def cycle_prefix(day):
-    return f"gefs.{day:%Y%m%d}/{CYCLE_HOUR:02d}/atmos/pgrb2sp25/"
+    return f"gefs.{day:%Y%m%d}/{CYCLE_HOUR:02d}/atmos/{PRODUCTS[PRODUCT]['dir']}/"
 
 
 def grib_key(day, member, fh):
-    return f"{cycle_prefix(day)}{member}.t{CYCLE_HOUR:02d}z.pgrb2s.0p25.f{fh:03d}"
+    return f"{cycle_prefix(day)}{member}.t{CYCLE_HOUR:02d}z.{PRODUCTS[PRODUCT]['stem']}.f{fh:03d}"
 
 
 def parse_s3_time(text):
@@ -371,19 +391,21 @@ def done_dates(path):
 
 
 # --------------------------------------------------------------------------- driver
-def fetch_date(f, day, stations, corners, rows_path, raw_dir=None):
+def fetch_date(f, day, stations, corners, rows_path, raw_dir=None, members=MEMBERS):
     """All members x steps for one date. Appends one row per (member, fh) and a date_done record."""
     if day > LAST_ALLOWED:
         raise SystemExit(f"refusing date after {LAST_ALLOWED}: {day}")
-    listing = f.list_prefix(cycle_prefix(day))
-    cycle = dt.datetime(day.year, day.month, day.day, CYCLE_HOUR, tzinfo=UTC)
+    cday = day + dt.timedelta(days=CYCLE_DAY_OFFSET)
+    listing = f.list_prefix(cycle_prefix(cday))
+    cycle = dt.datetime(cday.year, cday.month, cday.day, CYCLE_HOUR, tzinfo=UTC)
     n_ok = n_missing = n_bytes = 0
-    for member in MEMBERS:
+    for member in members:
         for fh in FHS:
-            key = grib_key(day, member, fh)
+            key = grib_key(cday, member, fh)
             g, i = listing.get(key), listing.get(key + ".idx")
             base = {"kind": "message", "date": day.isoformat(), "member": member, "fh": fh, "key": key,
-                    "cycle_utc": cycle.isoformat(), "valid_utc": (cycle + dt.timedelta(hours=fh)).isoformat()}
+                    "cycle_utc": cycle.isoformat(), "valid_utc": (cycle + dt.timedelta(hours=fh)).isoformat(),
+                    "product": PRODUCT, "cycle_hour": CYCLE_HOUR}
             if not g or not i:
                 append_jsonl(rows_path, {**base, "status": "object_missing"})
                 n_missing += 1
@@ -403,7 +425,7 @@ def fetch_date(f, day, stations, corners, rows_path, raw_dir=None):
             n_bytes += len(blob)
             sha = hashlib.sha256(blob).hexdigest()
             if raw_dir is not None:
-                (Path(raw_dir) / f"{day:%Y%m%d}_{member}_f{fh:03d}.grib2").write_bytes(blob)
+                (Path(raw_dir) / f"{cday:%Y%m%d}{CYCLE_HOUR:02d}_{PRODUCT}_{member}_f{fh:03d}.grib2").write_bytes(blob)
             try:
                 meta, field = decode_field(blob)
                 want_pert = 0 if member == "gec00" else int(member[3:])
@@ -461,7 +483,13 @@ def main(argv=None, session=None):
     ap.add_argument("--cap-gb", type=float, default=55.0)
     ap.add_argument("--probe-raw-dir", default=None, help="probe only: keep raw messages for the eccodes check")
     ap.add_argument("--min-free-gb", type=float, default=20.0)
+    ap.add_argument("--cycle-hour", type=int, default=6)
+    ap.add_argument("--product", default="sp25", choices=sorted(PRODUCTS))
+    ap.add_argument("--fhs", default="6,9,12,15,18,21,24")
+    ap.add_argument("--cycle-day-offset", type=int, default=0, help="cycle date = target date + offset (0 or -1)")
+    ap.add_argument("--members", default="", help="probe only: comma-separated member subset (default: all 31)")
     args = ap.parse_args(argv)
+    configure(args.cycle_hour, args.product, tuple(int(x) for x in args.fhs.split(",")), args.cycle_day_offset)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     repo = Path(__file__).resolve().parents[2]
@@ -471,6 +499,11 @@ def main(argv=None, session=None):
     if args.probe_raw_dir:
         raw_dir = Path(args.probe_raw_dir)
         raw_dir.mkdir(parents=True, exist_ok=True)
+    members = tuple(args.members.split(",")) if args.members else MEMBERS
+    if any(m not in MEMBERS for m in members):
+        raise SystemExit(f"unknown members {members}")
+    if members != MEMBERS and not raw_dir:
+        raise SystemExit("--members is for probes only (with --probe-raw-dir)")
     stations = registry_stations()
     corners = {m: station_corners(s["lat"], s["lon"]) for m, s in stations.items()}
     rows_path = out / "gefs_member_rows.jsonl"
@@ -481,12 +514,14 @@ def main(argv=None, session=None):
     for k, day in enumerate(days, 1):
         if shutil.disk_usage(out).free < args.min_free_gb * 1e9:
             raise SystemExit("free disk below the floor; stopping")
-        ok, miss, nb = fetch_date(f, day, stations, corners, rows_path, raw_dir)
+        ok, miss, nb = fetch_date(f, day, stations, corners, rows_path, raw_dir, members)
         print(f"[{k}/{len(days)}] {day} ok={ok} missing={miss} bytes={nb} total_gb={f.used / 1e9:.2f} "
               f"requests={f.requests} elapsed_s={time.time() - t0:.0f}", flush=True)
     manifest = {"schema": "l11_gefs_member_points/1", "rows_file": rows_path.name,
                 "rows_sha256": hashlib.sha256(rows_path.read_bytes()).hexdigest(),
                 "stations": stations, "corners": corners, "cycle_hour_utc": CYCLE_HOUR, "fhs": list(FHS),
+                "product": PRODUCT, "product_dir": PRODUCTS[PRODUCT]["dir"], "grid": GEFS_GRID,
+                "cycle_day_offset": CYCLE_DAY_OFFSET,
                 "members": list(MEMBERS), "variable": VAR, "bucket": BUCKET,
                 "module_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
                 "bytes_this_run": f.used, "requests_this_run": f.requests}
