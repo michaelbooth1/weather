@@ -268,6 +268,67 @@ def test_last_dev_date_reads_no_folder_after_the_dev_window(tmp_path):
     assert max(allow.parse_slug(f)[1] for f in folders) == date(2026, 9, 29)
 
 
+def test_forward_adjacent_folders_give_inputs_only(tmp_path, monkeypatch):
+    """Master 2026-10-26: D-1 (and D+1) give input rows only; no price, book, trade or label row travels."""
+    day = date(2026, 11, 2)
+    data = make_host(tmp_path, day)
+    marker = "77.375"
+    for offset in (-1, 1):
+        for market in allow.MARKETS:
+            slug = allow.slug_for(market, day + timedelta(days=offset))
+            folder = data / "snapshots" / slug
+            utc = datetime(day.year, day.month, day.day, 1, tzinfo=timezone.utc).isoformat()
+            _write_csv(folder / "order_books_summary.csv", [{"captured_at_utc": utc, "best_bid": marker}],
+                       ("captured_at_utc", "best_bid"))
+            _write_csv(folder / "market_ws_events.csv", [{"received_at_utc": utc, "price": marker}],
+                       ("received_at_utc", "price"))
+            (folder / "execution_tape").mkdir(exist_ok=True)
+            _write_jsonl(folder / "execution_tape" / "trades-00001.jsonl", [{"price": float(marker)}])
+            (folder / "labels.csv").write_text("winner,settlement_high\n1," + marker + "\n", encoding="utf-8")
+            rows = [json.loads(x) for x in (folder / "replay_inputs.jsonl").read_text(encoding="utf-8").splitlines()]
+            for r in rows:
+                r.update({"winner": marker, "settlement_high": float(marker), "market_yes": float(marker)})
+                r["sources"]["metar"]["data"]["best_bid"] = float(marker)
+            _write_jsonl(folder / "replay_inputs.jsonl", rows)
+            if (folder / "forecast_payloads.jsonl").exists():
+                nbm = [json.loads(x) for x in (folder / "forecast_payloads.jsonl").read_text(
+                    encoding="utf-8").splitlines()]
+                for r in nbm:
+                    r["last_trade_price"] = float(marker)
+                _write_jsonl(folder / "forecast_payloads.jsonl", nbm)
+    quiet = time.time() - 7200
+    for path in data.rglob("*"):
+        if path.is_file():
+            os.utime(path, (quiet, quiet))
+    opened = []
+    real = mx._share_all_open
+    monkeypatch.setattr(mx, "_share_all_open", lambda path: (opened.append(Path(path)), real(path))[1])
+    manifest = mx.export(day=day, data_root=data, out=tmp_path / "out",
+                         now=allow.export_cut_utc(day) + timedelta(hours=1))
+    bundle = tmp_path / "out" / day.isoformat()
+    by_offset = {}
+    for path in opened:
+        rel = path.relative_to(data).as_posix().split("/")
+        if rel[0] != "snapshots":
+            continue
+        offset = (allow.parse_slug(rel[1])[1] - day).days
+        by_offset.setdefault(offset, set()).add("/".join(rel[2:]))
+    assert by_offset[-1] <= {"replay_inputs.jsonl", "forecast_payloads.jsonl", "forecast_payloads_long.csv"}
+    assert by_offset[1] <= {"forecast_payloads.jsonl", "forecast_payloads_long.csv"}
+    assert "replay_inputs.jsonl" in by_offset[-1] and by_offset[1]
+    for path in bundle.rglob("*"):
+        if path.is_file() and path.suffix != ".blob":
+            text = path.read_text(encoding="utf-8")
+            assert marker not in text, path
+            for key in ("winner", "settlement_high", "market_yes", "best_bid", "last_trade_price", "price"):
+                assert f'"{key}"' not in text, (path, key)
+    prev = [e["path"] for e in manifest["files"] if allow.slug_for("nyc", day - timedelta(days=1)) in e["path"]]
+    assert sorted(prev) == [f"prev_day/{allow.slug_for('nyc', day - timedelta(days=1))}/metar_rows.jsonl",
+                            f"snapshots/{allow.slug_for('nyc', day - timedelta(days=1))}/forecast_payloads.jsonl"]
+    for entry in manifest["book_coverage"]["markets"].values():  # counts come from D's folder only
+        assert entry["order_books_summary"]["rows"] == 4 and entry["execution_tape_trades"] == {"files": 2, "rows": 4}
+
+
 def test_forward_date_needs_its_cut_to_have_passed(tmp_path):
     day = date(2026, 11, 2)
     data = make_host(tmp_path, day)
