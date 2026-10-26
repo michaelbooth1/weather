@@ -13,12 +13,21 @@ ba49f48b; rules R-K 21b5dfe1, R-R e3d92e1a, RN-1 e4869491):
   retrieved at or before the snapshot AND whose listing ``LastModified`` + 10 min is at or before it
   (the training rule). A cycle that arrives late leaves the row on an older cycle or absent
   (``k_miss`` = 1). Rows are written once, after the snapshot, and never revised or backfilled.
-* Only messages that can still serve an upcoming snapshot are read: for each future snapshot, the
-  newest candidate cycle whose needed forecast hours are all listed and could qualify. Nothing for a
-  past snapshot is ever fetched.
+* Only messages that can still serve an upcoming snapshot are read, each within one poll of being
+  listed: for each future snapshot, the newest fully listed qualifying cycle (the fallback) plus the
+  already-listed fhs of any newer cycle that can still qualify. Nothing for a past snapshot is ever
+  fetched. See the polling note below.
 * Footprint guards built into the process: below-normal priority, a bytes-per-second throttle, an
   hourly byte ceiling, a pause flag file (``RECORDER_PAUSE``; pause start/end logged as gaps, never
   backfilled), a STOP file, a single-instance lock and a free-disk floor.
+
+Polling change note (2026-10-26, F2 latency gate: 99% of messages within 600 s of publication):
+the poll cadence is unchanged (a listing poll every 120 s). Until then a cycle's messages were read
+only once EVERY needed fh of that cycle was listed, so one late or out-of-order fh (15z f05 published
+16:12:50Z) held f02-f04 back to 16:16Z (latency 831-1118 s; 14z f02 630 s). From this change each
+listed, still-qualifying fh is read on the poll that lists it. Selection, rows and the training rule
+are unchanged. The 14-day parity clock is not restarted (master ruling); the restart time, tip and PID
+are logged in events.jsonl ("start" with code identity) and C:/t/l13/recorder_pid_log.txt.
 
 Research / shadow only: nothing imports this module, nothing is served, no Scheduler or capture-host
 state is touched, and no outcome, price or label is read.
@@ -146,8 +155,12 @@ def lm_availability(listing, cycles):
 
 
 def wanted_messages(now, upcoming, listing):
-    """(cycle, fh) slots to read now: for each future snapshot, the newest candidate cycle (already
-    started) whose needed fhs are all listed and published early enough to qualify by the snapshot."""
+    """(cycle, fh) slots to read now, eagerly: for each future snapshot, walk its started candidate cycles
+    newest first. A cycle with every needed fh listed and qualifying (LM + margin <= snapshot) is the
+    fallback: read it and stop. A newer cycle that is only partly listed is still read fh by fh as each
+    object is listed, provided every listed fh qualifies and the missing ones still can (now + margin <=
+    snapshot) -- so capture latency is one poll, not the wait for the cycle's last fh (F2 gate, 2026-10-26).
+    Selection is unchanged: rows still pick by forward_availability."""
     want = set()
     for _st, _d, _hr, s, end in upcoming:
         for c in h.candidate_cycles(s, STRIDE, LOOKBACK):
@@ -157,9 +170,14 @@ def wanted_messages(now, upcoming, listing):
             if not fhs:
                 continue
             avail = h.cycle_availability(listing, c, MAX_FH)
-            if all(fh in avail and avail[fh] + MARGIN <= s for fh in fhs):
+            listed = [fh for fh in fhs if fh in avail]
+            if any(avail[fh] + MARGIN > s for fh in listed):
+                continue
+            if len(listed) == len(fhs):
                 want.update((c, fh) for fh in fhs)
                 break
+            if now + MARGIN <= s:
+                want.update((c, fh) for fh in listed)
     return want
 
 
@@ -325,23 +343,30 @@ def set_below_normal_priority():
         return False
 
 
-def acquire_lock(path):
-    """Single-instance lock held for the life of the process (released by the OS on exit)."""
-    fh = open(path, "a+")
-    try:
-        if os.name == "nt":
-            import msvcrt
+def acquire_lock(path, wait_s=0.0, sleep=time.sleep):
+    """Single-instance lock held for the life of the process (released by the OS on exit).
 
-            fh.seek(0)
-            msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
-        else:
-            import fcntl
+    ``wait_s`` > 0 retries once a second for that long, so a replacement can be started first and take
+    over the moment the old instance exits (handover without a gap or a double run)."""
+    deadline = time.monotonic() + wait_s
+    while True:
+        fh = open(path, "a+")
+        try:
+            if os.name == "nt":
+                import msvcrt
 
-            fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
-        fh.close()
-        raise SystemExit(f"another recorder holds {path}")
-    return fh
+                fh.seek(0)
+                msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return fh
+        except OSError:
+            fh.close()
+            if time.monotonic() >= deadline:
+                raise SystemExit(f"another recorder holds {path}")
+            sleep(1.0)
 
 
 class _LiteResp:
@@ -637,6 +662,8 @@ def main(argv=None):
     ap.add_argument("--land", default=r"C:\t\l13\land\land_3x3.json")
     ap.add_argument("--pause-file", default=r"C:\t\l13\RECORDER_PAUSE")
     ap.add_argument("--stop-file", default=r"C:\t\l13\hrrr_forward\STOP")
+    ap.add_argument("--wait-lock-seconds", type=float, default=0.0,
+                    help="wait this long for a running instance to exit (handover); default: refuse at once")
     ap.add_argument("--poll-seconds", type=int, default=120)
     ap.add_argument("--bytes-per-second", type=int, default=2_000_000, help="in-process bandwidth cap")
     ap.add_argument("--hourly-mb", type=float, default=50.0, help="per-clock-hour download ceiling")
@@ -646,7 +673,7 @@ def main(argv=None):
     args = ap.parse_args(argv)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    lock = acquire_lock(out / "recorder.lock")  # noqa: F841 - held until exit
+    lock = acquire_lock(out / "recorder.lock", args.wait_lock_seconds)  # noqa: F841 - held until exit
     prio = set_below_normal_priority()
     rec = Recorder(out, h.registry_stations(), args.land,
                    h.Fetcher(int(args.cap_gb * h.GIB), session=LiteSession()),

@@ -67,13 +67,14 @@ class _Clock:
 
 
 class _TimedS3:
-    """Publishes cycle c's fh at c + 50 min + 2 min * fh (+ per-cycle delay); lists only what exists now."""
+    """Publishes cycle c's fh at c + 50 min + 2 min * fh (+ a delay keyed by (cycle, fh) or by cycle);
+    lists only what exists now."""
 
     def __init__(self, clock, delays=None):
         self.clock, self.delays, self.urls = clock, delays or {}, []
 
     def lm(self, c, fh):
-        return c + dt.timedelta(minutes=50 + 2 * fh) + self.delays.get(c, dt.timedelta(0))
+        return c + dt.timedelta(minutes=50 + 2 * fh) + self.delays.get((c, fh), self.delays.get(c, dt.timedelta(0)))
 
     def blob(self, c, fh):
         tmp, tcdc = _msg(c, fh), _msg(c, fh, tcdc=True)
@@ -319,3 +320,45 @@ def test_lite_session_builds_query_reuses_one_tls_context_and_reconnects_once(mo
     assert made[0][1] is made[1][1] is s.ctx
     s.get("https://noaa-hrrr-bdp-pds.s3.amazonaws.com/k.grib2", headers={"Range": "bytes=1-2"})
     assert sent[-1] == ("/k.grib2", "bytes=1-2") and len(made) == 2
+
+
+def test_messages_are_read_within_one_poll_of_listing_even_when_a_later_fh_is_late(tmp_path):
+    start = dt.datetime(2026, 10, 26, 8, 0, tzinfo=UTC)
+    clock = _Clock(start)
+    c13 = dt.datetime(2026, 10, 26, 13, tzinfo=UTC)
+    s3 = _TimedS3(clock, delays={(c13, 5): dt.timedelta(minutes=20)})
+    r = _recorder(tmp_path, clock, s3)
+    _run_until(r, clock, dt.datetime(2026, 10, 27, 1, 0, tzinfo=UTC))
+    rows = _rows(r.out)
+    assert rows and all(x["k_miss"] == 0 and x["cycle_utc"] == x["training_rule_cycle_utc"] for x in rows)
+    late = []
+    for m in _msgs(r.out):
+        c = dt.datetime.fromisoformat(m["cycle_utc"])
+        lm = s3.lm(c, m["fh"])
+        if lm < start + dt.timedelta(minutes=10):
+            continue  # published before the recorder started: startup catch-up, excluded from F2
+        lat = (dt.datetime.fromisoformat(m["retrieved_at_utc"]) - lm).total_seconds()
+        if lat > 600:
+            late.append((m["cycle_utc"], m["fh"], lat))
+    assert late == []
+    got = {m["fh"]: dt.datetime.fromisoformat(m["retrieved_at_utc"]) for m in _msgs(r.out)
+           if dt.datetime.fromisoformat(m["cycle_utc"]) == c13 and m["var"].startswith("TMP")}
+    for fh in (2, 3, 4):  # read before the out-of-order f05 is even published
+        assert fh in got and got[fh] < s3.lm(c13, 5)
+
+
+def test_lock_refuses_a_second_instance_and_a_waiting_replacement_takes_over(tmp_path):
+    path = tmp_path / "recorder.lock"
+    held = rec.acquire_lock(path)
+    with pytest.raises(SystemExit, match="another recorder holds"):
+        rec.acquire_lock(path)
+    waits = []
+
+    def release_after_two(s):
+        waits.append(s)
+        if len(waits) == 2:
+            held.close()
+
+    fh = rec.acquire_lock(path, wait_s=30.0, sleep=release_after_two)
+    assert waits == [1.0, 1.0]
+    fh.close()
