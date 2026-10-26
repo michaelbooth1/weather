@@ -241,6 +241,8 @@ def test_no_production_code_imports_the_challenger():
         "scripts/ops/workload_admission.ps1": "workstation heavy allowlist entry",
         # Its own dev-fit companion (research-only, same capture-host guard).
         "src/weather/calibration/r0_ols_floor_devfit.py": "research-only dev-fit companion",
+        # L9 ladder module, present only in this local l2run merge tree (never pushed).
+        "src/weather/calibration/ols_floor_ladder.py": "L9 research ladder (local merge tree only)",
         "src/weather/calibration/pooled_residual_model.py": (
             "WS-only research scorer; cannot import on the capture host by design (master ruling 2026-10-26)"
         ),
