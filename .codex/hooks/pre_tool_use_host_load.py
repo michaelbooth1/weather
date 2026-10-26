@@ -73,6 +73,7 @@ _OFFLINE_WEATHER_MODULES = frozenset(
         "weather.calibration.l6_own_state",
         "weather.calibration.rz_hrrr_spread",
         "weather.calibration.cool_season_audit",
+        "weather.calibration.season_matched_l6",
         "weather.calibration.mg2_composite",
         "weather.calibration.mg2_inputs",
         "weather.calibration.mg2_p3d_n",
