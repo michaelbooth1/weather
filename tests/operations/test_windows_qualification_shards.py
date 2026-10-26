@@ -118,6 +118,7 @@ EXPECTED_SHARDS = {
             "tests/operations/test_portable_live_sdk_script.py",
             "tests/operations/test_stage2_host_schema.py",
             "tests/operations/test_stage2_session_sealing.py",
+            "tests/market/test_lfc_session_driver.py",
         ],
     ),
     "windows-lane-b": (
