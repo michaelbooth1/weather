@@ -4862,6 +4862,329 @@ def rung_m_score(*, layout, fix_jsonl, coefficients, nowcasts, loyo_result, out_
     return result
 
 
+# ---------------------------------------------------------------- R-O (lane L11): GEFS member-mean centre input
+# Rule: docs/research/gefs-members-l11-2026-10-26/rule_rn.md (file name kept; rung R-O, NAMING.md).
+RO_RULE_SHA256 = "a9ca45f063a39b8ad2408414aab4658d5f4f96c855a51d11b34236b8045fa18c"
+RO_A = tuple(round(-3.0 + 0.1 * i, 1) for i in range(61))  # -3.0 .. +3.0 F
+RO_B = tuple(round(0.05 * i, 2) for i in range(21))  # 0.00 .. 1.00, so b is clipped to [0, 1] by construction
+RO_PAIRS = tuple((a, b) for a in RO_A for b in RO_B)
+RO_ZERO = RO_PAIRS.index((0.0, 0.0))
+RO_MIN_MEMBERS = 25
+RO_PERTURBED = tuple(f"gep{k:02d}" for k in range(1, 31))
+
+
+def ro_pick(loss, pairs=RO_PAIRS):
+    """Grid minimiser; ties -> smallest |a| + b, then smaller b, then smaller |a| (then smaller a)."""
+    import numpy as np
+
+    loss = np.asarray(loss, dtype=float)
+    best = np.flatnonzero(loss <= loss.min() + 1e-15)
+    return min((pairs[i] for i in best), key=lambda p: (abs(p[0]) + p[1], p[1], abs(p[0]), p[0]))
+
+
+def ro_kelvin_to_f(k):
+    return (float(k) - 273.15) * 9.0 / 5.0 + 32.0
+
+
+def ro_load_gefs(corpus_dir):
+    """{(market, YYYY-MM-DD cycle date): [(member, valid_utc, available_utc, value_F)]} from the R-O corpus rows."""
+    from datetime import datetime
+
+    table = defaultdict(list)
+    path = Path(corpus_dir) / "gefs_member_rows.jsonl"
+    with open(path, encoding="utf-8") as handle:
+        for line in handle:
+            r = json.loads(line)
+            if r.get("kind") != "message" or r.get("status") != "ok":
+                continue
+            valid = datetime.fromisoformat(r["valid_utc"])
+            avail = datetime.fromisoformat(r["available_utc"])
+            for market, p in r["points"].items():
+                table[(market, r["date"])].append((r["member"], valid, avail, ro_kelvin_to_f(p["bilinear_k"])))
+    return table
+
+
+def ro_gefs_value(table, market, day, hour, tz):
+    """Rule R-O feature G at (market, local date ``day``, cutoff ``hour``): the 30-member mean of each member's max
+    over the 06Z f006..f024 nodes whose valid local date is ``day``, using only messages available by h:00 local.
+    A member counts only if every such node is present and available; None below 25 members."""
+    from datetime import date as _date, datetime, timezone as _tz
+    from zoneinfo import ZoneInfo
+
+    d = _date.fromisoformat(str(day)[:10])
+    cutoff = datetime(d.year, d.month, d.day, int(hour), tzinfo=ZoneInfo(tz)).astimezone(_tz.utc)
+    highs = [v for m, v in ro_member_highs(table, market, d, cutoff, tz).items() if m in RO_PERTURBED]
+    if len(highs) < RO_MIN_MEMBERS:
+        return None
+    return float(sum(highs) / len(highs))
+
+
+def ro_member_highs(table, market, day, cutoff_utc, tz):
+    """{member: max over the 06Z f006..f024 nodes valid on local date ``day``}, for members (gec00 included) whose
+    every such node is present with available_utc <= ``cutoff_utc``."""
+    from datetime import date as _date, datetime, timedelta, timezone as _tz
+    from zoneinfo import ZoneInfo
+
+    zone = ZoneInfo(tz)
+    d = day if isinstance(day, _date) else _date.fromisoformat(str(day)[:10])
+    cycle = datetime(d.year, d.month, d.day, 6, tzinfo=_tz.utc)
+    want = {cycle + timedelta(hours=fh) for fh in (6, 9, 12, 15, 18, 21, 24)}
+    want = {v for v in want if v.astimezone(zone).date() == d}
+    if not want:
+        return {}
+    by_member = defaultdict(dict)
+    for member, valid, avail, value in table.get((market, d.isoformat()), []):
+        if valid in want and avail <= cutoff_utc:
+            by_member[member][valid] = value
+    return {m: max(v.values()) for m, v in by_member.items() if set(v) == want}
+
+
+RO_PARITY_FIRST, RO_PARITY_LAST = "2026-07-30", "2026-09-29"
+_RO_SLUG = None
+
+
+def ro_slug_date(slug):
+    """(city part, target date) from a 'highest-temperature-in-<city>-on-<month>-<day>-<year>' slug, else None."""
+    import re
+    from datetime import date as _date
+
+    global _RO_SLUG
+    if _RO_SLUG is None:
+        _RO_SLUG = re.compile(r"^highest-temperature-in-(.+)-on-([a-z]+)-(\d{1,2})-(\d{4})$")
+    m = _RO_SLUG.match(slug)
+    months = ("january", "february", "march", "april", "may", "june", "july", "august", "september", "october",
+              "november", "december")
+    if not m or m.group(2) not in months:
+        return None
+    return m.group(1), _date(int(m.group(4)), months.index(m.group(2)) + 1, int(m.group(3)))
+
+
+def ro_parity_stats(pairs):
+    """mean diff, median |diff| and Pearson r over (market, date) means, for (market, date, corpus, captured)."""
+    import numpy as np
+
+    pairs = [p for p in pairs if p[2] is not None and p[3] is not None]
+    if len(pairs) < 3:
+        return {"n": len(pairs), "pass": False}
+    diff = np.array([p[2] - p[3] for p in pairs])
+    cell = defaultdict(list)
+    for market, day, ours, theirs in pairs:
+        cell[(market, day)].append((ours, theirs))
+    xs = np.array([np.mean([o for o, _ in v]) for v in cell.values()])
+    ys = np.array([np.mean([t for _, t in v]) for v in cell.values()])
+    r = float(np.corrcoef(xs, ys)[0, 1]) if len(cell) >= 3 else float("nan")
+    res = {"n": len(pairs), "n_cells": len(cell), "mean_diff": float(diff.mean()),
+           "median_abs_diff": float(np.median(np.abs(diff))), "pearson_r_cell_means": r}
+    res["pass"] = bool(abs(res["mean_diff"]) <= 1.0 and res["median_abs_diff"] <= 1.0 and r >= 0.95)
+    return res
+
+
+def rung_o_parity(*, inputs_root, gefs_corpus, out_dir, markets=R0_MARKETS, hours=RUNG_HOURS):
+    """R-O precondition P: corpus p10/p90 of member highs and control high vs the captured global_ensemble values.
+
+    Reads only ``sources.global_ensemble`` (plus the snapshot's id and capture time) of snapshots whose event target
+    date is in 2026-07-30..2026-09-29 and whose local capture hour is in ``hours``; nothing else is decoded."""
+    import re
+    from datetime import date as _date, datetime
+
+    from weather.market.market_registry import spec_for_id
+    from weather.model.model_sources import percentile
+
+    out = require_output_outside_repo(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    if (out / "rn_parity.json").exists():
+        raise PooledModelError(f"refusing to overwrite {out / 'rn_parity.json'}")
+    first, last = _date.fromisoformat(RO_PARITY_FIRST), _date.fromisoformat(RO_PARITY_LAST)
+    timezones = {m: spec_for_id(m).timezone for m in markets}
+    table = ro_load_gefs(gefs_corpus)
+    local_re = re.compile(r'"captured_at_local":\s*"([^"]+)"')
+    stats = defaultdict(list)
+    counts = defaultdict(int)
+    cities = defaultdict(int)
+    for folder in sorted(Path(inputs_root).iterdir()):
+        parsed = ro_slug_date(folder.name)
+        if parsed is None:
+            counts["skipped_unparsed_slug"] += 1
+            continue
+        city, target = parsed
+        if not (first <= target <= last):
+            counts["skipped_date_outside"] += 1
+            continue
+        path = folder / "replay_inputs.jsonl"
+        if not path.exists():
+            continue
+        with open(path, encoding="utf-8") as handle:
+            for line in handle:
+                m = local_re.search(line[:4096])
+                if not m or datetime.fromisoformat(m.group(1)).hour not in hours:
+                    continue
+                rec = json.loads(line)
+                market = (rec.get("model_identity") or {}).get("market_id")
+                if market not in timezones:
+                    cities[city] += 1
+                    break
+                if str(rec.get("target_date"))[:10] != target.isoformat():
+                    raise PooledModelError(f"{folder.name}: target_date {rec.get('target_date')} != slug")
+                cutoff = datetime.fromisoformat(rec["captured_at_utc"])
+                ge = (rec.get("sources") or {}).get("global_ensemble") or {}
+                data = ge.get("data") or {}
+                counts["snapshots"] += 1
+                if not data:
+                    counts["snapshots_without_capture"] += 1
+                    continue
+                highs = ro_member_highs(table, market, target, cutoff, timezones[market])
+                members = [v for k, v in highs.items() if k in RO_PERTURBED]
+                if len(members) < RO_MIN_MEMBERS:
+                    counts["snapshots_without_corpus"] += 1
+                    continue
+                counts["snapshots_compared"] += 1
+                day = target.isoformat()
+                stats["p10"].append((market, day, percentile(members, 0.10), data.get("day_member_high_p10")))
+                stats["p90"].append((market, day, percentile(members, 0.90), data.get("day_member_high_p90")))
+                stats["control"].append((market, day, highs.get("gec00"), data.get("day_max_native")))
+    parity = {k: ro_parity_stats(stats[k]) for k in ("p10", "p90", "control")}
+    by_market = {k: {m: ro_parity_stats([p for p in stats[k] if p[0] == m]) for m in markets}
+                 for k in ("p10", "p90", "control")}
+    result = {"rule_sha256": RO_RULE_SHA256, "rung": "R-O", "window": [RO_PARITY_FIRST, RO_PARITY_LAST],
+              "hours": list(hours), "counts": dict(counts), "non_us_city_folders_skipped": dict(cities),
+              "parity": parity, "by_market": by_market,
+              "P_pass": all(v.get("pass") for v in parity.values()),
+              "inputs": {"gefs_rows_sha256": hashlib.sha256(
+                  (Path(gefs_corpus) / "gefs_member_rows.jsonl").read_bytes()).hexdigest(),
+                  "module_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}}
+    (out / "rn_parity.json").write_text(json.dumps(result, indent=1, sort_keys=True), encoding="utf-8")
+    return result
+
+
+def ro_row_shifts(diff):
+    """Shift for every (a, b) pair at one row with d = G - N (all 0 when d is missing)."""
+    import numpy as np
+
+    if diff is None or not math.isfinite(diff):
+        return np.zeros(len(RO_PAIRS))
+    return np.array([a + b * diff for a, b in RO_PAIRS])
+
+
+def ro_loyo(frame, buckets, gvals, hours=RUNG_HOURS):
+    """Gate 1: strictly nested LOYO of (a_h, b_h) pooled over markets per hour, on P3d_N_fix (2021-25 Aug-Sep)."""
+    import numpy as np
+
+    from weather.calibration import feature_model as fm
+
+    inner = defaultdict(lambda: np.zeros(len(RO_PAIRS)))
+    outer = []
+    for hour in hours:
+        at_hour = frame[frame["hour"] == hour]
+        years = sorted(int(y) for y in at_hour["year"].unique())
+
+        def predict(train_years, target_year):
+            train = at_hour[at_hour["year"].isin(train_years)].reset_index(drop=True)
+            val = at_hour[at_hour["year"] == target_year].reset_index(drop=True)
+            entry = _rung_entry(train, *_arm_spec(RUNG_ARMS["P3d_N_fix"]))
+            out = []
+            for market in sorted(val["market"].unique()):
+                part = val[val["market"] == market].reset_index(drop=True)
+                for i, dist in enumerate(_dist_from_fit(entry, part, buckets, market)):
+                    day = str(part.at[i, "target_date"])[:10]
+                    g = gvals.get((market, day, int(hour)))
+                    n = float(part.at[i, "fh"])
+                    diff = (g - n) if (g is not None and math.isfinite(n)) else None
+                    out.append((market, day, dist, int(part.at[i, "y"]), float(part.at[i, "F"]), diff))
+            return out
+
+        for held in years:
+            for x in years:
+                if x == held:
+                    continue
+                for market, _, dist, a, floor, diff in predict([y for y in years if y not in (x, held)], x):
+                    shifts = ro_row_shifts(diff)
+                    inner[(held, hour)] += rm_loyo_losses(dist, a, floor, shifts=tuple([0.0] + list(shifts)))[1:]
+            for market, day, dist, a, floor, diff in predict([y for y in years if y != held], held):
+                outer.append({"hour": int(hour), "year": int(held), "market": market, "date": day, "dist": dist,
+                              "actual": a, "floor": floor, "diff": diff, "raw_brier": float(fm.brier_score(dist, a)),
+                              "actual_in_keys": a in dist})
+        print(f"ro loyo h{hour:02d}: {sum(1 for r in outer if r['hour'] == hour)} rows", flush=True)
+    coefs = {}
+    for (held, hour), loss in sorted(inner.items()):
+        a, b = ro_pick(loss)
+        i = RO_PAIRS.index((a, b))
+        coefs[(held, hour)] = {"a": a, "b": b, "inner_brier_noshift": float(loss[RO_ZERO]),
+                               "inner_brier_shift": float(loss[i]),
+                               "training_score_not_worse": bool(loss[i] <= loss[RO_ZERO] + 1e-12)}
+    rows = []
+    for r in outer:
+        c = coefs[(r["year"], r["hour"])]
+        s = 0.0 if r["diff"] is None else c["a"] + c["b"] * r["diff"]
+        loss = rm_loyo_losses(r["dist"], r["actual"], r["floor"], shifts=(0.0, s))
+        rows.append({"hour": r["hour"], "year": r["year"], "market": r["market"], "date": r["date"], "shift": s,
+                     "gefs_minus_anchor": r["diff"], "P3d_N_fix_brier": r["raw_brier"],
+                     "noshift_brier": float(loss[0]), "shift_brier": float(loss[1]),
+                     "actual_in_keys": r["actual_in_keys"]})
+    return rows, coefs
+
+
+def rung_o_loyo(*, records_root, nbm_train_corpus, ra_loyo_rows, gefs_corpus, out_dir, markets=R0_MARKETS,
+                hours=RUNG_HOURS):
+    """R-O gate 1 (rule_rn.md, rung R-O): nested LOYO of the GEFS member-mean centre shift, R-A control reproduced."""
+    from weather.calibration import ols_floor_ladder as l9
+    from weather.market.market_registry import spec_for_id
+
+    out = require_output_outside_repo(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    for name in ("rn_loyo.json", "rn_loyo_rows.jsonl"):
+        if (out / name).exists():
+            raise PooledModelError(f"refusing to overwrite {out / name}")
+    for path, want in ((nbm_train_corpus, RM_NBM_TRAIN_SHA256), (ra_loyo_rows, RM_RA_LOYO_SHA256)):
+        got = hashlib.sha256(Path(path).read_bytes()).hexdigest()
+        if got != want:
+            raise PooledModelError(f"{path} sha {got} != {want}")
+    manifest = json.loads((Path(gefs_corpus) / "manifest.json").read_text(encoding="utf-8"))
+    rows_sha = hashlib.sha256((Path(gefs_corpus) / "gefs_member_rows.jsonl").read_bytes()).hexdigest()
+    if manifest.get("rows_sha256") != rows_sha:
+        raise PooledModelError("GEFS corpus rows do not match their manifest")
+    timezones = {m: spec_for_id(m).timezone for m in markets}
+    frame, buckets = dev_training_frame(records_root, markets)
+    if frame["year"].max() >= 2026:
+        raise PooledModelError("a dev training row is from 2026")
+    frame, train_stats = attach_training_nbm(frame, l9.load_nbm(nbm_train_corpus), l9.nbm_at_cutoff, timezones)
+    frame = frame[frame["hour"].isin(hours)].reset_index(drop=True)
+    table = ro_load_gefs(gefs_corpus)
+    gvals, cover = {}, defaultdict(int)
+    for market, day, hour in zip(frame["market"], frame["target_date"], frame["hour"]):
+        key = (market, str(day)[:10], int(hour))
+        if key not in gvals:
+            gvals[key] = ro_gefs_value(table, market, key[1], key[2], timezones[market])
+            cover["with_gefs" if gvals[key] is not None else "without_gefs"] += 1
+    rows, coefs = ro_loyo(frame, buckets, gvals, hours)
+    ra = {}
+    with open(ra_loyo_rows, encoding="utf-8") as handle:
+        for line in handle:
+            r = json.loads(line)
+            ra[(r["hour"], r["market"], r["date"])] = r["P3d_N_fix_brier"]
+    worst = max(abs(r["P3d_N_fix_brier"] - ra[(r["hour"], r["market"], r["date"])]) for r in rows)
+    if len(ra) != len(rows) or worst > 1e-9:
+        raise PooledModelError(f"R-A LOYO control failed: rows {len(rows)} vs {len(ra)}, max diff {worst}")
+    if not all(v["training_score_not_worse"] for v in coefs.values()):
+        raise PooledModelError("a fitted (a, b) worsened its own training score")
+    _write_jsonl(out / "rn_loyo_rows.jsonl", rows)
+    summary = rm_loyo_summary(rows)
+    diffs = [r["gefs_minus_anchor"] for r in rows if r["gefs_minus_anchor"] is not None]
+    result = {"rule_sha256": RO_RULE_SHA256, "rung": "R-O", "train_nbm": train_stats,
+              "grid": {"a": [RO_A[0], RO_A[-1], 0.1], "b": [RO_B[0], RO_B[-1], 0.05]},
+              "coverage": {"rows": len(rows), "rows_with_gefs": len(diffs), "keys": dict(cover)},
+              "gefs_minus_anchor": {"mean": float(sum(diffs) / len(diffs)) if diffs else None,
+                                    "mean_abs": float(sum(map(abs, diffs)) / len(diffs)) if diffs else None},
+              "controls": {"ra_loyo_rows": len(ra), "ra_max_abs_diff": worst, "training_score_not_worse_all": True,
+                           "rows_actual_not_a_pmf_key": int(sum(not r["actual_in_keys"] for r in rows))},
+              "coefficients": {f"{y}|h{h:02d}": v for (y, h), v in sorted(coefs.items())},
+              "summary": summary, "gate1_pass": summary["07-12"]["ci95"][1] < 0,
+              "inputs": {"nbm_train_corpus": RM_NBM_TRAIN_SHA256, "ra_loyo_rows": RM_RA_LOYO_SHA256,
+                         "gefs_rows_sha256": rows_sha, "gefs_manifest_module_sha256": manifest.get("module_sha256"),
+                         "module_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}}
+    (out / "rn_loyo.json").write_text(json.dumps(result, indent=1, sort_keys=True), encoding="utf-8")
+    return result
+
+
 def _parse(argv=None):
     parser = argparse.ArgumentParser(prog="python -m weather.calibration.pooled_residual_model",
                                      description=__doc__.split("\n\n")[0])
@@ -4966,6 +5289,16 @@ def _parse(argv=None):
     isc.add_argument("--nowcasts", required=True)
     isc.add_argument("--loyo-result", required=True)
     isc.add_argument("--out", required=True)
+    op = sub.add_parser("rung-o-parity", help="R-O precondition P: corpus vs captured GEFS p10/p90/control (heavy)")
+    op.add_argument("--inputs", required=True)
+    op.add_argument("--gefs-corpus", required=True)
+    op.add_argument("--out", required=True)
+    ol = sub.add_parser("rung-o-loyo", help="R-O gate 1: nested LOYO GEFS member-mean centre shift (heavy)")
+    ol.add_argument("--records", required=True)
+    ol.add_argument("--nbm-train-corpus", required=True)
+    ol.add_argument("--ra-loyo-rows", required=True)
+    ol.add_argument("--gefs-corpus", required=True)
+    ol.add_argument("--out", required=True)
     ml = sub.add_parser("rung-m-loyo", help="R-M gate 1: nested LOYO per-market centre shift (heavy)")
     ml.add_argument("--records", required=True)
     ml.add_argument("--nbm-train-corpus", required=True)
@@ -5141,6 +5474,15 @@ def main(argv=None):
         result = rung_i_score(layout=args.layout, fix_jsonl=args.fix, coefficients=args.coefficients,
                               nowcasts=args.nowcasts, loyo_result=args.loyo_result, out_path=Path(args.out))
         print(json.dumps({"gates": result["gates"], "stopped_at": result.get("stopped_at")}, indent=1))
+        return 0
+    if args.command == "rung-o-parity":
+        result = rung_o_parity(inputs_root=args.inputs, gefs_corpus=args.gefs_corpus, out_dir=args.out)
+        print(json.dumps({"P_pass": result["P_pass"], "parity": result["parity"], "counts": result["counts"]}))
+        return 0
+    if args.command == "rung-o-loyo":
+        result = rung_o_loyo(records_root=args.records, nbm_train_corpus=args.nbm_train_corpus,
+                             ra_loyo_rows=args.ra_loyo_rows, gefs_corpus=args.gefs_corpus, out_dir=args.out)
+        print(json.dumps({"gate1_pass": result["gate1_pass"], "07-12": result["summary"]["07-12"]}))
         return 0
     if args.command == "rung-m-loyo":
         result = rung_m_loyo(records_root=args.records, nbm_train_corpus=args.nbm_train_corpus,
