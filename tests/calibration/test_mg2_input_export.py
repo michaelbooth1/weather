@@ -364,7 +364,8 @@ def test_module_is_stdlib_plus_allowlist_and_imported_by_nothing():
         if isinstance(node, ast.Import):
             imported.update(a.name for a in node.names)
         elif isinstance(node, ast.ImportFrom):
-            imported.add(node.module + "".join(f".{a.name}" for a in node.names if node.module == "weather.calibration"))
+            names = [a.name for a in node.names] if node.module == "weather.calibration" else [""]
+            imported.update(f"{node.module}.{n}".rstrip(".") for n in names)
     third = {m for m in imported if m.split(".")[0] not in sys.stdlib_module_names}
     assert third == {"weather.calibration.mg2_input_allowlist"}
     importers = [p.relative_to(ROOT).as_posix() for p in (ROOT / "src").rglob("*.py")
