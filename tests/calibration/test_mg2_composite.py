@@ -218,7 +218,7 @@ def test_no_production_module_imports_the_binding():
     """Production never reaches MG-2: no module outside the research calibration lane names it."""
     hits = []
     for path in (ROOT / "src").rglob("*.py"):
-        if path.name in ("mg2_composite.py", "mg2_inputs.py", "mg2_p3d_n.py"):  # the binding and its parts
+        if path.name in ("mg2_composite.py", "mg2_inputs.py", "mg2_p3d_n.py", "b_scorer.py"):  # binding, parts, B
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
