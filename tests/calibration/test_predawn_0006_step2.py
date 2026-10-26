@@ -121,3 +121,16 @@ def test_land_choice_nearest_land_cell(tmp_path):
     assert got["KSFO"]["index"] == 7          # (178, 595) is 0.51 from (177.9, 594.5); (177, 595) is 1.03
     assert got["KATL"]["index"] == 4 and got["KATL"]["centre_is_land"]
     assert got["KXXX"]["index"] is None
+
+
+def test_nbm_at_instant_uses_explicit_instant(tmp_path):
+    row = {"available": True, "sd": 2.0, "market_id": "atlanta", "target_date": "2023-08-05"}
+    a = tmp_path / "a.jsonl"
+    a.write_text(json.dumps(dict(row, cycle="07", last_modified="2023-08-05T08:10:00Z", mean=91.0)) + "\n"
+                 + json.dumps(dict(row, cycle="01", last_modified="2023-08-05T02:10:00Z", mean=90.0)) + "\n",
+                 encoding="utf-8")
+    t = pd6.load_nbm_with_sd([a])
+    # 04:00 EDT cutoff (08:00Z) gives 01Z; a snapshot captured 04:17 EDT (08:17Z) gives 07Z
+    assert pd6.nbm_at(t, "atlanta", "2023-08-05", 4, "America/New_York")[2] == "01"
+    got = pd6.nbm_at_instant(t, "atlanta", "2023-08-05", datetime(2023, 8, 5, 8, 17, tzinfo=timezone.utc))
+    assert got[0] == 91.0 and got[2] == "07"
