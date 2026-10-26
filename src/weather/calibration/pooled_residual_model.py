@@ -6672,6 +6672,255 @@ def mg3_verify_release(path, *, land, corpus_dir, states=None, weights=None, roo
     return bound
 
 
+# ------------------------------------------------- MG-3 freeze prep (1c): forward HRRR parity scorer
+
+MG3_PARITY_RULE_SHA256 = "2c6e6045dca379854c281195e0a51a61f0de400bc517ed7faa444b2900a6593e"  # rule_mg3_forward_parity.md
+MG3_PARITY_TOL = 1e-9
+MG3_PARITY_SHARE = 0.99
+MG3_LATENCY_S = 600
+MG3_RECORDER_ROW_SCHEMA = 2
+MG3_STAMP = {"07-12": ("k_max_f", "k_tcdc"), "13-16": ("k_max_f_nearest_cell", None)}
+
+
+def _mg3_utc(value):
+    from datetime import datetime
+
+    return None if value is None else datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+
+
+def _mg3_complete_lines(path):
+    """JSON lines up to the last newline (a live recorder may be mid-append) -> (rows, the bytes kept)."""
+    blob = Path(path).read_bytes()
+    blob = blob[:blob.rfind(b"\n") + 1]
+    return [json.loads(line) for line in blob.splitlines() if line.strip()], blob
+
+
+def _mg3_message_index(messages):
+    """{(key, variable): message} for TMP / TCDC records; the first record of a key wins."""
+    out = {}
+    for m in messages:
+        record = str(m.get("idx_record", ""))
+        var = next((v for v, prefix in RK_VARIABLES.items() if record.startswith(prefix + ":")), None)
+        if var is not None:
+            out.setdefault((m["key"], var), m)
+    return out
+
+
+def _mg3_block_of(hour):
+    return next((b for b, spec in MG3_BLOCKS.items() if int(hour) in spec["hours"]), None)
+
+
+def _mg3_share(ok, n):
+    return {"n": int(n), "ok": int(ok), "share": (ok / n) if n else None}
+
+
+def mg3_recorder_corpus(recorder_dir, out_dir, *, through, markets=R0_MARKETS):
+    """Freeze a consistent copy of the recorder (complete lines only) as a training-format corpus.
+
+    ``manifest.jsonl`` = the recorder's messages; ``selections.jsonl`` = one selection per counted row (row_schema
+    2, R0 stations, local_date <= ``through``) carrying the row's own cycle and fhs, with ``latest_available_utc`` =
+    max over its fhs and both variables of max(grib, idx LastModified), the training rule's availability.
+    Returns (rows, messages, input shas).
+    """
+    src, out = Path(recorder_dir), Path(out_dir)
+    out.mkdir(parents=True, exist_ok=False)
+    stations_blob = (src / "stations.json").read_bytes()
+    stations = json.loads(stations_blob)
+    keep = {icao for icao, s in stations.items() if s.get("market") in markets}
+    snaps, snaps_blob = _mg3_complete_lines(src / "snapshots.jsonl")
+    messages, msg_blob = _mg3_complete_lines(src / "messages.jsonl")
+    rows = [r for r in snaps if r.get("row_schema") == MG3_RECORDER_ROW_SCHEMA and r.get("station") in keep
+            and str(r["local_date"]) <= str(through) and _mg3_block_of(r["hour_local"]) is not None]
+    index = _mg3_message_index(messages)
+    selections = []
+    for r in rows:
+        latest = None
+        if r.get("cycle_utc") and r.get("fhs"):
+            cycle = _mg3_utc(r["cycle_utc"])
+            stamps = []
+            for fh in r["fhs"]:
+                for var in RK_VARIABLES:
+                    m = index.get((rk_message_key(cycle, fh), var))
+                    stamps.append(None if m is None else max(_mg3_utc(m["grib_last_modified"]),
+                                                             _mg3_utc(m["idx_last_modified"])))
+            latest = None if any(s is None for s in stamps) else max(stamps).isoformat()
+        selections.append({"station": r["station"], "local_date": r["local_date"], "hour_local": r["hour_local"],
+                           "snapshot_utc": r["snapshot_utc"], "cycle_utc": r.get("cycle_utc"),
+                           "fhs": list(r.get("fhs") or []), "latest_available_utc": latest})
+    (out / "stations.json").write_bytes(stations_blob)
+    (out / "manifest.jsonl").write_bytes(msg_blob)
+    _write_jsonl(out / "selections.jsonl", selections)
+    shas = {"recorder_snapshots_complete_lines": hashlib.sha256(snaps_blob).hexdigest(),
+            "recorder_messages_complete_lines": hashlib.sha256(msg_blob).hexdigest(),
+            "recorder_stations": hashlib.sha256(stations_blob).hexdigest(),
+            "recorder_meta": _rr_sha(src / "meta.json")}
+    return rows, messages, shas
+
+
+def _mg3_archive(archive_dir, land, point, icao_market, markets):
+    archive_point, _ = rr_point_rule(land, archive_dir, markets)
+    if archive_point != point:
+        raise PooledModelError("archive RN-1 indices differ from the recorder's")
+    sel = {}
+    for s in _rk_lines(Path(archive_dir) / "selections.jsonl", defaultdict(int), "selections"):
+        if s.get("station") in icao_market:
+            sel.setdefault((icao_market[s["station"]], str(s["local_date"]), int(s["hour_local"])), s)
+    index = _mg3_message_index(_rk_lines(Path(archive_dir) / "manifest.jsonl", defaultdict(int), "manifest"))
+    shas = {f"archive_{n}": _rr_sha(Path(archive_dir) / n) for n in ("manifest.jsonl", "selections.jsonl",
+                                                                      "stations.json")}
+    return {"selections": sel, "index": index, "shas": shas}
+
+
+def mg3_forward_parity(*, recorder_dir, land, out_dir, through, commit, archive_dir=None, rule_path=None,
+                       markets=R0_MARKETS):
+    """rule_mg3_forward_parity.md: F0-F2 and F4 on the recorder rows, F3 against an archive corpus when given."""
+    if rule_path is not None and _rr_sha(rule_path) != MG3_PARITY_RULE_SHA256:
+        raise PooledModelError(f"rule {rule_path} is not {MG3_PARITY_RULE_SHA256}")
+    out = require_output_outside_repo(out_dir)
+    if out.exists():
+        raise PooledModelError(f"refusing to overwrite {out}")
+    corpus = out / "recorder_corpus"
+    rows, messages, shas = mg3_recorder_corpus(recorder_dir, corpus, through=through, markets=markets)
+    if not rows:
+        raise PooledModelError("no counted recorder row (row_schema 2) up to --through")
+    first = min(str(r["local_date"]) for r in rows)
+
+    def in_window(day):
+        return first <= day <= str(through)
+
+    point, point_report = rr_point_rule(land, corpus, markets)
+    stations = json.loads((corpus / "stations.json").read_bytes())
+    icao_market = {icao: s["market"] for icao, s in stations.items() if s.get("market") in markets}
+    index = _mg3_message_index(messages)
+    archive = None if archive_dir is None else _mg3_archive(archive_dir, land, point, icao_market, markets)
+    result = {"rule_sha256": MG3_PARITY_RULE_SHA256, "commit": commit, "through": str(through), "first": first,
+              "module_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+              "inputs": dict(shas, land_sha256=_rr_sha(land), **(archive["shas"] if archive else {})),
+              "point_rule": point_report, "blocks": {}}
+    passes = []
+    for block, spec in sorted(MG3_BLOCKS.items()):
+        block_point = point if spec["point"] == "rn1" else None
+        feats, feat_stats = rk_hrrr_columns(corpus, markets, hours=spec["hours"], point=block_point,
+                                            day_filter=in_window)
+        block_rows = [r for r in rows if int(r["hour_local"]) in spec["hours"]]
+        k_name, t_name = MG3_STAMP[block]
+        f0 = {"rows": len(block_rows), "k_miss_differs": 0, "max_dk_max": 0.0, "max_dk_tcdc": 0.0,
+              "msg_sha_missing": 0, "first_bad": None}
+        f1 = {"equal": 0, "older": 0, "newer": 0, "n": 0}
+        f3 = {"both_cycle": 0, "selection_equal": 0, "recorder_newer": 0, "values_compared": 0, "max_dk_max": 0.0,
+              "max_dk_tcdc": 0.0, "bytes_checked": 0, "bytes_differ": 0, "bytes_absent": 0, "rows_no_archive": 0}
+        used, cover, paused = {}, defaultdict(lambda: [0, 0]), 0
+        for r in block_rows:
+            market, day, hour = icao_market[r["station"]], str(r["local_date"]), int(r["hour_local"])
+            e = feats[(market, day, hour)]
+            paused += bool(r.get("paused_at_snapshot"))
+            cover[market][0] += r.get("k_miss") == 0
+            cover[market][1] += 1
+            bad = False
+            if float(e["k_miss"]) != float(r.get("k_miss", 1)):
+                f0["k_miss_differs"] += 1
+                bad = True
+            elif e["k_miss"] == 0.0:
+                dk = abs(e["k_max"] - float(r[k_name]))
+                f0["max_dk_max"] = max(f0["max_dk_max"], dk)
+                bad = bad or dk > MG3_PARITY_TOL
+                if t_name is not None:
+                    dt_ = abs(e["k_tcdc"] - float(r[t_name]))
+                    f0["max_dk_tcdc"] = max(f0["max_dk_tcdc"], dt_)
+                    bad = bad or dt_ > MG3_PARITY_TOL
+            cycle = _mg3_utc(r.get("cycle_utc"))
+            if cycle is not None:
+                for var, row_shas in (r.get("hrrr_msg_sha256") or {}).items():
+                    for fh, sha in zip(r["fhs"], row_shas):
+                        m = index.get((rk_message_key(cycle, fh), var))
+                        if m is None or m.get("msg_sha256") != sha:
+                            f0["msg_sha_missing"] += 1
+                            bad = True
+                        else:
+                            used[(m["key"], var)] = m
+            if bad and f0["first_bad"] is None:
+                f0["first_bad"] = {"station": r["station"], "local_date": day, "hour_local": hour}
+            train = _mg3_utc(r.get("training_rule_cycle_utc"))
+            f1["n"] += 1
+            if cycle == train:
+                f1["equal"] += 1
+            elif cycle is None or (train is not None and cycle < train):
+                f1["older"] += 1
+            else:
+                f1["newer"] += 1
+            if archive is None:
+                continue
+            s = archive["selections"].get((market, day, hour))
+            if s is None:
+                f3["rows_no_archive"] += 1
+                continue
+            a_cycle = _mg3_utc(s.get("cycle_utc"))
+            if cycle is None or a_cycle is None:
+                f3["recorder_newer"] += cycle is not None  # a cycle the training rule did not have
+                continue
+            f3["both_cycle"] += 1
+            if cycle != a_cycle or list(r["fhs"]) != list(s.get("fhs") or []):
+                f3["recorder_newer"] += cycle > a_cycle
+                continue
+            f3["selection_equal"] += 1
+            for fh in r["fhs"]:
+                for var in RK_VARIABLES:
+                    key = (rk_message_key(cycle, fh), var)
+                    a, m = archive["index"].get(key), index.get(key)
+                    f3["bytes_checked"] += 1
+                    if a is None or m is None:
+                        f3["bytes_absent"] += 1
+                    elif a.get("msg_sha256") != m.get("msg_sha256"):
+                        f3["bytes_differ"] += 1
+        latency = sorted((_mg3_utc(m["captured_at_utc"]) - max(_mg3_utc(m["grib_last_modified"]),
+                                                                _mg3_utc(m["idx_last_modified"]))).total_seconds()
+                         for m in used.values())
+        f0["pass"] = (f0["k_miss_differs"] == 0 and f0["msg_sha_missing"] == 0
+                      and f0["max_dk_max"] <= MG3_PARITY_TOL and f0["max_dk_tcdc"] <= MG3_PARITY_TOL)
+        f1["share_equal"] = f1["equal"] / f1["n"] if f1["n"] else None
+        f1["pass"] = bool(f1["n"]) and f1["newer"] == 0 and f1["share_equal"] >= MG3_PARITY_SHARE
+        f2 = dict(_mg3_share(sum(x <= MG3_LATENCY_S for x in latency), len(latency)),
+                  max_s=latency[-1] if latency else None,
+                  p99_s=latency[max(0, math.ceil(0.99 * len(latency)) - 1)] if latency else None)
+        f2["pass"] = bool(latency) and f2["share"] >= MG3_PARITY_SHARE
+        f4 = {m: _mg3_share(c[0], c[1]) for m, c in sorted(cover.items())}
+        for v in f4.values():
+            v["pass"] = v["share"] is not None and v["share"] >= RK_COVERAGE_MIN
+        f4_pass = len(f4) == len(markets) and all(v["pass"] for v in f4.values())
+        entry = {"rows": len(block_rows), "paused_rows": paused, "recorder_feature_stats": feat_stats,
+                 "F0": f0, "F1": f1, "F2": f2, "F4": {"markets": f4, "pass": f4_pass}}
+        archive_pass = None
+        if archive is not None:
+            a_feats, f3["archive_stats"] = rk_hrrr_columns(archive_dir, markets, hours=spec["hours"],
+                                                           point=block_point, day_filter=in_window)
+            for r in block_rows:
+                key = (icao_market[r["station"]], str(r["local_date"]), int(r["hour_local"]))
+                e, a = feats[key], a_feats.get(key)
+                if a is None or e["k_miss"] or a["k_miss"] or e["cycle_utc"] != a["cycle_utc"] or e["fhs"] != a["fhs"]:
+                    continue
+                f3["values_compared"] += 1
+                f3["max_dk_max"] = max(f3["max_dk_max"], abs(e["k_max"] - a["k_max"]))
+                f3["max_dk_tcdc"] = max(f3["max_dk_tcdc"], abs(e["k_tcdc"] - a["k_tcdc"]))
+            f3["F3a_pass"] = (f3["both_cycle"] > 0 and f3["recorder_newer"] == 0
+                              and f3["selection_equal"] / f3["both_cycle"] >= MG3_PARITY_SHARE)
+            f3["F3b_pass"] = (f3["values_compared"] > 0 and f3["max_dk_max"] <= MG3_PARITY_TOL
+                              and f3["max_dk_tcdc"] <= MG3_PARITY_TOL)
+            f3["F3c_pass"] = f3["bytes_checked"] > 0 and f3["bytes_absent"] == 0 and f3["bytes_differ"] == 0
+            f3["pass"] = f3["F3a_pass"] and f3["F3b_pass"] and f3["F3c_pass"]
+            entry["F3"] = f3
+            archive_pass = f3["pass"]
+        result["blocks"][block] = entry
+        passes.append((f0["pass"] and f1["pass"] and f2["pass"] and f4_pass, archive_pass))
+    local_ok = all(p[0] for p in passes)
+    if archive is None:
+        result["verdict"] = "PARTIAL (archive pending)" if local_ok else "FAIL"
+    else:
+        result["verdict"] = "PASS" if local_ok and all(p[1] for p in passes) else "FAIL"
+    (out / "forward_parity.json").write_text(json.dumps(result, indent=1, sort_keys=True, default=str),
+                                             encoding="utf-8")
+    return result
+
+
 # -------------------------------------------------------------------------- CLI
 
 
@@ -6956,6 +7205,14 @@ def _parse(argv=None):
     mb.add_argument("--state-1316", default=None)
     mb.add_argument("--weights", default=None)
     mb.add_argument("--out", required=True)
+    mp = sub.add_parser("mg3-forward-parity", help="MG-3 (1c): forward HRRR parity F0-F4 (inputs only)")
+    mp.add_argument("--recorder", required=True)
+    mp.add_argument("--land", required=True)
+    mp.add_argument("--through", required=True, help="last local date counted (inclusive)")
+    mp.add_argument("--archive", default=None, help="an L13 archive corpus for the same forward dates (F3)")
+    mp.add_argument("--rule", required=True)
+    mp.add_argument("--commit", required=True)
+    mp.add_argument("--out", required=True)
     dv = sub.add_parser("dev-verdict", help="amendment 3: verdict and tables from L3 dev-score output")
     dv.add_argument("--scores", required=True)
     dv.add_argument("--rule", required=True)
@@ -7242,6 +7499,13 @@ def main(argv=None):
         print(json.dumps({"sha256": _rr_sha(out), "states": binding["states"],
                           "rn1": binding["rn1"]["recomputed"]}, indent=1, sort_keys=True))
         return 0
+    if args.command == "mg3-forward-parity":
+        result = mg3_forward_parity(recorder_dir=args.recorder, land=args.land, out_dir=args.out,
+                                    through=args.through, commit=args.commit, archive_dir=args.archive,
+                                    rule_path=args.rule)
+        summary = {b: {k: v["pass"] for k, v in e.items() if k.startswith("F")} for b, e in result["blocks"].items()}
+        print(json.dumps({"verdict": result["verdict"], "blocks": summary}, indent=1, sort_keys=True))
+        return 0 if result["verdict"] != "FAIL" else 1
     if args.command == "dev-verdict":
         scores = json.loads(Path(args.scores).read_text(encoding="utf-8"))
         text, _ = dev_verdict_markdown(scores, args.rule)

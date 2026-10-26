@@ -5,7 +5,10 @@ state's serve math reproduces the in-process P3d_H fit's distribution exactly (k
 day-of-year columns, NaN k columns kept); the loader checks the sha256 before unpickling and refuses a foreign schema;
 the dev re-emit comparison fails on a key mismatch, a missing row or |dp| > 1e-12; the freezes refuse unbound inputs;
 (1b) the release binding carries RN-1's constants, its recomputed indices, the land and stations shas and every
-executed file, and verification refuses any drift (file, constant, land file, state block or point rule).
+executed file, and verification refuses any drift (file, constant, land file, state block or point rule);
+(1c) rule_mg3_forward_parity.md (sha 2c6e6045...) - only row_schema 2 R0 rows up to --through are counted, a torn
+line is ignored, stamp drift or a missing message fails F0, a cycle newer than the training rule fails F1, slow
+retrieval fails F2, an archive byte mismatch fails F3c, and without an archive the verdict is PARTIAL, never PASS.
 """
 import hashlib
 import importlib
@@ -271,3 +274,179 @@ def test_release_binding_checks_each_state_block_and_point_rule(tmp_path, monkey
     with pytest.raises(prm.PooledModelError, match="point rule"):
         prm.mg3_release_binding(land=land, corpus_dir=corpus, root=root, markets=RN1_MARKETS,
                                 states={"13-16": state("13-16", prm.MG3_RN1["land_sha256"])})
+
+
+# ----------------------------------------------------------------------------- (1c) forward HRRR parity scorer
+
+FWD_TZ = {"KSFO": ("America/Los_Angeles", -7), "KATL": ("America/New_York", -4)}
+FWD_DAY = "2026-10-26"
+
+
+def _iso(dt_):
+    return dt_.isoformat()
+
+
+def _recorder(tmp_path, monkeypatch, name="rec", hours=(7, 13), rows_edit=None, msg_edit=None):
+    """A synthetic recorder dir (and its land file) in the recorder's own shapes: one row per station x hour."""
+    from datetime import datetime, timedelta, timezone
+
+    utc = timezone.utc
+    rec = tmp_path / name
+    rec.mkdir()
+    stations = {icao: dict(s, tz=FWD_TZ[icao][0]) for icao, s in RN1_STATIONS.items()}
+    stations["CYYZ"] = {"market": "toronto", "i": 1377, "j": 768, "fi": 1377.2, "fj": 767.8, "tz": "America/Toronto"}
+    (rec / "stations.json").write_text(json.dumps(stations), encoding="utf-8")
+    land = {"stations_json_sha256": hashlib.sha256((rec / "stations.json").read_bytes()).hexdigest(),
+            "msg_sha256": prm.RR_LAND_MSG_SHA256, "key": prm.RR_LAND_KEY, "stations": {}}
+    for icao, s in RN1_STATIONS.items():
+        dist = [math.hypot(s["i"] + k % 3 - 1 - s["fi"], s["j"] + k // 3 - 1 - s["fj"]) for k in range(9)]
+        land["stations"][icao] = {**{k: s[k] for k in ("i", "j", "fi", "fj")}, "land_block3x3": RN1_MASKS[icao],
+                                  "dist_grid_units": dist, "rn1_chosen_index": {"KSFO": 3, "KATL": 4}[icao]}
+    land_path = tmp_path / f"{name}_land.json"
+    land_path.write_text(json.dumps(land), encoding="utf-8")
+    monkeypatch.setattr(prm, "RR_LAND_SHA256", hashlib.sha256(land_path.read_bytes()).hexdigest())
+    (rec / "meta.json").write_text("{}", encoding="utf-8")
+    messages, rows = {}, []
+    for icao in ("KATL", "KSFO"):
+        offset = FWD_TZ[icao][1]
+        for hour in hours:
+            base = datetime(2026, 10, 26, 0, 0, tzinfo=utc)
+            snap, end = base + timedelta(hours=hour - offset), base + timedelta(hours=17 - offset)
+            cycle = snap - timedelta(hours=2)
+            fhs = list(range(2, 2 + int((end - snap).total_seconds() // 3600) + 1))
+            shas = {"TMP": [], "TCDC": []}
+            tmp, tcdc, near = [], [], []
+            for fh in fhs:
+                for var, base in (("TMP", 285.0), ("TCDC", 20.0)):
+                    key = prm.rk_message_key(cycle, fh)
+                    m = messages.get((key, var))
+                    if m is None:
+                        points = {}
+                        for st, idx in (("KATL", 4), ("KSFO", 3), ("CYYZ", 4)):
+                            block = [base + 0.37 * k + 0.11 * fh + (st == "KSFO") for k in range(9)]
+                            points[st] = {"block3x3": block, "nearest": block[4], "rn1": block[idx], "rn1_index": idx}
+                        m = {"cycle_utc": _iso(cycle), "fh": fh, "key": key,
+                             "idx_record": f"{prm.RK_VARIABLES[var]}:{fh} hour fcst:",
+                             "grib_last_modified": _iso(cycle + timedelta(minutes=50)).replace("+00:00", ".000Z"),
+                             "idx_last_modified": _iso(cycle + timedelta(minutes=51)).replace("+00:00", ".000Z"),
+                             "captured_at_utc": _iso(cycle + timedelta(minutes=55)),
+                             "msg_sha256": hashlib.sha256(f"{key}{var}".encode()).hexdigest(), "points": points}
+                        messages[(key, var)] = m
+                    shas[var].append(m["msg_sha256"])
+                    (tmp if var == "TMP" else tcdc).append(m["points"][icao]["rn1"])
+                    if var == "TMP":
+                        near.append(m["points"][icao]["nearest"])
+            to_f = lambda k: (k - 273.15) * 9.0 / 5.0 + 32.0  # noqa: E731 - the recorder's own conversion
+            rows.append({"station": icao, "market": RN1_STATIONS[icao]["market"], "local_date": FWD_DAY,
+                         "hour_local": hour, "snapshot_utc": _iso(snap), "window_end_utc": _iso(end),
+                         "cycle_utc": _iso(cycle), "fhs": fhs, "training_rule_cycle_utc": _iso(cycle),
+                         "hrrr_msg_sha256": shas, "k_max_f": max(to_f(x) for x in tmp),
+                         "k_tcdc": sum(tcdc) / len(tcdc), "k_max_f_nearest_cell": max(to_f(x) for x in near),
+                         "k_miss": 0, "row_schema": 2, "paused_at_snapshot": False})
+    rows.append(dict(rows[0], row_schema=None, k_max_f=0.0))  # schema-1 row: not counted
+    rows.append(dict(rows[0], local_date="2026-10-27", k_max_f=0.0))  # after --through: not counted
+    for edit in rows_edit or ():
+        edit(rows)
+    msgs = list(messages.values())
+    for edit in msg_edit or ():
+        edit(msgs)
+    (rec / "snapshots.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows) + '{"torn', encoding="utf-8")
+    (rec / "messages.jsonl").write_text("".join(json.dumps(m) + "\n" for m in msgs), encoding="utf-8")
+    return rec, land_path
+
+
+def _archive_from(rec, tmp_path, name="arch", sha_edit=None):
+    """An archive-path corpus with the recorder's messages and the training-rule selections."""
+    arch = tmp_path / name
+    arch.mkdir()
+    (arch / "stations.json").write_bytes((rec / "stations.json").read_bytes())
+    msgs = [json.loads(line) for line in (rec / "messages.jsonl").read_text(encoding="utf-8").splitlines()]
+    for m in msgs:
+        if sha_edit and sha_edit(m):
+            m["msg_sha256"] = "f" * 64
+    (arch / "manifest.jsonl").write_text("".join(json.dumps(m) + "\n" for m in msgs), encoding="utf-8")
+    from datetime import datetime, timedelta
+
+    sel = []
+    for line in (rec / "snapshots.jsonl").read_text(encoding="utf-8").splitlines():
+        if not line.endswith("}"):
+            continue
+        r = json.loads(line)
+        if r.get("row_schema") == 2 and r["local_date"] == FWD_DAY:
+            sel.append({"station": r["station"], "local_date": r["local_date"], "hour_local": r["hour_local"],
+                        "snapshot_utc": r["snapshot_utc"], "cycle_utc": r["training_rule_cycle_utc"],
+                        "fhs": r["fhs"], "latest_available_utc": (datetime.fromisoformat(r["training_rule_cycle_utc"])
+                                                         + timedelta(minutes=51)).isoformat()})
+    (arch / "selections.jsonl").write_text("".join(json.dumps(s) + "\n" for s in sel), encoding="utf-8")
+    return arch
+
+
+def _parity(tmp_path, rec, land, out="out", archive=None):
+    return prm.mg3_forward_parity(recorder_dir=rec, land=land, out_dir=tmp_path / out, through=FWD_DAY,
+                                  commit="test", archive_dir=archive, markets=RN1_MARKETS)
+
+
+def test_forward_parity_clean_recorder_is_partial_without_archive_and_pass_with_it(tmp_path, monkeypatch):
+    rec, land = _recorder(tmp_path, monkeypatch)
+    result = _parity(tmp_path, rec, land)
+    assert result["verdict"] == "PARTIAL (archive pending)"
+    for block in ("07-12", "13-16"):
+        b = result["blocks"][block]
+        assert b["rows"] == 2  # schema-1, CYYZ, torn and after-through rows are not counted
+        assert b["F0"]["pass"] and b["F0"]["max_dk_max"] <= 1e-9 and b["F1"]["pass"] and b["F2"]["pass"]
+        assert b["F4"]["pass"] and "F3" not in b
+    assert (tmp_path / "out" / "forward_parity.json").is_file()
+    archived = _parity(tmp_path, rec, land, out="out2", archive=_archive_from(rec, tmp_path))
+    assert archived["verdict"] == "PASS"
+    assert all(archived["blocks"][b]["F3"]["values_compared"] == 2 for b in ("07-12", "13-16"))
+    with pytest.raises(prm.PooledModelError, match="overwrite"):
+        _parity(tmp_path, rec, land)
+
+
+def test_forward_parity_stamp_drift_or_missing_message_fails_f0(tmp_path, monkeypatch):
+    def drift(rows):
+        rows[0]["k_max_f"] += 1e-6  # KATL h07: the RN-1 stamp
+
+    rec, land = _recorder(tmp_path, monkeypatch, rows_edit=[drift])
+    result = _parity(tmp_path, rec, land)
+    assert result["verdict"] == "FAIL"
+    assert not result["blocks"]["07-12"]["F0"]["pass"] and result["blocks"]["13-16"]["F0"]["pass"]
+    assert result["blocks"]["07-12"]["F0"]["first_bad"] == {"station": "KATL", "local_date": FWD_DAY,
+                                                             "hour_local": 7}
+
+    def drop_one(msgs):
+        msgs.pop()
+
+    rec2, land2 = _recorder(tmp_path, monkeypatch, name="rec2", msg_edit=[drop_one])
+    assert _parity(tmp_path, rec2, land2, out="out2")["verdict"] == "FAIL"
+
+
+def test_forward_parity_newer_cycle_than_training_rule_fails_f1(tmp_path, monkeypatch):
+    def newer(rows):
+        rows[1]["training_rule_cycle_utc"] = rows[1]["cycle_utc"][:11] + "00:00:00+00:00"  # training rule older
+
+    rec, land = _recorder(tmp_path, monkeypatch, rows_edit=[newer])
+    result = _parity(tmp_path, rec, land)
+    f1 = result["blocks"]["13-16"]["F1"]
+    assert result["blocks"]["07-12"]["F1"]["pass"]
+    assert f1["newer"] == 1 and not f1["pass"] and result["verdict"] == "FAIL"
+
+
+def test_forward_parity_slow_retrieval_fails_f2(tmp_path, monkeypatch):
+    from datetime import datetime, timedelta
+
+    def slow(msgs):
+        for m in msgs:
+            m["captured_at_utc"] = (datetime.fromisoformat(m["captured_at_utc"]) + timedelta(minutes=30)).isoformat()
+
+    rec, land = _recorder(tmp_path, monkeypatch, msg_edit=[slow])
+    result = _parity(tmp_path, rec, land)
+    assert not result["blocks"]["07-12"]["F2"]["pass"] and result["blocks"]["07-12"]["F2"]["max_s"] > 600
+
+
+def test_forward_parity_archive_byte_mismatch_fails_f3c(tmp_path, monkeypatch):
+    rec, land = _recorder(tmp_path, monkeypatch)
+    arch = _archive_from(rec, tmp_path, sha_edit=lambda m: m["fh"] == 2)
+    result = _parity(tmp_path, rec, land, archive=arch)
+    assert result["verdict"] == "FAIL"
+    assert not result["blocks"]["07-12"]["F3"]["F3c_pass"] and result["blocks"]["07-12"]["F3"]["F3b_pass"]
