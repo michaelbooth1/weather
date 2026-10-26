@@ -5224,6 +5224,8 @@ RS_QW_RANGE = (0.0, 60.0)
 RS_PARITY_MIN = 0.98
 RS_PARITY_TOL = 1e-6
 RS_GS_BAND = (0.95, 1.05)
+RS_ADDENDUM1_SHA256 = "1b930b8ea0db6d2be61237d5fc3c4ab5e7bca6a6abb8db9988bb26445aa5d566"  # guard G-v
+RS_GV_BAND = (0.8, 1.25)
 RS_S_SPEC = {"simple": False, "extra_scale": RS_COLUMNS}
 RS_WINDOWS = {
     "07-12": {
@@ -5274,20 +5276,21 @@ def rs_pinned_check(with_scorecard=False):
 
 
 def rs_spread_table(path):
-    """{(market, target_date, cycle): (sd, p10, p90)} from an NBP PIT corpus (last row per key, as load_nbm)."""
+    """{(market, target_date, cycle): (sd, p10, p90, version)} from an NBP PIT corpus (last row per key)."""
     table = {}
     for line in Path(path).read_text(encoding="utf-8").splitlines():
         r = json.loads(line)
         if not r.get("available") or r.get("mean") is None:
             continue
         table[(r["market_id"], r["target_date"], r["cycle"])] = (
-            _rs_finite(r.get("sd")), _rs_finite(r.get("p10")), _rs_finite(r.get("p90")))
+            _rs_finite(r.get("sd")), _rs_finite(r.get("p10")), _rs_finite(r.get("p90")),
+            str(r.get("product_version")))
     return table
 
 
 def rs_training_columns(frame, nbm_table, spread, nbm_at_cutoff, timezones):
     """``nbm_sd`` and ``nbm_qw`` = p90 - p10 of the L9 row ``nbm_at_cutoff`` selects (NaN without an anchor)."""
-    sd, qw, stats = [], [], defaultdict(int)
+    sd, qw, versions, stats = [], [], [], defaultdict(int)
     for market, day, hour in zip(frame["market"], frame["target_date"], frame["hour"]):
         stats["rows"] += 1
         value, cycle = nbm_at_cutoff(nbm_table, market, str(day)[:10], int(hour), timezones[market])
@@ -5295,9 +5298,11 @@ def rs_training_columns(frame, nbm_table, spread, nbm_at_cutoff, timezones):
             stats["no_anchor"] += 1
             sd.append(float("nan"))
             qw.append(float("nan"))
+            versions.append(None)
             continue
         stats["anchor_rows"] += 1
-        s_, p10, p90 = spread.get((market, str(day)[:10], cycle), (float("nan"),) * 3)
+        s_, p10, p90, *rest = spread.get((market, str(day)[:10], cycle), (float("nan"),) * 3)
+        versions.append(rest[0] if rest else None)
         q = p90 - p10 if math.isfinite(p10) and math.isfinite(p90) else float("nan")
         for name, v, (lo, hi) in (("sd", s_, RS_SD_RANGE), ("qw", q, RS_QW_RANGE)):
             if math.isfinite(v):
@@ -5308,6 +5313,7 @@ def rs_training_columns(frame, nbm_table, spread, nbm_at_cutoff, timezones):
     out = frame.copy()
     out["nbm_sd"] = sd
     out["nbm_qw"] = qw
+    out["nbm_version"] = versions
     return out, dict(stats)
 
 
@@ -5329,22 +5335,13 @@ def _rs_cycle(key):
     return f"{d[0:4]}-{d[4:6]}-{d[6:8]}T{d[9:11]}"
 
 
-def rs_parity_dev(layout, nbm_dev_corpus, hours, markets=R0_MARKETS):
-    """Gate 1b (outcome-free): captured v2_stddev / v2_p10 / v2_p90 vs the dev NBP row of the captured cycle."""
+def rs_dev_population(layout, hours, markets=R0_MARKETS):
+    """Gate 1b / G-v dev rows: window cutoff hours, local_hour >= cutoff, usable captured v2 mean, 07-30..09-29."""
     import numpy as np
     import pandas as pd
 
     from weather.calibration.r0_ols_floor_devfit import usable_v2_mean
 
-    sha = _rr_sha(nbm_dev_corpus)
-    if sha != RS_DEV_CORPUS_SHA256:
-        raise PooledModelError(f"dev NBP corpus sha {sha} != {RS_DEV_CORPUS_SHA256}")
-    corpus = {}
-    for line in Path(nbm_dev_corpus).read_text(encoding="utf-8").splitlines():
-        r = json.loads(line)
-        if not r.get("available") or r.get("mean") is None or r["target_date"] > N_DEV_LAST.isoformat():
-            continue
-        corpus[(r["market_id"], r["target_date"], str(r["issued_at"])[:13])] = r
     snaps = pd.read_parquet(Path(layout) / "inputs_snapshots.parquet", columns=[
         "market", "target_date", "local_hour", "cutoff_hour", "v2_mean", "v2_stddev", "v2_available_at",
         "captured_at_utc", "v2_p10", "v2_p90", "v2_cycle_key"])
@@ -5356,9 +5353,62 @@ def rs_parity_dev(layout, nbm_dev_corpus, hours, markets=R0_MARKETS):
     keep = (np.isfinite(usable) & np.isin(hour, list(hours)) & (snaps.local_hour.to_numpy(float) >= hour)
             & snaps.market.isin(list(markets)).to_numpy() & (day >= N_DEV_FIRST).to_numpy()
             & (day <= N_DEV_LAST).to_numpy())
+    return snaps[keep].reset_index(drop=True)
+
+
+def _rs_describe(values):
+    import numpy as np
+
+    arr = np.asarray([v for v in values if v is not None and math.isfinite(float(v))], dtype=float)
+    if not len(arr):
+        return {"n": 0}
+    q = np.quantile(arr, [0.1, 0.25, 0.5, 0.75, 0.9])
+    return {"n": int(len(arr)), "mean": float(arr.mean()), "p10": float(q[0]), "p25": float(q[1]),
+            "median": float(q[2]), "p75": float(q[3]), "p90": float(q[4])}
+
+
+def rs_era_guard(frame, dev, window):
+    """Guard G-v (addendum 1): nbm_sd / nbm_qw by NBM version and year vs dev 2026; median ratios in [0.8, 1.25]."""
+    import numpy as np
+
+    cfg = _rs_window(window)
+    anchored = frame[frame["nbm_version"].notna()]
+    dev_cols = {"nbm_sd": dev["v2_stddev"].to_numpy(float),
+                "nbm_qw": dev["v2_p90"].to_numpy(float) - dev["v2_p10"].to_numpy(float)}
+    dev_hour = np.array([int(float(h)) for h in dev["cutoff_hour"]]) if len(dev) else np.array([], int)
+    out = {"addendum1_sha256": RS_ADDENDUM1_SHA256, "band": list(RS_GV_BAND), "columns": {}}
+    ok = True
+    for col in RS_COLUMNS:
+        cells = {"train_all": _rs_describe(anchored[col]), "dev_2026": _rs_describe(dev_cols[col])}
+        for (year, version), part in anchored.groupby([anchored["year"], anchored["nbm_version"]]):
+            cells[f"train_{int(year)}_v{version}"] = _rs_describe(part[col])
+        for h in cfg["hours"]:
+            cells[f"train_all|h{h:02d}"] = _rs_describe(anchored.loc[anchored["hour"] == h, col])
+            cells[f"dev_2026|h{h:02d}"] = _rs_describe(dev_cols[col][dev_hour == h])
+        t_med = cells["train_all"].get("median")
+        d_med = cells["dev_2026"].get("median")
+        ratio = d_med / t_med if t_med and d_med is not None else None
+        in_band = ratio is not None and RS_GV_BAND[0] <= ratio <= RS_GV_BAND[1]
+        ok = ok and in_band
+        out["columns"][col] = {"cells": cells, "ratio_dev_over_train_median": ratio, "in_band": in_band}
+    out["pass"] = ok
+    return out
+
+
+def rs_parity_dev(layout, nbm_dev_corpus, hours, markets=R0_MARKETS):
+    """Gate 1b (outcome-free): captured v2_stddev / v2_p10 / v2_p90 vs the dev NBP row of the captured cycle."""
+    sha = _rr_sha(nbm_dev_corpus)
+    if sha != RS_DEV_CORPUS_SHA256:
+        raise PooledModelError(f"dev NBP corpus sha {sha} != {RS_DEV_CORPUS_SHA256}")
+    corpus = {}
+    for line in Path(nbm_dev_corpus).read_text(encoding="utf-8").splitlines():
+        r = json.loads(line)
+        if not r.get("available") or r.get("mean") is None or r["target_date"] > N_DEV_LAST.isoformat():
+            continue
+        corpus[(r["market_id"], r["target_date"], str(r["issued_at"])[:13])] = r
     counts = defaultdict(int)
     per_hour = defaultdict(lambda: defaultdict(int))
-    for row in snaps[keep].itertuples(index=False):
+    for row in rs_dev_population(layout, hours, markets).itertuples(index=False):
         h = f"h{int(float(row.cutoff_hour)):02d}"
         counts["rows"] += 1
         per_hour[h]["rows"] += 1
@@ -5433,9 +5483,12 @@ def rs_guard(frame, window):
     return {"arms": out, "primary": primary, "pass": out[primary]["in_band"]}
 
 
-def rung_s_loyo(*, window, records_root, nbm_train_corpus, reference_loyo_rows, out_dir, hrrr_corpus=None,
+def rung_s_loyo(*, window, records_root, nbm_train_corpus, reference_loyo_rows, layout, out_dir, hrrr_corpus=None,
                 land=None, markets=R0_MARKETS):
-    """R-S gate 1a, guard G-s, control C-mean, the base-rung LOYO control and gate 2 for one window."""
+    """R-S gate 1a, guard G-v (addendum 1), guard G-s, control C-mean, the base-rung LOYO control and gate 2.
+
+    ``layout`` is read for inputs only (captured v2 spread, G-v); no label, outcome or price is read here.
+    """
     cfg = _rs_window(window)
     out = require_output_outside_repo(out_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -5444,7 +5497,8 @@ def rung_s_loyo(*, window, records_root, nbm_train_corpus, reference_loyo_rows, 
     ref_sha = _rr_sha(reference_loyo_rows)
     if ref_sha != cfg["reference_loyo_sha256"]:
         raise PooledModelError(f"reference loyo rows sha {ref_sha} != {cfg['reference_loyo_sha256']}")
-    audit = {"rule_sha256": RS_RULE_SHA256, "window": window, "arms": list(cfg["arms"]),
+    audit = {"rule_sha256": RS_RULE_SHA256, "addendum1_sha256": RS_ADDENDUM1_SHA256, "window": window,
+             "arms": list(cfg["arms"]),
              "primary": list(cfg["primary"]), "hours": list(cfg["hours"]), "gates": {},
              "pinned": rs_pinned_check(),
              "inputs": {"nbm_train_corpus": _rr_sha(nbm_train_corpus), "reference_loyo_rows": ref_sha,
@@ -5458,6 +5512,10 @@ def rung_s_loyo(*, window, records_root, nbm_train_corpus, reference_loyo_rows, 
     audit["gates"]["1a_parity_training"] = rs_parity_training(audit["training_spread"])
     if not audit["gates"]["1a_parity_training"]["pass"]:
         audit["stopped_at"] = "gate 1a parity (training half; not a kill)"
+        return finish()
+    audit["guard_gv"] = rs_era_guard(frame, rs_dev_population(layout, cfg["hours"], markets), window)
+    if not audit["guard_gv"]["pass"]:
+        audit["stopped_at"] = "era shift (G-v; addendum 1, not a kill)"
         return finish()
     audit["guard_gs"] = rs_guard(frame, window)
     if not audit["guard_gs"]["pass"]:
@@ -5490,7 +5548,8 @@ def rung_s_dev_emit(*, window, records_root, layout, replay_root, nbm_train_corp
     cfg = _rs_window(window)
     out = require_output_outside_repo(out_dir)
     loyo = json.loads(Path(loyo_audit).read_bytes())
-    if (loyo.get("rule_sha256") != RS_RULE_SHA256 or loyo.get("window") != window or loyo.get("stopped_at")
+    if (loyo.get("rule_sha256") != RS_RULE_SHA256 or loyo.get("addendum1_sha256") != RS_ADDENDUM1_SHA256
+            or loyo.get("window") != window or loyo.get("stopped_at") or not loyo["guard_gv"]["pass"]
             or not loyo["gates"]["2_loyo"]["pass"]):
         raise PooledModelError(f"R-S gates 1a-2 did not pass for {window}: {loyo.get('stopped_at')}")
     rs = {"rule_sha256": RS_RULE_SHA256, "window": window, "loyo_audit_sha256": _rr_sha(loyo_audit),
@@ -6386,6 +6445,7 @@ def _parse(argv=None):
     sl_.add_argument("--records", required=True)
     sl_.add_argument("--nbm-train-corpus", required=True)
     sl_.add_argument("--reference-loyo-rows", required=True, help="R-R (07-12) or R-K (13-16) loyo_rows.jsonl")
+    sl_.add_argument("--layout", required=True, help="dev layout (inputs only: captured v2 spread for G-v)")
     sl_.add_argument("--hrrr", help="07-12 only: L13 HRRR corpus (R-R's)")
     sl_.add_argument("--land", help="07-12 only: L13 land_3x3.json (R-R's)")
     sl_.add_argument("--out", required=True)
@@ -6625,9 +6685,11 @@ def main(argv=None):
         return 0
     if args.command == "rung-s-loyo":
         audit = rung_s_loyo(window=args.window, records_root=args.records, nbm_train_corpus=args.nbm_train_corpus,
-                            reference_loyo_rows=args.reference_loyo_rows, out_dir=args.out, hrrr_corpus=args.hrrr,
-                            land=args.land)
+                            reference_loyo_rows=args.reference_loyo_rows, layout=args.layout, out_dir=args.out,
+                            hrrr_corpus=args.hrrr, land=args.land)
+        gv = audit.get("guard_gv") or {}
         print(json.dumps({"gates": {k: v.get("pass") for k, v in audit["gates"].items()},
+                          "guard_gv": {c: v["ratio_dev_over_train_median"] for c, v in gv.get("columns", {}).items()},
                           "guard_gs": audit.get("guard_gs"), "stopped_at": audit.get("stopped_at")}, indent=1))
         return 0
     if args.command == "rung-s-dev-emit":
