@@ -7,7 +7,9 @@ from datetime import datetime, timezone
 
 import pytest
 
-from weather.calibration import ols_floor_ladder as lad
+from tests.host_guard import import_or_skip_on_capture_host
+
+lad = import_or_skip_on_capture_host("weather.calibration.ols_floor_ladder")
 
 
 def test_overnight_low_uses_high_so_far_rows_and_checks_them():

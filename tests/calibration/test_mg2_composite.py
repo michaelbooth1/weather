@@ -15,7 +15,10 @@ import pandas as pd
 import pytest
 
 from weather import mg1_reserved_window as w
-from weather.calibration import mg2_composite as mg2
+
+from tests.host_guard import import_or_skip_on_capture_host
+
+mg2 = import_or_skip_on_capture_host("weather.calibration.mg2_composite")
 
 ROOT = Path(__file__).resolve().parents[2]
 

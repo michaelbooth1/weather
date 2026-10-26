@@ -8,8 +8,11 @@ from pathlib import Path
 
 import pandas as pd
 
-from weather.calibration import mg2_composite as mg2
 from weather.reporting.scorecards import dev_scorecard_data as data
+
+from tests.host_guard import import_or_skip_on_capture_host
+
+mg2 = import_or_skip_on_capture_host("weather.calibration.mg2_composite")
 
 ROOT = Path(__file__).resolve().parents[2]
 SRC = (ROOT / "src/weather/calibration/mg2_composite.py").read_text(encoding="utf-8")

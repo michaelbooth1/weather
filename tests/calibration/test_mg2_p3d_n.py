@@ -18,7 +18,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from weather.calibration import mg2_p3d_n as p3
+from tests.host_guard import import_or_skip_on_capture_host
+
+p3 = import_or_skip_on_capture_host("weather.calibration.mg2_p3d_n")
 
 ROOT = Path(__file__).resolve().parents[2]
 GOLDEN = ROOT / "tests" / "fixtures" / "mg2_p3d_n_golden.json"

@@ -9,7 +9,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from weather.calibration import high_so_far_parity_shadow as hs
+from tests.host_guard import import_or_skip_on_capture_host
+
+hs = import_or_skip_on_capture_host("weather.calibration.high_so_far_parity_shadow")
 
 
 def test_import_refuses_on_the_capture_host_or_when_unprovable():

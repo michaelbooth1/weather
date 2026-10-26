@@ -9,8 +9,10 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import pytest
 
-from weather.calibration import dead_bucket as db
-from weather.calibration import dead_bucket_toronto as tor
+from tests.host_guard import import_or_skip_on_capture_host
+
+db = import_or_skip_on_capture_host("weather.calibration.dead_bucket")
+tor = import_or_skip_on_capture_host("weather.calibration.dead_bucket_toronto")
 
 TZ = ZoneInfo("America/Toronto")
 D = date(2026, 8, 20)
