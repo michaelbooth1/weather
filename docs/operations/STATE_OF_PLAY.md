@@ -66,7 +66,7 @@ YouTube-maker scoping stay paused; the maker pilot is approved in principle but 
 
 1. **Bind Rule B-1** (master, 10-27) with C7 resolved, so MG-2 starts accruing at D0 10-28.
 2. **Running, approved by master:** L3 00-06 step 2, R-N (HRRR 00-06), R-O (GEFS centre, L11), R-P (NBH 13-16, L14), R-Q (GEFS
-   spread, L15). **R-K** gate 2 LOYO PASS −0.0139 [−0.0166, −0.0112], training years only, dev pending: interim, not an edge.
+   spread, L15). **R-K dev WIN** at 13-16 (−0.0722 [−0.0979, −0.0471]); R vs market 1.22: not an edge, not promotable (no forward HRRR).
 3. **Oct-Dec rungs** under R10 and the NBS TXN input (L12), each pre-registered with a ledger row before any scored row.
 4. **Cool-season paper test PT-1** ([draft](COOL_SEASON_PAPER_TEST_PREREG.md); owner Q6-Q9 answered 10-25, dates 12-12..01-25) bound before its D0.
 5. **Host nights:** pending integrations through the quiet-window merge, one attempt manifest each.
