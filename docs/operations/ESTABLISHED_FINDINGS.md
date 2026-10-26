@@ -4224,6 +4224,11 @@ merge-forward, because that file is not on this head's base.
   choice. The dev training-identical anchor equals the captured `usable_v2_mean` on 28,514 of 28,814 07-12 dev rows
   (about 99%; `C:\t\l2\p3d_n_dev\dev_emit_audit.json`, `dev_corpus_vs_captured_nbm_by_hour`), so the gap is a
   training-era (2021-25) vs 2026 difference between L9's NBM corpus and NBS TXN: rounding, version or cycle timing.
+  **Mechanism:** dev gap ≈ 0 is an NBM v5.0 NBS product change (08-12Z TXN carried forward from 07Z, equal to the NBP
+  07Z mean on ~95% of dev rows vs ≤ 0.45 in v4.x); cycle labels verified. **NBS-derived inputs trained on v4.x
+  (2021-25) face a train/serve shift on v5.0 (2026): any NBS feature needs a per-version distribution check before
+  use.** Source: `claude/rs-spread-20261026` @
+  `e8ece032c`, `docs/research/l2-pooled-residual-2026-10-24/rungl2/nbs_label_check.md` (sha256 `41e5d1af…`) and `anchor_diag.md` (`68a97bbb…`).
   R-L3 is DROPPED (no rule written); an outcome-free, input-only diagnostic (|n_txn − L9 nbm| by year x hour) is
   running. Rule `a1f95786…`, branch `claude/rung0712-20261025` @ `6488c7a31`. **Reopen if:** the diagnostic identifies
   a training-side anchor defect (rounding, version or timing) that a fresh, differently named rule could correct on the
