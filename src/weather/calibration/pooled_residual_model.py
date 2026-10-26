@@ -6933,6 +6933,147 @@ def mg3_forward_parity(*, recorder_dir, land, out_dir, through, commit, archive_
     return result
 
 
+# ------------------------------------------------- R-U (rule_ru.md 46be7a97): HRRR 3x3 spread anomaly vs |dmax - mu| of the frozen P3d_H 13-16, P0 only
+
+RU_RULE_SHA256 = "46be7a97d6ffbbf33bc6a79ebddf542ec74a6e695f379ff2959be43c9e291293"
+RU_STATE_SHA256 = "e891d884e06164a6925f6b2bbf1c7756529cb35222ab0c8c863552cfa7457db7"
+RU_HRRR_PINS = ("409f6f917f2bca2999ebf39c52440c673760356295aaa291f572bfe624269935",
+                "055add5a4a2aa25483f70ee6c355562d4730e8b01daa1f8b56adb5788512ec75")
+RU_HOURS = (13, 14, 15, 16)
+
+
+def ru_p0_stats(frame, z_col="z", e_col="e", years=None):
+    """R-Z P0 statistics on a frame with year, market, hour, z, e (and optional rise): L3's thresholds unchanged."""
+    import numpy as np
+
+    from weather.calibration import rz_hrrr_spread as rz
+
+    years = tuple(years or rz.LOYO_YEARS)
+    year = frame["year"].to_numpy(int)
+    z, e = frame[z_col].to_numpy(float), frame[e_col].to_numpy(float)
+    rows = np.isfinite(z) & np.isfinite(e)
+    za = np.full(len(frame), np.nan)
+    for Y in years:
+        te = year == Y
+        table = frame[rows & ~te].groupby(["market", "hour"])[z_col].mean().to_dict()
+        zb = np.array([table.get((m, h), np.nan) for m, h in zip(frame["market"], frame["hour"])], float)
+        za[te] = z[te] - zb[te]
+    rows &= np.isfinite(za)
+    hours, markets = frame["hour"].to_numpy(int), frame["market"].astype(str).to_numpy()
+
+    def rho(mask):
+        m = rows & mask
+        return {"rho": rz._spearman(za[m], e[m]), "n": int(m.sum())}
+
+    pooled = rho(np.ones(len(frame), bool))
+    per_year = {str(Y): rho(year == Y) for Y in years}
+    sign = 1.0 if (pooled["rho"] or 0.0) >= 0 else -1.0
+    flips = [y for y, r in per_year.items() if r["rho"] is not None and r["rho"] * sign < 0]
+    closed = bool(pooled["rho"] is None or pooled["rho"] < rz.P0_RHO_MIN or len(flips) > rz.P0_FLIP_MAX)
+    out = {"pooled": pooled, "per_year": per_year,
+           "per_hour": {f"h{h:02d}": rho(hours == h) for h in sorted(set(hours.tolist()))},
+           "per_market_reported_only": {m: rho(markets == m) for m in sorted(set(markets))},
+           "opposite_sign_years": flips, "closed": closed}
+    if "rise" in frame.columns:
+        rise = frame["rise"].to_numpy(bool)
+        out["rise_reported_only"] = {"pooled": rho(rise), **{f"h{h:02d}": rho(rise & (hours == h))
+                                                               for h in sorted(set(hours.tolist()))}}
+    return out
+
+
+def ru_p0(*, records_root, nbm_train_corpus, hrrr_corpus, state_path, out_dir, commit, rule_path=None,
+          markets=R0_MARKETS, loyo=True):
+    """rule_ru.md: P0 of the HRRR 3x3 spread anomaly against |dmax - mu| of the frozen P3d_H 13-16 (history only)."""
+    import numpy as np
+
+    from weather.calibration import ols_floor_ladder as l9
+    from weather.calibration import rz_hrrr_spread as rz
+    from weather.market.market_registry import spec_for_id
+
+    if rule_path is not None and _rr_sha(rule_path) != RU_RULE_SHA256:
+        raise PooledModelError(f"rule {rule_path} is not {RU_RULE_SHA256}")
+    out = require_output_outside_repo(out_dir)
+    if out.exists():
+        raise PooledModelError(f"refusing to overwrite {out}")
+    state = mg3_load_state(state_path, RU_STATE_SHA256)
+    if state["block"] != "13-16":
+        raise PooledModelError("R-U needs the 13-16 state")
+    # The P3d_H 13-16 training frame, built exactly as mg3_freeze_state built it.
+    timezones = {m: spec_for_id(m).timezone for m in markets}
+    frame, _buckets = dev_training_frame(records_root, markets)
+    if frame["year"].max() >= 2026:
+        raise PooledModelError("an R-U row is from 2026")
+    frame, _ = attach_training_nbm(frame, l9.load_nbm(nbm_train_corpus), l9.nbm_at_cutoff, timezones)
+    frame = frame[frame["hour"].isin(RU_HOURS)].reset_index(drop=True)
+    train_hrrr, _ = rk_hrrr_columns(hrrr_corpus, markets)
+    frame, _ = rk_training_columns(frame, train_hrrr)
+    extra = list(state["extra_hgb"])
+    # mu: the frozen state's pre-floor mean (in-sample for every history row; stated in the rule).
+    mu = np.full(len(frame), np.nan)
+    for i, r in enumerate(frame.to_dict("records")):
+        if not (math.isfinite(float(r["F"])) and math.isfinite(float(r["x_current_temp"]))):
+            continue
+        X, mu0, g, _ = mg3_state_X(state, int(r["hour"]), market=r["market"],
+                                   target_date=date.fromisoformat(r["target_date"]), high_so_far=float(r["F"]),
+                                   current_temp=float(r["x_current_temp"]), nbm_mean=float(r["fh"]),
+                                   extra={c: r[c] for c in extra})
+        mean = state["hours"][int(r["hour"])]["mean"]
+        mu[i] = float((mu0 + np.array([[1.0, g, max(g, 0.0)]]) @ mean["ols"] + mean["hgb"].predict(X))[0])
+    frame["mu"] = mu
+    frame["e"] = (frame["y"].astype(float) - frame["mu"]).abs()
+    frame["rise"] = frame["y"].astype(float) > np.floor(frame["F"].astype(float) + 0.5)
+    # z: L3's R-Z code, unchanged; ICAO -> market by the corpus's stations.json.
+    spread, spread_stats, pins = rz.hrrr_spread(hrrr_corpus, *RU_HRRR_PINS)
+    stations = json.loads((Path(hrrr_corpus) / "stations.json").read_bytes())
+    spread["market"] = [stations.get(s, {}).get("market") for s in spread["station"]]
+    z = spread.set_index(["market", "local_date", "hour"])["z"].to_dict()
+    sd9 = spread.set_index(["market", "local_date", "hour"])["sd9"].to_dict()
+    keys = list(zip(frame["market"], frame["target_date"], frame["hour"].astype(int)))
+    frame["z"] = [z.get(k, np.nan) for k in keys]
+    frame["sd9"] = [sd9.get(k, np.nan) for k in keys]
+    coverage = float(np.isfinite(frame["z"].to_numpy(float)).mean())
+    result = {"rule_sha256": RU_RULE_SHA256, "commit": commit, "state_sha256": RU_STATE_SHA256,
+              "module_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+              "rz_module_sha256": hashlib.sha256(Path(rz.__file__).read_bytes()).hexdigest(),
+              "inputs": dict(pins, nbm_train_corpus=_rr_sha(nbm_train_corpus)), "spread_stats": spread_stats,
+              "rows": int(len(frame)), "years": sorted(int(y) for y in frame["year"].unique()),
+              "z_coverage": coverage, "coverage_min": rz.COVERAGE_MIN,
+              "thresholds": {"rho_min": rz.P0_RHO_MIN, "flip_max": rz.P0_FLIP_MAX}}
+    usable = frame[np.isfinite(frame["mu"].to_numpy(float))].reset_index(drop=True)
+    result["p0"] = ru_p0_stats(usable)
+    result["precondition_coverage_ok"] = coverage >= rz.COVERAGE_MIN
+    result["verdict"] = ("STOPPED (coverage)" if not result["precondition_coverage_ok"]
+                         else "CLOSED" if result["p0"]["closed"] else "SURVIVES")
+    # Reported only: the high_so_far structure by hour.
+    half = np.floor(usable["F"].astype(float) + 0.5)
+    result["high_so_far_reported_only"] = {
+        f"h{h:02d}": {"rows": int((usable["hour"] == h).sum()),
+                      "median_e": float(usable.loc[usable["hour"] == h, "e"].median()),
+                      "share_dmax_eq_halfup_F": float((usable["y"].astype(float) == half)[usable["hour"] == h].mean()),
+                      "median_sd9": float(usable.loc[usable["hour"] == h, "sd9"].median())}
+        for h in RU_HOURS}
+    # Reported only: mu from leave-one-year-out P3d_H refits (the R-K LOYO code path).
+    if loyo:
+        simple, extra_ols, extra_hgb, extra_scale = _arm_spec(RK_ARMS[MG3_ARM])
+        mu_l = np.full(len(frame), np.nan)
+        for Y in sorted(int(y) for y in frame["year"].unique()):
+            for h in RU_HOURS:
+                tr = frame[(frame["year"] != Y) & (frame["hour"] == h)].reset_index(drop=True)
+                te_mask = ((frame["year"] == Y) & (frame["hour"] == h)).to_numpy()
+                if not te_mask.any():
+                    continue
+                fit = _rung_entry(tr, simple, extra_ols, extra_hgb, extra_scale)["fit"]
+                yhat, _ = fit["mean"].predict(frame[te_mask].reset_index(drop=True))
+                mu_l[te_mask] = np.asarray(yhat, float)
+                print(f"ru loyo {Y} h{h}: {int(te_mask.sum())} rows", flush=True)
+        lo = frame.assign(e=(frame["y"].astype(float) - mu_l).abs())
+        result["loyo_mu_reported_only"] = ru_p0_stats(lo[np.isfinite(mu_l)].reset_index(drop=True))
+    out.mkdir(parents=True)
+    (out / "ru_p0.json").write_text(json.dumps(result, indent=1, sort_keys=True, default=str), encoding="utf-8")
+    print(f"R-U P0: {result['verdict']} pooled {result['p0']['pooled']}", flush=True)
+    return result
+
+
 # -------------------------------------------------------------------------- CLI
 
 
@@ -7217,6 +7358,14 @@ def _parse(argv=None):
     mb.add_argument("--state-1316", default=None)
     mb.add_argument("--weights", default=None)
     mb.add_argument("--out", required=True)
+    ru = sub.add_parser("ru-p0", help="R-U P0 (rule_ru.md): HRRR 3x3 spread anomaly vs P3d_H 13-16 error, history")
+    ru.add_argument("--records", required=True)
+    ru.add_argument("--nbm-train-corpus", required=True)
+    ru.add_argument("--hrrr", required=True)
+    ru.add_argument("--state", required=True)
+    ru.add_argument("--rule", required=True)
+    ru.add_argument("--commit", required=True)
+    ru.add_argument("--out", required=True)
     mp = sub.add_parser("mg3-forward-parity", help="MG-3 (1c): forward HRRR parity F0-F4 (inputs only)")
     mp.add_argument("--recorder", required=True)
     mp.add_argument("--land", required=True)
@@ -7511,6 +7660,10 @@ def main(argv=None):
         print(json.dumps({"sha256": _rr_sha(out), "states": binding["states"],
                           "rn1": binding["rn1"]["recomputed"]}, indent=1, sort_keys=True))
         return 0
+    if args.command == "ru-p0":
+        result = ru_p0(records_root=args.records, nbm_train_corpus=args.nbm_train_corpus, hrrr_corpus=args.hrrr,
+                       state_path=args.state, out_dir=args.out, commit=args.commit, rule_path=args.rule)
+        return 0 if result["verdict"] != "STOPPED (coverage)" else 3
     if args.command == "mg3-forward-parity":
         result = mg3_forward_parity(recorder_dir=args.recorder, land=args.land, out_dir=args.out,
                                     through=args.through, commit=args.commit, archive_dir=args.archive,
