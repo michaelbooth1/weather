@@ -80,7 +80,11 @@ RULE_CONSTANTS = {
 }
 BOUND_FIELDS = ("mg2_rule_sha256", "mg2_binding_commit", "mg2_release_binding_sha256", "mg2_owner_decision_id",
                 "l6_coefficients_sha256", "p3d_n_state_sha256", "function_sha256", "b_scorer_sha256",
-                "scorecard_code_sha256")
+                "scorecard_code_sha256", "l6_state_sha256")
+# The frozen season-matched L6 own-model state of MG-2's 07-12 arm (MG-2 clarification season-L6 2026-10-26,
+# sections 3 and 7): bound in B-1, recorded in MG-2's release binding next to the l6_stack part sha.
+L6_STATE_FIELD = "l6_state_sha256"
+SHA256_HEX = re.compile(r"[0-9a-f]{64}")
 RULE_FIELDS = tuple(RULE_CONSTANTS) + BOUND_FIELDS + ("d0", "d0_latest")
 MARKETS = tuple(RULE_CONSTANTS["markets"].split(","))
 N_DATES = 45
@@ -174,6 +178,9 @@ def read_rule(path):
     wrong = {k: fields[k] for k, v in RULE_CONSTANTS.items() if fields[k] != v}
     if wrong:
         raise BRefused(f"rule values differ from the scorer's: {wrong}")
+    l6_state = fields[L6_STATE_FIELD]
+    if l6_state != FILL and not SHA256_HEX.fullmatch(l6_state):
+        raise BRefused(f"rule {L6_STATE_FIELD} must be 64 lowercase hex or {FILL}, got {l6_state!r}")
     d0, latest = date.fromisoformat(fields["d0"]), date.fromisoformat(fields["d0_latest"])
     if d0 > latest:
         raise BRefused(f"rule d0 {d0} is after d0_latest {latest}")
@@ -181,7 +188,19 @@ def read_rule(path):
 
 
 def unfilled(fields):
-    return [k for k in BOUND_FIELDS if fields.get(k) == FILL]
+    """Bound fields still at FILL; the L6 state sha also counts while it is empty or absent."""
+    return [k for k in BOUND_FIELDS
+            if fields.get(k) == FILL or (k == L6_STATE_FIELD and not (fields.get(k) or "").strip())]
+
+
+def l6_state_problems(fields, release_binding):
+    """The bound L6 state sha: 64 lowercase hex, and equal to the one MG-2's release binding records."""
+    value = fields.get(L6_STATE_FIELD) or ""
+    if not SHA256_HEX.fullmatch(value):
+        return [L6_STATE_FIELD]
+    if _json(release_binding).get(L6_STATE_FIELD) != value:
+        return [f"{L6_STATE_FIELD} (MG-2 release binding)"]
+    return []
 
 
 # ----------------------------------------------------------------------------- the estimand
@@ -287,6 +306,7 @@ def bound_hash_problems(fields, *, mg2_rule, release_binding, mg2_look, vectors,
     for key in ("l6_coefficients_sha256", "p3d_n_state_sha256", "function_sha256"):
         if mg2_fields.get(key) != fields[key]:
             problems.append(key)
+    problems += l6_state_problems(fields, release_binding)
     if mg2.rule_d0(mg2_fields) != date.fromisoformat(fields["d0"]):
         problems.append("d0 (MG-2 rule)")
     try:

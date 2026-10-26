@@ -12,6 +12,7 @@ SCHEMAS = (
         "b_rule_v1",
         "weather.calibration.b_scorer",
         "active",
-        "Fenced binding block of Rule B-1 (MG-2 against the market): fixed constants and bound hashes.",
+        "Fenced binding block of Rule B-1 (MG-2 against the market): fixed constants and bound hashes "
+        "(including the frozen L6 own-model state sha256, l6_state_sha256).",
     ),
 )

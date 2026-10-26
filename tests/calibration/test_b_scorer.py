@@ -28,7 +28,7 @@ DATES = [(D0 + timedelta(days=i)).isoformat() for i in range(45)]
 TODAY = date(2026, 12, 20)
 FILLED = {"mg2_rule_sha256": "1" * 64, "mg2_binding_commit": "2" * 40, "mg2_release_binding_sha256": "3" * 64,
           "mg2_owner_decision_id": "OD-2026-10-27-mg2", "l6_coefficients_sha256": "4" * 64,
-          "p3d_n_state_sha256": "5" * 64, "function_sha256": "6" * 64}
+          "p3d_n_state_sha256": "5" * 64, "function_sha256": "6" * 64, "l6_state_sha256": "7" * 64}
 
 
 def _rule(tmp_path, fill=True, **over):
@@ -51,6 +51,49 @@ def _receipt(tmp_path):
 
 
 # ----------------------------------------------------------------------------- precondition and rule
+
+def test_l6_state_sha_is_a_bound_field_that_must_be_filled_with_hex(tmp_path):
+    """MG-2 clarification season-L6 2026-10-26 sections 3 and 7: the frozen L6 state sha is bound in B-1."""
+    assert "l6_state_sha256" in b.BOUND_FIELDS and "l6_state_sha256" in b.RULE_FIELDS
+    _, fields = b.read_rule(_rule(tmp_path, fill=False))
+    assert "l6_state_sha256" in b.unfilled(fields)
+    _, fields = b.read_rule(_rule(tmp_path))
+    assert b.unfilled(fields) == []
+    assert b.unfilled(dict(fields, l6_state_sha256="")) == ["l6_state_sha256"]
+    assert b.unfilled({k: v for k, v in fields.items() if k != "l6_state_sha256"}) == ["l6_state_sha256"]
+    with pytest.raises(b.BRefused, match="FILL@BINDING.*l6_state_sha256"):
+        b.look_guard(rule=_rule(tmp_path, l6_state_sha256=b.FILL), mg1_look_receipt=_receipt(tmp_path), out=tmp_path,
+                     today=TODAY)
+
+
+@pytest.mark.parametrize("bad", ["", "FILL", "PENDING", "A" * 64, "7" * 63, "7" * 65, "g" * 64])
+def test_rule_refuses_an_empty_or_malformed_l6_state_sha(tmp_path, bad):
+    with pytest.raises(b.BRefused, match="l6_state_sha256 must be 64 lowercase hex"):
+        b.read_rule(_rule(tmp_path, l6_state_sha256=bad))
+
+
+def test_rule_without_the_l6_state_field_refuses(tmp_path):
+    path = _rule(tmp_path)
+    text = path.read_text(encoding="utf-8")
+    path.write_text("
+".join(x for x in text.split("
+") if not x.startswith("l6_state_sha256:")), encoding="utf-8")
+    with pytest.raises(b.BRefused, match="lacks.*l6_state_sha256"):
+        b.read_rule(path)
+
+
+def test_l6_state_sha_must_equal_the_mg2_release_binding(tmp_path):
+    binding = tmp_path / "release-binding.json"
+    fields = {"l6_state_sha256": "7" * 64}
+    binding.write_text(json.dumps({"l6_state_sha256": "7" * 64}), encoding="utf-8")
+    assert b.l6_state_problems(fields, binding) == []
+    binding.write_text(json.dumps({"l6_state_sha256": "8" * 64}), encoding="utf-8")
+    assert b.l6_state_problems(fields, binding) == ["l6_state_sha256 (MG-2 release binding)"]
+    binding.write_text(json.dumps({}), encoding="utf-8")
+    assert b.l6_state_problems(fields, binding) == ["l6_state_sha256 (MG-2 release binding)"]
+    for bad in ("", b.FILL, "7" * 63):
+        assert b.l6_state_problems({"l6_state_sha256": bad}, binding) == ["l6_state_sha256"]
+
 
 def test_the_look_refuses_first_without_mg1_look_receipt(tmp_path):
     for receipt in (None, tmp_path / "absent.json"):

@@ -10,7 +10,10 @@ The composite, per snapshot (``SWITCH_HOUR`` = 13, fixed by the rule):
 * ``local_hour < 13``: lane L6's own-obs stack over MG-1
   (``weather.reporting.scorecards.free_source_candidates.l6_stack``: mu = v2_mean + a_h + b_h (N - v2_mean)
   at hours 07-12 where the own-obs nowcast N exists; MG-1 exactly otherwise), with N = ``n_own`` built from
-  the captured METAR rows (``captured_nowcast``, lane L3's ecd8c9ba6 reader);
+  the captured METAR rows (``captured_nowcast``, lane L3's ecd8c9ba6 reader) and served by the frozen
+  season-matched L6 own-model state (MG-2 clarification season-L6 2026-10-26 section 3): loaded only at its
+  bound sha256 through ``weather.model.mg_serve_core.load_l6_own_state`` and served through
+  ``mg_serve_core.l6_own_nowcast``, with no per-run refit, on every date;
 * ``local_hour >= 13``: P3d_N, lane L2's pooled residual model anchored on the captured NBM 07Z ``v2_mean``
   with the METAR-only running max as floor and feature (``weather.calibration.mg2_p3d_n``, frozen state);
   MG-1 where P3d_N has no distribution or no mass on a band the rule-4 floor allows.
@@ -26,7 +29,8 @@ Subcommands (heavy ones run through ``scripts\ops\workstation_heavy.ps1``):
 * ``freeze``: the frozen L6 coefficients file (stack a_h, b_h on every dev snapshot through 2026-09-29 on the
   captured-METAR nowcasts; their provenance). P3d_N's state is frozen by L2 (``mg2_p3d_n``) and bound
   separately by its file sha;
-* ``captured-nowcast``: L6 ``n_own`` from the captured METAR rows for a window;
+* ``captured-nowcast``: L6 ``n_own`` from the captured METAR rows for a window, through the frozen L6 state
+  named by ``--l6-state`` and ``--l6-state-sha256`` (binding-time inputs, never defaults);
 * ``emit``: captured-input replay of the composite for a date range, at the frozen coefficients;
 * ``check``: the outcome-blind checks MG-1 section 7 permits (coverage, PIT, replay reproduction, parser
   version); reads no label, settlement, price or market file;
@@ -53,6 +57,7 @@ DEV_LAST = date(2026, 9, 29)
 REPLAY_TOLERANCE = 1e-12
 COVERAGE_MIN = 0.90
 POST = "p3d_n"
+SHA256_HEX = re.compile(r"[0-9a-f]{64}")
 OWNER_DECISION_ID = re.compile(r"^OD-(\d{4}-\d{2}-\d{2})-[A-Za-z0-9][A-Za-z0-9_.-]*$")
 LABEL_FILES = ("labels.parquet", "market.parquet")
 
@@ -214,6 +219,7 @@ RELEASE_FILES = (
     "src/weather/calibration/upstream_obs_screen.py",
     "src/weather/calibration/r0_ols_floor_challenger.py",
     "src/weather/model/observed_running_max.py",
+    "src/weather/model/mg_serve_core.py",
     "src/weather/reporting/scorecards/dev_scorecard.py",
     "src/weather/reporting/scorecards/dev_scorecard_data.py",
     "src/weather/reporting/scorecards/loss_atlas.py",
@@ -658,14 +664,49 @@ def _prev_day_last_rows(prev_root, market, slug_day, station, l3):
     return [p for p in (l3.parse_captured_metar(r.get("raw"), cap) for r in rows) if p is not None]
 
 
-def captured_nowcast(*, layout_root, replay_root, research_root, first, last, out, prev_root=None):
-    """L6 ``n_own`` from the captured METAR rows: lane L3's ``l6_captured_nowcasts`` (ecd8c9ba6) for any window.
+def load_l6_state(path, sha256):
+    """The frozen L6 own-model state of the pre-13 arm, loaded only at its bound sha256 (clarification §3).
+
+    ``path`` and ``sha256`` are binding-time inputs (the season-matched state ``l6_own_state_octdec.pkl``);
+    neither has a default. The sha must be 64 lowercase hex, so an empty, ``PENDING`` or FILL value refuses
+    before the file is opened; ``mg_serve_core.load_l6_own_state`` then refuses unless the file bytes hash to
+    it, and checks the schema and the OWN columns.
+    """
+    from weather.model import mg_serve_core as core
+
+    if not path:
+        raise Mg2Refused("the pre-13 arm needs the frozen L6 state path (binding input)")
+    if not isinstance(sha256, str) or not SHA256_HEX.fullmatch(sha256):
+        raise Mg2Refused(f"the frozen L6 state sha256 must be 64 lowercase hex, got {sha256!r}")
+    try:
+        return core.load_l6_own_state(path, sha256)
+    except (core.ServeCoreError, OSError) as exc:
+        raise Mg2Refused(str(exc)) from exc
+
+
+def l6_nowcast_frame(state, feat):
+    """The pre-13 nowcast rows: ``n_own`` = ``mg_serve_core.l6_own_nowcast(state, feat)``, nothing refitted."""
+    import numpy as np
+    import pandas as pd
+
+    from weather.model import mg_serve_core as core
+
+    return pd.DataFrame({"row_key": feat.row_key.to_numpy(), "n_own": core.l6_own_nowcast(state, feat),
+                         "n_up": np.nan, "n_ring": np.nan})
+
+
+def captured_nowcast(*, layout_root, replay_root, research_root, first, last, out, l6_state, l6_state_sha256,
+                     prev_root=None):
+    """L6 ``n_own`` from the captured METAR rows: lane L3's captured features, served by the frozen L6 state.
 
     Same features (L3's ``parse_captured_metar`` with the T-group dewpoint, ``l6_captured_features``: rows usable
-    from observation + 10 min), the previous-day max from D-1's last captured snapshot (``routine_dmax``) and
-    L6's own history fit (``upstream_obs_screen.build_history`` + ``make_model(OWN)``). Without ``prev_root``,
-    D-1's last snapshot is the last line of D-1's replay folder (the dev semantics); forward it is the verified
-    bundle's ``prev_day`` record. Run on the dev window it must reproduce L3's ``l6cap/nowcasts.parquet``.
+    from observation + 10 min) and the previous-day max from D-1's last captured snapshot (``routine_dmax``).
+    The model is the frozen state at ``l6_state`` (``load_l6_state``: refused unless its file sha256 equals
+    ``l6_state_sha256``), served through ``mg_serve_core.l6_own_nowcast``; there is no per-run refit. Under the
+    MG-2 season-L6 clarification (2026-10-26) that state is the season-matched Oct-Dec HGB on every B date.
+    ``research_root`` supplies only L6's station selection (the station encoding) and hours. Without
+    ``prev_root``, D-1's last snapshot is the last line of D-1's replay folder (the dev semantics); forward it is
+    the verified bundle's ``prev_day`` record.
     """
     from collections import defaultdict
     from datetime import timedelta
@@ -677,13 +718,15 @@ def captured_nowcast(*, layout_root, replay_root, research_root, first, last, ou
     from weather.calibration import r0_ols_floor_challenger as l3
     from weather.calibration import upstream_obs_screen as l6
 
+    from weather.model import mg_serve_core as core
+
     first, last = date.fromisoformat(str(first)), date.fromisoformat(str(last))
     out = Path(out)
     if out.exists() and any(out.iterdir()):
         raise Mg2Refused(f"output directory {out} must be new or empty")
-    hist, prov = l6.build_history(research_root)
-    train = hist[hist.month.isin(l6.TRAIN_MONTHS_PRIMARY)].reset_index(drop=True)
-    own = l6.make_model(l6.OWN).fit(train[list(l6.OWN)].to_numpy(float), train.y.to_numpy(float))
+    state = load_l6_state(l6_state, l6_state_sha256)
+    if tuple(l6.OWN) != core.L6_OWN_COLUMNS:
+        raise Mg2Refused("upstream_obs_screen.OWN differs from mg_serve_core.L6_OWN_COLUMNS")
     _, sel, _ = l6.load(research_root)
     codes = {icao: code for code, icao in enumerate(l6.stations(sel))}
     snaps = pd.read_parquet(Path(layout_root) / "inputs_snapshots.parquet",
@@ -744,12 +787,13 @@ def captured_nowcast(*, layout_root, replay_root, research_root, first, last, ou
     ok = np.isfinite(feat.r) & np.isfinite(feat.t)
     stats["no_usable_row"] = int((~ok).sum())
     feat = feat[ok].reset_index(drop=True)
-    res = pd.DataFrame({"row_key": feat.row_key, "n_own": feat.r.to_numpy(float) + own.predict(
-        feat[list(l6.OWN)].to_numpy(float)), "n_up": np.nan, "n_ring": np.nan})
+    res = l6_nowcast_frame(state, feat)
     out.mkdir(parents=True, exist_ok=True)
     res.to_parquet(out / "nowcasts.parquet", index=False)
     feat.to_parquet(out / "serve_features.parquet", index=False)
-    manifest = dict(prov, rows=int(len(res)), stats=dict(stats), first=first.isoformat(), last=last.isoformat(),
+    manifest = dict(rows=int(len(res)), stats=dict(stats), first=first.isoformat(), last=last.isoformat(),
+                    l6_state_sha256=l6_state_sha256, l6_state_provenance=state.get("provenance"),
+                    serve_core_sha256=sha256_file(core.__file__),
                     prev_day_source="bundle prev_day" if prev_root is not None else "D-1 replay folder, last line",
                     nowcasts_sha256=sha256_file(out / "nowcasts.parquet"),
                     serve_features_sha256=sha256_file(out / "serve_features.parquet"),
@@ -1073,6 +1117,8 @@ def build_parser():
     p.add_argument("--last", required=True)
     p.add_argument("--out", required=True)
     p.add_argument("--prev-root", default=None, help="verified bundle prev_day/ (forward); default D-1 replay")
+    p.add_argument("--l6-state", required=True, help="frozen L6 own-model state (l6_own_state/1 pickle)")
+    p.add_argument("--l6-state-sha256", required=True, help="the state's bound file sha256 (binding input)")
     p = sub.add_parser("score")
     p.add_argument("--layout", required=True)
     p.add_argument("--vectors", required=True)
@@ -1105,7 +1151,8 @@ def main(argv=None):
         elif args.command == "captured-nowcast":
             result = captured_nowcast(layout_root=args.layout, replay_root=args.replay_root,
                                       research_root=args.research_root, first=args.first, last=args.last,
-                                      out=args.out, prev_root=args.prev_root)
+                                      out=args.out, l6_state=args.l6_state,
+                                      l6_state_sha256=args.l6_state_sha256, prev_root=args.prev_root)
         elif args.command in ("emit", "check"):
             kw = dict(layout_root=args.layout, replay_root=args.replay_root,
                       nowcasts=args.nowcasts, coefficients=args.coefficients, p3d_n_state=args.p3d_n_state,
