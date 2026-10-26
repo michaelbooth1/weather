@@ -53,7 +53,10 @@ def test_no_src_module_imports_it():
     offenders = [
         str(path.relative_to(ROOT))
         for path in (ROOT / "src").rglob("*.py")
-        if path.name != "pooled_residual_model.py" and pattern.search(path.read_text(encoding="utf-8", errors="ignore"))
+        # nbh_centre_shift (lane L14, rung R-P) is itself an allowlisted offline research module that re-uses
+        # L2's arms unchanged; it is the one named exception.
+        if path.name not in ("pooled_residual_model.py", "nbh_centre_shift.py")
+        and pattern.search(path.read_text(encoding="utf-8", errors="ignore"))
     ]
     assert offenders == []
 
