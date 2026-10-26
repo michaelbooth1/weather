@@ -19,7 +19,10 @@ from scipy.stats import norm
 
 from weather.reporting.scorecards import dev_scorecard as sc
 from weather.reporting.scorecards import dev_scorecard_data as data
-from weather.reporting.scorecards import loss_atlas as la
+
+from tests.host_guard import import_or_skip_on_capture_host
+
+la = import_or_skip_on_capture_host("weather.reporting.scorecards.loss_atlas")
 
 BANDS = (("lte", 77, 77), ("eq", 78, 79), ("eq", 80, 81), ("eq", 82, 83), ("gte", 84, 84))
 HOURS = (0, 3, 6, 7, 8, 9, 10, 11, 12, 14, 16)

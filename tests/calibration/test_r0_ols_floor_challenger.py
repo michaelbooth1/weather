@@ -10,7 +10,10 @@ from pathlib import Path
 import pytest
 
 from weather.calibration import feature_model as fm
-from weather.calibration import r0_ols_floor_challenger as ch
+
+from tests.host_guard import import_or_skip_on_capture_host
+
+ch = import_or_skip_on_capture_host("weather.calibration.r0_ols_floor_challenger")
 
 ROOT = Path(__file__).resolve().parents[2]
 

@@ -16,7 +16,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from weather.calibration import market_blend as mb
+from tests.host_guard import import_or_skip_on_capture_host
+
+mb = import_or_skip_on_capture_host("weather.calibration.market_blend")
 
 ROOT = Path(__file__).resolve().parents[2]
 MODULE = "weather.calibration.market_blend"
