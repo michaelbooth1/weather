@@ -1460,7 +1460,7 @@ def rung_loyo_summary(rows, draws=BOOTSTRAP_DRAWS, seed=BOOTSTRAP_SEED):
 
 def dev_emit_rung(*, records_root, layout, replay_root, nbm_train_corpus, out_dir, markets=R0_MARKETS,
                   hours=RUNG_HOURS, loyo=True, arms=None, train_hook=None, row_hook=None, snap_columns=(),
-                  snap_hook=None, mean_pairs=None):
+                  snap_hook=None, mean_pairs=None, fits=None, serve=None):
     """Rung 07-12: B_N and P3d_N_fix dev distributions plus the blocked LOYO table (rule C:/t/l2/rung0712/rule.md).
 
     Each layout row uses the latest replay snapshot captured at or before the row's own captured_at_utc.
@@ -1468,7 +1468,9 @@ def dev_emit_rung(*, records_root, layout, replay_root, nbm_train_corpus, out_di
     (frame, stats); ``row_hook(market, target, hour, nbm, stats)`` returns the row's extra columns. With the
     defaults the output is R-A's, byte for byte. R-S: ``snap_columns`` are extra layout columns read, and
     ``snap_hook(row, stats)`` returns more extra columns from the layout row itself; ``mean_pairs`` {arm: reference}
-    records the largest |mean difference| per pair in ``audit["c_mean"]`` (control C-mean).
+    records the largest |mean difference| per pair in ``audit["c_mean"]`` (control C-mean). MG-3 freeze control:
+    ``fits`` replaces the in-process fits (nothing is fitted) and ``serve(arm, hour, one, market)`` returns the row's
+    distribution instead of ``_dist_from_fit``.
     """
     import pandas as pd
     from zoneinfo import ZoneInfo
@@ -1508,7 +1510,7 @@ def dev_emit_rung(*, records_root, layout, replay_root, nbm_train_corpus, out_di
         loyo_rows = rung_loyo(frame, buckets, hours)
         _write_jsonl(out / "loyo_rows.jsonl", loyo_rows)
         audit["loyo"] = rung_loyo_summary(loyo_rows)
-    fits = rung_fits(frame, hours, arms=arms)
+    fits = rung_fits(frame, hours, arms=arms) if fits is None else fits
     coords = station_coordinates(markets)
     snaps = pd.read_parquet(Path(layout) / "inputs_snapshots.parquet", columns=[
         "snapshot_id", "market", "target_date", "local_hour", "cutoff_hour",
@@ -1595,7 +1597,8 @@ def dev_emit_rung(*, records_root, layout, replay_root, nbm_train_corpus, out_di
                             b, _ = fits[(ref, hour)]["fit"]["mean"].predict(one)
                             c_mean[arm] = max(c_mean.get(arm, 0.0), abs(float(a[0]) - float(b[0])))
                         for arm in arms:
-                            dist = _dist_from_fit(fits[(arm, hour)], one, buckets, market)[0]
+                            dist = (serve(arm, hour, one, market) if serve is not None
+                                    else _dist_from_fit(fits[(arm, hour)], one, buckets, market)[0])
                             writers[arm].write(json.dumps({
                                 "market": market, "snapshot_id": row.snapshot_id, "target_date": target.isoformat(),
                                 "distribution": {str(b): p for b, p in dist.items() if p > 0}}, sort_keys=True) + "\n")
@@ -6245,6 +6248,342 @@ def dev_verdict_markdown(scores, rule_path, arms=tuple(DEV_ARMS)):
     return "\n".join(lines) + "\n", verdict
 
 
+# ------------------------------------------------- MG-3 freeze prep (1a): frozen P3d_H states and blend weights
+
+MG3_STATE_RULE_SHA256 = "9e63899ddcfcbd795f10f0437c7bd9f9b6fc9740767b8d824818ef0f7f95cc5d"  # rule_mg3_p3dh_state.md
+MG3_WEIGHTS_RULE_SHA256 = "4fb02a2cec9a6c5c4fc06e811bd69d3ba35721d0650475c8584de313765ef6e8"  # rule_mg3_blend_weights.md
+MG3_STATE_SCHEMA = "mg3_p3d_h_state/1"
+MG3_ARM = "P3d_H"
+MG3_CONTROL_TOL = 1e-12
+MG3_EXPORT_TOL = 1e-9
+MG3_BLOCKS = {
+    "07-12": {"hours": RR_HOURS, "rule_sha256": RR_RULE_SHA256, "point": "rn1",
+              "reference_sha256": "a2dc30e2b0790ad4cf4ed167c329c00a6c87d4245fb1d6a55d0f80ffdfc14f3d"},
+    "13-16": {"hours": RK_HOURS, "rule_sha256": RK_RULE_SHA256, "point": "nearest",
+              "reference_sha256": "e5195945cd8a24db178cd8b85e0af8914c95321b581a65897e8cac59eb451da1"},
+}
+MG3_RR_SCORE_SHA256 = "577b689b6285d6125357b4f658351deaf1c47171352753f6956d29b278261dab"
+MG3_RR_EMIT = {"dev_P3d_H.jsonl": MG3_BLOCKS["07-12"]["reference_sha256"], "dev_P3d_N_fix.jsonl": RI_FIX_SHA256}
+
+
+def _mg3_hrrr(block, hrrr_corpus, hrrr_dev_corpus, land, markets):
+    """The block's training and dev HRRR columns, built exactly as its rung's dev emit built them."""
+    if block == "07-12":
+        if land is None:
+            raise PooledModelError("the 07-12 block needs the RN-1 land file")
+        corpus = Path(hrrr_corpus)
+        shas = rr_verify_corpus(corpus)
+        point, point_report = rr_point_rule(land, corpus, markets)
+        train, train_stats = rk_hrrr_columns(corpus, markets, hours=RR_HOURS, point=point, day_filter=_rr_train_day)
+        dev, dev_stats = rk_hrrr_columns(corpus, markets, hours=RR_HOURS, point=point, day_filter=_rr_dev_day)
+        inputs = {f"hrrr_{n}": s for n, s in shas.items()}
+        point_rule = {"rule": "RN-1 nearest land cell (rr_point_rule)", "land_sha256": _rr_sha(land),
+                      "report": point_report}
+    elif block == "13-16":
+        if hrrr_dev_corpus is None:
+            raise PooledModelError("the 13-16 block needs the 2026 dev HRRR corpus")
+        train, train_stats = rk_hrrr_columns(hrrr_corpus, markets)
+        dev, dev_stats = rk_hrrr_columns(hrrr_dev_corpus, markets)
+        inputs = {f"{tag}_{n}": _rr_sha(Path(root) / n)
+                  for tag, root in (("hrrr_train", hrrr_corpus), ("hrrr_dev", hrrr_dev_corpus))
+                  for n in ("manifest.jsonl", "selections.jsonl", "stations.json")}
+        point_rule = {"rule": "nearest cell (R-K as fitted)", "land_sha256": None, "report": None}
+    else:
+        raise PooledModelError(f"unknown MG-3 block {block}")
+    late = sorted(k for k in dev if date.fromisoformat(k[1]) > N_DEV_LAST)
+    if late:
+        raise PooledModelError(f"dev HRRR holds a date after 2026-09-29: {late[0]}")
+    return train, dev, {"inputs": inputs, "point_rule": point_rule, "train_stats": train_stats,
+                        "dev_stats": dev_stats}
+
+
+def mg3_hour_entry(entry):
+    """One hour of the frozen state from a ``_rung_entry`` fit: mean (plus its extra columns), scale, z, train_y."""
+    import numpy as np
+
+    model = entry["fit"]["mean"]
+    mean = state_mean_dict(model)
+    mean["extra_hgb"] = list(model.extra_hgb)
+    mean["extra_ols"] = list(model.extra_ols)
+    return {"mean": mean, "scale": entry["fit"]["scale"], "z": np.asarray(entry["fit"]["z"], dtype=np.float64),
+            "train_y": {m: list(v) for m, v in entry["train_y"].items()}}
+
+
+def mg3_state_X(state, hour, *, market, target_date, high_so_far, current_temp, nbm_mean, extra):
+    """The frozen state's X row: ``state_features`` plus the ``extra_hgb`` columns in order. -> (X, mu0, g, F)."""
+    import numpy as np
+
+    X, mu0, g, floor = state_features(state, hour, market=market, target_date=target_date, high_so_far=high_so_far,
+                                      current_temp=current_temp, nbm_mean=nbm_mean)
+    tail = np.asarray([[float(extra[c]) for c in state["extra_hgb"]]], dtype=float)
+    return np.column_stack([X, tail]), mu0, g, floor
+
+
+def mg3_state_distribution(state, hour, *, market, target_date, high_so_far, current_temp, nbm_mean, extra):
+    """Serve math from a frozen ``mg3_p3d_h_state/1`` state only (rule_mg3_p3dh_state.md section 2)."""
+    import numpy as np
+
+    from weather.calibration import feature_model as fm
+
+    X, mu0, g, floor = mg3_state_X(state, hour, market=market, target_date=target_date, high_so_far=high_so_far,
+                                   current_temp=current_temp, nbm_mean=nbm_mean, extra=extra)
+    entry = state["hours"][int(hour)]
+    mean = entry["mean"]
+    if mean.get("extra_ols"):
+        raise PooledModelError("an MG-3 P3d_H state has no extra OLS columns")
+    yhat = float((mu0 + np.array([[1.0, g, max(g, 0.0)]]) @ mean["ols"] + mean["hgb"].predict(X))[0])
+    c = state["constants"]
+    s = max(c["min_scale"],
+            float(entry["scale"].predict(np.column_stack([X, [yhat - floor]]))[0]) * math.sqrt(math.pi / 2))
+    p_clim = fm.smoothed_dist(entry["train_y"][market], state["buckets"][market], alpha=c["clim_alpha"])
+    return predictive_distribution(yhat, s, floor, entry["z"], state["buckets"][market], p_clim)
+
+
+def mg3_load_state(path, expected_sha256):
+    """Research-side control load: unpickle only after the file sha256 equals the bound value."""
+    import pickle as _pickle
+
+    blob = Path(path).read_bytes()
+    digest = hashlib.sha256(blob).hexdigest()
+    if digest != expected_sha256:
+        raise PooledModelError(f"MG-3 state {path}: sha256 {digest} != bound {expected_sha256}")
+    state = _pickle.loads(blob)
+    if state.get("schema") != MG3_STATE_SCHEMA or state.get("arm") != MG3_ARM:
+        raise PooledModelError(f"MG-3 state {path}: schema or arm mismatch")
+    return state
+
+
+def _mg3_compare_jsonl(path, reference):
+    """Line-by-line: same keys and max |p - p_ref| over the union of bands. -> report dict."""
+    got = Path(path).read_text(encoding="utf-8").splitlines()
+    ref = Path(reference).read_text(encoding="utf-8").splitlines()
+    worst, first_bad, key_mismatch = 0.0, None, 0
+    for i, (a, b) in enumerate(zip(got, ref)):
+        ra, rb = json.loads(a), json.loads(b)
+        if (ra["market"], ra["snapshot_id"], ra["target_date"]) != (rb["market"], rb["snapshot_id"], rb["target_date"]):
+            key_mismatch += 1
+            first_bad = first_bad if first_bad is not None else i
+            continue
+        da, db = ra["distribution"], rb["distribution"]
+        diff = max(abs(float(da.get(k, 0.0)) - float(db.get(k, 0.0))) for k in set(da) | set(db))
+        if diff > worst:
+            worst = diff
+        if diff > MG3_CONTROL_TOL and first_bad is None:
+            first_bad = i
+    return {"rows": len(got), "reference_rows": len(ref), "key_mismatch": key_mismatch, "max_abs_dp": worst,
+            "first_bad_line": first_bad, "file_sha256": hashlib.sha256(Path(path).read_bytes()).hexdigest(),
+            "reference_sha256": hashlib.sha256(Path(reference).read_bytes()).hexdigest(),
+            "byte_identical": Path(path).read_bytes() == Path(reference).read_bytes(),
+            "pass": len(got) == len(ref) and key_mismatch == 0 and worst <= MG3_CONTROL_TOL}
+
+
+def mg3_freeze_state(*, block, records_root, layout, replay_root, nbm_train_corpus, hrrr_corpus, reference,
+                     out_dir, commit, hrrr_dev_corpus=None, land=None, rule_path=None, markets=R0_MARKETS):
+    """rule_mg3_p3dh_state.md: fit the block's P3d_H once on Aug-Sep 2021-25, freeze it, then the identity control."""
+    import platform
+    import pickle as _pickle
+
+    import numpy as np
+    import pandas as pd
+    import scipy
+    import sklearn
+
+    from weather.calibration import ols_floor_ladder as l9
+    from weather.market.market_registry import spec_for_id
+
+    spec = MG3_BLOCKS[block]
+    if rule_path is not None and _rr_sha(rule_path) != MG3_STATE_RULE_SHA256:
+        raise PooledModelError(f"rule {rule_path} is not {MG3_STATE_RULE_SHA256}")
+    if _rr_sha(reference) != spec["reference_sha256"]:
+        raise PooledModelError(f"reference {reference} is not {spec['reference_sha256']}")
+    out = require_output_outside_repo(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    pkl, side, parity_path = out / "p3d_h_state.pkl", out / "p3d_h_state.json", out / "export_parity.json"
+    control_dir = out / "control"
+    for path in (pkl, side, parity_path, out / "control.json", control_dir):
+        if path.exists():
+            raise PooledModelError(f"refusing to overwrite {path}")
+    hours = spec["hours"]
+    train_hrrr, dev_hrrr, hrrr_meta = _mg3_hrrr(block, hrrr_corpus, hrrr_dev_corpus, land, markets)
+    # Training rows: exactly dev_emit_rung's frame, then the block's HRRR training hook.
+    timezones = {m: spec_for_id(m).timezone for m in markets}
+    frame, buckets = dev_training_frame(records_root, markets)
+    if frame["year"].max() >= 2026:
+        raise PooledModelError("an MG-3 training row is from 2026")
+    frame, train_nbm = attach_training_nbm(frame, l9.load_nbm(nbm_train_corpus), l9.nbm_at_cutoff, timezones)
+    frame = frame[frame["hour"].isin(hours)].reset_index(drop=True)
+    frame, hook_stats = rk_training_columns(frame, train_hrrr)
+    simple, extra_ols, extra_hgb, extra_scale = _arm_spec(RK_ARMS[MG3_ARM])
+    if simple or extra_ols or extra_scale or tuple(extra_hgb) != ("k_max", "k_gap", "k_tcdc"):
+        raise PooledModelError(f"the P3d_H arm spec changed: {RK_ARMS[MG3_ARM]}")
+    fits, entries = {}, {}
+    for hour in hours:
+        train = frame[frame["hour"] == hour].reset_index(drop=True)
+        entry = _rung_entry(train, simple, extra_ols, extra_hgb, extra_scale)
+        fits[hour] = entry
+        entries[hour] = mg3_hour_entry(entry)
+        print(f"mg3 {block} fit hour {hour}: {len(train)} rows", flush=True)
+    levels = [name for name in LEVEL_COLUMNS if f"x_{name}" in frame.columns]
+    state = {
+        "schema": MG3_STATE_SCHEMA, "arm": MG3_ARM, "block": block, "markets": list(markets),
+        "centres": list(AUG_SEP_CENTRES),
+        "season_of": {f"{m:02d}": season_of(f"2026-{m:02d}-01") for m in range(1, 13)},
+        "coords": {m: [float(v) for v in station_coordinates([m])[m]] for m in markets},
+        "buckets": {m: list(buckets[m]) for m in markets},  # as fitted: same values, same order
+        "constants": {"floor_mix_clim": FLOOR_MIX_CLIM, "kernel_bandwidth": KERNEL_BANDWIDTH,
+                      "min_scale": MIN_SCALE, "clim_alpha": 0.10, "levels": levels},
+        "conversion": {"enabled": False, "rule_id": None,
+                       "rule": "none: the dev arms read raw high_so_far and current_temp, as fitted"},
+        "extra_hgb": list(extra_hgb), "point_rule": hrrr_meta["point_rule"], "hours": entries,
+        "provenance": {
+            "commit": commit, "module_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+            "rule_sha256": MG3_STATE_RULE_SHA256, "rung_rule_sha256": spec["rule_sha256"],
+            "training_rows": int(len(frame)), "train_years": sorted(int(y) for y in frame["year"].unique()),
+            "train_nbm": train_nbm, "train_hrrr": hook_stats, "hrrr_train_corpus_stats": hrrr_meta["train_stats"],
+            "inputs": dict(hrrr_meta["inputs"], nbm_train_corpus=_rr_sha(nbm_train_corpus)),
+            "versions": {"python": platform.python_version(), "numpy": np.__version__, "scipy": scipy.__version__,
+                         "sklearn": sklearn.__version__, "pandas": pd.__version__}},
+    }
+    blob = _pickle.dumps(state, protocol=4)
+    pkl.write_bytes(blob)
+    digest = hashlib.sha256(blob).hexdigest()
+    side.write_text(json.dumps(dict(state["provenance"], state_sha256=digest, block=block), indent=1,
+                               sort_keys=True, default=str), encoding="utf-8")
+    # Control 1: export parity on sampled training rows (state serve math vs the in-process mean model).
+    worst, checked = 0.0, 0
+    for hour in hours:
+        train = frame[frame["hour"] == hour].reset_index(drop=True)
+        model = fits[hour]["fit"]["mean"]
+        sample = train.sample(n=min(200, len(train)), random_state=hour)
+        pred, X_ref = model.predict(sample)
+        for j, (_, row) in enumerate(sample.iterrows()):
+            if not (math.isfinite(float(row["F"])) and math.isfinite(float(row["x_current_temp"]))):
+                continue
+            X, mu0, g, _ = mg3_state_X(
+                state, hour, market=row["market"], target_date=date.fromisoformat(row["target_date"]),
+                high_so_far=float(row["F"]), current_temp=float(row["x_current_temp"]), nbm_mean=float(row["fh"]),
+                extra={c: row[c] for c in extra_hgb})
+            yhat = float((mu0 + np.array([[1.0, g, max(g, 0.0)]]) @ entries[hour]["mean"]["ols"]
+                          + entries[hour]["mean"]["hgb"].predict(X))[0])
+            nan_split = (np.isnan(X[0]) != np.isnan(X_ref[j])).any()
+            gap = float(np.inf) if nan_split else float(np.nanmax(np.abs(X - X_ref[j])))
+            worst = max(worst, gap, abs(yhat - float(pred[j])))
+            checked += 1
+    export = {"rows": checked, "max_abs_diff": worst, "tolerance": MG3_EXPORT_TOL, "pass": worst <= MG3_EXPORT_TOL}
+    parity_path.write_text(json.dumps(export, indent=1), encoding="utf-8")
+    print(f"mg3 {block} export parity: {export}", flush=True)
+    control = {"rule_sha256": MG3_STATE_RULE_SHA256, "block": block, "state_sha256": digest, "export_parity": export}
+    if not export["pass"]:
+        control["pass"] = False
+        control["stopped_at"] = "export parity"
+        (out / "control.json").write_text(json.dumps(control, indent=1, sort_keys=True), encoding="utf-8")
+        return control
+    # Control 2: re-emit the dev rows from the frozen state (reloaded by its sha) through the serve math.
+    frozen = mg3_load_state(pkl, digest)
+
+    def row_hook(market, target, hour, nbm, stats):
+        values = rk_columns(dev_hrrr.get((market, target.isoformat(), int(hour))), nbm)
+        stats["hrrr_rows"] += 1
+        stats["hrrr_covered"] += values["k_miss"] == 0.0
+        return values
+
+    def serve(arm, hour, one, market):
+        r = one.iloc[0]
+        return mg3_state_distribution(
+            frozen, hour, market=market, target_date=date.fromisoformat(r["target_date"]),
+            high_so_far=float(r["F"]), current_temp=float(r["x_current_temp"]), nbm_mean=float(r["fh"]),
+            extra={c: r[c] for c in frozen["extra_hgb"]})
+
+    audit = dev_emit_rung(records_root=records_root, layout=layout, replay_root=replay_root,
+                          nbm_train_corpus=nbm_train_corpus, out_dir=control_dir, markets=markets, hours=hours,
+                          loyo=False, arms={MG3_ARM: RK_ARMS[MG3_ARM]}, row_hook=row_hook, fits={}, serve=serve)
+    control["reemit"] = _mg3_compare_jsonl(control_dir / f"dev_{MG3_ARM}.jsonl", reference)
+    control["emit_markets"] = audit["markets"]
+    control["pass"] = bool(control["reemit"]["pass"])
+    (out / "control.json").write_text(json.dumps(control, indent=1, sort_keys=True, default=str), encoding="utf-8")
+    return control
+
+
+def mg3_freeze_weights(*, layout, emit_dir, coefficients, nowcasts, rr_score, out_dir, commit, rule_path=None,
+                       start=BLEND_FIT_FIRST, end="2026-09-29"):
+    """rule_mg3_blend_weights.md: R-R's walk-forward weights reproduced (control), then w*(h) on all fit dates."""
+    import os
+
+    import numpy as np
+
+    from weather.calibration import r0_ols_floor_challenger as l3
+    from weather.reporting.scorecards import dev_scorecard as sc
+    from weather.reporting.scorecards import dev_scorecard_data as data
+
+    if rule_path is not None and _rr_sha(rule_path) != MG3_WEIGHTS_RULE_SHA256:
+        raise PooledModelError(f"rule {rule_path} is not {MG3_WEIGHTS_RULE_SHA256}")
+    if _rr_sha(rr_score) != MG3_RR_SCORE_SHA256:
+        raise PooledModelError(f"rr_score {rr_score} is not {MG3_RR_SCORE_SHA256}")
+    emit = Path(emit_dir)
+    for name, sha in MG3_RR_EMIT.items():
+        if _rr_sha(emit / name) != sha:
+            raise PooledModelError(f"{emit / name} is not {sha}")
+    now_sha = _rr_sha(nowcasts)
+    if now_sha != L6_NOWCAST_SHA256:
+        raise PooledModelError(f"L6 nowcast sha {now_sha} != {L6_NOWCAST_SHA256}")
+    out = require_output_outside_repo(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    path = out / "blend_l6_H_weights.json"
+    if path.exists():
+        raise PooledModelError(f"refusing to overwrite {path}")
+    os.environ["L6_NOWCASTS"] = str(nowcasts)
+    from weather.reporting.scorecards.free_source_candidates import l6_stack
+
+    l6_stack._CACHE.clear()
+    state, part_sha = l6_frozen_state(coefficients)
+    start_d, end_d = data.check_range(start, end)
+    lay = data.load_layout(layout, data.DEV_FIRST, end_d)
+    folds = data.make_folds(lay.dates, start_d, end_d, 7, 1, 7)
+    scored = sorted(d for f in folds if f.scored for d in f.dates)
+    fit_dates = sorted(d for d in {str(x) for x in lay.dates} if BLEND_FIT_FIRST <= d <= end)
+    full = sc.Table(lay, fit_dates)
+    fdates = full.snaps.date.astype(str).to_numpy()
+    if max(fdates) > "2026-09-29":
+        raise PooledModelError("a fit date is after 2026-09-29")
+    pl, cl, _ = l6_vector(full, state, l3)
+    reference = json.loads(Path(rr_score).read_bytes())["weights"]
+    result = {"rule_sha256": MG3_WEIGHTS_RULE_SHA256, "commit": commit,
+              "module_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+              "inputs": {"rr_score": MG3_RR_SCORE_SHA256, "l6_part": part_sha, "nowcasts": now_sha,
+                         **{name: sha for name, sha in MG3_RR_EMIT.items()}},
+              "fit_dates": [fit_dates[0], fit_dates[-1], len(fit_dates)], "control": {}, "weights": {},
+              "reported": {}}
+    worst = 0.0
+    keep = {}
+    for name, cand in (("blend_l6_H", "P3d_H"), ("blend_l6", "P3d_N_fix")):
+        frame_, _ = l3._candidate_frame(str(emit / f"dev_{cand}.jsonl"), full, lay, folds, data)
+        pa, ca, _ = l3._vector(full, frame_)
+        A, B = blend_weight(pa, pl, full.y, full.offsets, full.n)
+        w = walk_forward_weights(fdates, full.local_hour, ca & cl, A, B, scored)
+        for h in RR_HOURS:
+            got = {"mean": float(np.mean([w[(h, d)] for d in scored])), "first": w[(h, scored[0])],
+                   "last": w[(h, scored[-1])]}
+            for k, v in got.items():
+                worst = max(worst, abs(float(v) - float(reference[name][f"h{h:02d}"][k])))
+        keep[name] = (A, B, ca & cl, w)
+    result["control"] = {"max_abs_diff": worst, "tolerance": MG3_CONTROL_TOL, "pass": worst <= MG3_CONTROL_TOL}
+    if result["control"]["pass"]:
+        A, B, covered, w = keep["blend_l6_H"]
+        for h in RR_HOURS:
+            sel = covered & (full.local_hour == h)
+            result["weights"][f"h{h:02d}"] = solve_weight(A[sel], B[sel])
+            result["reported"][f"h{h:02d}"] = {
+                "covered_snapshots": int(sel.sum()),
+                "walk_forward_mean": float(np.mean([w[(h, d)] for d in scored])),
+                "walk_forward_last": w[(h, scored[-1])],
+                "abs_frozen_minus_last": abs(result["weights"][f"h{h:02d}"] - w[(h, scored[-1])])}
+    else:
+        result["stopped_at"] = "positive control (R-R walk-forward weights not reproduced)"
+    path.write_text(json.dumps(result, indent=1, sort_keys=True), encoding="utf-8")
+    Path(str(path) + ".sha256").write_text(f"{_rr_sha(path)}  {path.name}\n", encoding="utf-8")
+    return result
+
+
 # -------------------------------------------------------------------------- CLI
 
 
@@ -6500,6 +6839,28 @@ def _parse(argv=None):
     ff.add_argument("--commit", required=True)
     ff.add_argument("--input", action="append", default=[], help="name=sha256 provenance entries")
     ff.add_argument("--out", required=True)
+    ms = sub.add_parser("mg3-freeze-state", help="MG-3 (1a-i): frozen P3d_H state for one block + controls (heavy)")
+    ms.add_argument("--block", required=True, choices=sorted(MG3_BLOCKS))
+    ms.add_argument("--records", required=True)
+    ms.add_argument("--layout", required=True)
+    ms.add_argument("--replay-root", required=True)
+    ms.add_argument("--nbm-train-corpus", required=True)
+    ms.add_argument("--hrrr-corpus", required=True)
+    ms.add_argument("--hrrr-dev-corpus", default=None, help="13-16 only: the 2026 dev HRRR corpus")
+    ms.add_argument("--land", default=None, help="07-12 only: the RN-1 land file")
+    ms.add_argument("--reference", required=True, help="the block's dev_P3d_H.jsonl (identity control)")
+    ms.add_argument("--rule", required=True)
+    ms.add_argument("--commit", required=True)
+    ms.add_argument("--out", required=True)
+    mw = sub.add_parser("mg3-freeze-weights", help="MG-3 (1a-ii): frozen blend_l6_H weights + control (heavy)")
+    mw.add_argument("--layout", required=True)
+    mw.add_argument("--emit-dir", required=True)
+    mw.add_argument("--coefficients", required=True)
+    mw.add_argument("--nowcasts", required=True)
+    mw.add_argument("--rr-score", required=True)
+    mw.add_argument("--rule", required=True)
+    mw.add_argument("--commit", required=True)
+    mw.add_argument("--out", required=True)
     dv = sub.add_parser("dev-verdict", help="amendment 3: verdict and tables from L3 dev-score output")
     dv.add_argument("--scores", required=True)
     dv.add_argument("--rule", required=True)
@@ -6762,6 +7123,20 @@ def main(argv=None):
                                 late_report={"rule": args.late_rule, "grace_minutes": args.grace_minutes})
         print(json.dumps({"state_sha256": digest}))
         return 0
+    if args.command == "mg3-freeze-state":
+        control = mg3_freeze_state(
+            block=args.block, records_root=args.records, layout=args.layout, replay_root=args.replay_root,
+            nbm_train_corpus=args.nbm_train_corpus, hrrr_corpus=args.hrrr_corpus,
+            hrrr_dev_corpus=args.hrrr_dev_corpus, land=args.land, reference=args.reference, out_dir=args.out,
+            commit=args.commit, rule_path=args.rule)
+        print(json.dumps(control, indent=1, sort_keys=True, default=str))
+        return 0 if control["pass"] else 1
+    if args.command == "mg3-freeze-weights":
+        result = mg3_freeze_weights(layout=args.layout, emit_dir=args.emit_dir, coefficients=args.coefficients,
+                                    nowcasts=args.nowcasts, rr_score=args.rr_score, out_dir=args.out,
+                                    commit=args.commit, rule_path=args.rule)
+        print(json.dumps({k: result[k] for k in ("control", "weights", "reported")}, indent=1, sort_keys=True))
+        return 0 if result["control"]["pass"] else 1
     if args.command == "dev-verdict":
         scores = json.loads(Path(args.scores).read_text(encoding="utf-8"))
         text, _ = dev_verdict_markdown(scores, args.rule)
