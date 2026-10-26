@@ -276,9 +276,9 @@ def test_wu_rounding():
     for bad in (None, float("nan"), "x", float("inf")):
         assert core.wu_whole_f(bad) == prm.wu_whole_f(bad)
     with pytest.raises(core.ServeCoreError):
-        core.round_candidate(core.exact_tgroup_f(50.0 + 9 / 10), "bogus")
+        core.round_candidate(core.exact_tgroup_f(36.5), "bogus")  # a tie (t = 25)
     with pytest.raises(prm.PooledModelError):
-        prm.round_candidate(prm.exact_tgroup_f(50.0 + 9 / 10), "bogus")
+        prm.round_candidate(prm.exact_tgroup_f(36.5), "bogus")
 
 
 # ----------------------------------------------------------------------------- bands, floor, MG-1, compose
