@@ -7076,6 +7076,276 @@ def ru_p0(*, records_root, nbm_train_corpus, hrrr_corpus, state_path, out_dir, c
     return result
 
 
+# ------------------------------------------------- R-V (rule_rv.md): MOS/NBE day-max as one 13-16 centre column
+
+RV_RULE_SHA256 = "b0cf2a03224d2581f96c77b801dd5244353ca1f2025ab0802940dcf65e88e818"  # rv/rule_rv.md
+RV_HOURS = (13, 14, 15, 16)
+RV_POOLS = (("13-16", None), ("13-14", (13, 14)), ("15-16", (15, 16)))
+RV_SOURCES = {  # IEM model -> (day-max field, candidate run hours of UTC day D (latest first), availability lag)
+    "GFS": ("n_x", (6, 0), 4 * 3600 + 1800),
+    "NAM": ("n_x", (0,), 4 * 3600),
+    "NBE": ("txn", (1, 0), 2 * 3600),  # the early D-bearing cycle: 01Z in 2021-25, 00Z in 2026 (rule deviation)
+}
+RV_RANGE_F = (-40.0, 130.0)
+RV_MIN_SOURCES = 2
+RV_COVERAGE_MIN = 0.95
+RV_SHIFT_MAX_F = 1.5
+RV_CONTROL_TOL = 1e-12
+RV_DUMMY_MARKETS = tuple(m for m in R0_MARKETS if m != "atlanta")
+RV_DUMMIES = tuple(f"mi_{m}" for m in RV_DUMMY_MARKETS)
+RV_ARMS = {
+    "B_N": True,
+    "P3d_N_fix": False,
+    "P3d_V": {"simple": False, "extra_hgb": ("v_gap",)},
+    "P3d_I": {"simple": False, "extra_ols": RV_DUMMIES},
+}
+RV_PAIRS = (("P3d_V", "P3d_N_fix"), ("P3d_V", "P3d_I"), ("P3d_I", "P3d_N_fix"), ("P3d_N_fix", "B_N"))
+RV_URL = "https://mesonet.agron.iastate.edu/cgi-bin/request/mos.py"
+RV_FETCH_SPACING_S = 8.0
+
+
+def rv_fetch_windows(years):
+    """(year, sts, ets) per year: runtimes 07-31 00Z .. 09-30 23:59Z, 2026 clipped to 09-29 23:59Z."""
+    out = []
+    for year in years:
+        if int(year) > 2026:
+            raise PooledModelError("R-V reads nothing after 2026-09-29")
+        end = "09-29T23:59Z" if int(year) == 2026 else "09-30T23:59Z"
+        out.append((int(year), f"{year}-07-31T00:00Z", f"{year}-{end}"))
+    return out
+
+
+def rv_fetch(*, out_dir, years, markets=R0_MARKETS, spacing=RV_FETCH_SPACING_S, opener=None, sleep=None):
+    """Fetch the IEM MOS CSVs R-V needs (one connection, >= ``spacing`` s apart, back off on throttling).
+
+    Writes ``<ICAO>_<MODEL>_<year>.csv`` plus ``manifest.json`` (sha256 per file). Rows with a runtime on or after
+    2026-09-30 are dropped before writing. Existing complete files are kept (resumable)."""
+    import time
+    import urllib.parse
+    import urllib.request
+
+    from weather.market.market_registry import spec_for_id
+
+    sleep = sleep or time.sleep
+    opener = opener or (lambda url: urllib.request.urlopen(url, timeout=300).read().decode("utf-8", "replace"))
+    out = require_output_outside_repo(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    last = [0.0]
+
+    def get(params):
+        backoff = 60
+        while True:
+            wait = spacing - (time.time() - last[0])
+            if wait > 0:
+                sleep(wait)
+            last[0] = time.time()
+            try:
+                body = opener(RV_URL + "?" + urllib.parse.urlencode(params))
+            except Exception as exc:  # noqa: BLE001 - network errors back off and retry
+                print(f"rv-fetch {params} error {exc!r}; sleep {backoff}", flush=True)
+                sleep(backoff)
+                backoff = min(backoff * 2, 960)
+                continue
+            if "Too many requests" in body[:500]:
+                print(f"rv-fetch {params} throttled; sleep {backoff}", flush=True)
+                sleep(backoff)
+                backoff = min(backoff * 2, 960)
+                continue
+            if not body.startswith("runtime"):
+                raise PooledModelError(f"IEM returned no CSV for {params}: {body[:120]!r}")
+            return body
+
+    for market in markets:
+        icao = spec_for_id(market).icao
+        for model in RV_SOURCES:
+            for year, sts, ets in rv_fetch_windows(years):
+                path = out / f"{icao}_{model}_{year}.csv"
+                if path.exists():
+                    continue
+                body = get({"station": icao, "model": model, "sts": sts, "ets": ets, "format": "csv"})
+                lines = body.splitlines(keepends=True)
+                kept = [lines[0]] + [ln for ln in lines[1:] if ln[:10] < "2026-09-30"]
+                tmp = path.with_suffix(".part")
+                tmp.write_text("".join(kept), encoding="utf-8", newline="")
+                tmp.replace(path)
+                print(f"rv-fetch {path.name} rows={len(kept) - 1}", flush=True)
+    files = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(out.glob("*.csv"))}
+    manifest = {"rule_sha256": RV_RULE_SHA256, "url": RV_URL, "years": sorted(int(y) for y in years),
+                "markets": list(markets), "models": list(RV_SOURCES), "files": files}
+    (out / "manifest.json").write_text(json.dumps(manifest, indent=1, sort_keys=True), encoding="utf-8")
+    return manifest
+
+
+def rv_load(corpus_dir, years):
+    """{(icao, model): {(runtime, ftime): value}} from an rv-fetch directory, sha-checked against its manifest."""
+    import csv
+    from datetime import datetime, timezone
+
+    root = Path(corpus_dir)
+    manifest = json.loads((root / "manifest.json").read_bytes())
+    table = {}
+    for name, sha in sorted(manifest["files"].items()):
+        icao, model, year = name[:-4].split("_")
+        if int(year) not in set(int(y) for y in years):
+            continue
+        data = (root / name).read_bytes()
+        if hashlib.sha256(data).hexdigest() != sha:
+            raise PooledModelError(f"{name} does not match the manifest")
+        field = RV_SOURCES[model][0]
+        values = table.setdefault((icao, model), {})
+        for rec in csv.DictReader(data.decode("utf-8").splitlines()):
+            runtime = datetime.fromisoformat(rec["runtime"]).replace(tzinfo=timezone.utc)
+            if runtime.date() > N_DEV_LAST:
+                raise PooledModelError(f"{name} holds a runtime after 2026-09-29")
+            ftime = datetime.fromisoformat(rec["ftime"]).replace(tzinfo=timezone.utc)
+            values[(runtime, ftime)] = _num(rec.get(field))
+    return table, hashlib.sha256((root / "manifest.json").read_bytes()).hexdigest()
+
+
+def rv_source_value(values, model, day, instant):
+    """One source's D-max at ``instant`` per rule_rv.md: (value, runtime) or (nan, None)."""
+    from datetime import datetime, timedelta, timezone
+
+    _, hours, lag = RV_SOURCES[model]
+    ftime = datetime(day.year, day.month, day.day, tzinfo=timezone.utc) + timedelta(days=1)
+    for hour in hours:
+        runtime = datetime(day.year, day.month, day.day, hour, tzinfo=timezone.utc)
+        if runtime + timedelta(seconds=lag) > instant:
+            continue
+        value = values.get((runtime, ftime), float("nan"))
+        if math.isfinite(value) and RV_RANGE_F[0] <= value <= RV_RANGE_F[1]:
+            return value, runtime
+    return float("nan"), None
+
+
+def rv_entry(table, icao, day, hour, tz):
+    """``mos_x`` and per-source values for (station, local target date, cutoff hour)."""
+    from datetime import datetime, timezone
+
+    instant = datetime(day.year, day.month, day.day, int(hour), tzinfo=tz).astimezone(timezone.utc)
+    src = {m: rv_source_value(table.get((icao, m), {}), m, day, instant)[0] for m in RV_SOURCES}
+    found = [v for v in src.values() if math.isfinite(v)]
+    mos_x = sum(found) / len(found) if len(found) >= RV_MIN_SOURCES else float("nan")
+    return {"mos_x": mos_x, **{f"src_{m}": v for m, v in src.items()}}
+
+
+def rv_columns(entry, anchor):
+    anchor = float(anchor) if anchor is not None else float("nan")
+    gap = entry["mos_x"] - anchor if math.isfinite(entry["mos_x"]) and math.isfinite(anchor) else float("nan")
+    return {"v_gap": gap}
+
+
+def rv_training_columns(frame, table, timezones, icaos):
+    """Attach ``v_gap``, ``mos_x``, the per-source values and the market dummies to training rows."""
+    cols, stats = defaultdict(list), defaultdict(int)
+    for market, day, hour, fh in zip(frame["market"], frame["target_date"], frame["hour"], frame["fh"]):
+        day = date.fromisoformat(str(day)[:10])
+        entry = rv_entry(table, icaos[market], day, hour, timezones[market])
+        values = {**entry, **rv_columns(entry, fh)}
+        year = str(day.year)
+        stats["rows"] += 1
+        stats["rows_covered"] += math.isfinite(entry["mos_x"])
+        stats[f"rows_{year}"] += 1
+        for m in RV_SOURCES:
+            stats[f"{m}_{year}"] += math.isfinite(entry[f"src_{m}"])
+        for k, v in values.items():
+            cols[k].append(v)
+    out = frame.copy()
+    for k, v in cols.items():
+        out[k] = v
+    for m, name in zip(RV_DUMMY_MARKETS, RV_DUMMIES):
+        out[name] = (out["market"] == m).astype(float)
+    return out, dict(stats)
+
+
+def rv_gate_1a(stats):
+    coverage = stats.get("rows_covered", 0) / max(stats.get("rows", 0), 1)
+    years = sorted({k.split("_")[1] for k in stats if k.startswith("rows_") and k[5:].isdigit()})
+    per = {m: {y: stats.get(f"{m}_{y}", 0) / max(stats[f"rows_{y}"], 1) for y in years} for m in RV_SOURCES}
+    return {"coverage": coverage, "threshold": RV_COVERAGE_MIN, "per_source_year": per,
+            "pass": coverage >= RV_COVERAGE_MIN}
+
+
+def rv_gate_1b(frame):
+    """Per-year mean/sd of each source minus ``fh`` and of ``v_gap``; pass if no year's v_gap mean is off by > 1.5 F."""
+    import numpy as np
+
+    out = {"per_year": {}}
+    pooled = float(np.nanmean(frame["v_gap"].to_numpy(float)))
+    worst = 0.0
+    for year, part in frame.groupby(frame["target_date"].astype(str).str[:4]):
+        fh = part["fh"].to_numpy(float)
+        row = {}
+        for col in [f"src_{m}" for m in RV_SOURCES] + ["v_gap"]:
+            d = part[col].to_numpy(float) - (fh if col != "v_gap" else 0.0)
+            row[col] = {"mean": float(np.nanmean(d)), "sd": float(np.nanstd(d)), "n": int(np.isfinite(d).sum())}
+        out["per_year"][year] = row
+        worst = max(worst, abs(row["v_gap"]["mean"] - pooled))
+    out.update(pooled_v_gap_mean=pooled, worst_year_shift=worst, threshold=RV_SHIFT_MAX_F,
+               **{"pass": worst <= RV_SHIFT_MAX_F})
+    return out
+
+
+def rung_v_loyo(*, records_root, nbm_train_corpus, mos_corpus, rj_loyo_rows, out_dir, markets=R0_MARKETS):
+    """R-V gates 1a, 1b and 1 (nested LOYO 2021-25, h13-16). No dev row is read."""
+    from weather.calibration import ols_floor_ladder as l9
+    from weather.market.market_registry import spec_for_id
+
+    out = require_output_outside_repo(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    if any(out.iterdir()):
+        raise PooledModelError(f"refusing to write into a non-empty {out}")
+    table, manifest_sha = rv_load(mos_corpus, years=range(2021, 2026))
+    audit = {"rule_sha256": RV_RULE_SHA256, "arms": {k: str(v) for k, v in RV_ARMS.items()},
+             "hours": list(RV_HOURS), "gates": {},
+             "inputs": {"nbm_train_corpus": hashlib.sha256(Path(nbm_train_corpus).read_bytes()).hexdigest(),
+                        "rj_loyo_rows": hashlib.sha256(Path(rj_loyo_rows).read_bytes()).hexdigest(),
+                        "mos_manifest": manifest_sha,
+                        "module_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}}
+
+    def finish():
+        (out / "rv_loyo_audit.json").write_text(json.dumps(audit, indent=1, sort_keys=True), encoding="utf-8")
+        return audit
+
+    specs = {m: spec_for_id(m) for m in markets}
+    timezones = {m: s.timezone for m, s in specs.items()}
+    icaos = {m: s.icao for m, s in specs.items()}
+    frame, buckets = dev_training_frame(records_root, markets)
+    if frame["year"].max() >= 2026:
+        raise PooledModelError("a training row is from 2026")
+    frame, audit["train_nbm"] = attach_training_nbm(frame, l9.load_nbm(nbm_train_corpus), l9.nbm_at_cutoff, timezones)
+    frame = frame[frame["hour"].isin(RV_HOURS)].reset_index(drop=True)
+    frame, audit["training"] = rv_training_columns(frame, table, timezones, icaos)
+    audit["gates"]["1a_coverage"] = rv_gate_1a(audit["training"])
+    if not audit["gates"]["1a_coverage"]["pass"]:
+        audit["stopped_at"] = "gate 1a coverage (STOPPED, not a kill)"
+        return finish()
+    audit["gates"]["1b_version_shift"] = rv_gate_1b(frame)
+    if not audit["gates"]["1b_version_shift"]["pass"]:
+        audit["stopped_at"] = "gate 1b version shift (STOPPED, not a kill)"
+        return finish()
+    rows = rung_loyo(frame, buckets, RV_HOURS, arms=RV_ARMS)
+    _write_jsonl(out / "loyo_rows.jsonl", rows)
+    audit["control_rj_reproduction"] = rk_control(rows, _read_jsonl(rj_loyo_rows), tol=RV_CONTROL_TOL,
+                                                  hours=RV_HOURS)
+    if not audit["control_rj_reproduction"]["pass"]:
+        audit["stopped_at"] = "control: R-J LOYO reproduction failed (refused, not a gate)"
+        return finish()
+    summary = rg_loyo_summary(rows, pairs=RV_PAIRS, pooled=RV_POOLS)
+    by_market = {}
+    for market in sorted({r["market"] for r in rows}):
+        part = [r for r in rows if r["market"] == market]
+        by_market[market] = rg_loyo_summary(part, pairs=RV_PAIRS[:2], pooled=(("13-16", None),))
+    vs_fix = summary["P3d_V-P3d_N_fix|13-16|brier"]
+    vs_int = summary["P3d_V-P3d_I|13-16|brier"]
+    audit["gates"]["1_loyo"] = {"summary": summary, "by_market": by_market,
+                                "P3d_V-P3d_N_fix": vs_fix, "P3d_V-P3d_I": vs_int,
+                                "pass": vs_fix["ci95"][1] < 0 and vs_int["ci95"][1] < 0}
+    if not audit["gates"]["1_loyo"]["pass"]:
+        audit["stopped_at"] = "gate 1 LOYO (KILL: MOS/NBE day-max closed as a 13-16 centre input on P3d_N_fix)"
+    return finish()
+
+
 # -------------------------------------------------------------------------- CLI
 
 
@@ -7368,6 +7638,15 @@ def _parse(argv=None):
     ru.add_argument("--rule", required=True)
     ru.add_argument("--commit", required=True)
     ru.add_argument("--out", required=True)
+    vf = sub.add_parser("rv-fetch", help="R-V: fetch IEM MOS/NBE CSVs for the 11 US stations (network, light)")
+    vf.add_argument("--years", required=True, help="comma list, e.g. 2021,2022,2023,2024,2025 or 2026")
+    vf.add_argument("--out", required=True)
+    vl = sub.add_parser("rung-v-loyo", help="R-V gates 1a, 1b and 1 (nested LOYO 2021-25 h13-16) (heavy)")
+    vl.add_argument("--records", required=True)
+    vl.add_argument("--nbm-train-corpus", required=True)
+    vl.add_argument("--mos", required=True, help="rv-fetch directory holding 2021-25")
+    vl.add_argument("--rj-loyo-rows", required=True, help="R-J loyo_rows.jsonl (incumbent-arm control)")
+    vl.add_argument("--out", required=True)
     mp = sub.add_parser("mg3-forward-parity", help="MG-3 (1c): forward HRRR parity F0-F4 (inputs only)")
     mp.add_argument("--recorder", required=True)
     mp.add_argument("--land", required=True)
@@ -7666,6 +7945,17 @@ def main(argv=None):
         result = ru_p0(records_root=args.records, nbm_train_corpus=args.nbm_train_corpus, hrrr_corpus=args.hrrr,
                        state_path=args.state, out_dir=args.out, commit=args.commit, rule_path=args.rule)
         return 0 if result["verdict"] != "STOPPED (coverage)" else 3
+    if args.command == "rv-fetch":
+        manifest = rv_fetch(out_dir=args.out, years=[int(y) for y in args.years.split(",")])
+        print(json.dumps({"files": len(manifest["files"])}, indent=1))
+        return 0
+    if args.command == "rung-v-loyo":
+        audit = rung_v_loyo(records_root=args.records, nbm_train_corpus=args.nbm_train_corpus, mos_corpus=args.mos,
+                            rj_loyo_rows=args.rj_loyo_rows, out_dir=args.out)
+        print(json.dumps({"gates": {k: v.get("pass") for k, v in audit["gates"].items()},
+                          "stopped_at": audit.get("stopped_at"),
+                          "control": audit.get("control_rj_reproduction")}, indent=1))
+        return 0
     if args.command == "mg3-forward-parity":
         result = mg3_forward_parity(recorder_dir=args.recorder, land=args.land, out_dir=args.out,
                                     through=args.through, commit=args.commit, archive_dir=args.archive,
