@@ -6674,7 +6674,8 @@ def mg3_verify_release(path, *, land, corpus_dir, states=None, weights=None, roo
 
 # ------------------------------------------------- MG-3 freeze prep (1c): forward HRRR parity scorer
 
-MG3_PARITY_RULE_SHA256 = "2c6e6045dca379854c281195e0a51a61f0de400bc517ed7faa444b2900a6593e"  # rule_mg3_forward_parity.md
+MG3_PARITY_RULE_SHA256 = "2c6e6045dca379854c281195e0a51a61f0de400bc517ed7faa444b2900a6593e"
+MG3_PARITY_FP1_SHA256 = "533f6f3818389b5ec81f0ed4392ea022a3878d6a00dc8b1dd81c76b6bff039a7"  # rule_mg3_forward_parity.md
 MG3_PARITY_TOL = 1e-9
 MG3_PARITY_SHARE = 0.99
 MG3_LATENCY_S = 600
@@ -6784,6 +6785,12 @@ def mg3_forward_parity(*, recorder_dir, land, out_dir, through, commit, archive_
     if not rows:
         raise PooledModelError("no counted recorder row (row_schema 2) up to --through")
     first = min(str(r["local_date"]) for r in rows)
+    meta_path = Path(recorder_dir) / "meta.json"
+    if not meta_path.exists():
+        raise PooledModelError(f"{meta_path} is missing (FP-1 needs first_started_utc)")
+    first_started = _mg3_utc(json.loads(meta_path.read_bytes()).get("first_started_utc"))
+    if first_started is None:
+        raise PooledModelError("meta.json has no first_started_utc (FP-1)")
 
     def in_window(day):
         return first <= day <= str(through)
@@ -6793,7 +6800,8 @@ def mg3_forward_parity(*, recorder_dir, land, out_dir, through, commit, archive_
     icao_market = {icao: s["market"] for icao, s in stations.items() if s.get("market") in markets}
     index = _mg3_message_index(messages)
     archive = None if archive_dir is None else _mg3_archive(archive_dir, land, point, icao_market, markets)
-    result = {"rule_sha256": MG3_PARITY_RULE_SHA256, "commit": commit, "through": str(through), "first": first,
+    result = {"rule_sha256": MG3_PARITY_RULE_SHA256, "clarification_fp1_sha256": MG3_PARITY_FP1_SHA256,
+              "first_started_utc": first_started.isoformat(), "commit": commit, "through": str(through), "first": first,
               "module_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
               "inputs": dict(shas, land_sha256=_rr_sha(land), **(archive["shas"] if archive else {})),
               "point_rule": point_report, "blocks": {}}
@@ -6872,14 +6880,18 @@ def mg3_forward_parity(*, recorder_dir, land, out_dir, through, commit, archive_
                         f3["bytes_absent"] += 1
                     elif a.get("msg_sha256") != m.get("msg_sha256"):
                         f3["bytes_differ"] += 1
-        latency = sorted((_mg3_utc(m["captured_at_utc"]) - max(_mg3_utc(m["grib_last_modified"]),
-                                                                _mg3_utc(m["idx_last_modified"]))).total_seconds()
-                         for m in used.values())
+        published = [(m, max(_mg3_utc(m["grib_last_modified"]), _mg3_utc(m["idx_last_modified"])))
+                     for m in used.values()]
+        # Clarification FP-1: messages S3 published before the recorder's FIRST start are excluded from F2 only.
+        latency = sorted((_mg3_utc(m["captured_at_utc"]) - pub).total_seconds()
+                         for m, pub in published if first_started is None or pub >= first_started)
+        excluded_prestart = len(published) - len(latency)
         f0["pass"] = (f0["k_miss_differs"] == 0 and f0["msg_sha_missing"] == 0
                       and f0["max_dk_max"] <= MG3_PARITY_TOL and f0["max_dk_tcdc"] <= MG3_PARITY_TOL)
         f1["share_equal"] = f1["equal"] / f1["n"] if f1["n"] else None
         f1["pass"] = bool(f1["n"]) and f1["newer"] == 0 and f1["share_equal"] >= MG3_PARITY_SHARE
         f2 = dict(_mg3_share(sum(x <= MG3_LATENCY_S for x in latency), len(latency)),
+                  excluded_prestart=excluded_prestart,
                   max_s=latency[-1] if latency else None,
                   p99_s=latency[max(0, math.ceil(0.99 * len(latency)) - 1)] if latency else None)
         f2["pass"] = bool(latency) and f2["share"] >= MG3_PARITY_SHARE
