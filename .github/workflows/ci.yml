@@ -59,6 +59,7 @@ jobs:
           tests/app/test_app_architecture.py
           tests/market/test_wallet_reader.py
           tests/operations/test_agent_docs_audit.py
+          tests/operations/test_capture_host_collection.py
           tests/operations/test_ci_ratchet_selection.py
           tests/operations/test_cold_recovery_host_guard.py
           tests/operations/test_dependency_pins.py

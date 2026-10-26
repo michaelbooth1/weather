@@ -17,7 +17,10 @@ import pandas as pd
 import pytest
 
 from weather.calibration import mg2_input_allowlist as allow
-from weather.calibration import mg2_inputs as mi
+
+from tests.host_guard import import_or_skip_on_capture_host
+
+mi = import_or_skip_on_capture_host("weather.calibration.mg2_inputs")
 
 ROOT = Path(__file__).resolve().parents[2]
 D = date(2026, 11, 2)
