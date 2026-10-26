@@ -39,8 +39,8 @@ YouTube-maker scoping stay paused; the maker pilot is approved in principle but 
 
 ## Current truth
 
-- **Production source:** read `origin/master` with git (`46dad240b` when written): N12 + N13 landed 10-24 on host Python 3.11.9;
-  S2+S9 (`f66252090`), dev scorecard, Stage-A retry, venue-rule labels (chain and incremental) and workstation heavy slots landed.
+- **Production source:** read `origin/master` with git (`c33176cbf` when written): N12 + N13 on host Python 3.11.9, S2+S9, venue
+  labels, W3 and split landed. **Night 10-25/26 STACK failed on the host:** STACK, LFS, docs `6596e6f6e` and D did not land; HOSTFIX rebuilds.
 - **Outcome embargo unchanged:** no outcome, price or label read after 09-29 except under a named, owner-opened test. Dates
   <= 09-29 are development only; descriptive reads of 10-16..11-13 stay refused (owner 10-17).
 - **MG-1** is bound and in forward shadow; its single look comes after its window closes (after 11-28;
@@ -48,12 +48,10 @@ YouTube-maker scoping stay paused; the maker pilot is approved in principle but 
 - **MG-2 / Rule B-1** ([design](B_FORWARD_TEST_DESIGN.md), DRAFT until master's 10-27 binding): D0 = 10-28 (master), N = 45
   countable dates (owner Q3), NI margin +0.0027 (owner Q4); earliest look ~12-12, strictly after MG-1's. Owner option 2 exempts
   MG-2 only from the reservation, one look, and (Q1) the capture-time market read for B travels at that look.
-- **Retrain-family (master 10-25):** P3d_N and MG-2 are serving-stage like MG-1; no 13-16 drop on 11-18..12-11.
-- **MG-2 binds via the C7/C8 line** (`e40804dfe` or its successor; master ruling 10-26); binding v2 `710f0c672` is superseded
-  and never lands alone. B scorer frozen (`b25b63f7…`); B and C8 land night 10-26/27 (master).
-- **Kill scopes (master's rulings R9/R10, 10-25):** R-I closes fitted temperature/scale maps only; spread information is a new
-  family with its own rule and full ladder, no global sharpening, the floor never weakened. R-G/R-J cover Aug-Sep only; an
-  Oct-Dec rung needs a fresh rule plus LOYO on Oct-Dec 2021-25 and promotes only through a forward test.
+- **MG-2 binds via the C7/C8 line** (`e40804dfe` or successor; master 10-26); binding v2 `710f0c672` superseded, never lands alone.
+  B scorer frozen (`b25b63f7…`). share_many = option (i) (master); (ii) at 0.08 drafted in Clarification E. Not retrain-family.
+- **Kill scopes (master R9/R10, 10-25):** R-I closes fitted temperature/scale maps only (spread information: own rule, full ladder,
+  no global sharpening, floor never weakened). R-G/R-J cover Aug-Sep only; Oct-Dec rungs need a fresh rule, LOYO Oct-Dec 2021-25.
 - **Labels (master ruling 10-25, reading B):** WU before 10-23, venue rule (WU fallback) from it; paid band = WU 626/626, so no
   past evaluation changes (EF §10ai; cutover `28e96a3e7`). **Denver >= 10-23: KDEN, unscored, out of MG-2 and B** (master).
 - **Dead-bucket NO buying is closed** (US and Toronto; EF §10ad, §10ah). **Toronto's NBM guidance is not captured** (RF);
@@ -65,11 +63,13 @@ YouTube-maker scoping stay paused; the maker pilot is approved in principle but 
 ## Ordered critical path
 
 1. **Bind Rule B-1** (master, 10-27) with C7 resolved, so MG-2 starts accruing at D0 10-28.
-2. **Running, approved by master:** L3 00-06 step 2, R-N (HRRR 00-06), R-O (GEFS centre, L11), R-P (NBH 13-16, L14), R-Q (GEFS
-   spread, L15). **R-K dev WIN** at 13-16 (−0.0722 [−0.0979, −0.0471]); R vs market 1.22: not an edge, not promotable (no forward HRRR).
-3. **Oct-Dec rungs** under R10 and the NBS TXN input (L12), each pre-registered with a ledger row before any scored row.
-4. **Cool-season paper test PT-1** ([draft](COOL_SEASON_PAPER_TEST_PREREG.md); owner Q6-Q9 answered 10-25, dates 12-12..01-25) bound before its D0.
-5. **Host nights:** pending integrations through the quiet-window merge, one attempt manifest each.
+2. **HRRR forward recorder: YES (master).** Shadow capture on the workstation; the host head lands via QWM only on master's say.
+   R-K (13-16, −0.0722) and R-R (07-12 vs L6, −0.0402) are dev WINs, R 1.22 / 1.112: not edges, not promotable until forward
+   parity ([plan draft](../research/l2-pooled-residual-2026-10-24/drafts/hrrr_forward_recorder_parity_plan_DRAFT.md); MG-2 Clarifications drafted, not applied).
+3. **Running:** R-O (GEFS centre), R-Q (GEFS spread), R-L2 pre-registering. Closed 10-26: R-P, R-PD, R-N; R-L stopped (EF §10ak).
+4. **Oct-Dec rungs** under R10 and the NBS TXN input (L12), each pre-registered with a ledger row before any scored row.
+5. **Cool-season paper test PT-1** ([draft](COOL_SEASON_PAPER_TEST_PREREG.md); owner Q6-Q9 answered 10-25, dates 12-12..01-25) bound before its D0.
+6. **Host nights:** pending integrations through the quiet-window merge, one attempt manifest each.
 
 ## Open commitments (every row: owner, due, verify)
 

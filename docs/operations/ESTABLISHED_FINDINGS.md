@@ -118,6 +118,7 @@ sequence numbers, not calendar dates.
 | 10ah | Reads from 2026-10-24/25 recorded late (dev): L5 hot-day centre arms and AFD all KILL vs MG-1; L8 high_so_far parity KEEP vs base, not bound; L10 gap atlas has no cell at R <= 1; L11 stage C gross bound; no fresh pre-07-31 dates |
 | 10ai | Before 10-23 the venue paid the WU band 626/626 (routine-only rule 617/626; 8 band flips 08-11..09-29, all SPECI effects): labels are WU before 10-23 and the venue rule from it (master ruling (10-25), reading B) |
 | 10aj | Found defect 2026-10-26: the MG-2 "no production importer" test was vacuous (literal backspace bytes for `\b`); fixed in `e40804dfe`; control-byte ratchet approved (master ruling (10-25)), landing 10-26/27 |
+| 10ak | Lane reads 2026-10-26 (dev): R-P KILL at gate 3 (a LOYO intercept win is bias correction, not information); R-PD and R-N CLOSED at 00-06 (gate 2 NULL); R-L STOPPED at gate 1a (NBS drops the day's TXN from ≥ 13Z cycles); R-R WIN at 07-12 vs L6, still worse than the market |
 
 ---
 
@@ -4190,6 +4191,40 @@ Introduced in `fdd7ddc75`, fixed in `e40804dfe` (the C7/C8 line).
   already does for Markdown. It lands in the 10-26/27 chain; its `tests/AGENTS.md` note lives on that branch.
 - **Lesson:** a negative test must be shown to fail on a planted violation before it is trusted.
 - **Reopen if:** a control byte is found in a `.ps1` file or another type the ratchet does not cover.
+
+### 10ak. Lane reads of 2026-10-26: R-P killed, R-PD and R-N closed at 00-06, R-L stopped on an NBS format fact, R-R a dev WIN at 07-12 — workstation, recorded 2026-10-26
+
+**Scope:** development evidence on dates ≤ 2026-09-29 plus LOYO 2021-25; rules committed before rows; nothing after
+09-29 read. Rows and "Reopen if" lines: [exhaustion register](EXHAUSTION_REGISTER.md) §6 X30-X34. DEV_WINDOW_LEDGER rows
+for these reads (and L3's rows 32-35 on `claude/l3-dev-ledger-rows-20261025` @ `217b99ea7`) are renumbered at the
+merge-forward, because that file is not on this head's base.
+
+- **R-P (L14), NBH remaining-hours max as a 13-16 centre shift: KILL at gate 3.** Gate 2 LOYO passed (B_P − B_N 13-16
+  −0.0093 [−0.0118, −0.0067]), but the fits were mostly an intercept: slope b = 0 in 40% (B_N) and 55% (P3d_N_fix) of
+  fits, a −0.2..−0.3 °F. **Lesson: a pooled LOYO intercept win is a bias correction, not information**; test a slope
+  or a by-market split before reading a LOYO pass as an input's value. **Disclosure:** production never captured NBH,
+  so even a pass could not have served. Rule `ed3236fa…` + RP-1 `f71a566a…` + RP-2 `70d4f01f…`, branch
+  `claude/nbh-centre-1316-20261026` @ `ba11dd107`. **Reopen if:** NBH is captured forward and a slope-term rule passes.
+- **R-PD and R-N (L3), 00-06: CLOSED.** Both passed LOYO (R-PD −0.0047 [−0.0073, −0.0022]; R-N −0.0062 [−0.0092,
+  −0.0032]) and were NULL at gate 2 on dev (R-PD −0.0232 [−0.0520, +0.0047]; R-N −0.0105 [−0.0482, +0.0239]) under
+  PD-1 `fa874b10…`. **The dev window underpowers 00-06**, so this is a null, not a precise zero. **Reopen if:** a larger
+  00-06 window or a forward read under its own rule.
+- **R-L (L2), NBS TXN at 07-12: STOPPED at gate 1a, not a kill.** Coverage 0.433 against 0.95; every miss is
+  `column_absent`. **Format fact: NBS omits the target day's TXN maximum from cycles issued after that day's maximum
+  period has begun (13Z and later); 12Z and earlier carry it.** So a "newest cycle" rule is missing by construction
+  for most of 07-12. R-L2 (newest cycle that carries the TXN) is pre-registering; it yields an older centre at late
+  cutoffs. Rule `3ce9a6f2…`.
+- **R-R (L2), HRRR hourly path at 07-12: WIN on dev against L6.** Gate 2 LOYO B_H − B_N −0.0092 [−0.0112, −0.0073];
+  gate 3 P3d_H − P3d_N_fix −0.0598 [−0.0813, −0.0401]; gate 4 blend_l6_H − L6 −0.0402 [−0.0603, −0.0198], every hour
+  below 0. Still worse than the market: R 1.112 [1.072, 1.159]. Disclosures: the dev window has been read by every rung
+  since R-A and R-R was chosen because R-K won; L6 is in-sample on dev. Rule `e3d92e1a…`, branch
+  `claude/rung0712-20261025` @ `4fccf23f7`. **Not an edge and not promotable:** no captured-forward HRRR exists. The
+  MG-2 Clarifications for R-K (post-13) and R-R (pre-13) and the forward recorder parity plan and its R-R addendum are
+  DRAFTS, not applied ([recorder plan](../research/l2-pooled-residual-2026-10-24/drafts/hrrr_forward_recorder_parity_plan_DRAFT.md),
+  [R-R addendum](../research/l2-pooled-residual-2026-10-24/drafts/hrrr_forward_parity_rr_addendum_DRAFT.md),
+  [post-13 Clarification](../research/l2-pooled-residual-2026-10-24/drafts/mg2_post13_clarification_rk_DRAFT.md),
+  [pre-13 Clarification](../research/l2-pooled-residual-2026-10-24/drafts/mg2_pre13_clarification_rr_DRAFT.md)). B is unaffected.
+- **Not claimed:** edge; any forward result; that a kill here covers another input form.
 
 ## Related
 
