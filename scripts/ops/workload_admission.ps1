@@ -633,6 +633,7 @@ function Get-WeatherWorkstationOfflineModule {
         "weather.calibration.pooled_candidate_replay_diagnostics",
         "weather.calibration.pooled_candidate_replay_report",
         "weather.calibration.pooled_residual_model",
+        "weather.calibration.predawn_0006",
         "weather.calibration.r0_ols_floor_challenger",
         "weather.market.maker_evidence_inspect",
         "weather.market.maker_counterfactual_tape",
