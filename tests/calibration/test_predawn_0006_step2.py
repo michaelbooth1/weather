@@ -107,3 +107,17 @@ def test_usable_hrrr_high_refuses_late_fetch():
                       "captured_at_utc": ["2026-08-01T04:10:00+00:00"] * 3})
     got = pd6.usable_hrrr_high(s)
     assert got[0] == 80.0 and np.isnan(got[1]) and np.isnan(got[2])
+
+
+def test_land_choice_nearest_land_cell(tmp_path):
+    st = {"KSFO": {"i": 178, "j": 594, "fi": 177.9, "fj": 594.5}, "KATL": {"i": 10, "j": 10, "fi": 10.0, "fj": 10.0},
+          "KXXX": {"i": 5, "j": 5, "fi": 5.0, "fj": 5.0}}
+    (tmp_path / "stations.json").write_text(json.dumps(st), encoding="utf-8")
+    land = {"KSFO": {"i": 178, "j": 594, "land_block3x3": [0, 0, 0, 0, 0, 0, 1, 1, 0]},   # north row: k=6 (di=-1), k=7
+            "KATL": {"i": 10, "j": 10, "land_block3x3": [1] * 9},
+            "KXXX": {"i": 5, "j": 5, "land_block3x3": [0] * 9}}
+    (tmp_path / "land.json").write_text(json.dumps(land), encoding="utf-8")
+    got = pd6.land_choice(tmp_path, tmp_path / "land.json")
+    assert got["KSFO"]["index"] == 7          # (178, 595) is 0.51 from (177.9, 594.5); (177, 595) is 1.03
+    assert got["KATL"]["index"] == 4 and got["KATL"]["centre_is_land"]
+    assert got["KXXX"]["index"] is None
