@@ -417,3 +417,29 @@ def test_a_variable_missing_from_the_idx_is_recorded_not_fatal(tmp_path):
     by_var = {v: {r["status"] for r in rows if r["var"] == v} for v in {r["var"] for r in rows}}
     assert by_var == {"TMP:2 m above ground": {"ok"}, "TCDC:entire atmosphere": {"decode_error"}}
     assert json.loads((out / "status.json").read_text())["state"] == "complete"
+
+
+def test_synoptic_f48_path_for_overnight_snapshots():
+    stations = {"KATL": {"tz": "America/New_York"}}
+    day = dt.date(2023, 8, 15)  # 00:00 EDT = 04Z; 23:00 EDT = 03Z next day
+    c00, c18 = dt.datetime(2023, 8, 15, 0, tzinfo=UTC), dt.datetime(2023, 8, 14, 18, tzinfo=UTC)
+    cycles = fetch.cycles_to_list(day, stations, [0], 6, lookback=3)
+    assert cycles == [dt.datetime(2023, 8, 14, 12, tzinfo=UTC), c18, c00]
+
+    def avail(c, minutes):
+        return {fh: c + dt.timedelta(minutes=minutes) for fh in range(49)}
+
+    on_time = {c: avail(c, 115) for c in cycles}
+    sels, msgs = fetch.plan_day(day, stations, [0], 23, 6, MARGIN, on_time, max_fh=48, lookback=3)
+    assert sels[0]["cycle_utc"] == c00.isoformat() and sels[0]["fhs"] == list(range(4, 28))
+    assert sels[0]["window_truncated_at_f18"] is False
+    late = {**on_time, c00: avail(c00, 231)}  # 00Z + 231 min + 10 min margin > 04Z
+    sels, _ = fetch.plan_day(day, stations, [0], 23, 6, MARGIN, late, max_fh=48, lookback=3)
+    assert sels[0]["cycle_utc"] == c18.isoformat() and sels[0]["fhs"] == list(range(10, 34))
+    # With the hourly-cycle f18 cap the same window would be truncated.
+    assert fetch.needed_fhs(c18, c00 + dt.timedelta(hours=4), c00 + dt.timedelta(hours=27))[1]
+
+
+def test_f48_requires_synoptic_stride(tmp_path):
+    with pytest.raises(SystemExit):
+        fetch.main(["--out", str(tmp_path), "--max-fh", "48", "--cycle-stride", "1"], session=_FakeS3())

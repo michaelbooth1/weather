@@ -358,10 +358,10 @@ def parse_s3_time(text):
     return dt.datetime.fromisoformat(text.replace("Z", "+00:00")).astimezone(UTC)
 
 
-def cycle_availability(listing, cycle):
+def cycle_availability(listing, cycle, max_fh=MAX_FH):
     """{fh: available_utc} where available = max(LastModified of .grib2, of .idx)."""
     out = {}
-    for fh in range(0, MAX_FH + 1):
+    for fh in range(0, max_fh + 1):
         g = listing.get(grib_key(cycle, fh))
         i = listing.get(grib_key(cycle, fh) + ".idx")
         if g and i:
@@ -374,12 +374,12 @@ def snapshot_utc(day, tz, hour):
     return dt.datetime(day.year, day.month, day.day, hour, tzinfo=ZoneInfo(tz)).astimezone(UTC)
 
 
-def needed_fhs(cycle, snapshot, window_end):
-    """Forecast hours valid in [snapshot, window_end], capped at MAX_FH (may be truncated)."""
+def needed_fhs(cycle, snapshot, window_end, max_fh=MAX_FH):
+    """Forecast hours valid in [snapshot, window_end], capped at ``max_fh`` (may be truncated)."""
     lo = math.ceil((snapshot - cycle).total_seconds() / 3600.0)
     hi = math.floor((window_end - cycle).total_seconds() / 3600.0)
-    hi_cap = min(hi, MAX_FH)
-    return list(range(max(lo, 0), hi_cap + 1)), hi > MAX_FH
+    hi_cap = min(hi, max_fh)
+    return list(range(max(lo, 0), hi_cap + 1)), hi > max_fh
 
 
 def candidate_cycles(snapshot, stride, lookback=4):
@@ -393,14 +393,14 @@ def candidate_cycles(snapshot, stride, lookback=4):
     return out
 
 
-def select_cycle(snapshot, window_end, availability, stride, margin):
+def select_cycle(snapshot, window_end, availability, stride, margin, max_fh=MAX_FH, lookback=4):
     """Newest cycle whose every needed fh was published at least ``margin`` before the snapshot.
 
     ``availability`` maps cycle datetime -> {fh: available_utc}. Returns a selection dict or one
     with ``cycle_utc`` None when no candidate qualifies (the row is then absent, never imputed).
     """
-    for depth, cycle in enumerate(candidate_cycles(snapshot, stride)):
-        fhs, truncated = needed_fhs(cycle, snapshot, window_end)
+    for depth, cycle in enumerate(candidate_cycles(snapshot, stride, lookback)):
+        fhs, truncated = needed_fhs(cycle, snapshot, window_end, max_fh)
         if not fhs:
             continue
         avail = availability.get(cycle, {})
@@ -414,7 +414,7 @@ def select_cycle(snapshot, window_end, availability, stride, margin):
             "latest_available_utc": None}
 
 
-def plan_day(day, stations, hours, valid_end_local, stride, margin, availability):
+def plan_day(day, stations, hours, valid_end_local, stride, margin, availability, max_fh=MAX_FH, lookback=4):
     """Per (station, hour) selections and the union of (cycle, fh) messages they need."""
     selections, messages = [], set()
     for st, meta in stations.items():
@@ -423,7 +423,7 @@ def plan_day(day, stations, hours, valid_end_local, stride, margin, availability
                + dt.timedelta(hours=valid_end_local)).astimezone(UTC)
         for h in hours:
             t = snapshot_utc(day, tz, h)
-            sel = select_cycle(t, end, availability, stride, margin)
+            sel = select_cycle(t, end, availability, stride, margin, max_fh, lookback)
             selections.append({"local_date": day.isoformat(), "station": st, "hour_local": h,
                                "snapshot_utc": t.isoformat(), **sel})
             if sel["cycle_utc"]:
@@ -432,11 +432,11 @@ def plan_day(day, stations, hours, valid_end_local, stride, margin, availability
     return selections, sorted(messages)
 
 
-def cycles_to_list(day, stations, hours, stride):
+def cycles_to_list(day, stations, hours, stride, lookback=4):
     out = set()
     for meta in stations.values():
         for h in hours:
-            out.update(candidate_cycles(snapshot_utc(day, meta["tz"], h), stride))
+            out.update(candidate_cycles(snapshot_utc(day, meta["tz"], h), stride, lookback))
     return sorted(out)
 
 
@@ -612,6 +612,8 @@ def run(args, session=None):
         raise SystemExit(f"stations outside the HRRR grid: {outside}")
     write_json_atomic(out / "stations.json", {st: {**stations[st], **cells[st]} for st in stations})
     hours = list(range(args.first_hour, args.last_hour + 1))
+    if args.max_fh > MAX_FH and (args.cycle_stride % 6 or args.max_fh > 48):
+        raise SystemExit("--max-fh above 18 needs synoptic cycles (--cycle-stride 6) and at most 48")
     margin = dt.timedelta(minutes=args.margin_minutes)
     variables = args.variables.split(",")
     days = season_dates([int(y) for y in args.years.split(",")], [int(m) for m in args.months.split(",")], args.seed,
@@ -653,11 +655,12 @@ def run(args, session=None):
                     continue
                 break
             listing, availability = {}, {}
-            for cycle in cycles_to_list(day, stations, hours, args.cycle_stride):
+            for cycle in cycles_to_list(day, stations, hours, args.cycle_stride, args.lookback):
                 page = f.list_prefix(cycle_prefix(cycle))
                 listing.update(page)
-                availability[cycle] = cycle_availability(page, cycle)
-            sels, msgs = plan_day(day, stations, hours, args.valid_end_local, args.cycle_stride, margin, availability)
+                availability[cycle] = cycle_availability(page, cycle, args.max_fh)
+            sels, msgs = plan_day(day, stations, hours, args.valid_end_local, args.cycle_stride, margin, availability,
+                                  args.max_fh, args.lookback)
             idx_cache, failures = {}, 0
             for cycle, fh in msgs:
                 for var in variables:
@@ -745,6 +748,8 @@ def main(argv=None, session=None):
     ap.add_argument("--last-hour", type=int, default=16, help="last local snapshot hour")
     ap.add_argument("--valid-end-local", type=int, default=17, help="last valid local hour of the window")
     ap.add_argument("--cycle-stride", type=int, default=1, help="use cycles whose UTC hour is a multiple")
+    ap.add_argument("--max-fh", type=int, default=MAX_FH, help="18; 48 only with synoptic cycles (stride 6)")
+    ap.add_argument("--lookback", type=int, default=4, help="candidate cycles tried per snapshot")
     ap.add_argument("--margin-minutes", type=int, default=10, help="poll margin after LastModified")
     ap.add_argument("--cap-gb", type=float, default=60.0)
     ap.add_argument("--min-free-gb", type=float, default=60.0)
