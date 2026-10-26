@@ -4220,10 +4220,14 @@ merge-forward, because that file is not on this head's base.
 - **R-L2 (L2), NBS TXN at 07-12 from the newest cycle carrying the target-day TXN: KILL at gate 3.** LOYO passed
   (B_L − B_N −0.0279 [−0.0308, −0.0248]); dev P3d_L − P3d_N_fix −0.0123 [−0.0283, +0.0038] failed (21,664 snapshots).
   NBS TXN is closed as a 07-12 centre input under both cycle rules. The selected cycle is 3-5 h stale at h10-h12, and
-  the training anchor (L9 `nbm_at_cutoff`) differs from the dev anchor (captured `usable_v2_mean`): median
-  |n_txn − anchor| 1.0 °F in training vs 0.0 °F on dev. Rule `a1f95786…`, branch `claude/rung0712-20261025` @
-  `6488c7a31`. **Reopen if:** an anchor-consistent re-anchored variant (train and dev on the same NBM reference) is
-  pre-registered fresh; R-L3 is now pre-registering.
+  median |n_txn − anchor| is 1.0 °F in training vs 0.0 °F on dev. **Corrected 2026-10-26:** that is not the dev anchor
+  choice. The dev training-identical anchor equals the captured `usable_v2_mean` on 28,514 of 28,814 07-12 dev rows
+  (about 99%; `C:\t\l2\p3d_n_dev\dev_emit_audit.json`, `dev_corpus_vs_captured_nbm_by_hour`), so the gap is a
+  training-era (2021-25) vs 2026 difference between L9's NBM corpus and NBS TXN: rounding, version or cycle timing.
+  R-L3 is DROPPED (no rule written); an outcome-free, input-only diagnostic (|n_txn − L9 nbm| by year x hour) is
+  running. Rule `a1f95786…`, branch `claude/rung0712-20261025` @ `6488c7a31`. **Reopen if:** the diagnostic identifies
+  a training-side anchor defect (rounding, version or timing) that a fresh, differently named rule could correct on the
+  training side.
 - **R-R (L2), HRRR hourly path at 07-12: WIN on dev against L6.** Gate 2 LOYO B_H − B_N −0.0092 [−0.0112, −0.0073];
   gate 3 P3d_H − P3d_N_fix −0.0598 [−0.0813, −0.0401]; gate 4 blend_l6_H − L6 −0.0402 [−0.0603, −0.0198], every hour
   below 0. Still worse than the market: R 1.112 [1.072, 1.159]. Disclosures: the dev window has been read by every rung
