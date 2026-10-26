@@ -76,6 +76,7 @@ _OFFLINE_WEATHER_MODULES = frozenset(
         "weather.calibration.upstream_obs_screen",
         "weather.calibration.pooled_residual_model",
         "weather.calibration.r0_ols_floor_challenger",
+        "weather.calibration.toronto_guidance",
         "weather.market.maker_evidence_inspect",
         "weather.market.maker_counterfactual_tape",
         "weather.operations.base_retrain",

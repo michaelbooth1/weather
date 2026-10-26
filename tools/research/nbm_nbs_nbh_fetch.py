@@ -5,6 +5,8 @@ national hourly-issued text bulletins
 
 * NBS (short range, 3-hourly columns, carries ``TXN``): ``blend.YYYYMMDD/HH/text/blend_nbstx.tHHz``
 * NBH (hourly columns, ~25 h):                         ``blend.YYYYMMDD/HH/text/blend_nbhtx.tHHz``
+* NBP (probabilistic, 00Z/12Z pairs, carries ``TXNMN``/``TXNSD``/``TXNP*``, the MG-1 input; opt-in
+  with ``--products nbp``, lane L14):                  ``blend.YYYYMMDD/HH/text/blend_nbptx.tHHz``
 
 Each bulletin is ~28-30 MB, but its station blocks are sorted by station id and are fixed-width
 within one file, so this fetcher reads only each wanted station's block with HTTP Range requests:
@@ -38,7 +40,7 @@ from pathlib import Path
 
 BUCKET = "https://noaa-nbm-grib2-pds.s3.amazonaws.com"
 LAST_ALLOWED = date(2026, 9, 29)
-PRODUCTS = ("nbs", "nbh")
+PRODUCTS = ("nbs", "nbh", "nbp")
 NS = "{http://s3.amazonaws.com/doc/2006-03-01/}"
 HEADER_RE = re.compile(rb"(?m)^ ?([A-Z0-9]{3,8}) +NBM V\S+ +(NBS|NBH|NBP|NBE|NBX) +GUIDANCE")
 PROBE = 6000
@@ -344,7 +346,9 @@ def main(argv=None):
     ap.add_argument("--years", default="2021,2022,2023,2024,2025")
     ap.add_argument("--months", default="8,9,10,11,12")
     ap.add_argument("--cycles", default=",".join(f"{h:02d}" for h in range(4, 20)))
-    ap.add_argument("--products", default="nbs,nbh")
+    ap.add_argument("--products", default="nbs,nbh",
+                    help="comma list of nbs, nbh, nbp (nbp is opt-in; parse NBP blocks with "
+                         "weather.sources.nbm_probabilistic_tmax, not parse_block)")
     ap.add_argument("--stations", help="comma list; default: the market registry's settlement stations")
     ap.add_argument("--dates-file", help="optional: one ISO date per line (overrides years/months)")
     ap.add_argument("--limit", type=int, default=0, help="stop after N objects (probe runs)")
@@ -357,6 +361,9 @@ def main(argv=None):
     out.mkdir(parents=True, exist_ok=True)
     stations = args.stations.split(",") if args.stations else registry_stations()
     products = [p for p in args.products.split(",") if p in PRODUCTS]
+    unknown = [p for p in args.products.split(",") if p and p not in PRODUCTS]
+    if unknown or not products:
+        raise SystemExit(f"unknown product(s) {unknown}; choose from {','.join(PRODUCTS)}")
     cycles = args.cycles.split(",")
     if args.dates_file:
         dates = [date.fromisoformat(x) for x in Path(args.dates_file).read_text().split() if x.strip()]
