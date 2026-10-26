@@ -736,7 +736,7 @@ def snapshot_inputs(replay_root, tapes_root, nbp_path, dev_obs_path, out_dir, fi
 def to_bins(dist, bins):
     out = []
     for kind, lo, hi in bins:
-        out.append(sum(v for k, v in dist.items() if lo <= k <= hi))
+        out.append(sum(float(v) for k, v in dist.items() if lo <= float(k) <= hi))  # JSON keys arrive as str
     return out
 
 
