@@ -1,7 +1,7 @@
 """Campaign loss ledger L (signed pre-registration section 6), wallet baselines, fail-closed state. Synthetic only.
 
 Guards: the signed L formula (filled x price + resting x limit, no fee term, zero recovery), the post gate
-L_after_cancel + reserve <= 100 with its boundary, stop-at-100 (L_filled + 38.4 > 100), mismatch halts, the
+L_after_cancel + reserve <= 100 with its boundary, stop-at-100 (L_filled + 19.2 > 100 at the clarification-E size 20), mismatch halts, the
 l_ledger.json snapshot, the trades reconcile by our order ids, persistence across restarts and sessions, fail-closed
 on missing/empty/truncated/edited/changed-underneath state, and the T-24h/T-40min baselines.
 Fix round 1 (review F-5): schema v0.2 adds leg_adopt; a v0.1 history still verifies, versions never go backwards, and
@@ -104,11 +104,12 @@ def test_post_gate_boundary_and_own_resting(tmp_path):
 def test_stop_at_100_uses_filled_plus_minimum_feasible_reserve(tmp_path):
     ledger, _ = new(tmp_path)
     ledger.record('session_start', session_id='S1', counted=True)
-    leg(ledger, 'S1', 'S1:1', price='.5', size='123.2', order_id='o1')
-    ledger.terminal('o1', {'status': 'MATCHED', 'size_matched': '123.2'}, source='test')  # 61.6 + 38.4 = 100
-    assert ledger.L_filled() == Decimal('61.6') and ledger.stop_reason() is None
+    assert LFC.MIN_FEASIBLE_RESERVE == Decimal('19.2')  # 20 x 0.96 (clarification E)
+    leg(ledger, 'S1', 'S1:1', price='.5', size='161.6', order_id='o1')
+    ledger.terminal('o1', {'status': 'MATCHED', 'size_matched': '161.6'}, source='test')  # 80.8 + 19.2 = 100
+    assert ledger.L_filled() == Decimal('80.8') and ledger.stop_reason() is None
     leg(ledger, 'S1', 'S1:2', price='.5', size='1', order_id='o2')
-    ledger.terminal('o2', {'status': 'MATCHED', 'size_matched': '.2'}, source='test')  # 61.7 + 38.4 > 100
+    ledger.terminal('o2', {'status': 'MATCHED', 'size_matched': '.2'}, source='test')  # 80.9 + 19.2 > 100
     assert ledger.stop_reason() == 'l_stop_at_cap'
     with pytest.raises(LedgerCap, match='l_stop_at_cap'):
         ledger.post_gate(reserve=0, cap=100)

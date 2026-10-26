@@ -1,7 +1,7 @@
 """Live-fill calibration session controller with in-memory fakes only (no network, no credentials, no orders).
 
-Guards: the declared 40-share deviation, the signed dates (earliest start 2026-10-15T00:00Z, 23:50Z hard stop, last
-start local 10-31), the signed L gate and cash rule before any post, stop-at-100, the event-level position exclusion
+Guards: the declared 20-share deviation (clarification E; 40 as signed), the dates (earliest start 2026-10-15T00:00Z,
+23:50Z hard stop, last start local 2026-11-20 under clarification E), the signed L gate and cash rule before any post, stop-at-100, the event-level position exclusion
 on the existing wallet, the foreign-order end, account-wide cancel-all cleanup, the trades reconcile, panel exclusions
 before the first post, session 0 (market rules, 5c quote at min size, sub-runs 0a/0b/0d/0e/0f) and the notification.
 Fix round 1 (review F-1..F-9, fee rule): the venue-only dead-man sub-run 0g (observed / not observed with a ledger
@@ -43,7 +43,7 @@ OTHER = '0x' + 'c' * 64
 BASE = datetime(2026, 10, 20, 17, tzinfo=timezone.utc)
 S0_BASE = datetime(2026, 10, 12, 17, tzinfo=timezone.utc)
 S0_SLUG = 'synthetic-election-winner-2026'
-LA_SLUG = 'highest-temperature-in-los-angeles-on-october-21-2026'
+PILOT_SLUG = 'highest-temperature-in-denver-on-october-21-2026'  # clarification E: Toronto and Denver only
 
 
 class Clock:
@@ -75,7 +75,7 @@ def fee_evidence(slug, *, free):
 
 
 def set_fee_class(snap, *, free):
-    snap['fee_evidence'] = json.loads(json.dumps(fee_evidence(S0_SLUG if free else LA_SLUG, free=free)))
+    snap['fee_evidence'] = json.loads(json.dumps(fee_evidence(S0_SLUG if free else PILOT_SLUG, free=free)))
     for rule in snap['rules'].values():
         rule['fee_rate_bps'] = '0' if free else '1000'
     return snap
@@ -84,15 +84,23 @@ def set_fee_class(snap, *, free):
 def snapshot(clock, *, session0=False):
     value = Venue(clock).snapshot()
     value['quote_inputs'].update(reward_rate_per_day='100')
+    if not session0:
+        # Clarification E (20 shares): 40 shares at the touch plus 60 three cents out keeps the RE-1 depth floor of
+        # 75 within the reward spread and puts share_many inside the signed (.15, .70) at 20 (all 100 at the touch
+        # would give .10). The quote is unchanged: .33 / .64.
+        def levels(near, far):
+            return [{'price': near, 'size': '40'}, {'price': far, 'size': '60'}]
+        value['quote_inputs'].update(yes_bids=levels('.34', '.31'), yes_asks=levels('.35', '.38'),
+                                     no_bids=levels('.65', '.62'), no_asks=levels('.66', '.69'))
     if session0:  # Session0Books placeholders: an unrewarded market
         value['quote_inputs'].update(reward_min_size='0', reward_max_spread_cents='0', reward_rate_per_day='0')
     return set_fee_class(value, free=session0)
 
 
 def counted_table(clock, *, held=(), figures=None, cash='500'):
-    band = dict(market_id='los-angeles', market_timezone=REGISTRY['los-angeles'].timezone,
+    band = dict(market_id='denver', market_timezone=REGISTRY['denver'].timezone,
                 target_date=(clock.now() + timedelta(days=1)).date().isoformat(),
-                condition_id=CONDITION, token_ids=list(TOKENS), snapshot=snapshot(clock), event_slug=LA_SLUG,
+                condition_id=CONDITION, token_ids=list(TOKENS), snapshot=snapshot(clock), event_slug=PILOT_SLUG,
                 event_condition_ids=[CONDITION, OTHER])
     return select_table([band], now=clock.now(), available_collateral=cash, treatment=LFC.TREATMENT,
                         ledger=figures or {'L': '0', 'L_resting': '0'}, held_conditions=list(held))
@@ -153,8 +161,8 @@ def setup(tmp_path, *, session0=False, run=None, base=None, filled=None, resting
     sid = 'S0a-test' if session0 else 'S1-test'
     ledger.record('session_start', session_id=sid, counted=not session0,
                   **({'session0_run': run or '0a'} if session0 else {}))
-    exclusion = None if session0 else {'event_slug': LA_SLUG, 'condition_ids': [CONDITION, OTHER],
-                                       'timezone_name': REGISTRY['los-angeles'].timezone}
+    exclusion = None if session0 else {'event_slug': PILOT_SLUG, 'condition_ids': [CONDITION, OTHER],
+                                       'timezone_name': REGISTRY['denver'].timezone}
     session = PilotSession(ledger=ledger, session_id=sid, profile=profile, root=root, exclusion=exclusion,
                            venue=venue, public=venue, table=table, clock=clock, directory=directory)
     return session, venue, clock, ledger
@@ -169,16 +177,17 @@ def events(session, name):
 
 
 # ----- constants, profile, dates --------------------------------------------------------------------------------
-def test_forty_share_constant_is_a_declared_deviation_from_75():
-    assert LFC.PILOT_SIZE == Decimal('40') and LFC.PROXY_SIZE == Decimal('75')
+def test_twenty_share_constant_is_a_declared_deviation_from_75():
+    assert LFC.PILOT_SIZE == Decimal('20') and LFC.PROXY_SIZE == Decimal('75')
     source = Path(LFC.__file__).read_text(encoding='utf-8')
     assert 'DECLARED DEVIATION' in source and 'live-fill-calibration-preregistration-2026-10-09.md' in source
-    assert PilotProfile().SIZES == (Decimal('40'),) and PilotProfile().venue_ceiling(40) == (Decimal('31.60'),
-                                                                                            Decimal('39.20'))
+    assert PilotProfile().SIZES == (Decimal('20'),) and PilotProfile().venue_ceiling(20) == (Decimal('15.80'),
+                                                                                            Decimal('19.60'))
     assert LFC.MAX_SESSIONS == 8 and LFC.SESSION_SECONDS == 360 * 60 and LFC.BUDGET_PUSD == 100
-    assert LFC.MIN_FEASIBLE_RESERVE == Decimal('38.4')
-    with pytest.raises(RuntimeError):
-        PilotProfile().venue_ceiling(75)
+    assert LFC.MIN_FEASIBLE_RESERVE == Decimal('19.2')
+    for other in (40, 75):
+        with pytest.raises(RuntimeError):
+            PilotProfile().venue_ceiling(other)
 
 
 def test_profile_session0_needs_a_run_and_binds_min_size_at_most_20():
@@ -203,16 +212,18 @@ def test_earliest_start_is_utc_2026_10_15_with_a_hard_refusal():
     assert start_refusals(edge - timedelta(days=3), session0=True, seconds=1200) == []
 
 
-def test_hard_stop_2350z_and_last_start_owner_local_10_31():
+def test_hard_stop_2350z_and_last_start_owner_local_11_20():
     assert hard_stop(BASE) == datetime(2026, 10, 20, 23, 50, tzinfo=timezone.utc)
     assert start_refusals(datetime(2026, 10, 20, 17, 50, tzinfo=timezone.utc)) == []
     assert start_refusals(datetime(2026, 10, 20, 17, 50, 1, tzinfo=timezone.utc)) == ['past_hard_stop_2350z']
     assert 'past_hard_stop_2350z' in start_refusals(datetime(2026, 10, 12, 23, 40, tzinfo=timezone.utc),
                                                     session0=True, seconds=1200)
-    # 2026-11-01T00:00Z is 20:00 on 10-31 in Toronto: still the last start date.
-    assert start_refusals(datetime(2026, 11, 1, 0, tzinfo=timezone.utc)) == []
-    assert start_refusals(datetime(2026, 11, 1, 4, 1, tzinfo=timezone.utc)) == ['after_last_start_date']
-    assert LFC.LAST_START_LOCAL_DATE == date(2026, 10, 31)
+    # Clarification E: the signed 10-31 no longer refuses; 2026-11-21T00:00Z is 19:00 on 11-20 in Toronto (EST):
+    # still the last start date; 05:01Z is 00:01 on 11-21.
+    assert start_refusals(datetime(2026, 11, 1, 4, 1, tzinfo=timezone.utc)) == []
+    assert start_refusals(datetime(2026, 11, 21, 0, tzinfo=timezone.utc)) == []
+    assert start_refusals(datetime(2026, 11, 21, 5, 1, tzinfo=timezone.utc)) == ['after_last_start_date']
+    assert LFC.LAST_START_LOCAL_DATE == date(2026, 11, 20)
 
 
 def test_counted_session_before_earliest_start_posts_nothing(tmp_path):
@@ -222,7 +233,7 @@ def test_counted_session_before_earliest_start_posts_nothing(tmp_path):
 
 
 # ----- a normal counted session -----------------------------------------------------------------------------------
-def test_full_session_rests_forty_counts_L_and_releases_it_after_cleanup(tmp_path):
+def test_full_session_rests_twenty_counts_L_and_releases_it_after_cleanup(tmp_path):
     session, venue, _, ledger = setup(tmp_path)
     seen = []
     original = session.minute_extra
@@ -233,9 +244,9 @@ def test_full_session_rests_forty_counts_L_and_releases_it_after_cleanup(tmp_pat
     session.minute_extra = minute_extra
     result = session.run(rehearsal_seconds=180)
     assert result['submits'] == 2 and result['cleanup_ok'] and not venue.open_orders()
-    assert {Decimal(r['size']) for r in venue.calls} == {Decimal('40')}
+    assert {Decimal(r['size']) for r in venue.calls} == {Decimal('20')}
     assert all(r['expiration'] == int(session.end.timestamp()) + 60 for r in venue.calls)
-    band = sum(session.prices) * 40
+    band = sum(session.prices) * 20
     assert seen and all(f['L'] == band and f['L_resting'] == band and f['L_filled'] == 0 for f in seen)
     assert ledger.L() == 0 and not ledger.unresolved_legs()
     gates = events(session, 'lfc_l_gate')
@@ -300,8 +311,8 @@ def test_live_mode_requires_a_ledger_and_the_panel_exclusion(tmp_path):
 
 # ----- the signed L gate ------------------------------------------------------------------------------------------
 def test_L_plus_reserve_exactly_100_is_allowed(tmp_path):
-    # reserve = 40 x (.33 + .64) = 38.8; 61.2 + 38.8 = 100 (<= 100 passes); 61.2 + 38.4 < 100 (not stopped)
-    session, venue, _, ledger = setup(tmp_path, filled='61.2')
+    # reserve = 20 x (.33 + .64) = 19.4; 80.6 + 19.4 = 100 (<= 100 passes); 80.6 + 19.2 < 100 (not stopped)
+    session, venue, _, ledger = setup(tmp_path, filled='80.6')
     assert band_sum(session) == Decimal('.97')
     result = session.run(rehearsal_seconds=60)
     assert result['submits'] == 2 and result['reason'] != 'l_budget_refused'
@@ -314,14 +325,14 @@ def band_sum(session):
 def test_L_plus_reserve_above_100_refuses_before_any_post(tmp_path):
     table_clock = Clock()
     table = counted_table(table_clock, figures={'L': '0', 'L_resting': '0'})
-    session, venue, _, ledger = setup(tmp_path, filled='61.3', table=table)
+    session, venue, _, ledger = setup(tmp_path, filled='80.7', table=table)  # 80.7 + 19.4 > 100; 80.7 + 19.2 < 100
     result = session.run(rehearsal_seconds=60)
-    assert result['reason'] == 'l_budget_refused' and not venue.calls and ledger.L() == Decimal('61.3')
+    assert result['reason'] == 'l_budget_refused' and not venue.calls and ledger.L() == Decimal('80.7')
 
 
 def test_stop_at_100_when_filled_plus_minimum_reserve_exceeds_cap(tmp_path):
     table = counted_table(Clock())
-    session, venue, _, ledger = setup(tmp_path, filled='61.7', table=table)  # 61.7 + 38.4 = 100.1
+    session, venue, _, ledger = setup(tmp_path, filled='80.9', table=table)  # 80.9 + 19.2 = 100.1
     assert ledger.stop_reason() == 'l_stop_at_cap'
     result = session.run(rehearsal_seconds=60)
     assert result['reason'] == 'l_stop_at_cap' and not venue.calls
@@ -329,7 +340,7 @@ def test_stop_at_100_when_filled_plus_minimum_reserve_exceeds_cap(tmp_path):
 
 def test_cash_must_cover_L_resting_plus_reserve(tmp_path):
     table = counted_table(Clock())
-    session, venue, _, ledger = setup(tmp_path, resting='30', cash='68.7', table=table)  # 30 + 38.8 > 68.7
+    session, venue, _, ledger = setup(tmp_path, resting='30', cash='49.3', table=table)  # 30 + 19.4 > 49.3
     result = session.run(rehearsal_seconds=60)
     assert result['reason'] == 'cash_below_l_resting_plus_reserve' and not venue.calls
 
@@ -371,7 +382,7 @@ def test_unacknowledged_intent_stays_in_L_and_cancel_all_clears_it(tmp_path):
     venue.submit = lost_ack
     result = session.run(rehearsal_seconds=60)
     assert result['unknown_submit'] and not venue.open_orders() and venue.cancelled
-    assert ledger.L() == Decimal(40) * session.prices[0]  # full resting cost until an owner reconcile
+    assert ledger.L() == Decimal(20) * session.prices[0]  # full resting cost until an owner reconcile
 
 
 # ----- foreign orders, cleanup, fills ---------------------------------------------------------------------------
@@ -432,7 +443,7 @@ def test_crash_or_limit_leaves_zero_resting_orders(tmp_path, cause):
     result = session.run(rehearsal_seconds=600)
     assert not venue.open_orders()
     if cause == 'fill':
-        assert result['reason'] == 'fill' and ledger.L() == ledger.L_filled() == Decimal(40) * session.prices[0]
+        assert result['reason'] == 'fill' and ledger.L() == ledger.L_filled() == Decimal(20) * session.prices[0]
         assert ledger.stop_reason() is None  # trades agree with the terminal read
     else:
         assert result['reason'] in {'exception', 'interrupted'} and ledger.L() == 0
@@ -454,7 +465,7 @@ def test_lagging_trades_are_re_read_before_a_mismatch(tmp_path):
     good, reads = venue.trades, []
     venue.trades = lambda: [] if reads.append(1) or len(reads) < 3 else good()
     session.run(rehearsal_seconds=600)
-    assert ledger.stop_reason() is None and ledger.L_filled() == Decimal(40) * session.prices[0]
+    assert ledger.stop_reason() is None and ledger.L_filled() == Decimal(20) * session.prices[0]
 
 
 # ----- session 0 ------------------------------------------------------------------------------------------------

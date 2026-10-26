@@ -1,4 +1,4 @@
-"""Live-fill calibration campaign: the RE-1 controller at 40 shares, the L gate, session 0 and the end notice.
+"""Live-fill calibration campaign: the RE-1 controller at LFC.PILOT_SIZE, the L gate, session 0 and the end notice.
 
 Governed by the owner-signed documents (2026-10-09T18:09Z; record on claude/live-fill-calibration-prereg-20261009
 @ c57a6d07): the pre-registration (PR), the session-0 spec (S0) and the panel clarifications. The quote, requote
@@ -13,8 +13,9 @@ Added hard limits (PR section 6; each ends the session through the RE-1 cleanup)
   * Open orders must be exactly ours: an account-wide read every FOREIGN_CHECK_SECONDS ends the session on any
     foreign open order (`foreign_open_order`). The preflight and the live start refuse any open order at all.
   * Dates: no counted session before 2026-10-15T00:00Z, none ending after 23:50Z of its UTC day, the last one
-    starting by local 2026-10-31, at most one per owner-local date. Session 0 is exempt from the earliest and the
-    last start (it keeps the 23:50Z hard stop) and is bounded by LFC.SESSION0_DEADLINE_UTC (lfc_cli) instead.
+    starting by local 2026-11-20 (clarification E; 10-31 as signed), at most one per owner-local date. Session 0
+    is exempt from the earliest and the last start (it keeps the 23:50Z hard stop) and is bounded by
+    LFC.SESSION0_DEADLINE_UTC (lfc_cli) instead.
 
 Dead-man and unattended cleanup (PR section 7, RE-1 pattern unchanged): the heartbeat thread sends every 2 s and the
 session ends when none succeeds within 8 s; a main loop stale for 20 s stops the sends so the venue cancels all of
@@ -115,12 +116,15 @@ class PilotProfile:
         return self
 
     def venue_ceiling(self, size):
-        """(order cap, band cap) of PR section 6: 0.79 x size and 0.98 x size (31.6 / 39.2 at 40)."""
+        """(order cap, band cap) of PR section 6: 0.79 x size and 0.98 x size; counted sessions return the
+        clarification-E constants (15.80 / 19.60 at 20)."""
         size = number(size)
         if self.session0 and self.size is None:
             self.bind_size(size)
         if size not in self.SIZES:
             raise RuntimeError('capital_cap')
+        if not self.session0:
+            return LFC.PER_ORDER_CAP_PUSD, LFC.PER_BAND_CAP_PUSD
         return Decimal('.79') * size, Decimal('.98') * size
 
 
@@ -429,7 +433,7 @@ class PilotSession(Session):
             selected = next(r for r in table['rows'] if r['condition_id'] == table['selected_condition_id'])
             profile.bind_size(selected['quote']['size'])
         self.SIZES = profile.SIZES
-        self.BAND_CEILING = Decimal('.98') * profile.size  # band cap of PR section 6 (39.2 at 40)
+        self.BAND_CEILING = profile.venue_ceiling(profile.size)[1]  # band cap of PR section 6 (19.60 at 20)
         super().__init__(**kwargs)
         chosen = next(r for r in table['rows'] if r['condition_id'] == table['selected_condition_id'])
         opening = chosen['snapshot'].get('rules')
@@ -456,7 +460,7 @@ class PilotSession(Session):
         size = number(size)
         if size not in self.SIZES:
             raise HoldEnd('treatment_size')
-        return Decimal('.79') * size, Decimal('.98') * size
+        return self.profile.venue_ceiling(size)
 
     def start_allowed(self, now):
         return not start_refusals(self.start, session0=self.profile.session0,

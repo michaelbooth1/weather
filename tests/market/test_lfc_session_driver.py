@@ -230,7 +230,7 @@ class World:
 
     def h_live(self, argv):
         confirm = str({'condition': COND, 'event_slug': 'nyc-high', 'quote': {'bid': '0.30'}, 'selection_sha256': SEL,
-                       'size': '40', 'run': None, 'minutes': 360, 'available_collateral': '123.45'})
+                       'size': '20', 'run': None, 'minutes': 360, 'available_collateral': '123.45'})
         if self.live_mode == 'refused_gate':
             return [str({'status': 'REFUSED', 'refusals': ['baseline_t24_age']})], 1
         if self.live_mode == 'wrong_phrase':
@@ -372,7 +372,7 @@ def leaked(console):
 
 def test_a_refused_screen_kills_first_and_drops_the_buffered_go_line(tmp_path, clock):
     world = World(tmp_path, clock, neg_risk=(None, None))
-    world.h_live = lambda argv: ([str({'condition': COND, 'event_slug': 'e', 'selection_sha256': SEL, 'size': '40'}),
+    world.h_live = lambda argv: ([str({'condition': COND, 'event_slug': 'e', 'selection_sha256': SEL, 'size': '20'}),
                                   'Type: go abc123', 'more output', world.post], 0)
     pack, console = drive(world, clock)
     live = world.of('live')[0]
@@ -417,7 +417,7 @@ def test_session0_refuses_a_neg_risk_band_but_accepts_a_plain_one(tmp_path, cloc
 @pytest.mark.parametrize('spender', ['neg_risk_exchange', 'neg_risk_adapter'])
 def test_a_neg_risk_band_needs_each_neg_risk_spender_allowance(tmp_path, clock, spender):
     world = World(tmp_path, clock, neg_risk=(True, True))
-    world.allowances[D.SPENDERS[spender].lower()] = str(int(39.2 * 10 ** 6) - 1)  # one unit below 0.98 x 40
+    world.allowances[D.SPENDERS[spender].lower()] = str(19_600_000 - 1)  # one unit below 0.98 x 20
     pack, _ = drive(world, clock)
     assert pack['stop_code'] == f'allowance_{spender}_below_band_cap' and not posted(world)
     assert world.of('live')[0].killed == 'job'
@@ -427,7 +427,7 @@ def test_a_plain_band_needs_the_standard_exchange_allowance_not_the_neg_risk_one
     world = World(tmp_path, clock)
     for name in ('neg_risk_exchange', 'neg_risk_adapter'):
         del world.allowances[D.SPENDERS[name].lower()]
-    world.allowances[D.SPENDERS['standard_exchange'].lower()] = str(39_200_000)  # exactly the band cap
+    world.allowances[D.SPENDERS['standard_exchange'].lower()] = str(19_600_000)  # exactly the band cap (0.98 x 20)
     assert drive(world, clock)[0]['stopped_reason'] == 'session_complete'
     (tmp_path / 'c').mkdir()
     world2 = World(tmp_path / 'c', clock)
@@ -622,7 +622,7 @@ def test_owner_ctrl_c_kills_the_child_tree_and_writes_the_pack(world, clock):
 
 def test_ctrl_c_in_live_gives_its_cleanup_grace_then_a_second_kills_the_tree(world, clock):
     world.interrupts['live'] = [3, 3]  # after the go phrase; the live child would be running its own cleanup
-    world.h_live = lambda argv: ([str({'condition': COND, 'event_slug': 'e', 'selection_sha256': 'b', 'size': '40'}),
+    world.h_live = lambda argv: ([str({'condition': COND, 'event_slug': 'e', 'selection_sha256': 'b', 'size': '20'}),
                                   'Type: go abc123', 'posting'] + ['still running'] * 50, 0)
     pack, console = drive(world, clock)
     assert pack['stopped_reason'] == 'owner_interrupt' and world.of('live')[0].killed == 'job'
@@ -631,7 +631,7 @@ def test_ctrl_c_in_live_gives_its_cleanup_grace_then_a_second_kills_the_tree(wor
 
 @pytest.mark.parametrize('where', ['poll_line', 'live_hook', 'say', 'clock_now'])
 def test_a_first_ctrl_c_anywhere_in_live_keeps_its_cleanup_grace(world, clock, monkeypatch, where):
-    lines = ['live preamble', str({'condition': COND, 'event_slug': 'e', 'selection_sha256': SEL, 'size': '40'}),
+    lines = ['live preamble', str({'condition': COND, 'event_slug': 'e', 'selection_sha256': SEL, 'size': '20'}),
              'Type: go abc123', 'posting', 'cleanup: cancelling ours', 'cleanup: done']
     console = FakeConsole(raise_on='posting' if where == 'say' else None)
     if where == 'poll_line':
@@ -666,7 +666,7 @@ def test_a_driver_exception_during_the_grace_waits_for_live_eof_before_closing(w
     def boom(argv):
         def explode():
             raise RuntimeError('driver bug')
-        return [str({'condition': COND, 'event_slug': 'e', 'selection_sha256': SEL, 'size': '40'}),
+        return [str({'condition': COND, 'event_slug': 'e', 'selection_sha256': SEL, 'size': '20'}),
                 'Type: go abc123', 'posting', explode, 'cleanup: cancelling ours', 'cleanup: done'], 1
     world.h_live = boom
     pack, console = drive(world, clock)
@@ -806,7 +806,7 @@ def test_dry_run_never_releases_the_go_line_and_kills_live(world, clock):
     assert 'Type: go abc123' in live.yielded  # buffered in the pipe, delivered after the kill
     assert leaked(console) == [] and not posted(world)
     dry = next(l for l in console.lines if l.startswith('DRY RUN'))
-    assert f'condition={COND}' in dry and 'event_slug=nyc-high' in dry and 'size=40' in dry
+    assert f'condition={COND}' in dry and 'event_slug=nyc-high' in dry and 'size=20' in dry
     assert not any('available_collateral' in l or '123.45' in l for l in console.lines)
     assert world.procs[-1].key == 'host_free'  # clears the mutex the killed live left abandoned
     assert pack['selection_screen']['status'] == 'PASS'

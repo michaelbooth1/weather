@@ -32,8 +32,10 @@ def select_table(universe, *, now, complete=True, source_records=(), available_c
     """Rank frozen tomorrow bands, or the explicit 84h local T+0/1/2 treatment.
 
     treatment=LFC-40 is the live-fill calibration campaign (signed pre-registration section 3): the same frozen rule
-    at one fixed 40-share size; the band must pass the L gate (ledger = {'L', 'L_resting'}) and the cash rule, and no
-    condition of its event may be held in the T-40 baseline (held_conditions; rows carry event_condition_ids).
+    at one fixed size (LFC.PILOT_SIZE); the band must pass the L gate (ledger = {'L', 'L_resting'}) and the cash rule,
+    and no condition of its event may be held in the T-40 baseline (held_conditions; rows carry event_condition_ids).
+    Clarification E: the band's market must be one of LFC.PILOT_MARKET_IDS, and R6 (predicted >= 2) is replaced by
+    LFC.PREDICTED_REWARD_FLOOR (None = no floor) for the campaign only.
     """
     current = utc(now)
     if treatment is not None:
@@ -59,6 +61,8 @@ def select_table(universe, *, now, complete=True, source_records=(), available_c
             if (band['market_id'] not in REGISTRY
                     or band['market_timezone'] != REGISTRY[band['market_id']].timezone):
                 raise QuoteRefused('not_configured_tomorrow_event')
+            if treatment is not None and band['market_id'] not in LFC.PILOT_MARKET_IDS:
+                raise QuoteRefused('lfc_market_outside_pilot')  # clarification E: Toronto and Denver only
             # Owner 2026-09-24 (92a): sized sessions quote local T+1/T+2 only, never the local event day.
             dates = [target] if available_collateral is None else [
                 (current.astimezone(ZoneInfo(band['market_timezone'])).date() + timedelta(days=d)).isoformat()
@@ -97,7 +101,8 @@ def select_table(universe, *, now, complete=True, source_records=(), available_c
             predicted = quote.predicted_per_minute_many * 360
             row.update(quote={k: str(v) if isinstance(v, Decimal) else v for k, v in asdict(quote).items()},
                        predicted_360_minutes=predicted)
-            if predicted < 2:
+            floor = 2 if treatment is None else LFC.PREDICTED_REWARD_FLOOR  # clarification E drops R6 for LFC
+            if floor is not None and predicted < floor:
                 raise QuoteRefused('predicted_below_two')
             row['eligible'] = True
         except (QuoteRefused, ValueError, RuntimeError, KeyError, TypeError) as exc:
@@ -268,7 +273,8 @@ class PublicBooks:
             reserve_budget(available_collateral)
         target = utc(self.clock()).date() + timedelta(days=1)
         universe, seen = [], set()
-        for market_id in sorted(REGISTRY):
+        # Clarification E: the campaign reads only its pilot markets (the select_table rule refuses any other).
+        for market_id in sorted(m for m in REGISTRY if treatment is None or m in LFC.PILOT_MARKET_IDS):
             targets = [target] if available_collateral is None else [
                 utc(self.clock()).astimezone(ZoneInfo(REGISTRY[market_id].timezone)).date() + timedelta(days=d)
                 for d in range(3)]

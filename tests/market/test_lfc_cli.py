@@ -382,14 +382,14 @@ def test_reconcile_surfaces_a_trades_mismatch(tmp_path):
 def test_finish_session_halts_at_stop_at_100(tmp_path):
     ledger = crashed(tmp_path)
     ledger.terminal('o1', {'status': 'MATCHED', 'size_matched': '40'}, source='t')
-    ledger.terminal('o2', {'status': 'MATCHED', 'size_matched': '40'}, source='t')  # 40 + 38.4 <= 100
+    ledger.terminal('o2', {'status': 'MATCHED', 'size_matched': '40'}, source='t')  # 40 + 19.2 <= 100
     finish_session(ledger, 'S0c-1', {'reason': 'fill', 'cleanup_ok': True})
     assert not ledger.halted
     ledger.record('session_start', session_id='S2', counted=True)
-    ledger.intent(session_id='S2', intent_key='S2:1', token_id='1', condition_id='c', price='.8', size='40',
+    ledger.intent(session_id='S2', intent_key='S2:1', token_id='1', condition_id='c', price='.8', size='52',
                   fee_rate_bps='0')
     ledger.ack('S2:1', 'o3')
-    ledger.terminal('o3', {'status': 'MATCHED', 'size_matched': '40'}, source='t')  # 72 + 38.4 > 100
+    ledger.terminal('o3', {'status': 'MATCHED', 'size_matched': '52'}, source='t')  # 81.6 + 19.2 > 100
     finish_session(ledger, 'S2', {'reason': 'fill', 'cleanup_ok': True})
     assert ledger.halted and ledger.rows[-1]['reason'] == 'l_stop_at_cap'
 

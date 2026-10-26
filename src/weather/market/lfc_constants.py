@@ -7,16 +7,37 @@ docs/research/live-fill-calibration-session0-spec-2026-10-09.md (S0) and
 docs/research/live-fill-calibration-panel-clarifications-2026-10-09.md.
 Pure values only; nothing here creates an exchange capability. Changing any value needs a dated
 clarification of the signed documents first, then a reviewed commit.
+
+Clarification E (small maker pilot; owner request 2026-10-25, master ruling 2026-10-25; DRAFT, owner signature
+pending) changes six values and nothing else: PILOT_SIZE 40 -> 20 shares per leg; PER_ORDER_CAP_PUSD 15.80
+(0.79 x 20); PER_BAND_CAP_PUSD 19.60 (0.98 x 20, per band = per market); the counted band universe limited to
+PILOT_MARKET_IDS (Toronto and Denver, local T+1/T+2 as before); R6, the predicted-reward floor >= 2.0, dropped for
+counted sessions (PREDICTED_REWARD_FLOOR = None); LAST_START_LOCAL_DATE 2026-10-31 -> 2026-11-20.
 """
 from datetime import date, datetime, time, timezone
 from decimal import Decimal
 
 # DECLARED DEVIATION (PR section 2, ruling R5): the desk study, replay v2 and shadow proxies simulate a 75-share
-# RE-1 quote. The campaign rests 40 shares per leg, so each leg costs at most 32 pUSD (40 x 0.80) and a double fill
-# on one band (64) plus the next band's reserve never exceeds the 100 pUSD L budget. The RE-1 depth filter of 75 is
-# kept. c_at/c_thr are ratios per offered share and are compared to replay at the same size.
-PILOT_SIZE = Decimal('40')
+# RE-1 quote. The campaign rests 20 shares per leg (clarification E; 40 as signed on 2026-10-09), the T+1/T+2 reward
+# minimum, so each leg costs at most 16 pUSD (20 x 0.80) and a double fill on one band plus the next band's reserve
+# never exceeds the 100 pUSD L budget. The RE-1 depth filter of 75 is kept. c_at/c_thr are ratios per offered share
+# and are compared to replay at the same size.
+PILOT_SIZE = Decimal('20')
 PROXY_SIZE = Decimal('75')  # the proxies' size the campaign deviates from; reporting only
+
+# Clarification E: the RE-1 capital caps at the pilot size, (order cap, band cap) of PR section 6 = 0.79 x size and
+# 0.98 x size. Per band is per market: one band rests at a time.
+PER_ORDER_CAP_PUSD = Decimal('15.80')
+PER_BAND_CAP_PUSD = Decimal('19.60')
+if (PER_ORDER_CAP_PUSD != Decimal('.79') * PILOT_SIZE or PER_BAND_CAP_PUSD != Decimal('.98') * PILOT_SIZE):
+    raise RuntimeError('lfc_caps_differ_from_pilot_size')
+
+# Clarification E: counted sessions select only bands of these market_registry ids (Toronto and Denver); the local
+# T+1/T+2 rule of the sized RE-1 selection is unchanged.
+PILOT_MARKET_IDS = ('denver', 'toronto')
+# Clarification E: R6 (predicted 360-minute reward >= 2.0) is dropped for counted sessions; None = no floor. The RE-1
+# selection outside the campaign keeps its own floor.
+PREDICTED_REWARD_FLOOR = None
 
 TREATMENT = 'LFC-40'
 SESSION0_TREATMENT = 'LFC-S0'
@@ -31,7 +52,7 @@ PER_LEG_PRICE_CEILING = Decimal('.80')
 
 # PR section 6 "Stop at 100": the campaign ends once L_filled + the minimum feasible reserve exceeds the cap. A fresh
 # RE-1 quote is m - 1.5c and (1 - m) - 1.5c snapped outward to the 0.01 tick, so p_yes + p_no >= 0.96 and the
-# smallest reserve any counted band can need is 40 x 0.96.
+# smallest reserve any counted band can need is PILOT_SIZE x 0.96 (19.20 at 20).
 MIN_FEASIBLE_LEG_SUM = Decimal('.96')
 MIN_FEASIBLE_RESERVE = PILOT_SIZE * MIN_FEASIBLE_LEG_SUM
 
@@ -44,7 +65,7 @@ SHARE_MANY_RANGE = (Decimal('.15'), Decimal('.70'))
 # date, keeps the 23:50Z hard stop, and is bounded by SESSION0_DEADLINE_UTC instead.
 EARLIEST_START_UTC = datetime(2026, 10, 15, tzinfo=timezone.utc)
 HARD_STOP_UTC = time(23, 50)
-LAST_START_LOCAL_DATE = date(2026, 10, 31)
+LAST_START_LOCAL_DATE = date(2026, 11, 20)  # clarification E (2026-10-31 as signed)
 OWNER_TIMEZONE = 'America/Toronto'
 
 # Reserved panel dates: the descriptive analysis refuses inputs dated inside this window without an explicit
