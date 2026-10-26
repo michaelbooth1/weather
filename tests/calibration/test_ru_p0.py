@@ -1,4 +1,4 @@
-"""R-U P0 statistics (rule_ru.md, sha 46be7a97...).
+"""R-U P0 statistics (rule_ru.md, sha 9441cc94...).
 
 Guards: R-U's P0 uses L3's R-Z thresholds unchanged (pooled rho >= 0.05, at most one opposite-sign year), centres
 z per market and hour on the training years only (leave-one-year-out), reports per hour and on the rise subset,
@@ -47,5 +47,5 @@ def test_ru_p0_centres_out_of_year():
 
 
 def test_ru_rule_sha_is_pinned():
-    assert prm.RU_RULE_SHA256.startswith("46be7a97") and prm.RU_STATE_SHA256.startswith("e891d884")
+    assert prm.RU_RULE_SHA256.startswith("9441cc94") and prm.RU_STATE_SHA256.startswith("e891d884")
     assert rz.P0_RHO_MIN == 0.05 and rz.P0_FLIP_MAX == 1

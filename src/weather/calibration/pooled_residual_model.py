@@ -6933,9 +6933,9 @@ def mg3_forward_parity(*, recorder_dir, land, out_dir, through, commit, archive_
     return result
 
 
-# ------------------------------------------------- R-U (rule_ru.md 46be7a97): HRRR 3x3 spread anomaly vs |dmax - mu| of the frozen P3d_H 13-16, P0 only
+# ------------------------------------------------- R-U (rule_ru.md 9441cc94): HRRR spread anomaly vs P3d_H 13-16 error
 
-RU_RULE_SHA256 = "46be7a97d6ffbbf33bc6a79ebddf542ec74a6e695f379ff2959be43c9e291293"
+RU_RULE_SHA256 = "9441cc9404f8f4da25520e6b97678d1609e9073f630828a0329209fd68730c36"
 RU_STATE_SHA256 = "e891d884e06164a6925f6b2bbf1c7756529cb35222ab0c8c863552cfa7457db7"
 RU_HRRR_PINS = ("409f6f917f2bca2999ebf39c52440c673760356295aaa291f572bfe624269935",
                 "055add5a4a2aa25483f70ee6c355562d4730e8b01daa1f8b56adb5788512ec75")
@@ -6982,8 +6982,8 @@ def ru_p0_stats(frame, z_col="z", e_col="e", years=None):
 
 
 def ru_p0(*, records_root, nbm_train_corpus, hrrr_corpus, state_path, out_dir, commit, rule_path=None,
-          markets=R0_MARKETS, loyo=True):
-    """rule_ru.md: P0 of the HRRR 3x3 spread anomaly against |dmax - mu| of the frozen P3d_H 13-16 (history only)."""
+          markets=R0_MARKETS):
+    """rule_ru.md: P0 of the HRRR 3x3 spread anomaly against |dmax - mu| of P3d_H 13-16, LOYO mu (history only)."""
     import numpy as np
 
     from weather.calibration import ols_floor_ladder as l9
@@ -7008,7 +7008,7 @@ def ru_p0(*, records_root, nbm_train_corpus, hrrr_corpus, state_path, out_dir, c
     train_hrrr, _ = rk_hrrr_columns(hrrr_corpus, markets)
     frame, _ = rk_training_columns(frame, train_hrrr)
     extra = list(state["extra_hgb"])
-    # mu: the frozen state's pre-floor mean (in-sample for every history row; stated in the rule).
+    # Secondary mu (reported only): the frozen state's pre-floor mean, in-sample on every history row.
     mu = np.full(len(frame), np.nan)
     for i, r in enumerate(frame.to_dict("records")):
         if not (math.isfinite(float(r["F"])) and math.isfinite(float(r["x_current_temp"]))):
@@ -7019,7 +7019,21 @@ def ru_p0(*, records_root, nbm_train_corpus, hrrr_corpus, state_path, out_dir, c
                                    extra={c: r[c] for c in extra})
         mean = state["hours"][int(r["hour"])]["mean"]
         mu[i] = float((mu0 + np.array([[1.0, g, max(g, 0.0)]]) @ mean["ols"] + mean["hgb"].predict(X))[0])
-    frame["mu"] = mu
+    frame["mu_frozen"] = mu
+    # Decision mu: leave-one-year-out P3d_H refits (the R-K LOYO code path), so mu and zbar are both out of year.
+    simple, extra_ols, extra_hgb, extra_scale = _arm_spec(RK_ARMS[MG3_ARM])
+    mu_l = np.full(len(frame), np.nan)
+    for Y in sorted(int(y) for y in frame["year"].unique()):
+        for h in RU_HOURS:
+            te_mask = ((frame["year"] == Y) & (frame["hour"] == h)).to_numpy()
+            if not te_mask.any():
+                continue
+            tr = frame[(frame["year"] != Y) & (frame["hour"] == h)].reset_index(drop=True)
+            fit = _rung_entry(tr, simple, extra_ols, extra_hgb, extra_scale)["fit"]
+            yhat, _ = fit["mean"].predict(frame[te_mask].reset_index(drop=True))
+            mu_l[te_mask] = np.asarray(yhat, float)
+            print(f"ru loyo {Y} h{h}: {int(te_mask.sum())} rows", flush=True)
+    frame["mu"] = mu_l
     frame["e"] = (frame["y"].astype(float) - frame["mu"]).abs()
     frame["rise"] = frame["y"].astype(float) > np.floor(frame["F"].astype(float) + 0.5)
     # z: L3's R-Z code, unchanged; ICAO -> market by the corpus's stations.json.
@@ -7052,22 +7066,10 @@ def ru_p0(*, records_root, nbm_train_corpus, hrrr_corpus, state_path, out_dir, c
                       "share_dmax_eq_halfup_F": float((usable["y"].astype(float) == half)[usable["hour"] == h].mean()),
                       "median_sd9": float(usable.loc[usable["hour"] == h, "sd9"].median())}
         for h in RU_HOURS}
-    # Reported only: mu from leave-one-year-out P3d_H refits (the R-K LOYO code path).
-    if loyo:
-        simple, extra_ols, extra_hgb, extra_scale = _arm_spec(RK_ARMS[MG3_ARM])
-        mu_l = np.full(len(frame), np.nan)
-        for Y in sorted(int(y) for y in frame["year"].unique()):
-            for h in RU_HOURS:
-                tr = frame[(frame["year"] != Y) & (frame["hour"] == h)].reset_index(drop=True)
-                te_mask = ((frame["year"] == Y) & (frame["hour"] == h)).to_numpy()
-                if not te_mask.any():
-                    continue
-                fit = _rung_entry(tr, simple, extra_ols, extra_hgb, extra_scale)["fit"]
-                yhat, _ = fit["mean"].predict(frame[te_mask].reset_index(drop=True))
-                mu_l[te_mask] = np.asarray(yhat, float)
-                print(f"ru loyo {Y} h{h}: {int(te_mask.sum())} rows", flush=True)
-        lo = frame.assign(e=(frame["y"].astype(float) - mu_l).abs())
-        result["loyo_mu_reported_only"] = ru_p0_stats(lo[np.isfinite(mu_l)].reset_index(drop=True))
+    # Secondary, reported only: the same P0 with the frozen (in-sample) mu.
+    fz = frame.assign(e=(frame["y"].astype(float) - frame["mu_frozen"]).abs())
+    result["frozen_mu_reported_only"] = ru_p0_stats(
+        fz[np.isfinite(fz["mu_frozen"].to_numpy(float))].reset_index(drop=True))
     out.mkdir(parents=True)
     (out / "ru_p0.json").write_text(json.dumps(result, indent=1, sort_keys=True, default=str), encoding="utf-8")
     print(f"R-U P0: {result['verdict']} pooled {result['p0']['pooled']}", flush=True)

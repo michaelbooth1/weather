@@ -24,12 +24,14 @@ s' = s_P3dH · exp(γ_h (z − z̄_{m,h})), γ_h ∈ [0, 1].
 - Rows: the P3d_H 13-16 training frame, Aug-Sep 2021-25, as rebuilt by `mg3_freeze_state --block 13-16` (records
   `C:\t\l2\records`, NBM train corpus `1ae4bf52…`, HRRR 13-16 corpus `C:\t\l13\hrrr` manifest `409f6f91…`,
   selections `055add5a…`), local hours 13-16, markets of that frame, CYYZ excluded. Rows without z are excluded.
-- μ is the mean of P3d_H's predictive distribution before the floor, from the **frozen P3d_H 13-16 state**
-  `e891d884e06164a6925f6b2bbf1c7756529cb35222ab0c8c863552cfa7457db7` (coordinator condition 2).
-  - **Stated limitation.** That state was fitted on all five years, so μ is in-sample on every history row; only
-    z̄ is leave-one-year-out. In-sample residuals are smaller but the screen is a rank correlation with an
-    out-of-year anomaly, which the in-sample fit does not target. **Reported only, no decision:** the same ρ with μ
-    from the leave-one-year-out P3d_H refits (`rung-k-loyo`, the R-K LOYO code path).
+- **μ (decision): leave-one-year-out.** For held-out year Y and hour h, μ is the pre-floor mean of a P3d_H fit
+  on the other four years' rows at hour h, by the R-K LOYO code path (`_rung_entry` with `RK_ARMS["P3d_H"]`,
+  the same spec and features as the frozen state). So μ and z̄ are both out of year, as in R-Z's P0
+  (coordinator ruling 10-26 under master's delegation: an in-sample μ shrinks |dmax − μ| on training rows, and
+  that shrinkage can co-vary with spread, biasing ρ and breaking comparability with R-Z).
+- **μ (secondary, reported only):** the pre-floor mean from the frozen P3d_H 13-16 state
+  `e891d884e06164a6925f6b2bbf1c7756529cb35222ab0c8c863552cfa7457db7`, which is in-sample on every history row.
+  It decides nothing.
 - e = |dmax − μ|, dmax the frame's own label.
 
 ## 3. P0 (no Brier is read)
@@ -61,7 +63,7 @@ None of these changes the P0 verdict.
 
 | Input | sha256 |
 | --- | --- |
-| P3d_H 13-16 frozen state | `e891d884e06164a6925f6b2bbf1c7756529cb35222ab0c8c863552cfa7457db7` |
+| P3d_H 13-16 frozen state (secondary μ only) | `e891d884e06164a6925f6b2bbf1c7756529cb35222ab0c8c863552cfa7457db7` |
 | State rule | `9e63899ddcfcbd795f10f0437c7bd9f9b6fc9740767b8d824818ef0f7f95cc5d` |
 | NBM train corpus | `1ae4bf52a0e032fc0c05ddfa7b282a17db53bd9a2e3f3a32a9a5686139faa1fd` |
 | HRRR 13-16 manifest / selections | `409f6f917f2bca2999ebf39c52440c673760356295aaa291f572bfe624269935` / `055add5a4a2aa25483f70ee6c355562d4730e8b01daa1f8b56adb5788512ec75` |
@@ -89,8 +91,8 @@ weights, binding or rule; this branch is kept separate from `claude/mg3-freeze-2
 ### Conditions (coordinator)
 
 1. Day-specific anomaly only: no per-market or per-hour fitted scale, no global sharpening, floor untouched.
-2. P0 first at 13-16 with L3's module and thresholds unchanged, against |dmax − μ| of the frozen P3d_H 13-16,
-   reported by hour with the high_so_far reading.
+2. P0 first at 13-16 with L3's module and thresholds unchanged, against |dmax − μ| of the P3d_H 13-16 arm
+   (leave-one-year-out μ decides; the frozen state's μ is reported), by hour with the high_so_far reading.
 3. Rule hashed and ledger row PENDING before any run.
 4. X23, X37's 13-16 secondary and X38 quoted; if P0 fails, the lever closes.
 5. R-U never changes the frozen MG-3; at most a later forward-shadow candidate.
