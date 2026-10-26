@@ -7,8 +7,8 @@
 - **Decision implemented.** Owner, 2026-10-26, relayed by master through the coordinator, verbatim: "same dates,
   need answers quick as possible". MG-3 runs as option D-C of the MG-3 design draft: a paired test against MG-2
   on B's dates, with the owner's MG-1 reserved-window exemption for MG-3 over about 11-11..11-28.
-- **Master ruling (2026-10-26, through the coordinator):** blend_l6_H uses whichever L6 arm MG-2 binds at 07-12
-  (§2.2).
+- **Master rulings (2026-10-26, through the coordinator):** blend_l6_H uses whichever L6 arm MG-2 binds at 07-12
+  (§2.2); option 1 accepted (D0 about 11-11, one look ≥ 12-12); the 07-12 drop rule (§2.2a).
 - **What this rule does not change:** MG-2, Rule B-1, MG-1, PT-1, L8's branch. MG-3's verdict never alters B's
   and B's never alters MG-3's.
 
@@ -55,11 +55,32 @@ L3's season-matched L6 rule decides MG-2's 07-12 arm. MG-3's 07-12 blend partner
 - If the branch is not known by `<FILL@BINDING>` (MG3_D0 − 1), MG-3 does not bind and D0 moves later (§3).
 - **Stated limitation.** In the two refit branches the weights are fitted on Aug-Sep dev dates for a partner
   built for Oct-Dec; nothing makes them season-matched. They are a fixed, pre-declared choice, not tuned.
-- **P3d_H transfer (open).** P3d_H was fitted on Aug-Sep 2021-25 only. A cool-season HRRR 07-12 backfill check
-  is being sized. If it lands before binding it is read before binding and may change the arms only through a
-  rule written before it is read (proposed for master: if the Oct-Dec history upper bound of P3d_H 07-12 against
-  MG-2's bound 07-12 arm is ≥ 0, MG-3's 07-12 arm becomes MG-2's arm and H1 narrows to 13-15). Without such a
-  rule written in advance, the check is descriptive only.
+### 2.2a The 07-12 drop rule (master ruling 10-26; written and hashed before the backfill is opened)
+
+P3d_H was fitted on Aug-Sep 2021-25 only. L13's cool-season HRRR 07-12 backfill (`C:\t\l13\hrrr_cool0712`,
+Oct-Dec 2024 and 2025) gives a history transfer check before binding. It is read once, after this rule's sha is
+pushed, and decides one thing only:
+
+- **Statistic.** ΔB_cool = mean over equal (date, market) cells of [Brier(MG-3 07-12 arm) − Brier(MG-2's bound
+  07-12 arm)], local hours 07-12, on history dates 2024-10-01..12-31 and 2025-10-01..12-31, the 10 markets.
+  - MG-3's 07-12 arm is exactly §2.1-§2.3: the bound partner, the frozen P3d_H 07-12 state `e9276477…` under
+    RN-1, and the bound weights (§2.2 branch), with the MG-1 fallback and rule-4 floor. Nothing is refitted.
+  - Labels and the partner's history vectors come from the code that builds the partner (L3's frozen history
+    builder for an L6 arm; the NBM PIT corpus for MG-1), as frozen at binding.
+  - **Proxy, only if the bound partner has no Oct-Dec history vectors at binding:** ΔB_cool is computed on
+    P3d_H 07-12 − P3d_N_fix 07-12 (both frozen, same rows). The proxy used is reported.
+- **Interval.** Date-clustered percentile bootstrap, 2,000 draws, seed 20260921, 95%; U is its upper bound.
+- **Rule.**
+
+| Result | Effect on this rule |
+| --- | --- |
+| U < 0 | MG-3's 07-12 arm stays as in §2.1 |
+| U ≥ 0 | MG-3's 07-12 arm reverts to MG-2's bound 07-12 arm (identical; Δ = 0); H1 narrows to 13-15; the WIN block condition applies to 13-15 only; N, dates, α and the look are unchanged |
+| not computable before binding (backfill or partner history missing, or < 90% of history cells covered) | treated as U ≥ 0: the 07-12 arm reverts |
+
+- The check is history only (no 2026 row, nothing after 2026-09-29). It never refits, re-weights or re-selects
+  anything, and no other reading of the backfill can change this rule.
+- Its result, file sha and the branch taken are filled at binding (`drop_0712` below).
 
 ### 2.3 Frozen artifacts
 
@@ -196,6 +217,8 @@ p3d_h_state_0712_sha256: e92764773e1614aae548ccfd74b3a60740f25105578abd045b0808f
 p3d_h_state_1316_sha256: e891d884e06164a6925f6b2bbf1c7756529cb35222ab0c8c863552cfa7457db7
 weights_sha256: <FILL@BINDING>
 l6_partner: <FILL@BINDING>
+drop_0712_rule: U_cool_ge_0_or_not_computable_reverts_0712_to_mg2_arm
+drop_0712: <FILL@BINDING>
 release_binding_sha256: <FILL@BINDING>
 parity_rule_sha256: 2c6e6045dca379854c281195e0a51a61f0de400bc517ed7faa444b2900a6593e
 mg2_release_binding_sha256: <FILL@BINDING>
