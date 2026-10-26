@@ -74,7 +74,7 @@ def test_extra_scale_leaves_the_mean_model_untouched_and_reports_gs():
 
 
 def test_rung_loyo_records_c_mean_and_keeps_base_scores():
-    frame = _frame(years=(2021, 2022, 2023))
+    frame = _frame(n_days=31, years=(2021, 2022, 2023, 2024))  # enough rows for min_samples_leaf 40 splits
     buckets = {m: list(range(40, 110)) for m in ("atlanta", "nyc")}
     arms = {"P3d_N_fix": False, "P3d_N_fix_S": prm.RS_S_SPEC}
     out = {}
