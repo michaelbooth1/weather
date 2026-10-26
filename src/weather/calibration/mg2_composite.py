@@ -477,8 +477,16 @@ def dev_run(layout_root, post, nowcasts, out, start="2026-08-01", end="2026-09-2
     bc, bk, bm = table.brier(p_comp), table.brier(p_mg1), table.brier(table.p_market)
     groups = {}
     cells = {}
+    gate_groups = {}
+    in_gate = ~np.isin(table.markets, GATE_EXCLUDED_MARKETS)
     for name, lo, hi in DEV_GROUPS:
         mask = (table.local_hour >= lo) & (table.local_hour <= hi)
+        if name in ("00-16", "13-16"):  # rule §8 C8: the G1/G2 population without the excluded markets
+            idx, c = table.cells(bc, mask & in_gate)
+            _, k = table.cells(bk, mask & in_gate)
+            gate_groups[name] = {"n_cells": int(len(idx)), "excluded_markets": list(GATE_EXCLUDED_MARKETS),
+                                 "brier_minus_mg1_date_clustered": sc.ratio_interval(table.w_date[:, idx], c - k,
+                                                                                     np.ones(len(idx)))}
         idx, c = table.cells(bc, mask)
         _, k = table.cells(bk, mask)
         _, m = table.cells(bm, mask)
@@ -495,7 +503,7 @@ def dev_run(layout_root, post, nowcasts, out, start="2026-08-01", end="2026-09-2
                "population": {"n_dates": len(scored), "first": scored[0], "last": scored[-1],
                               "n_snapshots": int(len(table.snaps))},
                "coverage": {"composite": r_comp, "mg1": r_mg1}, "candidate_meta": comp_meta,
-               "controls": controls, "groups": groups, "sizing": sizing,
+               "controls": controls, "groups": groups, "gate_groups": gate_groups, "sizing": sizing,
                "code_sha256": sha256_file(here), "post_sha256": sha256_file(post),
                "nowcasts_sha256": sha256_file(nowcasts), "layout_manifest_sha256": layout.manifest_sha256}
     out = Path(out)
@@ -780,6 +788,19 @@ VECTOR_ROLES = {
                   "received after the row's own capture time",
 }
 EMIT_AUDIT = "mg2_emit_audit.json"
+# Rule §8 C8: Denver settles on KDEN from the 2026-10-23 events (DECISION_LOG 2026-10-23; STATE_OF_PLAY), while
+# MG-1 and MG-2 model KBKF, so Denver leaves the G1/G2 gate population (10 markets). Emission is unchanged.
+GATE_EXCLUDED_MARKETS = ("denver",)
+
+
+def gate_layout(layout):
+    """The layout restricted to the gate population (rule §8 C8): every frame loses the excluded markets' rows."""
+    import dataclasses
+
+    keep = set(layout.snaps.row_key[~layout.snaps.market.astype(str).isin(GATE_EXCLUDED_MARKETS)])
+    return dataclasses.replace(layout, **{name: getattr(layout, name)[getattr(layout, name).row_key.isin(keep)]
+                                          .reset_index(drop=True)
+                                          for name in ("snaps", "bands", "labels", "market")})
 
 
 def require_gate_vectors(vectors):
@@ -973,6 +994,7 @@ def score(*, layout_root, vectors, rule, out, release_binding, mg1_look_receipt=
                          market=pd.read_parquet(root / data.MARKET_FILE),
                          manifest_sha256=sha256_file(root / data.MANIFEST), file_sha256={},
                          label_source="layout labels")
+    layout = gate_layout(layout)
     days = sorted(layout.snaps.date.astype(str).unique())
     table = sc.Table(layout, days)
     p_c, r_c = table.candidate_vector(pd.read_parquet(vectors))
@@ -980,6 +1002,7 @@ def score(*, layout_root, vectors, rule, out, release_binding, mg1_look_receipt=
     rows = sc.score_rows(table, p_c, False, p_k, sc.GROUPS + sc.HOURLY_GROUPS)
     payload = {"schema": SCHEMA, "rule_sha256": rule_sha, "guard": guard, "coverage": {"mg2": r_c, "mg1": r_k},
                "gate": gate_verdict(rows, float(fields["noninferiority_margin_00_16"])),
+               "gate_excluded_markets": list(GATE_EXCLUDED_MARKETS),
                "vectors_sha256": sha256_file(vectors), "rows": rows,
                "mg1_look_receipt_sha256": sha256_file(mg1_look_receipt) if mg1_look_receipt else None}
     out.mkdir(parents=True, exist_ok=True)
@@ -1065,7 +1088,7 @@ def main(argv=None):
         if args.command == "dev":
             result = dev_run(args.layout, args.post, args.nowcasts, args.out,
                              n_values=tuple(int(x) for x in args.n.split(",")), margin=args.margin)
-            result = {k: result[k] for k in ("population", "coverage", "controls", "groups", "sizing")}
+            result = {k: result[k] for k in ("population", "coverage", "controls", "groups", "gate_groups", "sizing")}
         elif args.command == "freeze":
             result = freeze(args.layout, args.nowcasts, args.out)
         elif args.command == "nowcast":
