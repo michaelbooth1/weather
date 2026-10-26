@@ -104,9 +104,8 @@ def test_rule_with_an_unknown_key_refuses(tmp_path):
 def test_rule_without_the_l6_state_field_refuses(tmp_path):
     path = _rule(tmp_path)
     text = path.read_text(encoding="utf-8")
-    path.write_text("
-".join(x for x in text.split("
-") if not x.startswith("l6_state_sha256:")), encoding="utf-8")
+    kept = [x for x in text.splitlines() if not x.startswith("l6_state_sha256:")]
+    path.write_text("\n".join(kept) + "\n", encoding="utf-8")
     with pytest.raises(b.BRefused, match="lacks.*l6_state_sha256"):
         b.read_rule(path)
 
