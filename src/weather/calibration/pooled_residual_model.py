@@ -1425,10 +1425,13 @@ def rung_loyo_summary(rows, draws=BOOTSTRAP_DRAWS, seed=BOOTSTRAP_SEED):
 
 
 def dev_emit_rung(*, records_root, layout, replay_root, nbm_train_corpus, out_dir, markets=R0_MARKETS,
-                  hours=RUNG_HOURS, loyo=True):
+                  hours=RUNG_HOURS, loyo=True, arms=None, train_hook=None, row_hook=None):
     """Rung 07-12: B_N and P3d_N_fix dev distributions plus the blocked LOYO table (rule C:/t/l2/rung0712/rule.md).
 
     Each layout row uses the latest replay snapshot captured at or before the row's own captured_at_utc.
+    ``arms``/``train_hook``/``row_hook`` (R-K, R-L) add arms and extra input columns: ``train_hook(frame)`` returns
+    (frame, stats); ``row_hook(market, target, hour, nbm, stats)`` returns the row's extra columns. With the
+    defaults the output is R-A's, byte for byte.
     """
     import pandas as pd
     from zoneinfo import ZoneInfo
@@ -1442,7 +1445,8 @@ def dev_emit_rung(*, records_root, layout, replay_root, nbm_train_corpus, out_di
     running_max = _require_metar_only(observed_running_max.running_max_since_midnight)
     out = require_output_outside_repo(out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    paths = {arm: out / f"dev_{arm}.jsonl" for arm in RUNG_ARMS}
+    arms = arms or RUNG_ARMS
+    paths = {arm: out / f"dev_{arm}.jsonl" for arm in arms}
     for path in list(paths.values()) + [out / "loyo_rows.jsonl"]:
         if path.exists():
             raise PooledModelError(f"refusing to overwrite {path}")
@@ -1452,17 +1456,22 @@ def dev_emit_rung(*, records_root, layout, replay_root, nbm_train_corpus, out_di
         raise PooledModelError("a dev training row is from 2026")
     frame, train_stats = attach_training_nbm(frame, l9.load_nbm(nbm_train_corpus), l9.nbm_at_cutoff, timezones)
     frame = frame[frame["hour"].isin(hours)].reset_index(drop=True)
-    audit = {"arms": list(RUNG_ARMS), "hours": list(hours), "training_rows": int(len(frame)), "train_nbm": train_stats,
+    hook_stats = None
+    if train_hook is not None:
+        frame, hook_stats = train_hook(frame)
+    audit = {"arms": list(arms), "hours": list(hours), "training_rows": int(len(frame)), "train_nbm": train_stats,
              "train_years": sorted(int(y) for y in frame["year"].unique()), "markets": {},
              "inputs": {"nbm_train_corpus": hashlib.sha256(Path(nbm_train_corpus).read_bytes()).hexdigest(),
                         "observed_running_max_sha256": hashlib.sha256(
                             Path(observed_running_max.__file__).read_bytes()).hexdigest(),
                         "module_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}}
+    if hook_stats is not None:
+        audit["train_hook"] = hook_stats
     if loyo:
         loyo_rows = rung_loyo(frame, buckets, hours)
         _write_jsonl(out / "loyo_rows.jsonl", loyo_rows)
         audit["loyo"] = rung_loyo_summary(loyo_rows)
-    fits = rung_fits(frame, hours)
+    fits = rung_fits(frame, hours, arms=arms)
     coords = station_coordinates(markets)
     snaps = pd.read_parquet(Path(layout) / "inputs_snapshots.parquet", columns=[
         "snapshot_id", "market", "target_date", "local_hour", "cutoff_hour",
@@ -1539,8 +1548,10 @@ def dev_emit_rung(*, records_root, layout, replay_root, nbm_train_corpus, out_di
                             "elev": elev, "doy_sin": math.sin(2 * math.pi * doy / 365.25),
                             "doy_cos": math.cos(2 * math.pi * doy / 365.25),
                             "x_high_so_far": float(rec["high_so_far"]), "x_current_temp": float(rec["current_temp"]),
-                            "market_code": float(R0_MARKETS.index(market))}])
-                        for arm in RUNG_ARMS:
+                            "market_code": float(R0_MARKETS.index(market)),
+                            **({} if row_hook is None else row_hook(market, target, hour, float(row.nbm_usable),
+                                                                    stats))}])
+                        for arm in arms:
                             dist = _dist_from_fit(fits[(arm, hour)], one, buckets, market)[0]
                             writers[arm].write(json.dumps({
                                 "market": market, "snapshot_id": row.snapshot_id, "target_date": target.isoformat(),
@@ -3987,6 +3998,171 @@ def rk_hrrr_audit(*, hrrr_corpus, out_path, markets=R0_MARKETS):
     return result
 
 
+RK_RH_EMIT = RJ_RH_EMIT  # R-H 13-16 B_N / P3d_N_fix dev files (rule_rk.md gate 3 reproduction)
+
+
+def rung_k_dev_emit(*, records_root, layout, replay_root, nbm_train_corpus, hrrr_corpus, hrrr_dev_corpus,
+                    loyo_audit, out_dir, markets=R0_MARKETS):
+    """R-K gate 1b (dev half, inputs only) and the h13-16 dev distributions of all four arms (no scoring)."""
+    out = require_output_outside_repo(out_dir)
+    loyo = json.loads(Path(loyo_audit).read_bytes())
+    if loyo.get("rule_sha256") != RK_RULE_SHA256 or loyo.get("stopped_at") or not loyo["gates"]["2_loyo"]["pass"]:
+        raise PooledModelError(f"R-K gates 1a-2 did not pass: {loyo.get('stopped_at')}")
+    train_hrrr, train_stats = rk_hrrr_columns(hrrr_corpus, markets)
+    dev_hrrr, dev_stats = rk_hrrr_columns(hrrr_dev_corpus, markets)
+    late = sorted(k for k in dev_hrrr if date.fromisoformat(k[1]) > N_DEV_LAST)
+    if late:
+        raise PooledModelError(f"dev HRRR corpus holds a date after 2026-09-29: {late[0]}")
+
+    def row_hook(market, target, hour, nbm, stats):
+        values = rk_columns(dev_hrrr.get((market, target.isoformat(), int(hour))), nbm)
+        stats["hrrr_rows"] += 1
+        stats["hrrr_covered"] += values["k_miss"] == 0.0
+        return values
+
+    audit = dev_emit_rung(records_root=records_root, layout=layout, replay_root=replay_root,
+                          nbm_train_corpus=nbm_train_corpus, out_dir=out, markets=markets, hours=RK_HOURS,
+                          loyo=False, arms=RK_ARMS, train_hook=lambda f: rk_training_columns(f, train_hrrr),
+                          row_hook=row_hook)
+    rows = sum(m.get("hrrr_rows", 0) for m in audit["markets"].values())
+    covered = sum(m.get("hrrr_covered", 0) for m in audit["markets"].values())
+    gate = rk_parity_training(dev_stats, {"rows": rows, "rows_covered": covered})
+    gate["dev_coverage"] = gate.pop("training_coverage")
+    gate["checks"]["dev_coverage"] = gate["checks"].pop("training_coverage")
+    gate["dev_rows"], gate["dev_rows_covered"] = rows, covered
+    rk = {"rule_sha256": RK_RULE_SHA256, "clarification_rk1_sha256": RK_CLARIFICATION_RK1_SHA256,
+          "loyo_audit_sha256": hashlib.sha256(Path(loyo_audit).read_bytes()).hexdigest(),
+          "inputs": {f"{tag}_{n}": hashlib.sha256((Path(root) / n).read_bytes()).hexdigest()
+                     for tag, root in (("hrrr_train", hrrr_corpus), ("hrrr_dev", hrrr_dev_corpus))
+                     for n in ("manifest.jsonl", "selections.jsonl", "stations.json")},
+          "hrrr_dev_corpus_stats": dev_stats, "hrrr_train_corpus_stats": train_stats,
+          "training": audit.get("train_hook"), "gates": {"1_parity_dev": gate}, "files": audit["files"],
+          "rh_reproduction": {name: audit["files"].get(name) == sha for name, sha in RK_RH_EMIT.items()}}
+    if not gate["pass"]:
+        rk["stopped_at"] = "gate 1 parity (dev half; not a kill)"
+    (out / "rk_emit_audit.json").write_text(json.dumps(rk, indent=1, sort_keys=True), encoding="utf-8")
+    return rk
+
+
+def rung_k_score(*, layout, emit_dir, out_path, start="2026-08-01", end="2026-09-29"):
+    """R-K gates 3 and 4 on the dev scorecard (rule_rk.md); gate 3 failing is the pre-registered kill."""
+    import numpy as np
+
+    from weather.calibration import r0_ols_floor_challenger as l3
+    from weather.reporting.scorecards import dev_scorecard as sc
+    from weather.reporting.scorecards import dev_scorecard_data as data
+    from weather.reporting.scorecards import loss_atlas
+
+    out_path = require_output_outside_repo(out_path)
+    if out_path.exists():
+        raise PooledModelError(f"refusing to overwrite {out_path}")
+    emit = Path(emit_dir)
+    audit = json.loads((emit / "rk_emit_audit.json").read_bytes())
+    if audit.get("rule_sha256") != RK_RULE_SHA256 or audit.get("stopped_at"):
+        raise PooledModelError(f"emit is not an R-K emit that passed gate 1b: {audit.get('stopped_at')}")
+    if not all(audit["rh_reproduction"].values()):
+        raise PooledModelError(f"R-H reproduction failed: {audit['rh_reproduction']}")
+    start_d, end_d = data.check_range(start, end)
+    lay = data.load_layout(layout, data.DEV_FIRST, end_d)
+    folds = data.make_folds(lay.dates, start_d, end_d, 7, 1, 7)
+    scored = sorted(d for f in folds if f.scored for d in f.dates)
+    table = sc.Table(lay, scored)
+    date_w = l3._date_weights([k[0] for k in table.keys], sc.DRAWS, sc.SEED)
+    market_b = table.brier(table.p_market)
+
+    def vec(path):
+        return l3._vector(table, l3._candidate_frame(str(path), table, lay, folds, data)[0])
+
+    arms = {arm: vec(emit / f"dev_{arm}.jsonl") for arm in RK_ARMS}
+    p_mg1, cov_mg1, _ = l3._vector(table, loss_atlas.mg1_frame(table))
+    w0712 = (table.local_hour >= 7) & (table.local_hour <= 12)
+    _, e = table.cells(table.brier(p_mg1) - market_b, w0712)
+    mg1_excess = float(e.mean())
+    if round(mg1_excess, 3) != l3.MG1_CONTROL_0712_EXCESS:
+        raise PooledModelError(f"MG-1 positive control failed: {mg1_excess:.5f}")
+    briers = {arm: table.brier(v[0]) for arm, v in arms.items()}
+    covs = {arm: v[1] for arm, v in arms.items()}
+    # gate 4: the composite post-13 half on as-of-capture inputs (P3d_N_fix, else MG-1) vs P3d_H (else MG-1)
+    for name, arm in (("composite_post13_asof", "P3d_N_fix"), ("P3d_H_mg1", "P3d_H")):
+        briers[name] = table.brier(np.where(covs[arm][table.band_snap], arms[arm][0], p_mg1))
+        covs[name] = covs[arm] | cov_mg1
+    briers["MG1"], covs["MG1"] = table.brier(p_mg1), cov_mg1
+    common = covs["B_N"] & covs["B_H"] & covs["P3d_N_fix"] & covs["P3d_H"]
+    groups = [("13-16", 13, 16), ("13-14", 13, 14), ("15-16", 15, 16)] + [(f"h{h}", h, h) for h in RK_HOURS]
+    pools = [(sc.ALL_MARKETS, None)] + [(m, {m}) for m in sorted(set(table.markets))]
+
+    def compare(arm, ref, scope=common, absolute=False):
+        rows = []
+        for market, members in pools:
+            in_pool = np.ones(len(table.snaps), bool) if members is None else np.isin(table.markets, sorted(members))
+            for group, lo, hi in (groups if members is None else groups[:1]):
+                mask = scope & in_pool & (table.local_hour >= lo) & (table.local_hour <= hi)
+                if not mask.any():
+                    continue
+                idx, c = table.cells(briers[arm], mask)
+                _, r_ = table.cells(briers[ref], mask)
+                _, m = table.cells(market_b, mask)
+                row = {"arm": arm, "reference": ref, "market": market, "group": group,
+                       "n_market_days": int(len(idx)), "n_snapshots": int(mask.sum()),
+                       "R_arm": sc.ratio_interval(table.w[:, idx], c, m),
+                       "R_reference": sc.ratio_interval(table.w[:, idx], r_, m),
+                       "dR_crossed": sc.ratio_interval(table.w[:, idx], c - r_, m),
+                       "dR_date_clustered": sc.ratio_interval(date_w[:, idx], c - r_, m)}
+                if absolute:
+                    row["brier_diff_w_date"] = sc.ratio_interval(table.w_date[:, idx], c - r_, np.ones(len(idx)))
+                rows.append(row)
+        return rows
+
+    def pick(rows, group):
+        return next(r for r in rows if r["market"] == sc.ALL_MARKETS and r["group"] == group)
+
+    def reading(rows):
+        p = pick(rows, "13-16")["dR_date_clustered"]["ci95"]
+        lower = [pick(rows, f"h{h}")["dR_date_clustered"]["ci95"][0] for h in RK_HOURS]
+        if p[0] > 0:
+            return "HARM"
+        return "WIN" if p[1] < 0 and not any(lo > 0 for lo in lower) else "NULL"
+
+    in_rk = (table.local_hour >= 13) & (table.local_hour <= 16)
+    result = {"rule_sha256": RK_RULE_SHA256, "clarification_rk1_sha256": RK_CLARIFICATION_RK1_SHA256,
+              "population": {"n_dates": len(scored), "first_date": scored[0], "last_date": scored[-1],
+                             "n_market_days": len(table.keys),
+                             "common_covered_snapshots": {g: int((common & (table.local_hour >= lo)
+                                                                  & (table.local_hour <= hi)).sum())
+                                                          for g, lo, hi in groups}},
+              "controls": {"mg1_excess_07_12": mg1_excess, "rh_reproduction": audit["rh_reproduction"],
+                           "gate1b": audit["gates"]["1_parity_dev"],
+                           "composite_mg1_fallback_snapshots_13_16": int((in_rk & ~covs["P3d_N_fix"]
+                                                                          & cov_mg1).sum())},
+              "inputs": {"emit_files": audit["files"], "emit_inputs": audit["inputs"],
+                         "emit_audit_sha256": hashlib.sha256((emit / "rk_emit_audit.json").read_bytes()).hexdigest(),
+                         "layout_manifest_sha256": lay.manifest_sha256, "scorecard_code_sha256": sc.code_sha256(),
+                         "module_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()},
+              "gates": {}, "rows": []}
+
+    def done():
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(result, indent=1, sort_keys=True), encoding="utf-8")
+        return result
+
+    result["rows"] += compare("B_H", "B_N")  # reported only
+    rows = compare("P3d_H", "P3d_N_fix")
+    result["rows"] += rows
+    g3 = pick(rows, "13-16")["dR_date_clustered"]
+    result["gates"]["3_P3d_H_vs_P3d_N_fix_13_16"] = {"dR_date_clustered": g3, "pass": g3["ci95"][1] < 0}
+    if not result["gates"]["3_P3d_H_vs_P3d_N_fix_13_16"]["pass"]:
+        result["stopped_at"] = "gate 3 (KILL: HRRR closed as a 13-16 centre input)"
+        return done()
+    scope4 = covs["composite_post13_asof"] & covs["P3d_H_mg1"]
+    rows = compare("P3d_H_mg1", "composite_post13_asof", scope=scope4)
+    result["rows"] += rows
+    result["rows"] += compare("P3d_H_mg1", "MG1", scope=scope4, absolute=True)  # MG-2 G2 form, reported
+    result["rows"] += compare("composite_post13_asof", "MG1", scope=scope4, absolute=True)  # reported
+    result["gates"]["4_vs_composite_post13_asof"] = {"reading": reading(rows),
+                                                     "dR_date_clustered": pick(rows, "13-16")["dR_date_clustered"]}
+    return done()
+
+
 # ------------------------------------------------- R-L: NBS TXN as the 07-12 pre-dawn centre input (rule_rl.md)
 
 RL_RULE_SHA256 = "3ce9a6f2403c68b543c13be2ea36d4b92cd711b3e9e544a92e79744db53ca9b8"
@@ -4762,6 +4938,19 @@ def _parse(argv=None):
     ll.add_argument("--nbs", required=True, help="L12 NBS/NBH corpus directory (2021-25)")
     ll.add_argument("--ra-loyo-rows", required=True, help="R-A loyo_rows.jsonl (incumbent-arm control)")
     ll.add_argument("--out", required=True)
+    kd = sub.add_parser("rung-k-dev-emit", help="R-K gate 1b and h13-16 dev distributions (heavy)")
+    kd.add_argument("--records", required=True)
+    kd.add_argument("--layout", required=True)
+    kd.add_argument("--replay-root", required=True)
+    kd.add_argument("--nbm-train-corpus", required=True)
+    kd.add_argument("--hrrr", required=True, help="L13 HRRR corpus 2021-25 (training columns)")
+    kd.add_argument("--hrrr-dev", required=True, help="L13 HRRR corpus 2026-07-30..09-29 (dev columns)")
+    kd.add_argument("--loyo-audit", required=True, help="rk_loyo_audit.json (gates 1a-2 must have passed)")
+    kd.add_argument("--out", required=True)
+    ks = sub.add_parser("rung-k-score", help="R-K gates 3-4 on the dev scorecard (heavy)")
+    ks.add_argument("--layout", required=True)
+    ks.add_argument("--emit", required=True)
+    ks.add_argument("--out", required=True)
     de = sub.add_parser("p3dn-diag-emit", help="P3d_N vs P3d_N_fix input diff and variant emissions (heavy)")
     de.add_argument("--records", required=True)
     de.add_argument("--layout", required=True)
@@ -4929,6 +5118,17 @@ def main(argv=None):
         print(json.dumps({"gates": {k: v.get("pass") for k, v in audit["gates"].items()},
                           "stopped_at": audit.get("stopped_at"),
                           "control": audit.get("control_ra_reproduction")}, indent=1))
+        return 0
+    if args.command == "rung-k-dev-emit":
+        audit = rung_k_dev_emit(records_root=args.records, layout=args.layout, replay_root=args.replay_root,
+                                nbm_train_corpus=args.nbm_train_corpus, hrrr_corpus=args.hrrr,
+                                hrrr_dev_corpus=args.hrrr_dev, loyo_audit=args.loyo_audit, out_dir=args.out)
+        print(json.dumps({"gates": audit["gates"], "stopped_at": audit.get("stopped_at"),
+                          "rh_reproduction": audit["rh_reproduction"]}, indent=1))
+        return 0
+    if args.command == "rung-k-score":
+        result = rung_k_score(layout=args.layout, emit_dir=args.emit, out_path=Path(args.out))
+        print(json.dumps({"gates": result["gates"], "stopped_at": result.get("stopped_at")}, indent=1))
         return 0
     if args.command == "p3dn-diag-emit":
         audit = p3dn_diag_emit(records_root=args.records, layout=args.layout, replay_root=args.replay_root,
