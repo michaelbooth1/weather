@@ -11,6 +11,11 @@ from pathlib import Path
 
 VALID_STATUSES = {"supported", "fixture-only", "retired"}
 SCRIPT_INVENTORY = {
+    "hrrr_forward_recorder.py": {
+        "status": "fixture-only",
+        "smoke": "compile_main_guard",
+        "notes": "Lane L13 forward HRRR shadow recorder (R-K/R-R parity clock; read-only NOAA, RN-1 point rule, no backfill); network-free compilation smoke.",
+    },
     "hrrr_point_fetch.py": {
         "status": "fixture-only",
         "smoke": "compile_main_guard",
