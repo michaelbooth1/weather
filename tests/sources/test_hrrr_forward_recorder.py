@@ -241,3 +241,9 @@ def test_hourly_ceiling_and_bandwidth_throttle(tmp_path):
     t.spent(2_000_000, 0.5)
     t.spent(100, 1.0)
     assert slept == [1.5]
+
+
+def test_stations_json_bytes_reproduce_the_crlf_file_the_land_pin_was_taken_from():
+    cells = {st: fetch.station_cell(m["lat"], m["lon"]) for st, m in STATIONS.items()}
+    raw = rec.stations_json_bytes(STATIONS, cells)
+    assert raw.startswith(b'{\r\n "KATL": {\r\n') and b"\n" not in raw.replace(b"\r\n", b"")

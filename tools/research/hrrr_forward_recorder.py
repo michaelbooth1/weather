@@ -74,9 +74,10 @@ def _sha_file(path):
 
 
 def stations_json_bytes(stations, cells):
-    """The exact bytes ``hrrr_point_fetch.run`` writes as stations.json (the land file pins their sha)."""
+    """The exact bytes ``hrrr_point_fetch.run`` wrote as stations.json on the Windows workstation
+    (``Path.write_text`` translates newlines to CRLF there); the land file pins their sha."""
     obj = {st: {**stations[st], **cells[st]} for st in stations}
-    return json.dumps(obj, indent=1, sort_keys=True).encode("utf-8")
+    return json.dumps(obj, indent=1, sort_keys=True).replace("\n", "\r\n").encode("utf-8")
 
 
 # --------------------------------------------------------------------------- RN-1 point rule
