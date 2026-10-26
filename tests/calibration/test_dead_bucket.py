@@ -10,7 +10,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from weather.calibration import dead_bucket as db
+from tests.host_guard import import_or_skip_on_capture_host
+
+db = import_or_skip_on_capture_host("weather.calibration.dead_bucket")
 
 TZ = ZoneInfo("America/New_York")
 D = date(2026, 8, 20)
