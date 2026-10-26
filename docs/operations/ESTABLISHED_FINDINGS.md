@@ -4201,7 +4201,10 @@ merge-forward, because that file is not on this head's base.
 
 - **R-P (L14), NBH remaining-hours max as a 13-16 centre shift: KILL at gate 3.** Gate 2 LOYO passed (B_P − B_N 13-16
   −0.0093 [−0.0118, −0.0067]), but the fits were mostly an intercept: slope b = 0 in 40% (B_N) and 55% (P3d_N_fix) of
-  fits, a −0.2..−0.3 °F. **Lesson: a pooled LOYO intercept win is a bias correction, not information**; test a slope
+  fits, a −0.2..−0.3 °F. On dev the shift reversed: gate 3 P3d_P − P3d_N_fix 13-16 dR +0.0141 [−0.0043, +0.0341]
+  (pass = false; MDE ≈ 0.027), with harm at 15-16 +0.0425 [+0.0058, +0.0804] and h16 +0.0793 [+0.0351, +0.1263];
+  R vs market 1.307 against P3d_N_fix's 1.293 (43 dates, 13,970 snapshots; score sha256 `3e278836…`, local at
+  `C:\t\l14\rp\out\score`). **Lesson: a pooled LOYO intercept win is a bias correction, not information**; test a slope
   or a by-market split before reading a LOYO pass as an input's value. **Disclosure:** production never captured NBH,
   so even a pass could not have served. Rule `ed3236fa…` + RP-1 `f71a566a…` + RP-2 `70d4f01f…`, branch
   `claude/nbh-centre-1316-20261026` @ `ba11dd107`. **Reopen if:** NBH is captured forward and a slope-term rule passes.
