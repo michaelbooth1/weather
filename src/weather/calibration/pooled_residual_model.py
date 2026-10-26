@@ -4186,6 +4186,11 @@ def rung_k_score(*, layout, emit_dir, out_path, start="2026-08-01", end="2026-09
 # ------------------------------------------------- R-L: NBS TXN as the 07-12 pre-dawn centre input (rule_rl.md)
 
 RL_RULE_SHA256 = "3ce9a6f2403c68b543c13be2ea36d4b92cd711b3e9e544a92e79744db53ca9b8"
+RL2_RULE_SHA256 = "a1f95786d439bf619bce793d3958373f8bd0d79cd6aa6c25580546f90b4bf2b3"  # rungl2/rule_rl2.md
+RL2_SHA256SUMS = {"train": "2c5fc33a62a72b8d5b7aab7f44c4924571b96c9f4b15e1da5731a452c4867b86",
+                  "dev": "dd2b7ac4227ee3b9d3345f1e84b81e0f8fcbe4648688e54f0b09e92e6ade7887"}
+RL_VARIANTS = {"R-L": {"rule_sha256": RL_RULE_SHA256, "cycle_rule": "newest", "sums": None},
+               "R-L2": {"rule_sha256": RL2_RULE_SHA256, "cycle_rule": "txn_bearing", "sums": RL2_SHA256SUMS}}
 RL_HOURS = (7, 8, 9, 10, 11, 12)
 RL_POOLS = (("07-12", None),)
 RL_FEATURES = ("n_txn", "n_gap", "n_xnd", "n_miss")
@@ -4239,11 +4244,14 @@ def rl_parse_block(text):
 class RlNbsCorpus:
     """L12's NBS station blocks, selected point-in-time per (market, local date, cutoff hour). Inputs only."""
 
-    def __init__(self, corpus_dir, markets=R0_MARKETS):
+    def __init__(self, corpus_dir, markets=R0_MARKETS, cycle_rule="newest"):
         from datetime import datetime, timezone
 
         from weather.market.market_registry import spec_for_id
 
+        if cycle_rule not in ("newest", "txn_bearing"):
+            raise PooledModelError(f"unknown NBS cycle rule {cycle_rule}")
+        self.cycle_rule = cycle_rule
         self.root = Path(corpus_dir)
         self.stats = defaultdict(int)
         self.icao = {m: spec_for_id(m).icao for m in markets}
@@ -4297,19 +4305,33 @@ class RlNbsCorpus:
         if not eligible or (t - eligible[-1][0]).total_seconds() > RL_MAX_AGE_S:
             out["reason"] = "no_cycle"
             return out
-        cycle, _, blocks_file, offset, length, sha = eligible[-1]
-        out.update(cycle_utc=cycle.isoformat(), age_s=(t - cycle).total_seconds())
-        block = self._block(blocks_file, offset, length, sha)
-        if isinstance(block, str):
-            out["reason"] = block
-            return out
-        if block["station"] != self.icao[market] or block["issued"] != cycle:
-            out["reason"] = "identity_mismatch"
-            return out
         slot = datetime.combine(target + timedelta(days=1), time(0, 0), tzinfo=timezone.utc)
-        cell = block["columns"].get(slot)
+        out["newest_age_s"] = (t - eligible[-1][0]).total_seconds()
+        out["skipped"] = 0
+        # R-L: the newest eligible cycle only. R-L2 (rule_rl2.md): walk newest to oldest within the age bound; a
+        # block failing verification fails closed; a verified block without the column is skipped.
+        walk = eligible[::-1] if self.cycle_rule == "txn_bearing" else eligible[-1:]
+        for cycle, _, blocks_file, offset, length, sha in walk:
+            if (t - cycle).total_seconds() > RL_MAX_AGE_S:
+                break
+            out.update(cycle_utc=cycle.isoformat(), age_s=(t - cycle).total_seconds())
+            block = self._block(blocks_file, offset, length, sha)
+            if isinstance(block, str):
+                out["reason"] = block
+                return out
+            if block["station"] != self.icao[market] or block["issued"] != cycle:
+                out["reason"] = "identity_mismatch"
+                return out
+            cell = block["columns"].get(slot)
+            if cell is None or cell.get("TXN") is None or cell.get("XND") is None:
+                out["skipped"] += 1
+                continue
+            break
+        else:
+            cell = None
         if cell is None or cell.get("TXN") is None or cell.get("XND") is None:
-            out["reason"] = "column_absent"
+            out["reason"] = "column_absent" if self.cycle_rule == "newest" else "no_txn_cycle"
+            out.update(cycle_utc=None, age_s=None)
             return out
         txn = float(cell["TXN"])
         if not RL_TXN_RANGE_F[0] <= txn <= RL_TXN_RANGE_F[1]:
@@ -4326,13 +4348,46 @@ def rl_columns(entry, nbm):
     return {"n_txn": entry["n_txn"], "n_gap": gap, "n_xnd": entry["n_xnd"], "n_miss": 0.0}
 
 
+class RlStaleness:
+    """Reported-only staleness per cutoff hour (rule_rl2.md): selected-cycle age, UTC hour, skipped newest cycles."""
+
+    def __init__(self):
+        self.ages, self.newest, self.hours, self.skipped, self.rows = (defaultdict(list), defaultdict(list),
+                                                                       defaultdict(lambda: defaultdict(int)),
+                                                                       defaultdict(int), defaultdict(int))
+
+    def add(self, hour, entry):
+        h = f"h{int(hour):02d}"
+        self.rows[h] += 1
+        if entry.get("newest_age_s") is not None:
+            self.newest[h].append(entry["newest_age_s"] / 3600)
+        if entry["n_miss"] == 0.0:
+            self.ages[h].append(entry["age_s"] / 3600)
+            self.hours[h][entry["cycle_utc"][11:13] + "Z"] += 1
+            self.skipped[h] += entry.get("skipped", 0) > 0
+
+    def report(self):
+        import numpy as np
+
+        def q(v):
+            return [float(x) for x in np.percentile(v, [10, 50, 90])] if v else None
+
+        return {h: {"rows": n, "selected_age_h_p10_50_90": q(self.ages[h]),
+                    "newest_eligible_age_h_p10_50_90": q(self.newest[h]),
+                    "selected_cycle_utc_hour": dict(sorted(self.hours[h].items())),
+                    "share_newest_skipped": self.skipped[h] / max(len(self.ages[h]), 1)}
+                for h, n in sorted(self.rows.items())}
+
+
 def rl_training_columns(frame, corpus):
     """Attach R-L columns to training rows keyed (market, target_date, cutoff hour); ``fh`` is the NBM anchor."""
     import numpy as np
 
     cols, stats, gaps = defaultdict(list), defaultdict(int), []
+    stale = RlStaleness()
     for market, day, hour, fh in zip(frame["market"], frame["target_date"], frame["hour"], frame["fh"]):
         entry = corpus.raw(market, str(day)[:10], int(hour))
+        stale.add(hour, entry)
         stats["rows"] += 1
         stats[f"reason_{entry['reason'] or 'covered'}"] += 1
         values = rl_columns(entry, fh)
@@ -4346,6 +4401,7 @@ def rl_training_columns(frame, corpus):
         out[k] = cols[k]
     stats = dict(stats)
     stats["median_abs_gap_f"] = float(np.median(gaps)) if gaps else float("nan")
+    stats["staleness"] = stale.report()
     return out, stats
 
 
@@ -4362,8 +4418,17 @@ def rl_parity(stats):
             "pass": all(checks.values())}
 
 
-def rung_l_loyo(*, records_root, nbm_train_corpus, nbs_corpus, ra_loyo_rows, out_dir, markets=R0_MARKETS):
-    """R-L gate 1a (training half) and gate 2 (LOYO 2021-25, B_L - B_N at 07-12). No dev row is read."""
+def _rl_sums(corpus_dir, variant, half):
+    sha = hashlib.sha256((Path(corpus_dir) / "SHA256SUMS").read_bytes()).hexdigest()
+    pinned = RL_VARIANTS[variant]["sums"]
+    if pinned is not None and sha != pinned[half]:
+        raise PooledModelError(f"{variant} {half} corpus SHA256SUMS {sha} != {pinned[half]}")
+    return sha
+
+
+def rung_l_loyo(*, records_root, nbm_train_corpus, nbs_corpus, ra_loyo_rows, out_dir, markets=R0_MARKETS,
+                variant="R-L"):
+    """R-L / R-L2 gate 1a (training half) and gate 2 (LOYO 2021-25, B_L - B_N at 07-12). No dev row is read."""
     from weather.calibration import ols_floor_ladder as l9
     from weather.market.market_registry import spec_for_id
 
@@ -4372,7 +4437,13 @@ def rung_l_loyo(*, records_root, nbm_train_corpus, nbs_corpus, ra_loyo_rows, out
     if any(out.iterdir()):
         raise PooledModelError(f"refusing to write into a non-empty {out}")
     corpus_dir = Path(nbs_corpus)
-    audit = {"rule_sha256": RL_RULE_SHA256, "arms": list(RL_ARMS), "hours": list(RL_HOURS), "gates": {},
+    v = RL_VARIANTS[variant]
+    sums = _rl_sums(corpus_dir, variant, "train")
+    ra_sha = hashlib.sha256(Path(ra_loyo_rows).read_bytes()).hexdigest()
+    if variant != "R-L" and ra_sha != RR_RA_LOYO_ROWS_SHA256:
+        raise PooledModelError(f"R-A loyo rows sha {ra_sha} != {RR_RA_LOYO_ROWS_SHA256}")
+    audit = {"rule_sha256": v["rule_sha256"], "variant": variant, "cycle_rule": v["cycle_rule"],
+             "arms": list(RL_ARMS), "hours": list(RL_HOURS), "gates": {},
              "inputs": {"nbm_train_corpus": hashlib.sha256(Path(nbm_train_corpus).read_bytes()).hexdigest(),
                         "ra_loyo_rows": hashlib.sha256(Path(ra_loyo_rows).read_bytes()).hexdigest(),
                         "nbs_corpus": str(corpus_dir),
@@ -4385,7 +4456,8 @@ def rung_l_loyo(*, records_root, nbm_train_corpus, nbs_corpus, ra_loyo_rows, out
         return audit
 
     timezones = {m: spec_for_id(m).timezone for m in markets}
-    corpus = RlNbsCorpus(corpus_dir, markets)
+    corpus = RlNbsCorpus(corpus_dir, markets, cycle_rule=v["cycle_rule"])
+    audit["inputs"]["nbs_sha256sums_pinned"] = sums
     frame, buckets = dev_training_frame(records_root, markets)
     if frame["year"].max() >= 2026:
         raise PooledModelError("a training row is from 2026")
@@ -4416,14 +4488,18 @@ RL_RA_EMIT = {"dev_B_N.jsonl": "83cf9bbe9cd8f3173b98dd4cea47880457cf0c5648fe2cca
 
 
 def rung_l_dev_emit(*, records_root, layout, replay_root, nbm_train_corpus, nbs_corpus, nbs_dev_corpus,
-                    loyo_audit, out_dir, markets=R0_MARKETS):
+                    loyo_audit, out_dir, markets=R0_MARKETS, variant="R-L"):
     """R-L gate 1b (dev half, inputs only) and the h07-12 dev distributions of all four arms (no scoring)."""
     out = require_output_outside_repo(out_dir)
     loyo = json.loads(Path(loyo_audit).read_bytes())
-    if loyo.get("rule_sha256") != RL_RULE_SHA256 or loyo.get("stopped_at") or not loyo["gates"]["2_loyo"]["pass"]:
-        raise PooledModelError(f"R-L gates 1a-2 did not pass: {loyo.get('stopped_at')}")
-    train = RlNbsCorpus(nbs_corpus, markets)
-    dev = RlNbsCorpus(nbs_dev_corpus, markets)
+    v = RL_VARIANTS[variant]
+    if loyo.get("rule_sha256") != v["rule_sha256"] or loyo.get("stopped_at") or not loyo["gates"]["2_loyo"]["pass"]:
+        raise PooledModelError(f"{variant} gates 1a-2 did not pass: {loyo.get('stopped_at')}")
+    _rl_sums(nbs_corpus, variant, "train")
+    _rl_sums(nbs_dev_corpus, variant, "dev")
+    train = RlNbsCorpus(nbs_corpus, markets, cycle_rule=v["cycle_rule"])
+    dev = RlNbsCorpus(nbs_dev_corpus, markets, cycle_rule=v["cycle_rule"])
+    stale = RlStaleness()
     late = [c for v in dev.cycles.values() for c in v if c[0].date() > N_DEV_LAST]
     if late:
         raise PooledModelError(f"dev NBS corpus holds a cycle after 2026-09-29: {late[0][0]}")
@@ -4431,6 +4507,7 @@ def rung_l_dev_emit(*, records_root, layout, replay_root, nbm_train_corpus, nbs_
 
     def row_hook(market, target, hour, nbm, stats):
         entry = dev.raw(market, target.isoformat(), int(hour))
+        stale.add(hour, entry)
         values = rl_columns(entry, nbm)
         stats["nbs_rows"] += 1
         stats["nbs_covered"] += values["n_miss"] == 0.0
@@ -4447,7 +4524,8 @@ def rung_l_dev_emit(*, records_root, layout, replay_root, nbm_train_corpus, nbs_
                           row_hook=row_hook)
     dev_stats = dict(dev_stats)
     dev_stats["median_abs_gap_f"] = sorted(gaps)[len(gaps) // 2] if gaps else float("nan")
-    rl = {"rule_sha256": RL_RULE_SHA256,
+    dev_stats["staleness"] = stale.report()
+    rl = {"rule_sha256": v["rule_sha256"], "variant": variant,
           "loyo_audit_sha256": hashlib.sha256(Path(loyo_audit).read_bytes()).hexdigest(),
           "inputs": {f"{tag}_{n}": hashlib.sha256((Path(root) / n).read_bytes()).hexdigest()
                      for tag, root in (("nbs_train", nbs_corpus), ("nbs_dev", nbs_dev_corpus))
@@ -4461,7 +4539,8 @@ def rung_l_dev_emit(*, records_root, layout, replay_root, nbm_train_corpus, nbs_
     return rl
 
 
-def rung_l_score(*, layout, emit_dir, coefficients, nowcasts, out_path, start="2026-08-01", end="2026-09-29"):
+def rung_l_score(*, layout, emit_dir, coefficients, nowcasts, out_path, start="2026-08-01", end="2026-09-29",
+                 variant="R-L"):
     """R-L gates 3 and 4 on the dev scorecard (rule_rl.md); gate 3 failing is the pre-registered kill."""
     import os
 
@@ -4477,7 +4556,7 @@ def rung_l_score(*, layout, emit_dir, coefficients, nowcasts, out_path, start="2
         raise PooledModelError(f"refusing to overwrite {out_path}")
     emit = Path(emit_dir)
     audit = json.loads((emit / "rl_emit_audit.json").read_bytes())
-    if audit.get("rule_sha256") != RL_RULE_SHA256 or audit.get("stopped_at"):
+    if audit.get("rule_sha256") != RL_VARIANTS[variant]["rule_sha256"] or audit.get("stopped_at"):
         raise PooledModelError(f"emit is not an R-L emit that passed gate 1b: {audit.get('stopped_at')}")
     if not all(audit["ra_reproduction"].values()):
         raise PooledModelError(f"R-A reproduction failed: {audit['ra_reproduction']}")
@@ -4544,7 +4623,7 @@ def rung_l_score(*, layout, emit_dir, coefficients, nowcasts, out_path, start="2
             return "HARM"
         return "WIN" if p[1] < 0 and not any(lo > 0 for lo in lower) else "NULL"
 
-    result = {"rule_sha256": RL_RULE_SHA256,
+    result = {"rule_sha256": RL_VARIANTS[variant]["rule_sha256"], "variant": variant,
               "population": {"n_dates": len(scored), "first_date": scored[0], "last_date": scored[-1],
                              "n_market_days": len(table.keys), "common_covered_snapshots_07_12": int((common & w0712).sum())},
               "controls": {"mg1_excess_07_12": mg1_excess, "ra_reproduction": audit["ra_reproduction"],
@@ -5529,6 +5608,7 @@ def _parse(argv=None):
     ll.add_argument("--nbs", required=True, help="L12 NBS/NBH corpus directory (2021-25)")
     ll.add_argument("--ra-loyo-rows", required=True, help="R-A loyo_rows.jsonl (incumbent-arm control)")
     ll.add_argument("--out", required=True)
+    ll.add_argument("--variant", choices=sorted(RL_VARIANTS), default="R-L")
     kd = sub.add_parser("rung-k-dev-emit", help="R-K gate 1b and h13-16 dev distributions (heavy)")
     kd.add_argument("--records", required=True)
     kd.add_argument("--layout", required=True)
@@ -5551,12 +5631,14 @@ def _parse(argv=None):
     ld.add_argument("--nbs-dev", required=True, help="L12 NBS corpus 2026-07-30..09-29 (dev columns)")
     ld.add_argument("--loyo-audit", required=True, help="rl_loyo_audit.json (gates 1a-2 must have passed)")
     ld.add_argument("--out", required=True)
+    ld.add_argument("--variant", choices=sorted(RL_VARIANTS), default="R-L")
     ls_ = sub.add_parser("rung-l-score", help="R-L gates 3-4 on the dev scorecard (heavy)")
     ls_.add_argument("--layout", required=True)
     ls_.add_argument("--emit", required=True)
     ls_.add_argument("--coefficients", required=True)
     ls_.add_argument("--nowcasts", required=True)
     ls_.add_argument("--out", required=True)
+    ls_.add_argument("--variant", choices=sorted(RL_VARIANTS), default="R-L")
     rl_ = sub.add_parser("rung-r-loyo", help="R-R gate 1a (training half) and gate 2 LOYO (heavy)")
     rl_.add_argument("--records", required=True)
     rl_.add_argument("--nbm-train-corpus", required=True)
@@ -5743,7 +5825,7 @@ def main(argv=None):
         return 0
     if args.command == "rung-l-loyo":
         audit = rung_l_loyo(records_root=args.records, nbm_train_corpus=args.nbm_train_corpus, nbs_corpus=args.nbs,
-                            ra_loyo_rows=args.ra_loyo_rows, out_dir=args.out)
+                            ra_loyo_rows=args.ra_loyo_rows, out_dir=args.out, variant=args.variant)
         print(json.dumps({"gates": {k: v.get("pass") for k, v in audit["gates"].items()},
                           "stopped_at": audit.get("stopped_at"),
                           "control": audit.get("control_ra_reproduction")}, indent=1))
@@ -5762,13 +5844,14 @@ def main(argv=None):
     if args.command == "rung-l-dev-emit":
         audit = rung_l_dev_emit(records_root=args.records, layout=args.layout, replay_root=args.replay_root,
                                 nbm_train_corpus=args.nbm_train_corpus, nbs_corpus=args.nbs,
-                                nbs_dev_corpus=args.nbs_dev, loyo_audit=args.loyo_audit, out_dir=args.out)
+                                nbs_dev_corpus=args.nbs_dev, loyo_audit=args.loyo_audit, out_dir=args.out,
+                                variant=args.variant)
         print(json.dumps({"gates": audit["gates"], "stopped_at": audit.get("stopped_at"),
                           "ra_reproduction": audit["ra_reproduction"]}, indent=1, default=float))
         return 0
     if args.command == "rung-l-score":
         result = rung_l_score(layout=args.layout, emit_dir=args.emit, coefficients=args.coefficients,
-                              nowcasts=args.nowcasts, out_path=Path(args.out))
+                              nowcasts=args.nowcasts, out_path=Path(args.out), variant=args.variant)
         print(json.dumps({"gates": result["gates"], "stopped_at": result.get("stopped_at")}, indent=1))
         return 0
     if args.command == "rung-r-loyo":
