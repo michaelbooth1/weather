@@ -1,7 +1,8 @@
 # Venue-rule settlement labels
 
-Status: canonical label contract for training and evaluation. Owner:
-`weather.backtesting.venue_rule_labels`.
+Status: canonical label contract for training and evaluation. Owners:
+`weather.backtesting.venue_rule_labels` (build) and
+`weather.backtesting.venue_label_reader` (read).
 
 - **Owns:** how the built-in markets are labelled for target dates on or after
   the venue-rule cutover: report filter, temperature reading, rounding, local
@@ -95,6 +96,48 @@ counts. `row_count` is the routine report count.
 - Training readers that take a daily-summary path (for example
   `python -m weather.calibration.forecast_error_model train --daily-summary <csv>`)
   read the CSV unchanged.
+
+## Label reader
+
+`weather.backtesting.venue_label_reader.read_venue_labels` is the one reader
+for training, evaluation and the B/MG-2 one-time label transfer (owner
+2026-10-25, "Switching to the venue's own labels"). It returns the venue's own
+label for each market-date:
+
+| Target date | Source | `label_policy` |
+| --- | --- | --- |
+| before the cutover | the market's WU daily summary row (the venue paid the WU band on every measured day) | `wu_history` |
+| from the cutover | the venue CSV row, `label_source` `metar_routine` | `venue_rule` |
+| from the cutover | the venue CSV row, `label_source` `wu_fallback_no_routine_metar` | `venue_rule_wu_fallback` |
+
+```python
+from datetime import date
+from weather.backtesting.venue_label_reader import read_venue_labels
+records, refusals = read_venue_labels("nyc", dates, read_through=date(2026, 9, 29))
+```
+
+- **Fallback.** WU is used only as the venue's own rule uses it: the build
+  writes a `wu_fallback_no_routine_metar` row when the stream spans the date
+  with no routine temperature and the WU station is the label station. A
+  post-cutover date with no venue CSV, no row, a row below
+  `COMPLETE_DAY_MIN_ROWS`, or a row whose `label_source`, `label_rule_version`
+  or `label_cutover_date` is foreign is refused, never refilled from WU.
+- **Provenance.** Each record is a `venue_label_record_v1` (schema family
+  `weather/schema_families/venue_labels.py`) carrying `label_policy`,
+  `label_source`, `label_station`, `label_station_basis`, `label_rule_version`,
+  `label_cutover_date`, `label_row_count`, `source_path`, `source_sha256` (the
+  whole file) and `source_row_sha256` (the row). Consumers bind the last two.
+- **Embargo.** `read_through` is required. A `read_through` after 2026-09-29
+  raises unless `allow_reserved_window=True`, which a caller may pass only under
+  an open [reserved-window contract](reserved-confirmation-window.md). Rows dated
+  after `read_through` are dropped before they are parsed.
+- **Denver.** With `model_scoring=True` (the default) Denver dates from the
+  cutover are refused (`market_unsupported_for_model_scoring`): the label
+  station is KDEN and no KDEN model has passed the gates. B and MG-2 exclude
+  Denver.
+- **Not changed.** Pre-cutover dates are not relabelled with the routine-only
+  rule: on 08-11..09-29 that rule disagrees with WU on 13 of 517 market-days
+  and moves the band on 8, and the venue paid the WU band on all 8.
 
 ## Known gap: ledger source fields
 
