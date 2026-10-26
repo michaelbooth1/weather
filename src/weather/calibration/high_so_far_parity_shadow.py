@@ -439,15 +439,13 @@ def score(layout_root, emit_dir, start="2026-08-01", end="2026-09-29"):
     vectors["mg1"], coverage["mg1"] = table.candidate_vector(frame0)
     frame1, _, _ = mg1_frame(table.snaps, table.bands, fix_floor_highs(rows))
     vectors["mg1_fix"], coverage["mg1_fix"] = table.candidate_vector(frame1)
-    mg1_control = None
-    try:  # the free-source screens' own MG-1, where that branch is merged locally
-        from weather.reporting.scorecards.free_source_candidates import mg1 as fs_mg1
+    # The free-source screens' own MG-1 ships in this tree, so import it directly
+    # (no ImportError fallback: the import-architecture ratchet forbids one).
+    from weather.reporting.scorecards.free_source_candidates import mg1 as fs_mg1
 
-        ref = fs_mg1.predict(table.snaps, table.bands)
-        mg1_control = bool(ref.sort_values(["row_key", "band_index"]).reset_index(drop=True).equals(
-            frame0.sort_values(["row_key", "band_index"]).reset_index(drop=True)))
-    except ImportError:
-        mg1_control = "free_source_candidates not importable"
+    ref = fs_mg1.predict(table.snaps, table.bands)
+    mg1_control = bool(ref.sort_values(["row_key", "band_index"]).reset_index(drop=True).equals(
+        frame0.sort_values(["row_key", "band_index"]).reset_index(drop=True)))
     brier = {arm: table.brier(p) for arm, p in vectors.items()}
     brier["market"] = table.brier(table.p_market)
     cell_dates = [k[0] for k in table.keys]
