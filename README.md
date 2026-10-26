@@ -508,7 +508,12 @@ R0 candidate manifest and the research release provenance bind per market.
 - The cutoff-hour HGB/LR and the report are written to a new directory under
   that root, plus `feature_model_blocked_validation_rows_<market>.jsonl`: one
   row per scored blocked-validation (cutoff hour, date) with the baseline, LR
-  and HGB log loss, so research comparisons can cluster by date.
+  and HGB log loss, so research comparisons can cluster by date. Each row also
+  carries `observed_floor_bucket` (round-half-up of the trainer's printed high
+  so far at the cutoff) and the same arms scored after the serving hard floor
+  (buckets below it times 1e-6, renormalised): `baseline_floored_log_loss`,
+  `lr_floored_log_loss`, `hgb_floored_log_loss`, `hgb_floored_brier`. The
+  served distribution path is not changed.
 - Late-day continuation is not trained, so the served late-day models stay as
   they are.
 - Nothing is written to `artifacts/models/`.
@@ -516,7 +521,7 @@ R0 candidate manifest and the research release provenance bind per market.
   releases, `src/`, the repository root and existing output.
 - It cannot be combined with `--late-day-only` or `--item27-report-only`.
 
-Three research-only training-input options need `--output-root`, so the served
+These research-only options need `--output-root`, so the served
 path is unchanged without it:
 
 - `--target-date YYYY-MM-DD` pins the centre date of the prior-year +/-7-day
@@ -535,6 +540,9 @@ path is unchanged without it:
   20. Both artifacts record `hgb_hyperparameters`, a non-default value appears
   in `served_model_differences.hyperparameters`, and the R0 candidate manifest
   binds it (`hgb_min_samples_leaf`, one value per candidate).
+- `--validation-row-distributions` adds each row's blended HGB distribution
+  (`hgb_distribution`), the raw `observed_high` and the `actual_bucket` to the
+  per-row file so others can post-process. The trained bundles are unchanged.
 
 Both artifacts then carry a `training_inputs` record (centre date, years, days
 per year, forecast source, corpus ids and manifest hashes). An R0 fit is
