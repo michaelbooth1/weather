@@ -3,7 +3,9 @@
 Guards: rule_mg3_p3dh_state.md (sha 9e63899d...) and rule_mg3_blend_weights.md (sha 4fb02a2c...) - the frozen
 state's serve math reproduces the in-process P3d_H fit's distribution exactly (k columns appended after the
 day-of-year columns, NaN k columns kept); the loader checks the sha256 before unpickling and refuses a foreign schema;
-the dev re-emit comparison fails on a key mismatch, a missing row or |dp| > 1e-12; the freezes refuse unbound inputs.
+the dev re-emit comparison fails on a key mismatch, a missing row or |dp| > 1e-12; the freezes refuse unbound inputs;
+(1b) the release binding carries RN-1's constants, its recomputed indices, the land and stations shas and every
+executed file, and verification refuses any drift (file, constant, land file, state block or point rule).
 """
 import hashlib
 import importlib
@@ -171,3 +173,101 @@ def test_freezes_refuse_unbound_inputs(tmp_path):
                                rr_score=rule, out_dir=tmp_path / "w", commit="x",
                                rule_path=RULES / "rule_mg3_blend_weights.md")
     assert not (tmp_path / "o").exists() and not (tmp_path / "w").exists()
+
+
+# ----------------------------------------------------------------------------- (1b) RN-1 bound into the release
+
+RN1_MARKETS = ("san-francisco", "atlanta")
+RN1_STATIONS = {"KSFO": {"market": "san-francisco", "i": 178, "j": 594, "fi": 177.89484086990853,
+                         "fj": 594.4963606137516},
+                "KATL": {"market": "atlanta", "i": 1302, "j": 377, "fi": 1302.2445562292987,
+                         "fj": 377.00477929978695}}
+RN1_MASKS = {"KSFO": [1, 1, 0, 1, 0, 0, 1, 0, 0], "KATL": [1] * 9}  # KSFO's centre cell is water
+
+
+def _rn1_inputs(tmp_path, monkeypatch, chosen=None):
+    corpus = tmp_path / "corpus"
+    corpus.mkdir(exist_ok=True)
+    (corpus / "stations.json").write_text(json.dumps(RN1_STATIONS), encoding="utf-8")
+    land = {"stations_json_sha256": hashlib.sha256((corpus / "stations.json").read_bytes()).hexdigest(),
+            "msg_sha256": prm.RR_LAND_MSG_SHA256, "key": prm.RR_LAND_KEY, "stations": {}}
+    for icao, s in RN1_STATIONS.items():
+        dist = [math.hypot(s["i"] + k % 3 - 1 - s["fi"], s["j"] + k // 3 - 1 - s["fj"]) for k in range(9)]
+        land["stations"][icao] = {**{k: s[k] for k in ("i", "j", "fi", "fj")}, "land_block3x3": RN1_MASKS[icao],
+                                  "dist_grid_units": dist,
+                                  "rn1_chosen_index": (chosen or {"KSFO": 3, "KATL": 4})[icao]}
+    path = tmp_path / "land_3x3.json"
+    path.write_text(json.dumps(land), encoding="utf-8")
+    monkeypatch.setattr(prm, "RR_LAND_SHA256", hashlib.sha256(path.read_bytes()).hexdigest())
+    root = tmp_path / "repo"
+    for rel in prm.MG3_RELEASE_FILES:
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(f"# {rel}\n", encoding="utf-8")
+    return path, corpus, root
+
+
+def test_rn1_constants_are_the_fitted_point_rule():
+    assert prm.MG3_RN1["land_sha256"] == "22069beebb5609755b35621bac05e91a1b35e434670c993a93a8aca9434fd7d6"
+    assert prm.MG3_RN1["rule_sha256"] == "e4869491a8480f302c0bb4c33b0d55d4110ef98551f0db26e59d3441e204004b"
+    assert prm.MG3_RN1["index"] == {"KSFO": 3} and prm.MG3_RN1["default_index"] == 4
+    assert prm.MG3_RN1["stations_json_sha256"] == prm.RR_CORPUS_SHA256["stations.json"]
+    assert prm.MG3_POINT_RULES == {"07-12": "rn1", "13-16": "nearest"}
+    assert "src/weather/calibration/pooled_residual_model.py" in prm.MG3_RELEASE_FILES
+
+
+def test_release_binding_carries_rn1_land_sha_and_files_and_verifies(tmp_path, monkeypatch):
+    land, corpus, root = _rn1_inputs(tmp_path, monkeypatch)
+    binding = prm.mg3_release_binding(land=land, corpus_dir=corpus, root=root, markets=RN1_MARKETS)
+    assert binding["schema"] == prm.MG3_BINDING_SCHEMA
+    assert binding["rn1"]["recomputed"] == {"KATL": 4, "KSFO": 3}
+    assert binding["data_files"]["land_3x3.json"] == hashlib.sha256(land.read_bytes()).hexdigest()
+    assert set(binding["files"]) == set(prm.MG3_RELEASE_FILES)
+    assert binding["rules"]["rn1"] == prm.MG3_RN1["rule_sha256"]
+    assert {b: s["sha256"] for b, s in binding["states"].items()} == {"07-12": "PENDING", "13-16": "PENDING"}
+    assert binding["weights_sha256"] == "PENDING"
+    path = tmp_path / "release-binding.json"
+    path.write_text(json.dumps(binding, indent=1, sort_keys=True), encoding="utf-8")
+    assert prm.mg3_verify_release(path, land=land, corpus_dir=corpus, root=root, markets=RN1_MARKETS) == binding
+    # a changed executed file refuses
+    (root / prm.MG3_RELEASE_FILES[0]).write_text("# changed\n", encoding="utf-8")
+    with pytest.raises(prm.PooledModelError, match="pooled_residual_model"):
+        prm.mg3_verify_release(path, land=land, corpus_dir=corpus, root=root, markets=RN1_MARKETS)
+    (root / prm.MG3_RELEASE_FILES[0]).write_text(f"# {prm.MG3_RELEASE_FILES[0]}\n", encoding="utf-8")
+    # a bound RN-1 constant that differs from the running one refuses
+    edited = json.loads(path.read_text(encoding="utf-8"))
+    edited["rn1"]["index"] = {"KSFO": 4}
+    path.write_text(json.dumps(edited), encoding="utf-8")
+    with pytest.raises(prm.PooledModelError, match="rn1"):
+        prm.mg3_verify_release(path, land=land, corpus_dir=corpus, root=root, markets=RN1_MARKETS)
+
+
+def test_release_binding_refuses_a_land_file_that_moved_or_disagrees(tmp_path, monkeypatch):
+    land, corpus, root = _rn1_inputs(tmp_path, monkeypatch)
+    monkeypatch.setattr(prm, "RR_LAND_SHA256", "0" * 64)
+    with pytest.raises(prm.PooledModelError, match="land file sha"):
+        prm.mg3_release_binding(land=land, corpus_dir=corpus, root=root, markets=RN1_MARKETS)
+    land, corpus, root = _rn1_inputs(tmp_path, monkeypatch, chosen={"KSFO": 4, "KATL": 4})
+    with pytest.raises(prm.PooledModelError, match="RN-1 index"):
+        prm.mg3_release_binding(land=land, corpus_dir=corpus, root=root, markets=RN1_MARKETS)
+
+
+def test_release_binding_checks_each_state_block_and_point_rule(tmp_path, monkeypatch):
+    land, corpus, root = _rn1_inputs(tmp_path, monkeypatch)
+
+    def state(block, land_sha):
+        path = tmp_path / f"state_{block}.pkl"
+        path.write_bytes(pickle.dumps({"schema": prm.MG3_STATE_SCHEMA, "arm": prm.MG3_ARM, "block": block,
+                                       "point_rule": {"land_sha256": land_sha}}, protocol=4))
+        return path
+
+    s0712, s1316 = state("07-12", prm.MG3_RN1["land_sha256"]), state("13-16", None)
+    binding = prm.mg3_release_binding(land=land, corpus_dir=corpus, root=root, markets=RN1_MARKETS,
+                                      states={"07-12": s0712, "13-16": s1316})
+    assert binding["states"]["07-12"]["sha256"] == hashlib.sha256(s0712.read_bytes()).hexdigest()
+    assert binding["states"]["13-16"]["point_rule"] == "nearest"
+    with pytest.raises(prm.PooledModelError, match="block"):
+        prm.mg3_release_binding(land=land, corpus_dir=corpus, root=root, markets=RN1_MARKETS,
+                                states={"07-12": s1316})
+    with pytest.raises(prm.PooledModelError, match="point rule"):
+        prm.mg3_release_binding(land=land, corpus_dir=corpus, root=root, markets=RN1_MARKETS,
+                                states={"13-16": state("13-16", prm.MG3_RN1["land_sha256"])})

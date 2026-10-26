@@ -6584,6 +6584,94 @@ def mg3_freeze_weights(*, layout, emit_dir, coefficients, nowcasts, rr_score, ou
     return result
 
 
+# ------------------------------------------------- MG-3 freeze prep (1b): RN-1 point rule bound into the release
+
+MG3_BINDING_SCHEMA = "mg3_release_binding/1"
+MG3_PENDING = "PENDING"
+MG3_RN1 = {  # RN-1 (clarification 1 of R-R): the 07-12 HRRR point rule, as fitted and scored
+    "rule_sha256": "e4869491a8480f302c0bb4c33b0d55d4110ef98551f0db26e59d3441e204004b",
+    "land_sha256": RR_LAND_SHA256,
+    "land_msg_sha256": RR_LAND_MSG_SHA256,
+    "land_key": RR_LAND_KEY,
+    "stations_json_sha256": RR_CORPUS_SHA256["stations.json"],
+    "index": dict(RR_EXPECTED_INDEX),
+    "default_index": 4,
+    "block_order": "row-major, south to north, west to east: index = 3 * (dj + 1) + (di + 1)",
+    "choice": "the land cell (LAND:surface == 1) nearest (fi, fj) in grid units; ties to the lower index",
+}
+MG3_POINT_RULES = {"07-12": "rn1", "13-16": "nearest"}
+MG3_RELEASE_FILES = (  # every repository file the MG-3 freeze, its controls and the R-R/R-K arms execute
+    "src/weather/calibration/pooled_residual_model.py",
+    "src/weather/calibration/feature_model.py",
+    "src/weather/calibration/ols_floor_ladder.py",
+    "src/weather/calibration/r0_ols_floor_devfit.py",
+    "src/weather/calibration/r0_ols_floor_challenger.py",
+    "src/weather/model/observed_running_max.py",
+    "src/weather/reporting/scorecards/dev_scorecard.py",
+    "src/weather/reporting/scorecards/dev_scorecard_data.py",
+    "src/weather/reporting/scorecards/free_source_candidates/l6_stack.py",
+    "src/weather/units.py",
+)
+
+
+def mg3_release_files(root=None):
+    root = Path(root or REPO_ROOT)
+    return {rel: _rr_sha(root / rel) for rel in MG3_RELEASE_FILES}
+
+
+def mg3_release_binding(*, land, corpus_dir, states=None, weights=None, root=None, markets=R0_MARKETS):
+    """The MG-3 ``release-binding.json`` content (research side): rules, RN-1, data files, code files, states.
+
+    RN-1 is recomputed by ``rr_point_rule`` from the land file and ``stations.json`` (refused on any mismatch with
+    the pinned shas or the KSFO 3 / centre-4 reading) and bound as constants plus the recomputed indices. States and
+    the weight table are bound by sha256 once frozen; until then they read ``PENDING``.
+    """
+    point, report = rr_point_rule(land, corpus_dir, markets)
+    stations = report["stations"]
+    states = dict(states or {})
+    unknown = set(states) - set(MG3_BLOCKS)
+    if unknown:
+        raise PooledModelError(f"unknown MG-3 state blocks {sorted(unknown)}")
+    bound_states = {}
+    for block in sorted(MG3_BLOCKS):
+        path = states.get(block)
+        if path is None:
+            bound_states[block] = {"sha256": MG3_PENDING, "point_rule": MG3_POINT_RULES[block]}
+            continue
+        state = mg3_load_state(path, _rr_sha(path))
+        if state.get("block") != block:
+            raise PooledModelError(f"state {path} is block {state.get('block')}, not {block}")
+        land_sha = (state.get("point_rule") or {}).get("land_sha256")
+        if (land_sha == MG3_RN1["land_sha256"]) != (MG3_POINT_RULES[block] == "rn1"):
+            raise PooledModelError(f"state {path}: point rule land sha {land_sha} does not fit block {block}")
+        bound_states[block] = {"sha256": _rr_sha(path), "point_rule": MG3_POINT_RULES[block]}
+    return {
+        "schema": MG3_BINDING_SCHEMA,
+        "rules": {"mg3_state": MG3_STATE_RULE_SHA256, "mg3_weights": MG3_WEIGHTS_RULE_SHA256,
+                  "rr": RR_RULE_SHA256, "rk": RK_RULE_SHA256, "rk1": RK_CLARIFICATION_RK1_SHA256,
+                  "rn1": MG3_RN1["rule_sha256"]},
+        "rn1": dict(MG3_RN1, recomputed={icao: stations[icao]["chosen_index"] for icao in sorted(stations)}),
+        "point_rules": dict(MG3_POINT_RULES),
+        "data_files": {"land_3x3.json": report["land_sha256"], "stations.json": report["stations_json_sha256"]},
+        "files": mg3_release_files(root),
+        "states": bound_states,
+        "weights_sha256": _rr_sha(weights) if weights is not None else MG3_PENDING,
+    }
+
+
+def mg3_verify_release(path, *, land, corpus_dir, states=None, weights=None, root=None, markets=R0_MARKETS):
+    """Recompute the binding from the running files and inputs; any field that differs refuses."""
+    bound = json.loads(Path(path).read_text(encoding="utf-8"))
+    running = mg3_release_binding(land=land, corpus_dir=corpus_dir, states=states, weights=weights, root=root,
+                                  markets=markets)
+    problems = [key for key in running if key != "files" and bound.get(key) != running[key]]
+    problems += [rel for rel, sha in running["files"].items() if bound.get("files", {}).get(rel) != sha]
+    problems += [rel for rel in bound.get("files", {}) if rel not in running["files"]]
+    if problems:
+        raise PooledModelError(f"MG-3 release binding mismatch: {problems}")
+    return bound
+
+
 # -------------------------------------------------------------------------- CLI
 
 
@@ -6861,6 +6949,13 @@ def _parse(argv=None):
     mw.add_argument("--rule", required=True)
     mw.add_argument("--commit", required=True)
     mw.add_argument("--out", required=True)
+    mb = sub.add_parser("mg3-release-binding", help="MG-3 (1b): release-binding.json content incl. RN-1")
+    mb.add_argument("--land", required=True)
+    mb.add_argument("--corpus", required=True, help="the 07-12 HRRR corpus holding stations.json")
+    mb.add_argument("--state-0712", default=None)
+    mb.add_argument("--state-1316", default=None)
+    mb.add_argument("--weights", default=None)
+    mb.add_argument("--out", required=True)
     dv = sub.add_parser("dev-verdict", help="amendment 3: verdict and tables from L3 dev-score output")
     dv.add_argument("--scores", required=True)
     dv.add_argument("--rule", required=True)
@@ -7137,6 +7232,16 @@ def main(argv=None):
                                     commit=args.commit, rule_path=args.rule)
         print(json.dumps({k: result[k] for k in ("control", "weights", "reported")}, indent=1, sort_keys=True))
         return 0 if result["control"]["pass"] else 1
+    if args.command == "mg3-release-binding":
+        if out.exists():
+            raise PooledModelError(f"refusing to overwrite {out}")
+        states = {b: s for b, s in (("07-12", args.state_0712), ("13-16", args.state_1316)) if s}
+        binding = mg3_release_binding(land=args.land, corpus_dir=args.corpus, states=states, weights=args.weights)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(binding, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+        print(json.dumps({"sha256": _rr_sha(out), "states": binding["states"],
+                          "rn1": binding["rn1"]["recomputed"]}, indent=1, sort_keys=True))
+        return 0
     if args.command == "dev-verdict":
         scores = json.loads(Path(args.scores).read_text(encoding="utf-8"))
         text, _ = dev_verdict_markdown(scores, args.rule)
