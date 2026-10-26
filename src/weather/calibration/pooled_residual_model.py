@@ -4794,7 +4794,7 @@ def rl_anchor_diag(*, nbs_corpus, nbs_dev_corpus, nbm_train_corpus, nbm_dev_corp
               "cycle_rule": "txn_bearing (R-L2)", "hours": list(RL_HOURS),
               "train_years": list(RL_DIAG_TRAIN_YEARS), "train_months": list(RL_DIAG_TRAIN_MONTHS),
               "dev_dates": [dev_first, dev_last],
-              "counts": {h: dict(v) for h, v in counts.items()},
+              "counts": {h: {"rows": 0, **counts[h]} for h in halves},
               "groups": {"|".join(k): _rl_diag_summary(v) for k, v in sorted(groups.items())}}
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(report, indent=1, sort_keys=True), encoding="utf-8")
