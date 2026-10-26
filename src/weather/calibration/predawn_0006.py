@@ -812,22 +812,62 @@ def k_to_f(k):
     return (k - 273.15) * 9.0 / 5.0 + 32.0
 
 
-def hrrr_analog(hrrr_root):
-    """{(station, local_date, hour): H} - max of nearest-point 2 m TMP (F) over each selection's fh window
-    (L13's PIT cycle choice, [t, 23:00 local]). A row with any needed message absent is absent (never imputed)."""
+RULE_RN1_SHA256 = "e4869491a8480f302c0bb4c33b0d55d4110ef98551f0db26e59d3441e204004b"
+
+
+def land_choice(hrrr_root, land_path):
+    """RN-1 point rule: per station, the LAND = 1 cell of the stored 3x3 block nearest to (fi, fj) in grid units
+    (ties to the lower block index); None when the block holds no land cell. Uniform for every station."""
+    import math
+
+    stations = json.loads((Path(hrrr_root) / "stations.json").read_text(encoding="utf-8"))
+    land = json.loads(Path(land_path).read_text(encoding="utf-8"))
+    land = land.get("stations", land)
+    out = {}
+    for st, c in stations.items():
+        rec = land.get(st)
+        if rec is None:
+            raise PredawnError(f"land mask lacks station {st}")
+        if (int(rec["i"]), int(rec["j"])) != (int(c["i"]), int(c["j"])):
+            raise PredawnError(f"land mask cell for {st} {rec['i'], rec['j']} != stations.json {c['i'], c['j']}")
+        block = [float(x) for x in rec["land_block3x3"]]
+        if len(block) != 9:
+            raise PredawnError(f"land block for {st} has {len(block)} cells")
+        cand = []
+        for k in range(9):
+            dj, di = k // 3 - 1, k % 3 - 1
+            if abs(block[k] - 1.0) < 1e-6:
+                cand.append((math.hypot(c["i"] + di - c["fi"], c["j"] + dj - c["fj"]), k))
+        out[st] = {"index": min(cand)[1] if cand else None, "centre_is_land": abs(block[4] - 1.0) < 1e-6,
+                   "land_cells": len(cand)}
+    return out
+
+
+def hrrr_analog(hrrr_root, choice=None):
+    """{(station, local_date, hour): H} - max of the point's 2 m TMP (F) over each selection's fh window
+    (L13's PIT cycle choice, [t, 23:00 local]). A row with any needed message absent is absent (never imputed).
+    The point is the nearest grid cell, or with ``choice`` (``land_choice``, RN-1) that block index; a station
+    whose choice is None is absent."""
     import pandas as pd
 
     root = Path(hrrr_root)
     for name, pin in (("manifest.jsonl", HRRR_MANIFEST_SHA256), ("selections.jsonl", HRRR_SELECTIONS_SHA256)):
         if _sha(root / name) != pin:
             raise PredawnError(f"{name} sha {_sha(root / name)} != pinned {pin}")
+
+    def value(p, st):
+        if choice is None:
+            return p.get("nearest")
+        k = choice.get(st, {}).get("index")
+        return None if k is None else p["block3x3"][k]
+
     msgs = {}
     with open(root / "manifest.jsonl", encoding="utf-8") as handle:
         for line in handle:
             r = json.loads(line)
             if r.get("status") != "ok" or r.get("var") != "TMP:2 m above ground":
                 continue
-            msgs[(r["cycle_utc"], int(r["fh"]))] = {s: p.get("nearest") for s, p in (r.get("points") or {}).items()}
+            msgs[(r["cycle_utc"], int(r["fh"]))] = {s: value(p, s) for s, p in (r.get("points") or {}).items()}
     rows, stats = [], {"selections": 0, "truncated": 0, "absent_message": 0, "no_cycle": 0, "ok": 0}
     with open(root / "selections.jsonl", encoding="utf-8") as handle:
         for line in handle:
@@ -863,7 +903,19 @@ def usable_hrrr_high(snaps):
     return np.where(ok, h, np.nan)
 
 
-def p3(*, layout, hrrr_root, rule, out_dir):
+def _rn_point(hrrr_root, clarification, land):
+    """RN-1 (when ``clarification`` is given): pin its sha, build the land choice; else the registered nearest cell."""
+    if clarification is None and land is None:
+        return None, {"point_rule": "nearest cell (as registered)"}
+    if clarification is None or land is None:
+        raise PredawnError("RN-1 needs both the clarification file and the land mask")
+    check_rule(clarification, RULE_RN1_SHA256)
+    choice = land_choice(hrrr_root, land)
+    return choice, {"point_rule": "RN-1 nearest LAND=1 cell of the stored 3x3 block", "rn1_sha256": RULE_RN1_SHA256,
+                    "land_mask_sha256": _sha(land), "land_choice": choice}
+
+
+def p3(*, layout, hrrr_root, rule, out_dir, clarification=None, land=None):
     """R-N precondition P3 (HRRR parity at dev 00-06) and the dev H table for gate 2. Input only."""
     import numpy as np
     import pandas as pd
@@ -871,6 +923,7 @@ def p3(*, layout, hrrr_root, rule, out_dir):
     from weather.calibration import pooled_residual_model as l2
 
     check_rule(rule, RULE_RN_SHA256)
+    choice, point = _rn_point(hrrr_root, clarification, land)
     out = l2.require_output_outside_repo(Path(out_dir))
     if (out / "p3.json").exists():
         raise PredawnError(f"refusing to overwrite {out / 'p3.json'}")
@@ -884,7 +937,7 @@ def p3(*, layout, hrrr_root, rule, out_dir):
     s["H_cap"] = usable_hrrr_high(s)
     pd.DataFrame({"row_key": s.row_key, "n_own": s.H_cap, "n_up": np.nan, "n_ring": np.nan}).to_parquet(
         out / "hrrr_dev.parquet", index=False)
-    analog, astats = hrrr_analog(hrrr_root)
+    analog, astats = hrrr_analog(hrrr_root, choice)
     s["local_date"] = s.date.astype(str).str[:10]
     s["hour"] = pd.to_numeric(s.local_hour).astype(int)
     j = s.merge(analog, on=["station", "local_date", "hour"], how="left")
@@ -910,7 +963,7 @@ def p3(*, layout, hrrr_root, rule, out_dir):
                "pooled": pooled, "by_hour": by_hour, "by_market": by_market,
                "counts": {"snapshots": int(len(j)), "captured_usable": int(np.isfinite(j.H_cap).sum()),
                           "analog_present": int(np.isfinite(j.H).sum()), "both": int(both.sum())},
-               "analog_stats": astats,
+               "analog_stats": astats, "point": point,
                "inputs": {"hrrr_manifest_sha256": HRRR_MANIFEST_SHA256, "hrrr_selections_sha256": HRRR_SELECTIONS_SHA256,
                           "hrrr_dev_sha256": _sha(out / "hrrr_dev.parquet"),
                           "layout_snapshots_sha256": _sha(Path(layout) / "inputs_snapshots.parquet"),
@@ -919,14 +972,16 @@ def p3(*, layout, hrrr_root, rule, out_dir):
     return payload
 
 
-def rn_gate1(*, research_root, nbm_corpora, hrrr_root, rule, p1_path, p3_path, out_path):
+def rn_gate1(*, research_root, nbm_corpora, hrrr_root, rule, p1_path, p3_path, out_path, clarification=None,
+             land=None):
     """R-N gate 1: LOYO 2021-25 Aug-Sep; (a_h, b_h) on the other four years, x = H - v (no other fitted part)."""
     import numpy as np
 
     check_rule(rule, RULE_RN_SHA256)
+    choice, point = _rn_point(hrrr_root, clarification, land)
     pre = {"p1_sha256": _require_passed(p1_path, "P1"), "p3_sha256": _require_passed(p3_path, "P3")}
     hist, prov = build_history(research_root, load_nbm_with_sd(nbm_corpora))
-    analog, astats = hrrr_analog(hrrr_root)
+    analog, astats = hrrr_analog(hrrr_root, choice)
     hist = hist.merge(analog[["station", "local_date", "hour", "H"]], on=["station", "local_date", "hour"],
                       how="left")
     year = hist.year.to_numpy(int)
@@ -968,7 +1023,7 @@ def rn_gate1(*, research_root, nbm_corpora, hrrr_root, rule, p1_path, p3_path, o
                "population": {"history_rows": int(len(hist)), "scored_rows": int(rows.sum()),
                               "scored_rows_with_H": int((rows & np.isfinite(H)).sum()),
                               "rows_without_nbm": int((~rows).sum())},
-               "stack_coef_by_held_out_year": coefs, "analog_stats": astats,
+               "stack_coef_by_held_out_year": coefs, "analog_stats": astats, "point": point,
                "inputs": dict(prov, corpora={str(p): _sha(p) for p in nbm_corpora},
                               hrrr_manifest_sha256=HRRR_MANIFEST_SHA256, hrrr_selections_sha256=HRRR_SELECTIONS_SHA256,
                               module_sha256=_sha(__file__),
@@ -1023,6 +1078,8 @@ def main(argv=None):
     p3p.add_argument("--hrrr-root", required=True)
     p3p.add_argument("--rule", required=True)
     p3p.add_argument("--out-dir", required=True)
+    p3p.add_argument("--clarification", default=None, help="RN-1 file (sha pinned)")
+    p3p.add_argument("--land", default=None, help="L13's land_3x3.json (RN-1)")
     n1 = sub.add_parser("rn-gate1", help="R-N gate 1: LOYO 2021-25 (heavy)")
     n1.add_argument("--research-root", required=True)
     n1.add_argument("--nbm-corpus", action="append", required=True)
@@ -1031,6 +1088,8 @@ def main(argv=None):
     n1.add_argument("--p1", required=True)
     n1.add_argument("--p3", required=True)
     n1.add_argument("--out", required=True)
+    n1.add_argument("--clarification", default=None)
+    n1.add_argument("--land", default=None)
     n2 = sub.add_parser("rn-gate2", help="R-N gates 2 and 3: dev walk-forward vs MG-1 and market (heavy)")
     n2.add_argument("--layout", required=True)
     n2.add_argument("--hrrr-dev", required=True)
@@ -1041,12 +1100,14 @@ def main(argv=None):
     n2.add_argument("--out", required=True)
     args = parser.parse_args(argv)
     if args.command == "p3":
-        r = p3(layout=args.layout, hrrr_root=args.hrrr_root, rule=args.rule, out_dir=args.out_dir)
+        r = p3(layout=args.layout, hrrr_root=args.hrrr_root, rule=args.rule, out_dir=args.out_dir,
+               clarification=args.clarification, land=args.land)
         print(json.dumps({k: r[k] for k in ("passed", "checks", "pooled", "by_hour", "counts")}, indent=1))
         return 0
     if args.command == "rn-gate1":
         r = rn_gate1(research_root=args.research_root, nbm_corpora=args.nbm_corpus, hrrr_root=args.hrrr_root,
-                     rule=args.rule, p1_path=args.p1, p3_path=args.p3, out_path=args.out)
+                     rule=args.rule, p1_path=args.p1, p3_path=args.p3, out_path=args.out,
+                     clarification=args.clarification, land=args.land)
         print(json.dumps({"passed": r["passed"], "reading": r["reading"], "dB_00_06": r["dB"]["00-06"]}, indent=1))
         return 0
     if args.command == "rn-gate2":
