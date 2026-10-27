@@ -187,3 +187,50 @@ Rule `e29c9a84395d7f4f5e9a0091da99ff970597c40faa7d4cc81aa034a373f8bb8c`. Develop
 | composite | PLACEBO 07-12 | 0.007 | 0.00 | 0.00 | 0.03 | 0.02 | 0.00 | 28/43 |
 
 Placebo: mg1 PASS (R 1.0014); composite PASS (R 1.0016)
+
+## Look-ahead audit (2026-10-25, master ruling)
+
+**The ruling.** Every input to a read against the market must be no-look-ahead: the latest snapshot captured
+at or before the row's capture time, with no METAR row received after it. This audit read code and input
+metadata only and produced no new scores.
+
+**Market side: clean.** `dev_scorecard.Table.p_market` is the layout's `p_market_yes`, keyed by each row's own
+`row_key`, so it is the row's own captured price. The table's impossibility mask and `has_floor` use the row's
+own served floor fields.
+
+**Candidates:**
+
+- **MG-1: clean.** `loss_atlas.mg1_frame` uses the row's own `v2_mean` / `v2_stddev`, only where
+  `v2_available_at <= captured_at_utc`, and the row's own served floor fields.
+- **L6 captured re-spec (the run-2 composite before 13:00): clean.** `r0_ols_floor_challenger.l6_captured_features`
+  (commit a482d1b17) builds each snapshot's features from that snapshot's own captured METAR rows. It keeps a
+  row only when `valid + 10 min <= captured_at_utc`. The previous-day max comes from the previous day's last
+  snapshot.
+- **P3d_N (`dev_P3d_N.jsonl`, sha 721ae2cd...): look-ahead, confirmed (`last_in_hour`).**
+  - `pooled_residual_model.scan_replay_n` (commit 064aabe6a) takes `high_so_far` and `current_temp` from the
+    *last* replay snapshot captured in [h:00, h+1:00). It does this with `cutoff_hour = h`, so it keeps METAR rows
+    observed at or before h:00 but received any time before that last snapshot.
+  - It then emits that one input set for every layout row with `cutoff_hour = h`, whatever that row's own
+    capture time.
+  - Its NBM input (`nbm_usable`) is the row's own and is availability-gated.
+- **Exposure, counted from metadata:** layout snapshot times against the IEM market-station METAR times, with the
+  rule's +10 min availability. The count is a row whose own capture is earlier than "latest METAR at or before
+  h:00, plus 10 min". "Raises H" means that METAR raises the whole-degree running max H.
+  - 07-12: **1,793 of 28,770 rows (6.2%)** are exposed; 956 of them (3.3%) have that METAR raise H.
+  - 13-16: **1,057 of 18,591 rows (5.7%)** are exposed; 602 of them (3.2%) have that METAR raise H.
+  - All exposed rows also carry a `current_temp` from the later snapshot.
+  - The count assumes 10-minute receipt. Rows whose METAR arrived later than that are not counted, so it is a
+    lower bound.
+  - Script `C:\t\l11\audit\p3dn_exposure.py` (sha b98dfdd3...); output `p3dn_exposure_out.json` (sha bf219767...).
+
+**Effect on the readings.** The look-ahead can only favour the candidate.
+
+- **Item 5** (P3d_N at 07-12: NOTHING, mean w 0.0051): the null is firmer.
+- **Descriptive P3d_N** (R 1.19 against the market at 07-12): the true gap is if anything wider.
+- **Run 2:**
+  - The PRIMARY composite at 07-12 is MG-1 plus L6 captured, so it was clean. Its INCONCLUSIVE reading stands
+    as computed.
+  - The composite's 13-16 secondary used P3d_N. It read NOTHING, which is firmer.
+  - The MG-1 readings were clean.
+- No re-score is needed for any null. A positive result built on P3d_N would have required a no-look-ahead
+  re-emission first.
