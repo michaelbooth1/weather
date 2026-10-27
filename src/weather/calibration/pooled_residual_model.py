@@ -6749,6 +6749,173 @@ MG3_RELEASE_FILES = (  # every repository file the MG-3 freeze, its controls and
 )
 
 
+# ---------------------------------------------------------------- SM-H (rule_sm_h.md): season-matched P3d_H 13-15
+
+SM_H_RULE_SHA256 = "fca2bb1179b601ac4fe142fa17855fea095e10850e1501eb1a478f4a9b655e4d"  # mg3/rule_sm_h.md
+SM_H_CENTRES = ("2026-10-10", "2026-10-25", "2026-11-09", "2026-11-24", "2026-12-09")
+SM_H_HOURS = (13, 14, 15)
+SM_H_MONTHS = ("10", "11", "12")
+SM_H_ARMS = {"SM_H": RK_ARMS["P3d_H"], "SM_N": False}
+SM_H_PAIRS = (("SM_H", "P3d_N"), ("SM_N", "P3d_N"), ("SM_H", "SM_N"))
+SM_H_POOLS = (("13-15", None),)
+SM_H_P3D_N_STATE_SHA256 = "dff5d7975fa7a18278f8e500e4e0bcdd768c5d05dc4caf8b8e08332dad1a6574"  # MG-2 frozen P3d_N
+SM_H_PART1A_SHA256 = "98d80635666fafca107072b8fae2026b8924a6a8500c2968c599807e246166b7"  # CS-1 part1a.json
+SM_H_NBM_SHA256 = "1ae4bf52a0e032fc0c05ddfa7b282a17db53bd9a2e3f3a32a9a5686139faa1fd"
+SM_H_HRRR_SHA256 = {"manifest.jsonl": "409f6f917f2bca2999ebf39c52440c673760356295aaa291f572bfe624269935",
+                    "selections.jsonl": "055add5a4a2aa25483f70ee6c355562d4730e8b01daa1f8b56adb5788512ec75",
+                    "stations.json": "52e8bb5f22513828cb5edbfc16b77afb293cfcb9df62a92abd4db30ab7a0abe3"}
+SM_H_CONTROL_TOL = 1e-9
+
+
+def sm_h_brier(dist, actual):
+    """CS-1's Brier: sum_k p_k^2 - 2 p_y + 1 (the label need not be in the support)."""
+    return sum(p * p for p in dist.values()) - 2.0 * dist.get(int(actual), 0.0) + 1.0
+
+
+def sm_h_day_filter(day):
+    """Rule section 2: HRRR selections on local dates in 2021-2025, months 10-12 only."""
+    return "2021" <= day[:4] <= "2025" and day[5:7] in SM_H_MONTHS
+
+
+def _sm_h_bound(path, expected, what):
+    digest = hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    if digest != expected:
+        raise PooledModelError(f"{what} {path}: sha256 {digest} != bound {expected}")
+    return digest
+
+
+def sm_h_frame(records_root, markets=R0_MARKETS, centres=SM_H_CENTRES, hours=SM_H_HOURS):
+    """Oct-Dec 2021-25 P3d training rows at 13-15 and the per-market union of the Oct-Dec bucket spaces."""
+    missing = [f"{m}_{c}" for c in centres for m in markets if not records_path(records_root, m, c).exists()]
+    if missing:
+        raise PooledModelError(f"SM-H records missing: {missing}")
+    payloads = [load_records(records_root, m, c) for c in centres for m in markets]
+    frame, _ = pooled_frame(payloads, station_coordinates(markets))
+    drop = [c for c in frame.columns if c.startswith("x_") and c not in DEV_KEEP_X]
+    frame = frame.drop(columns=drop)
+    days = frame["target_date"].astype(str)
+    if (days < "2021-01-01").any() or (days > "2025-12-31").any() or not days.str[5:7].isin(SM_H_MONTHS).all():
+        raise PooledModelError("an SM-H record is outside 2021-25 Oct-Dec")
+    buckets = {m: sorted({int(b) for p in payloads if p["market"] == m for b in p["bucket_space"]}) for m in markets}
+    return frame[frame["hour"].isin(hours)].reset_index(drop=True), buckets
+
+
+def sm_h_frozen_dist(state, row):
+    """MG-2's frozen P3d_N serve math on one training row (CS-1 part1a's inputs)."""
+    return state_distribution(state, int(row["hour"]), market=row["market"],
+                              target_date=date.fromisoformat(str(row["target_date"])[:10]),
+                              high_so_far=float(row["F"]), current_temp=float(row["x_current_temp"]),
+                              nbm_mean=float(row["fh"]))
+
+
+def sm_h_rows(frame, buckets, state, hours=SM_H_HOURS, arms=None):
+    """Blocked LOYO per hour on the Oct-Dec rows (SM_H, SM_N) plus the frozen P3d_N, identical rows.
+
+    Rows without a finite high_so_far or current_temp are excluded from every arm. -> (rows, excluded)."""
+    import numpy as np
+
+    from weather.calibration import feature_model as fm
+
+    arms = SM_H_ARMS if arms is None else arms
+    rows, excluded = [], 0
+    for hour in hours:
+        at_hour = frame[frame["hour"] == hour]
+        for year in sorted(at_hour["year"].unique()):
+            train = at_hour[at_hour["year"] != year].reset_index(drop=True)
+            val = at_hour[at_hour["year"] == year].reset_index(drop=True)
+            ok = np.isfinite(val["F"].to_numpy(float)) & np.isfinite(val["x_current_temp"].to_numpy(float))
+            excluded += int((~ok).sum())
+            val = val[ok].reset_index(drop=True)
+            entries = {arm: _rung_entry(train, *_arm_spec(spec)) for arm, spec in arms.items()}
+            for market in sorted(val["market"].unique()):
+                part = val[val["market"] == market].reset_index(drop=True)
+                dists = {arm: _dist_from_fit(e, part, buckets, market) for arm, e in entries.items()}
+                for i in range(len(part)):
+                    actual = int(part.at[i, "y"])
+                    row = {"hour": int(hour), "year": int(year), "market": market,
+                           "date": str(part.at[i, "target_date"])[:10], "y": actual}
+                    dists_i = {a: d[i] for a, d in dists.items()}
+                    dists_i["P3d_N"] = sm_h_frozen_dist(state, part.iloc[i])
+                    for arm, dist in dists_i.items():
+                        row[f"{arm}_brier"] = sm_h_brier(dist, actual)
+                        row[f"{arm}_log"] = fm.log_loss(dist, actual)
+                    rows.append(row)
+        print(f"sm-h loyo hour {hour}: {sum(1 for r in rows if r['hour'] == hour)} rows", flush=True)
+    return rows, excluded
+
+
+def sm_h_control(rows, part1a, hours=SM_H_HOURS, tol=SM_H_CONTROL_TOL):
+    """Rule section 5.2: frozen P3d_N per-hour mean Brier and row count equal CS-1 part1a Oct-Dec."""
+    out, ok = {}, True
+    for hour in hours:
+        ref = part1a["p3d_n_1316"]["periods"]["oct_dec"]["by"][f"h{hour:02d}"]
+        got = [r["P3d_N_brier"] for r in rows if r["hour"] == hour]
+        mean = sum(got) / len(got) if got else float("nan")
+        diff = abs(mean - float(ref["brier_part"]))
+        passed = len(got) == int(ref["n_rows"]) and diff <= tol
+        ok = ok and passed
+        out[f"h{hour:02d}"] = {"mean": mean, "reference": float(ref["brier_part"]), "abs_diff": diff,
+                               "n": len(got), "reference_n": int(ref["n_rows"]), "pass": passed}
+    out["pass"] = bool(ok)
+    return out
+
+
+def sm_h_counts(frame):
+    by_year = frame.groupby("year").agg(rows=("y", "size"), dates=("target_date", "nunique"))
+    return {str(y): {"rows": int(r.rows), "dates": int(r.dates)} for y, r in by_year.iterrows()}
+
+
+def sm_h_loyo(*, records_root, nbm_train_corpus, hrrr_corpus, p3d_n_state, part1a, out_dir, markets=R0_MARKETS):
+    """SM-H (rule_sm_h.md): one look. History only; no 2026 row and no dev row is read."""
+    from weather.calibration import ols_floor_ladder as l9
+    from weather.market.market_registry import spec_for_id
+
+    out = require_output_outside_repo(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    if any(out.iterdir()):
+        raise PooledModelError(f"refusing to write into a non-empty {out}")
+    corpus = Path(hrrr_corpus)
+    audit = {"rule_sha256": SM_H_RULE_SHA256, "arms": list(SM_H_ARMS) + ["P3d_N"], "hours": list(SM_H_HOURS),
+             "centres": list(SM_H_CENTRES), "checks": {},
+             "inputs": {"nbm_train_corpus": _sm_h_bound(nbm_train_corpus, SM_H_NBM_SHA256, "NBM corpus"),
+                        "p3d_n_state": _sm_h_bound(p3d_n_state, SM_H_P3D_N_STATE_SHA256, "P3d_N state"),
+                        "part1a": _sm_h_bound(part1a, SM_H_PART1A_SHA256, "CS-1 part1a"),
+                        **{f"hrrr_{n}": _sm_h_bound(corpus / n, sha, f"HRRR {n}")
+                           for n, sha in SM_H_HRRR_SHA256.items()},
+                        "module_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}}
+
+    def finish():
+        (out / "sm_h_loyo_audit.json").write_text(json.dumps(audit, indent=1, sort_keys=True), encoding="utf-8")
+        return audit
+
+    state = pickle.loads(Path(p3d_n_state).read_bytes())
+    reference = json.loads(Path(part1a).read_text(encoding="utf-8"))
+    timezones = {m: spec_for_id(m).timezone for m in markets}
+    hrrr, audit["hrrr_corpus_stats"] = rk_hrrr_columns(corpus, markets, hours=SM_H_HOURS,
+                                                       day_filter=sm_h_day_filter)
+    frame, buckets = sm_h_frame(records_root, markets)
+    frame, audit["train_nbm"] = attach_training_nbm(frame, l9.load_nbm(nbm_train_corpus), l9.nbm_at_cutoff,
+                                                    timezones)
+    frame, audit["training"] = rk_training_columns(frame, hrrr)
+    audit["counts_by_year"] = sm_h_counts(frame)
+    audit["covered_by_year"] = {str(y): int((g["k_miss"] == 0.0).sum()) for y, g in frame.groupby("year")}
+    audit["checks"]["1_inputs"] = rk_parity_training(audit["hrrr_corpus_stats"], audit["training"])
+    if not audit["checks"]["1_inputs"]["pass"]:
+        audit["stopped_at"] = "check 1 inputs (not a kill)"
+        return finish()
+    rows, audit["rows_excluded_no_obs"] = sm_h_rows(frame, buckets, state)
+    _write_jsonl(out / "loyo_rows.jsonl", rows)
+    audit["checks"]["2_comparator_control"] = sm_h_control(rows, reference)
+    if not audit["checks"]["2_comparator_control"]["pass"]:
+        audit["stopped_at"] = "check 2 comparator control (refused, not a kill)"
+        return finish()
+    audit["summary"] = rg_loyo_summary(rows, pairs=SM_H_PAIRS, pooled=SM_H_POOLS)
+    primary = audit["summary"]["SM_H-P3d_N|13-15|brier"]
+    audit["decision"] = {"pair": "SM_H-P3d_N|13-15|brier", "estimate": primary["estimate"],
+                         "ci95": primary["ci95"], "selected": "SM_H" if primary["ci95"][1] < 0 else "P3d_N"}
+    return finish()
+
+
 def mg3_release_files(root=None):
     root = Path(root or REPO_ROOT)
     return {rel: _rr_sha(root / rel) for rel in MG3_RELEASE_FILES}
@@ -7350,6 +7517,9 @@ def _parse(argv=None):
                 "--rr-score", "--frozen-weights", "--out", "--commit"):
         rf.add_argument(opt, required=True)
     rf.add_argument("--note", default=None)
+    sh = sub.add_parser("sm-h-loyo", help="SM-H: season-matched P3d_H 13-15 LOYO vs frozen P3d_N (heavy)")
+    for opt in ("--records", "--nbm-train-corpus", "--hrrr", "--p3d-n-state", "--part1a", "--out"):
+        sh.add_argument(opt, required=True)
     mb = sub.add_parser("mg3-release-binding", help="MG-3 (1b): release-binding.json content incl. RN-1")
     mb.add_argument("--land", required=True)
     mb.add_argument("--corpus", required=True, help="the 07-12 HRRR corpus holding stations.json")
@@ -7650,6 +7820,12 @@ def main(argv=None):
         print(json.dumps({"checks": {k: v["pass"] for k, v in result["checks"].items()},
                           "stopped_at": result.get("stopped_at"), "weights": result["weights"]}, indent=1))
         return 0 if not result.get("stopped_at") else 1
+    if args.command == "sm-h-loyo":
+        audit = sm_h_loyo(records_root=args.records, nbm_train_corpus=args.nbm_train_corpus, hrrr_corpus=args.hrrr,
+                          p3d_n_state=args.p3d_n_state, part1a=args.part1a, out_dir=args.out)
+        print(json.dumps({"checks": {k: v.get("pass") for k, v in audit["checks"].items()},
+                          "stopped_at": audit.get("stopped_at"), "decision": audit.get("decision")}, indent=1))
+        return 0 if not audit.get("stopped_at") else 1
     if args.command == "mg3-release-binding":
         if out.exists():
             raise PooledModelError(f"refusing to overwrite {out}")
