@@ -1,7 +1,7 @@
-# R-V clarification RV-G2a: gate 2 for read (a), P3d_V_fwd vs the served c6cc39f7 at 13-16 (DRAFT for master)
+# R-V clarification RV-G2a: gate 2 for read (a), P3d_V_fwd vs the served c6cc39f7 at 13-16
 
-- **Status: DRAFT for master's review.** Lane L2, 2026-10-27. Not in force; nothing runs from it until master
-  accepts it and the coordinator allocates its dev-window ledger row.
+- **Status: In force: master accepted 2026-10-27, with the edits recorded here.** Lane L2, 2026-10-27. Nothing
+  runs from it until the coordinator confirms the dev MOS fetch.
 - **Amends** R-V gate 2 (`rule_rv.md`, `b0cf2a03224d2581f96c77b801dd5244353ca1f2025ab0802940dcf65e88e818`) for
   read (a) only, as RV-C1 §5 (`db11d8d2e1443143816302cbe16b1f065401ca4b8aa3d8ca61122ba1aaef3ba5`) requires.
   RV-C1a (`739c6a462e77f1a25d3ad47cceafa77a1b7200046f8761cbad5d27aa09343f32`) is unchanged.
@@ -28,8 +28,13 @@
 - **R-V gate 1 (row 43):** `P3d_V − P3d_N_fix` 13-16 −0.00447 [−0.00651, −0.00255] (see RV-C1 §1).
 - **Not seen by L2:** any 2026 MOS/NBE value (the A-IEM-2 copy at `C:\swarm\data\iem\mos` is not read), any 2026
   `v_gap`, and any P3d_V_fwd dev distribution or score. L2 has not scored `c6cc39f7` on the 2026 dev window in
-  any run of its own. Master or the coordinator confirms from the ledger whether any other lane has, and that
-  result is listed here before hashing.
+  any run of its own.
+- **Other lanes' 2026 dev contact (master's host log, 2026-10-27; nothing else is logged):**
+  - L8's rehearsals `rh0928b` and `rh0928c` ran the MG-2 serve path, `c6cc39f7` included, on 2026-09-28 as a
+    reproducibility check. No score was read.
+  - The B control receipts `b_control.json` `2ce8f4a7…`, `c67ba81a…` and `17b293a7…` compute B-1's positive
+    control on the 2026-07-31..09-29 dev layout. They may contain MG-2-vs-market dev scores that use `c6cc39f7`.
+    L2 has not read them and does not open them before the gate-2 run.
 
 ## 2. Data
 
