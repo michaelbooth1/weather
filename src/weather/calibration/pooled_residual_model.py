@@ -1460,7 +1460,7 @@ def rung_loyo_summary(rows, draws=BOOTSTRAP_DRAWS, seed=BOOTSTRAP_SEED):
 
 def dev_emit_rung(*, records_root, layout, replay_root, nbm_train_corpus, out_dir, markets=R0_MARKETS,
                   hours=RUNG_HOURS, loyo=True, arms=None, train_hook=None, row_hook=None, snap_columns=(),
-                  snap_hook=None, mean_pairs=None, fits=None, serve=None):
+                  snap_hook=None, mean_pairs=None, fits=None, serve=None, fit_arms=None):
     """Rung 07-12: B_N and P3d_N_fix dev distributions plus the blocked LOYO table (rule C:/t/l2/rung0712/rule.md).
 
     Each layout row uses the latest replay snapshot captured at or before the row's own captured_at_utc.
@@ -1470,7 +1470,8 @@ def dev_emit_rung(*, records_root, layout, replay_root, nbm_train_corpus, out_di
     ``snap_hook(row, stats)`` returns more extra columns from the layout row itself; ``mean_pairs`` {arm: reference}
     records the largest |mean difference| per pair in ``audit["c_mean"]`` (control C-mean). MG-3 freeze control:
     ``fits`` replaces the in-process fits (nothing is fitted) and ``serve(arm, hour, one, market)`` returns the row's
-    distribution instead of ``_dist_from_fit``.
+    distribution instead of ``_dist_from_fit``. RV-G2: ``fit_arms`` are fitted in process and scored from the fit even
+    when ``serve`` is given; ``serve`` then serves only the other arms (None keeps every behaviour above).
     """
     import pandas as pd
     from zoneinfo import ZoneInfo
@@ -1510,7 +1511,8 @@ def dev_emit_rung(*, records_root, layout, replay_root, nbm_train_corpus, out_di
         loyo_rows = rung_loyo(frame, buckets, hours)
         _write_jsonl(out / "loyo_rows.jsonl", loyo_rows)
         audit["loyo"] = rung_loyo_summary(loyo_rows)
-    fits = rung_fits(frame, hours, arms=arms) if fits is None else fits
+    if fits is None:
+        fits = rung_fits(frame, hours, arms=arms if fit_arms is None else {a: arms[a] for a in fit_arms})
     coords = station_coordinates(markets)
     snaps = pd.read_parquet(Path(layout) / "inputs_snapshots.parquet", columns=[
         "snapshot_id", "market", "target_date", "local_hour", "cutoff_hour",
@@ -1598,6 +1600,7 @@ def dev_emit_rung(*, records_root, layout, replay_root, nbm_train_corpus, out_di
                             c_mean[arm] = max(c_mean.get(arm, 0.0), abs(float(a[0]) - float(b[0])))
                         for arm in arms:
                             dist = (serve(arm, hour, one, market) if serve is not None
+                                    and arm not in (fit_arms or ())
                                     else _dist_from_fit(fits[(arm, hour)], one, buckets, market)[0])
                             writers[arm].write(json.dumps({
                                 "market": market, "snapshot_id": row.snapshot_id, "target_date": target.isoformat(),
@@ -7161,11 +7164,17 @@ def sm_h_load_state(path, expected_sha256=SM_H_STATE_SHA256):
     return state
 
 
-def sm_h_build_state(frame, buckets, *, hours=SM_H_HOURS, markets=R0_MARKETS, provenance=None):
-    """The SM_H spec fitted once per hour on ``frame`` and frozen as ``mg3_p3d_h_state/1``. -> (state, fits)."""
-    simple, extra_ols, extra_hgb, extra_scale = _arm_spec(SM_H_ARMS["SM_H"])
-    if simple or extra_ols or extra_scale or tuple(extra_hgb) != ("k_max", "k_gap", "k_tcdc"):
+def sm_h_build_state(frame, buckets, *, hours=SM_H_HOURS, markets=R0_MARKETS, provenance=None, extra_hgb=None):
+    """The SM_H spec fitted once per hour on ``frame`` and frozen as ``mg3_p3d_h_state/1``. -> (state, fits).
+
+    RV-G2b: ``extra_hgb`` appends HGB columns after SM_H's own (SM_HV: ``v_gap`` last); None is SM_H unchanged."""
+    simple, extra_ols, base_hgb, extra_scale = _arm_spec(SM_H_ARMS["SM_H"])
+    if simple or extra_ols or extra_scale or tuple(base_hgb) != ("k_max", "k_gap", "k_tcdc"):
         raise PooledModelError(f"the SM_H arm spec changed: {SM_H_ARMS['SM_H']}")
+    if extra_hgb is None:
+        extra_hgb = base_hgb
+    elif tuple(extra_hgb)[:len(base_hgb)] != tuple(base_hgb):
+        raise PooledModelError(f"SM_H extras must start with {tuple(base_hgb)}: {tuple(extra_hgb)}")
     days = frame["target_date"].astype(str)
     if (days < "2021-01-01").any() or (days > "2025-12-31").any() or not days.str[5:7].isin(SM_H_MONTHS).all():
         raise PooledModelError("an SM-H state training row is outside 2021-25 Oct-Dec")
@@ -8554,6 +8563,369 @@ def rv_c1(*, records_root, nbm_train_corpus, hrrr_corpus, mos_augsep, mos_octdec
     return finish()
 
 
+# ------------------------------------- R-V gate 2 (clarification_rv_g2a.md, clarification_rv_g2b.md): dev reads
+
+RV_G2A_SHA256 = "3605333bbc2dc0999914dd76f68ef6ba894bdd52a35cc33f91544da956951256"  # rv/clarification_rv_g2a.md
+RV_G2B_SHA256 = "d9275e5edf40a2c88a2713822f3c41d798576f4bfda61844e103ea4b5836e305"  # rv/clarification_rv_g2b.md
+RV_G2_MOS_DEV_SHA256 = "e0c6caa32169046ef099e6688dab20625ba00a3363a3a8adfa18a6611179eefd"  # rv/mos_dev2026 manifest
+RV_G2_HOURS_A = RV_HOURS
+RV_G2_HOURS_B = SM_H_HOURS
+RV_G2_OUT_OF_DECISION_B = ("san-francisco",)  # RV-G2b section 4: SF reported separately only
+RV_G2_PARITY_TOL = 1e-9
+RV_G2_ARMS_A = {"P3d_N_fix": RUNG_ARMS["P3d_N_fix"], "P3d_N_served": None, "P3d_V_fwd": None}
+RV_G2_ARMS_B = {"SM_H": None, "SM_HV": None}
+RV_G2_PAIR_A = ("P3d_V_fwd", "P3d_N_served")
+RV_G2_PAIR_B = ("SM_HV", "SM_H")
+
+
+def rv_g2_freeze_a(fwd_frame, served, hours=RV_G2_HOURS_A, markets=R0_MARKETS):
+    """RV-G2a section 4: one all-years P3d_V_fwd fit through the served shell, and its V-off twin. -> (v, off)."""
+    v_entries, off_entries = {}, {}
+    for hour in hours:
+        train = fwd_frame[fwd_frame["hour"] == hour].reset_index(drop=True)
+        v_entries[int(hour)] = rv_c1_v_entry(train, RV_C1_V)
+        off_entries[int(hour)] = rv_c1_v_entry(train, ())
+    v_state = dict(fwd_shell(served, v_entries), extra_hgb=list(RV_C1_V))
+    off_state = dict(fwd_shell(served, off_entries), extra_hgb=[])
+    return v_state, off_state
+
+
+def rv_g2_freeze_b(b_frame, buckets, hours=RV_G2_HOURS_B, markets=R0_MARKETS):
+    """RV-G2b section 4: SM_HV by SM-H's freeze path with v_gap last, and its V-off twin. -> (smhv, off)."""
+    smhv, _ = sm_h_build_state(b_frame, buckets, hours=hours, markets=markets, extra_hgb=RV_C1_SMHV_EXTRA)
+    off, _ = sm_h_build_state(b_frame, buckets, hours=hours, markets=markets)
+    return smhv, off
+
+
+def _rv_g2_inputs(one, market):
+    r = one.iloc[0]
+    return r, dict(market=market, target_date=date.fromisoformat(str(r["target_date"])[:10]),
+                   high_so_far=float(r["F"]), current_temp=float(r["x_current_temp"]), nbm_mean=float(r["fh"]))
+
+
+def rv_g2_serve_a(served, v_state, off_state, parity):
+    """Serve callback for read (a). Serving the comparator also serves V-off and records |V-off - served|."""
+    def serve(arm, hour, one, market):
+        r, kw = _rv_g2_inputs(one, market)
+        if arm == "P3d_N_served":
+            dist = state_distribution(served, hour, **kw)
+            off = mg3_state_distribution(off_state, hour, extra={}, **kw)
+            parity["rows"] += 1
+            parity["max_abs"] = max(parity["max_abs"], dist_max_abs(off, dist))
+            return dist
+        if arm == "P3d_V_fwd":
+            return mg3_state_distribution(v_state, hour, extra={"v_gap": float(r["v_gap"])}, **kw)
+        raise PooledModelError(f"RV-G2a serves no arm {arm!r}")
+    return serve
+
+
+def rv_g2_serve_b(smh, smhv, off_state, parity):
+    """Serve callback for read (b). Serving SM-H also serves SM_HV's V-off twin and records the difference."""
+    def serve(arm, hour, one, market):
+        r, kw = _rv_g2_inputs(one, market)
+        extra = {c: float(r[c]) for c in RV_C1_SMHV_EXTRA}
+        if arm == "SM_H":
+            dist = mg3_state_distribution(smh, hour, extra=extra, **kw)
+            off = mg3_state_distribution(off_state, hour, extra=extra, **kw)
+            parity["rows"] += 1
+            parity["max_abs"] = max(parity["max_abs"], dist_max_abs(off, dist))
+            return dist
+        if arm == "SM_HV":
+            return mg3_state_distribution(smhv, hour, extra=extra, **kw)
+        raise PooledModelError(f"RV-G2b serves no arm {arm!r}")
+    return serve
+
+
+def rv_g2_v_hook(table, icaos, timezones, counts, extra=None):
+    """``row_hook``: the dev ``v_gap`` from the dev MOS table against the captured anchor, plus ``extra``'s columns.
+
+    ``counts`` collects rows, mos_x-finite rows, per-source finite rows and the finite v_gap values."""
+    def hook(market, target, hour, nbm, stats):
+        entry = rv_entry(table, icaos[market], target, hour, timezones[market])
+        values = rv_columns(entry, nbm)
+        counts["rows"] += 1
+        counts["mos_x_finite"] += math.isfinite(entry["mos_x"])
+        for m in RV_SOURCES:
+            counts[f"src_{m}_finite"] += math.isfinite(entry[f"src_{m}"])
+        if math.isfinite(values["v_gap"]):
+            counts.setdefault("v_gaps", []).append(values["v_gap"])
+        return {**values, **({} if extra is None else extra(market, target, hour, nbm, stats))}
+    return hook
+
+
+def rv_g2_dev_checks(counts, train_v_gap_mean):
+    """Sections 3 (inputs only; STOP, not a kill): mos_x coverage and the dev-vs-training v_gap mean shift."""
+    rows = int(counts.get("rows", 0))
+    gaps = counts.get("v_gaps") or []
+    coverage = counts.get("mos_x_finite", 0) / rows if rows else 0.0
+    dev_mean = sum(gaps) / len(gaps) if gaps else float("nan")
+    shift = abs(dev_mean - train_v_gap_mean) if gaps else float("inf")
+    return {"rows": rows, "mos_x_finite": int(counts.get("mos_x_finite", 0)), "coverage": coverage,
+            "coverage_min": RV_COVERAGE_MIN, "dev_v_gap_mean": dev_mean, "train_v_gap_mean": train_v_gap_mean,
+            "shift": shift, "shift_max": RV_SHIFT_MAX_F,
+            "per_source_share": {m: (counts.get(f"src_{m}_finite", 0) / rows if rows else 0.0) for m in RV_SOURCES},
+            "pass": bool(rows > 0 and coverage >= RV_COVERAGE_MIN and shift <= RV_SHIFT_MAX_F)}
+
+
+def rv_g2_parity(parity, emitted):
+    """Control 2 (V off): every served comparator row was checked and every difference is within 1e-9."""
+    return {"rows": parity["rows"], "emitted": emitted, "max_abs": parity["max_abs"], "tolerance": RV_G2_PARITY_TOL,
+            "pass": bool(parity["rows"] == emitted and emitted > 0 and parity["max_abs"] <= RV_G2_PARITY_TOL)}
+
+
+def rv_g2_keys(cov_arm, cov_ref, in_scope, markets, local_hour):
+    """Control 4 (key identity): both arms cover exactly the same snapshots in scope; counts by hour and market."""
+    import numpy as np
+
+    differ = in_scope & (cov_arm != cov_ref)
+    both = in_scope & cov_arm & cov_ref
+    by_hour = {str(h): int((both & (local_hour == h)).sum()) for h in sorted(set(local_hour[in_scope].tolist()))}
+    by_market = {str(m): int((both & (markets == m)).sum()) for m in sorted(set(markets[in_scope].tolist()))}
+    return {"common": int(both.sum()), "differ": int(differ.sum()), "by_hour": by_hour, "by_market": by_market,
+            "pass": bool(not np.any(differ) and both.any())}
+
+
+def _rv_g2_compare(ctx, arm, ref, mask, groups, pools):
+    """dR (date-clustered), raw Brier and log-loss differences and each arm's R, per pool and group."""
+    import numpy as np
+
+    sc, table, date_w = ctx["sc"], ctx["table"], ctx["date_w"]
+    b_arm, b_ref, b_mkt = ctx["brier"][arm], ctx["brier"][ref], ctx["market_b"]
+    l_arm, l_ref = ctx["log"][arm], ctx["log"][ref]
+    rows = []
+    for market, members in pools:
+        in_pool = np.isin(table.markets, sorted(members))
+        for group, lo, hi in groups:
+            m = mask & in_pool & (table.local_hour >= lo) & (table.local_hour <= hi)
+            if not m.any():
+                continue
+            idx, c = table.cells(b_arm, m)
+            _, r_ = table.cells(b_ref, m)
+            _, mk = table.cells(b_mkt, m)
+            _, lc = table.cells(l_arm, m)
+            _, lr = table.cells(l_ref, m)
+            ones = np.ones(len(idx))
+            rows.append({"arm": arm, "reference": ref, "market": market, "group": group,
+                         "n_market_days": int(len(idx)), "n_snapshots": int(m.sum()),
+                         "dR_date_clustered": sc.ratio_interval(date_w[:, idx], c - r_, mk),
+                         "brier_diff_date_clustered": sc.ratio_interval(date_w[:, idx], c - r_, ones),
+                         "log_diff_date_clustered": sc.ratio_interval(date_w[:, idx], lc - lr, ones),
+                         "R_arm": sc.ratio_interval(date_w[:, idx], c, mk),
+                         "R_reference": sc.ratio_interval(date_w[:, idx], r_, mk)})
+    return rows
+
+
+def rv_g2(*, records_root, layout, replay_root, nbm_train_corpus, hrrr_corpus, hrrr_dev_corpus, mos_augsep,
+          mos_octdec, mos_dev, fwd_state, smh_state, out_dir, markets=R0_MARKETS, start="2026-08-01",
+          end="2026-09-29"):
+    """R-V gate 2, reads (a) RV-G2a and (b) RV-G2b: one shared dev fetch and population, separate decisions.
+
+    Order: bound inputs, frozen candidates (shas written before any dev row), the dev emissions (inputs only), the
+    dev input checks (STOP), the controls (VOID), then each read's statistic. Outputs are write-once."""
+    import numpy as np
+    from weather.calibration import ols_floor_ladder as l9
+    from weather.market.market_registry import spec_for_id
+
+    threads = rv_c1a_threads()
+    out = require_output_outside_repo(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    if any(out.iterdir()):
+        raise PooledModelError(f"refusing to write into a non-empty {out}")
+    corpus, dev_corpus = Path(hrrr_corpus), Path(hrrr_dev_corpus)
+    audit = {"clarifications": {"a": RV_G2A_SHA256, "b": RV_G2B_SHA256}, "rule_sha256": RV_RULE_SHA256,
+             "checks": {}, "reads": {},
+             "inputs": {"threads": threads,
+                        "fwd_state": _sm_h_bound(fwd_state, C10_FWD_STATE_SHA256, "served P3d_N state"),
+                        "smh_state": _sm_h_bound(smh_state, SM_H_STATE_SHA256, "served SM-H state"),
+                        "nbm_train_corpus": _sm_h_bound(nbm_train_corpus, SM_H_NBM_SHA256, "NBM corpus"),
+                        "mos_augsep_manifest": _sm_h_bound(Path(mos_augsep) / "manifest.json",
+                                                           RV_C1_MOS_AUGSEP_SHA256, "Aug-Sep MOS manifest"),
+                        "mos_octdec_manifest": _sm_h_bound(Path(mos_octdec) / "manifest.json",
+                                                           RV_C1A_MOS_OCTDEC_SHA256, "Oct-Dec MOS manifest"),
+                        "mos_dev_manifest": _sm_h_bound(Path(mos_dev) / "manifest.json", RV_G2_MOS_DEV_SHA256,
+                                                        "dev MOS manifest"),
+                        **{f"hrrr_{n}": _sm_h_bound(corpus / n, sha, f"HRRR {n}")
+                           for n, sha in SM_H_HRRR_SHA256.items()},
+                        **{f"hrrr_dev_{n}": _rr_sha(dev_corpus / n)
+                           for n in ("manifest.jsonl", "selections.jsonl", "stations.json")},
+                        "layout": str(layout), "replay_root": str(replay_root),
+                        "module_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}}
+
+    def write_audit():
+        (out / "g2_audit.json").write_text(json.dumps(audit, indent=1, sort_keys=True, default=str), encoding="utf-8")
+        return audit
+
+    served = pickle.loads(Path(fwd_state).read_bytes())
+    smh = sm_h_load_state(smh_state)
+    years = range(2021, 2026)
+    aug_table, _ = rv_load(mos_augsep, years)
+    oct_table, _ = rv_load(mos_octdec, years)
+    hist_table, conflicts = rv_c1_merge_tables(aug_table, oct_table)
+    dev_table, _ = rv_load(mos_dev, [2026])
+    specs = {m: spec_for_id(m) for m in markets}
+    timezones = {m: s.timezone for m, s in specs.items()}
+    icaos = {m: s.icao for m, s in specs.items()}
+    nbm = l9.load_nbm(nbm_train_corpus)
+    # (a) the forward frame, as RV-C1 (a)
+    fwd_frame, _ = forward_training_frame(records_root, markets)
+    fwd_rows_all = int(len(fwd_frame))
+    years_ok = set(int(y) for y in fwd_frame["year"].unique()) <= set(FORWARD_YEARS)
+    fwd_frame = fwd_frame[fwd_frame["hour"].isin(RV_G2_HOURS_A)].reset_index(drop=True)
+    fwd_frame, _ = attach_training_nbm(fwd_frame, nbm, l9.nbm_at_cutoff, timezones)
+    fwd_frame, audit["fwd_training"] = rv_training_columns(fwd_frame, hist_table, timezones, icaos)
+    # (b) the SM-H frame plus v_gap from the Oct-Dec corpus
+    hrrr, hrrr_stats = rk_hrrr_columns(corpus, markets, hours=SM_H_HOURS, day_filter=sm_h_day_filter)
+    b_frame, b_buckets = sm_h_frame(records_root, markets)
+    b_frame, _ = attach_training_nbm(b_frame, nbm, l9.nbm_at_cutoff, timezones)
+    b_frame, b_hrrr = rk_training_columns(b_frame, hrrr)
+    b_frame, audit["b_training"] = rv_training_columns(b_frame, oct_table, timezones, icaos)
+    hrrr_train = rk_parity_training(hrrr_stats, b_hrrr)
+    audit["checks"]["1_inputs"] = {"fwd_frame_rows": fwd_rows_all, "expected": C10_FWD_TRAINING_ROWS,
+                                   "years_2021_25": years_ok, "n_conflicts": len(conflicts),
+                                   "merge_conflicts": conflicts[:20], "hrrr_training": hrrr_train,
+                                   "pass": bool(fwd_rows_all == C10_FWD_TRAINING_ROWS and years_ok and not conflicts
+                                                and hrrr_train["pass"])}
+    if not audit["checks"]["1_inputs"]["pass"]:
+        audit["stopped_at"] = "control 1 inputs (VOID both reads; nothing emitted)"
+        return write_audit()
+    # frozen candidates: shas written before any dev row exists
+    v_state, v_off = rv_g2_freeze_a(fwd_frame, served, markets=markets)
+    smhv, smhv_off = rv_g2_freeze_b(b_frame, b_buckets, markets=markets)
+    frozen = {}
+    for name, state in (("p3d_v_fwd_state.pkl", v_state), ("sm_hv_state.pkl", smhv)):
+        (out / name).write_bytes(pickle.dumps(state, protocol=4))
+        frozen[name] = _rr_sha(out / name)
+    audit["frozen"] = frozen
+    audit["train_v_gap_mean"] = {"a": float(np.nanmean(fwd_frame["v_gap"].to_numpy(float))),
+                                 "b": float(np.nanmean(b_frame["v_gap"].to_numpy(float)))}
+    write_audit()
+    # dev emissions (inputs only; nothing is scored here)
+    dev_hrrr, dev_stats = rk_hrrr_columns(dev_corpus, markets)
+    late = sorted(k for k in dev_hrrr if date.fromisoformat(k[1]) > N_DEV_LAST)
+    if late:
+        raise PooledModelError(f"dev HRRR corpus holds a date after 2026-09-29: {late[0]}")
+    hrrr_counts = defaultdict(int)
+
+    def hrrr_extra(market, target, hour, nbm_mean, stats):
+        values = rk_columns(dev_hrrr.get((market, target.isoformat(), int(hour))), nbm_mean)
+        hrrr_counts["rows"] += 1
+        hrrr_counts["rows_covered"] += values["k_miss"] == 0.0
+        return values
+
+    counts = {"a": defaultdict(int), "b": defaultdict(int)}
+    parity = {"a": {"rows": 0, "max_abs": 0.0}, "b": {"rows": 0, "max_abs": 0.0}}
+    common = dict(records_root=records_root, layout=layout, replay_root=replay_root,
+                  nbm_train_corpus=nbm_train_corpus, markets=markets, loyo=False)
+    emit_a = dev_emit_rung(out_dir=out / "emit_a", hours=RV_G2_HOURS_A, arms=RV_G2_ARMS_A, fit_arms=("P3d_N_fix",),
+                           serve=rv_g2_serve_a(served, v_state, v_off, parity["a"]),
+                           row_hook=rv_g2_v_hook(dev_table, icaos, timezones, counts["a"]), **common)
+    emit_b = dev_emit_rung(out_dir=out / "emit_b", hours=RV_G2_HOURS_B, arms=RV_G2_ARMS_B, fits={},
+                           serve=rv_g2_serve_b(smh, smhv, smhv_off, parity["b"]),
+                           row_hook=rv_g2_v_hook(dev_table, icaos, timezones, counts["b"], extra=hrrr_extra),
+                           **common)
+    emitted = {k: sum(m.get("emitted", 0) for m in e["markets"].values()) for k, e in (("a", emit_a), ("b", emit_b))}
+    audit["emit"] = {"a": emit_a, "b": emit_b, "emitted": emitted}
+    gate = rk_parity_training(dev_stats, dict(hrrr_counts))
+    gate["dev_coverage"] = gate.pop("training_coverage")
+    gate["checks"]["dev_coverage"] = gate["checks"].pop("training_coverage")
+    audit["dev_checks"] = {"a": rv_g2_dev_checks(counts["a"], audit["train_v_gap_mean"]["a"]),
+                           "b": rv_g2_dev_checks(counts["b"], audit["train_v_gap_mean"]["b"])}
+    audit["dev_checks"]["b"]["hrrr_parity_dev"] = gate
+    audit["dev_checks"]["b"]["pass"] = bool(audit["dev_checks"]["b"]["pass"] and gate["pass"])
+    audit["dev_hrrr_corpus_stats"] = dev_stats
+    # controls shared by both reads
+    fix_sha = emit_a["files"].get("dev_P3d_N_fix.jsonl")
+    audit["checks"]["3_pipeline_rh"] = {"got": fix_sha, "expected": RJ_RH_EMIT["dev_P3d_N_fix.jsonl"],
+                                        "pass": fix_sha == RJ_RH_EMIT["dev_P3d_N_fix.jsonl"]}
+    audit["checks"]["5_threads"] = {"got": threads, "pass": True}
+    audit["checks"]["2_v_off"] = {k: rv_g2_parity(parity[k], emitted[k]) for k in ("a", "b")}
+    write_audit()
+    shared_ok = audit["checks"]["3_pipeline_rh"]["pass"]
+    ctx = None
+    if shared_ok:
+        ctx = _rv_g2_context(layout, {"a": out / "emit_a", "b": out / "emit_b"}, start, end)
+        audit["checks"]["3_pipeline_mg1"] = {"got": ctx["mg1_excess"], "expected": ctx["mg1_expected"],
+                                             "pass": round(ctx["mg1_excess"], 3) == ctx["mg1_expected"]}
+        audit["population"] = ctx["population"]
+        audit["inputs"]["layout_manifest_sha256"] = ctx["layout_manifest_sha256"]
+        audit["inputs"]["scorecard_code_sha256"] = ctx["scorecard_code_sha256"]
+        shared_ok = audit["checks"]["3_pipeline_mg1"]["pass"]
+    for read, (arm, ref), hours, excluded in (("a", RV_G2_PAIR_A, RV_G2_HOURS_A, ()),
+                                               ("b", RV_G2_PAIR_B, RV_G2_HOURS_B, RV_G2_OUT_OF_DECISION_B)):
+        res = audit["reads"][read] = {"pair": f"{arm}-{ref}", "hours": list(hours), "out_of_decision": list(excluded)}
+        if not audit["dev_checks"][read]["pass"]:
+            res["verdict"] = "STOPPED (dev input check; not a kill)"
+            continue
+        if not shared_ok or not audit["checks"]["2_v_off"][read]["pass"]:
+            res["verdict"] = "VOID (control failed; no score summarised)"
+            continue
+        res.update(_rv_g2_read(ctx, read, arm, ref, hours, excluded))
+    audit["decision_note"] = ("A gate-2 PASS is evidence for a capture proposal only; a (b) PASS alone cannot justify "
+                              "MG-3 adoption unless (a) also passes or the MG-3 clarification gives its own reason.")
+    return write_audit()
+
+
+def _rv_g2_context(layout, emit_dirs, start, end):
+    """The dev scorecard population (R-K's), MG-1's 07-12 control, and every arm's vectors."""
+    from weather.calibration import r0_ols_floor_challenger as l3
+    from weather.reporting.scorecards import dev_scorecard as sc
+    from weather.reporting.scorecards import dev_scorecard_data as data
+    from weather.reporting.scorecards import loss_atlas
+
+    start_d, end_d = data.check_range(start, end)
+    lay = data.load_layout(layout, data.DEV_FIRST, end_d)
+    folds = data.make_folds(lay.dates, start_d, end_d, 7, 1, 7)
+    scored = sorted(d for f in folds if f.scored for d in f.dates)
+    table = sc.Table(lay, scored)
+    date_w = l3._date_weights([k[0] for k in table.keys], sc.DRAWS, sc.SEED)
+    market_b = table.brier(table.p_market)
+    p_mg1, _, _ = l3._vector(table, loss_atlas.mg1_frame(table))
+    w0712 = (table.local_hour >= 7) & (table.local_hour <= 12)
+    _, e = table.cells(table.brier(p_mg1) - market_b, w0712)
+    vectors = {}
+    for read, arms in (("a", RV_G2_PAIR_A), ("b", RV_G2_PAIR_B)):
+        for arm in arms:
+            path = Path(emit_dirs[read]) / f"dev_{arm}.jsonl"
+            vectors[arm] = l3._vector(table, l3._candidate_frame(str(path), table, lay, folds, data)[0])
+    return {"sc": sc, "table": table, "date_w": date_w, "market_b": market_b,
+            "mg1_excess": float(e.mean()), "mg1_expected": l3.MG1_CONTROL_0712_EXCESS,
+            "cov": {a: v[1] for a, v in vectors.items()},
+            "brier": {a: table.brier(v[0]) for a, v in vectors.items()},
+            "log": {a: table.log_score(v[0]) for a, v in vectors.items()},
+            "population": {"n_dates": len(scored), "first_date": scored[0], "last_date": scored[-1],
+                           "n_market_days": len(table.keys), "draws": sc.DRAWS, "seed": sc.SEED},
+            "layout_manifest_sha256": lay.manifest_sha256, "scorecard_code_sha256": sc.code_sha256()}
+
+
+def _rv_g2_read(ctx, read, arm, ref, hours, excluded):
+    """Control 4, then the pre-declared statistic: PASS iff the date-clustered dR upper bound is below 0."""
+    import numpy as np
+
+    table = ctx["table"]
+    lo, hi = min(hours), max(hours)
+    in_hours = (table.local_hour >= lo) & (table.local_hour <= hi)
+    keys = rv_g2_keys(ctx["cov"][arm], ctx["cov"][ref], in_hours, table.markets, table.local_hour)
+    out = {"control_4_keys": keys}
+    if not keys["pass"]:
+        out["verdict"] = "VOID (control 4 key identity; no score summarised)"
+        return out
+    mask = in_hours & ctx["cov"][arm] & ctx["cov"][ref]
+    all_markets = sorted(set(table.markets.tolist()))
+    decision_markets = [m for m in all_markets if m not in excluded]
+    name = f"{lo}-{hi}"
+    groups = [(name, lo, hi)] + [(f"h{h}", h, h) for h in hours]
+    if read == "a":
+        groups += [("13-14", 13, 14), ("15-16", 15, 16)]
+    pools = [("DECISION", decision_markets)] + [(m, [m]) for m in all_markets]
+    rows = _rv_g2_compare(ctx, arm, ref, mask, groups, pools)
+    decision = next(r for r in rows if r["market"] == "DECISION" and r["group"] == name)
+    upper = decision["dR_date_clustered"]["ci95"][1]
+    out.update(rows=rows, decision_markets=decision_markets,
+               statistic=decision["dR_date_clustered"], pass_=bool(upper is not None and upper < 0))
+    out["verdict"] = "PASS" if out.pop("pass_") else "FAIL (pre-registered kill)"
+    return out
+
+
 # -------------------------------------------------------------------------- CLI
 
 
@@ -8881,6 +9253,10 @@ def _parse(argv=None):
     for opt in ("--records", "--nbm-train-corpus", "--hrrr", "--mos-augsep", "--mos-octdec", "--fwd-state",
                 "--c10-rows", "--c10-fwd-rows", "--smh-rows", "--rv-rows", "--out"):
         va.add_argument(opt, required=True)
+    vg = sub.add_parser("rv-g2", help="R-V gate 2 (RV-G2a, RV-G2b): dev reads (a) and (b), one shared run (heavy)")
+    for opt in ("--records", "--layout", "--replay-root", "--nbm-train-corpus", "--hrrr", "--hrrr-dev",
+                "--mos-augsep", "--mos-octdec", "--mos-dev", "--fwd-state", "--smh-state", "--out"):
+        vg.add_argument(opt, required=True)
     vl = sub.add_parser("rung-v-loyo", help="R-V gates 1a, 1b and 1 (nested LOYO 2021-25 h13-16) (heavy)")
     vl.add_argument("--records", required=True)
     vl.add_argument("--nbm-train-corpus", required=True)
@@ -9235,6 +9611,16 @@ def main(argv=None):
         print(json.dumps({"stopped_at": audit.get("stopped_at"),
                           "checks": {k: v.get("pass") for k, v in audit["checks"].items()},
                           "decision": audit.get("decision")}, indent=1, default=str))
+        return 0 if not audit.get("stopped_at") else 1
+    if args.command == "rv-g2":
+        audit = rv_g2(records_root=args.records, layout=args.layout, replay_root=args.replay_root,
+                      nbm_train_corpus=args.nbm_train_corpus, hrrr_corpus=args.hrrr, hrrr_dev_corpus=args.hrrr_dev,
+                      mos_augsep=args.mos_augsep, mos_octdec=args.mos_octdec, mos_dev=args.mos_dev,
+                      fwd_state=args.fwd_state, smh_state=args.smh_state, out_dir=args.out)
+        print(json.dumps({"stopped_at": audit.get("stopped_at"),
+                          "checks": {k: (v.get("pass") if "pass" in v else {r: x.get("pass") for r, x in v.items()})
+                                     for k, v in audit["checks"].items()},
+                          "verdicts": {r: v.get("verdict") for r, v in audit["reads"].items()}}, indent=1, default=str))
         return 0 if not audit.get("stopped_at") else 1
     if args.command == "rung-v-loyo":
         audit = rung_v_loyo(records_root=args.records, nbm_train_corpus=args.nbm_train_corpus, mos_corpus=args.mos,

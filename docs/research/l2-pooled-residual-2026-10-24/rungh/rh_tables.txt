@@ -262,4 +262,3 @@ bucket position (band - winner): exact decomposition of the window excess, mean 
   +1    contribution +0.0002 [-0.0002, +0.0006]  mass arm 0.162  market 0.147
   +2    contribution +0.0002 [+0.0001, +0.0003]  mass arm 0.032  market 0.023
   >=+3  contribution +0.0000 [-0.0000, +0.0001]  mass arm 0.011  market 0.007
-
