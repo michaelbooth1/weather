@@ -1,3 +1,7 @@
+"""R0 OLS + floor dev fit (weather.calibration.r0_ols_floor_devfit; lane L3).
+
+Guards: pre-declared L3 pick rule and blocked leave-one-year-out validation; train/serve feature parity of the floor.
+"""
 import json
 
 import pandas as pd
