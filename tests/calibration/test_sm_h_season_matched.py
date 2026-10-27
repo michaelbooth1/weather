@@ -26,7 +26,7 @@ from weather.calibration import feature_model as fm
 RULE = Path(__file__).resolve().parents[2] / "docs/research/l2-pooled-residual-2026-10-24/mg3/rule_sm_h.md"
 
 
-def _frame(n_days=31, years=(2021, 2022, 2023, 2024), markets=("atlanta", "nyc"), hour=13, seed=0):
+def _frame(n_days=30, years=(2021, 2022, 2023, 2024), markets=("atlanta", "nyc"), hour=13, seed=0):
     rng = np.random.default_rng(seed)
     rows = []
     for market in markets:
@@ -38,7 +38,7 @@ def _frame(n_days=31, years=(2021, 2022, 2023, 2024), markets=("atlanta", "nyc")
                 k_max = fh + rng.normal(0, 2)
                 rows.append({
                     "market": market, "centre": "2026-11-09", "season": "fall", "hour": hour,
-                    "target_date": f"{year}-11-{1 + d % 30:02d}", "year": year, "y": float(y), "F": float(F),
+                    "target_date": f"{year}-11-{1 + d:02d}", "year": year, "y": float(y), "F": float(F),
                     "fh": fh, "x_high_so_far": float(F), "x_current_temp": float(F) - 1.0,
                     "lat": 33.6, "lon": -84.4, "elev": 300.0, "doy_sin": 0.0, "doy_cos": 1.0,
                     "market_code": float(prm.R0_MARKETS.index(market)),
@@ -87,8 +87,8 @@ def test_rows_match_the_rung_fit_and_score_the_frozen_arm_on_identical_rows(monk
     assert excluded == 1
     assert len(rows) == len(frame) - 1 == len(seen)
     assert all(r["P3d_N_brier"] == pytest.approx(0.5) for r in rows)
-    kept = frame.drop(index=3).reset_index(drop=True)
-    ref = prm.rung_loyo(kept, buckets, (13,), arms={"P3d_N_fix": False, "P3d_H": prm.RK_ARMS["P3d_H"]})
+    # the excluded row still trains the other years' folds, exactly as in the rung LOYO
+    ref = prm.rung_loyo(frame, buckets, (13,), arms={"P3d_N_fix": False, "P3d_H": prm.RK_ARMS["P3d_H"]})
     key = lambda r: (r["year"], r["market"], r["date"])  # noqa: E731
     by = {key(r): r for r in ref}
     for r in rows:
