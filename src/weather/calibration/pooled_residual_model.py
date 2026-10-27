@@ -7138,6 +7138,27 @@ SM_H_BINDING_SHA256 = "6507946e185fb4ba1a76e1c5022f14a38d981a3904fd8aaf16ac65837
 SM_H_LOYO_AUDIT_SHA256 = "5a39218f55fac01eaad6913032e462287d9d234eaa662fb010b2afb00161e541"  # SM-H run audit
 SM_H_STATE_BLOCK = "SM-H 13-15"
 SM_H_STATE_TOL = 1e-9
+SM_H_STATE_SHA256 = "b6bc242a8c2b679069a4090b8912eea3b80af160b6bc228424c846fb3b87a477"  # row 52, control 5a106a0d
+SM_H_EXCLUDED_MARKETS = ("san-francisco",)  # MG3-DC-1 s2.1: SF 13-16 stays on MG-2's bound arm
+
+
+def sm_h_load_state(path, expected_sha256=SM_H_STATE_SHA256):
+    """Verified load of the served SM-H state: bytes at the bound sha, then schema, block, hours, centres, rules."""
+    state = mg3_load_state(path, expected_sha256)
+    prov = state.get("provenance") or {}
+    problems = [name for name, ok in (
+        ("block", state.get("block") == SM_H_STATE_BLOCK),
+        ("hours", sorted(state.get("hours") or {}) == list(SM_H_HOURS)),
+        ("centres", state.get("centres") == list(SM_H_CENTRES)),
+        ("conversion", not (state.get("conversion") or {}).get("enabled")),
+        ("point_rule", (state.get("point_rule") or {}).get("land_sha256") is None),
+        ("extra_hgb", state.get("extra_hgb") == ["k_max", "k_gap", "k_tcdc"]),
+        ("note_sha256", prov.get("note_sha256") == SM_H_BINDING_SHA256),
+        ("rule_sha256", prov.get("rule_sha256") == SM_H_RULE_SHA256),
+        ("clarification_sha256", prov.get("clarification_sha256") == SM_H_CLARIFICATION_1_SHA256)) if not ok]
+    if problems:
+        raise PooledModelError(f"SM-H state {path}: {problems} differ from the binding note")
+    return state
 
 
 def sm_h_build_state(frame, buckets, *, hours=SM_H_HOURS, markets=R0_MARKETS, provenance=None):
@@ -7331,13 +7352,17 @@ def mg3_release_binding(*, land, corpus_dir, states=None, weights=None, root=Non
     RN-1 is recomputed by ``rr_point_rule`` from the land file and ``stations.json`` (refused on any mismatch with
     the pinned shas or the KSFO 3 / centre-4 reading) and bound as constants plus the recomputed indices. States and
     the weight table are bound by sha256 once frozen; until then they read ``PENDING``.
+    The served SM-H 13-15 state (key ``SM_H_STATE_BLOCK``) is bound only from a verified load at
+    ``SM_H_STATE_SHA256`` (``sm_h_load_state``); the recorded sha is that of the bytes the load verified. It
+    replaces the 13-16 state at 13-15, except the ``excluded_markets`` (MG3-DC-1 s2.1).
     """
     point, report = rr_point_rule(land, corpus_dir, markets)
     stations = report["stations"]
     states = dict(states or {})
-    unknown = set(states) - set(MG3_BLOCKS)
+    unknown = set(states) - set(MG3_BLOCKS) - {SM_H_STATE_BLOCK}
     if unknown:
         raise PooledModelError(f"unknown MG-3 state blocks {sorted(unknown)}")
+    smh_path = states.pop(SM_H_STATE_BLOCK, None)
     bound_states = {}
     for block in sorted(MG3_BLOCKS):
         path = states.get(block)
@@ -7351,11 +7376,21 @@ def mg3_release_binding(*, land, corpus_dir, states=None, weights=None, root=Non
         if (land_sha == MG3_RN1["land_sha256"]) != (MG3_POINT_RULES[block] == "rn1"):
             raise PooledModelError(f"state {path}: point rule land sha {land_sha} does not fit block {block}")
         bound_states[block] = {"sha256": _rr_sha(path), "point_rule": MG3_POINT_RULES[block]}
+    smh = {"sha256": MG3_PENDING, "point_rule": "nearest", "hours": list(SM_H_HOURS), "replaces": "13-16",
+           "excluded_markets": list(SM_H_EXCLUDED_MARKETS)}
+    if smh_path is not None:
+        sm_h_load_state(smh_path, SM_H_STATE_SHA256)
+        verified = _rr_sha(smh_path)
+        if verified != SM_H_STATE_SHA256:  # the file changed between the verified load and this read
+            raise PooledModelError(f"SM-H state {smh_path} changed while binding")
+        smh["sha256"] = verified
+    bound_states[SM_H_STATE_BLOCK] = smh
     return {
         "schema": MG3_BINDING_SCHEMA,
         "rules": {"mg3_state": MG3_STATE_RULE_SHA256, "mg3_weights": MG3_WEIGHTS_RULE_SHA256,
                   "rr": RR_RULE_SHA256, "rk": RK_RULE_SHA256, "rk1": RK_CLARIFICATION_RK1_SHA256,
-                  "rn1": MG3_RN1["rule_sha256"]},
+                  "rn1": MG3_RN1["rule_sha256"], "sm_h": SM_H_RULE_SHA256, "smh1": SM_H_CLARIFICATION_1_SHA256,
+                  "sm_h_binding": SM_H_BINDING_SHA256},
         "rn1": dict(MG3_RN1, recomputed={icao: stations[icao]["chosen_index"] for icao in sorted(stations)}),
         "point_rules": dict(MG3_POINT_RULES),
         "data_files": {"land_3x3.json": report["land_sha256"], "stations.json": report["stations_json_sha256"]},
@@ -7939,6 +7974,7 @@ def _parse(argv=None):
     mb.add_argument("--corpus", required=True, help="the 07-12 HRRR corpus holding stations.json")
     mb.add_argument("--state-0712", default=None)
     mb.add_argument("--state-1316", default=None)
+    mb.add_argument("--state-smh", default=None, help="the served SM-H 13-15 state (binding note, row 52)")
     mb.add_argument("--weights", default=None)
     mb.add_argument("--out", required=True)
     mp = sub.add_parser("mg3-forward-parity", help="MG-3 (1c): forward HRRR parity F0-F4 (inputs only)")
@@ -8261,7 +8297,8 @@ def main(argv=None):
     if args.command == "mg3-release-binding":
         if out.exists():
             raise PooledModelError(f"refusing to overwrite {out}")
-        states = {b: s for b, s in (("07-12", args.state_0712), ("13-16", args.state_1316)) if s}
+        states = {b: s for b, s in (("07-12", args.state_0712), ("13-16", args.state_1316),
+                                    (SM_H_STATE_BLOCK, args.state_smh)) if s}
         binding = mg3_release_binding(land=args.land, corpus_dir=args.corpus, states=states, weights=args.weights)
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(binding, indent=1, sort_keys=True) + "\n", encoding="utf-8")
