@@ -238,9 +238,11 @@ for a partner built for Oct-Dec.
 - **Held-out rows.**
   - **Oct-Dec rows** (the five Oct-Dec centres) are the decision rows.
   - **Aug-Sep rows** are reported only.
-- **Per-fold support (no held-out outcome enters the support).** This uses R-ODC's construction, at env commit
-  `701b7bb5d554a75914d224b4f2058431e5c4de50` (`rodc_octdec.py` sha256
-  `14472030ae3827f174b751cda8c04d573fb905e578ede06182ad8d14494445de`).
+- **Per-fold support (no held-out outcome enters the support).** This uses R-ODC's construction, at R-ODC's final env
+  commit `9403d87bca6156613e7507ffe7fb45fda758e1a4` (C2.5, approved by master; `rodc_octdec.py` sha256
+  `9c9752b82b0a3e8dd2721b464710b1616fce6e9441d3c654705c1dd05347f8d8`; R-ODC rule at `95d115046`, sha256
+  `40ea3a94d08601dc7c571e59fdf38c893ec9a313bdcbcebde214e1db3f9daf93`). The earlier env `701b7bb5d` (`14472030…`)
+  crashed at its final write on mixed int/str JSON keys, and is not used.
   - **Support.** Per market, every integer from the minimum to the maximum of y over the four training years' rows
     of the same season, hours 07-12. This is `fold_support` semantics; the Aug-Sep reported rows use the Aug-Sep
     training rows. The function refuses if the held-out year is present.
@@ -250,6 +252,17 @@ for a partner built for Oct-Dec.
     scored on one partition.
   - **Reuse.** The implementation imports these functions or reproduces them exactly, and a test proves equality on
     fixtures.
+- **Synthetic end-to-end test before the one real run.** If the LOYO reuses any of `rodc_octdec`'s gate, scoring or
+  output path, the item-341 run must first pass a synthetic end-to-end test like L8's. L8's test is
+  `tests/calibration/test_rodc_gate1_synthetic.py` on `claude/rodc-gate1-test-20261027` @ `5451e8f3c` (7/7 pass,
+  file sha256 `f0b9367eba0e16c0cfef5aaba3f0c00c7a4c779b6149d2f740cd0c57727f871b`).
+  - It runs on synthetic fixtures only: no record, label, HRRR extra or outcome.
+  - It covers the item-341 path end to end: the fold fit, support and edges, the blend, scoring, the drop-check
+    statistic, and the final JSON write, read back.
+  - It runs through `workstation_heavy.ps1 -Queue`. Its receipt (pass count and the test file sha) is recorded in
+    row 66 before the real LOYO run.
+  - A failure stops the run until the code is fixed and the test passes. The rule is not changed to make it pass.
+  - The same requirement covers row 67's G1′ and gate path.
 - **Blend.** The blend is the row 49 construction (rule `55c7ad4a895b5e111ea5d35dd6c9b86d468be6a15d18acbfa6fd96d0df69d0f5`), with two
   substitutions:
   - the P3d_H term is the fold distribution;

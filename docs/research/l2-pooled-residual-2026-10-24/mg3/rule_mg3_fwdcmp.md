@@ -46,7 +46,8 @@ Prior evidence points both ways:
 - **Support.**
   - Both arms are scored on FWD-1 §5's per-fold Oct-Dec support: `fold_support` over the four training years'
     Oct-Dec labels, hours 07-12.
-  - Edges are open (`open_edges` / `edge_brier`, R-ODC env `701b7bb5d…`).
+  - Edges are open (`open_edges` / `edge_brier`, R-ODC final env `9403d87bca6156613e7507ffe7fb45fda758e1a4`, `rodc_octdec.py` sha256
+    `9c9752b82b0a3e8dd2721b464710b1616fce6e9441d3c654705c1dd05347f8d8`, C2.5).
   - The run refuses if the two arms' supports differ in any fold.
 - **No-cycle keys** keep NaN extras on both arms. Counts are reported, along with the statistic recomputed with
   them dropped. That recomputation is never a gate.
@@ -103,7 +104,8 @@ Prior evidence points both ways:
   - FWD-1 §3.1-§3.3 and §4 (RF-2 exists);
   - FWD-1 §5 and the drop check recorded.
   Then G1′'s folds run, then this gate.
-- **How it runs.** Once, serially, through `workstation_heavy.ps1 -Queue`.
+- **How it runs.** Once, serially, through `workstation_heavy.ps1 -Queue`. The synthetic end-to-end test of FWD-1 §5
+  must pass first, and it must cover this row's G1′ fit and gate path, including the final JSON write.
 - **Outputs.** `C:\t\l3\mg3fwd\fwdcmp\`, write-once:
   - rows;
   - support per fold;
