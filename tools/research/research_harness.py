@@ -108,6 +108,11 @@ SCRIPT_INVENTORY = {
         "smoke": "compile_main_guard",
         "notes": "-09-65a panel floor extract; traced the Denver zero to a replay floor never served.",
     },
+    "ro_capture_member_extract.py": {
+        "status": "fixture-only",
+        "smoke": "compile_main_guard",
+        "notes": "R-O Clarification 1 capture-host ensemble payload node-max extractor (research-only branch).",
+    },
     "rescore_served_floor_09_66a.py": {
         "status": "fixture-only",
         "smoke": "compile_main_guard",

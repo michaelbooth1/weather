@@ -5056,6 +5056,151 @@ def rung_o_parity(*, inputs_root, gefs_corpus, out_dir, markets=R0_MARKETS, hour
     return result
 
 
+RO_RULE_C1_SHA256 = "b25f36cf6e08b4ac69db548163f7f374d5906538224a453f4e5e1f92b075ad24"  # rule_rn.md + Clarification 1
+RO_C1_LINK_TOL = 1e-6
+
+
+def ro_c1_load_capture(capture_csv):
+    """{event: {blob: {member: (node_max|None, day_max|None)}}} plus {blob: unit} from the C1 extractor CSV."""
+    import csv
+
+    def num(text):
+        return float(text) if text not in ("", None) else None
+
+    blobs = defaultdict(lambda: defaultdict(dict))
+    units = {}
+    with open(capture_csv, encoding="utf-8", newline="") as handle:
+        for row in csv.DictReader(handle):
+            blobs[row["event"]][row["blob"]][row["member"]] = (num(row["node_max"]), num(row["day_max"]))
+            units[row["blob"]] = row["temperature_unit"]
+    return blobs, units
+
+
+def ro_c1_blob_stats(members):
+    """(day fingerprint (p10, p90, control), node stats (p10, p90, control) or None) for one blob's member table.
+
+    The day fingerprint mirrors ``model_sources.fetch_global_ensemble``; the node stats mirror P's history side."""
+    from weather.model.model_sources import percentile
+
+    perturbed = {k: v for k, v in members.items() if k != "control"}
+    day_highs = [v[1] for v in perturbed.values() if v[1] is not None]
+    fingerprint = (percentile(day_highs, 0.10), percentile(day_highs, 0.90), (members.get("control") or (None, None))[1])
+    node = [v[0] for v in perturbed.values() if v[0] is not None]
+    if len(node) < RO_MIN_MEMBERS:
+        return fingerprint, None
+    return fingerprint, (percentile(node, 0.10), percentile(node, 0.90), (members.get("control") or (None, None))[0])
+
+
+def _ro_c1_close(a, b):
+    return a is not None and b is not None and abs(float(a) - float(b)) <= RO_C1_LINK_TOL
+
+
+def rung_o_parity_c1(*, inputs_root, gefs_corpus, capture_csv, capture_manifest, out_dir, markets=R0_MARKETS,
+                     hours=RUNG_HOURS):
+    """R-O precondition P under rule_rn.md Clarification 1: the capture side is recomputed from the capture host's raw
+    ensemble payloads (``tools/research/ro_capture_member_extract.py`` CSV) at history's node definition.
+
+    Same snapshot population, window, hours, history side and limits as ``rung_o_parity``. A snapshot's capture value
+    comes from the blob(s) of its event that reproduce its captured day p10/p90/control (within 1e-6); unlinked or
+    disagreeing snapshots are excluded and counted."""
+    import re
+    from datetime import date as _date, datetime
+
+    from weather.market.market_registry import spec_for_id
+    from weather.model.model_sources import percentile
+
+    out = require_output_outside_repo(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    if (out / "rn_parity_c1.json").exists():
+        raise PooledModelError(f"refusing to overwrite {out / 'rn_parity_c1.json'}")
+    manifest = json.loads(Path(capture_manifest).read_text(encoding="utf-8"))
+    csv_sha = hashlib.sha256(Path(capture_csv).read_bytes()).hexdigest()
+    if manifest.get("output", {}).get("sha256") != csv_sha:
+        raise PooledModelError("capture CSV sha256 does not match its manifest")
+    capture, units = ro_c1_load_capture(capture_csv)
+    blob_stats = {ev: {b: ro_c1_blob_stats(m) for b, m in blobs.items()} for ev, blobs in capture.items()}
+    first, last = _date.fromisoformat(RO_PARITY_FIRST), _date.fromisoformat(RO_PARITY_LAST)
+    timezones = {m: spec_for_id(m).timezone for m in markets}
+    table = ro_load_gefs(gefs_corpus)
+    local_re = re.compile(r'"captured_at_local":\s*"([^"]+)"')
+    stats = defaultdict(list)
+    counts = defaultdict(int)
+    cities = defaultdict(int)
+    for folder in sorted(Path(inputs_root).iterdir()):
+        parsed = ro_slug_date(folder.name)
+        if parsed is None:
+            counts["skipped_unparsed_slug"] += 1
+            continue
+        city, target = parsed
+        if not (first <= target <= last):
+            counts["skipped_date_outside"] += 1
+            continue
+        path = folder / "replay_inputs.jsonl"
+        if not path.exists():
+            continue
+        with open(path, encoding="utf-8") as handle:
+            for line in handle:
+                m = local_re.search(line[:4096])
+                if not m or datetime.fromisoformat(m.group(1)).hour not in hours:
+                    continue
+                rec = json.loads(line)
+                market = (rec.get("model_identity") or {}).get("market_id")
+                if market not in timezones:
+                    cities[city] += 1
+                    break
+                if str(rec.get("target_date"))[:10] != target.isoformat():
+                    raise PooledModelError(f"{folder.name}: target_date {rec.get('target_date')} != slug")
+                cutoff = datetime.fromisoformat(rec["captured_at_utc"])
+                data = (((rec.get("sources") or {}).get("global_ensemble") or {}).get("data")) or {}
+                counts["snapshots"] += 1
+                if not data:
+                    counts["snapshots_without_capture"] += 1
+                    continue
+                want = (data.get("day_member_high_p10"), data.get("day_member_high_p90"), data.get("day_max_native"))
+                linked = [(b, node) for b, (fp, node) in blob_stats.get(folder.name, {}).items()
+                          if all(_ro_c1_close(x, y) for x, y in zip(fp, want))]
+                if not linked:
+                    counts["snapshots_unlinked"] += 1
+                    continue
+                if any("F" not in str(units.get(b, "")) for b, _ in linked):
+                    counts["snapshots_unit_not_fahrenheit"] += 1
+                    continue
+                nodes = {node for _, node in linked}
+                if len(nodes) != 1:
+                    counts["snapshots_linked_blobs_disagree"] += 1
+                    continue
+                node = nodes.pop()
+                if node is None:
+                    counts["snapshots_capture_below_25_members"] += 1
+                    continue
+                highs = ro_member_highs(table, market, target, cutoff, timezones[market])
+                members = [v for k, v in highs.items() if k in RO_PERTURBED]
+                if len(members) < RO_MIN_MEMBERS:
+                    counts["snapshots_without_corpus"] += 1
+                    continue
+                counts["snapshots_compared"] += 1
+                counts["linked_blobs_total"] += len(linked)
+                day = target.isoformat()
+                stats["p10"].append((market, day, percentile(members, 0.10), node[0]))
+                stats["p90"].append((market, day, percentile(members, 0.90), node[1]))
+                stats["control"].append((market, day, highs.get("gec00"), node[2]))
+    parity = {k: ro_parity_stats(stats[k]) for k in ("p10", "p90", "control")}
+    by_market = {k: {m: ro_parity_stats([p for p in stats[k] if p[0] == m]) for m in markets}
+                 for k in ("p10", "p90", "control")}
+    result = {"rule_sha256": RO_RULE_C1_SHA256, "rule_original_sha256": RO_RULE_SHA256, "rung": "R-O",
+              "clarification": 1, "window": [RO_PARITY_FIRST, RO_PARITY_LAST], "hours": list(hours),
+              "counts": dict(counts), "non_us_city_folders_skipped": dict(cities), "parity": parity,
+              "by_market": by_market, "P_pass": all(v.get("pass") for v in parity.values()),
+              "inputs": {"gefs_rows_sha256": hashlib.sha256(
+                  (Path(gefs_corpus) / "gefs_member_rows.jsonl").read_bytes()).hexdigest(),
+                  "capture_csv_sha256": csv_sha,
+                  "capture_manifest_sha256": hashlib.sha256(Path(capture_manifest).read_bytes()).hexdigest(),
+                  "extractor_script_sha256": manifest.get("script_sha256"),
+                  "module_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}}
+    (out / "rn_parity_c1.json").write_text(json.dumps(result, indent=1, sort_keys=True), encoding="utf-8")
+    return result
+
+
 def ro_row_shifts(diff):
     """Shift for every (a, b) pair at one row with d = G - N (all 0 when d is missing)."""
     import numpy as np
@@ -5293,6 +5438,13 @@ def _parse(argv=None):
     op.add_argument("--inputs", required=True)
     op.add_argument("--gefs-corpus", required=True)
     op.add_argument("--out", required=True)
+    oc = sub.add_parser("rung-o-parity-c1",
+                        help="R-O precondition P under Clarification 1: corpus vs host-extracted node maxima (heavy)")
+    oc.add_argument("--inputs", required=True)
+    oc.add_argument("--gefs-corpus", required=True)
+    oc.add_argument("--capture-csv", required=True)
+    oc.add_argument("--capture-manifest", required=True)
+    oc.add_argument("--out", required=True)
     ol = sub.add_parser("rung-o-loyo", help="R-O gate 1: nested LOYO GEFS member-mean centre shift (heavy)")
     ol.add_argument("--records", required=True)
     ol.add_argument("--nbm-train-corpus", required=True)
@@ -5477,6 +5629,11 @@ def main(argv=None):
         return 0
     if args.command == "rung-o-parity":
         result = rung_o_parity(inputs_root=args.inputs, gefs_corpus=args.gefs_corpus, out_dir=args.out)
+        print(json.dumps({"P_pass": result["P_pass"], "parity": result["parity"], "counts": result["counts"]}))
+        return 0
+    if args.command == "rung-o-parity-c1":
+        result = rung_o_parity_c1(inputs_root=args.inputs, gefs_corpus=args.gefs_corpus, capture_csv=args.capture_csv,
+                                  capture_manifest=args.capture_manifest, out_dir=args.out)
         print(json.dumps({"P_pass": result["P_pass"], "parity": result["parity"], "counts": result["counts"]}))
         return 0
     if args.command == "rung-o-loyo":
