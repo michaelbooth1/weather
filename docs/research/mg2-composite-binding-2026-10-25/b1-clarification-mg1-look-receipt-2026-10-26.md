@@ -80,6 +80,12 @@ The receipt is written once, by `weather.calibration.mg1_look` running as the re
     receipt is VOID 5 until that clarification lands. The registered sha `1e691c58…` is not used, because at
     that sha `run` refuses and no MG-1 scoring look can happen.
   - Setting the constant changes `b_scorer.py`, so the B control is re-run at the new scorer sha.
+  - B binds b_scorer sha S0. The only permitted post-binding scorer edit is setting MG1_LOOK_ENTRY_SHA256 by the dated MG-1 scoring clarification, giving S1. B's look runs at S1, and the S0→S1 diff must be exactly that constant line.
+  - The check: `python -m weather.calibration.b_scorer_entry_edit --s0 <b_scorer.py at S0> --s1 <b_scorer.py
+    at S1>`. It passes only when S1 differs from S0 in that one assignment line and sets it to a 64-hex
+    literal. Any other change fails, and so does a removed or duplicated constant or a changed line ending.
+    The dated MG-1 scoring clarification records its output. The check lives outside `b_scorer.py`, so adding it
+    leaves S0 unchanged.
   - Known limit, accepted by master: `body_sha256` is a self-hash, so it detects a careless edit, not a
     deliberate one (see §5).
 

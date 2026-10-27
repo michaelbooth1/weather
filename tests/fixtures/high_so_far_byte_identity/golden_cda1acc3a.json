@@ -1,0 +1,600 @@
+{
+ "day": "2026-09-28",
+ "records_sha256": "2e64d204c678d8f143ae4024d618e119bc863d34d8cf446f525cd613e56ff0db",
+ "reference_commit": "cda1acc3a7cb26142705464d65222e08794c9927",
+ "schema": "high_so_far_byte_identity_golden/1",
+ "tiers": {
+  "lfs_materialized": {
+   "artifacts_sha256": {
+    "artifacts/AGENTS.md": "f321ed86f0628b414a5c4737e0f3dcf2f7db53b757e044883e3eb0166f5de329",
+    "artifacts/calibration/calibrated_weights.json": "433c20508af04f1685946dcfce23308ef9e6830595980a49a220a4177d8e675d",
+    "artifacts/calibration/calibrated_weights_atlanta.json": "bb0a01b702170cbde1f7c064aebce92657a11c603c2b7adbeaa71c2e935948c4",
+    "artifacts/calibration/calibrated_weights_austin.json": "98584b0ae3726c36c7f29b52b88204a6387a8d7b15ed9e48dc21c7184f69143a",
+    "artifacts/calibration/calibrated_weights_chicago.json": "88a210f6fcedcc016c9f08b4fdcc292b56dabde8412598c716051669c731a5be",
+    "artifacts/calibration/calibrated_weights_dallas.json": "e7826c63da806608f3016054ea855f17a67bf3b33ce6402355a1b3a59ad545fa",
+    "artifacts/calibration/calibrated_weights_denver.json": "a503c8887491614ea692fa67768476cbeac3cf4ebc6c1647f39b4d915d1eb9a4",
+    "artifacts/calibration/calibrated_weights_houston.json": "e27acdbfe14029eca9a200f7ead77c05705e1201b1c5e0fb98d751a1dad0c388",
+    "artifacts/calibration/calibrated_weights_los-angeles.json": "32fb8fac11ac64a08baeb2105467cc7d956e22362f3248aa1aa00f06a605dcb4",
+    "artifacts/calibration/calibrated_weights_miami.json": "a9f2b44974125a3a870c99b8dbc40c3796b8f8b3cd58d0140279fd71163eeec1",
+    "artifacts/calibration/calibrated_weights_nyc.json": "8435625628c2a3bf729c98bf0b5b27a94cdba769fa46fd6d296906a97392ffd9",
+    "artifacts/calibration/calibrated_weights_san-francisco.json": "063d0743aa3441e10c9e200c86ca23aba1f6f3f0691001da3642565218fe79ce",
+    "artifacts/calibration/calibrated_weights_seattle.json": "0fba075beea00a76074bed0b719e19e39f50af01b1e9011f05922218fbabee10",
+    "artifacts/calibration/forecast_error_model.json": "7e41f53b0e99cd0b5f8513bbf1540ca017d7ce745a56bc8ff4aaac0e20192e69",
+    "artifacts/calibration/forecast_error_model_atlanta.json": "7f6d6cc0c0ed266c048463182e1bb2cfecc32d3b5e3efedf706eaf05445b43fe",
+    "artifacts/calibration/forecast_error_model_austin.json": "09af3e8ae03dd58a2656c712b7b2a37f86f59b92623da19a04041f215a3826cf",
+    "artifacts/calibration/forecast_error_model_chicago.json": "1337091833984a1ccf0f25b7a9666fc8f9b323fadf4f5c2a6abe7e329ab59e81",
+    "artifacts/calibration/forecast_error_model_dallas.json": "f22d54e74b5de12a2e1233e785f1701427d7a5c7003cacbf9785aa8f68a1524d",
+    "artifacts/calibration/forecast_error_model_denver.json": "80c78f4dde27e0f38b9ff4560383160f7f8aa521a1bf24a467095c02c4e603dc",
+    "artifacts/calibration/forecast_error_model_f_family.json": "9ae553383cd98dc565784954ed0df01c8d3996a5f3e12bf6cf9cd85f4b1d79fb",
+    "artifacts/calibration/forecast_error_model_houston.json": "7684488ada746530a64d8740c3825a722918ea76a83b91cd31f132b76179d5b7",
+    "artifacts/calibration/forecast_error_model_los-angeles.json": "036e6ec657914ccb8dc242e3417ae4747f8c3c1e0ef26c6bf5173b633a08e50d",
+    "artifacts/calibration/forecast_error_model_miami.json": "fdf4b1ee68d8ac9b83310c1e5aa6c51ae36a25be6c5bb69daf9bfa3ac790ddfa",
+    "artifacts/calibration/forecast_error_model_nyc.json": "dce1254891999a99f3f1b2dee0b27a7a047b16ec7e5435550852f1bcba6ce482",
+    "artifacts/calibration/forecast_error_model_san-francisco.json": "b72f623305f26218dc2a538d5af3b3bc0f9713673eb17c6f2446c086e34f1f40",
+    "artifacts/calibration/forecast_error_model_seattle.json": "dc978638cff90d2f7aeaa12677f9e29f42af13c5381df1e6cae56b2ad8bc9c13",
+    "artifacts/calibration/probability_calibration.json": "5d1cdcdb47ec9e6b4bfd4a9253754e05c52edd0d28042ca177a35c194e558207",
+    "artifacts/calibration/probability_calibration_atlanta.json": "e294e63f9855ac45590caff0e6f7d60ecffd3a8868f02fa42ffbc8235dd4a750",
+    "artifacts/calibration/probability_calibration_austin.json": "a2c422dd0bba4f1e2cb48ef0a3c451f0cf705b6d5289d9793e66d5e78b39fefd",
+    "artifacts/calibration/probability_calibration_chicago.json": "5f9941e3c12651f638dd13b2b136f15da339c5d3a4d096a336eeffe3c181755f",
+    "artifacts/calibration/probability_calibration_dallas.json": "73fbb25a7443402f137d5f95bbb165616f028dc4c4f78193903a97b7c4f13cdd",
+    "artifacts/calibration/probability_calibration_denver.json": "058459d7e7d208857a409a797eb00e76ba093755f9cd200b24133112ab0b0818",
+    "artifacts/calibration/probability_calibration_f_family.json": "6967be77e14ec6e3abff560aeeb2f1a07380ae60f82bb6b50bad180519107f19",
+    "artifacts/calibration/probability_calibration_houston.json": "c1f312d33306a69c6774eebce90cfb25aacd89c3b81f0f5ecb52cb3f83652f20",
+    "artifacts/calibration/probability_calibration_los-angeles.json": "34799da018cab1b4cbdee2d36a78ed124516d2287fb8c779907435024e337463",
+    "artifacts/calibration/probability_calibration_miami.json": "32b699b4664fefc290f829931a0fcf93bff1c0f96a02f9a169f6e29baf9bae86",
+    "artifacts/calibration/probability_calibration_nyc.json": "196a7c5127f2b1d654ed814ebfcf36817f16bf0b23f4725dd920480a4faa91fa",
+    "artifacts/calibration/probability_calibration_san-francisco.json": "1ea24dc14a3676a8b3962560ebdfc7cc64bb0867327ad183f54980eb187ddb93",
+    "artifacts/calibration/probability_calibration_seattle.json": "8d1a0c6757bd8070561728da3dd12dccd7ab31e0cd742725f95e8bb32abe83c6",
+    "artifacts/calibration/settlement_lag_model.json": "c4cb2c24ca44fb04f7c43d7170d3ffe76b69f468bd61117089f17cacc177d5f8",
+    "artifacts/calibration/settlement_lag_model_atlanta.json": "dd156ee825303a14cbffe5b85d96112a40f55ea3131f6eef9ffd35619b72c030",
+    "artifacts/calibration/settlement_lag_model_austin.json": "8dab7b3529d7244740d3aaca07a1dd704496496dc342f8bfd2a87487b5418981",
+    "artifacts/calibration/settlement_lag_model_chicago.json": "8b6c6ee58c7fcb30111bad387002dd56f58b4570fbdf6b631e7c4b046b5c9696",
+    "artifacts/calibration/settlement_lag_model_dallas.json": "ce98f223bc62efcbe01fb8117d189b9a58b95040c18fae9af77734612d86ca0d",
+    "artifacts/calibration/settlement_lag_model_denver.json": "bc60581d8ddb7399a708646527e20b80487fd1b133be6775358381c6d06fe8af",
+    "artifacts/calibration/settlement_lag_model_f_family.json": "e024bc19fa0bfbde4779d5b64a2e12a039c2e552b6a032a3d93e3c8cf8d9e5ce",
+    "artifacts/calibration/settlement_lag_model_houston.json": "dd47935107940903ad82b0331a933624790eeda6cc8d7874fdcbf593aac532e4",
+    "artifacts/calibration/settlement_lag_model_los-angeles.json": "035586c2bc69ddcfb735e4ed6614a7df68f3a5f65a1c334eec721b659f320893",
+    "artifacts/calibration/settlement_lag_model_miami.json": "eb103e240fdc716cfd1bb60d40cfef906d60c2652fe24bfc7ccd267934ff95ba",
+    "artifacts/calibration/settlement_lag_model_nyc.json": "106c0788168057d8a85e659e24c3a9e975c3e0cc550b15a5df09391f2fd35955",
+    "artifacts/calibration/settlement_lag_model_san-francisco.json": "87d950c5470000f0c54965fa576f6014c14146bf83edf6d9282b2733c726b712",
+    "artifacts/calibration/settlement_lag_model_seattle.json": "59c7a429f60d6dddfc633c3d25bcb8da7d2e9d781ee1809800e7a115d2fd6c5e",
+    "artifacts/manifests/f_family_secondary_artifacts.json": "78a11bd2df26fd7c7fed375fa22ccb377fc71e386d767a96df7b2ab4f71c7e3d",
+    "artifacts/manifests/model_artifact_externalization.json": "f2149c2b737fcc951623f5849ed796e098202d9ff0b3af793cb7a36b48cb5849",
+    "artifacts/manifests/model_artifact_promotion_preflight.json": "46724c4fcb206b5fe66d7008201dd552ba2b731c82e9ef64a4724073dc317a1f",
+    "artifacts/manifests/model_artifact_registry.json": "dcfd19a832edde455ef08dd1c08907878e081a994b3db363be7dd33191175f6f",
+    "artifacts/manifests/model_artifact_size_audit.json": "45b514691c35bd308b1b2cc4d5606a76544205785c5bef810db3eb0814c07de6",
+    "artifacts/misc/afternoon_residual_centering.json": "1cbe4cc81ac07fd038858fc3a8a6800b30405e6556588ba71e86effdda13951e",
+    "artifacts/models/coefs/feature_model_coefs.json": "5ef646b8cf3fbe873ca6057ffddb4f6a5f73431e4d1d4ae4dfa2e774ede1d7d9",
+    "artifacts/models/coefs/feature_model_coefs_atlanta.json": "6d0667c4390d43b1630cb7436a754ed97f831a575a8b41ab0da8251035237c3c",
+    "artifacts/models/coefs/feature_model_coefs_austin.json": "1ed93e1a88821badab0454a7f6f3795c96612089bc09196e97c12d74317e104e",
+    "artifacts/models/coefs/feature_model_coefs_chicago.json": "e2475b9f1098887c7a46fb89d3280a19d933c1324cb940df35a0d38d82fef43e",
+    "artifacts/models/coefs/feature_model_coefs_dallas.json": "1c7b68929a2f8b7186072d1683514991792a629e728976b15f23da3dfe9f7cf3",
+    "artifacts/models/coefs/feature_model_coefs_denver.json": "4fef4aef78f9a8053b32165633e0ff0674dd4ced450b5ed934463b1014bc8432",
+    "artifacts/models/coefs/feature_model_coefs_houston.json": "7b06def3738c43d38b4cd503a0c59a33233410779dccae1ded01f04549b77c2a",
+    "artifacts/models/coefs/feature_model_coefs_los-angeles.json": "a9e8281abd97b2789f7da743292ded435fab2f351716cce39dc247169211d363",
+    "artifacts/models/coefs/feature_model_coefs_miami.json": "6ea1367df119f1a0f24d71d6d8a0343e28dbdbe85b877c5afdfec157ed122f6a",
+    "artifacts/models/coefs/feature_model_coefs_nyc.json": "1c5dd1ab05535fa6a6e61ee64cc86518b2f21684819ac309486b4ee479b21e7a",
+    "artifacts/models/coefs/feature_model_coefs_san-francisco.json": "2ef9c5628e2a3cd87170683b05cc8f34c6a8d5888bf2cf24a07f340cc8638dac",
+    "artifacts/models/coefs/feature_model_coefs_seattle.json": "e7719e24e02504ede500632fe4fb5c07818d2ae105bb0f22fff326256425e2e3",
+    "artifacts/models/coefs/late_day_model_coefs.json": "7ed334fa37ef959250ef6d2201607b86e2edb64519b1ab74c25ddd286e5c62e1",
+    "artifacts/models/coefs/late_day_model_coefs_atlanta.json": "989e3590d242d70a16e720b7e123f7837eeff749851ec54b32aab2ff12dbe7c0",
+    "artifacts/models/coefs/late_day_model_coefs_austin.json": "c38804d6f64c4da15d239e38d2fdf275e276b7af4d3d77579e371ef49513d45d",
+    "artifacts/models/coefs/late_day_model_coefs_chicago.json": "7b47fae9c74f505af257ddd47ecc5a3f019291aa8dd6c19a9b8f0eecbea36bb8",
+    "artifacts/models/coefs/late_day_model_coefs_dallas.json": "d4bacd763c3faeb35095d9501bb9b943a6862fbd3ad4363e7fe2767101906f20",
+    "artifacts/models/coefs/late_day_model_coefs_denver.json": "e3301911cc37cede0cfdf8c16590128ad7cdd5771098f4280a0c2666ed21f0ef",
+    "artifacts/models/coefs/late_day_model_coefs_houston.json": "ac911bdd66fcc1f1e6611f832dfcf1b2ea1d0fbe5e0b77633f37846be2fa9809",
+    "artifacts/models/coefs/late_day_model_coefs_los-angeles.json": "59be7fffb0a35e11e53f9e93a59f07e095d1872d51d6e3ff2ac0dbc9c2ac52ad",
+    "artifacts/models/coefs/late_day_model_coefs_miami.json": "ea03d331785c09642cf6c513b0d9a6afffd9fea13594024bf85c1cd55edb55a1",
+    "artifacts/models/coefs/late_day_model_coefs_nyc.json": "7932e3dcf8ec63985f1ebee876187e2321e6bb43708499242f378987c0379ac4",
+    "artifacts/models/coefs/late_day_model_coefs_san-francisco.json": "3b136e9c2f61d1e3addc88adc7bc088b7d2c596371258f0f2f61d85bb6b25401",
+    "artifacts/models/coefs/late_day_model_coefs_seattle.json": "20fe6b622db790f38c4925865d366995127320da432b8067cd87e4138c5e361d",
+    "artifacts/models/hgb/feature_model_hgb.pkl": "bf53fd60db1a8b28cbfc2ae7844370246884e90dab7d63a558fd477a262d732a",
+    "artifacts/models/hgb/feature_model_hgb_atlanta.pkl": "9f045926126ab37bbc71b2c7db97b79cda8061c36c0fae93f2e12495493c9b9f",
+    "artifacts/models/hgb/feature_model_hgb_austin.pkl": "98f5b72b23814f8886acee79d029de475b834322ad7d89631d7423a443586765",
+    "artifacts/models/hgb/feature_model_hgb_chicago.pkl": "be24eab615a9c6375a369537a9ed1dd8e650d49cdca35e941184f524cf1401a2",
+    "artifacts/models/hgb/feature_model_hgb_dallas.pkl": "5ee8722d86105067af92838fe4660e757ee26366d06acfe500532691f2152862",
+    "artifacts/models/hgb/feature_model_hgb_denver.pkl": "2047b667fce7654e4879553c237d8561721f12f56eb746874fc0a241347ea7e8",
+    "artifacts/models/hgb/feature_model_hgb_f_pooled.pkl": "47687e207a8e3ffd22e994d460cc37bdd83d6284776540dd4c00ad5525d087c1",
+    "artifacts/models/hgb/feature_model_hgb_f_pooled_clob_overlay_v0_1.pkl": "24cd6b19115aa55f48885d1d7cda241e69900941a53291dafd02a208ce57746a",
+    "artifacts/models/hgb/feature_model_hgb_f_pooled_clob_overlay_v0_2.pkl": "c4eaa40df23a43702cbf3fdecd5be0d190235b0e832653e690b3e8196aabe3bc",
+    "artifacts/models/hgb/feature_model_hgb_f_pooled_dynamic_source_smoke.pkl": "0a53dc001930d616759eebf3d301216e99c31afe9094b00e392a776d9d0daf10",
+    "artifacts/models/hgb/feature_model_hgb_f_pooled_dynamic_source_v0_1.pkl": "ee7b65d078961bf21c3f89ff6e359d0acca5f3fedc90e456bf0192e4656867e9",
+    "artifacts/models/hgb/feature_model_hgb_f_pooled_exact_winner_smoke.pkl": "6fbbe100c3df3533fbc9033b4c13d1eaf811479996a77013526c0a5aa7643992",
+    "artifacts/models/hgb/feature_model_hgb_f_pooled_exact_winner_v0_1.pkl": "cf1a385b2f92810ba31c7974ce0511cb42653dbab4325599bb29e199a17e7d4d",
+    "artifacts/models/hgb/feature_model_hgb_f_pooled_exact_winner_v0_1_alpha005.pkl": "6783d8fc4b066fdf22fcd71e5dbd9c57f8f021655f525c3fc513cc1877e56959",
+    "artifacts/models/hgb/feature_model_hgb_f_pooled_exact_winner_v0_1_alpha01.pkl": "a7670f04e2b66d0e535e3bf4b5fe19de8b7708060d1ea6f2e2fd5b39e1bab96e",
+    "artifacts/models/hgb/feature_model_hgb_f_pooled_exact_winner_v0_1_alpha02.pkl": "da75d415104644c1c88811cf0cec8d3580f00ff28385cef117db4b34fc1f8956",
+    "artifacts/models/hgb/feature_model_hgb_f_pooled_v0_2.pkl": "b7933690c80ec9c34e220992de615361e6904518e7792ccf0c705983276b6e89",
+    "artifacts/models/hgb/feature_model_hgb_f_pooled_v0_3.pkl": "3b472bd32667256c6605a6f48c2c9c4ba7e58f140a89c504c4b4fbfcac6a497c",
+    "artifacts/models/hgb/feature_model_hgb_houston.pkl": "19999a254056ae009fd65089747e158a0b722cbead541d20b3d39cee295c49ba",
+    "artifacts/models/hgb/feature_model_hgb_los-angeles.pkl": "8d9aba849cf95f676be1ec0183431dfe5b04db0e55f8cfca9adadb08ad167b5c",
+    "artifacts/models/hgb/feature_model_hgb_miami.pkl": "7b59bc1175108d08eb3163cac9b31cedd6ac174ec9ffe4cd296c4c4bea15fd9f",
+    "artifacts/models/hgb/feature_model_hgb_nyc.pkl": "a8efd8067b2ff19249fdf125fb56dd4bd25f7b1db9454e81f70cf21dd82201d4",
+    "artifacts/models/hgb/feature_model_hgb_san-francisco.pkl": "c9b77d8326bff055466631e413e810c61f428416c5b9f1aad549c5e0bc17972f",
+    "artifacts/models/hgb/feature_model_hgb_seattle.pkl": "ad6229d851484f30c4caaf5f77fd16a018ed5af11bccb67351311f6f3872bfa1",
+    "artifacts/models/hgb/item35_density_full_candidate.pkl": "56b03f8d5769d76d28aaad78752d78869c0dc816f906e091f10e2ca98c6c88ab",
+    "artifacts/models/hgb/item50_feature_model_hgb_f_pooled_v0_3_candidate.pkl": "befe90ef947396b26c24a5f30bc8886624b4bbef23af7270fd84a43a6649f4f5"
+   },
+   "market_and_model_kind": {
+    "20260928T070008619238-0400": [
+     "miami",
+     "hgb"
+    ],
+    "20260928T070025421399-0400": [
+     "nyc",
+     "hgb"
+    ],
+    "20260928T070119489861-0400": [
+     "toronto",
+     "hgb"
+    ],
+    "20260928T070901566684-0400": [
+     "atlanta",
+     "hgb"
+    ],
+    "20260928T080042461827-0400": [
+     "chicago",
+     "hgb"
+    ],
+    "20260928T080240597191-0400": [
+     "austin",
+     "hgb"
+    ],
+    "20260928T080333359088-0400": [
+     "houston",
+     "hgb"
+    ],
+    "20260928T080906099125-0400": [
+     "dallas",
+     "hgb"
+    ],
+    "20260928T090839249486-0400": [
+     "denver",
+     "hgb"
+    ],
+    "20260928T100021483722-0400": [
+     "los-angeles",
+     "hgb"
+    ],
+    "20260928T100154192235-0400": [
+     "toronto",
+     "hgb"
+    ],
+    "20260928T100220556156-0400": [
+     "atlanta",
+     "hgb"
+    ],
+    "20260928T100233855216-0400": [
+     "miami",
+     "hgb"
+    ],
+    "20260928T100243253181-0400": [
+     "nyc",
+     "hgb"
+    ],
+    "20260928T100851372128-0400": [
+     "seattle",
+     "hgb"
+    ],
+    "20260928T100900529010-0400": [
+     "san-francisco",
+     "hgb"
+    ],
+    "20260928T110209772916-0400": [
+     "dallas",
+     "hgb"
+    ],
+    "20260928T110450878137-0400": [
+     "austin",
+     "hgb"
+    ],
+    "20260928T110528423182-0400": [
+     "chicago",
+     "hgb"
+    ],
+    "20260928T110600969776-0400": [
+     "houston",
+     "hgb"
+    ],
+    "20260928T120133772074-0400": [
+     "denver",
+     "hgb"
+    ],
+    "20260928T130213308789-0400": [
+     "seattle",
+     "hgb"
+    ],
+    "20260928T130224166467-0400": [
+     "san-francisco",
+     "hgb"
+    ],
+    "20260928T130231951389-0400": [
+     "los-angeles",
+     "hgb"
+    ],
+    "20260928T140224126826-0400": [
+     "toronto",
+     "hgb"
+    ],
+    "20260928T140846009748-0400": [
+     "atlanta",
+     "hgb"
+    ],
+    "20260928T140857729597-0400": [
+     "miami",
+     "hgb"
+    ],
+    "20260928T140908230943-0400": [
+     "nyc",
+     "hgb"
+    ],
+    "20260928T150207994300-0400": [
+     "austin",
+     "hgb"
+    ],
+    "20260928T150243151115-0400": [
+     "chicago",
+     "hgb"
+    ],
+    "20260928T150323758693-0400": [
+     "houston",
+     "hgb"
+    ],
+    "20260928T150818195747-0400": [
+     "dallas",
+     "hgb"
+    ],
+    "20260928T160735928917-0400": [
+     "denver",
+     "hgb"
+    ],
+    "20260928T170004517848-0400": [
+     "los-angeles",
+     "hgb"
+    ],
+    "20260928T170034074291-0400": [
+     "san-francisco",
+     "hgb"
+    ],
+    "20260928T170845870546-0400": [
+     "seattle",
+     "hgb"
+    ]
+   },
+   "served_output_sha256": {
+    "20260928T070008619238-0400": "2f6e06d1aeab3474925519b4fc8a5d3ae69a17e18614e860f1891db57ccd34af",
+    "20260928T070025421399-0400": "467157b403f51b6e29dbca6a64fe9b7b2ff6995dc331caf724d456eb0ac97c03",
+    "20260928T070119489861-0400": "945622a8b3139e8d809e0e28c99eea8d7e6dabc09d8b736c404937c9259aa804",
+    "20260928T070901566684-0400": "a37c804323c9d6b317a2cd6683cb01c4c010f4e3f8b1eebfde3f52b94cc63ba1",
+    "20260928T080042461827-0400": "4cdbe71b09ce37b9a977102b23b6256adb071c73b0437b465d1209fc155fec3a",
+    "20260928T080240597191-0400": "49d4cd3f7a7eab17afe6b423b8c156a9db4e2d284a0821cba2751c1a127534cd",
+    "20260928T080333359088-0400": "61f59c12e1aaf4254a051d322524c93bc1ad5cf6a9e008a10b01fbeebd612ed7",
+    "20260928T080906099125-0400": "7616cbca151d403764cff0ff7fe04f38f67dc17934c05515fea9b8c746cb2202",
+    "20260928T090839249486-0400": "13603d05bcfb66086f4490947d47b22da7284b58a45d3c80a8f9c8209e72c46d",
+    "20260928T100021483722-0400": "afc301541fba8dfba2c49473783c71f876dbcf0c0285ae60aebbf769065d6983",
+    "20260928T100154192235-0400": "55be9bbba1220aeb8f758a5f1b0d3d9f18e421e50d7ea96e4fec73eaa98162bc",
+    "20260928T100220556156-0400": "575a9f55845f5a0e9b01acb7e7c7df305049d8e90dbcc228f3a58e690d3af2ca",
+    "20260928T100233855216-0400": "a843bb95f3a093778fd91a08fc07c193319b046b43e3c6013d185d956141851c",
+    "20260928T100243253181-0400": "ec1827c33ac2f71889cea865fab2787d78981cd4fb429e09ba677949109a5736",
+    "20260928T100851372128-0400": "cc022ef8901240378e30071f2d2f36722555ee785b7397ec8387c6652c9864da",
+    "20260928T100900529010-0400": "80500352a669c6dedc40cac5d3836ba5ad71a4f7b32196785f18057fa01110f8",
+    "20260928T110209772916-0400": "68b8a62ecab08845a1d0626cb0519016fcda6025faa1e3b7d60b1505ebc21fb2",
+    "20260928T110450878137-0400": "70dc9e682f702bc3e14aec231f74bb8e2a2637579c8c2f3deb5eb5049d31266d",
+    "20260928T110528423182-0400": "4c7c5edb069710e190b9074b94f3d41a32510c65aeb9f77ffacee2e8be7254cd",
+    "20260928T110600969776-0400": "f1907ece82b7e32052abf862b6833e54603c8d0b97093b6c8f5344faaf740864",
+    "20260928T120133772074-0400": "0006651a8c14f49b35a3bf5e5f68cf55d0f75d661e55d8c3569395aca555f243",
+    "20260928T130213308789-0400": "99ed364ddee5cac48e53236cdddfc5a72b6802876d2c41df292fc0675b6f2186",
+    "20260928T130224166467-0400": "659eb0efc412358f57e3a1425d0057c564eeae5e3cca754fb732902e7c715530",
+    "20260928T130231951389-0400": "46fd1e3940caa5d5aad92a60e53565adac9feffed87e3a4df8c6a03aac4e703a",
+    "20260928T140224126826-0400": "94425b841b7bd426efa22ea034031efea69f32b0c0e7eef9128cdcd5138318fb",
+    "20260928T140846009748-0400": "63cccddfff15a5b5f6bd037dfcd487ffd4cb85000cb622ac1e03744ab8169ccb",
+    "20260928T140857729597-0400": "5430ba66b48581d778edda56601a8e38e0218463a7ecd19895815c8b30610102",
+    "20260928T140908230943-0400": "7bcd73877779bdf9ed93227c014bc217bec5b324f5d7917b839b1ef92e401d3a",
+    "20260928T150207994300-0400": "2909392c36b30c5c0642db86efd1200c9ce4e2b09fa7720e1ffad809d70cfab4",
+    "20260928T150243151115-0400": "0d7851a822c9f4976a0e5bde4a55b6ba8fda69decdcb30265d80f60ea550ffa8",
+    "20260928T150323758693-0400": "16bb83449ee6dcb0a862e6378e02213882bd74ef33f55fff71020d110137f837",
+    "20260928T150818195747-0400": "ca7829a6a1ff2c55b5bd7936619c49014bbaf1dd7db475625158059ad049c529",
+    "20260928T160735928917-0400": "a6bf0fae46c014499e6c15e5ee90bfd27ec0035fc176fea4eb6a9934afdbf97a",
+    "20260928T170004517848-0400": "e773e222730419aade988c6e5f8a0e1f4c9db35b7a3cad54299caf8511fd08fc",
+    "20260928T170034074291-0400": "9343df2537a5e4fd7d3fce801eac2d8493dc72b9e733fe7ca9aabf9cf980471b",
+    "20260928T170845870546-0400": "d051bef16c4d316f9820f00e93471e68629eb79941c861866871248b6137cfc4"
+   }
+  },
+  "lfs_pointers": {
+   "artifacts_sha256": {
+    "artifacts/AGENTS.md": "f321ed86f0628b414a5c4737e0f3dcf2f7db53b757e044883e3eb0166f5de329",
+    "artifacts/calibration/calibrated_weights.json": "433c20508af04f1685946dcfce23308ef9e6830595980a49a220a4177d8e675d",
+    "artifacts/calibration/calibrated_weights_atlanta.json": "bb0a01b702170cbde1f7c064aebce92657a11c603c2b7adbeaa71c2e935948c4",
+    "artifacts/calibration/calibrated_weights_austin.json": "98584b0ae3726c36c7f29b52b88204a6387a8d7b15ed9e48dc21c7184f69143a",
+    "artifacts/calibration/calibrated_weights_chicago.json": "88a210f6fcedcc016c9f08b4fdcc292b56dabde8412598c716051669c731a5be",
+    "artifacts/calibration/calibrated_weights_dallas.json": "e7826c63da806608f3016054ea855f17a67bf3b33ce6402355a1b3a59ad545fa",
+    "artifacts/calibration/calibrated_weights_denver.json": "a503c8887491614ea692fa67768476cbeac3cf4ebc6c1647f39b4d915d1eb9a4",
+    "artifacts/calibration/calibrated_weights_houston.json": "e27acdbfe14029eca9a200f7ead77c05705e1201b1c5e0fb98d751a1dad0c388",
+    "artifacts/calibration/calibrated_weights_los-angeles.json": "32fb8fac11ac64a08baeb2105467cc7d956e22362f3248aa1aa00f06a605dcb4",
+    "artifacts/calibration/calibrated_weights_miami.json": "a9f2b44974125a3a870c99b8dbc40c3796b8f8b3cd58d0140279fd71163eeec1",
+    "artifacts/calibration/calibrated_weights_nyc.json": "8435625628c2a3bf729c98bf0b5b27a94cdba769fa46fd6d296906a97392ffd9",
+    "artifacts/calibration/calibrated_weights_san-francisco.json": "063d0743aa3441e10c9e200c86ca23aba1f6f3f0691001da3642565218fe79ce",
+    "artifacts/calibration/calibrated_weights_seattle.json": "0fba075beea00a76074bed0b719e19e39f50af01b1e9011f05922218fbabee10",
+    "artifacts/calibration/forecast_error_model.json": "7e41f53b0e99cd0b5f8513bbf1540ca017d7ce745a56bc8ff4aaac0e20192e69",
+    "artifacts/calibration/forecast_error_model_atlanta.json": "7f6d6cc0c0ed266c048463182e1bb2cfecc32d3b5e3efedf706eaf05445b43fe",
+    "artifacts/calibration/forecast_error_model_austin.json": "09af3e8ae03dd58a2656c712b7b2a37f86f59b92623da19a04041f215a3826cf",
+    "artifacts/calibration/forecast_error_model_chicago.json": "1337091833984a1ccf0f25b7a9666fc8f9b323fadf4f5c2a6abe7e329ab59e81",
+    "artifacts/calibration/forecast_error_model_dallas.json": "f22d54e74b5de12a2e1233e785f1701427d7a5c7003cacbf9785aa8f68a1524d",
+    "artifacts/calibration/forecast_error_model_denver.json": "80c78f4dde27e0f38b9ff4560383160f7f8aa521a1bf24a467095c02c4e603dc",
+    "artifacts/calibration/forecast_error_model_f_family.json": "9ae553383cd98dc565784954ed0df01c8d3996a5f3e12bf6cf9cd85f4b1d79fb",
+    "artifacts/calibration/forecast_error_model_houston.json": "7684488ada746530a64d8740c3825a722918ea76a83b91cd31f132b76179d5b7",
+    "artifacts/calibration/forecast_error_model_los-angeles.json": "036e6ec657914ccb8dc242e3417ae4747f8c3c1e0ef26c6bf5173b633a08e50d",
+    "artifacts/calibration/forecast_error_model_miami.json": "fdf4b1ee68d8ac9b83310c1e5aa6c51ae36a25be6c5bb69daf9bfa3ac790ddfa",
+    "artifacts/calibration/forecast_error_model_nyc.json": "dce1254891999a99f3f1b2dee0b27a7a047b16ec7e5435550852f1bcba6ce482",
+    "artifacts/calibration/forecast_error_model_san-francisco.json": "b72f623305f26218dc2a538d5af3b3bc0f9713673eb17c6f2446c086e34f1f40",
+    "artifacts/calibration/forecast_error_model_seattle.json": "dc978638cff90d2f7aeaa12677f9e29f42af13c5381df1e6cae56b2ad8bc9c13",
+    "artifacts/calibration/probability_calibration.json": "5d1cdcdb47ec9e6b4bfd4a9253754e05c52edd0d28042ca177a35c194e558207",
+    "artifacts/calibration/probability_calibration_atlanta.json": "e294e63f9855ac45590caff0e6f7d60ecffd3a8868f02fa42ffbc8235dd4a750",
+    "artifacts/calibration/probability_calibration_austin.json": "a2c422dd0bba4f1e2cb48ef0a3c451f0cf705b6d5289d9793e66d5e78b39fefd",
+    "artifacts/calibration/probability_calibration_chicago.json": "5f9941e3c12651f638dd13b2b136f15da339c5d3a4d096a336eeffe3c181755f",
+    "artifacts/calibration/probability_calibration_dallas.json": "73fbb25a7443402f137d5f95bbb165616f028dc4c4f78193903a97b7c4f13cdd",
+    "artifacts/calibration/probability_calibration_denver.json": "058459d7e7d208857a409a797eb00e76ba093755f9cd200b24133112ab0b0818",
+    "artifacts/calibration/probability_calibration_f_family.json": "6967be77e14ec6e3abff560aeeb2f1a07380ae60f82bb6b50bad180519107f19",
+    "artifacts/calibration/probability_calibration_houston.json": "c1f312d33306a69c6774eebce90cfb25aacd89c3b81f0f5ecb52cb3f83652f20",
+    "artifacts/calibration/probability_calibration_los-angeles.json": "34799da018cab1b4cbdee2d36a78ed124516d2287fb8c779907435024e337463",
+    "artifacts/calibration/probability_calibration_miami.json": "32b699b4664fefc290f829931a0fcf93bff1c0f96a02f9a169f6e29baf9bae86",
+    "artifacts/calibration/probability_calibration_nyc.json": "196a7c5127f2b1d654ed814ebfcf36817f16bf0b23f4725dd920480a4faa91fa",
+    "artifacts/calibration/probability_calibration_san-francisco.json": "1ea24dc14a3676a8b3962560ebdfc7cc64bb0867327ad183f54980eb187ddb93",
+    "artifacts/calibration/probability_calibration_seattle.json": "8d1a0c6757bd8070561728da3dd12dccd7ab31e0cd742725f95e8bb32abe83c6",
+    "artifacts/calibration/settlement_lag_model.json": "c4cb2c24ca44fb04f7c43d7170d3ffe76b69f468bd61117089f17cacc177d5f8",
+    "artifacts/calibration/settlement_lag_model_atlanta.json": "dd156ee825303a14cbffe5b85d96112a40f55ea3131f6eef9ffd35619b72c030",
+    "artifacts/calibration/settlement_lag_model_austin.json": "8dab7b3529d7244740d3aaca07a1dd704496496dc342f8bfd2a87487b5418981",
+    "artifacts/calibration/settlement_lag_model_chicago.json": "8b6c6ee58c7fcb30111bad387002dd56f58b4570fbdf6b631e7c4b046b5c9696",
+    "artifacts/calibration/settlement_lag_model_dallas.json": "ce98f223bc62efcbe01fb8117d189b9a58b95040c18fae9af77734612d86ca0d",
+    "artifacts/calibration/settlement_lag_model_denver.json": "bc60581d8ddb7399a708646527e20b80487fd1b133be6775358381c6d06fe8af",
+    "artifacts/calibration/settlement_lag_model_f_family.json": "e024bc19fa0bfbde4779d5b64a2e12a039c2e552b6a032a3d93e3c8cf8d9e5ce",
+    "artifacts/calibration/settlement_lag_model_houston.json": "dd47935107940903ad82b0331a933624790eeda6cc8d7874fdcbf593aac532e4",
+    "artifacts/calibration/settlement_lag_model_los-angeles.json": "035586c2bc69ddcfb735e4ed6614a7df68f3a5f65a1c334eec721b659f320893",
+    "artifacts/calibration/settlement_lag_model_miami.json": "eb103e240fdc716cfd1bb60d40cfef906d60c2652fe24bfc7ccd267934ff95ba",
+    "artifacts/calibration/settlement_lag_model_nyc.json": "106c0788168057d8a85e659e24c3a9e975c3e0cc550b15a5df09391f2fd35955",
+    "artifacts/calibration/settlement_lag_model_san-francisco.json": "87d950c5470000f0c54965fa576f6014c14146bf83edf6d9282b2733c726b712",
+    "artifacts/calibration/settlement_lag_model_seattle.json": "59c7a429f60d6dddfc633c3d25bcb8da7d2e9d781ee1809800e7a115d2fd6c5e",
+    "artifacts/manifests/f_family_secondary_artifacts.json": "78a11bd2df26fd7c7fed375fa22ccb377fc71e386d767a96df7b2ab4f71c7e3d",
+    "artifacts/manifests/model_artifact_externalization.json": "f2149c2b737fcc951623f5849ed796e098202d9ff0b3af793cb7a36b48cb5849",
+    "artifacts/manifests/model_artifact_promotion_preflight.json": "46724c4fcb206b5fe66d7008201dd552ba2b731c82e9ef64a4724073dc317a1f",
+    "artifacts/manifests/model_artifact_registry.json": "dcfd19a832edde455ef08dd1c08907878e081a994b3db363be7dd33191175f6f",
+    "artifacts/manifests/model_artifact_size_audit.json": "45b514691c35bd308b1b2cc4d5606a76544205785c5bef810db3eb0814c07de6",
+    "artifacts/misc/afternoon_residual_centering.json": "1cbe4cc81ac07fd038858fc3a8a6800b30405e6556588ba71e86effdda13951e",
+    "artifacts/models/coefs/feature_model_coefs.json": "5ef646b8cf3fbe873ca6057ffddb4f6a5f73431e4d1d4ae4dfa2e774ede1d7d9",
+    "artifacts/models/coefs/feature_model_coefs_atlanta.json": "6d0667c4390d43b1630cb7436a754ed97f831a575a8b41ab0da8251035237c3c",
+    "artifacts/models/coefs/feature_model_coefs_austin.json": "1ed93e1a88821badab0454a7f6f3795c96612089bc09196e97c12d74317e104e",
+    "artifacts/models/coefs/feature_model_coefs_chicago.json": "e2475b9f1098887c7a46fb89d3280a19d933c1324cb940df35a0d38d82fef43e",
+    "artifacts/models/coefs/feature_model_coefs_dallas.json": "1c7b68929a2f8b7186072d1683514991792a629e728976b15f23da3dfe9f7cf3",
+    "artifacts/models/coefs/feature_model_coefs_denver.json": "4fef4aef78f9a8053b32165633e0ff0674dd4ced450b5ed934463b1014bc8432",
+    "artifacts/models/coefs/feature_model_coefs_houston.json": "7b06def3738c43d38b4cd503a0c59a33233410779dccae1ded01f04549b77c2a",
+    "artifacts/models/coefs/feature_model_coefs_los-angeles.json": "a9e8281abd97b2789f7da743292ded435fab2f351716cce39dc247169211d363",
+    "artifacts/models/coefs/feature_model_coefs_miami.json": "6ea1367df119f1a0f24d71d6d8a0343e28dbdbe85b877c5afdfec157ed122f6a",
+    "artifacts/models/coefs/feature_model_coefs_nyc.json": "1c5dd1ab05535fa6a6e61ee64cc86518b2f21684819ac309486b4ee479b21e7a",
+    "artifacts/models/coefs/feature_model_coefs_san-francisco.json": "2ef9c5628e2a3cd87170683b05cc8f34c6a8d5888bf2cf24a07f340cc8638dac",
+    "artifacts/models/coefs/feature_model_coefs_seattle.json": "e7719e24e02504ede500632fe4fb5c07818d2ae105bb0f22fff326256425e2e3",
+    "artifacts/models/coefs/late_day_model_coefs.json": "7ed334fa37ef959250ef6d2201607b86e2edb64519b1ab74c25ddd286e5c62e1",
+    "artifacts/models/coefs/late_day_model_coefs_atlanta.json": "989e3590d242d70a16e720b7e123f7837eeff749851ec54b32aab2ff12dbe7c0",
+    "artifacts/models/coefs/late_day_model_coefs_austin.json": "c38804d6f64c4da15d239e38d2fdf275e276b7af4d3d77579e371ef49513d45d",
+    "artifacts/models/coefs/late_day_model_coefs_chicago.json": "7b47fae9c74f505af257ddd47ecc5a3f019291aa8dd6c19a9b8f0eecbea36bb8",
+    "artifacts/models/coefs/late_day_model_coefs_dallas.json": "d4bacd763c3faeb35095d9501bb9b943a6862fbd3ad4363e7fe2767101906f20",
+    "artifacts/models/coefs/late_day_model_coefs_denver.json": "e3301911cc37cede0cfdf8c16590128ad7cdd5771098f4280a0c2666ed21f0ef",
+    "artifacts/models/coefs/late_day_model_coefs_houston.json": "ac911bdd66fcc1f1e6611f832dfcf1b2ea1d0fbe5e0b77633f37846be2fa9809",
+    "artifacts/models/coefs/late_day_model_coefs_los-angeles.json": "59be7fffb0a35e11e53f9e93a59f07e095d1872d51d6e3ff2ac0dbc9c2ac52ad",
+    "artifacts/models/coefs/late_day_model_coefs_miami.json": "ea03d331785c09642cf6c513b0d9a6afffd9fea13594024bf85c1cd55edb55a1",
+    "artifacts/models/coefs/late_day_model_coefs_nyc.json": "7932e3dcf8ec63985f1ebee876187e2321e6bb43708499242f378987c0379ac4",
+    "artifacts/models/coefs/late_day_model_coefs_san-francisco.json": "3b136e9c2f61d1e3addc88adc7bc088b7d2c596371258f0f2f61d85bb6b25401",
+    "artifacts/models/coefs/late_day_model_coefs_seattle.json": "20fe6b622db790f38c4925865d366995127320da432b8067cd87e4138c5e361d",
+    "artifacts/models/hgb/feature_model_hgb.pkl": "95b9d590ce1d7919760de789217527f3d785e04d524700845a7bdcc4cd726099",
+    "artifacts/models/hgb/feature_model_hgb_atlanta.pkl": "6a27ddaf0b079da275a4ff64a4a13967c7719a992f96765dc347370fdfeca42c",
+    "artifacts/models/hgb/feature_model_hgb_austin.pkl": "d657791b59d3e06c1ac83e827be3e1caf585a1cec3e5c215922f8767e686c2ae",
+    "artifacts/models/hgb/feature_model_hgb_chicago.pkl": "c0e8f61b23450802153db5ca3380cddffe6603006435528383b7097ec36d3d36",
+    "artifacts/models/hgb/feature_model_hgb_dallas.pkl": "e78f302bd11d975a2563bab3fa2729d250c3b0a8f036ca76287d463df8cde96e",
+    "artifacts/models/hgb/feature_model_hgb_denver.pkl": "2df19419f29c762019d39f55dafec07d2621ec72aa4329d86f1eae768dc0fcb2",
+    "artifacts/models/hgb/feature_model_hgb_f_pooled.pkl": "1d3c4d749ea81fbfefb14b95ae5eff010e9ebe3bbe2703c71027c2cff643ba82",
+    "artifacts/models/hgb/feature_model_hgb_f_pooled_clob_overlay_v0_1.pkl": "fe208e1a984b36eccc0e7667bf06b7304e6ae954bc90f360ae30ecf1226cc335",
+    "artifacts/models/hgb/feature_model_hgb_f_pooled_clob_overlay_v0_2.pkl": "c3751ce9519ded08745155258653712b906944df798a338f8202c7a61c32b0d1",
+    "artifacts/models/hgb/feature_model_hgb_f_pooled_dynamic_source_smoke.pkl": "bf5c23a39d0f7a5e494e27077020fb669167ecae69d457b91c53ac0c9404155b",
+    "artifacts/models/hgb/feature_model_hgb_f_pooled_dynamic_source_v0_1.pkl": "4f91fe40b480f7ede546da74cf22fd2557e5fc233091d82ae3c347d9fb70979a",
+    "artifacts/models/hgb/feature_model_hgb_f_pooled_exact_winner_smoke.pkl": "4866fbf7647f1f67008679d609c32bddea7e53a4e5a908af63f07f0f72c3a111",
+    "artifacts/models/hgb/feature_model_hgb_f_pooled_exact_winner_v0_1.pkl": "c5211ce119ea3e8f3708f680746ca2f29b8ea725e4f1d9f06d34949380afae07",
+    "artifacts/models/hgb/feature_model_hgb_f_pooled_exact_winner_v0_1_alpha005.pkl": "b758140ecdf3d8936d79b60a9e6223127c552bae1ca05956183036a34a979cc2",
+    "artifacts/models/hgb/feature_model_hgb_f_pooled_exact_winner_v0_1_alpha01.pkl": "9a9638cf9fafb3dc5fa984a37e14a858ef73b8fb065f9bd095597444673c0f03",
+    "artifacts/models/hgb/feature_model_hgb_f_pooled_exact_winner_v0_1_alpha02.pkl": "19253e0bbda04bbdaabef2dbc3355e85548e53ec73d329dd3ae98ceac13442d5",
+    "artifacts/models/hgb/feature_model_hgb_f_pooled_v0_2.pkl": "67a5d00efddaef20114491eb285f5704b4bfe2b805a53a218a2016f978a95b62",
+    "artifacts/models/hgb/feature_model_hgb_f_pooled_v0_3.pkl": "b5d9b2b07f1871c19167d896cabbca52d2c4ad1819b243211cfe58a9bf9ef7f4",
+    "artifacts/models/hgb/feature_model_hgb_houston.pkl": "b41bd98c919ff88275b065d8aee6c6ed046a6dc4fcdd7cff165f2f2c0e49a38f",
+    "artifacts/models/hgb/feature_model_hgb_los-angeles.pkl": "fbc589a16edff756f4e2f91935a49bd3b613b09e9b4f14ec76288f3358ea75ab",
+    "artifacts/models/hgb/feature_model_hgb_miami.pkl": "355366f4e5d42dd13ddb8a6302c9bf42b7f954ea8f70fd2e072595c078540c78",
+    "artifacts/models/hgb/feature_model_hgb_nyc.pkl": "e3d189ae2ae57ad8537f81003bf33c98cf361cfe1ab6641f11922e9710009a8b",
+    "artifacts/models/hgb/feature_model_hgb_san-francisco.pkl": "c0aa684d087c20684cb02e95442e838a94c095118b84dc9ef3ad4b04ea68294d",
+    "artifacts/models/hgb/feature_model_hgb_seattle.pkl": "d6dae0450ef4a57c3d077c2f66ee11ed0ee8a946c32edc062662276ac38ed799",
+    "artifacts/models/hgb/item35_density_full_candidate.pkl": "b110be9c48da71d4b9485836f871021d58e567197290f41312e561a7bb0194a1",
+    "artifacts/models/hgb/item50_feature_model_hgb_f_pooled_v0_3_candidate.pkl": "261b005f71793a66eb543559dbcb050639ae9f0ba56b55517659471a173d9197"
+   },
+   "market_and_model_kind": {
+    "20260928T070008619238-0400": [
+     "miami",
+     "lr"
+    ],
+    "20260928T070025421399-0400": [
+     "nyc",
+     "lr"
+    ],
+    "20260928T070119489861-0400": [
+     "toronto",
+     "lr"
+    ],
+    "20260928T070901566684-0400": [
+     "atlanta",
+     "lr"
+    ],
+    "20260928T080042461827-0400": [
+     "chicago",
+     "lr"
+    ],
+    "20260928T080240597191-0400": [
+     "austin",
+     "lr"
+    ],
+    "20260928T080333359088-0400": [
+     "houston",
+     "lr"
+    ],
+    "20260928T080906099125-0400": [
+     "dallas",
+     "lr"
+    ],
+    "20260928T090839249486-0400": [
+     "denver",
+     "lr"
+    ],
+    "20260928T100021483722-0400": [
+     "los-angeles",
+     "lr"
+    ],
+    "20260928T100154192235-0400": [
+     "toronto",
+     "lr"
+    ],
+    "20260928T100220556156-0400": [
+     "atlanta",
+     "lr"
+    ],
+    "20260928T100233855216-0400": [
+     "miami",
+     "lr"
+    ],
+    "20260928T100243253181-0400": [
+     "nyc",
+     "lr"
+    ],
+    "20260928T100851372128-0400": [
+     "seattle",
+     "lr"
+    ],
+    "20260928T100900529010-0400": [
+     "san-francisco",
+     "lr"
+    ],
+    "20260928T110209772916-0400": [
+     "dallas",
+     "lr"
+    ],
+    "20260928T110450878137-0400": [
+     "austin",
+     "lr"
+    ],
+    "20260928T110528423182-0400": [
+     "chicago",
+     "lr"
+    ],
+    "20260928T110600969776-0400": [
+     "houston",
+     "lr"
+    ],
+    "20260928T120133772074-0400": [
+     "denver",
+     "lr"
+    ],
+    "20260928T130213308789-0400": [
+     "seattle",
+     "lr"
+    ],
+    "20260928T130224166467-0400": [
+     "san-francisco",
+     "lr"
+    ],
+    "20260928T130231951389-0400": [
+     "los-angeles",
+     "lr"
+    ],
+    "20260928T140224126826-0400": [
+     "toronto",
+     "lr"
+    ],
+    "20260928T140846009748-0400": [
+     "atlanta",
+     "lr"
+    ],
+    "20260928T140857729597-0400": [
+     "miami",
+     "lr"
+    ],
+    "20260928T140908230943-0400": [
+     "nyc",
+     "lr"
+    ],
+    "20260928T150207994300-0400": [
+     "austin",
+     "lr"
+    ],
+    "20260928T150243151115-0400": [
+     "chicago",
+     "lr"
+    ],
+    "20260928T150323758693-0400": [
+     "houston",
+     "lr"
+    ],
+    "20260928T150818195747-0400": [
+     "dallas",
+     "lr"
+    ],
+    "20260928T160735928917-0400": [
+     "denver",
+     "lr"
+    ],
+    "20260928T170004517848-0400": [
+     "los-angeles",
+     "lr"
+    ],
+    "20260928T170034074291-0400": [
+     "san-francisco",
+     "lr"
+    ],
+    "20260928T170845870546-0400": [
+     "seattle",
+     "lr"
+    ]
+   },
+   "served_output_sha256": {
+    "20260928T070008619238-0400": "7c1d8850984d62b31cf3d21696c15bf6ca9638d95ed27a72e7ce06d77525f1ee",
+    "20260928T070025421399-0400": "646e2fb98a1b0dd9d50a51b6fda37a56511c93454cafc58087554bbe071a0c11",
+    "20260928T070119489861-0400": "4822f4b6f6e33b12a94c2d636739bfd4b44b48b81748987b00d9be11c2e94d5c",
+    "20260928T070901566684-0400": "a93909f7cdd12c9f64d646a5b9d73aba06aa84b3266d168ab8926bd8d7a7683d",
+    "20260928T080042461827-0400": "28f0c4eebc5b1659ec4e108685148086d4199e4aa6a667ab324a707c5b6c83cb",
+    "20260928T080240597191-0400": "6e924e227a287a20cbaf2d8d95dffc73330b6639a41bfad86578a3e9dfe3ffab",
+    "20260928T080333359088-0400": "c4edd1dad445260aecda77839c2486b5b12971f8f6fd30f8bc823ece00a4f11d",
+    "20260928T080906099125-0400": "6e83e62baee13b169c1b15f717296ec6e550608dcae9d1b19ecb43c950923a91",
+    "20260928T090839249486-0400": "bd7bba23743e4cecb863283b4e0666581d74f23b134b092c53a54e9be17eff65",
+    "20260928T100021483722-0400": "2021678ca5dc99b20dbc7714a4ee7bfbb1c2140af98a88b8f8b9110e1a86caf2",
+    "20260928T100154192235-0400": "7a34f284a5bc2052cd02b16b505578a655136db558af2fddd0b0a7841de2247b",
+    "20260928T100220556156-0400": "ecfd92a219cd4facac06f1554d098090f01091fe68177b4873c4bb527fa639aa",
+    "20260928T100233855216-0400": "d6fd68951b244181a4bfb49bf94f515524b8b75650bbdfa7bcd4065ca781a94e",
+    "20260928T100243253181-0400": "f4da2658f7431e8a0c15bb12810e6b8f6ede710d2a498a048e063b300be6e293",
+    "20260928T100851372128-0400": "07ad6a9dfae2e804d68415d3bd491b25ac2d16b0402efced2c7931d1488460f2",
+    "20260928T100900529010-0400": "9883c56d61d0ed93f07b0b6b1d80ebb0fec4a891b40bf386e11410d81b35a526",
+    "20260928T110209772916-0400": "9b2f35da967e3a43bc199634439de2dc3ad01c3aec7f958158104300e3c9c3fc",
+    "20260928T110450878137-0400": "5c9dfddf1f27d54870de0d3a35dc458466bc019a8e6698a398badee36473760f",
+    "20260928T110528423182-0400": "0ac81e42de980bb2e50d247f945861b3c483e853d801b39b023bfac4247a85a6",
+    "20260928T110600969776-0400": "572977c85b791837b2b6fc71bbbceab37b0cb7c4b3e7ef3f4ed1bada8fa02f97",
+    "20260928T120133772074-0400": "ffef8f046b968af360f35eac2b32332f408fab0c3c7f80f415f222c0ee9fcf6d",
+    "20260928T130213308789-0400": "47ce822d67ce70b97913bb9777fd56952f13784dbed9f41c9df1f3b97371ed0f",
+    "20260928T130224166467-0400": "a293031e20f5834bcf460358e6beaa7ed53f5df3f984dde457f8bddcc878aa92",
+    "20260928T130231951389-0400": "6b38bfb887f905e924751bb14350a08fd60ff587f457cdc704f986ed1b7268fa",
+    "20260928T140224126826-0400": "f13afe3702d2dae1a09ef424d22bb40f81f7f8321c5d46ddd29a6eb5677b6a1a",
+    "20260928T140846009748-0400": "e34926632ba16bceb9f671a9a8afbbb343178864c8a121f1a07b4907eb0ea9cc",
+    "20260928T140857729597-0400": "06bd54f6fd57c94dab5079d646fec74ddf648f403f8694c5cf3c126af3c47f2e",
+    "20260928T140908230943-0400": "16f9ea9b3cef9798331c8d4bb00fb98b6f3c92718b84ad8d4f1e1e69dadd0c51",
+    "20260928T150207994300-0400": "9155b93c76162f4f493c5449255986eca83e2e4b92b68e2a925ca15bc81c143c",
+    "20260928T150243151115-0400": "478292da0fb49207ae3153f55815baa9c6612842811fea90c4d09fc3ca65b2d3",
+    "20260928T150323758693-0400": "859194d3af03ed96a2a68a728fb4d1dc87198ac9e50ec265463440f0da88321b",
+    "20260928T150818195747-0400": "8c78c1b611c748eba889c6726635835bf5b2cb5fae63476b125615915e5f92b2",
+    "20260928T160735928917-0400": "836e9b695c1cf2eb5619af8093e4d5828b98396b1a801d1b5d825fad5c74a3e4",
+    "20260928T170004517848-0400": "16c284131ace6fcc3cb6513ef6016c348cadc04d66a930f27dc4bef7f9a04963",
+    "20260928T170034074291-0400": "f806847aa9552db3820e16cb7d0477dab3161cc280d22987c46786e0657c38fa",
+    "20260928T170845870546-0400": "91590e3ef51ac722394c4fd85ff76b057aec4d8a840af9004823a260452a4ed7"
+   }
+  }
+ }
+}
