@@ -2,7 +2,7 @@ import json
 import tempfile
 import unittest
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -694,6 +694,121 @@ class TestDailyRefreshResources(unittest.TestCase):
             "--resume-from-step observed_floor_safety_monitor",
             payload["current_step"]["resume_command"],
         )
+
+    def _postcheck_retry_run(self, tmp, after_admissions):
+        args = _args(tmp)
+        clock = {"now": datetime(2026, 10, 23, 14, 35, tzinfo=timezone.utc)}
+
+        def sleep(seconds):
+            clock["now"] = clock["now"] + timedelta(seconds=seconds)
+
+        args._stage_a_now_fn = lambda: clock["now"]
+        args._stage_a_sleep_fn = sleep
+        args._stage_a_retry_log_fn = lambda message: None
+        args._stage_a_teardown_deadline_utc = clock["now"] + timedelta(hours=1)
+        payload = _parent_payload()
+
+        def fake_run(command, **kwargs):
+            kwargs["on_started"]({"pid": 9001, "started_before_user_code": True})
+            result_path = Path(command[command.index("--result-json") + 1])
+            result_path.write_text(
+                json.dumps({
+                    "schema_version": "daily_refresh_step_child_v0.2",
+                    "status": "ok",
+                    "step": "public_wu_settlement_restore",
+                    "pid": 9001,
+                    "finished_at_utc": "2026-10-23T14:35:00+00:00",
+                    "result": {"status": "PASS"},
+                }),
+                encoding="utf-8",
+            )
+            return {
+                "command": command,
+                "pid": 9001,
+                "returncode": 0,
+                "timed_out": False,
+                "duration_seconds": 1.0,
+                "working_set_limit": {"requested": True},
+                "resource_peaks": {},
+                "resource_io": {},
+                "resource_limit_exceeded": None,
+                "containment": {"status": "PASS"},
+                "termination": {"triggered": False},
+                "runner_error": None,
+            }
+
+        with patch(
+            "weather.operations.daily_refresh.build_stage_a_step_admission",
+            side_effect=[{"status": "PASS", "decision": "ADMIT"}, *after_admissions],
+        ), patch(
+            "weather.operations.daily_refresh.run_isolated_subprocess",
+            side_effect=fake_run,
+        ):
+            result = _run_isolated_stage_a_step(
+                args,
+                payload,
+                "public_wu_settlement_restore",
+                run_id="test-run",
+            )
+        return result, payload
+
+    @staticmethod
+    def _transient_block():
+        loop = {
+            "name": "snapshot",
+            "active": True,
+            "heartbeat_fresh": True,
+            "state": "ACTIVE_DEGRADED",
+            "degraded_reasons": ["consecutive_errors", "last_error_present"],
+        }
+        return {
+            "status": "BLOCK",
+            "decision": "DEFER",
+            "capture_loops": [loop],
+            "blockers": [{
+                "code": "capture_loop_not_fresh",
+                "loop": "snapshot",
+                "state": "ACTIVE_DEGRADED",
+                "degraded_reasons": loop["degraded_reasons"],
+                "heartbeat_age_seconds": 19.0,
+            }],
+        }
+
+    def test_transient_postcheck_degradation_that_clears_continues_the_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result, payload = self._postcheck_retry_run(
+                tmp,
+                [
+                    self._transient_block(),
+                    self._transient_block(),
+                    {"status": "PASS", "decision": "ADMIT", "blockers": []},
+                ],
+            )
+        record = result["resource_execution"]
+        self.assertEqual(record["status"], "ok")
+        self.assertEqual(record["admission_after"]["decision"], "ADMIT")
+        self.assertEqual(record["post_step_transient_retry"]["outcome"], "recovered")
+        self.assertEqual(record["post_step_transient_retry"]["recheck_count"], 2)
+        self.assertFalse(payload["terminal"])
+        self.assertEqual(payload["status"], "running")
+        self.assertNotIn("interruption", payload)
+
+    def test_transient_postcheck_degradation_that_persists_defers_as_before(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result, payload = self._postcheck_retry_run(
+                tmp,
+                [self._transient_block() for _ in range(21)],
+            )
+        record = result["resource_execution"]
+        self.assertEqual(record["status"], "ok_postcheck_deferred")
+        self.assertEqual(record["post_step_transient_retry"]["outcome"], "still_degraded")
+        self.assertEqual(record["post_step_transient_retry"]["recheck_count"], 20)
+        self.assertTrue(payload["terminal"])
+        self.assertEqual(
+            payload["interruption"]["reason"],
+            "post_step_capture_or_physical_check_failed",
+        )
+        self.assertEqual(payload["current_step"]["name"], "market_day_labels_finalize")
 
 
 if __name__ == "__main__":

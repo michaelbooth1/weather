@@ -5,7 +5,6 @@ probability mass, R0-identical row keys, date-clustered bootstrap, fail-closed i
 host and no output inside the repository.
 """
 import hashlib
-import importlib
 import json
 import math
 
@@ -13,12 +12,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-try:
-    prm = importlib.import_module("weather.calibration.pooled_residual_model")
-except ImportError as exc:  # pragma: no cover - only on the capture host
-    if "pooled_residual_model refuses" in str(exc):
-        pytest.skip("research module refuses this host by design", allow_module_level=True)
-    raise
+from tests.host_guard import import_or_skip_on_capture_host
+
+prm = import_or_skip_on_capture_host("weather.calibration.pooled_residual_model")
 
 
 def _frame(n_days=12, years=(2021, 2022, 2023, 2024), markets=("atlanta", "nyc"), hour=10, seed=0):
