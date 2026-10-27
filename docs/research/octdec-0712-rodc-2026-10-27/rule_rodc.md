@@ -373,3 +373,30 @@ The C1.2 control runs `cool_season_audit part1c`, whose static import closure (1
 `closure_control.json` `cefb5472…`) does not include `rodc_octdec`. `cool_season_audit` imports `rodc_octdec`
 lazily, only inside the `rodc-gate1` dispatch (`cool_season_audit.py:1157`). The support commit changes no other
 file, so the control's code path and its exact result (`8d87027a…`) stand without a rerun.
+
+### C2.4 Open-ended support edges (master's check, before the seal); env re-pinned
+
+- **Finding at 6286465b2:** the edges were NOT open-ended.
+  - `smoothed_dist` (`mg_serve_core.py:451-458`) puts climatology mass only on in-support integers; a
+    training label beyond an edge dropped out of the numerator.
+  - `brier_from_dist` (`cool_season_audit.py:75-77`) scored an out-of-support held-out `y` against whatever
+    kernel mass sat at that integer.
+  - Held-out labels outside the training-years support (labels only, 2021-25 Oct-Dec records, hours 07-12,
+    24,744 rows; `C:\t\l16odc\edge_counts.py` `d05f42f2…`, output `f2b6d9a1…`), below min / above max:
+    2021 12/0; 2022 0/12; 2023 6/18; 2024 6/36; 2025 66/12; 288 rows in all, about 1.2%.
+- **Change** (env commit `701b7bb5d554a75914d224b4f2058431e5c4de50`, now the **final env tip**;
+  `rodc_octdec.py` sha256 `14472030ae3827f174b751cda8c04d573fb905e578ede06182ad8d14494445de`, the only file
+  changed):
+  - `open_edges` (`rodc_octdec.py:79-93`) clips each hour's `train_y` into [min, max] in both state copies:
+    COMP through `comp_state` (:96-99) and G1 through `fold_state` (:134). Climatology mass beyond an edge
+    lands on the `<= min` or `>= max` edge bucket.
+  - `edge_brier` (:102-110) folds every scored distribution (both blends, both P3d_H arms and the reported
+    MG-1) onto the support, with `<= min` and `>= max` edge buckets, and clips `y` the same way.
+    `score_rows` uses it for every arm (:207-210) and refuses if the two arms' supports differ (:202-204).
+  - The per-row counts `y_in_support`, `y_below_support` and `y_above_support` are recorded in the output's
+    `row_stats`.
+- **Scope:** both arms are scored identically on the same open-edged partition, which mirrors the venues'
+  open-ended end bands. The statistic, gates and pass rule are otherwise unchanged. The C2.3 control
+  argument still holds, because `rodc_octdec` remains outside the control's import closure.
+- **Supersedes:** gate 1 runs at `701b7bb5d…`, not at `6286465b2`, and C2.1's "final env tip" is
+  superseded by this line.
