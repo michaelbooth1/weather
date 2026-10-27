@@ -1121,6 +1121,11 @@ def main(argv=None):
     parser = argparse.ArgumentParser(prog="python -m weather.calibration.cool_season_audit",
                                      description="Lane L3 CS-1 cool-season transfer audit (history only)")
     sub = parser.add_subparsers(dest="cmd", required=True)
+    rg = sub.add_parser("rodc-gate1", help="R-ODC gate 1 (weather.calibration.rodc_octdec; rule_rodc.md)")
+    for flag in ("--nbm-corpus", "--records-root", "--research-root", "--state-0712", "--hrrr-2123",
+                 "--sums-2123", "--hrrr-2425", "--land", "--l6-state", "--mg2-coefficients", "--blend-weights",
+                 "--rule", "--rule-sha256", "--commit", "--out"):
+        rg.add_argument(flag, required=True)
     c = sub.add_parser("coverage")
     c.add_argument("--research-root", required=True)
     c.add_argument("--nbm-corpus", required=True)
@@ -1148,6 +1153,17 @@ def main(argv=None):
                  "--clarification-sha256", "--out"):
         r49.add_argument(flag, required=True)
     a = parser.parse_args(argv)
+    if a.cmd == "rodc-gate1":
+        from weather.calibration import rodc_octdec
+
+        out = rodc_octdec.gate1(nbm_corpus=a.nbm_corpus, records_root=a.records_root,
+                                research_root=a.research_root, state_0712=a.state_0712, hrrr_2123=a.hrrr_2123,
+                                sums_2123=a.sums_2123, hrrr_2425=a.hrrr_2425, land=a.land, l6_state=a.l6_state,
+                                mg2_coefficients=a.mg2_coefficients, blend_weights=a.blend_weights,
+                                rule=a.rule, rule_sha256=a.rule_sha256, out_path=a.out, commit=a.commit)
+        print(json.dumps({"verdict": out["verdict"], "headline": out["headline"],
+                          "rows_sha256": out["rows_sha256"]}, indent=1, default=str))
+        return 0
     if a.cmd == "coverage":
         roots = dict(x.split("=", 1) for x in a.hrrr)
         out = coverage(research_root=a.research_root, nbm_corpus=a.nbm_corpus, records_root=a.records_root,
