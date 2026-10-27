@@ -1,4 +1,4 @@
-# MG3-DC-1 clarification 0712-1: the 07-12 arm MG-3 binds (DRAFT for master's review)
+# MG3-DC-1 clarification 0712-1: the 07-12 arm MG-3 binds
 
 - **Status: In force: master accepted 2026-10-27.** Lane L2, 2026-10-27. It amends MG3-DC-1
   `a7c697618cd26cfac1184c148a39ee1d20a1ea612e048bd350363ba34022a031` (`rule_mg3_paired_dc.md`) §2.1-2.2 only.
