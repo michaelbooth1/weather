@@ -279,3 +279,50 @@ Master granted (2026-10-27) R-ODC read access to `C:\t\l13\hrrr_cool0712`.
 - **Outputs:** `C:\t\l16odc\rodc\` holds `gate1.json`, then `gate2.json` if gate 1 passes, plus per-row files.
   Every output is write-once.
 - **Ledger:** DEV_WINDOW_LEDGER row 65 is written `pending` before the run (the coordinator routes ledger text).
+
+## Clarification 1 (2026-10-27, master ruling relayed by the coordinator; written before any fit)
+
+This clarification does two things only. It pins the run environment and it states the positive control's
+configuration. It changes no scope, arm, gate, statistic or headline: section 2's headline stands as declared,
+with no-cycle rows kept with NaN HRRR extras, and the dropped version as the sensitivity.
+
+### C1.1 Run environment (pinned)
+
+- Branch `claude/rodc-run-env-20261027`, a research-only environment that is never landed. Its tip is
+  `6d53385b12d6490e336ff1dc96bf7ea436703021`. It was built from this rule's commit
+  `b0bd4c3af1b5db4f92b6541d0711ac1f3e9143df` by real merges:
+  1. `5879e82d83fac5b9df64be2cfdb2d4f60d8849e6`, the cool-season-audit commit that CS-1 part 1c (row 47) and row 49
+     ran at. That commit is recorded in rows 47 and 49 and in L3's clarification `31512de0…`. The branch head
+     `6a8b00755` is not used. The merge was clean; its commit is `49388fa0f379b50a8548457f5ad5626470a63032`.
+  2. `b750df1634b969a5317d9aaa3ee4905af9fcb1b5`, the MG-3 freeze.
+     - There was no `src/` conflict.
+     - No `src/` file changed on both sides relative to either merge base (`850696870…` for merge 1, `58be2ef79…`
+       for merge 2), so git combined no `src/` edits.
+     - The three conflicting non-src files took the 5879e82d8 side wholesale: `docs/operations/FINDINGS_DIGEST.md`,
+       `tests/calibration/test_pooled_residual_model.py` and `tests/calibration/test_r0_ols_floor_challenger.py`.
+- R-ODC's code is added on top of this tip. The code commit is recorded in row 65 before gate 1.
+- An import-closure scan of the R-ODC entry point runs before any run.
+
+### C1.2 Positive control (before any refit)
+
+- **What it reproduces:** X41's frozen blend_l6_H Oct-Dec 2024-25 result, the row-47 output
+  `C:\t\l3\coolseason\part1c.json`.
+- **Configuration:** X41's own. It runs `python -m weather.calibration.cool_season_audit part1c` from the env tip,
+  through `workstation_heavy.ps1 -Queue`, with L3's inputs unchanged:
+  - the CS-1 rule `ac9c7433…`;
+  - the 1c addendum `2b7c4c3f…`;
+  - L3's clarification `31512de0…`, which sets the paired, cycle-present key set, with the 63 no-cycle keys dropped;
+  - the sealed backfill `fe2dad2c…`;
+  - L2's state_0712, the weights `c7b8ebc0…`, the coefficients `C:\t\mg2\freeze_cap\mg2_coefficients.json`
+    (`4bc51e03…`), the L6 HGB `0e89b32d…`, the land rule `22069bee…`, the NBM corpus `1ae4bf52…` and the
+    records `C:\t\l2\records`.
+  - The output is `C:\t\l16odc\control\part1c.json`.
+- **Expected:** the module sha256 is `33a96f17…`, and `blend_l6_h_0712.headline` equals the row-47 receipt exactly:
+  - estimate −0.01634938182470121;
+  - ci95 [−0.023824563528186724, −0.009037275953557012];
+  - n_rows 9,830, n_dates 150, n_cells 1,649;
+  - Oct-Dec key-set sha256 `3a12f74a2544dae35fec6ed03d76a0f4969e9ff5d6de3da9bebc0ec9821f825a`.
+- **Pass rule:** exact equality. Anything else stops R-ODC and is reported.
+- **Reads:** the control reads the sealed 2024-25 backfill under grant (b). A dated access line records this
+  master-directed control read.
+- **No fit before the seal:** gate 1 still runs once, only after the 2021-23 backfill's SHA256SUMS seal.
