@@ -46,6 +46,8 @@ citing it in a new decision.
 | [EXHAUSTION_REGISTER.md](EXHAUSTION_REGISTER.md) | *What is left before a no-go?* — which conclusions survive the serving fixes, which free sources were tested, and each open lead's exit criterion. |
 | [HOW_WE_GET_THINGS_WRONG.md](HOW_WE_GET_THINGS_WRONG.md) | *What shape do our mistakes take?* — read before designing a gate or trusting a green signal. |
 | [CAMPAIGN_LEDGER.md](CAMPAIGN_LEDGER.md) | *How much α is spent, and on what?* — the binding decision ledger. Read before proposing any confirmatory look; only the operator allocates. |
+| [DEV_WINDOW_LEDGER.md](DEV_WINDOW_LEDGER.md) | *What has already been scored on the 07-31..09-29 development window?* — one row per candidate, control or read; the reuse count every pre-registration cites and every edge test corrects for. |
+| [PREREGISTRATION_CHECKLIST.md](PREREGISTRATION_CHECKLIST.md) | *What must a rule file state before a dev-window candidate is scored?* — positive control, comparator fairness, targeted loss slice, MDE and clusters, reuse count; enforced by `weather.reporting.scorecards.prereg_check`. |
 
 Open work is **not** tracked here. Owned work lives in numbered roadmap items, surfaced by the
 generated [`../roadmap/active-backlog.md`](../roadmap/active-backlog.md). What is open on the host
@@ -148,6 +150,7 @@ contract and a reviewed cleanup manifest.
 | [settlement-source-audit.md](settlement-source-audit.md) | Touching the settlement-source audit, its bounded storage path, source-lineage classification, or the truth-label gate for settlement-scored trading evidence. Owner: `weather.reporting.source_gates.settlement_source_audit`. |
 | [POINT_IN_TIME_EVALUATION.md](POINT_IN_TIME_EVALUATION.md) | Evidence key, materialization, preselection/qualification, folds, locked evaluation. |
 | [PIT_FORECAST_TRAINING_CORPUS.md](PIT_FORECAST_TRAINING_CORPUS.md) | Immutable forecast planning, request-keyed staging, cutoff-safe publication, pooled-retraining consumption. |
+| [NEW_CITY_MODEL_LANE.md](NEW_CITY_MODEL_LANE.md) | Inactive candidate registry, METAR label and print-cutoff rules, new-city corpus builder, fetch blockers, R1 recorder-only enable runbook. |
 | [nbm-target-period-contract.md](nbm-target-period-contract.md) | Parsing or replaying NBP maximum guidance, persisting token provenance, or admitting future guidance rows. |
 | [forecast-source-and-training-population.md](forecast-source-and-training-population.md) | Anyone raises provider licensing or the training population. **Closed: free-tier Open-Meteo only; do not stop a mission on it.** |
 | [the-season-window-blocks-the-retrain.md](the-season-window-blocks-the-retrain.md) | Touching forecast-archive coverage or the first-retrain corpus. |

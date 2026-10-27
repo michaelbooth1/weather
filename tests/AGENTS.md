@@ -21,6 +21,10 @@ Tests mirror owner packages under `tests/app`, `backtesting`, `calibration`,
   spawns one git commit instead of three. Wait for a condition by polling with
   the old wait as the ceiling; keep a fixed sleep only where it proves that
   something did *not* happen.
+- Import a research module whose import guard refuses the capture host only
+  through `tests/host_guard.py`'s `import_or_skip_on_capture_host`;
+  `test_capture_host_collection.py` collects the suite under capture-host
+  emulation ([development.md](../docs/development.md#capture-host-collection-emulation)).
 - If changing native-unit or model features, cover Celsius and Fahrenheit paths
   and verify training/serving parity where applicable.
 
