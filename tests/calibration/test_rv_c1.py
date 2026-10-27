@@ -6,7 +6,11 @@ a conflict (equal or both-NaN duplicates are not); in read (a) each fold drops t
 is served through the served state's shell, the tier-2 refit and the V-off builder on the candidate's serving
 path both equal the served state on every scored row and fail on a perturbed state; in read (b) SM_H is exactly the
 SM-H run's arm (V off reproduces its rows) and SM_HV appends v_gap last; key identity and reproduction fail on a
-missing, extra or differing row; foreign inputs refuse before any fit.
+missing, extra or differing row; foreign inputs refuse before any fit. RV-C1a (clarification_rv_c1a.md):
+the Aug-Sep key control passes only when exactly the declared non-finite row (miami 2024-08-31 h13) is dropped
+and VOIDs on 0, 2 or a different row; the dropped keys are the rows the served path excludes; the determinism
+control compares row-file shas with RV-C1's and VOIDs on a mismatch; thread counts are pinned to 10 and a
+foreign Oct-Dec manifest refuses before any fit.
 """
 import hashlib
 import importlib
@@ -143,3 +147,88 @@ def test_rv_c1_refuses_a_foreign_input_before_any_fit(tmp_path):
     with pytest.raises(prm.PooledModelError, match="NBM corpus"):
         prm.rv_c1(**kwargs)
     assert not list((tmp_path / "out").iterdir())
+
+
+NOTE_A = NOTE.with_name("clarification_rv_c1a.md")
+MIAMI = (13, 2024, "miami", "2024-08-31")
+
+
+def _gate1(n=4):
+    rows = [{"hour": 13, "year": 2024, "market": "nyc", "date": f"2024-08-0{i}", "x_brier": 0.1} for i in range(1, n)]
+    return rows + [{"hour": MIAMI[0], "year": MIAMI[1], "market": MIAMI[2], "date": MIAMI[3], "x_brier": 0.1}]
+
+
+def test_rv_c1a_sha_is_recorded_in_code():
+    assert hashlib.sha256(NOTE_A.read_bytes()).hexdigest() == prm.RV_C1A_SHA256
+    assert prm.RV_C1A_AUG_NONFINITE == (MIAMI,)
+
+
+def test_aug_keys_pass_with_exactly_the_declared_row_dropped():
+    ref = _gate1()
+    report = prm.rv_c1a_aug_keys(ref[:-1], ref, [MIAMI])
+    assert report["pass"] and report["dropped"] == [MIAMI] and report["missing"] == report["extra"] == 0
+
+
+def test_aug_keys_void_on_zero_two_or_a_different_dropped_row():
+    ref = _gate1()
+    other = (13, 2024, "nyc", "2024-08-01")
+    assert not prm.rv_c1a_aug_keys(ref, ref, [])["pass"]                       # 0 dropped
+    assert not prm.rv_c1a_aug_keys(ref[1:-1], ref, [MIAMI, other])["pass"]     # 2 dropped
+    assert not prm.rv_c1a_aug_keys([ref[-1]] + ref[1:-1], ref, [other])["pass"]  # a different row
+    assert not prm.rv_c1a_aug_keys(ref[:-1], ref[:-1], [MIAMI])["pass"]        # declared row absent from gate 1
+    assert not prm.rv_c1a_aug_keys(ref[1:-1], ref, [MIAMI])["pass"]            # a further row missing
+
+
+def test_nonfinite_keys_name_the_rows_the_served_path_drops():
+    frame = _frame(n_days=6)
+    frame.loc[3, "x_current_temp"] = float("nan")
+    frame.loc[7, "F"] = float("inf")
+    keys = prm.rv_c1a_nonfinite_keys(frame, hours=(13,))
+    want = sorted((13, int(frame.at[i, "year"]), frame.at[i, "market"], frame.at[i, "target_date"]) for i in (3, 7))
+    assert keys == want
+    rows, excluded, _ = prm.rv_c1_rows_a({"s": frame}, frame, _served(frame), hours=(13,), markets=MARKETS)
+    assert excluded["s"] == 2 and not {prm.row_key(r) for r in rows["s"]} & set(keys)
+
+
+def test_determinism_control_compares_shas_and_voids_on_a_mismatch(tmp_path):
+    expected = {}
+    for name in ("rows_a_octdec.jsonl", "rows_a_augsep.jsonl", "rows_b.jsonl"):
+        (tmp_path / name).write_bytes(name.encode())
+        expected[name] = hashlib.sha256(name.encode()).hexdigest()
+    assert prm.rv_c1a_determinism(tmp_path, expected)["pass"]
+    (tmp_path / "rows_b.jsonl").write_bytes(b"rows_b.jsonl ")
+    report = prm.rv_c1a_determinism(tmp_path, expected)
+    assert not report["pass"] and report["got"]["rows_b.jsonl"] != expected["rows_b.jsonl"]
+    assert prm.RV_C1A_C1_ROWS_SHA256["rows_a_octdec.jsonl"].startswith("8f629f08")
+
+
+def test_thread_counts_are_pinned():
+    assert prm.rv_c1a_threads(dict(prm.RV_C1A_THREADS)) == prm.RV_C1A_THREADS
+    with pytest.raises(prm.PooledModelError, match="thread counts"):
+        prm.rv_c1a_threads(dict(prm.RV_C1A_THREADS, MKL_NUM_THREADS="1"))
+    with pytest.raises(prm.PooledModelError, match="thread counts"):
+        prm.rv_c1a_threads({})
+
+
+def test_rv_c1a_refuses_wrong_threads_and_a_foreign_octdec_manifest_before_any_fit(tmp_path, monkeypatch):
+    kwargs = dict(records_root=tmp_path, nbm_train_corpus=tmp_path / "nbm.jsonl", hrrr_corpus=tmp_path,
+                  mos_augsep=tmp_path, mos_octdec=tmp_path, fwd_state=tmp_path / "state.pkl",
+                  c10_rows_path=tmp_path / "a.jsonl", c10_fwd_rows=tmp_path / "b.jsonl",
+                  smh_rows=tmp_path / "c.jsonl", rv_rows=tmp_path / "d.jsonl", out_dir=tmp_path / "out",
+                  variant="c1a")
+    monkeypatch.setenv("OMP_NUM_THREADS", "4")
+    with pytest.raises(prm.PooledModelError, match="thread counts"):
+        prm.rv_c1(**kwargs)
+    assert not (tmp_path / "out").exists()
+    for name, value in prm.RV_C1A_THREADS.items():
+        monkeypatch.setenv(name, value)
+    (tmp_path / "manifest.json").write_text("{}", encoding="utf-8")
+    real = prm._sm_h_bound
+    monkeypatch.setattr(prm, "_sm_h_bound",  # only the Oct-Dec manifest is checked for real
+                        lambda path, expected, what: real(path, expected, what)
+                        if what == "Oct-Dec MOS manifest" else expected)
+    with pytest.raises(prm.PooledModelError, match="Oct-Dec MOS manifest"):
+        prm.rv_c1(**kwargs)
+    assert not list((tmp_path / "out").iterdir())
+    with pytest.raises(prm.PooledModelError, match="unknown RV-C1 variant"):
+        prm.rv_c1(**dict(kwargs, variant="c2"))
