@@ -86,6 +86,8 @@ BOUND_FIELDS = ("mg2_rule_sha256", "mg2_binding_commit", "mg2_release_binding_sh
 # The frozen season-matched L6 own-model state of MG-2's 07-12 arm (MG-2 clarification season-L6 2026-10-26,
 # sections 3 and 7): bound in B-1, recorded in MG-2's release binding next to the l6_stack part sha.
 L6_STATE_FIELD = "l6_state_sha256"
+# Served frozen states bound in B-1 and in MG-2's release binding (``mg2.served_state_loaders``), same field shape.
+SERVED_STATE_FIELDS = (L6_STATE_FIELD,)
 SHA256_HEX = re.compile(r"[0-9a-f]{64}")
 COMMIT_HEX = re.compile(r"[0-9a-f]{40}")
 OWNER_DECISION = re.compile(r"NONE|OD-\d{4}-\d{2}-\d{2}-[A-Za-z0-9][A-Za-z0-9_.-]*")  # mg2.OWNER_DECISION_ID or NONE
@@ -211,21 +213,30 @@ def unfilled(fields):
             if not isinstance(fields.get(k), str) or not BOUND_FORMATS[k].fullmatch(fields[k])]
 
 
-def l6_state_problems(fields, release_binding):
-    """The bound L6 state sha: 64 lowercase hex, and equal to the one MG-2's release binding records.
+def served_state_problems(fields, release_binding, names=SERVED_STATE_FIELDS):
+    """Each bound served-state sha: 64 lowercase hex, and equal to the one MG-2's release binding records.
 
-    The binding must be ``mg2_composite bind-release`` output (``RELEASE_BINDING_SCHEMA``), whose
-    ``l6_state_sha256`` is the sha that ``load_l6_own_state`` verified, so two machine-written values meet here.
+    The binding must be ``mg2_composite bind-release`` output (``RELEASE_BINDING_SCHEMA``), whose state shas are
+    the shas their loaders verified (``load_l6_own_state`` for L6), so two machine-written values meet here.
     """
-    value = fields.get(L6_STATE_FIELD) or ""
-    if not SHA256_HEX.fullmatch(value):
-        return [L6_STATE_FIELD]
-    binding = _json(release_binding)
-    if binding.get("schema") != mg2.RELEASE_BINDING_SCHEMA:
-        return [f"{L6_STATE_FIELD} (the MG-2 release binding is not bind-release output)"]
-    if binding.get(L6_STATE_FIELD) != value:
-        return [f"{L6_STATE_FIELD} (MG-2 release binding)"]
-    return []
+    binding = None
+    problems = []
+    for name in names:
+        value = fields.get(name) or ""
+        if not SHA256_HEX.fullmatch(value):
+            problems.append(name)
+            continue
+        binding = _json(release_binding) if binding is None else binding
+        if binding.get("schema") != mg2.RELEASE_BINDING_SCHEMA:
+            problems.append(f"{name} (the MG-2 release binding is not bind-release output)")
+        elif binding.get(name) != value:
+            problems.append(f"{name} (MG-2 release binding)")
+    return problems
+
+
+def l6_state_problems(fields, release_binding):
+    """The bound L6 state sha (``served_state_problems`` for ``l6_state_sha256`` alone)."""
+    return served_state_problems(fields, release_binding, (L6_STATE_FIELD,))
 
 
 # ----------------------------------------------------------------------------- the estimand
@@ -408,7 +419,7 @@ def bound_hash_problems(fields, *, mg2_rule, release_binding, mg2_look, vectors,
     for key in ("l6_coefficients_sha256", "p3d_n_state_sha256", "function_sha256"):
         if mg2_fields.get(key) != fields[key]:
             problems.append(key)
-    problems += l6_state_problems(fields, release_binding)
+    problems += served_state_problems(fields, release_binding)
     problems += emit_audit_problems(fields, vectors)
     if mg2.rule_d0(mg2_fields) != date.fromisoformat(fields["d0"]):
         problems.append("d0 (MG-2 rule)")

@@ -7,7 +7,8 @@ INCONCLUSIVE, NOT-WORSE below +0.0027), 8 (VOID 1-7), 9 (MG-1 look receipt first
 ("bind with fixes": consumed-look markers, ABORTED receipts, verified bound fields, VOIDs 1/4/5 from recorded
 evidence, a VOID on a degenerate interval, the market-local embargo) and the MG-2 season-L6 clarification
 (``l6_state_sha256``); master's review of de422aa59 (R1 the fixed per-rule consumed marker, R2 an unevaluated
-section 7 condition is VOID 1, R4 the release binding is bind-release output, R6 the embargo covers every market).
+section 7 condition is VOID 1, R4 the release binding is bind-release output, R6 the embargo covers every market)
+and the SM-N notice (served-state shas share one field shape).
 """
 import json
 import shutil
@@ -133,6 +134,19 @@ def test_l6_state_sha_must_equal_the_mg2_release_binding(tmp_path):
         "l6_state_sha256 (the MG-2 release binding is not bind-release output)"]
     for bad in ("", b.FILL, "7" * 63):
         assert b.l6_state_problems({"l6_state_sha256": bad}, binding) == ["l6_state_sha256"]
+
+
+def test_a_second_served_state_is_checked_with_the_same_shape(tmp_path):
+    binding = tmp_path / "release-binding.json"
+    names = ("l6_state_sha256", "extra_state_sha256")
+    binding.write_text(json.dumps({"schema": mg2.RELEASE_BINDING_SCHEMA, "l6_state_sha256": "7" * 64,
+                                   "extra_state_sha256": "9" * 64}), encoding="utf-8")
+    good = {"l6_state_sha256": "7" * 64, "extra_state_sha256": "9" * 64}
+    assert b.served_state_problems(good, binding, names) == []
+    assert b.served_state_problems(dict(good, extra_state_sha256="8" * 64), binding, names) == [
+        "extra_state_sha256 (MG-2 release binding)"]
+    assert b.served_state_problems(dict(good, extra_state_sha256=b.FILL), binding, names) == ["extra_state_sha256"]
+    assert b.SERVED_STATE_FIELDS == ("l6_state_sha256",)  # SM-N is not wired until its state sha is sent
 
 
 def test_the_look_refuses_first_without_mg1_look_receipt(tmp_path):

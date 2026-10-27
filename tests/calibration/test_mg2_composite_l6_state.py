@@ -548,8 +548,8 @@ def _bind_world(tmp_path, monkeypatch):
     loads = []
     monkeypatch.setattr(mg2_p3d_n, "load_state", lambda p, s, forward: loads.append((s, forward)) or {})
     monkeypatch.setattr(mg2, "verify_function", lambda fields: fields["function_sha256"])
-    return dict(rule=rule, coefficients=coefficients, p3d_n_state=tmp_path / "p.pkl", l6_state=path,
-                l6_state_sha256=sha), loads
+    return dict(rule=rule, coefficients=coefficients, p3d_n_state=tmp_path / "p.pkl",
+                served_states={"l6_state_sha256": (path, sha)}), loads
 
 
 @pytest.mark.spawns
@@ -559,11 +559,12 @@ def test_bind_release_records_the_verified_l6_state_and_verify_release_accepts_i
     got = mg2.bind_release(out=out, **kw)
     binding = json.loads(out.read_text(encoding="utf-8"))
     assert binding["schema"] == mg2.RELEASE_BINDING_SCHEMA
-    assert binding["l6_state_sha256"] == kw["l6_state_sha256"] == got["l6_state_sha256"]
+    sha = kw["served_states"]["l6_state_sha256"][1]
+    assert binding["l6_state_sha256"] == sha == got["l6_state_sha256"]
     assert loads == [("5" * 64, True)] and set(binding["files"]) == set(mg2.RELEASE_FILES)
     rule_sha, fields = mg2.read_rule(kw["rule"])
-    assert mg2.verify_release(out, rule_sha, fields)["l6_state_sha256"] == kw["l6_state_sha256"]
-    assert mg2.forward_nowcasts(_nowcasts(tmp_path / "now", state=kw["l6_state_sha256"]), binding)
+    assert mg2.verify_release(out, rule_sha, fields)["l6_state_sha256"] == sha
+    assert mg2.forward_nowcasts(_nowcasts(tmp_path / "now", state=sha), binding)
     with pytest.raises(mg2.Mg2Refused, match="refusing to overwrite"):
         mg2.bind_release(out=out, **kw)
 
@@ -571,10 +572,20 @@ def test_bind_release_records_the_verified_l6_state_and_verify_release_accepts_i
 def test_bind_release_refuses_a_state_that_does_not_load_at_its_sha(tmp_path, monkeypatch):
     kw, _ = _bind_world(tmp_path, monkeypatch)
     out = tmp_path / "release-binding.json"
+    path, _ = kw["served_states"]["l6_state_sha256"]
     for bad in ("0" * 64, "", "<FILL@BINDING>"):
         with pytest.raises(mg2.Mg2Refused):
-            mg2.bind_release(out=out, **dict(kw, l6_state_sha256=bad))
+            mg2.bind_release(out=out, **dict(kw, served_states={"l6_state_sha256": (path, bad)}))
+    for states in ({}, dict(kw["served_states"], p3d_n_season_state_sha256=(path, "0" * 64))):
+        with pytest.raises(mg2.Mg2Refused, match="exactly the served states"):
+            mg2.bind_release(out=out, **dict(kw, served_states=states))
     kw["rule"].write_text(kw["rule"].read_text(encoding="utf-8").replace("5" * 64, "PENDING"), encoding="utf-8")
     with pytest.raises(mg2.Mg2Refused, match="p3d_n_state_sha256 is not set"):
         mg2.bind_release(out=out, **kw)
     assert not out.exists()
+
+
+def test_served_state_loaders_and_b_fields_name_the_same_states():
+    b = import_or_skip_on_capture_host("weather.calibration.b_scorer")
+    assert tuple(sorted(mg2.served_state_loaders())) == tuple(sorted(b.SERVED_STATE_FIELDS))
+    assert all(name.endswith("_state_sha256") and name in b.BOUND_FIELDS for name in b.SERVED_STATE_FIELDS)

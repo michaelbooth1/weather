@@ -284,19 +284,33 @@ def verify_release(path, rule_sha, fields, root=None):
 RELEASE_BINDING_SCHEMA = "mg2_release_binding/1"
 
 
-def bind_release(*, rule, coefficients, p3d_n_state, l6_state, l6_state_sha256, out, root=None):
+def served_state_loaders():
+    """Served frozen states bound by file sha256 in the release binding: ``<name>_state_sha256`` -> a loader
+    ``(path, sha256)`` that refuses unless the file bytes hash to ``sha256`` (and the state's registered schema).
+
+    One entry per served state; a further state (for example a season-matched 13-16 state) is one more entry here,
+    with the same field shape, and one more ``SERVED_STATE_FIELDS`` entry in ``b_scorer``.
+    """
+    return {"l6_state_sha256": load_l6_state}
+
+
+def bind_release(*, rule, coefficients, p3d_n_state, served_states, out, root=None):
     """Write ``release-binding.json`` from verified loads only; nothing in it is typed by hand.
 
     The rule's coefficient part and P3d_N state are loaded at the rule's shas (``load_part``,
-    ``mg2_p3d_n.load_state`` forward), the function at the rule's sha (``verify_function``), and the L6 state
-    through ``load_l6_state`` (``mg_serve_core.load_l6_own_state``: refused unless the file bytes hash to
-    ``l6_state_sha256``). The recorded ``l6_state_sha256`` is the sha of the bytes that load verified. The file
-    hashes are the running ``RELEASE_FILES``; ``built_at_commit`` is ``HEAD`` when the binding was written.
+    ``mg2_p3d_n.load_state`` forward) and the function at the rule's sha (``verify_function``). ``served_states``
+    maps every ``served_state_loaders`` field to ``(path, sha256)``; each is loaded through its loader (the L6
+    state through ``mg_serve_core.load_l6_own_state``), and the recorded sha is that of the bytes the load
+    verified. The file hashes are the running ``RELEASE_FILES``; ``built_at_commit`` is ``HEAD`` when written.
     """
     import subprocess
 
     from weather.calibration import mg2_p3d_n
 
+    loaders = served_state_loaders()
+    if set(served_states) != set(loaders):
+        raise Mg2Refused(f"bind-release needs exactly the served states {sorted(loaders)}, got "
+                         f"{sorted(served_states)}")
     rule_sha, fields = read_rule(rule)
     for key in ("l6_coefficients_sha256", "p3d_n_state_sha256", "function_sha256", *SOURCE_FIELDS.values()):
         if fields.get(key) in (None, "", PENDING):
@@ -307,25 +321,27 @@ def bind_release(*, rule, coefficients, p3d_n_state, l6_state, l6_state_sha256, 
     except mg2_p3d_n.P3dNRefused as exc:
         raise Mg2Refused(str(exc)) from exc
     function_sha = verify_function(fields)
-    load_l6_state(l6_state, l6_state_sha256)
-    verified = sha256_file(l6_state)
-    if verified != l6_state_sha256:  # the file changed between the verified load and this read
-        raise Mg2Refused(f"L6 state {l6_state} changed while binding")
+    verified = {}
+    for field in sorted(loaders):
+        path, sha = served_states[field]
+        loaders[field](path, sha)
+        verified[field] = sha256_file(path)
+        if verified[field] != sha:  # the file changed between the verified load and this read
+            raise Mg2Refused(f"{field}: {path} changed while binding")
     root = Path(root or repo_root())
     head = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"], capture_output=True, text=True)
     binding = {"schema": RELEASE_BINDING_SCHEMA, "rule_sha256": rule_sha, "function_sha256": function_sha,
                "l6_coefficients_sha256": fields["l6_coefficients_sha256"],
                "p3d_n_state_sha256": fields["p3d_n_state_sha256"],
                **{key: fields[key] for key in SOURCE_FIELDS.values()},
-               "l6_state_sha256": verified, "files": release_hashes(root),
+               **verified, "files": release_hashes(root),
                "built_at_commit": head.stdout.strip() if head.returncode == 0 else None}
     out = Path(out)
     if out.exists():
         raise Mg2Refused(f"refusing to overwrite {out}")
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(binding, indent=1, sort_keys=True) + "\n", encoding="utf-8")
-    return {"path": str(out), "sha256": sha256_file(out), **{k: binding[k] for k in ("rule_sha256",
-                                                                                      "l6_state_sha256")}}
+    return {"path": str(out), "sha256": sha256_file(out), "rule_sha256": rule_sha, **verified}
 
 
 def input_parity(fields):
@@ -1438,7 +1454,8 @@ def main(argv=None):
                                       l6_state_sha256=args.l6_state_sha256, prev_root=args.prev_root)
         elif args.command == "bind-release":
             result = bind_release(rule=args.rule, coefficients=args.coefficients, p3d_n_state=args.p3d_n_state,
-                                  l6_state=args.l6_state, l6_state_sha256=args.l6_state_sha256, out=args.out)
+                                  served_states={"l6_state_sha256": (args.l6_state, args.l6_state_sha256)},
+                                  out=args.out)
         elif args.command in ("emit", "check"):
             kw = dict(layout_root=args.layout, replay_root=args.replay_root,
                       nowcasts=args.nowcasts, coefficients=args.coefficients, p3d_n_state=args.p3d_n_state,
