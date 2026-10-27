@@ -23,6 +23,7 @@ def _write_history_root(tmp_path: Path) -> Path:
     market_root.mkdir(parents=True)
     times = [f"2025-07-17T{hour:02d}:00" for hour in range(24)]
     payload = {
+        "utc_offset_seconds": -14400,  # EDT: the response offset the readers now require
         "hourly": {
             "time": times,
             "temperature_2m": [90.0] * 24,
