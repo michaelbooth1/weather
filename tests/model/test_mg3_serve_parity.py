@@ -174,8 +174,7 @@ def test_a_binding_built_by_the_release_builder_serves_through_mg3_serve(tmp_pat
              "inputs": {"l6_part": part_sha, "nowcasts": "3806687c" + "0" * 56, "season_nowcasts": _sha(season)}}
     weights = tmp_path / "blend_l6_H_weights_rf1.json"
     weights.write_text(json.dumps(table, sort_keys=True), encoding="utf-8")
-    Path(str(weights) + ".sha256").write_text(f"{_sha(weights)}  {weights.name}
-", encoding="utf-8")
+    Path(str(weights) + ".sha256").write_text(f"{_sha(weights)}  {weights.name}\n", encoding="utf-8")
     for module, name, value in ((prm, "MG3_RF1_WEIGHTS_SHA256", _sha(weights)),
                                 (prm, "MG3_L6_PARTNER_SHA256", l6_sha), (prm, "SM_H_STATE_SHA256", smh_sha),
                                 (ms, "SM_H_STATE_SHA256", smh_sha),
@@ -186,8 +185,7 @@ def test_a_binding_built_by_the_release_builder_serves_through_mg3_serve(tmp_pat
                                     states={"07-12": s0712, prm.SM_H_STATE_BLOCK: smh}, weights=weights,
                                     partner={"state": l6_state, "coefficients": coefficients, "nowcasts": season})
     out = tmp_path / "release-binding.json"
-    out.write_text(json.dumps(built, indent=1, sort_keys=True) + "
-", encoding="utf-8")
+    out.write_text(json.dumps(built, indent=1, sort_keys=True) + "\n", encoding="utf-8")
     binding = json.loads(out.read_text(encoding="utf-8"))  # served exactly as written, nothing added
     assert binding["schema"] == ms.BINDING_SCHEMA == prm.MG3_BINDING_SCHEMA
     assert binding["l6_partner"] == {"state_sha256": l6_sha, "part_sha256": part_sha,

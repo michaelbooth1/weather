@@ -117,16 +117,11 @@ def test_no_capture_loop_can_reach_mg3_serve():
 
 
 def test_the_importer_ratchet_sees_imports_not_prose(tmp_path):
-    cases = {"a.py": ("from weather.model import mg3_serve
-", True),
-             "b.py": ("import weather.model.mg3_serve as m
-", True),
-             "c.py": ("importlib.import_module('weather.model.mg3_serve')
-", True),
-             "d.py": ('"""the shape mg3_serve reads"""
-', False),
-             "e.ps1": ("python -m weather.model.mg3_serve
-", True)}
+    cases = {"a.py": ("from weather.model import mg3_serve\n", True),
+             "b.py": ("import weather.model.mg3_serve as m\n", True),
+             "c.py": ("importlib.import_module('weather.model.mg3_serve')\n", True),
+             "d.py": ('"""the shape mg3_serve reads"""\n', False),
+             "e.ps1": ("python -m weather.model.mg3_serve\n", True)}
     for name, (text, expected) in cases.items():
         (tmp_path / name).write_text(text, encoding="utf-8")
         assert _imports_mg3_serve(tmp_path / name) is expected, name
