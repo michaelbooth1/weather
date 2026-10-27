@@ -45,6 +45,9 @@ PINNED = [
     "weather.calibration.mg2_p3d_n",  # MG-2 P3d_N serve and dev-fit control (9f7e1b9b8, 10-25)
     "weather.calibration.b_scorer",  # Rule B-1 scorer: control and the one look (b5c2108b3, 10-25)
     "weather.calibration.l6_own_state",  # L3's one-time L6 own-state fit, master D2 (i) (1d69a87f1, 10-26)
+    "weather.calibration.rz_hrrr_spread",  # L3's rz / HRRR-spread scorer (claude/rz-hrrr-spread-20261026, 10-26)
+    "weather.calibration.cool_season_audit",  # L3's CS-1 cool-season audit, 1a-1c and row 49 (10-26)
+    "weather.calibration.season_matched_l6",  # L3's SM-L6 season-matched fit, row 45/46 (10-26)
     "weather.market.maker_evidence_inspect",
     "weather.market.maker_counterfactual_tape",
     "weather.operations.base_retrain",

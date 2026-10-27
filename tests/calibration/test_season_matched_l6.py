@@ -69,8 +69,8 @@ def test_hook_and_ps1_admit_the_module_exactly():
     spec.loader.exec_module(hook)
     assert MODULE in hook._OFFLINE_WEATHER_MODULES
     assert MODULE + "_x" not in hook._OFFLINE_WEATHER_MODULES
-    text = (ROOT / "scripts" / "ops" / "workload_admission.ps1").read_text(encoding="utf-8")
-    assert f'"{MODULE}",' in text
+    # The ps1 mirror is proved by executing Get-WeatherWorkstationOfflineModule in
+    # tests/operations/test_loss_atlas_admission.py against the PINNED list in test_r0_full_year_admission.py.
 
 
 def test_bucket_probs_reproduce_bucket_brier():

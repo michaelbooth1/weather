@@ -46,8 +46,8 @@ def test_hook_and_ps1_admit_the_module_exactly():
     assert hook.evaluate({"tool_name": "Bash", "tool_input": {
         "command": f'& "{sys.executable}" -m {MODULE} coverage --rule r --out o'
     }}, constrained_capture_host=False) is not None
-    text = (ROOT / "scripts" / "ops" / "workload_admission.ps1").read_text(encoding="utf-8")
-    assert f'"{MODULE}",' in text
+    # The ps1 mirror is proved by executing Get-WeatherWorkstationOfflineModule in
+    # tests/operations/test_loss_atlas_admission.py against the PINNED list in test_r0_full_year_admission.py.
 
 
 def test_k_extra_is_nan_on_a_miss_and_gaps_against_the_anchor():
