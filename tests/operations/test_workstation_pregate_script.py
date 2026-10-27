@@ -294,6 +294,60 @@ def _pregate(info: dict, head: str, label: str, base: str = "") -> tuple[subproc
     return result, json.loads(receipt.read_text(encoding="utf-8"))
 
 
+# This process's real ancestry, nearest first: pid and .NET start time (UTC,
+# round-trip format, as the receipt records it). The walk stops at a parent
+# created after its child, which is a reused pid and not an ancestor. Plain CIM
+# and .NET only: deliberately not the admission script's own matcher.
+ANCESTRY_PROBE = r"""
+$ErrorActionPreference = 'Stop'
+$byId = @{}
+foreach ($p in @(Get-CimInstance Win32_Process -Property ProcessId, ParentProcessId, CreationDate)) {
+    $byId[[int]$p.ProcessId] = $p
+}
+$current = $byId[[int]$env:PG_ANCESTRY_FROM]
+$chain = @()
+while ($null -ne $current) {
+    $start = $null
+    try {
+        $start = [Diagnostics.Process]::GetProcessById([int]$current.ProcessId).StartTime.ToUniversalTime().ToString('o')
+    }
+    catch { }
+    $chain += [ordered]@{ pid = [int]$current.ProcessId; start = $start }
+    $parent = $byId[[int]$current.ParentProcessId]
+    if ($null -eq $parent -or [int]$parent.ProcessId -eq [int]$current.ProcessId -or
+        $parent.CreationDate -gt $current.CreationDate) { break }
+    $current = $parent
+}
+ConvertTo-Json -InputObject @($chain) -Compress
+"""
+
+
+def _ancestry() -> list[dict]:
+    env = {**os.environ, "PG_ANCESTRY_FROM": str(os.getpid())}
+    result = _run([*POWERSHELL, "-Command", ANCESTRY_PROBE], env=env, timeout=120)
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)
+
+
+def _assert_lease_mode_matches_context(receipt: dict) -> None:
+    """The nested lease mode follows from the receipt itself (PG-NEST-1).
+
+    No exclusive holder: the run inherited workstation_heavy's slot. A holder:
+    this test process runs inside an outer exclusive pre-gate, which must be a
+    real ancestor (pid plus start time) and the one the host queue records.
+    """
+    holder = receipt["exclusive_holder"]
+    if holder is None:
+        assert receipt["lease_mode"] == "inherited_from_workstation_heavy"
+        return
+    assert receipt["lease_mode"] == "inherited_from_exclusive_holder"
+    ancestors = _ancestry()[1:]
+    assert {"pid": holder["pid"], "start": holder["owner_process_start_utc"]} in ancestors, (holder, ancestors)
+    queue_root = Path(os.environ["ProgramData"]) / "WeatherProject" / "heavy_workload_queue_v1"
+    record = json.loads((queue_root / "exclusive_holder_v1.json").read_text(encoding="utf-8-sig"))
+    assert (record["pid"], record["owner_process_start_utc"]) == (holder["pid"], holder["owner_process_start_utc"])
+
+
 def _assert_clean(info: dict, receipt: dict) -> None:
     assert receipt["worktree_removed"] is True
     assert not Path(receipt["worktree"]).exists()
@@ -441,7 +495,7 @@ def test_pregate_passes_a_good_head_in_host_console_mode_and_cleans_up(fixture_r
     assert result.returncode == 0
     assert receipt["schema"] == "weather.workstation_pregate_receipt.v1"
     assert receipt["head"] == fixture_repo["good"]
-    assert receipt["lease_mode"] == "inherited_from_workstation_heavy"
+    _assert_lease_mode_matches_context(receipt)
     assert receipt["launch_mode"]["scheduled_task_registered"] is False
     assert receipt["chunk_plan"] == [["tests/test_fixture_console.py", "tests/test_fixture_ok.py"]]
     assert [(c["ordinal"], c["files"], c["logged_files"], c["exit_code"]) for c in receipt["chunks"]] == [
