@@ -161,3 +161,15 @@ into the repo record and committed the same day.
     `tests/calibration/test_mg2_composite_l6_state.py` and `tests/reporting/test_mg1_reserved_window.py`.
 - **At `7da85e8cc`:** `b_scorer.py` sha256 is `f941628a4bfdb0002f9be1b5a2f11425a021a5389c651fb835c340f914883439`
   and `mg1_look.py` sha256 is `1e691c58b68a203aebaed3f505295971f56821e92555e3bc12ef8a4db23ff305`.
+- **Byte-identity test (known limit):** `tests/model/test_high_so_far_variant_none_byte_identity.py`
+  (added at `b8daf82c9`) checks that serving with `high_so_far_shadow_variant = None` is byte-identical to
+  master `cda1acc3a` on 36 captured 2026-09-28 records, covering all 12 built-in markets.
+  - It runs hermetically: an empty data root and no active release pointer, on both the master side (the
+    golden) and the tip side.
+  - With no local `daily_summary.csv`, the climatology prior runs in its fallback mode on both sides. The
+    production climatology history is therefore not part of the comparison.
+  - That history is not in a clean checkout, and it also holds rows after 2026-09-29. The code that
+    ea449e9cc and f3b49fabb change (the observed-high context and hours at peak) is fully exercised.
+  - The golden has one tier for materialized HGB artifacts and one for LFS pointers (CI). The test picks the
+    tier whose tracked artifacts match the checkout byte for byte, and fails rather than skips when neither
+    matches.
