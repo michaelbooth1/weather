@@ -76,12 +76,38 @@ def fold_support(frame, year, markets):
     return out
 
 
-def comp_state(frozen, buckets):
-    """The frozen P3d_H state with only ``buckets`` replaced by the fold's shared support (everything else,
-    train_y included, stays frozen)."""
-    state = dict(frozen)
-    state["buckets"] = {m: list(buckets[m]) for m in frozen["markets"]}
+def open_edges(state, buckets):
+    """A copy of ``state`` on the fold's shared support with open-ended edge buckets (rule Clarification 2):
+    ``buckets`` replaced, and each hour's ``train_y`` clipped into [min, max] so climatology mass beyond an edge
+    lands on that edge (<= min, >= max) instead of falling outside the support. Nothing else changes; the input
+    state is not mutated."""
+    state = dict(state)
+    state["buckets"] = {m: list(buckets[m]) for m in state["markets"]}
+    hours = {}
+    for h, entry in state["hours"].items():
+        entry = dict(entry)
+        entry["train_y"] = {m: [min(max(int(v), buckets[m][0]), buckets[m][-1]) for v in ys]
+                            for m, ys in entry["train_y"].items()}
+        hours[h] = entry
+    state["hours"] = hours
     return state
+
+
+def comp_state(frozen, buckets):
+    """The frozen P3d_H state on the fold's shared support with open edges (``open_edges``); the mean, scale, z,
+    centres and constants stay frozen."""
+    return open_edges(frozen, buckets)
+
+
+def edge_brier(dist, y, support):
+    """Multi-bucket Brier on the support with open-ended edges: mass at k <= min scores as the ``<= min`` bucket,
+    k >= max as ``>= max``, and the label is clipped the same way, so no outcome falls outside the support."""
+    lo, hi = support[0], support[-1]
+    folded = {}
+    for k, p in dist.items():
+        kk = min(max(int(k), lo), hi)
+        folded[kk] = folded.get(kk, 0.0) + p
+    return cs.brier_from_dist(folded, min(max(int(y), lo), hi))
 
 
 def fold_state(frozen, frame, buckets, year):
@@ -105,7 +131,7 @@ def fold_state(frozen, frame, buckets, year):
     state.update(markets=list(frozen["markets"]), centres=list(cs.OCT_DEC_CENTRES), extra_hgb=list(extra_hgb),
                  buckets={m: list(buckets[m]) for m in frozen["markets"]}, hours=hours)
     rows["export_parity_max_abs"] = export_parity(state, fits, train_all)
-    return state, rows
+    return open_edges(state, buckets), rows
 
 
 def export_parity(state, fits, train_all, n=200, tol=1e-9):
@@ -137,7 +163,8 @@ def export_parity(state, fits, train_all, n=200, tol=1e-9):
 
 def score_rows(frame, comps, folds, hrrr, nmap, coef, weights):
     """Per Oct-Dec row: COMP = frozen blend_l6_H, G1 = the fold's P3d_H in the same blend, plus MG-1 (reported).
-    ``comps[year]`` and ``folds[year]`` carry the same fold support (``fold_support``).
+    ``comps[year]`` and ``folds[year]`` carry the same fold support (``fold_support``); every arm, MG-1 included,
+    is scored by ``edge_brier`` on it (open-ended edges).
     The CS-1 1c per-row math (``score_0712``) without its 2024-25 scope guard."""
     import numpy as np
 
@@ -172,10 +199,15 @@ def score_rows(frame, comps, folds, hrrr, nmap, coef, weights):
             a, b = coef[h]
             pl = cs.dist_vector(v + a + b * (N - v), sig, F)
         w = weights[h]
-        cols["comp"][i] = cs.brier_from_dist(cs.blend(pa, pl, w), r.y)
-        cols["g1"][i] = cs.brier_from_dist(cs.blend(pg, pl, w), r.y)
-        cols["p3d_comp"][i], cols["p3d_g1"][i] = cs.brier_from_dist(pa, r.y), cs.brier_from_dist(pg, r.y)
-        cols["mg1"][i] = cs.brier_from_dist(pm, r.y)
+        sup = comps[int(r.year)]["buckets"][r.market]
+        if sup != folds[int(r.year)]["buckets"][r.market]:
+            raise RodcError(f"fold {r.year} {r.market}: COMP and G1 supports differ")
+        stats["y_below_support" if int(r.y) < sup[0] else "y_above_support" if int(r.y) > sup[-1]
+              else "y_in_support"] += 1
+        cols["comp"][i] = edge_brier(cs.blend(pa, pl, w), r.y, sup)
+        cols["g1"][i] = edge_brier(cs.blend(pg, pl, w), r.y, sup)
+        cols["p3d_comp"][i], cols["p3d_g1"][i] = edge_brier(pa, r.y, sup), edge_brier(pg, r.y, sup)
+        cols["mg1"][i] = edge_brier(pm, r.y, sup)
         stats["scored"] += 1
     out = frame[["market", "local_date", "hour", "year", "month"]].copy()
     for k, v in cols.items():
