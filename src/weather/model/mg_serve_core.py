@@ -1,15 +1,13 @@
 """MG serve core: the pure serve-time functions MG-2 and MG-3 share, importable on the capture host.
 
 Prerequisite b.0 of L2's MG-3 design (master, 2026-10-26). The research modules these functions come
-from refuse to import on the dedicated capture host by design:
+from refuse to import on the dedicated capture host by design, and further serve parts sit behind those
+modules' guards. This module holds one implementation of each serve function, so that a host serve path
+never needs a research import.
 
-* ``weather.calibration.r0_ols_floor_challenger``;
-* ``weather.calibration.pooled_residual_model``;
-* ``weather.reporting.scorecards.loss_atlas``.
-
-Further serve parts sit behind those modules' guards: ``market_blend``, ``mg2_composite``,
-``r0_ols_floor_devfit`` and ``mg2_inputs``. This module holds one implementation of each serve
-function, so that a host serve path never needs a research import.
+This module names no research module, not even in text, which keeps the repository's text-based
+no-importer ratchets exact (L8 ratchet fix, 2026-10-27). Each moved function's source is named where it is
+pinned: by the parity tests below and by ``KNOWN_COPIES`` in ``tests/operations/test_mg_serve_core_host_import.py``.
 
 Stage A (this file) is new code only. The research modules are NOT rewired yet. Until MG-2/B's forward
 window closes (master ruling D1, 2026-10-26), each moved function is pinned equal to its source by:
@@ -17,7 +15,7 @@ window closes (master ruling D1, 2026-10-26), each moved function is pinned equa
 * exact-equality tests (C1, ``tests/model/test_mg_serve_core_parity.py``);
 * frozen-state tests (C2, ``tests/model/test_mg_serve_core_state_parity.py``).
 
-The bodies are copies of the sources named in each docstring. The only differences are:
+The bodies are copies of those sources. The only differences are:
 
 * the exception class (:class:`ServeCoreError`);
 * explicit parameters where a source read a research-module constant (``floor_fields``, ``switch_hour``).
@@ -25,10 +23,10 @@ The bodies are copies of the sources named in each docstring. The only differenc
 Import contract (pinned by ``tests/operations/test_mg_serve_core_host_import.py``):
 
 * allowed: stdlib, numpy, scipy, pandas, ``weather.units``, ``weather.paths``;
-* never: any ``weather.calibration`` or ``weather.reporting`` module, and nothing with a host guard.
+* never: any research (calibration or reporting) module, and nothing with a host guard.
 
 The frozen L6 own-model state (master ruling D2 (i)) is served by :func:`load_l6_own_state` and
-:func:`l6_own_nowcast`. It is fitted once by ``weather.calibration.l6_own_state`` and is sha-bound; no serve
+:func:`l6_own_nowcast`. It is fitted once by the offline L6 own-state fitter and is sha-bound; no serve
 path refits it, and it is not part of MG-2's binding.
 
 There is no CLI, and nothing here writes a file.
@@ -64,10 +62,10 @@ L6_MARKET_LAT_MIN = 10
 L6_MAX_AGE_MIN = 90
 _COVER = {"CLR": 0.0, "SKC": 0.0, "NCD": 0.0, "NSC": 0.0, "FEW": .25, "SCT": .5, "BKN": .75, "OVC": 1.0, "VV": 1.0}
 
-SWITCH_HOUR = 13  # mg2_composite.SWITCH_HOUR (MG-2 rule, fixed)
-POST = "p3d_n"  # mg2_composite.POST
-EPS = 1e-4  # market_blend.EPS
-V2_LOOKBACK = timedelta(hours=24)  # mg2_inputs.LOOKBACK
+SWITCH_HOUR = 13  # the MG-2 rule's switch hour (fixed)
+POST = "p3d_n"  # MG-2's post-switch half
+EPS = 1e-4  # the pre-registered log pool's epsilon
+V2_LOOKBACK = timedelta(hours=24)  # the v2 NBM bulletin lookback
 
 _CAPTURED_LOCAL = None
 _METAR_TIME = None
@@ -80,7 +78,6 @@ def metar_observation_instant(row, tz):
 
     The v3 parser's ``datetime`` is AWC's nominal report hour (a :52 report reads as the
     next hour), so the raw group is preferred (AGENT_CONTEXT, metar-parser-v4 semantics).
-    Source: ``r0_ols_floor_challenger.metar_observation_instant``.
     """
     import re
 
@@ -113,7 +110,6 @@ def observations_at_cutoff(rows, target_date, cutoff_hour, tz):
 
     Same semantics as the trainer's ``build_historical_feature_record``: rows of the local
     target date with observation minute <= cutoff_hour * 60; current = the latest such row.
-    Source: ``r0_ols_floor_challenger.observations_at_cutoff``.
     """
     from datetime import time
 
@@ -134,7 +130,7 @@ def observations_at_cutoff(rows, target_date, cutoff_hour, tz):
 
 
 def event_folders(replay_root):
-    """(slug, target date, folder) for each replay event folder (``r0_ols_floor_challenger._event_folders``)."""
+    """(slug, target date, folder) for each replay event folder."""
     import re
 
     pattern = re.compile(r"^highest-temperature-in-(.+)-on-([a-z]+)-(\d+)-(\d{4})$")
@@ -155,7 +151,6 @@ def parse_captured_metar(raw, anchor_utc):
     Observation instant from the raw DDHHMMZ group (nearest to ``anchor_utc``); temperature and dewpoint from the
     T-group when present, else the body (IEM ``dwpf`` follows the T-group; pick rule clarification 2 erratum); wind,
     cover and ceiling as ``iem_upstream`` (cover = max layer, ceiling = lowest BKN/OVC/VV base).
-    Source: ``r0_ols_floor_challenger.parse_captured_metar``.
     """
     import re
 
@@ -230,8 +225,6 @@ def captured_rows(line, station):
 
 def l6_captured_features(snapshot_rows, captured, tz, station_code, prev_dmax):
     """L6 OWN features at each snapshot from that snapshot's own captured METAR rows (L6's semantics).
-
-    Source: ``r0_ols_floor_challenger.l6_captured_features``.
     """
     import numpy as np
     import pandas as pd
@@ -276,8 +269,6 @@ def l6_captured_features(snapshot_rows, captured, tz, station_code, prev_dmax):
 
 def routine_dmax(rows, tz, local_date, min_routine=20):
     """Half-up max of a day's routine (modal-minute), non-COR rows; None below ``min_routine`` rows.
-
-    Source: ``r0_ols_floor_challenger.routine_dmax``.
     """
     day = [r for r in rows if not r["is_cor"] and r["temp"] is not None
            and r["valid"].astimezone(tz).date().isoformat() == local_date]
@@ -293,14 +284,14 @@ def routine_dmax(rows, tz, local_date, min_routine=20):
 # ----------------------------------------------------------------------------- frozen L6 own model (master D2 (i))
 
 L6_OWN_COLUMNS = ("hour_f", "doy", "station_code", "t", "td", "r", "t_minus_r", "tend3", "td_tend3", "u", "v",
-                  "spd", "cover", "log_ceiling", "prev_dmax", "prev_minus_t")  # upstream_obs_screen.OWN
+                  "spd", "cover", "log_ceiling", "prev_dmax", "prev_minus_t")  # the L6 OWN columns
 L6_STATE_SCHEMA = "l6_own_state/1"
 
 
 def load_l6_own_state(path, expected_sha256):
     """The frozen L6 own-model state, unpickled only after its file sha256 equals ``expected_sha256``.
 
-    The state is fitted once by ``weather.calibration.l6_own_state fit``. No serve path refits it.
+    The state is fitted once by the offline L6 own-state fitter. No serve path refits it.
     """
     import hashlib
     import pickle
@@ -323,10 +314,10 @@ def l6_own_nowcast(state, features):
     return features["r"].to_numpy(float) + np.asarray(state["model"].predict(X), float)
 
 
-# ----------------------------------------------------------------------------- v2 NBM selection (mg2_inputs)
+# ----------------------------------------------------------------------------- v2 NBM selection
 
 def parse_time(value):
-    """An aware UTC datetime from an ISO string, else None (``mg2_inputs.parse_time``)."""
+    """An aware UTC datetime from an ISO string, else None."""
     if not value:
         return None
     try:
@@ -341,7 +332,7 @@ def iso(value):
 
 
 def finite(value):
-    """A finite float, else None (``mg2_inputs.finite``)."""
+    """A finite float, else None."""
     try:
         number = float(value)
     except (TypeError, ValueError):
@@ -350,7 +341,7 @@ def finite(value):
 
 
 def cycle_time(cycle_key):
-    """The UTC issue time of an NBM ``source:YYYYMMDDTHHZ`` cycle key, else None (``mg2_inputs.cycle_time``)."""
+    """The UTC issue time of an NBM ``source:YYYYMMDDTHHZ`` cycle key, else None."""
     try:
         return datetime.strptime(str(cycle_key).split(":", 1)[1], "%Y%m%dT%HZ").replace(tzinfo=timezone.utc)
     except (IndexError, ValueError):
@@ -358,7 +349,7 @@ def cycle_time(cycle_key):
 
 
 def availability(row):
-    """(first availability instant, basis field) of a payload manifest row (``mg2_inputs.availability``)."""
+    """(first availability instant, basis field) of a payload manifest row."""
     for field in ("response_received_at", "fetched_at", "first_seen_at", "captured_at_utc"):
         value = parse_time(row.get(field))
         if value is not None:
@@ -367,7 +358,7 @@ def availability(row):
 
 
 def select_v2(bulletins, parsed, station, target, captured, lookback=V2_LOOKBACK):
-    """Newest bulletin available at capture holding today's maximum (``mg2_inputs.select_v2``).
+    """Newest bulletin available at capture holding today's maximum.
 
     ``bulletins``: {digest: {"issue", "available_at", "available_basis", "cycle_key", "status"}};
     ``parsed``: {(digest, station, target): parser result}.
@@ -416,8 +407,6 @@ def select_v2(bulletins, parsed, station, target, captured, lookback=V2_LOOKBACK
 
 def usable_v2_mean(snaps):
     """v2_mean where mean and stddev are finite and available at or before capture, else NaN.
-
-    Source: ``r0_ols_floor_devfit.usable_v2_mean`` (the P3d_N anchor).
     """
     import numpy as np
     import pandas as pd
@@ -598,7 +587,7 @@ def mg1_band_probs(kind, low, high, B, mu, sig):
 
 
 def mg1_band_frame(snaps, bands, band_snap, floor_fields):
-    """MG-1 on flat bands: ``loss_atlas.mg1_frame`` without the scorecard Table.
+    """MG-1 on flat bands: the scorecard's MG-1 frame without the scorecard Table.
 
     ``bands`` are the Table's bands; ``band_snap`` maps each band to its row in ``snaps``. ``floor_fields`` is the
     scorecard's ``FLOOR_FIELDS``, used when ``snaps`` has no ``floor`` column.
@@ -627,7 +616,7 @@ def mg1_band_frame(snaps, bands, band_snap, floor_fields):
 
 
 def floor_B(snaps, floor_fields):
-    """B = floor(F + 0.5) with F the rule-4 floor, the max of ``floor_fields`` (``mg2_composite.floor_B``)."""
+    """B = floor(F + 0.5) with F the rule-4 floor, the max of ``floor_fields``."""
     import numpy as np
     import pandas as pd
 
@@ -637,7 +626,7 @@ def floor_B(snaps, floor_fields):
 
 
 def distribution_band_frame(dists, bands):
-    """{row_key: {bucket: p}} onto bands (``mg2_composite.distribution_band_frame``)."""
+    """{row_key: {bucket: p}} onto bands."""
     import numpy as np
     import pandas as pd
 
@@ -659,7 +648,7 @@ def compose(snaps, bands, pre, post, mg1, floor_fields, switch_hour=SWITCH_HOUR,
     """Per snapshot: ``pre`` before ``switch_hour``, ``post`` from it; MG-1 where the half has nothing usable.
 
     A ``post`` row is usable only when it puts mass on a band the rule-4 floor allows. Returns (frame, source per
-    row_key). Source: ``mg2_composite.compose``.
+    row_key).
     """
     import numpy as np
     import pandas as pd
@@ -690,10 +679,10 @@ def compose(snaps, bands, pre, post, mg1, floor_fields, switch_hour=SWITCH_HOUR,
     return frame.sort_values(["row_key", "band_index"]).reset_index(drop=True), source
 
 
-# ----------------------------------------------------------------------------- blend (market_blend)
+# ----------------------------------------------------------------------------- blend
 
 def pool(m, c, w_band, impossible, band_snap, n_snaps, eps=EPS, force_floor=False):
-    """The pre-registered log pool on flat band arrays; ``w_band`` is w per band (``market_blend.pool``).
+    """The pre-registered log pool on flat band arrays; ``w_band`` is w per band.
 
     ``force_floor`` gives the floor-only control (the w -> 0+ limit: market, hard floor, same mass).
     """

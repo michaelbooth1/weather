@@ -242,6 +242,9 @@ def test_no_production_code_imports_the_challenger():
     expected = {
         "scripts/ops/workload_admission.ps1": "the workstation allowlist names the module (it admits it)",
         "src/weather/calibration/b_scorer.py": ws_only,
+        # L3's frozen-state fitter imports the challenger only for its capture-host import guard; its bytes are
+        # pinned by the C9 state provenance (module cf398143...), so it is pinned here rather than edited.
+        "src/weather/calibration/l6_own_state.py": "L3's offline L6 own-state fitter, capture-host guard only",
         "src/weather/calibration/mg2_composite.py": ws_only,
         "src/weather/calibration/mg2_p3d_n.py": ws_only,
         "src/weather/calibration/ols_floor_ladder.py": "lane L9's ladder, research-only, same capture-host guard",
