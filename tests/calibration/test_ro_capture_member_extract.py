@@ -2,25 +2,29 @@
 
 Guards: the extractor refuses, before opening any file, event directories that do not parse or whose target date is
 outside 2026-07-30..2026-09-29; it walks exactly forecast_payloads/sha256/<2-hex>/<file> (the capture host's nested
-layout; flat files are ignored), checks sha256(raw stored bytes) == filename stem (a mismatch is excluded, counted and
-fails the run), reads only blobs that carry temperature_2m_member keys (a decoy blob is skipped, gzip blobs are read),
-never defaults a missing utc_offset_seconds (skipped and counted; a present 0 is accepted), and exits non-zero when an
-event dir with payloads, or the whole run, yields no ensemble blob; a member's node max is the max over exactly
-history's 06Z fh6-24 nodes whose local date (via utc_offset_seconds) is the target date, and is empty if any node is
-missing; the full-day max covers every label on the local date; the manifest's output sha equals the CSV's. P under
-C1 links a snapshot to the blob that reproduces its captured day p10/p90/control and compares history's node
-statistics with the blob's.
+layout; flat files are ignored); a blob is used only if its filename stem equals the canonical-JSON digest of its
+decoded object (as the repo's own SnapshotStore market-local writer names it, gzip included) or the sha256 of its raw
+stored bytes (shared CAS), the algorithm is recorded per blob and counted, and a blob matching neither is excluded,
+counted and fails the run; it reads only blobs that carry temperature_2m_member keys (a decoy blob is skipped, gzip
+blobs are read), never defaults a missing utc_offset_seconds (skipped and counted; a present 0 is accepted), and exits
+non-zero when an event dir with payloads, or the whole run, yields no ensemble blob; a member's node max is the max
+over exactly history's 06Z fh6-24 nodes whose local date (via utc_offset_seconds) is the target date, and is empty if
+any node is missing; the full-day max covers every label on the local date; the manifest's output sha equals the
+CSV's. P under C1 refuses a capture manifest whose status is not ok, links a snapshot to the blob that reproduces
+its captured day p10/p90/control, and compares history's node statistics with the blob's.
 """
 import csv
 import gzip
 import hashlib
 import importlib
 import json
+import types
 from datetime import datetime, timedelta, timezone
 
 import pytest
 
 from tools.research import ro_capture_member_extract as ex
+from weather.collection.snapshot_store import SnapshotStore
 
 try:
     prm = importlib.import_module("weather.calibration.pooled_residual_model")
@@ -52,11 +56,23 @@ def _payload(day, offset, peak_local_hour, members=30, missing=None, control_shi
             "hourly": hourly}
 
 
-def _event(root, slug, blobs, wrong_name=None):
-    """Capture-host layout: forecast_payloads/sha256/<first 2 hex>/<sha256(raw)>.<ext>; ``blobs`` maps ext -> bytes
-    lists. ``wrong_name`` stores one extra blob under a name that is not its sha."""
+def _event(root, slug, blobs, wrong_name=None, canonical=(), gz_canonical=()):
+    """Capture-host layout forecast_payloads/sha256/<first 2 hex>/<stem>.<ext>. ``blobs`` maps ext -> bytes lists named
+    by sha256 of the raw bytes (shared fan-out CAS). ``canonical`` payload objects are written by the repo's own
+    market-local writer (canonical JSON + durability newline, named by the canonical digest); ``gz_canonical`` objects
+    are stored gzip-compressed under the repo's canonical digest of the decoded object. ``wrong_name`` stores one blob
+    under a name that is neither digest."""
     pdir = root / slug / "forecast_payloads"
     (pdir / "sha256").mkdir(parents=True)
+    writer = types.SimpleNamespace(content_addressed_file_digest=SnapshotStore.content_addressed_file_digest)
+    for obj in canonical:
+        path, digest, _n, _created = SnapshotStore.write_content_addressed_payload(writer, pdir, payload=obj)
+        assert path.name == f"{digest}.json" and digest == SnapshotStore.canonical_raw_payload_digest(obj)[0]
+        assert hashlib.sha256(path.read_bytes()).hexdigest() != digest  # raw file hash is not the name
+    for obj in gz_canonical:
+        digest = SnapshotStore.canonical_raw_payload_digest(obj)[0]
+        (pdir / "sha256" / digest[:2]).mkdir(exist_ok=True)
+        (pdir / "sha256" / digest[:2] / f"{digest}.json.gz").write_bytes(gzip.compress(json.dumps(obj).encode()))
     for ext, items in blobs.items():
         for data in items:
             sha = hashlib.sha256(data).hexdigest()
@@ -86,16 +102,22 @@ def test_refuses_out_of_window_before_opening(tmp_path):
 
 
 def test_node_max_day_max_decoy_gzip_and_offset(tmp_path):
-    ny = json.dumps(_payload("2026-08-10", -14400, 13, missing=(30, 14))).encode()
-    la = gzip.compress(json.dumps(_payload("2026-08-10", -25200, 22)).encode())
+    ny = _payload("2026-08-10", -14400, 13, missing=(30, 14))
+    la = _payload("2026-08-10", -25200, 22)
     decoy = json.dumps({"hourly": {"time": ["2026-08-10T00:00"], "temperature_2m": [99.0]}}).encode()
-    d1 = _event(tmp_path, "highest-temperature-in-nyc-on-august-10-2026", {".json": [ny, decoy]})
-    (d1 / "forecast_payloads" / "flat.json").write_bytes(ny)  # flat file: ignored, never read
-    d2 = _event(tmp_path, "highest-temperature-in-los-angeles-on-august-10-2026", {".json.gz": [la]})
+    # NYC: written by the repo's market-local writer (sha256-canonical-json); decoy named by its raw bytes.
+    d1 = _event(tmp_path, "highest-temperature-in-nyc-on-august-10-2026", {".json": [decoy]}, canonical=[ny])
+    (d1 / "forecast_payloads" / "flat.json").write_bytes(json.dumps(ny).encode())  # flat file: ignored, never read
+    # LA: gzip stored, named by the repo's canonical digest of the decoded object.
+    d2 = _event(tmp_path, "highest-temperature-in-los-angeles-on-august-10-2026", {}, gz_canonical=[la])
     man = ex.run([d1, d2], tmp_path / "out")
     assert man["status"] == "ok" and man["counts"]["blobs_ensemble"] == 2
     assert man["counts"]["blobs_skipped_not_ensemble"] == 1 and man["counts"]["entries_ignored"] == 1
-    assert {i["sha256"] for i in man["inputs"]} == {hashlib.sha256(ny).hexdigest(), hashlib.sha256(la).hexdigest()}
+    assert man["counts"]["blobs_sha_canonical"] == 2 and man["counts"]["blobs_sha_raw"] == 1
+    want = {SnapshotStore.canonical_raw_payload_digest(ny)[0], SnapshotStore.canonical_raw_payload_digest(la)[0]}
+    assert {i["sha256"] for i in man["inputs"]} == want
+    assert {i["sha_algorithm"] for i in man["inputs"]} == {"sha256-canonical-json"}
+    assert {r["sha_algorithm"] for r in _rows(tmp_path / "out")} == {"sha256-canonical-json"}
     assert man["output"]["sha256"] == hashlib.sha256((tmp_path / "out" / "ro_capture_members.csv").read_bytes()).hexdigest()
     rows = {(r["event"][23:26], r["member"]): r for r in _rows(tmp_path / "out")}
     # New York EDT (-4 h): nodes 12Z..03Z = 08,11,14,17,20,23 local (06Z = 02:00 next day is not the local date).
@@ -123,10 +145,11 @@ def test_zero_ensemble_dir_and_sha_mismatch_fail_the_run(tmp_path):
     with pytest.raises(SystemExit, match="no ensemble blob found at all"):
         ex.run([empty], tmp_path / "o2")
     bad = _event(tmp_path, "highest-temperature-in-nyc-on-august-12-2026", {".json": [ny]}, wrong_name=ny)
-    with pytest.raises(SystemExit, match="sha256 != filename stem"):
+    with pytest.raises(SystemExit, match="matches neither the canonical-JSON nor the raw sha256"):
         ex.run([bad], tmp_path / "o3")
     man = json.loads((tmp_path / "o3" / "ro_capture_manifest.json").read_text(encoding="utf-8"))
     assert man["counts"]["blobs_sha_mismatch"] == 1 and man["counts"]["blobs_ensemble"] == 1
+    assert man["sha_mismatches"] == [f"{bad.name}/forecast_payloads/sha256/ab/{'ab' * 32}.json"]
 
 
 def test_offset_never_defaulted_and_zero_accepted(tmp_path):
@@ -138,6 +161,9 @@ def test_offset_never_defaulted_and_zero_accepted(tmp_path):
                 {".json": [json.dumps(no_offset).encode(), json.dumps(null_offset).encode(), utc]})
     man = ex.run([ev], tmp_path / "out")
     assert man["counts"]["blobs_no_offset"] == 2 and man["counts"]["blobs_ensemble"] == 1
+    assert man["counts"]["blobs_sha_raw"] == 3 and man["counts"]["blobs_sha_canonical"] == 0
+    assert man["inputs"][0]["sha_algorithm"] == "sha256-raw"
+    assert man["inputs"][0]["sha256"] == hashlib.sha256(utc).hexdigest()
     r = {x["member"]: x for x in _rows(tmp_path / "out")}["05"]
     # offset 0: nodes 12Z..03Z D+1; 00Z and 03Z are D+1 locally, so 12Z, 15Z, 18Z, 21Z (local 12..21) remain;
     # labels are UTC, peak 13 -> node max at 12 or 15 = 89 + k/10.
@@ -191,3 +217,10 @@ def test_parity_c1_links_by_day_fingerprint(tmp_path):
     hist_p90 = percentile([prm.ro_kelvin_to_f(300.0 + k / 10.0) for k in range(1, 31)], 0.90)
     assert res["parity"]["p90"]["mean_diff"] == pytest.approx(hist_p90 - percentile(node, 0.90))
     assert res["rule_sha256"] == prm.RO_RULE_C1_SHA256
+    man_path = tmp_path / "cap" / "ro_capture_manifest.json"
+    man_path.write_text(json.dumps(dict(json.loads(man_path.read_text(encoding="utf-8")), status="failed")),
+                        encoding="utf-8")
+    with pytest.raises(prm.PooledModelError, match="not 'ok'"):
+        prm.rung_o_parity_c1(inputs_root=tmp_path / "inputs", gefs_corpus=corpus,
+                             capture_csv=tmp_path / "cap" / "ro_capture_members.csv", capture_manifest=man_path,
+                             out_dir=tmp_path / "out_failed")

@@ -5117,6 +5117,8 @@ def rung_o_parity_c1(*, inputs_root, gefs_corpus, capture_csv, capture_manifest,
     csv_sha = hashlib.sha256(Path(capture_csv).read_bytes()).hexdigest()
     if manifest.get("output", {}).get("sha256") != csv_sha:
         raise PooledModelError("capture CSV sha256 does not match its manifest")
+    if manifest.get("status") != "ok":
+        raise PooledModelError(f"capture manifest status is {manifest.get('status')!r}, not 'ok'")
     capture, units = ro_c1_load_capture(capture_csv)
     blob_stats = {ev: {b: ro_c1_blob_stats(m) for b, m in blobs.items()} for ev, blobs in capture.items()}
     first, last = _date.fromisoformat(RO_PARITY_FIRST), _date.fromisoformat(RO_PARITY_LAST)

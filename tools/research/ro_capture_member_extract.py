@@ -8,9 +8,20 @@ per blob and per member, the max over the R-O history nodes plus the full local-
   not parse or its target date D is outside 2026-07-30..2026-09-29.
 * Layout (capture host): ``<dir>/forecast_payloads/sha256/<2-hex>/<sha256>.<ext>``. Exactly that walk, no
   recursion; anything else under ``forecast_payloads`` is counted as ignored. Only those files are opened (Python's
-  default open is shared-read on Windows). Integrity: sha256 of the RAW stored bytes (before any gzip decode) must
-  equal the filename stem, because the store is content-addressed on what it wrote; a mismatched blob is not used,
-  is counted, and makes the run exit non-zero. A blob is an ensemble payload only if its JSON has ``hourly`` keys
+  default open is shared-read on Windows). Integrity: the filename stem must equal ONE of two digests, and the one
+  that matched is recorded per blob (``sha_algorithm``) and counted:
+  - ``sha256-canonical-json`` (``forecast_payload_cas.CANONICAL_JSON_HASH_ALGORITHM``): the market-local writer
+    ``SnapshotStore.write_content_addressed_payload`` (snapshot_store.py:1344, called at :1711) names the blob by the
+    sha256 of the canonical JSON of the decoded payload object and stores those bytes plus one durability newline,
+    so the raw file hash is NOT the name. ``canonical_digest`` below is byte-identical to
+    ``SnapshotStore.canonical_raw_payload_digest`` (snapshot_store.py:1309 via ``_json_digest_and_size`` :161 and
+    ``_iter_json_text_chunks``): ``json.JSONEncoder(sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+    default=str, allow_nan=True).iterencode``, UTF-8, over the object decoded from the blob (after gzip decode
+    when the stored bytes are gzip; the local writer itself never gzips).
+  - ``sha256-raw``: the shared fan-out CAS (``SharedForecastPayloadCAS.put`` via snapshot_store.py:1696,
+    ``raw_payload_digest``) names a blob by sha256 of the raw stored bytes, before any decode.
+  A blob matching neither is not used, is counted, and makes the run exit non-zero.
+  A blob is an ensemble payload only if its JSON has ``hourly`` keys
   ``temperature_2m_member01``..; other blobs are counted as skipped. gzip blobs (magic 1f8b) are decompressed.
 * ``utc_offset_seconds`` is never defaulted: a blob without a numeric value is skipped and counted as
   ``blobs_no_offset`` (a present 0 is accepted).
@@ -46,7 +57,18 @@ SLUG = re.compile(r"^highest-temperature-in-(.+)-on-([a-z]+)-(\d{1,2})-(\d{4})$"
 MEMBER = re.compile(r"^temperature_2m_member(\d{2})$")
 FIELDS = ("event", "target_date", "blob", "blob_sha256", "blob_mtime_utc", "generationtime_ms",
           "utc_offset_seconds", "temperature_unit", "member", "node_max", "n_nodes", "nodes_wanted", "day_max",
-          "n_day_hours")
+          "n_day_hours", "sha_algorithm")
+SHA_CANONICAL = "sha256-canonical-json"
+SHA_RAW = "sha256-raw"
+
+
+def canonical_digest(payload):
+    """Byte-identical mirror of ``SnapshotStore.canonical_raw_payload_digest`` (digest only)."""
+    encoder = json.JSONEncoder(sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str, allow_nan=True)
+    digest = hashlib.sha256()
+    for chunk in encoder.iterencode(payload):
+        digest.update(chunk.encode("utf-8"))
+    return digest.hexdigest()
 
 
 class Refused(SystemExit):
@@ -193,7 +215,8 @@ def run(dirs, out_dir):
     if csv_path.exists():
         raise Refused(f"refusing to overwrite {csv_path}")
     counts = {k: 0 for k in ("event_dirs", "event_dirs_without_payloads", "event_dirs_zero_ensemble", "entries_ignored",
-                             "blobs_seen", "blobs_sha_mismatch", "blobs_unreadable", "blobs_skipped_not_ensemble",
+                             "blobs_seen", "blobs_sha_canonical", "blobs_sha_raw", "blobs_sha_mismatch",
+                             "blobs_unreadable", "blobs_skipped_not_ensemble",
                              "blobs_no_offset", "blobs_ensemble", "rows")}
     counts["event_dirs"] = len(checked)
     inputs, mismatches, zero_dirs = [], [], []
@@ -214,20 +237,33 @@ def run(dirs, out_dir):
                 except (OSError, EOFError, gzip.BadGzipFile):
                     counts["blobs_unreadable"] += 1
                     continue
-                sha = hashlib.sha256(raw).hexdigest()
+                raw_sha = hashlib.sha256(raw).hexdigest()
                 stem = blob.name.split(".", 1)[0]
-                if not HEX64.match(stem) or stem != sha:
+                payload, algorithm = None, None
+                if HEX64.match(stem):
+                    if raw_sha == stem:
+                        algorithm = SHA_RAW
+                    else:
+                        try:
+                            payload = json.loads(body)
+                            if canonical_digest(payload) == stem:
+                                algorithm = SHA_CANONICAL
+                        except (ValueError, UnicodeError, RecursionError):
+                            payload = None
+                if algorithm is None:
                     counts["blobs_sha_mismatch"] += 1
                     mismatches.append(rel)
                     continue
+                counts["blobs_sha_canonical" if algorithm == SHA_CANONICAL else "blobs_sha_raw"] += 1
                 if b"temperature_2m_member" not in body:
                     counts["blobs_skipped_not_ensemble"] += 1
                     continue
-                try:
-                    payload = json.loads(body)
-                except (ValueError, UnicodeDecodeError):
-                    counts["blobs_unreadable"] += 1
-                    continue
+                if payload is None:
+                    try:
+                        payload = json.loads(body)
+                    except (ValueError, UnicodeDecodeError):
+                        counts["blobs_unreadable"] += 1
+                        continue
                 if not is_ensemble(payload):
                     counts["blobs_skipped_not_ensemble"] += 1
                     continue
@@ -238,25 +274,27 @@ def run(dirs, out_dir):
                 res = extract_payload(payload, d, offset)
                 counts["blobs_ensemble"] += 1
                 ensemble_here += 1
-                inputs.append({"path": rel, "sha256": sha, "bytes": len(raw)})
+                inputs.append({"path": rel, "sha256": stem, "sha_algorithm": algorithm, "raw_sha256": raw_sha,
+                               "bytes": len(raw)})
                 mtime = datetime.fromtimestamp(blob.stat().st_mtime, timezone.utc).isoformat()
                 unit = (payload.get("hourly_units") or {}).get("temperature_2m")
                 for member, (node_max, n_nodes, n_want, day_max, n_day) in sorted(res.items()):
-                    w.writerow((folder.name, d.isoformat(), blob.name, sha, mtime, payload.get("generationtime_ms"),
+                    w.writerow((folder.name, d.isoformat(), blob.name, stem, mtime, payload.get("generationtime_ms"),
                                 offset, unit, member, "" if node_max is None else repr(node_max), n_nodes, n_want,
-                                "" if day_max is None else repr(day_max), n_day))
+                                "" if day_max is None else repr(day_max), n_day, algorithm))
                     counts["rows"] += 1
             if ensemble_here == 0:
                 counts["event_dirs_zero_ensemble"] += 1
                 zero_dirs.append(folder.name)
     failures = []
     if counts["blobs_sha_mismatch"]:
-        failures.append(f"{counts['blobs_sha_mismatch']} blob(s) whose sha256 != filename stem")
+        failures.append(f"{counts['blobs_sha_mismatch']} blob(s) whose filename stem matches neither the "
+                        "canonical-JSON nor the raw sha256")
     if zero_dirs:
         failures.append(f"{len(zero_dirs)} event dir(s) with forecast_payloads but no ensemble blob")
     if counts["blobs_ensemble"] == 0:
         failures.append("no ensemble blob found at all")
-    manifest = {"schema": "ro_capture_members/2", "window": [WINDOW[0].isoformat(), WINDOW[1].isoformat()],
+    manifest = {"schema": "ro_capture_members/3", "window": [WINDOW[0].isoformat(), WINDOW[1].isoformat()],
                 "script_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
                 "node_steps_06z": list(NODE_STEPS), "counts": counts, "inputs": inputs,
                 "sha_mismatches": mismatches[:200], "zero_ensemble_dirs": zero_dirs,
