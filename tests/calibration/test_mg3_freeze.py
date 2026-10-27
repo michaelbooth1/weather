@@ -15,6 +15,10 @@ frozen table or rr_score before reading anything.
 SM-H wiring (binding_sm_h_state.md, sha 6507946e...): the release binding records the served SM-H 13-15 state
 only from a verified load at the bound sha b6bc242a..., with SF excluded; a foreign sha, or a state whose block,
 hours, conversion or note sha differ, refuses; verification refuses a binding whose SM-H slot is not re-verified.
+0712-1 (clarification_mg3_dc1_0712.md, sha f9e25a90...): the binding records the RF-1 weights 891be564... and the
+SM-L6 partner 800072c7... only from verified loads; a wrong weights sha, a wrong partner sha, a foreign RF-1 note,
+one without the other, or a file that changes between load and record refuses; verification recomputes both and
+refuses a bound sha that differs or a binding made without them.
 """
 import hashlib
 import importlib
@@ -339,6 +343,101 @@ def test_release_binding_binds_the_sm_h_state_only_from_a_verified_load(tmp_path
         monkeypatch.setattr(prm, "SM_H_STATE_SHA256", bad_sha)
         with pytest.raises(prm.PooledModelError, match=field if field != "provenance" else "note_sha256"):
             prm.mg3_release_binding(states={prm.SM_H_STATE_BLOCK: bad}, **kwargs)
+
+
+def test_0712_1_pins_are_the_ruling_and_the_clarification_in_force():
+    assert prm.MG3_RF1_WEIGHTS_SHA256 == "891be5640cef9fd3924b98f89f1068108acdf404fbd52a4721cb5d8d9ae8ded5"
+    assert prm.MG3_L6_PARTNER_SHA256 == "800072c79af65394cc33134cbaae34af65c4428feb3934e35f8cd6cd153ee2db"
+    doc = RULES / "clarification_mg3_dc1_0712.md"
+    assert hashlib.sha256(doc.read_bytes()).hexdigest() == prm.MG3_DC1_0712_1_SHA256
+    assert prm.MG3_DC1_0712_1_SHA256 == "f9e25a90e56a81326552867fee61ad37b8c159fe56abf6972225be25d459651f"
+
+
+def _rf1_weights(path, **changes):
+    table = {"note_sha256": prm.MG3_RF1_NOTE_SHA256, "rule_sha256": prm.MG3_WEIGHTS_RULE_SHA256,
+             "weights": {f"h{h:02d}": 0.25 + 0.05 * i for i, h in enumerate(range(7, 13))}}
+    table.update(changes)
+    path.write_text(json.dumps(table, sort_keys=True), encoding="utf-8")
+    return path, hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _partner(path, payload=b"synthetic SM-L6 final state"):
+    path.write_bytes(payload)
+    return path, hashlib.sha256(payload).hexdigest()
+
+
+def test_release_binding_binds_rf1_weights_and_l6_partner_from_verified_loads(tmp_path, monkeypatch):
+    land, corpus, root = _rn1_inputs(tmp_path, monkeypatch)
+    kwargs = dict(land=land, corpus_dir=corpus, root=root, markets=RN1_MARKETS)
+    weights, w_sha = _rf1_weights(tmp_path / "weights.json")
+    partner, p_sha = _partner(tmp_path / "sm_l6.pkl")
+    monkeypatch.setattr(prm, "MG3_RF1_WEIGHTS_SHA256", w_sha)
+    monkeypatch.setattr(prm, "MG3_L6_PARTNER_SHA256", p_sha)
+    binding = prm.mg3_release_binding(weights=weights, partner=partner, **kwargs)
+    assert binding["weights_sha256"] == w_sha and binding["l6_partner_sha256"] == p_sha
+    assert binding["rules"]["mg3_dc1_0712_1"] == prm.MG3_DC1_0712_1_SHA256
+    assert binding["schema"] == "mg3_release_binding/2"
+    out = tmp_path / "release-binding.json"
+    out.write_text(json.dumps(binding), encoding="utf-8")
+    assert prm.mg3_verify_release(out, weights=weights, partner=partner, **kwargs) == binding
+    # verification recomputes both: without them the slots read PENDING and refuse
+    with pytest.raises(prm.PooledModelError, match="weights_sha256"):
+        prm.mg3_verify_release(out, **kwargs)
+    # a bound partner sha that differs from the recomputed one refuses
+    edited = dict(binding, l6_partner_sha256="0" * 64)
+    out.write_text(json.dumps(edited), encoding="utf-8")
+    with pytest.raises(prm.PooledModelError, match="l6_partner_sha256"):
+        prm.mg3_verify_release(out, weights=weights, partner=partner, **kwargs)
+    # a bound file whose bytes changed after binding refuses at verification
+    out.write_text(json.dumps(binding), encoding="utf-8")
+    _partner(partner, b"another state")
+    with pytest.raises(prm.PooledModelError, match="!= bound"):
+        prm.mg3_verify_release(out, weights=weights, partner=partner, **kwargs)
+
+
+def test_release_binding_refuses_a_wrong_weights_sha(tmp_path, monkeypatch):
+    land, corpus, root = _rn1_inputs(tmp_path, monkeypatch)
+    kwargs = dict(land=land, corpus_dir=corpus, root=root, markets=RN1_MARKETS)
+    weights, _ = _rf1_weights(tmp_path / "weights.json")
+    partner, p_sha = _partner(tmp_path / "sm_l6.pkl")
+    monkeypatch.setattr(prm, "MG3_L6_PARTNER_SHA256", p_sha)
+    with pytest.raises(prm.PooledModelError, match="MG-3 weights .* != bound 891be564"):
+        prm.mg3_release_binding(weights=weights, partner=partner, **kwargs)
+    # at the bound sha, a table whose RF-1 note or hours differ still refuses
+    for field, value in (("note_sha256", "0" * 64), ("weights", {"h07": 0.5})):
+        bad, bad_sha = _rf1_weights(tmp_path / f"bad_{field}.json", **{field: value})
+        monkeypatch.setattr(prm, "MG3_RF1_WEIGHTS_SHA256", bad_sha)
+        with pytest.raises(prm.PooledModelError, match=field if field != "weights" else "hours"):
+            prm.mg3_release_binding(weights=bad, partner=partner, **kwargs)
+
+
+def test_release_binding_refuses_a_wrong_partner_sha_or_a_missing_half(tmp_path, monkeypatch):
+    land, corpus, root = _rn1_inputs(tmp_path, monkeypatch)
+    kwargs = dict(land=land, corpus_dir=corpus, root=root, markets=RN1_MARKETS)
+    weights, w_sha = _rf1_weights(tmp_path / "weights.json")
+    partner, _ = _partner(tmp_path / "sm_l6.pkl")
+    monkeypatch.setattr(prm, "MG3_RF1_WEIGHTS_SHA256", w_sha)
+    with pytest.raises(prm.PooledModelError, match="L6 partner .* != bound 800072c7"):
+        prm.mg3_release_binding(weights=weights, partner=partner, **kwargs)
+    with pytest.raises(prm.PooledModelError, match="L6 partner sha is missing"):
+        prm.mg3_release_binding(weights=weights, **kwargs)
+    with pytest.raises(prm.PooledModelError, match="weights sha is missing"):
+        prm.mg3_release_binding(partner=partner, **kwargs)
+    binding = prm.mg3_release_binding(**kwargs)
+    assert binding["weights_sha256"] == binding["l6_partner_sha256"] == "PENDING"
+
+
+def test_release_binding_refuses_a_file_that_changes_between_load_and_record(tmp_path, monkeypatch):
+    land, corpus, root = _rn1_inputs(tmp_path, monkeypatch)
+    weights, w_sha = _rf1_weights(tmp_path / "weights.json")
+    partner, p_sha = _partner(tmp_path / "sm_l6.pkl")
+    monkeypatch.setattr(prm, "MG3_RF1_WEIGHTS_SHA256", w_sha)
+    monkeypatch.setattr(prm, "MG3_L6_PARTNER_SHA256", p_sha)
+    real = prm._rr_sha
+    monkeypatch.setattr(prm, "_rr_sha", lambda p: "f" * 64 if Path(p) == partner else real(p))
+    with pytest.raises(prm.PooledModelError, match="L6 partner .* changed while binding"):
+        prm.mg3_release_binding(land=land, corpus_dir=corpus, root=root, markets=RN1_MARKETS, weights=weights,
+                                partner=partner)
 
 
 # ----------------------------------------------------------------------------- (1c) forward HRRR parity scorer
