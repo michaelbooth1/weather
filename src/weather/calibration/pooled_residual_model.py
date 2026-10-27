@@ -7856,7 +7856,21 @@ def rv_fetch_windows(years):
     return out
 
 
-def rv_fetch(*, out_dir, years, markets=R0_MARKETS, spacing=RV_FETCH_SPACING_S, opener=None, sleep=None):
+RV_C1_SHA256 = "db11d8d2e1443143816302cbe16b1f065401ca4b8aa3d8ca61122ba1aaef3ba5"  # rv/clarification_rv_c1.md
+
+
+def rv_c1_fetch_windows(years):
+    """RV-C1 section 2: runtimes 09-30 00Z .. 12-31 23:59Z, history 2021-25 only."""
+    out = []
+    for year in years:
+        if not 2021 <= int(year) <= 2025:
+            raise PooledModelError("RV-C1 fetches history 2021-25 only")
+        out.append((int(year), f"{year}-09-30T00:00Z", f"{year}-12-31T23:59Z"))
+    return out
+
+
+def rv_fetch(*, out_dir, years, markets=R0_MARKETS, spacing=RV_FETCH_SPACING_S, opener=None, sleep=None,
+             windows=None):
     """Fetch the IEM MOS CSVs R-V needs (one connection, >= ``spacing`` s apart, back off on throttling).
 
     Writes ``<ICAO>_<MODEL>_<year>.csv`` plus ``manifest.json`` (sha256 per file). Rows with a runtime on or after
@@ -7899,7 +7913,7 @@ def rv_fetch(*, out_dir, years, markets=R0_MARKETS, spacing=RV_FETCH_SPACING_S, 
     for market in markets:
         icao = spec_for_id(market).icao
         for model in RV_SOURCES:
-            for year, sts, ets in rv_fetch_windows(years):
+            for year, sts, ets in (windows or rv_fetch_windows)(years):
                 path = out / f"{icao}_{model}_{year}.csv"
                 if path.exists():
                     continue
@@ -7912,6 +7926,7 @@ def rv_fetch(*, out_dir, years, markets=R0_MARKETS, spacing=RV_FETCH_SPACING_S, 
                 print(f"rv-fetch {path.name} rows={len(kept) - 1}", flush=True)
     files = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(out.glob("*.csv"))}
     manifest = {"rule_sha256": RV_RULE_SHA256, "url": RV_URL, "years": sorted(int(y) for y in years),
+                "windows": [list(w) for w in (windows or rv_fetch_windows)(years)],
                 "markets": list(markets), "models": list(RV_SOURCES), "files": files}
     (out / "manifest.json").write_text(json.dumps(manifest, indent=1, sort_keys=True), encoding="utf-8")
     return manifest
@@ -8403,6 +8418,7 @@ def _parse(argv=None):
     vf = sub.add_parser("rv-fetch", help="R-V: fetch IEM MOS/NBE CSVs for the 11 US stations (network, light)")
     vf.add_argument("--years", required=True, help="comma list, e.g. 2021,2022,2023,2024,2025 or 2026")
     vf.add_argument("--out", required=True)
+    vf.add_argument("--octdec", action="store_true", help="RV-C1: runtimes 09-30..12-31, 2021-25 only")
     vl = sub.add_parser("rung-v-loyo", help="R-V gates 1a, 1b and 1 (nested LOYO 2021-25 h13-16) (heavy)")
     vl.add_argument("--records", required=True)
     vl.add_argument("--nbm-train-corpus", required=True)
@@ -8742,7 +8758,8 @@ def main(argv=None):
                        state_path=args.state, out_dir=args.out, commit=args.commit, rule_path=args.rule)
         return 0 if result["verdict"] != "STOPPED (coverage)" else 3
     if args.command == "rv-fetch":
-        manifest = rv_fetch(out_dir=args.out, years=[int(y) for y in args.years.split(",")])
+        manifest = rv_fetch(out_dir=args.out, years=[int(y) for y in args.years.split(",")],
+                            windows=rv_c1_fetch_windows if args.octdec else None)
         print(json.dumps({"files": len(manifest["files"])}, indent=1))
         return 0
     if args.command == "rung-v-loyo":
