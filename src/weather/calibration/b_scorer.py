@@ -124,6 +124,13 @@ CONSUMED = "b_look_consumed.json"  # written beside the transfer manifest and mg
 # inputs to fresh folders and passing a new --out cannot start a second look.
 CONSUMED_ROOT = paths.data_path("b_look")
 MG1_RECEIPT_TIME = "looked_at_utc"  # the instant inside MG-1's look receipt that VOID 5 compares against
+# VOID 5 referee (master's item 3 on cb1244bbb; B-1 clarification of 2026-10-26 section 4): before the MG-1 look
+# the only permitted edit to mg1_look.py or mg1_reserved_window.py is the scoring addition plus re-registration,
+# master-reviewed, with its mg1_look.py sha recorded in a dated B-1 clarification before the MG-1 look (MG1_LAST
+# 11-28). That clarification's commit sets this constant to the recorded sha. Until then it is this sentinel,
+# which equals no sha256, so every receipt fails VOID 5 (the registered 1e691c58 cannot score: its ``run`` refuses).
+MG1_LOOK_ENTRY_UNRECORDED = "UNRECORDED: set by the dated B-1 clarification of the MG-1 scoring addition"
+MG1_LOOK_ENTRY_SHA256 = MG1_LOOK_ENTRY_UNRECORDED
 # Market-local day ends for the embargo (B-1 section 9): the 45th date settles when its last market's day ends.
 MARKET_TZ = {"atlanta": "America/New_York", "miami": "America/New_York", "nyc": "America/New_York",
              "austin": "America/Chicago", "chicago": "America/Chicago", "dallas": "America/Chicago",
@@ -507,11 +514,16 @@ def pre_look_read_problems(mg2_look):
 
 def receipt_time_problems(manifest, mg1_look_receipt):
     """VOID 5: the receipt is one ``mg1_look`` wrote (``mg1_look.receipt_problems``: schema, body sha, signed rule,
-    registered entry point, the bytes of the fixed per-rule receipt), the manifest binds it by sha256, and the transfer
-    is after the instant the receipt itself records (``looked_at_utc``, stamped by code), never after a file time."""
+    registered entry point, the bytes of the fixed per-rule receipt), its entry point sha is the one a dated B-1
+    clarification recorded (``MG1_LOOK_ENTRY_SHA256``), the manifest binds it by sha256, and the transfer is after
+    the instant the receipt itself records (``looked_at_utc``, stamped by code), never after a file time."""
     written = mg1_look.receipt_problems(mg1_look_receipt)
     if written:
         return written
+    entry = (_json(mg1_look_receipt).get("entry_point") or {}).get("source_sha256")
+    if entry != MG1_LOOK_ENTRY_SHA256:
+        return [f"MG-1 look receipt entry point sha {entry} is not the B-1 recorded MG1_LOOK_ENTRY_SHA256 "
+                f"({MG1_LOOK_ENTRY_SHA256})"]
     if manifest.get("mg1_look_receipt_sha256") != sha256_file(mg1_look_receipt):
         return ["the transfer manifest does not bind this MG-1 look receipt (mg1_look_receipt_sha256)"]
     try:

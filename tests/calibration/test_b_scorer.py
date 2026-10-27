@@ -9,7 +9,9 @@ evidence, a VOID on a degenerate interval, the market-local embargo) and the MG-
 (``l6_state_sha256``); master's review of de422aa59 (R1 the fixed per-rule consumed marker, R2 an unevaluated
 section 7 condition is VOID 1, R4 the release binding is bind-release output, R6 the embargo covers every market)
 and the SM-N notice (served-state shas share one field shape); master's R3 ruling of 2026-10-26 (VOID 5 accepts
-only an ``mg1_look_receipt/1`` written by the registered MG-1 look entry point).
+only an ``mg1_look_receipt/1`` written by the registered MG-1 look entry point) and master's item 3 on cb1244bbb
+(VOID 5 also requires the receipt's entry sha to equal ``MG1_LOOK_ENTRY_SHA256``, recorded by a dated B-1
+clarification; the shipped value is a sentinel that no receipt matches).
 """
 import json
 import shutil
@@ -80,6 +82,8 @@ def _receipt(tmp_path, monkeypatch, looked=MG1_LOOKED):
     while (roots / str(n)).exists():
         n += 1
     monkeypatch.setattr(mg1_look, "LOOK_ROOT", roots / str(n))  # one receipt root per call, never the repo's data/
+    # stands in for the dated B-1 clarification recording the scoring entry point's sha (the shipped value is a sentinel)
+    monkeypatch.setattr(b, "MG1_LOOK_ENTRY_SHA256", mg1_look.module_sha256())
     with pytest.MonkeyPatch.context() as m:
         main = types.ModuleType("__main__")
         main.__spec__ = types.SimpleNamespace(name=mg1_look.MODULE, origin=mg1_look.__file__)
@@ -581,6 +585,27 @@ def test_void_5_passes_on_a_written_receipt_and_fails_absent_or_hand_edited(tmp_
     path.write_text(json.dumps(dict(m2, mg1_look_receipt_sha256=b.sha256_file(hand))), encoding="utf-8")
     out = b.look(**dict(args2, mg1_look_receipt=hand))
     assert out["decision"]["conditions"] == [5] and out["outcomes_opened"] is False
+
+
+def test_void_5_fails_a_receipt_whose_entry_sha_is_not_the_recorded_one(tmp_path, monkeypatch):
+    """Master's item 3: a receipt written by a registered entry point at a sha B-1 did not record fails VOID 5."""
+    assert b.MG1_LOOK_ENTRY_SHA256 == b.MG1_LOOK_ENTRY_UNRECORDED  # shipped: no entry sha recorded yet
+    assert not mg2.SHA256_HEX.fullmatch(b.MG1_LOOK_ENTRY_UNRECORDED)
+    args = _look_inputs(tmp_path, monkeypatch)
+    receipt = Path(args["mg1_look_receipt"])
+    manifest = json.loads((Path(args["transfer"]) / b.TRANSFER_MANIFEST).read_text(encoding="utf-8"))
+    assert b.receipt_time_problems(manifest, receipt) == []
+    written = json.loads(receipt.read_text(encoding="utf-8"))["entry_point"]["source_sha256"]
+    assert written == mg1_look.module_sha256()
+    other = "c" * 64  # e.g. a later re-registration B-1 never recorded; the receipt itself stays valid for mg1_look
+    monkeypatch.setattr(b, "MG1_LOOK_ENTRY_SHA256", other)
+    assert mg1_look.receipt_problems(receipt) == []
+    assert b.receipt_time_problems(manifest, receipt) == [
+        f"MG-1 look receipt entry point sha {written} is not the B-1 recorded MG1_LOOK_ENTRY_SHA256 ({other})"]
+    out = b.look(**args)
+    assert out["decision"]["conditions"] == [5] and out["outcomes_opened"] is False
+    monkeypatch.setattr(b, "MG1_LOOK_ENTRY_SHA256", b.MG1_LOOK_ENTRY_UNRECORDED)
+    assert "MG1_LOOK_ENTRY_SHA256" in b.receipt_time_problems(manifest, receipt)[0]
 
 
 def test_void_5_ignores_the_receipt_file_time(tmp_path, monkeypatch):

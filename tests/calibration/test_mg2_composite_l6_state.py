@@ -6,7 +6,9 @@ mg2-clarification-season-l6-2026-10-26.md at 4c89815c3, section 3): the 07-12 ar
 mismatched, empty or FILL sha refuses; no carve-out by date; the state path and sha are binding inputs.
 The fixture state is a tiny HGB fitted in-test; no local data file is read. Master's review of de422aa59: R2
 (every rule section 7 condition is computed true or false by ``check``: nowcast replay, P3d_N replay, window
-leakage) and R4 (``bind-release`` writes ``l6_state_sha256`` from the verified load; no hand edit).
+leakage) and R4 (``bind-release`` writes ``l6_state_sha256`` from the verified load; no hand edit). Master's
+item 2 on cb1244bbb: the nowcast replay refuses any pin sha other than the code constant
+``DEV_NOWCAST_PIN_SHA256`` (714fa14e), which is not a B-1 block field.
 """
 import hashlib
 import json
@@ -427,6 +429,7 @@ def _replay_run(tmp_path, monkeypatch, sha, path, name="replay"):
     (out / mg2.NOWCASTS_MANIFEST).write_text(json.dumps(manifest), encoding="utf-8")
     pin = tmp_path / f"{name}_pin.parquet"
     frame.iloc[::-1].to_parquet(pin, index=False)  # row order does not matter, values must
+    monkeypatch.setattr(mg2, "DEV_NOWCAST_PIN_SHA256", mg2.sha256_file(pin))
     return out, pin, frame
 
 
@@ -439,12 +442,25 @@ def test_nowcast_replay_must_reproduce_the_pin_at_the_bound_state(tmp_path, monk
     assert "not '" in mg2.nowcast_replay_check(out, pin, pin_sha, "8" * 64)["problems"][0]
     moved = frame.assign(n_own=frame.n_own + np.r_[0.0, 1e-9, [0.0] * (len(frame) - 2)])
     moved.to_parquet(pin, index=False)
+    monkeypatch.setattr(mg2, "DEV_NOWCAST_PIN_SHA256", mg2.sha256_file(pin))
     assert mg2.nowcast_replay_check(out, pin, mg2.sha256_file(pin), sha)["problems"] == [
         "the replay n_own differs from the pin"]
     monkeypatch.setattr(mg2, "DEV_SERVE_FEATURES_SHA256", "f" * 64)
     assert "not L3's captured dev features" in mg2.nowcast_replay_check(out, pin, mg2.sha256_file(pin), sha)[
         "problems"][0]
     assert mg2.nowcast_replay_check(tmp_path / "absent", pin, pin_sha, sha)["pass"] is False
+
+
+def test_nowcast_replay_refuses_a_pin_other_than_the_recorded_dev_pin(tmp_path, monkeypatch):
+    assert mg2.DEV_NOWCAST_PIN_SHA256 == "714fa14e04c416da922803514fea1de8fe64459a0ea543878ddddfd6bc34896a"
+    path, sha, _ = _state_file(tmp_path)
+    out, pin, _ = _replay_run(tmp_path, monkeypatch, sha, path)
+    pin_sha = mg2.sha256_file(pin)
+    assert mg2.nowcast_replay_check(out, pin, pin_sha, sha)["pass"] is True
+    monkeypatch.setattr(mg2, "DEV_NOWCAST_PIN_SHA256", "7" * 64)  # a self-consistent pin that is not the record
+    result = mg2.nowcast_replay_check(out, pin, pin_sha, sha)
+    assert result["pass"] is False
+    assert result["problems"] == [f"nowcast pin sha {pin_sha!r} is not the recorded dev pin {'7' * 64}"]
 
 
 @pytest.mark.parametrize("change,ok", [({}, True), ({"max_abs": 2e-12}, False), ({"pass": False}, False),

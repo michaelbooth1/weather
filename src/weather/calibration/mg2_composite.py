@@ -70,6 +70,9 @@ SECTION7_CONDITIONS = ("coverage", "pit", "parser", "replay", "hashes", "nowcast
 # through the bound state. The window is the captured dev nowcast's (07-30..09-29).
 DEV_SERVE_FEATURES_SHA256 = "0d5c30b39e92e4df8d6201769bbf1eb773f2e7e89c6d2a060a04d5bd70990557"
 DEV_NOWCAST_WINDOW = ("2026-07-30", "2026-09-29")
+# The season-matched dev nowcast pin (clarification season-L6 section 3; B-1 clarification section 6). A code
+# constant, not a B-1 block field: ``nowcast_replay_check`` refuses any other pin sha passed on the CLI.
+DEV_NOWCAST_PIN_SHA256 = "714fa14e04c416da922803514fea1de8fe64459a0ea543878ddddfd6bc34896a"
 # Section 7 P3d_N replay: L2's dev emission dev_P3d_N.jsonl, reproduced by ``mg2_p3d_n control``.
 P3D_N_DEV_REFERENCE_SHA256 = "721ae2cd24283115f68c4b6a1b38d84d34a81921e41468d360b587599fd031ec"
 MG1_FILE = "src/weather/reporting/scorecards/free_source_candidates/mg1.py"
@@ -1231,7 +1234,7 @@ def nowcast_replay_check(replay, pin, pin_sha256, l6_state_sha256):
 
     ``replay`` is that run's output folder. Its reader must have produced L3's captured dev serve features
     (``DEV_SERVE_FEATURES_SHA256``) over ``DEV_NOWCAST_WINDOW`` at ``l6_state_sha256``; ``pin`` must hash to
-    ``pin_sha256``.
+    ``pin_sha256``, and ``pin_sha256`` must be the recorded ``DEV_NOWCAST_PIN_SHA256``.
     """
     import pandas as pd
 
@@ -1256,6 +1259,8 @@ def nowcast_replay_check(replay, pin, pin_sha256, l6_state_sha256):
     if not isinstance(pin_sha256, str) or not SHA256_HEX.fullmatch(pin_sha256) or not Path(pin).is_file() \
             or sha256_file(pin) != pin_sha256:
         problems.append("the dev nowcast pin does not hash to its bound sha256")
+    if pin_sha256 != DEV_NOWCAST_PIN_SHA256:
+        problems.append(f"nowcast pin sha {pin_sha256!r} is not the recorded dev pin {DEV_NOWCAST_PIN_SHA256}")
     if not problems and not _frame_equal(pd.read_parquet(nowcasts, columns=["row_key", "n_own"]),
                                          pd.read_parquet(pin, columns=["row_key", "n_own"]), "row_key", "n_own"):
         problems.append("the replay n_own differs from the pin")
