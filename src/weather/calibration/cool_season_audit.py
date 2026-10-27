@@ -70,7 +70,7 @@ def brier_from_dist(dist, y):
 
 # ---------------------------------------------------------------- comparisons
 
-def compare(frame, arm_col, base_col, hours):
+def compare(frame, arm_col, base_col, hours, periods=PERIODS):
     """dB tables by period x {pooled, hour}, plus per market / per year for oct_dec and aug_sep."""
     import numpy as np
 
@@ -86,7 +86,7 @@ def compare(frame, arm_col, base_col, hours):
     hour = f.hour.to_numpy(int)
     year = f.year.to_numpy(int)
     out = {}
-    for name, months in PERIODS:
+    for name, months in periods:
         pm = np.isin(month, months)
         masks = {"pooled": pm}
         masks.update({f"h{h:02d}": pm & (hour == h) for h in hours})
@@ -102,7 +102,8 @@ def compare(frame, arm_col, base_col, hours):
             entry["per_year"] = {str(y): rz._cell_ratio(dates, markets, num, den, {"x": pm & (year == y)}, SEED).get("x")
                                  for y in YEARS}
         out[name] = entry
-    a, o = out["aug_sep_in_sample"]["by"].get("pooled"), out["oct_dec"]["by"].get("pooled")
+    a = out.get("aug_sep_in_sample", {}).get("by", {}).get("pooled")
+    o = out.get("oct_dec", {}).get("by", {}).get("pooled")
     reading = None
     if a and o:
         if a["ci95"][1] is not None and a["ci95"][1] < 0 and o["ci95"][0] is not None and o["ci95"][0] >= 0:
@@ -730,6 +731,188 @@ def part1c(*, nbm_corpus, records_root, research_root, state_0712, hrrr_0712, hr
     return payload
 
 
+# ---------------------------------------------------------------- row 49: blend_l6_H with the season-matched L6
+
+SM_STATE_SHA256 = "800072c79af65394cc33134cbaae34af65c4428feb3934e35f8cd6cd153ee2db"
+SM_LOYO_SHA256 = "07ef7810d81e434c93e08e552d3ca2df0ec195790a52b6431e578ab3ce515919"
+SM_DEV_NOWCASTS_SHA256 = "714fa14e04c416da922803514fea1de8fe64459a0ea543878ddddfd6bc34896a"
+SM_DEV_VECTORS_SHA256 = "2366d67c5cdd6eb26b98064807210ade1c657829b7fa8e683535b94a9a2faa76"
+RF1_NOTE_SHA256 = "b13f2e035cb797efc04ed936af523aa5c269dc693fd6eec766b0bb212ed8efa9"
+OCT_DEC_PERIODS = tuple(x for x in PERIODS if x[0] != "aug_sep_in_sample")
+LOYO_CONTROL_TOL = 1e-12
+
+
+def bind_rf1_weights(path, weights_sha256):
+    """L2's RF-1 refit weights: file sha = the forwarded one, the .sha256 sidecar agrees, every check PASSes
+    and nothing stopped, the note is b13f2e03, and the partner is the season-matched L6 (part 07a67425,
+    season dev nowcasts 714fa14e, partner vectors 2366d67c)."""
+    _pin(path, weights_sha256, "RF-1 weights")
+    side = Path(str(path) + ".sha256").read_text(encoding="utf-8").split()
+    if not side or side[0] != weights_sha256:
+        raise CoolSeasonError("RF-1 weights .sha256 sidecar disagrees")
+    w = json.loads(Path(path).read_text(encoding="utf-8"))
+    checks = w.get("checks") or {}
+    if w.get("stopped_at") or not checks or not all(c.get("pass") is True for c in checks.values()):
+        raise CoolSeasonError(f"RF-1 weights did not PASS every check: {w.get('stopped_at')}")
+    if w.get("note_sha256") != RF1_NOTE_SHA256:
+        raise CoolSeasonError(f"RF-1 note {w.get('note_sha256')} != {RF1_NOTE_SHA256}")
+    inp = w.get("inputs") or {}
+    if (inp.get("l6_part") != L6_PART_SHA256 or inp.get("season_nowcasts") != SM_DEV_NOWCASTS_SHA256
+            or inp.get("partner_vectors") != SM_DEV_VECTORS_SHA256):
+        raise CoolSeasonError("RF-1 weights were not fitted with the season-matched L6 partner")
+    weights = {int(k[1:]): float(v) for k, v in w["weights"].items()}
+    if sorted(weights) != list(HOURS_0712) or not all(0.0 <= x <= 1.0 for x in weights.values()):
+        raise CoolSeasonError(f"RF-1 weights hours/values invalid: {weights}")
+    return weights, {"checks": {k: bool(c.get("pass")) for k, c in checks.items()}, "inputs": inp}
+
+
+def season_nowcast_maps(research_root, nbm_corpus, sm_state_path, loyo_result, mg2_coefficients):
+    """Oct-Dec season-L6 nowcasts on L6's history rows: LOYO (fold y fitted on Oct-Dec history without year y,
+    exactly SM-L6's folds) and the final 800072c7 (IN-SAMPLE on every Oct-Dec history row).
+
+    Positive control: SM-L6's registered LOYO pooled Oct-Dec dB is reproduced from these fold nowcasts, or the
+    run refuses. -> ({key: N_loyo}, {key: N_final}, control)."""
+    import numpy as np
+
+    from weather.calibration import season_matched_l6 as sm
+    from weather.model import mg_serve_core as core
+
+    _pin(loyo_result, SM_LOYO_SHA256, "SM-L6 LOYO result")
+    _pin(mg2_coefficients, MG2_COEF_SHA256, "MG-2 coefficients")
+    coef = json.loads(Path(mg2_coefficients).read_text(encoding="utf-8"))["l6_stack"]["coef"]
+    train, _ = sm.training_rows(research_root)
+    rows, prov = l6_rows(research_root, nbm_corpus)
+    rows = rows[rows.month.isin(OCT_DEC)].reset_index(drop=True)
+    n_loyo = np.full(len(rows), np.nan)
+    for y in YEARS:
+        te = (rows.year == y).to_numpy()
+        n_loyo[te] = core.l6_own_nowcast(sm.fit_state(train[train.year != y], {"fold": y}), rows[te])
+    final = core.load_l6_own_state(sm_state_path, SM_STATE_SHA256)
+    n_final = core.l6_own_nowcast(final, rows)
+    part, base, _ = sm.stack_brier(rows, n_loyo, coef)
+    got = sm.tables(rows, part, base)["oct_dec"]["pooled"]["estimate"]
+    want = json.loads(Path(loyo_result).read_text(encoding="utf-8"))["season_matched_loyo"]["oct_dec"]["pooled"]
+    control = {"reproduced": float(got), "registered": float(want["estimate"]),
+               "abs_diff": abs(float(got) - float(want["estimate"]))}
+    control["pass"] = control["abs_diff"] <= LOYO_CONTROL_TOL
+    if not control["pass"]:
+        raise CoolSeasonError(f"SM-L6 LOYO control failed: {control}")
+    keys = list(zip(rows.market, rows.local_date, rows.hour.astype(int)))
+    loyo_map = {k: float(x) for k, x in zip(keys, n_loyo) if np.isfinite(x)}
+    final_map = {k: float(x) for k, x in zip(keys, n_final) if np.isfinite(x)}
+    return loyo_map, final_map, dict(control, l6_obs=prov, training_rows=int(len(train)))
+
+
+def score_sm_blend(frame, state, hrrr, maps, coef, weights):
+    """Per Oct-Dec row: blend = w_h P3d_H + (1 - w_h) SM-L6, the SM-L6 stack alone (MG-2's 07-12 arm) and the
+    MG-1 analogue, for each nowcast map in ``maps`` ({tag: {key: N}}). SM-L6 without N is the MG-1 analogue."""
+    import numpy as np
+
+    n = len(frame)
+    cols = {"mg1": np.full(n, np.nan), "p3d_h": np.full(n, np.nan)}
+    for tag in maps:
+        cols[f"blend_{tag}"], cols[f"sml6_{tag}"] = np.full(n, np.nan), np.full(n, np.nan)
+    stats = Counter()
+    for i, r in enumerate(frame.itertuples(index=False)):
+        F, ct, nm = (float(x) if x is not None and x == x else float("nan") for x in (r.F, r.current_temp, r.nbm_mean))
+        v = float("nan") if r.v is None else float(r.v)
+        s = float("nan") if r.s is None else float(r.s)
+        if not (math.isfinite(F) and math.isfinite(ct)):
+            stats["no_obs"] += 1
+            continue
+        if not (math.isfinite(v) and math.isfinite(s)):
+            stats["no_mg1"] += 1
+            continue
+        h = int(r.hour)
+        entry = hrrr.get((r.market, r.local_date, h))
+        stats["hrrr_covered" if entry is not None and not entry["k_miss"] else "hrrr_miss"] += 1
+        pa = p3dh_distribution(state, h, k_extra(entry, r.nbm_mean), market=r.market,
+                               target_date=date.fromisoformat(r.local_date), high_so_far=F, current_temp=ct,
+                               nbm_mean=nm)
+        sig = max(s, 1.0)
+        pm = dist_vector(v, sig, F)
+        cols["mg1"][i], cols["p3d_h"][i] = brier_from_dist(pm, r.y), brier_from_dist(pa, r.y)
+        for tag, nmap in maps.items():
+            N = nmap.get((r.market, r.local_date, h))
+            if N is None:
+                stats[f"{tag}_no_nowcast_mg1"] += 1
+                pl = pm
+            else:
+                a, b = coef[h]
+                pl = dist_vector(v + a + b * (N - v), sig, F)
+            cols[f"sml6_{tag}"][i] = brier_from_dist(pl, r.y)
+            cols[f"blend_{tag}"][i] = brier_from_dist(blend(pa, pl, weights[h]), r.y)
+        stats["scored"] += 1
+    out = frame[["market", "local_date", "hour", "year", "month"]].copy()
+    for k, v in cols.items():
+        out[k] = v
+    return out, dict(stats)
+
+
+def part_sm_blend(*, nbm_corpus, records_root, research_root, state_0712, hrrr_backfill, backfill_sums_sha256,
+                  land, sm_state, sm_loyo, mg2_coefficients, rf1_weights, rf1_weights_sha256, rule, rule_49,
+                  rule_49_sha256, out_path):
+    import numpy as np
+
+    check_rule(rule)
+    _pin(rule_49, rule_49_sha256, "row 49 rule")
+    _pin(nbm_corpus, "1ae4bf52a0e032fc0c05ddfa7b282a17db53bd9a2e3f3a32a9a5686139faa1fd", "NBM corpus")
+    sums = bind_sha256sums(hrrr_backfill, backfill_sums_sha256)
+    state, state_sha, control_sha = bind_l2_state(state_0712)
+    if state_sha != P3DH_0712_STATE_SHA256:
+        raise CoolSeasonError(f"P3d_H 07-12 state {state_sha} != {P3DH_0712_STATE_SHA256}")
+    weights, rf1 = bind_rf1_weights(rf1_weights, rf1_weights_sha256)
+    coef = l6_part(mg2_coefficients)
+    recf, shas, missing = record_rows(records_root, nbm_corpus, hours=HOURS_0712)
+    recf = recf[recf.month.isin(OCT_DEC)].reset_index(drop=True)
+    markets = set(recf.market)
+    point, rep = rn1_point_map(land, hrrr_backfill, markets)
+    fitted = state["point_rule"]["report"]["stations"]
+    for icao, x in rep["stations"].items():
+        if fitted.get(icao, {}).get("chosen_index") != x["chosen_index"]:
+            raise CoolSeasonError(f"{icao}: RN-1 index differs from the state's fitted point rule")
+    hrrr, hstats = hrrr_k_columns(hrrr_backfill, markets, hours=HOURS_0712, point=point, months=OCT_DEC)
+    n_loyo, n_final, control = season_nowcast_maps(research_root, nbm_corpus, sm_state, sm_loyo, mg2_coefficients)
+    scored, stats = score_sm_blend(recf, state, hrrr, {"loyo": n_loyo, "final_in_sample": n_final}, coef, weights)
+    keys = list(zip(recf.market, recf.local_date, recf.hour.astype(int)))
+    hcov = np.array([hrrr.get(k) is not None and not hrrr[k]["k_miss"] for k in keys])
+    month = recf.month.to_numpy(int)
+
+    def counts(col):
+        x = np.isfinite(scored[col].to_numpy(float))
+        return {name: {"rows": int(np.isin(month, m).sum()), "scored": int(x[np.isin(month, m)].sum()),
+                       "hrrr_covered": int(hcov[np.isin(month, m)].sum()),
+                       "nowcast_covered_loyo": int(np.array([k in n_loyo for k in keys])[np.isin(month, m)].sum()),
+                       "nowcast_covered_final": int(np.array([k in n_final for k in keys])[np.isin(month, m)].sum())}
+                for name, m in OCT_DEC_PERIODS}
+
+    def cmp(arm, base):
+        return dict(compare(scored, arm, base, HOURS_0712, periods=OCT_DEC_PERIODS), coverage=counts(arm))
+
+    payload = {
+        "label": "Row 49 (CS-1 addendum), history only, descriptive: blend_l6_H with the season-matched L6 partner "
+                 "and L2's RF-1 weights on Oct-Dec 2021-25 07-12, vs (a) the MG-1 analogue and (b) the SM-L6 "
+                 "stack (MG-2's 07-12 arm). PRIMARY = LOYO season-L6 nowcasts (SM-L6's folds); the final 800072c7 "
+                 "is IN-SAMPLE on every Oct-Dec history row and is reported labelled so; no binding change",
+        "rule_sha256": RULE_CS_SHA256, "rule_49_sha256": rule_49_sha256, "module_sha256": _sha(__file__),
+        "inputs": {"p3d_h_0712_state_sha256": state_sha, "l2_control_sha256": control_sha,
+                   "rf1_weights_sha256": rf1_weights_sha256, "rf1": rf1,
+                   "weights": {f"h{h:02d}": w for h, w in weights.items()},
+                   "sm_state_sha256": SM_STATE_SHA256, "sm_loyo_sha256": SM_LOYO_SHA256,
+                   "mg2_coefficients_sha256": MG2_COEF_SHA256, "l6_part_sha256": L6_PART_SHA256,
+                   "hrrr_backfill_sha256sums": backfill_sums_sha256, "hrrr_backfill_files": sums,
+                   "land_sha256": RN1_LAND_SHA256, "records_sha256": shas, "records_missing": missing},
+        "loyo_control": control, "point_rule": rep, "hrrr_stats": hstats, "row_stats": stats, "rows": int(len(recf)),
+        "primary_loyo": {"a_blend_vs_mg1": cmp("blend_loyo", "mg1"), "b_blend_vs_sml6": cmp("blend_loyo", "sml6_loyo"),
+                         "sml6_vs_mg1": cmp("sml6_loyo", "mg1")},
+        "secondary_final_in_sample": {"a_blend_vs_mg1": cmp("blend_final_in_sample", "mg1"),
+                                      "b_blend_vs_sml6": cmp("blend_final_in_sample", "sml6_final_in_sample"),
+                                      "sml6_vs_mg1": cmp("sml6_final_in_sample", "mg1")},
+        "p3d_h_vs_mg1": cmp("p3d_h", "mg1")}
+    _write_once(out_path, payload)
+    return payload
+
+
 # ---------------------------------------------------------------- subcommands
 
 def coverage(*, research_root, nbm_corpus, records_root, hrrr_roots, rule, out_path):
@@ -852,12 +1035,27 @@ def main(argv=None):
                  "--hrrr-backfill", "--backfill-sums-sha256", "--land", "--l6-state", "--mg2-coefficients",
                  "--blend-weights", "--rule", "--rule-1c", "--rule-1c-sha256", "--out"):
         c1.add_argument(flag, required=True)
+    r49 = sub.add_parser("sm-blend")
+    for flag in ("--nbm-corpus", "--records-root", "--research-root", "--state-0712", "--hrrr-backfill",
+                 "--backfill-sums-sha256", "--land", "--sm-state", "--sm-loyo", "--mg2-coefficients", "--rf1-weights",
+                 "--rf1-weights-sha256", "--rule", "--rule-49", "--rule-49-sha256", "--out"):
+        r49.add_argument(flag, required=True)
     a = parser.parse_args(argv)
     if a.cmd == "coverage":
         roots = dict(x.split("=", 1) for x in a.hrrr)
         out = coverage(research_root=a.research_root, nbm_corpus=a.nbm_corpus, records_root=a.records_root,
                        hrrr_roots=roots, rule=a.rule, out_path=a.out)
         print(json.dumps({k: v["octdec_backfill_estimate_gb"] for k, v in out["hrrr"].items()}, indent=1))
+    elif a.cmd == "sm-blend":
+        out = part_sm_blend(nbm_corpus=a.nbm_corpus, records_root=a.records_root, research_root=a.research_root,
+                            state_0712=a.state_0712, hrrr_backfill=a.hrrr_backfill,
+                            backfill_sums_sha256=a.backfill_sums_sha256, land=a.land, sm_state=a.sm_state,
+                            sm_loyo=a.sm_loyo, mg2_coefficients=a.mg2_coefficients, rf1_weights=a.rf1_weights,
+                            rf1_weights_sha256=a.rf1_weights_sha256, rule=a.rule, rule_49=a.rule_49,
+                            rule_49_sha256=a.rule_49_sha256, out_path=a.out)
+        print(json.dumps({"control": out["loyo_control"]["pass"],
+                          **{k: v["periods"]["oct_dec"]["by"].get("pooled") for k, v in out["primary_loyo"].items()}},
+                         indent=1))
     elif a.cmd == "part1c":
         out = part1c(nbm_corpus=a.nbm_corpus, records_root=a.records_root, research_root=a.research_root,
                      state_0712=a.state_0712, hrrr_0712=a.hrrr_0712, hrrr_backfill=a.hrrr_backfill,

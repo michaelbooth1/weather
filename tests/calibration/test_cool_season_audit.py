@@ -181,3 +181,61 @@ def test_hrrr_k_columns_skips_or_refuses_days_after_2025(tmp_path):
     assert out == {} and stats["skipped_after"] == 1
     with pytest.raises(cs.CoolSeasonError):
         cs.hrrr_k_columns(tmp_path, {"nyc"}, hours=cs.HOURS_0712)
+
+
+def _rf1(tmp_path, payload):
+    import hashlib
+    import json
+
+    path = tmp_path / "blend_l6_H_weights.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    sha = hashlib.sha256(path.read_bytes()).hexdigest()
+    (tmp_path / "blend_l6_H_weights.json.sha256").write_text(f"{sha}  {path.name}\n", encoding="utf-8")
+    return path, sha
+
+
+def _rf1_payload():
+    return {"note_sha256": cs.RF1_NOTE_SHA256,
+            "checks": {"1_control": {"pass": True}, "2_identity": {"pass": True}, "3_coverage": {"pass": True}},
+            "inputs": {"l6_part": cs.L6_PART_SHA256, "season_nowcasts": cs.SM_DEV_NOWCASTS_SHA256,
+                       "partner_vectors": cs.SM_DEV_VECTORS_SHA256},
+            "weights": {f"h{h:02d}": 0.5 for h in cs.HOURS_0712}}
+
+
+def test_bind_rf1_weights_accepts_a_passing_season_partner_refit(tmp_path):
+    path, sha = _rf1(tmp_path, _rf1_payload())
+    weights, info = cs.bind_rf1_weights(path, sha)
+    assert weights == {h: 0.5 for h in cs.HOURS_0712} and all(info["checks"].values())
+    with pytest.raises(cs.CoolSeasonError):
+        cs.bind_rf1_weights(path, "0" * 64)
+
+
+@pytest.mark.parametrize("breaks", ["check", "stopped", "partner", "note"])
+def test_bind_rf1_weights_refuses_a_failed_check_or_another_partner(tmp_path, breaks):
+    payload = _rf1_payload()
+    if breaks == "check":
+        payload["checks"]["3_coverage"]["pass"] = False
+    elif breaks == "stopped":
+        payload["stopped_at"] = "check 2"
+    elif breaks == "partner":
+        payload["inputs"]["season_nowcasts"] = cs.L6_DEV_NOWCASTS_SHA256
+    else:
+        payload["note_sha256"] = "0" * 64
+    path, sha = _rf1(tmp_path, payload)
+    with pytest.raises(cs.CoolSeasonError):
+        cs.bind_rf1_weights(path, sha)
+
+
+def test_compare_runs_on_oct_dec_periods_only():
+    import numpy as np
+    import pandas as pd
+
+    rng = np.random.default_rng(0)
+    rows = [{"market": m, "local_date": f"2024-{mo:02d}-{d:02d}", "hour": 9, "year": 2024, "month": mo}
+            for m in ("nyc", "miami") for mo in (10, 11, 12) for d in range(1, 11)]
+    f = pd.DataFrame(rows)
+    f["mg1"] = rng.uniform(0.5, 0.9, len(f))
+    f["arm"] = f.mg1 - 0.05
+    out = cs.compare(f, "arm", "mg1", (9,), periods=cs.OCT_DEC_PERIODS)
+    assert "aug_sep_in_sample" not in out["periods"] and out["transfer_reading"] is None
+    assert out["periods"]["oct_dec"]["by"]["pooled"]["estimate"] < 0
