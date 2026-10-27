@@ -4090,6 +4090,7 @@ lanes; nothing here is confirmation. Record, rules (each committed before scorin
   forecast-anchored discretised normal with a hard floor.
 - **Not claimed:** nothing about edge over market prices; one centre (11-24) and five markets; the seasonal columns
   are not served features.
+
 ### 10aa. A pooled residual model beats OLS + floor and the floored forecast on R0's rows, and beats the served vector on the development window; pooling is the lever, and it is still worse than the market — lane L2, workstation, 2026-10-24/25
 
 **Claim, at exactly this scope:** a model pooled across the 11 US markets (`weather.calibration.pooled_residual_model`, arm P3) beats lane L3's OLS + floor ((a), EF §10ab) and the floored bias-corrected forecast ((f)) at 07-12, on R0's own blocked leave-one-year-out rows. Its development variant P3d beats the served vector on the development window.
