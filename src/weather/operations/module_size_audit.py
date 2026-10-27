@@ -23,6 +23,11 @@ OWNERSHIP_NOTES = {
         "boundary": "The legacy per-market feature trainer: cutoff-hour HGB/LR fits with blocked leave-one-year-out validation, blend tuning and the report, late-day continuation, plus the research-only R0 options (column allowlist, base-only output root, pinned centre, PIT corpora, leaf floor, per-row validation rows).",
         "next_split": "Newly WARN on 2026-10-24 at 2,141 lines after the R0 retrain options (memo R0.2 M3-M7, leaf sweep, per-row rows). Extract the R0 research CLI and output layer (base_only_output_paths, the min_samples_leaf wrapper, the training_inputs and served_model_differences recording and the per-row writer) into a feature_model_research owner module that does not import the trainer facade, then the report rendering; preserve artifact keys, file names and the served default path byte-for-byte.",
     },
+    "src/weather/calibration/pooled_residual_model.py": {
+        "owner": "calibration",
+        "boundary": "Research-only lane L2 pooled residual model (dev and history evidence, no serving path): the pooled OLS + HGB residual mean model with learned error shape and hard floor, the pre-registered rung gates and their CLIs (R-A..R-V), and the MG-3 freeze prep (frozen states, blend weights, release binding, forward parity).",
+        "next_split": "Newly WARN on 2026-10-26 after the rung and MG-3 freeze additions. Extract the per-rung gate code (rung_* LOYO/emit/score and their constants) into a pooled_residual_rungs owner module that imports only the model core, then the MG-3 freeze prep into pooled_residual_mg3; keep the CLI subcommands, rule-sha constants and every output file byte-for-byte.",
+    },
     "src/weather/calibration/pooled_feature_model.py": {
         "owner": "calibration",
         "boundary": "Compatibility facade for pooled feature model implementation slices.",

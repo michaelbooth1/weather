@@ -41,8 +41,8 @@ Reviewed module-size warning allowance:
   `weather.schema_registry_data`, `weather.operations.nightly_retrain`,
   `weather.calibration.pooled_training`, `weather.operations.experiment_executor`,
   `weather.reporting.hourly.ten_minute_model_performance`,
-  `weather.collection.snapshot_tracker`, `weather.model.model_features`, and
-  `weather.calibration.feature_model`.
+  `weather.collection.snapshot_tracker`, `weather.model.model_features`,
+  `weather.calibration.feature_model`, and `weather.calibration.pooled_residual_model`.
 - A module can be marked "split complete" for an earlier item and still need a
   follow-on split if later feature growth pushes it back over the threshold.
 
@@ -50,6 +50,7 @@ Reviewed module-size warning allowance:
 | :--- | :--- | :--- | :--- |
 | `weather.calibration.pooled_feature_model` | Calibration | Compatibility facade for pooled feature assembly, density/band training, training orchestration, artifact IO, reporting, and CLI modules. Dynamic source-state features live in `weather.calibration.pooled_feature_source_state`. | Split complete for item 173. |
 | `weather.calibration.feature_model` | Calibration | Legacy per-market feature trainer (cutoff-hour HGB/LR, blocked validation, blend tuning, report, late-day continuation) plus the research-only R0 options (column allowlist, base-only output root, pinned centre, PIT corpora, leaf floor, per-row validation rows). | WARN on 2026-10-24 at 2,141 lines after the R0 retrain options. Extract the R0 research CLI and output layer into a `feature_model_research` owner module that does not import the trainer, then the report rendering; keep the served default path byte-for-byte. |
+| `weather.calibration.pooled_residual_model` | Calibration | Research-only lane L2 pooled residual model: the pooled mean/scale model, the pre-registered rung gates and CLIs, and the MG-3 freeze prep. No serving path imports it. | WARN on 2026-10-26 after the rung and MG-3 freeze additions. Extract the per-rung gate code into a `pooled_residual_rungs` owner module that imports only the model core, then the MG-3 freeze prep; keep CLI subcommands, rule-sha constants and output files byte-for-byte. |
 | `weather.calibration.pooled_training` | Calibration | Point-in-time pooled training evidence, fit receipts, final refit verification, and density/band model fitting. | WARN in the 2026-07-15 audit. Extract point-in-time receipt construction and verification into a pooled point-in-time contract module while preserving canonical hashes and fitted-bundle behavior. |
 | `weather.calibration.pooled_candidate_replay` | Calibration | Live candidate-replay orchestration, cache and sentinel handling, prediction attachment, result aggregation, variant export, and CLI. Diagnostics, CLOB microstructure shadow helpers, market verdicts, replay gates, and sidecar summaries live in `weather.calibration.pooled_candidate_replay_diagnostics`; Markdown rendering lives in `weather.calibration.pooled_candidate_replay_report`; scoring/variant row logic lives in `weather.calibration.pooled_candidate_scoring`. | WARN in the 2026-07-12 audit. Extract cache, sentinel, and result aggregation into a replay-cache owner that does not import the facade, preserving cache keys and forensic payloads. |
 | `weather.calibration.pooled_candidate_replay_diagnostics` | Calibration | Candidate replay diagnostics, CLOB microstructure overlay training/scoring, casebook annotation, market verdicts, replay safety gates, forecast-profile guardrails, and data-layer sidecar summary loading. | Owner module; must not import the `pooled_candidate_replay` facade. |
