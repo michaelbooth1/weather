@@ -53,6 +53,7 @@ def _refuse_production_import():
 _refuse_production_import()
 
 from weather import paths  # noqa: E402
+from weather.calibration import mg1_look  # noqa: E402  (the only writer of MG-1's look receipt)
 from weather.calibration import mg2_composite as mg2  # noqa: E402  (its import refuses on the capture host)
 
 NAME = "b_scorer"
@@ -505,8 +506,12 @@ def pre_look_read_problems(mg2_look):
 
 
 def receipt_time_problems(manifest, mg1_look_receipt):
-    """VOID 5: the manifest binds this MG-1 look receipt by sha256, and the transfer is after the instant the
-    receipt itself records (``looked_at_utc``), never after a file time."""
+    """VOID 5: the receipt is one ``mg1_look`` wrote (``mg1_look.receipt_problems``: schema, body sha, signed rule,
+    registered entry point, the bytes of the fixed per-rule receipt), the manifest binds it by sha256, and the transfer
+    is after the instant the receipt itself records (``looked_at_utc``, stamped by code), never after a file time."""
+    written = mg1_look.receipt_problems(mg1_look_receipt)
+    if written:
+        return written
     if manifest.get("mg1_look_receipt_sha256") != sha256_file(mg1_look_receipt):
         return ["the transfer manifest does not bind this MG-1 look receipt (mg1_look_receipt_sha256)"]
     try:

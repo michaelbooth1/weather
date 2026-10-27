@@ -8,11 +8,13 @@ INCONCLUSIVE, NOT-WORSE below +0.0027), 8 (VOID 1-7), 9 (MG-1 look receipt first
 evidence, a VOID on a degenerate interval, the market-local embargo) and the MG-2 season-L6 clarification
 (``l6_state_sha256``); master's review of de422aa59 (R1 the fixed per-rule consumed marker, R2 an unevaluated
 section 7 condition is VOID 1, R4 the release binding is bind-release output, R6 the embargo covers every market)
-and the SM-N notice (served-state shas share one field shape).
+and the SM-N notice (served-state shas share one field shape); master's R3 ruling of 2026-10-26 (VOID 5 accepts
+only an ``mg1_look_receipt/1`` written by the registered MG-1 look entry point).
 """
 import json
 import shutil
 import sys
+import types
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -30,6 +32,8 @@ ROOT = Path(__file__).resolve().parents[2]
 b = import_or_skip_on_capture_host("weather.calibration.b_scorer")
 mg2 = import_or_skip_on_capture_host("weather.calibration.mg2_composite")
 l3 = import_or_skip_on_capture_host("weather.calibration.r0_ols_floor_challenger")
+mg1_look = import_or_skip_on_capture_host("weather.calibration.mg1_look")
+MG1_RULE = ROOT / "docs/research/morning-guidance-read-mg1-preregistration-2026-10-04.md"
 REAL_CONSUMED_ROOT = b.CONSUMED_ROOT  # before the autouse fixture moves it into tmp
 
 D0 = date(2026, 10, 28)
@@ -62,10 +66,31 @@ def _rule(tmp_path, fill=True, **over):
 MG1_LOOKED = "2026-12-14T00:00:00Z"
 
 
-def _receipt(tmp_path, looked=MG1_LOOKED):
+def _hand_receipt(tmp_path, looked=MG1_LOOKED):
+    """A hand-made receipt: enough for look_guard's existence check; VOID 5 rejects it."""
     path = tmp_path / "mg1_look_receipt.json"
     path.write_text(json.dumps({"mg1": "look", **({b.MG1_RECEIPT_TIME: looked} if looked else {})}), encoding="utf-8")
     return path
+
+
+def _receipt(tmp_path, monkeypatch, looked=MG1_LOOKED):
+    """A receipt written by ``mg1_look`` running as the registered entry point; its clock reads ``looked``."""
+    roots = tmp_path / "_mg1_look"
+    n = 0
+    while (roots / str(n)).exists():
+        n += 1
+    monkeypatch.setattr(mg1_look, "LOOK_ROOT", roots / str(n))  # one receipt root per call, never the repo's data/
+    with pytest.MonkeyPatch.context() as m:
+        main = types.ModuleType("__main__")
+        main.__spec__ = types.SimpleNamespace(name=mg1_look.MODULE, origin=mg1_look.__file__)
+        m.setitem(sys.modules, "__main__", main)
+        m.setattr(mg1_look, "_utc_now", lambda: looked)
+        m.setattr(mg1_look, "head_commit", lambda root=None: "a" * 40)
+        look = mg1_look.Look(MG1_RULE)
+        look.join_outcomes(lambda: None)
+        result = roots / str(n) / "mg1_result.json"
+        result.write_text("{}", encoding="utf-8")
+        return look.finish(result=result, dates=DATES)
 
 
 # ----------------------------------------------------------------------------- precondition and rule
@@ -80,8 +105,8 @@ def test_l6_state_sha_is_a_bound_field_that_must_be_filled_with_hex(tmp_path):
     assert b.unfilled(dict(fields, l6_state_sha256="")) == ["l6_state_sha256"]
     assert b.unfilled({k: v for k, v in fields.items() if k != "l6_state_sha256"}) == ["l6_state_sha256"]
     with pytest.raises(b.BRefused, match="FILL@BINDING.*l6_state_sha256"):
-        b.look_guard(rule=_rule(tmp_path, l6_state_sha256=b.FILL), mg1_look_receipt=_receipt(tmp_path), out=tmp_path,
-                     today=TODAY)
+        b.look_guard(rule=_rule(tmp_path, l6_state_sha256=b.FILL), mg1_look_receipt=_hand_receipt(tmp_path),
+                     out=tmp_path, today=TODAY)
 
 
 @pytest.mark.parametrize("key,bad", [
@@ -95,7 +120,7 @@ def test_any_bound_field_not_in_its_format_is_unfilled_and_refuses_the_look(tmp_
     _, fields = b.read_rule(rule)
     assert b.unfilled(fields) == [key]
     with pytest.raises(b.BRefused, match="FILL@BINDING> or malformed"):
-        b.look_guard(rule=rule, mg1_look_receipt=_receipt(tmp_path), out=tmp_path, today=TODAY)
+        b.look_guard(rule=rule, mg1_look_receipt=_hand_receipt(tmp_path), out=tmp_path, today=TODAY)
 
 
 def test_bound_field_formats_accept_the_filled_shapes(tmp_path):
@@ -162,7 +187,7 @@ def test_the_look_refuses_first_without_mg1_look_receipt(tmp_path):
 
 
 def test_unfilled_rule_open_window_and_second_look_refuse(tmp_path, monkeypatch):
-    receipt = _receipt(tmp_path)
+    receipt = _hand_receipt(tmp_path)
     with pytest.raises(b.BRefused, match="FILL@BINDING"):
         b.look_guard(rule=_rule(tmp_path, fill=False), mg1_look_receipt=receipt, out=tmp_path, today=TODAY)
     rule = _rule(tmp_path)
@@ -337,7 +362,7 @@ def _look_inputs(tmp_path, monkeypatch, *, transferred="2026-12-15T00:00:00Z", d
     transfer.mkdir()
     labels.to_parquet(transfer / "labels.parquet", index=False)
     market.to_parquet(transfer / "market.parquet", index=False)
-    receipt = _receipt(tmp_path)
+    receipt = _receipt(tmp_path, monkeypatch)
     manifest = {"schema": b.TRANSFER_SCHEMA, "transferred_at_utc": transferred,
                 "mg1_look_receipt_sha256": b.sha256_file(receipt),
                 "dates": [{"date": d, "promotion_countable": True} for d in DATES],
@@ -518,13 +543,43 @@ def test_hash_control_receipt_time_and_manifest_voids(tmp_path, monkeypatch):
                                           ({"transferred_at_utc": "2026-12-15T00:00:00"}, MG1_LOOKED)])
 def test_void_5_uses_the_bound_receipt_and_the_instant_inside_it(tmp_path, monkeypatch, extra, looked):
     args = _look_inputs(tmp_path, monkeypatch, manifest_extra=extra)
-    receipt = _receipt(tmp_path, looked=looked)
+    receipt = _receipt(tmp_path, monkeypatch, looked=looked) if looked else _hand_receipt(tmp_path, looked=None)
     manifest_path = Path(args["transfer"]) / b.TRANSFER_MANIFEST
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     if "mg1_look_receipt_sha256" not in extra:
         manifest["mg1_look_receipt_sha256"] = b.sha256_file(receipt)
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     out = b.look(**dict(args, mg1_look_receipt=receipt))
+    assert out["decision"]["conditions"] == [5] and out["outcomes_opened"] is False
+
+
+def test_void_5_passes_on_a_written_receipt_and_fails_absent_or_hand_edited(tmp_path, monkeypatch):
+    args = _look_inputs(tmp_path, monkeypatch)
+    receipt = Path(args["mg1_look_receipt"])
+    assert receipt == mg1_look.receipt_path(mg1_look.MG1_RULE_SHA256)
+    manifest = json.loads((Path(args["transfer"]) / b.TRANSFER_MANIFEST).read_text(encoding="utf-8"))
+    assert b.receipt_time_problems(manifest, receipt) == []
+    assert b.receipt_time_problems(manifest, tmp_path / "absent.json") == [
+        f"MG-1 look receipt {tmp_path / 'absent.json'} does not exist"]
+    edited = json.loads(receipt.read_text(encoding="utf-8"))
+    edited["looked_at_utc"] = "2026-12-01T00:00:00Z"
+    copy = tmp_path / "edited.json"
+    copy.write_text(json.dumps(edited), encoding="utf-8")
+    manifest["mg1_look_receipt_sha256"] = b.sha256_file(copy)  # even a manifest that binds the edited bytes
+    problems = b.receipt_time_problems(manifest, copy)
+    assert any("body_sha256" in p for p in problems) and any("differ from the written" in p for p in problems)
+    edited["body_sha256"] = mg1_look.body_sha256(edited)  # a re-hashed edit still differs from the written receipt
+    copy.write_text(json.dumps(edited), encoding="utf-8")
+    manifest["mg1_look_receipt_sha256"] = b.sha256_file(copy)
+    assert b.receipt_time_problems(manifest, copy) == [
+        f"MG-1 look receipt bytes differ from the written receipt at {receipt}"]
+    assert b.look(**args)["decision"]["verdict"] == "PASS"
+    args2 = _look_inputs(tmp_path / "t2", monkeypatch)
+    hand = _hand_receipt(tmp_path / "t2")
+    path = Path(args2["transfer"]) / b.TRANSFER_MANIFEST
+    m2 = json.loads(path.read_text(encoding="utf-8"))
+    path.write_text(json.dumps(dict(m2, mg1_look_receipt_sha256=b.sha256_file(hand))), encoding="utf-8")
+    out = b.look(**dict(args2, mg1_look_receipt=hand))
     assert out["decision"]["conditions"] == [5] and out["outcomes_opened"] is False
 
 
