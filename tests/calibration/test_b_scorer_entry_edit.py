@@ -31,7 +31,7 @@ def test_setting_the_constant_passes_and_returns_the_recorded_sha():
     assert edit.s1_problems(S0, _s1()) == ([], SHA)
 
 
-@pytest.mark.parametrize("name,s1,fragment", [
+CASES = [  # (name, S1, a fragment of the expected problem)
     ("another line", _s1().replace(b'MG1_RECEIPT_TIME = "looked_at_utc"', b'MG1_RECEIPT_TIME = "completed_at_utc"'),
      "2 hunk(s)"),
     ("only another line", S0.replace(b'MG1_RECEIPT_TIME = "looked_at_utc"', b'MG1_RECEIPT_TIME = "x"'),
@@ -47,8 +47,12 @@ def test_setting_the_constant_passes_and_returns_the_recorded_sha():
     ("a line ending", _s1().replace(b'"' + SHA.encode() + b'"\n', b'"' + SHA.encode() + b'"\r\n'),
      "line ending changed"),
     ("a trailing edit", _s1() + b"# a trailing comment\n", "2 hunk(s)"),
-])
-def test_any_other_change_fails(name, s1, fragment):
+]
+
+
+@pytest.mark.parametrize("name", [case[0] for case in CASES])  # short ids: each S1 is a whole source file
+def test_any_other_change_fails(name):
+    _, s1, fragment = next(case for case in CASES if case[0] == name)
     problems, recorded = edit.s1_problems(S0, s1)
     assert recorded is None and problems, name
     assert any(fragment in p for p in problems), (name, problems)

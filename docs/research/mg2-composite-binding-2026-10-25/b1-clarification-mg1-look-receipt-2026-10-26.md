@@ -153,6 +153,9 @@ into the repo record and committed the same day.
   - registration: `src/weather/mg1_reserved_window.py`;
   - VOID 5: `src/weather/calibration/b_scorer.py` (`receipt_time_problems`, `MG1_LOOK_ENTRY_SHA256`);
   - nowcast pin: `src/weather/calibration/mg2_composite.py` (`DEV_NOWCAST_PIN_SHA256`);
+  - S0→S1 check: `src/weather/calibration/b_scorer_entry_edit.py`, tested in
+    `tests/calibration/test_b_scorer_entry_edit.py` (added at `b8daf82c9f1cc08c6d33451aea69e7c4c4adbcd0`;
+    `b_scorer.py` is unchanged by it);
   - schemas: `src/weather/schema_families/mg1_look.py`;
   - tests: `tests/calibration/test_mg1_look.py`, `tests/calibration/test_b_scorer.py`,
     `tests/calibration/test_mg2_composite_l6_state.py` and `tests/reporting/test_mg1_reserved_window.py`.
