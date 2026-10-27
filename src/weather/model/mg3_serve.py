@@ -17,7 +17,8 @@ Refusal contract: nothing here falls back.
 * A snapshot whose arm produced no distribution is reported with source ``"none"``. Another arm's output is
   never substituted.
 
-What the binding must carry (read, never defaulted):
+What the binding must carry (read, never defaulted). Its ``schema`` must be ``mg3_release_binding/2``; any other
+schema refuses (master ruling (A), 2026-10-27):
 
 * ``states["07-12"]``: ``sha256`` and ``point_rule`` (``"rn1"``);
 * ``states["SM-H 13-15"]``: ``sha256``, ``hours`` and ``excluded_markets`` (and ``point_rule`` ``"nearest"``);
@@ -44,6 +45,7 @@ MG3_STATE_SCHEMA = "mg3_p3d_h_state/1"
 P3DH_ARM = "P3d_H"
 P3DH_EXTRA = ("k_max", "k_gap", "k_tcdc")
 BLOCK_0712 = "07-12"
+BINDING_SCHEMA = "mg3_release_binding/2"
 SM_H_BLOCK = mg3_arms.SM_H_STATE_BLOCK
 
 # The frozen SM-H served state (L2, binding_sm_h_state.md). Refused on any mismatch.
@@ -70,6 +72,13 @@ def _sha256_bytes(blob):
 
 def _sha256_file(path):
     return _sha256_bytes(Path(path).read_bytes())
+
+
+def check_binding_schema(binding):
+    """Refuse any binding whose ``schema`` is not :data:`BINDING_SCHEMA`."""
+    schema = binding.get("schema") if isinstance(binding, dict) else None
+    if schema != BINDING_SCHEMA:
+        raise Mg3ServeError(f"MG-3 binding schema {schema!r} != {BINDING_SCHEMA!r}; refusing")
 
 
 def _need(mapping, key, where):
@@ -146,6 +155,7 @@ def load_sm_h_state(state_dir, *, state_sha256=None, control_sha256=None, note_s
 
 def rn1_point_map(binding, icaos):
     """{icao: block3x3 index} by the binding's RN-1 land point rule (stations not named take ``default_index``)."""
+    check_binding_schema(binding)
     rn1 = _need(binding, "rn1", "")
     default = int(_need(rn1, "default_index", "rn1."))
     index = _need(rn1, "index", "rn1.")
@@ -334,6 +344,7 @@ def bind_blend_weights(binding, weights_path):
     the binding's ``l6_partner``: ``inputs.l6_part`` equals ``part_sha256`` and the partner nowcasts
     (``inputs.season_nowcasts`` when present, else ``inputs.nowcasts``) equal ``nowcasts_sha256``.
     """
+    check_binding_schema(binding)
     sha = _need(binding, "weights_sha256", "")
     partner = _need(binding, "l6_partner", "")
     part_sha = _need(partner, "part_sha256", "l6_partner.")
@@ -382,6 +393,7 @@ class Mg3Serve:
 
 def load_serve(binding, *, state_0712_path, sm_h_dir, weights_path, l6_state_path, l6_part):
     """Load and verify every MG-3 serve part against ``binding``; refuse on any mismatch or missing field."""
+    check_binding_schema(binding)
     states = _need(binding, "states", "")
     b0712 = _need(states, BLOCK_0712, "states.")
     bsmh = _need(states, SM_H_BLOCK, "states.")
@@ -418,6 +430,7 @@ def mg3_arms_check(binding):
 
 def serve_arm(binding, market, hour):
     """The arm MG-3 serves for ``market`` at local ``hour``; an unreadable binding refuses, never defaults."""
+    check_binding_schema(binding)
     try:
         return mg3_arms.mg3_hour_arm(binding, market, hour)
     except mg3_arms.Mg3ArmError as exc:

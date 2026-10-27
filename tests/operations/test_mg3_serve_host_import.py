@@ -47,7 +47,7 @@ from weather.model import mg3_serve as ms
 e = ms.hrrr_raw_path(None, [], icao="KATL", tz="America/New_York", local_date="2026-08-10", hour=10)
 ms.hrrr_extra_columns(e, 80.0)
 ms.l6_band_distribution(80.0, 2.0, 75.0)
-ms.serve_arm({"states": {"SM-H 13-15": {"hours": [13, 14, 15], "excluded_markets": ["san-francisco"]}}},
+ms.serve_arm({"schema": ms.BINDING_SCHEMA, "states": {"SM-H 13-15": {"hours": [13, 14, 15], "excluded_markets": ["san-francisco"]}}},
              "san-francisco", 14)
 loaded = sorted(m for m in sys.modules if m.startswith(("weather.calibration", "weather.reporting")))
 print(json.dumps({"loaded": loaded}))

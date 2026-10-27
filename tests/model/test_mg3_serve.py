@@ -229,14 +229,15 @@ def test_hrrr_extras_refuse_a_mismatched_message_identity_and_a_shifted_snapshot
 
 
 def test_rn1_point_rule_reads_the_bound_block_index():
-    binding = {"rn1": {"land_sha256": "x", "default_index": 4, "index": {"KSFO": 3}}}
+    binding = {"schema": ms.BINDING_SCHEMA, "rn1": {"land_sha256": "x", "default_index": 4, "index": {"KSFO": 3}}}
     assert ms.rn1_point_map(binding, ["KATL", "KSFO"]) == {"KATL": 4, "KSFO": 3}
     nearest = _raw(_selection(), _messages())
     centre = _raw(_selection(), _messages(), point={"KATL": 4})
     west = _raw(_selection(), _messages(), point={"KATL": 3})
     assert centre["k_max"] == nearest["k_max"] and west["k_max"] == pytest.approx(nearest["k_max"] + 3 * 9 / 5)
     assert _raw(_selection(), _messages(), point={"KSFO": 3})["reason"] == "no_land_cell"
-    for bad in ({}, {"rn1": {"index": {}}}, {"rn1": {"default_index": 4}}):
+    for bad in ({}, {"schema": ms.BINDING_SCHEMA, "rn1": {"index": {}}},
+                {"schema": ms.BINDING_SCHEMA, "rn1": {"default_index": 4}}, {**binding, "schema": "mg3_release_binding/1"}):
         with pytest.raises(ms.Mg3ServeError):
             ms.rn1_point_map(bad, ["KATL"])
 
@@ -272,7 +273,7 @@ def _weights_file(tmp_path, shape):
 
 
 def _binding(weights_sha, partner):
-    return {"weights_sha256": weights_sha, "l6_partner": dict(partner)}
+    return {"schema": ms.BINDING_SCHEMA, "weights_sha256": weights_sha, "l6_partner": dict(partner)}
 
 
 def test_rf1_weights_bind_to_the_season_matched_partner(tmp_path):
@@ -358,7 +359,7 @@ def _mg3_binding(weights_sha, partner, land="22069bee" + "0" * 56, **smh):
     block = {"sha256": ms.SM_H_STATE_SHA256, "point_rule": "nearest", "hours": [13, 14, 15],
              "excluded_markets": ["san-francisco"]}
     block.update(smh)
-    return {"schema": "mg3_release_binding/1", "weights_sha256": weights_sha, "l6_partner": dict(partner),
+    return {"schema": ms.BINDING_SCHEMA, "weights_sha256": weights_sha, "l6_partner": dict(partner),
             "rn1": {"land_sha256": land, "default_index": 4, "index": {"KSFO": 3}},
             "states": {"07-12": {"sha256": None, "point_rule": "rn1"}, ms.SM_H_BLOCK: block}}
 
@@ -370,7 +371,7 @@ def test_every_hour_table_refusal_refuses_the_serve():
                      **{h: mg3_arms.ARM_BLEND_0712 for h in range(7, 13)},
                      **{h: mg3_arms.ARM_SM_H for h in (13, 14, 15)}}
     assert [ms.serve_arm(good, "san-francisco", h) for h in (13, 14, 15)] == [mg3_arms.ARM_MG2] * 3
-    bad_bindings = [{"states": {}}, {}, None, _mg3_binding("w", RF1_PARTNER, hours=[13, 14]),
+    bad_bindings = [{"schema": ms.BINDING_SCHEMA, "states": {}}, _mg3_binding("w", RF1_PARTNER, hours=[13, 14]),
                     _mg3_binding("w", RF1_PARTNER, excluded_markets="san-francisco")]
     no_excl = _mg3_binding("w", RF1_PARTNER)
     del no_excl["states"][ms.SM_H_BLOCK]["excluded_markets"]
@@ -378,6 +379,9 @@ def test_every_hour_table_refusal_refuses_the_serve():
         for h in (3, 9, 14):
             with pytest.raises(ms.Mg3ServeError, match="hour table refused"):
                 ms.serve_arm(b, "atlanta", h)
+    for b in ({"states": good["states"]}, {**good, "schema": "mg3_release_binding/1"}, {}, None):
+        with pytest.raises(ms.Mg3ServeError, match="schema"):
+            ms.serve_arm(b, "atlanta", 9)
     for market, hour in (("atlanta", 24), ("atlanta", -1), ("atlanta", True), ("", 9), (None, 9)):
         with pytest.raises(ms.Mg3ServeError):
             ms.serve_arm(good, market, hour)
@@ -419,6 +423,17 @@ def test_load_serve_reads_every_part_from_the_binding(tmp_path, sm_h_dir, shape)
     assert serve.weights == ms.bind_blend_weights(binding, files["weights_path"])
     assert serve.sm_h_state["block"] == ms.SM_H_BLOCK and serve.state_0712["block"] == "07-12"
     assert sorted(serve.l6_coef) == list(range(7, 13))
+
+
+def test_a_partner_state_that_does_not_match_the_binding_refuses_on_the_serve_path(tmp_path, sm_h_dir):
+    binding, files = _serve_files(tmp_path, "rf1")
+    other = tmp_path / "other_l6.pkl"
+    other.write_bytes(Path(files["l6_state_path"]).read_bytes() + b"x")  # a different file, same name shape
+    files["l6_state_path"] = other
+    with pytest.raises(ms.Mg3ServeError, match="L6 own state .*sha256"):
+        ms.load_serve(binding, sm_h_dir=sm_h_dir, **files)
+    with pytest.raises(ms.Mg3ServeError, match="schema"):
+        ms.load_serve({**binding, "schema": "mg3_release_binding/1"}, sm_h_dir=sm_h_dir, **files)
 
 
 @pytest.mark.parametrize("edit", ["state_0712_sha", "sm_h_sha", "point_rule", "land", "l6_state", "part",
@@ -542,4 +557,4 @@ def test_a_missing_mg3_arm_output_is_none_never_another_arm(tmp_path):
     sf = "san-francisco|2026-08-10|14"
     assert source[sf].startswith(mg3_arms.ARM_MG2) and sf in set(frame.row_key)
     with pytest.raises(ms.Mg3ServeError):
-        ms.compose_mg3({"states": {}}, snaps, bands, mg2_frame, mg2_source, {})
+        ms.compose_mg3({"schema": ms.BINDING_SCHEMA, "states": {}}, snaps, bands, mg2_frame, mg2_source, {})
