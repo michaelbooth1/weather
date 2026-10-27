@@ -180,9 +180,7 @@ def write_vectors(rows, mu_season, base_ok, out_dir):
                         "band_open_top": j == ps.shape[1] - 1, "p_season_l6_stack": ps[i, j],
                         "p_mg1_analogue": pm[i, j], "fold_year": f.year.to_numpy(int)[i]})
     out = out.sort_values(["local_date", "market", "hour", "band_f"]).reset_index(drop=True)
-    from weather.calibration import pooled_residual_model as l2
-
-    path = l2.require_output_outside_repo(Path(out_dir) / VECTORS_FILE)
+    path = cs._outside_repo(Path(out_dir) / VECTORS_FILE)
     if path.exists():
         raise SeasonL6Error(f"refusing to overwrite {path}")
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -305,11 +303,10 @@ def dev_emit(*, state_dir, state_sha, captured_dir, frozen_l6_state, mg2_coeffic
     import numpy as np
     import pandas as pd
 
-    from weather.calibration import pooled_residual_model as l2
     from weather.model import mg_serve_core as core
     from weather.reporting.scorecards import dev_scorecard_data as data
 
-    out = l2.require_output_outside_repo(Path(out_dir))
+    out = cs._outside_repo(Path(out_dir))
     if out.exists() and any(out.iterdir()):
         raise SeasonL6Error(f"output directory {out} must be new or empty")
     sidecar = json.loads((Path(state_dir) / SIDECAR).read_text(encoding="utf-8"))

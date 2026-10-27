@@ -50,6 +50,17 @@ class RZError(RuntimeError):
     pass
 
 
+def _outside_repo(path):
+    """Research output never lands in the repository (the same check as L2's ``require_output_outside_repo``)."""
+    from weather.paths import REPO_ROOT
+
+    resolved = Path(path).resolve()
+    repo = Path(REPO_ROOT).resolve()
+    if resolved == repo or repo in resolved.parents:
+        raise ValueError(f"output must be outside the repository: {resolved}")
+    return resolved
+
+
 def _sha(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
@@ -69,9 +80,7 @@ def _pin(path, pinned, what):
 
 
 def _write_once(path, payload):
-    from weather.calibration import pooled_residual_model as l2
-
-    path = l2.require_output_outside_repo(Path(path))
+    path = _outside_repo(Path(path))
     if path.exists():
         raise RZError(f"refusing to overwrite {path} (one run per gate)")
     path.parent.mkdir(parents=True, exist_ok=True)

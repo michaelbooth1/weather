@@ -2,12 +2,18 @@
 
 Guards: workstation offline-module allowlist (HOST_LOAD_POLICY workstation scope; master pre-authorisation
 2026-10-24 for a lane's own offline research module) and master ruling D2 (i) of 2026-10-26 (the fit runs
-once, through the wrapper). The two mirrors are compared by the exec-admission tests in
-``test_mg2_composite_admission.py``, which assert that ``workload_admission.ps1`` lists exactly the hook's set.
+once, through the wrapper). ``workload_admission.ps1`` is executed, not read: its listed set must equal the hook's
+and it must admit the module but no sibling.
 """
 import importlib.util
+import json
+import os
+import shutil
+import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 MODULE = "weather.calibration.l6_own_state"
@@ -30,6 +36,25 @@ def test_hook_admits_the_l6_own_state_fitter_exactly():
     }}, constrained_capture_host=False) is not None
 
 
-def test_ps1_mirror_lists_the_module():
-    text = (ROOT / "scripts" / "ops" / "workload_admission.ps1").read_text(encoding="utf-8")
-    assert f'"{MODULE}",' in text
+@pytest.mark.spawns
+@pytest.mark.skipif(os.name != "nt" or shutil.which("powershell") is None, reason="runs workload_admission.ps1")
+def test_exec_admission_lists_and_admits_the_module_exactly(tmp_path):
+    lister = tmp_path / "list_offline_modules.ps1"
+    lister.write_text(
+        f". '{ROOT / 'scripts' / 'ops' / 'workload_admission.ps1'}'\n"
+        "ConvertTo-Json -InputObject @(Get-WeatherWorkstationOfflineModule) -Compress\n"
+        f"if (Test-WeatherWorkstationOfflineModuleCommandLine -CommandLine 'python.exe -m {MODULE} fit') "
+        "{ 'ADMITTED' } else { 'REFUSED' }\n"
+        f"if (Test-WeatherWorkstationOfflineModuleCommandLine -CommandLine 'python.exe -m {MODULE}_x') "
+        "{ 'ADMITTED' } else { 'REFUSED' }\n",
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", str(lister)],
+        capture_output=True, text=True, timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+    listing, exact, sibling = result.stdout.strip().splitlines()[-3:]
+    modules = json.loads(listing)
+    assert modules.count(MODULE) == 1 and set(modules) == _hook()._OFFLINE_WEATHER_MODULES
+    assert (exact, sibling) == ("ADMITTED", "REFUSED")
