@@ -12,6 +12,9 @@ retrieval fails F2 except for messages published before the recorder's first sta
 an archive byte mismatch fails F3c, and without an archive the verdict is PARTIAL, never PASS.
 RF-1 (refit_note_rf1.md, sha b13f2e03...): the one SM-L6 weight refit refuses a foreign note, partner, nowcast,
 frozen table or rr_score before reading anything.
+SM-H wiring (binding_sm_h_state.md, sha 6507946e...): the release binding records the served SM-H 13-15 state
+only from a verified load at the bound sha b6bc242a..., with SF excluded; a foreign sha, or a state whose block,
+hours, conversion or note sha differ, refuses; verification refuses a binding whose SM-H slot is not re-verified.
 """
 import hashlib
 import importlib
@@ -245,7 +248,8 @@ def test_release_binding_carries_rn1_land_sha_and_files_and_verifies(tmp_path, m
     assert binding["data_files"]["land_3x3.json"] == hashlib.sha256(land.read_bytes()).hexdigest()
     assert set(binding["files"]) == set(prm.MG3_RELEASE_FILES)
     assert binding["rules"]["rn1"] == prm.MG3_RN1["rule_sha256"]
-    assert {b: s["sha256"] for b, s in binding["states"].items()} == {"07-12": "PENDING", "13-16": "PENDING"}
+    assert {b: s["sha256"] for b, s in binding["states"].items()} == {"07-12": "PENDING", "13-16": "PENDING",
+                                                                      prm.SM_H_STATE_BLOCK: "PENDING"}
     assert binding["weights_sha256"] == "PENDING"
     path = tmp_path / "release-binding.json"
     path.write_text(json.dumps(binding, indent=1, sort_keys=True), encoding="utf-8")
@@ -293,6 +297,48 @@ def test_release_binding_checks_each_state_block_and_point_rule(tmp_path, monkey
     with pytest.raises(prm.PooledModelError, match="point rule"):
         prm.mg3_release_binding(land=land, corpus_dir=corpus, root=root, markets=RN1_MARKETS,
                                 states={"13-16": state("13-16", prm.MG3_RN1["land_sha256"])})
+
+
+def _smh_state(path, **changes):
+    state = {"schema": prm.MG3_STATE_SCHEMA, "arm": prm.MG3_ARM, "block": prm.SM_H_STATE_BLOCK,
+             "hours": {h: {} for h in prm.SM_H_HOURS}, "centres": list(prm.SM_H_CENTRES),
+             "conversion": {"enabled": False}, "point_rule": {"land_sha256": None},
+             "extra_hgb": ["k_max", "k_gap", "k_tcdc"],
+             "provenance": {"note_sha256": prm.SM_H_BINDING_SHA256, "rule_sha256": prm.SM_H_RULE_SHA256,
+                            "clarification_sha256": prm.SM_H_CLARIFICATION_1_SHA256}}
+    state.update(changes)
+    path.write_bytes(pickle.dumps(state, protocol=4))
+    return path, hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def test_release_binding_binds_the_sm_h_state_only_from_a_verified_load(tmp_path, monkeypatch):
+    assert prm.SM_H_STATE_SHA256 == "b6bc242a8c2b679069a4090b8912eea3b80af160b6bc228424c846fb3b87a477"
+    assert prm.SM_H_EXCLUDED_MARKETS == ("san-francisco",)
+    land, corpus, root = _rn1_inputs(tmp_path, monkeypatch)
+    path, sha = _smh_state(tmp_path / "smh.pkl")
+    kwargs = dict(land=land, corpus_dir=corpus, root=root, markets=RN1_MARKETS)
+    # a state whose bytes are not the bound sha refuses before anything is recorded
+    with pytest.raises(prm.PooledModelError, match="!= bound"):
+        prm.mg3_release_binding(states={prm.SM_H_STATE_BLOCK: path}, **kwargs)
+    monkeypatch.setattr(prm, "SM_H_STATE_SHA256", sha)
+    binding = prm.mg3_release_binding(states={prm.SM_H_STATE_BLOCK: path}, **kwargs)
+    entry = binding["states"][prm.SM_H_STATE_BLOCK]
+    assert entry == {"sha256": sha, "point_rule": "nearest", "hours": [13, 14, 15], "replaces": "13-16",
+                     "excluded_markets": ["san-francisco"]}
+    assert binding["rules"]["sm_h_binding"] == prm.SM_H_BINDING_SHA256
+    assert binding["states"]["13-16"]["sha256"] == "PENDING"
+    out = tmp_path / "release-binding.json"
+    out.write_text(json.dumps(binding), encoding="utf-8")
+    assert prm.mg3_verify_release(out, states={prm.SM_H_STATE_BLOCK: path}, **kwargs) == binding
+    with pytest.raises(prm.PooledModelError, match="states"):
+        prm.mg3_verify_release(out, **kwargs)  # the SM-H slot reads PENDING without the state
+    # a state at the bound sha whose contents differ from the binding note refuses
+    for field, value in (("block", "13-16"), ("hours", {13: {}, 14: {}}), ("conversion", {"enabled": True}),
+                         ("provenance", {"note_sha256": "0" * 64})):
+        bad, bad_sha = _smh_state(tmp_path / f"bad_{field}.pkl", **{field: value})
+        monkeypatch.setattr(prm, "SM_H_STATE_SHA256", bad_sha)
+        with pytest.raises(prm.PooledModelError, match=field if field != "provenance" else "note_sha256"):
+            prm.mg3_release_binding(states={prm.SM_H_STATE_BLOCK: bad}, **kwargs)
 
 
 # ----------------------------------------------------------------------------- (1c) forward HRRR parity scorer
