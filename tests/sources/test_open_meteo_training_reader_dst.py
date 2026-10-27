@@ -104,3 +104,43 @@ def test_an_offset_that_matches_the_zone_reads_as_zone_local():
     times, refusal = payload_local_times(_payload(labels=labels), CHICAGO.tz)
     assert refusal is None
     assert [t.isoformat() for t in times[:2]] == ["2024-07-10T00:00:00-05:00", "2024-07-10T01:00:00-05:00"]
+
+
+def test_daily_refresh_reanalysis_step_reports_rows_refused_for_a_missing_offset(tmp_path):
+    """Item 340 clearance condition: a refusal in daily refresh is counted in the step output and the report."""
+    from datetime import date
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    from weather.operations import daily_refresh_source_steps as steps
+    from weather.operations.daily_refresh_report import render_report
+
+    no_offset = _payload(offset=None)
+
+    class FakeClient:
+        def __init__(self, **_kwargs):
+            pass
+
+        def fetch_range(self, spec, start, end):
+            return no_offset
+
+    def store_for(spec):
+        return ReanalysisStore(spec, root=tmp_path / spec.icao.lower())
+
+    args = SimpleNamespace(skip_reanalysis_refresh=False, reanalysis_end_date="2024-12-10", reanalysis_lag_days=1,
+                           reanalysis_timeout=1, reanalysis_sleep=0, reanalysis_chunk_days=31)
+    with patch.object(steps, "all_specs", return_value=[CHICAGO]), \
+            patch.object(steps, "ReanalysisClient", FakeClient), \
+            patch.object(steps, "ReanalysisStore", store_for):
+        result = steps.run_reanalysis_recent_refresh_step(args)
+
+    assert result["error_count"] == 0 and result["fetched_ranges"] == 1
+    assert result["offset_refused_row_count"] == len(LABELS)
+    assert result["markets"][0]["offset_refused_rows"] == len(LABELS)
+    assert store_for(CHICAGO).coverage(date(2024, 12, 10), date(2024, 12, 10))["offset_refused_row_count"] == 24
+    report = render_report({"steps": [{"name": "reanalysis_recent_refresh", "result": result}]})
+    assert f"offset-refused rows {len(LABELS)}" in report
+
+
+def test_a_store_whose_payloads_carry_the_offset_reports_zero_refused_rows(tmp_path):
+    assert _store(tmp_path, _payload()).offset_refused_row_count() == 0

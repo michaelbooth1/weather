@@ -196,6 +196,19 @@ class ReanalysisStore:
                     dates.add(local_dt.date())
         return dates
 
+    def offset_refused_row_count(self):
+        """Hourly rows in the raw payloads refused because a naive label had no usable ``utc_offset_seconds``.
+
+        The readers fail closed on those rows (EF §10w, item 340); this count keeps the refusal visible."""
+        refused = 0
+        for payload in self.iter_raw_payloads():
+            local_times, refusal = payload_local_times(payload, self.spec.tz)
+            if refusal is None:
+                continue
+            times = (payload.get("hourly") or {}).get("time") or []
+            refused += sum(1 for index, value in enumerate(times) if value and _at(local_times, index) is None)
+        return refused
+
     def raw_variable_covered_dates(self, required_variables):
         required = tuple(variable for variable in required_variables or () if variable)
         if not required:
@@ -327,6 +340,7 @@ class ReanalysisStore:
             "raw_only_normalizable_day_count": len(raw_only_normalizable),
             "raw_only_source_lag_days": [day.isoformat() for day in raw_only_source_lag],
             "raw_only_source_lag_day_count": len(raw_only_source_lag),
+            "offset_refused_row_count": self.offset_refused_row_count(),
             "first_raw_date": min(raw_covered).isoformat() if raw_covered else None,
             "last_raw_date": max(raw_covered).isoformat() if raw_covered else None,
             "last_raw_normalizable_date": max(raw_normalizable).isoformat() if raw_normalizable else None,
