@@ -8,6 +8,10 @@ foreign sha before anything is fitted; missing record files refuse. C10-sel (rul
 SMH-1 (b3007803...): each P3d_N_fwd fold drops the held-out year's rows and is served through the served state's
 shell; tier-2 parity uses the all-years refit on every scored row and fails on any difference; SM_N reproduces
 the SM-H rows on identical keys; SMH-1 is VOID on a VOID C10 run or on differing keys and binds the SM-H rows.
+SM-H served state (binding_sm_h_state.md sha 6507946e...): the frozen mg3_p3d_h_state/1 serve math equals the
+in-process fit on every training row and fails on a perturbed state; fold states from the same builder
+reproduce the scored SM_H rows on identical keys and fail on any difference or missing row; rows outside
+2021-25 Oct-Dec and foreign inputs refuse before any fit.
 """
 import hashlib
 import importlib
@@ -239,3 +243,70 @@ def test_c10_refuses_a_foreign_input_before_any_fit(tmp_path):
         prm.c10_sel(records_root=tmp_path, nbm_train_corpus=tmp_path / "nbm.jsonl", fwd_state=tmp_path / "fwd.pkl",
                     dev_state=tmp_path / "dev.pkl", part1a=tmp_path / "part1a.json", smh_rows=tmp_path / "smh.jsonl",
                     out_dir=tmp_path / "out")
+
+
+# ---------------------------------------------------------------- SM-H served state (binding note, rule_sm_h s7)
+
+NOTE = Path(__file__).resolve().parents[2] / "docs/research/l2-pooled-residual-2026-10-24/mg3/binding_sm_h_state.md"
+
+
+def _centred(frame):
+    """Each row carries its nearest Oct-Dec centre, as the record files do."""
+    def nearest(day):
+        md = pd.Timestamp(f"2001-{day[5:10]}")
+        return min(prm.SM_H_CENTRES, key=lambda c: abs((pd.Timestamp(f"2001-{c[5:10]}") - md).days))
+    out = frame.copy()
+    out["centre"] = out["target_date"].map(nearest)
+    out["season"] = out["centre"].map(prm.season_of)
+    return out
+
+
+def test_binding_note_sha_is_recorded_in_code():
+    assert hashlib.sha256(NOTE.read_bytes()).hexdigest() == prm.SM_H_BINDING_SHA256
+
+
+def test_state_serve_math_equals_the_in_process_fit_on_every_row():
+    frame = _centred(_frame(n_days=20))
+    buckets = {m: list(range(30, 100)) for m in ("atlanta", "nyc")}
+    state, fits = prm.sm_h_build_state(frame, buckets, hours=(13,), markets=("atlanta", "nyc"))
+    assert state["schema"] == prm.MG3_STATE_SCHEMA and state["arm"] == prm.MG3_ARM
+    assert state["centres"] == list(prm.SM_H_CENTRES) and not state["conversion"]["enabled"]
+    assert state["extra_hgb"] == ["k_max", "k_gap", "k_tcdc"] and sorted(state["hours"]) == [13]
+    report = prm.sm_h_export_parity(state, fits, frame, buckets, hours=(13,))
+    assert report["pass"] and report["rows"] == len(frame) and report["max_abs_dp"] <= prm.SM_H_STATE_TOL
+    state["hours"][13]["mean"]["ols"] = np.asarray(state["hours"][13]["mean"]["ols"]) + 0.5
+    assert not prm.sm_h_export_parity(state, fits, frame, buckets, hours=(13,))["pass"]
+
+
+def test_fold_control_reproduces_the_scored_sm_h_rows_and_refuses_a_difference(monkeypatch):
+    frame = _centred(_frame(n_days=20))
+    buckets = {m: list(range(30, 100)) for m in ("atlanta", "nyc")}
+    monkeypatch.setattr(prm, "sm_h_frozen_dist", lambda state, row: {int(row["y"]): 1.0})
+    rows, _ = prm.sm_h_rows(frame, buckets, state=None, hours=(13,), arms={"SM_H": prm.SM_H_ARMS["SM_H"]})
+    report = prm.sm_h_fold_control(frame, buckets, rows, hours=(13,), markets=("atlanta", "nyc"))
+    assert report["pass"] and report["same_keys"] and report["rows"] == len(rows)
+    shifted = [dict(r, SM_H_brier=r["SM_H_brier"] + 2e-9) if i == 5 else r for i, r in enumerate(rows)]
+    assert not prm.sm_h_fold_control(frame, buckets, shifted, hours=(13,), markets=("atlanta", "nyc"))["pass"]
+    missing = prm.sm_h_fold_control(frame, buckets, rows[1:], hours=(13,), markets=("atlanta", "nyc"))
+    assert not missing["pass"] and missing["extra"] == 1
+
+
+def test_state_builder_refuses_rows_outside_oct_dec_history():
+    frame = _centred(_frame(n_days=5))
+    frame.loc[0, "target_date"] = "2021-09-30"
+    with pytest.raises(prm.PooledModelError, match="outside 2021-25 Oct-Dec"):
+        prm.sm_h_build_state(frame, {m: list(range(30, 100)) for m in ("atlanta", "nyc")}, hours=(13,),
+                             markets=("atlanta", "nyc"))
+
+
+def test_freeze_refuses_a_foreign_input_before_any_fit(tmp_path):
+    for name in ("nbm.jsonl", "audit.json", "rows.jsonl"):
+        (tmp_path / name).write_text("x", encoding="utf-8")
+    kwargs = dict(records_root=tmp_path, nbm_train_corpus=tmp_path / "nbm.jsonl", hrrr_corpus=tmp_path,
+                  smh_audit=tmp_path / "audit.json", smh_rows=tmp_path / "rows.jsonl", out_dir=tmp_path / "out",
+                  commit="x")
+    with pytest.raises(prm.PooledModelError, match="NBM corpus"):
+        prm.sm_h_freeze_state(**kwargs)
+    assert not list((tmp_path / "out").iterdir())
+    with pytest.raises(prm.PooledModelError, match="is not"):
+        prm.sm_h_freeze_state(note_path=tmp_path / "nbm.jsonl", **kwargs)

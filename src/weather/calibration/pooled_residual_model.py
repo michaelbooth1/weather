@@ -7132,6 +7132,194 @@ def sm_h_redecide(*, smh_rows, c10_audit, out_dir, expected_smh_rows=C10_SMH_ROW
     return finish()
 
 
+# ---------------------------------------------------------------- SM-H served state (binding note, rule_sm_h s7)
+
+SM_H_BINDING_SHA256 = "6507946e185fb4ba1a76e1c5022f14a38d981a3904fd8aaf16ac65837df74cab"  # mg3/binding_sm_h_state.md
+SM_H_LOYO_AUDIT_SHA256 = "5a39218f55fac01eaad6913032e462287d9d234eaa662fb010b2afb00161e541"  # SM-H run audit
+SM_H_STATE_BLOCK = "SM-H 13-15"
+SM_H_STATE_TOL = 1e-9
+
+
+def sm_h_build_state(frame, buckets, *, hours=SM_H_HOURS, markets=R0_MARKETS, provenance=None):
+    """The SM_H spec fitted once per hour on ``frame`` and frozen as ``mg3_p3d_h_state/1``. -> (state, fits)."""
+    simple, extra_ols, extra_hgb, extra_scale = _arm_spec(SM_H_ARMS["SM_H"])
+    if simple or extra_ols or extra_scale or tuple(extra_hgb) != ("k_max", "k_gap", "k_tcdc"):
+        raise PooledModelError(f"the SM_H arm spec changed: {SM_H_ARMS['SM_H']}")
+    days = frame["target_date"].astype(str)
+    if (days < "2021-01-01").any() or (days > "2025-12-31").any() or not days.str[5:7].isin(SM_H_MONTHS).all():
+        raise PooledModelError("an SM-H state training row is outside 2021-25 Oct-Dec")
+    fits, entries = {}, {}
+    for hour in hours:
+        train = frame[frame["hour"] == hour].reset_index(drop=True)
+        fits[hour] = _rung_entry(train, simple, extra_ols, extra_hgb, extra_scale)
+        entries[hour] = mg3_hour_entry(fits[hour])
+    levels = [name for name in LEVEL_COLUMNS if f"x_{name}" in frame.columns]
+    state = {
+        "schema": MG3_STATE_SCHEMA, "arm": MG3_ARM, "block": SM_H_STATE_BLOCK, "markets": list(markets),
+        "centres": list(SM_H_CENTRES),
+        "season_of": {f"{m:02d}": season_of(f"2026-{m:02d}-01") for m in range(1, 13)},
+        "coords": {m: [float(v) for v in station_coordinates([m])[m]] for m in markets},
+        "buckets": {m: list(buckets[m]) for m in markets},
+        "constants": {"floor_mix_clim": FLOOR_MIX_CLIM, "kernel_bandwidth": KERNEL_BANDWIDTH,
+                      "min_scale": MIN_SCALE, "clim_alpha": 0.10, "levels": levels},
+        "conversion": {"enabled": False, "rule_id": None,
+                       "rule": "none: SM-H read raw high_so_far and current_temp, as fitted"},
+        "extra_hgb": list(extra_hgb), "point_rule": {"rule": "nearest cell (R-K as fitted)", "land_sha256": None},
+        "hours": entries, "provenance": dict(provenance or {}),
+    }
+    return state, fits
+
+
+def _sm_h_serve_rows(state, part, hour):
+    """Frozen-state serve math on each row of one market's frame slice."""
+    out = []
+    for _, r in part.iterrows():
+        out.append(mg3_state_distribution(
+            state, hour, market=r["market"], target_date=date.fromisoformat(str(r["target_date"])[:10]),
+            high_so_far=float(r["F"]), current_temp=float(r["x_current_temp"]), nbm_mean=float(r["fh"]),
+            extra={c: r[c] for c in state["extra_hgb"]}))
+    return out
+
+
+def _sm_h_finite(part):
+    import numpy as np
+
+    ok = np.isfinite(part["F"].to_numpy(float)) & np.isfinite(part["x_current_temp"].to_numpy(float))
+    return part[ok].reset_index(drop=True)
+
+
+def sm_h_export_parity(state, fits, frame, buckets, hours=SM_H_HOURS, tol=SM_H_STATE_TOL):
+    """Note s3.2: on every finite training row, the frozen serve math equals the in-process fit's distribution."""
+    worst, n, first_bad = 0.0, 0, None
+    for hour in hours:
+        at_hour = _sm_h_finite(frame[frame["hour"] == hour])
+        for market in sorted(at_hour["market"].unique()):
+            part = at_hour[at_hour["market"] == market].reset_index(drop=True)
+            ref = _dist_from_fit(fits[hour], part, buckets, market)
+            got = _sm_h_serve_rows(state, part, hour)
+            for i, (a, b) in enumerate(zip(got, ref)):
+                d = dist_max_abs(a, b)
+                if d > tol and first_bad is None:
+                    first_bad = {"hour": hour, "market": market, "date": str(part.at[i, "target_date"])[:10],
+                                 "abs_diff": d}
+                worst = max(worst, d)
+                n += 1
+    return {"rows": n, "max_abs_dp": worst, "tolerance": tol, "first_bad": first_bad,
+            "pass": first_bad is None and n > 0}
+
+
+def sm_h_fold_control(frame, buckets, smh_rows, hours=SM_H_HOURS, markets=R0_MARKETS, tol=SM_H_STATE_TOL):
+    """Note s3.3: per (hour, held-out year), a fold state from the same builder reproduces SM_H_brier per row."""
+    reference = {row_key(r): float(r["SM_H_brier"]) for r in smh_rows if int(r["hour"]) in hours}
+    got = {}
+    for hour in hours:
+        at_hour = frame[frame["hour"] == hour]
+        for year in sorted(at_hour["year"].unique()):
+            fold, _ = sm_h_build_state(at_hour[at_hour["year"] != year], buckets, hours=(hour,), markets=markets)
+            val = _sm_h_finite(at_hour[at_hour["year"] == year])
+            for market in sorted(val["market"].unique()):
+                part = val[val["market"] == market].reset_index(drop=True)
+                for i, dist in enumerate(_sm_h_serve_rows(fold, part, hour)):
+                    key = (int(hour), int(year), str(market), str(part.at[i, "target_date"])[:10])
+                    got[key] = sm_h_brier(dist, int(part.at[i, "y"]))
+        print(f"sm-h freeze fold control hour {hour}: {sum(1 for k in got if k[0] == hour)} rows", flush=True)
+    same = set(got) == set(reference)
+    diffs = [abs(got[k] - reference[k]) for k in sorted(set(got) & set(reference))]
+    worst = max(diffs) if diffs else float("inf")
+    first_bad = next((list(k) for k in sorted(set(got) & set(reference)) if abs(got[k] - reference[k]) > tol), None)
+    return {"rows": len(got), "reference_rows": len(reference), "same_keys": same,
+            "missing": len(set(reference) - set(got)), "extra": len(set(got) - set(reference)),
+            "max_abs_brier_diff": worst, "tolerance": tol, "first_bad": first_bad,
+            "pass": bool(same and diffs and worst <= tol)}
+
+
+def sm_h_freeze_state(*, records_root, nbm_train_corpus, hrrr_corpus, smh_audit, smh_rows, out_dir, commit,
+                      note_path=None, markets=R0_MARKETS):
+    """binding_sm_h_state.md: fit SM_H once on all Oct-Dec 2021-25 rows, freeze, then the identity control."""
+    import pickle as _pickle
+    import platform
+
+    import numpy as np
+    import pandas as pd
+    import scipy
+    import sklearn
+
+    from weather.calibration import ols_floor_ladder as l9
+    from weather.market.market_registry import spec_for_id
+
+    if note_path is not None and _rr_sha(note_path) != SM_H_BINDING_SHA256:
+        raise PooledModelError(f"note {note_path} is not {SM_H_BINDING_SHA256}")
+    out = require_output_outside_repo(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    if any(out.iterdir()):
+        raise PooledModelError(f"refusing to write into a non-empty {out}")
+    corpus = Path(hrrr_corpus)
+    control = {"note_sha256": SM_H_BINDING_SHA256, "rule_sha256": SM_H_RULE_SHA256,
+               "clarification_sha256": SM_H_CLARIFICATION_1_SHA256, "block": SM_H_STATE_BLOCK, "checks": {},
+               "inputs": {"nbm_train_corpus": _sm_h_bound(nbm_train_corpus, SM_H_NBM_SHA256, "NBM corpus"),
+                          "smh_audit": _sm_h_bound(smh_audit, SM_H_LOYO_AUDIT_SHA256, "SM-H audit"),
+                          "smh_rows": _sm_h_bound(smh_rows, C10_SMH_ROWS_SHA256, "SM-H rows"),
+                          **{f"hrrr_{n}": _sm_h_bound(corpus / n, sha, f"HRRR {n}")
+                             for n, sha in SM_H_HRRR_SHA256.items()},
+                          "module_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}}
+
+    def finish(stopped=None):
+        if stopped:
+            control["stopped_at"] = stopped
+        control["pass"] = stopped is None
+        (out / "control.json").write_text(json.dumps(control, indent=1, sort_keys=True, default=str),
+                                          encoding="utf-8")
+        return control
+
+    reference = json.loads(Path(smh_audit).read_text(encoding="utf-8"))
+    timezones = {m: spec_for_id(m).timezone for m in markets}
+    hrrr, hrrr_stats = rk_hrrr_columns(corpus, markets, hours=SM_H_HOURS, day_filter=sm_h_day_filter)
+    frame, buckets = sm_h_frame(records_root, markets)
+    frame, train_nbm = attach_training_nbm(frame, l9.load_nbm(nbm_train_corpus), l9.nbm_at_cutoff, timezones)
+    frame, training = rk_training_columns(frame, hrrr)
+    counts = sm_h_counts(frame)
+    covered = {str(y): int((g["k_miss"] == 0.0).sum()) for y, g in frame.groupby("year")}
+    parity = rk_parity_training(hrrr_stats, training)
+    control["checks"]["1_inputs"] = {
+        "counts_by_year": counts, "covered_by_year": covered, "hrrr_training": parity,
+        "counts_match": counts == reference["counts_by_year"],
+        "covered_match": covered == reference["covered_by_year"],
+        "pass": bool(parity["pass"] and counts == reference["counts_by_year"]
+                     and covered == reference["covered_by_year"])}
+    if not control["checks"]["1_inputs"]["pass"]:
+        return finish("check 1 inputs")
+    provenance = {
+        "commit": commit, "module_sha256": control["inputs"]["module_sha256"], "note_sha256": SM_H_BINDING_SHA256,
+        "rule_sha256": SM_H_RULE_SHA256, "clarification_sha256": SM_H_CLARIFICATION_1_SHA256,
+        "training_rows": int(len(frame)), "train_years": sorted(int(y) for y in frame["year"].unique()),
+        "train_nbm": train_nbm, "train_hrrr": training, "hrrr_train_corpus_stats": hrrr_stats,
+        "inputs": {k: v for k, v in control["inputs"].items() if k != "module_sha256"},
+        "versions": {"python": platform.python_version(), "numpy": np.__version__, "scipy": scipy.__version__,
+                     "sklearn": sklearn.__version__, "pandas": pd.__version__}}
+    state, fits = sm_h_build_state(frame, buckets, markets=markets, provenance=provenance)
+    pkl = out / "p3d_h_state.pkl"
+    blob = _pickle.dumps(state, protocol=4)
+    pkl.write_bytes(blob)
+    digest = hashlib.sha256(blob).hexdigest()
+    (out / "p3d_h_state.json").write_text(json.dumps(dict(provenance, state_sha256=digest, block=SM_H_STATE_BLOCK),
+                                                     indent=1, sort_keys=True, default=str), encoding="utf-8")
+    control["state_sha256"] = digest
+    print(f"sm-h freeze: state {digest} from {len(frame)} rows", flush=True)
+    frozen = mg3_load_state(pkl, digest)
+    export = sm_h_export_parity(frozen, fits, frame, buckets)
+    (out / "export_parity.json").write_text(json.dumps(export, indent=1), encoding="utf-8")
+    control["checks"]["2_export_parity"] = export
+    print(f"sm-h freeze export parity: {export}", flush=True)
+    if not export["pass"]:
+        return finish("check 2 export parity")
+    fold = sm_h_fold_control(frame, buckets, _read_jsonl(smh_rows), markets=markets)
+    (out / "fold_control.json").write_text(json.dumps(fold, indent=1), encoding="utf-8")
+    control["checks"]["3_fold_reproduction"] = fold
+    if not fold["pass"]:
+        return finish("check 3 fold reproduction")
+    return finish()
+
+
 def mg3_release_files(root=None):
     root = Path(root or REPO_ROOT)
     return {rel: _rr_sha(root / rel) for rel in MG3_RELEASE_FILES}
@@ -7742,6 +7930,10 @@ def _parse(argv=None):
     rd = sub.add_parser("sm-h-redecide", help="SM-H SMH-1: SM_H vs P3d_N_fwd at 13-15 from the C10 rows")
     for opt in ("--smh-rows", "--c10-audit", "--out"):
         rd.add_argument(opt, required=True)
+    sf = sub.add_parser("sm-h-freeze", help="SM-H binding note: served SM-H 13-15 state + identity control (heavy)")
+    for opt in ("--records", "--nbm-train-corpus", "--hrrr", "--smh-audit", "--smh-rows", "--out", "--commit"):
+        sf.add_argument(opt, required=True)
+    sf.add_argument("--note", default=None)
     mb = sub.add_parser("mg3-release-binding", help="MG-3 (1b): release-binding.json content incl. RN-1")
     mb.add_argument("--land", required=True)
     mb.add_argument("--corpus", required=True, help="the 07-12 HRRR corpus holding stations.json")
@@ -8059,6 +8251,13 @@ def main(argv=None):
         audit = sm_h_redecide(smh_rows=args.smh_rows, c10_audit=args.c10_audit, out_dir=args.out)
         print(json.dumps({"stopped_at": audit.get("stopped_at"), "decision": audit.get("decision")}, indent=1))
         return 0 if not audit.get("stopped_at") else 1
+    if args.command == "sm-h-freeze":
+        control = sm_h_freeze_state(records_root=args.records, nbm_train_corpus=args.nbm_train_corpus,
+                                    hrrr_corpus=args.hrrr, smh_audit=args.smh_audit, smh_rows=args.smh_rows,
+                                    out_dir=args.out, commit=args.commit, note_path=args.note)
+        print(json.dumps({"state_sha256": control.get("state_sha256"), "stopped_at": control.get("stopped_at"),
+                          "checks": {k: v.get("pass") for k, v in control["checks"].items()}}, indent=1))
+        return 0 if control["pass"] else 1
     if args.command == "mg3-release-binding":
         if out.exists():
             raise PooledModelError(f"refusing to overwrite {out}")
