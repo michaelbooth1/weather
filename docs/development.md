@@ -213,6 +213,26 @@ without running its script. The pre-gate cannot reproduce two host properties:
 The pre-gate removes the agent-harness and Python override variables the host task would not carry, and
 lists them in the receipt. Tests: `tests/operations/test_workstation_pregate_script.py`.
 
+#### Capture-host collection emulation
+
+The pre-gate also cannot be the capture host by identity, and some workstation-only research modules
+refuse to import there: their import-time guard compares `weather.execution_host.current_execution_host_id()`
+with the tracked `dedicated_capture_execution_host_id`. On 2026-10-26 the host suite on STACK `4a4db1273`
+exited 2 with collection errors because test modules imported such modules directly while the pre-gate
+had passed. Two rules close that gap:
+
+- A test module imports a host-refusing research module (directly or through another one) only through
+  `tests/host_guard.py`'s `import_or_skip_on_capture_host("<module>")`. It skips the module only when the
+  error names the dedicated capture host *and* the current host id is the tracked capture id; every other
+  `ImportError`, including an unprovable-host refusal, is re-raised. Never weaken the guard instead.
+- The ratchet `tests/operations/test_capture_host_collection.py` collects all of `tests/` in a child pytest
+  with the emulation plugin `tests/capture_host_emulation.py`, which makes `current_execution_host_id`
+  return the tracked capture id, and fails on any collection error. It is part of every suite run, so the
+  pre-gate and CI catch the defect. To reproduce by hand on the workstation:
+  `python -m pytest -p tests.capture_host_emulation --collect-only -q tests` (through
+  `workstation_heavy.ps1 -Kind pytest`). Guards that also require `os.name == "nt"` fire only on Windows,
+  so the Linux CI run covers just the guards keyed on the host id alone; the Windows pre-gate covers all.
+
 ### Separate non-capture workstation
 
 On a separate non-capture workstation, including the 32 GB PC when it also
