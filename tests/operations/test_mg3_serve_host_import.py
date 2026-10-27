@@ -15,6 +15,7 @@ module that refuses the capture host).
 from __future__ import annotations
 
 import ast
+import hashlib
 import json
 import os
 import subprocess
@@ -85,10 +86,29 @@ def test_mg3_serve_text_names_no_research_module():
     assert [t for t in RESEARCH_TOKENS if t in text] == []
 
 
-def _imports_mg3_serve(path):
-    """True when ``path`` imports mg3_serve or names its dotted module path (an importlib or -m target).
+# Exact admissions: (repository path, sha256 of the exact UTF-8 string constant). Each entry is a prose string that
+# is not a docstring; any other "mg3_serve" constant in the same file, or any edit to an admitted string, flags.
+ADMITTED_PROSE_CONSTANTS = {
+    # L2's schema-family record (Data Layer v2 PL-2, 277d1d7df): the mg3_release_binding/2 SchemaSpec description
+    # says "the shape mg3_serve reads". A schema-registry description, not an import target; L2's file, not edited.
+    ("src/weather/schema_families/mg3.py", "73ae4c9d2a3fea54f4d5094cb8c069693188af91b44e2cb8fefe8176c484eb1a"),
+}
 
-    A prose mention (L2's builder and schema-family docstrings name "the shape mg3_serve reads") is not an import."""
+
+def _admitted(path, value):
+    try:
+        rel = Path(path).resolve().relative_to(REPO_ROOT.resolve()).as_posix()
+    except ValueError:
+        return False
+    return (rel, hashlib.sha256(value.encode("utf-8")).hexdigest()) in ADMITTED_PROSE_CONSTANTS
+
+
+def _imports_mg3_serve(path):
+    """True when ``path`` may reach mg3_serve: it names the dotted module path, imports it (AST), or - in a .py
+    file - holds any string constant naming "mg3_serve" that is not a docstring (catches importlib targets built
+    from parts, ``__import__`` and any string later used as an import target). A docstring is the first statement
+    of a module, class or function body; comments are not in the AST. A .py file that does not parse raises, so
+    the ratchet fails rather than skipping it."""
     text = path.read_text(encoding="utf-8", errors="replace")
     if "mg3_serve" not in text:
         return False
@@ -96,7 +116,18 @@ def _imports_mg3_serve(path):
         return True
     if path.suffix != ".py":
         return True  # a script naming it at all is reviewed here first
-    for node in ast.walk(ast.parse(text)):
+    tree = ast.parse(text, filename=str(path))  # a SyntaxError fails the ratchet; never skipped
+    docstrings = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)) and node.body:
+            first = node.body[0]
+            if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) and isinstance(
+                    first.value.value, str):
+                docstrings.add(id(first.value))
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Constant) and isinstance(node.value, str) and "mg3_serve" in node.value
+                and id(node) not in docstrings and not _admitted(path, node.value)):
+            return True
         if isinstance(node, ast.Import) and any(a.name.split(".")[-1] == "mg3_serve" for a in node.names):
             return True
         if isinstance(node, ast.ImportFrom) and (
@@ -121,7 +152,30 @@ def test_the_importer_ratchet_sees_imports_not_prose(tmp_path):
              "b.py": ("import weather.model.mg3_serve as m\n", True),
              "c.py": ("importlib.import_module('weather.model.mg3_serve')\n", True),
              "d.py": ('"""the shape mg3_serve reads"""\n', False),
-             "e.ps1": ("python -m weather.model.mg3_serve\n", True)}
+             "e.ps1": ("python -m weather.model.mg3_serve\n", True),
+             "f.py": ('importlib.import_module(".mg3_serve", "weather.model")\n', True),
+             "g.py": ('x = "mg3_serve"\n', True),
+             "h.py": ("x = 1  # mg3_serve\n", False),
+             "i.py": ('class C:\n    """the shape mg3_serve reads"""\n', False),
+             "j.py": ('def f():\n    """mg3_serve, prose"""\n    return __import__("weather.model." + "mg3_serve")\n',
+                      True)}
     for name, (text, expected) in cases.items():
         (tmp_path / name).write_text(text, encoding="utf-8")
         assert _imports_mg3_serve(tmp_path / name) is expected, name
+    broken = tmp_path / "k.py"
+    broken.write_text("mg3_serve = (\n", encoding="utf-8")
+    with pytest.raises(SyntaxError):  # an unparsable file fails the ratchet, never skipped
+        _imports_mg3_serve(broken)
+
+
+def test_the_prose_admission_is_exact():
+    (target,) = [rel for rel, _ in ADMITTED_PROSE_CONSTANTS]
+    assert not _imports_mg3_serve(REPO_ROOT / target)
+    edited = REPO_ROOT / target
+    text = edited.read_text(encoding="utf-8").replace("the shape mg3_serve reads", "the shape mg3_serve reads now")
+    # the same file with the admitted string edited flags (checked on a copy that keeps the admitted path)
+    assert text != edited.read_text(encoding="utf-8")
+    tree = ast.parse(text)
+    values = [n.value for n in ast.walk(tree) if isinstance(n, ast.Constant) and isinstance(n.value, str)
+              and "mg3_serve" in n.value]
+    assert values and not any(_admitted(edited, v) for v in values)
