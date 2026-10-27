@@ -85,12 +85,48 @@ def test_mg3_serve_text_names_no_research_module():
     assert [t for t in RESEARCH_TOKENS if t in text] == []
 
 
+def _imports_mg3_serve(path):
+    """True when ``path`` imports mg3_serve or names its dotted module path (an importlib or -m target).
+
+    A prose mention (L2's builder and schema-family docstrings name "the shape mg3_serve reads") is not an import."""
+    text = path.read_text(encoding="utf-8", errors="replace")
+    if "mg3_serve" not in text:
+        return False
+    if "weather.model.mg3_serve" in text or "weather/model/mg3_serve" in text:
+        return True
+    if path.suffix != ".py":
+        return True  # a script naming it at all is reviewed here first
+    for node in ast.walk(ast.parse(text)):
+        if isinstance(node, ast.Import) and any(a.name.split(".")[-1] == "mg3_serve" for a in node.names):
+            return True
+        if isinstance(node, ast.ImportFrom) and (
+                (node.module or "").split(".")[-1] == "mg3_serve" or any(a.name == "mg3_serve" for a in node.names)):
+            return True
+    return False
+
+
 def test_no_capture_loop_can_reach_mg3_serve():
     importers = []
     for top in ("src", "app", "scripts"):
         for path in (REPO_ROOT / top).rglob("*"):
             if path.suffix not in {".py", ".ps1"} or path == MODULE:
                 continue
-            if "mg3_serve" in path.read_text(encoding="utf-8", errors="replace"):
+            if _imports_mg3_serve(path):
                 importers.append(path.relative_to(REPO_ROOT).as_posix())
     assert importers == []
+
+
+def test_the_importer_ratchet_sees_imports_not_prose(tmp_path):
+    cases = {"a.py": ("from weather.model import mg3_serve
+", True),
+             "b.py": ("import weather.model.mg3_serve as m
+", True),
+             "c.py": ("importlib.import_module('weather.model.mg3_serve')
+", True),
+             "d.py": ('"""the shape mg3_serve reads"""
+', False),
+             "e.ps1": ("python -m weather.model.mg3_serve
+", True)}
+    for name, (text, expected) in cases.items():
+        (tmp_path / name).write_text(text, encoding="utf-8")
+        assert _imports_mg3_serve(tmp_path / name) is expected, name
