@@ -24,7 +24,7 @@ SCHEMAS = (
         "active",
         "MG-3 release-binding.json written by mg3_release_binding from verified loads: rules (incl. 0712-1), RN-1, "
         "data and code files, states, weights_sha256 (RF-1) and l6_partner {state_sha256, part_sha256, "
-        "nowcasts_sha256}, the shape mg3_serve reads.",
+        "nowcasts_sha256}, the shape the MG-3 serve reader reads.",
         supersedes=("mg3_release_binding/1",),
         migration_notes="/1 bindings carry no l6_partner and an unverified weights sha; /2 refuses them at "
         "mg3_verify_release.",
