@@ -832,6 +832,8 @@ def test_pregate_fails_nonzero_when_the_host_suite_reaches_max_runtime(fixture_r
         result, receipt = _pregate(fixture_repo, fixture_repo["slow"], "runtime")
     finally:
         suite.write_bytes(original)
+        # The slow test's start marker is the interrupt test's go signal.
+        Path(fixture_repo["slow_started"]).unlink(missing_ok=True)
     assert receipt["verdict"] == "FAIL"
     assert result.returncode == 1
     assert receipt["driver_exit_code"] not in (None, 0)
