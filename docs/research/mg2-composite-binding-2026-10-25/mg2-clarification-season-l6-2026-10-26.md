@@ -107,8 +107,12 @@ The pooled upper bound is −0.0025 < 0, so the rule selects **the season-matche
     `3806687c…`), emitted by lane L3 for L2's MG-3 weight refit (`season_matched_l6 dev-emit` @ `40ed3cf1f`).
     Control: the frozen Aug-Sep state reproduces `3806687c…` on the same features with gap 0.
 - **Serving code:** wiring the frozen state into `mg2_composite`'s pre-13 path is a serving-code change.
-  Lane L8 makes it on `claude/mg2-l6-wiring-20261026 @ <L8 FINAL TIP>`: the state loads through `load_l6_own_state` with sha
-  verification, with a parity test, plus the BOUND_FIELDS fix. L3 does not make this change.
+  Lane L8 makes it on `claude/mg2-l6-wiring-20261026 @ 2415bc05036bda2c7e421b70a9a17a0e197c3ce6`: the state loads
+  through `load_l6_own_state` with sha verification, with a parity test, plus the BOUND_FIELDS fix. L3 does not
+  make this change.
+  - At that tip the b_scorer sha256 is `091c27cccc8e38e89da4d8c007615aa607a0ab85013b7237103995f63b508f3e`.
+  - The B control receipt `2ce8f4a7…` is PASS.
+  - In L8's rehearsal, the nowcast replay at `800072c7…` reproduced `714fa14e…` exactly.
 
 ## 4. Unchanged: the stack coefficients
 
