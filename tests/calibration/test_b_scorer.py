@@ -343,6 +343,7 @@ def _look_inputs(tmp_path, monkeypatch, *, transferred="2026-12-15T00:00:00Z", d
         other[name].write_text(json.dumps(payload), encoding="utf-8")
     monkeypatch.setattr(mg2, "reserved_end", lambda: (date(2026, 10, 15), date(2026, 11, 28)))
     monkeypatch.setattr(b, "bound_hash_problems", lambda fields, **k: [])
+    monkeypatch.setattr(b, "CONSUMED_ROOT", tmp_path / "_b_look")  # one fixed-marker root per look world
     return dict(rule=_rule(tmp_path), mg2_rule=tmp_path / "mg2.md", release_binding=other["binding.json"],
                 layout_root=layout, vectors=vectors, mg2_look=other["mg2/mg2_look.json"], transfer=transfer,
                 drop_list=other["drop.json"], control_receipt=other[b.CONTROL],

@@ -482,13 +482,13 @@ def test_window_leakage_without_a_binding_compares_mg1_to_head(tmp_path):
 
     root = tmp_path / "repo"
     (root / mg2.MG1_FILE).parent.mkdir(parents=True)
-    (root / mg2.MG1_FILE).write_text("mg1\n", encoding="utf-8")
+    (root / mg2.MG1_FILE).write_bytes(b"mg1\n")  # LF bytes, as the repo pins (write_text would add CR)
     commit_fixture_tree(root, cache_root=tmp_path / "git-templates", message="mg1",
                         config=("user.name=Fixture", "user.email=fixture@example.invalid", "commit.gpgSign=false"),
                         quiet=True)
     clean = [{"outcome_files_opened": []}]
     assert mg2.window_leakage_check(clean, None, root=root)["pass"] is True
-    (root / mg2.MG1_FILE).write_text("mg1 edited\n", encoding="utf-8")
+    (root / mg2.MG1_FILE).write_bytes(b"mg1 edited\n")
     assert "differs from HEAD" in mg2.window_leakage_check(clean, None, root=root)["problems"][0]
 
 
