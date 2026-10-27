@@ -8104,6 +8104,273 @@ def rung_v_loyo(*, records_root, nbm_train_corpus, mos_corpus, rj_loyo_rows, out
     return finish()
 
 
+# ---------------------------------------------------------------- R-V clarification RV-C1 (served arms)
+
+RV_C1_MOS_AUGSEP_SHA256 = "1e6e6b3d75a1e5bef688f4e0136c37cf42c650b7e8add13b1544187adbba3c50"  # rv/mos manifest
+RV_C1_OCT_KEYS_SHA256 = "2c555bdadb853d2da9d4269294fb255c4f982acceab0a7886c34629f366b4745"  # C10 loyo_rows
+RV_C1_AUG_KEYS_SHA256 = "2a91bb80e7e1d82b885ae9e07b97b35a936864f57c629c7cdd6a02e5de4d37dd"  # R-V gate-1 rows
+RV_C1_C10_FWD_ROWS_SHA256 = "c69b1351e0a48cdb18abc24453364941615ece3fc873c54f331854d620aefe47"
+RV_C1_V = ("v_gap",)
+RV_C1_SMHV_EXTRA = ("k_max", "k_gap", "k_tcdc", "v_gap")
+RV_C1_PARITY_TOL = 1e-9
+RV_C1_TOL = 1e-12
+RV_C1_PAIRS_A = (("P3d_V_fwd", "P3d_N_fwd"),)
+RV_C1_POOLS_A = (("13-16", None), ("13-14", (13, 14)), ("15-16", (15, 16)))
+RV_C1_PAIRS_B = (("SM_HV", "SM_H"),)
+RV_C1_POOLS_B = (("13-15", None),)
+
+
+def rv_c1_merge_tables(first, second):
+    """Union of two ``rv_load`` tables on (station, model, runtime, ftime). -> (table, conflicts)."""
+    table = {k: dict(v) for k, v in first.items()}
+    conflicts = []
+    for key, values in second.items():
+        into = table.setdefault(key, {})
+        for when, value in values.items():
+            if when in into:
+                old = into[when]
+                same = old == value or (not math.isfinite(old) and not math.isfinite(value))
+                if not same:
+                    conflicts.append([key[0], key[1], when[0].isoformat(), when[1].isoformat(), old, value])
+                continue
+            into[when] = value
+    return table, conflicts
+
+
+def rv_c1_v_entry(train, extra):
+    """One shell ``hours[h]`` entry for the forward spec plus ``extra`` HGB columns (mg3_hour_entry layout)."""
+    return mg3_hour_entry(_rung_entry(train, False, (), tuple(extra)))
+
+
+def rv_c1_v_shell(state, hour, entry, extra):
+    return dict(fwd_shell(state, {int(hour): entry}), extra_hgb=list(extra))
+
+
+def rv_c1_serve(shell, row):
+    """The candidate's serving path: ``state_features`` (shell conversion included) plus the shell's extras."""
+    return mg3_state_distribution(
+        shell, int(row["hour"]), market=row["market"], target_date=date.fromisoformat(str(row["target_date"])[:10]),
+        high_so_far=float(row["F"]), current_temp=float(row["x_current_temp"]), nbm_mean=float(row["fh"]),
+        extra={c: row[c] for c in shell["extra_hgb"]})
+
+
+def _rv_c1_finite(part):
+    import numpy as np
+
+    ok = np.isfinite(part["F"].to_numpy(float)) & np.isfinite(part["x_current_temp"].to_numpy(float))
+    return part[ok].reset_index(drop=True), int((~ok).sum())
+
+
+def rv_c1_rows_a(scored, fwd_frame, fwd_state, hours=RV_HOURS, markets=R0_MARKETS, serve_n=None, serve_v=None):
+    """RV-C1 (a): P3d_N_fwd and P3d_V_fwd fold rows on each scored set, plus tier-2 and V-off parity.
+
+    ``scored`` {name: frame}. Each fold for held-out year y drops year y's Aug-Dec rows of ``fwd_frame``.
+    -> ({name: rows}, {name: excluded}, parity)."""
+    from weather.calibration import feature_model as fm
+
+    serve_n = serve_n or sm_h_frozen_dist
+    serve_v = serve_v or rv_c1_serve
+    rows = {name: [] for name in scored}
+    excluded = {name: 0 for name in scored}
+    tier2, v_off, checked = 0.0, 0.0, 0
+    for hour in hours:
+        fwd_hour = fwd_frame[fwd_frame["hour"] == hour].reset_index(drop=True)
+        full_n = fwd_shell(fwd_state, {int(hour): fwd_hour_entry(fwd_hour, markets)})
+        full_off = rv_c1_v_shell(fwd_state, hour, rv_c1_v_entry(fwd_hour, ()), ())
+        years = sorted(set().union(*(set(f.loc[f["hour"] == hour, "year"].unique()) for f in scored.values())))
+        for year in years:
+            train = fwd_hour[fwd_hour["year"] != year].reset_index(drop=True)
+            fold_n = fwd_shell(fwd_state, {int(hour): fwd_hour_entry(train, markets)})
+            fold_v = rv_c1_v_shell(fwd_state, hour, rv_c1_v_entry(train, RV_C1_V), RV_C1_V)
+            for name, frame in scored.items():
+                val, dropped = _rv_c1_finite(frame[(frame["hour"] == hour) & (frame["year"] == year)])
+                excluded[name] += dropped
+                for i in range(len(val)):
+                    one = val.iloc[i]
+                    ref = serve_n(fwd_state, one)
+                    tier2 = max(tier2, dist_max_abs(serve_n(full_n, one), ref))
+                    v_off = max(v_off, dist_max_abs(serve_v(full_off, one), ref))
+                    checked += 1
+                    actual = int(one["y"])
+                    row = {"hour": int(hour), "year": int(year), "market": str(one["market"]),
+                           "date": str(one["target_date"])[:10], "y": actual}
+                    for arm, dist in (("P3d_N_fwd", serve_n(fold_n, one)), ("P3d_V_fwd", serve_v(fold_v, one))):
+                        row[f"{arm}_brier"] = sm_h_brier(dist, actual)
+                        row[f"{arm}_log"] = fm.log_loss(dist, actual)
+                    rows[name].append(row)
+        print(f"rv-c1 (a) hour {hour}: tier2 {tier2:.3g} v_off {v_off:.3g}", flush=True)
+    total = sum(len(r) for r in rows.values())
+    parity = {"rows": checked, "tolerance": RV_C1_PARITY_TOL,
+              "tier2": {"max_abs": tier2, "pass": tier2 <= RV_C1_PARITY_TOL and checked == total},
+              "v_off": {"max_abs": v_off, "pass": v_off <= RV_C1_PARITY_TOL and checked == total}}
+    return rows, excluded, parity
+
+
+def rv_c1_rows_b(frame, buckets, hours=SM_H_HOURS):
+    """RV-C1 (b): SM_H and SM_HV blocked LOYO on the Oct-Dec rows, as ``sm_h_rows``. -> (rows, excluded)."""
+    from weather.calibration import feature_model as fm
+
+    arms = {"SM_H": _arm_spec(RK_ARMS["P3d_H"]), "SM_HV": (False, (), RV_C1_SMHV_EXTRA, ())}
+    rows, excluded = [], 0
+    for hour in hours:
+        at_hour = frame[frame["hour"] == hour]
+        for year in sorted(at_hour["year"].unique()):
+            train = at_hour[at_hour["year"] != year].reset_index(drop=True)
+            val, dropped = _rv_c1_finite(at_hour[at_hour["year"] == year])
+            excluded += dropped
+            entries = {arm: _rung_entry(train, *spec) for arm, spec in arms.items()}
+            for market in sorted(val["market"].unique()):
+                part = val[val["market"] == market].reset_index(drop=True)
+                dists = {arm: _dist_from_fit(e, part, buckets, market) for arm, e in entries.items()}
+                for i in range(len(part)):
+                    actual = int(part.at[i, "y"])
+                    row = {"hour": int(hour), "year": int(year), "market": market,
+                           "date": str(part.at[i, "target_date"])[:10], "y": actual}
+                    for arm, d in dists.items():
+                        row[f"{arm}_brier"] = sm_h_brier(d[i], actual)
+                        row[f"{arm}_log"] = fm.log_loss(d[i], actual)
+                    rows.append(row)
+        print(f"rv-c1 (b) hour {hour}: {sum(1 for r in rows if r['hour'] == hour)} rows", flush=True)
+    return rows, excluded
+
+
+def rv_c1_reproduce(rows, reference, arm, ref_field, tol=RV_C1_TOL):
+    """Identical keys and |rows[arm] - reference[ref_field]| <= tol on every row."""
+    got = {row_key(r): r[f"{arm}_brier"] for r in rows}
+    ref = {row_key(r): float(r[ref_field]) for r in reference}
+    common = set(got) & set(ref)
+    worst = max((abs(got[k] - ref[k]) for k in common), default=float("inf"))
+    same = set(got) == set(ref) and len(got) == len(rows)
+    return {"rows": len(got), "reference_rows": len(ref), "same_keys": same, "missing": len(set(ref) - set(got)),
+            "extra": len(set(got) - set(ref)), "max_abs": worst, "tolerance": tol, "pass": bool(same and worst <= tol)}
+
+
+def rv_c1_keys(rows, reference):
+    got, ref = {row_key(r) for r in rows}, {row_key(r) for r in reference}
+    return {"rows": len(rows), "reference_rows": len(ref), "missing": len(ref - got), "extra": len(got - ref),
+            "pass": got == ref and len(got) == len(rows)}
+
+
+def _rv_c1_by_market(rows, pairs, pooled):
+    return {m: rg_loyo_summary([r for r in rows if r["market"] == m], pairs=pairs, pooled=pooled)
+            for m in sorted({r["market"] for r in rows})}
+
+
+def rv_c1(*, records_root, nbm_train_corpus, hrrr_corpus, mos_augsep, mos_octdec, fwd_state, c10_rows_path,
+          c10_fwd_rows, smh_rows, rv_rows, out_dir, markets=R0_MARKETS):
+    """RV-C1 (clarification_rv_c1.md): reads (a) and (b) in one run. History only; no dev row is read."""
+    from weather.calibration import ols_floor_ladder as l9
+    from weather.market.market_registry import spec_for_id
+
+    out = require_output_outside_repo(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    if any(out.iterdir()):
+        raise PooledModelError(f"refusing to write into a non-empty {out}")
+    corpus = Path(hrrr_corpus)
+    audit = {"clarification_sha256": RV_C1_SHA256, "rule_sha256": RV_RULE_SHA256, "checks": {}, "gates": {},
+             "inputs": {"nbm_train_corpus": _sm_h_bound(nbm_train_corpus, SM_H_NBM_SHA256, "NBM corpus"),
+                        "fwd_state": _sm_h_bound(fwd_state, C10_FWD_STATE_SHA256, "served P3d_N state"),
+                        "mos_augsep_manifest": _sm_h_bound(Path(mos_augsep) / "manifest.json",
+                                                           RV_C1_MOS_AUGSEP_SHA256, "Aug-Sep MOS manifest"),
+                        "mos_octdec_manifest": _rr_sha(Path(mos_octdec) / "manifest.json"),
+                        "c10_rows": _sm_h_bound(c10_rows_path, RV_C1_OCT_KEYS_SHA256, "C10 rows"),
+                        "c10_fwd_rows": _sm_h_bound(c10_fwd_rows, RV_C1_C10_FWD_ROWS_SHA256, "C10 fwd rows"),
+                        "smh_rows": _sm_h_bound(smh_rows, C10_SMH_ROWS_SHA256, "SM-H rows"),
+                        "rv_rows": _sm_h_bound(rv_rows, RV_C1_AUG_KEYS_SHA256, "R-V gate-1 rows"),
+                        **{f"hrrr_{n}": _sm_h_bound(corpus / n, sha, f"HRRR {n}")
+                           for n, sha in SM_H_HRRR_SHA256.items()},
+                        "module_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}}
+
+    def finish(stopped=None):
+        if stopped:
+            audit["stopped_at"] = stopped
+        (out / "rvc1_audit.json").write_text(json.dumps(audit, indent=1, sort_keys=True, default=str),
+                                             encoding="utf-8")
+        return audit
+
+    years = range(2021, 2026)
+    aug_table, _ = rv_load(mos_augsep, years)
+    oct_table, _ = rv_load(mos_octdec, years)
+    table, conflicts = rv_c1_merge_tables(aug_table, oct_table)
+    specs = {m: spec_for_id(m) for m in markets}
+    timezones = {m: s.timezone for m, s in specs.items()}
+    icaos = {m: s.icao for m, s in specs.items()}
+    nbm = l9.load_nbm(nbm_train_corpus)
+    # scored Oct-Dec 13-16 (C10's rows), with v_gap: gates 1a/1b first (STOP, not VOID)
+    oct_frame, buckets = sm_h_frame(records_root, markets, hours=RV_HOURS)
+    oct_frame, audit["oct_nbm"] = attach_training_nbm(oct_frame, nbm, l9.nbm_at_cutoff, timezones)
+    oct_frame, oct_stats = rv_training_columns(oct_frame, table, timezones, icaos)
+    audit["gates"]["1a_octdec"] = rv_gate_1a(oct_stats)
+    audit["gates"]["1b_octdec"] = rv_gate_1b(oct_frame)
+    if not audit["gates"]["1a_octdec"]["pass"]:
+        return finish("gate 1a on Oct-Dec rows (STOPPED, not a kill)")
+    if not audit["gates"]["1b_octdec"]["pass"]:
+        return finish("gate 1b on Oct-Dec rows (STOPPED, not a kill)")
+    # forward training frame (a) and the Aug-Sep scored rows
+    fwd_frame, _ = forward_training_frame(records_root, markets)
+    fwd_rows_all = int(len(fwd_frame))
+    years_ok = set(int(y) for y in fwd_frame["year"].unique()) <= set(FORWARD_YEARS)
+    fwd_frame = fwd_frame[fwd_frame["hour"].isin(RV_HOURS)].reset_index(drop=True)
+    fwd_frame, audit["fwd_nbm"] = attach_training_nbm(fwd_frame, nbm, l9.nbm_at_cutoff, timezones)
+    fwd_frame, fwd_stats = rv_training_columns(fwd_frame, table, timezones, icaos)
+    audit["gates"]["fwd_frame_reported"] = {"1a": rv_gate_1a(fwd_stats), "1b": rv_gate_1b(fwd_frame)}
+    aug_frame, _ = dev_training_frame(records_root, markets)
+    aug_frame, _ = attach_training_nbm(aug_frame, nbm, l9.nbm_at_cutoff, timezones)
+    aug_frame = aug_frame[aug_frame["hour"].isin(RV_HOURS)].reset_index(drop=True)
+    aug_frame, _ = rv_training_columns(aug_frame, table, timezones, icaos)
+    # (b) frame: the SM-H frame plus v_gap
+    hrrr, audit["hrrr_corpus_stats"] = rk_hrrr_columns(corpus, markets, hours=SM_H_HOURS, day_filter=sm_h_day_filter)
+    b_frame, b_buckets = sm_h_frame(records_root, markets)
+    b_frame, _ = attach_training_nbm(b_frame, nbm, l9.nbm_at_cutoff, timezones)
+    b_frame, audit["b_training_hrrr"] = rk_training_columns(b_frame, hrrr)
+    b_frame, _ = rv_training_columns(b_frame, table, timezones, icaos)
+    audit["checks"]["1_inputs"] = {"fwd_frame_rows": fwd_rows_all, "expected": C10_FWD_TRAINING_ROWS,
+                                   "years_2021_25": years_ok, "merge_conflicts": conflicts[:20],
+                                   "n_conflicts": len(conflicts),
+                                   "hrrr": rk_parity_training(audit["hrrr_corpus_stats"], audit["b_training_hrrr"]),
+                                   "pass": (fwd_rows_all == C10_FWD_TRAINING_ROWS and years_ok and not conflicts)}
+    audit["checks"]["1_inputs"]["pass"] = bool(audit["checks"]["1_inputs"]["pass"]
+                                               and audit["checks"]["1_inputs"]["hrrr"]["pass"])
+    if not audit["checks"]["1_inputs"]["pass"]:
+        return finish("check 1 inputs (VOID)")
+    served = pickle.loads(Path(fwd_state).read_bytes())
+    rows_a, audit["rows_excluded_a"], parity = rv_c1_rows_a({"octdec": oct_frame, "augsep": aug_frame}, fwd_frame,
+                                                           served, markets=markets)
+    rows_b, audit["rows_excluded_b"] = rv_c1_rows_b(b_frame, b_buckets)
+    _write_jsonl(out / "rows_a_octdec.jsonl", rows_a["octdec"])
+    _write_jsonl(out / "rows_a_augsep.jsonl", rows_a["augsep"])
+    _write_jsonl(out / "rows_b.jsonl", rows_b)
+    audit["outputs"] = {n: _rr_sha(out / n) for n in ("rows_a_octdec.jsonl", "rows_a_augsep.jsonl", "rows_b.jsonl")}
+    audit["checks"]["2_keys"] = {"a_octdec": rv_c1_keys(rows_a["octdec"], _read_jsonl(c10_rows_path)),
+                                 "a_augsep": rv_c1_keys(rows_a["augsep"], _read_jsonl(rv_rows)),
+                                 "b": rv_c1_keys(rows_b, _read_jsonl(smh_rows))}
+    audit["checks"]["2_keys"]["pass"] = all(v["pass"] for v in audit["checks"]["2_keys"].values())
+    audit["checks"]["3_tier2"] = parity["tier2"]
+    audit["checks"]["4_v_off_a"] = parity["v_off"]
+    audit["checks"]["5_c10_fwd_reproduction"] = rv_c1_reproduce(rows_a["octdec"], _read_jsonl(c10_fwd_rows),
+                                                                "P3d_N_fwd", "P3d_N_fwd_brier")
+    audit["checks"]["6_v_off_b"] = rv_c1_reproduce(rows_b, _read_jsonl(smh_rows), "SM_H", "SM_H_brier")
+    failed = [k for k, v in audit["checks"].items() if not v["pass"]]
+    if failed:
+        return finish(f"checks {failed} (VOID; no score read)")
+    sa = rg_loyo_summary(rows_a["octdec"], pairs=RV_C1_PAIRS_A, pooled=RV_C1_POOLS_A)
+    sa_aug = rg_loyo_summary(rows_a["augsep"], pairs=RV_C1_PAIRS_A, pooled=RV_C1_POOLS_A)
+    sb = rg_loyo_summary(rows_b, pairs=RV_C1_PAIRS_B, pooled=RV_C1_POOLS_B)
+    audit["summary"] = {"a_octdec": sa, "a_augsep_reported": sa_aug, "b": sb,
+                        "a_by_market": _rv_c1_by_market(rows_a["octdec"], RV_C1_PAIRS_A, (("13-16", None),)),
+                        "b_by_market": _rv_c1_by_market(rows_b, RV_C1_PAIRS_B, (("13-15", None),))}
+    a = sa["P3d_V_fwd-P3d_N_fwd|13-16|brier"]
+    b = sb["SM_HV-SM_H|13-15|brier"]
+    audit["decision"] = {
+        "a": {"pair": "P3d_V_fwd-P3d_N_fwd|13-16|brier (Oct-Dec keys)", "estimate": a["estimate"],
+              "ci95": a["ci95"], "adopt_candidate": a["ci95"][1] < 0},
+        "b": {"pair": "SM_HV-SM_H|13-15|brier", "estimate": b["estimate"], "ci95": b["ci95"],
+              "adopt_candidate": b["ci95"][1] < 0}}
+    audit["decision"]["r_v"] = ("gate 2 re-registered against the passing arm(s)"
+                                if a["ci95"][1] < 0 or b["ci95"][1] < 0 else "R-V CLOSES; gate 2 never runs")
+    return finish()
+
+
 # -------------------------------------------------------------------------- CLI
 
 
@@ -8419,6 +8686,10 @@ def _parse(argv=None):
     vf.add_argument("--years", required=True, help="comma list, e.g. 2021,2022,2023,2024,2025 or 2026")
     vf.add_argument("--out", required=True)
     vf.add_argument("--octdec", action="store_true", help="RV-C1: runtimes 09-30..12-31, 2021-25 only")
+    vc = sub.add_parser("rv-c1", help="R-V RV-C1: P3d_V_fwd vs served P3d_N_fwd 13-16 and SM_HV vs SM-H 13-15 (heavy)")
+    for opt in ("--records", "--nbm-train-corpus", "--hrrr", "--mos-augsep", "--mos-octdec", "--fwd-state",
+                "--c10-rows", "--c10-fwd-rows", "--smh-rows", "--rv-rows", "--out"):
+        vc.add_argument(opt, required=True)
     vl = sub.add_parser("rung-v-loyo", help="R-V gates 1a, 1b and 1 (nested LOYO 2021-25 h13-16) (heavy)")
     vl.add_argument("--records", required=True)
     vl.add_argument("--nbm-train-corpus", required=True)
@@ -8762,6 +9033,15 @@ def main(argv=None):
                             windows=rv_c1_fetch_windows if args.octdec else None)
         print(json.dumps({"files": len(manifest["files"])}, indent=1))
         return 0
+    if args.command == "rv-c1":
+        audit = rv_c1(records_root=args.records, nbm_train_corpus=args.nbm_train_corpus, hrrr_corpus=args.hrrr,
+                      mos_augsep=args.mos_augsep, mos_octdec=args.mos_octdec, fwd_state=args.fwd_state,
+                      c10_rows_path=args.c10_rows, c10_fwd_rows=args.c10_fwd_rows, smh_rows=args.smh_rows,
+                      rv_rows=args.rv_rows, out_dir=args.out)
+        print(json.dumps({"stopped_at": audit.get("stopped_at"),
+                          "checks": {k: v.get("pass") for k, v in audit["checks"].items()},
+                          "decision": audit.get("decision")}, indent=1, default=str))
+        return 0 if not audit.get("stopped_at") else 1
     if args.command == "rung-v-loyo":
         audit = rung_v_loyo(records_root=args.records, nbm_train_corpus=args.nbm_train_corpus, mos_corpus=args.mos,
                             rj_loyo_rows=args.rj_loyo_rows, out_dir=args.out)
