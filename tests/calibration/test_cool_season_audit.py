@@ -242,3 +242,54 @@ def test_compare_runs_on_oct_dec_periods_only():
     out = cs.compare(f, "arm", "mg1", (9,), periods=cs.OCT_DEC_PERIODS)
     assert "aug_sep_in_sample" not in out["periods"] and out["transfer_reading"] is None
     assert out["periods"]["oct_dec"]["by"]["pooled"]["estimate"] < 0
+
+
+def _scope_frame():
+    import pandas as pd
+
+    rows = [("nyc", "2022-10-10", 9), ("nyc", "2024-10-10", 9), ("nyc", "2024-10-15", 9), ("nyc", "2025-11-09", 7),
+            ("nyc", "2023-08-08", 9), ("miami", "2025-12-01", 12)]
+    f = pd.DataFrame(rows, columns=["market", "local_date", "hour"])
+    f["year"] = f.local_date.str[:4].astype(int)
+    f["month"] = f.local_date.str[5:7].astype(int)
+    return f
+
+
+def test_oct_dec_scope_keeps_only_2024_25_cycle_present_keys():
+    back = {("nyc", "2024-10-10", 9): {"cycle_present": True, "k_miss": 0.0},
+            ("nyc", "2024-10-15", 9): {"cycle_present": False, "k_miss": 1.0, "reason": "no_cycle"},
+            ("nyc", "2025-11-09", 7): {"cycle_present": True, "k_miss": 1.0, "reason": "message_absent"},
+            ("nyc", "2022-10-10", 9): {"cycle_present": True, "k_miss": 0.0}}
+    kept, counts = cs.oct_dec_scope(_scope_frame(), back)
+    assert set(zip(kept.market, kept.local_date)) == {("nyc", "2024-10-10"), ("nyc", "2025-11-09"),
+                                                       ("nyc", "2023-08-08")}
+    assert counts == {"oct_dec_rows_read": 5, "oct_dec_2021_23_not_scored": 1, "oct_dec_2024_25_no_cycle_absent": 1,
+                      "oct_dec_2024_25_no_selection_absent": 1, "oct_dec_kept": 2, "aug_sep_rows": 1}
+    cs.guard_scope(kept)
+
+
+def test_no_oct_dec_2021_23_row_reaches_a_scorer():
+    frame = _scope_frame()
+    with pytest.raises(cs.CoolSeasonError, match="2021-23"):
+        cs.guard_scope(frame)
+    with pytest.raises(cs.CoolSeasonError, match="2021-23"):
+        cs.score_0712(frame, state=None, hrrr={}, nmap={}, coef={}, weights={})
+    with pytest.raises(cs.CoolSeasonError, match="2021-23"):
+        cs.score_sm_blend(frame, state=None, hrrr={}, maps={}, coef={}, weights={})
+
+
+def test_pair_keys_puts_every_arm_on_one_key_set():
+    import numpy as np
+
+    f = _scope_frame()
+    f = f[(f.year >= 2024) | (f.month == 8)].reset_index(drop=True)
+    f["a"] = [0.5, 0.6, np.nan, 0.7, 0.8]
+    f["b"] = [0.4, np.nan, 0.5, 0.6, 0.9]
+    f["mg1"] = [0.6, 0.6, 0.6, 0.6, np.nan]
+    keys = cs.pair_keys(f, ("a", "b", "mg1"))
+    finite = [np.isfinite(f[c].to_numpy(float)) for c in ("a", "b", "mg1")]
+    assert all((x == finite[0]).all() for x in finite) and finite[0].sum() == 2
+    assert keys["all"]["rows"] == 2 and keys["unpaired_rows_dropped"] == 3
+    sha, n = cs.key_set_sha(f[finite[0]])
+    assert keys["all"]["sha256"] == sha and n == 2
+    assert keys["oct_dec"]["rows"] + keys["aug_sep"]["rows"] == 2

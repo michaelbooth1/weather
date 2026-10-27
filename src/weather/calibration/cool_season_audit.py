@@ -52,10 +52,19 @@ def check_rule(rule):
     return _pin(rule, RULE_CS_SHA256, "rule")
 
 
-def _write_once(path, payload):
-    from weather.calibration import pooled_residual_model as l2
+def _outside_repo(path):
+    """Research output never lands in the repository (the same check as L2's ``require_output_outside_repo``)."""
+    from weather.paths import REPO_ROOT
 
-    path = l2.require_output_outside_repo(Path(path))
+    resolved = Path(path).resolve()
+    repo = Path(REPO_ROOT).resolve()
+    if resolved == repo or repo in resolved.parents:
+        raise CoolSeasonError(f"output must be outside the repository: {resolved}")
+    return resolved
+
+
+def _write_once(path, payload):
+    path = _outside_repo(Path(path))
     if path.exists():
         raise CoolSeasonError(f"refusing to overwrite {path}")
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -388,9 +397,10 @@ def hrrr_k_columns(corpus_dir, markets, hours=HOURS_1316, point=None, months=Non
         tz, target = tzs[icao], date.fromisoformat(day)
         snapshot = datetime.combine(target, time(hour, 0), tzinfo=tz)
         window_end = datetime.combine(target, time(RK_VALID_END_LOCAL, 0), tzinfo=tz)
-        entry = {"k_max": float("nan"), "k_tcdc": float("nan"), "k_miss": 1.0, "reason": None}
-        out[(market, day, hour)] = entry
         fhs = list(s.get("fhs") or [])
+        entry = {"k_max": float("nan"), "k_tcdc": float("nan"), "k_miss": 1.0, "reason": None,
+                 "cycle_present": s.get("cycle_utc") is not None and bool(fhs)}
+        out[(market, day, hour)] = entry
         if point is not None and icao not in point:
             entry["reason"] = "no_land_cell"
         elif datetime.fromisoformat(s["snapshot_utc"]) != snapshot:
@@ -478,6 +488,70 @@ def part1b(*, nbm_corpus, records_root, state_1316, hrrr_1316, rule, out_path):
         "blend_l6_h_0712": "NOT SCORABLE on Oct-Dec: its P3d_H 07-12 input has no Oct-Dec HRRR (coverage.json)"}
     _write_once(out_path, payload)
     return payload
+
+
+# ---------------------------------------------------------------- clarification 2026-10-27 (1c and row 49 scope)
+
+CLARIFIED_YEARS = (2024, 2025)  # L13's sealed 07-12 backfill holds Oct-Dec of 2024 and 2025 only
+
+
+def oct_dec_scope(frame, backfill):
+    """Clarification 2026-10-27 (CS-1 rule section 1: scored only where complete inputs exist): an Oct-Dec row is
+    kept only if its year is 2024 or 2025 AND the backfill has a selection with a cycle for its key. 2021-23
+    Oct-Dec rows are dropped before any scorer (never served, never scored, not even reported-only); a no-cycle
+    or absent key is absent, never imputed. Aug-Sep rows are untouched. -> (kept frame, counts)."""
+    import numpy as np
+
+    keys = list(zip(frame.market, frame.local_date, frame.hour.astype(int)))
+    od = frame.month.isin(OCT_DEC).to_numpy()
+    yr = frame.year.isin(CLARIFIED_YEARS).to_numpy()
+    entry = [backfill.get(k) for k in keys]
+    has_sel = np.array([e is not None for e in entry])
+    cyc = np.array([e is not None and bool(e.get("cycle_present")) for e in entry])
+    keep = ~od | (yr & cyc)
+    counts = {"oct_dec_rows_read": int(od.sum()), "oct_dec_2021_23_not_scored": int((od & ~yr).sum()),
+              "oct_dec_2024_25_no_cycle_absent": int((od & yr & has_sel & ~cyc).sum()),
+              "oct_dec_2024_25_no_selection_absent": int((od & yr & ~has_sel).sum()),
+              "oct_dec_kept": int((od & keep).sum()), "aug_sep_rows": int((~od).sum())}
+    return frame[keep].reset_index(drop=True), counts
+
+
+def guard_scope(frame):
+    """No Oct-Dec 2021-23 row may reach a scorer (clarification 2026-10-27, term c)."""
+    bad = frame.month.isin(OCT_DEC) & ~frame.year.isin(CLARIFIED_YEARS)
+    if bad.any():
+        raise CoolSeasonError(f"{int(bad.sum())} Oct-Dec 2021-23 rows reached a scorer")
+
+
+def key_set_sha(frame):
+    keys = sorted(f"{m}|{d}|{int(h)}" for m, d, h in zip(frame.market, frame.local_date, frame.hour))
+    return hashlib.sha256("\n".join(keys).encode("utf-8")).hexdigest(), len(keys)
+
+
+def pair_keys(scored, cols):
+    """Paired keys (term a): a row counts only where EVERY arm and comparator in ``cols`` is finite; elsewhere all
+    are set NaN, so every comparison runs on one key set. -> {scope: {sha256, rows}}."""
+    import numpy as np
+
+    ok = np.ones(len(scored), bool)
+    for c in cols:
+        ok &= np.isfinite(scored[c].to_numpy(float))
+    for c in cols:
+        scored.loc[~ok, c] = np.nan
+    kept = scored[ok]
+    out = {}
+    for name, months in (("all", AUG_SEP + OCT_DEC), ("aug_sep", AUG_SEP), ("oct_dec", OCT_DEC)):
+        sha, n = key_set_sha(kept[kept.month.isin(months)])
+        out[name] = {"sha256": sha, "rows": n}
+    out["unpaired_rows_dropped"] = int((~ok).sum())
+    return out
+
+
+def headline(cmp, keys):
+    """Term b: the Oct-Dec pooled dB with its reduced N, its date-cluster count and its key-set sha."""
+    pooled = cmp["periods"]["oct_dec"]["by"].get("pooled") or {}
+    return {"oct_dec_2024_25_pooled": {k: pooled.get(k) for k in ("estimate", "ci95", "n_rows", "n_cells", "n_dates")},
+            "key_set_oct_dec": keys["oct_dec"], "transfer_reading": cmp.get("transfer_reading")}
 
 
 # ---------------------------------------------------------------- 1c: P3d_H 07-12 and blend_l6_H (L2's MG-3)
@@ -624,6 +698,7 @@ def score_0712(frame, state, hrrr, nmap, coef, weights):
     """
     import numpy as np
 
+    guard_scope(frame)
     n = len(frame)
     p3, bl, mg = np.full(n, np.nan), np.full(n, np.nan), np.full(n, np.nan)
     stats = Counter()
@@ -664,11 +739,13 @@ def score_0712(frame, state, hrrr, nmap, coef, weights):
 
 
 def part1c(*, nbm_corpus, records_root, research_root, state_0712, hrrr_0712, hrrr_backfill, backfill_sums_sha256,
-           land, l6_state, mg2_coefficients, blend_weights, rule, rule_1c, rule_1c_sha256, out_path):
+           land, l6_state, mg2_coefficients, blend_weights, rule, rule_1c, rule_1c_sha256, clarification,
+           clarification_sha256, out_path):
     import numpy as np
 
     check_rule(rule)
     _pin(rule_1c, rule_1c_sha256, "1c rule")
+    _pin(clarification, clarification_sha256, "clarification 2026-10-27")
     _pin(nbm_corpus, "1ae4bf52a0e032fc0c05ddfa7b282a17db53bd9a2e3f3a32a9a5686139faa1fd", "NBM corpus")
     for name, sha in HRRR_0712_SHAS.items():
         _pin(Path(hrrr_0712) / name, sha, f"HRRR 07-12 training corpus {name}")
@@ -692,8 +769,11 @@ def part1c(*, nbm_corpus, records_root, research_root, state_0712, hrrr_0712, hr
     h_back, st_back = hrrr_k_columns(hrrr_backfill, markets, hours=HOURS_0712, point=point_back, months=OCT_DEC)
     hrrr = dict(h_train)
     hrrr.update(h_back)
+    rows_read = int(len(recf))
+    recf, scope = oct_dec_scope(recf, h_back)
     nmap, l6prov = l6_nowcast_map(research_root, nbm_corpus, l6_state)
     scored, stats = score_0712(recf, state, hrrr, nmap, coef, weights)
+    keyset = pair_keys(scored, ("p3d_h", "blend", "mg1"))
     keys = list(zip(recf.market, recf.local_date, recf.hour.astype(int)))
     hcov = np.array([hrrr.get(k) is not None and not hrrr[k]["k_miss"] for k in keys])
     ncov = np.array([k in nmap for k in keys])
@@ -709,11 +789,22 @@ def part1c(*, nbm_corpus, records_root, research_root, state_0712, hrrr_0712, hr
                          "hrrr_covered": int(hcov[pm].sum()), "l6_nowcast_covered": int(ncov[pm].sum())}
         return out
 
+    recent = scored[scored.year.isin(CLARIFIED_YEARS)].reset_index(drop=True)
+
+    def arm(col):
+        # the headline and transfer reading use Aug-Sep 2024-25 (same years as Oct-Dec); the declared all-years
+        # Aug-Sep is reported beside it (its Oct-Dec periods are the same 2024-25 rows)
+        main = compare(recent, col, "mg1", HOURS_0712)
+        return {"headline": headline(main, keyset), "years_2024_25": main,
+                "aug_sep_all_years_2021_25_reference": compare(scored, col, "mg1", HOURS_0712),
+                "coverage": counts(col)}
+
     payload = {
         "label": "CS-1 (1c) cool-season transfer audit, history only, descriptive: L2's frozen MG-3 P3d_H 07-12 "
                  "and blend_l6_H (control PASS, sha-bound; blend L6 partner = frozen Aug-Sep L6 0e89b32d + part "
                  "07a67425, as the weights were fitted) vs the MG-1 analogue; Aug-Sep is IN-SAMPLE; Oct-Dec rows "
-                 "are never training rows but share the training years 2021-25; no binding change",
+                 "are never training rows but share the training years 2021-25; no binding change. Clarification "
+                 "2026-10-27: Oct-Dec scope = 2024-25 cycle-present backfill keys only, paired keys",
         "rule_sha256": RULE_CS_SHA256, "rule_1c_sha256": rule_1c_sha256, "module_sha256": _sha(__file__),
         "inputs": {"p3d_h_0712_state_sha256": state_sha, "l2_control_sha256": control_sha,
                    "blend_weights_sha256": BLEND_WEIGHTS_SHA256, "weights": {f"h{h:02d}": w for h, w in weights.items()},
@@ -724,9 +815,9 @@ def part1c(*, nbm_corpus, records_root, research_root, state_0712, hrrr_0712, hr
                    "records_missing": missing},
         "point_rule": {"train": rep_train, "backfill": rep_back},
         "hrrr_stats": {"train_aug_sep": st_train, "backfill_oct_dec": st_back},
-        "row_stats": stats, "rows": int(len(recf)),
-        "p3d_h_0712": dict(compare(scored, "p3d_h", "mg1", HOURS_0712), coverage=counts("p3d_h")),
-        "blend_l6_h_0712": dict(compare(scored, "blend", "mg1", HOURS_0712), coverage=counts("blend"))}
+        "row_stats": stats, "rows_read": rows_read, "rows_in_scope": int(len(recf)),
+        "clarification_sha256": clarification_sha256, "scope": scope, "key_sets": keyset,
+        "p3d_h_0712": arm("p3d_h"), "blend_l6_h_0712": arm("blend")}
     _write_once(out_path, payload)
     return payload
 
@@ -811,6 +902,7 @@ def score_sm_blend(frame, state, hrrr, maps, coef, weights):
     MG-1 analogue, for each nowcast map in ``maps`` ({tag: {key: N}}). SM-L6 without N is the MG-1 analogue."""
     import numpy as np
 
+    guard_scope(frame)
     n = len(frame)
     cols = {"mg1": np.full(n, np.nan), "p3d_h": np.full(n, np.nan)}
     for tag in maps:
@@ -854,11 +946,12 @@ def score_sm_blend(frame, state, hrrr, maps, coef, weights):
 
 def part_sm_blend(*, nbm_corpus, records_root, research_root, state_0712, hrrr_backfill, backfill_sums_sha256,
                   land, sm_state, sm_loyo, mg2_coefficients, rf1_weights, rf1_weights_sha256, rule, rule_49,
-                  rule_49_sha256, out_path):
+                  rule_49_sha256, clarification, clarification_sha256, out_path):
     import numpy as np
 
     check_rule(rule)
     _pin(rule_49, rule_49_sha256, "row 49 rule")
+    _pin(clarification, clarification_sha256, "clarification 2026-10-27")
     _pin(nbm_corpus, "1ae4bf52a0e032fc0c05ddfa7b282a17db53bd9a2e3f3a32a9a5686139faa1fd", "NBM corpus")
     sums = bind_sha256sums(hrrr_backfill, backfill_sums_sha256)
     state, state_sha, control_sha = bind_l2_state(state_0712)
@@ -875,8 +968,12 @@ def part_sm_blend(*, nbm_corpus, records_root, research_root, state_0712, hrrr_b
         if fitted.get(icao, {}).get("chosen_index") != x["chosen_index"]:
             raise CoolSeasonError(f"{icao}: RN-1 index differs from the state's fitted point rule")
     hrrr, hstats = hrrr_k_columns(hrrr_backfill, markets, hours=HOURS_0712, point=point, months=OCT_DEC)
+    rows_read = int(len(recf))
+    recf, scope = oct_dec_scope(recf, hrrr)
     n_loyo, n_final, control = season_nowcast_maps(research_root, nbm_corpus, sm_state, sm_loyo, mg2_coefficients)
     scored, stats = score_sm_blend(recf, state, hrrr, {"loyo": n_loyo, "final_in_sample": n_final}, coef, weights)
+    keyset = pair_keys(scored, ("mg1", "p3d_h", "blend_loyo", "sml6_loyo", "blend_final_in_sample",
+                                "sml6_final_in_sample"))
     keys = list(zip(recf.market, recf.local_date, recf.hour.astype(int)))
     hcov = np.array([hrrr.get(k) is not None and not hrrr[k]["k_miss"] for k in keys])
     month = recf.month.to_numpy(int)
@@ -890,13 +987,16 @@ def part_sm_blend(*, nbm_corpus, records_root, research_root, state_0712, hrrr_b
                 for name, m in OCT_DEC_PERIODS}
 
     def cmp(arm, base):
-        return dict(compare(scored, arm, base, HOURS_0712, periods=OCT_DEC_PERIODS), coverage=counts(arm))
+        c = compare(scored, arm, base, HOURS_0712, periods=OCT_DEC_PERIODS)
+        return dict(c, headline=headline(c, keyset), coverage=counts(arm))
 
     payload = {
         "label": "Row 49 (CS-1 addendum), history only, descriptive: blend_l6_H with the season-matched L6 partner "
                  "and L2's RF-1 weights on Oct-Dec 2021-25 07-12, vs (a) the MG-1 analogue and (b) the SM-L6 "
                  "stack (MG-2's 07-12 arm). PRIMARY = LOYO season-L6 nowcasts (SM-L6's folds); the final 800072c7 "
-                 "is IN-SAMPLE on every Oct-Dec history row and is reported labelled so; no binding change",
+                 "is IN-SAMPLE on every Oct-Dec history row and is reported labelled so; no binding change. "
+                 "Clarification 2026-10-27: scope = 2024-25 cycle-present backfill keys only (folds 2024 and 2025 "
+                 "scored), paired keys",
         "rule_sha256": RULE_CS_SHA256, "rule_49_sha256": rule_49_sha256, "module_sha256": _sha(__file__),
         "inputs": {"p3d_h_0712_state_sha256": state_sha, "l2_control_sha256": control_sha,
                    "rf1_weights_sha256": rf1_weights_sha256, "rf1": rf1,
@@ -905,7 +1005,9 @@ def part_sm_blend(*, nbm_corpus, records_root, research_root, state_0712, hrrr_b
                    "mg2_coefficients_sha256": MG2_COEF_SHA256, "l6_part_sha256": L6_PART_SHA256,
                    "hrrr_backfill_sha256sums": backfill_sums_sha256, "hrrr_backfill_files": sums,
                    "land_sha256": RN1_LAND_SHA256, "records_sha256": shas, "records_missing": missing},
-        "loyo_control": control, "point_rule": rep, "hrrr_stats": hstats, "row_stats": stats, "rows": int(len(recf)),
+        "loyo_control": control, "point_rule": rep, "hrrr_stats": hstats, "row_stats": stats,
+        "rows_read": rows_read, "rows_in_scope": int(len(recf)), "clarification_sha256": clarification_sha256,
+        "scope": scope, "key_sets": keyset,
         "primary_loyo": {"a_blend_vs_mg1": cmp("blend_loyo", "mg1"), "b_blend_vs_sml6": cmp("blend_loyo", "sml6_loyo"),
                          "sml6_vs_mg1": cmp("sml6_loyo", "mg1")},
         "secondary_final_in_sample": {"a_blend_vs_mg1": cmp("blend_final_in_sample", "mg1"),
@@ -1036,12 +1138,14 @@ def main(argv=None):
     c1 = sub.add_parser("part1c")
     for flag in ("--nbm-corpus", "--records-root", "--research-root", "--state-0712", "--hrrr-0712",
                  "--hrrr-backfill", "--backfill-sums-sha256", "--land", "--l6-state", "--mg2-coefficients",
-                 "--blend-weights", "--rule", "--rule-1c", "--rule-1c-sha256", "--out"):
+                 "--blend-weights", "--rule", "--rule-1c", "--rule-1c-sha256", "--clarification",
+                 "--clarification-sha256", "--out"):
         c1.add_argument(flag, required=True)
     r49 = sub.add_parser("sm-blend")
     for flag in ("--nbm-corpus", "--records-root", "--research-root", "--state-0712", "--hrrr-backfill",
                  "--backfill-sums-sha256", "--land", "--sm-state", "--sm-loyo", "--mg2-coefficients", "--rf1-weights",
-                 "--rf1-weights-sha256", "--rule", "--rule-49", "--rule-49-sha256", "--out"):
+                 "--rf1-weights-sha256", "--rule", "--rule-49", "--rule-49-sha256", "--clarification",
+                 "--clarification-sha256", "--out"):
         r49.add_argument(flag, required=True)
     a = parser.parse_args(argv)
     if a.cmd == "coverage":
@@ -1055,19 +1159,19 @@ def main(argv=None):
                             backfill_sums_sha256=a.backfill_sums_sha256, land=a.land, sm_state=a.sm_state,
                             sm_loyo=a.sm_loyo, mg2_coefficients=a.mg2_coefficients, rf1_weights=a.rf1_weights,
                             rf1_weights_sha256=a.rf1_weights_sha256, rule=a.rule, rule_49=a.rule_49,
-                            rule_49_sha256=a.rule_49_sha256, out_path=a.out)
-        print(json.dumps({"control": out["loyo_control"]["pass"],
-                          **{k: v["periods"]["oct_dec"]["by"].get("pooled") for k, v in out["primary_loyo"].items()}},
-                         indent=1))
+                            rule_49_sha256=a.rule_49_sha256, clarification=a.clarification,
+                            clarification_sha256=a.clarification_sha256, out_path=a.out)
+        print(json.dumps({"control": out["loyo_control"]["pass"], "scope": out["scope"], "key_sets": out["key_sets"],
+                          **{k: v["headline"] for k, v in out["primary_loyo"].items()}}, indent=1))
     elif a.cmd == "part1c":
         out = part1c(nbm_corpus=a.nbm_corpus, records_root=a.records_root, research_root=a.research_root,
                      state_0712=a.state_0712, hrrr_0712=a.hrrr_0712, hrrr_backfill=a.hrrr_backfill,
                      backfill_sums_sha256=a.backfill_sums_sha256, land=a.land, l6_state=a.l6_state,
                      mg2_coefficients=a.mg2_coefficients, blend_weights=a.blend_weights, rule=a.rule,
-                     rule_1c=a.rule_1c, rule_1c_sha256=a.rule_1c_sha256, out_path=a.out)
-        print(json.dumps({k: {"reading": out[k]["transfer_reading"], "coverage": out[k]["coverage"],
-                              "periods": {p: v["by"].get("pooled") for p, v in out[k]["periods"].items()}}
-                          for k in ("p3d_h_0712", "blend_l6_h_0712")}, indent=1))
+                     rule_1c=a.rule_1c, rule_1c_sha256=a.rule_1c_sha256, clarification=a.clarification,
+                     clarification_sha256=a.clarification_sha256, out_path=a.out)
+        print(json.dumps({"scope": out["scope"], "key_sets": out["key_sets"],
+                          **{k: out[k]["headline"] for k in ("p3d_h_0712", "blend_l6_h_0712")}}, indent=1))
     elif a.cmd == "part1b":
         out = part1b(nbm_corpus=a.nbm_corpus, records_root=a.records_root, state_1316=a.state_1316,
                      hrrr_1316=a.hrrr_1316, rule=a.rule, out_path=a.out)
