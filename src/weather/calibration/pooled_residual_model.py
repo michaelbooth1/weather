@@ -6584,6 +6584,141 @@ def mg3_freeze_weights(*, layout, emit_dir, coefficients, nowcasts, rr_score, ou
     return result
 
 
+MG3_RF1_NOTE_SHA256 = "b13f2e035cb797efc04ed936af523aa5c269dc693fd6eec766b0bb212ed8efa9"  # mg3/refit_note_rf1.md
+MG3_RF1_FROZEN_WEIGHTS_SHA256 = "c7b8ebc08d31ca30e5289d453ec2260bcc6659b32b379410f58b0d2b9b03530a"
+MG3_RF1_PARTNER_SHA256 = "2366d67c5cdd6eb26b98064807210ade1c657829b7fa8e683535b94a9a2faa76"
+MG3_RF1_SEASON_NOWCASTS_SHA256 = "714fa14e04c416da922803514fea1de8fe64459a0ea543878ddddfd6bc34896a"
+MG3_RF1_IDENTITY_TOL = 1e-9
+MG3_RF1_COVERAGE_MIN = 0.95
+
+
+def mg3_refit_weights_rf1(*, layout, emit_dir, coefficients, nowcasts, season_nowcasts, partner_vectors, rr_score,
+                          frozen_weights, out_dir, commit, note_path=None, start=BLEND_FIT_FIRST, end="2026-09-29"):
+    """refit_note_rf1.md: the 4fb02a2c weights refitted once with the season-matched L6 dev vectors as partner.
+
+    Checks (each refuses): (1) control - R-R walk-forward reproduced and the old-partner w* equal the frozen table;
+    (2) vector identity - the parquet equals ``l6_vector`` under the season nowcasts; (3) coverage."""
+    import os
+
+    import numpy as np
+    import pandas as pd
+
+    from weather.calibration import r0_ols_floor_challenger as l3
+    from weather.reporting.scorecards import dev_scorecard as sc
+    from weather.reporting.scorecards import dev_scorecard_data as data
+
+    if note_path is not None and _rr_sha(note_path) != MG3_RF1_NOTE_SHA256:
+        raise PooledModelError(f"note {note_path} is not {MG3_RF1_NOTE_SHA256}")
+    expected = {"rr_score": (rr_score, MG3_RR_SCORE_SHA256), "nowcasts": (nowcasts, L6_NOWCAST_SHA256),
+                "season_nowcasts": (season_nowcasts, MG3_RF1_SEASON_NOWCASTS_SHA256),
+                "partner_vectors": (partner_vectors, MG3_RF1_PARTNER_SHA256),
+                "frozen_weights": (frozen_weights, MG3_RF1_FROZEN_WEIGHTS_SHA256)}
+    for name, (path_, sha) in expected.items():
+        if _rr_sha(path_) != sha:
+            raise PooledModelError(f"{name} {path_} is not {sha}")
+    emit = Path(emit_dir)
+    for name, sha in MG3_RR_EMIT.items():
+        if _rr_sha(emit / name) != sha:
+            raise PooledModelError(f"{emit / name} is not {sha}")
+    out = require_output_outside_repo(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    path = out / "blend_l6_H_weights.json"
+    if path.exists():
+        raise PooledModelError(f"refusing to overwrite {path}")
+    from weather.reporting.scorecards.free_source_candidates import l6_stack
+
+    state, part_sha = l6_frozen_state(coefficients)
+    start_d, end_d = data.check_range(start, end)
+    lay = data.load_layout(layout, data.DEV_FIRST, end_d)
+    folds = data.make_folds(lay.dates, start_d, end_d, 7, 1, 7)
+    scored = sorted(d for f in folds if f.scored for d in f.dates)
+    fit_dates = sorted(d for d in {str(x) for x in lay.dates} if BLEND_FIT_FIRST <= d <= end)
+    full = sc.Table(lay, fit_dates)
+    fdates = full.snaps.date.astype(str).to_numpy()
+    if max(fdates) > "2026-09-29":
+        raise PooledModelError("a fit date is after 2026-09-29")
+
+    def partner_from_nowcasts(nowcast_path):
+        os.environ["L6_NOWCASTS"] = str(nowcast_path)
+        l6_stack._CACHE.clear()
+        p, c, _ = l6_vector(full, state, l3)
+        return p, c
+
+    pl_old, cl_old = partner_from_nowcasts(nowcasts)
+    reference = json.loads(Path(rr_score).read_bytes())["weights"]
+    frozen = json.loads(Path(frozen_weights).read_bytes())["weights"]
+    result = {"note_sha256": MG3_RF1_NOTE_SHA256, "rule_sha256": MG3_WEIGHTS_RULE_SHA256, "commit": commit,
+              "module_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+              "inputs": {"l6_part": part_sha, **{k: v[1] for k, v in expected.items()},
+                         **{name: sha for name, sha in MG3_RR_EMIT.items()}},
+              "fit_dates": [fit_dates[0], fit_dates[-1], len(fit_dates)], "checks": {}, "weights": {},
+              "reported": {}}
+
+    def finish():
+        path.write_text(json.dumps(result, indent=1, sort_keys=True), encoding="utf-8")
+        Path(str(path) + ".sha256").write_text(f"{_rr_sha(path)}  {path.name}\n", encoding="utf-8")
+        return result
+
+    # check 1: control with the old partner
+    worst_wf, keep = 0.0, {}
+    for name, cand in (("blend_l6_H", "P3d_H"), ("blend_l6", "P3d_N_fix")):
+        frame_, _ = l3._candidate_frame(str(emit / f"dev_{cand}.jsonl"), full, lay, folds, data)
+        pa, ca, _ = l3._vector(full, frame_)
+        A, B = blend_weight(pa, pl_old, full.y, full.offsets, full.n)
+        w = walk_forward_weights(fdates, full.local_hour, ca & cl_old, A, B, scored)
+        for h in RR_HOURS:
+            got = {"mean": float(np.mean([w[(h, d)] for d in scored])), "first": w[(h, scored[0])],
+                   "last": w[(h, scored[-1])]}
+            for k, v in got.items():
+                worst_wf = max(worst_wf, abs(float(v) - float(reference[name][f"h{h:02d}"][k])))
+        keep[name] = (pa, ca, A, B)
+    pa, ca, A_old, B_old = keep["blend_l6_H"]
+    old_w = {f"h{h:02d}": solve_weight(A_old[ca & cl_old & (full.local_hour == h)],
+                                       B_old[ca & cl_old & (full.local_hour == h)]) for h in RR_HOURS}
+    worst_w = max(abs(old_w[k] - float(frozen[k])) for k in old_w)
+    result["checks"]["1_control"] = {"walk_forward_max_abs_diff": worst_wf, "frozen_w_max_abs_diff": worst_w,
+                                     "tolerance": MG3_CONTROL_TOL,
+                                     "pass": worst_wf <= MG3_CONTROL_TOL and worst_w <= MG3_CONTROL_TOL}
+    if not result["checks"]["1_control"]["pass"]:
+        result["stopped_at"] = "check 1 control (refit refused)"
+        return finish()
+
+    # check 2: the SM-L6 parquet equals l6_vector under the season nowcasts
+    vec = pd.read_parquet(partner_vectors, columns=["row_key", "band_index", "p"])
+    duplicates = int(vec.duplicated(["row_key", "band_index"]).sum())
+    pn, cn, _ = l3._vector(full, vec)
+    pr, cr = partner_from_nowcasts(season_nowcasts)
+    on = cn[full.band_snap]
+    diff = float(np.max(np.abs(pn[on] - pr[on]))) if on.any() else float("inf")
+    result["checks"]["2_identity"] = {"duplicates": duplicates, "same_coverage": bool(np.array_equal(cn, cr)),
+                                      "max_abs_diff": diff, "tolerance": MG3_RF1_IDENTITY_TOL,
+                                      "pass": duplicates == 0 and bool(np.array_equal(cn, cr))
+                                      and diff <= MG3_RF1_IDENTITY_TOL}
+    if not result["checks"]["2_identity"]["pass"]:
+        result["stopped_at"] = "check 2 vector identity (refit refused)"
+        return finish()
+
+    # check 3: coverage
+    lost = int((cl_old & ~cn).sum())
+    share = {f"h{h:02d}": float((ca & cn & (full.local_hour == h)).sum() / max((ca & (full.local_hour == h)).sum(), 1))
+             for h in RR_HOURS}
+    result["checks"]["3_coverage"] = {"old_covered_not_new": lost, "share_per_hour": share,
+                                      "threshold": MG3_RF1_COVERAGE_MIN,
+                                      "pass": lost == 0 and min(share.values()) >= MG3_RF1_COVERAGE_MIN}
+    if not result["checks"]["3_coverage"]["pass"]:
+        result["stopped_at"] = "check 3 coverage (refit refused)"
+        return finish()
+
+    A, B = blend_weight(pa, pn, full.y, full.offsets, full.n)
+    for h in RR_HOURS:
+        sel = ca & cn & (full.local_hour == h)
+        key = f"h{h:02d}"
+        result["weights"][key] = solve_weight(A[sel], B[sel])
+        result["reported"][key] = {"covered_snapshots": int(sel.sum()), "old_w": old_w[key],
+                                   "abs_new_minus_old": abs(result["weights"][key] - old_w[key])}
+    return finish()
+
+
 # ------------------------------------------------- MG-3 freeze prep (1b): RN-1 point rule bound into the release
 
 MG3_BINDING_SCHEMA = "mg3_release_binding/1"
@@ -7210,6 +7345,11 @@ def _parse(argv=None):
     mw.add_argument("--rule", required=True)
     mw.add_argument("--commit", required=True)
     mw.add_argument("--out", required=True)
+    rf = sub.add_parser("mg3-refit-weights-rf1", help="MG-3 RF-1: 07-12 blend weights refitted once vs SM-L6 (heavy)")
+    for opt in ("--layout", "--emit", "--coefficients", "--nowcasts", "--season-nowcasts", "--partner-vectors",
+                "--rr-score", "--frozen-weights", "--out", "--commit"):
+        rf.add_argument(opt, required=True)
+    rf.add_argument("--note", default=None)
     mb = sub.add_parser("mg3-release-binding", help="MG-3 (1b): release-binding.json content incl. RN-1")
     mb.add_argument("--land", required=True)
     mb.add_argument("--corpus", required=True, help="the 07-12 HRRR corpus holding stations.json")
@@ -7501,6 +7641,15 @@ def main(argv=None):
                                     commit=args.commit, rule_path=args.rule)
         print(json.dumps({k: result[k] for k in ("control", "weights", "reported")}, indent=1, sort_keys=True))
         return 0 if result["control"]["pass"] else 1
+    if args.command == "mg3-refit-weights-rf1":
+        result = mg3_refit_weights_rf1(layout=args.layout, emit_dir=args.emit, coefficients=args.coefficients,
+                                       nowcasts=args.nowcasts, season_nowcasts=args.season_nowcasts,
+                                       partner_vectors=args.partner_vectors, rr_score=args.rr_score,
+                                       frozen_weights=args.frozen_weights, out_dir=args.out, commit=args.commit,
+                                       note_path=args.note)
+        print(json.dumps({"checks": {k: v["pass"] for k, v in result["checks"].items()},
+                          "stopped_at": result.get("stopped_at"), "weights": result["weights"]}, indent=1))
+        return 0 if not result.get("stopped_at") else 1
     if args.command == "mg3-release-binding":
         if out.exists():
             raise PooledModelError(f"refusing to overwrite {out}")

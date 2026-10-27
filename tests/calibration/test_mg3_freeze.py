@@ -10,6 +10,8 @@ executed file, and verification refuses any drift (file, constant, land file, st
 line is ignored, stamp drift or a missing message fails F0, a cycle newer than the training rule fails F1, slow
 retrieval fails F2 except for messages published before the recorder's first start (clarification FP-1),
 an archive byte mismatch fails F3c, and without an archive the verdict is PARTIAL, never PASS.
+RF-1 (refit_note_rf1.md, sha b13f2e03...): the one SM-L6 weight refit refuses a foreign note, partner, nowcast,
+frozen table or rr_score before reading anything.
 """
 import hashlib
 import importlib
@@ -177,6 +179,22 @@ def test_freezes_refuse_unbound_inputs(tmp_path):
                                rr_score=rule, out_dir=tmp_path / "w", commit="x",
                                rule_path=RULES / "rule_mg3_blend_weights.md")
     assert not (tmp_path / "o").exists() and not (tmp_path / "w").exists()
+
+
+def test_rf1_refit_refuses_a_foreign_note_or_partner_and_records_the_note_sha(tmp_path):
+    rule = tmp_path / "x.md"
+    rule.write_text("not the note", encoding="utf-8")
+    note = RULES / "refit_note_rf1.md"
+    assert hashlib.sha256(note.read_bytes()).hexdigest() == prm.MG3_RF1_NOTE_SHA256
+    kw = dict(layout=tmp_path, emit_dir=tmp_path, coefficients=rule, nowcasts=rule, season_nowcasts=rule,
+              partner_vectors=rule, rr_score=rule, frozen_weights=rule, out_dir=tmp_path / "w", commit="x")
+    with pytest.raises(prm.PooledModelError, match="note"):
+        prm.mg3_refit_weights_rf1(note_path=rule, **kw)
+    with pytest.raises(prm.PooledModelError, match="rr_score"):
+        prm.mg3_refit_weights_rf1(note_path=note, **kw)
+    assert prm.MG3_RF1_PARTNER_SHA256.startswith("2366d67c")
+    assert prm.MG3_RF1_FROZEN_WEIGHTS_SHA256.startswith("c7b8ebc0")
+    assert not (tmp_path / "w").exists()
 
 
 # ----------------------------------------------------------------------------- (1b) RN-1 bound into the release
