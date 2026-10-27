@@ -5,9 +5,13 @@ and its HRRR extras (R-K raw path, R-R RN-1 point rule, the 10-minute availabili
 the 17:00 valid-window end). The serve copies must equal the research sources exactly on synthetic inputs, and on
 L2's frozen states when they are present on this workstation (read-only). WS-only: the research module refuses the
 capture host, so this module skips there; the synthetic tests in test_mg3_serve.py carry the coverage in CI.
+Build -> serve (A item 3): a binding written by L2's one builder (``prm.mg3_release_binding``, schema /2) from
+synthetic files is served by this one reader (``ms.load_serve``) unchanged - RF-1-shape weights fitted against the
+season nowcasts (master: the binding pins 714fa14e, the season file, so builder and serve read the same nowcasts).
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 from datetime import date, datetime
@@ -17,7 +21,8 @@ import numpy as np
 import pytest
 
 from tests.host_guard import import_or_skip_on_capture_host
-from tests.model.test_mg3_serve import _messages, _state
+from tests.model.test_mg3_serve import _l6_state, _messages, _sha, _state, _write
+from weather.model import mg3_arms
 from weather.model import mg3_serve as ms
 
 prm = import_or_skip_on_capture_host("weather.calibration.pooled_residual_model")
@@ -133,3 +138,71 @@ def test_hrrr_constants_equal_the_fitted_rule():
     assert ms.P3DH_EXTRA == tuple(prm.RK_ARMS["P3d_H"]["extra_hgb"]) and ms.MG3_STATE_SCHEMA == prm.MG3_STATE_SCHEMA
     c = datetime.fromisoformat("2026-08-10T12:00:00+00:00")
     assert ms.hrrr_message_key(c, 3) == prm.rk_message_key(c, 3)
+
+
+# ----------------------------------------------------------------------------- build -> serve, one builder, one reader
+
+def test_a_binding_built_by_the_release_builder_serves_through_mg3_serve(tmp_path, monkeypatch):
+    from tests.calibration.test_mg3_freeze import RN1_MARKETS, _rn1_inputs
+
+    land, corpus, root = _rn1_inputs(tmp_path, monkeypatch)
+    s0712 = tmp_path / "state_0712.pkl"
+    _write(s0712, _state("07-12", range(7, 13), seed=50,
+                         point_rule={"rule": "rn1", "land_sha256": prm.MG3_RN1["land_sha256"]}))
+    smh_dir = tmp_path / "state_smh"
+    smh_dir.mkdir()
+    smh = smh_dir / "p3d_h_state.pkl"
+    smh_sha = _write(smh, _state(ms.SM_H_BLOCK, (13, 14, 15), centres=list(prm.SM_H_CENTRES),
+                                 provenance={"note_sha256": prm.SM_H_BINDING_SHA256,
+                                             "rule_sha256": prm.SM_H_RULE_SHA256,
+                                             "clarification_sha256": prm.SM_H_CLARIFICATION_1_SHA256}))
+    control = {"block": ms.SM_H_BLOCK, "pass": True, "state_sha256": smh_sha, "note_sha256": ms.SM_H_NOTE_SHA256,
+               "checks": {"1_inputs": {"pass": True}}}
+    (smh_dir / "control.json").write_text(json.dumps(control), encoding="utf-8")
+    (smh_dir / "p3d_h_state.json").write_text(json.dumps({"block": ms.SM_H_BLOCK, "state_sha256": smh_sha,
+                                                          "note_sha256": ms.SM_H_NOTE_SHA256}), encoding="utf-8")
+    l6_state, l6_sha = _l6_state(tmp_path)
+    part = {"coef": {str(h): [0.1, 0.6] for h in range(7, 13)}, "column": "l6_mean"}
+    coefficients = tmp_path / "mg2_coefficients.json"
+    coefficients.write_text(json.dumps({"l6_stack": part, "other": 1}), encoding="utf-8")
+    season = tmp_path / "nowcasts_season_dev.parquet"
+    season.write_bytes(b"synthetic season nowcasts")
+    part_sha = hashlib.sha256(json.dumps(part, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    table = {"note_sha256": prm.MG3_RF1_NOTE_SHA256, "rule_sha256": prm.MG3_WEIGHTS_RULE_SHA256,
+             "weights": {f"h{h:02d}": 0.4 + 0.05 * (h - 7) for h in range(7, 13)},
+             "checks": {"1_control": {"pass": True}, "2_identity": {"pass": True}, "3_coverage": {"pass": True}},
+             "inputs": {"l6_part": part_sha, "nowcasts": "3806687c" + "0" * 56, "season_nowcasts": _sha(season)}}
+    weights = tmp_path / "blend_l6_H_weights_rf1.json"
+    weights.write_text(json.dumps(table, sort_keys=True), encoding="utf-8")
+    Path(str(weights) + ".sha256").write_text(f"{_sha(weights)}  {weights.name}
+", encoding="utf-8")
+    for module, name, value in ((prm, "MG3_RF1_WEIGHTS_SHA256", _sha(weights)),
+                                (prm, "MG3_L6_PARTNER_SHA256", l6_sha), (prm, "SM_H_STATE_SHA256", smh_sha),
+                                (ms, "SM_H_STATE_SHA256", smh_sha),
+                                (ms, "SM_H_CONTROL_SHA256", _sha(smh_dir / "control.json"))):
+        monkeypatch.setattr(module, name, value)
+
+    built = prm.mg3_release_binding(land=land, corpus_dir=corpus, root=root, markets=RN1_MARKETS,
+                                    states={"07-12": s0712, prm.SM_H_STATE_BLOCK: smh}, weights=weights,
+                                    partner={"state": l6_state, "coefficients": coefficients, "nowcasts": season})
+    out = tmp_path / "release-binding.json"
+    out.write_text(json.dumps(built, indent=1, sort_keys=True) + "
+", encoding="utf-8")
+    binding = json.loads(out.read_text(encoding="utf-8"))  # served exactly as written, nothing added
+    assert binding["schema"] == ms.BINDING_SCHEMA == prm.MG3_BINDING_SCHEMA
+    assert binding["l6_partner"] == {"state_sha256": l6_sha, "part_sha256": part_sha,
+                                     "nowcasts_sha256": _sha(season)}  # the season nowcasts, as serve reads them
+
+    serve = ms.load_serve(binding, state_0712_path=s0712, sm_h_dir=smh_dir, weights_path=weights,
+                          l6_state_path=l6_state, l6_part=json.loads(coefficients.read_text("utf-8"))["l6_stack"])
+    assert serve.weights == {h: table["weights"][f"h{h:02d}"] for h in range(7, 13)}
+    assert [ms.serve_arm(binding, "atlanta", h) for h in (9, 14, 17)] == [
+        mg3_arms.ARM_BLEND_0712, mg3_arms.ARM_SM_H, mg3_arms.ARM_MG2]
+    assert ms.serve_arm(binding, "san-francisco", 14) == mg3_arms.ARM_MG2
+    kw = dict(market="atlanta", target_date=date(2026, 8, 10), high_so_far=74.0, current_temp=73.0, nbm_mean=80.0,
+              extra={"k_max": 81.0, "k_gap": 1.0, "k_tcdc": 30.0})
+    got = ms.arm_distribution(serve, mg3_arms.ARM_BLEND_0712, hour=9, mg1=(80.0, 2.0, 74.0), l6_nowcast=82.0, **kw)
+    assert got == ms.mix(ms.p3dh_distribution(serve.state_0712, 9, **kw),
+                         ms.l6_distribution(serve.l6_coef, 9, v=80.0, s=2.0, floor=74.0, nowcast=82.0), 0.5)
+    assert ms.arm_distribution(serve, mg3_arms.ARM_SM_H, hour=14, **kw) == ms.p3dh_distribution(
+        serve.sm_h_state, 14, **kw)
