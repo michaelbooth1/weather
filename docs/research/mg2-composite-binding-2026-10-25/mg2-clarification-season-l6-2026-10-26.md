@@ -21,7 +21,7 @@ Lane L3's cool-season transfer audit CS-1 scored the frozen Aug-Sep L6 stack on 
 did not transfer.
 
 - **Rule:** `C:/t/l3/coolseason/rule_cs.md`, sha256 `ac9c74332876c53a7e721b1acf6b3abaf692e45592d68d022c4a432210b71f30`.
-- **Ledger:** `DEV_WINDOW_LEDGER.md` row 40.
+- **Ledger:** `DEV_WINDOW_LEDGER.md` row 45 (first pushed as row 40; renumbered 2026-10-27).
 - **Result:** `C:/t/l3/coolseason/part1a.json`, sha256 `98d80635666fafca107072b8fae2026b8924a6a8500c2968c599807e246166b7`.
 - **Coverage:** `coverage.json`, sha256 `8da25c96b61645431037001e4f319c2f4ecdc68d3a02618d51ca68b6a26097a9`.
 - **Code:** `weather.calibration.cool_season_audit`, branch `claude/cool-season-audit-20261026` @ `b62c7dc38`.
@@ -39,7 +39,7 @@ Nowcast RMSE against the day maximum went from 2.59 °F (Aug-Sep) to 4.53 °F (O
 ## 2. The pre-registered test: SM-L6
 
 - **Rule:** `C:/t/l3/sml6/rule_sml6.md`, sha256 `81649748d82319d248f9ce9b2c57e4450ecf9a796b5ff2407e2138d4c7798fc3`.
-  It was written before any fit, and ledger row 41 was pushed PENDING before any fit (ledger branch
+  It was written before any fit, and ledger row 46 (first pushed as row 41) was pushed PENDING before any fit (ledger branch
   `claude/l3-dev-ledger-rows-20261025` @ `04a73c7a9`).
 - **Code:** `weather.calibration.season_matched_l6`, `claude/cool-season-audit-20261026` @ `c7b489ba5`.
 - **Arm:** the same `upstream_obs_screen.OWN` features (= `mg_serve_core.L6_OWN_COLUMNS`), the same station
@@ -147,4 +147,6 @@ primary and carry no α. They cannot pass, fail or change the arm.
   dev nowcast sha256 (§3).
 - **Release binding:** `release-binding.json` records the L6 state sha256 next to the l6_stack part sha256.
   `emit` and `score` refuse on a mismatch.
-- **Ledger:** row 41 (SM-L6) carries the result and the decision.
+- **Ledger:** row 46 (SM-L6; first pushed as row 41, renumbered 2026-10-27 for a collision with L2 rows 40-44)
+  carries the result and the decision. Rules `ac9c7433…` and `81649748…` keep their bytes; the ledger note maps
+  their "row 40/41" to 45/46.
