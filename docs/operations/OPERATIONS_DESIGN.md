@@ -602,7 +602,9 @@ through `fleet_observability`, Stage B starts at `promotion_refresh`. Facts that
   without any input change. `--finalize-full` restores the full rebuild and re-seeds the index; an explicit
   `--folders` list or `--skip-polymarket-reconciliation` keeps the original direct call. The step result reports
   `finalize_mode` and `finalize_plan` (finalized, reused and per-reason re-finalize counts). The first run after
-  landing has no index and costs one full pass.
+  landing has no index and costs one full pass. `--label-rule venue` takes the same incremental path; its
+  post-cutover folders key on their venue-label inputs as well
+  ([venue-rule labels](venue-rule-labels.md), cutover runbook step 4).
 - **A transient capture-loop error does not defer the day.** After an isolated step finishes, the post-step
   admission re-check normally defers the rest of the run on any blocker. When the only blockers are
   `capture_loop_not_fresh` for active loops with a fresh heartbeat and degraded reasons within

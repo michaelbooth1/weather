@@ -30,7 +30,8 @@ The hook's transport exception does not admit local heavy work or replace the
 remote wrapper's identity, mutex, and child-tree containment checks.
 Its admission-only `workstation_offline_v1` profile and the portable launcher
 are both bound to the assignment's exact non-capture Windows installation and
-attending principal. They hold the same host-global mutex and each owns its
+attending principal. They hold the same host-global mutex (a live stage also
+takes every extra workstation slot mutex, see *Slots* below) and each owns its
 entire child tree in a kill-on-close Windows Job; wrapped work and a launched
 live stage therefore cannot overlap. Finish heavy work before sealing as an
 operational rule so an inert
@@ -112,12 +113,12 @@ workstation.
   `serial` even without the marker (see *Exemption* below).
 - **FIFO queue.** Full suites and larger runs wait their turn first-in first-out (`workstation_heavy.ps1
   -Queue`) instead of polling a refusal, with one wait-log line per enqueue, start, finish and give-up.
-- **Second lease slot (owner decision 2026-10-13; [decision log](DECISION_LOG.md) row of 2026-10-13).** On the
-  non-capture workstation only, a second `workstation_heavy` lease slot is allowed for focused runs that finish
-  in under 5 minutes, beside the one ordinary heavy run. It applies only after LFC session 0 (2026-10-14) is
-  declared done. It never applies on the capture PC and never while a live session runs (a portable live stage
-  holding the host-global mutex refuses it as today). **Not yet implemented:** `workstation_heavy.ps1` still has
-  one slot, so until a separate code item adds the slot heavy runs stay one at a time through the queue.
+- **Concurrent heavy slots (owner decision 2026-10-13, widened by master ruling 2026-10-24 lane W2 at the
+  owner's direction to keep the workstation busy; [decision log](DECISION_LOG.md) row of 2026-10-13).** On the
+  non-capture workstation only, up to three `workstation_heavy` jobs of any size may run at once, each admitted
+  only with at least 6 GB of available physical memory and commit charge at or below 90 % (the OD33 ceiling).
+  It never applies on the capture PC and never while a live session runs: a portable live stage excludes every
+  slot in both orders. Mechanism: *Slots* below.
 - **xdist.** `pytest -n` (`--dist loadfile`, `-m "not serial"`, then the `serial` set in one process) runs only
   on the workstation, only through the wrapper, and only after an identical pass set (same test ids, same
   outcomes) has been shown against a serial run.
@@ -142,20 +143,77 @@ below applies: no exemption, no queue state, the same windows and the same bound
 - *Queue.* `workstation_heavy.ps1 -Queue [-QueueTimeoutSeconds N]` (default 14400 s, 4 h) takes a ticket in
   `%ProgramData%\WeatherProject\heavy_workload_queue_v1\` (file `ticket-<12 digits>.json` holding ticket, PID,
   process start time, workload and checkout; numbers are allocated by exclusive create, so one queue serves
-  every checkout and worktree). Only the head ticket tries the lease; each poll first reaps tickets whose PID
+  every checkout and worktree). A slot-aware ticket (field `slot_aware`) tries a slot only when no slot-aware
+  or unreadable ticket is ahead of it; it may pass an older wrapper's ticket, but only through an extra slot,
+  never the legacy slot that waiter needs. Each poll first reaps tickets whose PID
   has exited or names a different process, and unreadable tickets older than 60 s. Events go to stdout and to
   `data\logs\heavy_workload_queue.jsonl` in the admitting checkout: `enqueue`, `wait` (on every position
   change and every `-QueueReportSeconds`, default 60), `reaped`, `start`, `finish` (with the exit code),
-  `give_up` and `error`, each with ticket, position, waited seconds and the holder when known. A timeout exits
-  **75** without starting the child. Without `-Queue` a busy lease is still refused at once. The queue orders
-  only its own waiters: a portable live stage or a wrapper run without `-Queue` can still take a free lease
-  first. Kill-on-close Job and child-tree teardown are unchanged.
+  `give_up` and `error`, each with ticket, position, waited seconds and the holder when known; `start` and
+  `finish` add `slot_id` and `slot_count`, `start` also the busy slots and the memory reading at admission,
+  and `wait`/`give_up` add `slot_refusal` and `slot_holders`. A timeout exits
+  **75** without starting the child. Without `-Queue` a full or guarded admission is refused at once, naming
+  the refusal. The queue orders only its own waiters: a portable live stage or a wrapper run without `-Queue`
+  can still take a free slot first. Kill-on-close Job and child-tree teardown are unchanged.
+- *Slots.* `workstation_heavy.ps1 -SlotCount N` (default 3, at most 8), `-MinAvailableMemoryGB` (default 6)
+  and `-MaxCommitPercent` (default 90) feed `Enter-WeatherWorkstationHeavySlotLease`. Slot 1 **is** the
+  legacy lease: mutex `Global\WeatherProjectHeavyWorkloadV1`, state file `heavy_workload_v1.poison` and
+  `data\logs\heavy_workload.lock`, exactly as older wrapper copies take it, so an older wrapper's holder
+  occupies one slot and older and newer wrappers together never exceed the limit. Slots 2..8 add mutex
+  `Global\WeatherProjectHeavyWorkloadV1.Slot<k>`, state file `heavy_workload_v1.slot<k>.poison` beside the
+  legacy one, and `data\logs\heavy_workload.slot<k>.lock`; only `workstation_offline_v1` may take them.
+  Admission holds every slot mutex 1..8 that is free while it decides, counts the busy ones (so a holder
+  admitted with a larger `-SlotCount` also counts), refuses when they reach `-SlotCount`, then checks
+  available physical memory and commit charge from one `GlobalMemoryStatusEx` snapshot. It prefers a fresh
+  extra slot, then the legacy slot (so an older wrapper keeps its chance), then a slot whose holder died. A
+  dead holder's `ACTIVE` state file is reclaimed with the legacy rules (exact owner identity gone, zero
+  residual heavy processes on the whole host, unchanged re-read; decisions logged with `workstation_slot_id`),
+  so while other slots run a dead slot stays unusable and the other slots carry on. A `TEARDOWN_PENDING` file
+  whose owner is gone, in any slot, blocks every workstation and portable admission; recover it with
+  `Clear-WeatherHeavyWorkloadPoison -SlotId <k>`. A legacy-slot holder naming `portable_execution_v1` refuses
+  every slot, and a portable live stage takes slots 2..8 too, so live work and slot work exclude each other
+  in either order. The wrapper exports `WEATHER_WORKSTATION_WRAPPER_SLOT` and prints the admitted slot.
+  Capture-colocated admission never names a slot and keeps the one serial lease. An older wrapper copy in a
+  worktree keeps working unchanged; a lane gets slots by merging this change into its worktree and running
+  that worktree's wrapper.
+- *Exclusive lease.* `Enter-WeatherWorkstationHeavyExclusiveLease` first takes the barrier mutex
+  `Global\WeatherProjectHeavyWorkloadV1.Exclusive` (one exclusive caller at a time), then keeps each slot
+  mutex as it frees until it holds all eight, and only then starts. From the moment it holds the barrier, slot
+  admission refuses new jobs (`exclusive_pending`) and queued ones wait behind its ticket, so a stream of new
+  jobs cannot starve it; slots it already holds are closed to older wrappers and live stages too. Slot 1 is then
+  taken as the ordinary legacy lease (state file and lock, so status and older wrappers see it busy) and dead
+  slot holders follow the stale rules above. Its queue events carry `exclusive`, `busy_slots` while it drains
+  and `slot_id` `all` at start. An older wrapper that takes slot 1 before the barrier holds it is waited for,
+  not displaced. The bounded suite runs on the workstation only inside the pre-gate (its lease statement is
+  replaced by the driver), so it is covered by this lease; run directly it is the unchanged capture-host lease.
+- *Thread cap.* Every `workstation_heavy.ps1` job sets `OMP_NUM_THREADS`, `MKL_NUM_THREADS` and
+  `OPENBLAS_NUM_THREADS` to floor(logical processors / `-SlotCount`), at least 1. A caller's own lower positive
+  value is kept; a higher, absent or malformed one is replaced. The wrapper prints the cap and the `finish`
+  queue event records `thread_cap` (cap, logical processors, the values set). The exclusive pre-gate is not capped.
+- *Lock record.* Every slot's lock file keeps the schema tag `weather_heavy_workload_lease_v3`. A
+  `workstation_offline_v1` record, slot 1 included, adds `workstation_slot_id` under that unchanged tag, and
+  `host_global_mutex` names the slot's own mutex; readers ignore unknown fields. Capture-colocated and
+  portable records carry no new field.
+- *Status.* `Get-WeatherHeavyWorkloadLeaseState` (used by `status.ps1`, `merge_queue_driver.ps1` and
+  `chain_recovery_run.ps1`) returns the unchanged `{Active, Path, Owner}` for this checkout's slot-1 lock
+  unless a slot file exists and the host proves to be the assigned workstation. Only then is it busy when any
+  slot is busy, either through this checkout's slot lock or through a host-global slot state file with a
+  live owner (read-only: it never probes a mutex), and it adds `Slots` and `BusySlotCount`; `status.ps1`
+  then lists the busy slot ids. The capture host never writes slot files, so its output is byte-identical.
+- *Accepted risk (master ruling 2026-10-24, lane W2 review).* Only a live launcher whose
+  `workload_admission.ps1` includes the W2 slots merge takes slots 2..8; an older launcher takes only the
+  legacy mutex and could overlap jobs in slots 2..8. That risk is accepted on one condition: **the live
+  launcher's checkout must include the W2 merge before any live stage is launched.**
 - *Pre-gate.* `scripts/ops/workstation_pregate.ps1` runs the full suite for one exact head in the host
-  bounded suite's launch mode on the workstation. It takes the same queue lease itself (workload
-  `WorkstationOffline-pytest-pregate-<sha12>-<pid>`). In every mode it first proves that this is the
+  bounded suite's launch mode on the workstation. It is **exclusive** (master ruling 2026-10-24, lane W3: a
+  pre-gate failed its timing-sensitive hang tests at 99 % CPU beside two HGB fits): it takes every slot through
+  `Enter-WeatherWorkstationHeavyExclusiveLease` (workload `WorkstationOffline-pytest-pregate-<sha12>-<pid>`)
+  and runs its chunks serially; the receipt records `workstation_slot_id` and `workstation_exclusive`. In every mode it first proves that this is the
   assigned non-capture workstation (`Assert-WeatherWorkstationOfflineHost`), because the capture host's heavy
   lease uses the same mutex name. When it is nested inside `workstation_heavy.ps1` it then reuses that
-  wrapper's lease, but only after proving that another process holds the host-global mutex. It
+  wrapper's slot, but only after proving that another process holds that slot's mutex
+  (`Test-WeatherWorkstationWrapperSlotHeld`; slot 1 when an older wrapper exported no slot), and then still
+  takes every other slot (`-InheritedSlotId`). It
   skips only the capture-host checks: window, hard stop, host lease, capture workers and host commit
   ceiling. It keeps the suite's 50 GiB disk floor and `MaxRuntimeSeconds`. Contract:
   [development.md](../development.md#workstation-pre-gate-before-a-host-landing-slot).

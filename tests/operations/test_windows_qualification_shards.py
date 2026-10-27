@@ -95,6 +95,7 @@ EXPECTED_SHARDS = {
             "tests/operations/test_staleness_sweep_script.py",
             "tests/operations/test_status_capture_registry_health.py",
             "tests/operations/test_schema_families_roll_verdict.py",
+            "tests/operations/test_status_maker_evidence_code_identity.py",
         ],
     ),
     "windows-lane-a": (
@@ -163,6 +164,7 @@ EXPECTED_SHARDS = {
             "tests/market/test_mm_credential_import_cli.py",
             "tests/operations/test_codex_host_load_hook_focused_exemption.py",
             "tests/operations/test_workstation_heavy_queue.py",
+            "tests/operations/test_workstation_heavy_slots.py",
             "tests/operations/test_thin_ensure.py",
             "tests/operations/test_scheduled_task_local_daily_triggers.py",
             "tests/operations/test_exchange_economics_refresh_script.py",

@@ -179,8 +179,9 @@ host. The run:
   changed chunk cap or a new host check) is refused until someone reviews it and updates the pin.
 - **Admission and cleanup.** In every mode it first proves that this is the assigned non-capture
   workstation (`Assert-WeatherWorkstationOfflineHost`); the capture host's heavy lease uses the same mutex
-  name, so a held mutex is no proof of which host this is. It then takes the workstation FIFO queue lease
-  (`workstation_offline_v1`), or, nested inside `workstation_heavy.ps1`, reuses that wrapper's lease. It
+  name, so a held mutex is no proof of which host this is. It then takes one workstation heavy slot through the
+  FIFO queue (`workstation_offline_v1`), or, nested inside `workstation_heavy.ps1`, reuses that wrapper's slot
+  ([slots](operations/HOST_LOAD_POLICY.md#workstation-focused-runs-fifo-queue-and-xdist-owner-decision-2026-10-04)). It
   runs in a detached worktree `C:\lpf-s\pg-<sha12>` and removes it, and the chunk basetemps, afterwards.
 - **Receipt.** It writes a receipt (`weather.workstation_pregate_receipt.v1`) under `data\pregate\`. The
   receipt has the chunk plan, each chunk's exit code, the verdict, the log path and the log's SHA-256.

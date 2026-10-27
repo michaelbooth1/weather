@@ -1,7 +1,8 @@
 """The MG-2 input bundle allow-list: stdlib-only, outcome-free, identical on host exporter and receiver.
 
-Guards: MG-2 binding plan §9 input transfer (docs/research/mg2-composite-binding-2026-10-25/binding-plan.md):
-no label, settlement or price field travels.
+Guards: MG-2 binding plan section 9 input transfer (docs/research/mg2-composite-binding-2026-10-25/binding-plan.md):
+no label, settlement or price field travels; master rulings 2026-10-25 (outcome-free bundle contract;
+allowlist_sha256 parity).
 """
 import ast
 import hashlib

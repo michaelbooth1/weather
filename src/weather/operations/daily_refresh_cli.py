@@ -9,6 +9,10 @@ import sys
 from pathlib import Path
 
 from weather.operations import capture_resource_gate, nightly_health_checks
+from weather.backtesting.venue_rule_labels import (
+    DEFAULT_LABEL_ROOT as VENUE_LABEL_ROOT,
+    DEFAULT_METAR_ROOT as VENUE_METAR_ROOT,
+)
 from weather.io import write_json_atomic
 from weather.operations.daily_refresh_resources import bounded_resume_command
 from weather.paths import data_path
@@ -569,6 +573,21 @@ def build_run_parser(parser, dependencies=None):
     parser.add_argument("--require-exact-identity", action="store_true")
     parser.add_argument("--require-all-markets", action="store_true")
     parser.add_argument("--daily-summary", default="")
+    parser.add_argument(
+        "--label-rule",
+        choices=("wu", "venue"),
+        default="wu",
+        help="Settlement-ledger label source. wu (default): each market's WU daily summary. venue: build "
+        "each market's venue-rule label CSV from already-fetched routine METAR, then finalize against it "
+        "(docs/operations/venue-rule-labels.md). Nothing is downloaded.",
+    )
+    parser.add_argument("--venue-labels-root", default=str(VENUE_LABEL_ROOT))
+    parser.add_argument("--venue-metar-root", default=str(VENUE_METAR_ROOT))
+    parser.add_argument(
+        "--skip-venue-label-build",
+        action="store_true",
+        help="With --label-rule venue, finalize against already-built label CSVs.",
+    )
     parser.add_argument("--labels-csv", default=str(DEFAULT_LABELS_CSV))
     parser.add_argument("--ledger-root", default=str(DEFAULT_LEDGER_ROOT))
     parser.add_argument("--settle", action="append", default=[])
