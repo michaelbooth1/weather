@@ -1,8 +1,7 @@
 # MG-2 Clarification C9 (DRAFT): season-matched L6 own-model HGB in the 07-12 arm, 2026-10-26
 
-- **Status:** DRAFT by lane L3 for master's review, then the Fable review. It is **Clarification C9**, the next
-  number after C8 in rule §8; master checks the number at review. Not bound until the binding commit, and
-  dated before D0.
+- **Status:** master-reviewed 10-26; FINAL at the binding commit. It is **Clarification C9**, the next number
+  after C8 in rule §8. Not bound until the binding commit, and dated before D0.
 - **Authority:** master's ruling of 2026-10-26, relayed by the coordinator, under the pre-declared decision
   in rule `81649748…` below. The ruling allows no carve-out by hour or market.
 - **History only:** no outcome, label, price or market row dated after 2026-09-29 was read. The scored
@@ -75,8 +74,11 @@ The pooled upper bound is −0.0025 < 0, so the rule selects **the season-matche
 | h12 | −0.0139 | [−0.0183, −0.0094] | |
 | 2021 / 2022 / 2023 / 2024 / 2025 | −0.0028 / −0.0037 / −0.0072 / −0.0105 / −0.0020 | 2023 and 2024 exclude 0 | |
 
-- **By market:** Chicago is +0.0253 [+0.0155, +0.0353] and NYC +0.0114 [+0.0004, +0.0219]; the other nine
-  have a negative point estimate or an interval spanning 0.
+- **By market:** the history covers 11 markets, Denver included. Denver is in the history but is not a B
+  market (rule §8 C8 leaves it out of the 10-market gate); its figure is +0.0035 [−0.0043, +0.0114]. The
+  primary above is the 11-market pooled figure, unchanged. Of the 10 B markets, Chicago is +0.0253
+  [+0.0155, +0.0353] and NYC +0.0114 [+0.0004, +0.0219]; the other eight have a negative point estimate or an
+  interval spanning 0.
 - **Nowcast RMSE (Oct-Dec):** 3.44 °F season-matched, against 4.50 °F frozen and 2.91 °F for NBM.
 - **Control:** the frozen state on the same rows reproduces CS-1's point estimate (+0.0090) exactly. Its
   interval differs only in the bootstrap's date set.
@@ -105,7 +107,7 @@ The pooled upper bound is −0.0025 < 0, so the rule selects **the season-matche
     `3806687c…`), emitted by lane L3 for L2's MG-3 weight refit (`season_matched_l6 dev-emit` @ `40ed3cf1f`).
     Control: the frozen Aug-Sep state reproduces `3806687c…` on the same features with gap 0.
 - **Serving code:** wiring the frozen state into `mg2_composite`'s pre-13 path is a serving-code change.
-  Lane L8 makes it on `claude/mg2-l6-wiring-20261026`: the state loads through `load_l6_own_state` with sha
+  Lane L8 makes it on `claude/mg2-l6-wiring-20261026 @ <L8 FINAL TIP>`: the state loads through `load_l6_own_state` with sha
   verification, with a parity test, plus the BOUND_FIELDS fix. L3 does not make this change.
 
 ## 4. Unchanged: the stack coefficients
