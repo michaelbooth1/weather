@@ -60,6 +60,7 @@ infrastructure work remains.
 | 9 | [Analog Search [COMPLETE]](items/item-09-analog-search.md) |
 | 337 | [No-METAR Observed-Floor Gap [OPEN 2026-10-08 - OWNER YES 2026-10-13, CONDITIONAL ON THE HOST REPLAY]](items/item-337-no-metar-observed-floor-gap.md) |
 | 339 | [EDGE-1 Model-Edge Pre-Registration Family [OPEN 2026-10-21 - OWNER APPROVED; SIGNING AFTER THE THURSDAY FABLE DELTA]](items/item-339-edge1-model-edge-preregistration.md) |
+| 340 | [Open-Meteo DST Fix For Training And Backfill Readers [OPEN 2026-10-27 - HEAD A UNDER REVIEW; HEAD B AFTER THE P0 AUDIT]](items/item-340-open-meteo-dst-training-readers.md) |
 
 ### Dashboard Improvements
 

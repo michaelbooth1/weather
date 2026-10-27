@@ -24,7 +24,7 @@ from weather.sources.marine_context import registry_for_market
 from weather.sources.reanalysis_history import (
     DEFAULT_ROOT as REANALYSIS_DEFAULT_ROOT,
     ReanalysisStore,
-    parse_local_datetime,
+    payload_local_datetimes,
     value_at,
 )
 
@@ -381,8 +381,9 @@ def load_raw_daily_metrics(store):
     for payload in store.iter_raw_payloads():
         hourly = payload.get("hourly") or {}
         times = hourly.get("time") or []
+        local_times = payload_local_datetimes(payload, store.spec.tz)
         for index, value in enumerate(times):
-            local_dt = parse_local_datetime(value, store.spec.tz)
+            local_dt = local_times[index] if value and index < len(local_times) else None
             if local_dt is None:
                 continue
             local_date = local_dt.date()

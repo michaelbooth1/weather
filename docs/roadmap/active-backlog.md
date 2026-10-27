@@ -5,23 +5,23 @@ remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan. DORMANT items are parked with a dated
 disposition and listed separately.
 
-Generated: 2026-10-21T19:18:32.737743+00:00
+Generated: 2026-10-27T12:43:07.183960+00:00
 Status: `OK`
 
 ## Summary
 
 | Metric | Value |
 | :--- | :--- |
-| Items | 330 |
-| Active items | 14 |
-| OPEN | 2 |
+| Items | 331 |
+| Active items | 15 |
+| OPEN | 3 |
 | PARTIAL | 12 |
 | COMPLETE | 289 |
 | DORMANT | 27 |
-| Active, no disposition within 45 days of 2026-10-21 | 8 |
-| ROADMAP rows | 330 |
-| ROADMAP primary rows | 330 |
-| Metadata manifest rows | 330 |
+| Active, no disposition within 45 days of 2026-10-27 | 8 |
+| ROADMAP rows | 331 |
+| ROADMAP primary rows | 331 |
+| Metadata manifest rows | 331 |
 | Lint errors | 0 |
 
 ## Active Items
@@ -42,6 +42,7 @@ Status: `OK`
 | 336 | PARTIAL | 2026-10-08 | LANDED ON MASTER (1becbaf75); PRODUCTION ADOPTION DECISION OPEN | [Landing Preflight](items/item-336-landing-preflight.md) |
 | 337 | OPEN | 2026-10-08 | OWNER YES 2026-10-13, CONDITIONAL ON THE HOST REPLAY | [No-METAR Observed-Floor Gap](items/item-337-no-metar-observed-floor-gap.md) |
 | 339 | OPEN | 2026-10-21 | OWNER APPROVED; SIGNING AFTER THE THURSDAY FABLE DELTA | [EDGE-1 Model-Edge Pre-Registration Family](items/item-339-edge1-model-edge-preregistration.md) |
+| 340 | OPEN | 2026-10-27 | HEAD A UNDER REVIEW; HEAD B AFTER THE P0 AUDIT | [Open-Meteo DST Fix For Training And Backfill Readers](items/item-340-open-meteo-dst-training-readers.md) |
 
 ## Active Items Without A Disposition In 45 Days
 
@@ -50,13 +51,13 @@ disposition or mark the item `DORMANT YYYY-MM-DD - reason`.
 
 | Item | Status | Date | Days | File |
 | :--- | :--- | :--- | :--- | :--- |
-| 67 | PARTIAL | 2026-08-30 | 52 | [Authenticated Exchange Adapter And MM-2 Pilot Harness](items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md) |
-| 224 | PARTIAL | 2026-07-11 | 102 | [Pooled F Retrain/Re-Export Location Gate](items/item-224-pooled-f-retrain-reexport-location-gate.md) |
-| 309 | PARTIAL | 2026-08-19 | 63 | [Current Exchange-Economics Snapshot Production, Verification, And Accept-Baseline Workflow](items/item-309-exchange-economics-snapshot-production-verification-and-accept-baseline.md) |
-| 323 | PARTIAL | 2026-07-15 | 98 | [Shared Forecast Payload CAS And Single-Fetch Fan-Out](items/item-323-shared-forecast-payload-cas-and-single-fetch-fan-out.md) |
-| 324 | PARTIAL | 2026-08-22 | 60 | [Bounded Daily Settlement Refresh Resource Admission And Step Isolation](items/item-324-bounded-daily-settlement-refresh-resource-admission-and-step-isolation.md) |
-| 326 | PARTIAL | 2026-08-15 | 67 | [Supervised Continuous Public Execution Tape](items/item-326-supervised-continuous-public-execution-tape.md) |
-| 330 | PARTIAL | 2026-09-05 | 46 | [Maker Economics And Liquidity Rewards Refocus Master Plan](items/item-330-maker-economics-refocus-master-plan.md) |
+| 67 | PARTIAL | 2026-08-30 | 58 | [Authenticated Exchange Adapter And MM-2 Pilot Harness](items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md) |
+| 224 | PARTIAL | 2026-07-11 | 108 | [Pooled F Retrain/Re-Export Location Gate](items/item-224-pooled-f-retrain-reexport-location-gate.md) |
+| 309 | PARTIAL | 2026-08-19 | 69 | [Current Exchange-Economics Snapshot Production, Verification, And Accept-Baseline Workflow](items/item-309-exchange-economics-snapshot-production-verification-and-accept-baseline.md) |
+| 323 | PARTIAL | 2026-07-15 | 104 | [Shared Forecast Payload CAS And Single-Fetch Fan-Out](items/item-323-shared-forecast-payload-cas-and-single-fetch-fan-out.md) |
+| 324 | PARTIAL | 2026-08-22 | 66 | [Bounded Daily Settlement Refresh Resource Admission And Step Isolation](items/item-324-bounded-daily-settlement-refresh-resource-admission-and-step-isolation.md) |
+| 326 | PARTIAL | 2026-08-15 | 73 | [Supervised Continuous Public Execution Tape](items/item-326-supervised-continuous-public-execution-tape.md) |
+| 330 | PARTIAL | 2026-09-05 | 52 | [Maker Economics And Liquidity Rewards Refocus Master Plan](items/item-330-maker-economics-refocus-master-plan.md) |
 | 333 | PARTIAL | - | undated | [Signed Native Temperature Band Parser](items/item-333-signed-native-temperature-band-parser.md) |
 
 ## Dormant Items

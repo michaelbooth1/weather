@@ -20,6 +20,7 @@ import requests
 from weather.paths import data_path
 from weather.market.market_registry import spec_for_id
 from weather.sources.forecast_history import HIST_FORECAST_URL
+from weather.sources.open_meteo_label_times import payload_local_times
 from weather.units import to_float
 
 
@@ -152,13 +153,6 @@ def _array_get(mapping, key, index):
     return values[index]
 
 
-def _local_datetime(raw_time, spec):
-    parsed = datetime.fromisoformat(str(raw_time))
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=spec.tz)
-    return parsed.astimezone(spec.tz)
-
-
 def _median(values):
     values = [value for value in values if value is not None]
     return statistics.median(values) if values else None
@@ -233,12 +227,10 @@ def normalize_open_meteo_global_model_archive(
     fetched_at = fetched_at or datetime.now(timezone.utc).isoformat()
     rows = []
     grouped_highs = defaultdict(lambda: {model: [] for model in model_members})
+    local_times, _refusal = payload_local_times(payload or {}, spec.tz)  # EF §10w: response offset, fail closed
     for index, raw_time in enumerate(times):
-        if not raw_time:
-            continue
-        try:
-            local_dt = _local_datetime(raw_time, spec)
-        except ValueError:
+        local_dt = local_times[index] if raw_time and index < len(local_times) else None
+        if local_dt is None:
             continue
         model_values = {}
         values = []
@@ -319,12 +311,10 @@ def normalize_open_meteo_air_quality_archive(
     hash_value = payload_hash(payload or {})
     fetched_at = fetched_at or datetime.now(timezone.utc).isoformat()
     rows = []
+    local_times, _refusal = payload_local_times(payload or {}, spec.tz)  # EF §10w: response offset, fail closed
     for index, raw_time in enumerate(times):
-        if not raw_time:
-            continue
-        try:
-            local_dt = _local_datetime(raw_time, spec)
-        except ValueError:
+        local_dt = local_times[index] if raw_time and index < len(local_times) else None
+        if local_dt is None:
             continue
         row = {
             "schema_version": OPEN_METEO_AIR_QUALITY_ARCHIVE_SCHEMA_VERSION,
