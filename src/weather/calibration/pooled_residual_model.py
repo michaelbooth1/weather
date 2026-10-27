@@ -6916,6 +6916,222 @@ def sm_h_loyo(*, records_root, nbm_train_corpus, hrrr_corpus, p3d_n_state, part1
     return finish()
 
 
+# ---------------------------------------------------------------- C10-sel and SM-H SMH-1: comparator = served P3d_N
+
+C10_RULE_SHA256 = "8c59c1b6ea2708c319189d89e8efd531cdaa04593803f92b1e620c5100252391"  # c10/rule_c10_sel.md
+SM_H_CLARIFICATION_1_SHA256 = "b30078031375b3ab77db791124ec24e6568035c25f1696c3c7d54d98cc67e891"  # SMH-1
+C10_HOURS = (13, 14, 15, 16)
+C10_FWD_STATE_SHA256 = "c6cc39f7b57f668557415d28ec37ac291694f4b429e572a3c178fb74e5a9c780"  # MG-2 served P3d_N
+C10_FWD_TRAINING_ROWS = 103609
+C10_SMH_ROWS_SHA256 = "f6f96cbceb3d3435431847470008300725161b5c39215e11a65ef696fb392fd5"  # SM-H loyo_rows.jsonl
+C10_PAIRS = (("SM_N", "P3d_N_fwd"), ("SM_N", "P3d_N_dev"), ("P3d_N_fwd", "P3d_N_dev"))
+C10_POOLS = (("13-16", None),)
+C10_PARITY_TOL = 1e-9
+C10_TOL = 1e-12
+SMH1_PAIRS = (("SM_H", "P3d_N_fwd"),)
+SMH1_POOLS = (("13-15", None),)
+SMH1_HOURS = (13, 14, 15)
+
+
+def fwd_hour_entry(train, markets=R0_MARKETS):
+    """One ``hours[h]`` entry built exactly as :func:`forward_fit` builds it (same fit_pooled call)."""
+    import numpy as np
+
+    fitted = fit_pooled(train, market_id=False, doy=True, raw_columns=False, bias_by="season")
+    return {"mean": state_mean_dict(fitted["mean"]), "scale": fitted["scale"],
+            "z": np.asarray(fitted["z"], dtype=np.float64),
+            "train_y": {m: [int(v) for v in train.loc[train["market"] == m, "y"]] for m in markets}}
+
+
+def fwd_shell(state, entries):
+    """The served state with ``hours[h]`` replaced by ``entries`` (C10-sel section 3); every other field kept."""
+    return dict(state, hours={**state["hours"], **entries})
+
+
+def dist_max_abs(a, b):
+    return max(abs(float(a.get(k, 0.0)) - float(b.get(k, 0.0))) for k in set(a) | set(b))
+
+
+def row_key(r):
+    return (int(r["hour"]), int(r["year"]), str(r["market"]), str(r["date"]))
+
+
+def c10_rows(oct_frame, fwd_frame, buckets, fwd_state, dev_state, hours=C10_HOURS, markets=R0_MARKETS,
+             serve=None):
+    """SM_N (Oct-Dec LOYO), P3d_N_fwd (Aug-Dec LOYO in the served shell) and P3d_N_dev on identical rows.
+
+    Also tier-2 parity: the all-years refit in the shell vs the served state on every scored row.
+    ``serve`` (state, row) -> distribution defaults to the served math. -> (rows, excluded, parity)."""
+    import numpy as np
+
+    from weather.calibration import feature_model as fm
+
+    serve = serve or sm_h_frozen_dist
+    rows, excluded, parity = [], 0, {}
+    for hour in hours:
+        at_hour = oct_frame[oct_frame["hour"] == hour]
+        fwd_hour = fwd_frame[fwd_frame["hour"] == hour].reset_index(drop=True)
+        full = fwd_shell(fwd_state, {int(hour): fwd_hour_entry(fwd_hour, markets)})
+        worst, checked = 0.0, 0
+        for year in sorted(at_hour["year"].unique()):
+            train = at_hour[at_hour["year"] != year].reset_index(drop=True)
+            val = at_hour[at_hour["year"] == year].reset_index(drop=True)
+            ok = np.isfinite(val["F"].to_numpy(float)) & np.isfinite(val["x_current_temp"].to_numpy(float))
+            excluded += int((~ok).sum())
+            val = val[ok].reset_index(drop=True)
+            sm_n = _rung_entry(train, False)
+            fold = fwd_shell(fwd_state, {int(hour): fwd_hour_entry(
+                fwd_hour[fwd_hour["year"] != year].reset_index(drop=True), markets)})
+            for market in sorted(val["market"].unique()):
+                part = val[val["market"] == market].reset_index(drop=True)
+                sm = _dist_from_fit(sm_n, part, buckets, market)
+                for i in range(len(part)):
+                    one = part.iloc[i]
+                    actual = int(part.at[i, "y"])
+                    ref = serve(fwd_state, one)
+                    worst = max(worst, dist_max_abs(serve(full, one), ref))
+                    checked += 1
+                    row = {"hour": int(hour), "year": int(year), "market": market,
+                           "date": str(part.at[i, "target_date"])[:10], "y": actual}
+                    for arm, dist in (("SM_N", sm[i]), ("P3d_N_fwd", serve(fold, one)),
+                                      ("P3d_N_dev", serve(dev_state, one))):
+                        row[f"{arm}_brier"] = sm_h_brier(dist, actual)
+                        row[f"{arm}_log"] = fm.log_loss(dist, actual)
+                    rows.append(row)
+        parity[f"h{hour:02d}"] = {"rows": checked, "max_abs": worst}
+        print(f"c10 hour {hour}: {sum(1 for r in rows if r['hour'] == hour)} rows, parity {worst:.3g}", flush=True)
+    parity["max_abs"] = max(v["max_abs"] for v in parity.values())
+    parity["rows"] = sum(v["rows"] for k, v in parity.items() if k.startswith("h"))
+    parity["tolerance"] = C10_PARITY_TOL
+    parity["pass"] = parity["max_abs"] <= C10_PARITY_TOL and parity["rows"] == len(rows)
+    return rows, excluded, parity
+
+
+def c10_sm_n_reproduction(rows, smh_rows, hours=SMH1_HOURS, tol=C10_TOL):
+    """C10-sel checks 1 (scored keys at 13-15 = the SM-H rows) and 5 (SM_N reproduces SM-H's SM_N)."""
+    got = {row_key(r): r for r in rows if r["hour"] in hours}
+    ref = {row_key(r): r for r in smh_rows if r["hour"] in hours}
+    worst = max((abs(got[k]["SM_N_brier"] - ref[k]["SM_N_brier"]) for k in set(got) & set(ref)), default=0.0)
+    same = set(got) == set(ref) and len(got) == sum(1 for r in rows if r["hour"] in hours)
+    return {"same_keys": same, "rows": len(got), "reference_rows": len(ref), "max_abs": worst,
+            "pass": bool(same and worst <= tol)}
+
+
+def c10_sel(*, records_root, nbm_train_corpus, fwd_state, dev_state, part1a, smh_rows, out_dir, markets=R0_MARKETS):
+    """C10-sel (rule_c10_sel.md): one look. History only; no 2026 row and no dev row is read."""
+    from weather.calibration import ols_floor_ladder as l9
+    from weather.market.market_registry import spec_for_id
+
+    out = require_output_outside_repo(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    if any(out.iterdir()):
+        raise PooledModelError(f"refusing to write into a non-empty {out}")
+    audit = {"rule_sha256": C10_RULE_SHA256, "hours": list(C10_HOURS), "checks": {},
+             "inputs": {"nbm_train_corpus": _sm_h_bound(nbm_train_corpus, SM_H_NBM_SHA256, "NBM corpus"),
+                        "fwd_state": _sm_h_bound(fwd_state, C10_FWD_STATE_SHA256, "served P3d_N state"),
+                        "dev_state": _sm_h_bound(dev_state, SM_H_P3D_N_STATE_SHA256, "dev P3d_N state"),
+                        "part1a": _sm_h_bound(part1a, SM_H_PART1A_SHA256, "CS-1 part1a"),
+                        "smh_rows": _sm_h_bound(smh_rows, C10_SMH_ROWS_SHA256, "SM-H rows"),
+                        "module_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}}
+
+    def finish():
+        (out / "c10_audit.json").write_text(json.dumps(audit, indent=1, sort_keys=True), encoding="utf-8")
+        return audit
+
+    served = pickle.loads(Path(fwd_state).read_bytes())
+    dev = pickle.loads(Path(dev_state).read_bytes())
+    reference = json.loads(Path(part1a).read_text(encoding="utf-8"))
+    timezones = {m: spec_for_id(m).timezone for m in markets}
+    nbm = l9.load_nbm(nbm_train_corpus)
+    oct_frame, buckets = sm_h_frame(records_root, markets, hours=C10_HOURS)
+    oct_frame, audit["oct_nbm"] = attach_training_nbm(oct_frame, nbm, l9.nbm_at_cutoff, timezones)
+    missing = [f"{m}_{c}" for c in FORWARD_CENTRES for m in markets if not records_path(records_root, m, c).exists()]
+    if missing:
+        raise PooledModelError(f"C10 forward records missing: {missing}")
+    fwd_frame, _ = forward_training_frame(records_root, markets)
+    audit["fwd_frame_rows"] = int(len(fwd_frame))
+    years_ok = set(int(y) for y in fwd_frame["year"].unique()) <= set(FORWARD_YEARS)
+    fwd_frame = fwd_frame[fwd_frame["hour"].isin(C10_HOURS)].reset_index(drop=True)
+    fwd_frame, audit["fwd_nbm"] = attach_training_nbm(fwd_frame, nbm, l9.nbm_at_cutoff, timezones)
+    audit["counts_by_year"] = sm_h_counts(oct_frame)
+    audit["checks"]["1_inputs"] = {"fwd_frame_rows": audit["fwd_frame_rows"], "expected": C10_FWD_TRAINING_ROWS,
+                                   "years_2021_25": years_ok,
+                                   "pass": audit["fwd_frame_rows"] == C10_FWD_TRAINING_ROWS and years_ok}
+    if not audit["checks"]["1_inputs"]["pass"]:
+        audit["stopped_at"] = "check 1 inputs (VOID)"
+        return finish()
+    audit["checks"]["2_tier1_bytes"] = {"attainable": False, "binding": False,
+                                        "reason": "provenance embeds module 52c497a9 / commit 73675b78; a "
+                                                  "re-pickled loaded state does not reproduce its bytes"}
+    rows, audit["rows_excluded_no_obs"], parity = c10_rows(oct_frame, fwd_frame, buckets, served, dev,
+                                                           markets=markets)
+    audit["checks"]["3_tier2_parity"] = parity
+    audit["checks"]["4_row_identity"] = sm_h_control(
+        [{"hour": r["hour"], "P3d_N_brier": r["P3d_N_dev_brier"]} for r in rows], reference, hours=C10_HOURS,
+        tol=C10_TOL)
+    audit["checks"]["1_inputs"]["scored_keys_and_5_sm_n"] = c10_sm_n_reproduction(rows, _read_jsonl(smh_rows))
+    audit["checks"]["5_sm_n_reproduction"] = audit["checks"]["1_inputs"].pop("scored_keys_and_5_sm_n")
+    _write_jsonl(out / "loyo_rows.jsonl", rows)
+    fwd_path = out / "fwd_rows.jsonl"
+    _write_jsonl(fwd_path, [{"hour": r["hour"], "year": r["year"], "market": r["market"], "date": r["date"],
+                             "y": r["y"], "P3d_N_fwd_brier": r["P3d_N_fwd_brier"],
+                             "P3d_N_fwd_log": r["P3d_N_fwd_log"]} for r in rows])
+    audit["outputs"] = {"loyo_rows": _rr_sha(out / "loyo_rows.jsonl"), "fwd_rows": _rr_sha(fwd_path)}
+    failed = [k for k in ("3_tier2_parity", "4_row_identity", "5_sm_n_reproduction") if not audit["checks"][k]["pass"]]
+    if failed:
+        audit["stopped_at"] = f"checks {failed} (VOID; no score read)"
+        return finish()
+    audit["summary"] = rg_loyo_summary(rows, pairs=C10_PAIRS, pooled=C10_POOLS)
+    pooled = audit["summary"]["SM_N-P3d_N_fwd|13-16|brier"]
+    h16 = audit["summary"]["SM_N-P3d_N_fwd|h16|brier"]
+    adopt = pooled["ci95"][1] < 0 and h16["estimate"] <= 0
+    audit["decision"] = {"pair": "SM_N-P3d_N_fwd", "pooled_13_16": pooled, "h16": h16,
+                         "selected": "SM_N" if adopt else "P3d_N"}
+    return finish()
+
+
+def sm_h_redecide(*, smh_rows, c10_audit, out_dir, expected_smh_rows=C10_SMH_ROWS_SHA256):
+    """SM-H clarification SMH-1: SM_H (existing rows) vs P3d_N_fwd (C10's fwd_rows) at 13-15, one look."""
+    out = require_output_outside_repo(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    target = out / "smh1_audit.json"
+    if any(out.iterdir()):
+        raise PooledModelError(f"refusing to write into a non-empty {out}")
+    c10 = json.loads(Path(c10_audit).read_text(encoding="utf-8"))
+    fwd_path = Path(c10_audit).parent / "fwd_rows.jsonl"
+    audit = {"clarification_sha256": SM_H_CLARIFICATION_1_SHA256, "rule_sha256": SM_H_RULE_SHA256,
+             "inputs": {"smh_rows": _sm_h_bound(smh_rows, expected_smh_rows, "SM-H rows"),
+                        "c10_audit": _rr_sha(c10_audit),
+                        "module_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}}
+
+    def finish():
+        target.write_text(json.dumps(audit, indent=1, sort_keys=True), encoding="utf-8")
+        return audit
+
+    checks_ok = (not c10.get("stopped_at") and c10.get("rule_sha256") == C10_RULE_SHA256
+                 and all(c10["checks"][k]["pass"] for k in ("1_inputs", "3_tier2_parity", "4_row_identity",
+                                                            "5_sm_n_reproduction")))
+    if not checks_ok:
+        audit["stopped_at"] = "C10 run VOID or incomplete (SMH-1 VOID)"
+        return finish()
+    audit["inputs"]["fwd_rows"] = _sm_h_bound(fwd_path, c10["outputs"]["fwd_rows"], "C10 fwd rows")
+    sm = {row_key(r): r for r in _read_jsonl(smh_rows) if r["hour"] in SMH1_HOURS}
+    fwd = {row_key(r): r for r in _read_jsonl(fwd_path) if r["hour"] in SMH1_HOURS}
+    audit["join"] = {"smh_rows": len(sm), "fwd_rows": len(fwd), "same_keys": set(sm) == set(fwd)}
+    if set(sm) != set(fwd):
+        audit["stopped_at"] = "keys differ (SMH-1 VOID)"
+        return finish()
+    rows = [{"hour": k[0], "year": k[1], "market": k[2], "date": k[3],
+             "SM_H_brier": sm[k]["SM_H_brier"], "SM_H_log": sm[k]["SM_H_log"],
+             "P3d_N_fwd_brier": fwd[k]["P3d_N_fwd_brier"], "P3d_N_fwd_log": fwd[k]["P3d_N_fwd_log"]}
+            for k in sorted(sm)]
+    audit["summary"] = rg_loyo_summary(rows, pairs=SMH1_PAIRS, pooled=SMH1_POOLS)
+    pooled = audit["summary"]["SM_H-P3d_N_fwd|13-15|brier"]
+    audit["decision"] = {"pair": "SM_H-P3d_N_fwd|13-15|brier", "estimate": pooled["estimate"],
+                         "ci95": pooled["ci95"], "selected": "SM_H" if pooled["ci95"][1] < 0 else "P3d_N"}
+    return finish()
+
+
 def mg3_release_files(root=None):
     root = Path(root or REPO_ROOT)
     return {rel: _rr_sha(root / rel) for rel in MG3_RELEASE_FILES}
@@ -7520,6 +7736,12 @@ def _parse(argv=None):
     sh = sub.add_parser("sm-h-loyo", help="SM-H: season-matched P3d_H 13-15 LOYO vs frozen P3d_N (heavy)")
     for opt in ("--records", "--nbm-train-corpus", "--hrrr", "--p3d-n-state", "--part1a", "--out"):
         sh.add_argument(opt, required=True)
+    c10 = sub.add_parser("c10-sel", help="C10-sel: SM-N vs served P3d_N_fwd at 13-16, history LOYO (heavy)")
+    for opt in ("--records", "--nbm-train-corpus", "--fwd-state", "--dev-state", "--part1a", "--smh-rows", "--out"):
+        c10.add_argument(opt, required=True)
+    rd = sub.add_parser("sm-h-redecide", help="SM-H SMH-1: SM_H vs P3d_N_fwd at 13-15 from the C10 rows")
+    for opt in ("--smh-rows", "--c10-audit", "--out"):
+        rd.add_argument(opt, required=True)
     mb = sub.add_parser("mg3-release-binding", help="MG-3 (1b): release-binding.json content incl. RN-1")
     mb.add_argument("--land", required=True)
     mb.add_argument("--corpus", required=True, help="the 07-12 HRRR corpus holding stations.json")
@@ -7825,6 +8047,17 @@ def main(argv=None):
                           p3d_n_state=args.p3d_n_state, part1a=args.part1a, out_dir=args.out)
         print(json.dumps({"checks": {k: v.get("pass") for k, v in audit["checks"].items()},
                           "stopped_at": audit.get("stopped_at"), "decision": audit.get("decision")}, indent=1))
+        return 0 if not audit.get("stopped_at") else 1
+    if args.command == "c10-sel":
+        audit = c10_sel(records_root=args.records, nbm_train_corpus=args.nbm_train_corpus, fwd_state=args.fwd_state,
+                        dev_state=args.dev_state, part1a=args.part1a, smh_rows=args.smh_rows, out_dir=args.out)
+        print(json.dumps({"checks": {k: v.get("pass") for k, v in audit["checks"].items()},
+                          "stopped_at": audit.get("stopped_at"),
+                          "selected": (audit.get("decision") or {}).get("selected")}, indent=1))
+        return 0 if not audit.get("stopped_at") else 1
+    if args.command == "sm-h-redecide":
+        audit = sm_h_redecide(smh_rows=args.smh_rows, c10_audit=args.c10_audit, out_dir=args.out)
+        print(json.dumps({"stopped_at": audit.get("stopped_at"), "decision": audit.get("decision")}, indent=1))
         return 0 if not audit.get("stopped_at") else 1
     if args.command == "mg3-release-binding":
         if out.exists():
