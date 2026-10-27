@@ -14,7 +14,11 @@ every head bound for a host landing night in exactly the host suite's mode:
 * nested ("inherited" lease) mode still proves this is the assigned non-capture
   workstation, because the capture host's heavy lease uses the same mutex name;
 * an interrupted run (Ctrl+C) exits non-zero, matching its FAIL receipt;
-* a content-only change to any replaced host statement is refused (pinned hashes).
+* a content-only change to any replaced host statement is refused (pinned hashes);
+* the nested end-to-end runs skip, instead of waiting out their timeout, while
+  another process holds the exclusive workstation barrier (W3a): inside an
+  outer pre-gate, every slot is held exclusively, so a nested pre-gate can
+  never be admitted (2026-10-26 chunk-24 suite-budget overrun).
 
 The end-to-end tests run the real pre-gate and the real host suite against a
 small fixture repository whose ``venv`` reuses this interpreter's packages, in
@@ -59,6 +63,11 @@ COPIED_SCRIPTS = (
     "integration_launch_diagnostics.ps1",
 )
 MUTEX_NAME = "Global\\WeatherProjectHeavyWorkloadV1"
+EXCLUSIVE_MUTEX_NAME = MUTEX_NAME + ".Exclusive"
+# A nested pre-gate gives up waiting for the exclusive lease after this long
+# (exit 75, nothing started) instead of holding the test until its timeout.
+NESTED_QUEUE_TIMEOUT_SECONDS = 300
+QUEUE_TIMEOUT_EXIT_CODE = 75
 GIT_ENV = {
     "GIT_AUTHOR_NAME": "fixture", "GIT_AUTHOR_EMAIL": "fixture@example.invalid",
     "GIT_COMMITTER_NAME": "fixture", "GIT_COMMITTER_EMAIL": "fixture@example.invalid",
@@ -173,6 +182,40 @@ class _HeldWorkstationMutex:
         self.kernel32.CloseHandle(self.handle)
 
 
+def _barrier_held_by_another_process(name: str = EXCLUSIVE_MUTEX_NAME) -> bool:
+    """True when another process owns the exclusive workstation barrier ``name``.
+
+    Probes with a zero wait, exactly like slot admission does, and releases at
+    once. Read-only for every lease: it never changes what a real pre-gate
+    checks, it only decides whether a nested test pre-gate could be admitted.
+    """
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateMutexW.restype = ctypes.c_void_p
+    kernel32.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+    kernel32.WaitForSingleObject.restype = ctypes.c_uint32
+    kernel32.ReleaseMutex.argtypes = [ctypes.c_void_p]
+    kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+    handle = kernel32.CreateMutexW(None, False, name)
+    assert handle, ctypes.get_last_error()
+    try:
+        state = kernel32.WaitForSingleObject(handle, 0)
+        if state in (0, 0x80):  # WAIT_OBJECT_0, WAIT_ABANDONED
+            kernel32.ReleaseMutex(handle)
+            return False
+        assert state == 0x102, state  # WAIT_TIMEOUT: another process owns it
+        return True
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def _skip_if_exclusive_barrier_is_held(name: str = EXCLUSIVE_MUTEX_NAME) -> None:
+    if _barrier_held_by_another_process(name):
+        pytest.skip(
+            "another process holds the exclusive workstation barrier (an outer pre-gate, "
+            "W3a), so a nested pre-gate cannot be admitted until it finishes"
+        )
+
+
 ASSIGNMENT_SCRIPT = r"""
 $ErrorActionPreference = 'Stop'
 . $env:PG_ADMISSION
@@ -258,6 +301,7 @@ def _fixture_repo(root: Path, probe_out: Path) -> dict[str, str]:
 
 @pytest.fixture(scope="module")
 def fixture_repo(tmp_path_factory):
+    _skip_if_exclusive_barrier_is_held()
     root = tmp_path_factory.mktemp("pg")
     free = shutil.disk_usage(root).free
     if free < 55 * 1024**3:
@@ -279,11 +323,15 @@ def _pregate(info: dict, head: str, label: str, base: str = "") -> tuple[subproc
         "-OutputDirectory", str(root / f"out-{label}"),
         "-ReceiptPath", str(receipt),
         "-WorktreeParent", str(root / "wt"),
+        "-QueueTimeoutSeconds", str(NESTED_QUEUE_TIMEOUT_SECONDS),
     ]
     if base:
         command += ["-Base", base]
+    _skip_if_exclusive_barrier_is_held()
     with _HeldWorkstationMutex():
         result = _run(command, cwd=root, env=env, timeout=900)
+    if result.returncode == QUEUE_TIMEOUT_EXIT_CODE:
+        pytest.skip("an exclusive workstation caller took the barrier first; the nested pre-gate started nothing")
     assert receipt.is_file(), result.stdout + result.stderr
     return result, json.loads(receipt.read_text(encoding="utf-8"))
 
@@ -509,6 +557,51 @@ def test_driver_refuses_a_drifted_host_suite(tmp_path):
     assert not (tmp_path / "suite.log").exists()
 
 
+# ------------------------------------------------------------------ nested-run skip probe
+BARRIER_HOLDER = r"""
+import ctypes, sys, time
+k = ctypes.WinDLL("kernel32", use_last_error=True)
+k.CreateMutexW.restype = ctypes.c_void_p
+k.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+handle = k.CreateMutexW(None, False, sys.argv[1])
+assert handle and k.WaitForSingleObject(handle, 0) in (0, 0x80)
+print("held", flush=True)
+sys.stdin.readline()
+"""
+
+
+def test_nested_runs_skip_only_while_another_process_holds_the_exclusive_barrier():
+    # A private name: the real barrier is shared with live workstation jobs.
+    name = f"Local\\WeatherPregateBarrierProbe-{os.getpid()}-{time.monotonic_ns()}"
+    assert _barrier_held_by_another_process(name) is False
+    _skip_if_exclusive_barrier_is_held(name)  # free: no skip
+    holder = subprocess.Popen(
+        [sys.executable, "-c", BARRIER_HOLDER, name],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True,
+    )
+    try:
+        assert holder.stdout.readline().strip() == "held"
+        assert _barrier_held_by_another_process(name) is True
+        with pytest.raises(pytest.skip.Exception, match="exclusive workstation barrier"):
+            _skip_if_exclusive_barrier_is_held(name)
+    finally:
+        holder.stdin.close()
+        holder.wait(timeout=60)
+    # Once the holder exits the barrier is free again: no skip.
+    assert _barrier_held_by_another_process(name) is False
+
+
+def test_probe_names_the_barrier_the_exclusive_lease_takes():
+    script = (
+        "$ErrorActionPreference = 'Stop'; . $env:PG_ADMISSION; "
+        "[Console]::Out.Write((Get-WeatherHeavyWorkloadExclusiveMutexName))"
+    )
+    env = {**os.environ, "PG_ADMISSION": str(OPS / "workload_admission.ps1")}
+    result = _run([*POWERSHELL, "-Command", script], env=env, timeout=120)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == EXCLUSIVE_MUTEX_NAME
+
+
 # ------------------------------------------------------------------ host proof in nested mode
 @pytest.mark.parametrize(
     ("identity", "reason"),
@@ -621,7 +714,9 @@ def test_interrupted_pregate_exits_nonzero_to_match_its_fail_receipt(fixture_rep
         "-Head", fixture_repo["slow"], "-RepoRoot", fixture_repo["repo"],
         "-OutputDirectory", str(root / "out-interrupt"), "-ReceiptPath", str(receipt_path),
         "-WorktreeParent", str(root / "wt"),
+        "-QueueTimeoutSeconds", str(NESTED_QUEUE_TIMEOUT_SECONDS),
     ]
+    _skip_if_exclusive_barrier_is_held()
     with _HeldWorkstationMutex():
         # A private console so the Ctrl+C reaches only the pre-gate process.
         process = subprocess.Popen(
@@ -629,8 +724,11 @@ def test_interrupted_pregate_exits_nonzero_to_match_its_fail_receipt(fixture_rep
             cwd=root, env=env, creationflags=subprocess.CREATE_NEW_CONSOLE, startupinfo=_hidden_console(),
         )
         try:
-            deadline = time.monotonic() + 300
+            # Outlast the nested queue bound, so a lease timeout (exit 75) skips.
+            deadline = time.monotonic() + NESTED_QUEUE_TIMEOUT_SECONDS + 300
             while not started.is_file():
+                if process.poll() == QUEUE_TIMEOUT_EXIT_CODE:
+                    pytest.skip("an exclusive workstation caller took the barrier first; nothing started")
                 assert process.poll() is None, "pre-gate finished before the slow chunk started"
                 assert time.monotonic() < deadline, "slow chunk never started"
                 time.sleep(0.5)
