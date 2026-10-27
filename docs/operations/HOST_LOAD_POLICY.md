@@ -186,6 +186,13 @@ below applies: no exemption, no queue state, the same windows and the same bound
   and `slot_id` `all` at start. An older wrapper that takes slot 1 before the barrier holds it is waited for,
   not displaced. The bounded suite runs on the workstation only inside the pre-gate (its lease statement is
   replaced by the driver), so it is covered by this lease; run directly it is the unchanged capture-host lease.
+  The barrier owner writes `exclusive_holder_v1.json` in the queue directory (pid, process start time, boot
+  session, workload, phase `draining` or `held`) and removes it just before releasing the barrier; exclusive
+  waiters log that holder. A caller whose process ancestry contains the live recorded holder in phase `held`
+  (matched by pid plus start time, barrier proved held) is already inside that hold: it is admitted at once
+  with an empty hold and no ticket (pre-gate receipt `lease_mode` `inherited_from_exclusive_holder`,
+  `exclusive_holder` pid and start; PG-NEST-1). A dead or reused holder pid grants nothing; everyone else
+  queues as before.
 - *Thread cap.* Every `workstation_heavy.ps1` job sets `OMP_NUM_THREADS`, `MKL_NUM_THREADS` and
   `OPENBLAS_NUM_THREADS` to floor(logical processors / `-SlotCount`), at least 1. A caller's own lower positive
   value is kept; a higher, absent or malformed one is replaced. The wrapper prints the cap and the `finish`

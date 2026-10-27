@@ -2664,6 +2664,7 @@ function Exit-WeatherHeavyWorkloadLease {
             if ($null -ne $Lease -and
                 $Lease.PSObject.Properties.Name -contains "ExclusiveMutex" -and
                 $null -ne $Lease.ExclusiveMutex) {
+                Remove-WeatherHeavyWorkloadExclusiveHolderRecord
                 Exit-WeatherHeavyWorkloadExtraSlotMutex -Mutexes @($Lease.ExclusiveMutex)
                 $Lease.ExclusiveMutex = $null
             }
@@ -3114,6 +3115,235 @@ function Enter-WeatherWorkstationHeavySlotLease {
 }
 
 
+function Get-WeatherHeavyWorkloadExclusiveHolderPath {
+    # The exclusive barrier's holder record lives in the shared queue directory,
+    # so every checkout on the host reads the same record for the one barrier.
+    [CmdletBinding()]
+    param([switch]$CreateIfMissing)
+
+    Join-Path (Get-WeatherHeavyWorkloadQueueRoot -CreateIfMissing:$CreateIfMissing) `
+        "exclusive_holder_v1.json"
+}
+
+
+function Write-WeatherHeavyWorkloadExclusiveHolderRecord {
+    # Written only by the process that owns the exclusive barrier, atomically
+    # (temporary file, then replace). Phase is "draining" while the owner still
+    # waits for slots and "held" once it holds every slot.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$Workload,
+        [long]$Ticket = 0,
+        [Parameter(Mandatory = $true)][ValidateSet("draining", "held")][string]$Phase,
+        [int]$InheritedSlotId = 0
+    )
+
+    $ownerStart = Get-WeatherProcessCreationIdentity -ProcessId $PID
+    if ([string]::IsNullOrWhiteSpace($ownerStart)) {
+        throw "exclusive holder process creation identity is unavailable"
+    }
+    $path = Get-WeatherHeavyWorkloadExclusiveHolderPath -CreateIfMissing
+    $record = [ordered]@{
+        schema_version = "weather_heavy_workload_exclusive_holder_v1"
+        pid = [int]$PID
+        owner_process_start_utc = $ownerStart
+        boot_session_id = Get-WeatherBootSessionId
+        workload = $Workload
+        ticket = $Ticket
+        phase = $Phase
+        inherited_slot_id = $InheritedSlotId
+        recorded_at_utc = [DateTime]::UtcNow.ToString("o")
+    }
+    $temporary = "{0}.{1}.{2}.tmp" -f $path, $PID, [Guid]::NewGuid().ToString("N")
+    [IO.File]::WriteAllText(
+        $temporary, ($record | ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false))
+    try {
+        if ([IO.File]::Exists($path)) { [IO.File]::Replace($temporary, $path, $null) }
+        else { [IO.File]::Move($temporary, $path) }
+    }
+    finally {
+        if ([IO.File]::Exists($temporary)) {
+            try { [IO.File]::Delete($temporary) } catch { }
+        }
+    }
+}
+
+
+function Get-WeatherHeavyWorkloadExclusiveHolderRecord {
+    # The recorded exclusive holder, or $null when absent or unreadable. The
+    # record says nothing about liveness; callers prove pid plus start time.
+    [CmdletBinding()]
+    param()
+
+    try {
+        $path = Get-WeatherHeavyWorkloadExclusiveHolderPath
+        if (-not [IO.File]::Exists($path)) { return $null }
+        $candidate = [IO.File]::ReadAllText($path, [Text.Encoding]::UTF8) |
+            ConvertFrom-Json -ErrorAction Stop
+        if (
+            [string]$candidate.schema_version -ceq
+                "weather_heavy_workload_exclusive_holder_v1" -and
+            [long]$candidate.pid -gt 0 -and
+            -not [string]::IsNullOrWhiteSpace([string]$candidate.owner_process_start_utc)
+        ) {
+            return $candidate
+        }
+    }
+    catch { }
+    return $null
+}
+
+
+function Test-WeatherHeavyWorkloadExclusiveHolderLive {
+    # True only when the recorded pid is alive in this boot session AND has the
+    # recorded creation time; a dead or reused pid is not the holder.
+    [CmdletBinding()]
+    param([AllowNull()]$Record)
+
+    if ($null -eq $Record) { return $false }
+    try {
+        if ([int]$Record.boot_session_id -ne (Get-WeatherBootSessionId)) { return $false }
+        $identity = Get-WeatherProcessCreationIdentity -ProcessId ([int]$Record.pid)
+    }
+    catch { return $false }
+    return ($null -ne $identity -and
+        [string]$identity -ceq [string]$Record.owner_process_start_utc)
+}
+
+
+function Remove-WeatherHeavyWorkloadExclusiveHolderRecord {
+    # Called by the barrier owner just before it releases the barrier. Removes
+    # the record only when it names this very process (pid plus start time).
+    [CmdletBinding()]
+    param()
+
+    try {
+        $record = Get-WeatherHeavyWorkloadExclusiveHolderRecord
+        if ($null -eq $record -or [int]$record.pid -ne $PID) { return }
+        $ownerStart = Get-WeatherProcessCreationIdentity -ProcessId $PID
+        if ([string]$record.owner_process_start_utc -cne [string]$ownerStart) { return }
+        [IO.File]::Delete((Get-WeatherHeavyWorkloadExclusiveHolderPath))
+    }
+    catch {
+        Write-Warning "exclusive holder record could not be removed: $($_.Exception.Message)"
+    }
+}
+
+
+function Get-WeatherHeavyWorkloadExclusiveHolderSummary {
+    # The live recorded exclusive holder for the wait log, or $null.
+    [CmdletBinding()]
+    param()
+
+    $record = Get-WeatherHeavyWorkloadExclusiveHolderRecord
+    if (-not (Test-WeatherHeavyWorkloadExclusiveHolderLive -Record $record)) { return $null }
+    return [ordered]@{
+        workload = [string]$record.workload
+        pid = [int]$record.pid
+        owner_process_start_utc = [string]$record.owner_process_start_utc
+        execution_host_profile = "workstation_offline_v1"
+        state = "EXCLUSIVE_" + ([string]$record.phase).ToUpperInvariant()
+        exclusive = $true
+    }
+}
+
+
+function Get-WeatherHeavyWorkloadExclusiveWaitHolder {
+    # Holder for an exclusive waiter's log line: the live recorded barrier owner
+    # when that is another process, else whoever holds a slot.
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][string]$RepoRoot)
+
+    $summary = Get-WeatherHeavyWorkloadExclusiveHolderSummary
+    if ($null -ne $summary -and [int]$summary.pid -ne $PID) { return $summary }
+    return (Get-WeatherHeavyWorkloadHolderSummary -RepoRoot $RepoRoot)
+}
+
+
+function Get-WeatherProcessAncestorChain {
+    # The caller's ancestors, nearest first, each with its CIM creation time.
+    # The walk stops at a parent created after its child: that parent pid was
+    # reused by an unrelated process and is not an ancestor.
+    [CmdletBinding()]
+    param(
+        [int]$ProcessId = $PID,
+        [object[]]$ProcessSnapshot
+    )
+
+    $processes = if ($PSBoundParameters.ContainsKey("ProcessSnapshot")) {
+        @($ProcessSnapshot)
+    }
+    else { @(Get-WeatherProcessSnapshot) }
+    $byId = @{}
+    foreach ($process in $processes) { $byId[[int]$process.ProcessId] = $process }
+    $chain = New-Object System.Collections.Generic.List[object]
+    $seen = @{}
+    $current = $byId[$ProcessId]
+    while ($null -ne $current) {
+        $seen[[int]$current.ProcessId] = $true
+        $parentId = [int]$current.ParentProcessId
+        if ($parentId -le 0 -or $seen.ContainsKey($parentId)) { break }
+        $parent = $byId[$parentId]
+        if ($null -eq $parent) { break }
+        if ($null -eq $parent.CreationDate -or $null -eq $current.CreationDate -or
+            [DateTime]$parent.CreationDate -gt [DateTime]$current.CreationDate) { break }
+        $chain.Add($parent)
+        $current = $parent
+    }
+    return ,@($chain.ToArray())
+}
+
+
+function Find-WeatherHeavyWorkloadExclusiveHolderAncestor {
+    # The recorded exclusive holder when it is a live ancestor of the caller
+    # (pid plus start time, never pid alone) that really holds the barrier and
+    # every slot (phase "held"); otherwise $null. The caller itself never
+    # matches: only descendants inherit.
+    [CmdletBinding()]
+    param(
+        [int]$ProcessId = $PID,
+        [object[]]$ProcessSnapshot
+    )
+
+    $record = Get-WeatherHeavyWorkloadExclusiveHolderRecord
+    if ($null -eq $record -or [string]$record.phase -cne "held") { return $null }
+    if ([int]$record.pid -eq $ProcessId) { return $null }
+    if (-not (Test-WeatherHeavyWorkloadExclusiveHolderLive -Record $record)) { return $null }
+    $chainArguments = @{ ProcessId = $ProcessId }
+    if ($PSBoundParameters.ContainsKey("ProcessSnapshot")) {
+        $chainArguments.ProcessSnapshot = $ProcessSnapshot
+    }
+    $ancestors = @(Get-WeatherProcessAncestorChain @chainArguments)
+    if (@($ancestors | Where-Object { [int]$_.ProcessId -eq [int]$record.pid }).Count -eq 0) {
+        return $null
+    }
+    # The barrier must really be held by someone else: a free barrier means the
+    # record is stale whatever it says.
+    $barrier = [Threading.Mutex]::new($false, (Get-WeatherHeavyWorkloadExclusiveMutexName))
+    try {
+        $acquired = $false
+        try { $acquired = $barrier.WaitOne(0, $false) }
+        catch [Threading.AbandonedMutexException] { $acquired = $true }
+        if ($acquired) {
+            $barrier.ReleaseMutex()
+            return $null
+        }
+    }
+    finally { $barrier.Dispose() }
+    # The record must be unchanged after the probe and its pid still the same
+    # live process, so a release-and-reacquire in between grants nothing.
+    $again = Get-WeatherHeavyWorkloadExclusiveHolderRecord
+    if ($null -eq $again -or
+        [int]$again.pid -ne [int]$record.pid -or
+        [string]$again.owner_process_start_utc -cne [string]$record.owner_process_start_utc -or
+        [string]$again.recorded_at_utc -cne [string]$record.recorded_at_utc -or
+        -not (Test-WeatherHeavyWorkloadExclusiveHolderLive -Record $again)) {
+        return $null
+    }
+    return $record
+}
+
+
 function Enter-WeatherWorkstationHeavyExclusiveLease {
     # Every workstation slot for one caller (the pre-gate; master ruling
     # 2026-10-24 W3a). It first takes the exclusive barrier, so new slot jobs
@@ -3124,6 +3354,12 @@ function Enter-WeatherWorkstationHeavyExclusiveLease {
     # nested caller names the slot its enclosing wrapper already holds
     # (-InheritedSlotId) and gets a hold object instead of a lease. Returns $null
     # when TimeoutSeconds elapses first.
+    #
+    # The barrier owner is recorded (pid plus process start time) for the wait
+    # log and for re-entrancy: a caller whose process ancestry contains the
+    # live recorded holder of every slot is already inside that exclusive hold,
+    # so it gets an empty hold at once, with no ticket and no mutex
+    # (InheritedFromExclusiveHolder; PG-NEST-1). Everyone else queues as before.
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)][string]$RepoRoot,
@@ -3135,6 +3371,35 @@ function Enter-WeatherWorkstationHeavyExclusiveLease {
     )
 
     Assert-WeatherWorkstationOfflineHost -RepoRoot $RepoRoot
+    $ancestorHolder = Find-WeatherHeavyWorkloadExclusiveHolderAncestor
+    if ($null -ne $ancestorHolder) {
+        $hold = [PSCustomObject]@{
+            Inherited = $true
+            InheritedFromExclusiveHolder = $true
+            InheritedSlotId = $InheritedSlotId
+            Workload = $Workload
+            ExtraSlotMutexes = @()
+            ExclusiveMutex = $null
+            Exclusive = $true
+            ExclusiveHolderPid = [int]$ancestorHolder.pid
+            ExclusiveHolderStartUtc = [string]$ancestorHolder.owner_process_start_utc
+            ExclusiveHolderWorkload = [string]$ancestorHolder.workload
+            QueueTicket = $null
+            QueueWaitedSeconds = 0.0
+        }
+        Write-WeatherHeavyWorkloadQueueEvent -RepoRoot $RepoRoot -Event "start" `
+            -Workload $Workload `
+            -Holder (Get-WeatherHeavyWorkloadExclusiveHolderSummary) `
+            -Extra @{
+                exclusive = $true
+                inherited_slot_id = $InheritedSlotId
+                slot_id = "all"
+                lease_mode = "inherited_from_exclusive_holder"
+                exclusive_holder_pid = [int]$ancestorHolder.pid
+                exclusive_holder_start_utc = [string]$ancestorHolder.owner_process_start_utc
+            }
+        return $hold
+    }
     $maxSlotId = Get-WeatherHeavyWorkloadMaxSlotId
     $queueRoot = Get-WeatherHeavyWorkloadQueueRoot -CreateIfMissing
     $ticket = New-WeatherHeavyWorkloadQueueTicket `
@@ -3163,6 +3428,10 @@ function Enter-WeatherWorkstationHeavyExclusiveLease {
             if (-not $barrierOwned) {
                 try { $barrierOwned = $barrier.WaitOne(0, $false) }
                 catch [Threading.AbandonedMutexException] { $barrierOwned = $true }
+                if ($barrierOwned) {
+                    Write-WeatherHeavyWorkloadExclusiveHolderRecord -Workload $Workload `
+                        -Ticket $ticket.Ticket -Phase "draining" -InheritedSlotId $InheritedSlotId
+                }
             }
             if ($barrierOwned) {
                 foreach ($slotId in $needed) {
@@ -3183,6 +3452,7 @@ function Enter-WeatherWorkstationHeavyExclusiveLease {
                 $outcome = "give_up"
                 Write-WeatherHeavyWorkloadQueueEvent -RepoRoot $RepoRoot -Event "give_up" `
                     -Ticket $ticket.Ticket -WaitedSeconds $waited -Workload $Workload `
+                    -Holder (Get-WeatherHeavyWorkloadExclusiveWaitHolder -RepoRoot $RepoRoot) `
                     -Extra @{
                         exclusive = $true
                         timeout_seconds = $TimeoutSeconds
@@ -3194,6 +3464,7 @@ function Enter-WeatherWorkstationHeavyExclusiveLease {
             if (($waited - $lastReport) -ge $ReportSeconds) {
                 Write-WeatherHeavyWorkloadQueueEvent -RepoRoot $RepoRoot -Event "wait" `
                     -Ticket $ticket.Ticket -WaitedSeconds $waited -Workload $Workload `
+                    -Holder (Get-WeatherHeavyWorkloadExclusiveWaitHolder -RepoRoot $RepoRoot) `
                     -Extra @{
                         exclusive = $true
                         slot_refusal = $refusal
@@ -3218,6 +3489,9 @@ function Enter-WeatherWorkstationHeavyExclusiveLease {
             Invoke-WeatherHeavyWorkloadSlotStaleRecovery -RepoRoot $RepoRoot `
                 -SlotId $slotId -Path $slotPath -Marker $marker
         }
+        # Every slot is held from here on: descendants may now inherit.
+        Write-WeatherHeavyWorkloadExclusiveHolderRecord -Workload $Workload `
+            -Ticket $ticket.Ticket -Phase "held" -InheritedSlotId $InheritedSlotId
         $extras = @($needed | Where-Object { $_ -ne 1 } | ForEach-Object { $held[$_] })
         if ($InheritedSlotId -eq 0) {
             $lease = $null
@@ -3271,7 +3545,10 @@ function Enter-WeatherWorkstationHeavyExclusiveLease {
             Exit-WeatherHeavyWorkloadExtraSlotMutex -Mutexes @(
                 $held.Keys | Where-Object { $_ -ne 1 -or $InheritedSlotId -ne 0 } |
                     ForEach-Object { $held[$_] })
-            if ($barrierOwned) { Exit-WeatherHeavyWorkloadExtraSlotMutex -Mutexes @($barrier) }
+            if ($barrierOwned) {
+                Remove-WeatherHeavyWorkloadExclusiveHolderRecord
+                Exit-WeatherHeavyWorkloadExtraSlotMutex -Mutexes @($barrier)
+            }
             elseif ($null -ne $barrier) { $barrier.Dispose() }
         }
         try { [IO.File]::Delete($ticket.Path) } catch { }
@@ -3294,6 +3571,7 @@ function Exit-WeatherWorkstationHeavyExclusiveHold {
     Exit-WeatherHeavyWorkloadExtraSlotMutex -Mutexes @($Hold.ExtraSlotMutexes)
     $Hold.ExtraSlotMutexes = @()
     if ($null -ne $Hold.ExclusiveMutex) {
+        Remove-WeatherHeavyWorkloadExclusiveHolderRecord
         Exit-WeatherHeavyWorkloadExtraSlotMutex -Mutexes @($Hold.ExclusiveMutex)
         $Hold.ExclusiveMutex = $null
     }

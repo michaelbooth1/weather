@@ -13,6 +13,9 @@ every head bound for a host landing night in exactly the host suite's mode:
   log; the detached worktree and per-chunk basetemps are removed;
 * nested ("inherited" lease) mode still proves this is the assigned non-capture
   workstation, because the capture host's heavy lease uses the same mutex name;
+* a nested pre-gate under an outer exclusive pre-gate (its own ancestor) is
+  admitted at once as ``inherited_from_exclusive_holder`` and passes, instead of
+  queueing behind its ancestor until timeout (PG-NEST-1);
 * an interrupted run (Ctrl+C) exits non-zero, matching its FAIL receipt;
 * a content-only change to any replaced host statement is refused (pinned hashes).
 
@@ -33,6 +36,7 @@ import site
 import subprocess
 import sys
 import time
+import uuid
 from pathlib import Path
 
 import pytest
@@ -208,11 +212,13 @@ def _write_assignment(repo: Path, identity: str) -> None:
     assert result.returncode == 0, result.stderr
 
 
-def _fixture_repo(root: Path, probe_out: Path) -> dict[str, str]:
+def _fixture_repo(root: Path, probe_out: Path, admission_text: str | None = None) -> dict[str, str]:
     repo = root / "repo"
     (repo / "scripts" / "ops").mkdir(parents=True)
     for name in COPIED_SCRIPTS:
         shutil.copyfile(OPS / name, repo / "scripts" / "ops" / name)
+    if admission_text is not None:
+        (repo / "scripts" / "ops" / "workload_admission.ps1").write_text(admission_text, encoding="utf-8")
     (repo / "src" / "weather").mkdir(parents=True)
     (repo / "src" / "weather" / "__init__.py").write_text("", encoding="utf-8")
     (repo / "tests").mkdir()
@@ -545,6 +551,91 @@ def test_nested_pregate_still_refuses_a_host_that_is_not_the_assigned_workstatio
     assert receipt["git_executable"] is None
     assert receipt["worktree_removed"] is None
     assert not (tmp_path / "wt").exists()
+
+
+# ------------------------------------------------------------------ nested under an exclusive pre-gate
+# Only this test's own copy of workload_admission.ps1 is rewritten: a private
+# mutex name and a fixture-local state file (so the queue and the exclusive
+# holder record live under tmp_path), plus no residual-process or memory veto.
+# The production script honours no redirect of any kind.
+ISOLATED_ADMISSION_OVERRIDES = r"""
+# TEST-ONLY: FIXTURE-LOCAL STATE, NO RESIDUAL-PROCESS OR MEMORY VETO
+function Get-WeatherHeavyWorkloadPoisonPath {
+    param([switch]$CreateIfMissing)
+    $root = '{state_root}'
+    if ($CreateIfMissing) { [void][IO.Directory]::CreateDirectory($root) }
+    Join-Path $root 'heavy_workload_v1.poison'
+}
+function Get-WeatherActiveWorkstationHeavyProcess { param($ProcessSnapshot, $TaskObservation, $DecisionLog) }
+function Get-WeatherWorkstationMemoryReading {
+    [PSCustomObject]@{ TotalPhysicalBytes = 32GB; AvailablePhysicalBytes = 16GB; CommitPercent = 40.0 }
+}
+"""
+
+OUTER_EXCLUSIVE_PREGATE = r"""
+$ErrorActionPreference = 'Stop'
+. '{admission}'
+$lease = Enter-WeatherWorkstationHeavyExclusiveLease -RepoRoot '{repo}' -Workload 'WorkstationOffline-pytest-pregate-outer' `
+    -TimeoutSeconds 60 -PollMilliseconds 100 -ReportSeconds 1
+if ($null -eq $lease) {{ exit 3 }}
+$env:WEATHER_WORKSTATION_WRAPPER_ACTIVE = '1'
+Remove-Item Env:WEATHER_WORKSTATION_WRAPPER_SLOT -ErrorAction SilentlyContinue
+$clock = [Diagnostics.Stopwatch]::StartNew()
+$ErrorActionPreference = 'Continue'
+& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File '{pregate}' -Head '{head}' -RepoRoot '{repo}' `
+    -OutputDirectory '{out}' -ReceiptPath '{receipt}' -WorktreeParent '{worktrees}' -QueueTimeoutSeconds 60 *> '{log}'
+$nestedExit = $LASTEXITCODE
+$ErrorActionPreference = 'Stop'
+[IO.File]::WriteAllText('{outer}', ([ordered]@{{ pid = $PID; nested_exit = $nestedExit; seconds = $clock.Elapsed.TotalSeconds }} |
+    ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false))
+Set-WeatherHeavyWorkloadLeaseTeardownPending -Lease $lease | Out-Null
+Exit-WeatherHeavyWorkloadLease -Lease $lease
+"""
+
+
+def test_a_nested_pregate_under_an_outer_exclusive_pregate_is_admitted_and_passes(tmp_path):
+    # PG-NEST-1: the 2026-10-27 workstation pre-gate hung at chunk 12 because this
+    # module's nested pre-gate queued behind the outer pre-gate that was its own
+    # ancestor. With an outer exclusive holder in place, the nested run must be
+    # admitted at once as its descendant and pass, not wait out its queue timeout.
+    if shutil.disk_usage(tmp_path).free < 55 * 1024**3:
+        pytest.skip("the host suite's 50 GiB disk floor cannot be met on this volume")
+    state_root = tmp_path / "host-state"
+    text = (OPS / "workload_admission.ps1").read_text(encoding="utf-8-sig")
+    assert MUTEX_NAME in text
+    admission = text.replace(MUTEX_NAME, "Local\\WeatherPgNestFixture-" + uuid.uuid4().hex)
+    admission += ISOLATED_ADMISSION_OVERRIDES.replace("{state_root}", str(state_root))
+    info = _fixture_repo(tmp_path, tmp_path / "probe.json", admission_text=admission)
+    repo = Path(info["repo"])
+    receipt_path, outer_path = tmp_path / "receipt.json", tmp_path / "outer.json"
+    script = OUTER_EXCLUSIVE_PREGATE.format(
+        admission=repo / "scripts" / "ops" / "workload_admission.ps1", repo=repo,
+        pregate=repo / "scripts" / "ops" / "workstation_pregate.ps1", head=info["good"],
+        out=tmp_path / "out", receipt=receipt_path, worktrees=tmp_path / "wt",
+        log=tmp_path / "nested.log", outer=outer_path,
+    )
+    env = {key: value for key, value in os.environ.items() if not key.startswith("WEATHER_WORKSTATION_WRAPPER")}
+    result = _run([*POWERSHELL, "-Command", script], cwd=tmp_path, env=env, timeout=600)
+    nested_log = (tmp_path / "nested.log").read_text(encoding="utf-8", errors="replace") if (tmp_path / "nested.log").exists() else ""
+    assert result.returncode == 0, result.stdout + result.stderr + nested_log
+    outer = json.loads(outer_path.read_text(encoding="utf-8"))
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert receipt["verdict"] == "PASS", (receipt["failure_reasons"], nested_log)
+    assert outer["nested_exit"] == 0
+    assert receipt["lease_mode"] == "inherited_from_exclusive_holder"
+    assert receipt["workstation_exclusive"] is True
+    assert receipt["exclusive_holder"]["pid"] == outer["pid"]
+    assert receipt["exclusive_holder"]["workload"] == "WorkstationOffline-pytest-pregate-outer"
+    events = [
+        json.loads(line)
+        for line in (repo / "data" / "logs" / "heavy_workload_queue.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    nested = [event for event in events if event["pid"] != outer["pid"]]
+    assert [event["event"] for event in nested] == ["start"]
+    assert nested[0]["lease_mode"] == "inherited_from_exclusive_holder"
+    _assert_clean(info, receipt)
+    assert not (state_root / "heavy_workload_queue_v1" / "exclusive_holder_v1.json").exists()
 
 
 # ------------------------------------------------------------------ interrupted exit code

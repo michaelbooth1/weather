@@ -275,6 +275,7 @@ $receipt = [ordered]@{
     lease_mode = $null
     workstation_slot_id = $null
     workstation_exclusive = $false
+    exclusive_holder = $null
     launch_mode = [ordered]@{
         driver = "Start-WeatherProcessInJob -OutputCapture (CREATE_SUSPENDED|CREATE_NO_WINDOW, stdio pipes, kill-on-close Job), as integration_attempt_suite.ps1 launches the host suite"
         chunks = "host bounded suite statements replayed from its AST: Start-WeatherProcessInJob (CREATE_SUSPENDED|CREATE_NO_WINDOW, no inherited handles, kill-on-close Job)"
@@ -352,6 +353,27 @@ try {
         $receipt.lease_mode = "workstation_queue"
         $receipt.workstation_slot_id = [int]$lease.WorkstationSlotId
         $receipt.workstation_exclusive = $true
+    }
+    if ($null -ne $lease -and
+        $lease.PSObject.Properties.Name -contains "InheritedFromExclusiveHolder" -and
+        $lease.InheritedFromExclusiveHolder) {
+        # A descendant of the exclusive holder got an empty hold, not a lease.
+        $exclusiveHold = $lease
+        $lease = $null
+        $receipt.workstation_slot_id = $null
+    }
+    if ($null -ne $exclusiveHold -and
+        $exclusiveHold.PSObject.Properties.Name -contains "InheritedFromExclusiveHolder" -and
+        $exclusiveHold.InheritedFromExclusiveHolder) {
+        # Already inside a live ancestor's exclusive hold (PG-NEST-1): admitted
+        # at once, no ticket and no mutex of its own.
+        $receipt.lease_mode = "inherited_from_exclusive_holder"
+        $receipt.workstation_exclusive = $true
+        $receipt.exclusive_holder = [ordered]@{
+            pid = [int]$exclusiveHold.ExclusiveHolderPid
+            owner_process_start_utc = [string]$exclusiveHold.ExclusiveHolderStartUtc
+            workload = [string]$exclusiveHold.ExclusiveHolderWorkload
+        }
     }
 
     # ------------------------------------------------------------ git identity
