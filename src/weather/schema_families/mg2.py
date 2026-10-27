@@ -14,4 +14,12 @@ SCHEMAS = (
         "active",
         "Fenced binding block of the MG-2 pre-registered rule: bound input, state and release hashes.",
     ),
+    SchemaSpec(
+        "mg2_release_binding",
+        "mg2_release_binding/1",
+        "weather.calibration.mg2_composite",
+        "active",
+        "release-binding.json written by mg2_composite bind-release from verified loads: rule, function, "
+        "coefficient part, P3d_N state and L6 state sha256s, the release file hashes and the build commit.",
+    ),
 )

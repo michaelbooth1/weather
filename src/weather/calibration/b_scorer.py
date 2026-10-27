@@ -52,6 +52,7 @@ def _refuse_production_import():
 
 _refuse_production_import()
 
+from weather import paths  # noqa: E402
 from weather.calibration import mg2_composite as mg2  # noqa: E402  (its import refuses on the capture host)
 
 NAME = "b_scorer"
@@ -116,6 +117,9 @@ VOID_CONDITIONS = {
 
 TRANSFER_MANIFEST = "b_transfer_manifest.json"
 CONSUMED = "b_look_consumed.json"  # written beside the transfer manifest and mg2_look.json when the look starts
+# The authoritative one-look marker: a fixed repository-owned path keyed by the B-1 rule sha, so copying the
+# inputs to fresh folders and passing a new --out cannot start a second look.
+CONSUMED_ROOT = paths.data_path("b_look")
 MG1_RECEIPT_TIME = "looked_at_utc"  # the instant inside MG-1's look receipt that VOID 5 compares against
 # Market-local day ends for the embargo (B-1 section 9): the 45th date settles when its last market's day ends.
 MARKET_TZ = {"atlanta": "America/New_York", "miami": "America/New_York", "nyc": "America/New_York",
@@ -208,11 +212,18 @@ def unfilled(fields):
 
 
 def l6_state_problems(fields, release_binding):
-    """The bound L6 state sha: 64 lowercase hex, and equal to the one MG-2's release binding records."""
+    """The bound L6 state sha: 64 lowercase hex, and equal to the one MG-2's release binding records.
+
+    The binding must be ``mg2_composite bind-release`` output (``RELEASE_BINDING_SCHEMA``), whose
+    ``l6_state_sha256`` is the sha that ``load_l6_own_state`` verified, so two machine-written values meet here.
+    """
     value = fields.get(L6_STATE_FIELD) or ""
     if not SHA256_HEX.fullmatch(value):
         return [L6_STATE_FIELD]
-    if _json(release_binding).get(L6_STATE_FIELD) != value:
+    binding = _json(release_binding)
+    if binding.get("schema") != mg2.RELEASE_BINDING_SCHEMA:
+        return [f"{L6_STATE_FIELD} (the MG-2 release binding is not bind-release output)"]
+    if binding.get(L6_STATE_FIELD) != value:
         return [f"{L6_STATE_FIELD} (MG-2 release binding)"]
     return []
 
@@ -303,10 +314,15 @@ def embargo_end(last_date):
     return max(datetime.combine(day, time(0), ZoneInfo(MARKET_TZ[m])).astimezone(timezone.utc) for m in MARKETS)
 
 
+def rule_marker(rule_sha):
+    """The fixed marker for this B-1 rule: ``data/b_look/consumed-<rule_sha256>.json``."""
+    return Path(CONSUMED_ROOT) / f"consumed-{rule_sha}.json"
+
+
 def consumed_markers(transfer, mg2_look):
-    """The look's consumed markers: beside the transfer manifest and beside mg2_look.json."""
-    paths = [Path(transfer) / CONSUMED, Path(mg2_look).parent / CONSUMED]
-    return list(dict.fromkeys(p.resolve() for p in paths))
+    """The look's input-side markers: beside the transfer manifest and beside mg2_look.json."""
+    found = [Path(transfer) / CONSUMED, Path(mg2_look).parent / CONSUMED]
+    return list(dict.fromkeys(p.resolve() for p in found))
 
 
 def look_guard(*, rule, mg1_look_receipt, out, transfer=None, mg2_look=None, vectors=None, layout_root=None,
@@ -315,8 +331,9 @@ def look_guard(*, rule, mg1_look_receipt, out, transfer=None, mg2_look=None, vec
 
     Order: MG-1's look receipt FIRST, then the rule, the window, one look (the output and the consumed markers),
     the gate vectors (MG-2 rule section 8 C7), the look date set, the embargo (the latest market-local end of the
-    45th date) and the drop list. Only then are the consumed markers written, beside the transfer manifest and
-    beside mg2_look.json, so a re-run with a new ``--out`` or another drop list is refused.
+    45th date) and the drop list. Only then are the consumed markers written: first the fixed
+    ``data/b_look/consumed-<rule_sha256>.json`` (mode "x"), then beside the transfer manifest and mg2_look.json, so
+    a re-run with a new ``--out``, another drop list or copied inputs is refused.
     ``today`` and ``now`` are for tests; ``today`` alone stands for the last second of that UTC day.
     """
     import pandas as pd
@@ -340,6 +357,9 @@ def look_guard(*, rule, mg1_look_receipt, out, transfer=None, mg2_look=None, vec
         raise BRefused("the B look already exists: exactly one look")
     if None in (transfer, mg2_look, vectors, layout_root, drop_list):
         raise BRefused("the look needs the transfer, mg2_look, vectors, layout and drop list")
+    fixed = rule_marker(rule_sha)
+    if fixed.exists():
+        raise BRefused(f"the B look for rule {rule_sha} was already consumed ({fixed}): exactly one look")
     markers = consumed_markers(transfer, mg2_look)
     spent = [str(m) for m in markers if m.exists()]
     if spent:
@@ -359,7 +379,8 @@ def look_guard(*, rule, mg1_look_receipt, out, transfer=None, mg2_look=None, vec
     marker = {"schema": CONSUMED_SCHEMA, "rule_sha256": rule_sha, "b_scorer_sha256": module_sha256(),
               "out": str(Path(out).resolve()), "drop_list_sha256": sha256_file(drop_list),
               "consumed_at_utc": datetime.now(timezone.utc).isoformat()}
-    for path in markers:
+    fixed.parent.mkdir(parents=True, exist_ok=True)
+    for path in [fixed, *markers]:  # the fixed marker first: it is the authority
         try:
             with open(path, "x", encoding="utf-8") as handle:
                 handle.write(json.dumps(marker, indent=1, sort_keys=True))
@@ -450,13 +471,18 @@ def emit_audit_problems(fields, vectors):
 
 
 def mg2_void_problems(mg2_look):
-    """VOID 1: MG-2's own section 7 results, as ``mg2.score`` recorded them in mg2_look.json."""
+    """VOID 1: MG-2's own section 7 results, as ``mg2.score`` recorded them in mg2_look.json.
+
+    Every condition in ``mg2.SECTION7_CONDITIONS`` must be recorded and pass; a missing, null or false result
+    is VOID (a condition that was not evaluated never passes).
+    """
     conditions = _json(mg2_look).get("void_conditions")
     if not isinstance(conditions, dict) or not conditions:
         return ["mg2_look.json records no section 7 condition results"]
-    return [f"{name}: {(entry or {}).get('detail') if isinstance(entry, dict) else entry}"
-            for name, entry in sorted(conditions.items())
-            if not isinstance(entry, dict) or entry.get("pass") is False]
+    problems = [f"{name}: not recorded" for name in mg2.SECTION7_CONDITIONS if name not in conditions]
+    return problems + [f"{name}: {(entry or {}).get('detail') if isinstance(entry, dict) else entry}"
+                       for name, entry in sorted(conditions.items())
+                       if not isinstance(entry, dict) or entry.get("pass") is not True]
 
 
 def pre_look_read_problems(mg2_look):

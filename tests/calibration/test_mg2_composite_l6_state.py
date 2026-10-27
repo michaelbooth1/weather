@@ -4,7 +4,9 @@ Guards: MG-2 clarification season-L6 2026-10-26 (docs/research/mg2-composite-bin
 mg2-clarification-season-l6-2026-10-26.md at 4c89815c3, section 3): the 07-12 arm's nowcast N is
 ``mg_serve_core.l6_own_nowcast`` on the state loaded by ``mg_serve_core.load_l6_own_state(path, sha)``; a
 mismatched, empty or FILL sha refuses; no carve-out by date; the state path and sha are binding inputs.
-The fixture state is a tiny HGB fitted in-test; no local data file is read.
+The fixture state is a tiny HGB fitted in-test; no local data file is read. Master's review of de422aa59: R2
+(every rule section 7 condition is computed true or false by ``check``: nowcast replay, P3d_N replay, window
+leakage) and R4 (``bind-release`` writes ``l6_state_sha256`` from the verified load; no hand edit).
 """
 import hashlib
 import json
@@ -290,10 +292,13 @@ def test_forward_emit_refuses_nowcasts_from_another_state_before_emitting(tmp_pa
 def test_section7_conditions_recompute_coverage_and_read_the_bound_checks():
     snaps = pd.DataFrame({"row_key": [f"k{i}" for i in range(11)], "local_hour": [8] * 10 + [20]})
     vec = pd.DataFrame({"row_key": [f"k{i}" for i in range(9)]})
-    checks = {"pit_pass": True, "parser_pass": True, "replay_pass": True}
+    checks = {"pit_pass": True, "parser_pass": True, "replay_pass": True, "nowcast_replay_pass": True,
+              "p3d_n_replay_pass": True, "window_leakage_pass": True}
     got = mg2.section7_conditions(snaps, vec, checks)  # 9 of the ten 00-16 snapshots = 0.90
-    assert all(got[k]["pass"] is True for k in ("coverage", "pit", "parser", "replay", "hashes"))
-    assert all(got[k]["pass"] is None for k in ("nowcast_replay", "p3d_n_replay", "window_leakage"))
+    assert tuple(got) == mg2.SECTION7_CONDITIONS and all(got[k]["pass"] is True for k in got)
+    for key in ("nowcast_replay_pass", "p3d_n_replay_pass", "window_leakage_pass"):  # never left unevaluated
+        missing = mg2.section7_conditions(snaps, vec, {k: v for k, v in checks.items() if k != key})
+        assert missing[key.replace("_pass", "")]["pass"] is False
     assert mg2.section7_conditions(snaps, vec.iloc[:8], checks)["coverage"]["pass"] is False
     for key in checks:
         bad = mg2.section7_conditions(snaps, vec, dict(checks, **{key: False}))
@@ -393,3 +398,183 @@ def test_prev_dmax_from_a_capture_after_the_snapshot_is_never_served(tmp_path, m
                                         l6_state=path, l6_state_sha256=sha)
         assert set(seen) == expected
         assert manifest["stats"].get("prev_dmax_after_snapshot_days", 0) == (1 if late else 0)
+
+
+def test_the_l6_state_schema_literal_is_registered_in_its_family():
+    from weather.schema_families import schema_version
+    from weather.schema_registry_families import installed_families
+
+    registry = installed_families()
+    assert not registry.errors
+    assert schema_version("l6_own_state") == core.L6_STATE_SCHEMA
+    assert registry.family_of("l6_own_state") == "l6_own_state"
+
+
+# ----------------------------------------------------------------------------- R2: section 7 replays in check
+
+def _replay_run(tmp_path, monkeypatch, sha, path, name="replay"):
+    """A captured-nowcast dev-window run at the bound state, its serve features standing in for L3's."""
+    feat = _features(6, seed=8)
+    out = tmp_path / name
+    out.mkdir()
+    feat.to_parquet(out / "serve_features.parquet", index=False)
+    monkeypatch.setattr(mg2, "DEV_SERVE_FEATURES_SHA256", mg2.sha256_file(out / "serve_features.parquet"))
+    frame = mg2.l6_nowcast_frame(mg2.load_l6_state(path, sha), feat)
+    frame.to_parquet(out / "nowcasts.parquet", index=False)
+    manifest = {"first": mg2.DEV_NOWCAST_WINDOW[0], "last": mg2.DEV_NOWCAST_WINDOW[1], "l6_state_sha256": sha,
+                "serve_features_sha256": mg2.sha256_file(out / "serve_features.parquet"),
+                "nowcasts_sha256": mg2.sha256_file(out / "nowcasts.parquet")}
+    (out / mg2.NOWCASTS_MANIFEST).write_text(json.dumps(manifest), encoding="utf-8")
+    pin = tmp_path / f"{name}_pin.parquet"
+    frame.iloc[::-1].to_parquet(pin, index=False)  # row order does not matter, values must
+    return out, pin, frame
+
+
+def test_nowcast_replay_must_reproduce_the_pin_at_the_bound_state(tmp_path, monkeypatch):
+    path, sha, _ = _state_file(tmp_path)
+    out, pin, frame = _replay_run(tmp_path, monkeypatch, sha, path)
+    pin_sha = mg2.sha256_file(pin)
+    assert mg2.nowcast_replay_check(out, pin, pin_sha, sha)["pass"] is True
+    assert "pin does not hash" in mg2.nowcast_replay_check(out, pin, "0" * 64, sha)["problems"][0]
+    assert "not '" in mg2.nowcast_replay_check(out, pin, pin_sha, "8" * 64)["problems"][0]
+    moved = frame.assign(n_own=frame.n_own + np.r_[0.0, 1e-9, [0.0] * (len(frame) - 2)])
+    moved.to_parquet(pin, index=False)
+    assert mg2.nowcast_replay_check(out, pin, mg2.sha256_file(pin), sha)["problems"] == [
+        "the replay n_own differs from the pin"]
+    monkeypatch.setattr(mg2, "DEV_SERVE_FEATURES_SHA256", "f" * 64)
+    assert "not L3's captured dev features" in mg2.nowcast_replay_check(out, pin, mg2.sha256_file(pin), sha)[
+        "problems"][0]
+    assert mg2.nowcast_replay_check(tmp_path / "absent", pin, pin_sha, sha)["pass"] is False
+
+
+@pytest.mark.parametrize("change,ok", [({}, True), ({"max_abs": 2e-12}, False), ({"pass": False}, False),
+                                       ({"missing": 3}, False), ({"rows": 10}, False),
+                                       ({"reference": "0" * 64}, False)])
+def test_p3d_n_replay_reads_the_control_comparison(tmp_path, change, ok):
+    comparison = {"pass": True, "max_abs": 0.0, "missing": 0, "extra": 0, "bucket_set_mismatch": 0,
+                  "rows": 12, "reference_rows": 12, "tolerance": 1e-12}
+    comparison.update({k: v for k, v in change.items() if k != "reference"})
+    record = {"reference_sha256": change.get("reference", mg2.P3D_N_DEV_REFERENCE_SHA256), "comparison": comparison}
+    path = tmp_path / "control.json"
+    path.write_text(json.dumps(record), encoding="utf-8")
+    assert mg2.p3d_n_replay_check(path)["pass"] is ok
+    assert mg2.p3d_n_replay_check(tmp_path / "absent.json")["pass"] is False
+
+
+def test_window_leakage_needs_no_outcome_read_and_an_unmodified_mg1(tmp_path):
+    root = tmp_path / "repo"
+    (root / mg2.MG1_FILE).parent.mkdir(parents=True)
+    (root / mg2.MG1_FILE).write_text("mg1\n", encoding="utf-8")
+    binding = tmp_path / "release-binding.json"
+    binding.write_text(json.dumps({"files": {mg2.MG1_FILE: mg2.sha256_file(root / mg2.MG1_FILE)}}))
+    clean = [{"vectors_sha256": "a", "outcome_files_opened": []}] * 2
+    assert mg2.window_leakage_check(clean, binding, root=root)["pass"] is True
+    assert mg2.window_leakage_check([{"outcome_files_opened": ["labels.parquet"]}], binding, root=root)["pass"] \
+        is False
+    assert mg2.window_leakage_check([{}], binding, root=root)["pass"] is False  # unrecorded reads fail
+    (root / mg2.MG1_FILE).write_text("mg1 edited\n", encoding="utf-8")
+    assert "differs from release binding" in mg2.window_leakage_check(clean, binding, root=root)["problems"][0]
+
+
+@pytest.mark.spawns
+def test_window_leakage_without_a_binding_compares_mg1_to_head(tmp_path):
+    from tests.git_template import commit_fixture_tree
+
+    root = tmp_path / "repo"
+    (root / mg2.MG1_FILE).parent.mkdir(parents=True)
+    (root / mg2.MG1_FILE).write_text("mg1\n", encoding="utf-8")
+    commit_fixture_tree(root, cache_root=tmp_path / "git-templates", message="mg1",
+                        config=("user.name=Fixture", "user.email=fixture@example.invalid", "commit.gpgSign=false"),
+                        quiet=True)
+    clean = [{"outcome_files_opened": []}]
+    assert mg2.window_leakage_check(clean, None, root=root)["pass"] is True
+    (root / mg2.MG1_FILE).write_text("mg1 edited\n", encoding="utf-8")
+    assert "differs from HEAD" in mg2.window_leakage_check(clean, None, root=root)["problems"][0]
+
+
+def test_check_records_all_three_replays_as_booleans(tmp_path, monkeypatch):
+    path, sha, _ = _state_file(tmp_path)
+    replay, pin, _ = _replay_run(tmp_path, monkeypatch, sha, path)
+    control = tmp_path / "control.json"
+    control.write_text(json.dumps({"reference_sha256": mg2.P3D_N_DEV_REFERENCE_SHA256, "comparison": {
+        "pass": True, "max_abs": 0.0, "missing": 0, "extra": 0, "bucket_set_mismatch": 0, "rows": 3,
+        "reference_rows": 3}}), encoding="utf-8")
+    calls = []
+    kw = _emit_world(tmp_path, monkeypatch, calls)
+    snaps = pd.DataFrame({"row_key": ["atlanta|s0"], "date": ["2026-09-28"], "market": ["atlanta"],
+                          "local_hour": [9], "v2_available_at": ["2026-09-28T10:00:00Z"],
+                          "captured_at_utc": ["2026-09-28T13:00:00Z"], "v2_period_kind": ["maximum"]})
+    bands = pd.DataFrame({"row_key": ["atlanta|s0"], "band_index": [0]})
+    monkeypatch.setattr(mg2, "read_inputs", lambda root: (snaps, bands))
+    monkeypatch.setattr(mg2, "window_leakage_check", lambda audits, binding=None, root=None: {
+        "pass": all(a.get("outcome_files_opened") == [] for a in audits), "problems": []})
+    out = tmp_path / "chk"
+    result = mg2.run_check(out=out, nowcast_replay=replay, nowcast_pin=pin, nowcast_pin_sha256=mg2.sha256_file(pin),
+                           l6_state_sha256=sha, p3d_n_control=control, first="2026-09-28", last="2026-09-28",
+                           control=True, **kw)
+    written = json.loads((out / mg2.CHECKS).read_text(encoding="utf-8"))
+    for key in ("nowcast_replay_pass", "p3d_n_replay_pass", "window_leakage_pass"):
+        assert written[key] is True and result[key] is True
+    assert written["emit_audit_vectors_sha256"][0] == json.loads((out / mg2.EMIT_AUDIT).read_text())["vectors_sha256"]
+
+
+def test_check_cli_requires_the_replay_inputs():
+    base = ["check", "--layout", "l", "--replay-root", "r", "--nowcasts", "n", "--coefficients", "c",
+            "--p3d-n-state", "p", "--rule", "r.md", "--out", "o", "--first", "2026-09-28", "--last", "2026-09-28"]
+    extra = ["--nowcast-replay", "d", "--nowcast-pin", "p.parquet", "--nowcast-pin-sha256", "a" * 64,
+             "--l6-state-sha256", "b" * 64, "--p3d-n-control", "c.json"]
+    for cut in range(0, len(extra), 2):
+        with pytest.raises(SystemExit):
+            mg2.build_parser().parse_args(base + extra[:cut] + extra[cut + 2:])
+    assert mg2.build_parser().parse_args(base + extra).p3d_n_control == "c.json"
+
+
+# ----------------------------------------------------------------------------- R4: bind-release
+
+def _bind_world(tmp_path, monkeypatch):
+    from weather.calibration import mg2_p3d_n
+
+    path, sha, _ = _state_file(tmp_path)
+    part = {"column": "n_own", "coef": {"9": [0.1, 0.9, 10]}, "nowcasts_sha256": "3" * 64}
+    coefficients = tmp_path / "mg2_coefficients.json"
+    coefficients.write_bytes(mg2.canonical({"schema": mg2.SCHEMA, "l6_stack": part}))
+    rule = tmp_path / "rule.md"
+    body = {"switch_hour": "13", "d0": "2026-10-29", "n_forward_dates": "45", "owner_decision_id": "NONE",
+            "l6_coefficients_sha256": mg2.part_sha(part), "p3d_n_state_sha256": "5" * 64,
+            "forecast_high_source": "captured_nbm_v2_mean_07z", "own_obs_source": "captured_metar_l6_own",
+            "function_sha256": "6" * 64}
+    rule.write_text(f"```{mg2.RULE_BLOCK}\n" + "\n".join(f"{k}: {v}" for k, v in body.items()) + "\n```\n",
+                    encoding="utf-8")
+    loads = []
+    monkeypatch.setattr(mg2_p3d_n, "load_state", lambda p, s, forward: loads.append((s, forward)) or {})
+    monkeypatch.setattr(mg2, "verify_function", lambda fields: fields["function_sha256"])
+    return dict(rule=rule, coefficients=coefficients, p3d_n_state=tmp_path / "p.pkl", l6_state=path,
+                l6_state_sha256=sha), loads
+
+
+@pytest.mark.spawns
+def test_bind_release_records_the_verified_l6_state_and_verify_release_accepts_it(tmp_path, monkeypatch):
+    kw, loads = _bind_world(tmp_path, monkeypatch)
+    out = tmp_path / "bind" / "release-binding.json"
+    got = mg2.bind_release(out=out, **kw)
+    binding = json.loads(out.read_text(encoding="utf-8"))
+    assert binding["schema"] == mg2.RELEASE_BINDING_SCHEMA
+    assert binding["l6_state_sha256"] == kw["l6_state_sha256"] == got["l6_state_sha256"]
+    assert loads == [("5" * 64, True)] and set(binding["files"]) == set(mg2.RELEASE_FILES)
+    rule_sha, fields = mg2.read_rule(kw["rule"])
+    assert mg2.verify_release(out, rule_sha, fields)["l6_state_sha256"] == kw["l6_state_sha256"]
+    assert mg2.forward_nowcasts(_nowcasts(tmp_path / "now", state=kw["l6_state_sha256"]), binding)
+    with pytest.raises(mg2.Mg2Refused, match="refusing to overwrite"):
+        mg2.bind_release(out=out, **kw)
+
+
+def test_bind_release_refuses_a_state_that_does_not_load_at_its_sha(tmp_path, monkeypatch):
+    kw, _ = _bind_world(tmp_path, monkeypatch)
+    out = tmp_path / "release-binding.json"
+    for bad in ("0" * 64, "", "<FILL@BINDING>"):
+        with pytest.raises(mg2.Mg2Refused):
+            mg2.bind_release(out=out, **dict(kw, l6_state_sha256=bad))
+    kw["rule"].write_text(kw["rule"].read_text(encoding="utf-8").replace("5" * 64, "PENDING"), encoding="utf-8")
+    with pytest.raises(mg2.Mg2Refused, match="p3d_n_state_sha256 is not set"):
+        mg2.bind_release(out=out, **kw)
+    assert not out.exists()

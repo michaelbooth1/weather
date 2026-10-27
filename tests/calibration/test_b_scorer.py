@@ -6,7 +6,8 @@ INCONCLUSIVE, NOT-WORSE below +0.0027), 8 (VOID 1-7), 9 (MG-1 look receipt first
 (positive-control receipt); MG-2 rule section 8 C7 (as-of-capture vectors only); the Fable review of 2026-10-26
 ("bind with fixes": consumed-look markers, ABORTED receipts, verified bound fields, VOIDs 1/4/5 from recorded
 evidence, a VOID on a degenerate interval, the market-local embargo) and the MG-2 season-L6 clarification
-(``l6_state_sha256``).
+(``l6_state_sha256``); master's review of de422aa59 (R1 the fixed per-rule consumed marker, R2 an unevaluated
+section 7 condition is VOID 1, R4 the release binding is bind-release output, R6 the embargo covers every market).
 """
 import json
 import shutil
@@ -28,6 +29,7 @@ ROOT = Path(__file__).resolve().parents[2]
 b = import_or_skip_on_capture_host("weather.calibration.b_scorer")
 mg2 = import_or_skip_on_capture_host("weather.calibration.mg2_composite")
 l3 = import_or_skip_on_capture_host("weather.calibration.r0_ols_floor_challenger")
+REAL_CONSUMED_ROOT = b.CONSUMED_ROOT  # before the autouse fixture moves it into tmp
 
 D0 = date(2026, 10, 28)
 DATES = [(D0 + timedelta(days=i)).isoformat() for i in range(45)]
@@ -35,6 +37,12 @@ TODAY = date(2026, 12, 20)
 FILLED = {"mg2_rule_sha256": "1" * 64, "mg2_binding_commit": "2" * 40, "mg2_release_binding_sha256": "3" * 64,
           "mg2_owner_decision_id": "OD-2026-10-27-mg2", "l6_coefficients_sha256": "4" * 64,
           "p3d_n_state_sha256": "5" * 64, "function_sha256": "6" * 64, "l6_state_sha256": "7" * 64}
+
+
+@pytest.fixture(autouse=True)
+def _fixed_marker_root(tmp_path, monkeypatch):
+    """The fixed consumed-look marker lives under the repo's data/; tests keep it in tmp."""
+    monkeypatch.setattr(b, "CONSUMED_ROOT", tmp_path / "_b_look")
 
 
 def _rule(tmp_path, fill=True, **over):
@@ -113,12 +121,16 @@ def test_rule_without_the_l6_state_field_refuses(tmp_path):
 def test_l6_state_sha_must_equal_the_mg2_release_binding(tmp_path):
     binding = tmp_path / "release-binding.json"
     fields = {"l6_state_sha256": "7" * 64}
-    binding.write_text(json.dumps({"l6_state_sha256": "7" * 64}), encoding="utf-8")
+    schema = {"schema": mg2.RELEASE_BINDING_SCHEMA}
+    binding.write_text(json.dumps(dict(schema, l6_state_sha256="7" * 64)), encoding="utf-8")
     assert b.l6_state_problems(fields, binding) == []
-    binding.write_text(json.dumps({"l6_state_sha256": "8" * 64}), encoding="utf-8")
+    binding.write_text(json.dumps(dict(schema, l6_state_sha256="8" * 64)), encoding="utf-8")
     assert b.l6_state_problems(fields, binding) == ["l6_state_sha256 (MG-2 release binding)"]
-    binding.write_text(json.dumps({}), encoding="utf-8")
+    binding.write_text(json.dumps(schema), encoding="utf-8")
     assert b.l6_state_problems(fields, binding) == ["l6_state_sha256 (MG-2 release binding)"]
+    binding.write_text(json.dumps({"l6_state_sha256": "7" * 64}), encoding="utf-8")  # a hand-written binding
+    assert b.l6_state_problems(fields, binding) == [
+        "l6_state_sha256 (the MG-2 release binding is not bind-release output)"]
     for bad in ("", b.FILL, "7" * 63):
         assert b.l6_state_problems({"l6_state_sha256": bad}, binding) == ["l6_state_sha256"]
 
@@ -287,8 +299,11 @@ def test_control_receipt_must_pass_at_this_scorer(tmp_path):
     assert len(b.control_problems(path, fields)) == 2
 
 
-MG2_CONDITIONS = {"coverage": {"pass": True}, "pit": {"pass": True}, "parser": {"pass": True},
-                  "replay": {"pass": True}, "hashes": {"pass": True}, "window_leakage": {"pass": None}}
+MG2_CONDITIONS = {name: {"pass": True, "detail": "ok"} for name in mg2.SECTION7_CONDITIONS}
+
+
+def test_every_b_market_has_an_embargo_time_zone():
+    assert set(b.MARKET_TZ) == set(b.MARKETS)
 
 
 def _look_inputs(tmp_path, monkeypatch, *, transferred="2026-12-15T00:00:00Z", dropped=(), mg2_look=None,
@@ -358,10 +373,37 @@ def test_the_look_is_consumed_so_a_new_out_or_drop_list_cannot_rescore(tmp_path,
     with pytest.raises(b.BRefused, match="already consumed"):
         b.look(**dict(args, out=tmp_path / "out2", drop_list=drop))
     assert not (tmp_path / "out2").exists()
-    # either marker alone refuses
+    # either input-side marker, or the fixed marker alone, refuses
     (Path(args["transfer"]) / b.CONSUMED).unlink()
     with pytest.raises(b.BRefused, match="already consumed"):
         b.look(**dict(args, out=tmp_path / "out3"))
+    (Path(args["mg2_look"]).parent / b.CONSUMED).unlink()
+    with pytest.raises(b.BRefused, match="already consumed"):
+        b.look(**dict(args, out=tmp_path / "out4"))
+
+
+def test_copied_inputs_and_a_new_out_are_refused_by_the_fixed_per_rule_marker(tmp_path, monkeypatch):
+    args = _look_inputs(tmp_path, monkeypatch)
+    b.look(**args)
+    rule_sha, _ = b.read_rule(args["rule"])
+    fixed = b.rule_marker(rule_sha)
+    assert fixed == tmp_path / "_b_look" / f"consumed-{rule_sha}.json"
+    assert json.loads(fixed.read_text(encoding="utf-8"))["rule_sha256"] == rule_sha
+    transfer = shutil.copytree(args["transfer"], tmp_path / "copy" / "transfer")
+    mg2_dir = shutil.copytree(Path(args["mg2_look"]).parent, tmp_path / "copy" / "mg2")
+    for marker in (Path(transfer) / b.CONSUMED, Path(mg2_dir) / b.CONSUMED):
+        marker.unlink()
+    with pytest.raises(b.BRefused, match=f"rule {rule_sha} was already consumed"):
+        b.look(**dict(args, transfer=transfer, mg2_look=Path(mg2_dir) / "mg2_look.json",
+                      out=tmp_path / "copy" / "out"))
+    assert not (tmp_path / "copy" / "out").exists()
+    assert not (Path(transfer) / b.CONSUMED).exists()
+
+
+def test_the_fixed_marker_root_is_repository_owned():
+    from weather import paths
+
+    assert REAL_CONSUMED_ROOT == paths.DATA_ROOT / "b_look"
 
 
 def test_a_refusal_before_anything_is_read_does_not_consume_the_look(tmp_path, monkeypatch):
@@ -369,6 +411,7 @@ def test_a_refusal_before_anything_is_read_does_not_consume_the_look(tmp_path, m
     with pytest.raises(b.BRefused, match="embargo"):
         b.look(**dict(args, today=date.fromisoformat(DATES[-1])))
     assert not any(m.exists() for m in b.consumed_markers(args["transfer"], args["mg2_look"]))
+    assert not any((tmp_path / "_b_look").glob("consumed-*.json"))
     assert b.look(**args)["decision"]["verdict"] == "PASS"
 
 
@@ -386,6 +429,7 @@ def test_a_crash_after_outcomes_open_writes_an_aborted_receipt_and_consumes(tmp_
     assert receipt["b_decision"]["verdict"] == "ABORTED" and "layout broke" in receipt["b_decision"]["error"]
     assert payload["outcomes_opened"] is True and receipt["inputs"]["vectors_sha256"]
     monkeypatch.undo()
+    monkeypatch.setattr(b, "CONSUMED_ROOT", tmp_path / "_b_look")
     _look_inputs(tmp_path / "unused", monkeypatch)  # restore the patched window and hash check
     with pytest.raises(b.BRefused, match="exactly one look|already consumed"):
         b.look(**dict(args, out=tmp_path / "again"))
@@ -423,6 +467,8 @@ def test_the_look_refuses_last_in_hour_vectors_and_an_unsettled_45th_date(tmp_pa
 @pytest.mark.parametrize("recorded,cond", [
     ({"void_conditions": dict(MG2_CONDITIONS, replay={"pass": False, "detail": "replay 1e-9"})}, 1),
     ({"void_conditions": {}}, 1),
+    ({"void_conditions": dict(MG2_CONDITIONS, nowcast_replay={"pass": None, "detail": "not evaluated"})}, 1),
+    ({"void_conditions": {k: v for k, v in MG2_CONDITIONS.items() if k != "window_leakage"}}, 1),
     ({"void_conditions": None}, 1),
     ({"pre_look_reads": ["price 2026-11-01"]}, 4),
     ({"pre_look_reads": None}, 4)])
@@ -526,8 +572,8 @@ def _bound_world(tmp_path):
                     encoding="utf-8")
     rule_sha, _ = mg2.read_rule(rule)
     binding = tmp_path / "release-binding.json"
-    binding.write_text(json.dumps({"rule_sha256": rule_sha, "files": mg2.release_hashes(repo),
-                                   "l6_state_sha256": "7" * 64,
+    binding.write_text(json.dumps({"schema": mg2.RELEASE_BINDING_SCHEMA, "rule_sha256": rule_sha,
+                                   "files": mg2.release_hashes(repo), "l6_state_sha256": "7" * 64,
                                    **{k: mg2_fields[k] for k in ("l6_coefficients_sha256", "p3d_n_state_sha256",
                                                                  "forecast_high_source", "own_obs_source",
                                                                  "function_sha256")}}), encoding="utf-8")
@@ -632,3 +678,13 @@ def test_import_refuses_from_a_production_package():
             exec("import weather.calibration.b_scorer", {"__name__": "weather.serving.anything"})
     finally:
         sys.modules["weather.calibration.b_scorer"] = saved
+
+
+def test_b_schemas_are_registered_and_the_void_record_is_retired():
+    from weather.schema_families import schema_version
+    from weather.schema_registry_families import installed_families
+
+    specs = {s.version: s for s in installed_families().family_schemas}
+    assert schema_version("b_look_consumed") == b.CONSUMED_SCHEMA
+    assert specs["b_void_record/1"].status == "legacy" and specs["b_void_record/1"].migration_notes
+    assert not hasattr(b, "VOID_RECORD_SCHEMA")

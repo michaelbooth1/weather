@@ -63,6 +63,16 @@ LABEL_FILES = ("labels.parquet", "market.parquet")
 FORWARD_PREV_DAY_SOURCE = "bundle prev_day"  # captured_nowcast's prev_day_source on a forward (bundle) run
 NOWCASTS_MANIFEST = "nowcasts_manifest.json"
 CHECKS = "mg2_checks.json"  # the outcome-blind ``check`` output, beside the emission it checked
+# Rule section 7, in order. Every one is recorded by ``score`` as true or false; none may be left unevaluated.
+SECTION7_CONDITIONS = ("coverage", "pit", "parser", "replay", "hashes", "nowcast_replay", "p3d_n_replay",
+                       "window_leakage")
+# Section 7 nowcast replay under the season-L6 clarification (section 3): L3's captured dev serve features
+# through the bound state. The window is the captured dev nowcast's (07-30..09-29).
+DEV_SERVE_FEATURES_SHA256 = "0d5c30b39e92e4df8d6201769bbf1eb773f2e7e89c6d2a060a04d5bd70990557"
+DEV_NOWCAST_WINDOW = ("2026-07-30", "2026-09-29")
+# Section 7 P3d_N replay: L2's dev emission dev_P3d_N.jsonl, reproduced by ``mg2_p3d_n control``.
+P3D_N_DEV_REFERENCE_SHA256 = "721ae2cd24283115f68c4b6a1b38d84d34a81921e41468d360b587599fd031ec"
+MG1_FILE = "src/weather/reporting/scorecards/free_source_candidates/mg1.py"
 
 # Serve parity: every input to a forward MG-2 vector must come from the capture at replay time, with no
 # external fetch. Fixed inputs are read from captured replay files; the two inputs below are named by the
@@ -269,6 +279,53 @@ def verify_release(path, rule_sha, fields, root=None):
     if problems:
         raise Mg2Refused(f"release binding mismatch: {problems}")
     return binding
+
+
+RELEASE_BINDING_SCHEMA = "mg2_release_binding/1"
+
+
+def bind_release(*, rule, coefficients, p3d_n_state, l6_state, l6_state_sha256, out, root=None):
+    """Write ``release-binding.json`` from verified loads only; nothing in it is typed by hand.
+
+    The rule's coefficient part and P3d_N state are loaded at the rule's shas (``load_part``,
+    ``mg2_p3d_n.load_state`` forward), the function at the rule's sha (``verify_function``), and the L6 state
+    through ``load_l6_state`` (``mg_serve_core.load_l6_own_state``: refused unless the file bytes hash to
+    ``l6_state_sha256``). The recorded ``l6_state_sha256`` is the sha of the bytes that load verified. The file
+    hashes are the running ``RELEASE_FILES``; ``built_at_commit`` is ``HEAD`` when the binding was written.
+    """
+    import subprocess
+
+    from weather.calibration import mg2_p3d_n
+
+    rule_sha, fields = read_rule(rule)
+    for key in ("l6_coefficients_sha256", "p3d_n_state_sha256", "function_sha256", *SOURCE_FIELDS.values()):
+        if fields.get(key) in (None, "", PENDING):
+            raise Mg2Refused(f"the rule's {key} is not set; nothing to bind")
+    load_part(coefficients, "l6", fields["l6_coefficients_sha256"])
+    try:
+        mg2_p3d_n.load_state(p3d_n_state, fields["p3d_n_state_sha256"], forward=True)
+    except mg2_p3d_n.P3dNRefused as exc:
+        raise Mg2Refused(str(exc)) from exc
+    function_sha = verify_function(fields)
+    load_l6_state(l6_state, l6_state_sha256)
+    verified = sha256_file(l6_state)
+    if verified != l6_state_sha256:  # the file changed between the verified load and this read
+        raise Mg2Refused(f"L6 state {l6_state} changed while binding")
+    root = Path(root or repo_root())
+    head = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"], capture_output=True, text=True)
+    binding = {"schema": RELEASE_BINDING_SCHEMA, "rule_sha256": rule_sha, "function_sha256": function_sha,
+               "l6_coefficients_sha256": fields["l6_coefficients_sha256"],
+               "p3d_n_state_sha256": fields["p3d_n_state_sha256"],
+               **{key: fields[key] for key in SOURCE_FIELDS.values()},
+               "l6_state_sha256": verified, "files": release_hashes(root),
+               "built_at_commit": head.stdout.strip() if head.returncode == 0 else None}
+    out = Path(out)
+    if out.exists():
+        raise Mg2Refused(f"refusing to overwrite {out}")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(binding, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+    return {"path": str(out), "sha256": sha256_file(out), **{k: binding[k] for k in ("rule_sha256",
+                                                                                      "l6_state_sha256")}}
 
 
 def input_parity(fields):
@@ -1116,10 +1173,11 @@ def emission_checks(vectors, audit):
 
 
 def section7_conditions(snaps, gate_vectors, checks):
-    """Rule section 7, as far as the look can evaluate it; ``pass`` None means not evaluated here.
+    """Rule section 7 at the look; every ``pass`` is true or false.
 
-    Coverage is recomputed from the gate vectors on the gate population's 00-16 snapshots. PIT, parser and replay
-    are the bound ``check`` output. Hashes passed (``verify_release`` and ``verify_function`` refuse otherwise).
+    Coverage is recomputed from the gate vectors on the gate population's 00-16 snapshots. PIT, parser, replay,
+    nowcast replay, P3d_N replay and window leakage are the bound ``check`` output (a missing flag is false).
+    Hashes passed (``verify_release`` and ``verify_function`` refuse otherwise).
     """
     h = snaps.local_hour.astype(int)
     pool = snaps.row_key[(h >= 0) & (h <= 16)]
@@ -1136,10 +1194,131 @@ def section7_conditions(snaps, gate_vectors, checks):
         "parser": flag("parser_pass"),
         "replay": flag("replay_pass"),
         "hashes": {"pass": True, "detail": "verify_release and verify_function passed"},
-        "nowcast_replay": {"pass": None, "detail": "not evaluated by score (dev reproduction receipt)"},
-        "p3d_n_replay": {"pass": None, "detail": "not evaluated by score (dev reproduction receipt)"},
-        "window_leakage": {"pass": None, "detail": "not evaluated by score (operator record)"},
+        "nowcast_replay": flag("nowcast_replay_pass"),
+        "p3d_n_replay": flag("p3d_n_replay_pass"),
+        "window_leakage": flag("window_leakage_pass"),
     }
+
+
+def _frame_equal(a, b, key, column):
+    import numpy as np
+
+    a = a.sort_values(key).reset_index(drop=True)
+    b = b.sort_values(key).reset_index(drop=True)
+    return bool(len(a) == len(b) and (a[key].to_numpy() == b[key].to_numpy()).all()
+                and np.array_equal(a[column].to_numpy(float), b[column].to_numpy(float), equal_nan=True))
+
+
+def nowcast_replay_check(replay, pin, pin_sha256, l6_state_sha256):
+    """Section 7 nowcast replay: ``captured_nowcast`` run on the dev window at the bound L6 state reproduces the
+    season-matched dev nowcast pin (clarification season-L6 section 3) on every row, exactly.
+
+    ``replay`` is that run's output folder. Its reader must have produced L3's captured dev serve features
+    (``DEV_SERVE_FEATURES_SHA256``) over ``DEV_NOWCAST_WINDOW`` at ``l6_state_sha256``; ``pin`` must hash to
+    ``pin_sha256``.
+    """
+    import pandas as pd
+
+    replay = Path(replay)
+    problems = []
+    path = replay / NOWCASTS_MANIFEST
+    manifest = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    if not manifest:
+        problems.append(f"no {NOWCASTS_MANIFEST} in the replay folder")
+    if (manifest.get("first"), manifest.get("last")) != DEV_NOWCAST_WINDOW:
+        problems.append(f"window {manifest.get('first')}..{manifest.get('last')} is not the dev window")
+    features = replay / "serve_features.parquet"
+    feat_sha = sha256_file(features) if features.is_file() else None
+    if feat_sha != DEV_SERVE_FEATURES_SHA256 or manifest.get("serve_features_sha256") != feat_sha:
+        problems.append(f"serve features {feat_sha} are not L3's captured dev features")
+    if not isinstance(l6_state_sha256, str) or not SHA256_HEX.fullmatch(l6_state_sha256) \
+            or manifest.get("l6_state_sha256") != l6_state_sha256:
+        problems.append(f"replay served L6 state {manifest.get('l6_state_sha256')!r}, not {l6_state_sha256!r}")
+    nowcasts = replay / "nowcasts.parquet"
+    if not nowcasts.is_file() or manifest.get("nowcasts_sha256") != sha256_file(nowcasts):
+        problems.append("the replay nowcasts are not the ones its manifest records")
+    if not isinstance(pin_sha256, str) or not SHA256_HEX.fullmatch(pin_sha256) or not Path(pin).is_file() \
+            or sha256_file(pin) != pin_sha256:
+        problems.append("the dev nowcast pin does not hash to its bound sha256")
+    if not problems and not _frame_equal(pd.read_parquet(nowcasts, columns=["row_key", "n_own"]),
+                                         pd.read_parquet(pin, columns=["row_key", "n_own"]), "row_key", "n_own"):
+        problems.append("the replay n_own differs from the pin")
+    return {"pass": not problems, "problems": problems, "pin_sha256": pin_sha256, "l6_state_sha256": l6_state_sha256,
+            "replay_nowcasts_sha256": manifest.get("nowcasts_sha256"), "serve_features_sha256": feat_sha}
+
+
+def p3d_n_replay_check(control_json):
+    """Section 7 P3d_N replay: ``mg2_p3d_n control`` reproduced L2's dev emission (``721ae2cd…``) on every row to
+    |dp| <= 1e-12."""
+    path = Path(control_json)
+    record = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    c = record.get("comparison") or {}
+    problems = []
+    if record.get("reference_sha256") != P3D_N_DEV_REFERENCE_SHA256:
+        problems.append(f"reference {record.get('reference_sha256')!r} is not L2's dev_P3d_N")
+    if c.get("pass") is not True or not (isinstance(c.get("max_abs"), (int, float))
+                                         and c["max_abs"] <= REPLAY_TOLERANCE):
+        problems.append(f"max |dp| {c.get('max_abs')!r} (pass {c.get('pass')!r})")
+    if any(c.get(k) != 0 for k in ("missing", "extra", "bucket_set_mismatch")) or not c.get("rows") \
+            or c.get("rows") != c.get("reference_rows"):
+        problems.append("not every reference row was reproduced")
+    return {"pass": not problems, "problems": problems,
+            "control_sha256": sha256_file(path) if path.is_file() else None,
+            "rows": c.get("rows"), "max_abs": c.get("max_abs")}
+
+
+def window_leakage_check(audits, release_binding=None, root=None):
+    """Section 7 window leakage before the look: the emissions opened no outcome or price file (so no MG-2 vector
+    was joined to an outcome) and MG-1 was not modified.
+
+    MG-1 is unmodified when the running ``mg1.py`` equals the release binding's record (forward) and, without a
+    binding, when it equals the committed blob at ``HEAD``.
+    """
+    import subprocess
+
+    problems = []
+    for audit in audits:
+        opened = audit.get("outcome_files_opened")
+        if opened != []:
+            problems.append(f"emission {audit.get('vectors_sha256')} recorded outcome reads {opened!r}")
+    root = Path(root or repo_root())
+    running = sha256_file(root / MG1_FILE)
+    if release_binding:
+        bound = (json.loads(Path(release_binding).read_text(encoding="utf-8")).get("files") or {}).get(MG1_FILE)
+        reference, against = bound, "release binding"
+    else:
+        shown = subprocess.run(["git", "-C", str(root), "show", f"HEAD:{MG1_FILE}"], capture_output=True)
+        reference = hashlib.sha256(shown.stdout).hexdigest() if shown.returncode == 0 else None
+        against = "HEAD"
+    if running != reference:
+        problems.append(f"mg1.py {running} differs from {against} ({reference})")
+    return {"pass": not problems, "problems": problems, "mg1_sha256": running, "mg1_reference": against}
+
+
+def run_check(*, out, nowcast_replay, nowcast_pin, nowcast_pin_sha256, l6_state_sha256, p3d_n_control, **kw):
+    """``check``: emit twice, then every outcome-blind section 7 condition, written to ``mg2_checks.json``."""
+    import pandas as pd
+
+    first = emit(out=out, **kw)
+    again = emit(out=Path(out) / "_replay", **kw)
+    if not kw.get("control"):
+        bound = first.get("l6_state_sha256")
+        if l6_state_sha256 != bound:
+            raise Mg2Refused(f"--l6-state-sha256 {l6_state_sha256!r} is not the bound state {bound!r}")
+    snaps, _ = read_inputs(kw["layout_root"])
+    snaps = _window(snaps, date.fromisoformat(str(kw["first"])), date.fromisoformat(str(kw["last"])))
+    src = pd.read_parquet(Path(out) / "mg2_sources.parquet")
+    result = outcome_blind_checks(snaps, dict(zip(src.row_key, src.source)),
+                                  pd.read_parquet(Path(out) / VECTORS),
+                                  replayed=pd.read_parquet(Path(out) / "_replay" / VECTORS))
+    result["emit_audit_vectors_sha256"] = [r["vectors_sha256"] for r in (first, again)]
+    nowcast = nowcast_replay_check(nowcast_replay, nowcast_pin, nowcast_pin_sha256, l6_state_sha256)
+    p3d = p3d_n_replay_check(p3d_n_control)
+    leak = window_leakage_check((first, again), kw.get("release_binding"))
+    result.update(nowcast_replay=nowcast, nowcast_replay_pass=nowcast["pass"], p3d_n_replay=p3d,
+                  p3d_n_replay_pass=p3d["pass"], window_leakage=leak, window_leakage_pass=leak["pass"])
+    (Path(out) / CHECKS).write_text(json.dumps(result, indent=1, sort_keys=True, default=str), encoding="utf-8")
+    return result
 
 
 def pre_look_reads(audit):
@@ -1194,6 +1373,12 @@ def build_parser():
         p.add_argument("--last", required=True)
         p.add_argument("--control", action="store_true")
         p.add_argument("--release-binding", default=None)
+        if name == "check":  # rule section 7: nowcast replay, P3d_N replay (window leakage needs no input)
+            p.add_argument("--nowcast-replay", required=True, help="captured-nowcast output on the dev window")
+            p.add_argument("--nowcast-pin", required=True, help="season-matched dev nowcast pin (parquet)")
+            p.add_argument("--nowcast-pin-sha256", required=True)
+            p.add_argument("--l6-state-sha256", required=True, help="the L6 state the replay must have served")
+            p.add_argument("--p3d-n-control", required=True, help="mg2_p3d_n control.json")
     p = sub.add_parser("nowcast")
     p.add_argument("--train-root", required=True)
     p.add_argument("--obs-root", required=True)
@@ -1212,6 +1397,13 @@ def build_parser():
     p.add_argument("--prev-root", default=None, help="verified bundle prev_day/ (forward); default D-1 replay")
     p.add_argument("--l6-state", required=True, help="frozen L6 own-model state (l6_own_state/1 pickle)")
     p.add_argument("--l6-state-sha256", required=True, help="the state's bound file sha256 (binding input)")
+    p = sub.add_parser("bind-release", help="write release-binding.json from verified loads (no hand edit)")
+    p.add_argument("--rule", required=True)
+    p.add_argument("--coefficients", required=True)
+    p.add_argument("--p3d-n-state", required=True)
+    p.add_argument("--l6-state", required=True)
+    p.add_argument("--l6-state-sha256", required=True)
+    p.add_argument("--out", required=True, help="release-binding.json (refused if it exists)")
     p = sub.add_parser("score")
     p.add_argument("--layout", required=True)
     p.add_argument("--vectors", required=True)
@@ -1223,8 +1415,6 @@ def build_parser():
 
 
 def main(argv=None):
-    import pandas as pd
-
     args = build_parser().parse_args(argv)
     try:
         if args.command == "dev":
@@ -1246,24 +1436,20 @@ def main(argv=None):
                                       research_root=args.research_root, first=args.first, last=args.last,
                                       out=args.out, l6_state=args.l6_state,
                                       l6_state_sha256=args.l6_state_sha256, prev_root=args.prev_root)
+        elif args.command == "bind-release":
+            result = bind_release(rule=args.rule, coefficients=args.coefficients, p3d_n_state=args.p3d_n_state,
+                                  l6_state=args.l6_state, l6_state_sha256=args.l6_state_sha256, out=args.out)
         elif args.command in ("emit", "check"):
             kw = dict(layout_root=args.layout, replay_root=args.replay_root,
                       nowcasts=args.nowcasts, coefficients=args.coefficients, p3d_n_state=args.p3d_n_state,
                       rule=args.rule, first=args.first, last=args.last, control=args.control,
                       release_binding=args.release_binding)
-            result = emit(out=args.out, **kw)
             if args.command == "check":
-                again = emit(out=Path(args.out) / "_replay", **kw)
-                snaps, _ = read_inputs(args.layout)
-                snaps = _window(snaps, date.fromisoformat(args.first), date.fromisoformat(args.last))
-                src = pd.read_parquet(Path(args.out) / "mg2_sources.parquet")
-                result = outcome_blind_checks(
-                    snaps, dict(zip(src.row_key, src.source)), pd.read_parquet(Path(args.out) / "mg2_vectors.parquet"),
-                    replayed=pd.read_parquet(Path(args.out) / "_replay" / "mg2_vectors.parquet"))
-                result["emit_audit_vectors_sha256"] = [r["vectors_sha256"] for r in (
-                    json.loads((Path(args.out) / "mg2_emit_audit.json").read_text()), again)]
-                (Path(args.out) / "mg2_checks.json").write_text(json.dumps(result, indent=1, sort_keys=True,
-                                                                           default=str), encoding="utf-8")
+                result = run_check(out=args.out, nowcast_replay=args.nowcast_replay, nowcast_pin=args.nowcast_pin,
+                                   nowcast_pin_sha256=args.nowcast_pin_sha256,
+                                   l6_state_sha256=args.l6_state_sha256, p3d_n_control=args.p3d_n_control, **kw)
+            else:
+                result = emit(out=args.out, **kw)
         else:
             result = score(layout_root=args.layout, vectors=args.vectors, rule=args.rule, out=args.out,
                            release_binding=args.release_binding, mg1_look_receipt=args.mg1_look_receipt)
