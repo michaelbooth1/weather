@@ -131,7 +131,7 @@ def test_the_look_refuses_first_without_mg1_look_receipt(tmp_path):
     empty.write_bytes(b"")
     with pytest.raises(b.BRefused, match="MG-1's look receipt"):
         b.look(rule="x", mg2_rule="x", release_binding="x", layout_root="x", vectors="x", mg2_look="x",
-               transfer="x", drop_list="x", control_receipt="x", mg1_look_receipt=empty, void_record="x",
+               transfer="x", drop_list="x", control_receipt="x", mg1_look_receipt=empty,
                out=tmp_path, today=TODAY)
 
 
