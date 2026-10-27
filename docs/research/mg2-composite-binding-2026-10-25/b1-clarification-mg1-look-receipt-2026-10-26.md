@@ -98,10 +98,13 @@ into the repo record and committed the same day.
   - It is not a `b_rule_v1` key. `b_scorer.read_rule` refuses unknown keys.
   - **For master to decide:** if this sha must also be a `b_rule_v1` key, the scorer needs a new bound field
     before binding, and its sha256 changes.
-- **Rehearsal evidence (09-28, L8, `2415bc050`):** the nowcast replay at `800072c7…` reproduced `714fa14e…`
-  exactly (27,868 rows). `C:\t\l8wire\rh0928\mg2_checks.json`, sha256 `0e1b9847…`, records `nowcast_replay`,
-  `p3d_n_replay` and `window_leakage` as true. The B control receipt `C:\t\l8wire\bcontrol2\b_control.json`,
-  sha256 `2ce8f4a7…`, is PASS.
+- **Rehearsal evidence (09-28, L8, re-run at `0fa6e6921`):**
+  - The nowcast replay at `800072c7…` reproduced `714fa14e…` exactly (27,868 rows, serve core `179fcbe4…`).
+  - `C:\t\l8wire\rh0928b\mg2_checks.json`, sha256 `0e1b9847…`, records `nowcast_replay`, `p3d_n_replay` and
+    `window_leakage` as true. It is byte-identical to the first run at `2415bc050`.
+  - The B control receipt `C:\t\l8wire\bcontrol3\b_control.json`, sha256
+    `c67ba81a1f59fb4127145da61361fc7d5ff3bde1e9966467fcf6ff2272e9ab12`, is PASS at b_scorer `c27e710d…`.
+    It supersedes `bcontrol2` (`2ce8f4a7…`), which was made at the older scorer sha `091c27cc…`.
 
 ## 7. Scope limits stated
 
@@ -117,7 +120,8 @@ into the repo record and committed the same day.
 ## 8. Code
 
 - **Branch:** `claude/mg2-l6-wiring-20261026`.
-- **Writer commit:** `a0ef736567f1a74dc642d9798922ac81053dce82`.
+- **Writer commit:** `a0ef736567f1a74dc642d9798922ac81053dce82`. The ratchet fixes that follow it
+  (`0fa6e6921a24d038e7201d577938023f97fd7e93`) do not change `b_scorer.py` or `mg1_look.py`.
 - **Files:**
   - writer: `src/weather/calibration/mg1_look.py`;
   - registration: `src/weather/mg1_reserved_window.py`;
