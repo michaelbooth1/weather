@@ -64,7 +64,8 @@ def test_fetch_drops_post_cutoff_rows_and_loader_enforces_shas(tmp_path):
     manifest = prm.rv_fetch(out_dir=out, years=[2026], markets=("atlanta",), spacing=0, opener=opener,
                             sleep=lambda s: None)
     assert len(urls) == 3 and all("2026-09-29T23%3A59Z" in u for u in urls)
-    assert "2026-09-30" not in (out / "KATL_GFS_2026.csv").read_text(encoding="utf-8")
+    kept = (out / "KATL_GFS_2026.csv").read_text(encoding="utf-8").splitlines()[1:]
+    assert [ln[:10] for ln in kept] == ["2026-09-29"]  # the 09-30 runtime is dropped; its 09-30 ftime is not a runtime
     table, _ = prm.rv_load(out, years=[2026])
     assert table[("KATL", "GFS")] == {(datetime(2026, 9, 29, tzinfo=UTC), datetime(2026, 9, 30, tzinfo=UTC)): 80.0}
     assert set(manifest["files"]) == {"KATL_GFS_2026.csv", "KATL_NAM_2026.csv", "KATL_NBE_2026.csv"}
