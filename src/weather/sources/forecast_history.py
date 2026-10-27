@@ -33,6 +33,7 @@ import requests
 
 from weather.market.market_registry import TORONTO, all_specs, spec_for_id
 from weather.sources.daily_summary import native_to_c
+from weather.sources.open_meteo_label_times import payload_local_times
 from weather.units import to_float
 
 HIST_FORECAST_URL = "https://historical-forecast-api.open-meteo.com/v1/forecast"
@@ -337,13 +338,6 @@ def hourly_value(hourly, key, index):
     return to_float(values[index] if index < len(values) else None)
 
 
-def local_valid_datetime(raw_time, spec):
-    dt = datetime.fromisoformat(str(raw_time))
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=spec.tz)
-    return dt.astimezone(spec.tz)
-
-
 def rich_row(
     spec,
     source,
@@ -425,12 +419,13 @@ def historical_forecast_rows(payload, spec=TORONTO, source_model="best_match"):
     hourly = payload.get("hourly", {}) or {}
     times = hourly.get("time") or []
     temps = hourly.get("temperature_2m") or []
+    local_times, _refusal = payload_local_times(payload, spec.tz)  # EF 10w: response offset; refused without one
     rows = []
     for index, raw_time in enumerate(times):
         temp = to_float(temps[index] if index < len(temps) else None)
-        if temp is None or not raw_time:
+        valid_dt = local_times[index] if index < len(local_times) else None
+        if temp is None or not raw_time or valid_dt is None:
             continue
-        valid_dt = local_valid_datetime(raw_time, spec)
         rows.append(rich_row(
             spec,
             source="open_meteo_historical_forecast",
@@ -469,11 +464,12 @@ def historical_forecast_rows(payload, spec=TORONTO, source_model="best_match"):
 def previous_run_rows(payload, spec=TORONTO, leads=DEFAULT_PREVIOUS_RUN_LEADS, source_model="best_match"):
     hourly = payload.get("hourly", {}) or {}
     times = hourly.get("time") or []
+    local_times, _refusal = payload_local_times(payload, spec.tz)  # EF 10w: response offset; refused without one
     rows = []
     for index, raw_time in enumerate(times):
-        if not raw_time:
+        valid_dt = local_times[index] if index < len(local_times) else None
+        if not raw_time or valid_dt is None:
             continue
-        valid_dt = local_valid_datetime(raw_time, spec)
         for lead in leads:
             key = f"temperature_2m_previous_day{lead}"
             values = hourly.get(key) or []

@@ -764,6 +764,7 @@ class TestHistoricalSources(unittest.TestCase):
 
     def test_forecast_history_writes_source_issue_rows(self):
         payload = {
+            "utc_offset_seconds": -14400,  # EDT: the response offset the readers now require
             "hourly": {
                 "time": ["2026-06-11T14:00", "2026-06-11T15:00"],
                 "temperature_2m": [82, 85],
@@ -821,6 +822,7 @@ class TestHistoricalSources(unittest.TestCase):
 
     def test_forecast_profile_loader_reads_new_radiation_and_cloud_layers(self):
         payload = {
+            "utc_offset_seconds": -14400,  # EDT: the response offset the readers now require
             "hourly": {
                 "time": ["2026-06-11T12:00", "2026-06-11T13:00"],
                 "temperature_2m": [82, 85],
@@ -864,6 +866,7 @@ class TestHistoricalSources(unittest.TestCase):
 
     def test_forecast_history_coverage_reports_rich_field_completeness(self):
         payload = {
+            "utc_offset_seconds": -14400,  # EDT: the response offset the readers now require
             "hourly": {
                 "time": ["2026-06-11T12:00", "2026-06-11T13:00"],
                 "temperature_2m": [82, 85],
@@ -944,6 +947,7 @@ class TestHistoricalSources(unittest.TestCase):
 
     def test_forecast_history_backfill_manifest_declares_its_target_window(self):
         payload = {
+            "utc_offset_seconds": -14400,  # EDT: the response offset the readers now require
             "hourly": {
                 "time": ["2023-07-17T12:00"],
                 **{field: [1.0] for field in (
