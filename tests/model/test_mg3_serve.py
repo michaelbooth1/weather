@@ -250,7 +250,8 @@ def test_p3dh_x_appends_the_extras_in_state_order_and_serves_a_miss_as_nan():
     assert X[0, -3:].tolist() == [1.0, 2.0, 3.0]
     for extra in ({"k_max": 81.0, "k_gap": 1.0, "k_tcdc": 30.0}, ms.hrrr_extra_columns(None, 80.0)):
         d = ms.p3dh_distribution(st, 10, extra=extra, **kw)
-        assert sum(d.values()) == pytest.approx(1.0) and min(d) >= 74
+        assert sum(d.values()) == pytest.approx(1.0)
+        assert sum(v for k, v in d.items() if k >= 74) >= 0.98 - 1e-12  # floor-censored; 2% climatology mix
 
 
 # ----------------------------------------------------------------------------- blend weights and L6 partner
