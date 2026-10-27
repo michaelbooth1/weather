@@ -1833,3 +1833,123 @@ def test_capture_worker_detail_names_each_failure(tmp_path):
     assert rows["clob_loop_status.json"]["Reason"].endswith("outside 0..180 s")
     assert rows["observation_trigger_status.json"]["Dead"] is False
     assert rows["observation_trigger_status.json"]["Reason"].startswith("pid mismatch: status ")
+
+
+# The suite's hermetic Git (no system/global config) cannot see the filter.lfs.*
+# driver that `git lfs install` writes to global config. When a worktree was
+# checked out WITH smudge and an LFS file is racily clean (its mtime is not older
+# than the index), `status` re-hashes the real bytes and, without the clean
+# filter, reports ` M` against the pointer blob (pregate receipt
+# pg-7b875bb88d2d-20261025T051118-56812, 2026-10-25). The harness runs the real
+# Invoke-SuiteCheckedLocalGit from the script's AST against a temporary repo.
+HERMETIC_STATUS_HARNESS = r"""
+$ErrorActionPreference = 'Stop'
+$tokens = $null
+$errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile(
+    $env:WEATHER_BOUNDED_SUITE_SCRIPT, [ref]$tokens, [ref]$errors)
+if (@($errors).Count -ne 0) { throw 'bounded suite does not parse' }
+foreach ($name in @('Test-WeatherQualificationSensitiveEnvironmentName',
+                    'Test-SuiteGitAmbientEnvironmentName',
+                    'Invoke-SuiteCheckedLocalGit')) {
+    $functionAst = @($ast.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+            $node.Name -eq $name
+    }, $true)) | Select-Object -First 1
+    if ($null -eq $functionAst) { throw "missing $name" }
+    Invoke-Expression $functionAst.Extent.Text
+}
+$GitExecutablePath = ''
+$ExpectedGitExecutableSha256 = ''
+$ExpectedGitExecutableFileVersion = ''
+function Get-SuiteGitExecutable { param($Path, $ExpectedSha256, $ExpectedFileVersion)
+    return $env:WEATHER_TEST_GIT }
+$rows = @((Invoke-SuiteCheckedLocalGit -Root $env:WEATHER_TEST_REPO `
+    -Arguments @('status', '--porcelain') -Label 'test status').Rows)
+ConvertTo-Json -Compress -InputObject @($rows)
+"""
+
+LFS_FILTER_CONFIG = (
+    "-c", "filter.lfs.clean=git-lfs clean -- %f",
+    "-c", "filter.lfs.smudge=git-lfs smudge -- %f",
+    "-c", "filter.lfs.process=git-lfs filter-process",
+    "-c", "filter.lfs.required=true",
+)
+
+
+@WINDOWS_POWERSHELL_REQUIRED
+@pytest.mark.spawns
+@pytest.mark.parametrize("smudged", [True, False], ids=["smudged", "pointer"])
+def test_hermetic_status_keeps_a_racily_clean_lfs_file_clean(tmp_path, smudged):
+    import shutil
+
+    git = shutil.which("git")
+    if git is None or shutil.which("git-lfs") is None:
+        pytest.skip("requires git and git-lfs")
+    empty_global = tmp_path / "empty.gitconfig"
+    empty_global.write_text("", encoding="utf-8")
+    env = {
+        name: value for name, value in os.environ.items()
+        if not name.upper().startswith("GIT_")
+    }
+    # Normal (non-hermetic) setup: the LFS driver stands in for global config.
+    env.update({
+        "GIT_CONFIG_GLOBAL": str(empty_global),
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_LFS_SKIP_SMUDGE": "0" if smudged else "1",
+    })
+
+    def run_git(cwd, *args):
+        result = subprocess.run(
+            [git, *LFS_FILTER_CONFIG, "-c", "user.name=t", "-c", "user.email=t@t",
+             "-c", "core.autocrlf=false", *args],
+            cwd=cwd, env=env, check=False, capture_output=True, text=True, timeout=60,
+        )
+        assert result.returncode == 0, (args, result.stdout, result.stderr)
+        return result.stdout
+
+    source = tmp_path / "source"
+    source.mkdir()
+    run_git(source, "init", "-q", "-b", "main")
+    (source / ".gitattributes").write_text("*.pkl filter=lfs diff=lfs merge=lfs -text\n",
+                                           encoding="utf-8")
+    payload = bytes(range(256)) * 64
+    (source / "model.pkl").write_bytes(payload)
+    run_git(source, "add", ".gitattributes", "model.pkl")
+    run_git(source, "commit", "-q", "-m", "seed")
+    assert run_git(source, "cat-file", "-p", "HEAD:model.pkl").startswith(
+        "version https://git-lfs.github.com/spec/v1")
+
+    worktree = tmp_path / "wt"
+    run_git(source, "worktree", "add", "-q", "--detach", str(worktree), "HEAD")
+    on_disk = (worktree / "model.pkl").read_bytes()
+    assert (on_disk == payload) is smudged
+    # Deterministic non-racy index: file stat old, index written now.
+    old = (worktree / "model.pkl").stat().st_mtime_ns - 100 * 10**9
+    os.utime(worktree / "model.pkl", ns=(old, old))
+    run_git(worktree, "update-index", "-q", "--refresh")
+    index = Path(run_git(worktree, "rev-parse", "--git-path", "index").strip())
+    if not index.is_absolute():
+        index = worktree / index
+
+    def hermetic_status():
+        harness_env = env.copy()
+        harness_env.update({
+            "WEATHER_BOUNDED_SUITE_SCRIPT": str(SCRIPT),
+            "WEATHER_TEST_GIT": git,
+            "WEATHER_TEST_REPO": str(worktree),
+        })
+        result = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+             HERMETIC_STATUS_HARNESS],
+            cwd=REPO_ROOT, env=harness_env, check=False, capture_output=True,
+            text=True, timeout=60,
+        )
+        assert result.returncode == 0, result.stderr
+        return json.loads(result.stdout)
+
+    assert hermetic_status() == []
+    # Racy: the index is no newer than the file, so Git must re-hash the content.
+    os.utime(index, ns=(old, old))
+    assert hermetic_status() == []
