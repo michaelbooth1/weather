@@ -29,7 +29,7 @@ MARKETS = ("atlanta", "nyc")
 BUCKETS = {m: list(range(30, 100)) for m in MARKETS}
 
 
-def _frame(n_days=12, years=(2021, 2022, 2023, 2024), hour=13, seed=0):
+def _frame(n_days=25, years=(2021, 2022, 2023, 2024), hour=13, seed=0):
     rng = np.random.default_rng(seed)
     rows = []
     for market in MARKETS:
@@ -40,12 +40,12 @@ def _frame(n_days=12, years=(2021, 2022, 2023, 2024), hour=13, seed=0):
                 F = float(y - abs(round(rng.normal(0, 2))))
                 k_max = fh + rng.normal(0, 2)
                 rows.append({
-                    "market": market, "hour": hour, "target_date": f"{year}-11-{3 + d:02d}", "year": year,
+                    "market": market, "hour": hour, "target_date": f"{year}-11-{1 + d:02d}", "year": year,
                     "y": float(y), "F": F, "fh": fh, "x_high_so_far": F, "x_current_temp": F - 1.0,
                     "lat": 33.6, "lon": -84.4, "elev": 300.0, "doy_sin": 0.0, "doy_cos": 1.0,
                     "market_code": float(prm.R0_MARKETS.index(market)),
                     "k_max": k_max, "k_gap": k_max - fh, "k_tcdc": float(rng.uniform(0, 100)), "k_miss": 0.0,
-                    "v_gap": float(rng.normal(0, 2)) if d % 5 else float("nan")})
+                    "v_gap": float(y - fh + rng.normal(0, 0.5)) if d % 5 else float("nan")})
     frame = pd.DataFrame(rows)
     centre = lambda day: min(prm.SM_H_CENTRES, key=lambda c: abs(  # noqa: E731
         (pd.Timestamp(f"2001-{c[5:10]}") - pd.Timestamp(f"2001-{day[5:10]}")).days))
@@ -115,7 +115,7 @@ def test_read_a_parity_fails_when_the_served_state_differs():
 
 
 def test_read_b_sm_h_is_the_sm_h_run_arm_and_v_is_appended_last(monkeypatch):
-    frame = _frame(n_days=15)
+    frame = _frame()
     monkeypatch.setattr(prm, "sm_h_frozen_dist", lambda state, row: {int(row["y"]): 1.0})
     ref, _ = prm.sm_h_rows(frame, BUCKETS, state=None, hours=(13,), arms={"SM_H": prm.SM_H_ARMS["SM_H"]})
     rows, excluded = prm.rv_c1_rows_b(frame, BUCKETS, hours=(13,))
