@@ -1206,7 +1206,10 @@ touches nothing.
 - **Cost.** Streaming; minutes and well under 1 GB of memory for 11 markets.
 - **Share.** The workstation pulls `<share>\<D>\` read-only (`mg2_inputs pull --share-root`). The share must
   expose `data\exports\mg2-inputs` itself (or a dedicated read-only share of it); it is not the paused data
-  mirror. Master chooses and creates it; the repository creates none.
+  mirror. Master chooses and creates it; the repository creates none. Master's choice (2026-10-27):
+  `\\192.168.1.247\mg2-inputs`, read-only for the workstation account; the workstation's stored credential is
+  keyed to that IP form, so use it rather than the host name. `pull` only reads under `--share-root`: it creates,
+  renames, locks and writes nothing there; its staging, `incoming\` and the receipt ledger are workstation-local.
 
 ## Why Capture Is Not Packaged Into The Dashboard
 

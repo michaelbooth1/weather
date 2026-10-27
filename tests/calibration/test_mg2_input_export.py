@@ -8,7 +8,8 @@ off by default, a forbidden or unlisted key in a projected record refuses the da
 written outside the declared output directory, date window (<= 2026-09-29 or >= MG-2 D0 under option 2), and the
 workstation receiver's pull + receive returns ``verified`` for an exported bundle (``refused:markets`` when a market's
 replay inputs are missing, ``quarantined`` for a forbidden field), the host wrapper and registrar never pass the
-coverage flag and their plan modes touch nothing, roll-free stdlib-only module.
+coverage flag and their plan modes touch nothing, the registrar's source check ignores untracked files (the
+production tree's permanent venv-cp3110) but refuses a tracked change, roll-free stdlib-only module.
 """
 import ast
 import csv
@@ -756,3 +757,52 @@ def test_wrapper_plan_and_registrar_whatif_touch_nothing(tmp_path):
     assert task["triggers_local_daily"] == ["04:15", "07:00"] and task["start_when_available"] is False
     assert not any("coverage" in str(t) for t in task["arguments"])
     assert not root.exists()
+
+
+
+def _registrar_source_check():
+    """The registrar's Assert-Mg2RegistrationSource function text, cut out by the PowerShell AST."""
+    script = (
+        "$ast = [System.Management.Automation.Language.Parser]::ParseFile($env:REG_PATH, [ref]$null, [ref]$null)\n"
+        "$fn = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and "
+        "$n.Name -eq 'Assert-Mg2RegistrationSource' }, $true)\n"
+        "if (@($fn).Count -ne 1) { throw 'function not found' }\n@($fn)[0].Extent.Text\n")
+    result = subprocess.run([POWERSHELL, "-NoProfile", "-NonInteractive", "-Command", script], capture_output=True,
+                            text=True, timeout=120, check=False,
+                            env={**os.environ, "REG_PATH": str(OPS / "register_mg2_input_export.ps1")})
+    assert result.returncode == 0, result.stderr
+    return result.stdout
+
+
+@pytest.mark.spawns
+@pytest.mark.skipif(POWERSHELL is None or shutil.which("git") is None, reason="requires Windows PowerShell and git")
+def test_registrar_source_check_ignores_untracked_but_refuses_tracked_changes(tmp_path):
+    repo = tmp_path / "prod"
+    repo.mkdir()
+    git = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.invalid"]
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    (repo / "tracked.txt").write_text("a\n", encoding="utf-8")
+    subprocess.run(git + ["add", "tracked.txt"], check=True)
+    subprocess.run(git + ["commit", "-q", "-m", "fixture"], check=True)
+    tip = subprocess.run(git + ["rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+    (repo / "venv-cp3110").mkdir()  # the production tree's permanent untracked folder
+    (repo / "venv-cp3110" / "pyvenv.cfg").write_text("home = x\n", encoding="utf-8")
+    probe = tmp_path / "probe.ps1"
+    probe.write_text("param([string]$Root, [string]$Tip)\n$ErrorActionPreference = 'Stop'\n"
+                     + _registrar_source_check() + "\nAssert-Mg2RegistrationSource -Root $Root -Tip $Tip\n'SOURCE_OK'\n",
+                     encoding="utf-8")
+
+    def run(tip_value):
+        return subprocess.run([POWERSHELL, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File",
+                               str(probe), "-Root", str(repo), "-Tip", tip_value], capture_output=True, text=True,
+                              timeout=120, check=False)
+
+    untracked_only = run(tip)
+    assert untracked_only.returncode == 0 and "SOURCE_OK" in untracked_only.stdout, untracked_only.stderr
+    (repo / "tracked.txt").write_text("b\n", encoding="utf-8")
+    tracked = run(tip)
+    assert tracked.returncode != 0 and "Source must be clean" in tracked.stderr + tracked.stdout
+    assert "SOURCE_OK" not in tracked.stdout
+    (repo / "tracked.txt").write_text("a\n", encoding="utf-8")
+    wrong_tip = run("b" * 40)
+    assert wrong_tip.returncode != 0 and "tip mismatch" in wrong_tip.stderr + wrong_tip.stdout

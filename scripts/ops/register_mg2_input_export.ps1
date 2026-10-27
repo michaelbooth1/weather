@@ -18,6 +18,16 @@ if (-not $ProductionRepoRoot) {
     $ProductionRepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
 }
 $ErrorActionPreference = 'Stop'
+
+# The reviewed tip must be checked out with no tracked change. Untracked files do not block: the production tree
+# carries a permanent untracked venv-cp3110\ (master, 2026-10-27).
+function Assert-Mg2RegistrationSource {
+    param([Parameter(Mandatory = $true)][string]$Root, [Parameter(Mandatory = $true)][string]$Tip)
+    $head = ([string](git -C $Root rev-parse HEAD)).Trim()
+    if ($LASTEXITCODE -ne 0 -or $head -cne $Tip) { throw 'Reviewed source tip mismatch' }
+    $tracked = @(git -C $Root status --porcelain --untracked-files=no)
+    if ($LASTEXITCODE -ne 0 -or $tracked.Count -ne 0) { throw 'Source must be clean (tracked changes present)' }
+}
 . (Join-Path $PSScriptRoot 'scheduled_task_local_trigger.ps1')
 $sourceRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $taskName = 'WeatherMg2InputExport'
@@ -42,10 +52,7 @@ $assignment = Get-WeatherExecutionHostAssignment -RepoRoot $sourceRoot
 if ((Get-WeatherExecutionHostId) -cne [string]$assignment.dedicated_capture_execution_host_id) {
     throw 'Registration is restricted to the dedicated capture host'
 }
-if (([string](git -C $sourceRoot rev-parse HEAD)).Trim() -cne $ExpectedSourceTip -or $LASTEXITCODE -ne 0) {
-    throw 'Reviewed source tip mismatch'
-}
-if (@(git -C $sourceRoot status --porcelain).Count -ne 0 -or $LASTEXITCODE -ne 0) { throw 'Source must be clean' }
+Assert-Mg2RegistrationSource -Root $sourceRoot -Tip $ExpectedSourceTip
 
 . (Join-Path $PSScriptRoot 'training_window_contract.ps1')
 $argsText = ConvertTo-ScheduledTaskArgumentString -Tokens $tokens
