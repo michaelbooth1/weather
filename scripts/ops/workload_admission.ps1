@@ -627,9 +627,18 @@ function Get-WeatherWorkstationOfflineModule {
         "weather.backtesting.snapshot_analytics",
         "weather.backtesting.tape_scoring",
         "weather.calibration.feature_model",
+        "weather.calibration.gap_to_market_atlas",
+        "weather.calibration.l5_subset_scores",
+        "weather.calibration.market_blend",
+        "weather.calibration.dead_bucket",
+        "weather.calibration.dead_bucket_toronto",
+        "weather.calibration.new_city_corpus",
+        "weather.calibration.ols_floor_ladder",
         "weather.calibration.pooled_candidate_replay",
         "weather.calibration.pooled_candidate_replay_diagnostics",
         "weather.calibration.pooled_candidate_replay_report",
+        "weather.calibration.r0_full_year",
+        "weather.calibration.upstream_obs_screen",
         "weather.calibration.pooled_residual_model",
         "weather.calibration.r0_ols_floor_challenger",
         "weather.market.maker_evidence_inspect",
@@ -640,7 +649,10 @@ function Get-WeatherWorkstationOfflineModule {
         "weather.operations.replay_status_backfill",
         "weather.operations.workstation_cold_archive_stage",
         "weather.operations.workstation_cold_archive_restore",
-        "weather.reporting.scorecards.train_serve_feature_parity"
+        "weather.reporting.scorecards.dev_scorecard",
+        "weather.reporting.scorecards.loss_atlas",
+        "weather.reporting.scorecards.train_serve_feature_parity",
+        "weather.sources.forecast_training_corpus"
     )
 }
 
@@ -1586,7 +1598,8 @@ function Write-WeatherHeavyWorkloadRecoveryDecision {
         [AllowEmptyString()][string]$RepoRoot,
         [Parameter(Mandatory = $true)][string]$Outcome,
         $Marker,
-        [object[]]$Decisions
+        [object[]]$Decisions,
+        [int]$SlotId = 1
     )
 
     $record = [ordered]@{
@@ -1601,6 +1614,8 @@ function Write-WeatherHeavyWorkloadRecoveryDecision {
         else { $null }
         decisions = @($Decisions | Where-Object { $null -ne $_ })
     }
+    # Slot 1 is the legacy lease; its record keeps the original field set.
+    if ($SlotId -ne 1) { $record["workstation_slot_id"] = $SlotId }
     $line = $record | ConvertTo-Json -Compress -Depth 6
     Write-Warning "heavy-workload recovery decision: $line"
     if ([string]::IsNullOrWhiteSpace($RepoRoot)) { return }
@@ -1624,6 +1639,177 @@ function Write-WeatherHeavyWorkloadRecoveryDecision {
 }
 
 
+# ---------------------------------------------------------------------------
+# Workstation heavy slots (master ruling 2026-10-24, lane W2). Slot 1 IS the
+# legacy lease: the mutex Global\WeatherProjectHeavyWorkloadV1, the state file
+# heavy_workload_v1.poison and data\logs\heavy_workload.lock, exactly as older
+# wrapper copies take it, so an old-wrapper holder always occupies one slot.
+# Slots 2..8 add the mutex "<legacy>.Slot<k>", the state file
+# heavy_workload_v1.slot<k>.poison and data\logs\heavy_workload.slot<k>.lock,
+# and only the workstation_offline_v1 profile may take them. Capture-colocated
+# admission never names a slot and stays the single serial lease.
+# ---------------------------------------------------------------------------
+
+function Get-WeatherHeavyWorkloadMaxSlotId {
+    [CmdletBinding()]
+    param()
+    return 8
+}
+
+
+function Get-WeatherHeavyWorkloadSlotMutexName {
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][ValidateRange(1, 8)][int]$SlotId)
+
+    $legacy = "Global\WeatherProjectHeavyWorkloadV1"
+    if ($SlotId -eq 1) { return $legacy }
+    return "{0}.Slot{1}" -f $legacy, $SlotId
+}
+
+
+function Get-WeatherHeavyWorkloadExclusiveMutexName {
+    # Held by one exclusive workstation caller (the pre-gate) from the moment it
+    # starts waiting until it finishes; slot admission refuses while it is held.
+    [CmdletBinding()]
+    param()
+    return "{0}.Exclusive" -f (Get-WeatherHeavyWorkloadSlotMutexName -SlotId 1)
+}
+
+
+function Get-WeatherHeavyWorkloadSlotPoisonPath {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][ValidateRange(1, 8)][int]$SlotId,
+        [switch]$CreateIfMissing
+    )
+
+    $legacy = Get-WeatherHeavyWorkloadPoisonPath -CreateIfMissing:$CreateIfMissing
+    if ($SlotId -eq 1) { return $legacy }
+    return Join-Path (Split-Path -Parent $legacy) ("{0}.slot{1}{2}" -f
+        [IO.Path]::GetFileNameWithoutExtension($legacy),
+        $SlotId,
+        [IO.Path]::GetExtension($legacy))
+}
+
+
+function Get-WeatherHeavyWorkloadSlotLockName {
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][ValidateRange(1, 8)][int]$SlotId)
+
+    if ($SlotId -eq 1) { return "heavy_workload.lock" }
+    return "heavy_workload.slot{0}.lock" -f $SlotId
+}
+
+
+function Assert-WeatherHeavyWorkloadOtherSlotsNotPoisoned {
+    # A TEARDOWN_PENDING state file whose exact owner is gone is durable poison
+    # for the whole host, whichever slot left it. One whose owner is still alive
+    # is an ordinary teardown in progress; that slot's mutex reports it busy.
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][int]$ExceptSlotId)
+
+    foreach ($slotId in 1..(Get-WeatherHeavyWorkloadMaxSlotId)) {
+        if ($slotId -eq $ExceptSlotId) { continue }
+        $marker = Get-WeatherHeavyWorkloadPoisonState `
+            -Path (Get-WeatherHeavyWorkloadSlotPoisonPath -SlotId $slotId)
+        if ($null -eq $marker -or
+            [string]$marker.state -cne "TEARDOWN_PENDING") { continue }
+        if (Test-WeatherHeavyWorkloadMarkerOwnerAbsent -Marker $marker) {
+            throw (
+                "host-global workload teardown is pending; a proved reboot " +
+                "and explicit poison recovery are required (slot {0})"
+            ) -f $slotId
+        }
+    }
+}
+
+
+function Invoke-WeatherHeavyWorkloadSlotStaleRecovery {
+    # The legacy stale-ACTIVE recovery rules for one extra slot (2..8). The
+    # caller already owns that slot's mutex. Every refusal throws; success
+    # deletes the state file and records "recovered".
+    [CmdletBinding()]
+    param(
+        [AllowEmptyString()][string]$RepoRoot,
+        [Parameter(Mandatory = $true)][ValidateRange(2, 8)][int]$SlotId,
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)]$Marker
+    )
+
+    try {
+        $ownerAbsent = Test-WeatherHeavyWorkloadMarkerOwnerAbsent -Marker $Marker
+    }
+    catch {
+        Write-WeatherHeavyWorkloadRecoveryDecision -RepoRoot $RepoRoot `
+            -Outcome "refused_owner_unprovable" -Marker $Marker -SlotId $SlotId
+        throw "ACTIVE workload owner identity could not be proved absent"
+    }
+    if (-not $ownerAbsent) {
+        Write-WeatherHeavyWorkloadRecoveryDecision -RepoRoot $RepoRoot `
+            -Outcome "refused_owner_alive" -Marker $Marker -SlotId $SlotId
+        throw "ACTIVE workload owner process still exists"
+    }
+    $scanDecisions = $null
+    $activeHeavyProcesses = $null
+    try {
+        for ($attempt = 0; $attempt -lt 50; $attempt++) {
+            $scanDecisions = [System.Collections.Generic.List[object]]::new()
+            $activeHeavyProcesses = @(
+                Get-WeatherActiveWorkstationHeavyProcess -DecisionLog $scanDecisions
+            )
+            if ($activeHeavyProcesses.Count -eq 0) { break }
+            if ($attempt -lt 49) { Start-Sleep -Milliseconds 100 }
+        }
+    }
+    catch {
+        Write-WeatherHeavyWorkloadRecoveryDecision -RepoRoot $RepoRoot `
+            -Outcome "refused_scan_failed" -Marker $Marker `
+            -Decisions $scanDecisions -SlotId $SlotId
+        throw "ACTIVE workload recovery could not prove heavy-process quiescence"
+    }
+    if ($activeHeavyProcesses.Count -gt 0) {
+        Write-WeatherHeavyWorkloadRecoveryDecision -RepoRoot $RepoRoot `
+            -Outcome "refused_residual_processes" -Marker $Marker `
+            -Decisions $scanDecisions -SlotId $SlotId
+        throw (
+            "ACTIVE workload recovery found {0} residual heavy process(es): {1}"
+        ) -f $activeHeavyProcesses.Count, ((@($activeHeavyProcesses |
+            ForEach-Object { "{0} pid {1}" -f $_.Name, $_.ProcessId })) -join ", ")
+    }
+    try {
+        $confirmed = Get-WeatherHeavyWorkloadPoisonState -Path $Path
+        if ($null -eq $confirmed -or
+            [string]$confirmed.state -cne "ACTIVE" -or
+            [int]$confirmed.pid -ne [int]$Marker.pid -or
+            [string]$confirmed.owner_process_start_utc -cne
+                [string]$Marker.owner_process_start_utc -or
+            [int]$confirmed.boot_session_id -ne [int]$Marker.boot_session_id -or
+            [string]$confirmed.execution_host_profile -cne
+                [string]$Marker.execution_host_profile -or
+            [string]$confirmed.state_changed_at_utc -cne
+                [string]$Marker.state_changed_at_utc -or
+            [string]$confirmed.workload -cne [string]$Marker.workload) {
+            throw "ACTIVE workload marker changed during recovery"
+        }
+        if (-not (Test-WeatherHeavyWorkloadMarkerOwnerAbsent -Marker $confirmed)) {
+            throw "ACTIVE workload owner process reappeared during recovery"
+        }
+        [IO.File]::Delete($Path)
+        if (Test-Path -LiteralPath $Path -ErrorAction Stop) {
+            throw "ACTIVE workload marker could not be cleared"
+        }
+    }
+    catch {
+        Write-WeatherHeavyWorkloadRecoveryDecision -RepoRoot $RepoRoot `
+            -Outcome "refused_marker_changed" -Marker $Marker `
+            -Decisions $scanDecisions -SlotId $SlotId
+        throw "ACTIVE workload recovery failed closed: $($_.Exception.Message)"
+    }
+    Write-WeatherHeavyWorkloadRecoveryDecision -RepoRoot $RepoRoot `
+        -Outcome "recovered" -Marker $Marker -Decisions $scanDecisions -SlotId $SlotId
+}
+
+
 function Enter-WeatherHeavyWorkloadLease {
     [CmdletBinding()]
     param(
@@ -1632,13 +1818,20 @@ function Enter-WeatherHeavyWorkloadLease {
         [switch]$AllowStageAWindow,
         [string]$OwnerApprovedException = "",
         [string]$ExecutionHostProfile = "capture_colocated_v1",
-        [string]$ExpectedExecutionHostId = ""
+        [string]$ExpectedExecutionHostId = "",
+        # 1 is the legacy lease every profile uses; 2..8 are extra workstation slots.
+        [ValidateRange(1, 8)][int]$WorkstationSlotId = 1
     )
 
     $poisonSensitiveProfile = $ExecutionHostProfile -cin @(
         "portable_execution_v1",
         "workstation_offline_v1"
     )
+    if ($WorkstationSlotId -ne 1 -and
+        $ExecutionHostProfile -cne "workstation_offline_v1") {
+        throw "only workstation-offline admission may take an extra workstation slot"
+    }
+    $slotMutexName = Get-WeatherHeavyWorkloadSlotMutexName -SlotId $WorkstationSlotId
     if ($null -ne $script:WeatherHeavyWorkloadPoisonedLease) {
         throw (
             "this PowerShell process retains a fail-closed workload lease after " +
@@ -1786,8 +1979,9 @@ function Enter-WeatherHeavyWorkloadLease {
 
     if ($poisonSensitiveProfile) {
         try {
-            $durablePoisonPath = Get-WeatherHeavyWorkloadPoisonPath `
-                -CreateIfMissing
+            [void](Get-WeatherHeavyWorkloadPoisonPath -CreateIfMissing)
+            $durablePoisonPath = Get-WeatherHeavyWorkloadSlotPoisonPath `
+                -SlotId $WorkstationSlotId
             $initialWorkloadState = Get-WeatherHeavyWorkloadPoisonState `
                 -Path $durablePoisonPath
         }
@@ -1801,6 +1995,14 @@ function Enter-WeatherHeavyWorkloadLease {
                 "and explicit poison recovery are required"
             )
         }
+        try {
+            Assert-WeatherHeavyWorkloadOtherSlotsNotPoisoned `
+                -ExceptSlotId $WorkstationSlotId
+        }
+        catch {
+            if ($_.Exception.Message -cmatch 'teardown is pending') { throw }
+            throw "host-global workload poison state blocks admission: $($_.Exception.Message)"
+        }
     }
 
     $mutex = $null
@@ -1808,7 +2010,7 @@ function Enter-WeatherHeavyWorkloadLease {
     try {
         $mutex = [Threading.Mutex]::new(
             $false,
-            "Global\WeatherProjectHeavyWorkloadV1"
+            $slotMutexName
         )
         try { $mutexOwned = $mutex.WaitOne(0, $false) }
         catch [Threading.AbandonedMutexException] {
@@ -1965,7 +2167,8 @@ function Enter-WeatherHeavyWorkloadLease {
         if (-not (Test-Path -LiteralPath $logRoot)) {
             New-Item -ItemType Directory -Path $logRoot -Force | Out-Null
         }
-        $path = Join-Path $logRoot "heavy_workload.lock"
+        $path = Join-Path $logRoot (
+            Get-WeatherHeavyWorkloadSlotLockName -SlotId $WorkstationSlotId)
     }
     catch {
         if ($mutexOwned) {
@@ -1995,6 +2198,27 @@ function Enter-WeatherHeavyWorkloadLease {
         throw
     }
 
+    # A portable live stage also owns every extra workstation slot, so live
+    # work never overlaps slot-admitted heavy work in either order.
+    $extraSlotMutexes = @()
+    if ($ExecutionHostProfile -ceq "portable_execution_v1") {
+        $extraSlotBusy = $false
+        $extraSlotError = $null
+        try {
+            $acquiredSlots = Enter-WeatherHeavyWorkloadExtraSlotMutex -RepoRoot $RepoRoot
+            if ($null -eq $acquiredSlots) { $extraSlotBusy = $true }
+            else { $extraSlotMutexes = @($acquiredSlots) }
+        }
+        catch { $extraSlotError = $_ }
+        if ($extraSlotBusy -or $null -ne $extraSlotError) {
+            $stream.Dispose()
+            $mutex.ReleaseMutex()
+            $mutex.Dispose()
+            if ($null -ne $extraSlotError) { throw $extraSlotError }
+            return $null
+        }
+    }
+
     try {
         $stream.SetLength(0)
         $ownerProcessStartUtc = Get-WeatherProcessCreationIdentity -ProcessId $PID
@@ -2019,7 +2243,10 @@ function Enter-WeatherHeavyWorkloadLease {
             execution_host_profile = $ExecutionHostProfile
             execution_host_id = $executionHostId
             execution_principal_id = $executionPrincipalId
-            host_global_mutex = "Global\WeatherProjectHeavyWorkloadV1"
+            host_global_mutex = $slotMutexName
+        }
+        if ($ExecutionHostProfile -ceq "workstation_offline_v1") {
+            $record["workstation_slot_id"] = $WorkstationSlotId
         }
         $encoding = New-Object System.Text.UTF8Encoding($false)
         $writer = New-Object System.IO.StreamWriter($stream, $encoding, 1024, $true)
@@ -2049,15 +2276,84 @@ function Enter-WeatherHeavyWorkloadLease {
             WorkloadState = $(
                 if ($poisonSensitiveProfile) { "ACTIVE" } else { $null }
             )
+            WorkstationSlotId = $WorkstationSlotId
+            MutexName = $slotMutexName
+            ExtraSlotMutexes = $extraSlotMutexes
         }
     }
     catch {
         $stream.Dispose()
+        Exit-WeatherHeavyWorkloadExtraSlotMutex -Mutexes $extraSlotMutexes
         if ($mutexOwned) {
             try { $mutex.ReleaseMutex() } catch { }
         }
         $mutex.Dispose()
         throw
+    }
+}
+
+
+function Enter-WeatherHeavyWorkloadExtraSlotMutex {
+    # Take every extra workstation slot mutex (2..8) for a portable live stage.
+    # Returns the owned mutexes, or $null when any slot is busy. A stale ACTIVE
+    # slot state file goes through the legacy recovery rules and then asks for
+    # the exact attended retry, as the legacy lease does.
+    [CmdletBinding()]
+    param([AllowEmptyString()][string]$RepoRoot)
+
+    $owned = [System.Collections.Generic.List[object]]::new()
+    $complete = $false
+    try {
+        foreach ($slotId in 2..(Get-WeatherHeavyWorkloadMaxSlotId)) {
+            $slotMutex = [Threading.Mutex]::new(
+                $false,
+                (Get-WeatherHeavyWorkloadSlotMutexName -SlotId $slotId)
+            )
+            $slotOwned = $false
+            try { $slotOwned = $slotMutex.WaitOne(0, $false) }
+            catch [Threading.AbandonedMutexException] { $slotOwned = $true }
+            if (-not $slotOwned) {
+                $slotMutex.Dispose()
+                return $null
+            }
+            $owned.Add([PSCustomObject]@{ SlotId = $slotId; Mutex = $slotMutex })
+        }
+        foreach ($entry in $owned) {
+            $slotPath = Get-WeatherHeavyWorkloadSlotPoisonPath -SlotId $entry.SlotId
+            $marker = Get-WeatherHeavyWorkloadPoisonState -Path $slotPath
+            if ($null -eq $marker) { continue }
+            if ([string]$marker.state -ceq "TEARDOWN_PENDING") {
+                throw (
+                    "host-global workload teardown is pending; a proved reboot " +
+                    "and explicit poison recovery are required (slot {0})"
+                ) -f $entry.SlotId
+            }
+            Invoke-WeatherHeavyWorkloadSlotStaleRecovery -RepoRoot $RepoRoot `
+                -SlotId $entry.SlotId -Path $slotPath -Marker $marker
+            throw (
+                "a stale ACTIVE workload marker was recovered after proving zero " +
+                "residual heavy processes; retry the exact attended operation"
+            )
+        }
+        $complete = $true
+        return ,@($owned | ForEach-Object { $_.Mutex })
+    }
+    finally {
+        if (-not $complete) {
+            Exit-WeatherHeavyWorkloadExtraSlotMutex `
+                -Mutexes @($owned | ForEach-Object { $_.Mutex })
+        }
+    }
+}
+
+
+function Exit-WeatherHeavyWorkloadExtraSlotMutex {
+    [CmdletBinding()]
+    param([AllowNull()][AllowEmptyCollection()][object[]]$Mutexes)
+
+    foreach ($slotMutex in @($Mutexes | Where-Object { $null -ne $_ })) {
+        try { $slotMutex.ReleaseMutex() } catch { }
+        try { $slotMutex.Dispose() } catch { }
     }
 }
 
@@ -2175,7 +2471,11 @@ function Set-WeatherHeavyWorkloadLeasePoisoned {
 
 function Clear-WeatherHeavyWorkloadPoison {
     [CmdletBinding()]
-    param([Parameter(Mandatory = $true)][string]$Confirmation)
+    param(
+        [Parameter(Mandatory = $true)][string]$Confirmation,
+        # The slot whose TEARDOWN_PENDING state file is recovered; 1 is the legacy lease.
+        [ValidateRange(1, 8)][int]$SlotId = 1
+    )
 
     if ($Confirmation -cne
         "I_HAVE_VERIFIED_NO_RESIDUAL_WEATHER_WORKLOAD_PROCESSES") {
@@ -2185,7 +2485,7 @@ function Clear-WeatherHeavyWorkloadPoison {
         $null -ne $script:WeatherHeavyWorkloadPoisonedLease) {
         throw "host-global workload poison recovery requires a fresh PowerShell process"
     }
-    $path = Get-WeatherHeavyWorkloadPoisonPath
+    $path = Get-WeatherHeavyWorkloadSlotPoisonPath -SlotId $SlotId
     try {
         $marker = Get-WeatherHeavyWorkloadPoisonState -Path $path
         if ($null -eq $marker) {
@@ -2207,7 +2507,7 @@ function Clear-WeatherHeavyWorkloadPoison {
     try {
         $mutex = [Threading.Mutex]::new(
             $false,
-            "Global\WeatherProjectHeavyWorkloadV1"
+            (Get-WeatherHeavyWorkloadSlotMutexName -SlotId $SlotId)
         )
         try { $owned = $mutex.WaitOne(0, $false) }
         catch [Threading.AbandonedMutexException] { $owned = $true }
@@ -2342,14 +2642,30 @@ function Exit-WeatherHeavyWorkloadLease {
         }
     }
     finally {
-        if ($null -ne $Lease -and
-            $Lease.PSObject.Properties.Name -contains "MutexOwned" -and
-            $Lease.PSObject.Properties.Name -contains "Mutex" -and
-            $Lease.MutexOwned -and $null -ne $Lease.Mutex) {
-            try { $Lease.Mutex.ReleaseMutex() }
-            finally {
-                $Lease.Mutex.Dispose()
-                $Lease.MutexOwned = $false
+        try {
+            if ($null -ne $Lease -and
+                $Lease.PSObject.Properties.Name -contains "ExtraSlotMutexes") {
+                Exit-WeatherHeavyWorkloadExtraSlotMutex -Mutexes @($Lease.ExtraSlotMutexes)
+                $Lease.ExtraSlotMutexes = @()
+            }
+        }
+        finally {
+            if ($null -ne $Lease -and
+                $Lease.PSObject.Properties.Name -contains "MutexOwned" -and
+                $Lease.PSObject.Properties.Name -contains "Mutex" -and
+                $Lease.MutexOwned -and $null -ne $Lease.Mutex) {
+                try { $Lease.Mutex.ReleaseMutex() }
+                finally {
+                    $Lease.Mutex.Dispose()
+                    $Lease.MutexOwned = $false
+                }
+            }
+            # An exclusive lease releases its barrier last, after every slot.
+            if ($null -ne $Lease -and
+                $Lease.PSObject.Properties.Name -contains "ExclusiveMutex" -and
+                $null -ne $Lease.ExclusiveMutex) {
+                Exit-WeatherHeavyWorkloadExtraSlotMutex -Mutexes @($Lease.ExclusiveMutex)
+                $Lease.ExclusiveMutex = $null
             }
         }
     }
@@ -2357,9 +2673,90 @@ function Exit-WeatherHeavyWorkloadLease {
 
 
 function Get-WeatherHeavyWorkloadLeaseState {
+    # The repository's slot-1 lock, exactly as before. Only on the assigned
+    # non-capture workstation is the answer widened to every workstation slot
+    # (busy when this checkout's slot lock is held, or when any host-global slot
+    # state file names a live owner), adding Slots and BusySlotCount. Anywhere
+    # else (the capture host, or a host whose role cannot be proved) the object
+    # is the unchanged {Active, Path, Owner}.
     [CmdletBinding()]
     param([Parameter(Mandatory = $true)][string]$RepoRoot)
-    $path = Join-Path $RepoRoot "data\logs\heavy_workload.lock"
+
+    $legacy = Get-WeatherHeavyWorkloadRepoLockState `
+        -Path (Join-Path $RepoRoot "data\logs\heavy_workload.lock")
+    # Cheap existence prefilter first: the capture host never writes slot files,
+    # so it never pays for the role proof below.
+    $slotFiles = @(foreach ($slotId in 2..(Get-WeatherHeavyWorkloadMaxSlotId)) {
+        Join-Path $RepoRoot ("data\logs\" + (Get-WeatherHeavyWorkloadSlotLockName -SlotId $slotId))
+    })
+    try {
+        $slotFiles += @(foreach ($slotId in 1..(Get-WeatherHeavyWorkloadMaxSlotId)) {
+            Get-WeatherHeavyWorkloadSlotPoisonPath -SlotId $slotId
+        })
+    }
+    catch { }
+    if (@($slotFiles | Where-Object { Test-Path -LiteralPath $_ }).Count -eq 0) {
+        return $legacy
+    }
+    $workstation = $false
+    try {
+        Assert-WeatherWorkstationOfflineHost -RepoRoot $RepoRoot
+        $workstation = $true
+    }
+    catch { $workstation = $false }
+    if (-not $workstation) { return $legacy }
+
+    $slots = foreach ($slotId in 1..(Get-WeatherHeavyWorkloadMaxSlotId)) {
+        $lock = if ($slotId -eq 1) { $legacy } else {
+            Get-WeatherHeavyWorkloadRepoLockState -Path (Join-Path $RepoRoot (
+                "data\logs\" + (Get-WeatherHeavyWorkloadSlotLockName -SlotId $slotId)))
+        }
+        $marker = $null
+        $markerLive = $false
+        try {
+            $marker = Get-WeatherHeavyWorkloadPoisonState `
+                -Path (Get-WeatherHeavyWorkloadSlotPoisonPath -SlotId $slotId)
+            if ($null -ne $marker) {
+                $markerLive = -not (Test-WeatherHeavyWorkloadMarkerOwnerAbsent -Marker $marker)
+            }
+        }
+        catch { $marker = $null; $markerLive = $false }
+        if (-not $lock.Active -and -not $markerLive) { continue }
+        $source = if ($lock.Active -and $null -ne $lock.Owner) { $lock.Owner } else { $marker }
+        [PSCustomObject]@{
+            SlotId = $slotId
+            Source = $(if ($lock.Active) { "repo_lock" } else { "host_state" })
+            Workload = [string]$source.workload
+            Pid = $(if ($null -ne $source.pid) { [int]$source.pid } else { $null })
+            ExecutionHostProfile = [string]$source.execution_host_profile
+            State = $(if ($markerLive) { [string]$marker.state } else { "ACTIVE" })
+        }
+    }
+    $slots = @($slots)
+    $owner = $legacy.Owner
+    if (-not $legacy.Active -and $slots.Count -gt 0) {
+        $owner = [PSCustomObject]@{
+            workload = $slots[0].Workload
+            pid = $slots[0].Pid
+            execution_host_profile = $slots[0].ExecutionHostProfile
+            workstation_slot_id = $slots[0].SlotId
+        }
+    }
+    return [PSCustomObject]@{
+        Active = ($legacy.Active -or $slots.Count -gt 0)
+        Path = $legacy.Path
+        Owner = $owner
+        Slots = $slots
+        BusySlotCount = $slots.Count
+    }
+}
+
+
+function Get-WeatherHeavyWorkloadRepoLockState {
+    # One lock file: active only while an owner holds its OS handle.
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $path = $Path
     if (-not (Test-Path -LiteralPath $path)) {
         return [PSCustomObject]@{ Active = $false; Path = $path; Owner = $null }
     }
@@ -2419,6 +2816,564 @@ function Assert-WeatherWorkstationOfflineHost {
             "non-capture workstation"
         )
     }
+}
+
+
+function Initialize-WeatherWorkstationMemoryStatusReader {
+    [CmdletBinding()]
+    param()
+
+    if (-not ("Weather.Operations.WorkstationMemoryStatusV1" -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+
+namespace Weather.Operations
+{
+    public static class WorkstationMemoryStatusV1
+    {
+        [StructLayout(LayoutKind.Sequential)]
+        private struct MEMORYSTATUSEX
+        {
+            public UInt32 Length;
+            public UInt32 MemoryLoad;
+            public UInt64 TotalPhys;
+            public UInt64 AvailPhys;
+            public UInt64 TotalPageFile;
+            public UInt64 AvailPageFile;
+            public UInt64 TotalVirtual;
+            public UInt64 AvailVirtual;
+            public UInt64 AvailExtendedVirtual;
+        }
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool GlobalMemoryStatusEx(ref MEMORYSTATUSEX buffer);
+
+        // TotalPhys, AvailPhys, commit limit, commit available: one kernel snapshot.
+        public static UInt64[] Read()
+        {
+            MEMORYSTATUSEX status = new MEMORYSTATUSEX();
+            status.Length = (UInt32)Marshal.SizeOf(typeof(MEMORYSTATUSEX));
+            if (!GlobalMemoryStatusEx(ref status))
+            {
+                throw new Win32Exception(
+                    Marshal.GetLastWin32Error(),
+                    "workstation memory status query failed"
+                );
+            }
+            return new UInt64[] {
+                status.TotalPhys, status.AvailPhys, status.TotalPageFile, status.AvailPageFile
+            };
+        }
+    }
+}
+'@
+    }
+}
+
+
+function Get-WeatherWorkstationMemoryReading {
+    # Available physical memory and commit charge for slot admission. Tests
+    # replace this function to inject a reading; production has no override.
+    [CmdletBinding()]
+    param()
+
+    Initialize-WeatherWorkstationMemoryStatusReader
+    $values = @([Weather.Operations.WorkstationMemoryStatusV1]::Read())
+    $commitLimit = [double]$values[2]
+    $commitAvailable = [double]$values[3]
+    if ($commitLimit -le 0 -or $commitAvailable -lt 0 -or
+        $commitAvailable -gt $commitLimit) {
+        throw "invalid Windows commit counters"
+    }
+    return [PSCustomObject]@{
+        TotalPhysicalBytes = [long]$values[0]
+        AvailablePhysicalBytes = [long]$values[1]
+        CommitPercent = [Math]::Round(
+            100.0 * ($commitLimit - $commitAvailable) / $commitLimit, 1)
+    }
+}
+
+
+function Get-WeatherHeavyWorkloadSlotHolderSummary {
+    # Best-effort list of every slot state file, for the wait log.
+    [CmdletBinding()]
+    param()
+
+    $holders = foreach ($slotId in 1..(Get-WeatherHeavyWorkloadMaxSlotId)) {
+        try {
+            $marker = Get-WeatherHeavyWorkloadPoisonState `
+                -Path (Get-WeatherHeavyWorkloadSlotPoisonPath -SlotId $slotId)
+        }
+        catch { $marker = $null }
+        if ($null -eq $marker) { continue }
+        [ordered]@{
+            slot_id = $slotId
+            workload = [string]$marker.workload
+            pid = [int]$marker.pid
+            execution_host_profile = [string]$marker.execution_host_profile
+            state = [string]$marker.state
+        }
+    }
+    # Callers wrap the result in @(); the items are emitted unrolled.
+    $holders
+}
+
+
+# Why the last Enter-WeatherWorkstationHeavySlotLease call returned $null.
+$script:WeatherWorkstationSlotRefusal = $null
+
+
+function Enter-WeatherWorkstationHeavySlotLease {
+    # Admit one workstation_offline_v1 job into one of SlotCount concurrent
+    # slots. Every slot 1..8 is probed while held, so an old-wrapper holder of the
+    # legacy lease (slot 1) and holders admitted with a larger SlotCount all count.
+    # Admission also requires MinAvailableMemoryBytes of available physical
+    # memory and commit charge at or below MaxCommitPercent. Returns the lease,
+    # or $null with the reason in $script:WeatherWorkstationSlotRefusal.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$RepoRoot,
+        [Parameter(Mandatory = $true)][string]$Workload,
+        [ValidateRange(1, 8)][int]$SlotCount = 3,
+        [ValidateRange(0, 1099511627776)][long]$MinAvailableMemoryBytes = 6442450944,
+        [ValidateRange(1, 100)][double]$MaxCommitPercent = 90,
+        # Leave the legacy slot to an older wrapper queued ahead of this caller.
+        [switch]$AvoidLegacySlot
+    )
+
+    $script:WeatherWorkstationSlotRefusal = $null
+    Assert-WeatherWorkstationOfflineHost -RepoRoot $RepoRoot
+    Initialize-WeatherWorkstationMemoryStatusReader
+    $maxSlotId = Get-WeatherHeavyWorkloadMaxSlotId
+
+    # An exclusive caller holding or waiting for every slot refuses new slot
+    # jobs, so a stream of them cannot starve it.
+    $barrier = [Threading.Mutex]::new($false, (Get-WeatherHeavyWorkloadExclusiveMutexName))
+    try {
+        $barrierFree = $false
+        try { $barrierFree = $barrier.WaitOne(0, $false) }
+        catch [Threading.AbandonedMutexException] { $barrierFree = $true }
+        if ($barrierFree) { $barrier.ReleaseMutex() }
+    }
+    finally { $barrier.Dispose() }
+    if (-not $barrierFree) {
+        $script:WeatherWorkstationSlotRefusal = "exclusive_pending"
+        return $null
+    }
+
+    $markers = @{}
+    try {
+        [void](Get-WeatherHeavyWorkloadPoisonPath -CreateIfMissing)
+        foreach ($slotId in 1..$maxSlotId) {
+            $markers[$slotId] = Get-WeatherHeavyWorkloadPoisonState `
+                -Path (Get-WeatherHeavyWorkloadSlotPoisonPath -SlotId $slotId)
+        }
+    }
+    catch {
+        throw "host-global workload poison state blocks admission: $($_.Exception.Message)"
+    }
+    $liveOwnerAlive = $false
+    foreach ($slotId in 1..$maxSlotId) {
+        $marker = $markers[$slotId]
+        if ($null -eq $marker) { continue }
+        try { $ownerAbsent = Test-WeatherHeavyWorkloadMarkerOwnerAbsent -Marker $marker }
+        catch {
+            throw "host-global workload poison state blocks admission: $($_.Exception.Message)"
+        }
+        if ([string]$marker.state -ceq "TEARDOWN_PENDING" -and $ownerAbsent) {
+            throw (
+                "host-global workload teardown is pending; a proved reboot " +
+                "and explicit poison recovery are required (slot {0})"
+            ) -f $slotId
+        }
+        if ($slotId -eq 1 -and -not $ownerAbsent -and
+            [string]$marker.execution_host_profile -ceq "portable_execution_v1") {
+            $liveOwnerAlive = $true
+        }
+    }
+    if ($liveOwnerAlive) {
+        $script:WeatherWorkstationSlotRefusal = "portable_live_stage"
+        return $null
+    }
+
+    $held = @{}
+    $busySlots = [System.Collections.Generic.List[int]]::new()
+    $lease = $null
+    try {
+        foreach ($slotId in 1..$maxSlotId) {
+            $probe = [Threading.Mutex]::new(
+                $false,
+                (Get-WeatherHeavyWorkloadSlotMutexName -SlotId $slotId)
+            )
+            $probeOwned = $false
+            try { $probeOwned = $probe.WaitOne(0, $false) }
+            catch [Threading.AbandonedMutexException] { $probeOwned = $true }
+            if ($probeOwned) { $held[$slotId] = $probe }
+            else {
+                $probe.Dispose()
+                $busySlots.Add($slotId)
+            }
+        }
+        if ($busySlots.Count -ge $SlotCount) {
+            $script:WeatherWorkstationSlotRefusal = "slots_full"
+            return $null
+        }
+        $reading = Get-WeatherWorkstationMemoryReading
+        if ([long]$reading.AvailablePhysicalBytes -lt $MinAvailableMemoryBytes) {
+            $script:WeatherWorkstationSlotRefusal = "available_memory_below_floor"
+            return $null
+        }
+        if ([double]$reading.CommitPercent -gt $MaxCommitPercent) {
+            $script:WeatherWorkstationSlotRefusal = "commit_charge_above_ceiling"
+            return $null
+        }
+
+        # Fresh extra slots first, then the legacy slot (so an older wrapper
+        # keeps its chance), then slots whose holder died (recovery scans).
+        $free = @(1..$SlotCount | Where-Object { $held.ContainsKey($_) })
+        $fresh = @($free | Where-Object { $null -eq $markers[$_] })
+        $stale = @($free | Where-Object { $null -ne $markers[$_] })
+        $candidates = @(
+            @($fresh | Where-Object { $_ -ne 1 }) +
+            @($fresh | Where-Object { $_ -eq 1 }) +
+            @($stale | Where-Object { $_ -ne 1 }) +
+            @($stale | Where-Object { $_ -eq 1 })
+        )
+        if ($AvoidLegacySlot) {
+            $candidates = @($candidates | Where-Object { $_ -ne 1 })
+        }
+        if ($candidates.Count -eq 0) {
+            $script:WeatherWorkstationSlotRefusal = "legacy_slot_left_to_older_waiter"
+            return $null
+        }
+        $staleRefusal = (
+            'ACTIVE workload owner process still exists|' +
+            'ACTIVE workload owner identity could not be proved absent|' +
+            'ACTIVE workload recovery (?:could not prove|found|failed closed)'
+        )
+        foreach ($slotId in $candidates) {
+            for ($attempt = 0; $attempt -lt 2 -and $null -eq $lease; $attempt++) {
+                $retry = $false
+                try {
+                    if ($slotId -ne 1) {
+                        $slotPath = Get-WeatherHeavyWorkloadSlotPoisonPath -SlotId $slotId
+                        $current = Get-WeatherHeavyWorkloadPoisonState -Path $slotPath
+                        if ($null -ne $current) {
+                            # The slot mutex is held here, so its writer is gone.
+                            if ([string]$current.state -ceq "TEARDOWN_PENDING") {
+                                throw (
+                                    "host-global workload teardown is pending; a proved " +
+                                    "reboot and explicit poison recovery are required " +
+                                    "(slot {0})"
+                                ) -f $slotId
+                            }
+                            Invoke-WeatherHeavyWorkloadSlotStaleRecovery `
+                                -RepoRoot $RepoRoot -SlotId $slotId `
+                                -Path $slotPath -Marker $current
+                        }
+                    }
+                    $lease = Enter-WeatherHeavyWorkloadLease -RepoRoot $RepoRoot `
+                        -Workload $Workload -ExecutionHostProfile "workstation_offline_v1" `
+                        -WorkstationSlotId $slotId
+                }
+                catch {
+                    $message = $_.Exception.Message
+                    if ($message -cmatch 'stale ACTIVE workload marker was recovered') {
+                        # Legacy slot recovered; the retry is this same slot once more.
+                        $retry = $true
+                    }
+                    elseif ($message -cnotmatch $staleRefusal) { throw }
+                }
+                if (-not $retry) { break }
+            }
+            if ($null -ne $lease) { break }
+        }
+        if ($null -eq $lease) {
+            $script:WeatherWorkstationSlotRefusal = "free_slots_not_recoverable"
+            return $null
+        }
+        $lease | Add-Member -NotePropertyName SlotCount -NotePropertyValue $SlotCount -Force
+        $lease | Add-Member -NotePropertyName BusySlotsAtAdmission `
+            -NotePropertyValue @($busySlots) -Force
+        $lease | Add-Member -NotePropertyName AdmissionAvailablePhysicalBytes `
+            -NotePropertyValue ([long]$reading.AvailablePhysicalBytes) -Force
+        $lease | Add-Member -NotePropertyName AdmissionCommitPercent `
+            -NotePropertyValue ([double]$reading.CommitPercent) -Force
+        return $lease
+    }
+    finally {
+        # The admitted slot stays owned through the lease's own mutex handle.
+        foreach ($probe in @($held.Values)) {
+            try { $probe.ReleaseMutex() } catch { }
+            $probe.Dispose()
+        }
+    }
+}
+
+
+function Enter-WeatherWorkstationHeavyExclusiveLease {
+    # Every workstation slot for one caller (the pre-gate; master ruling
+    # 2026-10-24 W3a). It first takes the exclusive barrier, so new slot jobs
+    # are refused (or wait in the queue behind its ticket) from then on, then
+    # keeps each slot mutex as it frees until it holds all of them. Slot 1 is
+    # then taken as the ordinary legacy lease (state file and lock, so older
+    # wrappers and status see it); slots 2..8 stay held as extra mutexes. A
+    # nested caller names the slot its enclosing wrapper already holds
+    # (-InheritedSlotId) and gets a hold object instead of a lease. Returns $null
+    # when TimeoutSeconds elapses first.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$RepoRoot,
+        [Parameter(Mandatory = $true)][string]$Workload,
+        [ValidateRange(1, 86400)][int]$TimeoutSeconds = 14400,
+        [ValidateRange(100, 60000)][int]$PollMilliseconds = 2000,
+        [ValidateRange(1, 3600)][int]$ReportSeconds = 60,
+        [ValidateRange(0, 8)][int]$InheritedSlotId = 0
+    )
+
+    Assert-WeatherWorkstationOfflineHost -RepoRoot $RepoRoot
+    $maxSlotId = Get-WeatherHeavyWorkloadMaxSlotId
+    $queueRoot = Get-WeatherHeavyWorkloadQueueRoot -CreateIfMissing
+    $ticket = New-WeatherHeavyWorkloadQueueTicket `
+        -QueueRoot $queueRoot -Workload $Workload -RepoRoot $RepoRoot
+    $clock = [Diagnostics.Stopwatch]::StartNew()
+    $barrier = $null
+    $barrierOwned = $false
+    $held = @{}
+    $complete = $false
+    $outcome = "error"
+    $failure = "interrupted"
+    try {
+        Write-WeatherHeavyWorkloadQueueEvent -RepoRoot $RepoRoot -Event "enqueue" `
+            -Ticket $ticket.Ticket -Workload $Workload `
+            -Holder (Get-WeatherHeavyWorkloadHolderSummary -RepoRoot $RepoRoot) `
+            -Extra @{
+                exclusive = $true
+                timeout_seconds = $TimeoutSeconds
+                inherited_slot_id = $InheritedSlotId
+                slot_holders = [object[]]@(Get-WeatherHeavyWorkloadSlotHolderSummary)
+            }
+        $barrier = [Threading.Mutex]::new($false, (Get-WeatherHeavyWorkloadExclusiveMutexName))
+        $lastReport = 0.0
+        $needed = @(1..$maxSlotId | Where-Object { $_ -ne $InheritedSlotId })
+        while ($true) {
+            if (-not $barrierOwned) {
+                try { $barrierOwned = $barrier.WaitOne(0, $false) }
+                catch [Threading.AbandonedMutexException] { $barrierOwned = $true }
+            }
+            if ($barrierOwned) {
+                foreach ($slotId in $needed) {
+                    if ($held.ContainsKey($slotId)) { continue }
+                    $slotMutex = [Threading.Mutex]::new(
+                        $false, (Get-WeatherHeavyWorkloadSlotMutexName -SlotId $slotId))
+                    $owned = $false
+                    try { $owned = $slotMutex.WaitOne(0, $false) }
+                    catch [Threading.AbandonedMutexException] { $owned = $true }
+                    if ($owned) { $held[$slotId] = $slotMutex } else { $slotMutex.Dispose() }
+                }
+            }
+            $busy = @($needed | Where-Object { -not $held.ContainsKey($_) })
+            if ($barrierOwned -and $busy.Count -eq 0) { break }
+            $waited = $clock.Elapsed.TotalSeconds
+            $refusal = if ($barrierOwned) { "draining_slots" } else { "another_exclusive_caller" }
+            if ($waited -ge $TimeoutSeconds) {
+                $outcome = "give_up"
+                Write-WeatherHeavyWorkloadQueueEvent -RepoRoot $RepoRoot -Event "give_up" `
+                    -Ticket $ticket.Ticket -WaitedSeconds $waited -Workload $Workload `
+                    -Extra @{
+                        exclusive = $true
+                        timeout_seconds = $TimeoutSeconds
+                        slot_refusal = $refusal
+                        busy_slots = [int[]]$busy
+                    }
+                return $null
+            }
+            if (($waited - $lastReport) -ge $ReportSeconds) {
+                Write-WeatherHeavyWorkloadQueueEvent -RepoRoot $RepoRoot -Event "wait" `
+                    -Ticket $ticket.Ticket -WaitedSeconds $waited -Workload $Workload `
+                    -Extra @{
+                        exclusive = $true
+                        slot_refusal = $refusal
+                        busy_slots = [int[]]$busy
+                    }
+                $lastReport = $waited
+            }
+            Start-Sleep -Milliseconds $PollMilliseconds
+        }
+
+        # Every slot is held: dead holders' state files follow the legacy rules.
+        foreach ($slotId in @($needed | Where-Object { $_ -ne 1 })) {
+            $slotPath = Get-WeatherHeavyWorkloadSlotPoisonPath -SlotId $slotId
+            $marker = Get-WeatherHeavyWorkloadPoisonState -Path $slotPath
+            if ($null -eq $marker) { continue }
+            if ([string]$marker.state -ceq "TEARDOWN_PENDING") {
+                throw (
+                    "host-global workload teardown is pending; a proved reboot " +
+                    "and explicit poison recovery are required (slot {0})"
+                ) -f $slotId
+            }
+            Invoke-WeatherHeavyWorkloadSlotStaleRecovery -RepoRoot $RepoRoot `
+                -SlotId $slotId -Path $slotPath -Marker $marker
+        }
+        $extras = @($needed | Where-Object { $_ -ne 1 } | ForEach-Object { $held[$_] })
+        if ($InheritedSlotId -eq 0) {
+            $lease = $null
+            for ($attempt = 0; $attempt -lt 2 -and $null -eq $lease; $attempt++) {
+                try {
+                    $lease = Enter-WeatherHeavyWorkloadLease -RepoRoot $RepoRoot `
+                        -Workload $Workload -ExecutionHostProfile "workstation_offline_v1" `
+                        -WorkstationSlotId 1
+                    if ($null -eq $lease) {
+                        throw "the held legacy slot could not be leased"
+                    }
+                }
+                catch {
+                    if ($attempt -gt 0 -or $_.Exception.Message -cnotmatch
+                        'stale ACTIVE workload marker was recovered') { throw }
+                }
+            }
+            $lease.ExtraSlotMutexes = $extras
+            $lease | Add-Member -NotePropertyName ExclusiveMutex -NotePropertyValue $barrier -Force
+        }
+        else {
+            $lease = [PSCustomObject]@{
+                Inherited = $true
+                InheritedSlotId = $InheritedSlotId
+                Workload = $Workload
+                ExtraSlotMutexes = @(@($needed | ForEach-Object { $held[$_] }))
+                ExclusiveMutex = $barrier
+            }
+        }
+        $lease | Add-Member -NotePropertyName Exclusive -NotePropertyValue $true -Force
+        $lease | Add-Member -NotePropertyName QueueTicket -NotePropertyValue $ticket.Ticket -Force
+        $lease | Add-Member -NotePropertyName QueueWaitedSeconds `
+            -NotePropertyValue $clock.Elapsed.TotalSeconds -Force
+        $outcome = "start"
+        Write-WeatherHeavyWorkloadQueueEvent -RepoRoot $RepoRoot -Event "start" `
+            -Ticket $ticket.Ticket -WaitedSeconds $clock.Elapsed.TotalSeconds -Workload $Workload `
+            -Extra @{ exclusive = $true; inherited_slot_id = $InheritedSlotId; slot_id = "all" }
+        $complete = $true
+        return $lease
+    }
+    catch {
+        $failure = $_.Exception.Message
+        throw
+    }
+    finally {
+        if ($held.ContainsKey(1) -and $InheritedSlotId -eq 0) {
+            # The legacy lease (when taken) owns slot 1 through its own handle.
+            Exit-WeatherHeavyWorkloadExtraSlotMutex -Mutexes @($held[1])
+        }
+        if (-not $complete) {
+            Exit-WeatherHeavyWorkloadExtraSlotMutex -Mutexes @(
+                $held.Keys | Where-Object { $_ -ne 1 -or $InheritedSlotId -ne 0 } |
+                    ForEach-Object { $held[$_] })
+            if ($barrierOwned) { Exit-WeatherHeavyWorkloadExtraSlotMutex -Mutexes @($barrier) }
+            elseif ($null -ne $barrier) { $barrier.Dispose() }
+        }
+        try { [IO.File]::Delete($ticket.Path) } catch { }
+        if ($outcome -ceq "error") {
+            Write-WeatherHeavyWorkloadQueueEvent -RepoRoot $RepoRoot -Event "error" `
+                -Ticket $ticket.Ticket -WaitedSeconds $clock.Elapsed.TotalSeconds `
+                -Workload $Workload -Extra @{ exclusive = $true; message = [string]$failure }
+        }
+    }
+}
+
+
+function Exit-WeatherWorkstationHeavyExclusiveHold {
+    # Release a nested exclusive hold (-InheritedSlotId); a full exclusive
+    # lease goes through Exit-WeatherHeavyWorkloadLease instead.
+    [CmdletBinding()]
+    param([AllowNull()]$Hold)
+
+    if ($null -eq $Hold) { return }
+    Exit-WeatherHeavyWorkloadExtraSlotMutex -Mutexes @($Hold.ExtraSlotMutexes)
+    $Hold.ExtraSlotMutexes = @()
+    if ($null -ne $Hold.ExclusiveMutex) {
+        Exit-WeatherHeavyWorkloadExtraSlotMutex -Mutexes @($Hold.ExclusiveMutex)
+        $Hold.ExclusiveMutex = $null
+    }
+}
+
+
+function Get-WeatherWorkstationLogicalProcessorCount {
+    # Tests replace this function; production reads the OS count.
+    [CmdletBinding()]
+    param()
+    return [Environment]::ProcessorCount
+}
+
+
+function Get-WeatherWorkstationThreadCapVariableName {
+    [CmdletBinding()]
+    param()
+    return @("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS")
+}
+
+
+function Resolve-WeatherWorkstationThreadCap {
+    # Per-job BLAS/OpenMP thread cap: floor(logical cores / SlotCount), at least
+    # 1 (master ruling 2026-10-24 W3b). A caller's own lower positive integer is
+    # kept; anything higher, absent or malformed is replaced by the cap.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][ValidateRange(1, 8)][int]$SlotCount,
+        [hashtable]$Current = $null
+    )
+
+    $logical = [int](Get-WeatherWorkstationLogicalProcessorCount)
+    if ($logical -lt 1) { $logical = 1 }
+    $cap = [Math]::Max(1, [int][Math]::Floor($logical / $SlotCount))
+    $values = [ordered]@{}
+    foreach ($name in @(Get-WeatherWorkstationThreadCapVariableName)) {
+        $text = if ($null -ne $Current) { [string]$Current[$name] }
+        else { [Environment]::GetEnvironmentVariable($name, "Process") }
+        $requested = 0
+        $values[$name] = if ($text -cmatch '\A[1-9][0-9]{0,4}\z' -and
+            [int]::TryParse($text, [ref]$requested) -and $requested -lt $cap) {
+            $requested
+        }
+        else { $cap }
+    }
+    return [PSCustomObject]@{
+        LogicalProcessors = $logical
+        SlotCount = $SlotCount
+        Cap = $cap
+        Values = $values
+    }
+}
+
+
+function Test-WeatherWorkstationWrapperSlotHeld {
+    # Nested callers (the pre-gate) prove that the enclosing workstation_heavy.ps1
+    # really holds the slot it exported. An absent slot means an older wrapper,
+    # which only ever holds the legacy lease (slot 1).
+    [CmdletBinding()]
+    param([AllowEmptyString()][string]$SlotText = $env:WEATHER_WORKSTATION_WRAPPER_SLOT)
+
+    $slotId = 1
+    if (-not [string]::IsNullOrEmpty($SlotText)) {
+        if ($SlotText -cnotmatch '\A[1-8]\z') {
+            throw "WEATHER_WORKSTATION_WRAPPER_SLOT is not a workstation slot id"
+        }
+        $slotId = [int]$SlotText
+    }
+    $probe = [Threading.Mutex]::new(
+        $false,
+        (Get-WeatherHeavyWorkloadSlotMutexName -SlotId $slotId)
+    )
+    $acquired = $false
+    try {
+        try { $acquired = $probe.WaitOne(0, $false) }
+        catch [Threading.AbandonedMutexException] { $acquired = $true }
+        if ($acquired) { $probe.ReleaseMutex() }
+    }
+    finally { $probe.Dispose() }
+    return [PSCustomObject]@{ SlotId = $slotId; Held = -not $acquired }
 }
 
 
@@ -2524,6 +3479,9 @@ function New-WeatherHeavyWorkloadQueueTicket {
                 enqueued_at_utc = $enqueuedAt.ToString("o")
                 workload = $Workload
                 repo_root = $RepoRoot
+                # Older readers ignore this field; slot-aware waiters use it to
+                # pass an older wrapper's ticket only through an extra slot.
+                slot_aware = $true
             }
             $bytes = [Text.UTF8Encoding]::new($false).GetBytes(
                 ($record | ConvertTo-Json -Compress))
@@ -2605,6 +3563,24 @@ function Get-WeatherHeavyWorkloadHolderSummary {
         }
     }
     catch { }
+    # No slot-1 holder: the first extra workstation slot whose owner is alive.
+    foreach ($slotId in 2..(Get-WeatherHeavyWorkloadMaxSlotId)) {
+        try {
+            $marker = Get-WeatherHeavyWorkloadPoisonState `
+                -Path (Get-WeatherHeavyWorkloadSlotPoisonPath -SlotId $slotId)
+            if ($null -ne $marker -and
+                -not (Test-WeatherHeavyWorkloadMarkerOwnerAbsent -Marker $marker)) {
+                return [ordered]@{
+                    workload = [string]$marker.workload
+                    pid = [int]$marker.pid
+                    execution_host_profile = [string]$marker.execution_host_profile
+                    state = [string]$marker.state
+                    slot_id = $slotId
+                }
+            }
+        }
+        catch { }
+    }
     try {
         $state = Get-WeatherHeavyWorkloadLeaseState -RepoRoot $RepoRoot
         if ($state.Active -and $null -ne $state.Owner) {
@@ -2679,26 +3655,35 @@ function Write-WeatherHeavyWorkloadQueueEvent {
 
 
 function Test-WeatherHeavyWorkloadTeardownInProgress {
-    # True when the host-global marker is absent (teardown just finished) or is
+    # True when no slot state file is a TEARDOWN_PENDING record whose exact owner
+    # is gone: every marker is absent (teardown just finished), ACTIVE, or
     # TEARDOWN_PENDING with its exact owner process still alive.
     [CmdletBinding()]
     param()
 
     try {
-        $marker = Get-WeatherHeavyWorkloadPoisonState `
-            -Path (Get-WeatherHeavyWorkloadPoisonPath)
-        if ($null -eq $marker) { return $true }
-        if ([string]$marker.state -cne "TEARDOWN_PENDING") { return $true }
-        return -not (Test-WeatherHeavyWorkloadMarkerOwnerAbsent -Marker $marker)
+        foreach ($slotId in 1..(Get-WeatherHeavyWorkloadMaxSlotId)) {
+            $marker = Get-WeatherHeavyWorkloadPoisonState `
+                -Path (Get-WeatherHeavyWorkloadSlotPoisonPath -SlotId $slotId)
+            if ($null -eq $marker) { continue }
+            if ([string]$marker.state -cne "TEARDOWN_PENDING") { continue }
+            if (Test-WeatherHeavyWorkloadMarkerOwnerAbsent -Marker $marker) {
+                return $false
+            }
+        }
+        return $true
     }
     catch { return $false }
 }
 
 
 function Enter-WeatherHeavyWorkloadLeaseQueued {
-    # FIFO admission for the workstation_offline_v1 profile. Only the head
-    # ticket attempts the lease; everyone else waits. Returns the lease, or
-    # $null when TimeoutSeconds elapses first. Callers outside the queue (the
+    # FIFO admission for the workstation_offline_v1 profile into one of
+    # SlotCount concurrent slots. A slot-aware waiter attempts admission only
+    # when no slot-aware (or unreadable) ticket is ahead of it; an older
+    # wrapper's ticket ahead may be passed, but only through an extra slot, so
+    # the legacy slot it waits for is never taken from it. Returns the lease,
+    # or $null when TimeoutSeconds elapses first. Callers outside the queue (the
     # portable live lane, a wrapper run without -Queue) are not ordered by it.
     [CmdletBinding()]
     param(
@@ -2707,7 +3692,10 @@ function Enter-WeatherHeavyWorkloadLeaseQueued {
         [string]$ExecutionHostProfile = "workstation_offline_v1",
         [ValidateRange(1, 86400)][int]$TimeoutSeconds = 14400,
         [ValidateRange(100, 60000)][int]$PollMilliseconds = 2000,
-        [ValidateRange(1, 3600)][int]$ReportSeconds = 60
+        [ValidateRange(1, 3600)][int]$ReportSeconds = 60,
+        [ValidateRange(1, 8)][int]$SlotCount = 3,
+        [ValidateRange(0, 1099511627776)][long]$MinAvailableMemoryBytes = 6442450944,
+        [ValidateRange(1, 100)][double]$MaxCommitPercent = 90
     )
 
     if ($ExecutionHostProfile -cne "workstation_offline_v1") {
@@ -2727,9 +3715,14 @@ function Enter-WeatherHeavyWorkloadLeaseQueued {
         Write-WeatherHeavyWorkloadQueueEvent -RepoRoot $RepoRoot -Event "enqueue" `
             -Ticket $ticket.Ticket -Position $position -Workload $Workload `
             -Holder (Get-WeatherHeavyWorkloadHolderSummary -RepoRoot $RepoRoot) `
-            -Extra @{ timeout_seconds = $TimeoutSeconds }
+            -Extra @{
+                timeout_seconds = $TimeoutSeconds
+                slot_count = $SlotCount
+                slot_holders = [object[]]@(Get-WeatherHeavyWorkloadSlotHolderSummary)
+            }
         $lastPosition = $position
         $lastReport = $clock.Elapsed.TotalSeconds
+        $refusal = $null
         while ($true) {
             foreach ($reaped in @(Remove-WeatherStaleHeavyWorkloadQueueTicket `
                     -QueueRoot $queueRoot)) {
@@ -2746,12 +3739,23 @@ function Enter-WeatherHeavyWorkloadLeaseQueued {
             if (@($entries | Where-Object { $_.Ticket -eq $ticket.Ticket }).Count -ne 1) {
                 throw "this waiter's heavy-workload queue ticket vanished"
             }
-            $position = 1 + @($entries | Where-Object { $_.Ticket -lt $ticket.Ticket }).Count
-            if ($position -eq 1) {
+            $ahead = @($entries | Where-Object { $_.Ticket -lt $ticket.Ticket })
+            $position = 1 + $ahead.Count
+            # Unreadable tickets may be a slot-aware waiter still being written.
+            $slotAwareAhead = @($ahead | Where-Object {
+                $null -eq $_.Record -or
+                $_.Record.PSObject.Properties.Name -contains "slot_aware"
+            }).Count
+            $olderWrapperAhead = $ahead.Count - $slotAwareAhead
+            if ($slotAwareAhead -eq 0) {
                 $lease = $null
                 try {
-                    $lease = Enter-WeatherHeavyWorkloadLease -RepoRoot $RepoRoot `
-                        -Workload $Workload -ExecutionHostProfile $ExecutionHostProfile
+                    $lease = Enter-WeatherWorkstationHeavySlotLease -RepoRoot $RepoRoot `
+                        -Workload $Workload -SlotCount $SlotCount `
+                        -MinAvailableMemoryBytes $MinAvailableMemoryBytes `
+                        -MaxCommitPercent $MaxCommitPercent `
+                        -AvoidLegacySlot:($olderWrapperAhead -gt 0)
+                    $refusal = $script:WeatherWorkstationSlotRefusal
                 }
                 catch {
                     # The stale-ACTIVE recovery asks for an exact retry; the next
@@ -2773,15 +3777,25 @@ function Enter-WeatherHeavyWorkloadLeaseQueued {
                     $outcome = "start"
                     $waited = $clock.Elapsed.TotalSeconds
                     Write-WeatherHeavyWorkloadQueueEvent -RepoRoot $RepoRoot `
-                        -Event "start" -Ticket $ticket.Ticket -Position 1 `
-                        -WaitedSeconds $waited -Workload $Workload
+                        -Event "start" -Ticket $ticket.Ticket -Position $position `
+                        -WaitedSeconds $waited -Workload $Workload `
+                        -Extra @{
+                            slot_id = [int]$lease.WorkstationSlotId
+                            slot_count = $SlotCount
+                            busy_slots_at_admission = [int[]]@($lease.BusySlotsAtAdmission)
+                            available_physical_bytes = [long]$lease.AdmissionAvailablePhysicalBytes
+                            commit_percent = [double]$lease.AdmissionCommitPercent
+                        }
                     $lease | Add-Member -NotePropertyName QueueTicket `
                         -NotePropertyValue $ticket.Ticket -Force
                     $lease | Add-Member -NotePropertyName QueueWaitedSeconds `
                         -NotePropertyValue $waited -Force
+                    $lease | Add-Member -NotePropertyName QueuePosition `
+                        -NotePropertyValue $position -Force
                     return $lease
                 }
             }
+            else { $refusal = "earlier_slot_aware_waiter" }
             $waited = $clock.Elapsed.TotalSeconds
             if ($waited -ge $TimeoutSeconds) {
                 $outcome = "give_up"
@@ -2789,7 +3803,12 @@ function Enter-WeatherHeavyWorkloadLeaseQueued {
                     -Event "give_up" -Ticket $ticket.Ticket -Position $position `
                     -WaitedSeconds $waited -Workload $Workload `
                     -Holder (Get-WeatherHeavyWorkloadHolderSummary -RepoRoot $RepoRoot) `
-                    -Extra @{ timeout_seconds = $TimeoutSeconds }
+                    -Extra @{
+                        timeout_seconds = $TimeoutSeconds
+                        slot_count = $SlotCount
+                        slot_refusal = $refusal
+                        slot_holders = [object[]]@(Get-WeatherHeavyWorkloadSlotHolderSummary)
+                    }
                 return $null
             }
             if ($position -ne $lastPosition -or
@@ -2797,7 +3816,12 @@ function Enter-WeatherHeavyWorkloadLeaseQueued {
                 Write-WeatherHeavyWorkloadQueueEvent -RepoRoot $RepoRoot `
                     -Event "wait" -Ticket $ticket.Ticket -Position $position `
                     -WaitedSeconds $waited -Workload $Workload `
-                    -Holder (Get-WeatherHeavyWorkloadHolderSummary -RepoRoot $RepoRoot)
+                    -Holder (Get-WeatherHeavyWorkloadHolderSummary -RepoRoot $RepoRoot) `
+                    -Extra @{
+                        slot_count = $SlotCount
+                        slot_refusal = $refusal
+                        slot_holders = [object[]]@(Get-WeatherHeavyWorkloadSlotHolderSummary)
+                    }
                 $lastPosition = $position
                 $lastReport = $waited
             }
