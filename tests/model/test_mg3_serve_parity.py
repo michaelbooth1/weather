@@ -175,6 +175,15 @@ def test_a_binding_built_by_the_release_builder_serves_through_mg3_serve(tmp_pat
     weights = tmp_path / "blend_l6_H_weights_rf1.json"
     weights.write_text(json.dumps(table, sort_keys=True), encoding="utf-8")
     Path(str(weights) + ".sha256").write_text(f"{_sha(weights)}  {weights.name}\n", encoding="utf-8")
+    # the real pins first: every constant both modules carry agrees before any is monkeypatched below.
+    # (weights and partner shas are not carried by mg3_serve - it reads them only from the binding.)
+    assert ms.SM_H_STATE_SHA256 == prm.SM_H_STATE_SHA256
+    assert ms.SM_H_NOTE_SHA256 == prm.SM_H_BINDING_SHA256
+    assert ms.BINDING_SCHEMA == prm.MG3_BINDING_SCHEMA and ms.MG3_STATE_SCHEMA == prm.MG3_STATE_SCHEMA
+    assert ms.P3DH_ARM == prm.MG3_ARM and ms.SM_H_BLOCK == prm.SM_H_STATE_BLOCK
+    assert mg3_arms.SM_H_HOURS == prm.SM_H_HOURS and mg3_arms.BLEND_HOURS == prm.RR_HOURS
+    assert ms.P3DH_EXTRA == tuple(prm.RK_ARMS["P3d_H"]["extra_hgb"])
+    assert prm.MG3_POINT_RULES[ms.BLOCK_0712] == "rn1" and prm.MG3_POINT_RULES["13-16"] == "nearest"
     for module, name, value in ((prm, "MG3_RF1_WEIGHTS_SHA256", _sha(weights)),
                                 (prm, "MG3_L6_PARTNER_SHA256", l6_sha), (prm, "SM_H_STATE_SHA256", smh_sha),
                                 (ms, "SM_H_STATE_SHA256", smh_sha),
@@ -201,6 +210,6 @@ def test_a_binding_built_by_the_release_builder_serves_through_mg3_serve(tmp_pat
               extra={"k_max": 81.0, "k_gap": 1.0, "k_tcdc": 30.0})
     got = ms.arm_distribution(serve, mg3_arms.ARM_BLEND_0712, hour=9, mg1=(80.0, 2.0, 74.0), l6_nowcast=82.0, **kw)
     assert got == ms.mix(ms.p3dh_distribution(serve.state_0712, 9, **kw),
-                         ms.l6_distribution(serve.l6_coef, 9, v=80.0, s=2.0, floor=74.0, nowcast=82.0), 0.5)
+                         ms.l6_distribution(serve.l6_coef, 9, v=80.0, s=2.0, floor=74.0, nowcast=82.0), table["weights"]["h09"])
     assert ms.arm_distribution(serve, mg3_arms.ARM_SM_H, hour=14, **kw) == ms.p3dh_distribution(
         serve.sm_h_state, 14, **kw)
