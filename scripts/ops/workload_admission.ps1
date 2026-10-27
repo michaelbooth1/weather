@@ -3158,7 +3158,7 @@ function Write-WeatherHeavyWorkloadExclusiveHolderRecord {
     [IO.File]::WriteAllText(
         $temporary, ($record | ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false))
     try {
-        if ([IO.File]::Exists($path)) { [IO.File]::Replace($temporary, $path, $null) }
+        if ([IO.File]::Exists($path)) { [IO.File]::Replace($temporary, $path, [NullString]::Value) }
         else { [IO.File]::Move($temporary, $path) }
     }
     finally {
@@ -3290,7 +3290,7 @@ function Get-WeatherProcessAncestorChain {
         $chain.Add($parent)
         $current = $parent
     }
-    return ,@($chain.ToArray())
+    return $chain.ToArray()
 }
 
 

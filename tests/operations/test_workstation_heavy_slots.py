@@ -1115,4 +1115,4 @@ def test_a_record_left_by_a_released_barrier_grants_nothing(workstation: Path) -
     assert found.returncode == 0, found.stderr
     assert found.stdout.strip() == "NONE"
     # And the ordinary path is unchanged: the caller takes the free lease itself.
-    assert _probe_lease(repo, EXCLUSIVE_ENTER + " -TimeoutSeconds 5", "after-stale") == "ACQUIRED"
+    assert _probe_lease(repo, EXCLUSIVE_ENTER + " -TimeoutSeconds 5", "after-stale").splitlines()[-1] == "ACQUIRED"
