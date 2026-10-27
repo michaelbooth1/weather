@@ -40,7 +40,13 @@ missions in parallel in this same clone.
 ## Boundaries
 
 - Fixtures only: no production data, credentials, `.env` files, Scheduler changes or venue calls. Nothing
-  places, cancels or signs orders.
+  places, cancels or signs orders. A scheduled task or service is persistent machine configuration: never create
+  one without the owner's direct yes in this chat ([delegation contract](DELEGATION_CONTRACT.md) §4).
+- Look a sha up with `git show <ref>:<path> | sha256sum`, `git rev-parse`, or `sha256sum` on the named file only;
+  never a broad grep or recursive scan over `C:\t` (master, 2026-10-27).
+- Moving any tip that has been cleared (a new commit, merge or rebase on it) needs fresh clearance (master,
+  2026-10-27). Light scripts, memory floors and stale heavy markers: [host load policy](HOST_LOAD_POLICY.md)
+  workstation section.
 - Push and draft PRs are authorized. Never force-push, rebase a pushed branch or rewrite history; bring a
   branch up to date by merging `origin/master`.
 - Run focused and affected tests plus the repo-wide audits (schema registry, imports, agent docs, path
