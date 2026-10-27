@@ -115,7 +115,11 @@ sequence numbers, not calendar dates.
 | 10x | From the 2026-10-23 events the venue's declared resolution source is the raw aviationweather.gov METAR API, routine reports only (SPECI excluded), with a WU fallback; Denver names KDEN, not our KBKF (event metadata only; SPECI effect measured 07-31..09-29) |
 | 10y | Free-source and blend levers (lane G, development, 2026-10-24): F1, F3, F4, G2-a and L4 add nothing over their no-source controls and none helps 07-12; F2 MRMS is a sub-bar 13-16 lead |
 | 10z | R0 trained on the full year beats windowed R0 but loses to the floored forecast baselines by about 1 nat at 07-12 (lane L1, workstation, 2026-10-24); not adopted |
+| 10aa | Lane L2 pooled residual model (2026-10-24/25): beats OLS + floor and the floored forecast on R0's rows and served on the dev window; pooling is the lever; still worse than the market |
+| 10ab | Lanes L3 and L6 (2026-10-24/25): OLS + hard floor beats floored R0 and served, loses to MG-1 at 07-12; L6 own-obs twin beats it; upstream ASOS adds nothing |
 | 10ac | Lane L9 ingredient ladder on OLS + hard floor (blocked LOYO 2021-25, weather-only, 2026-10-25): PIT NBM mean KEEP, cross-market pooling KEEP; overnight low, dewpoint and hour-pooled slopes KILL |
+| 10ad | Lane L11 (2026-10-25): market blend w about 0 (MG-1 and P3d_N NOTHING, composite INCONCLUSIVE); dead-bucket mechanism closed fleet-wide under capture-time dating; P3d_N dev emitter is `last_in_hour` (about 6% of rows exposed) |
+| 10ae | Lanes L3, L7, L8 (2026-10-24/25): loss atlas control PASS; option N analogue and A_N control; MG-2 pick = P3d_N; L8 binding v2 serve control PASS (unlanded) |
 
 ---
 
@@ -4281,6 +4285,81 @@ on KEEP.
 - **Relation to other records:** BASE and rows are §10ab (L3); the full-year union is §10z (L1); the pooled
   challenger is §10aa (L2). Code: branch `claude/ols-floor-ladder-20261025`, module
   `weather.calibration.ols_floor_ladder` (stacked on L3's `r0_ols_floor_challenger`).
+
+### 10ad. Against the market, the models add nothing (blend weight about 0), and the dead-bucket mechanism is closed fleet-wide once the floor is dated by receipt — lane L11, workstation, 2026-10-25
+
+**Claim, at exactly this scope:** development window only (dev scorecard, scored 2026-08-15..09-29, 43 dates x
+11 US markets = 473 market-days, burn-in 08-01..08-14; Toronto dead buckets 08-10..09-29). Research only: no
+orders, International venue only, nothing dated after 2026-09-29 read, no oracle. Records:
+[`docs/research/market-blend-l11-2026-10-25/`](../research/market-blend-l11-2026-10-25/README.md). Code:
+`weather.calibration.market_blend`, `weather.calibration.dead_bucket`, `weather.calibration.dead_bucket_toronto`
+(branch `claude/market-blend-l11-20261025`). Intervals: crossed [date-clustered] 95%, 2,000 draws, seed 20260921.
+
+- **Market blend (walk-forward log pool of market and candidate; rule `e29c9a84…`, clarification 1 `46e1fac2…`).**
+  Controls all PASS: served R 1.774 / 1.526 reproduced, MG-1 07-12 excess 0.011957, L6 own-stack −0.0036243,
+  the w = 0 identity, and placebos (vectors deranged across dates) at mean w 0.005 and 0.007.
+  - **MG-1, 07-12 (primary): NOTHING.** R 1.0017 [0.9990, 1.0077]; mean w 0.008, with w = 0 on 25 of 43 dates.
+  - **Composite pre-13 (MG-1 + captured-METAR L6 stack): INCONCLUSIVE.** Run 2 R 0.9998 [0.9938, 1.0063],
+    mean w 0.067, MDE80 0.006: w > 0, but no increment over the market is demonstrated. Run 2's composite rows
+    supersede run 1's (`results-run1.md`, kept).
+  - **P3d_N, 07-12 (rule `94b1603a…`): NOTHING.** Mean w 0.0051, w = 0 on 28 of 43 dates; R 1.0013
+    [0.9992, 1.0075]. Unblended, P3d_N is R 1.1912 [1.1024, 1.2944] at 07-12 (descriptive).
+  - **13-16 (secondary): NOTHING for every candidate.** MG-1 blend R 0.9858 and composite 0.9843 against the
+    floor-only control (market plus hard floor) 0.9845: the afternoon "gain" is the hard floor zeroing mass on
+    buckets already below the observed high, not model information. P3d_N alone at 13-16 is R 1.2795
+    [1.1539, 1.4106] (descriptive, not pre-registered).
+- **Dead buckets (buy NO on a bucket the observed running max has already killed, before the book reprices).**
+  - **US stage A, rule r4, capture-time dating** (`fac8cd7211bb3c0e39edc8f95a7808c24fdf3a36558d9da5aab8462ff684a921`,
+    recorded before any row): $25 `print_d1` **$0.03/day [0.00, 0.09]**, MDE80 0.06, **21 trades**, 3 of 48 dates
+    nonzero, none of the traded buckets settled YES. NOT WORTH PURSUING. Sanity control (a)2 PASS: 3,011 of 3,098
+    doubly dead buckets (0.972, minimum 0.95) have an r4 receipt at or after the killing IEM observation.
+  - **Toronto stage A, rule r4-toronto** (`12902246a5358df5a2926314465e61dd4d1afaeedd408b994706e5b773c9f061`;
+    dated Clarification 1 document `46c48626…`): **$0.00/day [0.00, 0.00], 0 trades filled over 51 labelled
+    primary dates.** NOT WORTH PURSUING. Label-free measure (descriptive): **2 of 312** capture-dated dead buckets
+    ever offered a NO ask with value >= 0.005. Run 1 (pinned WU only, 50 of 51 dates unlabelled) is superseded and kept.
+  - **r3 early and r3 late:** $0.00/day [0.00, 0.00], 0 of 48 dates nonzero (nulls, firmer after the audit).
+  - **Stage A's obs-dated $0.37/day [0.12, 0.69] on 57 trades is retracted as look-ahead** (RF "Dead-bucket
+    stage A"). Under r4 it falls to $0.03: the 57 trades were exactly the late-receipt tail, and 26 of them have
+    no capture by the end of the window.
+- **Look-ahead audit (master ruling 2026-10-25; metadata and code only, nothing re-scored).**
+  - Dead buckets: the r2/r3 code dated a bucket's death at the METAR's `valid_utc` plus an assumed 10 min. On
+    the served-floor proxy, 41 of stage A's 57 primary trades were not yet dead at the book row and carried
+    $0.366 of the $0.372; the served floor killed the bucket a median 15.5 min after the valid time.
+  - **P3d_N's dev emitter is `last_in_hour`:** `pooled_residual_model.scan_replay_n` takes `high_so_far` and
+    `current_temp` from the last replay snapshot captured in [h:00, h+1:00) and emits them for every row with
+    `cutoff_hour = h`. Exposed rows, a lower bound at 10-minute receipt: **1,793 of 28,770 (6.2%) at 07-12 and
+    1,057 of 18,591 (5.7%) at 13-16**. The look-ahead can only favour the candidate, so the P3d_N nulls above are
+    firmer. Any positive result built on these vectors needs a no-look-ahead re-emission first.
+  - MG-1, the L6 captured re-spec and the market side are clean: each uses the row's own captured fields.
+- **Not claimed:** no edge, no forward result, no claim for Denver under KDEN labels, no claim that a blend with
+  w > 0 adds information at this MDE. The market-blend and dead-bucket multiplicity belongs to the dev-window ledger.
+
+### 10ae. The MG-2 chain: option N replaces the uncaptured forecast with the captured NBM mean, P3d_N is picked for 13:00+, and L7's loss atlas and checklist govern every dev read — lanes L3, L7 and L8, workstation, 2026-10-24/25
+
+**Claim, at exactly this scope:** dev-window selection evidence only (rows from `DEV_WINDOW_LEDGER.md`); nothing
+here is confirmation, edge or promotion evidence (§5). Nothing after 2026-09-29 was read.
+
+- **L7 (loss atlas, pre-registration checklist, dev-window ledger; branch `claude/loss-atlas-prereg-20261024`).**
+  The atlas reproduces the served control (R 1.774 [1.566, 2.052] all hours, 1.526 [1.369, 1.721] 00-16) and L5's
+  diagnosis to every reported digit: 07-12 centre share 76.5% [63.1, 88.7], served bias −1.44 F [−2.20, −0.69]
+  (ledger row 18). In delta mode MG-1 − served at 07-12 is −0.0139 [−0.0212, −0.0072] and closes 53.7% of served's
+  excess, 43.1% of it centre and 10.6% width (row 19). The [checklist](PREREGISTRATION_CHECKLIST.md) and `prereg_check`
+  now gate every dev-window rule.
+- **L3, option N.** P3d's and arm A's forecast input (Open-Meteo Previous Runs, lead 1) has no captured analogue
+  (ledger row 28; served forecast MAE 2.26 °F at 13-16, §10aa), while the captured NBM 07Z mean matches L9's NBP
+  pipeline on 47,414 of 47,414 rows. Under pick-rule Clarification 2 the analogue (N) was approved: A_N is OLS + floor
+  on the captured NBM 07Z mean, L8's running max and current temperature. **Pick-rule control: A_N − MG-1 at 13-16
+  −0.3915, date-clustered [−0.5567, −0.2488], crossed [−0.6199, −0.1807], 13,958 rows** (row 29), before any P3d_N row.
+- **The MG-2 afternoon pick (run once, row 31; pick rule `deb3eae3…`):** control reproduced −0.3915; P3d_N − A_N on
+  11 markets −0.155 [−0.218, −0.098] (crossed [−0.330, −0.031]), 5 markets −0.108 [−0.194, −0.026] (crossed
+  [−0.357, +0.044]); every hour 13-16 below 0 date-clustered; P3d_N − MG-1 −0.547 [−0.723, −0.399]. Pick = P3d_N.
+  These vectors are the `last_in_hour` emission (§10ad), which is allowed for this model-vs-model gate only.
+- **L8, MG-2 composite binding v2 — UNLANDED** (branch `claude/mg2-composite-binding-v2-20261025`; the forward rule
+  file's sha256 at that tip is `bb5d2e61f3e44c1fd7628851caba749c5c67985d1d8229872f3f5bf1afc94f23`, status DRAFT, D0
+  unset). Measured there: the P3d_N serve control PASSES, refitting L2's dev fit through the forward state export and
+  re-emitting all 79,403 dev rows with no missing or extra row and max |dp| = 0.0. Nothing about the forward look is
+  claimed; until that branch lands this bullet records a measurement on an unmerged branch only.
+- **Not claimed:** that MG-2 beats the market (§10ad: w about 0); any forward or reserved-window result.
 
 ## Related
 
