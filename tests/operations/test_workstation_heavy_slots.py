@@ -8,7 +8,7 @@ portable live stage excludes every slot in both orders; a dead slot holder is re
 legacy stale-ACTIVE rules; capture-colocated admission keeps the single serial lease. PG-NEST-1: the
 exclusive barrier owner is recorded (pid plus start time) and logged by exclusive waiters; only a live
 descendant of that recorded holder is admitted at once without a ticket, and a dead or reused holder pid
-grants nothing.
+grants nothing, also when the owner cannot delete its record at release (it is marked released).
 
 Every process here uses a fixture-local mutex name and state path, never the host's real lease.
 """
@@ -1116,3 +1116,66 @@ def test_a_record_left_by_a_released_barrier_grants_nothing(workstation: Path) -
     assert found.stdout.strip() == "NONE"
     # And the ordinary path is unchanged: the caller takes the free lease itself.
     assert _probe_lease(repo, EXCLUSIVE_ENTER + " -TimeoutSeconds 5", "after-stale").splitlines()[-1] == "ACQUIRED"
+
+
+UNDELETABLE_HOLDER_RECORD = r"""
+# TEST-ONLY: THE HOLDER RECORD FILE CANNOT BE DELETED
+function Remove-WeatherHeavyWorkloadExclusiveHolderFile { param([string]$Path) throw 'simulated delete failure' }
+"""
+
+RELEASE_THEN_REOWN = r"""
+$ErrorActionPreference = 'Stop'
+. '{admission}'
+$lease = {enter} -TimeoutSeconds 30
+if ($null -eq $lease) {{ exit 3 }}
+Set-WeatherHeavyWorkloadLeaseTeardownPending -Lease $lease | Out-Null
+Exit-WeatherHeavyWorkloadLease -Lease $lease
+$path = Join-Path '{repo}' 'heavy_workload_queue_v1\exclusive_holder_v1.json'
+$left = [IO.File]::ReadAllText($path) | ConvertFrom-Json
+if ('{case}' -ceq 'warn_only_control') {{
+    # What the record looked like before this fix: still "held", naming this live process.
+    $left.phase = 'held'
+    [IO.File]::WriteAllText($path, ($left | ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false))
+}}
+# A new owner takes the barrier but has not written its own record yet.
+$barrier = [Threading.Mutex]::new($false, (Get-WeatherHeavyWorkloadExclusiveMutexName))
+if (-not $barrier.WaitOne(0, $false)) {{ exit 4 }}
+$probe = Join-Path '{repo}' 'descendant-probe.ps1'
+[IO.File]::WriteAllText($probe, @'
+$ErrorActionPreference = 'Stop'
+. '{admission}'
+$found = Find-WeatherHeavyWorkloadExclusiveHolderAncestor
+if ($null -eq $found) {{ 'NONE' }} else {{ 'FOUND {{0}}' -f $found.pid }}
+'@)
+$ErrorActionPreference = 'Continue'
+$answer = & powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $probe
+$ErrorActionPreference = 'Stop'
+$barrier.ReleaseMutex()
+[IO.File]::WriteAllText('{out}', ([ordered]@{{ pid = $PID; phase = [string]$left.phase; answer = [string]$answer }} |
+    ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false))
+"""
+
+
+@pytest.mark.parametrize("case", ("released_on_delete_failure", "warn_only_control"))
+def test_a_record_that_could_not_be_removed_is_marked_released_and_grants_nothing(workstation: Path, case: str) -> None:
+    # PG-NEST-1 residual: if the owner cannot delete its record at release, the
+    # record must not keep vouching for the barrier once a new owner takes it
+    # but has not yet written its own record. The control shows the window is real.
+    repo = workstation
+    admission = repo / "scripts/ops/workload_admission.ps1"
+    admission.write_text(admission.read_text(encoding="utf-8") + UNDELETABLE_HOLDER_RECORD, encoding="utf-8")
+    out = repo / "residual.json"
+    script = RELEASE_THEN_REOWN.format(
+        admission=admission, enter=EXCLUSIVE_ENTER.format(repo=repo, name="residual"), repo=repo, case=case, out=out
+    )
+    result = subprocess.run(
+        [*POWERSHELL, "-Command", script], capture_output=True, text=True, check=False, timeout=180, env=_env()
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    outcome = json.loads(out.read_text(encoding="utf-8"))
+    if case == "released_on_delete_failure":
+        assert "marked released" in result.stderr + result.stdout
+        assert outcome["phase"] == "released"
+        assert outcome["answer"] == "NONE"
+    else:
+        assert outcome["answer"] == f"FOUND {outcome['pid']}"

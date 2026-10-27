@@ -3129,12 +3129,13 @@ function Get-WeatherHeavyWorkloadExclusiveHolderPath {
 function Write-WeatherHeavyWorkloadExclusiveHolderRecord {
     # Written only by the process that owns the exclusive barrier, atomically
     # (temporary file, then replace). Phase is "draining" while the owner still
-    # waits for slots and "held" once it holds every slot.
+    # waits for slots, "held" once it holds every slot, and "released" when
+    # removal failed at release. Only "held" lets descendants inherit.
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)][string]$Workload,
         [long]$Ticket = 0,
-        [Parameter(Mandatory = $true)][ValidateSet("draining", "held")][string]$Phase,
+        [Parameter(Mandatory = $true)][ValidateSet("draining", "held", "released")][string]$Phase,
         [int]$InheritedSlotId = 0
     )
 
@@ -3211,21 +3212,49 @@ function Test-WeatherHeavyWorkloadExclusiveHolderLive {
 }
 
 
+function Remove-WeatherHeavyWorkloadExclusiveHolderFile {
+    # The one file deletion behind record removal (tests make it fail).
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    [IO.File]::Delete($Path)
+}
+
+
 function Remove-WeatherHeavyWorkloadExclusiveHolderRecord {
     # Called by the barrier owner just before it releases the barrier. Removes
     # the record only when it names this very process (pid plus start time).
+    # If the file cannot be deleted, the record is rewritten with phase
+    # "released" before the barrier goes, so it can never vouch for a later
+    # owner's barrier while still naming this live process.
     [CmdletBinding()]
     param()
 
+    $record = $null
     try {
         $record = Get-WeatherHeavyWorkloadExclusiveHolderRecord
         if ($null -eq $record -or [int]$record.pid -ne $PID) { return }
         $ownerStart = Get-WeatherProcessCreationIdentity -ProcessId $PID
         if ([string]$record.owner_process_start_utc -cne [string]$ownerStart) { return }
-        [IO.File]::Delete((Get-WeatherHeavyWorkloadExclusiveHolderPath))
+        Remove-WeatherHeavyWorkloadExclusiveHolderFile -Path (Get-WeatherHeavyWorkloadExclusiveHolderPath)
     }
     catch {
-        Write-Warning "exclusive holder record could not be removed: $($_.Exception.Message)"
+        $failure = $_.Exception.Message
+        if ($null -eq $record) {
+            Write-Warning "exclusive holder record could not be removed: $failure"
+            return
+        }
+        try {
+            Write-WeatherHeavyWorkloadExclusiveHolderRecord -Workload ([string]$record.workload) `
+                -Ticket ([long]$record.ticket) -Phase "released" `
+                -InheritedSlotId ([int]$record.inherited_slot_id)
+            Write-Warning "exclusive holder record could not be removed ($failure); marked released"
+        }
+        catch {
+            Write-Warning (
+                "exclusive holder record could not be removed ($failure) " +
+                "or marked released: $($_.Exception.Message)")
+        }
     }
 }
 
