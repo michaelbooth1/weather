@@ -43,9 +43,10 @@ memory as project guidance; durable knowledge lives in this repository.
   safeguards described by the path policy; do not grow domain logic in them.
 - Built-in markets operate end-to-end in their native settlement unit.
   Legacy names ending in `_c` do not prove that a value is Celsius.
-- Configured Weather Underground history is the settlement proxy. METAR, ECCC,
-  NWS, Open-Meteo, marine, and related sources are supporting evidence unless a
-  specific contract explicitly says otherwise.
+- Labels are the venue's own per built-in market-date: configured Weather Underground
+  history before 2026-10-23, the venue rule (highest routine METAR, WU fallback) from it
+  ([contract](docs/operations/venue-rule-labels.md)). WU stays the serving floor source; METAR,
+  ECCC, NWS, Open-Meteo, marine and related sources are supporting evidence unless a contract says otherwise.
 - The trading product is **International Polymarket only**. Polymarket US code,
   fixtures, and historical evidence are compatibility surfaces, not an allowed
   platform for new probes, credentials, live-readiness, or order mutation.

@@ -185,6 +185,26 @@ untested. It fooled us because the reports sat on unmerged branches whose ids we
   guidance-shaped input looked like a lead. Score a source as a paired increment over the best no-source or captured-data
   control.
 
+### R-D blend "a 07-12 win for the NBM family" — WRONG INCUMBENT, SUPERSEDED (2026-10-25)
+
+- **What it looked like:** lane L2's R-D, a walk-forward hour-wise blend of MG-1 and P3d_N_fix, beat MG-1 at 07-12 by
+  −0.0467 [−0.0665, −0.0257] (crossed [−0.0835, −0.0134]) with every hour below 0, a pre-registered WIN.
+- **What is true:** MG-1 is not the composite's pre-13 arm; L6 (MG-1 plus the own-observation stack) is. Re-asked
+  against L6 under R-F, both blends are NULL: blend(MG-1, P3d_N_fix) − L6 +0.0243 [−0.0033, +0.0523] and
+  blend(L6, P3d_N_fix) − L6 −0.0096 [−0.0187, +0.0003]. No Clarification was written. `ESTABLISHED_FINDINGS.md` §10af.
+- **Why it fooled us:** the comparator was the family's historical reference, not the arm actually in the candidate.
+  Score every rung against the strongest incumbent that would be replaced.
+
+### "Toronto has no NBM guidance" — SOURCE PROPERTY CONFUSED WITH CAPTURE SCOPE, RETRACTED (2026-10-26)
+
+- **What it looked like:** the exhaustion register (S1 "no coverage", S13 "Toronto has no NBM", §5 order 12 "because it
+  has no NBM") and EF §10h's "none for Toronto" read as a fact about the sources.
+- **What is true:** the NBP bulletin carries CYYZ ("CYYZ NBM V4.1 NBP GUIDANCE"), the NBS and NBH bulletins carry CYYZ,
+  and HRRR's CONUS grid contains it. Only production's NBM-family capture is US-only (lever inventory F1; the
+  replay ablation files NBM under the `official_us_guidance` family). Toronto has never had an NBM-family guidance control because nothing captured
+  one, not because none exists. [Lever inventory](LEVER_INVENTORY_2026-10-26.md) F1 and row 1.
+- **Why it fooled us:** "absent from our capture" was written as "absent". State coverage as a property of the capture
+  and check the source's own station list before calling a market uncovered.
 ### Dead-bucket stage A "$0.37/day, worth a forward paper test" — LOOK-AHEAD, RETRACTED (2026-10-25)
 
 - **What it looked like:** lane L11's stage A (rule r2, 13-16 local, 08-10..09-29) bought NO on buckets the observed
