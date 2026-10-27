@@ -163,3 +163,52 @@ The excess of each G arm over the capture-time market at 07-12, per hour, as in 
   range, ETag, LastModified and decoded value hash.
 - `rn_parity.json`, `rn_loyo.json`, `rn_score.json`.
 - A summary on the branch.
+
+## Clarification 1 (2026-10-27): the capture side of precondition P uses history's node definition
+
+Written by lane L2 on 2026-10-27, on master's ruling (option C), **after** P's first result. That result was
+`rn_parity.json` sha256 176e9ed0e6f03fced63da6e535e735e79b9a975a5f49853fce3c678f13a2139e: p10 -0.904, **p90 -1.027
+(FAIL)**, control -0.939 °F. Gate 1 had passed (`rn_loyo.json` 496ed1a5…) and is not re-run. Everything above this
+section is unchanged; its sha256 is a9ca45f0….
+
+**Why.** The definition difference disclosed under "Input definition" is that history takes each member's max over
+3-hourly nodes of one fixed cycle, while the capture's `day_member_high_*` take a max over all hourly values of the
+local day. That difference alone makes the capture warmer, and P measured about 0.9-1.0 °F on all three statistics.
+Train/serve parity needs one definition. The trained one is the node max, so the capture side is recomputed to it.
+This is a parity repair. It is not a threshold change and adds no free parameter.
+
+**Capture side (replaces the captured `day_member_high_p10/p90` and `day_max_native` as P's comparison values).**
+- **Source.** The capture host's raw Open-Meteo ensemble payload blobs, `data/snapshots/<event>/forecast_payloads/`.
+  - Ensemble blobs are identified by `hourly` keys `temperature_2m_member01..30`; no other blob is used.
+  - The per-member hourly values come from those keys. The control is `temperature_2m`, as the rule's original P.
+  - Labels are naive local times with one `utc_offset_seconds`. Each label's instant is label - offset, as in
+    `weather.time.provider_hourly_local_times`.
+- **Node maximum.** For each member, take the max over exactly history's nodes:
+  - the 06Z cycle of the target date D, fh 6, 9, …, 24, i.e. valid instants 12Z D .. 06Z D+1;
+  - kept only when the valid local date is D;
+  - every node is required, otherwise that member has no value.
+  - This mirrors `ro_member_highs` (`src/weather/calibration/pooled_residual_model.py` lines 4922-4939 at
+    bab6ff810).
+- **Statistics.**
+  - p10 and p90 are `model_sources.percentile` over the members' node maxima, with at least 25 of 30 members. This
+    mirrors lines 5035-5044 at bab6ff810.
+  - The control is `temperature_2m`'s node maximum.
+- **Linking a blob to a snapshot.** The workstation inputs do not record the payload hash. A blob is linked to a P
+  snapshot of the same event when it reproduces that snapshot's captured `day_member_high_p10`, `day_member_high_p90`
+  and `day_max_native`.
+  - "Reproduces" means: full-local-day member maxima, then `percentile`, exactly as `model_sources.fetch_global_ensemble`
+    (`src/weather/model/model_sources.py` lines 2431-2520 at bab6ff810), within 1e-6.
+  - Snapshots with no linked blob, or whose linked blobs disagree on the node statistics, are excluded and counted.
+  - The link reproducing the captured day values is the positive control that the right payload was read.
+- **Unchanged.** History side, population, cutoff hours 07-12, window 2026-07-30..09-29, and the PASS limits
+  (|mean diff| <= 1.0 °F, median |diff| <= 1.0 °F, r >= 0.95 for each of p10, p90 and control).
+
+**Residual difference (disclosed, not a parameter).**
+- The cycle cannot be pinned on the capture side. Open-Meteo serves its latest run at fetch time, and the payload
+  carries no run id, only `generationtime_ms`. The capture's run may therefore differ from history's 06Z D cycle.
+- Open-Meteo's `temperature_2m` is read as the control, as in the original P. The capture code's docstring calls it
+  the ensemble mean, and that is not resolved here.
+
+**Consequence.** P is re-run once against the extracted capture values.
+- If P fails, R-O is KILLED at P. There is no further clarification.
+- If P passes, gates 2 and 3 run exactly as declared above.
