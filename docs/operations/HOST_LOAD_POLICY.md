@@ -119,6 +119,11 @@ workstation.
   only with at least 6 GB of available physical memory and commit charge at or below 90 % (the OD33 ceiling).
   It never applies on the capture PC and never while a live session runs: a portable live stage excludes every
   slot in both orders. Mechanism: *Slots* below.
+- **Memory floors, light scripts and stale markers (master, 2026-10-27).** The 3 GB available-memory floor is for
+  focused runs only; pre-gates keep the 6 GB floor; below 3 GB available, nothing new is admitted. A light script
+  (under 1 minute and under 1 GB) may run directly, without the wrapper, with its sha256, inputs and command line
+  recorded. A stale `ACTIVE` heavy-workload state marker is cleared only through the queue's own recovery (the
+  dead-holder reclaim under *Slots* below), never by hand.
 - **xdist.** `pytest -n` (`--dist loadfile`, `-m "not serial"`, then the `serial` set in one process) runs only
   on the workstation, only through the wrapper, and only after an identical pass set (same test ids, same
   outcomes) has been shown against a serial run.
