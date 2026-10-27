@@ -199,6 +199,7 @@ def _rf1_payload():
             "checks": {"1_control": {"pass": True}, "2_identity": {"pass": True}, "3_coverage": {"pass": True}},
             "inputs": {"l6_part": cs.L6_PART_SHA256, "season_nowcasts": cs.SM_DEV_NOWCASTS_SHA256,
                        "partner_vectors": cs.SM_DEV_VECTORS_SHA256},
+            "fit_dates": ["2026-08-01", "2026-09-29", 57],
             "weights": {f"h{h:02d}": 0.5 for h in cs.HOURS_0712}}
 
 
@@ -210,7 +211,7 @@ def test_bind_rf1_weights_accepts_a_passing_season_partner_refit(tmp_path):
         cs.bind_rf1_weights(path, "0" * 64)
 
 
-@pytest.mark.parametrize("breaks", ["check", "stopped", "partner", "note"])
+@pytest.mark.parametrize("breaks", ["check", "stopped", "partner", "note", "history_fit"])
 def test_bind_rf1_weights_refuses_a_failed_check_or_another_partner(tmp_path, breaks):
     payload = _rf1_payload()
     if breaks == "check":
@@ -219,8 +220,10 @@ def test_bind_rf1_weights_refuses_a_failed_check_or_another_partner(tmp_path, br
         payload["stopped_at"] = "check 2"
     elif breaks == "partner":
         payload["inputs"]["season_nowcasts"] = cs.L6_DEV_NOWCASTS_SHA256
-    else:
+    elif breaks == "note":
         payload["note_sha256"] = "0" * 64
+    else:
+        payload["fit_dates"] = ["2025-10-01", "2026-09-29", 120]
     path, sha = _rf1(tmp_path, payload)
     with pytest.raises(cs.CoolSeasonError):
         cs.bind_rf1_weights(path, sha)

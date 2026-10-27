@@ -760,10 +760,13 @@ def bind_rf1_weights(path, weights_sha256):
     if (inp.get("l6_part") != L6_PART_SHA256 or inp.get("season_nowcasts") != SM_DEV_NOWCASTS_SHA256
             or inp.get("partner_vectors") != SM_DEV_VECTORS_SHA256):
         raise CoolSeasonError("RF-1 weights were not fitted with the season-matched L6 partner")
+    fit = list(w.get("fit_dates") or [])
+    if len(fit) < 2 or not str(fit[0]) >= "2026-01-01" or str(fit[1]) > "2026-09-29":
+        raise CoolSeasonError(f"RF-1 fit_dates {fit} are not inside dev 2026 (..2026-09-29)")
     weights = {int(k[1:]): float(v) for k, v in w["weights"].items()}
     if sorted(weights) != list(HOURS_0712) or not all(0.0 <= x <= 1.0 for x in weights.values()):
         raise CoolSeasonError(f"RF-1 weights hours/values invalid: {weights}")
-    return weights, {"checks": {k: bool(c.get("pass")) for k, c in checks.items()}, "inputs": inp}
+    return weights, {"checks": {k: bool(c.get("pass")) for k, c in checks.items()}, "inputs": inp, "fit_dates": fit}
 
 
 def season_nowcast_maps(research_root, nbm_corpus, sm_state_path, loyo_result, mg2_coefficients):
