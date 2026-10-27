@@ -153,9 +153,21 @@ def _git(repo: Path, *args: str) -> str:
 
 
 class _HeldWorkstationMutex:
-    """Hold the host-global workstation mutex unless workstation_heavy already does."""
+    """Hold the host-global workstation mutex unless workstation_heavy already does.
+
+    Inside workstation_heavy.ps1 (WEATHER_WORKSTATION_WRAPPER_ACTIVE=1) the
+    wrapper already holds a proved slot, exported as WEATHER_WORKSTATION_WRAPPER_SLOT,
+    and the nested pre-gate inherits that one. Taking slot 1 here as well would
+    make this test process, an ancestor of the nested pre-gate, hold a slot that
+    the pre-gate must drain, so it would wait out its timeout whenever the
+    wrapper was given a slot other than 1.
+    """
 
     def __enter__(self):
+        self.handle = None
+        self.owned = False
+        if os.environ.get("WEATHER_WORKSTATION_WRAPPER_ACTIVE") == "1":
+            return self
         kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
         kernel32.CreateMutexW.restype = ctypes.c_void_p
         kernel32.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
@@ -168,6 +180,8 @@ class _HeldWorkstationMutex:
         return self
 
     def __exit__(self, *exc):
+        if self.handle is None:
+            return
         if self.owned:
             self.kernel32.ReleaseMutex(self.handle)
         self.kernel32.CloseHandle(self.handle)
