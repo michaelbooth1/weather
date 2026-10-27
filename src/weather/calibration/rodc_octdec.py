@@ -126,7 +126,7 @@ def fold_state(frozen, frame, buckets, year):
         train = train_all[train_all["hour"] == hour].reset_index(drop=True)
         fits[hour] = prm._rung_entry(train, simple, extra_ols, extra_hgb, extra_scale)
         hours[hour] = prm.mg3_hour_entry(fits[hour])
-        rows[hour] = int(len(train))
+        rows[str(hour)] = int(len(train))
     state = {k: frozen[k] for k in ("season_of", "coords", "constants", "conversion")}
     state.update(markets=list(frozen["markets"]), centres=list(cs.OCT_DEC_CENTRES), extra_hgb=list(extra_hgb),
                  buckets={m: list(buckets[m]) for m in frozen["markets"]}, hours=hours)
