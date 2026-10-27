@@ -1,0 +1,281 @@
+# Rung R-ODC pre-registration: a season-matched P3d_H for Oct-Dec 07-12, against the frozen blend_l6_H (two gates)
+
+Written 2026-10-27, before any R-ODC row, fit or score exists, and pushed before the 2021-23 HRRR backfill it
+needs has finished. Approved by master on 2026-10-27 (relayed by the coordinator) as rung R-ODC, with
+DEV_WINDOW_LEDGER row 65. Master's conditions (a)-(d) are bound in sections 3, 5 and 6 below.
+
+This is history-only development evidence. It makes no edge claim.
+
+- No date in 2026 is a training or scoring row (the 2026 settled-day embargo).
+- Nothing dated after 2026-09-29 is read.
+- A pass can promote only through a separately pre-registered forward test (ruling R10, EF §10ac scope
+  paragraph). It never promotes from this history.
+
+## 1. Question
+
+MG-3 serves blend_l6_H at 07-12 all year. X41 (CS-1 part 1c) found that the Aug-Sep-fitted P3d_H does not transfer
+to Oct-Dec 2024-25: −0.0063 [−0.0167, +0.0036] against the MG-1 analogue. The blend helps less in Oct-Dec than in
+Aug-Sep.
+
+R-ODC asks two questions, in order:
+
+1. Gate 1: does refitting P3d_H on Oct-Dec rows only, inside the same frozen blend, beat the frozen blend_l6_H at
+   07-12 in Oct-Dec?
+2. Gate 2: if gate 1 passes, do two pre-fixed cool-season columns improve the refit further?
+
+## 2. Rows
+
+### Source records
+
+- L2's trainer records `C:\t\l2\records\records_<market>_<centre>.pkl.gz`, built at `eb7ff73bc`.
+  - Their Open-Meteo forecast_high and forecast_gap come from the PIT Previous Runs union.
+  - The 2026-10-27 DST audit traced that union clean on a standard-time date in each of its three corpora.
+- Oct-Dec centres: 2026-10-10, 10-25, 11-09, 11-24, 12-09.
+- Target years 2021-2025.
+- Cutoff hours 07, 08, 09, 10, 11, 12.
+- Markets: the 11 `R0_MARKETS`.
+- The run refuses any row with a target year of 2026 or later, or a target date after 2025-12-31.
+
+### Labels and inputs
+
+- Label: y = final_bucket (WU).
+- Floor: F = high_so_far.
+- The NBM mean comes from `attach_training_nbm` on the L9 PIT NBM corpus `1ae4bf52…`.
+- The serve-parity raw columns are `DEV_KEEP_X` (x_high_so_far, x_current_temp). This is P3d_H's own frame
+  (`dev_training_frame`), restricted to the Oct-Dec centres.
+
+### HRRR extras [k_max, k_gap, k_tcdc]
+
+These follow the R-K raw path with the RN-1 land point rule, exactly as CS-1 part 1c computes them:
+
+- `C:\t\l13\land\land_3x3.json`, sha256 `22069beebb5609755b35621bac05e91a1b35e434670c993a93a8aca9434fd7d6`.
+- KSFO uses index 3; every other station uses index 4.
+
+They are read from two sources:
+
+- **2024-25 Oct-Dec:** L13's sealed backfill `C:\t\l13\hrrr_cool0712`, under scope grant (b) in section 6, bound
+  to its SHA256SUMS seal `fe2dad2c9b2567ff28a9916f42c51a9196d33fc79f40690332745c2ed2acbc4d`.
+- **2021-23 Oct-Dec:** the new backfill in section 5, bound to its own SHA256SUMS seal. That seal is recorded in
+  row 65 before any read.
+
+Both sources must use the same `stations.json`, the same point rule and the same fetcher parameters (section 5).
+
+### Missing HRRR extras
+
+A missing extra is never imputed or filled from another cycle.
+
+- The 70 `no_cycle` rows in the sealed backfill (2024-10-15 h07-12 and 2025-10-20 h07-09) keep NaN extras. So does
+  any no-cycle row in the new backfill. NaN is the HGB's native missing value and the same input the comparator
+  serves.
+- These rows are scored on every arm identically.
+- Their counts are reported, along with gate 1 recomputed with them dropped. That recomputation is reported only,
+  never a gate.
+
+## 3. Arms (all on identical rows)
+
+### COMP: the frozen blend_l6_H (condition d)
+
+Nothing in COMP is refitted.
+
+| Part | Binding |
+| --- | --- |
+| P3d_H 07-12 state `C:\t\l2\mg3\state_0712\p3d_h_state.pkl` | sha256 `e92764773e1614aae548ccfd74b3a60740f25105578abd045b0808fe6dd159c0` |
+| blend weights `C:\t\l2\mg3\weights\blend_l6_H_weights.json` | sha256 `c7b8ebc08d31ca30e5289d453ec2260bcc6659b32b379410f58b0d2b9b03530a` |
+| L6 partner, canonical part | sha256 `07a6742595f535d448569980af7e04dbf4a2a798c00c82fd52f5f01287ee17e9` (HGB `0e89b32d…`, coefficients file `4bc51e03…`) |
+
+- The serve math is CS-1 part 1c section 3, unchanged:
+  - L6 = Normal(v + a_h + b_h (N − v), max(s, 1)), floored at half-up(F).
+  - Blend = w_h · P3d_H + (1 − w_h) · L6, bucket by bucket.
+- The run refuses if the weights name a different L6 partner.
+- COMP is the same for every year. Its P3d_H was fitted on Aug-Sep 2021-25, so it saw no Oct-Dec row.
+
+### G1: the season-matched P3d_H inside the frozen blend (gate 1)
+
+- The P3d_H arm spec is unchanged (`RK_ARMS["P3d_H"]`: simple = False, extra_hgb = (k_max, k_gap, k_tcdc)).
+  - The `_rung_entry` construction is unchanged: the mean model on all training rows, plus the inner-LOYO scale
+    model and the z set.
+  - Hyperparameters are unchanged (`MEAN_HGB_PARAMS`).
+  - There is one fit per cutoff hour.
+- The only change is the training rows:
+  - Oct-Dec centres only.
+  - Blocked leave-one-year-out over 2021-2025: the year-y row is scored by the fit on the other four years.
+- The fitted P3d_H replaces COMP's P3d_H. Everything else stays frozen: the same L6 partner, and COMP's weights
+  w_h. No weight is refitted.
+- Fixed before any fit and not tuned: hyperparameters, columns, hours and centres.
+
+### G2: G1 plus two fixed cool-season columns (gate 2; run only if gate 1 passes) (condition c)
+
+G2 is G1 with exactly these two columns appended to extra_hgb. Nothing is chosen at run time.
+
+- **low_so_far:** the overnight low since local midnight.
+  - It is `weather.calibration.ols_floor_ladder.overnight_lows` (master `f5002b086`, file sha256
+    `6e6d100fb5bb2c9c2d811a681a3a88d9458305ef701ba4b8651be34011c12e8e`), first element.
+  - It is computed on the same history rows as the record's high_so_far (minute_of_day ≤ cutoff·60).
+  - Its assertion (max of that row set = high_so_far) must hold, or the run refuses.
+- **dewpoint_c:** the dewpoint at the cutoff, the record's own `dewpoint_c` field. NaN stays NaN.
+- No other column, transform, window or interaction is added.
+- `DEV_KEEP_X` is unchanged, so x_dewpoint_c stays dropped from the raw columns. dewpoint enters only as this extra.
+- Serve parity of both columns is NOT established by this rung. A gate 2 pass requires a separate serve-parity
+  check of both columns before any forward test.
+
+## 4. Gates (in order; each stops the rung if it fails)
+
+### Statistic (both gates)
+
+- dR = mean_cell(Brier_arm − Brier_ref) / mean_cell(Brier_ref).
+- Cells are (local_date, market), pooled over h07-12 and the 11 markets.
+- Brier is the multi-bucket Brier (`brier_from_dist`: Σ p_k² − 2 p_y + 1).
+- The interval is date-clustered (`dev_scorecard.ratio_interval` with `r0_ols_floor_challenger._date_weights`):
+  2,000 draws, seed 20261027.
+- This is the CS-1 part 1c construction with a different reference arm.
+
+### Gate 1: G1 against COMP
+
+- **PASS** if the upper 95% bound of dR(G1 vs COMP) is below 0.
+- Reported, never gating:
+  - the 5 primary markets;
+  - each hour;
+  - each held-out year;
+  - each month;
+  - the absolute Brier difference;
+  - the sensitivity with no-cycle rows dropped.
+- **If gate 1 fails:** R-ODC stops. The verdict is "season-matched P3d_H does not beat the frozen blend at Oct-Dec
+  07-12". Gate 2 is not run.
+
+### Gate 2: G2 against G1, under NESTED LOYO (condition c)
+
+#### Selection evidence on the same data (disclosed)
+
+- low_so_far and dewpoint were chosen because X13 (EF §10ac, the L9 ladder) found they help Oct-Dec 07-12. X13
+  measured this with LOYO on Oct-Dec 2021-25:
+  - the same centres (10-10, 10-25, 11-09, 11-24, 12-09);
+  - the same years;
+  - the same markets.
+- The X13 effects were:
+  - overnight low −0.028 nats (11 markets) and −0.031 (5 markets);
+  - dewpoint about −0.014;
+  - both were CI-worse in Aug-Sep.
+- X13 used OLS + hard floor and log loss, not P3d_H and Brier.
+- Gate 2's data is therefore not fresh for these two columns. Every year in it has already informed their choice.
+- Nested LOYO protects the fitting from the held-out year. It cannot undo that the pair was picked on all five
+  years. A gate 2 pass is selection-contaminated history evidence, and only a forward test can confirm it.
+
+#### Nested procedure, fixed now
+
+For each outer held-out year y in 2021-25:
+
+1. On the four other years only, run an inner blocked LOYO of G1 and G2, each in the frozen blend:
+   - four inner folds;
+   - per-hour fits;
+   - the same construction as section 3.
+2. Compute the inner pooled mean of Brier(G2) − Brier(G1) over all inner held-out rows, at h07-12 on 11 markets.
+3. The outer arm NEST(y) is G2 fitted on the four years if that inner mean is below 0. Otherwise it is G1 fitted on
+   the four years.
+4. Score NEST(y) on year y.
+
+#### Pass rule
+
+- **PASS** requires both of the following:
+  - the upper 95% bound of dR(NEST vs G1) is below 0;
+  - the upper 95% bound of dR(NEST vs COMP) is below 0.
+- Reported:
+  - the number of outer folds in which G2 was selected (0-5);
+  - each hour, each held-out year and the 5 primary markets;
+  - plain non-nested G2 vs G1, for reference only.
+- **If gate 2 fails:** the two columns are closed for P3d_H at Oct-Dec 07-12. G1 alone carries the gate 1 result
+  forward.
+
+### Power, stated up front (condition d)
+
+- **Full design:** 11 markets × 75 dates × 5 years × 6 hours ≈ 24,750 rows, in 375 date clusters.
+- **Estimate:** MDE80 ≈ 0.0067 on the dR scale for 2021-25 (≈ 0.011 if only 2024-25 were used).
+  - This is extrapolated from X41's blend_l6_H interval on 2024-25: 9,830 rows, 150 clusters, half-width ≈ 0.0074.
+  - SE ≈ 0.0038 · √(150/375) ≈ 0.0024.
+  - MDE80 = 2.8 · SE.
+- **Caveats:**
+  - X41's denominator was the MG-1 analogue's Brier. Here it is COMP's Brier, which is smaller (COMP beats MG-1 in
+    Oct-Dec), so the true MDE on this scale is somewhat larger.
+  - For gate 2, the paired G2 − G1 differences are expected to vary less than an arm-vs-COMP difference. Its MDE is
+    therefore at most about this size, but it is not estimated in advance.
+- A null is reported as a null at this power, never as evidence of no effect.
+
+## 5. The 2021-23 HRRR backfill (condition a)
+
+The backfill uses free official NOAA data from the AWS Open Data bucket `noaa-hrrr-bdp-pds`, read anonymously over
+HTTPS. No paid source is used, and no scheduled task is created.
+
+### Fetcher and parameters
+
+- **Fetcher:** L13's `tools/research/hrrr_point_fetch.py` at `9df46b7881ac3e450fabce130dd59249f7f7297f`
+  (LF sha256 `5c8e817b4127d8edeb605f7ecf1f508f5569f78dd07091db7a442323ed46adfa`). It runs from a detached worktree
+  at that commit.
+- **Parameters:** identical to the sealed `hrrr_cool0712` run except --years, --out, --stop-file and the byte cap:
+  - --months 10,11,12
+  - --first-hour 7 --last-hour 12 --valid-end-local 17
+  - --cycle-stride 1 --max-fh 18 --lookback 4 --margin-minutes 10
+  - --variables "TMP:2 m above ground,TCDC:entire atmosphere"
+  - --seed 20261025 --pause 0.4
+  - --years 2021,2022,2023
+  - --out `C:\t\l16odc\hrrr_cool0712_2123`
+  - the stop file is `STOP` inside that directory
+- Its seeded date shuffle spreads any stop across years.
+
+### Order of operations
+
+1. **Request list first.** A planner lists every candidate cycle and plans each day exactly as the fetcher does. It
+   downloads each needed `.idx` once, and sums the HTTP Range lengths of both variables over the unique
+   (cycle, fh) messages. That total, T, is recorded in row 65.
+2. **Disk precondition.** The fetch starts only if the workstation's free disk is at least 2 × T. The fetcher keeps
+   only station points, never raw messages, so T is a network total. The precondition is applied to it anyway. The
+   byte cap is 1.15 × T. --min-free-gb is 60, so the fetcher pauses itself if free disk falls below that.
+3. **Allowlisted and batched.**
+   - Only the planned keys are fetched: the fetcher's own plan, which is identical to the planner's plan.
+   - The run is three batches, one per year (2021, then 2022, then 2023). Each batch is checked before the next
+     starts.
+4. **HRRR v4 asserted per file.**
+   - HRRR v4 has been operational since 2020-12-02 12Z, so every 2021-23 cycle is v4. The planner asserts
+     cycle ≥ 2020-12-02T12Z for every key.
+   - Per file, the file's own `.idx` must have the v4 inventory size for its forecast hour: 170 records at f00-f01
+     and 173 at f02-f18.
+   - The anchors, fetched 2026-10-27, are cycles 2020-12-09 12Z (v4: 170/173) and 2020-11-25 12Z (v3: 148/151).
+   - Record names differ between idx generator versions (for example LTPINX vs LTNGSD, or `var discipline=…`
+     placeholders). So the per-file check is the record count, plus exactly one TMP:2 m and one TCDC:entire
+     atmosphere record. It is not a name hash.
+   - Each fetched message's `idx_sha256` must equal the planner's idx for that key.
+   - Any failure refuses the corpus.
+5. **Seal.** After completion, a `SHA256SUMS` over manifest.jsonl, selections.jsonl, days.jsonl, stations.json and
+   status.json is written. Its sha256 goes into row 65 before any read of the extras.
+   - stations.json must equal the sealed 2024-25 corpus's.
+6. **Pause and launch rules.** The fetch is a network fetcher, so it runs directly, outside `workstation_heavy.ps1`
+   (HOST_LOAD_POLICY, master ruling 2026-10-23).
+   - It is stopped through its stop file by Wednesday 2026-10-28 11:00 EDT for the maker pilot. It is not restarted
+     until the coordinator clears it.
+   - It is the only process this lane launches, and it is tracked and terminated by this lane.
+
+### Order of runs
+
+- Nothing is fitted or scored on 2024-25, or on any year, before the 2021-23 seal exists.
+- Every fit in this rule runs once, on 2021-25 together.
+
+## 6. Scope entry: the sealed 2024-25 Oct-Dec backfill (condition b)
+
+Master granted (2026-10-27) R-ODC read access to `C:\t\l13\hrrr_cool0712`.
+
+- The scope is the HRRR extras for R-ODC's 2024-25 Oct-Dec rows, under this rule only.
+- The seal is SHA256SUMS sha256 `fe2dad2c9b2567ff28a9916f42c51a9196d33fc79f40690332745c2ed2acbc4d`. Every file must
+  hash to its line, or the run refuses.
+- The sealed files are never written.
+- A dated line recording this grant is appended to the append-only `C:\t\l13\hrrr_cool0712_ACCESS.txt` (outside the
+  sealed directory) before any read.
+
+## 7. Mechanics and outputs
+
+- **Code:** a module on branch `claude/octdec-0712-rodc-20261027`.
+  - It reuses, unchanged, the P3d_H fit (`pooled_residual_model`, MG-3 freeze), CS-1 part 1c's serve math and HRRR
+    reader (`cool_season_audit`), and the ladder's `overnight_lows`.
+  - The exact commit it runs at is recorded in row 65 before the run.
+- **Runs:** fits and scoring run through `scripts/ops/workstation_heavy.ps1 -Queue -MinAvailableMemoryGB 3`,
+  serially.
+- **Outputs:** `C:\t\l16odc\rodc\` holds `gate1.json`, then `gate2.json` if gate 1 passes, plus per-row files.
+  Every output is write-once.
+- **Ledger:** DEV_WINDOW_LEDGER row 65 is written `pending` before the run (the coordinator routes ledger text).
