@@ -113,6 +113,16 @@ SCRIPT_INVENTORY = {
         "smoke": "compile_main_guard",
         "notes": "R-O Clarification 1 capture-host ensemble payload node-max extractor (research-only branch).",
     },
+    "gefs_member_point_fetch.py": {
+        "status": "fixture-only",
+        "smoke": "compile_main_guard",
+        "notes": "L11 R-O GEFS member point fetcher from NOAA AWS open data (research-only branch).",
+    },
+    "gefs_eccodes_check.py": {
+        "status": "fixture-only",
+        "smoke": "compile_main_guard",
+        "notes": "L11 R-O decoder bit-exact check against eccodes; scratch venv only (research-only branch).",
+    },
     "rescore_served_floor_09_66a.py": {
         "status": "fixture-only",
         "smoke": "compile_main_guard",
