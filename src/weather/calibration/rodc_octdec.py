@@ -36,7 +36,7 @@ class RodcError(RuntimeError):
 
 def g1_training_frame(records_root, nbm_corpus, hrrr, markets):
     """P3d_H's own training frame (``dev_training_frame`` construction) on the Oct-Dec centres, NBM anchor
-    attached as MG-3 does, hours 07-12, R-K columns from the R-ODC HRRR map. -> (frame, buckets, stats)."""
+    attached as MG-3 does, hours 07-12, R-K columns from the R-ODC HRRR map. -> (frame, stats)."""
     from weather.calibration import ols_floor_ladder as l9
     from weather.calibration import pooled_residual_model as prm
     from weather.market.market_registry import spec_for_id
@@ -55,13 +55,33 @@ def g1_training_frame(records_root, nbm_corpus, hrrr, markets):
     frame, nbm_stats = prm.attach_training_nbm(frame, l9.load_nbm(nbm_corpus), l9.nbm_at_cutoff, timezones)
     frame = frame[frame["hour"].isin(RODC_HOURS)].reset_index(drop=True)
     frame, hook = prm.rk_training_columns(frame, hrrr)
-    # Bucket support per market: the union of the five Oct-Dec centres' bucket spaces (the frozen state's
-    # Aug-Sep support does not reach Oct-Dec temperatures).
-    buckets = {}
-    for p in payloads:
-        buckets.setdefault(p["market"], set()).update(int(b) for b in p["bucket_space"])
-    buckets = {m: sorted(v) for m, v in buckets.items()}
-    return frame, buckets, {"train_nbm": nbm_stats, "train_hrrr": hook, "rows": int(len(frame))}
+    return frame, {"train_nbm": nbm_stats, "train_hrrr": hook, "rows": int(len(frame))}
+
+
+def fold_support(frame, year, markets):
+    """The fold's shared bucket support (rule Clarification 2): per market, every integer from the minimum to the
+    maximum settled label ``y`` over the Oct-Dec training rows of the four years other than ``year``. No
+    outcome-free per-date support exists for 2021-25 Oct-Dec (the records' ``bucket_space`` is the observed
+    label set over all years, held-out year included), so the support is built from training years only. COMP
+    and G1 both score on it in that fold."""
+    train = frame[frame["year"] != year]
+    if year in set(train["year"]):
+        raise RodcError(f"fold {year}: the support saw the held-out year")
+    out = {}
+    for m in markets:
+        ys = train.loc[train["market"] == m, "y"].astype(int)
+        if ys.empty:
+            raise RodcError(f"fold {year}: no training labels for {m}")
+        out[m] = list(range(int(ys.min()), int(ys.max()) + 1))
+    return out
+
+
+def comp_state(frozen, buckets):
+    """The frozen P3d_H state with only ``buckets`` replaced by the fold's shared support (everything else,
+    train_y included, stays frozen)."""
+    state = dict(frozen)
+    state["buckets"] = {m: list(buckets[m]) for m in frozen["markets"]}
+    return state
 
 
 def fold_state(frozen, frame, buckets, year):
@@ -115,8 +135,9 @@ def export_parity(state, fits, train_all, n=200, tol=1e-9):
     return worst
 
 
-def score_rows(frame, frozen, folds, hrrr, nmap, coef, weights):
+def score_rows(frame, comps, folds, hrrr, nmap, coef, weights):
     """Per Oct-Dec row: COMP = frozen blend_l6_H, G1 = the fold's P3d_H in the same blend, plus MG-1 (reported).
+    ``comps[year]`` and ``folds[year]`` carry the same fold support (``fold_support``).
     The CS-1 1c per-row math (``score_0712``) without its 2024-25 scope guard."""
     import numpy as np
 
@@ -139,7 +160,7 @@ def score_rows(frame, frozen, folds, hrrr, nmap, coef, weights):
         extra = cs.k_extra(entry, r.nbm_mean)
         kw = dict(market=r.market, target_date=date.fromisoformat(r.local_date), high_so_far=F, current_temp=ct,
                   nbm_mean=nm)
-        pa = cs.p3dh_distribution(frozen, h, extra, **kw)
+        pa = cs.p3dh_distribution(comps[int(r.year)], h, extra, **kw)
         pg = cs.p3dh_distribution(folds[int(r.year)], h, extra, **kw)
         sig = max(s, 1.0)
         pm = cs.dist_vector(v, sig, F)
@@ -225,12 +246,16 @@ def gate1(*, nbm_corpus, records_root, research_root, state_0712, hrrr_2123, sum
     if recf.year.max() >= 2026 or recf.local_date.max() > "2025-12-31":
         raise RodcError("a scoring row is from 2026")
     nmap, l6prov = cs.l6_nowcast_map(research_root, nbm_corpus, l6_state)
-    frame, buckets, train_stats = g1_training_frame(records_root, nbm_corpus, hrrr, sorted(markets))
-    folds, fold_rows = {}, {}
+    frame, train_stats = g1_training_frame(records_root, nbm_corpus, hrrr, sorted(markets))
+    folds, comps, supports, fold_rows = {}, {}, {}, {}
     for y in RODC_YEARS:
-        folds[y], fold_rows[y] = fold_state(frozen, frame, buckets, y)
+        supports[y] = fold_support(frame, y, frozen["markets"])
+        folds[y], fold_rows[y] = fold_state(frozen, frame, supports[y], y)
+        comps[y] = comp_state(frozen, supports[y])
+        if folds[y]["buckets"] != comps[y]["buckets"]:
+            raise RodcError(f"fold {y}: COMP and G1 supports differ")
         print(f"r-odc gate 1 fold {y}: {fold_rows[y]}", flush=True)
-    scored, stats = score_rows(recf, frozen, folds, hrrr, nmap, coef, weights)
+    scored, stats = score_rows(recf, comps, folds, hrrr, nmap, coef, weights)
     keys = list(zip(scored.market, scored.local_date, scored.hour.astype(int)))
     no_cycle = np.array([hrrr.get(k) is None or not hrrr[k].get("cycle_present") for k in keys])
     from weather.calibration import r0_ols_floor_challenger as l3
@@ -254,7 +279,7 @@ def gate1(*, nbm_corpus, records_root, research_root, state_0712, hrrr_2123, sum
         "counts": {"scoring_rows_read": int(len(recf)), "no_cycle_rows": int(no_cycle.sum()),
                    "fold_training_rows": {str(y): v for y, v in fold_rows.items()}, "row_stats": stats,
                    "training": train_stats},
-        "buckets": {m: [v[0], v[-1], len(v)] for m, v in buckets.items()},
+        "fold_support": {str(y): {m: [v[0], v[-1], len(v)] for m, v in sup.items()} for y, sup in supports.items()},
         "inputs": {"p3d_h_state_sha256": state_sha, "l2_control_sha256": control_sha,
                    "blend_weights_sha256": cs.BLEND_WEIGHTS_SHA256, "l6_part_sha256": cs.L6_PART_SHA256,
                    "l6_state_sha256": cs.L6_STATE_SHA256, "mg2_coefficients_sha256": cs.MG2_COEF_SHA256,
