@@ -555,6 +555,23 @@ JSON and nightly retrain status
 publish by atomic replacement, so containment teardown cannot expose a
 partially written status document.
 
+Stage A also publishes a **checkpoint** after every step, because the wrapper's
+11:55 teardown kills the child before the end-of-run writes. The checkpoint
+atomically replaces the Markdown report and the Stage-A manifest from the running payload:
+manifest `status` is `RUNNING` (never `COMPLETED`), `completed_at_utc` is empty,
+`completed_steps` lists only steps that ran, no `evidence_trigger` is written,
+and a `checkpoint` block names the last step (`after_step`, `written_at_utc`,
+`final: false`). Every consumer that needs `COMPLETED` (the Stage-B start gate,
+the production-evidence ledger) therefore still fails closed, now with
+`stage_a_not_completed` for the current target instead of
+`stale_stage_a_manifest`. The end-of-run publication replaces it and carries no
+`checkpoint` block. Checkpoints are best effort and never fail the run; bounded
+recovery slices, dry runs and unsplit (`all`) runs do not write them. Because the
+report is rewritten after every step, its mtime no longer proves completion:
+`staleness_sweep.ps1` (`chain/daily_refresh_report`) reads the Stage-A manifest and
+is OK only for a `COMPLETED` status, falling back to the report (failing on
+`Status: **running**`) only when the manifest is missing or unreadable.
+
 ### Settlement in the chain: what it does and does not do
 
 The step order is `STEP_REGISTRY` in `src/weather/operations/daily_refresh_registry.py`; Stage A is every step
@@ -569,6 +586,34 @@ through `fleet_observability`, Stage B starts at `promotion_refresh`. Facts that
   five, behind three learning-lane steps (`reanalysis_recent_refresh`, `ingest_quality_gate`,
   `event_metadata_validation`) that have nothing to do with settlement. A global hard stop in one of those
   (physical-resource deferral, isolated-child failure) ends the run before settlement is attempted.
+- **Finalization is incremental.** On the default discovered folder set with Polymarket reconciliation on,
+  `market_day_labels_finalize` re-finalizes only folders a full run could change and reuses the rest
+  (`src/weather/operations/daily_refresh_incremental_finalize.py`; its docstring owns the exact reuse predicate).
+  A folder is reused only when its tape SHA-256 (size/mtime only skip re-hashing), its daily-summary path and
+  target-date row, its market spec, the resolved ledger root, the label-logic key (source bytes of the label
+  modules plus the ledger schema, coverage interval/tolerance and `INCREMENTAL_FINALIZE_LOGIC_VERSION`) all match
+  the entry recorded in `market_day_labels_finalize_index.json` beside the labels CSV, its `settlement.json` still
+  carries the recorded revision, the market's `ledger.jsonl` (the source of truth) has that same revision current
+  for the slug and the sidecar content hashes to its `label_hash`, its reconciliation is `match` on a closed event
+  with a matching winner that is UMA-resolved or priced at least 0.999, no `--settle` override applies, and its target date
+  is older than `--finalize-recheck-days` (default 3). Reused folders get no Gamma request and no new ledger
+  revision; their existing `settlement.json` label feeds the CSV and the step summary. A full run would differ
+  only in revision metadata and `finalized_at_utc` (`VOLATILE_LABEL_COLUMNS`), which it rewrites every pass
+  without any input change. `--finalize-full` restores the full rebuild and re-seeds the index; an explicit
+  `--folders` list or `--skip-polymarket-reconciliation` keeps the original direct call. The step result reports
+  `finalize_mode` and `finalize_plan` (finalized, reused and per-reason re-finalize counts). The first run after
+  landing has no index and costs one full pass. `--label-rule venue` takes the same incremental path; its
+  post-cutover folders key on their venue-label inputs as well
+  ([venue-rule labels](venue-rule-labels.md), cutover runbook step 4).
+- **A transient capture-loop error does not defer the day.** After an isolated step finishes, the post-step
+  admission re-check normally defers the rest of the run on any blocker. When the only blockers are
+  `capture_loop_not_fresh` for active loops with a fresh heartbeat and degraded reasons within
+  `consecutive_errors`/`last_error_present`, `await_transient_capture_recovery` (`daily_refresh_resources.py`)
+  re-samples every 30 s for up to 10 min, never past the wrapper's teardown deadline, and continues on the
+  first clean sample. The outcome (`recovered`, `still_degraded`, `deadline_exhausted`,
+  `non_transient_blocker`) and every sample are recorded as `post_step_transient_retry` in the step's
+  `resource_execution`. Inactive loops, stale or missing heartbeats, any other degraded reason and any
+  memory/commit blocker still defer immediately.
 - **The commit gate is relative to the live commit limit.** Stage A refuses above
   `DEFAULT_STAGE_A_MAX_COMMIT_PERCENT` (70, `daily_refresh_resources.py`; the CLI may only lower it) of the
   host's *current* commit limit, which moves with pagefile size. Never reason from a remembered limit. Read the
@@ -584,6 +629,17 @@ through `fleet_observability`, Stage B starts at `promotion_refresh`. Facts that
   (`weather.operations.settlement_hole_check --window-days`). An older hole drops out of the briefing while still
   unsettled. For an older range run the checker with larger `--window-days` and `--tail-lines` inside the heavy-work window, or
   read the per-market ledgers under `data/settlements/`.
+- **Replay-status evidence is incremental.** `replay_status_backfill` used to JSON-parse `snapshots.jsonl`, replay
+  inputs and the reconstructed corpus of every folder on every pass, including folders it then skips as
+  `replay_status_exists`. On the default discovered folder set it now reuses each folder's evidence and status
+  summary from `replay_status_backfill_evidence_cache.json` beside the step output while the name, size and
+  `mtime_ns` of every file read (plus cold-archive marker and resolved copy for archived inputs) are unchanged;
+  the module docstring of `src/weather/operations/replay_status_backfill.py` owns the exact contract. The payload
+  is identical to a full pass. A missing, corrupt, other-version or other-logic cache means a full recompute that
+  re-seeds it; `--replay-backfill-full` forces one; an explicit `--folders` list keeps the original direct call.
+  The step result reports `evidence_mode` and `evidence_cache` (reused/computed counts). Steady-state parsing is
+  limited to newly settled, still-active and just-written folders; the per-pass output JSON and report are still
+  rewritten for every folder. The first run after landing has no cache and costs one full pass.
 
 ## Bounded Suite And Integration Attempts
 

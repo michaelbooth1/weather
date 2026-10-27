@@ -447,6 +447,19 @@ or make the tracked pooled bundle production-capable. Use the optional
 `--first-party-forecast-training-variant` arguments only when the reviewed
 research contract explicitly calls for different values.
 
+For a retrain R0 arm (research only), add
+`--r0-candidate-manifest <candidate-root>\r0_candidate_manifest.json` (written by
+`python -m weather.calibration.r0_candidate_manifest`, see the README). The
+`--candidate-id` must equal the manifest's. The builder reverifies every byte the
+manifest bound, including today's served bytes in `--repo-root`. It then freezes
+each manifest market's R0 `feature_hgb` and `feature_lr_coefficients` in place of
+the served pair. The other five components, including the served
+`late_day_lr_coefficients`, are copied from `--repo-root` as usual. Finally it
+proves that the frozen graph holds exactly the manifest's bytes, and records the
+manifest under `source_provenance.r0_candidate`. Markets outside the manifest,
+such as Toronto, keep all seven served components. Only research-only
+candidates accept these overrides, and only for those two components.
+
 The builder requires a clean code identity and the exact runtime fleet
 (Toronto in C plus eleven F markets). It copies the tracked pooled F bundle,
 family-secondary manifest, and artifact registry; freezes every market as

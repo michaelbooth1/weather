@@ -28,8 +28,9 @@ score of zero but remains a reward-eligible candidate.
 Select ten per city, reserving its best three per day-ahead first and filling
 the remaining slot by score (condition ID breaks ties). If fewer than three
 exist in a day, record the shortage; never fabricate coverage. Capture both
-tokens together and the full `/rewards/markets/<condition>` record for every
-selected condition. The full CLOB record is retained separately from Gamma's
+tokens together. The full `/rewards/markets/<condition>` record of a selected
+condition is read every cycle for built-ins through the 88a hold and on change otherwise
+(data layer v2 S9, below), separately from Gamma's
 ranking terms so discrepancies are visible. Exact repeated pagination rows
 are dropped and logged; conflicting rows or repeated cursors refuse the cycle.
 
@@ -91,6 +92,77 @@ receive has just timed out. A venue close frame raises `VenueCloseError` and its
 gap text carries `code=<n> reason=<text>`; an empty data frame is liveness, not a
 close. Reconnects wait a jittered delay in [d/2, d], doubling from 2 s to 30 s after
 failures; a session that stayed connected for 60 s resets it to the base.
+
+## Reward records by change trigger (S9)
+
+Selection never used the per-condition CLOB reward reply (ranking uses Gamma's
+terms), yet reading it for every selected band each minute was about 83% of the
+recorder's public REST. `weather.market.maker_evidence_rewards` replaces that read for
+pilot bands now and for built-in bands only after the 88a panel hold:
+
+- **Built-ins stay legacy through the hold.** Built-in bands keep the pre-S9
+  every-minute read of every selected band's record (`read_every_cycle`; same request
+  order, change keys and universe row shape) unless `built_in_reward_cadence` is
+  `event_driven` **and** the time is at or after UTC 2026-10-31T00:00Z
+  (`BUILT_IN_LEGACY_UNTIL`). Before that the setting is ignored, except in a scratch dry
+  run. `status.json` `rewards.built_in_cadence` says which cadence ran.
+
+- **Sweep (VR-4).** One paged pass over `/rewards/markets/current` (GET, allowlisted,
+  `next_cursor` until `LTE=`, `-1` or empty) at most every 15 minutes, a few pages per
+  cycle. Each page is journaled as a bounded projection (cursor, row count, hash of its
+  canonical rows); the documented sweep fields of selected bands are journaled
+  change-only (`rewards_current`, a full baseline each segment); a `rewards_sweep`
+  event closes each pass with the changed and removed ids. A sweep error is journaled
+  and counted, never fails a cycle, and retries after 15 minutes.
+- **Trigger.** A selected band's full record is read when it is first selected, when
+  its Gamma terms change, when its sweep row changes, every 15 minutes while the sweep
+  is stale (30 min) or off, and at the latest hourly. Reads are capped at 20 per cycle,
+  ordered by lane (built-ins first), reason, then age. Universe rows carry
+  `clob_reward_content_sha256`, `clob_reward_age_seconds` and `clob_reward_reason`.
+- **Kill switch.** `core_recorder_only.rewards_sweep` in `config/capture_families.json`
+  is `on` or `off` (lands `off`), reloaded each cycle; off falls back to the
+  stale-recheck cadence.
+
+`REQUEST_BUDGET_PER_HOUR` (0.4 req/s) is the plan's acceptance bound for the
+event-driven cadence. The registry's `request_budget` stays `not_declared` while built-ins
+run the legacy cadence (about 2 req/s, mostly reward reads); declare it when
+`built_in_reward_cadence` flips.
+
+## Recorder-only pilot (S2 P1)
+
+`config/capture_families.json` block `core_recorder_only` lists at most ten
+**recorder-only** markets the core process records alongside the built-ins: a
+non-built-in id and location, a `highest` series slug prefix, an IANA zone,
+day-aheads 0-2 and band policy `top10_reward_ranked`. The loader refuses built-in ids,
+locations or slug prefixes, family prefixes, duplicates and unknown fields; a bad block
+is journaled once (`recorder_only_config_error`) and the pilot stays off
+(`CONFIG_ERROR`) while the built-in cycle is unchanged. The shipped P1 rows are London,
+Shanghai, Paris, Seoul and Tokyo.
+
+**It lands disabled** (`pilot: "off"`, `rewards_sweep: "off"`,
+`built_in_reward_cadence: "legacy"`): the rows are validated every cycle but nothing is
+captured, so landing changes no built-in record. Switching on after the post-landing
+verification is a config-only change landed through the roll-free path: set `pilot` and
+`rewards_sweep` to `on`; the running recorder re-reads the block on its next cycle (no
+restart). Flip `built_in_reward_cadence` to `event_driven` only after UTC 10-30; it has
+no effect before 2026-10-31T00:00Z.
+
+The pilot shares the core process (owner Q1 via master, 10-15). A failed pilot cycle or
+a failed or closed pilot trade socket is the pilot's own `DEGRADED`; the built-in cycle,
+its reads and its journals continue (tested in `capture()` itself).
+
+Owner Q16 (2026-10-15): these bands are **outside** the 10-01 maker-P&L
+pre-registration's 12-market stratum. Every pilot universe row carries
+`stratum: outside_10_01_maker_pnl_prereg_12_market_stratum`, `lane` and the config's
+`config_sha256`, and every pilot read lands in a pilot partition: `discovery-pilot`,
+`book-<token>` for pilot tokens only, `universe-pilot-<id>`, rewards `-pilot`, and a
+separate trade socket journaling `trades-pilot.jsonl` (channel `pilot_trades`). No
+pilot token joins the raw update stream, `books.jsonl`, `ranking_books.jsonl`,
+`trades.jsonl` or the core discovery journal, so the panel inputs and the update cap
+are unchanged. The pilot runs after the core cycle, is skipped in the Red disk band,
+and any failure is journaled (`recorder_only_cycle_error`) as `DEGRADED` without
+failing the cycle. A test ratchet holds the built-in selection identical with the
+pilot on, sweep off, malformed or absent.
 
 ## Capture families
 
@@ -197,6 +269,14 @@ Writes stop before the total uncompressed journal/manifest working set reaches
 and measured peak raw bytes; reaching the bound fails visibly rather than
 silently reducing capture. Verified compression runs in Green, Amber and Red;
 Critical stops capture. Compression delay cannot bypass the raw limit.
+`raw_working_fraction` is the peak against that limit; `status.ps1` warns
+(`MAKER_EVIDENCE_LATCH`) at one half.
+
+The core recorder fsyncs journals in groups (the execution-tape precedent): appends
+mark a file dirty and a flusher syncs dirty files at least every second, and before
+any seal. Three consecutive fsync failures latch the writer and stop capture as
+`STOPPED_STORAGE_FAILURE`. `status.json` `storage` reports appends, fsync calls and
+failures. Family recorders keep per-append fsync.
 
 The v2 writer refuses a legacy v1 root. Preserve legacy evidence and inspect it
 using its original bound reader; start v2 in a new root. There is no implicit
@@ -220,12 +300,17 @@ From an integrated checkout with the pinned dependencies installed:
 ```powershell
 .\venv\Scripts\python.exe -m weather.market.maker_evidence_capture --help
 .\venv\Scripts\python.exe -m weather.market.maker_evidence_capture --dry-run --duration-seconds 1800 --root C:\scratch\maker-evidence-new-run
+.\venv\Scripts\python.exe -m weather.market.maker_evidence_capture --dry-run --duration-seconds 5400 --root C:\scratch\s2s9-run --recorder-only-config C:\scratch\capture_families-pilot-on.json
 .\scripts\ops\register_maker_evidence_capture.ps1 -WhatIf
 ```
 
-The dry run requires a new scratch root, rejects an active RE-1 preflight/live
-process without opening its files, and reserves one minute for teardown before
-19:45 America/Toronto. The process guard is checked each cycle. It writes the
+The dry run (1,800-5,400 s) requires a new root with a path part named `scratch`, rejects
+an active RE-1 preflight/live process without opening its files, and reserves one minute for teardown before
+19:45 America/Toronto. The process guard is checked each cycle.
+`--recorder-only-config` (dry run only; production reads the default path) points the
+dry run at a copy of `capture_families.json`, e.g. with the pilot, the sweep and
+`event_driven` on to measure S9 before the switch-on; a dry run honours `event_driven`
+before the hold ends because its root is scratch. It writes the
 same evidence as production, using public reads only.
 
 After it stops, the bounded offline inspector verifies every manifest payload
@@ -300,6 +385,30 @@ A reader holding `status.json` makes the replace fail on Windows; the recorder r
 `status_write_misses` in the next status, and keeps capturing.
 After changing this worker, the production operator must explicitly re-adopt
 its task; it has no effect on the existing supervisors' adoption behavior.
+
+### Explicit restart (88a-R)
+
+Owner Q11 (2026-10-15): new capture families adopt code by explicit restart, with
+running-vs-disk code identity shown in status. The recorder stamps `source_sha256`
+for each `weather.*` module it imported; `status.ps1` compares those with the files
+on disk and reports `maker_evidence_code` (`CURRENT`, `STALE` with the modules, or
+`UNKNOWN`) on the `MAKER` line and in JSON, warning `MAKER_EVIDENCE_CODE` when stale.
+It also prints a `PILOT` line and warns `MAKER_EVIDENCE_PILOT` on `DEGRADED` or
+`CONFIG_ERROR`.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\opsestart_maker_evidence_capture.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\opsestart_maker_evidence_capture.ps1 -Apply
+```
+
+Report-only without `-Apply`. It refuses outside 00:30-01:00 local, without a
+readable status, when the status pid is not the running core recorder (`--family` or
+`--dry-run` refuse), or while a raw update window is active. `-Apply` stops that
+process only; the task's existing PT5M trigger starts the new one (it never touches
+the Scheduler). It waits up to `-WaitSeconds` (default 420) for a new pid in
+`CAPTURING` and prints a JSON receipt with `gap_seconds` and the identity after.
+Exit 0 only for `RESTARTED_CURRENT`; 2 refused, 3 not restarted, 4 not current.
+Record the gap in the panel notes.
 
 The central schema registration is additive. Its shared-registry placement
 means deployment must use the repository roll-verdict tool; independence of
@@ -390,5 +499,5 @@ after 09-29 is refused.
 ## Update when
 
 Update with selection, endpoints, timing, CLI, byte/disk brakes, storage,
-registration, status or capture-family changes. Verify with the focused maker-evidence tests,
+registration, status, restart, reward-trigger, recorder-only or capture-family changes. Verify with the focused maker-evidence tests,
 import architecture, storage/schema tests and the required timed scratch run.

@@ -20,7 +20,7 @@ only, links to owners for detail, and never carries status, counts, or dates.
 | --- | --- |
 | Acting on the 16 GB production capture host (ops, scheduler, merges, recovery) | [Operations agent role](docs/operations/OPERATIONS_AGENT_ROLE.md) |
 | Any heavy command: tests, compileall, training, replay, bulk scans | [Host load policy](docs/operations/HOST_LOAD_POLICY.md) |
-| Model, measurement, or research | [Findings digest](docs/operations/FINDINGS_DIGEST.md) first; then only the sections it cites in [established findings](docs/operations/ESTABLISHED_FINDINGS.md) and [retracted claims and false leads](docs/operations/RETRACTED_AND_FALSE_LEADS.md). Skipping the digest makes agents re-derive known results or rebuild retracted ones. |
+| Model, measurement, or research | [Findings digest](docs/operations/FINDINGS_DIGEST.md) first; then only the sections it cites in [established findings](docs/operations/ESTABLISHED_FINDINGS.md) and [retracted claims and false leads](docs/operations/RETRACTED_AND_FALSE_LEADS.md); before building or measuring a candidate, [the model-improvement method](docs/operations/MODEL_IMPROVEMENT_METHOD.md). Skipping the digest makes agents re-derive known results or rebuild retracted ones. |
 | Domain semantics: settlement, units, source roles, floors | [Durable domain context](docs/operations/AGENT_CONTEXT.md) |
 | A cross-host mission: writing a handoff, executing one, verifying a handback | [Delegation contract](docs/operations/DELEGATION_CONTRACT.md) (its standing boundaries bind every mission) and [the roadmap agent guide](docs/roadmap/AGENTS.md) |
 | Reading dated evidence or settled market-days for evaluation | [Reserved confirmation window](docs/operations/reserved-confirmation-window.md) — read its status line; the rest applies only if it says a window is reserved. When one is reserved, that contract overrides handoffs and role text. |
@@ -43,9 +43,10 @@ memory as project guidance; durable knowledge lives in this repository.
   safeguards described by the path policy; do not grow domain logic in them.
 - Built-in markets operate end-to-end in their native settlement unit.
   Legacy names ending in `_c` do not prove that a value is Celsius.
-- Configured Weather Underground history is the settlement proxy. METAR, ECCC,
-  NWS, Open-Meteo, marine, and related sources are supporting evidence unless a
-  specific contract explicitly says otherwise.
+- Labels are the venue's own per built-in market-date: configured Weather Underground
+  history before 2026-10-23, the venue rule (highest routine METAR, WU fallback) from it
+  ([contract](docs/operations/venue-rule-labels.md)). WU stays the serving floor source; METAR,
+  ECCC, NWS, Open-Meteo, marine and related sources are supporting evidence unless a contract says otherwise.
 - The trading product is **International Polymarket only**. Polymarket US code,
   fixtures, and historical evidence are compatibility surfaces, not an allowed
   platform for new probes, credentials, live-readiness, or order mutation.

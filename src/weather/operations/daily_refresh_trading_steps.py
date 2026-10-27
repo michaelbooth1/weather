@@ -445,25 +445,43 @@ def run_clob_order_book_tiering_step(args):
 def run_replay_status_backfill_step(args):
     if getattr(args, "skip_replay_status_backfill", False):
         return {"status": "SKIPPED", "reason": "skip_replay_status_backfill"}
+    explicit_folders = args.folders if getattr(args, "folders", None) else None
+    # The per-folder evidence cache (replay_status_backfill module docstring)
+    # serves only the default discovered folder set: an explicit --folders
+    # slice keeps the original direct call and never rewrites the cache.
+    cache_path = backtest_path(args, replay_status_backfill.EVIDENCE_CACHE_FILENAME)
+    if explicit_folders:
+        evidence_mode, evidence_cache = "direct", None
+    elif getattr(args, "replay_backfill_full", False):
+        evidence_mode = "full"
+        evidence_cache = replay_status_backfill.EvidenceCache.empty("forced_full")
+    else:
+        evidence_mode = "incremental"
+        evidence_cache = replay_status_backfill.EvidenceCache.load(cache_path)
     payload = replay_status_backfill.build_backfill_payload(
         snapshots_root=args.snapshots_root,
-        folders=args.folders if getattr(args, "folders", None) else None,
+        folders=explicit_folders,
         as_of=getattr(args, "as_of", None),
         overwrite=getattr(args, "overwrite_replay_status", False),
         reconstruct_missing=getattr(args, "reconstruct_missing_replay_inputs", False),
         include_active=getattr(args, "include_active_replay_status", False),
+        evidence_cache=evidence_cache,
     )
     json_out, report_out = replay_status_backfill.write_outputs(
         payload,
         json_out=backtest_path(args, "replay_status_backfill.json"),
         report_out=backtest_path(args, "replay_status_backfill_report.md"),
     )
+    cache_out = evidence_cache.save(cache_path) if evidence_cache is not None else None
     summary = payload.get("summary") or {}
     return {
         "status": "WARN" if summary.get("irreparable_folder_count") else "OK",
         "json_out": as_path(json_out),
         "report_out": as_path(report_out),
         "summary": summary,
+        "evidence_mode": evidence_mode,
+        "evidence_cache_out": as_path(cache_out) if cache_out is not None else None,
+        "evidence_cache": evidence_cache.stats() if evidence_cache is not None else None,
     }
 
 
