@@ -76,3 +76,108 @@ def test_bind_l2_state_refuses_a_failing_control(tmp_path):
     (tmp_path / "p3d_h_state.json").write_text(json.dumps({"state_sha256": sha}))
     state, got, _ = cs.bind_l2_state(tmp_path)
     assert got == sha and state["extra_hgb"] == ["k_max", "k_gap", "k_tcdc"]
+
+
+def _sums(tmp_path, files, extra_line=None):
+    import hashlib
+
+    lines = []
+    for name, body in files.items():
+        (tmp_path / name).write_bytes(body)
+        lines.append(f"{hashlib.sha256(body).hexdigest()}  {name}")
+    if extra_line:
+        lines.append(extra_line)
+    blob = ("\n".join(lines) + "\n").encode()
+    (tmp_path / "SHA256SUMS").write_bytes(blob)
+    return hashlib.sha256(blob).hexdigest()
+
+
+def test_bind_sha256sums_binds_listed_files_and_refuses_drift(tmp_path):
+    files = {"manifest.jsonl": b"m\n", "selections.jsonl": b"s\n", "stations.json": b"{}"}
+    sha = _sums(tmp_path, files)
+    assert set(cs.bind_sha256sums(tmp_path, sha)) == set(files)
+    with pytest.raises(cs.CoolSeasonError):
+        cs.bind_sha256sums(tmp_path, "0" * 64)
+    (tmp_path / "selections.jsonl").write_bytes(b"changed\n")
+    with pytest.raises(cs.CoolSeasonError):
+        cs.bind_sha256sums(tmp_path, sha)
+
+
+def test_bind_sha256sums_requires_every_corpus_file(tmp_path):
+    sha = _sums(tmp_path, {"manifest.jsonl": b"m\n", "stations.json": b"{}"})
+    with pytest.raises(cs.CoolSeasonError, match="does not list"):
+        cs.bind_sha256sums(tmp_path, sha)
+
+
+def test_blend_is_the_weighted_union_of_buckets():
+    out = cs.blend({70: 1.0}, {70: 0.5, 71: 0.5}, 0.6)
+    assert out == pytest.approx({70: 0.8, 71: 0.2})
+    assert sum(out.values()) == pytest.approx(1.0)
+
+
+def test_dist_vector_scores_as_bucket_brier():
+    from weather.calibration import rz_hrrr_spread as rz
+
+    for mu, sig, floor_r, y in ((72.3, 2.1, 65.0, 74.0), (60.0, 1.0, 68.4, 68.0), (50.0, 3.0, 40.0, 200.0)):
+        d = cs.dist_vector(mu, sig, floor_r)
+        assert cs.brier_from_dist(d, y) == pytest.approx(float(rz.bucket_brier([mu], [sig], [floor_r], [y])[0]))
+
+
+def test_bind_blend_weights_refuses_other_bytes(tmp_path):
+    path = tmp_path / "w.json"
+    path.write_text('{"control": {"pass": true}}', encoding="utf-8")
+    (tmp_path / "w.json.sha256").write_text(cs.BLEND_WEIGHTS_SHA256 + "  w.json\n", encoding="utf-8")
+    with pytest.raises(cs.CoolSeasonError):
+        cs.bind_blend_weights(path)
+
+
+def test_rn1_point_map_refuses_an_unregistered_land_file(tmp_path):
+    (tmp_path / "land.json").write_text("{}", encoding="utf-8")
+    with pytest.raises(cs.CoolSeasonError):
+        cs.rn1_point_map(tmp_path / "land.json", tmp_path, {"nyc"})
+
+
+def test_hrrr_k_columns_reads_the_rn1_block_cell_and_filters_months(tmp_path):
+    import json
+
+    stations = {"KSFO": {"market": "san-francisco", "tz": "America/Los_Angeles"},
+                "KLGA": {"market": "nyc", "tz": "America/New_York"}}
+    (tmp_path / "stations.json").write_text(json.dumps(stations), encoding="utf-8")
+    block = [270.0 + k for k in range(9)]
+    man = []
+    for var, rec in (("TMP", "TMP:2 m above ground"), ("TCDC", "TCDC:entire atmosphere")):
+        man.append({"idx_record": f"{rec}:2 hour fcst:", "cycle_utc": "2024-10-10T12:00:00+00:00", "fh": 2,
+                    "key": "hrrr.20241010/conus/hrrr.t12z.wrfsfcf02.grib2",
+                    "points": {"KSFO": {"nearest": block[4], "block3x3": block}}})
+    (tmp_path / "manifest.jsonl").write_text("\n".join(json.dumps(m) for m in man) + "\n", encoding="utf-8")
+    sel = [{"station": "KSFO", "local_date": "2024-10-10", "hour_local": 7,
+            "snapshot_utc": "2024-10-10T14:00:00+00:00", "cycle_utc": "2024-10-10T12:00:00+00:00", "fhs": [2],
+            "latest_available_utc": "2024-10-10T13:30:00+00:00"},
+           {"station": "KLGA", "local_date": "2024-10-10", "hour_local": 7,
+            "snapshot_utc": "2024-10-10T11:00:00+00:00", "cycle_utc": None, "fhs": []},
+           {"station": "KSFO", "local_date": "2024-08-10", "hour_local": 7,
+            "snapshot_utc": "2024-08-10T14:00:00+00:00", "cycle_utc": None, "fhs": []}]
+    (tmp_path / "selections.jsonl").write_text("\n".join(json.dumps(s) for s in sel) + "\n", encoding="utf-8")
+    out, _ = cs.hrrr_k_columns(tmp_path, {"san-francisco", "nyc"}, hours=cs.HOURS_0712, point={"KSFO": 3},
+                               months=cs.OCT_DEC)
+    ksfo = out[("san-francisco", "2024-10-10", 7)]
+    assert ksfo["k_miss"] == 0.0 and ksfo["k_max"] == pytest.approx((273.0 - 273.15) * 9 / 5 + 32)
+    assert ksfo["k_tcdc"] == pytest.approx(273.0)
+    assert out[("nyc", "2024-10-10", 7)]["reason"] == "no_land_cell"
+    assert ("san-francisco", "2024-08-10", 7) not in out
+
+
+def test_hrrr_k_columns_skips_or_refuses_days_after_2025(tmp_path):
+    import json
+
+    (tmp_path / "stations.json").write_text(json.dumps({"KLGA": {"market": "nyc", "tz": "America/New_York"}}),
+                                            encoding="utf-8")
+    (tmp_path / "manifest.jsonl").write_text("", encoding="utf-8")
+    sel = {"station": "KLGA", "local_date": "2026-08-10", "hour_local": 7,
+           "snapshot_utc": "2026-08-10T11:00:00+00:00", "cycle_utc": None, "fhs": []}
+    (tmp_path / "selections.jsonl").write_text(json.dumps(sel) + "\n", encoding="utf-8")
+    out, stats = cs.hrrr_k_columns(tmp_path, {"nyc"}, hours=cs.HOURS_0712, months=cs.AUG_SEP,
+                                   skip_after="2025-12-31")
+    assert out == {} and stats["skipped_after"] == 1
+    with pytest.raises(cs.CoolSeasonError):
+        cs.hrrr_k_columns(tmp_path, {"nyc"}, hours=cs.HOURS_0712)

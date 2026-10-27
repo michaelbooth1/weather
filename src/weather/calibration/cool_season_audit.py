@@ -325,9 +325,13 @@ def _json_lines(path, stats, name):
                     stats[f"{name}_corrupt_line"] += 1
 
 
-def hrrr_k_columns(corpus_dir, markets, hours=HOURS_1316):
-    """R-K raw path, nearest cell (a read-only copy of L2's ``rk_hrrr_columns`` with ``point=None``):
-    {(market, local_date, hour): {k_max, k_tcdc, k_miss, reason}} plus counts. Inputs only."""
+def hrrr_k_columns(corpus_dir, markets, hours=HOURS_1316, point=None, months=None, skip_after=None):
+    """R-K raw path (a read-only copy of L2's ``rk_hrrr_columns``): ``point=None`` reads the nearest cell (R-K,
+    13-16); a {icao: block index} map reads ``block3x3[index]`` (RN-1, 07-12), and a station absent from the map
+    is a miss (``no_land_cell``). ``months``: keep only selections whose local month is listed. ``skip_after``:
+    selections dated after it are not read (a corpus that also holds 2026 dev days); otherwise one after 2025
+    refuses the run.
+    -> {(market, local_date, hour): {k_max, k_tcdc, k_miss, reason}} plus counts. Inputs only."""
     from datetime import datetime, time, timedelta
     from zoneinfo import ZoneInfo
 
@@ -349,8 +353,16 @@ def hrrr_k_columns(corpus_dir, markets, hours=HOURS_1316):
             stats["manifest_identity_mismatch"] += 1
             mismatched.add(key)
             continue
-        values = {icao: (cell or {}).get("nearest") for icao, cell in (m.get("points") or {}).items()
-                  if icao in icao_market}
+        values = {}
+        for icao, cell in (m.get("points") or {}).items():
+            if icao not in icao_market:
+                continue
+            cell = cell or {}
+            if point is None:
+                values[icao] = cell.get("nearest")
+            elif icao in point:
+                block = cell.get("block3x3")
+                values[icao] = block[point[icao]] if isinstance(block, list) and len(block) == 9 else None
         if key in messages:
             if messages[key] != values:
                 stats["manifest_duplicate_conflict"] += 1
@@ -365,6 +377,11 @@ def hrrr_k_columns(corpus_dir, markets, hours=HOURS_1316):
         market, day, hour = icao_market[icao], str(s["local_date"]), int(s["hour_local"])
         if hour not in hours or (market, day, hour) in out:
             continue
+        if months is not None and int(day[5:7]) not in months:
+            continue
+        if skip_after is not None and day > skip_after:
+            stats["skipped_after"] += 1
+            continue
         if day > "2025-12-31":
             raise CoolSeasonError(f"HRRR selection after 2025: {market} {day}")
         tz, target = tzs[icao], date.fromisoformat(day)
@@ -373,7 +390,9 @@ def hrrr_k_columns(corpus_dir, markets, hours=HOURS_1316):
         entry = {"k_max": float("nan"), "k_tcdc": float("nan"), "k_miss": 1.0, "reason": None}
         out[(market, day, hour)] = entry
         fhs = list(s.get("fhs") or [])
-        if datetime.fromisoformat(s["snapshot_utc"]) != snapshot:
+        if point is not None and icao not in point:
+            entry["reason"] = "no_land_cell"
+        elif datetime.fromisoformat(s["snapshot_utc"]) != snapshot:
             entry["reason"] = "snapshot_mismatch"
         elif s.get("cycle_utc") is None or not fhs:
             entry["reason"] = "no_cycle"
@@ -456,6 +475,257 @@ def part1b(*, nbm_corpus, records_root, state_1316, hrrr_1316, rule, out_path):
                            records_missing=missing, records_sha256=shas),
         "p3d_h_0712": "NOT SCORABLE on Oct-Dec: no HRRR 07-12 for Oct-Dec in L13's corpus (coverage.json)",
         "blend_l6_h_0712": "NOT SCORABLE on Oct-Dec: its P3d_H 07-12 input has no Oct-Dec HRRR (coverage.json)"}
+    _write_once(out_path, payload)
+    return payload
+
+
+# ---------------------------------------------------------------- 1c: P3d_H 07-12 and blend_l6_H (L2's MG-3)
+
+HRRR_0712_SHAS = {"manifest.jsonl": "fef6c307a411e6373af05830b55c4dff8cb23d08f46e18f07949821f08fe88e6",
+                  "selections.jsonl": "31bd3d3a7c6456df657e8f99b763a06a80bc41772881f67dc7eeaf5dee1f4e67",
+                  "days.jsonl": "34af53b0e276c541605e3e93a57018619ddf0895f92f07add5c835901fd3515e",
+                  "stations.json": "52e8bb5f22513828cb5edbfc16b77afb293cfcb9df62a92abd4db30ab7a0abe3"}
+P3DH_0712_STATE_SHA256 = "e92764773e1614aae548ccfd74b3a60740f25105578abd045b0808fe6dd159c0"
+BLEND_WEIGHTS_SHA256 = "c7b8ebc08d31ca30e5289d453ec2260bcc6659b32b379410f58b0d2b9b03530a"
+L6_PART_SHA256 = "07a6742595f535d448569980af7e04dbf4a2a798c00c82fd52f5f01287ee17e9"
+L6_DEV_NOWCASTS_SHA256 = "3806687cd6ad8d38571fd5d17efa5405856300d2f0029ae644e3ad08db4a31f3"
+RN1_LAND_SHA256 = "22069beebb5609755b35621bac05e91a1b35e434670c993a93a8aca9434fd7d6"
+RN1_LAND_MSG_SHA256 = "10c7fb85ac10616ca3f45295d945002ab5da437054736748f6746dd01b0e7c29"
+RN1_LAND_KEY = "hrrr.20250801/conus/hrrr.t00z.wrfsfcf00.grib2"
+RN1_EXPECTED_INDEX = {"KSFO": 3}  # every other station is the centre cell (4)
+SUMS_REQUIRED = ("manifest.jsonl", "selections.jsonl", "stations.json")
+AUG_SEP, OCT_DEC = (8, 9), (10, 11, 12)
+
+
+def rn1_point_map(land_path, corpus_dir, markets):
+    """RN-1 land point rule (a read-only copy of L2's ``rr_point_rule``) -> ({icao: block index}, report).
+
+    Refused unless the land file is the registered LAND:surface message, its stations_json_sha256 equals the
+    corpus's stations.json, the block distances and the chosen index recompute, and the index equals the
+    registered reading (KSFO 3, every other station 4).
+    """
+    _pin(land_path, RN1_LAND_SHA256, "RN-1 land file")
+    land = json.loads(Path(land_path).read_bytes())
+    stations_sha = _sha(Path(corpus_dir) / "stations.json")
+    if land.get("stations_json_sha256") != stations_sha:
+        raise CoolSeasonError(f"land stations_json_sha256 {land.get('stations_json_sha256')} != {stations_sha}")
+    if land.get("msg_sha256") != RN1_LAND_MSG_SHA256 or land.get("key") != RN1_LAND_KEY:
+        raise CoolSeasonError("land file is not the registered LAND:surface message")
+    stations = json.loads((Path(corpus_dir) / "stations.json").read_bytes())
+    point, report = {}, {}
+    for icao, s in sorted(stations.items()):
+        if s.get("market") not in markets:
+            continue
+        cell = land["stations"][icao]
+        if (cell["i"], cell["j"], cell["fi"], cell["fj"]) != (s["i"], s["j"], s["fi"], s["fj"]):
+            raise CoolSeasonError(f"{icao}: land grid position differs from stations.json")
+        mask = cell["land_block3x3"]
+        dist = []
+        for k in range(9):
+            dj, di = divmod(k, 3)
+            dist.append(math.hypot(s["i"] + di - 1 - s["fi"], s["j"] + dj - 1 - s["fj"]))
+        if max(abs(a - b) for a, b in zip(dist, cell["dist_grid_units"])) > 1e-9:
+            raise CoolSeasonError(f"{icao}: block ordering does not reproduce the stored distances")
+        land_cells = [k for k in range(9) if mask[k] == 1]
+        chosen = min(land_cells, key=lambda k: (dist[k], k)) if land_cells else None
+        if chosen != cell.get("rn1_chosen_index") or chosen != RN1_EXPECTED_INDEX.get(icao, 4):
+            raise CoolSeasonError(f"{icao}: RN-1 index {chosen} differs from the land file or the registered reading")
+        point[icao] = chosen
+        report[icao] = {"market": s["market"], "chosen_index": chosen, "n_land": len(land_cells),
+                        "chosen_dist_grid": dist[chosen]}
+    return point, {"land_sha256": RN1_LAND_SHA256, "stations_json_sha256": stations_sha, "stations": report}
+
+
+def bind_sha256sums(corpus_dir, sums_sha256):
+    """The sealed backfill: SHA256SUMS must hash to the forwarded seal sha, list every required file, and every
+    listed file must hash to its line. -> {name: sha256}."""
+    d = Path(corpus_dir)
+    _pin(d / "SHA256SUMS", sums_sha256, "backfill SHA256SUMS")
+    listed = {}
+    for line in (d / "SHA256SUMS").read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        digest, name = line.split(None, 1)
+        name = name.strip().lstrip("*").replace("\\", "/")
+        if name.startswith("./"):
+            name = name[2:]
+        if name in listed:
+            raise CoolSeasonError(f"SHA256SUMS lists {name} twice")
+        listed[name] = digest.lower()
+    missing = [n for n in SUMS_REQUIRED if n not in listed]
+    if missing:
+        raise CoolSeasonError(f"SHA256SUMS does not list {missing}")
+    for name, digest in listed.items():
+        _pin(d / name, digest, f"backfill {name}")
+    return listed
+
+
+def bind_blend_weights(path):
+    """L2's frozen blend_l6_H weights: file sha pinned, the .sha256 sidecar agrees, control PASS, and the L6
+    partner they were fitted with is the frozen Aug-Sep L6 (part 07a67425, nowcasts 3806687c)."""
+    _pin(path, BLEND_WEIGHTS_SHA256, "blend_l6_H weights")
+    side = Path(str(path) + ".sha256").read_text(encoding="utf-8").split()
+    if not side or side[0] != BLEND_WEIGHTS_SHA256:
+        raise CoolSeasonError("blend weights .sha256 sidecar disagrees")
+    w = json.loads(Path(path).read_text(encoding="utf-8"))
+    if w["control"].get("pass") is not True:
+        raise CoolSeasonError("blend weights control does not PASS")
+    if w["inputs"].get("l6_part") != L6_PART_SHA256 or w["inputs"].get("nowcasts") != L6_DEV_NOWCASTS_SHA256:
+        raise CoolSeasonError("blend weights were not fitted with the frozen Aug-Sep L6 partner")
+    weights = {int(k[1:]): float(v) for k, v in w["weights"].items()}
+    if sorted(weights) != list(HOURS_0712) or not all(0.0 <= x <= 1.0 for x in weights.values()):
+        raise CoolSeasonError(f"blend weights hours/values invalid: {weights}")
+    return weights
+
+
+def l6_part(coef_path):
+    """MG-2's l6_stack part: file sha pinned and the canonical-JSON part sha equals the blend's partner."""
+    _pin(coef_path, MG2_COEF_SHA256, "MG-2 coefficients")
+    part = json.loads(Path(coef_path).read_bytes())["l6_stack"]
+    sha = hashlib.sha256(json.dumps(part, sort_keys=True, separators=(",", ":"), allow_nan=False)
+                         .encode("utf-8")).hexdigest()
+    if sha != L6_PART_SHA256:
+        raise CoolSeasonError(f"l6_stack part sha {sha} != {L6_PART_SHA256}")
+    return {int(h): (float(v[0]), float(v[1])) for h, v in part["coef"].items()}
+
+
+def l6_nowcast_map(research_root, nbm_corpus, l6_state_path):
+    """{(market, local_date, hour): N} from L6's history builder and the frozen 0e89b32d HGB (as 1a)."""
+    import numpy as np
+
+    from weather.model import mg_serve_core as core
+
+    frame, prov = l6_rows(research_root, nbm_corpus)
+    state = core.load_l6_own_state(l6_state_path, L6_STATE_SHA256)
+    n = core.l6_own_nowcast(state, frame)
+    out = {(m, d, int(h)): float(x) for m, d, h, x in zip(frame.market, frame.local_date, frame.hour, n)
+           if np.isfinite(x)}
+    return out, prov
+
+
+def dist_vector(mu, sigma, floor_r):
+    """The MG-1-analogue integer-bucket distribution (``rz.bucket_brier``'s) as {bucket: p}."""
+    from weather.calibration import season_matched_l6 as sm
+
+    p, k = sm.bucket_probs([mu], [sigma], [floor_r])
+    return {int(b): float(x) for b, x in zip(k[0], p[0]) if x > 0.0}
+
+
+def blend(pa, pb, w):
+    return {k: w * pa.get(k, 0.0) + (1.0 - w) * pb.get(k, 0.0) for k in set(pa) | set(pb)}
+
+
+def score_0712(frame, state, hrrr, nmap, coef, weights):
+    """Per row: P3d_H (L2 state, RN-1 HRRR extras), blend_l6_H = w_h P3d_H + (1 - w_h) L6, and the MG-1 analogue.
+
+    L6 = Normal(v + a_h + b_h (N - v), max(s, 1)) floored at half-up(F); without N it is the MG-1 analogue
+    exactly (as the dev L6 part serves). Rows without v, s or F have no comparator and no blend.
+    """
+    import numpy as np
+
+    n = len(frame)
+    p3, bl, mg = np.full(n, np.nan), np.full(n, np.nan), np.full(n, np.nan)
+    stats = Counter()
+    for i, r in enumerate(frame.itertuples(index=False)):
+        F, ct, nm = (float(x) if x is not None and x == x else float("nan") for x in (r.F, r.current_temp, r.nbm_mean))
+        if not (math.isfinite(F) and math.isfinite(ct)):
+            stats["no_obs"] += 1
+            continue
+        h = int(r.hour)
+        entry = hrrr.get((r.market, r.local_date, h))
+        stats["hrrr_covered" if entry is not None and not entry["k_miss"] else "hrrr_miss"] += 1
+        pa = p3dh_distribution(state, h, k_extra(entry, r.nbm_mean), market=r.market,
+                               target_date=date.fromisoformat(r.local_date), high_so_far=F, current_temp=ct,
+                               nbm_mean=nm)
+        p3[i] = brier_from_dist(pa, r.y)
+        stats["p3d_scored"] += 1
+        v = float("nan") if r.v is None else float(r.v)
+        s = float("nan") if r.s is None else float(r.s)
+        if not (math.isfinite(v) and math.isfinite(s)):
+            stats["no_mg1"] += 1
+            continue
+        sig = max(s, 1.0)
+        pm = dist_vector(v, sig, F)
+        mg[i] = brier_from_dist(pm, r.y)
+        N = nmap.get((r.market, r.local_date, h))
+        if N is None:
+            stats["l6_no_nowcast_mg1"] += 1
+            pl = pm
+        else:
+            a, b = coef[h]
+            pl = dist_vector(v + a + b * (N - v), sig, F)
+            stats["l6_nowcast"] += 1
+        bl[i] = brier_from_dist(blend(pa, pl, weights[h]), r.y)
+        stats["blend_scored"] += 1
+    out = frame[["market", "local_date", "hour", "year", "month"]].copy()
+    out["p3d_h"], out["blend"], out["mg1"] = p3, bl, mg
+    return out, dict(stats)
+
+
+def part1c(*, nbm_corpus, records_root, research_root, state_0712, hrrr_0712, hrrr_backfill, backfill_sums_sha256,
+           land, l6_state, mg2_coefficients, blend_weights, rule, rule_1c, rule_1c_sha256, out_path):
+    import numpy as np
+
+    check_rule(rule)
+    _pin(rule_1c, rule_1c_sha256, "1c rule")
+    _pin(nbm_corpus, "1ae4bf52a0e032fc0c05ddfa7b282a17db53bd9a2e3f3a32a9a5686139faa1fd", "NBM corpus")
+    for name, sha in HRRR_0712_SHAS.items():
+        _pin(Path(hrrr_0712) / name, sha, f"HRRR 07-12 training corpus {name}")
+    sums = bind_sha256sums(hrrr_backfill, backfill_sums_sha256)
+    state, state_sha, control_sha = bind_l2_state(state_0712)
+    if state_sha != P3DH_0712_STATE_SHA256:
+        raise CoolSeasonError(f"P3d_H 07-12 state {state_sha} != {P3DH_0712_STATE_SHA256}")
+    weights = bind_blend_weights(blend_weights)
+    coef = l6_part(mg2_coefficients)
+    recf, shas, missing = record_rows(records_root, nbm_corpus, hours=HOURS_0712)
+    markets = set(recf.market)
+    point_train, rep_train = rn1_point_map(land, hrrr_0712, markets)
+    point_back, rep_back = rn1_point_map(land, hrrr_backfill, markets)
+    fitted = state["point_rule"]["report"]["stations"]
+    for rep in (rep_train, rep_back):
+        for icao, x in rep["stations"].items():
+            if fitted.get(icao, {}).get("chosen_index") != x["chosen_index"]:
+                raise CoolSeasonError(f"{icao}: RN-1 index differs from the state's fitted point rule")
+    h_train, st_train = hrrr_k_columns(hrrr_0712, markets, hours=HOURS_0712, point=point_train, months=AUG_SEP,
+                                       skip_after="2025-12-31")
+    h_back, st_back = hrrr_k_columns(hrrr_backfill, markets, hours=HOURS_0712, point=point_back, months=OCT_DEC)
+    hrrr = dict(h_train)
+    hrrr.update(h_back)
+    nmap, l6prov = l6_nowcast_map(research_root, nbm_corpus, l6_state)
+    scored, stats = score_0712(recf, state, hrrr, nmap, coef, weights)
+    keys = list(zip(recf.market, recf.local_date, recf.hour.astype(int)))
+    hcov = np.array([hrrr.get(k) is not None and not hrrr[k]["k_miss"] for k in keys])
+    ncov = np.array([k in nmap for k in keys])
+    month = recf.month.to_numpy(int)
+
+    def counts(arm):
+        out = {}
+        for name, months in PERIODS:
+            pm = np.isin(month, months)
+            out[name] = {"rows": int(pm.sum()), "scored": int(np.isfinite(scored[arm].to_numpy(float))[pm].sum()),
+                         "compared": int((np.isfinite(scored[arm].to_numpy(float))
+                                          & np.isfinite(scored.mg1.to_numpy(float)))[pm].sum()),
+                         "hrrr_covered": int(hcov[pm].sum()), "l6_nowcast_covered": int(ncov[pm].sum())}
+        return out
+
+    payload = {
+        "label": "CS-1 (1c) cool-season transfer audit, history only, descriptive: L2's frozen MG-3 P3d_H 07-12 "
+                 "and blend_l6_H (control PASS, sha-bound; blend L6 partner = frozen Aug-Sep L6 0e89b32d + part "
+                 "07a67425, as the weights were fitted) vs the MG-1 analogue; Aug-Sep is IN-SAMPLE; Oct-Dec rows "
+                 "are never training rows but share the training years 2021-25; no binding change",
+        "rule_sha256": RULE_CS_SHA256, "rule_1c_sha256": rule_1c_sha256, "module_sha256": _sha(__file__),
+        "inputs": {"p3d_h_0712_state_sha256": state_sha, "l2_control_sha256": control_sha,
+                   "blend_weights_sha256": BLEND_WEIGHTS_SHA256, "weights": {f"h{h:02d}": w for h, w in weights.items()},
+                   "l6_state_sha256": L6_STATE_SHA256, "mg2_coefficients_sha256": MG2_COEF_SHA256,
+                   "l6_part_sha256": L6_PART_SHA256, "hrrr_0712_train": HRRR_0712_SHAS,
+                   "hrrr_backfill_sha256sums": backfill_sums_sha256, "hrrr_backfill_files": sums,
+                   "land_sha256": RN1_LAND_SHA256, "l6_obs": l6prov, "records_sha256": shas,
+                   "records_missing": missing},
+        "point_rule": {"train": rep_train, "backfill": rep_back},
+        "hrrr_stats": {"train_aug_sep": st_train, "backfill_oct_dec": st_back},
+        "row_stats": stats, "rows": int(len(recf)),
+        "p3d_h_0712": dict(compare(scored, "p3d_h", "mg1", HOURS_0712), coverage=counts("p3d_h")),
+        "blend_l6_h_0712": dict(compare(scored, "blend", "mg1", HOURS_0712), coverage=counts("blend"))}
     _write_once(out_path, payload)
     return payload
 
@@ -577,12 +847,26 @@ def main(argv=None):
     b1 = sub.add_parser("part1b")
     for flag in ("--nbm-corpus", "--records-root", "--state-1316", "--hrrr-1316", "--rule", "--out"):
         b1.add_argument(flag, required=True)
+    c1 = sub.add_parser("part1c")
+    for flag in ("--nbm-corpus", "--records-root", "--research-root", "--state-0712", "--hrrr-0712",
+                 "--hrrr-backfill", "--backfill-sums-sha256", "--land", "--l6-state", "--mg2-coefficients",
+                 "--blend-weights", "--rule", "--rule-1c", "--rule-1c-sha256", "--out"):
+        c1.add_argument(flag, required=True)
     a = parser.parse_args(argv)
     if a.cmd == "coverage":
         roots = dict(x.split("=", 1) for x in a.hrrr)
         out = coverage(research_root=a.research_root, nbm_corpus=a.nbm_corpus, records_root=a.records_root,
                        hrrr_roots=roots, rule=a.rule, out_path=a.out)
         print(json.dumps({k: v["octdec_backfill_estimate_gb"] for k, v in out["hrrr"].items()}, indent=1))
+    elif a.cmd == "part1c":
+        out = part1c(nbm_corpus=a.nbm_corpus, records_root=a.records_root, research_root=a.research_root,
+                     state_0712=a.state_0712, hrrr_0712=a.hrrr_0712, hrrr_backfill=a.hrrr_backfill,
+                     backfill_sums_sha256=a.backfill_sums_sha256, land=a.land, l6_state=a.l6_state,
+                     mg2_coefficients=a.mg2_coefficients, blend_weights=a.blend_weights, rule=a.rule,
+                     rule_1c=a.rule_1c, rule_1c_sha256=a.rule_1c_sha256, out_path=a.out)
+        print(json.dumps({k: {"reading": out[k]["transfer_reading"], "coverage": out[k]["coverage"],
+                              "periods": {p: v["by"].get("pooled") for p, v in out[k]["periods"].items()}}
+                          for k in ("p3d_h_0712", "blend_l6_h_0712")}, indent=1))
     elif a.cmd == "part1b":
         out = part1b(nbm_corpus=a.nbm_corpus, records_root=a.records_root, state_1316=a.state_1316,
                      hrrr_1316=a.hrrr_1316, rule=a.rule, out_path=a.out)
