@@ -107,13 +107,16 @@ The pooled upper bound is −0.0025 < 0, so the rule selects **the season-matche
     `3806687c…`), emitted by lane L3 for L2's MG-3 weight refit (`season_matched_l6 dev-emit` @ `40ed3cf1f`).
     Control: the frozen Aug-Sep state reproduces `3806687c…` on the same features with gap 0.
 - **Serving code:** wiring the frozen state into `mg2_composite`'s pre-13 path is a serving-code change.
-  Lane L8 makes it on `claude/mg2-l6-wiring-20261026 @ cb1244bbb23fa1261ade5b26bc02e00d2746d53c`: the state loads
+  Lane L8 makes it on `claude/mg2-l6-wiring-20261026 @ 53bf81f9c340bed9fec18af61ae8be5f1caf9555`: the state loads
   through `load_l6_own_state` with sha verification, with a parity test, plus the BOUND_FIELDS fix. L3 does not
   make this change.
-  - At that tip the b_scorer sha256 is `c27e710d4dca9b82654135283344ab870e952d785035543dd808b22947308f78`.
-  - The B control receipt `c67ba81a1f59fb4127145da61361fc7d5ff3bde1e9966467fcf6ff2272e9ab12` is PASS (it
-    supersedes `2ce8f4a7…`).
-  - In L8's rehearsal (`0e1b9847…`), the nowcast replay at `800072c7…` reproduced `714fa14e…` exactly.
+  - At that tip the b_scorer sha256 is `f941628a4bfdb0002f9be1b5a2f11425a021a5389c651fb835c340f914883439`
+    (it supersedes `c27e710d…`).
+  - The B control receipt bcontrol4 `17b293a73df23696044be594480e3dde7a2e09a882c80fef695d39cea8f7bc6c` is PASS
+    (it supersedes `c67ba81a…`).
+  - The captured dev nowcast pin `714fa14e…` is now a code constant at that tip.
+  - In L8's rehearsal (mg2_checks `0e1b98478d66c7cffa6e528aecba8001763601e08b0ac4c60a1a71eb1bb58434`), the nowcast
+    replay at `800072c7…` reproduced `714fa14e…` exactly.
 
 ## 4. Unchanged: the stack coefficients
 
@@ -149,7 +152,8 @@ primary and carry no α. They cannot pass, fail or change the arm.
 ## 7. Bookkeeping
 
 - **B-1's FILL list:** it gains the season-matched L6 state sha256 (§3) and the season-matched captured
-  dev nowcast sha256 (§3). L8's B-1 clarification `a6b6a809…` carries these items.
+  dev nowcast sha256 (§3). L8's B-1 clarification (LF sha256
+  `1c96f5e4c4b4ccae3cc2969de9b3f60566d2bd719a0a42c4afe112e84bc6d09d`) carries these items.
 - **Release binding:** `release-binding.json` records the L6 state sha256 next to the l6_stack part sha256.
   `emit` and `score` refuse on a mismatch.
 - **Ledger:** row 46 (SM-L6; first pushed as row 41, renumbered 2026-10-27 for a collision with L2 rows 40-44)
