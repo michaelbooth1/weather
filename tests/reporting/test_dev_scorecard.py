@@ -304,3 +304,66 @@ def test_floor_control_refuses_a_fixture_with_the_wrong_bytes(tmp_path):
     bad.write_text("target_date,market_id,baseline_current_brier,hard_current_brier,market_brier\n")
     with pytest.raises(data.LayoutError, match="sha256"):
         sc.run_floor_control(bad)
+
+
+# ----------------------------------------------------------------------------- paired control (lane G)
+
+def test_control_equal_to_served_reproduces_model_minus_served_and_self_control_is_zero(tmp_path):
+    path = tmp_path / "cand.py"
+    path.write_text(MODULE)
+    root = write_layout(tmp_path / "lay", n_dates=14)
+    bands = pd.read_parquet(root / data.BANDS_FILE)
+    served = bands[["row_key", "band_index"]].assign(p=bands.p_served.to_numpy())
+    served.to_csv(tmp_path / "served.csv", index=False)
+    cand = data.CandidateSpec("module", str(path))
+    ctl = data.CandidateSpec("vectors", str(tmp_path / "served.csv"), no_training=True)
+    payload = sc.run_score(root, "2026-08-01", "2026-08-14", cand, min_train_dates=5, control=ctl)
+    assert payload["control"]["kind"] == "vectors"
+    for row in payload["rows"]:
+        assert row["model_minus_control"]["estimate"] == pytest.approx(row["model_minus_served"]["estimate"],
+                                                                        abs=1e-15)
+        assert row["model_minus_control"]["ci95"] == pytest.approx(row["model_minus_served"]["ci95"], abs=1e-15)
+        assert row["control_minus_served"]["estimate"] == pytest.approx(0.0, abs=1e-15)
+    same = sc.run_score(root, "2026-08-01", "2026-08-14", cand, min_train_dates=5,
+                        control=data.CandidateSpec("module", str(path)))
+    assert all(r["model_minus_control"]["ci95"] == pytest.approx([0.0, 0.0], abs=1e-15) for r in same["rows"])
+    assert all(r["model_minus_served"]["estimate"] != 0.0 for r in same["rows"])
+
+
+def test_control_cannot_be_the_served_or_market_identity(tmp_path):
+    path = tmp_path / "cand.py"
+    path.write_text(MODULE)
+    root = write_layout(tmp_path / "lay", n_dates=14)
+    with pytest.raises(data.Refused, match="control"):
+        sc.run_score(root, "2026-08-01", "2026-08-14", data.CandidateSpec("module", str(path)),
+                     min_train_dates=5, control=data.CandidateSpec("served"))
+
+
+def test_cli_control_module_writes_the_paired_columns(tmp_path, capsys):
+    path = tmp_path / "cand.py"
+    path.write_text(MODULE)
+    root = write_layout(tmp_path / "lay", n_dates=14)
+    code = run_cli(["score", "--layout", root, "--from", "2026-08-01", "--to", "2026-08-14",
+                    "--candidate-module", path, "--control-module", path, "--min-train-dates", "5",
+                    "--out", tmp_path / "out"])
+    assert code == 0
+    md = Path(json.loads(capsys.readouterr().out)["md"]).read_text(encoding="utf-8")
+    assert "model - control [95%]" in md and "- Control: `module`" in md
+
+
+def test_hourly_rows_and_date_clustered_paired_intervals(tmp_path):
+    path = tmp_path / "cand.py"
+    path.write_text(MODULE)
+    root = write_layout(tmp_path / "lay", n_dates=14)
+    spec = data.CandidateSpec("module", str(path))
+    payload = sc.run_score(root, "2026-08-01", "2026-08-14", spec, min_train_dates=5,
+                           control=data.CandidateSpec("module", str(path)), hourly=True)
+    blocks = {r["block"] for r in payload["rows"] if r["market"] == "ALL"}
+    assert {"h03", "h14", "13-16"} <= blocks and not {"h05", "07-12"} & blocks   # fixture hours are 3 and 14
+    pooled = [r for r in payload["rows"] if r["market"] == "ALL"]
+    assert all("model_minus_control_date_clustered" in r for r in pooled)
+    assert not any("model_minus_control_date_clustered" in r for r in payload["rows"] if r["market"] != "ALL")
+    row = next(r for r in pooled if r["block"] == "all")
+    assert row["model_minus_served_date_clustered"]["estimate"] == pytest.approx(row["model_minus_served"]["estimate"])
+    plain = sc.run_score(root, "2026-08-01", "2026-08-14", spec, min_train_dates=5)
+    assert not any(r["block"].startswith("h") for r in plain["rows"])

@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 import subprocess
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -136,6 +137,56 @@ def test_reward_records_not_heartbeat(case, tmp_path):
     assert finding["severity"] == {"fresh": "OK", "warn": "WARN"}.get(case, "CRITICAL")
     if case == "unregistered":
         assert "no producer registered" in finding["detail"]
+
+
+# (manifest status or None/"malformed", manifest age h, report text or None, report age h, severity, source)
+STAGE_A_CASES = {
+    "completed_fresh": ("COMPLETED", 22, "Status: **ok**", 22, "OK", "manifest"),
+    "completed_old": ("COMPLETED", 36, "Status: **ok**", 36, "WARN", "manifest"),
+    "completed_stale": ("COMPLETED", 60, "Status: **ok**", 60, "CRITICAL", "manifest"),
+    # The defect: killed at 11:55 after per-step checkpoints, so the report is fresh.
+    "killed_with_fresh_report": ("RUNNING", 20, "Status: **running**", 20, "CRITICAL", "manifest"),
+    "killed_report_says_ok": ("RUNNING", 20, "Status: **ok**", 1, "CRITICAL", "manifest"),
+    "running_now": ("RUNNING", 0.5, "Status: **running**", 0.5, "WARN", "manifest"),
+    "error_status": ("ERROR", 20, "Status: **error**", 20, "CRITICAL", "manifest"),
+    "missing_manifest_running_report": (None, 0, "Status: **running**", 1, "CRITICAL", "report"),
+    "missing_manifest_finished_report": (None, 0, "Status: **ok**", 20, "OK", "report"),
+    "malformed_manifest_running_report": ("malformed", 1, "Status: **running**", 1, "CRITICAL", "report"),
+    "missing_both": (None, 0, None, 0, "CRITICAL", "none"),
+}
+
+
+@pytest.mark.spawns
+@pytest.mark.parametrize("case", sorted(STAGE_A_CASES))
+def test_stage_a_chain_completion_uses_manifest_not_report_mtime(case, tmp_path):
+    status, manifest_age, report, report_age, severity, source = STAGE_A_CASES[case]
+    now = datetime(2026, 9, 24, 8, 10)
+    manifest_path = tmp_path / "stage_a.json"
+    report_path = tmp_path / "daily_refresh_report.md"
+    if status == "malformed":
+        manifest_path.write_text("{truncated", encoding="utf-8")
+    elif status is not None:
+        manifest_path.write_text(json.dumps(dict(
+            status=status, started_at_utc="2026-09-23T13:30:00+00:00",
+            completed_at_utc="2026-09-23T15:40:00+00:00" if status == "COMPLETED" else None,
+        )), encoding="utf-8")
+    if status is not None:
+        stamp = (now - timedelta(hours=manifest_age)).timestamp()
+        os.utime(manifest_path, (stamp, stamp))
+    if report is not None:
+        report_path.write_text(f"# Daily Refresh\n\n{report}\n", encoding="utf-8")
+        stamp = (now - timedelta(hours=report_age)).timestamp()
+        os.utime(report_path, (stamp, stamp))
+    result = ps("staleness_sweep.ps1", ["Get-WeatherStageAChainFinding"],
+                "Get-WeatherStageAChainFinding -ManifestPath (Join-Path $root 'stage_a.json') "
+                "-ReportPath (Join-Path $root 'daily_refresh_report.md') "
+                f"-Now ([datetime]'{now.isoformat()}') | ConvertTo-Json -Compress", tmp_path)
+    assert result.returncode == 0, result.stderr
+    finding = json.loads(result.stdout)
+    assert (finding["severity"], finding["source"]) == (severity, source), finding
+    source_text = (ROOT / "scripts/ops/staleness_sweep.ps1").read_text(encoding="utf-8-sig")
+    assert 'Test-FileAge "chain/daily_refresh_report"' not in source_text
+    assert "daily_refresh_settlement_truth_manifest.json" in source_text
 
 
 def test_watchdog_rotates_without_rewriting_and_reads_archive_tail(tmp_path):

@@ -95,6 +95,7 @@ jobs:
               tests/operations/test_staleness_sweep_script.py
               tests/operations/test_status_capture_registry_health.py
               tests/operations/test_schema_families_roll_verdict.py
+              tests/operations/test_status_maker_evidence_code_identity.py
             mark: ''
           - shard: windows-lane-a
             split_file: ''
@@ -110,6 +111,11 @@ jobs:
               tests/operations/test_cold_snapshot_nightly.py
               tests/operations/test_cold_snapshot_nightly_schedule.py
               tests/operations/test_workload_admission_script.py
+              tests/operations/test_workstation_offline_corpus_admission.py
+              tests/operations/test_feature_model_trainer_admission.py
+              tests/operations/test_pooled_residual_model_admission.py
+              tests/operations/test_r0_ols_floor_challenger_admission.py
+              tests/operations/test_ols_floor_ladder_admission.py
               tests/operations/test_long_job_guard.py
               tests/operations/test_replay_cache_compression.py
               tests/operations/test_wait_pr_ci_script.py
@@ -155,6 +161,7 @@ jobs:
               tests/market/test_mm_credential_import_cli.py
               tests/operations/test_codex_host_load_hook_focused_exemption.py
               tests/operations/test_workstation_heavy_queue.py
+              tests/operations/test_workstation_heavy_slots.py
               tests/operations/test_thin_ensure.py
               tests/operations/test_scheduled_task_local_daily_triggers.py
               tests/operations/test_exchange_economics_refresh_script.py

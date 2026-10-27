@@ -1,0 +1,35 @@
+{
+ "arm": "P3d_N",
+ "fit_kind": "forward",
+ "schema": "mg2_p3d_n_state/1",
+ "frozen_at": "2026-10-25 (before D0)",
+ "state_path": "C:\\t\\l2\\forward\\state\\p3d_n_state.pkl",
+ "state_sha256": "c6cc39f7b57f668557415d28ec37ac291694f4b429e572a3c178fb74e5a9c780",
+ "sidecar_path": "C:\\t\\l2\\forward\\state\\p3d_n_state.json",
+ "sidecar_sha256": "f5409444a4ce823f6396f538aa6ff2efbf1710e9d646f503ceb00931914e4b3e",
+ "rule_path": "C:\\t\\l2\\rule.md",
+ "rule_sha256_clarification3": "fa4257dffe192016da9b72d261a786e894dbc6478a9b4ebb6c3762fe15ee7eea",
+ "branch": "claude/pooled-residual-model-20261024",
+ "commit": "73675b7820f412641237c1afd148d7993f95df5e",
+ "module_sha256": "52c497a95a69c3fbf78dbfe030b3190d93e940f180b81867a241552b3932a170",
+ "training_rows": 103609,
+ "train_years": [
+  2021,
+  2022,
+  2023,
+  2024,
+  2025
+ ],
+ "train_dates_md": [
+  "08-01",
+  "12-16"
+ ],
+ "conversion": "wu_whole_f_tgroup:half_up",
+ "late_report": {
+  "rule": "last_in_hour",
+  "grace_minutes": null
+ },
+ "export_parity": "2800 sampled training rows, max abs diff 1.42e-14 vs fitted MeanModel",
+ "isolated_load": "unpickled with weather/pandas imports blocked; loads numpy, sklearn (+ its scipy, joblib deps); sidecar sha matches",
+ "scored_on_2026": false
+}
