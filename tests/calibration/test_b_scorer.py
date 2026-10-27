@@ -688,3 +688,27 @@ def test_b_schemas_are_registered_and_the_void_record_is_retired():
     assert schema_version("b_look_consumed") == b.CONSUMED_SCHEMA
     assert specs["b_void_record/1"].status == "legacy" and specs["b_void_record/1"].migration_notes
     assert not hasattr(b, "VOID_RECORD_SCHEMA")
+
+
+def test_the_control_needs_every_section7_replay_evaluated(tmp_path):
+    path = tmp_path / "mg2_checks.json"
+    good = {"nowcast_replay_pass": True, "p3d_n_replay_pass": True, "window_leakage_pass": False,
+            "emit_audit_vectors_sha256": ["a" * 64, "a" * 64]}
+    path.write_text(json.dumps(good), encoding="utf-8")
+    got = b.section7_rehearsal(path)
+    assert (got["nowcast_replay_pass"], got["window_leakage_pass"]) == (True, False)
+    assert got["sha256"] == b.sha256_file(path)
+    for key in b.SECTION7_REPLAYS:
+        for bad in (None, "true"):
+            path.write_text(json.dumps(dict(good, **{key: bad})), encoding="utf-8")
+            with pytest.raises(b.BRefused, match="unevaluated"):
+                b.section7_rehearsal(path)
+    for missing in (None, tmp_path / "absent.json"):
+        with pytest.raises(b.BRefused, match="needs the rehearsal"):
+            b.section7_rehearsal(missing)
+    with pytest.raises(b.BRefused, match="unevaluated"):  # refused before any control input is read
+        b.control(layout="x", coefficients="x", nowcasts="x", p3d_files=["x", "y"], out=tmp_path / "ctl",
+                  mg2_checks=path)
+    with pytest.raises(SystemExit):
+        b.build_parser().parse_args(["control", "--layout", "l", "--coefficients", "c", "--nowcasts", "n",
+                                     "--p3d", "a", "b", "--out", "o"])

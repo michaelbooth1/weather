@@ -789,8 +789,33 @@ def _close(a, b, tol=REPRODUCTION_TOLERANCE):
     return a is not None and b is not None and abs(float(a) - float(b)) <= tol
 
 
-def control(*, layout, coefficients, nowcasts, p3d_files, out):
-    """B-1 section (a) on R-H's dev inputs (07-31..09-29 layout; no date after 09-29 is opened)."""
+SECTION7_REPLAYS = ("nowcast_replay_pass", "p3d_n_replay_pass", "window_leakage_pass")
+
+
+def section7_rehearsal(mg2_checks):
+    """The rehearsal's ``mg2_composite check`` output: the three MG-2 section 7 replays, each true or false.
+
+    A null or missing result refuses (an unevaluated condition is VOID 1 at the look, so the control proves the
+    check computes all three).
+    """
+    path = Path(mg2_checks) if mg2_checks else None
+    if path is None or not path.is_file():
+        raise BRefused("the control needs the rehearsal's mg2_checks.json")
+    checks = _json(path)
+    values = {key: checks.get(key) for key in SECTION7_REPLAYS}
+    unevaluated = [key for key, value in values.items() if not isinstance(value, bool)]
+    if unevaluated:
+        raise BRefused(f"mg2_checks.json leaves MG-2 section 7 conditions unevaluated: {unevaluated}")
+    return {"path": str(path), "sha256": sha256_file(path), **values,
+            "emit_audit_vectors_sha256": checks.get("emit_audit_vectors_sha256")}
+
+
+def control(*, layout, coefficients, nowcasts, p3d_files, out, mg2_checks):
+    """B-1 section (a) on R-H's dev inputs (07-31..09-29 layout; no date after 09-29 is opened).
+
+    ``mg2_checks`` is the 09-28 rehearsal's ``mg2_composite check`` output; the receipt records its three section 7
+    replays (each must be true or false) beside the positive control.
+    """
     import numpy as np
     import pandas as pd
 
@@ -802,6 +827,7 @@ def control(*, layout, coefficients, nowcasts, p3d_files, out):
     out = Path(out)
     if (out / CONTROL).exists():
         raise BRefused(f"refusing to overwrite {out / CONTROL}")
+    rehearsal = section7_rehearsal(mg2_checks)
     problems = []
     if sha256_file(nowcasts) != RH_L6_NOWCAST_SHA256:
         problems.append("L6 nowcasts")
@@ -871,7 +897,7 @@ def control(*, layout, coefficients, nowcasts, p3d_files, out):
                "population": {"scored_dates_ctl": [scored[0], scored[-1], len(scored)],
                               "dates": [dates[0], dates[-1], len(dates)], "n_market_days": len(table.keys)},
                "b_scorer_sha256": module_sha256(), "scorecard_code_sha256": sc.code_sha256(),
-               "rh_atlas_sha256": RH_ATLAS_SHA256,
+               "rh_atlas_sha256": RH_ATLAS_SHA256, "mg2_section7_rehearsal": rehearsal,
                "inputs": {"layout_manifest_sha256": lay.manifest_sha256, "l6_part_sha256": RH_L6_PART_SHA256,
                           "nowcasts_sha256": RH_L6_NOWCAST_SHA256,
                           "p3d_files": {str(f): sha256_file(f) for f in p3d_files}}}
@@ -890,6 +916,7 @@ def build_parser():
     c.add_argument("--coefficients", required=True)
     c.add_argument("--nowcasts", required=True)
     c.add_argument("--p3d", nargs=2, required=True, help="R-H's 07-12 and 13-16 P3d_N_fix emissions")
+    c.add_argument("--mg2-checks", required=True, help="the 09-28 rehearsal's mg2_composite check output")
     c.add_argument("--out", required=True)
     r = sub.add_parser("check-rule", help="parse a B-1 rule; list unfilled binding fields")
     r.add_argument("--rule", required=True)
@@ -906,7 +933,7 @@ def main(argv=None):
     try:
         if args.command == "control":
             result = control(layout=args.layout, coefficients=args.coefficients, nowcasts=args.nowcasts,
-                             p3d_files=args.p3d, out=args.out)
+                             p3d_files=args.p3d, out=args.out, mg2_checks=args.mg2_checks)
             print(json.dumps({"verdict": result["verdict"], "checks": result["checks"]}, indent=1))
             return 0 if result["verdict"] == "PASS" else 7
         if args.command == "check-rule":
