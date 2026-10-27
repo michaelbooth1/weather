@@ -400,3 +400,23 @@ file, so the control's code path and its exact result (`8d87027a…`) stand with
   argument still holds, because `rodc_octdec` remains outside the control's import closure.
 - **Supersedes:** gate 1 runs at `701b7bb5d…`, not at `6286465b2`, and C2.1's "final env tip" is
   superseded by this line.
+
+### C2.5 Output-format fix (master-approved, before the run); env re-pinned
+
+- **Bug:** at `701b7bb5d`, `fold_state` keyed its per-hour training-row counts by int hour next to the string
+  key `export_parity_max_abs`. `gate1` writes them into `counts.fold_training_rows`, and the write-once JSON
+  (`cs._write_once`, `json.dumps(sort_keys=True)`) raised `TypeError` on the mixed key types after the full
+  run. No output would have been written.
+- **Found by:** the synthetic end-to-end test on `claude/rodc-gate1-test-20261027` at
+  `27c49d0a2b5a72267ac958b9c427a030a5d045e8` (test-only; synthetic data, no real 2021-25 rows and no
+  backfill data).
+- **Change:** exactly one line, `rodc_octdec.py:129`, `rows[str(hour)] = int(len(train))`.
+  - This is OUTPUT FORMAT ONLY: the JSON key type.
+  - It has no effect on the fit, the support, the scoring or the statistic.
+- **Pins:**
+  - Env commit `9403d87bca6156613e7507ffe7fb45fda758e1a4`, now the **final env tip** (it supersedes C2.4's
+    `701b7bb5d`).
+  - `rodc_octdec.py` sha256 `9c9752b82b0a3e8dd2721b464710b1616fce6e9441d3c654705c1dd05347f8d8`, the only file
+    changed.
+- **Test at the new tip:** the test branch merges this tip (`5451e8f3c…`), and the full synthetic end-to-end
+  test passes there, run through `workstation_heavy.ps1 -Queue`.
