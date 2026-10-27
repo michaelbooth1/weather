@@ -1,8 +1,14 @@
 """MG-2 host input exporter: read-only, known paths only, outcome-free bundles the receiver verifies.
 
-Guards: MG-2 binding plan section 9 (docs/research/mg2-composite-binding-2026-10-25/binding-plan.md) and the master
-2026-10-26 exporter brief: known paths only, counts-only coverage, shared-read opens, date window (<= 2026-09-29 or
->= MG-2 D0 under option 2), roll-free stdlib-only module.
+Guards: MG-2 binding plan section 9 (docs/research/mg2-composite-binding-2026-10-25/binding-plan.md), the master
+2026-10-26 exporter brief and master's 2026-10-27 ruling (option c): a default run opens ONLY the section 9.1 inputs
+(every opened path recorded and checked), every open is the shared-read CreateFileW helper read as the bounded range
+[0, size at open) (appends after the open and an unterminated tail never travel), the coverage counts are opt-in and
+off by default, a forbidden or unlisted key in a projected record refuses the date, nothing under the data root is
+written outside the declared output directory, date window (<= 2026-09-29 or >= MG-2 D0 under option 2), and the
+workstation receiver's pull + receive returns ``verified`` for an exported bundle (``refused:markets`` when a market's
+replay inputs are missing, ``quarantined`` for a forbidden field), the host wrapper and registrar never pass the
+coverage flag and their plan modes touch nothing, roll-free stdlib-only module.
 """
 import ast
 import csv
@@ -11,6 +17,8 @@ import hashlib
 import io
 import json
 import os
+import shutil
+import subprocess
 import sys
 import time
 from datetime import date, datetime, timedelta, timezone
@@ -152,9 +160,10 @@ def host(tmp_path):
     return make_host(tmp_path)
 
 
-def _export(data, tmp_path, day=D, now=NOW):
+def _export(data, tmp_path, day=D, now=NOW, coverage_counts=False):
     out = tmp_path / "out"
-    return mx.export(day=day, data_root=data, out=out, now=now), out / day.isoformat()
+    return (mx.export(day=day, data_root=data, out=out, now=now, coverage_counts=coverage_counts),
+            out / day.isoformat())
 
 
 def test_bundle_holds_only_allowlisted_outcome_free_content(host, tmp_path):
@@ -210,7 +219,8 @@ def test_receiver_verifies_the_exported_bundle(host, tmp_path):
 
 
 def test_coverage_fields_are_counts_only(host, tmp_path):
-    manifest, _bundle = _export(host, tmp_path)
+    manifest, _bundle = _export(host, tmp_path, coverage_counts=True)
+    assert manifest["coverage_counts"] is True
     price = manifest["market_price_coverage"]
     assert price["hours_local"] == [7, 16] and price["counts_only"]
     assert set(price["markets"]) == set(allow.MARKETS)
@@ -305,7 +315,7 @@ def test_forward_adjacent_folders_give_inputs_only(tmp_path, monkeypatch):
     real = mx._share_all_open
     monkeypatch.setattr(mx, "_share_all_open", lambda path: (opened.append(Path(path)), real(path))[1])
     manifest = mx.export(day=day, data_root=data, out=tmp_path / "out",
-                         now=allow.export_cut_utc(day) + timedelta(hours=1))
+                         now=allow.export_cut_utc(day) + timedelta(hours=1), coverage_counts=True)
     bundle = tmp_path / "out" / day.isoformat()
     by_offset = {}
     for path in opened:
@@ -508,3 +518,241 @@ def test_module_is_stdlib_plus_allowlist_and_imported_by_nothing():
                  if p != MODULE and "mg2_input_export" in p.read_text(encoding="utf-8", errors="replace")]
     assert importers == []
     assert mx.SCHEMA == "mg2_input_export/1"
+
+
+# ----------------------------------------------------------------------------- master 2026-10-27 (option c)
+
+DATA_READ_KINDS = {
+    -1: {"replay_inputs.jsonl", "forecast_payloads.jsonl", "forecast_payloads_long.csv"},
+    0: {"replay_inputs.jsonl", "snapshots_long.csv", "features_long.csv", "forecast_payloads.jsonl",
+        "forecast_payloads_long.csv"},
+    1: {"forecast_payloads.jsonl", "forecast_payloads_long.csv"},
+}
+
+
+def _opened_rel(data, monkeypatch):
+    opened = []
+    real = mx._share_all_open
+    monkeypatch.setattr(mx, "_share_all_open", lambda path: (opened.append(Path(path)), real(path))[1])
+    return opened
+
+
+def _section_9_1(rel, day):
+    parts = rel.split("/")
+    if parts[0] == "forecast_payload_cas":
+        return allow.BLOB_RE.match("/".join(parts[1:])) is not None
+    if parts[0] != "snapshots" or len(parts) != 3:
+        return False
+    parsed = allow.parse_slug(parts[1])
+    return parsed is not None and parts[2] in DATA_READ_KINDS.get((parsed[1] - day).days, set())
+
+
+def test_default_run_opens_only_section_9_1_paths(host, tmp_path, monkeypatch):
+    opened = _opened_rel(host, monkeypatch)
+    if os.name == "nt":  # every data-root read goes through the CreateFileW helper, never Python's open
+        import builtins
+
+        real_open, data_root = builtins.open, host.resolve()
+
+        def guarded(file, *args, **kwargs):
+            if isinstance(file, (str, os.PathLike)) and data_root in Path(file).resolve().parents:
+                raise AssertionError(f"plain open under the data root: {file}")
+            return real_open(file, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "open", guarded)
+        monkeypatch.setattr(io, "open", guarded)
+    manifest, _bundle = _export(host, tmp_path)
+    rels = sorted({p.relative_to(host).as_posix() for p in opened})
+    assert rels and [r for r in rels if not _section_9_1(r, D)] == []
+    assert any(r.startswith("forecast_payload_cas/") for r in rels)
+    assert manifest["coverage_counts"] is False
+    assert "market_price_coverage" not in manifest and "book_coverage" not in manifest
+    assert {e["read_mode"] for e in manifest["files"]} == {"bounded_range_at_open"}
+    # Control: the opt-in flag does open the coverage files, so the recorder sees them.
+    monkeypatch.undo()
+    opened = _opened_rel(host, monkeypatch)
+    _export(host, tmp_path / "coverage", coverage_counts=True)
+    extra = {p.relative_to(host).as_posix() for p in opened} - set(rels)
+    assert any("order_books_summary" in r for r in extra) and any("execution_tape" in r for r in extra)
+
+
+def test_coverage_sources_are_unknown_without_the_flag(host):
+    slug = allow.slug_for("nyc", D)
+    for rel in (f"snapshots/{slug}/order_books_summary.csv", f"snapshots/{slug}/market_ws_events.csv",
+                f"snapshots/{slug}/execution_tape/trades-00001.jsonl"):
+        with pytest.raises(mx.ExportRefused, match="unknown source path"):
+            mx.Source(host).path(rel)
+        assert mx.Source(host, coverage_counts=True).path(rel) is not None
+    with pytest.raises(mx.ExportRefused, match="coverage-counts is off"):
+        mx.Source(host).trade_files(slug)
+    assert "--coverage-counts" in mx.build_parser().format_help()
+    assert "master's ruling" in " ".join(mx.build_parser().format_help().split())
+
+
+def test_writes_only_under_the_declared_output_directory(host):
+    before = _tree(host)
+    out = host / "exports" / "mg2-inputs"
+    mx.export(day=D, data_root=host, out=out, now=NOW)
+    after = _tree(host)
+    prefix = "exports/mg2-inputs/"
+    assert {k: v for k, v in after.items() if not k.startswith(prefix)} == before
+    written = sorted(k[len(prefix):] for k in after if k.startswith(prefix))
+    assert written and all(w.startswith(f"{D.isoformat()}/") or w == f"{D.isoformat()}{mx.SUMS_SUFFIX}"
+                           for w in written)
+
+
+def test_bounded_range_drops_later_appends_and_an_unterminated_tail(host, tmp_path, monkeypatch):
+    rel = f"snapshots/{allow.slug_for('nyc', D)}/replay_inputs.jsonl"
+    target = host / rel
+    tail = b'{"snapshot_id": "half-written'
+    with open(target, "ab") as handle:
+        handle.write(tail)
+    late = json.dumps({"snapshot_id": "APPENDED-AFTER-OPEN", "captured_at_utc": NOW.isoformat()}) + "\n"
+    real = mx._share_all_open
+
+    class AppendOnFirstRead:
+        def __init__(self, handle):
+            self.handle, self.done = handle, False
+
+        def read(self, size=-1):
+            if not self.done:  # a capture writer appends after the exporter fixed its bound
+                self.done = True
+                with open(target, "ab") as writer:
+                    writer.write(b"\n" + late.encode("utf-8"))
+            return self.handle.read(size)
+
+        def __getattr__(self, name):
+            return getattr(self.handle, name)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            self.handle.close()
+
+    monkeypatch.setattr(mx, "_share_all_open",
+                        lambda path: AppendOnFirstRead(real(path)) if Path(path) == target else real(path))
+    manifest, bundle = _export(host, tmp_path)
+    entry = next(e for e in manifest["files"] if e["path"] == rel)
+    assert entry["partial_tail_bytes"] == len(tail)
+    text = (bundle / rel).read_text(encoding="utf-8")
+    assert "APPENDED-AFTER-OPEN" not in text and "half-written" not in text
+    assert entry["rows"] == len(text.splitlines()) > 0
+
+
+def test_forbidden_key_inside_a_whole_metar_row_refuses_the_date(host, tmp_path):
+    folder = host / "snapshots" / allow.slug_for("nyc", D)
+    rows = [json.loads(x) for x in (folder / "replay_inputs.jsonl").read_text(encoding="utf-8").splitlines()]
+    rows[0]["sources"]["metar"]["data"]["rows"][0]["wu_history_high_c"] = float(SECRET)
+    _write_jsonl(folder / "replay_inputs.jsonl", rows)
+    with pytest.raises(mx.ExportRefused, match="forbidden or unlisted field") as caught:
+        _export(host, tmp_path)
+    assert "wu_history_high_c" in str(caught.value) and SECRET not in str(caught.value)
+    out = tmp_path / "out"
+    assert not (out / D.isoformat()).exists() and not list(out.glob(".*.partial"))
+
+
+def test_missing_data_root_is_refused(tmp_path):
+    with pytest.raises(mx.ExportRefused, match="snapshots"):
+        mx.export(day=D, data_root=tmp_path / "absent", out=tmp_path / "out", now=NOW)
+    (tmp_path / "bare").mkdir()
+    with pytest.raises(mx.ExportRefused, match="snapshots"):
+        mx.export(day=D, data_root=tmp_path / "bare", out=tmp_path / "out", now=NOW)
+    assert not (tmp_path / "out").exists()
+
+
+def _receiver():
+    try:
+        from weather.calibration import mg2_inputs as receiver
+    except Exception as exc:  # the receiver lands with the C7 head; refuses on the capture host
+        pytest.skip(f"receiver not importable here: {exc}")
+    return receiver
+
+
+RECEIVE_NOW = datetime(D.year, D.month, D.day, 12) + timedelta(days=1)  # D+1 noon, workstation local
+
+
+def _pull_and_receive(receiver, share, tmp_path):
+    inbox, ledger = tmp_path / "inbox", tmp_path / "input_receipts.jsonl"
+    pulled = receiver.pull(share_root=share, day=D, inbox=inbox, ledger=ledger)
+    assert pulled["status"] == "pulled", pulled
+    receipt = receiver.receive(inbox=inbox, day=D, ledger=ledger, now=RECEIVE_NOW)
+    return receipt, inbox, [json.loads(x) for x in ledger.read_text(encoding="utf-8").splitlines()]
+
+
+def test_round_trip_pull_and_receive_verifies_the_exported_bundle(host, tmp_path):
+    receiver = _receiver()
+    _manifest, bundle = _export(host, tmp_path)
+    receipt, inbox, ledger = _pull_and_receive(receiver, bundle.parent, tmp_path)
+    assert receipt["status"] == "verified", receipt
+    assert all(c["pass"] for c in receipt["checks"].values())
+    assert (inbox / D.isoformat() / "verified" / allow.MANIFEST).is_file()
+    assert [r["status"] for r in ledger] == ["verified"]
+
+
+def test_round_trip_missing_market_is_refused_by_the_receiver(host, tmp_path):
+    receiver = _receiver()
+    (host / "snapshots" / allow.slug_for("denver", D) / "replay_inputs.jsonl").unlink()
+    with pytest.raises(AssertionError):  # the exporter publishes the bundle but reports it incomplete
+        assert mx.main(["--date", D.isoformat(), "--data-root", str(host), "--out", str(tmp_path / "out")]) == 0
+    receipt, _inbox, _ledger = _pull_and_receive(receiver, tmp_path / "out", tmp_path)
+    assert receipt["status"] == "refused:markets", receipt
+    assert receipt["checks"]["markets"]["problems"] == ["market_missing:denver"]
+
+
+def test_round_trip_forbidden_field_is_quarantined_by_the_receiver(host, tmp_path):
+    """A bundle altered after export (a label key added, hashes rewritten) is quarantined, never verified."""
+    receiver = _receiver()
+    manifest, bundle = _export(host, tmp_path)
+    rel = f"snapshots/{allow.slug_for('nyc', D)}/replay_inputs.jsonl"
+    lines = (bundle / rel).read_text(encoding="utf-8").splitlines()
+    first = json.loads(lines[0])
+    first["winner"] = 1
+    data = ("\n".join([json.dumps(first, sort_keys=True, separators=(",", ":"))] + lines[1:]) + "\n").encode("utf-8")
+    (bundle / rel).write_bytes(data)
+    for entry in manifest["files"]:
+        if entry["path"] == rel:
+            entry.update(sha256=hashlib.sha256(data).hexdigest(), bytes=len(data))
+    body = json.dumps(manifest, indent=1, sort_keys=True).encode("utf-8")
+    (bundle / allow.MANIFEST).write_bytes(body)
+    (bundle / allow.MANIFEST_SHA).write_bytes((hashlib.sha256(body).hexdigest() + "\n").encode("ascii"))
+    receipt, inbox, _ledger = _pull_and_receive(receiver, bundle.parent, tmp_path)
+    assert receipt["status"] == "quarantined" and receipt["reason"] == "forbidden_field", receipt
+    assert any("forbidden:winner" in p for p in receipt["checks"]["schema"]["problems"])
+    assert (inbox / "_quarantine" / D.isoformat() / "attempt-1").is_dir()
+
+
+OPS = ROOT / "scripts" / "ops"
+POWERSHELL = shutil.which("powershell.exe") if os.name == "nt" else None
+
+
+def _ps_json(*args, cwd):
+    result = subprocess.run([POWERSHELL, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File",
+                             *map(str, args)], cwd=cwd, capture_output=True, text=True, timeout=120, check=False)
+    assert result.returncode == 0, result.stdout + result.stderr
+    return json.loads(result.stdout.strip().splitlines()[-1])
+
+
+def test_host_scripts_never_pass_the_coverage_flag():
+    for name in ("mg2_input_export.ps1", "register_mg2_input_export.ps1"):
+        code = "\n".join(line for line in (OPS / name).read_text(encoding="utf-8").splitlines()
+                         if not line.lstrip().startswith("#"))
+        assert "--coverage-counts" not in code and "coverage_counts" not in code, name
+
+
+@pytest.mark.spawns
+@pytest.mark.skipif(POWERSHELL is None, reason="requires Windows PowerShell")
+def test_wrapper_plan_and_registrar_whatif_touch_nothing(tmp_path):
+    root = tmp_path / "prod repo"
+    plan = _ps_json(OPS / "mg2_input_export.ps1", "-ProductionRepoRoot", root, "-Date", "2026-10-28", "-PlanOnly",
+                    cwd=tmp_path)
+    assert plan["child_arguments"] == ["-P", "-B", "-m", "weather.calibration.mg2_input_export", "--date",
+                                       "2026-10-28", "--data-root", str(root / "data"),
+                                       "--out", str(root / "data" / "exports" / "mg2-inputs")]
+    assert plan["already_exported"] is False
+    task = _ps_json(OPS / "register_mg2_input_export.ps1", "-ProductionRepoRoot", root,
+                    "-ExpectedSourceTip", "a" * 40, "-WhatIf", cwd=tmp_path)
+    assert task["registered"] is False and task["task_name"] == "WeatherMg2InputExport"
+    assert task["triggers_local_daily"] == ["04:15", "07:00"] and task["start_when_available"] is False
+    assert not any("coverage" in str(t) for t in task["arguments"])
+    assert not root.exists()

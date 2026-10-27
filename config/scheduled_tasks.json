@@ -209,6 +209,15 @@
       "registration_evidence": "repository registrar only (2026-10-08); not registered on the capture host until the owner-approved activation block in docs/operations/maker-shadow-runner.md runs"
     },
     {
+      "name": "WeatherMg2InputExport",
+      "owner": "docs/operations/OPERATIONS_DESIGN.md",
+      "state": "active",
+      "expected_disabled": false,
+      "expected_nonzero": [],
+      "registrar": "scripts/ops/register_mg2_input_export.ps1",
+      "registration_evidence": "repository registrar only (2026-10-27, MG-2 binding plan section 9.3); NOT registered on the capture host until the owner says yes"
+    },
+    {
       "name": "WeatherManualOrderJournal",
       "owner": "docs/operations/manual-order-journal.md",
       "state": "active",

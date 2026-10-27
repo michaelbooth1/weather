@@ -11,9 +11,24 @@ it never refuses on the capture host and no capture loop imports it (roll-free).
   ``<data-root>\snapshots\<slug>\`` for the 11 fixed markets and ``<data-root>\forecast_payload_cas\sha256\``;
   every path is checked against those patterns, and every component against links and reparse points, before
   it is opened. Anything else fails closed.
-* **Shared-read, streamed opens.** On Windows every read handle allows read, write and delete sharing, so a
-  capture writer can append to, rename or delete a file the exporter is reading. Every file is streamed line
-  by line (blobs in chunks) straight into the staging bundle, so memory stays flat whatever the file sizes.
+* **Shared-read, bounded opens.** On Windows every read handle is ``CreateFileW`` with read, write and delete
+  sharing, so a capture writer can append to, rename or delete a file the exporter is reading. Every file is read
+  once, front to back, as the BOUNDED byte range ``[0, size at open)`` (``_BoundedReader``): bytes a writer appends
+  after the open are never read, a file is never followed or re-read (no tail), and no whole-file helper
+  (``ReadLines``, ``read()``) is used. Text files yield complete lines only; an unterminated final line (a write
+  in progress at the open) is dropped and its byte count recorded per file as ``partial_tail_bytes``. Lines
+  stream straight into the staging bundle (blobs in 1 MiB chunks), so memory stays flat.
+* **Read mode per input path** (D = target date; every one bounded to its size at open):
+
+  - ``snapshots/<D-1|D>/replay_inputs.jsonl``: append-only tape; bounded range, complete lines; rows captured
+    after the export cut are dropped.
+  - ``snapshots/<D>/snapshots_long.csv``, ``snapshots/<D>/features_long.csv``: rewritable; opened only when
+    quiet for at least 30 minutes (a closed day), then the bounded range.
+  - ``snapshots/<D-1|D|D+1>/forecast_payloads.jsonl``: append-only (D+1 is the live day); bounded range, NBM
+    rows captured by the cut only.
+  - ``snapshots/<D-1|D|D+1>/forecast_payloads_long.csv``: fallback when the JSONL is absent; quiet guard, then
+    the bounded range.
+  - ``forecast_payload_cas/sha256/<hh>/<sha256>.blob``: create-once and immutable; the whole file, re-hashed.
 * **Quiet guard.** ``snapshots_long.csv``, ``features_long.csv`` and ``forecast_payloads_long.csv`` can be
   rewritten in place by a capture writer (``SnapshotStore.append_csv`` widens a grown header through a temp
   file and ``os.replace``; ``snapshot_store_backfill`` does the same), and Windows refuses that replace while
@@ -25,18 +40,24 @@ it never refuses on the capture host and no capture loop imports it (roll-free).
   exemption, option 2), and only after D's export cut has passed.
 * **Projection, not copy.** Every record goes through the allow-list's projections; only rows captured at or
   before the export cut travel. NBM blobs are copied byte for byte after re-hashing.
-* **Counts only.** ``market_price_coverage`` (B-1 section 3: per market, D's local 07-16 snapshots and how many
+* **Self-check.** Every projected record is checked with the allow-list's own ``*_problems`` functions (the
+  receiver's section 9.2 checks). METAR rows travel whole, so a forbidden or unlisted key inside one refuses the
+  date (exit 2; key names only, never values) and nothing is published.
+* **Coverage counts: OPT-IN, OFF by default** (``--coverage-counts``; master 2026-10-27, option c). Each use
+  needs master's ruling first; the scheduled task never sets it, so a default run opens only the paths listed
+  above (binding plan section 9.1). When set, and only then: ``market_price_coverage`` (B-1 section 3: per market, D's local 07-16 snapshots and how many
   carry a capture-time price on every band) and ``book_coverage`` (PT-1: rows of ``order_books_summary.csv``
   (or ``.csv.gz``) and ``market_ws_events.csv`` (or ``.csv.gz``) by local hour of D, and
   ``execution_tape\trades-*.jsonl`` line counts) are integers in the manifest. No price, book or trade value is
   written.
 
-Output: ``<out>\<D>\`` (the bundle; ``manifest.json.sha256`` written last, then the folder is published by an
+Output, all under the declared output directory ``<out>`` (default ``<repo>\data\exports\mg2-inputs``) and
+nowhere else: ``<out>\<D>\`` (the bundle; ``manifest.json.sha256`` written last, then the folder is published by an
 atomic rename from ``<out>\.<D>.partial``, which a failed run removes) and ``<out>\<D>.SHA256SUMS`` beside it
 (outside the bundle, which must hold only allow-listed paths).
 
     python -m weather.calibration.mg2_input_export --date 2026-09-29 [--date ...] [--data-root <repo>\data]
-        [--out <repo>\data\exports\mg2-inputs]
+        [--out <repo>\data\exports\mg2-inputs] [--coverage-counts  (OFF by default; master's ruling first)]
 """
 from __future__ import annotations
 
@@ -78,6 +99,12 @@ SOURCE_PATTERNS = (
     re.compile(r"^snapshots/(?P<slug>[a-z0-9-]+)/execution_tape/trades-\d{5}\.jsonl$"),
     re.compile(r"^forecast_payload_cas/sha256/[0-9a-f]{2}/[0-9a-f]{64}\.blob$"),
 )
+# The section 9.1 inputs: the only paths a default (scheduled) run may open.
+INPUT_PATTERNS = (
+    re.compile(r"^snapshots/(?P<slug>[a-z0-9-]+)/(?P<name>replay_inputs\.jsonl|snapshots_long\.csv|"
+               r"features_long\.csv|forecast_payloads\.jsonl|forecast_payloads_long\.csv)$"),
+    SOURCE_PATTERNS[2],
+)
 # Files a capture writer may replace in place (temp file + os.replace): opened only once quiet.
 REPLACEABLE = frozenset({"snapshots_long.csv", "features_long.csv", "forecast_payloads_long.csv"})
 PRICE_COLUMN = "market_yes"  # read only to count presence; the value is never kept or written
@@ -115,20 +142,57 @@ def _share_all_open(path):
     return os.fdopen(fd, "rb")
 
 
+class _BoundedReader:
+    """The byte range ``[0, size at open)`` of a shared-read handle: bounded reads and complete lines only."""
+
+    def __init__(self, raw, limit, record):
+        self.raw, self.remaining, self.record = raw, limit, record
+
+    def read(self, size=-1):
+        if size is None or size < 0:
+            raise ValueError("unbounded read refused")
+        size = min(size, self.remaining)
+        if size <= 0:
+            return b""
+        data = self.raw.read(size)
+        self.remaining -= len(data)
+        return data
+
+    def lines(self):
+        """Complete ``\\n``-terminated byte lines; an unterminated tail is dropped and its size recorded."""
+        pending = b""
+        while True:
+            chunk = self.read(CHUNK)
+            if not chunk:
+                break
+            parts = (pending + chunk).split(b"\n")
+            pending = parts.pop()
+            for part in parts:
+                yield part + b"\n"
+        self.record["partial_tail_bytes"] = len(pending)
+
+    def __iter__(self):
+        return self.lines()
+
+
 class Source:
     """The host data root; every open goes through ``binary``/``text``, which admit only ``SOURCE_PATTERNS``."""
 
-    def __init__(self, root, clock=time.time):
+    def __init__(self, root, clock=time.time, coverage_counts=False):
         root = Path(root)
         if not root.is_absolute() or not root.is_dir() or not (root / "snapshots").is_dir():
             raise ExportRefused(f"data root {root} is not an absolute directory with snapshots/")
         self.root = root
         self.clock = clock
+        self.coverage_counts = bool(coverage_counts)
         self.opened = {}  # rel -> {"source_bytes", "source_mtime_utc"} at open time
 
     def known(self, rel):
-        """A listed file name, in one of the 11 markets' event folders or the shared NBM store."""
-        for pattern in SOURCE_PATTERNS:
+        """A listed file name, in one of the 11 markets' event folders or the shared NBM store.
+
+        Without ``coverage_counts`` only the section 9.1 inputs (``INPUT_PATTERNS``) are known.
+        """
+        for pattern in (SOURCE_PATTERNS if self.coverage_counts else INPUT_PATTERNS):
             match = pattern.match(rel)
             if match:
                 slug = match.groupdict().get("slug")
@@ -153,7 +217,7 @@ class Source:
 
     @contextlib.contextmanager
     def binary(self, rel):
-        """A shared-read binary handle on a known file; yields None when absent. Applies the quiet guard."""
+        """A bounded shared-read reader on a known file; yields None when absent. Applies the quiet guard."""
         full = self.path(rel)
         if full is None:
             yield None
@@ -164,27 +228,36 @@ class Source:
             if age < MIN_QUIET_SECONDS:
                 raise FileTooFresh(f"{rel} changed {max(age, 0):.0f} s ago (< {MIN_QUIET_SECONDS} s): a capture "
                                    f"writer may rewrite it in place; re-run once it is quiet")
-        self.opened[rel] = {"source_bytes": info.st_size,
-                            "source_mtime_utc": datetime.fromtimestamp(info.st_mtime, timezone.utc).isoformat()}
         with _share_all_open(full) as raw:
-            yield raw
+            size = os.fstat(raw.fileno()).st_size  # the bound: bytes appended after this open are never read
+            record = {"source_bytes": size, "read_mode": "bounded_range_at_open",
+                      "source_mtime_utc": datetime.fromtimestamp(info.st_mtime, timezone.utc).isoformat()}
+            self.opened[rel] = record
+            yield _BoundedReader(raw, size, record)
 
     @contextlib.contextmanager
     def text(self, rel):
-        """Text lines of a known file (``.gz`` decompressed), streamed; yields None when absent."""
-        with self.binary(rel) as raw:
-            if raw is None:
+        """Complete text lines of a known file, streamed from its bounded range; yields None when absent.
+
+        ``.gz`` (opt-in coverage only) is decompressed from the bounded compressed range; a member still being
+        written ends the stream.
+        """
+        with self.binary(rel) as reader:
+            if reader is None:
                 yield None
                 return
-            stream = gzip.GzipFile(fileobj=raw, mode="rb") if rel.endswith(".gz") else raw
-            with io.TextIOWrapper(stream, encoding="utf-8", newline="") as handle:
-                yield handle
+            if rel.endswith(".gz"):
+                yield _gzip_lines(reader)
+            else:
+                yield (line.decode("utf-8") for line in reader.lines())
 
     def is_cold_archived(self, slug):
         """True when the folder carries the cold-archive marker (existence check only; nothing opened)."""
         return os.path.lexists(self.root / "snapshots" / slug / ".cold_archive")
 
     def trade_files(self, slug):
+        if not self.coverage_counts:
+            raise ExportRefused("execution-tape trade files are coverage reads: --coverage-counts is off")
         if allow.parse_slug(slug) is None:
             raise ExportRefused(f"unknown event folder refused: {slug}")
         folder = self.root / "snapshots" / slug / "execution_tape"
@@ -198,6 +271,15 @@ class Source:
             return []
         names = sorted(n for n in os.listdir(folder) if re.fullmatch(r"trades-\d{5}\.jsonl", n))
         return [f"snapshots/{slug}/execution_tape/{n}" for n in names]
+
+
+def _gzip_lines(reader):
+    with gzip.GzipFile(fileobj=reader, mode="rb") as stream:
+        try:
+            for line in io.TextIOWrapper(stream, encoding="utf-8", newline=""):
+                yield line
+        except EOFError:  # the bounded range ended inside a member still being written
+            return
 
 
 def parse_time(value):
@@ -306,10 +388,17 @@ def _priced(value):
         return False
 
 
+def _self_check(problems, rel):
+    """Refuse the date when a projected record still carries a forbidden or unlisted key (names only)."""
+    if problems:
+        raise ExportRefused(f"forbidden or unlisted field in projected {rel}: {sorted(set(problems))[:10]}")
+
+
 def _project_market(src, bundle, market, day, cut, counts):
     """Stream the D, D-1 and D+1 files of one market into the bundle.
 
-    Returns ``(present, reason, nbm_refs, price_coverage)``.
+    Returns ``(present, reason, nbm_refs, price_coverage)``; ``price_coverage`` is None unless
+    ``src.coverage_counts``.
     """
     slug = allow.slug_for(market, day)
     reason, refs = None, {}
@@ -322,7 +411,9 @@ def _project_market(src, bundle, market, day, cut, counts):
             with bundle.file(rel, rel, src) as out:
                 for record in _jsonl_records(handle):
                     if _in_cut(record, cut):
-                        out.write(_jsonl_line(allow.project_replay_record(record)))
+                        kept = allow.project_replay_record(record)
+                        _self_check(allow.replay_record_problems(kept), rel)
+                        out.write(_jsonl_line(kept))
                     else:
                         counts["dropped_after_cut"] += 1
                 if out.rows == 0:
@@ -334,6 +425,7 @@ def _project_market(src, bundle, market, day, cut, counts):
     for name in ("snapshots_long.csv", "features_long.csv"):
         rel = f"snapshots/{slug}/{name}"
         fields = allow.CSV_FIELDS[name]
+        _self_check([f"forbidden:{k}" for k in fields if allow.forbidden(k)], rel)
         with src.text(rel) as handle:
             if handle is None:
                 reason = reason or f"{name}_missing"
@@ -347,13 +439,14 @@ def _project_market(src, bundle, market, day, cut, counts):
                         counts["dropped_after_cut"] += 1
                         continue
                     out.write(line([row.get(k, "") or "" for k in fields]))
-                    if name != "snapshots_long.csv":
+                    if name != "snapshots_long.csv" or not src.coverage_counts:
                         continue
                     local = _local(market, captured)
                     if local.date() == day and COVERAGE_HOURS[0] <= local.hour <= COVERAGE_HOURS[1]:
                         sid = row.get("snapshot_id")
                         snaps[sid] = snaps.get(sid, True) and _priced(row.get(PRICE_COLUMN))
-    price = {"snapshots_07_16": len(snaps), "priced_07_16": sum(snaps.values()), "source_present": coverage_present}
+    price = ({"snapshots_07_16": len(snaps), "priced_07_16": sum(snaps.values()), "source_present": coverage_present}
+             if src.coverage_counts else None)
     # F1b: D-1's last snapshot (captured by the cut), METAR rows only
     prev = allow.slug_for(market, day - timedelta(days=1))
     rel = f"snapshots/{prev}/replay_inputs.jsonl"
@@ -364,6 +457,7 @@ def _project_market(src, bundle, market, day, cut, counts):
             if captured is not None and captured <= cut and (last_at is None or captured >= last_at):
                 last, last_at = allow.project_prev_day_record(record), captured
     if last is not None:
+        _self_check(allow.prev_day_record_problems(last), rel)
         with bundle.file(f"prev_day/{prev}/metar_rows.jsonl", rel, src) as out:
             out.write(_jsonl_line(last))
     # F4: NBM manifest rows of the D-1, D and D+1 folders (JSONL, else the long CSV)
@@ -381,6 +475,7 @@ def _project_market(src, bundle, market, day, cut, counts):
                         if row.get("source") != allow.NBM_SOURCE or not _in_cut(row, cut):
                             continue
                         kept = allow.project_row(row, allow.NBM_FIELDS)
+                        _self_check(allow.nbm_row_problems(kept), rel)
                         out.write(_jsonl_line(kept))
                         digest = str(kept.get("payload_hash") or "")
                         if kept.get("payload_storage_scope") != allow.NBM_SCOPE:
@@ -480,10 +575,15 @@ def _head(repo):
     return None
 
 
-def export(*, day, data_root, out, now=None, repo=None, clock=time.time):
-    """Export one target date's bundle. Returns the manifest."""
+def export(*, day, data_root, out, now=None, repo=None, clock=time.time, coverage_counts=False):
+    """Export one target date's bundle. Returns the manifest.
+
+    ``coverage_counts`` (OFF by default; each use needs master's ruling first) additionally opens the order-book,
+    websocket, execution-tape files and the ``market_yes`` column to write integer counts. Without it only the
+    section 9.1 inputs are opened.
+    """
     check_date(day, now)
-    src = Source(data_root, clock=clock)
+    src = Source(data_root, clock=clock, coverage_counts=coverage_counts)
     out = Path(out).resolve()
     data_root = Path(data_root).resolve()
     for forbidden_root in (data_root / "snapshots", data_root / "forecast_payload_cas"):
@@ -506,8 +606,9 @@ def export(*, day, data_root, out, now=None, repo=None, clock=time.time):
             present, reason, market_refs, price = _project_market(src, bundle, market, day, cut, counts)
             markets[market] = {"expected": True, "present": present, "reason": reason}
             refs.update(market_refs)
-            price_cov[market] = price
-            books[market] = book_coverage(src, market, day)
+            if src.coverage_counts:
+                price_cov[market] = price
+                books[market] = book_coverage(src, market, day)
         blobs = {"referenced": len(refs), "copied": 0, "missing": 0, "hash_mismatch": 0}
         for digest in sorted(refs):
             _copy_blob(src, bundle, digest, blobs)
@@ -520,12 +621,14 @@ def export(*, day, data_root, out, now=None, repo=None, clock=time.time):
             "exporter_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
             "host_repo_head": _head(repo), "files": entries, "markets": markets, "nbm_blobs": blobs,
             "dropped_after_cut": counts["dropped_after_cut"], "nbm_rows_bad_ref": counts["nbm_bad_ref"],
-            "min_quiet_seconds": MIN_QUIET_SECONDS,
-            "market_price_coverage": {"hours_local": list(COVERAGE_HOURS), "counts_only": True,
-                                      "markets": price_cov},
-            "book_coverage": {"counts_only": True, "markets": books},
+            "min_quiet_seconds": MIN_QUIET_SECONDS, "read_mode": "bounded_range_at_open",
+            "coverage_counts": src.coverage_counts,
             "export_finished_utc": datetime.now(timezone.utc).isoformat(),
         }
+        if src.coverage_counts:
+            manifest["market_price_coverage"] = {"hours_local": list(COVERAGE_HOURS), "counts_only": True,
+                                                 "markets": price_cov}
+            manifest["book_coverage"] = {"counts_only": True, "markets": books}
         body = json.dumps(manifest, indent=1, sort_keys=True).encode("utf-8")
         (staging / allow.MANIFEST).write_bytes(body)
         # The ready marker, last. Bytes, not text mode: LF on every host (Windows text mode writes CRLF).
@@ -549,6 +652,11 @@ def build_parser():
     repo = Path(__file__).resolve().parents[3]
     parser.add_argument("--data-root", default=str(repo / "data"))
     parser.add_argument("--out", default=str(repo / "data" / "exports" / "mg2-inputs"))
+    parser.add_argument("--coverage-counts", action="store_true",
+                        help="OFF by default. Also open order-book, websocket and execution-tape files and the "
+                             "market_yes column to write integer coverage counts (B-1/PT-1). These are outside the "
+                             "binding plan section 9.1 inputs: each use needs master's ruling first, and the "
+                             "scheduled WeatherMg2InputExport task never sets it.")
     return parser
 
 
@@ -558,7 +666,8 @@ def main(argv=None):
     status = 0
     for day in days:
         try:
-            manifest = export(day=day, data_root=args.data_root, out=args.out)
+            manifest = export(day=day, data_root=args.data_root, out=args.out,
+                              coverage_counts=args.coverage_counts)
         except FileTooFresh as exc:
             print(json.dumps({"target_date": day.isoformat(), "status": "too_fresh", "reason": str(exc)}))
             status = max(status, 3)
