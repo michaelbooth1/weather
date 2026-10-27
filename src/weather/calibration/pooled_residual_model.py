@@ -8256,23 +8256,85 @@ def _rv_c1_by_market(rows, pairs, pooled):
             for m in sorted({r["market"] for r in rows})}
 
 
+# ---- RV-C1a (clarification_rv_c1a.md): control 2 on the Aug-Sep reported set, plus a determinism control
+
+RV_C1A_SHA256 = "739c6a462e77f1a25d3ad47cceafa77a1b7200046f8761cbad5d27aa09343f32"  # rv/clarification_rv_c1a.md
+RV_C1A_MOS_OCTDEC_SHA256 = "3c6cca736b72503efcdcdf00769143340b779091464a2b8be384f00c386cac97"  # rv/mos_octdec
+RV_C1A_AUG_NONFINITE = ((13, 2024, "miami", "2024-08-31"),)
+RV_C1A_C1_ROWS_SHA256 = {  # RV-C1's VOID run (ledger row 53); compared by sha only, never read
+    "rows_a_octdec.jsonl": "8f629f08326462f81190ff84d959d70b613919f39e0227ff82ed44771b9ec398",
+    "rows_a_augsep.jsonl": "5265da71a5cf8966936c44f1caf6ab29043cdf400f55310921b7dfe57d786570",
+    "rows_b.jsonl": "98959cf2bd48c42441152c4de1c7f7c65b7c35b7c0a1d9f22ad414ecfcb69372",
+}
+RV_C1A_THREADS = {"OMP_NUM_THREADS": "10", "MKL_NUM_THREADS": "10", "OPENBLAS_NUM_THREADS": "10"}
+
+
+def rv_c1a_threads(environ=None):
+    """The thread counts RV-C1 ran under; any other count refuses (the row files must be byte-reproducible)."""
+    env = os.environ if environ is None else environ
+    got = {name: env.get(name) for name in RV_C1A_THREADS}
+    if got != RV_C1A_THREADS:
+        raise PooledModelError(f"RV-C1a needs thread counts {RV_C1A_THREADS}, got {got}")
+    return got
+
+
+def rv_c1a_nonfinite_keys(frame, hours=RV_HOURS):
+    """Keys (row_key layout) of the rows the served path drops: a non-finite high_so_far or current_temp."""
+    import numpy as np
+
+    part = frame[frame["hour"].isin(hours)]
+    bad = ~(np.isfinite(part["F"].to_numpy(float)) & np.isfinite(part["x_current_temp"].to_numpy(float)))
+    return sorted((int(r["hour"]), int(r["year"]), str(r["market"]), str(r["target_date"])[:10])
+                  for _, r in part[bad].iterrows())
+
+
+def rv_c1a_aug_keys(rows, reference, dropped, declared=RV_C1A_AUG_NONFINITE):
+    """RV-C1a control 2 (Aug-Sep reported set): keys equal gate 1's minus exactly the declared non-finite rows."""
+    declared, dropped = sorted(declared), sorted(dropped)
+    got, ref = {row_key(r) for r in rows}, {row_key(r) for r in reference}
+    expected = ref - set(declared)
+    return {"rows": len(rows), "reference_rows": len(ref), "declared_nonfinite": declared, "dropped": dropped,
+            "missing": len(expected - got), "extra": len(got - expected),
+            "pass": bool(dropped == declared and set(declared) <= ref and got == expected and len(got) == len(rows))}
+
+
+def rv_c1a_determinism(out, expected=RV_C1A_C1_ROWS_SHA256):
+    """RV-C1a determinism control: each row file's sha equals RV-C1's. Hashes only; no score is read."""
+    got = {name: _rr_sha(Path(out) / name) for name in expected}
+    return {"expected": dict(expected), "got": got, "pass": got == dict(expected)}
+
+
 def rv_c1(*, records_root, nbm_train_corpus, hrrr_corpus, mos_augsep, mos_octdec, fwd_state, c10_rows_path,
-          c10_fwd_rows, smh_rows, rv_rows, out_dir, markets=R0_MARKETS):
-    """RV-C1 (clarification_rv_c1.md): reads (a) and (b) in one run. History only; no dev row is read."""
+          c10_fwd_rows, smh_rows, rv_rows, out_dir, markets=R0_MARKETS, variant="c1"):
+    """RV-C1 (clarification_rv_c1.md): reads (a) and (b) in one run. History only; no dev row is read.
+
+    ``variant="c1a"`` is RV-C1a (clarification_rv_c1a.md): the pinned thread counts, the bound Oct-Dec manifest,
+    control 2 on the Aug-Sep set against gate 1's keys minus the declared non-finite row, and control 7 (the row
+    files' shas equal RV-C1's)."""
     from weather.calibration import ols_floor_ladder as l9
     from weather.market.market_registry import spec_for_id
 
+    if variant not in ("c1", "c1a"):
+        raise PooledModelError(f"unknown RV-C1 variant {variant!r}")
+    c1a = variant == "c1a"
+    threads = rv_c1a_threads() if c1a else None
     out = require_output_outside_repo(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     if any(out.iterdir()):
         raise PooledModelError(f"refusing to write into a non-empty {out}")
     corpus = Path(hrrr_corpus)
-    audit = {"clarification_sha256": RV_C1_SHA256, "rule_sha256": RV_RULE_SHA256, "checks": {}, "gates": {},
+    octdec_manifest = Path(mos_octdec) / "manifest.json"
+    audit = {"clarification_sha256": RV_C1A_SHA256 if c1a else RV_C1_SHA256, "rule_sha256": RV_RULE_SHA256,
+             "clarifications": [RV_C1_SHA256, RV_C1A_SHA256] if c1a else [RV_C1_SHA256], "variant": variant,
+             "checks": {}, "gates": {},
              "inputs": {"nbm_train_corpus": _sm_h_bound(nbm_train_corpus, SM_H_NBM_SHA256, "NBM corpus"),
                         "fwd_state": _sm_h_bound(fwd_state, C10_FWD_STATE_SHA256, "served P3d_N state"),
                         "mos_augsep_manifest": _sm_h_bound(Path(mos_augsep) / "manifest.json",
                                                            RV_C1_MOS_AUGSEP_SHA256, "Aug-Sep MOS manifest"),
-                        "mos_octdec_manifest": _rr_sha(Path(mos_octdec) / "manifest.json"),
+                        "mos_octdec_manifest": (_sm_h_bound(octdec_manifest, RV_C1A_MOS_OCTDEC_SHA256,
+                                                            "Oct-Dec MOS manifest")
+                                                if c1a else _rr_sha(octdec_manifest)),
+                        "threads": threads,
                         "c10_rows": _sm_h_bound(c10_rows_path, RV_C1_OCT_KEYS_SHA256, "C10 rows"),
                         "c10_fwd_rows": _sm_h_bound(c10_fwd_rows, RV_C1_C10_FWD_ROWS_SHA256, "C10 fwd rows"),
                         "smh_rows": _sm_h_bound(smh_rows, C10_SMH_ROWS_SHA256, "SM-H rows"),
@@ -8284,8 +8346,8 @@ def rv_c1(*, records_root, nbm_train_corpus, hrrr_corpus, mos_augsep, mos_octdec
     def finish(stopped=None):
         if stopped:
             audit["stopped_at"] = stopped
-        (out / "rvc1_audit.json").write_text(json.dumps(audit, indent=1, sort_keys=True, default=str),
-                                             encoding="utf-8")
+        name = "rvc1a_audit.json" if c1a else "rvc1_audit.json"
+        (out / name).write_text(json.dumps(audit, indent=1, sort_keys=True, default=str), encoding="utf-8")
         return audit
 
     years = range(2021, 2026)
@@ -8341,10 +8403,18 @@ def rv_c1(*, records_root, nbm_train_corpus, hrrr_corpus, mos_augsep, mos_octdec
     _write_jsonl(out / "rows_a_augsep.jsonl", rows_a["augsep"])
     _write_jsonl(out / "rows_b.jsonl", rows_b)
     audit["outputs"] = {n: _rr_sha(out / n) for n in ("rows_a_octdec.jsonl", "rows_a_augsep.jsonl", "rows_b.jsonl")}
+    if c1a:
+        aug_keys = rv_c1a_aug_keys(rows_a["augsep"], _read_jsonl(rv_rows), rv_c1a_nonfinite_keys(aug_frame))
+        aug_keys["excluded_count"] = audit["rows_excluded_a"]["augsep"]
+        aug_keys["pass"] = bool(aug_keys["pass"] and aug_keys["excluded_count"] == len(aug_keys["dropped"]))
+    else:
+        aug_keys = rv_c1_keys(rows_a["augsep"], _read_jsonl(rv_rows))
     audit["checks"]["2_keys"] = {"a_octdec": rv_c1_keys(rows_a["octdec"], _read_jsonl(c10_rows_path)),
-                                 "a_augsep": rv_c1_keys(rows_a["augsep"], _read_jsonl(rv_rows)),
+                                 "a_augsep": aug_keys,
                                  "b": rv_c1_keys(rows_b, _read_jsonl(smh_rows))}
     audit["checks"]["2_keys"]["pass"] = all(v["pass"] for v in audit["checks"]["2_keys"].values())
+    if c1a:
+        audit["checks"]["7_determinism"] = rv_c1a_determinism(out)
     audit["checks"]["3_tier2"] = parity["tier2"]
     audit["checks"]["4_v_off_a"] = parity["v_off"]
     audit["checks"]["5_c10_fwd_reproduction"] = rv_c1_reproduce(rows_a["octdec"], _read_jsonl(c10_fwd_rows),
@@ -8690,6 +8760,11 @@ def _parse(argv=None):
     for opt in ("--records", "--nbm-train-corpus", "--hrrr", "--mos-augsep", "--mos-octdec", "--fwd-state",
                 "--c10-rows", "--c10-fwd-rows", "--smh-rows", "--rv-rows", "--out"):
         vc.add_argument(opt, required=True)
+    va = sub.add_parser("rv-c1a", help="R-V RV-C1a: RV-C1 with the Aug-Sep key control and a determinism control "
+                                       "(heavy)")
+    for opt in ("--records", "--nbm-train-corpus", "--hrrr", "--mos-augsep", "--mos-octdec", "--fwd-state",
+                "--c10-rows", "--c10-fwd-rows", "--smh-rows", "--rv-rows", "--out"):
+        va.add_argument(opt, required=True)
     vl = sub.add_parser("rung-v-loyo", help="R-V gates 1a, 1b and 1 (nested LOYO 2021-25 h13-16) (heavy)")
     vl.add_argument("--records", required=True)
     vl.add_argument("--nbm-train-corpus", required=True)
@@ -9033,11 +9108,11 @@ def main(argv=None):
                             windows=rv_c1_fetch_windows if args.octdec else None)
         print(json.dumps({"files": len(manifest["files"])}, indent=1))
         return 0
-    if args.command == "rv-c1":
+    if args.command in ("rv-c1", "rv-c1a"):
         audit = rv_c1(records_root=args.records, nbm_train_corpus=args.nbm_train_corpus, hrrr_corpus=args.hrrr,
                       mos_augsep=args.mos_augsep, mos_octdec=args.mos_octdec, fwd_state=args.fwd_state,
                       c10_rows_path=args.c10_rows, c10_fwd_rows=args.c10_fwd_rows, smh_rows=args.smh_rows,
-                      rv_rows=args.rv_rows, out_dir=args.out)
+                      rv_rows=args.rv_rows, out_dir=args.out, variant=args.command[3:])
         print(json.dumps({"stopped_at": audit.get("stopped_at"),
                           "checks": {k: v.get("pass") for k, v in audit["checks"].items()},
                           "decision": audit.get("decision")}, indent=1, default=str))
