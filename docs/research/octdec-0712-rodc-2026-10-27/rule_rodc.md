@@ -326,3 +326,50 @@ with no-cycle rows kept with NaN HRRR extras, and the dropped version as the sen
 - **Reads:** the control reads the sealed 2024-25 backfill under grant (b). A dated access line records this
   master-directed control read.
 - **No fit before the seal:** gate 1 still runs once, only after the 2021-23 backfill's SHA256SUMS seal.
+
+## Clarification 2 (master ruling 2026-10-27): shared bucket support; code and env pinned
+
+Appended before gate 1 and before the 2021-23 backfill seal. No scope change: the arms, the statistic, the
+gates and the pass rule are unchanged.
+
+### C2.1 Code and final run environment (pinned)
+
+- Code commit on the env branch: `2092745ab157b826520958c3374cb27cd405ea2b`. It adds
+  `src/weather/calibration/rodc_octdec.py` and the `rodc-gate1` subcommand of `cool_season_audit`.
+- Support commit on top of it: `6286465b2fdc20657ee8a7d5f176f82bda0bdb76`. This is the **final env tip** that gate 1
+  runs at. `rodc_octdec.py` at that tip has sha256
+  `9575f1b8fb36dd32b578edd757bd965478003ac3ae2a8bd2fb3e61c7e52b9378`, and it is the only file the commit changes.
+
+### C2.2 Shared support (both arms, every fold)
+
+- **Rule:** in each LOYO fold, COMP (the frozen blend_l6_H) and G1 score on the same bucket support. A G1 gain
+  that comes only from a wider support is not admissible.
+- **Source:** no outcome-free per-market, per-date support exists for 2021-25 Oct-Dec.
+  - The registry (`config/locations.json`, `config/venue_rule_stations.json`) carries no bucket spaces.
+  - Venue bands exist only for live events, and there were none on these historical dates.
+  - The records' `bucket_space` is the observed label set over all years (`model_climatology.py:189` on
+    origin/master), so it includes the held-out year.
+- **Construction:** the support is therefore built per fold from the training years only.
+  `fold_support(frame, year, markets)` (`rodc_octdec.py:61-76` at `6286465b2`) gives, per market, every integer from
+  the minimum to the maximum of the settled label `y` over the Oct-Dec G1 training rows (hours 07-12) of the four
+  years other than the held-out `year`. It refuses if the held-out year is present.
+- **Both arms get it:**
+  - G1's fold state carries it (`fold_state`, :87-108).
+  - COMP is `comp_state(frozen, support)` (:79-84): the frozen P3d_H state with only `buckets` replaced. The frozen
+    `train_y`, mean, scale, z, centres and constants are unchanged.
+  - `gate1` builds both per fold (:252-254) and refuses if the two lists differ (:255-256).
+  - `score_rows` scores COMP with the fold's state (:163).
+- **Where support enters:** only P3d_H's 2% climatology mix (`smoothed_dist` over the support) and its support
+  points. The kernel range is independent of the support, and the L6 partner's support is its own, so it is
+  unchanged.
+- **Consequence, stated:** COMP is the frozen blend_l6_H except for its support. The frozen state's own support is
+  the Aug-Sep 09-07 grid, which is item 341. The output records each fold's support per market as
+  `[min, max, count]` (`fold_support`).
+- This replaces 2092745ab's union of the five Oct-Dec centres' `bucket_space`, which used held-out-year outcomes.
+
+### C2.3 Positive control: unaffected
+
+The C1.2 control runs `cool_season_audit part1c`, whose static import closure (171 modules, scan
+`closure_control.json` `cefb5472…`) does not include `rodc_octdec`. `cool_season_audit` imports `rodc_octdec`
+lazily, only inside the `rodc-gate1` dispatch (`cool_season_audit.py:1157`). The support commit changes no other
+file, so the control's code path and its exact result (`8d87027a…`) stand without a rerun.
