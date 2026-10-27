@@ -6721,7 +6721,7 @@ def mg3_refit_weights_rf1(*, layout, emit_dir, coefficients, nowcasts, season_no
 
 # ------------------------------------------------- MG-3 freeze prep (1b): RN-1 point rule bound into the release
 
-MG3_BINDING_SCHEMA = "mg3_release_binding/1"
+MG3_BINDING_SCHEMA = "mg3_release_binding/2"  # /2: 0712-1 adds l6_partner {state, part, nowcasts}; /1 legacy
 MG3_PENDING = "PENDING"
 MG3_RN1 = {  # RN-1 (clarification 1 of R-R): the 07-12 HRRR point rule, as fitted and scored
     "rule_sha256": "e4869491a8480f302c0bb4c33b0d55d4110ef98551f0db26e59d3441e204004b",
@@ -7341,12 +7341,114 @@ def sm_h_freeze_state(*, records_root, nbm_train_corpus, hrrr_corpus, smh_audit,
     return finish()
 
 
+# ------------------------------------------------- MG3-DC-1 clarification 0712-1: the bound 07-12 weights and partner
+
+MG3_DC1_0712_1_SHA256 = "f9e25a90e56a81326552867fee61ad37b8c159fe56abf6972225be25d459651f"  # clarification_mg3_dc1_0712.md
+MG3_RF1_WEIGHTS_SHA256 = "891be5640cef9fd3924b98f89f1068108acdf404fbd52a4721cb5d8d9ae8ded5"  # RF-1 blend_l6_H weights
+MG3_L6_PARTNER_SHA256 = "800072c79af65394cc33134cbaae34af65c4428feb3934e35f8cd6cd153ee2db"  # SM-L6 final state
+MG3_WEIGHT_HOURS = tuple(f"h{h:02d}" for h in RR_HOURS)
+
+
+def mg3_load_weights(path, expected_sha256=MG3_RF1_WEIGHTS_SHA256):
+    """Verified load of the RF-1 weight table: bytes at the bound sha, then note, rule and the six finite weights.
+
+    -> (table, sha256 of the verified bytes)."""
+    blob = Path(path).read_bytes()
+    digest = hashlib.sha256(blob).hexdigest()
+    if digest != expected_sha256:
+        raise PooledModelError(f"MG-3 weights {path}: sha256 {digest} != bound {expected_sha256}")
+    table = json.loads(blob.decode("utf-8"))
+    weights = table.get("weights") or {}
+    problems = [name for name, ok in (
+        ("note_sha256", table.get("note_sha256") == MG3_RF1_NOTE_SHA256),
+        ("rule_sha256", table.get("rule_sha256") == MG3_WEIGHTS_RULE_SHA256),
+        ("hours", sorted(weights) == list(MG3_WEIGHT_HOURS)),
+        ("finite", all(isinstance(w, (int, float)) and math.isfinite(w) for w in weights.values()))) if not ok]
+    if problems:
+        raise PooledModelError(f"MG-3 weights {path}: {problems} differ from RF-1")
+    return table, digest
+
+
+def mg3_verify_partner(path, expected_sha256=MG3_L6_PARTNER_SHA256):
+    """Verified read of the 07-12 L6 partner (SM-L6 final state): its bytes must be the bound sha. -> sha256.
+
+    The partner is bound by bytes only; it is not unpickled here (it is L3's state, served by MG-2's own loader)."""
+    digest = hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    if digest != expected_sha256:
+        raise PooledModelError(f"MG-3 L6 partner {path}: sha256 {digest} != bound {expected_sha256}")
+    return digest
+
+
+MG3_L6_PARTNER_FIELDS = ("state_sha256", "part_sha256", "nowcasts_sha256")
+
+
+def mg3_fitted_partner_inputs(table):
+    """The L6 part and partner-nowcasts shas the weight table records it was fitted against.
+
+    The nowcasts are ``inputs.season_nowcasts`` when present, else ``inputs.nowcasts`` - the serve side's rule
+    (``mg3_serve.bind_blend_weights``). -> (part_sha256, nowcasts_sha256); a missing entry refuses."""
+    inputs = table.get("inputs") or {}
+    part = inputs.get("l6_part")
+    nowcasts = inputs.get("season_nowcasts", inputs.get("nowcasts"))
+    if not part or not nowcasts:
+        raise PooledModelError("MG-3 weights record no l6_part or partner nowcasts in their inputs")
+    return part, nowcasts
+
+
+def mg3_verify_l6_part(coefficients, expected_sha256):
+    """The L6 part sha recomputed from the coefficients file (``l6_frozen_state``: canonical JSON of its
+    ``l6_stack``); it must equal the sha the weights record. -> sha256."""
+    try:
+        _, sha = l6_frozen_state(coefficients, expected_sha256)
+    except PooledModelError as exc:
+        raise PooledModelError(f"MG-3 L6 part {coefficients}: {exc}") from exc
+    return sha
+
+
+def mg3_verify_nowcasts(path, expected_sha256):
+    """The partner nowcasts file's bytes must be the sha the weights record. -> sha256."""
+    digest = hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    if digest != expected_sha256:
+        raise PooledModelError(f"MG-3 L6 nowcasts {path}: sha256 {digest} != bound {expected_sha256}")
+    return digest
+
+
+def _mg3_bind_0712(weights, partner):
+    """0712-1 s5: the weights and the L6 partner only from verified loads. -> (weights_sha256, l6_partner dict).
+
+    ``partner`` is None or a mapping with ``state`` (the SM-L6 final state file), ``coefficients`` (the file whose
+    ``l6_stack`` part the weights record as ``inputs.l6_part``) and ``nowcasts`` (the partner nowcasts file). A
+    missing half or entry, a foreign file, or a change between load and record refuses."""
+    if weights is None and partner is None:
+        return MG3_PENDING, {field: MG3_PENDING for field in MG3_L6_PARTNER_FIELDS}
+    if weights is None or partner is None:
+        missing = "weights" if weights is None else "L6 partner"
+        raise PooledModelError(f"0712-1 binds the RF-1 weights with the L6 partner; the {missing} sha is missing")
+    partner = dict(partner)
+    absent = [key for key in ("state", "coefficients", "nowcasts") if not partner.get(key)]
+    if absent or set(partner) - {"state", "coefficients", "nowcasts"}:
+        raise PooledModelError(f"the L6 partner needs state, coefficients and nowcasts; missing {absent}")
+    table, w_sha = mg3_load_weights(weights, MG3_RF1_WEIGHTS_SHA256)
+    part_bound, nowcasts_bound = mg3_fitted_partner_inputs(table)
+    bound = {"state_sha256": mg3_verify_partner(partner["state"], MG3_L6_PARTNER_SHA256),
+             "part_sha256": mg3_verify_l6_part(partner["coefficients"], part_bound),
+             "nowcasts_sha256": mg3_verify_nowcasts(partner["nowcasts"], nowcasts_bound)}
+    for path, sha, what in ((weights, w_sha, "weights"), (partner["state"], bound["state_sha256"], "L6 partner"),
+                            (partner["nowcasts"], bound["nowcasts_sha256"], "L6 nowcasts")):
+        if _rr_sha(path) != sha:  # the file changed between the verified load and this read
+            raise PooledModelError(f"MG-3 {what} {path} changed while binding")
+    if mg3_verify_l6_part(partner["coefficients"], part_bound) != bound["part_sha256"]:  # pragma: no cover
+        raise PooledModelError(f"MG-3 L6 part {partner['coefficients']} changed while binding")
+    return w_sha, bound
+
+
 def mg3_release_files(root=None):
     root = Path(root or REPO_ROOT)
     return {rel: _rr_sha(root / rel) for rel in MG3_RELEASE_FILES}
 
 
-def mg3_release_binding(*, land, corpus_dir, states=None, weights=None, root=None, markets=R0_MARKETS):
+def mg3_release_binding(*, land, corpus_dir, states=None, weights=None, partner=None, root=None,
+                        markets=R0_MARKETS):
     """The MG-3 ``release-binding.json`` content (research side): rules, RN-1, data files, code files, states.
 
     RN-1 is recomputed by ``rr_point_rule`` from the land file and ``stations.json`` (refused on any mismatch with
@@ -7355,7 +7457,13 @@ def mg3_release_binding(*, land, corpus_dir, states=None, weights=None, root=Non
     The served SM-H 13-15 state (key ``SM_H_STATE_BLOCK``) is bound only from a verified load at
     ``SM_H_STATE_SHA256`` (``sm_h_load_state``); the recorded sha is that of the bytes the load verified. It
     replaces the 13-16 state at 13-15, except the ``excluded_markets`` (MG3-DC-1 s2.1).
+    The 07-12 weight table and its L6 partner (clarification 0712-1, ``MG3_DC1_0712_1_SHA256``) are bound together
+    and only from verified loads (``_mg3_bind_0712``): ``weights_sha256`` at ``MG3_RF1_WEIGHTS_SHA256`` and
+    ``l6_partner`` = {``state_sha256`` at ``MG3_L6_PARTNER_SHA256``, ``part_sha256`` and ``nowcasts_sha256`` as
+    the weights record them, each recomputed from its file}, the shape ``mg3_serve`` reads. ``partner`` is None or
+    {"state", "coefficients", "nowcasts"} paths; one without the other refuses, and all read ``PENDING`` until given.
     """
+    weights_sha, partner_bound = _mg3_bind_0712(weights, partner)
     point, report = rr_point_rule(land, corpus_dir, markets)
     stations = report["stations"]
     states = dict(states or {})
@@ -7390,24 +7498,29 @@ def mg3_release_binding(*, land, corpus_dir, states=None, weights=None, root=Non
         "rules": {"mg3_state": MG3_STATE_RULE_SHA256, "mg3_weights": MG3_WEIGHTS_RULE_SHA256,
                   "rr": RR_RULE_SHA256, "rk": RK_RULE_SHA256, "rk1": RK_CLARIFICATION_RK1_SHA256,
                   "rn1": MG3_RN1["rule_sha256"], "sm_h": SM_H_RULE_SHA256, "smh1": SM_H_CLARIFICATION_1_SHA256,
-                  "sm_h_binding": SM_H_BINDING_SHA256},
+                  "sm_h_binding": SM_H_BINDING_SHA256, "mg3_dc1_0712_1": MG3_DC1_0712_1_SHA256},
         "rn1": dict(MG3_RN1, recomputed={icao: stations[icao]["chosen_index"] for icao in sorted(stations)}),
         "point_rules": dict(MG3_POINT_RULES),
         "data_files": {"land_3x3.json": report["land_sha256"], "stations.json": report["stations_json_sha256"]},
         "files": mg3_release_files(root),
         "states": bound_states,
-        "weights_sha256": _rr_sha(weights) if weights is not None else MG3_PENDING,
+        "weights_sha256": weights_sha,
+        "l6_partner": partner_bound,
     }
 
 
-def mg3_verify_release(path, *, land, corpus_dir, states=None, weights=None, root=None, markets=R0_MARKETS):
-    """Recompute the binding from the running files and inputs; any field that differs refuses."""
+def mg3_verify_release(path, *, land, corpus_dir, states=None, weights=None, partner=None, root=None,
+                       markets=R0_MARKETS):
+    """Recompute the binding from the running files and inputs; any field that differs refuses.
+
+    The weights sha and all three ``l6_partner`` shas are recomputed by the same verified loads as the builder's."""
     bound = json.loads(Path(path).read_text(encoding="utf-8"))
-    running = mg3_release_binding(land=land, corpus_dir=corpus_dir, states=states, weights=weights, root=root,
-                                  markets=markets)
+    running = mg3_release_binding(land=land, corpus_dir=corpus_dir, states=states, weights=weights, partner=partner,
+                                  root=root, markets=markets)
     problems = [key for key in running if key != "files" and bound.get(key) != running[key]]
     problems += [rel for rel, sha in running["files"].items() if bound.get("files", {}).get(rel) != sha]
     problems += [rel for rel in bound.get("files", {}) if rel not in running["files"]]
+    problems += [key for key in bound if key not in running]
     if problems:
         raise PooledModelError(f"MG-3 release binding mismatch: {problems}")
     return bound
@@ -8742,7 +8855,10 @@ def _parse(argv=None):
     mb.add_argument("--state-0712", default=None)
     mb.add_argument("--state-1316", default=None)
     mb.add_argument("--state-smh", default=None, help="the served SM-H 13-15 state (binding note, row 52)")
-    mb.add_argument("--weights", default=None)
+    mb.add_argument("--weights", default=None, help="the RF-1 weight table (0712-1, sha 891be564...)")
+    mb.add_argument("--l6-partner", default=None, help="the 07-12 L6 partner, SM-L6 final state (0712-1, 800072c7...)")
+    mb.add_argument("--l6-coefficients", default=None, help="the coefficients file holding the weights' l6_part")
+    mb.add_argument("--l6-nowcasts", default=None, help="the partner nowcasts the weights were fitted against")
     mb.add_argument("--out", required=True)
     ru = sub.add_parser("ru-p0", help="R-U P0 (rule_ru.md): HRRR 3x3 spread anomaly vs P3d_H 13-16 error, history")
     ru.add_argument("--records", required=True)
@@ -9093,7 +9209,10 @@ def main(argv=None):
             raise PooledModelError(f"refusing to overwrite {out}")
         states = {b: s for b, s in (("07-12", args.state_0712), ("13-16", args.state_1316),
                                     (SM_H_STATE_BLOCK, args.state_smh)) if s}
-        binding = mg3_release_binding(land=args.land, corpus_dir=args.corpus, states=states, weights=args.weights)
+        given = {"state": args.l6_partner, "coefficients": args.l6_coefficients, "nowcasts": args.l6_nowcasts}
+        partner = None if not any(given.values()) else given
+        binding = mg3_release_binding(land=args.land, corpus_dir=args.corpus, states=states, weights=args.weights,
+                                      partner=partner)
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(binding, indent=1, sort_keys=True) + "\n", encoding="utf-8")
         print(json.dumps({"sha256": _rr_sha(out), "states": binding["states"],
