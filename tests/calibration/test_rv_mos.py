@@ -48,6 +48,7 @@ def test_mos_x_needs_two_sources():
     two = {("KATL", "GFS"): {(_rt(6), FT): 90.0}, ("KATL", "NBE"): {(_rt(1), FT): 86.0}}
     entry = prm.rv_entry(two, "KATL", D, 13, tz)
     assert entry["mos_x"] == 88.0 and prm.rv_columns(entry, 87.5)["v_gap"] == 0.5
+    assert prm.rv_entry(two, "KATL", D, 13, "America/New_York") == entry  # registry IANA name (EDT on D)
 
 
 def test_fetch_drops_post_cutoff_rows_and_loader_enforces_shas(tmp_path):

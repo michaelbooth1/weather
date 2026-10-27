@@ -7221,7 +7221,9 @@ def rv_source_value(values, model, day, instant):
 def rv_entry(table, icao, day, hour, tz):
     """``mos_x`` and per-source values for (station, local target date, cutoff hour)."""
     from datetime import datetime, timezone
+    from zoneinfo import ZoneInfo
 
+    tz = ZoneInfo(tz) if isinstance(tz, str) else tz  # the registry gives IANA names
     instant = datetime(day.year, day.month, day.day, int(hour), tzinfo=tz).astimezone(timezone.utc)
     src = {m: rv_source_value(table.get((icao, m), {}), m, day, instant)[0] for m in RV_SOURCES}
     found = [v for v in src.values() if math.isfinite(v)]
