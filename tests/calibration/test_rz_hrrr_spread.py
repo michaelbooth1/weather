@@ -101,7 +101,5 @@ def test_hook_admits_the_rz_module_exactly():
                    f'--hrrr-0006 b --rule x --out o'
     }}, constrained_capture_host=False) is not None
 
-
-def test_ps1_mirror_lists_the_module():
-    text = (ROOT / "scripts" / "ops" / "workload_admission.ps1").read_text(encoding="utf-8")
-    assert f'"{MODULE}",' in text
+# The ps1 mirror is proved by executing Get-WeatherWorkstationOfflineModule in
+# tests/operations/test_loss_atlas_admission.py against the PINNED list in test_r0_full_year_admission.py.

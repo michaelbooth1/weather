@@ -247,6 +247,9 @@ def test_no_production_code_imports_the_challenger():
         "src/weather/calibration/ols_floor_ladder.py": "lane L9's ladder, research-only, same capture-host guard",
         "src/weather/calibration/pooled_residual_model.py": "lane L2, lazily, only in its research dev emitters",
         "src/weather/calibration/r0_ols_floor_devfit.py": "its own dev-fit companion, research-only",
+        # L3's rz scorer reuses the challenger's date-cluster bootstrap weights lazily inside _cell_ratio;
+        # research-only, never imported by serving code.
+        "src/weather/calibration/rz_hrrr_spread.py": "L3's offline rz scorer, lazily, for _date_weights only",
     }
     assert sorted(hits) == sorted(expected)
 
