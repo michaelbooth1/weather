@@ -594,11 +594,19 @@ def _hidden_console() -> subprocess.STARTUPINFO:
 
 def _ctrl_c_reaches_a_new_console(tmp_path: Path) -> bool:
     """Some runners (e.g. a kill-on-close Job queue) never deliver console Ctrl+C."""
-    started = tmp_path / "ctrlc-probe-started"
-    script = tmp_path / "ctrlc_probe.ps1"
+    return _ctrl_c_exit_code(tmp_path, "probe", "", "exit 7") == 7
+
+
+def _ctrl_c_exit_code(tmp_path: Path, label: str, prefix: str, final: str) -> int | None:
+    """Exit code of a -File script stopped by Ctrl+C whose finally runs ``final``."""
+    started = tmp_path / f"ctrlc-{label}-started"
+    script = tmp_path / f"ctrlc_{label}.ps1"
     script.write_text(
-        f"Set-Content -LiteralPath '{started}' -Value x\n"
-        "try { while ($true) { Start-Sleep -Milliseconds 200 } } finally { exit 7 }\n",
+        prefix
+        + f"Set-Content -LiteralPath '{started}' -Value x\n"
+        + "try { while ($true) { Start-Sleep -Milliseconds 200 } }\nfinally {\n    "
+        + final
+        + "\n}\n",
         encoding="utf-8",
     )
     command = [*POWERSHELL, "-File", str(script)]
@@ -611,9 +619,9 @@ def _ctrl_c_reaches_a_new_console(tmp_path: Path) -> bool:
         while not started.is_file() and time.monotonic() < deadline and process.poll() is None:
             time.sleep(0.2)
         _run([sys.executable, "-c", CTRL_C_SENDER, str(process.pid)], timeout=60)
-        return process.wait(timeout=20) == 7
+        return process.wait(timeout=20)
     except subprocess.TimeoutExpired:
-        return False
+        return None
     finally:
         if process.poll() is None:
             _run(["taskkill", "/T", "/F", "/PID", str(process.pid)], timeout=60)
@@ -671,17 +679,96 @@ $last = $ast.EndBlock.Statements[-1]
 $finally = if ($last -is [Management.Automation.Language.TryStatementAst]) { $last.Finally } else { $null }
 $inner = if ($finally) { $finally.Statements[-1] } else { $null }
 $exit = if ($inner -is [Management.Automation.Language.TryStatementAst] -and $inner.Finally) { $inner.Finally.Statements[-1].Extent.Text } else { $null }
+$guard = if ($exit -and $inner.Finally.Statements.Count -ge 2) { $inner.Finally.Statements[-2].Extent.Text } else { $null }
+$top = $ast.EndBlock.Statements
+$flags = @($top | Where-Object { $_ -is [Management.Automation.Language.AssignmentStatementAst] -and $_.Left.Extent.Text -ceq '$pregateIsHostFileScript' })
+$flagBeforeTry = ($flags.Count -ge 1) -and ($top.IndexOf($flags[0]) -lt ($top.Count - 1))
 $writes = if ($finally) { @($finally.FindAll({ param($n) $n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -in @('Write-Output', 'Write-Host') }, $true)).Count } else { -1 }
-ConvertTo-Json -Compress -InputObject @{ last_is_try = [bool]$finally; exit = $exit; writes = $writes }
+ConvertTo-Json -Compress -InputObject @{ last_is_try = [bool]$finally; exit = $exit; guard = $guard; flag_before_try = $flagBeforeTry; writes = $writes }
 """
 
 
 def test_pregate_exit_is_issued_from_the_final_finally():
     # A stopped (Ctrl+C) PS 5.1 -File script skips statements after its finally
-    # and exits 0, and Write-Output during a stop aborts the finally.
+    # and exits 0, and Write-Output during a stop aborts the finally. Because the
+    # pre-gate is a [CmdletBinding()] script, a bare exit there still yields 0
+    # (test_an_advanced_script_stopped_by_ctrl_c_keeps_its_exit_code_only_via_the_host),
+    # so the host's own -File script sets the host exit code first; the flag is
+    # computed at the top, never during the stop.
     result = _run([*POWERSHELL, "-Command", EXIT_SHAPE], env={**os.environ, "PG_PREGATE": str(PREGATE)}, timeout=60)
     assert result.returncode == 0, result.stderr
-    assert json.loads(result.stdout) == {"last_is_try": True, "exit": "exit $exitCode", "writes": 0}
+    assert json.loads(result.stdout) == {
+        "last_is_try": True,
+        "exit": "exit $exitCode",
+        "guard": "if ($pregateIsHostFileScript) { $host.SetShouldExit($exitCode) }",
+        "flag_before_try": True,
+        "writes": 0,
+    }
+
+
+@pytest.mark.parametrize("caller", ["open_session", "file_harness"])
+def test_an_in_process_caller_survives_the_pregate_and_reads_its_exit_code(tmp_path, caller):
+    # Every in-repo caller starts the pre-gate as its own powershell.exe -File
+    # child, but the runbooks name the bare script, which an operator may run
+    # with & in an open session. SetShouldExit there ends that whole session
+    # after the command (measured: the next line never ran, the host exited 1),
+    # so the pre-gate calls it only when it is the host's -File script.
+    # "open_session" feeds commands one by one to `powershell -Command -`, the
+    # scripted stand-in for a typed session, and is the case that catches an
+    # unguarded SetShouldExit.
+    repo = tmp_path / "repo"
+    (repo / "scripts" / "ops").mkdir(parents=True)
+    for name in COPIED_SCRIPTS:
+        shutil.copyfile(OPS / name, repo / "scripts" / "ops" / name)
+    (repo / "venv" / "Scripts").mkdir(parents=True)
+    (repo / "venv" / "Scripts" / "python.exe").write_bytes(b"")
+    _write_assignment(repo, "unassigned")
+    receipt_path = tmp_path / "receipt.json"
+    pregate = repo / "scripts" / "ops" / "workstation_pregate.ps1"
+    call = (
+        f"& '{pregate}' -Head ('a' * 40) -RepoRoot '{repo}' -OutputDirectory '{tmp_path / 'out'}' "
+        f"-ReceiptPath '{receipt_path}' -WorktreeParent '{tmp_path / 'wt'}'\n"
+        "[Console]::Out.WriteLine(('SURVIVED code={0}' -f $LASTEXITCODE))\n"
+        "exit 0\n"
+    )
+    env = {k: v for k, v in os.environ.items() if k.upper() != "WEATHER_WORKSTATION_WRAPPER_ACTIVE"}
+    if caller == "file_harness":
+        harness = tmp_path / "harness.ps1"
+        harness.write_text(call, encoding="utf-8")
+        result = _run([*POWERSHELL, "-File", str(harness)], cwd=tmp_path, env=env, timeout=180)
+    else:
+        result = subprocess.run(
+            [*POWERSHELL, "-Command", "-"], input=call, cwd=tmp_path, env=env,
+            check=False, capture_output=True, text=True, timeout=180,
+        )
+    assert "SURVIVED code=1" in result.stdout, result.stdout + result.stderr
+    assert result.returncode == 0, result.stdout + result.stderr
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert receipt["verdict"] == "FAIL"
+    assert any("not the assigned non-capture workstation" in item for item in receipt["failure_reasons"])
+
+
+@pytest.mark.parametrize(
+    ("prefix", "final", "expected"),
+    [
+        pytest.param("", "exit 7", 7, id="plain_script_bare_exit"),
+        pytest.param(
+            "[CmdletBinding()]\nparam()\n$isHostFileScript = $true\n",
+            "if ($isHostFileScript) { $host.SetShouldExit(7) }\n    exit 7",
+            7,
+            id="cmdletbinding_script_pregate_exit_form",
+        ),
+    ],
+)
+def test_an_advanced_script_stopped_by_ctrl_c_keeps_its_exit_code_only_via_the_host(tmp_path, prefix, final, expected):
+    # The minimal-script probe, extended to the pre-gate's own shape. Under PS 5.1
+    # a [CmdletBinding()] -File script stopped by Ctrl+C exits 0 even when its
+    # finally runs `exit 7` (measured 2026-10-27); the plain probe used to gate
+    # the interrupt test returns 7 and so hid that. The pre-gate's exit form
+    # (host exit code first, then exit) must keep the code for an advanced script.
+    if not _ctrl_c_reaches_a_new_console(tmp_path):
+        pytest.skip("console Ctrl+C is not delivered in this runner")
+    assert _ctrl_c_exit_code(tmp_path, "advanced", prefix, final) == expected
 
 
 # ------------------------------------------------------------------ content pins

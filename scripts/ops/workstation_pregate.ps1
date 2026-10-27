@@ -36,6 +36,23 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+# Decided up front, not during a Ctrl+C stop: is this script the one the host
+# process was started with (powershell.exe -File <this script>)? Only then may
+# the final exit also set the host's exit code (see the final finally); an
+# in-process caller (& or dot-source from another session or script) must
+# survive the pre-gate.
+$pregateIsHostFileScript = $false
+try {
+    $hostArguments = @([Environment]::GetCommandLineArgs())
+    for ($index = 1; $index -lt ($hostArguments.Count - 1); $index++) {
+        if ($hostArguments[$index] -match '^[-/](?:f|fi|fil|file)$') {
+            $hostScript = [IO.Path]::GetFullPath($hostArguments[$index + 1])
+            $pregateIsHostFileScript = ($hostScript -ieq [IO.Path]::GetFullPath($PSCommandPath))
+            break
+        }
+    }
+}
+catch { $pregateIsHostFileScript = $false }
 $receiptSchema = "weather.workstation_pregate_receipt.v1"
 $queueTimeoutExitCode = 75
 
@@ -598,6 +615,10 @@ finally {
     }
     finally {
         if (-not $receiptWritten -and $exitCode -eq 0) { $exitCode = 1 }
+        # A [CmdletBinding()] script stopped by Ctrl+C under PS 5.1 -File exits 0
+        # even from here; setting the host's exit code first keeps it. Only the
+        # host's own -File script may do that, since it ends the host process.
+        if ($pregateIsHostFileScript) { $host.SetShouldExit($exitCode) }
         exit $exitCode
     }
 }

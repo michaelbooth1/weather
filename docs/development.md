@@ -147,7 +147,7 @@ rejects pytest/compileall outside that window (Claude Code has no hook; the S4U 
 | Chunk size | `-MaxFilesPerChunk` default 25 (owner decision 2026-10-04; was 20), which is also the hard maximum and what new integration attempts freeze; always `ceil(files / MaxFilesPerChunk)` chunks |
 | Chunk grouping | time-packed (longest first into the lightest chunk with room) from the candidate's `tests/bounded_suite_file_timings.json`; an unlisted file weighs `default_seconds`, an absent table weighs every file equally, a malformed one refuses. Grouping never changes the file set, the cap or the chunk count. Regenerate the table from one or more complete Windows JUnit runs with `python tools/bounded_suite_timings.py --run "<run>/*.xml" --source "<what, when, sha>"` |
 | Commit charge | refuses to start above `-StartCommitPercent` 64, aborts before any chunk above `-AbortCommitPercent` 66 |
-| Clean tree | `git status --porcelain` must be empty before and after the run. That Git runs hermetically (no system or global config, no hooks, no fsmonitor) but names the standard `filter.lfs.*` driver explicitly, so a racily clean LFS file in a smudged worktree is compared through its pointer, not reported modified (fix of 2026-10-25); `git-lfs` must be reachable from the bound `git.exe` (with `filter.lfs.required=true` a missing one fails closed). Integration attempts bind this script by hash, so an attempt created before a suite change refuses its suite receipt; create it afresh. Known pre-existing failure, unrelated to this check: `tests/operations/test_workstation_pregate_script.py::test_interrupted_pregate_exits_nonzero_to_match_its_fail_receipt` exits 0 on the workstation wrapper (Ctrl+C delivery inside the Job), identically with the earlier suite script |
+| Clean tree | `git status --porcelain` must be empty before and after the run. That Git runs hermetically (no system or global config, no hooks, no fsmonitor) but names the standard `filter.lfs.*` driver explicitly, so a racily clean LFS file in a smudged worktree is compared through its pointer, not reported modified (fix of 2026-10-25); `git-lfs` must be reachable from the bound `git.exe` (with `filter.lfs.required=true` a missing one fails closed). Integration attempts bind this script by hash, so an attempt created before a suite change refuses its suite receipt; create it afresh. |
 | Free disk | 50 GiB (53,687,091,200 bytes) free on the volume, or it refuses |
 | Window | must start inside 00:30-09:00; hard teardown at 09:00 or `-MaxRuntimeSeconds` (max 5400) |
 | Exclusivity | takes the `data/logs/heavy_workload.lock` lease; refuses if another heavy workload holds it |
@@ -189,7 +189,11 @@ host. The run:
   **The receipt verdict is authoritative**; consumers read it, not the process exit code. The exit code
   follows it (0 only for PASS, 75 for a queue timeout, otherwise 1), including after Ctrl+C: the exit is
   issued from inside the final `finally`, because a stopped Windows PowerShell 5.1 `-File` script would
-  otherwise exit 0. A hard kill (`taskkill /F`, a closed console) writes no receipt and leaves
+  otherwise exit 0. Because the pre-gate is a `[CmdletBinding()]` script, even that `exit` yields 0 after
+  a Ctrl+C (measured 2026-10-27), so when it is the host's own `-File` script it first sets the host
+  exit code (`$host.SetShouldExit`). Run it as `powershell.exe -File …`; called in-process (`&` in an open
+  session or another script) it skips that step so the caller's session survives, and only the receipt
+  is reliable after a Ctrl+C. A hard kill (`taskkill /F`, a closed console) writes no receipt and leaves
   `C:\lpf-s\pg-<sha12>` behind; the next run for that head refuses until it is removed.
 
 Known gaps (Defender review of 2026-10-07, not fixed):
