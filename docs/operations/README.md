@@ -21,6 +21,8 @@ If you add a file, link it here in the same change.
 | [HOST_LOAD_POLICY.md](HOST_LOAD_POLICY.md) | Before any heavy command on the capture host. Owns the protected windows, resource limits, the training reservation and the full workstation heavy-wrapper contract. |
 | [OPERATING_REFERENCE.md](OPERATING_REFERENCE.md) | You need a governing constant or protected window with its source location. **Generated — fix the constant, never the doc.** The live timetable is generated separately at `data/alerts/OPERATING_SCHEDULE.md`; verify Task Scheduler before assuming an entry will run. |
 | [reserved-confirmation-window.md](reserved-confirmation-window.md) | Before reading dated evidence or settled market-days. Read its `Status:` line; the rest applies only when a window is reserved, and then it wins over every other document. |
+| [B_FORWARD_TEST_DESIGN.md](B_FORWARD_TEST_DESIGN.md) | Rule B-1, the minimal forward edge test B (MG-2 against the market): bind-ready DRAFT until the 10-27 binding. |
+| [COOL_SEASON_PAPER_TEST_PREREG.md](COOL_SEASON_PAPER_TEST_PREREG.md) | PT-1, the cool-season paper test: DRAFT pre-registration, not bound; its owner questions are open. |
 | [DELEGATION_CONTRACT.md](DELEGATION_CONTRACT.md) | Writing a handoff, executing a delegated mission, verifying a handback, or deciding roll sensitivity. |
 | [AGENT_CONTEXT.md](AGENT_CONTEXT.md) | You need durable domain invariants: settlement, units, source roles, floors, evidence rules. Deliberately excludes metrics, versions and priorities. |
 | [PROJECT_OPERATING_SOP.md](PROJECT_OPERATING_SOP.md) | You need the end-to-end shift-to-release decision flow and which runbook owns each step. |
@@ -44,8 +46,10 @@ citing it in a new decision.
 | [ESTABLISHED_FINDINGS.md](ESTABLISHED_FINDINGS.md) | *What do we know?* — every measured result and interval. Read before model, measurement or research work. |
 | [RETRACTED_AND_FALSE_LEADS.md](RETRACTED_AND_FALSE_LEADS.md) | *What is false?* — withdrawn claims, and alarms that look real and are not. |
 | [EXHAUSTION_REGISTER.md](EXHAUSTION_REGISTER.md) | *What is left before a no-go?* — which conclusions survive the serving fixes, which free sources were tested, and each open lead's exit criterion. |
+| [LEVER_INVENTORY_2026-10-26.md](LEVER_INVENTORY_2026-10-26.md) | *Which model levers are not yet exhausted?* — dated evidence (2026-10-25): a ranked inventory with flags on stale closures; not current state. |
 | [HOW_WE_GET_THINGS_WRONG.md](HOW_WE_GET_THINGS_WRONG.md) | *What shape do our mistakes take?* — read before designing a gate or trusting a green signal. |
 | [CAMPAIGN_LEDGER.md](CAMPAIGN_LEDGER.md) | *How much α is spent, and on what?* — the binding decision ledger. Read before proposing any confirmatory look; only the operator allocates. |
+| [MODEL_IMPROVEMENT_METHOD.md](MODEL_IMPROVEMENT_METHOD.md) | *How does a model lane find and measure a candidate?* — locate the loss, OLS + floor baseline first, one ingredient per rung, served → MG-1 → capture-time market read → blend weight, pre-registration discipline. |
 | [DEV_WINDOW_LEDGER.md](DEV_WINDOW_LEDGER.md) | *What has already been scored on the 07-31..09-29 development window?* — one row per candidate, control or read; the reuse count every pre-registration cites and every edge test corrects for. |
 | [PREREGISTRATION_CHECKLIST.md](PREREGISTRATION_CHECKLIST.md) | *What must a rule file state before a dev-window candidate is scored?* — positive control, comparator fairness, targeted loss slice, MDE and clusters, reuse count; enforced by `weather.reporting.scorecards.prereg_check`. |
 
@@ -96,6 +100,7 @@ No live trading is authorized by any document here; `STATE_OF_PLAY.md` records c
 | Document | Read when |
 | --- | --- |
 | [INTERNATIONAL_MM_LIVE_PILOT.md](INTERNATIONAL_MM_LIVE_PILOT.md) | Any work toward the bounded International Polymarket maker pilot. Never authorizes Polymarket US and never makes a blocked gate pass. |
+| [MAKER_PILOT_PLAN_2026-10.md](MAKER_PILOT_PLAN_2026-10.md) | The 2026-10 maker pilot plan and readiness checklist: DRAFT, HOLD status, owner questions open. Grants no authority. |
 | [PORTABLE_LIVE_EXECUTION_HOST.md](PORTABLE_LIVE_EXECUTION_HOST.md) | Provisioning, binding or relocating the second-PC attended Stage 0/1 executor. |
 | [maker-incentive-feasibility.md](maker-incentive-feasibility.md) | Evaluating an explicit maker BUY plan against incentives; a pure calculation contract. |
 
