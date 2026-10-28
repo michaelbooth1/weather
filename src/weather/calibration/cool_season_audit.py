@@ -1126,6 +1126,12 @@ def main(argv=None):
                  "--sums-2123", "--hrrr-2425", "--land", "--l6-state", "--mg2-coefficients", "--blend-weights",
                  "--rule", "--rule-sha256", "--commit", "--out"):
         rg.add_argument(flag, required=True)
+    rg2 = sub.add_parser("rodc-gate2", help="R-ODC gate 2 (weather.calibration.rodc_gate2; rule Clarification 3)")
+    for flag in ("--nbm-corpus", "--records-root", "--research-root", "--state-0712", "--hrrr-2123",
+                 "--sums-2123", "--hrrr-2425", "--land", "--l6-state", "--sm-state", "--mg2-coefficients",
+                 "--blend-weights", "--ladder-cache", "--ladder-cache-sha256", "--gate1-json", "--gate1-rows",
+                 "--rule", "--rule-sha256", "--commit", "--out"):
+        rg2.add_argument(flag, required=True)
     c = sub.add_parser("coverage")
     c.add_argument("--research-root", required=True)
     c.add_argument("--nbm-corpus", required=True)
@@ -1162,6 +1168,21 @@ def main(argv=None):
                                 mg2_coefficients=a.mg2_coefficients, blend_weights=a.blend_weights,
                                 rule=a.rule, rule_sha256=a.rule_sha256, out_path=a.out, commit=a.commit)
         print(json.dumps({"verdict": out["verdict"], "headline": out["headline"],
+                          "rows_sha256": out["rows_sha256"]}, indent=1, default=str))
+        return 0
+    if a.cmd == "rodc-gate2":
+        from weather.calibration import rodc_gate2
+
+        out = rodc_gate2.gate2(nbm_corpus=a.nbm_corpus, records_root=a.records_root,
+                               research_root=a.research_root, state_0712=a.state_0712, hrrr_2123=a.hrrr_2123,
+                               sums_2123=a.sums_2123, hrrr_2425=a.hrrr_2425, land=a.land, l6_state=a.l6_state,
+                               sm_state=a.sm_state, mg2_coefficients=a.mg2_coefficients,
+                               blend_weights=a.blend_weights, ladder_cache=a.ladder_cache,
+                               ladder_cache_sha256=a.ladder_cache_sha256, gate1_json=a.gate1_json,
+                               gate1_rows=a.gate1_rows, rule=a.rule, rule_sha256=a.rule_sha256, out_path=a.out,
+                               commit=a.commit)
+        print(json.dumps({"verdict": out["verdict"], "headline": out["headline"],
+                          "selected": out["selection"]["g2_selected_folds"],
                           "rows_sha256": out["rows_sha256"]}, indent=1, default=str))
         return 0
     if a.cmd == "coverage":
