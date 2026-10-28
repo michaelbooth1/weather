@@ -74,10 +74,13 @@ def test_no_production_code_imports_the_ladder():
                 continue
             if "ols_floor_ladder" in path.read_text(encoding="utf-8", errors="replace"):
                 hits.append(path.relative_to(root).as_posix())
-    # r0_ols_floor_challenger imports the ladder lazily, only for its research dev variants;
-    # lane L2's pooled_residual_model does the same, lazily, only in its research dev emitters.
-    assert sorted(hits) == [
-        "scripts/ops/workload_admission.ps1",
-        "src/weather/calibration/pooled_residual_model.py",
-        "src/weather/calibration/r0_ols_floor_challenger.py",
-    ]
+    # Every allowed importer, with its reason; any other module that names the ladder fails this test.
+    ws_only = ("WS-only scorer, scores host-exported bundles; cannot import on the capture host by design "
+               "(master ruling 2026-10-26)")
+    expected = {
+        "scripts/ops/workload_admission.ps1": "the workstation allowlist names the module (it admits it)",
+        "src/weather/calibration/mg2_p3d_n.py": ws_only,
+        "src/weather/calibration/pooled_residual_model.py": "lane L2, lazily, only in its research dev emitters",
+        "src/weather/calibration/r0_ols_floor_challenger.py": "lazily, only for its research dev variants",
+    }
+    assert sorted(hits) == sorted(expected)

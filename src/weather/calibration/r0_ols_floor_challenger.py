@@ -593,13 +593,14 @@ def observations_at_cutoff(rows, target_date, cutoff_hour, tz):
     return kept[latest], max(kept.values()), len(kept)
 
 
-def scan_replay_observations(folder, market_id, target_date, tz, hours, unit=None):
+def scan_replay_observations(folder, market_id, target_date, tz, hours, unit=None, metar_only=False):
     """Per cutoff hour, METAR features from the last replay snapshot captured in [h:00, h+1:00).
 
     Only that snapshot's ``sources.metar.data.rows`` are read; rows are kept only when observed
     at or before h:00 (so at or before the snapshot). Returns {hour: record}.
     With ``unit``, also ``high_so_far_l8``: lane L8's ``running_max_since_midnight`` on the same
     snapshot's ``sources.station.data`` and ``sources.metar.data`` (cutoff h, now = capture time).
+    ``metar_only`` is passed through to ``running_max_since_midnight`` (default: unchanged).
     """
     import re
     from datetime import datetime
@@ -634,7 +635,8 @@ def scan_replay_observations(folder, market_id, target_date, tz, hours, unit=Non
 
                 station = (sources.get("station") or {}).get("data") or {}
                 value, first = running_max_since_midnight(
-                    station, metar, target_date=target_date, tz=tz, unit=unit, cutoff_hour=hour, now=local)
+                    station, metar, target_date=target_date, tz=tz, unit=unit, cutoff_hour=hour, now=local,
+                    metar_only=metar_only)
                 out[hour]["high_so_far_l8"] = value
                 out[hour]["high_so_far_l8_first_minute"] = first
     return out

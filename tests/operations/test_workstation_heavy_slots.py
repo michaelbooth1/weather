@@ -5,7 +5,10 @@ ruling 2026-10-24, lane W2) - at most -SlotCount (default 3) concurrent workstat
 each admission needs available physical memory >= the floor (default 6 GB) and commit charge <= the
 ceiling (default 90 %); an older wrapper holding the legacy lease occupies slot 1 and is counted; a
 portable live stage excludes every slot in both orders; a dead slot holder is reclaimed only by the
-legacy stale-ACTIVE rules; capture-colocated admission keeps the single serial lease.
+legacy stale-ACTIVE rules; capture-colocated admission keeps the single serial lease. PG-NEST-1: the
+exclusive barrier owner is recorded (pid plus start time) and logged by exclusive waiters; only a live
+descendant of that recorded holder is admitted at once without a ticket, and a dead or reused holder pid
+grants nothing, also when the owner cannot delete its record at release (it is marked released).
 
 Every process here uses a fixture-local mutex name and state path, never the host's real lease.
 """
@@ -736,8 +739,19 @@ def test_pre_slot_wrapper_bytes_interoperate_with_slot_wrappers(tmp_path: Path, 
 class ExclusiveHolder:
     """A pre-gate stand-in that waits for, then holds, the exclusive workstation lease."""
 
-    def __init__(self, repo: Path, name: str, inherited_slot: int = 0) -> None:
+    def __init__(self, repo: Path, name: str, inherited_slot: int = 0, child: str = "") -> None:
         self.release = repo / f"release-{name}.flag"
+        # A child script runs as this holder's own descendant once it holds the lease.
+        child_ps = ""
+        if child:
+            child_path = repo / f"child-{name}.ps1"
+            child_path.write_text(child, encoding="utf-8")
+            child_ps = (
+                "$ErrorActionPreference = 'Continue'\n"
+                f"& powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File '{child_path}' *> '{child_path}.log'\n"
+                "$childExit = $LASTEXITCODE\n$ErrorActionPreference = 'Stop'\n"
+                "Write-Output ('CHILD_DONE {0}' -f $childExit)\n[Console]::Out.Flush()\n"
+            )
         inherited = f" -InheritedSlotId {inherited_slot}" if inherited_slot else ""
         exit_ps = (
             "Exit-WeatherWorkstationHeavyExclusiveHold -Hold $lease"
@@ -753,7 +767,7 @@ $lease = {EXCLUSIVE_ENTER.format(repo=repo, name=name)}{inherited}
 if ($null -eq $lease) {{ Write-Output 'TIMEOUT'; exit 3 }}
 Write-Output 'ACQUIRED'
 [Console]::Out.Flush()
-$deadline = [DateTime]::UtcNow.AddSeconds(150)
+{child_ps}$deadline = [DateTime]::UtcNow.AddSeconds(150)
 while (-not (Test-Path -LiteralPath '{self.release}') -and [DateTime]::UtcNow -lt $deadline) {{
     Start-Sleep -Milliseconds 50
 }}
@@ -774,6 +788,16 @@ while (-not (Test-Path -LiteralPath '{self.release}') -and [DateTime]::UtcNow -l
             # Queue event lines go to the same stdout.
             line = line.strip()
             assert line == "ACQUIRED" or line.startswith("heavy-workload queue: "), line
+
+    def child_done(self) -> int:
+        assert self.process.stdout is not None
+        while True:
+            line = self.process.stdout.readline()
+            assert line, self.process.stderr.read() if self.process.stderr else ""
+            line = line.strip()
+            if line.startswith("CHILD_DONE"):
+                return int(line.split()[1])
+            assert line.startswith("heavy-workload queue: "), line
 
     def stop(self) -> None:
         self.release.write_text("go", encoding="utf-8")
@@ -890,3 +914,268 @@ def test_wrapper_jobs_get_a_per_slot_thread_cap_callers_may_only_lower(
     cap = int(cpus) // (int(extra[1]) if extra else 3) or 1
     assert finish["thread_cap"] == {"cap": cap, "logical_processors": int(cpus), "values": {k: int(v) for k, v in expected.items()}}
     assert f"workstation-heavy: thread cap {cap} of {cpus} logical processors" in result.stdout
+
+
+# ---------------------------------------------------------------- PG-NEST-1: exclusive re-entrancy
+HOLDER_RECORD = Path("heavy_workload_queue_v1") / "exclusive_holder_v1.json"
+
+DESCENDANT_ENTER = r"""
+$ErrorActionPreference = 'Stop'
+. '{admission}'
+{prelude}
+$clock = [Diagnostics.Stopwatch]::StartNew()
+$hold = Enter-WeatherWorkstationHeavyExclusiveLease -RepoRoot '{repo}' -Workload 'WorkstationOffline-pytest-pregate-child' `
+    -TimeoutSeconds {timeout} -PollMilliseconds 100 -ReportSeconds 1 -InheritedSlotId {slot}
+$result = [ordered]@{{ granted = ($null -ne $hold); seconds = $clock.Elapsed.TotalSeconds; pid = $PID }}
+if ($null -ne $hold) {{
+    $result.inherited = [bool]$hold.InheritedFromExclusiveHolder
+    $result.holder_pid = $hold.ExclusiveHolderPid
+    $result.holder_start = $hold.ExclusiveHolderStartUtc
+    $result.ticket = $hold.QueueTicket
+    $result.mutexes = @($hold.ExtraSlotMutexes).Count + [int]($null -ne $hold.ExclusiveMutex)
+    Exit-WeatherWorkstationHeavyExclusiveHold -Hold $hold
+}}
+[IO.File]::WriteAllText('{out}', ($result | ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false))
+"""
+
+
+def _descendant(repo: Path, out: Path, *, slot: int, timeout: int = 3, prelude: str = "") -> str:
+    return DESCENDANT_ENTER.format(
+        admission=repo / "scripts/ops/workload_admission.ps1", repo=repo, out=out, slot=slot, timeout=timeout,
+        prelude=prelude,
+    )
+
+
+@pytest.mark.parametrize("slot", (1, 0), ids=("nested-pregate-shape", "direct-pregate-shape"))
+def test_a_descendant_of_the_exclusive_holder_is_admitted_at_once_without_a_ticket(workstation: Path, slot: int) -> None:
+    repo = workstation
+    out = repo / f"descendant-{slot}.json"
+    pregate = ExclusiveHolder(repo, f"outer{slot}", child=_descendant(repo, out, slot=slot))
+    try:
+        pregate.acquired()
+        record = json.loads((repo / HOLDER_RECORD).read_text(encoding="utf-8"))
+        assert (record["pid"], record["phase"]) == (pregate.process.pid, "held")
+        assert record["owner_process_start_utc"] == _process_start(pregate.process.pid, repo)
+        assert pregate.child_done() == 0, (repo / f"child-outer{slot}.ps1.log").read_text(errors="replace")
+        result = json.loads(out.read_text(encoding="utf-8"))
+        assert result["granted"] and result["inherited"]
+        assert (result["holder_pid"], result["holder_start"]) == (pregate.process.pid, record["owner_process_start_utc"])
+        assert result["ticket"] is None and result["mutexes"] == 0
+        child_events = [e for e in _events(repo) if e["pid"] == result["pid"]]
+        assert [e["event"] for e in child_events] == ["start"]
+        assert child_events[0]["lease_mode"] == "inherited_from_exclusive_holder"
+        assert child_events[0]["exclusive_holder_pid"] == pregate.process.pid
+        # The empty hold released nothing: the outer pre-gate still excludes everyone.
+        assert _probe_lease(repo, LEGACY_ENTER, "old") == "BUSY"
+    finally:
+        pregate.stop()
+    assert not (repo / HOLDER_RECORD).exists()
+
+
+def test_the_chunk_12_shape_fails_fast_instead_of_waiting_out_its_timeout(workstation: Path) -> None:
+    # Regression for the 2026-10-27 hang: a pre-gate test drove a nested pre-gate
+    # (inherited slot 1) under the outer exclusive pre-gate, which could never
+    # take the barrier and waited out its whole timeout. Bounded at 3 s here.
+    repo = workstation
+    out = repo / "chunk12.json"
+    pregate = ExclusiveHolder(repo, "chunk12", child=_descendant(repo, out, slot=1, timeout=3))
+    try:
+        pregate.acquired()
+        assert pregate.child_done() == 0
+        result = json.loads(out.read_text(encoding="utf-8"))
+        assert result["granted"], "the nested exclusive caller waited out its timeout under its own ancestor"
+        assert result["seconds"] < 2.5
+    finally:
+        pregate.stop()
+
+
+def test_an_unrelated_exclusive_caller_still_queues_and_logs_the_recorded_holder(workstation: Path) -> None:
+    repo = workstation
+    pregate = ExclusiveHolder(repo, "outer")
+    try:
+        pregate.acquired()
+        result = _admission(
+            repo,
+            f"$lease = {EXCLUSIVE_ENTER.format(repo=repo, name='sibling')} -TimeoutSeconds 2 -InheritedSlotId 1\n"
+            "if ($null -eq $lease) { 'BUSY' } else { 'ACQUIRED' }\n",
+        )
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip().splitlines()[-1] == "BUSY"
+        sibling = [e for e in _events(repo) if e["workload"] == "WorkstationOffline-pytest-pregate-sibling"]
+        assert sibling[0]["event"] == "enqueue" and sibling[0]["ticket"] > 0
+        give_up = next(e for e in sibling if e["event"] == "give_up")
+        assert give_up["slot_refusal"] == "another_exclusive_caller"
+        # Item (a): the exclusive waiter names the barrier owner, not null.
+        assert give_up["holder"]["pid"] == pregate.process.pid
+        assert give_up["holder"]["owner_process_start_utc"] == _process_start(pregate.process.pid, repo)
+        assert give_up["holder"]["state"] == "EXCLUSIVE_HELD"
+        assert all(e["holder"] is not None for e in sibling if e["event"] == "wait")
+    finally:
+        pregate.stop()
+
+
+FORGE_START = r"""
+$path = Join-Path '{repo}' 'heavy_workload_queue_v1\exclusive_holder_v1.json'
+$record = [IO.File]::ReadAllText($path) | ConvertFrom-Json
+$record.owner_process_start_utc = '2000-01-01T00:00:00.0000000Z'
+[IO.File]::WriteAllText($path, ($record | ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false))
+"""
+
+
+def test_a_holder_record_whose_start_time_does_not_match_grants_a_real_descendant_nothing(workstation: Path) -> None:
+    repo = workstation
+    out = repo / "forged.json"
+    child = _descendant(repo, out, slot=1, timeout=2, prelude=FORGE_START.format(repo=repo))
+    pregate = ExclusiveHolder(repo, "forged", child=child)
+    try:
+        pregate.acquired()
+        assert pregate.child_done() == 0
+        result = json.loads(out.read_text(encoding="utf-8"))
+        assert result["granted"] is False
+        child_events = [e for e in _events(repo) if e["pid"] == result["pid"]]
+        assert child_events[0]["event"] == "enqueue" and child_events[-1]["event"] == "give_up"
+    finally:
+        pregate.stop()
+
+
+FIND_WITH_SNAPSHOT = r"""
+$path = Join-Path '{repo}' 'heavy_workload_queue_v1\exclusive_holder_v1.json'
+$record = [IO.File]::ReadAllText($path) | ConvertFrom-Json
+$now = [DateTime]::Now
+$parent = [int]$record.pid
+$parentCreated = $now.AddHours(-1)
+switch ('{case}') {{
+    'live_ancestor_control' {{ }}
+    'dead_pid' {{ $parent = {dead}; $record.pid = $parent }}
+    'reused_pid_wrong_start' {{ $record.owner_process_start_utc = '2000-01-01T00:00:00.0000000Z' }}
+    'reused_pid_younger_parent' {{ $parentCreated = $now.AddHours(1) }}
+    'other_boot_session' {{ $record.boot_session_id = [int]$record.boot_session_id + 1 }}
+    'still_draining' {{ $record.phase = 'draining' }}
+    'not_an_ancestor' {{ $parent = {dead} }}
+}}
+[IO.File]::WriteAllText($path, ($record | ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false))
+$snapshot = @(
+    [PSCustomObject]@{{ ProcessId = $PID; ParentProcessId = $parent; CreationDate = $now }},
+    [PSCustomObject]@{{ ProcessId = $parent; ParentProcessId = 0; CreationDate = $parentCreated }}
+)
+$found = Find-WeatherHeavyWorkloadExclusiveHolderAncestor -ProcessSnapshot $snapshot
+if ($null -eq $found) {{ 'NONE' }} else {{ 'FOUND {{0}}' -f $found.pid }}
+"""
+
+
+@pytest.mark.parametrize(
+    "case",
+    (
+        "live_ancestor_control",
+        "dead_pid",
+        "reused_pid_wrong_start",
+        "reused_pid_younger_parent",
+        "other_boot_session",
+        "still_draining",
+        "not_an_ancestor",
+    ),
+)
+def test_only_a_live_ancestor_matched_by_pid_and_start_time_is_the_holder(workstation: Path, case: str) -> None:
+    repo = workstation
+    pregate = ExclusiveHolder(repo, "outer")
+    try:
+        pregate.acquired()
+        result = _admission(repo, FIND_WITH_SNAPSHOT.format(repo=repo, case=case, dead=_dead_pid()))
+        assert result.returncode == 0, result.stderr
+        expected = f"FOUND {pregate.process.pid}" if case == "live_ancestor_control" else "NONE"
+        assert result.stdout.strip() == expected
+    finally:
+        pregate.stop()
+
+
+def test_a_record_left_by_a_released_barrier_grants_nothing(workstation: Path) -> None:
+    # The owner (this pytest process) is a live ancestor with the right start time,
+    # but nobody holds the barrier: the record is stale whatever it says.
+    repo = workstation
+    (repo / HOLDER_RECORD).parent.mkdir(parents=True, exist_ok=True)
+    boot = _admission(repo, "Get-WeatherBootSessionId\n")
+    assert boot.returncode == 0, boot.stderr
+    (repo / HOLDER_RECORD).write_text(
+        json.dumps(
+            {
+                "schema_version": "weather_heavy_workload_exclusive_holder_v1",
+                "pid": os.getpid(),
+                "owner_process_start_utc": _process_start(os.getpid(), repo),
+                "boot_session_id": int(boot.stdout.strip()),
+                "workload": "WorkstationOffline-pytest-pregate-gone",
+                "ticket": 1,
+                "phase": "held",
+                "inherited_slot_id": 0,
+                "recorded_at_utc": "2026-10-27T00:00:00.0000000Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    found = _admission(repo, "$found = Find-WeatherHeavyWorkloadExclusiveHolderAncestor\nif ($null -eq $found) { 'NONE' } else { 'FOUND' }\n")
+    assert found.returncode == 0, found.stderr
+    assert found.stdout.strip() == "NONE"
+    # And the ordinary path is unchanged: the caller takes the free lease itself.
+    assert _probe_lease(repo, EXCLUSIVE_ENTER + " -TimeoutSeconds 5", "after-stale").splitlines()[-1] == "ACQUIRED"
+
+
+UNDELETABLE_HOLDER_RECORD = r"""
+# TEST-ONLY: THE HOLDER RECORD FILE CANNOT BE DELETED
+function Remove-WeatherHeavyWorkloadExclusiveHolderFile { param([string]$Path) throw 'simulated delete failure' }
+"""
+
+RELEASE_THEN_REOWN = r"""
+$ErrorActionPreference = 'Stop'
+. '{admission}'
+$lease = {enter} -TimeoutSeconds 30
+if ($null -eq $lease) {{ exit 3 }}
+Set-WeatherHeavyWorkloadLeaseTeardownPending -Lease $lease | Out-Null
+Exit-WeatherHeavyWorkloadLease -Lease $lease
+$path = Join-Path '{repo}' 'heavy_workload_queue_v1\exclusive_holder_v1.json'
+$left = [IO.File]::ReadAllText($path) | ConvertFrom-Json
+if ('{case}' -ceq 'warn_only_control') {{
+    # What the record looked like before this fix: still "held", naming this live process.
+    $left.phase = 'held'
+    [IO.File]::WriteAllText($path, ($left | ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false))
+}}
+# A new owner takes the barrier but has not written its own record yet.
+$barrier = [Threading.Mutex]::new($false, (Get-WeatherHeavyWorkloadExclusiveMutexName))
+if (-not $barrier.WaitOne(0, $false)) {{ exit 4 }}
+$probe = Join-Path '{repo}' 'descendant-probe.ps1'
+[IO.File]::WriteAllText($probe, @'
+$ErrorActionPreference = 'Stop'
+. '{admission}'
+$found = Find-WeatherHeavyWorkloadExclusiveHolderAncestor
+if ($null -eq $found) {{ 'NONE' }} else {{ 'FOUND {{0}}' -f $found.pid }}
+'@)
+$ErrorActionPreference = 'Continue'
+$answer = & powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $probe
+$ErrorActionPreference = 'Stop'
+$barrier.ReleaseMutex()
+[IO.File]::WriteAllText('{out}', ([ordered]@{{ pid = $PID; phase = [string]$left.phase; answer = [string]$answer }} |
+    ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false))
+"""
+
+
+@pytest.mark.parametrize("case", ("released_on_delete_failure", "warn_only_control"))
+def test_a_record_that_could_not_be_removed_is_marked_released_and_grants_nothing(workstation: Path, case: str) -> None:
+    # PG-NEST-1 residual: if the owner cannot delete its record at release, the
+    # record must not keep vouching for the barrier once a new owner takes it
+    # but has not yet written its own record. The control shows the window is real.
+    repo = workstation
+    admission = repo / "scripts/ops/workload_admission.ps1"
+    admission.write_text(admission.read_text(encoding="utf-8") + UNDELETABLE_HOLDER_RECORD, encoding="utf-8")
+    out = repo / "residual.json"
+    script = RELEASE_THEN_REOWN.format(
+        admission=admission, enter=EXCLUSIVE_ENTER.format(repo=repo, name="residual"), repo=repo, case=case, out=out
+    )
+    result = subprocess.run(
+        [*POWERSHELL, "-Command", script], capture_output=True, text=True, check=False, timeout=180, env=_env()
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    outcome = json.loads(out.read_text(encoding="utf-8"))
+    if case == "released_on_delete_failure":
+        assert "marked released" in result.stderr + result.stdout
+        assert outcome["phase"] == "released"
+        assert outcome["answer"] == "NONE"
+    else:
+        assert outcome["answer"] == f"FOUND {outcome['pid']}"
