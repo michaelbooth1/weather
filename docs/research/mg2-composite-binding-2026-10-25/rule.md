@@ -1,7 +1,8 @@
 # MG-2 composite: forward pre-registration (captured-input replay, outcome-blind accrual)
 
-- **Status:** DRAFT for the single Fable review. `d0: UNSET` and the binding commit is not made. Nothing
-  here is bound until the coordinator relays the Fable result and the binding commit sets D0.
+- **Status:** BOUND 2026-10-28 (branch `claude/b-binding-package-20261028`; master GO 2026-10-28). The binding
+  moved from 10-27 to 10-28, so D0 = binding date + 1 = **2026-10-29** (B-1 §3 slip clause). The binding is
+  recorded in DECISION_LOG and `release-binding.json` beside this file.
 - **Written:** 2026-10-25, before any forward MG-2 vector exists. No outcome, label, price or market row
   dated after 2026-09-29 has been read for MG-2.
 - **Code:** `weather.calibration.mg2_composite` and `weather.calibration.mg2_p3d_n` on
@@ -462,6 +463,12 @@ gate.** The G1/G2 gate population (§5) is the 10 markets without Denver.
   - The dev sizing reports `gate_groups` beside the 11-market groups.
   - `tests/calibration/test_mg2_c8_gate.py` pins that Denver rows never reach the gate.
 
+**Clarification C10 (2026-10-28, §4.3 owner decision id; dated before D0).** This sets only
+`owner_decision_id`, to `OD-2026-10-25-option-b-dl271-dl274`. It cites the owner's DECISION_LOG rows of
+2026-10-25 "Option B: minimal forward formal test plus model levers at full throttle" (:271) and "B forward test
+questions" (Q1-Q4, :274), as master confirmed, and the §4.3 exemption itself, the owner's "Yes to all" row of
+2026-10-25 (:272: MG-2 reserved-window exemption, option 2, MG-2 only). Branch 2 (§4.3) is in force: one look, strictly after MG-1's.
+
 After D0 nothing in §1-§7 changes. The only exception is the §4.3 owner-decision Clarification, which
 changes permission, not design.
 
@@ -554,9 +561,9 @@ P3d_N is ruled to be in the retrain family, the overlap needs an owner ruling.
 
 ```mg2_rule_v1
 switch_hour: 13
-d0: UNSET
+d0: 2026-10-29
 n_forward_dates: 45
-owner_decision_id: NONE
+owner_decision_id: OD-2026-10-25-option-b-dl271-dl274
 l6_coefficients_sha256: 07a6742595f535d448569980af7e04dbf4a2a798c00c82fd52f5f01287ee17e9
 p3d_n_state_sha256: c6cc39f7b57f668557415d28ec37ac291694f4b429e572a3c178fb74e5a9c780
 forecast_high_source: captured_nbm_v2_mean_07z
