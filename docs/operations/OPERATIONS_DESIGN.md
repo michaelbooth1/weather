@@ -1172,6 +1172,45 @@ means the task still has a zoned boundary.
   twice that night.
 - 05-F3: do not run the integration sequencer on the night of 2026-10-31 to 2026-11-01.
 
+## MG-2 Input Export (`WeatherMg2InputExport`; registrar only)
+
+The MG-2 binding plan (`docs/research/mg2-composite-binding-2026-10-25/binding-plan.md` §9) moves one
+outcome-free input bundle per target date D from the capture host to the workstation. The host side is
+`scripts/ops/mg2_input_export.ps1`, which wraps `python -m weather.calibration.mg2_input_export`. The task is
+**not registered**: `scripts/ops/register_mg2_input_export.ps1` registers it only after the owner says yes, on the
+dedicated capture host, from a clean checkout at `-ExpectedSourceTip`. `-WhatIf` prints the task definition and
+touches nothing.
+
+- **When.** 04:15 local on D+1 (after the export cut, LA midnight ending D, and the 01:00-04:00 quiet window),
+  with one retry at 07:00 that is a no-op once `<D>\manifest.json.sha256` exists. No `StartWhenAvailable`; a
+  missed date is not caught up. The 04:15 slot is shared with `WeatherTrainingWindowRestore`: when the lease is
+  busy the wrapper refuses and the 07:00 retry carries the date.
+- **Admission.** 00:30-09:00 America/Toronto only, the shared lease from `workload_admission.ps1` (workload
+  `mg2_input_export`), 5 GiB free, fresh memory-guard evidence below 70 % commit, the dedicated capture host, a
+  `-P -B` child pinned to the checkout's `src`, a kill-on-close job and a deadline before 09:00.
+- **Reads (§9.1 only).** Every open is `CreateFileW` with read, write and delete sharing, read as the bounded byte
+  range `[0, size at open)`; bytes appended after the open and an unterminated last line are never read.
+  - `replay_inputs.jsonl` (D-1, D): append-only; bounded range, complete lines, records after the cut dropped.
+  - `snapshots_long.csv`, `features_long.csv` (D): rewritable, so a 30-minute quiet guard first, then the
+    bounded range.
+  - `forecast_payloads.jsonl` (D-1, D, D+1; D+1 may still be appended): bounded range; NBM rows captured by the
+    cut. `forecast_payloads_long.csv` only when the JSONL is absent, behind the quiet guard.
+  - `forecast_payload_cas\sha256\hh\<hash>.blob`: create-once; the whole file, re-hashed.
+- **Coverage counts are opt-in.** `--coverage-counts` (off by default) also opens order books, websocket events,
+  execution-tape trades and the `market_yes` column to write integer counts. Those files are outside §9.1: each
+  use needs master's ruling first, the wrapper never passes the flag, and the registrar's read-back refuses an
+  action that mentions it.
+- **Writes.** Only under `data\exports\mg2-inputs\`: `.<D>.partial` (staging, atomically renamed to `<D>\`),
+  `<D>.SHA256SUMS` beside it, and the wrapper's `_runs\<D>-<stamp>.json` receipt and captured child output.
+  A projected record that still carries a forbidden or unlisted key refuses the whole date (names only).
+- **Cost.** Streaming; minutes and well under 1 GB of memory for 11 markets.
+- **Share.** The workstation pulls `<share>\<D>\` read-only (`mg2_inputs pull --share-root`). The share must
+  expose `data\exports\mg2-inputs` itself (or a dedicated read-only share of it); it is not the paused data
+  mirror. Master chooses and creates it; the repository creates none. Master's choice (2026-10-27):
+  `\\192.168.1.247\mg2-inputs`, read-only for the workstation account; the workstation's stored credential is
+  keyed to that IP form, so use it rather than the host name. `pull` only reads under `--share-root`: it creates,
+  renames, locks and writes nothing there; its staging, `incoming\` and the receipt ledger are workstation-local.
+
 ## Why Capture Is Not Packaged Into The Dashboard
 
 A shortcut or executable is useful for opening the dashboard, but it is not a
@@ -1184,5 +1223,5 @@ the owners of evidence capture.
 
 Update when capture-loop ownership, supervisor tasks/commands, status or log
 contracts, dashboard controls, deployment/restart behavior, which checkout a task executes from, daily-chain step
-order or settlement recovery, daily-trigger construction or the DST re-registration list, or retraining
+order or settlement recovery, the MG-2 input export, daily-trigger construction or the DST re-registration list, or retraining
 topology changes.

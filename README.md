@@ -684,7 +684,9 @@ That command replaces both daily tasks. It intentionally omits the FULL
 production-evidence contract and does not assert production readiness.
 
 Scheduled settlement/evidence refresh, event-config refresh, exchange-economics
-refresh, analysis, host guards, and
+refresh, analysis, host guards, the MG-2 input export
+(`register_mg2_input_export.ps1`, owner approval first; see the
+[operations topology](docs/operations/OPERATIONS_DESIGN.md)), and
 candidate training are separate registrations. Their script parameter blocks
 are the source of truth for names, cadence, and required inputs. On a dedicated
 single host, use the bounded training-window topology; do not also enable the
