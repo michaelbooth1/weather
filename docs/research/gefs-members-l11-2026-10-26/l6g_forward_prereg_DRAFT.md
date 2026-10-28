@@ -39,6 +39,9 @@
     `claude/ro-gates23-20261028` and are **not landed**: this file lands on master without any change to
     `pooled_residual_model.py` or to a B release file. A re-run from another module file cannot be byte-identical,
     because the state records its producer's own file sha256; the pin is therefore that commit and blob.
+    The bound object is the state file (sha256 ae95686b…8983e), and the emitter verifies it before every emission.
+    The branch `claude/ro-gates23-20261028` (with commit 341acbd2b and blob 80a585e8) **must not be deleted or
+    rewritten until the L6_G look is recorded**.
   - Controls inside the producer: every one of the 258 scored walk-forward pairs (43 dates × 6 hours) in
     `rn_score.json` reproduced exactly; the fit population equals the result's; s = 0 reproduces both registered
     vectors.
