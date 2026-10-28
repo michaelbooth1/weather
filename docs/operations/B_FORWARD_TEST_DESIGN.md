@@ -16,6 +16,13 @@
 > `<FILL@BINDING>` field): `b_scorer_sha256` = `b25b63f74639e960413ebec185da1e56f3f46363cecf33fe1d077a7b67aadbfd`;
 > control receipt `6284af68d72e46bf917acb3da05ec726590a6509d7a57612ffd01ad23e94f4a8`. B and C8 land night 10-26/27.
 
+- **Binding package (2026-10-28, branch `claude/b-binding-package-20261028`, from `origin/master`
+  `a8833a465`).** Every `<FILL@BINDING>` field is filled below from verified loads: MG-2's
+  `release-binding.json` was written by `mg2_composite bind-release` (no hand edit; bind-release on Windows wrote CRLF, so the file was
+  LF-normalised by git under `eol=lf` and its sha below is of the LF bytes), and its shas are copied here. **`d0` is a PLACEHOLDER** that master sets (D0 <= 2026-11-02); this lane did not choose it. Setting it
+  changes the MG-2 rule's raw sha256, so bind-release is re-run and `mg2_rule_sha256` and
+  `mg2_release_binding_sha256` below are re-filled in the same commit. No DECISION_LOG or DEV_WINDOW_LEDGER
+  binding entry is made until master says go after the Fable review.
 - **Status:** BIND-READY DRAFT, written 2026-10-25. It is bound only by the 10-27 binding commit, which
   fills every `<FILL@BINDING>` field below. The raw sha256 of the filled file is recorded in DECISION_LOG
   before D0. Until then nothing is bound, and no B row exists.
@@ -59,15 +66,16 @@ Each row reads only the latest replay snapshot captured at or before its own `ca
 
 | Binding field | Value |
 | --- | --- |
-| MG-2 rule raw sha256 (as bound; draft C6+C7 was `ccb2b82a415056ddfe1edc6fe2ca7192b82e8d940db96eb61101d99b19914f3b`) | `<FILL@BINDING>` |
-| MG-2 binding commit | `<FILL@BINDING>` |
-| MG-2 `release-binding.json` sha256 | `<FILL@BINDING>` |
-| MG-2 `owner_decision_id` (§4.3 Clarification) | `<FILL@BINDING>` |
-| L6 part sha256 (expected `07a6742595f535d448569980af7e04dbf4a2a798c00c82fd52f5f01287ee17e9`) | `<FILL@BINDING>` |
-| P3d_N state sha256 (expected `c6cc39f7b57f668557415d28ec37ac291694f4b429e572a3c178fb74e5a9c780`) | `<FILL@BINDING>` |
-| `observed_running_max` function sha256 (expected `8cc4d8ec13a64419961d96b3f648420fcd55f2c4cd3da7ca431b773c8bfc224a`) | `<FILL@BINDING>` |
-| B scorer module and its sha256 | `<FILL@BINDING>` |
-| Dev scorecard code sha256 used by the B scorer (R-H used `f69071ac5612f022…`) | `<FILL@BINDING>` |
+| MG-2 rule raw sha256 (as bound; draft C6+C7 was `ccb2b82a415056ddfe1edc6fe2ca7192b82e8d940db96eb61101d99b19914f3b`) | `6fb40203b36d75fabb9689d69006bdec8678f2c979fa84e0402781b8d071f947` (placeholder d0; re-filled when master sets d0) |
+| MG-2 binding commit | `a8833a4658c914efc83a42edb2079becfcd3c7fd` (the release binding's `built_at_commit`; every bound file's blob there has the bound sha) |
+| MG-2 `release-binding.json` sha256 | `7db6b70f4982a091d3af67ef1f235eafd8330e82c374d24e39d03fda71f2cd29` (`docs/research/mg2-composite-binding-2026-10-25/release-binding.json`; re-filled when master sets d0) |
+| MG-2 `owner_decision_id` (§4.3 Clarification) | `OD-2026-10-25-option-b-dl271-dl274` (MG-2 Clarification C10: DECISION_LOG 2026-10-25 "Option B: minimal forward formal test plus model levers at full throttle" and "B forward test questions", master-confirmed) |
+| L6 part sha256 (expected `07a6742595f535d448569980af7e04dbf4a2a798c00c82fd52f5f01287ee17e9`) | `07a6742595f535d448569980af7e04dbf4a2a798c00c82fd52f5f01287ee17e9` |
+| Season-matched L6 own-model state sha256 (MG-2 C9 §3; B-1 clarification 2026-10-26 §6) | `800072c79af65394cc33134cbaae34af65c4428feb3934e35f8cd6cd153ee2db` |
+| P3d_N state sha256 (expected `c6cc39f7b57f668557415d28ec37ac291694f4b429e572a3c178fb74e5a9c780`) | `c6cc39f7b57f668557415d28ec37ac291694f4b429e572a3c178fb74e5a9c780` |
+| `observed_running_max` function sha256 (expected `8cc4d8ec13a64419961d96b3f648420fcd55f2c4cd3da7ca431b773c8bfc224a`) | `8cc4d8ec13a64419961d96b3f648420fcd55f2c4cd3da7ca431b773c8bfc224a` |
+| B scorer module and its sha256 | `src/weather/calibration/b_scorer.py` `f941628a4bfdb0002f9be1b5a2f11425a021a5389c651fb835c340f914883439` (S0; replaces the earlier `b25b63f7…`, see the B-1 clarification 2026-10-26 §4 for S0→S1) |
+| Dev scorecard code sha256 used by the B scorer (R-H used `f69071ac5612f022…`) | `f69071ac5612f022ade56ada764f813c28da79cd0265848c58041115439005c5` (`dev_scorecard.code_sha256()` at the binding commit; equals R-H's) |
 
 The binding rules:
 - An expected value that differs at binding, for example after a Fable fix, is replaced by the bound value
@@ -295,6 +303,19 @@ The planning value is σ_d = 0.00751 × √(11/10) = 0.0079. The crossed σ is �
 80% power for an R ≈ 0.95 edge needs 67 / 110 dates. The owner chose 45 (Q3), and this limitation is stated
 up front.
 
+**MG-2 gate MDE at binding (N = 45; MG-2 vs MG-1, not B's market comparator; selection evidence only).**
+
+| Source | Population | G1 Δ(00-16) SE / MDE80 | G2 Δ(13-16) SE / MDE80 |
+| --- | --- | --- | --- |
+| dev_c8 `dev_composite.json` sha256 `c4aaa6a542a5960080028b467cd847d69f37513bb718e193e7ec67fd90f9e7b1` (`C:/t/mg2/dev_c8`) | 11 markets, 473 cells, 43 dates | 0.000741 / 0.0021 | 0.001939 / 0.0054 |
+| (iii) `mde_c8.json` sha256 `9aa7afa0be8e9afa067cbe567cad9fbd8ed88aa4e67d56f498d26aff71170226` (`C:/t/l16odc/mde_c8.json`) | exact 10 markets (no Denver, C8), 430 cells, 43 dates | 0.000753 / 0.0021 | 0.001911 / 0.0054 |
+
+- **Caveat on dev_c8:** its `sizing` block is over the 11-market groups, Denver included. The C8 gate is 10
+  markets, so the gate's own figures are (iii); dev_c8 is quoted only for continuity.
+- **(iii):** recomputed on the exact 10-market `gate_groups` cells. Its point equals the gate-groups estimate
+  (G1 −0.0049, G2 −0.0150), and the 11-market control reproduced. Power at the dev point is ≈ 1.00 for both
+  gates; G1 non-inferiority power at Δ = 0 is 0.26.
+
 **Assumptions:**
 - Oct-Dec variance equals Aug-Sep;
 - the 57-date σ_d transfers to MG-2's 43-date / 473-market-day population.
@@ -302,22 +323,24 @@ up front.
 ## (e) Dev-window reuse
 
 DEV_WINDOW_LEDGER.md holds 33 rows on `origin/claude/mg2-c7-asof-gate-20261025`, and lane L2's rung rows
-are pending merge. The integer at binding is `<FILL@BINDING>`, entered as an integer. B scores no dev date;
+are pending merge. The integer at binding is 60 (rows on `origin/master` `a8833a465`, numbered 1-62, rows 34-35 not on master), entered as an integer. B scores no dev date;
 the only dev read is the §(a) control, logged as its own row.
 
 ```b_rule_v1
 rule_id: B-1
 candidate: mg2_asof_capture
-mg2_rule_sha256: <FILL@BINDING>
-mg2_binding_commit: <FILL@BINDING>
-mg2_release_binding_sha256: <FILL@BINDING>
-mg2_owner_decision_id: <FILL@BINDING>
-l6_coefficients_sha256: <FILL@BINDING>
-p3d_n_state_sha256: <FILL@BINDING>
-function_sha256: <FILL@BINDING>
-b_scorer_sha256: <FILL@BINDING>
-scorecard_code_sha256: <FILL@BINDING>
-d0: 2026-10-28
+mg2_rule_sha256: 6fb40203b36d75fabb9689d69006bdec8678f2c979fa84e0402781b8d071f947
+mg2_binding_commit: a8833a4658c914efc83a42edb2079becfcd3c7fd
+mg2_release_binding_sha256: 7db6b70f4982a091d3af67ef1f235eafd8330e82c374d24e39d03fda71f2cd29
+mg2_owner_decision_id: OD-2026-10-25-option-b-dl271-dl274
+l6_coefficients_sha256: 07a6742595f535d448569980af7e04dbf4a2a798c00c82fd52f5f01287ee17e9
+l6_state_sha256: 800072c79af65394cc33134cbaae34af65c4428feb3934e35f8cd6cd153ee2db
+p3d_n_state_sha256: c6cc39f7b57f668557415d28ec37ac291694f4b429e572a3c178fb74e5a9c780
+function_sha256: 8cc4d8ec13a64419961d96b3f648420fcd55f2c4cd3da7ca431b773c8bfc224a
+b_scorer_sha256: f941628a4bfdb0002f9be1b5a2f11425a021a5389c651fb835c340f914883439
+scorecard_code_sha256: f69071ac5612f022ade56ada764f813c28da79cd0265848c58041115439005c5
+# d0 is a PLACEHOLDER set by master; it must equal the MG-2 rule's d0
+d0: 2026-11-02
 d0_latest: 2026-11-02
 n_dates: 45
 markets: atlanta,austin,chicago,dallas,houston,los-angeles,miami,nyc,san-francisco,seattle
