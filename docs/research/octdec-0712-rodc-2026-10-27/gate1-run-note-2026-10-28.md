@@ -42,3 +42,7 @@ that expanded the escape, so the statement wrapped onto a second physical line. 
 
 Gate 1 runs once from this state. The verdict is labelled "vs the Aug-Sep-centred frozen blend (item 341)".
 Any non-verdict failure stops the run, and there is no second fix without master.
+
+## G2 note (2026-10-28)
+
+G2 must use a comparator fit for the season it scores, or report vs MG-1 as primary (master ruling 10-28); written before any G2 code.
