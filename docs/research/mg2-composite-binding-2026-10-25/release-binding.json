@@ -1,5 +1,5 @@
 {
- "built_at_commit": "a8833a4658c914efc83a42edb2079becfcd3c7fd",
+ "built_at_commit": "a0443c2bf152c5efbf4805b5dd2197173a4f29da",
  "files": {
   "src/weather/calibration/mg2_composite.py": "fe5f7c70f62af3f9b7c25e03a6eea8fc234bc25ade9828d0ac108be52c9c6e96",
   "src/weather/calibration/mg2_input_allowlist.py": "3b66896711ae9a2b24f78ae2e2e2aed85ba526f2d13f9d28c1a2ac3c0fd67aad",
@@ -23,6 +23,6 @@
  "l6_state_sha256": "800072c79af65394cc33134cbaae34af65c4428feb3934e35f8cd6cd153ee2db",
  "own_obs_source": "captured_metar_l6_own",
  "p3d_n_state_sha256": "c6cc39f7b57f668557415d28ec37ac291694f4b429e572a3c178fb74e5a9c780",
- "rule_sha256": "6fb40203b36d75fabb9689d69006bdec8678f2c979fa84e0402781b8d071f947",
+ "rule_sha256": "e761cc4eef097b80ae95fa03245871e8689a50125f4ad11ad00286218b17cdec",
  "schema": "mg2_release_binding/1"
 }

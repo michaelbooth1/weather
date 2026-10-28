@@ -4,7 +4,7 @@
 > `c0a4f467ff09980396d5b45dc1548f8932ed5e1a0bc4481263348f05d1433446`). Changes: this note; the retrain record pointer
 > in §0 (c) now names Appendix A; Appendix A is the coordinator's `retrain_overlap.md` (raw sha256
 > `11c1cf581a86cdfb1ad73e97ce40c68678bec385453929281fcb9d1f1e1f6aeb`), text unchanged. The `<FILL@BINDING>` fields stay
-> unfilled: **this is a DRAFT until the 10-27 binding commit**, and the sha256 recorded at binding is that of the filled
+> unfilled: **this was a DRAFT until the binding commit (planned 10-27, made 10-28)**, and the sha256 recorded at binding is that of the filled
 > rule file, not of this copy. Owner answers in §0 are also rows in the [decision log](DECISION_LOG.md); items marked
 > master are master's rulings. The reserved-window side of option 2 is in the
 > [reserved confirmation window](reserved-confirmation-window.md); today's state is in the [state of play](STATE_OF_PLAY.md).
@@ -15,17 +15,19 @@
 > binding-checklist step, and the scorer code is unchanged. Value to fill at binding (the binding commit fills every
 > `<FILL@BINDING>` field): `b_scorer_sha256` = `b25b63f74639e960413ebec185da1e56f3f46363cecf33fe1d077a7b67aadbfd`;
 > control receipt `6284af68d72e46bf917acb3da05ec726590a6509d7a57612ffd01ad23e94f4a8`. B and C8 land night 10-26/27.
+> **Superseded at binding (2026-10-28):** `b25b63f7…` is the scorer of `cb5a3a7dc` (2026-10-25) and is superseded. The
+> bound `b_scorer_sha256` is `module_sha256()` (the file bytes) of `src/weather/calibration/b_scorer.py` at the
+> binding commit, `f941628a…`, last moved by `7da85e8cc3e9cecd00ab931cf5eca14ed12eb7a7` (MG-1 look entry sentinel and dev
+> nowcast pin; B-1 clarification 2026-10-26 §8), after the 10-26 master-review and Fable fix series.
 
 - **Binding package (2026-10-28, branch `claude/b-binding-package-20261028`, from `origin/master`
   `a8833a465`).** Every `<FILL@BINDING>` field is filled below from verified loads: MG-2's
-  `release-binding.json` was written by `mg2_composite bind-release` (no hand edit; bind-release on Windows wrote CRLF, so the file was
-  LF-normalised by git under `eol=lf` and its sha below is of the LF bytes), and its shas are copied here. **`d0` is a PLACEHOLDER** that master sets (D0 <= 2026-11-02); this lane did not choose it. Setting it
-  changes the MG-2 rule's raw sha256, so bind-release is re-run and `mg2_rule_sha256` and
-  `mg2_release_binding_sha256` below are re-filled in the same commit. No DECISION_LOG or DEV_WINDOW_LEDGER
-  binding entry is made until master says go after the Fable review.
-- **Status:** BIND-READY DRAFT, written 2026-10-25. It is bound only by the 10-27 binding commit, which
-  fills every `<FILL@BINDING>` field below. The raw sha256 of the filled file is recorded in DECISION_LOG
-  before D0. Until then nothing is bound, and no B row exists.
+  `release-binding.json` was written by `mg2_composite bind-release` (no hand edit; bind-release on Windows writes
+  CRLF, so the file is LF-normalised by git under `eol=lf` and its sha below is of the LF bytes; master accepted
+  this as disclosed), and its shas are copied here. Master approved the package and said GO on 2026-10-28.
+- **Status:** BOUND 2026-10-28 (written 2026-10-25 as a bind-ready draft). The binding moved from 10-27 to
+  10-28, so by the slip clause of §3 D0 = binding date + 1 = **2026-10-29** (d0_latest stays 2026-11-02). The
+  raw sha256 of this filled file is recorded in DECISION_LOG before D0.
 - **Written blind.** The author read no outcome, label, price, market, settlement or 88a/panel row dated after
   2026-09-29, and no MG-1 forward outcome. Every number here is a dev-window figure quoted from its record.
   Dev figures size the test and are selection evidence only. None of them can pass or fail B.
@@ -52,7 +54,7 @@
 - **(c) Retrain window:** P3d_N and MG-2 are NOT retrain-family; they are serving-stage candidates. B drops
   no 13-16 cell (record: Appendix A).
 - **(d) Coverage field:** master adds a counts-only market-coverage field to the exporter.
-- **D0:** 2026-10-28 is accepted.
+- **D0:** 2026-10-28 was accepted; the binding moved to 10-28, so D0 is 2026-10-29 by the §3 slip clause.
 
 ## 1. The candidate (frozen at binding)
 
@@ -66,9 +68,9 @@ Each row reads only the latest replay snapshot captured at or before its own `ca
 
 | Binding field | Value |
 | --- | --- |
-| MG-2 rule raw sha256 (as bound; draft C6+C7 was `ccb2b82a415056ddfe1edc6fe2ca7192b82e8d940db96eb61101d99b19914f3b`) | `6fb40203b36d75fabb9689d69006bdec8678f2c979fa84e0402781b8d071f947` (placeholder d0; re-filled when master sets d0) |
-| MG-2 binding commit | `a8833a4658c914efc83a42edb2079becfcd3c7fd` (the release binding's `built_at_commit`; every bound file's blob there has the bound sha) |
-| MG-2 `release-binding.json` sha256 | `7db6b70f4982a091d3af67ef1f235eafd8330e82c374d24e39d03fda71f2cd29` (`docs/research/mg2-composite-binding-2026-10-25/release-binding.json`; re-filled when master sets d0) |
+| MG-2 rule raw sha256 (as bound; draft C6+C7 was `ccb2b82a415056ddfe1edc6fe2ca7192b82e8d940db96eb61101d99b19914f3b`) | `e761cc4eef097b80ae95fa03245871e8689a50125f4ad11ad00286218b17cdec` |
+| MG-2 binding commit | `a8833a4658c914efc83a42edb2079becfcd3c7fd` (`origin/master` base of the binding branch; every bound file's blob there has the bound sha. The release binding's `built_at_commit` is `a0443c2bf152c5efbf4805b5dd2197173a4f29da`, a docs-only child with identical bound files) |
+| MG-2 `release-binding.json` sha256 | `4e4dd97d0b2aa0eae920d6ee5406160ca8f0c16a001ba1615446702554a812fa` (`docs/research/mg2-composite-binding-2026-10-25/release-binding.json`) |
 | MG-2 `owner_decision_id` (§4.3 Clarification) | `OD-2026-10-25-option-b-dl271-dl274` (MG-2 Clarification C10: DECISION_LOG 2026-10-25 "Option B: minimal forward formal test plus model levers at full throttle" and "B forward test questions", master-confirmed) |
 | L6 part sha256 (expected `07a6742595f535d448569980af7e04dbf4a2a798c00c82fd52f5f01287ee17e9`) | `07a6742595f535d448569980af7e04dbf4a2a798c00c82fd52f5f01287ee17e9` |
 | Season-matched L6 own-model state sha256 (MG-2 C9 §3; B-1 clarification 2026-10-26 §6) | `800072c79af65394cc33134cbaae34af65c4428feb3934e35f8cd6cd153ee2db` |
@@ -87,7 +89,7 @@ The binding rules:
   - blend_l6, the L6/P3d_N walk-forward blend, which was NULL against L6 at 07-12 (R-F);
   - P3d_N alone at 07-12 (+0.0101 against L6's +0.0081);
   - any candidate chosen after binding.
-- **If MG-2 is not bound on 10-27,** this rule does not start. B then re-binds under the §11 fallback, and
+- **If MG-2 is not bound on 10-28 (planned 10-27),** this rule does not start. B then re-binds under the §11 fallback, and
   never backdates.
 
 ## 2. The comparator
@@ -101,14 +103,15 @@ above, which is R-H's reference. It is never a `last_in_hour` price.
 - **Markets (10, fixed):** atlanta, austin, chicago, dallas, houston, los-angeles, miami, nyc, san-francisco
   and seattle. Denver is excluded (master ruling (a)).
 - **Hours:** local 07-16 for the primary.
-- **D0:** 2026-10-28, the first local target date after the 10-27 binding commit. If the commit slips, D0 is
+- **D0:** 2026-10-29, the first local target date after the binding commit. The binding was planned for 10-27
+  and moved to 10-28, so D0 is the binding date + 1 under this slip rule: if the commit slips, D0 is
   the binding date + 1, and D0 must be ≤ 2026-11-02 so that all 45 dates lie inside P3d_N's training
   coverage, 08-01..12-16 (MG-2 C5). If D0 would fall after 11-02, B re-binds under §11.
 - **Countable dates:** exactly MG-2's look date set, the first 45 countable dates from D0 with no skipping.
   - **Countable** means input-countable (MG-2 binding plan §9.4, over the 10 markets, under MG-2's pre-D0
     Clarification for ruling (a)) and promotion-countable.
   - **Moving the 45th date:** each non-countable date moves the 45th one day later.
-  - **If every date is countable,** the 45th date is 2026-12-11.
+  - **If every date is countable,** the 45th date is 2026-12-12.
 - **B market coverage (fixed daily, outcome-blind):**
   - The counts come from master's counts-only manifest field (ruling (d)), logged in the receipt ledger.
   - A countable date with fewer than 90% of its 07-16 snapshots carrying a capture-time market price is
@@ -187,7 +190,7 @@ The look is VOID if any of these holds:
 
 ## 9. Artifacts, integrity and embargo
 
-**At binding (10-27, before D0):**
+**At binding (10-28, before D0):**
 - this file filled, with its raw sha256 recorded in DECISION_LOG;
 - MG-2's binding commit and `release-binding.json`;
 - `prereg_check` passing on this file;
@@ -217,7 +220,7 @@ No market column travels in the daily channel (binding plan §9.2).
 
 **Embargo:**
 - Nothing about a B date is read until the 45th date has settled and step 1 holds.
-- The earliest look is 2026-12-12, if every date is countable, and no earlier than MG-1's look.
+- The earliest look is 2026-12-13, if every date is countable, and no earlier than MG-1's look.
 - The B scorer refuses otherwise.
 
 ## 10. Coexistence
@@ -329,9 +332,9 @@ the only dev read is the §(a) control, logged as its own row.
 ```b_rule_v1
 rule_id: B-1
 candidate: mg2_asof_capture
-mg2_rule_sha256: 6fb40203b36d75fabb9689d69006bdec8678f2c979fa84e0402781b8d071f947
+mg2_rule_sha256: e761cc4eef097b80ae95fa03245871e8689a50125f4ad11ad00286218b17cdec
 mg2_binding_commit: a8833a4658c914efc83a42edb2079becfcd3c7fd
-mg2_release_binding_sha256: 7db6b70f4982a091d3af67ef1f235eafd8330e82c374d24e39d03fda71f2cd29
+mg2_release_binding_sha256: 4e4dd97d0b2aa0eae920d6ee5406160ca8f0c16a001ba1615446702554a812fa
 mg2_owner_decision_id: OD-2026-10-25-option-b-dl271-dl274
 l6_coefficients_sha256: 07a6742595f535d448569980af7e04dbf4a2a798c00c82fd52f5f01287ee17e9
 l6_state_sha256: 800072c79af65394cc33134cbaae34af65c4428feb3934e35f8cd6cd153ee2db
@@ -339,8 +342,7 @@ p3d_n_state_sha256: c6cc39f7b57f668557415d28ec37ac291694f4b429e572a3c178fb74e5a9
 function_sha256: 8cc4d8ec13a64419961d96b3f648420fcd55f2c4cd3da7ca431b773c8bfc224a
 b_scorer_sha256: f941628a4bfdb0002f9be1b5a2f11425a021a5389c651fb835c340f914883439
 scorecard_code_sha256: f69071ac5612f022ade56ada764f813c28da79cd0265848c58041115439005c5
-# d0 is a PLACEHOLDER set by master; it must equal the MG-2 rule's d0
-d0: 2026-11-02
+d0: 2026-10-29
 d0_latest: 2026-11-02
 n_dates: 45
 markets: atlanta,austin,chicago,dallas,houston,los-angeles,miami,nyc,san-francisco,seattle
