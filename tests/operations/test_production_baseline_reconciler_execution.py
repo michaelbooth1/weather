@@ -2090,7 +2090,8 @@ def test_post_start_readback_failure_is_bounded_by_pt15m(
 ) -> None:
     harness = _build_harness(tmp_path)
 
-    result = _invoke(harness, task_mode="readback_failure")
+    # 120 s is harness margin under host load (62.8 s seen); the contract is the PT15M assertion below.
+    result = _invoke(harness, task_mode="readback_failure", timeout=120)
 
     assert result.returncode != 0
     assert _start_lines(harness) == ["WeatherOneShotPush"]

@@ -119,6 +119,11 @@ workstation.
   only with at least 6 GB of available physical memory and commit charge at or below 90 % (the OD33 ceiling).
   It never applies on the capture PC and never while a live session runs: a portable live stage excludes every
   slot in both orders. Mechanism: *Slots* below.
+- **Memory floors, light scripts and stale markers (master, 2026-10-27).** The 3 GB available-memory floor is for
+  focused runs only; pre-gates keep the 6 GB floor; below 3 GB available, nothing new is admitted. A light script
+  (under 1 minute and under 1 GB) may run directly, without the wrapper, with its sha256, inputs and command line
+  recorded. A stale `ACTIVE` heavy-workload state marker is cleared only through the queue's own recovery (the
+  dead-holder reclaim under *Slots* below), never by hand.
 - **xdist.** `pytest -n` (`--dist loadfile`, `-m "not serial"`, then the `serial` set in one process) runs only
   on the workstation, only through the wrapper, and only after an identical pass set (same test ids, same
   outcomes) has been shown against a serial run.
@@ -186,6 +191,13 @@ below applies: no exemption, no queue state, the same windows and the same bound
   and `slot_id` `all` at start. An older wrapper that takes slot 1 before the barrier holds it is waited for,
   not displaced. The bounded suite runs on the workstation only inside the pre-gate (its lease statement is
   replaced by the driver), so it is covered by this lease; run directly it is the unchanged capture-host lease.
+  The barrier owner writes `exclusive_holder_v1.json` in the queue directory (pid, process start time, boot
+  session, workload, phase `draining` or `held`) and removes it just before releasing the barrier; exclusive
+  waiters log that holder. A caller whose process ancestry contains the live recorded holder in phase `held`
+  (matched by pid plus start time, barrier proved held) is already inside that hold: it is admitted at once
+  with an empty hold and no ticket (pre-gate receipt `lease_mode` `inherited_from_exclusive_holder`,
+  `exclusive_holder` pid and start; PG-NEST-1). A dead or reused holder pid grants nothing; everyone else
+  queues as before.
 - *Thread cap.* Every `workstation_heavy.ps1` job sets `OMP_NUM_THREADS`, `MKL_NUM_THREADS` and
   `OPENBLAS_NUM_THREADS` to floor(logical processors / `-SlotCount`), at least 1. A caller's own lower positive
   value is kept; a higher, absent or malformed one is replaced. The wrapper prints the cap and the `finish`

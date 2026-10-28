@@ -1,0 +1,28 @@
+{
+ "built_at_commit": "a0443c2bf152c5efbf4805b5dd2197173a4f29da",
+ "files": {
+  "src/weather/calibration/mg2_composite.py": "fe5f7c70f62af3f9b7c25e03a6eea8fc234bc25ade9828d0ac108be52c9c6e96",
+  "src/weather/calibration/mg2_input_allowlist.py": "3b66896711ae9a2b24f78ae2e2e2aed85ba526f2d13f9d28c1a2ac3c0fd67aad",
+  "src/weather/calibration/mg2_inputs.py": "546fe5d72a3a48115375ff8196846eaf15cc44c68ab20cfb8fa9b5a1314f4d39",
+  "src/weather/calibration/mg2_p3d_n.py": "4b6776c40a31c6e7e4699ec842a6730129598c9c8a046319edecc092c99a485b",
+  "src/weather/calibration/r0_ols_floor_challenger.py": "e2edb49e1433d8855ec1c9a77a0da9bd8ddc651a8481b7a5e1fd98a53bfc5dc6",
+  "src/weather/calibration/r0_ols_floor_devfit.py": "a2788b9e6eb291d9946da0fa3f5faec7bd30d4a6797ee7c9056e5b7219bb8343",
+  "src/weather/calibration/upstream_obs_screen.py": "f82b6fc0269e3b379910942fb5c17a7901855147eaed112e53ff2b24393604b5",
+  "src/weather/model/mg_serve_core.py": "179fcbe495f36f6fd194c1bd0052ed6e150b0f016adbe0f8e9bb6128bd42e5d8",
+  "src/weather/model/observed_running_max.py": "8cc4d8ec13a64419961d96b3f648420fcd55f2c4cd3da7ca431b773c8bfc224a",
+  "src/weather/reporting/research/guidance_extract_parser.py": "afcbb5d262aa57eea53217aaa064d449a4b99424b0aabbdd48a65ea0aa2b0e06",
+  "src/weather/reporting/scorecards/dev_scorecard.py": "6447876a0956eac4f67132bc69dba48c26a672f7554ec46e8bfbe94ffe801b56",
+  "src/weather/reporting/scorecards/dev_scorecard_data.py": "90627f7a9cc365c10115593b2a012aa2e63252db057606c3e649ac3e3e2f1220",
+  "src/weather/reporting/scorecards/free_source_candidates/l6_stack.py": "f41d9b72c74b672de80224db864501edbba1a73d69b02029fcad8645f39cbb97",
+  "src/weather/reporting/scorecards/free_source_candidates/mg1.py": "ad6e524ee103072e7738d78264cf1df855a30b01b43099425d4a1de7ae3d889d",
+  "src/weather/reporting/scorecards/loss_atlas.py": "d18d173e63971ebac12bcc4873286ac09db3cabc89afbf30a51c0e39313a2320"
+ },
+ "forecast_high_source": "captured_nbm_v2_mean_07z",
+ "function_sha256": "8cc4d8ec13a64419961d96b3f648420fcd55f2c4cd3da7ca431b773c8bfc224a",
+ "l6_coefficients_sha256": "07a6742595f535d448569980af7e04dbf4a2a798c00c82fd52f5f01287ee17e9",
+ "l6_state_sha256": "800072c79af65394cc33134cbaae34af65c4428feb3934e35f8cd6cd153ee2db",
+ "own_obs_source": "captured_metar_l6_own",
+ "p3d_n_state_sha256": "c6cc39f7b57f668557415d28ec37ac291694f4b429e572a3c178fb74e5a9c780",
+ "rule_sha256": "e761cc4eef097b80ae95fa03245871e8689a50125f4ad11ad00286218b17cdec",
+ "schema": "mg2_release_binding/1"
+}
