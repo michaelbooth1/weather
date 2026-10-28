@@ -50,11 +50,12 @@ def _frame(planted, n_days=20, seed=11):
                 u = rng.normal(0, 3)
                 y = int(round(fh + 1.0 + (1.2 * u if planted else 0.0) + rng.normal(0, 0.7)))
                 noise_low = rng.normal(0, 3)
+                run_low = float("inf")
                 doy = date.fromisoformat(target).timetuple().tm_yday
                 for hour in r.RODC_HOURS:
                     F = float(y - abs(round(rng.normal(0, 3))) - (12 - hour))
                     low = fh - 14.0 + (u if planted else noise_low)
-                    low = min(float(round(low, 1)), F)
+                    low = run_low = min(float(round(low, 1)), F - 1.0, run_low)
                     dew = float("nan") if d % 5 == 0 else float(round(fh / 4 + rng.normal(0, 2), 1))
                     k_max = float("nan") if d % 7 == 0 else fh + rng.normal(0, 2)
                     rows.append({
@@ -182,26 +183,63 @@ def test_ladder_file_matches_the_rule_pin():
 
 def test_attach_g2_columns_values_nan_and_refusals():
     frame = pd.DataFrame({"market": ["nyc", "nyc"], "centre": ["2026-11-09"] * 2,
-                          "target_date": ["2023-11-08", "2023-11-09"], "hour": [9, 9], "F": [50.0, 51.0]})
+                          "target_date": ["2023-11-08", "2023-11-09"], "hour": [9, 9], "F": [50.0, 51.0],
+                          "ct": [49.0, float("nan")]})
     low = {("nyc", "2026-11-09", "2023-11-08", 9): (41.0, 50.0), ("nyc", "2026-11-09", "2023-11-09", 9): (42.5, 51.0)}
     dew = {("nyc", "2026-11-09", "2023-11-08", 9): (50.0, 3.2),
            ("nyc", "2026-11-09", "2023-11-09", 9): (51.0, float("nan"))}
-    out, st = g.attach_g2_columns(frame, low, dew, date_col="target_date")
+    out, st = g.attach_g2_columns(frame, low, dew, date_col="target_date", current_col="ct")
     assert out.low_so_far.tolist() == [41.0, 42.5]
     assert out.dewpoint_c.iloc[0] == 3.2 and math.isnan(out.dewpoint_c.iloc[1])  # NaN stays NaN
     assert st["dewpoint_nan"] == 1 and "low_so_far" not in frame  # input not mutated
+    assert st["join_matched"] == st["join_required"] == 2 and st["current_checked"] == 1
     with pytest.raises(g.RodcGate2Error, match="no ladder-cache or record entry"):
-        g.attach_g2_columns(frame, {k: v for k, v in list(low.items())[:1]}, dew, date_col="target_date")
+        g.attach_g2_columns(frame, {k: v for k, v in list(low.items())[:1]}, dew, date_col="target_date",
+                            current_col="ct")
     bad_cache = dict(low)
     bad_cache[("nyc", "2026-11-09", "2023-11-09", 9)] = (42.5, 51.5)  # cache's high_so_far != the record's
     with pytest.raises(g.RodcGate2Error, match="high_so_far assertion"):
-        g.attach_g2_columns(frame, bad_cache, dew, date_col="target_date")
+        g.attach_g2_columns(frame, bad_cache, dew, date_col="target_date", current_col="ct")
     with pytest.raises(g.RodcGate2Error, match="high_so_far assertion"):  # the frame's own F differs
-        g.attach_g2_columns(frame.assign(F=[50.0, 52.0]), low, dew, date_col="target_date")
+        g.attach_g2_columns(frame.assign(F=[50.0, 52.0]), low, dew, date_col="target_date", current_col="ct")
     above = dict(low)
     above[("nyc", "2026-11-09", "2023-11-08", 9)] = (55.0, 50.0)
-    with pytest.raises(g.RodcGate2Error, match="above its high_so_far"):
-        g.attach_g2_columns(frame, above, dew, date_col="target_date")
+    with pytest.raises(g.RodcGate2Error, match="bounds check"):
+        g.attach_g2_columns(frame, above, dew, date_col="target_date", current_col="ct")
+
+
+def test_bounds_refuse_low_above_the_current_hour_temperature(capsys):
+    frame = pd.DataFrame({"market": ["nyc"], "centre": ["2026-11-09"], "target_date": ["2023-11-08"], "hour": [9],
+                          "F": [50.0], "ct": [44.0]})
+    low = {("nyc", "2026-11-09", "2023-11-08", 9): (45.0, 50.0)}  # below high_so_far, above the current temp
+    dew = {("nyc", "2026-11-09", "2023-11-08", 9): (50.0, 3.0)}
+    with pytest.raises(g.RodcGate2Error, match="bounds check"):
+        g.attach_g2_columns(frame, low, dew, date_col="target_date", current_col="ct")
+    out, _ = g.attach_g2_columns(frame.assign(ct=[float("nan")]), low, dew, date_col="target_date", current_col="ct")
+    assert out.low_so_far.iloc[0] == 45.0  # no current-hour temperature: only the high_so_far bound applies
+    assert "join coverage 1/1" in capsys.readouterr().out
+
+
+def test_join_coverage_is_reported_before_refusing(capsys):
+    frame = pd.DataFrame({"market": ["nyc", "nyc"], "centre": ["2026-11-09"] * 2,
+                          "target_date": ["2023-11-08", "2023-11-09"], "hour": [9, 9], "F": [50.0, 51.0],
+                          "ct": [49.0, 50.0]})
+    low = {("nyc", "2026-11-09", "2023-11-08", 9): (41.0, 50.0)}
+    dew = {("nyc", "2026-11-09", "2023-11-08", 9): (50.0, 3.0)}
+    with pytest.raises(g.RodcGate2Error, match="join coverage 1/2"):
+        g.attach_g2_columns(frame, low, dew, date_col="target_date", current_col="ct")
+    assert "join coverage 1/2" in capsys.readouterr().out
+
+
+def test_running_min_refuses_a_low_that_rises_over_hours():
+    key = ("nyc", "2026-11-09", "2023-11-08")
+    ok = {key + (7,): (44.0, 45.0), key + (8,): (43.0, 47.0), key + (9,): (43.0, 50.0),
+          key + (10,): (float("nan"), 51.0), ("nyc", "2026-11-09", "2023-11-09", 7): (60.0, 61.0)}
+    assert g.check_running_min(ok) == 2
+    bad = dict(ok)
+    bad[key + (11,)] = (43.5, 52.0)
+    with pytest.raises(g.RodcGate2Error, match="running-minimum"):
+        g.check_running_min(bad)
 
 
 def test_load_low_map_keeps_only_octdec_2021_25_and_no_label(tmp_path):
@@ -251,7 +289,8 @@ def test_support_for_uses_training_years_only(planted):
 def test_fit_state_matches_gate1_fold_state_and_is_deterministic(planted):
     frame, frozen = planted
     low, dew = _maps(frame)
-    base, _ = g.attach_g2_columns(frame.drop(columns=["_low", "_dew"]), low, dew, date_col="target_date")
+    base, _ = g.attach_g2_columns(frame.drop(columns=["_low", "_dew"]), low, dew, date_col="target_date",
+                                  current_col="x_current_temp")
     sup = r.fold_support(base, 2024, MARKETS)
     gate1_state, _ = r.fold_state(frozen, base, sup, 2024)
     train4 = [2021, 2022, 2023, 2025]
@@ -319,6 +358,11 @@ def test_gate2_planted_effect_selects_g2_everywhere_and_passes(tmp_path, monkeyp
     assert on_disk["verdict"] == "PASS" and on_disk["pass_rule"].startswith("upper 95% bound of dR(NEST vs G1)")
     assert "item 341" in on_disk["reported"]["nest_vs_comp"]["label"]
     assert "IN-SAMPLE" in on_disk["reported"]["nest_vs_comp_800072c7"]["label"]
+    cov = on_disk["counts"]["join_coverage"]
+    assert cov["train"] == [len(frame), len(frame)] and cov["score"] == [len(frame), len(frame)]
+    checks = on_disk["low_so_far_checks"]
+    assert checks["running_min"] == checks["bounds"] == "PASS" and checks["window"].startswith("UNVERIFIED")
+
     scored = pd.read_csv(tmp_path / "gate2_rows.csv.gz")
     assert set(scored.nest_arm) == {"g2"}
     assert np.array_equal(scored.nest.to_numpy(float), scored.g2.to_numpy(float), equal_nan=True)
@@ -374,3 +418,16 @@ def test_gate2_refuses_an_existing_output(tmp_path, monkeypatch, planted):
     with pytest.raises(g.RodcGate2Error, match="refusing to overwrite"):
         _gate2(tmp_path)
     assert (tmp_path / "gate2.json").read_text(encoding="utf-8") == "{}"
+
+
+def test_gate2_refuses_a_running_min_violation(tmp_path, monkeypatch, planted):
+    frame, frozen = planted
+    _wire(monkeypatch, frame, frozen)
+    low, _ = _maps(frame)
+    m, c, d = frame.market.iloc[0], frame.centre.iloc[0], frame.target_date.iloc[0]
+    lo12 = low[(m, c, d, 12)]
+    low[(m, c, d, 12)] = (low[(m, c, d, 7)][0] + 0.5, lo12[1])
+    monkeypatch.setattr(g, "load_low_map", lambda dd, markets: low)
+    with pytest.raises(g.RodcGate2Error, match="running-minimum"):
+        _gate2(tmp_path)
+    assert not (tmp_path / "gate2.json").exists()

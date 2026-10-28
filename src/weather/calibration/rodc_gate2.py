@@ -111,17 +111,34 @@ def load_dew_map(records_root, markets, centres=G2_CENTRES):
     return out
 
 
-def attach_g2_columns(frame, low_map, dew_map, *, date_col):
-    """Append low_so_far and dewpoint_c to ``frame`` on (market, centre, date, hour). Refuses (C3.4) if any row
-    has no ladder-cache or record entry, or if the cache's high_so_far differs from the record's (the
-    ``overnight_lows`` assertion against the records the arms use) or from the frame's own F. -> (frame, stats)."""
+def check_running_min(low_map):
+    """Master's pin check (1): for each (market, centre, date), low_so_far is non-increasing over the cutoff hours
+    (a running minimum since local midnight). Any violation refuses. -> number of (market, centre, date) groups."""
+    groups = {}
+    for (m, c, d, h), (lo, _high) in low_map.items():
+        groups.setdefault((m, c, d), []).append((int(h), lo))
+    bad = []
+    for key, seq in groups.items():
+        seq = sorted(x for x in seq if math.isfinite(x[1]))
+        bad += [(key, a, b) for a, b in zip(seq, seq[1:]) if b[1] > a[1] + HIGH_TOL]
+    if bad:
+        raise RodcGate2Error(f"{len(bad)} running-minimum violations in low_so_far, e.g. {bad[:3]}")
+    return len(groups)
+
+
+def attach_g2_columns(frame, low_map, dew_map, *, date_col, current_col):
+    """Append low_so_far and dewpoint_c to ``frame`` on (market, centre, date, hour). Refuses (C3.4 and master's pin
+    checks) if any row has no ladder-cache or record entry, if the cache's high_so_far differs from the record's
+    (the ``overnight_lows`` assertion against the records the arms use) or from the frame's own F, or if
+    low_so_far exceeds the row's high_so_far or, where the record has one, its current-hour temperature
+    (``current_col``). Join coverage (matched / required) is in the stats, also when it refuses. -> (frame, stats)."""
     import numpy as np
 
     low, dew = np.full(len(frame), np.nan), np.full(len(frame), np.nan)
     stats = Counter()
-    missing, mismatch = [], []
-    for i, (m, c, d, h, F) in enumerate(zip(frame["market"], frame["centre"], frame[date_col], frame["hour"],
-                                           frame["F"])):
+    missing, mismatch, bounds = [], [], []
+    for i, (m, c, d, h, F, ct) in enumerate(zip(frame["market"], frame["centre"], frame[date_col], frame["hour"],
+                                               frame["F"], frame[current_col])):
         key = (m, c, str(d)[:10], int(h))
         lo, de = low_map.get(key), dew_map.get(key)
         if lo is None or de is None:
@@ -129,19 +146,31 @@ def attach_g2_columns(frame, low_map, dew_map, *, date_col):
             continue
         cache_high, rec_high = lo[1], de[0]
         F = float("nan") if F is None else float(F)
+        ct = float("nan") if ct is None else float(ct)
         if not (abs(cache_high - rec_high) <= HIGH_TOL and (not math.isfinite(F) or abs(F - rec_high) <= HIGH_TOL)):
             mismatch.append((key, cache_high, rec_high, F))
+            continue
+        if math.isfinite(lo[0]) and ((math.isfinite(F) and lo[0] > F + HIGH_TOL)
+                                     or (math.isfinite(rec_high) and lo[0] > rec_high + HIGH_TOL)
+                                     or (math.isfinite(ct) and lo[0] > ct + HIGH_TOL)):
+            bounds.append((key, lo[0], F, ct))
             continue
         low[i], dew[i] = lo[0], de[1]
         stats["dewpoint_nan"] += int(not math.isfinite(de[1]))
         stats["low_nan"] += int(not math.isfinite(lo[0]))
+        stats["current_checked"] += int(math.isfinite(lo[0]) and math.isfinite(ct))
+    stats["join_required"] = int(len(frame))
+    stats["join_matched"] = int(len(frame) - len(missing))
+    coverage = f"join coverage {stats['join_matched']}/{stats['join_required']}"
+    print(f"r-odc gate 2 {date_col} {coverage}", flush=True)
     if missing:
-        raise RodcGate2Error(f"{len(missing)} rows have no ladder-cache or record entry, e.g. {missing[:3]}")
+        raise RodcGate2Error(f"{coverage}: {len(missing)} rows have no ladder-cache or record entry, "
+                             f"e.g. {missing[:3]}")
     if mismatch:
         raise RodcGate2Error(f"{len(mismatch)} rows fail the high_so_far assertion, e.g. {mismatch[:3]}")
-    if (np.isfinite(low) & np.isfinite(frame["F"].to_numpy(float))
-            & (low > frame["F"].to_numpy(float) + HIGH_TOL)).any():
-        raise RodcGate2Error("a low_so_far is above its high_so_far")
+    if bounds:
+        raise RodcGate2Error(f"{len(bounds)} rows fail the bounds check (low_so_far above high_so_far or the "
+                             f"current-hour temperature), e.g. {bounds[:3]}")
     out = frame.copy()
     out["low_so_far"], out["dewpoint_c"] = low, dew
     stats["rows"] = int(len(out))
@@ -459,8 +488,11 @@ def gate2(*, nbm_corpus, records_root, research_root, state_0712, hrrr_2123, sum
     # the two columns, joined and asserted before any fit (C3.4)
     low_map = load_low_map(ladder_cache, markets)
     dew_map = load_dew_map(records_root, markets)
-    frame, col_train = attach_g2_columns(frame, low_map, dew_map, date_col="target_date")
-    recf, col_score = attach_g2_columns(recf, low_map, dew_map, date_col="local_date")
+    running_min_groups = check_running_min(low_map)
+    frame, col_train = attach_g2_columns(frame, low_map, dew_map, date_col="target_date",
+                                         current_col="x_current_temp")
+    recf, col_score = attach_g2_columns(recf, low_map, dew_map, date_col="local_date", current_col="current_temp")
+    col_train["running_min_groups"] = col_score["running_min_groups"] = running_min_groups
     del low_map, dew_map
 
     # gate 1 reproduction control (C3.5): gate 1's own code path, unchanged
@@ -518,8 +550,14 @@ def gate2(*, nbm_corpus, records_root, research_root, state_0712, hrrr_2123, sum
                      "g2_vs_g1_plain": dict(r1.compare(scored, "g2", "g1", primary5), label="non-nested, reference"),
                      "g1_vs_comp": pooled("g1", "comp")},
         "control": dict(control, determinism_max_abs=det),
+        "low_so_far_checks": {"running_min": "PASS", "bounds": "PASS", "join_coverage": "PASS",
+                              "window": "UNVERIFIED: the ladder caches carry no observation timestamps; the "
+                                        "at-or-before-h:00-on-date-D window is the assumption of overnight_lows' "
+                                        "minute_of_day <= cutoff filter on that date's rows (disclosed)"},
         "counts": {"scoring_rows_read": int(len(recf)), "row_stats": stats, "training": train_stats,
                    "columns_train": col_train, "columns_score": col_score,
+                   "join_coverage": {"train": [col_train["join_matched"], col_train["join_required"]],
+                                     "score": [col_score["join_matched"], col_score["join_required"]]},
                    "fold_training_rows": {"g1": {str(y): v for y, v in fold_rows.items()},
                                           "g2": {str(y): v for y, v in g2_rows.items()}}},
         "fold_support": {str(y): {m: [v[0], v[-1], len(v)] for m, v in sup.items()} for y, sup in supports.items()},
