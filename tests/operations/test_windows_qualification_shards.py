@@ -68,6 +68,7 @@ EXPECTED_SHARDS = {
             "tests/operations/test_loss_atlas_admission.py",
             "tests/operations/test_ps_script_root_param_defaults.py",
             "tests/operations/test_maker_shadow_ops_scripts.py",
+            "tests/operations/test_night_sequencer_script.py",
         ],
     ),
     "launch": (

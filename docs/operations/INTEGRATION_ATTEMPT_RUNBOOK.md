@@ -201,6 +201,29 @@ Registration holds the attempt terminal mutex from its closure/reconciliation
 check through intent, Scheduler mutation, receipt, and final readback. Suite and
 merge entry also refuse an attempt that already has either terminal receipt.
 
+## Generate the night's commands
+
+`python -m weather.operations.night_sequencer --plan <landing-night-plan.json> --out-dir <dir>
+[--expect-plan-sha256 <sha>] [--preflight-receipt <label>=<path>]` reads only the hashed
+`landing_night_plan_v0.1` (refused on a hash mismatch) and writes three files.
+
+- `sequencer-<night>.ps1`. Run it from the production root once per unit:
+  `-Unit <label> -WorktreeParent <dir> -GitExecutablePath <reviewed git.exe> [-Attempt <n>] [-Execute]`.
+  It checks the following, in order:
+  - the exact tip, and `master` equal to `origin/master`;
+  - the unit's stacked base has landed;
+  - tree identity: `master` is an ancestor of the tip, or every `master` commit outside the tip is a no-content merge (its tree equals its merged parent's) of a head the tip contains. Otherwise rebuild and re-pregate.
+  - no running `WeatherIntegration*` task, and the lease is free;
+  - the binding `roll_verdict.ps1` (a plan that said roll-free, but whose binding verdict is not roll-free, stops);
+  - the windows: suite three to four minutes after now and not before 00:35 (the real first trigger), merge at max(suite + 30 min, 01:00), the merge trigger not past 03:40, and the suite end (suite + `-SuiteMinutes`, default from the generator's `--suite-minutes`) not past 03:40, because the consumer stops a suite still running then.
+
+  It prints `SEQUENCER ... VERDICT=READY|WAIT|STOP|STOP_FOR_NIGHT|DONE|CREATED`, with exit 0, 3 (wait) or 4.
+  With `-Execute` it adds the detached worktree and runs `new_integration_attempt.ps1`.
+  It **never** registers: it prints the `register_integration_attempt.ps1` command for the operator-authorised step above.
+  A plan slot with `"landing_path": "direct_rf"` (allowed only for an expected `ROLL-FREE` head) is not an attempt: after the same gates it only prints the direct guarded-merge commands (worktree, `bounded_worktree_test_suite.ps1`, which takes the lease, then `quiet_window_merge.ps1`), even with `-Execute`. 03:40 does not bind it; it stops for the night if suite + `-SuiteMinutes` + `-LandMinutes` would pass the 09:00 heavy-work close.
+- `timetable-<night>.md` lists the order, path and gates, with a serial estimate (first suite 00:35). Attempts are serial because each one freezes the production baseline. An attempt unit overflows when its merge trigger or its suite end is past 03:40; a direct unit only when it would not land by 09:00.
+- `queue-<night>.draft.json` is an unsigned M6 queue draft. Every entry has `approved: false`, and only the owner approves and signs it.
+
 ## Early launch diagnostics
 
 The suite wrapper writes a create-once

@@ -217,6 +217,12 @@ judges a head on the night's cumulative merge (master, then the heads landing ea
 the head) and writes a non-binding JSON verdict; exit 0 PASS, 1 FAIL, 2 ERROR, 3 CONFLICT,
 4 TESTS_NOT_RUN or PASS_NO_TESTS, 5 SUPERSEDED, 6 DRY_RUN. It refuses to run on the capture host.
 
+The [night sequencer](docs/operations/INTEGRATION_ATTEMPT_RUNBOOK.md#generate-the-nights-commands)
+(`python -m weather.operations.night_sequencer --plan <landing-night-plan.json> --out-dir <dir>`)
+turns a hashed night plan into a per-unit gate-and-create script, an estimated timetable and an
+unsigned merge-queue draft; it reads only the plan. Exit 0 written, 2 written with blocking
+findings, 1 refused.
+
 The [portfolio ledger](docs/operations/portfolio-ledger.md) rebuilds separate
 campaign books from archived reads with
 `python -m maker_core.portfolio report --snapshots <dir> --campaigns <json> --out <dir>`.
