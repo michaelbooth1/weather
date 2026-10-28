@@ -420,3 +420,72 @@ file, so the control's code path and its exact result (`8d87027a…`) stand with
     changed.
 - **Test at the new tip:** the test branch merges this tip (`5451e8f3c…`), and the full synthetic end-to-end
   test passes there, run through `workstation_heavy.ps1 -Queue`.
+
+## Clarification 3 (2026-10-28, master ruling relayed by the coordinator): gate 2 comparator and pass rule
+
+- **Written after the gate 1 result, disclosed.** It follows gate 1 (PASS, dR(G1 vs COMP) −0.0248
+  [−0.0276, −0.0220], `gate1.json` `6f26c5a2…`, ledger row 65) and master's 10-28 ruling that G2 must use a
+  comparator fit for the season it scores. No G2 code has run, and no outcome, label or price after 2026-09-29 is
+  read. This Clarification changes the file's sha256. Gate 1's pin `40ea3a94…` stays as recorded for gate 1.
+- **Source:** master accepted option (i) of
+  [the gate 2 design](gate2-design-2026-10-28.md) (design file sha256 `ee98d9fd…`), with the terms below.
+
+### C3.1 Gate 2 pass rule (narrows section 4, "Gate 2", "Pass rule")
+
+- **PASS** iff the upper 95% bound of dR(NEST vs G1) is below 0. This is the only gating condition.
+  - G1 is the gate 1 arm: the Oct-Dec P3d_H refit under blocked LOYO, inside the frozen blend. It is
+    season-fit, and it is G2's exact parent.
+- The second condition of the declared pass rule, dR(NEST vs COMP) < 0, **no longer gates**. COMP's P3d_H is
+  Aug-Sep-fitted (section 3), so under the ruling it is not a comparator fit for Oct-Dec.
+- The nested procedure, the statistic, the interval, the population (gate 1's scored key set) and the fail
+  consequence are unchanged.
+
+### C3.2 Reported, never gating
+
+- **dR(NEST vs COMP),** labelled "vs the Aug-Sep-centred frozen blend (item 341)".
+  - COMP's L6 partner is the HGB `0e89b32d…` named in section 3, because the rule text governs. Gate 1 ran with
+    it (`cool_season_audit.L6_STATE_SHA256`).
+- **dR(NEST vs COMP-800072c7):** COMP with its L6 nowcasts from the season-matched HGB `800072c7…`
+  (`cool_season_audit.SM_STATE_SHA256`) instead.
+  - The P3d_H state `e9276477…`, the weights `c7b8ebc0…` and the part `07a67425…` are unchanged.
+  - Labelled IN-SAMPLE: `800072c7` was trained on every Oct-Dec 2021-25 history row, and the weights were fitted
+    with the `0e89b32d` partner.
+  - It is reported because ledger row 49 names `800072c7` beside the same part. The discrepancy is noted on
+    row 49.
+- **dR(NEST vs MG-1),** the MG-1 analogue on the same keys.
+- **Also reported:** the G2-selection count (0-5); each hour, held-out year and the 5 primary markets; plain
+  non-nested G2 vs G1; the inner-fold means; and the per-fold out-of-support counts (inner and outer).
+
+### C3.3 Disclosed limitation
+
+- The blend weights w_h `c7b8ebc0…` were fitted on Aug-Sep. They are shared, frozen, by G1, G2 and NEST.
+  - So no arm is season-fit in the blend layer.
+  - In the paired G2 − G1 difference, the shared weights cancel to first order. They remain only through how the
+    two P3d_H arms interact with the same w_h.
+  - Master accepts this for a column test.
+
+### C3.4 Inputs for the two columns
+
+- **`low_so_far`:** `ols_floor_ladder.overnight_lows` (file sha256 `6e6d100f…`), first element.
+  - The records carry no raw history rows. The value is therefore read from L9's ladder caches, which are built by
+    `ols_floor_ladder build`, the function that calls `overnight_lows` with its high_so_far assertion. The caches
+    are `C:/t/l9/cache/cache_<market>_<centre>.json`; the run pins a manifest sha over the cache files.
+  - It is joined on (market, centre, date, hour).
+  - The run refuses unless the cache's `high_so_far` equals the record's high_so_far to 1e-9 on every joined row.
+    This is the section 3 assertion, checked against the records the arms use.
+  - A row with no cache entry also refuses the run.
+- **`dewpoint_c`:** the L2 record's own `dewpoint_c` field, on the same join. NaN stays NaN.
+- Only Oct-Dec 2021-25 rows are kept from either source. Nothing dated 2026 is used.
+
+### C3.5 Control and determinism (VOID if either fails)
+
+- **Gate 1 reproduction control:** before anything is scored, the run re-executes gate 1's own code path
+  (`rodc_octdec.fold_state`, `comp_state`, `score_rows`, unchanged at module `9c9752b8…`).
+  - It must reproduce `gate1_rows.csv.gz` (`5239e6a1…`): columns comp, g1, mg1, p3d_comp and p3d_g1, on the
+    same keys, to 1e-12, with identical NaN patterns.
+  - G1 in gate 2 is exactly these reproduced fold states.
+- **Determinism:** the first outer G2 fit is repeated, and its mean-model predictions on its training rows must
+  be identical.
+- **Code placement:** gate 2 lives in a new module, `weather.calibration.rodc_gate2`, so `rodc_octdec.py` stays
+  byte-identical. It is reached through `cool_season_audit rodc-gate2`.
+- **Run:** one run only, after master's pin of the env commit, the module shas and the argv.
