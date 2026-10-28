@@ -5332,6 +5332,510 @@ def rung_o_loyo(*, records_root, nbm_train_corpus, ra_loyo_rows, gefs_corpus, ou
     return result
 
 
+# ---------------------------------------------------------------- R-O gates 2 and 3 (rule_rn.md lines 117-148)
+# Every parameter below cites rule_rn.md at 46ca0a824 (original text sha RO_RULE_SHA256, with Clarification 1
+# RO_RULE_C1_SHA256). Where the rule is silent the scorer refuses to choose: ``fix_fit_population`` and
+# ``dev_hour_field`` have no default and must be pinned by the caller (see the R-O G2/G3 commit message).
+RO_LOYO_RESULT_SHA256 = "496ed1a50dd7619c2e9a063981ffcfc0f729c7c5016f96c9e557d1e6fac2a3d9"  # gate 1, rule L171
+RO_LOYO_ROWS_SHA256 = "75b4adc5ff705764c68eaad85ac77a93fc999a4b2171b4b1cd71875325a0dd94"  # gate 1 rows
+RO_PARITY_C1_SHA256 = "2553e0ef2b59de310a445b3b7b37ea0d15f4e0a8cf8ece469a0eb96f221388b6"  # P under C1 (PASS)
+# rule L124 "fitted once on all 2021-25 LOYO-inner predictions": "loyo" = each year predicted from the other four
+# (the inner level with nothing held out); "nested-inner" = the union of gate 1's inner predictions (each year x
+# predicted from the three years other than x and Y, for every held-out Y). Open point; no default.
+RO_FIX_FIT_POPULATIONS = ("loyo", "nested-inner")
+# rule L36-37, L88: the dev row's hour h (coefficient index and the G cutoff h:00 local). Open point; no default.
+RO_DEV_HOUR_FIELDS = ("local_hour", "cutoff_hour")
+RO_TOL = 1e-9  # rule L132-133
+
+
+def _ro_predict(at_hour, train_years, target_year, buckets, gvals, hour):
+    """ro_loyo's prediction step: P3d_N_fix fit on ``train_years``, applied to ``target_year`` rows at ``hour``,
+    with d = G - N (N = ``fh`` after attach_training_nbm, rule L86), None when either is missing (rule L89)."""
+    from weather.calibration import feature_model as fm
+
+    train = at_hour[at_hour["year"].isin(train_years)].reset_index(drop=True)
+    val = at_hour[at_hour["year"] == target_year].reset_index(drop=True)
+    entry = _rung_entry(train, *_arm_spec(RUNG_ARMS["P3d_N_fix"]))
+    out = []
+    for market in sorted(val["market"].unique()):
+        part = val[val["market"] == market].reset_index(drop=True)
+        for i, dist in enumerate(_dist_from_fit(entry, part, buckets, market)):
+            day = str(part.at[i, "target_date"])[:10]
+            g = gvals.get((market, day, int(hour)))
+            n = float(part.at[i, "fh"])
+            diff = (g - n) if (g is not None and math.isfinite(n)) else None
+            out.append({"market": market, "date": day, "dist": dist, "actual": int(part.at[i, "y"]),
+                        "floor": float(part.at[i, "F"]), "diff": diff,
+                        "raw_brier": float(fm.brier_score(dist, int(part.at[i, "y"])))})
+    return out
+
+
+def ro_pair_losses(dist, actual, floor, diff):
+    """(Brier at s = 0, Brier at every RO_PAIRS pair) under the LOYO rule-4 mask, exactly as gate 1 (rule L94-97)."""
+    loss = rm_loyo_losses(dist, actual, floor, shifts=tuple([0.0] + list(ro_row_shifts(diff))))
+    return float(loss[0]), loss[1:]
+
+
+def ro_fix_fit_losses(frame, buckets, gvals, hours=RUNG_HOURS, predict=_ro_predict):
+    """Training-side losses for the P3d_N_fix_G all-years fit (rule L124), both candidate populations.
+
+    Returns ``(loyo_total, nested_total, nested_by_held, loyo_rows)``: per hour the summed pair losses over the plain
+    LOYO predictions, over the union of gate 1's inner predictions, gate 1's inner sums per (held, hour) (control),
+    and the plain LOYO rows (control against gate 1's rows)."""
+    import numpy as np
+
+    loyo_total = defaultdict(lambda: np.zeros(len(RO_PAIRS)))
+    nested_total = defaultdict(lambda: np.zeros(len(RO_PAIRS)))
+    nested_by_held = defaultdict(lambda: np.zeros(len(RO_PAIRS)))
+    rows = []
+    for hour in hours:
+        at_hour = frame[frame["hour"] == hour]
+        years = sorted(int(y) for y in at_hour["year"].unique())
+        for held in years:
+            for r in predict(at_hour, [y for y in years if y != held], held, buckets, gvals, hour):
+                noshift, loss = ro_pair_losses(r["dist"], r["actual"], r["floor"], r["diff"])
+                loyo_total[hour] += loss
+                rows.append({"hour": int(hour), "year": int(held), "market": r["market"], "date": r["date"],
+                             "P3d_N_fix_brier": r["raw_brier"], "noshift_brier": noshift,
+                             "gefs_minus_anchor": r["diff"]})
+            for x in years:
+                if x == held:
+                    continue
+                for r in predict(at_hour, [y for y in years if y not in (x, held)], x, buckets, gvals, hour):
+                    _, loss = ro_pair_losses(r["dist"], r["actual"], r["floor"], r["diff"])
+                    nested_total[hour] += loss
+                    nested_by_held[(held, hour)] += loss
+        print(f"ro fix fit h{hour:02d}: {sum(1 for r in rows if r['hour'] == hour)} loyo rows", flush=True)
+    return dict(loyo_total), dict(nested_total), dict(nested_by_held), rows
+
+
+def ro_fit_pooled(loss_by_hour):
+    """{hour: (a, b) grid minimiser of the summed loss, rule L90-92 tie rule} plus its training-score record."""
+    out = {}
+    for hour, loss in sorted(loss_by_hour.items()):
+        a, b = ro_pick(loss)
+        i = RO_PAIRS.index((a, b))
+        out[int(hour)] = {"a": a, "b": b, "loss_noshift": float(loss[RO_ZERO]), "loss_fit": float(loss[i]),
+                          "training_score_not_worse": bool(loss[i] <= loss[RO_ZERO] + 1e-12)}
+    return out
+
+
+def ro_check_loyo_rows(rows, gate1_rows):
+    """Control: the plain LOYO predictions reproduce gate 1's rows (raw Brier, unshifted Brier, G - N) to 1e-9."""
+    want = {(r["hour"], r["market"], r["date"]): r for r in gate1_rows}
+    if len(want) != len(rows):
+        raise PooledModelError(f"gate 1 rows control: {len(rows)} rows vs {len(want)}")
+    worst = 0.0
+    for r in rows:
+        w = want.get((r["hour"], r["market"], r["date"]))
+        if w is None or w["year"] != r["year"]:
+            raise PooledModelError(f"gate 1 rows control: no matching row for {r['hour'], r['market'], r['date']}")
+        if (w["gefs_minus_anchor"] is None) != (r["gefs_minus_anchor"] is None):
+            raise PooledModelError(f"gate 1 rows control: G coverage differs at {r['market'], r['date']}")
+        pairs = [(w["P3d_N_fix_brier"], r["P3d_N_fix_brier"]), (w["noshift_brier"], r["noshift_brier"])]
+        if w["gefs_minus_anchor"] is not None:
+            pairs.append((w["gefs_minus_anchor"], r["gefs_minus_anchor"]))
+        worst = max([worst] + [abs(float(x) - float(y)) for x, y in pairs])
+    if worst > RO_TOL:
+        raise PooledModelError(f"gate 1 rows control failed: max abs diff {worst}")
+    return worst
+
+
+def ro_check_gate1_coefficients(nested_by_held, gate1_coefficients):
+    """Control: gate 1's per held-out year (a_h, b_h) are reproduced from the recomputed inner sums."""
+    got = {f"{y}|h{h:02d}": ro_pick(loss) for (y, h), loss in nested_by_held.items()}
+    want = {k: (float(v["a"]), float(v["b"])) for k, v in gate1_coefficients.items()}
+    if got != want:
+        raise PooledModelError("gate 1 coefficients are not reproduced by the recomputed inner predictions")
+    return len(got)
+
+
+def ro_parse_hour(value):
+    try:
+        return int(str(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def ro_dev_gefs(snaps, gefs_table, timezones, hour_field, hours=RUNG_HOURS):
+    """(G per snapshot, hour per snapshot): G at (market, target date D, cutoff h:00 local) under rule L36-49, NaN
+    where the market is unknown, the hour is outside ``hours`` or fewer than 25 members qualify; hour -1 if unparsed."""
+    import numpy as np
+
+    g = np.full(len(snaps), np.nan)
+    hrs = np.full(len(snaps), -1, dtype=int)
+    cache = {}
+    for i, (market, day, hv) in enumerate(zip(snaps["market"].astype(str), snaps["target_date"],
+                                              snaps[hour_field])):
+        h = ro_parse_hour(hv)
+        if h is None:
+            continue
+        hrs[i] = h
+        if h not in hours or market not in timezones:
+            continue
+        key = (market, str(day)[:10], h)
+        if key not in cache:
+            cache[key] = ro_gefs_value(gefs_table, market, key[1], h, timezones[market])
+        if cache[key] is not None:
+            g[i] = cache[key]
+    return g, hrs
+
+
+def ro_shift_array(a, b, g, n, scope):
+    """s_r = a_h + b_h (G_r - N_r) on ``scope`` (rule L84); 0 where G or N is missing (L89) or out of scope."""
+    import numpy as np
+
+    g = np.asarray(g, float)
+    n = np.asarray(n, float)
+    ok = np.asarray(scope, bool) & np.isfinite(g) & np.isfinite(n) & np.isfinite(a) & np.isfinite(b)
+    return np.where(ok, np.asarray(a, float) + np.asarray(b, float) * np.where(ok, g - n, 0.0), 0.0)
+
+
+def ro_walk_forward(sums, scored_dates, hours=RUNG_HOURS):
+    """L6_G (rule L125-126): (a_h, b_h)(d) = grid minimiser of the summed Brier at hour h over dates < d (pooled over
+    markets); (0, 0) before any prior date. ``sums`` is {(hour, date): loss vector over RO_PAIRS}."""
+    import numpy as np
+
+    out = {}
+    for h in hours:
+        for d in scored_dates:
+            use = [v for (hh, dd), v in sums.items() if hh == h and dd < d]
+            out[(h, d)] = ro_pick(np.sum(use, axis=0)) if use else (0.0, 0.0)
+    return out
+
+
+def ro_score_core(*, make_table, fit_dates, scored, registered, arm_probs, g_of, n_of, hour_of, coef_fix,
+                  mg1_probs=None, mg1_expected=None, progress=None):
+    """Gates 2-3 (rule L117-148) on scorecard tables; every input-specific piece is a callable so that the pinned
+    loader (:func:`rung_o_score`) and the synthetic test share this code.
+
+    ``registered(tab)`` -> {"P3d_N_fix": (p, cov, reasons), "L6": (...)}; ``arm_probs(tab, arm, shift, rows)`` -> the
+    arm's candidate vector with per-snapshot centre shift (rows: optional snapshot mask, others may fall back);
+    ``g_of(tab)``, ``n_of(tab, arm)`` (rule L85-87), ``hour_of(tab)`` -> per-snapshot arrays."""
+    import numpy as np
+
+    from weather.calibration import r0_ols_floor_challenger as l3
+    from weather.reporting.scorecards import dev_scorecard as sc
+
+    say = progress or (lambda m: print(m, flush=True))
+    hours = tuple(RUNG_HOURS)
+    hour_set = np.array(hours)
+
+    # ---- fitting table: s = 0 controls (rule L132), then the L6_G walk-forward grid (L125-126)
+    full = make_table(fit_dates)
+    reg = registered(full)
+    common_f = reg["P3d_N_fix"][1] & reg["L6"][1]
+    band_common = common_f[full.band_snap]
+    zero = np.zeros(len(full.snaps))
+    controls = {}
+    for arm in ("P3d_N_fix", "L6"):
+        diff = float(np.max(np.abs(arm_probs(full, arm, zero, None) - reg[arm][0])[band_common])) \
+            if band_common.any() else 0.0
+        controls[f"{arm}_s0_max_abs_diff"] = diff
+        if diff > RO_TOL:
+            raise PooledModelError(f"s = 0 does not reproduce the registered {arm} vector: {diff}")
+    fdates = full.snaps.date.astype(str).to_numpy()
+    fhour = np.asarray(hour_of(full), int)
+    sel = common_f & (full.local_hour >= 7) & (full.local_hour <= 12)
+    fit_rows = sel & np.isin(fhour, hour_set)
+    diff_f = np.asarray(g_of(full), float) - np.asarray(n_of(full, "L6"), float)
+    keys = sorted({(int(h), d) for h, d in zip(fhour[fit_rows], fdates[fit_rows])})
+    kpos = {k: i for i, k in enumerate(keys)}
+    gi = np.array([kpos[(int(h), d)] for h, d in zip(fhour[fit_rows], fdates[fit_rows])], int)
+    loss = np.zeros((len(keys), len(RO_PAIRS)))
+    for j, (a, b) in enumerate(RO_PAIRS):
+        shift = ro_shift_array(a, b, diff_f, 0.0, fit_rows)
+        br = full.brier(arm_probs(full, "L6", shift, fit_rows))
+        np.add.at(loss[:, j], gi, br[fit_rows])
+        if j % 100 == 0:
+            say(f"ro L6 grid {j}/{len(RO_PAIRS)}")
+    coef_l6 = ro_walk_forward({k: loss[i] for i, k in enumerate(keys)}, scored, hours)
+    fit_population = {"common_covered_07_12": int(sel.sum()), "fit_rows": int(fit_rows.sum()),
+                      "fit_rows_with_g_and_n": int((fit_rows & np.isfinite(diff_f)).sum())}
+    del full, reg, loss
+    say("ro L6 walk-forward done")
+
+    # ---- scored table (rule L119-122)
+    table = make_table(scored)
+    date_w = l3._date_weights([k[0] for k in table.keys], sc.DRAWS, sc.SEED)  # rule L127-128: 2000, 20260921
+    market_b = table.brier(table.p_market)
+    w0712 = (table.local_hour >= 7) & (table.local_hour <= 12)
+    if mg1_probs is not None:  # rule L131: MG-1 positive control 0.012
+        _, e = table.cells(table.brier(mg1_probs(table)) - market_b, w0712)
+        controls["mg1_excess_07_12"] = float(e.mean())
+        if round(controls["mg1_excess_07_12"], 3) != mg1_expected:
+            raise PooledModelError(f"MG-1 positive control failed: {controls['mg1_excess_07_12']:.5f}")
+    reg = registered(table)
+    (p_fix, cov_fix, r_fix), (p_l6, cov_l6, r_l6) = reg["P3d_N_fix"], reg["L6"]
+    common = cov_fix & cov_l6
+    in_scope = common & w0712
+    tdates = table.snaps.date.astype(str).to_numpy()
+    thour = np.asarray(hour_of(table), int)
+    g_t = np.asarray(g_of(table), float)
+    n_fix, n_l6 = np.asarray(n_of(table, "P3d_N_fix"), float), np.asarray(n_of(table, "L6"), float)
+    a_fix = np.array([coef_fix[h][0] if h in coef_fix else np.nan for h in thour])
+    b_fix = np.array([coef_fix[h][1] if h in coef_fix else np.nan for h in thour])
+    a_l6 = np.array([coef_l6[(h, d)][0] if (h, d) in coef_l6 else np.nan for h, d in zip(thour, tdates)])
+    b_l6 = np.array([coef_l6[(h, d)][1] if (h, d) in coef_l6 else np.nan for h, d in zip(thour, tdates)])
+    s_fix = ro_shift_array(a_fix, b_fix, g_t, n_fix, in_scope)
+    s_l6 = ro_shift_array(a_l6, b_l6, g_t, n_l6, in_scope)
+    p_fix_g = arm_probs(table, "P3d_N_fix", s_fix, None)
+    p_l6_g = arm_probs(table, "L6", s_l6, None)
+    probs = {"P3d_N_fix": p_fix, "L6": p_l6,
+             "P3d_N_fix_G": np.where(in_scope[table.band_snap], p_fix_g, p_fix),
+             "L6_G": np.where(in_scope[table.band_snap], p_l6_g, p_l6)}
+    for name, v in probs.items():  # rule L133
+        mass = np.add.reduceat(v, table.offsets)
+        if np.any(np.abs(mass[common] - 1.0) > RO_TOL):
+            raise PooledModelError(f"{name}: probability mass not preserved")
+    briers = {k: table.brier(v) for k, v in probs.items()}
+    groups = [("07-12", 7, 12)] + [(f"h{h:02d}", h, h) for h in hours]
+    pools = [(sc.ALL_MARKETS, None)] + [(m, {m}) for m in sorted(set(table.markets))]
+
+    def compare(arm, ref):  # rule L127: dR = mean_cell(Brier_arm - Brier_ref) / mean_cell(Brier_market)
+        rows = []
+        for market, members in pools:
+            in_pool = np.ones(len(table.snaps), bool) if members is None else np.isin(table.markets, sorted(members))
+            for group, lo, hi in groups if members is None else groups[:1]:
+                mask = common & in_pool & (table.local_hour >= lo) & (table.local_hour <= hi)
+                if not mask.any():
+                    continue
+                idx, c = table.cells(briers[arm], mask)
+                _, r_ = table.cells(briers[ref], mask)
+                _, m = table.cells(market_b, mask)
+                rows.append({"arm": arm, "reference": ref, "market": market, "group": group,
+                             "n_market_days": int(len(idx)), "n_snapshots": int(mask.sum()),
+                             "R_arm": sc.ratio_interval(table.w[:, idx], c, m),
+                             "R_reference": sc.ratio_interval(table.w[:, idx], r_, m),
+                             "dR_crossed": sc.ratio_interval(table.w[:, idx], c - r_, m),
+                             "dR_date_clustered": sc.ratio_interval(date_w[:, idx], c - r_, m)})
+        return rows
+
+    def primary(rows):
+        return next(r for r in rows if r["market"] == sc.ALL_MARKETS and r["group"] == "07-12")
+
+    def hours_lower(rows):
+        return [r["dR_date_clustered"]["ci95"][0] for r in rows if r["market"] == sc.ALL_MARKETS
+                and r["group"] != "07-12"]
+
+    def passes(rows):  # rule L129 (gate 2) and L140 (gate 3 WIN)
+        p = primary(rows)["dR_date_clustered"]["ci95"]
+        return p[1] is not None and p[1] < 0 and not any(lo is not None and lo > 0 for lo in hours_lower(rows))
+
+    def reading(rows):  # rule L139-142
+        lo = primary(rows)["dR_date_clustered"]["ci95"][0]
+        if lo is not None and lo > 0:
+            return "HARM"
+        return "WIN" if passes(rows) else "NULL"
+
+    def excess(arm):  # rule L146-148: arm minus capture-time market at 07-12, per hour, as R-H; never a gate
+        out = {}
+        for group, lo, hi in groups:
+            mask = common & (table.local_hour >= lo) & (table.local_hour <= hi)
+            if not mask.any():
+                continue
+            idx, c = table.cells(briers[arm], mask)
+            _, m = table.cells(market_b, mask)
+            out[group] = {"n_market_days": int(len(idx)), "brier_arm": float(c.mean()),
+                          "brier_market": float(m.mean()),
+                          "excess": sc.ratio_interval(date_w[:, idx], c - m, np.ones_like(c)),
+                          "R": sc.ratio_interval(date_w[:, idx], c, m)}
+        return out
+
+    result = {"population": {"n_dates": len(scored), "first_date": scored[0], "last_date": scored[-1],
+                             "n_market_days": len(table.keys), "common_covered_snapshots_07_12": int(in_scope.sum()),
+                             "l6_fit": fit_population},
+              "g_coverage_in_scope": {"P3d_N_fix": int((in_scope & np.isfinite(g_t - n_fix)).sum()),
+                                      "L6": int((in_scope & np.isfinite(g_t - n_l6)).sum()),
+                                      "hour_outside_h07_h12": int((in_scope & ~np.isin(thour, hour_set)).sum())},
+              "controls": controls, "coverage": {"P3d_N_fix": r_fix, "L6": r_l6},
+              "coefficients": {"P3d_N_fix_G": {f"h{h:02d}": list(coef_fix[h]) for h in sorted(coef_fix)},
+                               "L6_G": {f"h{h:02d}": {d: list(coef_l6[(h, d)]) for d in scored} for h in hours}},
+              "shift_mean_in_scope": {"P3d_N_fix_G": float(s_fix[in_scope].mean()) if in_scope.any() else None,
+                                      "L6_G": float(s_l6[in_scope].mean()) if in_scope.any() else None},
+              "gates": {}, "rows": [],
+              "market_excess_reported_only": {arm: excess(arm) for arm in ("P3d_N_fix_G", "L6_G")}}
+    result["rows"] += compare("L6", "P3d_N_fix")  # rule L134: L6 - P3d_N_fix reported
+    for arm in ("P3d_N_fix", "L6"):
+        rows = compare(f"{arm}_G", arm)
+        result["rows"] += rows
+        result["gates"][f"2_{arm}_G"] = {"dR_date_clustered": primary(rows)["dR_date_clustered"],
+                                         "hours_lower": hours_lower(rows), "pass": passes(rows)}
+    if result["gates"]["2_P3d_N_fix_G"]["pass"]:  # rule L138 (run as R-M: only for an arm open after gate 2)
+        rows = compare("P3d_N_fix_G", "L6")
+        result["rows"] += rows
+        result["gates"]["3_P3d_N_fix_G_vs_L6"] = {"reading": reading(rows),
+                                                   "dR_date_clustered": primary(rows)["dR_date_clustered"],
+                                                   "hours_lower": hours_lower(rows)}
+    if result["gates"]["2_L6_G"]["pass"]:
+        rows = [r for r in result["rows"] if r["arm"] == "L6_G" and r["reference"] == "L6"]
+        result["gates"]["3_L6_G_vs_L6"] = {"reading": reading(rows),
+                                           "dR_date_clustered": primary(rows)["dR_date_clustered"],
+                                           "hours_lower": hours_lower(rows)}
+    result["gate3_caveat"] = "L6 is in-sample on this window (rule L143)"
+    result["clarification_draft_required"] = any(v.get("reading") == "WIN" for k, v in result["gates"].items()
+                                                 if k.startswith("3_"))  # rule L144: drafted, not applied
+    n_pass = sum(result["gates"][f"2_{a}_G"]["pass"] for a in ("P3d_N_fix", "L6"))
+    result["kill"] = ("closed (gate 2 failed for both arms)" if n_pass == 0 else  # rule L154-155
+                      "closed for " + ", ".join(f"{a}_G" for a in ("P3d_N_fix", "L6")
+                                                if not result["gates"][f"2_{a}_G"]["pass"])
+                      if n_pass == 1 else "none")
+    return result
+
+
+def rung_o_score(*, layout, fix_jsonl, coefficients, nowcasts, loyo_result, loyo_rows, parity_result, records_root,
+                 nbm_train_corpus, ra_loyo_rows, gefs_corpus, fix_fit_population, dev_hour_field, out_path,
+                 markets=R0_MARKETS, start="2026-08-01", end="2026-09-29"):
+    """R-O gates 2 and 3 (rule_rn.md lines 117-148), mirroring :func:`rung_m_score`. Nothing runs until every pinned
+    input, gate 1 (PASS) and P under Clarification 1 (PASS) are verified (rule L117)."""
+    import numpy as np
+    import pandas as pd
+
+    from weather.calibration import ols_floor_ladder as l9
+    from weather.calibration import r0_ols_floor_challenger as l3
+    from weather.calibration.r0_ols_floor_devfit import usable_v2_mean
+    from weather.market.market_registry import spec_for_id
+    from weather.reporting.scorecards import dev_scorecard as sc
+    from weather.reporting.scorecards import dev_scorecard_data as data
+    from weather.reporting.scorecards import loss_atlas
+
+    if fix_fit_population not in RO_FIX_FIT_POPULATIONS:
+        raise PooledModelError(f"fix_fit_population must be pinned to one of {RO_FIX_FIT_POPULATIONS}")
+    if dev_hour_field not in RO_DEV_HOUR_FIELDS:
+        raise PooledModelError(f"dev_hour_field must be pinned to one of {RO_DEV_HOUR_FIELDS}")
+    out_path = require_output_outside_repo(out_path)
+    if out_path.exists():
+        raise PooledModelError(f"refusing to overwrite {out_path}")
+
+    def sha(path):
+        return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+    for path, want in ((loyo_result, RO_LOYO_RESULT_SHA256), (loyo_rows, RO_LOYO_ROWS_SHA256),
+                       (parity_result, RO_PARITY_C1_SHA256), (nbm_train_corpus, RM_NBM_TRAIN_SHA256),
+                       (ra_loyo_rows, RM_RA_LOYO_SHA256), (nowcasts, L6_NOWCAST_SHA256), (fix_jsonl, RI_FIX_SHA256)):
+        got = sha(path)
+        if got != want:
+            raise PooledModelError(f"{path} sha {got} != {want}")
+    loyo = json.loads(Path(loyo_result).read_bytes())
+    if loyo.get("rule_sha256") != RO_RULE_SHA256 or not loyo.get("gate1_pass"):
+        raise PooledModelError("gate 1 has not passed under this rule; gate 2 may not run")
+    parity = json.loads(Path(parity_result).read_bytes())
+    if parity.get("rule_sha256") != RO_RULE_C1_SHA256 or parity.get("P_pass") is not True:
+        raise PooledModelError("P has not passed under Clarification 1; gate 2 may not run (rule L75, L213-214)")
+    manifest = json.loads((Path(gefs_corpus) / "manifest.json").read_text(encoding="utf-8"))
+    rows_sha = sha(Path(gefs_corpus) / "gefs_member_rows.jsonl")
+    if manifest.get("rows_sha256") != rows_sha or rows_sha != loyo["inputs"]["gefs_rows_sha256"]:
+        raise PooledModelError("GEFS corpus rows differ from their manifest or from gate 1's corpus")
+    if parity["inputs"]["gefs_rows_sha256"] != rows_sha:
+        raise PooledModelError("GEFS corpus rows differ from P's corpus")
+    os.environ["L6_NOWCASTS"] = str(nowcasts)
+    from weather.reporting.scorecards.free_source_candidates import l6_stack
+
+    l6_stack._CACHE.clear()
+    state, part_sha = l6_frozen_state(coefficients)
+    timezones = {m: spec_for_id(m).timezone for m in markets}
+    gefs = ro_load_gefs(gefs_corpus)
+
+    # ---- P3d_N_fix_G coefficients: once, on 2021-25 (rule L124), no dev fitting
+    frame, buckets = dev_training_frame(records_root, markets)
+    if frame["year"].max() >= 2026:
+        raise PooledModelError("a dev training row is from 2026")
+    frame, train_stats = attach_training_nbm(frame, l9.load_nbm(nbm_train_corpus), l9.nbm_at_cutoff, timezones)
+    frame = frame[frame["hour"].isin(RUNG_HOURS)].reset_index(drop=True)
+    gvals = {}
+    for market, day, hour in zip(frame["market"], frame["target_date"], frame["hour"]):
+        key = (market, str(day)[:10], int(hour))
+        if key not in gvals:
+            gvals[key] = ro_gefs_value(gefs, market, key[1], key[2], timezones[market])
+    loyo_total, nested_total, nested_by_held, rows = ro_fix_fit_losses(frame, buckets, gvals)
+    del frame
+    with open(loyo_rows, encoding="utf-8") as handle:
+        gate1_rows = [json.loads(line) for line in handle]
+    ra = {}
+    with open(ra_loyo_rows, encoding="utf-8") as handle:
+        for line in handle:
+            r = json.loads(line)
+            ra[(r["hour"], r["market"], r["date"])] = r["P3d_N_fix_brier"]
+    ra_worst = max(abs(r["P3d_N_fix_brier"] - ra[(r["hour"], r["market"], r["date"])]) for r in rows)
+    if len(ra) != len(rows) or ra_worst > RO_TOL:
+        raise PooledModelError(f"R-A LOYO control failed: rows {len(rows)} vs {len(ra)}, max diff {ra_worst}")
+    gate1_worst = ro_check_loyo_rows(rows, gate1_rows)
+    n_coef = ro_check_gate1_coefficients(nested_by_held, loyo["coefficients"])
+    fits = {"loyo": ro_fit_pooled(loyo_total), "nested-inner": ro_fit_pooled(nested_total)}
+    pinned = fits[fix_fit_population]
+    if not all(v["training_score_not_worse"] for v in pinned.values()):
+        raise PooledModelError("a fitted (a, b) worsened its own training score")
+    coef_fix = {h: (v["a"], v["b"]) for h, v in pinned.items()}
+
+    # ---- dev tables (rule L119-122), as rung_m_score
+    start_d, end_d = data.check_range(start, end)
+    lay = data.load_layout(layout, data.DEV_FIRST, end_d)
+    folds = data.make_folds(lay.dates, start_d, end_d, 7, 1, 7)
+    scored = sorted(d for f in folds if f.scored for d in f.dates)
+    fit_dates = sorted(d for d in {str(x) for x in lay.dates} if BLEND_FIT_FIRST <= d <= end)
+    dists = {}
+    with open(fix_jsonl, encoding="utf-8") as handle:
+        for line in handle:
+            row = json.loads(line)
+            if str(row.get("target_date", ""))[:10] > end:
+                raise PooledModelError("P3d_N_fix vectors hold rows after the window")
+            dists[f"{row['market']}|{row['snapshot_id']}"] = {int(float(k)): float(v)
+                                                             for k, v in row["distribution"].items()}
+    preps, gcache = {"tab": None}, {"tab": None}
+
+    def registered(tab):
+        fix = l3._vector(tab, l3._candidate_frame(str(fix_jsonl), tab, lay, folds, data)[0])
+        return {"P3d_N_fix": fix, "L6": l6_vector(tab, state, l3)}
+
+    def arm_probs(tab, arm, shift, rows):
+        if arm == "P3d_N_fix":  # rule L95: pmf translation, then the rule-4 floor mask (candidate_vector)
+            if preps["tab"] is not tab:
+                preps.update(tab=tab, prep=rm_fix_prepare(dists, tab.bands))
+            pos = dict(zip(tab.snaps.row_key, range(len(tab.snaps))))
+            fx = rm_fix_band_probs(preps["prep"], lambda rk: shift[pos[rk]] if rk in pos else 0.0)
+            return tab.candidate_vector(fx)[0]
+        keep = np.ones(len(tab.snaps), bool) if rows is None else np.asarray(rows, bool)  # rule L96: mu + s
+        snaps = tab.snaps[keep].reset_index(drop=True)
+        return tab.candidate_vector(rm_l6_band_probs(state, snaps, tab.bands, np.asarray(shift)[keep]))[0]
+
+    def g_of(tab):
+        if gcache["tab"] is not tab:
+            gcache.update(tab=tab, value=ro_dev_gefs(tab.snaps, gefs, timezones, dev_hour_field))
+        return gcache["value"][0]
+
+    def hour_of(tab):
+        g_of(tab)
+        return gcache["value"][1]
+
+    def n_of(tab, arm):  # rule L85-87
+        if arm == "P3d_N_fix":
+            return usable_v2_mean(tab.snaps)  # the dev NBM anchor the vectors were emitted with (dev_emit_rung)
+        return pd.to_numeric(tab.snaps.v2_mean, errors="coerce").to_numpy(float)
+
+    result = ro_score_core(make_table=lambda dates: sc.Table(lay, dates), fit_dates=fit_dates, scored=scored,
+                           registered=registered, arm_probs=arm_probs, g_of=g_of, n_of=n_of, hour_of=hour_of,
+                           coef_fix=coef_fix, mg1_probs=lambda tab: l3._vector(tab, loss_atlas.mg1_frame(tab))[0],
+                           mg1_expected=l3.MG1_CONTROL_0712_EXCESS)
+    result.update({
+        "rule": "docs/research/gefs-members-l11-2026-10-26/rule_rn.md", "rung": "R-O",
+        "rule_sha256": RO_RULE_C1_SHA256, "rule_original_sha256": RO_RULE_SHA256,
+        "pins": {"fix_fit_population": fix_fit_population, "dev_hour_field": dev_hour_field},
+        "disclosure": "dev gates use the history (corpus) G; serving would read the Open-Meteo capture (rule L79-80)",
+        "p3d_n_fix_g_fits": {k: {f"h{h:02d}": v for h, v in f.items()} for k, f in fits.items()},
+        "inputs": {"fix_jsonl": RI_FIX_SHA256, "loyo_result": RO_LOYO_RESULT_SHA256,
+                   "loyo_rows": RO_LOYO_ROWS_SHA256, "parity_result": RO_PARITY_C1_SHA256,
+                   "nbm_train_corpus": RM_NBM_TRAIN_SHA256, "ra_loyo_rows": RM_RA_LOYO_SHA256,
+                   "gefs_rows_sha256": rows_sha, "l6_part_sha256": part_sha, "l6_nowcast_sha256": L6_NOWCAST_SHA256,
+                   "layout_manifest_sha256": lay.manifest_sha256, "scorecard_code_sha256": sc.code_sha256(),
+                   "module_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}})
+    result["controls"].update({"ra_loyo_rows": len(ra), "ra_max_abs_diff": ra_worst,
+                               "gate1_rows_max_abs_diff": gate1_worst, "gate1_coefficients_reproduced": n_coef,
+                               "train_nbm": train_stats, "gate1": loyo["summary"]["07-12"]})
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(result, indent=1, sort_keys=True), encoding="utf-8")
+    return result
+
+
 def _parse(argv=None):
     parser = argparse.ArgumentParser(prog="python -m weather.calibration.pooled_residual_model",
                                      description=__doc__.split("\n\n")[0])
@@ -5458,6 +5962,12 @@ def _parse(argv=None):
     ml.add_argument("--nbm-train-corpus", required=True)
     ml.add_argument("--ra-loyo-rows", required=True)
     ml.add_argument("--out", required=True)
+    osc = sub.add_parser("rung-o-score", help="R-O gates 2-3 (heavy; pins required, see rule_rn.md L117-148)")
+    for flag in ("--layout", "--fix", "--coefficients", "--nowcasts", "--loyo-result", "--loyo-rows",
+                 "--parity-result", "--records", "--nbm-train-corpus", "--ra-loyo-rows", "--gefs-corpus", "--out"):
+        osc.add_argument(flag, required=True)
+    osc.add_argument("--fix-fit-population", required=True, choices=RO_FIX_FIT_POPULATIONS)
+    osc.add_argument("--dev-hour-field", required=True, choices=RO_DEV_HOUR_FIELDS)
     msc = sub.add_parser("rung-m-score", help="R-M gates 2-3 (heavy)")
     msc.add_argument("--layout", required=True)
     msc.add_argument("--fix", required=True)
@@ -5647,6 +6157,15 @@ def main(argv=None):
         result = rung_m_loyo(records_root=args.records, nbm_train_corpus=args.nbm_train_corpus,
                              ra_loyo_rows=args.ra_loyo_rows, out_dir=args.out)
         print(json.dumps({"gate1_pass": result["gate1_pass"], "07-12": result["summary"]["07-12"]}))
+        return 0
+    if args.command == "rung-o-score":
+        result = rung_o_score(layout=args.layout, fix_jsonl=args.fix, coefficients=args.coefficients,
+                              nowcasts=args.nowcasts, loyo_result=args.loyo_result, loyo_rows=args.loyo_rows,
+                              parity_result=args.parity_result, records_root=args.records,
+                              nbm_train_corpus=args.nbm_train_corpus, ra_loyo_rows=args.ra_loyo_rows,
+                              gefs_corpus=args.gefs_corpus, fix_fit_population=args.fix_fit_population,
+                              dev_hour_field=args.dev_hour_field, out_path=args.out)
+        print(json.dumps({"gates": result["gates"], "kill": result["kill"]}))
         return 0
     if args.command == "rung-m-score":
         result = rung_m_score(layout=args.layout, fix_jsonl=args.fix, coefficients=args.coefficients,
