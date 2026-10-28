@@ -11,7 +11,9 @@
   800072c79af65394cc33134cbaae34af65c4428feb3934e35f8cd6cd153ee2db, and not forward test B
   (`docs/operations/B_FORWARD_TEST_DESIGN.md` (on `origin/master`)), which is frozen and scores MG-2 as bound.
 - **Any application** is an owner or master decision through MG-2's Clarification process, and only after the
-  forward pre-registration in [l6g_forward_prereg_DRAFT.md](l6g_forward_prereg_DRAFT.md) has run and passed.
+  forward screen in [l6g_forward_prereg_DRAFT.md](l6g_forward_prereg_DRAFT.md) has returned PASS **and** the powered
+  confirmation that PASS earns, on a refit state, has also passed (master's ruling 2026-10-28: the screen's PASS is
+  not by itself grounds to apply; its FAIL closes the Oct-Dec state shift, not the G feature).
 - **Written blind.** No outcome, label, price, market, settlement or 88a/panel row dated after 2026-09-29 was read.
 
 ## 1. Proposed text (would be inserted as an MG-2 Clarification; not inserted)
@@ -20,8 +22,8 @@
 > s = a_h + b_h (G − N), before the mg1 band probabilities. N is the NBM `v2_mean` the L6 arm already reads.
 > G is the GEFS v12 06Z member mean of D: the mean over perturbed members of each member's maximum over the f006..f024
 > nodes valid on local date D, counting only messages available by h:00 local, with at least 25 of 30 members, else
-> s = 0 for that snapshot. h is `local_hour` (07..12). (a_h, b_h) are the frozen per-hour pairs of the passed forward
-> pre-registration, pinned by sha256. From 13:00 nothing changes. If G is missing, the row is the unchanged L6 row.
+> s = 0 for that snapshot. h is `local_hour` (07..12). (a_h, b_h) are the frozen per-hour pairs of the refit state that passed
+> the powered confirmation, pinned by sha256. From 13:00 nothing changes. If G is missing, the row is the unchanged L6 row.
 > Mass is preserved; s = 0 reproduces the bound L6 vector.
 
 ## 2. What binds today
@@ -29,10 +31,13 @@
 - B binds MG-2 as it is. This text is not part of B, of MG-2's gate, or of any reserved-window exemption.
 - L6_G may enter MG-2's pre-13 arm only after all of the following:
   1. its own forward pre-registration (the companion draft) is reviewed by master, bound, accrued outcome-blind
-     on dates after it lands, and returns PASS at its single look;
+     on dates after it lands, and returns PASS at its single look, which is a SCREEN (N = 45, power about 0.49).
+     That PASS earns a powered confirmation on a refit state, under its own pre-registration, and that
+     confirmation must pass too;
   2. a forward GEFS member-mean recorder exists, with point-in-time availability receipts and a parity check
      against the dev definition (the R-O P C1 parity check passed only at the node definition, on history);
-  3. (a_h, b_h) are frozen in a sha256-pinned state file before the forward D0;
+  3. (a_h, b_h) are frozen in a sha256-pinned state file before each forward D0 (the screen's state is frozen;
+     the confirmation's refit state is frozen before its own D0);
   4. the GEFS inputs are release-bound beside MG-2's `release-binding.json`;
   5. an owner decision for any NBM-reading candidate scored on 2026-10-15..11-28 (B §10).
 

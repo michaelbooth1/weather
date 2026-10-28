@@ -1,8 +1,8 @@
 # L6_G forward pre-registration (DRAFT for master review)
 
 - **Status:** DRAFT, written 2026-10-28 by lane L2; master's rulings of 2026-10-28 are applied below. **Nothing
-  accrues until master has reviewed it and it is bound** (sha256 recorded in DECISION_LOG). Every `<FILL@BINDING>`
-  field stays unfilled until then.
+  accrues until master has reviewed it and it is bound** (sha256 recorded in DECISION_LOG). The §10 open items were closed on 2026-10-28
+  (recorder pins, look scorer, first full receipt day); the only item left for binding is the DECISION_LOG row.
 - **Owner decision C-EX (reserved-window exemption), 2026-10-28, relayed by master-agent.** L6_G reads NBM
   guidance, so its forward dates are held out against it (`reserved-confirmation-window.md`; B §10: "Any other
   NBM-reading candidate on 10-15..11-28 needs its own owner decision"). The owner answered, verbatim, "I give my ok."
@@ -57,6 +57,12 @@
   2. the GEFS recorder's first full receipt day (all 10 markets, 06Z cycle, h07..h12 recorded under §3);
   3. the day after the owner's C-EX yes (given 2026-10-28, so 2026-10-29).
 
+  **Recorder's first full receipt day: 2026-10-28** (read from the per-day manifest by counts only, no values:
+  schema `l6g_gefs_forward_points/1`, 217 of 217 member-node rows ok, LastModified-rule table 60 of 60 market-hour
+  cells non-null over 10 markets × h07..h12; the fetched-rule table 23 of 60, because the recorder started mid-day,
+  reported only). **Derived D0 = the bound file's landing date + 1**, since the other two terms are 10-28 and 10-29:
+  D0 = 2026-10-29 if it lands on 2026-10-28, and so on, up to the 11-02 cap.
+
   **D0 is capped at 2026-11-02** (as B: 45 dates from 11-02 end inside P3d_N's and the L6 state's training coverage,
   08-01..12-16). If the latest of the three would fall after 11-02, this rule does not start; any later version needs
   a new pre-registration. Never backdated: every date before D0 is excluded, including any date whose inputs were
@@ -92,11 +98,14 @@
 | --- | --- |
 | Frozen (a_h, b_h) state `l6g_state.json` sha256 | ae95686b5468bceed0fd33ead0f397dc061d9a5822f56bfb2364814553e8983e |
 | State producer | commit 341acbd2b5d8bef89254a8c92203927d638bc7a6; `pooled_residual_model.py` blob 80a585e8ea19098b8de4da03b4e7996021e87756 |
-| Forward look scorer (module and sha256) | `<FILL@BINDING>` (to be written and pinned before D0) |
+| Forward look scorer (module and sha256) | `src/weather/calibration/l6g_forward_look.py` blob 17539ca496d32d935a80461859d555243a9a317e, file sha256 788e9508bd35f3d435fe057c6498bc9a32c11a0892853c8932bbc416ae692078 (the look receipt records it); tests `tests/calibration/test_l6g_forward_look.py`, 13, synthetic data only |
 | L6 part / season-matched L6 state | as B §1 (07a6742595f5…e17e9 / 800072c79af6…e2db) |
 | `observed_running_max` function | as B §1 (8cc4d8ec13a6…c224a) |
 | Dev scorecard code | f69071ac5612f022ade56ada764f813c28da79cd0265848c58041115439005c5 |
-| GEFS forward recorder code, parser version and LastModified-rule table name | a31fef9ba (launcher pins); module blobs, parser version and table name `<FILL@BINDING>` |
+| GEFS forward recorder code | commit a31fef9bacff32bd4e27f674e6cbdaadb0b18d99: `tools/research/gefs_forward_recorder.py` blob 9cb7f3056c0170128b85bf51473ff5513432f120 (file sha256 3328e1a0c3421ec3f98e3291cc5d8fddb0d88e835f95e8ae1a3eeff54407afc9); `tools/research/gefs_member_point_fetch.py` blob 5094c74ed9292942ffa8e28cb65096c68fc53ca2 (file sha256 c898d94ae10264839cdddab5072b72c7821411acb402e03c262a7106206680a8, equal to the dev corpus manifest's); launcher `gefs_forward_recorder_launch.ps1` file sha256 730aaa6c7cd2111e61ee5bf27b03a02d89c99c8e2811978d31c88dc7f228938e |
+| Recorder parser version | manifest `schema` = `l6g_gefs_forward_points/1` |
+| Deciding G table | manifest key `g_lastmodified_rule`, schema `{market: {"h07".."h12": float or null}}` (null = fewer than 25 of 30 perturbed members available by h:00 local); `g_fetched_rule` has the same shape and is reported only |
+| Recorder parity (lane L13, at a31fef9ba) | all 217 rows per date and the G tables identical to the dev corpus on 2023-08-20, 2026-08-15 and 2026-09-29; `ro_gefs_value` cross-check 0 mismatches over 396 cells |
 | Forward N (NBM `v2_mean`) input and nowcast inputs | MG-2's bound forward input bundle (no new N source) |
 | Rule `rule_rn.md` C1 | b25f36cf6e08b4ac69db548163f7f374d5906538224a453f4e5e1f92b075ad24 |
 | Dev result `rn_score.json` | 35e0c93b4e4331647a613e54365cb91b3ac9f57d07bb44021604756d95ba1162 |
@@ -177,9 +186,14 @@ h07-h12 untrimmed; G from the recorder's LastModified-rule table, the fetched-ru
 
 **Open:**
 1. **DECISION_LOG row:** drafted, for master to land.
-2. **Recorder pins:** the recorder module blobs, parser version and the LastModified-rule table's name and schema,
-   to be filled at binding, plus a dev-definition parity check of the forward G (same node set f006..f024 valid on D,
-   ≥ 25 of 30 members).
-3. **Forward look scorer:** not yet written. It must reuse the pinned scorecard code and the frozen state, refuse to
-   run before B's look receipt, and be pinned before D0.
-4. **Recorder first full receipt day:** to be read from the recorder's receipts (counts only) when D0 is fixed.
+2. **Daily vector emitter (accrual side):** the outcome-blind job that writes the per-snapshot L6/L6_G vectors and the
+   §3 receipt rows is not yet written; it must be pinned before D0 like the scorer.
+
+**Closed 2026-10-28:**
+- Recorder pins and parity: §4 (L13's parity at a31fef9ba is cited, not re-run).
+- Forward look scorer: written and pinned (§4). It refuses before 12-13, before the 45th date has passed, without
+  MG-1's and B's look receipts, with an existing look receipt (exclusive create: one look), with a D0 after 11-02,
+  and with any price or market-quote column; it reads the label file only after every guard passes. Only
+  `g_lastmodified_rule` decides G presence; `g_fetched_rule` is counted and reported only. It uses the dev
+  scorecard's `ratio_interval` and B's date-clustered weights, and it does not use `sc.Table` (which loads prices).
+- Recorder first full receipt day: 2026-10-28 (§2).
