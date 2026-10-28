@@ -1,6 +1,6 @@
 # State of play
 
-**Last updated: 2026-10-26 America/Toronto (owner option B 10-25: one minimal forward edge test, Rule B-1, plus model levers
+**Last updated: 2026-10-28 America/Toronto (Rule B-1 bound 10-28, D0 10-29; owner option B 10-25: one minimal forward edge test, Rule B-1, plus model levers
 at full throttle; "Yes to all" to the MG-2 exemption, paper test, maker pilot and venue-label cutover; B questions answered).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
@@ -45,11 +45,11 @@ YouTube-maker scoping stay paused; the **small maker pilot is APPROVED** (DL 10-
   <= 09-29 are development only; descriptive reads of 10-16..11-13 stay refused (owner 10-17).
 - **MG-1** is bound and in forward shadow; its single look comes after its window closes (after 11-28;
   [reserved window](reserved-confirmation-window.md)). MG-1 forward outputs are never read before that look.
-- **MG-2 / Rule B-1** ([design](B_FORWARD_TEST_DESIGN.md), DRAFT until master's 10-27 binding): D0 = 10-28 (master), N = 45
-  countable dates (owner Q3), NI margin +0.0027 (owner Q4); earliest look ~12-12, strictly after MG-1's. Owner option 2 exempts
+- **MG-2 / Rule B-1 BOUND 10-28** ([design](B_FORWARD_TEST_DESIGN.md); DL 10-28): D0 = 10-29 (slip clause), N = 45
+  countable dates (owner Q3), 45th date 12-12, NI margin +0.0027 (owner Q4); single look 12-13, strictly after MG-1's. Owner option 2 exempts
   MG-2 only from the reservation, one look, and (Q1) the capture-time market read for B travels at that look.
-- **MG-2 binds via the C7/C8 line** (`e40804dfe` or successor; master 10-26); binding v2 `710f0c672` superseded, never lands alone.
-  B scorer frozen (`b25b63f7…`). share_many = option (i) (master); (ii) at 0.08 drafted in Clarification E. Not retrain-family.
+- **MG-2 bound via the C7/C8 line** on `claude/b-binding-package-20261028`; binding v2 `710f0c672` superseded.
+  B scorer frozen (`f941628a…`; `b25b63f7…` superseded). share_many = option (i) (master); (ii) at 0.08 drafted in Clarification E. Not retrain-family.
 - **Kill scopes (master R9/R10, 10-25):** R-I closes fitted temperature/scale maps only (spread information: own rule, full ladder,
   no global sharpening, floor never weakened). R-G/R-J cover Aug-Sep only; Oct-Dec rungs need a fresh rule, LOYO Oct-Dec 2021-25.
 - **Labels (master ruling 10-25, reading B):** WU before 10-23, venue rule (WU fallback) from it; paid band = WU 626/626, so no
@@ -62,7 +62,7 @@ YouTube-maker scoping stay paused; the **small maker pilot is APPROVED** (DL 10-
 
 ## Ordered critical path
 
-1. **Bind Rule B-1** (master, 10-27) with C7 resolved, so MG-2 starts accruing at D0 10-28.
+1. **Rule B-1 bound 10-28**; MG-2 accrues from D0 10-29; no look before 12-13.
 2. **HRRR forward recorder: YES (master); MG-3 = paired D-C on B's dates** (owner 10-26, DL; H1 = MG-3 − MG-2; MG-1 window
    exemption 11-11..11-28): L2 preparing the pre-registration; D0 ~11-10/11; result ~mid-December. Workstation shadow capture; host head via QWM on master's say.
    R-K (13-16, −0.0722), R-R (07-12 vs L6, −0.0402): dev WINs, R 1.22 / 1.112, not edges until forward parity ([plan draft](../research/l2-pooled-residual-2026-10-24/drafts/hrrr_forward_recorder_parity_plan_DRAFT.md); MG-2 Clarifications drafted, not applied).
@@ -75,7 +75,7 @@ YouTube-maker scoping stay paused; the **small maker pilot is APPROVED** (DL 10-
 
 | What | Owner | Due | Verify |
 | --- | --- | --- | --- |
-| Rule B-1 bound via the C7/C8 line: `<FILL@BINDING>` fields filled (`b_scorer_sha256` = `b25b63f7…`), `mg2_binding_commit` checked with `git cat-file` against origin | master | 10-27, before D0 10-28 | binding commit; DL or ledger row |
+| Rule B-1 §(a) control read (ledger row 68, pending) | master | per B §"At binding" | ledger row 68 |
 | Coverage field added to the B exporter | master | before D0 | exporter on the binding branch |
 | PT-1 bound: PT_D0 set, G = 15 s fixed by the outcome-blind dev check, rule sha pinned (owner Q6-Q9 answered 10-25) | master | before PT_D0 | binding commit; DL row |
 | Maker pilot plan owner questions answered; HOLD lifted only through the runbook's gates | owner | open | DL row; runbook prerequisites |
