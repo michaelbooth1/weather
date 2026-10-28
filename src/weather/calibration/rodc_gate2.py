@@ -367,7 +367,7 @@ def gate1_control(scored, rows_path, tol=CONTROL_TOL):
     import numpy as np
     import pandas as pd
 
-    ref = pd.read_csv(rows_path)
+    ref = pd.read_csv(rows_path, float_precision="round_trip")
     keys = ["market", "local_date", "hour"]
     a = scored.assign(hour=scored.hour.astype(int)).sort_values(keys).reset_index(drop=True)
     b = ref.assign(hour=ref.hour.astype(int)).sort_values(keys).reset_index(drop=True)

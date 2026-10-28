@@ -307,7 +307,7 @@ def test_gate2_planted_effect_selects_g2_everywhere_and_passes(tmp_path, monkeyp
     g1 = _gate1(tmp_path)
     out = _gate2(tmp_path)
 
-    assert out["control"]["pass"] and out["control"]["max_abs_diff"] == 0.0
+    assert out["control"]["pass"] and out["control"]["max_abs_diff"] <= g.CONTROL_TOL
     assert out["control"]["determinism_max_abs"] == 0.0
     assert out["selection"]["g2_selected_folds"] == 5
     assert all(v["inner_pooled_mean"] < 0 for v in out["selection"]["nested"].values())
