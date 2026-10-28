@@ -125,7 +125,8 @@ sequence numbers, not calendar dates.
 | 10ah | Reads from 2026-10-24/25 recorded late (dev): L5 hot-day centre arms and AFD all KILL vs MG-1; L8 high_so_far parity KEEP vs base, not bound; L10 gap atlas has no cell at R <= 1; L11 stage C gross bound; no fresh pre-07-31 dates |
 | 10ai | Before 10-23 the venue paid the WU band 626/626 (routine-only rule 617/626; 8 band flips 08-11..09-29, all SPECI effects): labels are WU before 10-23 and the venue rule from it (master ruling (10-25), reading B) |
 | 10aj | Found defect 2026-10-26: the MG-2 "no production importer" test was vacuous (literal backspace bytes for `\b`); fixed in `e40804dfe`; control-byte ratchet approved (master ruling (10-25)), landing 10-26/27 |
-| 10ak | Lane reads 2026-10-26 (dev): R-P KILL at gate 3 (a LOYO intercept win is bias correction, not information); R-PD and R-N CLOSED at 00-06 (gate 2 NULL); R-L STOPPED at gate 1a (NBS drops the day's TXN from ≥ 13Z cycles), R-L2 KILL at gate 3; R-R WIN at 07-12 vs L6, still worse than the market |
+| 10ak | Lane reads 2026-10-26 (dev): R-P KILL at gate 3 (a LOYO intercept win is bias correction, not information); R-PD and R-N CLOSED at 00-06 (gate 2 NULL); R-L STOPPED at gate 1a (NBS drops the day's TXN from ≥ 13Z cycles), R-L2 KILL at gate 3; R-R WIN at 07-12 vs L6, still worse than the market; R-S KILL at gate 2 (NBM-published spread closed) |
+| 10al | Reads 2026-10-26/27: R-U CLOSED at P0 (HRRR 3x3 spread as width closed at all hours); C10 opened, not adopted; SM-H selected for MG-3 13-15 (h15 unresolved); CS-1 P3d_H 13-16 transfers, P3d_H 07-12 does not; R-V gate 2 (a) capture-proposal PASS, (b) KILL |
 
 ---
 
@@ -4606,7 +4607,57 @@ merge-forward, because that file is not on this head's base.
   [R-R addendum](../research/l2-pooled-residual-2026-10-24/drafts/hrrr_forward_parity_rr_addendum_DRAFT.md),
   [post-13 Clarification](../research/l2-pooled-residual-2026-10-24/drafts/mg2_post13_clarification_rk_DRAFT.md),
   [pre-13 Clarification](../research/l2-pooled-residual-2026-10-24/drafts/mg2_pre13_clarification_rr_DRAFT.md)). B is unaffected.
+- **R-S (L15), NBM-published spread (NBP TXNSD anomaly) as a scale modulator on P3d_N_fix at 07-12: KILL at gate 2.**
+  Gate 1 nested LOYO 07-12 −0.00099 [−0.00171, −0.00026] passed (19,657 rows); gate 2 dev 07-12 dR +0.00067
+  [−0.00604, +0.00722] failed (21,664 snapshots, 43 dates, 473 market-days); the secondary 13-16 LOYO −0.00023
+  [−0.00060, +0.00017] failed (no dev run). The kill closes the NBM-published-spread family (NBP TXNSD, NBP p90 − p10,
+  NBS XND/TSD) as a scale modulator for every NBM-anchored arm; GEFS member spread, multi-model dispersion and
+  observed-state predictors are not covered. Likely cause (a reading, not a gate): NBM v5.0 TXNSD on dev is compressed
+  (25% of values equal 1). Rule `70908316…` (committed `8f80ea821`), plan `523d334e…`, `results.md` `604b0a0f…`, score
+  `c3e8f0b2…`, branch `claude/spread-info-20261026` @ `efd95d8b9`. **Reopen if:** a future NBM version publishes
+  uncompressed spread, or an Oct-Dec rung under R10. Register X37; DEV_WINDOW_LEDGER row 58.
 - **Not claimed:** edge; any forward result; that a kill here covers another input form.
+
+### 10al. Reads of 2026-10-26/27: R-U closes HRRR spread as width at 13-16, C10 is not adopted, SM-H is selected for MG-3 13-15, P3d_H 07-12 does not transfer to the cool season, R-V gate 2 splits — workstation, recorded 2026-10-27
+
+**Scope:** history (2021-25) and development evidence on dates ≤ 2026-09-29; every rule committed before its rows;
+nothing after 09-29 read. Register §6 X39-X42 holds the rule-outs. Ledger rows 42, 48, 50, 51, 55 and 56 are on
+`claude/l2-dev-ledger-rows-20261026` @ `5a4861117`; rows 45, 47 and 49 on `claude/l3-dev-ledger-rows-20261025` @
+`e4d224c72`. They are cited here, not copied.
+
+- **R-U (L2), HRRR 3x3 spread anomaly as a width signal on P3d_H at 13-16: CLOSED at P0** (2026-10-26). History only,
+  Aug-Sep 2021-25, 13,108 rows, z coverage 1.00. LOYO-μ pooled ρ(za, |dmax − μ|) −0.0007 (the bar is ≥ 0.05), with 2
+  opposite-sign years (at most 1 allowed); per hour h13 +0.011, h14 +0.029, h15 −0.026, h16 −0.050; rise subset pooled
+  +0.029; frozen-state μ −0.006 (reported). high_so_far removes most 15-16 error mechanically (median |dmax − μ| 0.83 →
+  0.16 °F while sd9 stays near 0.6 °F), but h13-14 and the rise subset are below the bar too. **With X38 (00-06, 07-12),
+  HRRR 3x3 spread as width is closed at all hours.** Rule `9441cc94…`; `ru_p0.json` sha256
+  `cacdf2c84987865358444de1a63f29cac903d4ae8b738de804fb570a4adc5264`; record `ru/p0_result.md` on
+  `claude/ru-hrrr-spread-1316-20261026` @ `a8c896a64`; ledger row 42 (commit `a55790422`). Register X39.
+- **C10 (L2), season-matched P3d_N (SM-N) for MG-2 13-16: opened, not adopted** (master, 10-27). SM_N − P3d_N_fwd 13-16
+  Brier +0.00356 [+0.00185, +0.00523] (history LOYO; h15 +0.0090, h16 +0.0075, both intervals above 0). The season gain
+  is already in the served forward state `c6cc39f7…` (P3d_N_fwd − dev state −0.0569 [−0.0631, −0.0505]); MG-2 keeps
+  `c6cc39f7`. Rule `8c59c1b6…`, audit `c10_audit.json` `9c237dd0…`, ledger row 50. Register X40; the earlier "~0.05"
+  flag is retracted (RF "A season-matched P3d_N beats MG-2 at 13-16").
+- **SM-H (L2): selected for MG-3 13-15** under clarification SMH-1 `b3007803…` (ledger row 51): SM_H − P3d_N_fwd 13-15
+  Brier −0.01273 [−0.01625, −0.00936] on identical keys (12,372). Row 48's acceptance is SUPERSEDED: its −0.0669 is
+  recorded as vs the dev state `dff5d797…`, never the served arm. **h15 alone is unresolved** (+0.0029 [−0.0019,
+  +0.0080]); disclosed in MG-3's scope, not a decision input.
+- **CS-1 cool-season transfer (L3, history only, descriptive):** (1b) P3d_H 13-16 vs the MG-1 analogue Oct-Dec 2021-25
+  −0.310 [−0.319, −0.300] (16,496 rows; `part1b.json` `34284e45…`): **transfers**. CS-1's P3d_N column is the dev state
+  `dff5d797…`, not MG-2's bound `c6cc39f7…`. (1c) on Oct-Dec 2024-25 (9,830 rows, 150 date clusters; 2021-23 Oct-Dec is a
+  coverage gap): **P3d_H 07-12 −0.0063 [−0.0167, +0.0036], no transfer** (interval spans 0; Aug-Sep 2024-25 in-sample
+  −0.0797); blend_l6_H −0.0163 [−0.0238, −0.0090], weakened but still below 0. Ledger rows 45, 47 and 49. Register X41.
+- **R-V gate 2 (L2, dev, master accepted 10-27).** IEM MOS/NBE day-max (v_gap) as an afternoon input. **(a) PASS:**
+  P3d_V_fwd − served `c6cc39f7` 13-16 dR −0.0206 [−0.0405, −0.0008] (13,970 snapshots), gain at 13-14 (−0.0318
+  [−0.0538, −0.0096]; 15-16 +0.0044 [−0.0297, +0.0372]); R 1.266 vs 1.286, both still worse than the market. It is a
+  capture-proposal pass only, for a future MG-2 successor refit; there is no MG-3 route, because SM-H serves h13-15
+  and (b) killed v_gap there. **(b) FAIL, pre-registered KILL:** SM_HV − SM-H 13-15 ex-San Francisco dR −0.0007
+  [−0.0185, +0.0164] (10,514 snapshots; out of season, Oct-Dec fits on Aug-Sep dev); San Francisco reported only,
+  −0.0185 [−0.0485, +0.0083]. Rule `b0cf2a03…` + RV-C1 + RV-G2a `3605333b…` / RV-G2b `d9275e5e…`; run `rv-g2` at
+  `claude/rv-c1-20261027` @ `1c8730c1a`; audit `g2_audit.json` `4f1d2441…`, dev MOS manifest `e0c6caa3…`, frozen
+  states P3d_V_fwd `8a113250…` and SM_HV `3e91349e…`; ledger rows 55 and 56. Register X42.
+- **Not claimed:** edge; any forward result; a binding change to MG-2 or B from any read here.
+
 ## Related
 
 - [FINDINGS_DIGEST.md](FINDINGS_DIGEST.md) — the one-screen digest of this file; read it first
