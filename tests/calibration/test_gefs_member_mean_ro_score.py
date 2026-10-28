@@ -7,6 +7,9 @@ rows; dev G is read at the pinned hour field with unparsed or out-of-window hour
 an unpinned population or hour field and any input whose sha256 differs from its pin before loading anything; and a
 synthetic end-to-end run on fabricated tables reproduces s = 0, preserves mass, passes an informative G and closes a
 noise G.
+The forward state freeze reproduces every scored walk-forward pair and the fit population before it writes, freezes
+(a_h, b_h) over every dev fit date, writes deterministic bytes, and refuses another hour field, a date after
+2026-09-29 or an unpinned input.
 """
 import importlib
 import json
@@ -315,3 +318,63 @@ def test_core_refuses_a_non_reproducing_zero_shift():
                           registered=registered, arm_probs=arm_probs, g_of=lambda t: t.snaps.G.to_numpy(float),
                           n_of=lambda t, a: t.snaps.v2_mean.to_numpy(float), hour_of=lambda t: t.local_hour,
                           coef_fix={}, progress=lambda m: None)
+
+
+# ------------------------------------------------------------------ L6_G forward state freeze (method (a))
+
+def _state_sums(seed=3):
+    rng = np.random.default_rng(seed)
+    days = [f"2026-08-{k:02d}" for k in range(1, 21)]
+    return {(h, d): rng.random(len(prm.RO_PAIRS)) for h in prm.RUNG_HOURS for d in days}, days
+
+
+def _dev_for(sums, scored, fit_population):
+    wf = prm.ro_walk_forward(sums, scored)
+    return {"coefficients": {"L6_G": {f"h{h:02d}": {d: list(wf[(h, d)]) for d in scored} for h in prm.RUNG_HOURS}},
+            "population": {"l6_fit": fit_population}}
+
+
+def test_state_document_reproduces_dev_pairs_and_freezes_over_every_fit_date():
+    sums, days = _state_sums()
+    scored, pop = days[5:], {"common_covered_07_12": 10, "fit_rows": 9, "fit_rows_with_g_and_n": 8}
+    kw = dict(controls={"L6_s0_max_abs_diff": 0.0}, fit_population=pop, fit_dates=days, inputs={"x": "y"})
+    doc = prm.l6g_state_document(sums, scored, _dev_for(sums, scored, pop), **kw)
+    for h in prm.RUNG_HOURS:
+        total = np.sum([v for (hh, _), v in sums.items() if hh == h], axis=0)
+        assert (doc["state"][f"h{h:02d}"]["a"], doc["state"][f"h{h:02d}"]["b"]) == prm.ro_pick(total)
+    assert doc["as_of"] == "2026-09-30" and doc["fit_dates"] == {"first": days[0], "last": days[-1], "n": 20}
+    assert doc["controls"]["walk_forward_pairs_reproduced"] == len(scored) * len(prm.RUNG_HOURS)
+    again = prm.l6g_state_document(sums, scored, _dev_for(sums, scored, pop), **kw)
+    assert json.dumps(doc, sort_keys=True) == json.dumps(again, sort_keys=True)  # deterministic bytes
+    assert "time" not in json.dumps(doc).lower()
+
+
+def test_state_document_refuses_a_non_reproducing_dev_result():
+    sums, days = _state_sums()
+    scored, pop = days[5:], {"fit_rows": 9}
+    kw = dict(controls={}, fit_population=pop, fit_dates=days, inputs={})
+    dev = _dev_for(sums, scored, pop)
+    dev["coefficients"]["L6_G"]["h09"][scored[3]] = [9.9, 0.0]
+    with pytest.raises(prm.PooledModelError, match="do not reproduce"):
+        prm.l6g_state_document(sums, scored, dev, **kw)
+    with pytest.raises(prm.PooledModelError, match="fit population"):
+        prm.l6g_state_document(sums, scored, _dev_for(sums, scored, {"fit_rows": 8}), **kw)
+
+
+def test_freeze_refuses_unpinned_hour_window_and_inputs(tmp_path):
+    kw = dict(layout="x", fix_jsonl=tmp_path / "f", coefficients="x", nowcasts=tmp_path / "n",
+              gefs_corpus=tmp_path, dev_result=tmp_path / "d", out_path=tmp_path / "out" / "s.json")
+    for name in ("f", "n", "d"):
+        (tmp_path / name).write_bytes(b"{}")
+    with pytest.raises(prm.PooledModelError, match="local_hour"):
+        prm.l6g_freeze_state(dev_hour_field="cutoff_hour", **kw)
+    with pytest.raises(prm.PooledModelError, match="09-29"):
+        prm.l6g_freeze_state(dev_hour_field="local_hour", end="2026-09-30", **kw)
+    with pytest.raises(prm.PooledModelError, match="sha"):
+        prm.l6g_freeze_state(dev_hour_field="local_hour", **kw)
+    assert not (tmp_path / "out").exists()
+    argv = ["l6g-freeze-state"] + [x for f in ("--layout", "--fix", "--coefficients", "--nowcasts", "--gefs-corpus",
+                                                 "--dev-result", "--out") for x in (f, "x")]
+    with pytest.raises(SystemExit):
+        prm._parse(argv + ["--dev-hour-field", "cutoff_hour"])
+    assert prm._parse(argv + ["--dev-hour-field", "local_hour"]).dev_hour_field == "local_hour"

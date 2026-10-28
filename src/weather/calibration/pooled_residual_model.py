@@ -5504,6 +5504,45 @@ def ro_walk_forward(sums, scored_dates, hours=RUNG_HOURS):
     return out
 
 
+def ro_l6_fit_sums(full, reg, arm_probs, g_of, n_of, hour_of, hours=RUNG_HOURS, say=None):
+    """The L6_G fitting side of :func:`ro_score_core` (rule L125-126, L132), shared with the forward state freeze.
+
+    On the fitting table ``full`` with registered vectors ``reg``: the s = 0 controls, then the summed L6 Brier per
+    (hour, date) at every RO_PAIRS pair on common covered snapshots at local 07-12. Returns ``(sums, fit_population,
+    controls)`` with ``sums`` = {(hour, date): loss vector over RO_PAIRS}, the input of :func:`ro_walk_forward`."""
+    import numpy as np
+
+    say = say or (lambda m: print(m, flush=True))
+    hour_set = np.array(tuple(hours))
+    common_f = reg["P3d_N_fix"][1] & reg["L6"][1]
+    band_common = common_f[full.band_snap]
+    zero = np.zeros(len(full.snaps))
+    controls = {}
+    for arm in ("P3d_N_fix", "L6"):
+        diff = float(np.max(np.abs(arm_probs(full, arm, zero, None) - reg[arm][0])[band_common]))             if band_common.any() else 0.0
+        controls[f"{arm}_s0_max_abs_diff"] = diff
+        if diff > RO_TOL:
+            raise PooledModelError(f"s = 0 does not reproduce the registered {arm} vector: {diff}")
+    fdates = full.snaps.date.astype(str).to_numpy()
+    fhour = np.asarray(hour_of(full), int)
+    sel = common_f & (full.local_hour >= 7) & (full.local_hour <= 12)
+    fit_rows = sel & np.isin(fhour, hour_set)
+    diff_f = np.asarray(g_of(full), float) - np.asarray(n_of(full, "L6"), float)
+    keys = sorted({(int(h), d) for h, d in zip(fhour[fit_rows], fdates[fit_rows])})
+    kpos = {k: i for i, k in enumerate(keys)}
+    gi = np.array([kpos[(int(h), d)] for h, d in zip(fhour[fit_rows], fdates[fit_rows])], int)
+    loss = np.zeros((len(keys), len(RO_PAIRS)))
+    for j, (a, b) in enumerate(RO_PAIRS):
+        shift = ro_shift_array(a, b, diff_f, 0.0, fit_rows)
+        br = full.brier(arm_probs(full, "L6", shift, fit_rows))
+        np.add.at(loss[:, j], gi, br[fit_rows])
+        if j % 100 == 0:
+            say(f"ro L6 grid {j}/{len(RO_PAIRS)}")
+    fit_population = {"common_covered_07_12": int(sel.sum()), "fit_rows": int(fit_rows.sum()),
+                      "fit_rows_with_g_and_n": int((fit_rows & np.isfinite(diff_f)).sum())}
+    return {k: loss[i] for i, k in enumerate(keys)}, fit_population, controls
+
+
 def ro_score_core(*, make_table, fit_dates, scored, registered, arm_probs, g_of, n_of, hour_of, coef_fix,
                   mg1_probs=None, mg1_expected=None, progress=None):
     """Gates 2-3 (rule L117-148) on scorecard tables; every input-specific piece is a callable so that the pinned
@@ -5523,36 +5562,10 @@ def ro_score_core(*, make_table, fit_dates, scored, registered, arm_probs, g_of,
 
     # ---- fitting table: s = 0 controls (rule L132), then the L6_G walk-forward grid (L125-126)
     full = make_table(fit_dates)
-    reg = registered(full)
-    common_f = reg["P3d_N_fix"][1] & reg["L6"][1]
-    band_common = common_f[full.band_snap]
-    zero = np.zeros(len(full.snaps))
-    controls = {}
-    for arm in ("P3d_N_fix", "L6"):
-        diff = float(np.max(np.abs(arm_probs(full, arm, zero, None) - reg[arm][0])[band_common])) \
-            if band_common.any() else 0.0
-        controls[f"{arm}_s0_max_abs_diff"] = diff
-        if diff > RO_TOL:
-            raise PooledModelError(f"s = 0 does not reproduce the registered {arm} vector: {diff}")
-    fdates = full.snaps.date.astype(str).to_numpy()
-    fhour = np.asarray(hour_of(full), int)
-    sel = common_f & (full.local_hour >= 7) & (full.local_hour <= 12)
-    fit_rows = sel & np.isin(fhour, hour_set)
-    diff_f = np.asarray(g_of(full), float) - np.asarray(n_of(full, "L6"), float)
-    keys = sorted({(int(h), d) for h, d in zip(fhour[fit_rows], fdates[fit_rows])})
-    kpos = {k: i for i, k in enumerate(keys)}
-    gi = np.array([kpos[(int(h), d)] for h, d in zip(fhour[fit_rows], fdates[fit_rows])], int)
-    loss = np.zeros((len(keys), len(RO_PAIRS)))
-    for j, (a, b) in enumerate(RO_PAIRS):
-        shift = ro_shift_array(a, b, diff_f, 0.0, fit_rows)
-        br = full.brier(arm_probs(full, "L6", shift, fit_rows))
-        np.add.at(loss[:, j], gi, br[fit_rows])
-        if j % 100 == 0:
-            say(f"ro L6 grid {j}/{len(RO_PAIRS)}")
-    coef_l6 = ro_walk_forward({k: loss[i] for i, k in enumerate(keys)}, scored, hours)
-    fit_population = {"common_covered_07_12": int(sel.sum()), "fit_rows": int(fit_rows.sum()),
-                      "fit_rows_with_g_and_n": int((fit_rows & np.isfinite(diff_f)).sum())}
-    del full, reg, loss
+    sums, fit_population, controls = ro_l6_fit_sums(full, registered(full), arm_probs, g_of, n_of, hour_of,
+                                                    hours, say)
+    coef_l6 = ro_walk_forward(sums, scored, hours)
+    del full, sums
     say("ro L6 walk-forward done")
 
     # ---- scored table (rule L119-122)
@@ -5836,6 +5849,150 @@ def rung_o_score(*, layout, fix_jsonl, coefficients, nowcasts, loyo_result, loyo
     return result
 
 
+L6G_DEV_RESULT_SHA256 = "35e0c93b4e4331647a613e54365cb91b3ac9f57d07bb44021604756d95ba1162"  # R-O gates 2/3
+L6G_STATE_AS_OF = "2026-09-30"  # the first date after the dev window: the pick is over every fit date <= 09-29
+
+
+def l6g_state_document(sums, scored, dev, *, controls, fit_population, fit_dates, inputs, hours=RUNG_HOURS):
+    """The frozen L6_G state (forward prereg, method (a)) from the dev fit sums, after the reproduction controls.
+
+    Every walk-forward pair the R-O gates 2/3 result scored must be reproduced exactly and the fit population must
+    equal the result's; then (a_h, b_h) = :func:`ro_walk_forward` at ``L6G_STATE_AS_OF``, i.e. the grid minimiser over
+    all dev fit dates. Only deterministic fields are written (no timestamps; losses rounded to 1e-6)."""
+    import numpy as np
+
+    hours = tuple(hours)
+    wf = ro_walk_forward(sums, scored, hours)
+    want = dev["coefficients"]["L6_G"]
+    bad = [(h, d) for h in hours for d in scored if list(wf[(h, d)]) != list(want[f"h{h:02d}"][d])]
+    if bad or any(len(want[f"h{h:02d}"]) != len(scored) for h in hours):
+        raise PooledModelError(f"walk-forward pairs do not reproduce the dev result: {bad[:5]}")
+    if fit_population != dev["population"]["l6_fit"]:
+        raise PooledModelError(f"fit population {fit_population} != dev {dev['population']['l6_fit']}")
+    final = ro_walk_forward(sums, [L6G_STATE_AS_OF], hours)
+    state, fit_loss = {}, {}
+    for h in hours:
+        a, b = final[(h, L6G_STATE_AS_OF)]
+        total = np.sum([v for (hh, _), v in sums.items() if hh == h], axis=0)
+        state[f"h{h:02d}"] = {"a": a, "b": b}
+        fit_loss[f"h{h:02d}"] = {"loss_fit": round(float(total[RO_PAIRS.index((a, b))]), 6),
+                                 "loss_noshift": round(float(total[RO_ZERO]), 6)}
+    return {"kind": "l6g_forward_state", "rung": "R-O", "arm": "L6_G",
+            "rule": "docs/research/gefs-members-l11-2026-10-26/rule_rn.md", "rule_sha256": RO_RULE_C1_SHA256,
+            "method": "(a) walk-forward grid minimiser (rule L125-126) at the first date after the dev window, "
+                      "i.e. over every dev fit date; frozen, no forward refit",
+            "as_of": L6G_STATE_AS_OF, "dev_hour_field": "local_hour",
+            "fit_dates": {"first": fit_dates[0], "last": fit_dates[-1], "n": len(fit_dates)},
+            "grid": {"a": [RO_A[0], RO_A[-1], 0.1], "b": [RO_B[0], RO_B[-1], 0.05], "tie_rule": "ro_pick"},
+            "state": state, "fit_loss_rounded": fit_loss, "inputs": inputs,
+            "controls": {**{k: round(v, 12) for k, v in controls.items()}, "fit_population": fit_population,
+                         "walk_forward_pairs_reproduced": len(scored) * len(hours)}}
+
+
+def l6g_freeze_state(*, layout, fix_jsonl, coefficients, nowcasts, gefs_corpus, dev_result, dev_hour_field,
+                     out_path, markets=R0_MARKETS, start="2026-08-01", end="2026-09-29"):
+    """Freeze the L6_G (a_h, b_h) state for the forward pre-registration on dev data only (dates <= ``end``).
+
+    The fitting side is :func:`ro_l6_fit_sums`, exactly as gates 2/3 ran it (pin: local_hour; the P3d_N_fix arm
+    enters only through common coverage, so the loyo fit-population pin does not touch this state)."""
+    import numpy as np
+    import pandas as pd
+
+    from weather.calibration import r0_ols_floor_challenger as l3
+    from weather.market.market_registry import spec_for_id
+    from weather.reporting.scorecards import dev_scorecard as sc
+    from weather.reporting.scorecards import dev_scorecard_data as data
+
+    if dev_hour_field != "local_hour":
+        raise PooledModelError("the L6_G state is pinned to --dev-hour-field local_hour")
+    if end > "2026-09-29":
+        raise PooledModelError("the L6_G state may use dev dates <= 2026-09-29 only")
+    out_path = require_output_outside_repo(out_path)
+    if out_path.exists():
+        raise PooledModelError(f"refusing to overwrite {out_path}")
+
+    def sha(path):
+        return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+    for path, want in ((dev_result, L6G_DEV_RESULT_SHA256), (nowcasts, L6_NOWCAST_SHA256), (fix_jsonl, RI_FIX_SHA256)):
+        got = sha(path)
+        if got != want:
+            raise PooledModelError(f"{path} sha {got} != {want}")
+    dev = json.loads(Path(dev_result).read_bytes())
+    if dev["pins"]["dev_hour_field"] != dev_hour_field or dev["gates"]["2_L6_G"]["pass"] is not True:
+        raise PooledModelError("the dev result is not the local_hour run with L6_G passing gate 2")
+    manifest = json.loads((Path(gefs_corpus) / "manifest.json").read_text(encoding="utf-8"))
+    rows_sha = sha(Path(gefs_corpus) / "gefs_member_rows.jsonl")
+    if manifest.get("rows_sha256") != rows_sha or rows_sha != dev["inputs"]["gefs_rows_sha256"]:
+        raise PooledModelError("GEFS corpus rows differ from their manifest or from the dev result's corpus")
+    os.environ["L6_NOWCASTS"] = str(nowcasts)
+    from weather.reporting.scorecards.free_source_candidates import l6_stack
+
+    l6_stack._CACHE.clear()
+    state, part_sha = l6_frozen_state(coefficients)
+    if part_sha != dev["inputs"]["l6_part_sha256"]:
+        raise PooledModelError("L6 part differs from the dev result's")
+    timezones = {m: spec_for_id(m).timezone for m in markets}
+    gefs = ro_load_gefs(gefs_corpus)
+    start_d, end_d = data.check_range(start, end)
+    lay = data.load_layout(layout, data.DEV_FIRST, end_d)
+    if lay.manifest_sha256 != dev["inputs"]["layout_manifest_sha256"] or sc.code_sha256() != \
+            dev["inputs"]["scorecard_code_sha256"]:
+        raise PooledModelError("layout manifest or scorecard code differs from the dev result's")
+    folds = data.make_folds(lay.dates, start_d, end_d, 7, 1, 7)
+    scored = sorted(d for f in folds if f.scored for d in f.dates)
+    fit_dates = sorted(d for d in {str(x) for x in lay.dates} if BLEND_FIT_FIRST <= d <= end)
+    dists = {}
+    with open(fix_jsonl, encoding="utf-8") as handle:
+        for line in handle:
+            row = json.loads(line)
+            if str(row.get("target_date", ""))[:10] > end:
+                raise PooledModelError("P3d_N_fix vectors hold rows after the window")
+            dists[f"{row['market']}|{row['snapshot_id']}"] = {int(float(k)): float(v)
+                                                             for k, v in row["distribution"].items()}
+    preps, gcache = {"tab": None}, {"tab": None}
+
+    def registered(tab):
+        fix = l3._vector(tab, l3._candidate_frame(str(fix_jsonl), tab, lay, folds, data)[0])
+        return {"P3d_N_fix": fix, "L6": l6_vector(tab, state, l3)}
+
+    def arm_probs(tab, arm, shift, rows):  # as rung_o_score
+        if arm == "P3d_N_fix":
+            if preps["tab"] is not tab:
+                preps.update(tab=tab, prep=rm_fix_prepare(dists, tab.bands))
+            pos = dict(zip(tab.snaps.row_key, range(len(tab.snaps))))
+            fx = rm_fix_band_probs(preps["prep"], lambda rk: shift[pos[rk]] if rk in pos else 0.0)
+            return tab.candidate_vector(fx)[0]
+        keep = np.ones(len(tab.snaps), bool) if rows is None else np.asarray(rows, bool)
+        snaps = tab.snaps[keep].reset_index(drop=True)
+        return tab.candidate_vector(rm_l6_band_probs(state, snaps, tab.bands, np.asarray(shift)[keep]))[0]
+
+    def g_of(tab):
+        if gcache["tab"] is not tab:
+            gcache.update(tab=tab, value=ro_dev_gefs(tab.snaps, gefs, timezones, dev_hour_field))
+        return gcache["value"][0]
+
+    def hour_of(tab):
+        g_of(tab)
+        return gcache["value"][1]
+
+    def n_of(tab, arm):
+        return pd.to_numeric(tab.snaps.v2_mean, errors="coerce").to_numpy(float)
+
+    full = sc.Table(lay, fit_dates)
+    sums, fit_population, controls = ro_l6_fit_sums(full, registered(full), arm_probs, g_of, n_of, hour_of)
+    del full
+    inputs = {"dev_result_sha256": L6G_DEV_RESULT_SHA256, "fix_jsonl": RI_FIX_SHA256, "gefs_rows_sha256": rows_sha,
+              "l6_part_sha256": part_sha, "l6_nowcast_sha256": L6_NOWCAST_SHA256,
+              "layout_manifest_sha256": lay.manifest_sha256, "scorecard_code_sha256": sc.code_sha256(),
+              "module_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}
+    doc = l6g_state_document(sums, scored, dev, controls=controls, fit_population=fit_population,
+                             fit_dates=fit_dates, inputs=inputs)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_bytes((json.dumps(doc, indent=1, sort_keys=True) + "\n").encode("utf-8"))
+    return doc
+
+
 def _parse(argv=None):
     parser = argparse.ArgumentParser(prog="python -m weather.calibration.pooled_residual_model",
                                      description=__doc__.split("\n\n")[0])
@@ -5968,6 +6125,10 @@ def _parse(argv=None):
         osc.add_argument(flag, required=True)
     osc.add_argument("--fix-fit-population", required=True, choices=RO_FIX_FIT_POPULATIONS)
     osc.add_argument("--dev-hour-field", required=True, choices=RO_DEV_HOUR_FIELDS)
+    lgf = sub.add_parser("l6g-freeze-state", help="freeze the L6_G forward (a_h, b_h) state on dev data (heavy)")
+    for flag in ("--layout", "--fix", "--coefficients", "--nowcasts", "--gefs-corpus", "--dev-result", "--out"):
+        lgf.add_argument(flag, required=True)
+    lgf.add_argument("--dev-hour-field", required=True, choices=("local_hour",))
     msc = sub.add_parser("rung-m-score", help="R-M gates 2-3 (heavy)")
     msc.add_argument("--layout", required=True)
     msc.add_argument("--fix", required=True)
@@ -6166,6 +6327,12 @@ def main(argv=None):
                               gefs_corpus=args.gefs_corpus, fix_fit_population=args.fix_fit_population,
                               dev_hour_field=args.dev_hour_field, out_path=args.out)
         print(json.dumps({"gates": result["gates"], "kill": result["kill"]}))
+        return 0
+    if args.command == "l6g-freeze-state":
+        doc = l6g_freeze_state(layout=args.layout, fix_jsonl=args.fix, coefficients=args.coefficients,
+                               nowcasts=args.nowcasts, gefs_corpus=args.gefs_corpus, dev_result=args.dev_result,
+                               dev_hour_field=args.dev_hour_field, out_path=args.out)
+        print(json.dumps({"state": doc["state"], "as_of": doc["as_of"]}))
         return 0
     if args.command == "rung-m-score":
         result = rung_m_score(layout=args.layout, fix_jsonl=args.fix, coefficients=args.coefficients,
