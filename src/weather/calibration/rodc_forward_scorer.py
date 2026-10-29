@@ -1,43 +1,40 @@
-"""R-ODC forward scorer (pure, unbound; L8 2026-10-29). Scores the frozen R-ODC forward pre-registration.
+"""R-ODC forward scorer, P1 only (pure, unbound; L8 2026-10-29). Scores the frozen R-ODC forward pre-registration.
 
 Nothing here is served, and it is not in any RELEASE_FILES. It reads forward data only through ``check_look``:
 
-* Embargo: nothing after 2026-09-29 is read before the look. Every read and every verdict refuses unless the look
-  context says the look day has come (``today >= look_date``), the look is on or after 2026-12-14 and on or after the
-  B look receipt, and every scored date lies in [D0, look_date) with D0 >= the freeze date >= 2026-10-30.
-* Denver is excluded from P1 and P2 (DL 10-23, KDEN vs KBKF), as in test B; a Denver row refuses.
+* Embargo: nothing after 2026-09-29 is read before the look. Every read and the verdict refuse unless the look
+  context says the look day has come (``today >= look_date``), D0 is the freeze date (>= 2026-10-30), the look is
+  at least 45 days after D0 and on or after the B look receipt, and every date lies in [D0, look_date).
+* Denver is excluded (DL 10-23, KDEN vs KBKF), as in test B; a Denver row refuses.
 
-P1, serve parity (no labels): serve = ``odc_metar_features.odc_features`` on the captured snapshot chosen by
+P1, serve parity (no labels): serve = ``odc_metar_features.odc_features`` on the captured snapshot (the capture
+host's snapshot store, ``<snapshots root>/<event slug>/replay_inputs.jsonl``, read by ``read_snapshots``) chosen by
 ``choose_snapshot(rule="last_in_hour")``; research = the training construction on the market's WU history store
 (``WundergroundHistoryStore`` at ``spec_for_id(market).data_root``, built as the daily refresh builds it): rows of
 local date D with minute_of_day <= h*60, low = min temp_native, dewpoint = dewpoint_native of the latest row.
 
-P2, non-inferiority: dR(NEST vs G1) = sum_cell mean(Brier_NEST - Brier_G1) / sum_cell mean(Brier_G1), cells
-(local_date, market) over h07-12, date-clustered multinomial weights (``r0_ols_floor_challenger._date_weights``,
-2,000 draws, seed 20261027) and ``dev_scorecard.ratio_interval`` -- the gate's ``rz_hrrr_spread._cell_ratio``.
-PASS iff the upper 95% bound < MARGIN (+0.0015). The forward per-row Brier frame is supplied by the caller.
+Countable date: a date >= D0 with at least one non-excluded (market, hour) row, i.e. both the serve and the
+research value exist. P1 is scored on the first 45 countable dates; fewer than 45 before the look refuses.
+P2 (non-inferiority on dR) was dropped before the freeze (master's ruling, 2026-10-29).
 """
 from __future__ import annotations
 
 import json
-import math
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 
 from weather.calibration import odc_metar_features as odc
 
 EMBARGO_LAST = date(2026, 9, 29)
 FREEZE_EARLIEST = date(2026, 10, 30)
-LOOK_EARLIEST = date(2026, 12, 14)
+N_COUNTABLE = 45
 EXCLUDED_MARKETS = frozenset({"denver"})
 HOURS = (7, 8, 9, 10, 11, 12)
-SEED = 20261027
-DRAWS = 2000
-MARGIN = 0.0015
 SNAPSHOT_RULE = "last_in_hour"
+REPLAY_INPUTS = "replay_inputs.jsonl"
 P1_LIMITS = {"low_so_far": {"exact_min": 0.95, "max_abs": 2.0, "ge2_max": 0.01},
              "dewpoint_c": {"exact_min": 0.97, "max_abs": 5.0, "ge2_max": 0.01}}
-P1_EXCLUDED_VOID = 0.10   # more than 10% of P1 rows excluded -> P1 VOID
+P1_EXCLUDED_VOID = 0.10   # more than 10% of the scored rows excluded -> P1 VOID
 WU_GAP_VOID = 0.05        # more than 5% of required (market, date) WU days missing after backfill -> VOID
 
 
@@ -54,16 +51,20 @@ class LookContext:
     today: date
 
 
+def _day(value):
+    return value if isinstance(value, date) else date.fromisoformat(str(value)[:10])
+
+
 def check_look(ctx, *, dates=(), markets=()):
     """Refuse unless the look may happen now and every date/market is in scope. -> sorted unique dates."""
     if not isinstance(ctx, LookContext):
         raise RodcForwardRefused("a LookContext is required")
     if ctx.freeze_date < FREEZE_EARLIEST:
         raise RodcForwardRefused(f"freeze {ctx.freeze_date} is before {FREEZE_EARLIEST}")
-    if ctx.d0 < ctx.freeze_date:
-        raise RodcForwardRefused(f"D0 {ctx.d0} is before the freeze {ctx.freeze_date}")
-    if ctx.look_date < LOOK_EARLIEST:
-        raise RodcForwardRefused(f"look {ctx.look_date} is before {LOOK_EARLIEST}")
+    if ctx.d0 != ctx.freeze_date:
+        raise RodcForwardRefused(f"D0 {ctx.d0} is not the freeze date {ctx.freeze_date}")
+    if ctx.look_date < ctx.d0 + timedelta(days=N_COUNTABLE):
+        raise RodcForwardRefused(f"look {ctx.look_date} cannot follow {N_COUNTABLE} countable dates from {ctx.d0}")
     if ctx.b_receipt_date is None:
         raise RodcForwardRefused("no B look receipt: the R-ODC look comes after it")
     if ctx.look_date < ctx.b_receipt_date:
@@ -73,14 +74,63 @@ def check_look(ctx, *, dates=(), markets=()):
     bad = sorted(set(markets) & EXCLUDED_MARKETS)
     if bad:
         raise RodcForwardRefused(f"excluded market(s) {bad}")
-    days = sorted({d if isinstance(d, date) else date.fromisoformat(str(d)[:10]) for d in dates})
+    days = sorted({_day(d) for d in dates})
     out = [d for d in days if not (ctx.d0 <= d < ctx.look_date)]
     if out:
         raise RodcForwardRefused(f"date(s) outside [D0 {ctx.d0}, look {ctx.look_date}): {out[:3]}")
     return days
 
 
-# ------------------------------------------------------------------------------------------------ WU research side
+# ------------------------------------------------------------------------------------------------ serve side
+
+def snapshots_root():
+    from weather.paths import data_path
+
+    return data_path() / "snapshots"
+
+
+def read_snapshots(market, day, ctx, *, tz, root=None):
+    """[{"captured_at": aware local dt, "metar": sources.metar.data}] of ``day``'s captures, in file order, from the
+    snapshot store's ``<root>/<event slug>/replay_inputs.jsonl`` (root defaults to ``data_path()/snapshots``; at
+    the look it is master's export of that store). A forward read: refused unless ``check_look`` passes. A missing
+    event folder gives []."""
+    from datetime import datetime
+
+    from weather.market.market_config import event_slug_for_date
+
+    check_look(ctx, dates=[day], markets=[market])
+    path = (snapshots_root() if root is None else root) / event_slug_for_date(day, market) / REPLAY_INPUTS
+    out = []
+    if not path.exists():
+        return out
+    with path.open(encoding="utf-8") as fh:
+        for line in fh:
+            if not line.strip():
+                continue
+            snap = json.loads(line)
+            raw = snap.get("captured_at_local")
+            if not raw:
+                continue
+            local = datetime.fromisoformat(str(raw)).astimezone(tz)
+            if local.date() != day:
+                continue
+            metar = ((snap.get("sources") or {}).get("metar") or {}).get("data") or {}
+            out.append({"captured_at": local, "metar": metar})
+    return out
+
+
+def _levels(metar, day, hour, tz, unit, now):
+    """(high_so_far, current_temp) of the chosen snapshot at ``hour``, as ``mg2_p3d_n._observations`` builds them."""
+    from weather.calibration import r0_ols_floor_challenger as l3
+    from weather.model import observed_running_max
+
+    current, _, _ = l3.observations_at_cutoff(metar.get("rows"), day, hour, tz)
+    high, _ = observed_running_max.running_max_since_midnight(
+        {}, metar, target_date=day, tz=tz, unit=unit, cutoff_hour=hour, now=now, metar_only=True)
+    return high, current
+
+
+# ------------------------------------------------------------------------------------------------ research side
 
 def wu_store(market):
     """The market's WU history store, exactly as the daily refresh builds it (path from weather.paths)."""
@@ -148,8 +198,8 @@ def wu_gap(required, present):
 # ------------------------------------------------------------------------------------------------ P1
 
 def p1_day(market, day, snapshots, wu_rows, ctx, *, tz, unit):
-    """P1 records for one (market, date), h07-12. ``snapshots``: [{"captured_at": aware dt, "metar": the captured
-    sources.metar.data dict, "high_so_far", "current_temp"}] in file order. A bound refusal marks that hour."""
+    """P1 records for one (market, date), h07-12, from ``read_snapshots`` and ``read_wu_rows`` output.
+    A bound refusal (``check_bounds`` on the hour, running min against the previous scored hour) marks that hour."""
     check_look(ctx, dates=[day], markets=[market])
     captures = [s["captured_at"] for s in snapshots]
     recs, by_hour = [], {}
@@ -162,15 +212,15 @@ def p1_day(market, day, snapshots, wu_rows, ctx, *, tz, unit):
         elif research is None:
             rec["excluded"] = "no_wu_row"
         else:
-            serve = odc.odc_features(snapshots[i]["metar"], target_date=day, tz=tz, unit=unit, cutoff_hour=h,
-                                     now=captures[i])
+            metar = snapshots[i]["metar"]
+            serve = odc.odc_features(metar, target_date=day, tz=tz, unit=unit, cutoff_hour=h, now=captures[i])
             if serve["reason"]:
                 rec["excluded"] = serve["reason"]
             else:
                 rec.update(serve_low=serve["low_so_far"], serve_dew=serve["dewpoint_c"],
                            research_low=research["low_so_far"], research_dew=research["dewpoint_c"])
-                by_hour[h] = {"low_so_far": serve["low_so_far"], "high_so_far": snapshots[i].get("high_so_far"),
-                              "current_temp": snapshots[i].get("current_temp")}
+                high, current = _levels(metar, day, h, tz, unit, captures[i])
+                by_hour[h] = {"low_so_far": serve["low_so_far"], "high_so_far": high, "current_temp": current}
         recs.append(rec)
     previous = None
     for rec in recs:
@@ -186,6 +236,11 @@ def p1_day(market, day, snapshots, wu_rows, ctx, *, tz, unit):
             rec["refused"] = True
         previous = h
     return recs
+
+
+def countable_dates(records):
+    """Dates with at least one non-excluded (market, hour) row (both serve and research values exist)."""
+    return sorted({_day(r["date"]) for r in records if not r["excluded"]})
 
 
 def _column(recs, serve_key, research_key, limits):
@@ -210,69 +265,39 @@ def _column(recs, serve_key, research_key, limits):
             "pass": bool(n and ok)}
 
 
-def p1_verdict(records, gap):
-    """P1: PASS iff both columns meet P1_LIMITS; VOID on > 10% excluded rows or a WU gap above the limit."""
-    markets = {r["market"] for r in records}
-    if markets & EXCLUDED_MARKETS:
-        raise RodcForwardRefused(f"excluded market(s) {sorted(markets & EXCLUDED_MARKETS)}")
-    scored = [r for r in records if not r["excluded"]]
-    excluded = len(records) - len(scored)
-    share = excluded / len(records) if records else 1.0
+def p1_verdict(records, wu_present, ctx):
+    """P1 on the first 45 countable dates. PASS iff both columns meet P1_LIMITS; VOID when more than 10% of their
+    rows are excluded, or more than 5% of the required (market, date) WU days, D0 .. the 45th countable date, are
+    missing. ``wu_present``: the (market, date) pairs with WU rows after backfill."""
+    markets = sorted({r["market"] for r in records})
+    check_look(ctx, dates=[r["date"] for r in records], markets=markets)
+    countable = countable_dates(records)
+    if len(countable) < N_COUNTABLE:
+        raise RodcForwardRefused(f"{len(countable)} countable dates before the look, fewer than {N_COUNTABLE}")
+    scored_dates = set(countable[:N_COUNTABLE])
+    last = countable[N_COUNTABLE - 1]
+    scope = [r for r in records if _day(r["date"]) in scored_dates]
+    scored = [r for r in scope if not r["excluded"]]
+    excluded = len(scope) - len(scored)
+    share = excluded / len(scope)
+    span = [ctx.d0 + timedelta(days=k) for k in range((last - ctx.d0).days + 1)]
+    gap = wu_gap({(m, d) for m in markets for d in span}, {(m, _day(d)) for m, d in wu_present})
     cols = {"low_so_far": _column(scored, "serve_low", "research_low", P1_LIMITS["low_so_far"]),
             "dewpoint_c": _column(scored, "serve_dew", "research_dew", P1_LIMITS["dewpoint_c"])}
     reasons = {}
-    for r in records:
+    for r in scope:
         if r["excluded"]:
             reasons[r["excluded"]] = reasons.get(r["excluded"], 0) + 1
     if gap["void"] or share > P1_EXCLUDED_VOID:
         verdict = "VOID"
     else:
         verdict = "PASS" if all(c["pass"] for c in cols.values()) else "FAIL"
-    return {"verdict": verdict, "rows": len(records), "excluded": excluded, "excluded_share": share,
-            "excluded_reasons": reasons, "wu_gap": gap, "columns": cols}
+    return {"verdict": verdict, "countable_dates": len(countable), "last_scored_date": last.isoformat(),
+            "rows": len(scope), "excluded": excluded, "excluded_share": share, "excluded_reasons": reasons,
+            "wu_gap": gap, "columns": cols}
 
 
-# ------------------------------------------------------------------------------------------------ P2
-
-def p2_verdict(frame, ctx):
-    """P2 on the caller's forward per-row frame (local_date, market, hour, nest, g1 = per-row Brier).
-    Rows where either Brier is non-finite are dropped (paired). PASS iff the upper 95% bound < MARGIN."""
-    import numpy as np
-
-    from weather.calibration import r0_ols_floor_challenger as l3
-    from weather.reporting.scorecards import dev_scorecard as sc
-
-    if sc.DRAWS != DRAWS:
-        raise RodcForwardRefused(f"dev_scorecard.DRAWS {sc.DRAWS} != {DRAWS}")
-    f = frame[frame.hour.isin(HOURS)]
-    check_look(ctx, dates=f.local_date.astype(str).unique(), markets=f.market.astype(str).unique())
-    a, b = f["nest"].to_numpy(float), f["g1"].to_numpy(float)
-    ok = np.isfinite(a) & np.isfinite(b)
-    if not ok.any():
-        raise RodcForwardRefused("no paired P2 rows")
-    num, den = (a - b)[ok], b[ok]
-    dates = f.local_date.astype(str).str[:10].to_numpy()[ok]
-    markets = f.market.astype(str).to_numpy()[ok]
-    keys = sorted(set(zip(dates, markets)))
-    index = {k: i for i, k in enumerate(keys)}
-    cell = np.array([index[k] for k in zip(dates, markets)], int)
-    cnt = np.bincount(cell, minlength=len(keys))
-    ca = np.bincount(cell, weights=num, minlength=len(keys)) / cnt
-    cb = np.bincount(cell, weights=den, minlength=len(keys)) / cnt
-    w = l3._date_weights([k[0] for k in keys], DRAWS, SEED)
-    res = sc.ratio_interval(w, ca, cb)
-    upper = res["ci95"][1]
-    if upper is None or not math.isfinite(upper):
-        raise RodcForwardRefused("no finite P2 interval")
-    return dict(res, margin=MARGIN, verdict="PASS" if upper < MARGIN else "FAIL", superiority=bool(upper < 0),
-                n_rows=int(ok.sum()), n_dropped=int((~ok).sum()), n_cells=len(keys),
-                n_dates=len({k[0] for k in keys}))
-
-
-def verdict(p1, p2):
-    """Section 5 of the prereg: both PASS -> adoption candidate; P1 VOID -> no verdict; else closes."""
-    if p1["verdict"] == "VOID":
-        return "VOID"
-    if p1["verdict"] == "FAIL":
-        return "CLOSE_SERVE_INFEASIBLE"
-    return "ADOPTION_CANDIDATE" if p2["verdict"] == "PASS" else "CLOSE_NO_FORWARD_GAIN"
+def verdict(p1):
+    """Prereg section 5: P1 PASS -> eligible as a feature in the next release candidate (that release's own gates
+    decide on outcome); FAIL -> R-ODC closes (not servable at parity); VOID -> no verdict."""
+    return {"PASS": "ELIGIBLE_FEATURE", "FAIL": "CLOSE_SERVE_INFEASIBLE", "VOID": "VOID"}[p1["verdict"]]
