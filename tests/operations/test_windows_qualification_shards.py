@@ -113,6 +113,7 @@ EXPECTED_SHARDS = {
             "tests/operations/test_feature_model_trainer_admission.py",
             "tests/operations/test_pooled_residual_model_admission.py",
             "tests/operations/test_workstation_offline_corpus_admission.py",
+            "tests/operations/test_spread_information_rung_admission.py",
             "tests/operations/test_r0_ols_floor_challenger_admission.py",
             "tests/operations/test_ols_floor_ladder_admission.py",
             "tests/operations/test_long_job_guard.py",
