@@ -4658,6 +4658,35 @@ nothing after 09-29 read. Register §6 X39-X42 holds the rule-outs. Ledger rows 
   states P3d_V_fwd `8a113250…` and SM_HV `3e91349e…`; ledger rows 55 and 56. Register X42.
 - **Not claimed:** edge; any forward result; a binding change to MG-2 or B from any read here.
 
+### 10am. R-Q: GEFS member spread as a scale modulator is killed at 07-16; its 00-06 variant is blocked on capture parity — lane L13 (L15's rule), workstation, 2026-10-29
+
+**Scope:** history (2021-25) and development evidence on dates ≤ 2026-09-29; rule committed before any row; nothing
+after 09-29 read. Ledger row 71 and register X43 hold the full record; it is cited here, not copied.
+
+- **Variant A, GEFS v12 member SD as a scale modulator on P3d_N_fix at 07-12: KILLED** (master ruling, 2026-10-29).
+  u = ln max(SD, 0.25), centred per market; m = clip(β·u, ±ln 2); s' = max(0.5, s·e^m). Gate 2 dev 07-12 dR −0.00260
+  [−0.00650, +0.00094] failed (21,664 snapshots, 473 market-days, 43 dates; control byte-identical to `cd0034b9…`;
+  no hour's lower bound above 0). **Kill scope:** GEFS member SD as a P3d_N_fix/L6-family scale modulator at 07-16,
+  full breadth: no other cycle, product, member statistic, centring, clip, grid or hour grouping under any rung name.
+  **Context only, not decision inputs:** gate 1 nested LOYO 07-12 −0.00067 [−0.00122, −0.00015] passed (19,657 rows,
+  frozen β 0.20-0.30); the secondary 13-16 LOYO −0.00024 [−0.00062, +0.00014] failed. Precondition P is R-O's P under
+  rule_rn Clarification 1 (`7a4354d05`, 10-27), which fixed P's definition before R-Q was scored; clarifications are
+  part of the governing rule, so A is killed rather than blocked. The run used environment `c471b32b9` (the code
+  commit alone lacked `ols_floor_ladder`; module byte-identical); master accepted the deviation.
+- **Variant B, MG-1 warm half at 00-06 from the 18Z D-1 GEFS cycle: BLOCKED, not killed.** Precondition P_B (L11's
+  limits: |mean diff| ≤ 1 °F, median |diff| ≤ 1 °F, r ≥ 0.95) failed as registered (p10 −1.41 °F) and again under R-Q
+  Clarification 1 `1d47c8bb…` (capture side recomputed at history's node maximum, the same fix as R-O C1): p10 mean
+  diff −1.156 °F, median |diff| 1.078, r 0.986; p90 −0.971, 1.000, r 0.988 (33,609 snapshots). The gap is concentrated
+  in San Francisco (about −5.3 °F), Houston (−1.8) and NYC (−1.4 to −1.7); the rest are within about 0.9 °F, consistent
+  with coastal cells on the 0.5° grid vs Open-Meteo (a reading, not a gate). **Train/serve fact:** captured Open-Meteo
+  GEFS member highs are not a parity substitute for ap5 18Z history at 00-06. Gate B1 was not run; no 18Z recorder
+  costing.
+- Rule `rule_rq.md` sha256 `5703f06542b6f369bd32eaa2b84214bf4064b98490be3791b223c439d5e010c4` (`197729f4a`); C1
+  `5641dbfc9`; code `19d822389` + `33b9fdd0a`; score `a2e0dcdb…`, LOYO `441ccce4…`, P_B `fdf28824…`, P_B C1
+  `72b97e0b…`; `results_rq.md` on `claude/rq-run-env-20261029` @ `558889b13`. Code unlanded (P3d_N family B-bound).
+- **Not claimed:** edge; any forward result; that the kill covers multi-model dispersion, observed-state predictors
+  or a GEFS-anchored arm.
+
 ## Related
 
 - [FINDINGS_DIGEST.md](FINDINGS_DIGEST.md) — the one-screen digest of this file; read it first
