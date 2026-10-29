@@ -18,6 +18,11 @@ import pytest
 
 from weather.calibration import l6g_forward_look as look
 
+from tests.host_guard import import_or_skip_on_capture_host
+
+# The look's interval code imports r0_ols_floor_challenger, which refuses the capture host by design.
+import_or_skip_on_capture_host("weather.calibration.r0_ols_floor_challenger")
+
 D0 = dt.date(2026, 10, 30)
 DATES = [(D0 + dt.timedelta(days=k)).isoformat() for k in range(45)]
 TODAY = dt.date(2026, 12, 20)

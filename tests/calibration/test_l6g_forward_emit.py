@@ -19,6 +19,8 @@ from weather.calibration import l6g_forward_emit as emit
 from weather.calibration import l6g_forward_look as look
 from weather.reporting.scorecards.free_source_candidates import mg1
 
+from tests.host_guard import import_or_skip_on_capture_host
+
 DAY = "2026-10-30"
 TODAY = dt.date(2026, 10, 31)
 EDGES = [(  "lte", 0, 70), ("range", 71, 72), ("range", 73, 74), ("range", 75, 76), ("gte", 77, 0)]
@@ -70,6 +72,8 @@ def _emit(env, sp, bp, **over):
 
 
 def test_emits_shifted_vectors_that_pass_the_look_controls(tmp_path, env):
+    # Runs the look's controls, which import r0_ols_floor_challenger (refuses the capture host by design).
+    import_or_skip_on_capture_host("weather.calibration.r0_ols_floor_challenger")
     sp, bp = _inputs(tmp_path, uncovered={("nyc", 7)})
     _manifest(env["recorder_root"], lm_missing={("austin", 9)})
     r = _emit(env, sp, bp)
