@@ -11,7 +11,11 @@ computation. Every job ran once through `workstation_heavy.ps1 -Queue -MinAvaila
 
 - **Variant A: KILL at gate 2.** GEFS member SD is closed as a P3d_N_fix / L6-family scale modulator at 07-16, with
   the rule's full breadth.
-- **Variant B: BLOCKED.** Precondition P_B failed, so gate B1 was not run. Per the rule this is not a kill.
+- **Variant A is KILLED (master ruling, 2026-10-29).** R-O's Clarification 1 (`7a4354d05`, 10-27) fixed P's
+  definition before R-Q was scored, so the C1 P is the governing P.
+- **Variant B: BLOCKED.** P_B failed. It failed again under R-Q Clarification 1
+  (`rule_rq_clarification_1.md`, sha256 `1d47c8bb…`, pushed at `5641dbfc9` before the re-run). Gate B1 was never
+  run. Per the rule this is not a kill.
 
 ## Gate 1: nested LOYO 2021-25, 07-12 (Q minus unmodulated, Brier)
 
@@ -89,4 +93,21 @@ snapshots at 00-06.
 - Result file `rq_parity_b.json` sha256 `fdf288241f2d77c3f8f7d6ff87888d7ff7c618db290455f8ab09b60f7b025de9`.
 - The colder-history bias looks like the same definition gap that failed R-O's original P: a 3-hourly node max
   against an hourly full-day max. That is a reading only. Any clarification is master's decision.
-- Gate B1 was not run, so no 18Z recorder arm is costed.
+
+### P_B re-run under R-Q Clarification 1 (2026-10-29; code `33b9fdd0a`)
+
+The capture side is the node-max p10/p90 from R-O's C1 extraction (`ro_capture_members.csv`, `8da6d143…`). Blobs
+were linked by the captured full-day fingerprint.
+
+| statistic | n | mean diff (°F) | median abs diff (°F) | r | pass |
+| --- | --- | --- | --- | --- | --- |
+| p10 | 33,609 | -1.156 | 1.078 | 0.986 | no |
+| p90 | 33,609 | -0.971 | 1.000 | 0.988 | yes |
+
+- **Exclusions:** 33 snapshots have no captured ensemble and 6 have linked blobs that disagree.
+- **Result file:** `rq_parity_b_c1.json`, sha256 `72b97e0b3b260d2c6c32f1b3ce14cf722406c37531a1a0c4963c52a68defeb2d`.
+- **Where the gap is.** It is concentrated in a few markets: San Francisco p10 -5.32 / p90 -5.15, Houston
+  -1.78 / -1.87, NYC -1.44 / -1.74. The other markets are within about 0.9 °F. This fits the coastal-cell
+  difference between the 0.5° `ap5` grid and Open-Meteo's grid.
+- **Outcome.** B stays **BLOCKED**, with no further clarification. Gate B1 was not run, so no 18Z recorder arm is
+  costed.
