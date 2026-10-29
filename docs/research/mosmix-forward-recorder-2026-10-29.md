@@ -73,6 +73,7 @@ Sources:
 - Austin's point carries stale coordinates.
 - The recorder records two secondaries (72565 and 72242) so that a later study can choose without a capture gap.
 - A recorded neighbour is not the settlement station. Any use of these four markets must say so.
+- Dallas, Denver and Houston are poor matches (IAH 37 km). Any later model use must test those three separately or exclude them.
 
 **Pins.** The pins are `STATIONS` in the script. Every fetched placemark is checked against its pinned id,
 coordinates and elevation. If DWD moves a station, the file is recorded `invalid` and is not kept.
