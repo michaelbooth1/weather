@@ -200,6 +200,7 @@ git; re-verify before relying on it.
 | [REPLAY_DOES_NOT_REPRODUCE_WHAT_WE_SERVED_2026-08-11.md](REPLAY_DOES_NOT_REPRODUCE_WHAT_WE_SERVED_2026-08-11.md) | CLOSED — thread closed; do not dispatch another historical-reproduction mission | Anyone proposes reconstructing what we served from history. |
 | [mirror-paused-2026-08-12.md](mirror-paused-2026-08-12.md) | **PAUSED** — operator decision; the live answer is the `WeatherDataMirror` task state | Anything touching the off-host mirror, workstation `data\`, or mirror flags in `status.ps1`. |
 | [codex-host-overload-2026-08-23.md](codex-host-overload-2026-08-23.md) | CLOSED — incident trace; prevention lives in `HOST_LOAD_POLICY.md` rule 6 | Why Codex verification is serial and time-gated. |
+| [capture-host-wifi-outage-2026-10-28.md](capture-host-wifi-outage-2026-10-28.md) | CLOSED — incident record | Capture shows no new data while the process-count check is healthy, or the cold-snapshot nightly is blocked by a failed attempt. |
 
 ### History appendices
 
