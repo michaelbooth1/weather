@@ -434,13 +434,17 @@ def sm_nowcast_map(research_root, nbm_corpus, sm_state_path):
 
 def gate2(*, nbm_corpus, records_root, research_root, state_0712, hrrr_2123, sums_2123, hrrr_2425, land, l6_state,
           sm_state, mg2_coefficients, blend_weights, ladder_cache, ladder_cache_sha256, gate1_json, gate1_rows,
-          rule, rule_sha256, out_path, commit):
+          rule, rule_sha256, out_path, commit, feature_source="records"):
     import numpy as np
 
     from weather.calibration import ols_floor_ladder as lad
     from weather.calibration import r0_ols_floor_challenger as l3
     from weather.model.mg_serve_core import R0_MARKETS
 
+    from weather.calibration import rodc_iem_proxy as iem
+
+    if feature_source not in iem.FEATURE_SOURCES:
+        raise RodcGate2Error(f"unknown feature source {feature_source!r}")
     out_path = Path(out_path)
     rows_out = Path(str(out_path).replace(".json", "_rows.csv.gz"))
     for p in (out_path, rows_out):
@@ -488,6 +492,12 @@ def gate2(*, nbm_corpus, records_root, research_root, state_0712, hrrr_2123, sum
     # the two columns, joined and asserted before any fit (C3.4)
     low_map = load_low_map(ladder_cache, markets)
     dew_map = load_dew_map(records_root, markets)
+    proxy = None
+    if feature_source == "iem-proxy":  # ledger row 70: only the two columns' values change
+        archive = iem.Archive(iem.default_metar_root(research_root))
+        low_map, dew_map, swap_stats = iem.swap_maps(low_map, dew_map, archive)
+        proxy = dict(iem.provenance(archive), swap_stats=swap_stats, module_sha256=cs._sha(iem.__file__))
+        print(f"r-odc gate 2 feature source iem-proxy: {swap_stats}", flush=True)
     running_min_groups = check_running_min(low_map)
     frame, col_train = attach_g2_columns(frame, low_map, dew_map, date_col="target_date",
                                          current_col="x_current_temp")
@@ -572,6 +582,9 @@ def gate2(*, nbm_corpus, records_root, research_root, state_0712, hrrr_2123, sum
                    "records_sha256": rec_shas, "l6_obs": l6prov, "sm_l6_obs": smprov},
         "hrrr_stats": hstats,
     }
+    if proxy is not None:
+        payload["feature_source"] = dict(proxy, name="iem-proxy", ledger_row=70,
+                                          label="PROXY: low_so_far and dewpoint_c from the IEM ASOS archive")
     cs._write_once(out_path, payload)
     scored.to_csv(rows_out, index=False, compression="gzip")
     payload["rows_sha256"] = hashlib.sha256(rows_out.read_bytes()).hexdigest()

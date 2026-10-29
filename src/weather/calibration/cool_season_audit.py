@@ -1132,6 +1132,9 @@ def main(argv=None):
                  "--blend-weights", "--ladder-cache", "--ladder-cache-sha256", "--gate1-json", "--gate1-rows",
                  "--rule", "--rule-sha256", "--commit", "--out"):
         rg2.add_argument(flag, required=True)
+    rg2.add_argument("--feature-source", choices=("records", "iem-proxy"), default="records",
+                     help="records (default, row 69) or iem-proxy (ledger row 70: IEM ASOS archive at "
+                          "<research-root>/../metar)")
     c = sub.add_parser("coverage")
     c.add_argument("--research-root", required=True)
     c.add_argument("--nbm-corpus", required=True)
@@ -1180,7 +1183,7 @@ def main(argv=None):
                                blend_weights=a.blend_weights, ladder_cache=a.ladder_cache,
                                ladder_cache_sha256=a.ladder_cache_sha256, gate1_json=a.gate1_json,
                                gate1_rows=a.gate1_rows, rule=a.rule, rule_sha256=a.rule_sha256, out_path=a.out,
-                               commit=a.commit)
+                               commit=a.commit, feature_source=a.feature_source)
         print(json.dumps({"verdict": out["verdict"], "headline": out["headline"],
                           "selected": out["selection"]["g2_selected_folds"],
                           "rows_sha256": out["rows_sha256"]}, indent=1, default=str))
