@@ -1171,6 +1171,130 @@ def rung_q_parity_b(*, replay_root, gefs_corpus, out_path, markets=prm.R0_MARKET
     return result
 
 
+RQ_C1_SHA256 = "1d47c8bb2428a1cc2a7583ee41bfe886eb8dc9cc66bfd77ba0c0af0b262ac200"  # rule_rq_clarification_1.md
+RQ_C1_CAPTURE_CSV_SHA256 = "8da6d14389888c2dc4cd12d2ced3d6219996cb0ca0116ca9eb7c416bbde27707"
+RQ_C1_LINK_TOL = 1e-6
+
+
+def rq_c1_load_capture(capture_csv):
+    """{event: {blob: {member: (node_max|None, day_max|None)}}} plus {blob: unit} (R-O C1 extractor CSV)."""
+    import csv
+
+    def num(text):
+        return float(text) if text not in ("", None) else None
+
+    blobs = defaultdict(lambda: defaultdict(dict))
+    units = {}
+    with open(capture_csv, encoding="utf-8", newline="") as handle:
+        for row in csv.DictReader(handle):
+            blobs[row["event"]][row["blob"]][row["member"]] = (num(row["node_max"]), num(row["day_max"]))
+            units[row["blob"]] = row["temperature_unit"]
+    return blobs, units
+
+
+def rq_c1_blob_stats(members):
+    """(full-day fingerprint (p10, p90, control), node (p10, p90) or None): R-O C1's arithmetic, no control stat."""
+    from weather.model.model_sources import percentile
+
+    perturbed = {k: v for k, v in members.items() if k != "control"}
+    day_highs = [v[1] for v in perturbed.values() if v[1] is not None]
+    fingerprint = (percentile(day_highs, 0.10), percentile(day_highs, 0.90), (members.get("control") or (None, None))[1])
+    node = [v[0] for v in perturbed.values() if v[0] is not None]
+    if len(node) < RQ_MIN_MEMBERS:
+        return fingerprint, None
+    return fingerprint, (percentile(node, 0.10), percentile(node, 0.90))
+
+
+def _rq_c1_close(a, b):
+    return a is not None and b is not None and abs(float(a) - float(b)) <= RQ_C1_LINK_TOL
+
+
+def rung_q_parity_b_c1(*, replay_root, gefs_corpus, capture_csv, capture_manifest, out_path, markets=prm.R0_MARKETS):
+    """P_B under R-Q Clarification 1: as ``rung_q_parity_b`` (population, history side, limits unchanged) but the
+    capture side is the node-max p10/p90 of the blob(s) that reproduce the snapshot's captured day values."""
+    import re
+    from datetime import datetime
+
+    from weather.calibration import r0_ols_floor_challenger as l3
+    from weather.market.market_registry import spec_for_id
+    from weather.model.model_sources import percentile
+
+    out_path = prm.require_output_outside_repo(out_path)
+    if out_path.exists():
+        raise SpreadRungError(f"refusing to overwrite {out_path}")
+    manifest = json.loads(Path(capture_manifest).read_text(encoding="utf-8"))
+    csv_sha = hashlib.sha256(Path(capture_csv).read_bytes()).hexdigest()
+    if csv_sha != RQ_C1_CAPTURE_CSV_SHA256 or manifest.get("output", {}).get("sha256") != csv_sha:
+        raise SpreadRungError(f"capture CSV sha {csv_sha} is not the pinned C1 extraction or its manifest's")
+    if manifest.get("status") != "ok":
+        raise SpreadRungError(f"capture manifest status is {manifest.get('status')!r}, not 'ok'")
+    capture, units = rq_c1_load_capture(capture_csv)
+    blob_stats = {ev: {b: rq_c1_blob_stats(m) for b, m in blobs.items()} for ev, blobs in capture.items()}
+    gefs, ginputs = load_gefs(gefs_corpus, "B")
+    timezones = {m: spec_for_id(m).timezone for m in markets}
+    local_re = re.compile(r'"captured_at_local":\s*"([^"]+)"')
+    stats, counts = defaultdict(list), defaultdict(int)
+    for slug, target, folder in l3._event_folders(replay_root):
+        if slug not in timezones or not (prm.N_DEV_FIRST <= target <= prm.N_DEV_LAST):
+            continue
+        path = Path(folder) / "replay_inputs.jsonl"
+        if not path.exists():
+            continue
+        with open(path, encoding="utf-8") as handle:
+            for line in handle:
+                m = local_re.search(line[:4096])
+                if not m or datetime.fromisoformat(m.group(1)).hour not in RQ_B_HOURS:
+                    continue
+                rec = json.loads(line)
+                if str(rec.get("target_date"))[:10] != target.isoformat():
+                    raise SpreadRungError(f"{folder}: target_date {rec.get('target_date')} != folder date")
+                counts["snapshots"] += 1
+                ge = ((rec.get("sources") or {}).get("global_ensemble") or {}).get("data") or {}
+                if not ge:
+                    counts["snapshots_without_capture"] += 1
+                    continue
+                want = (ge.get("day_member_high_p10"), ge.get("day_member_high_p90"), ge.get("day_max_native"))
+                linked = [(b, node) for b, (fp, node) in blob_stats.get(Path(folder).name, {}).items()
+                          if all(_rq_c1_close(x, y) for x, y in zip(fp, want))]
+                if not linked:
+                    counts["snapshots_unlinked"] += 1
+                    continue
+                if any("F" not in str(units.get(b, "")) for b, _ in linked):
+                    counts["snapshots_unit_not_fahrenheit"] += 1
+                    continue
+                nodes = {node for _, node in linked}
+                if len(nodes) != 1:
+                    counts["snapshots_linked_blobs_disagree"] += 1
+                    continue
+                node = nodes.pop()
+                if node is None:
+                    counts["snapshots_capture_below_25_members"] += 1
+                    continue
+                cutoff = datetime.fromisoformat(rec["captured_at_utc"])
+                highs = member_highs(gefs, slug, target, cutoff, timezones[slug], "B")
+                members = [v for k, v in highs.items() if k in RQ_PERTURBED]
+                if len(members) < RQ_MIN_MEMBERS:
+                    counts["snapshots_without_corpus"] += 1
+                    continue
+                counts["snapshots_compared"] += 1
+                counts["linked_blobs_total"] += len(linked)
+                day = target.isoformat()
+                stats["p10"].append((slug, day, percentile(members, 0.10), node[0]))
+                stats["p90"].append((slug, day, percentile(members, 0.90), node[1]))
+    parity = {k: parity_stats(stats[k]) for k in ("p10", "p90")}
+    by_market = {k: {mk: parity_stats([p for p in stats[k] if p[0] == mk]) for mk in markets} for k in ("p10", "p90")}
+    result = {"rule_sha256": RQ_RULE_SHA256, "clarification": 1, "clarification_sha256": RQ_C1_SHA256,
+              "variant": "B", "precondition": "P_B", "counts": dict(counts), "parity": parity,
+              "by_market": by_market, "P_pass": all(v["pass"] for v in parity.values()),
+              "inputs": {**ginputs, "capture_csv_sha256": csv_sha,
+                         "capture_manifest_sha256": hashlib.sha256(Path(capture_manifest).read_bytes()).hexdigest(),
+                         "extractor_script_sha256": manifest.get("script_sha256"),
+                         "module_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}}
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(result, indent=1, sort_keys=True), encoding="utf-8")
+    return result
+
+
 def tail_masses(table, p, mask):
     """Mean mass at winner offset +2, at +3 and beyond, and on the winner band, over ``mask`` snapshots."""
     import numpy as np
@@ -1350,6 +1474,9 @@ def build_parser():
     qp = sub.add_parser("rq-parity-b", help="R-Q variant B precondition P_B (inputs only; heavy)")
     for name in ("--replay-root", "--gefs-corpus", "--out"):
         qp.add_argument(name, required=True)
+    qc = sub.add_parser("rq-parity-b-c1", help="R-Q P_B under Clarification 1 (inputs only; heavy)")
+    for name in ("--replay-root", "--gefs-corpus", "--capture-csv", "--capture-manifest", "--out"):
+        qc.add_argument(name, required=True)
     qb = sub.add_parser("rq-b", help="R-Q variant B gate B1 at 00-06 against MG-1 (heavy)")
     for name in ("--layout", "--gefs-corpus", "--parity-result", "--out"):
         qb.add_argument(name, required=True)
@@ -1392,6 +1519,12 @@ def main(argv=None):
         print(json.dumps({"gates": result["gates"], "stopped_at": result.get("stopped_at")}, indent=1))
     elif args.command == "rq-parity-b":
         result = rung_q_parity_b(replay_root=args.replay_root, gefs_corpus=args.gefs_corpus, out_path=args.out)
+        print(json.dumps({"P_pass": result["P_pass"], "parity": result["parity"], "counts": result["counts"]},
+                         indent=1))
+    elif args.command == "rq-parity-b-c1":
+        result = rung_q_parity_b_c1(replay_root=args.replay_root, gefs_corpus=args.gefs_corpus,
+                                    capture_csv=args.capture_csv, capture_manifest=args.capture_manifest,
+                                    out_path=args.out)
         print(json.dumps({"P_pass": result["P_pass"], "parity": result["parity"], "counts": result["counts"]},
                          indent=1))
     elif args.command == "rq-b":
