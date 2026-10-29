@@ -238,9 +238,13 @@ def test_prm_scalars():
     assert core.station_coordinates() == prm.station_coordinates()
     day = date(2026, 1, 1)
     while day < date(2027, 1, 1):
-        assert core.nearest_centre(day) == prm.nearest_centre(day)
-        assert core.nearest_centre(day.isoformat(), ("2026-10-10", "2026-11-24")) == prm.nearest_centre(
-            day.isoformat(), ("2026-10-10", "2026-11-24"))
+        if not core.in_serve_coverage(day.isoformat()):  # item 341 Jan no-wrap fix: refused, prm still snaps
+            with pytest.raises(core.ServeCoreError):
+                core.nearest_centre(day)
+        else:
+            assert core.nearest_centre(day) == prm.nearest_centre(day)
+            assert core.nearest_centre(day.isoformat(), ("2026-10-10", "2026-11-24")) == prm.nearest_centre(
+                day.isoformat(), ("2026-10-10", "2026-11-24"))
         day += timedelta(days=5)
 
 

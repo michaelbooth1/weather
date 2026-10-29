@@ -199,10 +199,18 @@ def convert_observation(value, state):
 
 
 def nearest_centre(target_date, centres):
-    """The centre whose month-day is closest to ``target_date``'s (L2's ``nearest_centre``)."""
+    """The centre whose month-day is closest to ``target_date``'s, wrapping the year end (L2's ``nearest_centre``
+    inside coverage). A date outside the training coverage (§8 C5) is refused, never snapped to a far centre."""
     d = date.fromisoformat(str(target_date)[:10])
-    ref = date(2001, d.month, d.day)
-    return min(centres, key=lambda c: abs((date(2001, int(c[5:7]), int(c[8:10])) - ref).days))
+    if not in_training_coverage(d.isoformat()):
+        raise P3dNRefused(f"target date {d.isoformat()} is outside the training coverage "
+                          f"{TRAINING_COVERAGE[0]}..{TRAINING_COVERAGE[1]}")
+
+    def gap(c):
+        days = abs((date(2001, int(c[5:7]), int(c[8:10])) - date(2001, d.month, d.day)).days)
+        return min(days, 365 - days)
+
+    return min(centres, key=gap)
 
 
 def smoothed_dist(buckets, support, alpha=0.10):

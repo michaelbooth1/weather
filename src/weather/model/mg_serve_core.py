@@ -441,11 +441,30 @@ def station_coordinates(markets=R0_MARKETS, path=None):
     return out
 
 
-def nearest_centre(target_date, centres=AUG_SEP_CENTRES):
-    """The centre whose month-day is closest to ``target_date``'s (``prm.nearest_centre``)."""
+# Month-days the frozen states may serve (item 341 January no-wrap fix). Inclusive; a window whose start is after
+# its end wraps the year end. Aug-Dec is unchanged; any other date is refused, never snapped to a far centre.
+SERVE_COVERAGE = ("08-01", "12-31")
+
+
+def in_serve_coverage(target_date, coverage=SERVE_COVERAGE):
+    md = str(target_date)[5:10]
+    lo, hi = coverage
+    return lo <= md <= hi if lo <= hi else (md >= lo or md <= hi)
+
+
+def month_day_gap(a, b):
+    """Days between two month-days on a 365-day circle, so 12-24 and 01-05 are 12 days apart, not 353."""
+    days = abs((date(2001, a.month, a.day) - date(2001, b.month, b.day)).days)
+    return min(days, 365 - days)
+
+
+def nearest_centre(target_date, centres=AUG_SEP_CENTRES, coverage=SERVE_COVERAGE):
+    """The centre whose month-day is closest to ``target_date``'s, wrapping the year end (``prm.nearest_centre``
+    inside coverage). A date outside ``coverage`` is refused with :class:`ServeCoreError`."""
     d = date.fromisoformat(str(target_date)[:10])
-    ref = date(2001, d.month, d.day)
-    return min(centres, key=lambda c: abs((date(2001, int(c[5:7]), int(c[8:10])) - ref).days))
+    if not in_serve_coverage(d.isoformat(), coverage):
+        raise ServeCoreError(f"target date {d.isoformat()} is outside the serve coverage {coverage[0]}..{coverage[1]}")
+    return min(centres, key=lambda c: month_day_gap(date(2001, int(c[5:7]), int(c[8:10])), d))
 
 
 def smoothed_dist(buckets, support, alpha=0.10):
@@ -533,8 +552,7 @@ def state_features(state, hour, *, market, target_date, high_so_far, current_tem
     import numpy as np
 
     mean = state["hours"][int(hour)]["mean"]
-    centre = min(state["centres"], key=lambda c: abs((date(2001, int(c[5:7]), int(c[8:10]))
-                                                      - date(2001, target_date.month, target_date.day)).days))
+    centre = nearest_centre(target_date, state["centres"])
     season = state["season_of"][centre[5:7]]
     bias = mean["bias"].get((market, season), mean["bias_global"])
     normal = mean["normal"].get((market, centre), mean["normal_by_market"].get(market, mean["normal_global"]))
