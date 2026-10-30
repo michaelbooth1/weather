@@ -100,3 +100,27 @@ copies refuse January cleanly. The open question is what should serve January fr
   - Only if it is close but biased should option 3 be registered, and that is the larger job: it needs the 12-24
     records and a new candidate.
 - Neither option 2 nor option 3 should serve before its gates. MG-1 stays the January default until one passes.
+
+## 3. Option 2 history check (master's order, 2026-10-30)
+
+**Ruling (master, 2026-10-30):** option 1 is the January 2027 default. This branch stays HELD.
+
+**Pre-stated decision, 2026-10-30, committed before any computation.**
+
+- Check: the frozen P3d_N state `c6cc39f7…` (the B-bound forward fit; no refit), served across the year end by the
+  wrap-fix logic, on January 2022-26 history against the MG-1 analogue.
+- Statistic: dR = the per-row Brier of the state minus MG-1, with a date-clustered bootstrap 95% interval (seeded,
+  2,000 draws).
+- **Option 2 stays alive only if the upper bound of dR's interval is < 0; otherwise option 2 closes.**
+
+**Status: BLOCKED before computing. The required inputs are missing, so nothing has been scored.**
+
+- **NBM:** the MG-1 analogue needs the NBM mean and sd, which MG-1 is defined on. The only NBM history corpus,
+  `1ae4bf52…` (`C:\t\l9\nbm_corpus`, 07Z), has no January row. Its months are Aug-Dec only, with 135 days per year
+  per market. The state's own `nbm_mean` would also fall back to the record's `forecast_high` on every row.
+- **Records:** `C:\t\l2\records` centres 01-08 and 01-23 hold January **2022, 2023 and 2025 only**, 01-01..01-30.
+  There is no 2024, no 2026 and no 01-31.
+- Per the order, no new heavy file was built. Unblocking needs master's yes for:
+  - the January NBM 07Z text for 2022-26, a free NOAA download by the L9 fetcher, about a quarter of L9's
+    Aug-Dec pull;
+  - and either the missing record years (a heavy build) or a ruling to run on 2022, 2023 and 2025 only.
