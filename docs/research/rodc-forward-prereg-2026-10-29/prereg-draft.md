@@ -1,10 +1,11 @@
-# R-ODC forward pre-registration (P1 only): DRAFT, NOT FROZEN
+# R-ODC forward pre-registration (P1 only): FROZEN 2026-10-30
 
-Status: draft (L8, 2026-10-29), with master's rulings of 2026-10-29 applied, including ruling (c): P1 only. Nothing
-here is frozen.
+Status: **FROZEN** (L8, 2026-10-30; drafted 2026-10-29), with master's rulings of 2026-10-29 and 2026-10-30 applied,
+including ruling (c): P1 only. **Freeze date 2026-10-30; D0 = 2026-10-31.** Its ledger row is DEV_WINDOW_LEDGER row
+72. The file keeps its draft name; this commit is the freeze, and nothing in it changes after this commit.
 
 - No date after 2026-09-29 has been read for it: no snapshot, no label, no outcome.
-- It freezes only as a later commit that says FROZEN, dated 2026-10-30 or later, together with its ledger row.
+- The freeze reached origin after 13:00 EDT on 2026-10-30, so 10-30 itself never counts (D0 rule, section 2).
 
 Lineage:
 
@@ -86,7 +87,9 @@ P1 needs no labels, but it reads forward snapshots and WU rows, so it is a look 
   the research value exist.
 - **N = 45 countable dates.** P1 is scored on the first 45. A date that is not countable is skipped and does not
   enter the exclusion share.
-- **D0 = the freeze date.**
+- **D0 = the first full local date after the freeze: always the freeze date + 1**, whatever the push hour (master
+  ruling 2026-10-30: a date whose high had already happened when the freeze reached origin must not count).
+  Freeze 2026-10-30, so **D0 = 2026-10-31**.
 - **The look** comes after the 45th countable date and on or after the B look receipt. A look later than 12-14 is
   fine.
 - If fewer than 45 countable dates precede the look, the scorer refuses. Master then sets a later look; nothing
@@ -96,11 +99,12 @@ P1 needs no labels, but it reads forward snapshots and WU rows, so it is a look 
 
 - **Embargo:** no snapshot, label or outcome after 2026-09-29 is read before the look.
 - **P1 is a look.** Forward snapshots and WU rows are read only at the look.
-- **D0** is the freeze date, strictly forward. Captured-but-unread days before the freeze do not count.
+- **D0** is the freeze date + 1 (2026-10-31), strictly forward. The freeze date and captured-but-unread days
+  before it do not count.
 - **One fixed-sample look.** No interim look.
 - **Enforced in code:** `rodc_forward_scorer.check_look` refuses every read and the verdict unless:
-  - the freeze is ≥ 2026-10-30 and D0 equals it;
-  - the look is ≥ D0 + 45 days and ≥ the B receipt date;
+  - the freeze is ≥ 2026-10-30 and D0 equals the freeze date + 1 (`first_countable_date`);
+  - the look is ≥ D0 + 45 days (so ≥ 2026-12-15) and ≥ the B receipt date;
   - today ≥ the look;
   - every date is in [D0, look);
   - no Denver row is present.
@@ -136,21 +140,23 @@ P1 needs no labels, but it reads forward snapshots and WU rows, so it is a look 
    `dd53e81ebbf8851673d01f138296fb56a91ce898e53c0541d67226e64dd981d1`. It stays unlanded, pinned by blob.
 
 **Scorer and read code:** `src/weather/calibration/rodc_forward_scorer.py` on `claude/rodc-forward-scorer-20261029`
-@ `347cd31233a7b9a79642ff772bc2147e41f027e6` (stacked on 0e11b018f), git blob
-`1a38ddb9c406f38bd3f5185940be7b2a6d7e4241`, sha256
-`888d8987dd2d124efd2fdba0b61854e6bdb43a2019c8a931b53bdf30f9e3f5f1`.
+@ `2048c2f496680dd705f47dcc962fdd53dcaaa7d7` (on 347cd3123, stacked on 0e11b018f; the D0 = freeze + 1 fix), git
+blob `a611bb810a59169ca62672f710033e1cc46d317b`, sha256
+`a1e85078372f22bba2ddd1727e4809fa231cf1f885474e16306c07c07870e580`. It supersedes the draft's pin of blob
+`1a38ddb9…` @ `347cd3123`, whose check_look required D0 = the freeze date.
 
 - It holds both reads (`read_snapshots`, `read_wu_rows`), `p1_day`, `countable_dates`, `p1_verdict` and `verdict`.
-- Tests: `tests/calibration/test_rodc_forward_scorer.py`, blob `aeef114cc53d75b3a0df3ebcbb294bc04dd320d7`. With the
-  module's tests, 26 passed through the workstation queue.
+- Tests: `tests/calibration/test_rodc_forward_scorer.py`, blob `1c9426a67c6b79ea1b8190bf9589fd28affa2c64`. With the
+  module's tests, 28 passed through the workstation queue (2026-10-30, exit 0).
 - Neither file is in RELEASE_FILES, and no serve path imports them.
 - Pinned constants: `P1_LIMITS`, `P1_EXCLUDED_VOID`, `WU_GAP_VOID`, `N_COUNTABLE`, `HOURS`, `EXCLUDED_MARKETS`,
-  `FREEZE_EARLIEST`, `SNAPSHOT_RULE`.
+  `FREEZE_EARLIEST`, `SNAPSHOT_RULE`; and `first_countable_date` (D0 = freeze + 1).
 
-## 6. Rulings applied (master, 2026-10-29)
+## 6. Rulings applied (master, 2026-10-29 and 2026-10-30)
 
 - **(a)** The overlap with B is allowed: never pooled, the look after the B receipt, nothing feeds B or MG-2.
 - **(b)** The P1 WU source is the daily-refresh WU history store, with a 5% gap limit.
 - **(c)** Denver is excluded. Then, after the P2 frame review: P1 only, P2 dropped and disclosed (section 0); the
   serve source is the snapshot store's raw METAR; countable dates, D0 and the look as in section 2.
 - **(d)** The NI margin m = +0.0015 was ruled, then dropped with P2.
+- **(e, 2026-10-30)** D0 = the first full local date after the freeze, always the freeze date + 1: 2026-10-31.
