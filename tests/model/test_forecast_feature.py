@@ -419,7 +419,7 @@ TXNP9  86  70| 84  72
             "hourly": {
                 "time": ["2026-05-30T12:00", "2026-05-30T13:00"],
                 "temperature_2m_ecmwf_ifs025": [24.0, 25.0],
-                "temperature_2m_ecmwf_aifs025": [25.0, 26.0],
+                "temperature_2m_ecmwf_aifs025_single": [25.0, 26.0],
                 "temperature_2m_ncep_aigfs025": [23.0, 24.0],
                 "temperature_2m_gfs_graphcast025": [26.0, 27.0],
             },
@@ -438,15 +438,19 @@ TXNP9  86  70| 84  72
         self.assertEqual(captured["url"], "https://api.open-meteo.com/v1/forecast")
         self.assertEqual(
             captured["params"]["models"],
-            "ecmwf_ifs025,ecmwf_aifs025,ncep_aigfs025,gfs_graphcast025",
+            "ecmwf_ifs025,ecmwf_aifs025_single,ncep_aigfs025",
         )
+        # Logical keys are kept; the renamed AIFS id is read, and a retired
+        # member stays null even if a stray column appears in the response.
         self.assertEqual(data["day_model_highs"]["ecmwf_ifs025"], 25.0)
         self.assertEqual(data["day_model_highs"]["ecmwf_aifs025"], 26.0)
         self.assertEqual(data["day_model_highs"]["ncep_aigfs025"], 24.0)
-        self.assertEqual(data["day_model_highs"]["gfs_graphcast025"], 27.0)
-        self.assertEqual(data["day_max_c"], 25.5)
-        self.assertEqual(data["day_high_spread"], 3.0)
-        self.assertEqual(data["day_rows"][0]["model_temp_spread"], 3.0)
+        self.assertIsNone(data["day_model_highs"]["gfs_graphcast025"])
+        self.assertEqual(data["retired_model_members"], ["gfs_graphcast025"])
+        self.assertEqual(data["model_request_ids"]["ecmwf_aifs025"], "ecmwf_aifs025_single")
+        self.assertEqual(data["day_max_c"], 25.0)
+        self.assertEqual(data["day_high_spread"], 2.0)
+        self.assertEqual(data["day_rows"][0]["model_temp_spread"], 2.0)
         self.assertIn("open_meteo_ecmwf_aifs_high_delta", data["live_only_fields"])
         self.assertFalse(data["historical_archive_available"])
 

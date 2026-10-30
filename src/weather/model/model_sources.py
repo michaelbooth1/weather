@@ -100,6 +100,17 @@ OPEN_METEO_GLOBAL_MODEL_MEMBERS = (
     "ncep_aigfs025",
     "gfs_graphcast025",
 )
+# Members stay keyed by their logical name in the captured payload so feature
+# aliases and stored schemas do not move. Open-Meteo renamed the AIFS id (the
+# old id now returns an all-null column, not an HTTP error) and stopped serving
+# GraphCast, so the request uses the provider id below and omits retired ones;
+# a retired member is captured as null with its status recorded.
+OPEN_METEO_GLOBAL_MODEL_REQUEST_IDS = {
+    "ecmwf_ifs025": "ecmwf_ifs025",
+    "ecmwf_aifs025": "ecmwf_aifs025_single",
+    "ncep_aigfs025": "ncep_aigfs025",
+}
+OPEN_METEO_GLOBAL_MODEL_RETIRED = ("gfs_graphcast025",)
 OPEN_METEO_RATE_LIMIT_COOLDOWN_SECONDS = 60
 SOURCE_FAMILY_COOLDOWN_PATH_ENV = "WEATHER_SOURCE_FAMILY_COOLDOWN_PATH"
 NBM_NATIONAL_TEXT_FANOUT = MarketInvariantFetchFanout(max_entries=2)
@@ -145,7 +156,7 @@ SOURCE_PAYLOAD_CONTRACTS = {
         "open-meteo-air-quality-payload-v1",
     ),
     "open_meteo_global_models": (
-        "open-meteo-global-models-parser-v1",
+        "open-meteo-global-models-parser-v2",
         "open-meteo-global-models-payload-v1",
     ),
     "nws_hourly": ("nws-hourly-parser-v1", "nws-hourly-payload-v1"),
@@ -1850,7 +1861,11 @@ class SourceFetchMixin:
             "temperature_unit": self.spec.om_temperature_unit,
             "timezone": self.spec.timezone,
             "forecast_days": 2,
-            "models": ",".join(OPEN_METEO_GLOBAL_MODEL_MEMBERS),
+            "models": ",".join(
+                OPEN_METEO_GLOBAL_MODEL_REQUEST_IDS[model]
+                for model in OPEN_METEO_GLOBAL_MODEL_MEMBERS
+                if model in OPEN_METEO_GLOBAL_MODEL_REQUEST_IDS
+            ),
         })
         hourly = payload.get("hourly", {}) or {}
         rows = []
@@ -1870,7 +1885,10 @@ class SourceFetchMixin:
             model_payloads = {}
             model_temps = []
             for model in OPEN_METEO_GLOBAL_MODEL_MEMBERS:
-                value = self.to_number(self.array_get(hourly, f"temperature_2m_{model}", index))
+                request_id = OPEN_METEO_GLOBAL_MODEL_REQUEST_IDS.get(model)
+                value = None if request_id is None else self.to_number(
+                    self.array_get(hourly, f"temperature_2m_{request_id}", index)
+                )
                 values = {"temp_native": value, "temp_c": value}
                 if value is not None:
                     model_temps.append(value)
@@ -1904,6 +1922,8 @@ class SourceFetchMixin:
             "row_count": len(day_rows),
             "payload_hash": self.payload_hash(payload),
             "model_members": list(OPEN_METEO_GLOBAL_MODEL_MEMBERS),
+            "model_request_ids": dict(OPEN_METEO_GLOBAL_MODEL_REQUEST_IDS),
+            "retired_model_members": list(OPEN_METEO_GLOBAL_MODEL_RETIRED),
             "model_run_age_hours": None,
             "model_run_age_status": "not_exposed_by_open_meteo_forecast",
             "run_to_run_high_change": None,
