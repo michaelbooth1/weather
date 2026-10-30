@@ -1,7 +1,7 @@
 # State of play
 
-**Last updated: 2026-10-28 America/Toronto (evening: pilot pin passed and runbook adopted, session 1 waits on the owner's t24;
-L6_G screen exempted; capture-host outage 10-28; 91a policy renewed. Rule B-1 bound 10-28, D0 10-29; owner option B 10-25).**
+**Last updated: 2026-10-30 America/Toronto (morning: pilot session 1 Sat 10-31; L6_G emitter and frame builder landed; 91a
+re-registered on the renewed policy; R-Q closed. Rule B-1 bound 10-28, D0 10-29; owner option B 10-25).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended. At most 95 lines and about 9 KB, one fact per bullet, detail in the linked owner.** `status.ps1` flags
@@ -23,8 +23,8 @@ this candidate's edge claim, not the project** (owner Q2 10-25, DL); work contin
 
 - **Small maker pilot APPROVED** (DL 10-26; LFC lane, Toronto+Denver, $100 cap). Pin `124603578` passed; locked pin worktree on the
   workstation, prereq 6 / G-e confirmed by the owner, session-1 runbook adopted with errata (master ruling) — all DL 10-28.
-  **No t24 ran 10-28, so session 1 is not 10-29; earliest 10-30 if the owner runs the t24 ~14:00 on 10-29.** Owner sessions
-  only; no agent places, cancels or signs orders. Other live trading stays paused (owner 09-25).
+  **Session 1 Sat 10-31** (owner 10-28, DL): owner-run t24 ~14:00 10-30 and T-40; workstation heavy freeze 10:00-19:30; no host
+  cutover the night before (G7). Owner sessions only; no agent places, cancels or signs orders. Other live trading paused (owner 09-25).
 - Capture host: heavy work 00:30-09:00 under the lease ([host load policy](HOST_LOAD_POLICY.md)); roll-sensitive merges
   01:00-04:00; roll-free 00:30-09:00; docs-only by the light path before 12:00; never 12:00-00:30.
 - Owner decisions are rows in [DECISION_LOG](DECISION_LOG.md); master's rulings are labelled as master's, never as the owner's.
@@ -38,8 +38,8 @@ this candidate's edge claim, not the project** (owner Q2 10-25, DL); work contin
 
 ## Current truth
 
-- **Production source:** read `origin/master` with git (`75792494c` when written): N12 + N13 on host Python 3.11.9, S2+S9, venue
-  labels, W3 and split landed. **Night 10-25/26 STACK failed on the host:** STACK, LFS, docs `6596e6f6e` and D did not land; HOSTFIX rebuilds.
+- **Production source:** read `origin/master` with git (`1a78e1ba0` when written): N12 + N13 on host Python 3.11.9, S2+S9, venue
+  labels, W3 and split landed; L6_G emitter and frame builder landed 10-30. **Night 10-25/26 STACK failed on the host:** STACK, LFS, docs `6596e6f6e` and D did not land; HOSTFIX rebuilds.
 - **Outcome embargo unchanged:** no outcome, price or label read after 09-29 except under a named, owner-opened test. Dates
   <= 09-29 are development only; descriptive reads of 10-16..11-13 stay refused (owner 10-17).
 - **MG-1** is bound and in forward shadow; its single look comes after its window closes (after 11-28;
@@ -54,9 +54,10 @@ this candidate's edge claim, not the project** (owner Q2 10-25, DL); work contin
   past evaluation changes (EF §10ai; cutover `28e96a3e7`). **Denver >= 10-23: KDEN, unscored, out of MG-2 and B** (master).
 - **Dead-bucket NO buying is closed** (US and Toronto; EF §10ad, §10ah). **Toronto's NBM guidance is not captured** (RF);
   forward NBP CYYZ capture is approved in principle (master ruling 10-26), via the quiet-window merge night 10-26/27.
-- **L6_G forward screen exempted** (owner "I give my ok.", DL 10-28): outcome-blind, N = 45 screen, one look after B (>= 12-13), never alters B.
+- **L6_G forward screen exempted** (owner "I give my ok.", DL 10-28): outcome-blind, N = 45, one look after B (>= 12-13), never alters B;
+  code landed 10-30, D0 10-31, daily emission from 11-01 (workstation lane L2).
 - **Capture-host outage 10-28** 11:47-12:54, ~67 graded-window min lost; fixed, Ethernet pending ([record](capture-host-wifi-outage-2026-10-28.md)).
-- **91a cold-snapshot nightly** was blocked 10-27/28 by the refused 10-26 attempt, resolved 10-28; policy renewed (`eca4064a…`, expires 11-27).
+- **91a nightly** re-registered 10-30 on policy `eca4064a…` (expires 11-27); a tool fix landing night 10-30/31 clears the old policy's childless 10-30 refusal.
 - **Forward maker shadow ACTIVE** (paper only); stop only with `data\maker_shadow\STOP`; scoring refuses UTC 09-30..11-13 (DL 10-14).
 - **More markets** (owner 10-23, DL): R1 pilot cities recorder-only, R2 from 11-01, M1 Europe first; new cities label from IEM METAR.
 - **88a retention hold:** keep UTC 09-27..10-15 (v2) and 10-15..10-30 (desk-study panel); lossless compression ok. **DST:** OD30 holds 11-01.
@@ -74,14 +75,13 @@ this candidate's edge claim, not the project** (owner Q2 10-25, DL); work contin
 
 | What | Owner | Due | Verify |
 | --- | --- | --- | --- |
-| Rule B-1 §(a) control read (ledger row 68, pending) | master | per B §"At binding" | ledger row 68 |
 | Coverage field added to the B exporter | master | before D0 | exporter on the binding branch |
 | PT-1 bound: PT_D0 set, G = 15 s fixed by the outcome-blind dev check, rule sha pinned (owner Q6-Q9 answered 10-25) | master | before PT_D0 | binding commit; DL row |
 | Maker pilot plan owner questions answered; HOLD lifted only through the runbook's gates | owner | open | DL row; runbook prerequisites |
 | WU-vs-venue measurement 08-11..09-29 on the host (owner 10-23) | production | open | research doc; DL row |
 | Evening-fix scorer read 10-29 `--no-market` (prereg SIGNED; item 337 owns it) | T3 | 10-29 | scorer receipt |
-| 91a renewed policy `eca4064a…` registered after its dry run | production | 10-29 | scheduled action carries the new policy sha |
-| L6_G frame builder pinned in a dated clarification, with a positive refusal test for label/outcome/price columns | workstation L2 | before the first emission | clarification commit + blob |
+| Resolve the childless 10-30 nightly attempt once its tool fix lands | production | before 10-31 06:50 | `resolved-nightly` record; 10-31 run starts |
+| L6_G daily emission arranged and its prereg frozen | workstation L2 | before D0 10-31 | frozen prereg commit; first receipt 11-01 |
 
 ## Standing decisions
 
