@@ -422,7 +422,9 @@ the exact source tip (all paths absolute):
 
 The variables must name the actual production root, immutable policy file,
 its hash and reviewed tip. Omitting `-Apply` registers metadata/writer-lock
-validation only. Before registration, perform a bounded dry run with
+validation only. There is no preview mode: a run without `-Apply` replaces the
+live task with a validation-only nightly, which compresses nothing until the
+task is registered again with `-Apply`. Before registration, perform a bounded dry run with
 `cold_snapshot_compression_run.ps1 -Nightly` and a fresh output directory not
 named `nightly-*`. Pass `-MaxRuntimeSeconds 15300`, which the wrapper caps at
 the window end: the default 600 s is below the 720 s a nightly run needs, so
