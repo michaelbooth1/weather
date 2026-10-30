@@ -54,7 +54,7 @@ its task are untouched.
   - It is WMI-detached and pinned to the LF git blobs of the recorder, `gefs_forward_recorder.py`, `gefs_member_point_fetch.py` and `forward_local_day.py` in `C:\wt\l13gc`.
   - Its alive check matches `*gefs_cycles_forward_recorder*`. The 06Z launcher matches `*gefs_forward_recorder*`, which never matches this recorder's command line.
 - **Registrar:** `tools\research\register_gefs_cycles_forward_recorder_task.ps1`.
-  - Task name: `L13 GEFS 00/12/18Z forward recorder (logon)`.
+  - Task name: `L13 GEFS 00-12-18Z forward recorder (logon)`. A `/` is a task-path separator: the first real registration as `00/12/18Z` failed with 0x80070057 and registered nothing, so the registrar now refuses names containing `/ \ : * ? " < > |`, control characters, or leading/trailing spaces.
   - Shape: AtLogOn with a PT6M delay (staggered from the other recorders), Interactive/Limited, IgnoreNew, StartWhenAvailable off.
   - It requires `-ExpectedLauncherSha256` and refuses the real ScheduledTasks module under `WEATHER_TASK_TEST=1`.
   - Run it with `-WhatIf` first. Registration needs the owner's yes through the coordinator.

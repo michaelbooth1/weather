@@ -9,7 +9,7 @@
 # -ExpectedLauncherSha256 is required: the registrar refuses unless the launcher on disk is exactly the one reviewed.
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
-    [string]$TaskName = 'L13 GEFS 00/12/18Z forward recorder (logon)',
+    [string]$TaskName = 'L13 GEFS 00-12-18Z forward recorder (logon)',
     [string]$Worktree = 'C:\wt\l13gc',
     [string]$WorkingDirectory = 'C:\t\gefs_cycles\forward',
     [string]$ExpectedLauncherSha256 = ''
@@ -22,6 +22,11 @@ if ($env:WEATHER_TASK_TEST -eq '1') {
         $c = Get-Command $name
         if ($c.Source) { throw "WEATHER_TASK_TEST=1 and $name is the real $($c.Source) command; refusing" }
     }
+}
+# Task names cannot hold a path separator or other reserved characters: Register-ScheduledTask fails on them with
+# 0x80070057 ("00/12/18Z" did, 2026-10-30), which a stubbed test cannot see. Refuse them up front.
+if (-not $TaskName -or $TaskName -ne $TaskName.Trim() -or $TaskName -match '[\\/:*?"<>|\p{Cc}]') {
+    throw "invalid task name '$TaskName': no / \ : * ? `" < > | or control characters, no leading or trailing spaces"
 }
 $launcher = Join-Path $Worktree 'tools\research\gefs_cycles_forward_recorder_launch.ps1'
 if (-not (Test-Path -LiteralPath $launcher -PathType Leaf)) { throw "launcher missing: $launcher" }
