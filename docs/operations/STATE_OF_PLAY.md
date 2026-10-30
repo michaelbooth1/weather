@@ -16,7 +16,7 @@ this candidate's edge claim, not the project** (owner Q2 10-25, DL); work contin
 
 ## Headline
 
-- **Two thirds of the 07-12 excess loss is sharpness, not centre** (EF §10ag); NBM-published spread closed, GEFS spread open; 07-12 centre corrections exhausted (L5 KILL).
+- **Two thirds of the 07-12 excess loss is sharpness, not centre** (EF §10ag); NBM-published spread closed, GEFS member spread killed as a scale modulator at 07-16 (R-Q A; its 00-06 variant B blocked on parity); 07-12 centre corrections exhausted (L5 KILL).
 - **Against the market the model adds nothing yet:** walk-forward log-pool weight on MG-1 w ≈ 0.008 (EF §10ad).
 
 ## Current authority
@@ -66,7 +66,7 @@ this candidate's edge claim, not the project** (owner Q2 10-25, DL); work contin
 1. **Rule B-1 bound 10-28**; MG-2 accrues from D0 10-29; no look before 12-13.
 2. **HRRR forward recorder: YES (master); MG-3 = paired D-C on B's dates** (owner 10-26, DL; H1 = MG-3 − MG-2; MG-1 exemption
    11-11..11-28): pre-registration in preparation; D0 ~11-10/11; result ~mid-December. R-K/R-R dev WINs are not edges until forward parity ([plan](../research/l2-pooled-residual-2026-10-24/drafts/hrrr_forward_recorder_parity_plan_DRAFT.md)).
-3. **Running:** R-O, R-Q (GEFS), NBS-TXN diagnostic. **Oct-Dec rungs** under R10, each with a ledger row first: R-ODC G1 and G2 PASS on history (rows 65, 69; G2 small), next serve parity, then a forward prereg.
+3. **Running:** R-O, NBS-TXN diagnostic. **R-Q closed 10-29** (ledger row 71, register X43): A KILLED, B BLOCKED on P_B. **Oct-Dec rungs** under R10, each with a ledger row first: R-ODC G1 and G2 PASS on history (rows 65, 69; G2 small), next serve parity, then a forward prereg.
 4. **Cool-season paper test PT-1** ([draft](COOL_SEASON_PAPER_TEST_PREREG.md); owner Q6-Q9 answered 10-25, dates 12-12..01-25) bound before its D0.
 5. **Host nights:** pending integrations through the quiet-window merge, one attempt manifest each.
 
