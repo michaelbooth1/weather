@@ -8,6 +8,7 @@ P3d_N_fix / scale tests run the real R-S / R-Q machinery and skip where it is ab
 """
 import importlib
 import json
+import subprocess
 
 import numpy as np
 import pandas as pd
@@ -103,6 +104,41 @@ def test_control_check_reproduces_or_refuses(tmp_path):
         ls.control_check(rows[:1], "P3d_N_fix", ref)
 
 
+def _git(cwd, *args):
+    subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True)
+
+
+@pytest.mark.spawns
+def test_code_state_reports_head_and_dirty(tmp_path):
+    assert ls.code_state(tmp_path) == {"git_head": None, "worktree": None, "dirty": True, "dirty_paths": []}
+    _git(tmp_path, "init", "-q")
+    (tmp_path / "f.txt").write_text("x", encoding="utf-8")
+    _git(tmp_path, "add", "f.txt")
+    _git(tmp_path, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "c")
+    clean = ls.code_state(tmp_path)
+    assert len(clean["git_head"]) == 40 and clean["dirty"] is False and clean["dirty_paths"] == []
+    (tmp_path / "new.txt").write_text("y", encoding="utf-8")
+    dirty = ls.code_state(tmp_path)
+    assert dirty["git_head"] == clean["git_head"] and dirty["dirty"] is True and dirty["dirty_paths"]
+
+
+def test_require_clean_refuses_a_dirty_tree_unless_allowed():
+    dirty = {"git_head": "a" * 40, "worktree": "w", "dirty": True, "dirty_paths": ["?? x"]}
+    with pytest.raises(ls.ScreenError, match="dirty tree.*--allow-dirty"):
+        ls.require_clean(dirty, False)
+    assert ls.require_clean(dirty, True) == {**dirty, "allow_dirty": True}
+    with pytest.raises(ls.ScreenError, match="no git HEAD"):
+        ls.require_clean({"git_head": None, "worktree": None, "dirty": True, "dirty_paths": []}, False)
+
+
+def test_screen_refuses_a_dirty_tree_before_reading(tmp_path, monkeypatch):
+    monkeypatch.setattr(ls, "code_state", lambda *a: {"git_head": "a" * 40, "worktree": "w", "dirty": True,
+                                                       "dirty_paths": [" M x.py"]})
+    with pytest.raises(ls.ScreenError, match="dirty tree"):
+        ls.screen(column=tmp_path / "absent.parquet", records_root="x", nbm_train_corpus="x", out_dir=tmp_path,
+                  name="C", rule="upper<0", hours=(9,))
+
+
 def test_screen_refuses_bad_rule_runner_and_name_before_reading(tmp_path):
     common = dict(column=tmp_path / "absent.parquet", records_root="x", nbm_train_corpus="x", out_dir=tmp_path,
                   hours=(9,))
@@ -138,8 +174,12 @@ def _frame(signal, years=(2021, 2022, 2023, 2024, 2025), markets=("atlanta", "ny
     return pd.DataFrame(rows), column
 
 
+CLEAN = {"git_head": "c" * 40, "worktree": "w", "dirty": False, "dirty_paths": []}
+
+
 def _screen(tmp_path, monkeypatch, signal, out="out", seed=ls.DEFAULT_SEED):
     frame, column = _frame(signal)
+    monkeypatch.setattr(ls, "code_state", lambda *a: CLEAN)
     buckets = {m: list(range(60, 105)) for m in ("atlanta", "nyc", "miami")}
     monkeypatch.setattr(ls, "training_frame", lambda *a, **k: (frame, buckets, {"years": list(range(2021, 2026))}))
     path = _write_column(tmp_path / f"col_{signal}.parquet", column)
@@ -161,6 +201,9 @@ def test_screen_planted_signal_column_is_negative_and_reruns_identically(tmp_pat
     assert first["summary"]["pooled|brier"]["ci95"][1] < 0 and first["verdict"]["pass"]
     second = _screen(tmp_path, monkeypatch, signal=True, out="b")
     assert first["summary"] == second["summary"] and first["fit"] == second["fit"]
+    assert first["code"] == {**CLEAN, "allow_dirty": False}
+    receipt = json.loads((tmp_path / "a" / "P3d_N_fix_C_loyo.json").read_text(encoding="utf-8"))
+    assert receipt["code"]["git_head"] == "c" * 40 and receipt["code"]["dirty"] is False
     assert (tmp_path / "a" / "P3d_N_fix_C_loyo_rows.jsonl").read_bytes() == (
         tmp_path / "b" / "P3d_N_fix_C_loyo_rows.jsonl").read_bytes()
     with pytest.raises(ls.ScreenError, match="overwrite"):

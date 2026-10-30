@@ -20,6 +20,11 @@ column against a fixed control arm on the 2021-2025 history archives and writes
   and a verdict line under a rule the caller declares (for example
   `upper<0`). Optionally, `--control-rows` refuses the run unless the control
   arm reproduces a published control row set within 1e-9.
+- the code: every `{name}_loyo.json` records the git HEAD of the harness's
+  worktree and a dirty flag. A dirty tree (untracked files included) refuses
+  unless `--allow-dirty` is given, and the receipt records that too. Until the
+  harness lands, dev screens run from the pinned run env
+  `claude/loyo-screen-runenv-20261030`, and the receipt's HEAD is that pin.
 
 `spread_information_rung` is not on master. The harness imports it lazily and
 refuses with the branch name (`claude/rq-run-env-20261029`) when it is absent.
