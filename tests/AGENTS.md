@@ -37,6 +37,13 @@ Tests mirror owner packages under `tests/app`, `backtesting`, `calibration`,
   one shared host per pytest process, a fresh runspace per call. Exit codes,
   kill-on-close jobs, timeouts, mutexes, the workload lease, `-File` startup
   and scheduled-task behaviour keep a real `powershell.exe` child.
+- A test that runs a real scheduled-task registrar against stubbed Scheduler
+  cmdlets starts its harness with `tests/scheduler_stubs.py`'s `prologue` and
+  ends with `assert_only_stubs_invoked`. The real commands are CDXML functions
+  that autoload, so a missing stub reaches the host scheduler. The prologue sets
+  `WEATHER_TASK_TEST`, under which registrars that dot-source
+  `scripts/ops/scheduled_task_test_guard.ps1` refuse any non-stub. A refusal case
+  swaps a stub for `module_lookalike`; never just delete a stub.
 - Tests that write large temporary layouts must stay under `tmp_path`. On a
   shared host pass an explicit `--basetemp` and delete it afterwards; pytest's
   default temp root is not cleaned promptly and has filled the capture disk.
