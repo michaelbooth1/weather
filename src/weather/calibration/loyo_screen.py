@@ -26,6 +26,9 @@ Subcommands (heavy; run only through ``scripts\\ops\\workstation_heavy.ps1``):
     ``--mechanism`` scale, on ``--records`` and ``--nbm-train-corpus`` for ``--hours``; optional ``--control-rows``;
     ``--rule`` gives the verdict. Writes ``<name>_loyo.json`` and ``<name>_loyo_rows.jsonl`` (never overwrites).
     The receipt records the worktree's git HEAD and dirty flag; a dirty tree refuses unless ``--allow-dirty``.
+``mr-gate``
+    The MR gate (``weather.calibration.mr_gate``, rule 37cb46be): does a ruled candidate predict the market's
+    error (P0) and earn a walk-forward log-pool weight over placebo and floor-only (w)? Dev window only.
 ``export-rq-gefs-column``
     The reproduction adapter: R-Q variant A's GEFS member-spread column ``u`` on the training frame's keys, written
     as a column file, so that ``run`` can reproduce R-Q gate 1 from a column alone.
@@ -370,6 +373,12 @@ def build_parser():
     e.add_argument("--gefs-corpus", required=True)
     e.add_argument("--hours", type=_hours, required=True)
     e.add_argument("--out", required=True, help="the .parquet column file to write")
+    g = sub.add_parser("mr-gate", help="MR gate (rule 37cb46be): market-residual P0 and walk-forward w, dev window")
+    g.add_argument("--layout", required=True, help="dev scorecard layout (C:/swarm/v3layout)")
+    g.add_argument("--candidate", action="append", default=[], metavar="NAME=PATH",
+                   help="a ruled candidate and its pinned dev emit (default: every ruled candidate)")
+    g.add_argument("--out", required=True)
+    g.add_argument("--allow-dirty", action="store_true")
     return parser
 
 
@@ -383,6 +392,14 @@ def main(argv=None):
         print(json.dumps({"verdict": result["verdict"]["line"], "controls": result["controls"],
                           "coverage": result["coverage"]}, indent=1))
         return 0  # a FAIL verdict is a result, not an error
+    if args.command == "mr-gate":
+        from weather.calibration import mr_gate
+
+        cands = dict(c.split("=", 1) for c in args.candidate) or None
+        receipt = mr_gate.run(layout=args.layout, out_dir=args.out, candidates=cands, allow_dirty=args.allow_dirty)
+        print(json.dumps({"lines": receipt["lines"], "controls": {k: v["verdict"] for k, v in
+                                                                  receipt["controls"].items()}}, indent=1))
+        return 0
     record = export_rq_gefs_column(records_root=args.records, nbm_train_corpus=args.nbm_train_corpus,
                                    gefs_corpus=args.gefs_corpus, hours=args.hours, out_path=args.out)
     print(json.dumps({k: record[k] for k in ("path", "sha256", "rows")}, indent=1))
