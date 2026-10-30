@@ -1,6 +1,6 @@
 # L3 T+1 price forward recorder launcher (the action of the logon task; also safe to run by hand).
 # Starts the recorder detached through WMI Win32_Process.Create (not a child of the task or of any shell), with
-# per-launch logs, --wait-lock-seconds 120 and a line in C:		1_pricesorwardecorder_pid_log.txt, then exits
+# per-launch logs, --wait-lock-seconds 120 and a line in C:\t\t1_prices\forward\recorder_pid_log.txt, then exits
 # within about a minute. Refuses (logs and exits 0) when: the STOP file exists, a recorder is already alive, or the
 # code in the pinned worktree is not the pinned git blob id (claude/t1-price-recorder-20261030).
 # Research/shadow only: public read-only International Polymarket reads (Gamma event by slug, CLOB /books), no

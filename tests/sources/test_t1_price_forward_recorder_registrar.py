@@ -108,6 +108,46 @@ def test_whatif_prints_the_logon_task_and_never_reaches_the_scheduler(tmp_path):
 def test_without_whatif_registers_once(tmp_path):
     payload, _, _ = run(tmp_path, whatif=False)
     assert payload["error"] == "" and payload["mutations"] == [f"register:{NAME}"]
+    # The working directory exists before registration (a missing one stopped the first real start, 2026-10-30).
+    assert (tmp_path / "work").is_dir()
+    assert f"Working directory: {tmp_path / 'work'} (exists)" in payload["output"]
+
+
+@pytest.mark.spawns
+def test_whatif_creates_no_working_directory(tmp_path):
+    payload, _, _ = run(tmp_path)
+    assert payload["error"] == "" and not (tmp_path / "work").exists()
+
+
+@pytest.mark.spawns
+def test_launcher_and_registrar_parse_with_the_powershell_parser():
+    # The launcher once failed to parse: a comment path had \t, \f, \r expanded to control characters (2026-10-30).
+    for script in (SCRIPT, SCRIPT.parent / "t1_price_forward_recorder_launch.ps1"):
+        cmd = ("$t = $null; $e = $null; "
+               f"[void][System.Management.Automation.Language.Parser]::ParseFile('{script}', [ref]$t, [ref]$e); "
+               "'ERRORS=' + @($e).Count; foreach ($x in $e) { $x.Message }")
+        result = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                                 "-Command", cmd], capture_output=True, text=True, timeout=120)
+        assert result.returncode == 0, result.stderr
+        assert "ERRORS=0" in result.stdout, f"{script}: {result.stdout}"
+
+
+BRANCH_FILES = (
+    "tools/research/t1_price_forward_recorder.py",
+    "tools/research/t1_price_forward_recorder_launch.ps1",
+    "tools/research/register_t1_price_forward_recorder_task.ps1",
+    "tests/sources/test_t1_price_forward_recorder.py",
+    "tests/sources/test_t1_price_forward_recorder_registrar.py",
+)
+
+
+@pytest.mark.parametrize("rel", BRANCH_FILES)
+def test_no_control_characters_other_than_line_endings(rel):
+    data = (REPO_ROOT / rel).read_bytes()
+    bad = sorted({b for b in data if (b < 0x20 and b not in (0x0A, 0x0D)) or b == 0x7F})
+    assert not bad, f"{rel}: control bytes {bad}"
+    # A CR is allowed only as part of CRLF; a lone CR ends a PowerShell comment line early.
+    assert data.replace(b"\r\n", b"").count(b"\r") == 0, f"{rel}: lone CR"
 
 
 @pytest.mark.spawns

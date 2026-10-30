@@ -91,6 +91,10 @@ It opens no `.env*`, `*.cred`, `*.key`, `*.pem` or `config/local/*` file. A test
   - It requires `-ExpectedLauncherSha256`.
   - It validates the task name: no `/ \ : * ? " < > |`, and no leading or trailing space.
   - It refuses the real ScheduledTasks module under `WEATHER_TASK_TEST=1`.
+  - It creates the task's working directory before registering. The first real start failed because that directory
+    was missing.
+  - Fix on 2026-10-30: the first launcher failed to parse because a comment path had `\t`, `\f` and `\r` written as
+    control characters. Tests now parse both scripts with the PowerShell parser and reject control characters.
   - Run it with `-WhatIf` first.
 - **Tests:**
   - `tests/sources/test_t1_price_forward_recorder.py` uses an offline fake and makes no network calls.

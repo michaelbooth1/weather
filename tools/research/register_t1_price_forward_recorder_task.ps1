@@ -58,7 +58,10 @@ Write-Output "Action           : powershell.exe $argument (working dir $workDir)
 Write-Output "Settings         : MultipleInstances $($settings.MultipleInstances), StartWhenAvailable $($settings.StartWhenAvailable), ExecutionTimeLimit $($settings.ExecutionTimeLimit), Priority $($settings.Priority), DisallowStartIfOnBatteries $($settings.DisallowStartIfOnBatteries), StopIfGoingOnBatteries $($settings.StopIfGoingOnBatteries)"
 Write-Output "Launcher sha256  : $launcherSha"
 if ($PSCmdlet.ShouldProcess($TaskName, 'Register-ScheduledTask')) {
-    if (-not (Test-Path -LiteralPath $workDir)) { New-Item -ItemType Directory -Force $workDir | Out-Null }
+    # The task's working directory must exist before the first logon start, or the task cannot start at all.
+    [void][IO.Directory]::CreateDirectory($workDir)
+    if (-not (Test-Path -LiteralPath $workDir -PathType Container)) { throw "could not create working directory $workDir" }
+    Write-Output "Working directory: $workDir (exists)"
     Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Principal $principal `
         -Settings $settings -Description $description | Out-Null
     $t = Get-ScheduledTask -TaskName $TaskName
