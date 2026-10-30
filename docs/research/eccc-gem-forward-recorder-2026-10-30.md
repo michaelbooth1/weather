@@ -88,6 +88,20 @@ The local day runs from `D 00:00` to `D+1 00:00` in ZoneInfo(tz), so 2026-11-01 
 - **Hourly coverage of a full local day** comes from HRDPS, RDPS and GDPS 2 m temperature. These are instantaneous
   hourly values, so a day's maximum of them is a sampled maximum, not a true maximum.
 
+**Daily summaries and what "complete" means** (`tools/research/forward_daily.py`, reader `eccc_gem_daily.py`; added
+after registration on branch `claude/eccc-gem-daily-20261030`, and the live recorder does not import either):
+
+- A summary covers one series: one model, product, run, station and member. Mixed runs or members are refused, and
+  coverage is the union of windows, never a sum. `forward_local_day.daily_max` summed hours across all rows; it is
+  kept byte-identical only because the live launcher pins that file's git blob. Use `forward_daily` instead.
+- **6 h maximum.** Toronto's local midnight (04Z in EDT, 05Z in EST) is never on a 6 h UTC boundary, so one run's
+  windows wholly inside a day cover only 18 of its 24 (25 on 11-01) hours. Such a day can never be `exact`. It is
+  complete when it is `bounded`: the inside windows plus the two windows crossing its midnights cover every hour.
+  Then the day's maximum lies in `[max, max_upper]`, where `max` uses inside windows only and
+  `max_upper = max(max, edge_max)`. Otherwise the day is `partial`.
+- **2 m temperature.** A day is `hourly` when every local hour of it starts with a value (25 on 11-01). That gives a
+  sampled maximum, not a true one. Otherwise the day is `partial`.
+
 ## Proof fetch (2026-10-30, one off, into `C:\t\eccc_gem\proof`)
 
 - **Scope:** the 12Z run, step 24, every model and product.

@@ -1,7 +1,9 @@
 """Lane L13 ECCC GEM forward recorder: GRIB2 5.40 decoding, rotated-pole points, point-in-time receipts, gaps.
 
 Deterministic: synthetic GRIB2 files (JPEG2000 written by Pillow) are served by a clock-driven fake Datamart; no
-network. Guards: station pins against the market registry, fail-closed template checks, forward-only runs, and
+network.
+
+Guards: station pins against the market registry, fail-closed template checks, forward-only runs, and
 timezone-aware local-day fields across the 2026-11-01 DST change.
 """
 from __future__ import annotations
