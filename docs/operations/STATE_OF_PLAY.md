@@ -1,7 +1,7 @@
 # State of play
 
-**Last updated: 2026-10-30 America/Toronto (evening: live pilot postponed; 31 market-gate screens, 0 survivors; MG-2 input gap
-closed; R1 slip found. Rule B-1 bound 10-28, D0 10-29; owner option B 10-25).**
+**Last updated: 2026-10-30 America/Toronto (evening: live pilot postponed; iterate-faster decisions adopted; 31 market-gate screens,
+0 survivors; MG-2 input gap closed; R1 slip found. Rule B-1 bound 10-28, D0 10-29; owner option B 10-25).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended. At most 95 lines and about 9 KB, one fact per bullet, detail in the linked owner.** `status.ps1` flags
@@ -12,8 +12,8 @@ Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any resea
 Precondition: protect capture and settlement evidence. **The goal is model improvement**: exhaust the model levers and run one
 minimal forward edge test (B) against market prices ("We exhaust all options on model improvements", owner 10-25). **A B FAIL ends
 this candidate's edge claim, not the project** (owner Q2 10-25, DL); work continues down the [lever inventory](LEVER_INVENTORY_2026-10-26.md).
-**Iterate fast** (owner 10-30): kill on history and dev in days, no serial 45-day forward tests; the [iterate-faster
-plan](../research/iterate-faster-2026-10-30/plan.md) is a proposal until adopted. 88a, bundle B, plugin core and YouTube stay paused.
+**Iterate fast** (owner 10-30, nine decisions adopted, DL): kill on history and dev in days, no serial 45-day forward tests; rules in
+[MODEL_IMPROVEMENT_METHOD](MODEL_IMPROVEMENT_METHOD.md) §5. 88a, bundle B, plugin core and YouTube stay paused.
 
 ## Headline
 
@@ -32,15 +32,15 @@ plan](../research/iterate-faster-2026-10-30/plan.md) is a proposal until adopted
 - **Weather data:** paid only per DECISION_LOG-approved source (10-23); free official data needs no ask; ask for packages, logins, payment (10-24).
 - **Workstation: one Claude Code chat directed by the production agent** ([preamble](WORKSTATION_SESSION_PREAMBLE.md)); parallel
   lanes, one branch each (owner 10-23); heavy work via `workstation_heavy.ps1`; every WS scheduled task needs the owner's yes there.
-- **Record every rule-out** (owner 10-25) in the [exhaustion register](EXHAUSTION_REGISTER.md) §6 with numbers and a "Reopen if" line.
+- **Record every rule-out** (owner 10-25) in the [exhaustion register](EXHAUSTION_REGISTER.md) §6; the WS records its own pre-registered kills (10-30).
 - **Landed is not running:** a new loop, nightly, scorer or task is done only when its Open-commitments verify has run.
 
 ## Current truth
 
 - **Production source:** read `origin/master` with git (`1a78e1ba0` when written). Night 10-30/31 queues the AIFS capture-only
   fix (roll-sensitive), the cold-snapshot resolver fix and a roll-free combo (WS ping watchdog, MOSMIX recorder, control-char ratchet).
-- **Outcome embargo unchanged:** no outcome, price or label read after 09-29 except under a named, owner-opened test. Dates
-  <= 09-29 are development only; descriptive reads of 10-16..11-13 stay refused (owner 10-17).
+- **Outcome embargo:** no outcome, price or label read after 09-29 except under a named, owner-opened test. Dates <= 09-29 are dev;
+  09-30..10-14 open once for kill-only/atlas reads after a claim check (owner 10-30); 10-16..11-13 descriptive reads refused (10-17).
 - **MG-1** bound, forward shadow; single look after 11-28 ([reserved window](reserved-confirmation-window.md)); outputs never read before it.
 - **MG-2 / Rule B-1 BOUND 10-28** ([design](B_FORWARD_TEST_DESIGN.md); DL 10-28; C7/C8 line, scorer `f941628a…`): D0 = 10-29, N = 45
   countable dates, 45th date 12-12, NI margin +0.0027 (owner Q3/Q4); single look 12-13 after MG-1's; option 2 exempts MG-2 only
@@ -66,9 +66,9 @@ plan](../research/iterate-faster-2026-10-30/plan.md) is a proposal until adopted
 ## Ordered critical path
 
 1. **Rule B-1 bound 10-28**; MG-2 accrues from D0 10-29, inputs received daily; no look before 12-13.
-2. **MG-3 PAUSED pending the owner** (master recommends dropping it after X44/X45); the HRRR forward recorder keeps running.
-3. **Running:** R-O, NBS-TXN diagnostic; **R-ODC P1** frozen, D0 10-31 (row 72); **RISE-T3R3 replication** (row 80) reads
-   10-01..10-14 if the owner opens them, else 45 forward dates; a T+1 forward prereg is drafted, frozen only on owner answers.
+2. **MG-3 DROPPED** (owner 10-30, DL; HRRR died at the market gate, X44/X45); the HRRR forward recorder keeps running. No paid data now.
+3. **Running:** R-O, NBS-TXN diagnostic; **R-ODC P1** frozen, D0 10-31 (row 72); **RISE-T3R3 replication** (row 80) reads 10-01..10-14
+   after the claim check; the T+1 forward prereg may freeze (blind accrual) once its price recorder has 3 closed days (~11-02).
 4. **Cool-season paper test PT-1** ([draft](COOL_SEASON_PAPER_TEST_PREREG.md); owner Q6-Q9 answered 10-25, dates 12-12..01-25) bound before its D0.
 
 ## Open commitments (every row: owner, due, verify)
@@ -76,7 +76,7 @@ plan](../research/iterate-faster-2026-10-30/plan.md) is a proposal until adopted
 | What | Owner | Due | Verify |
 | --- | --- | --- | --- |
 | PT-1 bound: PT_D0 set, G = 15 s fixed by the outcome-blind dev check, rule sha pinned | master | before PT_D0 | binding commit; DL row |
-| Seven iterate-faster decisions (pipeline, accrual, 09-30..10-14 read, dates to dev, WS kills, keepalive, MG-3) | owner | open | DL rows |
+| 09-30..10-14: written claim check, then one host export for the kill-only/atlas reads | master + WS | before any read | claim doc; export manifest |
 | WU-vs-venue measurement 08-11..09-29 on the host (owner 10-23) | production | open | research doc; DL row |
 | Resolve the childless 10-30 nightly attempt once its tool fix lands | production | before 10-31 06:50 | `resolved-nightly` record |
 | MG-2 10-30 bundle received by the WS daily task | workstation L2 | 10-31 23:59 | `verified` receipt line |

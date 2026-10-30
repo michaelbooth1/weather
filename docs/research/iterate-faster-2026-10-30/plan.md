@@ -1,12 +1,13 @@
 # Faster iteration plan: answer to the owner (2026-10-30)
 
-> **Status: proposal dated 2026-10-30, NOT canon until the owner adopts it.** Written by a 14-agent workstation swarm
-> (master-agent synthesis) after the owner asked on 10-30 why each model iteration costs 45 forward days. The owner has
-> answered Q8 (live pilot postponed, 10-30, [DECISION_LOG](../../operations/DECISION_LOG.md)). The remaining questions were
-> sent to the owner as seven plain-chat decisions; [the state of play](../../operations/STATE_OF_PLAY.md) tracks them.
-> Superseded facts since writing: T+1 prices are now recorded on the workstation (no receipt-dated day-ahead history
-> exists, so T+1 is forward-only); master recommends dropping MG-3 after the HRRR arms died at the market gate
-> ([exhaustion register](../../operations/EXHAUSTION_REGISTER.md) X44/X45). Bracketed citations are to canonical files.
+> **Status: dated rationale, 2026-10-30. Adopted by the owner the same evening** (nine decisions, all as master-agent
+> recommended; [DECISION_LOG](../../operations/DECISION_LOG.md)). The binding rules are in
+> [MODEL_IMPROVEMENT_METHOD §5](../../operations/MODEL_IMPROVEMENT_METHOD.md); where this file differs, that section wins.
+> Written by a 14-agent workstation swarm (master-agent synthesis) after the owner asked why each model iteration costs
+> 45 forward days. The owner was asked a re-numbered list: Q8 here (pilot) was answered separately (postponed), MG-3 was
+> dropped, paid data was declined for now, and Q5 here (the PT-1 sealed-scorer clause) was not put to the owner and is
+> not adopted. Since writing, T+1 prices are recorded on the workstation (forward-only: no receipt-dated day-ahead
+> history exists). Bracketed citations are to canonical files.
 
 **Short answer.** Ten iterations do not have to cost 10 × 45 days. One iteration means taking an idea to a kill or keep on history and dev data, and that already takes 1-3 days on the workstation. R-Q went from rule to kill in one day [DEV_WINDOW_LEDGER row 71]. More than 90% of the calendar is forward accrual plus a queue of single-look tests [B_FORWARD_TEST_DESIGN §3, §9; reserved-confirmation-window.md].
 
