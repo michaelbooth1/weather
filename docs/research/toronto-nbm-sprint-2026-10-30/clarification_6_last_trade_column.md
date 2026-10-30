@@ -38,5 +38,24 @@ the tape midpoint) means the **YES** last trade. The tape column `last_trade_pri
   - no renormalisation.
 - A NO-row fallback is never reached, because every bin has a YES row. If it were reached, the midpoint
   branch uses 1 − the NO midpoint, and the gamma branch uses gamma as is.
-- **Not adopted:** L14 clarification 1's convention (a missing CLOB side at its bound).
+- **Superseded by 6b below:** this section first left out L14 clarification 1's convention (a missing CLOB side at its bound).
 - **Not changed:** this does not alter the run-once rule. P0's score stage had not run when this was found.
+
+## Amendment 6b: a one-sided book (still before any outcome read)
+
+**Why it was needed:**
+- After the gamma fix, m was a partition again: the median sum over a snapshot was 1.044, with the 1st-99th
+  percentiles at 0.84-1.54.
+- But 33 of 60 dates still had no price for some bin for the whole day. These are dead tail bins with a
+  YES ask of 0.001, no bid, no gamma trade and no tape midpoint. Example: 2026-09-20, bins 12 C or below
+  to 15 C, on all 3,741 groups.
+- Dropping those dates would keep only days without a never-traded tail, which selects the population on
+  the shape of the market.
+
+**Amendment:**
+- A missing CLOB side counts as its bound (bid 0, ask 1) when the spread and the midpoint are computed, as
+  in L14 clarification 1's convention.
+- Example: YES ask 0.001 with no bid gives spread 0.001 and midpoint 0.0005.
+- If both sides are missing, the spread is 1. The price then falls to the gamma last trade, then the tape
+  midpoint; otherwise the snapshot drops.
+- Nothing else changes.
