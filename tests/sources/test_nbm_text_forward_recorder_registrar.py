@@ -4,7 +4,8 @@ Runs the real registrar in Windows PowerShell with the Scheduler cmdlets stubbed
 
 Guards: the -WhatIf plan never reaches the Scheduler, the logon-task shape (AtLogOn, PT5M, IgnoreNew, StartWhenAvailable
 off, Interactive/Limited, the launcher in the given worktree), the required launcher sha256, refusal of an existing
-task, and the registrar's own refusal of the real ScheduledTasks module under WEATHER_TASK_TEST=1.
+task, refusal of task names with a slash, backslash or other reserved characters (the real 0x80070057 failure of 2026-10-30), and
+the registrar's own refusal of the real ScheduledTasks module under WEATHER_TASK_TEST=1.
 """
 from __future__ import annotations
 
@@ -72,12 +73,14 @@ def _worktree(tmp_path):
     return tmp_path / "wt", hashlib.sha256(launcher.read_bytes()).hexdigest()
 
 
-def run(tmp_path, *, whatif=True, new_exists=False, sha=None):
+def run(tmp_path, *, whatif=True, new_exists=False, sha=None, task_name=NAME):
     wt, real_sha = _worktree(tmp_path)
-    params = {"Worktree": str(wt), "WorkingDirectory": str(tmp_path / "work"), "TaskName": NAME,
+    params = {"Worktree": str(wt), "WorkingDirectory": str(tmp_path / "work"), "TaskName": task_name,
               "ExpectedLauncherSha256": real_sha if sha is None else sha}
+    if task_name is None:  # exercise the registrar default
+        del params["TaskName"]
     env = {**os.environ, "REGISTRAR": str(SCRIPT), "REGISTRAR_PARAMS": json.dumps(params),
-           "WHATIF": "1" if whatif else "0", "NEW_NAME": NAME, "NEW_EXISTS": "1" if new_exists else "0"}
+           "WHATIF": "1" if whatif else "0", "NEW_NAME": task_name or NAME, "NEW_EXISTS": "1" if new_exists else "0"}
     result = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
                              "-Command", HARNESS], env=env, capture_output=True, text=True, timeout=120)
     assert result.returncode == 0, result.stderr
@@ -135,3 +138,22 @@ def test_registrar_refuses_the_real_scheduler_under_weather_task_test(tmp_path):
     result = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
                              "-Command", cmd], capture_output=True, text=True, timeout=120)
     assert "REFUSED: WEATHER_TASK_TEST=1" in result.stdout, result.stdout + result.stderr
+
+
+@pytest.mark.spawns
+@pytest.mark.parametrize("bad", [
+    "pytest-l13-fake 00/12/18Z",  # the shape of the GEFS name whose real registration failed with 0x80070057
+    "pytest-l13-fake\\sub", "pytest-l13-fake/sub", "pytest-l13-fake:x", "pytest-l13-fake*", "pytest-l13-fake?",
+    'pytest-l13-fake"', "pytest-l13-fake<", "pytest-l13-fake|", " pytest-l13-fake", "pytest-l13-fake\t",
+])
+def test_refuses_invalid_task_names_before_any_scheduler_call(tmp_path, bad):
+    payload, _, _ = run(tmp_path, whatif=False, task_name=bad)
+    assert "invalid task name" in payload["error"] and payload["mutations"] == []
+
+
+@pytest.mark.spawns
+def test_default_task_name_is_valid(tmp_path):
+    # Stubbed and -WhatIf: the default name passes the check and is the one printed.
+    payload, _, _ = run(tmp_path, task_name=None)
+    assert payload["error"] == "" and payload["mutations"] == []
+    assert "Task name        : L13 NBM text forward recorder (logon)" in payload["output"]
