@@ -8,6 +8,9 @@ pre-registration's 12-market stratum, so no pilot row may reach a built-in journ
 Also the 88a data hold to UTC 10-30 (DATA_LAYER_V2_PLAN.md VR-1, S2+S9; master 10-15): the pilot and
 sweep land off, built-in bands keep the pre-S9 every-minute reward read until 2026-10-31T00:00Z
 whatever the config says, and a pilot cycle or pilot trade-socket failure never stops the built-ins.
+Shipped state since the owner's 2026-10-23 phase-2 plan (DECISION_LOG lines 258/259/265): the pilot is
+on for R1 (the five P1 cities) and R2 (Munich, Madrid, Beijing, Wellington, Hong Kong); the sweep stays
+off and the built-ins stay legacy. The built-in selection ratchet is unchanged.
 """
 from argparse import Namespace
 from datetime import datetime, timezone
@@ -28,6 +31,8 @@ from weather.paths import config_path
 NOW = datetime(2026, 10, 16, 15, tzinfo=timezone.utc)
 CONFIG = config_path("capture_families.json")
 P1 = ["london", "shanghai", "paris", "seoul", "tokyo"]
+R2 = ["munich", "madrid", "beijing", "wellington", "hong_kong"]  # DECISION_LOG 2026-10-23 (lines 258/259)
+SHIPPED = P1 + R2
 
 
 def condition(*parts):
@@ -102,9 +107,9 @@ def pilot_on(**changes):
     return {"pilot": "on", "rewards_sweep": "on", "rows": shipped_rows(), **changes}
 
 
-def test_shipped_block_is_the_p1_pilot_and_agrees_with_the_location_registry():
+def test_shipped_block_is_the_r1_r2_pilot_and_agrees_with_the_location_registry():
     config = load_recorder_only(CONFIG)
-    assert [m.id for m in config.markets] == P1
+    assert [m.id for m in config.markets] == SHIPPED
     assert config.config_sha256 == digest(CONFIG.read_bytes())
     locations = {row["id"]: row for row in json.loads(config_path("locations.json").read_text(encoding="utf-8"))["locations"]}
     for m in config.markets:
@@ -119,13 +124,18 @@ def test_absent_block_means_no_pilot_no_sweep_and_legacy_built_ins(tmp_path):
     assert config.markets == () and not config.sweep_enabled and config.built_in_reward_cadence == "legacy"
 
 
-def test_landing_config_is_inert_and_switching_on_is_config_only(tmp_path):
-    """Master 10-15 (Q3): land disabled. Rows are validated but none is captured; no sweep; legacy built-ins."""
+def test_shipped_config_records_r1_r2_with_sweep_off_and_switching_is_config_only(tmp_path):
+    """Master 10-15 (Q3) landed it disabled; owner 2026-10-23 (DECISION_LOG lines 258/259/265) switches R1+R2 on.
+
+    The sweep stays off and the built-ins legacy. Switching the pilot off again is a config-only flip.
+    """
     shipped = load_recorder_only(CONFIG)
-    assert (shipped.pilot, shipped.rewards_sweep, shipped.built_in_reward_cadence) == ("off", "off", "legacy")
-    assert shipped.active_markets == () and not shipped.sweep_enabled
+    assert (shipped.pilot, shipped.rewards_sweep, shipped.built_in_reward_cadence) == ("on", "off", "legacy")
+    assert [m.id for m in shipped.active_markets] == SHIPPED and not shipped.sweep_enabled
+    off = load_recorder_only(write_config(tmp_path, pilot_on(pilot="off")))
+    assert off.markets == shipped.markets and off.active_markets == ()
     on = load_recorder_only(write_config(tmp_path, pilot_on()))
-    assert [m.id for m in on.active_markets] == P1 and on.sweep_enabled
+    assert [m.id for m in on.active_markets] == SHIPPED and on.sweep_enabled
     for key, value in (("pilot", "maybe"), ("built_in_reward_cadence", "hourly")):
         with pytest.raises(ValueError, match=key):
             load_recorder_only(write_config(tmp_path, pilot_on(**{key: value})))
@@ -245,8 +255,9 @@ def test_pilot_lane_journals_only_in_pilot_partitions_and_stamps_its_stratum(tmp
     trades = PublicStream(store, trades_only=True, partition=PILOT_PARTITION)
     pilot_state = {"state": "OFF", "cycles": 0, "failed_cycles": 0}
     universe = capture.capture_recorder_only(reader, store, config, trigger, RewardSweep(reader), True, trades, pilot_state)
-    assert pilot_state["state"] == "CAPTURING" and len(universe) == 50 and len(trades.tokens) == 100
-    assert {r["city"] for r in universe} == set(P1)
+    assert pilot_state["state"] == "CAPTURING" and len(universe) == 10 * len(SHIPPED)
+    assert len(trades.tokens) == 20 * len(SHIPPED)  # Two tokens per band; the stream opens a socket per 100.
+    assert {r["city"] for r in universe} == set(SHIPPED)
     assert all(r["stratum"] == STRATUM and r["config_sha256"] == config.config_sha256 for r in universe)
     assert {partition for _, partition in reader.calls} == {PILOT_PARTITION}
     new_files = set(store.files) - core_files
@@ -254,7 +265,7 @@ def test_pilot_lane_journals_only_in_pilot_partitions_and_stamps_its_stratum(tmp
     for name in new_files:
         assert name.endswith("-pilot.jsonl") or name.startswith("universe-pilot-") or (
             name.startswith("book-") and name[5:-6] in pilot_assets), name
-    assert {f"universe-pilot-{city}.jsonl" for city in P1} <= new_files
+    assert {f"universe-pilot-{city}.jsonl" for city in SHIPPED} <= new_files
     # The panel reads books.jsonl / ranking_books.jsonl / trades.jsonl only; no pilot token is in them.
     for journal in ("books.jsonl", "ranking_books.jsonl", "trades.jsonl", "discovery.jsonl"):
         path = store.folder / journal
@@ -285,7 +296,7 @@ def test_config_errors_are_journaled_once_per_distinct_error(tmp_path):
         assert capture.load_recorder_only_safely(store, pilot_state, path=bad) is None
     assert store.files["recorder_only_config_error.jsonl"]["records"] == 1
     good = capture.load_recorder_only_safely(store, pilot_state, path=CONFIG)
-    assert pilot_state["markets"] == []  # Shipped rows are validated but off.
+    assert pilot_state["markets"] == SHIPPED  # Shipped rows are on (R1+R2, DECISION_LOG 2026-10-23).
     assert good is not None and pilot_state["config_sha256"] == good.config_sha256
 
 

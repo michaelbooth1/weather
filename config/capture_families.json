@@ -28,8 +28,8 @@
     }
   },
   "core_recorder_only": {
-    "scope": "Data layer v2 S2+S9 pilot P1 (VR-1). Read only by the core 88a recorder (weather.market.maker_evidence_capture, default path, re-read every cycle, whole-file SHA-256 stamped on every pilot row). Recorder-only: minute books, change-triggered reward records and public trades in 'pilot' partitions; top ten reward-ranked bands per city across horizons 0-2. Never a built-in, never a capture-family event, never a model, fair-value, quoting or settlement input. Owner Q16: outside the 10-01 maker-P&L pre-registration's 12-market stratum. Switches (config-only): pilot on|off, rewards_sweep on|off, built_in_reward_cadence legacy|event_driven; all land off/legacy, and built-ins stay legacy before 2026-10-31T00:00Z whatever this says. Contract: docs/operations/DATA_LAYER_V2_CONTRACT.md 'Recorder-only rows'.",
-    "pilot": "off",
+    "scope": "Data layer v2 S2+S9 pilot P1 (VR-1). Read only by the core 88a recorder (weather.market.maker_evidence_capture, default path, re-read every cycle, whole-file SHA-256 stamped on every pilot row). Recorder-only: minute books, change-triggered reward records and public trades in 'pilot' partitions; top ten reward-ranked bands per city across horizons 0-2. Never a built-in, never a capture-family event, never a model, fair-value, quoting or settlement input. Owner Q16: outside the 10-01 maker-P&L pre-registration's 12-market stratum. Switches (config-only): pilot on|off, rewards_sweep on|off, built_in_reward_cadence legacy|event_driven; they landed off/legacy; R1 (london..tokyo) and R2 (munich..hong_kong) switch the pilot on per DECISION_LOG 2026-10-23 (lines 258/259/265), rewards_sweep stays off and built-ins stay legacy (before 2026-10-31T00:00Z whatever this says). Contract: docs/operations/DATA_LAYER_V2_CONTRACT.md 'Recorder-only rows'.",
+    "pilot": "on",
     "rewards_sweep": "off",
     "built_in_reward_cadence": "legacy",
     "rows": [
@@ -37,7 +37,12 @@
       {"id": "shanghai", "location_id": "shanghai", "series": "highest", "slug_prefix": "highest-temperature-in-shanghai-on", "tz": "Asia/Shanghai", "horizons": [0, 1, 2], "band_policy": "top10_reward_ranked"},
       {"id": "paris", "location_id": "paris", "series": "highest", "slug_prefix": "highest-temperature-in-paris-on", "tz": "Europe/Paris", "horizons": [0, 1, 2], "band_policy": "top10_reward_ranked"},
       {"id": "seoul", "location_id": "seoul", "series": "highest", "slug_prefix": "highest-temperature-in-seoul-on", "tz": "Asia/Seoul", "horizons": [0, 1, 2], "band_policy": "top10_reward_ranked"},
-      {"id": "tokyo", "location_id": "tokyo", "series": "highest", "slug_prefix": "highest-temperature-in-tokyo-on", "tz": "Asia/Tokyo", "horizons": [0, 1, 2], "band_policy": "top10_reward_ranked"}
+      {"id": "tokyo", "location_id": "tokyo", "series": "highest", "slug_prefix": "highest-temperature-in-tokyo-on", "tz": "Asia/Tokyo", "horizons": [0, 1, 2], "band_policy": "top10_reward_ranked"},
+      {"id": "munich", "location_id": "munich", "series": "highest", "slug_prefix": "highest-temperature-in-munich-on", "tz": "Europe/Berlin", "horizons": [0, 1, 2], "band_policy": "top10_reward_ranked"},
+      {"id": "madrid", "location_id": "madrid", "series": "highest", "slug_prefix": "highest-temperature-in-madrid-on", "tz": "Europe/Madrid", "horizons": [0, 1, 2], "band_policy": "top10_reward_ranked"},
+      {"id": "beijing", "location_id": "beijing", "series": "highest", "slug_prefix": "highest-temperature-in-beijing-on", "tz": "Asia/Shanghai", "horizons": [0, 1, 2], "band_policy": "top10_reward_ranked"},
+      {"id": "wellington", "location_id": "wellington", "series": "highest", "slug_prefix": "highest-temperature-in-wellington-on", "tz": "Pacific/Auckland", "horizons": [0, 1, 2], "band_policy": "top10_reward_ranked"},
+      {"id": "hong_kong", "location_id": "hong-kong", "series": "highest", "slug_prefix": "highest-temperature-in-hong-kong-on", "tz": "Asia/Hong_Kong", "horizons": [0, 1, 2], "band_policy": "top10_reward_ranked"}
     ]
   },
   "platform": {

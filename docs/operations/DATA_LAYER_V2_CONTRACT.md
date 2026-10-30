@@ -93,7 +93,8 @@ and its whole-file SHA-256 is stamped as `config_sha256` on every pilot universe
 - **Journal isolation.** Every pilot read and event lands in a `pilot` partition
   (`discovery-pilot`, `ranking_books-pilot`, `books-pilot`, `rewards-pilot`,
   `rewards_current-pilot`, `universe-pilot-<id>`) and its public trades on the separate
-  `pilot_trades` channel (`trades-pilot.jsonl`, one extra socket of at most 100 tokens).
+  `pilot_trades` channel (`trades-pilot.jsonl`, extra sockets of at most 100 tokens each;
+  two for the ten R1+R2 rows).
   Pilot tokens never join the raw update stream. The built-in journals the shadow panel reads
   (`books`, `ranking_books`, `trades`) never hold a pilot token.
 - **Failure scope.** A malformed block turns the pilot off for that cycle
@@ -109,6 +110,12 @@ and its whole-file SHA-256 is stamped as `config_sha256` on every pilot universe
   ignored before it (a scratch dry run excepted). An absent or malformed block means no
   pilot, no sweep and legacy built-ins. Switching on after verification is a config edit:
   no restart, the block is re-read every cycle.
+- **Shipped state: R1+R2 on.** Per the owner's 2026-10-23 phase-2 plan (`DECISION_LOG.md`
+  lines 258/259, with the day-1 receipt allowance at line 265), `pilot` is `on` for R1
+  (London, Shanghai, Paris, Seoul, Tokyo) and R2 (Munich, Madrid, Beijing, Wellington,
+  Hong Kong as id `hong_kong`, location `hong-kong`), recorder-only. `rewards_sweep` stays
+  `off` and `built_in_reward_cadence` stays `legacy`; the built-in selection ratchet is
+  unchanged. The S2+S9 receipts are measured after this flip.
 
 ## Embargo
 
