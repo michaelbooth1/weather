@@ -3,7 +3,7 @@
 Nothing here is served, and it is not in any RELEASE_FILES. It reads forward data only through ``check_look``:
 
 * Embargo: nothing after 2026-09-29 is read before the look. Every read and the verdict refuse unless the look
-  context says the look day has come (``today >= look_date``), D0 is the freeze date (>= 2026-10-30), the look is
+  context says the look day has come (``today >= look_date``), D0 is the first full local date after the freeze (freeze date + 1; freeze >= 2026-10-30), the look is
   at least 45 days after D0 and on or after the B look receipt, and every date lies in [D0, look_date).
 * Denver is excluded (DL 10-23, KDEN vs KBKF), as in test B; a Denver row refuses.
 
@@ -55,14 +55,23 @@ def _day(value):
     return value if isinstance(value, date) else date.fromisoformat(str(value)[:10])
 
 
+def first_countable_date(freeze_date):
+    """D0 = the first full local date after the freeze: always freeze date + 1, whatever the push hour.
+
+    A date whose 07-12 hours (and possibly its high) had passed when the freeze reached origin never counts.
+    """
+    return _day(freeze_date) + timedelta(days=1)
+
+
 def check_look(ctx, *, dates=(), markets=()):
     """Refuse unless the look may happen now and every date/market is in scope. -> sorted unique dates."""
     if not isinstance(ctx, LookContext):
         raise RodcForwardRefused("a LookContext is required")
     if ctx.freeze_date < FREEZE_EARLIEST:
         raise RodcForwardRefused(f"freeze {ctx.freeze_date} is before {FREEZE_EARLIEST}")
-    if ctx.d0 != ctx.freeze_date:
-        raise RodcForwardRefused(f"D0 {ctx.d0} is not the freeze date {ctx.freeze_date}")
+    if ctx.d0 != first_countable_date(ctx.freeze_date):
+        raise RodcForwardRefused(
+            f"D0 {ctx.d0} is not the first full local date after the freeze {ctx.freeze_date}")
     if ctx.look_date < ctx.d0 + timedelta(days=N_COUNTABLE):
         raise RodcForwardRefused(f"look {ctx.look_date} cannot follow {N_COUNTABLE} countable dates from {ctx.d0}")
     if ctx.b_receipt_date is None:

@@ -11,24 +11,32 @@ from weather.market.market_config import event_slug_for_date
 from weather.sources.wu_history import WundergroundHistoryStore
 
 TZ = ZoneInfo("America/New_York")
-D0 = date(2026, 10, 30)
+FREEZE = date(2026, 10, 30)
+D0 = date(2026, 10, 31)
 D = date(2026, 11, 10)
-CTX = fs.LookContext(freeze_date=D0, d0=D0, look_date=date(2026, 12, 14),
-                     b_receipt_date=date(2026, 12, 14), today=date(2026, 12, 14))
+CTX = fs.LookContext(freeze_date=FREEZE, d0=D0, look_date=date(2026, 12, 15),
+                     b_receipt_date=date(2026, 12, 15), today=date(2026, 12, 15))
 
 
 @pytest.mark.parametrize("change, match", [
-    ({"freeze_date": date(2026, 10, 29), "d0": date(2026, 10, 29)}, "freeze"),
-    ({"d0": date(2026, 10, 31)}, "not the freeze date"),
-    ({"look_date": date(2026, 12, 13), "b_receipt_date": date(2026, 12, 13), "today": date(2026, 12, 13)},
+    ({"freeze_date": date(2026, 10, 29), "d0": date(2026, 10, 30)}, "freeze"),
+    ({"d0": FREEZE}, "not the first full local date after the freeze"),
+    ({"d0": date(2026, 11, 1)}, "not the first full local date after the freeze"),
+    ({"look_date": date(2026, 12, 14), "b_receipt_date": date(2026, 12, 14), "today": date(2026, 12, 14)},
      "cannot follow 45 countable dates"),
     ({"b_receipt_date": None}, "no B look receipt"),
-    ({"b_receipt_date": date(2026, 12, 15), "today": date(2026, 12, 20)}, "before the B look receipt"),
-    ({"today": date(2026, 12, 13)}, "embargo"),
+    ({"b_receipt_date": date(2026, 12, 16), "today": date(2026, 12, 20)}, "before the B look receipt"),
+    ({"today": date(2026, 12, 14)}, "embargo"),
 ])
 def test_look_context_refusals(change, match):
     with pytest.raises(fs.RodcForwardRefused, match=match):
         fs.check_look(replace(CTX, **change), dates=[D], markets=["atlanta"])
+
+
+def test_d0_is_always_the_day_after_the_freeze():
+    assert fs.first_countable_date(FREEZE) == D0
+    assert fs.first_countable_date("2026-10-30T13:05:00-04:00") == D0
+    assert fs.first_countable_date(date(2026, 11, 2)) == date(2026, 11, 3)
 
 
 def test_a_later_look_is_allowed_after_the_b_receipt():
@@ -38,7 +46,7 @@ def test_a_later_look_is_allowed_after_the_b_receipt():
 
 def test_date_and_market_scope_refusals():
     assert fs.check_look(CTX, dates=["2026-11-10", D], markets=["atlanta"]) == [D]
-    for bad in (date(2026, 10, 29), date(2026, 9, 29), date(2026, 12, 14)):
+    for bad in (FREEZE, date(2026, 10, 29), date(2026, 9, 29), date(2026, 12, 15)):
         with pytest.raises(fs.RodcForwardRefused, match="outside"):
             fs.check_look(CTX, dates=[bad], markets=["atlanta"])
     with pytest.raises(fs.RodcForwardRefused, match="excluded market"):
