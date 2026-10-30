@@ -8,13 +8,15 @@ after the coordinator has been told; the lane never freezes on its own.
 **History:**
 - Rev 1 was drafted 2026-10-30.
 - Rev 2 (`8772336e0`) followed master's ruling the same day: the comparator, accrual, no interim reads, and P1.
-- Rev 3 (this file) follows the owner's iterate-faster decisions of 2026-10-30 (`MODEL_IMPROVEMENT_METHOD.md` §5 on
+- Rev 3 (`a8c9d559d`) follows the owner's iterate-faster decisions of 2026-10-30 (`MODEL_IMPROVEMENT_METHOD.md` §5 on
   `claude/docs-owner-20261030` @ `e759a55d1`). It adds:
   - the intake reason;
   - the P0 stage, with w ahead of R;
   - standing blind accrual (rule 8), which replaces the owner Q2 exemption;
   - the one date rule (rule 9), which answers Q1;
   - sizing from the test's own numbers (rule 6), with the futility block written as a new pre-registration (rule 7).
+
+- Rev 4 (this file) folds in master's rulings Q-a, Q-b and Q-c of 2026-10-30 (sections 0, 2, 7 and 8).
 
 This is a dated research draft, not canonical guidance.
 
