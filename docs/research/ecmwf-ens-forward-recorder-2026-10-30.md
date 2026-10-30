@@ -33,6 +33,24 @@ libaec. The recorder carries a pure-Python/numpy decoder of the CCSDS 121.0-B ad
 preprocessor. It skips every RSI block cheaply and fully decodes only the blocks that hold a station's grid corners.
 Grid, product and packing templates are checked, and anything unexpected fails closed.
 
+## Local settlement day (timezone-aware, DST-correct)
+
+The recorder stores UTC only (`valid_utc` is the window end, `window_h` its length). It does not bucket rows into
+local days. Bucketing is done by the reader `tools/research/ecmwf_ens_daily.py`, which uses
+`tools/research/forward_local_day.py`.
+
+- **Day boundaries.** A local day is local midnight to local midnight, converted to UTC with `zoneinfo` and the
+  market's IANA timezone (a test checks them against the market registry). So 2026-11-01 is a 25-hour day in the US
+  and Canada, and a spring change gives a 23-hour day. A fixed UTC offset is never used.
+- **Which windows count.** A day's Tmax uses only the 3-hour windows wholly inside that day. A window that crosses
+  local midnight is reported as an edge window (`edge_windows`, `edge_max_k`) and is never mixed into either day.
+- **Full coverage is rare.** The windows end on 3-hour UTC boundaries, so they line up with local midnight only
+  where midnight falls on 00/03/06/... UTC (Central standard time, Mountain daylight time). Elsewhere the late-night
+  hours at both ends of the day fall in edge windows, and `complete` (full-hour coverage) is false.
+  - Treat `tmax_k` as the inside maximum; the edge hours are about 23:00-02:00 local.
+  - Treat `edge_max_k > tmax_k` as a flag, not a value.
+  - `--params mx2t3,2t` adds hourly-resolution instants only at the 3-hour steps, so it does not close the edge.
+
 ## Point in time
 
 Every row carries its capture time.
