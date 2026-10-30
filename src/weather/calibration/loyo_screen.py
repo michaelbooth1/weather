@@ -25,6 +25,7 @@ Subcommands (heavy; run only through ``scripts\\ops\\workstation_heavy.ps1``):
     The screen: ``--column`` (parquet or jsonl keyed on market, date, hour) into ``--control-arm`` P3d_N_fix by
     ``--mechanism`` scale, on ``--records`` and ``--nbm-train-corpus`` for ``--hours``; optional ``--control-rows``;
     ``--rule`` gives the verdict. Writes ``<name>_loyo.json`` and ``<name>_loyo_rows.jsonl`` (never overwrites).
+    The receipt records the worktree's git HEAD and dirty flag; a dirty tree refuses unless ``--allow-dirty``.
 ``export-rq-gefs-column``
     The reproduction adapter: R-Q variant A's GEFS member-spread column ``u`` on the training frame's keys, written
     as a column file, so that ``run`` can reproduce R-Q gate 1 from a column alone.
@@ -67,6 +68,38 @@ class ScreenError(ValueError):
 
 def sha256_file(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def code_state(path=None):
+    """The git HEAD and dirty flag of the worktree holding ``path`` (default: this module).
+
+    Dirty means ``git status --porcelain`` lists anything, untracked files included. Outside a git worktree,
+    or when git fails, the head is None and the tree counts as dirty.
+    """
+    import subprocess
+
+    where = Path(path or __file__).resolve()
+    where = where if where.is_dir() else where.parent
+
+    def git(*args):
+        proc = subprocess.run(["git", "-C", str(where), *args], capture_output=True, text=True, timeout=60,
+                              check=False)
+        return proc.stdout.strip() if proc.returncode == 0 else None
+
+    head, root = git("rev-parse", "HEAD"), git("rev-parse", "--show-toplevel")
+    status = git("status", "--porcelain") if head else None
+    dirty = status is None or bool(status)
+    return {"git_head": head, "worktree": root, "dirty": dirty,
+            "dirty_paths": [] if not status else status.splitlines()[:50]}
+
+
+def require_clean(state, allow_dirty):
+    """Refuse a dirty or unknown tree unless ``allow_dirty``; returns the receipt record."""
+    if state["dirty"] and not allow_dirty:
+        detail = "no git HEAD" if state["git_head"] is None else f"{len(state['dirty_paths'])} changed path(s)"
+        raise ScreenError(f"refusing to run on a dirty tree ({detail} at {state['worktree']}); "
+                          "commit first or pass --allow-dirty")
+    return {**state, "allow_dirty": bool(allow_dirty)}
 
 
 # ----------------------------------------------------------------------------- the candidate column
@@ -233,8 +266,12 @@ RUNNERS = {("P3d_N_fix", "scale"): run_scale_p3d_n_fix}
 
 def screen(*, column, records_root, nbm_train_corpus, out_dir, name, rule, hours, control_arm="P3d_N_fix",
            mechanism="scale", value=None, control_rows=None, draws=DEFAULT_DRAWS, seed=DEFAULT_SEED,
-           markets=prm.R0_MARKETS):
-    """One screen: the rule is parsed first (a bad rule refuses before any data is read)."""
+           markets=prm.R0_MARKETS, allow_dirty=False):
+    """One screen: the rule is parsed first (a bad rule refuses before any data is read).
+
+    The receipt records the git HEAD and dirty flag of this module's worktree; a dirty tree refuses unless
+    ``allow_dirty``.
+    """
     import numpy as np
 
     parse_rule(rule)
@@ -244,6 +281,7 @@ def screen(*, column, records_root, nbm_train_corpus, out_dir, name, rule, hours
                           f"available {sorted(RUNNERS)}")
     if not re.fullmatch(r"[A-Za-z0-9_]+", name) or name == control_arm:
         raise ScreenError(f"candidate name {name!r} must be a word distinct from the control arm")
+    code = require_clean(code_state(), allow_dirty)
     out = prm.require_output_outside_repo(out_dir)
     names = (f"{name}_loyo.json", f"{name}_loyo_rows.jsonl")
     for n in names:
@@ -260,7 +298,7 @@ def screen(*, column, records_root, nbm_train_corpus, out_dir, name, rule, hours
               "dates": len({r["date"] for r in rows}), "coverage": coverage, "column": col_record,
               "controls": controls, "summary": summary, "per_hour_dR_brier":
                   {k.split("|")[0]: v["dR"] for k, v in summary.items() if k.endswith("|brier") and k[0] == "h"},
-              "verdict": verdict(summary, rule), "fit": fit,
+              "verdict": verdict(summary, rule), "fit": fit, "code": code,
               "inputs": {**inputs, "module_sha256": sha256_file(__file__),
                          "prm_module_sha256": sha256_file(prm.__file__),
                          "rung_module_sha256": sha256_file(_rung().__file__),
@@ -324,6 +362,8 @@ def build_parser():
     r.add_argument("--draws", type=int, default=DEFAULT_DRAWS)
     r.add_argument("--seed", type=int, default=DEFAULT_SEED)
     r.add_argument("--out", required=True)
+    r.add_argument("--allow-dirty", action="store_true",
+                   help="run on a worktree with uncommitted changes (recorded in the receipt)")
     e = sub.add_parser("export-rq-gefs-column", help="R-Q variant A's GEFS member-spread column")
     e.add_argument("--records", required=True)
     e.add_argument("--nbm-train-corpus", required=True)
@@ -339,7 +379,7 @@ def main(argv=None):
         result = screen(column=args.column, value=args.value, name=args.name, control_arm=args.control_arm,
                         mechanism=args.mechanism, records_root=args.records, nbm_train_corpus=args.nbm_train_corpus,
                         hours=args.hours, control_rows=args.control_rows, rule=args.rule, draws=args.draws,
-                        seed=args.seed, out_dir=args.out)
+                        seed=args.seed, out_dir=args.out, allow_dirty=args.allow_dirty)
         print(json.dumps({"verdict": result["verdict"]["line"], "controls": result["controls"],
                           "coverage": result["coverage"]}, indent=1))
         return 0  # a FAIL verdict is a result, not an error
