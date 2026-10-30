@@ -22,6 +22,7 @@ their worktrees by absolute path.
 | --- | --- | --- |
 | `l2_dst_fallback_probe.py` | e1926f39090b4489a9ca86d4de1be256399b201f5b254e7fd0af8f7fdf4dd4ac | day lengths; HRRR snapshots, window ends and dedupe keys; GEFS cutoffs and local-day node filter; `mg2_inputs.deadline`; ECMWF 3-h window counts per local day |
 | `l2_om_label_probe.py` | 297aa6baa94e0cf4fecc9c766493c0f801d0f99779b79ba9a720dc1be74b0fe8 | `weather.time.provider_hourly_local_times` against true instants for an 11-01 series fetched before and after 06:00Z; the legacy `replace(tzinfo=zone)` reading |
+| `l2_eccc_gem_probe.py` | 955048d53f9925c1d1814ace904ff37378042922c1ec350f238f1b17818691ce | ECCC GEM `forward_local_day` on Toronto: day bounds, 6 h `tmax` inside and crossing counts, local fields, `daily_max` coverage, hourly instants |
 
 ## Verdict per emitter and recorder
 
@@ -37,7 +38,7 @@ The audit asked three questions of each one:
 | GEFS recorder | `C:\wt\l13g` at `a31fef9ba` | **OK** |
 | HRRR recorder | `C:\wt\l13` at `e8bbe2031` | **OK** |
 | ECMWF ENS recorder | `claude/ecmwf-ens-recorder-20261030` at `b59dca2ee` | **Recorder OK; its design note's mapping claim is wrong** (next section) |
-| ECCC GEM recorder | `claude/eccc-gem-recorder-20261030` | **Not checked**: not pushed on 2026-10-30 |
+| ECCC GEM recorder | `claude/eccc-gem-recorder-20261030` at `ac447ebe0` | **OK** |
 
 Why each one is OK:
 
@@ -67,6 +68,22 @@ Why each one is OK:
 - **ECMWF ENS recorder**
   - It stores UTC run, step and valid rows only.
   - Its clock and its first-try and close timers are UTC.
+- **ECCC GEM recorder** (Toronto, `America/Toronto`; checked later on 2026-10-30, after lane L13 pushed it)
+  - Its `tools/research/forward_local_day.py` is the same git blob as at ENS `064d91cc3`
+    (b5568c3d4805f275bb8b95554afb946d588b89cf), so it applies the same containment rule.
+  - On 11-01 the local day is 04:00Z to 05:00Z next day, 25 h. The 6 h `tmax` windows end at 00, 06, 12 and
+    18Z, and they give 3 inside and 2 crossing on 10-31, 11-01 and 11-02.
+  - A crossing row gets `local_date` null and `straddles_local_midnight` true. Its local bounds carry both offsets,
+    for example 20:00-04:00 to 01:00-05:00.
+  - Hourly `t2m` instants give 25 distinct instants on 11-01. The repeated 01:00 hour is kept apart by its offset.
+  - Run, first-try, late and close timers are UTC (`run + first_try_h`, `LATE`, `CLOSE_AFTER`). It has a logon
+    trigger only.
+  - **Not DST, noted for consumers:**
+    - Under containment, one run's 6 h `tmax` covers only 18 of the day's 24 or 25 hours, so `daily_max`'s
+      `covered_hours == day_hours` test can never pass for `tmax`.
+    - `daily_max` sums `covered_hours` over every row it is given, so rows from several runs must be grouped by
+      run first.
+    - The ECCC branch carries no `tests/sources/test_forward_local_day.py`; the ENS branch does.
 
 ## ECMWF ENS: the 3-hour window mapping to the local day
 
