@@ -29,6 +29,9 @@ Subcommands (heavy; run only through ``scripts\\ops\\workstation_heavy.ps1``):
 ``mr-gate``
     The MR gate (``weather.calibration.mr_gate``, rule 37cb46be): does a ruled candidate predict the market's
     error (P0) and earn a walk-forward log-pool weight over placebo and floor-only (w)? Dev window only.
+``mr-sweep``
+    The MR P0 sweep (``weather.calibration.mr_sweep``, rule 85f8192c, ledger row 78): 17 capture-time replay
+    signals, paired P0 against the disagreement placebo, BH q = 0.10, the w gate for survivors. Dev window only.
 ``export-rq-gefs-column``
     The reproduction adapter: R-Q variant A's GEFS member-spread column ``u`` on the training frame's keys, written
     as a column file, so that ``run`` can reproduce R-Q gate 1 from a column alone.
@@ -379,6 +382,11 @@ def build_parser():
                    help="a ruled candidate and its pinned dev emit (default: every ruled candidate)")
     g.add_argument("--out", required=True)
     g.add_argument("--allow-dirty", action="store_true")
+    w = sub.add_parser("mr-sweep", help="MR P0 sweep (rule 85f8192c): 17 replay signals, BH q 0.10, dev window")
+    w.add_argument("--layout", required=True, help="dev scorecard layout (C:/swarm/v3layout)")
+    w.add_argument("--replay-root", required=True, help="captured replay inputs (replay-inputs-le0929)")
+    w.add_argument("--out", required=True)
+    w.add_argument("--allow-dirty", action="store_true")
     return parser
 
 
@@ -397,6 +405,14 @@ def main(argv=None):
 
         cands = dict(c.split("=", 1) for c in args.candidate) or None
         receipt = mr_gate.run(layout=args.layout, out_dir=args.out, candidates=cands, allow_dirty=args.allow_dirty)
+        print(json.dumps({"lines": receipt["lines"], "controls": {k: v["verdict"] for k, v in
+                                                                  receipt["controls"].items()}}, indent=1))
+        return 0
+    if args.command == "mr-sweep":
+        from weather.calibration import mr_sweep
+
+        receipt = mr_sweep.run(layout=args.layout, out_dir=args.out, replay_root=args.replay_root,
+                               allow_dirty=args.allow_dirty)
         print(json.dumps({"lines": receipt["lines"], "controls": {k: v["verdict"] for k, v in
                                                                   receipt["controls"].items()}}, indent=1))
         return 0
