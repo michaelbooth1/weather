@@ -90,6 +90,12 @@ Window count per local day:
 Before any daily value is derived, the derivation must fix one zone-aware rule (`ZoneInfo`, not a fixed offset) and
 must not assume eight windows. Lane L13 owns that branch.
 
+**Adopted rule: containment**, set by lane L13 at `064d91cc3` on `claude/ecmwf-ens-recorder-20261030`; neither
+end-in-day nor overlap above is the rule. A window (valid − 3 h, valid] counts only if it lies wholly inside the
+`ZoneInfo` local day, and a window that crosses a day boundary is flagged as an edge. On 11-01 that gives Chicago and
+Denver 8 inside and 1 crossing, and New York, Toronto and Los Angeles 7 inside and 2 crossing. This audit's probe
+gets the same inside counts for its four US zones; Toronto shares New York's offsets.
+
 ## §10w: Open-Meteo fixed-offset labels after 2026-11-01
 
 - **Live serving does not bite.**
