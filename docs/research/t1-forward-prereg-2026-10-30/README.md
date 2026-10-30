@@ -1,7 +1,7 @@
 # T+1 forward test: day-ahead NBM NBP, ECMWF ENS and their blend vs the T+1 market (lane L3)
 
 **Status: DRAFT — not frozen; freezes only on the owner's Q1/Q2 answers.** It also needs the freeze preconditions in
-section 8. Drafted 2026-10-30. This is a dated research draft, not canonical guidance. No ledger row and no rule sha
+section 8. Drafted 2026-10-30; revised the same day on master's ruling (comparator, accrual, no interim reads, P1). This is a dated research draft, not canonical guidance. No ledger row and no rule sha
 exist yet. The freeze commit pins this file's sha256 in a new ledger row, and any later change is a new file and a new
 sha.
 
@@ -65,21 +65,23 @@ An arm value is **covered** at a snapshot only if its source product passes the 
 Every arm is floored at `market_blend.EPS` and renormalised before the pool. Nothing is tuned after this file's sha is
 pinned.
 
-## 4. Comparator m (the T+1 market)
+## 4. Comparator m (the T+1 market; master ruling 2026-10-30)
 
-- **Gamma YES where captured.** No capture of Gamma "Yes" prices at T+1 exists today: the snapshot loop records same-day
-  events only (S1 report). So **the book rule is the primary comparator**, unless a Gamma T+1 capture is in place
-  before freeze. If one is, the freeze row names it.
-- **Book rule:**
-  - m_b is the YES mid of band b's horizon-1 CLOB book at the capture minute, with both sides present and spread
-    ≤ 0.10.
-  - If that is not available, use the latest valid mid within the previous 10 minutes. Otherwise the band is missing.
-  - **The full ladder is required:** a snapshot with any missing band is uncovered.
+- **Primary: Gamma Yes.** m_b is band b's Gamma `outcomePrices` entry labelled "Yes". This is the same price
+  definition as the T+0 layout's `p_market_yes`. It comes from the WS T+1 price recorder (section 5) at the snapshot's
+  top-of-hour cycle.
+  - **The full ladder is required:** a snapshot with any band missing or non-finite is uncovered.
   - A snapshot is also uncovered if Σ_b m_b lies outside [0.90, 1.10].
+  - A cycle row counts only if its receipt time is within 10 minutes after the top of the hour. That receipt time is
+    the snapshot's capture time for the receipt rule.
   - The CLOB `last_trade_price` is never used.
-- **The 88a recorder does not satisfy the full-ladder rule.** Its universe is the top ten conditions per city, with at
-  least three per horizon (`maker_evidence_public.select_universe`). That is about 3–4 bands per T+1 snapshot in the
-  cf tape. See precondition P1.
+- **Secondary check (reported, never a verdict):** the CLOB book YES mid, (best bid + best ask)/2, recorded in the same
+  cycle. It is used only where both sides are present and the spread is ≤ 0.10. The report shows Σ mid and
+  |Gamma − mid| per snapshot, plus the Gate 1 and Gate 2 statistics recomputed on the mid where the full ladder of
+  mids exists.
+- **Why not the book loop or 88a (master checked the host):** `WeatherClobBookLoopSupervisor` runs with
+  `date_selection = market_local_date`, so it captures T+0 books only. 88a records the top-ten partial universe
+  (`maker_evidence_public.select_universe`). No full horizon-1 ladder was captured anywhere before this recorder.
 
 ## 5. Emitter and receipt rule (daily, outcome-blind)
 
@@ -105,6 +107,10 @@ pinned.
     - Publication time: the message `Last-Modified` on `points.jsonl`.
     - Fetch time: our fetch time.
     - Runs are used only once their manifest is closed.
+  - **WS T+1 price recorder** (comparator only; joined at the look and never read by the emitter):
+    `C:\t\t1_prices\forward`, recorder `tools/research/t1_price_forward_recorder.py`. Each row carries its receipt
+    time, event and condition ids, and the cycle's full-ladder sum check. Cycle manifests are marked complete or
+    incomplete.
   - **ECCC GEM** (`C:\t\eccc_gem\forward`) and **GEFS** (`C:\t\gefs_cycles\forward`): context only. They are recorded
     in the emit for description and are never an arm, a gate input or a tiebreak.
 
@@ -186,31 +192,34 @@ with `mr_gate.gate_candidate` and `market_blend.pool()`.
   - A stop is final for that arm.
   - No interim look can PASS, change N, change the estimand or refit.
   - Each look's ledger row comes before its read.
-  - Under the single-look default (Q1(b)), the stops are applied at the one look to the date-ordered path, and a path
-    that would have stopped is recorded FUTILE or HARM.
+  - **There are no interim reads** (master ruling 2026-10-30). The stops are applied at the single look, along the
+    date-ordered path of scored dates. An arm whose path would have stopped at a look is recorded FUTILE (or HARM at
+    look 7). Its later dates are not used for that arm.
 - The final interval is the date-clustered one, with a block-3 interval reported alongside. If they disagree, the more
   conservative verdict applies.
 
 ## 8. Dates, look and freeze preconditions
 
-- **Accrual starts at freeze.** The first target date is the first T whose whole capture day D starts after the freeze
-  commit.
+- **Accrual depends on the owner's Q2.** In both branches the first target date for an arm is the first T on or after
+  its accrual start whose whole capture day D starts after the freeze commit.
+  - **Q2 = yes** (a T+1-only exemption from MG-1's reservation): all three arms accrue from freeze.
+  - **Q2 = no:** A2 accrues from freeze. A1 and A3 accrue from target date 2026-11-29, or from the day after MG-1's
+    recorded last date if that has moved later by then. A1 and A3 then reach their 52 countable dates later than A2.
+    The look waits for all three arms, or the freeze row states a per-arm look date under the one-date rule.
 - **Look:** a single look, strictly after B's 12-13 look and under the one-date rule (no other forward look on the same
   date). The freeze row fixes the date. If fewer than 52 countable dates have accrued by then, the look waits.
-- **Q1 (OWNER): the 88a read scope at look time.** The comparator is the capture-time T+1 market after 09-29, which the
-  embargo closes. The owner rules:
-  - which 88a (or other book store) horizon-1 rows may be read: stores, date range, events and fields;
-  - whether interim futility reads are opened (a), or the stops are applied only at the single look (b, the default);
-  - that labels travel at the same look.
+- **Q1 (OWNER): the read scope at look time.** The comparator is the capture-time T+1 market after 09-29, which the
+  embargo closes. The owner rules which rows of the WS T+1 price recorder may be read at the look (date range, events
+  and fields: Gamma Yes plus the book mid check), and that labels travel at the same look. If 88a rows are wanted as a
+  further cross-check, they need their own named scope in the same answer. Interim futility reads are **not** opened
+  (master ruling); see section 7.
 - **Q2 (OWNER): the reserved window.** A1 and A3 read NBM station guidance into band probabilities, which makes them
-  NBM-guidance-to-band candidates. Those are held out on MG-1's reserved dates (through 11-28, provisional, may move
-  later). The owner either:
-  - (a) grants a T+1-only exemption, as was done for MG-2 and MG-3; or
-  - (b) starts A1 and A3 accrual at the first date after MG-1's recorded last date.
-
-  A2 accrues from freeze in either case.
-- **P1 (master confirms before freeze):** the host's CLOB book loop records and keeps horizon-1 YES books for **every
-  band** of each in-scope T+1 event, minute-stamped, for the whole accrual. The 88a top-ten universe does not meet this.
+  NBM-guidance-to-band candidates. Those are held out on MG-1's reserved dates (through 11-28, provisional, and the end
+  may only move later). The owner answers yes, granting a T+1-only exemption as was done for MG-2 and MG-3, or no.
+  The accrual bullet above gives both branches.
+- **P1:** 3 consecutive days of closed cycle manifests from the WS T+1 price recorder (`C:\t\t1_prices\forward`). It
+  must be registered by the coordinator on the owner's yes. A day is counted only if every top-of-hour cycle is marked
+  complete for at least 8 in-scope markets.
 - **P2:** the NBM text recorder and the ENS recorder have both been running with closed cycle or run manifests for at
   least 3 consecutive days. ENS was started 2026-10-30 18:34Z and had fetched no run when this draft was written.
 - **P3:** the emitter is built and tested on recorder data only, and its sha is pinned.
