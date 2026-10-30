@@ -100,17 +100,20 @@ OPEN_METEO_GLOBAL_MODEL_MEMBERS = (
     "ncep_aigfs025",
     "gfs_graphcast025",
 )
-# Members stay keyed by their logical name in the captured payload so feature
-# aliases and stored schemas do not move. Open-Meteo renamed the AIFS id (the
-# old id now returns an all-null column, not an HTTP error) and stopped serving
-# GraphCast, so the request uses the provider id below and omits retired ones;
-# a retired member is captured as null with its status recorded.
-OPEN_METEO_GLOBAL_MODEL_REQUEST_IDS = {
-    "ecmwf_ifs025": "ecmwf_ifs025",
-    "ecmwf_aifs025": "ecmwf_aifs025_single",
-    "ncep_aigfs025": "ncep_aigfs025",
-}
+# Open-Meteo stopped serving these ids: the response carries an all-null column
+# (no HTTP error). They are no longer requested; the parser still reads the
+# column when a response has one, so served output from any captured response
+# is unchanged and the member is still captured (as null) under its own key.
 OPEN_METEO_GLOBAL_MODEL_RETIRED = ("gfs_graphcast025",)
+# Requested and recorded under the separate payload key ``capture_only_models``
+# only. They never enter day_model_highs, day_max_native, rows or any served
+# feature; ecmwf_aifs025_single is the provider's current AIFS id (the served
+# ecmwf_aifs025 key keeps reading the old id). Serving it is a separate lever.
+OPEN_METEO_GLOBAL_MODEL_CAPTURE_ONLY = ("ecmwf_aifs025_single",)
+OPEN_METEO_GLOBAL_MODEL_REQUEST_IDS = tuple(
+    model for model in OPEN_METEO_GLOBAL_MODEL_MEMBERS
+    if model not in OPEN_METEO_GLOBAL_MODEL_RETIRED
+) + OPEN_METEO_GLOBAL_MODEL_CAPTURE_ONLY
 OPEN_METEO_RATE_LIMIT_COOLDOWN_SECONDS = 60
 SOURCE_FAMILY_COOLDOWN_PATH_ENV = "WEATHER_SOURCE_FAMILY_COOLDOWN_PATH"
 NBM_NATIONAL_TEXT_FANOUT = MarketInvariantFetchFanout(max_entries=2)
@@ -156,6 +159,7 @@ SOURCE_PAYLOAD_CONTRACTS = {
         "open-meteo-air-quality-payload-v1",
     ),
     "open_meteo_global_models": (
+        # v2: payload schema gained capture_only_models and retired_model_members.
         "open-meteo-global-models-parser-v2",
         "open-meteo-global-models-payload-v1",
     ),
@@ -1861,16 +1865,14 @@ class SourceFetchMixin:
             "temperature_unit": self.spec.om_temperature_unit,
             "timezone": self.spec.timezone,
             "forecast_days": 2,
-            "models": ",".join(
-                OPEN_METEO_GLOBAL_MODEL_REQUEST_IDS[model]
-                for model in OPEN_METEO_GLOBAL_MODEL_MEMBERS
-                if model in OPEN_METEO_GLOBAL_MODEL_REQUEST_IDS
-            ),
+            "models": ",".join(OPEN_METEO_GLOBAL_MODEL_REQUEST_IDS),
         })
         hourly = payload.get("hourly", {}) or {}
         rows = []
         day_rows = []
         model_day_temps = {model: [] for model in OPEN_METEO_GLOBAL_MODEL_MEMBERS}
+        capture_only_day_temps = {model: [] for model in OPEN_METEO_GLOBAL_MODEL_CAPTURE_ONLY}
+        capture_only_day_rows = []
         now = datetime.now(self.spec.tz)
         # Aware market-local valid times: Open-Meteo labels carry one fixed
         # response offset, so they are read as UTC instants (DST-safe).
@@ -1885,15 +1887,19 @@ class SourceFetchMixin:
             model_payloads = {}
             model_temps = []
             for model in OPEN_METEO_GLOBAL_MODEL_MEMBERS:
-                request_id = OPEN_METEO_GLOBAL_MODEL_REQUEST_IDS.get(model)
-                value = None if request_id is None else self.to_number(
-                    self.array_get(hourly, f"temperature_2m_{request_id}", index)
-                )
+                value = self.to_number(self.array_get(hourly, f"temperature_2m_{model}", index))
                 values = {"temp_native": value, "temp_c": value}
                 if value is not None:
                     model_temps.append(value)
                     model_day_temps[model].append(value)
                 model_payloads[model] = values
+            capture_only_row = {"valid_time": dt.isoformat()}
+            for model in OPEN_METEO_GLOBAL_MODEL_CAPTURE_ONLY:
+                value = self.to_number(self.array_get(hourly, f"temperature_2m_{model}", index))
+                capture_only_row[model] = value
+                if value is not None:
+                    capture_only_day_temps[model].append(value)
+            capture_only_day_rows.append(capture_only_row)
             row = {
                 "time": dt.strftime("%H:%M"),
                 "valid_time": dt.isoformat(),
@@ -1922,8 +1928,16 @@ class SourceFetchMixin:
             "row_count": len(day_rows),
             "payload_hash": self.payload_hash(payload),
             "model_members": list(OPEN_METEO_GLOBAL_MODEL_MEMBERS),
-            "model_request_ids": dict(OPEN_METEO_GLOBAL_MODEL_REQUEST_IDS),
             "retired_model_members": list(OPEN_METEO_GLOBAL_MODEL_RETIRED),
+            "capture_only_models": {
+                "status": "capture_only_not_served",
+                "members": list(OPEN_METEO_GLOBAL_MODEL_CAPTURE_ONLY),
+                "day_model_highs": {
+                    model: max(values) if values else None
+                    for model, values in capture_only_day_temps.items()
+                },
+                "day_rows": capture_only_day_rows,
+            },
             "model_run_age_hours": None,
             "model_run_age_status": "not_exposed_by_open_meteo_forecast",
             "run_to_run_high_change": None,
