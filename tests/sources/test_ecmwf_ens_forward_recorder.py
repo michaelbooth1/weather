@@ -3,7 +3,9 @@
 Offline. A reference CCSDS/AEC encoder (written here from CCSDS 121.0-B: unit-delay preprocessor, zero-block runs
 including the remainder-of-segment code, second extension, split-sample and uncompressed options) round-trips
 through the recorder's decoder, full and partial. Synthetic GRIB2 messages (grid 3.0, product 4.11 / 4.1, data 5.42)
-are served by a clock-driven fake ``data.ecmwf.int``. Guards: pinned stations against the market registry, fail-closed
+are served by a clock-driven fake ``data.ecmwf.int``.
+
+Guards: pinned stations against the market registry, fail-closed
 templates and stream length, the point-in-time receipt (run, Last-Modified, our fetch time, sha256), 404 before
 publication is not a failure, slots close as missing, per-run manifests pin index and points, restarts are
 idempotent, forward runs only, no GRIB on disk, STOP and pause.

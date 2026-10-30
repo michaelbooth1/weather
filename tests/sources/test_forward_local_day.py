@@ -1,4 +1,7 @@
-"""Lane L13 forward recorders: timezone-aware local-day bucketing across the 2026-11-01 DST change."""
+"""Lane L13 forward recorders: timezone-aware local-day bucketing across the 2026-11-01 DST change.
+
+Guards: L13 forward-recorder local settlement day (ZoneInfo bounds, window containment rule, 25-hour 11-01).
+"""
 from __future__ import annotations
 
 import datetime as dt
