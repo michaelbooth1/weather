@@ -186,10 +186,13 @@ def test_extract_features_reads_only_layout_snapshots(tmp_path):
     other = tmp_path / "snapshots" / "highest-temperature-in-toronto-on-august-20-2026"
     other.mkdir()
     (folder / "replay_inputs.jsonl").write_text(
-        "".join(json.dumps(_record(s)) + "\n" for s in ("a", "b", "zz")), encoding="utf-8")
+        "".join(json.dumps(_record(s)) + "\n" for s in ("a", "b", "zz")) + json.dumps(_record("b"))[:200] + "\n",
+        encoding="utf-8")
     (other / "replay_inputs.jsonl").write_text(json.dumps(_record("a")) + "\n", encoding="utf-8")
-    feats, n = sw.extract_features(tmp_path, {"nyc|a", "nyc|b"})
-    assert n == 2 and sorted(feats.row_key) == ["nyc|a", "nyc|b"]
+    feats, n, bad = sw.extract_features(tmp_path, {"nyc|a", "nyc|b"})
+    assert n == 2 and sorted(feats.row_key) == ["nyc|a", "nyc|b"]  # the truncated duplicate of b is skipped
+    assert len(bad) == 1 and bad[0]["line"] == 4 and bad[0]["snapshot_ids"] == ["b"]
+    assert feats.set_index("row_key").loc["nyc|b", "mm_gfs_seamless"] == 70.0
     with pytest.raises(sw.SweepError):
         sw.extract_features(tmp_path, {"nyc|q"})
 
@@ -264,7 +267,7 @@ def test_run_end_to_end_on_a_synthetic_table(tmp_path, monkeypatch):
     monkeypatch.setattr(sw.ls, "code_state", lambda *a: clean)
     monkeypatch.setattr(sw.mg, "build_tables", lambda layout: (lay, [], dates[:7], dates[7:], fit_t, score_t))
     monkeypatch.setattr(sw.mg, "market_controls", lambda f, s: {"served": {"verdict": "PASS"}})
-    monkeypatch.setattr(sw, "extract_features", lambda root, keys: (pd.DataFrame({"row_key": sorted(keys)}), 7))
+    monkeypatch.setattr(sw, "extract_features", lambda root, keys: (pd.DataFrame({"row_key": sorted(keys)}), 7, []))
     values = {c[0]: np.where(fit_t.local_hour < 1, fit_t.x_null, np.nan) for c in sw.CANDIDATES}
     values["OM-GFS"] = fit_t.x_info
     values["OM-NAM"] = fit_t.x_null

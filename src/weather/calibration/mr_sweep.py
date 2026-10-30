@@ -135,9 +135,11 @@ def record_features(rec):
 
 
 def extract_features(replay_root, row_keys):
-    """Stream every replay record of the layout's snapshots (read only); returns one row per row_key."""
+    """Stream every replay record of the layout's snapshots (read only); returns (one row per row_key, records
+    read, malformed lines). A line that does not parse (a truncated write) carries no capture-time value: it is
+    skipped and listed, so its snapshot is uncovered unless another complete record has it."""
     root = Path(replay_root) / "snapshots"
-    keys, rows, seen = set(row_keys), [], 0
+    keys, rows, seen, malformed = set(row_keys), [], 0, []
     markets = {k.split("|", 1)[0] for k in keys}
     for folder in sorted(root.iterdir()):
         hit = SLUG.match(folder.name)
@@ -146,10 +148,15 @@ def extract_features(replay_root, row_keys):
             continue
         market = hit["market"]
         with f.open(encoding="utf-8") as fh:
-            for line in fh:
+            for lineno, line in enumerate(fh, 1):
                 if not any(f"{market}|{sid}" in keys for sid in SNAP_ID.findall(line)):
                     continue
-                rec = json.loads(line)
+                try:
+                    rec = json.loads(line)
+                except json.JSONDecodeError as exc:
+                    malformed.append({"file": folder.name, "line": lineno, "chars": len(line), "error": str(exc)[:120],
+                                      "snapshot_ids": SNAP_ID.findall(line)[:3]})
+                    continue
                 rk = f"{market}|{rec.get('snapshot_id')}"
                 if rk not in keys:
                     continue
@@ -159,7 +166,7 @@ def extract_features(replay_root, row_keys):
     frame = pd.DataFrame(rows)
     if frame.empty:
         raise SweepError(f"no replay record matched the layout under {root}")
-    return frame.drop_duplicates("row_key", keep="last").reset_index(drop=True), seen
+    return frame.drop_duplicates("row_key", keep="last").reset_index(drop=True), seen, malformed
 
 
 def _utc(series):
@@ -421,7 +428,7 @@ def run(*, layout, out_dir, replay_root=DEFAULT_REPLAY, allow_dirty=False):
         raise SweepError("the sweep population is the US markets; toronto is not in the rule")
     controls = mg.market_controls(fit_t, score_t)
 
-    feats, n_records = extract_features(replay_root, set(fit_t.snaps.row_key))
+    feats, n_records, malformed = extract_features(replay_root, set(fit_t.snaps.row_key))
     out.mkdir(parents=True, exist_ok=True)
     feats.to_parquet(out / "features.parquet", index=False)
     values = candidate_values(fit_t.snaps, feats)
@@ -468,7 +475,7 @@ def run(*, layout, out_dir, replay_root=DEFAULT_REPLAY, allow_dirty=False):
                "scorecard_code_sha256": sc.code_sha256(), "layout_manifest_sha256": lay.manifest_sha256,
                "replay_sha256sums_sha256": ls.sha256_file(sums_path),
                "features_parquet_sha256": ls.sha256_file(out / "features.parquet"),
-               "replay_records_read": n_records,
+               "replay_records_read": n_records, "replay_malformed_lines": malformed,
                "population": {"burn_in_dates": burn, "scored_first": scored[0], "scored_last": scored[-1],
                               "n_scored_dates": len(scored), "n_market_days": len(score_t.keys),
                               "markets": sorted(set(score_t.markets))},
