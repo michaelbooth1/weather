@@ -338,6 +338,18 @@ prior attempt only when that record exists and its hash matches. The record's
 `verified_reclaimed_bytes` is for reconciliation and is never added to a
 nightly total; its files are already compressed and can never be selected again.
 
+**A child that refused before writing anything** leaves an attempt holding only
+`wrapper-result.json`. This happened on 2026-10-30, when the 06:50 run met an
+expired policy: the wrapper had already created the attempt, and the child
+refused at policy validation, before any selection or journal. Unlike a runner
+refusal, this does create a `nightly-*` directory, and it blocks later nights
+like any failed attempt. The tool resolves exactly that shape and nothing wider:
+- the directory has no other entry and no batch;
+- the wrapper binds no child result.
+
+It records `files_verified: 0` and `child_result_sha256: null`. Renew the
+policy before `expires_at_utc` so the scheduled run never meets an expired one.
+
 An attempt with a started but unfinished file (a before-journal without its
 after-journal) is refused and stays blocking until that file is verified. Such
 a file can only be the last started file of the attempt's last batch. Verify it
