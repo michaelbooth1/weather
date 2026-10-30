@@ -1,6 +1,6 @@
 """Lane L13: forward GEFS 06Z member recorder (tools/research/gefs_forward_recorder.py) for the L6_G forward test.
 
-Guards the point-in-time rule of R-O (rule_rn.md L36-38): G at (market, D, h) uses only messages whose S3
+Guards: the point-in-time rule of R-O (rule_rn.md L36-38): G at (market, D, h) uses only messages whose S3
 LastModified (max of .grib2 and .idx) is at or before h:00 local, so a cycle published after h:00 is excluded, and
 a late member drops out. It also guards: the dev corpus station geometry is pinned, forward dates only (no backfill
 before 2026-10-28), the archive path refuses dates after 2026-09-29, each row carries the availability receipt
