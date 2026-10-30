@@ -39,7 +39,7 @@ P0_DRAWS = 2000
 P0_SEED = 20261024
 W_MIN = 0.05
 TRAINED_THROUGH = "2025-12-31"
-BLOCKS = {"07-12": (7, 12), "13-16": (13, 16)}
+BLOCKS = {"07-12": (7, 12), "13-16": (13, 16), "00-23": (0, 23)}  # 00-23: the MR sweep w gate (rule 85f8192c)
 # Rows 75 and 76: the frozen P3d_H dev emits (ledger row 38 reproduced them byte-identically from the states).
 CANDIDATES = {
     "R-R": {"block": "07-12", "ledger_row": 75, "state_sha256_prefix": "e9276477",
@@ -135,8 +135,10 @@ def verdict_line(name, p0, p0_ok, wbar, checks, blend_row, d_placebo, d_floor):
 
 # ----------------------------------------------------------------------------- one candidate
 
-def gate_candidate(name, block, fit_t, score_t, p_fit, cov_fit):
-    """P0 and the w gate for one candidate vector on the fit table (burn-in + scored) and score table."""
+def gate_candidate(name, block, fit_t, score_t, p_fit, cov_fit, p_placebo_fit=None):
+    """P0 and the w gate for one candidate vector on the fit table (burn-in + scored) and score table.
+
+    ``p_placebo_fit`` replaces the c-deranged placebo (the MR sweep passes the disagreement placebo c_pl,0)."""
     from weather.calibration import market_blend as mb
 
     lo, hi = BLOCKS[block]
@@ -148,7 +150,10 @@ def gate_candidate(name, block, fit_t, score_t, p_fit, cov_fit):
         raise GateError(f"{name}: no covered snapshot in block {block}")
     p_score = mb.restrict(fit_t, score_t, p_fit)
     pm = score_t.p_market
-    p_pl_fit, pl_meta = mb.placebo_vector(fit_t, p_fit)
+    if p_placebo_fit is None:
+        p_pl_fit, pl_meta = mb.placebo_vector(fit_t, p_fit)
+    else:
+        p_pl_fit, pl_meta = np.asarray(p_placebo_fit, float), {"supplied": True}
     p_pl = mb.restrict(fit_t, score_t, p_pl_fit)
 
     band = score_mask[score_t.band_snap]
@@ -189,7 +194,15 @@ def gate_candidate(name, block, fit_t, score_t, p_fit, cov_fit):
         if hm.any():
             per_hour[f"h{h:02d}"] = {"blend": mb.stats(score_t, bb, score_t.log_score(blend), mb_b, mb_l, hm, True),
                                      "blend_minus_floor_only": paired_diff(score_t, bb, bf, hm)}
+    per_date = {}
+    for key, diff in (("blend_minus_floor_only", bb - bf), ("blend_minus_placebo", bb - bp)):
+        idx, vals = score_t.cells(diff, score_mask)
+        for i, v in zip(idx, vals):
+            per_date.setdefault(score_t.keys[i][0], {}).setdefault(key, []).append(float(v))
+    per_date = {d: {k: {"cell_mean": float(np.mean(v)), "n_cells": len(v)} for k, v in x.items()}
+                for d, x in sorted(per_date.items())}
     return {"gate": GATE, "candidate": name, "block": block, "verdict": "PASS" if ok else "KILL", "line": line,
+            "per_date": per_date,
             "p0": {"statistic": "pearson rho(c - m, y - m)", "candidate": p0, "placebo": p0_pl, "pass": p0_ok},
             "w": {"summary": w_sum, "w_by_date": w_by_date, "n_fit_cells": n_fit, "checks": checks,
                   "pass": all(checks.values()), "placebo_summary": w_pl_sum, "placebo_w_by_date": w_pl,
@@ -201,6 +214,46 @@ def gate_candidate(name, block, fit_t, score_t, p_fit, cov_fit):
             "coverage": {"block_snapshots": int(mb.hour_mask(score_t, lo, hi).sum()),
                          "covered_block_snapshots": int(score_mask.sum()),
                          "covered_share": float(score_mask.sum() / max(1, mb.hour_mask(score_t, lo, hi).sum()))}}
+
+
+# ----------------------------------------------------------------------------- tables and the parent controls
+
+def build_tables(layout):
+    """The dev scorecard layout, default folds, burn-in + scored fit table and scored table (as market_blend)."""
+    from weather.calibration import market_blend as mb
+    from weather.reporting.scorecards import dev_scorecard as sc
+    from weather.reporting.scorecards import dev_scorecard_data as data
+    from weather.reporting.scorecards import loss_atlas as la
+
+    la.screen_input_path(layout, "layout")
+    start, end = data.check_range(*mb.RANGE)
+    lay = data.load_layout(layout, data.DEV_FIRST, end)
+    folds = data.make_folds(lay.dates, start, end, 7, 1, 7)
+    scored = sorted(d for f in folds if f.scored for d in f.dates)
+    burn = [d for d in sorted({str(x) for x in lay.snaps.date.astype(str)}) if d <= mb.BURN_IN[1]]
+    if not burn or burn[-1] >= scored[0] or scored[-1] > ls.LAST_ALLOWED.isoformat():
+        raise GateError("burn-in must precede the scored dates, and nothing may be scored after 2026-09-29")
+    return lay, folds, burn, scored, sc.Table(lay, burn + scored), sc.Table(lay, scored)
+
+
+def market_controls(fit_t, score_t):
+    """Served R, MG-1 07-12 excess and the w = 0 identity on MG-1; refuses (ControlFailed) on any miss."""
+    from weather.calibration import gap_to_market_atlas as gta
+    from weather.calibration import market_blend as mb
+    from weather.reporting.scorecards import loss_atlas as la
+
+    controls = {"served": la.positive_control(score_t)}
+    w0712 = mb.hour_mask(score_t, 7, 12)
+    p_mg1_fit, _, _ = gta.vector_and_coverage(fit_t, la.mg1_frame(fit_t))
+    p_mg1 = mb.restrict(fit_t, score_t, p_mg1_fit)
+    excess = float(score_t.cells(score_t.brier(p_mg1) - score_t.brier(score_t.p_market), w0712)[1].mean())
+    controls["mg1"] = {"excess_over_market_07_12": excess, "expected": mb.MG1_EXCESS_0712,
+                       "verdict": "PASS" if round(excess, 4) == mb.MG1_EXCESS_0712 else "FAIL"}
+    controls["w0_identity_mg1"] = mb.w0_identity(score_t, p_mg1)
+    failed = [k for k, v in controls.items() if v["verdict"] != "PASS"]
+    if failed:
+        raise mb.ControlFailed(f"refused: controls failed {failed}")
+    return controls
 
 
 # ----------------------------------------------------------------------------- the run
@@ -219,8 +272,6 @@ def run(*, layout, out_dir, candidates=None, allow_dirty=False):
     from weather.calibration import gap_to_market_atlas as gta
     from weather.calibration import market_blend as mb
     from weather.reporting.scorecards import dev_scorecard as sc
-    from weather.reporting.scorecards import dev_scorecard_data as data
-    from weather.reporting.scorecards import loss_atlas as la
 
     candidates = dict(candidates or {n: s["default_path"] for n, s in CANDIDATES.items()})
     unknown = sorted(set(candidates) - set(CANDIDATES))
@@ -231,28 +282,8 @@ def run(*, layout, out_dir, candidates=None, allow_dirty=False):
         raise GateError(f"refusing to overwrite {out / 'mr_gate.json'}")
     shas = {n: _check_candidate_file(n, p) for n, p in candidates.items()}
 
-    la.screen_input_path(layout, "layout")
-    start, end = data.check_range(*mb.RANGE)
-    lay = data.load_layout(layout, data.DEV_FIRST, end)
-    folds = data.make_folds(lay.dates, start, end, 7, 1, 7)
-    scored = sorted(d for f in folds if f.scored for d in f.dates)
-    burn = [d for d in sorted({str(x) for x in lay.snaps.date.astype(str)}) if d <= mb.BURN_IN[1]]
-    if not burn or burn[-1] >= scored[0] or scored[-1] > ls.LAST_ALLOWED.isoformat():
-        raise GateError("burn-in must precede the scored dates, and nothing may be scored after 2026-09-29")
-    fit_t = sc.Table(lay, burn + scored)
-    score_t = sc.Table(lay, scored)
-
-    controls = {"served": la.positive_control(score_t)}
-    w0712 = mb.hour_mask(score_t, 7, 12)
-    p_mg1_fit, _, _ = gta.vector_and_coverage(fit_t, la.mg1_frame(fit_t))
-    p_mg1 = mb.restrict(fit_t, score_t, p_mg1_fit)
-    excess = float(score_t.cells(score_t.brier(p_mg1) - score_t.brier(score_t.p_market), w0712)[1].mean())
-    controls["mg1"] = {"excess_over_market_07_12": excess, "expected": mb.MG1_EXCESS_0712,
-                       "verdict": "PASS" if round(excess, 4) == mb.MG1_EXCESS_0712 else "FAIL"}
-    controls["w0_identity_mg1"] = mb.w0_identity(score_t, p_mg1)
-    failed = [k for k, v in controls.items() if v["verdict"] != "PASS"]
-    if failed:
-        raise mb.ControlFailed(f"refused: controls failed {failed}")
+    lay, folds, burn, scored, fit_t, score_t = build_tables(layout)
+    controls = market_controls(fit_t, score_t)
 
     loaded, results = {}, {}
     for name, path in candidates.items():
