@@ -42,7 +42,13 @@ register's row 28 and lead L8 say "never measured". This is a new horizon, not a
   it is used at a new horizon.
 - **NBM debias and extra daily-max NWP:** these are exhausted at T+0. A1 is neither a debias nor a T+0 lever. It is the
   raw percentile distribution at T+1, where no T+0 result applies.
-- If master rules that these families are exhausted at T+1 as well, this test is withdrawn before freeze.
+- **Master ruling 2026-10-30 (Q-a): NOT exhausted. A1 and A2 stay, labelled SCREEN.**
+  - X5 and the T+0 kills closed spread as a width or scale modulator on our own T+0 model, where same-day
+    observations dominate.
+  - A1 and A2 are zero-parameter full pmfs. They are scored against a different market, at a horizon with no
+    observations (register row 28). The new mechanism is the horizon.
+- **If T+1 shows nothing** (no arm passes P0), X5's reopen line ("ENS spread as spread information") also closes for
+  T+1. The result's register row says so.
 
 **S1, outcome-free (done, 2026-10-30).** No receipt-dated day-ahead history exists, so there is no LOYO and no dev
 stage.
@@ -71,8 +77,8 @@ information about T's high that the T+1 market price does not?
 - **Date rows:** one row per target date T. Each cell weighs equally within its date, and each date weighs equally.
 - **Countable date:** at least 8 markets each have at least 12 hours covered by all three arms and the comparator.
   Nothing is imputed.
-- **Labels:** the label ruling in force at the look (master 10-25: the venue rule, with WU as fallback). Labels are read
-  only at the look.
+- **Labels:** venue-rule labels from 10-23 (METAR, with WU as fallback; master 10-25). KDEN is out with Denver. Labels
+  arrive by one host label transfer at the look (section 8) and are never read before it.
 
 ## 3. Arms (fixed; no fitting)
 
@@ -233,8 +239,11 @@ with `mr_gate.gate_candidate` and `market_blend.pool()`.
   - Primary: HRRR R-K σ_d = 0.085.
   - Also reported: R-R 0.069 and L6_G 0.032.
 - **Effect (rule 6):** no dev effect exists, so "half the dev effect" cannot be formed. The declared screening effect
-  is δ_s = 0.030 dR. This is about half of the T+0 morning gap's guidance read (exhaustion register row 13: −0.012 to
-  −0.015 Brier on a market Brier of about 0.2–0.25). The owner may state another δ before freeze.
+  is δ_s = 0.030 dR (master ruling 2026-10-30, Q-c: it stands under §5, and no owner restatement is needed). This is about half of the T+0 morning gap's guidance read (exhaustion register row 13: −0.012 to
+  −0.015 Brier on a market Brier of about 0.2–0.25).
+  - δ_s is never shrunk.
+  - If any freeze check moves the power below 0.5, the lane STOPS and tells the coordinator. Such checks include a
+    measured σ or VIF, or a coverage change in the countable-date rule.
 - **N, from these numbers (rule 6: no screen below power 0.5, at least 20 dates before any PASS).**
   - Power at δ_s is Φ(δ_s·√N/(σ·√VIF·k) − 1.96), with the MDE inflated by k = 1.07 (rule 7, the upper end of 4–7%).
   - The smallest N with power ≥ 0.5 at the primary σ is **N = 40 scored countable dates**, so 47 countable dates in
@@ -287,13 +296,16 @@ with `mr_gate.gate_candidate` and `market_blend.pool()`.
   The freeze row lists those tests by name and fixes the look as the later of two dates: the day after the last of
   their recorded looks, and the date by which 47 countable dates have accrued. If a claiming test's look moves later,
   this look moves with it. It is never earlier.
-- **Q1 (read scope at the look): answered by rule 9 (owner 2026-10-30).** After the last claiming look, the accrued
-  dates join dev, prices included.
-  - At the look the scorer reads, for the accrued target dates only:
-    - the WS T+1 price recorder rows: Gamma Yes and the book mid check;
-    - the labels under the ruling in force.
-  - 88a rows are not an input.
-  - Master is asked to confirm this reading before the freeze.
+- **Q1 (read scope at the look): answered by rule 9 (owner 2026-10-30); confirmed by master 2026-10-30 (Q-b).** After
+  the last claiming look, the accrued dates join dev, prices included. At the look the scorer reads only the following,
+  for the accrued countable target dates only.
+  - **Labels:** ONE host label transfer at the look, in the MG-2 §9.6 style.
+    - Fields: the settlement bucket and promotion-countable.
+    - Labels are venue-rule labels from 10-23 (METAR, WU fallback). KDEN is out per section 2.
+    - Never via the daily channel, and no second transfer.
+  - **Prices:** ONLY the WS T+1 recorder's Gamma Yes (primary) and book mid (secondary), as captured.
+    - No 88a rows.
+    - No backfill, and no other price source.
 - **Freeze (the coordinator is told first; the lane never freezes on its own):**
   - **P1, the freeze point:** 3 consecutive closed UTC days of cycle manifests from the WS T+1 price recorder
     (`C:\t\t1_prices\forward`, task `L3 T+1 price forward recorder (logon)`, running since 2026-10-30 21:48Z).
