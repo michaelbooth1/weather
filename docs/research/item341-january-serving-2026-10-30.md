@@ -124,3 +124,14 @@ copies refuse January cleanly. The open question is what should serve January fr
   - the January NBM 07Z text for 2022-26, a free NOAA download by the L9 fetcher, about a quarter of L9's
     Aug-Dec pull;
   - and either the missing record years (a heavy build) or a ruling to run on 2022, 2023 and 2025 only.
+
+**Ruling (master, 2026-10-30): option 2 is PARKED, not killed.** The block is not new information, and option 1
+already covers January.
+
+- Blocker: there is no January NBM history (corpus `1ae4bf52…` covers Aug-Dec only), and the records are missing
+  January 2024, 2026 and 01-31.
+- The sample is not cut. The check above runs only on the full January 2022-26 sample, under the pre-stated
+  decision.
+- If it is wanted later, the January NBM 07Z pull is free official data and needs no ask. The missing record years
+  are a heavy build under `workstation_heavy`.
+- **Reopen if** a winter lever needs a January serving gain.
