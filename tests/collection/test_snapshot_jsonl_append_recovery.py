@@ -26,6 +26,19 @@ def test_append_after_torn_line_keeps_the_next_record(tmp_path):
     assert [row["seq"] for row in store.read_jsonl(path)] == [1, 3]
 
 
+def test_truncated_last_line_then_append_loses_exactly_one_record(tmp_path):
+    store = _store()
+    path = tmp_path / "replay_inputs.jsonl"
+    for seq in range(5):
+        store.append_jsonl(path, {"seq": seq, "payload": "x" * 64})
+    data = path.read_bytes()
+    last_start = data.rstrip(b"\r\n").rfind(b"\n") + 1
+    path.write_bytes(data[: last_start + (len(data) - last_start) // 2])  # cut record 4 mid-line
+    store.append_jsonl(path, {"seq": 5, "payload": "y"})
+
+    assert [row["seq"] for row in store.read_jsonl(path)] == [0, 1, 2, 3, 5]
+
+
 def test_clean_appends_add_no_extra_lines(tmp_path):
     store = _store()
     path = tmp_path / "replay_inputs.jsonl"
