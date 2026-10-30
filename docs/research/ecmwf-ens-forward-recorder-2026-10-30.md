@@ -21,8 +21,9 @@ needs the owner's yes in the coordinator's chat.
 | Stations | the 12 market stations, pinned to the market registry (a test checks the pins) |
 | Kept per station, member and step | the four surrounding 0.25 deg grid values, the bilinear value and the nearest value (kelvin) |
 
-**Daily Tmax is derived, not stored.** The daily maximum for a station is the maximum of the eight 3-hour windows
-that cover the local settlement day, so 24 steps of mx2t3 cover day 1 to day 3 of each run.
+**Daily Tmax is derived, not stored.** The recorder keeps UTC windows only. The local-day rule, the window count and
+the reader are described in "Local settlement day" below. The count is not fixed: it depends on the timezone and on
+the DST date. The 24 steps of mx2t3 reach 72 h, which covers local days 1 to 3 of each run.
 
 **Point extractions only.** Each step file is about 100 MB. The recorder reads the step's JSON-lines `.index`, then
 fetches only the `mx2t3` message of each member with an HTTP byte range (about 0.3 MB each). The raw GRIB is decoded
@@ -42,8 +43,22 @@ local days. Bucketing is done by the reader `tools/research/ecmwf_ens_daily.py`,
 - **Day boundaries.** A local day is local midnight to local midnight, converted to UTC with `zoneinfo` and the
   market's IANA timezone (a test checks them against the market registry). So 2026-11-01 is a 25-hour day in the US
   and Canada, and a spring change gives a 23-hour day. A fixed UTC offset is never used.
-- **Which windows count.** A day's Tmax uses only the 3-hour windows wholly inside that day. A window that crosses
-  local midnight is reported as an edge window (`edge_windows`, `edge_max_k`) and is never mixed into either day.
+- **Which windows count (the one rule).** Each window is the half-open interval `(valid_utc - 3 h, valid_utc]`.
+  The local day D runs from `D 00:00` to `D+1 00:00` in ZoneInfo(tz), converted to UTC. A window counts for D only
+  when it is wholly inside D: its start is at or after D's start and its end is at or before D's end. This is a
+  containment rule. It is neither "the window ends in the day" nor "the window overlaps the day".
+- **Edge windows.** A window that crosses local midnight is reported as an edge window (`edge_windows`,
+  `edge_max_k`) for both days and is never mixed into either day's maximum.
+- **Counts on 2026-11-01 (25-hour day), checked by a test:**
+
+  | Timezone | Inside windows | Crossing windows |
+  | --- | --- | --- |
+  | America/Chicago | 8 | 1 |
+  | America/Denver | 8 | 1 |
+  | America/New_York, America/Toronto, America/Los_Angeles | 7 | 2 |
+
+  On ordinary days the inside count is 8 where local midnight falls on a 3-hour UTC boundary (Chicago in standard
+  time, Denver in daylight time). Elsewhere it is 7.
 - **Full coverage is rare.** The windows end on 3-hour UTC boundaries, so they line up with local midnight only
   where midnight falls on 00/03/06/... UTC (Central standard time, Mountain daylight time). Elsewhere the late-night
   hours at both ends of the day fall in edge windows, and `complete` (full-hour coverage) is false.

@@ -75,6 +75,29 @@ def test_daily_max_never_mixes_edge_windows():
     assert out["2026-11-01"]["covered_hours"] == 21.0 and out["2026-11-01"]["edge_windows"] == 2
 
 
+@pytest.mark.parametrize("tz,day,inside,crossing,hours", [
+    ("America/Chicago", "2026-11-01", 8, 1, 25.0),
+    ("America/Denver", "2026-11-01", 8, 1, 25.0),
+    ("America/New_York", "2026-11-01", 7, 2, 25.0),
+    ("America/Toronto", "2026-11-01", 7, 2, 25.0),
+    ("America/Los_Angeles", "2026-11-01", 7, 2, 25.0),
+    ("America/Chicago", "2026-11-02", 8, 0, 24.0),   # CST: midnight on 06Z, a 3 h boundary -> complete
+    ("America/Chicago", "2026-10-31", 7, 2, 24.0),   # CDT: midnight on 05Z
+    ("America/Denver", "2026-10-31", 8, 0, 24.0),    # MDT: midnight on 06Z
+    ("America/Denver", "2026-11-02", 7, 2, 24.0),    # MST: midnight on 07Z
+])
+def test_three_hour_window_counts_across_dst(tz, day, inside, crossing, hours):
+    """Containment rule: (valid-3h, valid] counts for local day D only when wholly inside D (ZoneInfo bounds)."""
+    rows, t = [], _t(2026, 10, 30, 0)
+    while t < _t(2026, 11, 4, 0):
+        rows.append({"start_utc": t, "end_utc": t + dt.timedelta(hours=3), "value": 290.0})
+        t += dt.timedelta(hours=3)
+    d = ld.daily_max(rows, tz)[day]
+    assert d["day_hours"] == hours
+    assert d["covered_hours"] == 3.0 * inside and d["edge_windows"] == crossing
+    assert (d["covered_hours"] == d["day_hours"]) == (crossing == 0)
+
+
 def test_ens_daily_rows_flags_completeness():
     from tools.research import ecmwf_ens_daily as daily
 
