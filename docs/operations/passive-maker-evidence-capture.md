@@ -397,8 +397,8 @@ It also prints a `PILOT` line and warns `MAKER_EVIDENCE_PILOT` on `DEGRADED` or
 `CONFIG_ERROR`.
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\opsestart_maker_evidence_capture.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\opsestart_maker_evidence_capture.ps1 -Apply
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\ops\restart_maker_evidence_capture.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\ops\restart_maker_evidence_capture.ps1 -Apply
 ```
 
 Report-only without `-Apply`. It refuses outside 00:30-01:00 local, without a
