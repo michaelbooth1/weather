@@ -43,6 +43,15 @@ DAILY_REGISTRARS = {
     "register_mg2_input_export.ps1": ["04:15", "07:00"],
     "register_training_window.ps1": ["04:15"],
 }
+# Daily registrars outside scripts/ops (research tasks with an interactive principal, so outside the ops S4U
+# ratchet), keyed by their path from the repository root. Same contract as above.
+RESEARCH_DAILY_REGISTRARS = {
+    "tools/research/register_mg2_forward_inputs_task.ps1": ["06:30", "07:30", "08:30", "09:30", "10:30", "11:30", "12:30", "13:30", "14:30", "15:30", "16:30", "17:30", "18:30", "19:30", "20:30", "21:30", "22:30", "23:00"],
+}
+ALL_DAILY_REGISTRARS = {
+    **{OPS / name: times for name, times in DAILY_REGISTRARS.items()},
+    **{ROOT / rel: times for rel, times in RESEARCH_DAILY_REGISTRARS.items()},
+}
 
 ZONED = re.compile(r"(Z|[+-]\d\d:\d\d)$")
 
@@ -227,9 +236,10 @@ def test_daily_registrar_inventory_is_exact_and_reads_back_without_a_zone():
         for path in _powershell_files()
         if path != HELPER and "New-WeatherLocalDailyTrigger" in _code(_source(path))
     }
-    assert users == {OPS / name for name in DAILY_REGISTRARS}
-    for name in DAILY_REGISTRARS:
-        code = _code(_source(OPS / name))
+    assert users == set(ALL_DAILY_REGISTRARS)
+    for path in ALL_DAILY_REGISTRARS:
+        name = path.name
+        code = _code(_source(path))
         assert '"scheduled_task_local_trigger.ps1")' in code or "'scheduled_task_local_trigger.ps1')" in code, name
         assert "Test-WeatherLocalDailyStartBoundary" in code, name
         # The [datetime] cast converts a zoned boundary to local time and hides the
@@ -433,13 +443,13 @@ $rows = foreach ($command in $commands) {
 
 @WINDOWS_POWERSHELL
 @pytest.mark.spawns
-@pytest.mark.parametrize("registrar", sorted(DAILY_REGISTRARS))
+@pytest.mark.parametrize("registrar", sorted(str(p.relative_to(ROOT)) for p in ALL_DAILY_REGISTRARS))
 def test_every_daily_registrar_emits_unzoned_local_boundaries(registrar):
-    payload = _run(REGISTRAR_PROBE, {"HELPER_PATH": str(HELPER), "REGISTRAR_PATH": str(OPS / registrar)})
+    payload = _run(REGISTRAR_PROBE, {"HELPER_PATH": str(HELPER), "REGISTRAR_PATH": str(ROOT / registrar)})
     rows = payload["rows"]
     assert isinstance(rows, list) and rows, payload
 
     zoned = [row["start_boundary"] for row in rows if ZONED.search(row["start_boundary"])]
     assert zoned == [], f"{registrar}: zoned daily StartBoundary {zoned}"
     assert {row["class"] for row in rows} == {"MSFT_TaskDailyTrigger"}
-    assert [row["start_boundary"][11:16] for row in rows] == DAILY_REGISTRARS[registrar]
+    assert [row["start_boundary"][11:16] for row in rows] == ALL_DAILY_REGISTRARS[ROOT / registrar]
