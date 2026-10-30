@@ -575,6 +575,19 @@ SNAPSHOT_EXPLANATION_COLUMNS = [
 ]
 
 
+def _file_lacks_trailing_newline(path):
+    """True when ``path`` is non-empty and its last byte is not a newline."""
+    try:
+        with open(path, "rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            if handle.tell() == 0:
+                return False
+            handle.seek(-1, os.SEEK_END)
+            return handle.read(1) != b"\n"
+    except FileNotFoundError:
+        return False
+
+
 class SnapshotStore:
     def __init__(
         self,
@@ -2545,7 +2558,13 @@ class SnapshotStore:
             os.fsync(handle.fileno())
 
     def append_jsonl(self, path, payload, *, durable=False):
+        # The record is streamed in chunks, so a writer killed mid-append
+        # leaves an unterminated partial line. Without a separator the next
+        # record would be glued onto it and read_jsonl would drop both.
+        needs_separator = _file_lacks_trailing_newline(path)
         with path.open("a", encoding="utf-8") as handle:
+            if needs_separator:
+                handle.write("\n")
             for text_chunk in _iter_json_text_chunks(
                 payload,
                 sort_keys=True,
