@@ -23,7 +23,10 @@ Read-only contract:
   outside the runtime ``data/`` tree. It never writes production state.
 - Replayable target dates are closed days (before today, Toronto) in two ranges:
   development dates <= ``LAST_DEVELOPMENT_DATE`` (2026-09-29) and evening-fix
-  scoring dates >= ``EVENING_FIX_FIRST_DATE`` (2026-10-16). The reserved and
+  scoring dates ``EVENING_FIX_FIRST_DATE``..``EVENING_FIX_LAST_DATE``
+  (2026-10-16..2026-10-28; 10-28 is the scorer's only extension date). Any target
+  after 2026-10-28 is refused, with or without ``--through-date``: 10-29 onward is
+  another read's day 0 and beyond (a label-proxy read). The reserved and
   embargoed dates ``EMBARGO_START``..``EMBARGO_END`` (2026-09-30..2026-10-15)
   stay refused: an explicit folder, date bound or record on them is an error,
   and a scan skips them by folder name without opening them.
@@ -66,6 +69,8 @@ LAST_DEVELOPMENT_DATE = date(2026, 9, 29)
 EMBARGO_START = date(2026, 9, 30)
 EMBARGO_END = date(2026, 10, 15)
 EVENING_FIX_FIRST_DATE = date(2026, 10, 16)
+# Master 2026-10-31 (F1): no target after the evening-fix extension date 10-28 is ever replayable.
+EVENING_FIX_LAST_DATE = date(2026, 10, 28)
 # The pre-2026-10-13 name, kept for callers: the last development date.
 LAST_REPLAYABLE_DATE = LAST_DEVELOPMENT_DATE
 BELOW_ANCHOR_TOLERANCE = 1e-9
@@ -98,6 +103,11 @@ def replay_refusal(target, today=None):
         )
     if target >= _today(today):
         return f"{target} is not a closed day (today is {_today(today)})"
+    if target > EVENING_FIX_LAST_DATE:
+        return (
+            f"{target} is after the last evening-fix date {EVENING_FIX_LAST_DATE}; "
+            "later dates are never replayable by this command"
+        )
     return None
 
 
@@ -107,6 +117,10 @@ def check_date_bounds(from_date=None, through_date=None):
             raise ReplayRefused(
                 f"refused: {flag} {value} is inside the reserved/embargo window "
                 f"{EMBARGO_START}..{EMBARGO_END}"
+            )
+        if value is not None and value > EVENING_FIX_LAST_DATE:
+            raise ReplayRefused(
+                f"refused: {flag} {value} is after the last evening-fix date {EVENING_FIX_LAST_DATE}"
             )
     return from_date, through_date
 

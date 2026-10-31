@@ -24,14 +24,17 @@ Read gate (checked before any input is opened; a refusal writes nothing):
 
 Window (master ruling 2026-10-31): local target dates 2026-10-16..10-27, plus the
 outcome-blind extension 10-28 only. A row on 10-29 or later refuses the run; a window
-that would need 10-29 is VOID (local mode) or STOPS before any label is read
-(transfer mode).
+that would need 10-29 STOPS (exit 4). The window is decided from metadata only and
+passed to ``evaluate``; it never depends on labels.
 
 ``--no-market`` is Stage 1 of Clarification 1
 (``docs/research/evening-lockin-fix-scoring-clarification-1-2026-10-31.md``): every
 band ``market_yes`` must be null, no market Brier is computed, and conditions 1-2 plus
 HARM / VOID / SAFETY give ``CONDITIONS 1-2 MET, condition 3 pending`` when they hold.
 ``stage2_outcome`` applies condition 3 later, from MG-1's look receipt.
+``--no-market`` is required in every mode (master 2026-10-31, F2). Local mode
+(one ``--replay PATH``) runs the per-date B2 reproduction check before it opens any
+label and stops with exit 4 when it fails.
 
 Transfer mode (``--replay COMMIT=PATH`` repeated, ``--ledger-rows``, requires
 ``--no-market``) opens the host transfer in stages through
@@ -45,7 +48,7 @@ CLI:
   python -m weather.backtesting.evening_fix_scorer --replay <rows.jsonl>
       --prereg <prereg.md> --out <result.json>
       [--decision-log docs/operations/DECISION_LOG.md] [--read-token <token.json>]
-      [--ledger-root data/settlements] [--no-market]
+      [--ledger-root data/settlements] --no-market
   python -m weather.backtesting.evening_fix_scorer --no-market
       --replay <commit>=<replay.jsonl> [--replay <commit>=<replay.jsonl> ...]
       --ledger-rows <ledger_rows.jsonl> [--served-commits <served.json>]
@@ -341,11 +344,7 @@ def final_window(primary_cells):
     leaves fewer than 9 qualifying dates, so the old rule would have needed 10-29 (a STOP).
     """
     def qualifying(dates):
-        per_date = defaultdict(int)
-        for (market, day), cell in primary_cells.items():
-            if market in US_MARKETS and cell["countable"]:
-                per_date[day] += 1
-        return [d for d in dates if per_date.get(d.isoformat(), 0) >= MIN_US_MARKETS_PER_DATE]
+        return _qualifying(primary_cells, dates)
 
     dates = [WINDOW_START + timedelta(days=i)
              for i in range((BASE_WINDOW_END - WINDOW_START).days + 1)]
@@ -355,6 +354,14 @@ def final_window(primary_cells):
         dates.append(extra)
     found = qualifying(dates)
     return dates, found, len(found) < MIN_QUALIFYING_DATES
+
+
+def _qualifying(cells, dates):
+    per_date = defaultdict(int)
+    for (market, day), cell in cells.items():
+        if market in US_MARKETS and cell["countable"]:
+            per_date[day] += 1
+    return [d for d in dates if per_date.get(d.isoformat(), 0) >= MIN_US_MARKETS_PER_DATE]
 
 
 def check_window_before_labels(rows, countability):
@@ -462,15 +469,25 @@ def primary_block(primary, dates, markets):
     }
 
 
-def evaluate(rows, labels, *, use_market=True):
+def evaluate(rows, labels, *, use_market=True, window_dates=None):
     """Score the window. Under ``use_market=False`` this is Stage 1 of Clarification 1.
 
     Stage 1 decides conditions 1-2 plus HARM, VOID and SAFETY with no market price; when they hold the
     outcome is ``STAGE1_MET`` and ``stage2_outcome`` gives the final PASS / NOT_CONFIRMED later.
+
+    ``window_dates`` (iso strings or dates) is the window decided from metadata before any label
+    opened (``check_window_before_labels``); ``main`` always passes it (master 2026-10-31, F3), so the
+    window can never depend on labels. Without it the window is decided from ``metadata_cells`` only,
+    never from the label-dependent ``build_cells`` countable.
     """
     scored = score_rows(rows, labels, use_market=use_market)
     primary = build_cells(scored, labels, PRIMARY_HOURS, _delta)
-    dates, qualifying, needs_forbidden = final_window(primary)
+    if window_dates is None:
+        dates, _, needs_forbidden = final_window(metadata_cells(rows, labels))
+    else:
+        dates = [d if isinstance(d, date) else date.fromisoformat(str(d)) for d in window_dates]
+        needs_forbidden = False   # already a WindowStop before labels
+    qualifying = _qualifying(primary, dates)   # report only; decides nothing about the window
     us_cells, block = primary_block(primary, dates, US_MARKETS)
     result = {
         "mode": "market" if use_market else "no_market_stage1",
@@ -637,7 +654,7 @@ def _write(out, payload):
 
 
 def _transfer_inputs(args, replays):
-    """Staged transfer load. Returns (rows, labels, extra) or raises WindowStop / ReproductionStop."""
+    """Staged transfer load. Returns (rows, labels, window, extra) or raises WindowStop / ReproductionStop."""
     if not args.no_market:
         raise ScoreRefused("refused: transfer mode requires --no-market")
     if not args.ledger_rows:
@@ -649,10 +666,27 @@ def _transfer_inputs(args, replays):
     receipt = transfer.select_reproducing_commit(rows_by_commit, served)   # B2 stop rule
     rows = rows_by_commit[receipt.commit]
     ledger = transfer.TransferredLedger(args.ledger_rows, {r["event_slug"] for r in rows if r.get("event_slug")})
-    check_window_before_labels(rows, ledger.countability())   # metadata only
+    window = check_window_before_labels(rows, ledger.countability())   # metadata only
     labels = ledger.labels(receipt)
-    return rows, labels, {"replay_commit": receipt.commit, "reproduction_table": receipt.table,
-                          "ledger_records_verified": ledger.verification}
+    return rows, labels, window, {"replay_commit": receipt.commit, "reproduction_table": receipt.table,
+                                  "ledger_records_verified": ledger.verification}
+
+
+def _local_inputs(args):
+    """Local mode, same order as transfer (master 2026-10-31, F2): --no-market and no price, then the
+    per-date L1 reproduction check, and only then labels. Returns (rows, skipped, labels, window, extra)
+    or raises ReproductionStop / WindowStop; no label is opened when reproduction fails.
+    """
+    if not args.no_market:
+        raise ScoreRefused("refused: local mode requires --no-market")
+    rows, skipped = load_replay_rows(args.replay[0])
+    check_no_market(rows)
+    receipt = transfer.select_reproducing_commit({"local": rows})   # B2 stop rule, per-date table
+    labels = load_labels({row.get("event_slug") for row in rows if row.get("event_slug")},
+                         ledger_root=args.ledger_root)
+    # Local labels carry the countability metadata; the window still never uses settlement buckets.
+    window = check_window_before_labels(rows, labels)
+    return rows, skipped, labels, window, {"reproduction_table": receipt.table}
 
 
 def main(argv=None, today=None):
@@ -662,27 +696,25 @@ def main(argv=None, today=None):
         gate = check_read_gate(args.prereg, args.decision_log, args.read_token, today=today)
         out = check_out_path(args.out)
         replays = _parse_replays(args.replay)
-        if replays is None:
-            if len(args.replay) != 1:
-                raise ScoreRefused("refused: give one --replay PATH, or COMMIT=PATH for every replay")
-            rows, skipped = load_replay_rows(args.replay[0])
-            labels = load_labels({row.get("event_slug") for row in rows if row.get("event_slug")},
-                                 ledger_root=args.ledger_root)
-        else:
-            try:
-                rows, labels, extra = _transfer_inputs(args, replays)
-            except transfer.ReproductionStop as stop:
-                _write(out, {"prereg_id": PREREG_ID, "gate": gate, "stop": "B2_REPRODUCTION",
-                             "message": str(stop), "reproduction_table": stop.table})
-                print(str(stop), file=sys.stderr)
-                return STOP_EXIT
-            except WindowStop as stop:
-                _write(out, {"prereg_id": PREREG_ID, "gate": gate, "stop": "WINDOW_NEEDS_FORBIDDEN_DATE",
-                             "message": str(stop), "qualifying_dates": stop.qualifying})
-                print(str(stop), file=sys.stderr)
-                return STOP_EXIT
-            skipped = 0
-        result = evaluate(rows, labels, use_market=not args.no_market)
+        try:
+            if replays is None:
+                if len(args.replay) != 1:
+                    raise ScoreRefused("refused: give one --replay PATH, or COMMIT=PATH for every replay")
+                rows, skipped, labels, window, extra = _local_inputs(args)
+            else:
+                rows, labels, window, extra = _transfer_inputs(args, replays)
+                skipped = 0
+        except transfer.ReproductionStop as stop:
+            _write(out, {"prereg_id": PREREG_ID, "gate": gate, "stop": "B2_REPRODUCTION",
+                         "message": str(stop), "reproduction_table": stop.table})
+            print(str(stop), file=sys.stderr)
+            return STOP_EXIT
+        except WindowStop as stop:
+            _write(out, {"prereg_id": PREREG_ID, "gate": gate, "stop": "WINDOW_NEEDS_FORBIDDEN_DATE",
+                         "message": str(stop), "qualifying_dates": stop.qualifying})
+            print(str(stop), file=sys.stderr)
+            return STOP_EXIT
+        result = evaluate(rows, labels, use_market=not args.no_market, window_dates=window)
     except (ScoreRefused, transfer.TransferRefused) as exc:
         print(str(exc), file=sys.stderr)
         return REFUSED_EXIT

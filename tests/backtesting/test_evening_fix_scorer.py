@@ -73,6 +73,11 @@ def _token(tmp_path, digest, row, **overrides):
     return path
 
 
+def _no_market(rows):
+    """Rows as ``lockin_anchor_replay --no-market`` writes them: every band price null."""
+    return [{**row, "bands": [{**band, "market_yes": None} for band in row["bands"]]} for row in rows]
+
+
 def _replay_file(tmp_path, rows):
     path = tmp_path / "replay.jsonl"
     path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
@@ -81,7 +86,7 @@ def _replay_file(tmp_path, rows):
 
 def _argv(tmp_path, prereg, log, replay, *extra):
     return ["--replay", str(replay), "--prereg", str(prereg), "--decision-log", str(log),
-            "--out", str(tmp_path / "result.json"), *extra]
+            "--out", str(tmp_path / "result.json"), "--no-market", *extra]
 
 
 # --- read gate -------------------------------------------------------------------
@@ -125,7 +130,7 @@ def test_invalid_read_token_is_refused(tmp_path, signed, overrides, message, cap
 
 def test_recorded_token_allows_an_early_read_and_is_recorded(tmp_path, signed, monkeypatch):
     prereg, log, digest, row = signed
-    rows = _rows(_window())
+    rows = _no_market(_rows(_window()))
     monkeypatch.setattr(scorer, "load_labels", lambda slugs, ledger_root=None: _labels(rows))
     token = _token(tmp_path, digest, row)
     code = scorer.main(_argv(tmp_path, prereg, log, _replay_file(tmp_path, rows),
@@ -139,19 +144,21 @@ def test_recorded_token_allows_an_early_read_and_is_recorded(tmp_path, signed, m
 
 def test_on_read_date_scores_without_token(tmp_path, signed, monkeypatch):
     prereg, log, _, _ = signed
-    rows = _rows(_window())
+    rows = _no_market(_rows(_window()))
     monkeypatch.setattr(scorer, "load_labels", lambda slugs, ledger_root=None: _labels(rows))
     code = scorer.main(_argv(tmp_path, prereg, log, _replay_file(tmp_path, rows)), today=AFTER_READ)
     assert code == 0
     result = json.loads((tmp_path / "result.json").read_text())
-    assert result["outcome"] == "PASS"
+    assert result["outcome"] == scorer.STAGE1_MET
+    assert result["window_dates"][-1] == "2026-10-27"
+    assert result["reproduction_table"]["commits"]["local"]["pass"] is True
     assert result["gate"]["read_token"] is None
 
 
 @pytest.mark.parametrize("day", [date(2026, 9, 30), date(2026, 10, 15)])
 def test_an_embargo_row_refuses_the_whole_run(tmp_path, signed, monkeypatch, day, capsys):
     prereg, log, _, _ = signed
-    rows = _rows(_window()) + _rows([day], markets=("atlanta",))
+    rows = _no_market(_rows(_window()) + _rows([day], markets=("atlanta",)))
     monkeypatch.setattr(scorer, "load_labels", lambda slugs, ledger_root=None: _labels(rows))
     code = scorer.main(_argv(tmp_path, prereg, log, _replay_file(tmp_path, rows)), today=AFTER_READ)
     assert code == scorer.REFUSED_EXIT
@@ -258,3 +265,79 @@ def test_token_quoting_the_signature_row_is_refused(tmp_path, signed, capsys):
     assert code == scorer.REFUSED_EXIT
     assert "quotes the signature row" in capsys.readouterr().err
     assert not (tmp_path / "result.json").exists()
+
+
+# --- master 2026-10-31 F2: local mode guards; F3: the window never depends on labels -------
+
+def _labels_must_not_open(slugs, ledger_root=None):
+    raise AssertionError("labels opened")
+
+
+def test_local_mode_without_no_market_is_refused_before_labels(tmp_path, signed, monkeypatch, capsys):
+    prereg, log, _, _ = signed
+    rows = _no_market(_rows(_window()))
+    monkeypatch.setattr(scorer, "load_labels", _labels_must_not_open)
+    argv = [a for a in _argv(tmp_path, prereg, log, _replay_file(tmp_path, rows)) if a != "--no-market"]
+    assert scorer.main(argv, today=AFTER_READ) == scorer.REFUSED_EXIT
+    assert "requires --no-market" in capsys.readouterr().err
+    assert not (tmp_path / "result.json").exists()
+
+
+def test_local_mode_with_a_market_price_is_refused_before_labels(tmp_path, signed, monkeypatch, capsys):
+    prereg, log, _, _ = signed
+    rows = _rows(_window())   # band prices present
+    monkeypatch.setattr(scorer, "load_labels", _labels_must_not_open)
+    code = scorer.main(_argv(tmp_path, prereg, log, _replay_file(tmp_path, rows)), today=AFTER_READ)
+    assert code == scorer.REFUSED_EXIT
+    assert "carries a market price" in capsys.readouterr().err
+    assert not (tmp_path / "result.json").exists()
+
+
+def test_local_mode_labels_unreached_when_reproduction_fails(tmp_path, signed, monkeypatch, capsys):
+    prereg, log, _, _ = signed
+    rows = _no_market(_rows(_window()))
+    for row in rows[: len(rows) // 10]:
+        row["l1_new_vs_recorded"] = 0.2
+    monkeypatch.setattr(scorer, "load_labels", _labels_must_not_open)
+    code = scorer.main(_argv(tmp_path, prereg, log, _replay_file(tmp_path, rows)), today=AFTER_READ)
+    assert code == scorer.STOP_EXIT
+    payload = json.loads((tmp_path / "result.json").read_text())
+    assert payload["stop"] == "B2_REPRODUCTION"
+    table = payload["reproduction_table"]["commits"]["local"]
+    assert table["pass"] is False
+    assert table["per_date"]["2026-10-16"]["share"] < 0.99
+    assert "outcome" not in payload
+    assert "stopping before labels" in capsys.readouterr().err
+
+
+def test_local_mode_window_needing_10_29_stops(tmp_path, signed, monkeypatch):
+    prereg, log, _, _ = signed
+    rows = _no_market(_rows(_window(5)))
+    monkeypatch.setattr(scorer, "load_labels", lambda slugs, ledger_root=None: _labels(rows))
+    code = scorer.main(_argv(tmp_path, prereg, log, _replay_file(tmp_path, rows)), today=AFTER_READ)
+    assert code == scorer.STOP_EXIT
+    payload = json.loads((tmp_path / "result.json").read_text())
+    assert payload["stop"] == "WINDOW_NEEDS_FORBIDDEN_DATE"
+    assert "outcome" not in payload
+
+
+def test_window_does_not_depend_on_settlement_labels():
+    rows = _rows(_window())
+    labels = _labels(rows)
+    # Four dates countable by metadata but with no settlement bucket: before F3 the label-dependent
+    # countable dropped them and the window grew to 10-28.
+    for slug, label in labels.items():
+        if slug.split("|")[1] in {"2026-10-16", "2026-10-17", "2026-10-18", "2026-10-19"}:
+            label["settlement_bucket"] = None
+    result = scorer.evaluate(rows, labels)
+    assert result["window_dates"][-1] == "2026-10-27"
+    assert len(result["qualifying_dates"]) == 8   # report only
+
+
+def test_evaluate_uses_the_window_it_is_given():
+    rows = _rows(_window() + [date(2026, 10, 28)])
+    given = [d.isoformat() for d in _window(12)]
+    result = scorer.evaluate(rows, _labels(rows), window_dates=given)
+    assert result["window_dates"] == given
+    assert "2026-10-28" not in result["qualifying_dates"]
+    assert result["countable_us_market_days"] == 132

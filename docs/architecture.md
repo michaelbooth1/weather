@@ -162,14 +162,16 @@ bounded counterfactual detail is governed by the
   since 07:00; SWOB rows keep their hedge until lock-in. Implausible readings
   never anchor. The calibration taper reads the resulting strength.
   `python -m weather.backtesting.lockin_anchor_replay` replays closed dates up
-  to 2026-09-29 and from 2026-10-16 (2026-09-30..10-15 always refused),
+  to 2026-09-29 and 2026-10-16..10-28 (2026-09-30..10-15 and anything after
+  10-28 always refused),
   comparing the old and new anchors. It is read-only and outcome-blind, and
   exits 3 when any row puts more mass below the anchor than before.
   `python -m weather.backtesting.evening_fix_scorer` scores those rows once,
   behind a read gate (signed pre-registration; no read before 2026-10-29
   without a token recorded in the decision log). With `--no-market` (the
-  replay's flag nulls every band price at source) it is Stage 1 of
-  Clarification 1; in transfer mode `weather.backtesting.evening_fix_transfer`
+  replay's flag nulls every band price at source; required in every mode) it
+  is Stage 1 of Clarification 1. Local mode checks per-date reproduction before
+  it opens labels; in transfer mode `weather.backtesting.evening_fix_transfer`
   opens the host's replay and whole ledger rows in stages (forecast fields
   only, B2 reproduction stop, ledger hash chain, metadata-only window check,
   then labels). The window is 2026-10-16..10-27 plus 10-28; 10-29 is never read.

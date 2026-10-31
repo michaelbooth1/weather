@@ -466,12 +466,12 @@ folder has `snapshots_long.csv`, both arms' band probabilities and the captured
 market price, to a new `--out` file outside `data/`, and prints a
 per-hour-block summary. It never reads settlement. Its floor check exits 3 when
 any row's new vector holds more mass below the anchor bucket than the old one.
-It refuses embargo dates, open days, an existing `--out`, and any `--out` inside
-`data/`:
+It refuses embargo dates, open days, any target after 2026-10-28 (with or
+without `--through-date`), an existing `--out`, and any `--out` inside `data/`:
 
 ```powershell
 .\venv\Scripts\python.exe -m weather.backtesting.lockin_anchor_replay --out scratch\lockin_anchor_replay\through-2026-09-29.jsonl --from-date 2026-09-14
-.\venv\Scripts\python.exe -m weather.backtesting.lockin_anchor_replay --out scratch\lockin_anchor_replay\evening-fix.jsonl --from-date 2026-10-16 --through-date 2026-10-29 --with-v3-arm
+.\venv\Scripts\python.exe -m weather.backtesting.lockin_anchor_replay --out scratch\lockin_anchor_replay\evening-fix.jsonl --from-date 2026-10-16 --through-date 2026-10-28 --with-v3-arm --no-market
 ```
 
 Evening lock-in fix scorer (one look, read-gated). It scores the replay rows
@@ -481,10 +481,11 @@ PASS / NOT_CONFIRMED / HARM / VOID). It refuses an unsigned pre-registration
 (its SHA-256 must be in `DECISION_LOG.md`), refuses before 2026-10-29 unless
 `--read-token` names a JSON token whose `decision_log_row` is recorded in the
 decision log, refuses any 2026-09-30..10-15 row, and writes nothing on refusal
-(exit 2):
+(exit 2). Every mode requires `--no-market`, and labels open only after the
+per-date reproduction check passes (exit 4 with the match table otherwise):
 
 ```powershell
-.\venv\Scripts\python.exe -m weather.backtesting.evening_fix_scorer --replay scratch\lockin_anchor_replay\evening-fix.jsonl --prereg docs\research\<signed prereg>.md --out scratch\evening_fix\result.json
+.\venv\Scripts\python.exe -m weather.backtesting.evening_fix_scorer --no-market --replay scratch\lockin_anchor_replay\evening-fix.jsonl --prereg docs\research\<signed prereg>.md --out scratch\evening_fix\result.json
 ```
 
 The no-market read on host-transferred outputs (Clarification 1, Stage 1) takes
