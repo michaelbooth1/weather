@@ -50,5 +50,24 @@ B's NOT-WORSE label is defined at `docs/operations/B_FORWARD_TEST_DESIGN.md` lin
 
 ## Freeze status
 
-The post-look module is NOT yet frozen. Its sha is pinned here only after the coordinator's new-module check and the
-queued test run.
+The post-look module is NOT yet frozen. Its sha is pinned here only after master's OK on the open implementation
+choices, relayed by the coordinator.
+
+## Synthetic test runs (module sha256 `0c485d6e347dc11c95a7cf756e760e292db12536e663c61c1eda5d9650d80bed`)
+
+The coordinator's new-module check passed on 2026-10-31. Both runs below were admitted by the coordinator.
+
+The candidate was at commit `fa380db09980692f6afe50eb48b949b6c21aa88a`, with test file sha256
+`7ceb952c1b40f9911ac2260f72428c8d24c96a302c4731cad4321359f137414f`. Synthetic data only, so no ledger row is needed
+(coordinator).
+
+Both runs used `workstation_heavy.ps1 -Kind pytest -Queue -MinAvailableMemoryGB 3` and ran
+`pytest -q -p no:cacheprovider tests/calibration/test_b_post_look_serial.py` from `C:\wt\blook`.
+
+1. Basetemp `C:\t\l8blook\bt-20261030T230123`: **39 passed, 1 setup error** (WinError 3), exit 1, 4.73 s.
+   - The parent `C:\t\l8blook` did not exist, so `test_cli_writes_once_and_refuses_overwrite` (the only tmp_path
+     test) could not create its basetemp.
+   - This was an environment error, not a code failure.
+2. Retry, after creating `C:\t\l8blook`; basetemp `C:\t\l8blook\bt-20261030T230151`: **40 passed**, exit 0, 4.51 s.
+
+After both runs, the basetemp and the then-empty `C:\t\l8blook` were deleted.
