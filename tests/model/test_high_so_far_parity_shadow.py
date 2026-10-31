@@ -98,9 +98,9 @@ def _training_rows(model, sources, now):
     return [{"minute_of_day": minute, "temp_native": value} for minute, _, value in rows]
 
 
-def test_production_default_is_none_and_variants_are_closed():
-    assert ModelUtilsMixin.high_so_far_shadow_variant is None
-    assert TorontoHighTempModel(market_id="atlanta").high_so_far_shadow_variant is None
+def test_production_default_is_the_parity_fix_and_variants_are_closed():
+    assert ModelUtilsMixin.high_so_far_shadow_variant == VARIANT
+    assert TorontoHighTempModel(market_id="atlanta").high_so_far_shadow_variant == VARIANT
     assert HIGH_SO_FAR_SHADOW_VARIANTS == (None, VARIANT)
     model = _model(variant="something_else")
     with pytest.raises(ValueError, match="unknown high_so_far shadow variant"):

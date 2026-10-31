@@ -1,4 +1,8 @@
-"""Production serving with ``high_so_far_shadow_variant = None`` is byte-identical to master ``cda1acc3a``.
+"""Serving with ``high_so_far_shadow_variant = None`` is byte-identical to master ``cda1acc3a``.
+
+Defect fix 10 (branch ``claude/fix-hso-parity-after-b-20261030``, after B's 12-13 look) makes the parity variant
+the production default. ``None`` stays the pre-fix path, so this test now pins the no-fix control: a model
+explicitly set to ``None`` must still serve master's bytes. The ratchet pins the class default to the fix value.
 
 Guards: master's landing condition for the shadow-only high_so_far variant (ea449e9cc, f3b49fabb), relayed by
 the coordinator on 2026-10-27. With the variant at its production value ``None``, the served output on captured
@@ -83,7 +87,9 @@ def hermetic_model(market_id, empty_root, monkeypatch):
     monkeypatch.setattr(paths, "DATA_ROOT", data)  # spec.data_root resolves through it at call time
     bundle = get_process_active_serving_bundle(pointer_path=Path(empty_root) / "no-release" / "current_release.json",
                                                releases_root=Path(empty_root) / "no-release")
-    return TorontoHighTempModel(market_id=market_id, serving_bundle=bundle)
+    model = TorontoHighTempModel(market_id=market_id, serving_bundle=bundle)
+    model.high_so_far_shadow_variant = None  # the pre-fix path; the golden predates defect fix 10
+    return model
 
 
 def served_output(model, record):
@@ -213,7 +219,7 @@ VARIANT_ATTRIBUTE = "high_so_far_shadow_variant"
 # Every src/ module allowed to assign the attribute, each with its reason. Nothing else may, so no capture,
 # serving or release entry point can turn the shadow on.
 ALLOWED_SETTERS = {
-    "src/weather/model/model_base.py": "the class default, and it must stay exactly None",
+    "src/weather/model/model_base.py": "the class default, exactly the parity-fix variant (defect fix 10)",
     "src/weather/calibration/high_so_far_parity_shadow.py": "the research shadow replay: sets the variant on "
                                                             "its own model instance and resets it to None",
 }
@@ -260,7 +266,8 @@ def test_no_production_module_sets_the_shadow_variant():
     setters = _setters()
     assert set(setters) <= set(ALLOWED_SETTERS), f"unexpected setters: {sorted(set(setters) - set(ALLOWED_SETTERS))}"
     default = setters["src/weather/model/model_base.py"]
-    assert len(default) == 1 and isinstance(default[0][1], ast.Constant) and default[0][1].value is None
+    assert len(default) == 1 and isinstance(default[0][1], ast.Constant)
+    assert default[0][1].value == "metar_running_max_since_midnight_v1"
     assert setters["src/weather/calibration/high_so_far_parity_shadow.py"]  # still the one research setter
 
 

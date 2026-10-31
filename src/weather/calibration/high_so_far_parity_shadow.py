@@ -135,6 +135,7 @@ def run_once(model, record, variant):
     from weather.backtesting.replay import as_int_distribution, parse_built_at, record_target_date
 
     sources = record.get("sources") or {}
+    previous = model.high_so_far_shadow_variant
     model.high_so_far_shadow_variant = variant
     try:
         target = record_target_date(record)
@@ -158,7 +159,7 @@ def run_once(model, record, variant):
         }
         return dist, out_feats, floor
     finally:
-        model.high_so_far_shadow_variant = None
+        model.high_so_far_shadow_variant = previous
 
 
 def emit_market(*, layout, replay_root, market, start, end, out_dir, log=print):
