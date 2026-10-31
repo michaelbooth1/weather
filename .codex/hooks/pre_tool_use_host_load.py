@@ -71,6 +71,7 @@ _OFFLINE_WEATHER_MODULES = frozenset(
         "weather.calibration.new_city_corpus",
         "weather.calibration.high_so_far_parity_shadow",
         "weather.calibration.l6_own_state",
+        "weather.calibration.loyo_screen",
         "weather.calibration.mg2_composite",
         "weather.calibration.mg2_inputs",
         "weather.calibration.mg2_p3d_n",
