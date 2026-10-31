@@ -64,6 +64,16 @@ def _model(market_id="atlanta", target_date=ATL_DATE):
     return model
 
 
+def _prefix_model(**kwargs):
+    """The pre-fix-10 observed-high path (variant ``None``): the hard floor is the
+    current reading and the max since 07:00, so an overnight maximum sits above it.
+    The clamp tests below need that gap; under defect fix 10 (the default) the hard
+    floor already reaches the overnight maximum (see the test after them)."""
+    model = _model(**kwargs)
+    model.high_so_far_shadow_variant = None
+    return model
+
+
 def awc_metar_item(observed_local, temp_c, icao):
     """One AviationWeather JSON item as AWC serves it: ``obsTime`` is the
     observation epoch, ``reportTime`` the NOMINAL hour (a :5x routine report
@@ -252,6 +262,22 @@ def test_atlanta_evening_end_to_end_restored_strength_reaches_calibration_taper(
 
 # --- (2) a morning snapshot changes only below the same-day anchor --------
 
+@pytest.mark.parametrize("hour", [9, 12])
+def test_defect_fix_10_hard_floor_already_reaches_the_overnight_maximum(hour):
+    """Under the default (fix 10) the served hard floor is the running max since
+    00:00, so the frontal morning's 03:52 maximum is floored before any lock-in."""
+    model = _model()
+    now = datetime(2026, 9, 20, hour, 55, tzinfo=model.spec.tz)
+    readings = ((1, 25.0), (3, 26.0), (5, 24.0), (7, 22.0), (9, 23.0), (11, 24.0), (12, 24.0))
+    sources = {"metar": _metar_source(model, readings, until_hour=hour)}
+    feature_vector = {70: 0.1, 76: 0.2, 80: 0.3, 84: 0.25, 88: 0.15}
+    expected_bucket = _oracle_bucket(max(t for h, t in readings if h <= hour))
+    restored = _estimate(model, sources, now, feature_vector=feature_vector, legacy=False)
+    assert restored.calibration_context["observed_floor_bucket"] == expected_bucket
+    assert _below(restored.distribution, expected_bucket) == pytest.approx(0.0, abs=1e-12)
+    assert sum(restored.distribution.values()) == pytest.approx(1.0)
+
+
 def _estimate_without_pre_lockin_floor(model, sources, now, **kwargs):
     model.pre_lockin_same_day_floor = False
     try:
@@ -262,7 +288,7 @@ def _estimate_without_pre_lockin_floor(model, sources, now, **kwargs):
 
 @pytest.mark.parametrize("hour", [9, 12])
 def test_morning_snapshot_moves_only_the_mass_below_the_same_day_anchor(hour):
-    model = _model()
+    model = _prefix_model()
     now = datetime(2026, 9, 20, hour, 55, tzinfo=model.spec.tz)
     # A frontal morning: the day's warmest reading so far is at 03:52, before
     # 07:00 and above the current reading, so the pre-lock-in hard floor
@@ -579,7 +605,7 @@ def test_calibration_prior_with_partial_lockin_puts_no_mass_below_the_anchor():
     and strength < 1 the calibration prior spreads uniform mass over every
     bucket at or above its floor, so only an anchor-level floor keeps the
     buckets between the hard floor and the anchor empty."""
-    model = _model()
+    model = _prefix_model()
     model.probability_calibration = SYNTHETIC_CALIBRATION
     now = datetime(2026, 9, 20, 16, 55, tzinfo=model.spec.tz)
     sources = {"metar": _metar_source(model, FRONTAL_METAR_C, until_hour=16)}
@@ -601,7 +627,7 @@ def test_s6_blend_alone_puts_no_mass_below_the_anchor():
     is 0 (S1 starts after 15h, S2 at 17h, S3/S5 need remaining forecasts, the
     reading has not rolled 0.25 C below the high for S4), yet the late-day
     continuation blend reshapes the vector around the anchor bucket."""
-    model = _model()
+    model = _prefix_model()
     readings = ((1, 31.4), (3, 30.5), (5, 29.0), (7, 27.0), (9, 28.0), (11, 29.5),
                 (13, 30.6), (14, 31.0), (15, 31.2))
     now = datetime(2026, 9, 20, 15, 55, tzinfo=model.spec.tz)
