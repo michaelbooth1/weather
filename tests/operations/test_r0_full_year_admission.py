@@ -50,6 +50,7 @@ PINNED = [
     "weather.calibration.season_matched_l6",  # L3's SM-L6 season-matched fit, row 45/46 (10-26)
     "weather.calibration.successor_odc_low",  # L3 successor batch C1, R-ODC low on SM-L6 (10-30)
     "weather.calibration.permarket_octdec",  # L3 successor batch X36, R-M Oct-Dec on SM-L6 (10-31)
+    "weather.calibration.octdec_loyo_batch",  # L17 P5 (b) row 95 Oct-Dec LOYO batch on SM-L6 (10-31)
     "weather.market.maker_evidence_inspect",
     "weather.market.maker_counterfactual_tape",
     "weather.operations.base_retrain",
