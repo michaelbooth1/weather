@@ -38,12 +38,16 @@ SCHEMA = "s31_v2/1"
 GATE = "S31-V2"
 LEDGER_ROW = 102
 RULE_FILE = "rule_s31_v2.md"
-RULE_SHA256 = None  # pinned at freeze; ``run`` refuses while None
+RULE_SHA256 = "4495b6526e69698bab8bc5e9e0943b2adbd17526a3dc7b8a9fabd30d501b3315"  # master approved 2026-10-31
+CLARIFICATION1_FILE = "clarification_s31_v2_1.md"
+CLARIFICATION1_SHA256 = "692a313c96bdce88df7b7db7250acd6fb50cb6eecd945ff3ddeffae5a3b05edd"
 K_MIN = 5
 J_MIN = 10
 ARMS = sp.ARMS
 FAMILY = tuple(a[0] for a in ARMS)  # K = 2
 POWER_MIN = 0.5
+LABEL_UNTESTABLE_EDGE = "UNTESTABLE at edge"
+WITHHELD = ("by_block", "by_market", "diagnostic_c_deranged_placebo")
 
 # Field allowlists for the outcome-blind projection (rule §6).
 CANDLE_KEEP = ("job", "run_id", "ticker", "end_period_ts")
@@ -88,6 +92,7 @@ def twin_scan(snaps, v0, quote_at, with_moments=True):
     covered = np.zeros(n, bool)
     events = {(v["city"], v["date"]): (e, v) for e, v in v0.items()}
     reasons, missing_pos = defaultdict(int), defaultdict(int)
+    clipped = np.zeros(n, bool)
     has_station = "station" in snaps.columns
     cols = [snaps[c].to_numpy() for c in ("market", "date", "captured_at_utc", "cutoff_hour")]
     stations = snaps["station"].astype(str).to_numpy() if has_station else None
@@ -127,10 +132,25 @@ def twin_scan(snaps, v0, quote_at, with_moments=True):
         if nq[i] < sp.N_MARKETS_PER_EVENT:
             missing_pos[_position(next(j for j, q in enumerate(qs) if q is None), zs)] += 1
         if with_moments:
+            if nq[i] < sp.N_MARKETS_PER_EVENT:
+                clipped[i] = 1.0 - sum(q for q in qs if q is not None) < 0.0
             mids, _ = impute(qs)
             mu[i], sd[i] = sp.moments(mids, zs)
     return {"mu": mu, "sd": sd, "n_quoted": nq, "covered": covered, "reasons": dict(sorted(reasons.items())),
-            "missing_bin_position": dict(sorted(missing_pos.items()))}
+            "missing_bin_position": dict(sorted(missing_pos.items())), "clipped": clipped}
+
+
+def coverage_summary(scan):
+    """Realised coverage, the 5-bin share and the clip diagnostic (decides nothing; Clarification 1 §3-§4)."""
+    cov, nq = scan["covered"], scan["n_quoted"]
+    five = cov & (nq == 5)
+    n_cov, n_five = int(cov.sum()), int(five.sum())
+    n_clip = int((five & scan["clipped"]).sum())
+    return {"covered_fit_snapshots": n_cov, "six_quoted": int((cov & (nq == 6)).sum()), "five_quoted": n_five,
+            "five_bin_share": n_five / n_cov if n_cov else None,
+            "five_bin_clipped_to_zero": n_clip,
+            "five_bin_clipped_share_diagnostic": n_clip / n_five if n_five else None,
+            "missing_bin_position": scan["missing_bin_position"]}
 
 
 def value_quote_at(candles):
@@ -252,7 +272,11 @@ def p0_candidate_v2(cid, kind, sign, values_fit, fit_t, score_t, geo_fit, counts
                         "score_snapshots": int(len(score_t.snaps))},
            "donors": {**donor_stats, "per_seed": per_seed, "seeds_kept": len(keep),
                       "seeds_dropped_entirely": [p["seed"] for p in per_seed if not p["kept"]]}}
-    if n_dates < ms.MIN_DATES or n_snaps < ms.MIN_SNAPS or len(keep) < J_MIN:
+    floors = {"population_dates": n_dates, "min_dates": ms.MIN_DATES, "population_snapshots": n_snaps,
+              "min_snapshots": ms.MIN_SNAPS, "seeds_kept": len(keep), "j_min": J_MIN}
+    floors["pass"] = bool(n_dates >= ms.MIN_DATES and n_snaps >= ms.MIN_SNAPS and len(keep) >= J_MIN)
+    res["floors"] = floors  # gated before any Delta is computed (Clarification 1 §2)
+    if not floors["pass"]:
         res.update(testable=False, p0={"p_one_sided": 1.0, "delta": None, "ci95": [None, None]})
         return res, None
     res["testable"] = True
@@ -464,6 +488,38 @@ def rev2_vif(d_by_date):
     return {"rho": rho, "ratio": ratio, "vif": max(1.0, (1 + rho) / (1 - rho), ratio ** 2), "n": n}
 
 
+def in_run_power_gate(res, delta=sp.DELTA_EDGE):
+    """In-run gate (coordinator 2026-10-31): power at edge Phi(delta / SE_widest - 1.96) at the realised,
+    value-checked N, with SE the Clarification 5 wider-of-three SE. Below POWER_MIN the arm is labelled
+    UNTESTABLE at edge before any Delta verdict: delta, intervals and subgroup reads are withheld from the
+    receipt and the arm enters BH with p = 1. Returns the gate record (also stored on ``res``)."""
+    if not res.get("testable"):
+        return None
+    se = (res.get("bounds") or {}).get("se_widest")
+    power = 0.0 if not se or not math.isfinite(se) or se <= 0 else         0.5 * (1 + math.erf((delta / se - 1.96) / math.sqrt(2)))
+    gate = {"se_widest": se, "power_at_edge": power, "delta_edge": delta, "power_min": POWER_MIN,
+            "realised_dates": res["coverage"]["population_dates"],
+            "realised_snapshots": res["coverage"]["population_snapshots"], "pass": bool(power >= POWER_MIN)}
+    res["power_gate"] = gate
+    if not gate["pass"]:
+        b = res.get("bounds") or {}
+        res["bounds"] = {"se_widest": se, "n_block_dates": b.get("n_block_dates"), "withheld": True}
+        for k in WITHHELD:
+            res.pop(k, None)
+        res.update(testable=False, gated_at_edge=True,
+                   p0={"p_one_sided": 1.0, "delta": None, "ci95": [None, None], "withheld": True})
+    return gate
+
+
+def finalise_labels(results, ids=FAMILY):
+    """BH over the family, then the in-run gate's label overrides (no Delta verdict for a gated arm)."""
+    sp.apply_bh(results, list(ids))
+    for c in ids:
+        if results[c].get("gated_at_edge"):
+            results[c].update(label=LABEL_UNTESTABLE_EDGE, survive=False)
+    return results
+
+
 # ----------------------------------------------------------------------------- the run (after the admit only)
 
 def run(*, layout, out_dir, twin_dir=sp.DEFAULT_TWIN_DIR, v0_live=sp.DEFAULT_V0_LIVE, allow_dirty=False,
@@ -481,7 +537,7 @@ def run(*, layout, out_dir, twin_dir=sp.DEFAULT_TWIN_DIR, v0_live=sp.DEFAULT_V0_
     out = Path(out_dir)
     if (out / "s31_v2.json").exists():
         raise V2Error(f"refusing to overwrite {out / 's31_v2.json'}")
-    docs = sp.check_docs(pins={**sp.DOC_SHA256, RULE_FILE: rule_sha})
+    docs = sp.check_docs(pins={**sp.DOC_SHA256, RULE_FILE: rule_sha, CLARIFICATION1_FILE: CLARIFICATION1_SHA256})
     inputs = sp.check_inputs(twin_dir, v0_live, input_pins)
     copy_path, copy_sha = sp.pin_amendment_copy(paths.docs_path(*sp.DOC_DIR, sp.AMENDMENT_FILE), out)
     manifest_sha, burn, scored, kal_fit, score_t, controls = build(layout)
@@ -504,11 +560,12 @@ def run(*, layout, out_dir, twin_dir=sp.DEFAULT_TWIN_DIR, v0_live=sp.DEFAULT_V0_
         arm_rows = res.pop("_rows", [])
         if res["testable"]:
             res["bounds"] = sp.bounds(arm_rows, counts)
+            in_run_power_gate(res)
         rows += arm_rows
         results[cid] = res
         if vec is not None:
             vecs[cid] = vec
-    sp.apply_bh(results, list(FAMILY))
+    finalise_labels(results)
     fex = sp.fex_result()
     fex.update(label=sp.LABEL_UNTESTABLE, in_family=False, survive=False)
     for cid in [c for c in FAMILY if results[c]["survive"]]:
@@ -521,7 +578,15 @@ def run(*, layout, out_dir, twin_dir=sp.DEFAULT_TWIN_DIR, v0_live=sp.DEFAULT_V0_
         results[cid]["w_gate"] = {"verdict": "PASS (w)" if g["w"]["pass"] else "KILL (w)", "w": g["w"],
                                   "rows": g["rows"], "per_hour": g["per_hour"], "coverage": g["coverage"]}
     origins_end = sp.check_origins(modules=ORIGIN_MODULES, require_pythonpath=require_pythonpath)
+    summary = {**coverage_summary(scan), "donors": dstats,
+               "arms": {c: {"population_snapshots": results[c]["coverage"]["population_snapshots"],
+                            "population_dates": results[c]["coverage"]["population_dates"],
+                            "seeds_kept": results[c]["donors"]["seeds_kept"],
+                            "seeds_dropped_entirely": results[c]["donors"]["seeds_dropped_entirely"],
+                            "floors": results[c].get("floors"), "power_gate": results[c].get("power_gate"),
+                            "label": results[c]["label"]} for c in FAMILY}}
     receipt = {
+        "coverage_summary": summary,
         "schema": SCHEMA, "gate": GATE, "ledger_row": LEDGER_ROW, "code": code, "k": len(FAMILY),
         "module_origins": origins, "module_origins_end": origins_end, "doc_sha256": docs,
         "amendment_copy": {"path": str(copy_path), "sha256": copy_sha},
@@ -535,7 +600,7 @@ def run(*, layout, out_dir, twin_dir=sp.DEFAULT_TWIN_DIR, v0_live=sp.DEFAULT_V0_
                        "missing_bin_position": scan["missing_bin_position"],
                        "five_quoted": int((scan["covered"] & (scan["n_quoted"] == 5)).sum()),
                        "six_quoted": int((scan["covered"] & (scan["n_quoted"] == 6)).sum())},
-        "constants": {"k_min": K_MIN, "j_min": J_MIN, "placebo_seeds": list(ms.PLACEBO_SEEDS), "bh_q": ms.BH_Q,
+        "constants": {"k_min": K_MIN, "j_min": J_MIN, "power_min": POWER_MIN, "placebo_seeds": list(ms.PLACEBO_SEEDS), "bh_q": ms.BH_Q,
                       "draws": ms.DRAWS, "seed": ms.SEED, "min_dates": ms.MIN_DATES, "min_snapshots": ms.MIN_SNAPS,
                       "quote_window_s": sp.QUOTE_WINDOW_S, "max_spread": sp.MAX_SPREAD,
                       "delta_edge": sp.DELTA_EDGE, "circular_b": sp.CIRC_B, "circular_seed": sp.CIRC_SEED},
@@ -546,7 +611,7 @@ def run(*, layout, out_dir, twin_dir=sp.DEFAULT_TWIN_DIR, v0_live=sp.DEFAULT_V0_
                                                    for r in rows), encoding="utf-8")
     receipt["rows_sha256"] = ls.sha256_file(out / "s31_v2_rows.jsonl")
     with (out / "s31_v2.json").open("x", encoding="utf-8") as fh:
-        fh.write(json.dumps(receipt, indent=1, sort_keys=True, default=mg._default))
+        fh.write(json.dumps(receipt, indent=1, default=mg._default))  # coverage_summary first
     return receipt
 
 

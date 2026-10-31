@@ -4,6 +4,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import math
+import pathlib
 
 import numpy as np
 import pandas as pd
@@ -149,6 +150,25 @@ def test_twin_scan_covers_five_of_six_and_refuses_four():
     assert got["reasons"]["fewer than five of six bins quoted at t_eff"] == 1
 
 
+def test_clip_diagnostic_counts_five_bin_snapshots_clipped_to_zero():
+    v0, tick, zs, snaps = _one_event_world()
+    big = dict(zip(tick, [0.3, 0.3, 0.3, 0.3, 0.3, 0.05]))  # five quoted mids sum to 1.2
+    small = dict(zip(tick, [0.05, 0.15, 0.3, 0.3, 0.15, 0.05]))
+    calls = {"i": 0}
+
+    def quote_at(t, te):
+        k = calls["i"] // 6
+        calls["i"] += 1
+        if t == tick[5]:
+            return None
+        return (big if k == 0 else small)[t]
+
+    scan = v2.twin_scan(snaps, v0, quote_at)
+    s = v2.coverage_summary(scan)
+    assert s["five_quoted"] == 3 and s["five_bin_clipped_to_zero"] == 1
+    assert math.isclose(s["five_bin_clipped_share_diagnostic"], 1 / 3) and s["five_bin_share"] == 1.0
+
+
 # ----------------------------------------------------------------------------- rule §5
 
 def test_covered_donors_are_covered_other_date_same_cell_and_drop_seeds_not_snapshots():
@@ -202,16 +222,80 @@ def test_rev2_vif_uses_the_circular_block_counts():
     assert got["n"] == 43 and got["vif"] >= 1.0 and 0.5 < got["ratio"] < 1.6
 
 
+# ----------------------------------------------------------------------------- in-run power gate
+
+def _testable(se):
+    return {"candidate": "KAL-MEAN", "testable": True, "coverage": {"population_dates": 30,
+                                                                    "population_snapshots": 1440},
+            "p0": {"p_one_sided": 0.001, "delta": 0.3, "ci95": [0.1, 0.5]},
+            "bounds": {"se_widest": se, "ci95_widest": [0.1, 0.5], "n_block_dates": 30},
+            "by_block": {"x": 1}, "by_market": {"y": 1}, "diagnostic_c_deranged_placebo": {"rho": 0.1}}
+
+
+def test_in_run_gate_passes_at_small_se_and_keeps_the_verdict():
+    res = _testable(0.05)
+    g = v2.in_run_power_gate(res)
+    assert g["pass"] and g["power_at_edge"] > 0.99 and res["testable"] and res["p0"]["delta"] == 0.3
+
+
+def test_in_run_gate_below_half_labels_untestable_at_edge_before_any_delta_verdict():
+    se = 0.224 / 1.96 * 1.01  # power just under 0.5
+    res, other = _testable(se), _testable(0.05)
+    g = v2.in_run_power_gate(res)
+    assert not g["pass"] and g["power_at_edge"] < 0.5
+    assert res["p0"]["delta"] is None and res["p0"]["ci95"] == [None, None] and res["p0"]["p_one_sided"] == 1.0
+    assert "ci95_widest" not in res["bounds"] and not set(v2.WITHHELD) & set(res)
+    other["candidate"] = "KAL-WIDTH"
+    v2.in_run_power_gate(other)
+    out = v2.finalise_labels({"KAL-MEAN": res, "KAL-WIDTH": other})
+    assert out["KAL-MEAN"]["label"] == v2.LABEL_UNTESTABLE_EDGE and out["KAL-MEAN"]["survive"] is False
+    assert out["KAL-WIDTH"]["label"] != v2.LABEL_UNTESTABLE_EDGE
+    missing = _testable(None)
+    assert v2.in_run_power_gate(missing)["power_at_edge"] == 0.0 and missing["gated_at_edge"]
+
+
 # ----------------------------------------------------------------------------- the run
 
-def test_run_refuses_until_the_rule_is_frozen(tmp_path):
-    assert v2.RULE_SHA256 is None
-    with pytest.raises(v2.V2Error, match="not frozen"):
-        v2.run(layout=tmp_path, out_dir=tmp_path / "out")
+def test_the_pinned_rule_and_clarification_match_the_files():
+    for name, want in ((v2.RULE_FILE, v2.RULE_SHA256), (v2.CLARIFICATION1_FILE, v2.CLARIFICATION1_SHA256)):
+        assert p0.ls.sha256_file(paths.docs_path(*p0.DOC_DIR, name)) == want
+    assert v2.RULE_SHA256.startswith("4495b652")
 
 
-def test_v2_runs_end_to_end_on_the_synthetic_world_with_k_2(tmp_path, monkeypatch):
+def test_run_refuses_a_wrong_rule_sha(tmp_path, monkeypatch):
+    monkeypatch.chdir(paths.REPO_ROOT)
+    with pytest.raises(p0.P0Error, match="pinned"):
+        v2.run(layout=tmp_path, out_dir=tmp_path / "out", rule_sha="0" * 64, allow_dirty=True)
+
+
+def test_floors_are_gated_before_any_delta(monkeypatch):
+    calls = []
+    monkeypatch.setattr(v2.ms, "paired_delta", lambda *a, **k: calls.append(1) or {})
+    v1 = _v1_tests()
+    import tempfile
     from weather.reporting.scorecards import dev_scorecard as sc
+
+    with tempfile.TemporaryDirectory() as td:
+        lay, twin, v0_live, _ = v1._synthetic_world(pathlib.Path(td), np.random.default_rng(3))
+    fit = sc.Table(lay, ["2026-08-14"] + v1.SCORED)
+    score = sc.Table(lay, v1.SCORED[:10])  # 10 dates < 20: untestable on the date floor
+    geo = v2.ms.band_geometry(fit)
+    vals = np.where(np.arange(len(fit.snaps)) % 2 == 0, 75.0, np.nan)
+    src, st = v2.covered_donors(fit.snaps.date, fit.markets, fit.local_hour, fit.snaps.captured_at_utc,
+                                fit.snaps.row_key, fit.n, np.isfinite(vals))
+    dates = np.array(sorted(set(score.snaps.date.astype(str))))
+    res, vec = v2.p0_candidate_v2("KAL-MEAN", "C", 1, vals, fit, score, geo, v2.ms.boot_counts(len(dates), draws=10),
+                                  dates, src, st)
+    assert vec is None and not res["testable"] and not res["floors"]["pass"] and calls == []
+    assert res["floors"]["population_dates"] == 10 and res["p0"]["p_one_sided"] == 1.0
+
+
+@pytest.mark.parametrize("gated", [False, True])
+def test_v2_runs_end_to_end_on_the_synthetic_world_with_k_2(tmp_path, monkeypatch, gated):
+    from weather.reporting.scorecards import dev_scorecard as sc
+
+    if gated:
+        monkeypatch.setattr(v2, "POWER_MIN", 1.01)  # no realised SE can reach it: the gate must fire
 
     v1 = _v1_tests()
     lay, twin, v0_live, pins = v1._synthetic_world(tmp_path, np.random.default_rng(20261031))
@@ -233,16 +317,27 @@ def test_v2_runs_end_to_end_on_the_synthetic_world_with_k_2(tmp_path, monkeypatc
 
     monkeypatch.chdir(paths.REPO_ROOT)
     monkeypatch.setenv("PYTHONPATH", str(paths.REPO_ROOT / "src"))
-    rule_sha = p0.ls.sha256_file(paths.docs_path(*p0.DOC_DIR, v2.RULE_FILE))
+    rule_sha = v2.RULE_SHA256
     rec = v2.run(layout=lay, out_dir=tmp_path / "out", twin_dir=twin, v0_live=v0_live, allow_dirty=True,
                  input_pins=pins, build=build, require_pythonpath=True, rule_sha=rule_sha)
     assert rec["k"] == 2 and set(rec["results"]) == {"KAL-MEAN", "KAL-WIDTH"}
+    written = json.loads((tmp_path / "out" / "s31_v2.json").read_text(encoding="utf-8"))
+    assert next(iter(written)) == "coverage_summary"
+    head = written["coverage_summary"]
+    assert head["five_quoted"] > 0 and head["five_bin_clipped_share_diagnostic"] is not None
+    assert set(head["arms"]) == {"KAL-MEAN", "KAL-WIDTH"} and "dropped_pairs_band_count_mismatch" in head["donors"]
+    assert rec["doc_sha256"][v2.CLARIFICATION1_FILE] == v2.CLARIFICATION1_SHA256
     assert rec["fex_outside_family"]["in_family"] is False and rec["labels"][p0.FEX_ID] == p0.LABEL_UNTESTABLE
     pop = rec["population"]
     assert pop["five_quoted"] > 0 and pop["missing_bin_position"] == {"interior": pop["five_quoted"]}
     assert pop["five_quoted"] + pop["six_quoted"] == 31 * 48
     for cid in ("KAL-MEAN", "KAL-WIDTH"):
         r = rec["results"][cid]
-        assert r["testable"], r
         assert r["donors"]["seeds_kept"] >= v2.J_MIN and len(r["donors"]["per_seed"]) == 20
-        assert rec["labels"][cid] in (p0.LABEL_SURVIVOR, p0.LABEL_KILL_EDGE, p0.LABEL_NULL)
+        assert r["power_gate"]["realised_dates"] == r["coverage"]["population_dates"]
+        if gated:
+            assert rec["labels"][cid] == v2.LABEL_UNTESTABLE_EDGE and not r["power_gate"]["pass"]
+            assert r["p0"]["delta"] is None and "w_gate" not in r and not set(v2.WITHHELD) & set(r)
+        else:
+            assert r["testable"] and r["power_gate"]["pass"], r
+            assert rec["labels"][cid] in (p0.LABEL_SURVIVOR, p0.LABEL_KILL_EDGE, p0.LABEL_NULL)
