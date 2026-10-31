@@ -438,7 +438,7 @@ TXNP9  86  70| 84  72
         self.assertEqual(captured["url"], "https://api.open-meteo.com/v1/forecast")
         self.assertEqual(
             captured["params"]["models"],
-            "ecmwf_ifs025,ecmwf_aifs025,ncep_aigfs025,gfs_graphcast025",
+            "ecmwf_ifs025,ecmwf_aifs025,ncep_aigfs025,ecmwf_aifs025_single",
         )
         self.assertEqual(data["day_model_highs"]["ecmwf_ifs025"], 25.0)
         self.assertEqual(data["day_model_highs"]["ecmwf_aifs025"], 26.0)
