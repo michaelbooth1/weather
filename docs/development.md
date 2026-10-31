@@ -288,6 +288,14 @@ base64 value in a light command, then submit the wrapper invocation as a second
 command; backtick continuations, chained commands, variables, `Join-Path`, and
 other dynamically expanded forms fail closed.
 
+**Run worktree code against the worktree (2026-10-31).** Never run worktree code with `python -I`. A venv
+editable `.pth` (`__editable__.weather_market-0.1.0.pth`) appends the MAIN checkout's `src`, so first-party
+packages other than `weather` (e.g. `maker_core`) resolve to the main checkout. Run `-Queue` jobs as plain `-m`
+with RepoRoot = the run tree and `PYTHONPATH=<tree>\src` (as `bounded_worktree_test_suite.ps1` does), and record
+an origin pre-flight (or an in-module assertion) in the receipt. The
+[maker_core leak audit](research/p5-screens-2026-10-31/maker_core_leak_audit.md) of every wrapper job since
+the editable install found no impact on any recorded result.
+
 ### Starting workstation verification from the capture controller
 
 The capture host's hook distinguishes one literal SSH transport from local
