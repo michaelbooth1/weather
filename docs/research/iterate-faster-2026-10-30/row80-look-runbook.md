@@ -104,9 +104,20 @@ The dev builder refuses every date after 09-29. The refusals are at `harness.py:
 override. The B-bound dev scorecard files must not be edited. A **new wrapper module** is therefore needed.
 
 **`tools/research/released_window/r80_layout.py`** is on `claude/released-window-tools-20261031` @
-`25c8d3a3517e64a4fa906c41ce9e5ed2ee9a0a82`. It has not been run yet and awaits the coordinator's allowlist check.
-It imports the harness from a clean worktree of `2f3f3e8e6b542a419204afe802dae4545abc10d7`. Run it as a script
-with an isolated interpreter, never with `-m`:
+`25c8d3a3517e64a4fa906c41ce9e5ed2ee9a0a82` (module bytes unchanged at the branch tip
+`d155a665a53fe39a261e5b7aa55683a8ba2defe9`). It imports the harness from a clean worktree of
+`2f3f3e8e6b542a419204afe802dae4545abc10d7`. Run it as a script with an isolated interpreter, never with `-m`.
+
+**Admission (master, 2026-10-31): option (a), a direct run by path.** `workstation_heavy.ps1` admits only `-m`
+modules, and this file cannot run as one, so it gets no allowlist line and no launcher. Before the run, compute the
+file's sha256 and refuse to run unless it equals
+`31750c1c254b87fb0868c29e272ff8af7e5f2a2109d256c68b201e5a692017f2` (step 0 table). Record that sha in
+`import_receipt.json`; `layout_receipt.json` records it again as `module_sha256`, and the two must match.
+
+**Receipt pins (master, 2026-10-31).** `ROW80_RECEIPT_SHA256` =
+`6c0f4a1d4b5e5e12445fc79203b2c6ab66dbe1e0e21e7451ac1e6cb3bbc54504`; `SHA256SUMS` =
+`c0246a6593655da04b7e600385174e5a1d1cd5b36217896cde13c7cceceb73fa`. Both are verified before step 2, and a
+mismatch stops the run.
 
 ```text
 python -I tools\research\released_window\r80_layout.py --harness-worktree <clean 2f3f3e8e worktree> ^
