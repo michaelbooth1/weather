@@ -648,6 +648,67 @@ def test_s6_blend_alone_puts_no_mass_below_the_anchor():
     assert sum(result.distribution.values()) == pytest.approx(1.0)
 
 
+# --- master ruling D5: the four clamp scenarios on the default (fix 10) arm ---
+# The four tests above pin the pre-fix arm (variant None) so the clamp keeps its
+# gap to close. On the default arm the served hard floor is the running max
+# since 00:00, so each scenario's hard floor IS the anchor (the overnight max).
+
+@pytest.mark.parametrize("hour", [9, 12])
+def test_fix_arm_morning_snapshot_hard_floor_is_the_overnight_anchor(hour):
+    model = _model()
+    now = datetime(2026, 9, 20, hour, 55, tzinfo=model.spec.tz)
+    readings = ((1, 25.0), (3, 26.0), (5, 24.0), (7, 22.0), (9, 23.0), (11, 24.0), (12, 24.0))
+    sources = {"metar": _metar_source(model, readings, until_hour=hour)}
+    feature_vector = {70: 0.1, 76: 0.2, 80: 0.3, 84: 0.25, 88: 0.15}
+    expected_bucket = _oracle_bucket(26.0)  # the 03:52 maximum, 78.8 F -> 79
+    assert expected_bucket == 79
+
+    legacy = _estimate(model, sources, now, feature_vector=feature_vector, legacy=True)
+    restored = _estimate(model, sources, now, feature_vector=feature_vector, legacy=False)
+
+    assert legacy.calibration_context["observed_floor_bucket"] == expected_bucket
+    assert restored.calibration_context["observed_floor_bucket"] == expected_bucket
+    assert legacy.distribution.get(76, 0.0) == pytest.approx(0.0, abs=1e-12)  # floored already
+    anchor = restored.component_payload["high_has_stood_lockin"]["lockin_anchor"]
+    assert anchor["bucket"] == expected_bucket
+    assert _below(legacy.distribution, expected_bucket) == pytest.approx(0.0, abs=1e-12)
+    assert _below(restored.distribution, expected_bucket) == pytest.approx(0.0, abs=1e-12)
+    assert sum(restored.distribution.values()) == pytest.approx(1.0)
+
+
+def test_fix_arm_calibration_prior_with_partial_lockin_hard_floor_is_the_anchor():
+    model = _model()
+    model.probability_calibration = SYNTHETIC_CALIBRATION
+    now = datetime(2026, 9, 20, 16, 55, tzinfo=model.spec.tz)
+    sources = {"metar": _metar_source(model, FRONTAL_METAR_C, until_hour=16)}
+    vector = {80: 0.1, 82: 0.1, 84: 0.15, 86: 0.15, 88: 0.15, 89: 0.15, 90: 0.1, 92: 0.1}
+    anchor_bucket = _oracle_bucket(31.7)  # the 01:52 report, 89.06 F -> 89
+    assert anchor_bucket == 89
+
+    result = _estimate(model, sources, now, feature_vector=vector, legacy=False)
+
+    assert result.calibration_context["observed_floor_bucket"] == anchor_bucket
+    assert _below(result.distribution, anchor_bucket) == pytest.approx(0.0, abs=1e-12)
+    assert sum(result.distribution.values()) == pytest.approx(1.0)
+
+
+def test_fix_arm_s6_blend_alone_hard_floor_is_the_anchor():
+    model = _model()
+    readings = ((1, 31.4), (3, 30.5), (5, 29.0), (7, 27.0), (9, 28.0), (11, 29.5),
+                (13, 30.6), (14, 31.0), (15, 31.2))
+    now = datetime(2026, 9, 20, 15, 55, tzinfo=model.spec.tz)
+    sources = {"metar": _metar_source(model, readings, until_hour=15)}
+    vector = {84: 0.1, 86: 0.15, 87: 0.15, 88: 0.25, 89: 0.15, 90: 0.1, 92: 0.1}
+    anchor_bucket = _oracle_bucket(31.4)  # 88.52 F -> 89
+    assert anchor_bucket == 89
+
+    result = _estimate(model, sources, now, feature_vector=vector, legacy=False,
+                       continuation=0.4)
+
+    assert result.calibration_context["observed_floor_bucket"] == anchor_bucket
+    assert _below(result.distribution, anchor_bucket) == pytest.approx(0.0, abs=1e-12)
+    assert sum(result.distribution.values()) == pytest.approx(1.0)
+
 # --- (5) lockin-anchor-v4: the pre-lock-in same-day floor (Defender on B) ---
 
 def _night(model, hour=3, minute=30):
