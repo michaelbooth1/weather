@@ -97,3 +97,19 @@ Both runs used `workstation_heavy.ps1 -Kind pytest -Queue -MinAvailableMemoryGB 
 2. Retry, after creating `C:\t\l8blook`; basetemp `C:\t\l8blook\bt-20261030T230151`: **40 passed**, exit 0, 4.51 s.
 
 After both runs, the basetemp and the then-empty `C:\t\l8blook` were deleted.
+
+## Per-date extractor (ruling (i)): synthetic test run — NOT frozen
+
+Candidate: `src/weather/calibration/b_look_per_date.py` sha256
+`a28d2e65e8ae0ca4239bec7b641ed4d0fcb3758d2e31c6970a2ed29b68762d66` and its tests
+`tests/calibration/test_b_look_per_date.py` sha256 `92f738efb732d03f8ecee0453bb0dee131fc5afbde47d297535d343f15c9b23b`,
+both at commit `818232cfd8b5b3b06bf6235ac450b2ac49413f38`.
+
+- The coordinator's new-module check passed. One deviation is flagged to master: the module writes beside B's look,
+  as "receipted with B's look" requires, rather than only under its own out dir.
+- One queued run was admitted. It used `workstation_heavy.ps1 -Kind pytest -Queue -MinAvailableMemoryGB 3` with
+  basetemp `C:\t\l8blook\bt-20261030T230640`: **15 passed**, exit 0, 5.61 s. Afterwards the basetemp and
+  `C:\t\l8blook` were deleted.
+
+The freeze waits for master's answers on open points (A)-(C) in `look-chain-clarification-DRAFT.md` §4. No allowlist
+entry has been made.
