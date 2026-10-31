@@ -1,7 +1,8 @@
 """ENS member spread P0 (lane L17, 2026-10-31; dev-window ledger row 93, rule A2).
 
 Synthetic frames only, no real rows.
-Guards: rule_ens_spread_p0 A2 sections 4, 8 and (a) - the covered-iff rule (receipt after capture, n_members != 51, a
+Guards: rule_ens_spread_p0 A2 sections 4, 8 and (a), Clarification 2 - the covered-iff rule (receipt after
+capture, n_members != 50, a
 non-finite value, the block, D vs D-1 run selection); the ICAO-to-market map (toronto uncovered, an unknown
 market refuses); the points pin (a wrong sha refuses, rows after 2026-09-29 never reach the reader); the
 write-once out dir below C:/t/l17/ens; the rule pin refusing before any layout is read; the A3 verdict labels;
@@ -42,17 +43,17 @@ def _snaps(rows):
 
 def test_covered_iff_and_run_selection():
     pts = _points([
-        ("2026-08-20", "KATL", "2026-08-20", 2.0, 51, "2026-08-20T09:00:00Z"),  # 0712 run of D
-        ("2026-08-19", "KATL", "2026-08-20", 3.0, 51, "2026-08-19T09:00:00Z"),  # 0006 run of D-1
-        ("2026-08-21", "KATL", "2026-08-21", 4.0, 50, "2026-08-21T09:00:00Z"),  # 50 members: uncovered
-        ("2026-08-22", "KATL", "2026-08-22", np.nan, 51, "2026-08-22T09:00:00Z"),  # NaN: uncovered
+        ("2026-08-20", "KATL", "2026-08-20", 2.0, 50, "2026-08-20T09:00:00Z"),  # 0712 run of D
+        ("2026-08-19", "KATL", "2026-08-20", 3.0, 50, "2026-08-19T09:00:00Z"),  # 0006 run of D-1
+        ("2026-08-21", "KATL", "2026-08-21", 4.0, 51, "2026-08-21T09:00:00Z"),  # 51 members: refused
+        ("2026-08-22", "KATL", "2026-08-22", np.nan, 50, "2026-08-22T09:00:00Z"),  # NaN: uncovered
     ])
     snaps = _snaps([
         ("atlanta|a", "2026-08-20", "2026-08-20T13:00:00Z", "atlanta", 9),   # 07-12, covered, value 2.0
         ("atlanta|b", "2026-08-20", "2026-08-20T08:30:00Z", "atlanta", 4),   # 00-06, D-1 run, value 3.0
         ("atlanta|c", "2026-08-20", "2026-08-20T08:59:00Z", "atlanta", 7),   # 07-12 but receipt after capture
         ("atlanta|d", "2026-08-20", "2026-08-20T19:00:00Z", "atlanta", 15),  # outside both blocks
-        ("atlanta|e", "2026-08-21", "2026-08-21T14:00:00Z", "atlanta", 10),  # 50 members
+        ("atlanta|e", "2026-08-21", "2026-08-21T14:00:00Z", "atlanta", 10),  # 51 members: refused
         ("atlanta|f", "2026-08-22", "2026-08-22T14:00:00Z", "atlanta", 10),  # NaN value
         ("toronto|g", "2026-08-20", "2026-08-20T14:00:00Z", "toronto", 10),  # no ENS row
     ])
@@ -71,7 +72,7 @@ def test_covered_iff_and_run_selection():
 
 
 def test_post_cutoff_snapshot_refuses():
-    pts = _points([("2026-09-30", "KATL", "2026-09-30", 2.0, 51, "2026-09-30T09:00:00Z")])
+    pts = _points([("2026-09-30", "KATL", "2026-09-30", 2.0, 50, "2026-09-30T09:00:00Z")])
     snaps = _snaps([("atlanta|a", "2026-09-30", "2026-09-30T13:00:00Z", "atlanta", 9)])
     with pytest.raises(ens.EnsError, match="after 2026-09-29"):
         ens.candidate_values(snaps, snaps.market.to_numpy(), snaps.local_hour.to_numpy(), pts, {"atlanta": "KATL"})
@@ -86,9 +87,9 @@ def test_station_map():
 
 def test_points_pin_and_cutoff_filter(tmp_path):
     pts = _points([
-        ("2026-09-29", "KATL", "2026-09-29", 2.0, 51, "2026-09-29T09:00:00Z"),
-        ("2026-09-29", "KATL", "2026-09-30", 2.5, 51, "2026-09-29T09:00:00Z"),
-        ("2025-08-01", "KATL", "2025-08-01", 1.0, 51, "2025-08-01T09:00:00Z"),
+        ("2026-09-29", "KATL", "2026-09-29", 2.0, 50, "2026-09-29T09:00:00Z"),
+        ("2026-09-29", "KATL", "2026-09-30", 2.5, 50, "2026-09-29T09:00:00Z"),
+        ("2025-08-01", "KATL", "2025-08-01", 1.0, 50, "2025-08-01T09:00:00Z"),
     ])
     path = tmp_path / "points.parquet"
     pts.to_parquet(path, index=False)
@@ -248,3 +249,12 @@ def test_bbound_pins_match_this_tree():
     for rel, sha in ens.BBOUND_PINS.items():
         assert ens._sha(root / rel) == sha, rel
     ens.bbound_check(root)
+
+
+def test_clarification2_pin_and_n_members():
+    from pathlib import Path
+
+    root = Path(ens.__file__).resolve().parents[3]
+    assert ens.N_MEMBERS == 50
+    from weather.calibration import loyo_screen as ls
+    assert ls.sha256_file(root / ens.CLAR2_PATH) == ens.CLAR2_SHA256

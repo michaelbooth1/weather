@@ -9,7 +9,9 @@ rebuilt; rows with target_date > 2026-09-29 are filtered out at read time and ne
 
 - ENS-SD-0712: ``ens_sd_f`` of (station, target D) from the 00Z run of D, on local 07-12 snapshots;
 - ENS-SD-0006: ``ens_sd_f`` of (station, target D) from the 00Z run of D-1, on local 00-06 snapshots;
-- covered iff ``available_utc`` <= ``captured_at_utc``, ``n_members`` == 51 and the value is finite.
+- covered iff ``available_utc`` <= ``captured_at_utc``, ``n_members`` == 50 and the value is finite (master
+  Clarification 2, ``CLAR2_PATH`` sha256 ``CLAR2_SHA256``: every 2026 run in scope carries perturbed members 1-50,
+  the control, number 0, is absent; a row with any other count, 51 included, is refused).
 
 Order: the parent controls (served R, MG-1 07-12 excess, w = 0 identity) and the A4 synthetic sign controls
 (SYN+ must SURVIVE and SYN- must read Delta < 0, per block, labelled CONTROL, in memory only) run before any
@@ -23,7 +25,7 @@ No network I/O. B-bound files are imported read-only from this tree (master 035f
 sha-checked against the A3 pins at start and before the receipt; the receipt records the git tree sha and those
 file shas. Writes once under ``--out``, which must lie below ``C:/t/l17/ens/`` and must not exist.
 
-    python -m weather.calibration.ens_spread_p0 --layout C:/swarm/v3layout --out C:/t/l17/ens/run1
+    python -m weather.calibration.ens_spread_p0 --layout C:/swarm/v3layout --out C:/t/l17/ens/run2
 """
 from __future__ import annotations
 
@@ -47,12 +49,14 @@ GATE = "ENS-SPREAD-P0"
 LEDGER_ROW = 93
 RULE_PATH = "docs/research/p5-screens-2026-10-31/rule_ens_spread_p0.md"
 RULE_SHA256 = "25fc62bd2208fab2a88f1c51d2338456887bc6a51acabca0b6950dd6f2174c92"
+CLAR2_PATH = "docs/research/p5-screens-2026-10-31/clarification2_ens_spread_p0.md"
+CLAR2_SHA256 = "f7f00b68461d52fc6faa89b0e67e52c39578edd22b41efebde3edeaf9909d628"
 POINTS_SHA256 = "bd761fa52869d244addda7fb3746276e1eb6aad2416ac2fdc3291750d7320a7e"
 DEFAULT_POINTS = r"C:\Users\Michael\Documents\github\weather\data\research\free_sources\ecmwf_ens\points.parquet"
 OUT_ROOT = Path("C:/t/l17/ens")
 LAST_ALLOWED = ls.LAST_ALLOWED  # 2026-09-29
 FIRST_TARGET = "2026-07-31"
-N_MEMBERS = 51
+N_MEMBERS = 50  # Clarification 2: perturbed members 1-50; the control is absent in scope
 SYN_SEED = 20261031
 K = 2
 # (id, block, run offset in days from target D, local hour range) - rule section 4
@@ -341,6 +345,9 @@ def run(*, layout, out_dir, points=DEFAULT_POINTS, allow_dirty=False, repo_root=
     rule = root / RULE_PATH
     if not rule.is_file() or ls.sha256_file(rule) != RULE_SHA256:
         raise EnsError(f"rule {rule} is not the pinned A3 rule {RULE_SHA256}")
+    clar2 = root / CLAR2_PATH
+    if not clar2.is_file() or ls.sha256_file(clar2) != CLAR2_SHA256:
+        raise EnsError(f"clarification {clar2} is not the pinned Clarification 2 {CLAR2_SHA256}")
     for name in RUN_IMPORTS:
         importlib.import_module(name)
     bb_start = bbound_check(root)
@@ -356,7 +363,9 @@ def run(*, layout, out_dir, points=DEFAULT_POINTS, allow_dirty=False, repo_root=
     lay, folds, burn, scored, fit_t, score_t = mg.build_tables(layout)
     smap = station_map(fit_t.markets)
     out.mkdir(parents=True)
-    base = {"schema": SCHEMA, "gate": GATE, "rule_sha256": RULE_SHA256, "ledger_row": LEDGER_ROW, "code": code,
+    base = {"schema": SCHEMA, "gate": GATE, "rule_sha256": RULE_SHA256, "clarification2_sha256": CLAR2_SHA256,
+            "missing_member": "control (number 0); perturbed members 1-50 present",
+            "ledger_row": LEDGER_ROW, "code": code,
             "git_tree": git_tree(root), "bbound_sha256": bb_start,
             "evidence_class": ("development (dev window, kill-only P0; verdict fixed at P0: "
                                f"{VERDICT_KILL!r} or {VERDICT_SURVIVOR!r})"),
