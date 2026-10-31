@@ -1103,6 +1103,14 @@ stopped, or is proving their recovery. Do this task first. If the pass cannot fi
 - Just before each row, confirm that the task's `State` is not `Running`.
 - Finish before 01:00 on 2026-11-01. Row 1 at least must be done by then.
 
+**Done 2026-10-31 10:55 (master-agent; the 10-29/30 slot was missed).** All nine rows were reset with
+`reset_daily_trigger_local.ps1 -Apply`, registrar rows included: the live tasks predate the current registrars (row 1's
+registrar needs base-retrain parameters the live task never had), so only the zone suffix changed. Row 2 was already
+local from its 10-30 re-registration. The GetRunTimes probe passed for 10-31..11-03, and no enabled `Weather*` task
+keeps a zoned daily trigger. Still pending, not DST-related: row 6's `-File`/status-file conversion by its registrar.
+Disabled tasks still carry `-04:00` daily triggers (for example `WeatherMarketMakingDailyRoll`,
+`WeatherNightlyRetrainValidatePromote`, `WeatherMergeQueueDriver`); reset one before it is re-enabled.
+
 **Steps.** For a registrar row, re-run the registrar with exactly the parameters the live task was registered
 with; read them from the live action first. None of these changes the task's command except row 6. Row 6 converts
 the live task from RunLevel Highest and `-Command` to Limited and `-File`, with a status file (Swarm P audit F1;
