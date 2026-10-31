@@ -3,7 +3,7 @@ from collections import Counter
 from copy import deepcopy
 from dataclasses import dataclass, field
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from weather.model.model_constants import (
     DEFAULT_MARKET_CONFIG,
     TARGET_DATE,
@@ -25,6 +25,8 @@ from weather.model.calibration_runtime import (
     apply_exact_distribution_calibration,
 )
 from weather.model.model_contracts import DistributionResult
+from weather.market.market_registry import BUILTIN_SPECS
+from weather.sources.metar_history import REPORT_TYPE_SPECIAL, classify_report_type
 from weather.model.feature_store import current_max_trust_features, plausible_native_temperature
 
 from weather.model.model_distribution_constants import (
@@ -121,6 +123,15 @@ class DistributionPipelineState:
 
 
 from weather.model.model_distribution_signals import DistributionSignalMixin
+# Defect fix 11 (after B's look): from the venue's 2026-10-23 events the built-in
+# markets settle on routine METARs only (SPECI excluded; EF 10x, 10ai), so a
+# SPECI-only maximum must not raise the served hard floor or the lock-in floor.
+# Equal to ``weather.backtesting.venue_rule_labels.VENUE_RULE_CUTOVER_DATE``
+# (pinned by a test; the model layer does not import backtesting).
+VENUE_ROUTINE_FLOOR_FROM = date(2026, 10, 23)
+VENUE_ROUTINE_FLOOR_MARKETS = frozenset(spec.id for spec in BUILTIN_SPECS)
+
+
 class DistributionMixin(DistributionSignalMixin):
     """The probability engine: priors, blending, live signals, caps, weighting."""
 
@@ -198,9 +209,9 @@ class DistributionMixin(DistributionSignalMixin):
         )
         history_max = observed_high_context["history_high"]
         effective_observed_high = observed_high_context["effective_observed_high"]
-        effective_observed_floor_high = observed_high_context[
-            "effective_observed_floor_high"
-        ]
+        effective_observed_floor_high = self.venue_routine_observed_floor_high(
+            observed_high_context, history, current, station, metar, cutoff_hour,
+        )
         current_max_features = current_max_trust_features(
             current_max,
             history_max=history_max,
@@ -1278,15 +1289,85 @@ class DistributionMixin(DistributionSignalMixin):
         })
         return anchor
 
+    def venue_routine_floor_applies(self):
+        """True when the target date settles on routine METARs only (fix 11)."""
+        target = getattr(self, "target_date", None)
+        return (
+            target is not None
+            and target >= VENUE_ROUTINE_FLOOR_FROM
+            and getattr(self.spec, "id", None) in VENUE_ROUTINE_FLOOR_MARKETS
+        )
+
+    def metar_raw_report_types(self, metar):
+        """``{rawOb: metarType}`` from the captured AWC payload."""
+        types = {}
+        for item in (metar or {}).get("raw_payload") or []:
+            if isinstance(item, dict) and item.get("rawOb"):
+                types[str(item["rawOb"])] = item.get("metarType")
+        return types
+
+    def is_special_metar_row(self, row, raw_types=None):
+        """A METAR row whose report is a SPECI (raw prefix, else the payload's
+        ``metarType``). Rows without raw text (SWOB, WU) are never SPECI."""
+        raw = (row or {}).get("raw")
+        if not raw:
+            return False
+        declared = (raw_types or {}).get(str(raw))
+        return classify_report_type(str(raw), declared=declared) == REPORT_TYPE_SPECIAL
+
+    def venue_routine_observed_floor_high(self, context, history, current, station, metar, cutoff_hour):
+        """The served floor high recomputed without SPECI rows (defect fix 11).
+
+        Unchanged unless the venue routine-only rule applies, printed WU rows
+        are absent, the station rows come from METAR and at least one of them
+        is a SPECI. Then the production observed-high context is re-run on the
+        routine rows only (latest routine reading, routine max since 07:00), so
+        only the floor moves; the features keep every observation.
+        """
+        floor_high = context["effective_observed_floor_high"]
+        if floor_high is None or context.get("history_high") is not None:
+            return floor_high
+        if not self.venue_routine_floor_applies():
+            return floor_high
+        station = station or {}
+        if (station.get("station_observation_source") or station.get("source")) != "metar":
+            return floor_high
+        raw_types = self.metar_raw_report_types(metar)
+        rows = station.get("rows") or []
+        routine_rows = [row for row in rows if not self.is_special_metar_row(row, raw_types)]
+        if len(routine_rows) == len(rows):
+            return floor_high
+        routine_latest, _ = self.latest_source_row(routine_rows)
+        routine_temp = self.row_temp_native(routine_latest) if routine_latest else None
+        routine_max = self.station_max_since_7am_from_rows(routine_rows)
+        routine_station = {
+            **station,
+            "rows": routine_rows,
+            "latest": routine_latest,
+            "temp_native": routine_temp,
+            "temp_c": routine_temp,
+            "current_temp_native": routine_temp,
+            "current_temp_c": routine_temp,
+            "max_since_7am_native": routine_max,
+            "max_since_7am_c": routine_max,
+        }
+        routine = self._served_observed_high_context(history, current, routine_station, cutoff_hour)
+        if routine.get("startup_feature_quarantined_flag"):
+            return floor_high
+        return routine["effective_observed_floor_high"]
+
     def lockin_observed_rows(self, *, station=None, metar=None, now=None):
         """Point-in-time observed rows of the target local day, keyed by
-        observation time: ``([(minute, "HH:MM", value)], excluded_count)``."""
+        observation time: ``([(minute, "HH:MM", value)], excluded_count)``.
+        From the venue routine-only cutover SPECI rows are left out (fix 11)."""
         target = getattr(self, "target_date", None)
         tz = self.spec.tz
         raw_obs_times = {}
         for item in (metar or {}).get("raw_payload") or []:
             if isinstance(item, dict) and item.get("rawOb") and item.get("obsTime") is not None:
                 raw_obs_times[str(item["rawOb"])] = item["obsTime"]
+        routine_only = self.venue_routine_floor_applies()
+        raw_types = self.metar_raw_report_types(metar) if routine_only else {}
         row_sets = [(metar or {}).get("rows") or []]
         station = station or {}
         station_source = station.get("station_observation_source") or station.get("source")
@@ -1300,6 +1381,8 @@ class DistributionMixin(DistributionSignalMixin):
             for row in source_rows:
                 value = self.row_temp_native(row)
                 if value is None or not plausible_native_temperature(value, self.spec.display_unit):
+                    continue
+                if routine_only and self.is_special_metar_row(row, raw_types):
                     continue
                 observed = self.metar_observation_local_time(row, raw_obs_times)
                 if observed is None:
