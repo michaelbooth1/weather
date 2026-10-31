@@ -7,7 +7,8 @@ the MRMS composite reflectivity maximum within 25 km of the market's station, g 
 (a high echo moves mass to the lower bands), at local hours 13..16. The selected slot is F2's join: the newest slot
 at the station with ``valid_utc + 5 min <= captured_at_utc`` and ``valid_utc >= captured_at_utc - 40 min``. A market
 whose g has sd < 1e-9 over its covered fit snapshots gets g_z = 0 (zero tilt). The 50 km values are a descriptive
-arm (not in K); ``cover_25km`` is radar data coverage (``free_screens/mrms.py:119``) and is reported as QC only.
+arm (not in K); amendment 1 (``AMENDMENT_1_SHA256``) clips g_z to [-3, 3] and reports the unclipped pair as a
+descriptive arm. ``cover_25km`` is radar data coverage (``free_screens/mrms.py:119``) and is reported as QC only.
 Everything downstream is ``mr_sweep``'s machinery unchanged (type D tilt, the calibration-matched disagreement
 placebo, 20 derangements, the paired date-cluster bootstrap with 10,000 draws and seed 20261024, BH q = 0.10).
 Only a survivor gets the w = 0 identity and the w gate in block 13-16. One run; nothing after 2026-09-29 is read.
@@ -35,6 +36,7 @@ from weather.calibration import mr_sweep as sw
 SCHEMA = "mrms_p0/1"
 GATE = "MRMS-P0"
 RULE_SHA256 = "b0f170a5a69b93c040d3b7092e5c3f2ce2eb9a626978ad77f2b2f69e02fa091e"
+AMENDMENT_1_SHA256 = "cb30891fbee3800e78c01c63e2036453d24e741619300cc626748e3881e51711"  # clip; synthetic sign control
 LEDGER_ROW = 91
 HOURS = (13, 16)
 W_BLOCK = "13-16"
@@ -43,9 +45,12 @@ LAG = pd.Timedelta(minutes=5)
 MAX_AGE = pd.Timedelta(minutes=40)
 ECHO_DBZ = 35.0
 SD_FLOOR = 1e-9
+CLIP = 3.0
+SYNTH_SEED = 20261031  # amendment 1 A4: the synthetic sign control's noise seed
 VALID_END = pd.Timestamp("2026-09-30T00:00:00Z")
 CANDIDATES = (("MRMS-MAXDBZ25", "D", -1, "maxdbz", 25), ("MRMS-ECHO35", "D", -1, "echo35", 25))
-DESCRIPTIVE = (("MRMS-MAXDBZ50", "D", -1, "maxdbz", 50), ("MRMS-ECHO35-50", "D", -1, "echo35", 50))
+DESCRIPTIVE = (("MRMS-MAXDBZ50", "D", -1, "maxdbz", 50), ("MRMS-ECHO35-50", "D", -1, "echo35", 50),
+               ("MRMS-MAXDBZ25-UNCLIPPED", "D", -1, "maxdbz", 25), ("MRMS-ECHO35-UNCLIPPED", "D", -1, "echo35", 25))
 NS_UTC = mp.NS_UTC
 STATIONS = mp.STATIONS
 
@@ -122,6 +127,53 @@ def zscore(values, markets):
     return out, degenerate
 
 
+def clip_gz(gz, markets):
+    """Amendment 1: g_z clipped to [-3, 3]; returns (clipped, {market: clipped snapshot count})."""
+    hit = np.isfinite(gz) & (np.abs(gz) > CLIP)
+    return np.clip(gz, -CLIP, CLIP), {str(m): int((hit & (markets == m)).sum()) for m in np.unique(markets)}
+
+
+def as_type_c(gz, sign, geo):
+    """x = mu_m + sign * g_z * sigma_m, so the type C signal (x - mu_m)(z_b - mu_m) / sigma_m^2 is the type D signal
+    sign * g_z * (z_b - mu_m) / sigma_m exactly, without mr_sweep re-standardising g_z (which would undo a clip)."""
+    return geo["mu"] + sign * gz * np.sqrt(geo["var"])
+
+
+def synthetic_residual(fit_t, geo, covered, seed=SYNTH_SEED):
+    """Amendment 1 A4: r = sum_b (y_b - m_b)(z_b - mu_m) / sigma_m per snapshot (the realised market residual's
+    position), plus Gaussian noise with SD = sd(r) over covered snapshots. Returns g_pos = -(r + noise), which under
+    type D sign -1 tilts toward the outcome (must PASS with Delta > 0), and g_neg = -g_pos (must read Delta < 0)."""
+    e = fit_t.y - fit_t.p_market
+    w = e * geo["dz"] / np.sqrt(np.repeat(geo["var"], fit_t.n))
+    r = np.bincount(fit_t.band_snap, weights=w, minlength=len(fit_t.snaps))
+    r = np.where(covered, r, np.nan)
+    noise = np.random.default_rng(seed).normal(0.0, float(np.nanstd(r)), len(r))
+    g_pos = -(r + noise)
+    return g_pos, -g_pos
+
+
+def synthetic_controls(fit_t, score_t, geo, counts, score_dates, donors, covered):
+    """Both synthetic candidates through the main path (z-score, clip, type C identity); PASS / FAIL each."""
+    out = {}
+    for name, g, want in zip(("synthetic_sign_pos", "synthetic_sign_neg"),
+                             synthetic_residual(fit_t, geo, covered), ("pos", "neg")):
+        gz, _ = zscore(g, np.asarray(fit_t.markets))
+        gc, _ = clip_gz(gz, np.asarray(fit_t.markets))
+        res, _ = sw.p0_candidate(name, "C", 1, as_type_c(gc, -1, geo), fit_t, score_t, geo, counts, score_dates,
+                                 donors)
+        res.pop("_rows", None)
+        p0, ok = res["p0"], bool(res["testable"])
+        if want == "pos":
+            lo = p0["ci95"][0]
+            ok = ok and p0["delta"] > 0 and lo is not None and lo > 0 and p0["p_one_sided"] <= sw.BH_Q
+        else:
+            ok = ok and p0["delta"] < 0
+        out[name] = {"verdict": "PASS" if ok else "FAIL", "expect": "Delta > 0 (full rule)" if want == "pos"
+                     else "Delta < 0", "seed": SYNTH_SEED, "testable": res["testable"], "p0": p0,
+                     "coverage": res["coverage"]}
+    return out
+
+
 def _qc(slots, covered_hours):
     c = slots.loc[covered_hours]
     return {"slots_joined": int(c.valid_utc.notna().sum()),
@@ -159,13 +211,30 @@ def run(*, layout, out_dir, refl_path, allow_dirty=False):
     feats = pd.DataFrame({"row_key": fit_t.snaps.row_key.to_numpy(), "slot_valid_utc": slots.valid_utc.values})
     for c in ("max_dbz_25km", "max_dbz_50km", "cover_25km", "cover_50km"):
         feats[c] = slots[c].to_numpy()
-    results, descriptive, kept, rows, degenerate = {}, {}, {}, [], {}
+    covered = np.isfinite(candidate_value(slots, "maxdbz", 25))
+    controls.update(synthetic_controls(fit_t, score_t, geo, counts, score_dates, donors, covered))
+    void = [k for k in ("synthetic_sign_pos", "synthetic_sign_neg") if controls[k]["verdict"] != "PASS"]
+    if void:  # amendment 1 A4: the run is VOID; no candidate is scored
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "mrms_p0.json").write_text(json.dumps(
+            {"schema": SCHEMA, "gate": GATE, "rule_sha256": RULE_SHA256, "amendment_1_sha256": AMENDMENT_1_SHA256,
+             "ledger_row": LEDGER_ROW, "code": code, "verdict": "VOID", "void_controls": void,
+             "controls": controls}, indent=1, sort_keys=True, default=mg._default), encoding="utf-8")
+        raise MrmsError(f"VOID: synthetic sign control failed: {void}")
+    results, descriptive, kept, rows, degenerate, clipped = {}, {}, {}, [], {}, {}
     for arm, cands in (("main", CANDIDATES), ("descriptive", DESCRIPTIVE)):
         for cid, kind, sign, construct, radius in cands:
             g = candidate_value(slots, construct, radius)
             gz, degenerate[cid] = zscore(g, np.asarray(fit_t.markets))
             feats[f"{cid}_g"], feats[f"{cid}_gz"] = g, gz
-            res, vecs = sw.p0_candidate(cid, kind, sign, gz, fit_t, score_t, geo, counts, score_dates, donors)
+            if arm == "main":  # amendment 1: clip, entering as the identical type C form (no re-standardising)
+                gc, clipped[cid] = clip_gz(gz, np.asarray(fit_t.markets))
+                feats[f"{cid}_gz_clipped"] = gc
+                res, vecs = sw.p0_candidate(cid, "C", 1, as_type_c(gc, sign, geo), fit_t, score_t, geo, counts,
+                                            score_dates, donors)
+                res["type"], res["sign"], res["clipped_snapshots"] = kind, sign, clipped[cid]
+            else:
+                res, vecs = sw.p0_candidate(cid, kind, sign, gz, fit_t, score_t, geo, counts, score_dates, donors)
             res["zero_tilt_markets"] = degenerate[cid]
             if arm == "main":
                 rows += res.pop("_rows", [])
@@ -200,7 +269,8 @@ def run(*, layout, out_dir, refl_path, allow_dirty=False):
                                   "rows": g["rows"], "per_hour": g["per_hour"], "coverage": g["coverage"]}
 
     lines = [sw.line_for(results[c]) for c in ids]
-    receipt = {"schema": SCHEMA, "gate": GATE, "rule_sha256": RULE_SHA256, "ledger_row": LEDGER_ROW, "code": code,
+    receipt = {"schema": SCHEMA, "gate": GATE, "rule_sha256": RULE_SHA256,
+               "amendment_1_sha256": AMENDMENT_1_SHA256, "ledger_row": LEDGER_ROW, "code": code,
                "evidence_class": "development (dev window, provisional; kill-only)",
                "serve_parity": "NONE (no production capture; capture change held, DECISION_LOG 2026-10-24)",
                "module_sha256": {"mrms_p0": ls.sha256_file(__file__), "mos_p0": ls.sha256_file(mp.__file__),

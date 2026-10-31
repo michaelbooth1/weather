@@ -70,6 +70,28 @@ def test_zscore_zero_tilt_market():
     assert np.allclose(mr.sw.standardise(z, m)[:6], z[:6])  # idempotent under the sweep's standardise
 
 
+def test_clip_amendment_1_and_type_c_identity():
+    """A planted |g_z| > 3 is clipped (counted per market); the type C route equals the type D signal exactly."""
+    m = np.array(["sf"] * 400 + ["mia"] * 4)
+    g = np.r_[np.zeros(397), np.ones(3), [0.0, 1.0, 0.0, 1.0]]
+    gz, deg = mr.zscore(g, m)
+    assert deg == [] and gz[399] > 3  # the SFO-like rare echo
+    gc, n = mr.clip_gz(gz, m)
+    assert gc.max() == 3.0 and n == {"mia": 0, "sf": 3} and np.array_equal(gc[:397], gz[:397])
+    rng = np.random.default_rng(1)
+    k, nb = len(m), 5
+    table = type("T", (), {"n": np.full(k, nb), "markets": m})()
+    geo = {"mu": rng.normal(62, 2, k), "var": rng.uniform(0.3, 9, k)}
+    geo["dz"] = rng.normal(0, 3, k * nb)
+    s_c = mr.sw.band_signal("C", 1, mr.as_type_c(gc, -1, geo), table, geo)
+    s_d = -np.repeat(gc, nb) * geo["dz"] / np.sqrt(np.repeat(geo["var"], nb))
+    assert np.allclose(s_c, s_d)
+    s_unclipped = mr.sw.band_signal("D", -1, gz, table, geo)  # the descriptive arm's path re-standardises
+    assert np.allclose(s_unclipped, -np.repeat(gz, nb) * geo["dz"] / np.sqrt(np.repeat(geo["var"], nb)))
+    assert not np.allclose(s_unclipped, s_c)
+    assert {c[0] for c in mr.DESCRIPTIVE} >= {"MRMS-MAXDBZ25-UNCLIPPED", "MRMS-ECHO35-UNCLIPPED"}
+
+
 def test_pins_and_constants(tmp_path):
     with pytest.raises(mr.MrmsError, match="missing"):
         mr.verify_refl(tmp_path / "x.parquet")
@@ -80,7 +102,7 @@ def test_pins_and_constants(tmp_path):
     assert mr.REFL_SHA256.startswith("3446d1a6") and mr.mg.BLOCKS["13-16"] == (13, 16) == mr.HOURS
     assert [c[0] for c in mr.CANDIDATES] == ["MRMS-MAXDBZ25", "MRMS-ECHO35"]
     assert {(c[1], c[2], c[4]) for c in mr.CANDIDATES} == {("D", -1, 25)}
-    assert {c[4] for c in mr.DESCRIPTIVE} == {50}
+    assert {c[4] for c in mr.DESCRIPTIVE} == {25, 50} and mr.CLIP == 3 and mr.SYNTH_SEED == 20261031
     assert mr.LAG == pd.Timedelta(minutes=5) and mr.MAX_AGE == pd.Timedelta(minutes=40) and mr.ECHO_DBZ == 35
 
 
@@ -170,7 +192,14 @@ def test_run_planted_survives_null_killed(tmp_path, monkeypatch):
     assert a["verdict"] == "SURVIVE" and b["verdict"] == "SURVIVE" and "w_gate" in a
     assert a["zero_tilt_markets"] == ["seattle"]
     assert rec["controls"]["w0_identity_MRMS-MAXDBZ25"]["verdict"] == "PASS"
-    assert set(rec["descriptive"]) == {"MRMS-MAXDBZ50", "MRMS-ECHO35-50"}
+    assert set(rec["descriptive"]) == {"MRMS-MAXDBZ50", "MRMS-ECHO35-50", "MRMS-MAXDBZ25-UNCLIPPED",
+                                       "MRMS-ECHO35-UNCLIPPED"}
+    assert a["type"] == "D" and a["sign"] == -1 and set(a["clipped_snapshots"]) == set(MARKETS)
+    assert rec["amendment_1_sha256"].startswith("cb30891f")
+    assert rec["controls"]["synthetic_sign_pos"]["verdict"] == "PASS"
+    assert rec["controls"]["synthetic_sign_pos"]["p0"]["delta"] > 0
+    assert rec["controls"]["synthetic_sign_neg"]["verdict"] == "PASS"
+    assert rec["controls"]["synthetic_sign_neg"]["p0"]["delta"] < 0
     assert all("verdict" not in r and "w_gate" not in r for r in rec["descriptive"].values())
     in_block = int(((fit_t.local_hour >= 13) & (fit_t.local_hour <= 16)).sum())
     assert a["coverage"]["fit_covered_snapshots"] == in_block
@@ -184,3 +213,16 @@ def test_run_planted_survives_null_killed(tmp_path, monkeypatch):
     null, _ = _run(tmp_path, monkeypatch, _null, "out2")
     assert {r["verdict"] for r in null["results"].values()} == {"KILL"}
     assert all("w_gate" not in r for r in null["results"].values())
+
+
+def test_synthetic_sign_control_failure_voids_the_run(tmp_path, monkeypatch):
+    """Amendment 1 A4: a synthetic control that cannot pass (pure noise) makes the run VOID before any candidate."""
+    def noise(fit_t, geo, covered, seed=mr.SYNTH_SEED):
+        g = np.where(covered, np.random.default_rng(seed).normal(0, 1, len(covered)), np.nan)
+        return g, -g
+
+    monkeypatch.setattr(mr, "synthetic_residual", noise)
+    with pytest.raises(mr.MrmsError, match="VOID"):
+        _run(tmp_path, monkeypatch, _planted, "void")
+    rec = json.loads((tmp_path / "void" / "mrms_p0.json").read_text(encoding="utf-8"))
+    assert rec["verdict"] == "VOID" and "results" not in rec and "synthetic_sign_pos" in rec["void_controls"]
