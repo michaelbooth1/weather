@@ -1,7 +1,7 @@
 """C3 kill-tier driver: K1 identity, K3 synthetic positive / negation / null, refusals R1-R5, out-dir rule.
 
 Synthetic fixtures only: no real price, label, snapshot or bundle is opened. Rule: the C3 kill-tier DRAFT
-(docs/research/iterate-faster-2026-10-30/c3-t1-fair-value-kill-tier-DRAFT.md) as amended by REVISION-1 (master D1) and REVISION-2 (wider of date-clustered and block-3 bounds).
+(docs/research/iterate-faster-2026-10-30/c3-t1-fair-value-kill-tier-DRAFT.md) as amended by REVISION-1 (master D1) REVISION-2 (wider of date-clustered and block-3 bounds) and REVISION-3 (step 5 too).
 """
 import ast
 import copy
@@ -156,6 +156,21 @@ def test_p0_deciding_interval_is_the_wider_one(k3):
     assert r["delta_ci95"] == [min(dc[0], b3[0]), max(dc[1], b3[1])]
     assert r["se_delta"] == max(r["se_delta_date_clustered"], r["se_delta_block3"])
     assert r["p_one_sided"] == max(r["p_one_sided_date_clustered"], r["p_one_sided_block3"])
+
+
+def test_w_holds_uses_the_wider_bounds():
+    flat, arms = c3.k3_arms()
+    placebos, _ = c3.placebo_candidates(flat, arms["positive"])
+    w, _ = c3.w_gate(flat, arms["positive"], placebos)
+    for key in ("blend_minus_placebo", "blend_minus_floor_only", "blend_minus_market"):
+        iv = w[key]
+        assert iv["ci95_wider"][0] <= min(iv["ci95_date_clustered"][0], iv["ci95_block3"][0])
+        assert iv["ci95_wider"][1] >= max(iv["ci95_date_clustered"][1], iv["ci95_block3"][1])
+    expect = (w["mean_w"] >= c3.MEAN_W_MIN and w["blend_minus_placebo"]["ci95_wider"][1] < 0
+              and w["blend_minus_floor_only"]["ci95_wider"][1] < 0)
+    assert w["holds"] == expect
+    src = Path(c3.__file__).read_text(encoding="utf-8")
+    assert 'vs_placebo["ci95"][1]' not in src and 'vs_floor["ci95"][1]' not in src
 
 
 def test_edge_size_constants_and_power():

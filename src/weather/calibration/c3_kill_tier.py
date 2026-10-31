@@ -3,7 +3,8 @@ r"""C3 kill tier: frozen 110b T+1 fair value against 88a two-sided mids (lane L1
 Rule: the reviewed DRAFT ``docs/research/iterate-faster-2026-10-30/c3-t1-fair-value-kill-tier-DRAFT.md`` (sha256
 cd4d814f...) as amended by ``c3-t1-fair-value-kill-tier-REVISION-1-2026-10-31.md`` (master D1, approved with
 revisions) and ``c3-t1-fair-value-kill-tier-REVISION-2-2026-10-31.md`` (deciding bounds use the wider of the
-date-clustered and block-3 intervals); the shas and this file's are pinned by master in a ``pending`` ledger row before any computation.
+date-clustered and block-3 intervals) and ``c3-t1-fair-value-kill-tier-REVISION-3-2026-10-31.md`` (the w gate, step 5,
+too); the shas and this file's are pinned by master in a ``pending`` ledger row before any computation.
 Kill-only: the outcomes are KILL (at edge size), NOT KILLED, INCONCLUSIVE and DESCRIPTIVE (power at edge size
 below 0.5: reported only, cannot drop A1); VOID when a control fails. No outcome is a pass, an edge claim or a
 promotion.
@@ -42,6 +43,7 @@ RULE_PATH = "docs/research/iterate-faster-2026-10-30/c3-t1-fair-value-kill-tier-
 RULE_REVIEWED_SHA256 = "cd4d814f4144a5e0a72d7632f413d000174d2cade4c4ce8d50f0ee5f6f76b5f6"   # master D1 reviewed this
 REVISION_PATH = "docs/research/iterate-faster-2026-10-30/c3-t1-fair-value-kill-tier-REVISION-1-2026-10-31.md"
 REVISION_2_PATH = "docs/research/iterate-faster-2026-10-30/c3-t1-fair-value-kill-tier-REVISION-2-2026-10-31.md"
+REVISION_3_PATH = "docs/research/iterate-faster-2026-10-30/c3-t1-fair-value-kill-tier-REVISION-3-2026-10-31.md"
 # Date-gate trace (code read only, REVISION-1 section 3): the frozen builder and scorer at FROZEN_SCORER_COMMIT have
 # no 09-30..10-15 gate (src/maker_core/shadow and EMBARGO_WINDOWS do not exist there), so no override is applied.
 DATE_GATE_TRACE = dict(commit=FROZEN_SCORER_COMMIT, embargo_gate_found=False, override_applied=False)
@@ -353,7 +355,7 @@ def paired(diff, cell_dates, scored):
     nc = np.bincount(di, minlength=len(scored)).astype(float)
     draws = [(k @ ds) / (k @ nc) for k in (boot_counts(len(scored)), block_counts(len(scored)))]
     iv = interval(*draws)
-    # ci95 stays the date-clustered interval (the w gate, step 5); step 6 and its power use the wider bound.
+    # ci95 is the date-clustered interval, reported; every deciding use (steps 5 and 6, power) takes ci95_wider.
     return dict(estimate=float(ds.sum() / nc.sum()), ci95=iv["ci95_date_clustered"], **iv)
 
 
@@ -376,8 +378,9 @@ def w_gate(flat, c, placebos):
     mean_w = float(np.mean([wf[d][0] for d in scored]))
     vs_placebo = paired(blend - placebo, cell_dates, scored)
     vs_floor = paired(blend - floor, cell_dates, scored)
-    holds = bool(mean_w >= MEAN_W_MIN and vs_placebo["ci95"][1] is not None and vs_placebo["ci95"][1] < 0
-                 and vs_floor["ci95"][1] is not None and vs_floor["ci95"][1] < 0)
+    # REVISION-3: step 5 uses the wider (date-clustered vs block-3) upper bound of each interval.
+    holds = bool(mean_w >= MEAN_W_MIN and vs_placebo["ci95_wider"][1] is not None and vs_placebo["ci95_wider"][1] < 0
+                 and vs_floor["ci95_wider"][1] is not None and vs_floor["ci95_wider"][1] < 0)
     vs_market = paired(blend - market, cell_dates, scored)
     edge_gain = EDGE_GAIN * float(market[sel].mean())   # the edge-size Brier gain on the scored cells
     lo = vs_market["ci95_wider"][0]
@@ -703,7 +706,7 @@ def main(argv=None):
         print(f"c3 kill tier refused: {type(exc).__name__}: {exc}", file=sys.stderr)
         return EXIT_REFUSED
     base = dict(schema=SCHEMA, rule=RULE_PATH, rule_reviewed_sha256=RULE_REVIEWED_SHA256,
-                revisions=[REVISION_PATH, REVISION_2_PATH],
+                revisions=[REVISION_PATH, REVISION_2_PATH, REVISION_3_PATH],
                 date_gate_trace=DATE_GATE_TRACE, provisional=PROVISIONAL, frozen_scorer_commit=FROZEN_SCORER_COMMIT,
                 buckets_commit=BUCKETS_COMMIT, row80_receipt=receipt, scorer_tree=scorer_tree, driver_tree=driver_tree,
                 report_sha256=sha256_bytes(report_bytes), implementation=_implementation(),
