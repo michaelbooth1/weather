@@ -143,6 +143,14 @@ Module: `src/weather/calibration/b_post_look_serial.py`, FROZEN at `fa380db09980
   - It imports `build_table` and `arm` read-only and edits no B-bound file.
   - It is being built by this lane (its sha goes here once frozen). A look-chain clarification note puts it on the
     closed list.
+- [ ] **Timing: master's operator rule (A), verbatim.** "The extractor runs within 60 minutes of B's receipt write,
+  in the same operator session. Master records both UTC instants in the look log, and the log shows no other command
+  touching the transfer directory in between. If the gap is exceeded, the per-date output is labelled 'late' and
+  ruling (b) still runs, with the gap disclosed. It never blocks B."
+  - [ ] Log B's receipt write instant (UTC).
+  - [ ] Log the extractor's `extracted_at_utc`.
+  - [ ] Confirm the gap is ≤ 60 min and that no other command touched the transfer directory in between.
+  - [ ] Otherwise, label the per-date output 'late' and disclose the gap in ruling (b)'s report.
 - [ ] Refusals (`tests/calibration/test_b_post_look_serial.py`):
   - a repeated date, non-ISO date, non-positive or non-integer n_t, or non-finite S_t;
   - fewer than 3 dates, or fewer than 2 consecutive-date pairs;

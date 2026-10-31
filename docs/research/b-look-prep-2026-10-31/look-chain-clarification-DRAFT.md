@@ -40,16 +40,21 @@ sha256 `0c485d6e347dc11c95a7cf756e760e292db12536e663c61c1eda5d9650d80bed`) reads
   equal B's printed ALL-market row to 1e-12. 07-16 also equals B's decision estimate.
 - Both outputs are written with mode "x", so there is one extraction per look.
 
-## 4. What stays procedural (for master to rule)
+## 4. Procedural rules (master's answers to (A)-(C), 2026-10-31, relayed by the coordinator)
 
-- **"Same session, immediately after":** the code cannot prove timing. B's look payload carries no completion
-  instant, and B never trusts file times. The extractor's receipt stamps `extracted_at_utc`. Master may require the
-  operator to run step 3 directly after step 2 in the same shell, and may set a maximum gap.
-- **Layout bytes:** B's look payload records no layout sha. The extractor records the layout files' shas in its
-  receipt and proves equality only through exact reproduction of B's printed rows.
-- **Admission:** running step 3 on the workstation needs an offline-module allowlist entry for
-  `weather.calibration.b_look_per_date` (and for `b_post_look_serial`). That entry is master's to approve after the
-  module check.
+- **(A) Timing: master's operator rule, verbatim.** "The extractor runs within 60 minutes of B's receipt write, in
+  the same operator session. Master records both UTC instants in the look log, and the log shows no other command
+  touching the transfer directory in between. If the gap is exceeded, the per-date output is labelled 'late' and
+  ruling (b) still runs, with the gap disclosed. It never blocks B."
+  - The code cannot prove timing: B's look payload carries no completion instant, and B never trusts file times.
+    The extractor's receipt stamps `extracted_at_utc`.
+  - The rule is applied in the look log, not in the frozen code.
+- **(B) Layout bytes: accepted as is.** B's look payload records no layout sha. The extractor records the layout
+  files' shas in its receipt and proves equality through exact reproduction of B's printed rows.
+- **(C) Admission:** master directed offline-module allowlist entries for `weather.calibration.b_look_per_date` and
+  `weather.calibration.b_post_look_serial`, on `claude/b-look-prep-20261031`, following the ece13f3d pattern.
+- **Write location:** master accepted that the extractor writes beside B's look output (not only under its own out
+  dir), as "receipted with B's look" requires.
 
 ## 5. Unchanged
 
