@@ -76,7 +76,9 @@ def add_low(frame, research_root):
         t_utc = loc.dt.tz_localize(tz, ambiguous="NaT", nonexistent="NaT").dt.tz_convert("UTC")
         q = pd.DataFrame({"t_utc": t_utc, "local_date": f.local_date.astype(str)}, index=idx).dropna()
         left = q.reset_index().sort_values("t_utc")
+        left["t_utc"] = left.t_utc.astype("datetime64[ns, UTC]")
         right = g[["avail", "local_date", "rmin"]].sort_values("avail")
+        right["avail"] = right.avail.astype("datetime64[ns, UTC]")
         mm = pd.merge_asof(left, right, left_on="t_utc", right_on="avail", by="local_date",
                            direction="backward").set_index("index")
         out.loc[mm.index, "low"] = mm.rmin.to_numpy(float)
