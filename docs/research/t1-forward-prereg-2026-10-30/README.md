@@ -16,7 +16,9 @@ after the coordinator has been told; the lane never freezes on its own.
   - the one date rule (rule 9), which answers Q1;
   - sizing from the test's own numbers (rule 6), with the futility block written as a new pre-registration (rule 7).
 
-- Rev 4 (this file) folds in master's rulings Q-a, Q-b and Q-c of 2026-10-30 (sections 0, 2, 7 and 8).
+- Rev 4 folds in master's rulings Q-a, Q-b and Q-c of 2026-10-30 (sections 0, 2, 7 and 8).
+- Rev 5 (this file) folds in master's ρ ruling of 2026-10-30: planned ρ = 0.28, VIF 1.78 per checklist (f), N = 63
+  scored (70 countable) dates at δ_s = 0.030 (section 7 and 8). Still NOT frozen.
 
 This is a dated research draft, not canonical guidance.
 
@@ -236,8 +238,12 @@ with `mr_gate.gate_candidate` and `market_blend.pool()`.
 
 - **Estimand:** dR, the daily (blend − market) Brier divided by the date's market Brier.
 - **σ source (rule 6):** no measured sigma exists for this pair, because there is no T+1 history. σ is therefore the
-  nearest dev back-out on the dR scale, labelled **dev**. rho is unknown, so VIF = 1.11, the maximum measured history
-  VIF.
+  nearest dev back-out on the dR scale, labelled **dev**.
+  - **rho and VIF (master ruling 2026-10-30, PREREGISTRATION_CHECKLIST (f) draft on
+    `claude/s5-power-futility-gate-20261030` @ `9206b56a0`):** T+1 has no history, so its ρ cannot be measured. The
+    plan uses ρ = 0.28, the largest measured market pair. VIF = max(1, (1+ρ)/(1−ρ), block-3 ratio²) =
+    max(1, 1.28/0.72) = **1.78** (1.7778). No block-3 ratio exists for this pair; if a measured one at freeze gives a
+    larger VIF, N is recomputed upward.
   - Primary: HRRR R-K σ_d = 0.085.
   - Also reported: R-R 0.069 and L6_G 0.032.
 - **Effect (rule 6):** no dev effect exists, so "half the dev effect" cannot be formed. The declared screening effect
@@ -248,15 +254,21 @@ with `mr_gate.gate_candidate` and `market_blend.pool()`.
     measured σ or VIF, or a coverage change in the countable-date rule.
 - **N, from these numbers (rule 6: no screen below power 0.5, at least 20 dates before any PASS).**
   - Power at δ_s is Φ(δ_s·√N/(σ·√VIF·k) − 1.96), with the MDE inflated by k = 1.07 (rule 7, the upper end of 4–7%).
-  - The smallest N with power ≥ 0.5 at the primary σ is **N = 40 scored countable dates**, so 47 countable dates in
-    all with the 7 burn-in dates.
-  - N = 40 ≥ 20, so a PASS is allowed.
+  - Rev 5 (VIF 1.11 → 1.78): at the former N = 40 the primary power falls to 0.35, below 0.5. δ_s is not shrunk;
+    more N is the only lever.
+  - The smallest N with power ≥ 0.5 at the primary σ is **N = 63 scored countable dates** (power 0.501), so
+    **70 countable dates** in all with the 7 burn-in dates.
+  - N = 63 ≥ 20, so a PASS is allowed.
 
-  | σ_d | Power at δ_s, N = 40 (k = 1.07) | MDE80 at 40 (k = 1.07) | N80 at δ_s (k = 1.07) |
-  | --- | --- | --- | --- |
-  | 0.085 (primary) | 0.50 | 0.042 | 81 |
-  | 0.069 | 0.68 | 0.035 | 53 |
-  | 0.032 | 1.00 | 0.016 | 12 |
+  | σ_d | Power at δ_s, N = 63 (k = 1.07) | MDE80 at 63 (k = 1.07) | N80 at δ_s (k = 1.07) | N for power 0.5 |
+  | --- | --- | --- | --- | --- |
+  | 0.085 (primary) | 0.50 | 0.043 | 129 | 63 |
+  | 0.069 | 0.68 | 0.035 | 85 | 42 |
+  | 0.032 | 1.00 | 0.016 | 19 | 9 |
+
+  - (f) fields: sigma_d 0.085 (dev, R-K back-out); rho 0.28 (planned, largest measured market pair); VIF 1.78;
+    delta 0.030; N 63; MDE80 0.043; power 0.50; class SCREEN (δ_s < MDE80); N80 129; intervals date-clustered
+    (verdict) and block-3 (reported beside it).
 
   - At the primary σ the test is underpowered for 80%, so it stays a SCREEN. That holds whatever the dates.
 - **Training coverage (rule 6):** the arms fit nothing. The walk-forward w uses only accrued dates ≤ d − 2, so its
@@ -296,7 +308,7 @@ with `mr_gate.gate_candidate` and `market_blend.pool()`.
   - any other test in the look chain (L6_G, MG-3, PT-1) whose claimed dates intersect ours.
 
   The freeze row lists those tests by name and fixes the look as the later of two dates: the day after the last of
-  their recorded looks, and the date by which 47 countable dates have accrued. If a claiming test's look moves later,
+  their recorded looks, and the date by which 70 countable dates have accrued. If a claiming test's look moves later,
   this look moves with it. It is never earlier.
 - **Q1 (read scope at the look): answered by rule 9 (owner 2026-10-30); confirmed by master 2026-10-30 (Q-b).** After
   the last claiming look, the accrued dates join dev, prices included. At the look the scorer reads only the following,
