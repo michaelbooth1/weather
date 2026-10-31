@@ -114,7 +114,7 @@ For contrast, the old fixed 0.5 on seed 11 failed POOL-0712 (wider upper 0.2207)
   `SYN_SHRINK` set in memory.
 - Cost: 24.8 s elapsed, peak working set 173.4 MB. That is a light toy (under 1 min and 1 GB), run directly,
   with a 55 s self-abort guard.
-- Archived in `C:rchiveuled-out\_p5-subbar\c5_calibration_c1`.
+- Archived in `C:\archive\ruled-out\_p5-subbar\c5_calibration_c1`.
 
 **The module is not changed yet.** Setting `SYN_SHRINK = 0.75` in the module is part of the build that master
 gates after the cost estimate. Until then the run branch still carries 0.5, and that branch is not admitted.
