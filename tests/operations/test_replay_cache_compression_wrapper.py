@@ -107,7 +107,7 @@ def wrapper_fixture(tmp_path, tmp_path_factory):
     return source, production, wrapper_path, head
 
 
-def launch(wrapper_fixture, mode, *, apply=False, plan_receipt=None):
+def launch(wrapper_fixture, mode, *, apply=False, plan_receipt=None, deadline_seconds=None):
     source, production, wrapper, head = wrapper_fixture
     request = production / "request.json"
     request.write_text(json.dumps({"mode": mode}))
@@ -121,8 +121,11 @@ def launch(wrapper_fixture, mode, *, apply=False, plan_receipt=None):
         arguments += ["-PlanReceiptPath", str(plan_receipt), "-PlanReceiptSha256",
                       hashlib.sha256(plan_receipt.read_bytes()).hexdigest()]
     # Hang modes prove the hard stop at the fixture's 4 s deadline; every other mode only needs a
-    # ceiling, so a slow runner cannot turn a success path into a spurious hard stop.
-    environment = {**os.environ, "WEATHER_TEST_WRAPPER_DEADLINE_SECONDS": "4" if mode == "hang" else "30"}
+    # ceiling, so a slow runner cannot turn a success path into a spurious hard stop. A caller that
+    # kills the launcher itself passes a ceiling so the wrapper's own hard stop cannot race the kill.
+    if deadline_seconds is None:
+        deadline_seconds = 4 if mode == "hang" else 30
+    environment = {**os.environ, "WEATHER_TEST_WRAPPER_DEADLINE_SECONDS": str(deadline_seconds)}
     process = subprocess.Popen(arguments, cwd=source, env=environment, stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE, text=True)
     return process, output
@@ -220,7 +223,10 @@ def test_wrapper_does_not_reuse_or_rewrite_a_spent_attempt(wrapper_fixture):
 
 
 def test_abrupt_wrapper_exit_kills_entire_owned_tree(wrapper_fixture):
-    process, output = launch(wrapper_fixture, "hang")
+    # The test kills the launcher itself, so the wrapper's hard stop is only a ceiling here: at the
+    # 4 s hang deadline a slow Windows runner hard-stopped before descendant.json existed (CI runs
+    # 38207667225, 38355799288, 38355946127, 38410615599).
+    process, output = launch(wrapper_fixture, "hang", deadline_seconds=30)
     try:
         deadline = time.monotonic() + 20
         while not (output / "descendant.json").exists():
