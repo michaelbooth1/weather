@@ -3627,6 +3627,11 @@ served/market Brier is 1.77x pooled; that is not §1's 1.423246x (different pane
 lead family; **134 registered rule ids** are the multiplicity denominator. No serving, config, capture or reservation change
 was made.
 
+**Reconciliation (added 2026-10-31): 1.77x and 1.73x are two windows, not a disagreement.** 1.77x is served/market on the
+whole table (57 dates, 08-01..09-29); the ladder's 1.73x is the from stratum only (08-23..09-29). §10p prints neither: its
+1.741 is C1/market, not served. The dev scorecard's served R 1.774 (all hours) and 1.526 (00-16) (§10aa) is a third window,
+08-15..09-29, 43 dates. Cite the window with the figure.
+
 - **Ladder (no new source), from stratum, all rows:**
 
   | Block | served − market (ratio) | + evening lock-in restoration (r1) | + MG-1 morning read (r2) | r2 − market (ratio) | r2 share of gap closed |
@@ -4471,6 +4476,12 @@ Nothing dated after 2026-09-29 was read. Records: `p3dn_diag/diag_summary.md` an
   - **Re-centring on the market median removes about 25%** of P3d_N_fix's 07-12 excess (+0.0102 to +0.0077) and about
     15% of L6's (R-I alternative reading); only after re-centring does tempering help (+0.0012 for P3d). Centre, not
     width, is the lever (§1c).
+  - **About two thirds survives both (derivation, added 2026-10-31; source of the "two thirds" in the digest and
+    register X27).** `rungi/ri_summary.md` (sha256 `09261d4540b0d158a126ef53b8245a16b91d3880ef07b6ca7f4a722ca9c86423`,
+    SELECTION EVIDENCE table): P3d_N_fix 07-12 excess +0.0102 uncalibrated, +0.0077 re-centred, +0.0065 re-centred and
+    calibrated, so 0.0065 / 0.0102 = 64% survives; L6 0.0064 / 0.0081 = 79%. "Centre is the larger component" is
+    about the removable part (25% against 12%). Calling the surviving part "sharpness" (winner-bucket mass placed two
+    or more buckets off) is an interpretation: the atlas does not decompose it further.
   - At 13-16 P3d_N_fix loses most where the observed path runs below NBM's diurnal path (cold path +0.0183, 47% of the
     window excess); MG-1 alone fails on NBM-too-warm days, which P3d_N_fix mostly removes (+0.0083 against +0.0233).
 - **Reopen if:** the look-ahead question reopens if the live serve path (L8 binding) differs from the as-of-capture
