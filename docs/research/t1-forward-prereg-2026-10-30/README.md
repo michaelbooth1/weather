@@ -17,12 +17,16 @@ after the coordinator has been told; the lane never freezes on its own.
   - sizing from the test's own numbers (rule 6), with the futility block written as a new pre-registration (rule 7).
 
 - Rev 4 folds in master's rulings Q-a, Q-b and Q-c of 2026-10-30 (sections 0, 2, 7 and 8).
-- Rev 5 (this file) folds in master's ρ ruling of 2026-10-30: planned ρ = 0.28, VIF 1.78 per checklist (f), N = 63
-  scored (70 countable) dates at δ_s = 0.030 (section 7 and 8). Still NOT frozen.
+- Rev 5 folds in master's ρ ruling of 2026-10-30: planned ρ = 0.28, VIF 1.78 per checklist (f), N = 63
+  scored (70 countable) dates at δ_s = 0.030 (section 7 and 8).
+- Rev 6 (this file) folds in master's acceptance of rev 5 with rulings (2026-10-30): the deciding interval is the
+  AR(1)/VIF-adjusted one with ρ measured on T+1's own accrued d, floored at 0.28; the date-clustered interval is
+  descriptive; the R-K back-out file sha is added at the freeze check; the look schedule under rule 9 is explicit
+  (sections 7 and 8). Still NOT frozen.
 
 This is a dated research draft, not canonical guidance.
 
-The test is outcome-blind until its single look. Its arms have zero fitted parameters, because no receipt-dated
+The test is outcome-blind until its first readable look (section 8). Its arms have zero fitted parameters, because no receipt-dated
 day-ahead history exists to fit on (S1 report, 2026-10-30). The one learned quantity is the MR gate's walk-forward pool
 weight w, which is fitted forward on accrued dates only. This draft does not touch `B_FORWARD_TEST_DESIGN.md`, the MG-2
 binding package, any B-bound file, MG-1 or MG-3. It never alters B.
@@ -116,7 +120,7 @@ An arm value is **covered** at a snapshot only if its source product passes the 
 3. **A3, the equal-weight blend:** 0.5·A1 + 0.5·A2, band by band. A3 is covered only where both A1 and A2 are.
 
 Every arm is floored at `market_blend.EPS` and renormalised before the pool. Nothing is tuned after this file's sha is
-pinned. The three arms are one frozen batch (method §5 rule 5): one rule, one ledger row, one look.
+pinned. The three arms are one frozen batch (method §5 rule 5): one rule, one ledger row, one look schedule (section 8).
 
 ## 4. Comparator m (the T+1 market; master ruling 2026-10-30)
 
@@ -267,8 +271,8 @@ with `mr_gate.gate_candidate` and `market_blend.pool()`.
   | 0.032 | 1.00 | 0.016 | 19 | 9 |
 
   - (f) fields: sigma_d 0.085 (dev, R-K back-out); rho 0.28 (planned, largest measured market pair); VIF 1.78;
-    delta 0.030; N 63; MDE80 0.043; power 0.50; class SCREEN (δ_s < MDE80); N80 129; intervals date-clustered
-    (verdict) and block-3 (reported beside it).
+    delta 0.030; N 63; MDE80 0.043; power 0.50; class SCREEN (δ_s < MDE80); N80 129; intervals AR(1)/VIF-adjusted
+    (verdict, ρ floored at 0.28) and date-clustered (descriptive, reported beside it).
 
   - At the primary σ the test is underpowered for 80%, so it stays a SCREEN. That holds whatever the dates.
 - **Training coverage (rule 6):** the arms fit nothing. The walk-forward w uses only accrued dates ≤ d − 2, so its
@@ -286,12 +290,16 @@ with `mr_gate.gate_candidate` and `market_blend.pool()`.
   - A stop is final for that arm.
   - No look can PASS early, change N, change the estimand or refit.
   - **A look reads a date only when rule 9 allows it.** Every accrued date is also claimed by B (and A1/A3's dates by
-    MG-1), so no date can be read before those tests have looked. The stops are therefore applied once, at the single
-    look, along the date-ordered path of scored dates (master ruling 2026-10-30: no interim reads).
+    MG-1), so no date can be read before those tests have looked. The 7/14/21 looks therefore cannot run as interim
+    reads: they are applied at the first readable look (section 8), together with the 31-date look, along the
+    date-ordered path of scored dates (master ruling 2026-10-30: no interim reads).
+  - The futility z keeps VIF 1.78 (planned) at every look; it is not re-estimated.
   - An arm whose path would have stopped is recorded FUTILE (or HARM at 7). Its later dates are not used for that arm.
   - Each look's ledger row comes before its read.
-- **Intervals:** the final interval is the date-clustered one, with a block-3 interval reported alongside. If they
-  disagree, the more conservative verdict applies.
+- **Intervals (master ruling 2026-10-30, rev 6):** the deciding interval is the AR(1)/VIF-adjusted interval,
+  mean ± 1.96 · s · √VIF_look / √N with VIF_look = max(1.78, (1+ρ̂)/(1−ρ̂)), where ρ̂ is the lag-1 autocorrelation of
+  T+1's own accrued daily d at the final look. Flooring ρ at the planned 0.28 means it is never less conservative
+  than the plan. The date-clustered interval is reported beside it, descriptive only; the block-3 interval is not used.
 
 ## 8. Dates, look and freeze
 
@@ -301,14 +309,21 @@ with `mr_gate.gate_candidate` and `market_blend.pool()`.
   - The first target date is the first T whose whole capture day D starts after the freeze commit.
   - A1 and A3 read NBM station guidance into band probabilities, so their dates inside MG-1's reserved window are also
     claimed by MG-1. That changes when they may be read, not whether they accrue.
-- **Look (rules 8 and 9).** There is a single look. It comes strictly after the last look of every test that claims any
-  of its dates:
+- **Look schedule (rules 8 and 9, master ruling 2026-10-30).** T+1 needs labels, and its dates are claimed by B and
+  (A1/A3) MG-1 through 12-12, and by PT-1 from its D0 (about 12-12..01-25, once bound). So:
+  1. **First readable look:** the first date after B's 12-13 look. About 40 scored dates become readable at once.
+     This is where the futility path runs: the 7, 14 and 21 looks are applied there along the date-ordered path,
+     and the 31-date look is the one that actually binds. **The 7/14/21 looks cannot run earlier.** No PASS here.
+     Dates claimed by PT-1 are not read at this look.
+  2. **Final look:** no earlier than 70 countable dates AND after PT-1's look (about late January or early
+     February 2027 if PT-1 binds as drafted). The verdict is read only here.
+  Each look comes strictly after the last look of every test that claims any of the dates it reads:
   - B (look 12-13);
   - MG-1 for A1 and A3;
   - any other test in the look chain (L6_G, MG-3, PT-1) whose claimed dates intersect ours.
 
-  The freeze row lists those tests by name and fixes the look as the later of two dates: the day after the last of
-  their recorded looks, and the date by which 70 countable dates have accrued. If a claiming test's look moves later,
+  The freeze row lists those tests by name and fixes the final look as the later of two dates: the day after the
+  last of their recorded looks, and the date by which 70 countable dates have accrued. If a claiming test's look moves later,
   this look moves with it. It is never earlier.
 - **Q1 (read scope at the look): answered by rule 9 (owner 2026-10-30); confirmed by master 2026-10-30 (Q-b).** After
   the last claiming look, the accrued dates join dev, prices included. At the look the scorer reads only the following,
@@ -331,8 +346,8 @@ with `mr_gate.gate_candidate` and `market_blend.pool()`.
   - **P3, checked in the same freeze row:** the emitter is built and tested on recorder data only, and its sha is
     pinned.
   - If P2 or P3 is not met at P1, the lane reports that and waits. It does not freeze a partial batch.
-  - The freeze row carries this file's sha256, the emitter sha, the recorder blobs, the claiming-test list and the
-    look rule. It is written as `pending` before the freeze commit.
+  - The freeze row carries this file's sha256, the emitter sha, the recorder blobs, the R-K back-out file sha256
+    (the σ_d source, checklist (f)), the claiming-test list and the look schedule. It is written as `pending` before the freeze commit.
 
 ## 9. Not done under this rule
 
