@@ -16,6 +16,11 @@ local date D with minute_of_day <= h*60, low = min temp_native, dewpoint = dewpo
 Countable date: a date >= D0 with at least one non-excluded (market, hour) row, i.e. both the serve and the
 research value exist. P1 is scored on the first 45 countable dates; fewer than 45 before the look refuses.
 P2 (non-inferiority on dR) was dropped before the freeze (master's ruling, 2026-10-29).
+
+Clarification 1 (master, 2026-10-31, pre-look; ``docs/research/rodc-forward-prereg-2026-10-29/clarification_1.md``,
+pinned by ``CLARIFICATION_1_SHA256``): the P1 bounds check compares low, high and current all on the WU whole scale
+(``clarified_check_bounds``), and the verdict uses it. The frozen mixed-scale ``odc.check_bounds`` result is kept per
+hour as ``refused_frozen`` and disclosed, non-deciding. ``odc_metar_features`` is unchanged.
 """
 from __future__ import annotations
 
@@ -24,6 +29,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 
 from weather.calibration import odc_metar_features as odc
+from weather.model.mg_serve_core import wu_whole_f
 
 EMBARGO_LAST = date(2026, 9, 29)
 FREEZE_EARLIEST = date(2026, 10, 30)
@@ -36,6 +42,9 @@ P1_LIMITS = {"low_so_far": {"exact_min": 0.95, "max_abs": 2.0, "ge2_max": 0.01},
              "dewpoint_c": {"exact_min": 0.97, "max_abs": 5.0, "ge2_max": 0.01}}
 P1_EXCLUDED_VOID = 0.10   # more than 10% of the scored rows excluded -> P1 VOID
 WU_GAP_VOID = 0.05        # more than 5% of required (market, date) WU days missing after backfill -> VOID
+CLARIFICATION_1_PATH = "docs/research/rodc-forward-prereg-2026-10-29/clarification_1.md"
+CLARIFICATION_1_SHA256 = "9738ce8d7debbe4722aec21d3964b1abd4c9db4f6963ac1cdece486317b96464"
+BOUND_KEYS = ("low_so_far", "high_so_far", "current_temp")
 
 
 class RodcForwardRefused(RuntimeError):
@@ -206,14 +215,33 @@ def wu_gap(required, present):
 
 # ------------------------------------------------------------------------------------------------ P1
 
+def clarified_check_bounds(by_hour):
+    """Clarification 1 (a): ``odc.check_bounds`` with low, high and current all mapped to the WU whole scale by
+    ``wu_whole_f(v, "half_up")`` first. Monotone, so raw low <= raw high gives rounded low <= rounded high. Raises
+    ``odc.OdcMetarRefused`` like the frozen check. -> hours checked."""
+    whole = {h: {k: (wu_whole_f(v, "half_up") if k in BOUND_KEYS else v) for k, v in rec.items()}
+             for h, rec in by_hour.items()}
+    return odc.check_bounds(whole)
+
+
+def _refuses(check, window):
+    try:
+        check(window)
+    except odc.OdcMetarRefused:
+        return True
+    return False
+
+
 def p1_day(market, day, snapshots, wu_rows, ctx, *, tz, unit):
     """P1 records for one (market, date), h07-12, from ``read_snapshots`` and ``read_wu_rows`` output.
-    A bound refusal (``check_bounds`` on the hour, running min against the previous scored hour) marks that hour."""
+    A bound refusal (running min against the previous scored hour) marks that hour: ``refused`` under the clarified
+    check (Clarification 1, deciding), ``refused_frozen`` under the frozen ``odc.check_bounds`` (disclosed only)."""
     check_look(ctx, dates=[day], markets=[market])
     captures = [s["captured_at"] for s in snapshots]
     recs, by_hour = [], {}
     for h in HOURS:
-        rec = {"market": market, "date": day.isoformat(), "hour": h, "excluded": None, "refused": False}
+        rec = {"market": market, "date": day.isoformat(), "hour": h, "excluded": None, "refused": False,
+               "refused_frozen": False}
         i = odc.choose_snapshot(captures, target_date=day, tz=tz, cutoff_hour=h, rule=SNAPSHOT_RULE)
         research = research_features(wu_rows, h)
         if i is None:
@@ -239,10 +267,8 @@ def p1_day(market, day, snapshots, wu_rows, ctx, *, tz, unit):
         window = {h: by_hour[h]}
         if previous is not None:  # running min against the previous hour only; its own bounds were checked
             window[previous] = {"low_so_far": by_hour[previous]["low_so_far"]}
-        try:
-            odc.check_bounds(window)
-        except odc.OdcMetarRefused:
-            rec["refused"] = True
+        rec["refused_frozen"] = _refuses(odc.check_bounds, window)
+        rec["refused"] = _refuses(clarified_check_bounds, window)
         previous = h
     return recs
 
@@ -253,12 +279,13 @@ def countable_dates(records):
 
 
 def _column(recs, serve_key, research_key, limits):
-    exact = ge2 = 0
+    exact = ge2 = refused = 0
     max_abs = 0.0
     for r in recs:
         s, t = r[serve_key], r[research_key]
         if r["refused"] or (s is None) != (t is None):
             ge2 += 1          # a refusal or a one-sided None is a mismatch in the >= 2 bucket, outside max|diff|
+            refused += bool(r["refused"])
             continue
         if s is None:
             exact += 1        # both None (dewpoint missing on both sides)
@@ -271,7 +298,21 @@ def _column(recs, serve_key, research_key, limits):
     rate, share = (exact / n, ge2 / n) if n else (0.0, 1.0)
     ok = rate >= limits["exact_min"] and max_abs <= limits["max_abs"] and share <= limits["ge2_max"]
     return {"n": n, "exact": exact, "exact_rate": rate, "max_abs": max_abs, "ge2": ge2, "ge2_share": share,
-            "pass": bool(n and ok)}
+            "pass": bool(n and ok), "refused": refused, "real_mismatch": ge2 - refused}
+
+
+def _disclosure(scored, cols):
+    """Clarification 1 (d), non-deciding: frozen vs clarified refusal counts, and each column's >= 2 mismatch rate
+    with refused hours split out from real mismatches (|diff| >= 2 or a one-sided None)."""
+    split = {}
+    for name, c in cols.items():
+        n = c["n"]
+        split[name] = {"refused": c["refused"], "refused_share": c["refused"] / n if n else 0.0,
+                       "real_mismatch": c["real_mismatch"], "real_mismatch_share": c["real_mismatch"] / n if n else 0.0}
+    return {"non_deciding": True, "clarification": CLARIFICATION_1_PATH,
+            "clarification_sha256": CLARIFICATION_1_SHA256,
+            "refusals_frozen_check": sum(bool(r.get("refused_frozen")) for r in scored),
+            "refusals_clarified_check": sum(bool(r["refused"]) for r in scored), "columns": split}
 
 
 def p1_verdict(records, wu_present, ctx):
@@ -303,7 +344,7 @@ def p1_verdict(records, wu_present, ctx):
         verdict = "PASS" if all(c["pass"] for c in cols.values()) else "FAIL"
     return {"verdict": verdict, "countable_dates": len(countable), "last_scored_date": last.isoformat(),
             "rows": len(scope), "excluded": excluded, "excluded_share": share, "excluded_reasons": reasons,
-            "wu_gap": gap, "columns": cols}
+            "wu_gap": gap, "columns": cols, "disclosure": _disclosure(scored, cols)}
 
 
 def verdict(p1):

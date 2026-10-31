@@ -1,12 +1,16 @@
 """R-ODC forward scorer (P1 only): look/embargo refusals and P1 on synthetic rows (no forward data is read)."""
+import hashlib
 import json
 from dataclasses import replace
 from datetime import date, datetime, timedelta
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
 
+from weather.calibration import odc_metar_features as odc
 from weather.calibration import rodc_forward_scorer as fs
+from weather.model.mg_serve_core import wu_whole_f
 from weather.market.market_config import event_slug_for_date
 from weather.sources.wu_history import WundergroundHistoryStore
 
@@ -152,6 +156,15 @@ def test_p1_day_bound_refusal_marks_the_hour(tmp_path, monkeypatch):
     monkeypatch.setattr(fs, "_levels", lambda metar, day, hour, tz, unit, now: (38.5 if hour == 7 else 50.0, 45.0))
     recs = _day_records(tmp_path)
     assert [r["hour"] for r in recs if r["refused"]] == [7]  # low 39 > high_so_far 38.5 at h07 only
+    assert [r["hour"] for r in recs if r["refused_frozen"]] == [7]  # whole scale: 39 > 38 refuses under both
+
+
+def test_p1_day_clarified_check_drops_a_rounded_vs_raw_refusal(tmp_path, monkeypatch):
+    # high_so_far 38.66 F (T-group 3.7 C) is on the whole scale 39 = the low: frozen refuses (39 > 38.66), clarified not
+    monkeypatch.setattr(fs, "_levels", lambda metar, day, hour, tz, unit, now: (38.66 if hour == 7 else 50.0, 45.0))
+    recs = _day_records(tmp_path)
+    assert [r["hour"] for r in recs if r["refused_frozen"]] == [7]
+    assert not any(r["refused"] for r in recs)
 
 
 def test_p1_day_refuses_before_the_look():
@@ -159,8 +172,10 @@ def test_p1_day_refuses_before_the_look():
         fs.p1_day("atlanta", D, [], [], replace(CTX, today=date(2026, 12, 1)), tz=TZ, unit="F")
 
 
-def _rec(day, hour, low=(40, 40.0), dew=(30, 30.0), excluded=None, refused=False, market="atlanta"):
+def _rec(day, hour, low=(40, 40.0), dew=(30, 30.0), excluded=None, refused=False, market="atlanta",
+         refused_frozen=None):
     return {"market": market, "date": day.isoformat(), "hour": hour, "excluded": excluded, "refused": refused,
+            "refused_frozen": refused if refused_frozen is None else refused_frozen,
             "serve_low": low[0], "research_low": low[1], "serve_dew": dew[0], "research_dew": dew[1]}
 
 
@@ -213,3 +228,70 @@ def test_outcome_table():
     assert fs.verdict({"verdict": "PASS"}) == "ELIGIBLE_FEATURE"
     assert fs.verdict({"verdict": "FAIL"}) == "CLOSE_SERVE_INFEASIBLE"
     assert fs.verdict({"verdict": "VOID"}) == "VOID"
+
+
+# ------------------------------------------------------------------ Clarification 1 (master, 2026-10-31)
+
+def _refuses(check, window):
+    try:
+        check(window)
+    except odc.OdcMetarRefused:
+        return True
+    return False
+
+
+def test_clarification_1_is_pinned():
+    path = Path(__file__).resolve().parents[2] / fs.CLARIFICATION_1_PATH
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == fs.CLARIFICATION_1_SHA256
+    text = path.read_text(encoding="utf-8")
+    assert ("raw low ≤ raw high implies rounded low ≤ rounded high, so this removes false refusals and "
+            "hides no real violation.") in text
+
+
+@pytest.mark.parametrize("raw", [33.5, 33.62])
+def test_a_min_equal_to_current_never_refuses_under_the_clarified_check(raw):
+    low = wu_whole_f(raw, "half_up")  # the served low of a min of ``raw`` (odc_features, unchanged)
+    window = {7: {"low_so_far": low, "high_so_far": raw, "current_temp": raw}}
+    assert not _refuses(fs.clarified_check_bounds, window)
+    # frozen mixed scales: 33.62 -> low 34 > 33.62 refuses; 33.5 snaps to T-group 33.44 -> low 33, no refusal
+    assert _refuses(odc.check_bounds, window) is (low > raw)
+    assert _refuses(odc.check_bounds, {7: {"low_so_far": 34.0, "high_so_far": 33.5, "current_temp": 33.5}})
+
+
+@pytest.mark.parametrize("window", [
+    {7: {"low_so_far": 40.0, "high_so_far": 38.0, "current_temp": 45.0}},          # low above high
+    {7: {"low_so_far": 40.0, "high_so_far": 45.0, "current_temp": 38.6}},          # low above current (39)
+    {7: {"low_so_far": 38.0}, 8: {"low_so_far": 39.0, "high_so_far": 45.0, "current_temp": 45.0}},  # running min
+])
+def test_a_real_violation_still_refuses(window):
+    assert _refuses(fs.clarified_check_bounds, window)
+    assert _refuses(odc.check_bounds, window)
+
+
+def test_clarified_check_leaves_none_and_the_input_unchanged():
+    window = {7: {"low_so_far": None, "high_so_far": 30.0, "current_temp": None}, 8: {"low_so_far": 33.0}}
+    before = json.dumps(window, sort_keys=True)
+    assert fs.clarified_check_bounds(window) == 2
+    assert json.dumps(window, sort_keys=True) == before
+
+
+def test_p1_report_discloses_frozen_and_clarified_refusals():
+    changes = _h7(2, refused=True)                                         # 2 clarified (and frozen) refusals
+    changes.update({(k, 8): {"refused_frozen": True} for k in range(5)})   # 5 frozen-only refusals
+    changes.update({(k, 9): {"low": (42, 40.0)} for k in range(1)})        # 1 real mismatch
+    out = fs.p1_verdict(_season(changes=changes), _wu_all(), CTX)
+    assert out["verdict"] == "FAIL"                                        # 3/270 = 1.1% at >= 2 (clarified)
+    d = out["disclosure"]
+    assert d["non_deciding"] is True and d["clarification_sha256"] == fs.CLARIFICATION_1_SHA256
+    assert (d["refusals_frozen_check"], d["refusals_clarified_check"]) == (7, 2)
+    low = d["columns"]["low_so_far"]
+    assert (low["refused"], low["real_mismatch"]) == (2, 1)
+    assert low["refused_share"] == pytest.approx(2 / 270) and low["real_mismatch_share"] == pytest.approx(1 / 270)
+    assert (d["columns"]["dewpoint_c"]["refused"], d["columns"]["dewpoint_c"]["real_mismatch"]) == (2, 0)
+    assert out["columns"]["low_so_far"]["ge2"] == 3
+
+
+def test_frozen_only_refusals_do_not_decide():
+    changes = {(k, 7): {"refused_frozen": True} for k in range(10)}         # 3.7% under the frozen check
+    out = fs.p1_verdict(_season(changes=changes), _wu_all(), CTX)
+    assert out["verdict"] == "PASS" and out["disclosure"]["refusals_frozen_check"] == 10
