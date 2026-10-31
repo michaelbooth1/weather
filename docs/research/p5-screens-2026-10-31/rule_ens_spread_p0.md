@@ -8,6 +8,19 @@ Status: DRAFT, pre-declared before any computation (2026-10-31, lane L17, task P
   a release, serving, capture or scheduling decision.
 - The ledger row text (row 93) was committed before this file, in `ledger_rows_draft.md`.
 
+**Amendment A1 (2026-10-31, pre-run; applies the coordinator's rulings; no outcome, price or label was read
+to write it).**
+
+- **Decision: UNDERPOWERED, NOT RUN.** At half the planning δ, power is 0.055 for each arm (0.107 at the full δ). Section 0's data check is complete and stands; it read no outcome. Section (d) carries the MIM §5 rule 6 and checklist (f)
+  compliance line. Nothing in this rule runs, and no module is admitted for it, until master rules otherwise
+  in a dated Clarification with its own sha256.
+- **Ledger number.** Row 93 is PROVISIONAL. L15 assigns the final number in the assembled ledger; rows 82 and
+  83 have already collided. A renumber changes only the label, not this rule, and is recorded as a note.
+- **Archive.** Owner rule: every ruled-out candidate goes to `C:\archive\ruled-out\<row-folder>` with its
+  prereg, script sha256, outputs, receipts and logs. A NOT RUN arm is not ruled out. Its prereg is archived
+  under the same folder only when the assembled ledger records its verdict.
+- **Run bases (ruling 4), recorded and not cut.** The planned base for a run branch is machinery `mr_sweep`/`mr_gate` at `8bb0f9563582885c4d01d34b67476f2563260e43` (`claude/loyo-screen-runenv-20261030`). The input is `points.parquet`, sha256 `bd761fa52869d244addda7fb3746276e1eb6aad2416ac2fdc3291750d7320a7e`, read under its pin with no fetch and no rebuild. The rule branch is `claude/p5-screens-20261031`, based on `1a78e1ba0c8f57c0d420fca96a9528cfb1d8e9de`.
+
 ## 0. Data check (task P5 (c), outcome-free; no download, no rebuild)
 
 Dev-window ECMWF ENS **per-member** values exist locally, and they were obtained free from an official
@@ -179,6 +192,11 @@ These must reproduce before any candidate row is read. A failure makes the run N
   - The control is built in memory inside the run and reported only as its Δ and CI. It is never written
     as a feature, never a candidate and never counted in K. It reads the outcome deliberately, as a
     planted control, and is not an oracle candidate.
+  - **Ruling 3 (coordinator, 2026-10-31): confirmed as a CONTROL, not an oracle, on four conditions.**
+    1. It uses dev-date outcomes dated ≤ 2026-09-29 only.
+    2. It stays in memory and is never written as a candidate vector.
+    3. Its outputs are labelled `CONTROL`.
+    4. SYN+ always runs with its negation SYN−. A run that lacks either one is VOID.
 
 ## (b) Comparator fairness
 
@@ -219,6 +237,37 @@ Consequences:
   is review takeaway 3's relabel.
 - The verdict line must carry TESTED-UNDERPOWERED when the Δ CI includes +0.0043.
 - The post-run sigma_d, rho and block-3 ratio are reported, and they cannot change the verdict.
+
+### MIM §5 rule 6 and checklist (f) compliance (coordinator instruction, 2026-10-31)
+
+**What (f) requires below power 0.5.**
+
+- Power must be ≥ 0.5 at delta, and delta is taken at half the dev point. The checklist says: "State the
+  power at the dev point and at half of it, and use half for class".
+- A test that cannot show this "is a SCREEN or does not launch". That is PREREGISTRATION_CHECKLIST (f),
+  `claude/s5-power-futility-gate-20261030` @ `9206b56a083cb9ca7cb63b0fafddb8c7a98a0d8d`, lines 49-79.
+- MIM §5 rule 6 (`claude/docs-owner-20261030` @ `e759a55d10e31dd48559ef99b9d2959c41271fd3`, lines
+  161-162) says "no screen launched below power 0.5".
+- As written, (f) binds pre-registrations that spend forward dates (checklist line 51). Rule 6's sentence
+  carries no such limit, and the coordinator applies it to these screens.
+
+**Numbers.**
+
+- SE = 0.00754·√1.78/√43 = 0.00153.
+- Power at the planning δ +0.0011 is 0.107. At half (0.00055) it is 0.055.
+- The same holds for both ENS-SD-0712 and ENS-SD-0006, because they share the proxy.
+
+**Why it is not argued admissible as a "KILL at edge size" SCREEN.** A KILL closes the ENS-spread
+estimand (section 7) on a read that misses a planning-size effect about 94% of the time.
+
+**Decision.** Both arms are UNDERPOWERED, NOT RUN. K stays 2, and an arm that is not run carries p = 1.
+The data check in section 0 is the only deliverable of task (c) under this rule.
+
+**Reopening.** A run needs one of the following, as a dated Clarification with its own sha256 before any
+module:
+
+- a master ruling that rule 6 does not bind kill-only dev reads; or
+- a same-pair sigma_d from a captured ENS feed that gives power ≥ 0.5 at half the dev point.
 
 ## (e) Dev-window reuse
 

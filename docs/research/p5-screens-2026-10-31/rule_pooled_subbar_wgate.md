@@ -6,6 +6,19 @@ Status: DRAFT, pre-declared before any computation (2026-10-31, lane L17, task P
 - This is not a release, a promotion or an edge claim.
 - The ledger row text (row 94) was committed before this file, in `ledger_rows_draft.md`.
 
+**Amendment A1 (2026-10-31, pre-run; applies the coordinator's rulings; no outcome, price or label was read
+to write it).**
+
+- **Decision: UNDERPOWERED, NOT RUN.** No block has power ≥ 0.5 at half its dev effect on its own scale. POOL-0712 and F2-1316 fall below it, and POOL-0006 has no same-scale dev effect at all: its members are worse than the market at 00-06. Section (d) carries the MIM §5 rule 6 and checklist (f)
+  compliance line. Nothing in this rule runs, and no module is admitted for it, until master rules otherwise
+  in a dated Clarification with its own sha256.
+- **Ledger number.** Row 94 is PROVISIONAL. L15 assigns the final number in the assembled ledger; rows 82 and
+  83 have already collided. A renumber changes only the label, not this rule, and is recorded as a note.
+- **Archive.** Owner rule: every ruled-out candidate goes to `C:\archive\ruled-out\<row-folder>` with its
+  prereg, script sha256, outputs, receipts and logs. A NOT RUN arm is not ruled out. Its prereg is archived
+  under the same folder only when the assembled ledger records its verdict.
+- **Run bases (ruling 4), recorded and not cut.** These are the planned bases for a run branch: machinery `mr_sweep`/`mr_gate`/`market_blend` at `8bb0f9563582885c4d01d34b67476f2563260e43` (`claude/loyo-screen-runenv-20261030`). The member commits would be merged read-only: R-Q A `19d8223895c4ae3d16faa7ec0b27403fca5547ee` (run env `c471b32b97c1cf68ba03df3b812cb5912827d8f4`), R-I and X17 `6488c7a31623c859631099a882ffee2fd065a925` (X17 rule `cca30734…`), A2 `533ffcb3c8dc6ce2a831e62b41fc080c21e0e2ae`, ASOS `e6c3f30cfdd8ecea56a31b06134ed723dbec2e3e`, F2 `308ce88edb0f25b9a6303065e160a312c4ab42d0`, and R-PD/R-N `a9f9be5b0174dbc773b3853e01189279dac11a1f` (branch tip `03cd7835be134e7faa5c584daa89c2cc7d5c7198`). The rule branch is `claude/p5-screens-20261031`, based on `1a78e1ba0c8f57c0d420fca96a9528cfb1d8e9de`.
+
 ## 0. Selection disclosure (read this first)
 
 **The member set was chosen because each member's dev point estimate was helpful.** The review
@@ -86,7 +99,7 @@ Rules for the table:
 **K = 3 blocks:** POOL-0712 (five members), F2-1316 (one member) and POOL-0006 (two members). Members are
 reported one by one, descriptively. Those per-member numbers are not in K and carry no verdict.
 
-## 3. The F2 conflict (decision needed from the coordinator before the run)
+## 3. The F2 conflict (ruled 2026-10-31: reading (i))
 
 Row 91's kill line closes "MRMS against the market for 13-16 echo max and flag at 25 km". F2's construct
 is MRMS-ECHO35, which row 91 tested and killed. Task P5 lists F2 as a member. This rule therefore
@@ -97,8 +110,13 @@ pre-declares both readings:
   complete.
 - **(ii) Dropped.** F2-1316 is removed before the run (K = 2).
 
-The coordinator's choice goes into a dated Clarification with its own sha256 before S1 runs. Without one,
-(i) applies.
+**Ruling 1 (coordinator, 2026-10-31): reading (i), KEEP.** F2-1316 stays in K, so K = 3.
+
+- It is a re-read of an estimand that row 91 killed.
+- No F2-1316 result of any sign can reopen row 91 or change any row 91 line. A pass would be reported as
+  "re-read of a killed estimand; row 91 stands".
+- Reading (ii) is withdrawn.
+- Under Amendment A1 the block is NOT RUN, but it is still counted in K.
 
 ## 4. Steps
 
@@ -147,6 +165,12 @@ These run before any candidate is scored. Any failure → VOID.
     - SYN− (centre μ_m − 0.5·(y_mid − μ_m) + ε) must read Δ < 0.
   - Handling: built in memory, reported only as Δ, CI and w. It is never a candidate and never in K. It
     reads the outcome deliberately as a planted control, and is not an oracle candidate.
+  - **Ruling 3 (coordinator, 2026-10-31): confirmed as a CONTROL, not an oracle, on four conditions.**
+    1. It is built only from dev-date outcomes dated ≤ 2026-09-29. The run refuses any later date.
+    2. It stays in memory. It is never written as a candidate vector, column or emit; only its Δ, CI and
+       w are written.
+    3. Every output field that carries it is labelled `CONTROL`.
+    4. Each planted control runs with its negation. A run that lacks either one is VOID.
 
 ## (b) Comparator fairness
 
@@ -185,6 +209,67 @@ These are the checklist (f) power-gate fields. N = 43 date clusters per block (2
   Four of the five 07-12 members qualify, and X17 does not; it is in the pool because the task lists it.
 - **Rule 6.** Power ≥ 0.5 is not met at 07-12 or 13-16. Every block is therefore labelled SCREEN, and a
   KILL is "KILL at edge size", never a statement that the members carry no information.
+  This bullet is superseded by the compliance line below.
+
+**Correction (Amendment A1, before any run).** The table's planning deltas are not on the pair's scale.
+Checklist (f) requires "sigma_d from the same pair on the same scale". Each member headline is that
+member's own date-clustered dR against its own comparator:
+
+- R-I: gate 2 against the uncalibrated arm, `C:/t/l2/rungi/score/ri_score.json`, sha256
+  `59bd3da92eb8ca0aca9047463f6f847a1d73dde39019aaed82f9a9652c281e0e`;
+- X17: total dR against L6, `C:/t/l2/rung0712/blend/rung_blend.json`, sha256
+  `53510ba390171be7a412993db4652750d93fb8da428821e3707279af45b73e09`;
+- R-PD: gate 2 dR against MG-1, `C:/t/l3/pd/step2/gate2.json`, sha256
+  `86268ec6a71267e536a280324ef4fd7e273356fea550ffa0bc9907a70aa20914`;
+- R-N: gate 2 dR against MG-1, `C:/t/l3/pd/rn/gate2.json`, sha256
+  `d299bbf591150c8c74de6c83e372c73c14076fff6ebf82e5bbb95a39b382831c`.
+
+sigma_d, by contrast, is the Brier difference MG-1 − market.
+
+- No member has a measured dev effect for the pooled blend minus the market, which is this rule's
+  estimand.
+- The only same-pair market readings on file are gate 3 (reported only) in the two 00-06 receipts. Their
+  95% intervals for the 00-06 excess over the market are [+0.0057, +0.0102] for R-PD and
+  [+0.0064, +0.0109] for R-N. Both members are therefore worse than the market at 00-06.
+- The 00-06 line "power about 1.00" is withdrawn.
+
+### MIM §5 rule 6 and checklist (f) compliance (coordinator instruction, 2026-10-31)
+
+**What (f) requires below power 0.5.**
+
+- Power must be ≥ 0.5 at delta, and delta is taken at half the dev point. The checklist says: "State the
+  power at the dev point and at half of it, and use half for class".
+- A test that cannot show this "is a SCREEN or does not launch". That is PREREGISTRATION_CHECKLIST (f),
+  `claude/s5-power-futility-gate-20261030` @ `9206b56a083cb9ca7cb63b0fafddb8c7a98a0d8d`, lines 49-79.
+- MIM §5 rule 6 (`claude/docs-owner-20261030` @ `e759a55d10e31dd48559ef99b9d2959c41271fd3`, lines
+  161-162) says "no screen launched below power 0.5".
+- As written, (f) binds pre-registrations that spend forward dates (checklist line 51). Rule 6's sentence
+  carries no such limit, and the coordinator applies it to these screens.
+
+**Why no block is argued admissible as a "KILL at edge size" SCREEN.**
+
+- A dev read can only kill (MIM §5 rule 1), and section 6's kill line closes an estimand.
+- At power 0.03-0.27, a KILL would close the pooled family on a read that misses a real effect of the
+  planning size 73-97% of the time.
+- The "KILL at edge size" label does not remove that false-closure hazard.
+
+Power is computed as Φ(δ/SE − 1.96), with SE = σ_d·√1.78/√43.
+
+| block | same-scale dev point | power at dev point | power at half (used for class) | decision |
+| --- | --- | --- | --- | --- |
+| POOL-0712 | none measured; even taking the table's 0.0026 at face value | ≤ 0.271 | ≤ 0.099 | UNDERPOWERED, NOT RUN |
+| F2-1316 | none measured; the table's 0.0005 | 0.039 | 0.031 | UNDERPOWERED, NOT RUN (still in K, ruling 1) |
+| POOL-0006 | none; both members are worse than the market (gate 3) | not computable | not computable | UNDERPOWERED, NOT RUN |
+
+**Consequence.**
+
+- Row 94's verdict is NOT RUN, UNDERPOWERED.
+- K stays 3. If a later ruling runs only some blocks, every block that is not run carries p = 1 in the
+  BH family.
+- No member, estimand or kill line is closed, and no outcome is read.
+- A run needs master to rule either that rule 6 does not bind kill-only dev reads, or that a same-scale
+  dev point exists with power ≥ 0.5 at half. That ruling lands as a dated Clarification with its own
+  sha256 before any module is written or admitted.
 - The post-run sigma_d, rho and block-3 ratio are reported, and they cannot change the verdict.
 
 ## (e) Dev-window reuse

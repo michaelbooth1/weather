@@ -8,6 +8,19 @@ Status: DRAFT, pre-declared before any computation (2026-10-31, lane L17, task P
 - Nothing dated 2026 is read. No dev, capture, price, panel or settlement row is opened.
 - The ledger row text (row 95) was committed before this file, in `ledger_rows_draft.md`.
 
+**Amendment A1 (2026-10-31, pre-run; applies the coordinator's rulings; no outcome, price or label was read
+to write it).**
+
+- **Decision: UNDERPOWERED, NOT RUN.** At half the planning δ, power is 0.088 for every arm (0.230 at the full δ). Section (d) carries the MIM §5 rule 6 and checklist (f)
+  compliance line. Nothing in this rule runs, and no module is admitted for it, until master rules otherwise
+  in a dated Clarification with its own sha256.
+- **Ledger number.** Row 95 is PROVISIONAL. L15 assigns the final number in the assembled ledger; rows 82 and
+  83 have already collided. A renumber changes only the label, not this rule, and is recorded as a note.
+- **Archive.** Owner rule: every ruled-out candidate goes to `C:\archive\ruled-out\<row-folder>` with its
+  prereg, script sha256, outputs, receipts and logs. A NOT RUN arm is not ruled out. Its prereg is archived
+  under the same folder only when the assembled ledger records its verdict.
+- **Run bases (ruling 4), recorded and not cut.** The planned base for a run branch is `9ee8a243f55efe314ad5a1b1b33dd0cf0816508e` (row 92's tip). These would be merged read-only into it: `claude/stack-l9-20261025` @ `8167b89a898699c2103cd6be136cc09ee9702c85` (X13) and `claude/rung0712-20261025` @ `6488c7a31623c859631099a882ffee2fd065a925` (X18/X20 via `pooled_residual_model`, imported only). The rule branch is `claude/p5-screens-20261031`, based on `1a78e1ba0c8f57c0d420fca96a9528cfb1d8e9de`.
+
 ## 0. Why this batch exists (scope rulings)
 
 - **R9** (EF §10af, master 2026-10-25) scopes the R-I kill. It covers only fitted temperature or scale
@@ -98,9 +111,19 @@ from `permarket_octdec.gate`.
   - The floor is never weakened: σ' ≥ 1 °F, and the observed running-max floor R is applied unchanged.
   - W1 first faces R-Z's P0 screen (rule `36fa7726…`): nested-LOYO Spearman ρ(z − z̄, |dmax − mu|) ≥ 0.05
     pooled, with at most 1 opposite-sign year. Below that it is CLOSED at P0 (p = 1, still in K).
-  - **Disclosed:** the coordinator may rule that |n − v| is an internal disagreement map that falls under
-    R-I's kill rather than R9. If so, W1 is withdrawn before the run by a dated Clarification (K = 3). No
-    substitute width signal is added.
+  - **R15 applied (coordinator ruling 2, 2026-10-31): W1 STAYS (K = 4).** R-I's measured width input was
+    not |n − v| or any monotone transform of it.
+    - `C:\t\l2\rungi\rule_ri.md` (sha256
+      `b8a3d79ca13111db2bd667dc16e7a8418ddfe27bfaecbfaea23b099037341730`) defines R-I at lines 48-54: "a
+      per-hour temperature τ_h, applied as q_b ∝ p_b^τ_h". There is one τ per local hour h07-h12, pooled
+      over all markets, chosen on the grid 0.50..3.00.
+    - That is a constant per hour, with no day-specific input.
+    - R-I's kill text at lines 113-115 closes another "temperature grid, hour grouping, scale-parameter
+      variant, per-market map, conditional trigger or isotonic form" on NBM-anchored arms.
+    - W1 is none of those. It is a day-specific width driven by a measured disagreement (R9 spread
+      information), with its global log multiplier capped at 0.02 so that it cannot act as a re-fitted
+      temperature.
+    - No substitute width signal is added.
   - HRRR 3x3 spread is not used: X38/X39 closed it at all hours (Aug-Sep). The ENS spread has no Oct-Dec
     history locally (row 93, section 0).
 - **X13 columns** are the L9 constructs `ols_floor_ladder.overnight_lows` (`claude/stack-l9-20261025` @
@@ -160,6 +183,12 @@ Any failure → VOID, and no arm is reported.
     - The negation −z must fit γ_h = 0 in ≥ 4 of 5 folds per hour, with a d upper bound ≥ 0. One-sidedness
       means no help is possible from the wrong sign.
   - These read the outcome deliberately as planted controls. They are never candidates and never in K.
+  - **Ruling 3 (coordinator, 2026-10-31): confirmed as CONTROLS, not an oracle.** Every planted column and
+    its negation are built in memory only and are never written as a candidate vector or column. Every
+    output field that carries one is labelled `CONTROL`. A run that lacks either the planted control or its
+    negation is VOID.
+  - The ruling's "dev outcomes ≤ 09-29" condition holds trivially here: this batch reads only Oct-Dec
+    2021-25 history, and no 2026 date.
 - **C-d, training score.** In every fold the fitted lever is not worse than lever = 0 on its own training
   rows (row 92's check).
 
@@ -208,6 +237,37 @@ Consequences:
 - A KILL here is "KILL at edge size" (TESTED-UNDERPOWERED when the CI includes −0.0016), and it keeps each
   item's reopen line (review takeaway 3).
 - Futility look: none. One look only.
+
+### MIM §5 rule 6 and checklist (f) compliance (coordinator instruction, 2026-10-31)
+
+**What (f) requires below power 0.5.**
+
+- Power must be ≥ 0.5 at delta, and delta is taken at half the dev point. The checklist says: "State the
+  power at the dev point and at half of it, and use half for class".
+- A test that cannot show this "is a SCREEN or does not launch". That is PREREGISTRATION_CHECKLIST (f),
+  `claude/s5-power-futility-gate-20261030` @ `9206b56a083cb9ca7cb63b0fafddb8c7a98a0d8d`, lines 49-79.
+- MIM §5 rule 6 (`claude/docs-owner-20261030` @ `e759a55d10e31dd48559ef99b9d2959c41271fd3`, lines
+  161-162) says "no screen launched below power 0.5".
+- As written, (f) binds pre-registrations that spend forward dates (checklist line 51). Rule 6's sentence
+  carries no such limit, and the coordinator applies it to these screens.
+
+**Numbers.**
+
+- SE = 0.00833·√1.78/√375 = 0.000574.
+- Power at the planning δ 0.0007 is 0.230. At half (0.00035) it is 0.088.
+- The corpus holds 375 dates, and N80 at δ is about 2,000.
+
+**Why it is not argued admissible.** A KILL here closes each item's Oct-Dec estimand (section 5) on a read
+that misses a planning-size effect about 91% of the time, and the corpus cannot grow to N80.
+
+**Decision.** W1, X13, X18 and X20 are all UNDERPOWERED, NOT RUN. K stays 4, and an arm that is not run
+carries p = 1. Their reopen lines and R10 status are unchanged by this rule.
+
+**Reopening.** A run needs one of the following, as a dated Clarification with its own sha256 before any
+module:
+
+- a master ruling that rule 6 does not bind kill-only history reads; or
+- a δ ≥ 0.0011, which is where power at half reaches 0.5, measured on these rows by an earlier read.
 
 ## (e) Dev-window reuse
 
