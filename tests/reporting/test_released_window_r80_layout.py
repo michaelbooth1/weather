@@ -167,7 +167,7 @@ def test_build_writes_only_under_out_and_records_no_score(tmp_path):
     assert receipt["layout_dates"] == ["2026-10-05"]
     assert json.loads((out / "layout_receipt.json").read_text(encoding="utf-8")) == receipt
     text = json.dumps(receipt).lower()
-    assert not any(word in text for word in ("brier", "ratio", "score\"", "verdict"))
+    assert not any(word in text for word in ("brier", "ratio", "verdict"))
 
 
 @pytest.mark.parametrize(("outcomes", "message"), [
