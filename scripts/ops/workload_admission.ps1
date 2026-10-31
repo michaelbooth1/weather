@@ -631,6 +631,7 @@ function Get-WeatherWorkstationOfflineModule {
         "weather.calibration.gap_to_market_atlas",
         "weather.calibration.l5_subset_scores",
         "weather.calibration.market_blend",
+        "weather.calibration.c3_kill_tier",
         "weather.calibration.dead_bucket",
         "weather.calibration.dead_bucket_toronto",
         "weather.calibration.new_city_corpus",
