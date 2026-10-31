@@ -290,6 +290,8 @@ ull_sim_out.json`, sha256
       bound, so the rule is unchanged (no t critical value, no higher VIF floor).
     - ρ 0.5 (stress case, not a gate): false PASS **0.0330** with futility (0.0380 without). The lag-1 ρ̂ on 75
       dates is biased low, so VIF_look under-corrects there. Reported only.
+    - The ρ 0.5 false PASS of 0.033 is a stress case only and is not a gate (master ruling 2026-10-30, rev 8
+      accepted); only the ρ 0.28 rate is held to 0.025.
 
   The analytic table below (no futility, VIF 1.78) is kept for reference only; the simulated N governs.
 
