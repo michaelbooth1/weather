@@ -84,10 +84,12 @@ def add_low(frame, research_root):
         sr = {d: sunrise_utc(d, m["lat"], m["lon"]) for d in q.local_date.unique()}
         sq = pd.DataFrame({"sr": [sr[d] for d in q.local_date]}, index=q.index).dropna()
         sl = sq.reset_index().sort_values("sr")
+        sl["sr"] = sl.sr.astype("datetime64[ns, UTC]")
         gv = g[["valid_utc", "temp"]].sort_values("valid_utc")
+        gv["valid_utc"] = gv.valid_utc.astype("datetime64[ns, UTC]")
         ms = pd.merge_asof(sl, gv, left_on="sr", right_on="valid_utc", direction="backward",
                            tolerance=pd.Timedelta(minutes=SR_MAX_AGE_MIN)).set_index("index")
-        dh = (q.loc[ms.index, "t_utc"] - ms.sr).dt.total_seconds() / 3600.0
+        dh = (q.loc[ms.index, "t_utc"].astype("datetime64[ns, UTC]") - ms.sr).dt.total_seconds() / 3600.0
         tt = frame.loc[ms.index, "t"].to_numpy(float)
         rate = np.where(dh.to_numpy(float) > 0, (tt - ms.temp.to_numpy(float)) / dh.to_numpy(float), np.nan)
         out.loc[ms.index, "rate_0712"] = rate
