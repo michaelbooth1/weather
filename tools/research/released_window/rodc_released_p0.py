@@ -18,13 +18,18 @@ tree, ``PYTHONPATH=<run tree>\src``)::
     python -m tools.research.released_window.rodc_released_p0 preflight
     python -m tools.research.released_window.rodc_released_p0 fit  --out C:\t\l16\rodc\<new>
     python -m tools.research.released_window.rodc_released_p0 parity --out C:\t\l16\rodc\<new>
+    python -m tools.research.released_window.rodc_released_p0 parity2 --out C:\t\l16\rodc\<new>
     python -m tools.research.released_window.rodc_released_p0 look --out C:\t\l16\rodc\<new> \
         --coef <fit out>\coef.json --coef-sha <sha256 of coef.json> \
-        --parity <parity out>\parity_receipt.json --parity-sha <its sha256> --approval "<coordinator admission ref>"
+        --parity <parity2 out>\parity2_receipt.json --parity-sha <its sha256> --approval "<coordinator admission ref>"
 
 Master's 2026-10-31 rulings: every stage also checks the pin identity (ruling 1); ``parity`` is the pre-look,
 outcome-free train/serve parity of the lows (ruling 4) whose ``parity_limited`` flags the look appends to the
-affected arm's label; the look refuses while the C-c clip / renormalisation path difference is unruled (ruling 2).
+affected arm's label. Clarification 2 (``CLARIFICATION2_SHA256``) then rules: C-c keeps the frozen statistic with
+exact identities, the m < EPS count and a non-deciding all-m >= EPS sensitivity that turns an unreproduced KILL into
+UNRESOLVED; the serve-side 30..125 F filter is a defect, so the look uses the trainer's rule (none, hence the
+physical bound >= -40) through a scoped override, and reads only the ``parity2`` receipt; Denver is excluded from
+both arms (US10); the projected power at the US10 N is printed and recorded before any Delta.
 
 ``preflight`` reads no data: origin, clean tree, rule and blob shas. ``fit`` reads only the L9 Oct-Dec history
 caches (and L3's centre 11-24 rows for control C-f). ``look`` is the single look: controls C-a, C-b, C-d, C-e on
@@ -58,9 +63,12 @@ RULE_PATH = "docs/research/rodc-released-p0-2026-10-31/rule_rodc_released_p0.md"
 RULE_SHA256 = "9bff5c02762a27ef604219b305e6a8043497cbf0316ec2403b879f4ed09a2f11"
 CLARIFICATION_PATH = "docs/research/rodc-released-p0-2026-10-31/clarification_1.md"
 CLARIFICATION_SHA256 = "064c4f267fab1e70d5b046c00da2b9796adae77031918ce08caee2030cd48be6"
+CLARIFICATION2_PATH = "docs/research/rodc-released-p0-2026-10-31/clarification_2.md"
+CLARIFICATION2_SHA256 = "cec81d4fa556866a162e47ee990385f5c471973ced9a1fd35a93d98deef182c2"
 
 OUT_ROOT = Path(r"C:\t\l16\rodc")
 LOOK_RECEIPT = "look_receipt.json"
+LOOK_STARTED = "look_started.json"        # exclusive-created before the release layout is loaded
 FIT_RECEIPT = "fit_receipt.json"
 
 # Inputs (read only).
@@ -93,6 +101,7 @@ BLOBS = {
     "src/weather/calibration/gap_to_market_atlas.py": "ba7ce305f68b1fa66ef0b30bccfa3408f5f13ffd",
     "src/weather/calibration/pooled_residual_model.py": "a7f9124fc6cb42b0307d9e681b4fef4928758b74",
     "src/weather/model/feature_store.py": "c11b3ca94747b3c1603cbbff9c4eebd4ad83cb4a",
+    "src/weather/model/model_climatology.py": "a4eeabf191b7cd2326005ad10c2ea9ef81d32d0a",   # trainer rule (none)
     "src/weather/model/observed_running_max.py": "a141ff3b55e21c097621a9ec21695da1efecc570",
     "src/weather/market/market_registry.py": "c6c8b143a9ded1462ccf6bd32738fa025db4ecdc",
     "tools/research/released_window/served_market_blocks.py": "86b4652c5ac03de43d289ae4cc1e3d6e82544dbf",
@@ -121,6 +130,29 @@ METAR_HISTORY = Path(r"C:\Users\Michael\Documents\github\weather\data\metar")   
 PARITY_RECEIPT = "parity_receipt.json"
 PARITY_MAE_MAX, PARITY_BIAS_MAX = 0.5, 0.3      # deg F; beyond either, in any market, the arm is parity-limited
 PARITY_SUFFIX = " [parity-limited; kill scope: this construction only]"
+PARITY2_RECEIPT = "parity2_receipt.json"
+
+# Clarification 2 point 2: the serve-side temperature rule. The frozen odc rule (feature_store's 30..125 F) is
+# ruled a defect; the trainer path has no plausibility rule, so the look keeps every finite value >= -40 (native;
+# -40 F = -40 C). Applied in this driver only, as a scoped override of the predicate odc_metar_features calls.
+SERVE_RULE_FROZEN, SERVE_RULE_OFF, SERVE_RULE_TRAINER = "frozen_30F_125F", "filter_off", "trainer_physical_m40"
+SERVE_RULES = (SERVE_RULE_FROZEN, SERVE_RULE_OFF, SERVE_RULE_TRAINER)
+LOOK_SERVE_RULE = SERVE_RULE_TRAINER
+PHYSICAL_LOWER_NATIVE = -40.0
+TRAINER_PLAUSIBILITY = {
+    "rule": "none in the trainer path; native-unit physical bound: keep finite values >= -40 (F = C), no upper bound",
+    "trainer_path": [
+        {"file": "src/weather/model/model_climatology.py", "function": "ClimatologyMixin.historical_target_cache",
+         "blob": "a4eeabf191b7cd2326005ad10c2ea9ef81d32d0a",
+         "sha256": "2d69cb04616fddd29b77c4387fa1cf6bc1d708c96883ebffb711fe15b0c4f43d"},
+        {"file": "src/weather/model/feature_store.py", "function": "row_temp_native",
+         "blob": "c11b3ca94747b3c1603cbbff9c4eebd4ad83cb4a"},
+        {"file": "src/weather/calibration/ols_floor_ladder.py", "function": "overnight_lows",
+         "blob": "eedd3d32f5044cf797ba0b053afec83d580974be",
+         "sha256": "6e6d100fb5bb2c9c2d811a681a3a88d9458305ef701ba4b8651be34011c12e8e"},
+    ],
+}
+ODC_FROZEN_BLOB = "1cc4d565468bf4959137a8f6f6cec5b10adfce24"   # odc_metar_features.py at 0e11b018f (row 72)
 
 RELEASE_FIRST, RELEASE_LAST = date(2026, 10, 1), date(2026, 10, 14)
 RELEASE_DATES = tuple((RELEASE_FIRST + timedelta(days=i)).isoformat() for i in range(14))
@@ -136,7 +168,9 @@ CONTROL_CENTRE = "11-24"
 ARM_RODC = "R-ODC-lin (linear surrogate on frozen R-ODC features)"
 ARM_X13 = "X13"
 ARMS = {ARM_RODC: ("low_so_far", "dewpoint_c"), ARM_X13: ("low_so_far", "low_prev_evening", "dewpoint_c")}
-ARM_UNCOVERED_MARKETS = {ARM_RODC: frozenset({"denver"}), ARM_X13: frozenset()}
+# Denver: R-ODC as frozen in row 72 (KDEN vs KBKF); X13 by Clarification 2 point 2(d) (master's amendment).
+ARM_UNCOVERED_MARKETS = {ARM_RODC: frozenset({"denver"}), ARM_X13: frozenset()}   # the fit (coef 24bdb0a6) as run
+ARM_EXCLUDED_MARKETS = {ARM_RODC: frozenset({"denver"}), ARM_X13: frozenset({"denver"})}   # look and parity: US10
 # Parity comparisons per arm: (serve-side METAR feature, trainer-cache column).
 ARM_PARITY = {ARM_RODC: (("odc_low_so_far", "low_so_far"),),
               ARM_X13: (("x13_low_so_far", "low_so_far"), ("low_prev_evening", "low_prev_evening"))}
@@ -144,6 +178,7 @@ MIN_FIT_ROWS = 30
 
 MIN_DATES, MIN_SNAPS = 10, 1000            # row 80's coverage floor
 DELTA_EDGE = 0.2236                       # sqrt(0.05), EXHAUSTION_REGISTER section 6
+ROW80_SE = 0.034993730047793145           # row 80's wider per-date SE (label receipt 235736c9)
 POWER_MIN = 0.5
 BH_Q = 0.10
 C_C_TOL, C_D_TOL, C_F_TOL = 1e-15, 1e-12, 1e-9
@@ -156,6 +191,7 @@ LABEL_UNTESTABLE_SUB = "UNTESTABLE at sub-edge"
 LABEL_KILL = "KILL at edge size"
 LABEL_SCREEN = "SCREEN (descriptive, forward prereg only)"
 LABEL_NOT_KILLED = "NOT KILLED at edge (descriptive)"
+LABEL_UNRESOLVED_EPS = "UNRESOLVED (EPS-path sensitive)"
 REGISTER_TEXT = {
     ARM_RODC: ("A kill of R-ODC-lin closes only the linear market tilt on these features on these cells. "
                "Row 72's HGB candidate keeps its forward P1."),
@@ -203,7 +239,8 @@ def check_blobs(tree=TREE, blobs=None):
 
 def check_rule_files(tree=TREE):
     out = {}
-    for rel, want in ((RULE_PATH, RULE_SHA256), (CLARIFICATION_PATH, CLARIFICATION_SHA256)):
+    for rel, want in ((RULE_PATH, RULE_SHA256), (CLARIFICATION_PATH, CLARIFICATION_SHA256),
+                      (CLARIFICATION2_PATH, CLARIFICATION2_SHA256)):
         got = sha256_file(Path(tree) / rel)
         if got != want:
             raise Refused(f"refused: {rel} sha256 {got} is not the pinned {want}")
@@ -316,7 +353,8 @@ def check_out_dir(out, root=OUT_ROOT):
 
 def check_no_prior_look(root=OUT_ROOT):
     root = Path(root)
-    prior = sorted(str(p) for p in root.glob(f"*/{LOOK_RECEIPT}")) if root.is_dir() else []
+    prior = sorted(str(p) for name in (LOOK_STARTED, LOOK_RECEIPT) for p in root.glob(f"*/{name}")) \
+        if root.is_dir() else []
     if prior:
         raise Refused(f"refused: a look already ran ({prior[0]}); there is no second look")
     return True
@@ -338,6 +376,8 @@ def write_exclusive(path, payload):
 
 
 def _default(x):
+    if isinstance(x, np.bool_):
+        return bool(x)
     if isinstance(x, (np.integer,)):
         return int(x)
     if isinstance(x, (np.floating,)):
@@ -531,11 +571,55 @@ def instants(metar, tz):
     return out
 
 
+_ACTIVE_RULE = [SERVE_RULE_FROZEN]
+
+
+def serve_plausible(value, unit, rule=None):
+    """The serve-side temperature predicate under ``rule`` (default: the active one)."""
+    from weather.model.feature_store import plausible_native_temperature
+
+    rule = _ACTIVE_RULE[0] if rule is None else rule
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return False
+    if not math.isfinite(v):
+        return False
+    if rule == SERVE_RULE_FROZEN:
+        return bool(plausible_native_temperature(v, unit))
+    if rule == SERVE_RULE_OFF:
+        return True
+    if rule == SERVE_RULE_TRAINER:
+        return v >= PHYSICAL_LOWER_NATIVE
+    raise Refused(f"refused: unknown serve temperature rule {rule!r}")
+
+
+@contextlib.contextmanager
+def serve_rule(rule):
+    """Scoped in-process override (Clarification 2 point 2): ``odc_metar_features.kept_rows`` and ``x13_lows``
+    use ``rule``'s predicate; the frozen module file is not touched and its name is restored on exit."""
+    from weather.calibration import odc_metar_features as odc
+
+    if rule not in SERVE_RULES:
+        raise Refused(f"refused: unknown serve temperature rule {rule!r}")
+    saved, saved_rule = odc.plausible_native_temperature, _ACTIVE_RULE[0]
+    odc.plausible_native_temperature = lambda value, unit: serve_plausible(value, unit, rule)
+    _ACTIVE_RULE[0] = rule
+    try:
+        yield {"rule": rule, "patched": "weather.calibration.odc_metar_features.plausible_native_temperature"}
+    finally:
+        odc.plausible_native_temperature = saved
+        _ACTIVE_RULE[0] = saved_rule
+
+
 def x13_lows(metar, *, target_date, tz, unit, cutoff_hour, now):
     """(low_so_far, low_prev_evening) through ``ols_floor_ladder.overnight_lows`` on the captured METAR rows of D
-    and D-1 with an instant <= the capture (and <= h:00 on D), as (minute_of_day, temperature) in memory."""
+    and D-1 with an instant <= the capture (and <= h:00 on D), as (minute_of_day, temperature) in memory. Each
+    temperature is rounded with ``wu_whole_f(v, "half_up")`` as arm 1 is, because the trainer rows are WU whole
+    degrees (master review of ad94217fd, fix 2)."""
     from weather.calibration import ols_floor_ladder as lad
-    from weather.model.feature_store import plausible_native_temperature, row_temp_native
+    from weather.model.feature_store import row_temp_native
+    from weather.model.mg_serve_core import wu_whole_f
 
     now_local = now.astimezone(tz)
     cutoff = datetime.combine(target_date, time(int(cutoff_hour), 0), tzinfo=tz)
@@ -549,9 +633,9 @@ def x13_lows(metar, *, target_date, tz, unit, cutoff_hour, now):
             v = float(v)
         except (TypeError, ValueError):
             continue
-        if not math.isfinite(v) or not plausible_native_temperature(v, unit):
+        if not math.isfinite(v) or not serve_plausible(v, unit):
             continue
-        rec = {"minute_of_day": t.hour * 60 + t.minute, "temp_native": v}
+        rec = {"minute_of_day": t.hour * 60 + t.minute, "temp_native": float(wu_whole_f(v, "half_up"))}
         if t.date() == target_date and t <= cutoff:
             day.append(rec)
         elif t.date() == prev_day:
@@ -580,21 +664,35 @@ def snapshot_features(rec, *, market, target_date, local_hour, captured, tz, uni
             "n_rows": f["n_rows"], "n_implausible": implausible_count(d, kept, unit), "skipped": f["skipped"]}
 
 
-def implausible_count(metar, kept, unit):
-    """Kept-window rows whose numeric temperature the plausibility filter dropped (below 30 F, above 125 F)."""
-    from weather.model.feature_store import plausible_native_temperature, row_temp_native
+def implausible_count(metar, kept, unit, rule=SERVE_RULE_FROZEN):
+    """Kept-window rows (by their index in ``metar``) whose finite numeric temperature ``rule`` rejects; the
+    default counts what the frozen odc filter drops (below 30 F, above 125 F) under any active rule."""
+    from weather.model.feature_store import row_temp_native
 
     rows = (metar or {}).get("rows") or []
     n = 0
-    for _, i, temp, _ in kept:
-        if temp is not None:
-            continue
+    for _, i, _, _ in kept:
         try:
             v = float(row_temp_native(rows[i]))
         except (TypeError, ValueError):
             continue
-        if math.isfinite(v) and not plausible_native_temperature(v, unit):
+        if math.isfinite(v) and not serve_plausible(v, unit, rule):
             n += 1
+    return n
+
+
+def below_count(metar, kept, bound):
+    """Kept-window rows with a finite temperature below ``bound`` (native)."""
+    from weather.model.feature_store import row_temp_native
+
+    rows = (metar or {}).get("rows") or []
+    n = 0
+    for _, i, _, _ in kept:
+        try:
+            v = float(row_temp_native(rows[i]))
+        except (TypeError, ValueError):
+            continue
+        n += bool(math.isfinite(v) and v < bound)
     return n
 
 
@@ -668,7 +766,7 @@ def read_export(root, sums_sha, wanted):
         with (root / rel).open("rb") as fh:
             for lineno, line in enumerate(fh, 1):
                 h.update(line)
-                m = SNAP_ID.search(line, 0, 16384)
+                m = SNAP_ID.search(line)
                 sid = m.group(1).decode() if m else None
                 if sid not in ids:
                     continue
@@ -815,8 +913,11 @@ def control_cc(t, geo):
     expected = np.where(clipped_snap[t.band_snap], raw * np.repeat(tot_m / tot_r, t.n), m)
     pl_err, pl_err_unclipped = 0.0, 0.0
     unclipped = ~clipped_snap[t.band_snap]
+    pl_bitwise = None
     for seed in sw.PLACEBO_SEEDS:
         pl, _ = sw.disagreement_placebo(t, c, seed)
+        if pl_bitwise is None:
+            pl_bitwise = int(np.count_nonzero(pl != expected))
         if len(pl):
             pl_err = max(pl_err, float(np.max(np.abs(pl - expected))))
             if unclipped.any():
@@ -824,9 +925,12 @@ def control_cc(t, geo):
     ok = c_err <= C_C_TOL and pl_err <= C_C_TOL
     if not ok:
         raise Refused(f"refused: C-c zero-tilt identity failed (c {c_err}, placebo {pl_err})")
-    return {"max_abs_c_minus_m": c_err, "max_abs_placebo_minus_expected": pl_err,
+    return {"max_abs_c_minus_m": c_err, "max_abs_placebo_minus_clip_renorm_m": pl_err,
             "max_abs_placebo_minus_m_unclipped_snapshots": pl_err_unclipped,
-            "snapshots_with_m_below_eps": int(clipped_snap.sum()), "tolerance": C_C_TOL, "verdict": "PASS"}
+            "bands_bitwise_unequal": {"candidate_vs_m": int(np.count_nonzero(c != m)),
+                                      "placebo_seed0_vs_clip_renorm_m": pl_bitwise, "bands": int(len(m))},
+            "snapshots_with_m_below_eps": int(clipped_snap.sum()), "snapshots": int(len(t.snaps)),
+            "tolerance": C_C_TOL, "ruling": CC_PATH_RULING, "verdict": "PASS"}
 
 
 def control_restrict_identity(t):
@@ -872,6 +976,93 @@ def subgroup_deltas(arm, values, t, geo, counts, score_dates, donors, res):
             "by_stratum": sw._subgroups(stratum, pop, t, c, pls, e, didx, nd, counts)}
 
 
+def all_m_ok(t):
+    """Per snapshot: True when every band has m >= EPS (Clarification 2 point 1)."""
+    from weather.calibration import market_blend as mb
+
+    below = np.bincount(t.band_snap, weights=(t.p_market < mb.EPS).astype(float), minlength=len(t.snaps))
+    return below == 0
+
+
+def eps_sensitivity(arm, values, t, geo, score_dates, donors, res):
+    """Non-deciding: Delta and the D3 interval on the arm's population restricted to snapshots whose every band
+    has m >= EPS; the same c and placebos as ``p0_candidate`` (its pooled Delta is reproduced first)."""
+    from weather.calibration import market_blend as mb
+    from weather.calibration import mr_sweep as sw
+
+    covered = np.isfinite(values)
+    s = sw.band_signal("C", 1, np.where(covered, values, np.nan), t, geo)
+    c, _ = sw.tilt(t, geo, s, covered)
+    cov_f = np.repeat(covered.astype(float), t.n)
+    pls, donor_ok = [], np.ones(len(t.snaps), bool)
+    for seed in sw.PLACEBO_SEEDS:
+        pl, _ = sw.disagreement_placebo(t, c, seed, donors[seed])
+        donor_ok &= np.bincount(t.band_snap, weights=cov_f[donors[seed][0]], minlength=len(t.snaps)) == t.n
+        pls.append(pl)
+    pop = mb.restrict_snap(t, t, covered & donor_ok)
+    e = t.y - t.p_market
+    nd = len(score_dates)
+    didx = np.searchsorted(score_dates, t.snaps.date.astype(str).to_numpy())[t.band_snap]
+
+    def sums(mask):
+        band = mask[t.band_snap]
+        return (sw.date_sums((c - t.p_market)[band], e[band], didx[band], nd),
+                [sw.date_sums((p - t.p_market)[band], e[band], didx[band], nd) for p in pls])
+
+    full_c, full_pl = sums(pop)
+    if res.get("testable"):
+        whole = sw.paired_delta(full_c, full_pl, sw.boot_counts(nd))
+        if abs(whole["delta"] - res["p0"]["delta"]) > 1e-12:
+            raise Refused(f"refused: {arm} EPS sensitivity does not reproduce the pooled Delta")
+    sub = pop & all_m_ok(t)
+    sc_, sp = sums(sub)
+    n_dates, n_snaps = int((sc_[0] > 0).sum()), int(sub.sum())
+    out = {"population_snapshots": n_snaps, "population_dates": n_dates,
+           "dropped_snapshots_m_below_eps": int(pop.sum()) - n_snaps}
+    if n_dates < MIN_DATES or n_snaps < MIN_SNAPS:
+        out.update(testable=False, p_one_sided=1.0)
+        return out
+    iv = wider_interval(sc_, sp, nd)
+    out.update(testable=True, p_one_sided=iv["p_one_sided"], d3=iv)
+    return out
+
+
+def eps_guard(label, sens_label):
+    """Clarification 2 point 1: a full-set KILL that the all-m>=EPS sensitivity does not reproduce is UNRESOLVED."""
+    if label == LABEL_KILL and sens_label != LABEL_KILL:
+        return LABEL_UNRESOLVED_EPS
+    return label
+
+
+def row80_population():
+    """Row 80's population snapshot count from its archived rows (sha-checked)."""
+    rows_p = ROW80_ARCHIVE / "outputs" / "look" / "rows.jsonl"
+    if sha256_file(rows_p) != ROW80_ROWS_SHA256:
+        raise Refused("refused: row 80 rows sha mismatch")
+    return sum(int(json.loads(x)["n_snapshots"]) for x in rows_p.read_text(encoding="utf-8").splitlines()
+               if x.strip())
+
+
+def projected_power(n_arm, n_row80, se_row80=ROW80_SE):
+    """Clarification 2 point 3: Phi(edge / SE - 1.96), SE = row 80's wider SE * sqrt(N_row80 / N_arm)."""
+    from weather.calibration import c3_kill_tier as c3
+
+    if not n_arm:
+        return {"n_arm": n_arm, "n_row80": n_row80, "se_projected": None, "power": None}
+    se = se_row80 * math.sqrt(n_row80 / n_arm)
+    return {"n_arm": int(n_arm), "n_row80": int(n_row80), "se_row80": se_row80, "se_projected": se,
+            "power": float(c3.power_at(DELTA_EDGE, se))}
+
+
+def check_coverage_floor_live(sw):
+    """The row 80 floor (10 dates, 1,000 snapshots) is live in the pin's mr_sweep, which ``p0_candidate`` reads
+    as module globals at call time; refuses otherwise."""
+    if (sw.MIN_DATES, sw.MIN_SNAPS) != (MIN_DATES, MIN_SNAPS):
+        raise Refused(f"refused: mr_sweep coverage floor is {(sw.MIN_DATES, sw.MIN_SNAPS)}, not "
+                      f"{(MIN_DATES, MIN_SNAPS)}")
+    return {"mr_sweep.MIN_DATES": sw.MIN_DATES, "mr_sweep.MIN_SNAPS": sw.MIN_SNAPS}
+
+
 def stage_look(args):
     gd = stage_guards()
     origin, state, blobs, rules = gd["origin"], gd["code"], gd["blobs"], gd["rules"]
@@ -911,6 +1102,10 @@ def stage_look(args):
 
     # The release layout (local target dates 10-01..10-14), Austin 10-03 dropped.
     smb.check_release_manifest(R80_LAYOUT)
+    check_no_prior_look()
+    look_started_sha = write_exclusive(out / LOOK_STARTED, {
+        "schema": SCHEMA + "/look_started", "ledger_row": LEDGER_ROW, "approval": args.approval,
+        "started_utc": datetime.now(timezone.utc).isoformat()})
     with smb.released_dev_last(RELEASE_LAST) as override:
         lay = data.load_layout(R80_LAYOUT, RELEASE_FIRST, RELEASE_LAST)
     if lay.manifest_sha256 != R80_LAYOUT_MANIFEST_SHA256:
@@ -929,21 +1124,36 @@ def stage_look(args):
     wanted = dict(zip(sel.row_key.astype(str), sel.event_slug.astype(str)))
     recs, malformed, hashed = read_export(R80_EXPORT, R80_SUMS_SHA256, wanted)
     feats, reasons, snaps_feats = {}, defaultdict(int), []
-    for r in sel.itertuples(index=False):
-        spec = spec_for_id(str(r.market))
-        captured = _utc(r.captured_at_utc)
-        rec = recs.get(str(r.row_key))
-        if rec is None or captured is None:
-            reasons["no_record" if rec is None else "no_capture_time"] += 1
-            continue
-        f = snapshot_features(rec, market=str(r.market), target_date=date.fromisoformat(str(r.date)),
-                              local_hour=int(r.local_hour), captured=captured, tz=spec.tz, unit=spec.unit)
-        reasons[f.get("reason") or "ok"] += 1
-        feats[str(r.row_key)] = f
-        hsf = pd.to_numeric(pd.Series([getattr(r, "high_so_far", None)]), errors="coerce").iloc[0]
-        snaps_feats.append({"market": str(r.market), "date": str(r.date), "local_hour": int(r.local_hour),
-                            "captured": captured, "feats": f, "high_so_far": float(hsf)})
+    with serve_rule(LOOK_SERVE_RULE) as serve_override:      # Clarification 2 point 2(b)
+        for r in sel.itertuples(index=False):
+            spec = spec_for_id(str(r.market))
+            captured = _utc(r.captured_at_utc)
+            rec = recs.get(str(r.row_key))
+            if rec is None or captured is None:
+                reasons["no_record" if rec is None else "no_capture_time"] += 1
+                continue
+            f = snapshot_features(rec, market=str(r.market), target_date=date.fromisoformat(str(r.date)),
+                                  local_hour=int(r.local_hour), captured=captured, tz=spec.tz, unit=spec.unit)
+            reasons[f.get("reason") or "ok"] += 1
+            feats[str(r.row_key)] = f
+            hsf = pd.to_numeric(pd.Series([getattr(r, "high_so_far", None)]), errors="coerce").iloc[0]
+            snaps_feats.append({"market": str(r.market), "date": str(r.date), "local_hour": int(r.local_hour),
+                                "captured": captured, "feats": f, "high_so_far": float(hsf)})
     controls["C-g"] = control_cg(snaps_feats)
+
+    # Clarification 2 point 3: projected power at the US10 N, from features and coefficients only, before any Delta.
+    n_row80 = row80_population()
+    power_projection = {}
+    for arm in ARMS:
+        n_arm = 0
+        for r in sel.itertuples(index=False):
+            k, mk = str(r.row_key), str(r.market)
+            if mk in ARM_EXCLUDED_MARKETS[arm] or k not in feats:
+                continue
+            n_arm += increment(coef["arms"].get(arm, {}).get(f"{mk}|{int(r.local_hour)}"),
+                               arm_columns(arm, feats[k])) is not None
+        power_projection[arm] = projected_power(n_arm, n_row80)
+    print(json.dumps({"power_projection_us10": power_projection}, default=_default), flush=True)
 
     # The r80 table (labels and prices are read from here on).
     t = sc.Table(lay, dates)
@@ -951,19 +1161,21 @@ def stage_look(args):
     controls["C-c"] = control_cc(t, geo)
     controls["C-e"]["fit_equals_score"] = control_restrict_identity(t)
     sw.MIN_DATES, sw.MIN_SNAPS = MIN_DATES, MIN_SNAPS
+    coverage_floor = check_coverage_floor_live(sw)
     score_dates = np.array(dates)
     counts = sw.boot_counts(len(score_dates))
     donors = {seed: sw.donor_positions(t, seed) for seed in sw.PLACEBO_SEEDS}
     keys, hours, markets = t.snaps.row_key.astype(str).to_numpy(), t.local_hour, t.markets
-    results, rows_out, pvals = {}, [], []
+    results, rows_out, pvals, sens_p = {}, [], [], []
     for arm in ARMS:
         g = np.full(len(keys), np.nan)
         for i, (k, h, mk) in enumerate(zip(keys, hours, markets)):
-            if int(h) not in HOURS or mk in ARM_UNCOVERED_MARKETS[arm] or k not in feats:
+            if int(h) not in HOURS or mk in ARM_EXCLUDED_MARKETS[arm] or k not in feats:
                 continue
             inc = increment(coef["arms"].get(arm, {}).get(f"{mk}|{int(h)}"), arm_columns(arm, feats[k]))
             if inc is not None:
                 g[i] = inc
+        check_coverage_floor_live(sw)
         res, _ = sw.p0_candidate(arm, "C", 1, geo["mu"] + g, t, t, geo, counts, score_dates, donors)
         arm_rows = res.pop("_rows", None) or []
         entry = {"result": res, "covered_snapshots": int(np.isfinite(g).sum())}
@@ -976,18 +1188,26 @@ def stage_look(args):
                 raise Refused(f"refused: {arm} D3 rows do not reproduce p0_candidate")
             entry["d3"] = iv
             entry.update(subgroup_deltas(arm, geo["mu"] + g, t, geo, counts, score_dates, donors, res))
+        entry["eps_sensitivity"] = eps_sensitivity(arm, geo["mu"] + g, t, geo, score_dates, donors, res)
+        sens_p.append(entry["eps_sensitivity"]["p_one_sided"])
         for r in arm_rows:
             rows_out.append(dict(r, arm=arm))
         pvals.append(res["p0"]["p_one_sided"] if res["testable"] else 1.0)
         results[arm] = entry
     adj, reject = bh_table(pvals)
-    for (arm, entry), q, rej in zip(results.items(), adj, reject):
+    sens_adj, sens_reject = bh_table(sens_p)
+    for (arm, entry), q, rej, sq, srej in zip(results.items(), adj, reject, sens_adj, sens_reject):
         d3 = entry.get("d3") or {}
         lo, hi = (d3.get("ci95_wider") or [None, None])
         entry["bh"] = {"q_value": q, "reject": rej}
-        entry["label"] = label_with_parity(
-            label_for(entry["result"]["testable"], d3.get("power_at_edge"), hi, lo, rej),
-            parity["parity_limited"][arm])
+        full_label = label_for(entry["result"]["testable"], d3.get("power_at_edge"), hi, lo, rej)
+        sens = entry["eps_sensitivity"]
+        sd3 = sens.get("d3") or {}
+        slo, shi = (sd3.get("ci95_wider") or [None, None])
+        sens["bh"] = {"q_value": sq, "reject": srej}
+        sens["label"] = label_for(sens["testable"], sd3.get("power_at_edge"), shi, slo, srej)
+        entry["full_set_label"] = full_label
+        entry["label"] = label_with_parity(eps_guard(full_label, sens["label"]), parity["parity_limited"][arm])
         entry["kill_scope"] = "this construction only" if parity["parity_limited"][arm] else "as registered"
         entry["register_text"] = REGISTER_TEXT[arm]
 
@@ -1001,14 +1221,18 @@ def stage_look(args):
     receipt = {
         "schema": SCHEMA + "/look", "ledger_row": LEDGER_ROW, "stage": "look", "approval": args.approval, "origin_after_imports": after,
         "pin_identity": gd["pin_identity"], "parity_receipt_sha256": args.parity_sha,
+        "clarification_2": {"serve_rule": serve_override, "trainer_plausibility": TRAINER_PLAUSIBILITY,
+                            "arm_excluded_markets": {a: sorted(v) for a, v in ARM_EXCLUDED_MARKETS.items()},
+                            "power_projection_us10": power_projection, "coverage_floor_live": coverage_floor},
         "parity_limited": parity["parity_limited"], "cc_paths": cc_paths,
-        "serve_implausible_temp_rows": {"dropped": sum(f.get("n_implausible", 0) for f in feats.values()),
+        "serve_rows_outside_frozen_30F_125F": {"count": sum(f.get("n_implausible", 0) for f in feats.values()),
                                         "kept_window_rows": sum(f.get("n_rows", 0) or 0 for f in feats.values())},
         "evidence_class": "kill-only on released dates; no label is an edge claim",
         "origin": origin, "code": state, "blobs": blobs, "rules": rules, "module_sha256": sha256_file(__file__),
         "coef_sha256": args.coef_sha, "r80_layout_manifest_sha256": R80_LAYOUT_MANIFEST_SHA256,
         "dev_layout_manifest_sha256": DEV_LAYOUT_MANIFEST_SHA256, "export_sums_sha256": R80_SUMS_SHA256,
         "export_files_hashed": len(hashed), "malformed": malformed, "override_in_process": override,
+        "look_started_sha256": look_started_sha,
         "dates": dates, "snapshots_dropped_austin_1003": dropped, "feature_reasons": dict(reasons),
         "controls": controls, "k": len(ARMS), "bh_q": BH_Q, "delta_edge": DELTA_EDGE, "power_min": POWER_MIN,
         "coverage_floor": {"dates": MIN_DATES, "snapshots": MIN_SNAPS}, "mechanism": MECHANISM,
@@ -1025,7 +1249,8 @@ def stage_look(args):
 
 # ----------------------------------------------------------------------------- ruling 2: the C-c path audit
 
-CC_PATH_RULING = None   # master's ruling reference, once the candidate / placebo path difference is ruled on
+CC_PATH_RULING = ("master 10-31 C-c: frozen statistic; exact identities as above; m<EPS count; "
+                  "all-m>=EPS sensitivity guards KILL")   # Clarification 2 point 1
 
 
 def cc_path_audit(sw=None):
@@ -1049,9 +1274,9 @@ def cc_path_audit(sw=None):
 
 
 def check_cc_paths(ruling=None):
-    """Ruling 2 accepts C-c only if the candidate and the placebo share the identical clip / renormalisation path.
-    In the frozen pin they do not (the candidate's exponential tilt is renormalised to sum(m) with no EPS clip; the
-    placebo is clipped to [EPS, 1] and renormalised to sum(m)), so the look refuses until master rules."""
+    """The frozen pin's candidate and placebo do not share a clip / renormalisation path (the candidate's tilt is
+    renormalised to sum(m) with no EPS clip; the placebo is clipped to [EPS, 1] and renormalised to sum(m)). The look
+    refuses unless master's ruling is pinned (Clarification 2 point 1: ``CC_PATH_RULING``)."""
     ruling = CC_PATH_RULING if ruling is None else ruling
     audit = cc_path_audit()
     if not audit["identical_clip_and_renormalisation"] and not ruling:
@@ -1077,8 +1302,17 @@ def check_parity(path, want_sha):
     if got != want_sha:
         raise Refused(f"refused: parity receipt sha256 {got} is not --parity-sha {want_sha}")
     rec = json.loads(Path(path).read_text(encoding="utf-8"))
-    if rec.get("schema") != SCHEMA + "/parity" or rec.get("ledger_row") != LEDGER_ROW:
-        raise Refused("refused: the parity receipt is not this row's")
+    if rec.get("schema") != SCHEMA + "/parity2" or rec.get("ledger_row") != LEDGER_ROW:
+        raise Refused("refused: the look reads only this row's parity2 receipt (Clarification 2 point 2)")
+    if rec.get("look_serve_rule") != LOOK_SERVE_RULE:
+        raise Refused(f"refused: parity2 decided under {rec.get('look_serve_rule')!r}, not {LOOK_SERVE_RULE!r}")
+    if rec.get("odc_metar_features_blob") != ODC_FROZEN_BLOB:
+        raise Refused("refused: parity2 ran on a changed odc_metar_features.py")
+    if rec.get("arm_excluded_markets") != {a: sorted(v) for a, v in ARM_EXCLUDED_MARKETS.items()}:
+        raise Refused("refused: parity2's market exclusions are not the look's")
+    dec = (rec.get("runs") or {}).get(LOOK_SERVE_RULE) or {}
+    if not dec.get("deciding") or dec.get("parity_limited") != rec.get("parity_limited"):
+        raise Refused("refused: parity2's flags are not those of its deciding (trainer-rule) table")
     limited = rec.get("parity_limited") or {}
     if set(limited) != set(ARMS) or not all(isinstance(v, bool) for v in limited.values()):
         raise Refused("refused: the parity receipt has no parity_limited flag for every arm")
@@ -1112,9 +1346,15 @@ def read_metar_history(metar_dir, icao, months):
     return by_date, hashed
 
 
-def parity_records(caches, metar_by_market, tz_of, unit_of, hours=HOURS):
+def parity_records(caches, metar_by_market, tz_of, unit_of, hours=HOURS, rule=SERVE_RULE_FROZEN):
     """One record per unique (market, date, hour) of the history caches: the trainer-cache lows and the lows the
-    serve code (odc_features, x13_lows) gives on that day's METAR history at cutoff h:00 local."""
+    serve code (odc_features, x13_lows) gives on that day's METAR history at cutoff h:00 local, under the serve
+    temperature ``rule`` (Clarification 2; the frozen odc rule by default)."""
+    with serve_rule(rule):
+        return _parity_records(caches, metar_by_market, tz_of, unit_of, hours)
+
+
+def _parity_records(caches, metar_by_market, tz_of, unit_of, hours):
     from weather.calibration import odc_metar_features as odc
 
     seen, out, conflicts = {}, [], 0
@@ -1144,7 +1384,9 @@ def parity_records(caches, metar_by_market, tz_of, unit_of, hours=HOURS):
                             "cache": {"low_so_far": cache_vals[0], "low_prev_evening": cache_vals[1]},
                             "serve": {"odc_low_so_far": f["low_so_far"], "x13_low_so_far": lo,
                                       "low_prev_evening": lo_prev},
-                            "kept_rows": len(kept), "implausible": implausible_count(metar, kept, unit)})
+                            "kept_rows": len(kept), "implausible": implausible_count(metar, kept, unit),
+                            "dropped_by_rule": implausible_count(metar, kept, unit, _ACTIVE_RULE[0]),
+                            "below_m40": below_count(metar, kept, PHYSICAL_LOWER_NATIVE)})
     return out, conflicts
 
 
@@ -1166,12 +1408,15 @@ def parity_table(records, markets=US11):
         dropped = sum(r["implausible"] for r in recs)
         row["implausible_below_30F"] = {"dropped": dropped, "kept_window_rows": kept,
                                         "share": dropped / kept if kept else None}
+        if recs and "dropped_by_rule" in recs[0]:
+            row["dropped_by_rule"] = sum(r["dropped_by_rule"] for r in recs)
+            row["below_m40"] = sum(r["below_m40"] for r in recs)
         table[mk] = row
     limited, reasons = {}, {}
     for arm, pairs in ARM_PARITY.items():
         why = []
         for mk in markets:
-            if mk in ARM_UNCOVERED_MARKETS[arm]:
+            if mk in ARM_EXCLUDED_MARKETS[arm]:
                 continue
             for serve_col, cache_col in pairs:
                 s = table[mk][f"{serve_col}-vs-{cache_col}"]
@@ -1188,30 +1433,7 @@ def stage_parity(args):
     prices; the cache ``actual`` column is never read)."""
     g = stage_guards()
     out = check_out_dir(args.out)
-    from weather.calibration import ols_floor_ladder as lad
-    from weather.market.market_registry import spec_for_id
-
-    cache_dir = Path(args.cache_dir)
-    cache_files = {f"cache_{m}_{c}.json": sha256_file(cache_dir / f"cache_{m}_{c}.json")
-                   for m in US11 for c in OCTDEC_CENTRES}
-    caches = lad.load_caches(cache_dir, US11, OCTDEC_CENTRES)
-    tz_of, unit_of, metar_by_market, hashed, icao_of = {}, {}, {}, {}, {}
-    for mk in US11:
-        spec = spec_for_id(mk)
-        if spec.unit != "F":
-            raise Refused(f"refused: {mk} is not a Fahrenheit market")
-        tz_of[mk], unit_of[mk], icao_of[mk] = spec.tz, spec.unit, spec.icao.lower()
-        months = set()
-        for c in caches:
-            if c["market_id"] != mk:
-                continue
-            for rows in c["hours"].values():
-                for r in rows:
-                    d = date.fromisoformat(r["date"])
-                    for x in (d, d - timedelta(days=1)):
-                        months.add((x.year, x.month))
-        metar_by_market[mk], h = read_metar_history(args.metar_dir, icao_of[mk], months)
-        hashed.update(h)
+    caches, cache_files, tz_of, unit_of, metar_by_market, hashed, icao_of = parity_inputs(args)
     records, conflicts = parity_records(caches, metar_by_market, tz_of, unit_of)
     table, limited, reasons = parity_table(records)
     after = check_origin()
@@ -1242,6 +1464,79 @@ def stage_parity(args):
     return receipt
 
 
+def stage_parity2(args):
+    """Clarification 2 point 2: the one bounded parity rerun on history <= 2025-12-31. Two tables in one run: the
+    serve filter OFF (confirms the mechanism, decides nothing) and the look's trainer rule (decides). Denver is
+    reported but decides nothing (excluded from both arms)."""
+    g = stage_guards()
+    out = check_out_dir(args.out)
+    caches, cache_files, tz_of, unit_of, metar_by_market, hashed, icao_of = parity_inputs(args)
+    runs = {}
+    for rule in (SERVE_RULE_OFF, LOOK_SERVE_RULE):
+        records, conflicts = parity_records(caches, metar_by_market, tz_of, unit_of, rule=rule)
+        table, limited, reasons = parity_table(records)
+        runs[rule] = {"records": records, "conflicts": conflicts, "table": table, "limited": limited,
+                      "reasons": reasons}
+    after = check_origin()
+    out.mkdir(parents=True)
+    summary = {}
+    for rule, run in runs.items():
+        name = f"parity2_rows_{rule}.jsonl"
+        with (out / name).open("x", encoding="utf-8") as fh:
+            for r in run["records"]:
+                fh.write(json.dumps(r, sort_keys=True, default=_default) + "\n")
+        summary[rule] = {"rows_file": name, "rows_sha256": sha256_file(out / name), "records": len(run["records"]),
+                         "cache_centre_conflicts": run["conflicts"], "table": run["table"],
+                         "parity_limited": run["limited"], "parity_reasons": run["reasons"],
+                         "deciding": rule == LOOK_SERVE_RULE}
+    dec = runs[LOOK_SERVE_RULE]
+    receipt = {"schema": SCHEMA + "/parity2", "ledger_row": LEDGER_ROW, "stage": "parity2", "origin": g["origin"],
+               "origin_after_imports": after, "code": g["code"], "blobs": g["blobs"], "rules": g["rules"],
+               "pin_identity": g["pin_identity"], "module_sha256": sha256_file(__file__),
+               "evidence_class": "pre-look, outcome-free, recorded; Clarification 2 point 2",
+               "definition": "as parity1, under a serve temperature rule; diff = serve - cache, deg F",
+               "thresholds": {"mae_max": PARITY_MAE_MAX, "abs_bias_max": PARITY_BIAS_MAX},
+               "look_serve_rule": LOOK_SERVE_RULE, "trainer_plausibility": TRAINER_PLAUSIBILITY,
+               "odc_metar_features_blob": git_blob_sha(TREE / "src/weather/calibration/odc_metar_features.py"),
+               "arm_excluded_markets": {a: sorted(v) for a, v in ARM_EXCLUDED_MARKETS.items()},
+               "cache_sha256": cache_files, "metar_station": icao_of, "metar_files_sha256": hashed,
+               "runs": summary, "parity_limited": dec["limited"], "parity_reasons": dec["reasons"]}
+    sha = write_exclusive(out / PARITY2_RECEIPT, receipt)
+    print(json.dumps({"parity2_receipt_sha256": sha, "parity_limited": dec["limited"], "reasons": dec["reasons"],
+                      "off_parity_limited": runs[SERVE_RULE_OFF]["limited"],
+                      "off_reasons": runs[SERVE_RULE_OFF]["reasons"]}, default=_default))
+    return receipt
+
+
+def parity_inputs(args):
+    """The L9 caches and the sha-checked IEM ASOS history partitions every parity stage reads."""
+    from weather.calibration import ols_floor_ladder as lad
+    from weather.market.market_registry import spec_for_id
+
+    cache_dir = Path(args.cache_dir)
+    cache_files = {f"cache_{m}_{c}.json": sha256_file(cache_dir / f"cache_{m}_{c}.json")
+                   for m in US11 for c in OCTDEC_CENTRES}
+    caches = lad.load_caches(cache_dir, US11, OCTDEC_CENTRES)
+    tz_of, unit_of, metar_by_market, hashed, icao_of = {}, {}, {}, {}, {}
+    for mk in US11:
+        spec = spec_for_id(mk)
+        if spec.unit != "F":
+            raise Refused(f"refused: {mk} is not a Fahrenheit market")
+        tz_of[mk], unit_of[mk], icao_of[mk] = spec.tz, spec.unit, spec.icao.lower()
+        months = set()
+        for c in caches:
+            if c["market_id"] != mk:
+                continue
+            for rows in c["hours"].values():
+                for r in rows:
+                    d = date.fromisoformat(r["date"])
+                    for x in (d, d - timedelta(days=1)):
+                        months.add((x.year, x.month))
+        metar_by_market[mk], h = read_metar_history(args.metar_dir, icao_of[mk], months)
+        hashed.update(h)
+    return caches, cache_files, tz_of, unit_of, metar_by_market, hashed, icao_of
+
+
 def stage_preflight(args):
     """Origin, clean tree, rule and blob shas, pin identity, imports; reads no data."""
     gd = stage_guards()
@@ -1265,14 +1560,14 @@ def build_parser():
     ap = argparse.ArgumentParser(prog="tools.research.released_window.rodc_released_p0",
                                  description=__doc__.splitlines()[0])
     sub = ap.add_subparsers(dest="stage", required=True)
-    for name in ("preflight", "fit", "parity", "look"):
+    for name in ("preflight", "fit", "parity", "parity2", "look"):
         p = sub.add_parser(name)
         if name != "preflight":
             p.add_argument("--out", required=True)
         if name == "fit":
             p.add_argument("--cache-dir", default=str(L9_CACHE))
             p.add_argument("--l3-dir", default=str(L3_OCTDEC))
-        if name == "parity":
+        if name in ("parity", "parity2"):
             p.add_argument("--cache-dir", default=str(L9_CACHE))
             p.add_argument("--metar-dir", default=str(METAR_HISTORY))
         if name == "look":
@@ -1287,7 +1582,8 @@ def build_parser():
 def main(argv=None):
     args = build_parser().parse_args(argv)
     try:
-        {"preflight": stage_preflight, "fit": stage_fit, "parity": stage_parity, "look": stage_look}[args.stage](args)
+        {"preflight": stage_preflight, "fit": stage_fit, "parity": stage_parity, "parity2": stage_parity2,
+         "look": stage_look}[args.stage](args)
     except Refused as exc:
         print(str(exc), file=sys.stderr)
         return 2

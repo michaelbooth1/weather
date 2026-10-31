@@ -6,6 +6,7 @@ when the archive is present, control C-d on row 80's archived rows. No r80 layou
 from __future__ import annotations
 
 import ast
+import inspect
 import hashlib
 import json
 import math
@@ -40,7 +41,7 @@ def test_the_module_imports_no_network_library():
 
 def test_pinned_blobs_and_rule_files_match_the_run_tree():
     assert len(p0.check_blobs()) == len(p0.BLOBS)
-    assert set(p0.check_rule_files()) == {p0.RULE_PATH, p0.CLARIFICATION_PATH}
+    assert set(p0.check_rule_files()) == {p0.RULE_PATH, p0.CLARIFICATION_PATH, p0.CLARIFICATION2_PATH}
 
 
 def test_a_changed_blob_is_refused(tmp_path):
@@ -153,7 +154,7 @@ def test_look_refuses_a_wrong_coef_sha_before_reading_any_layout(tmp_path, monke
     for extra in (["--coef-sha", "0" * 64, "--parity", str(par), "--parity-sha", par_sha],
                   ["--coef-sha", coef_sha, "--parity", str(tmp_path / "missing.json"), "--parity-sha", par_sha],
                   ["--coef-sha", coef_sha, "--parity", str(par), "--parity-sha", "0" * 64],
-                  ["--coef-sha", coef_sha, "--parity", str(par), "--parity-sha", par_sha]):   # C-c unruled
+                  ["--coef-sha", coef_sha, "--parity", str(par), "--parity-sha", par_sha]):   # parity1, not parity2
         rc = p0.main(base + extra + ["--approval", "coordinator admission 2026-10-31"])
         assert rc == 2 and not touched and not (tmp_path / "rodc").exists()
     rc = p0.main(base + ["--coef-sha", coef_sha, "--parity", str(par), "--parity-sha", par_sha,
@@ -265,11 +266,11 @@ def test_snapshot_features_odc_and_x13_lows():
     f = p0.snapshot_features(rec, market="nyc", target_date=d, local_hour=9, captured=cap, tz=NY, unit="F")
     assert f["reason"] is None
     assert f["odc_low_so_far"] == 57 and f["dewpoint_c"] == 52 and f["current_temp"] == 60
-    assert f["x13_low_so_far"] == 56.6 and f["low_prev_evening"] == 55.0
+    assert f["x13_low_so_far"] == 57.0 and f["low_prev_evening"] == 55.0
     rodc = p0.arm_columns(p0.ARM_RODC, f)
     x13 = p0.arm_columns(p0.ARM_X13, f)
     assert rodc == {"low_so_far": 57, "dewpoint_c": 52}
-    assert x13 == {"low_so_far": 56.6, "low_prev_evening": 55.0, "dewpoint_c": 52}
+    assert x13 == {"low_so_far": 57.0, "low_prev_evening": 55.0, "dewpoint_c": 52}
     # without a D-1 evening row X13 has no low_prev_evening (uncovered)
     rec2 = _record(rows[2:], cap - timedelta(minutes=2), cap - timedelta(minutes=4))
     f2 = p0.snapshot_features(rec2, market="nyc", target_date=d, local_hour=9, captured=cap, tz=NY, unit="F")
@@ -431,7 +432,7 @@ def test_ruling_1_mismatches_are_refused():
         p0.check_pin_identity(orm=orm, prm=fake_prm)
 
 
-def test_ruling_2_cc_call_paths_are_recorded_and_differ_so_the_look_refuses_until_ruled():
+def test_ruling_2_cc_call_paths_are_recorded_and_differ_so_the_look_needs_the_pinned_ruling():
     audit = p0.cc_path_audit()
     assert audit["candidate"]["function"] == "mr_sweep.tilt"
     assert audit["placebo"]["function"] == "mr_sweep.disagreement_placebo"
@@ -439,8 +440,10 @@ def test_ruling_2_cc_call_paths_are_recorded_and_differ_so_the_look_refuses_unti
     assert audit["candidate"]["clip_to_eps"] is False and audit["placebo"]["clip_to_eps"] is True
     assert audit["identical_clip_and_renormalisation"] is False
     with pytest.raises(p0.Refused, match="awaiting master"):
-        p0.check_cc_paths()
-    assert p0.check_cc_paths(ruling="a master ruling ref")["ruling"] == "a master ruling ref"
+        p0.check_cc_paths(ruling="")
+    assert p0.check_cc_paths()["ruling"] == p0.CC_PATH_RULING
+    assert p0.CC_PATH_RULING == ("master 10-31 C-c: frozen statistic; exact identities as above; m<EPS count; "
+                                 "all-m>=EPS sensitivity guards KILL")
 
 
 def test_ruling_2_candidate_is_not_clipped_and_the_placebo_is():
@@ -486,17 +489,29 @@ def test_ruling_4_parity_table_flags_and_receipt_check(tmp_path):
     assert p0.label_with_parity(p0.LABEL_KILL, True) == p0.LABEL_KILL + p0.PARITY_SUFFIX
     assert p0.label_with_parity(p0.LABEL_KILL, False) == p0.LABEL_KILL
 
-    f = tmp_path / "parity_receipt.json"
-    f.write_text(json.dumps({"schema": p0.SCHEMA + "/parity", "ledger_row": p0.LEDGER_ROW,
-                             "parity_limited": limited}), encoding="utf-8")
+    f = tmp_path / "parity2_receipt.json"
+    f.write_text(json.dumps(_parity2_receipt(limited)), encoding="utf-8")
     sha = hashlib.sha256(f.read_bytes()).hexdigest()
     assert p0.check_parity(f, sha)["parity_limited"] == limited
     for path, s, msg in ((tmp_path / "none.json", sha, "missing"), (f, None, "required"), (f, "0" * 64, "is not")):
         with pytest.raises(p0.Refused, match=msg):
             p0.check_parity(path, s)
-    f.write_text(json.dumps({"schema": "other", "ledger_row": p0.LEDGER_ROW, "parity_limited": limited}))
-    with pytest.raises(p0.Refused, match="not this row"):
-        p0.check_parity(f, hashlib.sha256(f.read_bytes()).hexdigest())
+    bad = [{"schema": p0.SCHEMA + "/parity"}, {"look_serve_rule": p0.SERVE_RULE_OFF},
+           {"odc_metar_features_blob": "0" * 40}, {"arm_excluded_markets": {a: [] for a in p0.ARMS}},
+           {"parity_limited": {a: True for a in p0.ARMS}}]
+    for change, msg in zip(bad, ("parity2", "decided under", "changed odc", "exclusions", "deciding")):
+        f.write_text(json.dumps(dict(_parity2_receipt(limited), **change)), encoding="utf-8")
+        with pytest.raises(p0.Refused, match=msg):
+            p0.check_parity(f, hashlib.sha256(f.read_bytes()).hexdigest())
+
+
+def _parity2_receipt(limited):
+    return {"schema": p0.SCHEMA + "/parity2", "ledger_row": p0.LEDGER_ROW, "look_serve_rule": p0.LOOK_SERVE_RULE,
+            "odc_metar_features_blob": p0.ODC_FROZEN_BLOB,
+            "arm_excluded_markets": {a: sorted(v) for a, v in p0.ARM_EXCLUDED_MARKETS.items()},
+            "runs": {p0.LOOK_SERVE_RULE: {"deciding": True, "parity_limited": limited},
+                     p0.SERVE_RULE_OFF: {"deciding": False, "parity_limited": limited}},
+            "parity_limited": limited}
 
 
 def test_ruling_4_parity_records_use_the_serve_code_on_history(tmp_path):
@@ -518,8 +533,14 @@ def test_ruling_4_parity_records_use_the_serve_code_on_history(tmp_path):
     recs, conflicts = p0.parity_records([cache, cache], {"nyc": by_date}, {"nyc": NY}, {"nyc": "F"}, hours=(9,))
     assert conflicts == 0 and len(recs) == 1
     r = recs[0]
-    assert r["serve"] == {"odc_low_so_far": 57, "x13_low_so_far": 56.6, "low_prev_evening": 55.0}
+    assert r["serve"] == {"odc_low_so_far": 57, "x13_low_so_far": 57.0, "low_prev_evening": 55.0}
     assert r["implausible"] == 1 and r["kept_rows"] == 4          # the 25 F row is dropped by the filter
+    assert r["dropped_by_rule"] == 1 and r["below_m40"] == 0
+    for rule in (p0.SERVE_RULE_OFF, p0.SERVE_RULE_TRAINER):     # Clarification 2: the 25 F row is kept
+        r2 = p0.parity_records([cache], {"nyc": by_date}, {"nyc": NY}, {"nyc": "F"}, hours=(9,), rule=rule)[0][0]
+        assert r2["serve"] == {"odc_low_so_far": 25, "x13_low_so_far": 25.0, "low_prev_evening": 25.0}
+        assert r2["implausible"] == 1 and r2["dropped_by_rule"] == 0
+    assert p0._ACTIVE_RULE[0] == p0.SERVE_RULE_FROZEN
     part.write_bytes(part.read_bytes() + b"{}\n")
     with pytest.raises(p0.Refused, match="manifest"):
         p0.read_metar_history(tmp_path / "metar", "klga", {(2024, 10)})
@@ -531,3 +552,243 @@ def test_ruling_4_parity_records_use_the_serve_code_on_history(tmp_path):
 def test_parity_cli_defaults():
     args = p0.build_parser().parse_args(["parity", "--out", r"C:\t\l16\rodc\parity1"])
     assert args.cache_dir == str(p0.L9_CACHE) and args.metar_dir == str(p0.METAR_HISTORY)
+
+
+def test_parity2_cli():
+    args = p0.build_parser().parse_args(["parity2", "--out", r"C:\t\l16\rodc\parity2"])
+    assert args.stage == "parity2" and args.cache_dir == str(p0.L9_CACHE) and args.metar_dir == str(p0.METAR_HISTORY)
+
+
+# ----------------------------------------------------------------------------- Clarification 2 (2026-10-31)
+
+def test_clarification_2_is_pinned():
+    assert p0.check_rule_files()[p0.CLARIFICATION2_PATH] == p0.CLARIFICATION2_SHA256
+    text = " ".join((p0.TREE / p0.CLARIFICATION2_PATH).read_text(encoding="utf-8").split())
+    assert p0.CC_PATH_RULING in text
+    for blob in (p0.ODC_FROZEN_BLOB,) + tuple(e["blob"] for e in p0.TRAINER_PLAUSIBILITY["trainer_path"]):
+        assert blob in text
+
+
+def test_odc_metar_features_is_blob_unchanged():
+    import subprocess
+
+    path = p0.TREE / "src/weather/calibration/odc_metar_features.py"
+    assert p0.git_blob_sha(path) == p0.ODC_FROZEN_BLOB == p0.BLOBS["src/weather/calibration/odc_metar_features.py"]
+    got = subprocess.run(["git", "-C", str(p0.TREE), "rev-parse",
+                          "0e11b018f:src/weather/calibration/odc_metar_features.py"], capture_output=True, text=True)
+    if got.returncode != 0:
+        pytest.skip("0e11b018f not in this clone")
+    assert got.stdout.strip() == p0.ODC_FROZEN_BLOB
+
+
+def test_trainer_path_has_no_plausibility_filter():
+    import inspect
+
+    from weather.calibration import ols_floor_ladder as lad
+    from weather.model import model_climatology as mc
+
+    for fn in (mc.ClimatologyMixin.historical_target_cache, lad.overnight_lows):
+        assert "plausib" not in inspect.getsource(fn)
+    low, prev = lad.overnight_lows([{"minute_of_day": 60, "temp_native": 12.0}], date(2024, 12, 1), 9,
+                                   [{"minute_of_day": 1200, "temp_native": -5.0}], None)
+    assert low == 12.0 and prev == -5.0
+
+
+def test_serve_rules():
+    assert p0.serve_plausible(25.0, "F", p0.SERVE_RULE_FROZEN) is False
+    assert p0.serve_plausible(25.0, "F", p0.SERVE_RULE_OFF) is True
+    assert p0.serve_plausible(25.0, "F", p0.SERVE_RULE_TRAINER) is True
+    assert p0.serve_plausible(-40.0, "F", p0.SERVE_RULE_TRAINER) is True
+    assert p0.serve_plausible(-40.5, "F", p0.SERVE_RULE_TRAINER) is False
+    assert p0.serve_plausible(130.0, "F", p0.SERVE_RULE_TRAINER) is True     # the trainer has no upper bound
+    for v in (None, "x", float("nan"), float("inf")):
+        assert p0.serve_plausible(v, "F", p0.SERVE_RULE_OFF) is False
+    with pytest.raises(p0.Refused):
+        p0.serve_plausible(1.0, "F", "other")
+    assert p0.LOOK_SERVE_RULE == p0.SERVE_RULE_TRAINER and p0.PHYSICAL_LOWER_NATIVE == -40.0
+
+
+def test_serve_rule_override_is_scoped_and_frozen_rule_is_identity():
+    from weather.calibration import odc_metar_features as odc
+
+    original = odc.plausible_native_temperature
+    d = date(2026, 10, 5)
+    rows = [_metar_row(datetime(2026, 10, 4, 21, 51, tzinfo=NY), 31.0),
+            _metar_row(datetime(2026, 10, 5, 5, 51, tzinfo=NY), 24.4, 20.0),
+            _metar_row(datetime(2026, 10, 5, 8, 51, tzinfo=NY), 33.0, 22.0)]
+    cap = datetime(2026, 10, 5, 9, 55, tzinfo=NY).astimezone(timezone.utc)
+    rec = _record(rows, cap - timedelta(minutes=2), cap - timedelta(minutes=4))
+    kw = dict(market="nyc", target_date=d, local_hour=9, captured=cap, tz=NY, unit="F")
+    plain = p0.snapshot_features(rec, **kw)
+    with p0.serve_rule(p0.SERVE_RULE_FROZEN) as o:
+        assert o["rule"] == p0.SERVE_RULE_FROZEN
+        frozen = p0.snapshot_features(rec, **kw)
+    assert frozen == plain and plain["odc_low_so_far"] == 33 and plain["n_implausible"] == 1
+    assert plain["x13_low_so_far"] == 33.0 and plain["low_prev_evening"] == 31.0
+    with p0.serve_rule(p0.SERVE_RULE_TRAINER):
+        fixed = p0.snapshot_features(rec, **kw)
+    assert fixed["odc_low_so_far"] == 24 and fixed["x13_low_so_far"] == 24.0 and fixed["low_prev_evening"] == 24.0
+    assert fixed["dewpoint_c"] == plain["dewpoint_c"] == 22 and fixed["n_implausible"] == 1
+    assert odc.plausible_native_temperature is original and p0._ACTIVE_RULE[0] == p0.SERVE_RULE_FROZEN
+    with pytest.raises(RuntimeError):
+        with p0.serve_rule(p0.SERVE_RULE_OFF):
+            raise RuntimeError("boom")
+    assert odc.plausible_native_temperature is original and p0._ACTIVE_RULE[0] == p0.SERVE_RULE_FROZEN
+
+
+def test_denver_is_excluded_from_both_arms():
+    assert all("denver" in p0.ARM_EXCLUDED_MARKETS[a] for a in p0.ARMS)
+    recs = []
+    for mk in p0.US11:
+        recs += [_prec(mk, 50.0, 50, 48.0, 48.0), _prec(mk, 52.0, 52, 47.0, 47.0)]
+    recs = [dict(r, serve=dict(r["serve"], odc_low_so_far=60, x13_low_so_far=60.0, low_prev_evening=60.0))
+            if r["market"] == "denver" else r for r in recs]
+    table, limited, _ = p0.parity_table(recs)
+    assert limited == {p0.ARM_RODC: False, p0.ARM_X13: False}
+    assert table["denver"]["odc_low_so_far-vs-low_so_far"]["n"] == 2          # reported, decides nothing
+
+
+def test_eps_guard():
+    assert p0.eps_guard(p0.LABEL_KILL, p0.LABEL_KILL) == p0.LABEL_KILL
+    for other in (p0.LABEL_NOT_KILLED, p0.LABEL_UNTESTABLE, p0.LABEL_UNTESTABLE_EDGE, p0.LABEL_SCREEN):
+        assert p0.eps_guard(p0.LABEL_KILL, other) == p0.LABEL_UNRESOLVED_EPS == "UNRESOLVED (EPS-path sensitive)"
+        assert p0.eps_guard(other, p0.LABEL_KILL) == other
+    assert p0.label_with_parity(p0.eps_guard(p0.LABEL_KILL, p0.LABEL_NOT_KILLED), True) == \
+        "UNRESOLVED (EPS-path sensitive)" + p0.PARITY_SUFFIX
+
+
+def _synthetic_table(tmp_path):
+    from tests.reporting.test_released_window_served_market_blocks import write_layout
+
+    from weather.calibration import mr_sweep as sw
+    from weather.reporting.scorecards import dev_scorecard as sc
+    from weather.reporting.scorecards import dev_scorecard_data as data
+
+    root = write_layout(tmp_path / "lay", date(2026, 8, 1), 6)
+    lay = data.load_layout(root, data.DEV_FIRST, date(2026, 8, 6))
+    t = sc.Table(lay, sorted(lay.dates))
+    return t, sw.band_geometry(t), np.array(sorted(str(d) for d in lay.dates))
+
+
+def test_cc_records_bitwise_counts(tmp_path):
+    t, geo, _ = _synthetic_table(tmp_path)
+    out = p0.control_cc(t, geo)
+    assert out["verdict"] == "PASS" and out["ruling"] == p0.CC_PATH_RULING
+    assert set(out["bands_bitwise_unequal"]) == {"candidate_vs_m", "placebo_seed0_vs_clip_renorm_m", "bands"}
+    assert out["max_abs_placebo_minus_clip_renorm_m"] <= p0.C_C_TOL
+
+
+def test_eps_sensitivity_reproduces_and_restricts(tmp_path, monkeypatch):
+    from weather.calibration import market_blend as mb
+    from weather.calibration import mr_sweep as sw
+
+    t, geo, dates = _synthetic_table(tmp_path)
+    for mod in (sw, p0):
+        monkeypatch.setattr(mod, "MIN_DATES", 1)
+        monkeypatch.setattr(mod, "MIN_SNAPS", 1)
+    rng = np.random.default_rng(3)
+    values = geo["mu"] + rng.normal(0, 1, len(t.snaps))
+    donors = {seed: sw.donor_positions(t, seed) for seed in sw.PLACEBO_SEEDS}
+    counts = sw.boot_counts(len(dates))
+    res, _ = sw.p0_candidate("x", "C", 1, values, t, t, geo, counts, dates, donors)
+    sens = p0.eps_sensitivity("x", values, t, geo, dates, donors, res)
+    ok = p0.all_m_ok(t)
+    assert ok.dtype == bool and len(ok) == len(t.snaps)
+    assert int((~ok).sum()) == int((np.bincount(t.band_snap, weights=(t.p_market < mb.EPS).astype(float),
+                                                minlength=len(t.snaps)) > 0).sum())
+    assert sens["population_snapshots"] + sens["dropped_snapshots_m_below_eps"] == \
+        res["coverage"]["population_snapshots"]
+    if sens["dropped_snapshots_m_below_eps"] == 0 and sens["testable"]:
+        assert sens["d3"]["delta"] == pytest.approx(res["p0"]["delta"], abs=1e-12)
+    if res["testable"]:
+        bad = dict(res, p0=dict(res["p0"], delta=res["p0"]["delta"] + 1.0))
+        with pytest.raises(p0.Refused, match="reproduce"):
+            p0.eps_sensitivity("x", values, t, geo, dates, donors, bad)
+
+
+def test_projected_power_at_us10_n():
+    have = (p0.ROW80_ARCHIVE / "outputs" / "look" / "rows.jsonl").is_file()
+    n80 = p0.row80_population() if have else 10000
+    same = p0.projected_power(n80, n80)
+    assert same["se_projected"] == pytest.approx(p0.ROW80_SE) and same["power"] > 0.9999
+    quarter = p0.projected_power(n80 / 4, n80)
+    assert quarter["se_projected"] == pytest.approx(2 * p0.ROW80_SE)
+    want = 0.5 * (1 + math.erf((0.2236 / quarter["se_projected"] - 1.959963984540054) / math.sqrt(2)))
+    assert quarter["power"] == pytest.approx(want, abs=1e-6)
+    assert p0.projected_power(0, n80)["power"] is None
+
+
+def _look_src():
+    import inspect
+
+    return inspect.getsource(p0.stage_look)
+
+
+def test_coverage_floor_override_is_live_before_band_scoring():
+    import inspect
+
+    from weather.calibration import mr_sweep as sw
+
+    src = _look_src()
+    i_set = src.index("sw.MIN_DATES, sw.MIN_SNAPS = MIN_DATES, MIN_SNAPS")
+    assert i_set < src.index("check_coverage_floor_live(sw)") < src.index("sw.p0_candidate(")
+    assert "n_dates < MIN_DATES or n_snaps < MIN_SNAPS" in inspect.getsource(sw.p0_candidate)
+    assert "MIN_DATES" not in str(inspect.signature(sw.p0_candidate))
+    saved = (sw.MIN_DATES, sw.MIN_SNAPS)
+    try:
+        sw.MIN_DATES, sw.MIN_SNAPS = 20, 1000
+        with pytest.raises(p0.Refused, match="coverage floor"):
+            p0.check_coverage_floor_live(sw)
+        sw.MIN_DATES, sw.MIN_SNAPS = p0.MIN_DATES, p0.MIN_SNAPS
+        assert p0.check_coverage_floor_live(sw) == {"mr_sweep.MIN_DATES": 10, "mr_sweep.MIN_SNAPS": 1000}
+    finally:
+        sw.MIN_DATES, sw.MIN_SNAPS = saved
+
+
+def test_look_order_controls_before_prices_and_power_before_delta():
+    src = _look_src()
+    t_at = src.index("t = sc.Table(lay, dates)")
+    for before in ('controls["C-d"] = control_cd()', 'controls["C-e"] = control_ce()',
+                   'controls["C-g"] = control_cg(snaps_feats)', "power_projection_us10",
+                   "with serve_rule(LOOK_SERVE_RULE)", "smb.released_dev_last(RELEASE_LAST)"):
+        assert src.index(before) < t_at
+    assert t_at < src.index("control_cc(t, geo)") < src.index("sw.p0_candidate(")
+    assert "check_parity(args.parity, args.parity_sha)" in src and "eps_guard(" in src
+
+
+def test_fix3_look_started_marker_blocks_a_second_look(tmp_path):
+    (tmp_path / "look1").mkdir()
+    (tmp_path / "look1" / p0.LOOK_STARTED).write_text("{}", encoding="utf-8")
+    with pytest.raises(p0.Refused, match="second look"):
+        p0.check_no_prior_look(tmp_path)
+
+
+def test_fix3_look_started_is_written_before_the_release_layout_load():
+    src = inspect.getsource(p0.stage_look)
+    started = src.index("write_exclusive(out / LOOK_STARTED")
+    assert src.index("check_no_prior_look()") < started < src.index("data.load_layout(R80_LAYOUT")
+    assert src.count("check_no_prior_look()") == 2
+    assert started < src.index("write_exclusive(out / LOOK_RECEIPT")
+
+
+def test_fix3_default_serialises_numpy_scalars(tmp_path):
+    sha = p0.write_exclusive(tmp_path / "r.json", {"b": np.bool_(True), "i": np.int64(3), "f": np.float32(0.5)})
+    assert json.loads((tmp_path / "r.json").read_text(encoding="utf-8")) == {"b": True, "i": 3, "f": 0.5}
+    assert len(sha) == 64
+    with pytest.raises(FileExistsError):
+        p0.write_exclusive(tmp_path / "r.json", {})
+
+
+def test_fix4_snapshot_id_is_found_past_16_kib():
+    line = b'{"pad": "' + b"x" * 40000 + b'", "snapshot_id": "abc|1"}\n'
+    assert p0.SNAP_ID.search(line).group(1) == b"abc|1"
+    assert "16384" not in inspect.getsource(p0)
+
+
+def test_fix2_x13_lows_are_wu_whole_degrees():
+    rows = [_metar_row(datetime(2026, 10, 5, 2, 51, tzinfo=NY), 57.4),
+            _metar_row(datetime(2026, 10, 5, 5, 51, tzinfo=NY), 56.6),
+            _metar_row(datetime(2026, 10, 4, 21, 51, tzinfo=NY), 55.4)]
+    lo, prev = p0.x13_lows({"rows": rows}, target_date=date(2026, 10, 5), tz=NY, unit="F", cutoff_hour=9,
+                           now=datetime(2026, 10, 5, 9, 0, tzinfo=NY))
+    assert (lo, prev) == (57.0, 55.0)
