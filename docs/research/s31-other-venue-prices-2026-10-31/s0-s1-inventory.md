@@ -1,9 +1,9 @@
 # S31 other-venue prediction-market prices: S0 intake and S1 outcome-free inventory (lane L14, 2026-10-31)
 
-**Status:** dated research record, stages S0 and S1 only. It records **no prices, outcomes or settlement results**. Every
+**Status:** dated research record: stages S0 and S1, plus the header-only S2 step 1 (ForecastEx pairs schema). It records **no prices, outcomes or settlement results**. Every
 fact below comes from public documentation, regulatory filings, or unauthenticated **metadata** endpoints: series and
-event titles, rules, settlement-source URLs, market tickers (strike structure) and listing dates. No price read is
-authorised until master rules on S1.
+event titles, rules, settlement-source URLs, market tickers (strike structure) and listing dates. Master ruled on S1 on
+2026-10-31 (section "Venue-read rule"); price reads wait for the P0 pre-registration and the coordinator's code review.
 
 - **Owns:** the S0 argument for and against S31, the twin-market inventory for the 12 built-in markets, and the
   fetch receipts for that inventory.
@@ -184,12 +184,46 @@ Ranked for an S2 price read, should master approve one:
   orderbook (all price-bearing); every ForecastEx `prices/`, `pairs/`, `daily_summary/` CSV, and the
   `notices_to_members/` PDFs (these may announce resolutions). Only S3 key **names** were listed, to date the files.
   A bucket prefix that the public index page excludes was not touched.
-- **Price exposure (noted as required):** the 11 Robinhood event pages read through the web-fetch summariser contain
-  prices and results. The summariser was told not to report them, and none were reported, recorded or analysed. The
-  lane never saw those values. Kalshi event-metadata responses carried market **tickers** only (strike levels), with
+- **Incidental exposure, Robinhood (master ruling 2026-10-31: NOT a read).** The 11 Robinhood event pages
+  fetched through the web-fetch summariser render prices and results. The summariser was told to drop them; none
+  were reported to the lane, recorded, kept or analysed. Master ruled this an incidental exposure, not a price or
+  outcome read. The same note is at `C:\archive\ruled-out\_s31-intake\INCIDENTAL_EXPOSURE.md`. The ForecastEx
+  station names in the twin table come from those pages and are therefore **unverified for S2**: S2 re-derives every
+  station from metadata only (rule below).
+- **Other metadata seen:** Kalshi event-metadata responses carried market **tickers** only (strike levels), with
   no prices; the sampled events were all on dev dates (2025-06-15, 2026-09-15, 2026-09-16). The 2026-10-27..11-01
   event titles in the `/events` pages are listing metadata, with no prices or results.
 - **Light rate:** about 70 Kalshi requests at ≥ 1 s spacing, plus static docs and filings.
+
+## Venue-read rule for S31 (master ruling, 2026-10-31)
+
+- **Never fetch a venue PAGE that renders prices or results** (Robinhood, Kalshi or ForecastEx web pages, or any
+  front end). Use metadata endpoints only, parsed through a **field allowlist** that drops every price, volume,
+  open-interest, result and settlement-value field before anything is written.
+- **Price reads are allowed only** for target dates up to 2026-09-29, or for **released cells**: local targets
+  2026-09-30..10-14, minus Austin 2026-10-03. Never any other date after 2026-09-29.
+- Any fetch code is a **new module that writes only under its own out dir**. Its diff goes to the coordinator
+  before any price fetch, and master sees the pre-registration first.
+
+## S2 step 1: ForecastEx pairs schema (approved by master 2026-10-31; header only)
+
+- **Read:** one dev-date file, `pairs/pairs_20260915.csv` (S3 `forecastex-public-data`; object size 1,134,848 bytes,
+  Last-Modified 2026-09-15 21:17:08 UTC, ETag `6ebeacc52fa23d9b88be4003b202619b`), by an HTTP Range request for
+  bytes 0-2047. Only the bytes up to and including the first newline (77 bytes) were kept; the rest of the range
+  was discarded in memory without being parsed, printed or written. **No price row was read.**
+- **Header (verbatim):** `pair_id,event_contract,expiration_date,quantity,yes_price,no_price,pair_time`
+  (sha256 of the 77 header bytes `764d1b7efac3b7be9e9a785e70482453aef01bf6aad2fe81a54f39d9156b7641`).
+- **Columns:** `pair_id` (one row per matched YES/NO pair, i.e. per fill, not a quote or a close); `event_contract`
+  (contract identifier; format not inspected); `expiration_date`; `quantity`; `yes_price`, `no_price`; `pair_time`.
+- **Timestamp granularity:** each row carries its own `pair_time`, so the file is a **per-fill tape with intraday
+  timestamps**, not a daily close. The value format (resolution, time zone) is **not verified**: it can only be
+  read from a data row, which this step did not open. S3 listing metadata for 2026-09-10..19 shows **one file per
+  day**, last modified about 21:16-21:17 UTC daily (sizes 0.73-1.67 MB), so the "refreshed every 10 minutes" file is
+  rewritten through the day and frozen after the day's last update.
+- **Consequence:** the ForecastEx arm of S2 is feasible in principle (per-fill prices with times, no order book). The
+  P0 pre-registration makes the `pair_time` format a refuse-if-wrong check on its first allowed row.
+- **Receipts:** `C:\archive\ruled-out\_s31-intake\forecastex\s2_step1\` (`pairs_20260915_header.bin`, its receipt
+  JSON with the HTTP response headers, and the S3 key listing for `pairs/pairs_2026091*`).
 
 ## Fetch receipts
 
@@ -208,3 +242,5 @@ All files are saved under `C:\archive\ruled-out\_s31-intake\`. The sha256 of eac
 | `forecastex/cftc/` | CFTC filings ptc01232637912 (2026-01-23), ptc08062614351 (2026-08-06), ptc08272622411 (hourly, not read in full) |
 | `forecastex/site/` | forecastex.com `/data` and `/markets` HTML, the public-data index, S3 key listings, and the two daily-temperature product filings |
 | `_scripts/` | The two scratch scripts used (event pagination with a banned-field guard; coverage summary) |
+| `forecastex/s2_step1/` | S2 step 1: the pairs header bytes, their receipt, and the `pairs/pairs_2026091*` key listing |
+| `INCIDENTAL_EXPOSURE.md` | The Robinhood incidental-exposure note (master ruling 2026-10-31) |
