@@ -25,4 +25,23 @@ SCHEMAS = (
         "MG-1 look start marker, written once (mode x) at data/mg1_look/started-<mg1_rule_sha256>.json "
         "immediately before the look's first outcome join; it records looked_at_utc and refuses a second look.",
     ),
+    SchemaSpec(
+        "mg1_look_result",
+        "mg1_look_result/1",
+        "weather.calibration.mg1_look",
+        "active",
+        "MG-1's single look result (pre-registration sections 4 and 6), written once (mode x) as "
+        "mg1_look_result.json under the look's --out and bound by sha256 in the look receipt: counted dates, "
+        "outcome-blind VOID checks, the primary 00-16 MG-1 minus served estimate and interval, the decision and "
+        "every reported quantity.",
+    ),
+    SchemaSpec(
+        "mg1_countable",
+        "mg1_countable/1",
+        "weather.calibration.mg1_look",
+        "active",
+        "The MG-1 look's countable-date list, written by master before the look: one row per calendar date from "
+        "D0 through the 45th promotion-countable date, with the Clarification 1 reporting caveats. No label or "
+        "price.",
+    ),
 )
