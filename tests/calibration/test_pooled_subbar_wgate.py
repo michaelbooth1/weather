@@ -9,12 +9,16 @@ FAILS); the A3 labels ("KILL at edge size" iff the wider 95% upper bound < rho 0
 untested (underpowered)"); the C3 REV-2 circular block-3 counts (c3_kill_tier.block_counts verbatim, B 2,000,
 seed 20261024); Clarification 1 C4 - a member is testable only through a passing C4 receipt of the pinned
 replay harness with a matching emit sha (failures drop, forgeries refuse), and a block with fewer than 2 C4
-survivors is UNTESTABLE (POOL-0712 and F2-1316 as built); refusal of any date after 2026-09-29; the write-once
-out dir; the rule pin refusing before any layout is read; and the B-bound pin check.
+survivors is UNTESTABLE (POOL-0712 and F2-1316 as built); Clarification 3 - C5 gates only the testable block(s),
+a diagnostic C5 failure in an UNTESTABLE block never VOIDs but sets the top-level flag and prints the banner, the
+receipt carries the run-env disclosure, and an absent or altered Clarification 3 copy refuses before any layout is
+read; refusal of any date after 2026-09-29; the write-once out dir; the rule pin refusing before any layout is
+read; and the B-bound pin check.
 """
 import hashlib
 import importlib
 import json
+from pathlib import Path
 import types
 
 import numpy as np
@@ -335,3 +339,56 @@ def test_bbound_pins_match_this_tree():
     assert ps.bbound_check(root) == {k: v for k, v in ps.BBOUND_PINS.items() if k in ps.bbound_check(root)}
     for rel, sha in ps.BBOUND_PINS.items():
         assert ps._sha(root / rel) == sha, rel
+
+
+def _c5(verdicts):
+    return {b: {"verdict": v, "checks": {}} for b, v in verdicts.items()}
+
+
+ALL_UNTESTABLE_BUT_0006 = {"POOL-0712": (False, 0), "F2-1316": (False, 0), "POOL-0006": (True, 2)}
+
+
+def test_c5_diagnostic_failure_does_not_void_but_flags_and_prints(capsys):
+    c5 = _c5({"POOL-0712": "FAIL", "F2-1316": "PASS", "POOL-0006": "PASS"})
+    gating, field = ps.c5_gate(c5, ALL_UNTESTABLE_BUT_0006)
+    assert gating == []
+    assert field["flag"] is True and field["blocks"] == ["POOL-0712"] and field["master_review_before_label"]
+    assert field["gating_blocks"] == ["POOL-0006"]
+    out = capsys.readouterr().out
+    assert field["banner"] in out and "POOL-0712" in out and "MASTER REVIEW REQUIRED" in out and "not a VOID" in out
+    assert c5["POOL-0712"]["role"] == "diagnostic" and c5["POOL-0006"]["role"] == "gating"
+    gating, field = ps.c5_gate(_c5({"POOL-0712": "FAIL", "F2-1316": "FAIL", "POOL-0006": "PASS"}),
+                               ALL_UNTESTABLE_BUT_0006)
+    assert gating == [] and field["blocks"] == ["F2-1316", "POOL-0712"]
+
+
+def test_c5_gates_the_testable_block_and_stays_quiet_when_all_pass(capsys):
+    gating, field = ps.c5_gate(_c5({"POOL-0712": "PASS", "F2-1316": "PASS", "POOL-0006": "FAIL"}),
+                               ALL_UNTESTABLE_BUT_0006)
+    assert gating == ["C5 POOL-0006"] and field["flag"] is False and field["banner"] is None
+    gating, field = ps.c5_gate(_c5({b: "PASS" for b in ps.BLOCKS}), ALL_UNTESTABLE_BUT_0006)
+    assert gating == [] and not field["flag"] and field["blocks"] == []
+    assert capsys.readouterr().out == ""
+    every = {b: (True, 2) for b in ps.BLOCKS}
+    gating, field = ps.c5_gate(_c5({"POOL-0712": "FAIL", "F2-1316": "PASS", "POOL-0006": "PASS"}), every)
+    assert gating == ["C5 POOL-0712"] and not field["flag"]
+
+
+def test_clarification3_pin_and_disclosure():
+    root = Path(ps.__file__).resolve().parents[3]
+    assert ps._sha(root / ps.CLARIFICATION3_PATH) == ps.CLARIFICATION3_SHA256
+    assert ps.HARNESS_RUN_ENV in ps.C4_RUN_ENV_DISCLOSURE and "f69071ac" in ps.C4_RUN_ENV_DISCLOSURE
+    for word in ("r0_ols_floor_challenger", "metar_only", "pooled_residual_model"):
+        assert word in ps.C4_RUN_ENV_DISCLOSURE
+
+
+def test_run_refuses_an_absent_or_altered_clarification3_before_layout(tmp_path):
+    real = Path(ps.__file__).resolve().parents[3]
+    rule = tmp_path / ps.RULE_PATH
+    rule.parent.mkdir(parents=True)
+    rule.write_bytes((real / ps.RULE_PATH).read_bytes())
+    with pytest.raises(ps.PoolError, match="Clarification 3"):
+        ps.run(layout=tmp_path / "no-layout", out_dir=tmp_path / "x", allow_dirty=True, repo_root=tmp_path)
+    (tmp_path / ps.CLARIFICATION3_PATH).write_bytes((real / ps.CLARIFICATION3_PATH).read_bytes() + b" ")
+    with pytest.raises(ps.PoolError, match="Clarification 3"):
+        ps.run(layout=tmp_path / "no-layout", out_dir=tmp_path / "x", allow_dirty=True, repo_root=tmp_path)

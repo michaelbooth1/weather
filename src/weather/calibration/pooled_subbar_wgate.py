@@ -28,6 +28,12 @@ C5, the planted Gaussian SYN+ / SYN- per block (CONTROL, in memory only; Clarifi
 SYN_SHRINK 0.75 frozen; pass iff the SYN+ lower bound > 0, the SYN+ wider upper >= 0.2236 and the SYN- upper
 bound < 0, "lower" / "upper" being the smaller / larger of the date-clustered and block-3 bounds).
 
+Master Clarification 3 (``CLARIFICATION3_PATH``, sha256 ``CLARIFICATION3_SHA256``, checked byte-identical before
+any layout is read): C5 gates only the TESTABLE block(s) (POOL-0006). C5 is still computed on the UNTESTABLE
+blocks as a diagnostic; any diagnostic failure sets the top-level receipt field ``c5_diagnostic_failure`` and
+prints a banner, and master reviews it before the POOL-0006 verdict is labelled. A diagnostic failure never VOIDs
+by itself. The receipt carries the C4 run-env disclosure (``C4_RUN_ENV_DISCLOSURE``).
+
 No network I/O. B-bound files are imported read-only and sha-checked against the A3 pins at start and before the
 receipt; the receipt records the git tree sha and those file shas. Writes once under ``--out``, which must lie
 below ``C:/t/l17/pool/`` and must not exist.
@@ -56,6 +62,13 @@ GATE = "POOLED-SUBBAR-P0"
 LEDGER_ROW = 94
 RULE_PATH = "docs/research/p5-screens-2026-10-31/rule_pooled_subbar_wgate.md"
 RULE_SHA256 = "bd081e402c2c91fe16b560fab530c7d66f1bade9bc98b767a139231ae464b74d"
+CLARIFICATION3_PATH = "docs/research/p5-screens-2026-10-31/clarification3_pooled_subbar_wgate.md"
+CLARIFICATION3_SHA256 = "8ccc6bfed214df241a892f5c28562619ab2d2b72962c6e504e48e384e7cd398d"
+C4_RUN_ENV_DISCLOSURE = (
+    "Clarification 3 (ii): the C4 replays run in the members' recorded run env "
+    "68920c47defcd5e23af16bba7ec1b957baee6a64, as Clarification 1 requires. It differs from the pool tree only in "
+    "r0_ols_floor_challenger (a default-preserving metar_only parameter) and pooled_residual_model; the scorecard "
+    "code (f69071ac) is identical.")
 OUT_ROOT = Path("C:/t/l17/pool")
 LAST_ALLOWED = ls.LAST_ALLOWED  # 2026-09-29
 EDGE_RHO = math.sqrt(0.05)  # 0.2236: rho for a 5% Brier gain against the market
@@ -380,6 +393,24 @@ def synthetic_controls(fit_t, score_t, geo, counts, bcounts, score_dates, donors
     return out
 
 
+def c5_gate(c5, blocks_ok, stream=None):
+    """Clarification 3 (i): (gating failures, diagnostic field). C5 gates only the testable blocks; a failure in an
+    UNTESTABLE block is a diagnostic: it never VOIDs by itself, sets ``flag`` and prints a banner for master review
+    before the verdict is labelled."""
+    for block, rec in c5.items():
+        rec["role"] = "gating" if blocks_ok[block][0] else "diagnostic"
+    gating = [f"C5 {b}" for b, v in c5.items() if v["role"] == "gating" and v["verdict"] != "PASS"]
+    diag = sorted(b for b, v in c5.items() if v["role"] == "diagnostic" and v["verdict"] != "PASS")
+    banner = None
+    if diag:
+        banner = (f"*** C5 DIAGNOSTIC FAILURE in UNTESTABLE block(s) {', '.join(diag)}: not a VOID (Clarification 3); "
+                  "MASTER REVIEW REQUIRED before the POOL-0006 verdict is labelled ***")
+        print(banner, file=stream if stream is not None else sys.stdout, flush=True)
+    field = {"flag": bool(diag), "blocks": diag, "banner": banner, "master_review_before_label": bool(diag),
+             "gating_blocks": sorted(b for b, v in c5.items() if v["role"] == "gating")}
+    return gating, field
+
+
 # ----------------------------------------------------------------------------- the run
 
 def _write(out, name, payload):
@@ -411,6 +442,9 @@ def run(*, layout, out_dir, c4_receipts=None, allow_dirty=False, repo_root=None)
     rule = root / RULE_PATH
     if not rule.is_file() or _sha(rule) != RULE_SHA256:
         raise PoolError(f"rule {rule} is not the pinned A3 rule {RULE_SHA256}")
+    clar3 = root / CLARIFICATION3_PATH
+    if not clar3.is_file() or _sha(clar3) != CLARIFICATION3_SHA256:
+        raise PoolError(f"{clar3} is not the pinned Clarification 3 {CLARIFICATION3_SHA256}")
     for name in RUN_IMPORTS:
         importlib.import_module(name)
     bb_start = bbound_check(root)
@@ -424,6 +458,8 @@ def run(*, layout, out_dir, c4_receipts=None, allow_dirty=False, repo_root=None)
     check_dates(fit_t.snaps.date.astype(str))
     out.mkdir(parents=True)
     base = {"schema": SCHEMA, "gate": GATE, "rule_sha256": RULE_SHA256, "ledger_row": LEDGER_ROW, "code": code,
+            "clarification3": {"path": CLARIFICATION3_PATH, "sha256": CLARIFICATION3_SHA256,
+                               "c4_run_env_disclosure": C4_RUN_ENV_DISCLOSURE},
             "git_tree": git_tree(root), "bbound_sha256": bb_start,
             "evidence_class": "development (dev window, P0-only kill-at-edge read; A3 rescope, w legs dropped)",
             "layout_manifest_sha256": lay.manifest_sha256,
@@ -472,11 +508,11 @@ def run(*, layout, out_dir, c4_receipts=None, allow_dirty=False, repo_root=None)
     n_members = {b: max(1, sum(1 for s in MEMBERS if s[1] == b)) for b in BLOCKS}
     controls["C5_synthetic"] = synthetic_controls(fit_t, score_t, geo, counts, bcounts, score_dates, donors,
                                                   n_members)
-    failed = [k for k, v in controls.items() if k != "C5_synthetic" and v.get("verdict") != "PASS"]
-    failed += [f"C5 {b}" for b, v in controls["C5_synthetic"].items() if v["verdict"] != "PASS"]
+    c5_failed, c5_diag = c5_gate(controls["C5_synthetic"], blocks_ok)
+    failed = [k for k, v in controls.items() if k != "C5_synthetic" and v.get("verdict") != "PASS"] + c5_failed
     if failed:
-        _write(out, "pooled_subbar_VOID.json", {**base, "verdict": "VOID", "controls": controls,
-                                                "coverage": coverage})
+        _write(out, "pooled_subbar_VOID.json", {**base, "verdict": "VOID", "c5_diagnostic_failure": c5_diag,
+                                                "controls": controls, "coverage": coverage})
         raise mb.ControlFailed(f"refused: controls failed {failed} (run VOID)")
     results, rows = {}, []
     for block in BLOCKS:
@@ -496,8 +532,9 @@ def run(*, layout, out_dir, c4_receipts=None, allow_dirty=False, repo_root=None)
         raise PoolError("B-bound files changed during the run")
     (out / "pooled_subbar_rows.jsonl").write_text(
         "".join(json.dumps(r, sort_keys=True, default=mg._default) + "\n" for r in rows), encoding="utf-8")
-    receipt = {**base, "controls": controls, "coverage": coverage, "results": results,
-               "lines": [line_for(b, results[b]) for b in BLOCKS],
+    receipt = {**base, "c5_diagnostic_failure": c5_diag, "controls": controls, "coverage": coverage,
+               "results": results,
+               "lines": ([c5_diag["banner"]] if c5_diag["flag"] else []) + [line_for(b, results[b]) for b in BLOCKS],
                "rows_sha256": _sha(out / "pooled_subbar_rows.jsonl")}
     _write(out, "pooled_subbar.json", receipt)
     return receipt
