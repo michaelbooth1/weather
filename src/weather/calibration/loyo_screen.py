@@ -32,6 +32,10 @@ Subcommands (heavy; run only through ``scripts\\ops\\workstation_heavy.ps1``):
 ``mr-sweep``
     The MR P0 sweep (``weather.calibration.mr_sweep``, rule 85f8192c, ledger row 78): 17 capture-time replay
     signals, paired P0 against the disagreement placebo, BH q = 0.10, the w gate for survivors. Dev window only.
+``marine-p0``
+    The marine market-residual P0 (``weather.calibration.marine_p0``, rule a374f771, ledger row 87): NOAA
+    CO-OPS / NDBC water temperature and onshore wind at 07-12 in six coastal markets, lags 90 and 180 min, BH q =
+    0.10 over K = 2 per lag, a survivor must pass both lags. Reads downloaded NOAA files; no network. Dev window only.
 ``export-rq-gefs-column``
     The reproduction adapter: R-Q variant A's GEFS member-spread column ``u`` on the training frame's keys, written
     as a column file, so that ``run`` can reproduce R-Q gate 1 from a column alone.
@@ -387,6 +391,11 @@ def build_parser():
     w.add_argument("--replay-root", required=True, help="captured replay inputs (replay-inputs-le0929)")
     w.add_argument("--out", required=True)
     w.add_argument("--allow-dirty", action="store_true")
+    mp = sub.add_parser("marine-p0", help="marine market-residual P0 (rule a374f771): SST and onshore wind, dev window")
+    mp.add_argument("--layout", required=True, help="dev scorecard layout (C:/swarm/v3layout)")
+    mp.add_argument("--raw", action="append", required=True, help="a NOAA download directory (repeatable)")
+    mp.add_argument("--out", required=True)
+    mp.add_argument("--allow-dirty", action="store_true")
     return parser
 
 
@@ -405,6 +414,13 @@ def main(argv=None):
 
         cands = dict(c.split("=", 1) for c in args.candidate) or None
         receipt = mr_gate.run(layout=args.layout, out_dir=args.out, candidates=cands, allow_dirty=args.allow_dirty)
+        print(json.dumps({"lines": receipt["lines"], "controls": {k: v["verdict"] for k, v in
+                                                                  receipt["controls"].items()}}, indent=1))
+        return 0
+    if args.command == "marine-p0":
+        from weather.calibration import marine_p0
+
+        receipt = marine_p0.run(layout=args.layout, raw_roots=args.raw, out_dir=args.out, allow_dirty=args.allow_dirty)
         print(json.dumps({"lines": receipt["lines"], "controls": {k: v["verdict"] for k, v in
                                                                   receipt["controls"].items()}}, indent=1))
         return 0
