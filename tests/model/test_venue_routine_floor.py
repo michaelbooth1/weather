@@ -115,3 +115,40 @@ def test_features_keep_every_observation():
     _, metar, station, _, _ = _floor(day, _payload(day))
     assert any(row["raw"].startswith("SPECI") for row in station["rows"])
     assert abs(metar["same_day_max_native"] - _f(SPECI_C)) < 1e-9
+
+
+# --- the fix 10 + 11 stack: the running max since 00:00 is taken on routine rows ---
+
+def _floor_parity(day, payload, market="miami"):
+    """As ``_floor`` on the production default arm (fix 10's running max since 00:00)."""
+    model = TorontoHighTempModel(market_id=market, target_date=day.isoformat())
+    assert model.high_so_far_shadow_variant == "metar_running_max_since_midnight_v1"
+    metar = model.metar_data_from_payload(payload)
+    sources = {"metar": {"ok": True, "data": metar}}
+    station = model.station_observation_data(sources)
+    now = datetime(day.year, day.month, day.day, CUTOFF, 55, tzinfo=model.spec.tz)
+    context = model.effective_observed_high_context({}, {}, station, CUTOFF, metar=metar, now=now)
+    fixed = model.venue_routine_observed_floor_high(context, {}, {}, station, metar, CUTOFF, now=now)
+    return context, fixed
+
+
+def test_stack_an_overnight_speci_only_maximum_does_not_reenter_through_the_running_max():
+    day = date(2026, 10, 25)  # 10:20Z = 06:20 EDT, before 07:00: only the running max sees it
+    context, fixed = _floor_parity(day, _payload(day, peak_at=(10, 20)))
+    assert context["effective_observed_high_source"] == "metar_running_max_since_midnight"
+    assert abs(context["effective_observed_floor_high"] - _f(SPECI_C)) < 1e-9
+    assert abs(fixed - _f(28.0)) < 1e-9
+
+
+def test_stack_the_negation_an_overnight_routine_maximum_keeps_the_running_max_floor():
+    day = date(2026, 10, 25)
+    context, fixed = _floor_parity(day, _payload(day, peak_type="METAR", peak_at=(10, 20)))
+    assert abs(context["effective_observed_floor_high"] - _f(SPECI_C)) < 1e-9
+    assert fixed == context["effective_observed_floor_high"]
+
+
+def test_stack_before_the_cutover_the_running_max_floor_keeps_the_speci():
+    day = date(2026, 10, 20)
+    context, fixed = _floor_parity(day, _payload(day, peak_at=(10, 20)))
+    assert fixed == context["effective_observed_floor_high"]
+    assert abs(fixed - _f(SPECI_C)) < 1e-9

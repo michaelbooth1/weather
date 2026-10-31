@@ -210,7 +210,7 @@ class DistributionMixin(DistributionSignalMixin):
         history_max = observed_high_context["history_high"]
         effective_observed_high = observed_high_context["effective_observed_high"]
         effective_observed_floor_high = self.venue_routine_observed_floor_high(
-            observed_high_context, history, current, station, metar, cutoff_hour,
+            observed_high_context, history, current, station, metar, cutoff_hour, now=now,
         )
         current_max_features = current_max_trust_features(
             current_max,
@@ -1315,14 +1315,17 @@ class DistributionMixin(DistributionSignalMixin):
         declared = (raw_types or {}).get(str(raw))
         return classify_report_type(str(raw), declared=declared) == REPORT_TYPE_SPECIAL
 
-    def venue_routine_observed_floor_high(self, context, history, current, station, metar, cutoff_hour):
+    def venue_routine_observed_floor_high(self, context, history, current, station, metar, cutoff_hour,
+                                          now=None):
         """The served floor high recomputed without SPECI rows (defect fix 11).
 
         Unchanged unless the venue routine-only rule applies, printed WU rows
         are absent, the station rows come from METAR and at least one of them
         is a SPECI. Then the production observed-high context is re-run on the
         routine rows only (latest routine reading, routine max since 07:00), so
-        only the floor moves; the features keep every observation.
+        only the floor moves; the features keep every observation. Under the
+        fix-10 parity variant the running max since 00:00 is re-taken on the
+        routine METAR rows too, so a SPECI cannot re-enter through it.
         """
         floor_high = context["effective_observed_floor_high"]
         if floor_high is None or context.get("history_high") is not None:
@@ -1335,7 +1338,9 @@ class DistributionMixin(DistributionSignalMixin):
         raw_types = self.metar_raw_report_types(metar)
         rows = station.get("rows") or []
         routine_rows = [row for row in rows if not self.is_special_metar_row(row, raw_types)]
-        if len(routine_rows) == len(rows):
+        metar_rows = (metar or {}).get("rows") or []
+        routine_metar_rows = [row for row in metar_rows if not self.is_special_metar_row(row, raw_types)]
+        if len(routine_rows) == len(rows) and len(routine_metar_rows) == len(metar_rows):
             return floor_high
         routine_latest, _ = self.latest_source_row(routine_rows)
         routine_temp = self.row_temp_native(routine_latest) if routine_latest else None
@@ -1351,7 +1356,10 @@ class DistributionMixin(DistributionSignalMixin):
             "max_since_7am_native": routine_max,
             "max_since_7am_c": routine_max,
         }
-        routine = self._served_observed_high_context(history, current, routine_station, cutoff_hour)
+        routine_metar = {**(metar or {}), "rows": routine_metar_rows}
+        routine = self.effective_observed_high_context(
+            history, current, routine_station, cutoff_hour, metar=routine_metar, now=now,
+        )
         if routine.get("startup_feature_quarantined_flag"):
             return floor_high
         return routine["effective_observed_floor_high"]
