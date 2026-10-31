@@ -6,27 +6,34 @@ are DROPPED from the decision and are not run, not even as context.
 
 K = 3 blocks (POOL-0712, F2-1316, POOL-0006). Per block the candidate is the equal-weight log pool of the
 block's testable members, on the intersection of their coverage (every member covered); elsewhere the market.
-A member is testable only with an A3-pinned dev band emit (sha256 checked) that is attested capture-time; any
-other member is UNTESTABLE and drops from its pool, and a block with no testable member is UNTESTABLE (p = 1,
-it keeps its K slot).
+Master Clarification 1 (C4) and the 2026-10-31 ruling (option (a)): a member is testable only through a C4
+receipt of the shared replay harness ``weather.calibration.pool0006_replay`` (run branch
+``claude/p5-pool0006-replay-20261031``, module sha256 ``HARNESS_SHA256``): its replayed emit reproduced the
+member's recorded headline to 1e-9, and the emit's sha256 matches the receipt. Only R-PD and R-N (POOL-0006) have
+a harness. A block with fewer than 2 C4 survivors is UNTESTABLE (p = 1, it keeps its K slot): POOL-0712
+(Reopen-if: per-member replay harnesses incl. an X17 per-snapshot vector) and F2-1316 (by construction, one
+member) are UNTESTABLE as built.
 
 P0 (a local copy of ``mr_sweep.p0_candidate``'s placebo and paired-Delta steps, taking the pooled band vector
 directly instead of a tilt): Delta = rho(c - m, y - m) - mean_j rho(placebo_j - m, y - m) over the 20
 calibration-matched disagreement placebos, with a date-clustered and a block-3 (moving blocks of 3 consecutive
-scored dates) bootstrap. Verdicts (A3): "KILL at edge size" when the wider of the two 95% upper bounds is below
+scored dates; REV-2: circular, ceil(n/3) wrapping blocks, B 2,000, seed 20261024 - the row 93 counts)
+bootstrap. Verdicts (A3): "KILL at edge size" when the wider of the two 95% upper bounds is below
 rho 0.2236; otherwise "P0 survivor; w untested (underpowered)", which carries no claim and only queues a powered
 w read. BH (q 0.10, K = 3) is reported as context only.
 
 Controls before any candidate (any failure writes a VOID receipt and no candidate row): served R, MG-1 07-12
 excess and the MG-1 w = 0 identity (``mr_gate.market_controls``); C3, the w = 0 identity per pooled candidate;
-C5, the planted Gaussian SYN+ / SYN- per block (CONTROL, in memory only; SYN+ must be a P0 survivor with a
-Delta lower bound > 0, SYN- must read Delta < 0).
+C5, the planted Gaussian SYN+ / SYN- per block (CONTROL, in memory only; Clarification 1: plant scale
+SYN_SHRINK 0.75 frozen; pass iff the SYN+ lower bound > 0, the SYN+ wider upper >= 0.2236 and the SYN- upper
+bound < 0, "lower" / "upper" being the smaller / larger of the date-clustered and block-3 bounds).
 
 No network I/O. B-bound files are imported read-only and sha-checked against the A3 pins at start and before the
 receipt; the receipt records the git tree sha and those file shas. Writes once under ``--out``, which must lie
 below ``C:/t/l17/pool/`` and must not exist.
 
-    python -m weather.calibration.pooled_subbar_wgate --layout C:/swarm/v3layout --out C:/t/l17/pool/run1
+    python -m weather.calibration.pooled_subbar_wgate --layout C:/swarm/v3layout --out C:/t/l17/pool/run1 \
+        --c4-receipt R-PD=C:/t/l17/pool/c4/rpd/c4_R-PD.json --c4-receipt R-N=C:/t/l17/pool/c4/rn/c4_R-N.json
 """
 from __future__ import annotations
 
@@ -53,8 +60,10 @@ OUT_ROOT = Path("C:/t/l17/pool")
 LAST_ALLOWED = ls.LAST_ALLOWED  # 2026-09-29
 EDGE_RHO = math.sqrt(0.05)  # 0.2236: rho for a 5% Brier gain against the market
 SYN_SEED = 20261031
-SYN_SHRINK = 0.5
+SYN_SHRINK = 0.75  # Clarification 1 freeze addendum (toy calibration, s = 0.75)
 BLOCK_LEN = 3
+REV2_B, REV2_SEED = 2000, 20261024  # C3 REV-2 block-3 (same counts as row 93)
+MIN_C4_SURVIVORS = 2  # Clarification 1: a block with fewer is UNTESTABLE
 K = 3
 EPS = 1e-4
 VERDICT_KILL = "KILL at edge size"
@@ -62,19 +71,30 @@ VERDICT_SURVIVOR = "P0 survivor; w untested (underpowered)"
 VERDICT_UNTESTABLE = "UNTESTABLE"
 # block id -> local hour range (rule section 2)
 BLOCKS = {"POOL-0712": (7, 12), "F2-1316": (13, 16), "POOL-0006": (0, 6)}
-# A3 member pins: (member, block, emit path, emit sha256, capture-time attested). Only a member with a pinned emit
-# whose capture-time emission is attested in A3 is testable; the rest are UNTESTABLE (rule section 2).
+# Members (rule section 2, fixed). Testable only through a C4 receipt of the shared replay harness; the rest are
+# UNTESTABLE with the recorded reason (Clarification 1; master ruling 2026-10-31, option (a)).
+NO_HARNESS_0712 = ("no per-member replay harness (Clarification 1 C4); Reopen-if: per-member replay harnesses "
+                   "incl. an X17 per-snapshot vector")
 MEMBERS = (
-    ("R-Q A", "POOL-0712", r"C:\t\l15\rq\emit0712\dev_P3d_N_fix_Q.jsonl",
-     "98a31cb757e44d332ca70a680d40200ebf66b4899d408002330ee4a98728f038", False),
-    ("R-I", "POOL-0712", None, None, False),
-    ("X17", "POOL-0712", None, None, False),
-    ("A2", "POOL-0712", None, None, False),
-    ("ASOS", "POOL-0712", None, None, False),
-    ("F2", "F2-1316", None, None, False),
-    ("R-PD", "POOL-0006", None, None, False),
-    ("R-N", "POOL-0006", None, None, False),
+    ("R-Q A", "POOL-0712", NO_HARNESS_0712),
+    ("R-I", "POOL-0712", NO_HARNESS_0712),
+    ("X17", "POOL-0712", NO_HARNESS_0712),
+    ("A2", "POOL-0712", NO_HARNESS_0712),
+    ("ASOS", "POOL-0712", NO_HARNESS_0712),
+    ("F2", "F2-1316", "F2-1316 is UNTESTABLE by construction (one member, never 2 C4 survivors)"),
+    ("R-PD", "POOL-0006", None),
+    ("R-N", "POOL-0006", None),
 )
+# The shared replay harness (claude/p5-pool0006-replay-20261031 @ 95df98c966e205a3f94deb7e0c9e592898da6ebe) and
+# each harnessed member's recorded gate 2 receipt (rule section 2, last column).
+HARNESS_SCHEMA = "pool0006_replay/1"
+HARNESS_SHA256 = "6d6f4f416b85f70a55e6c19ad1256fb94424573d106dba2df1e43c7b8b182f34"
+HARNESS_RUN_ENV = "68920c47defcd5e23af16bba7ec1b957baee6a64"
+C4_TOL = 1e-9
+C4_RECORDED = {
+    "R-PD": ("86268ec6a71267e536a280324ef4fd7e273356fea550ffa0bc9907a70aa20914", -0.023170310481208888),
+    "R-N": ("d299bbf591150c8c74de6c83e372c73c14076fff6ebf82e5bbb95a39b382831c", -0.010530471121291537),
+}
 # A3 B-bound pins: the run imports these read-only (master 035f5bb19 versions) and refuses on any mismatch.
 BBOUND_NAMES = frozenset({
     "mg2_composite.py", "mg2_p3d_n.py", "r0_ols_floor_devfit.py", "l6_stack.py", "mg1.py", "upstream_obs_screen.py",
@@ -154,19 +174,50 @@ def git_tree(repo_root):
     return proc.stdout.strip() if proc.returncode == 0 else None
 
 
-def member_status(spec):
-    """(testable, reason) for one member pin, before any file is read beyond its sha."""
-    name, _, path, sha, capture_time = spec
-    if path is None or sha is None:
-        return False, "no A3-pinned dev band emit"
-    if not capture_time:
-        return False, "pinned emit is not attested capture-time (S1 re-emission required)"
-    if not Path(path).is_file():
-        return False, f"pinned emit missing: {path}"
+def member_status(spec, receipt=None):
+    """(testable, reason, emit path or None, emit sha256 or None) for one member, from its C4 receipt.
+
+    A member without a harness keeps its recorded UNTESTABLE reason. A harnessed member needs a receipt of the
+    pinned harness at the pinned run env, for this member and its recorded gate 2 receipt, with C4 passed (every
+    abs diff <= 1e-9 and the recorded estimate equal to the pin), and an emit whose sha256 matches the receipt.
+    A missing receipt or a failed C4 drops the member (Clarification 1); a forged or inconsistent one refuses."""
+    name, _, fixed_reason = spec
+    if fixed_reason is not None:
+        return False, fixed_reason, None, None
+    if receipt is None:
+        return False, "no C4 receipt (member not replayed)", None, None
+    rec = json.loads(Path(receipt).read_text(encoding="utf-8"))
+    rec_sha, rec_est = C4_RECORDED[name]
+    if rec.get("schema") != HARNESS_SCHEMA or rec.get("member") != name:
+        raise PoolError(f"{name}: {receipt} is not a {HARNESS_SCHEMA} receipt for this member")
+    if rec.get("module_sha256") != HARNESS_SHA256 or rec.get("run_env_commit") != HARNESS_RUN_ENV:
+        raise PoolError(f"{name}: C4 receipt is not from the pinned harness {HARNESS_SHA256} at {HARNESS_RUN_ENV}")
+    if rec.get("recorded_gate2_sha256") != rec_sha:
+        raise PoolError(f"{name}: C4 receipt replays {rec.get('recorded_gate2_sha256')}, not the recorded {rec_sha}")
+    c4 = rec.get("c4") or {}
+    if (c4.get("recorded") or {}).get("estimate") != rec_est:
+        raise PoolError(f"{name}: C4 receipt's recorded headline is not {rec_est}")
+    diffs = list((c4.get("abs_diff") or {}).values())
+    passed = bool(c4.get("pass")) and len(diffs) == 3 and all(d is not None and d <= C4_TOL for d in diffs)
+    if not passed:
+        return False, "C4 FAIL (replayed headline differs from the recorded one beyond 1e-9)", None, None
+    emit = rec.get("emit") or {}
+    path, sha = emit.get("path"), emit.get("sha256")
+    if not path or not Path(path).is_file():
+        return False, f"C4 passed but the emit is missing: {path}", None, None
     got = _sha(path)
     if got != sha:
-        raise PoolError(f"{name}: {path} sha256 {got} is not the A3 pin {sha}")
-    return True, "pinned"
+        raise PoolError(f"{name}: emit {path} sha256 {got} is not the C4 receipt's {sha}")
+    return True, "C4 PASS", str(path), sha
+
+
+def block_testable(status, members=MEMBERS, minimum=MIN_C4_SURVIVORS):
+    """{block: (testable, n C4 survivors)}: a block needs at least ``minimum`` C4 survivors."""
+    out = {}
+    for block in BLOCKS:
+        n = sum(1 for m in members if m[1] == block and status[m[0]][0])
+        out[block] = (n >= minimum, n)
+    return out
 
 
 # ----------------------------------------------------------------------------- the pooled candidate
@@ -189,14 +240,13 @@ def log_pool(table, vectors, covers):
 
 # ----------------------------------------------------------------------------- P0 on a band vector
 
-def block_counts(n_dates, draws=sw.DRAWS, seed=sw.SEED, length=BLOCK_LEN):
-    """Moving-block bootstrap date counts: ceil(n/L) blocks of L consecutive dates, truncated to n."""
-    rng = np.random.default_rng(seed + 3)
-    nb = -(-n_dates // length)
-    starts = rng.integers(0, max(n_dates - length + 1, 1), size=(draws, nb))
-    idx = (starts[:, :, None] + np.arange(length)).reshape(draws, -1)[:, :n_dates]
-    idx = np.minimum(idx, n_dates - 1)
-    return np.stack([np.bincount(r, minlength=n_dates) for r in idx])
+def block_counts(n_dates, b=REV2_B, seed=REV2_SEED, length=BLOCK_LEN):
+    """C3 REV-2 circular block bootstrap date counts (``c3_kill_tier.block_counts`` verbatim, b1d8e65f): ceil(n/L)
+    blocks of L consecutive dates wrapping modulo n, truncated to n; B 2,000, seed 20261024."""
+    k = -(-n_dates // length)
+    starts = np.random.default_rng(seed).integers(n_dates, size=(b, k))
+    idx = ((starts[:, :, None] + np.arange(length)) % n_dates).reshape(b, -1)[:, :n_dates]
+    return np.stack([np.bincount(r, minlength=n_dates) for r in idx]).astype(float)
 
 
 def p0_vector(cid, c_fit, covered, fit_t, score_t, counts, bcounts, score_dates, donors):
@@ -268,7 +318,8 @@ def _band_edges(table):
 
 
 def planted(table, geo, mask, sign, seed=SYN_SEED):
-    """CONTROL only (rule (a) C5): Gaussian bands centred at mu_m + sign*0.5*(y_mid - mu_m) + eps, width sigma_m,
+    """CONTROL only (rule (a) C5): Gaussian bands centred at mu_m + sign*SYN_SHRINK*(y_mid - mu_m) + eps (s 0.75,
+    Clarification 1), width sigma_m,
     eps ~ N(0, sd(y_mid - mu_m)) (seeded; the same eps for both signs). In memory; returns (vector, covered)."""
     from scipy.stats import norm
 
@@ -289,9 +340,26 @@ def planted(table, geo, mask, sign, seed=SYN_SEED):
     return vec, ok
 
 
+def _bounds(r):
+    """(lower, upper): the smaller lower and the larger upper of the date-clustered and block-3 95% bounds."""
+    los = [v for v in (r["ci95"][0], r["ci95_block3"][0]) if v is not None]
+    ups = [v for v in (r["ci95"][1], r["ci95_block3"][1]) if v is not None]
+    return (min(los) if len(los) == 2 else None), (max(ups) if len(ups) == 2 else None)
+
+
+def c5_checks(sp, sm):
+    """Clarification 1 C5 pass rule for one block's SYN+ / SYN- records."""
+    lo_p, up_p = _bounds(sp) if sp["testable"] else (None, None)
+    _, up_m = _bounds(sm) if sm["testable"] else (None, None)
+    return {"syn_plus_lower_above_0": bool(lo_p is not None and lo_p > 0),
+            "syn_plus_wider_upper_at_least_edge": bool(up_p is not None and up_p >= EDGE_RHO),
+            "syn_minus_upper_below_0": bool(up_m is not None and up_m < 0)}
+
+
 def synthetic_controls(fit_t, score_t, geo, counts, bcounts, score_dates, donors, members_per_block):
     """Per block, pooled at the block's member count by replacing every member with the planted vector (a log
-    pool of identical vectors is that vector). SYN+ must be a P0 survivor with lower bound > 0; SYN- Delta < 0."""
+    pool of identical vectors is that vector). Clarification 1: PASS iff the SYN+ lower bound > 0, the SYN+ wider
+    upper >= 0.2236 and the SYN- upper bound < 0 (lower / upper = smaller / larger of date and block-3)."""
     from weather.calibration import market_blend as mb
 
     out = {}
@@ -306,13 +374,8 @@ def synthetic_controls(fit_t, score_t, geo, counts, bcounts, score_dates, donors
             rec[name] = {"label": "CONTROL", "testable": res["testable"], "delta": res["p0"].get("delta"),
                          "ci95": res["p0"].get("ci95"), "ci95_block3": res["p0_block3"].get("ci95"),
                          "p_one_sided": res["p0"].get("p_one_sided"), "coverage": res["coverage"]}
-        sp, sm = rec["SYN+"], rec["SYN-"]
-        ups = [u for u in (sp["ci95"][1], sp["ci95_block3"][1]) if u is not None]
-        plus_ok = bool(sp["testable"] and sp["ci95"][0] is not None and sp["ci95"][0] > 0
-                       and ups and max(ups) >= EDGE_RHO)
-        minus_ok = bool(sm["testable"] and sm["delta"] is not None and sm["delta"] < 0)
-        rec["checks"] = {"syn_plus_p0_survivor_lower_above_0": plus_ok, "syn_minus_delta_below_0": minus_ok}
-        rec["verdict"] = "PASS" if plus_ok and minus_ok else "FAIL"
+        rec["checks"] = c5_checks(rec["SYN+"], rec["SYN-"])
+        rec["verdict"] = "PASS" if all(rec["checks"].values()) else "FAIL"
         out[block] = rec
     return out
 
@@ -336,10 +399,14 @@ def line_for(block, r):
             f"context BH q {r['bh_q_context']:.3f}")
 
 
-def run(*, layout, out_dir, allow_dirty=False, repo_root=None):
+def run(*, layout, out_dir, c4_receipts=None, allow_dirty=False, repo_root=None):
     import importlib
 
     root = Path(repo_root or Path(__file__).resolve().parents[3])
+    c4_receipts = dict(c4_receipts or {})
+    unknown = sorted(set(c4_receipts) - {m[0] for m in MEMBERS if m[2] is None})
+    if unknown:
+        raise PoolError(f"C4 receipts given for members without a harness: {unknown}")
     code = ls.require_clean(ls.code_state(), allow_dirty)
     rule = root / RULE_PATH
     if not rule.is_file() or _sha(rule) != RULE_SHA256:
@@ -351,7 +418,8 @@ def run(*, layout, out_dir, allow_dirty=False, repo_root=None):
     from weather.calibration import market_blend as mb
 
     out = check_out_dir(out_dir)
-    status = {spec[0]: member_status(spec) for spec in MEMBERS}
+    status = {spec[0]: member_status(spec, c4_receipts.get(spec[0])) for spec in MEMBERS}
+    blocks_ok = block_testable(status)
     lay, folds, burn, scored, fit_t, score_t = mg.build_tables(layout)
     check_dates(fit_t.snaps.date.astype(str))
     out.mkdir(parents=True)
@@ -363,10 +431,17 @@ def run(*, layout, out_dir, allow_dirty=False, repo_root=None):
                               "mr_gate": _sha(mg.__file__), "market_blend": _sha(mb.__file__),
                               "gap_to_market_atlas": _sha(gta.__file__)},
             "constants": {"edge_rho": EDGE_RHO, "draws": sw.DRAWS, "seed": sw.SEED, "block_len": BLOCK_LEN,
+                          "block3": {"scheme": "REV-2 circular", "b": REV2_B, "seed": REV2_SEED},
+                          "syn_shrink": SYN_SHRINK, "min_c4_survivors": MIN_C4_SURVIVORS, "c4_tol": C4_TOL,
                           "placebo_seeds": list(sw.PLACEBO_SEEDS), "bh_q": sw.BH_Q, "k": K, "eps": EPS,
                           "min_dates": sw.MIN_DATES, "min_snapshots": sw.MIN_SNAPS, "syn_seed": SYN_SEED},
-            "members": [{"member": s[0], "block": s[1], "emit": s[2], "emit_sha256": s[3], "capture_time": s[4],
-                         "testable": status[s[0]][0], "reason": status[s[0]][1]} for s in MEMBERS],
+            "harness": {"schema": HARNESS_SCHEMA, "module_sha256": HARNESS_SHA256, "run_env": HARNESS_RUN_ENV},
+            "members": [{"member": m[0], "block": m[1], "testable": status[m[0]][0], "reason": status[m[0]][1],
+                         "emit": status[m[0]][2], "emit_sha256": status[m[0]][3],
+                         "c4_receipt": c4_receipts.get(m[0]),
+                         "c4_receipt_sha256": _sha(c4_receipts[m[0]]) if m[0] in c4_receipts else None}
+                        for m in MEMBERS],
+            "blocks": {b: {"testable": ok, "c4_survivors": n, "k_slot": True} for b, (ok, n) in blocks_ok.items()},
             "population": {"burn_in_dates": burn, "scored_first": scored[0], "scored_last": scored[-1],
                            "n_scored_dates": len(scored)}}
     try:
@@ -375,10 +450,10 @@ def run(*, layout, out_dir, allow_dirty=False, repo_root=None):
         _write(out, "pooled_subbar_VOID.json", {**base, "verdict": "VOID", "reason": str(exc)})
         raise
     loaded = {b: [] for b in BLOCKS}
-    for name, block, path, _, _ in MEMBERS:
-        if not status[name][0]:
+    for name, block, _ in MEMBERS:
+        if not status[name][0] or not blocks_ok[block][0]:
             continue
-        p_fit, cov_fit, meta = gta.load_candidate(str(path), mg.TRAINED_THROUGH, lay, folds, fit_t)
+        p_fit, cov_fit, meta = gta.load_candidate(status[name][2], mg.TRAINED_THROUGH, lay, folds, fit_t)
         lo, hi = BLOCKS[block]
         loaded[block].append((name, p_fit, cov_fit & mb.hour_mask(fit_t, lo, hi), meta.get("coverage")))
     geo = sw.band_geometry(fit_t)
@@ -406,7 +481,10 @@ def run(*, layout, out_dir, allow_dirty=False, repo_root=None):
     results, rows = {}, []
     for block in BLOCKS:
         if block not in pools:
-            results[block] = {"candidate": block, "testable": False, "reason": "no testable member",
+            reason = (f"fewer than {MIN_C4_SURVIVORS} C4 survivors ({blocks_ok[block][1]})"
+                      + ("; " + NO_HARNESS_0712.split("; ", 1)[1] if block == "POOL-0712" else "")
+                      + ("; by construction (one member)" if block == "F2-1316" else ""))
+            results[block] = {"candidate": block, "testable": False, "reason": reason,
                               "p0": {"p_one_sided": 1.0, "delta": None, "ci95": [None, None]},
                               "p0_block3": {"ci95": [None, None]}}
             continue
@@ -430,8 +508,16 @@ def main(argv=None):
                                  description=__doc__.split("\n")[0])
     ap.add_argument("--layout", required=True)
     ap.add_argument("--out", required=True)
+    ap.add_argument("--c4-receipt", action="append", default=[], metavar="MEMBER=PATH",
+                    help="a pool0006_replay C4 receipt (repeat per member)")
     a = ap.parse_args(argv)
-    rec = run(layout=a.layout, out_dir=a.out)
+    receipts = {}
+    for item in a.c4_receipt:
+        name, sep, path = item.partition("=")
+        if not sep or name in receipts:
+            raise PoolError(f"--c4-receipt wants MEMBER=PATH once per member: {item!r}")
+        receipts[name] = path
+    rec = run(layout=a.layout, out_dir=a.out, c4_receipts=receipts)
     print("\n".join(rec["lines"]))
     return 0
 

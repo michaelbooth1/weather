@@ -3,12 +3,18 @@
 Synthetic frames only, no real rows.
 Guards: rule_pooled_subbar_wgate A3 - the equal-weight log pool (renormalisation to the market's mass, impossible
 bands at 0, the intersection rule, the market elsewhere); the C3 w = 0 identity on a pool; the C5 planted
-Gaussian SYN+ / SYN- signs on a toy market (and a null planted control FAILS); the A3 labels ("KILL at edge
-size" iff the wider 95% upper bound < rho 0.2236, else "P0 survivor; w untested (underpowered)"); refusal of an
-unpinned / non-capture-time / sha-mismatched member and of any date after 2026-09-29; the write-once out dir;
-the rule pin refusing before any layout is read; and the B-bound pin check.
+Gaussian SYN+ / SYN- control on the toy market at concentration 4 with the frozen plant scale 0.75 and the
+Clarification 1 pass rule (SYN+ lower > 0, SYN+ wider upper >= 0.2236, SYN- upper < 0; a null planted control
+FAILS); the A3 labels ("KILL at edge size" iff the wider 95% upper bound < rho 0.2236, else "P0 survivor; w
+untested (underpowered)"); the C3 REV-2 circular block-3 counts (c3_kill_tier.block_counts verbatim, B 2,000,
+seed 20261024); Clarification 1 C4 - a member is testable only through a passing C4 receipt of the pinned
+replay harness with a matching emit sha (failures drop, forgeries refuse), and a block with fewer than 2 C4
+survivors is UNTESTABLE (POOL-0712 and F2-1316 as built); refusal of any date after 2026-09-29; the write-once
+out dir; the rule pin refusing before any layout is read; and the B-bound pin check.
 """
+import hashlib
 import importlib
+import json
 import types
 
 import numpy as np
@@ -62,9 +68,8 @@ def _frame(seed=11, n_dates=34, n_markets=10, hours=range(17)):
             market = f"m{i:02d}"
             for hour in hours:
                 pm = rng.dirichlet(np.ones(5) * 2)
-                # concentration 2: the toy market is a weak forecast, so the rule-fixed C5 plant (0.5 of the gap)
-                # clears edge rho 0.2236 in every block; at 4 two blocks sit just below it (disclosed in the report)
-                q = rng.dirichlet(pm * 2 + 1e-3)
+                # market concentration 4 (Clarification 1 calibration toy; the frozen plant 0.75 passes C5 here)
+                q = rng.dirichlet(pm * 4 + 1e-3)
                 winner = int(rng.choice(5, p=q / q.sum()))
                 rows.append({"row_key": f"{market}|{day}T{hour:02d}", "date": day, "market": market,
                              "local_hour": hour, "captured_at_utc": f"{day}T{hour:02d}:30:00Z", "pm": pm,
@@ -80,7 +85,7 @@ def toy():
     geo = sw.band_geometry(fit_t)
     score_dates = np.array(sorted(set(score_t.snaps.date)))
     counts = sw.boot_counts(len(score_dates), draws=1000)
-    bcounts = ps.block_counts(len(score_dates), draws=1000)
+    bcounts = ps.block_counts(len(score_dates))
     donors = {seed: sw.donor_positions(fit_t, seed) for seed in sw.PLACEBO_SEEDS}
     return fit_t, score_t, geo, score_dates, counts, bcounts, donors
 
@@ -147,10 +152,27 @@ def test_planted_control_signs(toy):
     for block, rec in out.items():
         assert rec["label"] == "CONTROL" and rec["SYN+"]["label"] == "CONTROL" and rec["SYN-"]["label"] == "CONTROL"
         assert rec["SYN+"]["testable"] and rec["SYN-"]["testable"], block
-        assert rec["SYN+"]["delta"] > 0 and rec["SYN+"]["ci95"][0] > 0, block
-        assert max(rec["SYN+"]["ci95"][1], rec["SYN+"]["ci95_block3"][1]) >= ps.EDGE_RHO, block
-        assert rec["SYN-"]["delta"] < 0, block
-        assert rec["verdict"] == "PASS", block
+        sp, sm = rec["SYN+"], rec["SYN-"]
+        assert min(sp["ci95"][0], sp["ci95_block3"][0]) > 0, block
+        assert max(sp["ci95"][1], sp["ci95_block3"][1]) >= ps.EDGE_RHO, block
+        assert max(sm["ci95"][1], sm["ci95_block3"][1]) < 0, block
+        assert all(rec["checks"].values()) and rec["verdict"] == "PASS", block
+
+
+def test_c5_pass_rule_uses_the_wider_bounds():
+    def r(lo, up, lo3, up3, testable=True):
+        return {"testable": testable, "ci95": [lo, up], "ci95_block3": [lo3, up3]}
+
+    good = ps.c5_checks(r(0.10, 0.30, 0.09, 0.31), r(-0.30, -0.10, -0.31, -0.09))
+    assert all(good.values())
+    assert not ps.c5_checks(r(0.10, 0.30, -0.01, 0.31), r(-0.3, -0.1, -0.3, -0.1))["syn_plus_lower_above_0"]
+    assert ps.c5_checks(r(0.10, 0.20, 0.09, 0.2236068), r(-0.3, -0.1, -0.3, -0.1))[
+        "syn_plus_wider_upper_at_least_edge"]
+    assert not ps.c5_checks(r(0.10, 0.20, 0.09, 0.22), r(-0.3, -0.1, -0.3, -0.1))[
+        "syn_plus_wider_upper_at_least_edge"]
+    assert not ps.c5_checks(r(0.1, 0.3, 0.1, 0.3), r(-0.30, -0.10, -0.31, 0.001))["syn_minus_upper_below_0"]
+    assert not any(ps.c5_checks(r(None, None, None, None, False), r(None, None, None, None, False)).values())
+    assert ps.SYN_SHRINK == 0.75
 
 
 def test_planted_control_fails_on_a_null_signal(toy, monkeypatch):
@@ -180,25 +202,92 @@ def test_decide_labels():
     assert all("bh_q_context" in v for v in r.values())
 
 
-def test_block_counts_sum_to_n():
-    c = ps.block_counts(43, draws=50)
-    assert c.shape == (50, 43) and (c.sum(axis=1) == 43).all()
+def test_block_counts_are_the_rev2_circular_counts():
+    def c3(n_dates, b=2000, seed=20261024, length=3):  # c3_kill_tier.block_counts at b1d8e65f, verbatim
+        k = -(-n_dates // length)
+        starts = np.random.default_rng(seed).integers(n_dates, size=(b, k))
+        idx = ((starts[:, :, None] + np.arange(length)) % n_dates).reshape(b, -1)[:, :n_dates]
+        return np.stack([np.bincount(r, minlength=n_dates) for r in idx]).astype(float)
+
+    c = ps.block_counts(43)
+    assert c.shape == (2000, 43) and (c.sum(axis=1) == 43).all()
+    np.testing.assert_array_equal(c, c3(43))
+    starts = np.random.default_rng(20261024).integers(43, size=(2000, 15))
+    assert (starts >= 41).any()  # some blocks start in the last two dates and wrap to date 0
+    assert ps.REV2_B == 2000 and ps.REV2_SEED == 20261024 and ps.BLOCK_LEN == 3
 
 
 # ----------------------------------------------------------------------------- refusals
 
-def test_member_pins(tmp_path):
-    assert ps.member_status(("X", "POOL-0712", None, None, False)) == (False, "no A3-pinned dev band emit")
-    f = tmp_path / "e.jsonl"
-    f.write_text("{}\n", encoding="utf-8")
-    ok, why = ps.member_status(("X", "POOL-0712", str(f), "0" * 64, False))
-    assert not ok and "capture-time" in why
-    with pytest.raises(ps.PoolError, match="A3 pin"):
-        ps.member_status(("X", "POOL-0712", str(f), "0" * 64, True))
-    assert ps.member_status(("X", "POOL-0712", str(f), ps._sha(f), True)) == (True, "pinned")
-    assert ps.member_status(("X", "POOL-0712", str(tmp_path / "gone"), "0" * 64, True))[0] is False
+def _receipt(tmp_path, name="R-PD", est_diff=0.0, **over):
+    emit = tmp_path / f"emit_{name}.parquet"
+    emit.write_bytes(b"emit " + name.encode())
+    sha_rec, est = ps.C4_RECORDED[name]
+    rec = {"schema": ps.HARNESS_SCHEMA, "member": name, "module_sha256": ps.HARNESS_SHA256,
+           "run_env_commit": ps.HARNESS_RUN_ENV, "recorded_gate2_sha256": sha_rec,
+           "c4": {"pass": est_diff <= ps.C4_TOL, "recorded": {"estimate": est, "ci95": [0, 0]},
+                  "abs_diff": {"estimate": est_diff, "ci95_lo": 0.0, "ci95_hi": 0.0}},
+           "emit": {"path": str(emit), "sha256": hashlib.sha256(emit.read_bytes()).hexdigest()}}
+    rec.update(over)
+    path = tmp_path / f"c4_{name}.json"
+    path.write_text(json.dumps(rec), encoding="utf-8")
+    return path, emit
+
+
+def test_members_and_blocks_as_built():
     assert {m[0] for m in ps.MEMBERS} == {"R-Q A", "R-I", "X17", "A2", "ASOS", "F2", "R-PD", "R-N"}
     assert {m[1] for m in ps.MEMBERS} == set(ps.BLOCKS) and ps.K == len(ps.BLOCKS) == 3
+    assert {m[0] for m in ps.MEMBERS if m[2] is None} == set(ps.C4_RECORDED) == {"R-PD", "R-N"}
+    for spec in ps.MEMBERS:
+        if spec[1] == "POOL-0712":
+            ok, why, _, _ = ps.member_status(spec)
+            assert not ok and "X17 per-snapshot vector" in why
+        if spec[1] == "F2-1316":
+            assert "by construction" in ps.member_status(spec)[1]
+
+
+def test_c4_receipt_gate(tmp_path):
+    spec = ("R-PD", "POOL-0006", None)
+    assert ps.member_status(spec) == (False, "no C4 receipt (member not replayed)", None, None)
+    path, emit = _receipt(tmp_path)
+    ok, why, got_path, got_sha = ps.member_status(spec, path)
+    assert ok and why == "C4 PASS" and got_path == str(emit) and got_sha == ps._sha(emit)
+    (tmp_path / "f").mkdir()
+    bad, _ = _receipt(tmp_path / "f", est_diff=2e-9)
+    assert ps.member_status(spec, bad)[:2] == (False, "C4 FAIL (replayed headline differs from the recorded one "
+                                                     "beyond 1e-9)")
+    for over in ({"module_sha256": "0" * 64}, {"run_env_commit": "0" * 40}, {"member": "R-N"},
+                 {"recorded_gate2_sha256": "0" * 64}, {"schema": "other/1"}):
+        d = tmp_path / str(len(list(tmp_path.iterdir())))
+        d.mkdir()
+        forged, _ = _receipt(d, **over)
+        with pytest.raises(ps.PoolError):
+            ps.member_status(spec, forged)
+    d = tmp_path / "sha"
+    d.mkdir()
+    path2, emit2 = _receipt(d)
+    emit2.write_bytes(b"changed")
+    with pytest.raises(ps.PoolError, match="sha256"):
+        ps.member_status(spec, path2)
+    emit2.unlink()
+    assert ps.member_status(spec, path2)[0] is False
+
+
+def test_a_block_needs_two_c4_survivors():
+    status = {m[0]: (False, "x", None, None) for m in ps.MEMBERS}
+    status["R-PD"] = (True, "C4 PASS", "e", "s")
+    assert ps.block_testable(status)["POOL-0006"] == (False, 1)
+    status["R-N"] = (True, "C4 PASS", "e", "s")
+    got = ps.block_testable(status)
+    assert got == {"POOL-0712": (False, 0), "F2-1316": (False, 0), "POOL-0006": (True, 2)}
+    assert ps.MIN_C4_SURVIVORS == 2
+
+
+def test_run_refuses_receipts_for_unharnessed_members_before_anything_is_read(tmp_path):
+    for name in ("X17", "F2", "nobody"):
+        with pytest.raises(ps.PoolError, match="without a harness"):
+            ps.run(layout=tmp_path / "no-layout", out_dir=tmp_path / "x", c4_receipts={name: "r.json"},
+                   allow_dirty=True, repo_root=tmp_path)
 
 
 def test_dates_after_cutoff_refuse():

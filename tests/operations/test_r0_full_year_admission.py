@@ -46,6 +46,8 @@ PINNED = [
     "weather.calibration.b_scorer",  # Rule B-1 scorer: control and the one look (b5c2108b3, 10-25)
     "weather.calibration.l6_own_state",  # L3's one-time L6 own-state fit, master D2 (i) (1d69a87f1, 10-26)
     "weather.calibration.pooled_subbar_wgate",  # L17 P5 (a) row 94 pooled sub-bar P0 vs market (10-31)
+    "weather.calibration.loyo_screen",  # unlanded allowlist commit on this branch's base (run-branch PINNED rule)
+    "weather.calibration.spread_information_rung",  # unlanded allowlist commit on this branch's base (same rule)
     "weather.market.maker_evidence_inspect",
     "weather.market.maker_counterfactual_tape",
     "weather.operations.base_retrain",
