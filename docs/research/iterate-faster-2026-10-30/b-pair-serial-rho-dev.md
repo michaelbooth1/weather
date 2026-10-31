@@ -1,4 +1,8 @@
-# B-shaped pair: serial dependence and B's false-PASS rate on dev (ledger row 83)
+# B-shaped pair: serial dependence and B's false-PASS rate on dev (ledger rows 83 and 84)
+
+> **Row 84 correction.** Row 83's block-3 resampled rate (0.0692) came from a path-construction bug and is wrong.
+> Corrected it is 0.043-0.045 (section 4). Row 83's other numbers stand. Its readings 1 and 4 are superseded by
+> section 4, and the digest line at the end replaces row 83's.
 
 **Dated research evidence, 2026-10-31, lane L8. Descriptive only.** This read follows master's ruling on row 82.
 
@@ -54,7 +58,7 @@ lower the rate, so these figures are upper bounds on B's false-PASS rate.
 | AR(1), ρ 0 (reference) | 0 | 0.0282 | 0.0012 | 1.1 |
 | AR(1), ρ + 1.96 SE | +0.511 | 0.1423 | 0.0025 | 5.7 |
 | Resampled dev dates, iid | none (dependence broken) | 0.0315 | 0.0012 | 1.3 |
-| Resampled dev dates, block 3 | dev's own | **0.0692** | 0.0018 | 2.8 |
+| Resampled dev dates, block 3 (**wrong, see section 4**) | dev's own | ~~0.0692~~ | 0.0018 | ~~2.8~~ |
 
 ## 3. Readings
 
@@ -68,6 +72,83 @@ lower the rate, so these figures are upper bounds on B's false-PASS rate.
 4. **B's alternative is unaffected.** On dev, MG-1 is clearly worse than the market at 07-16 (+0.017). That is an
    MG-1 fact, not MG-2's alternative, and it does not bear on B's power.
 
-**Digest line (for master):** dev MG-1 − market on B's estimand (07-16, 10 markets, equal cells) has daily lag-1
-ρ +0.22 (SE 0.15); at that ρ, B's date-clustered percentile rule (2,000 draws, PASS = U < 0, N = 45) false-PASSes
-0.068 at the null (block-3 resampling 0.069; ρ 0 gives 0.028), against a nominal 0.025 (row 83).
+## 4. Row 84: reconciling block-3 and simulating B's full PASS condition
+
+Row 84 was committed before this computation (`0c66d740fd1c6b5ca2a5f21040cb5eb30c487235`).
+- Driver: `C:\t\l8br\br84.py`, sha256 `7c6fb17c346847e1aa307f2368dd00a02abb31b29cb631f8cce5269e990be88c`. It reuses
+  `br.py` (sha unchanged) for the population and controls. It ran directly as light work (15 s).
+- Output: `C:\t\l8br\out\br84_out.json`, sha256 `d8bc293661f9bb4d1bae9585862d616aa30f0f25a1bf8042fb00a29729cb86cb`.
+- Controls reproduced as in row 83, on the same 43 dev dates.
+
+### 4.1 Reconcile: the SE table is right; row 83's block-3 paths were wrong
+
+**How one null path was built (traced).**
+- Each 45-date path is 15 blocks of 3 consecutive dev dates, with no trimming (45 = 15 × 3).
+- Block starts are uniform on 0..40, which is the moving-block scheme. Blocks are re-drawn independently for every
+  path. The traced path used 27 distinct dates.
+- Values were d − mean(d) over the 43 dates.
+
+**The bug is the centring.** A moving block underweights the series ends: the first and last date get 1/3 of a
+middle date's weight, and the second and second-last get 2/3.
+- Dev's last two dates are large and positive (centred d +0.0259 and +0.0064), and the first is negative.
+- So the expected path mean under plain centring is −0.00031, which is −0.20 of the iid SE at N = 45, not 0.
+- That shift pushes U below 0 too often.
+- The spread of the paths was fine. Path SD is 1.08 × iid, matching the SE table (VIF about 1.17).
+
+| 07-16, primary-only rule | False PASS | MC SE | Mean path Δ / its SD |
+| --- | --- | --- | --- |
+| Row 83 construction, rerun (plain centring) | 0.0672 | 0.0018 | −0.18 |
+| **Moving block, re-centred on its own expectation (fix, post hoc)** | **0.0454** | 0.0015 | 0.00 |
+| **Circular block (fix, post hoc)** | **0.0433** | 0.0014 | 0.00 |
+| iid resampled | 0.0332 | 0.0013 | 0.01 |
+
+The rerun reproduces row 83's 0.0692 within Monte Carlo error. The two fixes give 0.043-0.045, which is master's
+prediction from the SE table (VIF ≤ 1.21 gives about 0.04, plus about 0.005 percentile liberality). Both fixes
+are **post hoc**: row 84 named the cause and the fixes before computing, but they were chosen after row 83's number
+was seen.
+
+**Why AR(1) and block-3 still differ.** AR(1) at the point ρ of 0.219 implies VIF (1 + ρ)/(1 − ρ) ≈ 1.56 for the
+mean. Dev's own moving-block SEs show at most about 1.21 out to block 7. The two models disagree on dependence beyond
+lag 1, not on arithmetic. Dev cannot separate them: ρ has an SE of 0.15, and dev has 43 dates. So the honest range
+at the null is 0.043-0.045 (dev's own short-lag dependence) to 0.065-0.069 (AR(1) at the point ρ).
+
+### 4.2 B's full PASS condition at the null
+
+B §6 PASS, quoted: "U < 0, and neither Δ(07-12) nor Δ(13-16) has its lower bound > 0". This is master's paraphrase.
+`b_scorer.decide` applies it with one `w_date` matrix for all three ranges, and the simulation does the same.
+
+The model is a joint three-range VAR(1):
+- diagonal AR coefficients at the measured ρ: 07-16 +0.219, 07-12 +0.118, 13-16 +0.310;
+- the measured SDs, 0.0105 / 0.0101 / 0.0127;
+- the measured correlations of the daily d: 07-16 with 07-12 0.956, 07-16 with 13-16 0.927, 07-12 with 13-16 0.777.
+
+Disclosure: at the measured ρ the implied innovation covariance had a minimum eigenvalue of −8.4e-08. It was
+clipped to PSD, which is negligible against σ² ≈ 1e-4.
+
+All rows below use N 45, 2,000 draws, seed 20260921 and 20,000 paths.
+
+| Path model | Primary only | **Full B §6** | MC SE | Splits veto a primary PASS |
+| --- | --- | --- | --- | --- |
+| VAR(1), measured ρ | 0.0651 | **0.0651** | 0.0017 | 0 of 1,302 |
+| VAR(1), ρ 0, same correlations | 0.0299 | **0.0299** | 0.0012 | 0 |
+| Joint resample, iid | 0.0293 | **0.0293** | 0.0012 | 0 |
+| Joint resample, block 3, re-centred (post hoc fix) | 0.0464 | **0.0464** | 0.0015 | 0 |
+| Joint resample, block 3, circular (post hoc fix) | 0.0413 | **0.0413** | 0.0014 | 0 |
+
+**The split veto never binds at the null.** Δ(07-16) is close to an average of the two splits (correlations 0.93 and
+0.96), so a path whose 07-16 upper bound is below 0 never has a split lower bound above 0. Row 83's upper bounds are
+therefore B's actual false-PASS rates. The VAR's 0.0651 against row 83's univariate 0.0685 is Monte Carlo noise
+(different seed, about 1.4 combined SE).
+
+### 4.3 Readings (replace row 83's readings 1 and 4)
+
+1. B's false PASS at the null on dev's dependence is 0.041-0.046 from the data's own short-lag structure
+   (block 3, fixed), and 0.065 under AR(1)/VAR(1) at the point ρ. Against the nominal 0.025 that is 1.7-2.6×.
+   With independent dates it is 0.029-0.033.
+2. B's full §6 condition gives the same rate as U < 0 alone. The split veto does not bind at the null.
+3. ρ is uncertain (SE 0.15), and dev covers Aug-Sep while B runs Oct-Dec. Nothing here changes B.
+
+**Digest line (row 84, replaces row 83's):** dev MG-1 − market on B's estimand (07-16, 10 markets, equal cells)
+has daily lag-1 ρ +0.22 (SE 0.15). B's full §6 PASS rule (date-clustered percentile, 2,000 draws, N 45) then
+false-PASSes 0.065 at the null under AR(1)/VAR(1) at that ρ, and 0.029-0.030 with independent dates, against a
+nominal 0.025. The 07-12/13-16 veto never binds at the null (rows 83-84).
