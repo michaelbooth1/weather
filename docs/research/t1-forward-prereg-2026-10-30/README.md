@@ -23,10 +23,13 @@ after the coordinator has been told; the lane never freezes on its own.
   AR(1)/VIF-adjusted one with ρ measured on T+1's own accrued d, floored at 0.28; the date-clustered interval is
   descriptive; the R-K back-out file sha is added at the freeze check; the look schedule under rule 9 is explicit
   (sections 7 and 8).
-- Rev 7 (this file) folds in master's ruling on rev 6 (2026-10-30): the after-the-fact 7/14/21 looks stand, and the
+- Rev 7 folds in master's ruling on rev 6 (2026-10-30): the after-the-fact 7/14/21 looks stand, and the
   (f) power is computed by simulation with the futility path, the AR(1) deciding interval and its VIF floor 1.78
   exactly as applied. That power is 0.455 at N = 63, so N rises to **75 scored (82 countable) dates**, power 0.505
-  (sections 7 and 8). Still NOT frozen.
+  (sections 7 and 8).
+- Rev 8 (this file) adds the null simulation (master ruling 2026-10-30): the rule as applied, with futility, has a
+  false-PASS rate of 0.021 at ρ 0.28 (≤ 0.025, so no rule change) and 0.033 at the ρ 0.5 stress case (reported,
+  not a gate). N, δ_s and power are unchanged (section 7). Still NOT frozen.
 
 This is a dated research draft, not canonical guidance.
 
@@ -278,6 +281,15 @@ with `mr_gate.gate_candidate` and `market_blend.pool()`.
       futility stops 22.9% of paths; 0.549 without futility), so **82 countable dates** in all with the 7 burn-in
       dates.
   - N = 75 ≥ 20, so a PASS is allowed.
+  - **False-PASS rate at the null (rev 8, master ruling 2026-10-30).** Script `null_sim.py` in this folder, sha256
+    `0ab65f7800742278c9f2e4d4b8c0af9941da02b0d7c35a47db4416867e0792e9` (reuses `power_sim.py` `682eb257…` with
+    mean 0); output `C:	\l3t1sim
+ull_sim_out.json`, sha256
+    `edee35167b76992678632ba78a6fcfa78e05ddd82f07036972239adebcfbed7d`. N = 75, k = 1.07, 400,000 paths, seed 20261030.
+    - ρ 0.28: false PASS **0.0209** with futility (0.0240 without), against the one-sided 0.025. It is within the
+      bound, so the rule is unchanged (no t critical value, no higher VIF floor).
+    - ρ 0.5 (stress case, not a gate): false PASS **0.0330** with futility (0.0380 without). The lag-1 ρ̂ on 75
+      dates is biased low, so VIF_look under-corrects there. Reported only.
 
   The analytic table below (no futility, VIF 1.78) is kept for reference only; the simulated N governs.
 
@@ -365,7 +377,8 @@ with `mr_gate.gate_candidate` and `market_blend.pool()`.
     pinned.
   - If P2 or P3 is not met at P1, the lane reports that and waits. It does not freeze a partial batch.
   - The freeze row carries this file's sha256, the emitter sha, the recorder blobs, the R-K back-out file sha256
-    (the σ_d source, checklist (f)), the power simulation script sha256 and its output sha256 (section 7),
+    (the σ_d source, checklist (f)), the power simulation script sha256 and its output sha256, the null simulation script sha256 and its output
+    sha256 (section 7),
     the claiming-test list and the look schedule. It is written as `pending` before the freeze commit.
 
 ## 9. Not done under this rule
