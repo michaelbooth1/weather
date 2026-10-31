@@ -1,4 +1,4 @@
-# Pooled sub-bar w-gate read on dev (ledger row 94, draft)
+# Pooled sub-bar w-gate read on dev (ledger row 94)
 
 Status: DRAFT, pre-declared before any computation (2026-10-31, lane L17, task P5 (a)).
 
@@ -18,6 +18,52 @@ to write it).**
   prereg, script sha256, outputs, receipts and logs. A NOT RUN arm is not ruled out. Its prereg is archived
   under the same folder only when the assembled ledger records its verdict.
 - **Run bases (ruling 4), recorded and not cut.** These are the planned bases for a run branch: machinery `mr_sweep`/`mr_gate`/`market_blend` at `8bb0f9563582885c4d01d34b67476f2563260e43` (`claude/loyo-screen-runenv-20261030`). The member commits would be merged read-only: R-Q A `19d8223895c4ae3d16faa7ec0b27403fca5547ee` (run env `c471b32b97c1cf68ba03df3b812cb5912827d8f4`), R-I and X17 `6488c7a31623c859631099a882ffee2fd065a925` (X17 rule `cca30734…`), A2 `533ffcb3c8dc6ce2a831e62b41fc080c21e0e2ae`, ASOS `e6c3f30cfdd8ecea56a31b06134ed723dbec2e3e`, F2 `308ce88edb0f25b9a6303065e160a312c4ab42d0`, and R-PD/R-N `a9f9be5b0174dbc773b3853e01189279dac11a1f` (branch tip `03cd7835be134e7faa5c584daa89c2cc7d5c7198`). The rule branch is `claude/p5-screens-20261031`, based on `1a78e1ba0c8f57c0d420fca96a9528cfb1d8e9de`.
+
+**Amendment A2 (2026-10-31, pre-run; applies master's edge-size power ruling; no outcome, price or label was
+read to write it). A2 supersedes A1's Decision bullet and section (d)'s rule 6 compliance decision. Every
+other A1 bullet stands.**
+
+- **Master ruling (relayed by the coordinator, 2026-10-31).** Checklist (f)'s half-dev-effect sizing does
+  NOT bind kill-only dev or history reads; it is for forward tests. A kill-only read states its power AT
+  EDGE SIZE, the effect a B-style PASS needs (about a 5% Brier gain against the market, R ≤ 0.95
+  equivalent), and it runs only if that power is ≥ 0.5.
+- **Verdict vocabulary.** The verdict is "KILL at edge size" or "SCREEN" only. Neither is a promotion, an
+  edge claim, or an information claim below edge size. UNTESTABLE (coverage) and VOID (a control failed)
+  stay as non-verdicts. The labels TESTED-UNDERPOWERED, SURVIVE and PASS in this file are read as
+  "SCREEN" (survivor or pass) and "KILL at edge size" (anything else), and no line may claim or deny
+  information below edge size.
+- **Units (L15).** `claude/research-docs-batch-20261031` @ `f2ed2fa9108c98ad362a315b6ee666fa95ef34f9`,
+  `EXHAUSTION_REGISTER` and `DEV_WINDOW_LEDGER`: the SYN bar is 5% of the served−market gap, i.e.
+  0.05×(R_served−1) in R units (about −0.024 at 07-12 and −0.043 at 13-16); B's PASS is 5% of the
+  market's Brier; a market-residual P0 needs ρ ≥ √0.05 = 0.2236 for a 5% gain.
+- **Power formula.** power = Φ(δ/SE − 1.96). The working is `edge_power_working.py` and its output, in the
+  R13 archive folders `C:\archive\ruled-out\_p5-ens`, `_p5-subbar` and `_p5-loyo` (listed in
+  `SHA256SUMS_A2`).
+- **Final row number: 94** (coordinator, 2026-10-31). A1's PROVISIONAL label is closed.
+- **Scale for this arm: Brier against the market.** A SCREEN-PASS (section 5) needs the w gate's four legs,
+  and those legs are Brier differences against the capture-time market. The read's power to pass at edge
+  size is at most the power of its weakest required leg, so the w-gate Brier scale binds. The P0 stage on
+  the ρ scale has power 1.00 at ρ 0.2236 (SE 0.00153), and that is not binding.
+  - **Edge size per block (B-style, 5% of the market's Brier).** Market Brier from atlas
+    `atlas_0006.json` (sha256 `046aa7a924af70631b0e7b613416bdb4f4e59da1b7a06159c5d054f0e7c4c32a`):
+    00-06 0.05584 → δ 0.00279; 07-12 0.05301 → δ 0.00265. 13-16 uses B's 07-16 PASS figure, δ 0.0027.
+  - **SE.** 07-12: 0.00946·√1.78/√43 = 0.001925. 13-16: 0.01263·√1.78/√43 = 0.00257. 00-06 uses the 07-12
+    proxy σ_d (disclosed in section (d)).
+  - **Power.** POOL-0712 Φ(0.00265/0.001925 − 1.96) = 0.28. F2-1316 Φ(0.0027/0.00257 − 1.96) = 0.18.
+    POOL-0006 Φ(0.00279/0.001925 − 1.96) = 0.305.
+  - Power 0.5 would need δ ≥ 1.96·SE: 0.0038 at 00-06 and 07-12 (a market Brier ≥ 0.075) and 0.0050 at
+    13-16.
+  - The SYN bar 0.05×(R_served−1) is smaller than 5% of the market's Brier in every block (R_served − 1 <
+    1), so on that scale power is lower still.
+- **Decision: all three blocks NOT RUN, below edge-size power 0.5** (0.305 / 0.28 / 0.18). K stays 3 with
+  p = 1 for every block. No module is written, no outcome is read, and no member, estimand or kill line is
+  closed. This is not a KILL.
+- **Open to master, not self-decided.** A P0-only kill-only read of the pooled candidates on the ρ scale
+  would have edge-size power 1.00, but it would replace the task's w-gate estimand (section 4 step 4). It
+  runs only if master rescopes the row in a dated Clarification with its own sha256.
+- **Archive (R13).** This amendment, the A2 ledger draft and the edge-power working are added to
+  `C:\archive\ruled-out\_p5-subbar` beside the A1 files, with a new `SHA256SUMS_A2`. Nothing there is
+  overwritten or deleted.
 
 ## 0. Selection disclosure (read this first)
 

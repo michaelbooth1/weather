@@ -1,4 +1,4 @@
-# ECMWF ENS member spread against the market: market-residual P0 rule (ledger row 93, draft)
+# ECMWF ENS member spread against the market: market-residual P0 rule (ledger row 93)
 
 Status: DRAFT, pre-declared before any computation (2026-10-31, lane L17, task P5 (c)).
 
@@ -20,6 +20,48 @@ to write it).**
   prereg, script sha256, outputs, receipts and logs. A NOT RUN arm is not ruled out. Its prereg is archived
   under the same folder only when the assembled ledger records its verdict.
 - **Run bases (ruling 4), recorded and not cut.** The planned base for a run branch is machinery `mr_sweep`/`mr_gate` at `8bb0f9563582885c4d01d34b67476f2563260e43` (`claude/loyo-screen-runenv-20261030`). The input is `points.parquet`, sha256 `bd761fa52869d244addda7fb3746276e1eb6aad2416ac2fdc3291750d7320a7e`, read under its pin with no fetch and no rebuild. The rule branch is `claude/p5-screens-20261031`, based on `1a78e1ba0c8f57c0d420fca96a9528cfb1d8e9de`.
+
+**Amendment A2 (2026-10-31, pre-run; applies master's edge-size power ruling; no outcome, price or label was
+read to write it). A2 supersedes A1's Decision bullet and section (d)'s rule 6 compliance decision. Every
+other A1 bullet stands.**
+
+- **Master ruling (relayed by the coordinator, 2026-10-31).** Checklist (f)'s half-dev-effect sizing does
+  NOT bind kill-only dev or history reads; it is for forward tests. A kill-only read states its power AT
+  EDGE SIZE, the effect a B-style PASS needs (about a 5% Brier gain against the market, R ≤ 0.95
+  equivalent), and it runs only if that power is ≥ 0.5.
+- **Verdict vocabulary.** The verdict is "KILL at edge size" or "SCREEN" only. Neither is a promotion, an
+  edge claim, or an information claim below edge size. UNTESTABLE (coverage) and VOID (a control failed)
+  stay as non-verdicts. The labels TESTED-UNDERPOWERED, SURVIVE and PASS in this file are read as
+  "SCREEN" (survivor or pass) and "KILL at edge size" (anything else), and no line may claim or deny
+  information below edge size.
+- **Units (L15).** `claude/research-docs-batch-20261031` @ `f2ed2fa9108c98ad362a315b6ee666fa95ef34f9`,
+  `EXHAUSTION_REGISTER` and `DEV_WINDOW_LEDGER`: the SYN bar is 5% of the served−market gap, i.e.
+  0.05×(R_served−1) in R units (about −0.024 at 07-12 and −0.043 at 13-16); B's PASS is 5% of the
+  market's Brier; a market-residual P0 needs ρ ≥ √0.05 = 0.2236 for a 5% gain.
+- **Power formula.** power = Φ(δ/SE − 1.96). The working is `edge_power_working.py` and its output, in the
+  R13 archive folders `C:\archive\ruled-out\_p5-ens`, `_p5-subbar` and `_p5-loyo` (listed in
+  `SHA256SUMS_A2`).
+- **Final row number: 93** (coordinator, 2026-10-31). A1's PROVISIONAL label is closed.
+- **Scale for this arm: ρ (market-residual P0).** Δ is in ρ units (`rule_mr_sweep` §2), so edge size is
+  δ = ρ 0.2236.
+  - Pooled proxy SE (section (d)): 0.00754·√1.78/√43 = 0.00153 → power Φ(0.2236/0.00153 − 1.96) = 1.00.
+  - Conservative per-block SE: the widest row 78 OM-GM-SPREAD per-block 95% half-width is 0.060
+    (00-05 [−0.0117, +0.0654]; 06-09 [−0.0140, +0.0943]; 10-12 [−0.0173, +0.0995]), so
+    SE = 0.060/1.96 = 0.0306 → power 1.00; with a further √1.78 (SE 0.0408) → power 0.9998.
+  - The same holds for ENS-SD-0712 and ENS-SD-0006.
+- **Decision: both arms RUN (power ≥ 0.5 at edge size).** The verdict is fixed at the P0 stage of section 6:
+  a P0 survivor is SCREEN; anything else is KILL at edge size. The w gate is run for a survivor as
+  reported context only. Its Brier-vs-market legs have edge-size power 0.28 at 07-12 and 0.305 at 00-06
+  (row 94's A2 arithmetic), below 0.5, so under the ruling the w gate cannot kill, and its legs are
+  recorded without changing the verdict.
+- **Disclosed runtime addition.** `mr_gate.BLOCKS` holds 07-12, 13-16 and 00-23 only. The module adds the
+  local block 00-06 at runtime (hours 0-6, local), inside its own process, without editing `mr_gate`.
+- **Entry point.** The module has its own `python -m weather.calibration.ens_spread_p0` entry rather than
+  a new `loyo_screen` subcommand, so `loyo_screen` is not edited. It writes only under `--out`, which must
+  sit below `C:/t/l17/ens/` and must not exist.
+- **Admission.** The module diff and shas go to the coordinator before any run. The run is never
+  self-admitted.
+- **Kill line (section 7).** Unchanged in scope; the kill is "KILL at edge size" for ρ 0.2236.
 
 ## 0. Data check (task P5 (c), outcome-free; no download, no rebuild)
 

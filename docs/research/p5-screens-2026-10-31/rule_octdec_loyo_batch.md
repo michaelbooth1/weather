@@ -1,4 +1,4 @@
-# Oct-Dec history LOYO batch: day-specific width (R9) and trajectory items X13 / X18 / X20 (ledger row 95, draft)
+# Oct-Dec history LOYO batch: day-specific width (R9) and trajectory items X13 / X18 / X20 (ledger row 95)
 
 Status: DRAFT, pre-declared before any computation (2026-10-31, lane L17, task P5 (b)).
 
@@ -20,6 +20,57 @@ to write it).**
   prereg, script sha256, outputs, receipts and logs. A NOT RUN arm is not ruled out. Its prereg is archived
   under the same folder only when the assembled ledger records its verdict.
 - **Run bases (ruling 4), recorded and not cut.** The planned base for a run branch is `9ee8a243f55efe314ad5a1b1b33dd0cf0816508e` (row 92's tip). These would be merged read-only into it: `claude/stack-l9-20261025` @ `8167b89a898699c2103cd6be136cc09ee9702c85` (X13) and `claude/rung0712-20261025` @ `6488c7a31623c859631099a882ffee2fd065a925` (X18/X20 via `pooled_residual_model`, imported only). The rule branch is `claude/p5-screens-20261031`, based on `1a78e1ba0c8f57c0d420fca96a9528cfb1d8e9de`.
+
+**Amendment A2 (2026-10-31, pre-run; applies master's edge-size power ruling; no outcome, price or label was
+read to write it). A2 supersedes A1's Decision bullet and section (d)'s rule 6 compliance decision. Every
+other A1 bullet stands.**
+
+- **Master ruling (relayed by the coordinator, 2026-10-31).** Checklist (f)'s half-dev-effect sizing does
+  NOT bind kill-only dev or history reads; it is for forward tests. A kill-only read states its power AT
+  EDGE SIZE, the effect a B-style PASS needs (about a 5% Brier gain against the market, R ≤ 0.95
+  equivalent), and it runs only if that power is ≥ 0.5.
+- **Verdict vocabulary.** The verdict is "KILL at edge size" or "SCREEN" only. Neither is a promotion, an
+  edge claim, or an information claim below edge size. UNTESTABLE (coverage) and VOID (a control failed)
+  stay as non-verdicts. The labels TESTED-UNDERPOWERED, SURVIVE and PASS in this file are read as
+  "SCREEN" (survivor or pass) and "KILL at edge size" (anything else), and no line may claim or deny
+  information below edge size.
+- **Units (L15).** `claude/research-docs-batch-20261031` @ `f2ed2fa9108c98ad362a315b6ee666fa95ef34f9`,
+  `EXHAUSTION_REGISTER` and `DEV_WINDOW_LEDGER`: the SYN bar is 5% of the served−market gap, i.e.
+  0.05×(R_served−1) in R units (about −0.024 at 07-12 and −0.043 at 13-16); B's PASS is 5% of the
+  market's Brier; a market-residual P0 needs ρ ≥ √0.05 = 0.2236 for a 5% gain.
+- **Power formula.** power = Φ(δ/SE − 1.96). The working is `edge_power_working.py` and its output, in the
+  R13 archive folders `C:\archive\ruled-out\_p5-ens`, `_p5-subbar` and `_p5-loyo` (listed in
+  `SHA256SUMS_A2`).
+- **Final row number: 95** (coordinator, 2026-10-31). A1's PROVISIONAL label is closed.
+- **Scale for this arm: bucket Brier against the incumbent, converted relatively.** No Oct-Dec market
+  exists, so edge size is translated through the incumbent's dev R against the market. This relative
+  scaling is an approximation, disclosed here.
+  - Incumbent bucket Brier on these rows: 0.8480287548671755 (`C:\t\l3\sml6\loyo.json`, sha256
+    `07ef7810d81e434c93e08e552d3ca2df0ec195790a52b6431e578ab3ce515919`, `season_matched_loyo` oct_dec
+    pooled `brier_part`).
+  - Proxy R_L6 at 07-12 on dev = 1 + 0.0081/0.05301 = 1.1528 (L6's 07-12 excess +0.0081, section (c); the
+    market Brier from atlas `046aa7a9…`).
+  - **B-style (R ≤ 0.95):** a relative cut of (1.1528 − 0.95)/1.1528 = 17.59%, δ = 0.1759·0.84803 = 0.1492.
+  - **SYN bar (binding, the smaller):** 0.05×(1.1528 − 1)/1.1528 = 0.663%, δ = 0.00663·0.84803 = 0.00562.
+  - **SE** = 0.00833·√1.78/√375 = 0.000574 (section (d)). For d_net, where each draw subtracts one
+    placebo, a conservative √2 gives SE 0.000812.
+  - **Power at the SYN bar:** Φ(0.00562/0.000574 − 1.96) = 1.00; with the √2 SE, 1.00. At the B-style δ,
+    1.00.
+  - Shown only to fix the scale: the dev per-band SYN figure 0.0012 taken unconverted would give 0.55
+    (0.32 with √2). That reading mixes per-band Brier with integer-bucket Brier and is not used.
+- **Decision: W1, X13, X18 and X20 RUN (power ≥ 0.5 at edge size).** The verdict per arm is "SCREEN" (a
+  section 4 PASS, which earns only a forward pre-registration to master under R10) or "KILL at edge size"
+  (anything else). UNTESTABLE and VOID keep their meaning.
+- **Disclosed construction for X20 (S1, section 3).** The 13-14 rows are built by a local copy of the
+  `cool_season_audit.l6_rows` pattern with hours (13, 14) in place of `HOURS_0712`, inside the new module.
+  `cool_season_audit` is not edited.
+- **Disclosed X13 adapter.** `ols_floor_ladder.overnight_lows` reads WU record rows (`minute_of_day`,
+  temperature). The module feeds it the same pinned upstream obs that `l6.load` reads (market station,
+  non-corrected rows, local minute of day), converted in memory; no other source is opened.
+- **Entry point and admission.** `python -m weather.calibration.octdec_loyo_batch`, writing only under
+  `--out`, which must sit below `C:/t/l17/octdec/` and must not exist. The module diff and shas go to the
+  coordinator before any run, and the run is never self-admitted. The 15 HGB fits are heavy and run only
+  through `scripts\ops\workstation_heavy.ps1 -Queue` after admission.
 
 ## 0. Why this batch exists (scope rulings)
 
