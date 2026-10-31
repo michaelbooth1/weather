@@ -138,9 +138,59 @@ lane does all of the following.
       r4 required at least 0.95 of doubly dead buckets to have a receipt at or after the killing report,
       and got 0.972; the Toronto Celsius check matched the IEM high on 60 of 60 days.
 - [ ] **A dev-ledger row before scoring** (`pending`), filled after it ([ledger](DEV_WINDOW_LEDGER.md)).
+- [ ] **Cite the published dev reuse count.** Name the ledger's "Dev reuse count" (one number, ledger section of
+      that name) as the multiplicity denominator the rule inherits, plus one for the new row.
 
 A dev-window win is selection evidence only. It earns a pre-registration on new dates and a forward
 shadow, never a promotion (EF §5).
+
+## 5. Fast-iteration pipeline (owner 2026-10-30)
+
+The owner approved nine decisions on 2026-10-30, all as master-agent recommended ([DECISION_LOG](DECISION_LOG.md)).
+The rationale is the dated [iterate-faster plan](../research/iterate-faster-2026-10-30/plan.md). They add these rules.
+
+1. **Two currencies.** History and dev reads are cheap and can only kill. Forward dates are spent only on frozen,
+   sha-pinned candidates or batches.
+2. **Kill at the cheapest tier that can.** Intake must say why the market might lack the information; an exhausted family
+   ([exhaustion register](EXHAUSTION_REGISTER.md) §6) is refused without a new mechanism. Then outcome-free checks (coverage,
+   per-version, receipt-dated availability), history (LOYO), dev, and only then a forward look.
+3. **Market-facing ideas go to the market-residual P0 first.** Does the signal predict the market's error at the same hour?
+   One rule, a ledger row first, BH at q = 0.10 across arms, a calibration-matched placebo (the residual deranged across
+   dates, 20 seeds), and per-date rows written beside the result.
+4. **w first.** A candidate earns a market test only if its walk-forward w beats the placebo and the floor-only control
+   (§3 rung 4) and it then passes a dev tradability replay. A dev win against served or MG-1 is not edge progress.
+5. **Batch small levers.** A lever smaller than about half the dev MDE80 goes into a batch, never a solo forward test.
+6. **Size each test from its own numbers:** N from the pair's measured sigma at half the dev effect, at least 20 dates before
+   any PASS, no screen launched below power 0.5, and training coverage that reaches the last forward date.
+7. **Futility looks in new pre-registrations only** (Rule B, [power and futility read](../research/iterate-faster-2026-10-30/prereg-power-futility.md)):
+   a harm stop at 7 dates, then stop at 14, 21 and 31 dates on the registered boundaries; inflate the MDE 4-7% and report
+   a block-3 interval beside the date-clustered one. A look reads a date only when rule 9 allows it. Bound tests (B,
+   MG-1, L6_G) never change; B gets no futility look.
+8. **Standing blind accrual.** A frozen arm accrues outcome-blind from its freeze with no per-candidate owner exemption.
+   It looks only after every test that claims its dates has looked. Arms on B's dates are screens, never edge claims.
+9. **One date rule.** No outcome, label or price on a date is read until every test that claims that date has taken its
+   look. After the last claiming look the date joins dev, prices included.
+10. **2026-09-30..10-14 is opened once** for kill-only and atlas reads, after a written check that no running test claims
+    those dates. Nothing read there supports an edge claim.
+11. **The workstation records pre-registered kills itself** (ledger row and register row); master audits them daily.
+12. **Record first.** Free forward-only sources start recording before any dev win; a standing defect lane runs alongside.
+
+Rule 13 is the owner's (2026-10-30, [decision log](DECISION_LOG.md)). Rules 14 and 15 are master's rulings of
+2026-10-31, from the dated [research review](../research/research-review-2026-10-31/review.md); they are not owner decisions.
+
+13. **Archive what is ruled out.** Every ruled-out candidate, retro-filled for older rows, keeps its pre-registration or
+    draft, script commit sha, raw outputs, receipts and logs under `C:\archive\ruled-out\<folder>` (workstation; copies,
+    never moves), indexed by `INDEX.md` and `index.json` there with per-file sha256, built by its `build_index.py`.
+    A register or ledger kill cites its archive folder. Nothing under the archive root is deleted; scratch work
+    lives outside it.
+14. **Intake prior: already priced.** No new single free-source T+0 screen on the US11 opens unless its S0 names a
+    mechanism by which the *market* lacks the information at that hour. "It beats served" is not a mechanism: on the dev
+    scorecard served is 1.53x (00-16) to 1.77x (all hours) the market's Brier (EF §10aa; 1.77x on the 111h table too,
+    EF §10q), so almost any public input beats it. Without the mechanism the default reading is that the crowd already
+    prices the source, and the screen is refused at intake.
+15. **A family kill cites a measurement on the member it closes.** A member closed only by extension from a sibling's
+    result is labelled **CLOSED-BY-RULE (reopenable)**, never KILL or COVERED, and its register row names the sibling
+    and the rule that extended it. A new mechanism or a measurement on the member itself reopens it.
 
 ## Update this file when
 
