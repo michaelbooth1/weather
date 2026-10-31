@@ -448,6 +448,69 @@ def bootstrap(d, dates, placebos=(), draws=BOOT_DRAWS, seed=BOOT_SEED):
     return out
 
 
+# ----------------------------------------------------------------------------- D3 per-date rows (rerun only)
+
+REPRO_RECEIPT_SHA256 = "48489d0c6982c19fa081db4b66ba0deedac3fde26b337ca9fe79d3b750ee6417"  # run 3ed0a828
+REPRO_EXCLUDE = ("module_sha256", "git_tree")  # the only fields that change with the writer itself
+REPRO_TOL = 1e-12
+PER_DATE_FILE = "per_date_rows.json"
+
+
+def per_date_rows(d, dates, placebos=()):
+    """The per-date sums and sizes bootstrap() resamples, plus each placebo's per-date sums (same date keys)."""
+    import numpy as np
+
+    if any(len(dp) != len(d) for dp in placebos) or len(dates) != len(d):
+        raise OctDecBatchError("placebo rows differ from the arm rows")
+    keys, s, n = _date_sums(d, dates)
+    out = {"dates": [str(k) for k in keys], "sum": [float(v) for v in s], "size": [float(v) for v in n],
+           "placebo_sums": []}
+    for dp in placebos:
+        kj, sj, nj = _date_sums(dp, dates)
+        if not (np.array_equal(kj, keys) and np.array_equal(nj, n)):
+            raise OctDecBatchError("placebo rows differ from the arm rows")
+        out["placebo_sums"].append([float(v) for v in sj])
+    return out
+
+
+def repro_mismatches(new, old, tol=REPRO_TOL, path="$"):
+    """Paths where two JSON trees differ: floats by |a - b| > tol (NaN equals NaN), everything else exactly."""
+    if isinstance(new, dict) and isinstance(old, dict):
+        bad = [f"{path}.{k} (missing)" for k in sorted(set(new) ^ set(old))]
+        for k in sorted(set(new) & set(old)):
+            bad += repro_mismatches(new[k], old[k], tol, f"{path}.{k}")
+        return bad
+    if isinstance(new, list) and isinstance(old, list):
+        if len(new) != len(old):
+            return [f"{path} (length {len(new)} != {len(old)})"]
+        return [b for i, (a, c) in enumerate(zip(new, old)) for b in repro_mismatches(a, c, tol, f"{path}[{i}]")]
+    if isinstance(new, bool) or isinstance(old, bool) or not (
+            isinstance(new, (int, float)) and isinstance(old, (int, float))):
+        return [] if new == old else [path]
+    if isinstance(new, int) and isinstance(old, int):
+        return [] if new == old else [path]
+    a, c = float(new), float(old)
+    if math.isnan(a) and math.isnan(c):
+        return []
+    return [] if abs(a - c) <= tol else [path]
+
+
+def reproduce_check(payload, receipt_path, expected_sha256=REPRO_RECEIPT_SHA256, tol=REPRO_TOL):
+    """Refuse unless ``payload`` reproduces the pinned receipt (all fields but REPRO_EXCLUDE) within ``tol``."""
+    raw = Path(receipt_path).read_bytes()
+    if hashlib.sha256(raw).hexdigest() != expected_sha256:
+        raise OctDecBatchError("reproduction receipt sha256 does not match the pinned run")
+    old = json.loads(raw)
+    new = json.loads(json.dumps(payload, sort_keys=True, default=str))
+    for k in REPRO_EXCLUDE:
+        old.pop(k, None)
+        new.pop(k, None)
+    bad = repro_mismatches(new, old, tol)
+    if bad:
+        raise OctDecBatchError(f"rerun does not reproduce the pinned receipt at {len(bad)} paths: {bad[:10]}")
+    return {"receipt_sha256": expected_sha256, "tolerance": tol, "excluded": list(REPRO_EXCLUDE), "pass": True}
+
+
 def bh_reject(pvals, q=BH_Q):
     """Benjamini-Hochberg step-up: {name: (adjusted q, reject)}."""
     names = sorted(pvals, key=lambda k: (pvals[k], k))
@@ -644,7 +707,7 @@ def per_fold_ref(year, years, fit_vec, outer):
 
 # ----------------------------------------------------------------------------- run
 
-def run(*, research_root, nbm_corpus, mg2_coefficients, rule, c1_receipt, out):
+def run(*, research_root, nbm_corpus, mg2_coefficients, rule, c1_receipt, out, reproduce=None):
     import numpy as np
     from zoneinfo import ZoneInfo
 
@@ -844,7 +907,7 @@ def run(*, research_root, nbm_corpus, mg2_coefficients, rule, c1_receipt, out):
               for j in range(PLACEBO_J)]
     srcs13 = [placebo_src(c13["markets"], c13["hour"], c13["year"], c13["dates"], PLACEBO_SEED0 + j)
               for j in range(PLACEBO_J)] if len(late) else []
-    arms, train_checks, pvals = {}, {}, {}
+    arms, train_checks, pvals, per_date = {}, {}, {}, {}
     for arm in ARMS:
         c, key, srcs = (c13, "13", srcs13) if arm == "X20" else (c07, "07", srcs07)
         rec = {"testable": testable[arm], "coverage": cov[arm][0]}
@@ -874,6 +937,7 @@ def run(*, research_root, nbm_corpus, mg2_coefficients, rule, c1_receipt, out):
             pl = [d_of(c, key, mu=centre_arm({y: X[arm][y][src] for y in years}, c)[0]) for src in srcs]
         train_checks[arm] = tr
         rec["stats"] = bootstrap(d, c["dates"][c["ok"]], placebos=pl)
+        per_date[arm] = per_date_rows(d, c["dates"][c["ok"]], pl)
         full_d = np.full(len(c["ok"]), np.nan)
         full_d[c["ok"]] = d
         if np.any(d != 0):
@@ -911,7 +975,11 @@ def run(*, research_root, nbm_corpus, mg2_coefficients, rule, c1_receipt, out):
                "rows_scored_13_14": int(c13["ok"].sum()), "train_rows": int(len(train)),
                "inputs": dict(prov, nbm_corpus_sha256=sm.NBM_CORPUS_SHA256, coef_sha256=cs.MG2_COEF_SHA256,
                               c1_receipt_sha256=pmo.C1_RECEIPT_SHA256, rg_obs_sha256=prm.RG_OBS_SHA256)}
+    repro = reproduce_check(payload, reproduce) if reproduce is not None else None
     _write(out_dir, "octdec_loyo_batch.json", payload)
+    _write(out_dir, PER_DATE_FILE, {"label": "ledger row 95 D3: per-date sums of each tested arm",
+                                    "boot": {"draws": BOOT_DRAWS, "seed": BOOT_SEED}, "arms": per_date,
+                                    "reproduction": repro, "module_sha256": _sha(__file__)})
     return payload
 
 
@@ -919,9 +987,10 @@ def main(argv=None):
     p = argparse.ArgumentParser(prog="python -m weather.calibration.octdec_loyo_batch")
     for flag in ("--research-root", "--nbm-corpus", "--mg2-coefficients", "--rule", "--c1-receipt", "--out"):
         p.add_argument(flag, required=True)
+    p.add_argument("--reproduce-receipt", default=None)
     a = p.parse_args(argv)
     out = run(research_root=a.research_root, nbm_corpus=a.nbm_corpus, mg2_coefficients=a.mg2_coefficients,
-              rule=a.rule, c1_receipt=a.c1_receipt, out=a.out)
+              rule=a.rule, c1_receipt=a.c1_receipt, out=a.out, reproduce=a.reproduce_receipt)
     print(json.dumps({"verdicts": out["verdicts"], "controls_pass": {k: v.get("pass") for k, v in
                                                                      out["controls"].items()}}, indent=1))
     return 0

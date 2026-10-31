@@ -358,3 +358,52 @@ def test_s1_and_gate_constants_match_the_rule():
     assert (ob.BOOT_DRAWS, ob.BOOT_SEED, ob.PLACEBO_J, ob.PLACEBO_SEED0) == (10_000, 20261024, 20, 20260921)
     assert (ob.LOGMULT_MAX, ob.Z_FLOOR, ob.P0_RHO_MIN, ob.P0_MAX_OPPOSITE_YEARS) == (0.02, 0.25, 0.05, 1)
     assert (ob.VERDICT_SCREEN, ob.VERDICT_KILL) == ("SCREEN", "KILL at edge size")
+
+
+def test_per_date_rows_rebuild_the_bootstrap_exactly():
+    """D3: the written per-date sums reproduce bootstrap()'s point, CI and placebo-net CI to the bit."""
+    rng = np.random.default_rng(7)
+    dates = np.repeat([f"2022-11-{i:02d}" for i in range(1, 29)], 3)
+    d = rng.normal(-0.01, 0.05, len(dates))
+    pl = [rng.normal(0.0, 0.05, len(dates)) for _ in range(3)]
+    st = ob.bootstrap(d, dates, placebos=pl, draws=500, seed=13)
+    rows = ob.per_date_rows(d, dates, pl)
+    assert rows["dates"] == sorted(set(dates)) and len(rows["placebo_sums"]) == 3
+    s, n = np.array(rows["sum"]), np.array(rows["size"])
+    idx = ob.boot_indices(len(s), 500, 13)
+    boot = s[idx].sum(1) / n[idx].sum(1)
+    assert float(s.sum() / n.sum()) == st["point"]
+    assert [float(np.quantile(boot, 0.025)), float(np.quantile(boot, 0.975))] == st["ci95"]
+    net = np.empty(500)
+    for j, sj in enumerate(rows["placebo_sums"]):
+        r = np.arange(j, 500, 3)
+        net[r] = boot[r] - np.array(sj)[idx[r]].sum(1) / n[idx[r]].sum(1)
+    assert [float(np.quantile(net, 0.025)), float(np.quantile(net, 0.975))] == st["d_net"]["ci95"]
+    with pytest.raises(ob.OctDecBatchError):
+        ob.per_date_rows(d, dates, [d[:-1]])
+
+
+def test_reproduce_check_refuses_any_mismatch_beyond_1e12(tmp_path):
+    import hashlib
+    import json
+
+    old = {"module_sha256": "a", "git_tree": "t", "verdicts": {"X13": "SCREEN"},
+           "arms": {"X13": {"stats": {"point": -0.001, "ci95": [-0.002, 0.0], "n_dates": 375}}}}
+    path = tmp_path / "r.json"
+    path.write_text(json.dumps(old), encoding="utf-8")
+    sha = hashlib.sha256(path.read_bytes()).hexdigest()
+    ok = json.loads(json.dumps(old))
+    ok["module_sha256"], ok["git_tree"] = "b", "u"  # excluded fields may differ
+    ok["arms"]["X13"]["stats"]["point"] = -0.001 + 5e-13
+    assert ob.reproduce_check(ok, path, expected_sha256=sha)["pass"]
+    for mutate in (lambda r: r["arms"]["X13"]["stats"].__setitem__("point", -0.001 + 2e-12),
+                   lambda r: r["arms"]["X13"]["stats"].__setitem__("n_dates", 374),
+                   lambda r: r["verdicts"].__setitem__("X13", "KILL at edge size"),
+                   lambda r: r["arms"]["X13"]["stats"]["ci95"].append(1.0),
+                   lambda r: r.__setitem__("extra", 1)):
+        bad = json.loads(json.dumps(old))
+        mutate(bad)
+        with pytest.raises(ob.OctDecBatchError):
+            ob.reproduce_check(bad, path, expected_sha256=sha)
+    with pytest.raises(ob.OctDecBatchError):
+        ob.reproduce_check(old, path)  # the pinned run sha is not this file
