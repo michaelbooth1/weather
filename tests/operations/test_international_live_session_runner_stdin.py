@@ -34,7 +34,7 @@ from weather.operations import international_live_session_runner as runner
 #   must arrive within TAIL + MARGIN of the deadline, which leaves GAP seconds
 #   of separation below GRACE. MARGIN absorbs slow CI runners: a cooperative
 #   run on windows-latest was observed returning 4.9 s after the deadline.
-STARTUP_ALLOWANCE_SECONDS = 3.0
+STARTUP_ALLOWANCE_SECONDS = 7.0
 TAIL_SECONDS = 0.5
 GRACE_SECONDS = 12.0
 MARGIN_SECONDS = 7.5

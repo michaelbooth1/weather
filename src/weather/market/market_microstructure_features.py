@@ -548,11 +548,46 @@ def feature_index_for_folder(folder, max_age_seconds=180, market_id=None):
     return index
 
 
-def write_clob_feature_rows(folder, out_name="clob_features_long.csv", jsonl_name="clob_features.jsonl", max_age_seconds=180, market_id=None):
+def _csv_feature_values(row):
+    normalized = normalize_csv_row(row)
+    return {key: "" if normalized.get(key) is None else str(normalized.get(key, ""))
+            for key in CLOB_FEATURE_COLUMNS}
+
+
+def write_clob_feature_rows(folder, out_name="clob_features_long.csv", jsonl_name="clob_features.jsonl", max_age_seconds=180, market_id=None, append_only=False):
     folder = Path(folder)
     rows = clob_feature_rows_for_folder(folder, max_age_seconds=max_age_seconds, market_id=market_id)
     csv_path = folder / out_name
     jsonl_path = folder / jsonl_name if jsonl_name else None
+    if append_only:
+        # Preserve full-rebuild semantics for late evidence/corrections. Each
+        # projection independently repairs a previous interrupted paired write.
+        existing = read_csv_rows(csv_path)
+        prefix_matches = (len(existing) <= len(rows) and
+                          [_csv_feature_values(row) for row in existing] ==
+                          [_csv_feature_values(row) for row in rows[:len(existing)]])
+        has_header = csv_path.exists() and csv_path.stat().st_size > 0
+        if has_header:
+            with csv_path.open(encoding="utf-8", newline="") as handle:
+                prefix_matches = prefix_matches and next(csv.reader(handle), None) == CLOB_FEATURE_COLUMNS
+        pending = rows[len(existing):] if prefix_matches else rows
+        if pending:
+            with csv_path.open("a" if prefix_matches else "w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=CLOB_FEATURE_COLUMNS)
+                if not has_header or not prefix_matches:
+                    writer.writeheader()
+                writer.writerows(normalize_csv_row(row) for row in pending)
+        if jsonl_path is not None:
+            previous = read_jsonl_records(jsonl_path)
+            current = [json.loads(json.dumps(row, sort_keys=True, default=str)) for row in rows]
+            json_prefix = len(previous) <= len(current) and previous == current[:len(previous)]
+            json_pending = rows[len(previous):] if json_prefix else rows
+            if json_pending:
+                with jsonl_path.open("a" if json_prefix else "w", encoding="utf-8") as handle:
+                    for row in json_pending:
+                        handle.write(json.dumps(row, sort_keys=True, default=str) + "\n")
+        return {"rows": len(rows), "csv_path": str(csv_path),
+                "jsonl_path": str(jsonl_path) if jsonl_path else None}
     if rows:
         with csv_path.open("w", encoding="utf-8", newline="") as handle:
             writer = csv.DictWriter(handle, fieldnames=CLOB_FEATURE_COLUMNS)
