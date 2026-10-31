@@ -127,6 +127,7 @@ sequence numbers, not calendar dates.
 | 10aj | Found defect 2026-10-26: the MG-2 "no production importer" test was vacuous (literal backspace bytes for `\b`); fixed in `e40804dfe`; control-byte ratchet approved (master ruling (10-25)), landing 10-26/27 |
 | 10ak | Lane reads 2026-10-26 (dev): R-P KILL at gate 3 (a LOYO intercept win is bias correction, not information); R-PD and R-N CLOSED at 00-06 (gate 2 NULL); R-L STOPPED at gate 1a (NBS drops the day's TXN from ≥ 13Z cycles), R-L2 KILL at gate 3; R-R WIN at 07-12 vs L6, still worse than the market; R-S KILL at gate 2 (NBM-published spread closed) |
 | 10al | Reads 2026-10-26/27: R-U CLOSED at P0 (HRRR 3x3 spread as width closed at all hours); C10 opened, not adopted; SM-H selected for MG-3 13-15 (h15 unresolved); CS-1 P3d_H 13-16 transfers, P3d_H 07-12 does not; R-V gate 2 (a) capture-proposal PASS, (b) KILL |
+| 10an | Open-Meteo `gfs_seamless` is HRRR over the US inside HRRR's horizon (provider docs; X63 probe ~57 h): "GFS" and "HRRR" from the multimodel feed are one source; row 78 effective K 16, no verdict change; Previous Runs history composition not established |
 
 ---
 
@@ -4697,6 +4698,32 @@ after 09-29 read. Ledger row 71 and register X43 hold the full record; it is cit
   `72b97e0b…`; `results_rq.md` on `claude/rq-run-env-20261029` @ `558889b13`. Code unlanded (P3d_N family B-bound).
 - **Not claimed:** edge; any forward result; that the kill covers multi-model dispersion, observed-state predictors
   or a GEFS-anchored arm.
+
+### 10an. Open-Meteo `gfs_seamless` is HRRR over the United States inside HRRR's horizon, so "GFS" and "HRRR" from the multimodel feed are one source: L14, 2026-10-31 (docs plus the X63 probe; no data re-read)
+
+- **Fact.** For US points, Open-Meteo's `/v1/gfs` `gfs_seamless` returns HRRR values for every hour that HRRR
+  covers, and GFS after that.
+  - L2's live probe measured the handover at about 57 h (register X63, probe `1081d6d7…`, master ruling
+    2026-10-30: NOT A DEFECT).
+  - The provider documents the design (<https://open-meteo.com/en/docs/gfs-api>, page sha256 `c88ac6fb…`). The
+    API "combines them with high-resolution HRRR forecasts", "them" being NOAA GFS. High-resolution data
+    exist for the United States only. A "Seamless" model combines one provider's models.
+  - Captured rows agree. In row 78's `features.parquet`, `mm_gfs_seamless == mm_ncep_hrrr_conus` on 110,692 of
+    110,692 rows, because the 2-day capture window keeps target hours inside the horizon.
+- **Consequence.** Any test, feature or blend that lists `gfs_seamless` and `ncep_hrrr_conus` as two sources
+  counts one source twice. Any CONUS read that calls `gfs_seamless` "GFS" at short lead is reading HRRR.
+  - Row 78's K = 17 is effectively 16. BH recomputed from the recorded p-values (receipt `02c46630…`) still
+    rejects nothing: the smallest q goes from 0.8125 to 0.7647. No verdict changes.
+  - `open_meteo_gfs_high_delta` and `open_meteo_hrrr_high_delta` are duplicate columns.
+  - The multimodel medians (`reference_high` fallback, run-to-run change) double-weight HRRR.
+  - The range spreads (`OM-MM-SPREAD`, `open_meteo_multimodel_next_3h_spread`) are unaffected.
+  - F4's `gfs_seamless` (row 9) and L4's "GFS" member (X6) are HRRR-in-horizon reads.
+  - The full list is in [the duplication table](../research/s31-other-venue-prices-2026-10-31/gfs-hrrr-duplication-2026-10-31.md).
+- **Not established.** Whether Open-Meteo **Previous Runs** `gfs_seamless` history for 2021-2025 (the PIT
+  training corpora) was HRRR-blended at day-1 leads, and from what date. If its composition changed over time,
+  "GFS" history is a time-varying blend. That is a parity question for the owning lane.
+- **Do not re-chase** the equality as a capture defect (X63).
+- **Reopen if** Open-Meteo changes seamless blending, or a capture window extends past the HRRR horizon.
 
 ## Related
 
