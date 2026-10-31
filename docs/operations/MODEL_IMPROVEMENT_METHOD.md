@@ -138,6 +138,8 @@ lane does all of the following.
       r4 required at least 0.95 of doubly dead buckets to have a receipt at or after the killing report,
       and got 0.972; the Toronto Celsius check matched the IEM high on 60 of 60 days.
 - [ ] **A dev-ledger row before scoring** (`pending`), filled after it ([ledger](DEV_WINDOW_LEDGER.md)).
+- [ ] **Cite the published dev reuse count.** Name the ledger's "Dev reuse count" (one number, ledger section of
+      that name) as the multiplicity denominator the rule inherits, plus one for the new row.
 
 A dev-window win is selection evidence only. It earns a pre-registration on new dates and a forward
 shadow, never a promotion (EF §5).
@@ -172,6 +174,23 @@ The rationale is the dated [iterate-faster plan](../research/iterate-faster-2026
     those dates. Nothing read there supports an edge claim.
 11. **The workstation records pre-registered kills itself** (ledger row and register row); master audits them daily.
 12. **Record first.** Free forward-only sources start recording before any dev win; a standing defect lane runs alongside.
+
+Rule 13 is the owner's (2026-10-30, [decision log](DECISION_LOG.md)). Rules 14 and 15 are master's rulings of
+2026-10-31, from the dated [research review](../research/research-review-2026-10-31/review.md); they are not owner decisions.
+
+13. **Archive what is ruled out.** Every ruled-out candidate, retro-filled for older rows, keeps its pre-registration or
+    draft, script commit sha, raw outputs, receipts and logs under `C:\archive\ruled-out\<folder>` (workstation; copies,
+    never moves), indexed by `INDEX.md` and `index.json` there with per-file sha256, built by its `build_index.py`.
+    A register or ledger kill cites its archive folder. Nothing under the archive root is deleted; scratch work
+    lives outside it.
+14. **Intake prior: already priced.** No new single free-source T+0 screen on the US11 opens unless its S0 names a
+    mechanism by which the *market* lacks the information at that hour. "It beats served" is not a mechanism: on the dev
+    scorecard served is 1.53x (00-16) to 1.77x (all hours) the market's Brier (EF §10aa; 1.77x on the 111h table too,
+    EF §10q), so almost any public input beats it. Without the mechanism the default reading is that the crowd already
+    prices the source, and the screen is refused at intake.
+15. **A family kill cites a measurement on the member it closes.** A member closed only by extension from a sibling's
+    result is labelled **CLOSED-BY-RULE (reopenable)**, never KILL or COVERED, and its register row names the sibling
+    and the rule that extended it. A new mechanism or a measurement on the member itself reopens it.
 
 ## Update this file when
 
