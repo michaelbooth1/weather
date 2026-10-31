@@ -16,10 +16,13 @@ from weather.units import round_half_up
 
 SETTLEMENT_PRINT_ALIAS_WINDOW_MINUTES = 10
 
-# Shadow-only high_so_far source variants (lane L8, 2026-10-24). ``None`` is the
-# production behaviour and is the only value serving ever uses: nothing in
-# serving, capture or release sets ``high_so_far_shadow_variant``. Research
-# replay sets it on one model instance to score the variant on captured inputs.
+# high_so_far source variants (lane L8, 2026-10-24). ``None`` is the pre-fix
+# observed-high path (unchanged since 2a878d91). Defect fix 10 (after B's look)
+# makes ``metar_running_max_since_midnight_v1`` the class default, so serving
+# reads the trainer's running maximum since local 00:00 when printed WU rows are
+# absent (EF 10ah; rule 55cf6989, ledger row 33: KEEP). Nothing in serving,
+# capture or release assigns ``high_so_far_shadow_variant``; research replay sets
+# it on one model instance (``None`` reproduces the pre-fix path exactly).
 HIGH_SO_FAR_SHADOW_METAR_SINCE_MIDNIGHT = "metar_running_max_since_midnight_v1"
 HIGH_SO_FAR_SHADOW_VARIANTS = (None, HIGH_SO_FAR_SHADOW_METAR_SINCE_MIDNIGHT)
 
@@ -27,7 +30,7 @@ HIGH_SO_FAR_SHADOW_VARIANTS = (None, HIGH_SO_FAR_SHADOW_METAR_SINCE_MIDNIGHT)
 class ModelUtilsMixin:
     """Stateless numeric, regime, and source-access helpers shared model-wide."""
 
-    high_so_far_shadow_variant = None
+    high_so_far_shadow_variant = "metar_running_max_since_midnight_v1"
 
     def source_rows_until_cutoff(self, rows, cutoff_hour):
         cutoff = cutoff_hour * 60
@@ -87,9 +90,9 @@ class ModelUtilsMixin:
         feature extraction already did.  An empty observation set stays empty;
         this helper never manufactures a floor from forecasts or climatology.
 
-        ``metar`` and ``now`` are read only by the shadow variant
-        (``high_so_far_shadow_variant``); with the production value ``None``
-        the result is exactly the historical one.
+        ``metar`` and ``now`` are read only by the parity variant
+        (``high_so_far_shadow_variant``, the production default since defect
+        fix 10); with ``None`` the result is exactly the pre-fix one.
         """
         context = self._served_observed_high_context(history, current, station, cutoff_hour)
         variant = self.high_so_far_shadow_variant
