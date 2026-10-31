@@ -1,7 +1,7 @@
 """C3 kill-tier driver: K1 identity, K3 synthetic positive / negation / null, refusals R1-R5, out-dir rule.
 
 Synthetic fixtures only: no real price, label, snapshot or bundle is opened. Rule: the C3 kill-tier DRAFT
-(docs/research/iterate-faster-2026-10-30/c3-t1-fair-value-kill-tier-DRAFT.md) as amended by REVISION-1 (master D1).
+(docs/research/iterate-faster-2026-10-30/c3-t1-fair-value-kill-tier-DRAFT.md) as amended by REVISION-1 (master D1) and REVISION-2 (wider of date-clustered and block-3 bounds).
 """
 import ast
 import copy
@@ -124,6 +124,38 @@ def test_decide_truth_table():
     assert c3.decide(True, _p0r(), _wr(holds=False, excluded=True)) == (c3.KILL, "w_gain_upper_below_edge_gain")
     assert c3.decide(True, _p0r(), _wr(holds=False))[0] == c3.INCONCLUSIVE
     assert c3.decide(True, _p0r(), _wr()) == (c3.NOT_KILLED, "p0_and_w_hold")
+
+
+def test_block_counts_are_circular_blocks_of_three():
+    n = 14
+    k = c3.block_counts(n, b=500)
+    assert k.shape == (500, n) and np.all(k.sum(axis=1) == n)
+    assert np.array_equal(k, c3.block_counts(n, b=500))                     # fixed seed
+    assert np.allclose(k.mean(axis=0), 1.0, atol=0.15)                      # circular: no end underweighting
+    rng = np.random.default_rng(c3.BOOT_SEED)
+    starts = rng.integers(n, size=(500, 5))
+    first = [(starts[0, 0] + j) % n for j in range(3)]
+    assert all(k[0, d] >= 1 for d in first)                                  # a block is 3 consecutive dates
+
+
+def test_interval_takes_the_wider_bounds():
+    rng = np.random.default_rng(3)
+    a, b = rng.normal(0, 1, 2000), rng.normal(0.2, 2, 2000)
+    iv = c3.interval(a, b)
+    lo, hi = iv["ci95_wider"]
+    assert lo == min(iv["ci95_date_clustered"][0], iv["ci95_block3"][0])
+    assert hi == max(iv["ci95_date_clustered"][1], iv["ci95_block3"][1])
+    assert iv["se_wider"] == max(iv["se_date_clustered"], iv["se_block3"])
+
+
+def test_p0_deciding_interval_is_the_wider_one(k3):
+    flat, arms = c3.k3_arms()
+    placebos, _ = c3.placebo_candidates(flat, arms["positive"])
+    r, _ = c3.p0(flat, arms["positive"], placebos)
+    dc, b3 = r["delta_ci95_date_clustered"], r["delta_ci95_block3"]
+    assert r["delta_ci95"] == [min(dc[0], b3[0]), max(dc[1], b3[1])]
+    assert r["se_delta"] == max(r["se_delta_date_clustered"], r["se_delta_block3"])
+    assert r["p_one_sided"] == max(r["p_one_sided_date_clustered"], r["p_one_sided_block3"])
 
 
 def test_edge_size_constants_and_power():

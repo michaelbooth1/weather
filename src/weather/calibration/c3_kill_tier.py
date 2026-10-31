@@ -2,7 +2,8 @@ r"""C3 kill tier: frozen 110b T+1 fair value against 88a two-sided mids (lane L1
 
 Rule: the reviewed DRAFT ``docs/research/iterate-faster-2026-10-30/c3-t1-fair-value-kill-tier-DRAFT.md`` (sha256
 cd4d814f...) as amended by ``c3-t1-fair-value-kill-tier-REVISION-1-2026-10-31.md`` (master D1, approved with
-revisions); both shas and this file's are pinned by master in a ``pending`` ledger row before any computation.
+revisions) and ``c3-t1-fair-value-kill-tier-REVISION-2-2026-10-31.md`` (deciding bounds use the wider of the
+date-clustered and block-3 intervals); the shas and this file's are pinned by master in a ``pending`` ledger row before any computation.
 Kill-only: the outcomes are KILL (at edge size), NOT KILLED, INCONCLUSIVE and DESCRIPTIVE (power at edge size
 below 0.5: reported only, cannot drop A1); VOID when a control fails. No outcome is a pass, an edge claim or a
 promotion.
@@ -40,6 +41,7 @@ BUCKETS_COMMIT = "bf03a8d4104327913b0b4062f3eb2ad8a7a7e9c9"  # Amendment 3 bucke
 RULE_PATH = "docs/research/iterate-faster-2026-10-30/c3-t1-fair-value-kill-tier-DRAFT.md"
 RULE_REVIEWED_SHA256 = "cd4d814f4144a5e0a72d7632f413d000174d2cade4c4ce8d50f0ee5f6f76b5f6"   # master D1 reviewed this
 REVISION_PATH = "docs/research/iterate-faster-2026-10-30/c3-t1-fair-value-kill-tier-REVISION-1-2026-10-31.md"
+REVISION_2_PATH = "docs/research/iterate-faster-2026-10-30/c3-t1-fair-value-kill-tier-REVISION-2-2026-10-31.md"
 # Date-gate trace (code read only, REVISION-1 section 3): the frozen builder and scorer at FROZEN_SCORER_COMMIT have
 # no 09-30..10-15 gate (src/maker_core/shadow and EMBARGO_WINDOWS do not exist there), so no override is applied.
 DATE_GATE_TRACE = dict(commit=FROZEN_SCORER_COMMIT, embargo_gate_found=False, override_applied=False)
@@ -54,6 +56,7 @@ W_GRID = np.arange(101) / 100.0
 PLACEBO_SEEDS = tuple(20260921 + j for j in range(20))
 BOOT_B = 2000
 BOOT_SEED = 20261024
+BLOCK_LEN = 3        # REVISION-2: circular moving blocks of 3 consecutive (ordered, present) dates, same B and seed
 BH_Q = 0.10
 MEAN_W_MIN = 0.05
 MIN_DATES = 10
@@ -235,6 +238,25 @@ def boot_counts(n_dates, b=BOOT_B, seed=BOOT_SEED):
     return np.stack([np.bincount(r, minlength=n_dates) for r in idx]).astype(float)
 
 
+def block_counts(n_dates, b=BOOT_B, seed=BOOT_SEED, length=BLOCK_LEN):
+    """Circular moving-block bootstrap: ceil(n / length) blocks of `length` consecutive dates (wrapping), truncated
+    to n, as per-date counts. Circular, so every date has equal expected weight (DWL row 84)."""
+    k = -(-n_dates // length)
+    starts = np.random.default_rng(seed).integers(n_dates, size=(b, k))
+    idx = ((starts[:, :, None] + np.arange(length)) % n_dates).reshape(b, -1)[:, :n_dates]
+    return np.stack([np.bincount(r, minlength=n_dates) for r in idx]).astype(float)
+
+
+def interval(draws_dc, draws_b3):
+    """Both intervals, and the wider of them (lower = min, upper = max; SE = max) for every deciding bound."""
+    dc, b3 = _quantiles(draws_dc), _quantiles(draws_b3)
+    lo = None if dc[0] is None or b3[0] is None else min(dc[0], b3[0])
+    hi = None if dc[1] is None or b3[1] is None else max(dc[1], b3[1])
+    sd, sb = _se(draws_dc), _se(draws_b3)
+    return dict(ci95_date_clustered=dc, ci95_block3=b3, ci95_wider=[lo, hi], se_date_clustered=sd, se_block3=sb,
+                se_wider=None if sd is None or sb is None else max(sd, sb))
+
+
 def _se(draws):
     ok = np.isfinite(draws)
     return float(np.std(draws[ok], ddof=1)) if ok.sum() > 1 else None
@@ -255,14 +277,24 @@ def _quantiles(draws):
 def p0(flat, c, placebos):
     dates, sc = sums_by_date(flat, c)
     spl = [sums_by_date(flat, cp)[1] for cp in placebos]
-    counts = boot_counts(len(dates))
     rc, rp = float(rho(sc.sum(axis=0))), [float(rho(s.sum(axis=0))) for s in spl]
-    draws = rho(counts @ sc) - np.mean([rho(counts @ s) for s in spl], axis=0)
-    p = (1 + int(np.sum(~(draws > 0)))) / (len(draws) + 1)   # an undefined draw counts against the signal
-    ci, se = _quantiles(draws), _se(draws)
+
+    def delta_draws(counts):
+        return rho(counts @ sc) - np.mean([rho(counts @ s) for s in spl], axis=0)
+
+    def p_of(draws):
+        return (1 + int(np.sum(~(draws > 0)))) / (len(draws) + 1)   # an undefined draw counts against the signal
+
+    draws, draws_b3 = delta_draws(boot_counts(len(dates))), delta_draws(block_counts(len(dates)))
+    iv = interval(draws, draws_b3)
+    ci, se = iv["ci95_wider"], iv["se_wider"]
     result = dict(dates=int(len(dates)), entries=int(len(c)), rho_c=rc, rho_placebo=rp,
                   rho_placebo_mean=float(np.mean(rp)), delta=rc - float(np.mean(rp)), delta_ci95=ci,
-                  p_one_sided=p, valid_replicates=int(np.isfinite(draws).sum()),
+                  delta_ci95_date_clustered=iv["ci95_date_clustered"], delta_ci95_block3=iv["ci95_block3"],
+                  se_delta_date_clustered=iv["se_date_clustered"], se_delta_block3=iv["se_block3"],
+                  p_one_sided=max(p_of(draws), p_of(draws_b3)), p_one_sided_date_clustered=p_of(draws),
+                  p_one_sided_block3=p_of(draws_b3), valid_replicates=int(np.isfinite(draws).sum()),
+                  valid_replicates_block3=int(np.isfinite(draws_b3).sum()),
                   delta_edge=DELTA_EDGE, se_delta=se, vif=None if se is None else float(len(c) * se * se),
                   power_at_edge=power_at(DELTA_EDGE, se),
                   edge_excluded=bool(ci[1] is not None and ci[1] < DELTA_EDGE))
@@ -319,9 +351,10 @@ def paired(diff, cell_dates, scored):
     di = np.searchsorted(scored, cell_dates[sel])
     ds = np.bincount(di, weights=diff[sel], minlength=len(scored))
     nc = np.bincount(di, minlength=len(scored)).astype(float)
-    counts = boot_counts(len(scored))
-    draws = (counts @ ds) / (counts @ nc)
-    return dict(estimate=float(ds.sum() / nc.sum()), ci95=_quantiles(draws), se=_se(draws))
+    draws = [(k @ ds) / (k @ nc) for k in (boot_counts(len(scored)), block_counts(len(scored)))]
+    iv = interval(*draws)
+    # ci95 stays the date-clustered interval (the w gate, step 5); step 6 and its power use the wider bound.
+    return dict(estimate=float(ds.sum() / nc.sum()), ci95=iv["ci95_date_clustered"], **iv)
 
 
 def w_gate(flat, c, placebos):
@@ -347,7 +380,7 @@ def w_gate(flat, c, placebos):
                  and vs_floor["ci95"][1] is not None and vs_floor["ci95"][1] < 0)
     vs_market = paired(blend - market, cell_dates, scored)
     edge_gain = EDGE_GAIN * float(market[sel].mean())   # the edge-size Brier gain on the scored cells
-    lo = vs_market["ci95"][0]
+    lo = vs_market["ci95_wider"][0]
     rows = [dict(kind="brier_sums", date=str(d), w=wf[d][0], fit_cells=wf[d][1], cells=int((cell_dates == d).sum()),
                  blend=float(blend[cell_dates == d].sum()), market=float(market[cell_dates == d].sum()),
                  placebo=float(placebo[cell_dates == d].sum()), floor_only=float(floor[cell_dates == d].sum()))
@@ -358,7 +391,7 @@ def w_gate(flat, c, placebos):
                 market_brier_mean=float(market[sel].mean()), edge_gain=edge_gain,
                 # KILL at edge size: the gain (market - blend) has upper 95% bound below the edge gain.
                 edge_excluded=bool(lo is not None and lo > -edge_gain),
-                power_at_edge_reported=power_at(edge_gain, vs_market["se"]),
+                power_at_edge_reported=power_at(edge_gain, vs_market["se_wider"]),
                 brier_ratio_blend_over_market=float(blend[sel].sum() / market[sel].sum()),
                 w0_values_equal_market=bool(np.array_equal(values[0], market)),
                 floor_only_equals_market=bool(np.array_equal(floor, market))), rows
@@ -669,14 +702,16 @@ def main(argv=None):
     except (Refused, OSError, ValueError, KeyError, TypeError) as exc:
         print(f"c3 kill tier refused: {type(exc).__name__}: {exc}", file=sys.stderr)
         return EXIT_REFUSED
-    base = dict(schema=SCHEMA, rule=RULE_PATH, rule_reviewed_sha256=RULE_REVIEWED_SHA256, revision=REVISION_PATH,
+    base = dict(schema=SCHEMA, rule=RULE_PATH, rule_reviewed_sha256=RULE_REVIEWED_SHA256,
+                revisions=[REVISION_PATH, REVISION_2_PATH],
                 date_gate_trace=DATE_GATE_TRACE, provisional=PROVISIONAL, frozen_scorer_commit=FROZEN_SCORER_COMMIT,
                 buckets_commit=BUCKETS_COMMIT, row80_receipt=receipt, scorer_tree=scorer_tree, driver_tree=driver_tree,
                 report_sha256=sha256_bytes(report_bytes), implementation=_implementation(),
                 constants=dict(eps=EPS, gap_days=GAP_DAYS, placebo_seeds=list(PLACEBO_SEEDS), boot_b=BOOT_B,
                                boot_seed=BOOT_SEED, bh_q=BH_Q, mean_w_min=MEAN_W_MIN, min_dates=MIN_DATES,
                                min_event_hours=MIN_EVENT_HOURS, kill_lead=KILL_LEAD, kill_sources=list(KILL_SOURCES),
-                               edge_gain=EDGE_GAIN, delta_edge=DELTA_EDGE, power_min=POWER_MIN))
+                               edge_gain=EDGE_GAIN, delta_edge=DELTA_EDGE, power_min=POWER_MIN, block_len=BLOCK_LEN,
+                               block_bootstrap="circular moving block, B and seed as the date-clustered one"))
     controls = {}
     try:
         if args.report_repeat.read_bytes() != report_bytes:
