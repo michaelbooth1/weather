@@ -1063,6 +1063,32 @@ def check_coverage_floor_live(sw):
     return {"mr_sweep.MIN_DATES": sw.MIN_DATES, "mr_sweep.MIN_SNAPS": sw.MIN_SNAPS}
 
 
+def begin_look(out, approval):
+    """Marks the single look before the release layout is loaded: refuses on any prior look marker or receipt
+    under ``OUT_ROOT``, creates ``out`` (it must not exist; ``check_out_dir`` checked that) and exclusive-creates
+    ``look_started.json``. Its sha256 goes into the look receipt. This is the look's only mkdir."""
+    check_no_prior_look(OUT_ROOT)
+    out = Path(out)
+    out.mkdir(parents=True)
+    return write_exclusive(out / LOOK_STARTED, {
+        "schema": SCHEMA + "/look_started", "ledger_row": LEDGER_ROW, "approval": approval,
+        "started_utc": datetime.now(timezone.utc).isoformat()})
+
+
+def write_look_rows(out, rows_out):
+    """The look's rows.jsonl, exclusive-create in the ``out`` that ``begin_look`` made (no mkdir here)."""
+    path = Path(out) / "rows.jsonl"
+    with path.open("x", encoding="utf-8") as fh:
+        for r in rows_out:
+            fh.write(json.dumps(r, sort_keys=True, default=_default) + "\n")
+    return sha256_file(path)
+
+
+def write_look_receipt(out, receipt):
+    """The look receipt, exclusive-create in the ``out`` that ``begin_look`` made (no mkdir here)."""
+    return write_exclusive(Path(out) / LOOK_RECEIPT, receipt)
+
+
 def stage_look(args):
     gd = stage_guards()
     origin, state, blobs, rules = gd["origin"], gd["code"], gd["blobs"], gd["rules"]
@@ -1102,10 +1128,7 @@ def stage_look(args):
 
     # The release layout (local target dates 10-01..10-14), Austin 10-03 dropped.
     smb.check_release_manifest(R80_LAYOUT)
-    check_no_prior_look()
-    look_started_sha = write_exclusive(out / LOOK_STARTED, {
-        "schema": SCHEMA + "/look_started", "ledger_row": LEDGER_ROW, "approval": args.approval,
-        "started_utc": datetime.now(timezone.utc).isoformat()})
+    look_started_sha = begin_look(out, args.approval)
     with smb.released_dev_last(RELEASE_LAST) as override:
         lay = data.load_layout(R80_LAYOUT, RELEASE_FIRST, RELEASE_LAST)
     if lay.manifest_sha256 != R80_LAYOUT_MANIFEST_SHA256:
@@ -1214,10 +1237,7 @@ def stage_look(args):
     if sha256_file(r80_manifest) != R80_LAYOUT_MANIFEST_SHA256 or sha256_file(dev_manifest) != \
             DEV_LAYOUT_MANIFEST_SHA256:
         raise Refused("refused: a layout manifest changed during the run; no receipt")
-    out.mkdir(parents=True)
-    with (out / "rows.jsonl").open("x", encoding="utf-8") as fh:
-        for r in rows_out:
-            fh.write(json.dumps(r, sort_keys=True, default=_default) + "\n")
+    write_look_rows(out, rows_out)
     receipt = {
         "schema": SCHEMA + "/look", "ledger_row": LEDGER_ROW, "stage": "look", "approval": args.approval, "origin_after_imports": after,
         "pin_identity": gd["pin_identity"], "parity_receipt_sha256": args.parity_sha,
@@ -1238,7 +1258,7 @@ def stage_look(args):
         "coverage_floor": {"dates": MIN_DATES, "snapshots": MIN_SNAPS}, "mechanism": MECHANISM,
         "arms": results, "rows_sha256": sha256_file(out / "rows.jsonl"),
     }
-    receipt_sha = write_exclusive(out / LOOK_RECEIPT, receipt)
+    receipt_sha = write_look_receipt(out, receipt)
     print(json.dumps({arm: {"label": e["label"], "power": (e.get("d3") or {}).get("power_at_edge"),
                             "ci95_wider": (e.get("d3") or {}).get("ci95_wider")} for arm, e in results.items()}))
     print("receipt", receipt_sha)

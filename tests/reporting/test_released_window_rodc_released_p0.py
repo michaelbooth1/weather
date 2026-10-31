@@ -765,10 +765,66 @@ def test_fix3_look_started_marker_blocks_a_second_look(tmp_path):
 
 def test_fix3_look_started_is_written_before_the_release_layout_load():
     src = inspect.getsource(p0.stage_look)
-    started = src.index("write_exclusive(out / LOOK_STARTED")
-    assert src.index("check_no_prior_look()") < started < src.index("data.load_layout(R80_LAYOUT")
-    assert src.count("check_no_prior_look()") == 2
-    assert started < src.index("write_exclusive(out / LOOK_RECEIPT")
+    started = src.index("begin_look(out, args.approval)")
+    assert src.index("check_out_dir(args.out)") < started < src.index("data.load_layout(R80_LAYOUT")
+    assert started < src.index("write_look_rows(out, rows_out)") < src.index("write_look_receipt(out, receipt)")
+    assert "mkdir" not in src                         # begin_look owns the look's only mkdir
+    assert src.count("begin_look(") == 1
+
+
+def test_fix3_begin_look_creates_the_dir_and_marker_and_a_second_begin_refuses(tmp_path, monkeypatch):
+    monkeypatch.setattr(p0, "OUT_ROOT", tmp_path)
+    out = p0.check_out_dir(tmp_path / "look1", tmp_path)
+    sha = p0.begin_look(out, "admission ref")
+    marker = out / p0.LOOK_STARTED
+    assert out.is_dir() and marker.is_file() and sha == hashlib.sha256(marker.read_bytes()).hexdigest()
+    rec = json.loads(marker.read_text(encoding="utf-8"))
+    assert rec["schema"] == p0.SCHEMA + "/look_started" and rec["approval"] == "admission ref"
+    with pytest.raises(p0.Refused, match="second look"):        # same out
+        p0.begin_look(out, "admission ref")
+    with pytest.raises(p0.Refused, match="second look"):        # a fresh out under the same root
+        p0.begin_look(tmp_path / "look2", "admission ref")
+    assert not (tmp_path / "look2").exists()
+
+
+def test_fix3_begin_look_refuses_an_existing_out_dir(tmp_path, monkeypatch):
+    monkeypatch.setattr(p0, "OUT_ROOT", tmp_path)
+    (tmp_path / "look1").mkdir()
+    with pytest.raises(FileExistsError):
+        p0.begin_look(tmp_path / "look1", "admission ref")
+    assert not (tmp_path / "look1" / p0.LOOK_STARTED).exists()
+
+
+def test_fix3_the_look_tail_writes_into_the_begun_out(tmp_path, monkeypatch):
+    monkeypatch.setattr(p0, "OUT_ROOT", tmp_path)
+    out = p0.check_out_dir(tmp_path / "look1", tmp_path)
+    started = p0.begin_look(out, "admission ref")
+    rows = [{"arm": "X13", "n": np.int64(3), "ok": np.bool_(True)}, {"arm": "R", "x": np.float64(0.5)}]
+    rows_sha = p0.write_look_rows(out, rows)
+    receipt = {"schema": p0.SCHEMA + "/look", "look_started_sha256": started, "flag": np.bool_(False)}
+    receipt_sha = p0.write_look_receipt(out, receipt)
+    assert rows_sha == hashlib.sha256((out / "rows.jsonl").read_bytes()).hexdigest()
+    assert [json.loads(x) for x in (out / "rows.jsonl").read_text(encoding="utf-8").splitlines()] == \
+        [{"arm": "X13", "n": 3, "ok": True}, {"arm": "R", "x": 0.5}]
+    assert receipt_sha == hashlib.sha256((out / p0.LOOK_RECEIPT).read_bytes()).hexdigest()
+    assert json.loads((out / p0.LOOK_RECEIPT).read_text(encoding="utf-8"))["look_started_sha256"] == started
+    with pytest.raises(FileExistsError):
+        p0.write_look_rows(out, rows)
+    with pytest.raises(FileExistsError):
+        p0.write_look_receipt(out, receipt)
+    with pytest.raises(p0.Refused, match="second look"):
+        p0.check_no_prior_look(tmp_path)
+
+
+def test_fix3_each_stage_mkdirs_once_after_check_out_dir_and_before_its_first_write():
+    for fn in (p0.stage_fit, p0.stage_parity, p0.stage_parity2, p0.begin_look):
+        src = inspect.getsource(fn)
+        assert src.count("mkdir(") == 1, fn.__name__
+        first_write = min(i for i in (src.find('.open("x"'), src.find("write_exclusive(")) if i >= 0)
+        assert src.index("mkdir(") < first_write, fn.__name__
+    for fn in (p0.stage_fit, p0.stage_parity, p0.stage_parity2):
+        src = inspect.getsource(fn)
+        assert src.index("check_out_dir(") < src.index("mkdir("), fn.__name__
 
 
 def test_fix3_default_serialises_numpy_scalars(tmp_path):
