@@ -111,5 +111,20 @@ both at commit `818232cfd8b5b3b06bf6235ac450b2ac49413f38`.
   basetemp `C:\t\l8blook\bt-20261030T230640`: **15 passed**, exit 0, 5.61 s. Afterwards the basetemp and
   `C:\t\l8blook` were deleted.
 
-The freeze waits for master's answers on open points (A)-(C) in `look-chain-clarification-DRAFT.md` §4. No allowlist
-entry has been made.
+**FROZEN 2026-10-31 at commit `818232cfd8b5b3b06bf6235ac450b2ac49413f38`.** The pins:
+
+- `src/weather/calibration/b_look_per_date.py` sha256
+  `a28d2e65e8ae0ca4239bec7b641ed4d0fcb3758d2e31c6970a2ed29b68762d66`;
+- `tests/calibration/test_b_look_per_date.py` sha256
+  `92f738efb732d03f8ecee0453bb0dee131fc5afbde47d297535d343f15c9b23b`.
+
+Any later change to either file is a new revision.
+
+Conditions met before the freeze:
+- Master answered (A)-(C) (`look-chain-clarification-DRAFT.md` §4).
+- Allowlist commit `d33921025266c0e96794857640da53e5a3272787` was verified by the coordinator.
+- Both queued ratchet runs passed:
+  - `tests/operations/test_r0_full_year_admission.py`: 2 passed, basetemp `C:\t\l8blook\bt-20261030T230806`;
+  - `tests/operations/test_loss_atlas_admission.py` (the ps1 mirror proof): 2 passed, basetemp
+    `C:\t\l8blook\bt-20261030T230837`.
+- Each basetemp and `C:\t\l8blook` were deleted afterwards.

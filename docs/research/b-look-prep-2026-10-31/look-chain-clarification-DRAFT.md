@@ -23,7 +23,7 @@ The look session runs these steps and no others, in this order. Each runs once.
 | --- | --- | --- | --- | --- | --- |
 | 1 | MG-2 score | `python -m weather.calibration.mg2_composite score` | MG-2 binding | MG-2 binding inputs | `mg2_look.json` |
 | 2 | B look | `python -m weather.calibration.b_scorer look` | `f941628a4bfdb0002f9be1b5a2f11425a021a5389c651fb835c340f914883439` | B-1 §9 inputs, the one transfer | `b_look.json`, `b_look_receipt.json`, consumed markers |
-| 3 | **Per-date extraction (new)** | `python -m weather.calibration.b_look_per_date` | `<PIN AT FREEZE>` | exactly step 2's verified layout, gate vectors, drop list and transfer bytes | `b_per_date.json`, `b_per_date_receipt.json` beside B's look |
+| 3 | **Per-date extraction (new)** | `python -m weather.calibration.b_look_per_date` | `a28d2e65e8ae0ca4239bec7b641ed4d0fcb3758d2e31c6970a2ed29b68762d66` (frozen at `818232cfd8b5b3b06bf6235ac450b2ac49413f38`; tests `92f738efb732d03f8ecee0453bb0dee131fc5afbde47d297535d343f15c9b23b`) | exactly step 2's verified layout, gate vectors, drop list and transfer bytes | `b_per_date.json`, `b_per_date_receipt.json` beside B's look |
 
 The ruling (b) post-look analysis (`b_post_look_serial`, frozen at `fa380db09980692f6afe50eb48b949b6c21aa88a`,
 sha256 `0c485d6e347dc11c95a7cf756e760e292db12536e663c61c1eda5d9650d80bed`) reads only `b_per_date.json` and
@@ -53,6 +53,10 @@ sha256 `0c485d6e347dc11c95a7cf756e760e292db12536e663c61c1eda5d9650d80bed`) reads
   files' shas in its receipt and proves equality through exact reproduction of B's printed rows.
 - **(C) Admission:** master directed offline-module allowlist entries for `weather.calibration.b_look_per_date` and
   `weather.calibration.b_post_look_serial`, on `claude/b-look-prep-20261031`, following the ece13f3d pattern.
+  - The entries are in commit `d33921025266c0e96794857640da53e5a3272787`.
+  - **Merge note:** this branch is off `1a78e1ba0c8f57c0d420fca96a9528cfb1d8e9de`, so its allowlist lines will need
+    a trivial merge against the `successor_odc_low` and `permarket_octdec` entries when master lands it. Those
+    entries sit in the same three files.
 - **Write location:** master accepted that the extractor writes beside B's look output (not only under its own out
   dir), as "receipted with B's look" requires.
 
