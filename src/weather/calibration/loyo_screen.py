@@ -36,6 +36,10 @@ Subcommands (heavy; run only through ``scripts\\ops\\workstation_heavy.ps1``):
     The marine market-residual P0 (``weather.calibration.marine_p0``, rule a374f771, ledger row 87): NOAA
     CO-OPS / NDBC water temperature and onshore wind at 07-12 in six coastal markets, lags 90 and 180 min, BH q =
     0.10 over K = 2 per lag, a survivor must pass both lags. Reads downloaded NOAA files; no network. Dev window only.
+``rqb-spread-p0``
+    R-Q B as a market-residual P0 (``weather.calibration.rqb_spread_p0``, rule 844c2eb5, ledger row 88): the
+    captured GEFS ``day_member_high_spread_80`` (type S) at 00-06, K = 1, the same placebo and BH machinery. Dev
+    window only.
 ``export-rq-gefs-column``
     The reproduction adapter: R-Q variant A's GEFS member-spread column ``u`` on the training frame's keys, written
     as a column file, so that ``run`` can reproduce R-Q gate 1 from a column alone.
@@ -396,6 +400,11 @@ def build_parser():
     mp.add_argument("--raw", action="append", required=True, help="a NOAA download directory (repeatable)")
     mp.add_argument("--out", required=True)
     mp.add_argument("--allow-dirty", action="store_true")
+    rq = sub.add_parser("rqb-spread-p0", help="R-Q B captured GEFS spread P0 (rule 844c2eb5): 00-06, dev window")
+    rq.add_argument("--layout", required=True, help="dev scorecard layout (C:/swarm/v3layout)")
+    rq.add_argument("--replay-root", required=True, help="captured replay inputs (replay-inputs-le0929)")
+    rq.add_argument("--out", required=True)
+    rq.add_argument("--allow-dirty", action="store_true")
     return parser
 
 
@@ -416,6 +425,14 @@ def main(argv=None):
         receipt = mr_gate.run(layout=args.layout, out_dir=args.out, candidates=cands, allow_dirty=args.allow_dirty)
         print(json.dumps({"lines": receipt["lines"], "controls": {k: v["verdict"] for k, v in
                                                                   receipt["controls"].items()}}, indent=1))
+        return 0
+    if args.command == "rqb-spread-p0":
+        from weather.calibration import rqb_spread_p0
+
+        receipt = rqb_spread_p0.run(layout=args.layout, out_dir=args.out, replay_root=args.replay_root,
+                                    allow_dirty=args.allow_dirty)
+        print(json.dumps({"line": receipt["line"], "controls": {k: v["verdict"] for k, v in
+                                                               receipt["controls"].items()}}, indent=1))
         return 0
     if args.command == "marine-p0":
         from weather.calibration import marine_p0

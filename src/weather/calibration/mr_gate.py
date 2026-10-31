@@ -39,7 +39,8 @@ P0_DRAWS = 2000
 P0_SEED = 20261024
 W_MIN = 0.05
 TRAINED_THROUGH = "2025-12-31"
-BLOCKS = {"07-12": (7, 12), "13-16": (13, 16), "00-23": (0, 23)}  # 00-23: the MR sweep w gate (rule 85f8192c)
+BLOCKS = {"07-12": (7, 12), "13-16": (13, 16), "00-23": (0, 23),  # 00-23: the MR sweep w gate (rule 85f8192c)
+          "00-06": (0, 6)}  # 00-06: the R-Q B spread P0 w gate (rule 844c2eb5, ledger row 88)
 # Rows 75 and 76: the frozen P3d_H dev emits (ledger row 38 reproduced them byte-identically from the states).
 CANDIDATES = {
     "R-R": {"block": "07-12", "ledger_row": 75, "state_sha256_prefix": "e9276477",
