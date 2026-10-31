@@ -1,8 +1,10 @@
 r"""C3 kill tier: frozen 110b T+1 fair value against 88a two-sided mids (lane L16; rule DRAFT, not frozen).
 
-Rule: ``docs/research/iterate-faster-2026-10-30/c3-t1-fair-value-kill-tier-DRAFT.md`` (its sha256 and this
-file's are pinned by master in a ``pending`` ledger row before any computation). Kill-only: the outcomes are
-KILL, NOT KILLED and INCONCLUSIVE (VOID when a control fails). No outcome is a pass, an edge claim or a
+Rule: the reviewed DRAFT ``docs/research/iterate-faster-2026-10-30/c3-t1-fair-value-kill-tier-DRAFT.md`` (sha256
+cd4d814f...) as amended by ``c3-t1-fair-value-kill-tier-REVISION-1-2026-10-31.md`` (master D1, approved with
+revisions); both shas and this file's are pinned by master in a ``pending`` ledger row before any computation.
+Kill-only: the outcomes are KILL (at edge size), NOT KILLED, INCONCLUSIVE and DESCRIPTIVE (power at edge size
+below 0.5: reported only, cannot drop A1); VOID when a control fails. No outcome is a pass, an edge claim or a
 promotion.
 
 Inputs are the outputs of the frozen scorer (``codex/t1-fair-value-scorer-20260927`` @ ``FROZEN_SCORER_COMMIT``)
@@ -36,6 +38,11 @@ SCHEMA = "c3_kill_tier/1"
 FROZEN_SCORER_COMMIT = "d937b34ab1d50cd4b8e35e80901184f7f0f82a9f"
 BUCKETS_COMMIT = "bf03a8d4104327913b0b4062f3eb2ad8a7a7e9c9"  # Amendment 3 buckets: reported only, run separately
 RULE_PATH = "docs/research/iterate-faster-2026-10-30/c3-t1-fair-value-kill-tier-DRAFT.md"
+RULE_REVIEWED_SHA256 = "cd4d814f4144a5e0a72d7632f413d000174d2cade4c4ce8d50f0ee5f6f76b5f6"   # master D1 reviewed this
+REVISION_PATH = "docs/research/iterate-faster-2026-10-30/c3-t1-fair-value-kill-tier-REVISION-1-2026-10-31.md"
+# Date-gate trace (code read only, REVISION-1 section 3): the frozen builder and scorer at FROZEN_SCORER_COMMIT have
+# no 09-30..10-15 gate (src/maker_core/shadow and EMBARGO_WINDOWS do not exist there), so no override is applied.
+DATE_GATE_TRACE = dict(commit=FROZEN_SCORER_COMMIT, embargo_gate_found=False, override_applied=False)
 TARGET_START, TARGET_END = date(2026, 9, 25), date(2026, 10, 8)    # R1
 DAY_START, DAY_END = date(2026, 9, 23), date(2026, 10, 7)          # R2, UTC bundle days
 EXCLUDED_CELLS = (("austin", "2026-10-03"),)                       # R3, export manifest C7
@@ -51,15 +58,22 @@ BH_Q = 0.10
 MEAN_W_MIN = 0.05
 MIN_DATES = 10
 MIN_EVENT_HOURS = 200
+# Edge size (REVISION-1 section 1; exhaustion register section 6, L15 815e642c3): a signal correlated rho with the
+# market residual cuts a calibrated market's squared error by rho^2, so a 5% Brier gain needs rho >= sqrt(0.05).
+EDGE_GAIN = 0.05
+DELTA_EDGE = math.sqrt(EDGE_GAIN)   # 0.2236
+Z95 = 1.959963984540054
+POWER_MIN = 0.5
 REPRO_TOL = 1e-12
 KILL_LEAD = 1
 KILL_SOURCES = ("nbp", "fallback")
 BLOCKS = (("00-05", 0, 5), ("06-09", 6, 9), ("10-12", 10, 12), ("13-16", 13, 16), ("17-23", 17, 23))
 
-# PROVISIONAL until master rules on the draft's open points; a ruling edits these before the freeze row.
+# Accepted as proposed by master D1 (2026-10-31); still pre-freeze until the ledger row pins this file.
 BURN_IN_DATES = 4          # OP1 (the forward test uses 7)
 MIN_MARKETS = 5            # OP3 (the frozen scorer's UNDERPOWERED rule is 10)
-KILL_SCOPE = "proposed: a KILL drops forward arm A1 and keeps A2 and A3"   # OP2, recorded only
+KILL_SCOPE = ("accepted D1: a KILL at edge size drops A1 as a solo arm and keeps A2 and A3, by dated clarification "
+              "before the forward freeze")   # OP2, recorded only
 AUSTIN_OPTION = "a"        # OP4: Austin 10-03 may sit inside whole segments; any selected Austin 10-03 row refuses
 PROVISIONAL = {"OP1_burn_in_dates": BURN_IN_DATES, "OP2_kill_scope": KILL_SCOPE, "OP3_min_markets": MIN_MARKETS,
                "OP4_austin_option": AUSTIN_OPTION}
@@ -71,6 +85,7 @@ K3 = dict(seed=20261031, null_seed=20261101, n_dates=14, n_bands=6, alpha=1.0, m
 
 EXIT_OK, EXIT_REFUSED, EXIT_VOID = 0, 2, 7
 KILL, NOT_KILLED, INCONCLUSIVE, VOID = "KILL", "NOT KILLED", "INCONCLUSIVE", "VOID"
+DESCRIPTIVE = "DESCRIPTIVE"
 
 
 class Refused(Exception):
@@ -220,6 +235,18 @@ def boot_counts(n_dates, b=BOOT_B, seed=BOOT_SEED):
     return np.stack([np.bincount(r, minlength=n_dates) for r in idx]).astype(float)
 
 
+def _se(draws):
+    ok = np.isfinite(draws)
+    return float(np.std(draws[ok], ddof=1)) if ok.sum() > 1 else None
+
+
+def power_at(edge, se):
+    """P(upper 95% bound < edge | true effect 0), normal approximation: Phi(edge / se - 1.96)."""
+    if se is None or not math.isfinite(se) or se <= 0:
+        return None
+    return 0.5 * (1.0 + math.erf((edge / se - Z95) / math.sqrt(2.0)))
+
+
 def _quantiles(draws):
     ok = np.isfinite(draws)
     return [float(q) for q in np.quantile(draws[ok], [0.025, 0.975])] if ok.any() else [None, None]
@@ -232,9 +259,13 @@ def p0(flat, c, placebos):
     rc, rp = float(rho(sc.sum(axis=0))), [float(rho(s.sum(axis=0))) for s in spl]
     draws = rho(counts @ sc) - np.mean([rho(counts @ s) for s in spl], axis=0)
     p = (1 + int(np.sum(~(draws > 0)))) / (len(draws) + 1)   # an undefined draw counts against the signal
+    ci, se = _quantiles(draws), _se(draws)
     result = dict(dates=int(len(dates)), entries=int(len(c)), rho_c=rc, rho_placebo=rp,
-                  rho_placebo_mean=float(np.mean(rp)), delta=rc - float(np.mean(rp)), delta_ci95=_quantiles(draws),
-                  p_one_sided=p, valid_replicates=int(np.isfinite(draws).sum()))
+                  rho_placebo_mean=float(np.mean(rp)), delta=rc - float(np.mean(rp)), delta_ci95=ci,
+                  p_one_sided=p, valid_replicates=int(np.isfinite(draws).sum()),
+                  delta_edge=DELTA_EDGE, se_delta=se, vif=None if se is None else float(len(c) * se * se),
+                  power_at_edge=power_at(DELTA_EDGE, se),
+                  edge_excluded=bool(ci[1] is not None and ci[1] < DELTA_EDGE))
     return result, (dates, sc, spl)
 
 
@@ -289,7 +320,8 @@ def paired(diff, cell_dates, scored):
     ds = np.bincount(di, weights=diff[sel], minlength=len(scored))
     nc = np.bincount(di, minlength=len(scored)).astype(float)
     counts = boot_counts(len(scored))
-    return dict(estimate=float(ds.sum() / nc.sum()), ci95=_quantiles((counts @ ds) / (counts @ nc)))
+    draws = (counts @ ds) / (counts @ nc)
+    return dict(estimate=float(ds.sum() / nc.sum()), ci95=_quantiles(draws), se=_se(draws))
 
 
 def w_gate(flat, c, placebos):
@@ -313,13 +345,20 @@ def w_gate(flat, c, placebos):
     vs_floor = paired(blend - floor, cell_dates, scored)
     holds = bool(mean_w >= MEAN_W_MIN and vs_placebo["ci95"][1] is not None and vs_placebo["ci95"][1] < 0
                  and vs_floor["ci95"][1] is not None and vs_floor["ci95"][1] < 0)
+    vs_market = paired(blend - market, cell_dates, scored)
+    edge_gain = EDGE_GAIN * float(market[sel].mean())   # the edge-size Brier gain on the scored cells
+    lo = vs_market["ci95"][0]
     rows = [dict(kind="brier_sums", date=str(d), w=wf[d][0], fit_cells=wf[d][1], cells=int((cell_dates == d).sum()),
                  blend=float(blend[cell_dates == d].sum()), market=float(market[cell_dates == d].sum()),
                  placebo=float(placebo[cell_dates == d].sum()), floor_only=float(floor[cell_dates == d].sum()))
             for d in scored]
     return dict(holds=holds, mean_w=mean_w, scored_dates=int(len(scored)), burn_in_dates=dates[:BURN_IN_DATES],
                 w_by_date={str(d): wf[d][0] for d in scored}, blend_minus_placebo=vs_placebo,
-                blend_minus_floor_only=vs_floor, blend_minus_market=paired(blend - market, cell_dates, scored),
+                blend_minus_floor_only=vs_floor, blend_minus_market=vs_market,
+                market_brier_mean=float(market[sel].mean()), edge_gain=edge_gain,
+                # KILL at edge size: the gain (market - blend) has upper 95% bound below the edge gain.
+                edge_excluded=bool(lo is not None and lo > -edge_gain),
+                power_at_edge_reported=power_at(edge_gain, vs_market["se"]),
                 brier_ratio_blend_over_market=float(blend[sel].sum() / market[sel].sum()),
                 w0_values_equal_market=bool(np.array_equal(values[0], market)),
                 floor_only_equals_market=bool(np.array_equal(floor, market))), rows
@@ -333,10 +372,23 @@ def coverage(flat):
                 ok=bool(d >= MIN_DATES and m >= MIN_MARKETS and flat.n >= MIN_EVENT_HOURS))
 
 
-def decide(coverage_ok, p0_holds, w_holds):
+def decide(coverage_ok, p0r, wr):
+    """REVISION-1 order. Returns (outcome, step). Only an excluded edge-size effect kills; P0 not holding alone is
+    INCONCLUSIVE; power at edge size below POWER_MIN makes the whole read DESCRIPTIVE (it cannot drop A1)."""
     if not coverage_ok:
-        return INCONCLUSIVE
-    return NOT_KILLED if p0_holds and w_holds else KILL
+        return INCONCLUSIVE, "coverage_floor"
+    power = p0r.get("power_at_edge")
+    if power is None or power < POWER_MIN:
+        return DESCRIPTIVE, "power_at_edge_below_min"
+    if p0r["edge_excluded"]:
+        return KILL, "p0_delta_upper_below_delta_edge"
+    if not p0r["holds"]:
+        return INCONCLUSIVE, "p0_not_held_underpowered_for_information"
+    if wr["holds"]:
+        return NOT_KILLED, "p0_and_w_hold"
+    if wr.get("edge_excluded"):
+        return KILL, "w_gain_upper_below_edge_gain"
+    return INCONCLUSIVE, "w_not_held_edge_not_excluded"
 
 
 def gate(flat, c):
@@ -350,7 +402,8 @@ def gate(flat, c):
     rows = [dict(kind="p0_sums", arm=arm, date=str(d), **dict(zip(("n", "s", "e", "ss", "ee", "se"), map(float, r))))
             for arm, s in (("c", sc), *((f"placebo_{seed}", x) for seed, x in zip(PLACEBO_SEEDS, spl)))
             for d, r in zip(dates, s)]
-    return dict(coverage=cov, p0=p0r, w=wr, outcome=decide(cov["ok"], p0r["holds"], wr["holds"])), rows + wrows
+    outcome, step = decide(cov["ok"], p0r, wr)
+    return dict(coverage=cov, p0=p0r, w=wr, outcome=outcome, decided_by=step), rows + wrows
 
 
 def k1(flat, c):
@@ -493,9 +546,11 @@ def run_k3(params=K3):
     null_lo, null_hi = out["null"]["p0"]["delta_ci95"]
     checks = dict(positive_not_killed=out["positive"]["outcome"] == NOT_KILLED,
                   negation_delta_upper_below_zero=neg_hi is not None and neg_hi < 0,
-                  negation_killed=out["negation"]["outcome"] == KILL,
+                  negation_killed=out["negation"]["outcome"] == KILL
+                  and out["negation"]["decided_by"] == "p0_delta_upper_below_delta_edge",
                   null_delta_interval_covers_zero=null_lo is not None and null_lo <= 0 <= null_hi)
-    summary = {name: dict(outcome=g["outcome"], delta=g["p0"]["delta"], delta_ci95=g["p0"]["delta_ci95"],
+    summary = {name: dict(outcome=g["outcome"], decided_by=g["decided_by"], delta=g["p0"]["delta"],
+                          delta_ci95=g["p0"]["delta_ci95"], power_at_edge=g["p0"]["power_at_edge"],
                           p_one_sided=g["p0"]["p_one_sided"], mean_w=g["w"].get("mean_w"), w_holds=g["w"]["holds"])
                for name, g in out.items()}
     return dict(params={k: (list(v) if isinstance(v, tuple) else v) for k, v in params.items()},
@@ -614,12 +669,14 @@ def main(argv=None):
     except (Refused, OSError, ValueError, KeyError, TypeError) as exc:
         print(f"c3 kill tier refused: {type(exc).__name__}: {exc}", file=sys.stderr)
         return EXIT_REFUSED
-    base = dict(schema=SCHEMA, rule=RULE_PATH, provisional=PROVISIONAL, frozen_scorer_commit=FROZEN_SCORER_COMMIT,
+    base = dict(schema=SCHEMA, rule=RULE_PATH, rule_reviewed_sha256=RULE_REVIEWED_SHA256, revision=REVISION_PATH,
+                date_gate_trace=DATE_GATE_TRACE, provisional=PROVISIONAL, frozen_scorer_commit=FROZEN_SCORER_COMMIT,
                 buckets_commit=BUCKETS_COMMIT, row80_receipt=receipt, scorer_tree=scorer_tree, driver_tree=driver_tree,
                 report_sha256=sha256_bytes(report_bytes), implementation=_implementation(),
                 constants=dict(eps=EPS, gap_days=GAP_DAYS, placebo_seeds=list(PLACEBO_SEEDS), boot_b=BOOT_B,
                                boot_seed=BOOT_SEED, bh_q=BH_Q, mean_w_min=MEAN_W_MIN, min_dates=MIN_DATES,
-                               min_event_hours=MIN_EVENT_HOURS, kill_lead=KILL_LEAD, kill_sources=list(KILL_SOURCES)))
+                               min_event_hours=MIN_EVENT_HOURS, kill_lead=KILL_LEAD, kill_sources=list(KILL_SOURCES),
+                               edge_gain=EDGE_GAIN, delta_edge=DELTA_EDGE, power_min=POWER_MIN))
     controls = {}
     try:
         if args.report_repeat.read_bytes() != report_bytes:

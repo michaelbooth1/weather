@@ -1,7 +1,7 @@
 """C3 kill-tier driver: K1 identity, K3 synthetic positive / negation / null, refusals R1-R5, out-dir rule.
 
 Synthetic fixtures only: no real price, label, snapshot or bundle is opened. Rule: the C3 kill-tier DRAFT
-(docs/research/iterate-faster-2026-10-30/c3-t1-fair-value-kill-tier-DRAFT.md); OP1-OP4 are PROVISIONAL.
+(docs/research/iterate-faster-2026-10-30/c3-t1-fair-value-kill-tier-DRAFT.md) as amended by REVISION-1 (master D1).
 """
 import ast
 import copy
@@ -104,11 +104,35 @@ def test_bh_single_arm_reduces_to_p_le_q():
     assert c3.bh([0.01, 0.04, 0.2]) == [True, True, False]
 
 
+def _p0r(holds=True, excluded=False, power=0.9):
+    return dict(holds=holds, edge_excluded=excluded, power_at_edge=power)
+
+
+def _wr(holds=True, excluded=False):
+    return dict(holds=holds, edge_excluded=excluded)
+
+
 def test_decide_truth_table():
-    assert c3.decide(False, True, True) == c3.INCONCLUSIVE
-    assert c3.decide(True, False, True) == c3.KILL
-    assert c3.decide(True, True, False) == c3.KILL
-    assert c3.decide(True, True, True) == c3.NOT_KILLED
+    assert c3.decide(False, _p0r(), _wr())[0] == c3.INCONCLUSIVE
+    assert c3.decide(True, _p0r(power=0.49), _wr()) == (c3.DESCRIPTIVE, "power_at_edge_below_min")
+    assert c3.decide(True, _p0r(power=None), _wr())[0] == c3.DESCRIPTIVE
+    assert c3.decide(True, _p0r(holds=False, excluded=True, power=0.49), _wr())[0] == c3.DESCRIPTIVE   # cannot drop A1
+    assert c3.decide(True, _p0r(holds=False, excluded=True), _wr()) == (c3.KILL, "p0_delta_upper_below_delta_edge")
+    assert c3.decide(True, _p0r(holds=True, excluded=True), _wr())[0] == c3.KILL   # real but below edge size
+    # P0 not holding alone is never a kill
+    assert c3.decide(True, _p0r(holds=False), _wr()) == (c3.INCONCLUSIVE, "p0_not_held_underpowered_for_information")
+    assert c3.decide(True, _p0r(), _wr(holds=False, excluded=True)) == (c3.KILL, "w_gain_upper_below_edge_gain")
+    assert c3.decide(True, _p0r(), _wr(holds=False))[0] == c3.INCONCLUSIVE
+    assert c3.decide(True, _p0r(), _wr()) == (c3.NOT_KILLED, "p0_and_w_hold")
+
+
+def test_edge_size_constants_and_power():
+    assert c3.DELTA_EDGE == pytest.approx(0.2236, abs=1e-4) and c3.DELTA_EDGE ** 2 == pytest.approx(c3.EDGE_GAIN)
+    assert c3.POWER_MIN == 0.5
+    assert c3.power_at(c3.DELTA_EDGE, c3.DELTA_EDGE / c3.Z95) == pytest.approx(0.5)   # SE 0.114 is the 0.5 line
+    assert c3.power_at(0.224, 0.080) == pytest.approx(0.80, abs=0.01)
+    assert c3.power_at(1.0, 0.0) is None and c3.power_at(1.0, None) is None
+    assert c3.RULE_REVIEWED_SHA256.startswith("cd4d814f") and not c3.DATE_GATE_TRACE["override_applied"]
 
 
 def test_coverage_floor_makes_a_thin_panel_inconclusive(synthetic):
@@ -215,7 +239,7 @@ def test_out_dir_must_be_new_and_disjoint_from_inputs(tmp_path):
 
 def test_evaluate_on_synthetic_rows_writes_only_into_a_new_dir(tmp_path, synthetic):
     result, lines = c3.evaluate(synthetic)
-    assert result["k1"]["passed"] and result["outcome"] in (c3.KILL, c3.NOT_KILLED, c3.INCONCLUSIVE)
+    assert result["k1"]["passed"] and result["outcome"] in (c3.KILL, c3.NOT_KILLED, c3.INCONCLUSIVE, c3.DESCRIPTIVE)
     out = tmp_path / "run"
     c3.write_out(out, dict(outcome=result["outcome"]), lines)
     assert sorted(p.name for p in out.iterdir()) == ["c3_result.json", "c3_rows.jsonl"]
