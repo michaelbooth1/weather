@@ -50,7 +50,7 @@ DATE_GATE_TRACE = dict(commit=FROZEN_SCORER_COMMIT, embargo_gate_found=False, ov
 TARGET_START, TARGET_END = date(2026, 9, 25), date(2026, 10, 8)    # R1
 DAY_START, DAY_END = date(2026, 9, 23), date(2026, 10, 7)          # R2, UTC bundle days
 EXCLUDED_CELLS = (("austin", "2026-10-03"),)                       # R3, export manifest C7
-ROW80_RECEIPT_SHA256 = "6c0f4a1d4b5e5e12445fc79203b2c6ab66dbe1e0e21e7451ac1e6cb3bbc54504"  # R4: row 80 export receipt.json, pinned by master 2026-10-31 (PROVISIONAL)
+ROW80_RECEIPT_SHA256 = "a91915e52cbbfebf12ab650d4ae07d95082415727c767120f52f757fd4e8feda"  # R4: row 80 look receipt.json, pinned by master 2026-10-31 (C3 GO)
 
 EPS = 1e-4
 GAP_DAYS = 1

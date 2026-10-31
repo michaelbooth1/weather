@@ -40,7 +40,7 @@ def test_constants_match_the_draft_and_open_points_are_provisional():
     assert (c3.MIN_DATES, c3.MIN_EVENT_HOURS, c3.MEAN_W_MIN) == (10, 200, 0.05)
     assert set(c3.PROVISIONAL) == {"OP1_burn_in_dates", "OP2_kill_scope", "OP3_min_markets", "OP4_austin_option"}
     assert (c3.BURN_IN_DATES, c3.MIN_MARKETS, c3.AUSTIN_OPTION) == (4, 5, "a")
-    assert c3.ROW80_RECEIPT_SHA256 == "6c0f4a1d4b5e5e12445fc79203b2c6ab66dbe1e0e21e7451ac1e6cb3bbc54504"  # master 2026-10-31
+    assert c3.ROW80_RECEIPT_SHA256 == "a91915e52cbbfebf12ab650d4ae07d95082415727c767120f52f757fd4e8feda"  # master 2026-10-31
 
 
 def test_no_network_imports():
