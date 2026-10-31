@@ -144,12 +144,23 @@ def test_look_refuses_a_wrong_coef_sha_before_reading_any_layout(tmp_path, monke
     monkeypatch.setattr(p0, "control_cd", lambda: touched.append("cd"))
     coef = tmp_path / "coef.json"
     coef.write_text("{}", encoding="utf-8")
-    rc = p0.main(["look", "--out", str(tmp_path / "rodc" / "look1"), "--coef", str(coef), "--coef-sha", "0" * 64,
-                  "--approval", "coordinator admission 2026-10-31"])
-    assert rc == 2 and not touched and not (tmp_path / "rodc").exists()
-    rc = p0.main(["look", "--out", str(tmp_path / "rodc" / "look1"), "--coef", str(coef),
-                  "--coef-sha", hashlib.sha256(coef.read_bytes()).hexdigest(), "--approval", "short"])
+    par = tmp_path / "parity_receipt.json"
+    par.write_text(json.dumps({"schema": p0.SCHEMA + "/parity", "ledger_row": p0.LEDGER_ROW,
+                               "parity_limited": {a: False for a in p0.ARMS}}), encoding="utf-8")
+    par_sha = hashlib.sha256(par.read_bytes()).hexdigest()
+    coef_sha = hashlib.sha256(coef.read_bytes()).hexdigest()
+    base = ["look", "--out", str(tmp_path / "rodc" / "look1"), "--coef", str(coef)]
+    for extra in (["--coef-sha", "0" * 64, "--parity", str(par), "--parity-sha", par_sha],
+                  ["--coef-sha", coef_sha, "--parity", str(tmp_path / "missing.json"), "--parity-sha", par_sha],
+                  ["--coef-sha", coef_sha, "--parity", str(par), "--parity-sha", "0" * 64],
+                  ["--coef-sha", coef_sha, "--parity", str(par), "--parity-sha", par_sha]):   # C-c unruled
+        rc = p0.main(base + extra + ["--approval", "coordinator admission 2026-10-31"])
+        assert rc == 2 and not touched and not (tmp_path / "rodc").exists()
+    rc = p0.main(base + ["--coef-sha", coef_sha, "--parity", str(par), "--parity-sha", par_sha,
+                         "--approval", "short"])
     assert rc == 2 and not touched
+    with pytest.raises(SystemExit):        # the parity receipt is required
+        p0.build_parser().parse_args(base + ["--coef-sha", coef_sha, "--approval", "x" * 10])
 
 
 # ----------------------------------------------------------------------------- fit (history only)
@@ -360,4 +371,163 @@ def test_zero_tilt_identity_and_restrict_identity_on_a_synthetic_layout(tmp_path
     geo = sw.band_geometry(t)
     out = p0.control_cc(t, geo)
     assert out["verdict"] == "PASS" and out["max_abs_c_minus_m"] <= 1e-15
+    assert "snapshots_with_m_below_eps" in out           # ruling 2: the separate count is kept
     assert p0.control_restrict_identity(t)["verdict"] == "PASS"
+
+
+# ----------------------------------------------------------------------------- master's rulings (2026-10-31)
+
+def _pin_blob(sha):
+    import subprocess
+
+    got = subprocess.run(["git", "-C", str(p0.TREE), "cat-file", "blob", sha], capture_output=True)
+    if got.returncode != 0:
+        pytest.skip(f"pin blob {sha} not in this clone")
+    return got.stdout.decode("utf-8")
+
+
+def test_ruling_1a_orm_functions_are_source_identical_to_the_pin_blob():
+    src = _pin_blob(p0.ORM_PIN_BLOB)
+    lines = src.splitlines(keepends=True)
+    tree = ast.parse(src)
+    for fn, want in p0.ORM_PIN_SOURCE_SHA256.items():
+        node = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == fn)
+        seg = "".join(lines[node.lineno - 1:node.end_lineno])
+        assert hashlib.sha256(seg.encode("utf-8")).hexdigest() == want
+    assert f'METAR_OBSERVATION_GROUP_RE = re.compile(r"{p0.ORM_PIN_GROUP_RE}")' in src
+    assert p0.check_pin_identity()["orm_source_sha256"] == p0.ORM_PIN_SOURCE_SHA256
+
+
+def test_ruling_1b_prm_constants_equal_the_pin_blob_values():
+    tree = ast.parse(_pin_blob(p0.PRM_PIN_BLOB))
+    pinned = {}
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and \
+                getattr(node.targets[0], "id", None) in p0.PRM_PIN_CONSTANTS:
+            pinned[node.targets[0].id] = ast.literal_eval(node.value)
+    assert pinned == p0.PRM_PIN_CONSTANTS
+    from weather.calibration import loyo_screen as ls
+
+    assert (ls.DEFAULT_DRAWS, ls.DEFAULT_SEED) == (2000, 20261024)
+
+
+def test_ruling_1_mismatches_are_refused():
+    import types
+
+    from weather.calibration import pooled_residual_model as prm
+    from weather.model import observed_running_max as orm
+
+    def metar_observation_local_time(row, tz, raw_obs_times=None):
+        return None
+
+    fake_orm = types.SimpleNamespace(metar_observation_local_time=metar_observation_local_time,
+                                     row_obs_time_local=orm.row_obs_time_local,
+                                     METAR_OBSERVATION_GROUP_RE=orm.METAR_OBSERVATION_GROUP_RE)
+    with pytest.raises(p0.Refused, match="observed_running_max"):
+        p0.check_pin_identity(orm=fake_orm, prm=prm)
+    fake_prm = types.SimpleNamespace(BOOTSTRAP_DRAWS=1000, BOOTSTRAP_SEED=prm.BOOTSTRAP_SEED,
+                                     R0_MARKETS=prm.R0_MARKETS)
+    with pytest.raises(p0.Refused, match="pooled_residual_model"):
+        p0.check_pin_identity(orm=orm, prm=fake_prm)
+
+
+def test_ruling_2_cc_call_paths_are_recorded_and_differ_so_the_look_refuses_until_ruled():
+    audit = p0.cc_path_audit()
+    assert audit["candidate"]["function"] == "mr_sweep.tilt"
+    assert audit["placebo"]["function"] == "mr_sweep.disagreement_placebo"
+    assert audit["candidate"]["renormalised_to_sum_m"] and audit["placebo"]["renormalised_to_sum_m"]
+    assert audit["candidate"]["clip_to_eps"] is False and audit["placebo"]["clip_to_eps"] is True
+    assert audit["identical_clip_and_renormalisation"] is False
+    with pytest.raises(p0.Refused, match="awaiting master"):
+        p0.check_cc_paths()
+    assert p0.check_cc_paths(ruling="a master ruling ref")["ruling"] == "a master ruling ref"
+
+
+def test_ruling_2_candidate_is_not_clipped_and_the_placebo_is():
+    """Behavioural check of the audit: a band below EPS stays below EPS in c; the placebo lifts it to ~EPS."""
+    from weather.calibration import market_blend as mb
+    from weather.calibration import mr_sweep as sw
+
+    class T:
+        n = np.array([3])
+        band_snap = np.array([0, 0, 0])
+        snaps = [0]
+        p_market = np.array([1e-6, 0.5, 0.499999])
+
+    geo = {"mt": T.p_market / T.p_market.sum(), "tot": np.array([T.p_market.sum()])}
+    c, _ = sw.tilt(T, geo, np.zeros(3), np.array([True]))
+    assert c[0] < mb.EPS
+    pl, _ = sw.disagreement_placebo(T, c, 0, donor=(np.arange(3), {}))
+    assert pl[0] > 0.99 * mb.EPS and pl.sum() == pytest.approx(T.p_market.sum())
+
+
+def _prec(mk, low_c, low_s, prev_c, prev_s):
+    return {"market": mk, "date": "2024-10-01", "hour": 9, "kept_rows": 4, "implausible": 0,
+            "cache": {"low_so_far": low_c, "low_prev_evening": prev_c},
+            "serve": {"odc_low_so_far": low_s, "x13_low_so_far": low_c, "low_prev_evening": prev_s}}
+
+
+def test_ruling_4_parity_table_flags_and_receipt_check(tmp_path):
+    recs = []
+    for mk in p0.US11:
+        recs += [_prec(mk, 50.0, 50, 48.0, 48.0), _prec(mk, 52.0, 52, 47.0, 47.0)]
+    table, limited, _ = p0.parity_table(recs)
+    assert limited == {p0.ARM_RODC: False, p0.ARM_X13: False}
+    assert table["nyc"]["odc_low_so_far-vs-low_so_far"] == {"n": 2, "mae": 0.0, "max_abs": 0.0, "bias": 0.0}
+    # +1 F in the R-ODC low in Miami and Denver: R-ODC is limited by Miami only (Denver is uncovered); X13 is not
+    recs2 = [dict(r, serve=dict(r["serve"], odc_low_so_far=r["serve"]["odc_low_so_far"] + 1))
+             if r["market"] in ("miami", "denver") else r for r in recs]
+    _, limited, reasons = p0.parity_table(recs2)
+    assert limited == {p0.ARM_RODC: True, p0.ARM_X13: False}
+    assert {w[0] for w in reasons[p0.ARM_RODC]} == {"miami"}
+    # no overlap in a covered market -> parity-limited (conservative)
+    assert p0.parity_table([r for r in recs if r["market"] != "seattle"])[1] == {p0.ARM_RODC: True,
+                                                                                 p0.ARM_X13: True}
+    assert p0.label_with_parity(p0.LABEL_KILL, True) == p0.LABEL_KILL + p0.PARITY_SUFFIX
+    assert p0.label_with_parity(p0.LABEL_KILL, False) == p0.LABEL_KILL
+
+    f = tmp_path / "parity_receipt.json"
+    f.write_text(json.dumps({"schema": p0.SCHEMA + "/parity", "ledger_row": p0.LEDGER_ROW,
+                             "parity_limited": limited}), encoding="utf-8")
+    sha = hashlib.sha256(f.read_bytes()).hexdigest()
+    assert p0.check_parity(f, sha)["parity_limited"] == limited
+    for path, s, msg in ((tmp_path / "none.json", sha, "missing"), (f, None, "required"), (f, "0" * 64, "is not")):
+        with pytest.raises(p0.Refused, match=msg):
+            p0.check_parity(path, s)
+    f.write_text(json.dumps({"schema": "other", "ledger_row": p0.LEDGER_ROW, "parity_limited": limited}))
+    with pytest.raises(p0.Refused, match="not this row"):
+        p0.check_parity(f, hashlib.sha256(f.read_bytes()).hexdigest())
+
+
+def test_ruling_4_parity_records_use_the_serve_code_on_history(tmp_path):
+    root = tmp_path / "metar" / "klga"
+    part = root / "hourly" / "year=2024" / "month=10" / "observations.jsonl"
+    part.parent.mkdir(parents=True)
+    obs = [("2024-10-01", "22:51", 55.0), ("2024-10-02", "02:51", 57.4), ("2024-10-02", "05:51", 56.6),
+           ("2024-10-02", "06:51", 25.0), ("2024-10-02", "08:51", 60.0), ("2024-10-02", "09:51", 50.0)]
+    lines = [json.dumps({"local_date": d, "valid_time_local": f"{d}T{t}:00-04:00", "temp_native": v,
+                         "dewpoint_native": 40.0}) for d, t, v in obs]
+    part.write_bytes(("\n".join(lines) + "\n").encode("utf-8"))
+    manifest = {"partitions": [{"path": "hourly/year=2024/month=10/observations.jsonl",
+                                "sha256": hashlib.sha256(part.read_bytes()).hexdigest()}]}
+    (root / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    by_date, hashed = p0.read_metar_history(tmp_path / "metar", "klga", {(2024, 10), (2024, 9)})
+    assert len(hashed) == 1 and len(by_date["2024-10-02"]) == 5
+    cache = {"market_id": "nyc", "hours": {"9": [{"date": "2024-10-02", "low_so_far": 57.0,
+                                                   "low_prev_evening": 55.0}]}}
+    recs, conflicts = p0.parity_records([cache, cache], {"nyc": by_date}, {"nyc": NY}, {"nyc": "F"}, hours=(9,))
+    assert conflicts == 0 and len(recs) == 1
+    r = recs[0]
+    assert r["serve"] == {"odc_low_so_far": 57, "x13_low_so_far": 56.6, "low_prev_evening": 55.0}
+    assert r["implausible"] == 1 and r["kept_rows"] == 4          # the 25 F row is dropped by the filter
+    part.write_bytes(part.read_bytes() + b"{}\n")
+    with pytest.raises(p0.Refused, match="manifest"):
+        p0.read_metar_history(tmp_path / "metar", "klga", {(2024, 10)})
+    late = {"market_id": "nyc", "hours": {"9": [{"date": "2026-01-02", "low_so_far": 1.0}]}}
+    with pytest.raises(p0.Refused, match="after 2025-12-31"):
+        p0.parity_records([late], {"nyc": by_date}, {"nyc": NY}, {"nyc": "F"}, hours=(9,))
+
+
+def test_parity_cli_defaults():
+    args = p0.build_parser().parse_args(["parity", "--out", r"C:\t\l16\rodc\parity1"])
+    assert args.cache_dir == str(p0.L9_CACHE) and args.metar_dir == str(p0.METAR_HISTORY)

@@ -17,8 +17,14 @@ tree, ``PYTHONPATH=<run tree>\src``)::
 
     python -m tools.research.released_window.rodc_released_p0 preflight
     python -m tools.research.released_window.rodc_released_p0 fit  --out C:\t\l16\rodc\<new>
+    python -m tools.research.released_window.rodc_released_p0 parity --out C:\t\l16\rodc\<new>
     python -m tools.research.released_window.rodc_released_p0 look --out C:\t\l16\rodc\<new> \
-        --coef <fit out>\coef.json --coef-sha <sha256 of coef.json> --approval "<coordinator admission ref>"
+        --coef <fit out>\coef.json --coef-sha <sha256 of coef.json> \
+        --parity <parity out>\parity_receipt.json --parity-sha <its sha256> --approval "<coordinator admission ref>"
+
+Master's 2026-10-31 rulings: every stage also checks the pin identity (ruling 1); ``parity`` is the pre-look,
+outcome-free train/serve parity of the lows (ruling 4) whose ``parity_limited`` flags the look appends to the
+affected arm's label; the look refuses while the C-c clip / renormalisation path difference is unruled (ruling 2).
 
 ``preflight`` reads no data: origin, clean tree, rule and blob shas. ``fit`` reads only the L9 Oct-Dec history
 caches (and L3's centre 11-24 rows for control C-f). ``look`` is the single look: controls C-a, C-b, C-d, C-e on
@@ -92,6 +98,30 @@ BLOBS = {
     "tools/research/released_window/served_market_blocks.py": "86b4652c5ac03de43d289ae4cc1e3d6e82544dbf",
 }
 
+# Master's ruling 1 (2026-10-31) on the vendored pin blobs, checked at the start of every stage.
+# (a) The two observed_running_max functions used here are source-identical between master's a141ff3b and the
+#     pin 8bb0f9563's blob 40c84103: sha256 of inspect.getsource, hashes taken from `git cat-file blob 40c84103`.
+ORM_PIN_BLOB = "40c8410309dd28a72676f023822bc60f23ed4cd4"
+ORM_PIN_SOURCE_SHA256 = {
+    "metar_observation_local_time": "50910790030fd49ce0d5dc1b3bb335a4db40ff8bbe37a4b494177ed492116365",
+    "row_obs_time_local": "74621d68e98156ad1208628015e48e8e4ac434eb9a005e5fff08cdd1a0803404",
+}
+ORM_PIN_GROUP_RE = r"\b(\d{2})(\d{2})(\d{2})Z\b"     # the module constant metar_observation_local_time reads
+# (b) The loyo_screen constants read from pooled_residual_model a7f9124f equal the pin's (blob 5e991078).
+PRM_PIN_BLOB = "5e991078071f7296ae4cc4010e5d0ebfc4c2003c"
+PRM_PIN_CONSTANTS = {
+    "BOOTSTRAP_DRAWS": 2000,
+    "BOOTSTRAP_SEED": 20261024,
+    "R0_MARKETS": ("atlanta", "austin", "chicago", "dallas", "denver", "houston", "los-angeles", "miami", "nyc",
+                   "san-francisco", "seattle"),
+}
+
+# Ruling 4: train/serve parity of the lows (history only, outcome-free, recorded, not deciding by itself).
+METAR_HISTORY = Path(r"C:\Users\Michael\Documents\github\weather\data\metar")   # IEM ASOS, read only
+PARITY_RECEIPT = "parity_receipt.json"
+PARITY_MAE_MAX, PARITY_BIAS_MAX = 0.5, 0.3      # deg F; beyond either, in any market, the arm is parity-limited
+PARITY_SUFFIX = " [parity-limited; kill scope: this construction only]"
+
 RELEASE_FIRST, RELEASE_LAST = date(2026, 10, 1), date(2026, 10, 14)
 RELEASE_DATES = tuple((RELEASE_FIRST + timedelta(days=i)).isoformat() for i in range(14))
 STRATA = {"pre": ("2026-10-01", "2026-10-09"), "post": ("2026-10-10", "2026-10-14")}
@@ -107,6 +137,9 @@ ARM_RODC = "R-ODC-lin (linear surrogate on frozen R-ODC features)"
 ARM_X13 = "X13"
 ARMS = {ARM_RODC: ("low_so_far", "dewpoint_c"), ARM_X13: ("low_so_far", "low_prev_evening", "dewpoint_c")}
 ARM_UNCOVERED_MARKETS = {ARM_RODC: frozenset({"denver"}), ARM_X13: frozenset()}
+# Parity comparisons per arm: (serve-side METAR feature, trainer-cache column).
+ARM_PARITY = {ARM_RODC: (("odc_low_so_far", "low_so_far"),),
+              ARM_X13: (("x13_low_so_far", "low_so_far"), ("low_prev_evening", "low_prev_evening"))}
 MIN_FIT_ROWS = 30
 
 MIN_DATES, MIN_SNAPS = 10, 1000            # row 80's coverage floor
@@ -176,6 +209,36 @@ def check_rule_files(tree=TREE):
             raise Refused(f"refused: {rel} sha256 {got} is not the pinned {want}")
         out[rel] = got
     return out
+
+
+def check_pin_identity(orm=None, prm=None):
+    """Ruling 1: (a) the observed_running_max functions this driver uses are source-identical to the pin's;
+    (b) the loyo_screen constants from pooled_residual_model equal the pin's values. Refuses on any mismatch."""
+    import inspect
+
+    if orm is None:
+        from weather.model import observed_running_max as orm
+    if prm is None:
+        from weather.calibration import pooled_residual_model as prm
+    got = {fn: hashlib.sha256(inspect.getsource(getattr(orm, fn)).encode("utf-8")).hexdigest()
+           for fn in ORM_PIN_SOURCE_SHA256}
+    bad = {fn: g for fn, g in got.items() if g != ORM_PIN_SOURCE_SHA256[fn]}
+    if bad:
+        raise Refused(f"refused: observed_running_max functions differ from pin blob {ORM_PIN_BLOB}: {bad}")
+    if orm.METAR_OBSERVATION_GROUP_RE.pattern != ORM_PIN_GROUP_RE:
+        raise Refused("refused: METAR_OBSERVATION_GROUP_RE differs from the pin")
+    consts = {k: getattr(prm, k, None) for k in PRM_PIN_CONSTANTS}
+    consts = {k: tuple(v) if isinstance(v, (list, tuple)) else v for k, v in consts.items()}
+    if consts != PRM_PIN_CONSTANTS:
+        raise Refused(f"refused: pooled_residual_model constants {consts} are not the pin's {PRM_PIN_CONSTANTS}")
+    return {"orm_pin_blob": ORM_PIN_BLOB, "orm_source_sha256": got, "prm_pin_blob": PRM_PIN_BLOB,
+            "prm_constants": {k: list(v) if isinstance(v, tuple) else v for k, v in consts.items()}}
+
+
+def stage_guards():
+    """Every stage's start: origin, clean tree, blobs, rule files, pin identity (ruling 1)."""
+    return {"origin": check_origin(), "code": require_clean(code_state()), "blobs": check_blobs(),
+            "rules": check_rule_files(), "pin_identity": check_pin_identity()}
 
 
 def _norm(p):
@@ -393,10 +456,8 @@ def placebo_beta(caches, hours=HOURS):
 
 
 def stage_fit(args):
-    origin = check_origin()
-    state = require_clean(code_state())
-    blobs = check_blobs()
-    rules = check_rule_files()
+    g = stage_guards()
+    origin, state, blobs, rules = g["origin"], g["code"], g["blobs"], g["rules"]
     out = check_out_dir(args.out)
     from weather.calibration import ols_floor_ladder as lad
 
@@ -416,7 +477,7 @@ def stage_fit(args):
                     "cache_sha256": cache_files, "residual_rows": n_samples}
     coef_sha = write_exclusive(out / "coef.json", coef_payload)
     receipt = {"schema": SCHEMA + "/fit", "ledger_row": LEDGER_ROW, "stage": "fit", "origin": origin,
-               "origin_after_imports": after, "code": state, "blobs": blobs, "rules": rules, "module_sha256": sha256_file(__file__),
+               "origin_after_imports": after, "pin_identity": g["pin_identity"], "code": state, "blobs": blobs, "rules": rules, "module_sha256": sha256_file(__file__),
                "control_cf": cf, "placebo_column": pl, "coef_sha256": coef_sha,
                "cells": {arm: len(v) for arm, v in coef.items()}}
     write_exclusive(out / FIT_RECEIPT, receipt)
@@ -516,7 +577,25 @@ def snapshot_features(rec, *, market, target_date, local_hour, captured, tz, uni
     lo, lo_prev = x13_lows(d, target_date=target_date, tz=tz, unit=unit, cutoff_hour=local_hour, now=captured)
     return {"reason": f["reason"], "odc_low_so_far": f["low_so_far"], "dewpoint_c": f["dewpoint_c"],
             "current_temp": current, "x13_low_so_far": lo, "low_prev_evening": lo_prev,
-            "n_rows": f["n_rows"], "skipped": f["skipped"]}
+            "n_rows": f["n_rows"], "n_implausible": implausible_count(d, kept, unit), "skipped": f["skipped"]}
+
+
+def implausible_count(metar, kept, unit):
+    """Kept-window rows whose numeric temperature the plausibility filter dropped (below 30 F, above 125 F)."""
+    from weather.model.feature_store import plausible_native_temperature, row_temp_native
+
+    rows = (metar or {}).get("rows") or []
+    n = 0
+    for _, i, temp, _ in kept:
+        if temp is not None:
+            continue
+        try:
+            v = float(row_temp_native(rows[i]))
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(v) and not plausible_native_temperature(v, unit):
+            n += 1
+    return n
 
 
 def arm_columns(arm, feats):
@@ -794,15 +873,15 @@ def subgroup_deltas(arm, values, t, geo, counts, score_dates, donors, res):
 
 
 def stage_look(args):
-    origin = check_origin()
-    state = require_clean(code_state())
-    blobs = check_blobs()
-    rules = check_rule_files()
+    gd = stage_guards()
+    origin, state, blobs, rules = gd["origin"], gd["code"], gd["blobs"], gd["rules"]
     if not args.approval or len(args.approval.strip()) < MIN_APPROVAL:
         raise Refused("refused: --approval needs the coordinator's admission reference for this look")
     check_no_prior_look()
     out = check_out_dir(args.out)
     coef = check_coef(args.coef, args.coef_sha)
+    parity = check_parity(args.parity, args.parity_sha)
+    cc_paths = check_cc_paths()
 
     import pandas as pd
 
@@ -906,7 +985,10 @@ def stage_look(args):
         d3 = entry.get("d3") or {}
         lo, hi = (d3.get("ci95_wider") or [None, None])
         entry["bh"] = {"q_value": q, "reject": rej}
-        entry["label"] = label_for(entry["result"]["testable"], d3.get("power_at_edge"), hi, lo, rej)
+        entry["label"] = label_with_parity(
+            label_for(entry["result"]["testable"], d3.get("power_at_edge"), hi, lo, rej),
+            parity["parity_limited"][arm])
+        entry["kill_scope"] = "this construction only" if parity["parity_limited"][arm] else "as registered"
         entry["register_text"] = REGISTER_TEXT[arm]
 
     if sha256_file(r80_manifest) != R80_LAYOUT_MANIFEST_SHA256 or sha256_file(dev_manifest) != \
@@ -918,6 +1000,10 @@ def stage_look(args):
             fh.write(json.dumps(r, sort_keys=True, default=_default) + "\n")
     receipt = {
         "schema": SCHEMA + "/look", "ledger_row": LEDGER_ROW, "stage": "look", "approval": args.approval, "origin_after_imports": after,
+        "pin_identity": gd["pin_identity"], "parity_receipt_sha256": args.parity_sha,
+        "parity_limited": parity["parity_limited"], "cc_paths": cc_paths,
+        "serve_implausible_temp_rows": {"dropped": sum(f.get("n_implausible", 0) for f in feats.values()),
+                                        "kept_window_rows": sum(f.get("n_rows", 0) or 0 for f in feats.values())},
         "evidence_class": "kill-only on released dates; no label is an edge claim",
         "origin": origin, "code": state, "blobs": blobs, "rules": rules, "module_sha256": sha256_file(__file__),
         "coef_sha256": args.coef_sha, "r80_layout_manifest_sha256": R80_LAYOUT_MANIFEST_SHA256,
@@ -937,12 +1023,229 @@ def stage_look(args):
 
 # ----------------------------------------------------------------------------- preflight and CLI
 
+# ----------------------------------------------------------------------------- ruling 2: the C-c path audit
+
+CC_PATH_RULING = None   # master's ruling reference, once the candidate / placebo path difference is ruled on
+
+
+def cc_path_audit(sw=None):
+    """Which clip / renormalisation each side of the frozen statistic goes through (source read of the pin's
+    ``mr_sweep.tilt`` and ``mr_sweep.disagreement_placebo``)."""
+    import inspect
+
+    if sw is None:
+        from weather.calibration import mr_sweep as sw
+    out = {}
+    for side, fn in (("candidate", sw.tilt), ("placebo", sw.disagreement_placebo)):
+        src = inspect.getsource(fn)
+        out[side] = {"function": f"mr_sweep.{fn.__name__}",
+                     "source_sha256": hashlib.sha256(src.encode("utf-8")).hexdigest(),
+                     "clip_to_eps": "np.clip(" in src and "mb.EPS" in src,
+                     "renormalised_to_sum_m": ("geo[\"tot\"]" in src) or ("tot_m / tot_r" in src)}
+    out["identical_clip_and_renormalisation"] = (out["candidate"]["clip_to_eps"] == out["placebo"]["clip_to_eps"]
+                                                 and out["candidate"]["renormalised_to_sum_m"]
+                                                 == out["placebo"]["renormalised_to_sum_m"])
+    return out
+
+
+def check_cc_paths(ruling=None):
+    """Ruling 2 accepts C-c only if the candidate and the placebo share the identical clip / renormalisation path.
+    In the frozen pin they do not (the candidate's exponential tilt is renormalised to sum(m) with no EPS clip; the
+    placebo is clipped to [EPS, 1] and renormalised to sum(m)), so the look refuses until master rules."""
+    ruling = CC_PATH_RULING if ruling is None else ruling
+    audit = cc_path_audit()
+    if not audit["identical_clip_and_renormalisation"] and not ruling:
+        raise Refused("refused: C-c candidate and placebo do not share the clip / renormalisation path in the "
+                      f"frozen mr_sweep ({audit['candidate']['clip_to_eps']} vs {audit['placebo']['clip_to_eps']}); "
+                      "awaiting master's ruling")
+    return dict(audit, ruling=ruling)
+
+
+# ----------------------------------------------------------------------------- ruling 4: train/serve parity
+
+def label_with_parity(label, limited):
+    return label + PARITY_SUFFIX if limited else label
+
+
+def check_parity(path, want_sha):
+    """The look reads the parity receipt by sha; it refuses when the receipt is missing or differs."""
+    if not path or not Path(path).is_file():
+        raise Refused(f"refused: the parity receipt {path} is missing")
+    if not want_sha or not re.fullmatch(r"[0-9a-f]{64}", str(want_sha)):
+        raise Refused("refused: --parity-sha (the recorded sha256 of parity_receipt.json) is required")
+    got = sha256_file(path)
+    if got != want_sha:
+        raise Refused(f"refused: parity receipt sha256 {got} is not --parity-sha {want_sha}")
+    rec = json.loads(Path(path).read_text(encoding="utf-8"))
+    if rec.get("schema") != SCHEMA + "/parity" or rec.get("ledger_row") != LEDGER_ROW:
+        raise Refused("refused: the parity receipt is not this row's")
+    limited = rec.get("parity_limited") or {}
+    if set(limited) != set(ARMS) or not all(isinstance(v, bool) for v in limited.values()):
+        raise Refused("refused: the parity receipt has no parity_limited flag for every arm")
+    return {"parity_limited": limited, "sha256": got}
+
+
+def read_metar_history(metar_dir, icao, months):
+    """{local_date: [serve-form row]} from the IEM ASOS history partitions of ``months`` [(year, month)], each
+    partition checked against the station manifest's sha256; plus {partition: sha256}."""
+    root = Path(metar_dir) / icao
+    manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+    listed = {p["path"]: p["sha256"] for p in manifest.get("partitions") or []}
+    by_date, hashed = defaultdict(list), {}
+    for y, m in sorted(months):
+        rel = f"hourly/year={y}/month={m:02d}/observations.jsonl"
+        if rel not in listed:
+            continue
+        body = (root / rel).read_bytes()
+        digest = hashlib.sha256(body).hexdigest()
+        if digest != listed[rel]:
+            raise Refused(f"refused: {icao}/{rel} sha256 differs from its manifest")
+        hashed[f"{icao}/{rel}"] = digest
+        for line in body.decode("utf-8").splitlines():
+            if not line.strip():
+                continue
+            r = json.loads(line)
+            if r.get("local_date") and r.get("valid_time_local"):
+                by_date[r["local_date"]].append({"obs_time": r["valid_time_local"],
+                                                 "temp_native": r.get("temp_native"),
+                                                 "dewpoint_native": r.get("dewpoint_native")})
+    return by_date, hashed
+
+
+def parity_records(caches, metar_by_market, tz_of, unit_of, hours=HOURS):
+    """One record per unique (market, date, hour) of the history caches: the trainer-cache lows and the lows the
+    serve code (odc_features, x13_lows) gives on that day's METAR history at cutoff h:00 local."""
+    from weather.calibration import odc_metar_features as odc
+
+    seen, out, conflicts = {}, [], 0
+    for c in caches:
+        market = c["market_id"]
+        for hour in hours:
+            for r in c["hours"].get(str(hour)) or []:
+                d = date.fromisoformat(r["date"])
+                if d > HISTORY_LAST:
+                    raise Refused(f"refused: history cache row {market} {r['date']} after {HISTORY_LAST}")
+                key = (market, r["date"], int(hour))
+                cache_vals = (r.get("low_so_far"), r.get("low_prev_evening"))
+                if key in seen:
+                    conflicts += seen[key] != cache_vals
+                    continue
+                seen[key] = cache_vals
+                tz, unit = tz_of[market], unit_of[market]
+                metar_rows = metar_by_market[market]
+                rows = (metar_rows.get((d - timedelta(days=1)).isoformat(), [])
+                        + metar_rows.get(r["date"], []))
+                cutoff = datetime.combine(d, time(int(hour), 0), tzinfo=tz)
+                metar = {"rows": rows}
+                f = odc.odc_features(metar, target_date=d, tz=tz, unit=unit, cutoff_hour=hour, now=cutoff)
+                kept, _ = odc.kept_rows(metar, target_date=d, tz=tz, unit=unit, cutoff_hour=hour, now=cutoff)
+                lo, lo_prev = x13_lows(metar, target_date=d, tz=tz, unit=unit, cutoff_hour=hour, now=cutoff)
+                out.append({"market": market, "date": r["date"], "hour": int(hour),
+                            "cache": {"low_so_far": cache_vals[0], "low_prev_evening": cache_vals[1]},
+                            "serve": {"odc_low_so_far": f["low_so_far"], "x13_low_so_far": lo,
+                                      "low_prev_evening": lo_prev},
+                            "kept_rows": len(kept), "implausible": implausible_count(metar, kept, unit)})
+    return out, conflicts
+
+
+def parity_table(records, markets=US11):
+    """Per market and comparison: n, MAE, max |diff| and bias (serve METAR - cache), deg F; and the arm flags."""
+    comps = sorted({pair for pairs in ARM_PARITY.values() for pair in pairs})
+    table = {}
+    for mk in markets:
+        recs = [r for r in records if r["market"] == mk]
+        row = {}
+        for serve_col, cache_col in comps:
+            diffs = np.array([float(r["serve"][serve_col]) - float(r["cache"][cache_col]) for r in recs
+                              if r["serve"][serve_col] is not None and r["cache"][cache_col] is not None], float)
+            row[f"{serve_col}-vs-{cache_col}"] = {
+                "n": int(len(diffs)), "mae": float(np.mean(np.abs(diffs))) if len(diffs) else None,
+                "max_abs": float(np.max(np.abs(diffs))) if len(diffs) else None,
+                "bias": float(np.mean(diffs)) if len(diffs) else None}
+        kept = sum(r["kept_rows"] for r in recs)
+        dropped = sum(r["implausible"] for r in recs)
+        row["implausible_below_30F"] = {"dropped": dropped, "kept_window_rows": kept,
+                                        "share": dropped / kept if kept else None}
+        table[mk] = row
+    limited, reasons = {}, {}
+    for arm, pairs in ARM_PARITY.items():
+        why = []
+        for mk in markets:
+            if mk in ARM_UNCOVERED_MARKETS[arm]:
+                continue
+            for serve_col, cache_col in pairs:
+                s = table[mk][f"{serve_col}-vs-{cache_col}"]
+                if s["n"] == 0:
+                    why.append((mk, serve_col, "no_overlap"))
+                elif s["mae"] > PARITY_MAE_MAX or abs(s["bias"]) > PARITY_BIAS_MAX:
+                    why.append((mk, serve_col, round(s["mae"], 4), round(s["bias"], 4)))
+        limited[arm], reasons[arm] = bool(why), why
+    return table, limited, reasons
+
+
+def stage_parity(args):
+    """Ruling 4: pre-look, outcome-free train/serve parity of the lows on history <= 2025-12-31 (no labels, no
+    prices; the cache ``actual`` column is never read)."""
+    g = stage_guards()
+    out = check_out_dir(args.out)
+    from weather.calibration import ols_floor_ladder as lad
+    from weather.market.market_registry import spec_for_id
+
+    cache_dir = Path(args.cache_dir)
+    cache_files = {f"cache_{m}_{c}.json": sha256_file(cache_dir / f"cache_{m}_{c}.json")
+                   for m in US11 for c in OCTDEC_CENTRES}
+    caches = lad.load_caches(cache_dir, US11, OCTDEC_CENTRES)
+    tz_of, unit_of, metar_by_market, hashed, icao_of = {}, {}, {}, {}, {}
+    for mk in US11:
+        spec = spec_for_id(mk)
+        if spec.unit != "F":
+            raise Refused(f"refused: {mk} is not a Fahrenheit market")
+        tz_of[mk], unit_of[mk], icao_of[mk] = spec.tz, spec.unit, spec.icao.lower()
+        months = set()
+        for c in caches:
+            if c["market_id"] != mk:
+                continue
+            for rows in c["hours"].values():
+                for r in rows:
+                    d = date.fromisoformat(r["date"])
+                    for x in (d, d - timedelta(days=1)):
+                        months.add((x.year, x.month))
+        metar_by_market[mk], h = read_metar_history(args.metar_dir, icao_of[mk], months)
+        hashed.update(h)
+    records, conflicts = parity_records(caches, metar_by_market, tz_of, unit_of)
+    table, limited, reasons = parity_table(records)
+    after = check_origin()
+    out.mkdir(parents=True)
+    with (out / "parity_rows.jsonl").open("x", encoding="utf-8") as fh:
+        for r in records:
+            fh.write(json.dumps(r, sort_keys=True, default=_default) + "\n")
+    tot_kept = sum(r["kept_rows"] for r in records)
+    tot_drop = sum(r["implausible"] for r in records)
+    receipt = {"schema": SCHEMA + "/parity", "ledger_row": LEDGER_ROW, "stage": "parity", "origin": g["origin"],
+               "origin_after_imports": after, "code": g["code"], "blobs": g["blobs"], "rules": g["rules"],
+               "pin_identity": g["pin_identity"], "module_sha256": sha256_file(__file__),
+               "evidence_class": "pre-look, outcome-free, recorded, not deciding by itself",
+               "definition": "serve: odc_features / x13_lows on IEM ASOS METAR history of D and D-1, cutoff and "
+                             "capture instant h:00 local on D; cache: L9 trainer rows (WU history), same "
+                             "local day and cutoff; diff = serve - cache, deg F",
+               "thresholds": {"mae_max": PARITY_MAE_MAX, "abs_bias_max": PARITY_BIAS_MAX},
+               "cache_sha256": cache_files, "metar_station": icao_of, "metar_files_sha256": hashed,
+               "records": len(records), "cache_centre_conflicts": conflicts,
+               "implausible_below_30F_all": {"dropped": tot_drop, "kept_window_rows": tot_kept,
+                                             "share": tot_drop / tot_kept if tot_kept else None},
+               "table": table, "parity_limited": limited, "parity_reasons": reasons,
+               "rows_sha256": sha256_file(out / "parity_rows.jsonl")}
+    sha = write_exclusive(out / PARITY_RECEIPT, receipt)
+    print(json.dumps({"parity_receipt_sha256": sha, "parity_limited": limited, "reasons": reasons,
+                      "implausible_below_30F_all": receipt["implausible_below_30F_all"],
+                      "cache_centre_conflicts": conflicts, "records": len(records)}, default=_default))
+    return receipt
+
+
 def stage_preflight(args):
-    """Origin, clean tree, rule and blob shas, imports; reads no data."""
-    origin = check_origin()
-    state = require_clean(code_state())
-    blobs = check_blobs()
-    rules = check_rule_files()
+    """Origin, clean tree, rule and blob shas, pin identity, imports; reads no data."""
+    gd = stage_guards()
+    origin, state, blobs, rules = gd["origin"], gd["code"], gd["blobs"], gd["rules"]
     with contextlib.redirect_stdout(sys.stderr):
         from weather.calibration import c3_kill_tier  # noqa: F401
         from weather.calibration import mr_sweep  # noqa: F401
@@ -951,6 +1254,7 @@ def stage_preflight(args):
         from tools.research.released_window import served_market_blocks  # noqa: F401
     after = check_origin()                      # every weather.* module the run imports, now loaded
     out = {"stage": "preflight", "origin": origin, "origin_after_imports": after, "code": state, "rules": rules,
+           "pin_identity": gd["pin_identity"],
            "blobs_checked": len(blobs),
            "module_sha256": sha256_file(__file__), "verdict": "PASS"}
     print(json.dumps(out, indent=1, sort_keys=True))
@@ -961,16 +1265,21 @@ def build_parser():
     ap = argparse.ArgumentParser(prog="tools.research.released_window.rodc_released_p0",
                                  description=__doc__.splitlines()[0])
     sub = ap.add_subparsers(dest="stage", required=True)
-    for name in ("preflight", "fit", "look"):
+    for name in ("preflight", "fit", "parity", "look"):
         p = sub.add_parser(name)
         if name != "preflight":
             p.add_argument("--out", required=True)
         if name == "fit":
             p.add_argument("--cache-dir", default=str(L9_CACHE))
             p.add_argument("--l3-dir", default=str(L3_OCTDEC))
+        if name == "parity":
+            p.add_argument("--cache-dir", default=str(L9_CACHE))
+            p.add_argument("--metar-dir", default=str(METAR_HISTORY))
         if name == "look":
             p.add_argument("--coef", required=True)
             p.add_argument("--coef-sha", required=True)
+            p.add_argument("--parity", required=True)
+            p.add_argument("--parity-sha", required=True)
             p.add_argument("--approval", required=True)
     return ap
 
@@ -978,7 +1287,7 @@ def build_parser():
 def main(argv=None):
     args = build_parser().parse_args(argv)
     try:
-        {"preflight": stage_preflight, "fit": stage_fit, "look": stage_look}[args.stage](args)
+        {"preflight": stage_preflight, "fit": stage_fit, "parity": stage_parity, "look": stage_look}[args.stage](args)
     except Refused as exc:
         print(str(exc), file=sys.stderr)
         return 2
